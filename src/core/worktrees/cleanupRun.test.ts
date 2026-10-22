@@ -264,6 +264,20 @@ describe('cleanFinished: the Host-start sweep', () => {
     expect(lines.join('\n')).toMatch(/kept: its Run is still running/)
   })
 
+  it('keeps the folders of an archived plan whose coordinator runs between Tasks (all ready), and says why', async () => {
+    const p = await deliveredPlan(2)
+    const state = {
+      ...p.state,
+      jobs: p.state.jobs.map((j) => ({ ...j, archivedAt: NOW })),
+      runs: p.state.runs.map((r) => ({ ...r, delivery: undefined, coordinatorSessionId: 'ses_coord' })),
+      tasks: p.state.tasks.map((t) => ({ ...t, status: 'ready' }))
+    } as OrchState
+    const r = await cleanFinished(deps(state))
+    expect(r.removed).toEqual([])
+    for (const f of [p.run, ...p.tasks]) expect(existsSync(f)).toBe(true)
+    expect(r.kept).toContainEqual({ path: p.run, reason: 'its Run is still running' })
+  })
+
   it('finds a Task folder of a delivered plan whose Dispatches the state lost, by the branch it was forked from', async () => {
     const p = await deliveredPlan(3)
     const wiped = { ...p.state, tasks: [], dispatches: [] } as OrchState

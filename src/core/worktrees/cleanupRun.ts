@@ -160,8 +160,14 @@ export async function cleanFinished(deps: CleanDeps): Promise<CleanResult> {
   try {
     const rows = await worktreeRows(await deps.list(), deps.state(), deps.isPathInUse)
     const finished = rows.filter((r) => r.owner && (r.owner.delivered || r.owner.archived))
-    // A Task being worked, checked, reviewed or merged: the Run runs (a Run with no Task left is not running)
-    const active = new Set(deps.state().tasks.filter((t) => ['dispatched', 'validating', 'reviewing', 'merging'].includes(t.status)).map((t) => t.runId))
+    // The Run still runs: a Task is being worked, checked, reviewed or merged, work is waiting for its turn (ready, pending),
+    // or its coordinator session is recorded and not being stopped (it runs at the project root, so no folder shows it).
+    // A Run with no Task left and no coordinator is not running.
+    const st = deps.state()
+    const active = new Set([
+      ...st.tasks.filter((t) => ['dispatched', 'validating', 'reviewing', 'merging', 'ready', 'pending'].includes(t.status)).map((t) => t.runId),
+      ...st.runs.filter((r) => r.coordinatorSessionId !== undefined && r.coordinatorStopPending === undefined).map((r) => r.id)
+    ])
     const stillRuns = finished.filter((r) => active.has(r.owner!.runId))
     const result = await cleanAndReport(finished.filter((r) => !active.has(r.owner!.runId)), deps, false)
     for (const r of stillRuns) {
