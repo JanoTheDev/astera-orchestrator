@@ -26,7 +26,7 @@ const card = (plugin: Record<string, unknown>): string =>
   renderToStaticMarkup(
     React.createElement(PluginCard, { plugin, busy: false, onConfigure: noop, onToggle: noop, onStartAgain: noop, onRemove: noop, onLogs: noop })
   )
-const buttons = (html: string): string[] => [...html.matchAll(/<button[^>]*>([^<]*)<\/button>/g)].map((m) => m[1])
+const buttons = (html: string): string[] => [...html.matchAll(/<(?:button)[^>]*><span class="ui-btn__label">([^<]*)<\/span><\/button>/g)].map((m) => m[1])
 
 describe('PluginCard (spec §30)', () => {
   it('shows the name, status, id and version, and the permissions granted in words', () => {
@@ -57,7 +57,7 @@ describe('PluginCard (spec §30)', () => {
     const html = renderToStaticMarkup(
       React.createElement(PluginCard, { plugin: PLUGIN, busy: true, onConfigure: noop, onToggle: noop, onStartAgain: noop, onRemove: noop, onLogs: noop })
     )
-    const all = [...html.matchAll(/<button[^>]*>/g)].map((m) => m[0])
+    const all = [...html.matchAll(/<(?:button)[^>]*>/g)].map((m) => m[0])
     expect(all).toHaveLength(4)
     for (const b of all) expect(b).toContain('disabled=""')
   })
@@ -121,8 +121,8 @@ describe('PluginSettingsForm (spec §23, §24)', () => {
   it('shows what the person typed over what is stored, and saves only when something changed', () => {
     const html = form({ draft: { baseUrl: 'https://b.example.com' }, changed: true })
     expect(html).toContain('value="https://b.example.com"')
-    expect(html).toMatch(/<button[^>]*>Save<\/button>/)
-    expect(form()).toMatch(/<button[^>]*disabled=""[^>]*>Save<\/button>/)
+    expect(html).toMatch(/<(?:button)[^>]*><span class="ui-btn__label">Save<\/span><\/button>/)
+    expect(form()).toMatch(/<(?:button)[^>]*disabled=""[^>]*><span class="ui-btn__label">Save<\/span><\/button>/)
   })
 
   // 2d final review M2: a save restarts a running plugin, and what is typed meanwhile would be lost with its answer.

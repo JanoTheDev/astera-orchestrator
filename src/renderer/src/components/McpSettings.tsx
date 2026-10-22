@@ -10,7 +10,7 @@ import {
 import type { McpHttpUrl } from '../../../core/mcp/httpUrls'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
-import { Select } from './Select'
+import { Button, Select } from './ui'
 
 /** The saved value into `set`, or a toast when it cannot be read; the control then keeps its default. */
 export function loadMcpAccess(
@@ -395,11 +395,11 @@ export function McpSettings({ cliStatus }: { cliStatus: CliInstallStatus | null 
                   <div key={client} className="cli-path-hint">
                     <span className="mcp-register-client">{client}</span>
                     <code>{line}</code>
-                    <button onClick={() => void copyLine(line, t)}>{t('settings.cli.copy')}</button>
+                    <Button variant="secondary" size="sm" onClick={() => void copyLine(line, t)}>{t('settings.cli.copy')}</Button>
                     {/* Runs the client's CLI only when pressed (main/mcpClients.ts). */}
                     {id !== null && view?.kind === 'label' && <span className="mcp-register-state">{t(view.text)}</span>}
                     {id !== null && view?.kind === 'button' && (
-                      <button
+                      <Button variant="secondary" size="sm"
                         disabled={view.disabled || registering !== null}
                         title={clients?.[id].detail}
                         onClick={() => {
@@ -408,7 +408,7 @@ export function McpSettings({ cliStatus }: { cliStatus: CliInstallStatus | null 
                         }}
                       >
                         {t(view.text)}
-                      </button>
+                      </Button>
                     )}
                   </div>
                 )
@@ -545,7 +545,7 @@ function McpHttpSection(): React.JSX.Element | null {
         <div className="cli-path-hint">
           <span className="mcp-register-client">{t('settings.mcpHttp.url')}</span>
           <code className="mcp-http-url">{local}</code>
-          <button onClick={() => void copyLine(local, t)}>{t('settings.cli.copy')}</button>
+          <Button variant="secondary" size="sm" onClick={() => void copyLine(local, t)}>{t('settings.cli.copy')}</Button>
         </div>
       )}
       {others !== null && (
@@ -556,7 +556,7 @@ function McpHttpSection(): React.JSX.Element | null {
             <div key={u.url} className="cli-path-hint mcp-http-other">
               <span className="mcp-register-client">{t(`settings.mcpHttp.kind.${u.kind}`)}</span>
               <code>{u.url}</code>
-              <button onClick={() => void copyLine(u.url, t)}>{t('settings.cli.copy')}</button>
+              <Button variant="secondary" size="sm" onClick={() => void copyLine(u.url, t)}>{t('settings.cli.copy')}</Button>
             </div>
           ))}
           <span className="settings-hint">{t('settings.mcpHttp.othersHint')}</span>
@@ -566,7 +566,7 @@ function McpHttpSection(): React.JSX.Element | null {
         <div className="cli-path-hint">
           <span className="mcp-register-client">{t('settings.mcpHttp.token')}</span>
           <code className="mcp-http-token">{shownToken ?? (hint ? maskToken(hint) : t('settings.mcpHttp.tokenPending'))}</code>
-          <button
+          <Button variant="secondary" size="sm"
             className="mcp-http-reveal"
             disabled={hint === null && shownToken === null}
             onClick={() => {
@@ -575,13 +575,13 @@ function McpHttpSection(): React.JSX.Element | null {
             }}
           >
             {t(shownToken !== null ? 'settings.mcpHttp.hide' : 'settings.mcpHttp.reveal')}
-          </button>
-          <button className="mcp-http-copy-token" disabled={hint === null} onClick={() => void copyMcpHttpToken(t)}>
+          </Button>
+          <Button variant="secondary" size="sm" className="mcp-http-copy-token" disabled={hint === null} onClick={() => void copyMcpHttpToken(t)}>
             {t('settings.cli.copy')}
-          </button>
+          </Button>
           {/* No reload follows: the HTTP process re-reads the token file when its stamp changes, at the
               next request (Ruling 3). */}
-          <button
+          <Button variant="secondary" size="sm"
             className="mcp-http-new-token"
             title={t('settings.mcpHttp.newTokenHint')}
             disabled={!http.enabled}
@@ -595,7 +595,7 @@ function McpHttpSection(): React.JSX.Element | null {
             }
           >
             {t('settings.mcpHttp.newToken')}
-          </button>
+          </Button>
         </div>
       )}
       {url !== undefined && hint && (
@@ -616,7 +616,7 @@ function McpHttpSection(): React.JSX.Element | null {
             <div key={client} className="cli-path-hint mcp-http-line">
               <span className="mcp-register-client">{client}</span>
               <code>{line}</code>
-              <button onClick={() => void copyMcpHttpLine(client, url, t)}>{t('settings.cli.copy')}</button>
+              <Button variant="secondary" size="sm" onClick={() => void copyMcpHttpLine(client, url, t)}>{t('settings.cli.copy')}</Button>
             </div>
           ))}
           <span className="settings-hint">{t('settings.mcpHttp.codexNote')}</span>

@@ -190,20 +190,20 @@ describe('reasonLine', () => {
 
 describe('failureLine', () => {
   it('says in the app’s words that no Host is there, that it runs no plugins, or that it did not answer', () => {
-    expect(failureLine({ ok: false, code: 'HOST_NOT_RUNNING', message: 'x' }, en)).toBe('The app is not connected to the Host.')
+    expect(failureLine({ ok: false, code: 'HOST_NOT_RUNNING', message: 'x' }, en)).toBe('The app is not connected to the background service.')
     expect(failureLine({ ok: false, code: 'NOT_SUPPORTED', message: 'unknown command: plugins-list' }, en)).toBe(
-      'The running Host does not support plugins (unknown command: plugins-list). Restart the Host.'
+      'The running background service does not support plugins (unknown command: plugins-list). Restart the background service.'
     )
-    expect(failureLine({ ok: false, code: 'TIMEOUT', message: 'x' }, en)).toBe('The Host did not answer in time. The list shows whether it was done.')
-    expect(failureLine({ ok: false, code: 'HOST_LOST', message: 'x' }, en)).toBe('The connection to the Host closed. The list shows whether it was done.')
+    expect(failureLine({ ok: false, code: 'TIMEOUT', message: 'x' }, en)).toBe('The background service did not answer in time. The list shows whether it was done.')
+    expect(failureLine({ ok: false, code: 'HOST_LOST', message: 'x' }, en)).toBe('The connection to the background service closed. The list shows whether it was done.')
   })
 
   // 2d final review I1: a read that failed is the list itself; it does not send the person to the list.
   it('says a read was not answered without pointing at the list', () => {
-    expect(failureLine({ ok: false, code: 'TIMEOUT', message: 'x' }, en, { read: true })).toBe('The Host did not answer in time.')
-    expect(failureLine({ ok: false, code: 'HOST_LOST', message: 'x' }, en, { read: true })).toBe('The connection to the Host closed.')
-    expect(failureLine({ ok: false, code: 'TIMEOUT', message: 'x' }, ko, { read: true })).toBe('Host 가 제때 답하지 않았습니다.')
-    expect(failureLine({ ok: false, code: 'HOST_NOT_RUNNING', message: 'x' }, en, { read: true })).toBe('The app is not connected to the Host.')
+    expect(failureLine({ ok: false, code: 'TIMEOUT', message: 'x' }, en, { read: true })).toBe('The background service did not answer in time.')
+    expect(failureLine({ ok: false, code: 'HOST_LOST', message: 'x' }, en, { read: true })).toBe('The connection to the background service closed.')
+    expect(failureLine({ ok: false, code: 'TIMEOUT', message: 'x' }, ko, { read: true })).toBe('백그라운드 서비스가 제때 답하지 않았습니다.')
+    expect(failureLine({ ok: false, code: 'HOST_NOT_RUNNING', message: 'x' }, en, { read: true })).toBe('The app is not connected to the background service.')
   })
 
   // 2e final review M4: the Host's sentence points at a CLI flag; the app has a folder button instead.
@@ -251,6 +251,6 @@ describe('installFailureLine', () => {
     const changed = { ok: false as const, code: 'CONFLICT', message: 'the folder changed after it was shown: it now holds x@1.0.1; run the install again' }
     expect(installFailureLine(changed, en)).toBe('The folder changed after the warning was shown, so nothing was installed. Install it again.')
     expect(installFailureLine(changed, ko)).toBe('경고를 보여 준 뒤 폴더가 바뀌어 아무것도 설치하지 않았습니다. 다시 설치하세요.')
-    expect(installFailureLine({ ok: false, code: 'HOST_NOT_RUNNING', message: 'x' }, en)).toBe('The app is not connected to the Host.')
+    expect(installFailureLine({ ok: false, code: 'HOST_NOT_RUNNING', message: 'x' }, en)).toBe('The app is not connected to the background service.')
   })
 })
