@@ -33,6 +33,7 @@ describe('mainPlanViewOf', () => {
         task('w', { title: 'Add login', board: { category: 'queued', reason: { kind: 'deps', waitingOn: [{ id: 't1', title: 'Login API', status: 'completed' }] } } }),
         task('s', { board: { category: 'queued', reason: { kind: 'same-files', path: 'x', waitingOn: { id: 't1', title: 'Top bar' }, plan: { id: 'auth', title: 'Auth rework' } } } }),
         task('l', { board: { category: 'queued', reason: { kind: 'same-files', path: 'x', waitingOn: { id: 't1', title: 'Top bar' }, plan: { id: 'auth', title: 'Auth rework' }, delivery: true } } }),
+        task('v', { board: { category: 'queued', reason: { kind: 'deps', waitingOn: [{ id: 't1', title: 'Login API', status: 'completed', delivery: true }] } } }),
         task('d', {
           status: 'blocked',
           gate: { id: 'g', options: ['cancel as duplicate', 'keep both'], question: 'Duplicate? "Menu" (plan UI redesign) repeats "Nav" of plan Auth rework (same files). Cancel?' }
@@ -45,6 +46,7 @@ describe('mainPlanViewOf', () => {
       { key: 'pages.plans.main.waits', params: { plan: 'Auth rework', task: 'Login API' } },
       { key: 'pages.plans.main.sameFiles', params: { plan: 'Auth rework', task: 'Top bar' } },
       { key: 'pages.plans.main.sameFilesDeliver', params: { plan: 'Auth rework', task: 'Top bar' } },
+      { key: 'pages.plans.main.waitsDeliver', params: { plan: 'Auth rework', task: 'Login API' } },
       { key: 'pages.plans.main.duplicate', params: { plan: 'Auth rework', task: 'Nav' } },
       undefined
     ])
@@ -53,7 +55,8 @@ describe('mainPlanViewOf', () => {
   it('says how a plan delivery check stands', () => {
     const v = mainPlanViewOf([
       row('a', { title: 'Auth rework', createdAt: '1' }),
-      row('b', { createdAt: '2', delivery: { runId: 'b', state: 'delivering', waitingFor: { jobId: 'a', escalated: 'x' } } as JobRow['delivery'] }),
+      row('b', { createdAt: '2', delivery: { runId: 'b', state: 'delivering', waitingFor: { jobId: 'a', escalated: 'x' } } }),
+      row('f', { createdAt: '6', delivery: { runId: 'f', state: 'pending', waitingFor: { jobId: 'a' } } }),
       row('c', { createdAt: '3', delivery: { runId: 'c', state: 'failed' } }),
       row('d', { createdAt: '4', outcome: 'checking' }),
       row('e', { createdAt: '5' })
@@ -63,7 +66,8 @@ describe('mainPlanViewOf', () => {
       { key: 'pages.plans.main.checksWaitTold', params: { plan: 'Auth rework' } },
       { key: 'pages.plans.main.checksFailed' },
       { key: 'pages.plans.main.checksRunning' },
-      undefined
+      undefined,
+      { key: 'pages.plans.main.checksWait', params: { plan: 'Auth rework' } }
     ])
   })
 })

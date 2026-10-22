@@ -15,10 +15,6 @@ export interface Line {
   params?: MessageParams
 }
 
-/** A plan's delivery as the snapshot carries it. `waitingFor` (Run.deliveryState.waitingFor) is not in the snapshot yet:
- *  the line shows once it is. */
-type Delivery = NonNullable<JobRow['delivery']> & { waitingFor?: { jobId: string; escalated?: string } }
-
 export interface MainTask {
   task: JobTask
   /** What it waits for on another plan, if anything. */
@@ -72,14 +68,14 @@ function waitOf(task: JobTask, mine: JobRow, rows: readonly JobRow[]): Line | un
     // a dep that is a Task of another plan: found by id in the other rows
     for (const dep of reason.waitingOn) {
       const owner = rows.find((r) => r.id !== mine.id && r.tasks.some((t) => t.id === dep.id))
-      if (owner) return { key: 'pages.plans.main.waits', params: { plan: jobName(owner), task: dep.title } }
+      if (owner) return { key: dep.delivery ? 'pages.plans.main.waitsDeliver' : 'pages.plans.main.waits', params: { plan: jobName(owner), task: dep.title } }
     }
   }
   return undefined
 }
 
 function checksOf(row: JobRow, rows: readonly JobRow[]): Line | undefined {
-  const d: Delivery | undefined = row.delivery
+  const d = row.delivery
   if (d?.waitingFor) {
     const other = rows.find((r) => r.id === d.waitingFor?.jobId)
     return {

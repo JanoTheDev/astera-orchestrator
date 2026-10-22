@@ -1289,6 +1289,23 @@ describe('waveProgressOf (T14 Coordinator strip)', () => {
   })
 })
 
+describe('a Run whose delivery waits for another plan', () => {
+  const rowOf = (state: OrchState) => snapshotFor(state, absPath('p'), anySession, noWorktrees, noFires, allExist).runs[0]
+  const withDelivery = (deliveryState: NonNullable<OrchState['runs'][number]['deliveryState']>): OrchState => {
+    const s = withRuns([run('r1', absPath('p'))], [task('t1', 'r1', 'completed')])
+    return { ...s, runs: s.runs.map((r) => ({ ...r, deliveryState })) }
+  }
+
+  it('carries waitingFor on the row while the state is still pending, and nothing without it', () => {
+    expect(rowOf(withDelivery({ state: 'pending', attempts: 0, waitingFor: { jobId: 'jA', since: 'x', escalated: 'y' } })).delivery).toEqual({
+      runId: 'r1',
+      state: 'pending',
+      waitingFor: { jobId: 'jA', escalated: 'y' }
+    })
+    expect(rowOf(withDelivery({ state: 'pending', attempts: 0 })).delivery).toBeUndefined()
+  })
+})
+
 describe('a Run whose delivery failed', () => {
   const delivered = (error?: string): OrchState => {
     const s = withRuns([run('r1', absPath('p'))], [task('t1', 'r1', 'completed')])

@@ -62,7 +62,8 @@ export function PlanHeader({
   const [fixing, setFixing] = useState(false)
   // T3: a delivery being retried, failed or waiting on the owner can be tried again from here (`run-deliver --force`)
   const [redelivering, setRedelivering] = useState(false)
-  const delivery = run?.delivery
+  // a row that only carries the wait for another plan (state 'pending') has nothing to retry
+  const delivery = run?.delivery?.state === 'pending' ? undefined : run?.delivery
   const retryDelivery = async (): Promise<void> => {
     if (!delivery) return
     setRedelivering(true)

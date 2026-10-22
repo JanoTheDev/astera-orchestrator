@@ -457,11 +457,20 @@ export function snapshotFor(
       // A Run whose delivery failed reads failed; the reason rides with it
       ...(deliveryErrorOf(run) !== undefined ? { deliveryError: deliveryErrorOf(run) } : {}),
       // T3: the plan page's "Retry delivery" (PlanHeader) reads it
-      ...(run?.deliveryState && ['delivering', 'retrying', 'failed', 'needs-owner'].includes(run.deliveryState.state)
+      ...(run?.deliveryState &&
+      (['delivering', 'retrying', 'failed', 'needs-owner'].includes(run.deliveryState.state) || run.deliveryState.waitingFor !== undefined)
         ? {
             delivery: {
               runId: run.id,
-              state: run.deliveryState.state as 'delivering' | 'retrying' | 'failed' | 'needs-owner',
+              state: run.deliveryState.state as NonNullable<JobRow['delivery']>['state'],
+              ...(run.deliveryState.waitingFor !== undefined
+                ? {
+                    waitingFor: {
+                      jobId: run.deliveryState.waitingFor.jobId,
+                      ...(run.deliveryState.waitingFor.escalated !== undefined ? { escalated: run.deliveryState.waitingFor.escalated } : {})
+                    }
+                  }
+                : {}),
               ...(run.deliveryState.lastError !== undefined ? { reason: run.deliveryState.lastError } : {}),
               ...(run.deliveryState.nextRetryAt !== undefined ? { nextRetryAt: run.deliveryState.nextRetryAt } : {})
             }

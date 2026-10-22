@@ -597,7 +597,8 @@ export type TaskBlockedReason =
   | { kind: 'awaiting-review' }
   /** `dispatched` with no worker: a person stopped it, or its worker was lost. */
   | { kind: 'stopped' }
-  | { kind: 'deps'; waitingOn: { id: string; title: string; status: TaskStatus }[] }
+  /** `delivery`: the dep is done and its plan (another one) has not delivered, so the Task is still held (mainPlan.ts `holdExternalDeps`). */
+  | { kind: 'deps'; waitingOn: { id: string; title: string; status: TaskStatus; delivery?: true }[] }
   | { kind: 'no-account' }
   /** A coordinator drives this Run: the app does not place its Tasks, the coordinator starts them. */
   | { kind: 'coordinator' }
@@ -836,7 +837,15 @@ export interface JobRow {
   deliveryError?: string
   /** T3: a delivery that is being retried, failed, waits on the owner or runs now: the Run it is of (for `run-deliver`),
    *  its step and the last reason. Absent while pending or once delivered. */
-  delivery?: { runId: string; state: 'delivering' | 'retrying' | 'failed' | 'needs-owner'; reason?: string; nextRetryAt?: string }
+  delivery?: {
+    runId: string
+    /** `pending`: only the wait below is recorded (the checks have not started). */
+    state: 'pending' | 'delivering' | 'retrying' | 'failed' | 'needs-owner'
+    reason?: string
+    nextRetryAt?: string
+    /** T2: the plan this delivery waits for before it validates (Run.deliveryState.waitingFor). */
+    waitingFor?: { jobId: string; escalated?: string }
+  }
   done: number
   total: number
   /** 이 Run 의 타임라인 이벤트 수(core/orchestration/timeline.ts 의 eventCountFor).
