@@ -156,7 +156,7 @@ import {
 } from '../github/taskLinks'
 import { jobNameOf } from './jobName'
 // W8-D several plans in one repo
-import { areasArg, otherPlansBrief, overlapLines, planTasksOf } from './overlap'
+import { areasArg, otherPlansBrief, overlapLines, planTasksOf, taskCreateWarnings } from './overlap'
 import { isSamePath } from '../files/tree'
 import type { RunPr, TaskLinks } from './types'
 import { escalationOpen } from './sessionIndex' // W7-C
@@ -4216,8 +4216,7 @@ export async function handleCommand(
       if (plannerJobOf(s, caller.sessionId) && (!plan.fields.prompt || !plan.fields.acceptanceCriteria))
         return bad('a planner Task needs --prompt and --criteria (one or more acceptance criteria)')
       const latest = deps.getState()
-      return commit(
-        createTask(
+      const made = createTask(
           latest,
           {
             // **Job 을 지목하면 정의 Task 다.** 화면은 아직 돌지 않은 Job 에 Task 를 짜 넣고('실행'
@@ -4239,7 +4238,10 @@ export async function handleCommand(
           },
           now
         )
-      )
+      // T11: a Task that looks like another plan's: the answer carries warning lines, nothing is refused
+      const warnings = made.ok ? taskCreateWarnings(made.state, made.value) : []
+      const reply = await commit(made)
+      return warnings.length > 0 && reply.status < 300 ? { ...reply, body: { ...(reply.body as object), warnings } } : reply
     }
     /**
      * **One ready Task, placed now** (CLI spec §18). A person or a script asks; the driver places it
