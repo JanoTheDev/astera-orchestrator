@@ -1,11 +1,13 @@
-.lh-list { list-style: none; max-height: 360px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
-.lh-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: var(--radius); cursor: pointer; transition: background var(--ease), box-shadow var(--ease); }
-.lh-row:hover { background: var(--elevated); }
-.lh-row.selected { background: var(--line-soft); box-shadow: inset var(--marker-w) 0 0 var(--accent); }
+.lh-list { list-style: none; margin: 0; padding: 0; max-height: 360px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+/* A row is a ui Button (ghost), so it is a Tab stop with the house focus ring; the layout inside it is ours */
+.lh-list .lh-row.ui-btn { width: 100%; height: auto; padding: 6px 8px; justify-content: flex-start; font-weight: var(--fw-regular); }
+.lh-list .lh-row .ui-btn__label { flex: 1; display: flex; align-items: center; gap: 10px; text-align: left; }
+.lh-row.selected, .lh-list .lh-row.selected:hover { background: var(--accent-soft); box-shadow: inset var(--marker-w) 0 0 var(--accent); }
 .lh-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .lh-name { font-size: var(--fs-13); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lh-path { font-size: var(--fs-11); color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lh-meta { font-size: var(--fs-11); font-family: var(--mono); color: var(--text-dim); flex-shrink: 0; }
+/* Not Local History's: TranscriptPreviewModal (History screen) renders these; they stay here until that screen's Task moves them. */
 .preview-scroll { overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
 .msg { font-size: var(--fs-13); line-height: 1.5; }
 .msg.user b { color: var(--role-user); }

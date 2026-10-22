@@ -59,13 +59,10 @@
 /* Copies the whole fence. Always visible but dimmed, so it reads as part of the block rather than
    a control competing with the code; hover and keyboard focus bring it to full strength. In a block
    wide enough to scroll it moves with the content (an absolute child of an overflow container is
-   part of its scrollable overflow) — acceptable, the left edge is where reading starts anyway. The
-   global `button` rule brings a border, background and sans font that all have to go. */
-.md-preview .md-copy { position: absolute; top: 6px; left: 6px; width: 20px; height: 20px;
-  display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--radius-sm);
-  background: transparent; color: var(--md-text); opacity: .45; cursor: pointer; }
-.md-preview .md-copy:hover { opacity: 1; }
-.md-preview .md-copy:focus-visible { opacity: 1; outline: none; box-shadow: var(--focus-ring); }
+   part of its scrollable overflow) — acceptable, the left edge is where reading starts anyway. It is a ui
+   IconButton (ghost, sm), so size, ring and hover come from the primitive. */
+.md-preview .md-copy { position: absolute; top: 4px; left: 4px; color: var(--md-text); opacity: .45; }
+.md-preview .md-copy:hover, .md-preview .md-copy:focus-visible { opacity: 1; }
 /* Tables scroll horizontally within themselves only — the page must not shift */
 .md-table-wrap { overflow-x: auto; margin: 16px 0; }
 .md-preview table { border-collapse: collapse; }

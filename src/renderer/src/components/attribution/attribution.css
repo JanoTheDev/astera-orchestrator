@@ -7,12 +7,10 @@
 button.attr-chip { cursor: pointer; }
 .attr-gutter .cm-gutterElement { padding: 0 2px; }
 .attr-toggle-wrap { position: absolute; right: 10px; bottom: 10px; z-index: 5; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
-.attr-toggle { font-size: var(--fs-11); padding: 2px 8px; background: var(--elevated); color: var(--text); border: 1px solid var(--line-soft); border-radius: var(--radius-sm); }
+.attr-toggle { background: var(--elevated); }
 .attr-toggle[aria-pressed='true'] { border-color: var(--accent); }
 .attr-note { font-size: var(--fs-11); color: var(--text-dim); background: var(--panel); padding: 2px 6px; border-radius: var(--radius-sm); }
-.attr-details { min-width: 220px; max-width: 320px; background: var(--panel); border: 1px solid var(--line-soft); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); padding: 8px; font-size: var(--fs-12); color: var(--text); }
-.attr-details-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
-.attr-close { margin-left: auto; background: none; border: none; color: var(--text-dim); cursor: pointer; }
+.attr-details-title { display: inline-flex; align-items: center; gap: var(--sp-2); }
 .attr-meta { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; }
 .attr-meta dt { color: var(--text-dim); }
 .attr-meta dd { margin: 0; overflow-wrap: anywhere; }

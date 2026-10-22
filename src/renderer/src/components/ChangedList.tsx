@@ -10,10 +10,9 @@ import { useI18n } from '../i18n/I18nProvider'
 import { DiffView } from './DiffView'
 import { GIT_LABEL, GIT_MARK } from './ExplorerRow'
 import { FileIcon } from './FileIcon'
-import { EmptyState } from './ui'
+import { Button, EmptyState, ICONS } from './ui'
 import { changedRows } from './explorerChanged'
 import { ROW_H } from './explorerRows'
-import { Check } from 'lucide-react'
 
 type Diff = { path: string } & ({ state: 'loading' } | { state: 'shown'; diff: string; truncated: boolean })
 
@@ -58,21 +57,40 @@ export function ChangedList({ root, gitStatus, onOpenFile }: { root: string; git
     )
   }
 
-  if (rows.length === 0) return <EmptyState icon={Check} title={t('explorer.changed.empty')} />
+  if (rows.length === 0) return <EmptyState icon={ICONS.check} title={t('explorer.changed.empty')}>{t('explorer.changed.emptyHint')}</EmptyState>
+  // Arrows move between the rows (the list is one Tab stop's worth of rows, as the tree is); Enter/Space open a row's diff
+  const moveFocus = (ev: React.KeyboardEvent<HTMLDivElement>): void => {
+    const step = ev.key === 'ArrowDown' ? 1 : ev.key === 'ArrowUp' ? -1 : 0
+    const home = ev.key === 'Home' ? 0 : ev.key === 'End' ? -1 : null
+    if (!step && home === null) return
+    const btns = Array.from(ev.currentTarget.querySelectorAll<HTMLButtonElement>('.fx-changed-row'))
+    const at = btns.indexOf(document.activeElement as HTMLButtonElement)
+    const next = home !== null ? (home === 0 ? 0 : btns.length - 1) : Math.min(btns.length - 1, Math.max(0, at + step))
+    if (btns.length === 0) return
+    ev.preventDefault()
+    btns[next].focus()
+  }
   return (
-    <div className={`fx-tree${gitStatus.stale ? ' git-stale' : ''}`}>
+    <div className={`fx-tree${gitStatus.stale ? ' git-stale' : ''}`} onKeyDown={moveFocus}>
       {rows.map((r) => (
         <div key={r.path}>
-          <div className="fx-row file" style={{ height: ROW_H }} title={r.path} onClick={() => click(r.path, r.state)}>
+          <Button
+            variant="ghost"
+            className="fx-row fx-changed-row file"
+            style={{ height: ROW_H }}
+            title={r.path}
+            aria-expanded={diff?.path === r.path && diff.state === 'shown'}
+            onClick={() => click(r.path, r.state)}
+          >
             <FileIcon {...resolveFileIcon(r.name)} />
             <span className={`fx-name git-${r.state}`}>{r.name}</span>
             {r.dir && <span className="fx-note">{r.dir}</span>}
             <span className={`fx-git-mark git-${r.state}`} title={t(GIT_LABEL[r.state])} aria-label={t(GIT_LABEL[r.state])}>
               {GIT_MARK[r.state]}
             </span>
-          </div>
+          </Button>
           {diff?.path === r.path && diff.state === 'shown' && <DiffView diff={diff.diff} truncated={diff.truncated} binary={r.binary === true} />}
-                  </div>
+        </div>
       ))}
     </div>
   )

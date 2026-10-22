@@ -6,9 +6,8 @@ import {
   type MdViewMode, type ScrollAnchor
 } from '../../../core/files/markdownView'
 import { useI18n } from '../i18n/I18nProvider'
-import { Columns2, Eye, PanelLeft, Save } from 'lucide-react'
-import { IconButton, Tabs } from './ui'
-import type { LucideIcon } from 'lucide-react'
+import { Columns2, PanelLeft } from 'lucide-react'
+import { Icon, IconButton, Tabs } from './ui'
 
 const RATIO_KEY = 'cm.md.splitRatio'
 
@@ -16,10 +15,10 @@ const RATIO_KEY = 'cm.md.splitRatio'
  *  유니온)임에도 실제로 타입을 통과한다(직접 tsc 로 확인) — `MdViewMode` 가 세 값짜리 닫힌 유니온이라
  *  템플릿 리터럴 타입이 세 조합으로 즉시 펼쳐지고, 그 세 문자열이 전부 `ko.ts` 에 이미 있는 키라서다.
  *  캐스트도, 따로 든 `key: MessageKey` 필드도 필요 없다. */
-const MODES: { id: MdViewMode; Icon: LucideIcon }[] = [
-  { id: 'editor', Icon: PanelLeft },
-  { id: 'split', Icon: Columns2 },
-  { id: 'preview', Icon: Eye }
+const MODES: { id: MdViewMode; icon: React.ReactNode }[] = [
+  { id: 'editor', icon: <Icon icon={PanelLeft} size={14} /> },
+  { id: 'split', icon: <Icon icon={Columns2} size={14} /> },
+  { id: 'preview', icon: <Icon name="show" size={14} /> }
 ]
 
 /** 모드 버튼 세 개와 좌우 분할.
@@ -311,18 +310,18 @@ export function MarkdownSplit({
             label={t('files.markdown.mode.label')}
             value={mode}
             onChange={onModeChange}
-            items={MODES.map(({ id, Icon }) => ({
+            items={MODES.map(({ id, icon }) => ({
               id,
               label: (
                 <span className="md-mode" title={t(`files.markdown.mode.${id}`)}>
-                  <Icon size={14} />
+                  {icon}
                   {t(`files.markdown.mode.short.${id}`)}
                 </span>
               )
             }))}
           />
         )}
-        <IconButton size="sm" icon={<Save size={14} />} label={t('files.editor.save')} onClick={onSave} />
+        <IconButton size="sm" icon={<Icon name="save" size={14} />} label={t('files.editor.save')} onClick={onSave} />
       </div>
       <div className="md-split" ref={splitRef} data-mode={markdown ? mode : 'editor'}>
         {/* markdown 이 거짓이든 참이든 이 자리는 항상 같은 타입(div.md-pane.md-pane-editor)이고

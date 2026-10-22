@@ -3,7 +3,7 @@ import type { LocalHistoryEntry } from '../../../core/types'
 import { errText } from '../hooks/useFileOps'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
-import { Button, Modal } from './ui'
+import { Button, EmptyState, ICONS, Modal, Skeleton } from './ui'
 
 /** Byte size in human-readable units. This repo has no shared size formatter (checked by grep), so it
  *  stays a local helper used only in this file — extracting it into a pure module and registering that
@@ -37,8 +37,7 @@ function baseName(p: string): string {
 /** Local History browse and restore modal. Shows the deletion snapshots files.remove left behind,
  *  grouped per project, and puts a selected item back in its original location. The list-modal
  *  conventions follow ResumeDialog (the null-while-loading pattern, outside click / stopPropagation) and
- *  AccountPanel's detect dialog (the .detect-list style layout), and the Escape handling follows
- *  ContextMenu's "register once at mount, read the latest value through a ref" convention. */
+ *  AccountPanel's detect dialog (the .detect-list style layout). Escape, the focus trap and focus return are Modal's. */
 export function LocalHistoryDialog({
   projectPath,
   onRestored,
@@ -72,11 +71,11 @@ export function LocalHistoryDialog({
     }
   }, [projectPath])
 
-  const doRestore = async (): Promise<void> => {
-    if (!selectedId || restoring) return
+  const doRestore = async (id: string | null = selectedId): Promise<void> => {
+    if (!id || restoring) return
     setRestoring(true)
     try {
-      const restoredPath = await window.api.localHistory.restore(projectPath, selectedId)
+      const restoredPath = await window.api.localHistory.restore(projectPath, id)
       // On a name collision the store uses the name it fell back to, so it can differ from the name the
       // user picked — showing the actual return value verbatim is what keeps this from lying.
       toast.success(t('localHistory.restored', { path: restoredPath }))
@@ -108,28 +107,54 @@ export function LocalHistoryDialog({
     >
       <div className="dlg local-history">
         {entries === null ? (
-          <p className="empty">{t('localHistory.loading')}</p>
+          <div aria-busy="true" aria-label={t('localHistory.loading')}>
+            <Skeleton width="70%" />
+            <Skeleton width="55%" />
+            <Skeleton width="62%" />
+          </div>
         ) : entries.length === 0 ? (
-          <p className="empty">{t('localHistory.empty')}</p>
+          <EmptyState icon={ICONS.history} title={t('localHistory.empty')}>
+            {t('localHistory.emptyHint')}
+          </EmptyState>
         ) : (
-          <ul className="lh-list">
+          // Arrows move between the rows, Enter or a double click restores the one picked
+          <ul
+            className="lh-list"
+            onKeyDown={(ev) => {
+              const step = ev.key === 'ArrowDown' ? 1 : ev.key === 'ArrowUp' ? -1 : 0
+              if (!step) return
+              const rows = Array.from(ev.currentTarget.querySelectorAll<HTMLButtonElement>('.lh-row'))
+              const next = rows[rows.indexOf(document.activeElement as HTMLButtonElement) + step]
+              if (!next) return
+              ev.preventDefault()
+              next.focus()
+              next.click()
+            }}
+          >
             {entries.map((entry) => {
               const name = baseName(entry.originalPath) + (entry.isDir ? '/' : '')
               const relPath = entry.originalPath.slice(projectPath.length).replace(/^[\\/]/, '')
               return (
-                <li
-                  key={entry.id}
-                  className={`lh-row${selectedId === entry.id ? ' selected' : ''}`}
-                  onClick={() => setSelectedId(entry.id)}
-                >
-                  <div className="lh-main">
-                    <span className="lh-name">{name}</span>
-                    <span className="lh-path" title={relPath}>
-                      {relPath}
+                <li key={entry.id}>
+                  <Button
+                    variant="ghost"
+                    className={`lh-row${selectedId === entry.id ? ' selected' : ''}`}
+                    aria-pressed={selectedId === entry.id}
+                    onClick={() => setSelectedId(entry.id)}
+                    onDoubleClick={() => {
+                      setSelectedId(entry.id)
+                      void doRestore(entry.id)
+                    }}
+                  >
+                    <span className="lh-main">
+                      <span className="lh-name">{name}</span>
+                      <span className="lh-path" title={relPath}>
+                        {relPath}
+                      </span>
                     </span>
-                  </div>
-                  <span className="lh-meta">{formatSize(entry.size)}</span>
-                  <span className="lh-meta">{formatDeletedAt(entry.deletedAt)}</span>
+                    <span className="lh-meta">{formatSize(entry.size)}</span>
+                    <span className="lh-meta">{formatDeletedAt(entry.deletedAt)}</span>
+                  </Button>
                 </li>
               )
             })}
