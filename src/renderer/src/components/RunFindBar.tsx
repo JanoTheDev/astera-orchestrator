@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useI18n } from '../i18n/I18nProvider'
-import { ChevronDown, ChevronUp, Search, X } from 'lucide-react'
+import { Icon, IconButton, Input } from './ui'
 
 /** The find bar drawn inside a run's console (top-right, over the output). Plain text,
  *  case-insensitive — no regex or case toggles in this slice. Enter → next, Shift+Enter → previous,
@@ -31,11 +31,10 @@ export function RunFindBar({
   }, [])
   return (
     <div className="run-find" role="search">
-      <Search size={13} className="run-find-icon" />
-      <input
+      <Icon name="search" size={14} className="run-find-icon" />
+      <Input
         ref={inputRef}
         className="run-find-input"
-        type="text"
         value={query}
         placeholder={t('run.find.placeholder')}
         aria-label={t('run.find.placeholder')}
@@ -60,33 +59,9 @@ export function RunFindBar({
               ? t('run.find.countMany', { total: results.total })
               : t('run.find.count', { n: results.index, total: results.total })}
       </span>
-      <button
-        type="button"
-        className="run-find-btn"
-        title={t('run.find.prev')}
-        aria-label={t('run.find.prev')}
-        onClick={onPrev}
-      >
-        <ChevronUp size={12} />
-      </button>
-      <button
-        type="button"
-        className="run-find-btn"
-        title={t('run.find.next')}
-        aria-label={t('run.find.next')}
-        onClick={onNext}
-      >
-        <ChevronDown size={12} />
-      </button>
-      <button
-        type="button"
-        className="run-find-btn"
-        title={t('run.find.close')}
-        aria-label={t('run.find.close')}
-        onClick={onClose}
-      >
-        <X size={12} />
-      </button>
+      <IconButton size="sm" icon={<Icon name="chevronUp" size={14} />} label={t('run.find.prev')} onClick={onPrev} />
+      <IconButton size="sm" icon={<Icon name="chevronDown" size={14} />} label={t('run.find.next')} onClick={onNext} />
+      <IconButton size="sm" icon={<Icon name="close" size={14} />} label={t('run.find.close')} onClick={onClose} />
     </div>
   )
 }

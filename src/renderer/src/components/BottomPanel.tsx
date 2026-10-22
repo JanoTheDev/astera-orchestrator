@@ -5,7 +5,8 @@ import { RunPanel } from './RunPanel'
 import { RunTabStrip } from './RunTabStrip'
 import { RunToolRail } from './RunToolRail'
 import { TerminalBody } from './TerminalBody'
-import { ChevronDown, Delete, Plus, X } from 'lucide-react'
+import { Icon, IconButton } from './ui'
+import { Delete } from 'lucide-react'
 
 /**
  * Bottom panel. The Run tab and the project terminals share this one panel through tabs.
@@ -101,6 +102,20 @@ export function BottomPanel({
     (tab: string) =>
     (e: React.KeyboardEvent): void => {
       if (e.target !== e.currentTarget) return
+      // ArrowLeft/Right, Home/End move focus along the tab row (wrapping); Enter/Space still select
+      const tabs = Array.from(e.currentTarget.parentElement?.querySelectorAll<HTMLElement>('[role="tab"]') ?? [])
+      const at = tabs.indexOf(e.currentTarget as HTMLElement)
+      const to =
+        e.key === 'ArrowRight' ? (at + 1) % tabs.length
+        : e.key === 'ArrowLeft' ? (at - 1 + tabs.length) % tabs.length
+        : e.key === 'Home' ? 0
+        : e.key === 'End' ? tabs.length - 1
+        : -1
+      if (to >= 0) {
+        e.preventDefault()
+        tabs[to]?.focus()
+        return
+      }
       if (e.key !== 'Enter' && e.key !== ' ') return
       e.preventDefault()
       onSelectTab(tab)
@@ -134,39 +149,27 @@ export function BottomPanel({
             >
               {/* The number in the label is the display order in the current list — creation order is not remembered */}
               {t('terminal.tab.label', { n: i + 1 })}
-              <button
+              <IconButton
                 className="bottom-tab-close"
-                aria-label={t('terminal.tab.close')}
-                title={t('terminal.tab.close')}
+                size="sm"
+                icon={<Icon name="close" size={14} />}
+                label={t('terminal.tab.close')}
                 onClick={(e) => {
                   e.stopPropagation() // keeps close from misfiring the tab selection
                   onCloseTerminal(term.id)
                 }}
-              >
-                <X size={11} />
-              </button>
+              />
             </span>
           ))}
-          <button
-            className="bottom-tab-new"
-            aria-label={t('terminal.tab.new')}
-            title={t('terminal.tab.new')}
-            onClick={onNewTerminal}
-          >
-            <Plus size={13} />
-          </button>
+          <IconButton size="sm" icon={<Icon name="add" size={14} />} label={t('terminal.tab.new')} onClick={onNewTerminal} />
         </span>
         <span className="run-panel-actions">
           {/* On the Run tab, stop and clear live in the rail beside the console; the header keeps them
               for terminal tabs, which have no rail. */}
           {activeTab !== 'run' && (
-            <button className="run-panel-btn" title={t('run.panel.clear')} onClick={() => bump(setClearNonces, activeTab)}>
-              <Delete size={12} />
-            </button>
+            <IconButton size="sm" icon={<Icon icon={Delete} size={14} />} label={t('run.panel.clear')} onClick={() => bump(setClearNonces, activeTab)} />
           )}
-          <button className="run-panel-btn" title={t('run.panel.collapse')} onClick={onCollapse}>
-            <ChevronDown size={12} />
-          </button>
+          <IconButton size="sm" icon={<Icon name="chevronDown" size={14} />} label={t('run.panel.collapse')} onClick={onCollapse} />
         </span>
       </div>
       <div className="bottom-bodies">
