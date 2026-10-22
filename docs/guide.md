@@ -72,7 +72,7 @@ Start has one composer: a text box (a goal, rough notes, or a whole pasted plan)
 Below the cards: **Hands-off** first (Astera approves the plan and decides its questions itself, and tells you once at
 the end). Switching it saves it as the project's default, so the next plan opens the same way; while it is on,
 Approval is automatic. Then **Start** (right away, or after another plan). **More options** is closed by default and
-shows its values on one line ("3 consoles · PR · ask · Work"): **Consoles at once** (1–10, default 3), **Delivery**,
+shows its values on one line ("3 consoles · PR · ask · Work"): **Consoles at once** (1–100, default 3), **Delivery**,
 **Approval** (ask me, or automatic), **Coordinator** account and **Priority** (0 is the default). It also holds
 **Repeat on a schedule…**, which opens the schedule form. The defaults come from the project's settings. The primary
 button says what will happen: "Start planning", "Audit 2 paths", or "Start 3 consoles" with "3 files → 3 tasks".
@@ -423,7 +423,7 @@ Every console that ends leaves a short card, so you can see later what happened 
   size and place, and the windows open at quit come back on the next launch. Closing the last window keeps plans running.
 - **Project settings** (Settings → Projects, one page per project; `astera projects set --id <project> …`):
   `--delivery pr|push`, `--delivery-branch`, `--auto-approve on|off`, `--test-command <cmd>` (saved as a run
-  configuration), `--test-config <id>`, `--concurrency 1-10`, `--review-rounds <n>`, `--replan waves|off`, `--account
+  configuration), `--test-config <id>`, `--concurrency 1-100`, `--review-rounds <n>`, `--replan waves|off`, `--account
   <id>`. An empty value clears a setting to its default. Agent sessions and MCP cannot set these. Defaults: delivery
   pr, auto-approve off, concurrency 3, review rounds 5, replan waves. A new Task with no `--validate` is validated with
   the project's test command, and a new plan copies the project's concurrency, replan and review rounds when it sets none.

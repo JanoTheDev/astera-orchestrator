@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { readMaxConcurrentWorkers } from '../core/settings/maxConcurrentWorkers'
+import { machineSpecs } from '../core/settings/machineSpecs'
 import { readUsagePauseAt } from '../core/settings/usagePauseAt'
 import { readAccountMaxSessions } from '../core/settings/accountMaxSessions'
 import { readTabSummaries } from '../core/settings/tabSummaries'
@@ -440,11 +441,12 @@ describe('tabSummaries', () => {
 
 // W1-B
 describe('maxConcurrentWorkers', () => {
-  it('defaults to no cap, and the Host reads the same', async () => {
+  it('defaults to no cap, and the Host and the app schedule at the machine recommendation', async () => {
     const store = new AppSettingsStore(file())
     await store.load()
     expect(store.getMaxConcurrentWorkers()).toBeNull()
-    expect(await readMaxConcurrentWorkers(file())).toBeNull()
+    expect(store.getEffectiveMaxConcurrentWorkers()).toBe(machineSpecs().recommended)
+    expect(await readMaxConcurrentWorkers(file())).toBe(machineSpecs().recommended)
   })
 
   it('persists a cap the Host then reads, and null clears it', async () => {
@@ -456,7 +458,7 @@ describe('maxConcurrentWorkers', () => {
     expect(b.getMaxConcurrentWorkers()).toBe(4)
     expect(await readMaxConcurrentWorkers(file())).toBe(4)
     await b.setMaxConcurrentWorkers(null)
-    expect(await readMaxConcurrentWorkers(file())).toBeNull()
+    expect(await readMaxConcurrentWorkers(file())).toBe(machineSpecs().recommended)
   })
 
   it('reads anything but a whole number >= 1 as no cap', async () => {

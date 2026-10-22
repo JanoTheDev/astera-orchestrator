@@ -5,6 +5,7 @@
 import { useEffect, useState } from 'react'
 import { createSessionArgs, refOf, remoteCall, type RemoteSessionRef, type RemoteSessionRow } from '../lib/remoteSessions'
 import { useI18n } from '../i18n/I18nProvider'
+import { AccountSelect } from './AccountSelect'
 import { Select } from './Select'
 import { Button, Modal } from './ui'
 
@@ -186,12 +187,9 @@ export function RemoteSessionsDialog({
         </div>
         <div className="field">
           <label>{t('remote.sessions.account')}</label>
-          <Select
-            items={accounts.map((a) => ({
-              value: a.id,
-              label: a.label,
-              meta: a.signedIn === false ? t('remote.sessions.signedOut') : a.provider
-            }))}
+          <AccountSelect
+            accounts={accounts.map((a) => ({ id: a.id, label: a.label, configDir: '', color: '', createdAt: '', provider: a.provider }))}
+            loginMap={Object.fromEntries(accounts.map((a) => [a.id, a.signedIn !== false]))}
             value={accountId}
             disabled={readOnly || starting}
             onChange={setAccountId}

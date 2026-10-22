@@ -4,11 +4,12 @@ import { useEffect, useState } from 'react'
 import type { Account, JobTask, UsageGuardView } from '../../../../core/types'
 import { useI18n } from '../../i18n/I18nProvider'
 import { stripRows, USAGE_STRIP_POLL_MS, type StripWindow } from './usageView'
+import { coarseDuration } from '../../../../core/usage/relativeTime'
 import { Meter } from '../ui'
 import './usage.css'
 
 export function UsageStrip({ accounts, tasks }: { accounts: readonly Account[] | null; tasks: readonly JobTask[] }): React.JSX.Element | null {
-  const { t } = useI18n()
+  const { t, lang } = useI18n()
   const [view, setView] = useState<UsageGuardView | null>(null)
 
   useEffect(() => {
@@ -40,12 +41,18 @@ export function UsageStrip({ accounts, tasks }: { accounts: readonly Account[] |
   return (
     <div className="usage-strip" aria-label={t('usage.strip.label')}>
       <span className="usage-strip-title">{t('usage.strip.label')}</span>
+      {rows.pool !== null && (
+        <span className="usage-strip-dim">
+          {rows.pool.runOutInMs === null ? t('usage.strip.poolLasts') : t('usage.strip.poolRunOut', { duration: coarseDuration(rows.pool.runOutInMs, lang) })}
+        </span>
+      )}
       {rows.accounts.length === 0 && <span className="usage-strip-dim">{t('usage.strip.noReading')}</span>}
       {rows.accounts.map((a) => (
         <span key={a.accountId} className={`usage-strip-account${a.paused ? ' usage-strip-paused' : ''}`}>
           <strong>{a.label}</strong>
           {win(t('usage.strip.fiveHour'), a.fiveHour)}
           {win(t('usage.strip.sevenDay'), a.sevenDay)}
+          {a.runOutInMs !== null && <span className="usage-strip-flag">{t('usage.strip.runOutShort', { duration: coarseDuration(a.runOutInMs, lang) })}</span>}
           {a.paused && <span className="usage-strip-flag">{t('usage.strip.paused')}</span>}
         </span>
       ))}

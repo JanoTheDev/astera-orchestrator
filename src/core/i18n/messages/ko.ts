@@ -1218,6 +1218,9 @@ export const ko = {
   // One key, not a sentence assembled from fragments — word order differs between the languages,
   // which is exactly what concatenation gets wrong.
   'account.usage.refreshedAgo': '{d} 전 갱신',
+  // Usage run-out estimate: when the account runs out at the current pace, before its reset
+  'account.usage.runOut': '지금 속도(약 {rate}%/시간)면 리셋 전에 {duration} 뒤 바닥납니다',
+  'account.usage.lasts': '지금 속도(약 {rate}%/시간)면 리셋까지 버팁니다',
   'accounts.add': '계정 추가',
   'accounts.import': '계정 폴더 가져오기',
   'accounts.detect': '로그인된 계정 찾기',
@@ -1261,6 +1264,18 @@ export const ko = {
   'account.sync.nothingToCopy': '가져올 설정이 없습니다 (원본 계정에 설정 파일 없음).',
   // AccountSelect.tsx
   'account.select.none': '(선택 안 됨)',
+  // Account picker: the signed-out label, the usage figures and the project default row
+  'account.select.signedOut': '로그인 안 됨',
+  'account.select.usage': '5시간 {session}% · 주간 {weekly}%',
+  'account.select.projectDefault': '프로젝트 기본 계정',
+  // Switch a running tab account: the menu action, its confirmation and its failure messages
+  'account.switch.action': '이 탭에서 사용',
+  'account.switch.title': '열린 탭을 {label}(으)로 옮깁니다. 대화는 거기서 이어집니다',
+  'account.switch.done': '이 탭은 이제 {label}에서 실행됩니다',
+  'account.switch.failed': '계정을 바꾸지 못했습니다: {detail}',
+  'account.switch.busy': '이 탭은 이미 계정을 바꾸는 중입니다. 잠시 뒤 다시 시도하세요',
+  'account.switch.noTab': '다른 계정으로 옮기려면 세션 탭을 여세요',
+  'account.switch.otherProvider': '{provider} 계정만 이 탭을 넘겨받을 수 있습니다',
   // NewSessionDialog.tsx — the new-session modal
   'session.new.title': '새 세션',
   'session.new.runningWarning': '실행 중 세션이 {count}개입니다. 성능 저하가 있을 수 있습니다.',
@@ -2133,7 +2148,10 @@ export const ko = {
   'jobs.new.priority': '우선순위',
   'jobs.new.priorityHint': '앱 전체 워커 한도에 닿았을 때 높은 쪽이 먼저 빈자리를 받는다 (기본 0)',
   'settings.maxWorkers.label': '모든 작업을 합친 최대 워커 수',
-  'settings.maxWorkers.hint': '최대 10, 비워 두면 10. 한도에 닿으면 우선순위가 높은 작업부터, 같으면 번갈아 빈자리를 받는다.',
+  'settings.maxWorkers.hint': '최대 100. 비워 두면 이 기기의 추천값을 쓴다. 한도에 닿으면 우선순위가 높은 작업부터 빈자리를 받고, 같으면 번갈아 받는다.',
+  // Machine-aware worker cap: the recommendation for this machine and the warning above it
+  'settings.maxWorkers.recommended': '이 기기 추천: {count}개 (메모리 {memory} GB, 코어 {cores}개)',
+  'settings.maxWorkers.overRecommended': '이 기기가 감당할 것으로 보이는 {count}개를 넘었습니다. 에이전트가 느려지거나 메모리가 부족해질 수 있습니다.',
   'settings.maxWorkers.saveFailed': '워커 한도를 저장하지 못했습니다: {detail}',
   // W6-G
   'settings.usageGuard.subagentsLabel': '탭당 최대 서브에이전트 수',
@@ -2201,7 +2219,7 @@ export const ko = {
   'intake.instructions': '추가 지시 (출처보다 우선)',
   'intake.create': '만들고 계획하기',
   // W7-D (#67)
-  'intake.concurrency': '동시 워커 수 (1–10)',
+  'intake.concurrency': '동시 워커 수 (1–100)',
   'jobs.source.open': '소스에서',
   // W6-H delivery
   'delivery.label': '계획이 끝나면:',
@@ -2799,6 +2817,10 @@ export const ko = {
   'usage.strip.subagents': '서브에이전트 (탭당 최대 {limit})',
   'usage.strip.noSubagents': '도는 서브에이전트 없음',
   'usage.strip.noReading': '아직 사용량 기록 없음',
+  // Usage run-out estimate on the usage strip, for the whole pool of accounts
+  'usage.strip.poolRunOut': '지금 속도면 모든 계정이 {duration} 뒤 바닥납니다',
+  'usage.strip.poolLasts': '지금 속도면 계정들이 각자 리셋까지 버팁니다',
+  'usage.strip.runOutShort': '{duration} 뒤 바닥',
   // W3-B command bar and voice
   'jobs.run.approveConfirmBody': '"{objective}" 를 승인하고 워커를 시작할까요? 워커마다 계정의 실제 세션이고 사용량을 씁니다.',
   'command.title': '명령',

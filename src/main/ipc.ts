@@ -57,6 +57,7 @@ import { createHostDriverView, type HostDriverView } from './host/hostDriver'
 import { createHostWorkspaceView, type HostWorkspaceView } from './host/hostWorkspace'
 import { clampAppSize } from '../core/workspace/size'
 import { createHostMcpHttpView, type HostMcpHttpView } from './host/hostMcpHttp'
+import { machineSpecs } from '../core/settings/machineSpecs'
 import { mcpHttpHostsProblem, mcpHttpOf, type McpHttpSettings } from '../core/settings/mcpHttp'
 import { createTokenReader, newToken, tokenPath } from '../core/mcp/httpToken'
 import { createOfflineRolls } from './host/offlineRolls'
@@ -77,7 +78,7 @@ import { hostRollConfigPath, readRollConfigKey } from '../core/rolling/config'
 import { DataBatcher } from '../core/sessions/batcher'
 import { BusyScanner } from '../core/terminal/busy'
 import { isOnlyTerminalReports } from '../core/terminal/reports'
-import type { Account, CoreEvents, HistoryPageRequest, HistoryProjectsPageRequest, HostHoldings, HostStatus, OrchHostGate, OrchSnapshot, RunDetail, CompletionDetail, Provider, RateLimitWindow, ResumeStrategy, RollStateEvent, RunConfig, RunStatus, ScheduleConfig, SessionInfo } from '../core/types'
+import type { Account, CoreEvents, HistoryPageRequest, HistoryProjectsPageRequest, HostHoldings, HostStatus, OrchHostGate, OrchSnapshot, RunDetail, CompletionDetail, Provider, RateLimitWindow, ResumeStrategy, RollStateEvent, RollSwitchResult, RunConfig, RunStatus, ScheduleConfig, SessionInfo } from '../core/types'
 import { providerOf } from '../core/providers/meta'
 import { orchAccountsFor } from '../core/accounts/accountsFile'
 import { descriptorOf } from '../core/providers/descriptor'
@@ -1582,7 +1583,7 @@ export function registerIpc(
       (p) => worktreePresence.peek(p) !== 'missing',
       Date.now(),
       // W2-C plan board: the app-wide cap, so a Task held by it says so
-      { maxConcurrentWorkers: core.appSettings.getMaxConcurrentWorkers() },
+      { maxConcurrentWorkers: core.appSettings.getEffectiveMaxConcurrentWorkers() },
       // W6-G
       (id) => usageGuard.pauseOf(id)
     )
@@ -3240,7 +3241,7 @@ export function registerIpc(
     const loop = createDispatchLoop({
       handle: (cmd, args) => orchHandleCommand(deps, { sessionId: UI_CALLER }, cmd, args),
       getState: () => deps.getState(),
-      maxConcurrentWorkers: () => core.appSettings.getMaxConcurrentWorkers(),
+      maxConcurrentWorkers: () => core.appSettings.getEffectiveMaxConcurrentWorkers(),
       accounts: () => core.accounts.list(),
       loginStatus: (accountId) => core.accounts.loginStatus(accountId),
       lang: () => core.lang,
@@ -3530,7 +3531,7 @@ export function registerIpc(
       // 여기서는 앱의 두 후보 목록을 모아 넘긴다. 앱이 없을 때는 Host 가 제 워크트리 레지스트리와
       // 감시자 없는 기록 목록으로 같은 함수를 부른다(host/projectRoots.ts).
       // W1-B: worker-start holds new workers at the app-wide cap.
-      maxConcurrentWorkers: () => core.appSettings.getMaxConcurrentWorkers(),
+      maxConcurrentWorkers: () => core.appSettings.getEffectiveMaxConcurrentWorkers(),
       // W6-G: and none on a nearly spent account
       usageGuard,
       // T5b: worker-start without --account, as the Host answers it (chooseStartAccount)
@@ -4489,6 +4490,7 @@ export function registerIpc(
     if (typeof on !== 'boolean') throw new Error(`INVALID_TAB_SUMMARIES: ${String(on)}`)
     await core.appSettings.setTabSummaries(on)
   })
+  ipcMain.handle('settings.getMachineSpecs', () => machineSpecs())
   ipcMain.handle('settings.getMaxConcurrentWorkers', () => core.appSettings.getMaxConcurrentWorkers())
   ipcMain.handle('settings.setMaxConcurrentWorkers', async (_e, n: unknown) => {
     if (n !== null && (typeof n !== 'number' || !Number.isInteger(n) || n < 1))
@@ -8440,6 +8442,43 @@ export function registerIpc(
       }
       return (await rolling?.forceRoll(sessionId)) ?? false
     })
+
+  // "Use for this tab" (accounts popover) — every build. Routed like forceRoll above: the local chain
+  // that holds the session, else the Host's when it rolls one. A tab nobody rolls (rolling is opt-in at
+  // spawn) gets a one-account chain here for the switch, which the switch grows to the chosen account;
+  // the chain is dropped again when the switch does not happen, so a refused click leaves the tab as it was.
+  ipcMain.handle('rolling.switchTo', async (_e, sessionId: unknown, accountId: unknown): Promise<RollSwitchResult> => {
+    if (typeof sessionId !== 'string' || sessionId === '' || typeof accountId !== 'string' || accountId === '')
+      throw new Error('rolling.switchTo needs a sessionId and an accountId')
+    if (codexRolling?.has(sessionId)) return codexRolling.switchTo(sessionId, accountId)
+    if (rolling?.has(sessionId)) return rolling.switchTo(sessionId, accountId)
+    if (hostSpeaksRolling(hostClient?.status() ?? { connected: false, features: [] })) {
+      const r = await orchCall({ cmd: 'roll-switch', args: { sessionId, accountId }, sessionId: '' })
+      if (r.status === 200) return r.body as RollSwitchResult
+      if (r.status !== 404) throw new Error(`the Host refused roll-switch (${r.status}): ${JSON.stringify(r.body)}`)
+    }
+    const info = allSessions().find((s) => s.id === sessionId && s.status === 'running')
+    if (!info) throw new Error(`no running session ${sessionId}`)
+    const coordinator = providerOf(core.accounts.get(info.accountId)) === 'codex' ? codexRolling : rolling
+    if (!coordinator) throw new Error('rolling is not available')
+    const chainInfo = { ...info, rollAccountIds: [info.accountId] }
+    // A codex terminal tab: main's rollout watcher already mapped the tab's own conversation (bounded by
+    // its spawn), so the chain is handed that pair instead of searching for a file by folder.
+    const watched = coordinator === codexRolling ? codexRollout : undefined
+    const rolloutPath = watched?.rolloutPathFor(sessionId) ?? null
+    const nativeId = watched?.codexSessionIdFor(sessionId) ?? null
+    if (codexRolling && coordinator === codexRolling && rolloutPath && nativeId)
+      codexRolling.register(chainInfo, rolloutPath, false, false, nativeId)
+    else coordinator.register(chainInfo)
+    try {
+      const r = await coordinator.switchTo(sessionId, accountId)
+      if (r.outcome !== 'switched') coordinator.unregister(sessionId)
+      return r
+    } catch (err) {
+      coordinator.unregister(sessionId)
+      throw err
+    }
+  })
 }
 
 /** T12c: the window's Bring my setup choices, only what the migration takes. */

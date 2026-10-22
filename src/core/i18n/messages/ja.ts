@@ -2157,4 +2157,26 @@ export const ja: Catalog = {
   'wall.end.title': '{name} を終了しますか?',
   'wall.end.body': 'このコンソールはまだ動いています。終了するとプロセスが止まります。',
   'wall.end.confirm': 'セッションを終了',
+  // Machine-aware worker cap: the recommendation for this machine and the warning above it
+  'settings.maxWorkers.recommended': 'このマシンの推奨: {count}（メモリ {memory} GB、コア {cores}）',
+  'settings.maxWorkers.overRecommended': 'このマシンで扱えそうな {count} を超えています。エージェントが遅くなるか、メモリが不足する可能性があります。',
+  // Usage run-out estimate: when the account runs out at the current pace, before its reset
+  'account.usage.runOut': '今のペース（約 {rate}%/時）だと、リセット前に {duration} で使い切ります',
+  'account.usage.lasts': '今のペース（約 {rate}%/時）なら、リセットまでもちます',
+  // Account picker: the signed-out label, the usage figures and the project default row
+  'account.select.signedOut': 'サインアウト中',
+  'account.select.usage': '5時間 {session}% · 週 {weekly}%',
+  'account.select.projectDefault': 'プロジェクトの既定アカウント',
+  // Switch a running tab account: the menu action, its confirmation and its failure messages
+  'account.switch.action': 'このタブで使う',
+  'account.switch.title': '開いているタブを {label} に移します。会話はそこで続きます',
+  'account.switch.done': 'このタブは {label} で動くようになりました',
+  'account.switch.failed': 'アカウントを切り替えられませんでした: {detail}',
+  'account.switch.busy': 'このタブはすでにアカウントを切り替え中です。少しして再度お試しください',
+  'account.switch.noTab': 'セッションタブを開くと、別のアカウントに移せます',
+  'account.switch.otherProvider': '{provider} のアカウントだけがこのタブを引き継げます',
+  // Usage run-out estimate on the usage strip, for the whole pool of accounts
+  'usage.strip.poolRunOut': '今のペースだと、すべてのアカウントが {duration} で使い切ります',
+  'usage.strip.poolLasts': '今のペースなら、アカウントはそれぞれリセットまでもちます',
+  'usage.strip.runOutShort': '{duration} で使い切り',
 }

@@ -417,6 +417,15 @@ export interface RollStateEvent {
   reattach?: boolean
   nextRetryAt?: string // ISO — the retry time, when state='waiting'
   scope?: 'session' | 'weekly' // which limit, when state='waiting' — selects the banner wording and time format
+  // Set on state='switching' when a person asked for the move ("Use for this tab") rather than a limit
+  manual?: boolean
+}
+
+/** What a chosen-account switch (`RollingApi.switchTo`) did. 'same': the tab already runs there. 'busy':
+ *  the chain is rolling, waiting or settling after a roll. 'refused': not possible, `reason` says why. */
+export interface RollSwitchResult {
+  outcome: 'switched' | 'same' | 'busy' | 'refused'
+  reason?: string
 }
 
 /** Schedule progress (main to renderer, for the banner both views wear — the terminal and the chat pane) */
@@ -1281,6 +1290,14 @@ export interface HostHoldings {
   chats: number
 }
 
+/** What this machine offers: total/free memory, logical CPUs, and the worker cap they support. */
+export interface MachineSpecs {
+  totalMemBytes: number
+  freeMemBytes: number
+  logicalCpus: number
+  recommended: number
+}
+
 /** The contract the renderer sees as window.api. The IPC adapter implements it. */
 export interface CoreApi {
   accounts: {
@@ -1617,6 +1634,8 @@ export interface CoreApi {
     /** W1-B: the app-wide Job worker cap; null is no cap. */
     getMaxConcurrentWorkers(): Promise<number | null>
     setMaxConcurrentWorkers(n: number | null): Promise<void>
+    /** This machine's memory and CPUs and the worker cap they support (what an unset limit schedules at). */
+    getMachineSpecs(): Promise<MachineSpecs>
     /** W6-G: subagents at once per Claude tab (1–10), and the usage percent at which no new worker starts. */
     getMaxSubagentsPerSession(): Promise<number>
     setMaxSubagentsPerSession(n: number): Promise<void>
@@ -2050,6 +2069,9 @@ export interface RollingApi {
   /** Whether a chain acted: false when it was rolling, waiting, settling or quiet (nothing happened). */
   forceRoll(sessionId?: string): Promise<boolean>
   state(sessionId: string): Promise<RollStateEvent | null>
+  /** Registered in every build: moves the session's rolling chain onto a chosen account of its own chain,
+   *  through the same roll a limit takes. Rejects when the session has no rolling chain. */
+  switchTo(sessionId: string, accountId: string): Promise<RollSwitchResult>
 }
 
 /** Window controls (not core — the renderer/Electron layer, the same layer as system) */

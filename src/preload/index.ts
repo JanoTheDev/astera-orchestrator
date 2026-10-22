@@ -222,6 +222,7 @@ const api = {
     getGithubPolling: invoke('settings.getGithubPolling'),
     setGithubPolling: invoke('settings.setGithubPolling'),
     getMaxConcurrentWorkers: invoke('settings.getMaxConcurrentWorkers'),
+    getMachineSpecs: invoke('settings.getMachineSpecs'),
     // W3-A
     getActivityDigestMinutes: invoke('settings.getActivityDigestMinutes'),
     setActivityDigestMinutes: invoke('settings.setActivityDigestMinutes'),
@@ -392,7 +393,8 @@ const api = {
   },
   rolling: {
     forceRoll: invoke('rolling.forceRoll'),
-    state: invoke('rolling.state')
+    state: invoke('rolling.state'),
+    switchTo: invoke('rolling.switchTo')
   },
   app: {
     // The 'quit app' of the forced-update gate. win.close cannot be used: on win32/macOS it only minimises to the tray

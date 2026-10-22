@@ -5,6 +5,7 @@ import { toast } from '../lib/toast'
 import { useI18n } from '../i18n/I18nProvider'
 import { useAccountStatus } from '../hooks/useAccountStatus'
 import { useAccountUsage } from '../hooks/useAccountUsage'
+import { useActiveSession } from '../lib/activeSession'
 import { ProviderBadge } from './ProviderBadge'
 import { AccountRow } from './AccountRow'
 import { AccountSignInDialog } from './AccountSignIn'
@@ -69,6 +70,36 @@ export function AccountPanel({ accounts }: { accounts: Account[] }): React.JSX.E
   // W7-F (#82): the account being signed in, and the one whose removal is being confirmed.
   const [signInTarget, setSignInTarget] = useState<Account | null>(null)
   const [removeTarget, setRemoveTarget] = useState<Account | null>(null)
+  // "Use for this tab": the session tab the top bar speaks for, and a switch in flight.
+  const tab = useActiveSession()
+  const tabAccount = tab ? accounts.find((a) => a.id === tab.accountId) : undefined
+  const [switching, setSwitching] = useState(false)
+
+  const switchTab = async (a: Account): Promise<void> => {
+    if (!tab || switching) return
+    setSwitching(true)
+    try {
+      const r = await window.api.rolling.switchTo(tab.id, a.id)
+      if (r.outcome === 'switched' || r.outcome === 'same') toast.success(t('account.switch.done', { label: a.label }))
+      else if (r.outcome === 'busy') toast.info(t('account.switch.busy'))
+      else toast.error(t('account.switch.failed', { detail: r.reason ?? '' }))
+    } catch (err) {
+      toast.error(t('account.switch.failed', { detail: err instanceof Error ? err.message : String(err) }))
+    } finally {
+      setSwitching(false)
+    }
+  }
+
+  /** Why the row's switch button is disabled, or null when it is not; undefined hides the button (the
+   *  account the tab already runs on). */
+  const switchBlock = (a: Account): string | null | undefined => {
+    if (!tab || !tabAccount) return t('account.switch.noTab')
+    if (providerOf(a) !== providerOf(tabAccount))
+      return t('account.switch.otherProvider', { provider: PROVIDER_META[providerOf(tabAccount)].displayName })
+    if (a.id === tab.accountId) return undefined
+    if (loginMap[a.id] !== true) return t('account.status.notLoggedIn')
+    return null
+  }
 
   useEffect(() => {
     // "Loading finished" is not inferred from how many times the accounts prop's effect has run — under
@@ -229,6 +260,22 @@ export function AccountPanel({ accounts }: { accounts: Account[] }): React.JSX.E
                 {t('account.signIn.button')}
               </Button>
             )}
+            {(() => {
+              const block = switchBlock(a)
+              if (block === undefined) return null
+              return (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="account-switch-btn"
+                  disabled={block !== null || switching}
+                  title={block ?? t('account.switch.title', { label: a.label })}
+                  onClick={() => void switchTab(a)}
+                >
+                  {t('account.switch.action')}
+                </Button>
+              )
+            })()}
             <IconButton size="sm" className="account-remove-btn" icon={<UserMinus size={14} />} label={t('account.remove.button')} onClick={() => setRemoveTarget(a)} />
           </AccountRow>
         ))}

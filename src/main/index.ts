@@ -1235,6 +1235,7 @@ app.whenReady().then(async () => {
     // A chat session writes no statusLine — it never calls the hook at all — so this would poll a file
     // that is never written. ipc pushes the same two facts in through onChatMeta instead.
     readStatusPayload: (id) => (core!.chat.has(id) ? Promise.resolve(null) : core!.statusLinePayload(id)),
+    locateTranscript: (accountId, threadId) => core!.history.transcriptPathById(accountId, threadId),
     // What the limit evidence gate decides on. The screen phrase is only the trigger; whether to start a
     // roll or a wait is settled by asking the account for its usage — the statusLine snapshot freezes at
     // a stale value once a session halts on a limit, whereas this lookup is independent of session state.

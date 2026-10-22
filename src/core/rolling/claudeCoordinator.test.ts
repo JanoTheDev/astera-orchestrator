@@ -692,6 +692,83 @@ describe('RollingCoordinator', () => {
 // resume 리플레이 오탐. --resume 재개는 대화 전체를 화면에 재생하고 그 대화에는 직전 한도 문구가
 // 들어 있다. awaitingReady 쿨다운은 자동 프롬프트를 보내는 순간 해제되는데, 프롬프트는 첫
 // statusline이 보이면 즉시 나가므로 리플레이가 아직 흐르는 중이다.
+describe('RollingCoordinator switchTo (Use for this tab)', () => {
+  it('moves the tab onto the chosen account, not the next one, marked manual', async () => {
+    const h = harness()
+    h.payloads.set('s1', payload(10))
+    h.coord.register(h.info1)
+    expect(await h.coord.switchTo('s1', 'a3')).toEqual({ outcome: 'switched' })
+    expect(h.events).toEqual(['copy', 'kill:s1', 'spawn:s2:a3'])
+    expect(h.sent.some((m) => m.payload.state === 'switching' && m.payload.manual === true)).toBe(true)
+  })
+
+  it('answers same on the current account and refuses another provider, spawning nothing', async () => {
+    const codex: Account = { ...acc('cx', 'Codex'), provider: 'codex' }
+    const h = harness({ getAccount: (id) => (id === 'cx' ? codex : acc(id, id)) })
+    h.payloads.set('s1', payload(10))
+    h.coord.register(h.info1)
+    expect(await h.coord.switchTo('s1', 'a1')).toEqual({ outcome: 'same' })
+    expect((await h.coord.switchTo('s1', 'cx')).outcome).toBe('refused')
+    expect(h.spawned).toHaveLength(0)
+  })
+
+  it('answers busy while a roll is in flight and while the new session settles', async () => {
+    const h = harness()
+    h.payloads.set('s1', payload(10))
+    h.coord.register(h.info1)
+    const first = h.coord.switchTo('s1', 'a2')
+    const second = h.coord.switchTo('s1', 'a3')
+    expect(await second).toEqual({ outcome: 'busy' })
+    expect(await first).toEqual({ outcome: 'switched' })
+    // awaitingReady: the respawned session has not taken its prompt yet.
+    expect(await h.coord.switchTo('s2', 'a3')).toEqual({ outcome: 'busy' })
+    expect(h.spawned.map((s) => s.accountId)).toEqual(['a2'])
+  })
+
+  it('appends an account from outside the chain and rolls onto it; later rolls keep the chain order', async () => {
+    const h = harness()
+    h.payloads.set('s1', payload(10))
+    h.coord.register({ ...h.info1, rollAccountIds: ['a1'] }) // a tab started without rolling gets a one-account chain
+    expect(await h.coord.switchTo('s1', 'a3')).toEqual({ outcome: 'switched' })
+    expect(h.spawned.map((s) => s.accountId)).toEqual(['a3'])
+    expect(h.spawnedOpts[0].rollAccountIds).toEqual(['a1', 'a3'])
+  })
+
+  it('refuses a signed-out account', async () => {
+    const h = harness({ loginStatus: (id) => Promise.resolve(id !== 'a3') })
+    h.payloads.set('s1', payload(10))
+    h.coord.register(h.info1)
+    expect(await h.coord.switchTo('s1', 'a3')).toEqual({ outcome: 'refused', reason: 'account signed out' })
+    expect(h.spawned).toHaveLength(0)
+  })
+
+  it('locates a chat tab registered after its ready event from the thread id main recorded', async () => {
+    const h = harness({ locateTranscript: (accountId, threadId) => Promise.resolve(`/h/${accountId}/${threadId}.jsonl`) })
+    h.chatIds.add('s1')
+    h.coord.register({ ...h.info1, kind: 'chat', threadId: 'th-1', rollAccountIds: ['a1'] })
+    expect(await h.coord.switchTo('s1', 'a2')).toEqual({ outcome: 'switched' })
+    expect(h.copied[0].src).toBe('/h/a1/th-1.jsonl')
+    expect(h.spawned.map((s) => s.accountId)).toEqual(['a2'])
+  })
+
+  it('refuses a chat tab with no conversation yet and leaves nothing behind', async () => {
+    const h = harness({ locateTranscript: () => Promise.resolve(null) })
+    h.chatIds.add('s1')
+    h.coord.register({ ...h.info1, kind: 'chat', threadId: 'th-1', rollAccountIds: ['a1'] })
+    expect(await h.coord.switchTo('s1', 'a2')).toEqual({ outcome: 'refused', reason: 'conversation not located yet' })
+    expect(h.spawned).toHaveLength(0)
+    expect(h.sent.some((m) => m.payload.state === 'waiting')).toBe(false)
+  })
+
+  it('refuses a chain with no located conversation and arms no wait', async () => {
+    const h = harness()
+    h.coord.register(h.info1) // no statusLine payload
+    expect(await h.coord.switchTo('s1', 'a2')).toMatchObject({ outcome: 'refused' })
+    expect(h.sent.some((m) => m.payload.state === 'waiting')).toBe(false)
+    expect(h.spawned).toHaveLength(0)
+  })
+})
+
 describe('롤 직후 리플레이 유예', () => {
   it('유예 안에 도착한 한도 문구는 재롤하지 않는다', async () => {
     const h = harness()

@@ -1147,6 +1147,102 @@ describe('CodexRollingCoordinator', () => {
     h.coord.stop()
   })
 
+  it('switchTo moves the tab onto the chosen account through the roll path, marked manual', async () => {
+    const h = harness()
+    await writeRollout({ accountId: 'c1', uuid: 'cx-6', cwd: h.info1.cwd, primary: 3 })
+    h.coord.register(h.info1)
+    await advance(1_500)
+    expect(await h.coord.switchTo('s1', 'c2')).toEqual({ outcome: 'switched' })
+    expect(h.events).toContain('spawn:s2:c2')
+    expect(h.sent.some((m) => m.payload.state === 'switching' && m.payload.manual === true)).toBe(true)
+    h.coord.stop()
+  })
+
+  it('switchTo answers same, busy and refused without spawning', async () => {
+    const h = harness()
+    await writeRollout({ accountId: 'c1', uuid: 'cx-7', cwd: h.info1.cwd, primary: 3 })
+    h.coord.register(h.info1)
+    await advance(1_500)
+    expect(await h.coord.switchTo('s1', 'c1')).toEqual({ outcome: 'same' })
+    // Another provider's account is never in a codex chain.
+    expect((await h.coord.switchTo('s1', 'a1')).outcome).toBe('refused')
+    expect(h.events.filter((e) => e.startsWith('spawn:'))).toHaveLength(0)
+    // Two clicks at once: the second finds the first rolling.
+    const first = h.coord.switchTo('s1', 'c2')
+    const second = h.coord.switchTo('s1', 'c2')
+    expect(await second).toEqual({ outcome: 'busy' })
+    expect(await first).toEqual({ outcome: 'switched' })
+    expect(h.events.filter((e) => e.startsWith('spawn:'))).toHaveLength(1)
+    h.coord.stop()
+  })
+
+  it('switchTo appends an account from outside the chain and rolls onto it', async () => {
+    const c3 = acc('c3', 'Codex C')
+    const h = harness({ getAccount: (id) => (id === 'c3' ? c3 : id === 'c1' || id === 'c2' ? acc(id, id) : null) })
+    await writeRollout({ accountId: 'c1', uuid: 'cx-8', cwd: h.info1.cwd, primary: 3 })
+    h.coord.register(h.info1)
+    await advance(1_500)
+    expect(await h.coord.switchTo('s1', 'c3')).toEqual({ outcome: 'switched' })
+    expect(h.events).toContain('spawn:s2:c3')
+    h.coord.stop()
+  })
+
+  it('switchTo refuses another provider and a signed-out account', async () => {
+    const claudeAccount: Account = { ...acc('a1', 'Claude'), provider: 'claude' }
+    const h = harness({
+      getAccount: (id) => (id === 'a1' ? claudeAccount : acc(id, id)),
+      loginStatus: (id) => Promise.resolve(id !== 'c2')
+    })
+    await writeRollout({ accountId: 'c1', uuid: 'cx-9', cwd: h.info1.cwd, primary: 3 })
+    h.coord.register(h.info1)
+    await advance(1_500)
+    expect(await h.coord.switchTo('s1', 'a1')).toEqual({ outcome: 'refused', reason: 'not a codex account' })
+    expect(await h.coord.switchTo('s1', 'c2')).toEqual({ outcome: 'refused', reason: 'account signed out' })
+    expect(h.events.filter((e) => e.startsWith('spawn:'))).toHaveLength(0)
+    h.coord.stop()
+  })
+
+  it('switchTo switches a plain terminal tab handed its own rollout at registration', async () => {
+    const h = harness()
+    const file = await writeRollout({ accountId: 'c1', uuid: 'cx-plain', cwd: h.info1.cwd, primary: 3 })
+    h.coord.register({ ...h.info1, rollAccountIds: ['c1'] }, file, false, false, 'cx-plain')
+    expect(await h.coord.switchTo('s1', 'c2')).toEqual({ outcome: 'switched' })
+    expect(h.spawned[0].resumeSessionId).toBe('cx-plain')
+    h.coord.stop()
+  })
+
+  it('switchTo refuses a fresh terminal tab and never takes an older rollout from its folder', async () => {
+    const h = harness()
+    await writeRollout({ accountId: 'c1', uuid: 'cx-older', cwd: h.info1.cwd, primary: 3 })
+    h.coord.register({ ...h.info1, rollAccountIds: ['c1'] })
+    expect(await h.coord.switchTo('s1', 'c2')).toEqual({ outcome: 'refused', reason: 'conversation not located yet' })
+    expect(h.spawned).toHaveLength(0)
+    h.coord.stop()
+  })
+
+  it('switchTo locates a chat tab by the thread id main recorded and refuses one with no rollout', async () => {
+    const h = harness()
+    await writeRollout({ accountId: 'c1', uuid: 'cx-th', cwd: h.info1.cwd, primary: 3 })
+    await writeRollout({ accountId: 'c1', uuid: 'cx-other', cwd: h.info1.cwd, primary: 3 })
+    h.coord.register({ ...h.info1, kind: 'chat', threadId: 'cx-th', rollAccountIds: ['c1'] })
+    expect(await h.coord.switchTo('s1', 'c2')).toEqual({ outcome: 'switched' })
+    expect(h.spawned[0].resumeSessionId).toBe('cx-th')
+    const g = harness()
+    g.coord.register({ ...g.info1, kind: 'chat', threadId: 'cx-none', rollAccountIds: ['c1'] })
+    expect(await g.coord.switchTo('s1', 'c2')).toEqual({ outcome: 'refused', reason: 'conversation not located yet' })
+    expect(g.spawned).toHaveLength(0)
+    h.coord.stop()
+    g.coord.stop()
+  })
+
+  it('switchTo refuses a chain whose rollout is not located yet and arms no wait', async () => {
+    const h = harness()
+    h.coord.register(h.info1)
+    expect(await h.coord.switchTo('s1', 'c2')).toMatchObject({ outcome: 'refused' })
+    expect(h.sent.some((m) => m.payload.state === 'waiting')).toBe(false)
+    h.coord.stop()
+  })
+
   // 아래 unregister 테스트의 대조군. 그 테스트와 setup 이 같고 unregister 한 줄만 없다 — 그것이
   // 부정 단언의 근거다(이 테스트가 통과하는 동안에만 아래가 무언가를 증명한다).
   // **하네스마다 테스트를 나눈다**: findRollout 은 파일의 실제 생성 시각을 register 시각(가짜 시계)과

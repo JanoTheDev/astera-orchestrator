@@ -66,6 +66,7 @@ import type { ProcRegistry } from './procRegistry'
 import type { HostSpawner } from './spawner'
 import type { HostWorktrees } from './worktrees'
 import { readMaxConcurrentWorkers } from '../core/settings/maxConcurrentWorkers'
+import { machineSpecs } from '../core/settings/machineSpecs'
 // Coordinator rotation
 import { readFreshCoordinatorPct } from '../core/settings/freshCoordinator'
 import { readStallWatchOn } from '../core/settings/stallWatch'
@@ -409,7 +410,7 @@ export function createHostDriving(d: {
     handle: (cmd, args) => d.orch.handle(cmd, args),
     getState: () => d.orch.state(),
     // W1-B. A damaged file reads as no cap: the spawn refuses on that file anyway (orch.ts, the same line).
-    maxConcurrentWorkers: () => readMaxConcurrentWorkers(settingsPath).catch(() => null),
+    maxConcurrentWorkers: () => readMaxConcurrentWorkers(settingsPath).catch(() => machineSpecs().recommended),
     accounts: () => d.checks.accounts(),
     loginStatus: (id) => d.checks.loginStatus(id),
     lang: () => d.checks.langNow(),
@@ -457,7 +458,7 @@ export function createHostDriving(d: {
         handle: (cmd, args) => d.orch.handle(cmd, args),
         getState: () => d.orch.state(),
         on: () => readStallWatchOn(settingsPath),
-        cap: () => readMaxConcurrentWorkers(settingsPath).catch(() => null),
+        cap: () => readMaxConcurrentWorkers(settingsPath).catch(() => machineSpecs().recommended),
         busy: (id) => d.spawner.sessionBusy(id),
         alive: (id) => hostSessionAlive(d.registry, d.procs, id),
         isRegistered: (p) => d.worktrees.isRegistered(p),

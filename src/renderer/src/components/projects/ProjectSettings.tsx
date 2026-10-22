@@ -3,6 +3,7 @@ import type { Account } from '../../../../core/types'
 import { MAX_CONCURRENT_WORKERS, PROJECT_DEFAULTS, type Project } from '../../../../core/orchestration/types'
 import { useI18n } from '../../i18n/I18nProvider'
 import { Button, Modal } from '../ui'
+import { AccountSelect } from '../AccountSelect'
 import { ProjectDelivery } from '../delivery/ProjectDelivery'
 import { ProjectAttribution } from '../attribution/ProjectAttribution' // W8-B
 import './projects.css'
@@ -182,15 +183,13 @@ export function ProjectSettingsBody({
             </select>
           </div>
           <div className="field">
-            <label>Default account</label>
-            <select value={account} onChange={(e) => void save({ account: e.target.value })}>
-              <option value="">None</option>
-              {accounts.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.label}
-                </option>
-              ))}
-            </select>
+            <label>{t('account.select.projectDefault')}</label>
+            <AccountSelect
+              accounts={accounts}
+              value={account}
+              allLabel={t('account.select.none')}
+              onChange={(id) => void save({ account: id })}
+            />
           </div>
         </>
       )}

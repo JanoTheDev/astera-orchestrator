@@ -76,6 +76,7 @@ import type { WorkspaceManager } from './workspace/manager'
 import { DESKTOP_ACTOR, HOST_ACTOR, actorOf, type JournalActor } from '../core/continuity/actor'
 import { parseJournalOps } from '../core/continuity/journalOps'
 import { readMaxConcurrentWorkers } from '../core/settings/maxConcurrentWorkers'
+import { machineSpecs } from '../core/settings/machineSpecs'
 
 /** One reply — today's HTTP status and body, the shape `OrchCall.call` already answers with. Named
  *  only because the receipt store below holds one. */
@@ -521,9 +522,10 @@ export function createHostOrch(a: {
   resolveProjectRoot?(cwd: string): Promise<string>
   /** The Host's own rolling (S6): `unregister` is passed through to `hostOrchDeps` (HOST_ROLLS, R8);
    *  the other three members are for the roll tap and the app's calls (Tasks 11 and 13): `stateOf` and
-   *  `forceRoll` answer `roll-state`/`roll-force`, and `has` is `roll-force`'s 404 check for a session
-   *  this Host holds no chain for. Absent: `unregisterRolling` only forwards to the app, as before. */
-  rolling?: Pick<HostRolling, 'unregister' | 'stateOf' | 'forceRoll' | 'has'> | null
+   *  `forceRoll` answer `roll-state`/`roll-force`, `switchTo` answers `roll-switch`, and `has` is the 404
+   *  check of both for a session this Host holds no chain for. Absent: `unregisterRolling` only forwards to
+   *  the app, as before. */
+  rolling?: Pick<HostRolling, 'unregister' | 'stateOf' | 'forceRoll' | 'switchTo' | 'has'> | null
   /** The Host's own recovery (remote runtime design §2.6), passed through to `hostOrchDeps` (HOST_RECOVERS). Absent:
    *  `onDispatchLost` only forwards to the app, as before. */
   recovery?: { owns(): boolean; lost(dispatchId: string): void } | null
@@ -654,7 +656,7 @@ export function createHostOrch(a: {
 
   /** W3-A: the app-wide cap the blocked reasons of `activity-summary` read (blocked.ts), as the dispatch reads it. */
   const activityLimits = async (): Promise<{ maxConcurrentWorkers: number | null }> => ({
-    maxConcurrentWorkers: await readMaxConcurrentWorkers(path.join(a.profileDir, 'app-settings.json')).catch(() => null)
+    maxConcurrentWorkers: await readMaxConcurrentWorkers(path.join(a.profileDir, 'app-settings.json')).catch(() => machineSpecs().recommended)
   })
 
   /** The public event log, isolated like the journal: a log that throws must not turn a landed commit into a failed
@@ -943,7 +945,7 @@ export function createHostOrch(a: {
       backup: () => store.backup(),
       // W1-B. A damaged file reads as no cap: the spawn behind worker-start refuses on that file anyway
       // (spawner.ts reads the permission mode from it), so nothing starts past the cap on a guess.
-      maxConcurrentWorkers: () => readMaxConcurrentWorkers(path.join(a.profileDir, 'app-settings.json')).catch(() => null),
+      maxConcurrentWorkers: () => readMaxConcurrentWorkers(path.join(a.profileDir, 'app-settings.json')).catch(() => machineSpecs().recommended),
       // W8-A: the stamp reads a worker's busy windows from its hook-events file
       hookEventsDir: hookEventsDirIn(a.profileDir),
       // W8-A: the stamp's line data reads the checkpoint logs under the profile
@@ -1902,6 +1904,7 @@ export function createHostOrch(a: {
             cmd === 'validation-stop' ||
             cmd === 'roll-state' ||
             cmd === 'roll-force' ||
+            cmd === 'roll-switch' ||
             cmd === 'roll-journal' ||
             cmd === 'slack-reload' ||
             cmd === 'mcp-http-reload' ||
@@ -1990,13 +1993,19 @@ export function createHostOrch(a: {
         // **Beside validation-stop, for the same reason (S6 §3.4).** The app's own reads and its own
         // button on a Host chain — never a command layer command, so a Host too old to roll answers
         // 501, exactly as a Host with no checks answers validation-stop.
-        if (cmd === 'roll-state' || cmd === 'roll-force') {
+        if (cmd === 'roll-state' || cmd === 'roll-force' || cmd === 'roll-switch') {
           if (from?.role !== 'app') return { status: 403, body: { error: `${cmd} is the app’s to send` } }
           if (!a.rolling) return { status: 501, body: { error: 'this Host does not roll sessions' } }
           const sessionId = args.sessionId
           if (typeof sessionId !== 'string' || sessionId === '') return { status: 400, body: { error: `${cmd} needs a sessionId` } }
           if (cmd === 'roll-state') return { status: 200, body: { state: a.rolling.stateOf(sessionId) } }
           if (!a.rolling.has(sessionId)) return { status: 404, body: { error: `no Host rolling chain for session ${sessionId}` } }
+          if (cmd === 'roll-switch') {
+            const accountId = args.accountId
+            if (typeof accountId !== 'string' || accountId === '') return { status: 400, body: { error: 'roll-switch needs an accountId' } }
+            // 200 for every outcome, as roll-force: 'busy' or 'refused' is an answer, not an error.
+            return { status: 200, body: await a.rolling.switchTo(sessionId, accountId) }
+          }
           // 200 either way (S6 final review M1): a chain that declined is not an error, and the app reads
           // `forced: false` as "nothing happened" rather than throwing on a status.
           if (await a.rolling.forceRoll(sessionId)) return { status: 200, body: { forced: true } }
