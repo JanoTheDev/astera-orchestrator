@@ -9,6 +9,7 @@ import {
   webContents,
   Notification,
   protocol,
+  powerMonitor,
   // Squirrel.Mac itself, not electron-updater's wrapper around it. Only listened to — see the
   // staging block below for why its verdict has to be read separately from electron-updater's.
   autoUpdater as squirrel
@@ -82,6 +83,9 @@ import { CodexRolloutWatcher } from '../core/sessions/codexRolloutWatcher'
 import { t } from '../core/i18n'
 import { loadPolicy, nextCheckDelayMs, parsePolicyUrl, shouldApplyCampaign } from './updatePolicy'
 import { AUTO_UPDATE } from '../core/update/autoUpdate'
+import { BUILT_COMMIT, SOURCE_DIR } from '../core/update/sourceUpdate'
+import { createSourceUpdater } from './sourceUpdate'
+import type { MessageKey } from '../core/i18n'
 import {
   NOTHING_STAGED,
   extractForManualInstall,
@@ -1710,6 +1714,46 @@ app.whenReady().then(async () => {
         void runAutomaticCheck()
       })
       .catch((e) => push({ state: 'error', message: `updater load failed: ${e?.message ?? String(e)}` }))
+  } else if (app.isPackaged && BUILT_COMMIT && SOURCE_DIR) {
+    // The source channel, for a build made from a git checkout: origin/main's new commits are built in a private
+    // clone and installed on a restart (main/sourceUpdate.ts). The releases updater above is never on with it.
+    const flog = lineLog(path.join(app.getPath('userData'), 'updater.log'))
+    const push = (s: UpdateStatus): void => {
+      flog(JSON.stringify(s))
+      try {
+        windows.broadcast('update:status', s)
+      } catch {
+        /* renderer send failures are ignored */
+      }
+    }
+    push({ state: 'init', version: app.getVersion() })
+    const source = createSourceUpdater({
+      sourceDir: SOURCE_DIR,
+      builtCommit: BUILT_COMMIT,
+      userData: app.getPath('userData'),
+      platform: process.platform,
+      appImage: process.env.APPIMAGE,
+      getMode: () => core!.appSettings.getUpdateMode(),
+      push,
+      log: flog,
+      text: (key, params) => t(core!.lang, key as MessageKey, params),
+      idleSeconds: () => powerMonitor.getSystemIdleTime(),
+      // The same quit the releases install takes: the hold keeps `astera runtime serve` from starting a Host
+      // meanwhile, and the Host stands down only where it cannot survive (not on Linux, where this runs).
+      quitForInstall: async () => {
+        try {
+          writeUpdateHold(app.getPath('userData'), { pid: process.pid, until: Date.now() + UPDATE_HOLD_MS })
+        } catch {
+          /* serve may race the restart, as before */
+        }
+        if (!(hostSurvivesUpdateRef?.() ?? process.platform !== 'win32')) await hostClientRetireRef?.().catch(() => {})
+        app.quit()
+      }
+    })
+    ipcMain.handle('update:check', () => source.check(true))
+    ipcMain.handle('update:download', () => source.build())
+    ipcMain.handle('update:install', () => source.install())
+    source.start()
   }
 })
 

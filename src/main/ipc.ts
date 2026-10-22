@@ -295,6 +295,7 @@ import { createAccountUsage } from './accountUsage'
 import { createUsageGuard } from '../core/orchestration/usageGuard'
 import { readAccountReadings } from '../core/usage/accountReadings'
 import { readSubagentCount, SUBAGENT_CAP_MAX } from '../core/sessions/subagentCap'
+import { isUpdateMode } from '../core/update/sourceUpdate'
 import type { UsageGuardView } from '../core/types'
 import { createPullRequest, readCommits } from '../core/github/prCreate'
 import { fillFromCommits } from '../core/github/fill'
@@ -6441,6 +6442,12 @@ export function registerIpc(
     if (kind !== 'terminal' && kind !== 'chat')
       throw new Error(`INVALID_DEFAULT_SESSION_KIND: ${String(kind)}`)
     await core.appSettings.setDefaultSessionKind(kind)
+  })
+  // The source updater reads the mode on every tick, so a change needs no restart (main/sourceUpdate.ts).
+  ipcMain.handle('settings.getUpdateMode', () => core.appSettings.getUpdateMode())
+  ipcMain.handle('settings.setUpdateMode', async (_e, mode: unknown) => {
+    if (!isUpdateMode(mode)) throw new Error(`INVALID_UPDATE_MODE: ${String(mode)}`)
+    await core.appSettings.setUpdateMode(mode)
   })
 
   /**

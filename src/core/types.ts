@@ -1654,6 +1654,9 @@ export interface CoreApi {
      *  changing the kind inside the dialog is that session's business and is not written back. */
     getDefaultSessionKind(): Promise<SessionKind>
     setDefaultSessionKind(kind: SessionKind): Promise<void>
+    /** The source update channel's mode (default 'build'); a change takes effect within a minute, no restart. */
+    getUpdateMode(): Promise<UpdateMode>
+    setUpdateMode(mode: UpdateMode): Promise<void>
   }
   files: {
     // The file explorer. Every files.* IPC call goes through assertAllowedPath, which permits only
@@ -1934,10 +1937,22 @@ export interface UpdateStatus {
     | 'downloaded'
     | 'manual'
     | 'error'
+    /** Source channel only (src/core/update/sourceUpdate.ts): the new AppImage is being built from origin/main. */
+    | 'building'
   version?: string
   percent?: number
   message?: string
+  /** `building` only: which part of the build is running. */
+  step?: SourceBuildStep
+  /** Source channel only: how far this build is behind origin/main, and the commits it lacks (up to 20). */
+  source?: { behind: number; commits: { sha: string; subject: string }[]; target: string }
 }
+
+export type SourceBuildStep = 'cloning' | 'installing' | 'waiting' | 'building'
+
+/** How the source update channel acts on its own: never, check and tell, check and build, or also restart into the
+ *  new build once the app is idle. A manual check works in every mode. */
+export type UpdateMode = 'off' | 'notify' | 'build' | 'install-when-idle'
 
 /**
  * What pressing the install button actually did.

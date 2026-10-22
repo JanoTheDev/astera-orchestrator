@@ -1,4 +1,6 @@
+import { execFileSync } from 'node:child_process'
 import { createRequire } from 'node:module'
+import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
@@ -11,10 +13,25 @@ import { isNoise } from './electron.vite.warnings'
 const version = (createRequire(import.meta.url)('./package.json') as { version: string }).version
 // Fork: auto-update stays off unless built with ASTERA_AUTO_UPDATE=1 (src/core/update/autoUpdate.ts)
 const autoUpdate = JSON.stringify(process.env.ASTERA_AUTO_UPDATE === '1')
+// The source update channel (src/core/update/sourceUpdate.ts): the commit and the checkout this build came from.
+// A self-update builds in a private clone and passes ASTERA_SOURCE_DIR, so the new app keeps watching the owner's
+// checkout rather than the clone.
+const sourceDir = process.env.ASTERA_SOURCE_DIR || dirname(fileURLToPath(import.meta.url))
+let commit = ''
+try {
+  commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: dirname(fileURLToPath(import.meta.url)), encoding: 'utf8' }).trim()
+} catch {
+  /* not a git checkout: the source channel stays off */
+}
 
 export default defineConfig({
   main: {
-    define: { __ASTERA_VERSION__: JSON.stringify(version), __ASTERA_AUTO_UPDATE__: autoUpdate },
+    define: {
+      __ASTERA_VERSION__: JSON.stringify(version),
+      __ASTERA_AUTO_UPDATE__: autoUpdate,
+      __ASTERA_COMMIT__: JSON.stringify(commit),
+      __ASTERA_SOURCE_DIR__: JSON.stringify(sourceDir)
+    },
     plugins: [externalizeDepsPlugin()],
     build: {
       rollupOptions: {

@@ -533,6 +533,42 @@ describe('resumeStrategy', () => {
   })
 })
 
+describe('updateMode', () => {
+  it('defaults to build', async () => {
+    const store = new AppSettingsStore(file())
+    await store.load()
+    expect(store.getUpdateMode()).toBe('build')
+  })
+
+  it('persists each mode and a new instance reads it back', async () => {
+    for (const mode of ['off', 'notify', 'install-when-idle', 'build'] as const) {
+      const a = new AppSettingsStore(file())
+      await a.load()
+      await a.setUpdateMode(mode)
+      const b = new AppSettingsStore(file())
+      await b.load()
+      expect(b.getUpdateMode()).toBe(mode)
+    }
+  })
+
+  it('reads an unknown value as build', async () => {
+    for (const raw of [{ updateMode: 'always' }, { updateMode: 1 }, { updateMode: null }]) {
+      await fs.writeFile(file(), JSON.stringify(raw), 'utf8')
+      const store = new AppSettingsStore(file())
+      await store.load()
+      expect(store.getUpdateMode()).toBe('build')
+    }
+  })
+
+  it('leaves the key out of the file at the default', async () => {
+    const store = new AppSettingsStore(file())
+    await store.load()
+    await store.setUpdateMode('notify')
+    await store.setUpdateMode('build')
+    expect(JSON.parse(await fs.readFile(file(), 'utf8'))).not.toHaveProperty('updateMode')
+  })
+})
+
 describe('defaultSessionKind', () => {
   it('기본값은 terminal이다', async () => {
     const store = new AppSettingsStore(file())

@@ -275,7 +275,9 @@ const api = {
     markFirstRunAsked: invoke('settings.markFirstRunAsked'),
     takeRecoveryNotice: invoke('settings.takeRecoveryNotice'),
     getDefaultSessionKind: invoke('settings.getDefaultSessionKind'),
-    setDefaultSessionKind: invoke('settings.setDefaultSessionKind')
+    setDefaultSessionKind: invoke('settings.setDefaultSessionKind'),
+    getUpdateMode: invoke('settings.getUpdateMode'),
+    setUpdateMode: invoke('settings.setUpdateMode')
   },
   files: {
     list: invoke('files.list'),
