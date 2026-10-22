@@ -3,7 +3,7 @@ import type { accounts as ko } from '../ko/accounts'
 
 export const accounts: Partial<Record<keyof typeof ko, string>> = {
   'settings.accounts.hint':
-    '⤓ は同じ CLI の既定アカウントから設定を取り込みます。既定アカウントはログイン済みのアカウントのうち最初に登録されたもので、CLI ごとに1つあります。',
+    "「設定をインポート」は同じ CLI の既定アカウントから設定をコピーします。既定アカウントはサインイン済みで最も早く登録されたもので、CLI ごとに 1 つです。",
   // AccountPanel.tsx — account register, import, detect, logout, settings sync
   'account.field.kind': '種類',
   'account.field.label': 'ラベル',
@@ -61,4 +61,10 @@ export const accounts: Partial<Record<keyof typeof ko, string>> = {
   'account.switch.busy': 'このタブはすでにアカウントを切り替え中です。少しして再度お試しください',
   'account.switch.noTab': 'セッションタブを開くと、別のアカウントに移せます',
   'account.switch.otherProvider': '{provider} のアカウントだけがこのタブを引き継げます',
+  // W3 redesign: rename button, near-limit cue, plain import button, empty states
+  'account.rename.button': "名前を変更",
+  'account.usage.nearLimit': "上限に近づいています",
+  'account.sync.button': "設定をインポート",
+  'account.empty.body': "アカウントを追加すると、Astera が Claude または Codex のサブスクリプションでエージェントを実行できます。",
+  'account.empty.bodySettings': "上部バーのアカウントメニューから追加できます。",
 }

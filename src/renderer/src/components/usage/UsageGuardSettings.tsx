@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useI18n } from '../../i18n/I18nProvider'
 import { toast } from '../../lib/toast'
+import { Field } from '../ui'
 
 function NumberSetting(p: {
   label: string
@@ -42,11 +43,16 @@ function NumberSetting(p: {
 
   return (
     <div className="settings-group">
-      <label className="settings-row">
-        <span>{p.label}</span>
-        <input type="number" min={p.min} max={p.max} value={draft} aria-label={p.label} onChange={(e) => setDraft(e.target.value)} onBlur={commit} />
-      </label>
-      <span className="settings-hint">{p.hint}</span>
+      <Field
+        kind="number"
+        label={p.label}
+        hint={p.hint}
+        min={p.min}
+        max={p.max}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+      />
     </div>
   )
 }

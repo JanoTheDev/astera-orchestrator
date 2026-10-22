@@ -15,8 +15,8 @@
 .account-row-actions { display: inline-flex; align-items: center; gap: 8px; }
 /* W7-F (#82): the popover row's Sign in and Remove. Remove shows on hover or focus, so the list stays quiet. */
 .account-panel .account-row-actions { gap: 2px; }
-.account-panel .account-remove-btn { opacity: 0; }
-.account-panel .account-row:hover .account-remove-btn, .account-panel .account-row:focus-within .account-remove-btn { opacity: 1; }
+.account-panel .account-remove-btn, .account-panel .account-rename-btn { opacity: 0; }
+.account-panel .account-row:hover .account-remove-btn, .account-panel .account-row:focus-within .account-remove-btn, .account-panel .account-row:hover .account-rename-btn, .account-panel .account-row:focus-within .account-rename-btn { opacity: 1; }
 .account-panel .account-remove-btn:hover:not(:disabled) { color: var(--danger); }
 /* W11 (DESIGN-W11 §8, NOTES 12-accounts): the top bar's popover. Right-aligned under the meter (shell.css), never wider
    than the window; the header is an overline with labelled icon buttons. */
@@ -35,14 +35,18 @@
 .account-label-edit { flex: 1; min-width: 0; font-size: var(--fs-12); padding: 0 4px; } /* W7-F: renaming an account */
 .color-dot { width: 8px; height: 8px; border-radius: var(--radius-sm); flex-shrink: 0; }
 .account-row .color-dot { width: 9px; height: 9px; }
+.account-signin-code { display: flex; align-items: flex-end; gap: var(--sp-2); }
+.account-signin-code .ui-field { flex: 1; }
 .badge { font-size: var(--fs-11); font-family: var(--mono); color: var(--text-dim); background: var(--elevated); border-radius: var(--radius-sm); padding: 0 4px; flex-shrink: 0; }
 .badge.ok { color: var(--ok); background: var(--ok-bg); }
 /* The account row's usage meter (design doc §5). W9-B: each track is the house Meter (components/ui), on its usage-guard
    thresholds. W11: each line is labelled — "5h ▬ 12%" over "Weekly ▬ 41%". */
 .acct-meter { width: 132px; flex: none; display: flex; flex-direction: column; gap: 2px; }
-.acct-meter__line { display: grid; grid-template-columns: 6ch 1fr 4ch; align-items: center; gap: 6px; font-size: var(--fs-11); line-height: var(--lh-tight); font-variant-numeric: tabular-nums; }
+.acct-meter__line { display: grid; grid-template-columns: 6ch 1fr 6ch; align-items: center; gap: 6px; font-size: var(--fs-11); line-height: var(--lh-tight); font-variant-numeric: tabular-nums; }
 .acct-meter__k { color: var(--text-faint); }
-.acct-meter__v { color: var(--text); text-align: right; }
+.acct-meter__v { color: var(--text); display: inline-flex; align-items: center; justify-content: flex-end; gap: 2px; }
+.acct-near--warn { color: var(--warn); }
+.acct-near--danger { color: var(--danger); }
 .acct-meter .ui-meter__track, .acct-detail .t .ui-meter__track { height: 3px; }
 /* A remembered reading — the same convention .pr-badge.stale uses for a stale snapshot */
 .acct-meter.stale { opacity: .45; }
@@ -59,7 +63,7 @@
 }
 .acct-detail .dline { display: flex; align-items: center; gap: 7px; font-size: var(--fs-11); font-variant-numeric: tabular-nums; }
 .acct-detail .k { color: var(--text-faint); width: 4.6ch; flex: none; }
-.acct-detail .v { color: var(--text); width: 4ch; flex: none; text-align: right; font-weight: 600; }
+.acct-detail .v { color: var(--text); width: 6ch; flex: none; display: inline-flex; align-items: center; justify-content: flex-end; gap: 2px; font-weight: var(--fw-semi); }
 .acct-detail .t { flex: 1; }
 .acct-detail .r { color: var(--text-faint); width: 6.4ch; flex: none; text-align: right; }
 .acct-detail-stale { margin-top: 1px; padding-top: 5px; border-top: 1px solid var(--line-soft); font-size: var(--fs-11); color: var(--text-faint); }

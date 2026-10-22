@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { Account } from '../../../core/types'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
-import { Button, Modal } from './ui'
+import { Button, Field, Icon, Modal } from './ui'
 
 /** W7-F (#82): signs one account in. Astera runs the CLI's own login for the account's folder (main/accountLogin.ts)
  *  and shows the link it prints, with "Open in browser", "Copy" and a box for the code the CLI may ask for. Closes by
@@ -106,30 +106,33 @@ export function AccountSignInDialog({ account, onClose }: { account: Account; on
               {state.url}
             </a>
             <div className="row">
-              <button className="primary" type="button" onClick={() => void window.api.system.openExternal(state.url!)}>
+              <Button variant="primary" icon={<Icon name="external" />} onClick={() => void window.api.system.openExternal(state.url!)}>
                 {t('account.signIn.open')}
-              </button>
-              <button type="button" onClick={() => void copy(state.url!)}>
+              </Button>
+              <Button icon={<Icon name="copy" />} onClick={() => void copy(state.url!)}>
                 {t('account.signIn.copy')}
-              </button>
+              </Button>
             </div>
           </>
         )}
         {state.asksCode && (
           <form
-            className="field"
+            className="account-signin-code"
             onSubmit={(e) => {
               e.preventDefault()
               void sendCode()
             }}
           >
-            <label>{t('account.signIn.codeLabel')}</label>
-            <div className="row">
-              <input type="text" value={code} onChange={(e) => setCode(e.target.value)} autoComplete="off" spellCheck={false} />
-              <button type="submit" disabled={!code.trim()}>
-                {t('account.signIn.codeSubmit')}
-              </button>
-            </div>
+            <Field
+              label={t('account.signIn.codeLabel')}
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              autoComplete="off"
+              spellCheck={false}
+            />
+            <Button type="submit" disabled={!code.trim()}>
+              {t('account.signIn.codeSubmit')}
+            </Button>
           </form>
         )}
       </div>

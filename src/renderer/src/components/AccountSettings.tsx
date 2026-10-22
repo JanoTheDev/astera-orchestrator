@@ -6,7 +6,7 @@ import { useAccountUsage } from '../hooks/useAccountUsage'
 import { AccountRow } from './AccountRow'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
-import { Button, Modal } from './ui'
+import { Button, EmptyState, ICONS, Icon, IconButton, Modal } from './ui'
 
 /** The Accounts tab of the settings modal. It holds the delete and import-settings flows moved over from
  *  the sidebar. The sidebar (AccountPanel) is left with only listing and adding accounts. */
@@ -53,39 +53,30 @@ export function AccountSettings({ accounts }: { accounts: Account[] }): React.JS
             expanded={expandedId === a.id}
             onToggle={() => setExpandedId((cur) => (cur === a.id ? null : a.id))}
           >
-            {/* ⤓ needs a source, and that source is this provider's default account. Hidden on the default
+            {/* Importing needs a source, and that source is this provider's default account. Hidden on the default
                 itself (it would be copying onto itself) and when the provider has no default yet, which
                 means nothing of that CLI is logged in. */}
             {defaultId !== null && defaultId !== a.id && (
-              <button
-                className="ghost"
-                aria-label={t('account.sync.title')}
-                title={t('account.sync.title')}
-                onClick={() => setSyncTarget(a)}
-              >
-                <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M8 2v7.5" />
-                  <path d="M5 6.5 8 9.5l3-3" />
-                  <path d="M3 12.5h10" />
-                </svg>
-              </button>
+              <Button size="sm" variant="ghost" title={t('account.sync.title')} onClick={() => setSyncTarget(a)}>
+                {t('account.sync.button')}
+              </Button>
             )}
-            <button
-              className="ghost danger"
-              aria-label={t('account.remove.button')}
-              title={t('account.remove.button')}
+            <IconButton
+              size="sm"
+              className="account-remove-btn"
+              icon={<Icon name="delete" size={14} />}
+              label={t('account.remove.button')}
               onClick={() => openRemove(a)}
-            >
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-                <line x1="4" y1="4" x2="12" y2="12" />
-                <line x1="12" y1="4" x2="4" y2="12" />
-              </svg>
-            </button>
+            />
           </AccountRow>
           )
         })}
-        {accounts.length === 0 && <li className="empty">{t('account.panel.empty')}</li>}
       </ul>
+      {accounts.length === 0 && (
+        <EmptyState icon={ICONS.users} title={t('account.panel.empty')}>
+          {t('account.empty.bodySettings')}
+        </EmptyState>
+      )}
       {removeTarget && <RemoveAccountDialog account={removeTarget} onClose={() => setRemoveTarget(null)} />}
       {syncTarget && (
         <Modal
@@ -170,7 +161,7 @@ export function RemoveAccountDialog({ account, onClose }: { account: Account; on
           <Button disabled={removing} onClick={onClose}>
             {t('common.cancel')}
           </Button>
-          <Button variant="primary" disabled={removing} onClick={() => void confirmRemove()}>
+          <Button variant="danger" disabled={removing} onClick={() => void confirmRemove()}>
             {removing
               ? t('account.remove.processing')
               : logoutToo

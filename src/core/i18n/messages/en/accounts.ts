@@ -3,7 +3,7 @@ import type { accounts as ko } from '../ko/accounts'
 
 export const accounts: Record<keyof typeof ko, string> = {
   'settings.accounts.hint':
-    "⤓ imports settings from that CLI's default account. The default is the earliest registered account that is logged in — one per CLI.",
+    "“Import settings” copies settings from that CLI's default account. The default is the earliest registered account that is signed in — one per CLI.",
   'account.field.kind': 'Type',
   'account.field.label': 'Label',
   'account.panel.title': 'Accounts',
@@ -83,4 +83,10 @@ export const accounts: Record<keyof typeof ko, string> = {
   'settings.usageGuard.subagentsHint': 'From 1 to 10. A Claude tab that asks for more is told to wait until one finishes.',
   'settings.usageGuard.pauseAtHint': "No new worker starts on an account at this share of its 5-hour or 7-day limit, unless another of the task's accounts is under it. Running workers carry on.",
   'settings.usageGuard.saveFailed': 'Could not save the usage setting: {detail}',
+  // W3 redesign: rename button, near-limit cue, plain import button, empty states
+  'account.rename.button': "Rename",
+  'account.usage.nearLimit': "Close to the limit",
+  'account.sync.button': "Import settings",
+  'account.empty.body': "Accounts let Astera run agents on your Claude or Codex subscription. Add one to get started.",
+  'account.empty.bodySettings': "Add one from the accounts menu in the top bar.",
 }

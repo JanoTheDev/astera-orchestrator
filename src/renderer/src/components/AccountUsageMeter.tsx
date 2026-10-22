@@ -2,7 +2,7 @@ import { Fragment } from 'react'
 import type { AccountUsage, RateLimitWindow } from '../../../core/types'
 import { coarseDuration } from '../../../core/usage/relativeTime'
 import { useI18n } from '../i18n/I18nProvider'
-import { Meter } from './ui'
+import { Icon, Meter, meterTone } from './ui'
 import { runOutOf, SESSION_WINDOW_MS, WEEKLY_WINDOW_MS } from './usage/runOut'
 
 /** Is there anything to draw? Shared so the meter, the detail and the row that decides whether it
@@ -13,11 +13,22 @@ export const hasUsage = (u: AccountUsage | undefined): u is AccountUsage =>
 // W9-B: every usage display is the house Meter (components/ui), on its usage-guard thresholds (75 warn, 90 danger).
 // W11: each track is labelled with its window and percent. A missing window is an empty track with a dash, so the pair
 // keeps its height and the row does not shift.
+// Second cue besides colour: past the usage-guard warn threshold a warning icon sits beside the figure.
+const NearLimit = ({ percent }: { percent: number }): React.JSX.Element | null => {
+  const { t } = useI18n()
+  return meterTone(percent) === 'accent' ? null : (
+    <Icon name="warning" size={14} label={t('account.usage.nearLimit')} className={`acct-near acct-near--${meterTone(percent)}`} />
+  )
+}
+
 const track = (label: string, w: RateLimitWindow | null): React.JSX.Element => (
   <span className="acct-meter__line">
     <span className="acct-meter__k">{label}</span>
     <Meter value={w?.usedPercent ?? 0} className="acct-meter__t" />
-    <span className="acct-meter__v">{w ? `${Math.round(w.usedPercent)}%` : '–'}</span>
+    <span className="acct-meter__v">
+      {w && <NearLimit percent={w.usedPercent} />}
+      {w ? `${Math.round(w.usedPercent)}%` : '–'}
+    </span>
   </span>
 )
 
@@ -93,7 +104,10 @@ export function AccountUsageDetail({
       <Fragment key={label}>
         <span className="dline">
         <span className="k">{label}</span>
-        <span className="v">{`${Math.round(w.usedPercent)}%`}</span>
+        <span className="v">
+          <NearLimit percent={w.usedPercent} />
+          {`${Math.round(w.usedPercent)}%`}
+        </span>
         <Meter value={w.usedPercent} className="t" />
         <span className="r">{resets}</span>
         </span>
