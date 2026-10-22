@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Account } from '../../../../core/types'
 import { MAX_CONCURRENT_WORKERS, PROJECT_DEFAULTS, type Project } from '../../../../core/orchestration/types'
 import { useI18n } from '../../i18n/I18nProvider'
-import { Button, Input, Modal } from '../ui'
+import { Button, Field, Icon, Input, Modal } from '../ui'
 import { AccountSelect } from '../AccountSelect'
 import { ProjectDelivery } from '../delivery/ProjectDelivery'
 import { ProjectAttribution } from '../attribution/ProjectAttribution' // W8-B
@@ -21,9 +21,15 @@ export function ProjectSettings({
   accounts: Account[]
   onClose: () => void
 }): React.JSX.Element {
+  const { t } = useI18n()
   const [name, setName] = useState<string | null>(null)
   return (
-    <Modal title={`${name ?? 'Project'} settings`} onClose={onClose} footer={<Button onClick={onClose}>Close</Button>}>
+    <Modal
+      title={name === null ? t('project.settings.titleNoName') : t('project.settings.title', { name })}
+      onClose={onClose}
+      closeLabel={t('project.settings.close')}
+      footer={<Button onClick={onClose}>{t('project.settings.close')}</Button>}
+    >
       <ProjectSettingsBody anchor={anchor} projectId={projectId} accounts={accounts} onLoaded={(p) => setName(p.name)} onRemoved={onClose} />
     </Modal>
   )
@@ -48,6 +54,9 @@ export function ProjectSettingsBody({
   const { t } = useI18n()
   const loaded = useRef(onLoaded)
   loaded.current = onLoaded
+  // the provider makes a new t each render: read through a ref so load keeps its identity
+  const tRef = useRef(t)
+  tRef.current = t
   const [project, setProject] = useState<Project | null>(null)
   const [test, setTest] = useState('')
   const [concurrency, setConcurrency] = useState('')
@@ -82,7 +91,7 @@ export function ProjectSettingsBody({
       setInitial({ test: command, concurrency: p.concurrency?.toString() ?? '', rounds: p.reviewRounds?.toString() ?? '', prompts: p.promptsDir ?? '' })
       setAccount(acc ?? '')
     } catch {
-      setError('Could not read the project.')
+      setError(tRef.current('project.error.read'))
     }
   }, [anchor, projectId])
   useEffect(() => {
@@ -103,9 +112,9 @@ export function ProjectSettingsBody({
         id: projectId,
         ...args
       })
-      if (r.status !== 200) setError((r.body as { error?: string } | null)?.error ?? 'Could not save.')
+      if (r.status !== 200) setError((r.body as { error?: string } | null)?.error ?? t('project.error.save'))
     } catch {
-      setError('Could not save.')
+      setError(t('project.error.save'))
     }
     await load(false)
   }
@@ -116,7 +125,7 @@ export function ProjectSettingsBody({
     setError(null)
     const r = await window.api.orch.command(anchor, 'projects-add', { parent: projectId, name }).catch(() => null)
     if (r?.status === 200) setSubName('')
-    else setError((r?.body as { error?: string } | null)?.error ?? 'Could not add the sub-project.')
+    else setError((r?.body as { error?: string } | null)?.error ?? t('project.error.sub'))
   }
   const remove = async (): Promise<void> => {
     setRemoveError(null)
@@ -125,7 +134,7 @@ export function ProjectSettingsBody({
       setConfirmRemove(false)
       setProject(null)
       onRemoved?.()
-    } else setRemoveError((r?.body as { error?: string } | null)?.error ?? 'Could not remove the project.')
+    } else setRemoveError((r?.body as { error?: string } | null)?.error ?? t('project.error.remove'))
   }
   // '' clears; a number outside the range is the backend's 400, shown as the error
   const num = (s: string): number | '' => (s.trim() === '' ? '' : Number(s))
@@ -134,30 +143,114 @@ export function ProjectSettingsBody({
     <div className="proj-settings">
       {project && (
         <>
-          <ProjectDelivery projectPath={project.path} />
-          <ProjectAttribution anchor={anchor} projectId={projectId} />
-          <label className="check-small">
-            <input
-              type="checkbox"
+          <section className="proj-group" aria-labelledby={`proj-${projectId}-delivery`}>
+            <h3 className="proj-group__title" id={`proj-${projectId}-delivery`}>{t('project.group.delivery')}</h3>
+            <ProjectDelivery projectPath={project.path} />
+            <ProjectAttribution anchor={anchor} projectId={projectId} />
+          </section>
+          <section className="proj-group" aria-labelledby={`proj-${projectId}-plans`}>
+            <h3 className="proj-group__title" id={`proj-${projectId}-plans`}>{t('project.group.plans')}</h3>
+            <Field
+              kind="toggle"
+              label={t('project.autoApprove')}
+              hint={t('project.autoApprove.hint')}
               checked={project.autoApprove ?? PROJECT_DEFAULTS.autoApprove}
-              onChange={(e) => void save({ autoApprove: e.target.checked })}
+              onChange={(on) => void save({ autoApprove: on })}
             />
-            Approve plans automatically
-          </label>
-          {/* #117 */}
-          <label className="check-small" title={t('project.handsOff.hint')}>
-            <input type="checkbox" checked={project.handsOff ?? PROJECT_DEFAULTS.handsOff} onChange={(e) => void save({ handsOff: e.target.checked })} />
-            {t('project.handsOff')}
-          </label>
+            {/* #117 */}
+            <Field
+              kind="toggle"
+              label={t('project.handsOff')}
+              hint={t('project.handsOff.hint')}
+              checked={project.handsOff ?? PROJECT_DEFAULTS.handsOff}
+              onChange={(on) => void save({ handsOff: on })}
+            />
+            <Field
+              kind="select"
+              label={t('project.replan')}
+              hint={t('project.replan.hint')}
+              value={project.replan ?? ''}
+              onChange={(e) => void save({ replan: e.target.value })}
+              options={[
+                { value: '', label: t('project.replan.default', { value: t(`project.replan.${PROJECT_DEFAULTS.replan}`) }) },
+                { value: 'waves', label: t('project.replan.waves') },
+                { value: 'off', label: t('project.replan.off') }
+              ]}
+            />
+            <Field
+              kind="select"
+              id="project-origin-sync"
+              label={t('project.originSync')}
+              value={project.originSync ?? 'on'}
+              onChange={(e) => void save({ originSync: e.target.value })}
+              options={[
+                { value: 'on', label: t('project.originSync.on') },
+                { value: 'off', label: t('project.originSync.off') }
+              ]}
+            />
+            <Field
+              label={t('project.prompts')}
+              hint={t('project.prompts.hint')}
+              value={prompts}
+              placeholder={t('project.prompts.placeholder')}
+              onChange={(e) => setPrompts(e.target.value)}
+              onBlur={() => saveText('prompts', prompts, initial.prompts, { promptsDir: prompts.trim() })}
+            />
+          </section>
+          <section className="proj-group" aria-labelledby={`proj-${projectId}-agents`}>
+            <h3 className="proj-group__title" id={`proj-${projectId}-agents`}>{t('project.group.agents')}</h3>
+            <Field
+              kind="number"
+              label={t('project.concurrency', { max: MAX_CONCURRENT_WORKERS })}
+              hint={t('project.concurrency.hint')}
+              min={1}
+              max={MAX_CONCURRENT_WORKERS}
+              value={concurrency}
+              placeholder={String(PROJECT_DEFAULTS.concurrency)}
+              onChange={(e) => setConcurrency(e.target.value)}
+              onBlur={() => saveText('concurrency', concurrency, initial.concurrency, { concurrency: num(concurrency) })}
+            />
+            <Field
+              kind="number"
+              label={t('project.rounds')}
+              hint={t('project.rounds.hint')}
+              min={1}
+              value={rounds}
+              placeholder={String(PROJECT_DEFAULTS.reviewRounds)}
+              onChange={(e) => setRounds(e.target.value)}
+              onBlur={() => saveText('rounds', rounds, initial.rounds, { reviewRounds: num(rounds) })}
+            />
+            <Field
+              label={t('project.test')}
+              hint={t('project.test.hint')}
+              value={test}
+              placeholder={t('project.test.none')}
+              onChange={(e) => setTest(e.target.value)}
+              onBlur={() => saveText('test', test, initial.test, { testCommand: test.trim() })}
+            />
+            <div className="ui-field">
+              <span className="ui-field__label">{t('account.select.projectDefault')}</span>
+              <AccountSelect
+                accounts={accounts}
+                value={account}
+                allLabel={t('account.select.none')}
+                onChange={(id) => void save({ account: id })}
+              />
+            </div>
+          </section>
           {/* T6: only a workspace's root files plans under sub-projects, and a sub-project has no sub-projects (one level) */}
           {!project.parentId && (
-            <>
-              <label className="check-small" title={t('project.autoProjects.hint')}>
-                <input type="checkbox" checked={project.autoProjects ?? true} onChange={(e) => void save({ autoProjects: e.target.checked })} />
-                {t('project.autoProjects')}
-              </label>
-              <div className="field">
-                <label>{t('project.sub.add')}</label>
+            <section className="proj-group" aria-labelledby={`proj-${projectId}-sub`}>
+              <h3 className="proj-group__title" id={`proj-${projectId}-sub`}>{t('project.group.sub')}</h3>
+              <Field
+                kind="toggle"
+                label={t('project.autoProjects')}
+                hint={t('project.autoProjects.hint')}
+                checked={project.autoProjects ?? true}
+                onChange={(on) => void save({ autoProjects: on })}
+              />
+              <div className="ui-field">
+                <span className="ui-field__label">{t('project.sub.add')}</span>
                 <div className="proj-sub-add">
                   <Input
                     value={subName}
@@ -171,77 +264,10 @@ export function ProjectSettingsBody({
                   </Button>
                 </div>
               </div>
-            </>
+            </section>
           )}
-          <div className="field">
-            <label>Test command</label>
-            <input
-              type="text"
-              value={test}
-              placeholder="none"
-              onChange={(e) => setTest(e.target.value)}
-              onBlur={() => saveText('test', test, initial.test, { testCommand: test.trim() })}
-            />
-          </div>
-          <div className="field">
-            <label>Workers at once (1-{MAX_CONCURRENT_WORKERS})</label>
-            <input
-              type="number"
-              min={1}
-              max={MAX_CONCURRENT_WORKERS}
-              value={concurrency}
-              placeholder={String(PROJECT_DEFAULTS.concurrency)}
-              onChange={(e) => setConcurrency(e.target.value)}
-              onBlur={() => saveText('concurrency', concurrency, initial.concurrency, { concurrency: num(concurrency) })}
-            />
-          </div>
-          <div className="field">
-            <label>Review rounds</label>
-            <input
-              type="number"
-              min={1}
-              value={rounds}
-              placeholder={String(PROJECT_DEFAULTS.reviewRounds)}
-              onChange={(e) => setRounds(e.target.value)}
-              onBlur={() => saveText('rounds', rounds, initial.rounds, { reviewRounds: num(rounds) })}
-            />
-          </div>
-          <div className="field">
-            <label>Prompts folder (Run as written by name)</label>
-            <input
-              type="text"
-              value={prompts}
-              placeholder="found on the first Run as written"
-              onChange={(e) => setPrompts(e.target.value)}
-              onBlur={() => saveText('prompts', prompts, initial.prompts, { promptsDir: prompts.trim() })}
-            />
-          </div>
-          <div className="field">
-            <label>Replan between waves</label>
-            <select value={project.replan ?? ''} onChange={(e) => void save({ replan: e.target.value })}>
-              <option value="">Default ({PROJECT_DEFAULTS.replan})</option>
-              <option value="waves">Waves</option>
-              <option value="off">Off</option>
-            </select>
-          </div>
-          <div className="field">
-            <label htmlFor="project-origin-sync">{t('project.originSync')}</label>
-            <select id="project-origin-sync" value={project.originSync ?? 'on'} onChange={(e) => void save({ originSync: e.target.value })}>
-              <option value="on">{t('project.originSync.on')}</option>
-              <option value="off">{t('project.originSync.off')}</option>
-            </select>
-          </div>
-          <div className="field">
-            <label>{t('account.select.projectDefault')}</label>
-            <AccountSelect
-              accounts={accounts}
-              value={account}
-              allLabel={t('account.select.none')}
-              onChange={(id) => void save({ account: id })}
-            />
-          </div>
-          <div className="field">
-            <Button variant="danger" onClick={() => { setRemoveError(null); setConfirmRemove(true) }}>
+          <div className="proj-remove">
+            <Button variant="danger" icon={<Icon name="delete" size={14} />} onClick={() => { setRemoveError(null); setConfirmRemove(true) }}>
               {t('project.remove')}
             </Button>
           </div>
@@ -251,10 +277,11 @@ export function ProjectSettingsBody({
         <Modal
           title={t('project.remove.title', { name: project.name })}
           size="sm"
+          closeLabel={t('project.settings.close')}
           onClose={() => setConfirmRemove(false)}
           footer={
             <>
-              <Button onClick={() => setConfirmRemove(false)}>{t('project.remove.cancel')}</Button>
+              <Button variant="ghost" onClick={() => setConfirmRemove(false)}>{t('project.remove.cancel')}</Button>
               <Button variant="danger" onClick={() => void remove()}>
                 {t('project.remove.confirm')}
               </Button>
