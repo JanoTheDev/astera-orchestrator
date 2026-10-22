@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { AddMachineResult, MachineProgress, RemoteApi, RemoteRuntimeInfo } from '../../../core/types'
+import type { AddMachineResult, MachineProgress, MigrateItemResult, MigrateKind, MigratePlanItem, RemoteApi, RemoteRuntimeInfo } from '../../../core/types'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
 import { confirmModal } from '../lib/confirm'
 import { refOf, remoteCall, type RemoteSessionRef, type RemoteSessionRow } from '../lib/remoteSessions'
 import { Select } from './Select'
-import { Button, Chip, Field, Modal } from './ui'
+import { Button, Card, Chip, Field, Modal } from './ui'
 import { MachineSteps } from './MachineSteps'
 import { addressLabel, controlFailureLine, failureLine, pairedStateLine, pairingLeftLine, pairingState, pingLine, thisMachineLine } from './remoteRuntimesText'
 
@@ -56,6 +56,9 @@ export function RemoteRuntimesSettings({
   const [pairName, setPairName] = useState('')
   const [made, setMade] = useState<Made | null>(null)
   const [now, setNow] = useState(() => Date.now())
+  /** Machines with a recorded SSH address (Copy my setup again is offered on those) and the one whose panel is open. */
+  const [migratable, setMigratable] = useState<string[]>([])
+  const [migrateFor, setMigrateFor] = useState<string | null>(null)
 
   const reload = useCallback((): void => {
     // A fresh list says how each Runtime is now: an old ping's line no longer stands over it (audit UI-9).
@@ -71,6 +74,7 @@ export function RemoteRuntimesSettings({
       },
       () => setPaired([])
     )
+    void window.api.remote.migrationMachines().then(setMigratable, () => setMigratable([]))
     void window.api.remote.thisMachine().then(setMine, () => setMine(null))
     // The addresses are read again too: a Wi-Fi change between two visits moves them (review focus 4).
     void window.api.remote.addresses().then(
@@ -386,10 +390,16 @@ export function RemoteRuntimesSettings({
             <button className="settings-gen-refresh" onClick={() => void signIn(r)}>
               {t('remote.machines.signIn')}
             </button>
+            {migratable.includes(r.runtimeId) && (
+              <button className="settings-gen-refresh" aria-expanded={migrateFor === r.runtimeId} onClick={() => setMigrateFor((cur) => (cur === r.runtimeId ? null : r.runtimeId))}>
+                {t('remote.machines.migrate.again')}
+              </button>
+            )}
             <button className="ghost danger" onClick={() => void remove(r)}>
               {t('settings.remote.paired.remove')}
             </button>
           </div>
+          {migrateFor === r.runtimeId && <MigratePanel runtimeId={r.runtimeId} onFinished={() => undefined} />}
           {addingFor === r.runtimeId && (
             <div className="remote-actions">
               <input
@@ -444,6 +454,7 @@ function AddMachineModal({ onClose, onPaired }: { onClose: () => void; onPaired:
   const [busy, setBusy] = useState(false)
   const [events, setEvents] = useState<MachineProgress[] | null>(null)
   const [result, setResult] = useState<AddMachineResult | null>(null)
+  const [migrated, setMigrated] = useState(false)
 
   useEffect(() => window.api.remote.onMachineProgress((p) => setEvents((cur) => [...(cur ?? []), p])), [])
 
@@ -512,7 +523,7 @@ function AddMachineModal({ onClose, onPaired }: { onClose: () => void; onPaired:
         </Button>
         {mode === 'ssh' && result?.ok ? (
           <Button variant="primary" onClick={onClose}>
-            {t('common.close')}
+            {t(migrated ? 'remote.machines.migrate.done' : 'remote.machines.migrate.skip')}
           </Button>
         ) : mode === 'ssh' ? (
           <Button variant="primary" loading={busy} disabled={busy || target.trim() === '' || !portOk} onClick={() => void startSsh()}>
@@ -571,6 +582,7 @@ function AddMachineModal({ onClose, onPaired }: { onClose: () => void; onPaired:
             <p className="settings-hint">{target.trim()}</p>
             <MachineSteps events={events} />
             {result?.ok && <p className="settings-hint">{t('remote.machines.done', { name: result.name })}</p>}
+            {result?.ok && <MigratePanel runtimeId={result.runtimeId} onFinished={() => setMigrated(true)} />}
           </>
         )}
         {mode === 'pairing' && (
@@ -596,5 +608,91 @@ function AddMachineModal({ onClose, onPaired }: { onClose: () => void; onPaired:
         )}
       </div>
     </Modal>
+  )
+}
+
+const KINDS: MigrateKind[] = ['github', 'git', 'accounts', 'projects']
+const STATE_TONE = { running: 'neutral', ok: 'ok', login: 'warn', skipped: 'neutral', failed: 'danger' } as const
+
+/** Bring my setup: what moves to a paired machine (plan, no secrets read), then the copy with each item's result
+ *  live from the progress stream. Used by the Add a machine wizard and by a paired machine's row. */
+function MigratePanel({ runtimeId, onFinished }: { runtimeId: string; onFinished: () => void }): React.JSX.Element {
+  const { t } = useI18n()
+  const [on, setOn] = useState<Record<MigrateKind, boolean>>({ github: true, git: true, accounts: true, projects: true })
+  const [plan, setPlan] = useState<MigratePlanItem[] | null>(null)
+  const [results, setResults] = useState<MigrateItemResult[]>([])
+  const [busy, setBusy] = useState(false)
+  const only = KINDS.filter((k) => on[k])
+
+  // The latest line per kind + id, for this machine only.
+  useEffect(
+    () =>
+      window.api.remote.onMigrateProgress((p) => {
+        if (p.runtimeId !== runtimeId) return
+        setResults((cur) => [...cur.filter((x) => x.kind !== p.kind || x.id !== p.id), p])
+      }),
+    [runtimeId]
+  )
+  const run = async (copy: boolean): Promise<void> => {
+    setBusy(true)
+    try {
+      if (!copy) {
+        const r = await window.api.remote.migratePlan(runtimeId, { only })
+        if (r.ok) setPlan(r.plan)
+        else toast.error(r.message)
+        return
+      }
+      setResults([])
+      const r = await window.api.remote.migrate(runtimeId, { only })
+      if (r.results.length > 0) setResults(r.results)
+      if (!r.ok) toast.error(r.message)
+      onFinished()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <Card>
+      <div className="settings-stack">
+        <div className="settings-field-label">{t('remote.machines.migrate.title')}</div>
+        <p className="settings-hint">{t('remote.machines.migrate.hint')}</p>
+        {KINDS.map((k) => (
+          <Field key={k} kind="toggle" label={t(`remote.machines.migrate.${k}` as never)} checked={on[k]} disabled={busy} onChange={(v) => setOn((cur) => ({ ...cur, [k]: v }))} />
+        ))}
+        {only.length === 0 && <p className="settings-hint">{t('remote.machines.migrate.nothing')}</p>}
+        <div className="remote-actions">
+          <Button disabled={busy || only.length === 0} onClick={() => void run(false)}>
+            {t('remote.machines.migrate.show')}
+          </Button>
+          <Button variant="primary" loading={busy} disabled={busy || only.length === 0} onClick={() => void run(true)}>
+            {t('remote.machines.migrate.copy')}
+          </Button>
+        </div>
+        {plan !== null && results.length === 0 && (
+          <ul aria-label={t('remote.machines.migrate.planTitle')} className="settings-stack">
+            {plan.map((i) => (
+              <li key={`${i.kind}:${i.id}`} className={i.skip ? 'settings-hint' : undefined}>
+                {i.label}
+                {i.detail && ` · ${i.detail}`}
+                {i.skip && <em> · {t('remote.machines.migrate.skipped', { reason: i.skip })}</em>}
+              </li>
+            ))}
+          </ul>
+        )}
+        <ul aria-live="polite" aria-label={t('remote.machines.migrate.resultsTitle')} className="settings-stack">
+          {results.map((i) => (
+            <li key={`${i.kind}:${i.id}`}>
+              <Chip tone={STATE_TONE[i.state]} dot>
+                {t(`remote.machines.migrate.state.${i.state}` as never)}
+              </Chip>{' '}
+              {i.line}
+              {i.fix && <span className="settings-hint"> · {t('remote.machines.migrate.fix', { fix: i.fix })}</span>}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </Card>
   )
 }

@@ -133,6 +133,8 @@ const NOT_SWITCHED = [
   'skills-list',
   'skills-install',
   'accounts-login',
+  // T12c
+  'accounts-import',
   'higgsfield-list',
   'higgsfield-use',
   'mcp-serve',
@@ -150,6 +152,8 @@ const NOT_SWITCHED = [
   'runtimes-list',
   'runtimes-remove',
   'machines-add',
+  // T12c
+  'machines-migrate',
   'plugins-install',
   'plugins-list',
   'plugins-get',

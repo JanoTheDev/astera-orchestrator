@@ -686,7 +686,8 @@ astera runtimes list
 astera runtimes add    [--pair <string>] [--address <host>] [--port <n>] [--code <code>] [--fingerprint <fp>] [--name <n>] [--replace]
 astera runtimes remove --id <runtimeId|name>
 
-astera machines add --target <user@host> [--port <n>] [--installer <path>] [--name <n>] [--listen <ip>] [--tailscale] [--full-control]
+astera machines add --target <user@host> [--port <n>] [--installer <path>] [--name <n>] [--listen <ip>] [--tailscale] [--full-control] [--only <github,git,accounts,projects>] [--skip <github,git,accounts,projects>] [--projects <all|id,...>] [--yes]
+astera machines migrate --machine <runtime id|name> [--target <user@host>] [--port <n>] [--only <github,git,accounts,projects>] [--skip <github,git,accounts,projects>] [--projects <all|id,...>] [--yes] [--dry-run]
 
 astera plugins list
 astera plugins get     --id <pluginId>
@@ -744,6 +745,7 @@ astera dispatches list [--run <runId>]
 
 astera accounts list  [--agent <claude|codex>]
 astera accounts login --new [--label <name>]
+astera accounts import --label <name> --agent <claude|codex> [--color <colour>] [--login <->]
 
 astera run-configs list --job <jobId>
 

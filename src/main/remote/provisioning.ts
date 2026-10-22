@@ -8,6 +8,7 @@ import { randomBytes } from 'node:crypto'
 import os from 'node:os'
 import path from 'node:path'
 import { addMachine, machineSearchDirs, type AddMachineOptions, type AddMachineResult, type ExecResult, type MachineDeps, type MachineProgress } from '../../cli/machines'
+import { rememberMachine } from '../../cli/machineMigrate'
 import type { RemoteRuntimes } from './runtimes'
 
 /** An install runs apt and setup; a quarter of an hour is far past a slow one. */
@@ -28,6 +29,8 @@ export async function listInstallers(dirs: string[]): Promise<string[]> {
 
 export function createMachineProvisioner(a: {
   remote: RemoteRuntimes
+  /** T12c: where the machine's SSH address is recorded once paired, so Bring my setup can reach it. */
+  profileDir?: string
   installerDirs?: string[]
   /** Test seam: the ssh and scp runner. */
   exec?: MachineDeps['exec']
@@ -53,7 +56,8 @@ export function createMachineProvisioner(a: {
     ping: async (runtimeId) => {
       const c = await a.remote.client(runtimeId)
       return !('code' in c) && (await c.ping().catch(() => ({ ok: false }))).ok
-    }
+    },
+    ...(a.profileDir ? { afterPair: (m) => rememberMachine(a.profileDir!, m.runtimeId, { target: m.target, port: m.port, os: m.os }) } : {})
   }
   return { add: (o, onProgress) => addMachine(o, deps, onProgress) }
 }

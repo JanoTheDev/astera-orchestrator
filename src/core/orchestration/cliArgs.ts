@@ -139,7 +139,7 @@ export const NOUNS = {
   questions: ['list', 'get', 'answer'],
   // `jobs create --coordinator-account` 와 `tasks add --account` 에 넣을 id 가 여기서 나온다.
   // 동사 없는 `accounts` 는 가이드가 가르치는 세션 명령 그대로다(BARE_NOUNS).
-  accounts: ['list', 'login'],
+  accounts: ['list', 'login', /* T12c */ 'import'],
   // `tasks add --validate` 에 넣을 id 가 여기서 나온다(phase D). 동사 없는 `run-configs` 는 가이드가
   // 가르치는 세션 명령 그대로다(BARE_NOUNS) — 그쪽은 가장 최근 회차의 것이고 이쪽은 --job 의 것이다.
   'run-configs': ['list'],
@@ -173,7 +173,7 @@ export const NOUNS = {
   // <profile>/runtimes (cli/runtimes.ts). `add` pairs, `remove` forgets without revoking.
   runtimes: ['add', 'list', 'remove'],
   // T12b: provision and pair a machine over SSH in one step (cli/machines.ts), answered in the CLI process.
-  machines: ['add'],
+  machines: ['add', /* T12c */ 'migrate'],
   // **Answered by the Host's plugin manager** (plugin runtime design P5): this machine's app and CLI install, list and
   // switch plugins. `install` asks the Host to inspect the folder first and needs --yes or --grant (cli/plugins.ts).
   plugins: ['install', 'list', 'get', 'enable', 'disable', 'remove', 'logs', 'doctor', 'settings', 'configure'],
@@ -261,6 +261,8 @@ export function parseArgs(all: string[]): ParsedArgs | { error: string } {
   const wantsStdin: string[] = []
   // T12b: `machines add <user@host>` names its machine as a word, as ssh does
   if (cmd === 'machines-add' && argv[first] !== undefined && !argv[first].startsWith('-')) args.target = argv[first++]
+  // T12c: `machines migrate <machine>`, the paired Runtime by id or name
+  if (cmd === 'machines-migrate' && argv[first] !== undefined && !argv[first].startsWith('-')) args.machine = argv[first++]
   let json = lead.modes.has('json')
   let human = lead.modes.has('human')
   let quiet = lead.modes.has('quiet')
