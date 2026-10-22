@@ -12,7 +12,7 @@ export type SettingsDialogProps = Pick<
   'installUpdate' | 'keyOverrides' | 'restartHost' | 'setAgentAppEnabled' | 'setAgentBrowserEnabled' |
   'setAgentYolo' | 'setAutoCloseEndedPlanTabs' | 'setCheckClickedAt' | 'setCli' | 'setCliInstallStatus' |
   'setCliInstalled' | 'setDefaultSessionKind' | 'setKeyOverrides' | 'setLang' | 'setPairedChanged' |
-  'setSettingsTab' | 'setShowSettings' | 'setRemoteDialog' | 'setWorkUnitTrackingEnabled' | 'setWtRoot' | 'settingsTab' |
+  'setSettingsTab' | 'setShowSettings' | 'setRemoteDialog' | 'openRemoteSession' | 'setWorkUnitTrackingEnabled' | 'setWtRoot' | 'settingsTab' |
   'settingsTouched' | 'showSettings' | 'storedLang' | 'systemLang' | 't' | 'update' | 'updateChecking' |
   'workUnitTrackingEnabled' | 'wtRoot' |
   // W9-E: the anchor openSettings scrolls to, and the Projects group

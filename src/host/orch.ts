@@ -50,6 +50,7 @@ import { readRunConfigsFile } from '../core/run/runConfigsFile'
 import { listMdFiles } from '../core/orchestration/intakeFiles'
 import type { HostChecks } from './checks'
 import type { HostSessions } from './sessions'
+import type { HostSession } from '../core/orchestration/command'
 import type { HostLocal } from './spawner'
 import type { HostRolling } from './rolling'
 import type { HostChats } from './hostChats'
@@ -568,6 +569,8 @@ export function createHostOrch(a: {
   /** `sessions create` (sessionCreate.ts), passed through to `hostOrchDeps`. Absent: the command
    *  answers 409. */
   createSession?: OrchServerDeps['createSession']
+  /** T12b: a terminal running `astera accounts login --new` on this machine (loginTerminal.ts). Absent: refused 409. */
+  startLoginTerminal?(): { ok: true; session: HostSession } | { ok: false; error: string }
   /** GitHub through the Host's gh (MCP P2-B), passed through to `hostOrchDeps`. Absent: the `github-*`
    *  commands answer 409. */
   github?: OrchServerDeps['github']
@@ -2284,6 +2287,21 @@ export function createHostOrch(a: {
           const added = await registerProject(folder!.root, folder!.defaultBranch, sessionId, from?.role, marks)
           const body = { status: 200, body: { ...added, proposedTest: folder!.proposedTest } }
           return claimed === null ? body : settleRequest(claimed, cmd, marks, body)
+        }
+        // T12b: Sign in account from Settings › Remote Runtimes on a controller, or this machine's own app. Below the receipt
+        // line: it opens a terminal, so a retried request replays its answer instead of opening a second.
+        if (cmd === 'accounts-login-start') {
+          const reply =
+            from?.role !== 'app' && from?.role !== 'controller'
+              ? { status: 403, body: { error: 'accounts-login-start is for the app and full-control controllers' } }
+              : !a.startLoginTerminal
+                ? { status: 409, body: { error: 'this Host cannot open a login terminal' } }
+                : ((): { status: number; body: unknown } => {
+                    marks.effects += 1
+                    const r = a.startLoginTerminal!()
+                    return r.ok ? { status: 200, body: r.session } : { status: 500, body: { error: r.error } }
+                  })()
+          return claimed === null ? reply : settleRequest(claimed, cmd, marks, reply)
         }
         // W7-B: a brand-new project: the folder, `git init`, a .gitignore and CLAUDE.md, the initial commit, registered;
         // and only when asked, its GitHub repository (outward-facing). For the same callers as `projects-add`.

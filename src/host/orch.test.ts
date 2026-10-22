@@ -1019,6 +1019,16 @@ describe('projects-add (remote runtime N5)', () => {
     expect((await git(['rev-parse', '--show-toplevel'], { cwd: dest })).ok).toBe(true)
     expect(orch.state().projects).toHaveLength(1)
   })
+  // T12b: Sign in account opens the login terminal for a full-control controller only
+  it('opens the login terminal for a full-control controller, never for a read-only one or an agent', async () => {
+    let opened = 0
+    const orch = orchOver({ startLoginTerminal: () => (opened++, { ok: true, session: { id: 'login_1', ptyId: 'login_1' } as never }) })
+    expect((await orch.call({ cmd: 'accounts-login-start', args: {}, sessionId: '', from: controller('read-only') })).status).toBe(403)
+    expect((await orch.call({ cmd: 'accounts-login-start', args: {}, sessionId: '', from: cli })).status).toBe(403)
+    const r = await orch.call({ cmd: 'accounts-login-start', args: {}, sessionId: '', from: controller('full-control') })
+    expect(r).toMatchObject({ status: 200, body: { id: 'login_1', ptyId: 'login_1' } })
+    expect(opened).toBe(1)
+  })
   it('refuses a --clone that is not a git URL, or one that reads as an option', async () => {
     const orch = orchOver()
     for (const clone of ['--upload-pack=touch /tmp/x', 'ext::sh -c x', 'not a url'])

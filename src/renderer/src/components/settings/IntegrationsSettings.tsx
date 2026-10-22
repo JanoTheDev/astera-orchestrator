@@ -10,7 +10,7 @@ import { SlackSettings } from '../SlackSettings'
 import { TelegramSettings } from '../TelegramSettings'
 import { SettingRow, type GroupProps } from './SettingRow'
 
-export function IntegrationsSettings({ shown, only, cliInstallStatus, setCliInstallStatus, setPairedChanged, setShowSettings, setRemoteDialog }: GroupProps): React.JSX.Element {
+export function IntegrationsSettings({ shown, only, cliInstallStatus, setCliInstallStatus, setPairedChanged, setShowSettings, setRemoteDialog, openRemoteSession }: GroupProps): React.JSX.Element {
   return (
     <>
       {shown && (
@@ -44,6 +44,10 @@ export function IntegrationsSettings({ shown, only, cliInstallStatus, setCliInst
               onNewConsole={(runtimeId) => {
                 setShowSettings(false)
                 setRemoteDialog(runtimeId)
+              }}
+              onOpenSession={(ref) => {
+                setShowSettings(false)
+                openRemoteSession(ref)
               }}
             />
           </SettingRow>

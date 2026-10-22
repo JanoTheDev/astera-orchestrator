@@ -3,7 +3,7 @@ import type { AddMachineResult, MachineProgress, RemoteApi, RemoteRuntimeInfo } 
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
 import { confirmModal } from '../lib/confirm'
-import { remoteCall } from '../lib/remoteSessions'
+import { refOf, remoteCall, type RemoteSessionRef, type RemoteSessionRow } from '../lib/remoteSessions'
 import { Select } from './Select'
 import { Button, Chip, Field, Modal } from './ui'
 import { MachineSteps } from './MachineSteps'
@@ -25,12 +25,15 @@ const OS_NAME: Record<string, string> = { linux: 'Linux', win32: 'Windows', darw
  *  token stays in main. */
 export function RemoteRuntimesSettings({
   onChanged,
-  onNewConsole
+  onNewConsole,
+  onOpenSession
 }: {
   /** A Runtime was paired or removed: the Jobs view reads its list again. */
   onChanged?: () => void
   /** Opens the new console dialog for that Runtime (RemoteSessionsDialog). */
   onNewConsole?: (runtimeId: string) => void
+  /** Opens a remote session tab (Sign in account's login terminal). */
+  onOpenSession?: (ref: RemoteSessionRef) => void
 } = {}): React.JSX.Element {
   const { t } = useI18n()
   const [mine, setMine] = useState<ThisMachine | undefined>(undefined)
@@ -210,9 +213,15 @@ export function RemoteRuntimesSettings({
       setCloning(false)
     }
   }
-  // shortcut: a Runtime starts only agent sessions (sessions-create), no plain shell, so the login command is handed
-  // over to run there; open a remote terminal running it once the Host can start a command session.
-  const signIn = (r: RemoteRuntimeInfo): void => {
+  // A terminal on the machine running `astera accounts login --new` (host/loginTerminal.ts), opened as a remote session
+  // tab so its login link shows here. A machine too old to open one gets the command to run there instead.
+  const signIn = async (r: RemoteRuntimeInfo): Promise<void> => {
+    try {
+      const done = await remoteCall(r.runtimeId, 'accounts-login-start', {})
+      if (done.status === 200 && onOpenSession) return onOpenSession(refOf(r.runtimeId, done.body as RemoteSessionRow))
+    } catch {
+      /* the copy below is the way left */
+    }
     window.api.clipboard.writeText('astera accounts login --new')
     toast.success(t('remote.machines.signInCopied', { name: r.name }))
   }
@@ -374,7 +383,7 @@ export function RemoteRuntimesSettings({
             >
               {t('remote.machines.addProject')}
             </button>
-            <button className="settings-gen-refresh" onClick={() => signIn(r)}>
+            <button className="settings-gen-refresh" onClick={() => void signIn(r)}>
               {t('remote.machines.signIn')}
             </button>
             <button className="ghost danger" onClick={() => void remove(r)}>

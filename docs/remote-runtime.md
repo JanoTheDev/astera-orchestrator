@@ -79,8 +79,9 @@ Then use it:
 - **Projects**: `astera --runtime <name> projects add --clone <git url> [--path <abs path>]`, or **Add project** on the
   machine's row. The machine clones with its own git credentials (into `~/astera-projects/<name>` without `--path`) and
   registers it. Only a full-control pairing may.
-- **Accounts**: sign one in on the machine with `astera accounts login --new` in a terminal there (**Sign in account**
-  on the row copies the command); its accounts show under the row.
+- **Accounts**: **Sign in account** on the machine's row opens a terminal tab on that machine running
+  `astera accounts login --new` (full-control pairings); open its login link and finish in your browser. Its accounts
+  show under the row. A machine too old for that gets the command copied, to run in a terminal there.
 - **Tabs**: New console lists This computer, then each machine, and remembers the last pick per project.
 
 The manual steps follow, for a machine this computer cannot reach over SSH.
