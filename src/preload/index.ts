@@ -230,6 +230,8 @@ const api = {
     setFreshCoordinatorContextPct: invoke('settings.setFreshCoordinatorContextPct'),
     getStallWatch: invoke('settings.getStallWatch'),
     setStallWatch: invoke('settings.setStallWatch'),
+    getCrashReports: invoke('settings.getCrashReports'), // T27
+    setCrashReports: invoke('settings.setCrashReports'),
     getStartAtLogin: invoke('settings.getStartAtLogin'),
     setStartAtLogin: invoke('settings.setStartAtLogin'),
     getAutoAnswer: invoke('settings.getAutoAnswer'), // T21
@@ -558,6 +560,12 @@ const api = {
     retryWithBypass: invoke('chat.retryWithBypass')
   },
   platform: process.platform,
+  // T27
+  crash: {
+    report: invoke('crash.report'),
+    pending: invoke('crash.pending'),
+    send: invoke('crash.send')
+  },
   win: {
     minimize: () => ipcRenderer.send('win.minimize'),
     maximizeToggle: () => ipcRenderer.send('win.maximizeToggle'),

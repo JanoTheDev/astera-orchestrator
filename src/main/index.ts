@@ -23,6 +23,7 @@ import iconAsset from '../../resources/icon.png?asset'
 import trayAsset from '../../resources/tray.png?asset'
 import { APP_ID } from './appId'
 import { createCore, type Core } from './core'
+import { installCrashReports } from './crashReports'
 import { clearAppRunning, markAppRunning } from '../core/host/pidFile'
 import { flushAllLogsSync, lineLog } from '../core/log/logWriter'
 import { createHeldNotifications } from './heldNotifications'
@@ -147,6 +148,15 @@ protocol.registerSchemesAsPrivileged([
 ])
 
 let core: Core | null = null
+// T27: crash reports, written from here on; offered only with the person's yes (main/crashReports.ts)
+installCrashReports({
+  proc: process,
+  app,
+  ipc: ipcMain,
+  build: BUILT_COMMIT,
+  setting: () => core?.appSettings.getCrashReports() ?? 'ask',
+  openExternal: (url) => shell.openExternal(url)
+})
 let codexRollingRef: CodexRollingCoordinator | null = null
 let schedulerRef: SchedulerCoordinator | null = null
 let codexRolloutRef: CodexRolloutWatcher | null = null
