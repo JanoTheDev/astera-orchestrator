@@ -13,37 +13,39 @@ export function SummaryCard({ summary: s, compact = false, onOpen }: { summary: 
   const ended = new Date(s.at)
   const facts = summaryFactsLine(s, t)
   const title = <span className="summary-card__title-text">{s.facts.title}</span>
+  const ago = !Number.isNaN(ended.getTime()) && (
+    <time dateTime={s.at} title={ended.toLocaleString()}>
+      {t('summary.card.ended', { time: ended.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) })}
+    </time>
+  )
+  // T13: the wall's card layout (wall.css `.wall-card`): title and outcome, one meta line, then the summary text
   return (
-    <Card className={compact ? 'summary-card summary-card--compact' : 'summary-card'}>
-      <div className="summary-card__head">
+    <Card className={compact ? 'wall-card summary-card summary-card--compact' : 'wall-card summary-card'}>
+      <div className="wall-card__head">
         {onOpen ? (
-          <button type="button" className="summary-card__title" title={t('summary.card.open')} onClick={onOpen}>
+          <button type="button" className="wall-card__title summary-card__title" title={t('summary.card.open')} onClick={onOpen}>
             {title}
           </button>
         ) : (
-          <span className="summary-card__title">{title}</span>
+          <span className="wall-card__title summary-card__title">{title}</span>
         )}
-        <span className="summary-card__role">{t(s.facts.role === 'worker' ? 'summary.role.worker' : 'summary.role.session')}</span>
         <Chip tone={outcomeTone(s.outcome)}>{outcomeText(s, t)}</Chip>
       </div>
-      <div className="summary-card__when">
+      <div className="wall-card__meta summary-card__meta">
+        <span>{t(s.facts.role === 'worker' ? 'summary.role.worker' : 'summary.role.session')}</span>
         {duration && <span>{duration}</span>}
-        {!Number.isNaN(ended.getTime()) && (
-          <time dateTime={s.at} title={ended.toLocaleString()}>
-            {t('summary.card.ended', { time: ended.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) })}
-          </time>
+        {ago}
+        {facts && <span>{facts}</span>}
+        {s.facts.pr && (
+          <button type="button" className="summary-card__link" title={s.facts.pr} onClick={() => void window.api.system.openExternal(s.facts.pr!)}>
+            {t('summary.card.pr')}
+          </button>
         )}
       </div>
-      {s.text && <p className="summary-card__text">{s.text}</p>}
-      {(facts || s.facts.pr) && (
-        <div className="summary-card__facts">
-          {facts && <span>{facts}</span>}
-          {s.facts.pr && (
-            <button type="button" className="summary-card__link" title={s.facts.pr} onClick={() => void window.api.system.openExternal(s.facts.pr!)}>
-              {t('summary.card.pr')}
-            </button>
-          )}
-        </div>
+      {s.text && (
+        <p className="wall-card__line summary-card__text" title={s.text}>
+          {s.text}
+        </p>
       )}
     </Card>
   )

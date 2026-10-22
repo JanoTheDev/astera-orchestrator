@@ -99,10 +99,10 @@ export function useWorkspace(deps: WorkspaceDeps) {
   }, [activeSessionId])
   const canOpenSessionTab = (sessionId: string): boolean => !!layout && !!groupOfTab(layout, sessionTab(sessionId))
   // W7-F (#84): an ended plan's ended tabs, and a replan's stale planner tab, close on their own (tabsToAutoClose),
-  // through the tab strip's own close: closeWorkbenchTab → closeSession. The session has already exited, so the kill
-  // that sends is a no-op on the Host (its registry skips an ended pty) and nothing is forgotten: the scrollback stays in
-  // the Host's ended entry, the transcript on disk (History), and the workspace tree, built from orchestration data,
-  // still lists the session. A plain session's ended tab is left alone.
+  // through the tab strip's own close as a hide (T13): the tab leaves the tree, nothing is killed, and Recently closed
+  // lists it, so Ctrl+Shift+T resumes it from its transcript. The scrollback stays in the Host's ended entry, the
+  // transcript on disk (History), and the workspace tree, built from orchestration data, still lists the session. A
+  // plain session's ended tab is left alone.
   useEffect(() => {
     if (!workspaceData || !layout) return
     const open = leaves(layout)
@@ -119,7 +119,7 @@ export function useWorkspace(deps: WorkspaceDeps) {
       openTabSessionIds: open,
       enabled: autoCloseEndedPlanTabs
     })
-    for (const id of ids) closeWorkbenchTabRef.current(sessionTab(id))
+    for (const id of ids) closeWorkbenchTabRef.current(sessionTab(id), 'hide') // T13: hidden, and listed in Recently closed
   }, [workspaceData, sessions, layout, autoCloseEndedPlanTabs])
   // W7-F (#84): what the switcher filters a plan session's tab by, besides its title
   const switcherMeta = useMemo(() => {

@@ -9,19 +9,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Plus } from 'lucide-react'
 import { useI18n } from '../../i18n/I18nProvider'
-import { formatElapsed } from '../../../../core/orchestration/elapsed'
-import { parseTab } from '../../../../core/panes/tabId'
+import { parseTab, sessionTab } from '../../../../core/panes/tabId'
+import { confirmModal } from '../../lib/confirm'
 import { buildWorkspaceTree } from '../../state/workspaceTree'
 import { useWorkspaceData } from '../../state/useWorkspaceData'
 import { useAttention } from '../../state/useAttention'
 import { usePlanLive } from '../plan/usePlanLive'
+import { ageOf } from '../plan/planBoard'
 import { localDoor } from '../../lib/orchDoor'
 import { openConsole, openPlan } from '../shell/navigation'
 import { setWallView, useWallView } from '../wall/wallView'
 import { focusTerminal } from '../wall/consoleDock'
 import { useJobRows } from '../wall/useJobRows'
 import {
-  ALL_PLANS, NO_PLAN, consolesOf, detailLineOf, detailsOf, filterConsoles, gridColumns, groupWall, orderWall, planPills, sectionWall,
+  ALL_PLANS, NO_PLAN, activityOf, consolesOf, detailsOf, filterConsoles, gridColumns, groupWall, orderWall, planPills, sectionWall,
   type PlanFilter, type StateFilter, type TileState, type WallConsole
 } from '../wall/wallModel'
 import { ConsoleStrip, ConsoleTile, PlanGroup, SectionHead, WallEmpty, WallFilters } from '../wall/Wall'
@@ -32,9 +33,10 @@ import { SummaryCard } from '../wall/SummaryCard' // W9-I
 import { useSummaries } from '../../state/useSummaries'
 import { scopeTree, UNKNOWN_PROJECT } from '../../state/projectView'
 import type { AppState } from '../../state/appState'
+import { setAgentSessions } from '../../lib/recentlyClosed'
 import '../wall/wall.css'
 
-export type AgentsPageProps = Pick<AppState, 'sessions' | 'accounts' | 'currentProject' | 'homeDir' | 'activeTabId' | 'scopeId' | 'allProjects' | 'setAllProjects'> & {
+export type AgentsPageProps = Pick<AppState, 'sessions' | 'accounts' | 'currentProject' | 'homeDir' | 'activeTabId' | 'scopeId' | 'allProjects' | 'setAllProjects' | 'closeWorkbenchTab'> & {
   /** W11: the header's and the empty state's "New console" (the New dialog's Console choice). */
   setShowNew?: AppState['setShowNew']
   children: React.ReactNode
@@ -52,7 +54,7 @@ const readPlan = (): PlanFilter => {
   }
 }
 
-export function AgentsPage({ sessions, accounts, currentProject, scopeId, allProjects, setAllProjects, homeDir, activeTabId, setShowNew, children, hidden }: AgentsPageProps): React.JSX.Element {
+export function AgentsPage({ sessions, accounts, currentProject, scopeId, allProjects, setAllProjects, homeDir, activeTabId, closeWorkbenchTab, setShowNew, children, hidden }: AgentsPageProps): React.JSX.Element {
   const { t } = useI18n()
   const view = useWallView()
   const showing = view.kind !== 'away'
@@ -93,6 +95,8 @@ export function AgentsPage({ sessions, accounts, currentProject, scopeId, allPro
     () => consolesOf({ sessions, tree, data, attention, live: live.sessions, rows }),
     [sessions, tree, data, attention, live.sessions, rows]
   )
+  // T13: an agent's tab hides on close without asking (lib/recentlyClosed.ts); the tree says which sessions those are
+  useEffect(() => setAgentSessions(consoles.filter((c) => c.role !== 'console').map((c) => c.sessionId)), [consoles])
   // the window's own project (App's scopeId: switcher or bound project, else the tab's folder resolved to its project)
   const projectId = scopeId === null || scopeId === UNKNOWN_PROJECT ? null : scopeId
   // a project made a moment ago has no tab yet, so the tree lacks it: name it by its folder
@@ -117,10 +121,15 @@ export function AgentsPage({ sessions, accounts, currentProject, scopeId, allPro
   const detailsFor = (c: WallConsole) =>
     detailsOf({ console: c, consoles, rows, tree, tasks: data?.tasks ?? [], answeredOf, escalatedOf })
   const accountOf = (id: string | undefined): string | undefined => (id ? (accounts.find((a) => a.id === id)?.label ?? id) : undefined)
-  /** The tile's meta line: plan (when the wall mixes plans), account, the role's detail (time running, files). */
+  /** T13: the card's meta line (DESIGN-W11 §9): project · account · role · last activity. */
   const metaOf = (c: WallConsole): string[] => {
-    const l = detailLineOf(detailsFor(c), nowMs, formatElapsed)
-    return [planPicked ? undefined : c.planName, accountOf(c.accountId), l ? t(l.key, l.params) : undefined].filter((x): x is string => !!x)
+    const at = live.sessions[c.sessionId]?.lastAction?.at
+    return [
+      tree.find((p) => p.id === c.projectId)?.name,
+      accountOf(c.accountId),
+      t(`wall.role.${c.role}` as const),
+      at !== undefined ? t('wall.tile.ago', { age: ageOf(new Date(at).toISOString(), nowMs) }) : undefined
+    ].filter((x): x is string => !!x)
   }
 
   // Any other way to a tab (the sidebar tree, a notice, a file opened from the explorer) leaves the wall for it: a
@@ -190,15 +199,33 @@ export function AgentsPage({ sessions, accounts, currentProject, scopeId, allPro
   const sections = sectionWall(liveTiles, wall.finished)
   // As many columns as the biggest group fills, up to the auto grid's count; CSS drops to fewer under 360px a tile.
   const cols = Math.min(gridColumns(liveTiles.length), Math.max(1, ...groups.map((g) => g.live.length)))
-  const tile = (c: WallConsole): React.JSX.Element => (
-    <ConsoleTile key={c.sessionId} c={c} main={c.sessionId === wall.mainId} meta={metaOf(c)} onOpen={() => open(c.sessionId)} />
-  )
+  const endSession = async (c: WallConsole): Promise<void> => {
+    const running = sessions.find((s) => s.id === c.sessionId)?.status !== 'exited'
+    const name = c.taskTitle ?? c.label
+    if (running && !(await confirmModal({ title: t('wall.end.title', { name }), body: t('wall.end.body'), confirmLabel: t('wall.end.confirm') }))) return
+    closeWorkbenchTab(sessionTab(c.sessionId), 'end')
+  }
+  const tile = (c: WallConsole): React.JSX.Element => {
+    const a = activityOf(c, live.sessions[c.sessionId]?.lastAction)
+    return (
+      <ConsoleTile
+        key={c.sessionId}
+        c={c}
+        main={c.sessionId === wall.mainId}
+        meta={metaOf(c)}
+        activity={t(a.key, a.params)}
+        onOpen={() => open(c.sessionId)}
+        onHide={() => closeWorkbenchTab(sessionTab(c.sessionId), 'hide')}
+        onEnd={() => void endSession(c)}
+      />
+    )
+  }
   const card = (c: WallConsole): React.JSX.Element => {
     const s = summaries.bySession.get(c.sessionId)
     return s ? (
       <SummaryCard key={c.sessionId} summary={s} compact onOpen={() => open(c.sessionId)} />
     ) : (
-      <FinishedCard key={c.sessionId} c={c} exitCode={exitOf(c.sessionId)} account={accountOf(c.accountId)} onOpen={() => open(c.sessionId)} />
+      <FinishedCard key={c.sessionId} c={c} exitCode={exitOf(c.sessionId)} meta={metaOf(c)} onOpen={() => open(c.sessionId)} />
     )
   }
   const resetFilters = (): void => {
@@ -241,7 +268,7 @@ export function AgentsPage({ sessions, accounts, currentProject, scopeId, allPro
           {groups.length === 0 ? (
             <WallEmpty filtered={consoles.length > 0} onNew={newConsole} onReset={resetFilters} />
           ) : (
-            <div className={cx('wall-body', cols === 1 && 'wall-body--one')} style={{ '--wall-cols': cols } as React.CSSProperties}>
+            <div className="wall-body" style={{ '--wall-cols': cols } as React.CSSProperties}>
               {sections.map((sec) => {
                 const secGroups = groupWall(sec.live, sec.done)
                 return (

@@ -259,7 +259,7 @@ export function ordinal(n: number): string {
   return `${n}${suffix}`
 }
 
-const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
+export const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
 
 /** A running Task's one-line "now", most pressing first: a prompt only a person can answer, a question to the
  *  coordinator still unanswered, then the last tool call. null for a Task that is not running or says nothing yet. */

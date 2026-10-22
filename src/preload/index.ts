@@ -102,6 +102,7 @@ const api = {
     kill: invoke('sessions.kill'),
     list: invoke('sessions.list'),
     rename: invoke('sessions.rename'),
+    transcript: invoke('sessions.transcript'),
     resumeDefaults: invoke('sessions.resumeDefaults')
   },
   history: {

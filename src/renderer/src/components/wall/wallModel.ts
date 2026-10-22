@@ -5,7 +5,7 @@
 import type { MessageKey } from '../../../../core/i18n'
 import type { Attention, JobRow, JobTask, SessionInfo, TaskCategory } from '../../../../core/types'
 import type { Dispatch, Task } from '../../../../core/orchestration/types'
-import { categoryOf, planProgressOf, type LiveSession, type PlanProgress } from '../plan/planBoard'
+import { EDIT_TOOLS, categoryOf, planProgressOf, type LiveSession, type PlanProgress } from '../plan/planBoard'
 import { approveSlot } from '../plan/planTalk'
 import { planSessions, projectOfCwd, type WorkspaceData, type WorkspacePlan, type WorkspaceProject, type WorkspaceSession } from '../../state/workspaceTree'
 
@@ -121,6 +121,23 @@ export function consolesOf(input: WallInput): WallConsole[] {
       chat: session.kind === 'chat'
     }
   })
+}
+
+/** T13: the tile's one-line "what it does now". A tool line shows only while the console works: an idle console's
+ *  last tool call is history, which the meta line's "ago" already dates. Keys and params for the caller's catalog. */
+export function activityOf(c: WallConsole, lastAction: LiveSession['lastAction'] | undefined): { key: MessageKey; params?: Record<string, string | number> } {
+  if (c.state === 'needs')
+    return { key: c.needs === 'permission' ? 'wall.activity.permission' : c.needs === 'gate' ? 'wall.activity.gate' : 'wall.activity.question' }
+  if (c.state === 'finished') return { key: 'wall.state.finished' }
+  const target = lastAction?.target?.trim()
+  if (c.state === 'working' && lastAction && target) {
+    // the path from the console's folder; the CSS ellipsizes what is still too long
+    const file = target.startsWith(`${c.cwd}/`) ? target.slice(c.cwd.length + 1) : target
+    if (EDIT_TOOLS.has(lastAction.tool)) return { key: 'wall.activity.editing', params: { file } }
+    if (lastAction.tool === 'Bash') return { key: 'wall.activity.running', params: { cmd: target.split(/\s+/)[0]! } }
+  }
+  if (c.state === 'working' && lastAction && ['Read', 'Grep', 'Glob'].includes(lastAction.tool)) return { key: 'wall.activity.reading' }
+  return { key: c.state === 'working' ? 'wall.state.working' : 'wall.state.idle' }
 }
 
 /** `'all'`, `'none'` (consoles of no plan) or a plan's Job id. */
