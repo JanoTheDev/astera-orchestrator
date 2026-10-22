@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { dismiss, pauseTimers, resumeTimers, subscribe, type Toast as ToastData } from '../../lib/toast'
 import { useI18n } from '../../i18n/I18nProvider'
 import { Button } from './UiButton'
@@ -32,14 +32,19 @@ export function ToastViewport(): React.JSX.Element {
   const { t } = useI18n()
   const [items, setItems] = useState<ToastData[]>([])
 
+  const ref = useRef<HTMLElement>(null)
+
   useEffect(() => subscribe(setItems), [])
-  // a toast that closes under the pointer must not leave the timers held
+  // A toast closed by its own (focused) button takes the focus with it and no blur fires: once the list changes, the
+  // timers run again unless the pointer or focus is still on the viewport.
   useEffect(() => {
-    if (items.length === 0) resumeTimers()
-  }, [items.length])
+    const el = ref.current
+    if (el && !el.contains(document.activeElement) && !el.matches(':hover')) resumeTimers()
+  }, [items])
 
   return (
     <section
+      ref={ref}
       className="ui-toast-viewport"
       role="status"
       aria-live="polite"
