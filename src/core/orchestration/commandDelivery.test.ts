@@ -385,3 +385,75 @@ describe('run-draft-pr pushes the plan branch after a Task (T3, real git)', () =
     expect(box.state.runs[0].branchPush).toMatchObject({ state: 'delivered', tasksDone: 1 })
   })
 })
+
+describe('a plan-branch push that keeps failing asks the owner (T4)', () => {
+  const pushSetup = () => {
+    const outcome: { ok: boolean } = { ok: false }
+    let clock = Date.parse(NOW)
+    const box: { state: OrchState } = {
+      state: {
+        ...emptyState(),
+        projects: [project({ delivery: 'push' })],
+        jobs: [{ id: 'job_1', objective: 'Fix auth', cwd: REPO, projectId: 'p1', createdAt: NOW }],
+        runs: [{ id: 'r1', jobId: 'job_1', ordinal: 1, createdAt: NOW, worktree: '/wt/run' } as JobRun],
+        tasks: [task(), task({ id: 't2', status: 'ready' })],
+        dispatches: []
+      }
+    }
+    const deps = {
+      getState: () => box.state,
+      setState: async (next: OrchState) => {
+        box.state = next
+      },
+      now: () => new Date(clock).toISOString(),
+      listAccounts: () => [],
+      github: {
+        run: async () => ({ ok: false, stdout: '', stderr: 'no gh here' }),
+        worktreeOf: (p: string) => (p === '/wt/run' ? { path: '/wt/run', repoPath: REPO, branch: 'astera/run', baseRef: 'main' } : null),
+        push: async () => (outcome.ok ? { ok: true } : { ok: false, kind: 'rejected', detail: 'remote hung up' })
+      }
+    } as unknown as OrchServerDeps
+    const push = async (args: Record<string, unknown> = {}) => {
+      clock += 61 * 60_000 // past every retry wait
+      return handleCommand(deps, { sessionId: HOST_CALLER }, 'run-draft-pr', { run: 'r1', ...args })
+    }
+    const questions = () => box.state.messages.filter((m) => m.type === 'escalation')
+    return { outcome, push, questions, state: () => box.state }
+  }
+
+  it('the fifth consecutive failure raises exactly one question with Retry now / I\'ll push it myself; a later success answers it', async () => {
+    const { outcome, push, questions, state } = pushSetup()
+    for (let i = 1; i <= 4; i++) expect((await push()).status).toBe(409)
+    expect(questions()).toHaveLength(0)
+    expect(state().runs[0].branchPush).toMatchObject({ state: 'retrying', attempts: 4 })
+    await push()
+    await push()
+    expect(questions()).toHaveLength(1)
+    expect(questions()[0]).toMatchObject({ options: ['Retry now', "I'll push it myself"], answered: false })
+    expect(questions()[0].subject).toContain('Pushing the plan branch')
+    expect(state().runs[0].branchPush).toMatchObject({ state: 'needs-owner', attempts: 6, questionId: questions()[0].id })
+    outcome.ok = true
+    expect((await push()).status).toBe(200)
+    expect(questions()[0]).toMatchObject({ answered: true })
+    expect(state().runs[0].branchPush).toMatchObject({ state: 'delivered', tasksDone: 1 })
+    // the count starts afresh: four failures after a success ask nothing
+    outcome.ok = false
+    for (let i = 1; i <= 4; i++) await push({ synced: true })
+    expect(questions()).toHaveLength(1)
+    expect(state().runs[0].branchPush).toMatchObject({ state: 'retrying', attempts: 4 })
+  })
+
+  it('"Retry now" (--force) counts afresh; "I\'ll push it myself" stops the plan-branch pushes', async () => {
+    const { push, questions, state } = pushSetup()
+    for (let i = 1; i <= 5; i++) await push()
+    expect(questions()).toHaveLength(1)
+    await push({ force: true })
+    expect(state().runs[0].branchPush).toMatchObject({ state: 'retrying', attempts: 1 })
+    for (let i = 1; i <= 4; i++) await push()
+    expect(questions()).toHaveLength(2)
+    expect((await push({ ownerPushes: true })).status).toBe(200)
+    expect(state().runs[0].branchPush).toMatchObject({ ownerPushes: true })
+    expect((await push()).status).toBe(409) // never due again
+    expect(state().runs[0].branchPush).toMatchObject({ ownerPushes: true, attempts: 5 })
+  })
+})

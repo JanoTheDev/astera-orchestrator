@@ -175,6 +175,13 @@ export function ProjectSettingsBody({
             </select>
           </div>
           <div className="field">
+            <label htmlFor="project-origin-sync">Keep running plans in sync with origin</label>
+            <select id="project-origin-sync" value={project.originSync ?? 'on'} onChange={(e) => void save({ originSync: e.target.value })}>
+              <option value="on">On (every 10 minutes and at each wave)</option>
+              <option value="off">Off (no network)</option>
+            </select>
+          </div>
+          <div className="field">
             <label>Default account</label>
             <select value={account} onChange={(e) => void save({ account: e.target.value })}>
               <option value="">None</option>

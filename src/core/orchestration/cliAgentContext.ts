@@ -194,6 +194,13 @@ const SESSION = {
       "While later waves remain, folds the completed tasks' worktrees into the run's integration branch, pushes it, and opens the plan's pull request as a draft or rewrites its body with the done and remaining waves. run-open-pr marks it ready after the final check. Never merges. The driving loop does this once per finished wave; refused from an agent session and an MCP client. Answered by the Host.",
     flags: [RUN_ARG('<runId>', 'the run between waves')]
   },
+  // T4 origin sync
+  'run-origin-synced': {
+    summary: "record when a running plan's branch was last synced with origin",
+    detail:
+      "The driving loop's own step (exec/originSync.ts): after it fetched origin and, when origin moved on, merged it into the plan branch, it records the time on the run, so a restarted Host does not sync again within ten minutes. Refused from an agent session and an MCP client.",
+    flags: [RUN_ARG('<runId>', 'the running plan'), { name: 'at', value: '<iso>', about: 'when it synced' }]
+  },
   // W8-A commit attribution
   'attribution-remap': {
     summary: "write the attribution notes onto the commits GitHub's squash or rebase merge of a plan's pull request made",

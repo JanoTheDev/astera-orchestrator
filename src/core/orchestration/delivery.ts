@@ -169,28 +169,34 @@ export const ownerCheckDue = (p: DeliveryProgress | undefined, nowMs: number): b
 
 /** Raises the one owner question of a delivery that failed every automatic attempt: an escalation from the Run with the
  *  reason and the two choices, its id kept on the Run (`deliveryState.questionId`), so it is raised once. */
-export function raiseDeliveryQuestion(s: OrchState, runId: string, at: string): OrchState {
+export function raiseDeliveryQuestion(s: OrchState, runId: string, at: string, of: 'deliveryState' | 'branchPush' = 'deliveryState'): OrchState {
   const run = s.runs.find((r) => r.id === runId)
-  const p = run?.deliveryState
+  const p = run?.[of]
   if (!run || !p || p.questionId !== undefined) return s
   const job = jobOf(s, run)
   const plan = job ? jobNameOf(job) : runId
+  // T4: the plan branch pushed after each Task (`run-draft-pr`) asks the same question
+  const what = of === 'branchPush' ? `Pushing the plan branch of ${plan}` : `Delivery of ${plan}`
   const message = {
     id: newId('msg'),
     runId,
     type: 'escalation' as const,
-    subject: `Delivery of ${plan} failed ${p.attempts} times: ${p.lastError ?? ''}`.slice(0, 500),
+    subject: `${what} failed ${p.attempts} times: ${p.lastError ?? ''}`.slice(0, 500),
     body:
-      `Astera tried to deliver this plan ${p.attempts} times and stopped asking by itself: ${p.lastError ?? 'unknown reason'}\n\n` +
-      `"${DELIVERY_RETRY_NOW}" tries again now. "${DELIVERY_OWNER_PUSHES}" leaves it to you; the plan reads delivered once ` +
-      'git sees its commits on the delivery branch.',
+      (of === 'branchPush'
+        ? `Astera tried to push this plan's branch ${p.attempts} times in a row: ${p.lastError ?? 'unknown reason'}\n\n` +
+          `"${DELIVERY_RETRY_NOW}" tries again now. "${DELIVERY_OWNER_PUSHES}" leaves it to you; Astera stops pushing the plan branch ` +
+          '(the end delivery still runs).'
+        : `Astera tried to deliver this plan ${p.attempts} times and stopped asking by itself: ${p.lastError ?? 'unknown reason'}\n\n` +
+          `"${DELIVERY_RETRY_NOW}" tries again now. "${DELIVERY_OWNER_PUSHES}" leaves it to you; the plan reads delivered once ` +
+          'git sees its commits on the delivery branch.'),
     options: [DELIVERY_RETRY_NOW, DELIVERY_OWNER_PUSHES],
     answered: false,
     createdAt: at
   }
   return {
     ...s,
-    runs: s.runs.map((r) => (r.id === runId ? { ...r, deliveryState: { ...p, questionId: message.id } } : r)),
+    runs: s.runs.map((r) => (r.id === runId ? { ...r, [of]: { ...p, questionId: message.id } } : r)),
     messages: [...s.messages, message]
   }
 }

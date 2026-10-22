@@ -1227,6 +1227,8 @@ const COORDINATOR_ONLY = new Set([
   'run-deliver',
   // W8-C draft PR
   'run-draft-pr',
+  // T4 origin sync
+  'run-origin-synced',
   // W8-A: the squash remap is Astera's, asked when the PR poll sees the plan's PR merged
   'attribution-remap',
   // T8: the owner's and a coordinator's
@@ -1307,6 +1309,12 @@ function projectSettingsArgs(
     if (cleared(args.replan)) patch.replan = null
     else if (args.replan === 'waves' || args.replan === 'off') patch.replan = args.replan
     else return { error: '--replan must be waves or off' }
+  }
+  // T4: on (the default) clears it; off stops the origin sync of the project's running plans
+  if (args.originSync !== undefined) {
+    const on = cleared(args.originSync) ? true : onOff(args.originSync)
+    if (on === null) return { error: '--origin-sync must be on or off' }
+    patch.originSync = on ? null : 'off'
   }
   if (args.testConfig !== undefined) {
     if (typeof args.testConfig !== 'string') return { error: '--test-config needs a run configuration id' }
@@ -6449,7 +6457,18 @@ export async function handleCommand(
       if (!run) return notFound(`unknown run: ${id}`)
       const job = jobOf(s, run)
       if (!job) return notFound(`no plan for run ${id}`)
-      const tasksDone = draftPrDue(s, run)
+      // T4: the owner answered they push the plan branch themselves: Astera stops pushing it
+      if (args.ownerPushes === true) {
+        const bp = run.branchPush
+        if (bp?.state !== 'needs-owner') return conflict("No plan-branch push of this Run waits on the owner")
+        const mine = { ...bp, ownerPushes: true as const }
+        delete mine.nextRetryAt
+        const cur = deps.getState()
+        await deps.setState({ ...cur, runs: cur.runs.map((r) => (r.id === id ? { ...r, branchPush: mine } : r)) })
+        return okBody({ branchPush: mine })
+      }
+      // T4: `synced`: an origin sync merged into the plan branch, which is pushed with no new Task
+      const tasksDone = draftPrDue(s, run, undefined, { synced: args.synced === true })
       if (tasksDone === null) return conflict("No plan-branch push is due: the plan's branch is pushed once per Task merged into it")
       const reply = await (async (): Promise<Reply> => {
         const t = githubTarget(deps, s, { run: id })
@@ -6464,8 +6483,9 @@ export async function handleCommand(
           const merged = await deps.mergeWorktrees(t.cwd, fold)
           if (!merged.ok) return conflict(merged.reason)
         }
-        // T3: a push plan's branch is pushed for safekeeping; main receives the plan once, validated, at the end
-        if (deliveryOf(s, job) === 'push') {
+        // T3: a push plan's branch is pushed for safekeeping; main receives the plan once, validated, at the end. T4: so is
+        // a `pr` plan's synced before its first Task: its draft opens with that Task
+        if (deliveryOf(s, job) === 'push' || (run.pr?.url === undefined && tasksDone < 1)) {
           const pushed = await g.push(t.cwd, t.branch)
           if (!pushed.ok)
             return pushed.kind === 'no-remote'
@@ -6525,14 +6545,30 @@ export async function handleCommand(
       })()
       const at = deps.now?.() ?? now
       const failed = reply.status >= 400 ? String((reply.body as { error?: unknown } | null)?.error ?? `answered ${reply.status}`) : undefined
-      const bp = afterAttempt(run.branchPush, at, failed, { ask: false })
-      const cur = deps.getState()
-      const tasksPushed = failed === undefined ? tasksDone : run.branchPush?.tasksDone
-      await deps.setState({
-        ...cur,
-        runs: cur.runs.map((r) => (r.id === id ? { ...r, branchPush: { ...bp, ...(tasksPushed !== undefined ? { tasksDone: tasksPushed } : {}) } } : r))
-      })
+      // T4: consecutive failures count (a push that went through, or the owner's "Retry now", starts afresh); the fifth asks
+      // the owner once, as a delivery does (`raiseDeliveryQuestion`), and a push that goes through answers that question
+      const prev = run.branchPush
+      const bp = afterAttempt(prev?.state === 'delivered' || args.force === true ? undefined : prev, at, failed)
+      const tasksPushed = failed === undefined ? tasksDone : prev?.tasksDone
+      let cur = deps.getState()
+      cur = { ...cur, runs: cur.runs.map((r) => (r.id === id ? { ...r, branchPush: { ...bp, ...(tasksPushed !== undefined ? { tasksDone: tasksPushed } : {}) } } : r)) }
+      if (bp.state === 'needs-owner' && bp.questionId === undefined) cur = raiseDeliveryQuestion(cur, id, at, 'branchPush')
+      const asked = prev?.questionId
+      if (failed === undefined && asked !== undefined)
+        cur = { ...cur, messages: cur.messages.map((m) => (m.id === asked && !m.answered ? { ...m, answered: true, answerBody: 'pushed' } : m)) }
+      await deps.setState(cur)
       return reply
+    }
+    // T4: the origin sync's time on the Run (exec/originSync.ts), so a restart does not sync again early. Astera's own step
+    case 'run-origin-synced': {
+      const id = str(args.run)
+      const at = str(args.at)
+      if (!id) return bad('--run is required')
+      if (!at || Number.isNaN(Date.parse(at))) return bad('--at must be a time')
+      if (fromAgentSession || caller.role === 'mcp') return denied("a plan's origin sync is Astera's own")
+      if (!s.runs.some((r) => r.id === id)) return notFound(`unknown run: ${id}`)
+      await deps.setState({ ...s, runs: s.runs.map((r) => (r.id === id ? { ...r, lastOriginSyncAt: at } : r)) })
+      return okBody({ run: id, lastOriginSyncAt: at })
     }
     case 'run-open-pr': {
       const id = str(args.run)
