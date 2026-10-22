@@ -10,7 +10,7 @@
 // either fails (files/tree.ts's node:path import has no declarations there) or "succeeds" by adding
 // "types": ["node"], which loosens the guard that keeps Node globals out of the renderer typecheck.
 // W8-D several plans in one repo
-import { overlapLines } from './overlap'
+import { overlapLines, planOverlapWarnings } from './overlap'
 import { isSamePath } from '../files/tree'
 import { findProjectByPath, jobInProject } from './projects'
 import { runsWorkingIn, runWorktreesFrom } from './integrate'
@@ -423,6 +423,7 @@ export function snapshotFor(
     const stuck = run === undefined ? undefined : stuckOf(state, run, ownedTasks, stuckIx(), job)
     const { done, total } = progressOfTasks(ownedTasks)
     const planProblems = job.pendingStart && job.plannerSessionIds !== undefined ? validatePlan(state, job.id) : []
+    const planOverlaps = job.pendingStart && job.plannerSessionIds !== undefined ? planOverlapWarnings(state, job.id) : []
     const worktreesOf = (
       run ? runWorktreesFrom(run, ix.jobById.get(run.jobId)?.cwd, ix.dispatchesByRun.get(run.id) ?? []) : []
     ).filter(exists)
@@ -500,6 +501,8 @@ export function snapshotFor(
       ...(job.rejected !== undefined ? { rejected: job.rejected } : {}),
       // W8-F (#94): what keeps a plan waiting for approval from being approved, shown before Run is pressed
       ...(planProblems.length > 0 ? { planProblems } : {}),
+      // T11: and what it meets in plans planning or running, beside the problems, never one of them
+      ...(planOverlaps.length > 0 ? { planOverlaps } : {}),
       ...(job.leftOut?.length ? { leftOut: leftOutRows(job) } : {}),
       // #116: Approve only once the planner is done; an auto-approve plan says it starts by itself instead
       ...(planApprovable(state, job) ? { planReady: true as const } : {}),

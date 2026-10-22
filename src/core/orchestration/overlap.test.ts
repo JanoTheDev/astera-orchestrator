@@ -369,6 +369,17 @@ describe('plans that know about each other (T11)', () => {
     expect((reply.body as { overlaps?: string[] }).overlaps).toEqual(['Rework routes · Api cleanup · Clean handlers (same files: src/api/routes.ts)'])
   })
 
+  it('jobs-plan-ready, before approval, answers with the open overlaps and still marks the plan ready', async () => {
+    const ready = (t: Task): Task => ({ ...t, prompt: 'p', acceptanceCriteria: ['c'], basis: { state: 'missing', evidence: 'e' } })
+    let st: OrchState = { ...planning(), tasks: planning().tasks.map(ready) }
+    const deps = { getState: () => st, setState: async (n: OrchState) => void (st = n), now: () => T0 } as unknown as OrchServerDeps
+    const reply = await handleCommand(deps, { sessionId: '' }, 'jobs-plan-ready', { id: 'jA' })
+    expect(reply.status).toBe(200)
+    expect((reply.body as { overlaps?: string[] }).overlaps).toEqual(['Rework routes · Api cleanup · Clean handlers (same files: src/api/routes.ts)'])
+    expect(st.jobs.find((j) => j.id === 'jA')?.planReadyAt).toBe(T0)
+    expect(st.jobs.find((j) => j.id === 'jA')?.pendingStart).toBe(true)
+  })
+
   it('titles alike by words (Jaccard >= 0.6)', () => {
     expect(titleSimilarity('Fix the login form', 'fix login form')).toBeGreaterThanOrEqual(0.6)
     expect(titleSimilarity('Fix login', 'Rework billing page')).toBe(0)

@@ -11,7 +11,7 @@ import type { OrchServerDeps } from '../command'
 import { handsOffOf, projectOfJob } from '../delivery'
 import { buildPlannerBrief } from '../handover'
 // W8-D several plans in one repo
-import { otherPlansBrief } from '../overlap'
+import { otherPlansBrief, planOverlapWarnings } from '../overlap'
 import { archiveJob, isJobActive } from '../lifecycle'
 import { cancelPlanTask, plannerJobOf, validatePlan } from '../planner'
 import { replanJobOf } from '../replan'
@@ -184,7 +184,9 @@ export async function feedbackCommand(deps: OrchServerDeps, caller: Caller, cmd:
     const problems = validatePlan(s, jobId)
     if (problems.length) return { status: 400, body: { error: `the plan does not hold: ${problems.join('; ')}`, problems } }
     await setJob(jobId, (j) => ({ ...j, planReadyAt: now }))
-    return ok({ jobId, planReadyAt: now })
+    // T11: the plan's open overlaps with plans planning or running, for the owner's approval; never a problem
+    const overlaps = planOverlapWarnings(s, jobId)
+    return ok({ jobId, planReadyAt: now, ...(overlaps.length > 0 ? { overlaps } : {}) })
   }
 
   if (cmd === 'jobs-auto-start') {

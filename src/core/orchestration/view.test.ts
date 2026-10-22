@@ -274,6 +274,19 @@ describe('snapshotFor', () => {
     expect(rowOf(job)).not.toHaveProperty('autoApprove')
   })
 
+  it('T11: a plan awaiting approval lists its open overlaps with a plan planning too, beside its problems, never one of them', () => {
+    const base = withRuns([run('r1', absPath('p'))])
+    const job = { ...base.jobs[0], pendingStart: true, plannerSessionIds: ['pl'] }
+    const other = { ...base.jobs[0], id: 'job_other', title: 'Other plan', pendingStart: true, plannerSessionIds: ['pl2'] }
+    const planTask = (id: string, jobId: string, title: string): Task => ({
+      ...task(id, 'x', 'ready'), title, runId: undefined, jobId, prompt: 'do it', acceptanceCriteria: ['done'], affectedPaths: ['src/a'], basis: { state: 'missing', evidence: 'none' }
+    })
+    const tasks = [planTask('pt', job.id, 'Mine'), planTask('ot', other.id, 'Theirs')]
+    const row = snapshotFor({ ...base, runs: [], jobs: [job, other], tasks }, absPath('p'), anySession, noWorktrees, noFires, allExist).runs.find((r) => r.id === job.id)!
+    expect(row.planOverlaps).toEqual(['Mine · Other plan · Theirs (same files: src/a)'])
+    expect(row).not.toHaveProperty('planProblems')
+  })
+
   it('T7: a plan lists its left-out objective items with their text and reason, and an uncovered item is a problem', () => {
     const base = withRuns([run('r1', absPath('p'))])
     const job = { ...base.jobs[0], objective: '1. login\n2. logout', pendingStart: true, plannerSessionIds: ['pl'] }
