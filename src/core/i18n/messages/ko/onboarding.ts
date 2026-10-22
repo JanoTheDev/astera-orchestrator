@@ -8,13 +8,13 @@ export const onboarding = {
   // 그러면 안 바뀐 줄이 '눌렀는데 아무 일도 안 났다'로 읽힌다.
   'settings.info.cliInstallDone': '설치했습니다.',
   'status.hostStarting': 'Astera 시작 중…',
-  'status.hostWaitingForPrevious': 'Astera 시작 중… 이전 백그라운드 Host 가 끝나기를 기다리는 중',
+  'status.hostWaitingForPrevious': 'Astera 시작 중… 이전 백그라운드 서비스가 끝나기를 기다리는 중',
   // 업데이트 뒤 Host 실행 환경을 깔아 두는 동안(첫 설치는 node.exe 87MB 복사와 백신 검사). 1초를 넘기면 Slow 문구로 바뀐다
-  'status.hostPreparing': 'Astera Host 준비 중…',
-  'status.hostPreparingSlow': 'Astera Host 준비 중… 아직 진행 중입니다 ({seconds}초)',
-  'status.hostPrepareFailed': 'Astera Host 를 준비하지 못했습니다',
-  'status.hostPrepareFailedTitle': '{reason} ({detail}) 이번에는 앱 실행 파일로 Host 를 띄우고, 다음 시작 때 다시 준비합니다.',
-  'status.hostPrepareReason.copy': 'Host 실행 파일을 복사하지 못했습니다.',
+  'status.hostPreparing': 'Astera 백그라운드 서비스 준비 중…',
+  'status.hostPreparingSlow': 'Astera 백그라운드 서비스 준비 중… 아직 진행 중입니다 ({seconds}초)',
+  'status.hostPrepareFailed': 'Astera 백그라운드 서비스를 준비하지 못했습니다',
+  'status.hostPrepareFailedTitle': '{reason} ({detail}) 이번에는 앱 실행 파일로 백그라운드 서비스를 띄우고, 다음 시작 때 다시 준비합니다.',
+  'status.hostPrepareReason.copy': '백그라운드 서비스 파일을 복사하지 못했습니다.',
   'status.hostPrepareReason.timeout': '준비가 2분 안에 끝나지 않았습니다.',
   'status.hostPrepareReason.unknown': '준비 중 알 수 없는 오류가 났습니다.',
   // The first-run screen, shown when neither CLI is installed (renderer/components/CliMissingScreen.tsx).
@@ -54,6 +54,7 @@ export const onboarding = {
   // The first-run onboarding (renderer/components/onboarding/).
   'onboarding.label': '설정 안내',
   'onboarding.step': '{total}단계 중 {n}단계',
+  'onboarding.stepsLabel': '설정 진행 상황',
   'onboarding.next': '다음',
   'onboarding.back': '이전',
   'onboarding.skip': '설정 건너뛰기',

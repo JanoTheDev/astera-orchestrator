@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { installCommandFor, type InstallableCli } from '../../../core/install/cliInstall'
 import { useI18n } from '../i18n/I18nProvider'
+import { Button } from './ui'
 import { useCliInstall } from '../hooks/useCliInstall'
 import type { CliStatus } from '../../../core/types'
 
@@ -60,13 +61,13 @@ export function CliInstallRows({
                   exactly as it did before this existed is the right answer for someone it cannot
                   help anyway. */}
               {plan && (
-                <button type="button" disabled={running} onClick={() => install(id)}>
+                <Button size="sm" loading={busy} disabled={running} onClick={() => install(id)}>
                   {busy
                     ? t('setup.installing')
                     : version !== undefined
                       ? t('settings.info.cliReinstall')
                       : t('setup.install')}
-                </button>
+                </Button>
               )}
             </span>
           </div>
@@ -97,9 +98,9 @@ export function CliInstallRows({
           <span />
           <span className="settings-cli-value">
             <span>{t('setup.notFoundYet', { name: phase.cli === 'claude' ? 'Claude Code' : 'Codex' })}</span>
-            <button type="button" onClick={() => void window.api.system.relaunch()}>
+            <Button size="sm" variant="primary" onClick={() => void window.api.system.relaunch()}>
               {t('setup.restart')}
-            </button>
+            </Button>
           </span>
         </div>
       )}
@@ -108,9 +109,9 @@ export function CliInstallRows({
         <div className="settings-row settings-cli-note">
           <span />
           <span className="settings-cli-value">
-            <button type="button" onClick={() => setLogOpen((prev) => !prev)}>
+            <Button size="sm" variant="ghost" aria-expanded={logOpen} onClick={() => setLogOpen((prev) => !prev)}>
               {logOpen ? t('setup.hideLog') : t('setup.showLog')}
-            </button>
+            </Button>
           </span>
         </div>
       )}

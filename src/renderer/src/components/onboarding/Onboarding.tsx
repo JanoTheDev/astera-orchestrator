@@ -2,7 +2,6 @@
 // project, Preferences, Done. The rules live in onboardingModel.ts; this draws them. Choices are saved as they are
 // made (the same setters Settings uses), so leaving at any step keeps what was set.
 import { useEffect, useRef, useState } from 'react'
-import { Check, Circle, FolderOpen, LogIn, Plus } from 'lucide-react'
 import type { Account, CliStatus, DetectCandidate, Provider, SessionKind, UpdateMode, UpdateStatus } from '../../../../core/types'
 import type { Lang } from '../../../../core/i18n'
 import { CATALOGS, LANGS } from '../../../../core/i18n'
@@ -14,7 +13,7 @@ import { toast } from '../../lib/toast'
 import { CliInstallRows } from '../CliInstallRows'
 import { AccountSignInDialog } from '../AccountSignIn'
 import { ProviderBadge } from '../ProviderBadge'
-import { Button, Card, Chip, Field, Select } from '../ui'
+import { Button, Card, Chip, Field, Icon, Select, type SelectOption } from '../ui'
 import logoUrl from '../../assets/mark.svg'
 import {
   ONBOARDING_STEPS, canNext, nextStep, prevStep, resumeStep, showUpdateChoice, stepIndex,
@@ -25,6 +24,8 @@ import './onboarding.css'
 const UPDATE_MODES: readonly UpdateMode[] = ['off', 'notify', 'build', 'install-when-idle']
 /** Same convention as GeneralSettings: Select keys rows by string, so "System" is the empty string. */
 const SYSTEM_LANG = ''
+
+const KINDS = ['terminal', 'chat'] as const
 
 const baseName = (p: string): string => p.split(/[\\/]/).pop() ?? p
 
@@ -91,6 +92,20 @@ export function Onboarding(p: OnboardingProps): React.JSX.Element | null {
     })
   }
 
+  const langItems: SelectOption[] = [
+    { value: SYSTEM_LANG, label: t('settings.general.language.system', { lang: CATALOGS[systemLang].nativeName }) },
+    ...LANGS.map((l) => ({ value: l, label: CATALOGS[l].nativeName }))
+  ]
+  // Radio group keyboard: arrows move the choice and its focus together (roving tabindex), like Tabs.
+  const kindKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
+    const d = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0
+    if (!d) return
+    e.preventDefault()
+    const next = KINDS[(KINDS.indexOf(p.defaultSessionKind) + d + KINDS.length) % KINDS.length]
+    pickKind(next)
+    e.currentTarget.querySelector<HTMLElement>(`[data-kind="${next}"]`)?.focus()
+  }
+
   const title = (key: Parameters<typeof t>[0]): React.JSX.Element => (
     <h1 ref={heading} tabIndex={-1} className="onb__title">
       {t(key)}
@@ -114,17 +129,11 @@ export function Onboarding(p: OnboardingProps): React.JSX.Element | null {
         <label className="onb__lang">
           <span>{t('settings.general.language')}</span>
           <Select
+            items={langItems}
             value={storedLang ?? SYSTEM_LANG}
-            onChange={(e) => setLang(e.target.value === SYSTEM_LANG ? null : (e.target.value as Lang))}
-            aria-label={t('settings.general.language')}
-          >
-            <option value={SYSTEM_LANG}>{t('settings.general.language.system', { lang: CATALOGS[systemLang].nativeName })}</option>
-            {LANGS.map((l) => (
-              <option key={l} value={l}>
-                {CATALOGS[l].nativeName}
-              </option>
-            ))}
-          </Select>
+            onChange={(v) => setLang(v === SYSTEM_LANG ? null : (v as Lang))}
+            ariaLabel={t('settings.general.language')}
+          />
         </label>
       </>
     )
@@ -167,7 +176,7 @@ export function Onboarding(p: OnboardingProps): React.JSX.Element | null {
               <span className="onb__dim">{t('onboarding.project.none')}</span>
             )}
           </span>
-          <Button icon={<FolderOpen size={16} />} disabled={!p.onAddProject} onClick={p.onAddProject}>
+          <Button icon={<Icon name="folder" />} disabled={!p.onAddProject} onClick={p.onAddProject}>
             {t('onboarding.project.pick')}
           </Button>
         </Card>
@@ -180,18 +189,20 @@ export function Onboarding(p: OnboardingProps): React.JSX.Element | null {
         {title('onboarding.prefs.title')}
         <p className="onb__lead">{t('onboarding.prefs.body')}</p>
         <div className="onb__label">{t('settings.defaultKind.title')}</div>
-        <div className="onb__choices" role="radiogroup" aria-label={t('settings.defaultKind.title')}>
-          {(['terminal', 'chat'] as const).map((kind) => (
+        <div className="onb__choices" role="radiogroup" aria-label={t('settings.defaultKind.title')} onKeyDown={kindKeyDown}>
+          {KINDS.map((kind) => (
             <Card
               key={kind}
               tone={p.defaultSessionKind === kind ? 'focus' : 'plain'}
               role="radio"
               aria-checked={p.defaultSessionKind === kind}
+              tabIndex={p.defaultSessionKind === kind ? 0 : -1}
+              data-kind={kind}
               onClick={() => pickKind(kind)}
               className="onb__choice"
             >
               <span className="onb__choice-name">
-                {p.defaultSessionKind === kind ? <Check size={16} aria-hidden="true" /> : <Circle size={16} aria-hidden="true" />}
+                <Icon name={p.defaultSessionKind === kind ? 'check' : 'pending'} />
                 {t(kind === 'terminal' ? 'settings.defaultKind.terminal' : 'settings.defaultKind.chat')}
               </span>
               <span className="onb__dim">{t(kind === 'terminal' ? 'onboarding.prefs.terminalWhat' : 'onboarding.prefs.chatWhat')}</span>
@@ -262,7 +273,7 @@ export function Onboarding(p: OnboardingProps): React.JSX.Element | null {
       }}
     >
       <div className="onb__page">
-        <div className="onb__progress">
+        <div className="onb__progress" role="group" aria-label={t('onboarding.stepsLabel')}>
           <ol className="onb__dots" aria-hidden="true">
             {ONBOARDING_STEPS.map((s, i) => (
               <li key={s} className={i === index ? 'is-current' : i < index ? 'is-past' : undefined} />
@@ -294,7 +305,7 @@ export function Onboarding(p: OnboardingProps): React.JSX.Element | null {
 function Status({ ok, text }: { ok: boolean; text: string }): React.JSX.Element {
   return (
     <p className={ok ? 'onb__status is-ok' : 'onb__status'}>
-      {ok ? <Check size={16} aria-hidden="true" /> : <Circle size={16} aria-hidden="true" />}
+      <Icon name={ok ? 'check' : 'pending'} />
       <span>{text}</span>
     </p>
   )
@@ -357,7 +368,7 @@ function AccountsStep({
                 </Chip>
               )}
               {loginMap[a.id] === false && (
-                <Button size="sm" icon={<LogIn size={14} />} onClick={() => setSignIn(a)}>
+                <Button size="sm" onClick={() => setSignIn(a)}>
                   {t('account.signIn.button')}
                 </Button>
               )}
@@ -379,7 +390,7 @@ function AccountsStep({
                 <Chip tone={c.loggedIn ? 'ok' : 'neutral'} dot>
                   {c.loggedIn ? t('account.status.loggedIn') : t('account.status.notLoggedIn')}
                 </Chip>
-                <Button size="sm" icon={<Plus size={14} />} loading={busy === c.configDir} onClick={() => void add(c)}>
+                <Button size="sm" icon={<Icon name="add" size={14} />} loading={busy === c.configDir} onClick={() => void add(c)}>
                   {t('onboarding.accounts.add')}
                 </Button>
               </div>
@@ -390,7 +401,7 @@ function AccountsStep({
       {accounts.length === 0 && candidates.length === 0 && <p className="onb__dim">{t('onboarding.accounts.none')}</p>}
       <div className="onb__inline">
         {providers.map((pr) => (
-          <Button key={pr} icon={<LogIn size={16} />} loading={busy === pr} onClick={() => void signInNew(pr)}>
+          <Button key={pr} loading={busy === pr} onClick={() => void signInNew(pr)}>
             {t('onboarding.accounts.signInWith', { name: PROVIDER_META[pr].displayName })}
           </Button>
         ))}
