@@ -5,7 +5,7 @@ import { useRef, useState } from 'react'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
 import { endRenameOnce } from '../lib/renameOnce'
-import { Chip } from './ui'
+import { Chip, Icon, IconButton, Input } from './ui'
 
 /** Account row UI. Shared by the sidebar and the settings Accounts tab.
  *  The action buttons come in as children — the row does not need to know "who gets which button".
@@ -82,7 +82,7 @@ export function AccountRow({
       <ProviderBadge provider={account.provider} />
       {/* Double-click the name to rename the account (Enter saves, Escape cancels). */}
       {renaming ? (
-        <input
+        <Input
           className="account-label-edit"
           autoFocus
           defaultValue={account.label}
@@ -121,15 +121,17 @@ export function AccountRow({
           nothing either, so no meter flashes in and out on mount. */}
       {loggedIn && <AccountUsageMeter usage={usage} />}
       {/* W11: said in words, and only when it is a problem; undefined (not asked yet) draws nothing. */}
-      {loggedIn === false && <Chip tone="warn">{t('account.status.notLoggedIn')}</Chip>}
+      {loggedIn === false && <Chip tone="warn" dot>{t('account.status.notLoggedIn')}</Chip>}
       {/* The actions sit inside the row, so their clicks would bubble into the row's toggle —
           pressing "remove account" would also open the usage detail. Stopped here rather than on
           each button so a caller cannot forget. */}
-      {children && (
-        <span className="account-row-actions" onClick={(e) => e.stopPropagation()}>
-          {children}
-        </span>
-      )}
+      <span className="account-row-actions" onClick={(e) => e.stopPropagation()}>
+        {/* Renaming had only a double-click; this is its keyboard and pointer-visible way in. */}
+        {!renaming && (
+          <IconButton size="sm" className="account-rename-btn" icon={<Icon name="edit" size={14} />} label={t('account.rename.button')} onClick={() => setRenaming(true)} />
+        )}
+        {children}
+      </span>
       {/* In flow, after the row's own content, so opening it grows the row downward instead of
           covering the rows beneath (design doc §5.1). */}
       {expanded && openable && <AccountUsageDetail usage={usage} />}

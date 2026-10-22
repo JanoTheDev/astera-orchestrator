@@ -3,7 +3,7 @@ import type { accounts as ko } from '../ko/accounts'
 
 export const accounts: Partial<Record<keyof typeof ko, string>> = {
   'settings.accounts.hint':
-    '⤓ importa la configuración de la cuenta predeterminada del mismo CLI. La predeterminada es la primera cuenta registrada que tenga la sesión iniciada, una por CLI.',
+    "«Importar configuración» copia la configuración de la cuenta predeterminada del mismo CLI. La predeterminada es la primera cuenta registrada con la sesión iniciada, una por CLI.",
   // AccountPanel.tsx — account register, import, detect, logout, settings sync
   'account.field.kind': 'Tipo',
   'account.field.label': 'Etiqueta',
@@ -61,4 +61,10 @@ export const accounts: Partial<Record<keyof typeof ko, string>> = {
   'account.switch.busy': 'Esta pestaña ya está cambiando de cuenta; inténtalo de nuevo en un momento',
   'account.switch.noTab': 'Abre una pestaña de sesión para moverla a otra cuenta',
   'account.switch.otherProvider': 'Solo las cuentas de {provider} pueden tomar esta pestaña',
+  // W3 redesign: rename button, near-limit cue, plain import button, empty states
+  'account.rename.button': "Renombrar",
+  'account.usage.nearLimit': "Cerca del límite",
+  'account.sync.button': "Importar configuración",
+  'account.empty.body': "Las cuentas permiten a Astera ejecutar agentes con su suscripción de Claude o Codex. Agregue una para empezar.",
+  'account.empty.bodySettings': "Agregue una desde el menú de cuentas de la barra superior.",
 }

@@ -1,7 +1,7 @@
 // Korean · accounts area. Which files each area serves: ../README.md.
 export const accounts = {
   'settings.accounts.hint':
-    '⤓ 는 같은 CLI의 기본 계정에서 설정을 가져옵니다. 기본 계정은 로그인된 계정 중 가장 먼저 등록된 것으로, CLI마다 하나씩 있습니다.',
+    "“설정 가져오기”는 같은 CLI의 기본 계정에서 설정을 복사합니다. 기본 계정은 로그인된 계정 중 가장 먼저 등록된 것으로, CLI마다 하나씩 있습니다.",
   // AccountPanel.tsx — account register, import, detect, logout, settings sync
   'account.field.kind': '종류',
   'account.field.label': '라벨',
@@ -86,4 +86,10 @@ export const accounts = {
   'settings.usageGuard.subagentsHint': '1에서 10까지. 더 띄우려는 Claude 탭은 하나가 끝날 때까지 기다리라는 답을 받는다.',
   'settings.usageGuard.pauseAtHint': '5시간 또는 7일 한도의 이만큼을 쓴 계정에서는 새 워커를 띄우지 않는다. Task 의 다른 계정이 그 아래이면 그 계정으로 띄운다. 도는 워커는 그대로 둔다.',
   'settings.usageGuard.saveFailed': '사용량 설정을 저장하지 못했습니다: {detail}',
+  // W3 redesign: rename button, near-limit cue, plain import button, empty states
+  'account.rename.button': "이름 바꾸기",
+  'account.usage.nearLimit': "한도에 가까워요",
+  'account.sync.button': "설정 가져오기",
+  'account.empty.body': "계정을 추가하면 Astera가 Claude 또는 Codex 구독으로 에이전트를 실행할 수 있습니다.",
+  'account.empty.bodySettings': "상단 바의 계정 메뉴에서 추가하세요.",
 } as const
