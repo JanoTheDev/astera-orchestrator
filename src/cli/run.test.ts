@@ -1408,7 +1408,8 @@ describe('run.ts — 모드가 정해진 뒤의 실패는 한 문으로만 나�
     // 면제는 하나다. `host-*` 가 성공 모양의 본문에 0 아닌 코드를 붙이던 것이 그전 마지막 면제였고, 그 실패는
     // 이제 `fail` 을 지난다(리뷰 I1). 남은 하나는 `runtime serve` 의 75·78 이다: 실패한 명령이 아니라 OS 감독
     // 프로그램이 읽는 신호이고(설계 §2.9, Phase 11 리뷰 I4), 이유는 serve 가 이미 stderr 에 적는다.
-    expect(bare.length, 'the number of exemptions changed').toBe(1)
+    // 두 번째는 `machines migrate` 의 부분 실패다: 단계별 상태가 이미 보고서에 있고 종료 코드 1 은 스크립트에게 "일부만 됐다"를 알린다.
+    expect(bare.length, 'the number of exemptions changed').toBe(2)
   })
 
   // 앞선 세 자리는 아직 모드가 없어서 봉투로 나간다 — 그것이 errorOutput 이 남아 있는 이유이고,

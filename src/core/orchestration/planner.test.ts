@@ -4,9 +4,12 @@ import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { handleCommand, type OrchServerDeps } from './command'
-import { emptyState, type OrchState } from './state'
-import { editPlanTask, planFileOf, renderPlanMd, validatePlan, workerSpecOf } from './planner'
+import { emptyState, startJobRun, type OrchState } from './state'
+import type { Task } from './types'
+import { cancelPlanTask, editPlanTask, kindOf, planFileOf, renderPlanFolder, renderPlanMd, renderTaskMd, validatePlan, workerSpecOf } from './planner'
 import { OrchestrationStore } from './store'
+import { replanProblems } from './exec/replanStart'
+import { deriveActivity } from './activity'
 
 const NOW = '2026-10-17T00:00:00.000Z'
 const PLANNER = 'ses-planner'
@@ -109,6 +112,48 @@ describe('jobs plan', () => {
     const jobId = (made.body as { id: string }).id
     expect((await person(r)('jobs-plan', { id: jobId })).status).toBe(400)
     expect(r.deps.getState().jobs[0]).not.toHaveProperty('plannerSessionIds')
+  })
+  // T25: a planner start waiting for an account with room shows its reason on the Job, and the Job loses it once it starts
+  it('records why the planner start waits on the Job, and clears it once the planner starts', async () => {
+    const r = rig()
+    let seen: string | undefined
+    r.deps.startCoordinator = async (a) => {
+      const onWait = a.onWait as (why: string | null) => void
+      onWait('no claude account has room to start the planner on: acc1 (its weekly limit is at the usage threshold)')
+      seen = r.deps.getState().jobs[0].startWait
+      onWait(null)
+      return { sessionId: PLANNER }
+    }
+    const made = await person(r)('run-create', { objective: 'o', cwd: 'D:/p', coordinatorAccount: 'acc1', auto: true })
+    const jobId = (made.body as { id: string }).id
+    expect((await person(r)('jobs-plan', { id: jobId })).status).toBe(200)
+    expect(seen).toMatch(/no claude account has room.*weekly limit/)
+    expect(r.deps.getState().jobs[0]).not.toHaveProperty('startWait')
+  })
+  // T5b (decision 6): the named account is a preference; the Job records the one actually started
+  it('records the account the planner actually started on, and keeps the named one as the preference', async () => {
+    const r = rig()
+    r.deps.startCoordinator = async (a) => {
+      r.coordinatorStarts.push(a)
+      return { sessionId: PLANNER, accountId: 'acc2' }
+    }
+    const made = await person(r)('run-create', { objective: 'o', cwd: 'D:/p', coordinatorAccount: 'acc1', auto: true })
+    const jobId = (made.body as { id: string }).id
+    const planned = await person(r)('jobs-plan', { id: jobId })
+    expect(planned.body).toMatchObject({ accountId: 'acc2' })
+    expect(r.deps.getState().jobs[0]).toMatchObject({ plannerAccountId: 'acc2', preferredAccountId: 'acc1' })
+    expect(r.coordinatorStarts[0]).toMatchObject({ accountId: 'acc1' })
+    expect(r.coordinatorStarts[0]).not.toHaveProperty('auto')
+  })
+
+  it('with no account named, the planner starts on auto', async () => {
+    const r = rig()
+    ;(r.deps as { listAccounts: unknown }).listAccounts = () => [{ id: 'acc1', label: 'a', provider: 'claude', default: true }]
+    const made = await person(r)('run-create', { objective: 'o', cwd: 'D:/p', auto: true })
+    const jobId = (made.body as { id: string }).id
+    const planned = await person(r)('jobs-plan', { id: jobId })
+    expect(planned.body).toMatchObject({ sessionId: PLANNER })
+    expect(r.coordinatorStarts[0]).toMatchObject({ accountId: 'acc1', auto: true })
   })
 })
 
@@ -407,37 +452,112 @@ describe('the worker spec carries the plan fields', () => {
   })
 })
 
-describe('plan.md', () => {
-  it('renders the Tasks in dependency batches', async () => {
-    const r = rig()
+describe('plan folder', () => {
+  /** Three Tasks over two waves: a and b in wave 1, c after a. */
+  const threeTasks = async (r: Rig): Promise<{ jobId: string; a: string }> => {
     const jobId = await plannedJob(r)
-    const a = (await planner(r)('task-create', goodTask(jobId, { title: 'a' }))).body as { id: string }
+    const a = (await planner(r)('task-create', goodTask(jobId, { title: 'a', kind: 'bugfix' }))).body as { id: string }
     await planner(r)('task-create', goodTask(jobId, { title: 'b' }))
     await planner(r)('task-create', goodTask(jobId, { title: 'c', deps: [a.id] }))
-    const md = renderPlanMd(r.deps.getState(), r.deps.getState().jobs[0])
+    return { jobId, a: a.id }
+  }
+
+  it('plan.md has the status, a waves table and links to the task files', async () => {
+    const r = rig()
+    const { jobId } = await threeTasks(r)
+    const job = r.deps.getState().jobs.find((j) => j.id === jobId)!
+    const md = renderPlanMd(r.deps.getState(), job, 'Use the existing store.')
     expect(md).toContain('# Plan: add a login page')
-    expect(md).toContain('waiting for approval')
-    expect(md).toContain('## Batch 1 (2 Tasks in parallel)')
-    expect(md).toContain('## Batch 2')
-    expect(md).toContain(`- Waits for: \`${a.id}\``)
-    expect(md).toContain('- npm test passes')
+    expect(md).toContain('- Status: waiting for approval')
+    expect(md).toContain('## Decisions\n\nUse the existing store.')
+    expect(md).toContain('[inputs/](inputs/)')
+    expect(md).toContain('| 1 | [a](tasks/01-a.md) | bugfix | standard |')
+    expect(md).toContain('| 2 | [c](tasks/03-c.md) | feature | standard | pending | acc1 | 01 |')
   })
 
-  it('the store writes it beside orchestration.json for a planned Job only', async () => {
+  it('renders plan.md and one file per Task', async () => {
+    const r = rig()
+    const { jobId } = await threeTasks(r)
+    const job = r.deps.getState().jobs.find((j) => j.id === jobId)!
+    const files = renderPlanFolder(r.deps.getState(), job)
+    expect([...files.keys()]).toEqual(['plan.md', 'tasks/01-a.md', 'tasks/02-b.md', 'tasks/03-c.md'])
+    const task = files.get('tasks/01-a.md')!
+    expect(task).toContain('- Kind: bugfix')
+    expect(task).toContain('- [ ] the form renders')
+    expect(task.indexOf('## Prompt')).toBeGreaterThan(task.indexOf('## Status history'))
+  })
+
+  it('a completed Task ticks its criteria and carries its report', async () => {
+    const r = rig()
+    const { jobId } = await threeTasks(r)
+    const state = r.deps.getState()
+    const done = state.tasks.map((t) => (t.title === 'a' ? { ...t, status: 'completed' as const, result: 'Built the form.', filesModified: ['src/login.tsx'], updatedAt: '2026-10-17T01:00:00.000Z' } : t))
+    const md = renderTaskMd({ ...state, tasks: done }, done.find((t) => t.title === 'a')!, 1)
+    expect(md).toContain('- [x] the form renders')
+    expect(md).toContain('## Report\n\nBuilt the form.')
+    expect(md).toContain('- `src/login.tsx`')
+    expect(md).toContain('2026-10-17T01:00:00.000Z completed')
+    expect(jobId).toBeTruthy()
+  })
+
+  it('the Run, once there is one, is what the folder follows: wave N of M', async () => {
+    const r = rig()
+    const { jobId } = await threeTasks(r)
+    const state = r.deps.getState()
+    const started = startJobRun(state, jobId, NOW)
+    if (!started.ok) throw new Error(started.error)
+    const job = started.state.jobs.find((j) => j.id === jobId)!
+    expect(renderPlanMd(started.state, { ...job, pendingStart: false })).toContain('- Status: running wave 1 of 2')
+  })
+
+  it('the store writes the folder for a planned Job only, and removes the file of a deleted Task', async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'astera-plan-'))
     try {
       const r = rig()
-      const jobId = await plannedJob(r)
-      await planner(r)('task-create', goodTask(jobId))
+      const { jobId } = await threeTasks(r)
       await person(r)('run-create', { objective: 'unplanned', cwd: 'D:/p', auto: true })
       const store = new OrchestrationStore(path.join(dir, 'orchestration.json'))
+      await fs.mkdir(path.join(dir, 'plans', jobId, 'inputs'), { recursive: true })
+      await fs.writeFile(path.join(dir, 'plans', jobId, 'inputs', 'existing.md'), '# Existing\n\n## Decisions\n\n- pick sqlite\n\n## Other\n\nx\n')
       await store.save(r.deps.getState())
-      const md = await fs.readFile(planFileOf(dir, jobId), 'utf8')
-      expect(md).toContain('Build the login form')
+      expect(await fs.readFile(planFileOf(dir, jobId), 'utf8')).toContain('## Decisions\n\n- pick sqlite')
       expect(await fs.readdir(path.join(dir, 'plans'))).toEqual([jobId])
+      expect(await fs.readdir(path.join(dir, 'plans', jobId, 'tasks'))).toEqual(['01-a.md', '02-b.md', '03-c.md'])
+      const c = r.deps.getState().tasks.find((t) => t.title === 'c')!
+      const cancelled = cancelPlanTask(r.deps.getState(), c.id)
+      if (!cancelled.ok) throw new Error(cancelled.error)
+      await r.deps.setState(cancelled.state)
+      await store.save(r.deps.getState())
+      expect(await fs.readdir(path.join(dir, 'plans', jobId, 'tasks'))).toEqual(['01-a.md', '02-b.md'])
     } finally {
       await fs.rm(dir, { recursive: true, force: true })
     }
+  })
+})
+
+describe('kindOf', () => {
+  it('uses the Task kind, else reads the title and spec', () => {
+    const k = (title: string, spec = '', kind?: Task['kind']) => kindOf({ title, spec, kind })
+    expect(k('Fix the crash on save')).toBe('bugfix')
+    expect(k('Audit the auth flow')).toBe('audit')
+    expect(k('Login page')).toBe('ui')
+    expect(k('Add export', 'a button to download')).toBe('ui')
+    expect(k('Add export')).toBe('feature')
+    expect(k('Fix the crash', '', 'docs')).toBe('docs')
+  })
+})
+
+describe('--kind', () => {
+  it('task-create and task-update take a kind and refuse an unknown one', async () => {
+    const r = rig()
+    const jobId = await plannedJob(r)
+    const made = await planner(r)('task-create', goodTask(jobId, { kind: 'refactor' }))
+    const id = (made.body as { id: string }).id
+    expect(r.deps.getState().tasks.find((t) => t.id === id)?.kind).toBe('refactor')
+    await planner(r)('task-update', { id, kind: 'ui' })
+    expect(r.deps.getState().tasks.find((t) => t.id === id)?.kind).toBe('ui')
+    const bad = await planner(r)('task-update', { id, kind: 'magic' })
+    expect(JSON.stringify(bad)).toContain('--kind must be one of')
   })
 })
 
@@ -517,5 +637,194 @@ describe('plan-nothing-to-do', () => {
     await planner(r)('task-create', goodTask(jobId))
     expect((await person(r)('plan-nothing-to-do', { job: jobId, summary: 's' })).status).toBe(409)
     expect(r.deps.getState().jobs[0].nothingToDo).toBeUndefined()
+  })
+})
+
+describe('T7 objective coverage', () => {
+  const OBJECTIVE = 'Fix the follow-ups:\n1. login fails on Safari\n2. logout keeps the cookie\n3. signup has no captcha'
+  const listedJob = async (): Promise<{ r: Rig; jobId: string }> => {
+    const r = rig()
+    const made = await person(r)('run-create', { objective: OBJECTIVE, cwd: 'D:/p', coordinatorAccount: 'acc1', auto: true })
+    const jobId = (made.body as { id: string }).id
+    expect((await person(r)('jobs-plan', { id: jobId })).status).toBe(200)
+    return { r, jobId }
+  }
+
+  it('names each objective item no Task covers and none is left out', async () => {
+    const { r, jobId } = await listedJob()
+    await planner(r)('task-create', goodTask(jobId, { covers: '1' }))
+    expect(validatePlan(r.deps.getState(), jobId)).toEqual([
+      'objective item 2 ("logout keeps the cookie") has no Task: add one with --covers 2, or list it with jobs-set --left-out and a reason',
+      'objective item 3 ("signup has no captcha") has no Task: add one with --covers 3, or list it with jobs-set --left-out and a reason'
+    ])
+    // approval and jobs-plan-ready read the same problems, so the plan goes back to its planner
+    const reply = await person(r)('run-start', { run: jobId })
+    expect(reply.status).toBe(400)
+  })
+
+  it('passes once every item is covered or left out with a reason, which the planner may set', async () => {
+    const { r, jobId } = await listedJob()
+    const t = (await planner(r)('task-create', goodTask(jobId, { covers: '1,3' }))).body as { id: string; covers: number[] }
+    expect(t.covers).toEqual([1, 3])
+    const left = await planner(r)('jobs-set', { id: jobId, leftOut: '[{"item":2,"reason":"already built: src/logout.ts"}]' })
+    expect(left.status).toBe(200)
+    expect(r.deps.getState().jobs[0].leftOut).toEqual([{ item: 2, reason: 'already built: src/logout.ts' }])
+    expect(validatePlan(r.deps.getState(), jobId)).toEqual([])
+    // a covers edit is a plan edit too
+    expect((await planner(r)('task-update', { id: t.id, covers: '1' })).status).toBe(200)
+    expect(validatePlan(r.deps.getState(), jobId)).toHaveLength(1)
+  })
+
+  it('refuses a left-out item the objective does not have, or one with no reason', async () => {
+    const { r, jobId } = await listedJob()
+    expect((await planner(r)('jobs-set', { id: jobId, leftOut: '[{"item":9,"reason":"x"}]' })).status).toBe(400)
+    expect((await planner(r)('jobs-set', { id: jobId, leftOut: '[{"item":2}]' })).status).toBe(400)
+    expect((await planner(r)('jobs-set', { id: jobId, leftOut: '[{"item":2,"reason":"x"}]', concurrency: 2 })).status).toBe(403)
+  })
+
+  it('an objective with no list is not checked', async () => {
+    const r = rig()
+    const jobId = await plannedJob(r)
+    await planner(r)('task-create', goodTask(jobId))
+    expect(validatePlan(r.deps.getState(), jobId)).toEqual([])
+  })
+
+  it('a Run planned before --covers existed still replans: replanProblems does not check coverage', async () => {
+    const r = rig()
+    const made = await person(r)('run-create', { objective: OBJECTIVE, cwd: 'D:/p', coordinatorAccount: 'acc1', auto: true })
+    const jobId = (made.body as { id: string }).id
+    await person(r)('task-create', goodTask(jobId))
+    expect((await person(r)('run-start', { run: jobId })).status).toBe(200)
+    const runId = r.deps.getState().runs[0].id
+    expect(replanProblems(r.deps.getState(), runId)).toEqual([])
+  })
+
+  it('the planner renames its own Job only', async () => {
+    const { r, jobId } = await listedJob()
+    const renamed = await planner(r)('jobs-rename', { id: jobId, title: 'Auth follow-ups' })
+    expect(renamed.status).toBe(200)
+    expect(r.deps.getState().jobs[0].title).toBe('Auth follow-ups')
+    const other = (await person(r)('run-create', { objective: 'another', cwd: 'D:/p' })).body as { jobId?: string; id: string }
+    const otherJob = r.deps.getState().jobs.find((j) => j.id !== jobId)!.id
+    expect(other.id).toBeDefined()
+    expect((await planner(r)('jobs-rename', { id: otherJob, title: 'x' })).status).toBe(403)
+  })
+})
+
+describe('T7 editPlanTask from the owner', () => {
+  const running = async (): Promise<{ r: Rig; a: string; b: string }> => {
+    const r = rig()
+    const made = await person(r)('run-create', { objective: 'o', cwd: 'D:/p' })
+    const runId = (made.body as { id: string }).id
+    const a = ((await person(r)('task-create', { run: runId, account: 'acc1', spec: 'a' })).body as { id: string }).id
+    const b = ((await person(r)('task-create', { run: runId, account: 'acc1', spec: 'b', deps: [a] })).body as { id: string }).id
+    return { r, a, b }
+  }
+
+  it('changes deps of a Task that has not started, blocked included, and recomputes readiness', async () => {
+    const { r, a, b } = await running()
+    const s = r.deps.getState()
+    const blocked = { ...s, tasks: s.tasks.map((t) => (t.id === b ? { ...t, status: 'blocked' as const } : t)) }
+    const res = editPlanTask(blocked, b, { deps: [] }, NOW, true)
+    expect(res.ok).toBe(true)
+    if (res.ok) expect(res.value.deps).toEqual([])
+    const pending = editPlanTask(s, b, { deps: [] }, NOW, true)
+    expect(pending.ok && pending.value.status).toBe('ready')
+    expect(editPlanTask(s, a, { deps: [b] }, NOW, true)).toMatchObject({ ok: false, error: `those deps would make ${a} wait on itself` })
+  })
+
+  it('refuses a Task that has started, and a caller who is not the owner, naming the rule', async () => {
+    const { r, a } = await running()
+    const s = r.deps.getState()
+    const started = { ...s, tasks: s.tasks.map((t) => (t.id === a ? { ...t, status: 'dispatched' as const } : t)) }
+    expect(editPlanTask(started, a, { spec: 'x' }, NOW, true)).toMatchObject({ ok: false, error: expect.stringContaining('has started already (dispatched)') })
+    expect(editPlanTask(s, a, { spec: 'x' }, NOW, 'this is a worker session: only the owner changes a running plan, not an agent')).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('this is a worker session')
+    })
+  })
+})
+
+describe('T20 run it from the planner chat', () => {
+  const T0 = Date.parse(NOW)
+  const MIN = 60_000
+  const WORDS = 'okay finish the plan and start'
+  /** A ready plan; `typedAt` is when a person last typed in the planner's terminal (registry.ts lastTyped), null for never. */
+  const ready = async (typedAt: number | null) => {
+    const r = rig()
+    ;(r.deps as { ownerInputAt?: (id: string) => number | null }).ownerInputAt = (id) => (id === PLANNER ? typedAt : null)
+    const jobId = await plannedJob(r)
+    expect((await planner(r)('task-create', goodTask(jobId))).status).toBe(200)
+    return { r, jobId }
+  }
+  const approve = (r: Rig, args: Record<string, unknown>) => planner(r)('run-start', args)
+
+  it('approves when the person typed after the last plan change, and records their words', async () => {
+    const { r, jobId } = await ready(T0 + MIN)
+    const before = r.deps.getState()
+    const reply = await approve(r, { run: jobId, ownerSaid: WORDS })
+    expect(reply.status).toBe(200)
+    const s = r.deps.getState()
+    expect(s.jobs[0]).not.toHaveProperty('pendingStart')
+    expect(s.jobs[0].approvedFromChat).toEqual({ at: NOW, words: WORDS })
+    expect(deriveActivity(before, s).find((d) => d.type === 'plan.chat-approved')?.payload.reason).toBe(WORDS)
+    expect(r.stopped.map(([id]) => id)).toContain(PLANNER)
+  })
+
+  it('refuses with the ask-the-person text when nobody typed (what input sent by an agent leaves: sessions send never sets it)', async () => {
+    const { r, jobId } = await ready(null)
+    const reply = await approve(r, { run: jobId, ownerSaid: WORDS })
+    expect(reply.status).toBe(403)
+    expect(JSON.stringify(reply.body)).toContain("ask them to confirm here (type 'run it')")
+    expect(r.deps.getState().jobs[0].pendingStart).toBe(true)
+  })
+
+  it('refuses input from before the plan last changed, and a cancel is a change', async () => {
+    const { r, jobId } = await ready(T0 - MIN)
+    expect((await approve(r, { run: jobId, ownerSaid: WORDS })).status).toBe(403)
+    const t = await ready(T0 + MIN)
+    const second = (await planner(t.r)('task-create', goodTask(t.jobId, { title: 'b', affectedPaths: ['src/b.tsx'] }))).body as { id: string }
+    t.r.deps.now = () => new Date(T0 + 2 * MIN).toISOString()
+    // the second Task was made at NOW; cancelling it later is the last change
+    expect((await planner(t.r)('task-cancel', { id: second.id, reason: 'not needed' })).status).toBe(200)
+    expect((await approve(t.r, { run: t.jobId, ownerSaid: WORDS })).status).toBe(403)
+  })
+
+  it('refuses input older than 30 minutes', async () => {
+    const { r, jobId } = await ready(T0 + MIN)
+    r.deps.now = () => new Date(T0 + 40 * MIN).toISOString()
+    expect((await approve(r, { run: jobId, ownerSaid: WORDS })).status).toBe(403)
+  })
+
+  it('needs the words, and only its own Job', async () => {
+    const { r, jobId } = await ready(T0 + MIN)
+    expect(JSON.stringify((await approve(r, { run: jobId })).body)).toContain('--owner-said')
+    const other = await approve(r, { run: 'job_other', ownerSaid: WORDS })
+    expect(other.status).toBe(403)
+    expect(JSON.stringify(other.body)).toContain(`pass --run ${jobId}`)
+    expect(r.deps.getState().jobs[0].pendingStart).toBe(true)
+  })
+
+  it('a plan that does not hold answers with every problem, and stays unapproved', async () => {
+    const { r, jobId } = await ready(T0 + MIN)
+    await person(r)('task-create', { run: jobId, account: 'acc1', title: 'by hand', spec: 's' })
+    r.deps.ownerInputAt = () => T0 + MIN
+    const reply = await approve(r, { run: jobId, ownerSaid: WORDS })
+    expect(reply.status).toBe(400)
+    const body = reply.body as { problems: string[]; error: string }
+    expect(body.problems).toHaveLength(4)
+    expect(body.error).toContain('ask the person to confirm again')
+    expect(r.deps.getState().jobs[0].pendingStart).toBe(true)
+  })
+
+  it('the app button path is unchanged: a person approves with no words and nothing is recorded', async () => {
+    const { r, jobId } = await ready(null)
+    expect((await person(r)('run-start', { run: jobId })).status).toBe(200)
+    expect(r.deps.getState().jobs[0]).not.toHaveProperty('approvedFromChat')
+  })
+
+  it('another agent session cannot use --owner-said', async () => {
+    const { r, jobId } = await ready(T0 + MIN)
+    expect((await handleCommand(r.deps, { sessionId: 'ses-other' }, 'run-start', { run: jobId, ownerSaid: WORDS })).status).toBe(403)
   })
 })

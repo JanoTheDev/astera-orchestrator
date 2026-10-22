@@ -5,7 +5,7 @@
 // `handleCommand` did not.
 import type { CheckWaits } from '../core/orchestration/checkWaits'
 import { keptBecause, keptPhrase, type OrchAccount, type OrchRunConfig, type OrchServerDeps } from '../core/orchestration/command'
-import type { JobEvent, Provider } from '../core/types'
+import type { CloseReason, JobEvent, Provider } from '../core/types'
 import type { OrchState } from '../core/orchestration/state'
 import { AppUnreachable, leftNothingBehind, wasRefusedBeforeActing } from '../core/host/orchProtocol'
 import { RepairNeeded } from '../core/settings/repairNeeded'
@@ -32,7 +32,7 @@ import { chatPendingOf, type ChatPrompt, type ChatPromptList } from '../core/ses
 // tests set it, so it is never forwarded.
 // `maxConcurrentWorkers` (W1-B): the Host reads app-settings.json itself, as it does for the permission mode.
 // `usageGuard` (W6-G): the Host keeps its own, over its own sessions' statusLine readings.
-const OWNED = ['getState', 'setState', 'now', 'log', 'runningSessions', 'appVersion', 'backup', 'resumeStopWaitMs', 'maxConcurrentWorkers', 'usageGuard', /* W8-A */ 'hookEventsDir', 'profileDir'] as const
+const OWNED = ['getState', 'setState', 'now', 'log', 'runningSessions', 'appVersion', 'backup', 'resumeStopWaitMs', 'maxConcurrentWorkers', 'usageGuard', /* T5b */ 'startAccount', /* W8-A */ 'hookEventsDir', 'profileDir'] as const
 
 /**
  * **Forwarded, and a refusal reaches the caller.** `handleCommand` either awaits these and lets the
@@ -292,7 +292,7 @@ const LOCAL_FILE: Record<(typeof LOCAL_WHEN_ABSENT)[number], string> = {
  *
  * Never refused, so never `onAppRequired`: nothing here needs the app.
  */
-const HOST_SESSIONS = ['listSessions', 'readSession', 'sendSession', 'readChat', 'sessionTurn', /* W7-A */ 'agentSessionOf'] as const
+const HOST_SESSIONS = ['listSessions', 'readSession', 'sendSession', 'readChat', 'sessionTurn', /* W7-A */ 'agentSessionOf', /* T20 */ 'ownerInputAt'] as const
 
 /**
  * **Forwarded when the app is attached, and done by the Host itself when none is** (CLI phase D4).
@@ -470,7 +470,11 @@ const NOT_FORWARDED = [
   // W6-H
   'deliverPush',
   // W9-J
-  'cleanWorktrees'
+  'cleanWorktrees',
+  // T5
+  'worktreesOps',
+  // exec/adopt.ts: orch.ts adds the Host's live workers beside these deps
+  'liveWorkers'
 ] as const
 
 /** Every name the groups above classify between them. Nothing is unsupplied any more: the four
@@ -523,8 +527,11 @@ const EFFECTFUL: Record<Classified, boolean> = {
   resumeStopWaitMs: false,
   maxConcurrentWorkers: false,
   usageGuard: false,
+  startAccount: false, // T5b: a read; the count it takes is let go by the start itself
   hookEventsDir: false, // W8-A
   profileDir: false, // W8-A
+  // NOT_FORWARDED: a read of the Host's registry
+  liveWorkers: false,
   // HOST_LOCAL — the same values these names had in PROPAGATES and SWALLOWED before S2 (the six), and
   // in PROPAGATES before S3 (the three worktree names).
   startWorker: true,
@@ -581,6 +588,7 @@ const EFFECTFUL: Record<Classified, boolean> = {
   readChat: false,
   sessionTurn: false,
   agentSessionOf: false,
+  ownerInputAt: false,
   // HOST_WHEN_ABSENT — a turn, on either route.
   chatSend: true,
   // HOST_CHATS: a list is a read; an answer lets a tool run or refuses it, on either route.
@@ -637,7 +645,10 @@ const EFFECTFUL: Record<Classified, boolean> = {
   // where `hostOrchDeps` passes it on.
   deliverPush: true,
   // NOT_FORWARDED as well (W9-J): this Host removes a delivered plan's ready worktrees, never the app's. It acts.
-  cleanWorktrees: true
+  cleanWorktrees: true,
+  // NOT_FORWARDED as well (T5): this Host's worktree facts and removals, never the app's. A removal acts: marked where
+  // `hostOrchDeps` passes it on.
+  worktreesOps: true
 }
 
 /** The names an action really travels under, narrowed to the effectful ones — the NESTED groups
@@ -679,6 +690,7 @@ export function hostOrchDeps(a: {
   maxConcurrentWorkers?(): Promise<number | null>
   /** W6-G: the Host's usage guard (OWNED). */
   usageGuard?: OrchServerDeps['usageGuard']
+  startAccount?: OrchServerDeps['startAccount']
   act(name: string, args: unknown[]): Promise<unknown>
   hasApp(): boolean
   /** The `check --wait` long-polls this Host serves, one tracker for the Host's life (final round 2,
@@ -780,6 +792,8 @@ export function hostOrchDeps(a: {
   deliverPush?: OrchServerDeps['deliverPush']
   /** W9-J: removes a delivered Run's ready worktrees. Absent: nothing is cleaned after a delivery. */
   cleanWorktrees?: OrchServerDeps['cleanWorktrees']
+  /** T5: `worktrees list|remove` over this Host's registry. Absent: both answer 409. */
+  worktreesOps?: OrchServerDeps['worktreesOps']
   /** The Host's own session work units (HOST_TRACKS, E2 §5), asked whether it is their writer at every
    *  call. Null or absent (no spawner): `trackingEnabled` and `sessionTasks.*` only forward, as before. */
   workUnits?: (Pick<HostWorkUnits, 'isWriter' | 'trackingEnabled'> & {
@@ -1132,14 +1146,15 @@ export function hostOrchDeps(a: {
    * started it, is asked, best-effort. Never flagged as the app being required: the command has
    * already decided its answer (the slot it kept), and this only tidies up.
    */
-  const stopCoordinator = async (sessionId: string, reason?: string): Promise<void> => {
-    if (a.local?.stopSession?.(sessionId, reason)) return
+  const stopCoordinator = async (sessionId: string, reason?: string, closeReason?: CloseReason): Promise<void> => {
+    if (a.local?.stopSession?.(sessionId, reason, closeReason)) return
     if (!a.hasApp()) {
       a.log(`coordinator ${sessionId} could not be stopped: this Host does not hold it and no app is attached`)
       return
     }
     try {
-      await a.act('stopCoordinator', [sessionId])
+      // The app gets only what it acts on: the session, and the close reason when there is one.
+      await a.act('stopCoordinator', closeReason === undefined ? [sessionId] : [sessionId, reason, closeReason])
     } catch (err) {
       a.log(`coordinator ${sessionId} could not be stopped by the app: ${err instanceof Error ? err.message : String(err)}`)
     }
@@ -1197,11 +1212,13 @@ export function hostOrchDeps(a: {
     ...a.github,
     run: (args: string[], cwd: string) => {
       // W6-A: `issue edit` assigns an issue (github-issue-assign, --assign-me)
-      // W8-C: `pr edit` / `pr ready` rewrite and ready a plan's draft PR
+      // W8-C: `pr edit` / `pr ready` rewrite and ready a plan's draft PR; the body now goes as `api -X PATCH`, and a
+      // refused `pr ready` falls back to an `api graphql` mutation (github/prUpdate.ts). Plain `api` calls only read.
       if (
         (args[0] === 'run' && args[1] === 'rerun') ||
         (args[0] === 'issue' && args[1] === 'edit') ||
-        (args[0] === 'pr' && (args[1] === 'edit' || args[1] === 'ready'))
+        (args[0] === 'pr' && (args[1] === 'edit' || args[1] === 'ready')) ||
+        (args[0] === 'api' && (args.includes('PATCH') || args[1] === 'graphql'))
       )
         a.onEffect?.()
       return a.github!.run(args, cwd)
@@ -1363,12 +1380,14 @@ export function hostOrchDeps(a: {
     backup: a.backup,
     ...(a.maxConcurrentWorkers ? { maxConcurrentWorkers: a.maxConcurrentWorkers } : {}),
     ...(a.usageGuard ? { usageGuard: a.usageGuard } : {}),
+    ...(a.startAccount ? { startAccount: a.startAccount } : {}),
     listSessions: own('listSessions'),
     readSession: own('readSession'),
     sendSession: own('sendSession'),
     readChat: own('readChat'),
     ...(a.sessions.sessionTurn ? { sessionTurn: own('sessionTurn') } : {}),
     ...(a.sessions.agentSessionOf ? { agentSessionOf: own('agentSessionOf') } : {}),
+    ...(a.sessions.ownerInputAt ? { ownerInputAt: own('ownerInputAt') } : {}),
     discardRunWorktree,
     stopCoordinator,
     ...(a.dispatchTask ? { dispatchTask } : {}),
@@ -1401,6 +1420,18 @@ export function hostOrchDeps(a: {
           cleanWorktrees: (runId: string) => {
             a.onEffect?.()
             return a.cleanWorktrees!(runId)
+          }
+        }
+      : {}),
+    // T5: a removal is an effect, marked before the call
+    ...(a.worktreesOps
+      ? {
+          worktreesOps: {
+            rows: () => a.worktreesOps!.rows(),
+            remove: (id: string, force: boolean, originCopy: boolean) => {
+              a.onEffect?.()
+              return a.worktreesOps!.remove(id, force, originCopy)
+            }
           }
         }
       : {}),

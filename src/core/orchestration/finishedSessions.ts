@@ -4,20 +4,12 @@
 // (exec/coordinatorRotate.ts) and the renderer closes their exited tabs (lib/tabAutoClose.ts), by this one rule.
 // A failed Task's session and a Task with an open Gate keep theirs.
 //
-// Web-safe on purpose (the renderer reads it): no node:path, so folders are compared by `samePlace` below rather than
+// Web-safe on purpose (the renderer reads it): no node:path, so folders are compared by state.ts `samePlace` rather than
 // files/tree.ts's isSamePath.
-import { foldPathCase } from '../files/paths'
-import { jobOf, type OrchState } from './state'
+import { jobOf, samePlace, type OrchState } from './state'
 import { isPlaceholderSessionId, type Dispatch, type Task } from './types'
 
 type DoneState = Pick<OrchState, 'runs' | 'jobs' | 'tasks' | 'dispatches' | 'gates'>
-
-/** The same folder, written with either separator, a trailing one or (where the filesystem folds it) another case. Both
- *  are absolute paths the app recorded, so nothing needs resolving. */
-const samePlace = (a: string, b: string): boolean => {
-  const norm = (p: string): string => foldPathCase(p.replace(/\\/g, '/').replace(/\/+$/, ''))
-  return norm(a) === norm(b)
-}
 
 /** A completed Task whose work is on the plan branch: its merge is recorded (`mergedIntoPlanAt`, the wave merge and the
  *  stall watchdog), its merge worker completed, every attempt worked in the Run's root (integrate.ts runRootOf), or a

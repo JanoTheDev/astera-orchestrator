@@ -368,6 +368,15 @@ describe('RunManager', () => {
       expect(killed).toEqual([{ file: 'taskkill', args: ['/pid', '999', '/T', '/F'] }])
     })
 
+    it('a stop Astera makes is reported as closedByAstera on the status', () => {
+      const { mgr } = setup('linux')
+      const statuses: { closedByAstera?: true }[] = []
+      mgr.onStatus = (s) => statuses.push(s)
+      const st = mgr.start(startOpts())
+      mgr.stop(st.runId)
+      expect(statuses.at(-1)?.closedByAstera).toBe(true)
+    })
+
     it('posix stop kills the pty', () => {
       const { mgr, spawned, killed } = setup('linux')
       const st = mgr.start(startOpts())

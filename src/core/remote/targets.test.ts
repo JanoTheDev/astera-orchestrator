@@ -7,7 +7,7 @@ describe('remoteTarget (remote runtime design §3.4, X1-14)', () => {
       expect(remoteTarget(cmd), cmd).toBe('yes')
   })
   it('is no for what runs on this machine only, and for what a controller never reaches', () => {
-    for (const cmd of ['host-start', 'host-status', 'skills-list', 'higgsfield-use', 'mcp-serve', 'mcp-status', 'runtime-pair', 'runtime-start', 'runtimes-add', 'projects-add', 'browser-js', 'app-js', 'state-put', 'github-pr-create', 'help', 'version'])
+    for (const cmd of ['host-start', 'host-status', 'skills-list', 'higgsfield-use', 'mcp-serve', 'mcp-status', 'runtime-pair', 'runtime-start', 'runtimes-add', 'browser-js', 'app-js', 'state-put', 'github-pr-create', 'help', 'version'])
       expect(remoteTarget(cmd), cmd).toBe('no')
   })
 })

@@ -17,20 +17,27 @@
 // wait (`BACKOFF_MS`), and after `TRIES` tries it is raised once to the owner as an escalation (an Inbox item), never
 // left in silence. Nothing destructive: it tells, starts, retries, nudges, merges into the plan branch, refreshes or
 // restarts a coordinator and retries a draft PR. It never cancels, rewrites or merges into main.
+//
+// **Adoption first** (exec/adopt.ts, run job_0b682db7df32e7b4): a live worker whose Dispatch record was lost is
+// recorded again before any remedy, so its Task never reads as ready or lost while its worker still runs.
 import type { ActivityDraft } from '../activity'
 import { readyWithoutWorker, type CoordinatorNotice } from '../inbox'
 import { jobNameOf } from '../jobName'
 import { wavesToMerge } from '../integrate'
 import { draftPrDue } from '../draftPr'
+import { handsOffOf } from '../delivery'
 import { isJobActive } from '../lifecycle'
 import { lostWithCoordinator, lostWithNobody } from '../lostGate'
 import { isLost } from '../../recovery/candidates'
-import { editingByProject, projectKeyOf, sameFilesAs, workerCapOf, workersAgainstCap } from '../schedule'
-import { coordinatorStarting, jobOf, type OrchState } from '../state'
+import { editingByProject, isLeaseWaitGate, LEASE_WAIT_OPTIONS, projectKeyOf, sameFilesAs, workerCapOf, workersAgainstCap } from '../schedule'
+import { DROPPED_OPTIONS, isDroppedGate, plannerOverlapNotices } from '../overlap'
+import { coordinatorStarting, jobOf, runGatedForTask, type OrchState } from '../state'
 import { DEFAULT_CONCURRENCY, FAILURE_LIMIT, type Dispatch, type Job, type JobRun, type Task } from '../types'
 import { outcomeOf } from '../view'
 import { ENTER_DELAY_MS } from '../../sessions/sessionDriver'
 import { workerStartInFlight } from './coordinatorRotate'
+import { providerOf } from '../../providers/meta'
+import type { Account } from '../../types'
 
 /** How often the watchdog looks. */
 export const STALL_WATCH_MS = 30_000
@@ -46,7 +53,8 @@ export const MERGE_STALL_MS = 2 * 60_000
 export const DRAFT_STALL_MS = 2 * 60_000
 /** A Run whose coordinator account has no coordinator session, with work waiting this long: its coordinator is restarted. */
 export const DEAD_COORDINATOR_MS = 2 * 60_000
-/** A Task left `dispatched` this long after its worker's session ended unreported: it is started again (`--retry-of`). */
+/** A Task left `dispatched` this long after its worker's session ended unreported, or with no Dispatch at all and no
+ *  live worker to adopt: it is started again (`--retry-of` when there was one). */
 export const LOST_STALL_MS = 2 * 60_000
 /** A worker idle at its prompt this long with its Dispatch open (no `worker-done`): it is nudged. */
 export const IDLE_STALL_MS = 10 * 60_000
@@ -55,6 +63,21 @@ export const BACKOFF_MS = [2 * 60_000, 5 * 60_000, 10 * 60_000, 20 * 60_000]
 /** Tries of one stall before it is raised to the owner: the placements of a ready Task, the restarts of a coordinator,
  *  the retries of a lost Task. */
 export const TRIES = 4
+
+/** T11: a ready Task held back by another plan's lease this long: its coordinator is told, once. */
+export const LEASE_TELL_MS = 30 * 60_000
+/** ... and this long: one owner question, wait, run it anyway or cancel it (`LEASE_WAIT_OPTIONS`). */
+export const LEASE_ASK_MS = 2 * 60 * 60_000
+/** T11: a ready Task the watchdog cannot start (no account, out of tries, its account paused) is a feed line at once
+ *  and one owner question after this (`DROPPED_OPTIONS`). */
+export const DROPPED_ASK_MS = 15 * 60_000
+/** T11: a plan paused, held or replanning this long with no open owner question raises one; a replan, once. */
+export const HOLD_ASK_MS = 30 * 60_000
+/** T11: a planner gone, or idle this long without handing its plan over, is nudged ... */
+export const PLANNER_IDLE_MS = 20 * 60_000
+/** ... restarted with the same brief this long after the nudge, and raised to the owner once after a restart that
+ *  stays as idle as long as `PLANNER_IDLE_MS`. */
+export const PLANNER_RESTART_MS = 10 * 60_000
 
 /** The wait before try `step` (1-based count of tries made). */
 const backoffOf = (step: number): number => BACKOFF_MS[Math.min(Math.max(step, 1) - 1, BACKOFF_MS.length - 1)]
@@ -89,19 +112,53 @@ export type StallRemedy = { key: string; runId: string } & (
   | { kind: 'merge'; task: Task; runRoot: string; worktree: string }
   | { kind: 'draft-pr'; done: number }
   | { kind: 'restart'; since: number; try: number }
-  | { kind: 'retry-lost'; task: Task; dispatch: Dispatch; try: number }
+  /** No `dispatch`: the Task is `dispatched` with no record at all, and no live worker runs its spec */
+  | { kind: 'retry-lost'; task: Task; dispatch?: Dispatch; try: number }
   | { kind: 'nudge-worker'; task: Task; dispatch: Dispatch; since: number }
   | { kind: 'tell-idle'; task: Task; dispatch: Dispatch; since: number }
   | { kind: 'escalate'; taskId: string; dispatchId?: string; subject: string; body: string }
+  /** T11: a Task held by another plan's lease for `LEASE_TELL_MS`: its coordinator is told */
+  | { kind: 'tell-lease'; task: Task; plan: string; since: number }
+  /** T11: one owner question, a Gate on the Task with the watchdog's answers (overlap.ts carries them out) */
+  | { kind: 'ask'; task: Task; question: string; options: string[] }
+  /** T11: a ready Task the watchdog cannot start: a feed line */
+  | { kind: 'note-dropped'; task: Task; reason: string }
+  /** T11: a planner gone or idle without handing over: nudged, restarted with its brief (`account`: one not paused, or
+   *  none known), then raised. `runId` is the Job's id: a plan still planning has no Run. */
+  | { kind: 'nudge-planner'; jobId: string; sessionId: string; since: number }
+  | { kind: 'restart-planner'; jobId: string; sessionId: string; alive: boolean; account?: string }
+  | { kind: 'raise-planner'; jobId: string; reason: string }
 )
 
 /** The remedies `createStallWatch` applies; the dispatch loop applies the others (header). */
-export const APPLIED_HERE: ReadonlySet<StallRemedy['kind']> = new Set(['restart', 'retry-lost', 'nudge-worker', 'tell-idle', 'escalate'])
+export const APPLIED_HERE: ReadonlySet<StallRemedy['kind']> = new Set([
+  'restart',
+  'retry-lost',
+  'nudge-worker',
+  'tell-idle',
+  'escalate',
+  'tell-lease',
+  'ask',
+  'note-dropped',
+  'nudge-planner',
+  'restart-planner',
+  'raise-planner'
+])
 
 /** What a worker idle at its prompt without a report is typed. English: workers read English (spec files). */
 export const IDLE_NUDGE =
   'You stopped without reporting. Finish the Task, or report with `astera send --type worker_done` (see your spec), ' +
   'or ask a question with `astera ask` if you are stuck.'
+
+/** T11: what a planner gone quiet without handing its plan over is typed. English, as `IDLE_NUDGE`. */
+export const PLANNER_NUDGE =
+  'Astera: you have been idle without handing the plan over. Finish the plan (every Task with a prompt and criteria) ' +
+  'and end your turn, or say in this terminal what you need.'
+
+/** T11: whether a Run waits on the owner already: an open Gate, or a question or escalation not answered. */
+const ownerAsked = (s: OrchState, runId: string): boolean =>
+  s.gates.some((g) => g.runId === runId && g.status === 'open') ||
+  s.messages.some((m) => m.runId === runId && (m.type === 'question' || m.type === 'escalation') && !m.answered)
 
 /** Something the plan did since `since`: a worker started, a Gate opened, a question or escalation came in, or the
  *  coordinator acked its mail (`check --ack`). The Host's own `status` notices are not the coordinator's doing.
@@ -195,9 +252,40 @@ export function stallRemedies(
     let free = (job.concurrency ?? DEFAULT_CONCURRENCY) - open
     const project = projectKeyOf(s, job)
     // Wave-held Tasks are not ready to start (readyWithoutWorker), so they are no stall and spend no slot
-    const candidates = readyWithoutWorker(s, run.id).filter(
-      (t) => (t.accountIds?.length ?? 0) > 0 && t.consecutiveFailures < FAILURE_LIMIT && probe.paused?.(t.accountIds![0]) !== true
-    )
+    const candidates: Task[] = []
+    for (const t of readyWithoutWorker(s, run.id)) {
+      const reason =
+        (t.accountIds?.length ?? 0) === 0
+          ? 'it has no account'
+          : t.consecutiveFailures >= FAILURE_LIMIT
+            ? `it failed ${t.consecutiveFailures} times in a row`
+            : probe.paused?.(t.accountIds![0]) === true
+              ? `its account ${t.accountIds![0]} is paused for usage`
+              : null
+      if (reason === null) {
+        candidates.push(t)
+        continue
+      }
+      // T11: never dropped in silence: a feed line, then one owner question (a Gate, so the Task waits on the answer)
+      const key = `dropped:${t.id}:${reason}`
+      const e = seen(key, nowMs)
+      if (e.step === 0) {
+        due.push({ key, runId: run.id, kind: 'note-dropped', task: t, reason })
+        stepped(key, e)
+      } else if (e.step === 1 && nowMs - e.since >= DROPPED_ASK_MS && !s.gates.some((g) => g.taskId === t.id && g.status === 'open')) {
+        due.push({
+          key,
+          runId: run.id,
+          kind: 'ask',
+          task: t,
+          question:
+            `${t.title} (${t.id}, plan ${jobNameOf(job)}) is ready but Astera cannot start it: ${reason}. Use another of its ` +
+            'accounts, retry it once more, or cancel it?',
+          options: [...DROPPED_OPTIONS]
+        })
+        stepped(key, e)
+      }
+    }
     let startable = 0
 
     // Ready, startable now, no worker: tell the exact start, then start it, again after a growing wait, then the owner.
@@ -209,6 +297,32 @@ export function stallRemedies(
       const base = `ready:${t.id}:${since}:`
       if (held !== null) {
         seen(base + held, nowMs)
+        // T11: held by another plan's lease (its files wait for that plan's delivery): told, then one owner question
+        const lease = clash?.task.lease
+        if (lease && lease.jobId !== job.id) {
+          const key = `lease:${t.id}:${lease.jobId}`
+          const e = seen(key, nowMs)
+          const holder = s.jobs.find((j) => j.id === lease.jobId)
+          const plan = holder ? jobNameOf(holder) : lease.jobId
+          if (e.step === 0 && nowMs - e.since >= LEASE_TELL_MS) {
+            due.push({ key, runId: run.id, kind: 'tell-lease', task: t, plan, since: e.since })
+            stepped(key, e)
+          } else if (e.step === 1 && nowMs - e.since >= LEASE_ASK_MS) {
+            // Once per Task: an answered "Let it wait" is not asked again
+            if (!s.gates.some((g) => g.taskId === t.id && isLeaseWaitGate(g)))
+              due.push({
+                key,
+                runId: run.id,
+                kind: 'ask',
+                task: t,
+                question:
+                  `${t.title} (plan ${jobNameOf(job)}) has waited ${Math.round((nowMs - e.since) / 60_000)} min for plan ${plan} to ` +
+                  `deliver ${clash!.path} (${clash!.task.title}). Let it wait, run it now anyway, or cancel this Task?`,
+                options: [...LEASE_WAIT_OPTIONS]
+              })
+            stepped(key, e)
+          }
+        }
         continue
       }
       free--
@@ -255,31 +369,127 @@ export function stallRemedies(
     }
   }
 
+  // T11: a plan paused, held or replanning never waits on nobody. A replan held `HOLD_ASK_MS` re-notifies the owner
+  // once (its subject carries the replan's start, so a restart does not raise it again); any other hold that long
+  // with no open owner question on the Run raises one.
+  for (const run of s.runs) {
+    const job = jobOf(s, run)
+    if (!job || !isJobActive(job) || job.pendingStart || outcomeOf(s, run.id) !== 'running') continue
+    if (s.runs.some((r) => r.jobId === run.jobId && r.ordinal > run.ordinal)) continue
+    const replanAt = job.replanning?.startedAt ?? (job.dispatchHold && job.lastReplan?.escalated !== undefined ? job.lastReplan.at : undefined)
+    const how = job.replanning ? 'replanning' : replanAt !== undefined ? 'held after its replan' : job.paused || run.paused ? 'paused' : job.dispatchHold ? 'on hold' : null
+    if (how === null) continue
+    const taskId = s.tasks.find((t) => t.runId === run.id)?.id
+    if (taskId === undefined) continue
+    const key = `hold:${run.id}:${how}`
+    const e = seen(key, replanAt !== undefined ? Date.parse(replanAt) : nowMs)
+    if (e.step > 0 || nowMs - e.since < HOLD_ASK_MS) continue
+    if (replanAt === undefined && ownerAsked(s, run.id)) continue
+    const mins = Math.round((nowMs - e.since) / 60_000)
+    escalate(key, e, run.id, {
+      taskId,
+      subject:
+        replanAt !== undefined
+          ? `watchdog: plan ${job.id} ${how} since ${replanAt}`
+          : `watchdog: plan ${job.id} ${how} for ${mins} min`,
+      body:
+        `${jobNameOf(job)} has been ${how} for ${mins} min, so none of its ready work starts. ` +
+        (replanAt !== undefined ? 'Answer its replan question, or lift the hold from the plan page.' : 'Resume it from the plan page, or stop it.')
+    })
+  }
+
+  // T11: the first planning stage. A plan still planning (not chat planning, where the planner waits on the person)
+  // whose latest planner is gone, or idle `PLANNER_IDLE_MS` without handing the plan over (Job.planReadyAt): nudged,
+  // restarted with the same brief `PLANNER_RESTART_MS` later, then raised once. The entry lives while the plan plans,
+  // so a planner that works a while and stops again goes on from where it was, never from the start.
+  for (const job of s.jobs) {
+    const sessionId = job.plannerSessionIds?.at(-1)
+    if (sessionId === undefined || job.pendingStart !== true || !isJobActive(job) || job.planReadyAt !== undefined || (job.planning ?? (handsOffOf(s, job) ? 'auto' : 'chat')) === 'chat')
+      continue
+    const alive = probe.alive?.(sessionId) ?? true
+    const busy = alive ? probe.busy(sessionId) : false
+    if (busy === null) continue
+    const key = `planner:${job.id}`
+    let e = seen(key, nowMs)
+    // `since`: when it last went quiet; working puts it at now
+    if (busy) {
+      e = { ...e, since: nowMs }
+      next.set(key, e)
+      continue
+    }
+    const quiet = nowMs - e.since
+    if (e.step === 0 && quiet >= PLANNER_IDLE_MS) {
+      if (alive) {
+        due.push({ key, runId: job.id, kind: 'nudge-planner', jobId: job.id, sessionId, since: e.since })
+        stepped(key, e)
+        continue
+      }
+      e = { ...e, step: 1, at: nowMs - PLANNER_RESTART_MS } // gone: nothing to nudge, restart now
+    }
+    if (e.step === 1 && quiet >= PLANNER_RESTART_MS && nowMs - e.at >= PLANNER_RESTART_MS) {
+      const preferred = job.plannerAccountId ?? job.coordinatorAccountId
+      due.push({
+        key,
+        runId: job.id,
+        kind: 'restart-planner',
+        jobId: job.id,
+        sessionId,
+        alive,
+        ...(preferred !== undefined && probe.paused?.(preferred) !== true ? { account: preferred } : {})
+      })
+      stepped(key, e)
+    } else if (e.step === 2 && quiet >= PLANNER_IDLE_MS && nowMs - e.at >= PLANNER_IDLE_MS) {
+      due.push({
+        key,
+        runId: job.id,
+        kind: 'raise-planner',
+        jobId: job.id,
+        reason:
+          `the planner of ${jobNameOf(job)} stopped without handing its plan over, a nudge and a restart did not move it. ` +
+          'Open its terminal and tell it what to do, plan it again, or reject the plan.'
+      })
+      stepped(key, e)
+    }
+  }
+
   // Lost: `dispatched`, its last Dispatch ended unreported and its coordinator has not started it again. Retried
   // (`--retry-of`) up to the Task's retry limit, then the owner. A Run with no coordinator has the lost-worker Gate.
-  for (const seed of lostWithCoordinator(s)) {
-    const run = s.runs.find((r) => r.id === seed.runId)!
-    const job = jobOf(s, run)
+  // Untracked: `dispatched` with no Dispatch at all (its record lost, candidates.ts lostAttemptOf sees none) and no live
+  // worker left to adopt (adoption ran first, header): started again the same way, never left silent.
+  const untracked = s.tasks
+    .filter((t) => t.status === 'dispatched' && !runGatedForTask(s, t) && !s.dispatches.some((d) => d.taskId === t.id))
+    .map((t) => ({ runId: t.runId ?? '', taskId: t.id, dispatch: undefined as Dispatch | undefined }))
+  for (const seed of [...lostWithCoordinator(s), ...untracked]) {
+    const run = s.runs.find((r) => r.id === seed.runId)
+    const job = run && jobOf(s, run)
     const task = s.tasks.find((t) => t.id === seed.taskId)
-    if (!placing(run, job) || !task) continue
-    const endedAt = Date.parse(seed.dispatch.endedAt!)
-    if (nowMs - endedAt < LOST_STALL_MS) continue
-    const key = `lost:${seed.dispatch.id}`
-    const e = seen(key, endedAt)
+    if (!run || !placing(run, job) || !task) continue
+    // No coordinator to retry it (an app-driven Run): an untracked Task is raised to its owner once, never started again.
+    // One whose lost Dispatch ended has the lost-worker Gate instead (lostGate.ts). A live external coordinator drives it.
+    const driven = !!run.coordinatorSessionId || (run.externalCoordinatorSessionId !== undefined && (probe.alive?.(run.externalCoordinatorSessionId) ?? true))
+    if (!driven && seed.dispatch) continue
+    const lostAt = seed.dispatch ? Date.parse(seed.dispatch.endedAt!) : (at.get(task.id) ?? nowMs)
+    if (nowMs - lostAt < LOST_STALL_MS) continue
+    const key = seed.dispatch ? `lost:${seed.dispatch.id}` : `untracked:${task.id}`
+    const e = seen(key, lostAt)
     if (!due_(e, 0)) continue
     const lostTimes = s.dispatches.filter((d) => d.taskId === task.id && isLost(d)).length
-    const spent = lostTimes >= FAILURE_LIMIT || task.consecutiveFailures >= FAILURE_LIMIT
+    const spent = !driven || lostTimes >= FAILURE_LIMIT || task.consecutiveFailures >= FAILURE_LIMIT
     if (!spent && e.step < TRIES) {
-      due.push({ key, runId: run.id, kind: 'retry-lost', task, dispatch: seed.dispatch, try: e.step + 1 })
+      due.push({ key, runId: run.id, kind: 'retry-lost', task, ...(seed.dispatch ? { dispatch: seed.dispatch } : {}), try: e.step + 1 })
       stepped(key, e)
     } else if (spent ? e.step === 0 : e.step === TRIES)
       escalate(key, e, run.id, {
         taskId: task.id,
-        dispatchId: seed.dispatch.id,
-        subject: `watchdog: task ${task.id} lost its worker ${seed.dispatch.id}`,
-        body:
-          `${task.id} (${task.title})'s worker ended without a report ${spent ? `${lostTimes} times` : `and ${TRIES} retries did not start a new one`}, ` +
-          'so it waits. Start it again, change its spec, or stop it.'
+        ...(seed.dispatch ? { dispatchId: seed.dispatch.id } : {}),
+        subject: seed.dispatch
+          ? `watchdog: task ${task.id} lost its worker ${seed.dispatch.id}`
+          : `watchdog: task ${task.id} is dispatched with no worker`,
+        body: seed.dispatch
+          ? `${task.id} (${task.title})'s worker ended without a report ${spent ? `${lostTimes} times` : `and ${TRIES} retries did not start a new one`}, ` +
+            'so it waits. Start it again, change its spec, or stop it.'
+          : `${task.id} (${task.title}) is dispatched with no worker on record and none running its spec, and ` +
+            `${!driven ? 'its Run has no coordinator to start it again' : spent ? 'it is out of retries' : `${TRIES} tries did not start a new one`}, so it waits. Start it again, change its spec, or stop it.`
       })
   }
 
@@ -325,9 +535,10 @@ export function stallRemedies(
     stepped(key, e)
   }
 
-  // A wave done, its draft PR not opened or updated (draftPr.ts draftPrDue stays due until the PR records it)
+  // A Task merged, the plan branch not pushed (draftPr.ts draftPrDue stays due until a push records it; T3: not while a
+  // failed push waits for its retry time, which the driving loop keeps itself)
   for (const run of s.runs) {
-    const done = draftPrDue(s, run)
+    const done = draftPrDue(s, run, nowMs)
     if (done === null) continue
     const key = `draft:${run.id}:${done}`
     const e = seen(key, nowMs)
@@ -381,6 +592,11 @@ export interface StallWatchDeps {
   /** DispatchLoop.tell: a `status` message into a coordinator's Run inbox. */
   tell(n: CoordinatorNotice): Promise<boolean>
   activity?(d: ActivityDraft): void
+  /** Records each live worker session that runs a Task's spec with no Dispatch of its own (exec/adopt.ts), as one
+   *  serialized commit, and answers what it recorded. Absent: nothing is adopted. */
+  adopt?(): Promise<Dispatch[]>
+  /** accounts.json: the agent of an untracked Task's account, to start it again. Absent: the Task's provider. */
+  accounts?(): Account[] | Promise<Account[]>
   mayStart(): boolean
   log(m: string): void
   nowMs(): number
@@ -388,9 +604,10 @@ export interface StallWatchDeps {
   wait?(ms: number): Promise<void>
 }
 
-/** The watchdog's own applier for `APPLIED_HERE` (header): at most once per `STALL_WATCH_MS`, the remedies due, each
- *  with its feed line ("Handled for you"). Never throws. */
-export function createStallWatch(d: StallWatchDeps): { watch(): Promise<void> } {
+/** The watchdog's own applier for `APPLIED_HERE` (header): at most once per `STALL_WATCH_MS`, adoption and then the
+ *  remedies due, each with its feed line ("Handled for you"). `adopt` alone is the Host pass's first step, so neither
+ *  the loop nor recovery reads an untracked worker's Task as ready or lost. Never throws. */
+export function createStallWatch(d: StallWatchDeps): { adopt(): Promise<void>; watch(): Promise<void> } {
   let memo: Map<string, StallEntry> = new Map()
   let lastAt = -Infinity
   let watching = false
@@ -423,12 +640,19 @@ export function createStallWatch(d: StallWatchDeps): { watch(): Promise<void> } 
         return
       }
       case 'retry-lost': {
-        // As a coordinator retries one: the same account and agent, a new Dispatch linked to the lost one
+        // As a coordinator retries one: the same account and agent, a new Dispatch linked to the lost one. With no
+        // Dispatch on record, as a coordinator starts one: the Task's first account, on that account's agent
+        const account = r.dispatch?.accountId ?? r.task.accountIds?.[0] ?? ''
+        const agent =
+          r.dispatch?.provider ??
+          (await Promise.resolve(d.accounts?.() ?? [])).map((a) => (a.id === account ? providerOf(a) : null)).find((p) => p !== null) ??
+          r.task.provider ??
+          'claude'
         const reply = await d.handle('worker-start', {
           task: r.task.id,
-          agent: r.dispatch.provider,
-          account: r.dispatch.accountId,
-          retryOf: r.dispatch.id
+          agent,
+          account,
+          ...(r.dispatch ? { retryOf: r.dispatch.id } : {})
         })
         line(
           r.runId,
@@ -481,17 +705,124 @@ export function createStallWatch(d: StallWatchDeps): { watch(): Promise<void> } 
         )
         return
       }
+      case 'tell-lease': {
+        const ok = await d.tell({
+          runId: r.runId,
+          taskId: r.task.id,
+          subject: `watchdog: task ${r.task.id} waits for plan ${r.plan} since ${new Date(r.since).toISOString()}`,
+          body:
+            `${r.task.id} (${r.task.title}) has waited ${mins(d.nowMs() - r.since)} minutes for plan ${r.plan} to deliver the ` +
+            'files it needs. Plan around them if you can; at 2 hours Astera asks the owner whether to run it anyway.'
+        })
+        line(
+          r.runId,
+          ok
+            ? `told the coordinator ${r.task.title} has waited ${mins(d.nowMs() - r.since)} min for plan ${r.plan} to deliver`
+            : `${r.task.title} has waited ${mins(d.nowMs() - r.since)} min for plan ${r.plan}, and the coordinator could not be told`,
+          r.task.id
+        )
+        return
+      }
+      case 'ask': {
+        const reply = await d.handle('gate-create', { task: r.task.id, question: r.question, options: r.options })
+        line(r.runId, reply.status < 400 ? `asked you: ${r.question}` : `could not ask you about ${r.task.title}: ${why(reply.body)}`, r.task.id)
+        return
+      }
+      case 'note-dropped':
+        line(r.runId, `${r.task.title} is ready but not started: ${r.reason}`, r.task.id)
+        return
+      case 'nudge-planner': {
+        const reply = await d.handle('sessions-send', { id: r.sessionId, text: PLANNER_NUDGE })
+        planLine(
+          r.jobId,
+          reply.status < 400
+            ? `nudged the planner: idle ${mins(d.nowMs() - r.since)} min without handing the plan over`
+            : `the planner is idle ${mins(d.nowMs() - r.since)} min and could not be nudged: ${why(reply.body)}`
+        )
+        return
+      }
+      case 'restart-planner': {
+        // The old planner goes first, so two never plan one Job; a close that fails is said and the start goes on
+        if (r.alive) {
+          const closed = await d.handle('sessions-close', { id: r.sessionId, reason: 'planner restarted by the watchdog' })
+          if (closed.status >= 400) d.log(`job=${r.jobId}: watchdog: the old planner ${r.sessionId} could not be closed: ${why(closed.body)}`)
+        }
+        // A usable account: the plan's own when it is not paused, else the first of the profile's that is not
+        const account =
+          r.account ?? (await Promise.resolve(d.accounts?.() ?? [])).find((a) => d.paused?.(a.id) !== true)?.id
+        const reply = await d.handle('jobs-plan', { id: r.jobId, ...(account !== undefined ? { account } : {}) })
+        planLine(
+          r.jobId,
+          reply.status < 400
+            ? `restarted the planner with the same brief${account !== undefined ? ` on ${account}` : ''}: it stopped without handing the plan over`
+            : `the planner stopped without handing the plan over and could not be restarted: ${why(reply.body)}`
+        )
+        return
+      }
+      case 'raise-planner':
+        planLine(r.jobId, r.reason, 'task.escalated')
+        return
       default:
         return // the dispatch loop's (header)
     }
   }
 
+  /** T11: a plan still planning has no Run: its line names the Job. `task.escalated` puts it before the owner. */
+  const planLine = (jobId: string, reason: string, type: 'watchdog' | 'task.escalated' = 'watchdog'): void => {
+    d.log(`job=${jobId}: watchdog: ${reason}`)
+    const job = d.getState().jobs.find((j) => j.id === jobId)
+    try {
+      d.activity?.({
+        type,
+        ...(job?.projectId !== undefined ? { projectId: job.projectId } : {}),
+        jobId,
+        payload: { title: job ? jobNameOf(job) : jobId, reason: `${reason[0].toUpperCase()}${reason.slice(1)}` }
+      })
+    } catch (e) {
+      d.log(`job=${jobId}: watchdog: the feed line could not be recorded: ${String(e)}`)
+    }
+  }
+
+  /** T11: plans planned at the same time see each other: each overlap a planner's plan meets is typed into it once
+   *  per (plan pair, what they share). Not behind the setting: it tells, and moves nothing.
+   *  shortcut: the keys told are in memory, so a Host restart tells a planner still planning once more; persist them
+   *  if that ever bothers. */
+  const told = new Set<string>()
+  const tellPlanners = async (): Promise<void> => {
+    for (const n of plannerOverlapNotices(d.getState())) {
+      if (told.has(n.key) || !d.alive(n.sessionId)) continue
+      told.add(n.key)
+      try {
+        const reply = await d.handle('sessions-send', { id: n.sessionId, text: n.text })
+        if (reply.status >= 400) d.log(`job=${n.jobId}: the planner could not be told of an overlap: ${why(reply.body)}`)
+      } catch (e) {
+        d.log(`job=${n.jobId}: the planner could not be told of an overlap: ${String(e)}`)
+      }
+    }
+  }
+
+  /** Not behind the setting: it records what is true, a worker running, and starts or stops nothing. */
+  const adopt = async (): Promise<void> => {
+    if (!d.adopt || !d.mayStart()) return
+    try {
+      for (const x of await d.adopt()) {
+        const task = d.getState().tasks.find((t) => t.id === x.taskId)
+        line(task?.runId ?? '', `adopted the worker of ${task?.title ?? x.taskId}: it ran with no record of its start`, x.taskId)
+      }
+    } catch (e) {
+      d.log(`watchdog: adopting untracked workers failed: ${String(e)}`)
+    }
+  }
+
   return {
+    adopt,
     async watch(): Promise<void> {
       if (watching || d.nowMs() - lastAt < STALL_WATCH_MS) return
       watching = true
       lastAt = d.nowMs()
       try {
+        await adopt()
+        await tellPlanners()
         if (!(await d.on())) {
           memo = new Map()
           return

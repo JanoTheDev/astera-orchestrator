@@ -59,6 +59,10 @@ export interface HostClientDeps {
    *  moment a yielding hello reaches it, and two sockets on one token split the replies. Absent: yields.
    *  A throw is read as true (no second socket) and logged. */
   keepsSlack?: () => boolean
+  /** How often, and for how long in all, to try again while a Host at the address hangs up before its
+   *  hello (a Host that is leaving). Default RETIRING_RETRY_MS / RETIRING_WAIT_MS; injected for tests. */
+  retiringRetryMs?: number
+  retiringWaitMs?: number
 }
 
 const DEFAULT_ATTEMPTS = 25
@@ -86,6 +90,14 @@ export const HANDSHAKE_MS = 10_000
 export const READY_TIMEOUT_MS = CONNECT_PHASE_MS + HANDSHAKE_MS
 /** After a connection that worked drops, wait before trying again: 1s, 2s, 4s, capped at 30s. */
 const BACKOFF_MS = [1_000, 2_000, 4_000, 8_000, 16_000, 30_000]
+
+/** A Host that is leaving (host/index.ts `leave`) keeps its address bound until its workspaces, spawns
+ *  and plugins have closed — measured at about a minute — and hangs up on every new connection before
+ *  its hello. That is a Host about to be gone, not a dropped one and not a silent one: try again this
+ *  often, for at most RETIRING_WAIT_MS in all, and once the address is free the next cycle starts a
+ *  new Host. Past the bound the ordinary drop backoff takes over, with a problem saying why. */
+export const RETIRING_RETRY_MS = 500
+export const RETIRING_WAIT_MS = 90_000
 
 /** How many pings may be in flight unanswered before that Host is called unresponsive. Derived from
  *  `HOST_UNRESPONSIVE_MS` divided by `PING_MS` (both in core/host/unresponsive.ts), rather than a second
@@ -147,6 +159,8 @@ export class HostClient {
    *  once that is over. */
   private readonly afterSpawn = new Set<() => void>()
   private drops = 0
+  /** When a Host at the address first hung up before its hello in the current wait, or null. */
+  private retiringSince: number | null = null
   private readonly subscribers = new Set<(m: HostMessage) => void>()
   /** The connection to the Host went away. Notified from the socket's own 'close' handler, before a
    *  reconnect is scheduled — see `onDisconnect`. */
@@ -357,7 +371,7 @@ export class HostClient {
    *  wiring it exists for (deciding the ptyRouter fallback, then taking sessions back) has no other
    *  way to know when the handshake is settled; see this task's report for the reasoning. */
   ready(ms: number): Promise<void> {
-    if (this.state.connected || this.state.problem) return Promise.resolve()
+    if (this.state.connected || (this.state.problem && !this.state.waitingForPreviousHost)) return Promise.resolve()
     return new Promise((resolve) => {
       const done = (): void => {
         clearTimeout(timer)
@@ -377,6 +391,12 @@ export class HostClient {
       const expire = (): void => {
         if (this.spawning > 0 && !this.stopped) {
           this.afterSpawn.add(arm)
+          return
+        }
+        // Nor while a leaving Host is being waited out: that wait has its own bound (RETIRING_WAIT_MS),
+        // and a caller that gave up inside it would read "no Host" for the one about to be started.
+        if (this.state.waitingForPreviousHost && !this.stopped) {
+          arm()
           return
         }
         done()
@@ -453,10 +473,11 @@ export class HostClient {
     if (!this.stopped) return
     this.stopped = false
     this.drops = 0
+    this.retiringSince = null
     // What is known about the *previous* Host is not a description of the one being started — and
     // that includes it having stopped answering, which is the reason a replacement is usually being
     // started at all (design F5).
-    this.setState({ ...this.state, connected: false, protocol: null, hostVersion: null, startedAt: null, pid: null, problem: null, outdated: false, unresponsive: false, runtimeIncomplete: false, features: [] })
+    this.setState({ ...this.state, connected: false, protocol: null, hostVersion: null, startedAt: null, pid: null, problem: null, outdated: false, unresponsive: false, runtimeIncomplete: false, features: [], waitingForPreviousHost: false })
     void this.cycle()
   }
 
@@ -554,22 +575,38 @@ export class HostClient {
     // Same reason as `sleep`'s timer: a client waiting on a handshake is not work the app has to
     // finish before quitting.
     this.handshake.unref?.()
-    socket.on('close', () => {
+    const onClose = (): void => {
       if (this.socket !== socket) return
+      // The handshake still pending means the peer hung up before any hello or mismatch: a Host that is
+      // leaving (its server destroys every new connection) — see RETIRING_WAIT_MS.
+      const hungUpEarly = this.handshake !== null
       this.clearHandshake()
       this.stopHeartbeat()
       this.socket = null
       if (this.stopped) return
+      const retiringWaitMs = this.deps.retiringWaitMs ?? RETIRING_WAIT_MS
+      if (hungUpEarly) {
+        this.retiringSince ??= Date.now()
+        if (Date.now() - this.retiringSince < retiringWaitMs) {
+          if (!this.state.waitingForPreviousHost) this.deps.log('the Host at the address hung up before its hello — waiting for it to finish leaving')
+          this.setState({ ...this.state, connected: false, unresponsive: false, waitingForPreviousHost: true, problem: 'the previous Host is still shutting down' })
+          void sleep(this.deps.retiringRetryMs ?? RETIRING_RETRY_MS).then(() => this.cycle())
+          return
+        }
+      }
+      const stillLeaving = hungUpEarly ? `the previous Host had not finished shutting down after ${Math.round(retiringWaitMs / 1000)}s` : null
       this.setState({
         ...this.state,
         connected: false,
         // A dropped connection is not an unresponsive Host: this one has a way forward of its own, the
         // backoff below, and the Host on the other side may be perfectly well.
         unresponsive: false,
+        waitingForPreviousHost: false,
         // A reason already set (a protocol mismatch, say) is more use than this one, and the next
         // successful handshake clears it either way.
-        problem: this.state.problem ?? 'the connection to the Host dropped'
+        problem: stillLeaving ?? this.state.problem ?? 'the connection to the Host dropped'
       })
+      if (stillLeaving) this.settleReady()
       const wait = BACKOFF_MS[Math.min(this.drops, BACKOFF_MS.length - 1)]
       this.drops += 1
       this.deps.log(`connection to the Host dropped — retrying in ${wait}ms`)
@@ -583,8 +620,16 @@ export class HostClient {
         }
       }
       void sleep(wait).then(() => this.cycle())
-    })
+    }
+    socket.on('close', onClose)
     socket.on('error', (err) => this.deps.log(`connection error: ${String(err)}`))
+    // A peer that hung up while `cycle` was reading the Host key has already fired its 'close', before
+    // the listener above existed. Without this the hello below goes nowhere and the handshake deadline
+    // writes off a Host that was only leaving as unresponsive, with no retry (the 2026-10 blank start).
+    if (socket.destroyed) {
+      onClose()
+      return
+    }
     // `role` is what makes this client the one the Host sends `orch-act` to; `app` cannot say it,
     // because the CLI's hello carries a version string in the same field (core/host/connect.ts).
     // `yields` hands the Host the Job worktrees (host S3 ruling R4): this app writes worktrees.json
@@ -655,6 +700,7 @@ export class HostClient {
       this.proven = this.socket
       this.clearHandshake()
       this.drops = 0
+      this.retiringSince = null
       // Judged here, from the two versions this handshake already carries, so the status the Info tab
       // reads and the replacement rule in ipc.ts act on cannot disagree about it.
       const outdated = hostIsOutdated(m.host, this.deps.appVersion)
@@ -669,6 +715,7 @@ export class HostClient {
         outdated,
         unresponsive: false,
         runtimeIncomplete,
+        waitingForPreviousHost: false,
         features: Array.isArray(m.features) ? m.features.filter((f): f is string => typeof f === 'string') : []
       })
       this.deps.log(
@@ -721,7 +768,7 @@ export class HostClient {
   }
 
   private fail(problem: string): void {
-    this.setState({ connected: false, protocol: null, hostVersion: null, startedAt: null, pid: null, problem, outdated: false, unresponsive: false, runtimeIncomplete: false, features: [] })
+    this.setState({ connected: false, protocol: null, hostVersion: null, startedAt: null, pid: null, problem, outdated: false, unresponsive: false, runtimeIncomplete: false, features: [], waitingForPreviousHost: false })
     this.deps.log(problem)
     this.settleReady()
   }

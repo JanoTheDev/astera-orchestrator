@@ -193,3 +193,16 @@ export class ConversationFollow {
     return { turns: this.reduce(result.lines, pending), restarted: result.restarted }
   }
 }
+
+/** The text of the newest assistant turn that says something (a tool-only turn is skipped), its text parts
+ *  joined by a line break. Null when no such turn is in the window. The chat tiles show it (main/conversation.ts
+ *  lastReply), so it reads the same window `open` reads and holds nothing. */
+export function lastReplyTextOf(turns: readonly ConvTurn[]): string | null {
+  for (let i = turns.length - 1; i >= 0; i--) {
+    const turn = turns[i]
+    if (turn.role !== 'assistant') continue
+    const text = turn.parts.flatMap((p) => (p.kind === 'text' ? [p.text] : [])).join('\n').trim()
+    if (text !== '') return text
+  }
+  return null
+}

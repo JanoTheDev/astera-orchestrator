@@ -55,11 +55,12 @@ import { createControllerRegistry } from './controllers'
 import { createPluginManager } from './plugins/manager'
 import { git } from '../core/worktrees/git'
 
-const NOW = '2026-09-22T00:00:00.000Z'
+// Relative, not a fixed date: the store prunes finished Runs older than RUN_TTL_MS, so a fixed one rots into a 404.
+const NOW = new Date().toISOString()
 /** 이 Host 가 선 시각. `now` 보다 **앞**이어야 하는 값이다 — `requests show` 가 이것을 실어 주는
  *  이유가 "네가 보낸 때보다 이 Host 가 늦게 섰다면 그 요청은 여기 온 적이 없다" 이므로(설계 §6),
  *  둘이 같은 문자열이면 그 비교가 시험에서 아무 말도 하지 않는다. */
-const HOST_STARTED_AT = '2026-09-21T23:00:00.000Z'
+const HOST_STARTED_AT = new Date(Date.parse(NOW) - 3_600_000).toISOString()
 
 let dir: string
 beforeEach(async () => {
@@ -1004,9 +1005,36 @@ describe('projects-add (remote runtime N5)', () => {
     expect((await git(['ls-files'], { cwd: folder })).stdout).toBe('Cargo.toml')
     expect(orch.state().projects).toMatchObject([{ defaultBranch: 'main' }])
   })
-  it('is refused to a controller', async () => {
-    const r = await orchOver().call({ cmd: 'projects-add', args: { path: dir }, sessionId: '', from: { role: 'controller', principal: { clientId: 'cli_x', name: 'x', permission: 'full-control' }, toOthers: () => {} } })
+  // T12b: a full-control controller clones a repository on this machine and registers it; a read-only one is refused
+  const controller = (permission: string) => ({ role: 'controller' as const, principal: { clientId: 'cli_x', name: 'x', permission } as never, toOthers: () => {} })
+  it('is refused to a read-only controller', async () => {
+    const r = await orchOver().call({ cmd: 'projects-add', args: { clone: 'https://example.com/r.git' }, sessionId: '', from: controller('read-only') })
     expect(r.status).toBe(403)
+  })
+  it('clones --clone into --path for a full-control controller and registers it', async () => {
+    const origin = await committedRepo()
+    const dest = path.join(dir, 'cloned')
+    const orch = orchOver()
+    const r = await orch.call({ cmd: 'projects-add', args: { clone: `file://${origin}`, path: dest }, sessionId: '', from: controller('full-control') })
+    expect(r.status).toBe(200)
+    expect((await git(['rev-parse', '--show-toplevel'], { cwd: dest })).ok).toBe(true)
+    expect(orch.state().projects).toHaveLength(1)
+  })
+  // T12b: Sign in account opens the login terminal for a full-control controller only
+  it('opens the login terminal for a full-control controller, never for a read-only one or an agent', async () => {
+    let opened = 0
+    const orch = orchOver({ startLoginTerminal: () => (opened++, { ok: true, session: { id: 'login_1', ptyId: 'login_1' } as never }) })
+    expect((await orch.call({ cmd: 'accounts-login-start', args: {}, sessionId: '', from: controller('read-only') })).status).toBe(403)
+    expect((await orch.call({ cmd: 'accounts-login-start', args: {}, sessionId: '', from: cli })).status).toBe(403)
+    const r = await orch.call({ cmd: 'accounts-login-start', args: {}, sessionId: '', from: controller('full-control') })
+    expect(r).toMatchObject({ status: 200, body: { id: 'login_1', ptyId: 'login_1' } })
+    expect(opened).toBe(1)
+  })
+  it('refuses a --clone that is not a git URL, or one that reads as an option', async () => {
+    const orch = orchOver()
+    for (const clone of ['--upload-pack=touch /tmp/x', 'ext::sh -c x', 'not a url'])
+      expect((await orch.call({ cmd: 'projects-add', args: { clone, path: path.join(dir, 'c') }, sessionId: '', from: cli })).status).toBe(400)
+    expect(orch.state().projects).toEqual([])
   })
 })
 
@@ -2650,7 +2678,7 @@ describe('Host-local spawn (S2)', () => {
     const dispatchId = (started.body as { dispatchId: string }).dispatchId
     expect((await orch.call({ cmd: 'worker-read', args: { dispatch: dispatchId }, sessionId: '' })).body).toEqual({ output: 'worker output' })
     expect((await orch.call({ cmd: 'worker-stop', args: { dispatch: dispatchId }, sessionId: '' })).status).toBe(200)
-    expect(l.releaseWorker).toHaveBeenCalledWith({ dispatchId })
+    expect(l.releaseWorker).toHaveBeenCalledWith({ dispatchId, closeReason: 'stopped' })
   })
   // Fix round I1: a Stop that arrives while the Host is still spawning the worker. The Dispatch holds
   // the `pending:` placeholder, so nothing could be killed; recording it stopped would leave the agent
@@ -3361,7 +3389,7 @@ describe('Host-local spawn (S2)', () => {
     app = true
     const stopped = await orch.call({ cmd: 'worker-stop', args: { dispatch: dispatchId }, sessionId: '' })
     expect(stopped.status).toBe(200)
-    expect(act).toHaveBeenCalledWith('releaseWorker', [{ dispatchId }])
+    expect(act).toHaveBeenCalledWith('releaseWorker', [{ dispatchId, closeReason: 'stopped' }])
     expect(l.releaseWorker).not.toHaveBeenCalled()
   })
   it('behaves exactly as before with no spawner: worker-start with no app is refused', async () => {
@@ -3950,7 +3978,7 @@ describe('the Host sees a coordinator parked in check --wait (I-A)', () => {
     const r = await orch.handle('run-coordinator-stop', { run: runId })
     await waiting
     expect(r.status).toBe(200)
-    expect(act).toHaveBeenCalledWith('stopCoordinator', ['ses_c'])
+    expect(act).toHaveBeenCalledWith('stopCoordinator', ['ses_c', expect.any(String), 'stopped'])
   })
 })
 
@@ -5042,5 +5070,32 @@ describe('W9-H owner hold', () => {
     expect(sent).toEqual([])
     expect(logs.some((l) => /owner hold .* ses-w .*409 .*permission prompt/.test(l))).toBe(true)
     expect(logs.some((l) => l.includes('yes'))).toBe(false)
+  })
+})
+
+// Item 9: a finished Run closes only the sessions orchestration started, so the Host marks each one with its Run or Job:
+// every session a commit gives orchestration, and every session an agent creates with `sessions create`.
+describe('orchestration marks on sessions (item 9)', () => {
+  it('marks a commit’s new coordinator, and a session its coordinator creates, with the Run; a person’s session with none', async () => {
+    await seed()
+    await fs.writeFile(
+      path.join(dir, 'accounts.json'),
+      JSON.stringify({ accounts: [{ id: 'acc1', label: 'a', configDir: path.join(dir, 'cfg'), color: '#fff', createdAt: 'T', provider: 'claude' }] }),
+      'utf8'
+    )
+    const marks: Array<[string, string]> = []
+    let made = 0
+    const createSession = vi.fn(async () => ({ id: `ses_new${++made}`, kind: 'terminal' as const, title: null, accountId: 'acc1', cwd: dir, alive: true, state: 'unknown' as const }))
+    const orch = orchOver({ hasApp: () => false, createSession, markSession: (id, owner) => marks.push([id, owner]), sessionMarkOf: () => null })
+    await orch.ready()
+    const s = orch.state()
+    const runId = s.runs[0].id
+    await orch.internalDeps().setState({ ...s, runs: s.runs.map((r) => ({ ...r, coordinatorSessionId: 'ses_coord' })) })
+    expect(marks).toEqual([['ses_coord', runId]])
+    const cli = { role: 'cli' as const, toOthers: () => {} }
+    const create = (sessionId: string) => orch.call({ cmd: 'sessions-create', args: { account: 'acc1', cwd: dir }, sessionId, from: cli })
+    expect((await create('ses_coord')).status).toBe(200)
+    expect((await create('')).status).toBe(200)
+    expect(marks).toEqual([['ses_coord', runId], ['ses_new1', runId]])
   })
 })

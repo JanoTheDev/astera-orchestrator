@@ -238,20 +238,44 @@ describe('a replan session', () => {
 })
 
 describe('jobs-replan-done', () => {
-  it('keeps the hold and escalates when the remaining plan does not hold', async () => {
+  it('keeps the hold and escalates when the remaining plan does not hold and its planner is gone', async () => {
     const r = rig()
     const { jobId, runId, id } = await approved(r)
     await r.person('jobs-replan', { id: jobId, run: runId })
     const s = r.state()
     r.set({ ...s, tasks: s.tasks.map((t) => (t.id === id('C') ? { ...t, prompt: undefined } : t)) })
     const before = r.state()
-    const done = await r.as('ses-planner-2')('jobs-replan-done', { id: jobId })
+    const done = await r.person('jobs-replan-done', { id: jobId, gone: true })
     expect(done.body).toMatchObject({ held: true })
     expect(job(r).dispatchHold).toBe(true)
     expect(job(r).lastReplan?.escalated).toContain('has no prompt')
     const line = deriveActivity(before, r.state()).find((e) => e.type === 'task.escalated')
     expect(line).toBeDefined()
     expect(noticeOf({ ...line!, id: 'e1', sequence: 1, occurredAt: NOW } as ActivityEvent)).not.toBeNull()
+  })
+
+  it('refuses its own planner while the plan does not hold, until the planner fixes the Task itself', async () => {
+    const r = rig()
+    const { jobId, runId, id } = await approved(r)
+    await r.person('jobs-replan', { id: jobId, run: runId })
+    const replanner = r.as('ses-planner-2')
+    const added = (await replanner('task-create', { run: runId, ...plan('D', { deps: [id('A')], basis: undefined, evidence: undefined }) })).body as Task
+    const refused = await replanner('jobs-replan-done', { id: jobId, summary: 'added D' })
+    expect(refused.status).toBe(409)
+    expect((refused.body as { problems: string[] }).problems).toEqual([expect.stringContaining('has no basis')])
+    expect(job(r).replanning).toBeDefined()
+    expect(job(r).dispatchHold).toBe(true)
+    expect(r.state().messages.filter((m) => m.type === 'escalation')).toHaveLength(0)
+    expect(r.stopped).not.toContain('ses-planner-2')
+
+    const fixed = await replanner('task-update', { id: added.id, basis: 'partial', evidence: `${id('A')} review round 2: D is missing` })
+    expect(fixed.status).toBe(200)
+    expect((await replanner('jobs-replan-done', { id: jobId, summary: 'added D' })).status).toBe(200)
+    expect(job(r).replanning).toBeUndefined()
+    expect(job(r).dispatchHold).toBeUndefined()
+    expect(job(r).lastReplan?.escalated).toBeUndefined()
+    expect(r.state().messages.filter((m) => m.type === 'escalation')).toHaveLength(0)
+    expect(r.stopped).toContain('ses-planner-2')
   })
 
   it("leaves a person's own hold in place", async () => {
@@ -447,7 +471,7 @@ describe('the wave boundary moves on', () => {
     await r.person('jobs-replan', { id: jobId, run: runId })
     const s = r.state()
     r.set({ ...s, tasks: s.tasks.map((t) => (t.id === id('C') ? { ...t, prompt: undefined } : t)) })
-    await r.as('ses-planner-2')('jobs-replan-done', { id: jobId })
+    await r.person('jobs-replan-done', { id: jobId, gone: true })
     const esc = r.state().messages.filter((m) => m.type === 'escalation')
     expect(esc).toHaveLength(1)
     expect(esc[0]).toMatchObject({ runId, options: [REPLAN_LIFT_HOLD] })

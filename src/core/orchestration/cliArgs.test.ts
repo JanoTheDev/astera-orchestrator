@@ -222,7 +222,7 @@ describe('공개 표면 — 두 낱말 명령', () => {
   // 플래그가 동사 자리에 오면 동사를 안 준 것이다 — `--json` 을 동사로 읽으면 엉뚱한 오류가 난다
   it('플래그를 동사로 읽지 않는다', () => {
     expect(parseArgs(['tasks', '--json'])).toEqual({
-      error: 'tasks needs one of: list, add, dispatch'
+      error: 'tasks needs one of: list, add, dispatch, restore'
     })
   })
 
@@ -251,7 +251,7 @@ describe('공개 표면 — 두 낱말 명령', () => {
       args: { agent: 'claude' }
     })
     expect(parseArgs(['accounts', 'fly'])).toEqual({
-      error: 'unknown accounts subcommand: fly (expected list)'
+      error: 'unknown accounts subcommand: fly (expected list, login, import)'
     })
   })
 
@@ -293,7 +293,7 @@ describe('공개 표면 — 두 낱말 명령', () => {
       cmd: 'sessions-create',
       args: { account: 'a', cwd: '.', rollAccounts: 'a,b' }
     })
-    expect(parseArgs(['sessions'])).toEqual({ error: 'sessions needs one of: list, read, send, create' })
+    expect(parseArgs(['sessions'])).toEqual({ error: 'sessions needs one of: list, read, send, create, close' })
   })
 
   // 코디네이터 전용 명령은 한 낱말 그대로다 — 개명이 가이드 재작성만 사고 아무것도 주지 않는다

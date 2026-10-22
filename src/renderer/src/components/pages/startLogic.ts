@@ -2,10 +2,14 @@
 import type { IntakeTab } from '../intake/intakeRequest'
 import type { Job } from '../../../../core/orchestration/types'
 import { jobNameOf } from '../../../../core/orchestration/jobName'
+import type { Account, AccountUsage } from '../../../../core/types'
+import { providerOf } from '../../../../core/providers/meta'
 
-/** T4: the planner writes the plan (talking it through, or alone), or each prompt runs as written (W8-C
- *  `--mode prompts`). Audits are asked of the planner in the chat now. */
-export type StartMode = 'plan' | 'prompts'
+/** T14: the three plain ways to start. `chat`: the planner talks the plan through with the person; `auto`: it plans and
+ *  starts on its own (auto-approve); `prompts`: each prompt runs as written (W8-C `--mode prompts`, no planner). */
+export type StartMode = 'chat' | 'auto' | 'prompts'
+
+export const START_MODES: readonly StartMode[] = ['chat', 'auto', 'prompts']
 
 /** What Start opens with: from New, a window drop, or a new project's first plan. */
 export interface StartRequest {
@@ -19,13 +23,6 @@ export interface StartRequest {
 /** The attachments a composer chip shows: prompt and note files, PDFs and images (DESIGN §2). */
 const ATTACHABLE = /\.(md|markdown|txt|pdf|png|jpe?g|gif|webp|svg)$/i
 const PROMPT_FILE = /\.(md|markdown)$/i
-
-/** Prompt files attached ⇒ Run as written; typed text or rough notes ⇒ Plan it for me. The owner's pick wins. */
-export function defaultMode({ files, chosen }: { files: string[]; text?: string; chosen?: StartMode }): StartMode {
-  if (chosen) return chosen
-  // A PDF or a screenshot is material for the planner, not a prompt to run as written
-  return files.some((f) => PROMPT_FILE.test(f)) ? 'prompts' : 'plan'
-}
 
 /** The one W6-A intake tab Start's composer amounts to. */
 export function intakeTab({ mode, files }: { mode: StartMode; files: string[] }): IntakeTab {
@@ -42,18 +39,19 @@ export function promptCount(files: string[], text: string): number {
 
 type T = (key: string, params?: Record<string, string | number>) => string
 
-/** The primary button says what will happen: "Start planning", or "Start 3 consoles" with "3 files → 3 tasks". */
+/** The primary button follows the mode: "Start planning", "Plan and start" or "Run prompts" (with "3 files → 3 tasks"). */
 export function primaryLabel(
   { mode, files, text, after, named }: { mode: StartMode; files: string[]; text: string; after?: string; named?: number },
   t: T
 ): { label: string; note?: string } {
   if (after) return { label: t('start.go.queue', { plan: after }) }
-  if (mode === 'plan') return { label: t('start.go.plan') }
+  if (mode === 'chat') return { label: t('start.go.plan') }
+  if (mode === 'auto') return { label: t('start.go.auto') }
   // W10-A: prompt names typed with nothing attached count the files they resolved to
-  if (named !== undefined && files.length === 0) return { label: t('start.go.consoles', { n: named }), note: t('start.go.namesNote', { n: named }) }
+  if (named !== undefined && files.length === 0) return { label: t('start.go.prompts'), note: t('start.go.namesNote', { n: named }) }
   const n = promptCount(files, text)
   return {
-    label: t('start.go.consoles', { n }),
+    label: t('start.go.prompts'),
     note: n === 0 ? undefined : t(files.length > 0 ? 'start.go.filesNote' : 'start.go.sectionsNote', { n })
   }
 }
@@ -109,54 +107,70 @@ export function lookupArgs({ mode, files, text, cwd }: { mode: StartMode; files:
   return { cwd, mode: 'prompts', objective: text, dryRun: true, ...(md.length > 0 ? { attach: md } : {}) }
 }
 
-// T2 sticky hands-off and More options
+// T2 sticky hands-off
 /** Switching Hands-off on Start saves it as the project's default (`projects-set --hands-off`), so it sticks. */
 export const handsOffSaveArgs = (projectId: string, on: boolean): Record<string, unknown> => ({ id: projectId, handsOff: on ? 'on' : 'off' })
 
-/** The closed Options line: "Hands-off · After L4 · 3 consoles · PR · ask · High" (hands-off, the plan it starts after
- *  and the priority only when set). */
-export function optionsSummary(
-  {
-    concurrency,
-    delivery,
-    approval,
-    priority,
-    handsOff = false,
-    after
-  }: { concurrency: number; delivery: 'pr' | 'push'; approval: 'ask' | 'auto'; priority: number; handsOff?: boolean; after?: string },
-  t: T
-): string {
-  return [
-    ...(handsOff ? [t('start.opt.handsOff')] : []),
-    ...(after ? [t('start.opt.after', { plan: after })] : []),
-    t('start.more.consoles', { n: concurrency }),
-    t(delivery === 'pr' ? 'start.more.pr' : 'start.more.push'),
-    t(approval === 'ask' ? 'start.more.ask' : 'start.more.auto'),
-    ...(priority !== 0 ? [t(priority > 0 ? 'start.priority.high' : 'start.priority.low')] : [])
-  ].join(' · ')
-}
-
-/** Why Create is off, as the one line beside it: no project, nothing to build yet. Null when it can go. */
-export function blockedReason({ project, request }: { project: boolean; request: boolean }, t: T): string | null {
+/** Why the primary button is off, as the one line beside it: no project, nothing written yet. Null when it can go. */
+export function blockedReason({ project, text, request }: { project: boolean; text: boolean; request: boolean }, t: T): string | null {
   if (!project) return t('start.project.required')
-  return request ? null : t('start.needText')
+  return text && request ? null : t('start.needText')
 }
 
-// T4 planning and priority presets
-/** "Plan with me" (chat) opens the planner's terminal to talk; "Plan on your own" (auto) has it decide alone. */
-export const PLANNING_CHOICES = ['chat', 'auto'] as const
+/** The planning the intake sends for a mode: `chat` talks it through, `auto` and the planner-less `prompts` do not. */
+export const planningOf = (mode: StartMode): 'chat' | 'auto' => (mode === 'chat' ? 'chat' : 'auto')
 
-/** Priority presets Start offers; `jobs-create --priority` takes the number (higher first). */
-export const PRIORITY_PRESETS = [
-  ['low', -1],
-  ['normal', 0],
-  ['high', 1]
-] as const
-export type PriorityPreset = (typeof PRIORITY_PRESETS)[number][0]
+// T14 the project's last choice
+export const modeKey = (projectId: string): string => `astera.start.mode.${projectId}`
 
-export const priorityValueOf = (p: PriorityPreset): number => PRIORITY_PRESETS.find(([id]) => id === p)![1]
-/** The preset a stored number falls in (anything above 0 is high). */
-export const priorityPresetOf = (n: number): PriorityPreset => (n > 0 ? 'high' : n < 0 ? 'low' : 'normal')
+/** The mode this project last started with; null when none was saved (or storage is unavailable). */
+export function lastMode(projectId: string): StartMode | null {
+  try {
+    const v = window.localStorage.getItem(modeKey(projectId))
+    return START_MODES.find((m) => m === v) ?? null
+  } catch {
+    return null
+  }
+}
+
+export function saveMode(projectId: string, mode: StartMode): void {
+  try {
+    window.localStorage.setItem(modeKey(projectId), mode)
+  } catch {
+    // a per-viewer convenience: Start works without it
+  }
+}
+
+// T14 starter chips
+export type StarterId = 'fix' | 'build' | 'audit' | 'issues' | 'file'
+
+/** `fill`: puts a template in the box; `issues`: opens the issue picker; `file`: also opens the file chooser. */
+export const STARTERS: readonly { id: StarterId; text?: string }[] = [
+  { id: 'fix', text: 'start.starter.fix.text' },
+  { id: 'build', text: 'start.starter.build.text' },
+  { id: 'audit', text: 'start.starter.audit.text' },
+  { id: 'issues' },
+  { id: 'file', text: 'start.starter.file.text' }
+]
+
+/** A starter fills the box and sets the mode (planning with the person: Run prompts and Plan on its own are a choice). */
+export const STARTER_MODE: StartMode = 'chat'
+
+/** The box after a starter: its template when the box is empty or still holds another template, else the template below
+ *  what the person wrote. */
+export function withStarter(current: string, template: string, templates: readonly string[]): string {
+  const c = current.trim()
+  return c === '' || templates.some((x) => x.trim() === c) ? template : `${current.trimEnd()}\n\n${template}`
+}
+
+/** Ctrl+Enter (Cmd+Enter on a Mac) submits; plain Enter stays a newline. */
+export const isSubmitKey = (e: { key: string; ctrlKey: boolean; metaKey: boolean }): boolean => e.key === 'Enter' && (e.ctrlKey || e.metaKey)
+
+/** The project picker lists projects only: never "All projects". A placeholder shows while none is chosen. */
+export function projectOptions(projects: readonly { name: string; path: string }[], chosen: string, placeholder: string): { value: string; label: string }[] {
+  const list = projects.map((p) => ({ value: p.path, label: p.name }))
+  return chosen === '' ? [{ value: '', label: placeholder }, ...list] : list
+}
 
 /** After Start made the Job: the planner's terminal opens when it started now; a plan queued after another goes to the
  *  agents list (no planner yet). */
@@ -185,5 +199,28 @@ function liveStateOf(r: PlanRow): LivePlanState | null {
   if (r.paused === true || r.outcome === 'paused') return 'held'
   if (r.pendingStart === true) return r.after !== undefined ? 'queued' : 'planning'
   if ((r.questionsOpen ?? 0) > 0) return 'waiting'
-  return r.outcome === 'running' ? 'running' : null
+  return r.outcome === 'running' || r.outcome === 'checking' ? 'running' : null
+}
+
+// T5b (decision 6/21): Start's account picker. "Auto (most room)" is the default and sends no account, so the Host
+// ranks the accounts by usage; a picked account is only a preference.
+export const AUTO_ACCOUNT = 'auto'
+
+/** Auto, then each signed-in Claude account with its weekly and 5h used percent (— while unknown). */
+export function accountPickOptions(
+  accounts: readonly Account[],
+  signedIn: ReadonlySet<string>,
+  usage: Readonly<Record<string, AccountUsage>>,
+  t: T
+): { value: string; label: string }[] {
+  const pct = (w: { usedPercent: number } | null | undefined): string => (w ? `${w.usedPercent}%` : '—')
+  return [
+    { value: AUTO_ACCOUNT, label: t('accounts.auto') },
+    ...accounts
+      .filter((a) => providerOf(a) === 'claude' && signedIn.has(a.id))
+      .map((a) => {
+        const u = usage[a.configDir]
+        return { value: a.id, label: t('accounts.pickUsage', { name: a.label, weekly: pct(u?.weekly), session: pct(u?.session) }) }
+      })
+  ]
 }

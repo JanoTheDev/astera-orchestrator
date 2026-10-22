@@ -16,10 +16,11 @@
 .start-scroll { flex: 1; min-height: 0; overflow-y: auto; }
 .start-inner { max-width: 760px; margin: 0 auto; padding: var(--sp-4) var(--page-pad) var(--sp-8); display: grid; gap: var(--sp-5); }
 
-.start-head { display: flex; align-items: flex-start; gap: var(--sp-4); margin-left: calc(-1 * var(--sp-3)); }
-.start-head > .ui-btn { margin-top: 18px; }
-.start-head .start-project { width: 280px; max-width: 100%; }
-.start-title { margin: var(--sp-2) 0 0; font-size: var(--fs-22); font-weight: var(--fw-semi); line-height: var(--lh-tight); }
+.start-head { display: flex; align-items: center; gap: var(--sp-3); margin-left: calc(-1 * var(--sp-3)); }
+.start-project { max-width: 320px; }
+.start-title { margin: 0; font-size: var(--fs-22); font-weight: var(--fw-semi); line-height: var(--lh-tight); }
+.start-starters { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-top: calc(-1 * var(--sp-2)); }
+.start-console { justify-self: start; margin-left: calc(-1 * var(--sp-3)); }
 
 .start-composer { display: grid; gap: var(--sp-2); padding: var(--sp-3); }
 .start-composer:focus-within { box-shadow: var(--focus-ring); }
@@ -68,12 +69,13 @@
 
 /* New modal: one row per choice, the same height each, icon in a soft square, a chevron that says "go" */
 .new-choices { display: grid; gap: var(--sp-2); }
-.new-choices .new-choice { display: grid; grid-template-columns: 32px 1fr auto; gap: var(--sp-3); align-items: center; min-height: 60px; padding: var(--sp-2) var(--sp-3); text-align: left; }
-.new-choice-icon { display: grid; place-items: center; width: 32px; height: 32px; border-radius: var(--radius); background: var(--elevated); color: var(--text-dim); }
+.new-choices .new-choice { display: grid; grid-template-columns: 40px 1fr auto; gap: var(--sp-3); align-items: center; min-height: 72px; padding: var(--sp-3); text-align: left; }
+.new-choice-icon { display: grid; place-items: center; width: 40px; height: 40px; border-radius: var(--radius); background: var(--elevated); color: var(--text-dim); }
 .new-choice:hover .new-choice-icon { color: var(--accent); }
 .new-choice-text { display: grid; gap: 2px; min-width: 0; }
 .new-choice-title { font-size: var(--fs-13); font-weight: var(--fw-semi); }
 .new-choice-hint { color: var(--text-dim); font-size: var(--fs-12); }
+.new-console { justify-self: start; margin-top: var(--sp-1); }
 .new-choice-go { color: var(--text-faint); }
 
 /* W10-A Run as written by name: the typed names, the folder they come from, and what they resolved to. */

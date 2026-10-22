@@ -6,7 +6,7 @@
 // renderer.
 import type { GatewayState } from '../remote/gatewayState'
 import type { OrchState } from '../orchestration/state'
-import type { HostDriverReport, RollStateEvent, SessionInfo, WorktreeInfo } from '../types'
+import type { CloseReason, HostDriverReport, RollStateEvent, SessionInfo, WorktreeInfo } from '../types'
 import type { ForwardedEvent } from '../connections/forwarded'
 import type { SessionSignal } from '../sessions/sessionSignal'
 import type { McpHttpUrl } from '../mcp/httpUrls'
@@ -317,6 +317,12 @@ export interface PtyMeta {
   restore: Record<string, unknown>
 }
 
+/** The `restore` key the Host writes on a session orchestration started (item 9): the id of the Run or Job it belongs
+ *  to, or `ORCH_MARK_AGENT` for a session an agent created outside any Run. Absent on a person's own tabs. A finished
+ *  Run's sweep closes only sessions with this mark or a state record (exec/runEnd.ts). */
+export const ORCH_MARK_KEY = 'orchOf'
+export const ORCH_MARK_AGENT = 'agent'
+
 /** The same four fields PtySpawnOptions has always had; repeated here so the protocol does not
  *  depend on the sessions module. */
 export interface PtyOpenOptions {
@@ -372,7 +378,8 @@ export type ClientMessage =
    *  gives this machine the pty's size when a controller had it (registry `sizeOwner`). An older app sends none. */
   | { t: 'pty-write'; id: string; data: string; typed?: true }
   | { t: 'pty-resize'; id: string; cols: number; rows: number }
-  | { t: 'pty-kill'; id: string }
+  /** `closeReason`: why Astera asked for the kill; the Host echoes it on the pty-exit. An older Host ignores it. */
+  | { t: 'pty-kill'; id: string; closeReason?: CloseReason }
   | { t: 'pty-pause'; id: string }
   | { t: 'pty-resume'; id: string }
   /** Merge these keys into the note this pty was spawned with. A patch and not a whole note: the two
@@ -447,7 +454,7 @@ export type HostMessage =
   | { t: 'pty-spawned'; id: string; pid: number }
   | { t: 'pty-failed'; id: string; error: string }
   | { t: 'pty-data'; id: string; data: string; /** Only to a client with the `pty-seq` feature. */ seq?: number }
-  | { t: 'pty-exit'; id: string; exitCode: number }
+  | { t: 'pty-exit'; id: string; exitCode: number; /** Set when Astera asked for this exit (a kill with a reason). */ closeReason?: CloseReason }
   /** The size the pty now has (a resize from any side), or, in reply to a `pty-resize` the Host kept but did not apply,
    *  the size it has: another computer typed last and owns it (registry `sizeOwner`). `session` is its meta's id. An
    *  older app ignores it. */

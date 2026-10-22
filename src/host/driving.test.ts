@@ -1224,6 +1224,31 @@ describe('createHostDriving — the restart Gate is armed again on a driving tic
     expect(h.gates()).toHaveLength(0)
   })
 
+  // T8: a stopped reviewer leaves its Task reviewing with an app open too; the app's validator and its review start
+  // in flight (no review Dispatch yet) stay the app's.
+  it('with an app attached, gates a Task whose reviewer ended, and leaves one with no reviewer yet', async () => {
+    const h = await rig({ readyTasks: 0 })
+    h.server.app = true // yields: the Host drives
+    await h.load()
+    h.driving.appsChanged()
+    await h.putStalled('tsk_pending', 'reviewing') // its worker's Dispatch ended; the review start is in flight
+    const s = h.orch.state()
+    await h.orch.internalDeps().setState({
+      ...s,
+      tasks: [...s.tasks, task({ id: 'tsk_rev', status: 'reviewing' })],
+      dispatches: [...s.dispatches, dispatch({ id: 'dsp_rev', taskId: 'tsk_rev', review: true, endedAt: NOW, workerState: 'stopped' })]
+    })
+    await h.settle()
+    await h.tickNow()
+    expect(h.gates()).toHaveLength(0) // armed, not yet confirmed
+    h.clock = NOW_MS + 6_000
+    await h.tickNow()
+    expect(h.statusOf('tsk_rev')).toBe('blocked')
+    expect(h.openGateQuestion()).toMatch(/검토가 중단되었습니다/)
+    expect(h.statusOf('tsk_pending')).toBe('reviewing')
+    expect(h.gates()).toHaveLength(1)
+  })
+
   // Item 2 (re-review R-m3 b): a gone app's validation run that survives its kill holds its Task, so
   // nothing is armed at the app leaving. Once the run exits, the next driving tick arms it.
   it('arms a Task once the foreign run that held it has gone, and gates it a confirmed tick later', async () => {

@@ -47,6 +47,10 @@ export const HOST_ANSWERED: ReadonlySet<string> = new Set([
 
 /** W5-D (#44): the reads that are one list across every Host. A call with no `runtimeId` asks the local Host and every
  *  paired Runtime and merges the answers (`everywhere`); `'local'` or a Runtime's id still asks only that one. */
+/** T12b: commands the app sends to a Runtime only when this computer is paired with it at full control (the
+ *  Runtime's gate refuses them anyway); refused here first, so the owner reads why without a round trip. */
+export const FULL_CONTROL_ONLY: ReadonlySet<string> = new Set(['projects-add'])
+
 export const MERGED_READS: ReadonlySet<string> = new Set(['activity-poll', 'activity-summary', 'dispatches-list'])
 /** How long a merged read waits on one Runtime: an unreachable one reconnects for longer (APP_RECONNECT_FOR_MS), and
  *  the feed and the sidebar must not wait on it. It is left out of that read, and asked again on the next. */
@@ -104,7 +108,7 @@ export function createOrchRouter(a: {
   remote: {
     client(runtimeId: string): Promise<RemoteRuntimeClient | { code: string; message: string }>
     /** W5-D (#44): the paired Runtimes, for the MERGED_READS. Absent: none. */
-    list?(): Promise<ReadonlyArray<{ runtimeId: string }>>
+    list?(): Promise<ReadonlyArray<{ runtimeId: string; permission?: string }>>
   }
   log?(m: string): void
   /** Test injection; default MERGED_READ_TIMEOUT_MS. */
@@ -185,6 +189,28 @@ export function createOrchRouter(a: {
     })
     return { status: 200, body: mergeReads(cmd, answers) }
   }
+  const remoteCommand = (runtimeId: string, cmd: string, args: Record<string, unknown>): Promise<Reply> =>
+    guarded(
+      runtimeId,
+      'command',
+      { status: 503, body: { error: `the Runtime ${runtimeId} could not be asked`, code: 'RUNTIME_OFFLINE' } },
+      (c) => c.command(cmd, args ?? {}),
+      (m) => ({ status: m.code === 'RUNTIME_NOT_FOUND' ? 404 : 503, body: { error: m.message, code: m.code } })
+    )
+  /** FULL_CONTROL_ONLY: sent only when this computer's pairing with the Runtime is full control. */
+  const fullControlFirst = async (runtimeId: string, cmd: string, send: () => Promise<Reply>): Promise<Reply> => {
+    let permission: string | undefined
+    try {
+      permission = ((await a.remote.list?.()) ?? []).find((r) => r.runtimeId === runtimeId)?.permission
+    } catch (e) {
+      log(`the paired Runtimes could not be listed: ${e instanceof Error ? e.message : String(e)}`)
+    }
+    if (permission === 'full-control') return send()
+    return {
+      status: 403,
+      body: { error: `${cmd} needs a full-control pairing; this computer is paired with ${runtimeId} ${permission ?? 'with no known permission'}`, code: 'RUNTIME_PERMISSION_DENIED' }
+    }
+  }
   return {
     everywhere,
     list: (projectPath, runtimeId) =>
@@ -211,15 +237,10 @@ export function createOrchRouter(a: {
       const local = (x: Record<string, unknown>): Promise<Reply> =>
         HOST_ANSWERED.has(cmd) && a.host ? a.host(projectPath, cmd, x) : a.local.command(projectPath, cmd, x)
       if (runtimeId === undefined && MERGED_READS.has(cmd)) return everywhere(cmd, args ?? {}, local)
-      return isLocalRuntime(runtimeId)
-        ? local(args)
-        : guarded(
-            runtimeId!,
-            'command',
-            { status: 503, body: { error: `the Runtime ${runtimeId} could not be asked`, code: 'RUNTIME_OFFLINE' } },
-            (c) => c.command(cmd, args ?? {}),
-            (m) => ({ status: m.code === 'RUNTIME_NOT_FOUND' ? 404 : 503, body: { error: m.message, code: m.code } })
-          )
+      if (isLocalRuntime(runtimeId)) return local(args)
+      if (FULL_CONTROL_ONLY.has(cmd)) return fullControlFirst(runtimeId!, cmd, () => remoteCommand(runtimeId!, cmd, args))
+      return remoteCommand(runtimeId!, cmd, args)
     }
   }
 }
+

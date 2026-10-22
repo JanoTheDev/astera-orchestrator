@@ -1,7 +1,9 @@
 import { describe, it, expect, vi } from 'vitest'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { HostRuntimeNotice, HOST_RUNTIME_NOTICE_KEYS } from './HostRuntimeNotice'
+import { HostRuntimeNotice, HostStartingNotice, hostStartingPhase, HOST_RUNTIME_NOTICE_KEYS } from './HostRuntimeNotice'
+import { ErrorBoundary } from './ErrorBoundary'
+import type { HostStatus } from '../../../core/types'
 import { CATALOGS, LANGS } from '../../../core/i18n'
 
 vi.mock('../i18n/I18nProvider', () => ({
@@ -62,5 +64,47 @@ describe('HostRuntimeNotice — the status bar while the Host runtime is being p
       }
     }
     expect(LANGS).toEqual(expect.arrayContaining(['en', 'ko', 'ja', 'es']))
+  })
+})
+
+const hostStatus = (over: Partial<HostStatus>): HostStatus => ({
+  connected: false, protocol: null, hostVersion: null, startedAt: null, pid: null, problem: null,
+  outdated: false, unresponsive: false, runtimeIncomplete: false, features: [], ...over
+})
+
+// Item 13: opened while the previous Host was leaving, the window sat empty for about a minute.
+describe('HostStartingNotice — the window while the Host is not there yet', () => {
+  it('says "starting" before the status is read and while the first connection is in flight', () => {
+    expect(hostStartingPhase(null)).toBe('starting')
+    expect(hostStartingPhase(hostStatus({}))).toBe('starting')
+    expect(renderToStaticMarkup(React.createElement(HostStartingNotice, { status: null }))).toContain('status.hostStarting')
+  })
+
+  it('says it is waiting for the previous Host while one is leaving', () => {
+    const s = hostStatus({ waitingForPreviousHost: true, problem: 'the previous Host is still shutting down' })
+    expect(hostStartingPhase(s)).toBe('waitingForPrevious')
+    expect(renderToStaticMarkup(React.createElement(HostStartingNotice, { status: s }))).toContain('status.hostWaitingForPrevious')
+  })
+
+  it('leaves a connected, unresponsive or failed Host to the status bar', () => {
+    expect(hostStartingPhase(hostStatus({ connected: true }))).toBeNull()
+    expect(hostStartingPhase(hostStatus({ unresponsive: true }))).toBeNull()
+    expect(hostStartingPhase(hostStatus({ problem: 'out/main/host.js was not found' }))).toBeNull()
+    expect(renderToStaticMarkup(React.createElement(HostStartingNotice, { status: hostStatus({ connected: true }) }))).toBe('')
+  })
+})
+
+describe('ErrorBoundary — a render error never leaves an empty window', () => {
+  // Server rendering does not run error boundaries, so the boundary's two halves are driven directly:
+  // React calls getDerivedStateFromError with the throw, then renders with that state.
+  it('shows the error and a reload button in place of the tree that threw', () => {
+    const boundary = new ErrorBoundary({ children: React.createElement('main', null, 'workbench') })
+    expect(renderToStaticMarkup(boundary.render() as React.ReactElement)).toContain('workbench')
+    boundary.state = ErrorBoundary.getDerivedStateFromError(new Error('no Host yet'))
+    const html = renderToStaticMarkup(boundary.render() as React.ReactElement)
+    expect(html).toContain('app.renderError')
+    expect(html).toContain('no Host yet')
+    expect(html).toContain('app.renderErrorReload')
+    expect(html).not.toContain('workbench')
   })
 })

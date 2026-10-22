@@ -9,3 +9,4 @@
 .plan-page-wave-next { color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .plan-page-waves-head { justify-content: space-between; }
 .detail-graph > .plan-page-wave { margin: var(--sp-1) 0 var(--sp-3); }
+.plan-simple-details { align-self: flex-start; margin-top: var(--sp-2); }

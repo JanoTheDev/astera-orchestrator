@@ -5,7 +5,7 @@
 import type { MessageKey } from '../../../../core/i18n'
 import type { Attention, JobRow, JobTask, SessionInfo, TaskCategory } from '../../../../core/types'
 import type { Dispatch, Task } from '../../../../core/orchestration/types'
-import { categoryOf, planProgressOf, type LiveSession, type PlanProgress } from '../plan/planBoard'
+import { EDIT_TOOLS, categoryOf, planProgressOf, type LiveSession, type PlanProgress } from '../plan/planBoard'
 import { approveSlot } from '../plan/planTalk'
 import { planSessions, projectOfCwd, type WorkspaceData, type WorkspacePlan, type WorkspaceProject, type WorkspaceSession } from '../../state/workspaceTree'
 
@@ -123,6 +123,23 @@ export function consolesOf(input: WallInput): WallConsole[] {
   })
 }
 
+/** T13: the tile's one-line "what it does now". A tool line shows only while the console works: an idle console's
+ *  last tool call is history, which the meta line's "ago" already dates. Keys and params for the caller's catalog. */
+export function activityOf(c: WallConsole, lastAction: LiveSession['lastAction'] | undefined): { key: MessageKey; params?: Record<string, string | number> } {
+  if (c.state === 'needs')
+    return { key: c.needs === 'permission' ? 'wall.activity.permission' : c.needs === 'gate' ? 'wall.activity.gate' : 'wall.activity.question' }
+  if (c.state === 'finished') return { key: 'wall.state.finished' }
+  const target = lastAction?.target?.trim()
+  if (c.state === 'working' && lastAction && target) {
+    // the path from the console's folder; the CSS ellipsizes what is still too long
+    const file = target.startsWith(`${c.cwd}/`) ? target.slice(c.cwd.length + 1) : target
+    if (EDIT_TOOLS.has(lastAction.tool)) return { key: 'wall.activity.editing', params: { file } }
+    if (lastAction.tool === 'Bash') return { key: 'wall.activity.running', params: { cmd: target.split(/\s+/)[0]! } }
+  }
+  if (c.state === 'working' && lastAction && ['Read', 'Grep', 'Glob'].includes(lastAction.tool)) return { key: 'wall.activity.reading' }
+  return { key: c.state === 'working' ? 'wall.state.working' : 'wall.state.idle' }
+}
+
 /** `'all'`, `'none'` (consoles of no plan) or a plan's Job id. */
 export type PlanFilter = string
 export const ALL_PLANS = 'all'
@@ -135,7 +152,7 @@ export interface WallFilter {
   plan: PlanFilter
   state: StateFilter
   scope: Scope
-  /** The open project's id (scope `project`); null when the app has none open. */
+  /** The open project's id (scope `project`); null when none is known: then only the consoles of no project show. */
   projectId: string | null
 }
 
@@ -143,7 +160,7 @@ export interface WallFilter {
 export function filterConsoles(cs: readonly WallConsole[], f: WallFilter): WallConsole[] {
   return cs.filter((c) => {
     if (f.plan === NO_PLAN ? c.jobId !== undefined : f.plan !== ALL_PLANS && c.jobId !== f.plan) return false
-    if (f.scope !== 'all' && f.projectId !== null && !(f.scope === 'plan' && f.plan !== ALL_PLANS && f.plan !== NO_PLAN) && c.projectId !== f.projectId)
+    if (f.scope !== 'all' && !(f.scope === 'plan' && f.plan !== ALL_PLANS && f.plan !== NO_PLAN) && c.projectId !== f.projectId)
       return false
     if (f.state === 'all') return true
     return c.state === f.state
@@ -190,6 +207,28 @@ export function groupWall(live: readonly WallConsole[], done: readonly WallConso
   return keys.map((key) => ({ key, live: live.filter((c) => keyOf(c) === key), done: done.filter((c) => keyOf(c) === key) }))
 }
 
+/** The wall's role sections, top to bottom. Reviewers sit with the workers; plain consoles close the wall. */
+export type WallSectionRole = 'coordinator' | 'planner' | 'worker' | 'console'
+const SECTION_ORDER: readonly WallSectionRole[] = ['coordinator', 'planner', 'worker', 'console']
+const sectionRoleOf = (r: ConsoleRole): WallSectionRole => (r === 'reviewer' ? 'worker' : r)
+
+/** One role section: its live tiles and finished consoles in the order given, and how many of both. */
+export interface WallSection {
+  role: WallSectionRole
+  live: WallConsole[]
+  done: WallConsole[]
+  count: number
+}
+
+/** Splits the wall into role sections (coordinators, planners, workers incl. reviewers, consoles); an empty one is left out. */
+export function sectionWall(live: readonly WallConsole[], done: readonly WallConsole[]): WallSection[] {
+  return SECTION_ORDER.map((role) => {
+    const l = live.filter((c) => sectionRoleOf(c.role) === role)
+    const d = done.filter((c) => sectionRoleOf(c.role) === role)
+    return { role, live: l, done: d, count: l.length + d.length }
+  }).filter((s) => s.count > 0)
+}
+
 /** The auto grid: 1–4 consoles → 2 columns, 5–9 → 3, 10+ → 4. */
 export function gridColumns(count: number): 2 | 3 | 4 {
   return count >= 10 ? 4 : count >= 5 ? 3 : 2
@@ -214,7 +253,7 @@ export interface PlanPill {
 export function planPills(tree: readonly WorkspaceProject[], rows: WallInput['rows'], cs: readonly WallConsole[], projectId: string | null, scope: Scope): PlanPill[] {
   const out: PlanPill[] = []
   for (const p of tree) {
-    if (scope !== 'all' && projectId !== null && p.id !== projectId) continue
+    if (scope !== 'all' && p.id !== projectId) continue
     for (const plan of p.plans) {
       if (plan.archived) continue
       const row = plan.runId ? rows[plan.runId] : rows[plan.jobId]
@@ -351,4 +390,29 @@ export function detailLineOf(d: ConsoleDetails, nowMs: number, elapsed: (iso: st
   }
   if (d.role === 'planner' && d.plan) return { key: 'wall.detail.planner', params: { tasks: d.plan.total } }
   return null
+}
+
+// ---- A chat tile (it has no xterm): its preview and its overflow menu ----
+
+/** The lines a tile's preview keeps: the same 6 lines a console tile's xterm shows at the bottom. */
+export const PREVIEW_LINES = 6
+
+/** The last PREVIEW_LINES lines of a chat session's last reply, or null when there is no reply yet. The tile
+ *  crops the top when it draws (bottom-anchored), so this only has to keep the end. */
+export function previewOf(reply: string | null): string | null {
+  const text = reply?.trimEnd() ?? ''
+  if (text === '') return null
+  return text.split('\n').slice(-PREVIEW_LINES).join('\n')
+}
+
+export interface TileMenuItem {
+  id: 'openWindow'
+  label: string
+  onSelect: () => void
+}
+
+/** A tile's overflow menu. "Open in new window" is the project switcher's own action (`window.api.win.openNew`),
+ *  handed in as `openWindow` so this stays pure; it opens on the console's project. */
+export function tileMenuOf(c: WallConsole, labels: { openWindow: string }, openWindow: (projectId: string | null) => void): TileMenuItem[] {
+  return [{ id: 'openWindow', label: labels.openWindow, onSelect: () => openWindow(c.projectId) }]
 }

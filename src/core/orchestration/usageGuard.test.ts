@@ -50,9 +50,11 @@ describe('usagePauseOf', () => {
     expect(usagePauseOf('a', reading(99, 10, PAST), 90, NOW)).toBeNull()
   })
 
-  it('does not block on a window with no readable reset time: nothing would ever end that pause', () => {
-    expect(usagePauseOf('a', reading(95, 10, null), 90, NOW)).toBeNull()
-    expect(usagePauseOf('a', reading(95, 10, 'soon'), 90, NOW)).toBeNull()
+  it('blocks on a full window with no readable reset time, until a fresh reading says otherwise (T5a)', () => {
+    expect(usagePauseOf('a', reading(95, 10, null), 90, NOW)).toEqual({ accountId: 'a', window: 'five_hour', percent: 95, resetsAt: null })
+    expect(usagePauseOf('a', reading(10, 100, null), 90, NOW)).toEqual({ accountId: 'a', window: 'seven_day', percent: 100, resetsAt: null })
+    expect(usagePauseOf('a', reading(95, 10, 'soon'), 90, NOW)?.resetsAt).toBeNull()
+    expect(usagePauseOf('a', reading(50, 10, null), 90, NOW)).toBeNull()
   })
 })
 
@@ -135,7 +137,8 @@ describe('readAccountReadings', () => {
         { id: 'new', accountId: null }
       ])
       expect([...out.keys()]).toEqual(['a'])
-      expect(out.get('a')).toEqual({ session: { usedPercent: 93, resetsAt: new Date(LATER).toISOString() }, weekly: { usedPercent: 5, resetsAt: null } })
+      expect(out.get('a')).toMatchObject({ session: { usedPercent: 93, resetsAt: new Date(LATER).toISOString() }, weekly: { usedPercent: 5, resetsAt: null } })
+      expect(out.get('a')?.at).toBeGreaterThan(Date.now() - 60_000)
     } finally {
       await fs.rm(dir, { recursive: true, force: true })
     }
@@ -155,7 +158,8 @@ describe('T2: automatic accounts in the guard', () => {
       autoAccounts: async () => on,
       nowMs: () => NOW
     })
-    expect(guard.autoAccounts()).toBe(false)
+    // T5b: before the first read, the setting's default (on)
+    expect(guard.autoAccounts()).toBe(true)
     await guard.refresh()
     expect(guard.autoAccounts()).toBe(true)
     on = false
@@ -179,7 +183,7 @@ describe('T2: automatic accounts in the guard', () => {
       if (dir === '/cfg/none') return { ...fetched, session: null, status: 'unavailable' as const }
       return fetched
     }
-    const out = await withFetchedReadings(live, [acct('live'), acct('idle'), acct('bad'), acct('none'), acct('cx', 'codex')], fetch)
-    expect(Object.fromEntries(out)).toEqual({ live: reading(50, 10), idle: { session: fetched.session, weekly: null } })
+    const out = await withFetchedReadings(live, [acct('live'), acct('idle'), acct('bad'), acct('none'), acct('cx', 'codex')], fetch, NOW)
+    expect(Object.fromEntries(out)).toEqual({ live: reading(50, 10), idle: { session: fetched.session, weekly: null, at: NOW } })
   })
 })

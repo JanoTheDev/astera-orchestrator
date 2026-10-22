@@ -94,13 +94,48 @@ describe('a dependent Task forks with its deps (#50)', () => {
     expect(logs.join('\n')).toMatch(/not readable, so not merged/)
   })
 
-  it('leaves a Task without deps, a reuse and a non-new placement as before', async () => {
+  it('leaves a reuse and a non-new placement as before', async () => {
     const p = await plan()
     const base = { dispatchId: 'd', title: 't', spec: 's', provider: 'claude' as const, accountId: 'acc1', runCwd: repo }
-    const noDeps = p.s.tasks.find((t) => t.title === 'A')!.id
-    expect(forkForDeps(p.s, { ...base, taskId: noDeps, worktree: 'new', name: 'x' })).toBeUndefined()
     expect(forkForDeps(p.s, { ...base, taskId: p.c, worktree: p.runWt })).toBeUndefined()
     expect(forkForDeps(p.s, { ...base, taskId: p.c, worktree: 'new', name: 'x', terminal: 'ses_A' })).toBeUndefined()
+  })
+
+  it("a dependent Task forks from the plan branch HEAD, not from its dependency's own branch", async () => {
+    const p = await plan()
+    gitSync(p.runWt, ['-c', 'user.name=Fixture', '-c', 'user.email=f@f', 'merge', '--no-edit', p.shaA])
+    const f = forkForDeps(p.s, { dispatchId: 'd', taskId: p.c, title: 'C', spec: 's', provider: 'claude', accountId: 'acc1', runCwd: repo, worktree: 'new', name: 'c' })
+    expect(f!.base).toBe(p.runWt)
+    const c = await fork({ repoPath: repo, name: 'c', baseOf: f!.base })
+    expect(await isAncestor(gitSync(p.runWt, ['rev-parse', 'HEAD']), c)).toBe(true)
+    // B was never merged into the plan branch and C has not merged its deps yet: B's own branch is not C's base
+    expect(await isAncestor(p.shaB, c)).toBe(false)
+  })
+
+  it('a replan follow-up without deps forks from the plan branch, so no merged commit is duplicated', async () => {
+    const p = await plan()
+    gitSync(p.runWt, ['-c', 'user.name=Fixture', '-c', 'user.email=f@f', 'merge', '--no-edit', p.shaA])
+    // The project folder moves on, as it does while the Run's work is delivered elsewhere
+    await fs.writeFile(path.join(repo, 'other.txt'), 'x'); commit(repo, 'other.txt')
+    const job = p.s.jobs[0]
+    const run = p.s.runs[0]
+    const t = createTask(p.s, { runId: run.id, title: 'Follow-up', spec: 's', deps: [] }, NOW); if (!t.ok) throw new Error(t.error)
+    expect(job.cwd).toBe(repo)
+    const f = forkForDeps(t.state, { dispatchId: 'd', taskId: t.value.id, title: 'F', spec: 's', provider: 'claude', accountId: 'acc1', runCwd: repo, worktree: 'new', name: 'f' })
+    expect(f).toEqual({ base: p.runWt, merge: [] })
+    const w = await fork({ repoPath: repo, name: 'f', baseOf: f!.base })
+    expect(await isAncestor(gitSync(p.runWt, ['rev-parse', 'HEAD']), w)).toBe(true)
+    const subjects = gitSync(w, ['log', '--format=%s']).split('\n')
+    expect(new Set(subjects).size).toBe(subjects.length)
+    expect(subjects.filter((x) => x === 'add a.txt')).toHaveLength(1)
+  })
+
+  it('a Run without its own worktree still forks from the project folder', async () => {
+    const job = createJob(emptyState(), { objective: 'o', cwd: repo }, NOW); if (!job.ok) throw new Error(job.error)
+    const run = startJobRun(job.state, job.value.id, NOW); if (!run.ok) throw new Error(run.error)
+    const t = createTask(run.state, { runId: run.value.id, title: 'T', spec: 's', deps: [] }, NOW); if (!t.ok) throw new Error(t.error)
+    const args = { dispatchId: 'd', taskId: t.value.id, title: 'T', spec: 's', provider: 'claude' as const, accountId: 'acc1', runCwd: repo, worktree: 'new' as const, name: 'x' }
+    expect(forkForDeps(t.state, args)).toBeUndefined()
   })
 
   it('aborts a conflicting dep merge and throws, leaving the fork clean', async () => {

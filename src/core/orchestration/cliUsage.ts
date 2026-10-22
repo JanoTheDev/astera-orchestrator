@@ -72,6 +72,12 @@ export interface CommandUsage {
 }
 
 const ID = (value: string, about: string): UsageFlag => ({ name: 'id', value, required: true, about })
+/** `tasks list` and `questions list`: only some fields, and one page with the total (command.ts listReply). */
+const LIST_PAGE_FLAGS: UsageFlag[] = [
+  { name: 'fields', value: '<a,b,…>', about: 'only these fields of each row (an unknown one is 2 and lists them)' },
+  { name: 'limit', value: '<n>', about: 'at most n rows; the reply then carries total, offset and limit' },
+  { name: 'offset', value: '<n>', about: 'skip the first n rows (default 0); the reply then carries total' }
+]
 
 const TIMEOUT: UsageFlag = {
   name: 'timeout-ms',
@@ -223,6 +229,19 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
     summary: 'unpair a controller and close its connections now',
     flags: [ID('<clientId>', 'the controller to unpair (from `runtime clients`)')]
   },
+  'runtime-setup': {
+    summary: 'make this machine a Runtime in one command: install what it needs, keep it running, pair',
+    detail:
+      'Each step says ok, skipped (already there) or failed with the reason, so a second run changes nothing. It checks git and the Claude CLI and installs what is missing (apt on Ubuntu and Debian, winget on Windows, the vendor installer for Claude) only with --yes; installs the astera command; writes and starts the keep-alive service (a systemd user unit with linger, a Task Scheduler logon task, a LaunchAgent); listens on --listen, else the Tailscale address, else the one private LAN address, never every interface; and prints one pairing string, read-only unless --full-control. Exits 1 when a step failed, 2 for an address it refuses. Refused with 5 inside an agent session (ASTERA_SESSION is set).',
+    flags: [
+      { name: 'listen', value: '<addr>', about: 'the address to listen on (never 0.0.0.0)' },
+      { name: 'tailscale', about: 'listen on the Tailscale address, and fail when there is none' },
+      { name: 'name', value: '<n>', about: 'what controllers call this machine (default its host name)' },
+      { name: 'full-control', about: 'the pairing may also change things' },
+      { name: 'yes', about: 'install what is missing without asking' },
+      { name: 'codex', about: 'install the Codex CLI too' }
+    ]
+  },
   'runtimes-add': {
     summary: 'pair this machine with a Runtime, from the string `astera runtime pair` printed there',
     detail:
@@ -241,6 +260,43 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
   'runtimes-remove': {
     summary: 'forget a paired Runtime on this machine (it does not revoke the pairing there)',
     flags: [ID('<runtimeId|name>', 'the Runtime to forget (from `runtimes list`)')]
+  },
+  // T12b
+  'machines-add': {
+    summary: 'install Astera on a Linux or Windows machine over SSH and pair it, in one step',
+    detail:
+      'Uses the system ssh and scp with your own keys or agent (BatchMode): Astera never asks for or keeps a password. Finds out the OS, uploads the installer (Linux: --installer or the newest dist-installer/astera-*-amd64.deb; Windows: --installer is required) with the matching install-runtime script, runs it, pairs with the ASTERA_PAIR= string it prints and pings the machine. Each step prints one line; a failure names the step, the end of what the machine wrote (secrets removed) and the fix. Running it again on a paired machine upgrades it and pairs again only when the pairing no longer answers. On Linux the install asks sudo for your password in this terminal.',
+    flags: [
+      { name: 'target', value: '<user@host>', required: true, about: 'the machine, as ssh takes it (also the first word after add)' },
+      { name: 'port', value: '<n>', about: 'its SSH port (default 22)' },
+      { name: 'installer', value: '<path>', about: 'the Astera installer to put on it (.deb for Linux, Astera-Setup.exe for Windows)' },
+      { name: 'name', value: '<n>', about: 'what to call the machine (default its host name)' },
+      { name: 'listen', value: '<ip>', about: 'the address its Runtime listens on' },
+      { name: 'tailscale', about: 'listen on its Tailscale address' },
+      { name: 'full-control', about: 'the pairing may also change things (needed to add projects there)' },
+      // T12c
+      { name: 'only', value: '<github,git,accounts,projects>', about: 'bring only these over (default all)' },
+      { name: 'skip', value: '<github,git,accounts,projects>', about: 'bring all but these' },
+      { name: 'projects', value: '<all|id,...>', about: 'which projects (default all with an origin remote)' },
+      { name: 'yes', about: 'move without asking once more' }
+    ]
+  },
+  // T12c
+  'machines-migrate': {
+    summary: "bring this computer's setup to a paired machine over SSH: GitHub login, git identity, accounts, projects",
+    detail:
+      'Lists exactly what moves (the GitHub user, git name and email, each account, each project with its origin and the folder it lands in) and asks once unless --yes. GitHub: `gh auth token` here, `gh auth login --with-token` and `gh auth setup-git` there, gh installed when missing; no SSH key moves. Claude accounts get a long-lived token from `claude setup-token` (approved once in the browser per account): their logins rotate their refresh tokens, so a copy would log this computer out. Codex accounts are made there and signed in once in this terminal. Projects with an origin are cloned to ~/astera/projects/<name> (Windows %USERPROFILE%\\astera\\projects\\<name>), registered and given their settings; uncommitted work stays here. Secrets go only over the SSH channel\'s input. --dry-run lists the plan and reads no secret. `machines add` runs this after pairing. Refused inside an agent session (ASTERA_SESSION is set).',
+    flags: [
+      { name: 'machine', value: '<runtime id|name>', required: true, about: 'the paired machine (also the first word after migrate)' },
+      { name: 'target', value: '<user@host>', about: 'its SSH address, when `machines add` did not record one' },
+      { name: 'port', value: '<n>', about: 'its SSH port (default the recorded one, else 22)' },
+      // T12c
+      { name: 'only', value: '<github,git,accounts,projects>', about: 'bring only these over (default all)' },
+      { name: 'skip', value: '<github,git,accounts,projects>', about: 'bring all but these' },
+      { name: 'projects', value: '<all|id,...>', about: 'which projects (default all with an origin remote)' },
+      { name: 'yes', about: 'move without asking once more' },
+      { name: 'dry-run', about: 'list what would move, read no secret, change nothing' }
+    ]
   },
   'plugins-install': {
     summary: 'install a plugin from a folder or from npm, after you approve what it asks for',
@@ -317,7 +373,7 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
   'projects-add': {
     summary: 'register a folder of this machine as a project, or add a sub-project to a workspace',
     detail:
-      'For the person at this machine, or a script on it: a remote controller cannot, nor an agent session (ASTERA_SESSION is set; refused with 5). The path is an existing git repository folder that is not a worktree (a relative path is taken from the shell folder); a subfolder or a linked worktree registers the repository itself. A repository with no commit is refused (409 needsInitialCommit) unless --initial-commit makes one. The answer carries the proposed test command and records the default branch. Adding a folder already registered answers that project. ' +
+      'For the person at this machine, a script on it, or a full-control controller through `astera --runtime <id> projects add` (T12b); never an agent session (ASTERA_SESSION is set; refused with 5). The path is an existing git repository folder that is not a worktree (a relative path is taken from the shell folder); a subfolder or a linked worktree registers the repository itself. A repository with no commit is refused (409 needsInitialCommit) unless --initial-commit makes one. The answer carries the proposed test command and records the default branch. Adding a folder already registered answers that project. ' +
       // T3 workspaces
       'With --parent <projectId> --name <name> (and no --path) it adds a sub-project to that workspace instead: the same repository under its own name, whose plans share the workspace\'s file guard, leases and overlap checks; a name the workspace already has answers that sub-project. A sub-project reads every setting it leaves unset from its workspace.',
     flags: [
@@ -326,14 +382,16 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       // T3 workspaces
       { name: 'parent', value: '<projectId>', about: 'add a sub-project to this workspace (a root project) instead of a folder' },
       { name: 'name', value: '<name>', about: 'the sub-project name (with --parent)' },
-      { name: 'focus', value: '<a,b>', about: 'folders the sub-project usually works in, comma-separated (with --parent)' }
+      { name: 'focus', value: '<a,b>', about: 'folders the sub-project usually works in, comma-separated (with --parent)' },
+      // T12b
+      { name: 'clone', value: '<git url>', about: 'clone this repository first, with the machine\'s own git credentials, into --path or ~/astera-projects/<name>' }
     ]
   },
   // T3 workspaces (projects.ts `removeProject`)
   'projects-remove': {
     summary: 'unregister a project; its folder and plans are not touched',
     detail:
-      'Refused (CONFLICT, exit 6) while the project has a plan that is not archived, and for a workspace that still has sub-projects: remove those first; removing one project never removes another. Refused from an agent session and an MCP client.',
+      'Refused (CONFLICT, exit 6) while the project has a plan that is running, paused or queued (a completed, delivered, stopped or archived plan does not hold it), and for a workspace that still has sub-projects: remove those first; removing one project never removes another. Refused from an agent session and an MCP client.',
     flags: [ID('<projectId>', 'the project to unregister')]
   },
   // W7-B
@@ -354,7 +412,7 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
   },
   // W6-H delivery (delivery.ts)
   'projects-set': {
-    summary: "set a project's delivery, auto-approve, hands-off, test command, concurrency, review rounds, replan, prompts folder and account",
+    summary: "set a project's delivery, auto-approve, hands-off, test command, concurrency, review rounds, replan, prompts folder, standing grants, coordinator model and account",
     detail:
       'pr (the default) opens one pull request per plan and never merges it. push merges a finished plan into the delivery branch (the default branch unless --delivery-branch) and pushes it, with no review by a person, after the reviews, the final check and the validation pass; it stops and escalates when the folder is not on that branch, has uncommitted changes, cannot fast-forward, conflicts, fails validation or is rejected, and never force-pushes. A Job may override it (`jobs create --delivery`). Defaults: delivery pr, auto-approve off, concurrency 3, review rounds 5, replan waves. --auto-approve on starts a plan without waiting for approval; --hands-off on also lets its coordinator answer its own escalations and bypasses permissions for its sessions. --test-command is saved as a run configuration and validates every new Task that has no --validate (--test-config picks an existing one). A new Job copies the concurrency, replan and review rounds when it sets none. An empty value clears a setting back to its default. Refused from an agent session and an MCP client.',
     flags: [
@@ -374,7 +432,10 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       // W10-A
       { name: 'prompts-dir', value: '<path|none>', about: 'the folder (in the repository) whose <id>-*.md files Run as written finds by name; none clears it' },
       // T3 workspaces
-      { name: 'auto-projects', value: '<on|off>', about: 'file each plan under a sub-project named after its first area, created when missing (default on)' }
+      { name: 'auto-projects', value: '<on|off>', about: 'file each plan under a sub-project named after its first area, created when missing (off for a project added from now on)' },
+      // T5
+      { name: 'grants', value: '<kind,...|none>', about: "kinds of decision granted in advance (kebab-case, e.g. protected-paths,migrations): the plan's coordinator writes a covered grant itself instead of escalating it; none clears them" },
+      { name: 'coordinator-model', value: '<id|none>', about: "the coordinator's model for this project's plans, over the plan-size rule (a strong model for more than 5 Tasks or any hard Task); none clears it" }
     ]
   },
   'projects-find': {
@@ -440,7 +501,7 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
   'jobs-rename': {
     summary: 'name a Job',
     detail:
-      'The name is one line, cut at 300 characters, and is what the app, `jobs list --human` and the notifications show. An empty --title drops it, and the Job is named by its objective again. The objective, which is what agents are given, does not change.',
+      'The name is one line, cut at 300 characters, and is what the app, `jobs list --human` and the notifications show. An empty --title drops it, and the Job is named by its objective again. The objective, which is what agents are given, does not change. Every Job is named at creation by the first words of its objective (about 6 words); its planner renames it once it knows the goal. Refused from an agent session other than the Job\'s own planner.',
     flags: [ID('<jobId>', 'the Job to name'), { name: 'title', value: '<text>', required: true, about: 'the new name' }]
   },
   // W7-D (#67)
@@ -454,6 +515,8 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       '--areas names where the plan works, 1 to 3 short words (none clears them); `jobs list --area` filters by them. It is set on its own, and the Job\'s own planner may set it too. ' +
       // T1 chat-first planning
       '--planning and --priority (an integer, as at `jobs create`) change those two after creation, alone or together; --planning applies to the next planner start. ' +
+      // T7 objective coverage
+      "--left-out lists the objective's numbered or bulleted items the plan leaves out on purpose, each with why, as JSON ('[{\"item\":2,\"reason\":\"already built: src/x.ts\"}]', [] clears it): approval refuses a plan with an item no Task covers (`tasks add --covers`) and none left out. It is set on its own, and the Job's own planner may set it too. " +
       // T3 workspaces
       "Setting --areas files the plan under the sub-project of its workspace named after its first area, created when missing (a workspace's projects set autoProjects off stops it). --project <projectId> moves a plan that has not started to another project of the same workspace, on its own.",
     flags: [
@@ -463,6 +526,8 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       { name: 'after', value: '<jobId|none>', about: 'the Job this one is queued after; none clears it' },
       // W8-D plan areas
       { name: 'areas', value: '<a,b,c|none>', about: "1–3 short words for where the plan works (auth, api, ui); alone; its planner may set it too" },
+      // T7 objective coverage
+      { name: 'left-out', value: '<json array>', about: 'objective items left out on purpose, each {"item":<n>,"reason":"<why>"}; alone; its planner may set it too' },
       // T1 chat-first planning
       { name: 'planning', value: '<chat|auto>', about: 'how its planner works: chat brainstorms with you, auto decides alone' },
       { name: 'priority', value: '<n>', about: 'which Job gets a free slot first when the worker cap is reached (higher first, default 0)' },
@@ -579,6 +644,18 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       'One row per task of the run: `validation` (the run configurations it must pass, the last round of checks, each with its status, exit code and output tail) and `review` (whether one was asked for, and the verdict of the last reviewer that gave one, with its findings). Each has a `status`: not-required, pending, running, passed or failed. `failureSummary` says in one line what failed, validation first. A plugin check (`plugin:<id>`) carries its `summary`, `diagnostics` (the first 20, none once it passed), `diagnosticsTotal` (how many it found, when more) and `externalUrl`; its status `error` means it could not be made, and the task waits on a question. It reads what the checks already recorded and runs nothing.',
     flags: [ID('<runId>', 'the run whose checks to read')]
   },
+  // T8
+  'runs-doctor': {
+    summary: 'every run whose stored state disagrees with what is really going on, and --fix to repair it',
+    detail:
+      "Each finding has a `kind`: `stuck` (the run reads running but nothing can move: `needs-you` when every unfinished task waits on you, `stalled` when its failed tasks have no coordinator and nothing retries them), `stopped-reviewer` (a task left reviewing after its reviewer ended), `lost-worker` (a task dispatched whose worker ended unreported, with no coordinator), `dead-dispatch` (a dispatch open whose session has exited) and `stray-session` (a session alive after its run finished). The two session checks need the Host's session list; `checkedSessions` says whether they ran. --fix applies the repair each already has and lists it in `repairs`: a retry Gate on each stalled task, the restart Gate for a stopped reviewer, the lost-worker Gate, the dispatch closed as its session's exit would have, the stray session closed. A `needs-you` run is left for you to answer. With no scope it looks at every run; a coordinator may doctor its own run only.",
+    flags: [
+      { name: 'run', value: '<runId>', about: 'only this run' },
+      { name: 'job', value: '<jobId>', about: "only this Job's runs" },
+      { name: 'all', about: 'every run (the default)' },
+      { name: 'fix', about: 'repair what it finds' }
+    ]
+  },
 
   'tasks-list': {
     summary: 'the tasks of a run',
@@ -590,7 +667,8 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       },
       { name: 'status', value: '<s>', about: 'only tasks in this status' },
       { name: 'ready', about: 'only tasks that are ready to be picked up' },
-      { name: 'brief', about: 'cut each spec to 160 characters' }
+      { name: 'brief', about: 'cut each spec to 160 characters' },
+      ...LIST_PAGE_FLAGS
     ]
   },
   // W3-C search and inbox
@@ -647,10 +725,25 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       { name: 'model', value: '<id>', about: 'the worker model itself, ahead of --difficulty (e.g. sonnet)' },
       // W6-A: a planned Job's Task needs one to be approved
       { name: 'basis', value: '<missing|partial|broken>', about: "what exists of the item, checked before planning (with --evidence); a planned Job's Task needs it" },
-      { name: 'evidence', value: '<text>', about: 'with --basis: file:line, an issue or PR number, a Job id' }
+      { name: 'evidence', value: '<text>', about: 'with --basis: file:line, an issue or PR number, a Job id' },
+      // T7 objective coverage
+      { name: 'covers', value: '<n,…>', about: "the numbers of the Job objective's items this task covers (a planned Job's every item needs one, or `jobs set --left-out`)" },
+      // T9
+      { name: 'kind', value: '<bugfix|feature|refactor|ui|audit|docs|test|ops>', about: "the sort of work; picks the skills the worker is told to use (default: read from the title and spec)" }
     ]
   },
 
+  'tasks-restore': {
+    summary: 'bring back tasks and dispatches a backup file holds and the live store lost (owner only)',
+    detail:
+      'Reads a backup of orchestration.json (the `.bak` files next to it) and re-inserts the tasks of the chosen Job or run that exist there and not now, with the dispatches that had ended. It never overwrites an id the store has and never touches another Job. A task that was in flight comes back `ready`. `--dry-run` lists what would come back and changes nothing. Refused from an agent session (permission denied).',
+    flags: [
+      { name: 'from', value: '<file>', required: true, about: 'the backup file to read' },
+      { name: 'job', value: '<jobId>', about: 'restore the tasks of this Job (exactly one of --job or --run)' },
+      { name: 'run', value: '<runId>', about: 'restore the tasks of this run (exactly one of --job or --run)' },
+      { name: 'dry-run', about: 'list the tasks that would come back and change nothing' }
+    ]
+  },
   'tasks-dispatch': {
     summary: 'place one ready task now, the way the loop places one',
     detail:
@@ -663,7 +756,9 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
     flags: [
       { name: 'run', value: '<runId>', about: 'only the questions of this run (an unknown run is 4)' },
       { name: 'task', value: '<taskId>', about: 'only the questions of this task' },
-      { name: 'status', value: '<open|resolved>', about: 'only questions in this state (any other value is 2)' }
+      { name: 'status', value: '<open|resolved>', about: 'only questions in this state (any other value is 2)' },
+      { name: 'brief', about: 'each question and resolution on one line, cut to 160 characters' },
+      ...LIST_PAGE_FLAGS
     ]
   },
   'questions-get': {
@@ -688,6 +783,27 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
     detail:
       'The ids `jobs create --coordinator-account` and `tasks add --account` take. With Astera closed the Host reads them from the profile, so this works either way.',
     flags: [{ name: 'agent', value: '<claude|codex>', about: 'only this vendor' }]
+  },
+  'accounts-login': {
+    summary: 'sign a new Claude account in from this terminal, with no app',
+    detail:
+      'Makes a fresh config folder, registers it in the profile as an Astera account and runs `claude auth login` for it in this terminal: open the link it prints on any device and paste the code back. An account that did not sign in is taken off again. Exits 1 then. Needs no Host and no app.',
+    flags: [
+      { name: 'new', required: true, about: 'sign a new account in' },
+      { name: 'label', value: '<name>', about: 'what to call it (default Claude)' }
+    ]
+  },
+  // T12c
+  'accounts-import': {
+    summary: 'make an account here with a login brought from another machine (the target side of `machines migrate`)',
+    detail:
+      'The account with this label and agent, made when missing (same colour), its login file written owner-only (0600) from standard input. Run by `machines migrate` over SSH; refused inside an agent session (ASTERA_SESSION is set).',
+    flags: [
+      { name: 'label', value: '<name>', required: true, about: 'its label' },
+      { name: 'agent', value: '<claude|codex>', required: true, about: 'its vendor' },
+      { name: 'color', value: '<colour>', about: 'its colour' },
+      { name: 'login', value: '<->', about: "its CLI's login file, read from standard input" }
+    ]
   },
 
   // Answered in the CLI process from the profile's files, with no Host and no app (cli/skills.ts).
@@ -766,6 +882,39 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       { name: 'prompt', value: '<text|->', about: 'the first prompt (a value of `-` reads it from stdin)' },
       { name: 'roll-accounts', value: '<id,…>', about: 'the accounts to roll onto at a usage limit, in order' },
       { name: 'unattended', value: '<hold|deny-after-60s>', about: 'chat: a permission prompt nobody answers' }
+    ]
+  },
+  // T8
+  'sessions-close': {
+    summary: 'end a session, as closing its tab does, with Astera open or closed',
+    detail:
+      "The Host ends it the way it ends a finished run's sessions, and its tab says Astera closed it. A coordinator may close only its own run's sessions (3). A worker session with an open dispatch is refused (5): stop it with `worker-stop`. An unknown session is 4; one that already ended answers `alreadyEnded`.",
+    flags: [
+      ID('<sessionId>', 'the session to end (from `sessions list`)'),
+      { name: 'reason', value: '<text>', about: 'why, written to the log (default: closed with astera sessions close)' }
+    ]
+  },
+  // T5
+  'worktrees-list': {
+    summary: 'the worktrees Astera made: path, branch, run, state and age',
+    detail:
+      "`state` is `live` (a session runs there), `dirty` (uncommitted changes or untracked files git does not ignore), `unpushed` (commits that exist nowhere else), `orphan` (no plan owns it, or git forgot the folder), `merged` (its plan's work is safe elsewhere: it can go) or `active` (its plan still works on it). `stale` marks what `worktrees remove --stale` removes: the `merged` ones and leftover folders git forgot. A coordinator sees its own run's worktrees only. Answered by the Host. Read only.",
+    flags: [
+      { name: 'project', value: '<id|path>', about: "only this project's worktrees" },
+      { name: 'stale', about: 'only the ones `worktrees remove --stale` would remove' }
+    ]
+  },
+  'worktrees-remove': {
+    summary: 'remove worktrees (and their merged branches) that are safe to remove',
+    detail:
+      "Exactly one of --path, --run and --stale. Without --force a worktree that is dirty or has unpushed commits is kept, with the reason; one with a live session is never removed. A branch is deleted only when its work is already in its base, here and on origin when Astera pushed it. --dry-run removes nothing and lists what would go in `wouldRemove`. A coordinator may remove its own run's worktrees only (3). Answered by the Host.",
+    flags: [
+      { name: 'path', value: '<path>', about: 'this worktree' },
+      { name: 'run', value: '<runId>', about: "every worktree of this run (delivered or not: what is unsafe is kept)" },
+      { name: 'stale', about: 'every stale worktree (see `worktrees list --stale`)' },
+      { name: 'project', value: '<id|path>', about: 'with --stale: only this project' },
+      { name: 'force', about: 'also remove dirty and unpushed worktrees (a live one still stays)' },
+      { name: 'dry-run', about: 'remove nothing; list what would go' }
     ]
   },
   'chats-pending': {

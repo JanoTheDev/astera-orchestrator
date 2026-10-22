@@ -22,6 +22,7 @@ import { DEFAULT_CONCURRENCY, isPlaceholderSessionId, type JobRun } from '../typ
 import { outcomeOf } from '../view'
 import type { OrchServerDeps } from '../command'
 import { handsOffOf } from './plannerFeedback'
+import { projectOfJob } from '../projects'
 
 /** How many refreshes a Run keeps on record (its feed lines and the retired tabs the renderer closes). */
 export const COORDINATOR_REFRESHES_KEPT = 20
@@ -145,7 +146,7 @@ export const refreshReason = (a: { wave?: number; contextPct?: number; reason?: 
 
 /**
  * **Replaces a Run's coordinator with a fresh session** (the body of `run-coordinator-refresh`). The new session is
- * started on the Job's coordinator account (its model is the coordinator role's, as at any start) with the hand-over
+ * started on the Job's coordinator account (its model resolved as at any start: `resolveCoordinatorModel`) with the hand-over
  * brief and `coordinatorHandoff`, put in the slot, and only then is the old one asked to stop. Its exit release finds
  * no slot naming it, so nothing else moves. Refused (409) while a coordinator or worker start is under way, while a
  * stop is pending, and for a Run with no coordinator or not running. A slot that moved during the start keeps its
@@ -178,14 +179,22 @@ export async function refreshCoordinator(
       jobId: job.id,
       accountId: job.coordinatorAccountId,
       promptsMode: job.verbatim !== undefined,
-      handsOff: handsOffOf(s, job)
+      handsOff: handsOffOf(s, job),
+      grants: projectOfJob(s, job)?.grants
     }),
     '',
     coordinatorHandoff(s, run.id, reason)
   ].join('\n')
   let fresh: string
+  let model: string | undefined
+  let startedOn: string | undefined
   try {
-    fresh = (await deps.startCoordinator({ runId: run.id, cwd: job.cwd, accountId: job.coordinatorAccountId, brief })).sessionId
+    // T5: the start resolves the model from the plan (roleModels.ts `resolveCoordinatorModel`), as any start does
+    // T5b: re-ranked at the start (chooseStartAccount): the account named first is a preference, the one with room starts
+    const started = await deps.startCoordinator({ runId: run.id, cwd: job.cwd, accountId: job.preferredAccountId ?? job.coordinatorAccountId, brief })
+    fresh = started.sessionId
+    model = started.model
+    startedOn = started.accountId
   } catch (e) {
     return no(500, `could not start a fresh coordinator: ${String(e)}`)
   }
@@ -193,10 +202,10 @@ export async function refreshCoordinator(
   const now = current.runs.find((r) => r.id === run.id)
   if (!now || now.coordinatorSessionId !== old) {
     deps.log?.(`run ${run.id}: its coordinator slot moved while a fresh one started; stopping ${fresh}`)
-    await deps.stopCoordinator?.(fresh, 'its run got another coordinator meanwhile').catch(() => {})
+    await deps.stopCoordinator?.(fresh, 'its run got another coordinator meanwhile', 'replaced').catch(() => {})
     return no(409, `run ${run.id}'s coordinator changed while the fresh one started`)
   }
-  const attached = attachCoordinator(current, { runId: run.id, sessionId: fresh })
+  const attached = attachCoordinator(current, { runId: run.id, sessionId: fresh, ...(model ? { model } : {}) })
   if (!attached.ok) return no(409, attached.error)
   const entry = {
     at: a.now,
@@ -210,11 +219,18 @@ export async function refreshCoordinator(
     ...attached.state,
     runs: attached.state.runs.map((r) =>
       r.id === run.id ? { ...r, coordinatorRefreshes: [...(r.coordinatorRefreshes ?? []), entry].slice(-COORDINATOR_REFRESHES_KEPT) } : r
-    )
+    ),
+    // T5b: the account it started on; the one named before stays the preference
+    jobs:
+      startedOn !== undefined && startedOn !== job.coordinatorAccountId
+        ? attached.state.jobs.map((j) =>
+            j.id === job.id ? { ...j, coordinatorAccountId: startedOn, preferredAccountId: j.preferredAccountId ?? job.coordinatorAccountId } : j
+          )
+        : attached.state.jobs
   })
   // Only now: the Run is never without a coordinator in its slot.
   try {
-    await deps.stopCoordinator?.(old, `replaced by a fresh coordinator (${reason})`)
+    await deps.stopCoordinator?.(old, `replaced by a fresh coordinator (${reason})`, 'replaced')
   } catch (e) {
     deps.log?.(`run ${run.id}: the replaced coordinator ${old} could not be stopped: ${String(e)}`)
   }

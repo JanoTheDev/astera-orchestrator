@@ -141,7 +141,8 @@ export function intakeObjective(
     parts.push(
       [
         `Read every file in ${dir}/ first (PDFs over 20 pages in page ranges):`,
-        ...inputs.names.map((n) => `- ${dir}/${n}`)
+        // T7: indented, not bulleted: a bullet is an objective item the plan must cover (objectiveItems.ts)
+        ...inputs.names.map((n) => `  ${dir}/${n}`)
       ].join('\n')
     )
   const src = source.trim()
@@ -169,9 +170,22 @@ const clipTitle = (s: string, max = INTAKE_TITLE_MAX): string => {
   return `${(space > max / 2 ? cut.slice(0, space) : cut).trimEnd()}…`
 }
 
-/** The name of a Job made from `i`, or undefined when its objective already reads as one (a short plain description).
+/** How many words a plan's name keeps of its text (T7). */
+const TITLE_WORDS = 6
+
+/** T7: every plan's name when nothing better names it: the first line of `text`, cut to TITLE_WORDS words and
+ *  DESCRIBED_TITLE_MAX characters at a word boundary, with "…" when cut. A sentence's closing dot is dropped. */
+export function shortTitle(text: string): string {
+  const line = (text.trim().split(/\r?\n/)[0] ?? '').replace(/^#+\s*/, '').replace(/\s+/g, ' ').trim().replace(/\.$/, '')
+  const words = line.split(' ')
+  if (words.length <= TITLE_WORDS) return clipTitle(line, DESCRIBED_TITLE_MAX)
+  const kept = words.slice(0, TITLE_WORDS).join(' ').replace(/[,;:\-–—]+$/, '')
+  return kept.length > DESCRIBED_TITLE_MAX ? clipTitle(kept, DESCRIBED_TITLE_MAX) : `${kept}…`
+}
+
+/** The name of a Job made from `i`, or undefined when there is no text to name it by.
  *  An audit is "Audit <a>", "Audit <a>, <b>" or "Audit <a> +N"; a fixlist the words of its first problem (a list marker dropped); a set of files their
- *  names; a plain description its first sentence (a dot inside a word is no end), when that is shorter than the text. `names` are the file names copied into the inputs folder. */
+ *  names; a plain description its first sentence (a dot inside a word is no end), cut short (shortTitle). `names` are the file names copied into the inputs folder. */
 export function intakeTitle(i: Intake, source: string, names: readonly string[]): string | undefined {
   if (i.mode === 'audit') {
     const scope = i.scope ?? []
@@ -191,10 +205,10 @@ export function intakeTitle(i: Intake, source: string, names: readonly string[])
     const split = splitSections(source)
     return clipTitle(split ? split.sections.map((x) => x.heading).join(', ') : source.trim().split(/\r?\n/)[0].replace(/^#+\s*/, ''))
   }
+  // T7: a one-sentence description is named too, so a plan is never called by its whole prompt
   if (i.mode === 'plan' && source.trim() !== '') {
     const line = source.trim().split(/\r?\n/)[0]
-    const name = clipTitle(line.match(/^.*?[.!?](?=\s|$)/)?.[0] ?? line, DESCRIBED_TITLE_MAX)
-    return name === source.replace(/\s+/g, ' ').trim() ? undefined : name
+    return shortTitle(line.match(/^.*?[.!?](?=\s|$)/)?.[0] ?? line)
   }
   return undefined
 }

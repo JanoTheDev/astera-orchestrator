@@ -37,6 +37,56 @@ export function WaveLine({ status, brief = false }: { status: WaveStatus | null;
   )
 }
 
+/** The Task board of a plan with its answers and sessions wired in; the waves section and the simple plan view both draw it.
+ *  `compact`: no model, account, branch or files on the cards (simple mode). */
+export function PlanTaskBoard({
+  p,
+  door,
+  runId,
+  projectPath,
+  detail,
+  canOpenSession,
+  onOpenSession,
+  compact = false
+}: {
+  p: PlanPageState
+  door: OrchDoor
+  runId: string
+  projectPath: string
+  detail: RunDetailData | null
+  canOpenSession: (sessionId: string) => boolean
+  onOpenSession: (sessionId: string) => void
+  compact?: boolean
+}): React.JSX.Element {
+  const { t } = useI18n()
+  const { tasks, accounts, selectedTask, onNodeClick, events, live, summaries } = p
+  return (
+    <TaskBoard
+      tasks={tasks}
+      accounts={accounts}
+      selected={selectedTask?.id}
+      onSelect={onNodeClick}
+      layers={detail?.layers ?? []}
+      events={events ?? []}
+      activity={live.activity}
+      questions={live.questions}
+      onAnswer={async (id, answer) => {
+        const r = await door.command('questions-answer', { id, answer })
+        return r.status === 200 ? null : replyNote(r, t as never, (r.body as { error?: string } | null)?.error ?? t('plan.question.failed'))
+      }}
+      sessions={live.sessions}
+      replanning={replanningOf(live.activity, runId)}
+      refreshed={coordinatorRefreshOf(live.activity, runId)}
+      canOpenSession={canOpenSession}
+      onOpenSession={onOpenSession}
+      projectPath={projectPath}
+      summaries={summaries.byTask}
+      nowMs={live.nowMs}
+      compact={compact}
+    />
+  )
+}
+
 export function PlanWaves({
   p,
   door,
@@ -89,27 +139,7 @@ export function PlanWaves({
         </div>
       )}
       {view === 'board' ? (
-        <TaskBoard
-          tasks={tasks}
-          accounts={accounts}
-          selected={selectedTask?.id}
-          onSelect={onNodeClick}
-          layers={detail?.layers ?? []}
-          events={events ?? []}
-          activity={live.activity}
-          questions={live.questions}
-          onAnswer={async (id, answer) => {
-            const r = await door.command('questions-answer', { id, answer })
-            return r.status === 200 ? null : replyNote(r, t as never, (r.body as { error?: string } | null)?.error ?? t('plan.question.failed'))
-          }}
-          sessions={live.sessions}
-          replanning={replanningOf(live.activity, runId)}
-          refreshed={coordinatorRefreshOf(live.activity, runId)}
-          canOpenSession={canOpenSession}
-          onOpenSession={onOpenSession}
-          projectPath={projectPath}
-          summaries={summaries.byTask}
-        />
+        <PlanTaskBoard p={p} door={door} runId={runId} projectPath={projectPath} detail={detail} canOpenSession={canOpenSession} onOpenSession={onOpenSession} />
       ) : (
         <Graph
           tasks={tasks}

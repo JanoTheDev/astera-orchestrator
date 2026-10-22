@@ -10,6 +10,9 @@
 // is completed (merged or not), a reviewer's once its verdict is recorded (`sessionsDoneWith`, the rule
 // the driving loop ends those sessions by), a replan's planner once the replan ended, and a coordinator a fresh one
 // replaced. A failed Task's, an open Gate's, and a session that has not exited keep theirs.
+//
+// T13: the caller hides these tabs (closeWorkbenchTab's 'hide'), never kills: each one lands in Recently closed, whose
+// Ctrl+Shift+T resumes it from its transcript.
 import type { Dispatch, Gate, Job, JobRun, Task } from '../../../core/orchestration/types'
 import { isJobActive } from '../../../core/orchestration/lifecycle'
 import { outcomeOfTasks } from '../../../core/orchestration/running'

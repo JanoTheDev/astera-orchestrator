@@ -12,7 +12,8 @@ import type { Account, Provider } from '../../types'
 import { descriptorOf, isAmbientDir, type ProviderDescriptor } from '../../providers/descriptor'
 import { providerOf } from '../../providers/meta'
 import { rollChainFor } from '../../accounts/dispatchAccount'
-import { autoOrderOf, type AutoAccountsGuard } from '../../accounts/autoAccountOrder'
+import { autoOrderOf, rankAccounts, type AutoAccountsGuard, type UnusableReason } from '../../accounts/autoAccountOrder'
+import { isGhostAccountId } from '../../accounts/ghostId'
 import type { UsageGuard } from '../usageGuard'
 import { markCodexProjectTrusted } from '../../accounts/codexTrust'
 import { claudeConfigFileFor, markClaudeProjectTrusted } from '../../accounts/claudeTrust'
@@ -24,11 +25,13 @@ import type { WorkerTails } from './tail'
 import { coordinatorBriefName } from './specFiles'
 import { dispatchLookup } from '../dispatchIndex'
 import { jobOf, jobOfRunId } from '../state'
+import { projectOfJob } from '../projects'
 import type { Job } from '../types'
 import { handsOffOf } from './plannerFeedback'
 import { pendingMerges, runRootOf } from '../integrate'
 import {
   resolveReviewerModel,
+  resolveCoordinatorModel,
   resolveRoleModel,
   resolveWorkerModel,
   type RoleModelSettings
@@ -52,7 +55,7 @@ export interface WorkerStartContext {
 }
 
 /** T2: what a start asks of the usage guard for the automatic account order. */
-export type AutoStartGuard = Pick<UsageGuard, 'refresh'> & AutoAccountsGuard
+export type AutoStartGuard = Pick<UsageGuard, 'refresh' | 'reserve' | 'switched'> & AutoAccountsGuard
 
 /** Reads the settings for a start. A broken settings file is not a reason to refuse a worker: the
  *  permission read beside it already refuses on that (bypassFromSettings), and here the built-in
@@ -212,15 +215,18 @@ export async function startWorkerWithChain(
   return { ...started, ...(chosen.model ? { model: chosen.model } : {}), ...(chosen.note ? { modelNote: chosen.note } : {}) }
 }
 
-/** W5-A (#50): a `--worktree new` worker for a Task with deps forks from its Run's worktree, not the
- *  project's checkout, and gets its finished deps' worktrees merged in. The scheduler has merged those deps
- *  into the Run's worktree already (and may have reaped them); a coordinator places Tasks itself and nothing
- *  has, so the merge is what brings their commits. Undefined: fork as before. */
+/** W5-A (#50): a `--worktree new` worker forks from its Run's worktree (the plan branch), never from the
+ *  project's checkout or a dependency's own branch, and gets its finished deps' worktrees merged in. A branch
+ *  from anywhere else carries rebased duplicates of commits already on the plan branch, and conflicts when
+ *  delivered. That holds for a Task without deps too (wave 1, a replan follow-up). The scheduler has merged the
+ *  deps into the Run's worktree already (and may have reaped them); a coordinator places Tasks itself and
+ *  nothing has, so the merge is what brings their commits. A Run without its own worktree, a reuse and a
+ *  non-new placement: undefined, fork as before. */
 export function forkForDeps(s: OrchState, a: StartWorkerArgs): { base: string; merge: string[] } | undefined {
   if (a.terminal || a.worktree !== 'new') return undefined
   const task = s.tasks.find((t) => t.id === a.taskId)
   const run = task ? s.runs.find((r) => r.id === task.runId) : undefined
-  if (!task || !run || task.deps.length === 0) return undefined
+  if (!task || !run || (task.deps.length === 0 && run.worktree === undefined)) return undefined
   return { base: runRootOf(run, jobOf(s, run)), merge: pendingMerges(s, task.id) }
 }
 
@@ -261,38 +267,165 @@ export interface CoordinatorStartContext {
   loginStatus?(accountId: string): Promise<boolean>
 }
 
+/** T5b: how long a start waits for the usage guard's read (its first one fetches every idle account) before it ranks
+ *  on what the guard already holds. */
+export const START_READ_WAIT_MS = 5_000
+
+export type StartPurpose = 'planner' | 'coordinator' | 'worker' | 'reviewer'
+
+export type StartAccountChoice =
+  /** `release` ends the start's place in the live count (UsageGuard.reserve): call it once the session runs or the
+   *  start failed. `switched` says why the start left the account it named. */
+  | { ok: true; accountId: string; chain: string[]; release(): void; switched?: string }
+  | { ok: false; why: string }
+
+/** T25: no account has room to start on. The message is the plain reason; a planner or coordinator start is held on it (startChainHolding). */
+export class NoRoomError extends Error {}
+
+const UNUSABLE_WHY: Record<UnusableReason, string> = {
+  'weekly-full': 'its weekly limit is at the usage threshold',
+  'session-full': 'its 5-hour limit is at the usage threshold',
+  unknown: 'its usage is unknown',
+  stale: 'its usage reading is old',
+  'logged-out': 'it is not logged in',
+  'at-cap': 'it is at its session cap'
+}
+
 /**
- * T2: the account a coordinator or planner starts on, and its rolling chain. With "Pick accounts automatically" on, the
- * named account keeps the start while it is under the usage threshold, and the chain behind it is the provider's other
- * logged-in accounts least used first (autoAccountOrder), so a limit rolls on instead of waiting for the reset. Over
- * the threshold, the start goes to the first of that order. Off, unwired, or anything unreadable: the named account
- * alone, which is the one-account chain these sessions had before.
+ * T5b (decision 6): the one account choice behind every start (planner, coordinator and its restart, worker, reviewer).
+ * The guard is read again (bounded by START_READ_WAIT_MS), then rankAccounts over the provider's accounts with the live
+ * sessions and the starts in flight (UsageGuard.liveSessions/reserve, so a burst spreads) and the per-account caps:
+ * `preferred` if usable, else the first usable of `own` (a Task's chain), else the best usable. With none usable, an
+ * account whose usage is unknown may still start (preferred first); a full, capped or logged-out one never does: the
+ * answer is then `ok: false` with a plain reason, and the start waits. The choice counts from here (`release`).
+ * "Pick accounts automatically" off, or no guard or login check wired: the named account alone, as before.
+ */
+export async function chooseStartAccount(
+  ctx: Pick<CoordinatorStartContext, 'usageGuard' | 'loginStatus' | 'accounts' | 'log'>,
+  a: { preferred?: string; provider?: Provider; purpose: StartPurpose; own?: readonly string[]; nowMs?: number }
+): Promise<StartAccountChoice> {
+  const noop = (): void => {}
+  const alone = async (): Promise<StartAccountChoice> => {
+    const id = a.preferred ?? (await ctx.accounts()).find((x) => a.provider === undefined || providerOf(x) === a.provider)?.id
+    return id === undefined
+      ? { ok: false, why: `no ${a.provider ? `${a.provider} ` : ''}account to start the ${a.purpose} on` }
+      : { ok: true, accountId: id, chain: [id], release: noop }
+  }
+  const guard = ctx.usageGuard
+  const loginStatus = ctx.loginStatus
+  if (!guard || !loginStatus) return alone()
+  try {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const read = await Promise.race([
+      guard.refresh().then(
+        () => 'read' as const,
+        (e) => (ctx.log(`${a.purpose} start: could not read usage: ${String(e)}`), 'failed' as const)
+      ),
+      new Promise<'late'>((r) => (timer = setTimeout(() => r('late'), START_READ_WAIT_MS)))
+    ]).finally(() => clearTimeout(timer))
+    if (!guard.autoAccounts()) return alone()
+    if (read !== 'read' && guard.view().length === 0)
+      ctx.log(`${a.purpose} start: no usage reading yet (${read === 'late' ? 'the read is still running' : 'the read failed'}); ranking without one`)
+    const accounts = await ctx.accounts()
+    const named = a.preferred === undefined ? undefined : accounts.find((x) => x.id === a.preferred)
+    const provider = a.provider ?? (named ? providerOf(named) : 'claude')
+    const mine = accounts.filter((x) => providerOf(x) === provider && !isGhostAccountId(x.id))
+    const loggedInIds = new Set(
+      (await Promise.all(mine.map(async (x) => ((await loginStatus(x.id)) ? x.id : null)))).filter((id): id is string => id !== null)
+    )
+    const readings = new Map(guard.view().map((v) => [v.accountId, { session: v.session, weekly: v.weekly, ...(v.at === undefined ? {} : { at: v.at }) }]))
+    const ranked = rankAccounts({
+      accounts: mine,
+      readings,
+      threshold: guard.pauseAt(),
+      nowMs: a.nowMs ?? Date.now(),
+      loggedInIds,
+      ...(guard.liveSessions ? { liveSessions: guard.liveSessions() } : {}),
+      ...(guard.maxSessions ? { maxSessions: guard.maxSessions() } : {})
+    })
+    const usable = ranked.usable.map((x) => x.id)
+    const tryable = ranked.unusable.filter((x) => x.reason === 'unknown' || x.reason === 'stale').map((x) => x.account.id)
+    const firstOf = (ids: readonly string[]): string | undefined =>
+      a.preferred !== undefined && ids.includes(a.preferred) ? a.preferred : ((a.own ?? []).find((id) => ids.includes(id)) ?? ids[0])
+    // T25: with no fresh reading, an account whose last known reading was not full (weekly first, then 5h) goes before
+    // one nothing is known of, the named one included; a full one never gets here (rankAccounts)
+    const lastKnown = (id: string): [number, number] | null => {
+      const r = readings.get(id)
+      return r && (r.weekly || r.session) ? [r.weekly?.usedPercent ?? 0, r.session?.usedPercent ?? 0] : null
+    }
+    const known = tryable.filter((id) => lastKnown(id)).sort((x, y) => lastKnown(x)![0] - lastKnown(y)![0] || lastKnown(x)![1] - lastKnown(y)![1])
+    const start = firstOf(usable) ?? known[0] ?? firstOf(tryable)
+    if (start === undefined) {
+      const why = ranked.unusable.map((x) => `${x.account.id} (${UNUSABLE_WHY[x.reason]})`).join(', ')
+      const resets = ranked.unusable.flatMap((x) => {
+        const v = x.reason === 'weekly-full' || x.reason === 'session-full' ? guard.view().find((y) => y.accountId === x.account.id) : undefined
+        const at = Date.parse((x.reason === 'weekly-full' ? v?.weekly : v?.session)?.resetsAt ?? '')
+        return Number.isFinite(at) ? [at] : []
+      })
+      const earliest = resets.length > 0 ? `; the earliest limit resets ${new Date(Math.min(...resets)).toISOString()}` : ''
+      return {
+        ok: false,
+        why: why ? `no ${provider} account has room to start the ${a.purpose} on: ${why}${earliest}` : `no ${provider} account to start the ${a.purpose} on`
+      }
+    }
+    // The rolling chain: the rest of the ranking, less what can never take over (logged out, at its cap)
+    const rest = ranked.unusable.filter((x) => x.reason !== 'logged-out' && x.reason !== 'at-cap').map((x) => x.account.id)
+    const chain = [...new Set([start, ...usable, ...rest])]
+    const release = guard.reserve?.(start) ?? noop
+    if (a.preferred === undefined || start === a.preferred) return { ok: true, accountId: start, chain, release }
+    const unusable = ranked.unusable.find((x) => x.account.id === a.preferred)
+    const switched = unusable ? UNUSABLE_WHY[unusable.reason] : named ? 'another account has more room' : 'it is not a registered account'
+    ctx.log(`${a.purpose} start: ${a.preferred}: ${switched}, starting on ${start}`)
+    guard.switched?.({ from: a.preferred, to: start, reason: switched })
+    return { ok: true, accountId: start, chain, release, switched }
+  } catch (e) {
+    ctx.log(`automatic accounts: could not read usage or logins, starting on ${a.preferred ?? 'the first account'} alone: ${String(e)}`)
+    return alone()
+  }
+}
+
+/**
+ * T2/T5b: the account a coordinator or planner (or a Host session) starts on, and its rolling chain: chooseStartAccount
+ * with the named account as the preference (`auto`: no preference, the account only says the provider). Throws the
+ * plain reason when no account has room: the session must not start on a full one.
  */
 export async function autoStartChain(
   ctx: Pick<CoordinatorStartContext, 'usageGuard' | 'loginStatus' | 'accounts' | 'log'>,
-  accountId: string
-): Promise<{ accountId: string; chain: string[] }> {
-  const alone = { accountId, chain: [accountId] }
-  const guard = ctx.usageGuard
-  const loginStatus = ctx.loginStatus
-  if (!guard || !loginStatus) return alone
+  accountId: string,
+  o: { purpose?: StartPurpose; auto?: boolean } = {}
+): Promise<{ accountId: string; chain: string[]; release(): void }> {
+  const named = (await ctx.accounts()).find((x) => x.id === accountId)
+  const choice = await chooseStartAccount(ctx, {
+    ...(o.auto ? {} : { preferred: accountId }),
+    ...(named ? { provider: providerOf(named) } : {}),
+    purpose: o.purpose ?? 'coordinator'
+  })
+  if (!choice.ok) throw new NoRoomError(choice.why)
+  return choice
+}
+
+/**
+ * T25: autoStartChain for a planner or coordinator start (`subject` is its Job or Run). With no account that has room the
+ * start does not hold the command that asked for it: `onWait` gets the plain reason (the command records it on the Job and
+ * answers at once) and the start fails with NoRoomError; the dispatch loop asks again every tick (retryHeldStarts), and each
+ * try reads the usage guard again (chooseStartAccount). `onWait(null)` once an account has room or the start fails otherwise.
+ * Host sessions (host/spawner.ts) call autoStartChain and still fail at once.
+ */
+export async function startChainHolding(
+  ctx: CoordinatorStartContext,
+  accountId: string,
+  o: { purpose: StartPurpose; auto?: boolean; subject: string; onWait?(why: string | null): void | Promise<void> }
+): ReturnType<typeof autoStartChain> {
   try {
-    await guard.refresh()
-    if (!guard.autoAccounts()) return alone
-    const accounts = await ctx.accounts()
-    const named = accounts.find((x) => x.id === accountId)
-    if (!named) return alone
-    const loggedInIds = new Set(
-      (await Promise.all(accounts.map(async (x) => ((await loginStatus(x.id)) ? x.id : null)))).filter(
-        (id): id is string => id !== null
-      )
-    )
-    const auto = autoOrderOf(guard, { provider: providerOf(named), accounts, loggedInIds, nowMs: Date.now() })!
-    const start = auto.over(accountId) && auto.order.length > 0 ? auto.order[0] : accountId
-    return { accountId: start, chain: [...new Set([start, ...auto.order])] }
+    const chain = await autoStartChain(ctx, accountId, o)
+    await o.onWait?.(null)
+    return chain
   } catch (e) {
-    ctx.log(`automatic accounts: could not read usage or logins, starting on ${accountId} alone: ${String(e)}`)
-    return alone
+    if (e instanceof NoRoomError) {
+      ctx.log(`${o.purpose} start ${o.subject} waits: ${e.message}`)
+      await o.onWait?.(e.message)
+    } else await o.onWait?.(null)
+    throw e
   }
 }
 
@@ -316,7 +449,7 @@ export async function autoStartChain(
 export async function startCoordinatorSession(
   ctx: CoordinatorStartContext,
   a: StartCoordinatorArgs
-): Promise<{ sessionId: string }> {
+): Promise<{ sessionId: string; accountId?: string; model?: string }> {
   // W2-A: a planner takes this same spawn path with its own brief, model role and permissions.
   if (a.role === 'planner') return startPlannerSession(ctx, a)
   // **브리핑은 파일로, 세션에는 한 줄만.** 이 프롬프트는 argv 로 가고 win32 에서 세션은
@@ -336,40 +469,59 @@ export async function startCoordinatorSession(
   const briefPath = path.join(ctx.specsDir, coordinatorBriefName(a.runId))
   await fs.writeFile(briefPath, a.brief, 'utf8')
   // T2: the account and chain by usage when "Pick accounts automatically" is on (autoStartChain)
-  const { accountId, chain } = await autoStartChain(ctx, a.accountId)
-  if (accountId !== a.accountId) ctx.log(`coordinator run=${a.runId}: ${a.accountId} is at the usage threshold, starting on ${accountId}`)
-  // 코디네이터는 프로젝트 루트에서 뜨므로 대개 이미 신뢰돼 있다 — 그래도 부른다. 그 Run 을
-  // 처음 돌리는 사람에게는 여기가 첫 codex 세션이고, 멈추면 아무도 답할 사람이 없는 것은
-  // 워커와 같다(preTrustWorkspace 의 주석).
-  await ctx.preTrust(accountId, a.cwd)
-  // The lightweight model (W1-A, SPEC §4): status questions and scheduling never call the premium one.
-  const coordinatorAccount = (await ctx.accounts()).find((x) => x.id === accountId)
-  const model = coordinatorAccount
-    ? resolveRoleModel(await settingsFor(ctx), jobOfRunId(ctx.getState(), a.runId), 'coordinator', providerOf(coordinatorAccount))
-    : undefined
-  // **워커와 같은 래퍼를 쓴다**(the caller's worker spawnSession) — 그 래퍼가 계정 객체를 찾고,
-  // 롤링 코디네이터에 등록하고, orchEnv 를 실어 준다. core.sessions.spawn 을 직접 부르면 그 셋을
-  // 여기서 다시 하게 되고, 그중 하나를 빠뜨리면 코디네이터는 한도에 걸린 채 멈춰 선다.
-  const info = await ctx.spawn({
-    accountId: accountId,
-    cwd: a.cwd,
-    // #117: a hands-off plan's coordinator too: a permission prompt nobody answers would stall the whole plan
-    bypassPermissions: handsOffOfJob(ctx.getState(), jobOfRunId(ctx.getState(), a.runId)) || (await ctx.bypassPermissions()),
-    initialPrompt: coordinatorLaunchPrompt(briefPath.replace(/\\/g, '/')),
-    // 탭 제목 — 워커 탭이 Task 제목을 쓰는 것과 같은 이유다. 없으면 워크트리 basename 으로
-    // 떠서 사용자가 이것이 무엇인지 알 수 없다.
-    title: `Coordinator · ${a.runId.slice(0, 12)}`,
-    // **한 원소다.** 그래서 롤링은 계정을 갈아타지 않고 리셋까지 기다린 뒤 같은 세션에서
-    // 이어간다 — 관리 중이던 Run 의 맥락을 잃지 않는 쪽을 골랐다(Run.coordinatorAccountId).
-    // T2: unless "Pick accounts automatically" is on (the owner's choice): then the whole order, so a limit rolls the
-    // same session on to another account (rolling carries the conversation over) instead of waiting.
-    rollAccountIds: chain,
-    ...(model ? { model } : {}),
-    // T5: a coordinator resumed in its own conversation after a crash (crashResume.ts)
-    ...(a.resume ? { resumeSessionId: a.resume } : {})
+  // T5b: the named account is a preference (chooseStartAccount); `release` once the session runs
+  const { accountId, chain, release } = await startChainHolding(ctx, a.accountId, {
+    purpose: 'coordinator',
+    subject: a.runId,
+    ...(a.onWait ? { onWait: a.onWait } : {}),
+    ...(a.auto ? { auto: true } : {})
   })
-  ctx.log(`coordinator started run=${a.runId} session=${info.id} account=${accountId} model=${model ?? 'CLI default'}`)
-  return { sessionId: info.id }
+  try {
+    // 코디네이터는 프로젝트 루트에서 뜨므로 대개 이미 신뢰돼 있다 — 그래도 부른다. 그 Run 을
+    // 처음 돌리는 사람에게는 여기가 첫 codex 세션이고, 멈추면 아무도 답할 사람이 없는 것은
+    // 워커와 같다(preTrustWorkspace 의 주석).
+    await ctx.preTrust(accountId, a.cwd)
+    // The lightweight model (W1-A, SPEC §4), unless the plan is big or hard (T5 `resolveCoordinatorModel`). The plan's
+    // Tasks are this Run's, else its Job's definition Tasks: a first start comes before the Run's copies are committed.
+    const coordinatorAccount = (await ctx.accounts()).find((x) => x.id === accountId)
+    const s = ctx.getState()
+    const job = jobOfRunId(s, a.runId)
+    const runTasks = s.tasks.filter((t) => t.runId === a.runId)
+    const model = coordinatorAccount
+      ? resolveCoordinatorModel({
+          settings: await settingsFor(ctx),
+          job,
+          project: job && projectOfJob(s, job),
+          tasks: runTasks.length > 0 ? runTasks : s.tasks.filter((t) => job !== undefined && t.jobId === job.id),
+          provider: providerOf(coordinatorAccount)
+        })
+      : undefined
+    // **워커와 같은 래퍼를 쓴다**(the caller's worker spawnSession) — 그 래퍼가 계정 객체를 찾고,
+    // 롤링 코디네이터에 등록하고, orchEnv 를 실어 준다. core.sessions.spawn 을 직접 부르면 그 셋을
+    // 여기서 다시 하게 되고, 그중 하나를 빠뜨리면 코디네이터는 한도에 걸린 채 멈춰 선다.
+    const info = await ctx.spawn({
+      accountId: accountId,
+      cwd: a.cwd,
+      // #117: a hands-off plan's coordinator too: a permission prompt nobody answers would stall the whole plan
+      bypassPermissions: handsOffOfJob(s, job) || (await ctx.bypassPermissions()),
+      initialPrompt: coordinatorLaunchPrompt(briefPath.replace(/\\/g, '/')),
+      // 탭 제목 — 워커 탭이 Task 제목을 쓰는 것과 같은 이유다. 없으면 워크트리 basename 으로
+      // 떠서 사용자가 이것이 무엇인지 알 수 없다.
+      title: `Coordinator · ${a.runId.slice(0, 12)}`,
+      // **한 원소다.** 그래서 롤링은 계정을 갈아타지 않고 리셋까지 기다린 뒤 같은 세션에서
+      // 이어간다 — 관리 중이던 Run 의 맥락을 잃지 않는 쪽을 골랐다(Run.coordinatorAccountId).
+      // T2: unless "Pick accounts automatically" is on (the owner's choice): then the whole order, so a limit rolls the
+      // same session on to another account (rolling carries the conversation over) instead of waiting.
+      rollAccountIds: chain,
+      ...(model ? { model } : {}),
+      // T5: a coordinator resumed in its own conversation after a crash (crashResume.ts)
+      ...(a.resume ? { resumeSessionId: a.resume } : {})
+    })
+    ctx.log(`coordinator started run=${a.runId} session=${info.id} account=${accountId} model=${model ?? 'CLI default'}`)
+    return { sessionId: info.id, accountId, ...(model ? { model } : {}) }
+  } finally {
+    release()
+  }
 }
 
 /** Best-effort folder trust for an orchestration spawn (the app's reasoning, moved with it).

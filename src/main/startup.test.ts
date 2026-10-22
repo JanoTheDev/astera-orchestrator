@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { startUp, gateOnLoginPath, startingPageUrl, loadInto, storedTheme, LOGIN_PATH_GATE_MS } from './startup'
+import { startUp, gateOnLoginPath, startingPageUrl, loadInto, storedTheme, LOGIN_PATH_GATE_MS, quitOnSignals } from './startup'
 import { DEFAULT_THEME_ID, themeById } from '../core/theme/themes'
 
 afterEach(() => {
@@ -191,5 +191,45 @@ describe('loadInto', () => {
     loadInto(win, { file: '/app/index.html' }, () => {})
     expect(win.loadURL).toHaveBeenCalledWith('http://localhost:5173')
     expect(win.loadFile).toHaveBeenCalledWith('/app/index.html')
+  })
+})
+
+describe('quitOnSignals', () => {
+  const harness = (): {
+    fire: (s: 'SIGTERM' | 'SIGINT') => void
+    calls: string[]
+  } => {
+    const handlers = new Map<string, () => void>()
+    const calls: string[] = []
+    quitOnSignals({
+      on: (s, cb) => void handlers.set(s, cb),
+      quit: () => void calls.push('quit'),
+      exit: (code) => void calls.push(`exit ${code}`),
+      flushLogs: () => void calls.push('flush'),
+      log: () => {},
+      forceMs: 1_000
+    })
+    return { fire: (s) => handlers.get(s)!(), calls }
+  }
+
+  it.each(['SIGTERM', 'SIGINT'] as const)('%s quits, and forces an exit with logs flushed if the quit hangs', (signal) => {
+    vi.useFakeTimers()
+    const h = harness()
+    h.fire(signal)
+    expect(h.calls).toEqual(['flush', 'quit'])
+    vi.advanceTimersByTime(999)
+    expect(h.calls).not.toContain('exit 0')
+    vi.advanceTimersByTime(1)
+    expect(h.calls).toEqual(['flush', 'quit', 'flush', 'exit 0'])
+  })
+
+  it('arms the forced exit once, however many signals arrive', () => {
+    vi.useFakeTimers()
+    const h = harness()
+    h.fire('SIGTERM')
+    h.fire('SIGINT')
+    vi.advanceTimersByTime(1_000)
+    expect(h.calls.filter((c) => c === 'quit')).toHaveLength(1)
+    expect(h.calls.filter((c) => c === 'exit 0')).toHaveLength(1)
   })
 })

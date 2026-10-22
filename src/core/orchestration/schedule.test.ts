@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { pendingMerges } from './integrate'
-import { slotsToFill, tasksMissingAccounts } from './schedule'
+import { slotsToFill } from './schedule'
 import { emptyState, type OrchState } from './state'
 import type { Task } from './types'
 import { stateFromLegacy } from './legacyState'
@@ -47,16 +47,15 @@ describe('slotsToFill — 계정 지정', () => {
     ])
   })
 
-  // 계정이 provider 의 유일한 출처이므로, 지정이 없으면 어느 CLI 로 띄울지 알 수 없다 — 고르지
-  // 않는다. 예전에는 Run 이 provider 를 들고 있어 이 경우 기본 계정으로 갔다
-  it('지정이 없는 Task 는 고르지 않는다', () => {
+  // T5b (decision 6): no account named is auto — the wiring starts it on the account with most room
+  it('places a Task without accounts as auto (empty accountIds)', () => {
     const s = state({ tasks: [task('t1', { accountIds: undefined })] })
-    expect(slotsToFill(s)).toEqual([])
+    expect(slotsToFill(s)).toEqual([{ runId: 'run_1', taskId: 't1', accountIds: [] }])
   })
 
-  it('빈 목록도 지정 없음과 같다 — 손으로 고친 파일이 그 모양이다', () => {
+  it('an empty list is auto too', () => {
     const s = state({ tasks: [task('t1', { accountIds: [] })] })
-    expect(slotsToFill(s)).toEqual([])
+    expect(slotsToFill(s)).toEqual([{ runId: 'run_1', taskId: 't1', accountIds: [] }])
   })
 })
 
@@ -239,67 +238,3 @@ describe('slotsToFill', () => {
   })
 })
 
-// slotsToFill 이 계정 없는 Task 를 건너뛰는 것만으로는 Run 이 이유 없이 서 있는다 — 이 판정이
-// 그것들을 따로 내고 배선이 Gate 를 연다(ipc.ts 의 자동 디스패치 루프)
-describe('tasksMissingAccounts', () => {
-  it('계정 없는 ready Task 를 낸다', () => {
-    const s = state({ tasks: [task('t1', { accountIds: undefined }), task('t2')] })
-    expect(tasksMissingAccounts(s)).toEqual([{ runId: 'run_1', taskId: 't1' }])
-  })
-
-  it('빈 목록도 같다 — 손으로 고친 파일이 그 모양이다', () => {
-    const s = state({ tasks: [task('t1', { accountIds: [] })] })
-    expect(tasksMissingAccounts(s)).toEqual([{ runId: 'run_1', taskId: 't1' }])
-  })
-
-  it('ready 가 아니면 내지 않는다 — 아직 그 Task 의 차례가 아니다', () => {
-    const s = state({
-      tasks: [
-        task('t1', { accountIds: undefined, status: 'pending' }),
-        task('t2', { accountIds: undefined, status: 'completed' }),
-        task('t3', { accountIds: undefined, status: 'blocked' })
-      ]
-    })
-    expect(tasksMissingAccounts(s)).toEqual([])
-  })
-
-  // 코디네이터가 계정 없이 만든 Task 는 그가 worker-start 로 직접 띄운다 — 앱이 Gate 를 열면
-  // 그의 명령이 이유 없이 실패하기 시작한다
-  it('앱이 돌리지 않는 Run 은 보지 않는다', () => {
-    for (const over of [
-      { autoDispatch: undefined },
-      { schedule: { kind: 'daily' as const, time: '09:00' } },
-      { pendingStart: true },
-      { paused: true }
-    ]) {
-      const s = state({ runs: [run(over)], tasks: [task('t1', { accountIds: undefined })] })
-      expect(tasksMissingAccounts(s)).toEqual([])
-    }
-  })
-
-  it('회로 차단에 걸린 Task 는 내지 않는다 — 사람이 할 일이 계정 지정이 아니다', () => {
-    const s = state({ tasks: [task('t1', { accountIds: undefined, consecutiveFailures: 3 })] })
-    expect(tasksMissingAccounts(s)).toEqual([])
-  })
-
-  it('열린 Dispatch 가 있으면 내지 않는다 — gate-create 가 그것을 거절한다', () => {
-    const s = state({
-      tasks: [task('t1', { accountIds: undefined })],
-      dispatches: [
-        {
-          id: 'd1',
-          taskId: 't1',
-          accountId: 'a',
-          provider: 'claude',
-          sessionId: 's',
-          cwd: '/p',
-          specPath: '/s',
-          startedAt: '2026-08-19T00:00:00.000Z',
-          workerState: 'ready',
-          retained: false
-        }
-      ]
-    })
-    expect(tasksMissingAccounts(s)).toEqual([])
-  })
-})

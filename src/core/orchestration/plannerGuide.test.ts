@@ -36,3 +36,13 @@ describe('planner-guide.md — multi-file planning and waves', () => {
     expect(guide).toContain('Tell each worker to use subagents for read-only exploration')
   })
 })
+
+describe('planner-guide.md — objective coverage and the plan name (T7)', () => {
+  it('section 3 asks for --covers, --left-out with a reason and jobs rename; section 4 checks them before handing over', () => {
+    const write = guide.slice(guide.indexOf('## 3. Write each Task'), guide.indexOf('## 4.'))
+    for (const needle of ['`--covers`', 'jobs-set --id <jobId> --left-out', '"reason"', 'jobs rename --id <jobId> --title'])
+      expect(write, needle).toContain(needle)
+    const hand = guide.slice(guide.indexOf('## 4. Hand over'), guide.indexOf('## 5.'))
+    for (const needle of ['--covers', 'jobs-set --left-out', 'jobs rename']) expect(hand, needle).toContain(needle)
+  })
+})

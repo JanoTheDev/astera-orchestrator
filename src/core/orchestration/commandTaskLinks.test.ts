@@ -10,6 +10,7 @@ import type { Dispatch, JobRun, Task } from './types'
 import type { GhResult } from '../github/gh'
 import type { PrCreateRequest } from '../github/prCreate'
 import { taskMarker } from '../github/taskLinks'
+import { READY_MUTATION } from '../github/prUpdate'
 import { summaryFactsOf, type SessionSummary } from '../sessions/summary'
 import { APP_CALLER } from '../host/driver'
 
@@ -275,8 +276,18 @@ describe('run-open-pr: one pull request per plan', () => {
 // ready after the final check. Nothing is merged: the only gh writes are `pr create --draft`, `pr edit` and `pr ready`.
 describe('run-draft-pr: a long plan followed from GitHub (W8-C)', () => {
   const PR = 'https://github.com/o/r/pull/13'
+  const CLASSIC = 'GraphQL: Projects (classic) is being deprecated in favor of the new Projects experience'
+  const bodyOf = (a: string[]): string => a[5].slice('body='.length)
+  const patches = (calls: string[][]): string[][] => calls.filter((a) => a[0] === 'api' && a[2] === 'PATCH')
   const ghOk = (a: string[]): Partial<GhResult> | undefined =>
-    a[0] === 'repo' && a[1] === 'view' ? { stdout: 'main\n' } : a[0] === 'pr' && (a[1] === 'edit' || a[1] === 'ready') ? {} : undefined
+    a[0] === 'repo' && a[1] === 'view'
+      ? { stdout: 'main\n' }
+      : // `pr edit` is refused as GitHub refuses it now; the body goes over REST (github/prUpdate.ts)
+        a[0] === 'pr' && a[1] === 'edit'
+        ? { ok: false, stderr: CLASSIC }
+        : (a[0] === 'pr' && a[1] === 'ready') || (a[0] === 'api' && a[2] === 'PATCH')
+          ? {}
+          : undefined
   // Three waves: t1 -> t2 -> t3
   const plan = (s1: Task['status'], s2: Task['status'], s3: Task['status']): Task[] => [
     task({ status: s1 }),
@@ -285,8 +296,8 @@ describe('run-draft-pr: a long plan followed from GitHub (W8-C)', () => {
   ]
   const ended = (id: string, taskId: string, cwd: string): Dispatch =>
     ({ id, taskId, cwd, accountId: 'acc1', endedAt: NOW, outcome: 'succeeded' }) as Dispatch
-  const rig = (tasks: Task[], dispatches: Dispatch[] = [ended('d1', 't1', '/wt/t1')]) => {
-    const h = setup({ gh: ghOk, tasks, dispatches })
+  const rig = (tasks: Task[], dispatches: Dispatch[] = [ended('d1', 't1', '/wt/t1')], gh = ghOk) => {
+    const h = setup({ gh, tasks, dispatches })
     const pushes: [string, string][] = []
     h.deps.github!.push = async (wt: string, branch: string) => {
       pushes.push([wt, branch])
@@ -321,32 +332,67 @@ describe('run-draft-pr: a long plan followed from GitHub (W8-C)', () => {
     const r = await h.app('run-draft-pr', { run: 'r1' })
     expect(r.body).toMatchObject({ url: PR, wavesDone: 2, opened: false })
     expect(h.pushes).toEqual([[WT, 'astera/run']])
-    const edit = h.ghCalls.find((a) => a[0] === 'pr' && a[1] === 'edit')!
-    expect(edit.slice(0, 4)).toEqual(['pr', 'edit', PR, '--body'])
-    expect(edit[4]).toContain('Done:\n- Wave 1: Add login\n- Wave 2: Add logout')
-    expect(edit[4]).toContain('Remaining:\n- Wave 3: Add audit log')
+    const edit = patches(h.ghCalls)[0]
+    expect(edit.slice(0, 5)).toEqual(['api', '-X', 'PATCH', 'repos/o/r/pulls/13', '-f'])
+    expect(bodyOf(edit)).toContain('Done:\n- Wave 1: Add login\n- Wave 2: Add logout')
+    expect(bodyOf(edit)).toContain('Remaining:\n- Wave 3: Add audit log')
     expect(h.state().runs[0].pr).toMatchObject({ draft: true, wavesDone: 2 })
     expect(h.prs).toHaveLength(1)
 
     h.set(plan('completed', 'completed', 'completed'))
     const done = await h.app('run-open-pr', { run: 'r1' })
     expect(done).toEqual({ status: 200, body: { url: PR, number: 13, opened: false, ready: true } })
-    expect(h.ghCalls.filter((a) => a[0] === 'pr').map((a) => a[1])).toEqual(['edit', 'edit', 'ready'])
-    expect(h.ghCalls.filter((a) => a[0] === 'pr').at(-2)![4]).not.toContain('Remaining:')
+    expect(h.ghCalls.filter((a) => a[0] === 'pr').map((a) => a[1])).toEqual(['ready'])
+    expect(patches(h.ghCalls)).toHaveLength(2)
+    expect(bodyOf(patches(h.ghCalls)[1])).not.toContain('Remaining:')
     expect(h.state().runs[0].pr).toEqual({ at: NOW, url: PR, number: 13 })
     expect(h.prs).toHaveLength(1)
     expect(h.ghCalls.some((a) => a.includes('merge'))).toBe(false)
   })
 
-  it('no draft for a one-wave plan, a push delivery, a non-draft PR, or an agent session', async () => {
-    expect((await rig([task(), task({ id: 't2', title: 'b', status: 'ready' })]).app('run-draft-pr', { run: 'r1' })).status).toBe(409)
-    const push = rig(plan('completed', 'ready', 'pending'))
-    void push.deps.setState({ ...push.state(), jobs: push.state().jobs.map((j) => ({ ...j, delivery: 'push' as const })) })
-    expect((await push.app('run-draft-pr', { run: 'r1' })).status).toBe(409)
+  it('a pr ready refused for classic projects falls back to the markPullRequestReadyForReview mutation alone', async () => {
+    const h = rig(plan('completed', 'ready', 'pending'), undefined, (a) =>
+      a[0] === 'pr' && a[1] === 'ready'
+        ? { ok: false, stderr: CLASSIC }
+        : a[0] === 'api' && a[2] === '--jq'
+          ? { stdout: 'PR_kw13\n' }
+          : a[0] === 'api' && a[1] === 'graphql'
+            ? {}
+            : ghOk(a)
+    )
+    await h.app('run-draft-pr', { run: 'r1' })
+    h.set(plan('completed', 'completed', 'completed'))
+    expect((await h.app('run-open-pr', { run: 'r1' })).body).toMatchObject({ url: PR, ready: true })
+    expect(h.ghCalls.filter((a) => a[0] === 'api' && a[2] !== 'PATCH')).toEqual([
+      ['api', 'repos/o/r/pulls/13', '--jq', '.node_id'],
+      ['api', 'graphql', '-f', `query=${READY_MUTATION}`, '-f', 'id=PR_kw13']
+    ])
+    expect(h.state().runs[0].pr).toEqual({ at: NOW, url: PR, number: 13 })
+  })
+
+  it('T3: a draft after the first Task of a one-wave plan; none before any Task, for a non-draft PR or an agent session', async () => {
+    const one = rig([task(), task({ id: 't2', title: 'b', status: 'ready' })])
+    expect((await one.app('run-draft-pr', { run: 'r1' })).body).toMatchObject({ url: PR, draft: true, opened: true })
+    expect(one.state().runs[0].branchPush).toMatchObject({ state: 'delivered', tasksDone: 1 })
+    expect((await rig([task({ status: 'ready' })], []).app('run-draft-pr', { run: 'r1' })).status).toBe(409)
     const opened = rig(plan('completed', 'ready', 'pending'))
     void opened.deps.setState({ ...opened.state(), runs: opened.state().runs.map((r) => ({ ...r, pr: { at: NOW, url: PR } })) })
     expect((await opened.app('run-draft-pr', { run: 'r1' })).status).toBe(409)
     expect((await rig(plan('completed', 'ready', 'pending')).call('run-draft-pr', { run: 'r1' })).status).toBe(403)
+  })
+
+  it('T3: a push plan pushes its plan branch after each Task, opens no PR, and a failed push is recorded for a retry', async () => {
+    const push = rig(plan('completed', 'ready', 'pending'))
+    void push.deps.setState({ ...push.state(), jobs: push.state().jobs.map((j) => ({ ...j, delivery: 'push' as const })) })
+    expect((await push.app('run-draft-pr', { run: 'r1' })).body).toMatchObject({ branch: 'astera/run', pushed: true, tasksDone: 1 })
+    expect(push.pushes).toEqual([[WT, 'astera/run']])
+    expect(push.prs).toEqual([])
+    expect(push.state().runs[0].branchPush).toMatchObject({ state: 'delivered', tasksDone: 1 })
+    push.set(plan('completed', 'completed', 'ready'))
+    push.deps.github!.push = async () => ({ ok: false as const, kind: 'rejected', detail: 'remote: denied' }) as never
+    expect((await push.app('run-draft-pr', { run: 'r1' })).status).toBe(409)
+    expect(push.state().runs[0].branchPush).toMatchObject({ state: 'retrying', attempts: 1, tasksDone: 1, lastError: expect.stringContaining('denied') }) // T4: consecutive failures
+    expect(push.state().runs[0].branchPush?.nextRetryAt).toBeDefined()
   })
 
   it('a project with no remote opens nothing and records nothing', async () => {

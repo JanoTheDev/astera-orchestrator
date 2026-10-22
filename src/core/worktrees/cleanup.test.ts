@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { emptyState, type OrchState } from '../orchestration/state'
 import type { Dispatch, Task } from '../orchestration/types'
 import type { WorktreeListItem } from '../types'
-import { groupWorktrees, isReadyToClean, worktreeOwners, type CleanFacts, type WorktreeOwner, type WorktreeRow } from './cleanup'
+import { groupWorktrees, inferOwner, isReadyToClean, worktreeOwners, type CleanFacts, type WorktreeOwner, type WorktreeRow } from './cleanup'
 
 const NOW = '2026-10-18T00:00:00.000Z'
 
@@ -22,7 +22,7 @@ function plan(over: Partial<OrchState> = {}): OrchState {
   } as OrchState
 }
 
-const owner = (over: Partial<WorktreeOwner> = {}): WorktreeOwner => ({ jobId: 'job_1', runId: 'run_1', plan: 'Auth rework', running: false, merged: true, taskIds: ['t1'], taskTitles: ['t1'], ...over })
+const owner = (over: Partial<WorktreeOwner> = {}): WorktreeOwner => ({ jobId: 'job_1', runId: 'run_1', plan: 'Auth rework', running: false, merged: true, taskIds: ['t1'], taskTitles: ['t1'], delivered: false, landed: false, archived: false, pushed: false, ...over })
 const facts = (over: Partial<CleanFacts> = {}): CleanFacts => ({ owner: owner(), live: false, dirty: 0, unpushed: 0, ...over })
 
 describe('isReadyToClean', () => {
@@ -42,6 +42,43 @@ describe('isReadyToClean', () => {
   })
 })
 
+describe('isReadyToClean: delivered, landed and archived plans', () => {
+  it('a squash-merged PR (landed) frees a merged folder whose commits no remote branch holds any more', () => {
+    expect(isReadyToClean(facts({ unpushed: 4 }))).toBe(false)
+    expect(isReadyToClean(facts({ unpushed: 4, owner: owner({ landed: true }) }))).toBe(true)
+  })
+  it('a folder of a delivered plan whose Tasks the state forgot goes only if its commits are pushed or in its base', () => {
+    const forgotten = owner({ merged: false, delivered: true, taskIds: [], inferred: true })
+    expect(isReadyToClean(facts({ owner: forgotten }))).toBe(true)
+    expect(isReadyToClean(facts({ owner: forgotten, unpushed: 2, inBase: true }))).toBe(true)
+    expect(isReadyToClean(facts({ owner: forgotten, unpushed: 2, inBase: false }))).toBe(false)
+    expect(isReadyToClean(facts({ owner: forgotten, unpushed: 2 }))).toBe(false)
+    expect(isReadyToClean(facts({ owner: forgotten, dirty: 1 }))).toBe(false)
+  })
+  it('an archived plan frees what is pushed or merged, and keeps the rest; a plan neither delivered nor archived frees nothing unmerged', () => {
+    const archived = owner({ merged: false, archived: true })
+    expect(isReadyToClean(facts({ owner: archived, unpushed: 0 }))).toBe(true)
+    expect(isReadyToClean(facts({ owner: archived, unpushed: 3, inBase: true }))).toBe(true)
+    expect(isReadyToClean(facts({ owner: archived, unpushed: 3, inBase: false }))).toBe(false)
+    expect(isReadyToClean(facts({ owner: owner({ merged: false }), unpushed: 0 }))).toBe(false)
+  })
+})
+
+describe('inferOwner', () => {
+  const plans = new Map([['/wt/run', owner({ taskIds: [], delivered: true, merged: true, sessionId: 'coord' })]])
+  const all = [{ repoPath: '/repo', branch: 'me/plan', path: '/wt/run' }]
+  it('a folder forked from the branch of a plan’s own folder belongs to that plan, with no Task and no session', () => {
+    const o = inferOwner({ repoPath: '/repo', baseRef: 'me/plan', path: '/wt/old-task' }, all, plans)
+    expect(o).toMatchObject({ runId: 'run_1', delivered: true, merged: false, taskIds: [], inferred: true })
+    expect(o?.sessionId).toBeUndefined()
+  })
+  it('another repository, another base, or the plan’s own folder: nobody’s', () => {
+    expect(inferOwner({ repoPath: '/other', baseRef: 'me/plan', path: '/wt/x' }, all, plans)).toBeUndefined()
+    expect(inferOwner({ repoPath: '/repo', baseRef: 'origin/main', path: '/wt/x' }, all, plans)).toBeUndefined()
+    expect(inferOwner({ repoPath: '/repo', baseRef: 'me/plan', path: '/wt/run' }, all, plans)).toBeUndefined()
+  })
+})
+
 describe('worktreeOwners', () => {
   it('knows the Task folders, whether each is merged, and the Run folder (merged only once delivered)', () => {
     const o = worktreeOwners(plan())
@@ -54,6 +91,19 @@ describe('worktreeOwners', () => {
     expect(worktreeOwners(run({ delivery: { at: NOW, sha: 'abc' } })).get('/wt/run')?.merged).toBe(true)
     expect(worktreeOwners(run({ pr: { url: 'u', number: 1, draft: false } })).get('/wt/run')?.merged).toBe(true)
     expect(worktreeOwners(run({ pr: { url: 'u', number: 1, draft: true } })).get('/wt/run')?.merged).toBe(false)
+  })
+  it('a merged pull request, a delivered state and a PR with no URL: delivered, delivered, not delivered', () => {
+    const run = (extra: object) => plan({ runs: [{ id: 'run_1', jobId: 'job_1', ordinal: 1, createdAt: NOW, worktree: '/wt/run', ...extra }] as never })
+    expect(worktreeOwners(run({ pr: { at: NOW, url: 'u', draft: true, attributed: 'sha' } })).get('/wt/run')).toMatchObject({ delivered: true, landed: true })
+    expect(worktreeOwners(run({ deliveryState: { state: 'delivered', attempts: 1 } })).get('/wt/run')?.delivered).toBe(true)
+    expect(worktreeOwners(run({ pr: { at: NOW, error: 'The push was rejected' } })).get('/wt/run')?.delivered).toBe(false)
+  })
+  it('an archived plan is archived, a pushed branch is recorded', () => {
+    const s = plan({ jobs: [{ id: 'job_1', objective: 'Auth rework', cwd: '/repo', createdAt: NOW, archivedAt: NOW }] as never, tasks: [task('t1', { status: 'failed', consecutiveFailures: 9 })] })
+    expect(worktreeOwners(s).get('/wt/t1')).toMatchObject({ archived: true, pushed: false })
+    expect(worktreeOwners(plan()).get('/wt/t1')?.archived).toBe(false)
+    const pushed = plan({ runs: [{ id: 'run_1', jobId: 'job_1', ordinal: 1, createdAt: NOW, worktree: '/wt/run', branchPush: { state: 'delivered', attempts: 1 } }] as never })
+    expect(worktreeOwners(pushed).get('/wt/t1')?.pushed).toBe(true)
   })
   it('a folder two Tasks used is merged only when both are; the project folder is nobody’s', () => {
     const s = plan({ tasks: [task('t1', { mergedIntoPlanAt: NOW }), task('t2')], dispatches: [dispatch('t1', '/wt/shared'), dispatch('t2', '/wt/shared'), dispatch('t1', '/repo')] })
@@ -74,6 +124,9 @@ const row = (name: string, over: Partial<WorktreeRow> = {}): WorktreeRow => ({
   behind: 0,
   dirty: 0,
   unpushed: 0,
+  inBase: false,
+  untracked: [],
+  untrackedCount: 0,
   live: false,
   ready: false,
   ...over

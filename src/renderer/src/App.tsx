@@ -1,5 +1,6 @@
 import { UpdateGate } from './components/UpdateGate'
 import { CliMissingScreen } from './components/CliMissingScreen'
+import { HostStartingNotice } from './components/HostRuntimeNotice'
 import * as sessionBus from './lib/sessionBus'
 import { useLayout } from './state/useLayout'
 import { useHost } from './state/useHost'
@@ -63,8 +64,8 @@ export default function App(): React.JSX.Element {
     ...fromRunActions, ...fromPlanPages
   }
   const {
-    campaign, canStart, cliInstalled, installUpdate, isMax, runningCount, setCli, setCliInstalled, setCommandOpen,
-    setNewOpen, update
+    campaign, canStart, cliInstalled, hostStatus, installUpdate, isMax, runningCount, setCli, setCliInstalled,
+    setCommandOpen, setNewOpen, update
   } = app
   useNavigation(app)
   const shell = useShell(app) // W9-B
@@ -125,6 +126,7 @@ export default function App(): React.JSX.Element {
           onRetry={() => void window.api.update.check()}
         />
       )}
+      <HostStartingNotice status={hostStatus} />
       <div className="workbench">
         <Pages {...app} {...shell} />
         <RunDrawer {...app} />

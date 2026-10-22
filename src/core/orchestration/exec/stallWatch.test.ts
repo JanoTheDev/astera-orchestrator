@@ -1,12 +1,14 @@
 // Stall watchdog (owner 2026-10-18): each stall detected from Host state alone and remedied once, a healthy plan left
 // alone, and nothing at all with the setting off.
 import { describe, expect, it } from 'vitest'
-import { BACKOFF_MS, BUSY_REFRESH_MS, BUSY_TELL_MS, DEAD_COORDINATOR_MS, DRAFT_STALL_MS, IDLE_NUDGE, IDLE_STALL_MS, LOST_STALL_MS, MERGE_STALL_MS, READY_STALL_MS, STALL_WATCH_MS, TRIES, createStallWatch, stallRemedies, type StallEntry, type StallProbe, type StallRemedy } from './stallWatch'
+import { DROPPED_ASK_MS, HOLD_ASK_MS, LEASE_ASK_MS, LEASE_TELL_MS, PLANNER_IDLE_MS, PLANNER_NUDGE, PLANNER_RESTART_MS, BACKOFF_MS, BUSY_REFRESH_MS, BUSY_TELL_MS, DEAD_COORDINATOR_MS, DRAFT_STALL_MS, IDLE_NUDGE, IDLE_STALL_MS, LOST_STALL_MS, MERGE_STALL_MS, READY_STALL_MS, STALL_WATCH_MS, TRIES, createStallWatch, stallRemedies, type StallEntry, type StallProbe, type StallRemedy } from './stallWatch'
 import { createDispatchLoop, type DispatchLoopContext } from './dispatchLoop'
 import { emptyState, type OrchState } from '../state'
 import type { ActivityDraft } from '../activity'
 import type { Dispatch, Job, Task } from '../types'
 import { mergedIntoPlan } from '../finishedSessions'
+import { adoptLiveWorkers, type LiveWorker } from './adopt'
+import type { Account } from '../../types'
 
 const NOW = '2026-10-18T00:00:00.000Z'
 const T0 = Date.parse(NOW)
@@ -221,7 +223,8 @@ describe('stallRemedies', () => {
     expect(watch(full, every30s(20 * MIN), { ...idle, busy: (id) => id === 'w-tsk_2' })).toEqual([])
     expect(watch(plan({}, { dispatchHold: true } as Partial<Job>), every30s(20 * MIN))).toEqual([])
     expect(watch(plan({}, { paused: true }), every30s(20 * MIN))).toEqual([])
-    expect(watch(plan(), every30s(20 * MIN), { ...idle, paused: () => true })).toEqual([])
+    // T11: never started, but never silent either: a feed line, then one owner question
+    expect(watch(plan(), every30s(20 * MIN), { ...idle, paused: () => true })).toEqual(['note-dropped:tsk_1', 'ask:tsk_1'])
   })
 
   it('a coordinator busy 5 min with work waiting and nothing started is told, and refreshed at 10 min, once', () => {
@@ -254,11 +257,11 @@ describe('stallRemedies', () => {
 
   it('a completed Task left out of the plan branch is merged again after 2 min, once', () => {
     const s = plan({ tasks: [task({ id: 'tsk_1', status: 'completed' })], dispatches: [ended('tsk_1', '/wt-child')] })
-    expect(watch(s, every30s(10 * MIN))).toEqual(['merge:tsk_1'])
+    expect(watch(s, every30s(10 * MIN)).filter((x) => !x.startsWith('draft-pr'))).toEqual(['merge:tsk_1'])
     expect(watch(s, [T0 + MERGE_STALL_MS - 1])).toEqual([])
     // marked merged (the wave merge's message): nothing
     const marked = { ...s, messages: [{ id: 'm', runId: 'run_1', type: 'status' as const, subject: 'task tsk_1 merged into the plan', body: '', answered: false, createdAt: NOW }] }
-    expect(watch(marked, every30s(10 * MIN))).toEqual([])
+    expect(watch(marked, every30s(10 * MIN)).filter((x) => !x.startsWith('draft-pr'))).toEqual([])
   })
 
   it('a wave done with its draft PR not opened is asked again after 2 min, once', () => {
@@ -274,7 +277,8 @@ describe('stallRemedies', () => {
       tasks: [task({ id: 'tsk_1', status: 'dispatched' }), task({ id: 'tsk_2', status: 'completed' })],
       dispatches: [{ ...ended('tsk_1', '/wt1'), endedAt: undefined, outcome: undefined } as Dispatch, ended('tsk_2', '/wt1')]
     })
-    expect(watch(s, every30s(60 * MIN), { ...idle, busy: () => true })).toEqual([])
+    // T3: the plan branch push after the completed Task is the driving loop's; nothing else waits
+    expect(watch(s, every30s(60 * MIN), { ...idle, busy: () => true }).filter((x) => !x.startsWith('draft-pr'))).toEqual([])
   })
 })
 
@@ -383,7 +387,7 @@ describe('watchStalls', () => {
     for (let t = 0; t <= 10 * MIN; t += STALL_WATCH_MS) await h.at(t)
     expect(merges).toBe(1)
     expect(h.state().tasks[0].mergedIntoPlanAt).toBe(NOW)
-    expect(h.lines.map((l) => l.payload.reason)).toEqual(['Merged TSK_1 into the plan branch; it had waited since it completed'])
+    expect(h.lines.map((l) => l.payload.reason).filter((x) => !x?.includes('plan branch after'))).toEqual(['Merged TSK_1 into the plan branch; it had waited since it completed'])
   })
 
   it('a failed draft PR retry says why in the feed', async () => {
@@ -398,7 +402,7 @@ describe('watchStalls', () => {
     h.ctx.handle = async (cmd, args) => (cmd === 'run-draft-pr' ? { status: 409, body: { error: 'no remote push access' } } : real(cmd, args))
     for (let t = 0; t <= 10 * MIN; t += STALL_WATCH_MS) await h.at(t)
     expect(h.lines.map((l) => l.payload.reason)).toEqual([
-      'The draft PR after wave 1 is still not opened or updated: its draft pull request after wave 1 was not updated: {"error":"no remote push access"}'
+      'The plan branch after 1 task(s) is still not pushed: its plan branch was not pushed after 1 task(s), retried later: {"error":"no remote push access"}'
     ])
   })
 
@@ -411,7 +415,7 @@ describe('watchStalls', () => {
 })
 
 // The Host's applier for the remedies the loop does not apply: each through the existing command, one feed line each.
-function watchRig(s0: OrchState, busy: (id: string) => boolean | null = () => false) {
+function watchRig(s0: OrchState, busy: (id: string) => boolean | null = () => false, live: LiveWorker[] = [], alive: (id: string) => boolean = () => false) {
   let state = s0
   let clock = T0
   const cmds: { cmd: string; args: Record<string, unknown> }[] = []
@@ -432,11 +436,17 @@ function watchRig(s0: OrchState, busy: (id: string) => boolean | null = () => fa
     on: () => true,
     cap: () => null,
     busy,
-    alive: () => false,
+    alive,
     isRegistered: () => false,
     typeInto: (id, text) => typed.push(`${id}:${text}`),
     tell: async (n) => (told.push(n.subject), true),
     activity: (d) => lines.push(String(d.payload.reason)),
+    adopt: async () => {
+      const r = adoptLiveWorkers(state, live, '/specs', NOW)
+      state = r.state
+      return r.adopted
+    },
+    accounts: () => [{ id: 'accA', provider: 'codex' } as Account],
     mayStart: () => true,
     log: () => {},
     nowMs: () => clock,
@@ -444,6 +454,7 @@ function watchRig(s0: OrchState, busy: (id: string) => boolean | null = () => fa
   })
   return {
     cmds, typed, told, lines,
+    state: () => state,
     run: async (to: number) => {
       for (let t = 0; t <= to; t += STALL_WATCH_MS) {
         clock = T0 + t
@@ -478,5 +489,144 @@ describe('createStallWatch', () => {
     expect(escalations).toHaveLength(1)
     expect(escalations[0].args).toMatchObject({ taskId: 'tsk_1', dispatchId: 'dsp_tsk_1' })
     expect(h.lines.map((l) => l.split(':')[0])).toEqual(['Nudged the worker of TSK_1', 'Told the coordinator the worker of TSK_1 is idle 12 min without reporting', 'Raised it to you'])
+  })
+
+  // Run job_0b682db7df32e7b4: the record of a live worker was lost, and the watchdog started a duplicate
+  it('adopts a live worker running the spec of a dispatched Task with no Dispatch, and starts no worker', async () => {
+    const live: LiveWorker[] = [{ id: 'ses_orig', spec: '--task-id tsk_1 --dispatch-id dsp_orig', cwd: '/wt1', accountId: 'accA' }]
+    const h = watchRig(plan({ tasks: [task({ id: 'tsk_1', status: 'dispatched' })] }), () => true, live)
+    await h.run(10 * MIN)
+    expect(h.cmds).toEqual([])
+    expect(h.state().dispatches).toEqual([expect.objectContaining({ id: 'dsp_orig', taskId: 'tsk_1', sessionId: 'ses_orig' })])
+    expect(h.lines).toEqual(['Adopted the worker of TSK_1: it ran with no record of its start'])
+  })
+
+  it('a dispatched Task with no Dispatch and no live worker is lost: started again on its account’s agent', async () => {
+    const h = watchRig(plan({ tasks: [task({ id: 'tsk_1', status: 'dispatched' })] }))
+    await h.run(3 * MIN)
+    expect(h.cmds).toEqual([{ cmd: 'worker-start', args: { task: 'tsk_1', agent: 'codex', account: 'accA' } }])
+    expect(h.lines).toEqual(['Started TSK_1 again: its worker ended without a report (try 1 of 4)'])
+  })
+})
+
+describe('stallRemedies: a dispatched Task with no Dispatch', () => {
+  it('is retried after 2 min, then raised to the owner once, never left silent', () => {
+    const s = plan({ tasks: [task({ id: 'tsk_1', status: 'dispatched' })] })
+    expect(watch(s, [T0 + LOST_STALL_MS - 1])).toEqual([])
+    expect(watch(s, every30s(60 * MIN))).toEqual([...Array<string>(TRIES).fill('retry-lost:tsk_1'), 'escalate:tsk_1'])
+  })
+
+  it('in a Run with no coordinator it is raised to the owner once after LOST_STALL_MS, never retried', () => {
+    const s = plan({ tasks: [task({ id: 'tsk_1', status: 'dispatched' })] })
+    const bare = { ...s, runs: [{ ...s.runs[0], coordinatorSessionId: undefined }] }
+    expect(watch(bare, [T0 + LOST_STALL_MS - 1])).toEqual([])
+    expect(watch(bare, every30s(60 * MIN))).toEqual(['escalate:tsk_1'])
+  })
+
+  it('a Task with a Dispatch on record is not untracked', () => {
+    const s = plan({ tasks: [task({ id: 'tsk_1', status: 'dispatched' })], dispatches: [{ ...ended('tsk_1', '/wt1'), endedAt: undefined, outcome: undefined } as Dispatch] })
+    expect(watch(s, every30s(5 * MIN), { ...idle, busy: () => true })).toEqual([])
+  })
+})
+
+describe('no silent stalls (T11)', () => {
+  /** Runs the pure check every 30 s up to `to` and lists each remedy with the minute it came due. */
+  const timeline = (s: OrchState, to: number, probe: StallProbe = idle): [string, number][] => {
+    let memo = new Map<string, StallEntry>()
+    const got: [string, number][] = []
+    for (const t of every30s(to)) {
+      const r = stallRemedies(s, t, memo, probe)
+      memo = r.memo
+      for (const d of r.due) got.push([`${d.kind}:${label(d)}`, (t - T0) / MIN])
+    }
+    return got
+  }
+
+  /** job_0 (older) has a done, undelivered Task on src/a.ts; job_1's ready tsk_1 needs src/: it waits on the lease. */
+  const leased = (over: Partial<OrchState> = {}): OrchState => {
+    const s = plan()
+    return {
+      ...s,
+      jobs: [{ ...s.jobs[0], id: 'job_0', objective: 'Plan Z', createdAt: '2026-10-17T00:00:00.000Z' }, s.jobs[0]],
+      runs: [{ id: 'run_0', jobId: 'job_0', ordinal: 1, createdAt: NOW, worktree: '/wt0', coordinatorSessionId: 'coord-0' }, ...s.runs],
+      tasks: [task({ id: 'tsk_0', runId: 'run_0', jobId: 'job_0', status: 'completed', affectedPaths: ['src/a.ts'] }), task({ id: 'tsk_1', affectedPaths: ['src/'] })],
+      ...over
+    }
+  }
+
+  it('a lease wait tells the coordinator once at 30 min and asks the owner once at 2 h', () => {
+    const got = timeline(leased(), 4 * 60 * MIN).filter(([k]) => k.startsWith('tell-lease') || k.startsWith('ask'))
+    expect(got).toEqual([['tell-lease:tsk_1', LEASE_TELL_MS / MIN], ['ask:tsk_1', LEASE_ASK_MS / MIN]])
+    expect(LEASE_TELL_MS).toBe(30 * MIN)
+    expect(LEASE_ASK_MS).toBe(120 * MIN)
+    // asked already ("Let it wait"): never again
+    const gate = { id: 'g', runId: 'run_1', taskId: 'tsk_1', question: 'q', options: ['Let it wait', 'Run it now anyway', 'Cancel this Task'], status: 'resolved' as const, resolution: 'Let it wait', createdAt: NOW }
+    expect(timeline(leased({ gates: [gate] }), 4 * 60 * MIN).filter(([k]) => k.startsWith('ask'))).toEqual([])
+  })
+
+  it('a Task the watchdog cannot start: a feed line at once, one owner question at 15 min, nothing more', () => {
+    for (const t of [task({ id: 'tsk_1', consecutiveFailures: 3 }), task({ id: 'tsk_1', accountIds: [] })])
+      expect(timeline(plan({ tasks: [t] }), 90 * MIN)).toEqual([['note-dropped:tsk_1', 0], ['ask:tsk_1', DROPPED_ASK_MS / MIN]])
+  })
+
+  it('a hold 30 min old with no open owner question raises one; with one open, none', () => {
+    expect(timeline(plan({}, { dispatchHold: true }), 120 * MIN)).toEqual([['escalate:tsk_1', HOLD_ASK_MS / MIN]])
+    expect(timeline(plan({}, { paused: true }), 120 * MIN)).toEqual([['escalate:tsk_1', HOLD_ASK_MS / MIN]])
+    const open = { id: 'g', runId: 'run_1', taskId: 'tsk_1', question: 'q', status: 'open' as const, createdAt: NOW }
+    expect(timeline(plan({ gates: [open] }, { dispatchHold: true }), 120 * MIN)).toEqual([])
+  })
+
+  it('a replan held 30 min re-notifies the owner once, its own question open or not, and not again after a restart', () => {
+    const replanning = { replanning: { startedAt: NOW } } as unknown as Partial<Job>
+    const asked = { id: 'm', runId: 'run_1', type: 'escalation' as const, subject: 'replan question', body: '', answered: false, createdAt: NOW }
+    const got = timeline(plan({ messages: [asked] }, { dispatchHold: true, ...replanning }), 120 * MIN)
+    expect(got).toEqual([['escalate:tsk_1', 30]])
+    const r = stallRemedies(plan({}, { dispatchHold: true, ...replanning }), T0 + 31 * MIN, new Map(), idle).due[0]
+    const raised = { ...asked, id: 'm2', subject: r.kind === 'escalate' ? r.subject : '' }
+    expect(timeline(plan({ messages: [raised] }, { dispatchHold: true, ...replanning }), 120 * MIN)).toEqual([])
+  })
+
+  /** A plan still planning, auto planning, its planner `pl`. */
+  const planning = (job: Partial<Job> = {}): OrchState => ({
+    ...emptyState(),
+    jobs: [{ id: 'job_1', objective: 'Plan A', cwd: '/p', createdAt: NOW, autoDispatch: false, pendingStart: true, plannerSessionIds: ['pl'], planning: 'auto', ...job }]
+  })
+
+  it('a planner idle without handing over: nudged at 20 min, restarted 10 min later, raised once after, in that order', () => {
+    expect(timeline(planning(), 180 * MIN)).toEqual([
+      ['nudge-planner:pl', PLANNER_IDLE_MS / MIN],
+      ['restart-planner:pl', (PLANNER_IDLE_MS + PLANNER_RESTART_MS) / MIN],
+      ['raise-planner:job_1', (2 * PLANNER_IDLE_MS + PLANNER_RESTART_MS) / MIN]
+    ])
+    // gone: nothing to nudge, restarted at 20 min, raised 20 min later
+    expect(timeline(planning(), 180 * MIN, { ...idle, alive: () => false })).toEqual([['restart-planner:pl', 20], ['raise-planner:job_1', 40]])
+    // working, handed over, chat planning (it waits on the person): nothing
+    expect(timeline(planning(), 180 * MIN, { ...idle, busy: () => true })).toEqual([])
+    expect(timeline(planning({ planReadyAt: NOW }), 180 * MIN)).toEqual([])
+    expect(timeline(planning({ planning: 'chat' }), 180 * MIN)).toEqual([])
+  })
+
+  it('the Host nudges, restarts (old planner closed, a usable account) and raises the planner through its commands', async () => {
+    const h = watchRig(planning({ plannerAccountId: 'accP' }), () => false, [], () => true)
+    await h.run(180 * MIN)
+    expect(h.cmds.map((c) => c.cmd)).toEqual(['sessions-send', 'sessions-close', 'jobs-plan'])
+    expect(h.cmds[0].args).toEqual({ id: 'pl', text: PLANNER_NUDGE })
+    expect(h.cmds[2].args).toEqual({ id: 'job_1', account: 'accP' })
+    expect(h.lines.at(-1)).toMatch(/^The planner of Plan A stopped without handing its plan over/)
+  })
+
+  it('two plans planning with overlapping paths: each planner session is told once', async () => {
+    const s: OrchState = {
+      ...emptyState(),
+      jobs: [
+        { id: 'job_a', objective: 'Plan A', cwd: '/p', createdAt: NOW, autoDispatch: false, pendingStart: true, plannerSessionIds: ['pa'], overlaps: [{ taskId: 'ta', jobId: 'job_b', otherTaskId: 'tb', by: 'path', path: 'src/x.ts' }] },
+        { id: 'job_b', objective: 'Plan B', cwd: '/p', createdAt: NOW, autoDispatch: false, pendingStart: true, plannerSessionIds: ['pb'], overlaps: [{ taskId: 'tb', jobId: 'job_a', otherTaskId: 'ta', by: 'path', path: 'src/' }] }
+      ],
+      tasks: [task({ id: 'ta', runId: undefined, jobId: 'job_a', status: 'pending' }), task({ id: 'tb', runId: undefined, jobId: 'job_b', status: 'pending' })]
+    }
+    // busy planners: only the overlap notices
+    const h = watchRig(s, () => true, [], () => true)
+    await h.run(30 * MIN)
+    expect(h.cmds.filter((c) => c.cmd === 'sessions-send').map((c) => c.args.id).sort()).toEqual(['pa', 'pb'])
   })
 })

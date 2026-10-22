@@ -5,6 +5,7 @@ import { buildWorkspaceTree, findPlan, planSessions, scopeLayout } from './works
 // W6-F: one workspace per project
 import { entryTab, OTHER_WORKSPACE, scopeIds as workspaceScopeOf, workspaceFolderOf, workspaceSessionIds } from './workspaceTree'
 import { ownerOf } from './projectScope'
+import { scopeData, scopeIdOf, scopeTree } from './projectView'
 import * as sticky from '../lib/stickyProject'
 import { projectAnchorOf } from '../components/projects/projectAnchor' // W8-G
 // W7-F (#84): ended plan tabs close on their own; the quick tab switcher
@@ -59,6 +60,13 @@ export function useWorkspace(deps: WorkspaceDeps) {
     () => (workspaceData ? buildWorkspaceTree(workspaceData, { showArchived: workspaceArchived }) : []),
     [workspaceData, workspaceArchived]
   )
+  // The "All projects" chip: the one way a view shows another project's items. Off again when the window moves to
+  // another project, so a project is never opened onto everyone else's work.
+  const [allProjects, setAllProjects] = useState(false)
+  useEffect(() => setAllProjects(false), [currentProject])
+  const scopeId = scopeIdOf(workspaceTree, workspaceData?.worktrees ?? [], workspaceProjectId, currentProject, allProjects)
+  const scopedTree = useMemo(() => scopeTree(workspaceTree, scopeId), [workspaceTree, scopeId])
+  const scopedData = useMemo(() => (workspaceData ? scopeData(workspaceData, scopeId) : null), [workspaceData, scopeId])
   // W6-F: every workspace's sessions, and the ones the open project's (or plan's) workspace shows. Paired Runtimes'
   // tabs have no local cwd, so they are "Other"'s.
   const workspaceIds = useMemo(() => {
@@ -91,10 +99,10 @@ export function useWorkspace(deps: WorkspaceDeps) {
   }, [activeSessionId])
   const canOpenSessionTab = (sessionId: string): boolean => !!layout && !!groupOfTab(layout, sessionTab(sessionId))
   // W7-F (#84): an ended plan's ended tabs, and a replan's stale planner tab, close on their own (tabsToAutoClose),
-  // through the tab strip's own close: closeWorkbenchTab → closeSession. The session has already exited, so the kill
-  // that sends is a no-op on the Host (its registry skips an ended pty) and nothing is forgotten: the scrollback stays in
-  // the Host's ended entry, the transcript on disk (History), and the workspace tree, built from orchestration data,
-  // still lists the session. A plain session's ended tab is left alone.
+  // through the tab strip's own close as a hide (T13): the tab leaves the tree, nothing is killed, and Recently closed
+  // lists it, so Ctrl+Shift+T resumes it from its transcript. The scrollback stays in the Host's ended entry, the
+  // transcript on disk (History), and the workspace tree, built from orchestration data, still lists the session. A
+  // plain session's ended tab is left alone.
   useEffect(() => {
     if (!workspaceData || !layout) return
     const open = leaves(layout)
@@ -111,7 +119,7 @@ export function useWorkspace(deps: WorkspaceDeps) {
       openTabSessionIds: open,
       enabled: autoCloseEndedPlanTabs
     })
-    for (const id of ids) closeWorkbenchTabRef.current(sessionTab(id))
+    for (const id of ids) closeWorkbenchTabRef.current(sessionTab(id), 'hide') // T13: hidden, and listed in Recently closed
   }, [workspaceData, sessions, layout, autoCloseEndedPlanTabs])
   // W7-F (#84): what the switcher filters a plan session's tab by, besides its title
   const switcherMeta = useMemo(() => {
@@ -203,7 +211,7 @@ export function useWorkspace(deps: WorkspaceDeps) {
   return {
     workspacePlanId, workspaceArchived, setWorkspaceArchived, workspaceProjectId, projectDialog, setProjectDialog,
     setProjectsRefresh, firstPlan, setFirstPlan, autoCloseEndedPlanTabs, setAutoCloseEndedPlanTabs, workspaceData,
-    projectAnchor, workspaceTree, workspaceIds, shownLayout, canOpenSessionTab, switcherMeta,
+    projectAnchor, workspaceTree, workspaceIds, allProjects, setAllProjects, scopeId, scopedTree, scopedData, shownLayout, canOpenSessionTab, switcherMeta,
     setWorkspaceScope, enterWorkspace, openWorkspacePlan, openWorkspaceProject, workspaceCwd, bottomRoot,
     runAvailable, bottomTabShown
   }

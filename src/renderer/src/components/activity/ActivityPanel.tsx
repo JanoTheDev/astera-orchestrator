@@ -28,7 +28,7 @@ export function ActivityPanel({
   accounts: Account[] | null
   onOpenSession?: (sessionId: string, jobId: string) => void
 }): React.JSX.Element {
-  const { t } = useI18n()
+  const { t, lang } = useI18n()
   const [open, setOpen] = usePanelOpen('activity') // W7-F (#83): remembered, like History
   const [all, setAll] = useState(false)
   const [events, setEvents] = useState<ActivityEvent[]>([])
@@ -126,7 +126,7 @@ export function ActivityPanel({
           <ul className="act-feed">
             {lines.length === 0 && <li className="ws-empty">No activity yet</li>}
             {lines.map((e) => {
-              const { text, tone } = lineOf(e, label)
+              const { text, tone } = lineOf(e, label, lang)
               const who = whoOf(e, label)
               const openable = e.sessionId !== undefined && e.jobId !== undefined && onOpenSession !== undefined
               return (

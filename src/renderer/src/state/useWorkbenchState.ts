@@ -253,7 +253,7 @@ export function useWorkbenchState(deps: WorkbenchStateDeps) {
   /** The close function itself. `closeWorkbenchTab` is recreated every render and its body reads
    *  render-time values (via closeFileTab), so a key listener registered once that called a captured
    *  stale closure would act on outdated tabs — same place, same reason as selectWorkbenchTabRef. */
-  const closeWorkbenchTabRef = useRef<(tabId: string) => void>(() => {})
+  const closeWorkbenchTabRef = useRef<(tabId: string, how?: 'hide' | 'end') => void>(() => {})
   // The run shortcuts (Task 9). Same reason as the two refs above: the keydown effect is registered
   // once with no dependencies, so it would otherwise close over the first render's runStart/runStop/
   // selectedRunId. Assigned once those exist, further down.

@@ -22,8 +22,9 @@ export function justFinished(
   const afterTasks = tasksByOwner(after)
   const beforeTasks = tasksByOwner(before)
   for (const run of after.runs) {
+    // Without the gates no Task reads held, so only these three come back
     const now = outcomeOfTasks(afterTasks.get(run.id) ?? [])
-    if (now === 'running') continue
+    if (now !== 'completed' && now !== 'failed') continue
     if (outcomeOfTasks(beforeTasks.get(run.id) ?? []) !== 'running') continue
     out.push({ runId: run.id, outcome: now })
   }

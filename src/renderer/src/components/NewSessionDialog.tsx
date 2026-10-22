@@ -42,6 +42,26 @@ const MAX_ROLL_ACCOUNTS = 3
 // provider id, so all three lines name the tool the same way.
 const CLI_LABEL: Record<Provider, string> = { claude: 'Claude Code CLI', codex: 'Codex CLI' }
 
+/** The machine a new console was last started on, per project folder: 'local' or a Runtime id. Storage that throws
+ *  (a private window, blocked site data) only forgets the pick. */
+const machineKey = (project: string): string => `astera.newConsole.machine:${project}`
+export function rememberedMachine(project: string | null): string | null {
+  if (!project) return null
+  try {
+    return localStorage.getItem(machineKey(project))
+  } catch {
+    return null
+  }
+}
+export function rememberMachine(project: string | null, machine: string): void {
+  if (!project) return
+  try {
+    localStorage.setItem(machineKey(project), machine)
+  } catch {
+    /* forgotten, not fatal */
+  }
+}
+
 export function NewSessionDialog({
   accounts,
   runningCount,
@@ -86,6 +106,13 @@ export function NewSessionDialog({
 }): React.JSX.Element {
   const { t } = useI18n()
   const [cwd, setCwd] = useState<string | null>(initialCwd)
+  // The machine last picked for this project opens again: a Runtime hands over to its own dialog at once.
+  useEffect(() => {
+    const last = rememberedMachine(initialCwd)
+    if (last && last !== 'local' && onRemote && runtimes.some((r) => r.runtimeId === last)) onRemote(last)
+    // Once, on open: a pick made in this dialog is the person's, not the memory's.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   // Account slots — [0] is the primary account, slots 1 and 2 are the switch order once the limit is hit
   const [accountIds, setAccountIds] = useState<string[]>([accounts[0]?.id ?? ''])
   const [saveDefault, setSaveDefault] = useState(false)
@@ -501,7 +528,11 @@ export function NewSessionDialog({
                 ...runtimes.map((r) => ({ value: r.runtimeId, label: r.name }))
               ]}
               value="local"
-              onChange={(v) => v !== 'local' && onRemote(v)}
+              onChange={(v) => {
+                if (v === 'local') return
+                rememberMachine(initialCwd, v)
+                onRemote(v)
+              }}
             />
           </div>
         )}

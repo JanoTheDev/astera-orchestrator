@@ -12,12 +12,15 @@ import { selectWorktree, useWorktreeView } from '../worktrees/worktreeView'
 export function WorktreesPage({
   onStartSession,
   onOpenFiles,
-  onClose
+  onClose,
+  repoFilter
 }: {
   onStartSession: (path: string) => void
   onOpenFiles: (path: string) => void
   /** The page is a layer until the shell has a page tab for it (W9-B); the layer closes here. */
   onClose?: () => void
+  /** Only the open project's worktrees, unless "All projects" is on. */
+  repoFilter?: (repoPath: string) => boolean
 }): React.JSX.Element {
   const { t } = useI18n()
   const { selected } = useWorktreeView()
@@ -68,6 +71,7 @@ export function WorktreesPage({
         onSelect={selectWorktree}
         onStartSession={onStartSession}
         onRows={onRows}
+        repoFilter={repoFilter}
         actions={
           <>
             {viewOptions}

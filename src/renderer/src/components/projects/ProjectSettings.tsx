@@ -175,6 +175,13 @@ export function ProjectSettingsBody({
             </select>
           </div>
           <div className="field">
+            <label htmlFor="project-origin-sync">{t('project.originSync')}</label>
+            <select id="project-origin-sync" value={project.originSync ?? 'on'} onChange={(e) => void save({ originSync: e.target.value })}>
+              <option value="on">{t('project.originSync.on')}</option>
+              <option value="off">{t('project.originSync.off')}</option>
+            </select>
+          </div>
+          <div className="field">
             <label>Default account</label>
             <select value={account} onChange={(e) => void save({ account: e.target.value })}>
               <option value="">None</option>

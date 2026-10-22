@@ -21,6 +21,20 @@ describe('planStatusOf', () => {
     expect(planStatusOf(row({ outcome: 'failed' })).tone).toBe('danger')
     expect(planStatusOf(row({ outcome: 'completed' }))).toEqual({ key: 'pages.plans.status.done', tone: 'ok' })
   })
+
+  // T8: a running plan with nothing that can move never reads Working
+  it('says Needs you or Stalled for a running plan nothing can move', () => {
+    expect(planStatusOf(row({ stuck: 'needs-you', tasks: [task('a', { status: 'blocked' })] }))).toEqual({ key: 'plan.outcome.needsYou', tone: 'warn' })
+    expect(planStatusOf(row({ stuck: 'stalled', tasks: [task('a', { status: 'failed' })] }))).toEqual({ key: 'plan.outcome.stalled', tone: 'danger' })
+    expect(planStatusOf(row({ stuck: 'stalled', paused: true })).key).toBe('jobs.run.roundStopped')
+  })
+})
+
+describe('planStatusOf delivery', () => {
+  it('carries the delivery error of a failed plan, and none otherwise', () => {
+    expect(planStatusOf(row({ outcome: 'failed', deliveryError: 'merge conflict' }))).toEqual({ key: 'pages.plans.status.failed', tone: 'danger', reason: 'merge conflict' })
+    expect(planStatusOf(row({ outcome: 'failed' }))).not.toHaveProperty('reason')
+  })
 })
 
 describe('lastActivityOf', () => {
@@ -28,5 +42,12 @@ describe('lastActivityOf', () => {
     expect(lastActivityOf(row())).toBeUndefined()
     const at = lastActivityOf(row({ createdAt: '2026-01-01T00:00:00Z', tasks: [task('a', { startedAt: '2026-01-02T00:00:00Z' }), task('b')] }))
     expect(at).toBe(Date.parse('2026-01-02T00:00:00Z'))
+  })
+})
+
+describe('planStatusOf for the final check and a plan finished with blocked Tasks', () => {
+  it('reads checking, never done, until the final check settles; and finished-with-blocked, never working or done', () => {
+    expect(planStatusOf(row({ outcome: 'checking' }))).toEqual({ key: 'pages.plans.status.checking', tone: 'info' })
+    expect(planStatusOf(row({ outcome: 'blocked', tasks: [task('a', { status: 'blocked' })] }))).toEqual({ key: 'pages.plans.status.blocked', tone: 'warn' })
   })
 })

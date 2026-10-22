@@ -1,6 +1,6 @@
 // W6-C: never two workers on the same files (pathsOverlap, slotsToFill, the board's reason) and the hard cap of 10.
 import { describe, expect, it } from 'vitest'
-import { pathsOverlap, slotsToFill, workerCapOf } from './schedule'
+import { LEASE_WAIT_OPTIONS, pathsOverlap, slotsToFill, workerCapOf } from './schedule'
 import { taskBoardsOf } from './blocked'
 import { emptyState, type OrchState } from './state'
 import { MAX_CONCURRENT_WORKERS, type Dispatch, type Job, type JobRun, type Task } from './types'
@@ -184,6 +184,17 @@ describe('path leases across plans (T9)', () => {
       task('t0', 'r1', { status: 'pending', affectedPaths: ['src/a.ts'] }),
       task('t2', 'r2', { affectedPaths: ['src/'] })
     ]
+  })
+
+  it('T11: the owner answering "Run it now anyway" lets that Task past the lease, and no other', () => {
+    const answered = (resolution: string): OrchState => ({
+      ...leased(),
+      gates: [{ id: 'g1', runId: 'r2', taskId: 't2', question: 'q', options: [...LEASE_WAIT_OPTIONS], status: 'resolved', resolution, createdAt: T0 }]
+    })
+    expect(placed(answered('Run it now anyway'))).toEqual(['t2'])
+    expect(placed(answered('Let it wait'))).toEqual([])
+    const other = answered('Run it now anyway')
+    expect(placed({ ...other, tasks: [...other.tasks, task('t3', 'r2', { affectedPaths: ['src/a.ts'] })] })).toEqual(['t2'])
   })
 
   it("holds another plan's Task on a done but undelivered Task's files, with the reason", () => {

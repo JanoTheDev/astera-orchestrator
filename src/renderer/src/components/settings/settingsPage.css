@@ -127,3 +127,4 @@
 .settings-projects-list .settings-nav-item { min-height: var(--h-md); padding: 0 var(--sp-2); font-size: var(--fs-13); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .settings-projects-list .settings-nav-item.active { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
 .settings-projects-body { flex: 1; min-width: 0; }
+.settings-page__more { margin-top: var(--sp-2); }

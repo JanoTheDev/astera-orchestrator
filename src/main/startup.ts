@@ -138,3 +138,40 @@ export function loadInto(
     log(`window load failed: ${(err as Error)?.message ?? String(err)}`)
   }
 }
+
+/** How long a quit asked for by SIGTERM/SIGINT may take before the process is ended anyway. */
+export const SIGNAL_QUIT_FORCE_MS = 5_000
+
+/**
+ * Quits on SIGTERM and SIGINT, and makes sure the process actually ends.
+ *
+ * Electron's default for these is not dependable once the app holds windows and timers: a window that
+ * does not close, or a wait on the Host, kept the app running after `kill` (2026-10). So the signal
+ * asks for an ordinary quit, and if that has not ended the process within `forceMs`, the logs are
+ * flushed and the process exits. The timer is unref'd so it never holds a quit that is finishing.
+ */
+export function quitOnSignals(d: {
+  on(signal: 'SIGTERM' | 'SIGINT', cb: () => void): void
+  quit(): void
+  exit(code: number): void
+  flushLogs(): void
+  log(m: string): void
+  forceMs?: number
+}): void {
+  let asked = false
+  for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+    d.on(signal, () => {
+      if (asked) return
+      asked = true
+      d.log(`${signal} — quitting`)
+      d.flushLogs()
+      const timer = setTimeout(() => {
+        d.log(`${signal}: the quit had not finished after ${d.forceMs ?? SIGNAL_QUIT_FORCE_MS}ms — exiting`)
+        d.flushLogs()
+        d.exit(0)
+      }, d.forceMs ?? SIGNAL_QUIT_FORCE_MS)
+      timer.unref?.()
+      d.quit()
+    })
+  }
+}

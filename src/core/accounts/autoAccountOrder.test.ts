@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { Account, Provider } from '../types'
 import type { AccountReading } from '../orchestration/usageGuard'
-import { autoAccountOrder, withAutoOrder } from './autoAccountOrder'
+import { autoAccountOrder, rankAccounts, withAutoOrder, READING_MAX_AGE_MS } from './autoAccountOrder'
 import { rollChainFor } from './dispatchAccount'
 import { GHOST_ID_PREFIX } from './ghostId'
 
@@ -16,21 +16,79 @@ const r = (session: number | null, weekly: number | null = null, resetsAt: strin
 const order = (accounts: Account[], readings: Record<string, AccountReading>, loggedIn = accounts.map((a) => a.id), provider: Provider = 'claude') =>
   autoAccountOrder({ provider, accounts, loggedInIds: new Set(loggedIn), readings: new Map(Object.entries(readings)), pauseAt: 90, nowMs: NOW })
 
+describe('rankAccounts', () => {
+  const rank = (accounts: Account[], readings: Record<string, AccountReading>, extra: Partial<Parameters<typeof rankAccounts>[0]> = {}) =>
+    rankAccounts({ accounts, readings: new Map(Object.entries(readings)), threshold: 90, nowMs: NOW, ...extra })
+  const ids = (x: ReturnType<typeof rank>) => x.usable.map((a) => a.id)
+
+  it('checks weekly first: 0% 5-hour but 100% weekly loses to 40%/40%', () => {
+    const out = rank([acct('a'), acct('b')], { a: r(0, 100), b: r(40, 40) })
+    expect(ids(out)).toEqual(['b'])
+    expect(out.unusable).toEqual([{ account: acct('a'), reason: 'weekly-full' }])
+  })
+
+  it('a full weekly window with no reset time stays full', () => {
+    expect(rank([acct('a')], { a: r(0, 100, null) }).unusable[0].reason).toBe('weekly-full')
+  })
+
+  it('a full 5-hour window is session-full', () => {
+    expect(rank([acct('a')], { a: r(95, 10) }).unusable[0].reason).toBe('session-full')
+  })
+
+  it('sorts an unknown account after a known 30% one and flags it', () => {
+    const out = rank([acct('a'), acct('b')], { b: r(30, 30) })
+    expect(ids(out)).toEqual(['b'])
+    expect(out.unusable).toEqual([{ account: acct('a'), reason: 'unknown' }])
+    expect(rank([acct('a')], { a: r(10) }).unusable[0].reason).toBe('unknown') // weekly missing
+  })
+
+  it('flags a reading older than ten minutes as stale', () => {
+    const old = { ...r(10, 10), at: NOW - READING_MAX_AGE_MS - 1 }
+    expect(rank([acct('a')], { a: old }).unusable[0].reason).toBe('stale')
+    expect(ids(rank([acct('a')], { a: { ...old, at: NOW - 60_000 } }))).toEqual(['a'])
+  })
+
+  it('counts a window whose reset has passed as empty', () => {
+    expect(ids(rank([acct('a'), acct('b')], { a: r(99, 99, PAST), b: r(10, 10) }))).toEqual(['a', 'b'])
+  })
+
+  it('orders by usage plus 10 per live session, then weekly headroom, then list order', () => {
+    expect(ids(rank([acct('a'), acct('b'), acct('c')], { a: r(60, 10), b: r(10, 30), c: r(20, 20) }))).toEqual(['c', 'b', 'a'])
+    expect(ids(rank([acct('a'), acct('b')], { a: r(40, 10), b: r(10, 40) }))).toEqual(['a', 'b'])
+    expect(ids(rank([acct('a'), acct('b')], { a: r(10, 10), b: r(40, 40) }, { liveSessions: new Map([['a', 5]]) }))).toEqual(['b', 'a'])
+  })
+
+  it('spreads 30 sequential starts over 4 equal accounts 7-8 each', () => {
+    const accounts = ['a', 'b', 'c', 'd'].map((id) => acct(id))
+    const readings = Object.fromEntries(accounts.map((a) => [a.id, r(20, 20)]))
+    const live = new Map<string, number>()
+    for (let k = 0; k < 30; k++) {
+      const id = rank(accounts, readings, { liveSessions: live }).usable[0].id
+      live.set(id, (live.get(id) ?? 0) + 1)
+    }
+    for (const a of accounts) expect([7, 8]).toContain(live.get(a.id))
+  })
+
+  it('respects maxSessions and leaves logged-out accounts out of the usable ones', () => {
+    const out = rank([acct('a'), acct('b'), acct('c')], { a: r(1, 1), b: r(50, 50), c: r(1, 1) }, {
+      liveSessions: new Map([['a', 2]]),
+      maxSessions: new Map([['a', 2]]),
+      loggedInIds: new Set(['a', 'b'])
+    })
+    expect(ids(out)).toEqual(['b'])
+    expect(out.unusable.map((x) => [x.account.id, x.reason])).toEqual([['a', 'at-cap'], ['c', 'logged-out']])
+  })
+})
+
 describe('autoAccountOrder', () => {
-  it('orders least used first by the higher of the two windows', () => {
-    expect(order([acct('a'), acct('b'), acct('c')], { a: r(60), b: r(10, 30), c: r(20) })).toEqual(['c', 'b', 'a'])
-  })
-
-  it('puts accounts at or over the threshold last, least used of them first', () => {
-    expect(order([acct('a'), acct('b'), acct('c')], { a: r(99), b: r(50), c: r(90) })).toEqual(['b', 'c', 'a'])
-  })
-
-  it('counts an unknown reading as 0, after a known 0, and keeps list order otherwise', () => {
-    expect(order([acct('u1'), acct('k0'), acct('k5'), acct('u2')], { k0: r(0), k5: r(5) })).toEqual(['k0', 'u1', 'u2', 'k5'])
-  })
-
-  it('ignores a window whose reset has passed', () => {
-    expect(order([acct('a'), acct('b')], { a: r(99, null, PAST), b: r(10) })).toEqual(['a', 'b'])
+  it('usable first (least used), then unknown, then full ones least used first', () => {
+    expect(order([acct('u'), acct('a'), acct('b'), acct('c'), acct('k')], { a: r(99, 10), b: r(50, 50), c: r(10, 95), k: r(5, 5) })).toEqual([
+      'k',
+      'b',
+      'u',
+      'c',
+      'a'
+    ])
   })
 
   it('leaves out other providers, logged-out accounts and ghosts', () => {
@@ -54,6 +112,10 @@ describe('rollChainFor with the automatic order', () => {
   it('keeps the requested account first and rolls on to the rest least used first', () => {
     const picked = rollChainFor({ requested: 'b', taskAccountIds: ['a'], provider: 'claude', accounts, loggedInIds, auto: { order: ['c', 'b', 'a'], over: (id) => id === 'a' } })
     expect(picked).toEqual({ chain: ['b', 'c', 'a'] })
+  })
+  it('moves an unusable requested account to its place in the order (decision 6)', () => {
+    const auto = { order: ['c', 'b', 'a'], over: (id: string) => id === 'a', usable: (id: string) => id !== 'a' }
+    expect(rollChainFor({ requested: 'a', taskAccountIds: ['b'], provider: 'claude', accounts, loggedInIds, auto })).toEqual({ chain: ['b', 'c', 'a'] })
   })
   it('without it, the chain is the Task\'s own', () => {
     expect(rollChainFor({ requested: 'a', taskAccountIds: ['a'], provider: 'claude', accounts, loggedInIds })).toEqual({ chain: ['a'] })
