@@ -613,6 +613,7 @@ export function createHostSpawner(d: HostSpawnerDeps): HostSpawner | null {
         const a = accounts.find((x) => x.id === id)
         return a ? providerOf(a) : null
       },
+      accountConfigDir: (id) => accounts.find((x) => x.id === id)?.configDir ?? null,
       specsDir,
       log,
       // Host journal (A19 lifted): the prompt rows recovery reasons from. Isolated: the coordinator calls

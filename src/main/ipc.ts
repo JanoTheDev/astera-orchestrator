@@ -3112,6 +3112,13 @@ export function registerIpc(
           return null // no such account — the coordinator throws 'unknown account'
         }
       },
+      accountConfigDir: (id) => {
+        try {
+          return core.accounts.get(id).configDir
+        } catch {
+          return null
+        }
+      },
       // The coordinator does not decide where spec files go — not depending on the Electron app is the
       // defining property of that class, so the wiring supplies the path (the same directory created
       // and cleaned above).

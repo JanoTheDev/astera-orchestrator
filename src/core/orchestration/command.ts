@@ -111,7 +111,7 @@ import { isPathWithin } from '../files/tree'
 import { buildHandoverPrompt, buildPlannerBrief } from './handover'
 import { noRemoteNote, unmergedPlanBranches } from './unmergedBranches' // W8-G (#101)
 // W2-A planner stage
-import { editPlanTask, leftOutArg, orchestrationRoleOf, planFieldsFromArgs, plannerJobOf, plannerRefusal, validatePlan, workerSpecOf } from './planner'
+import { editPlanTask, kindOf, leftOutArg, orchestrationRoleOf, planFieldsFromArgs, plannerJobOf, plannerRefusal, validatePlan, workerSpecOf } from './planner'
 import { parseReviewFile, type ReviewIssueInput } from './review'
 import { nameForRun } from '../worktrees/naming'
 import type { Provider } from '../providers/meta'
@@ -158,7 +158,7 @@ import { jobNameOf } from './jobName'
 // W8-D several plans in one repo
 import { areasArg, otherPlansBrief, overlapLines, planTasksOf } from './overlap'
 import { isSamePath } from '../files/tree'
-import type { RunPr, TaskLinks } from './types'
+import type { RunPr, TaskKind, TaskLinks } from './types'
 import { escalationOpen } from './sessionIndex' // W7-C
 import type { Gate, Message } from './types' // W7-C
 import type { BranchPushResult, PrCreateRequest, PrCreateResult } from '../github/prCreate'
@@ -364,6 +364,8 @@ export interface OrchServerDeps {
   startWorker(a: {
     dispatchId: string
     taskId: string
+    /** T9: the Task's kind, for the skills section of its spec. */
+    kind?: TaskKind
     title: string
     spec: string
     /** The finished spec file, when the caller assembled it itself — passed straight through to
@@ -4394,7 +4396,7 @@ export async function handleCommand(
         return okBody({ id, mergedIntoPlanAt: now })
       }
       // W2-A: editing a plan's Task (its title, spec, deps and plan fields) instead of moving its status.
-      const PLAN_EDIT = ['title', 'spec', 'deps', 'prompt', 'criteria', 'affectedPaths', 'difficulty', 'provider', 'model', 'modelReason', /* W6-A */ 'basis', 'evidence', /* T7 */ 'covers']
+      const PLAN_EDIT = ['title', 'spec', 'deps', 'prompt', 'criteria', 'affectedPaths', 'difficulty', 'provider', 'model', 'modelReason', /* W6-A */ 'basis', 'evidence', /* T7 */ 'covers', /* T9 */ 'kind']
       if (args.status === undefined && PLAN_EDIT.some((k) => args[k] !== undefined)) {
         const plan = planFieldsFromArgs(args)
         if (!plan.ok) return bad(plan.error)
@@ -4793,6 +4795,7 @@ export async function handleCommand(
           title: task.title,
           // W2-A: a planned Task's prompt, criteria and paths go into the worker's spec file.
           spec: workerSpecOf(task),
+          kind: kindOf(task),
           provider: agent,
           accountId: account,
           runCwd: runJob?.cwd ?? '',

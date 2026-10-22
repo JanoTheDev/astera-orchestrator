@@ -21,7 +21,7 @@ import {
 } from './state'
 import { latestImplDispatch } from './convergence'
 import { splitLegacyRuns, type LegacyRun } from './legacy'
-import { planFileOf, renderPlanMd } from './planner'
+import { decisionsOf, planFileOf, renderPlanFolder } from './planner'
 
 /** Cutoff for discarding a finished Run. The same 30 days as SchedulerConfigStore's ENTRY_TTL_MS */
 export const RUN_TTL_MS = 30 * 24 * 60 * 60 * 1000
@@ -627,23 +627,35 @@ export class OrchestrationStore {
     await this.writePlans(next)
   }
 
-  // W2-A planner stage: the plan.md each planned Job keeps beside this file, for a person to read.
-  /** What each plan.md was last written with, so a commit that leaves a plan alone writes nothing. */
-  private plansWritten = new Map<string, string>()
+  // W2-A planner stage, T9: the plan folder each planned Job keeps beside this file, for a person to read.
+  /** What each plan-folder file was last written with, so a commit that leaves a file alone writes nothing. */
+  private plansWritten = new Map<string, Map<string, string>>()
 
-  /** Writes `<profile>/plans/<jobId>/plan.md` for every planned Job (`Job.plannerSessionIds`) whose plan
-   *  changed. Best effort: orchestration.json above is the record, and a plan.md that fails is retried by
-   *  the next commit. */
+  /** Writes `<profile>/plans/<jobId>/plan.md` and `tasks/<NN>-<slug>.md` for every planned Job (`Job.plannerSessionIds`),
+   *  only the files that changed, and removes task files no Task owns any more. Best effort: orchestration.json above is
+   *  the record, and a file that fails is retried by the next commit. */
   private async writePlans(next: OrchState): Promise<void> {
     for (const job of next.jobs) {
       if (job.plannerSessionIds === undefined) continue
-      const md = renderPlanMd(next, job)
-      if (this.plansWritten.get(job.id) === md) continue
-      const file = planFileOf(path.dirname(this.filePath), job.id)
+      const dir = path.dirname(planFileOf(path.dirname(this.filePath), job.id))
       try {
-        await fs.mkdir(path.dirname(file), { recursive: true })
-        await fs.writeFile(file, md, 'utf8')
-        this.plansWritten.set(job.id, md)
+        const existing = await fs.readFile(path.join(dir, 'inputs', 'existing.md'), 'utf8').catch(() => undefined)
+        const files = renderPlanFolder(next, job, decisionsOf(existing))
+        const written = this.plansWritten.get(job.id) ?? new Map<string, string>()
+        const stale = [...written.keys()].filter((f) => !files.has(f))
+        for (const [name, text] of files) {
+          if (written.get(name) === text) continue
+          await fs.mkdir(path.dirname(path.join(dir, name)), { recursive: true })
+          await fs.writeFile(path.join(dir, name), text, 'utf8')
+          written.set(name, text)
+        }
+        // also files an earlier run of the app wrote: whatever tasks/ holds that no Task owns
+        const onDisk = (await fs.readdir(path.join(dir, 'tasks')).catch(() => [])).map((f) => `tasks/${f}`)
+        for (const name of new Set([...stale, ...onDisk.filter((f) => f.endsWith('.md') && !files.has(f))])) {
+          await fs.rm(path.join(dir, name), { force: true })
+          written.delete(name)
+        }
+        this.plansWritten.set(job.id, written)
       } catch {
         // retried by the next commit (see above)
       }

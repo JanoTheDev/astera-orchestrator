@@ -85,12 +85,10 @@ export function buildHandoverPrompt(a: {
         'PLAN THIS JOB FIRST',
         'This Job came with an objective and no plan: no Task exists yet. Planning it is your first job.',
         'Break the objective into Tasks, then run them under the same rules as any other plan:',
-        `- Create each one with \`astera task-create --run ${a.runId} --spec - --account <id>\` (the spec on`,
+        `- Create each one with \`astera task-create --run ${a.runId} --spec -\` (the spec on`,
         '  stdin, in full: the worker reads only that). Pass `--title <text>` for a short name.',
         '- Order them with `--deps \'["<tsk>", ...]\'` (a JSON array of the Task ids it waits for).',
-        a.accountId !== undefined
-          ? `- Account: \`--account ${a.accountId}\`, the one you run on, unless the objective names another;`
-          : '- Account: the one you run on, unless the objective names another;',
+        `${ACCOUNT_RULE};`,
         '  `astera accounts list --json` lists the rest. One provider per Task: never mix providers inside one Task.',
         `- Checks: \`astera run-configs list --job ${a.jobId ?? '<jobId>'} --json\` lists the project's run`,
         '  configurations. When there are any that test the work, pass their ids as `--validate <id,...>`',
@@ -229,6 +227,9 @@ export function buildHandoverPrompt(a: {
   ].join('\n')
 }
 
+/** T9: the account rule of both briefs. Tasks with no account run on the account with the most room (weekly first). */
+const ACCOUNT_RULE = '- Account: omit `--account` unless the objective names one; Astera picks the account with the most room (weekly first)'
+
 // W2-A planner stage (SPEC §2). The planner's brief, beside the coordinator's for the same reasons: words an
 // agent reads, written to a file and pointed at with `coordinatorLaunchPrompt`'s one line.
 
@@ -311,7 +312,7 @@ export function buildPlannerBrief(a: {
     '  other command that starts work when it comes from this session.',
     '',
     'WRITE THE PLAN AS TASKS',
-    `Create each Task with \`astera task-create --run ${a.jobId} --account ${a.accountId} --title <short name>\`, and:`,
+    `Create each Task with \`astera task-create --run ${a.jobId} --title <short name>\`, and:`,
     '- `--spec <one paragraph>`: what the Task is for.',
     '- `--prompt -`: the full prompt the worker starts with, on stdin. The worker sees nothing else of this',
     '  conversation, so the prompt must stand alone: goal, files, constraints, how to check the result.',
@@ -325,10 +326,11 @@ export function buildPlannerBrief(a: {
     '  Every item needs a Task with --covers, or is left out on purpose with the reason:',
     `  \`astera jobs-set --id ${a.jobId} --left-out '[{"item":2,"reason":"already built: src/x.ts"}]'\`.`,
     '  A plan with an item that is neither is refused at approval.',
+    '- `--kind bugfix|feature|refactor|ui|audit|docs|test|ops`: on every Task. It picks the skills the worker is told to use.',
     '- `--difficulty light|standard|hard`: picks the worker\'s model (light is a small, mechanical change;',
     '  hard is design or a subtle bug). Add `--model-reason "<one line>"` saying why.',
     '  `--provider claude|codex` and `--model <id>` only when the Task needs a specific one.',
-    `- Account: \`--account ${a.accountId}\` unless the objective names another (\`astera accounts list --json\`).`,
+    `${ACCOUNT_RULE}; \`astera accounts list --json\` lists them.`,
     '- Checks: `astera run-configs list --job ' + a.jobId + ' --json`; pass the ones that test the work as `--validate <id,...>`.',
     // W8-D plan areas
     // T7: every Job is named at creation by its objective's first words; the planner gives it a real name

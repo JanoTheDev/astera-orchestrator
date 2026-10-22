@@ -20,7 +20,8 @@ import path from 'node:path'
 import { isSamePath } from '../../files/tree'
 import type { Provider } from '../../providers/meta'
 import { KNOWLEDGE_DIRS, knowledgeFilesFrom, type KnowledgeFiles } from '../../knowledge/detect'
-import type { CheckResult, RepairReason, ReviewIssue } from '../types'
+import type { CheckResult, RepairReason, ReviewIssue, TaskKind } from '../types'
+import { installedSkillsIn, skillsSection } from './workerSkills'
 import type { CloseReason } from '../../types'
 import { REPAIR_DIAGNOSTICS, diagnosticLine, findingsCountOf } from '../pluginChecks'
 import { boundedSlug } from '../../worktrees/naming'
@@ -113,6 +114,9 @@ export interface CoordinatorDeps {
    *  start whose fork the wiring removes like any other. Absent: deps are not merged into the fork. */
   mergeIntoWorktree?(worktree: string, from: string[]): Promise<void>
   accountProvider(accountId: string): Provider | null
+  /** T9: the config directory of an account, where its installed skills are (workerSkills.ts). Absent or null: the
+   *  worker's spec names no skill and writes each rule in plain words. */
+  accountConfigDir?(accountId: string): string | null
   /** Directory to write spec files into (absolute path). It has to be outside the user's repository
    *  — the spec body carries the work instructions the orchestrator wrote, and inside the repository
    *  it would leak once committed. The wiring passes `<userData>/orch/specs` (the same convention as
@@ -418,6 +422,9 @@ export function buildSpecFile(a: {
   /** 이 Dispatch 가 수리(repair) 라운드일 때만 채워진다. state.ts 의 판정 함수가 연다 — 이 함수는
    *  그것을 spec 파일의 절로 옮겨 적을 뿐이다. 없으면 파일은 지금까지와 같다. */
   repair?: RepairSection
+  /** T9: the Task's kind and the skills its worker has; with `kind` the spec gets a "Skills for this Task" section. */
+  kind?: TaskKind
+  installedSkills?: ReadonlySet<string>
 }): string {
   // 커밋·보고 의무보다 앞에 둔다 — 그 둘은 일이 끝난 뒤의 의무이고 이것은 시작하기 전에 읽을
   // 것이다. spec 본문 뒤인 이유: 무엇을 하는 일인지 읽은 다음에야 "그 결정이 어디 있는지"가
@@ -480,7 +487,7 @@ If this task has an issue, add \`--issue <number>\` to the worker_done report be
   return `# ${a.title}
 
 ${a.spec}
-${knowledgeSection}${commitObligation}${issueSection}${WORKER_MACHINE_RULES}${WORKER_WORK_FAST}${a.repair ? repairSection(a.repair) : ''}
+${knowledgeSection}${commitObligation}${issueSection}${WORKER_MACHINE_RULES}${WORKER_WORK_FAST}${a.repair ? repairSection(a.repair) : ''}${a.kind ? skillsSection(a.kind, (s) => a.installedSkills?.has(s) ?? false) : ''}
 ---
 ## Reporting obligation (assembled by the app — do not delete)
 
@@ -762,6 +769,12 @@ export class OrchCoordinator {
    * the worktree and the spec file. On failure it simply throws — cleaning up the state (the
    * rollback) is the server's job.
    */
+  /** T9: the skills this account has installed; none when the wiring cannot say. */
+  private async installedSkillsOf(accountId: string): Promise<ReadonlySet<string>> {
+    const dir = this.deps.accountConfigDir?.(accountId)
+    return dir ? installedSkillsIn(dir).catch(() => new Set<string>()) : new Set<string>()
+  }
+
   async startWorker(a: {
     dispatchId: string
     taskId: string
@@ -778,6 +791,8 @@ export class OrchCoordinator {
     specFileContent?: string
     provider: Provider
     accountId: string
+    /** T9: the Task's kind (`kindOf`): names the skills the spec tells the worker to use. Absent: no such section. */
+    kind?: TaskKind
     /** 이 워커의 롤링 체인 — 첫 원소가 이 Dispatch 의 계정이고, 나머지는 한도에 걸렸을 때 갈아탈
      *  순서다. 배선이 accountToDispatchOn 에서 받아 그대로 넘긴다(Task.accountIds 가 원천).
      *  **required 인 이유는 rollAccountIds 와 같다** — optional 이면 넘기지 않아도 typecheck 가
@@ -952,7 +967,8 @@ export class OrchCoordinator {
           taskId: a.taskId,
           dispatchId: a.dispatchId,
           committing: !isSamePath(cwd, a.runCwd),
-          knowledge: await knowledgeIn(cwd, this.deps.log)
+          knowledge: await knowledgeIn(cwd, this.deps.log),
+          ...(a.kind ? { kind: a.kind, installedSkills: await this.installedSkillsOf(a.accountId) } : {})
         }),
       'utf8'
     )

@@ -279,7 +279,8 @@ const SESSION = {
       { name: 'model-reason', value: '<text>', about: 'one line: why that difficulty, provider or model' },
       // W6-A: what the planner found of the item; a plan Task without it cannot be approved
       { name: 'basis', value: '<missing|partial|broken>', about: "the item's state as found before planning (with --evidence)" },
-      { name: 'evidence', value: '<text>', about: 'with --basis: file:line, an issue or PR number, a Job id' }
+      { name: 'evidence', value: '<text>', about: 'with --basis: file:line, an issue or PR number, a Job id' },
+      { name: 'kind', value: '<bugfix|feature|refactor|ui|audit|docs|test|ops>', about: 'the sort of work; picks the worker skills (T9)' }
     ]
   },
   'task-update': {
@@ -304,7 +305,8 @@ const SESSION = {
       { name: 'model', value: '<id>', about: 'without --status: as task-create' },
       { name: 'model-reason', value: '<text>', about: 'without --status: as task-create' },
       { name: 'basis', value: '<missing|partial|broken>', about: 'without --status: as task-create (W6-A)' },
-      { name: 'evidence', value: '<text>', about: 'without --status: as task-create (W6-A)' }
+      { name: 'evidence', value: '<text>', about: 'without --status: as task-create (W6-A)' },
+      { name: 'kind', value: '<bugfix|feature|refactor|ui|audit|docs|test|ops>', about: 'without --status: as task-create (T9)' }
     ]
   },
   send: {

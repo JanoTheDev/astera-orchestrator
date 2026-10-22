@@ -676,7 +676,15 @@ export interface Task {
   /** The numbers of the Job's objective items this Task covers (`--covers 1,3`); `validatePlan` checks every item is
    *  covered here or left out on the Job (`Job.leftOut`). */
   covers?: number[]
+  // T9 task kinds (planner.ts kindOf)
+  /** What sort of work this Task is; picks the skills its worker is told to use (`--kind`). Absent: `kindOf` reads it
+   *  from the title and spec. */
+  kind?: TaskKind
 }
+
+/** T9: the kinds of work a Task can be. */
+export const TASK_KINDS = ['bugfix', 'feature', 'refactor', 'ui', 'audit', 'docs', 'test', 'ops'] as const
+export type TaskKind = (typeof TASK_KINDS)[number]
 
 /** T7: one objective item the plan leaves out on purpose: its number (objectiveItems.ts) and why. */
 export interface LeftOutItem {

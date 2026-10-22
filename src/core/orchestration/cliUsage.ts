@@ -688,7 +688,9 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       { name: 'basis', value: '<missing|partial|broken>', about: "what exists of the item, checked before planning (with --evidence); a planned Job's Task needs it" },
       { name: 'evidence', value: '<text>', about: 'with --basis: file:line, an issue or PR number, a Job id' },
       // T7 objective coverage
-      { name: 'covers', value: '<n,…>', about: "the numbers of the Job objective's items this task covers (a planned Job's every item needs one, or `jobs set --left-out`)" }
+      { name: 'covers', value: '<n,…>', about: "the numbers of the Job objective's items this task covers (a planned Job's every item needs one, or `jobs set --left-out`)" },
+      // T9
+      { name: 'kind', value: '<bugfix|feature|refactor|ui|audit|docs|test|ops>', about: "the sort of work; picks the skills the worker is told to use (default: read from the title and spec)" }
     ]
   },
 

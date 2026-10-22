@@ -81,7 +81,8 @@ describe('buildHandoverPrompt', () => {
     it('names the command, the deps, the account it runs on, and the checks', () => {
       expect(p).toContain('astera task-create --run run_abc')
       expect(p).toContain('--deps')
-      expect(p).toContain('--account acc_me')
+      expect(p).toContain('omit `--account` unless the objective names one')
+      expect(p).not.toContain('--account acc_me')
       expect(p).toContain('accounts list')
       expect(p).toContain('never mix providers inside one Task')
       expect(p).toContain('astera run-configs list --job job_42')

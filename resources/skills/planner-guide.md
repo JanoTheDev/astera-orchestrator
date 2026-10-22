@@ -67,6 +67,10 @@ Every plan starts here, whatever its source. Nothing is built twice.
   tokens) in wave 1 and their consumers after. When the Tasks are independent, fill each wave to the Job's worker limit.
   Never add a link "to be careful".
 
+- **A Task prompt states five things**: the goal, the findings with `file:line`, numbered build steps, the files, the
+  tests with their commands, and what not to touch. A worker sees nothing else of the plan, so a prompt that leaves one
+  out is a Task that goes wrong.
+
 - **Name the plan's areas** (W8-D): 1 to 3 short words for where its Tasks work, read off their paths
   (`auth`, `api`, `ui`): `astera jobs-set --id <jobId> --areas auth,api`. The Plans page groups plans by them.
 
@@ -82,6 +86,7 @@ Create Tasks in dependency order (a Task can only depend on one that exists). Ea
 | `--criteria '[...]'` | one or more acceptance criteria, each checkable by reading code or running a command ("`npm test -- foo` passes", not "works well") |
 | `--affected-paths '[...]'` | the files or folders it will change |
 | `--deps '[...]'` | the Task ids it waits for |
+| `--kind` | `bugfix`, `feature`, `refactor`, `ui`, `audit`, `docs`, `test` or `ops`. It picks the skills the worker is told to use (systematic debugging and a failing test first for `bugfix`, test-first for `feature`, the design rules for `ui`, read-only findings first for `audit`). Pass it on every Task; without it Astera guesses from the title |
 | `--difficulty` | `light` (mechanical, small), `standard` (ordinary feature or fix), `hard` (design, subtle bug, wide change). It picks the worker's model |
 | `--model-reason` | one line: why that difficulty (and provider or model, if you set one) |
 | `--basis` + `--evidence` | what you found of the item before planning (section 0): `missing`, `partial` or `broken`, and the file:line, issue, PR or Job id that shows it |

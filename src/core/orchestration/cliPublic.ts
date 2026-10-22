@@ -131,7 +131,9 @@ const TASK_HIDDEN = [
   // Stall watchdog: the app's own merge record (finishedSessions.ts mergedIntoPlan)
   'mergedIntoPlanAt',
   // T7: the objective items a Task covers (`--covers`), held back with the planner's other fields
-  'covers'
+  'covers',
+  // T9: the Task's kind, held back with the planner's other fields
+  'kind'
 ] as const
 
 /** W1-A role models: a Job's per-role model override, held back from the SDK like the Task's three above. */
