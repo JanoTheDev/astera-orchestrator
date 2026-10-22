@@ -1,8 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { Loader2Icon } from "lucide-react";
-import { ContextMenu, type MenuItem } from "../ContextMenu";
+import { Button, Icon, Menu, type MenuItem as UiMenuItem } from "../ui";
 import { useI18n } from "../../i18n/I18nProvider";
 import type { MessageKey } from "../../../../core/i18n";
 import type { PermissionMode, PermissionModeChoice, UnattendedPermission } from "../../../../core/chat/types";
@@ -10,6 +9,8 @@ import { unattendedRows } from "./unattendedMenu";
 
 /** One row of the model menu. `key` is whatever the pane needs to act on it — an alias for Claude, a
  *  position in the CLI's own picker for codex — and this component never looks inside it. */
+type MenuItem = UiMenuItem | "separator";
+
 export interface ModelChoice {
   key: string;
   label: string;
@@ -114,24 +115,28 @@ export function ModelControl({
   return (
     <>
       <div className="flex min-w-0 items-center gap-1">
-        <button
-          type="button"
-          className="text-muted-foreground hover:text-foreground flex max-w-56 items-center gap-1 px-1.5 py-0.5 text-xs disabled:hover:text-muted-foreground"
+        <Button
+          size="sm"
+          variant="ghost"
+          className="max-w-56"
           aria-label={t("conversation.model.aria")}
           title={t("conversation.model.aria")}
+          aria-haspopup="menu"
+          aria-expanded={at !== null}
           aria-busy={busy || undefined}
           disabled={!openable}
+          icon={busy ? <Icon name="loading" size={14} className="ui-spin" /> : undefined}
           onClick={(e) => {
             const r = e.currentTarget.getBoundingClientRect();
             setAt({ x: Math.round(r.left), y: Math.round(r.top) });
           }}
         >
-          {busy && <Loader2Icon className="size-3 shrink-0 animate-spin" aria-hidden="true" />}
-          <span className="truncate">{line ?? t("conversation.model.unknown")}</span>
-        </button>
+          {line ?? t("conversation.model.unknown")}
+        </Button>
         {onPickPermissionMode && (
-          <button
-            type="button"
+          <Button
+            size="sm"
+            variant="ghost"
             // `default` is the CLI asking before it acts, which is the quiet baseline — the button is
             // muted there and lit for the two that widen what it may do on its own. Keyed on
             // aria-pressed because this project has no Tailwind colour tokens (bg-foreground and
@@ -139,6 +144,8 @@ export function ModelControl({
             aria-pressed={permissionMode !== "default"}
             aria-label={t("chat.mode.aria")}
             title={t("chat.mode.aria")}
+            aria-haspopup="menu"
+            aria-expanded={modeAt !== null}
             disabled={permissionModes.length === 0 && !unattended}
             onClick={(e) => {
               const r = e.currentTarget.getBoundingClientRect();
@@ -147,28 +154,30 @@ export function ModelControl({
             className="plan-pill"
           >
             {labelOf(permissionModes, permissionMode)}
-          </button>
+          </Button>
         )}
       </div>
-      {at && openable && <ContextMenu x={at.x} y={at.y} items={items} onClose={() => setAt(null)} />}
+      {at && openable && <Menu at={at} label={t("conversation.model.aria")} items={items} onClose={() => setAt(null)} />}
       {modeAt && onPickPermissionMode && (permissionModes.length > 0 || unattended) && (
-        <ContextMenu
-          x={modeAt.x}
-          y={modeAt.y}
+        <Menu
+          at={modeAt}
+          label={t("chat.mode.aria")}
           items={[
             ...permissionModes.map((choice): MenuItem => ({
-              label: choice.key === permissionMode ? `✓ ${choice.label}` : choice.label,
+              label: choice.label,
+              checked: choice.key === permissionMode,
               onSelect: () => onPickPermissionMode(choice.key)
             })),
             // chat takeover P8: the unattended-policy section, under a separator and a disabled
-            // heading row — the same ✓ prefix the mode rows above use for the one already picked.
+            // heading row — the same check the mode rows above use for the one already picked.
             ...(unattended
               ? ([
                   "separator",
                   { label: t("chat.unattended.heading"), disabled: true, onSelect: () => {} },
                   ...unattendedRows(unattended.value, (key) => t(key as MessageKey)).map(
                     (row): MenuItem => ({
-                      label: row.checked ? `✓ ${row.label}` : row.label,
+                      label: row.label,
+                      checked: row.checked,
                       onSelect: () => unattended.onPick(row.key)
                     })
                   )

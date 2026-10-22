@@ -7,6 +7,7 @@ import { AssistantRuntimeProvider, useExternalStoreRuntime, type AppendMessage }
 import { Thread, type ThreadComponents } from "../assistant-ui/elements/thread.aui";
 import { SentFileOpenContext, ToolRow, ToolRowGroup } from "./ToolRow";
 import { ChatRequestCard } from "./ChatRequestCard";
+import { Button } from "../ui";
 import { asThreadMessage, composerTextOf, toThreadMessages } from "./ConversationPane";
 import { useI18n } from "../../i18n/I18nProvider";
 import { toast } from "../../lib/toast";
@@ -159,14 +160,14 @@ export function RemoteConversationPane({
           {readOnly && <span className="remote-chat-note">{t("remote.session.readOnly")}</span>}
           <span className="remote-chat-spacer" />
           {paging?.more && (
-            <button type="button" className="remote-chat-button" disabled={loadingMore} onClick={() => void loadEarlier()}>
+            <Button size="sm" variant="ghost" loading={loadingMore} onClick={() => void loadEarlier()}>
               {t("remote.session.earlier")}
-            </button>
+            </Button>
           )}
           {view.canStop && (
-            <button type="button" className="remote-chat-button is-danger" onClick={() => void stop()}>
+            <Button size="sm" variant="danger" onClick={() => void stop()}>
               {t("remote.session.stop")}
-            </button>
+            </Button>
           )}
         </div>
         {!alive && <div className="remote-chat-note is-block">{t("remote.session.chatEnded")}</div>}

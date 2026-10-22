@@ -18,7 +18,6 @@ import {
   type AppendMessage,
   type ThreadMessageLike,
 } from "@assistant-ui/react";
-import { Loader2Icon } from "lucide-react";
 import { Thread, type ThreadComponents } from "../assistant-ui/elements/thread.aui";
 
 /** The composer belongs to this subtree, and a controlled input that re-renders while a character is
@@ -33,6 +32,7 @@ import { ModelControl, type ModelControlProps } from "./ModelControl";
 import { effortChoicesOf, modelChoicesOf } from "../../../../core/models/cliModels";
 import type { ModelDescriptor } from "../../../../core/models/types";
 import { CompletionMenu, type CompletionRow } from "./CompletionMenu";
+import { Icon } from "../ui";
 import { fileTokenAt } from "../../../../core/files/fileMatch";
 import { draftOf, forgetDraft, keepDraft } from "./drafts";
 import {
@@ -1408,6 +1408,7 @@ export function ConversationPane({
   /** The `@` menu. */
   const completionMenu: ReactNode = (
     <CompletionMenu
+      label={t("conversation.completion.label")}
       rows={rows}
       active={Math.min(slashActive, Math.max(rows.length - 1, 0))}
       onPick={takeRow}
@@ -1548,7 +1549,7 @@ export function ConversationPane({
           there whenever earlier turns existed would be a button that has stopped being one. */}
       {loadingMore && (
         <div className="border-border/60 text-muted-foreground flex items-center justify-center gap-1.5 border-b py-1.5 text-xs">
-          <Loader2Icon className="size-3 animate-spin" aria-hidden="true" />
+          <Icon name="loading" size={14} className="ui-spin size-3" />
           {t("conversation.loadingEarlier")}
         </div>
       )}

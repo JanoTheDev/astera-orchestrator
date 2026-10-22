@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { Button } from "../ui/button";
+import { Button } from "../ui";
 import { useI18n } from "../../i18n/I18nProvider";
 import { exitWording } from "../../../../core/sessions/exitWording";
 import type { CloseReason } from "../../../../core/types";
@@ -41,16 +41,10 @@ export function RunningNotice({
       aria-label={t(working ? "conversation.running.working" : "conversation.running.thinking")}
       className="text-muted-foreground flex items-center gap-2 py-0.5 text-sm"
     >
-      <span aria-hidden className="animate-pulse">
-        {"●"}
-      </span>
-      <button
-        type="button"
-        onClick={onStop}
-        className="hover:text-foreground cursor-pointer text-xs underline-offset-2 hover:underline"
-      >
+      <span aria-hidden="true" className="size-2 shrink-0 animate-pulse rounded-full bg-current" />
+      <Button size="sm" variant="ghost" onClick={onStop}>
         {t("conversation.running.interrupt")}
-      </button>
+      </Button>
     </div>
   );
 }
@@ -119,17 +113,17 @@ export function ExitedNotice({
         </p>
         <div className="flex shrink-0 items-center gap-2">
           {detail !== null && detail.trim() !== "" && (
-            <Button size="sm" variant="ghost" onClick={() => setOpen((v) => !v)}>
+            <Button size="sm" variant="ghost" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
               {t("conversation.exited.detail")}
             </Button>
           )}
           {onRestart !== null && (
-            <Button size="sm" variant="default" onClick={onRestart}>
+            <Button size="sm" variant="primary" onClick={onRestart}>
               {t("conversation.exited.restart")}
             </Button>
           )}
           {onGoTerminal !== null && onGoTerminal !== undefined && (
-            <Button size="sm" variant="default" onClick={onGoTerminal}>
+            <Button size="sm" variant={onRestart === null ? "primary" : "secondary"} onClick={onGoTerminal}>
               {t("conversation.pending.terminal")}
             </Button>
           )}

@@ -2,7 +2,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { Button } from "../ui/button";
+import { Button } from "../ui";
 import { useI18n } from "../../i18n/I18nProvider";
 import { toast } from "../../lib/toast";
 import type { MessageKey } from "../../../../core/i18n";
@@ -158,7 +158,7 @@ function ApprovalRequestCard({
           <Button
             key={decision}
             size="sm"
-            variant={decision === "accept" ? "default" : "outline"}
+            variant={decision === "accept" ? "primary" : "secondary"}
             disabled={busy}
             className="max-w-full"
             onClick={() => void decide(decision)}
