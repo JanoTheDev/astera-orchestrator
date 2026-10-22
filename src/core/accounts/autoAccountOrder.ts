@@ -122,7 +122,7 @@ export function withAutoOrder(own: readonly string[], order: readonly string[], 
 }
 
 /** What a start path needs of the usage guard for the automatic order. */
-export type AutoAccountsGuard = Pick<UsageGuard, 'pauseOf' | 'view' | 'pauseAt' | 'autoAccounts'>
+export type AutoAccountsGuard = Pick<UsageGuard, 'pauseOf' | 'view' | 'pauseAt' | 'autoAccounts' | 'liveSessions' | 'maxSessions'>
 
 /** The automatic order over the guard's last `refresh` (its readings, threshold and pauses), or null when the setting
  *  is off: the caller then keeps today's chain. `usable` is `rankAccounts`' verdict (known, fresh, under the
@@ -140,7 +140,14 @@ export function autoOrderOf(
 ): { order: string[]; over: (id: string) => boolean; usable: (id: string) => boolean } | null {
   if (!guard.autoAccounts()) return null
   const readings = new Map(guard.view().map((v) => [v.accountId, { session: v.session, weekly: v.weekly, ...(v.at === undefined ? {} : { at: v.at }) }]))
-  const ranked = autoRanking({ ...a, readings, pauseAt: guard.pauseAt() })
+  // T5b: the guard's live counts and caps unless the caller brings its own, so every start spreads (decision 21)
+  const ranked = autoRanking({
+    ...a,
+    readings,
+    pauseAt: guard.pauseAt(),
+    liveSessions: a.liveSessions ?? guard.liveSessions?.(),
+    maxSessions: a.maxSessions ?? guard.maxSessions?.()
+  })
   const usable = new Set(ranked.usable.map((x) => x.id))
   return {
     order: rankedIds(ranked),

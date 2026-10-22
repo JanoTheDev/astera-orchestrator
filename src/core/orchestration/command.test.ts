@@ -3580,6 +3580,34 @@ describe('worker-start — usage guard', () => {
     const { deps, task } = await setup({})
     expect((await start(deps, task)).status).toBe(200)
   })
+  // T5b: the best usable account of every account of the provider, not only the Task's chain
+  it('names the best usable account outside task.accountIds, and starts there without --account', async () => {
+    const { deps, task } = await setup({ acc1: pause })
+    const asked: unknown[] = []
+    let released = 0
+    deps.startAccount = async (o) => {
+      asked.push(o)
+      return { ok: true, accountId: 'acc9', release: () => void released++ }
+    }
+    const r = await start(deps, task)
+    expect(r.status).toBe(409)
+    expect(r.body).toMatchObject({ alternative: 'acc9' })
+    expect(String((r.body as { error?: string }).error)).toContain('without --account to let Astera pick')
+    expect(asked[0]).toMatchObject({ provider: 'codex', own: ['acc1'] })
+    const auto = await call(deps, 'worker-start', { task, agent: 'codex', worktree: 'current' })
+    expect(auto.status).toBe(200)
+    expect(deps.getState().dispatches.at(-1)!.accountId).toBe('acc9')
+    expect(released).toBe(2)
+  })
+
+  it('without --account and no account with room: held with the reason, nothing opened', async () => {
+    const { deps, task } = await setup({})
+    deps.startAccount = async () => ({ ok: false, why: 'no codex account has room to start the worker on: acc1 (its weekly limit is at the usage threshold)' })
+    const r = await call(deps, 'worker-start', { task, agent: 'codex', worktree: 'current' })
+    expect(r.status).toBe(409)
+    expect(r.body).toMatchObject({ held: true, error: expect.stringContaining('no codex account has room') })
+    expect(deps.getState().dispatches).toHaveLength(0)
+  })
 })
 
 // W1-B: the app-wide cap holds every placer, a coordinator included, across Jobs.

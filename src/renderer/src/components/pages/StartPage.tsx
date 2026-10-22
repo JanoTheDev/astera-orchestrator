@@ -5,15 +5,15 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, ChevronDown, ChevronRight, ListOrdered, Paperclip, SquareTerminal, X } from 'lucide-react'
 import type { Account, OrchSnapshot } from '../../../../core/types'
 import { MAX_CONCURRENT_WORKERS, PROJECT_DEFAULTS, type DeliveryMode } from '../../../../core/orchestration/types'
-import { defaultAccountIdOf } from '../../../../core/accounts/defaultAccount'
 import { foldsPathCase } from '../../../../core/files/paths'
 import { useI18n } from '../../i18n/I18nProvider'
 import { localDoor } from '../../lib/orchDoor'
 import { openConsole, openPage } from '../shell/navigation'
 import { Button, Card, Chip, Field, IconButton, Input, Tabs } from '../ui'
 import { useIntake } from '../intake/useIntake'
+import { useAccountUsage } from '../../hooks/useAccountUsage'
 import {
-  PRIORITY_PRESETS, afterCreate, blockedReason, consolesIn, defaultMode, dropOpensStart, filesFromDrop, handsOffSaveArgs, intakeTab, lookupArgs, optionsSummary,
+  AUTO_ACCOUNT, PRIORITY_PRESETS, accountPickOptions, afterCreate, blockedReason, consolesIn, defaultMode, dropOpensStart, filesFromDrop, handsOffSaveArgs, intakeTab, lookupArgs, optionsSummary,
   primaryLabel, priorityPresetOf, priorityValueOf, shouldLandOnStart, type NameLookup, type PriorityPreset, type StartMode, type StartRequest
 } from './startLogic'
 import './start.css'
@@ -87,12 +87,13 @@ export function StartPage({
   const { setApproveAsk } = intake
   useEffect(() => setApproveAsk(approval === 'ask'), [approval, setApproveAsk])
 
-  // The planner's account: the signed-in Claude account the command bar would pick (T4: no picker; the Host's own pick
-  // by usage takes over when none is known)
-  const { setAccount } = intake
+  // T5b: the planner's account. Auto (intake.account '') sends none, so the Host picks the one with most room by usage;
+  // a picked account is only a preference
+  const [signedIn, setSignedIn] = useState<ReadonlySet<string>>(new Set())
   useEffect(() => {
-    void door.signedInIds(accounts).then((ids) => setAccount((cur) => cur || defaultAccountIdOf('claude', accounts, ids) || ''))
-  }, [door, accounts, setAccount])
+    void door.signedInIds(accounts).then(setSignedIn)
+  }, [door, accounts])
+  const usage = useAccountUsage()
 
   // Full width below the title bar (W9-B owns its height)
   const [top, setTop] = useState(0)
@@ -341,6 +342,13 @@ export function StartPage({
                   items={PRIORITY_PRESETS.map(([id]) => ({ id, label: t(`start.priority.${id}` as const) }))}
                 />
               </div>
+              <Field
+                kind="select"
+                label={t('accounts.pick')}
+                value={intake.account || AUTO_ACCOUNT}
+                onChange={(e) => intake.setAccount(e.target.value === AUTO_ACCOUNT ? '' : e.target.value)}
+                options={accountPickOptions(accounts, signedIn, usage, t as never)}
+              />
             </div>
             <div className="start-more">
               <Button

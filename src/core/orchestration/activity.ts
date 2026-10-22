@@ -74,6 +74,8 @@ export const ACTIVITY_KINDS = [
   // W6-G: no new worker starts on an account near its usage limit, and then may again (usageActivity)
   'usage.paused',
   'usage.resumed',
+  // T5b: a start went to another account than the one it named, which was full or at its cap (payload.reason)
+  'account.switched',
   // W6-H: a finished plan pushed to its delivery branch (a feed line and a notice, no chime). A push that stopped is an
   // escalation instead (delivery.ts recordDelivery)
   'plan.delivered',
@@ -107,6 +109,8 @@ export interface ActivityPayload {
   plan?: string
   model?: string
   accountId?: string
+  /** T5b account.switched: the account the start named (`accountId` is the one it started on). */
+  fromAccountId?: string
   // task.status
   status?: TaskStatus
   from?: TaskStatus
@@ -573,6 +577,8 @@ export function waitingActivity(s: OrchState, sessionId: string, waitingFor: 'pe
 /** W6-G: a usage guard's change (usageGuard.ts) as its feed line: a line no commit makes, recorded by the Host. The
  *  title is the account id; the feed shows the account's name. */
 export function usageActivity(e: UsageChange): ActivityDraft {
+  if (e.type === 'account.switched')
+    return { type: e.type, payload: { title: e.to, accountId: e.to, fromAccountId: e.from, reason: e.reason } }
   const p = e.pause
   return {
     type: e.type,

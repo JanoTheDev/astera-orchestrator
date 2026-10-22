@@ -1222,6 +1222,9 @@ export const ko = {
   'accounts.import': '계정 폴더 가져오기',
   'accounts.detect': '로그인된 계정 찾기',
   'accounts.default': '기본',
+  'accounts.auto': '자동 (여유가 가장 많은 계정)',
+  'accounts.pick': '계정',
+  'accounts.pickUsage': '{name} · 주간 {weekly} · 5h {session}',
   // AccountPanel.tsx — unregister. When logout comes with it, it says the credentials are removed (destructive).
   'account.remove.title': '계정 등록 해제',
   'account.remove.button': '등록 해제',
@@ -2138,6 +2141,8 @@ export const ko = {
   'settings.usageGuard.pauseAtLabel': '새 워커를 멈출 사용량 (%)',
   'settings.usageGuard.pauseAtHint': '5시간 또는 7일 한도의 이만큼을 쓴 계정에서는 새 워커를 띄우지 않는다. Task 의 다른 계정이 그 아래이면 그 계정으로 띄운다. 도는 워커는 그대로 둔다.',
   'settings.usageGuard.saveFailed': '사용량 설정을 저장하지 못했습니다: {detail}',
+  'settings.accountMaxSessions.label': '계정당 최대 세션 수',
+  'settings.accountMaxSessions.hint': '한 계정이 동시에 돌리는 Astera 세션 수입니다. 비워 두면 제한이 없습니다. 시작할 때 꽉 찬 계정은 건너뜁니다.',
   'settings.activityDigest.label': '활동 요약 주기(분)',
   'settings.activityDigest.hint': '끝났거나 실패했거나 기다리는 일의 요약을 데스크톱과 Slack 에 보내는 주기입니다. 일이 있었을 때만 보냅니다. 0 이면 보내지 않습니다.',
   'settings.activityDigest.saveFailed': '요약 주기를 저장하지 못했습니다: {detail}',

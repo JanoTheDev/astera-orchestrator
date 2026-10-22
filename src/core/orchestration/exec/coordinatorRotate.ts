@@ -187,11 +187,14 @@ export async function refreshCoordinator(
   ].join('\n')
   let fresh: string
   let model: string | undefined
+  let startedOn: string | undefined
   try {
     // T5: the start resolves the model from the plan (roleModels.ts `resolveCoordinatorModel`), as any start does
-    const started = await deps.startCoordinator({ runId: run.id, cwd: job.cwd, accountId: job.coordinatorAccountId, brief })
+    // T5b: re-ranked at the start (chooseStartAccount): the account named first is a preference, the one with room starts
+    const started = await deps.startCoordinator({ runId: run.id, cwd: job.cwd, accountId: job.preferredAccountId ?? job.coordinatorAccountId, brief })
     fresh = started.sessionId
     model = started.model
+    startedOn = started.accountId
   } catch (e) {
     return no(500, `could not start a fresh coordinator: ${String(e)}`)
   }
@@ -216,7 +219,14 @@ export async function refreshCoordinator(
     ...attached.state,
     runs: attached.state.runs.map((r) =>
       r.id === run.id ? { ...r, coordinatorRefreshes: [...(r.coordinatorRefreshes ?? []), entry].slice(-COORDINATOR_REFRESHES_KEPT) } : r
-    )
+    ),
+    // T5b: the account it started on; the one named before stays the preference
+    jobs:
+      startedOn !== undefined && startedOn !== job.coordinatorAccountId
+        ? attached.state.jobs.map((j) =>
+            j.id === job.id ? { ...j, coordinatorAccountId: startedOn, preferredAccountId: j.preferredAccountId ?? job.coordinatorAccountId } : j
+          )
+        : attached.state.jobs
   })
   // Only now: the Run is never without a coordinator in its slot.
   try {

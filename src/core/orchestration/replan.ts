@@ -20,8 +20,9 @@ import type { Job, ReplanMark, Task } from './types'
 export const REPLAN_FOLLOW_UPS_MAX = 3
 
 /** The account a Job's replans run on: its coordinator's, else the one its planner ran on (W7-E: a plan the Host
- *  places with no coordinator still gets its replans and its final check). */
-export const replanAccountOf = (job: Job): string | undefined => job.coordinatorAccountId ?? job.plannerAccountId
+ *  places with no coordinator still gets its replans and its final check). T5b: the account the owner named first, a
+ *  preference only: the start takes the account with room (chooseStartAccount), never a full one. */
+export const replanAccountOf = (job: Job): string | undefined => job.preferredAccountId ?? job.coordinatorAccountId ?? job.plannerAccountId
 
 /** Whether a Job replans between its waves: not turned off, planned by a planner (an unplanned Job has no plan to
  *  fix and keeps its old scheduling), not a schedule (its Runs repeat one plan), and with an account to plan on. */

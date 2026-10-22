@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import {
-  afterCreate, blockedReason, consolesIn, defaultMode, dropOpensStart, filesFromDrop, handsOffSaveArgs, intakeTab, lookupArgs, optionsSummary, primaryLabel, promptCount,
+  accountPickOptions, afterCreate, blockedReason, consolesIn, defaultMode, dropOpensStart, filesFromDrop, handsOffSaveArgs, intakeTab, lookupArgs, optionsSummary, primaryLabel, promptCount,
   livePlans, priorityPresetOf, priorityValueOf, shouldLandOnStart, type PlanRow
 } from './startLogic'
+import type { Account } from '../../../../core/types'
 
 const t = (key: string, params?: Record<string, string | number>): string => (params ? `${key}:${JSON.stringify(params)}` : key)
 
@@ -146,5 +147,17 @@ describe('Start after', () => {
   it('leaves out completed, failed, scheduled and archived plans', () => {
     const rows = [row('c', { outcome: 'completed' }), row('f', { outcome: 'failed' }), row('a', { outcome: 'running', archivedAt: 'x' }), row('s', { outcome: 'running', schedule: {} as never })]
     expect(livePlans(rows)).toEqual([])
+  })
+})
+
+describe('account picker (T5b)', () => {
+  const acc = (id: string, provider?: 'codex'): Account => ({ id, label: id.toUpperCase(), configDir: `/c/${id}`, color: '', createdAt: '', provider })
+  it('Auto first, then each signed-in Claude account with its weekly and 5h used percent', () => {
+    const usage = { '/c/a': { weekly: { usedPercent: 40, resetsAt: null }, session: null, readAt: '', remembered: false } }
+    expect(accountPickOptions([acc('a'), acc('b'), acc('c'), acc('x', 'codex')], new Set(['a', 'b', 'x']), usage, t)).toEqual([
+      { value: 'auto', label: 'accounts.auto' },
+      { value: 'a', label: 'accounts.pickUsage:{"name":"A","weekly":"40%","session":"—"}' },
+      { value: 'b', label: 'accounts.pickUsage:{"name":"B","weekly":"—","session":"—"}' }
+    ])
   })
 })

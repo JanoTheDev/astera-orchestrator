@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { readMaxConcurrentWorkers } from '../core/settings/maxConcurrentWorkers'
 import { readUsagePauseAt } from '../core/settings/usagePauseAt'
+import { readAccountMaxSessions } from '../core/settings/accountMaxSessions'
 import { readTabSummaries } from '../core/settings/tabSummaries'
 import { AppSettingsStore, readSkillSettings } from './appSettingsStore'
 import { RepairNeeded } from '../core/settings/repairNeeded'
@@ -497,6 +498,19 @@ describe('maxSubagentsPerSession and usagePauseAt', () => {
     await store.load()
     expect(store.getMaxSubagentsPerSession()).toBe(10)
     expect(store.getUsagePauseAt()).toBe(90)
+  })
+})
+
+// T5b
+describe('accountMaxSessions', () => {
+  it('is empty and unwritten by default, persists a cap the Host reads, and drops bad entries', async () => {
+    const a = new AppSettingsStore(file())
+    await a.load()
+    expect(a.getAccountMaxSessions()).toEqual({})
+    await a.setAccountMaxSessions({ acc1: 2, acc2: 0, acc3: 1.5 })
+    expect(await readAccountMaxSessions(file())).toEqual({ acc1: 2 })
+    await a.setAccountMaxSessions({})
+    expect(JSON.parse(await fs.readFile(file(), 'utf8'))).not.toHaveProperty('accountMaxSessions')
   })
 })
 

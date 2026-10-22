@@ -19,7 +19,7 @@ export function mergePage(held: readonly ActivityEvent[], page: readonly Activit
 
 /** One plan's lines, or every line. W6-G: an account's usage pause holds every plan's new workers, so it is in each. */
 export const feedOf = (events: readonly ActivityEvent[], jobId: string | null): ActivityEvent[] =>
-  jobId === null ? [...events] : events.filter((e) => e.jobId === jobId || e.type === 'usage.paused' || e.type === 'usage.resumed')
+  jobId === null ? [...events] : events.filter((e) => e.jobId === jobId || e.type === 'usage.paused' || e.type === 'usage.resumed' || e.type === 'account.switched')
 
 const CATEGORY_WORD: Record<string, [string, Tone]> = {
   done: ['completed', 'ok'],
@@ -102,6 +102,9 @@ export function lineOf(e: ActivityEvent, accountLabel: (id: string) => string, l
     }
     case 'usage.resumed':
       return { text: `${accountLabel(p.title)}: new workers resumed, under the usage threshold again`, tone: 'info' }
+    // T5b
+    case 'account.switched':
+      return { text: `${accountLabel(p.title)}: started here instead of ${accountLabel(p.fromAccountId ?? '')}: ${p.reason ?? ''}`, tone: 'info' }
     case 'plan.done':
       if (p.runOutcome === 'failed') return { text: `${p.title}: plan finished with failures`, tone: 'bad' }
       if (p.runOutcome === 'blocked') return { text: `${p.title}: plan finished with ${p.blockedTasks?.length ?? 0} blocked: ${(p.blockedTasks ?? []).join('; ')}`, tone: 'warn' }

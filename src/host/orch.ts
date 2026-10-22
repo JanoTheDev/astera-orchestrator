@@ -40,7 +40,8 @@ import { APP_CALLER, HOST_CALLER, type Driver } from '../core/host/driver'
 import { createHeldQueue, createOwnerHold } from '../core/sessions/ownerHold'
 import { hostOrchDeps } from './orchDeps'
 import { createCheckWaits } from '../core/orchestration/checkWaits'
-import { readAccountsFile } from '../core/accounts/accountsFile'
+import { readAccountEntries, readAccountsFile } from '../core/accounts/accountsFile'
+import { chooseStartAccount, type AutoStartGuard } from '../core/orchestration/exec/workerStart'
 import { isLoggedIn } from '../core/accounts/loginCheck'
 import { makeDescriptors } from '../core/providers/descriptor'
 import type { Account } from '../core/types'
@@ -942,6 +943,24 @@ export function createHostOrch(a: {
       // W8-A: the stamp's line data reads the checkpoint logs under the profile
       profileDir: a.profileDir,
       ...(a.usageGuard ? { usageGuard: a.usageGuard } : {}),
+      // T5b: `worker-start` without --account, and the account a paused --account is told to take (chooseStartAccount)
+      ...(a.usageGuard && 'autoAccounts' in a.usageGuard
+        ? {
+            startAccount: (o: Parameters<NonNullable<OrchServerDeps['startAccount']>>[0]) =>
+              chooseStartAccount(
+                {
+                  usageGuard: a.usageGuard as AutoStartGuard,
+                  accounts: () => readAccountEntries(path.join(a.profileDir, 'accounts.json')),
+                  loginStatus: async (id) => {
+                    const x = (await readAccountEntries(path.join(a.profileDir, 'accounts.json'))).find((y) => y.id === id)
+                    return x ? loggedIn(x) : false
+                  },
+                  log: a.log
+                },
+                o
+              )
+          }
+        : {}),
       act: a.act,
       hasApp: a.hasApp,
       log: a.log,

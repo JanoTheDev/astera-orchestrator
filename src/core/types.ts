@@ -1608,6 +1608,9 @@ export interface CoreApi {
     setMaxSubagentsPerSession(n: number): Promise<void>
     getUsagePauseAt(): Promise<number>
     setUsagePauseAt(n: number): Promise<void>
+    /** T5b: live sessions per account at most, by account id; absent = no cap. */
+    getAccountMaxSessions(): Promise<Record<string, number>>
+    setAccountMaxSessions(v: Record<string, number>): Promise<void>
     /** W3-A: minutes between activity digests; 0 is none. */
     getActivityDigestMinutes(): Promise<number>
     setActivityDigestMinutes(n: number): Promise<void>

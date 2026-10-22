@@ -493,7 +493,15 @@ export interface OrchServerDeps {
     /** W7-A: the agent CLI's own conversation id (`agentSessionOf`) to resume instead of starting a new conversation;
      *  the brief is then the next prompt in that conversation. A planner, and (T5) a coordinator after a crash. */
     resume?: string
-  }): Promise<{ sessionId: string; /** T5: the model it was started on, recorded on the Run (`Run.coordinatorModel`) */ model?: string }>
+    /** T5b: no account was named: `accountId` only says the provider, and the start takes the account with most room
+     *  (chooseStartAccount, exec/workerStart.ts). */
+    auto?: true
+  }): Promise<{
+    sessionId: string
+    /** T5: the model it was started on, recorded on the Run (`Run.coordinatorModel`) */ model?: string
+    /** T5b: the account it actually started on (the named one is only a preference). Absent: the named one. */
+    accountId?: string
+  }>
   /** Stops a coordinator session `startCoordinator` opened, when the hand-over finds another one
    *  already in the Run's slot (Task 1 fix round 1, I2). Optional: without it that session is left
    *  running and the command says so in the log. `reason` is why, for the log line of whoever stops it. */
@@ -736,7 +744,17 @@ export interface OrchServerDeps {
   maxConcurrentWorkers?(): number | null | Promise<number | null>
   /** W6-G: the usage guard (usageGuard.ts): `worker-start` refuses a nearly spent account, for every placer. Each
    *  process keeps its own over its own sessions' statusLine readings. Absent: no usage pause. */
-  usageGuard?: Pick<UsageGuard, 'refresh' | 'pauseOf'>
+  usageGuard?: Pick<UsageGuard, 'refresh' | 'pauseOf' | 'reserve'>
+  /** T5b (decision 6): the account a start takes (chooseStartAccount, exec/workerStart.ts): `preferred` while it has
+   *  room, else the first usable of `own`, else the provider's account with most room; `ok: false` when none has room.
+   *  The answer counts on its account until `release`. `worker-start` without `--account` starts on it, and a paused
+   *  `--account` names it. Absent: `--account` is required, as before. */
+  startAccount?(a: {
+    preferred?: string
+    provider: Provider
+    own: readonly string[]
+    purpose: 'worker' | 'reviewer'
+  }): Promise<{ ok: true; accountId: string; release(): void } | { ok: false; why: string }>
   /** Starts an agent session for `sessions create` (CLI spec §14): a terminal one through the Host's
    *  spawner (the path its workers take), a chat one through the Host's chat manager (the path its rolls
    *  take). **Only the Host injects it.** Rejects with the reason when the start fails; answers the new
@@ -1018,8 +1036,8 @@ const runMoves = (s: OrchState, job: Job, run: JobRun, now: string): boolean => 
 /**
  * The Tasks of one Run its driver can still start, by id (final review I1). The driver is a live
  * coordinator when `coordinated`, else the app's loop.
- * - `ready` under the circuit break: the loop places it (slotsToFill), or opens a Gate on it when it
- *   has no account (tasksMissingAccounts); a coordinator starts it.
+ * - `ready` under the circuit break: the loop places it (slotsToFill; T5b: one with no account on the account with
+ *   most room); a coordinator starts it.
  * - `failed` under the circuit break, and `dispatched` with its Dispatch closed: **only a coordinator**
  *   starts them again (`worker-start --retry-of`). Nothing in the app does: slotsToFill takes `ready`
  *   only, and recovery acts on open Dispatches alone.
@@ -1698,7 +1716,7 @@ function coordinatorWanted(deps: OrchServerDeps, s: OrchState, run: JobRun, job:
 // W8-C prompts mode
 /** Writes a Run-as-written plan's Tasks (`jobs-create --mode prompts`): one definition Task per prompt, its text the
  *  prompt byte for byte, in the order docs/dev/PLAN.md (or docs/orchestrator/PLAN.md) and the prompts' own sentences give (promptWaves.ts).
- *  Their account is the plan's coordinator account, else the default one. Answers the `Job.verbatim` entries and the
+ *  Their account is the one the owner named for the plan, else none: auto, picked by room at each start (T5b). Answers the `Job.verbatim` entries and the
  *  lines the planner's objective lists, or the sentence to refuse with. */
 async function writePromptTasks(
   deps: OrchServerDeps,
@@ -1716,11 +1734,9 @@ async function writePromptTasks(
   }
   const job = deps.getState().jobs.find((j) => j.id === jobId)!
   const plan = promptPlanOf(files, pasted, await readPlanMd(deps, job.cwd))
-  let account = job.coordinatorAccountId
-  if (account === undefined) {
-    const all = await deps.listAccounts(undefined, { withDefault: true })
-    account = (all.find((a) => a.default && a.provider === 'claude') ?? all.find((a) => a.default) ?? all[0])?.id
-  }
+  // T5b: no account named is "auto" (`accountIds: []`): each Task starts on the account with most room when it is
+  // placed (exec/dispatchLoop.ts placeSlot, `worker-start` without --account)
+  const account = job.preferredAccountId
   let st = deps.getState()
   const idOf = new Map<string, string>()
   for (const t of plan.tasks) {
@@ -2437,6 +2453,8 @@ export async function handleCommand(
             ...(priority !== 0 ? { priority } : {}),
             ...(args.replan === 'off' ? { replan: 'off' as const } : {}),
             ...(coordinatorAccountId ? { coordinatorAccountId } : {}),
+            // T5b: an account the owner named is kept as the plan's preference (Job.preferredAccountId)
+            ...(coordArg !== null ? { preferredAccountId: coordArg } : {}),
             // `--auto` 는 값이 없는 플래그다(task-create --review 와 같은 모양). **예약이면 켜지
             // 않는다** — 템플릿 자신은 돌지 않기 때문이다.
             //
@@ -3498,11 +3516,18 @@ export async function handleCommand(
         if (!set.ok) return refused(set)
         await deps.setState(set.state)
       }
+      // T5b (decision 6): a named account (`--account`, or the one the owner named before) is only a preference; with none
+      // the planner starts on the account with most room (`auto`), the provider's default only saying which provider
       const accountArg = str(args.account)
-      const accountId = accountArg ?? job.coordinatorAccountId
-      if (!accountId) return bad('--account is required: the Job names no coordinator account to plan on')
       if (accountArg !== null && !(await deps.listAccounts()).some((k) => k.id === accountArg))
         return notFound(`unknown account: ${accountArg}`)
+      const preferredId = accountArg ?? job.preferredAccountId
+      const accountId =
+        preferredId ??
+        job.coordinatorAccountId ??
+        (await deps.listAccounts('claude', { withDefault: true })).find((k) => k.default === true)?.id ??
+        (await deps.listAccounts(undefined, { withDefault: true })).find((k) => k.default === true)?.id
+      if (!accountId) return bad('no account is logged in to plan on: log in to an account first')
       // W6-C: how many workers the plan may run at once, set with the plan (up to MAX_CONCURRENT_WORKERS)
       const concurrency = args.concurrency === undefined ? null : concurrencyArg(args.concurrency)
       if (args.concurrency !== undefined && concurrency === null) return bad('--concurrency must be an integer >= 1')
@@ -3519,7 +3544,15 @@ export async function handleCommand(
         await deps.setState({
           ...cur,
           jobs: cur.jobs.map((j) =>
-            j.id === id ? { ...j, review, plannerAccountId: accountId, ...(review && !j.convergence ? { convergence: {} } : {}) } : j
+            j.id === id
+              ? {
+                  ...j,
+                  review,
+                  plannerAccountId: accountId,
+                  ...(preferredId !== undefined ? { preferredAccountId: preferredId } : {}),
+                  ...(review && !j.convergence ? { convergence: {} } : {})
+                }
+              : j
           )
         })
       }
@@ -3528,34 +3561,36 @@ export async function handleCommand(
       const marked = job.plannerSessionIds === undefined
       if (marked) await setJobPlanners(id, (ids) => ids)
       let sessionId: string
+      let startedOn: string | undefined
       // W8-G (#101): earlier plans' work that sits on an unmerged branch, which the workers of this plan will not have
       const projectOfPlan = projectOfJob(deps.getState(), job)
       const unmerged = projectOfPlan ? await unmergedPlanBranches(deps.getState(), projectOfPlan) : null
       // T5: the crash restore's `jobs-plan --resume <native id>`: the dead planner's own conversation goes on
       const resume = str(args.resume)
       try {
-        sessionId = (
-          await deps.startCoordinator({
-            runId: id,
-            cwd: job.cwd,
+        const started = await deps.startCoordinator({
+          runId: id,
+          cwd: job.cwd,
+          accountId,
+          ...(preferredId === undefined ? { auto: true as const } : {}),
+          role: 'planner',
+          ...(resume ? { resume } : {}),
+          brief: resume ? crashResumedBrief('planner', id) : buildPlannerBrief({
+            jobId: id,
+            objective: job.objective,
+            repoRoot: job.cwd,
+            ...(unmerged && unmerged.branches.length > 0 ? { unmergedBranches: unmerged.branches, defaultBranch: unmerged.into } : {}),
             accountId,
-            role: 'planner',
-            ...(resume ? { resume } : {}),
-            brief: resume ? crashResumedBrief('planner', id) : buildPlannerBrief({
-              jobId: id,
-              objective: job.objective,
-              repoRoot: job.cwd,
-              ...(unmerged && unmerged.branches.length > 0 ? { unmergedBranches: unmerged.branches, defaultBranch: unmerged.into } : {}),
-              accountId,
-              promptsMode: job.verbatim !== undefined,
-              // T1: the Job's own choice, else auto when hands-off
-              planning: planningFlag ?? job.planning ?? (handsOffOf(deps.getState(), { ...job, ...(handsOff !== undefined ? { handsOff } : {}) }) ? 'auto' : 'chat'),
-              concurrency: concurrency ?? job.concurrency ?? DEFAULT_CONCURRENCY,
-              // W8-D: the other plans of this repository, so it plans around them
-              otherPlans: otherPlansBrief(deps.getState(), job)
-            })
+            promptsMode: job.verbatim !== undefined,
+            // T1: the Job's own choice, else auto when hands-off
+            planning: planningFlag ?? job.planning ?? (handsOffOf(deps.getState(), { ...job, ...(handsOff !== undefined ? { handsOff } : {}) }) ? 'auto' : 'chat'),
+            concurrency: concurrency ?? job.concurrency ?? DEFAULT_CONCURRENCY,
+            // W8-D: the other plans of this repository, so it plans around them
+            otherPlans: otherPlansBrief(deps.getState(), job)
           })
-        ).sessionId
+        })
+        sessionId = started.sessionId
+        startedOn = started.accountId
       } catch (e) {
         if (marked) await setJobPlanners(id, () => undefined)
         return bad(`could not start the planner: ${String(e)}`)
@@ -3565,7 +3600,12 @@ export async function handleCommand(
         await deps.stopCoordinator?.(sessionId, 'its Job was deleted while the planner started').catch(() => {})
         return notFound(`unknown job: ${id}`)
       }
-      return okBody({ jobId: id, sessionId })
+      // T5b: the account the planner actually started on, which replans and feedback rounds then plan on
+      if (startedOn !== undefined && startedOn !== accountId) {
+        const cur = deps.getState()
+        await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id ? { ...j, plannerAccountId: startedOn } : j)) })
+      }
+      return okBody({ jobId: id, sessionId, ...(startedOn !== undefined ? { accountId: startedOn } : {}) })
     }
     // 사람이 사이드바에서 Run 을 물러나게 한다. **되돌릴 수 없다.**
     //
@@ -4554,10 +4594,11 @@ export async function handleCommand(
     case 'worker-start': {
       const taskId = str(args.taskId ?? args.task)
       const agent = str(args.agent)
-      const account = str(args.account)
+      // T5b: without --account, Astera picks the account with most room (deps.startAccount, below)
+      let account = str(args.account)
       if (!taskId) return bad('--task is required')
       if (agent !== 'claude' && agent !== 'codex') return bad('--agent must be claude|codex')
-      if (!account) return bad('--account is required')
+      if (!account && !deps.startAccount) return bad('--account is required')
       const retryOf = str(args.retryOf) ?? undefined
       const name = str(args.name) ?? undefined
       const terminal = str(args.terminal) ?? undefined
@@ -4662,22 +4703,36 @@ export async function handleCommand(
       // W6-G: no new worker on an account at `usagePauseAt` of a usage window, for every placer (a coordinator's
       // worker spends the same account). New work only, like the cap above. The answer names an account of the
       // Task's chain that is under the threshold, when there is one; `usagePaused` tells the app's loop to wait.
-      if (deps.usageGuard) {
+      // T5b: counted on its account from the choice on, so a burst of starts spreads (UsageGuard.reserve); let go once
+      // the worker runs or its start failed.
+      // shortcut: a refusal between here and the start below leaves the count to expire (START_RESERVATION_MS); fine
+      // while those refusals are rare, give each its release if they are not.
+      let release = (): void => {}
+      if (!account) {
+        const choice = await deps.startAccount!({ provider: agent, own: task.accountIds ?? [], purpose: 'worker' })
+        if (!choice.ok) return { status: 409, body: { error: choice.why, held: true } }
+        account = choice.accountId
+        release = choice.release
+      } else if (deps.usageGuard) {
         await deps.usageGuard.refresh()
         const pause = deps.usageGuard.pauseOf(account)
         if (pause) {
-          const alternative = usageChoice(task.accountIds ?? [], (id) => deps.usageGuard!.pauseOf(id))
-          const other = alternative.ok && alternative.accountId !== undefined ? alternative.accountId : undefined
+          // T5b: the best usable account of every account of that provider, not only the Task's chain
+          const best = deps.startAccount ? await deps.startAccount({ provider: agent, own: task.accountIds ?? [], purpose: 'worker' }) : null
+          if (best?.ok) best.release()
+          const alternative = best ? (best.ok ? { ok: true as const, accountId: best.accountId } : { ok: false as const }) : usageChoice(task.accountIds ?? [], (id) => deps.usageGuard!.pauseOf(id))
+          const other = alternative.ok && alternative.accountId !== undefined && alternative.accountId !== account ? alternative.accountId : undefined
           return {
             status: 409,
             body: {
-              error: usagePauseWhy(pause) + (other !== undefined ? `; start it with --account ${other}` : ''),
+              error: usagePauseWhy(pause) + (other !== undefined ? `; start it with --account ${other}, or without --account to let Astera pick` : ''),
               usagePaused: pause,
               ...(other !== undefined ? { alternative: other } : {})
             }
           }
         }
       }
+      if (str(args.account)) release = deps.usageGuard?.reserve?.(account) ?? release
 
 
       // **`--worktree` 를 생략한 호출은 "이 Run 이 일하는 자리" 를 뜻한다** — 그것은 Run 이
@@ -4787,6 +4842,7 @@ export async function handleCommand(
 
       let started: { sessionId: string; cwd: string; specPath: string; model?: string; modelNote?: string }
       try {
+        // T5b: the session now counts itself on its account (a live session), so the start's own count goes
         started = await deps.startWorker({
           dispatchId,
           taskId,
@@ -4804,6 +4860,7 @@ export async function handleCommand(
           terminalAccountId
         })
       } catch (e) {
+        release()
         // Failure rollback — this is the server's transaction handling, not a pure-layer transition
         // rule. Calling closeDispatch alone would leave the Task at dispatched, and the --ready list
         // does not show those, so nothing would pick it up on its own. A Gate can reach it now:
@@ -4838,6 +4895,7 @@ export async function handleCommand(
         return bad(`failed to start worker: ${e instanceof Error ? e.message : String(e)}`)
       }
 
+      release()
       // Success — read the latest state again and patch this dispatch's placeholders to their real
       // values. The snapshot taken on entry (s) is deliberately not used: while waiting for the
       // coordinator a concurrent change such as another worker's worker_done may have landed on that

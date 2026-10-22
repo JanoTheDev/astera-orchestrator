@@ -339,8 +339,12 @@ export interface Job {
    *  Job `reviewRequested`. Absent: no default, each Task's own `--review` decides. */
   review?: boolean
   /** The account `jobs plan` last ran this Job's planner on. A plan with no coordinator account replans on it
-   *  (`replanAccountOf`, replan.ts). */
+   *  (`replanAccountOf`, replan.ts). T5b: the account it actually started on, which may differ from the one named. */
   plannerAccountId?: string
+  /** T5b (decision 6): the account the owner named for this plan's planner or coordinator, kept as a preference only:
+   *  a start takes it while it has room, else the account with most room (chooseStartAccount), and records that one
+   *  in `plannerAccountId` / `coordinatorAccountId`. Absent: none named, the start picks. */
+  preferredAccountId?: string
   // W7-A plan feedback (exec/plannerFeedback.ts)
   /** This plan's own auto-approve, ahead of its project's (`autoApproveOf`). Absent: the project's. */
   autoApprove?: boolean

@@ -1434,6 +1434,11 @@ app.whenReady().then(async () => {
   // language-change callback wired just above stays correct with no tray to rebuild.
   if (process.platform !== 'linux') createTray()
 
+  // T5b: the per-account session cap (Settings › Accounts). Here rather than in ipc.ts beside usagePauseAt: the store
+  // narrows whatever the renderer sends (accountMaxSessionsOf).
+  ipcMain.handle('settings.getAccountMaxSessions', () => core!.appSettings.getAccountMaxSessions())
+  ipcMain.handle('settings.setAccountMaxSessions', (_e, v: unknown) => core!.appSettings.setAccountMaxSessions(v))
+
   // W9-K: a renderer asks which project its window is bound to, reports what it shows, and opens a new window
   // (the switcher's "Open in new window", Ctrl+Shift+N).
   ipcMain.handle('win.boundProject', (e) => {

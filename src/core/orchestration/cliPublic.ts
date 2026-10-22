@@ -162,7 +162,8 @@ const JOB_HIDDEN = [
   'areas',
   /* W10-A Run as written by name: what the typed names resolved to, not in the SDK's contract yet */ 'byName',
   /* T1 chat-first planning: chat or auto, not in the SDK's contract yet */ 'planning',
-  /* T7: the objective items the planner left out, not in the SDK's contract yet */ 'leftOut'
+  /* T7: the objective items the planner left out, not in the SDK's contract yet */ 'leftOut',
+  /* T5b: the account the owner named, a preference only, not in the SDK's contract yet */ 'preferredAccountId'
 ] as const
 
 /** A followed event's message body (pages long) and the app's link from an event to a tab. */

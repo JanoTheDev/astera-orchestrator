@@ -311,7 +311,8 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
           snapshotFor: (projectPath) => window.api.orch.peek(projectPath),
           coordinatorAccount: async () => {
             const signedIn = await localDoor(window.api, currentProject ?? homeDir ?? '').signedInIds(accounts)
-            return defaultAccountIdOf('claude', accounts, signedIn)
+            // T5b: always Auto ('') — the Host picks the account with most room; null only when none is signed in
+            return defaultAccountIdOf('claude', accounts, signedIn) === null ? null : ''
           }
         }}
       />

@@ -712,14 +712,14 @@ describe('createDispatchLoop', () => {
 
   // R14, the log itself: the question path logs after its reply, and a gate logs before its command. A
   // log that throws must reach neither the caller nor the Gate — `log` is a notice, not a step.
-  it('a throwing log never breaks the loop: the reply and the gate still go out, and run() resolves', async () => {
-    const h = rig({ question: true, noAccountTask: true })
+  it('a throwing log never breaks the loop: the reply still goes out, and run() resolves', async () => {
+    const h = rig({ question: true })
     h.ctx.log = () => {
       throw new Error('log down')
     }
     await expect(h.loop.run()).resolves.toBeUndefined()
     await h.settle()
-    expect(h.handled()).toEqual(['gate-create', 'reply'])
+    expect(h.handled()).toContain('reply')
   })
 
   it('answers an unattended question with NO_COORDINATOR_ANSWER on a Run with no coordinator', async () => {
@@ -777,11 +777,13 @@ describe('createDispatchLoop', () => {
     })
   })
 
-  it('gates a ready Task with no account (tasksMissingAccounts)', async () => {
+  // T5b: no account named is auto, never a Gate
+  it('starts a ready Task with no account on a logged-in account instead of gating it', async () => {
     const h = rig({ noAccountTask: true })
     await h.loop.run()
     await h.settle()
-    expect(h.handled()).toContain('gate-create')
+    expect(h.handled()).not.toContain('gate-create')
+    expect(h.handled()).toContain('worker-start')
   })
 
   it('fires a due schedule only after one tick has armed it (D2)', async () => {
@@ -1908,12 +1910,11 @@ describe('dispatchOne — one ready Task placed on request (tasks dispatch)', ()
     expect(h.state().tasks.find((t) => t.id === 'tsk_1')!.status).toBe('ready')
   })
 
-  it('refuses a Task that is not ready, one with no account, and an unknown one', async () => {
+  it('refuses a Task that is not ready and an unknown one', async () => {
     const h = unplaced({ noAccountTask: true })
     const s = h.state()
     h.setState({ ...s, tasks: s.tasks.map((t) => (t.id === 'tsk_1' ? { ...t, status: 'pending' as const } : t)) })
     expect((await h.loop.dispatchOne('tsk_1')).status).toBe(409)
-    expect(((await h.loop.dispatchOne('tsk_na')).body as { error: string }).error).toContain('names no account')
     expect((await h.loop.dispatchOne('tsk_nope')).status).toBe(404)
     expect(h.handled()).toEqual([])
   })

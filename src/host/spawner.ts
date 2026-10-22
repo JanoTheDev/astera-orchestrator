@@ -786,6 +786,8 @@ export function createHostSpawner(d: HostSpawnerDeps): HostSpawner | null {
           accounts,
           trace
         )
+        // T5b: the session counts itself on its account now
+        picked?.release()
         return info as SessionInfo
       } catch (err) {
         // Nothing started (no pty opened): a keyed retry keeps no receipt over it, as for a coordinator.
