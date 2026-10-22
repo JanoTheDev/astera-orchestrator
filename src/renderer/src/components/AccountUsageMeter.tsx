@@ -1,7 +1,9 @@
+import { Fragment } from 'react'
 import type { AccountUsage, RateLimitWindow } from '../../../core/types'
 import { coarseDuration } from '../../../core/usage/relativeTime'
 import { useI18n } from '../i18n/I18nProvider'
 import { Meter } from './ui'
+import { runOutOf, SESSION_WINDOW_MS, WEEKLY_WINDOW_MS } from './usage/runOut'
 
 /** Is there anything to draw? Shared so the meter, the detail and the row that decides whether it
  *  is clickable at all cannot drift apart about what "empty" means. */
@@ -71,7 +73,7 @@ export function AccountUsageDetail({
   const { t, lang } = useI18n()
   if (!hasUsage(usage)) return null
 
-  const line = (label: string, w: RateLimitWindow): React.JSX.Element => {
+  const line = (label: string, w: RateLimitWindow, windowMs: number): React.JSX.Element => {
     // A window whose reset has already passed, or that never carried one, shows its figure and no
     // time — a negative countdown is worse than a blank column.
     const untilMs = w.resetsAt ? Date.parse(w.resetsAt) - Date.now() : NaN
@@ -79,13 +81,28 @@ export function AccountUsageDetail({
       Number.isFinite(untilMs) && untilMs > 0
         ? t('account.usage.resetsIn', { d: coarseDuration(untilMs, lang) })
         : ''
+    const now = Date.now()
+    const est = runOutOf(w, windowMs, now)
+    const rate = est ? (est.ratePerHour < 10 ? est.ratePerHour.toFixed(1) : String(Math.round(est.ratePerHour))) : ''
+    const runOut = !est
+      ? ''
+      : est.runsOutAt === null
+        ? t('account.usage.lasts', { rate })
+        : t('account.usage.runOut', { rate, duration: coarseDuration(est.runsOutAt - now, lang) })
     return (
-      <span className="dline" key={label}>
+      <Fragment key={label}>
+        <span className="dline">
         <span className="k">{label}</span>
         <span className="v">{`${Math.round(w.usedPercent)}%`}</span>
         <Meter value={w.usedPercent} className="t" />
         <span className="r">{resets}</span>
-      </span>
+        </span>
+        {runOut && (
+          <span className="dline" style={{ color: 'var(--text-faint)' }}>
+            {runOut}
+          </span>
+        )}
+      </Fragment>
     )
   }
 
@@ -96,8 +113,8 @@ export function AccountUsageDetail({
 
   return (
     <span className="acct-detail">
-      {usage.session && line(t('account.usage.fiveHour'), usage.session)}
-      {usage.weekly && line(t('account.usage.weekly'), usage.weekly)}
+      {usage.session && line(t('account.usage.fiveHour'), usage.session, SESSION_WINDOW_MS)}
+      {usage.weekly && line(t('account.usage.weekly'), usage.weekly, WEEKLY_WINDOW_MS)}
       {usage.remembered && ago && <span className="acct-detail-stale">{ago}</span>}
     </span>
   )
