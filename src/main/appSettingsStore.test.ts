@@ -585,6 +585,34 @@ describe('updateMode', () => {
   })
 })
 
+describe('updateChannel', () => {
+  it('defaults to stable and leaves the key out of the file', async () => {
+    const store = new AppSettingsStore(file())
+    await store.load()
+    expect(store.getUpdateChannel()).toBe('stable')
+    await store.setUpdateChannel('beta')
+    await store.setUpdateChannel('stable')
+    expect(JSON.parse(await fs.readFile(file(), 'utf8'))).not.toHaveProperty('updateChannel')
+  })
+
+  it('persists beta and a new instance reads it back', async () => {
+    const a = new AppSettingsStore(file())
+    await a.load()
+    await a.setUpdateChannel('beta')
+    expect(JSON.parse(await fs.readFile(file(), 'utf8')).updateChannel).toBe('beta')
+    const b = new AppSettingsStore(file())
+    await b.load()
+    expect(b.getUpdateChannel()).toBe('beta')
+  })
+
+  it('reads an unknown value as stable', async () => {
+    await fs.writeFile(file(), JSON.stringify({ updateChannel: 'nightly' }), 'utf8')
+    const store = new AppSettingsStore(file())
+    await store.load()
+    expect(store.getUpdateChannel()).toBe('stable')
+  })
+})
+
 describe('defaultSessionKind', () => {
   it('기본값은 terminal이다', async () => {
     const store = new AppSettingsStore(file())

@@ -4,8 +4,9 @@ import { isLang, type Lang } from '../core/i18n'
 import { sanitizeFontFamily } from '../core/terminal/font'
 import type { TerminalFont } from '../core/terminal/font'
 import { DEFAULT_THEME_ID, isThemeId, themeIdOf, type ThemeId } from '../core/theme/themes'
-import type { AgentPermissionMode, McpAccess, ResumeStrategy, SessionKind, UpdateMode } from '../core/types'
+import type { AgentPermissionMode, McpAccess, ResumeStrategy, SessionKind, UpdateChannel, UpdateMode } from '../core/types'
 import { DEFAULT_UPDATE_MODE, isUpdateMode } from '../core/update/sourceUpdate'
+import { DEFAULT_UPDATE_CHANNEL, updateChannelOf } from '../core/update/updateChannel'
 import { applyContinuityToggle } from '../core/continuity/settings'
 import {
   readGeneratorSettings,
@@ -190,6 +191,8 @@ export class AppSettingsStore {
   private defaultSessionKind: SessionKind = 'terminal'
   /** How the source update channel acts on its own (src/core/update/sourceUpdate.ts). Written only when not the default. */
   private updateMode: UpdateMode = DEFAULT_UPDATE_MODE
+  /** The releases updater's track (src/core/update/updateChannel.ts). Written only when beta. */
+  private updateChannel: UpdateChannel = DEFAULT_UPDATE_CHANNEL
   /**
    * Whether this person has already been asked, once, what a new session should open on.
    *
@@ -313,6 +316,7 @@ export class AppSettingsStore {
       // behind. See the field's own note for why the absence means the opposite here.
       const mode = (parsed as { updateMode?: unknown }).updateMode
       this.updateMode = isUpdateMode(mode) ? mode : DEFAULT_UPDATE_MODE
+      this.updateChannel = updateChannelOf((parsed as { updateChannel?: unknown }).updateChannel)
       this.firstRunAsked = (parsed as { firstRunAsked?: unknown }).firstRunAsked !== false
       const step = (parsed as { onboardingStep?: unknown }).onboardingStep
       this.onboardingStep = !this.firstRunAsked && typeof step === 'string' ? step : null
@@ -357,6 +361,7 @@ export class AppSettingsStore {
         this.theme = DEFAULT_THEME_ID
         this.defaultSessionKind = 'terminal'
         this.updateMode = DEFAULT_UPDATE_MODE
+        this.updateChannel = DEFAULT_UPDATE_CHANNEL
         // No settings file at all: nobody has used this app on this machine yet. The one state the
         // first-run question is for.
         this.firstRunAsked = false
@@ -410,6 +415,7 @@ export class AppSettingsStore {
       this.theme = DEFAULT_THEME_ID
       this.defaultSessionKind = 'terminal'
       this.updateMode = DEFAULT_UPDATE_MODE
+      this.updateChannel = DEFAULT_UPDATE_CHANNEL
       // A file that could not be read is still a file: this person has used the app before, and a
       // corrupt settings file is not a reason to put a first-run question in front of them.
       this.firstRunAsked = true
@@ -849,6 +855,15 @@ export class AppSettingsStore {
     await this.persist()
   }
 
+  getUpdateChannel(): UpdateChannel {
+    return this.updateChannel
+  }
+
+  async setUpdateChannel(channel: UpdateChannel): Promise<void> {
+    this.updateChannel = channel
+    await this.persist()
+  }
+
   /** The write in progress, so the next one waits for it (see persist). */
   private writing: Promise<void> = Promise.resolve()
 
@@ -905,6 +920,7 @@ export class AppSettingsStore {
       theme?: ThemeId
       defaultSessionKind?: SessionKind
       updateMode?: UpdateMode
+      updateChannel?: UpdateChannel
       firstRunAsked?: false
       onboardingStep?: string
     } = {}
@@ -970,6 +986,7 @@ export class AppSettingsStore {
     if (this.theme !== DEFAULT_THEME_ID) data.theme = this.theme
     if (this.defaultSessionKind === 'chat') data.defaultSessionKind = 'chat'
     if (this.updateMode !== DEFAULT_UPDATE_MODE) data.updateMode = this.updateMode
+    if (this.updateChannel !== DEFAULT_UPDATE_CHANNEL) data.updateChannel = this.updateChannel
     await fs.mkdir(path.dirname(this.filePath), { recursive: true })
     // Through a temp file and a rename, like accounts.json (registry.ts): a crash mid-write leaves the
     // old file whole, and a reader outside the app (`astera skills`) never sees half a file.
