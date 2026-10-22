@@ -89,7 +89,7 @@ export const plan: Partial<Record<keyof typeof ko, string>> = {
   'jobs.changes.reportedNone': 'Los workers no informaron archivos.',
   'jobs.changes.unsupported': "Ese equipo aún no ofrece los archivos cambiados. Actualiza Astera en él.",
   'jobs.changes.listCut': 'Demasiados archivos: se muestran {shown} de {total}.',
-  'plan.wave.coordinatorRefreshed': 'Coordinador renovado ({reason})',
+  'plan.wave.coordinatorRefreshed': 'Agente principal renovado ({reason})',
   'plan.simple.progress': '{done} de {total} hechas',
   'plan.simple.approvedFromChat': 'Aprobado desde el chat del planificador: «{words}»',
   'plan.simple.showDetails': 'Mostrar detalles',
