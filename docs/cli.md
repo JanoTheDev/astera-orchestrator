@@ -760,6 +760,9 @@ astera sessions send   --id <sessionId> --text <text|-> [--no-enter] [--wait [--
 astera sessions create --account <accountId> --cwd <path> [--kind <terminal|chat>] [--title <text>] [--prompt <text|->] [--roll-accounts <id,…>] [--unattended <hold|deny-after-60s>]
 astera sessions close  --id <sessionId> [--reason <text>]
 
+astera worktrees list   [--project <id|path>] [--stale]
+astera worktrees remove [--path <path> | --run <runId> | --stale] [--project <id|path>] [--force] [--dry-run]
+
 astera chats pending   [--session <sessionId>]
 astera chats answer    --id <promptId> [--allow | --deny] [--session <sessionId>]
 

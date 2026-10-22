@@ -471,6 +471,8 @@ const NOT_FORWARDED = [
   'deliverPush',
   // W9-J
   'cleanWorktrees',
+  // T5
+  'worktreesOps',
   // exec/adopt.ts: orch.ts adds the Host's live workers beside these deps
   'liveWorkers'
 ] as const
@@ -641,7 +643,10 @@ const EFFECTFUL: Record<Classified, boolean> = {
   // where `hostOrchDeps` passes it on.
   deliverPush: true,
   // NOT_FORWARDED as well (W9-J): this Host removes a delivered plan's ready worktrees, never the app's. It acts.
-  cleanWorktrees: true
+  cleanWorktrees: true,
+  // NOT_FORWARDED as well (T5): this Host's worktree facts and removals, never the app's. A removal acts: marked where
+  // `hostOrchDeps` passes it on.
+  worktreesOps: true
 }
 
 /** The names an action really travels under, narrowed to the effectful ones — the NESTED groups
@@ -784,6 +789,8 @@ export function hostOrchDeps(a: {
   deliverPush?: OrchServerDeps['deliverPush']
   /** W9-J: removes a delivered Run's ready worktrees. Absent: nothing is cleaned after a delivery. */
   cleanWorktrees?: OrchServerDeps['cleanWorktrees']
+  /** T5: `worktrees list|remove` over this Host's registry. Absent: both answer 409. */
+  worktreesOps?: OrchServerDeps['worktreesOps']
   /** The Host's own session work units (HOST_TRACKS, E2 §5), asked whether it is their writer at every
    *  call. Null or absent (no spawner): `trackingEnabled` and `sessionTasks.*` only forward, as before. */
   workUnits?: (Pick<HostWorkUnits, 'isWriter' | 'trackingEnabled'> & {
@@ -1408,6 +1415,18 @@ export function hostOrchDeps(a: {
           cleanWorktrees: (runId: string) => {
             a.onEffect?.()
             return a.cleanWorktrees!(runId)
+          }
+        }
+      : {}),
+    // T5: a removal is an effect, marked before the call
+    ...(a.worktreesOps
+      ? {
+          worktreesOps: {
+            rows: () => a.worktreesOps!.rows(),
+            remove: (id: string, force: boolean, originCopy: boolean) => {
+              a.onEffect?.()
+              return a.worktreesOps!.remove(id, force, originCopy)
+            }
           }
         }
       : {}),

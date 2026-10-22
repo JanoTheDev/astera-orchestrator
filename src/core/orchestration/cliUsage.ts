@@ -841,6 +841,29 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       { name: 'reason', value: '<text>', about: 'why, written to the log (default: closed with astera sessions close)' }
     ]
   },
+  // T5
+  'worktrees-list': {
+    summary: 'the worktrees Astera made: path, branch, run, state and age',
+    detail:
+      "`state` is `live` (a session runs there), `dirty` (uncommitted changes or untracked files git does not ignore), `unpushed` (commits that exist nowhere else), `orphan` (no plan owns it, or git forgot the folder), `merged` (its plan's work is safe elsewhere: it can go) or `active` (its plan still works on it). `stale` marks what `worktrees remove --stale` removes: the `merged` ones and leftover folders git forgot. A coordinator sees its own run's worktrees only. Answered by the Host. Read only.",
+    flags: [
+      { name: 'project', value: '<id|path>', about: "only this project's worktrees" },
+      { name: 'stale', about: 'only the ones `worktrees remove --stale` would remove' }
+    ]
+  },
+  'worktrees-remove': {
+    summary: 'remove worktrees (and their merged branches) that are safe to remove',
+    detail:
+      "Exactly one of --path, --run and --stale. Without --force a worktree that is dirty or has unpushed commits is kept, with the reason; one with a live session is never removed. A branch is deleted only when its work is already in its base, here and on origin when Astera pushed it. --dry-run removes nothing and lists what would go in `wouldRemove`. A coordinator may remove its own run's worktrees only (3). Answered by the Host.",
+    flags: [
+      { name: 'path', value: '<path>', about: 'this worktree' },
+      { name: 'run', value: '<runId>', about: "every worktree of this run (delivered or not: what is unsafe is kept)" },
+      { name: 'stale', about: 'every stale worktree (see `worktrees list --stale`)' },
+      { name: 'project', value: '<id|path>', about: 'with --stale: only this project' },
+      { name: 'force', about: 'also remove dirty and unpushed worktrees (a live one still stays)' },
+      { name: 'dry-run', about: 'remove nothing; list what would go' }
+    ]
+  },
   'chats-pending': {
     summary: 'the permission prompts and questions chat sessions are waiting on',
     detail:

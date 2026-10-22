@@ -580,6 +580,8 @@ export function createHostOrch(a: {
   deliverPush?: OrchServerDeps['deliverPush']
   /** W9-J: removes a delivered Run's ready worktrees. Absent: nothing is cleaned after a delivery. */
   cleanWorktrees?: OrchServerDeps['cleanWorktrees']
+  /** T5: `worktrees list|remove` over this Host's registry. Absent: both answer 409. */
+  worktreesOps?: OrchServerDeps['worktreesOps']
   /** How It Works records (MCP P2-C), passed through to `hostOrchDeps`. Absent: the `understanding-*`
    *  commands answer 409. */
   readUnderstanding?: OrchServerDeps['readUnderstanding']
@@ -974,6 +976,7 @@ export function createHostOrch(a: {
       ...(a.completionChecks ? { completionChecks: a.completionChecks } : {}),
       ...(a.deliverPush ? { deliverPush: a.deliverPush } : {}),
       ...(a.cleanWorktrees ? { cleanWorktrees: a.cleanWorktrees } : {}),
+      ...(a.worktreesOps ? { worktreesOps: a.worktreesOps } : {}),
       workUnits: a.workUnits?.() ?? null,
       ...(a.journal ? { journalTimeline: (runId: string, st: OrchState) => a.journal!.timeline(runId, st) } : {}),
       onEffect: () => {
