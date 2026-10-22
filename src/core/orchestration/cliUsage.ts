@@ -106,7 +106,7 @@ const INTAKE_FLAGS: readonly UsageFlag[] = [
 ]
 
 const JOB_MAKING_FLAGS: readonly UsageFlag[] = [
-  { name: 'concurrency', value: '<n>', about: 'how many workers this Job places at once (1-10; more reads as 10)' },
+  { name: 'concurrency', value: '<n>', about: 'how many workers this Job places at once (1-100; more reads as 100)' },
   { name: 'priority', value: '<n>', about: 'which Job gets a free slot first when the app-wide worker cap is reached (higher first, default 0)' },
   // T1 chat-first planning
   { name: 'planning', value: '<chat|auto>', about: "how the planner works: chat brainstorms with you in its terminal (it may start with no objective), auto decides alone and records its decisions (default chat; auto when hands-off or made by an agent session)" },
@@ -367,7 +367,7 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       { name: 'hands-off', value: '<on|off>', about: "run this project's plans hands-off (default off): nothing waits on the owner: the plan starts by itself once it holds, its coordinator answers its own escalations, and its planner, coordinator and workers run with permissions bypassed" },
       { name: 'test-command', value: '<cmd>', about: 'the command that validates a Task (saved as a run configuration)' },
       { name: 'test-config', value: '<id>', about: 'an existing run configuration to validate with' },
-      { name: 'concurrency', value: '<1-10>', about: 'workers at once for a new Job (default: 3)' },
+      { name: 'concurrency', value: '<1-100>', about: 'workers at once for a new Job (default: 3)' },
       { name: 'review-rounds', value: '<n>', about: 'review rounds for a new Job (default: 5)' },
       { name: 'replan', value: '<waves|off>', about: 'replan between waves (default: waves)' },
       { name: 'account', value: '<id>', about: 'the account the project uses' },
@@ -458,7 +458,7 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       "Setting --areas files the plan under the sub-project of its workspace named after its first area, created when missing (a workspace's projects set autoProjects off stops it). --project <projectId> moves a plan that has not started to another project of the same workspace, on its own.",
     flags: [
       ID('<jobId | runId>', 'the Job to change, or one of its runs'),
-      { name: 'concurrency', value: '<n>', about: 'workers at once, 1–10' },
+      { name: 'concurrency', value: '<n>', about: 'workers at once, 1–100' },
       // W8-C plan after plan
       { name: 'after', value: '<jobId|none>', about: 'the Job this one is queued after; none clears it' },
       // W8-D plan areas
@@ -500,7 +500,7 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       ID('<jobId>', 'the Job to plan'),
       { name: 'account', value: '<id>', about: "the account the planner runs on (default: the Job's coordinator account)" },
       // W6-C
-      { name: 'concurrency', value: '<n>', about: 'how many workers this Job places at once (1-10; more reads as 10)' },
+      { name: 'concurrency', value: '<n>', about: 'how many workers this Job places at once (1-100; more reads as 100)' },
       // T1 chat-first planning
       { name: 'planning', value: '<chat|auto>', about: "how the planner works: chat brainstorms with you in its terminal, auto decides alone (default: the Job's own)" },
       // W6-H delivery

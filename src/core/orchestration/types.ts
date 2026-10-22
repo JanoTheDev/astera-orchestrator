@@ -21,7 +21,7 @@ export type MessageType =
 /** 한 Run 이 동시에 열어 둘 Dispatch 수의 기본값. 사람이 Run 을 만들 때 바꾼다. */
 export const DEFAULT_CONCURRENCY = 3
 // W6-C: the most workers that run at once, app-wide (`maxConcurrentWorkers`) and in one Job (`Job.concurrency`)
-export const MAX_CONCURRENT_WORKERS = 10
+export const MAX_CONCURRENT_WORKERS = 100
 
 /** Run 수준 완료 수렴 정책. **있으면 켜진 것이다** — 빈 객체도 켜진 것이고, 비운 칸은 아래 상수를 쓴다
  *  (core/orchestration/convergence.ts 의 policyOf). 없는 Run 은 지금까지의 동작이다: 검증·검토 실패가

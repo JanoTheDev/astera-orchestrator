@@ -8,7 +8,7 @@ import { maxConcurrentWorkersOf } from '../settings/maxConcurrentWorkers'
 
 const T0 = '2026-10-18T00:00:00.000Z'
 
-const job = (id: string, over: Partial<Job> = {}): Job => ({ id, objective: id, cwd: '/p', createdAt: T0, autoDispatch: true, concurrency: 10, ...over })
+const job = (id: string, over: Partial<Job> = {}): Job => ({ id, objective: id, cwd: '/p', createdAt: T0, autoDispatch: true, concurrency: 100, ...over })
 const run = (id: string, jobId: string): JobRun => ({ id, jobId, ordinal: 1, createdAt: T0 })
 const task = (id: string, runId: string, over: Partial<Task> = {}): Task => ({
   id,
@@ -103,35 +103,35 @@ describe('slotsToFill — same files', () => {
   })
 })
 
-describe('the app-wide cap never passes 10', () => {
+describe('the app-wide cap never passes 100', () => {
   const many = (): OrchState => {
     const s = emptyState()
     for (const k of ['A', 'B'] as const) {
       s.jobs.push(job(k))
       s.runs.push(run(`r_${k}`, k))
-      for (let i = 1; i <= 8; i++) s.tasks.push(task(`${k}${i}`, `r_${k}`))
+      for (let i = 1; i <= 60; i++) s.tasks.push(task(`${k}${i}`, `r_${k}`))
     }
     return s
   }
 
-  it('no cap set places at most 10', () => {
-    expect(MAX_CONCURRENT_WORKERS).toBe(10)
-    expect(placed(many())).toHaveLength(10)
-    expect(placed(many(), null)).toHaveLength(10)
+  it('no cap set places at most 100', () => {
+    expect(MAX_CONCURRENT_WORKERS).toBe(100)
+    expect(placed(many())).toHaveLength(100)
+    expect(placed(many(), null)).toHaveLength(100)
   })
-  it('a larger cap reads as 10', () => expect(placed(many(), 50)).toHaveLength(10))
+  it('a larger cap reads as 100', () => expect(placed(many(), 500)).toHaveLength(100))
   it('a smaller cap still holds', () => expect(placed(many(), 4)).toHaveLength(4))
   it('workerCapOf and the settings read agree', () => {
-    expect(workerCapOf(undefined)).toBe(10)
-    expect(workerCapOf(12)).toBe(10)
+    expect(workerCapOf(undefined)).toBe(100)
+    expect(workerCapOf(120)).toBe(100)
     expect(workerCapOf(3)).toBe(3)
-    expect(maxConcurrentWorkersOf(25)).toBe(10)
+    expect(maxConcurrentWorkersOf(250)).toBe(100)
     expect(maxConcurrentWorkersOf(7)).toBe(7)
     expect(maxConcurrentWorkersOf(undefined)).toBeNull()
   })
-  it('the board reports the app-wide cap of 10 when none is set', () => {
-    const r = taskBoardsOf(many()).get('B8')?.reason
-    expect(r).toMatchObject({ kind: 'global-cap', limit: 10 })
+  it('the board reports the app-wide cap of 100 when none is set', () => {
+    const r = taskBoardsOf(many()).get('B60')?.reason
+    expect(r).toMatchObject({ kind: 'global-cap', limit: 100 })
   })
 })
 

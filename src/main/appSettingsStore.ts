@@ -23,6 +23,7 @@ import type { SkillSettings } from '../core/orchestration/skills'
 import { settingsObjectOf } from '../core/settings/settingsObject'
 import { agentPermissionModeOf } from '../core/settings/agentPermissionMode'
 import { maxConcurrentWorkersOf } from '../core/settings/maxConcurrentWorkers'
+import { machineSpecs } from '../core/settings/machineSpecs'
 // W6-G usage guards
 import { maxSubagentsPerSessionOf, SUBAGENT_CAP_DEFAULT } from '../core/sessions/subagentCap'
 import { usagePauseAtOf, USAGE_PAUSE_AT_DEFAULT } from '../core/orchestration/usageGuard'
@@ -564,6 +565,11 @@ export class AppSettingsStore {
 
   getMaxConcurrentWorkers(): number | null {
     return this.maxConcurrentWorkers
+  }
+
+  /** What the scheduler uses: the saved limit, or this machine's recommendation when not set (as the Host's read does). */
+  getEffectiveMaxConcurrentWorkers(): number {
+    return this.maxConcurrentWorkers ?? machineSpecs().recommended
   }
 
   /** Narrowed like the file: the value arrives from the renderer. */

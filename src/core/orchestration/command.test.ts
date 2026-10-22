@@ -6382,20 +6382,20 @@ describe('jobs create / tasks add / accounts list', () => {
   })
 
   // W7-D (#67): a plan's worker count changes until it finishes
-  it('W7-D: jobs set --concurrency changes a not-finished Job, clamped to 10; refuses agents, bad values and a finished Job', async () => {
+  it('W7-D: jobs set --concurrency changes a not-finished Job, clamped to 100; refuses agents, bad values and a finished Job', async () => {
     const deps = makeDeps()
     const jobId = await jobOf(deps)
     const r = await shell(deps, 'jobs-set', { id: jobId, concurrency: '7' })
     expect(r.status).toBe(200)
     expect(r.body).toMatchObject({ id: jobId, concurrency: 7 })
-    expect((await shell(deps, 'jobs-set', { id: jobId, concurrency: 40 })).status).toBe(200)
-    expect(deps.getState().jobs[0].concurrency).toBe(10)
+    expect((await shell(deps, 'jobs-set', { id: jobId, concurrency: 400 })).status).toBe(200)
+    expect(deps.getState().jobs[0].concurrency).toBe(100)
     expect((await shell(deps, 'jobs-set', { id: jobId, concurrency: 0 })).status).toBe(400)
     expect((await shell(deps, 'jobs-set', { id: jobId })).status).toBe(400)
     expect((await shell(deps, 'jobs-set', { id: 'nope', concurrency: 2 })).status).toBe(404)
     expect((await call(deps, 'jobs-set', { id: jobId, concurrency: 2 }, 'coordinator')).status).toBe(403)
     expect((await handleCommand(deps, { sessionId: '', role: 'mcp' }, 'jobs-set', { id: jobId, concurrency: 2 })).status).toBe(403)
-    expect(deps.getState().jobs[0].concurrency).toBe(10)
+    expect(deps.getState().jobs[0].concurrency).toBe(100)
     // A finished Run: every Task terminal
     const run = await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p' })
     const runId = (run.body as { id: string }).id

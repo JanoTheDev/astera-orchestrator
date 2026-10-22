@@ -1226,6 +1226,14 @@ export interface HostHoldings {
 }
 
 /** The contract the renderer sees as window.api. The IPC adapter implements it. */
+/** What this machine offers: total/free memory, logical CPUs, and the worker cap they support. */
+export interface MachineSpecs {
+  totalMemBytes: number
+  freeMemBytes: number
+  logicalCpus: number
+  recommended: number
+}
+
 export interface CoreApi {
   accounts: {
     list(): Promise<Account[]>
@@ -1559,6 +1567,8 @@ export interface CoreApi {
     /** W1-B: the app-wide Job worker cap; null is no cap. */
     getMaxConcurrentWorkers(): Promise<number | null>
     setMaxConcurrentWorkers(n: number | null): Promise<void>
+    /** This machine's memory and CPUs and the worker cap they support (what an unset limit schedules at). */
+    getMachineSpecs(): Promise<MachineSpecs>
     /** W6-G: subagents at once per Claude tab (1–10), and the usage percent at which no new worker starts. */
     getMaxSubagentsPerSession(): Promise<number>
     setMaxSubagentsPerSession(n: number): Promise<void>

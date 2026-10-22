@@ -57,6 +57,7 @@ import { createHostDriverView, type HostDriverView } from './host/hostDriver'
 import { createHostWorkspaceView, type HostWorkspaceView } from './host/hostWorkspace'
 import { clampAppSize } from '../core/workspace/size'
 import { createHostMcpHttpView, type HostMcpHttpView } from './host/hostMcpHttp'
+import { machineSpecs } from '../core/settings/machineSpecs'
 import { mcpHttpHostsProblem, mcpHttpOf, type McpHttpSettings } from '../core/settings/mcpHttp'
 import { createTokenReader, newToken, tokenPath } from '../core/mcp/httpToken'
 import { createOfflineRolls } from './host/offlineRolls'
@@ -1567,7 +1568,7 @@ export function registerIpc(
       (p) => worktreePresence.peek(p) !== 'missing',
       Date.now(),
       // W2-C plan board: the app-wide cap, so a Task held by it says so
-      { maxConcurrentWorkers: core.appSettings.getMaxConcurrentWorkers() },
+      { maxConcurrentWorkers: core.appSettings.getEffectiveMaxConcurrentWorkers() },
       // W6-G
       (id) => usageGuard.pauseOf(id)
     )
@@ -3212,7 +3213,7 @@ export function registerIpc(
     const loop = createDispatchLoop({
       handle: (cmd, args) => orchHandleCommand(deps, { sessionId: UI_CALLER }, cmd, args),
       getState: () => deps.getState(),
-      maxConcurrentWorkers: () => core.appSettings.getMaxConcurrentWorkers(),
+      maxConcurrentWorkers: () => core.appSettings.getEffectiveMaxConcurrentWorkers(),
       accounts: () => core.accounts.list(),
       loginStatus: (accountId) => core.accounts.loginStatus(accountId),
       lang: () => core.lang,
@@ -3497,7 +3498,7 @@ export function registerIpc(
       // 여기서는 앱의 두 후보 목록을 모아 넘긴다. 앱이 없을 때는 Host 가 제 워크트리 레지스트리와
       // 감시자 없는 기록 목록으로 같은 함수를 부른다(host/projectRoots.ts).
       // W1-B: worker-start holds new workers at the app-wide cap.
-      maxConcurrentWorkers: () => core.appSettings.getMaxConcurrentWorkers(),
+      maxConcurrentWorkers: () => core.appSettings.getEffectiveMaxConcurrentWorkers(),
       // W6-G: and none on a nearly spent account
       usageGuard,
       resolveProjectRoot: async (cwd) =>
@@ -4443,6 +4444,7 @@ export function registerIpc(
     if (typeof on !== 'boolean') throw new Error(`INVALID_TAB_SUMMARIES: ${String(on)}`)
     await core.appSettings.setTabSummaries(on)
   })
+  ipcMain.handle('settings.getMachineSpecs', () => machineSpecs())
   ipcMain.handle('settings.getMaxConcurrentWorkers', () => core.appSettings.getMaxConcurrentWorkers())
   ipcMain.handle('settings.setMaxConcurrentWorkers', async (_e, n: unknown) => {
     if (n !== null && (typeof n !== 'number' || !Number.isInteger(n) || n < 1))
