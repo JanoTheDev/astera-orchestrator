@@ -81,6 +81,10 @@ const call = (
   sessionId = 'coordinator'
 ): Promise<{ status: number; body: unknown }> => handleCommand(deps, { sessionId }, cmd, args)
 
+/** The person at a terminal: a shell has no session id. Only they may `reset` and `tasks restore`. */
+const callOwner = (deps: OrchServerDeps, cmd: string, args: Record<string, unknown> = {}): Promise<{ status: number; body: unknown }> =>
+  call(deps, cmd, args, '')
+
 describe('handleCommand — 기본', () => {
   // **오케스트레이션에는 켜고 끄는 값이 없다.** Astera 가 늘 갖고 있는 기능이므로, 이 층에는
   // 그것을 묻는 dep 자체가 없다 — makeDeps 에도 없고, 그래서 이 호출은 거절되지 않는다.
@@ -974,7 +978,43 @@ describe('handleCommand — check', () => {
   })
 })
 
+describe('handleCommand — tasks-restore', () => {
+  it('is refused to an agent, dry-run lists and a real run inserts through the store', async () => {
+    const deps = makeDeps()
+    const run = await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p' })
+    const runId = (run.body as { id: string }).id
+    const made = await call(deps, 'task-create', { account: 'acc1', runId, title: 'lost', spec: 's' })
+    const gone = deps.getState().tasks.find((t) => t.id === (made.body as { id: string }).id)!
+    const file = path.join(dir, 'pre.json')
+    await fs.writeFile(file, JSON.stringify(deps.getState()))
+    await deps.setState({ ...deps.getState(), tasks: [] })
+    expect((await call(deps, 'tasks-restore', { from: file, run: runId })).status).toBe(403)
+    const dry = await callOwner(deps, 'tasks-restore', { from: file, run: runId, dryRun: true })
+    expect((dry.body as { tasks: { id: string }[] }).tasks.map((t) => t.id)).toEqual([gone.id])
+    expect(deps.getState().tasks).toHaveLength(0)
+    expect((await callOwner(deps, 'tasks-restore', { from: file, run: runId })).status).toBe(200)
+    expect(deps.getState().tasks.map((t) => t.id)).toEqual([gone.id])
+  })
+})
+
 describe('handleCommand — reset', () => {
+  it('every agent role is refused (403), the owner is not', async () => {
+    const deps = makeDeps()
+    await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p' })
+    for (const who of ['coordinator', 'planner-1', 'reviewer-1', 'worker-1'])
+      expect((await call(deps, 'reset', { tasks: true, yes: true }, who)).status).toBe(403)
+    expect((await call(deps, 'reset', { tasks: true, yes: true }, 'astera:app')).status).toBe(200)
+  })
+  it('without --yes it changes nothing and says what would go', async () => {
+    const deps = makeDeps()
+    const run = await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p' })
+    const runId = (run.body as { id: string }).id
+    await call(deps, 'task-create', { account: 'acc1', runId, title: 't', spec: 's' })
+    const r = await callOwner(deps, 'reset', { tasks: true })
+    expect(r.status).toBe(400)
+    expect((r.body as { wouldDelete: { tasks: number } }).wouldDelete.tasks).toBe(1)
+    expect(deps.getState().tasks).toHaveLength(1)
+  })
   it('열린 Dispatch가 있으면 거부한다', async () => {
     const deps = makeDeps()
     const run = await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p' })
@@ -986,13 +1026,13 @@ describe('handleCommand — reset', () => {
       account: 'acc1',
       worktree: 'current'
     })
-    const r = await call(deps, 'reset', { all: true })
+    const r = await callOwner(deps, 'reset', { all: true, yes: true })
     expect(r.status).toBe(409)
   })
   it('열린 Dispatch가 없으면 상태를 비운다', async () => {
     const deps = makeDeps()
     await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p' })
-    const r = await call(deps, 'reset', { all: true })
+    const r = await callOwner(deps, 'reset', { all: true, yes: true })
     expect(r.status).toBe(200)
     expect(deps.getState().runs).toHaveLength(0)
   })
@@ -1002,7 +1042,7 @@ describe('handleCommand — reset', () => {
   it('플래그를 하나도 주지 않으면 거부하고 상태를 건드리지 않는다', async () => {
     const deps = makeDeps()
     await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p' })
-    const r = await call(deps, 'reset', {})
+    const r = await callOwner(deps, 'reset', { yes: true })
     expect(r.status).toBe(400)
     expect(deps.getState().runs).toHaveLength(1)
   })
@@ -1026,18 +1066,29 @@ describe('handleCommand — reset', () => {
     it('reset --all 뒤 .bak이 존재하고 그 내용이 리셋 전 상태다', async () => {
       const { deps, file } = await withStore()
       await call(deps, 'run-create', { objective: '지워질 Run', cwd: 'D:/p' })
-      expect((await call(deps, 'reset', { all: true })).status).toBe(200)
+      expect((await callOwner(deps, 'reset', { all: true, yes: true })).status).toBe(200)
       const bak = JSON.parse(await fs.readFile(file + '.bak', 'utf8')) as OrchState
       expect(bak.runs).toHaveLength(1)
       expect(bak.jobs[0].objective).toBe('지워질 Run')
       expect((JSON.parse(await fs.readFile(file, 'utf8')) as OrchState).runs).toHaveLength(0)
     })
 
+    it('reset --yes writes a timestamped backup of the state it wipes', async () => {
+      const { deps, file } = await withStore()
+      await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p' })
+      expect((await callOwner(deps, 'reset', { all: true, yes: true })).status).toBe(200)
+      const stamped = (await fs.readdir(dir)).filter((n) => /^orchestration\..+Z\.json\.bak$/.test(n))
+      expect(stamped).toHaveLength(1)
+      const bak = JSON.parse(await fs.readFile(path.join(dir, stamped[0]), 'utf8')) as OrchState
+      expect(bak.runs).toHaveLength(1)
+      expect(file).toBeTruthy()
+    })
+
     it('reset --tasks도 백업한다', async () => {
       const { deps, file } = await withStore()
       const run = await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p' })
       await call(deps, 'task-create', { account: 'acc1', runId: (run.body as { id: string }).id, spec: 's' })
-      expect((await call(deps, 'reset', { tasks: true })).status).toBe(200)
+      expect((await callOwner(deps, 'reset', { tasks: true, yes: true })).status).toBe(200)
       const bak = JSON.parse(await fs.readFile(file + '.bak', 'utf8')) as OrchState
       expect(bak.tasks).toHaveLength(1)
       expect(deps.getState().tasks).toHaveLength(0)
@@ -1047,7 +1098,7 @@ describe('handleCommand — reset', () => {
     it('플래그가 없어 거부되는 호출은 .bak을 만들지 않는다 — 직전 백업을 갈아치우지 않는다', async () => {
       const { deps, file } = await withStore()
       await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p' })
-      expect((await call(deps, 'reset', {})).status).toBe(400)
+      expect((await callOwner(deps, 'reset', { yes: true })).status).toBe(400)
       await expect(fs.stat(file + '.bak')).rejects.toThrow()
     })
 
@@ -1077,7 +1128,7 @@ describe('handleCommand — reset', () => {
           ]
         })
       }
-      const r = await call(deps, 'reset', { tasks: true })
+      const r = await callOwner(deps, 'reset', { tasks: true, yes: true })
       expect(r.status).toBe(200)
       expect(deps.getState().messages.some((m) => m.id === 'msg_concurrent')).toBe(true)
       expect(deps.getState().tasks).toHaveLength(0) // 지울 것은 지웠다
@@ -1086,7 +1137,7 @@ describe('handleCommand — reset', () => {
     it('backup 미주입이면 백업을 건너뛰고 reset은 그대로 동작한다', async () => {
       const deps = makeDeps() // backup을 주입하지 않는다
       await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p' })
-      expect((await call(deps, 'reset', { all: true })).status).toBe(200)
+      expect((await callOwner(deps, 'reset', { all: true, yes: true })).status).toBe(200)
       expect(deps.getState().runs).toHaveLength(0)
     })
   })
