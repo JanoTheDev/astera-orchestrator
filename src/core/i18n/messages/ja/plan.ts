@@ -89,7 +89,7 @@ export const plan: Partial<Record<keyof typeof ko, string>> = {
   'jobs.changes.reportedNone': 'ワーカーが報告したファイルはありません。',
   'jobs.changes.unsupported': "そのコンピューターはまだ変更ファイルの表示に対応していません。そのコンピューターの Astera を更新してください。",
   'jobs.changes.listCut': 'ファイルが多すぎるため、{total} 件中 {shown} 件だけを表示します。',
-  'plan.wave.coordinatorRefreshed': 'コーディネーターを新しくしました ({reason})',
+  'plan.wave.coordinatorRefreshed': 'リードエージェントを新しくしました ({reason})',
   'plan.simple.progress': '{total} 件中 {done} 件完了',
   'plan.simple.approvedFromChat': 'プランナーのチャットから承認: 「{words}」',
   'plan.simple.showDetails': '詳細を表示',
