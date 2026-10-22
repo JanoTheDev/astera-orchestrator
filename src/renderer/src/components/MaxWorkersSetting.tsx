@@ -3,6 +3,7 @@ import { useI18n } from '../i18n/I18nProvider'
 import { MAX_CONCURRENT_WORKERS } from '../../../core/orchestration/types'
 import type { MachineSpecs } from '../../../core/types'
 import { toast } from '../lib/toast'
+import { Input } from './ui'
 
 /** The app-wide Job worker cap (orchestrator W1-B). Empty uses the machine recommendation, at most 100 (W6-C). Saved on blur, so typing "12" does not save "1" on
  *  the way; a value that is not a whole number of 1 or more goes back to what was saved. */
@@ -39,9 +40,8 @@ export function MaxWorkersSetting(): React.JSX.Element {
     <div className="settings-group">
       <label className="settings-row">
         <span>{t('settings.maxWorkers.label')}</span>
-        <input
+        <Input
           type="number"
-          className="ui-input"
           min={1}
           max={MAX_CONCURRENT_WORKERS}
           placeholder={specs ? String(specs.recommended) : undefined}

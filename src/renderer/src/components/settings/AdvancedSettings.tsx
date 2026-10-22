@@ -10,7 +10,7 @@ import type { UpdateMode } from '../../../../core/types'
 import { useEffect, useState } from 'react'
 import { toast } from '../../lib/toast'
 import { SettingRow, type GroupProps } from './SettingRow'
-import { Button, Select } from '../ui'
+import { Button, Icon, Select, Switch, Tooltip } from '../ui'
 
 const UPDATE_MODES: readonly UpdateMode[] = ['off', 'notify', 'build', 'install-when-idle']
 
@@ -94,14 +94,16 @@ function SourceUpdateCard({
           )}
         </div>
       )}
-      <label className="settings-row">
+      {/* a div, not a label: a label re-forwards the click to the listbox and it reopens as it closes */}
+      <div className="settings-row">
         <span>{t('update.ui.mode')}</span>
-        <Select value={mode} onChange={(e) => changeMode(e.target.value as UpdateMode)}>
-          {UPDATE_MODES.map((m) => (
-            <option key={m} value={m}>{t(`update.ui.mode.${m}` as never)}</option>
-          ))}
-        </Select>
-      </label>
+        <Select
+          ariaLabel={t('update.ui.mode')}
+          value={mode}
+          onChange={(v) => changeMode(v as UpdateMode)}
+          items={UPDATE_MODES.map((m) => ({ value: m, label: t(`update.ui.mode.${m}` as never) }))}
+        />
+      </div>
       <span className="settings-hint">{t(modeHintKey(mode))}</span>
     </div>
   )
@@ -137,11 +139,9 @@ export function AdvancedSettings(p: GroupProps): React.JSX.Element | null {
           <div className="settings-group">
             <label className="settings-row">
               <span>{t('settings.workUnit.label')}</span>
-              <input
-                type="checkbox" role="switch" className="ui-toggle"
+              <Switch
                 checked={workUnitTrackingEnabled}
-                onChange={(e) => {
-                  const next = e.target.checked
+                onChange={(next) => {
                   settingsTouched.current.touch('workUnits')
                   setWorkUnitTrackingEnabled(next) // an optimistic update — reverted below on failure
                   void window.api.settings.setWorkUnitTrackingEnabled(next).catch((err) => {
@@ -164,12 +164,22 @@ export function AdvancedSettings(p: GroupProps): React.JSX.Element | null {
       </div>
       <SettingRow a="worktreeRoot" only={only}>
         <div className="settings-worktree">
-          <label className="settings-field-label">{t('settings.worktree.createLocation')}</label>
+          {/* "Worktree" stays a word on screen; the tooltip says what it is (DESIGN-W11 plain words). */}
+          <span className="settings-field-label settings-worktree-label">
+            {t('settings.worktree.createLocation')}
+            <Tooltip content={t('settings.worktree.tooltip')}>
+              <span className="settings-worktree-info" tabIndex={0} role="img" aria-label={t('settings.worktree.tooltip')}>
+                <Icon name="info" size={14} />
+              </span>
+            </Tooltip>
+          </span>
           <div className="worktree-root-cell">
             <span className="worktree-root-path" title={wtRoot}>
               {wtRoot || '…'}
             </span>
-            <button
+            <Button
+              size="sm"
+              icon={<Icon name="folder" />}
               onClick={() =>
                 void window.api.system.pickFolder().then(async (dir) => {
                   if (!dir) return
@@ -184,7 +194,7 @@ export function AdvancedSettings(p: GroupProps): React.JSX.Element | null {
               }
             >
               {t('settings.worktree.change')}
-            </button>
+            </Button>
           </div>
           <span className="settings-hint">
             {t('settings.worktree.hint')}

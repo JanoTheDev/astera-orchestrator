@@ -2,23 +2,13 @@
 // right. W11 (DESIGN-W11 §9): PageHeader with Back as leading, a 200px icon nav, the content at 720px in cards. A search shows every matching row under its group's label. openSettings(group, anchor) scrolls to the row
 // and briefly highlights it.
 import { useEffect, useMemo, useRef, useState } from 'react'
-import {
-  ArrowLeft,
-  Bell,
-  Bot,
-  FolderKanban,
-  Plug,
-  Search,
-  SlidersHorizontal,
-  Users,
-  Wrench,
-  type LucideIcon
-} from 'lucide-react'
-import { Button, EmptyState, PageHeader } from '../ui'
+// Bot, FolderKanban, Plug and Wrench are not in the icon registry yet (ui/Icon.tsx ICONS): drawn through Icon's `icon`.
+import { Bot, FolderKanban, Plug, Wrench, type LucideIcon } from 'lucide-react'
+import { Button, EmptyState, ICONS, Icon, Input, PageHeader, type IconName } from '../ui'
 import { useAdvancedMode } from '../../state/useAdvancedMode'
 import type { SettingsDialogProps } from '../shell/SettingsDialog'
 import { GROUP_LABEL, SETTINGS_GROUPS, SETTINGS_ROWS, filterSettings, groupHasBasic, type SettingsGroupId } from './settingsIndex'
-import { ShowAdvancedContext, type GroupProps } from './SettingRow'
+import { ShowAdvancedContext, arrowFocus, type GroupProps } from './SettingRow'
 import { GeneralSettings } from './GeneralSettings'
 import { AccountsUsageSettings } from './AccountsUsageSettings'
 import { AgentsSettings } from './AgentsSettings'
@@ -38,15 +28,23 @@ const GROUP_VIEW: Record<SettingsGroupId, (p: GroupProps) => React.JSX.Element |
   advanced: AdvancedSettings
 }
 
-const GROUP_ICON: Record<SettingsGroupId, LucideIcon> = {
-  general: SlidersHorizontal,
-  accounts: Users,
+const GROUP_ICON: Record<SettingsGroupId, IconName | LucideIcon> = {
+  general: 'filter',
+  accounts: 'users',
   agents: Bot,
   projects: FolderKanban,
   integrations: Plug,
-  notifications: Bell,
+  notifications: 'notifications',
   advanced: Wrench
 }
+
+function GroupIcon({ g }: { g: SettingsGroupId }): React.JSX.Element {
+  const i = GROUP_ICON[g]
+  return typeof i === 'string' ? <Icon name={i} /> : <Icon icon={i} />
+}
+
+/** Up/Down/Home/End move focus between the side nav's group buttons (one Tab stop each, in order). */
+const navKeyDown = arrowFocus('.settings-nav-item')
 
 /** How long a row openSettings landed on stays highlighted. */
 const FLASH_MS = 1600
@@ -122,16 +120,16 @@ export function SettingsPage(p: SettingsDialogProps & { onClose: () => void }): 
         className="settings-page__head"
         title={t('settings.title')}
         leading={
-          <Button variant="ghost" size="sm" icon={<ArrowLeft size={14} aria-hidden="true" />} onClick={onClose}>
+          <Button variant="ghost" size="sm" icon={<Icon name="back" size={14} />} onClick={onClose}>
             {t('settings.back')}
           </Button>
         }
       />
       <div className="settings-page__body">
-        <nav className="settings-page__nav" aria-label={t('settings.title')}>
+        <nav className="settings-page__nav" aria-label={t('settings.title')} onKeyDown={navKeyDown}>
           <label className="settings-page__search">
-            <Search size={14} aria-hidden="true" />
-            <input
+            <Icon name="search" size={14} />
+            <Input
               type="search"
               value={query}
               placeholder={t('settings.search.placeholder')}
@@ -140,11 +138,11 @@ export function SettingsPage(p: SettingsDialogProps & { onClose: () => void }): 
             />
           </label>
           {SETTINGS_GROUPS.filter((g) => advanced || groupHasBasic(g) || revealed.has(g) || settingsTab === g).map((g) => {
-            const GroupIcon = GROUP_ICON[g]
             return (
-              <button
+              <Button
                 key={g}
-                type="button"
+                variant="ghost"
+                icon={<GroupIcon g={g} />}
                 className={`settings-nav-item ${!hits && settingsTab === g ? 'active' : ''} ${hits && !hitGroups.has(g) ? 'settings-nav-item--none' : ''}`}
                 aria-current={!hits && settingsTab === g ? 'page' : undefined}
                 onClick={() => {
@@ -152,15 +150,16 @@ export function SettingsPage(p: SettingsDialogProps & { onClose: () => void }): 
                   setSettingsTab(g)
                 }}
               >
-                <GroupIcon size={16} aria-hidden="true" />
-                <span>{t(GROUP_LABEL[g])}</span>
-              </button>
+                {t(GROUP_LABEL[g])}
+              </Button>
             )
           })}
         </nav>
         <div ref={content} className="settings-content settings-page__content">
           {hits && hits.length === 0 && (
-            <EmptyState icon={Search}>{t('settings.search.empty', { query: query.trim() })}</EmptyState>
+            <EmptyState icon={ICONS.search} title={t('settings.search.emptyTitle')}>
+              {t('settings.search.empty', { query: query.trim() })}
+            </EmptyState>
           )}
           {/* Every group keeps its place in the tree, shown or not, so Integrations' Slack row is never remounted. */}
           {SETTINGS_GROUPS.map((g) => {

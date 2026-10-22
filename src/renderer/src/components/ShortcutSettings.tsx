@@ -12,8 +12,9 @@ import { useI18n } from '../i18n/I18nProvider'
 import { confirmModal } from '../lib/confirm'
 import { toast } from '../lib/toast'
 import type { MessageKey } from '../../../core/i18n'
-import { Pencil, RotateCcw } from 'lucide-react'
-import { IconButton, Kbd } from './ui'
+// RotateCcw is not in the icon registry yet (ui/Icon.tsx ICONS): drawn through Icon's `icon`.
+import { RotateCcw } from 'lucide-react'
+import { Icon, IconButton, Kbd } from './ui'
 
 /** The editable shortcuts as the table shows them: the action, its name and its chords. */
 export function shortcutRows(
@@ -134,14 +135,14 @@ export function ShortcutSettings({
               <span className="shortcut-table__actions">
                 <IconButton
                   size="sm"
-                  icon={<Pencil size={14} />}
+                  icon={<Icon name="edit" size={14} />}
                   label={t('shortcut.edit')}
                   disabled={capturing !== null}
                   onClick={() => setCapturing(action.id)}
                 />
                 <IconButton
                   size="sm"
-                  icon={<RotateCcw size={14} />}
+                  icon={<Icon icon={RotateCcw} size={14} />}
                   label={t('shortcut.resetOne')}
                   disabled={capturing !== null || overrides[action.id] === undefined}
                   onClick={() => void reset(action.id)}

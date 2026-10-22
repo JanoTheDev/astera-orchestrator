@@ -6,6 +6,7 @@ import { toast } from '../lib/toast'
 import { ActivityDigestSetting } from './activity/ActivityDigestSetting'
 import { AlertSoundSetting } from './activity/AlertSoundSetting'
 import { TabSummariesSetting } from './TabSummariesSetting'
+import { Switch } from './ui'
 
 /** The three events, in the order §6's table lists them: the two that mean *the work has stopped*
  *  first, then the one that means *it is proceeding*. That order is the explanation — a person
@@ -72,14 +73,13 @@ export function NotificationSettings(): React.JSX.Element {
           {/* A label so pressing the text toggles too — the same wrapping the GitHub polling row uses */}
           <label className="settings-row">
             <span>{t(label)}</span>
-            <input
-              type="checkbox" role="switch" className="ui-toggle"
+            <Switch
               // Unchecked until the first read answers, rather than defaulting to the on state:
               // a checkbox that flips itself a moment after the tab opens reads as a setting that
               // changed, and this one did not.
               checked={flags?.[key] ?? false}
               disabled={flags === null}
-              onChange={(e) => toggle(key, e.target.checked)}
+              onChange={(on) => toggle(key, on)}
             />
           </label>
           <span className="settings-hint">{t(hint)}</span>

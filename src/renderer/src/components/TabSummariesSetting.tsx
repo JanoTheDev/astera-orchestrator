@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
+import { Switch } from './ui'
 
 /** W9-I: the app setting `tabSummaries` (core/settings/tabSummaries.ts): a short card when a tab ends. Only the Host
  *  reads it, so the value lives here, as ActivityDigestSetting's does; the toggle is AutoCloseTabsSetting's. */
@@ -21,7 +22,7 @@ export function TabSummariesSetting(): React.JSX.Element {
     <div>
       <label className="settings-row">
         <span>{t('settings.tabSummaries.label')}</span>
-        <input type="checkbox" role="switch" className="ui-toggle" checked={on ?? false} disabled={on === null} onChange={(e) => toggle(e.target.checked)} />
+        <Switch checked={on ?? false} disabled={on === null} onChange={toggle} />
       </label>
       <span className="settings-hint">{t('settings.tabSummaries.hint')}</span>
     </div>

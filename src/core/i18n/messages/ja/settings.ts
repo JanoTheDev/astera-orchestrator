@@ -11,9 +11,9 @@ export const settings: Partial<Record<keyof typeof ko, string>> = {
   'settings.agentPermission.hint':
     'アプリが起動するすべてのエージェントセッションを権限確認なしで実行します' +
     '(claude は --dangerously-skip-permissions、codex は --dangerously-bypass-approvals-and-sandbox)。' +
-    '既定はオフです。Job のワーカーは毎回新しく作られた worktree で起動しますが、そのフォルダには承認履歴がなく、' +
+    '既定はオフです。プランのエージェントは毎回新しく作られた worktree で起動しますが、そのフォルダには承認履歴がなく、' +
     'プロジェクトに蓄積した許可リスト(.claude/settings.local.json)も引き継がれないため、' +
-    'オフにするとワーカーは最初のコマンドで停止します。' +
+    'オフにするとエージェントは最初のコマンドで停止します。' +
     'すでに開いているセッションには適用されません。次のセッションから有効です。',
   'settings.agentPermission.saveFailed': '権限モードを保存できませんでした: {detail}',
   // Work Unit 追跡
@@ -57,7 +57,7 @@ export const settings: Partial<Record<keyof typeof ko, string>> = {
   'settings.info.version': 'バージョン',
   'settings.info.registeredAccounts': '登録アカウント',
   'settings.info.update': 'アップデート',
-  'settings.info.host': 'バックグラウンドホスト',
+  'settings.info.host': 'バックグラウンドサービス',
   'settings.info.hostConnected': '接続済み · プロトコル {protocol} · {uptime} 前から',
   'settings.info.hostNotConnected': '未接続',
   'settings.info.hostNotConnectedWhy': '未接続 · {detail}',
@@ -168,17 +168,17 @@ export const settings: Partial<Record<keyof typeof ko, string>> = {
   'shortcut.gesture.itemDrag': '項目をドラッグ',
   'shortcut.explorer.move': '移動 · {mod} を押すとコピー',
   'shortcut.explorer.undo': '元に戻す',
-  'settings.freshCoordinator.label': 'コンテキスト使用率でコーディネーターを交代(%)',
-  'settings.freshCoordinator.hint': 'プランのコーディネーターがコンテキストウィンドウをこの割合まで使うと、Astera は同じアカウントとモデルの新しいセッションに入れ替え、プランの状態を伝えます。ウェーブの切り替わりごとにも交代します。0 にするとコンテキストの確認を行いません。',
-  'settings.freshCoordinator.saveFailed': '新しいコーディネーターの設定を保存できませんでした: {detail}',
+  'settings.freshCoordinator.label': 'コンテキスト使用率でリードエージェントを交代(%)',
+  'settings.freshCoordinator.hint': '各プランにはリードエージェント(プランを進めるセッション)がいます。リードエージェントがコンテキストウィンドウをこの割合まで使うと、Astera は同じアカウントとモデルの新しいセッションに交代させ、プランの状態を伝えます。プランが次のステップに進むときも交代します。0 でコンテキストの確認をオフにします。',
+  'settings.freshCoordinator.saveFailed': '新しいリードエージェントの設定を保存できませんでした: {detail}',
   'settings.stallWatch.label': '止まったプランを見張る',
-  'settings.stallWatch.hint': '30 秒ごとに実行中の各プランを確認します。空きがあるのに 2 分以上始まらない準備済みの Task、何も始めずに忙しいままのコーディネーター、プランブランチに入っていない完了 Task、ウェーブ後に開かれていないドラフト PR を見つけると、コーディネーターに伝えるか自分で直します。対応ごとにフィードへ 1 行残し、作業の取り消しや main へのマージは行いません。',
+  'settings.stallWatch.hint': '30 秒ごとに実行中の各プランを確認します。空きがあるのに 2 分以上始まらない準備済みの Task、何も始めずに忙しいままのリードエージェント、プランブランチに入っていない完了 Task、ステップ後に開かれていないドラフト PR を見つけると、リードエージェントに伝えるか自分で直します。対応ごとにフィードへ 1 行残し、作業の取り消しや main へのマージは行いません。',
   'settings.stallWatch.saveFailed': '止まったプランの見張り設定を保存できませんでした: {detail}',
   'settings.startAtLogin.label': 'ログイン時に Astera を起動',
   'settings.startAtLogin.hint': 'ログイン時に Astera をバックグラウンドで起動し、クラッシュや再起動で中断したプランを、ウィンドウを開く前に続きから再開します。Linux のみ。',
   'settings.startAtLogin.saveFailed': 'ログイン時の起動設定を保存できませんでした: {detail}',
   'settings.autoAnswer.label': '質問に自動で答える',
-  'settings.autoAnswer.hint': '安全に答えられるプランの質問には Astera が自分で答えます。知っている事実(Task がマージされたか、ウェーブが終わったか)を優先し、なければ質問者の推奨か安全な既定(保留、待機、1 回だけ再試行、チェックを飛ばす)で答えます。回答ごとにフィードへ 1 行残します。作業の削除、既定ブランチへのプッシュやマージ、お金、認証情報、権限は必ずあなたに回ります。',
+  'settings.autoAnswer.hint': '安全に答えられるプランの質問には Astera が自分で答えます。知っている事実(Task がマージされたか、ステップが終わったか)を優先し、なければ質問者の推奨か安全な既定(保留、待機、1 回だけ再試行、チェックを飛ばす)で答えます。回答ごとにフィードへ 1 行残します。作業の削除、既定ブランチへのプッシュやマージ、お金、認証情報、権限は必ずあなたに回ります。',
   'settings.autoAnswer.saveFailed': '自動回答の設定を保存できませんでした: {detail}',
   // W9-E settings page
   'settings.group.general': '一般',
@@ -204,4 +204,16 @@ export const settings: Partial<Record<keyof typeof ko, string>> = {
   'onboarding.settings.replay': 'オンボーディングをもう一度表示',
   'onboarding.settings.replayHint': 'セットアップを最初からたどります。設定はそのまま残ります。',
   'onboarding.settings.replayButton': '表示',
+  'settings.worktree.tooltip': 'worktree は、自分のブランチを持つプロジェクトフォルダの別コピーです。エージェントはあなたのファイルに触れずに作業できます。',
+  'settings.search.emptyTitle': '設定が見つかりません',
+  'settings.alertSound.hint': '権限の確認、質問、エスカレーション、あなたを待つプランの質問の通知と一緒に短いチャイムを鳴らします。5 秒に 1 回までです。',
+  'settings.roleModels.hint': 'プランの各セッションが起動するモデルです。Task 自身のモデルが優先され、次に難易度、プランの指定、最後にここの値です。空欄なら CLI の既定モデルを使います。',
+  'settings.roleModels.role.coordinator': 'リードエージェント',
+  'settings.roleModels.role.worker': 'エージェント',
+  'settings.info.hostOutdated': 'バックグラウンドサービス {host} · アプリ {app} — すべてのセッションを閉じると自動で新しいバージョンに更新されます。今すぐ再起動するとすぐに更新されます。',
+  'settings.info.hostRuntimeIncomplete': 'バックグラウンドサービスが使うファイルの一部がなくなっています。このままだと次のセッションで応答しなくなります。何も保持していないときに自動で修復され、今すぐ再起動しても同じです。',
+  'settings.maxWorkers.label': 'すべてのプランを合わせた最大エージェント数',
+  'settings.maxWorkers.hint': '最大 100。空欄ならこのマシンの推奨値を使います。上限に達すると優先度の高いプランから空きを受け取り、同じなら交代で受け取ります。',
+  'settings.maxWorkers.saveFailed': 'エージェントの上限を保存できませんでした: {detail}',
+  'settings.tabSummaries.hint': 'タブが終わると、Astera が短いカードを書きます: したこと、ファイル、チェックとレビュー、そしてリードエージェントのモデルによる 2〜3 文。カードは Task ボード、履歴、プランの概要に表示されます。',
 }

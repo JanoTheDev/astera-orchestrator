@@ -42,12 +42,13 @@
 /* 카드는 자기 테마의 값으로 그린다(인라인 스타일) — 앱 토큰을 쓰면 일곱 장이 전부 같아 보인다.
    그래서 여기서는 색을 정하지 않고 배치만 정한다. 고른 카드만 앱의 액센트 링을 두른다 (W11: 카드마다
    제 액센트로 테두리를 그리면 일곱 가지 '선택됨'이 생긴다). */
-.theme-card { display: flex; flex-direction: column; gap: 8px; align-items: stretch;
+/* A ui Card (onClick): the grid prefix outranks .ui-card and its day-theme shadow, which would hide the ring. */
+.theme-grid .ui-card.theme-card { display: flex; flex-direction: column; gap: 8px; align-items: stretch;
   padding: 8px; border: 1px solid; border-radius: var(--radius-lg); cursor: pointer; text-align: left; font: inherit; font-size: var(--fs-12);
-  transition: box-shadow var(--dur-fast) var(--ease-out); }
-.theme-card:hover { box-shadow: 0 0 0 1px var(--line-strong); }
-.theme-card.on { box-shadow: 0 0 0 2px var(--accent); }
-.theme-card:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+  box-shadow: none; transition: box-shadow var(--dur-fast) var(--ease-out); }
+.theme-grid .ui-card.theme-card:hover { box-shadow: 0 0 0 1px var(--line-strong); }
+.theme-grid .ui-card.theme-card.on { box-shadow: 0 0 0 2px var(--accent); }
+.theme-grid .ui-card.theme-card:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .theme-card-bars { display: flex; width: 100%; height: 28px; border-radius: var(--radius); overflow: hidden; }
 .theme-card-bars i { flex: 1; }
 .theme-card-name { display: flex; align-items: center; justify-content: space-between; gap: 4px; font-weight: var(--fw-semi); }
@@ -91,16 +92,20 @@
 .settings-gen-refresh { align-self: flex-start; padding: 5px 10px; border: 1px solid var(--line);
   border-radius: var(--radius); background: var(--bg); color: var(--text); cursor: pointer; font-size: var(--fs-12); }
 .settings-gen-refresh:disabled { opacity: 0.5; cursor: default; }
+/* The Settings screen's own text fields (ui Input) and the generator's refresh (ui Button): width and place only. */
+.settings-text-field { min-width: 200px; }
+.settings-gen > .settings-gen-action { align-self: flex-start; }
 
 /* 안에 기능이 둘(작업 이어가기·재개 방식)이라 gap 은 묶음 사이 값이다 — .settings-stack 과
    같은 22px 라야 이 컴포넌트의 경계가 다른 기능 사이와 구별되지 않는다. */
 .settings-resume-strategy { display: flex; flex-direction: column; gap: 22px; }
 .resume-strategy-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
-.resume-strategy-card { display: flex; flex-direction: column; gap: 4px; align-items: flex-start;
+.resume-strategy-grid .ui-card.resume-strategy-card { display: flex; flex-direction: column; gap: 4px; align-items: flex-start;
   padding: 10px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--bg);
-  color: var(--text); cursor: pointer; text-align: left; font-size: var(--fs-12); }
-.resume-strategy-card.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
-.resume-strategy-card:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+  color: var(--text); cursor: pointer; text-align: left; font-size: var(--fs-12); box-shadow: none; }
+.resume-strategy-grid .ui-card.resume-strategy-card:hover { background: var(--hover); }
+.resume-strategy-grid .ui-card.resume-strategy-card.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+.resume-strategy-grid .ui-card.resume-strategy-card:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .resume-strategy-card-name { font-weight: 600; }
 .resume-strategy-card-desc { color: var(--text-dim); }
 /* worktree 기준 브랜치 — 라벨 문구를 위, 셀렉트를 아래에 둔다(.field label 들과 같은 관례).
@@ -116,6 +121,9 @@
 .color-dot.ghost { background: transparent !important; border: 1px solid var(--text-faint); }
 /* 이어하기 모달의 '삭제된 계정' 배지 */
 .origin-deleted { margin-left: 6px; font-size: var(--fs-11); font-style: normal; color: var(--text-faint); }
+.settings-worktree-label { display: inline-flex; align-items: center; gap: var(--sp-1); }
+.settings-worktree-info { display: inline-flex; color: var(--text-faint); border-radius: var(--radius-sm); cursor: help; }
+.settings-worktree-info:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .worktree-root-cell { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .worktree-root-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-13); }
 /* 숨긴 프로젝트는 전체 경로로 보여주므로 폭을 넘길 수 있다 — 줄바꿈 대신 말줄임으로 행 높이를 지킨다.
@@ -132,23 +140,18 @@
 /* 검색창은 .rtp-search(런 타입 고르기)와 같은 생김새다. 클래스를 공유하지 않는 이유는 그쪽이
    드롭다운 메뉴 안에서만 쓰이는 폭·여백을 함께 갖고 있어서다 — 여기서 그 여백을 다시 덮는 것보다
    같은 값 몇 줄을 적는 편이 나중에 한쪽만 바꿀 때 안전하다. */
-.settings-history-search { background: var(--bg); color: var(--text); border: 1px solid var(--line-soft);
-  padding: 5px 7px; border-radius: var(--radius); font-size: var(--fs-12); }
+.settings-history-search { max-width: var(--settings-control-w, 220px); }
 /* 페이지 이동 줄. 전체 개수는 오른쪽 끝으로 밀어 두어(margin-left:auto) 가운데의 '2 / 3'과 섞이지 않는다.
    목록이 한 페이지뿐이면 이 줄 자체가 렌더되지 않는다. */
 .settings-history-nav { display: flex; align-items: center; gap: 8px; padding-top: 2px; }
 .settings-history-nav > .settings-hint { margin-left: auto; }
-.settings-history-nav button { padding: 2px 8px; line-height: 1.4; }
-.settings-history-nav button:disabled { opacity: 0.4; cursor: default; }
 .settings-history-page { font-size: var(--fs-12); color: var(--text-dim); font-variant-numeric: tabular-nums; }
 /* 고르기 줄 — 왼쪽에 '보이는 것 모두', 오른쪽 끝에 삭제 버튼. 목록에 보이는 것이 하나도 없으면
    이 줄 자체가 렌더되지 않는다. */
 .settings-history-bulk { display: flex; align-items: center; gap: 8px; }
 .settings-history-check { display: flex; align-items: center; gap: 6px; font-size: var(--fs-12); color: var(--text-dim); cursor: pointer; }
-/* 되돌릴 수 없는 버튼이라 색으로 구분한다. 다른 danger 규칙(button.ghost.danger)은 ghost 전용이라
-   여기서 다시 적는다 — 그쪽에 클래스를 얹으면 그 규칙의 뜻이 바뀐다. */
-.settings-history-bulk button.danger { margin-left: auto; color: var(--danger); border-color: var(--danger); }
-.settings-history-bulk button.danger:disabled { opacity: 0.45; cursor: default; color: var(--text-dim); border-color: var(--line-soft); }
+/* 되돌릴 수 없는 버튼이라 색으로 구분한다 — ui Button 의 danger 변형이 색을 갖고, 여기서는 오른쪽 끝으로만 민다. */
+.settings-history-delete { margin-left: auto; }
 .settings-field-label { font-size: var(--fs-13); color: var(--text-dim); }
 .settings-hint { font-size: var(--fs-12); color: var(--text-faint); }
 /* The full-control warning on a pairing string about to be made (Settings › Remote Runtimes › This computer). */

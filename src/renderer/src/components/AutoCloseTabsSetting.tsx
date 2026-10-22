@@ -1,5 +1,6 @@
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
+import { Switch } from './ui'
 
 /** W7-F (#84): the app setting `autoCloseEndedPlanTabs` (lib/tabAutoClose.ts). App owns the value, because its
  *  auto-close effect reads it; this is AlertSoundSetting's optimistic toggle on that value. */
@@ -16,7 +17,7 @@ export function AutoCloseTabsSetting({ on, onChange }: { on: boolean; onChange: 
     <div className="settings-group">
       <label className="settings-row">
         <span>{t('settings.autoCloseTabs.label')}</span>
-        <input type="checkbox" role="switch" className="ui-toggle" checked={on} onChange={(e) => toggle(e.target.checked)} />
+        <Switch checked={on} onChange={toggle} />
       </label>
       <span className="settings-hint">{t('settings.autoCloseTabs.hint')}</span>
     </div>
