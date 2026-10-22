@@ -139,7 +139,7 @@ export const NOUNS = {
   questions: ['list', 'get', 'answer'],
   // `jobs create --coordinator-account` 와 `tasks add --account` 에 넣을 id 가 여기서 나온다.
   // 동사 없는 `accounts` 는 가이드가 가르치는 세션 명령 그대로다(BARE_NOUNS).
-  accounts: ['list'],
+  accounts: ['list', 'login'],
   // `tasks add --validate` 에 넣을 id 가 여기서 나온다(phase D). 동사 없는 `run-configs` 는 가이드가
   // 가르치는 세션 명령 그대로다(BARE_NOUNS) — 그쪽은 가장 최근 회차의 것이고 이쪽은 --job 의 것이다.
   'run-configs': ['list'],
@@ -166,7 +166,7 @@ export const NOUNS = {
   mcp: ['serve', 'status'],
   // **Remote Runtime on this machine** (remote runtime design §2.9, plan ruling P1): answered in the CLI process,
   // which writes remote-runtime.json and the identity and asks the Host only what it holds (cli/runtime/commands.ts).
-  runtime: ['start', 'stop', 'status', 'serve', 'pair', 'clients', 'revoke'],
+  runtime: ['start', 'stop', 'status', 'serve', 'pair', 'clients', 'revoke', 'setup'],
   // **The paired Runtimes of this machine** (remote runtime design §4.4): answered in the CLI process from
   // <profile>/runtimes (cli/runtimes.ts). `add` pairs, `remove` forgets without revoking.
   runtimes: ['add', 'list', 'remove'],

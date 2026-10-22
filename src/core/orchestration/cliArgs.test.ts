@@ -251,7 +251,7 @@ describe('공개 표면 — 두 낱말 명령', () => {
       args: { agent: 'claude' }
     })
     expect(parseArgs(['accounts', 'fly'])).toEqual({
-      error: 'unknown accounts subcommand: fly (expected list)'
+      error: 'unknown accounts subcommand: fly (expected list, login)'
     })
   })
 

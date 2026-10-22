@@ -509,6 +509,7 @@ astera runtime clients                       who is paired
 astera runtime revoke --id <clientId>        unpair one and close its connections now
 astera runtime stop                          stop listening; the Host and its Jobs keep running
 astera runtime serve                         for an OS service: keep a Host running while Remote is on
+astera runtime setup --yes                   all of it at once: install, keep alive, listen, pair (remote-runtime.md)
 ```
 
 `start` writes `remote-runtime.json` in the profile, makes this machine's identity the first time (a key and a
@@ -679,6 +680,7 @@ astera runtime status | stop | clients | serve
 astera runtime start   [--listen <addr>] [--port <n>]
 astera runtime pair    [--full-control | --read-only] [--name <n>]
 astera runtime revoke  --id <clientId>
+astera runtime setup   [--listen <addr>] [--tailscale] [--name <n>] [--full-control] [--yes] [--codex]
 
 astera runtimes list
 astera runtimes add    [--pair <string>] [--address <host>] [--port <n>] [--code <code>] [--fingerprint <fp>] [--name <n>] [--replace]
@@ -738,6 +740,7 @@ astera tasks   restore --from <file> [--job <jobId> | --run <runId>] [--dry-run]
 astera dispatches list [--run <runId>]
 
 astera accounts list  [--agent <claude|codex>]
+astera accounts login --new [--label <name>]
 
 astera run-configs list --job <jobId>
 

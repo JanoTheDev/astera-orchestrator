@@ -229,6 +229,19 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
     summary: 'unpair a controller and close its connections now',
     flags: [ID('<clientId>', 'the controller to unpair (from `runtime clients`)')]
   },
+  'runtime-setup': {
+    summary: 'make this machine a Runtime in one command: install what it needs, keep it running, pair',
+    detail:
+      'Each step says ok, skipped (already there) or failed with the reason, so a second run changes nothing. It checks git and the Claude CLI and installs what is missing (apt on Ubuntu and Debian, winget on Windows, the vendor installer for Claude) only with --yes; installs the astera command; writes and starts the keep-alive service (a systemd user unit with linger, a Task Scheduler logon task, a LaunchAgent); listens on --listen, else the Tailscale address, else the one private LAN address, never every interface; and prints one pairing string, read-only unless --full-control. Exits 1 when a step failed, 2 for an address it refuses. Refused with 5 inside an agent session (ASTERA_SESSION is set).',
+    flags: [
+      { name: 'listen', value: '<addr>', about: 'the address to listen on (never 0.0.0.0)' },
+      { name: 'tailscale', about: 'listen on the Tailscale address, and fail when there is none' },
+      { name: 'name', value: '<n>', about: 'what controllers call this machine (default its host name)' },
+      { name: 'full-control', about: 'the pairing may also change things' },
+      { name: 'yes', about: 'install what is missing without asking' },
+      { name: 'codex', about: 'install the Codex CLI too' }
+    ]
+  },
   'runtimes-add': {
     summary: 'pair this machine with a Runtime, from the string `astera runtime pair` printed there',
     detail:
@@ -717,6 +730,15 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
     detail:
       'The ids `jobs create --coordinator-account` and `tasks add --account` take. With Astera closed the Host reads them from the profile, so this works either way.',
     flags: [{ name: 'agent', value: '<claude|codex>', about: 'only this vendor' }]
+  },
+  'accounts-login': {
+    summary: 'sign a new Claude account in from this terminal, with no app',
+    detail:
+      'Makes a fresh config folder, registers it in the profile as an Astera account and runs `claude auth login` for it in this terminal: open the link it prints on any device and paste the code back. An account that did not sign in is taken off again. Exits 1 then. Needs no Host and no app.',
+    flags: [
+      { name: 'new', required: true, about: 'sign a new account in' },
+      { name: 'label', value: '<name>', about: 'what to call it (default Claude)' }
+    ]
   },
 
   // Answered in the CLI process from the profile's files, with no Host and no app (cli/skills.ts).

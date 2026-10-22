@@ -40,14 +40,73 @@ Notifications for a Job on a Runtime follow the Runtime machine's own Slack sett
 
 ## Where it runs
 
-The Runtime is a machine with the Astera app installed: Windows, macOS, or Linux from the `.deb` in a desktop session
-(a Linux server with no desktop, no X11 or Wayland, waits for v1.1). The desktop session is for setting it up: the app
-installs Astera's command line and signs the accounts in. Once set up, the OS recipes below keep it running across
+The Runtime is a machine with Astera installed: Windows, macOS, or Ubuntu and Debian Linux from the `.deb`, with or
+without a desktop. On a Linux server with no X11 or Wayland, everything a Runtime runs (the `astera` command,
+`astera runtime serve`, the Host and the Gateway) is the app's own binary run as Node (`ELECTRON_RUN_AS_NODE=1`), which
+opens no window and needs no display. `astera runtime setup` installs the command line there and
+`astera accounts login --new` signs accounts in from a terminal, so no desktop session is needed to set it up. How that
+was checked: neither the command line nor the Host loads Electron's window code, and a test starts the Host plan `serve`
+uses with `DISPLAY` and `WAYLAND_DISPLAY` unset (`src/cli/runtime/setup.test.ts`, "headless Linux"); the `.deb` still
+installs the desktop libraries the binary links against. Once set up, the OS recipes below keep it running across
 reboots without anyone logged in on Linux, and from your login on Windows and macOS. Any of the three can be a
 controller.
 
 Use a private network: your LAN, a VPN, or Tailscale. Do not forward the Runtime's port to the internet. Astera offers
 no relay and opens no port for you.
+
+## One-command setup
+
+On the machine that will do the work, with the Astera installer copied onto it. The repository is private and has no
+public download, so the installer comes from your controller (the Astera app there can upload it) or a file you copy.
+
+Ubuntu or Debian, as the user the Runtime belongs to (not root; the script asks sudo for apt and linger):
+
+```text
+bash install-runtime.sh ./astera_<version>_amd64.deb --tailscale --full-control
+```
+
+Windows, in PowerShell as your own user (no administrator):
+
+```text
+powershell -ExecutionPolicy Bypass -File install-runtime.ps1 -Installer .\astera-<version>-setup.exe -Tailscale -FullControl
+```
+
+Both scripts are in `scripts/`. They install Astera, then run `astera runtime setup --yes` with the flags given, and
+their last line is `ASTERA_PAIR=<pairing string>`: give that string to the controller (`astera runtimes add --pair -`)
+and to nothing else, it carries a one-time code.
+
+With Astera already installed, the command alone does the same:
+
+```text
+astera runtime setup [--listen <addr> | --tailscale] [--name <n>] [--full-control] [--yes] [--codex] [--json]
+```
+
+Each step prints `ok`, `skipped` (already there) or `failed` with the reason, so running it again changes nothing that
+is in place:
+
+1. **git**: installed with apt on Ubuntu and Debian, with winget on Windows; on macOS it says to install it.
+2. **Node**: never installed. The Host runs on Astera's own runtime.
+3. **Claude CLI** (and the Codex CLI with `--codex`): the vendor's own installer. On Windows its folder goes on your
+   user Path, so the keep-alive task finds `claude`. Without `--yes` a missing package is a failed step that names the
+   command to run.
+4. **The `astera` command**: the same files as Settings › Integrations › CLI, in `~/.local/bin` or
+   `%LOCALAPPDATA%\astera\bin`.
+5. **Keep-alive**: the recipe for this OS below, written and started for you: a systemd user unit with linger on Linux,
+   the Task Scheduler logon task on Windows, a LaunchAgent on macOS.
+6. **Listen**: on `--listen`, else this machine's Tailscale IPv4 (`tailscale ip -4`), else its one private LAN address.
+   Several private addresses and no `--listen` is refused rather than guessed, and so is every interface (`0.0.0.0`).
+   Then Remote Runtime starts there.
+7. **Pair**: one pairing string, read-only unless `--full-control`. `--json` adds the machine name (`--name`, else the
+   host name), OS, address and fingerprint.
+
+It is refused inside an agent session. Then sign the accounts in, from any terminal on that machine:
+
+```text
+astera accounts login --new --label work
+```
+
+It makes a new account folder, registers it as an Astera account and runs Claude's own login for it: open the link it
+prints on any device and paste the code back. An account that did not sign in is not kept.
 
 ## Set up the Runtime
 
@@ -74,6 +133,7 @@ full-control controller can run a Job in any folder of the Runtime, and the app 
 Runtime.
 
 **Accounts.** The Claude and Codex accounts a Runtime uses are signed in on the Runtime machine, in the Astera app, once.
+With no desktop there, `astera accounts login --new` signs one in from a terminal (see One-command setup).
 A controller picks among them; no credential ever travels to or from the controller.
 
 ## Pair a controller
