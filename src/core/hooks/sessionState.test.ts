@@ -237,4 +237,11 @@ describe('sessionStateOf — decay', () => {
     expect(sessionStateOf({ lastLine: pre, eventAt: 0, lastInputAt: null, now: 11 * 60_000 })).toBe('idle')
     expect(sessionStateOf({ lastLine: pre, eventAt: 0, lastInputAt: null, now: 9 * 60_000 })).toBe('working')
   })
+  it('T11: a tool streaming pty output with no hook event for 11 minutes still reads working', () => {
+    expect(sessionStateOf({ lastLine: pre, eventAt: 0, lastInputAt: null, lastOutputAt: 11 * 60_000 - 1000, now: 11 * 60_000 })).toBe('working')
+    // its output stopped 10+ minutes ago too: idle
+    expect(sessionStateOf({ lastLine: pre, eventAt: 0, lastInputAt: null, lastOutputAt: 30_000, now: 11 * 60_000 })).toBe('idle')
+    // a Stop is idle whatever the output says
+    expect(sessionStateOf({ lastLine: '{"hook_event_name":"Stop"}', eventAt: 0, lastInputAt: null, lastOutputAt: 60_000, now: 61_000 })).toBe('idle')
+  })
 })

@@ -172,7 +172,8 @@ function emptyScreen(size: { cols: number; rows: number }): SessionScreen {
 }
 
 export function registrySessions(a: {
-  ptys: Pick<PtyRegistry, 'list' | 'buffer' | 'write' | 'size' | 'lastWrite' | 'lastTyped' | 'readScreen'>
+  ptys: Pick<PtyRegistry, 'list' | 'buffer' | 'write' | 'size' | 'lastWrite' | 'lastTyped' | 'readScreen'> &
+    Partial<Pick<PtyRegistry, 'onData'>>
   procs: Pick<ProcRegistry, 'list' | 'write'>
   /** The profile's hook-events folder (core/hooks/sessionState.ts `hookEventsDirIn`). */
   hookEventsDir: string
@@ -185,6 +186,9 @@ export function registrySessions(a: {
   heavyQueueDir?: string
 }): HostSessions & Required<Pick<HostSessions, 'sessionTurn' | 'agentSessionOf' | 'ownerInputAt'>> {
   const mintId = a.mintId ?? (() => `astera-host-${randomUUID()}`)
+  // T11: each pty's last output, so a long noisy tool with no hook event reads working (as the app's attention does)
+  const lastOutput = new Map<string, number>()
+  a.ptys.onData?.((id) => void lastOutput.set(id, Date.now()))
   /** The pty behind an agent session's id — only an agent session's, so a shell tab's id is nobody. */
   /** The session's pty: the live one, else the one opened last. A roll keeps the session id and opens a new pty,
    *  and an ended pty is now readable for a while (Phase 8), so the first match could be the old one. */
@@ -230,7 +234,7 @@ export function registrySessions(a: {
   const stateOf = async (e: PtyEntry): Promise<{ state: SessionState; prompt: Prompt; lastAction: LastAction }> => {
     if (!e.alive) return { state: 'unknown', prompt: null, lastAction: null }
     const last = await latestEvent(hookEventsFileIn(a.hookEventsDir, e.meta!.id))
-    const state = sessionStateOf({ lastLine: last?.line ?? null, eventAt: last?.at ?? null, lastInputAt: a.ptys.lastWrite(e.id), now: Date.now() })
+    const state = sessionStateOf({ lastLine: last?.line ?? null, eventAt: last?.at ?? null, lastInputAt: a.ptys.lastWrite(e.id), lastOutputAt: lastOutput.get(e.id) ?? null, now: Date.now() })
     const lastAction = last?.lastAction ?? null
     if (state !== 'waiting' || !last) return { state, prompt: null, lastAction }
     try {
@@ -293,7 +297,7 @@ export function registrySessions(a: {
       if (!e) return null
       if (!e.alive) return { alive: false, state: 'unknown', prompt: null }
       const last = await latestEvent(hookEventsFileIn(a.hookEventsDir, id))
-      let state = sessionStateOf({ lastLine: last?.line ?? null, eventAt: last?.at ?? null, lastInputAt: a.ptys.lastWrite(e.id), now: Date.now() })
+      let state = sessionStateOf({ lastLine: last?.line ?? null, eventAt: last?.at ?? null, lastInputAt: a.ptys.lastWrite(e.id), lastOutputAt: lastOutput.get(e.id) ?? null, now: Date.now() })
       let payload: unknown = null
       try {
         payload = last ? JSON.parse(last.line) : null

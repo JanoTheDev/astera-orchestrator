@@ -77,6 +77,20 @@ describe('ConnectionNotifier — a reply to any message it posted', () => {
   })
 })
 
+describe('ConnectionNotifier — a pending tool call', () => {
+  const ask = { questions: [{ question: 'Q?', options: [{ label: 'a' }, { label: 'b' }] }] }
+  it('a failed call (PostToolUseFailure) drops the capture like PostToolUse', () => {
+    for (const end of ['PostToolUse', 'PostToolUseFailure']) {
+      const { notifier } = setup()
+      notifier.register(info())
+      notifier.onHookEvent('s-1', { hook_event_name: 'PreToolUse', tool_name: 'AskUserQuestion', tool_input: ask, tool_use_id: 'c1' })
+      expect(notifier.pendingChoiceShape('s-1')).toEqual([{ multiSelect: false, optionCount: 2 }])
+      notifier.onHookEvent('s-1', { hook_event_name: end, tool_use_id: 'c1' })
+      expect(notifier.pendingChoiceShape('s-1')).toBeNull()
+    }
+  })
+})
+
 describe('ConnectionNotifier — what the connection injects', () => {
   it('registers only sessions the connection is enabled for, and notes the thread under its own keys', async () => {
     const { notifier, notes } = setup()

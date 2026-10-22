@@ -32,6 +32,13 @@ describe('createPendingPromptState', () => {
     expect(state.get('s1')).toBeNull()
   })
 
+  it('a failed call (PostToolUseFailure) clears it like PostToolUse', () => {
+    const state = createPendingPromptState()
+    state.onHookEvent('s1', pre('call-1'))
+    state.onHookEvent('s1', { hook_event_name: 'PostToolUseFailure', tool_use_id: 'call-1' })
+    expect(state.get('s1')).toBeNull()
+  })
+
   it('Stop clears it, and so does forget', () => {
     const state = createPendingPromptState()
     state.onHookEvent('s1', pre('call-1'))
