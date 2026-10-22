@@ -39,3 +39,20 @@ export async function markPrReady(run: GhRunner, url: string, cwd: string): Prom
   if (!node.ok) return node
   return run(['api', 'graphql', '-f', `query=${READY_MUTATION}`, '-f', `id=${node.stdout.trim()}`], cwd)
 }
+
+/** T1: where a pull request stands on GitHub. A merged or closed one is the end of its plan's delivery: nothing is
+ *  marked ready, pushed or retried on it. */
+export type PrLanding = 'OPEN' | 'MERGED' | 'CLOSED'
+
+/** The state of the pull request at `url` (`gh pr view --json`), or null when gh cannot tell: the caller goes on as
+ *  before, since a guess either way would stop a delivery or retry a finished one. */
+export async function prStateOf(run: GhRunner, url: string, cwd: string): Promise<PrLanding | null> {
+  const r = await run(['pr', 'view', url, '--json', 'state,mergedAt,closedAt'], cwd)
+  if (!r.ok) return null
+  try {
+    const state = (JSON.parse(r.stdout) as { state?: unknown }).state
+    return state === 'OPEN' || state === 'MERGED' || state === 'CLOSED' ? state : null
+  } catch {
+    return null
+  }
+}
