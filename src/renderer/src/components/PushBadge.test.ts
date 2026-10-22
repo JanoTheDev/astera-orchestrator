@@ -13,16 +13,17 @@ const render = (ahead: number | null, disabled = false): string =>
   )
 
 describe('PushBadge', () => {
-  it('shows the arrow and the count', () => {
+  it('shows the arrow icon and the count', () => {
     const html = render(3)
-    expect(html).toContain('↑3')
+    expect(html).toContain('lucide-arrow-up')
+    expect(html).toContain('>3</span>')
     expect(html).toContain('push-badge')
   })
 
   it('shows the arrow alone when the count is unknown', () => {
     const html = render(null)
-    expect(html).toContain('↑')
-    expect(html).not.toContain('↑0')
+    expect(html).toContain('lucide-arrow-up')
+    expect(html).not.toContain('ui-btn__label')
     expect(html).toContain('worktree.push.aheadUnknown')
   })
 
@@ -31,13 +32,13 @@ describe('PushBadge', () => {
   })
 
   it('is a button, so it is keyboard reachable', () => {
-    expect(render(3)).toContain('<button')
+    expect(render(3)).toContain('class="ui-btn')
   })
 
-  // Still ↑3 while the panel's git lock holds or gh is away: the commits are unpushed either way.
+  // Still the arrow and 3 while the panel's git lock holds or gh is away: the commits are unpushed either way.
   it('goes quiet rather than disappearing when disabled', () => {
     const html = render(3, true)
     expect(html).toContain('disabled')
-    expect(html).toContain('↑3')
+    expect(html).toContain('>3</span>')
   })
 })

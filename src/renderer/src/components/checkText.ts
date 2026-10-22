@@ -6,6 +6,7 @@ import type { MessageKey, MessageParams } from '../../../core/i18n'
 import { formatRunDuration } from '../../../core/run/duration'
 import { PLUGIN_CHECK_PREFIX } from '../../../core/orchestration/pluginChecks'
 import type { CheckPluginRow } from '../lib/orchDoor'
+import type { IconName } from './ui'
 import { statusLabel } from './pluginsText'
 
 export type Translate = (key: MessageKey, params?: MessageParams) => string
@@ -15,7 +16,17 @@ export type Translate = (key: MessageKey, params?: MessageParams) => string
  *  주므로 "지금 도는 검사" 는 그렇게밖에 알 수 없다). */
 export type GlyphKind = JobCheck['status'] | 'retrying'
 // `error` (a plugin check that could not be made, plugin Phase 5 C9) draws apart from a failure.
+// GLYPH stays text: plan/PlanGraph.tsx still prints it in the graph's chips.
 export const GLYPH: Record<GlyphKind, string> = { passed: '✓', failed: '✗', 'timed-out': '✗', 'not-run': '○', error: '!', retrying: '●' }
+/** The same kinds as registry icons, for places that draw an icon (beside a word, never alone) instead of a glyph. */
+export const CHECK_ICON: Record<GlyphKind, IconName> = {
+  passed: 'check',
+  failed: 'error',
+  'timed-out': 'error',
+  'not-run': 'pending',
+  error: 'warning',
+  retrying: 'refresh'
+}
 
 /** A check's verdict: a command check's failure with its exit code, a plugin's without one (it has none), one that
  *  could not be made, and one a person let the round go on without. */

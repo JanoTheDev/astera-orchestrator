@@ -153,14 +153,14 @@ export const tools: Record<keyof typeof ko, string> = {
   'jobs.empty': 'No jobs started yet',
   // A coordinator session is still one way a job appears, even with the sidebar's "+ New job" button —
   // this says both rather than dropping one.
-  'jobs.empty.hint': 'Create one right here, or start it from a coordinator session — either way it lands here',
+  'jobs.empty.hint': 'Create one right here, or start it from a lead agent session — either way it lands here',
   // Tooltips for the eight state glyphs (JobIcons.tsx). The sidebar no longer spells a state out, so
   // these are not on screen all the time — they are where someone meeting the icons learns them.
   // pending and blocked have to read differently: a dependency holds the first, a person the second.
   'jobs.state.pending': 'Still held by a dependency',
   'jobs.state.ready': 'Ready to start',
-  'jobs.state.dispatched': 'A worker is on it',
-  'jobs.state.dispatchedStopped': 'The worker was stopped',
+  'jobs.state.dispatched': 'An agent is on it',
+  'jobs.state.dispatchedStopped': 'The agent was stopped',
   'jobs.state.validating': 'Validation is running',
   'jobs.state.reviewing': 'Another agent is reviewing it',
   'jobs.state.merging': 'Merging into the plan branch',
@@ -214,4 +214,27 @@ export const tools: Record<keyof typeof ko, string> = {
   'jobs.detail.journalBusy': 'The journal is busy right now, so these entries are the last ones read. They refresh with the next update.',
   'jobs.task.checkPlugin': 'Plugin: {name}',
   'jobs.task.checkPluginStatus': 'Plugin: {name} ({status})',
+  // W12 redesign · Jobs view (JobsView, JobIcons)
+  'jobs.view.title': 'Plans',
+  'jobs.view.expand': 'Expand',
+  'jobs.view.collapse': 'Collapse',
+  'jobs.view.openTab': "Open this agent's tab",
+  'jobs.view.hold': 'Stop launching new agents (running ones carry on)',
+  'jobs.view.holdRelease': 'Launch new agents again',
+  'jobs.view.leadRestart': 'Restart the lead agent',
+  'jobs.view.leadRestartHint': 'No lead agent is managing this job — click to start one again',
+  'jobs.view.approveHint': 'Approve this plan and start its agents',
+  'jobs.view.sharedFolderHint': "Running in the same folder as another job's agent — their edits can mix, and the app neither prevents it nor notices it",
+  'jobs.view.hostWaiting': 'Connecting to the background service',
+  'jobs.view.hostUnreachable': 'Cannot reach the background service',
+  'jobs.view.stallParked': 'The background service has paused Jobs: {reason}',
+  'jobs.view.stallUnresponsive': 'The background service is not answering, so Jobs do not move. You can restart it from Settings, Info',
+  'jobs.view.stallReading': 'The background service is still reading its settings, so Jobs do not move yet',
+  // W12 end jobs
+  // W12 redesign · run configs (RunConfigForm/Manager/Menu, RunTypePicker, ConfigRefList, EnvTable, RuntimeSelector)
+  // W12 end config
+  // W12 redesign · bottom panel (BottomPanel, RunPanel, RunToolbar, RunToolRail, RunFindBar)
+  // W12 end panel
+  // W12 redesign · run detail (RunDetailJournal, CompletionBlock, CompletionChecks, PrBadge, PushBadge, checkText)
+  // W12 end detail
 }

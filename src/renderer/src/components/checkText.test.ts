@@ -2,7 +2,7 @@
 // block, in all four languages.
 import { describe, it, expect } from 'vitest'
 import { CATALOGS, LANGS } from '../../../core/i18n'
-import { GLYPH, checkChoicesOf, checkTooltip, checkVerdict, nodeMetaText } from './checkText'
+import { CHECK_ICON, GLYPH, checkChoicesOf, checkTooltip, checkVerdict, nodeMetaText } from './checkText'
 
 const t = (key: string, p?: Record<string, string | number>): string => (p ? `${key} ${JSON.stringify(p)}` : key)
 
@@ -46,6 +46,8 @@ describe('checkTooltip', () => {
     )
     expect(checkTooltip({ configId: 'c', name: 'Tests', status: 'failed' }, 'retrying', t)).toBe('Tests — jobs.convergence.check.retrying')
     expect(GLYPH.error).toBe('!')
+    // The icon form tells a check that could not be made apart from a failure too
+    expect(CHECK_ICON.error).not.toBe(CHECK_ICON.failed)
   })
 })
 

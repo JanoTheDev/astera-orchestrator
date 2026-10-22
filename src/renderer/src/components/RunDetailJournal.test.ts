@@ -16,7 +16,7 @@ vi.mock('../i18n/I18nProvider', () => ({
 describe('RunDetail journal notes', () => {
   it('offers "show older" only while older journal rows are left', () => {
     const html = renderToStaticMarkup(React.createElement(JournalOlder, { journal: { busy: false, older: true, capped: false }, onShowOlder: () => {} }))
-    expect(html).toContain('<button')
+    expect(html).toContain('ui-btn--ghost')
     expect(html).toContain('jobs.detail.journalOlder')
     expect(renderToStaticMarkup(React.createElement(JournalOlder, { journal: { busy: false, older: false, capped: false }, onShowOlder: () => {} }))).toBe('')
     expect(renderToStaticMarkup(React.createElement(JournalOlder, { journal: undefined, onShowOlder: () => {} }))).toBe('')
@@ -24,7 +24,7 @@ describe('RunDetail journal notes', () => {
 
   it('at the most pages, says older entries are left instead of offering a button that does nothing', () => {
     const html = renderToStaticMarkup(React.createElement(JournalOlder, { journal: { busy: false, older: true, capped: true }, onShowOlder: () => {} }))
-    expect(html).not.toContain('<button')
+    expect(html).not.toContain('ui-btn')
     expect(html).toContain('jobs.detail.journalCapped')
   })
 

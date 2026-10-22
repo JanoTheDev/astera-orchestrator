@@ -35,9 +35,10 @@ const render = (over: Partial<React.ComponentProps<typeof JobsView>> = {}): stri
     })
   )
 
-/** Each control button's opening tag: new Job, delete, and the row actions (pause, resume, coordinator restart). */
+/** Each control button's opening tag: new Job, delete, and the row actions (pause, resume, lead agent restart). The ui
+ *  Button/IconButton put their own classes before ours, so the class is matched as one word of the attribute. */
 const controls = (html: string): string[] =>
-  (html.match(/<button[^>]*class="jobs-(new|delete|more)"[^>]*>/g) ?? []).filter((tag) => !tag.includes('jobs.detail.open'))
+  (html.match(/<[a-z]+[^>]*class="[^"]*\bjobs-(create|delete|more)\b[^"]*"[^>]*>/g) ?? []).filter((tag) => !tag.includes('jobs.detail.open'))
 
 describe('JobsView controls', () => {
   it('a read-only pairing draws every control disabled with the reason as its title (the selector above says it)', () => {
@@ -51,7 +52,7 @@ describe('JobsView controls', () => {
     // Said once on screen, by the runtime selector (Phase 7 hand check: the list said it a second time).
     expect(html).not.toContain('jobs-disabled-reason')
     // Opening a Job's detail is a read: it stays open to a read-only pairing.
-    const open = html.match(/<button[^>]*title="jobs.detail.open"[^>]*>/g) ?? []
+    const open = html.match(/<[a-z]+[^>]*title="jobs.detail.open"[^>]*>/g) ?? []
     expect(open.length).toBeGreaterThan(0)
     for (const tag of open) expect(tag).not.toContain('disabled')
   })

@@ -58,6 +58,7 @@ describe('CompletionChecks', () => {
     expect(html).toContain('jobs.convergence.check.failed {&quot;code&quot;:1}')
     expect(html).toContain('jobs.completion.hideTail')
     expect(html).toContain('<pre class="detail-completion-tail">2 failed</pre>')
+    expect(html).toContain('aria-expanded="true"')
     expect(html).not.toContain('detail-completion-summary')
     expect(render([])).toBe('')
   })
@@ -91,6 +92,20 @@ describe('CompletionChecks', () => {
     expect(render([{ configId: 'plugin:d', name: 'D', status: 'failed', summary: 's', diagnosticsTotal: 4, externalUrl: link }])).toContain(
       'jobs.completion.findingsUnlistedReport {&quot;n&quot;:4}'
     )
+  })
+
+  // Each check's status draws an icon beside its verdict word, never a glyph character alone
+  it('marks each check with a status icon beside the verdict word', () => {
+    const html = render([
+      { configId: 'a', name: 'A', status: 'passed' },
+      { configId: 'b', name: 'B', status: 'failed', exitCode: 1 },
+      { configId: 'c', name: 'C', status: 'paused' as never }
+    ])
+    expect(html).toMatch(/class="lucide lucide-check detail-completion-mark detail-completion-mark--passed"/)
+    expect(html).toMatch(/lucide-circle-x detail-completion-mark detail-completion-mark--failed|lucide-x-circle detail-completion-mark detail-completion-mark--failed/)
+    expect(html).toContain('detail-completion-mark--paused')
+    expect(html).toContain('jobs.convergence.check.passed')
+    expect(html).not.toMatch(/[✓✕✗●]/)
   })
 
   it('its words are in all four languages', () => {

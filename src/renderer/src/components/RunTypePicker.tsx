@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import type { RunConfigType } from '../../../core/run/types'
 import type { MessageKey } from '../../../core/i18n'
 import { runTypeIcon } from '../../../core/run/typeIcon'
 import { useI18n } from '../i18n/I18nProvider'
 import { FileIcon } from './FileIcon'
+import { Button, Icon, IconButton, Input, Popover } from './ui'
 
 /** Every kind modeled, in the order they are offered. `compound` is last and is never detected —
  *  nothing in a project's files implies one — so it always sits in the lower group. */
@@ -12,46 +13,22 @@ const ALL_TYPES: RunConfigType[] = [
   'dotnet', 'compound'
 ]
 
-/** The ＋ button's popup for picking a new configuration's kind. A search box narrows the list; kinds
- *  already detected in this project (a seed of that kind exists in `configs` — RunConfigManager derives
- *  `detected` from that, since the seed's presence already came from scanning the project's own files)
- *  are grouped above the rest, the same role IntelliJ gives plugin-provided kinds over generic ones. */
+/** The ＋ button and its popup for picking a new configuration's kind. A search box narrows the list
+ *  (a substring of the kind's label or its type id); kinds already detected in this project (a seed of
+ *  that kind exists in `configs` — RunConfigManager derives `detected` from that, since the seed's
+ *  presence already came from scanning the project's own files) are grouped above the rest, the same
+ *  role IntelliJ gives plugin-provided kinds over generic ones. */
 export function RunTypePicker({
   detected,
-  onPick,
-  onClose
+  onPick
 }: {
   detected: RunConfigType[]
   onPick: (type: RunConfigType) => void
-  onClose: () => void
 }): React.JSX.Element {
   const { t } = useI18n()
+  const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const rootRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
-  const onCloseRef = useRef(onClose)
-  onCloseRef.current = onClose
-
-  useEffect(() => {
-    inputRef.current?.focus()
-  }, [])
-  useEffect(() => {
-    const onDocDown = (e: MouseEvent): void => {
-      if (!rootRef.current?.contains(e.target as Node)) onCloseRef.current()
-    }
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') {
-        e.stopPropagation()
-        onCloseRef.current()
-      }
-    }
-    document.addEventListener('mousedown', onDocDown)
-    document.addEventListener('keydown', onKey, true)
-    return () => {
-      document.removeEventListener('mousedown', onDocDown)
-      document.removeEventListener('keydown', onKey, true)
-    }
-  }, [])
 
   const label = (ty: RunConfigType): string => t(`run.type.${ty}` as MessageKey)
   const q = query.trim().toLowerCase()
@@ -61,38 +38,73 @@ export function RunTypePicker({
   const detectedList = ALL_TYPES.filter((ty) => detectedSet.has(ty) && matches(ty))
   const otherList = ALL_TYPES.filter((ty) => !detectedSet.has(ty) && matches(ty))
 
+  const setOpenFresh = (next: boolean): void => {
+    if (next) setQuery('')
+    setOpen(next)
+  }
+  const pick = (ty: RunConfigType): void => {
+    setOpen(false)
+    onPick(ty)
+  }
+  const row = (ty: RunConfigType): React.JSX.Element => (
+    <Button key={ty} variant="ghost" size="sm" data-roving="" className="rtp-item" icon={<FileIcon {...runTypeIcon(ty)} />} onClick={() => pick(ty)}>
+      {label(ty)}
+    </Button>
+  )
+
   return (
-    <div className="rtp-menu" ref={rootRef} role="menu">
-      <input
-        ref={inputRef}
-        type="text"
-        className="rtp-search"
-        placeholder={t('run.picker.search')}
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-      />
-      {detectedList.length > 0 && (
-        <>
-          <div className="rtp-group">{t('run.picker.detected')}</div>
-          {detectedList.map((ty) => (
-            <button key={ty} type="button" className="rtp-item" onClick={() => onPick(ty)}>
-              <FileIcon {...runTypeIcon(ty)} />
-              {label(ty)}
-            </button>
-          ))}
-        </>
-      )}
-      {otherList.length > 0 && (
-        <>
-          {detectedList.length > 0 && <div className="rtp-group">{t('run.picker.other')}</div>}
-          {otherList.map((ty) => (
-            <button key={ty} type="button" className="rtp-item" onClick={() => onPick(ty)}>
-              <FileIcon {...runTypeIcon(ty)} />
-              {label(ty)}
-            </button>
-          ))}
-        </>
-      )}
+    // Esc is taken here, before it bubbles to the dialog's own Esc-to-cancel: it closes only this popup
+    // and gives focus back to the ＋ (the Popover's own Esc listener sits on the document, after the dialog).
+    <div
+      ref={rootRef}
+      className="rtp-anchor"
+      onKeyDown={(e) => {
+        if (e.key !== 'Escape' || !open) return
+        e.preventDefault()
+        e.stopPropagation()
+        setOpen(false)
+        rootRef.current?.querySelector<HTMLButtonElement>('button[aria-haspopup]')?.focus()
+      }}
+    >
+      <Popover
+        open={open}
+        onOpenChange={setOpenFresh}
+        label={t('run.manager.add')}
+        panelClassName="rtp-menu"
+        trigger={(p) => <IconButton {...p} size="sm" icon={<Icon name="add" size={14} />} label={t('run.manager.add')} />}
+      >
+        {/* data-roving on the search too: it is the Popover's first row, so it takes focus on open and
+            ArrowDown moves from it to the first kind. Home/End stay with the text caret. */}
+        <Input
+          data-roving=""
+          className="rtp-search"
+          placeholder={t('run.picker.search')}
+          aria-label={t('run.picker.search')}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Home' || e.key === 'End') e.stopPropagation()
+            else if (e.key === 'Enter') {
+              const first = detectedList[0] ?? otherList[0]
+              if (!first) return
+              e.preventDefault()
+              pick(first)
+            }
+          }}
+        />
+        {detectedList.length > 0 && (
+          <>
+            <div className="rtp-group" role="presentation">{t('run.picker.detected')}</div>
+            {detectedList.map(row)}
+          </>
+        )}
+        {otherList.length > 0 && (
+          <>
+            {detectedList.length > 0 && <div className="rtp-group" role="presentation">{t('run.picker.other')}</div>}
+            {otherList.map(row)}
+          </>
+        )}
+      </Popover>
     </div>
   )
 }

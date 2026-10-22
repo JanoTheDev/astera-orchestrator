@@ -32,7 +32,9 @@ const render = (over: Partial<React.ComponentProps<typeof JobsView>> = {}): stri
       ...over
     })
   )
-const fromSource = (html: string): string[] => html.match(/<button[^>]*class="jobs-new jobs-new-source"[^>]*>\+ jobs\.source\.open<\/button>/g) ?? []
+// A ui Button: its classes, then ours; its add icon, then the label
+const fromSource = (html: string): string[] =>
+  html.match(/<[a-z]+[^>]*class="[^"]*\bjobs-create-source\b[^"]*"[^>]*>(?:(?!<\/button>).)*jobs\.source\.open<\/span><\/button>/g) ?? []
 
 describe('JobsView: + 소스에서', () => {
   it('is beside + 새 작업, above the list and in the empty view', () => {

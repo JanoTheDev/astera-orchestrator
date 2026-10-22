@@ -1,4 +1,4 @@
-import { Select } from './Select'
+import { Icon, Select } from './ui'
 import { useI18n } from '../i18n/I18nProvider'
 import { isRemoteRuntime, projectOptions, runtimeOptions } from '../lib/remoteJobs'
 
@@ -41,10 +41,30 @@ export function RuntimeSelector({
           ariaLabel={t('jobs.runtime.project', { name })}
         />
       )}
-      {remote && projects !== null && projects.length === 0 && <p className="jobs-empty-hint">{t('jobs.runtime.noProjects')}</p>}
-      {remote && offline && <p className="jobs-runtime-offline">{offline}</p>}
-      {remote && <p className="jobs-empty-hint">{readOnlyReason ?? t('jobs.runtime.control', { name })}</p>}
-      {remote && <p className="jobs-empty-hint">{t('jobs.runtime.slack')}</p>}
+      {remote && projects !== null && projects.length === 0 && (
+        <p className="jobs-empty-hint runtime-note">
+          <Icon name="inbox" size={14} />
+          <span>{t('jobs.runtime.noProjects')}</span>
+        </p>
+      )}
+      {remote && offline && (
+        <p className="jobs-runtime-offline runtime-note" role="status">
+          <Icon name="warning" size={14} />
+          <span>{offline}</span>
+        </p>
+      )}
+      {remote && (
+        <p className="jobs-empty-hint runtime-note">
+          <Icon name={readOnlyReason ? 'lock' : 'info'} size={14} />
+          <span>{readOnlyReason ?? t('jobs.runtime.control', { name })}</span>
+        </p>
+      )}
+      {remote && (
+        <p className="jobs-empty-hint runtime-note">
+          <Icon name="notifications" size={14} />
+          <span>{t('jobs.runtime.slack')}</span>
+        </p>
+      )}
     </div>
   )
 }

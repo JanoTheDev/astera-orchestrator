@@ -178,17 +178,17 @@ export const tools = {
   'jobs.empty': '아직 시작한 작업이 없습니다',
   // 사이드바에 '+ 새 작업' 버튼이 생긴 뒤로도 코디네이터 세션은 여전히 작업이 생기는 또 다른 경로다
   // — 이 문장은 둘 중 하나를 지우지 않고 함께 말한다.
-  'jobs.empty.hint': '새 작업은 여기서 바로 만들 수 있습니다 — 코디네이터 세션에서 만든 작업도 여기에 나타납니다',
+  'jobs.empty.hint': '새 작업은 여기서 바로 만들 수 있습니다 — 리드 에이전트 세션에서 만든 작업도 여기에 나타납니다',
   // 여덟 상태의 툴팁 — JobIcons.tsx 의 글리프가 달고 다닌다. 사이드바가 상태를 말로 적지 않게 된
   // 뒤로 이 문구들은 상시로 보이지 않는다: 아이콘을 처음 보는 사람이 배우는 자리다.
   // pending 과 blocked 를 다르게 적는 것이 특히 중요하다 — 앞은 의존이, 뒤는 사람이 막고 있다
   'jobs.state.pending': '아직 막혀 있다',
   'jobs.state.ready': '시작할 수 있다',
-  'jobs.state.dispatched': '워커가 일하는 중',
+  'jobs.state.dispatched': '에이전트가 일하는 중',
   // dispatched 인데 워커가 없는 상태 — worker-stop 이 세션을 죽이고 Task 는 그대로 둔다.
   // 글리프는 여전히 도는 모양이다(결론이 나지 않았다는 뜻이라 그것은 맞다) — 거짓이 되는 것은
   // 살아 있는 워커를 약속하는 위 문구뿐이라, 그 자리에만 이것을 쓴다
-  'jobs.state.dispatchedStopped': '워커가 멈췄다',
+  'jobs.state.dispatchedStopped': '에이전트가 멈췄다',
   'jobs.state.validating': '검증이 도는 중',
   'jobs.state.reviewing': '다른 에이전트가 검토 중',
   'jobs.state.merging': '플랜 브랜치에 병합하는 중',
@@ -247,4 +247,27 @@ export const tools = {
   'jobs.detail.journalBusy': '지금은 저널이 사용 중이라 마지막으로 읽은 기록을 보여 줍니다. 다음 갱신 때 다시 읽습니다.',
   'jobs.task.checkPlugin': '플러그인: {name}',
   'jobs.task.checkPluginStatus': '플러그인: {name} ({status})',
+  // W12 redesign · Jobs view (JobsView, JobIcons)
+  'jobs.view.title': '계획',
+  'jobs.view.expand': '펼치기',
+  'jobs.view.collapse': '접기',
+  'jobs.view.openTab': '이 에이전트의 탭 열기',
+  'jobs.view.hold': '새 에이전트 시작 멈추기 (도는 에이전트는 계속한다)',
+  'jobs.view.holdRelease': '새 에이전트 다시 시작',
+  'jobs.view.leadRestart': '리드 에이전트 다시 띄우기',
+  'jobs.view.leadRestartHint': '이 작업을 이끄는 리드 에이전트가 없습니다 — 눌러서 다시 띄웁니다',
+  'jobs.view.approveHint': '이 계획을 승인하고 에이전트를 시작합니다',
+  'jobs.view.sharedFolderHint': '다른 작업의 에이전트와 같은 폴더에서 돌고 있습니다 — 서로의 편집이 섞일 수 있고, 앱은 그것을 막지도 알아채지도 못합니다',
+  'jobs.view.hostWaiting': '백그라운드 서비스에 연결하는 중입니다',
+  'jobs.view.hostUnreachable': '백그라운드 서비스에 연결할 수 없습니다',
+  'jobs.view.stallParked': '백그라운드 서비스가 작업을 멈춰 둠: {reason}',
+  'jobs.view.stallUnresponsive': '백그라운드 서비스가 응답하지 않아 작업이 움직이지 않습니다. 설정의 정보 탭에서 다시 시작할 수 있습니다',
+  'jobs.view.stallReading': '백그라운드 서비스가 아직 설정을 읽는 중이라 작업이 움직이지 않습니다',
+  // W12 end jobs
+  // W12 redesign · run configs (RunConfigForm/Manager/Menu, RunTypePicker, ConfigRefList, EnvTable, RuntimeSelector)
+  // W12 end config
+  // W12 redesign · bottom panel (BottomPanel, RunPanel, RunToolbar, RunToolRail, RunFindBar)
+  // W12 end panel
+  // W12 redesign · run detail (RunDetailJournal, CompletionBlock, CompletionChecks, PrBadge, PushBadge, checkText)
+  // W12 end detail
 } as const

@@ -1,6 +1,7 @@
 import type { RunStatus } from '../../../core/types'
 import { useI18n } from '../i18n/I18nProvider'
-import { ChevronsDown, Eraser, RotateCw, Search, Square } from 'lucide-react'
+import { Icon, IconButton } from './ui'
+import { ChevronsDown, Eraser, RotateCw } from 'lucide-react'
 
 /** The vertical tool rail on the console's left, acting on the selected run: rerun · stop, then
  *  scroll-to-end · clear, then find. Rerun starts the run's configuration again (main decides whether
@@ -32,30 +33,22 @@ export function RunToolRail({
   const none = run === null
   return (
     <div className="run-rail" role="toolbar" aria-orientation="vertical" aria-label={t('run.panel.tab')}>
-      <button
-        type="button"
+      {/* label is the name; title (set after it) keeps the deleted-configuration reason as the hover text */}
+      <IconButton
+        size="sm"
         className="run-rail-btn rerun"
+        icon={<Icon icon={RotateCw} size={14} />}
+        label={t('run.action.rerun')}
         title={rerunGone ? t('run.rail.rerunGone') : t('run.action.rerun')}
-        aria-label={t('run.action.rerun')}
         disabled={none || rerunGone}
         onClick={() => run && onRerun(run.configId)}
-      >
-        <RotateCw size={14} />
-      </button>
-      <button type="button" className="run-rail-btn stop" title={t('run.action.stop')} aria-label={t('run.action.stop')} disabled={run?.status !== 'running'} onClick={() => run && onStop(run.runId)}>
-        <Square size={12} fill="currentColor" strokeWidth={0} />
-      </button>
+      />
+      <IconButton size="sm" className="run-rail-btn stop" icon={<Icon name="stop" size={14} />} label={t('run.action.stop')} disabled={run?.status !== 'running'} onClick={() => run && onStop(run.runId)} />
       <span className="run-rail-sep" />
-      <button type="button" className="run-rail-btn" title={t('run.rail.scrollToEnd')} aria-label={t('run.rail.scrollToEnd')} disabled={none} onClick={onScrollToEnd}>
-        <ChevronsDown size={14} />
-      </button>
-      <button type="button" className="run-rail-btn" title={t('run.panel.clear')} aria-label={t('run.panel.clear')} disabled={none} onClick={onClear}>
-        <Eraser size={14} />
-      </button>
+      <IconButton size="sm" icon={<Icon icon={ChevronsDown} size={14} />} label={t('run.rail.scrollToEnd')} disabled={none} onClick={onScrollToEnd} />
+      <IconButton size="sm" icon={<Icon icon={Eraser} size={14} />} label={t('run.panel.clear')} disabled={none} onClick={onClear} />
       <span className="run-rail-sep" />
-      <button type="button" className={`run-rail-btn${findOpen ? ' on' : ''}`} title={t('run.rail.find')} aria-label={t('run.rail.find')} aria-pressed={findOpen} disabled={none} onClick={onToggleFind}>
-        <Search size={14} />
-      </button>
+      <IconButton size="sm" icon={<Icon name="search" size={14} />} label={t('run.rail.find')} active={findOpen} aria-pressed={findOpen} disabled={none} onClick={onToggleFind} />
     </div>
   )
 }

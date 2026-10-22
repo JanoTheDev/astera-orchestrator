@@ -33,16 +33,16 @@ const render = (runs: JobRow[], withHold = true): string =>
 
 describe('the Jobs view hold button', () => {
   it('offers to stop launching on a running plain plan, and to launch again once held', () => {
-    expect(render([row({})])).toContain('aria-label="jobs.hold.hold"')
+    expect(render([row({})])).toContain('aria-label="jobs.view.hold"')
     const held = render([row({ dispatchHold: true })])
-    expect(held).toContain('aria-label="jobs.hold.release"')
+    expect(held).toContain('aria-label="jobs.view.holdRelease"')
     expect(held).toContain('jobs.hold.held')
-    expect(held).not.toContain('aria-label="jobs.hold.hold"')
+    expect(held).not.toContain('aria-label="jobs.view.hold"')
   })
 
   it('is not drawn for a schedule, a plan not started, an archived plan, or without the action', () => {
     for (const r of [row({ schedule: { kind: 'interval', everyMinutes: 60 } as never }), row({ pendingStart: true })])
-      expect(render([r])).not.toContain('jobs.hold.hold')
-    expect(render([row({})], false)).not.toContain('jobs.hold.hold')
+      expect(render([r])).not.toContain('jobs.view.hold"')
+    expect(render([row({})], false)).not.toContain('jobs.view.hold"')
   })
 })

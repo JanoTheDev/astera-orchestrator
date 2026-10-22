@@ -147,14 +147,14 @@ export const tools: Partial<Record<keyof typeof ko, string>> = {
   'jobs.empty': 'Aún no se ha iniciado ningún trabajo',
   // Una sesión coordinadora sigue siendo otra forma de que aparezca un trabajo, incluso con el botón
   // "+ Nuevo trabajo" de la barra lateral — esta frase dice ambas cosas en vez de descartar una.
-  'jobs.empty.hint': 'Puedes crear uno aquí mismo — los trabajos creados desde una sesión coordinadora también aparecerán aquí',
+  'jobs.empty.hint': 'Puedes crear uno aquí mismo — los trabajos creados desde una sesión del agente principal también aparecerán aquí',
   // Descripciones emergentes de los ocho glifos de estado (JobIcons.tsx). La barra lateral ya no
   // escribe el estado, así que no están siempre en pantalla: son donde se aprenden los iconos.
   // pending y blocked deben leerse distinto — a la primera la retiene una dependencia, a la otra una persona.
   'jobs.state.pending': 'Aún retenida por una dependencia',
   'jobs.state.ready': 'Lista para empezar',
-  'jobs.state.dispatched': 'Un worker está en ello',
-  'jobs.state.dispatchedStopped': 'El worker se detuvo',
+  'jobs.state.dispatched': 'Un agente está en ello',
+  'jobs.state.dispatchedStopped': 'El agente se detuvo',
   'jobs.state.validating': 'La validación está en marcha',
   'jobs.state.reviewing': 'Otro agente la está revisando',
   'jobs.state.merging': 'Integrándose en la rama del plan',
@@ -206,4 +206,27 @@ export const tools: Partial<Record<keyof typeof ko, string>> = {
   'jobs.detail.journalBusy': 'El diario está ocupado ahora, así que estas son las últimas entradas leídas. Se actualizarán con la próxima actualización.',
   'jobs.task.checkPlugin': 'Plugin: {name}',
   'jobs.task.checkPluginStatus': 'Plugin: {name} ({status})',
+  // W12 redesign · Jobs view (JobsView, JobIcons)
+  'jobs.view.title': 'Planes',
+  'jobs.view.expand': 'Expandir',
+  'jobs.view.collapse': 'Contraer',
+  'jobs.view.openTab': 'Abrir la pestaña de este agente',
+  'jobs.view.hold': 'Dejar de lanzar agentes nuevos (los que corren siguen)',
+  'jobs.view.holdRelease': 'Volver a lanzar agentes nuevos',
+  'jobs.view.leadRestart': 'Reiniciar el agente principal',
+  'jobs.view.leadRestartHint': 'Ningún agente principal gestiona este trabajo: haz clic para iniciar otro',
+  'jobs.view.approveHint': 'Aprobar este plan e iniciar sus agentes',
+  'jobs.view.sharedFolderHint': 'Corre en la misma carpeta que el agente de otro trabajo — sus ediciones pueden mezclarse, y la app ni lo impide ni lo detecta',
+  'jobs.view.hostWaiting': 'Conectando con el servicio en segundo plano',
+  'jobs.view.hostUnreachable': 'No se puede contactar con el servicio en segundo plano',
+  'jobs.view.stallParked': 'El servicio en segundo plano ha pausado los trabajos: {reason}',
+  'jobs.view.stallUnresponsive': 'El servicio en segundo plano no responde, así que los trabajos no avanzan. Puedes reiniciarlo desde Ajustes, Información',
+  'jobs.view.stallReading': 'El servicio en segundo plano aún está leyendo sus ajustes, así que los trabajos todavía no avanzan',
+  // W12 end jobs
+  // W12 redesign · run configs (RunConfigForm/Manager/Menu, RunTypePicker, ConfigRefList, EnvTable, RuntimeSelector)
+  // W12 end config
+  // W12 redesign · bottom panel (BottomPanel, RunPanel, RunToolbar, RunToolRail, RunFindBar)
+  // W12 end panel
+  // W12 redesign · run detail (RunDetailJournal, CompletionBlock, CompletionChecks, PrBadge, PushBadge, checkText)
+  // W12 end detail
 }
