@@ -50,7 +50,7 @@ export function createPendingPromptState(now: () => number = Date.now): PendingP
         if (typeof p.tool_name !== 'string' || typeof p.tool_use_id !== 'string') return
         if (typeof p.tool_input !== 'object' || p.tool_input === null) return
         set(sessionId, { toolUseId: p.tool_use_id, tool: p.tool_name, input: p.tool_input, at: now() })
-      } else if (p.hook_event_name === 'PostToolUse') {
+      } else if (p.hook_event_name === 'PostToolUse' || p.hook_event_name === 'PostToolUseFailure') {
         const current = sessions.get(sessionId)
         if (current !== undefined && current.toolUseId === p.tool_use_id) set(sessionId, null)
       } else if (p.hook_event_name === 'UserPromptSubmit') {

@@ -48,7 +48,7 @@ const ask = (cmd: string, args: Record<string, unknown>, d: RemoteDeps, runtime 
 describe('answerRemote (remote runtime design §2.8, X1-14)', () => {
   it('refuses a command with no remote form before it reads anything here', async () => {
     const h = deps()
-    for (const cmd of ['host-start', 'skills-list', 'mcp-status', 'projects-add', 'runtime-pair', 'version', 'browser-js']) {
+    for (const cmd of ['host-start', 'skills-list', 'mcp-status', 'runtime-pair', 'version', 'browser-js']) {
       const r = await ask(cmd, {}, h.d)
       expect(r, cmd).toMatchObject({ error: { code: 'RUNTIME_CAPABILITY_MISSING' } })
     }

@@ -44,6 +44,13 @@ import { normalizeIssues, type ReviewIssueInput } from './review'
 import { failedChecksSummary } from './completion'
 import { oneLine, pluginCheckText, skippedResult } from './pluginChecks'
 import { isJobActive } from './lifecycle'
+import { foldPathCase } from '../files/paths'
+// T1 the main plan: a dep on another plan's Task is met once that plan delivers
+import { crossPlanDepRefusal, holdExternalDeps, planIdOf } from './mainPlan'
+
+/** `recomputeReady` with the cross-plan rule on top (mainPlan.ts `holdExternalDeps`): another plan's completed Task
+ *  readies its waiters only once its plan has delivered. */
+const readyIn = (s: OrchState, tasks: Task[]): Task[] => holdExternalDeps({ ...s, tasks: recomputeReady(tasks) }).tasks
 
 export interface OrchState {
   /** 계획. 설계 §4 — 여기 있는 것이 "무엇을 시킬 것인가" 이고, 아래 runs 가 "실제로 돈 것" 이다. */
@@ -215,6 +222,24 @@ function moveTask(t: Task, to: Task['status'], now: string): Task | null {
   return { ...t, status: to, updatedAt: now }
 }
 
+/** The same folder, written with either separator, a trailing one or (where the filesystem folds it) another case. Both
+ *  are absolute paths the app recorded, so nothing needs resolving; web-safe (no node:path), as this module is. */
+export const samePlace = (a: string, b: string): boolean => {
+  const norm = (p: string): string => foldPathCase(p.replace(/\\/g, '/').replace(/\/+$/, ''))
+  return norm(a) === norm(b)
+}
+
+/** Where a Task whose work succeeded goes. `merging` when it has work to land on its plan branch: its Run has its own
+ *  worktree (integrate.ts runRootOf), it is not itself a merge Task (`parentId`), and some attempt (not a review)
+ *  worked outside that worktree. Otherwise `completed`, as before. A Task reads completed only once its commits are on
+ *  the plan branch: the app's merge (dispatchLoop mergeWaves) moves it on, or a Gate stops it. Every move to completed
+ *  asks this, a person's `task-update --status completed` too. */
+export function doneStatusOf(s: Pick<OrchState, 'runs' | 'dispatches'>, task: Task): 'merging' | 'completed' {
+  const root = s.runs.find((r) => r.id === task.runId)?.worktree
+  if (root === undefined || task.parentId) return 'completed'
+  return s.dispatches.some((d) => d.taskId === task.id && !d.review && !samePlace(d.cwd, root)) ? 'merging' : 'completed'
+}
+
 /** The Task's skipped round (plugin Phase 5 C9), when it is still the round of the Task's latest attempt; null
  *  otherwise. A move past the transition table (task-update) can leave one behind a newer attempt, whose work no check
  *  of that round has seen (5a final review C1). */
@@ -263,6 +288,8 @@ export function createJob(
      *  아는 것이고, 부르는 쪽(server.ts 의 run-create)이 실재하는 계정인지 본다.
      *  Task.accountIds 와 같은 관례다. */
     coordinatorAccountId?: string
+    /** T5b: Job.preferredAccountId, the account the owner named (a preference only). */
+    preferredAccountId?: string
     autoDispatch?: boolean
     /** 사용자가 '실행' 을 누르기 전까지 아무것도 시작하지 않게 한다 — Job.pendingStart 의 주석 */
     pendingStart?: boolean
@@ -305,6 +332,7 @@ export function createJob(
     // 빈 문자열은 싣지 않는다 — "지정 없음" 과 값이 갈라지고, 그 구분으로 코디네이터를 띄울지
     // 정하기 때문이다
     ...(a.coordinatorAccountId ? { coordinatorAccountId: a.coordinatorAccountId } : {}),
+    ...(a.preferredAccountId ? { preferredAccountId: a.preferredAccountId } : {}),
     ...(a.autoDispatch ? { autoDispatch: true } : {}),
     ...(a.schedule ? { schedule: a.schedule } : {}),
     ...(a.pendingStart ? { pendingStart: true } : {}),
@@ -387,12 +415,20 @@ export function startJobRun(s: OrchState, jobId: string, now: string): Res<JobRu
         ? s.tasks.filter((t) => t.runId === previous.id).sort(byCreated)
         : []
   const idMap = new Map(source.map((t) => [t.id, newId('tsk')]))
+  const external = new Set(
+    source.flatMap((t) => t.deps).filter((d) => !idMap.has(d) && s.tasks.some((o) => o.id === d && planIdOf(s, o) !== jobId))
+  )
+  // T1: another plan's Tasks that wait on the Tasks copied here wait on the copies, the ones that run
+  const others = s.tasks.map((t) =>
+    planIdOf(s, t) !== jobId && t.deps.some((d) => idMap.has(d)) ? { ...t, deps: t.deps.map((d) => idMap.get(d) ?? d) } : t
+  )
   const copies: Task[] = source.map((t) => ({
     id: idMap.get(t.id)!,
     runId: run.id,
     title: t.title,
     spec: t.spec,
-    deps: t.deps.map((d) => idMap.get(d)).filter((d): d is string => d !== undefined),
+    // T1: a dep on another plan's Task keeps its id; only this plan's ids move
+    deps: t.deps.map((d) => idMap.get(d) ?? (external.has(d) ? d : undefined)).filter((d): d is string => d !== undefined),
     ...(t.parentId !== undefined && idMap.has(t.parentId)
       ? { parentId: idMap.get(t.parentId)! }
       : {}),
@@ -417,7 +453,7 @@ export function startJobRun(s: OrchState, jobId: string, now: string): Res<JobRu
       // Job 에서 움직이는 것은 이 카운터 하나다 — 정의 Task 는 계획이므로 손대면 다음 회차가 달라진다
       jobs: s.jobs.map((j) => (j.id === jobId ? { ...j, fireCount: ordinal } : j)),
       runs: [...s.runs, run],
-      tasks: recomputeReady([...s.tasks, ...copies])
+      tasks: readyIn({ ...s, runs: [...s.runs, run] }, [...others, ...copies])
     },
     run
   )
@@ -434,6 +470,19 @@ export function startJobRun(s: OrchState, jobId: string, now: string): Res<JobRu
  */
 export function latestRun(s: OrchState): JobRun | undefined {
   return s.runs.at(-1)
+}
+
+/** The Run a command means when it names none: the one the calling session coordinates or works in, else the newest.
+ *  The newest alone handed a coordinator another plan's inbox (and its Tasks) once a second Run started. */
+export function callerRun(s: OrchState, sessionId: string | undefined): JobRun | undefined {
+  if (sessionId) {
+    const led = [...s.runs].reverse().find((r) => r.coordinatorSessionId === sessionId || r.externalCoordinatorSessionId === sessionId)
+    if (led) return led
+    const taskId = s.dispatches.find((d) => d.sessionId === sessionId && !d.endedAt)?.taskId
+    const worked = taskId && s.runs.find((r) => r.id === s.tasks.find((t) => t.id === taskId)?.runId)
+    if (worked) return worked
+  }
+  return latestRun(s)
 }
 
 /**
@@ -590,7 +639,7 @@ export function setRunWorktree(s: OrchState, id: string, worktree: string): Res<
 
 /** W2-A planner stage: the Task fields a planner writes (task-create, task-update), with W1-A's model choice. */
 export type PlanFields = Partial<
-  Pick<Task, 'difficulty' | 'model' | 'provider' | 'prompt' | 'acceptanceCriteria' | 'affectedPaths' | 'modelReason' | /* W6-A */ 'basis'>
+  Pick<Task, 'difficulty' | 'model' | 'provider' | 'prompt' | 'acceptanceCriteria' | 'affectedPaths' | 'modelReason' | /* W6-A */ 'basis' | /* T7 */ 'covers' | /* T9 */ 'kind'>
 >
 
 /** The plan fields `t` carries, copied; an absent or empty one is left out, as every optional field here is. */
@@ -604,7 +653,11 @@ export function planFieldsOf(t: PlanFields): PlanFields {
     ...(t.affectedPaths?.length ? { affectedPaths: [...t.affectedPaths] } : {}),
     ...(t.modelReason ? { modelReason: t.modelReason } : {}),
     // W6-A
-    ...(t.basis ? { basis: { ...t.basis } } : {})
+    ...(t.basis ? { basis: { ...t.basis } } : {}),
+    // T7
+    ...(t.covers?.length ? { covers: [...t.covers] } : {}),
+    // T9
+    ...(t.kind !== undefined ? { kind: t.kind } : {})
   }
 }
 
@@ -647,6 +700,12 @@ export function createTask(
   const known = new Set(s.tasks.map((t) => t.id))
   const missing = a.deps.filter((d) => !known.has(d))
   if (missing.length) return gone(`unknown deps: ${missing.join(',')}`)
+  // T1: a Task of another plan only of this project's, and only one that can still come
+  const planId = a.jobId ?? s.runs.find((r) => r.id === a.runId)?.jobId
+  for (const d of a.deps) {
+    const refused = crossPlanDepRefusal(s, planId, s.tasks.find((t) => t.id === d)!)
+    if (refused !== undefined) return err(refused)
+  }
   if (a.parentId && !known.has(a.parentId)) return gone(`unknown parent: ${a.parentId}`)
   // W7-B: a Task that names no check is validated with its project's test command, when the project has one
   if (!a.validateConfigId && !a.validateConfigIds?.length) {
@@ -676,7 +735,7 @@ export function createTask(
     createdAt: now,
     updatedAt: now
   }
-  const tasks = recomputeReady([...s.tasks, task])
+  const tasks = readyIn(s, [...s.tasks, task])
   return ok({ ...s, tasks }, tasks.find((t) => t.id === task.id)!)
 }
 
@@ -767,6 +826,40 @@ export function openDispatch(
   )
 }
 
+/** Records the Dispatch of a worker session that is live but has none: its record was lost (run job_0b682db7df32e7b4),
+ *  and the session's spec name (`<taskId>-<dispatchId>.md`, coordinator.ts specFileName) is the only link left. The
+ *  Task goes back to `dispatched` under the id the worker reports with. Refused when that id is recorded, the session
+ *  holds an open Dispatch, the Task has one open, or the Task is past its worker (exec/adopt.ts `adoptLiveWorkers`). */
+export function adoptDispatch(
+  s: OrchState,
+  a: { taskId: string; dispatchId: string; sessionId: string; provider: Provider; accountId: string; cwd: string; specPath: string },
+  now: string
+): Res<Dispatch> {
+  const task = s.tasks.find((t) => t.id === a.taskId)
+  if (!task) return gone(`unknown task: ${a.taskId}`)
+  // Only a Task waiting for this very worker: past it (validating, completed, failed...) the worker already reported
+  if (task.status !== 'ready' && task.status !== 'dispatched') return err(`cannot adopt onto status: ${task.status}`)
+  if (s.dispatches.some((d) => d.id === a.dispatchId)) return err(`dispatch already recorded: ${a.dispatchId}`)
+  const open = s.dispatches.find((d) => d.taskId === a.taskId && !d.outcome && !d.endedAt)
+  if (open) return err(`dispatch already open: ${open.id}`)
+  const sessionOpen = s.dispatches.find((d) => d.sessionId === a.sessionId && !d.outcome && !d.endedAt)
+  if (sessionOpen) return err(`sessionId already in use by an open dispatch: ${sessionOpen.id}`)
+  const moved = moveTask(task, 'dispatched', now)!
+  const dispatch: Dispatch = {
+    id: a.dispatchId,
+    taskId: a.taskId,
+    provider: a.provider,
+    accountId: a.accountId,
+    sessionId: a.sessionId,
+    cwd: a.cwd,
+    specPath: a.specPath,
+    startedAt: now,
+    workerState: 'ready',
+    retained: false
+  }
+  return ok({ ...s, tasks: replace(s.tasks, moved), dispatches: [...s.dispatches, dispatch] }, dispatch)
+}
+
 export function applyWorkerDone(
   s: OrchState,
   a: {
@@ -820,7 +913,7 @@ export function applyWorkerDone(
     : reviewing
       ? 'reviewing'
       : a.outcome === 'succeeded'
-        ? 'completed'
+        ? doneStatusOf(s, task)
         : 'failed'
   const moved = moveTask(task, to, now)
   if (!moved) return err(`cannot move task ${task.status} -> ${to}`)
@@ -848,7 +941,7 @@ export function applyWorkerDone(
   }
   let state: OrchState = {
     ...s,
-    tasks: recomputeReady(replace(s.tasks, nextTask)),
+    tasks: readyIn(s, replace(s.tasks, nextTask)),
     dispatches: replace(s.dispatches, nextDispatch)
   }
   state = pushMessage(
@@ -977,7 +1070,7 @@ export function applyValidationResult(
 
   if (policy === null) {
     // ---- 지금까지의 경로. 문구까지 그대로다 ---- 달라진 것은 task 가 아니라 recorded 를 옮긴다는 것 하나다.
-    const to = reviewing ? 'reviewing' : passed ? 'completed' : 'failed'
+    const to = reviewing ? 'reviewing' : passed ? doneStatusOf(s, task) : 'failed'
     const moved = moveTask(recorded, to, now)
     if (!moved) return err(`cannot move task ${task.status} -> ${to}`)
     const next: Task = {
@@ -985,7 +1078,7 @@ export function applyValidationResult(
       consecutiveFailures: reviewing ? task.consecutiveFailures : passed ? 0 : task.consecutiveFailures + 1,
       ...(passed ? {} : { result: `validation failed (exit ${exitCode})\n${output}` })
     }
-    let state: OrchState = { ...s, tasks: recomputeReady(replace(s.tasks, next)) }
+    let state: OrchState = { ...s, tasks: readyIn(s, replace(s.tasks, next)) }
     state = pushMessage(
       state,
       {
@@ -994,7 +1087,7 @@ export function applyValidationResult(
         taskId: task.id,
         subject: passed ? 'validation passed' : 'validation failed',
         body: passed
-          ? `exitCode=0. ${reviewing ? 'The Task moved to reviewing — a reviewer on another provider now reads it.' : 'The Task moved to completed.'}\n${output}`
+          ? `exitCode=0. ${reviewing ? 'The Task moved to reviewing — a reviewer on another provider now reads it.' : `The Task moved to ${to}.`}\n${output}`
           : `exitCode=${exitCode}. The Task moved to failed (consecutiveFailures=${next.consecutiveFailures}). Retry with worker-start --retry-of. The output tail below is the only record of what went wrong — a retry worker's spec file does not carry it, so pass on whatever it needs.\n${output}`
       },
       now
@@ -1004,11 +1097,11 @@ export function applyValidationResult(
 
   // ---- convergence Run ---- 실패는 failed 를 거치지 않고 repair 로 간다(설계 §5.1).
   if (passed) {
-    const to = reviewing ? 'reviewing' : 'completed'
+    const to = reviewing ? 'reviewing' : doneStatusOf(s, task)
     const moved = moveTask(recorded, to, now)
     if (!moved) return err(`cannot move task ${task.status} -> ${to}`)
     const next: Task = { ...moved, consecutiveFailures: reviewing ? task.consecutiveFailures : 0 }
-    let state: OrchState = { ...s, tasks: recomputeReady(replace(s.tasks, next)) }
+    let state: OrchState = { ...s, tasks: readyIn(s, replace(s.tasks, next)) }
     state = pushMessage(
       state,
       {
@@ -1020,7 +1113,7 @@ export function applyValidationResult(
           skippedNames.length > 0
             ? `${total - skippedNames.length} of ${total} checks passed, ${skippedNames.length} skipped by a person: ${skippedNames.join(', ')}`
             : `All ${total} checks passed`,
-        body: `exitCode=0. ${reviewing ? 'The Task moved to reviewing — a reviewer on another provider now reads it.' : 'The Task moved to completed.'}`
+        body: `exitCode=0. ${reviewing ? 'The Task moved to reviewing — a reviewer on another provider now reads it.' : `The Task moved to ${to}.`}`
       },
       now
     ).state
@@ -1450,8 +1543,9 @@ export function applyReviewResult(
   if (policy === null) {
     // ---- 지금까지의 경로. 문구까지 그대로다 ----
     const passed = a.outcome === 'succeeded'
-    const moved = moveTask(task, passed ? 'completed' : 'failed', now)
-    if (!moved) return err(`cannot move task ${task.status} -> ${passed ? 'completed' : 'failed'}`)
+    const to = passed ? doneStatusOf(s, task) : 'failed'
+    const moved = moveTask(task, to, now)
+    if (!moved) return err(`cannot move task ${task.status} -> ${to}`)
     const next: Task = {
       ...moved,
       // 무엇이 부족했는지를 Task 에 남긴다. 재시도 워커가 이것을 읽지는 못한다 — buildSpecFile 은
@@ -1459,7 +1553,7 @@ export function applyReviewResult(
       ...(passed ? {} : { result: a.body }),
       consecutiveFailures: passed ? 0 : task.consecutiveFailures + 1
     }
-    let state: OrchState = { ...closed, tasks: recomputeReady(replace(closed.tasks, next)) }
+    let state: OrchState = { ...closed, tasks: readyIn(closed, replace(closed.tasks, next)) }
     state = pushMessage(
       state,
       {
@@ -1469,7 +1563,7 @@ export function applyReviewResult(
         dispatchId: dispatch.id,
         subject: passed ? 'review passed' : 'review failed',
         body: passed
-          ? `The reviewer accepted the work. The Task moved to completed.\n${a.body}`
+          ? `The reviewer accepted the work. The Task moved to ${to}.\n${a.body}`
           : `The reviewer rejected the work (consecutiveFailures=${next.consecutiveFailures}). Retry with worker-start --retry-of. The reason below is the only record of what was missing — a retry worker's spec file does not carry it, so pass on whatever it needs.\n${a.body}`
       },
       now
@@ -1496,10 +1590,11 @@ export function applyReviewResult(
   const blocking = issues.filter((i) => i.blocking)
   const recorded: Task = { ...task, reviewIssues: issues }
   if (blocking.length === 0) {
-    const moved = moveTask(recorded, 'completed', now)
-    if (!moved) return err(`cannot move task ${task.status} -> completed`)
+    const to = doneStatusOf(s, task)
+    const moved = moveTask(recorded, to, now)
+    if (!moved) return err(`cannot move task ${task.status} -> ${to}`)
     const next: Task = { ...moved, consecutiveFailures: 0 }
-    let state: OrchState = { ...closed, tasks: recomputeReady(replace(closed.tasks, next)) }
+    let state: OrchState = { ...closed, tasks: readyIn(closed, replace(closed.tasks, next)) }
     const notes = issues.length
     state = pushMessage(
       state,
@@ -1509,7 +1604,7 @@ export function applyReviewResult(
         taskId: task.id,
         dispatchId: dispatch.id,
         subject: notes === 0 ? 'Review approved' : `Review approved (${notes} non-blocking note${notes === 1 ? '' : 's'})`,
-        body: `The reviewer accepted the work. The Task moved to completed.\n${a.body}`
+        body: `The reviewer accepted the work. The Task moved to ${to}.\n${a.body}`
       },
       now
     ).state
@@ -2220,7 +2315,7 @@ export function resolveGate(
     {
       ...s,
       gates: replace(s.gates, next),
-      tasks: stillBlocked ? s.tasks : recomputeReady(replace(s.tasks, moved))
+      tasks: stillBlocked ? s.tasks : readyIn(s, replace(s.tasks, moved))
     },
     next
   )
@@ -2281,7 +2376,7 @@ export function deleteJobs(s: OrchState, jobIds: ReadonlySet<string>): OrchState
 /** 이 Run 을 관리하는 코디네이터 세션을 붙인다. */
 export function attachCoordinator(
   s: OrchState,
-  a: { runId: string; sessionId: string }
+  a: { runId: string; sessionId: string; model?: string }
 ): Res<JobRun> {
   const run = s.runs.find((r) => r.id === a.runId)
   if (!run) return gone(`unknown run: ${a.runId}`)
@@ -2293,9 +2388,11 @@ export function attachCoordinator(
     coordinatorStartingAt: _starting,
     coordinatorStopPending: _pending,
     autoDispatch: _placed,
+    coordinatorModel: _model,
     ...rest
   } = run
-  const next: JobRun = { ...rest, coordinatorSessionId: a.sessionId }
+  // T5: the model is the new session's, so an earlier coordinator's never stays on the Run
+  const next: JobRun = { ...rest, coordinatorSessionId: a.sessionId, ...(a.model ? { coordinatorModel: a.model } : {}) }
   return ok({ ...s, runs: replace(s.runs, next) }, next)
 }
 

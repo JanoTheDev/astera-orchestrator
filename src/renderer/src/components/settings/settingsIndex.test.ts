@@ -4,14 +4,14 @@ import path from 'node:path'
 import { en } from '../../../../core/i18n/messages/en'
 import type { MessageKey } from '../../../../core/i18n'
 import {
-  OLD_SETTINGS_TABS, SETTINGS_GROUPS, SETTINGS_ROWS, filterSettings, groupOfOldTab, settingsTarget, type SettingsRow
+  OLD_SETTINGS_TABS, SETTINGS_GROUPS, SETTINGS_ROWS, filterSettings, groupHasBasic, groupOfOldTab, rowVisible, settingsTarget, type SettingsRow
 } from './settingsIndex'
 
 const t = (k: MessageKey): string => en[k]
 const rows: SettingsRow[] = [
-  { anchor: 'a', group: 'general', labelKey: 'settings.theme.label', descKey: 'settings.theme.hint' },
-  { anchor: 'b', group: 'agents', labelKey: 'settings.maxWorkers.label' },
-  { anchor: 'c', group: 'advanced', labelKey: 'settings.info.version' }
+  { anchor: 'a', group: 'general', labelKey: 'settings.theme.label', descKey: 'settings.theme.hint', level: 'basic' },
+  { anchor: 'b', group: 'agents', labelKey: 'settings.maxWorkers.label', level: 'advanced' },
+  { anchor: 'c', group: 'advanced', labelKey: 'settings.info.version', level: 'advanced' }
 ]
 
 describe('filterSettings', () => {
@@ -33,6 +33,26 @@ describe('filterSettings', () => {
   it('every index row has a translated label, and subagents per tab is found under Accounts & usage', () => {
     for (const r of SETTINGS_ROWS) expect(t(r.labelKey), r.anchor).toBeTruthy()
     expect(filterSettings(SETTINGS_ROWS, 'subagents', t).map((r) => r.group)).toEqual(['accounts'])
+  })
+})
+
+describe('basic and advanced rows', () => {
+  it('every row is marked basic or advanced', () => {
+    for (const r of SETTINGS_ROWS) expect(['basic', 'advanced'], r.anchor).toContain(r.level)
+  })
+  it('simple view shows exactly the basic rows', () => {
+    const shown = SETTINGS_ROWS.filter((r) => rowVisible(r.anchor, false, null)).map((r) => r.anchor)
+    expect(shown.sort()).toEqual(['accounts', 'advancedMode', 'language', 'notifications', 'projects', 'remote', 'theme'])
+    expect(SETTINGS_ROWS.every((r) => rowVisible(r.anchor, true, null))).toBe(true)
+  })
+  it('a search shows its advanced hit even in simple mode, and only its hits', () => {
+    const hits = new Set(filterSettings(SETTINGS_ROWS, 'worktree', t).map((r) => r.anchor))
+    expect(hits.has('worktreeRoot')).toBe(true)
+    expect(rowVisible('worktreeRoot', false, hits)).toBe(true)
+    expect(rowVisible('language', false, hits)).toBe(false)
+  })
+  it('the groups with no basic row leave the nav in simple mode', () => {
+    expect(SETTINGS_GROUPS.filter((g) => !groupHasBasic(g))).toEqual(['agents', 'advanced'])
   })
 })
 

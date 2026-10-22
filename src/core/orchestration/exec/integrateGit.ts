@@ -9,10 +9,11 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { OrchServerDeps } from '../command'
+import { t, type Message, type MessageKey, type MessageParams } from '../../i18n'
 import { isSamePath } from '../../files/tree'
 import { createWorktree } from '../../worktrees/create'
 import { workerBaseFailure } from '../../worktrees/base'
-import { git as realGit, gitDir, gitVersionAtLeast, listGitWorktrees, GIT_WRITE_TIMEOUT_MS } from '../../worktrees/git'
+import { git as realGit, gitDir, gitVersionAtLeast, listGitWorktrees, fetchOrigin, GIT_WRITE_TIMEOUT_MS } from '../../worktrees/git'
 import { removeWorktree } from '../../worktrees/remove'
 import { askUntilAnswered, defaultActionPresenceCheck, type CheckResult, type PresenceCheck } from '../../worktrees/presence'
 import type { WorktreeStore } from '../../worktrees/registry'
@@ -90,6 +91,8 @@ export async function forkWorktree(
     stderr: gitDirProbe.stderr || gitDirProbe.stdout
   })
   if (baseFailure !== null) throw new Error(baseFailure)
+  // T4: a fork off the project folder starts from origin's commit when teammates pushed since the folder last pulled
+  const ahead = a.baseOf === undefined ? await originAhead(a.repoPath, head.stdout, ctx.log) : false
   const r = await createWorktree({
     repoPath: a.repoPath,
     name: a.name,
@@ -101,7 +104,33 @@ export async function forkWorktree(
   // 만들었다" 는 뜻이고 워커는 그 위에서 일한다. 이 경로에는 사용자 화면이 없어 로그가 유일한
   // 흔적이다. 키만 남긴다: 번역은 렌더러의 일이고 여기에는 언어가 없다.
   for (const w of r.warnings) ctx.log(`worktree warning ${w.key} ${JSON.stringify(w.params ?? {})}`)
+  // The new branch moves, never the owner's checked-out one; the base recorded stays the local name (a PR's base)
+  if (ahead) {
+    const ff = await realGit(['merge', '--ff-only', `refs/remotes/origin/${head.stdout}`], { cwd: r.info.path, timeoutMs: GIT_WRITE_TIMEOUT_MS })
+    ctx.log(
+      ff.ok
+        ? `fork: ${r.info.path} starts at origin/${head.stdout}, which is ahead of the local ${head.stdout}`
+        : `fork: ${r.info.path} could not fast-forward to origin/${head.stdout}, so it starts at the local ${head.stdout}: ${ff.stderr}`
+    )
+  }
   return r.info.path
+}
+
+/** T4: fetches origin's `branch` before a fork and says whether `origin/<branch>` is ahead of the local branch, which
+ *  fast-forwards to it (so the fork may start there). No origin or no answer is logged and reads false: the fork goes on. */
+async function originAhead(repo: string, branch: string, log: (m: string) => void): Promise<boolean> {
+  const f = await fetchOrigin(repo, branch)
+  if (f.kind === 'no-origin' || f.kind === 'no-repo') return false
+  if (f.kind === 'failed') {
+    log(`fork: origin ${branch} could not be fetched (offline?), so the fork starts at the local ${branch}: ${f.reason}`)
+    return false
+  }
+  const [local, remote] = await Promise.all([
+    realGit(['rev-parse', `refs/heads/${branch}`], { cwd: repo }),
+    realGit(['rev-parse', `refs/remotes/origin/${branch}`], { cwd: repo })
+  ])
+  if (!local.ok || !remote.ok || local.stdout === remote.stdout) return false
+  return (await realGit(['merge-base', '--is-ancestor', local.stdout, remote.stdout], { cwd: repo })).ok
 }
 
 /** The identity a merge commit falls back to when git has none here (W5-A, #51). */
@@ -224,7 +253,9 @@ export type Integration =
        *  to delete folders keeps these: the changes live only there. Absent when there are none. */
       dirty?: string[]
     }
-  | { kind: 'human'; reason: string }
+  /** `reason` is English (logs, `run-merge`, a merge worker's spec); `message`, when set, is the same sentence for the
+   *  owner's Gate, rendered in the app's language by the caller (dispatchLoop.ts). */
+  | { kind: 'human'; reason: string; message?: Message }
   | { kind: 'agent'; reason: string; worktrees: { path: string; branch: string | null }[] }
 
 export interface IntegrateContext {
@@ -245,6 +276,13 @@ export interface IntegrateContext {
    *  check stuck on another drive never refuses this one. */
   presence?: PresenceCheck
 }
+
+/** A result only a person can settle: English `reason`, the owner's own language through `message`. */
+const human = (key: MessageKey, params: MessageParams): Integration => ({
+  kind: 'human',
+  reason: t('en', key, params),
+  message: { key, params }
+})
 
 /** 워크트리에서 끝난 일을 **합칠 폴더에 실제로 합친다.** 그 폴더는 부르는 쪽이 정한다 —
  *  스케줄러는 Run 뿌리를 주고 `run-delete --merge` 는 프로젝트 폴더를 준다. 무엇을 합쳐야
@@ -271,7 +309,7 @@ export interface IntegrateContext {
 export async function integrateWorktrees(
   mergeInto: string,
   paths: string[],
-  opts: { reap?: boolean; message?: string },
+  opts: { reap?: boolean; message?: string; heads?: Record<string, string> },
   ctx: IntegrateContext
 ): Promise<Integration> {
   const reap = opts.reap ?? true
@@ -308,22 +346,10 @@ export async function integrateWorktrees(
   // 헤매게 했고(그쪽 주석), 같은 질문을 같은 방식으로 묻는 이 자리도 같은 순서여야 한다.
   const dir = await gitDir(mergeInto)
   if (!dir)
-    return {
-      kind: 'human',
-      reason:
-        `합칠 폴더(${mergeInto})에서 git 을 돌릴 수 없어 워크트리를 합치지 못했습니다 — 그 폴더가 ` +
-        `사라졌거나 git 저장소가 아닙니다.`
-    }
+    return human('jobs.integration.noGit', { folder: mergeInto })
   const head = await (ctx.git ?? realGit)(['symbolic-ref', '--quiet', 'HEAD'], { cwd: mergeInto })
   if (!head.ok)
-    return {
-      kind: 'human',
-      reason:
-        `합칠 폴더(${mergeInto})의 HEAD 가 브랜치를 가리키지 않아 워크트리를 합치지 않았습니다` +
-        `(분리된 HEAD — bisect 나 rebase 중일 수도 있습니다). 그 위에 병합하면 만든 커밋이 어느 ` +
-        `브랜치에도 남지 않고, 진행 중인 작업이 있다면 그것이 깨집니다. 브랜치를 체크아웃한 뒤 ` +
-        `이 Gate 를 해결해 주세요.`
-    }
+    return human('jobs.integration.detachedHead', { folder: mergeInto })
   // 표시 파일과 사람에게 보일 이름. rebase-apply 는 `git am` 도 쓴다.
   //
   // **표시 파일은 비동기로, 시간 제한을 두고 묻는다**(worktrees/presence.ts). 동기 existsSync 는 끊긴
@@ -331,11 +357,11 @@ export async function integrateWorktrees(
   // 읽지 않는다 — 진행 중인 작업 위에 병합을 거는 것이 이 확인이 막으려는 바로 그것이다.
   const markers = [
     ['rebase-merge', 'rebase'],
-    ['rebase-apply', 'rebase 또는 am'],
+    ['rebase-apply', 'rebase or am'],
     ['BISECT_LOG', 'bisect'],
     ['CHERRY_PICK_HEAD', 'cherry-pick'],
     ['REVERT_HEAD', 'revert'],
-    ['MERGE_HEAD', '병합']
+    ['MERGE_HEAD', 'merge']
   ] as const
   let busy: (typeof markers)[number] | undefined
   for (const m of markers) {
@@ -347,22 +373,10 @@ export async function integrateWorktrees(
       busy = m
       break
     }
-    return {
-      kind: 'human',
-      reason:
-        `합칠 폴더의 git 디렉터리(${dir})에서 진행 중인 작업이 있는지 확인하지 못해 워크트리를 합치지 ` +
-        `않았습니다(${m[0]} 에 닿지 못했습니다 — 네트워크 드라이브가 끊겼을 수 있습니다). 폴더에 닿는지 ` +
-        `확인한 뒤 이 Gate 를 해결해 주세요.`
-    }
+    return human('jobs.integration.gitDirUnreachable', { dir, marker: m[0] })
   }
   if (busy)
-    return {
-      kind: 'human',
-      reason:
-        `합칠 폴더에서 ${busy[1]} 작업이 진행 중(${busy[0]})이어서 워크트리를 합치지 ` +
-        `않았습니다. 그 중간에 병합하면 진행 중인 작업이 깨집니다 — 끝내거나 중단한 뒤 이 Gate 를 ` +
-        `해결해 주세요.`
-    }
+    return human('jobs.integration.inProgress', { op: busy[1], marker: busy[0] })
 
   // 2. **추적되는 변경이 남아 있으면 아무것도 하지 않는다.** 병합은 작업 트리에 쓰므로, 그 위에
   //    사용자가 저장하지 않은 일이 있으면 그것을 위험에 놓는다. 그 일을 어떻게 할지는 사람의
@@ -380,18 +394,9 @@ export async function integrateWorktrees(
   //    하나만 준다. 그러면 Gate 의 문장이 사실을 말할 수 없다.
   const status = await (ctx.git ?? realGit)(['status', '--porcelain', '--untracked-files=no'], { cwd: mergeInto })
   if (!status.ok)
-    return {
-      kind: 'human',
-      reason: `합칠 폴더(${mergeInto})의 git 상태를 읽을 수 없어 워크트리를 합치지 못했습니다: ${status.stderr}`
-    }
+    return human('jobs.integration.statusUnreadable', { folder: mergeInto, error: status.stderr })
   if (status.stdout !== '')
-    return {
-      kind: 'human',
-      reason:
-        `합칠 폴더에 커밋되지 않은 변경이 ${status.stdout.split('\n').length}개 있어 워크트리를 ` +
-        `합칠 수 없습니다. 커밋하거나 되돌린 뒤 이 Gate 를 해결해 주세요(추적되지 않는 새 파일은 ` +
-        `여기에 세지 않습니다).`
-    }
+    return human('jobs.integration.uncommitted', { count: status.stdout.split('\n').length })
 
   // 3. 각 워크트리의 브랜치를 알아낸다. `git worktree list` 한 번으로 경로 → 브랜치가 전부 나온다.
   //    listGitWorktrees 는 git() 과 달리 **실패하면 던진다** — 그래서 감싼다.
@@ -399,14 +404,26 @@ export async function integrateWorktrees(
   try {
     rows = await listGitWorktrees(mergeInto)
   } catch (e) {
-    return { kind: 'human', reason: `워크트리 목록을 읽을 수 없습니다: ${String(e)}` }
+    return human('jobs.integration.worktreeListUnreadable', { error: String(e) })
   }
   // 경로 비교는 isSamePath 다 — 한쪽은 createWorktree 가 만들어 Dispatch 에 저장된 값이고 다른
   // 쪽은 git 이 방금 낸 값이라 대소문자나 구분자가 다를 수 있다(둘 다 절대경로이므로 결정적이다).
-  const targets = paths.map((p) => ({
+  const found = paths.map((p) => ({
     path: p,
     branch: rows.find((r) => isSamePath(r.path, p))?.branch ?? null
   }))
+  // A worktree gone with no branch to name was usually removed after its branch merged. The head the Dispatch recorded
+  // says so: when it is already in HEAD there is nothing to merge, and no Gate (a Gate here came back every pass).
+  const targets: typeof found = []
+  for (const x of found) {
+    const head = opts.heads?.[x.path]
+    if (!x.branch && head && (await (ctx.git ?? realGit)(['merge-base', '--is-ancestor', head, 'HEAD'], { cwd: mergeInto })).ok) {
+      ctx.log(`merge: ${x.path} has no branch, but its recorded head ${head} is already in ${mergeInto}`)
+      continue
+    }
+    targets.push(x)
+  }
+  if (targets.length === 0) return { kind: 'merged', uncommitted: 0 }
   const unknown = targets.filter((x) => !x.branch)
   if (unknown.length > 0)
     return {
@@ -540,14 +557,10 @@ export async function integrateWorktrees(
         // 사용자가 짐작하게 두지 않는다 — 이 경로가 있는 이유가 그것이다.
         if (aside) await restoreAside(aside, ctx.log)
         const after = await (ctx.git ?? realGit)(['status', '--porcelain', '--untracked-files=no'], { cwd: mergeInto })
-        const left =
-          after.ok && after.stdout === ''
-            ? '합칠 폴더는 병합 전 상태로 되돌렸습니다.'
-            : '**합칠 폴더가 병합 중간 상태로 남아 있을 수 있습니다 — git status 로 직접 확인해 주세요.**'
-        return {
-          kind: 'human',
-          reason: `${target.branch} 브랜치를 합칠 폴더에 합치지 못했습니다: ${merged.stderr || merged.stdout}. ${left}`
-        }
+        return human(after.ok && after.stdout === '' ? 'jobs.integration.mergeFailedRestored' : 'jobs.integration.mergeFailedLeft', {
+          branch: target.branch ?? '',
+          output: merged.stderr || merged.stdout
+        })
       }
       if (aside) await restoreAside(aside, ctx.log)
     } finally {
@@ -876,6 +889,9 @@ export interface PushDelivery {
   defaultBranch?: string
   worktrees: string[]
   message: string
+  /** T3: the owner said they push the plan themselves: nothing is merged or pushed, the answer only says whether every
+   *  worktree's HEAD is on `branch` (local or origin's, `git branch -a --contains`). */
+  ownerPushed?: boolean
 }
 
 export interface PushContext {
@@ -888,26 +904,36 @@ export interface PushContext {
   git?: typeof realGit
   /** Test seam for `refreshOnto`'s git version check; defaults to the real one. */
   gitAtLeast?: typeof gitVersionAtLeast
+  /** T3: who is told Astera moves HEAD for the catch-up merge with origin (integrateWorktrees' own). Optional. */
+  gitOp?: IntegrateContext['gitOp']
 }
+
+/** T3: why a push delivery stopped part-way, for the caller to tell a retry from an integration Task: `fetch-failed`
+ *  origin could not be read, `rejected` origin kept refusing the push, `origin-conflict` origin moved on and does not
+ *  merge with the plan, `merge-failed` the plan's worktrees did not merge into the branch. */
+export type PushStop = 'fetch-failed' | 'rejected' | 'origin-conflict' | 'merge-failed'
 
 export type PushResult =
   | { ok: true; branch: string; sha: string; merged: string[]; validated: number }
-  | { ok: false; reason: string; branch?: string }
+  | { ok: false; reason: string; branch?: string; code?: PushStop; /** origin-conflict: origin's commit the plan clashes with */ conflictWith?: string }
 
 /**
  * **Lands a finished plan on a branch and pushes it, with no person reviewing** (W6-H). Every guard stops the push and
  * answers why, for the caller to escalate; nothing here stashes, resets or overwrites the owner's own work:
  * 1. the branch is `branch`, else origin's default (`refs/remotes/origin/HEAD`); neither is a stop;
- * 2. the folder stands on that branch with nothing uncommitted (untracked files count: they are the owner's too);
+ * 2. the folder stands on that branch with no uncommitted tracked change (T3: untracked files never block: no merge or
+ *    reset here touches them);
  * 3. `fetch`, then `merge --ff-only` from origin; a local branch that cannot fast-forward is a stop;
  * 4. the Run's worktrees merge (`mergeWorktrees`). T11: when that fails (another plan landed on the branch first), the
  *    folder goes back to the commit recorded before it, the plan's worktrees are refreshed onto that commit
- *    (`refreshOnto`) and merged once more; a second failure leaves the folder as that merge left it;
+ *    (`refreshOnto`) and merged once more; T3: a second failure undoes the merges as 5 does;
  * 5. the validation runs on the merged folder; a failure resets to the commit recorded before 4, which undoes only
  *    Astera's merges (the folder was clean at 2);
  * 6. `push origin <branch>`, **never forced**; a rejected push fetches, and when origin moved on merges it in and runs
- *    the validation again, then pushes; up to `PUSH_ROUNDS` times. A conflict with origin stops with the plan's
- *    commits kept; a failed second validation undoes them as 5 does.
+ *    the validation again, then pushes; up to `PUSH_ROUNDS` times. T3: every stop here (a conflict with origin, a
+ *    failed fetch, a push still rejected, a failed second validation) undoes the merges as 5 does, so no half
+ *    delivery sits unpushed on the owner's branch.
+ * The undo resets only while the folder is still on `branch` with no tracked change Astera did not make.
  */
 export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<PushResult> {
   const run = ctx.git ?? realGit
@@ -923,19 +949,40 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
     else if (a.defaultBranch) branch = a.defaultBranch
     else return { ok: false, reason: `could not tell the repository's default branch (origin/HEAD is not set): set the project's delivery branch` }
   }
-  const fail = (reason: string): PushResult => ({ ok: false, reason, branch })
+  const fail = (reason: string, code?: PushStop, conflictWith?: string): PushResult => ({
+    ok: false,
+    reason,
+    branch,
+    ...(code ? { code } : {}),
+    ...(conflictWith ? { conflictWith } : {})
+  })
+
+  // T3: the owner pushed it: is every worktree's HEAD on the branch, here or on origin? Nothing is written
+  if (a.ownerPushed) {
+    await run(['fetch', 'origin', branch], w)
+    for (const wt of a.worktrees) {
+      const head = await run(['rev-parse', 'HEAD'], { cwd: wt })
+      if (!head.ok) continue // a folder already gone holds nothing that is not somewhere else
+      const holders = await run(['branch', '-a', '--contains', head.stdout, '--format=%(refname:short)'], { cwd })
+      const names = holders.ok ? holders.stdout.split('\n').map((x) => x.trim()) : []
+      if (!names.includes(branch) && !names.includes(`origin/${branch}`))
+        return fail(`${wt}'s commit ${head.stdout.slice(0, 7)} is not on ${branch} yet`)
+    }
+    const tip = await run(['rev-parse', `origin/${branch}`], { cwd })
+    return { ok: true, branch, sha: tip.ok ? tip.stdout : '', merged: [], validated: 0 }
+  }
 
   // 2.
   const on = await run(['symbolic-ref', '--quiet', '--short', 'HEAD'], { cwd })
   if (!on.ok) return fail(`your folder ${cwd} is not on a branch (detached HEAD); put it on ${branch}`)
   if (on.stdout !== branch) return fail(`your folder ${cwd} is on branch ${on.stdout}, not ${branch}`)
-  const status = await run(['status', '--porcelain'], { cwd })
+  const status = await run(['status', '--porcelain', '--untracked-files=no'], { cwd })
   if (!status.ok) return fail(`could not read git status in ${cwd}: ${why(status)}`)
   if (status.stdout !== '') return fail(`your folder ${cwd} has ${status.stdout.split('\n').length} uncommitted change(s)`)
 
   // 3.
   const fetched = await run(['fetch', 'origin', branch], w)
-  if (!fetched.ok) return fail(`git fetch origin ${branch} failed: ${why(fetched)}`)
+  if (!fetched.ok) return fail(`git fetch origin ${branch} failed: ${why(fetched)}`, 'fetch-failed')
   const ff = await run(['merge', '--ff-only', `origin/${branch}`], w)
   if (!ff.ok) return fail(`your ${branch} cannot fast-forward to origin/${branch} (it has commits origin does not): ${why(ff)}`)
 
@@ -966,23 +1013,27 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
       merged = again.ok ? again : { ok: false, reason: `${merged.reason}; after refreshing onto ${base}: ${again.reason}` }
     } else merged = { ok: false, reason: `${merged.reason}; refreshing onto ${base} did not help: ${stop}` }
   }
-  if (!merged.ok) {
+  /** Undoes Astera's merges: back to `base`, the clean commit recorded before them. T3: only while the folder is still on
+   *  `branch` with no tracked change (the owner may have moved on meanwhile; their work is never reset). */
+  const undo = async (reason: string, code?: PushStop, conflictWith?: string): Promise<PushResult> => {
     const now = await run(['rev-parse', 'HEAD'], { cwd })
-    const moved = now.ok && now.stdout !== base
-    return fail(
-      `merging the plan's worktrees failed: ${merged.reason}` +
-        (moved ? ` The merges before it are on your ${branch}, not pushed; git reset --hard ${base} undoes them.` : '')
-    )
-  }
-  /** Undoes Astera's merges: back to `base`, the clean commit recorded before them. */
-  const undo = async (reason: string): Promise<PushResult> => {
+    if (now.ok && now.stdout === base) return fail(reason, code, conflictWith)
+    const still = await run(['symbolic-ref', '--quiet', '--short', 'HEAD'], { cwd })
+    const clean = await run(['status', '--porcelain', '--untracked-files=no'], { cwd })
+    if (!still.ok || still.stdout !== branch || !clean.ok || clean.stdout !== '')
+      return fail(
+        `${reason} Your folder changed meanwhile, so Astera's merges were left on ${branch}, not pushed; git reset --hard ${base} undoes them.`,
+        code,
+        conflictWith
+      )
     const reset = await run(['reset', '--hard', base], w)
     const back = await run(['rev-parse', 'HEAD'], { cwd })
     if (!reset.ok || !back.ok || back.stdout !== base)
-      return fail(`${reason} Astera could not undo its merges (git reset --hard ${base}: ${why(reset)}); check ${cwd} by hand.`)
+      return fail(`${reason} Astera could not undo its merges (git reset --hard ${base}: ${why(reset)}); check ${cwd} by hand.`, code, conflictWith)
     ctx.log(`delivery: undid Astera's merges in ${cwd}, back at ${base}`)
-    return fail(`${reason} Astera's merges were undone; ${branch} is back at ${base}.`)
+    return fail(`${reason} Astera's merges were undone; ${branch} is back at ${base}.`, code, conflictWith)
   }
+  if (!merged.ok) return undo(`merging the plan's worktrees failed: ${merged.reason}`, 'merge-failed')
   const left = [...(merged.dirty ?? []), ...(merged.unchecked ?? []), ...(merged.notMerged ?? [])]
   if (left.length > 0) return undo(`these worktrees hold work that was not merged (uncommitted, or not reachable): ${left.join(', ')}.`)
 
@@ -995,16 +1046,28 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
   // never forced
   let pushed = await run(['push', 'origin', branch], w)
   let validated = checked.ran
+  const ident = pushed.ok ? [] : await mergeIdentityArgs(cwd, run)
   for (let round = 1; !pushed.ok && round <= PUSH_ROUNDS; round++) {
     ctx.log(`delivery: push of ${branch} was rejected (${why(pushed)}), fetching (round ${round} of ${PUSH_ROUNDS})`)
-    if (!(await run(['fetch', 'origin', branch], w)).ok) break
+    const refetched = await run(['fetch', 'origin', branch], w)
+    if (!refetched.ok)
+      return undo(`git push origin ${branch} was rejected (${why(pushed)}), and fetching origin to catch up failed: ${why(refetched)}.`, 'fetch-failed')
     if (!(await run(['merge-base', '--is-ancestor', `origin/${branch}`, 'HEAD'], { cwd })).ok) {
-      const caught = await run(['merge', '--no-edit', `origin/${branch}`], w)
+      // T3: a merge commit needs an identity (none on a fresh machine), and the app's git watcher is told it is Astera's
+      const op = ctx.gitOp ? await ctx.gitOp.begin('job-merge', cwd) : null
+      let caught: Awaited<ReturnType<typeof run>>
+      try {
+        caught = await run([...ident, 'merge', '--no-edit', `origin/${branch}`], w)
+        if (!caught.ok) await run(['merge', '--abort'], w)
+      } finally {
+        if (op !== null) await Promise.resolve(ctx.gitOp!.end(op)).catch((e) => ctx.log(`delivery: git-op end failed: ${String(e)}`))
+      }
       if (!caught.ok) {
-        await run(['merge', '--abort'], w)
-        return fail(
-          `origin/${branch} moved on during the delivery and does not merge cleanly with the plan: ${why(caught)}. ` +
-            `The merged and validated commits are on your ${branch}, not pushed; git reset --hard ${base} undoes them.`
+        const tip = await run(['rev-parse', `origin/${branch}`], { cwd })
+        return undo(
+          `origin/${branch} moved on during the delivery and does not merge cleanly with the plan: ${why(caught)}.`,
+          'origin-conflict',
+          tip.ok ? tip.stdout : undefined
         )
       }
       const rechecked = await ctx.validate(cwd)
@@ -1013,11 +1076,7 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
     }
     pushed = await run(['push', 'origin', branch], w)
   }
-  if (!pushed.ok)
-    return fail(
-      `git push origin ${branch} was rejected: ${why(pushed)}. The merged and validated commits are on your ${branch}, ` +
-        `not pushed; git reset --hard ${base} undoes them.`
-    )
+  if (!pushed.ok) return undo(`git push origin ${branch} was rejected: ${why(pushed)}.`, 'rejected')
   // W8-A: the notes ref goes next to the branch; a rejected notes push costs the delivery nothing
   if ((await pushNotes(cwd, run)) === 'rejected') ctx.log(`delivery: the attribution notes (refs/notes/astera) were not pushed`)
   const sha = await run(['rev-parse', 'HEAD'], { cwd })

@@ -1,10 +1,11 @@
-import { useRef, useState } from 'react'
+import { useRef, useState, useSyncExternalStore } from 'react'
 import type { SessionKind } from '../../../core/types'
 import { resolveFileIcon } from '../../../core/files/icons'
 import { useI18n } from '../i18n/I18nProvider'
 import { FileIcon } from './FileIcon'
 import { ChevronDown, Film, Globe, Image as ImageIcon, MessageSquare, Monitor, Repeat, Terminal, X } from 'lucide-react'
 import { endRenameOnce } from '../lib/renameOnce'
+import { recentlyClosed, reopenClosed, subscribeRecentlyClosed } from '../lib/recentlyClosed'
 
 /** File viewer tab. Renderer-only — unlike sessions, main is not involved. id = `file:${path}`.
  *  (FileTabs.tsx가 이 탭 줄로 대체되면서 타입만 여기로 옮겨 왔다) */
@@ -189,6 +190,8 @@ export function WorkbenchTabs({
   const [dropAt, setDropAt] = useState<number | null>(null)
   // W7-F (#84): the overflow menu's place on screen while open. Fixed, not inside .tabs, which scrolls and clips.
   const [overflowAt, setOverflowAt] = useState<{ right: number; top: number } | null>(null)
+  // T13: the menu's Recently closed (hidden or ended tabs, newest first); Ctrl+Shift+T reopens the first
+  const recent = useSyncExternalStore(subscribeRecentlyClosed, recentlyClosed, recentlyClosed)
 
   const endDrag = (): void => {
     setDragId(null)
@@ -389,7 +392,7 @@ export function WorkbenchTabs({
       </button>
     </div>
     {/* W7-F (#84): every tab of this workspace in one list, for when the strip has more than it can show */}
-    {allTabs && allTabs.length > 0 && (
+    {allTabs && (allTabs.length > 0 || recent.length > 0) && (
       <button
         className="tab-overflow"
         aria-label={t('tabs.overflow.title')}
@@ -426,6 +429,29 @@ export function WorkbenchTabs({
               >
                 {tab.kind === 'session' && <span className="tab-dot" style={{ background: tab.color }} />}
                 <span className="tab-title">{tab.title}</span>
+              </button>
+            </li>
+          ))}
+          {recent.length > 0 && (
+            <li role="none" className="tab-overflow-head" id="tab-recent-head">
+              {t('tabs.recent.title')}
+            </li>
+          )}
+          {recent.map((r, i) => (
+            <li key={`recent:${r.sessionId}`} role="none">
+              <button
+                role="menuitem"
+                autoFocus={allTabs.length === 0 && i === 0}
+                aria-describedby="tab-recent-head"
+                className="tab-overflow-item"
+                title={r.cwd}
+                onClick={() => {
+                  setOverflowAt(null)
+                  reopenClosed(r.sessionId)
+                }}
+              >
+                <span className="tab-title">{r.title}</span>
+                <span className="tab-overflow-note">{t(r.ended ? 'tabs.recent.ended' : 'tabs.recent.running')}</span>
               </button>
             </li>
           ))}

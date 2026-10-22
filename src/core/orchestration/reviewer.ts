@@ -20,10 +20,18 @@ export function pickReviewer(a: {
   implProvider: Provider
   accounts: readonly Account[]
   loggedInIds: ReadonlySet<string>
+  /** T5b (decision 6): the provider's account with most room (chooseStartAccount), null when every one is full: that
+   *  provider is then skipped. Absent, or undefined for a provider: the default account, as before. */
+  best?: (provider: Provider) => string | null | undefined
 }): { provider: Provider; accountId: string; sameProvider?: true } | null {
+  const accountOf = (provider: Provider): string | null => {
+    const best = a.best?.(provider)
+    if (best === null) return null
+    return best !== undefined && a.loggedInIds.has(best) ? best : defaultAccountIdOf(provider, a.accounts, a.loggedInIds)
+  }
   for (const provider of PROVIDERS) {
     if (provider === a.implProvider) continue
-    const accountId = defaultAccountIdOf(provider, a.accounts, a.loggedInIds)
+    const accountId = accountOf(provider)
     if (accountId) return { provider, accountId }
   }
   // **Only one provider has accounts** (orchestrator W1-A, owner decision 2026-10-17): review on the
@@ -32,7 +40,7 @@ export function pickReviewer(a: {
   // another provider does have an account that is merely logged out, this stays null: logging in is the
   // fix, and the Gate says so.
   if (a.accounts.some((x) => providerOf(x) !== a.implProvider)) return null
-  const accountId = defaultAccountIdOf(a.implProvider, a.accounts, a.loggedInIds)
+  const accountId = accountOf(a.implProvider)
   return accountId ? { provider: a.implProvider, accountId, sameProvider: true } : null
 }
 

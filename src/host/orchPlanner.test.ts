@@ -90,3 +90,56 @@ describe('the Host refuses a planner session every command that starts work', ()
     expect(r.status).toBe(200)
   })
 })
+
+// T25: a planner start with no account that has room is answered at once with the plain reason on the Job; it never holds
+// the Host's command chain (`serially`), so every other command goes on while it waits for the loop's next try.
+describe('a held planner start does not hold the Host', () => {
+  it('jobs-plan answers at once with startWait on the Job, and the next command is not queued behind it', async () => {
+    const job = createJob(emptyState(), { objective: 'plan me', cwd: path.join(dir, 'repo'), pendingStart: true }, NOW)
+    if (!job.ok) throw new Error(job.error)
+    const named = { ...job.state, jobs: job.state.jobs.map((j) => ({ ...j, coordinatorAccountId: 'acc1' })) }
+    await fs.writeFile(path.join(dir, 'orchestration.json'), JSON.stringify(named), 'utf8')
+    const why = 'no claude account has room to start the planner on: acc1 (its weekly limit is at the usage threshold)'
+    const stub = async () => ({}) as never
+    const orch = createHostOrch({
+      profileDir: dir,
+      version: '9.9.9',
+      now: () => NOW,
+      hostStartedAt: () => '2026-10-16T23:00:00.000Z',
+      runningSessions: () => 0,
+      aliveSessionIds: () => new Set<string>(),
+      act: async () => ({}),
+      hasApp: () => false,
+      onState: () => {},
+      log: () => {},
+      local: {
+        startWorker: stub,
+        startCoordinator: async (a: { onWait?: (w: string | null) => void | Promise<void> }) => {
+          await a.onWait?.(why)
+          throw new Error(why)
+        },
+        releaseWorker: stub,
+        readWorker: stub,
+        probeLimit: stub,
+        readReviewFile: stub,
+        makeRunWorktree: stub,
+        mergeWorktrees: stub,
+        removeWorktrees: stub,
+        owns: () => true
+      } as never,
+      sessions: {
+        listSessions: async () => [],
+        readSession: async () => ({ cols: 80, rows: 24, screen: [], scrollback: [] }),
+        sendSession: async () => {},
+        readChat: async () => [],
+        sendChat: async () => {},
+        serial: (_id, run) => run()
+      }
+    })
+    const planned = await orch.call({ cmd: 'jobs-plan', args: { id: job.value.id }, sessionId: '' })
+    expect(planned.status).toBe(200)
+    expect(planned.body).toMatchObject({ jobId: job.value.id, waiting: why })
+    expect(orch.state().jobs[0]).toMatchObject({ startWait: why })
+    expect((await orch.call({ cmd: 'jobs-list', args: {}, sessionId: '' })).status).toBe(200)
+  })
+})

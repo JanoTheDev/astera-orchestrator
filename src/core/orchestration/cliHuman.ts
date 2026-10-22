@@ -31,6 +31,9 @@ export function stateWord(o: {
   if (o.outcome === 'completed') return 'COMPLETE'
   if (o.outcome === 'failed') return 'FAILED'
   if (o.outcome === 'running') return 'RUNNING'
+  // Item 8: every Task done, the final check not settled; item 2: finished with Tasks held for the owner
+  if (o.outcome === 'checking') return 'CHECKING'
+  if (o.outcome === 'blocked') return 'BLOCKED'
   // A Job with no Run (command.ts jobView)
   if (o.outcome === 'pending') return 'PENDING'
   return '-'
@@ -194,6 +197,8 @@ function pluginCheckLines(validation: unknown): { before: string[]; after: strin
 
 export function humanFor(cmd: string, data: Record<string, unknown>): string | null {
   switch (cmd) {
+    case 'main-plan':
+      return str(data.text)
     case 'plugins-logs': {
       const lines = Array.isArray(data.lines) ? (data.lines as unknown[]).map(str) : []
       return lines.length > 0 ? lines.join('\n') : 'no log yet'

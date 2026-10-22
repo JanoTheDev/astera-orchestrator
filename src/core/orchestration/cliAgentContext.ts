@@ -104,8 +104,12 @@ const SESSION = {
   },
   'run-start': {
     summary: "clear a Job's start gate and run it, or restart a run's coordinator",
-    detail: "Given a run id, it only starts that run's coordinator when it has none; the Job's gate is left alone.",
-    flags: [RUN_ARG('<jobId|runId>', 'the Job to start, or the run whose coordinator to restart')]
+    detail:
+      "Given a run id, it only starts that run's coordinator when it has none; the Job's gate is left alone. A planner session starts its own planned Job with --owner-said, only after the person told it to in its terminal following the plan's last change (under 30 minutes ago); the plan must hold, and the activity feed records the words.",
+    flags: [
+      RUN_ARG('<jobId|runId>', 'the Job to start, or the run whose coordinator to restart'),
+      { name: 'owner-said', value: '<text>', about: "planner only: the person's words telling you to run the plan, verbatim" }
+    ]
   },
   'run-pause': {
     summary: 'hold a scheduled Job so it fires no more runs',
@@ -194,6 +198,13 @@ const SESSION = {
       "While later waves remain, folds the completed tasks' worktrees into the run's integration branch, pushes it, and opens the plan's pull request as a draft or rewrites its body with the done and remaining waves. run-open-pr marks it ready after the final check. Never merges. The driving loop does this once per finished wave; refused from an agent session and an MCP client. Answered by the Host.",
     flags: [RUN_ARG('<runId>', 'the run between waves')]
   },
+  // T4 origin sync
+  'run-origin-synced': {
+    summary: "record when a running plan's branch was last synced with origin",
+    detail:
+      "The driving loop's own step (exec/originSync.ts): after it fetched origin and, when origin moved on, merged it into the plan branch, it records the time on the run, so a restarted Host does not sync again within ten minutes. Refused from an agent session and an MCP client.",
+    flags: [RUN_ARG('<runId>', 'the running plan'), { name: 'at', value: '<iso>', about: 'when it synced' }]
+  },
   // W8-A commit attribution
   'attribution-remap': {
     summary: "write the attribution notes onto the commits GitHub's squash or rebase merge of a plan's pull request made",
@@ -279,7 +290,8 @@ const SESSION = {
       { name: 'model-reason', value: '<text>', about: 'one line: why that difficulty, provider or model' },
       // W6-A: what the planner found of the item; a plan Task without it cannot be approved
       { name: 'basis', value: '<missing|partial|broken>', about: "the item's state as found before planning (with --evidence)" },
-      { name: 'evidence', value: '<text>', about: 'with --basis: file:line, an issue or PR number, a Job id' }
+      { name: 'evidence', value: '<text>', about: 'with --basis: file:line, an issue or PR number, a Job id' },
+      { name: 'kind', value: '<bugfix|feature|refactor|ui|audit|docs|test|ops>', about: 'the sort of work; picks the worker skills (T9)' }
     ]
   },
   'task-update': {
@@ -304,7 +316,8 @@ const SESSION = {
       { name: 'model', value: '<id>', about: 'without --status: as task-create' },
       { name: 'model-reason', value: '<text>', about: 'without --status: as task-create' },
       { name: 'basis', value: '<missing|partial|broken>', about: 'without --status: as task-create (W6-A)' },
-      { name: 'evidence', value: '<text>', about: 'without --status: as task-create (W6-A)' }
+      { name: 'evidence', value: '<text>', about: 'without --status: as task-create (W6-A)' },
+      { name: 'kind', value: '<bugfix|feature|refactor|ui|audit|docs|test|ops>', about: 'without --status: as task-create (T9)' }
     ]
   },
   send: {
@@ -602,9 +615,10 @@ const SESSION = {
     flags: [{ name: 'agent', value: '<claude|codex>', about: 'only this vendor' }]
   },
   reset: {
-    summary: 'wipe orchestration state',
-    detail: 'Refused while a dispatch is open. It copies the state file first.',
+    summary: 'wipe orchestration state (owner only)',
+    detail: 'Refused from an agent session (permission denied) and while a dispatch is open. Without --yes it changes nothing and prints what would be deleted. It keeps a timestamped copy of the state file first.',
     flags: [
+      { name: 'yes', about: 'really delete: without it reset only reports counts' },
       { name: 'tasks', about: 'wipe the Tasks and dispatches' },
       { name: 'messages', about: 'wipe the messages and deliveries' },
       { name: 'all', about: 'wipe everything' }
@@ -701,6 +715,10 @@ const NOT_SWITCHED = [
   'requests-show',
   'skills-list',
   'skills-install',
+  // T15: signs a new account in from this terminal, answered in the CLI process (core/accounts/cliLogin.ts).
+  'accounts-login',
+  // T12c: the target side of `machines migrate`, answered in the CLI process (core/accounts/exportLogin.ts).
+  'accounts-import',
   'higgsfield-list',
   'higgsfield-use',
   'mcp-serve',
@@ -716,10 +734,15 @@ const NOT_SWITCHED = [
   'runtime-pair',
   'runtime-clients',
   'runtime-revoke',
+  'runtime-setup',
   // The controller's side (src/cli/runtimes.ts), answered in the CLI process from <profile>/runtimes.
   'runtimes-add',
   'runtimes-list',
   'runtimes-remove',
+  // T12b: provisions over SSH in the CLI process (src/cli/machines.ts).
+  'machines-add',
+  // T12c: brings this computer's setup to a paired machine over SSH (src/cli/machineMigrate.ts).
+  'machines-migrate',
   // Answered by the Host's plugin manager (src/host/plugins/commands.ts), beside `projects-add`.
   'plugins-install',
   'plugins-list',

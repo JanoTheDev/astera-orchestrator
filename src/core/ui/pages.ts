@@ -32,17 +32,30 @@ export function pageOf(saved: unknown): PageId {
 
 // ---- W9-B: the shell's use of the ids ----
 
-/** The pages `Ctrl+1…6` open, in the top bar's order (DESIGN.md §1). Settings has its ⚙, More its menu. */
+/** The pages `Ctrl+1…6` open (DESIGN.md §1). T9 kept the order so saved shortcuts keep their page: Tasks opens Plans ›
+ *  All tasks and Inbox the full Inbox view behind the bell. */
 export const KEYED_PAGES = ['agents', 'tasks', 'plans', 'inbox', 'worktrees', 'files'] as const satisfies readonly MainPageId[]
+
+/** T9 (DESIGN-W11 §8): the top bar's three tabs. Settings has its gear, the rest sit in More, Inbox behind the bell. */
+export const TAB_PAGES = ['agents', 'plans', 'files'] as const satisfies readonly PageId[]
+/** What the top bar's "More" menu lists, in its order. */
+export const MORE_MENU_PAGES = ['worktrees', 'more:history', 'more:runs', 'more:hiw', 'more:browser'] as const satisfies readonly PageId[]
+
+/** The tab a page lights: All tasks (`tasks`) is a view inside Plans; Inbox, Settings and the More pages light none. */
+export function tabOf(page: PageId): (typeof TAB_PAGES)[number] | null {
+  if (page === 'tasks') return 'plans'
+  return (TAB_PAGES as readonly PageId[]).includes(page) ? (page as (typeof TAB_PAGES)[number]) : null
+}
 
 /** Where the open page is kept between launches (`cm.` like the app's other renderer-only keys). */
 export const PAGE_STORAGE_KEY = 'cm.page'
 
-/** The page to open on launch, from what `PAGE_STORAGE_KEY` holds. Settings and the More pages are not reopened:
+/** The page to open on launch, from what `PAGE_STORAGE_KEY` holds. Settings, the More pages and the bell's full Inbox
+ *  are not reopened:
  *  they are places one visits, and the app opens on the work (DESIGN.md §0 "The app opens on the Agents page"). */
 export function initialPage(saved: string | null): PageId {
   const page = pageOf(saved)
-  return page === 'settings' || page.startsWith('more:') ? DEFAULT_PAGE : page
+  return page === 'settings' || page === 'inbox' || page.startsWith('more:') ? DEFAULT_PAGE : page
 }
 
 /** The old sidebar views' keys (Ctrl+Shift+A/E/J/H) open their page; pressed on that page they go back to Agents,

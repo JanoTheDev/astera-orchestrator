@@ -7,6 +7,8 @@ import {
   RETRY_FALLBACK_MS,
   RETRY_MARGIN_MS,
   RETRY_MIN_FLOOR_MS,
+  usageBlockOf,
+  usageRetryOf,
   type BlockRecord,
   type RetryState
 } from './retry'
@@ -154,5 +156,36 @@ describe('planRetry', () => {
       ]
     })
     expect(planRetry(s, NOW).weekly).toBe(true)
+  })
+})
+
+describe('T5a: usage in the roll verdict', () => {
+  const w = (usedPercent: number, resetsAt: string | null) => ({ usedPercent, resetsAt })
+  const iso = (ms: number) => new Date(ms).toISOString()
+
+  it('a full window is a block until its reset; a null reset falls back like an unparsed phrase', () => {
+    expect(usageBlockOf({ session: w(0, null), weekly: w(100, iso(NOW + 5_000)) }, 90, NOW)).toEqual({ at: NOW + 5_000, weekly: true, since: NOW })
+    expect(usageBlockOf({ session: w(0, null), weekly: w(100, null) }, 90, NOW)).toEqual({ at: null, weekly: true, since: NOW })
+    expect(usageBlockOf({ session: w(10, null), weekly: w(10, null) }, 90, NOW)).toBeNull()
+  })
+
+  it('picks the best ranked usable account, not the next one', () => {
+    const readings = new Map([
+      ['b', { session: w(0, null), weekly: w(100, iso(NOW + 9e6)) }],
+      ['c', { session: w(40, null), weekly: w(40, null) }]
+    ])
+    const u = usageRetryOf(['a', 'b', 'c'], { readings, pauseAt: 90 }, NOW)
+    expect(pickAvailable(state({ recovery: u.blocks, order: u.order }), 1, NOW)).toBe(2)
+  })
+
+  it('with every other account full, waits for the earliest reset', () => {
+    const readings = new Map([
+      ['b', { session: w(0, null), weekly: w(100, iso(NOW + 9e6)) }],
+      ['c', { session: w(0, null), weekly: w(95, iso(NOW + 3e6)) }]
+    ])
+    const u = usageRetryOf(['a', 'b', 'c'], { readings, pauseAt: 90 }, NOW)
+    const s = state({ recovery: [rec({ at: NOW + 6e6 }), ...u.blocks.slice(1)], order: u.order })
+    expect(pickAvailable(s, 1, NOW)).toBeNull()
+    expect(planRetry(s, NOW)).toEqual({ target: 2, retryAt: NOW + 3e6 + RETRY_MARGIN_MS, weekly: true })
   })
 })

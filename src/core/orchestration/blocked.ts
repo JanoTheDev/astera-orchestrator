@@ -23,6 +23,7 @@ import { usageChoice } from './usageGuard'
 import { afterNameOf, afterQueued, afterStandOf } from './after'
 // W8-D several plans in one repo
 import { jobNameOf } from './jobName'
+import { externalDepsOf } from './mainPlan'
 
 const isOpen = (d: Dispatch): boolean => !d.outcome && !d.endedAt
 
@@ -38,6 +39,7 @@ function categoryOf(task: Task, open: Dispatch | undefined, latest: Dispatch | u
     case 'reviewing':
       return 'awaiting-review'
     case 'validating':
+    case 'merging':
       return 'running'
     case 'dispatched':
       if (open) return 'running'
@@ -159,10 +161,16 @@ export function taskBoardsOf(
     if (task.status === 'reviewing') return { kind: 'awaiting-review' }
     if (task.status === 'dispatched') return { kind: 'stopped' }
     if (task.status === 'pending') {
+      // a dep of another plan that is done but not delivered still holds the Task (holdExternalDeps)
+      const undelivered = new Set(
+        externalDepsOf(s, task)
+          .filter((d) => d.why === 'not delivered')
+          .map((d) => d.id)
+      )
       const waitingOn = task.deps
         .map((id) => taskById.get(id))
-        .filter((d): d is Task => d !== undefined && d.status !== 'completed')
-        .map((d) => ({ id: d.id, title: d.title, status: d.status }))
+        .filter((d): d is Task => d !== undefined && (d.status !== 'completed' || undelivered.has(d.id)))
+        .map((d) => ({ id: d.id, title: d.title, status: d.status, ...(d.status === 'completed' ? { delivery: true as const } : {}) }))
       // Every dep done and not yet promoted: the next write's recomputeReady makes it ready
       return waitingOn.length > 0 ? { kind: 'deps', waitingOn } : { kind: 'next' }
     }

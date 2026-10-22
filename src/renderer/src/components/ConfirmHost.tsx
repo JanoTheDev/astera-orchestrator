@@ -49,7 +49,7 @@ export function ConfirmView({
       closeLabel={t('common.close')}
       footer={
         <>
-          <Button onClick={() => settle(false)}>{pending.cancelLabel ?? t('common.cancel')}</Button>
+          <Button onClick={() => settle(false, checked)}>{pending.cancelLabel ?? t('common.cancel')}</Button>
           <Button ref={confirmRef} variant="primary" onClick={() => settle(true, checked)}>
             {pending.confirmLabel ?? t('common.confirm')}
           </Button>

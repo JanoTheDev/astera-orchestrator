@@ -8,7 +8,7 @@
 // `-m <id>` — the same pair understanding/agentArgs.ts measured for its one-shot runs.
 import type { Account } from '../types'
 import { PROVIDERS, providerOf, type Provider } from '../providers/meta'
-import type { Job, Task } from './types'
+import type { Job, Project, Task } from './types'
 
 export type Role = 'coordinator' | 'planner' | 'worker' | 'reviewer'
 export const ROLES = ['coordinator', 'planner', 'worker', 'reviewer'] as const satisfies readonly Role[]
@@ -95,6 +95,30 @@ export function resolveRoleModel(
   provider: Provider
 ): string | undefined {
   return fitting(job?.models?.[role]?.trim(), provider) ?? configured(appSettings, provider, 'roles', role)
+}
+
+/** T5: more Tasks than this, or any `hard` one, and the coordinator runs on the strong model. A haiku coordinator on a
+ *  33-Task plan started ten workers at once with shell `&` and ended turns with ready work left (run_9f6b68a5fd920879). */
+export const STRONG_COORDINATOR_TASKS = 5
+
+/** The coordinator's model for a plan of `tasks`. Job.models.coordinator > the project's `coordinatorModel` > the
+ *  plan-size rule (the provider's `hard` difficulty model: opus on claude, whatever is configured on codex) > the
+ *  app's coordinator setting > the built-in one. **Only the coordinator start uses it**; the command bar's parse
+ *  (intents/parseRun.ts) keeps `resolveRoleModel`'s light model. */
+export function resolveCoordinatorModel(a: {
+  settings: RoleModelSettings
+  job: Pick<Job, 'models'> | undefined
+  project: Pick<Project, 'coordinatorModel'> | undefined
+  tasks: readonly Pick<Task, 'difficulty'>[]
+  provider: Provider
+}): string | undefined {
+  const strong = a.tasks.length > STRONG_COORDINATOR_TASKS || a.tasks.some((t) => t.difficulty === 'hard')
+  return (
+    fitting(a.job?.models?.coordinator?.trim(), a.provider) ??
+    fitting(a.project?.coordinatorModel?.trim(), a.provider) ??
+    (strong ? configured(a.settings, a.provider, 'difficulty', 'hard') : undefined) ??
+    configured(a.settings, a.provider, 'roles', 'coordinator')
+  )
 }
 
 /** The providers that have at least one account in accounts.json — the only ones a Task may run on. */

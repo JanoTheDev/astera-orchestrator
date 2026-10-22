@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import type { WorktreeRemoveResult } from '../types'
 import { isPathWithin, isSamePath } from '../files/tree'
-import { git, gitVersionAtLeast, isCleanWorktree, listGitWorktrees, GIT_WRITE_TIMEOUT_MS } from './git'
+import { git, gitVersionAtLeast, listGitWorktrees, GIT_WRITE_TIMEOUT_MS } from './git'
 
 /** Options for a call that changes the repository — see GIT_WRITE_TIMEOUT_MS. A `worktree remove`
  *  killed part-way leaves the folder half deleted with git's record of it still in place, so writes
@@ -60,6 +60,28 @@ async function detachBeforeRemove(
     throw new Error(
       `LINKS_UNVERIFIED: the links in the folder could not all be checked and taken out, nothing was removed (${worktreePath}): ${r.reason}`
     )
+}
+
+/** What keeps a worktree from being removed unforced: modified or staged tracked files, and untracked files that are
+ *  neither ignored (`git status` leaves those out) nor symlinks. An untracked symlink (the node_modules link Astera
+ *  makes, which a `node_modules/` pattern does not ignore because a link is not a directory) holds nothing of its own:
+ *  detachLinks takes it out before git removes the folder. `untracked` lists the files that block, first 10 only. */
+export async function blockingChanges(worktreePath: string): Promise<{ count: number; untrackedCount: number; untracked: string[] }> {
+  const r = await git(['status', '--porcelain=v1', '-z', '--no-renames', '--untracked-files=all'], { cwd: worktreePath, trim: false })
+  if (!r.ok) throw new Error(`GIT_REMOVE_FAILED: status check failed (${r.stderr})`)
+  let count = 0
+  let untrackedCount = 0
+  const untracked: string[] = []
+  for (const rec of r.stdout.split('\0')) {
+    if (rec === '') continue
+    const rel = rec.slice(3)
+    if (rec.startsWith('?? ') && (await fs.lstat(path.join(worktreePath, rel)).then((st) => st.isSymbolicLink(), () => false))) continue
+    count++
+    if (!rec.startsWith('?? ')) continue
+    untrackedCount++
+    if (untracked.length < 10) untracked.push(rel)
+  }
+  return { count, untrackedCount, untracked }
 }
 
 /** Dangerous paths: the repo itself, a parent that contains the repo, home, a parent that contains home, the filesystem root */
@@ -156,6 +178,17 @@ async function isBranchMerged(repo: string, branch: string): Promise<boolean> {
   return false
 }
 
+/** Every commit of the branch is in `base` (a plan branch a Task's branch was merged into, or the base it forked from). */
+async function isAncestorOf(repo: string, branch: string, base: string): Promise<boolean> {
+  return (await git(['merge-base', '--is-ancestor', `refs/heads/${branch}`, base], { cwd: repo })).ok
+}
+
+/** Deletes origin's copy of a branch that is gone locally, when origin has one. Best effort: a failure leaves the copy. */
+async function deleteOriginCopy(repo: string, branch: string): Promise<void> {
+  if (!(await git(['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`], { cwd: repo })).ok) return
+  await git(['push', 'origin', '--delete', '--', branch], { cwd: repo, timeoutMs: 30_000 })
+}
+
 /** Whether the worktree's folder is there, asked asynchronously and with a time limit, on the
  *  per-root action lane (presence.ts: a check stuck on another drive never refuses this one). A sync
  *  existsSync on a folder on a dead network share froze the calling thread (the Electron main thread,
@@ -178,6 +211,9 @@ export async function removeWorktree(args: {
   force?: boolean
   registry: WorktreeStore
   isPathInUse: (worktreePath: string) => string | null
+  /** Also delete the branch's copy on origin (`git push origin --delete`) once the local branch is gone. Only a branch
+   *  that was deleted locally is ever deleted there, and that happens only when its work is in its base. */
+  deleteRemoteBranch?: boolean
   /** Test seam; defaults to the process-wide action-lane check (presence.ts). */
   presence?: PresenceCheck
   /** Test seam: the link walk before git removes the folder (detachLinks.ts). */
@@ -239,8 +275,8 @@ export async function removeWorktree(args: {
       throw new Error(`WORKTREE_LOCKED: the worktree is locked (git worktree lock), nothing was removed (${info.path})`)
     if ((await folderState(info.path, presence)) === 'present') {
       if (!args.force) {
-        const { clean, changedCount } = await isCleanWorktree(info.path)
-        if (!clean) throw new Error(`DIRTY: ${changedCount}`)
+        const { count } = await blockingChanges(info.path)
+        if (count > 0) throw new Error(`DIRTY: ${count}`)
       }
       await detachBeforeRemove(info.path, args.force === true, args.detach ?? detachLinks)
     }
@@ -257,9 +293,10 @@ export async function removeWorktree(args: {
   // Branch deletion: -d → squash detection → -D; on failure the branch is preserved
   const del = await git(['branch', '-d', '--', info.branch], write(info.repoPath))
   if (del.ok) branchDeleted = true
-  else if (await isBranchMerged(info.repoPath, info.branch)) {
+  else if ((await isBranchMerged(info.repoPath, info.branch)) || (await isAncestorOf(info.repoPath, info.branch, info.baseRef))) {
     branchDeleted = (await git(['branch', '-D', '--', info.branch], write(info.repoPath))).ok
   }
+  if (branchDeleted && args.deleteRemoteBranch) await deleteOriginCopy(info.repoPath, info.branch)
   if (!branchDeleted) {
     const head = await git(['rev-parse', '--verify', '--quiet', `refs/heads/${info.branch}`], {
       cwd: info.repoPath

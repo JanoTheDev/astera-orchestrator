@@ -12,30 +12,16 @@
 import { jobNameOf } from './jobName'
 import { isJobActive } from './lifecycle'
 import { outcomeOfTasks } from './running'
-import { leasesByProject, pathsOverlap, planOutranks, projectKeyOf, sameFilesAs } from './schedule'
+// T1 the main plan
+import { activeOrQueued, externalDepsOf, holdExternalDeps, mainPlanOf, otherPlansOf, planIdOf, planTasksOf } from './mainPlan'
+import { isLeaseWaitGate, LEASE_WAIT_OPTIONS, leasesByProject, pathsOverlap, planOutranks, projectKeyOf, sameFilesAs } from './schedule'
 import { createGate, type OrchState } from './state'
 import { afterStandOf } from './after'
 import { cancelRemainingTask } from './replan'
-import { newId, type Gate, type Job, type Message, type PlanOverlap, type Task } from './types'
+import { FAILURE_LIMIT, newId, recomputeReady, type Gate, type Job, type Message, type PlanOverlap, type Task } from './types'
 
-/** A plan's Tasks as they stand: its latest Run's, else (not started) its definition Tasks (a cancelled Task is removed). */
-export function planTasksOf(s: OrchState, job: Job): Task[] {
-  const run = s.runs.filter((r) => r.jobId === job.id).sort((a, b) => a.ordinal - b.ordinal).at(-1)
-  return s.tasks.filter((t) => (run ? t.runId === run.id : t.jobId === job.id))
-}
-
-/** A plan that may still do work: not archived, and either not started (queued, awaiting approval) or still running. */
-const activeOrQueued = (s: OrchState, job: Job): boolean =>
-  isJobActive(job) && (job.pendingStart === true || outcomeOfTasks(planTasksOf(s, job)) === 'running')
-
-/** The other plans of `job`'s project (`projectKeyOf`) that are not archived. `finished` too: the briefs read what they
- *  built; the overlap check only the active and queued ones. */
-export function otherPlansOf(s: OrchState, job: Job, o: { finished?: boolean } = {}): Job[] {
-  const key = projectKeyOf(s, job)
-  return s.jobs.filter(
-    (j) => j.id !== job.id && projectKeyOf(s, j) === key && isJobActive(j) && (o.finished === true || activeOrQueued(s, j))
-  )
-}
+// T1: the plan helpers live with the main plan (mainPlan.ts, web-safe); kept exported from here for their callers
+export { planTasksOf, otherPlansOf } from './mainPlan'
 
 /** Each of `job`'s Tasks against every Task of every active or queued plan of the same project: one entry per pair that
  *  links the same issue (`Task.links.issue`) or has overlapping affected paths. */
@@ -81,7 +67,8 @@ export function refreshOverlaps(prev: OrchState, next: OrchState, now: string = 
   })
   let out = changed ? { ...next, jobs } : next
   for (const n of notices) out = noticeTo(out, n.job, 'Another plan of this project goes first', n.lines, now)
-  return coordinate(prev, out, now)
+  // T1: a delivery readies the Tasks of other plans that wait on it
+  return holdExternalDeps(coordinate(prev, out, now))
 }
 
 const overlapKey = (o: PlanOverlap): string => `${o.taskId}|${o.otherTaskId}`
@@ -110,13 +97,147 @@ export const DUPLICATE_OPTIONS = ['cancel as duplicate', 'keep both'] as const
 export const isDuplicateGate = (g: Pick<Gate, 'options'>): boolean =>
   g.options?.length === 2 && g.options[0] === DUPLICATE_OPTIONS[0] && g.options[1] === DUPLICATE_OPTIONS[1]
 
-/** Why `t` repeats `o`: the same issue, or the same title (trimmed, any case) on overlapping paths. */
+/** T1: the three answers of the owner question over a Task whose dep on another plan's Task will not come: that plan
+ *  stopped, or the Task was cancelled (mainPlan.ts `externalDepsOf` 'stopped' or 'gone'). */
+export const STOPPED_DEP_OPTIONS = ['keep waiting', 'drop this dependency', 'cancel this Task'] as const
+
+/** A Gate this file opened over a stopped cross-plan dep: told apart by its answers (`isDuplicateGate`). */
+export const isStoppedDepGate = (g: Pick<Gate, 'options'>): boolean =>
+  g.options?.length === STOPPED_DEP_OPTIONS.length && STOPPED_DEP_OPTIONS.every((o, i) => g.options![i] === o)
+
+/** The tag that ends a stopped-dep question and names the dep it is about, so a Task gets one Gate per stopped dep.
+ *  shortcut: in the question text, as Gate has no field for it; add one if Gates ever need more such keys. */
+const stoppedDepTag = (depId: string): string => ` [dep ${depId}]`
+const stoppedDepOf = (g: Pick<Gate, 'question'>): string | undefined => /\[dep ([^\]]+)\]$/.exec(g.question)?.[1]
+
+/** T1: carries out a stopped-dep question answered in this commit. "drop this dependency" takes the dep it asked about
+ *  off the Task (all that will not come, for a question without a dep tag; the ready rule then decides,
+ *  `holdExternalDeps`); "cancel this Task" takes it out of its Run; "keep waiting" leaves it pending, so it runs if that
+ *  plan is taken up again. */
+function carryOutStoppedDep(s: OrchState, g: Gate, now: string): OrchState {
+  if (g.resolution === STOPPED_DEP_OPTIONS[2]) {
+    const r = cancelRemainingTask(s, g.taskId)
+    return r.ok ? r.state : s
+  }
+  if (g.resolution !== STOPPED_DEP_OPTIONS[1]) return s
+  const tasks = s.tasks.map((t) => {
+    if (t.id !== g.taskId) return t
+    const only = stoppedDepOf(g)
+    const lost = new Set(externalDepsOf(s, t).filter((d) => (d.why === 'stopped' || d.why === 'gone') && (only === undefined || d.id === only)).map((d) => d.id))
+    return lost.size === 0 ? t : { ...t, deps: t.deps.filter((d) => !lost.has(d)), updatedAt: now }
+  })
+  return { ...s, tasks: recomputeReady(tasks) }
+}
+
+/** T11: titles this alike (`titleSimilarity`) on overlapping paths read as one piece of work. */
+export const SIMILAR_TITLE = 0.6
+
+/** The Jaccard index of two titles' words: lowercased, split on anything not a letter or digit. 1 for equal words. */
+export function titleSimilarity(a: string, b: string): number {
+  const words = (x: string): Set<string> => new Set(x.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w !== ''))
+  const wa = words(a)
+  const wb = words(b)
+  if (wa.size === 0 || wb.size === 0) return 0
+  const shared = [...wa].filter((w) => wb.has(w)).length
+  return shared / (wa.size + wb.size - shared)
+}
+
+/** Why `t` repeats `o`: the same issue, or the same or a similar title (T11 `SIMILAR_TITLE`) on overlapping paths. */
 function duplicateWhy(t: Task, o: Task, root: string): string | undefined {
   const issue = t.links?.issue?.number
   if (issue !== undefined && issue === o.links?.issue?.number) return `same issue #${issue}`
-  if (t.title.trim().toLowerCase() !== o.title.trim().toLowerCase()) return undefined
+  const same = t.title.trim().toLowerCase() === o.title.trim().toLowerCase()
+  if (!same && titleSimilarity(t.title, o.title) < SIMILAR_TITLE) return undefined
   const path = (t.affectedPaths ?? []).find((p) => (o.affectedPaths ?? []).some((q) => pathsOverlap(p, q, root)))
-  return path === undefined ? undefined : `same title, same files: ${path}`
+  return path === undefined ? undefined : `${same ? 'same' : 'similar'} title, same files: ${path}`
+}
+
+/** T11: the warning lines `task-create` answers with when the new Task looks like a Task of another plan of the project
+ *  (`duplicateWhy`, every active or queued plan, whichever goes first). Empty when none; never a refusal. */
+export function taskCreateWarnings(s: OrchState, task: Task): string[] {
+  const jobId = task.jobId ?? s.runs.find((r) => r.id === task.runId)?.jobId
+  const job = s.jobs.find((j) => j.id === jobId)
+  if (!job) return []
+  const out: string[] = []
+  for (const other of otherPlansOf(s, job))
+    for (const o of planTasksOf(s, other)) {
+      const why = duplicateWhy(task, o, job.cwd)
+      if (why !== undefined)
+        out.push(
+          `possible duplicate: "${task.title}" looks like "${o.title}" (${o.id}) of plan ${jobNameOf(other)} (job ${other.id}; ${why}). ` +
+            'Leave it out if it is the same work.'
+        )
+    }
+  return out
+}
+
+/** T11: what a planner still planning is told about a plan its plan meets (`Job.overlaps`), one per other plan. `key`
+ *  names the pair and what they share, so the same overlap is told once (`createStallWatch` keeps the keys). */
+export interface PlannerOverlapNotice {
+  key: string
+  jobId: string
+  sessionId: string
+  text: string
+}
+
+/** T11: plans planned at the same time see each other. Every plan still planning (not started, a planner, not handed
+ *  over or not), one notice per other plan it meets, for its latest planner session. Pure: the Host types it. */
+export function plannerOverlapNotices(s: OrchState): PlannerOverlapNotice[] {
+  const task = new Map(s.tasks.map((t) => [t.id, t]))
+  const plan = new Map(s.jobs.map((j) => [j.id, j]))
+  const out: PlannerOverlapNotice[] = []
+  for (const j of s.jobs) {
+    const sessionId = j.plannerSessionIds?.at(-1)
+    if (sessionId === undefined || j.pendingStart !== true || !isJobActive(j) || !j.overlaps?.length) continue
+    const byPlan = new Map<string, PlanOverlap[]>()
+    for (const o of j.overlaps) byPlan.set(o.jobId, [...(byPlan.get(o.jobId) ?? []), o])
+    for (const [otherId, list] of byPlan) {
+      const other = plan.get(otherId)
+      if (!other) continue
+      const shared = [...new Set(list.map((o) => (o.by === 'issue' ? `issue #${o.issue}` : (o.path ?? ''))))].filter((x) => x !== '').sort()
+      const titles = [...new Set(list.map((o) => task.get(o.otherTaskId)?.title ?? o.otherTaskId))]
+      const state = other.pendingStart ? 'is planning too' : 'is running'
+      out.push({
+        key: `${j.id}>${otherId}|${shared.join('|')}`,
+        jobId: j.id,
+        sessionId,
+        text:
+          `Astera: another plan of this repository, ${jobNameOf(other)} (job ${other.id}), ${state} and meets yours on ` +
+          `${shared.join(', ')}. Its Tasks there: ${titles.join('; ')}. Plan around those files where you can; leave out ` +
+          'work it already holds and name that plan and Task in existing.md.'
+      })
+    }
+  }
+  return out
+}
+
+/** T11: the answers of the owner question over a Task the watchdog cannot start (no account, out of tries, its account
+ *  paused). */
+export const DROPPED_OPTIONS = ['Use another account', 'Retry once more', 'Cancel this Task'] as const
+
+/** A Gate the watchdog opened over a Task it cannot start: told apart by its answers (`isDuplicateGate`). */
+export const isDroppedGate = (g: Pick<Gate, 'options'>): boolean =>
+  g.options?.length === DROPPED_OPTIONS.length && DROPPED_OPTIONS.every((o, i) => g.options![i] === o)
+
+/** T11: carries out a watchdog question answered in this commit (exec/stallWatch.ts). "Cancel this Task" takes it out
+ *  of its Run; "Use another account" moves its first account to the end and clears its failures; "Retry once more"
+ *  leaves it one try. "Run it now anyway" is read where the leases are (schedule.ts `leasesByProject`). */
+function carryOutWatchdogAnswer(s: OrchState, g: Gate, now: string): OrchState {
+  if (g.resolution === LEASE_WAIT_OPTIONS[2]) {
+    const r = cancelRemainingTask(s, g.taskId)
+    return r.ok ? r.state : s
+  }
+  if (!isDroppedGate(g)) return s
+  const tasks = s.tasks.map((t) => {
+    if (t.id !== g.taskId) return t
+    if (g.resolution === DROPPED_OPTIONS[0]) {
+      const ids = t.accountIds ?? []
+      return { ...t, accountIds: [...ids.slice(1), ...ids.slice(0, 1)], consecutiveFailures: 0, updatedAt: now }
+    }
+    if (g.resolution === DROPPED_OPTIONS[1]) return { ...t, consecutiveFailures: Math.min(t.consecutiveFailures, FAILURE_LIMIT - 1), updatedAt: now }
+    return t
+  })
+  return { ...s, tasks }
 }
 
 /** T9: the coordinator's rules for one commit, after the overlaps are fresh.
@@ -124,16 +245,23 @@ function duplicateWhy(t: Task, o: Task, root: string): string | undefined {
  *  2. A Task of a plan that has not started, repeating a Task of a plan that goes first (`planOutranks`) and has not
  *     delivered: held behind one Gate (the owner's, or the hands-off decider's, Inbox item) "cancel as duplicate / keep
  *     both". Once per Task: a resolved one is not asked again.
- *  3. That Gate answered "cancel as duplicate": the Task leaves its Run (`cancelRemainingTask`). */
+ *  3. That Gate answered "cancel as duplicate": the Task leaves its Run (`cancelRemainingTask`). T11: so do the watchdog's
+ *     questions (`carryOutWatchdogAnswer`). T1: and the stopped-dep question (`carryOutStoppedDep`).
+ *  4. T1: a not-started Task whose dep on another plan's Task will not come (that plan stopped, the Task is gone): held
+ *     behind one Gate "keep waiting / drop this dependency / cancel this Task". Once per Task and stopped dep (a new
+ *     one opens a new Gate, the same one is not asked twice), never a silent stall. */
 function coordinate(prev: OrchState, next: OrchState, now: string): OrchState {
   let s = next
   // 3. carry out a cancel answered in this commit
   const wasOpen = new Set(prev.gates.filter((g) => g.status === 'open').map((g) => g.id))
-  for (const g of next.gates)
-    if (g.status === 'resolved' && wasOpen.has(g.id) && isDuplicateGate(g) && g.resolution === DUPLICATE_OPTIONS[0]) {
+  for (const g of next.gates) {
+    if (g.status !== 'resolved' || !wasOpen.has(g.id)) continue
+    if (isDuplicateGate(g) && g.resolution === DUPLICATE_OPTIONS[0]) {
       const r = cancelRemainingTask(s, g.taskId)
       if (r.ok) s = r.state
-    }
+    } else if (isLeaseWaitGate(g) || isDroppedGate(g)) s = carryOutWatchdogAnswer(s, g, now)
+    else if (isStoppedDepGate(g)) s = carryOutStoppedDep(s, g, now)
+  }
   // 1. newly held back by a lease
   const before = leaseWaits(prev)
   const jobById = new Map(s.jobs.map((j) => [j.id, j]))
@@ -169,6 +297,30 @@ function coordinate(prev: OrchState, next: OrchState, now: string): OrchState {
       if (r.ok) {
         s = r.state
         asked.add(t.id)
+      }
+    }
+  }
+  // 4. T1: a not-started Task waiting on another plan's Task that will not come: one Gate per Task and stopped dep, one at a time
+  const gatesOfDep = s.gates.filter(isStoppedDepGate)
+  for (const t of s.tasks) {
+    if ((t.status !== 'ready' && t.status !== 'pending') || t.runId === undefined || started.has(t.id)) continue
+    const plan = jobById.get(planIdOf(s, t) ?? '')
+    if (!plan || !isJobActive(plan)) continue
+    for (const d of externalDepsOf(s, t)) {
+      if (d.why !== 'stopped' && d.why !== 'gone') continue
+      // a question from before the tag asked about every dep the Task had
+      if (gatesOfDep.some((g) => g.taskId === t.id && (stoppedDepOf(g) ?? d.id) === d.id)) continue
+      const other = d.jobId === undefined ? undefined : s.jobs.find((j) => j.id === d.jobId)
+      const name = d.task ? `"${d.task.title}"${other ? ` of plan ${jobNameOf(other)}` : ''}` : d.id
+      const question =
+        `"${t.title}" (plan ${jobNameOf(plan)}) waits on ${name}, ${d.why === 'stopped' ? 'whose plan stopped' : 'which was cancelled'}. ` +
+        `It will not come unless that plan is taken up again. Keep waiting, drop this dependency, or cancel this Task?${stoppedDepTag(d.id)}`
+      const r = createGate(s, { taskId: t.id, question, options: [...STOPPED_DEP_OPTIONS] }, now)
+      if (r.ok) {
+        s = r.state
+        gatesOfDep.push(r.state.gates[r.state.gates.length - 1])
+        // the Task is blocked now: its next stopped dep is asked after this answer
+        break
       }
     }
   }
@@ -209,39 +361,58 @@ export function overlapLines(s: OrchState, job: Job): string[] {
   })
 }
 
+/** T11: beside `validatePlan` (planner.ts), never blocking: the plan's open overlaps with plans still planning or
+ *  running, one line each (`overlapLines`), for the approval (`run-start`'s answer) and the plan page (`Job.overlaps`).
+ *  Fresh from `overlapsOf`, so it does not wait for the next save. Empty when it meets none. */
+export function planOverlapWarnings(s: OrchState, jobId: string): string[] {
+  const job = s.jobs.find((j) => j.id === jobId)
+  if (!job) return []
+  const plan = new Map(s.jobs.map((j) => [j.id, j]))
+  const open = overlapsOf(job, s).filter((o) => {
+    const other = plan.get(o.jobId)
+    return other !== undefined && (other.pendingStart === true || outcomeOfTasks(planTasksOf(s, other)) === 'running')
+  })
+  return overlapLines(s, { ...job, overlaps: open })
+}
+
 /** At most this many Tasks of one other plan in a brief; the rest are counted. */
 const BRIEF_TASKS_MAX = 40
 
-/** The other plans of this project, for the planner's and the replan's brief: each plan's name, id and state, then (an
- *  active or queued plan only; a finished one is a single line) its Tasks with their status and affected paths. Empty
- *  when there is none. */
-export function otherPlansBrief(s: OrchState, job: Job): string {
-  const plans = otherPlansOf(s, job, { finished: true })
+/** The main plan of `projectKey` as text, for the planner's and the replan's brief and `astera main-plan`: the rules, then
+ *  each sub-plan in run order with its name, id, state and areas. An active or queued plan lists its Tasks not completed
+ *  (id, title, status, paths); a finished one is a single line. Then the links that involve an active plan. `except` (the
+ *  reader's own plan) is left out. Empty when no other plan is in it. */
+export function mainPlanText(s: OrchState, projectKey: string, except?: string): string {
+  const plans = mainPlanOf(s, projectKey).plans.filter((p) => p.job.id !== except)
   if (plans.length === 0) return ''
+  const live = new Set(plans.filter((p) => activeOrQueued(s, p.job)).map((p) => p.job.id))
   const lines = [
-    'OTHER PLANS IN THIS REPOSITORY',
-    'Other plans work in this repository too. Never plan a Task another plan already holds: if one of yours would',
-    'do the same work, leave it out and name that plan and Task in existing.md (as you would an open issue). Plan',
-    'around their files where you can; where you cannot, say so in existing.md. Astera runs no two workers on the',
-    'same files at once, so an overlap only waits, but duplicated work is wasted.'
+    'MAIN PLAN OF THIS PROJECT',
+    "Your plan is a sub-plan of this project's main plan. Work another sub-plan already holds is never planned again:",
+    'depend on its Task with `--deps <taskId>` (it waits until that plan delivers) or leave it out, and name it in',
+    'existing.md. Plan around their files where you can.'
   ]
-  for (const p of plans) {
-    const tasks = planTasksOf(s, p)
-    const state = p.pendingStart ? 'not started' : outcomeOfTasks(tasks)
-    lines.push(`- ${jobNameOf(p)} (job ${p.id}, ${state}${p.areas?.length ? `, areas: ${p.areas.join(', ')}` : ''})`)
-    // T1: a finished plan is one line; its Tasks are one command away
-    if (!activeOrQueued(s, p)) {
-      lines[lines.length - 1] += `: ${tasks.filter((t) => t.status === 'completed').length} Tasks done (astera tasks list --run ${p.id} --json)`
-      continue
-    }
-    for (const t of tasks.slice(0, BRIEF_TASKS_MAX)) {
-      const issue = t.links?.issue ? `, issue #${t.links.issue.number}` : ''
-      lines.push(`  - ${t.title} [${t.status}${issue}]: ${(t.affectedPaths ?? []).join(', ') || 'no paths given'}`)
-    }
-    if (tasks.length > BRIEF_TASKS_MAX) lines.push(`  - … ${tasks.length - BRIEF_TASKS_MAX} more (astera tasks list --run ${p.id} --json)`)
+  for (const { job, state, tasks } of plans) {
+    lines.push(`- ${jobNameOf(job)} (job ${job.id}, ${state}${job.areas?.length ? `, areas: ${job.areas.join(', ')}` : ''})`)
+    if (!live.has(job.id)) continue
+    const open = tasks.filter((t) => t.status !== 'completed')
+    for (const t of open.slice(0, BRIEF_TASKS_MAX)) lines.push(`  - ${t.id} ${t.title} [${t.status}]: ${(t.affectedPaths ?? []).join(', ') || 'no paths given'}`)
+    if (open.length > BRIEF_TASKS_MAX) lines.push(`  - … ${open.length - BRIEF_TASKS_MAX} more (astera main-plan --json)`)
+  }
+  for (const l of mainPlanOf(s, projectKey).links) {
+    if (l.kind !== 'dep' && l.kind !== 'lease') continue
+    if (!live.has(l.jobId) && !(l.otherJobId !== undefined && live.has(l.otherJobId))) continue
+    lines.push(
+      l.kind === 'dep'
+        ? `link: ${l.taskId} waits on ${l.otherTaskId} (${l.why})`
+        : `link: ${l.taskId} waits for ${l.otherTaskId} to deliver ${l.path}`
+    )
   }
   return lines.join('\n')
 }
+
+/** `mainPlanText` for the project of `job`, without `job`'s own plan: what the planner's and the replan's brief carry. */
+export const otherPlansBrief = (s: OrchState, job: Job): string => mainPlanText(s, projectKeyOf(s, job), job.id)
 
 /** At most this many areas, each at most AREA_MAX characters. */
 export const AREAS_MAX = 3

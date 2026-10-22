@@ -219,7 +219,7 @@ export function usePlanPage({
   // W6-E: the board (by wave) opens first, as the place a plan run is watched, and a files tab joins them
   // W9-C: the board and the graph are the Waves section; files is its own section
   const [view, setView] = useState<'graph' | 'board'>('board')
-  const live = usePlanLive(door, section === 'waves')
+  const live = usePlanLive(door, section === 'waves', runId)
   const summaries = useSummaries(door, runId) // W9-I: the board's lines and "What happened so far"
   // 고른 Task 가 스냅샷에서 사라졌으면 필터도 없다 — 걸러 낸 목록이 영원히 비는 대신 전체를 그린다
   const selectedTask = tasks.find((tk) => tk.id === selected)

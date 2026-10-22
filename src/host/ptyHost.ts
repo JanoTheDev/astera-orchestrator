@@ -31,7 +31,9 @@ export function attachPtyHost(a: {
   a.registry.onEvent((id, e) => {
     if (e.kind === 'data') a.broadcast({ t: 'pty-data', id, data: e.data, seq: e.seq }, (_y, f) => f.has(HOST_FEATURE_PTY_SEQ))
   })
-  a.registry.onExit((id, exitCode) => a.broadcast({ t: 'pty-exit', id, exitCode }))
+  a.registry.onExit((id, exitCode, closeReason) =>
+    a.broadcast({ t: 'pty-exit', id, exitCode, ...(closeReason ? { closeReason } : {}) })
+  )
   /** A pty's size as the apps hear it, with its session, so the tab can show it whole when it does not own it. */
   const sizeMessage = (id: string, size: { cols: number; rows: number }): HostMessage => {
     const session = a.registry.metaOf(id)?.id
@@ -66,7 +68,7 @@ export function attachPtyHost(a: {
         return true
       }
       case 'pty-kill':
-        a.registry.kill(m.id)
+        a.registry.kill(m.id, m.closeReason)
         return true
       case 'pty-pause': {
         // Only a live pty's (second pass H2-4): a pause that raced the exit would be held until the socket closed.
@@ -105,7 +107,7 @@ export function attachPtyHost(a: {
         // last screen is on the tab before the tab says it ended. Additive: an older app ends a handle
         // it has adopted exactly as it ends one on a broadcast exit.
         const ended = a.registry.exitCodeOf(m.id)
-        if (ended) send({ t: 'pty-exit', id: m.id, exitCode: ended.code ?? ENDED_WITHOUT_A_CODE })
+        if (ended) send({ t: 'pty-exit', id: m.id, exitCode: ended.code ?? ENDED_WITHOUT_A_CODE, ...(ended.closeReason ? { closeReason: ended.closeReason } : {}) })
         return true
       }
       default:

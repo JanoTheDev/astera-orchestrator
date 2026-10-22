@@ -246,6 +246,18 @@ describe('notices', () => {
     expect(noticeOf(ev(usageActivity({ type: 'usage.resumed', pause })))?.title).toBe('New workers resumed')
   })
 
+  it('a Gate that opens again with the same reason on the same Task is one notice; another reason or Task is another', () => {
+    const gate = (gateId: string, taskId: string, question: string): ActivityEvent =>
+      ev({ type: 'gate.opened', taskId, payload: { title: 'A', gateId, question } })
+    const th = createNoticeThrottle({ max: 99 })
+    const admit = (e: ActivityEvent): boolean => th.admit(noticeOf(e)!.key, 0)
+    expect(admit(gate('gate_1', 'a', 'cannot merge'))).toBe(true)
+    expect(admit(gate('gate_2', 'a', 'cannot merge'))).toBe(false)
+    expect(admit(ev({ type: 'task.escalated', taskId: 'a', payload: { title: 'A', gateId: 'gate_3', reason: 'cannot merge' } }))).toBe(false)
+    expect(admit(gate('gate_4', 'a', 'other reason'))).toBe(true)
+    expect(admit(gate('gate_5', 'b', 'cannot merge'))).toBe(true)
+  })
+
   it('the throttle: a key once a window, at most max a minute, the rest counted', () => {
     const th = createNoticeThrottle({ dedupMs: 1000, windowMs: 100, max: 2 })
     expect(th.admit('a', 0)).toBe(true)
@@ -469,5 +481,91 @@ describe('hands-off decisions (#117)', () => {
   it('a plan that is not hands-off notifies as before', () => {
     const lines = deriveActivity(state(), state({ gates: [gate({ kind: 'convergence-exhausted' })] }))
     expect(lines.map((l) => noticeOf(stamp(l, T0))?.alert)).toEqual([true, true])
+  })
+})
+
+// Item 2: a hands-off refusal of an owner-only decision holds that one Task, with one owner notice
+describe('a Task held for its owner', () => {
+  const hands = (over: Partial<Job> = {}): Job => job({ handsOff: true, ...over })
+  const refused = { at: T0, kind: 'refused' as const, taskId: 'a', question: 'Run the protected migration?', choice: 'Refused', why: 'a guardrail' }
+  const why = "Waiting on the owner's decision: Run the protected migration?"
+  const tasks = [task('a'), task('b', { status: 'dispatched' }), task('c', { status: 'pending', deps: ['a'] })]
+
+  it('the refusal and the hold together raise exactly one owner notice, naming the Task and the decision', () => {
+    const before = state({ jobs: [hands()], tasks })
+    const refusedNow = state({ jobs: [hands({ decisions: [refused] })], tasks })
+    // task-update moves only the Task: the Gates are the same array
+    const heldNow = { ...refusedNow, tasks: [task('a', { status: 'blocked', result: why }), ...tasks.slice(1)] }
+    const lines = [...deriveActivity(before, refusedNow), ...deriveActivity(refusedNow, heldNow)].map((l) => stamp(l, T0))
+    const notices = lines.map(noticeOf).filter((n): n is ActivityNotice => n !== null)
+    expect(notices).toHaveLength(1)
+    expect(notices[0]).toMatchObject({ title: 'Needs your decision', alert: true })
+    expect(notices[0].body).toBe(`title a (Plan A): ${why}`)
+    // b still runs: the plan is not over
+    expect(types(lines)).not.toContain('plan.done')
+  })
+
+  it('once the rest ends, the plan ends finished-with-blocked: one plan.done saying which Tasks wait and why', () => {
+    const held = [task('a', { status: 'blocked', result: why }), task('b', { status: 'dispatched' }), task('c', { status: 'pending', deps: ['a'] })]
+    const ended = held.map((t) => (t.id === 'b' ? { ...t, status: 'completed' as const } : t))
+    const done = deriveActivity(state({ jobs: [hands()], tasks: held }), state({ jobs: [hands()], tasks: ended })).filter((l) => l.type === 'plan.done')
+    expect(done).toHaveLength(1)
+    expect(done[0].payload).toMatchObject({ runOutcome: 'blocked', blockedTasks: [`title a: ${why}`] })
+    const n = noticeOf(stamp(done[0], T0))
+    expect(n?.title).toBe('Plan finished with 1 blocked')
+    expect(n?.body).toContain(`- title a: ${why}`)
+    // released by the owner: running again, no plan.done; and its later "Plan done" has a key of its own
+    const released = ended.map((t) => (t.id === 'a' ? { ...t, status: 'ready' as const } : t))
+    expect(types(deriveActivity(state({ jobs: [hands()], tasks: ended }), state({ jobs: [hands()], tasks: released })))).not.toContain('plan.done')
+    expect(n?.key).not.toBe(noticeOf(stamp({ type: 'plan.done', runId: 'r1', payload: { title: 'P', runOutcome: 'completed' } }, T0))?.key)
+  })
+})
+
+// Item 8: "Plan done" only after the final check settled having added nothing
+describe('plan.done of a plan that replans', () => {
+  const planned = (over: Partial<Job> = {}): Job => job({ coordinatorAccountId: 'acc_1', plannerSessionIds: ['ses_p'], ...over })
+  const check = (done: number) => ({ runId: 'r1', mode: 'completion' as const, wave: 1, done, at: T0, summary: 'nothing to add' })
+  const doneOf = (lines: ActivityDraft[]) => lines.filter((l) => l.type === 'plan.done')
+
+  it('is not sent when the Tasks complete: the final check has not run', () => {
+    const lines = deriveActivity(state({ jobs: [planned()], tasks: [task('a', { status: 'dispatched' })] }), state({ jobs: [planned()], tasks: [task('a', { status: 'completed' })] }))
+    expect(doneOf(lines)).toEqual([])
+  })
+
+  it('is not sent from the Tasks either when an earlier check covered as many done Tasks: only a check that ends says so', () => {
+    const lines = deriveActivity(
+      state({ jobs: [planned({ lastReplan: check(1) })], tasks: [task('a', { status: 'dispatched' })] }),
+      state({ jobs: [planned({ lastReplan: check(1) })], tasks: [task('a', { status: 'completed' })] })
+    )
+    expect(doneOf(lines)).toEqual([])
+  })
+
+  it('is sent once when the final check settles having added nothing, and not when it adds Tasks', () => {
+    const tasks = [task('a', { status: 'completed' })]
+    const checking = state({ jobs: [planned({ replanning: { runId: 'r1', mode: 'completion', wave: 1, done: 1, startedAt: T0 } })], tasks })
+    const settled = state({ jobs: [planned({ lastReplan: check(1) })], tasks })
+    expect(doneOf(deriveActivity(checking, settled))).toHaveLength(1)
+    // the same settlement read back again is no second plan.done
+    expect(doneOf(deriveActivity(settled, structuredClone(settled)))).toEqual([])
+    const added = state({ jobs: [planned({ lastReplan: check(1) })], tasks: [...tasks, task('f', { status: 'ready' })] })
+    expect(doneOf(deriveActivity(checking, added))).toEqual([])
+  })
+})
+
+describe('task.edited (T7)', () => {
+  it("one line when the owner changes a run Task's deps, spec, basis or evidence", () => {
+    const before = state({ tasks: [task('a'), task('b', { status: 'pending', deps: ['a'], basis: { state: 'missing', evidence: 'none' } })] })
+    const after = state({ tasks: [task('a'), task('b', { status: 'ready', deps: [], spec: 'new spec', basis: { state: 'missing', evidence: 'src/b.ts' } })] })
+    const edited = deriveActivity(before, after).filter((d) => d.type === 'task.edited')
+    expect(edited).toEqual([
+      { type: 'task.edited', projectId: 'p1', jobId: 'j1', runId: 'r1', taskId: 'b', payload: { plan: 'Plan A', title: 'title b', edited: ['deps', 'spec', 'evidence'] } }
+    ])
+  })
+  it('no line for a status move alone, nor for a replan editing its own plan', () => {
+    expect(types(deriveActivity(state(), state({ tasks: [task('a', { status: 'dispatched' })] })))).not.toContain('task.edited')
+    const replanning = job({ replanning: { runId: 'r1', mode: 'wave', wave: 1, done: 0, startedAt: T0 } })
+    const before = state({ jobs: [replanning] })
+    const after = state({ jobs: [replanning], tasks: [task('a', { spec: 'rewritten' })] })
+    expect(types(deriveActivity(before, after))).not.toContain('task.edited')
   })
 })

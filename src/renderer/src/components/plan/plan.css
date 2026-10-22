@@ -10,7 +10,8 @@
 .plan-wave-now { flex: none; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--accent); }
 .plan-wave-banner { font-size: 11px; padding: 3px 8px; border-radius: 4px; background: var(--info-bg); border: 1px solid var(--info-line); color: var(--text-dim); }
 .plan-wave-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 6px; align-items: start; }
-.plan-waves .plan-card { min-width: 0; }
+/* T9: a card off screen is not laid out or painted until it scrolls near (a 40-Task board) */
+.plan-waves .plan-card { min-width: 0; content-visibility: auto; contain-intrinsic-size: auto 120px; }
 .plan-waves .plan-card-title { padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .plan-now { font-size: 11px; color: var(--plan-cat); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .plan-card-files { margin: 0; padding: 0; list-style: none; font-size: 11px; font-family: var(--font-mono, monospace); color: var(--text-dim); }

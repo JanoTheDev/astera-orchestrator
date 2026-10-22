@@ -5,6 +5,8 @@ import type {
   CoreEvents,
   HostStatus,
   HostRuntimeInstallState,
+  MachineProgress,
+  MigrateItemResult,
   UpdateCampaignInfo,
   UpdateStatus
 } from '../core/types'
@@ -102,6 +104,7 @@ const api = {
     kill: invoke('sessions.kill'),
     list: invoke('sessions.list'),
     rename: invoke('sessions.rename'),
+    transcript: invoke('sessions.transcript'),
     resumeDefaults: invoke('sessions.resumeDefaults')
   },
   history: {
@@ -244,6 +247,8 @@ const api = {
     setMaxSubagentsPerSession: invoke('settings.setMaxSubagentsPerSession'),
     getUsagePauseAt: invoke('settings.getUsagePauseAt'),
     setUsagePauseAt: invoke('settings.setUsagePauseAt'),
+    getAccountMaxSessions: invoke('settings.getAccountMaxSessions'), // T5b
+    setAccountMaxSessions: invoke('settings.setAccountMaxSessions'),
     getDesktopNotify: invoke('settings.getDesktopNotify'),
     setDesktopNotify: invoke('settings.setDesktopNotify'),
     getGenerator: invoke('settings.getGenerator'),
@@ -443,7 +448,26 @@ const api = {
     start: invoke('remote.start'),
     stop: invoke('remote.stop'),
     pair: invoke('remote.pair'),
-    revoke: invoke('remote.revoke')
+    revoke: invoke('remote.revoke'),
+    addMachine: invoke('remote.addMachine'),
+    onMachineProgress: (cb: (p: MachineProgress) => void) => {
+      const l = (_e: unknown, p: MachineProgress): void => cb(p)
+      ipcRenderer.on('remote:machineProgress', l)
+      return (): void => {
+        ipcRenderer.removeListener('remote:machineProgress', l)
+      }
+    },
+    // T12c
+    migrationMachines: invoke('remote.migrationMachines'),
+    migratePlan: invoke('remote.migratePlan'),
+    migrate: invoke('remote.migrate'),
+    onMigrateProgress: (cb: (p: MigrateItemResult & { runtimeId: string }) => void) => {
+      const l = (_e: unknown, p: MigrateItemResult & { runtimeId: string }): void => cb(p)
+      ipcRenderer.on('remote:migrateProgress', l)
+      return (): void => {
+        ipcRenderer.removeListener('remote:migrateProgress', l)
+      }
+    }
   },
   remoteSessions: {
     attach: invoke('remoteSessions.attach'),
@@ -499,6 +523,7 @@ const api = {
     pause: invoke('conversation.pause'),
     attention: invoke('conversation.attention'),
     pendingPrompt: invoke('conversation.pendingPrompt'),
+    lastReply: invoke('conversation.lastReply'),
     model: invoke('conversation.model'),
     models: invoke('conversation.models'),
     attach: invoke('conversation.attach'),

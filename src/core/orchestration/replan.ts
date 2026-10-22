@@ -11,6 +11,8 @@
 // (`replanRefusal`, `replanProblems`, `replanSummary`) is in exec/replanStart.ts.
 import { reviewRoundIn } from './convergence'
 import { layersOf } from './graph'
+import { crossPlanDepRefusal, externalDepsOf, waitsOnItself } from './mainPlan'
+import { heldBack } from './running'
 import { jobActive, pathsOverlap } from './schedule'
 import { jobOf, type OrchState, type PlanFields, type Res } from './state'
 import type { Job, ReplanMark, Task } from './types'
@@ -19,8 +21,9 @@ import type { Job, ReplanMark, Task } from './types'
 export const REPLAN_FOLLOW_UPS_MAX = 3
 
 /** The account a Job's replans run on: its coordinator's, else the one its planner ran on (W7-E: a plan the Host
- *  places with no coordinator still gets its replans and its final check). */
-export const replanAccountOf = (job: Job): string | undefined => job.coordinatorAccountId ?? job.plannerAccountId
+ *  places with no coordinator still gets its replans and its final check). T5b: the account the owner named first, a
+ *  preference only: the start takes the account with room (chooseStartAccount), never a full one. */
+export const replanAccountOf = (job: Job): string | undefined => job.preferredAccountId ?? job.coordinatorAccountId ?? job.plannerAccountId
 
 /** Whether a Job replans between its waves: not turned off, planned by a planner (an unplanned Job has no plan to
  *  fix and keeps its old scheduling), not a schedule (its Runs repeat one plan), and with an account to plan on. */
@@ -70,9 +73,11 @@ function upstreamOf(task: Node, tasks: readonly Node[]): Set<string> {
 }
 
 /** A Task that failed, or that waits (directly or through others) on one that failed: it will not complete on its own,
- *  so it holds back only the Tasks that depend on it, never a whole later wave (`waveOpen`, `replansDue`). */
-function deadEnd(t: Task, tasks: readonly Task[]): boolean {
-  if (t.status === 'failed') return true
+ *  so it holds back only the Tasks that depend on it, never a whole later wave (`waveOpen`, `replansDue`). A Task held
+ *  for its owner (running.ts `heldBack`: a hands-off plan refused the decision it needs) and what waits on it are the
+ *  same: the rest of the plan goes on without them. */
+function deadEnd(t: Task, tasks: readonly Task[], held: ReadonlySet<string>): boolean {
+  if (t.status === 'failed' || held.has(t.id)) return true
   if (t.status === 'completed') return false
   const up = upstreamOf(t, tasks)
   return tasks.some((x) => x.status === 'failed' && up.has(x.id))
@@ -95,7 +100,8 @@ export function waveOpen(task: Task, s: OrchState): boolean {
   if (last?.runId !== run.id || last.mode !== 'wave' || last.wave !== w) return false
   const own = runTasks(s, run.id)
   const up = upstreamOf(task, own)
-  return own.every((t) => t.status === 'completed' || waveOf(t, s.tasks) >= w || (!up.has(t.id) && deadEnd(t, own)))
+  const held = heldBack(own, s.gates)
+  return own.every((t) => t.status === 'completed' || waveOf(t, s.tasks) >= w || (!up.has(t.id) && deadEnd(t, own, held)))
 }
 
 /** Not started: waiting, ready, or blocked by a Gate before it ever ran (W8-E, #95: the coordinator's question about
@@ -167,7 +173,8 @@ export function replansDue(s: OrchState, seenRunning: (runId: string) => boolean
       continue
     }
     // A failed Task and what waits on it do not hold the boundary: the Tasks that do not depend on them go on (waveOpen)
-    const open = ts.filter((t) => t.status !== 'completed' && !deadEnd(t, ts))
+    const held = heldBack(ts, s.gates)
+    const open = ts.filter((t) => t.status !== 'completed' && !deadEnd(t, ts, held))
     if (open.length === 0) continue
     const wave = Math.min(...open.map((t) => waveOf(t, s.tasks)))
     if (wave === 0 || (last?.mode === 'wave' && last.wave === wave)) continue
@@ -198,8 +205,28 @@ export function replanJobOf(s: OrchState, sessionId: string): Job | undefined {
   return s.jobs.find((j) => j.replanning?.sessionId === sessionId)
 }
 
-/** Edits a not-started Task of a Run (`task-update` from a replan session): its title, spec, deps and plan fields. Deps
- *  stay inside the Run and may not close a cycle; a Task whose deps are not all completed waits (pending). */
+/** T1: why `task` may not take `deps`, or undefined: each one a Task of `own` (its plan or Run), or of another active or
+ *  queued plan of the project (mainPlan.ts `crossPlanDepRefusal`), and none that would make it wait on itself across plans. */
+export function depsRefusal(s: OrchState, task: Task, deps: string[], own: ReadonlySet<string>): string | undefined {
+  if (deps.includes(task.id)) return `${task.id} cannot wait on itself`
+  const planId = task.jobId ?? s.runs.find((r) => r.id === task.runId)?.jobId
+  for (const d of deps) {
+    if (own.has(d)) continue
+    const dep = s.tasks.find((t) => t.id === d)
+    if (!dep) return `unknown dep ${d}: deps must be Tasks of this plan or of another active plan of this project`
+    const refused = crossPlanDepRefusal(s, planId, dep)
+    if (refused !== undefined) return refused
+    if (dep.jobId === planId || s.runs.some((r) => r.id === dep.runId && r.jobId === planId))
+      return `${d} is a Task of another Run of this plan: deps must be Tasks of the same run`
+  }
+  const tasks = s.tasks.map((t) => (t.id === task.id ? { ...t, deps } : t))
+  if (waitsOnItself(tasks, task.id)) return `those deps would make ${task.id} wait on itself`
+  return undefined
+}
+
+/** Edits a not-started Task of a Run (`task-update` from a replan session): its title, spec, deps and plan fields. A dep is
+ *  a Task of the Run or, as `task-create` allows, of another plan of the project (planner.ts `depsRefusal`); deps may not
+ *  close a cycle. A Task waits (pending) until its own deps are completed and the other plans' are completed and delivered. */
 export function editRemainingTask(
   s: OrchState,
   taskId: string,
@@ -212,14 +239,15 @@ export function editRemainingTask(
     return { ok: false, error: `${taskId} has started or finished: a replan changes only Tasks that have not started` }
   const own = runTasks(s, task.runId)
   if (patch.deps) {
-    const ids = new Set(own.map((t) => t.id))
-    const outside = patch.deps.filter((d) => !ids.has(d) || d === taskId)
-    if (outside.length) return { ok: false, error: `deps must be other Tasks of the same run: ${outside.join(', ')}` }
+    const refused = depsRefusal(s, task, patch.deps, new Set(own.filter((t) => t.id !== taskId).map((t) => t.id)))
+    if (refused !== undefined) return { ok: false, error: refused }
   }
   const merged: Task = { ...task, ...patch, updatedAt: now }
   const doneIds = new Set(own.filter((t) => t.status === 'completed').map((t) => t.id))
   // A Task under an open Gate stays blocked: the Gate's answer unblocks it (resolveGate), and the deps then decide
-  const next: Task = { ...merged, status: task.status === 'blocked' ? 'blocked' : merged.deps.every((d) => doneIds.has(d)) ? 'ready' : 'pending' }
+  const other = externalDepsOf(s, merged)
+  const met = merged.deps.every((d) => doneIds.has(d) || other.find((x) => x.id === d)?.satisfied === true)
+  const next: Task = { ...merged, status: task.status === 'blocked' ? 'blocked' : met ? 'ready' : 'pending' }
   const tasks = s.tasks.map((t) => (t.id === taskId ? next : t))
   if (layersOf({ ...s, tasks }, task.runId).cyclic.length) return { ok: false, error: `those deps would make ${taskId} wait on itself` }
   return { ok: true, state: { ...s, tasks }, value: next }

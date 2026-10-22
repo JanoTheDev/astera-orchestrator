@@ -10,7 +10,7 @@
 // either fails (files/tree.ts's node:path import has no declarations there) or "succeeds" by adding
 // "types": ["node"], which loosens the guard that keeps Node globals out of the renderer typecheck.
 // W8-D several plans in one repo
-import { overlapLines } from './overlap'
+import { overlapLines, planOverlapWarnings } from './overlap'
 import { isSamePath } from '../files/tree'
 import { findProjectByPath, jobInProject } from './projects'
 import { runsWorkingIn, runWorktreesFrom } from './integrate'
@@ -18,11 +18,13 @@ import type { JobRow, JobTask, OrchSnapshot, TaskBoard, WorktreeInfo, UsagePause
 import { repoPathOf } from '../worktrees/repo'
 import { coordinatorStarting, type OrchState } from './state'
 import { eventCountsOf } from './timeline'
-import { isTerminal, outcomeOf, outcomeOfTasks, tasksOwnedBy } from './running'
+import { deliveryErrorOf, isTerminal, outcomeOf, outcomeOfRun, outcomeOfTasks, reviewerEnded, stuckIndexOf, stuckOf, tasksOwnedBy, type StuckIndex } from './running'
 import { policyOfJob, repairCountIn, reviewRoundIn } from './convergence'
 import type { Dispatch, Gate, Job, JobRun, Task } from './types'
 import { taskBoardsOf } from './blocked'
 import { validatePlan } from './planner'
+// T7 objective coverage
+import { objectiveItemsOf } from './objectiveItems'
 import { waveOf } from './replan'
 import { autoApproveOf, handsOffOf, planApprovable } from './exec/plannerFeedback'
 import type { ScheduleLimits } from './schedule'
@@ -98,6 +100,12 @@ export { isTerminal, outcomeOf }
 export const OBJECTIVE_PREVIEW_MAX = 500
 
 /** The first OBJECTIVE_PREVIEW_MAX characters, with `…` when there were more, never splitting a surrogate pair. */
+/** T7: a Job's left-out items as the plan page lists them, each with its line of the objective. */
+const leftOutRows = (job: Job): NonNullable<JobRow['leftOut']> => {
+  const items = new Map(objectiveItemsOf(job.objective).map((i) => [i.n, i.text]))
+  return (job.leftOut ?? []).map((l) => ({ item: l.item, text: items.get(l.item) ?? '', reason: l.reason }))
+}
+
 const previewOf = (text: string): string => {
   if (text.length <= OBJECTIVE_PREVIEW_MAX) return text
   const high = text.charCodeAt(OBJECTIVE_PREVIEW_MAX - 1)
@@ -199,6 +207,7 @@ function jobTaskOf(
         }
       : {}),
     openGates: open.length,
+    ...(task.status === 'reviewing' && reviewerEnded(own, task.id) ? { reviewerEnded: true as const } : {}),
     ...(running ? { provider: running.provider, startedAt: running.startedAt } : {}),
     ...(openEntry
       ? {
@@ -389,6 +398,9 @@ export function snapshotFor(
   // 것은 두 값(폴더 수준과 Run 수준)이 다른 순간의 상태를 볼 수 있다는 것이다.
   const workingHere = runsWorkingIn(state, projectPath)
   const ix = foldIndex(state)
+  // T8: read once, and only when a row needs it
+  let stuckIndex: StuckIndex | undefined
+  const stuckIx = (): StuckIndex => (stuckIndex ??= stuckIndexOf(state))
   const boards = taskBoardsOf(state, limits, usagePauseOf)
   // #117: the project list copied once, so a row's `handsOffOf` reads no state list per Run ('snapshotFor cost')
   const projectsOnce: OrchState = { ...state, projects: [...state.projects] }
@@ -408,8 +420,10 @@ export function snapshotFor(
     // 계획이지 한 회차가 아니다. 회차 줄만 회차의 id 를 쓴다.
     const rowId = asJob ? job.id : (run?.id ?? job.id)
     const ownedTasks = ix.owned.get(ownerId) ?? []
+    const stuck = run === undefined ? undefined : stuckOf(state, run, ownedTasks, stuckIx(), job)
     const { done, total } = progressOfTasks(ownedTasks)
     const planProblems = job.pendingStart && job.plannerSessionIds !== undefined ? validatePlan(state, job.id) : []
+    const planOverlaps = job.pendingStart && job.plannerSessionIds !== undefined ? planOverlapWarnings(state, job.id) : []
     const worktreesOf = (
       run ? runWorktreesFrom(run, ix.jobById.get(run.jobId)?.cwd, ix.dispatchesByRun.get(run.id) ?? []) : []
     ).filter(exists)
@@ -435,8 +449,33 @@ export function snapshotFor(
       outcomeOfTasks(ix.owned.get(run.id) ?? []) === 'running'
         ? { coordinatorMissing: true }
         : {}),
+      ...(run?.coordinatorModel !== undefined ? { coordinatorModel: run.coordinatorModel } : {}),
       concurrency: job.concurrency,
-      outcome: outcomeOfTasks(ownedTasks),
+      outcome: outcomeOfRun(ownedTasks, run, state),
+      // T8: a running Run with nothing that can move
+      ...(stuck !== undefined ? { stuck } : {}),
+      // A Run whose delivery failed reads failed; the reason rides with it
+      ...(deliveryErrorOf(run) !== undefined ? { deliveryError: deliveryErrorOf(run) } : {}),
+      // T3: the plan page's "Retry delivery" (PlanHeader) reads it
+      ...(run?.deliveryState &&
+      (['delivering', 'retrying', 'failed', 'needs-owner'].includes(run.deliveryState.state) || run.deliveryState.waitingFor !== undefined)
+        ? {
+            delivery: {
+              runId: run.id,
+              state: run.deliveryState.state as NonNullable<JobRow['delivery']>['state'],
+              ...(run.deliveryState.waitingFor !== undefined
+                ? {
+                    waitingFor: {
+                      jobId: run.deliveryState.waitingFor.jobId,
+                      ...(run.deliveryState.waitingFor.escalated !== undefined ? { escalated: run.deliveryState.waitingFor.escalated } : {})
+                    }
+                  }
+                : {}),
+              ...(run.deliveryState.lastError !== undefined ? { reason: run.deliveryState.lastError } : {}),
+              ...(run.deliveryState.nextRetryAt !== undefined ? { nextRetryAt: run.deliveryState.nextRetryAt } : {})
+            }
+          }
+        : {}),
       done,
       total,
       eventCount: ix.eventCounts.get(ownerId) ?? 0,
@@ -469,8 +508,12 @@ export function snapshotFor(
       ...(job.feedback && job.feedback.length > 0 ? { feedback: job.feedback } : {}),
       ...(job.autoStartedAt !== undefined ? { autoStartedAt: job.autoStartedAt } : {}),
       ...(job.rejected !== undefined ? { rejected: job.rejected } : {}),
+      ...(job.approvedFromChat !== undefined ? { approvedFromChat: job.approvedFromChat } : {}),
       // W8-F (#94): what keeps a plan waiting for approval from being approved, shown before Run is pressed
       ...(planProblems.length > 0 ? { planProblems } : {}),
+      // T11: and what it meets in plans planning or running, beside the problems, never one of them
+      ...(planOverlaps.length > 0 ? { planOverlaps } : {}),
+      ...(job.leftOut?.length ? { leftOut: leftOutRows(job) } : {}),
       // #116: Approve only once the planner is done; an auto-approve plan says it starts by itself instead
       ...(planApprovable(state, job) ? { planReady: true as const } : {}),
       ...(job.pendingStart && autoApproveOf(projectsOnce, job) ? { autoApprove: true as const } : {}),
@@ -531,8 +574,9 @@ export function snapshotFor(
   // 하고, 아래로 내려가면 회차가 쌓일수록 정의를 찾기 어려워진다.
   return {
     runs: top.sort((a, b) => {
-      const ar = a.outcome === 'running'
-      const br = b.outcome === 'running'
+      // A Run in its final check is still at work (item 8)
+      const ar = a.outcome === 'running' || a.outcome === 'checking'
+      const br = b.outcome === 'running' || b.outcome === 'checking'
       return ar === br ? 0 : ar ? -1 : 1
     }),
     projectFolderBusy: workingHere.size > 0

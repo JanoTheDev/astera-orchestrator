@@ -12,46 +12,79 @@ import { PlanMergeActions } from './PlanChanges'
 import { PlanOverview } from './PlanOverview'
 import { PlanTalk } from './PlanTalk'
 import { approveSlot } from './planTalk'
+import { planProgressOf } from './planBoard'
 import { RUN_START } from './planPage'
 import { WaveLine } from './PlanWaves'
 import type { PlanPageState } from './usePlanPage'
+
+/** "3 of 8 done" with its bar. */
+function SimpleProgress({ tasks }: { tasks: PlanPageState['tasks'] }): React.JSX.Element | null {
+  const { t } = useI18n()
+  const prog = planProgressOf(tasks)
+  if (prog.total === 0) return null
+  const text = t('plan.simple.progress', { done: prog.counts.done, total: prog.total })
+  return (
+    <div className="plan-overview">
+      <div className="plan-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={prog.percent} aria-label={text}>
+        <div className="plan-progress-fill" style={{ width: `${prog.percent}%` }} />
+      </div>
+      <span className="plan-progress-text">{text}</span>
+    </div>
+  )
+}
 
 export function PlanOverviewSection({
   p,
   run,
   door,
   canOpenSession,
-  onOpenSession
+  onOpenSession,
+  simple = false,
+  board
 }: {
   p: PlanPageState
   run: JobRow | undefined
   door: OrchDoor
   canOpenSession: (sessionId: string) => boolean
   onOpenSession: (sessionId: string) => void
+  /** T19: simple mode: the goal's progress as one line, the Task `board` under it; no wave line, usage, console roll-up or
+   *  decision lists. */
+  simple?: boolean
+  board?: React.ReactNode
 }): React.JSX.Element {
   const { t } = useI18n()
   const { tasks, accounts, summaries, lockedReason, busy } = p
   const workers = summaries.summaries.some((s) => s.facts.role === 'worker')
   return (
     <>
-      {/* W2-C plan board: progress and the buckets */}
-      <div className="plan-head">
-        <PlanOverview tasks={tasks} pick={run?.pick} decisions={run?.decisions} />
-      </div>
-      <WaveLine status={p.waveStatus} />
-      {/* W6-G: per-account usage, live subagents per tab, and the threshold */}
-      <UsageStrip accounts={accounts} tasks={tasks} />
-      {/* W9-C: what each console did, rolled up (DESIGN.md §4) — W9-I's worker cards, or the empty hint */}
-      {workers ? (
-        <PlanSummaryRollup summaries={summaries.summaries} canOpenSession={canOpenSession} onOpenSession={onOpenSession} />
+      {simple ? (
+        <>
+          <SimpleProgress tasks={tasks} />
+          {board}
+        </>
       ) : (
-        <section className="plan-sofar">
-          <h3>{t('pages.plan.soFar')}</h3>
-          <p className="modal-hint">{t('pages.plan.soFarEmpty')}</p>
-        </section>
+        <>
+        {/* W2-C plan board: progress and the buckets */}
+        <div className="plan-head">
+          <PlanOverview tasks={tasks} pick={run?.pick} decisions={run?.decisions} leftOut={run?.leftOut} />
+        </div>
+        <WaveLine status={p.waveStatus} />
+        {/* W6-G: per-account usage, live subagents per tab, and the threshold */}
+        <UsageStrip accounts={accounts} tasks={tasks} />
+        {/* W9-C: what each console did, rolled up (DESIGN.md §4) — W9-I's worker cards, or the empty hint */}
+        {workers ? (
+          <PlanSummaryRollup summaries={summaries.summaries} canOpenSession={canOpenSession} onOpenSession={onOpenSession} />
+        ) : (
+          <section className="plan-sofar">
+            <h3>{t('pages.plan.soFar')}</h3>
+            <p className="modal-hint">{t('pages.plan.soFarEmpty')}</p>
+          </section>
+        )}
+        </>
       )}
       {/* W7-A: talk to the planner, reject, and the auto-start notice */}
       {run && <PlanTalk row={run} door={door} name={jobName(run)} ui={p.ui} />}
+      {run?.approvedFromChat && <p className="modal-hint">{t('plan.simple.approvedFromChat', { words: run.approvedFromChat.words })}</p>}
       {!p.authoringOpen && (
         <div className="detail-graph-head">
           {/* Task 를 다 짜고 누르는 버튼. **Task 가 없으면 잠근다** — 빈 Run 을 시작하면

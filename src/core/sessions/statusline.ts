@@ -338,6 +338,8 @@ export class StatusLineManager {
       // family stays in the gated file below for the reasons given there.
       PreToolUse: [{ matcher: ASK_MATCHER, hooks: [{ type: 'command', command: hookCmd }] }, subagentCapHook, deliveryGuardHook],
       PostToolUse: [{ matcher: ASK_MATCHER, hooks: [{ type: 'command', command: hookCmd }] }, checkpointHook],
+      // A call that failed fires this instead of PostToolUse; without it the call stays outstanding until Stop.
+      PostToolUseFailure: [{ matcher: ASK_MATCHER, hooks: [{ type: 'command', command: hookCmd }] }],
       // W6-G: a subagent finished, so its tab has room for one more
       SubagentStop: [{ hooks: [{ type: 'command', command: capCmd }] }],
       // A turn starting and a turn ended by an API error (a limit, an auth failure) — StopFailure fires
@@ -413,7 +415,8 @@ export class StatusLineManager {
         // The cost is one more node process per write/execute call — the hook count for those tools doubles.
         // What it buys is removing a false "input needed" that fired repeatedly, and the read tools (called
         // far more often) stay outside the matcher, so the latency reasoning above is unchanged.
-        PostToolUse: [{ matcher: TOOL_MATCHER, hooks: [{ type: 'command', command: hookCmd }] }, checkpointHook]
+        PostToolUse: [{ matcher: TOOL_MATCHER, hooks: [{ type: 'command', command: hookCmd }] }, checkpointHook],
+        PostToolUseFailure: [{ matcher: TOOL_MATCHER, hooks: [{ type: 'command', command: hookCmd }] }]
       }
     }
     await writeScript(this.hooksSettingsFile, JSON.stringify(hooksSettings, null, 2))

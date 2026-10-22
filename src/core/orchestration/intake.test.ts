@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { intakeChanges, intakeObjective, intakeOf, intakeTitle, needsInputs, type Intake } from './intake'
+import { intakeChanges, intakeObjective, intakeOf, intakeTitle, needsInputs, shortTitle, type Intake } from './intake'
 
 const read = (args: Record<string, unknown>): Intake => {
   const r = intakeOf(args)
@@ -44,7 +44,7 @@ describe('intakeObjective', () => {
   it('lists every attached file to read first, PDFs over 20 pages in ranges, before the source', () => {
     const o = intakeObjective(read({ attach: ['/x/spec.pdf', '/y/notes.md'] }), 'Build the thing', inputs)
     expect(o).toContain('Read every file in /p/plans/job_1/inputs/ first (PDFs over 20 pages in page ranges)')
-    expect(o).toContain('- /p/plans/job_1/inputs/spec.pdf\n- /p/plans/job_1/inputs/notes.md')
+    expect(o).toContain('  /p/plans/job_1/inputs/spec.pdf\n  /p/plans/job_1/inputs/notes.md')
     expect(o.indexOf('Read every file')).toBeLessThan(o.indexOf('Build the thing'))
   })
   it('an audit audits its scope, writes inputs/audit.md, then plans the fixes', () => {
@@ -90,24 +90,39 @@ describe('intakeTitle', () => {
     expect(intakeTitle(read({ attach: ['/d/spec.pdf', '/d/notes.md'] }), '', ['spec.pdf', 'notes.md'])).toBe('spec.pdf, notes.md')
     expect(intakeTitle(read({ mode: 'fixlist', attach: ['/d/bugs.pdf'] }), '', ['bugs.pdf'])).toBe('bugs.pdf')
   })
-  it('a short plain description needs no name: its objective is its own words', () => {
-    expect(intakeTitle(read({ instructions: 'x' }), 'Add dark mode', [])).toBeUndefined()
-    expect(intakeTitle(read({}), 'Add dark mode', [])).toBeUndefined()
-    expect(intakeTitle(read({}), 'Add dark mode.', [])).toBeUndefined()
+  it('T7: a short plain description is named by its own words, its closing dot dropped', () => {
+    expect(intakeTitle(read({ instructions: 'x' }), 'Add dark mode', [])).toBe('Add dark mode')
+    expect(intakeTitle(read({}), 'Add dark mode', [])).toBe('Add dark mode')
+    expect(intakeTitle(read({}), 'Add dark mode.', [])).toBe('Add dark mode')
   })
-  it('#113: a long plain description is named by its first sentence, cut at a word under 60 characters', () => {
+  it('T7: a one-sentence prompt that is the whole text gets a cut title, not the prompt itself', () => {
+    const prompt = 'alright so we have had worked on fisch and now the inventory screen needs a full rework'
+    expect(intakeTitle(read({}), prompt, [])).toBe('alright so we have had worked…')
+  })
+  it('#113: a long plain description is named by its first sentence, cut to about 6 words', () => {
     expect(intakeTitle(read({}), 'Add dark mode to the settings page. Make it follow the system theme and remember the choice.', [])).toBe(
-      'Add dark mode to the settings page.'
+      'Add dark mode to the settings…'
     )
     expect(intakeTitle(read({}), 'Fix the sidebar\nIt flickers when a plan starts and the tabs jump around a lot', [])).toBe('Fix the sidebar')
-    const long = intakeTitle(read({}), 'Refactor the orchestration command layer so every handler validates its arguments the same way', [])!
-    expect(long.length).toBeLessThanOrEqual(60)
-    expect(long.endsWith('…')).toBe(true)
   })
   it('#113: a dot inside a word ends no sentence', () => {
-    expect(intakeTitle(read({}), 'Create index.js exporting add(a, b) and sub(a, b). Cover both with tests.', [])).toBe(
-      'Create index.js exporting add(a, b) and sub(a, b).'
-    )
+    expect(intakeTitle(read({}), 'Create index.js exporting add(a, b). Cover both with tests.', [])).toBe('Create index.js exporting add(a, b)')
+  })
+})
+
+describe('shortTitle (T7)', () => {
+  it('keeps a first line of 6 words or fewer whole', () => {
+    expect(shortTitle('Fix the login bug\nmore detail here')).toBe('Fix the login bug')
+  })
+  it('cuts a long first line at a word boundary, with …', () => {
+    expect(shortTitle('Refactor the orchestration command layer so every handler validates')).toBe('Refactor the orchestration command layer so…')
+    expect(shortTitle('one, two, three, four, five, six, seven')).toBe('one, two, three, four, five, six…')
+  })
+  it('holds to 60 characters even with long words, cut at a word', () => {
+    const t = shortTitle('Internationalization-ready configuration-management infrastructure-overhaul everywhere-throughout')
+    expect(t.length).toBeLessThanOrEqual(60)
+    expect(t.endsWith('…')).toBe(true)
+    expect(t).toMatch(/^Internationalization-ready configuration-management…$/)
   })
 })
 

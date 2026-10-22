@@ -15,6 +15,13 @@ const ev = (n: number, over: Partial<ActivityEvent> = {}): ActivityEvent => ({
 })
 const label = (id: string): string => (id === 'acc_1' ? 'Work' : id)
 
+
+describe('merging', () => {
+  it('reads as running with a merging note', () => {
+    expect(lineOf(ev(1, { payload: { title: 'Task A', category: 'running', status: 'merging' } } as never), label).text).toBe('Task A: running (merging)')
+  })
+})
+
 describe('activityView', () => {
   it('a page joins the held lines once each, the newest kept', () => {
     expect(mergePage([ev(1), ev(2)], [ev(2), ev(3)]).map((e) => e.sequence)).toEqual([1, 2, 3])
@@ -94,5 +101,15 @@ describe('activityView', () => {
     const refused = ev(5, { type: 'plan.refused', payload: { title: 'Plan A', plan: 'Plan A', reason: 'Refused: drop the table? (destructive)' } })
     expect(lineOf(decided, label)).toEqual({ text: 'Task A: Decided for you: retry-once — Task A: attempts ran out', tone: 'info' })
     expect(lineOf(refused, label)).toEqual({ text: 'Plan A: Refused: drop the table? (destructive)', tone: 'warn' })
+  })
+})
+
+describe('task.edited (T7)', () => {
+  it("reads in the app's language, the edited fields named as their flags", () => {
+    const edited = ev(9, { type: 'task.edited', payload: { title: 'Task A', plan: 'Plan A', edited: ['deps', 'spec'] } })
+    expect(lineOf(edited, label)).toEqual({ text: 'Task A: edited by you — deps, spec', tone: 'info' })
+    expect(lineOf(edited, label, 'ko').text).toBe('Task A: 직접 수정함 — deps, spec')
+    expect(lineOf(edited, label, 'ja').text).toBe('Task A: あなたが編集 — deps, spec')
+    expect(lineOf(edited, label, 'es').text).toBe('Task A: editado por ti — deps, spec')
   })
 })

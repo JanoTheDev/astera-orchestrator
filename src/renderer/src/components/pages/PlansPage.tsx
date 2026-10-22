@@ -16,6 +16,7 @@ import { jobName } from '../../lib/jobName'
 import { jobsStall } from '../../../../core/orchestration/jobsView'
 import { openPage } from '../shell/navigation'
 import { overlapTableOf, planSectionOf, type OverlapCell, type PlanSection } from '../plan/planBoard'
+import { MainPlan } from '../plan/MainPlan'
 import { PlanList } from '../plan/PlanList'
 import type { PlanActs } from '../plan/PlanRow'
 import { PlanPage } from './PlanPage'
@@ -173,6 +174,7 @@ export function PlansPage(p: PlansPageProps): React.JSX.Element {
         onNewFromSource={() => currentProject && setSourceJobOpen(currentProject)}
         onNewConsole={() => setShowNew(true)}
         overlap={<OverlapTable rows={orchSnapshot?.runs ?? []} t={t} onOpen={acts.onOpen} />}
+        mainPlan={<MainPlan rows={orchSnapshot?.runs ?? []} acts={acts} />}
       />
     </div>
   )

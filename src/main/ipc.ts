@@ -124,6 +124,10 @@ import { executeRecovery } from '../core/recovery/execute'
 import { readGitFacts } from '../core/recovery/git'
 import { createRecoveryOwner } from './host/recoveryOwner'
 import { createRemoteRuntimes } from './remote/runtimes'
+import { createMachineProvisioner } from './remote/provisioning'
+import { createMigrationRunner } from './remote/migration'
+import { MIGRATE_KINDS, type MigrateKind, type MigrateOptions } from '../cli/machineMigrate'
+import type { AddMachineOptions } from '../cli/machines'
 import { createRemoteStreams, type RemoteStreams } from './remote/remoteStreams'
 import { createOrchRouter } from './remote/orchRouter'
 import type { Handoff } from '../core/handoff/types'
@@ -205,7 +209,8 @@ import { releaseArgsFor } from '../core/orchestration/exec/release'
 import {
   preTrustWorkspace as preTrustWorkspaceFor,
   startCoordinatorSession,
-  startWorkerWithChain
+  startWorkerWithChain,
+  chooseStartAccount
 } from '../core/orchestration/exec/workerStart'
 import {
   forkWorktree,
@@ -293,7 +298,8 @@ import { registerAccountLoginIpc } from './accountLogin'
 import { createAccountUsage } from './accountUsage'
 // W6-G usage guards
 import { createUsageGuard } from '../core/orchestration/usageGuard'
-import { readAccountReadings } from '../core/usage/accountReadings'
+import { readAccountReadings, withFetchedReadings } from '../core/usage/accountReadings'
+import { readAutoAccountsOn } from '../core/settings/autoAccounts'
 import { readSubagentCount, SUBAGENT_CAP_MAX } from '../core/sessions/subagentCap'
 import type { UsageGuardView } from '../core/types'
 import { createPullRequest, readCommits } from '../core/github/prCreate'
@@ -1008,6 +1014,8 @@ export function registerIpc(
   // Every attention change, for every session — unlike conversation:append this is not gated on an
   // open conversation. It is the same per-session verdict the desktop notifier already reads.
   attention.subscribe((sessionId, value) => send('conversation:attention', { sessionId, value }))
+  // The decay (core/sessions/attention.ts WORKING_DECAY_MS) shows without a new event.
+  setInterval(() => attention.recheck((id) => core.sessions.list().some((x) => x.id === id && x.status === 'exited')), 30_000).unref()
   pendingPrompt.subscribe((sessionId, prompt) => send('conversation:pendingPrompt', { sessionId, prompt }))
   // A renderer reload leaves every open conversation with nobody watching it — the same kind of gap
   // the preview.registerAgentGuest handler's own 'destroyed' listener exists for below, just with a
@@ -1535,13 +1543,20 @@ export function registerIpc(
   // the feed lines). It answers the board's "paused: account at 93%" reason, the app's own worker-start and loop when
   // the app drives, and the usage strip. Read again on a timer, so a pause ends on its own.
   // The profile folder is the hook events folder's parent (hookEventsDirIn), where the statusline folder also is.
+  // T5b: built as the Host builds its own (host/index.ts), so a start the app makes ranks exactly as the Host's would:
+  // idle accounts' usage fetched when "Pick accounts automatically" is on, the live sessions per account, the caps.
   const usageGuard = createUsageGuard({
-    readings: () =>
-      readAccountReadings(
+    readings: async ({ autoAccounts }) => {
+      const live = await readAccountReadings(
         path.join(path.dirname(core.hookEventsDir), 'statusline'),
         core.sessions.list().map((s) => ({ id: s.id, accountId: s.accountId }))
-      ),
+      )
+      return autoAccounts ? withFetchedReadings(live, core.accounts.list(), (dir) => core.usageFetcher.get(dir)) : live
+    },
     pauseAt: async () => core.appSettings.getUsagePauseAt(),
+    autoAccounts: () => readAutoAccountsOn(path.join(path.dirname(core.hookEventsDir), 'app-settings.json')),
+    sessions: () => core.sessions.list().filter((s) => s.status === 'running'),
+    maxSessions: async () => core.appSettings.getAccountMaxSessions(),
     nowMs: () => Date.now()
   })
   const usageTimer = setInterval(() => {
@@ -1613,6 +1628,7 @@ export function registerIpc(
   // Events: core to renderer (session:data is batched at 16ms)
   const batcher = new DataBatcher(16, (sessionId, data) => send('session:data', { sessionId, data }))
   core.sessions.onData = (e) => {
+    attention.noteOutput(e.sessionId, Date.now())
     batcher.push(e.sessionId, e.data)
     rolling?.handleData(e)
     codexRolling?.handleData(e)
@@ -3074,14 +3090,17 @@ export function registerIpc(
       // mark it stopped while it keeps running. `killWorkerSession` ends it in the Host instead, and
       // counts it stopped only on the Host's pty-exit or a list that no longer shows it; otherwise it
       // refuses (Task 11 review I3(c), fix round I2).
-      killSession: (id) =>
+      killSession: (id, reason) =>
         killWorkerSession(id, {
-          app: { info: (sid) => core.sessions.list().find((s) => s.id === sid), kill: (sid) => core.sessions.kill(sid) },
+          app: {
+            info: (sid) => core.sessions.list().find((s) => s.id === sid),
+            kill: (sid, why) => core.sessions.kill(sid, why)
+          },
           host:
             hostClient && hostPtyList
               ? {
                   list: hostPtyList,
-                  kill: (ptyId) => hostClient?.send({ t: 'pty-kill', id: ptyId }) ?? false,
+                  kill: (ptyId, reason) => hostClient?.send({ t: 'pty-kill', id: ptyId, ...(reason ? { closeReason: reason } : {}) }) ?? false,
                   onExit: (ptyId, cb) =>
                     hostClient?.onMessage((m) => {
                       if (m.t === 'pty-exit' && m.id === ptyId) cb()
@@ -3089,7 +3108,7 @@ export function registerIpc(
                 }
               : null,
           log: orchLog
-        }),
+        }, reason),
       // Reuses the worktree creation utility the app already has (core/worktrees/create) — that also
       // registers it, so the worktree list and delete paths in settings handle a worker's worktree
       // exactly like any other. 갈라질 자리를 고르는 판단은 forkWorktree(integrateGit.ts)에 있다 —
@@ -3104,6 +3123,13 @@ export function registerIpc(
           return providerOf(core.accounts.get(id))
         } catch {
           return null // no such account — the coordinator throws 'unknown account'
+        }
+      },
+      accountConfigDir: (id) => {
+        try {
+          return core.accounts.get(id).configDir
+        } catch {
+          return null
         }
       },
       // The coordinator does not decide where spec files go — not depending on the Electron app is the
@@ -3170,7 +3196,9 @@ export function registerIpc(
       assertAllowedPath: (p) => assertAllowedPath(p),
       // `(w)` 는 일부러다 — ipcConvergenceWiring.test.ts 의 남은 가드가 첫 `startWorker: (a) =>` 에 닻을 내린다.
       startWorker: (w) => deps.startWorker(w),
-      specsDir
+      specsDir,
+      // T5b: a review skips a full account (chooseStartAccount)
+      startAccount: (o) => deps.startAccount?.(o) ?? null
     })
 
     /** What reapWorktree (core/orchestration/exec/integrateGit.ts) may close and ask in the app.
@@ -3218,7 +3246,7 @@ export function registerIpc(
       lang: () => core.lang,
       forkRunWorktree: (a) =>
         forkWorktree({ repoPath: a.repoPath, name: a.name }, { registry: core.worktrees, log: orchLog }),
-      integrate: (runRoot, merges) => integrateWorktrees(runRoot, merges, {}, gitCtx),
+      integrate: (runRoot, merges, heads) => integrateWorktrees(runRoot, merges, { heads }, gitCtx),
       reap: (p) => reapWorktree(p),
       isRegisteredWorktree: (p) => core.worktrees.list().some((w) => isSamePath(w.path, p)),
       // Chats too (2026-10-13, spec E5): a Run's external coordinator can be a chat session. Every other caller asks
@@ -3363,13 +3391,16 @@ export function registerIpc(
               }
               return info
             },
-            log: orchLog
+            log: orchLog,
+            // T5b: the account by usage, as the Host's start picks it (chooseStartAccount)
+            usageGuard,
+            loginStatus: (id) => core.accounts.loginStatus(id)
           },
           a
         ),
       // A coordinator a hand-over started and cannot use: another one already holds the Run's slot
       // (Task 1 fix round 1, I2). Killed the way worker-stop kills a worker, the app's or the Host's pty.
-      stopCoordinator: (sessionId) => coordinator.stopSession(sessionId),
+      stopCoordinator: (sessionId, _reason, closeReason) => coordinator.stopSession(sessionId, closeReason),
       // Whether a coordinator is parked in `check --wait` (final round 3, I-A). Those waits are served by the
       // Host, which every CLI call reaches, so when this app drives it asks the Host; an older, absent or
       // silent Host answers unknown, and the fire then skips (coordinatorIdle.ts).
@@ -3388,11 +3419,13 @@ export function registerIpc(
             coordinator,
             tails: orchTails,
             log: orchLog,
-            roleModels: async () => core.appSettings.getRoleModels()
+            roleModels: async () => core.appSettings.getRoleModels(),
+            // T5b: the chain by usage, as the Host's (startWorkerWithChain)
+            usageGuard
           },
           a
         ),
-      releaseWorker: async ({ dispatchId }) => {
+      releaseWorker: async ({ dispatchId, closeReason }) => {
         // The coordinator does not know about state, so the wiring pulls the material for the "is it
         // safe to close" verdict out of state and passes it in (the computation is in release.ts, and
         // tests pin it down). worker-release is the only command that comes straight here without the
@@ -3402,7 +3435,7 @@ export function registerIpc(
           orchLog(`worker-release: unknown dispatch ${dispatchId} — there is no session to close`)
           return
         }
-        await coordinator.releaseWorker(args)
+        await coordinator.releaseWorker({ ...args, closeReason })
       },
       // Dispatch 가 닫혔는데 세션은 살아 있는 자리에서 서버가 부른다(server.ts 의 JSDoc). provider 를
       // 가리지 않고 둘 다 부른다 — 등록은 계정의 provider 로 갈리지만(spawnSession) 여기서 그것을
@@ -3500,6 +3533,9 @@ export function registerIpc(
       maxConcurrentWorkers: () => core.appSettings.getMaxConcurrentWorkers(),
       // W6-G: and none on a nearly spent account
       usageGuard,
+      // T5b: worker-start without --account, as the Host answers it (chooseStartAccount)
+      startAccount: (o) =>
+        chooseStartAccount({ usageGuard, accounts: async () => core.accounts.list(), loginStatus: (id) => core.accounts.loginStatus(id), log: orchLog }, o),
       resolveProjectRoot: async (cwd) =>
         resolveProjectRootFrom({
           cwd,
@@ -4083,7 +4119,10 @@ export function registerIpc(
   // other four reasons to come here now only decide which commands are answered.
   if (orchWiring) void startOrch().catch((err) => orchLog(`startup failed: ${String(err)}`))
   ipcMain.on('sessions.write', (_e, id, data) => {
-    if (typeof data === 'string' && !isOnlyTerminalReports(data)) personInputAt.set(id, Date.now())
+    if (typeof data === 'string' && !isOnlyTerminalReports(data)) {
+      personInputAt.set(id, Date.now())
+      attention.noteInput(id, Date.now())
+    }
     // The tab's own input, marked: only it takes the pty's size back from a controller (the app's other writes do not).
     core.sessions.write(id, data, typeof data === 'string' && !isOnlyTerminalReports(data) ? { typed: true } : undefined)
   })
@@ -4109,6 +4148,13 @@ export function registerIpc(
   // session started; renaming the session alone reaches none of them. The desktop notifier is absent
   // on purpose — it looks the session up fresh on every notification, so it needs no telling. Anything
   // added later that keeps a SessionInfo belongs here too.
+  // T13: what Recently closed resumes an ended tab from: the CLI's own session id and transcript, off its last status
+  // line. Null for a session that never wrote one (Codex, or one that ended before its first answer).
+  ipcMain.handle('sessions.transcript', async (_e, id: string) => {
+    if (typeof id !== 'string') return null
+    const s = extractStatusLineSession(await core.statusLinePayload(id).catch(() => null))
+    return s.sessionId && s.transcriptPath ? { sessionId: s.sessionId, transcriptPath: s.transcriptPath } : null
+  })
   ipcMain.handle('sessions.rename', (_e, id: string, title: string) => {
     if (typeof id !== 'string' || typeof title !== 'string')
       throw new Error(`INVALID_RENAME: ${String(id)}`)
@@ -5009,6 +5055,9 @@ export function registerIpc(
   ipcMain.handle('sources.create', (_e, a: unknown) => sources.create(a as Parameters<typeof sources.create>[0]))
   // Settings › Remote Runtimes and the Jobs view's selectors (remote runtime design Phase 6). A runtime id that is not a
   // string names nothing; every answer is the client's or the registry's own, never a local fallback.
+  const machineProvisioner = createMachineProvisioner({ remote: remoteRuntimes, profileDir: app.getPath('userData') })
+  // T12c: Bring my setup, to a machine added over SSH
+  const migration = createMigrationRunner({ remote: remoteRuntimes, profileDir: app.getPath('userData') })
   ipcMain.handle('remote.list', () => remoteRuntimes.list())
   ipcMain.handle('remote.add', (_e, pairing: unknown, name?: unknown) =>
     typeof pairing === 'string'
@@ -5022,6 +5071,28 @@ export function registerIpc(
     if (typeof runtimeId !== 'string') return { ok: false, code: 'RUNTIME_NOT_FOUND', message: 'a runtime id is a string' }
     const c = await remoteRuntimes.client(runtimeId)
     return 'code' in c ? { ok: false, code: c.code, message: c.message } : c.ping()
+  })
+  // Add a machine over SSH (T12b): validated here, the steps streamed to the window that asked as they happen.
+  ipcMain.handle('remote.addMachine', (e, o: unknown) => {
+    const v = (o ?? {}) as Record<string, unknown>
+    const strOr = (k: string): boolean => v[k] === undefined || typeof v[k] === 'string'
+    const boolOr = (k: string): boolean => v[k] === undefined || typeof v[k] === 'boolean'
+    if (typeof v.target !== 'string' || v.target.trim() === '' || !(v.port === undefined || Number.isInteger(v.port)) ||
+      !['installer', 'name', 'listen'].every(strOr) || !['tailscale', 'fullControl'].every(boolOr))
+      return { ok: false, step: 'connect', message: 'a machine needs user@host, and the options their own types', stderrTail: '', fix: 'Fill in user@host.' }
+    return machineProvisioner.add({ ...(v as unknown as AddMachineOptions), target: v.target.trim() }, (p) => {
+      if (!e.sender.isDestroyed()) e.sender.send('remote:machineProgress', p)
+    })
+  })
+  ipcMain.handle('remote.migrationMachines', () => migration.machines())
+  ipcMain.handle('remote.migratePlan', (_e, runtimeId: unknown, o: unknown) =>
+    typeof runtimeId === 'string' ? migration.plan(runtimeId, migrateOptionsOfWindow(o)) : { ok: false, message: 'a runtime id is a string' }
+  )
+  ipcMain.handle('remote.migrate', (e, runtimeId: unknown, o: unknown) => {
+    if (typeof runtimeId !== 'string') return { ok: false, message: 'a runtime id is a string', plan: [], results: [] }
+    return migration.migrate(runtimeId, migrateOptionsOfWindow(o), (r) => {
+      if (!e.sender.isDestroyed()) e.sender.send('remote:migrateProgress', { runtimeId, ...r })
+    })
   })
   ipcMain.handle('remote.projects', async (_e, runtimeId: unknown) => {
     if (typeof runtimeId !== 'string') return null
@@ -5499,7 +5570,7 @@ export function registerIpc(
       hostDrives: orchHostDrives(),
       askHost: (id) => orchCall({ cmd: 'validation-stop', args: { runId: id }, sessionId: '' }),
       markStopped: (id) => orchValidator?.markStopped(id),
-      stop: (id) => core.run.stop(id),
+      stop: (id) => core.run.stop(id, 'stopped'),
       log: orchLog
     })
   })
@@ -7838,6 +7909,8 @@ export function registerIpc(
   // conversationSessions.
   ipcMain.handle('conversation.attention', (_e, sessionId: string) => conversationAttentionOf(attention, sessionId))
   ipcMain.handle('conversation.pendingPrompt', (_e, sessionId: string) => pendingPrompt.get(sessionId))
+  // The chat tiles' preview line: one read of the transcript, no follow (see conversation.ts lastReply).
+  ipcMain.handle('conversation.lastReply', (_e, sessionId: string) => conversationSessions.lastReply(sessionId))
   // Same shape of thing and the same reason as `attention` above: the conversation view has no
   // statusline of its own, so what the CLI reports about the model is read on demand. Never throws —
   // core.statusLinePayload answers null for a session that has written nothing, and the extractor
@@ -8367,4 +8440,11 @@ export function registerIpc(
       }
       return (await rolling?.forceRoll(sessionId)) ?? false
     })
+}
+
+/** T12c: the window's Bring my setup choices, only what the migration takes. */
+function migrateOptionsOfWindow(o: unknown): MigrateOptions {
+  const v = (o ?? {}) as Record<string, unknown>
+  const only = Array.isArray(v.only) ? v.only.filter((k): k is MigrateKind => (MIGRATE_KINDS as readonly unknown[]).includes(k)) : undefined
+  return only ? { only } : {}
 }

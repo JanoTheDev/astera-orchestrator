@@ -213,8 +213,11 @@ describe('registrySessions — state', () => {
   const dirs: string[] = []
   afterEach(() => {
     for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
+    vi.restoreAllMocks()
   })
   const withEvents = () => {
+    // The events are stamped near 1_000_000; the clock sits a moment after them, inside the working decay
+    vi.spyOn(Date, 'now').mockReturnValue(1_100_000)
     const dir = mkdtempSync(path.join(os.tmpdir(), 'astera-hook-events-'))
     dirs.push(dir)
     const h = harness(undefined, dir)
@@ -795,6 +798,23 @@ describe('registrySessions — sessionTurn', () => {
     expect(await h.sessions.sessionTurn('ses-1', 1_000_000)).toMatchObject({ state: 'unknown' })
     h.event({ hook_event_name: 'Stop', astera_at: 1_000_950 }, 1_000_960)
     expect(await h.sessions.sessionTurn('ses-1', 1_000_000)).toMatchObject({ state: 'idle', prompt: null })
+  })
+
+  it('T11: a tool streaming pty output with no hook event for 11 minutes reads working, silent output reads idle', async () => {
+    const h = withEvents()
+    const t0 = 1_000_000
+    h.event({ hook_event_name: 'PreToolUse', tool_name: 'Bash' }, t0)
+    const now = vi.spyOn(Date, 'now')
+    try {
+      now.mockReturnValue(t0 + 11 * 60_000)
+      expect(await h.sessions.sessionTurn('ses-1')).toMatchObject({ state: 'idle' })
+      now.mockReturnValue(t0 + 11 * 60_000 - 1000)
+      h.agent.emit('building…\r\n')
+      now.mockReturnValue(t0 + 11 * 60_000)
+      expect(await h.sessions.sessionTurn('ses-1')).toMatchObject({ state: 'working' })
+    } finally {
+      now.mockRestore()
+    }
   })
 
   it('an ended session, and one this Host does not hold', async () => {

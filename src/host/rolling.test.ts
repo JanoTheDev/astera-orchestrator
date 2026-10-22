@@ -8,7 +8,7 @@ import { PtyRegistry, type RegistryPty } from './registry'
 import { createHostRolling, type HostRollEvent, type RollSpawnOpts } from './rolling'
 import { hostRollConfigPath, readRollConfigKey } from '../core/rolling/config'
 import type { RollSnapshot } from '../core/rolling/snapshot'
-import type { Account, RateLimitPeak, SessionInfo } from '../core/types'
+import type { Account, RateLimitPeak, RateLimitUsage, SessionInfo } from '../core/types'
 
 // The chat chain harness below reads the deps createHostRolling hands the claude coordinator; the class
 // itself stays the real one, so every other test in this file runs as before.
@@ -73,6 +73,7 @@ type Over = {
   onNativeSession?: (sessionId: string, nativeSessionId: string) => void
   readAccounts?: () => Promise<Account[]>
   hookTap?: (sessionId: string, payload: unknown) => void
+  fetchAccountUsage?: (configDir: string) => Promise<RateLimitUsage>
 }
 const rig = async (over: Over = {}) => {
   // Preflight C8: a profile per rig, removed after the test (the Host writes host/rolling.json there).
@@ -115,6 +116,7 @@ const rig = async (over: Over = {}) => {
     readStrategy: async () => 'original',
     isLoggedIn: over.isLoggedIn ?? (async () => true),
     fetchUsage: over.fetchUsage ?? (async () => null), // no network in a unit test; null is "unavailable"
+    fetchAccountUsage: over.fetchAccountUsage ?? (async () => ({ session: null, weekly: null, maxPercent: null, peak: null, status: 'unavailable' })),
     copy: async () => {}, // no transcript on disk here; the copy is the coordinators' own, tested there
     log: () => {},
     logCodex: () => {},
@@ -145,6 +147,34 @@ describe('createHostRolling (S6 Task 9)', () => {
     expect(r.rolled).toEqual(['s1->s2'])
     expect(r.events.some((e) => e.t === 'session-rolled' && e.oldSessionId === 's1' && e.info.id === 's2')).toBe(true)
     expect(r.events.some((e) => e.t === 'roll-state' && e.event.state === 'switching')).toBe(true)
+    r.rolling.dispose()
+  })
+
+  // T5a: the owner's bug, end to end through the Host's own wiring — the roll asks the next account's usage.
+  it('a roll skips an account at 0% 5-hour but 100% weekly for one at 40%/40% (T5a)', async () => {
+    const a3: Account = { id: 'a3', label: 'C', configDir: cfg('a3'), color: '#fff', createdAt: '2026-09-25T00:00:00Z' }
+    const later = '2099-01-01T00:00:00Z'
+    const w = (usedPercent: number) => ({ usedPercent, resetsAt: later })
+    const asked: string[] = []
+    const r = await rig({
+      readAccounts: async () => [...accounts, a3],
+      fetchAccountUsage: async (dir) => {
+        asked.push(dir)
+        const [s, wk] = dir === cfg('a2') ? [0, 100] : dir === cfg('a3') ? [40, 40] : [10, 10]
+        return { session: w(s), weekly: w(wk), maxPercent: Math.max(s, wk), peak: null, status: 'ok' }
+      }
+    })
+    r.open('p1', 's1', { accountId: 'a1', cwd: os.tmpdir(), title: 't', rollAccountIds: ['a1', 'a2', 'a3'] })
+    await r.rolling.refresh()
+    // the coordinator reads what the Host's usage source fetched (not a stub handed to it)
+    const usageOf = (captured.deps.at(-1) as { accountUsage(): { readings: Map<string, unknown> } | null }).accountUsage
+    await untilReal(() => expect(usageOf()?.readings.size).toBe(3))
+    expect(asked).toHaveLength(3)
+    r.rolling.adoptSpawned({ ...info('s1'), rollAccountIds: ['a1', 'a2', 'a3'] }, accounts[0])
+    r.payloads.set('s1', payload(100))
+    r.ptys.get('p1')!.emit(LIMIT)
+    await vi.advanceTimersByTimeAsync(100)
+    expect(r.spawned.map((o) => o.account.id)).toEqual(['a3'])
     r.rolling.dispose()
   })
 

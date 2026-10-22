@@ -40,14 +40,152 @@ Notifications for a Job on a Runtime follow the Runtime machine's own Slack sett
 
 ## Where it runs
 
-The Runtime is a machine with the Astera app installed: Windows, macOS, or Linux from the `.deb` in a desktop session
-(a Linux server with no desktop, no X11 or Wayland, waits for v1.1). The desktop session is for setting it up: the app
-installs Astera's command line and signs the accounts in. Once set up, the OS recipes below keep it running across
+The Runtime is a machine with Astera installed: Windows, macOS, or Ubuntu and Debian Linux from the `.deb`, with or
+without a desktop. On a Linux server with no X11 or Wayland, everything a Runtime runs (the `astera` command,
+`astera runtime serve`, the Host and the Gateway) is the app's own binary run as Node (`ELECTRON_RUN_AS_NODE=1`), which
+opens no window and needs no display. `astera runtime setup` installs the command line there and
+`astera accounts login --new` signs accounts in from a terminal, so no desktop session is needed to set it up. How that
+was checked: neither the command line nor the Host loads Electron's window code, and a test starts the Host plan `serve`
+uses with `DISPLAY` and `WAYLAND_DISPLAY` unset (`src/cli/runtime/setup.test.ts`, "headless Linux"); the `.deb` still
+installs the desktop libraries the binary links against. Once set up, the OS recipes below keep it running across
 reboots without anyone logged in on Linux, and from your login on Windows and macOS. Any of the three can be a
 controller.
 
 Use a private network: your LAN, a VPN, or Tailscale. Do not forward the Runtime's port to the internet. Astera offers
 no relay and opens no port for you.
+
+## Add a machine from this app
+
+The quickest setup, from the computer you already use: one command, or Settings › Integrations › Remote Runtimes ›
+**Add a machine** › **Over SSH (one step)**. It needs only that `ssh user@host` works from here with your key or agent;
+Astera uses the system `ssh` and `scp` in BatchMode and never asks for or keeps a password.
+
+```sh
+astera machines add me@box                      # Linux: uploads the newest dist-installer/astera-*-amd64.deb
+astera machines add me@win --installer Astera-Setup.exe --full-control
+```
+
+Flags: `--port <n>` (SSH port, default 22), `--installer <path>` (required for Windows; build it with `npm run dist:win`,
+the repository has no releases), `--name <n>`, `--listen <ip>` or `--tailscale`, `--full-control` (needed to add
+projects there). It finds out the OS, uploads the installer with the matching `scripts/install-runtime.*` script, runs
+it, pairs with the `ASTERA_PAIR=` line it prints and pings the machine, one line per step, then prints
+"Machine <name> is ready". A failure names the step, the end of what the machine wrote (secrets removed) and the fix.
+On Linux the install asks sudo for the password in your terminal; the app has no terminal, so from the app the machine's
+user needs sudo without a password, or run the command instead. Running it again upgrades the machine and pairs again
+only when the old pairing no longer answers.
+
+Then use it:
+
+- **Projects**: `astera --runtime <name> projects add --clone <git url> [--path <abs path>]`, or **Add project** on the
+  machine's row. The machine clones with its own git credentials (into `~/astera-projects/<name>` without `--path`) and
+  registers it. Only a full-control pairing may.
+- **Accounts**: **Sign in account** on the machine's row opens a terminal tab on that machine running
+  `astera accounts login --new` (full-control pairings); open its login link and finish in your browser. Its accounts
+  show under the row. A machine too old for that gets the command copied, to run in a terminal there.
+- **Tabs**: New console lists This computer, then each machine, and remembers the last pick per project.
+
+### Bring your setup
+
+`astera machines add` ends by bringing this computer's setup over (T12c). It lists exactly what moves and asks once
+(`--yes` skips the question); `--only` / `--skip` take `github,git,accounts,projects`, `--projects all|<id,...>`
+narrows the projects. On its own, for a machine added before, or again later:
+
+```
+astera machines migrate <name> [--only ...] [--skip ...] [--projects ...] [--dry-run] [--yes] [--target user@host --port n]
+```
+
+In the app it is the **Bring my setup** step after **Add a machine over SSH**, and **Copy my setup again** on the row of
+a machine added that way (its SSH address is kept in `<profile>/runtimes/machines.json`). Each item ends in one line:
+ok, needs a one-time login, skipped (and why) or failed (and the fix).
+
+- **GitHub**: `gh auth token` here, `gh auth login --with-token` there (gh installed with apt or winget when missing),
+  then `gh auth setup-git`, so git over HTTPS uses that login. No SSH private key moves; a GitHub SSH origin is cloned
+  over HTTPS instead.
+- **Git identity**: the global `user.name` and `user.email`.
+- **Accounts**: every Claude and Codex account is made there with the same label, colour and provider, in a new config
+  folder of its own, through `astera accounts import` (the login file written owner-only: 0600, or an owner-only ACL on
+  Windows, via a temp file that never outlives the write). Then the machine's own login check (`accounts list` over the
+  pairing) decides each line.
+- **Projects**: each project with an `origin` is cloned to `~/astera/projects/<name>` (Windows
+  `%USERPROFILE%\astera\projects\<name>`) with the migrated gh login, put on its default branch, registered, and given
+  its settings (delivery, delivery branch, auto-approve, hands-off, concurrency, review rounds, replan, prompts folder,
+  auto-projects, grants, coordinator model, origin sync). A project without a remote is skipped with that reason, and so
+  is a sub-project (its workspace is the repository that moves). Uncommitted work never moves; the plan says which projects have some.
+- **Not carried**: a project's account and run configuration (their ids are this computer's), window layout, the
+  app-wide auto-clean switch and account preferences (the machine keeps its own defaults).
+
+**Why Claude logins are not copied.** Claude Code (measured on 2.1.301) keeps an OAuth access token and a *rotating*
+refresh token in `.credentials.json` (`accessToken`, `refreshToken`, `expiresAt`, `refreshTokenExpiresAt`, `scopes`):
+a refresh returns a new pair and the old refresh token dies (the CLI tracks `known_dead_refresh_token`). Two machines
+sharing one copy would each refresh it, and the first refresh logs the other out, so copying would log you out here.
+It was not tried with a throw-away copy, because that test would rotate and kill the real login. So each Claude
+account gets its own long-lived token from `claude setup-token` (one browser approval per account, run here in your
+terminal; sign in to the browser as that account), written there as a credentials file with no refresh token. Codex's
+ChatGPT login rotates the same way and has no long-lived token, so a Codex account is made there and signed in once
+in your terminal (`codex login --device-auth` on the machine). From the app, which has no terminal, both are reported
+as **needs a one-time login**; run `astera machines migrate <name> --only accounts` in a terminal to finish them.
+
+**Security.** The GitHub token and the setup-tokens travel only on the SSH channel's standard input: never in a
+command line (`ps`), an environment variable of a long-lived process, a log, the activity feed, or a file left behind;
+every line shown has them removed. `--dry-run` lists the plan without reading a secret or touching the machine. Both
+commands, and `accounts import`, are refused inside an agent session (`ASTERA_SESSION` is set).
+
+
+The manual steps follow, for a machine this computer cannot reach over SSH.
+
+## One-command setup
+
+On the machine that will do the work, with the Astera installer copied onto it. The repository is private and has no
+public download, so the installer comes from your controller (the Astera app there can upload it) or a file you copy.
+
+Ubuntu or Debian, as the user the Runtime belongs to (not root; the script asks sudo for apt and linger):
+
+```text
+bash install-runtime.sh ./astera_<version>_amd64.deb --tailscale --full-control
+```
+
+Windows, in PowerShell as your own user (no administrator):
+
+```text
+powershell -ExecutionPolicy Bypass -File install-runtime.ps1 -Installer .\astera-<version>-setup.exe -Tailscale -FullControl
+```
+
+Both scripts are in `scripts/`. They install Astera, then run `astera runtime setup --yes` with the flags given, and
+their last line is `ASTERA_PAIR=<pairing string>`: give that string to the controller (`astera runtimes add --pair -`)
+and to nothing else, it carries a one-time code.
+
+With Astera already installed, the command alone does the same:
+
+```text
+astera runtime setup [--listen <addr> | --tailscale] [--name <n>] [--full-control] [--yes] [--codex] [--json]
+```
+
+Each step prints `ok`, `skipped` (already there) or `failed` with the reason, so running it again changes nothing that
+is in place:
+
+1. **git**: installed with apt on Ubuntu and Debian, with winget on Windows; on macOS it says to install it.
+2. **Node**: never installed. The Host runs on Astera's own runtime.
+3. **Claude CLI** (and the Codex CLI with `--codex`): the vendor's own installer. On Windows its folder goes on your
+   user Path, so the keep-alive task finds `claude`. Without `--yes` a missing package is a failed step that names the
+   command to run.
+4. **The `astera` command**: the same files as Settings › Integrations › CLI, in `~/.local/bin` or
+   `%LOCALAPPDATA%\astera\bin`.
+5. **Keep-alive**: the recipe for this OS below, written and started for you: a systemd user unit with linger on Linux,
+   the Task Scheduler logon task on Windows, a LaunchAgent on macOS.
+6. **Listen**: on `--listen`, else this machine's Tailscale IPv4 (`tailscale ip -4`), else its one private LAN address.
+   Several private addresses and no `--listen` is refused rather than guessed, and so is every interface (`0.0.0.0`).
+   Then Remote Runtime starts there.
+7. **Pair**: one pairing string, read-only unless `--full-control`. `--json` adds the machine name (`--name`, else the
+   host name), OS, address and fingerprint.
+
+It is refused inside an agent session. Then sign the accounts in, from any terminal on that machine:
+
+```text
+astera accounts login --new --label work
+```
+
+It makes a new account folder, registers it as an Astera account and runs Claude's own login for it: open the link it
+prints on any device and paste the code back. An account that did not sign in is not kept.
 
 ## Set up the Runtime
 
@@ -74,6 +212,7 @@ full-control controller can run a Job in any folder of the Runtime, and the app 
 Runtime.
 
 **Accounts.** The Claude and Codex accounts a Runtime uses are signed in on the Runtime machine, in the Astera app, once.
+With no desktop there, `astera accounts login --new` signs one in from a terminal (see One-command setup).
 A controller picks among them; no credential ever travels to or from the controller.
 
 ## Pair a controller

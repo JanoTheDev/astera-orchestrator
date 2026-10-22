@@ -605,6 +605,76 @@ describe('HostClient', () => {
     }
   })
 
+  // The 2026-10 blank start: the app was opened while the previous Host was leaving. That Host keeps its
+  // address bound for about a minute and destroys every new connection on arrival, and the hang-up
+  // landed while the client was still reading the Host key — before `attach` listened for it. The hello
+  // went nowhere, the handshake deadline called the Host unresponsive, and nothing ever retried.
+  it('waits out a Host that hangs up during the key read, then starts and reaches the next one', async () => {
+    const addr = addressFor('retiring')
+    if (addr.dirToPrepare) await fs.mkdir(addr.dirToPrepare, { recursive: true, mode: 0o700 })
+    let hangUps = 0
+    const leaving = net.createServer((sock) => {
+      hangUps += 1
+      sock.destroy()
+    })
+    await new Promise<void>((r) => leaving.listen(addr.address, r))
+    let spawned = 0
+    const seen: Array<ReturnType<HostClient['status']>> = []
+    const c = new HostClient({
+      // Slower than the hang-up, so the 'close' fires before `attach` runs.
+      hostKey: () => new Promise((r) => setTimeout(() => r(KEY), 30)),
+      address: addr.address,
+      appVersion: '9.0.0',
+      spawnHost: async () => {
+        spawned += 1
+        await serveAt(addr)
+      },
+      log: () => {},
+      helloMs: 60,
+      retiringRetryMs: 20
+    })
+    c.onStatusChange((s) => seen.push(s))
+    c.start()
+    const ready = c.ready(100)
+    await settled(c, (s) => s.waitingForPreviousHost === true)
+    await waitFor(() => hangUps >= 3)
+    // Still waiting, not written off: the handshake deadline (60ms) has long passed by now.
+    expect(c.status()).toMatchObject({ connected: false, unresponsive: false, waitingForPreviousHost: true })
+    expect(spawned).toBe(0)
+    // The old Host finally lets go of the address; the next try finds nothing there and starts one.
+    await new Promise<void>((r) => leaving.close(() => r()))
+    await settled(c, (s) => s.connected)
+    // `ready()` waited the whole time rather than expiring into "no Host".
+    await ready
+    expect(spawned).toBe(1)
+    expect(c.status()).toMatchObject({ connected: true, waitingForPreviousHost: false, problem: null })
+    expect(seen.some((s) => s.unresponsive)).toBe(false)
+    await c.stop()
+  })
+
+  it('gives up waiting for a leaving Host after the bound and says why', async () => {
+    const addr = addressFor('stuck-leaving')
+    if (addr.dirToPrepare) await fs.mkdir(addr.dirToPrepare, { recursive: true, mode: 0o700 })
+    const leaving = net.createServer((sock) => sock.destroy())
+    await new Promise<void>((r) => leaving.listen(addr.address, r))
+    try {
+      const c = new HostClient({ hostKey,
+        address: addr.address,
+        appVersion: '9.0.0',
+        spawnHost: () => {},
+        log: () => {},
+        retiringRetryMs: 20,
+        retiringWaitMs: 100
+      })
+      c.start()
+      await settled(c, (s) => s.problem?.includes('had not finished shutting down') === true)
+      expect(c.status()).toMatchObject({ connected: false, unresponsive: false, waitingForPreviousHost: false })
+      await c.stop()
+    } finally {
+      await new Promise<void>((r) => leaving.close(() => r()))
+    }
+  })
+
   // The 2026-09-22 failure, in the case the app was already connected for: the Host had answered
   // every message for a day, then stopped answering anything at all mid-spawn. Nothing closed, so
   // nothing in the client noticed.

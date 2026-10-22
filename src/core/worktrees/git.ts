@@ -311,6 +311,26 @@ export async function fetchBaseRef(
   throw new Error(`FETCH_FAILED: could not refresh ${baseRef} from the remote — check the network (${r.stderr})`)
 }
 
+/** T4: how long one `git fetch origin <branch>` of the origin sync may take before it counts as offline. */
+export const ORIGIN_FETCH_TIMEOUT_MS = 30_000
+
+/** T4: fetches origin's `branch` into `refs/remotes/origin/<branch>`. `no-origin`: the repository has no remote named
+ *  origin (nothing to keep in sync with); `no-repo`: git cannot run there; `failed`: origin did not answer in time, or
+ *  has no such branch. Never throws. */
+export async function fetchOrigin(
+  repo: string,
+  branch: string
+): Promise<{ kind: 'fetched' } | { kind: 'no-origin' } | { kind: 'no-repo'; reason: string } | { kind: 'failed'; reason: string }> {
+  const remotes = await git(['remote'], { cwd: repo })
+  if (!remotes.ok) return { kind: 'no-repo', reason: (remotes.stderr || remotes.stdout).trim() || 'git cannot run there' }
+  if (!remotes.stdout.split('\n').some((l) => l.trim() === 'origin')) return { kind: 'no-origin' }
+  const r = await git(['fetch', '--no-tags', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`], {
+    cwd: repo,
+    timeoutMs: ORIGIN_FETCH_TIMEOUT_MS
+  })
+  return r.ok ? { kind: 'fetched' } : { kind: 'failed', reason: (r.stderr || r.stdout).trim() || 'git fetch failed' }
+}
+
 export async function localBranchExists(repo: string, branch: string): Promise<boolean> {
   return (await git(['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], { cwd: repo })).ok
 }

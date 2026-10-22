@@ -42,6 +42,14 @@ const spawnMsg: ClientMessage = {
 }
 
 describe('attachPtyHost', () => {
+  it('a pty-kill with a closeReason comes back on the pty-exit', () => {
+    const h = harness()
+    h.send(spawnMsg)
+    h.send({ t: 'pty-kill', id: 'p1', closeReason: 'replaced' })
+    h.pty.exit(143)
+    expect(h.broadcast.at(-1)).toEqual({ t: 'pty-exit', id: 'p1', exitCode: 143, closeReason: 'replaced' })
+  })
+
   it('leaves a message it does not own to the caller', () => {
     const h = harness()
     expect(h.send({ t: 'retire' })).toBe(false)

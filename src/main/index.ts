@@ -25,7 +25,7 @@ import { clearAppRunning, markAppRunning } from '../core/host/pidFile'
 import { flushAllLogsSync, lineLog } from '../core/log/logWriter'
 import { createHeldNotifications } from './heldNotifications'
 import { applyLoginPath } from './loginPath'
-import { startUp, startingPageUrl, loadInto, storedTheme } from './startup'
+import { startUp, startingPageUrl, loadInto, storedTheme, quitOnSignals } from './startup'
 import type { Theme } from '../core/theme/themes'
 import { pickInitialLang } from '../core/i18n/locale'
 import { shouldForceWaylandOzone } from './ozone'
@@ -105,6 +105,7 @@ import {
 } from '../core/update/checkTimeout'
 import { providerOf } from '../core/providers/meta'
 import { USAGE_GATE_MAX_AGE_MS } from '../core/usage/rateLimitFetcher'
+import { createAccountUsageSource } from '../core/usage/accountReadings'
 
 // The dev (unpackaged) app uses a different userData folder than the installed one. The installer
 // writes to %APPDATA%\Astera, and because Windows is case-insensitive the dev build (app name
@@ -493,6 +494,14 @@ function refreshTrayMenu(): void {
 // which moves switches ahead of plain arguments, so `--project <name>` arrives split apart there.
 const gotSingleInstanceLock = app.requestSingleInstanceLock({ argv: process.argv, cwd: process.cwd() })
 if (!gotSingleInstanceLock) app.quit()
+// `kill` and Ctrl+C in a terminal end the app as a quit would, and never leave it running (quitOnSignals).
+quitOnSignals({
+  on: (signal, cb) => void process.on(signal, cb),
+  quit: () => app.quit(),
+  exit: (code) => app.exit(code),
+  flushLogs: flushAllLogsSync,
+  log: (m) => console.log(m)
+})
 
 // Brings the last focused window to the front: restores it if minimized, shows and focuses it. Shared by the
 // second-instance handler, the macOS activate handler and the tray.
@@ -934,6 +943,21 @@ app.whenReady().then(async () => {
   // Owned by core so the account panel's service and the limit verdict share one cache — see
   // Core.usageFetcher for why that sharing is load-bearing.
   const usageFetcher = core.usageFetcher
+  // T5a: what a roll checks its target by — every account's usage (stale or weekly-less statusLine readings fetched
+  // through the same cache) and the live sessions on it, so a roll skips a full account and spreads over the rest.
+  // Read on the same 15-second cadence the coordinators tick on; the fetch cache keeps that to a few real requests.
+  const accountUsage = createAccountUsageSource({
+    statuslineDir: path.join(path.dirname(core.hookEventsDir), 'statusline'),
+    sessions: () => core!.sessions.list().map((s) => ({ id: s.id, accountId: s.accountId })),
+    accounts: async () => core!.accounts.list(),
+    fetch: (configDir) => usageFetcher.get(configDir),
+    pauseAt: async () => core!.appSettings.getUsagePauseAt()
+  })
+  const refreshAccountUsage = (): void => {
+    accountUsage.refresh().catch((err) => rollingLog(`account usage could not be read: ${String(err)}`))
+  }
+  refreshAccountUsage()
+  setInterval(refreshAccountUsage, 15_000).unref?.()
   // One registry for both coordinators — the sharing is the feature (SPEC §11.2/6). Two instances
   // would compile and pass every test while sharing nothing.
   const blocks = new BlockRegistry()
@@ -1251,7 +1275,8 @@ app.whenReady().then(async () => {
     // 한도에 걸린 세션을 어떻게 이어갈지(Task 1 의 설정) — orchEnv 와 같은 이유로 getter 다: 값이
     // 설정 화면에서 앱 수명 중간에 바뀌고, 이 코디네이터는 그보다 먼저 만들어진다. codexRolling 의
     // 같은 배선과 같은 자리, 같은 값이다.
-    resumeStrategy: () => core!.appSettings.getResumeStrategy()
+    resumeStrategy: () => core!.appSettings.getResumeStrategy(),
+    accountUsage: () => accountUsage.current()
   })
   rollingRef = rolling
 
@@ -1329,7 +1354,9 @@ app.whenReady().then(async () => {
     resumeText: resumeTextDep,
     // 한도에 걸린 세션을 어떻게 이어갈지(Task 1 의 설정) — orchEnv 와 같은 이유로 getter 다: 값이
     // 설정 화면에서 앱 수명 중간에 바뀌고, 이 코디네이터는 그보다 먼저 만들어진다.
-    resumeStrategy: () => core!.appSettings.getResumeStrategy()
+    resumeStrategy: () => core!.appSettings.getResumeStrategy(),
+    // T5a: the same usage source as the claude coordinator (codex accounts have no readings yet: round robin).
+    accountUsage: () => accountUsage.current()
   })
   codexRollingRef = codexRolling
   // Agent orchestration: an HTTP server embedded in the app plus the astera CLI let an agent spawn
@@ -1406,6 +1433,11 @@ app.whenReady().then(async () => {
   // app to AppIndicator support the desktop may not have. refreshTrayMenu guards on `tray?.`, so the
   // language-change callback wired just above stays correct with no tray to rebuild.
   if (process.platform !== 'linux') createTray()
+
+  // T5b: the per-account session cap (Settings › Accounts). Here rather than in ipc.ts beside usagePauseAt: the store
+  // narrows whatever the renderer sends (accountMaxSessionsOf).
+  ipcMain.handle('settings.getAccountMaxSessions', () => core!.appSettings.getAccountMaxSessions())
+  ipcMain.handle('settings.setAccountMaxSessions', (_e, v: unknown) => core!.appSettings.setAccountMaxSessions(v))
 
   // W9-K: a renderer asks which project its window is bound to, reports what it shows, and opens a new window
   // (the switcher's "Open in new window", Ctrl+Shift+N).

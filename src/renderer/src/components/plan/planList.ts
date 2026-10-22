@@ -12,6 +12,8 @@ type T = (key: MessageKey, params?: MessageParams) => string
 export interface PlanStatus {
   key: MessageKey
   tone: ChipTone
+  /** Why a failed plan's delivery failed (the Run's deliveryError) */
+  reason?: string
 }
 
 /** The one word a plan row's status chip says. A person's part first (approve, a gate), then what holds it, then how it runs. */
@@ -25,10 +27,19 @@ export function planStatusOf(row: JobRow): PlanStatus {
   if (slot === 'auto') return { key: 'jobs.run.startsByItself', tone: 'info' }
   if (row.pendingStart) return row.after !== undefined ? { key: 'pages.plans.status.queued', tone: 'neutral' } : { key: 'jobs.run.notStarted', tone: 'neutral' }
   if (row.paused) return { key: 'jobs.run.roundStopped', tone: 'neutral' }
+  // Item 2: everything else ended, and the Tasks held for the owner are left
+  if (row.outcome === 'blocked') return { key: 'pages.plans.status.blocked', tone: 'warn' }
+  // T8: nothing can move until the owner answers (JobRow.stuck)
+  if (row.stuck === 'needs-you') return { key: 'plan.outcome.needsYou', tone: 'warn' }
   if (row.tasks.some((t) => t.status === 'blocked')) return { key: 'pages.plans.status.needsYou', tone: 'warn' }
   if (row.dispatchHold) return { key: 'jobs.hold.held', tone: 'warn' }
+  // T8: reads running, and nothing works on it or retries it (`runs doctor`)
+  if (row.stuck === 'stalled') return { key: 'plan.outcome.stalled', tone: 'danger' }
   if (row.outcome === 'running') return { key: 'pages.plans.status.working', tone: 'info' }
-  return row.outcome === 'failed' ? { key: 'pages.plans.status.failed', tone: 'danger' } : { key: 'pages.plans.status.done', tone: 'ok' }
+  // Item 8: every Task completed, the final check has not settled: not done yet
+  if (row.outcome === 'checking') return { key: 'pages.plans.status.checking', tone: 'info' }
+  if (row.outcome === 'failed') return { key: 'pages.plans.status.failed', tone: 'danger', ...(row.deliveryError !== undefined ? { reason: row.deliveryError } : {}) }
+  return { key: 'pages.plans.status.done', tone: 'ok' }
 }
 
 /** The latest time the snapshot knows something happened to the plan (made, started, a worker started, its PR, archived),

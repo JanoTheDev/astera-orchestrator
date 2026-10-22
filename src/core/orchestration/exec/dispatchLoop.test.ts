@@ -4,6 +4,7 @@
 // 하나이고, 가짜는 세션을 실제로 띄우는 startWorker 와 DispatchLoopContext 의 바깥 자리(계정·로그인·
 // 워크트리·세션)뿐이다. **setState 는 상태를 갈아 끼운 뒤 `loop.run()` 을 다시 부른다** — 앱의 커밋
 // 훅이 하는 일 그대로라(B4), 루프의 scheduleAgain 갈래가 운영에서처럼 돈다.
+import { ORIGIN_SYNC_MARK } from './originSync'
 import { describe, it, expect, vi } from 'vitest'
 import {
   COORDINATOR_STOP_RETRY_CAP_TRIES,
@@ -19,9 +20,12 @@ import {
 import { coordinatorReleaseOf } from './releaseDefer'
 import { REPLAN_LIFT_HOLD } from './replanStart'
 import { handleCommand, type OrchServerDeps } from '../command'
+import { createDispatchLoop as freshLoop } from './dispatchLoop'
+import { DELIVERY_OWNER_PUSHES, DELIVERY_RETRY_NOW } from '../delivery'
 import { APP_CALLER } from '../../host/driver'
 import { addDecision, COORDINATOR_START_WINDOW_MS, emptyState, type OrchState } from '../state'
 import { needsInput } from '../sessionIndex'
+import { outcomeOf } from '../running'
 import { ASK_GRACE_MS } from './autoAnswer'
 import type { Dispatch, Job, Message, Task } from '../types'
 import { FAILURE_LIMIT } from '../types'
@@ -64,6 +68,8 @@ const message = (over: Partial<Message> & Pick<Message, 'id' | 'type'>): Message
 
 interface RigOpts {
   concurrency?: number
+  /** T3: the Host's push delivery, so `run-deliver` on a push plan runs for real over it. */
+  deliverPush?: OrchServerDeps['deliverPush']
   /** 몇 번째 startWorker 호출(0부터)이 던지는가. 'all' 이면 전부. */
   startFailsFor?: number | 'all'
   /** gate-create 가 거절된다(열린 Dispatch 가 있는 Task 의 Gate 처럼). */
@@ -214,7 +220,8 @@ function rig(o: RigOpts = {}) {
     listAccounts: async () => [{ id: 'accA', label: 'accA', provider: 'claude' as const }],
     log: () => {},
     runningSessions: () => 0,
-    appVersion: () => '1.0.0'
+    appVersion: () => '1.0.0',
+    ...(o.deliverPush ? { deliverPush: o.deliverPush } : {})
   } as unknown as OrchServerDeps
 
   /** 진짜 command layer — 테스트가 ctx.handle 을 갈아 끼워도 그 안에서 부를 수 있게 따로 둔다. */
@@ -258,7 +265,8 @@ function rig(o: RigOpts = {}) {
     get(target, key, receiver) {
       if (key === 'handle')
         return (cmd: string, args: Record<string, unknown>) => {
-          cmds.push(cmd)
+          // T3: the loop's mark that a Run it saw running has a delivery pending is bookkeeping, not a step under test
+          if (!(cmd === 'run-deliver' && args.pending === true)) cmds.push(cmd)
           return target.handle(cmd, args)
         }
       return Reflect.get(target, key, receiver)
@@ -307,6 +315,15 @@ describe('createDispatchLoop', () => {
     await h.settle()
     expect(h.startWorker).toHaveBeenCalledTimes(1)
     expect(h.handled()).toEqual(['worker-start'])
+  })
+
+  it("T4: an origin sync's open integration Task holds the Run's new Tasks", async () => {
+    const h = rig()
+    const merge = task({ id: 'tsk_sync', parentId: 'tsk_1', status: 'failed', spec: `${ORIGIN_SYNC_MARK} origin/main moved on` })
+    h.setState({ ...h.state(), tasks: [...h.state().tasks, merge] })
+    await h.loop.run()
+    await h.settle()
+    expect(h.startWorker).not.toHaveBeenCalled()
   })
 
   it('asks mayStart before every slot: a driver that changes mid-activation starts no further slot (§4.3)', async () => {
@@ -557,6 +574,25 @@ describe('createDispatchLoop', () => {
     await h.loop.nudge()
     expect(h.state().gates.filter((g) => g.taskId === merge.id)).toHaveLength(1)
   })
+  it('writes the merge Task title and its Gate reason in the app language (en), with no Hangul', async () => {
+    const h = rig()
+    driven(h, {
+      tasks: [task({ id: 'tsk_1', status: 'completed' })],
+      dispatches: [
+        { id: 'dsp_1', taskId: 'tsk_1', provider: 'claude', accountId: 'accA', sessionId: 'w-1', cwd: '/wt-child', specPath: '', startedAt: NOW, endedAt: NOW, outcome: 'succeeded' } as Dispatch
+      ]
+    })
+    h.ctx.integrate = async () => ({ kind: 'agent', reason: 'it conflicts', worktrees: [{ path: '/wt-child', branch: 'a' }] })
+    await h.loop.nudge()
+    const merge = h.state().tasks.find((t) => t.parentId === 'tsk_1')!
+    expect(merge.title).toBe(`Merge worktrees: ${h.state().tasks.find((t) => t.id === 'tsk_1')!.title}`.slice(0, 80))
+    const d = h.state().dispatches.find((x) => x.taskId === merge.id)!
+    await h.as(d.sessionId, 'send', { type: 'worker_done', taskId: merge.id, dispatchId: d.id, outcome: 'failed', subject: 'x', body: 'y' })
+    await h.loop.nudge()
+    const gate = h.state().gates.find((g) => g.taskId === merge.id)!
+    expect(gate.question).toMatch(/^tsk_1's branch could not be merged into the plan branch \(.+\), and the merge worker failed too: the merge worker failed$/)
+    expect(`${merge.title}\n${gate.question}`).not.toMatch(/[가-힣]/)
+  })
   it("a clean wave merge tells the coordinator, once, and the next ready Task", async () => {
     const h = rig()
     driven(h, {
@@ -637,6 +673,42 @@ describe('createDispatchLoop', () => {
     expect(h.handled()).toEqual(['worker-start', 'gate-create'])
   })
 
+  // T10: a hands-off plan answers each Gate and the Task goes back to ready; the same reason must not open Gates for ever.
+  it('blocks a Task once, with no third Gate, when a hands-off plan has answered the same reason twice', async () => {
+    const h = rig({ startFailsFor: 'all' })
+    h.startWorker.mockRejectedValue(new Error('same reason'))
+    const s0 = h.state()
+    h.setState({ ...s0, jobs: s0.jobs.map((j) => ({ ...j, handsOff: true })) })
+    for (let i = 0; i < 2; i++) {
+      await h.loop.run()
+      await h.settle()
+      const open = h.state().gates.filter((g) => g.taskId === 'tsk_1' && g.status === 'open')
+      expect(open).toHaveLength(1)
+      expect((await h.real('questions-answer', { id: open[0].id, answer: 'Refused' })).status).toBe(200)
+      await h.settle()
+    }
+    await h.loop.run()
+    await h.settle()
+    expect(h.state().gates.filter((g) => g.taskId === 'tsk_1')).toHaveLength(2)
+    const blocked = h.state().tasks.find((t) => t.id === 'tsk_1')
+    expect(blocked?.status).toBe('blocked')
+    expect(blocked?.result).toContain('same reason')
+  })
+
+  it('keeps opening a Gate for a plan that is not hands-off', async () => {
+    const h = rig({ startFailsFor: 'all' })
+    h.startWorker.mockRejectedValue(new Error('same reason'))
+    for (let i = 0; i < 3; i++) {
+      await h.loop.run()
+      await h.settle()
+      const open = h.state().gates.filter((g) => g.taskId === 'tsk_1' && g.status === 'open')
+      expect(open).toHaveLength(1)
+      await h.real('questions-answer', { id: open[0].id, answer: 'retry' })
+      await h.settle()
+    }
+    expect(h.state().gates.filter((g) => g.taskId === 'tsk_1').length).toBeGreaterThanOrEqual(3)
+  })
+
   // R14.
   it('does nothing more with a Task once worker-start answered 2xx: a throwing log after it costs nothing', async () => {
     const h = rig()
@@ -650,14 +722,14 @@ describe('createDispatchLoop', () => {
 
   // R14, the log itself: the question path logs after its reply, and a gate logs before its command. A
   // log that throws must reach neither the caller nor the Gate — `log` is a notice, not a step.
-  it('a throwing log never breaks the loop: the reply and the gate still go out, and run() resolves', async () => {
-    const h = rig({ question: true, noAccountTask: true })
+  it('a throwing log never breaks the loop: the reply still goes out, and run() resolves', async () => {
+    const h = rig({ question: true })
     h.ctx.log = () => {
       throw new Error('log down')
     }
     await expect(h.loop.run()).resolves.toBeUndefined()
     await h.settle()
-    expect(h.handled()).toEqual(['gate-create', 'reply'])
+    expect(h.handled()).toContain('reply')
   })
 
   it('answers an unattended question with NO_COORDINATOR_ANSWER on a Run with no coordinator', async () => {
@@ -715,11 +787,13 @@ describe('createDispatchLoop', () => {
     })
   })
 
-  it('gates a ready Task with no account (tasksMissingAccounts)', async () => {
+  // T5b: no account named is auto, never a Gate
+  it('starts a ready Task with no account on a logged-in account instead of gating it', async () => {
     const h = rig({ noAccountTask: true })
     await h.loop.run()
     await h.settle()
-    expect(h.handled()).toContain('gate-create')
+    expect(h.handled()).not.toContain('gate-create')
+    expect(h.handled()).toContain('worker-start')
   })
 
   it('fires a due schedule only after one tick has armed it (D2)', async () => {
@@ -1022,7 +1096,7 @@ describe('a finished scheduled Run’s coordinator is stopped (U4)', () => {
     withCoordinator(h, 'run_rc', 'coord-rc')
     await h.loop.run()
     await h.settle()
-    expect(h.stopCoordinator.mock.calls).toEqual([['coord-rc', 'the run has nothing left for it to do']])
+    expect(h.stopCoordinator.mock.calls).toEqual([['coord-rc', 'the run has nothing left for it to do', 'stopped']])
     expect(h.handled()).toContain('run-coordinator-stop')
     expect(h.state().runs.find((r) => r.id === 'run_rc')?.coordinatorStopPending).toBeDefined()
     await h.loop.run()
@@ -1137,7 +1211,7 @@ describe('a finished manual Run’s coordinator stops after the grace', () => {
     h.clock = NOW_MS + 10 * MIN
     await pass(h)
     expect(stops(h)).toBe(1)
-    expect(h.stopCoordinator.mock.calls).toEqual([['coord-1', 'the run has nothing left for it to do']])
+    expect(h.stopCoordinator.mock.calls).toEqual([['coord-1', 'the run has nothing left for it to do', 'stopped']])
     await pass(h)
     expect(stops(h)).toBe(1)
   })
@@ -1147,7 +1221,7 @@ describe('a finished manual Run’s coordinator stops after the grace', () => {
     h.clock = NOW_MS + 10 * MIN
     await h.loop.nudge()
     await h.settle()
-    expect(h.stopCoordinator.mock.calls).toEqual([['coord-1', 'the run has nothing left for it to do']])
+    expect(h.stopCoordinator.mock.calls).toEqual([['coord-1', 'the run has nothing left for it to do', 'stopped']])
   })
 
   it('a person typing into it at minute 8 moves the stop to minute 18', async () => {
@@ -1238,7 +1312,7 @@ describe('a finished manual Run’s coordinator stops after the grace', () => {
     h.setState({ ...s, runs: s.runs.map((r) => (r.id === 'run_rc' ? { ...r, coordinatorSessionId: 'coord-rc' } : r)) })
     h.ctx.sessionBusy = () => true
     await pass(h)
-    expect(h.stopCoordinator.mock.calls).toEqual([['coord-rc', 'the run has nothing left for it to do']])
+    expect(h.stopCoordinator.mock.calls).toEqual([['coord-rc', 'the run has nothing left for it to do', 'stopped']])
   })
 
   // The re-check in run-coordinator-stop (runMoves): a stop still pending for a Run that has work again
@@ -1541,7 +1615,7 @@ describe('a coordinator stop is retried until the session is gone (L1)', () => {
     await h.loop.run()
     await h.settle()
     expect(stops(h)).toBe(2)
-    expect(h.stopCoordinator.mock.calls).toEqual([['coord-rc', 'the run has nothing left for it to do']])
+    expect(h.stopCoordinator.mock.calls).toEqual([['coord-rc', 'the run has nothing left for it to do', 'stopped']])
     expect(rc(h).coordinatorStopPending).toBeDefined()
   })
 
@@ -1846,12 +1920,11 @@ describe('dispatchOne — one ready Task placed on request (tasks dispatch)', ()
     expect(h.state().tasks.find((t) => t.id === 'tsk_1')!.status).toBe('ready')
   })
 
-  it('refuses a Task that is not ready, one with no account, and an unknown one', async () => {
+  it('refuses a Task that is not ready and an unknown one', async () => {
     const h = unplaced({ noAccountTask: true })
     const s = h.state()
     h.setState({ ...s, tasks: s.tasks.map((t) => (t.id === 'tsk_1' ? { ...t, status: 'pending' as const } : t)) })
     expect((await h.loop.dispatchOne('tsk_1')).status).toBe(409)
-    expect(((await h.loop.dispatchOne('tsk_na')).body as { error: string }).error).toContain('names no account')
     expect((await h.loop.dispatchOne('tsk_nope')).status).toBe(404)
     expect(h.handled()).toEqual([])
   })
@@ -1970,7 +2043,13 @@ describe("a completed Run opens its plan's pull request (W2-D)", () => {
   }
   const fakePr = (h: ReturnType<typeof rig>): void => {
     // W6-H: the loop asks `run-deliver`, which is `run-open-pr` for a `pr` project
-    h.ctx.handle = async (cmd, args) => (cmd === 'run-deliver' ? { status: 200, body: { url: 'https://github.com/o/r/pull/1' } } : h.real(cmd, args))
+    // T3: the pending mark goes through; an attempt is recorded delivered, as the command does
+    h.ctx.handle = async (cmd, args) => {
+      if (cmd !== 'run-deliver' || args.pending === true) return h.real(cmd, args)
+      const s = h.state()
+      h.setState({ ...s, runs: s.runs.map((r) => (r.id === args.run ? { ...r, deliveryState: { state: 'delivered' as const, attempts: 1 } } : r)) })
+      return { status: 200, body: { url: 'https://github.com/o/r/pull/1' } }
+    }
   }
   const asked = (h: ReturnType<typeof rig>): number => h.handled().filter((c) => c === 'run-deliver').length
 
@@ -1987,6 +2066,34 @@ describe("a completed Run opens its plan's pull request (W2-D)", () => {
     await h.loop.run()
     await h.settle()
     expect(asked(h)).toBe(1)
+  })
+
+  it('T3: a delivery that failed reads failed, is not escalated yet, and is not asked again before its retry time', async () => {
+    const h = rig()
+    withWorktree(h, 'run_1')
+    const why = 'git merge-tree says x does not merge cleanly'
+    h.ctx.handle = async (cmd, args) => {
+      if (cmd !== 'run-deliver' || args.pending === true) return h.real(cmd, args)
+      const s = h.state()
+      const p = { state: 'retrying' as const, attempts: 1, lastError: why, nextRetryAt: new Date(h.clock + 60_000).toISOString() }
+      h.setState({ ...s, runs: s.runs.map((r) => (r.id === 'run_1' ? { ...r, pr: { at: NOW, error: why }, deliveryState: p } : r)) })
+      return { status: 409, body: { error: why, deliveryState: p } }
+    }
+    await h.loop.run()
+    await h.settle()
+    finish(h, 'run_1')
+    for (let i = 0; i < 3; i++) {
+      await h.loop.run()
+      await h.settle()
+    }
+    expect(asked(h)).toBe(1)
+    expect(outcomeOf(h.state(), 'run_1')).toBe('failed')
+    expect(h.state().messages.filter((m) => m.type === 'escalation' && m.runId === 'run_1')).toHaveLength(0)
+    expect(h.handled()).not.toContain('jobs-replan')
+    h.clock += 61_000
+    await h.loop.run()
+    await h.settle()
+    expect(asked(h)).toBe(2)
   })
 
   it('does not ask for a Run that was already done when it started', async () => {
@@ -2025,7 +2132,7 @@ describe("a completed Run opens its plan's pull request (W2-D)", () => {
     await h.loop.run()
     await h.settle()
     const s = h.state()
-    h.setState({ ...s, runs: s.runs.map((r) => ({ ...r, delivery: { at: 'x', error: 'stopped' } })) })
+    h.setState({ ...s, runs: s.runs.map((r) => ({ ...r, delivery: { at: 'x', sha: 'abc1234' } })) })
     finish(h, 'run_1')
     await h.loop.run()
     await h.settle()
@@ -2051,7 +2158,58 @@ describe("a completed Run opens its plan's pull request (W2-D)", () => {
     await h.settle()
     expect(asked(h)).toBe(1)
   })
-  it('never pushes a Run that ended with a failed Task', async () => {
+  it('never pushes a Run that ended with a failed Task, and says why once (T3)', async () => {
+    const pushes: unknown[] = []
+    const h = rig({ deliverPush: async (a) => (pushes.push(a), { ok: true, branch: 'main', sha: 's', merged: [], validated: 0 }) })
+    const s = h.state()
+    h.setState({ ...s, jobs: s.jobs.map((j) => ({ ...j, delivery: 'push' as const })) })
+    withWorktree(h, 'run_1')
+    await h.loop.run()
+    await h.settle()
+    failOne(h)
+    for (let i = 0; i < 3; i++) {
+      await h.loop.run()
+      await h.settle()
+    }
+    expect(pushes).toEqual([])
+    expect(asked(h)).toBe(1)
+    expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'failed', lastError: expect.stringContaining('failed tasks') })
+    expect(h.logs.filter((l) => l.includes('it was not delivered') && l.includes('failed tasks'))).toHaveLength(1)
+  })
+
+  // Item 2: a plan that finished with a Task held for the owner delivers its completed work too, never by a push, and
+  // once the owner releases that Task and the plan completes, it is delivered again
+  const holdOne = (h: ReturnType<typeof rig>): void => {
+    const s = h.state()
+    h.setState({
+      ...s,
+      tasks: s.tasks.map((t, i) => (i === 0 ? { ...t, status: 'blocked' as const, result: "Waiting on the owner's decision: drop it?" } : { ...t, status: 'completed' as const }))
+    })
+  }
+  it('asks once for a pr Run that finished with a blocked Task, and again after the owner releases it and it completes', async () => {
+    const h = rig()
+    withWorktree(h, 'run_1')
+    fakePr(h)
+    await h.loop.run()
+    await h.settle()
+    holdOne(h)
+    expect(outcomeOf(h.state(), 'run_1')).toBe('blocked')
+    await h.loop.run()
+    await h.settle()
+    await h.loop.run()
+    await h.settle()
+    expect(asked(h)).toBe(1)
+    const s = h.state()
+    h.setState({ ...s, tasks: s.tasks.map((t, i) => (i === 0 ? { ...t, status: 'ready' as const } : t)) })
+    expect(outcomeOf(h.state(), 'run_1')).toBe('running')
+    await h.loop.run()
+    await h.settle()
+    finish(h, 'run_1')
+    await h.loop.run()
+    await h.settle()
+    expect(asked(h)).toBe(2)
+  })
+  it('never pushes a Run that finished with a blocked Task', async () => {
     const h = rig()
     const s = h.state()
     h.setState({ ...s, jobs: s.jobs.map((j) => ({ ...j, delivery: 'push' as const })) })
@@ -2059,10 +2217,104 @@ describe("a completed Run opens its plan's pull request (W2-D)", () => {
     fakePr(h)
     await h.loop.run()
     await h.settle()
-    failOne(h)
+    holdOne(h)
     await h.loop.run()
     await h.settle()
     expect(asked(h)).toBe(0)
+  })
+})
+
+// T3: a push plan's delivery over the real `run-deliver`, with the Host's push faked: persisted attempts, retries with
+// backoff, one owner question, a restart that resumes, an integration Task for a conflict with origin.
+describe('a delivery that finishes by itself (T3)', () => {
+  type Push = NonNullable<OrchServerDeps['deliverPush']>
+  const pushPlan = (push: Push) => {
+    const h = rig({ deliverPush: push })
+    const s = h.state()
+    h.setState({ ...s, jobs: s.jobs.map((j) => ({ ...j, delivery: 'push' as const })), runs: s.runs.map((r) => ({ ...r, worktree: '/wt-run' })) })
+    return h
+  }
+  const finishAll = (h: ReturnType<typeof rig>): void => {
+    const s = h.state()
+    h.setState({ ...s, tasks: s.tasks.map((t) => ({ ...t, status: 'completed' as const })), dispatches: [] })
+  }
+  const pass = async (h: ReturnType<typeof rig>, loop = h.loop): Promise<void> => {
+    await loop.run()
+    await h.settle()
+  }
+  const stopped: Push = async () => ({ ok: false, reason: 'git fetch origin main failed: offline', branch: 'main', code: 'fetch-failed' })
+  const ok: Push = async () => ({ ok: true, branch: 'main', sha: 'abc1234', merged: [], validated: 0 })
+
+  it('a failed push is retried after nextRetryAt, and a restarted loop over the same state resumes it', async () => {
+    let calls = 0
+    const h = pushPlan(async (a) => (++calls === 1 ? stopped(a) : ok(a)))
+    await pass(h)
+    finishAll(h)
+    await pass(h)
+    await pass(h)
+    expect(calls).toBe(1)
+    const p = h.state().runs[0].deliveryState!
+    expect(p).toMatchObject({ state: 'retrying', attempts: 1, lastError: expect.stringContaining('offline') })
+    expect(Date.parse(p.nextRetryAt!)).toBe(h.clock + 60_000)
+    // a Host restart: a new loop, nothing in memory, the same state
+    const again = freshLoop(h.ctx)
+    await pass(h, again)
+    expect(calls).toBe(1)
+    h.clock += 60_000
+    await pass(h, again)
+    expect(calls).toBe(2)
+    expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'delivered', attempts: 2 })
+    expect(h.state().runs[0].delivery).toMatchObject({ sha: 'abc1234' })
+  })
+
+  it('after 5 failed attempts exactly one owner question exists, and its answer is acted on', async () => {
+    let calls = 0
+    let ownerDone = false
+    const h = pushPlan(async (a) => (a.ownerPushed ? (ownerDone ? ok(a) : stopped(a)) : (++calls, stopped(a))))
+    await pass(h)
+    finishAll(h)
+    for (let i = 0; i < 8; i++) {
+      await pass(h)
+      h.clock += 61 * 60_000
+    }
+    expect(calls).toBeGreaterThanOrEqual(5)
+    const questions = h.state().messages.filter((m) => m.type === 'escalation' && m.runId === 'run_1')
+    expect(questions).toHaveLength(1)
+    expect(questions[0].options).toEqual([DELIVERY_RETRY_NOW, DELIVERY_OWNER_PUSHES])
+    expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'needs-owner', questionId: questions[0].id })
+    // "I'll push it myself": git (the fake) is asked whether the commits reached the branch, until they did
+    const s = h.state()
+    h.setState({ ...s, messages: s.messages.map((m) => (m.id === questions[0].id ? { ...m, answered: true, answerBody: DELIVERY_OWNER_PUSHES } : m)) })
+    const before = calls
+    await pass(h)
+    expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'needs-owner', ownerPushes: true })
+    ownerDone = true
+    h.clock += 5 * 60_000
+    await pass(h)
+    expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'delivered-by-owner' })
+    expect(calls).toBe(before)
+  })
+
+  it('a Run finishing, then a restart before delivery, still delivers', async () => {
+    let calls = 0
+    const h = pushPlan(async (a) => (++calls, ok(a)))
+    await pass(h)
+    expect(h.state().runs[0].deliveryState).toEqual({ state: 'pending', attempts: 0 })
+    finishAll(h)
+    const restarted = freshLoop(h.ctx)
+    await pass(h, restarted)
+    expect(calls).toBe(1)
+    expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'delivered' })
+  })
+
+  it('a conflict with origin opens an integration Task in the plan', async () => {
+    const h = pushPlan(async () => ({ ok: false, reason: 'origin/main moved on and does not merge cleanly', branch: 'main', code: 'origin-conflict', conflictWith: 'f00dfeed' }))
+    await pass(h)
+    finishAll(h)
+    await pass(h)
+    const merge = h.state().tasks.find((t) => t.spec.includes('f00dfeed'))
+    expect(merge).toBeDefined()
+    expect(merge!.runId).toBe('run_1')
   })
 })
 
@@ -2103,7 +2355,12 @@ describe('wave replanning (W6-D)', () => {
     planned(h, (t) => t)
     const s = h.state()
     h.setState({ ...s, runs: s.runs.map((r) => ({ ...r, worktree: '/wt-run' })) })
-    h.ctx.handle = async (cmd, args) => (cmd === 'run-deliver' ? { status: 200, body: { url: 'u' } } : h.real(cmd, args))
+    h.ctx.handle = async (cmd, args) => {
+      if (cmd !== 'run-deliver' || args.pending === true) return h.real(cmd, args)
+      const st = h.state()
+      h.setState({ ...st, runs: st.runs.map((r) => ({ ...r, deliveryState: { state: 'delivered' as const, attempts: 1 } })) })
+      return { status: 200, body: { url: 'u' } }
+    }
     h.startWorker.mockImplementation(async () => ({ sessionId: 'w', cwd: '/wt-run', specPath: 'x' }))
     await h.loop.run()
     await h.settle()
@@ -2222,16 +2479,29 @@ describe('a long plan keeps a draft PR (W8-C)', () => {
     h.ctx.handle = async (cmd, args) => {
       if (cmd === 'run-draft-pr') {
         const s = h.state()
-        h.setState({ ...s, runs: s.runs.map((r) => ({ ...r, pr: { at: NOW, url: 'u', draft: true as const, wavesDone: 1 } })) })
-        return { status: 200, body: { url: 'u', opened: true } }
+        const done = s.tasks.filter((t) => t.runId === 'run_1' && t.status === 'completed').length
+        const push = s.jobs[0].delivery === 'push'
+        h.setState({
+          ...s,
+          runs: s.runs.map((r) => ({
+            ...r,
+            ...(push ? {} : { pr: { at: NOW, url: 'u', draft: true as const, wavesDone: 1 } }),
+            branchPush: { state: 'delivered' as const, attempts: 1, tasksDone: done }
+          }))
+        })
+        return { status: 200, body: push ? { pushed: true } : { url: 'u', opened: true } }
       }
-      if (cmd === 'run-deliver') return { status: 200, body: { url: 'u' } }
+      if (cmd === 'run-deliver' && args.pending !== true) {
+        const s = h.state()
+        h.setState({ ...s, runs: s.runs.map((r) => ({ ...r, deliveryState: { state: 'delivered' as const, attempts: 1 } })) })
+        return { status: 200, body: { url: 'u' } }
+      }
       return h.real(cmd, args)
     }
   }
   const count = (h: ReturnType<typeof rig>, cmd: string): number => h.handled().filter((c) => c === cmd).length
 
-  it('asks once after the first wave, then delivers the draft Run at completion', async () => {
+  it('T3: asks once per Task merged, then delivers the draft Run at completion', async () => {
     const h = rig()
     fake(h)
     twoWaves(h, 'completed', 'pending')
@@ -2244,18 +2514,18 @@ describe('a long plan keeps a draft PR (W8-C)', () => {
     twoWaves(h, 'completed', 'completed')
     await h.loop.run()
     await h.settle()
-    expect(count(h, 'run-draft-pr')).toBe(1)
+    expect(count(h, 'run-draft-pr')).toBe(2)
     expect(count(h, 'run-deliver')).toBe(1)
   })
 
-  it('asks nothing for a one-wave plan or a push delivery', async () => {
+  it('T3: a one-wave plan and a push delivery push their plan branch after each Task too', async () => {
     const one = rig()
     fake(one)
     const s = one.state()
     one.setState({ ...s, tasks: s.tasks.map((t) => (t.id === 'tsk_1' ? { ...t, status: 'completed' as const } : t)) })
     await one.loop.run()
     await one.settle()
-    expect(count(one, 'run-draft-pr')).toBe(0)
+    expect(count(one, 'run-draft-pr')).toBe(1)
     const push = rig()
     fake(push)
     const p = push.state()
@@ -2263,7 +2533,30 @@ describe('a long plan keeps a draft PR (W8-C)', () => {
     twoWaves(push, 'completed', 'pending')
     await push.loop.run()
     await push.settle()
-    expect(count(push, 'run-draft-pr')).toBe(0)
+    expect(count(push, 'run-draft-pr')).toBe(1)
+  })
+
+  it('T3: a failed branch push is retried after its retry time, not before', async () => {
+    const h = rig()
+    h.ctx.handle = async (cmd, args) => {
+      if (cmd !== 'run-draft-pr') return h.real(cmd, args)
+      const s = h.state()
+      h.setState({
+        ...s,
+        runs: s.runs.map((r) => ({ ...r, branchPush: { state: 'retrying' as const, attempts: 1, lastError: 'offline', nextRetryAt: new Date(h.clock + 60_000).toISOString() } }))
+      })
+      return { status: 409, body: { error: 'offline' } }
+    }
+    twoWaves(h, 'completed', 'pending')
+    await h.loop.run()
+    await h.settle()
+    await h.loop.run()
+    await h.settle()
+    expect(count(h, 'run-draft-pr')).toBe(1)
+    h.clock += 61_000
+    await h.loop.run()
+    await h.settle()
+    expect(count(h, 'run-draft-pr')).toBe(2)
   })
 })
 
@@ -2562,5 +2855,27 @@ describe('plans of one project: one delivery at a time, the others refreshed ont
     await h.settle()
     expect(delivered.sort()).toEqual(['run_1', 'run_2'])
     expect(most).toBe(1)
+  })
+})
+
+// T25: a planner start that found no account with room (Job.startWait) is asked again by the loop's tick, with no press.
+describe('a held planner start (T25)', () => {
+  it('is asked again on the next tick and starts once an account has room', async () => {
+    const h = rig()
+    const s = h.state()
+    h.setState({
+      ...s,
+      jobs: [...s.jobs, { id: 'job_h', objective: 'held', cwd: '/p', createdAt: NOW, pendingStart: true, coordinatorAccountId: 'accA', startWait: 'no claude account has room' }]
+    })
+    h.startCoordinator.mockImplementationOnce(async (a) => {
+      await (a as { onWait?: (w: string | null) => Promise<void> }).onWait?.(null)
+      return { sessionId: 'coord-held' }
+    })
+    await h.loop.run()
+    await h.settle()
+    expect(h.startCoordinator.mock.calls.filter(([a]) => a.runId === 'job_h')).toHaveLength(1)
+    const job = h.state().jobs.find((j) => j.id === 'job_h')
+    expect(job?.plannerSessionIds).toEqual(['coord-held'])
+    expect(job).not.toHaveProperty('startWait')
   })
 })

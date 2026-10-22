@@ -44,6 +44,9 @@ const makeDeps = (): Deps => {
 const call = (deps: OrchServerDeps, cmd: string, args: Record<string, unknown> = {}): Promise<{ status: number; body: unknown }> =>
   handleCommand(deps, { sessionId: 'coordinator' }, cmd, args)
 
+const owner = (deps: OrchServerDeps, cmd: string, args: Record<string, unknown> = {}): Promise<{ status: number; body: unknown }> =>
+  handleCommand(deps, { sessionId: '' }, cmd, args)
+
 /** A Job with one Run, two ready Tasks, and a worker open on the first. */
 const withWorker = async (): Promise<{ deps: ReturnType<typeof makeDeps>; jobId: string; runId: string; dispatchId: string; second: string }> => {
   const deps = makeDeps()
@@ -78,13 +81,15 @@ describe('a Job’s title', () => {
 
   it('jobs rename sets it, answers the Job, and the sidebar row carries it', async () => {
     const { deps, jobId } = await withWorker()
-    const r = await call(deps, 'jobs-rename', { id: jobId, title: 'Login' })
+    // T7: the owner renames a plan (or its planner); the coordinator session that made this one may not
+    expect((await call(deps, 'jobs-rename', { id: jobId, title: 'Login' })).status).toBe(403)
+    const r = await owner(deps, 'jobs-rename', { id: jobId, title: 'Login' })
     expect(r.status).toBe(200)
     expect(r.body).toMatchObject({ id: jobId, title: 'Login' })
     expect(deps.getState().jobs[0].objective).toBe('Ship the login page\n\nDetails follow.')
     expect(snapshotFor(deps.getState(), dir, () => true, [], () => null, () => true).runs[0]).toMatchObject({ title: 'Login' })
-    expect((await call(deps, 'jobs-rename', { id: jobId })).status).toBe(400)
-    expect((await call(deps, 'jobs-rename', { id: 'job_nope', title: 't' })).status).toBe(404)
+    expect((await owner(deps, 'jobs-rename', { id: jobId })).status).toBe(400)
+    expect((await owner(deps, 'jobs-rename', { id: 'job_nope', title: 't' })).status).toBe(404)
   })
 })
 
@@ -137,7 +142,7 @@ describe('archiving a Job', () => {
     const { deps, jobId, runId, dispatchId } = await withWorker()
     const r = await call(deps, 'jobs-archive', { id: jobId, killSessions: true })
     expect(r.status).toBe(200)
-    expect(deps.releaseWorker).toHaveBeenCalledWith({ dispatchId })
+    expect(deps.releaseWorker).toHaveBeenCalledWith({ dispatchId, closeReason: 'stopped' })
     expect(deps.releaseWorker).toHaveBeenCalledTimes(1)
     const s = deps.getState()
     expect(s.dispatches.find((d) => d.id === dispatchId)).toMatchObject({ workerState: 'stopped', closedBy: 'stop' })
@@ -163,7 +168,7 @@ describe('archiving a Job', () => {
     expect(kept.deps.stopCoordinator).not.toHaveBeenCalled()
     const killed = await reported()
     expect((await call(killed.deps, 'jobs-archive', { id: killed.jobId, killSessions: true })).status).toBe(200)
-    expect(killed.deps.releaseWorker).toHaveBeenCalledWith({ dispatchId: killed.dispatchId })
+    expect(killed.deps.releaseWorker).toHaveBeenCalledWith({ dispatchId: killed.dispatchId, closeReason: 'stopped' })
     expect(killed.deps.stopCoordinator).toHaveBeenCalledWith('ses-planner', 'its plan was archived')
     expect(isJobActive(killed.deps.getState().jobs[0])).toBe(false)
   })
@@ -217,7 +222,7 @@ describe('the store', () => {
 
   it('round-trips a title and an archive mark', async () => {
     const { deps, jobId } = await withWorker()
-    await call(deps, 'jobs-rename', { id: jobId, title: 'Login' })
+    await owner(deps, 'jobs-rename', { id: jobId, title: 'Login' })
     await call(deps, 'jobs-archive', { id: jobId })
     const a = new OrchestrationStore(file())
     await a.load()
@@ -229,7 +234,8 @@ describe('the store', () => {
 
   it('loads a file written before these fields: every Job is active and named by its objective', async () => {
     const { deps } = await withWorker()
-    const old = deps.getState()
+    // T7: a Job is named at creation now; one written before has no title
+    const old = { ...deps.getState(), jobs: deps.getState().jobs.map(({ title: _t, ...j }) => j) }
     expect(Object.keys(old.jobs[0])).not.toEqual(expect.arrayContaining(['title']))
     expect(Object.keys(old.jobs[0])).not.toEqual(expect.arrayContaining(['archivedAt']))
     await fs.writeFile(file(), JSON.stringify(old), 'utf8')

@@ -75,6 +75,17 @@ describe('taskBoardsOf — reasons', () => {
     expect(reasonOf(s, 'c')).toEqual({ kind: 'deps', waitingOn: [{ id: 'b', title: 'title b', status: 'dispatched' }] })
   })
 
+  it('a dep of another plan that is completed but not delivered still holds the Task, marked delivery', () => {
+    const s = emptyState()
+    s.jobs = [job('j1'), job('j2')]
+    s.runs = [run('r1', 'j1'), run('r2', 'j2')]
+    s.tasks = [task('a', 'r1', { status: 'completed' }), task('c', 'r2', { status: 'pending', deps: ['a'] })]
+    expect(reasonOf(s, 'c')).toEqual({ kind: 'deps', waitingOn: [{ id: 'a', title: 'title a', status: 'completed', delivery: true }] })
+    // once its plan delivered, nothing holds it
+    s.runs[0] = run('r1', 'j1', { delivery: { sha: 'abc' } as JobRun['delivery'] })
+    expect(reasonOf(s, 'c')).toEqual({ kind: 'next' })
+  })
+
   it('a ready Task with a slot is next', () => {
     expect(reasonOf(one([task('a', 'r1')]), 'a')).toEqual({ kind: 'next' })
   })

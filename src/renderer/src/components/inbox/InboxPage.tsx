@@ -15,7 +15,7 @@ import { QuestionAnswer } from '../plan/QuestionAnswer'
 import type { WorkspaceData, WorkspaceProject } from '../../state/workspaceTree'
 import type { Tone } from '../activity/activityView'
 import { setInboxFilter, useInboxRequest } from './inboxNav'
-import { ageOf, byDay, filterNeeds, handledOf, whereOf, type HandledLine, type InboxGroup, type NeedCard } from './inboxView'
+import { NEED_WORD, ageOf, byDay, filterNeeds, handledOf, whereOf, type HandledLine, type InboxGroup, type NeedCard } from './inboxView'
 import { useInbox } from './useInbox'
 import './inbox.css'
 
@@ -143,15 +143,6 @@ function HandledRow({ l, t }: { l: HandledLine; t: ReturnType<typeof useI18n>['t
   )
 }
 
-const KIND_WORD: Record<NeedCard['kind'], [MessageKey, 'info' | 'warn' | 'danger']> = {
-  approval: ['inbox.kind.approval', 'info'],
-  question: ['inbox.kind.question', 'warn'],
-  gate: ['inbox.kind.question', 'warn'],
-  escalation: ['inbox.kind.decision', 'danger'],
-  permission: ['inbox.kind.permission', 'warn'],
-  waiting: ['inbox.kind.waiting', 'warn']
-}
-
 export function NeedCardView({
   c,
   nowMs,
@@ -165,7 +156,7 @@ export function NeedCardView({
   ui: ActionUi
   t: ReturnType<typeof useI18n>['t']
 }): React.JSX.Element {
-  const [word, tone] = KIND_WORD[c.kind]
+  const [word, tone] = NEED_WORD[c.kind]
   const [busy, setBusy] = useState(false)
   const run = async (fn: () => Promise<unknown>): Promise<void> => {
     setBusy(true)

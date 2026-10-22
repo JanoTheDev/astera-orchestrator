@@ -43,6 +43,7 @@ import path from 'node:path'
 import type { SessionInfo } from '../types'
 import type { NotificationPayload } from './notification'
 import { happenedBefore, hookEventAt } from './eventTime'
+import { isWorking } from '../sessions/attention'
 
 export type SessionState = 'working' | 'waiting' | 'idle' | 'unknown'
 
@@ -74,6 +75,7 @@ export function hookEventState(payload: unknown): 'working' | 'waiting' | 'idle'
   switch (p.hook_event_name) {
     case 'UserPromptSubmit':
     case 'PostToolUse':
+    case 'PostToolUseFailure':
       return 'working'
     case 'PreToolUse':
       return p.tool_name === 'AskUserQuestion' ? 'waiting' : 'working'
@@ -143,6 +145,10 @@ export function sessionStateOf(a: {
   lastLine: string | null
   eventAt: number | null
   lastInputAt: number | null
+  /** The clock for the shared decay (core/sessions/attention.ts `isWorking`); absent → no decay. */
+  now?: number
+  /** T11: the pty's last output (the Host records it per session); absent → the last event stands for it. */
+  lastOutputAt?: number | null
 }): SessionState {
   if (a.lastLine === null || a.eventAt === null) return 'unknown'
   if (a.lastInputAt !== null && a.lastInputAt >= a.eventAt) return 'unknown'
@@ -152,7 +158,22 @@ export function sessionStateOf(a: {
   } catch {
     return 'unknown'
   }
-  return hookEventState(payload) ?? 'unknown'
+  const state = hookEventState(payload)
+  if (state !== 'working') return state ?? 'unknown'
+  // The last sign of life: the pty's output when the Host knows it (a long noisy tool fires no hook for minutes), else
+  // the last event; input after the event was already answered `unknown` above.
+  const p = payload as { hook_event_name?: unknown }
+  return isWorking({
+    open: true,
+    exited: false,
+    eventAt: a.eventAt,
+    personInputAt: a.lastInputAt,
+    lastOutputAt: Math.max(a.eventAt, a.lastOutputAt ?? a.eventAt),
+    toolStartedAt: p.hook_event_name === 'PreToolUse' ? a.eventAt : null,
+    now: a.now ?? null
+  })
+    ? 'working'
+    : 'idle'
 }
 
 /** W6-E: how much of a Bash command `lastActionOf` keeps. */

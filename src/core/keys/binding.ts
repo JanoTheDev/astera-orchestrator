@@ -43,6 +43,8 @@ export type ActionId =
   | 'search.open'
   // W7-F (#84): the quick tab switcher
   | 'tabs.switcher'
+  // T13: reopen the newest of Recently closed
+  | 'tabs.reopenClosed'
   // W9-E: the New modal (DESIGN §5)
   | 'new.open'
   // W6-F: open the Nth project workspace
@@ -262,6 +264,13 @@ export function makeActions(platform: string): readonly ActionSpec[] {
       id: 'tabs.switcher',
       defaults: [`${M}+Shift+P`],
       descKey: 'shortcut.tabs.switcher',
+      yieldsToTerminal: false
+    },
+    {
+      // T13: the browser's own chord for "reopen closed tab". No CLI TUI reads Ctrl+Shift+T.
+      id: 'tabs.reopenClosed',
+      defaults: [`${M}+Shift+T`],
+      descKey: 'shortcut.tabs.reopenClosed',
       yieldsToTerminal: false
     },
     {

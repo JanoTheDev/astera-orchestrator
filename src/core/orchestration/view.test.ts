@@ -202,7 +202,14 @@ describe('outcomeOf', () => {
 
   // blocked 는 terminal 이 아니다 — Gate 가 풀리면 다시 흐른다
   it('blocked 가 섞이면 running 이다', () => {
-    expect(outcomeOf(only(['completed', 'blocked']), 'r1')).toBe('running')
+    const s = only(['completed', 'blocked'])
+    expect(outcomeOf({ ...s, gates: [gate('gat_1', 't1', 'q', '2026-08-20T00:00:00.000Z')] }, 'r1')).toBe('running')
+  })
+
+  // Item 2: blocked with no open Gate is held for the owner; with everything else ended, the Run finished with it
+  it('reads blocked when the rest ended and a Task is held for the owner, and running again once it is released', () => {
+    expect(outcomeOf(only(['completed', 'blocked']), 'r1')).toBe('blocked')
+    expect(outcomeOf(only(['completed', 'ready']), 'r1')).toBe('running')
   })
 
   it('pending 과 ready 도 종료가 아니다', () => {
@@ -265,6 +272,34 @@ describe('snapshotFor', () => {
     expect(rowOf({ ...job, planReadyAt: 't' }, [])).not.toHaveProperty('planReady')
     expect(rowOf({ ...job, autoApprove: true })).toMatchObject({ autoApprove: true })
     expect(rowOf(job)).not.toHaveProperty('autoApprove')
+  })
+
+  it('T11: a plan awaiting approval lists its open overlaps with a plan planning too, beside its problems, never one of them', () => {
+    const base = withRuns([run('r1', absPath('p'))])
+    const job = { ...base.jobs[0], pendingStart: true, plannerSessionIds: ['pl'] }
+    const other = { ...base.jobs[0], id: 'job_other', title: 'Other plan', pendingStart: true, plannerSessionIds: ['pl2'] }
+    const planTask = (id: string, jobId: string, title: string): Task => ({
+      ...task(id, 'x', 'ready'), title, runId: undefined, jobId, prompt: 'do it', acceptanceCriteria: ['done'], affectedPaths: ['src/a'], basis: { state: 'missing', evidence: 'none' }
+    })
+    const tasks = [planTask('pt', job.id, 'Mine'), planTask('ot', other.id, 'Theirs')]
+    const row = snapshotFor({ ...base, runs: [], jobs: [job, other], tasks }, absPath('p'), anySession, noWorktrees, noFires, allExist).runs.find((r) => r.id === job.id)!
+    expect(row.planOverlaps).toEqual(['Mine · Other plan · Theirs (same files: src/a)'])
+    expect(row).not.toHaveProperty('planProblems')
+  })
+
+  it('T7: a plan lists its left-out objective items with their text and reason, and an uncovered item is a problem', () => {
+    const base = withRuns([run('r1', absPath('p'))])
+    const job = { ...base.jobs[0], objective: '1. login\n2. logout', pendingStart: true, plannerSessionIds: ['pl'] }
+    const planTask: Task = {
+      ...task('pt', 'x', 'ready'), runId: undefined, jobId: job.id, prompt: 'do it', acceptanceCriteria: ['done'], affectedPaths: ['src/a'], basis: { state: 'missing', evidence: 'none' }, covers: [1]
+    }
+    const rowOf = (j: typeof job) => snapshotFor({ ...base, runs: [], jobs: [j], tasks: [planTask] }, absPath('p'), anySession, noWorktrees, noFires, allExist).runs[0]
+    expect(rowOf(job).planProblems).toEqual([
+      'objective item 2 ("logout") has no Task: add one with --covers 2, or list it with jobs-set --left-out and a reason'
+    ])
+    const left = rowOf({ ...job, leftOut: [{ item: 2, reason: 'already built: src/logout.ts' }] })
+    expect(left).toMatchObject({ leftOut: [{ item: 2, text: 'logout', reason: 'already built: src/logout.ts' }] })
+    expect(left).not.toHaveProperty('planProblems')
   })
 
   it('#117: handsOff (its own, else its project\'s), decisions and pick ride on the row; absent when unset', () => {
@@ -1251,5 +1286,39 @@ describe('waveProgressOf (T14 Coordinator strip)', () => {
   })
   it('stands at the last wave once every Task completed', () => {
     expect(waveProgressOf([tk('a', [], 'completed'), tk('b', [], 'completed')])).toEqual({ at: 1, of: 1 })
+  })
+})
+
+describe('a Run whose delivery waits for another plan', () => {
+  const rowOf = (state: OrchState) => snapshotFor(state, absPath('p'), anySession, noWorktrees, noFires, allExist).runs[0]
+  const withDelivery = (deliveryState: NonNullable<OrchState['runs'][number]['deliveryState']>): OrchState => {
+    const s = withRuns([run('r1', absPath('p'))], [task('t1', 'r1', 'completed')])
+    return { ...s, runs: s.runs.map((r) => ({ ...r, deliveryState })) }
+  }
+
+  it('carries waitingFor on the row while the state is still pending, and nothing without it', () => {
+    expect(rowOf(withDelivery({ state: 'pending', attempts: 0, waitingFor: { jobId: 'jA', since: 'x', escalated: 'y' } })).delivery).toEqual({
+      runId: 'r1',
+      state: 'pending',
+      waitingFor: { jobId: 'jA', escalated: 'y' }
+    })
+    expect(rowOf(withDelivery({ state: 'pending', attempts: 0 })).delivery).toBeUndefined()
+  })
+})
+
+describe('a Run whose delivery failed', () => {
+  const delivered = (error?: string): OrchState => {
+    const s = withRuns([run('r1', absPath('p'))], [task('t1', 'r1', 'completed')])
+    return { ...s, runs: s.runs.map((r) => ({ ...r, pr: { at: 'x', ...(error ? { error } : { url: 'https://github.com/o/r/pull/1' }) } })) }
+  }
+  const rowOf = (s: OrchState) => snapshotFor(s, absPath('p'), anySession, noWorktrees, noFires, allExist).runs[0]
+
+  it('reads failed and carries the reason; a delivery that went through reads completed', () => {
+    const failed = delivered('git merge-tree says x does not merge cleanly')
+    expect(outcomeOf(failed, 'r1')).toBe('failed')
+    expect(rowOf(failed)).toMatchObject({ outcome: 'failed', deliveryError: 'git merge-tree says x does not merge cleanly' })
+    expect(outcomeOf(delivered(), 'r1')).toBe('completed')
+    expect(rowOf(delivered())).toMatchObject({ outcome: 'completed' })
+    expect(rowOf(delivered())).not.toHaveProperty('deliveryError')
   })
 })

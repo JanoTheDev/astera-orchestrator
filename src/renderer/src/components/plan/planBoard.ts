@@ -23,6 +23,7 @@ export function categoryOf(task: JobTask): TaskCategory {
     case 'reviewing':
       return 'awaiting-review'
     case 'validating':
+    case 'merging':
       return 'running'
     case 'dispatched':
       return task.startedAt !== undefined ? 'running' : 'queued'
@@ -258,7 +259,7 @@ export function ordinal(n: number): string {
   return `${n}${suffix}`
 }
 
-const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
+export const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
 
 /** A running Task's one-line "now", most pressing first: a prompt only a person can answer, a question to the
  *  coordinator still unanswered, then the last tool call. null for a Task that is not running or says nothing yet. */
@@ -328,6 +329,13 @@ export function taskColumnOf(task: JobTask, session?: LiveSession, asked = false
 export const PLAN_SECTIONS = ['overview', 'waves', 'files', 'changes', 'journal'] as const
 export type PlanSection = (typeof PLAN_SECTIONS)[number]
 
+/** The Plans page's modes; the one last used is remembered (PlanList). */
+export type PlansView = 'area' | 'overlap' | 'main'
+
+export function plansViewOf(v: unknown): PlansView {
+  return v === 'overlap' || v === 'main' ? v : 'area'
+}
+
 /** A section named by `openPlan(jobId, section?)` or read back from storage; anything else is the default. Old names
  *  from before W9-C (the RunDetail views and the navigation test's `tasks`) map onto their new home. */
 export function planSectionOf(v: unknown): PlanSection {
@@ -360,7 +368,8 @@ export const DONE_PER_PLAN = 20
 export function planRankOf(row: JobRow): number {
   if (row.archivedAt !== undefined) return 4
   if (row.pendingStart) return row.after !== undefined ? 2 : 1
-  return row.outcome === 'running' ? 0 : 3
+  // A plan in its final check is still at work; one finished with blocked Tasks waits on the owner
+  return row.outcome === 'running' || row.outcome === 'checking' || row.outcome === 'blocked' ? 0 : 3
 }
 
 /** The Plans list in that order; within a rank the snapshot's own order (newest first) stays (stable sort). */

@@ -132,14 +132,14 @@ export const NOUNS = {
     'feedback', 'reject',
     // W8-D several plans in one repo (overlap.ts)
     'overlaps'],
-  runs: ['list', 'get', 'wait', 'follow', 'stop', 'resume', 'checks'],
-  tasks: ['list', 'add', 'dispatch'],
+  runs: ['list', 'get', 'wait', 'follow', 'stop', 'resume', 'checks', /* T8 */ 'doctor'],
+  tasks: ['list', 'add', 'dispatch', /* owner-only: bring back Tasks a backup holds */ 'restore'],
   // W3-C search and inbox: every Run's Dispatches (command.ts `dispatches-list`), read only
   dispatches: ['list'],
   questions: ['list', 'get', 'answer'],
   // `jobs create --coordinator-account` 와 `tasks add --account` 에 넣을 id 가 여기서 나온다.
   // 동사 없는 `accounts` 는 가이드가 가르치는 세션 명령 그대로다(BARE_NOUNS).
-  accounts: ['list'],
+  accounts: ['list', 'login', /* T12c */ 'import'],
   // `tasks add --validate` 에 넣을 id 가 여기서 나온다(phase D). 동사 없는 `run-configs` 는 가이드가
   // 가르치는 세션 명령 그대로다(BARE_NOUNS) — 그쪽은 가장 최근 회차의 것이고 이쪽은 --job 의 것이다.
   'run-configs': ['list'],
@@ -150,7 +150,9 @@ export const NOUNS = {
   higgsfield: ['list', 'use'],
   // **Host 가 제 레지스트리로 답한다 — 앱이 닫혀 있어도**(host/sessions.ts). pty 를 쥔 것이 Host 다.
   // id 는 앱의 세션 id(`ASTERA_SESSION`)이다. 대화 세션도 읽고 친다(phase D) — 치기는 앱이 열려 있으면 앱이 한다.
-  sessions: ['list', 'read', 'send', 'create'],
+  sessions: ['list', 'read', 'send', 'create', /* T8 */ 'close'],
+  // T5: the worktrees Astera made, and removing the safe ones. The Host answers it (host/worktrees.ts), Astera open or closed.
+  worktrees: ['list', 'remove'],
   // **Host 가 답한다 — 앱이 닫혀 있어도**(chat takeover §3.5). 대화 세션이 기다리는 권한 질문을 보고
   // 답한다. 답은 그 세션의 쓰는 쪽(Host 또는 앱)이 한다(host/orchDeps.ts 의 HOST_CHATS).
   chats: ['pending', 'answer'],
@@ -166,10 +168,12 @@ export const NOUNS = {
   mcp: ['serve', 'status'],
   // **Remote Runtime on this machine** (remote runtime design §2.9, plan ruling P1): answered in the CLI process,
   // which writes remote-runtime.json and the identity and asks the Host only what it holds (cli/runtime/commands.ts).
-  runtime: ['start', 'stop', 'status', 'serve', 'pair', 'clients', 'revoke'],
+  runtime: ['start', 'stop', 'status', 'serve', 'pair', 'clients', 'revoke', 'setup'],
   // **The paired Runtimes of this machine** (remote runtime design §4.4): answered in the CLI process from
   // <profile>/runtimes (cli/runtimes.ts). `add` pairs, `remove` forgets without revoking.
   runtimes: ['add', 'list', 'remove'],
+  // T12b: provision and pair a machine over SSH in one step (cli/machines.ts), answered in the CLI process.
+  machines: ['add', /* T12c */ 'migrate'],
   // **Answered by the Host's plugin manager** (plugin runtime design P5): this machine's app and CLI install, list and
   // switch plugins. `install` asks the Host to inspect the folder first and needs --yes or --grant (cli/plugins.ts).
   plugins: ['install', 'list', 'get', 'enable', 'disable', 'remove', 'logs', 'doctor', 'settings', 'configure'],
@@ -255,6 +259,10 @@ export function parseArgs(all: string[]): ParsedArgs | { error: string } {
 
   const args: Record<string, unknown> = {}
   const wantsStdin: string[] = []
+  // T12b: `machines add <user@host>` names its machine as a word, as ssh does
+  if (cmd === 'machines-add' && argv[first] !== undefined && !argv[first].startsWith('-')) args.target = argv[first++]
+  // T12c: `machines migrate <machine>`, the paired Runtime by id or name
+  if (cmd === 'machines-migrate' && argv[first] !== undefined && !argv[first].startsWith('-')) args.machine = argv[first++]
   let json = lead.modes.has('json')
   let human = lead.modes.has('human')
   let quiet = lead.modes.has('quiet')

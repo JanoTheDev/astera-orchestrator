@@ -1,44 +1,30 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import {
-  afterCreate, blockedReason, consolesIn, defaultMode, dropOpensStart, filesFromDrop, handsOffSaveArgs, intakeTab, lookupArgs, optionsSummary, primaryLabel, promptCount,
-  livePlans, priorityPresetOf, priorityValueOf, shouldLandOnStart, type PlanRow
+  accountPickOptions, afterCreate, blockedReason, consolesIn, dropOpensStart, filesFromDrop, handsOffSaveArgs, intakeTab, isSubmitKey, lastMode, lookupArgs, planningOf, primaryLabel,
+  projectOptions, promptCount, saveMode, STARTERS, STARTER_MODE, livePlans, shouldLandOnStart, withStarter, type PlanRow
 } from './startLogic'
+import type { Account } from '../../../../core/types'
 
 const t = (key: string, params?: Record<string, string | number>): string => (params ? `${key}:${JSON.stringify(params)}` : key)
-
-describe('Start mode default', () => {
-  it('prompt files attached → Run as written', () => {
-    expect(defaultMode({ files: ['/p/a.md', '/p/b.md'], text: '' })).toBe('prompts')
-  })
-  it('text only → Plan it for me', () => {
-    expect(defaultMode({ files: [], text: 'add dark mode' })).toBe('plan')
-  })
-  it('a PDF or an image alone is material for the planner', () => {
-    expect(defaultMode({ files: ['/p/spec.pdf', '/p/shot.png'], text: '' })).toBe('plan')
-  })
-  it("the owner's pick wins", () => {
-    expect(defaultMode({ files: ['/p/a.md'], text: '', chosen: 'plan' })).toBe('plan')
-    expect(defaultMode({ files: [], text: 'x', chosen: 'prompts' })).toBe('prompts')
-  })
-})
 
 describe('intakeTab', () => {
   it('maps the composer onto one W6-A intake tab', () => {
     expect(intakeTab({ mode: 'prompts', files: [] })).toBe('prompts')
-    expect(intakeTab({ mode: 'plan', files: ['/a.pdf'] })).toBe('files')
-    expect(intakeTab({ mode: 'plan', files: [] })).toBe('describe')
+    expect(intakeTab({ mode: 'chat', files: ['/a.pdf'] })).toBe('files')
+    expect(intakeTab({ mode: 'auto', files: [] })).toBe('describe')
   })
 })
 
 describe('primaryLabel', () => {
   it('says what happens', () => {
-    expect(primaryLabel({ mode: 'plan', files: [], text: 'x' }, t)).toEqual({ label: 'start.go.plan' })
+    expect(primaryLabel({ mode: 'chat', files: [], text: 'x' }, t)).toEqual({ label: 'start.go.plan' })
+    expect(primaryLabel({ mode: 'auto', files: [], text: 'x' }, t)).toEqual({ label: 'start.go.auto' })
     expect(primaryLabel({ mode: 'prompts', files: ['/a.md', '/b.md', '/c.md'], text: '' }, t)).toEqual({
-      label: 'start.go.consoles:{"n":3}',
+      label: 'start.go.prompts',
       note: 'start.go.filesNote:{"n":3}'
     })
     expect(primaryLabel({ mode: 'prompts', files: [], text: '## one\nx\n## two\n' }, t).note).toBe('start.go.sectionsNote:{"n":2}')
-    expect(primaryLabel({ mode: 'plan', files: [], text: 'x', after: 'Auth' }, t)).toEqual({ label: 'start.go.queue:{"plan":"Auth"}' })
+    expect(primaryLabel({ mode: 'chat', files: [], text: 'x', after: 'Auth' }, t)).toEqual({ label: 'start.go.queue:{"plan":"Auth"}' })
   })
   it('counts prompts', () => {
     expect(promptCount(['/a.md', '/b.pdf'], '')).toBe(1)
@@ -78,12 +64,12 @@ describe('drop to attach', () => {
 describe('Run as written by name', () => {
   it('the button counts the files the typed names resolved to', () => {
     expect(primaryLabel({ mode: 'prompts', files: [], text: 'run W8-A, B', named: 2 }, t)).toEqual({
-      label: 'start.go.consoles:{"n":2}',
+      label: 'start.go.prompts',
       note: 'start.go.namesNote:{"n":2}'
     })
   })
   it('the dry run: Run as written with text only, attached .md files sent along for the notice', () => {
-    expect(lookupArgs({ mode: 'plan', files: [], text: 'W8-A', cwd: '/r' })).toBeNull()
+    expect(lookupArgs({ mode: 'chat', files: [], text: 'W8-A', cwd: '/r' })).toBeNull()
     expect(lookupArgs({ mode: 'prompts', files: [], text: ' ', cwd: '/r' })).toBeNull()
     expect(lookupArgs({ mode: 'prompts', files: ['/x/a.md', '/x/b.pdf'], text: 'next waves', cwd: '/r' })).toEqual({
       cwd: '/r',
@@ -96,35 +82,76 @@ describe('Run as written by name', () => {
 })
 
 // T2
-describe('sticky hands-off and More options', () => {
+describe('sticky hands-off', () => {
   it('saves Hands-off as the project default', () => {
     expect(handsOffSaveArgs('p1', true)).toEqual({ id: 'p1', handsOff: 'on' })
     expect(handsOffSaveArgs('p1', false)).toEqual({ id: 'p1', handsOff: 'off' })
   })
-  it('sums up the folded options on one line', () => {
-    expect(optionsSummary({ concurrency: 3, delivery: 'pr', approval: 'ask', priority: 0 }, t)).toBe(
-      'start.more.consoles:{"n":3} · start.more.pr · start.more.ask'
-    )
-    expect(optionsSummary({ concurrency: 1, delivery: 'push', approval: 'auto', priority: 1 }, t)).toBe(
-      'start.more.consoles:{"n":1} · start.more.push · start.more.auto · start.priority.high'
-    )
-    expect(optionsSummary({ concurrency: 1, delivery: 'pr', approval: 'auto', priority: 0, handsOff: true, after: 'L4' }, t)).toBe(
-      'start.opt.handsOff · start.opt.after:{"plan":"L4"} · start.more.consoles:{"n":1} · start.more.pr · start.more.auto'
-    )
+})
+
+// T14
+describe('the primary button', () => {
+  it('is off with a reason until a project and text exist', () => {
+    expect(blockedReason({ project: false, text: false, request: false }, t)).toBe('start.project.required')
+    expect(blockedReason({ project: false, text: true, request: false }, t)).toBe('start.project.required')
+    expect(blockedReason({ project: true, text: false, request: true }, t)).toBe('start.needText')
+    expect(blockedReason({ project: true, text: true, request: false }, t)).toBe('start.needText')
+    expect(blockedReason({ project: true, text: true, request: true }, t)).toBeNull()
   })
-  it('says why Create is off: the project first, then the text', () => {
-    expect(blockedReason({ project: false, request: false }, t)).toBe('start.project.required')
-    expect(blockedReason({ project: true, request: false }, t)).toBe('start.needText')
-    expect(blockedReason({ project: true, request: true }, t)).toBeNull()
+  it('Ctrl+Enter (or Cmd+Enter) submits, Enter alone is a newline', () => {
+    expect(isSubmitKey({ key: 'Enter', ctrlKey: true, metaKey: false })).toBe(true)
+    expect(isSubmitKey({ key: 'Enter', ctrlKey: false, metaKey: true })).toBe(true)
+    expect(isSubmitKey({ key: 'Enter', ctrlKey: false, metaKey: false })).toBe(false)
+    expect(isSubmitKey({ key: 'a', ctrlKey: true, metaKey: false })).toBe(false)
+  })
+})
+
+describe('the project picker', () => {
+  const projects = [{ name: 'App', path: '/w/app' }, { name: 'Api', path: '/w/api' }]
+  it('lists projects only, never "All projects"; a placeholder shows while none is chosen', () => {
+    expect(projectOptions(projects, '', 'Choose')).toEqual([{ value: '', label: 'Choose' }, { value: '/w/app', label: 'App' }, { value: '/w/api', label: 'Api' }])
+    expect(projectOptions(projects, '/w/app', 'Choose').map((o) => o.value)).toEqual(['/w/app', '/w/api'])
+    for (const chosen of ['', '/w/app']) expect(projectOptions(projects, chosen, 'Choose').some((o) => /all/i.test(o.value))).toBe(false)
+  })
+})
+
+describe('starter chips', () => {
+  it('are the five from the brief; each but the issue picker fills the box and sets the mode', () => {
+    expect(STARTERS.map((s) => s.id)).toEqual(['fix', 'build', 'audit', 'issues', 'file'])
+    expect(STARTERS.filter((s) => s.text).map((s) => s.id)).toEqual(['fix', 'build', 'audit', 'file'])
+    expect(STARTER_MODE).toBe('chat')
+  })
+  it('fill an empty box or another template, and go below what the person already wrote', () => {
+    const all = ['Fix these bugs:\n- ', 'Build this feature: ']
+    expect(withStarter('', 'Build this feature: ', all)).toBe('Build this feature: ')
+    expect(withStarter('Fix these bugs:\n-', 'Build this feature: ', all)).toBe('Build this feature: ')
+    expect(withStarter('make it faster', 'Build this feature: ', all)).toBe('make it faster\n\nBuild this feature: ')
+  })
+  it('the three modes plan with me, alone, or not at all', () => {
+    expect([planningOf('chat'), planningOf('auto'), planningOf('prompts')]).toEqual(['chat', 'auto', 'auto'])
+  })
+})
+
+describe('the last choice of a project', () => {
+  const store = new Map<string, string>()
+  const ls = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) }
+  it('is remembered per project, and ignored when storage fails or holds nonsense', () => {
+    vi.stubGlobal('window', { localStorage: ls })
+    expect(lastMode('p1')).toBeNull()
+    saveMode('p1', 'auto')
+    expect(lastMode('p1')).toBe('auto')
+    expect(lastMode('p2')).toBeNull()
+    store.set('astera.start.mode.p3', 'bogus')
+    expect(lastMode('p3')).toBeNull()
+    vi.stubGlobal('window', { localStorage: { getItem: () => { throw new Error('blocked') }, setItem: () => { throw new Error('blocked') } } })
+    expect(lastMode('p1')).toBeNull()
+    expect(() => saveMode('p1', 'chat')).not.toThrow()
+    vi.unstubAllGlobals()
   })
 })
 
 // T4
-describe('planning and priority presets', () => {
-  it('maps low/normal/high onto -1/0/1 and back', () => {
-    expect([priorityValueOf('low'), priorityValueOf('normal'), priorityValueOf('high')]).toEqual([-1, 0, 1])
-    expect([-3, -1, 0, 1, 4].map(priorityPresetOf)).toEqual(['low', 'low', 'normal', 'high', 'high'])
-  })
+describe('after Start made the Job', () => {
   it("opens the planner's terminal when it started; a queued plan goes to the agents list", () => {
     expect(afterCreate('ses_1')).toEqual({ openConsole: 'ses_1' })
     expect(afterCreate(undefined)).toEqual({ openPage: 'agents' })
@@ -146,5 +173,17 @@ describe('Start after', () => {
   it('leaves out completed, failed, scheduled and archived plans', () => {
     const rows = [row('c', { outcome: 'completed' }), row('f', { outcome: 'failed' }), row('a', { outcome: 'running', archivedAt: 'x' }), row('s', { outcome: 'running', schedule: {} as never })]
     expect(livePlans(rows)).toEqual([])
+  })
+})
+
+describe('account picker (T5b)', () => {
+  const acc = (id: string, provider?: 'codex'): Account => ({ id, label: id.toUpperCase(), configDir: `/c/${id}`, color: '', createdAt: '', provider })
+  it('Auto first, then each signed-in Claude account with its weekly and 5h used percent', () => {
+    const usage = { '/c/a': { weekly: { usedPercent: 40, resetsAt: null }, session: null, readAt: '', remembered: false } }
+    expect(accountPickOptions([acc('a'), acc('b'), acc('c'), acc('x', 'codex')], new Set(['a', 'b', 'x']), usage, t)).toEqual([
+      { value: 'auto', label: 'accounts.auto' },
+      { value: 'a', label: 'accounts.pickUsage:{"name":"A","weekly":"40%","session":"—"}' },
+      { value: 'b', label: 'accounts.pickUsage:{"name":"B","weekly":"—","session":"—"}' }
+    ])
   })
 })

@@ -370,8 +370,11 @@ describe('projects find — a path inside a project names that project', () => {
     expect(await listed(nested)).toEqual([inNested])
     expect(await listed(absPath('work', 'proj', 'src'))).toEqual([inRoot])
     expect([...(await listed(root)), ...(await listed(nested))]).not.toContain(beside)
-    // runs list --project reads the same rule.
-    await call(deps, 'jobs-run', { id: inRoot })
+    // runs list --project reads the same rule. A Job with no tasks is refused a run, so it gets one.
+    const added = await call(deps, 'tasks-add', { job: inRoot, spec: 's', account: 'acc_c' })
+    expect(added.status, JSON.stringify(added.body)).toBe(200)
+    const ran = await call(deps, 'jobs-run', { id: inRoot })
+    expect(ran.status, JSON.stringify(ran.body)).toBe(200)
     const runs = (await call(deps, 'runs-list', { project: root })).body as { jobId: string }[]
     expect(runs.map((r) => r.jobId)).toEqual([inRoot])
   })
@@ -437,5 +440,27 @@ describe('runs list --project and sessions list --project', () => {
     expect(ids(r.body).sort()).toEqual(['in_root', 'worker_1'])
     expect((await call(deps, 'sessions-list', { project: absPath('nowhere') })).status).toBe(404)
     expect((await call(deps, 'sessions-list', { project: '' })).status).toBe(400)
+  })
+})
+
+// T9: the plan Board asks for its own Run's sessions, not every session the Host ever had
+describe('sessions list run', () => {
+  const rows = ['w1', 'w2', 'coord', 'other'].map((id): HostSession => ({ id, kind: 'terminal', title: id, accountId: null, cwd: null, alive: true, state: 'unknown' }))
+  const state = {
+    ...emptyState(),
+    runs: [{ id: 'r1', coordinatorSessionId: 'coord' }, { id: 'r2' }],
+    tasks: [{ id: 't1', runId: 'r1' }, { id: 't2', runId: 'r2' }],
+    dispatches: [{ taskId: 't1', sessionId: 'w1' }, { taskId: 't1', sessionId: 'w2' }, { taskId: 't2', sessionId: 'other' }]
+  } as unknown as OrchState
+  const deps = (): OrchServerDeps =>
+    makeDeps(state, { listSessions: async () => rows, readSession: async () => ({ cols: 80, rows: 24, screen: [], scrollback: [] }), readChat: async () => [] })
+
+  it('lists that Run s workers and its coordinator', async () => {
+    expect(ids((await call(deps(), 'sessions-list', { run: 'r1' })).body)).toEqual(['w1', 'w2', 'coord'])
+  })
+
+  it('an unknown run is a 404, a run with no value a 400', async () => {
+    expect((await call(deps(), 'sessions-list', { run: 'nope' })).status).toBe(404)
+    expect((await call(deps(), 'sessions-list', { run: true })).status).toBe(400)
   })
 })

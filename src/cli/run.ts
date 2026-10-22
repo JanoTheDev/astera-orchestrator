@@ -31,12 +31,19 @@ import { runMcpHttp } from './mcp/http'
 import { runRuntimeGateway } from './runtime/gateway'
 import { runRuntimeCommand, type RuntimeCommandDeps } from './runtime/commands'
 import { controllerRegistry, runRuntimesCommand } from './runtimes'
+import { machineResultText, runMachinesAdd } from './machines'
+import { migrateAfterPair, migrationText, runMachinesMigrate } from './machineMigrate'
+import { importAccount } from '../core/accounts/exportLogin'
 import { answerRemote, trailingRuntimeError } from './remote'
 import { clientTimeoutMs, followRun, type HostAnswer } from './follow'
 export { clientTimeoutMs, followRun, type FollowEnd, type HostAnswer } from './follow'
 import { remoteTarget } from '../core/remote/targets'
 import { connectRuntime } from '../core/remote/client'
 import { runServe, type ServeDeps } from './runtime/serve'
+import { runSetup, setupOptionsOf } from './runtime/setup'
+import { setupMachine } from './runtime/setupMachine'
+import { loginNewAccount } from '../core/accounts/cliLogin'
+import { makeDescriptors } from '../core/providers/descriptor'
 import { readValidHold } from '../core/remote/updateHold'
 import { readRemoteSettings, writeRemoteSettings } from '../core/remote/settings'
 import { loadIdentity, loadOrCreateIdentity } from '../core/remote/identity'
@@ -725,13 +732,13 @@ const serveDeps = (a: { env: NodeJS.ProcessEnv; platform: NodeJS.Platform; home:
 }
 
 /** What `astera runtime ...` reads and asks on this machine (cli/runtime/commands.ts). */
-const runtimeDeps = (a: { env: NodeJS.ProcessEnv; platform: NodeJS.Platform; home: string; noKeepalive: boolean }): RuntimeCommandDeps => {
+const runtimeDeps = (a: { env: NodeJS.ProcessEnv; platform: NodeJS.Platform; home: string; noKeepalive: boolean; displayName?: string }): RuntimeCommandDeps => {
   const { address, profileDir } = cliHostTarget({ env: a.env, platform: a.platform, home: a.home })
   const store = () => openSecretStore({ dir: path.join(profileDir, 'remote'), profileDir })
   return {
     readSettings: () => readRemoteSettings(profileDir),
     writeSettings: (p) => writeRemoteSettings(profileDir, p),
-    ensureIdentity: (san) => loadOrCreateIdentity(store(), { displayName: os.hostname(), ...(san === '0.0.0.0' || san === '::' ? {} : { san }) }),
+    ensureIdentity: (san) => loadOrCreateIdentity(store(), { displayName: a.displayName ?? os.hostname(), ...(san === '0.0.0.0' || san === '::' ? {} : { san }) }),
     loadIdentity: () => loadIdentity(store()),
     hostCall: async (cmd, args, o) => {
       let conn = await connectHost({ address, profileDir, app: CLI_VERSION, log: logToStderr })
@@ -1019,9 +1026,23 @@ function out(text: string): void {
   process.stdout.write(ensureTrailingNewline(text))
 }
 
+/**
+ * **Every byte this process writes reaches the reader before it exits, at any size.** A pipe's writes are
+ * asynchronous on POSIX: past the 64 KiB pipe buffer the rest waits in the write queue, and the
+ * `process.exit` that follows every reply threw it away (`tasks list` cut mid-JSON at ~62 KB). Blocking
+ * writes on stdout and stderr make every exit path below — success, `fail`, the early answers — flush by
+ * construction, rather than a drain before each `process.exit`. A file is already synchronous (no handle
+ * to set) and a TTY takes the same call. Works the same under Electron as node (cliPipe.test.ts).
+ */
+function blockingStdio(): void {
+  for (const stream of [process.stdout, process.stderr])
+    (stream as unknown as { _handle?: { setBlocking?: (on: boolean) => void } })._handle?.setBlocking?.(true)
+}
+
 /** The function the thin shell of the entry point (index.ts) calls straight through. It does not
  *  call itself here, so a test that imports this file does not terminate the process. */
 export async function main(): Promise<void> {
+  blockingStdio()
   // **Usage comes first, before the parser and before any Host.** All three levels used to end
   // badly here: `--help` was `expected a command, got flag`, `jobs --help` was `jobs needs one of:
   // …`, and `jobs list --help` parsed `--help` as an ordinary flag and *ran the command*. Answering
@@ -1036,7 +1057,6 @@ export async function main(): Promise<void> {
   // command table either; docs/mcp.md ("MCP over HTTP") says the Host runs it and a person does not.
   if (argv[0] === 'mcp' && argv[1] === 'http') {
     const code = await runMcpHttp({ argv: argv.slice(2), env: process.env, platform: process.platform, home: homedir(), version: CLI_VERSION })
-    await new Promise((r) => process.stdout.write('', () => r(undefined)))
     process.exit(code)
   }
   // **`runtime gateway` answers before usage and the parser too** (remote runtime design §2.3): the Host spawns it and
@@ -1054,7 +1074,6 @@ export async function main(): Promise<void> {
         process.once('SIGINT', stop)
       }
     })
-    await new Promise((r) => process.stdout.write('', () => r(undefined)))
     process.exit(code)
   }
   // **`hf-proxy` answers before usage and the parser** (higgsfield accounts design §2): the higgsfield
@@ -1062,7 +1081,6 @@ export async function main(): Promise<void> {
   // higgsfield CLI, not to ours (`--help`, `--json` and positional words included).
   if (argv[0] === 'hf-proxy') {
     const code = await hfProxy({ args: argv.slice(1), env: process.env, platform: process.platform, home: homedir() })
-    await new Promise((r) => process.stdout.write('', () => r(undefined)))
     process.exit(code)
   }
   // W8-C heavy: `astera heavy -- <cmd…>` answers before usage and the parser, like hf-proxy: the tokens after `--`
@@ -1074,7 +1092,6 @@ export async function main(): Promise<void> {
   // W8-A: `astera blame|stats|why` answer before usage and the parser, like heavy: read-only git in this folder, no Host
   if (argv[0] !== undefined && Object.hasOwn(ATTRIBUTION_COMMANDS, argv[0])) {
     const code = await runAttribution(argv, { cwd: process.cwd(), out })
-    await new Promise((r) => process.stdout.write('', () => r(undefined)))
     process.exit(code)
   }
   const help = usageFor(argv, sessionUsage)
@@ -1293,8 +1310,6 @@ export async function main(): Promise<void> {
         message: `${spelledCommand(parsed.cmd)} does not go through the Host's command layer, so it cannot carry a request id`
       })
     await serveMcp({ env: process.env, platform: process.platform, home: homedir(), version: CLI_VERSION })
-    // A pipe on POSIX is asynchronous: let the last answer leave before the process does.
-    await new Promise((r) => process.stdout.write('', () => r(undefined)))
     process.exit(0)
   }
 
@@ -1358,6 +1373,22 @@ export async function main(): Promise<void> {
     if (parsed.cmd === 'runtime-serve') {
       process.exit(await runServe(serveDeps({ env: process.env, platform: process.platform, home: homedir() })))
     }
+    // `setup` installs and starts everything a Runtime needs, then pairs (cli/runtime/setup.ts); its steps go to stderr.
+    if (parsed.cmd === 'runtime-setup') {
+      const env = process.env
+      const deps = runtimeDeps({ env, platform: process.platform, home: homedir(), noKeepalive: parsed.noKeepalive, ...(typeof parsed.args.name === 'string' ? { displayName: parsed.args.name } : {}) })
+      const done = await runSetup(setupOptionsOf(parsed.args), setupMachine({
+        env,
+        platform: process.platform,
+        home: homedir(),
+        profileDir: cliHostTarget({ env, platform: process.platform, home: homedir() }).profileDir,
+        runtime: (cmd, args) => runRuntimeCommand(cmd, args, deps),
+        log: (m) => logToStderr(`astera runtime setup: ${m}`)
+      }))
+      if (!done.ok) fail(done.error)
+      out(renderOk(parsed.cmd, done.body, mode))
+      process.exit(0)
+    }
     const done = await runRuntimeCommand(parsed.cmd, parsed.args, runtimeDeps({ env: process.env, platform: process.platform, home: homedir(), noKeepalive: parsed.noKeepalive }))
     if (!done.ok) fail(done.error)
     out(renderOk(parsed.cmd, done.body, mode))
@@ -1384,10 +1415,101 @@ export async function main(): Promise<void> {
     process.exit(0)
   }
 
+  // T12b: `machines add` provisions over the system ssh and pairs like `runtimes add` (cli/machines.ts); its steps go
+  // to stderr, one line each, and the install's own output too, so sudo can ask for the password in this terminal.
+  if (parsed.cmd === 'machines-add') {
+    if (presented) fail({ code: 'INVALID_ARGUMENTS', message: 'machines add does not go through the Host\'s command layer, so it cannot carry a request id' })
+    const log = (m: string): void => logToStderr(`astera machines add: ${m}`)
+    // T12c: refused inside an agent session, as `machines migrate` is: it moves logins
+    if ((process.env.ASTERA_SESSION ?? '') !== '')
+      fail({ code: 'PERMISSION_DENIED', message: 'astera machines add is for a person at their own shell or in the Astera app, not an agent session (ASTERA_SESSION is set)' })
+    const done = await runMachinesAdd({ args, profileDir, version: CLI_VERSION, log, afterPair: migrateAfterPair({ args, profileDir, version: CLI_VERSION, env: process.env, log }) })
+    if (!done.ok) {
+      logToStderr(machineResultText(done))
+      fail({ code: 'FAILED', message: `adding the machine failed at ${done.step}: ${done.message}` })
+    }
+    if (mode === 'json') out(renderOk(parsed.cmd, done, mode))
+    else out(machineResultText(done))
+    process.exit(0)
+  }
+
+  // T12c: `machines migrate` brings this computer's setup to a paired machine over the system ssh (cli/machineMigrate.ts)
+  if (parsed.cmd === 'machines-migrate') {
+    if (presented) fail({ code: 'INVALID_ARGUMENTS', message: 'machines migrate does not go through the Host\'s command layer, so it cannot carry a request id' })
+    const done = await runMachinesMigrate({ args, profileDir, version: CLI_VERSION, env: process.env, log: (m) => logToStderr(`astera machines migrate: ${m}`) })
+    if (!done.ok) {
+      logToStderr(migrationText(done))
+      fail({ code: /agent session/.test(done.message) ? 'PERMISSION_DENIED' : 'FAILED', message: done.message })
+    }
+    out(mode === 'json' ? renderOk(parsed.cmd, done, mode) : migrationText(done))
+    // FAIL_SEAM:exempt — a step that failed is already named in the report just printed (per-item states); exit 1 only
+    // tells a script that the migration was partial, so there is no second envelope to build.
+    process.exit(done.results.some((r) => r.state === 'failed') ? 1 : 0)
+  }
+
+  // T12c: the target side of `machines migrate`, run over SSH: the account by label and agent, its login from stdin
+  if (parsed.cmd === 'accounts-import') {
+    if (presented) fail({ code: 'INVALID_ARGUMENTS', message: 'accounts import does not go through the Host\'s command layer, so it cannot carry a request id' })
+    if (sessionId !== '') fail({ code: 'PERMISSION_DENIED', message: 'astera accounts import is for a person at their own shell, not an agent session (ASTERA_SESSION is set)' })
+    if (typeof args.label !== 'string' || args.label.trim() === '') fail({ code: 'INVALID_ARGUMENTS', message: '--label needs a name' })
+    if (args.agent !== 'claude' && args.agent !== 'codex') fail({ code: 'INVALID_ARGUMENTS', message: '--agent must be claude or codex' })
+    if (args.login !== undefined && typeof args.login !== 'string') fail({ code: 'INVALID_ARGUMENTS', message: '--login - reads the login file from standard input' })
+    try {
+      const r = await importAccount(
+        { label: String(args.label).trim(), provider: args.agent as 'claude' | 'codex', ...(typeof args.color === 'string' ? { color: args.color } : {}), ...(typeof args.login === 'string' ? { login: args.login } : {}) },
+        {
+          profileDir,
+          home: homedir(),
+          descriptors: makeDescriptors(process.platform),
+          platform: process.platform,
+          user: process.env.USERNAME ?? process.env.USER ?? '',
+          random: () => randomUUID(),
+          run: (file, runArgs) =>
+            new Promise((resolve) => {
+              const child = spawn(file, runArgs, { stdio: 'ignore', windowsHide: true })
+              child.once('error', () => resolve(127))
+              child.once('close', (code) => resolve(code ?? 1))
+            })
+        }
+      )
+      out(renderOk(parsed.cmd, { id: r.account.id, label: r.account.label, provider: r.account.provider, configDir: r.account.configDir, signedIn: r.signedIn, created: r.created }, mode))
+    } catch (e) {
+      // Never the login itself: only what failed
+      fail({ code: 'FAILED', message: `the account could not be made: ${e instanceof Error ? e.message.split(String(args.login ?? '\u0000')).join('[redacted]') : 'unknown error'}` })
+    }
+    process.exit(0)
+  }
+
   // **skills 도 Host 없이 답한다** — 프로필의 accounts.json·app-settings.json 을 읽고 계정의 설정
   // 폴더에 스킬 파일을 심는다(cli/skills.ts). Host 에게 물을 것이 없으므로 host 명령보다도 앞선
   // 자리가 맞지만, `--request-id` 를 거절하려면 그것을 걷어 낸 뒤여야 한다. 거절하는 이유는 바로
   // 위 host 명령과 같다: 명령 층에 닿지 않아 영수증이 없고, `skills install` 은 일을 한다.
+  // `accounts login --new` signs a new Claude account in from this terminal, no app or Host (core/accounts/cliLogin.ts).
+  // The CLI's login owns the terminal, so its link and prompt reach the person; stdout stays this envelope.
+  if (parsed.cmd === 'accounts-login') {
+    if (presented)
+      fail({
+        code: 'INVALID_ARGUMENTS',
+        message: `${spelledCommand(parsed.cmd)} does not go through the Host's command layer, so it cannot carry a request id`
+      })
+    if (args.new !== true) fail({ code: 'INVALID_ARGUMENTS', message: 'accounts login needs --new: it signs a new account in' })
+    if (args.label !== undefined && typeof args.label !== 'string') fail({ code: 'INVALID_ARGUMENTS', message: '--label needs a name' })
+    const done = await loginNewAccount(typeof args.label === 'string' ? { label: args.label } : {}, {
+      profileDir,
+      home: homedir(),
+      descriptors: makeDescriptors(process.platform),
+      run: (command, cliArgs, env) =>
+        new Promise((resolve) => {
+          const child = spawn(command, cliArgs, { env: { ...process.env, ...env }, stdio: [0, 2, 2], shell: process.platform === 'win32' })
+          child.once('error', () => resolve(127))
+          child.once('close', (code) => resolve(code ?? 1))
+        })
+    })
+    if (!done.ok) fail({ code: 'FAILED', message: done.message })
+    out(renderOk(parsed.cmd, { id: done.account.id, label: done.account.label, provider: done.account.provider, configDir: done.account.configDir }, mode))
+    process.exit(0)
+  }
+
   if (parsed.cmd === 'skills-list' || parsed.cmd === 'skills-install') {
     if (presented)
       fail({

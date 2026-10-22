@@ -111,12 +111,24 @@ export type SessionStatus = 'running' | 'exited'
 
 export type SessionKind = 'terminal' | 'chat'
 
+/** Why Astera ended a process it started: a worker released when its Task finished, stopped by a person,
+ *  or replaced by a fresh coordinator. Carried with `closedByAstera`, so a closed tab can say why.
+ *  T8: `closed:<text>` is `astera sessions close` with its `--reason`; the text rides the same path (pty-kill,
+ *  pty-exit, the session's exit) and the tab reads "Closed by Astera — <text>" (exitWording.ts). */
+export type CloseReason = 'released' | 'stopped' | 'replaced' | `closed:${string}`
+
+/** The `closed:<text>` CloseReason for a reason a person gave (`sessions close --reason`): one line, at most 200 characters. */
+export const closedWithReason = (text: string): CloseReason => `closed:${text.replace(/\s+/g, ' ').trim().slice(0, 200)}`
+
 export interface SessionInfo {
   id: string
   accountId: string
   cwd: string
   status: SessionStatus
   exitCode?: number
+  /** Astera ended this process itself (a tab close, a release, a stop): a SIGTERM/SIGHUP exit then reads as a normal close. */
+  closedByAstera?: boolean
+  closeReason?: CloseReason
   title: string
   resumeSessionId?: string
   rollAccountIds?: string[] // rolling account order; [0] is the initial account. One element waits out the reset instead of switching (every Job worker is one)
@@ -503,6 +515,8 @@ export interface JobTask {
    *  repairs >= maxFixAttempts 로 되짚으면 사람이 한 번 더 허락한 수정(grantedExtra)이 그 셈을 깨뜨린다. */
   gate?: { id: string; question: string; options?: string[]; kind?: GateKind }
   openGates: number
+  /** T8: the Task is `reviewing` and its reviewer started and ended (running.ts `reviewerEnded`): nothing reviews it */
+  reviewerEnded?: true
   /** The provider of the Dispatch that is **running this Task right now**. A Dispatch that has ended
    *  does not count — the sidebar's rows are the running ones, and this is the field that badge draws
    *  from. */
@@ -583,7 +597,8 @@ export type TaskBlockedReason =
   | { kind: 'awaiting-review' }
   /** `dispatched` with no worker: a person stopped it, or its worker was lost. */
   | { kind: 'stopped' }
-  | { kind: 'deps'; waitingOn: { id: string; title: string; status: TaskStatus }[] }
+  /** `delivery`: the dep is done and its plan (another one) has not delivered, so the Task is still held (mainPlan.ts `holdExternalDeps`). */
+  | { kind: 'deps'; waitingOn: { id: string; title: string; status: TaskStatus; delivery?: true }[] }
   | { kind: 'no-account' }
   /** A coordinator drives this Run: the app does not place its Tasks, the coordinator starts them. */
   | { kind: 'coordinator' }
@@ -719,7 +734,21 @@ export interface RunDetailJournal {
  *  여기(web 포함 파일)에 선언하는 이유: JobRow 이 이 타입을 필드로 갖고, 그것을 계산하는
  *  core/orchestration/view.ts 는 node:path 를 끌고 와서 tsconfig.web.json 에 넣을 수 없다.
  *  그래서 타입은 이쪽이 선언하고 view.ts 가 가져간다 — TaskStatus 와 같은 방향이다. */
-export type RunOutcome = 'running' | 'completed' | 'failed'
+export type RunOutcome =
+  | 'running'
+  | 'completed'
+  | 'failed'
+  /** Every Task completed, and the final check (the completion replan) has not settled yet: not done until it adds nothing. */
+  | 'checking'
+  /** Finished with blocked Tasks: everything else ended, and Tasks held for the owner (and what waits on them) are left. */
+  | 'blocked'
+
+/** T8: why a Run that reads `running` has nothing that can move (running.ts `stuckOf`). `needs-you`: every unfinished
+ *  Task waits on the owner (an open Gate, a Task held for them, a worker's unanswered question with no coordinator to
+ *  answer it). `stalled`: what is left failed with retries to spare, and nothing (no worker, no coordinator) retries
+ *  it. Beside `outcome`, not in it: the code that asks `outcome === 'running'` (delivery, the watchdog, the stop and
+ *  coordinator controls) must keep treating such a Run as unfinished. */
+export type RunStuck = 'needs-you' | 'stalled'
 
 /** Jobs 목록의 한 줄. **도메인 타입이 아니라 화면이 읽는 모양이다** — view.ts 가 OrchState 에서
  *  계산해 내려보내고 저장되지 않는다.
@@ -748,8 +777,15 @@ export interface JobRow {
   feedback?: PlanFeedback[]
   autoStartedAt?: string
   rejected?: { at: string; reason?: string }
+  /** T20: the owner's words that started the plan from its planner's terminal. */
+  approvedFromChat?: { at: string; words: string }
   /** W8-F (#94): `validatePlan`'s problems for a plan waiting for approval; absent when it holds. */
   planProblems?: string[]
+  /** T11: before approval, the plan's open overlaps with plans planning or running (overlap.ts `planOverlapWarnings`),
+   *  one line each; never a problem, never blocks the Approve. */
+  planOverlaps?: string[]
+  /** T7: the objective items the plan leaves out on purpose (Job.leftOut), each with its text (objectiveItems.ts) and why. */
+  leftOut?: { item: number; text: string; reason: string }[]
   /** #116: the plan can be approved now (`planApprovable`): the only time an Approve is shown. Absent while planning. */
   planReady?: true
   /** #116: the plan starts by itself once it holds (`autoApproveOf`: its own setting, else its project's). */
@@ -782,6 +818,8 @@ export interface JobRow {
    *  앱이 스스로 다시 띄우지 않는 이유는 Run.coordinatorSessionId 의 주석에 있다 — 탭을 닫는 것은
    *  사람의 결정이다. */
   coordinatorMissing?: boolean
+  /** T5: the model the Run's coordinator was started on (`JobRun.coordinatorModel`), shown on the plan. */
+  coordinatorModel?: string
   /** 이 Run 이 동시에 열어 둘 Dispatch 수 — Run 이 들고 있는 값을 그대로 옮긴 것이다. 없으면
    *  DEFAULT_CONCURRENCY(core/orchestration/types.ts) 인데, 그 기본값도 여기서 채우지 않는다 —
    *  계산도 기본값도 이 값을 쓰는 쪽(RunDetail.tsx)의 일이라는 이 타입의 관례다.
@@ -793,6 +831,21 @@ export interface JobRow {
   concurrency?: number
   /** 저장된 값이 아니라 Task 에서 계산된다 — core/orchestration/view.ts 의 outcomeOf */
   outcome: RunOutcome
+  /** T8: set only while `outcome` is `running` and nothing can move (RunStuck) */
+  stuck?: RunStuck
+  /** Why the Run's delivery failed (its `outcome` is `failed` for it): a merge conflict or a refused push */
+  deliveryError?: string
+  /** T3: a delivery that is being retried, failed, waits on the owner or runs now: the Run it is of (for `run-deliver`),
+   *  its step and the last reason. Absent while pending or once delivered. */
+  delivery?: {
+    runId: string
+    /** `pending`: only the wait below is recorded (the checks have not started). */
+    state: 'pending' | 'delivering' | 'retrying' | 'failed' | 'needs-owner'
+    reason?: string
+    nextRetryAt?: string
+    /** T2: the plan this delivery waits for before it validates (Run.deliveryState.waitingFor). */
+    waitingFor?: { jobId: string; escalated?: string }
+  }
   done: number
   total: number
   /** 이 Run 의 타임라인 이벤트 수(core/orchestration/timeline.ts 의 eventCountFor).
@@ -934,7 +987,7 @@ export interface CoreEvents {
   'session:remote-gone': { sessionId: string; code: string; message: string }
   /** A remote tab's connection dropped (`down`, reconnecting) or is back (`up`) (Phase 9b review I1). */
   'session:remote-link': { sessionId: string; state: 'down' | 'up' }
-  'session:exit': { sessionId: string; exitCode: number }
+  'session:exit': { sessionId: string; exitCode: number; closedByAstera?: boolean; closeReason?: CloseReason }
   // main created a session without the renderer asking — an orchestration worker. The whole
   // SessionInfo is carried so the renderer can build the tab (the same value sessions.spawn returns).
   // It is not emitted on the user path (sessions.spawn) — doing so would place the same session twice.
@@ -1170,6 +1223,9 @@ export interface HostStatus {
   /** What the Host announced it can do (protocol.ts HOST_FEATURE_*); empty until a hello, and for a
    *  Host that predates the field. */
   features: string[]
+  /** A Host at the address is leaving (it hangs up before its hello) and the app is waiting for it to
+   *  finish before starting its own (main/host/client.ts RETIRING_WAIT_MS). Absent means false. */
+  waitingForPreviousHost?: boolean
 }
 
 /** Putting the Host's own runtime in place (win32), as the window shows it (stage 3 task 2).
@@ -1285,6 +1341,8 @@ export interface CoreApi {
      *  back as the project folder name — or null when the session is already gone. The same title is
      *  Slack's message prefix and the desktop notification's title, so all three follow. */
     rename(id: string, title: string): Promise<string | null>
+    /** T13: the CLI session id and transcript an ended tab resumes from, or null when it wrote none. */
+    transcript(id: string): Promise<{ sessionId: string; transcriptPath: string } | null>
     /** Reads the stored rolling and schedule settings — prefills the resume modal */
     resumeDefaults(sessionId: string): Promise<ResumeDefaults>
   }
@@ -1564,6 +1622,9 @@ export interface CoreApi {
     setMaxSubagentsPerSession(n: number): Promise<void>
     getUsagePauseAt(): Promise<number>
     setUsagePauseAt(n: number): Promise<void>
+    /** T5b: live sessions per account at most, by account id; absent = no cap. */
+    getAccountMaxSessions(): Promise<Record<string, number>>
+    setAccountMaxSessions(v: Record<string, number>): Promise<void>
     /** W3-A: minutes between activity digests; 0 is none. */
     getActivityDigestMinutes(): Promise<number>
     setActivityDigestMinutes(n: number): Promise<void>
@@ -2166,7 +2227,34 @@ export interface RemoteApi {
   pair(o: { fullControl?: boolean; name?: string }): Promise<RemoteControlAnswer>
   /** Unpairs a controller paired with this computer (`thisMachine().clients[].clientId`). */
   revoke(clientId: string): Promise<RemoteControlAnswer>
+  /** Provisions and pairs a machine over SSH in one step (cli/machines.ts, run in main); its steps arrive on
+   *  `onMachineProgress` while it runs. */
+  addMachine(o: AddMachineOptions): Promise<AddMachineResult>
+  onMachineProgress(cb: (p: MachineProgress) => void): () => void
+  /** T12c: the Runtimes added over SSH, which Bring my setup can reach (their SSH address is recorded). */
+  migrationMachines(): Promise<string[]>
+  /** What Bring my setup would move to that machine; reads no secret. */
+  migratePlan(runtimeId: string, o: { only?: MigrateKind[] }): Promise<{ ok: true; plan: MigratePlanItem[] } | { ok: false; message: string }>
+  /** Moves it; each item's result arrives on `onMigrateProgress` while it runs. */
+  migrate(runtimeId: string, o: { only?: MigrateKind[] }): Promise<MigrateResult>
+  onMigrateProgress(cb: (p: MigrateItemResult & { runtimeId: string }) => void): () => void
 }
+
+// The shapes of cli/machines.ts, restated here: the renderer cannot import a node-side module (tsconfig.web.json).
+export type MachineStepId = 'connect' | 'detect' | 'installer' | 'upload' | 'install' | 'pair' | 'verify'
+export interface MachineProgress { step: MachineStepId; state: 'running' | 'done' | 'skipped' | 'failed'; line: string; stderrTail?: string; fix?: string }
+export interface AddMachineOptions { target: string; port?: number; installer?: string; name?: string; listen?: string; tailscale?: boolean; fullControl?: boolean }
+export type AddMachineResult =
+  | { ok: true; runtimeId: string; name: string; os: 'linux' | 'windows'; repaired: boolean }
+  | { ok: false; step: MachineStepId; message: string; stderrTail: string; fix: string }
+
+// T12c: the shapes of cli/machineMigrate.ts, restated for the renderer
+export type MigrateKind = 'github' | 'git' | 'accounts' | 'projects'
+export interface MigratePlanItem { kind: MigrateKind; id: string; label: string; detail: string; skip?: string }
+export interface MigrateItemResult { kind: MigrateKind; id: string; label: string; state: 'running' | 'ok' | 'login' | 'skipped' | 'failed'; line: string; fix?: string }
+export type MigrateResult =
+  | { ok: true; dryRun: boolean; plan: MigratePlanItem[]; results: MigrateItemResult[] }
+  | { ok: false; message: string; plan: MigratePlanItem[]; results: MigrateItemResult[] }
 
 /** An answer from This computer's controls (main/remote/thisMachineControl.ts). */
 export type RemoteControlAnswer = { ok: true; body: Record<string, unknown> } | { ok: false; code: string; message: string }
@@ -2368,6 +2456,9 @@ export type RendererApi = CoreApi & {
     /** The tool call this session's CLI is waiting on, read once on mount — the push above fires only on
      *  a change, so a question already up when the pane opens needs this. null when nothing is waiting. */
     pendingPrompt(sessionId: string): Promise<PendingToolPrompt | null>
+    /** The text of the session's newest assistant reply, read once from its transcript (no follow). Null when there is
+     *  none. The Agents wall's chat tiles show it. */
+    lastReply(sessionId: string): Promise<string | null>
     /** The model and effort the CLI last reported for this session, or nulls when it has reported
      *  nothing yet. Read rather than pushed: it changes only when a person changes it, which they do
      *  through the CLI's own screen, and there is no event for that. */

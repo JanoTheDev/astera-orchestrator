@@ -97,6 +97,7 @@
    RunDetail 의 borderOf 가 inline 으로 주므로 여기 적지 않는다 — 두 곳에 적으면 갈라진다 */
 .detail-node--dispatched { background: color-mix(in srgb, var(--accent) 12%, var(--panel)); }
 .detail-node--validating { background: color-mix(in srgb, var(--git-modified) 12%, var(--panel)); }
+.detail-node--merging { background: color-mix(in srgb, var(--git-modified) 12%, var(--panel)); }
 .detail-node--reviewing { background: color-mix(in srgb, var(--fi-purple) 12%, var(--panel)); }
 .detail-node--failed { background: color-mix(in srgb, var(--git-deleted) 12%, var(--panel)); }
 .detail-node--blocked { background: color-mix(in srgb, var(--git-conflict) 12%, var(--panel)); }

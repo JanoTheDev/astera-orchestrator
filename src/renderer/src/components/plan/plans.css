@@ -40,6 +40,7 @@
 .plans-row__rename { flex: 1 1 240px; max-width: 420px; }
 .plans-row__spacer { flex: 1; }
 .plans-row__meta { flex: none; color: var(--text-faint); font-size: var(--fs-11); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.plans-row__reason { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--git-deleted); font-size: var(--fs-11); }
 .plans-row__progress { flex: 0 0 120px; }
 .plans-row__meter.ui-meter { --ui-meter-fill: var(--accent); }
 .plans-row__pr .jobs-new { width: auto; margin: 0; padding: 0 var(--sp-2); height: var(--h-sm); font-size: var(--fs-11); }
@@ -65,3 +66,10 @@
 @media (prefers-reduced-motion: reduce) {
   .plans-row__menu { transition: none; }
 }
+
+/* T4 Main plan */
+.plans-main__head { margin: 0 0 var(--sp-2); color: var(--text-dim); font-size: var(--fs-12); font-weight: var(--fw-semi); }
+.plans-main__plan { display: flex; flex-direction: column; gap: var(--sp-1); min-width: 0; padding: var(--sp-1) var(--sp-2) var(--sp-2); border-bottom: 1px solid var(--line-soft); }
+.plans-main__task { display: flex; flex-direction: column; min-width: 0; padding-left: var(--sp-4); }
+.plans-main__none { margin: 0; padding-left: var(--sp-4); }
+.plans-main__wait { display: flex; align-items: center; gap: var(--sp-1); margin: 0 0 var(--sp-1) var(--sp-2); color: var(--warn); font-size: var(--fs-11); }

@@ -349,6 +349,18 @@ describe('PtyRegistry', () => {
     expect(exits).toEqual([['p1', 3]])
   })
 
+  it('a kill with a reason hands it to the exit listeners; a kill without one hands none', () => {
+    const p = fakePty(78)
+    const h = registry({ pty: p })
+    const exits: Array<[string, number, string | undefined]> = []
+    h.r.onExit((id, code, closeReason) => exits.push([id, code, closeReason]))
+    h.r.open({ id: 'p1', file: 'cmd.exe', args: [], opts, meta: meta() })
+    h.r.kill('p1', 'stopped')
+    p.exit(143)
+    expect(exits).toEqual([['p1', 143, 'stopped']])
+    expect(h.r.exitCodeOf('p1')).toEqual({ code: 143, closeReason: 'stopped' })
+  })
+
   // The entry outlives the process, so the app can tell a session that ended while it was away from one
   // that was never here. What it does not outlive is the scrollback — see the release test below.
   it('keeps an exited session listed, not alive, and out of the live count', () => {
@@ -1061,5 +1073,27 @@ describe('PtyRegistry size owner', () => {
     expect(h.r.localOwns('p1')).toBe(true)
     h.r.resizeFor('p1', 'controller:mac', 90, 20, { free: true })
     expect(h.r.localOwns('p1')).toBe(false)
+  })
+})
+
+describe('PtyRegistry orchestration marks (item 9)', () => {
+  const session = (id: string): PtyMeta => meta({ kind: 'session', id, restore: { cwd: 'D:/wt' } })
+  it('marks a live session in its note, and a pty opened later for a marked session at open', () => {
+    const h = registry()
+    h.r.open({ id: 'p1', file: 'claude', args: [], opts, meta: session('ses_1') })
+    h.r.markOrch('ses_1', 'run_1')
+    expect(h.r.metaOf('p1')?.restore).toEqual({ cwd: 'D:/wt', orchOf: 'run_1' })
+    h.r.markOrch('ses_2', 'job_1')
+    h.r.open({ id: 'p2', file: 'claude', args: [], opts, meta: session('ses_2') })
+    expect(h.r.metaOf('p2')?.restore.orchOf).toBe('job_1')
+    expect(h.r.orchMarkOf('ses_2')).toBe('job_1')
+  })
+
+  it('answers no mark for a session nobody marked, and reads one a note came with', () => {
+    const h = registry()
+    h.r.open({ id: 'p1', file: 'claude', args: [], opts, meta: session('ses_tab') })
+    h.r.open({ id: 'p2', file: 'claude', args: [], opts, meta: meta({ kind: 'session', id: 'ses_w', restore: { orchOf: 'run_9' } }) })
+    expect(h.r.orchMarkOf('ses_tab')).toBeNull()
+    expect(h.r.orchMarkOf('ses_w')).toBe('run_9')
   })
 })

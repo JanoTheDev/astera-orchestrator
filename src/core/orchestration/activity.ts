@@ -22,8 +22,8 @@ import type { TaskBlockedReason, TaskCategory, UsagePause } from '../types'
 import type { UsageChange } from './usageGuard'
 import { taskBoardsOf } from './blocked'
 import { jobNameOf } from './jobName'
-import { outcomeOfTasks } from './running'
-import { completionSettled } from './replan'
+import { heldForOwner, outcomeOfTasks } from './running'
+import { completionSettled, replanOn } from './replan'
 // W8-C plan after plan
 import { afterStoppedText } from './after'
 // W8-D several plans in one repo
@@ -74,6 +74,8 @@ export const ACTIVITY_KINDS = [
   // W6-G: no new worker starts on an account near its usage limit, and then may again (usageActivity)
   'usage.paused',
   'usage.resumed',
+  // T5b: a start went to another account than the one it named, which was full or at its cap (payload.reason)
+  'account.switched',
   // W6-H: a finished plan pushed to its delivery branch (a feed line and a notice, no chime). A push that stopped is an
   // escalation instead (delivery.ts recordDelivery)
   'plan.delivered',
@@ -83,6 +85,8 @@ export const ACTIVITY_KINDS = [
   'plan.overlap',
   // #111: the owner rejected a plan (`jobs-reject`); the Job is archived with `rejected`. Feed only (the Inbox's handled list too)
   'plan.rejected',
+  // T20: the owner told the planner in its terminal to run the plan (payload.reason: their words); feed only
+  'plan.chat-approved',
   // Coordinator rotation: a fresh coordinator took the Run's slot (JobRun.coordinatorRefreshes); feed only
   'coordinator.refreshed',
   // Stall watchdog (exec/stallWatch.ts): one line per action it took on a stalled plan (payload.reason); feed only
@@ -94,7 +98,9 @@ export const ACTIVITY_KINDS = [
   // #117: a call a hands-off plan made in the owner's place, and a guardrail case it refused (Job.decisions); feed only,
   // the plan.done notice lists them
   'plan.decided',
-  'plan.refused'
+  'plan.refused',
+  // T7: the owner changed a run Task's deps, spec, basis or evidence before it started (task-update); feed only
+  'task.edited'
 ] as const
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number]
 
@@ -105,6 +111,8 @@ export interface ActivityPayload {
   plan?: string
   model?: string
   accountId?: string
+  /** T5b account.switched: the account the start named (`accountId` is the one it started on). */
+  fromAccountId?: string
   // task.status
   status?: TaskStatus
   from?: TaskStatus
@@ -126,9 +134,11 @@ export interface ActivityPayload {
   links?: TaskLinks
   pr?: RunPr
   // plan.done
-  runOutcome?: 'completed' | 'failed'
+  runOutcome?: 'completed' | 'failed' | 'blocked'
   /** W8-E (#99): a failed plan's failed Tasks; its final check is skipped. */
   failedTasks?: number
+  /** Item 2: a plan that finished with Tasks held for the owner: each one as "title: what it waits for". */
+  blockedTasks?: string[]
   // task.waiting (W5-D, #42)
   waitingFor?: 'permission' | 'question'
   // plan.replanning / plan.replanned (W6-D)
@@ -162,7 +172,14 @@ export interface ActivityPayload {
   handsOff?: true
   /** #117 plan.done of a hands-off plan: each decision it made for the owner, one line (decisionLine). */
   decisions?: string[]
+  // task.edited (T7)
+  /** What the owner changed, in this order: deps, spec, basis, evidence. */
+  edited?: EditedField[]
 }
+
+/** T7: the run Task fields whose change is a task.edited line. */
+export const EDITED_FIELDS = ['deps', 'spec', 'basis', 'evidence'] as const
+export type EditedField = (typeof EDITED_FIELDS)[number]
 
 /** One line before the log numbers and stamps it (the shape of publicEvents.ts's EventDraft). */
 export interface ActivityDraft {
@@ -276,6 +293,10 @@ export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[
       const from = categoryOf(was, dsBefore.get(id) ?? [])
       if (was.status === t.status && from === category) continue
       const d = dispatchOf(ds)
+      // Blocked with no Gate opened beside it: the scheduler gave up on a Gate the owner's plan kept refusing. One notice,
+      // hands-off plan or not (its reason is the Task's result).
+      if (t.status === 'blocked' && was.status !== 'blocked' && prev.gates === next.gates)
+        push('task.escalated', where(t.runId, t.id), { title: t.title, reason: t.result ?? 'blocked', handsOff: undefined })
       push(
         'task.status',
         where(t.runId, t.id),
@@ -287,6 +308,18 @@ export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[
       const was = before.get(t.id)
       if (was === undefined || was === t || t.runId === undefined || same(was.links, t.links)) continue
       push('task.links', where(t.runId, t.id), { title: t.title, ...(t.links !== undefined ? { links: t.links } : {}) })
+    }
+    // T7: the owner re-planned a Task of a running plan. A replan's own edits are its plan.replanned line instead.
+    for (const t of next.tasks) {
+      const was = before.get(t.id)
+      if (was === undefined || was === t || t.runId === undefined) continue
+      const edited = EDITED_FIELDS.filter((f) =>
+        f === 'deps' ? !same(was.deps, t.deps) : f === 'spec' ? was.spec !== t.spec : f === 'basis' ? was.basis?.state !== t.basis?.state : was.basis?.evidence !== t.basis?.evidence
+      )
+      if (edited.length === 0) continue
+      const at = where(t.runId, t.id)
+      if (at.job?.replanning !== undefined || prev.jobs.find((j) => j.id === at.jobId)?.replanning !== undefined) continue
+      push('task.edited', at, { title: t.title, edited })
     }
   }
 
@@ -367,6 +400,9 @@ export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[
   if (prev.jobs !== next.jobs) {
     const was = byId(prev.jobs)
     for (const j of next.jobs) {
+      // T20: approved from the planner chat
+      if (j.approvedFromChat !== undefined && was.get(j.id)?.approvedFromChat === undefined)
+        push('plan.chat-approved', { ...(j.projectId !== undefined ? { projectId: j.projectId } : {}), jobId: j.id, job: j }, { title: jobNameOf(j), reason: j.approvedFromChat.words })
       // W7-A: started with no approval step (jobs-auto-start)
       if (j.autoStartedAt !== undefined && was.get(j.id)?.autoStartedAt === undefined)
         push(
@@ -456,15 +492,24 @@ export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[
     const now = group(next)
     const prevRuns = new Set(prev.runs.map((r) => r.id))
     for (const [runId, ts] of now) {
-      if (!prevRuns.has(runId) || !runs.has(runId) || outcomeOfTasks(was.get(runId) ?? []) !== 'running') continue
-      const outcome = outcomeOfTasks(ts)
-      if (outcome === 'running') continue
+      if (!prevRuns.has(runId) || !runs.has(runId) || outcomeOfTasks(was.get(runId) ?? [], prev.gates) !== 'running') continue
+      const outcome = outcomeOfTasks(ts, next.gates)
+      if (outcome === 'running' || outcome === 'checking') continue
       const at = where(runId)
-      // W6-D: a completed plan is done once its final check settles; the replan's end says so (below)
-      if (outcome === 'completed' && at.job && !completionSettled(next, at.job, runId)) continue
+      // W6-D: a plan that replans is done only when its final check settles having added nothing, which the check's end
+      // says (below). Never here: a completion pass that covered this many done Tasks before is not this one's check (item 8)
+      if (outcome === 'completed' && at.job && (replanOn(at.job) || !completionSettled(next, at.job, runId))) continue
       // W8-E (#99): a failed plan ends here, with no final check (replan.ts replansDue asks for an all-completed Run)
       const failedTasks = outcome === 'failed' ? ts.filter((t) => t.status === 'failed').length : undefined
-      push('plan.done', at, { title: at.job ? jobNameOf(at.job) : runId, runOutcome: outcome, ...(failedTasks !== undefined ? { failedTasks } : {}), ...decisionsOf(at.job) })
+      // Item 2: so does a plan whose other Tasks all ended around the ones held for the owner
+      const blockedTasks = outcome === 'blocked' ? ts.filter((t) => heldForOwner(t, next.gates)).map((t) => `${t.title}: ${t.result ?? 'blocked'}`.slice(0, 300)) : undefined
+      push('plan.done', at, {
+        title: at.job ? jobNameOf(at.job) : runId,
+        runOutcome: outcome,
+        ...(failedTasks !== undefined ? { failedTasks } : {}),
+        ...(blockedTasks !== undefined ? { blockedTasks } : {}),
+        ...decisionsOf(at.job)
+      })
     }
   }
   // W6-D: a replan's start and end, from the Job's marks (replan.ts). A final check that added nothing is the plan done.
@@ -487,7 +532,7 @@ export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[
       }
       push('plan.replanned', at, { title, replanMode: last.mode, wave: last.wave, summary: last.summary })
       const ts = next.tasks.filter((t) => t.runId === last.runId)
-      if (last.mode === 'completion' && outcomeOfTasks(ts) === 'completed' && completionSettled(next, j, last.runId))
+      if (last.mode === 'completion' && outcomeOfTasks(ts, next.gates) === 'completed' && completionSettled(next, j, last.runId))
         push('plan.done', at, { title, runOutcome: 'completed', ...decisionsOf(j) })
     }
   }
@@ -537,6 +582,8 @@ export function waitingActivity(s: OrchState, sessionId: string, waitingFor: 'pe
 /** W6-G: a usage guard's change (usageGuard.ts) as its feed line: a line no commit makes, recorded by the Host. The
  *  title is the account id; the feed shows the account's name. */
 export function usageActivity(e: UsageChange): ActivityDraft {
+  if (e.type === 'account.switched')
+    return { type: e.type, payload: { title: e.to, accountId: e.to, fromAccountId: e.from, reason: e.reason } }
   const p = e.pause
   return {
     type: e.type,
@@ -570,7 +617,7 @@ export interface ActivitySummary {
   cancelled: ActivityItem[]
   /** Tasks waiting on their review, and plans waiting on their approval. */
   awaitingReview: ActivityItem[]
-  plansDone: Array<ActivityItem & { outcome: 'completed' | 'failed' }>
+  plansDone: Array<ActivityItem & { outcome: 'completed' | 'failed' | 'blocked' }>
   /** Every Task not running now, with why (blocked.ts), when a state was given. */
   blocked: Array<ActivityItem & { reason: TaskBlockedReason }>
 }
@@ -633,6 +680,10 @@ export interface ActivityNotice {
   alert?: true
 }
 
+/** A Gate's notice key: its Task and reason, not its id. A Gate that opens again with the same reason on the same Task is the
+ *  same news, so the throttle shows it once. */
+const gateKey = (e: ActivityEvent, reason: string): string => `gate:${e.taskId ?? e.payload.gateId}:${reason}`
+
 const inPlan = (e: ActivityEvent): string => (e.payload.plan !== undefined && e.payload.plan !== e.payload.title ? ` (${e.payload.plan})` : '')
 
 /** W6-G: when a usage window resets, as this machine's clock reads it: "14:20", or "Mon 14:20" for the 7-day one. */
@@ -654,6 +705,7 @@ export function noticeOf(e: ActivityEvent): ActivityNotice | null {
         : null
     case 'plan.done': {
       // W8-E (#99): no chime, nothing is asked; the failed Tasks are on the board
+      const blocked = e.payload.blockedTasks ?? []
       const done: ActivityNotice =
         e.payload.runOutcome === 'failed'
           ? {
@@ -661,14 +713,21 @@ export function noticeOf(e: ActivityEvent): ActivityNotice | null {
               title: e.payload.failedTasks !== undefined ? `Plan finished with ${e.payload.failedTasks} failed` : 'Plan finished with failures',
               body: `${e.payload.title}. The final check was skipped.`
             }
-          : { key: `done:${e.runId}`, title: 'Plan done', body: e.payload.title }
+          : e.payload.runOutcome === 'blocked'
+            ? {
+                // Its own key: once the owner unblocks them, the plan's "Plan done" is new news
+                key: `done:${e.runId}:blocked`,
+                title: `Plan finished with ${blocked.length} blocked`,
+                body: [`${e.payload.title}. The rest is done; these wait on you:`, ...blocked.map((l) => `- ${l}`)].join('\n')
+              }
+            : { key: `done:${e.runId}`, title: 'Plan done', body: e.payload.title }
       // #117: a hands-off plan's one notice says what it decided for the owner
       return e.payload.decisions === undefined ? done : { ...done, body: `${done.body}\n${decisionsText(e.payload.decisions)}` }
     }
     case 'gate.opened':
       // #117: a hands-off plan answers its own Gates (exec/autoAnswer.ts handsOffStepsDue): nothing to tell the owner
       if (e.payload.handsOff) return null
-      return { key: `gate:${e.payload.gateId}`, title: 'Needs your answer', body: `${e.payload.title}${inPlan(e)}: ${e.payload.question ?? ''}`.slice(0, 240), alert: true }
+      return { key: gateKey(e, e.payload.question ?? ''), title: 'Needs your answer', body: `${e.payload.title}${inPlan(e)}: ${e.payload.question ?? ''}`.slice(0, 240), alert: true }
     case 'plan.awaiting-approval':
       // W7-A: a plan revised for the owner's feedback is a new notice, with the chime: the owner asked for it
       return e.payload.round
@@ -688,7 +747,7 @@ export function noticeOf(e: ActivityEvent): ActivityNotice | null {
     case 'task.escalated':
       if (e.payload.handsOff) return null
       return {
-        key: e.payload.gateId !== undefined ? `gate:${e.payload.gateId}` : `escalated:${e.id}`,
+        key: e.payload.gateId !== undefined ? gateKey(e, e.payload.reason ?? '') : `escalated:${e.id}`,
         title: 'Needs your decision',
         body: `${e.payload.title}${inPlan(e)}: ${e.payload.reason ?? ''}`.slice(0, 240),
         alert: true,

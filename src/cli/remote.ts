@@ -4,7 +4,7 @@
 //
 // 1. a command the Runtime does not offer at all (its target is not "yes"): RUNTIME_CAPABILITY_MISSING. This is what
 //    keeps every local fallback away from a remote target: the state file, the pending-report queue, `host`,
-//    `skills`, `higgsfield`, `mcp`, `projects add` and the rest are local only;
+//    `skills`, `higgsfield`, `mcp` and the rest are local only (`projects add` is offered since T12b, to clone there);
 // 2. a `jobs create` with no `--cwd`: the folder is the Runtime's, so this machine's working directory is never
 //    filled in for it (D8.3);
 // 3. a Runtime nobody paired: RUNTIME_NOT_FOUND.

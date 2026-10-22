@@ -1,12 +1,14 @@
 // W6-H: every guard of a push delivery (deliverByPush), over a fake git runner. A git that answers nothing in a test
 // is a stop: an unexpected argv fails the push instead of passing it by accident.
-import { describe, it, expect } from 'vitest'
+import { afterEach, describe, it, expect } from 'vitest'
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import type { GitResult } from '../../worktrees/git'
+import { git as realGit, type GitResult } from '../../worktrees/git'
 import { deliverByPush, type PushContext } from './integrateGit'
+import { createJob, createTask, emptyState, startJobRun, type OrchState } from '../state'
+import { deliveryWaitStep } from './deliveryWait'
 
 type Reply = Partial<GitResult> | ((cwd?: string) => Partial<GitResult>)
 
@@ -40,7 +42,8 @@ function fakeGit(replies: Record<string, Reply | Reply[]>) {
 const happy = (): Record<string, Reply | Reply[]> => ({
   'symbolic-ref --quiet --short refs/remotes/origin/HEAD': { stdout: 'origin/main' },
   'symbolic-ref --quiet --short HEAD': { stdout: 'main' },
-  'status --porcelain': { stdout: '' },
+  'status --porcelain --untracked-files=no': { stdout: '' },
+  'var GIT_COMMITTER_IDENT': {},
   'fetch origin main': {},
   'merge --ff-only origin/main': {},
   'push origin main': {},
@@ -100,8 +103,8 @@ describe('deliverByPush (W6-H)', () => {
     expect(h.calls.some((a) => a.join(' ') === 'symbolic-ref --quiet --short refs/remotes/origin/HEAD')).toBe(false)
   })
 
-  it('stops on a folder with uncommitted changes, before fetching or merging', async () => {
-    const h = setup({ 'status --porcelain': { stdout: ' M src/a.ts\n?? notes.txt' } })
+  it('stops on a folder with uncommitted tracked changes, before fetching or merging', async () => {
+    const h = setup({ 'status --porcelain --untracked-files=no': { stdout: ' M src/a.ts\n M src/b.ts' } })
     const r = await h.go()
     expect(r).toMatchObject({ ok: false, reason: expect.stringContaining('has 2 uncommitted change(s)') })
     expect(h.calls.some((a) => a[0] === 'fetch' || a[0] === 'stash' || a[0] === 'reset')).toBe(false)
@@ -210,7 +213,8 @@ describe('deliverByPush (W6-H)', () => {
     'push origin main': [{ ok: false, stderr: '! [rejected] main -> main (fetch first)' }, {}],
     'merge-base --is-ancestor origin/main HEAD': { ok: false },
     'merge --no-edit origin/main': merge,
-    'merge --abort': {}
+    'merge --abort': {},
+    'rev-parse origin/main': { stdout: 'o1' }
   })
 
   it('when origin moved on during the delivery, merges it in, validates again and pushes, never forcing', async () => {
@@ -222,12 +226,39 @@ describe('deliverByPush (W6-H)', () => {
     expect(forced(h.calls)).toBe(false)
   })
 
-  it('stops, keeping the plan on the branch, when the moved origin does not merge cleanly', async () => {
+  it('T3: undoes its merges when the moved origin does not merge cleanly, naming the conflict', async () => {
     const h = setup(movedOn({ ok: false, stderr: 'CONFLICT (content)' }))
     const r = await h.go()
-    expect(r).toMatchObject({ ok: false, reason: expect.stringContaining('does not merge cleanly') })
+    expect(r).toMatchObject({ ok: false, code: 'origin-conflict', conflictWith: 'o1', reason: expect.stringContaining('does not merge cleanly') })
     expect(h.calls).toContainEqual(['merge', '--abort'])
     expect(h.calls.filter((a) => a[0] === 'push')).toHaveLength(1)
+    expect(h.head()).toBe('base')
+  })
+
+  it('T3: a fetch that fails while catching up is fetch-failed, not rejected, and undoes the merges', async () => {
+    const h = setup({
+      'push origin main': { ok: false, stderr: '! [rejected] main -> main (fetch first)' },
+      'fetch origin main': [{}, { ok: false, stderr: 'Could not resolve host: github.com' }]
+    })
+    const r = await h.go()
+    expect(r).toMatchObject({ ok: false, code: 'fetch-failed', reason: expect.stringContaining('fetching origin to catch up failed') })
+    expect(h.head()).toBe('base')
+  })
+
+  it('T3: a push still rejected after every round is rejected and undoes the merges', async () => {
+    const h = setup({ 'push origin main': { ok: false, stderr: '! [rejected] main -> main (fetch first)' } })
+    const r = await h.go()
+    expect(r).toMatchObject({ ok: false, code: 'rejected' })
+    expect(h.head()).toBe('base')
+  })
+
+  it('T3: leaves the merges when the owner changed the folder meanwhile', async () => {
+    const h = setup({
+      ...movedOn({ ok: false, stderr: 'CONFLICT (content)' }),
+      'status --porcelain --untracked-files=no': [{ stdout: '' }, { stdout: ' M mine.ts' }]
+    })
+    const r = await h.go()
+    expect(r).toMatchObject({ ok: false, code: 'origin-conflict', reason: expect.stringContaining('Your folder changed meanwhile') })
     expect(h.head()).toBe('merged')
   })
 
@@ -307,5 +338,168 @@ describe('deliverByPush pushes the attribution notes (W8-A)', () => {
     const h = setup({ 'show-ref --verify --quiet refs/notes/astera': { ok: false } })
     expect((await h.go()).ok).toBe(true)
     expect(h.calls.some((a) => a[0] === 'push' && a.includes('refs/notes/astera:refs/notes/astera'))).toBe(false)
+  })
+})
+
+// T3: the guards over real repositories with a bare origin
+describe('deliverByPush over a real bare origin (T3)', () => {
+  const saved = { ...process.env }
+  afterEach(() => {
+    process.env = { ...saved }
+  })
+  /** origin (bare, main), the owner's clone `work` and a teammate's clone `mate`, all with no git identity configured. */
+  function repos() {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'push-t3-'))
+    // No identity anywhere: the delivery's own git (this process's env) must supply one for its merge commit
+    writeFileSync(path.join(dir, 'nogit'), '[user]\n\tuseConfigOnly = true\n')
+    for (const k of ['GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_COMMITTER_NAME', 'GIT_COMMITTER_EMAIL', 'EMAIL']) delete process.env[k]
+    process.env.GIT_CONFIG_GLOBAL = path.join(dir, 'nogit')
+    process.env.GIT_CONFIG_NOSYSTEM = '1'
+    const env = process.env
+    const sh = (cwd: string, ...a: string[]): string => execFileSync('git', a, { cwd, encoding: 'utf8', env }).trim()
+    const id = ['-c', 'user.name=t', '-c', 'user.email=t@t']
+    const origin = path.join(dir, 'origin.git')
+    const work = path.join(dir, 'work')
+    const mate = path.join(dir, 'mate')
+    sh(dir, 'init', '--bare', '-b', 'main', origin)
+    sh(dir, 'clone', origin, work)
+    sh(work, 'checkout', '-b', 'main')
+    writeFileSync(path.join(work, 'a.txt'), 'a\n')
+    sh(work, 'add', '-A')
+    sh(work, ...id, 'commit', '-m', 'init')
+    sh(work, 'push', '-u', 'origin', 'main')
+    sh(dir, 'clone', origin, mate)
+    const commit = (cwd: string, file: string, text: string): void => {
+      writeFileSync(path.join(cwd, file), text)
+      sh(cwd, 'add', '-A')
+      sh(cwd, ...id, 'commit', '-m', file)
+    }
+    return { dir, env, sh, origin, work, mate, commit, id }
+  }
+  /** A merge of "the plan" that commits `file` into the owner's folder, and a teammate push racing it (the first push is
+   *  answered rejected because the teammate landed first). */
+  function ctxOf(r: ReturnType<typeof repos>, o: { file: string; text: string; race?: () => void }): PushContext {
+    return {
+      log: () => {},
+      git: async (args, opts) => {
+        if (args[0] === 'push' && o.race) {
+          const race = o.race
+          o.race = undefined
+          race()
+        }
+        return realGit(args, opts)
+      },
+      mergeWorktrees: async (into, paths) => {
+        r.commit(into, o.file, o.text)
+        return { ok: true, merged: paths, uncommitted: 0 }
+      },
+      validate: async () => ({ ok: true, ran: 0 })
+    }
+  }
+
+  it('an untracked file in the owner checkout does not block delivery; a modified tracked file does', async () => {
+    const r = repos()
+    writeFileSync(path.join(r.work, 'scratch.txt'), 'mine')
+    const ok = await deliverByPush({ cwd: r.work, branch: 'main', worktrees: [], message: 'm' }, ctxOf(r, { file: 'plan.txt', text: 'plan' }))
+    expect(ok).toMatchObject({ ok: true })
+    expect(r.sh(r.origin, 'rev-parse', 'main')).toBe(r.sh(r.work, 'rev-parse', 'HEAD'))
+    writeFileSync(path.join(r.work, 'a.txt'), 'changed')
+    const stop = await deliverByPush({ cwd: r.work, branch: 'main', worktrees: [], message: 'm' }, ctxOf(r, { file: 'plan2.txt', text: 'p' }))
+    expect(stop).toMatchObject({ ok: false, reason: expect.stringContaining('uncommitted change') })
+  })
+
+  it('catches up with a teammate push by a merge commit with no git identity configured', async () => {
+    const r = repos()
+    const ctx = ctxOf(r, {
+      file: 'plan.txt',
+      text: 'plan',
+      race: () => {
+        r.commit(r.mate, 'mate.txt', 'mate')
+        r.sh(r.mate, 'push', 'origin', 'main')
+      }
+    })
+    const res = await deliverByPush({ cwd: r.work, branch: 'main', worktrees: [], message: 'm' }, ctx)
+    expect(res).toMatchObject({ ok: true })
+    expect(r.sh(r.origin, 'show', 'main:mate.txt')).toBe('mate')
+    expect(r.sh(r.origin, 'show', 'main:plan.txt')).toBe('plan')
+  })
+
+  it('an origin conflict while catching up puts the local branch back where it was before the delivery', async () => {
+    const r = repos()
+    const before = r.sh(r.work, 'rev-parse', 'HEAD')
+    const ctx = ctxOf(r, {
+      file: 'a.txt',
+      text: 'plan\n',
+      race: () => {
+        r.commit(r.mate, 'a.txt', 'mate\n')
+        r.sh(r.mate, 'push', 'origin', 'main')
+      }
+    })
+    const res = await deliverByPush({ cwd: r.work, branch: 'main', worktrees: [], message: 'm' }, ctx)
+    expect(res).toMatchObject({ ok: false, code: 'origin-conflict', conflictWith: r.sh(r.origin, 'rev-parse', 'main') })
+    expect(r.sh(r.work, 'rev-parse', 'HEAD')).toBe(before)
+    expect(r.sh(r.work, 'status', '--porcelain')).toBe('')
+  })
+
+  it('the owner-pushed check says whether every worktree HEAD reached the branch', async () => {
+    const r = repos()
+    r.sh(r.mate, 'checkout', '-b', 'plan')
+    r.commit(r.mate, 'p.txt', 'p')
+    const ctx = ctxOf(r, { file: 'x', text: 'x' })
+    const no = await deliverByPush({ cwd: r.work, branch: 'main', worktrees: [r.mate], message: 'm', ownerPushed: true }, ctx)
+    expect(no).toMatchObject({ ok: false, reason: expect.stringContaining('is not on main yet') })
+    r.sh(r.mate, 'push', 'origin', 'plan:main')
+    const yes = await deliverByPush({ cwd: r.work, branch: 'main', worktrees: [r.mate], message: 'm', ownerPushed: true }, ctx)
+    expect(yes).toMatchObject({ ok: true, branch: 'main' })
+  })
+})
+
+describe('T2: a delivery that waited for another plan validates once', () => {
+  /** Two done push plans of /repo; B (newer) meets A (older, so it goes first). */
+  function plans() {
+    let s: OrchState = emptyState()
+    const ids: { job: string; run: string }[] = []
+    for (const [name, at] of [['A', '2026-10-22T10:00:00.000Z'], ['B', '2026-10-22T10:00:01.000Z']] as const) {
+      const j = createJob(s, { objective: name, cwd: '/repo' }, at)
+      if (!j.ok) throw new Error(j.error)
+      const r = startJobRun(j.state, j.value.id, at)
+      if (!r.ok) throw new Error(r.error)
+      const t = createTask(r.state, { runId: r.value.id, title: name, spec: 's', deps: [] }, at)
+      if (!t.ok) throw new Error(t.error)
+      s = { ...t.state, tasks: t.state.tasks.map((x) => (x.id === t.value.id ? { ...x, status: 'completed' } : x)) }
+      ids.push({ job: j.value.id, run: r.value.id })
+    }
+    const [a, b] = ids
+    s = {
+      ...s,
+      jobs: s.jobs.map((j) => ({
+        ...j,
+        delivery: 'push' as const,
+        ...(j.id === b.job ? { overlaps: [{ taskId: 't', jobId: a.job, otherTaskId: 'u', by: 'path' as const, path: 'src/x.ts' }] } : {})
+      }))
+    }
+    return { s, a, b }
+  }
+
+  it('B does not start while A lands; after A delivered it fetches origin once and validates once', async () => {
+    const p = plans()
+    let s = p.s
+    const h = setup()
+    const tick = async (at: string): Promise<boolean> => {
+      const w = deliveryWaitStep(s, p.b.run, at)
+      s = w.state
+      if (w.waitingFor) return false
+      await h.go()
+      return true
+    }
+    expect(await tick('2026-10-22T10:01:00.000Z')).toBe(false)
+    expect(await tick('2026-10-22T10:02:00.000Z')).toBe(false)
+    expect(s.runs.find((r) => r.id === p.b.run)?.deliveryState?.waitingFor?.jobId).toBe(p.a.job)
+    expect(h.calls).toEqual([])
+    s = { ...s, runs: s.runs.map((r) => (r.id === p.a.run ? { ...r, delivery: { at: '2026-10-22T10:03:00.000Z', branch: 'main', sha: 'a1' } } : r)) }
+    expect(await tick('2026-10-22T10:04:00.000Z')).toBe(true)
+    expect(h.validated).toEqual(['/repo'])
+    expect(h.calls.filter((c) => c[0] === 'fetch')).toHaveLength(1)
+    expect(h.calls.filter((c) => c[0] === 'push' && c[2] === 'main')).toHaveLength(1)
   })
 })

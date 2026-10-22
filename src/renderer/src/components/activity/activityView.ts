@@ -3,6 +3,7 @@
 import type { ActivityEvent, ActivityItem, ActivitySummary } from '../../../../core/orchestration/activity'
 import { resetClock } from '../../../../core/orchestration/activity'
 import type { TaskBlockedReason } from '../../../../core/types'
+import { t, type Lang } from '../../../../core/i18n'
 
 /** Lines the panel holds; older ones fall off (the Host keeps more, and `activity-summary` reads those). */
 export const FEED_MAX = 300
@@ -18,7 +19,7 @@ export function mergePage(held: readonly ActivityEvent[], page: readonly Activit
 
 /** One plan's lines, or every line. W6-G: an account's usage pause holds every plan's new workers, so it is in each. */
 export const feedOf = (events: readonly ActivityEvent[], jobId: string | null): ActivityEvent[] =>
-  jobId === null ? [...events] : events.filter((e) => e.jobId === jobId || e.type === 'usage.paused' || e.type === 'usage.resumed')
+  jobId === null ? [...events] : events.filter((e) => e.jobId === jobId || e.type === 'usage.paused' || e.type === 'usage.resumed' || e.type === 'account.switched')
 
 const CATEGORY_WORD: Record<string, [string, Tone]> = {
   done: ['completed', 'ok'],
@@ -29,14 +30,15 @@ const CATEGORY_WORD: Record<string, [string, Tone]> = {
   queued: ['queued', 'info']
 }
 
-/** What a line says and its colour. `accountLabel` turns an account id into the name the person gave it. */
-export function lineOf(e: ActivityEvent, accountLabel: (id: string) => string): { text: string; tone: Tone } {
+/** What a line says and its colour. `accountLabel` turns an account id into the name the person gave it. `lang`: the
+ *  app's language, for the lines already in the catalogs. */
+export function lineOf(e: ActivityEvent, accountLabel: (id: string) => string, lang: Lang = 'en'): { text: string; tone: Tone } {
   const p = e.payload
   switch (e.type) {
     case 'task.status': {
       const [word, tone] = CATEGORY_WORD[p.category ?? ''] ?? [p.status ?? 'moved', 'info']
       // A bucket is the news; the status says more only where the bucket alone does not (validating is running)
-      return { text: `${p.title}: ${word}${p.status === 'validating' ? ' (checks)' : ''}`, tone }
+      return { text: `${p.title}: ${word}${p.status === 'validating' ? ' (checks)' : p.status === 'merging' ? ' (merging)' : ''}`, tone }
     }
     case 'dispatch.started':
       return { text: `${p.title}: ${p.review ? 'review' : 'worker'} started`, tone: 'info' }
@@ -81,6 +83,8 @@ export function lineOf(e: ActivityEvent, accountLabel: (id: string) => string): 
     case 'plan.nothing-to-do':
       return { text: `${p.title}: nothing to do, already built${p.summary ? `: ${p.summary.split('\n')[0]}` : ''}`, tone: 'ok' }
     // #111
+    case 'plan.chat-approved':
+      return { text: `${p.title}: approved from the planner chat: ${p.reason ?? ''}`, tone: 'ok' }
     case 'plan.rejected':
       return { text: `${p.title}: plan rejected${p.reason ? `: ${p.reason}` : ''}`, tone: 'bad' }
     case 'task.waiting':
@@ -100,8 +104,13 @@ export function lineOf(e: ActivityEvent, accountLabel: (id: string) => string): 
     }
     case 'usage.resumed':
       return { text: `${accountLabel(p.title)}: new workers resumed, under the usage threshold again`, tone: 'info' }
+    // T5b
+    case 'account.switched':
+      return { text: `${accountLabel(p.title)}: started here instead of ${accountLabel(p.fromAccountId ?? '')}: ${p.reason ?? ''}`, tone: 'info' }
     case 'plan.done':
-      return p.runOutcome === 'failed' ? { text: `${p.title}: plan finished with failures`, tone: 'bad' } : { text: `${p.title}: plan done`, tone: 'ok' }
+      if (p.runOutcome === 'failed') return { text: `${p.title}: plan finished with failures`, tone: 'bad' }
+      if (p.runOutcome === 'blocked') return { text: `${p.title}: plan finished with ${p.blockedTasks?.length ?? 0} blocked: ${(p.blockedTasks ?? []).join('; ')}`, tone: 'warn' }
+      return { text: `${p.title}: plan done`, tone: 'ok' }
     // W6-D
     case 'plan.replanning':
       return { text: `${p.title}: ${p.replanMode === 'completion' ? 'final check against the objective' : `replanning before wave ${(p.wave ?? 0) + 1}`}`, tone: 'info' }
@@ -127,6 +136,9 @@ export function lineOf(e: ActivityEvent, accountLabel: (id: string) => string): 
       return { text: `${p.title}: ${p.reason ?? ''}`, tone: 'info' }
     case 'plan.refused':
       return { text: `${p.title}: ${p.reason ?? ''}`, tone: 'warn' }
+    // T7: the field names are the flags' (--deps, --spec, --basis, --evidence), so they stay as they are
+    case 'task.edited':
+      return { text: t(lang, 'activity.taskEdited', { title: p.title, fields: (p.edited ?? []).join(', ') }), tone: 'info' }
   }
 }
 

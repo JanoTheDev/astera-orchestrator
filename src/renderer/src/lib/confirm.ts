@@ -20,6 +20,9 @@ export type ConfirmRequest = {
   confirmLabel?: string
   cancelLabel?: string
   choices?: ConfirmChoice[]
+  /** The cancel button is an answer too (T13: "Keep running in background"), so its ticked choices go with it. ESC and
+   *  the backdrop still answer with none. */
+  cancelKeepsChoices?: boolean
 }
 /** 확인 결과. checked 는 켜진 choice 의 id 들 — 취소면 언제나 빈 배열이다 */
 export type ConfirmAnswer = { ok: boolean; checked: string[] }
@@ -68,5 +71,5 @@ export function settle(ok: boolean, checked: string[] = []): void {
   emit()
   // 취소는 언제나 빈 배열이다 — 켜 둔 체크박스가 취소를 타고 흘러나가면 부르는 쪽이 그것을 선택으로
   // 읽을 수 있다
-  current.resolve({ ok, checked: ok ? checked : [] })
+  current.resolve({ ok, checked: ok || current.cancelKeepsChoices ? checked : [] })
 }

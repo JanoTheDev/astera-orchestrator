@@ -14,9 +14,9 @@ Every plan starts here, whatever its source. Nothing is built twice.
    - search the code (`git grep`, reading files);
    - search open and closed GitHub issues and pull requests (`gh issue list --state all --search "<words>"`,
      `gh pr list --state all --search "<words>"`);
-   - list this project's other Jobs (`astera jobs list --project <projectId> --json`). Your brief's "OTHER PLANS IN
-     THIS REPOSITORY" lists their Tasks, state and paths (W8-D). A Task another plan already holds is never planned
-     again: link it as you would an issue, and name that plan and Task in `existing.md`. Plan around their files
+   - list this project's other Jobs (`astera jobs list --project <projectId> --json`). Your brief's "MAIN PLAN OF
+     THIS PROJECT" lists their Tasks, state and paths (W8-D; `astera main-plan` shows it whole). A Task another plan
+     already holds is never planned again: depend on it (below), and name that plan and Task in `existing.md`. Plan around their files
      where you can; an overlap left in the plan only waits (two workers never edit the same files at once).
 3. **Write `existing.md`** in this Job's inputs folder, `$ASTERA_PROFILE_DIR/plans/<jobId>/inputs/existing.md`
    (the objective names the folder when it has one). One row per requested item: its state, `missing`,
@@ -36,6 +36,15 @@ Every plan starts here, whatever its source. Nothing is built twice.
 5. **Nothing left to do?** Create no Task. End the Job with
    `astera plan-nothing-to-do --job <jobId> --summary - < "$ASTERA_PROFILE_DIR/plans/<jobId>/inputs/existing.md"`.
    The Job is archived with that summary, the person is told, and your session ends.
+
+**The main plan.** All plans of a project are sub-plans of one main plan, in the order they run. `astera main-plan`
+shows it: each plan with its open Tasks, and the links between plans.
+
+- Work another plan already holds is not planned again. Depend on its Task: `--deps <taskId>`, with the id from the main
+  plan. Your Task waits until that Task is completed and its plan has delivered, so its code is on the branch your
+  worker starts from. Or leave the work out and say so in `existing.md`.
+- Only Tasks of a plan of the same project that is not archived can be a dep. Two plans may not wait on each other.
+- If that plan stops, Astera asks the person whether to keep waiting, drop the dependency or cancel your Task.
 
 ## 1. Understand before you cut
 
@@ -67,6 +76,10 @@ Every plan starts here, whatever its source. Nothing is built twice.
   tokens) in wave 1 and their consumers after. When the Tasks are independent, fill each wave to the Job's worker limit.
   Never add a link "to be careful".
 
+- **A Task prompt states five things**: the goal, the findings with `file:line`, numbered build steps, the files, the
+  tests with their commands, and what not to touch. A worker sees nothing else of the plan, so a prompt that leaves one
+  out is a Task that goes wrong.
+
 - **Name the plan's areas** (W8-D): 1 to 3 short words for where its Tasks work, read off their paths
   (`auth`, `api`, `ui`): `astera jobs-set --id <jobId> --areas auth,api`. The Plans page groups plans by them.
 
@@ -82,13 +95,31 @@ Create Tasks in dependency order (a Task can only depend on one that exists). Ea
 | `--criteria '[...]'` | one or more acceptance criteria, each checkable by reading code or running a command ("`npm test -- foo` passes", not "works well") |
 | `--affected-paths '[...]'` | the files or folders it will change |
 | `--deps '[...]'` | the Task ids it waits for |
+| `--kind` | `bugfix`, `feature`, `refactor`, `ui`, `audit`, `docs`, `test` or `ops`. It picks the skills the worker is told to use (systematic debugging and a failing test first for `bugfix`, test-first for `feature`, the design rules for `ui`, read-only findings first for `audit`). Pass it on every Task; without it Astera guesses from the title |
 | `--difficulty` | `light` (mechanical, small), `standard` (ordinary feature or fix), `hard` (design, subtle bug, wide change). It picks the worker's model |
 | `--model-reason` | one line: why that difficulty (and provider or model, if you set one) |
 | `--basis` + `--evidence` | what you found of the item before planning (section 0): `missing`, `partial` or `broken`, and the file:line, issue, PR or Job id that shows it |
 | `--validate` | run configurations that test the work, when the project has any |
+| `--covers` | the numbers of the objective items the Task covers, e.g. `1,3` (see below) |
+
+**Cover every objective item.** When the objective lists items (top-level numbered lines `1.` / `1)`, or bullets when it
+has no numbered ones; nested lines belong to the item above), give every Task `--covers` with the numbers of the items it
+covers (bullets count 1, 2, 3 in order). An item you do not plan, because it is already built (section 0) or out of
+scope, is left out on purpose with the reason: `astera jobs-set --id <jobId> --left-out
+'[{"item":2,"reason":"already built: src/x.ts:12"}]'` (the whole list each time; `[]` clears it). The person sees the
+left-out items and their reasons on the plan. Approval refuses an item that is neither covered nor left out.
+
+**Checks.**
+
+- A Task's `--validate` is quick: the typecheck or the tests of the files it touches. The full test suite runs once, as
+  the plan's delivery check, after overlapping plans have landed. Do not add a hand-made "whole-plan check" Task.
+
+**Name the plan.** Every Job starts named by the first words of its objective. Once you know the goal, give it a short
+name of 3 to 6 words: `astera jobs rename --id <jobId> --title "<3-6 words>"`. Always do it for a chat-planned Job
+(section 7): its objective is a placeholder until you and the person agree on the work.
 
 `--provider` and `--model` only when a Task needs a specific one. Fix a Task with `astera task-update --id
-<taskId>` and the same flags; deps stay inside the plan and may not form a cycle.
+<taskId>` and the same flags; deps are Tasks of the plan or of another plan of the project (section 0) and may not form a cycle.
 
 **Path rules for `--affected-paths`:**
 
@@ -108,8 +139,17 @@ gets a slower worker.
 Read the plan back (`astera tasks list --run <jobId> --json`). Then print a short summary in your terminal:
 the Tasks in order, what runs in parallel and why that is safe, the open questions. Tell the person to press
 **Approve & execute** on the Job in Astera, and wait. Approval is refused while a Task has no prompt or no
-acceptance criterion or no basis, depends on a Task outside the plan, or the dependencies form a cycle. If the person asks
+acceptance criterion or no basis, depends on a Task outside the plan, or the dependencies form a cycle, and while an
+objective item is neither covered by a Task's `--covers` nor left out with `jobs-set --left-out` and a reason. Before
+you hand over, check every item is one or the other, and that the plan has its short name (`jobs rename`). If the person asks
 for changes, make them with `task-update` or new Tasks and summarise again.
+
+**When the person tells you here to run, start or approve the plan** (they typed it in this terminal, after your last
+change), finish the plan, read it back, then run
+`astera run-start --run <jobId> --owner-said "<their words, verbatim>"`. That is the same as pressing Approve & execute.
+Never run it unless they said so after your last change: Astera refuses it otherwise (ask them to type "run it"), and
+refuses it when the plan does not hold. The answer then lists every problem; fix them, read the plan back and ask the
+person to confirm again.
 
 ## 5. Replanning
 
@@ -131,7 +171,7 @@ the files) before you change anything.
 
 You may:
 - change a Task that has **not started** with `astera task-update --id <taskId>` and the planner flags;
-- add Tasks to the Run with `astera task-create --run <runId> --account <id>` and the planner flags (a prompt and at
+- add Tasks to the Run with `astera task-create --run <runId>` and the planner flags (a prompt and at
   least one criterion, as always);
 - cancel a Task that has not started and is no longer needed: `astera task-cancel --id <taskId> --reason "<why>"`.
   Change the `--deps` of every Task that waits on it first.

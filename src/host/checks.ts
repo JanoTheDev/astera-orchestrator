@@ -240,7 +240,9 @@ export function createHostChecksForTest(d: HostChecksDeps): HostChecks & { _vali
     loginStatus,
     assertAllowedPath,
     startWorker: (w) => d.deps().startWorker(w),
-    specsDir: d.specsDir
+    specsDir: d.specsDir,
+    // T5b: a review skips a full account (chooseStartAccount)
+    startAccount: (o) => d.deps().startAccount?.(o) ?? null
   })
   /** The review starts in flight, by Task (`checking`). Both callers, the validator's `onSettled` and
    *  the driver's doors, go through this, so a Task is held from the call until the start has opened

@@ -5,7 +5,9 @@ import { REMOTE_SESSION_CHANGES, REMOTE_SESSION_READS, type RemoteSessions } fro
 import { hookEventsDirIn } from '../core/hooks/sessionState' // W8-A
 import { PLUGIN_COMMANDS, pluginsCommand } from './plugins/commands'
 import type { PluginManager } from './plugins/manager'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { createHash } from 'node:crypto'
+import os from 'node:os'
 import path from 'node:path'
 import { stat } from 'node:fs/promises'
 import { jobsViewOf, runsTimelineOf, type RuntimeFacts } from './remoteReads'
@@ -19,8 +21,11 @@ import { applyPendingReports, readPendingReports, type QueuedReport } from '../c
 import { dispatchesHeldOnlyByReport, pendingReportsDirIn, reportedDispatchIdsOf } from '../core/orchestration/pendingReports'
 import { writeOffDispatch, type OrchState } from '../core/orchestration/state'
 import { runningRunCount } from '../core/orchestration/running'
-import { isPlaceholderSessionId } from '../core/orchestration/types'
-import { sweepStaleSpecFiles } from '../core/orchestration/exec/specFiles'
+import { isPlaceholderSessionId, type Dispatch } from '../core/orchestration/types'
+import { specsDirOf, sweepStaleSpecFiles } from '../core/orchestration/exec/specFiles'
+import { adoptLiveWorkers, type LiveWorker } from '../core/orchestration/exec/adopt'
+import { orchOwnerOfCaller, orchSessionsAdded } from '../core/orchestration/exec/runEnd'
+import { ORCH_MARK_AGENT } from '../core/host/protocol'
 import { coordinatorReleaseOf } from '../core/orchestration/exec/releaseDefer'
 import type { OrchCall, OrchCaller } from '../core/host/orchProtocol'
 import { mcpRefusal } from '../core/host/mcpGate'
@@ -36,7 +41,8 @@ import { APP_CALLER, HOST_CALLER, type Driver } from '../core/host/driver'
 import { createHeldQueue, createOwnerHold } from '../core/sessions/ownerHold'
 import { hostOrchDeps } from './orchDeps'
 import { createCheckWaits } from '../core/orchestration/checkWaits'
-import { readAccountsFile } from '../core/accounts/accountsFile'
+import { readAccountEntries, readAccountsFile } from '../core/accounts/accountsFile'
+import { chooseStartAccount, type AutoStartGuard } from '../core/orchestration/exec/workerStart'
 import { isLoggedIn } from '../core/accounts/loginCheck'
 import { makeDescriptors } from '../core/providers/descriptor'
 import type { Account } from '../core/types'
@@ -45,6 +51,7 @@ import { readRunConfigsFile } from '../core/run/runConfigsFile'
 import { listMdFiles } from '../core/orchestration/intakeFiles'
 import type { HostChecks } from './checks'
 import type { HostSessions } from './sessions'
+import type { HostSession } from '../core/orchestration/command'
 import type { HostLocal } from './spawner'
 import type { HostRolling } from './rolling'
 import type { HostChats } from './hostChats'
@@ -61,7 +68,7 @@ import { NOT_WRITER, type HostUnderstanding } from './hostUnderstanding'
 import type { HostWorkUnits } from './hostWorkUnits'
 import { addSubProject, ensureProject, findProject, setProjectSettings } from '../core/orchestration/projects'
 import type { Project } from '../core/orchestration/types'
-import { createProjectFolder, githubCreate, initialCommit, type GithubVisibility } from '../core/projects/create'
+import { cloneDestination, cloneRepository, cloneUrlRefusal, createProjectFolder, githubCreate, initialCommit, type GithubVisibility } from '../core/projects/create'
 import { inspectFolder } from '../core/projects/detect'
 import type { SessionWorkUnit } from '../core/workUnit/types'
 import { justFinished, runRecordInputOf } from '../core/orchestration/runRecord'
@@ -73,6 +80,19 @@ import { readMaxConcurrentWorkers } from '../core/settings/maxConcurrentWorkers'
 /** One reply — today's HTTP status and body, the shape `OrchCall.call` already answers with. Named
  *  only because the receipt store below holds one. */
 type Reply = { status: number; body: unknown }
+
+/** The commands that may wait for minutes, and so never hold the Host's command chain (`serially` in
+ *  `createHostOrch`): a wait that held it would stop every other caller, often the very one it waits for. */
+const waitsLong = (cmd: string, args: Record<string, unknown>): boolean =>
+  (cmd === 'check' && args.wait === true) ||
+  (cmd === 'sessions-send' && args.wait !== undefined) ||
+  cmd === 'jobs-wait' ||
+  cmd === 'runs-wait' ||
+  cmd === 'ask' ||
+  cmd === 'runs-follow' ||
+  cmd === 'runs-resume' ||
+  // Waits for the driving loop's pass to end, and that pass's own `worker-start` runs through the chain.
+  cmd === 'tasks-dispatch'
 
 /** What a request id may look like (request receipts design §5). **Not a UUID**: Orca validates one
  *  in its client and enforces nothing in its runtime, and its own federation code writes ids that
@@ -402,6 +422,9 @@ export interface HostOrch extends OrchCall {
    *  never loaded has closed nothing and started nothing, while loading would run the restart cleanup
    *  from an app leaving. */
   orphanedSessions(isAlive: (sessionId: string) => boolean): string[]
+  /** Records each live worker that runs a Task's spec with no Dispatch of its own (exec/adopt.ts), in the command chain
+   *  as one commit, and answers what it recorded. Nothing before the load or without `liveWorkers`. */
+  adoptWorkers(): Promise<Dispatch[]>
   /** A command the Host issues for itself, after the load, under HOST_CALLER (R9). It answers exactly
    *  as `call` would — the same 409 rewrite from the call's own marks, so a retiring spawner's refusal
    *  arrives as 409 with `retry` (B1). No request id, so no receipt: the Host is not a caller that
@@ -447,6 +470,14 @@ export function createHostOrch(a: {
    *  process and could be told nothing, and design §6 says that answer cannot exist inside the Host —
    *  "we asked and got no answer" is not a state a process can be in about itself. */
   aliveSessionIds(): ReadonlySet<string>
+  /** The live worker sessions with the text naming each one's spec (exec/adopt.ts LiveWorker), for adoption: the stall
+   *  watch's and `worker-stop`'s. Absent: nothing is adopted. */
+  liveWorkers?(): LiveWorker[]
+  /** Item 9: marks a session orchestration started with the Run or Job it belongs to (registry.markOrch), so a finished
+   *  Run's sweep can tell it from a person's own tab (exec/runEnd.ts). Absent: nothing is marked. */
+  markSession?(sessionId: string, owner: string): void
+  /** The mark a session carries (registry.orchMarkOf), or null. Read for a session an agent creates. */
+  sessionMarkOf?(sessionId: string): string | null
   act(name: string, args: unknown[]): Promise<unknown>
   hasApp(): boolean
   /** Called with the state every commit leaves behind, so the Host can push it to the app — and with
@@ -539,6 +570,8 @@ export function createHostOrch(a: {
   /** `sessions create` (sessionCreate.ts), passed through to `hostOrchDeps`. Absent: the command
    *  answers 409. */
   createSession?: OrchServerDeps['createSession']
+  /** T12b: a terminal running `astera accounts login --new` on this machine (loginTerminal.ts). Absent: refused 409. */
+  startLoginTerminal?(): { ok: true; session: HostSession } | { ok: false; error: string }
   /** GitHub through the Host's gh (MCP P2-B), passed through to `hostOrchDeps`. Absent: the `github-*`
    *  commands answer 409. */
   github?: OrchServerDeps['github']
@@ -552,6 +585,8 @@ export function createHostOrch(a: {
   deliverPush?: OrchServerDeps['deliverPush']
   /** W9-J: removes a delivered Run's ready worktrees. Absent: nothing is cleaned after a delivery. */
   cleanWorktrees?: OrchServerDeps['cleanWorktrees']
+  /** T5: `worktrees list|remove` over this Host's registry. Absent: both answer 409. */
+  worktreesOps?: OrchServerDeps['worktreesOps']
   /** How It Works records (MCP P2-C), passed through to `hostOrchDeps`. Absent: the `understanding-*`
    *  commands answer 409. */
   readUnderstanding?: OrchServerDeps['readUnderstanding']
@@ -602,7 +637,7 @@ export function createHostOrch(a: {
       })
     | null
 }): HostOrch {
-  const store = new OrchestrationStore(path.join(a.profileDir, 'orchestration.json'))
+  const store = new OrchestrationStore(path.join(a.profileDir, 'orchestration.json'), a.log)
   // Built at the first ask: only a call that marks the default needs the descriptors.
   let descriptors: ReturnType<typeof makeDescriptors> | undefined
   const loggedIn = a.isLoggedIn ?? ((x: Account) => isLoggedIn(x, (descriptors ??= makeDescriptors(process.platform))))
@@ -789,8 +824,81 @@ export function createHostOrch(a: {
   /** The `check --wait` calls this Host serves, for its whole life (final round 2, I-A): built once, not
    *  per call like the deps below, since a wait entered by one call is asked about by another. */
   const checkWaits = createCheckWaits()
-  const depsFor = (marks: CallMarks, actor: JournalActor): OrchServerDeps =>
-    hostOrchDeps({
+  /**
+   * **One command at a time** (the Gameful lost dispatches, 2026-10-20). A command reads the state once and commits a whole
+   * state after its awaits, so two running together lose the first one's commit: ten parallel `worker-start`s left three
+   * Dispatches. Every `handleCommand` from this Host's four doors goes through this one chain.
+   *
+   * A call made from inside the command holding the chain (`tasks-dispatch`'s loop calling `handle('worker-start')`) runs
+   * inline, or the chain would wait on itself. "Inside" is the holder's async context and only while the holder runs: a
+   * timer or pass it started that outlives it queues like anyone else. A long wait (`waitsLong`) never takes the chain,
+   * and a holder hands it on while it waits on a spawn or a screen (`outsideChain`). A command that fails or throws
+   * releases it all the same.
+   */
+  type Holder = { running: boolean; release: () => void }
+  const holding = new AsyncLocalStorage<Holder>()
+  let chainTail: Promise<void> = Promise.resolve()
+  /** Waits for every earlier taker to hand the chain on, and answers how to hand it on in turn. */
+  const takeChain = (): Promise<() => void> => {
+    let release = (): void => {}
+    const mine = new Promise<void>((r) => {
+      release = r
+    })
+    const before = chainTail
+    chainTail = before.then(() => mine)
+    return before.then(() => release)
+  }
+  const serially = async <T>(cmd: string, args: Record<string, unknown>, run: () => Promise<T>): Promise<T> => {
+    if (holding.getStore()?.running || waitsLong(cmd, args)) return run()
+    const holder: Holder = { running: true, release: await takeChain() }
+    try {
+      return await holding.run(holder, run)
+    } finally {
+      holder.running = false
+      holder.release()
+    }
+  }
+  /** A slow effect the holder awaits with the chain handed on, taken back before the command goes on. Only for effects
+   *  after which the command reads the state again (`worker-start`'s spawn) or commits nothing (a worker's screen). */
+  const outsideChain = async <T>(effect: () => Promise<T>): Promise<T> => {
+    const holder = holding.getStore()
+    if (!holder?.running) return effect()
+    holder.running = false
+    holder.release()
+    try {
+      return await effect()
+    } finally {
+      holder.release = await takeChain()
+      holder.running = true
+    }
+  }
+  /** Item 9: marks the sessions a commit gave orchestration (exec/runEnd.ts orchSessionsAdded). Isolated: the commit
+   *  has landed, and a mark that fails costs only the sweep's reach. */
+  const markOrchSessions = (prev: OrchState, next: OrchState): void => {
+    if (!a.markSession) return
+    try {
+      for (const m of orchSessionsAdded(prev, next)) a.markSession(m.sessionId, m.owner)
+    } catch (err) {
+      a.log(`the sessions of a commit could not be marked as orchestration's: ${String(err)}`)
+    }
+  }
+  /** `sessions create` from an agent session: the new session is marked with the Run or Job its creator works for (its
+   *  own mark, or what the state names it), or as an agent's (ORCH_MARK_AGENT). A person's call (no session) marks none. */
+  const createSessionAs =
+    (callerId: string, create: NonNullable<OrchServerDeps['createSession']>): NonNullable<OrchServerDeps['createSession']> =>
+    async (o) => {
+      const row = await create(o)
+      if (callerId !== '' && a.markSession) {
+        try {
+          a.markSession(row.id, a.sessionMarkOf?.(callerId) ?? orchOwnerOfCaller(store.get(), callerId) ?? ORCH_MARK_AGENT)
+        } catch (err) {
+          a.log(`session ${row.id}, created by ${callerId}, could not be marked as orchestration's: ${String(err)}`)
+        }
+      }
+      return row
+    }
+  const depsFor = (marks: CallMarks, actor: JournalActor): OrchServerDeps => {
+    const deps = hostOrchDeps({
       checkWaits,
       getState: () => store.get(),
       setState: async (given, how) => {
@@ -798,6 +906,8 @@ export function createHostOrch(a: {
         const prev = store.get()
         // W8-D: every plan's `overlaps` follows the Tasks of this commit (overlap.ts), whichever command moved them
         const next = refreshOverlaps(prev, given)
+        // Before the commit is marked below: a refused mass delete must leave no half-applied commit behind.
+        store.checkSave(next, how)
         // Reserved before the write, for `reserveVersion`'s reason and for one that is this path's
         // own: a `state-put` arriving while this commit is still writing would otherwise read the
         // pre-commit number, pass the check, and land a whole state that does not contain this
@@ -811,7 +921,7 @@ export function createHostOrch(a: {
         marks.commits += how?.rollsBack ? -1 : 1
         // Published as memory moves, not after the disk: `subscribe` snapshots memory and `version`, which move
         // together right here, so a push taken any later could reach a subscriber older than its snapshot.
-        const saving = store.save(next)
+        const saving = store.save(next, how)
         publish(next, committed)
         // The public event log moves with memory and the subscribers (SDK 1d): an event never names a state a read
         // cannot see yet. A disk write that then fails leaves memory moved all the same, and the events with it.
@@ -822,6 +932,7 @@ export function createHostOrch(a: {
         // P5) and its version under this Host's life as the key (J6, P1).
         journalSafely('recording a commit', () => a.journal?.committed({ prev, next, version: committed, actor }))
         recordFinishedRuns(prev, next)
+        markOrchSessions(prev, next)
         kickDriver()
       },
       now: a.now,
@@ -838,6 +949,24 @@ export function createHostOrch(a: {
       // W8-A: the stamp's line data reads the checkpoint logs under the profile
       profileDir: a.profileDir,
       ...(a.usageGuard ? { usageGuard: a.usageGuard } : {}),
+      // T5b: `worker-start` without --account, and the account a paused --account is told to take (chooseStartAccount)
+      ...(a.usageGuard && 'autoAccounts' in a.usageGuard
+        ? {
+            startAccount: (o: Parameters<NonNullable<OrchServerDeps['startAccount']>>[0]) =>
+              chooseStartAccount(
+                {
+                  usageGuard: a.usageGuard as AutoStartGuard,
+                  accounts: () => readAccountEntries(path.join(a.profileDir, 'accounts.json')),
+                  loginStatus: async (id) => {
+                    const x = (await readAccountEntries(path.join(a.profileDir, 'accounts.json'))).find((y) => y.id === id)
+                    return x ? loggedIn(x) : false
+                  },
+                  log: a.log
+                },
+                o
+              )
+          }
+        : {}),
       act: a.act,
       hasApp: a.hasApp,
       log: a.log,
@@ -855,7 +984,7 @@ export function createHostOrch(a: {
       chats: a.chats ?? null,
       chatAppAnswers: a.chatAppAnswers,
       ...(a.dispatchTask ? { dispatchTask: a.dispatchTask } : {}),
-      ...(a.createSession ? { createSession: a.createSession } : {}),
+      ...(a.createSession ? { createSession: createSessionAs(actor.sessionId ?? '', a.createSession) } : {}),
       ...(a.github ? { github: a.github } : {}),
       ...(a.readUnderstanding ? { readUnderstanding: a.readUnderstanding } : {}),
       ...(a.readSummaries ? { readSummaries: a.readSummaries } : {}), // W9-I
@@ -870,6 +999,7 @@ export function createHostOrch(a: {
       ...(a.completionChecks ? { completionChecks: a.completionChecks } : {}),
       ...(a.deliverPush ? { deliverPush: a.deliverPush } : {}),
       ...(a.cleanWorktrees ? { cleanWorktrees: a.cleanWorktrees } : {}),
+      ...(a.worktreesOps ? { worktreesOps: a.worktreesOps } : {}),
       workUnits: a.workUnits?.() ?? null,
       ...(a.journal ? { journalTimeline: (runId: string, st: OrchState) => a.journal!.timeline(runId, st) } : {}),
       onEffect: () => {
@@ -889,6 +1019,15 @@ export function createHostOrch(a: {
         a.log(detail ? `${name} refused by the Host: ${why}` : `${name} could not be put to the app: ${why}`)
       }
     })
+    const { startWorker, readWorker } = deps
+    return {
+      ...deps,
+      // `worker-stop` adopts the original of a stopped duplicate (exec/adopt.ts)
+      ...(a.liveWorkers ? { liveWorkers: a.liveWorkers } : {}),
+      ...(startWorker ? { startWorker: (x: Parameters<typeof startWorker>[0]) => outsideChain(() => startWorker(x)) } : {}),
+      ...(readWorker ? { readWorker: (x: Parameters<typeof readWorker>[0]) => outsideChain(() => readWorker(x)) } : {})
+    }
+  }
 
   /** A 409 body with the file to repair (`marks.repair`), or the retry a leaving Host asks for
    *  (`marks.retry`), beside its error. Fields, so the CLI reads which it is rather than matching the
@@ -902,7 +1041,8 @@ export function createHostOrch(a: {
    *  pushed, and a driver that throws must not turn it into a failed command. */
   const kickDriver = (): void => {
     try {
-      a.onCommit?.()
+      // Outside the chain's context: the pass this starts is not a call made by the committing command, and queues.
+      holding.exit(() => a.onCommit?.())
     } catch (err) {
       a.log(`the driver failed to take a commit: ${String(err)}`)
     }
@@ -953,7 +1093,9 @@ export function createHostOrch(a: {
     deliver: async (h) => {
       await ready()
       const target = String(h.args.id)
-      const r = await handleCommand(depsFor(throwaway(), actorOf({ sessionId: h.sessionId, role: h.role, state: store.get() })), { sessionId: h.sessionId, role: h.role }, 'sessions-send', h.args)
+      const r = await serially('sessions-send', h.args, () =>
+        handleCommand(depsFor(throwaway(), actorOf({ sessionId: h.sessionId, role: h.role, state: store.get() })), { sessionId: h.sessionId, role: h.role }, 'sessions-send', h.args)
+      )
       // Never the text: it is the sender's, and the log is read by whoever reads the log.
       const why = r.status === 200 ? '' : ` — ${String((r.body as { error?: unknown } | null)?.error ?? JSON.stringify(r.body))}`
       a.log(`owner hold — a queued send to ${target} from ${h.sessionId || h.role} was delivered: ${r.status}${why}`)
@@ -983,7 +1125,9 @@ export function createHostOrch(a: {
     const drainedNow = await applyPendingReports({
       queued,
       apply: (r) =>
-        handleCommand(depsFor(throwaway(), { surface: 'agent', sessionId: r.sessionId }), { sessionId: r.sessionId }, r.cmd, r.args).then((reply) => ({
+        serially(r.cmd, r.args, () =>
+          handleCommand(depsFor(throwaway(), { surface: 'agent', sessionId: r.sessionId }), { sessionId: r.sessionId }, r.cmd, r.args)
+        ).then((reply) => ({
           ok: reply.status >= 200 && reply.status < 300,
           detail: `${reply.status} ${JSON.stringify(reply.body)}`
         })),
@@ -1066,6 +1210,8 @@ export function createHostOrch(a: {
           version
         }
       }
+    // A whole state that would wipe the Tasks is refused before the version moves
+    store.checkSave(state)
     // The diff base, read before the save moves memory.
     const prev = store.get()
     // Taken here, not after the write lands — the whole of `reserveVersion`'s note.
@@ -1638,12 +1784,24 @@ export function createHostOrch(a: {
         if (r.coordinatorSessionId && !isAlive(r.coordinatorSessionId)) ids.add(r.coordinatorSessionId)
       return [...ids]
     },
+    adoptWorkers: async () => {
+      if (!loaded || !a.liveWorkers) return []
+      const live = a.liveWorkers()
+      const specsDir = specsDirOf(a.profileDir)
+      // Read once outside the chain, so a pass with nothing to adopt never waits on it; again inside, on what is there then
+      if (adoptLiveWorkers(store.get(), live, specsDir, a.now()).adopted.length === 0) return []
+      return serially('workers-adopt', {}, async () => {
+        const r = adoptLiveWorkers(store.get(), live, specsDir, a.now())
+        if (r.adopted.length > 0) await depsFor(throwaway(), HOST_ACTOR).setState(r.state)
+        return r.adopted
+      })
+    },
     handle: async (cmd, args) => {
       const marks: CallMarks = { appRefused: false, commits: 0, effects: 0 }
       // Inside the try for `call`'s reason: the loop that asks this must be told, not thrown at.
       try {
         await ready()
-        return answerOf(await handleCommand(depsFor(marks, HOST_ACTOR), { sessionId: HOST_CALLER }, cmd, args), marks)
+        return answerOf(await serially(cmd, args, () => handleCommand(depsFor(marks, HOST_ACTOR), { sessionId: HOST_CALLER }, cmd, args)), marks)
       } catch (err) {
         return failureOf(err, marks)
       }
@@ -2070,8 +2228,10 @@ export function createHostOrch(a: {
         // decides it is the Runtime machine's own: the folder is there, it is absolute, and it is not one of this
         // Host's worktrees. Idempotent like the app's own registration (ensureProject). Below the receipt line: it commits.
         if (cmd === 'projects-add') {
-          if (from?.role !== 'app' && from?.role !== 'cli') {
-            const refused = { status: 403, body: { error: 'projects-add is for this machine’s app and CLI only' } }
+          // T12b: a controller reaches here only with full control (controllerGate.ts), to clone or register a folder of
+          // this machine
+          if (from?.role !== 'app' && from?.role !== 'cli' && from?.role !== 'controller') {
+            const refused = { status: 403, body: { error: 'projects-add is for this machine’s app and CLI, and full-control controllers' } }
             return claimed === null ? refused : settleRequest(claimed, cmd, marks, refused)
           }
           if (agentShell(from, sessionId)) {
@@ -2091,6 +2251,26 @@ export function createHostOrch(a: {
             if (added.ok && added.state !== before) await depsFor(marks, actorOf({ sessionId, role: from?.role, state: before })).setState(added.state)
             const reply = added.ok ? { status: 200, body: added.value } : { status: 'missing' in added ? 404 : 400, body: { error: added.error } }
             return claimed === null ? reply : settleRequest(claimed, cmd, marks, reply)
+          }
+          // T12b: `--clone <url>` clones with this machine's own git credentials first, into --path or
+          // ~/astera-projects/<name>, then registers that folder below
+          if (args.clone !== undefined) {
+            const refusal =
+              cloneUrlRefusal(args.clone) ??
+              (args.path !== undefined && (typeof args.path !== 'string' || !path.isAbsolute(args.path)) ? 'projects-add --clone takes an absolute --path' : null)
+            if (refusal !== null) {
+              const refused = { status: 400, body: { error: refusal } }
+              return claimed === null ? refused : settleRequest(claimed, cmd, marks, refused)
+            }
+            const dest = typeof args.path === 'string' ? args.path : cloneDestination(args.clone as string, os.homedir())
+            marks.effects += 1
+            try {
+              await cloneRepository(args.clone as string, dest)
+            } catch (e) {
+              const failed = { status: 400, body: { error: e instanceof Error ? e.message : String(e) } }
+              return claimed === null ? failed : settleRequest(claimed, cmd, marks, failed)
+            }
+            args = { ...args, path: dest }
           }
           const p = args.path
           const isDir = typeof p === 'string' && path.isAbsolute(p) && (await stat(p).then((st) => st.isDirectory(), () => false))
@@ -2129,6 +2309,21 @@ export function createHostOrch(a: {
           const added = await registerProject(folder!.root, folder!.defaultBranch, sessionId, from?.role, marks)
           const body = { status: 200, body: { ...added, proposedTest: folder!.proposedTest } }
           return claimed === null ? body : settleRequest(claimed, cmd, marks, body)
+        }
+        // T12b: Sign in account from Settings › Remote Runtimes on a controller, or this machine's own app. Below the receipt
+        // line: it opens a terminal, so a retried request replays its answer instead of opening a second.
+        if (cmd === 'accounts-login-start') {
+          const reply =
+            from?.role !== 'app' && from?.role !== 'controller'
+              ? { status: 403, body: { error: 'accounts-login-start is for the app and full-control controllers' } }
+              : !a.startLoginTerminal
+                ? { status: 409, body: { error: 'this Host cannot open a login terminal' } }
+                : ((): { status: number; body: unknown } => {
+                    marks.effects += 1
+                    const r = a.startLoginTerminal!()
+                    return r.ok ? { status: 200, body: r.session } : { status: 500, body: { error: r.error } }
+                  })()
+          return claimed === null ? reply : settleRequest(claimed, cmd, marks, reply)
         }
         // W7-B: a brand-new project: the folder, `git init`, a .gitignore and CLAUDE.md, the initial commit, registered;
         // and only when asked, its GitHub repository (outward-facing). For the same callers as `projects-add`.
@@ -2205,7 +2400,7 @@ export function createHostOrch(a: {
           const queued = { status: 200, body: { queued: true, reason: 'owner-typing', target: runArgs.id } }
           return claimed === null ? queued : settleRequest(claimed, cmd, marks, queued)
         }
-        const r = await handleCommand(depsFor(marks, actor), { sessionId, role: from?.role }, cmd, runArgs)
+        const r = await serially(cmd, runArgs, () => handleCommand(depsFor(marks, actor), { sessionId, role: from?.role }, cmd, runArgs))
         const answered = answerOf(r, marks)
         // **Who drives, on `status`, from the Host and not from `handleCommand`** (R6): the two fields
         // exist only on a Host that drives, and their absence tells a script this one does not.

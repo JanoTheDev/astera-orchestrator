@@ -1,11 +1,10 @@
-// W8-C: a long plan delivered as a PR is followed from GitHub. After its first wave, while later waves remain, the plan's
-// integration branch is pushed and a **draft** PR opened (`run-draft-pr`); after every later wave the branch is pushed
-// again and the body rewritten with the done and remaining waves. At completion `run-open-pr` pushes the last time,
+// W8-C: a long plan delivered as a PR is followed from GitHub. T3: after every Task merged into the plan's integration
+// branch, the branch is pushed (`run-draft-pr`, `push` deliveries too) and, for a PR, a **draft** PR opened or its body
+// rewritten with the done and remaining waves. At completion `run-open-pr` pushes the last time,
 // writes the final body and marks the draft ready (`gh pr ready`). Nothing is ever merged by Astera.
 //
 // Pure: no clock, no files.
 import { isSamePath } from '../files/tree'
-import { deliveryOf } from './delivery'
 import { waveOf, runTasks } from './replan'
 import { jobActive } from './schedule'
 import { jobOf, type OrchState } from './state'
@@ -38,18 +37,26 @@ export const wavesDoneOf = (waves: readonly RunWave[]): number => {
   return i === -1 ? waves.length : i
 }
 
-/** The done count a draft update is due for, else null: a `pr` delivery of an active, unscheduled Job, a Run with an
- *  integration branch and no delivery yet, at least one wave done and one remaining, and no PR yet or a draft last
- *  written for a different count. A non-draft PR, a no-remote note or a recorded error is never touched here. */
-export function draftPrDue(s: OrchState, run: JobRun): number | null {
+/** T3: the count of the Run's completed Tasks a plan-branch push is due for, else null. After every Task merged into
+ *  the plan branch, Astera pushes that branch (`push` and `pr` deliveries) and, for `pr`, opens or updates the draft PR:
+ *  an active, unscheduled Job, a Run with its own integration branch and no end delivery yet, more completed Tasks than
+ *  at the last push that went through (`branchPush.tasksDone`), and, after a failed one, its retry time come
+ *  (`branchPush.nextRetryAt`, when `nowMs` is given). A non-draft PR, a no-remote note or a recorded PR error is the end
+ *  delivery's, never touched here. A Run with no worktree of its own merges no Task anywhere, so nothing is pushed.
+ *  T4: `synced` (an origin sync merged into the plan branch) is due with no new Task; "I'll push it myself" never is. */
+export function draftPrDue(s: OrchState, run: JobRun, nowMs?: number, opts?: { synced?: boolean }): number | null {
   const job = jobOf(s, run)
-  if (!job || !jobActive(job) || job.schedule !== undefined || deliveryOf(s, job) !== 'pr') return null
+  if (!job || !jobActive(job) || job.schedule !== undefined) return null
   if (run.worktree === undefined || run.delivery !== undefined) return null
   const pr = run.pr
   if (pr !== undefined && (pr.draft !== true || pr.error !== undefined || pr.note !== undefined)) return null
-  const waves = runWaves(s, run.id)
-  const done = wavesDoneOf(waves)
-  if (done < 1 || done >= waves.length || pr?.wavesDone === done) return null
+  const done = runTasks(s, run.id).filter((t) => t.status === 'completed').length
+  const bp = run.branchPush
+  // T4: the owner pushes it; a failed push (an origin sync's too) is due again whatever the count, a sync's push at once
+  if (bp?.ownerPushes === true) return null
+  const again = opts?.synced === true || (bp?.lastError !== undefined && bp.state !== 'delivered')
+  if (!again && (done < 1 || done <= (bp?.tasksDone ?? 0))) return null
+  if (nowMs !== undefined && bp?.nextRetryAt !== undefined && Date.parse(bp.nextRetryAt) > nowMs) return null
   return done
 }
 
@@ -64,7 +71,7 @@ export function wavesSection(waves: readonly RunWave[]): string {
 }
 
 export const DRAFT_PR_FOOTER =
-  "A draft: Astera pushes the plan's branch and updates this description after every wave, and marks it ready after the final check. It is never merged automatically."
+  "A draft: Astera pushes the plan's branch and updates this description after every Task, and marks it ready after the final check. It is never merged automatically."
 
 /** The worktrees of the Run's completed Tasks that are not folded into its integration branch yet: a Task's work is
  *  folded only when a dependent starts, so at a wave boundary the last wave's is still in its own worktree. Never a

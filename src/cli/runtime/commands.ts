@@ -159,6 +159,8 @@ export async function runRuntimeCommand(cmd: string, args: Record<string, unknow
     }
     case 'runtime-serve':
       return failure('FAILED', 'runtime serve runs in the foreground from run.ts, not here')
+    case 'runtime-setup':
+      return failure('FAILED', 'runtime setup runs from run.ts (cli/runtime/setup.ts), not here')
     default:
       return failure('FAILED', `${cmd} is not a runtime command`)
   }
