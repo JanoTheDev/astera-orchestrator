@@ -3,13 +3,11 @@
 // (Home, Plans, Files) and a More menu; All tasks is a view inside Plans and the Inbox sits behind the bell. Pages move
 // only through navigation.ts, so a page prompt that replaces its handler changes what these tabs do too.
 import { useState } from 'react'
-import { ChevronDown, FolderGit2, Globe, History, Lightbulb, Plus, Play, Search, Settings, type LucideIcon } from 'lucide-react'
 import { KEYED_PAGES, MORE_MENU_PAGES, TAB_PAGES, tabOf, type PageId } from '../../../../core/ui/pages'
 import { formatChord } from '../../../../core/keys/binding'
 import type { MessageKey } from '../../../../core/i18n'
 import { AccountPanel } from '../AccountPanel'
-import { Button, IconButton, Kbd, Menu, Meter, Nav, type MenuItem, type NavItem } from '../ui'
-import { Popover } from '../ui/Popover'
+import { Button, Icon, IconButton, Kbd, Menu, Meter, Nav, Popover, type IconName, type MenuItem, type NavItem } from '../ui'
 import { useAdvancedMode } from '../../state/useAdvancedMode'
 import { openPage } from './navigation'
 import { NotificationBell } from './NotificationBell'
@@ -32,12 +30,12 @@ const PAGE_LABEL: Record<PageId, MessageKey> = {
 }
 type MorePage = (typeof MORE_MENU_PAGES)[number]
 /** Each More item's icon and its one-sentence "what is this" (also its tooltip). */
-const MORE_ITEM: Record<MorePage, [LucideIcon, MessageKey]> = {
-  worktrees: [FolderGit2, 'shell.moreDesc.worktrees'],
-  'more:history': [History, 'shell.moreDesc.history'],
-  'more:runs': [Play, 'shell.moreDesc.runs'],
-  'more:hiw': [Lightbulb, 'shell.moreDesc.hiw'],
-  'more:browser': [Globe, 'shell.moreDesc.browser']
+const MORE_ITEM: Record<MorePage, [IconName, MessageKey]> = {
+  worktrees: ['repo', 'shell.moreDesc.worktrees'],
+  'more:history': ['history', 'shell.moreDesc.history'],
+  'more:runs': ['run', 'shell.moreDesc.runs'],
+  'more:hiw': ['info', 'shell.moreDesc.hiw'],
+  'more:browser': ['web', 'shell.moreDesc.browser']
 }
 
 /** T19: what the More menu lists in simple mode; Runs, How it works and Browser need Advanced mode. */
@@ -46,10 +44,10 @@ export const SIMPLE_MORE_PAGES: readonly MorePage[] = ['worktrees', 'more:histor
 /** The More menu's rows: icon, plain name, one line saying what it is. */
 export function moreItems(t: AppState['t'], advanced = true): MenuItem[] {
   return MORE_MENU_PAGES.filter((id) => advanced || SIMPLE_MORE_PAGES.includes(id)).map((id) => {
-    const [Glyph, desc] = MORE_ITEM[id]
+    const [glyph, desc] = MORE_ITEM[id]
     return {
       id,
-      icon: <Glyph size={16} aria-hidden="true" />,
+      icon: <Icon name={glyph} />,
       label: (
         <span className="tb-more-item" title={t(desc)}>
           <span>{t(PAGE_LABEL[id])}</span>
@@ -109,7 +107,7 @@ export function TopBar(p: TopBarProps): React.JSX.Element {
           <Menu
             label={t('shell.morePages')}
             items={moreItems(t, advanced)}
-            trigger={{ variant: 'ghost', size: 'sm', children: <>{onMore ? t(PAGE_LABEL[page]) : t('shell.more')} <ChevronDown size={12} aria-hidden="true" /></> }}
+            trigger={{ variant: 'ghost', size: 'sm', children: <>{onMore ? t(PAGE_LABEL[page]) : t('shell.more')} <Icon name="chevronDown" size={14} /></> }}
           />
         </span>
       </div>
@@ -118,21 +116,20 @@ export function TopBar(p: TopBarProps): React.JSX.Element {
         <Menu
           label={t('shell.pages')}
           items={[...TAB_PAGES.map((id) => ({ id, label: t(PAGE_LABEL[id]), onSelect: () => openPage(id) })), 'separator', ...moreItems(t, advanced)]}
-          trigger={{ variant: 'ghost', size: 'sm', children: <>{t(PAGE_LABEL[tab ?? page])} <ChevronDown size={12} aria-hidden="true" /></> }}
+          trigger={{ variant: 'ghost', size: 'sm', children: <>{t(PAGE_LABEL[tab ?? page])} <Icon name="chevronDown" size={14} /></> }}
         />
       </span>
       <span className="tb-spacer" />
-      <button type="button" className="tb-search" onClick={p.onSearch}>
-        <Search size={14} aria-hidden="true" />
-        <span>{t('shell.search')}</span>
+      <Button variant="ghost" size="sm" className="tb-search" icon={<Icon name="search" size={14} />} onClick={p.onSearch}>
+        <span className="tb-search-text">{t('shell.search')}</span>
         {searchChord && <Kbd>{formatChord(searchChord)}</Kbd>}
-      </button>
+      </Button>
       <NotificationBell {...p} />
       <UsageButton t={t} accounts={p.accounts} label={p.shellAccount?.label} percent={fiveHour} />
-      <Button variant="primary" size="sm" icon={<Plus size={14} aria-hidden="true" />} disabled={p.newDisabled} onClick={p.onNew}>
+      <Button variant="primary" size="sm" icon={<Icon name="add" size={14} />} disabled={p.newDisabled} onClick={p.onNew}>
         {t('new.title')}
       </Button>
-      <IconButton label={t('settings.title')} icon={<Settings size={16} />} active={page === 'settings'} onClick={() => openPage('settings')} />
+      <IconButton label={t('settings.title')} icon={<Icon name="settings" />} active={page === 'settings'} onClick={() => openPage('settings')} />
     </div>
   )
 }
@@ -150,8 +147,9 @@ function UsageButton({ accounts, label, percent, t }: { accounts: AppState['acco
       className="tb-usage"
       panelClassName="tb-popover"
       trigger={(tp) => (
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="sm"
           className="tb-usage-btn"
           {...tp}
           title={has ? t('shell.usage.title', { label: label ?? '', percent: Math.round(percent) }) : t('settings.group.accounts')}
@@ -159,7 +157,7 @@ function UsageButton({ accounts, label, percent, t }: { accounts: AppState['acco
           <span className="tb-usage-label">{label ? t('shell.usage.head', { label }) : t('shell.usage.headNone')}</span>
           <Meter value={has ? percent : 0} className="tb-meter" />
           <span className="tb-usage-pct">{has ? `${Math.round(percent)}%` : '–'}</span>
-        </button>
+        </Button>
       )}
     >
       <AccountPanel accounts={accounts} />

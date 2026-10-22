@@ -25,14 +25,13 @@
    Amber, not red: nothing is broken. The Host is waiting for a quiet moment to replace itself, and for
    someone who never opens a 대화 session it costs nothing at all. --warn-ink is the same colour the
    usage chips and the pending banner warn in, so the bar has one colour for "worth a look". */
-.statusbar .status-host-outdated {
-  flex: none; margin-left: 12px; display: inline-flex; align-items: center;
-  padding: 2px 8px; font: inherit; line-height: 1.4;
+/* A ui Button (secondary, sm) dressed as the amber pill */
+.statusbar .status-host-outdated.ui-btn {
+  flex: none; margin-left: 12px; height: 20px; padding: 0 8px; font-size: inherit; font-weight: var(--fw-regular);
   color: var(--warn-ink); background: none; border: 1px solid var(--warn-ink); border-radius: var(--radius-pill);
-  cursor: pointer; transition: background 120ms;
 }
-.statusbar .status-host-outdated:hover { background: var(--warn-bg); }
-.statusbar .status-host-outdated:disabled { cursor: default; opacity: 0.6; }
+.statusbar .status-host-outdated.ui-btn:hover:not(:disabled) { background: var(--warn-bg); }
+.statusbar .status-host-outdated.ui-btn:disabled { opacity: 0.6; }
 /* The Host runtime being put in place (stage 3 task 2). Plain text and the shared spinner while it
    works — nothing is wrong, it is only slow — and the same amber outline as the notices above if it
    failed, because that is the same kind of fact: worth a look, not broken. */
