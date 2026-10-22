@@ -2,12 +2,12 @@
 // D8.3). Reached from the new session dialog's runtime choice. Everything is a Host command on that Runtime; the
 // folder is one of the Runtime's registered projects (a controller starts sessions only there, §4.8), never a local
 // picker, and its path is shown as text.
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createSessionArgs, refOf, remoteCall, type RemoteSessionRef, type RemoteSessionRow } from '../lib/remoteSessions'
 import { useI18n } from '../i18n/I18nProvider'
 import { AccountSelect } from './AccountSelect'
-import { Select } from './Select'
-import { Button, Modal } from './ui'
+import { Button, Card, Modal, Select, Tabs, nextFocusIndex } from './ui'
+import './overlays.css'
 
 interface RemoteAccount {
   id: string
@@ -51,6 +51,7 @@ export function RemoteSessionsDialog({
   const [prompt, setPrompt] = useState('')
   const [starting, setStarting] = useState(false)
   const [startError, setStartError] = useState<string | null>(null)
+  const listRef = useRef<HTMLUListElement>(null)
 
   useEffect(() => {
     let alive = true
@@ -109,6 +110,14 @@ export function RemoteSessionsDialog({
   }
 
   const live = (rows ?? []).filter((r) => r.alive)
+  // Up/Down/Home/End move between session rows; Tab still walks them in order.
+  const rovingRows = (e: React.KeyboardEvent): void => {
+    const rowEls = Array.from(listRef.current?.querySelectorAll<HTMLElement>('[data-roving]') ?? [])
+    const next = nextFocusIndex(rowEls.indexOf(document.activeElement as HTMLElement), rowEls.length, e.key, 'vertical')
+    if (next === null) return
+    e.preventDefault()
+    rowEls[next]?.focus()
+  }
   const canStart = !readOnly && !starting && accountId !== '' && cwd !== ''
 
   return (
@@ -118,7 +127,7 @@ export function RemoteSessionsDialog({
       closeLabel={t('common.close')}
       footer={
         <>
-          <Button onClick={onCancel} disabled={starting}>
+          <Button variant="ghost" onClick={onCancel} disabled={starting}>
             {t('common.cancel')}
           </Button>
           <Button variant="primary" disabled={!canStart} onClick={() => void start()}>
@@ -150,17 +159,17 @@ export function RemoteSessionsDialog({
           ) : live.length === 0 ? (
             <p className="modal-hint">{t('remote.sessions.none')}</p>
           ) : (
-            <ul className="remote-session-list">
+            <ul ref={listRef} className="ov-remote-list" onKeyDown={rovingRows}>
               {live.map((r) => (
                 <li key={r.id}>
-                  <button type="button" onClick={() => onOpen(refOf(runtimeId, r))}>
+                  <Card className="ov-remote-row" data-roving="" onClick={() => onOpen(refOf(runtimeId, r))}>
                     <span className="remote-session-name">{r.title ?? r.id}</span>
                     <span className="remote-session-meta">
                       {[t(r.kind === 'chat' ? 'session.kind.chat' : 'session.kind.terminal'), r.provider, r.cwd]
                         .filter(Boolean)
                         .join(' · ')}
                     </span>
-                  </button>
+                  </Card>
                 </li>
               ))}
             </ul>
@@ -171,19 +180,17 @@ export function RemoteSessionsDialog({
         {readOnly && <p className="modal-hint">{t('remote.sessions.readOnly')}</p>}
         <div className="field kind-field">
           <label>{t('session.new.kindLabel')}</label>
-          <div className="kind-segmented">
-            {(['terminal', 'chat'] as const).map((k) => (
-              <button
-                key={k}
-                type="button"
-                className={`segmented${kind === k ? ' active' : ''}`}
-                disabled={readOnly || starting}
-                onClick={() => setKind(k)}
-              >
-                {t(k === 'chat' ? 'session.kind.chat' : 'session.kind.terminal')}
-              </button>
-            ))}
-          </div>
+          <Tabs
+            variant="segmented"
+            label={t('session.new.kindLabel')}
+            value={kind}
+            onChange={setKind}
+            items={(['terminal', 'chat'] as const).map((k) => ({
+              id: k,
+              label: t(k === 'chat' ? 'session.kind.chat' : 'session.kind.terminal'),
+              disabled: readOnly || starting
+            }))}
+          />
         </div>
         <div className="field">
           <label>{t('remote.sessions.account')}</label>

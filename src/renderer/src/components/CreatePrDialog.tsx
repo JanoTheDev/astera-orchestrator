@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { BranchRef, WorktreeListItem } from '../../../core/types'
 import { useI18n } from '../i18n/I18nProvider'
-import { Select } from './Select'
-import { Button, Modal } from './ui'
+import { Button, Icon, Modal, Select } from './ui'
 
 type Failure = { kind: string; detail: string; pushed: boolean; stage: 'push' | 'create' }
 
@@ -126,7 +125,7 @@ export function CreatePrDialog({
       closeLabel={t('common.close')}
       footer={
         <>
-          <Button onClick={onCancel} disabled={busy}>
+          <Button variant="ghost" onClick={onCancel} disabled={busy}>
             {t('common.cancel')}
           </Button>
           <Button variant="primary" onClick={() => void submit()} disabled={busy || title === ''}>
@@ -146,7 +145,7 @@ export function CreatePrDialog({
             which branch it is acting on, and this app's own base mistake is why. */}
         <div className="pr-base-row">
           <span className="mono">{worktree.branch}</span>
-          <span aria-hidden="true">→</span>
+          <Icon name="chevronRight" size={14} />
           <Select
             items={baseItems}
             value={base}
@@ -204,9 +203,13 @@ export function CreatePrDialog({
             </p>
             <pre className="pr-create-detail">{failure.detail}</pre>
             {existingUrl && (
-              <button onClick={() => void window.api.system.openExternal(existingUrl)}>
+              <Button
+                size="sm"
+                icon={<Icon name="external" size={14} />}
+                onClick={() => void window.api.system.openExternal(existingUrl)}
+              >
                 {t('pr.create.openExisting')}
-              </button>
+              </Button>
             )}
           </div>
         )}

@@ -20,8 +20,8 @@ describe('NewTaskModal checks', () => {
       { id: 'cfg_t', name: 'npm test' },
       { id: 'plugin:astera-debug-leftovers', name: 'Plugin: Debug leftovers' }
     ])
-    expect(html).toContain('+ npm test')
-    expect(html).toContain('+ Plugin: Debug leftovers')
+    expect(html).toMatch(/detail-check-add[^>]*>.*?<span class="ui-btn__label">npm test<\/span>/)
+    expect(html).toMatch(/detail-check-add[^>]*>.*?<span class="ui-btn__label">Plugin: Debug leftovers<\/span>/)
     expect(html).not.toContain('jobs.task.checksRuntimePlugins')
   })
 
