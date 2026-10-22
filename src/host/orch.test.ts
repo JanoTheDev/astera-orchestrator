@@ -1004,9 +1004,26 @@ describe('projects-add (remote runtime N5)', () => {
     expect((await git(['ls-files'], { cwd: folder })).stdout).toBe('Cargo.toml')
     expect(orch.state().projects).toMatchObject([{ defaultBranch: 'main' }])
   })
-  it('is refused to a controller', async () => {
-    const r = await orchOver().call({ cmd: 'projects-add', args: { path: dir }, sessionId: '', from: { role: 'controller', principal: { clientId: 'cli_x', name: 'x', permission: 'full-control' }, toOthers: () => {} } })
+  // T12b: a full-control controller clones a repository on this machine and registers it; a read-only one is refused
+  const controller = (permission: string) => ({ role: 'controller' as const, principal: { clientId: 'cli_x', name: 'x', permission } as never, toOthers: () => {} })
+  it('is refused to a read-only controller', async () => {
+    const r = await orchOver().call({ cmd: 'projects-add', args: { clone: 'https://example.com/r.git' }, sessionId: '', from: controller('read-only') })
     expect(r.status).toBe(403)
+  })
+  it('clones --clone into --path for a full-control controller and registers it', async () => {
+    const origin = await committedRepo()
+    const dest = path.join(dir, 'cloned')
+    const orch = orchOver()
+    const r = await orch.call({ cmd: 'projects-add', args: { clone: `file://${origin}`, path: dest }, sessionId: '', from: controller('full-control') })
+    expect(r.status).toBe(200)
+    expect((await git(['rev-parse', '--show-toplevel'], { cwd: dest })).ok).toBe(true)
+    expect(orch.state().projects).toHaveLength(1)
+  })
+  it('refuses a --clone that is not a git URL, or one that reads as an option', async () => {
+    const orch = orchOver()
+    for (const clone of ['--upload-pack=touch /tmp/x', 'ext::sh -c x', 'not a url'])
+      expect((await orch.call({ cmd: 'projects-add', args: { clone, path: path.join(dir, 'c') }, sessionId: '', from: cli })).status).toBe(400)
+    expect(orch.state().projects).toEqual([])
   })
 })
 

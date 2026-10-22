@@ -7,6 +7,7 @@ import { PLUGIN_COMMANDS, pluginsCommand } from './plugins/commands'
 import type { PluginManager } from './plugins/manager'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { createHash } from 'node:crypto'
+import os from 'node:os'
 import path from 'node:path'
 import { stat } from 'node:fs/promises'
 import { jobsViewOf, runsTimelineOf, type RuntimeFacts } from './remoteReads'
@@ -65,7 +66,7 @@ import { NOT_WRITER, type HostUnderstanding } from './hostUnderstanding'
 import type { HostWorkUnits } from './hostWorkUnits'
 import { addSubProject, ensureProject, findProject, setProjectSettings } from '../core/orchestration/projects'
 import type { Project } from '../core/orchestration/types'
-import { createProjectFolder, githubCreate, initialCommit, type GithubVisibility } from '../core/projects/create'
+import { cloneDestination, cloneRepository, cloneUrlRefusal, createProjectFolder, githubCreate, initialCommit, type GithubVisibility } from '../core/projects/create'
 import { inspectFolder } from '../core/projects/detect'
 import type { SessionWorkUnit } from '../core/workUnit/types'
 import { justFinished, runRecordInputOf } from '../core/orchestration/runRecord'
@@ -2202,8 +2203,10 @@ export function createHostOrch(a: {
         // decides it is the Runtime machine's own: the folder is there, it is absolute, and it is not one of this
         // Host's worktrees. Idempotent like the app's own registration (ensureProject). Below the receipt line: it commits.
         if (cmd === 'projects-add') {
-          if (from?.role !== 'app' && from?.role !== 'cli') {
-            const refused = { status: 403, body: { error: 'projects-add is for this machine’s app and CLI only' } }
+          // T12b: a controller reaches here only with full control (controllerGate.ts), to clone or register a folder of
+          // this machine
+          if (from?.role !== 'app' && from?.role !== 'cli' && from?.role !== 'controller') {
+            const refused = { status: 403, body: { error: 'projects-add is for this machine’s app and CLI, and full-control controllers' } }
             return claimed === null ? refused : settleRequest(claimed, cmd, marks, refused)
           }
           if (agentShell(from, sessionId)) {
@@ -2223,6 +2226,26 @@ export function createHostOrch(a: {
             if (added.ok && added.state !== before) await depsFor(marks, actorOf({ sessionId, role: from?.role, state: before })).setState(added.state)
             const reply = added.ok ? { status: 200, body: added.value } : { status: 'missing' in added ? 404 : 400, body: { error: added.error } }
             return claimed === null ? reply : settleRequest(claimed, cmd, marks, reply)
+          }
+          // T12b: `--clone <url>` clones with this machine's own git credentials first, into --path or
+          // ~/astera-projects/<name>, then registers that folder below
+          if (args.clone !== undefined) {
+            const refusal =
+              cloneUrlRefusal(args.clone) ??
+              (args.path !== undefined && (typeof args.path !== 'string' || !path.isAbsolute(args.path)) ? 'projects-add --clone takes an absolute --path' : null)
+            if (refusal !== null) {
+              const refused = { status: 400, body: { error: refusal } }
+              return claimed === null ? refused : settleRequest(claimed, cmd, marks, refused)
+            }
+            const dest = typeof args.path === 'string' ? args.path : cloneDestination(args.clone as string, os.homedir())
+            marks.effects += 1
+            try {
+              await cloneRepository(args.clone as string, dest)
+            } catch (e) {
+              const failed = { status: 400, body: { error: e instanceof Error ? e.message : String(e) } }
+              return claimed === null ? failed : settleRequest(claimed, cmd, marks, failed)
+            }
+            args = { ...args, path: dest }
           }
           const p = args.path
           const isDir = typeof p === 'string' && path.isAbsolute(p) && (await stat(p).then((st) => st.isDirectory(), () => false))

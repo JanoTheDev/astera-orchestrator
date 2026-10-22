@@ -31,6 +31,7 @@ import { runMcpHttp } from './mcp/http'
 import { runRuntimeGateway } from './runtime/gateway'
 import { runRuntimeCommand, type RuntimeCommandDeps } from './runtime/commands'
 import { controllerRegistry, runRuntimesCommand } from './runtimes'
+import { machineResultText, runMachinesAdd } from './machines'
 import { answerRemote, trailingRuntimeError } from './remote'
 import { clientTimeoutMs, followRun, type HostAnswer } from './follow'
 export { clientTimeoutMs, followRun, type FollowEnd, type HostAnswer } from './follow'
@@ -1409,6 +1410,20 @@ export async function main(): Promise<void> {
     })
     if (!done.ok) fail(done.error)
     out(renderOk(parsed.cmd, done.body, mode))
+    process.exit(0)
+  }
+
+  // T12b: `machines add` provisions over the system ssh and pairs like `runtimes add` (cli/machines.ts); its steps go
+  // to stderr, one line each, and the install's own output too, so sudo can ask for the password in this terminal.
+  if (parsed.cmd === 'machines-add') {
+    if (presented) fail({ code: 'INVALID_ARGUMENTS', message: 'machines add does not go through the Host\'s command layer, so it cannot carry a request id' })
+    const done = await runMachinesAdd({ args, profileDir, version: CLI_VERSION, log: (m) => logToStderr(`astera machines add: ${m}`) })
+    if (!done.ok) {
+      logToStderr(machineResultText(done))
+      fail({ code: 'FAILED', message: `adding the machine failed at ${done.step}: ${done.message}` })
+    }
+    if (mode === 'json') out(renderOk(parsed.cmd, done, mode))
+    else out(machineResultText(done))
     process.exit(0)
   }
 

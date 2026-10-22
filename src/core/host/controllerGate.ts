@@ -75,7 +75,9 @@ export const CONTROLLER_CONTROL_COMMANDS = [
   'sessions-input',
   'sessions-resize',
   'sessions-stop',
-  'sessions-answer'
+  'sessions-answer',
+  // T12b: clone a repository on the Runtime with its own git credentials, or register a folder there (host/orch.ts)
+  'projects-add'
 ] as const
 
 const READ: ReadonlySet<string> = new Set(CONTROLLER_READ_COMMANDS)

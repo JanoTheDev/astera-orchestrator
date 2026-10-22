@@ -54,6 +54,37 @@ controller.
 Use a private network: your LAN, a VPN, or Tailscale. Do not forward the Runtime's port to the internet. Astera offers
 no relay and opens no port for you.
 
+## Add a machine from this app
+
+The quickest setup, from the computer you already use: one command, or Settings › Integrations › Remote Runtimes ›
+**Add a machine** › **Over SSH (one step)**. It needs only that `ssh user@host` works from here with your key or agent;
+Astera uses the system `ssh` and `scp` in BatchMode and never asks for or keeps a password.
+
+```sh
+astera machines add me@box                      # Linux: uploads the newest dist-installer/astera-*-amd64.deb
+astera machines add me@win --installer Astera-Setup.exe --full-control
+```
+
+Flags: `--port <n>` (SSH port, default 22), `--installer <path>` (required for Windows; build it with `npm run dist:win`,
+the repository has no releases), `--name <n>`, `--listen <ip>` or `--tailscale`, `--full-control` (needed to add
+projects there). It finds out the OS, uploads the installer with the matching `scripts/install-runtime.*` script, runs
+it, pairs with the `ASTERA_PAIR=` line it prints and pings the machine, one line per step, then prints
+"Machine <name> is ready". A failure names the step, the end of what the machine wrote (secrets removed) and the fix.
+On Linux the install asks sudo for the password in your terminal; the app has no terminal, so from the app the machine's
+user needs sudo without a password, or run the command instead. Running it again upgrades the machine and pairs again
+only when the old pairing no longer answers.
+
+Then use it:
+
+- **Projects**: `astera --runtime <name> projects add --clone <git url> [--path <abs path>]`, or **Add project** on the
+  machine's row. The machine clones with its own git credentials (into `~/astera-projects/<name>` without `--path`) and
+  registers it. Only a full-control pairing may.
+- **Accounts**: sign one in on the machine with `astera accounts login --new` in a terminal there (**Sign in account**
+  on the row copies the command); its accounts show under the row.
+- **Tabs**: New console lists This computer, then each machine, and remembers the last pick per project.
+
+The manual steps follow, for a machine this computer cannot reach over SSH.
+
 ## One-command setup
 
 On the machine that will do the work, with the Astera installer copied onto it. The repository is private and has no

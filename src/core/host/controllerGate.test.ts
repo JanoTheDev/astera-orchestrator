@@ -17,7 +17,7 @@ describe('controllerRefusal (remote runtime design §3.4)', () => {
     }
   })
   it('refuses what a controller never reaches, at any level', () => {
-    for (const cmd of ['state-put', 'reset', 'worktree-add', 'pair-create', 'clients-list', 'clients-revoke', 'projects-add', 'github-pr-create', 'understanding-list', 'app-js', 'slack-reload', 'journal-append', 'sources-list', 'sources-items', 'sources-show', 'jobs-create-from-source', 'a-command-added-later'])
+    for (const cmd of ['state-put', 'reset', 'worktree-add', 'pair-create', 'clients-list', 'clients-revoke', 'github-pr-create', 'understanding-list', 'app-js', 'slack-reload', 'journal-append', 'sources-list', 'sources-items', 'sources-show', 'jobs-create-from-source', 'a-command-added-later'])
       expect(controllerRefusal(cmd, p('full-control'))).toMatchObject({ status: 403, body: { code: 'RUNTIME_PERMISSION_DENIED' } })
   })
   // Plugin runtime design P5: a remote controller never manages this machine's plugins.

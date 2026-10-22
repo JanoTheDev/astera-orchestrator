@@ -724,6 +724,8 @@ const NOT_SWITCHED = [
   'runtimes-add',
   'runtimes-list',
   'runtimes-remove',
+  // T12b: provisions over SSH in the CLI process (src/cli/machines.ts).
+  'machines-add',
   // Answered by the Host's plugin manager (src/host/plugins/commands.ts), beside `projects-add`.
   'plugins-install',
   'plugins-list',

@@ -686,6 +686,8 @@ astera runtimes list
 astera runtimes add    [--pair <string>] [--address <host>] [--port <n>] [--code <code>] [--fingerprint <fp>] [--name <n>] [--replace]
 astera runtimes remove --id <runtimeId|name>
 
+astera machines add --target <user@host> [--port <n>] [--installer <path>] [--name <n>] [--listen <ip>] [--tailscale] [--full-control]
+
 astera plugins list
 astera plugins get     --id <pluginId>
 astera plugins install [--path <folder>] [--npm <package>] [--yes] [--grant <list>]
@@ -704,7 +706,7 @@ astera sources show  --source <sourceId> --item <itemId> [--project <projectId>]
 astera projects list
 astera projects get   --id <projectId>
 astera projects find  --path <path>
-astera projects add   [--path <path>] [--initial-commit] [--parent <projectId>] [--name <name>] [--focus <a,b>]
+astera projects add   [--path <path>] [--initial-commit] [--parent <projectId>] [--name <name>] [--focus <a,b>] [--clone <git url>]
 astera projects remove --id <projectId>
 astera projects create --name <name> --parent <path> [--describe <text>] [--github <private|public>]
 astera projects set   --id <projectId> [--delivery <pr|push>] [--delivery-branch <branch>] [--auto-approve <on|off>] [--hands-off <on|off>] [--test-command <cmd>] [--test-config <id>] [--concurrency <1-10>] [--review-rounds <n>] [--replan <waves|off>] [--account <id>] [--prompts-dir <path|none>] [--auto-projects <on|off>] [--grants <kind,...|none>] [--coordinator-model <id|none>]

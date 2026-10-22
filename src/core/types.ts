@@ -2210,7 +2210,19 @@ export interface RemoteApi {
   pair(o: { fullControl?: boolean; name?: string }): Promise<RemoteControlAnswer>
   /** Unpairs a controller paired with this computer (`thisMachine().clients[].clientId`). */
   revoke(clientId: string): Promise<RemoteControlAnswer>
+  /** Provisions and pairs a machine over SSH in one step (cli/machines.ts, run in main); its steps arrive on
+   *  `onMachineProgress` while it runs. */
+  addMachine(o: AddMachineOptions): Promise<AddMachineResult>
+  onMachineProgress(cb: (p: MachineProgress) => void): () => void
 }
+
+// The shapes of cli/machines.ts, restated here: the renderer cannot import a node-side module (tsconfig.web.json).
+export type MachineStepId = 'connect' | 'detect' | 'installer' | 'upload' | 'install' | 'pair' | 'verify'
+export interface MachineProgress { step: MachineStepId; state: 'running' | 'done' | 'skipped' | 'failed'; line: string; stderrTail?: string; fix?: string }
+export interface AddMachineOptions { target: string; port?: number; installer?: string; name?: string; listen?: string; tailscale?: boolean; fullControl?: boolean }
+export type AddMachineResult =
+  | { ok: true; runtimeId: string; name: string; os: 'linux' | 'windows'; repaired: boolean }
+  | { ok: false; step: MachineStepId; message: string; stderrTail: string; fix: string }
 
 /** An answer from This computer's controls (main/remote/thisMachineControl.ts). */
 export type RemoteControlAnswer = { ok: true; body: Record<string, unknown> } | { ok: false; code: string; message: string }

@@ -170,6 +170,8 @@ export const NOUNS = {
   // **The paired Runtimes of this machine** (remote runtime design §4.4): answered in the CLI process from
   // <profile>/runtimes (cli/runtimes.ts). `add` pairs, `remove` forgets without revoking.
   runtimes: ['add', 'list', 'remove'],
+  // T12b: provision and pair a machine over SSH in one step (cli/machines.ts), answered in the CLI process.
+  machines: ['add'],
   // **Answered by the Host's plugin manager** (plugin runtime design P5): this machine's app and CLI install, list and
   // switch plugins. `install` asks the Host to inspect the folder first and needs --yes or --grant (cli/plugins.ts).
   plugins: ['install', 'list', 'get', 'enable', 'disable', 'remove', 'logs', 'doctor', 'settings', 'configure'],
@@ -255,6 +257,8 @@ export function parseArgs(all: string[]): ParsedArgs | { error: string } {
 
   const args: Record<string, unknown> = {}
   const wantsStdin: string[] = []
+  // T12b: `machines add <user@host>` names its machine as a word, as ssh does
+  if (cmd === 'machines-add' && argv[first] !== undefined && !argv[first].startsWith('-')) args.target = argv[first++]
   let json = lead.modes.has('json')
   let human = lead.modes.has('human')
   let quiet = lead.modes.has('quiet')
