@@ -2,6 +2,8 @@
 import type { IntakeTab } from '../intake/intakeRequest'
 import type { Job } from '../../../../core/orchestration/types'
 import { jobNameOf } from '../../../../core/orchestration/jobName'
+import type { Account, AccountUsage } from '../../../../core/types'
+import { providerOf } from '../../../../core/providers/meta'
 
 /** T4: the planner writes the plan (talking it through, or alone), or each prompt runs as written (W8-C
  *  `--mode prompts`). Audits are asked of the planner in the chat now. */
@@ -186,4 +188,27 @@ function liveStateOf(r: PlanRow): LivePlanState | null {
   if (r.pendingStart === true) return r.after !== undefined ? 'queued' : 'planning'
   if ((r.questionsOpen ?? 0) > 0) return 'waiting'
   return r.outcome === 'running' || r.outcome === 'checking' ? 'running' : null
+}
+
+// T5b (decision 6/21): Start's account picker. "Auto (most room)" is the default and sends no account, so the Host
+// ranks the accounts by usage; a picked account is only a preference.
+export const AUTO_ACCOUNT = 'auto'
+
+/** Auto, then each signed-in Claude account with its weekly and 5h used percent (— while unknown). */
+export function accountPickOptions(
+  accounts: readonly Account[],
+  signedIn: ReadonlySet<string>,
+  usage: Readonly<Record<string, AccountUsage>>,
+  t: T
+): { value: string; label: string }[] {
+  const pct = (w: { usedPercent: number } | null | undefined): string => (w ? `${w.usedPercent}%` : '—')
+  return [
+    { value: AUTO_ACCOUNT, label: t('accounts.auto') },
+    ...accounts
+      .filter((a) => providerOf(a) === 'claude' && signedIn.has(a.id))
+      .map((a) => {
+        const u = usage[a.configDir]
+        return { value: a.id, label: t('accounts.pickUsage', { name: a.label, weekly: pct(u?.weekly), session: pct(u?.session) }) }
+      })
+  ]
 }

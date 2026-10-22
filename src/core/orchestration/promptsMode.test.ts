@@ -50,6 +50,12 @@ const FILES = { 'W9-A-foundation.md': A, 'W9-B-shell.md': B, 'W9-C-plan-tab.md':
 const attach = Object.keys(FILES).map((n) => `/d/${n}`)
 
 describe('jobs-create --mode prompts', () => {
+  // T5b: no account named is auto, each Task picked by room when it starts
+  it('Tasks get no account (auto) when the plan names none', async () => {
+    const r = rig(FILES)
+    expect((await r.person('jobs-create', { cwd: '/p', mode: 'prompts', attach })).status).toBe(200)
+    expect(r.state().tasks.map((t) => t.accountIds ?? [])).toEqual([[], [], []])
+  })
   it('reads the wave table from docs/orchestrator/PLAN.md when docs/dev has none', async () => {
     const r = rig(FILES, '/p/docs/orchestrator/PLAN.md')
     await r.person('jobs-create', { cwd: '/p', mode: 'prompts', attach, coordinatorAccount: 'acc1' })

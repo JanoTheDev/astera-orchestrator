@@ -69,7 +69,14 @@ export function usagePauseWhy(p: UsagePause): string {
   return `account ${p.accountId} is at ${p.percent}% of its ${window} limit: no new worker starts on it ${until}`
 }
 
-export type UsageChange = { type: 'usage.paused' | 'usage.resumed'; pause: UsagePause }
+export type UsageChange =
+  | { type: 'usage.paused' | 'usage.resumed'; pause: UsagePause }
+  /** T5b: a start went to another account than the one it named (chooseStartAccount, exec/workerStart.ts). */
+  | { type: 'account.switched'; from: string; to: string; reason: string }
+
+/** T5b: how long a start counts on its account before its session shows in the live list: past this, a start that never
+ *  released (a spawn that hung) stops counting. */
+export const START_RESERVATION_MS = 2 * 60_000
 
 export interface UsageGuard {
   /** Reads every account again, and tells each pause that began or ended since the last read. */
@@ -82,6 +89,16 @@ export interface UsageGuard {
   /** T2: "Pick accounts automatically" (settings/autoAccounts.ts) as of the last `refresh`. Without the setting's
    *  read wired, false: the guard then behaves exactly as before. */
   autoAccounts(): boolean
+  /** T5b (decision 21): Astera sessions live on each account now, plus the starts chosen but not yet running
+   *  (`reserve`), so a burst of starts sees each other. Absent: no counts (the ranking does not spread). */
+  liveSessions?(): Map<string, number>
+  /** T5b: the per-account cap (Settings › Accounts, `accountMaxSessions`) as of the last `refresh`. */
+  maxSessions?(): Map<string, number>
+  /** T5b: counts a start on `accountId` from the moment it is chosen; the returned function ends that (call it once
+   *  the session runs, or the start failed). */
+  reserve?(accountId: string): () => void
+  /** T5b: tells a start that went to another account than it named (`account.switched`, a feed line in the Host). */
+  switched?(e: { from: string; to: string; reason: string }): void
 }
 
 /**
@@ -97,15 +114,28 @@ export function createUsageGuard(d: {
   autoAccounts?(): Promise<boolean>
   nowMs(): number
   onChange?(e: UsageChange): void
+  /** T5b: the sessions running now, each with its account (the Host's registry, the app's session list). */
+  sessions?(): ReadonlyArray<{ accountId: string | null | undefined }>
+  /** T5b: `accountMaxSessions` (settings/accountMaxSessions.ts). Absent: no cap. */
+  maxSessions?(): Promise<Record<string, number>>
 }): UsageGuard {
   let readings = new Map<string, AccountReading>()
+  let caps = new Map<string, number>()
+  const reservations = new Map<number, { accountId: string; at: number }>()
+  let nextReservation = 0
   let paused = new Map<string, UsagePause>()
   let threshold = USAGE_PAUSE_AT_DEFAULT
-  let auto = false
+  // T5b: the setting is on unless it says otherwise (settings/autoAccounts.ts), so a start before the first read ranks
+  // instead of falling back to the named account; with no setting wired, off
+  let auto = d.autoAccounts !== undefined
   let inFlight: Promise<void> | null = null
   const read = async (): Promise<void> => {
     const autoNow = (await d.autoAccounts?.()) ?? false
-    const [next, at] = await Promise.all([d.readings({ autoAccounts: autoNow }), d.pauseAt()])
+    const [next, at, capsNow] = await Promise.all([
+      d.readings({ autoAccounts: autoNow }),
+      d.pauseAt(),
+      d.maxSessions?.().catch(() => ({})) ?? {}
+    ])
     const now = d.nowMs()
     const nextPaused = new Map<string, UsagePause>()
     for (const [id, r] of next) {
@@ -118,6 +148,7 @@ export function createUsageGuard(d: {
     paused = nextPaused
     threshold = at
     auto = autoNow
+    caps = new Map(Object.entries(capsNow))
   }
   return {
     refresh() {
@@ -129,6 +160,23 @@ export function createUsageGuard(d: {
     pauseOf: (id) => paused.get(id) ?? null,
     view: () => [...readings].map(([accountId, r]) => ({ accountId, ...r, paused: paused.get(accountId) ?? null })),
     pauseAt: () => threshold,
-    autoAccounts: () => auto
+    autoAccounts: () => auto,
+    liveSessions: () => {
+      const out = new Map<string, number>()
+      const add = (id: string): void => void out.set(id, (out.get(id) ?? 0) + 1)
+      for (const x of d.sessions?.() ?? []) if (x.accountId) add(x.accountId)
+      const now = d.nowMs()
+      for (const [key, r] of reservations)
+        if (now - r.at > START_RESERVATION_MS) reservations.delete(key)
+        else add(r.accountId)
+      return out
+    },
+    maxSessions: () => new Map(caps),
+    reserve: (accountId) => {
+      const key = nextReservation++
+      reservations.set(key, { accountId, at: d.nowMs() })
+      return () => void reservations.delete(key)
+    },
+    switched: (e) => d.onChange?.({ type: 'account.switched', ...e })
   }
 }

@@ -245,6 +245,8 @@ const api = {
     setMaxSubagentsPerSession: invoke('settings.setMaxSubagentsPerSession'),
     getUsagePauseAt: invoke('settings.getUsagePauseAt'),
     setUsagePauseAt: invoke('settings.setUsagePauseAt'),
+    getAccountMaxSessions: invoke('settings.getAccountMaxSessions'), // T5b
+    setAccountMaxSessions: invoke('settings.setAccountMaxSessions'),
     getDesktopNotify: invoke('settings.getDesktopNotify'),
     setDesktopNotify: invoke('settings.setDesktopNotify'),
     getGenerator: invoke('settings.getGenerator'),

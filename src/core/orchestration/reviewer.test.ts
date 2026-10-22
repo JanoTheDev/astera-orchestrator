@@ -45,3 +45,18 @@ describe('pickReviewer', () => {
     expect(pickReviewer({ implProvider: 'claude', accounts: [], loggedInIds: new Set() })).toBeNull()
   })
 })
+
+// T5b: a review skips a full account
+describe('pickReviewer — by room (T5b)', () => {
+  const T = '2026-01-01T00:00:00.000Z'
+  const a = (id: string, provider: 'claude' | 'codex'): Account => ({ id, label: id, configDir: `/c/${id}`, color: '#888', createdAt: T, provider })
+  const accounts = [a('c1', 'claude'), a('x1', 'codex'), a('x2', 'codex')]
+  const all = new Set(accounts.map((x) => x.id))
+  it('takes the provider\'s account with room, not its default', () => {
+    expect(pickReviewer({ implProvider: 'claude', accounts, loggedInIds: all, best: (p) => (p === 'codex' ? 'x2' : undefined) })).toEqual({ provider: 'codex', accountId: 'x2' })
+  })
+  it('skips a provider whose accounts are all full', () => {
+    expect(pickReviewer({ implProvider: 'claude', accounts, loggedInIds: all, best: (p) => (p === 'codex' ? null : 'c1') })).toBeNull()
+    expect(pickReviewer({ implProvider: 'claude', accounts: [a('c1', 'claude'), a('c2', 'claude')], loggedInIds: new Set(['c1', 'c2']), best: (p) => (p === 'claude' ? 'c2' : null) })).toEqual({ provider: 'claude', accountId: 'c2', sameProvider: true })
+  })
+})

@@ -148,6 +148,17 @@ describe('intent → command', () => {
     expect(h.asked).toEqual([])
   })
 
+  it('plan on Auto sends no account (the Host picks the one with most room); none signed in is refused', async () => {
+    const h = harness(true)
+    h.deps.coordinatorAccount = async () => ''
+    await execute(ready({ kind: 'plan', objective: 'x' }), h.deps)
+    expect(h.sent[0].args).toEqual({ cwd: '/p/g', objective: 'x' })
+    const none = harness(true)
+    none.deps.coordinatorAccount = async () => null
+    expect(await execute(ready({ kind: 'plan', objective: 'x' }), none.deps)).toEqual([{ text: 'command.noAccount' }])
+    expect(none.sent).toEqual([])
+  })
+
   it('resume of a stopped Run is runs-resume; of a schedule, run-resume', async () => {
     const h = harness(true)
     await execute(ready({ kind: 'resume', target: 'Trading' }), h.deps)

@@ -32,7 +32,7 @@ import { chatPendingOf, type ChatPrompt, type ChatPromptList } from '../core/ses
 // tests set it, so it is never forwarded.
 // `maxConcurrentWorkers` (W1-B): the Host reads app-settings.json itself, as it does for the permission mode.
 // `usageGuard` (W6-G): the Host keeps its own, over its own sessions' statusLine readings.
-const OWNED = ['getState', 'setState', 'now', 'log', 'runningSessions', 'appVersion', 'backup', 'resumeStopWaitMs', 'maxConcurrentWorkers', 'usageGuard', /* W8-A */ 'hookEventsDir', 'profileDir'] as const
+const OWNED = ['getState', 'setState', 'now', 'log', 'runningSessions', 'appVersion', 'backup', 'resumeStopWaitMs', 'maxConcurrentWorkers', 'usageGuard', /* T5b */ 'startAccount', /* W8-A */ 'hookEventsDir', 'profileDir'] as const
 
 /**
  * **Forwarded, and a refusal reaches the caller.** `handleCommand` either awaits these and lets the
@@ -527,6 +527,7 @@ const EFFECTFUL: Record<Classified, boolean> = {
   resumeStopWaitMs: false,
   maxConcurrentWorkers: false,
   usageGuard: false,
+  startAccount: false, // T5b: a read; the count it takes is let go by the start itself
   hookEventsDir: false, // W8-A
   profileDir: false, // W8-A
   // NOT_FORWARDED: a read of the Host's registry
@@ -688,6 +689,7 @@ export function hostOrchDeps(a: {
   maxConcurrentWorkers?(): Promise<number | null>
   /** W6-G: the Host's usage guard (OWNED). */
   usageGuard?: OrchServerDeps['usageGuard']
+  startAccount?: OrchServerDeps['startAccount']
   act(name: string, args: unknown[]): Promise<unknown>
   hasApp(): boolean
   /** The `check --wait` long-polls this Host serves, one tracker for the Host's life (final round 2,
@@ -1377,6 +1379,7 @@ export function hostOrchDeps(a: {
     backup: a.backup,
     ...(a.maxConcurrentWorkers ? { maxConcurrentWorkers: a.maxConcurrentWorkers } : {}),
     ...(a.usageGuard ? { usageGuard: a.usageGuard } : {}),
+    ...(a.startAccount ? { startAccount: a.startAccount } : {}),
     listSessions: own('listSessions'),
     readSession: own('readSession'),
     sendSession: own('sendSession'),

@@ -106,7 +106,8 @@ export interface ExecDeps {
   /** That project's Jobs snapshot, read when asked (W5-C, #41): archive and delete count what goes with a plan from it
    *  (jobActions), for a plan of any project. Null when it cannot be read. */
   snapshotFor(projectPath: string): Promise<OrchSnapshot | null>
-  /** The account a new plan's coordinator and planner run on (defaultAccountIdOf), or null when none is signed in. */
+  /** The account a new plan's coordinator and planner run on; '' is Auto (none sent: the Host picks the one with most
+   *  room, T5b), null when no account is signed in. */
   coordinatorAccount(): Promise<string | null>
 }
 
@@ -141,7 +142,7 @@ export async function execute(r: Ready, d: ExecDeps): Promise<Line[]> {
       const pd = d.door(project.path)
       // The Start page's call for a typed objective (jobs-create, which names the plan: intake.ts shortTitle), then its
       // planner. No --planning or --concurrency: the project's defaults decide, as they did here before
-      const made = await pd.command('jobs-create', { cwd: project.path, coordinatorAccount: account, objective: intent.objective })
+      const made = await pd.command('jobs-create', { cwd: project.path, ...(account ? { coordinatorAccount: account } : {}), objective: intent.objective })
       if (made.status >= 400) return [{ text: `${t('jobs.new.failed')}${errorOf(made.body) ? `: ${errorOf(made.body)}` : ''}` }]
       const id = (made.body as { id: string }).id
       const planned = await pd.command('jobs-plan', { id })

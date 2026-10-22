@@ -205,7 +205,8 @@ import { releaseArgsFor } from '../core/orchestration/exec/release'
 import {
   preTrustWorkspace as preTrustWorkspaceFor,
   startCoordinatorSession,
-  startWorkerWithChain
+  startWorkerWithChain,
+  chooseStartAccount
 } from '../core/orchestration/exec/workerStart'
 import {
   forkWorktree,
@@ -293,7 +294,8 @@ import { registerAccountLoginIpc } from './accountLogin'
 import { createAccountUsage } from './accountUsage'
 // W6-G usage guards
 import { createUsageGuard } from '../core/orchestration/usageGuard'
-import { readAccountReadings } from '../core/usage/accountReadings'
+import { readAccountReadings, withFetchedReadings } from '../core/usage/accountReadings'
+import { readAutoAccountsOn } from '../core/settings/autoAccounts'
 import { readSubagentCount, SUBAGENT_CAP_MAX } from '../core/sessions/subagentCap'
 import type { UsageGuardView } from '../core/types'
 import { createPullRequest, readCommits } from '../core/github/prCreate'
@@ -1537,13 +1539,20 @@ export function registerIpc(
   // the feed lines). It answers the board's "paused: account at 93%" reason, the app's own worker-start and loop when
   // the app drives, and the usage strip. Read again on a timer, so a pause ends on its own.
   // The profile folder is the hook events folder's parent (hookEventsDirIn), where the statusline folder also is.
+  // T5b: built as the Host builds its own (host/index.ts), so a start the app makes ranks exactly as the Host's would:
+  // idle accounts' usage fetched when "Pick accounts automatically" is on, the live sessions per account, the caps.
   const usageGuard = createUsageGuard({
-    readings: () =>
-      readAccountReadings(
+    readings: async ({ autoAccounts }) => {
+      const live = await readAccountReadings(
         path.join(path.dirname(core.hookEventsDir), 'statusline'),
         core.sessions.list().map((s) => ({ id: s.id, accountId: s.accountId }))
-      ),
+      )
+      return autoAccounts ? withFetchedReadings(live, core.accounts.list(), (dir) => core.usageFetcher.get(dir)) : live
+    },
     pauseAt: async () => core.appSettings.getUsagePauseAt(),
+    autoAccounts: () => readAutoAccountsOn(path.join(path.dirname(core.hookEventsDir), 'app-settings.json')),
+    sessions: () => core.sessions.list().filter((s) => s.status === 'running'),
+    maxSessions: async () => core.appSettings.getAccountMaxSessions(),
     nowMs: () => Date.now()
   })
   const usageTimer = setInterval(() => {
@@ -3183,7 +3192,9 @@ export function registerIpc(
       assertAllowedPath: (p) => assertAllowedPath(p),
       // `(w)` 는 일부러다 — ipcConvergenceWiring.test.ts 의 남은 가드가 첫 `startWorker: (a) =>` 에 닻을 내린다.
       startWorker: (w) => deps.startWorker(w),
-      specsDir
+      specsDir,
+      // T5b: a review skips a full account (chooseStartAccount)
+      startAccount: (o) => deps.startAccount?.(o) ?? null
     })
 
     /** What reapWorktree (core/orchestration/exec/integrateGit.ts) may close and ask in the app.
@@ -3376,7 +3387,10 @@ export function registerIpc(
               }
               return info
             },
-            log: orchLog
+            log: orchLog,
+            // T5b: the account by usage, as the Host's start picks it (chooseStartAccount)
+            usageGuard,
+            loginStatus: (id) => core.accounts.loginStatus(id)
           },
           a
         ),
@@ -3401,7 +3415,9 @@ export function registerIpc(
             coordinator,
             tails: orchTails,
             log: orchLog,
-            roleModels: async () => core.appSettings.getRoleModels()
+            roleModels: async () => core.appSettings.getRoleModels(),
+            // T5b: the chain by usage, as the Host's (startWorkerWithChain)
+            usageGuard
           },
           a
         ),
@@ -3513,6 +3529,9 @@ export function registerIpc(
       maxConcurrentWorkers: () => core.appSettings.getMaxConcurrentWorkers(),
       // W6-G: and none on a nearly spent account
       usageGuard,
+      // T5b: worker-start without --account, as the Host answers it (chooseStartAccount)
+      startAccount: (o) =>
+        chooseStartAccount({ usageGuard, accounts: async () => core.accounts.list(), loginStatus: (id) => core.accounts.loginStatus(id), log: orchLog }, o),
       resolveProjectRoot: async (cwd) =>
         resolveProjectRootFrom({
           cwd,

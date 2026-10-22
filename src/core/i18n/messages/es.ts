@@ -792,6 +792,9 @@ export const es: Catalog = {
     'No hay configuración que importar (la cuenta de origen no tiene archivo de configuración).',
   // AccountSelect.tsx
   'account.select.none': '(Sin seleccionar)',
+  'accounts.auto': 'Automática (la de más margen)',
+  'accounts.pick': 'Cuenta',
+  'accounts.pickUsage': '{name} · semana {weekly} · 5h {session}',
   // NewSessionDialog.tsx — the new-session modal
   'session.new.title': 'Sesión nueva',
   'session.new.runningWarning': 'Hay {count} sesiones en ejecución. El rendimiento puede verse afectado.',
@@ -1789,6 +1792,8 @@ export const es: Catalog = {
   'settings.projects.new': 'Nuevo proyecto',
   'settings.projects.empty': 'Aún no hay proyectos',
   'settings.projects.noAnchor': 'Abre una pestaña primero',
+  'settings.accountMaxSessions.label': 'Máximo de sesiones por cuenta',
+  'settings.accountMaxSessions.hint': 'Sesiones de Astera que una cuenta ejecuta a la vez. Vacío: sin límite. Al iniciar se salta una cuenta llena.',
   // W9-E start page and New
   'shortcut.new.open': 'Abrir Nuevo',
   'shortcut.tabs.reopenClosed': 'Reabrir la última pestaña cerrada',

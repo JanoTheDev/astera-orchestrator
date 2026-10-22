@@ -112,6 +112,31 @@ describe('jobs plan', () => {
     expect((await person(r)('jobs-plan', { id: jobId })).status).toBe(400)
     expect(r.deps.getState().jobs[0]).not.toHaveProperty('plannerSessionIds')
   })
+  // T5b (decision 6): the named account is a preference; the Job records the one actually started
+  it('records the account the planner actually started on, and keeps the named one as the preference', async () => {
+    const r = rig()
+    r.deps.startCoordinator = async (a) => {
+      r.coordinatorStarts.push(a)
+      return { sessionId: PLANNER, accountId: 'acc2' }
+    }
+    const made = await person(r)('run-create', { objective: 'o', cwd: 'D:/p', coordinatorAccount: 'acc1', auto: true })
+    const jobId = (made.body as { id: string }).id
+    const planned = await person(r)('jobs-plan', { id: jobId })
+    expect(planned.body).toMatchObject({ accountId: 'acc2' })
+    expect(r.deps.getState().jobs[0]).toMatchObject({ plannerAccountId: 'acc2', preferredAccountId: 'acc1' })
+    expect(r.coordinatorStarts[0]).toMatchObject({ accountId: 'acc1' })
+    expect(r.coordinatorStarts[0]).not.toHaveProperty('auto')
+  })
+
+  it('with no account named, the planner starts on auto', async () => {
+    const r = rig()
+    ;(r.deps as { listAccounts: unknown }).listAccounts = () => [{ id: 'acc1', label: 'a', provider: 'claude', default: true }]
+    const made = await person(r)('run-create', { objective: 'o', cwd: 'D:/p', auto: true })
+    const jobId = (made.body as { id: string }).id
+    const planned = await person(r)('jobs-plan', { id: jobId })
+    expect(planned.body).toMatchObject({ sessionId: PLANNER })
+    expect(r.coordinatorStarts[0]).toMatchObject({ accountId: 'acc1', auto: true })
+  })
 })
 
 describe('a planner session cannot dispatch', () => {

@@ -62,6 +62,7 @@ import { createHostOrch } from './orch'
 import { composeHostDriving } from './drivingWiring'
 // W6-G
 import { createUsageGuard } from '../core/orchestration/usageGuard'
+import { readAccountMaxSessions } from '../core/settings/accountMaxSessions'
 import { usageActivity } from '../core/orchestration/activity'
 import { resumeAfterCrash } from '../core/orchestration/exec/crashResume'
 // T5 crash restore
@@ -448,6 +449,14 @@ async function main(): Promise<void> {
     },
     pauseAt: () => readUsagePauseAt(path.join(profileDir, 'app-settings.json')),
     autoAccounts: () => readAutoAccountsOn(path.join(profileDir, 'app-settings.json')),
+    // T5b (decision 21): the sessions live on each account, so starts spread, and the per-account caps
+    sessions: () =>
+      registry.list().flatMap((e) =>
+        e.alive && e.meta?.kind === 'session'
+          ? [{ accountId: typeof e.meta.restore.accountId === 'string' ? e.meta.restore.accountId : null }]
+          : []
+      ),
+    maxSessions: () => readAccountMaxSessions(path.join(profileDir, 'app-settings.json')),
     nowMs: () => Date.now(),
     onChange: (e) => {
       try {

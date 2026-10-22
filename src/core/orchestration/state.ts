@@ -282,6 +282,8 @@ export function createJob(
      *  아는 것이고, 부르는 쪽(server.ts 의 run-create)이 실재하는 계정인지 본다.
      *  Task.accountIds 와 같은 관례다. */
     coordinatorAccountId?: string
+    /** T5b: Job.preferredAccountId, the account the owner named (a preference only). */
+    preferredAccountId?: string
     autoDispatch?: boolean
     /** 사용자가 '실행' 을 누르기 전까지 아무것도 시작하지 않게 한다 — Job.pendingStart 의 주석 */
     pendingStart?: boolean
@@ -324,6 +326,7 @@ export function createJob(
     // 빈 문자열은 싣지 않는다 — "지정 없음" 과 값이 갈라지고, 그 구분으로 코디네이터를 띄울지
     // 정하기 때문이다
     ...(a.coordinatorAccountId ? { coordinatorAccountId: a.coordinatorAccountId } : {}),
+    ...(a.preferredAccountId ? { preferredAccountId: a.preferredAccountId } : {}),
     ...(a.autoDispatch ? { autoDispatch: true } : {}),
     ...(a.schedule ? { schedule: a.schedule } : {}),
     ...(a.pendingStart ? { pendingStart: true } : {}),

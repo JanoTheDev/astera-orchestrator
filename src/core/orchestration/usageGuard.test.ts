@@ -158,7 +158,8 @@ describe('T2: automatic accounts in the guard', () => {
       autoAccounts: async () => on,
       nowMs: () => NOW
     })
-    expect(guard.autoAccounts()).toBe(false)
+    // T5b: before the first read, the setting's default (on)
+    expect(guard.autoAccounts()).toBe(true)
     await guard.refresh()
     expect(guard.autoAccounts()).toBe(true)
     on = false

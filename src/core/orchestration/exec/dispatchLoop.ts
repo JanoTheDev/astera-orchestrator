@@ -42,7 +42,7 @@ import {
 } from '../integrate'
 import { reapableChildRuns } from '../reap'
 import { lostAttemptOf } from '../../recovery/candidates'
-import { jobActive, slotsToFill, tasksMissingAccounts, type Slot } from '../schedule'
+import { jobActive, slotsToFill, type Slot } from '../schedule'
 import { coordinatorStarting, jobOf, type OrchState } from '../state'
 import { isJobActive } from '../lifecycle'
 import { DEFAULT_CONCURRENCY, FAILURE_LIMIT, type Decision, type Job, type JobRun, type Task } from '../types'
@@ -1107,7 +1107,13 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     // (schedule.ts 의 Slot 주석), 그 한 걸음이 여기 있다. 첫 id 가 목록에 없으면 판정에
     // 넘길 provider 자체가 없으므로 곧바로 Gate 다 — accountToDispatchOn 이 같은 id 를
     // 'assigned-unusable' 로 답할 자리이고, 사람이 할 일도 같다(지정을 고친다).
-    const firstAccount = accounts.find((x) => x.id === slot.accountIds[0])
+    // T5b: a Task with no account is auto: its provider is the default account's (claude first), and it starts on that
+    // provider's account with most room (the automatic order below, which counts the live sessions so a wave spreads)
+    const auto0 = slot.accountIds.length === 0
+    const firstAccount = auto0
+      ? (accounts.find((x) => providerOf(x) === 'claude' && loggedIn.has(x.id)) ?? accounts.find((x) => loggedIn.has(x.id)))
+      : accounts.find((x) => x.id === slot.accountIds[0])
+    if (auto0 && !firstAccount) return { kind: 'gate', reason: t(c.lang(), 'jobs.gate.noAccount', { provider: 'claude' }), why: `no account is logged in to run task ${slot.taskId} on` }
     if (!firstAccount)
       return {
         kind: 'gate',
@@ -1152,7 +1158,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
         guard.autoAccounts && guard.view && guard.pauseAt
           ? autoOrderOf(guard as AutoAccountsGuard, { provider: slotProvider, accounts, loggedInIds: loggedIn, nowMs: c.nowMs() })
           : null
-      const chain = auto ? withAutoOrder(picked.chain, auto.order, auto.over) : picked.chain
+      const chain = auto ? (auto0 ? auto.order : withAutoOrder(picked.chain, auto.order, auto.over)) : picked.chain
       const usage = usageChoice(chain, (id) => guard.pauseOf(id))
       if (!usage.ok) return { kind: 'wait', why: usagePauseWhy(usage.pause) }
       if (usage.accountId !== undefined) accountId = usage.accountId
@@ -1481,15 +1487,6 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
         // A finished Task lands on its plan branch first (mergeWaves), so a dependent its merge readies is placed in
         // this same lap, not at the next tick
         await mergeWaves()
-        // **계정이 없어 띄울 수 없는 Task 에 Gate 를 연다.** slotsToFill 이 그것들을 건너뛰므로
-        // 아래 루프는 보지 못하고, 그냥 두면 Run 이 이유 없이 서 있는다 — 이 하위 시스템이
-        // 없애려는 증상 그대로다(gateSlot 의 주석). Gate 는 Task 를 blocked 로 보내므로 판정이
-        // 다음 바퀴에 같은 Task 를 다시 내지 않는다(tasksMissingAccounts 의 주석).
-        for (const m of tasksMissingAccounts(c.getState())) {
-          if (attempted.has(m.taskId)) continue
-          attempted.add(m.taskId)
-          await gateSlot(m.taskId, t(c.lang(), 'jobs.gate.noAccountAssigned'))
-        }
         // **답할 사람이 없는 질문을 풀어 준다.** `ask` 는 부드리기라 워커가 답이 올 때까지 멈춰
         // 서 있는데, 그 답을 줄 코디네이터가 앱이 만든 Run 에는 없다(inbox.ts 의 머리말 —
         // 실측으로 잡힌 정지다). 사람에게 올리지 않는 이유도 거기 있다. 밖에서 모는 세션이 살아 있으면
@@ -1631,8 +1628,6 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       if (task.status !== 'ready') return refuse(`task ${taskId} is ${task.status}, not ready`)
       if (task.consecutiveFailures >= FAILURE_LIMIT)
         return refuse(`task ${taskId} has failed ${task.consecutiveFailures} times in a row (circuit break)`)
-      if ((task.accountIds?.length ?? 0) === 0)
-        return refuse(`task ${taskId} names no account to run on; give it one with tasks add --account`)
       if (s.dispatches.some((d) => d.taskId === taskId && !d.outcome && !d.endedAt))
         return refuse(`task ${taskId} already has a worker`)
       // **The run is judged here, after the wait, not only by the command layer** (review 3, M1): the

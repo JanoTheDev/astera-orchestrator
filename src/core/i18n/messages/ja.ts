@@ -782,6 +782,9 @@ export const ja: Catalog = {
   'account.sync.nothingToCopy': '取り込む設定がありません (取り込み元アカウントに設定ファイルなし)。',
   // AccountSelect.tsx
   'account.select.none': '(未選択)',
+  'accounts.auto': '自動 (余裕が最も大きいアカウント)',
+  'accounts.pick': 'アカウント',
+  'accounts.pickUsage': '{name} · 週 {weekly} · 5h {session}',
   // NewSessionDialog.tsx — the new-session modal
   'session.new.title': '新しいセッション',
   'session.new.runningWarning':
@@ -1764,6 +1767,8 @@ export const ja: Catalog = {
   'settings.projects.new': '新しいプロジェクト',
   'settings.projects.empty': 'まだプロジェクトがありません',
   'settings.projects.noAnchor': '先にタブを開いてください',
+  'settings.accountMaxSessions.label': 'アカウントごとの最大セッション数',
+  'settings.accountMaxSessions.hint': '1 つのアカウントが同時に実行する Astera セッションの数です。空欄なら上限なし。開始時に上限に達したアカウントは飛ばされます。',
   // W9-E start page and New
   'shortcut.new.open': '新規を開く',
   'shortcut.tabs.reopenClosed': '最後に閉じたタブを開き直す',

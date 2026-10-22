@@ -222,7 +222,9 @@ export async function feedbackCommand(deps: OrchServerDeps, caller: Caller, cmd:
     return reply
   }
 
-  const accountId = job.coordinatorAccountId
+  // T5b (decision 6): the account named for the plan is a preference; with none, the planner starts where there is room
+  // (`auto`), the account it ran on before only saying the provider
+  const accountId = job.preferredAccountId ?? job.coordinatorAccountId ?? job.plannerAccountId
   const last = job.plannerSessionIds?.at(-1)
   // 1. Typed into the planner while it lives: the same conversation, nothing to start
   const live = last && deps.listSessions && deps.sendSession ? (await deps.listSessions()).find((x) => x.id === last && x.alive && x.kind === 'terminal') : undefined
@@ -235,9 +237,21 @@ export async function feedbackCommand(deps: OrchServerDeps, caller: Caller, cmd:
     return ok({ jobId, sessionId: last, via: 'typed' })
   }
   if (!deps.startCoordinator) return conflict('starting a planner is not available in this build')
-  if (!accountId) return bad('the Job names no coordinator account to plan on')
-  const start = async (brief: string, resume?: string): Promise<string> =>
-    (await deps.startCoordinator!({ runId: jobId, cwd: job.cwd, accountId, role: 'planner', brief, ...(resume ? { resume } : {}) })).sessionId
+  if (!accountId) return bad('the Job names no account to plan on')
+  let startedOn: string | undefined
+  const start = async (brief: string, resume?: string): Promise<string> => {
+    const started = await deps.startCoordinator!({
+      runId: jobId,
+      cwd: job.cwd,
+      accountId,
+      ...(job.preferredAccountId === undefined ? { auto: true as const } : {}),
+      role: 'planner',
+      brief,
+      ...(resume ? { resume } : {})
+    })
+    startedOn = started.accountId
+    return started.sessionId
+  }
   await record(entry('plan'))
   // 2. Its own conversation resumed: cheaper than a fresh planner, and it keeps everything it read
   const agent = last ? await deps.agentSessionOf?.(last).catch(() => null) : null
@@ -260,7 +274,8 @@ export async function feedbackCommand(deps: OrchServerDeps, caller: Caller, cmd:
     }
   }
   const started = sessionId
-  await setJob(jobId, (j) => ({ ...j, plannerSessionIds: [...(j.plannerSessionIds ?? []), started] }))
+  // T5b: the account it actually started on
+  await setJob(jobId, (j) => ({ ...j, plannerSessionIds: [...(j.plannerSessionIds ?? []), started], ...(startedOn ? { plannerAccountId: startedOn } : {}) }))
   return ok({ jobId, sessionId: started, via })
 }
 
