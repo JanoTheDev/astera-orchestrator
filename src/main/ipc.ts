@@ -8388,7 +8388,15 @@ export function registerIpc(
     if (!info) throw new Error(`no running session ${sessionId}`)
     const coordinator = providerOf(core.accounts.get(info.accountId)) === 'codex' ? codexRolling : rolling
     if (!coordinator) throw new Error('rolling is not available')
-    coordinator.register({ ...info, rollAccountIds: [info.accountId] })
+    const chainInfo = { ...info, rollAccountIds: [info.accountId] }
+    // A codex terminal tab: main's rollout watcher already mapped the tab's own conversation (bounded by
+    // its spawn), so the chain is handed that pair instead of searching for a file by folder.
+    const watched = coordinator === codexRolling ? codexRollout : undefined
+    const rolloutPath = watched?.rolloutPathFor(sessionId) ?? null
+    const nativeId = watched?.codexSessionIdFor(sessionId) ?? null
+    if (codexRolling && coordinator === codexRolling && rolloutPath && nativeId)
+      codexRolling.register(chainInfo, rolloutPath, false, false, nativeId)
+    else coordinator.register(chainInfo)
     try {
       const r = await coordinator.switchTo(sessionId, accountId)
       if (r.outcome !== 'switched') coordinator.unregister(sessionId)

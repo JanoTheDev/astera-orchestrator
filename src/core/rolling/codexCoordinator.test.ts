@@ -1202,6 +1202,39 @@ describe('CodexRollingCoordinator', () => {
     h.coord.stop()
   })
 
+  it('switchTo switches a plain terminal tab handed its own rollout at registration', async () => {
+    const h = harness()
+    const file = await writeRollout({ accountId: 'c1', uuid: 'cx-plain', cwd: h.info1.cwd, primary: 3 })
+    h.coord.register({ ...h.info1, rollAccountIds: ['c1'] }, file, false, false, 'cx-plain')
+    expect(await h.coord.switchTo('s1', 'c2')).toEqual({ outcome: 'switched' })
+    expect(h.spawned[0].resumeSessionId).toBe('cx-plain')
+    h.coord.stop()
+  })
+
+  it('switchTo refuses a fresh terminal tab and never takes an older rollout from its folder', async () => {
+    const h = harness()
+    await writeRollout({ accountId: 'c1', uuid: 'cx-older', cwd: h.info1.cwd, primary: 3 })
+    h.coord.register({ ...h.info1, rollAccountIds: ['c1'] })
+    expect(await h.coord.switchTo('s1', 'c2')).toEqual({ outcome: 'refused', reason: 'conversation not located yet' })
+    expect(h.spawned).toHaveLength(0)
+    h.coord.stop()
+  })
+
+  it('switchTo locates a chat tab by the thread id main recorded and refuses one with no rollout', async () => {
+    const h = harness()
+    await writeRollout({ accountId: 'c1', uuid: 'cx-th', cwd: h.info1.cwd, primary: 3 })
+    await writeRollout({ accountId: 'c1', uuid: 'cx-other', cwd: h.info1.cwd, primary: 3 })
+    h.coord.register({ ...h.info1, kind: 'chat', threadId: 'cx-th', rollAccountIds: ['c1'] })
+    expect(await h.coord.switchTo('s1', 'c2')).toEqual({ outcome: 'switched' })
+    expect(h.spawned[0].resumeSessionId).toBe('cx-th')
+    const g = harness()
+    g.coord.register({ ...g.info1, kind: 'chat', threadId: 'cx-none', rollAccountIds: ['c1'] })
+    expect(await g.coord.switchTo('s1', 'c2')).toEqual({ outcome: 'refused', reason: 'conversation not located yet' })
+    expect(g.spawned).toHaveLength(0)
+    h.coord.stop()
+    g.coord.stop()
+  })
+
   it('switchTo refuses a chain whose rollout is not located yet and arms no wait', async () => {
     const h = harness()
     h.coord.register(h.info1)
