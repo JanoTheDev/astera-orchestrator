@@ -22,6 +22,7 @@ import { handleCommand, type OrchServerDeps } from '../command'
 import { APP_CALLER } from '../../host/driver'
 import { addDecision, COORDINATOR_START_WINDOW_MS, emptyState, type OrchState } from '../state'
 import { needsInput } from '../sessionIndex'
+import { outcomeOf } from '../running'
 import { ASK_GRACE_MS } from './autoAnswer'
 import type { Dispatch, Job, Message, Task } from '../types'
 import { FAILURE_LIMIT } from '../types'
@@ -557,6 +558,25 @@ describe('createDispatchLoop', () => {
     await h.loop.nudge()
     expect(h.state().gates.filter((g) => g.taskId === merge.id)).toHaveLength(1)
   })
+  it('writes the merge Task title and its Gate reason in the app language (en), with no Hangul', async () => {
+    const h = rig()
+    driven(h, {
+      tasks: [task({ id: 'tsk_1', status: 'completed' })],
+      dispatches: [
+        { id: 'dsp_1', taskId: 'tsk_1', provider: 'claude', accountId: 'accA', sessionId: 'w-1', cwd: '/wt-child', specPath: '', startedAt: NOW, endedAt: NOW, outcome: 'succeeded' } as Dispatch
+      ]
+    })
+    h.ctx.integrate = async () => ({ kind: 'agent', reason: 'it conflicts', worktrees: [{ path: '/wt-child', branch: 'a' }] })
+    await h.loop.nudge()
+    const merge = h.state().tasks.find((t) => t.parentId === 'tsk_1')!
+    expect(merge.title).toBe(`Merge worktrees: ${h.state().tasks.find((t) => t.id === 'tsk_1')!.title}`.slice(0, 80))
+    const d = h.state().dispatches.find((x) => x.taskId === merge.id)!
+    await h.as(d.sessionId, 'send', { type: 'worker_done', taskId: merge.id, dispatchId: d.id, outcome: 'failed', subject: 'x', body: 'y' })
+    await h.loop.nudge()
+    const gate = h.state().gates.find((g) => g.taskId === merge.id)!
+    expect(gate.question).toMatch(/^tsk_1's branch could not be merged into the plan branch \(.+\), and the merge worker failed too: the merge worker failed$/)
+    expect(`${merge.title}\n${gate.question}`).not.toMatch(/[가-힣]/)
+  })
   it("a clean wave merge tells the coordinator, once, and the next ready Task", async () => {
     const h = rig()
     driven(h, {
@@ -635,6 +655,42 @@ describe('createDispatchLoop', () => {
     expect(h.startWorker).toHaveBeenCalledTimes(1) // once, not a spin
     expect(h.startWorker.mock.calls[0][0].taskId).toBe('tsk_1')
     expect(h.handled()).toEqual(['worker-start', 'gate-create'])
+  })
+
+  // T10: a hands-off plan answers each Gate and the Task goes back to ready; the same reason must not open Gates for ever.
+  it('blocks a Task once, with no third Gate, when a hands-off plan has answered the same reason twice', async () => {
+    const h = rig({ startFailsFor: 'all' })
+    h.startWorker.mockRejectedValue(new Error('same reason'))
+    const s0 = h.state()
+    h.setState({ ...s0, jobs: s0.jobs.map((j) => ({ ...j, handsOff: true })) })
+    for (let i = 0; i < 2; i++) {
+      await h.loop.run()
+      await h.settle()
+      const open = h.state().gates.filter((g) => g.taskId === 'tsk_1' && g.status === 'open')
+      expect(open).toHaveLength(1)
+      expect((await h.real('questions-answer', { id: open[0].id, answer: 'Refused' })).status).toBe(200)
+      await h.settle()
+    }
+    await h.loop.run()
+    await h.settle()
+    expect(h.state().gates.filter((g) => g.taskId === 'tsk_1')).toHaveLength(2)
+    const blocked = h.state().tasks.find((t) => t.id === 'tsk_1')
+    expect(blocked?.status).toBe('blocked')
+    expect(blocked?.result).toContain('same reason')
+  })
+
+  it('keeps opening a Gate for a plan that is not hands-off', async () => {
+    const h = rig({ startFailsFor: 'all' })
+    h.startWorker.mockRejectedValue(new Error('same reason'))
+    for (let i = 0; i < 3; i++) {
+      await h.loop.run()
+      await h.settle()
+      const open = h.state().gates.filter((g) => g.taskId === 'tsk_1' && g.status === 'open')
+      expect(open).toHaveLength(1)
+      await h.real('questions-answer', { id: open[0].id, answer: 'retry' })
+      await h.settle()
+    }
+    expect(h.state().gates.filter((g) => g.taskId === 'tsk_1').length).toBeGreaterThanOrEqual(3)
   })
 
   // R14.
@@ -1022,7 +1078,7 @@ describe('a finished scheduled Run’s coordinator is stopped (U4)', () => {
     withCoordinator(h, 'run_rc', 'coord-rc')
     await h.loop.run()
     await h.settle()
-    expect(h.stopCoordinator.mock.calls).toEqual([['coord-rc', 'the run has nothing left for it to do']])
+    expect(h.stopCoordinator.mock.calls).toEqual([['coord-rc', 'the run has nothing left for it to do', 'stopped']])
     expect(h.handled()).toContain('run-coordinator-stop')
     expect(h.state().runs.find((r) => r.id === 'run_rc')?.coordinatorStopPending).toBeDefined()
     await h.loop.run()
@@ -1137,7 +1193,7 @@ describe('a finished manual Run’s coordinator stops after the grace', () => {
     h.clock = NOW_MS + 10 * MIN
     await pass(h)
     expect(stops(h)).toBe(1)
-    expect(h.stopCoordinator.mock.calls).toEqual([['coord-1', 'the run has nothing left for it to do']])
+    expect(h.stopCoordinator.mock.calls).toEqual([['coord-1', 'the run has nothing left for it to do', 'stopped']])
     await pass(h)
     expect(stops(h)).toBe(1)
   })
@@ -1147,7 +1203,7 @@ describe('a finished manual Run’s coordinator stops after the grace', () => {
     h.clock = NOW_MS + 10 * MIN
     await h.loop.nudge()
     await h.settle()
-    expect(h.stopCoordinator.mock.calls).toEqual([['coord-1', 'the run has nothing left for it to do']])
+    expect(h.stopCoordinator.mock.calls).toEqual([['coord-1', 'the run has nothing left for it to do', 'stopped']])
   })
 
   it('a person typing into it at minute 8 moves the stop to minute 18', async () => {
@@ -1238,7 +1294,7 @@ describe('a finished manual Run’s coordinator stops after the grace', () => {
     h.setState({ ...s, runs: s.runs.map((r) => (r.id === 'run_rc' ? { ...r, coordinatorSessionId: 'coord-rc' } : r)) })
     h.ctx.sessionBusy = () => true
     await pass(h)
-    expect(h.stopCoordinator.mock.calls).toEqual([['coord-rc', 'the run has nothing left for it to do']])
+    expect(h.stopCoordinator.mock.calls).toEqual([['coord-rc', 'the run has nothing left for it to do', 'stopped']])
   })
 
   // The re-check in run-coordinator-stop (runMoves): a stop still pending for a Run that has work again
@@ -1541,7 +1597,7 @@ describe('a coordinator stop is retried until the session is gone (L1)', () => {
     await h.loop.run()
     await h.settle()
     expect(stops(h)).toBe(2)
-    expect(h.stopCoordinator.mock.calls).toEqual([['coord-rc', 'the run has nothing left for it to do']])
+    expect(h.stopCoordinator.mock.calls).toEqual([['coord-rc', 'the run has nothing left for it to do', 'stopped']])
     expect(rc(h).coordinatorStopPending).toBeDefined()
   })
 
@@ -1989,6 +2045,32 @@ describe("a completed Run opens its plan's pull request (W2-D)", () => {
     expect(asked(h)).toBe(1)
   })
 
+  it('a delivery that failed reads failed, is escalated once, and is not asked again, replanned or drafted', async () => {
+    const h = rig()
+    withWorktree(h, 'run_1')
+    const why = 'git merge-tree says x does not merge cleanly'
+    h.ctx.handle = async (cmd, args) => {
+      if (cmd !== 'run-deliver') return h.real(cmd, args)
+      const s = h.state()
+      h.setState({ ...s, runs: s.runs.map((r) => (r.id === 'run_1' ? { ...r, pr: { at: NOW, error: why } } : r)) })
+      return { status: 409, body: { error: why } }
+    }
+    await h.loop.run()
+    await h.settle()
+    finish(h, 'run_1')
+    for (let i = 0; i < 3; i++) {
+      await h.loop.run()
+      await h.settle()
+    }
+    expect(asked(h)).toBe(1)
+    expect(outcomeOf(h.state(), 'run_1')).toBe('failed')
+    const esc = h.state().messages.filter((m) => m.type === 'escalation' && m.runId === 'run_1')
+    expect(esc).toHaveLength(1)
+    expect(esc[0].subject).toContain(why)
+    expect(h.handled()).not.toContain('run-open-pr')
+    expect(h.handled()).not.toContain('jobs-replan')
+  })
+
   it('does not ask for a Run that was already done when it started', async () => {
     const h = rig()
     withWorktree(h, 'run_1')
@@ -2060,6 +2142,52 @@ describe("a completed Run opens its plan's pull request (W2-D)", () => {
     await h.loop.run()
     await h.settle()
     failOne(h)
+    await h.loop.run()
+    await h.settle()
+    expect(asked(h)).toBe(0)
+  })
+
+  // Item 2: a plan that finished with a Task held for the owner delivers its completed work too, never by a push, and
+  // once the owner releases that Task and the plan completes, it is delivered again
+  const holdOne = (h: ReturnType<typeof rig>): void => {
+    const s = h.state()
+    h.setState({
+      ...s,
+      tasks: s.tasks.map((t, i) => (i === 0 ? { ...t, status: 'blocked' as const, result: "Waiting on the owner's decision: drop it?" } : { ...t, status: 'completed' as const }))
+    })
+  }
+  it('asks once for a pr Run that finished with a blocked Task, and again after the owner releases it and it completes', async () => {
+    const h = rig()
+    withWorktree(h, 'run_1')
+    fakePr(h)
+    await h.loop.run()
+    await h.settle()
+    holdOne(h)
+    expect(outcomeOf(h.state(), 'run_1')).toBe('blocked')
+    await h.loop.run()
+    await h.settle()
+    await h.loop.run()
+    await h.settle()
+    expect(asked(h)).toBe(1)
+    const s = h.state()
+    h.setState({ ...s, tasks: s.tasks.map((t, i) => (i === 0 ? { ...t, status: 'ready' as const } : t)) })
+    expect(outcomeOf(h.state(), 'run_1')).toBe('running')
+    await h.loop.run()
+    await h.settle()
+    finish(h, 'run_1')
+    await h.loop.run()
+    await h.settle()
+    expect(asked(h)).toBe(2)
+  })
+  it('never pushes a Run that finished with a blocked Task', async () => {
+    const h = rig()
+    const s = h.state()
+    h.setState({ ...s, jobs: s.jobs.map((j) => ({ ...j, delivery: 'push' as const })) })
+    withWorktree(h, 'run_1')
+    fakePr(h)
+    await h.loop.run()
+    await h.settle()
+    holdOne(h)
     await h.loop.run()
     await h.settle()
     expect(asked(h)).toBe(0)

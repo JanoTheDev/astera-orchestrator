@@ -3,7 +3,7 @@ import type { Attention, JobRow, JobTask, SessionInfo } from '../../../../core/t
 import type { WorkspaceProject, WorkspaceSession } from '../../state/workspaceTree'
 import {
   ALL_PLANS, NO_PLAN, consolesOf, detailLineOf, detailsOf, filterConsoles, gridColumns, groupWall, indexJobRows, orderWall, pillCount, planPills,
-  progressSegments, stripLabel, type WallInput
+  progressSegments, sectionWall, stripLabel, type WallInput
 } from './wallModel'
 
 const session = (id: string, over: Partial<SessionInfo> = {}): SessionInfo => ({
@@ -165,6 +165,29 @@ describe('groupWall', () => {
   it('the Done filter leaves a group of finished consoles only', () => {
     const w = orderWall(consolesOf(input()), ALL_PLANS)
     expect(groupWall([], w.finished).every((g) => g.live.length === 0 && g.done.length > 0)).toBe(true)
+  })
+})
+
+describe('sectionWall', () => {
+  const w = orderWall(consolesOf(input()), ALL_PLANS)
+  const live = [...w.pinned, ...w.tiles]
+  const ids = (cs: { sessionId: string }[]): string[] => cs.map((c) => c.sessionId)
+  it('splits by role: coordinators, planners, workers with the reviewer, consoles; each keeps orderWall order', () => {
+    const s = sectionWall(live, w.finished)
+    expect(s.map((x) => x.role)).toEqual(['coordinator', 'planner', 'worker', 'console'])
+    expect(ids(s[0].live)).toEqual(['c1', 'c2'])
+    expect(ids(s[1].live)).toEqual(['pl1'])
+    expect(ids(s[2].live)).toEqual(['w1', 'w2', 'w3'])
+    expect(consolesOf(input()).find((c) => c.sessionId === 'w2')?.role).toBe('reviewer')
+    expect(ids(s[3].live)).toEqual(['s9'])
+    expect(ids(s[3].done)).toEqual(['e1'])
+    expect(s.map((x) => x.count)).toEqual([2, 1, 3, 2])
+  })
+  it('leaves out an empty section and counts finished consoles', () => {
+    const s = sectionWall(live.filter((c) => c.role !== 'planner'), w.finished)
+    expect(s.map((x) => x.role)).toEqual(['coordinator', 'worker', 'console'])
+    expect(sectionWall([], w.finished).map((x) => [x.role, x.count])).toEqual([['console', 1]])
+    expect(sectionWall([], [])).toEqual([])
   })
 })
 

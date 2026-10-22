@@ -9,13 +9,13 @@
 // the stop is refused rather than claimed.
 import type { PtyEntry } from '../../core/host/protocol'
 import { PTY_LOST_SIGHT_EXIT_CODE } from '../../core/sessions/pty'
-import type { SessionStatus } from '../../core/types'
+import type { CloseReason, SessionStatus } from '../../core/types'
 
 export interface KillWorkerDeps {
   app: {
     /** The app's record for this session, if it has one (`core.sessions.list()`). */
     info(id: string): { status: SessionStatus; exitCode?: number } | undefined
-    kill(id: string): void
+    kill(id: string, reason?: CloseReason): void
   }
   /** The Host, or null when this app has no Host wiring at all (then every session is its own).
    *  `list` is one `pty-list` round trip, null when unanswered; `kill` sends `pty-kill` and answers
@@ -23,7 +23,7 @@ export interface KillWorkerDeps {
    *  answers the way to stop listening. */
   host: {
     list(): Promise<PtyEntry[] | null>
-    kill(ptyId: string): boolean
+    kill(ptyId: string, reason?: CloseReason): boolean
     onExit(ptyId: string, cb: () => void): () => void
   } | null
   log(m: string): void
@@ -41,12 +41,12 @@ const notStopped = (sessionId: string, why: string): Error =>
     `the worker was not stopped: session ${sessionId} is not held by this app and ${why}, so it may still be running in the Host — try again, or use worker-abandon to stop tracking it`
   )
 
-export async function killWorkerSession(sessionId: string, d: KillWorkerDeps): Promise<void> {
+export async function killWorkerSession(sessionId: string, d: KillWorkerDeps, reason?: CloseReason): Promise<void> {
   const info = d.app.info(sessionId)
   // Held and running: the app's own handle. For an adopted session that handle is the Host's pty, so
   // its kill is a `pty-kill` and the exit comes back to this app, which sent `pty-attach` for it.
   if (info?.status === 'running' || !d.host) {
-    d.app.kill(sessionId)
+    d.app.kill(sessionId, reason)
     return
   }
   // The app saw it end with a real code: there is nothing left anywhere to kill. A lost-sight exit
@@ -74,7 +74,7 @@ export async function killWorkerSession(sessionId: string, d: KillWorkerDeps): P
       clearTimeout(timer)
       resolve(true)
     })
-    if (!host.kill(entry.id)) {
+    if (!host.kill(entry.id, reason)) {
       clearTimeout(timer)
       resolve(false)
       unsent = true

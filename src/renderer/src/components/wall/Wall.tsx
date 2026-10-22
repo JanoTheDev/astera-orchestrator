@@ -3,12 +3,13 @@
 // wallModel.ts's; this file only draws it.
 import { useEffect, useRef } from 'react'
 import { ExternalLink, Plus, TerminalSquare } from 'lucide-react'
+import type { MessageKey } from '../../../../core/i18n'
 import { useI18n } from '../../i18n/I18nProvider'
 import { Button, Chip, Tabs, EmptyState, Select, cx, type ChipTone } from '../ui'
 import { claimTerminal } from './consoleDock'
 import {
   ALL_PLANS, NO_PLAN, pillCount, progressSegments, stripLabel,
-  type PlanFilter, type PlanPill, type StateFilter, type TileState, type WallConsole
+  type PlanFilter, type PlanPill, type StateFilter, type TileState, type WallConsole, type WallSectionRole
 } from './wallModel'
 import type { PlanProgress } from '../plan/planBoard'
 
@@ -181,6 +182,24 @@ export function WallFilters({
         </FilterChip>
       </span>
     </>
+  )
+}
+
+const SECTION_TITLE = {
+  coordinator: 'wall.section.coordinators',
+  planner: 'wall.section.planners',
+  worker: 'wall.section.workers',
+  console: 'wall.section.consoles'
+} as const satisfies Record<WallSectionRole, MessageKey>
+
+/** A role section's heading: the role's name and how many consoles it holds. */
+export function SectionHead({ role, count }: { role: WallSectionRole; count: number }): React.JSX.Element {
+  const { t } = useI18n()
+  return (
+    <h2 className="wall-section__head">
+      {t(SECTION_TITLE[role])}{' '}
+      <span className="wall-group__count">{count}</span>
+    </h2>
   )
 }
 

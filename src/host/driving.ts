@@ -43,11 +43,12 @@
 // Imports only core modules and node builtins: this bundles into the Host.
 import path from 'node:path'
 import { t } from '../core/i18n'
-import { HOST_YIELD_DISPATCH, HOST_YIELD_RECOVERY } from '../core/host/protocol'
+import { HOST_YIELD_DISPATCH, HOST_YIELD_RECOVERY, ORCH_MARK_KEY } from '../core/host/protocol'
 import { driverOf, readDispatchGate, type DispatchGate, type Driver } from '../core/host/driver'
 import { createDispatchLoop, ORCH_FIRE_TICK_MS, type DispatchLoopContext } from '../core/orchestration/exec/dispatchLoop'
 import { sweepStaleSpecFiles } from '../core/orchestration/exec/specFiles'
 import { createStallWatch } from '../core/orchestration/exec/stallWatch'
+import { createRunEndSweep } from '../core/orchestration/exec/runEnd'
 import { lostWithNobody } from '../core/orchestration/lostGate'
 import { createLostGateGuard, type LostGateGuard } from './lostGateGuard'
 import { policyOf } from '../core/orchestration/convergence'
@@ -120,7 +121,7 @@ export function hostSessionAlive(
 
 export function createHostDriving(d: {
   profileDir: string
-  orch: Pick<HostOrch, 'handle' | 'internalDeps' | 'loaded' | 'drainOnce' | 'state'>
+  orch: Pick<HostOrch, 'handle' | 'internalDeps' | 'loaded' | 'drainOnce' | 'state'> & Partial<Pick<HostOrch, 'adoptWorkers'>>
   /** `lastAppPid` (leftovers Task 1): the pid the last app gave in its hello, the default `appPid`'s
    *  fallback when app.pid names no live app. Optional for the test fakes. */
   server: { hasApp(): boolean; appsKeep(duty: string): boolean; lastAppPid?(): number | null }
@@ -131,7 +132,7 @@ export function createHostDriving(d: {
   /** The handover belt (N1): starts one open repair Dispatch that has no spec yet. */
   startRepair(a: { dispatchId: string }): void
   /** `sessionExitCode` answers the loop's `sessionGone` (limits pass L1); optional for the test fakes. */
-  registry: Pick<PtyRegistry, 'sessionPty' | 'list'> & Partial<Pick<PtyRegistry, 'sessionExitCode' | 'lastPersonWrite'>>
+  registry: Pick<PtyRegistry, 'sessionPty' | 'list'> & Partial<Pick<PtyRegistry, 'sessionExitCode' | 'lastPersonWrite' | 'liveEntries'>>
   /** The chat sessions' line processes, so `sessionAlive` sees a Run's external coordinator on a chat (spec E5).
    *  Optional for the test fakes. */
   procs?: Pick<ProcRegistry, 'list'>
@@ -403,7 +404,7 @@ export function createHostDriving(d: {
     loginStatus: (id) => d.checks.loginStatus(id),
     lang: () => d.checks.langNow(),
     forkRunWorktree: (a) => d.worktrees.fork(a),
-    integrate: (runRoot, merges) => d.worktrees.integrate(runRoot, merges),
+    integrate: (runRoot, merges, heads) => d.worktrees.integrate(runRoot, merges, heads),
     reap: reapWhileDriving,
     isRegisteredWorktree: (p) => d.worktrees.isRegistered(p),
     sessionAlive: (id) => hostSessionAlive(d.registry, d.procs, id),
@@ -454,11 +455,40 @@ export function createHostDriving(d: {
         typeInto: (id, text) => d.spawner.typeInto(id, text),
         tell: (n) => loop.tell(n),
         activity: d.activity,
+        ...(d.orch.adoptWorkers ? { adopt: () => d.orch.adoptWorkers!() } : {}),
+        accounts: () => d.checks.accounts(),
         mayStart,
         log,
         nowMs: () => d.nowMs()
       })
     : null
+
+  /** The finished Runs' leftover sessions (item 9, exec/runEnd.ts): every live pty with its folder, mark and spec. */
+  const runEnd = createRunEndSweep({
+    getState: () => d.orch.state(),
+    live: () =>
+      (d.registry.liveEntries?.() ?? []).flatMap((e) => {
+        if (e.meta?.kind !== 'session') return []
+        const r = e.meta.restore
+        const mark = r[ORCH_MARK_KEY]
+        const spec = r.rollPrompt
+        return [{ id: e.meta.id, cwd: e.cwd, ...(typeof mark === 'string' ? { mark } : {}), ...(typeof spec === 'string' ? { spec } : {}) }]
+      }),
+    stop: async (id, reason) => {
+      const stop = d.orch.internalDeps().stopCoordinator
+      if (!stop) throw new Error('this Host has no way to stop a session')
+      await stop(id, reason, 'released')
+    },
+    lastPersonInputAt: (id) => {
+      const p = d.registry.sessionPty(id)
+      return p === null ? null : (d.registry.lastPersonWrite?.(p) ?? null)
+    },
+    sessionBusy: (id) => d.spawner.sessionBusy(id),
+    mayStart,
+    nowMs: () => d.nowMs(),
+    log,
+    ...(d.activity ? { activity: d.activity } : {})
+  })
 
   const guard = d.guard ?? createLostGateGuard()
   /** An attached app keeps recovery: its own reconciler decides (D8). */
@@ -495,6 +525,10 @@ export function createHostDriving(d: {
 
   const pass = async (): Promise<void> => {
     await handover
+    if (!mayStart()) return
+    // A live worker with no record of its start is adopted first (exec/adopt.ts): before it, recovery and the loop read
+    // its Task as ready or lost, and the loop's watchdog tells or starts a duplicate
+    await stalls?.adopt()
     if (!mayStart()) return
     // Recovery first (Phase 3R final review C1): a lost worker holds no slot, so a loop that ran while its recovery
     // read git would fill that slot from the ready queue and leave the lost Task with no room, no worker and no Gate.
@@ -564,6 +598,7 @@ export function createHostDriving(d: {
         await pass()
         await loop.nudge()
         await stalls?.watch()
+        await runEnd.run()
       }
       // **R5 and R17.** Schedules fire from the process that drives (`driverOf`), whether or not an app
       // is attached: a fired Run starts the way `jobs run` starts one (U1), and the Host does both

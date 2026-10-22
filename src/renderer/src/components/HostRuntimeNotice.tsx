@@ -1,6 +1,6 @@
 import { useI18n } from '../i18n/I18nProvider'
 import type { MessageKey } from '../../../core/i18n'
-import type { HostRuntimeInstallState } from '../../../core/types'
+import type { HostRuntimeInstallState, HostStatus } from '../../../core/types'
 
 /** Every string this notice can show — kept in one list so the test can hold all four catalogs to it. */
 export const HOST_RUNTIME_NOTICE_KEYS: readonly MessageKey[] = [
@@ -10,7 +10,9 @@ export const HOST_RUNTIME_NOTICE_KEYS: readonly MessageKey[] = [
   'status.hostPrepareFailedTitle',
   'status.hostPrepareReason.copy',
   'status.hostPrepareReason.timeout',
-  'status.hostPrepareReason.unknown'
+  'status.hostPrepareReason.unknown',
+  'status.hostStarting',
+  'status.hostWaitingForPrevious'
 ]
 
 const REASON_TEXT: Record<'copy' | 'timeout' | 'unknown', MessageKey> = {
@@ -58,5 +60,29 @@ export function HostRuntimeNotice({
       <span className="loading-spinner small" aria-hidden="true" />
       {state.slow ? t('status.hostPreparingSlow', { seconds }) : t('status.hostPreparing')}
     </span>
+  )
+}
+
+/** Whether the window is still waiting for its Host, and on what. `null` (not yet read) and a connection
+ *  attempt with no outcome yet are both "starting"; a Host that is leaving gets its own sentence. A
+ *  connected, unresponsive or failed Host is the status bar's business, not this one's. */
+export function hostStartingPhase(s: HostStatus | null): 'starting' | 'waitingForPrevious' | null {
+  if (!s) return 'starting'
+  if (s.waitingForPreviousHost) return 'waitingForPrevious'
+  if (!s.connected && !s.unresponsive && !s.problem) return 'starting'
+  return null
+}
+
+/** "Starting Astera…" while the Host is not there yet, so a slow start — the previous Host still
+ *  leaving takes about a minute — never reads as an empty window. */
+export function HostStartingNotice({ status }: { status: HostStatus | null }): React.JSX.Element | null {
+  const { t } = useI18n()
+  const phase = hostStartingPhase(status)
+  if (!phase) return null
+  return (
+    <div className="status-host-runtime" role="status" style={{ padding: '6px 12px' }}>
+      <span className="loading-spinner small" aria-hidden="true" />
+      {t(phase === 'waitingForPrevious' ? 'status.hostWaitingForPrevious' : 'status.hostStarting')}
+    </div>
   )
 }

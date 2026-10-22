@@ -139,6 +139,11 @@ export function PlanHeader({
           {run?.archivedAt !== undefined && <Chip>{t('jobs.lifecycle.archived')}</Chip>}
           {run?.dispatchHold && <Chip tone="warn">{t('jobs.hold.held')}</Chip>}
           {run?.pendingStart && <Chip tone="info">{t('jobs.run.notStarted')}</Chip>}
+          {run?.outcome === 'checking' && <Chip tone="info">{t('pages.plans.status.checking')}</Chip>}
+          {run?.outcome === 'blocked' && <Chip tone="warn">{t('pages.plans.status.blocked')}</Chip>}
+          {run?.outcome === 'failed' && run.deliveryError !== undefined && <Chip tone="danger">{t('jobs.run.notDelivered', { reason: run.deliveryError })}</Chip>}
+          {/* T5: the coordinator's model, picked by the plan's size (roleModels.ts resolveCoordinatorModel) */}
+          {run?.coordinatorModel !== undefined && <Chip>{`${t('plan.card.model')}: ${run.coordinatorModel}`}</Chip>}
           <SourceChip source={run?.source} />
           <WaveLine status={waveStatus} brief />
           {running > 0 && (

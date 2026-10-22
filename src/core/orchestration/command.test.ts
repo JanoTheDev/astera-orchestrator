@@ -1147,6 +1147,15 @@ describe('handleCommand — inbox는 코디네이터 전용', () => {
     expect((await call(deps, 'questions-get', { id: qid }, '')).body).toMatchObject({ id: qid, source: 'ask' })
     const r = await call(deps, 'questions-answer', { id: qid, answer: '-$1.50' }, '')
     expect(r.body).toMatchObject({ id: qid, status: 'resolved', resolution: '-$1.50' })
+    // --brief, --fields and paging, as on tasks list
+    expect((await call(deps, 'questions-list', { fields: 'id,status', limit: 1 }, '')).body).toEqual({
+      questions: [{ id: qid, status: 'resolved' }],
+      total: 1,
+      offset: 0,
+      limit: 1
+    })
+    expect((await call(deps, 'questions-list', { fields: 'body' }, '')).body).toMatchObject({ error: expect.stringContaining('the fields are id, runId, taskId, question') })
+    expect((await call(deps, 'questions-list', { brief: true }, '')).body).toMatchObject([{ id: qid, question: '-$1.50 or $-1.50?' }])
     // The worker's resumed wait gets the answer, and the coordinator's inbox has the owner's copy
     expect((await call(deps, 'ask', { resume: qid, timeoutMs: 1 }, 'sess1')).body).toMatchObject({ answered: true, answer: '-$1.50' })
     expect(deps.getState().messages.find((m) => m.type === 'status' && m.replyTo === qid)).toMatchObject({ subject: 'the owner answered', body: '-$1.50' })
@@ -1262,6 +1271,31 @@ describe('handleCommand — retained dispatch', () => {
     const abandon = await seedRetained(false)
     await call(abandon.deps, 'worker-abandon', { dispatch: abandon.dispatchId })
     expect(abandon.deps.getState().dispatches.find((d) => d.id === abandon.dispatchId)?.closedBy).toBe('abandon')
+  })
+
+  // Run job_0b682db7df32e7b4: the original's record was lost, a duplicate was started and then stopped
+  it('worker-stop of a duplicate makes the original still running the same spec the Task dispatch', async () => {
+    const { deps, dispatchId } = await seedRetained(false)
+    const { taskId, sessionId: duplicate } = deps.getState().dispatches[0]
+    deps.profileDir = '/profile'
+    deps.liveWorkers = () => [
+      { id: duplicate, spec: `--task-id ${taskId} --dispatch-id ${dispatchId}` },
+      { id: 'original', spec: `Continue the work. ... --task-id ${taskId} --dispatch-id dsp_0riginal1`, cwd: '/wt', accountId: 'acc1' },
+      { id: 'other', spec: '--task-id tsk_elsewhere --dispatch-id dsp_elsewhere' }
+    ]
+    const r = await call(deps, 'worker-stop', { dispatch: dispatchId })
+    expect(r.status).toBe(200)
+    expect(r.body).toEqual({ stopped: dispatchId, adopted: 'dsp_0riginal1', sessionId: 'original' })
+    const s = deps.getState()
+    expect(s.tasks.find((t) => t.id === taskId)?.status).toBe('dispatched')
+    expect(s.dispatches.find((d) => d.id === 'dsp_0riginal1')).toMatchObject({
+      taskId,
+      sessionId: 'original',
+      cwd: '/wt',
+      accountId: 'acc1',
+      specPath: `/profile/orch/specs/${taskId}-dsp_0riginal1.md`
+    })
+    expect(s.dispatches.filter((d) => !d.endedAt && !d.outcome)).toHaveLength(1)
   })
 
   it('retained에 worker-release는 200이지만 skipped를 싣는다 — 조용히 건너뛰지 않는다', async () => {
@@ -1596,6 +1630,35 @@ describe('handleCommand — tasks list --ready', () => {
     const list = r.body as { spec: string; spec_truncated: boolean }[]
     expect(list[0].spec.length).toBe(160)
     expect(list[0].spec_truncated).toBe(true)
+  })
+
+  const fiveTasks = async (): Promise<ReturnType<typeof makeDeps>> => {
+    const deps = makeDeps()
+    const run = await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p' })
+    for (const title of ['a', 'b', 'c', 'd', 'e'])
+      await call(deps, 'task-create', { account: 'acc1', runId: (run.body as { id: string }).id, title, spec: 's' })
+    return deps
+  }
+
+  it('--fields keeps only the named fields of each row', async () => {
+    const deps = await fiveTasks()
+    const r = await call(deps, 'tasks-list', { fields: 'title,status' })
+    expect(r.body).toEqual(['a', 'b', 'c', 'd', 'e'].map((title) => ({ title, status: 'ready' })))
+  })
+
+  it('--fields with a field that is not public is a 400 naming the valid ones', async () => {
+    const deps = await fiveTasks()
+    const r = await call(deps, 'tasks-list', { fields: 'title,prompt' })
+    expect(r.status).toBe(400)
+    expect((r.body as { error: string }).error).toMatch(/has no field prompt; the fields are id, runId, jobId, title, spec/)
+  })
+
+  it('--limit and --offset take one page and carry the total', async () => {
+    const deps = await fiveTasks()
+    const r = await call(deps, 'tasks-list', { limit: 2, offset: '2', fields: 'title' })
+    expect(r.body).toEqual({ tasks: [{ title: 'c' }, { title: 'd' }], total: 5, offset: 2, limit: 2 })
+    expect((await call(deps, 'tasks-list', { offset: '4' })).body).toMatchObject({ tasks: [{ title: 'e' }], total: 5, offset: 4, limit: null })
+    expect((await call(deps, 'tasks-list', { limit: 0 })).status).toBe(400)
   })
 })
 
@@ -5056,6 +5119,25 @@ describe('handleCommand — convergence', () => {
     expect((await call(deps, 'task-update', { id, mergedIntoPlan: true }, HOST_CALLER)).body).toMatchObject({ mergedIntoPlanAt: at })
   })
 
+  it('task-update --status completed of a Task that worked outside its Run root moves it to merging; its merge completes it', async () => {
+    const deps = convDeps()
+    await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p' })
+    await call(deps, 'task-create', { spec: 's', account: 'accA' })
+    const s0 = deps.getState()
+    const id = s0.tasks[0].id
+    await deps.setState({
+      ...s0,
+      runs: s0.runs.map((r) => ({ ...r, worktree: 'D:/wt-run' })),
+      dispatches: [{ id: 'dsp_x', taskId: id, provider: 'claude', accountId: 'accA', sessionId: 'w-x', cwd: 'D:/wt-x', specPath: '', startedAt: NOW, endedAt: NOW, outcome: 'failed', workerState: 'failed', retained: false }]
+    })
+    expect((await call(deps, 'task-update', { id, status: 'completed' }, HOST_CALLER)).status).toBe(200)
+    expect(deps.getState().tasks[0].status).toBe('merging')
+    expect((await call(deps, 'task-update', { id, mergedIntoPlan: true })).status).toBeGreaterThanOrEqual(400) // an agent session
+    expect((await call(deps, 'task-update', { id, mergedIntoPlan: true }, HOST_CALLER)).status).toBe(200)
+    expect(deps.getState().tasks[0].status).toBe('completed')
+    expect(deps.getState().tasks[0].mergedIntoPlanAt).toBeDefined()
+  })
+
   /** convergence Run 에서 검토 걸린 Task 를 reviewing + 검토 Dispatch 열림까지 */
   const reviewingRun = async (deps: ReturnType<typeof convDeps>, runExtra: Record<string, unknown> = {}) => {
     await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p', convergence: true, ...runExtra })
@@ -5952,6 +6034,7 @@ describe('jobs run / questions answer', () => {
     const deps = makeDeps()
     await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p', auto: true })
     const jobId = deps.getState().jobs[0].id
+    await call(deps, 'tasks-add', { job: jobId, spec: 's', account: 'acc1' })
     expect(deps.getState().jobs[0].pendingStart).toBe(true)
     expect(deps.getState().runs.length).toBe(0)
     const r = await call(deps, 'jobs-run', { id: jobId })
@@ -5962,6 +6045,20 @@ describe('jobs run / questions answer', () => {
     // Task 가 회차가 아니라 계획에 붙어 이번 회차에서는 아무 일도 하지 않았다.
     expect((r.body as { id: string }).id).toBe(deps.getState().runs[0].id)
     expect((r.body as { ordinal: number }).ordinal).toBe(1)
+  })
+
+  it('a Job with no tasks, no planner and no coordinator account is refused with the jobs plan step', async () => {
+    const deps = makeDeps()
+    await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p', auto: true })
+    const jobId = deps.getState().jobs[0].id
+    const r = await call(deps, 'jobs-run', { id: jobId })
+    expect(r.status).toBe(409)
+    expect((r.body as { error: string }).error).toContain(`astera jobs plan --id ${jobId} --account <accountId>`)
+    expect(deps.getState().runs.length).toBe(0)
+    expect(deps.getState().jobs[0].pendingStart).toBe(true)
+    // A coordinator account plans it, so the same Job then runs
+    deps.setState({ ...deps.getState(), jobs: deps.getState().jobs.map((j) => ({ ...j, coordinatorAccountId: 'acc1' })) })
+    expect((await call(deps, 'jobs-run', { id: jobId })).status).toBe(200)
   })
 
   it('끝난 계획을 다시 돌리면 회차가 하나 늘어난다', async () => {
@@ -6239,7 +6336,7 @@ describe('jobs create / tasks add / accounts list', () => {
       const job = deps.getState().jobs[0]
       expect(asked).toEqual([[job.id, ['/d/spec.pdf']]])
       expect(job.objective).toBe(
-        `Read every file in /prof/plans/${job.id}/inputs/ first (PDFs over 20 pages in page ranges):\n- /prof/plans/${job.id}/inputs/spec.pdf\n\n` +
+        `Read every file in /prof/plans/${job.id}/inputs/ first (PDFs over 20 pages in page ranges):\n  /prof/plans/${job.id}/inputs/spec.pdf\n\n` +
           "Source:\nBuild it\n\nOwner's instructions (they win over the source when the two conflict):\nUse pnpm"
       )
       expect(r.body).toMatchObject({ objective: job.objective })
@@ -6280,24 +6377,36 @@ describe('jobs create / tasks add / accounts list', () => {
       expect(asked).toEqual([])
     })
 
-    it('#113: a plain long objective keeps its text and gets its first sentence as title; a short one none', async () => {
+    it('#113/T7: a plain objective keeps its text and is named by its first sentence, cut to about 6 words', async () => {
       const { deps } = withInputs()
       const text = 'Create index.js exporting add(a, b) and sub(a, b). Cover both with tests and document them in the README.'
       await shell(deps, 'jobs-create', { objective: text, cwd: 'D:/p' })
-      expect(deps.getState().jobs[0]).toMatchObject({ objective: text, title: 'Create index.js exporting add(a, b) and sub(a, b).' })
+      expect(deps.getState().jobs[0]).toMatchObject({ objective: text, title: 'Create index.js exporting add(a, b) and…' })
       await shell(deps, 'jobs-create', { objective: 'Add dark mode', cwd: 'D:/p' })
-      expect(deps.getState().jobs[1].title).toBeUndefined()
+      expect(deps.getState().jobs[1].title).toBe('Add dark mode')
+      // T7 item 12: a one-sentence prompt is never its own name
+      const prompt = 'alright so we have had worked on fisch and now the inventory screen needs a full rework'
+      await shell(deps, 'jobs-create', { objective: prompt, cwd: 'D:/p' })
+      expect(deps.getState().jobs[2].title).toBe('alright so we have had worked…')
+    })
+
+    it('T7: run-create names the Job it makes too, at a word boundary within 60 characters', async () => {
+      const { deps } = withInputs()
+      await shell(deps, 'run-create', { objective: 'Rework the inventory screen so items stack, sort and filter by rarity', cwd: 'D:/p', auto: true })
+      const title = deps.getState().jobs[0].title!
+      expect(title).toBe('Rework the inventory screen so items…')
+      expect(title.length).toBeLessThanOrEqual(60)
     })
 
     // W7-D (#68): a plan from a source is named by it, so two fixlists never both read "The source below is…"
-    it('W7-D: a fixlist, an audit and a set of files each get a title; a plain jobs create gets none', async () => {
+    it('W7-D: a fixlist, an audit and a set of files each get a title; a plain jobs create its own words (T7)', async () => {
       const { deps } = withInputs()
       await shell(deps, 'jobs-create', { objective: '1. login fails\n2. slow search', cwd: 'D:/p', mode: 'fixlist' })
       await shell(deps, 'jobs-create', { objective: '- price rounds wrong', cwd: 'D:/p', mode: 'fixlist' })
       await shell(deps, 'jobs-create', { cwd: await auditRepo('src/core'), mode: 'audit', scope: 'src/core' })
       const files = await shell(deps, 'jobs-create', { cwd: 'D:/p', attach: ['/d/spec.pdf'], mode: 'fixlist' })
       await shell(deps, 'jobs-create', { objective: 'plain', cwd: 'D:/p' })
-      expect(deps.getState().jobs.map((j) => j.title)).toEqual(['login fails', 'price rounds wrong', 'Audit src/core', 'spec.pdf', undefined])
+      expect(deps.getState().jobs.map((j) => j.title)).toEqual(['login fails', 'price rounds wrong', 'Audit src/core', 'spec.pdf', 'plain'])
       expect(files.body).toMatchObject({ title: 'spec.pdf' })
       expect(deps.getState().jobs.map((j) => jobNameOf(j))).toEqual(['login fails', 'price rounds wrong', 'Audit src/core', 'spec.pdf', 'plain'])
     })
@@ -6449,12 +6558,50 @@ describe('jobs create / tasks add / accounts list', () => {
     const ok = await shell(deps, 'task-update', { id: t.id, prompt: 'new', criteria: ['c'] })
     expect(ok.status).toBe(200)
     expect(deps.getState().tasks.find((x) => x.id === t.id)).toMatchObject({ prompt: 'new', acceptanceCriteria: ['c'] })
+    await deps.setState({ ...deps.getState(), runs: deps.getState().runs.map((r) => ({ ...r, coordinatorSessionId: 'sess_agent' })) })
     expect((await call(deps, 'task-update', { id: t.id, prompt: 'agent' }, 'sess_agent')).status).toBe(400)
     expect((await handleCommand(deps, { sessionId: '', role: 'mcp' }, 'task-update', { id: t.id, prompt: 'mcp' })).status).toBe(400)
     await deps.setState({ ...deps.getState(), tasks: deps.getState().tasks.map((x) => (x.id === t.id ? { ...x, status: 'dispatched' as const } : x)) })
     const locked = await shell(deps, 'task-update', { id: t.id, prompt: 'late' })
     expect(locked.status).toBe(400)
     expect(deps.getState().tasks.find((x) => x.id === t.id)?.prompt).toBe('new')
+  })
+
+  // T7 (item 3): every session Astera spawns has an id, the owner's own tabs too, so the owner is any caller that is no
+  // orchestration session
+  it('task-update --deps: the owner in an Astera tab re-plans a not-started Task; worker, coordinator and planner sessions are refused by name', async () => {
+    const deps = makeDeps()
+    await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p' })
+    const run = deps.getState().runs[0]
+    const a = (await shell(deps, 'tasks-add', { run: run.id, spec: 'a', account: 'acc1' })).body as { id: string }
+    const b = (await shell(deps, 'tasks-add', { run: run.id, spec: 'b', account: 'acc1', deps: [a.id] })).body as { id: string }
+    const c = (await shell(deps, 'tasks-add', { run: run.id, spec: 'c', account: 'acc1' })).body as { id: string }
+    const dispatch = { id: 'dsp_w', taskId: c.id, sessionId: 'sess_worker', provider: 'claude', accountId: 'acc1', cwd: 'D:/p', specPath: 's', startedAt: NOW, workerState: 'running', retained: false }
+    await deps.setState({
+      ...deps.getState(),
+      dispatches: [dispatch as never],
+      runs: deps.getState().runs.map((r) => ({ ...r, coordinatorSessionId: 'sess_coord' })),
+      jobs: deps.getState().jobs.map((j) => ({ ...j, plannerSessionIds: ['sess_planner'] })),
+      tasks: deps.getState().tasks.map((x) => (x.id === c.id ? { ...x, status: 'dispatched' as const } : x))
+    })
+    for (const [session, role] of [['sess_worker', 'worker'], ['sess_coord', 'coordinator'], ['sess_planner', 'planner']] as const) {
+      const r = await call(deps, 'task-update', { id: b.id, deps: [] }, session)
+      expect(r.status, session).toBeGreaterThanOrEqual(400)
+      // a worker is refused task-update outright (COORDINATOR_ONLY), a planner a Task outside its plan (plannerRefusal)
+      expect((r.body as { error: string }).error, session).toContain(role)
+    }
+    const tab = await call(deps, 'task-update', { id: b.id, deps: [], spec: 'b, on its own' }, 'sess_owner_tab')
+    expect(tab.status).toBe(200)
+    expect(deps.getState().tasks.find((x) => x.id === b.id)).toMatchObject({ deps: [], spec: 'b, on its own', status: 'ready' })
+    // a started Task is refused with its reason
+    const started = await call(deps, 'task-update', { id: c.id, deps: [a.id] }, 'sess_owner_tab')
+    expect(started.status).toBe(400)
+    expect((started.body as { error: string }).error).toContain('has started already (dispatched)')
+    // blocked before it ever started: still the owner's to fix
+    await deps.setState({ ...deps.getState(), tasks: deps.getState().tasks.map((x) => (x.id === a.id ? { ...x, status: 'blocked' as const } : x)) })
+    const blocked = await call(deps, 'task-update', { id: a.id, basis: 'partial', evidence: 'src/a.ts' }, 'sess_owner_tab')
+    expect(blocked.status).toBe(200)
+    expect(deps.getState().tasks.find((x) => x.id === a.id)?.basis).toEqual({ state: 'partial', evidence: 'src/a.ts' })
   })
 
   // **최신 회차로 기본값을 두지 않는다** — task-create 의 기본값은 남의 회차에 떨어질 수 있다.
@@ -7550,6 +7697,7 @@ describe('fix round 1: what counts as running, and one coordinator per Run', () 
   const coordDeps = () => {
     const stopped: string[] = []
     const reasons: Array<string | undefined> = []
+    const closeReasons: Array<string | undefined> = []
     const logs: string[] = []
     const deps = makeDeps()
     const startCoordinator = vi.fn(async (a: { runId: string }) => ({ sessionId: `coord-${a.runId}` }))
@@ -7560,15 +7708,16 @@ describe('fix round 1: what counts as running, and one coordinator per Run', () 
       startCoordinator,
       enterCheckWait: (runId: string, sessionId: string) => waits.enter(runId, sessionId),
       coordinatorIdle: (runId: string, sessionId: string) => waits.parked(runId, sessionId),
-      stopCoordinator: async (sessionId: string, reason?: string) => {
+      stopCoordinator: async (sessionId: string, reason?: string, closeReason?: string) => {
         stopped.push(sessionId)
         reasons.push(reason)
+        closeReasons.push(closeReason)
       },
       log: (m: string) => {
         logs.push(m)
       }
     })
-    return Object.assign(deps, { startCoordinator, stopped, reasons, logs })
+    return Object.assign(deps, { startCoordinator, stopped, reasons, closeReasons, logs })
   }
   const scheduledJob = async (deps: OrchServerDeps): Promise<string> => {
     const r = await call(deps, 'run-create', {
@@ -8038,6 +8187,7 @@ describe('fix round 1: what counts as running, and one coordinator per Run', () 
     expect(run).not.toHaveProperty('coordinatorStartingAt')
     expect(deps.stopped).toEqual(['coord-mine'])
     expect(deps.reasons).toEqual(['another coordinator already manages its Run'])
+    expect(deps.closeReasons).toEqual(['replaced'])
     expect(deps.logs.join('\n')).toMatch(/coord-mine/)
   })
 
@@ -9917,6 +10067,20 @@ describe('#117 hands-off', () => {
     expect(deps.getState().jobs.find((j) => j.id === id)?.handsOff).toBe(false)
   })
 
+  it('T5: projects-set --grants and --coordinator-model set, none clears, projects-list shows them, an agent is refused', async () => {
+    const deps = makeDeps()
+    await deps.setState({ ...deps.getState(), projects: [{ id: 'prj_1', path: 'D:/p', name: 'p', addedAt: NOW }] })
+    expect((await call(deps, 'projects-set', { id: 'prj_1', grants: 'protected-paths, migrations', coordinatorModel: 'opus' }, '')).status).toBe(200)
+    expect((await call(deps, 'projects-list', {}, '')).body).toEqual([expect.objectContaining({ grants: ['protected-paths', 'migrations'], coordinatorModel: 'opus' })])
+    expect((await call(deps, 'projects-set', { id: 'prj_1', grants: 'Protected Paths' }, '')).status).toBe(400)
+    expect((await call(deps, 'projects-set', { id: 'prj_1', coordinatorModel: '-rf' }, '')).status).toBe(400)
+    expect((await call(deps, 'projects-set', { id: 'prj_1', grants: 'migrations' }, 'ses-agent')).status).toBe(403)
+    expect((await call(deps, 'projects-set', { id: 'prj_1', coordinatorModel: 'haiku' }, 'ses-agent')).status).toBe(403)
+    expect((await call(deps, 'projects-set', { id: 'prj_1', grants: 'none', coordinatorModel: 'none' }, '')).status).toBe(200)
+    expect(deps.getState().projects[0]).not.toHaveProperty('grants')
+    expect(deps.getState().projects[0]).not.toHaveProperty('coordinatorModel')
+  })
+
   it('projects-set --hands-off on sets the project, off clears it', async () => {
     const deps = makeDeps()
     await deps.setState({ ...deps.getState(), projects: [{ id: 'prj_1', path: 'D:/p', name: 'p', addedAt: NOW }] })
@@ -9986,6 +10150,7 @@ describe('T3 workspaces', () => {
 
   it('jobs-set --areas files plans under an auto-created child per first area', async () => {
     const { deps, rootId, ids } = await seed(3)
+    expect((await call(deps, 'projects-set', { id: rootId, autoProjects: 'on' }, '')).status).toBe(200)
     expect((await call(deps, 'jobs-set', { id: ids[0], areas: 'ui,api' }, '')).status).toBe(200)
     const [ui] = children(deps, rootId)
     expect(ui).toMatchObject({ name: 'ui', path: repo, parentId: rootId })
@@ -10000,9 +10165,8 @@ describe('T3 workspaces', () => {
     expect(listed.filter((p) => p.parentId === rootId)).toHaveLength(2)
   })
 
-  it('creates nothing when the workspace set autoProjects off', async () => {
+  it('creates nothing for a new project, which starts with autoProjects off', async () => {
     const { deps, rootId, ids } = await seed(1)
-    expect((await call(deps, 'projects-set', { id: rootId, autoProjects: 'off' }, '')).status).toBe(200)
     expect(deps.getState().projects[0].autoProjects).toBe(false)
     expect((await call(deps, 'jobs-set', { id: ids[0], areas: 'ui' }, '')).status).toBe(200)
     expect(children(deps, rootId)).toEqual([])
@@ -10020,10 +10184,12 @@ describe('T3 workspaces', () => {
   })
 
   it('projects-remove refuses a workspace with children or a project with active plans', async () => {
-    const { deps, rootId, ids } = await seed(1)
+    const { deps, rootId, ids } = await seed(1, { autoProjects: true })
     await call(deps, 'jobs-set', { id: ids[0], areas: 'ui' }, '')
     const [ui] = children(deps, rootId)
     expect((await call(deps, 'projects-remove', { id: rootId }, '')).status).toBe(409)
+    // A draft never run does not hold it; one queued behind another plan does
+    await deps.setState({ ...deps.getState(), jobs: deps.getState().jobs.map((j) => ({ ...j, after: 'job_other' })) })
     expect((await call(deps, 'projects-remove', { id: ui.id }, '')).status).toBe(409)
     expect((await call(deps, 'projects-remove', { id: 'nope' }, '')).status).toBe(404)
     await deps.setState({ ...deps.getState(), jobs: deps.getState().jobs.map((j) => ({ ...j, archivedAt: NOW })) })

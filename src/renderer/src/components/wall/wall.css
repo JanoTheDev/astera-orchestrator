@@ -52,7 +52,7 @@ button.summary-card__title:hover .summary-card__title-text { text-decoration: un
 .wall-filters__plan { width: auto; max-width: 280px; }
 .wall-filters__end { margin-left: auto; }
 .wall-chip { gap: var(--sp-2); font-size: var(--fs-12); box-shadow: inset 0 0 0 1px var(--line); }
-.wall-chip.is-active { box-shadow: inset 0 0 0 1px var(--line-strong); }
+.wall-chip.is-active { box-shadow: inset 0 0 0 1px var(--accent); background: var(--accent-soft); color: var(--text); font-weight: 600; }
 .wall-chip__name { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wall-chip__count { margin-left: var(--sp-1); color: var(--text-faint); font-size: var(--fs-11); font-variant-numeric: tabular-nums; }
 .wall-chip__count--need { color: var(--warn); }
@@ -68,6 +68,8 @@ button.summary-card__title:hover .summary-card__title-text { text-decoration: un
 .wall-progress__seg--cancelled { background: var(--line-strong); }
 
 /* One plan's group: head (name, progress, needs, open), tiles, Done cards */
+.wall-section { display: flex; flex-direction: column; gap: var(--sp-4); min-width: 0; }
+.wall-section__head { margin: 0; padding-bottom: var(--sp-2); border-bottom: 1px solid var(--line); color: var(--text); font-size: var(--fs-15); font-weight: var(--fw-semi); line-height: var(--lh-tight); }
 .wall-group { display: flex; flex-direction: column; gap: var(--sp-3); min-width: 0; }
 .wall-group__head { display: flex; align-items: center; gap: var(--sp-3); min-width: 0; min-height: var(--h-sm); }
 .wall-group__name { margin: 0; min-width: 0; overflow: hidden; color: var(--text); font-size: var(--fs-13); font-weight: var(--fw-semi); line-height: var(--lh-tight); text-overflow: ellipsis; white-space: nowrap; }

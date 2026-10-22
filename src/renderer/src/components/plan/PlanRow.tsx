@@ -143,6 +143,7 @@ export function PlanRow({
         <Chip tone={status.tone} dot>
           {t(status.key)}
         </Chip>
+        {status.reason !== undefined && <span className="plans-row__reason">{t('jobs.run.notDelivered', { reason: status.reason })}</span>}
         <SourceChip source={row.source} />
         {row.pr && (
           <span className="plans-row__pr">

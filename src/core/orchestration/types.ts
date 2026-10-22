@@ -5,7 +5,16 @@ import type { Provider } from '../providers/meta'
 import type { ScheduleRule } from '../scheduler/rule'
 import type { PrState } from '../github/types'
 
-export type TaskStatus = 'pending' | 'ready' | 'dispatched' | 'validating' | 'reviewing' | 'completed' | 'failed' | 'blocked'
+export type TaskStatus =
+  | 'pending'
+  | 'ready'
+  | 'dispatched'
+  | 'validating'
+  | 'reviewing'
+  | 'merging'
+  | 'completed'
+  | 'failed'
+  | 'blocked'
 export type Outcome = 'succeeded' | 'failed'
 /** Observed state of the session a Dispatch owns. outcome_unknown = cannot be proven (section 7 of
  *  the orchestration guide) */
@@ -170,6 +179,12 @@ export interface Project {
   /** A root's: `jobs-set --areas` files a plan under the sub-project named after its first area, creating it
    *  (`autoProjectFor`). Absent reads as true. */
   autoProjects?: boolean
+  // ── T5 project policy ──
+  /** Kinds of decision the owner grants in advance (`protected-paths`, `migrations`; short kebab-case words): the
+   *  coordinator writes a covered grant itself instead of escalating it (handover.ts, exec/autoAnswer.ts `grantOf`). */
+  grants?: string[]
+  /** The coordinator's model for this project's plans, over the plan-size rule (roleModels.ts `resolveCoordinatorModel`). */
+  coordinatorModel?: string
 }
 
 /** W7-B: what a project nobody set up reads as. */
@@ -336,6 +351,9 @@ export interface Job {
   /** T1 chat-first planning: how the planner works: `chat` brainstorms with the person in its terminal, `auto` decides
    *  alone. Absent: `chat`, except `auto` on a hands-off plan (`handsOffOf`) and one an agent session made (set at creation). */
   planning?: 'chat' | 'auto'
+  /** T7 objective coverage: the objective items the planner deliberately left out of the plan, each with why
+   *  (`jobs-set --left-out`). `validatePlan` accepts an item listed here as covered. */
+  leftOut?: LeftOutItem[]
   /** #119: why each issue was picked or skipped by "Let Astera pick". */
   pick?: { at: string; picked: IssuePick[]; skipped: IssuePick[] }
   /** What the owner told the planner (`jobs-feedback`), oldest first, with what the planner changed for each. */
@@ -469,6 +487,9 @@ export interface JobRun {
    *  retried rather than remembered as done. A new coordinator (`attachCoordinator`) starts without it;
    *  a roll's rekey carries it, since the stop is meant for whatever session the slot follows. */
   coordinatorStopPending?: string
+  /** T5: the model the coordinator in `coordinatorSessionId` was started on (`resolveCoordinatorModel`); absent: the
+   *  CLI's default, or a coordinator started before this was recorded. */
+  coordinatorModel?: string
   /** The session that drives this Run from outside: it made the Run with `run-create` (with no coordinator account),
    *  or took it over with `check --run`, and Astera neither started nor owns it (2026-10-13, spec E1). **Only the inbox net reads it**
    *  (`unattendedQuestions`, inbox.ts): while that session is alive, a worker's question is left to it. Nothing stops,
@@ -644,6 +665,16 @@ export interface Task {
   // W8-C prompts mode
   /** The `Job.verbatim` source this Task is, byte for byte (Run as written). */
   verbatimOf?: string
+  // T7 objective coverage (objectiveItems.ts)
+  /** The numbers of the Job's objective items this Task covers (`--covers 1,3`); `validatePlan` checks every item is
+   *  covered here or left out on the Job (`Job.leftOut`). */
+  covers?: number[]
+}
+
+/** T7: one objective item the plan leaves out on purpose: its number (objectiveItems.ts) and why. */
+export interface LeftOutItem {
+  item: number
+  reason: string
 }
 
 /** W6-A: an item's state as the planner found it. `built` gets no Task, so it is not one of these. */
@@ -852,20 +883,23 @@ const ALLOWED: Record<TaskStatus, TaskStatus[]> = {
   // dispatched -> validating: 워커가 성공을 보고했지만 그 Task 에 검증이 걸려 있는 경우.
   // 검증이 없으면 지금처럼 곧바로 completed 로 간다.
   // dispatched -> reviewing: 검증이 걸리지 않고 검토만 걸린 Task 의 성공 보고.
-  dispatched: ['completed', 'failed', 'validating', 'reviewing', 'blocked'],
+  dispatched: ['completed', 'failed', 'validating', 'reviewing', 'merging', 'blocked'],
   // validating -> blocked 는 검증을 아예 돌릴 수 없을 때다(구성이 없다, cwd 가 사라졌다). 그 판단은
   // 사람의 것이므로 Gate 를 연다. validating -> dispatched 는 검증이 도는 동안에는 없다 — 그 사이에는
   // 판정이 도착할 자리가 없기 때문이다. 그 금지는 판정이 도착하기 전까지다: 판정이 도착한 뒤에는 앱이
   // repair Dispatch 를 여는 전이로 이 칸에 들어오고, 그 유일한 문은 state.ts 의 openRepairDispatch 다
   // (설계 §5).
   // validating -> reviewing: 검증이 통과했고 검토가 걸려 있다. 순서는 검증 -> 검토다.
-  validating: ['completed', 'failed', 'blocked', 'reviewing', 'dispatched'],
+  validating: ['completed', 'failed', 'blocked', 'reviewing', 'merging', 'dispatched'],
   // reviewing -> blocked 는 검토를 아예 돌릴 수 없을 때다(쓸 수 있는 다른 provider 계정이 없다,
   // 검토자가 보고 없이 죽었다). 그 판단은 사람의 것이므로 Gate 를 연다. reviewing -> dispatched 는
   // 검토가 도는 동안에는 없다 — validating 과 같은 이유로 판정이 도착할 자리가 없다. 그 금지도 판정이
   // 도착하기 전까지다: 판정이 도착한 뒤에는 앱이 repair Dispatch 를 여는 전이로 이 칸에 들어오고, 그
   // 유일한 문은 state.ts 의 openRepairDispatch 다(설계 §5).
-  reviewing: ['completed', 'failed', 'blocked', 'dispatched'],
+  reviewing: ['completed', 'failed', 'blocked', 'merging', 'dispatched'],
+  // merging: the work succeeded and the app lands its worktree on the plan branch (state.ts doneStatusOf). A clean merge
+  // or its merge Task completes it; a merge git cannot do blocks it on a Gate. Never completed without the merge.
+  merging: ['completed', 'failed', 'blocked', 'ready'],
   completed: [],
   // failed -> blocked is allowed: failed is by definition a state with no open dispatch
   // (applyWorkerDone sets outcome and endedAt together) — so there is no reason to block the flow

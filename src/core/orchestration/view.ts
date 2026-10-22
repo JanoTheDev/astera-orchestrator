@@ -18,11 +18,13 @@ import type { JobRow, JobTask, OrchSnapshot, TaskBoard, WorktreeInfo, UsagePause
 import { repoPathOf } from '../worktrees/repo'
 import { coordinatorStarting, type OrchState } from './state'
 import { eventCountsOf } from './timeline'
-import { isTerminal, outcomeOf, outcomeOfTasks, tasksOwnedBy } from './running'
+import { deliveryErrorOf, isTerminal, outcomeOf, outcomeOfRun, outcomeOfTasks, tasksOwnedBy } from './running'
 import { policyOfJob, repairCountIn, reviewRoundIn } from './convergence'
 import type { Dispatch, Gate, Job, JobRun, Task } from './types'
 import { taskBoardsOf } from './blocked'
 import { validatePlan } from './planner'
+// T7 objective coverage
+import { objectiveItemsOf } from './objectiveItems'
 import { waveOf } from './replan'
 import { autoApproveOf, handsOffOf, planApprovable } from './exec/plannerFeedback'
 import type { ScheduleLimits } from './schedule'
@@ -98,6 +100,12 @@ export { isTerminal, outcomeOf }
 export const OBJECTIVE_PREVIEW_MAX = 500
 
 /** The first OBJECTIVE_PREVIEW_MAX characters, with `…` when there were more, never splitting a surrogate pair. */
+/** T7: a Job's left-out items as the plan page lists them, each with its line of the objective. */
+const leftOutRows = (job: Job): NonNullable<JobRow['leftOut']> => {
+  const items = new Map(objectiveItemsOf(job.objective).map((i) => [i.n, i.text]))
+  return (job.leftOut ?? []).map((l) => ({ item: l.item, text: items.get(l.item) ?? '', reason: l.reason }))
+}
+
 const previewOf = (text: string): string => {
   if (text.length <= OBJECTIVE_PREVIEW_MAX) return text
   const high = text.charCodeAt(OBJECTIVE_PREVIEW_MAX - 1)
@@ -435,8 +443,11 @@ export function snapshotFor(
       outcomeOfTasks(ix.owned.get(run.id) ?? []) === 'running'
         ? { coordinatorMissing: true }
         : {}),
+      ...(run?.coordinatorModel !== undefined ? { coordinatorModel: run.coordinatorModel } : {}),
       concurrency: job.concurrency,
-      outcome: outcomeOfTasks(ownedTasks),
+      outcome: outcomeOfRun(ownedTasks, run, state),
+      // A Run whose delivery failed reads failed; the reason rides with it
+      ...(deliveryErrorOf(run) !== undefined ? { deliveryError: deliveryErrorOf(run) } : {}),
       done,
       total,
       eventCount: ix.eventCounts.get(ownerId) ?? 0,
@@ -471,6 +482,7 @@ export function snapshotFor(
       ...(job.rejected !== undefined ? { rejected: job.rejected } : {}),
       // W8-F (#94): what keeps a plan waiting for approval from being approved, shown before Run is pressed
       ...(planProblems.length > 0 ? { planProblems } : {}),
+      ...(job.leftOut?.length ? { leftOut: leftOutRows(job) } : {}),
       // #116: Approve only once the planner is done; an auto-approve plan says it starts by itself instead
       ...(planApprovable(state, job) ? { planReady: true as const } : {}),
       ...(job.pendingStart && autoApproveOf(projectsOnce, job) ? { autoApprove: true as const } : {}),
@@ -531,8 +543,9 @@ export function snapshotFor(
   // 하고, 아래로 내려가면 회차가 쌓일수록 정의를 찾기 어려워진다.
   return {
     runs: top.sort((a, b) => {
-      const ar = a.outcome === 'running'
-      const br = b.outcome === 'running'
+      // A Run in its final check is still at work (item 8)
+      const ar = a.outcome === 'running' || a.outcome === 'checking'
+      const br = b.outcome === 'running' || b.outcome === 'checking'
       return ar === br ? 0 : ar ? -1 : 1
     }),
     projectFolderBusy: workingHere.size > 0

@@ -398,6 +398,10 @@ export const es: Catalog = {
   'settings.info.hostConnected': 'Conectado · protocolo {protocol} · desde hace {uptime}',
   'settings.info.hostNotConnected': 'Sin conexión',
   'settings.info.hostNotConnectedWhy': 'Sin conexión · {detail}',
+  'status.hostStarting': 'Iniciando Astera…',
+  'status.hostWaitingForPrevious': 'Iniciando Astera… esperando a que termine el Host anterior en segundo plano',
+  'app.renderError': 'Algo salió mal al dibujar esta ventana.',
+  'app.renderErrorReload': 'Recargar',
   'status.hostPreparing': 'Preparando el Astera Host…',
   'status.hostPreparingSlow': 'Preparando el Astera Host… sigue en curso ({seconds} s)',
   'status.hostPrepareFailed': 'No se pudo preparar el Astera Host',
@@ -873,7 +877,14 @@ export const es: Catalog = {
   // se añaden antes que las demás.
   'conversation.indexingFiles': 'Indexando archivos…',
   'conversation.filesUnavailable': 'La lista de archivos no está disponible para esta carpeta.',
-  'conversation.exited.withCode': 'Esta sesión ha terminado (código {code})',
+  'exit.finished': 'Terminado',
+  'exit.closedByAstera': 'Cerrado por Astera — trabajo terminado',
+  'exit.releasedByAstera': 'Cerrado por Astera — liberado',
+  'exit.stoppedByAstera': 'Cerrado por Astera — detenido',
+  'exit.replacedByAstera': 'Cerrado por Astera — reemplazado',
+  'exit.stopped': 'Detenido (Ctrl+C)',
+  'exit.killed': 'Terminado a la fuerza (sin memoria o forzado)',
+  'exit.failed': 'Error (código {code})',
   'conversation.exited.detail': 'Detalles',
   'conversation.exited.restart': 'Reiniciar',
   // Los cinco puntos de la confirmación de design §4 F5. Una excepción a S1 (una o dos líneas) — la
@@ -920,7 +931,6 @@ export const es: Catalog = {
   'session.toast.stalled':
     'La sesión «{title}» está detenida — falló la reanudación automática, hay que revisarla',
   'session.terminal.loadingContent': 'Cargando el contenido…',
-  'session.terminal.exited': 'Finalizado (código {code})',
   'session.terminal.sizedRemote': 'Se muestra con el tamaño de ventana del equipo remoto. Escribe aquí para usar el tamaño de esta ventana.',
   'session.terminal.restart': 'Reiniciar',
   // TerminalView.tsx schedule banner
@@ -1117,7 +1127,6 @@ export const es: Catalog = {
   'run.form.addOption': 'Añadir opción',
   'run.panel.tab': 'Ejecución',
   'run.panel.empty': 'Aún no hay ejecuciones — pulsa ▶ en la barra de herramientas para iniciar una',
-  'run.panel.exitCode': 'salida {code}',
   'run.panel.stopping': 'Deteniendo…',
   'run.panel.close': 'Cerrar ejecución',
   'run.panel.openPreview': 'Abrir {url} en una vista previa',
@@ -1267,6 +1276,7 @@ export const es: Catalog = {
   'jobs.state.dispatchedStopped': 'El worker se detuvo',
   'jobs.state.validating': 'La validación está en marcha',
   'jobs.state.reviewing': 'Otro agente la está revisando',
+  'jobs.state.merging': 'Integrándose en la rama del plan',
   'jobs.state.completed': 'Terminada',
   'jobs.state.failed': 'Falló',
   'jobs.state.blocked': 'Esperando a una persona',
@@ -1300,6 +1310,9 @@ export const es: Catalog = {
   'jobs.run.mergeFailed': 'No se pudo fusionar: {reason}',
   'jobs.run.notStarted': 'Sin iniciar',
   'jobs.run.notStartedHint': 'Aún no se ha iniciado — pulsa Ejecutar en la ventana de detalle para empezar',
+  'jobs.run.notDelivered': 'No entregado: {reason}',
+  'pages.plans.status.checking': 'Comprobando',
+  'pages.plans.status.blocked': 'Terminado con tareas bloqueadas',
   // W2-A planner stage
   'jobs.new.planner': 'Planificar primero con el planificador',
   'jobs.new.plannerHint': 'Una sesión de planificación (con el modelo de planificación) lee el repositorio y escribe las tareas, cada una con su prompt y sus criterios de aceptación. No cambia archivos ni inicia nada: apruebas el plan con Aprobar y ejecutar.',
@@ -1531,6 +1544,24 @@ export const es: Catalog = {
   'jobs.gate.workerLostNoApp': 'El worker de esta Task se perdió (dispatch {dispatch}) mientras ningún Astera estaba abierto para recuperarlo. Resuelve esta Gate para volver a iniciarlo.',
   'jobs.gate.assignedAccountUnusable':
     'No se puede usar la primera cuenta asignada a esta Task, y las siguientes solo están ahí para pasar a ellas más tarde — vuelve a iniciar sesión en esa cuenta o cambia la lista de cuentas de esta Task',
+  // exec/dispatchLoop.ts, exec/integrateGit.ts — the integration merge's Task titles and Gate reasons
+  'jobs.integration.title': "Fusionar worktrees: {title}",
+  'jobs.integration.runWorktreeNotRecorded': "No se pudo registrar el worktree de la Run: {error}",
+  'jobs.integration.runWorktreeNotMade': "No se pudo crear el worktree de la Run: {error}",
+  'jobs.integration.taskFailed': "La Task de integración ({task}) falló, así que los worktrees no se fusionaron.",
+  'jobs.integration.stillCannotMerge': "La Task de integración terminó, pero los worktrees siguen sin poder fusionarse: {reason}",
+  'jobs.integration.taskNotMade': "No se pudo crear la Task de integración que fusiona los worktrees: {error}",
+  'jobs.integration.startFailed': "No se pudo iniciar esta Task: {error}",
+  'jobs.integration.mergeWorkerFailed': "La rama de {task} no se pudo fusionar en la rama del plan ({root}), y el worker de fusión también falló: {reason}",
+  'jobs.integration.noGit': "git no puede ejecutarse en la carpeta de destino ({folder}), así que los worktrees no se fusionaron — la carpeta ya no existe o no es un repositorio git.",
+  'jobs.integration.detachedHead': "Los worktrees no se fusionaron: el HEAD de la carpeta de destino ({folder}) no apunta a una rama (HEAD separado — puede haber un bisect o un rebase en curso). Fusionar encima dejaría el commit fuera de toda rama y rompería el trabajo en curso. Cambia a una rama y luego resuelve este Gate.",
+  'jobs.integration.gitDirUnreachable': "Los worktrees no se fusionaron: no se pudo comprobar si hay trabajo en curso en el directorio git de la carpeta de destino ({dir}) ({marker} no respondió — puede que una unidad de red esté desconectada). Comprueba que la carpeta es accesible y luego resuelve este Gate.",
+  'jobs.integration.inProgress': "Los worktrees no se fusionaron: hay un {op} en curso en la carpeta de destino ({marker}). Fusionar en medio rompería ese trabajo — termínalo o abórtalo y luego resuelve este Gate.",
+  'jobs.integration.statusUnreadable': "No se pudo leer el estado de git de la carpeta de destino ({folder}), así que los worktrees no se fusionaron: {error}",
+  'jobs.integration.uncommitted': "La carpeta de destino tiene {count} cambio(s) sin commit, así que los worktrees no se pueden fusionar. Haz commit o revierte y luego resuelve este Gate (los archivos nuevos sin seguimiento no cuentan aquí).",
+  'jobs.integration.worktreeListUnreadable': "No se pudo leer la lista de worktrees: {error}",
+  'jobs.integration.mergeFailedRestored': "No se pudo fusionar la rama {branch} en la carpeta de destino: {output}. La carpeta volvió al estado anterior a la fusión.",
+  'jobs.integration.mergeFailedLeft': "No se pudo fusionar la rama {branch} en la carpeta de destino: {output}. **La carpeta puede haber quedado a mitad de una fusión — compruébalo tú con git status.**",
   // NewTaskModal.tsx — el formulario en el que se convierte el panel inferior de RunDetail
   // (.detail-events) mientras se está creando una Task. deps pertenece al grafo, no a este formulario
   // (el grafo es donde se eligen las dependencias) — por eso este catálogo solo tiene el texto que
@@ -1805,6 +1836,10 @@ export const es: Catalog = {
   'plan.pick.picked': '#{n} {title}: {why}',
   'plan.pick.skipped': 'Omitida #{n} {title}: {why}',
   'plan.decisions.title': 'Decidido por ti',
+  // T7: an objective item the plan leaves out on purpose, and the owner's edit of a running plan's Task
+  'plan.leftOut.title': 'Fuera del plan',
+  'plan.leftOut.item': '{n}. {text} — {reason}',
+  'activity.taskEdited': '{title}: editado por ti — {fields}',
   'plan.decisions.kind.approval': 'Aprobación',
   'plan.decisions.kind.escalation': 'Pregunta',
   'plan.decisions.kind.gate': 'Control',
@@ -1957,4 +1992,8 @@ export const es: Catalog = {
   'inbox.age.d': '{n} d',
   'inbox.overlap.issue': '{mine} y {theirs} de {plan} enlazan ambas la issue #{issue}',
   'inbox.overlap.edit': '{mine} y {theirs} de {plan} editan ambas {path}',
+  'wall.section.coordinators': 'Coordinadores',
+  'wall.section.planners': 'Planificadores',
+  'wall.section.workers': 'Workers',
+  'wall.section.consoles': 'Consolas',
 }

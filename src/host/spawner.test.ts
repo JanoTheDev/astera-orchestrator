@@ -382,6 +382,20 @@ describe('createHostSpawner', () => {
     expect(owns()).toBe(true)
   })
 
+  it('a released Host-held worker exits with closeReason released, so the app tab can say why', async () => {
+    const seed = seeded()
+    let state = seed.s
+    const h = rig({ state: () => state })
+    const exits: Array<[number, string | undefined]> = []
+    h.registry.onExit((_id, code, closeReason) => exits.push([code, closeReason]))
+    const r = await h.spawner!.startWorker(startArgs(seed.taskId, seed.dispatchId))
+    state = { ...state, dispatches: state.dispatches.map((x) => (x.id === seed.dispatchId ? { ...x, sessionId: r.sessionId } : x)) }
+    await h.spawner!.releaseWorker({ dispatchId: seed.dispatchId, closeReason: 'released' })
+    expect(h.spawned[0].pty.killed).toBe(true)
+    h.spawned[0].pty.exit(143)
+    expect(exits).toEqual([[143, 'released']])
+  })
+
   it('releases a worker by killing its own pty', async () => {
     const seed = seeded()
     let state = seed.s

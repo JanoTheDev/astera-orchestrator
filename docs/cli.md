@@ -705,14 +705,14 @@ astera projects find  --path <path>
 astera projects add   [--path <path>] [--initial-commit] [--parent <projectId>] [--name <name>] [--focus <a,b>]
 astera projects remove --id <projectId>
 astera projects create --name <name> --parent <path> [--describe <text>] [--github <private|public>]
-astera projects set   --id <projectId> [--delivery <pr|push>] [--delivery-branch <branch>] [--auto-approve <on|off>] [--hands-off <on|off>] [--test-command <cmd>] [--test-config <id>] [--concurrency <1-10>] [--review-rounds <n>] [--replan <waves|off>] [--account <id>] [--prompts-dir <path|none>] [--auto-projects <on|off>]
+astera projects set   --id <projectId> [--delivery <pr|push>] [--delivery-branch <branch>] [--auto-approve <on|off>] [--hands-off <on|off>] [--test-command <cmd>] [--test-config <id>] [--concurrency <1-10>] [--review-rounds <n>] [--replan <waves|off>] [--account <id>] [--prompts-dir <path|none>] [--auto-projects <on|off>] [--grants <kind,...|none>] [--coordinator-model <id|none>]
 
 astera jobs    list   [--status <pending|paused|scheduled|waiting|running|completed|failed>] [--project <path>] [--archived] [--area <word>]
 astera jobs    get    --id <jobId | runId>
 astera jobs    run    --id <jobId>
 astera jobs    wait   --id <jobId>  [--timeout-ms <n>]
 astera jobs    rename --id <jobId> --title <text>
-astera jobs    set    --id <jobId | runId> [--concurrency <n>] [--after <jobId|none>] [--areas <a,b,c|none>] [--planning <chat|auto>] [--priority <n>] [--project <projectId>]
+astera jobs    set    --id <jobId | runId> [--concurrency <n>] [--after <jobId|none>] [--areas <a,b,c|none>] [--left-out <json array>] [--planning <chat|auto>] [--priority <n>] [--project <projectId>]
 astera jobs    overlaps --id <jobId>
 astera jobs    archive --id <jobId> [--kill-sessions]
 astera jobs    unarchive --id <jobId>
@@ -730,8 +730,8 @@ astera runs    stop   --id <runId>
 astera runs    resume --id <runId>
 astera runs    checks --id <runId>
 
-astera tasks   list   [--run <runId|jobId>] [--status <s>] [--ready] [--brief]
-astera tasks   add    [--job <jobId> | --run <runId>] --spec <text|-> --account <id,…> [--title <text>] [--prompt <text|->] [--criteria <json array>] [--deps <json array>] [--affected-paths <json array>] [--parent <taskId>] [--validate <configId,…>] [--review] [--no-review] [--difficulty <light|standard|hard>] [--model <id>] [--basis <missing|partial|broken>] [--evidence <text>]
+astera tasks   list   [--run <runId|jobId>] [--status <s>] [--ready] [--brief] [--fields <a,b,…>] [--limit <n>] [--offset <n>]
+astera tasks   add    [--job <jobId> | --run <runId>] --spec <text|-> --account <id,…> [--title <text>] [--prompt <text|->] [--criteria <json array>] [--deps <json array>] [--affected-paths <json array>] [--parent <taskId>] [--validate <configId,…>] [--review] [--no-review] [--difficulty <light|standard|hard>] [--model <id>] [--basis <missing|partial|broken>] [--evidence <text>] [--covers <n,…>]
 astera tasks   dispatch --id <taskId>
 
 astera dispatches list [--run <runId>]
@@ -757,7 +757,7 @@ astera sessions create --account <accountId> --cwd <path> [--kind <terminal|chat
 astera chats pending   [--session <sessionId>]
 astera chats answer    --id <promptId> [--allow | --deny] [--session <sessionId>]
 
-astera questions list  [--run <runId>] [--task <taskId>] [--status <open|resolved>]
+astera questions list  [--run <runId>] [--task <taskId>] [--status <open|resolved>] [--brief] [--fields <a,b,…>] [--limit <n>] [--offset <n>]
 astera questions get    --id <questionId>
 astera questions answer --id <questionId> --answer <text>
 
@@ -776,12 +776,47 @@ waits on the owner: the plan starts by itself once it holds (it implies auto-app
 the Run's escalations itself with `questions answer`, writing its reason, and its planner, coordinator and workers start
 with permissions bypassed. The flag is the person's choice: it is refused from an agent session and an MCP client.
 
+**Standing grants** (`projects set --grants protected-paths,migrations`, `--grants none` clears them; kinds are short
+kebab-case words) are the decisions the owner grants in advance. The coordinator's brief lists them: when a Task needs
+one, the coordinator writes the grant itself the way the repository's own policy asks, notes it in its summary and
+carries on. On a hands-off plan an escalation such a grant covers (`migrations` also matches "migration",
+`protected-paths` also "protected") is answered back to the asker to write the grant instead of being refused; a
+question that also deletes data, touches the default branch, money or credentials still holds its Task for the owner.
+With no grants, owner-only decisions are blocked for the owner and the plan goes on without them.
+
+**The coordinator's model** is picked from the plan: a strong model (opus on claude; the configured `hard` model on
+codex) when the Run has more than 5 Tasks or any `hard` Task, else the coordinator role's default. A Job's own
+`models.coordinator` wins, then the project's `projects set --coordinator-model <id>` (`none` clears it), then that
+rule, then the app's role setting. The model it started on is recorded on the Run (`coordinatorModel`) and shown on
+the plan. Both settings are shown by `projects list` / `projects get` and, like every `projects set` flag, refused from
+an agent session and an MCP client.
+
 **Planning mode** (`--planning chat|auto` on `jobs create`, `jobs create-from-issue`, `jobs plan` and `jobs set`): `chat`
 (the default for a Job a person makes; an empty objective is accepted only with an explicit `--planning chat`) has the planner brainstorm with the person in its terminal, one question at a time,
 using the superpowers `brainstorming` skill, so the objective may be left empty; `auto` (the default for a hands-off
 plan and for a Job an agent session makes) has it decide every open choice itself and record the decisions in
 `existing.md`. In both the person may just say "find issues", "audit <paths>" or name a file such as README.md.
 `jobs set --priority <n>` changes a Job's priority after creation (an integer, higher first).
+
+**Every objective item is planned or left out on purpose.** When a Job's objective lists items (top-level numbered
+lines `1.` / `1)`, or bullets `-`, `*`, `•` when it has no numbered ones; nested lines belong to the item above), each
+item needs a Task that names it (`tasks add --covers 1,3`, also `task-update --covers`) or an entry in
+`jobs set --id <jobId> --left-out '[{"item":2,"reason":"already built: src/x.ts:12"}]'` (the owner or the Job's own
+planner; `[]` clears it). Approval refuses a plan with an item neither covered nor left out, and the plan page lists
+the left-out items with their reasons. A replan does not check it: the finished Tasks covered their items already.
+
+**Every Job has a short name.** At creation it is named by the first words of its objective (about 6 words or 60
+characters, cut at a word with "…"); a source's or an attachment's name, an audit's scope and a fixlist's first problem
+name it instead. The planner renames it with `jobs rename --id <jobId> --title "<3-6 words>"` once it knows the goal;
+no other agent may rename a plan.
+
+**The owner may re-plan a running plan's Task that has not started.** `task-update --id <taskId>` with `--deps`,
+`--spec`, `--basis`/`--evidence` (and the other plan flags) changes a Task of a running run that is pending, ready, or
+blocked with no worker ever started. Deps stay inside the run and may not form a cycle; readiness is recomputed, and
+the activity feed gets one "edited by you" line. The owner is any caller that is not an MCP client and not one of
+orchestration's own sessions (a worker, a reviewer, a coordinator, a planner), so a terminal or Claude tab the owner
+opened in Astera counts. The refusal names the rule that failed: an agent session, a Task already started, or a run
+not running. A Task that has started takes new `--criteria` only.
 
 `astera help` is the reference agents read.
 
@@ -849,6 +884,13 @@ list. Filters on one command combine.
   `tasks list --run`, with `astera runs list` as its step.
 - **`questions list --status`** is `open` or `resolved`. Any other value is a 2, as for the other
   filters, never an empty list.
+- **`tasks list` and `questions list` can be made lighter**, for an agent reading a big run. `--brief` puts a task's
+  spec on one line cut at 160 characters (`spec_truncated` says it was cut), and a question's `question` and
+  `resolution` the same way (a cut one ends in `…`). `--fields id,status,title` keeps only those fields of each row; a
+  name that is not one of the command's public fields is a 2 whose message lists them. `--limit <n>` and `--offset <n>`
+  take one page of the filtered list: the reply is then `{"tasks": [...], "total": 240, "offset": 0, "limit": 50}`
+  (`questions` for `questions list`), and the next page starts at `offset` plus the rows you got, until `total`.
+  Without either flag the reply is the whole list, as before.
 - **`sessions list --status`** is `alive` or `ended`, which read `alive`, or `working`, `waiting`, `idle` or
   `unknown`, which read `state`. **`--provider claude|codex`** keeps the sessions whose account is on
   that vendor, as `accounts list` shows it. A session whose account has since been removed matches
@@ -890,10 +932,11 @@ sub-project it is filed under, shares one file guard, one set of leases and one 
 same files wait for each other, and plans on different files run side by side. A sub-project reads every setting it
 leaves unset (delivery, auto-approve, hands-off, test command, concurrency…) from its workspace. Astera makes
 sub-projects by itself from the work: `jobs set --areas` (the planner names a plan's areas) files the plan under the
-sub-project named after its first area, created when the workspace has none by that name; `projects set --auto-projects
-off` on the workspace stops that. `jobs set --project <projectId>` moves a plan that has not started to another project
+sub-project named after its first area, created when the workspace has none by that name, once `projects set
+--auto-projects on` turned that on for the workspace: a project added from now on starts with it off. `jobs set --project <projectId>` moves a plan that has not started to another project
 of the same workspace. `projects remove --id <projectId>` unregisters a project and touches no folder or plan; it is
-refused (6) while the project has a plan that is not archived, and for a workspace that still has sub-projects.
+refused (6) while the project has a plan that is running, paused or queued (a completed, delivered, stopped or archived
+plan does not hold it), and for a workspace that still has sub-projects.
 
 Only repositories you open become projects: a tab standing in a subfolder of a registered project, or in a linked
 worktree such as `.claude/worktrees/<name>`, registers nothing new, and `projects add` with such a folder registers the

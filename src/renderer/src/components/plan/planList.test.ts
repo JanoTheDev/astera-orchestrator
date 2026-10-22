@@ -23,10 +23,24 @@ describe('planStatusOf', () => {
   })
 })
 
+describe('planStatusOf delivery', () => {
+  it('carries the delivery error of a failed plan, and none otherwise', () => {
+    expect(planStatusOf(row({ outcome: 'failed', deliveryError: 'merge conflict' }))).toEqual({ key: 'pages.plans.status.failed', tone: 'danger', reason: 'merge conflict' })
+    expect(planStatusOf(row({ outcome: 'failed' }))).not.toHaveProperty('reason')
+  })
+})
+
 describe('lastActivityOf', () => {
   it('is the latest time the row knows, undefined with none', () => {
     expect(lastActivityOf(row())).toBeUndefined()
     const at = lastActivityOf(row({ createdAt: '2026-01-01T00:00:00Z', tasks: [task('a', { startedAt: '2026-01-02T00:00:00Z' }), task('b')] }))
     expect(at).toBe(Date.parse('2026-01-02T00:00:00Z'))
+  })
+})
+
+describe('planStatusOf for the final check and a plan finished with blocked Tasks', () => {
+  it('reads checking, never done, until the final check settles; and finished-with-blocked, never working or done', () => {
+    expect(planStatusOf(row({ outcome: 'checking' }))).toEqual({ key: 'pages.plans.status.checking', tone: 'info' })
+    expect(planStatusOf(row({ outcome: 'blocked', tasks: [task('a', { status: 'blocked' })] }))).toEqual({ key: 'pages.plans.status.blocked', tone: 'warn' })
   })
 })

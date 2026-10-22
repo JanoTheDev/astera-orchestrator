@@ -11,6 +11,24 @@ const prompt = (over: Partial<Parameters<typeof buildHandoverPrompt>[0]> = {}): 
   })
 
 describe('buildHandoverPrompt', () => {
+  it('T5: lists the standing grants, or says owner-only decisions are blocked when there are none', () => {
+    const granted = prompt({ grants: ['protected-paths', 'migrations'] })
+    expect(granted).toContain('The owner granted in advance: protected-paths, migrations.')
+    expect(granted).toContain('write the grant yourself')
+    expect(granted).toContain('do not escalate it')
+    for (const p of [prompt(), prompt({ grants: [] })]) {
+      expect(p).not.toContain('The owner granted in advance')
+      expect(p).toContain('Owner-only decisions are blocked for the owner')
+    }
+  })
+
+  it('T5: tells the coordinator to start workers one at a time, never with &, and every ready Task before its turn ends', () => {
+    const p = prompt()
+    expect(p).toContain('one `astera worker-start` per command')
+    expect(p).toContain('never background it with `&`')
+    expect(p).toContain('Before ending your turn, start every ready')
+  })
+
   // 이 여섯 개가 계약이다 — 하나라도 빠지면 코디네이터가 지킬 수 없는 규칙이 생긴다
   // (handover.ts 의 JSDoc). 그래서 문구의 존재를 테스트가 고정한다.
   it('이 Run 은 사람이 짰다고 말한다 — 그대로 돌려라', () => {
@@ -200,6 +218,18 @@ describe('buildPlannerBrief planning mode (T1)', () => {
     expect(b).toContain('do not wait for the person')
     expect(b).toContain('gh issue list --state open')
     expect(b).not.toContain('superpowers:brainstorming')
+  })
+})
+
+describe('buildPlannerBrief objective coverage and the plan name (T7)', () => {
+  const base = { jobId: 'job_x', objective: '1. a\n2. b', repoRoot: '/repo', accountId: 'acc1', concurrency: 2 }
+  it('tells the planner to give every Task --covers, list skipped items with --left-out, and rename the Job', () => {
+    const b = buildPlannerBrief(base)
+    expect(b).toContain('--covers 1,3')
+    expect(b).toContain(`astera jobs-set --id job_x --left-out '[{"item":2,"reason":"already built: src/x.ts"}]'`)
+    expect(b).toContain('astera jobs rename --id job_x --title "<3-6 words>"')
+    expect(b).toContain('a chat-planned Job starts with no real objective')
+    expect(buildPlannerBrief({ ...base, planning: 'auto' })).not.toContain('a chat-planned Job')
   })
 })
 

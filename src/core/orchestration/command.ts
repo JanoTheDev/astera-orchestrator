@@ -8,8 +8,8 @@
 // — the app's loopback HTTP server was removed once nothing reached it any more (§7). Nothing here
 // knows whether a dependency is answered locally or across a socket, which is what lets the same
 // command layer run in both places.
-import { FOLLOW_WINDOW_MS, type AnsweredQuestion, type StopResult, type WaitEnding, type WaitTimeout } from '../publicContract'
-import { briefTask, jobView, latestRunOf, runView } from './publicViews'
+import { FOLLOW_WINDOW_MS, QUESTION_FIELDS, TASK_FIELDS, type AnsweredQuestion, type StopResult, type WaitEnding, type WaitTimeout } from '../publicContract'
+import { briefQuestion, briefTask, jobView, latestRunOf, runView } from './publicViews'
 // W8-C plan after plan
 import { afterNameOf, afterRefusal, afterSweep, jobDelivered } from './after'
 import { lastByState } from './stateMemo'
@@ -23,11 +23,13 @@ import {
   blockForReview,
   closeDispatch,
   createGate,
+  doneStatusOf,
   createQuestion,
   createJob,
   createTask,
   emptyState,
   latestRun,
+  callerRun,
   nextDelivery,
   openDispatch,
   resolveGate,
@@ -107,25 +109,26 @@ import { isPathWithin } from '../files/tree'
 import { buildHandoverPrompt, buildPlannerBrief } from './handover'
 import { noRemoteNote, unmergedPlanBranches } from './unmergedBranches' // W8-G (#101)
 // W2-A planner stage
-import { editPlanTask, planFieldsFromArgs, plannerJobOf, plannerRefusal, validatePlan, workerSpecOf } from './planner'
+import { editPlanTask, leftOutArg, orchestrationRoleOf, planFieldsFromArgs, plannerJobOf, plannerRefusal, validatePlan, workerSpecOf } from './planner'
 import { parseReviewFile, type ReviewIssueInput } from './review'
 import { nameForRun } from '../worktrees/naming'
 import type { Provider } from '../providers/meta'
 import { isValidRule, type ScheduleRule } from '../scheduler/rule'
 import { parseCheckFlag } from '../workUnit/verification'
 import { isTerminal as taskFinished, outcomeOf, progressOf } from './view'
-import { runningRunCount } from './running'
+import { outcomeOfTasks, runningRunCount, tasksOwnedBy } from './running'
 import { FINISHED_RUN_GRACE_MS } from './exec/dispatchLoop'
 import { appDriven, editingByProject, projectKeyOf, sameFilesAs, workerCapOf, workersAgainstCap } from './schedule'
-import type { JobEvent, SessionInfo, WorktreeInfo } from '../types'
+import type { CloseReason, JobEvent, SessionInfo, WorktreeInfo } from '../types'
 import { ghFailureSentence, type GhFailed, type GhRunner } from '../github/gh'
 import { failedLogTail, readPrChecks, rerunFailed } from '../github/checks'
 import { prForBranch } from '../github/prs'
+import { markPrReady, setPrBody } from '../github/prUpdate'
 import { ISSUE_JOB_ASSOCIATIONS, ISSUES_PER_CALL_MAX, assignIssueToMe, issueNumbersOf, readIssue, type GhIssue } from '../github/issue'
 import { GITHUB_SOURCE_ID, issuesContext, issuesTitleOf } from '../github/issueSource'
 // W6-A intake
 import { SOURCED_OBJECTIVE_MAX } from '../sources/objective'
-import { intakeChanges, intakeObjective, intakeOf, intakeTitle, needsInputs, planningArg } from './intake'
+import { intakeChanges, intakeObjective, intakeOf, intakeTitle, needsInputs, planningArg, shortTitle } from './intake'
 // W8-C prompts mode
 import path from 'node:path'
 import { access } from 'node:fs/promises'
@@ -193,6 +196,8 @@ import { REPLAN_COMMANDS, replanCommand, replanRefusal } from './exec/replanStar
 import { coordinatorHandoff, refreshCoordinator } from './exec/coordinatorRotate'
 // T5 crash restore
 import { crashResumedBrief } from './exec/crashResume'
+import { adoptLiveWorkers, specIdsOf, type LiveWorker } from './exec/adopt'
+import { specsDirOf } from './exec/specFiles'
 import { feedbackCommand, handsOffOf, isFeedbackCommand } from './exec/plannerFeedback'
 export { JOB_SOURCE } from './commandSources'
 import { pluginIdOfCheck, type CompletionCheckInput, type PluginCheckAnswer } from './pluginChecks'
@@ -380,7 +385,7 @@ export interface OrchServerDeps {
     model?: string
     modelNote?: string
   }>
-  releaseWorker(a: { dispatchId: string }): Promise<void>
+  releaseWorker(a: { dispatchId: string; closeReason?: CloseReason }): Promise<void>
   /** 그 세션의 롤링 체인을 버린다 — **세션은 죽이지 않는다**(releaseWorker 와 그 점이 다르다).
    *
    *  **Dispatch 가 닫혔는데 세션이 살아 있는 자리에서만 부른다.** 워커는 보고한 뒤에도 일부러 살아
@@ -477,11 +482,11 @@ export interface OrchServerDeps {
     /** W7-A: the agent CLI's own conversation id (`agentSessionOf`) to resume instead of starting a new conversation;
      *  the brief is then the next prompt in that conversation. A planner, and (T5) a coordinator after a crash. */
     resume?: string
-  }): Promise<{ sessionId: string }>
+  }): Promise<{ sessionId: string; /** T5: the model it was started on, recorded on the Run (`Run.coordinatorModel`) */ model?: string }>
   /** Stops a coordinator session `startCoordinator` opened, when the hand-over finds another one
    *  already in the Run's slot (Task 1 fix round 1, I2). Optional: without it that session is left
    *  running and the command says so in the log. `reason` is why, for the log line of whoever stops it. */
-  stopCoordinator?(sessionId: string, reason?: string): Promise<void>
+  stopCoordinator?(sessionId: string, reason?: string, closeReason?: CloseReason): Promise<void>
   /** How long `runs resume` waits for a stopped coordinator's slot to empty before it refuses (review
    *  fix round 1, I2). Absent means RESUME_STOP_WAIT_MS; tests shorten it. */
   resumeStopWaitMs?: number
@@ -821,6 +826,9 @@ export interface OrchServerDeps {
   /** The profile folder (`attribution/` holds the checkpoint logs the stamp's line data reads). **Only the Host injects
    *  it**, as it does hookEventsDir; absent, the stamp notes commits without line data. */
   profileDir?: string
+  /** The worker sessions the Host holds live, each with the text that names its spec (exec/adopt.ts): `worker-stop` of
+   *  a duplicate adopts the original still running the same spec. **Only the Host injects it**, beside profileDir. */
+  liveWorkers?(): LiveWorker[]
 }
 
 /** A plugin as the early refusal reads it (plugin Phase 5 C7). */
@@ -877,6 +885,30 @@ const boundedInt = (v: unknown, name: string, min: number, max: number, fallback
   return v
 }
 const bad = (msg: string): Reply => ({ status: 400, body: { error: msg } })
+/**
+ * The end of a list read (`tasks list`, `questions list`): `--fields` keeps only the named fields of each row, and
+ * `--limit`/`--offset` take one page. Paged, the reply is `{ <key>: page, total, offset, limit }` so a caller knows
+ * there is more; without either flag it stays the plain list every other reader (the app, MCP) gets. `valid` is the
+ * public field list, the only fields a CLI reply carries, so an unknown name is a 400 that lists them.
+ */
+const listReply = (key: string, rows: readonly object[], args: Record<string, unknown>, valid: readonly string[]): Reply => {
+  // --limit arrives a number (cliArgs NUMERIC), --offset as the text typed
+  const asInt = (v: unknown): unknown => (typeof v === 'string' && /^\d+$/.test(v) ? Number(v) : v)
+  const offset = boundedInt(asInt(args.offset), 'offset', 0, Number.MAX_SAFE_INTEGER, 0)
+  const limit = boundedInt(asInt(args.limit), 'limit', 1, Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER)
+  if (typeof offset === 'string') return bad(offset)
+  if (typeof limit === 'string') return bad(limit)
+  const paged = args.limit !== undefined || args.offset !== undefined
+  let out = (paged ? rows.slice(offset, offset + limit) : rows) as Array<Record<string, unknown>>
+  if (args.fields !== undefined) {
+    const names = typeof args.fields === 'string' ? args.fields.split(',').map((f) => f.trim()).filter((f) => f !== '') : []
+    const unknown = names.filter((n) => !valid.includes(n))
+    if (names.length === 0 || unknown.length > 0)
+      return bad(`--fields ${names.length === 0 ? 'needs a comma-separated list' : `has no field ${unknown.join(', ')}`}; the fields are ${valid.join(', ')}`)
+    out = out.map((r) => Object.fromEntries(names.filter((n) => Object.hasOwn(r, n)).map((n) => [n, r[n]])))
+  }
+  return okBody(paged ? { [key]: out, total: rows.length, offset, limit: args.limit === undefined ? null : limit } : out)
+}
 /** 지목한 것이 없다. **400 과 가르는 이유는 CLI 다** — 스크립트가 "인자를 잘못 줬다"(exit 2)와
  *  "그런 id 가 없다"(exit 4)를 구별할 수 있어야 한다(공개 CLI 설계 §8). 그 전에는 둘 다 400 이라
  *  부르는 쪽이 문구를 읽어야 알 수 있었다. */
@@ -888,6 +920,11 @@ const refused = (r: { error: string; missing?: true }): Reply =>
   r.missing ? notFound(r.error) : bad(r.error)
 const denied = (msg: string): Reply => ({ status: 403, body: { error: msg } })
 const conflict = (msg: string): Reply => ({ status: 409, body: { error: msg } })
+
+/** What the Run's Tasks say, not what it reads: a Run whose delivery failed reads `failed`, and a delivery retried
+ *  (`--force`) must still see its Tasks completed. A paused Run is neither. */
+const taskOutcomeOf = (s: OrchState, run: JobRun): ReturnType<typeof outcomeOfTasks> | 'paused' =>
+  run.paused === true ? 'paused' : outcomeOfTasks(tasksOwnedBy(s, run.id), s.gates)
 /** How long after its `startedAt` a `pending:` Dispatch still counts as a start in flight (Host S2
  *  fix round 2, N1). A start waits at most a spawn deadline (SPAWN_DEADLINE_MS, 20 s) plus the
  *  coordinator's idle wait before its prompt (30 s), plus trust and account reads; two minutes covers
@@ -959,7 +996,7 @@ const runMoves = (s: OrchState, job: Job, run: JobRun, now: string): boolean => 
   if (coordinatorStarting(run, Date.parse(now))) return true
   const ids = new Set(tasks.map((t) => t.id))
   if (s.dispatches.some((d) => ids.has(d.taskId) && !d.outcome && !d.endedAt)) return true
-  if (tasks.some((t) => t.status === 'validating' || t.status === 'reviewing')) return true
+  if (tasks.some((t) => t.status === 'validating' || t.status === 'reviewing' || t.status === 'merging')) return true
   if (s.gates.some((g) => g.status === 'open' && g.runId === run.id)) return true
   if (limitedUntil(s, run.id, now) !== null) return true
   const coordinated = run.coordinatorSessionId !== undefined
@@ -982,7 +1019,7 @@ const startable = (tasks: readonly Task[], coordinated: boolean): Set<string> =>
   const byId = new Map(tasks.map((t) => [t.id, t]))
   const memo = new Map<string, boolean>()
   /** Whether this Task can still reach `completed`. A Task under way or with a person (`validating`,
-   *  `reviewing`, `blocked`) can. A cycle, or a dependency outside this Run, cannot. */
+   *  `reviewing`, `merging`, `blocked`) can. A cycle, or a dependency outside this Run, cannot. */
   const canComplete = (id: string): boolean => {
     const known = memo.get(id)
     if (known !== undefined) return known
@@ -993,6 +1030,7 @@ const startable = (tasks: readonly Task[], coordinated: boolean): Set<string> =>
       (t.status === 'completed' ||
         t.status === 'validating' ||
         t.status === 'reviewing' ||
+        t.status === 'merging' ||
         t.status === 'blocked' ||
         canStart(t))
     memo.set(id, answer)
@@ -1038,7 +1076,8 @@ const waitEndingFor = (s: OrchState, runId: string, now: string): WaitEnding | n
   const limited = limitedUntil(s, runId, now)
   if (limited) return { ...base, state: 'limited', resetsAt: limited }
   const outcome = outcomeOf(s, runId)
-  return outcome === 'running' ? null : { ...base, state: outcome }
+  // A Run in its final check is not done yet (item 8)
+  return outcome === 'running' || outcome === 'checking' ? null : { ...base, state: outcome }
 }
 
 /** How long past its reset a coordinator's stop still counts (S6 limits D2). A stop that should have
@@ -1087,7 +1126,7 @@ const limitedUntil = (s: OrchState, runId: string, now: string): string | null =
     s.tasks.some(
       (t) =>
         tasks.has(t.id) &&
-        (t.status === 'validating' || t.status === 'reviewing' || (t.status === 'ready' && readyHolds))
+        (t.status === 'validating' || t.status === 'reviewing' || t.status === 'merging' || (t.status === 'ready' && readyHolds))
     )
   )
     return null
@@ -1260,6 +1299,17 @@ function projectSettingsArgs(
     const v = args.promptsDir.trim()
     patch.promptsDir = v === '' || v === 'none' ? null : v
   }
+  // T5: comma-separated kinds granted in advance, checked by setProjectSettings; `none` (or empty) clears them
+  if (args.grants !== undefined) {
+    if (typeof args.grants !== 'string') return { error: '--grants needs a comma-separated list of kinds, or none' }
+    const v = args.grants.trim()
+    patch.grants = v === '' || v === 'none' ? null : v.split(',').map((g) => g.trim()).filter((g) => g !== '')
+  }
+  if (args.coordinatorModel !== undefined) {
+    if (typeof args.coordinatorModel !== 'string') return { error: '--coordinator-model needs a model id, or none' }
+    const v = args.coordinatorModel.trim()
+    patch.coordinatorModel = v === '' || v === 'none' ? null : v
+  }
   return {
     patch,
     ...(args.testCommand !== undefined ? { testCommand: (args.testCommand as string).trim() } : {}),
@@ -1284,6 +1334,7 @@ const TASK_STATUSES: TaskStatus[] = [
   'dispatched',
   'validating',
   'reviewing',
+  'merging',
   'completed',
   'failed',
   'blocked'
@@ -2016,7 +2067,7 @@ export async function handleCommand(
     still: (current: OrchState) => boolean = () => true
   ): Promise<'retired' | 'moved' | 'gone'> => {
     try {
-      if (deps.stopCoordinator) await deps.stopCoordinator(sessionId, why)
+      if (deps.stopCoordinator) await deps.stopCoordinator(sessionId, why, 'stopped')
       else deps.log?.(`coordinator ${sessionId} of run ${runId} could not be stopped: nothing here can stop a session`)
     } catch (e) {
       deps.log?.(`coordinator ${sessionId} of run ${runId} could not be stopped: ${String(e)}`)
@@ -2081,6 +2132,7 @@ export async function handleCommand(
       }
     }
     let sessionId: string
+    let model: string | undefined
     // T5: the crash resume's `run-start --resume <native id>`: the dead coordinator's own conversation goes on
     const resume = cmd === 'run-start' ? str(args.resume) : null
     try {
@@ -2107,13 +2159,15 @@ export async function handleCommand(
           jobId: job.id,
           accountId,
           promptsMode: job.verbatim !== undefined,
-          handsOff: handsOffOf(base, job)
+          handsOff: handsOffOf(base, job),
+          grants: projectOfJob(base, job)?.grants
         }) +
           // T23: a coordinator restarted for a stated reason (`run-start --reason`, the crash resume) replaces one whose
           // conversation is gone, so it gets the fresh-coordinator hand-off read from the state.
           (cmd === 'run-start' && str(args.reason) ? `\n\n${coordinatorHandoff(base, target.id, str(args.reason)!)}` : '')
       })
       sessionId = spawned.sessionId
+      model = spawned.model
     } catch (e) {
       // **`pendingStart` 를 그대로 둔다.** 걷어 버리면 실행 버튼이 사라져 사람이 다시 누를 수
       // 없고, 운전자도 없는 Run 이 남는다 — 아무것도 돌지 않는데 화면은 시작한 것처럼 보인다.
@@ -2173,7 +2227,7 @@ export async function handleCommand(
             `stopping the one this start opened (${sessionId})`
         )
         try {
-          if (deps.stopCoordinator) await deps.stopCoordinator(sessionId, 'another coordinator already manages its Run')
+          if (deps.stopCoordinator) await deps.stopCoordinator(sessionId, 'another coordinator already manages its Run', 'replaced')
           else deps.log?.(`coordinator ${sessionId} could not be stopped: nothing here can stop a session`)
         } catch (e) {
           deps.log?.(`coordinator ${sessionId} could not be stopped: ${String(e)}`)
@@ -2194,7 +2248,7 @@ export async function handleCommand(
       const { autoDispatch: _drop, ...rest } = j
       return rest
     })
-    return commit(attachCoordinator({ ...onto, jobs: handed }, { runId: target.id, sessionId }))
+    return commit(attachCoordinator({ ...onto, jobs: handed }, { runId: target.id, sessionId, ...(model ? { model } : {}) }))
   }
 
   // W1-C: an archived plan starts no new Run, coordinator or worker (lifecycle.ts). One refusal for the five commands
@@ -2387,10 +2441,12 @@ export async function handleCommand(
         now
       )
       if (!made.ok) return commit(made)
+      // T7: every plan has a short name from the start (the planner renames it); a source's title already names one
+      const titled = made.value.source?.title !== undefined ? made : (renameJob(made.state, made.value.id, shortTitle(objective)) as typeof made)
       const created =
         delivery === undefined
-          ? made
-          : (setJobDelivery(made.state, made.value.id, delivery) as typeof made)
+          ? titled
+          : (setJobDelivery(titled.state, titled.value.id, delivery) as typeof made)
       // **코디네이터에게는 곧바로 회차를 준다.** 계획만 만들고 끝내면 `--run` 에 넣을 id 가 없고,
       // 코디네이터는 Task 를 만들어 가며 일하므로 붙일 자리가 그 자리에 있어야 한다.
       //
@@ -2451,7 +2507,7 @@ export async function handleCommand(
       if ('error' in settings) return bad(settings.error)
       const { testCommand, account } = settings
       if (delivery === undefined && branchArg === undefined && Object.keys(settings.patch).length === 0 && testCommand === undefined && account === undefined)
-        return bad('nothing to set: give --delivery, --delivery-branch, --auto-approve, --hands-off, --auto-projects, --test-command, --test-config, --concurrency, --review-rounds, --replan, --prompts-dir or --account')
+        return bad('nothing to set: give --delivery, --delivery-branch, --auto-approve, --hands-off, --auto-projects, --test-command, --test-config, --concurrency, --review-rounds, --replan, --prompts-dir, --grants, --coordinator-model or --account')
       const project = findProject(s, id)
       if (!project) return notFound(`unknown project: ${id}`)
       // W10-A: the prompts folder is kept repository-relative, and a folder outside the repository is refused
@@ -2543,6 +2599,14 @@ export async function handleCommand(
       // "이 예약을 켜라" 가 아니다 — 켜는 것은 발화 시각마다 도는 것을 뜻하고, 사람이 그것까지
       // 원했다면 사이드바의 '실행' 이 그 버튼이다.
       const first = job.schedule === undefined && (job.pendingStart === true || latest === undefined)
+      // A first run of a Job nobody planned (no Tasks of its own, no planner, no coordinator to plan it) would be an
+      // empty Run that run-start commits and answers 200 for, and then nothing happens (run_b5cb9e36ae1d4cad). Refused
+      // here, not in run-start, which the app's Run/Approve also use.
+      if (first && !job.coordinatorAccountId && !job.plannerSessionIds?.length && !s.tasks.some((t) => t.jobId === id))
+        return conflict(
+          `job ${id} has no plan: no tasks, no planner and no coordinator account, so a run would do nothing. ` +
+            `Plan it with \`astera jobs plan --id ${id} --account <accountId>\`, or add tasks with \`astera tasks add --job ${id}\``
+        )
       // Its plugin checks were looked at before the state (above): the run-start this calls does not look again
       const reply = await handleCommand(deps, caller, first ? 'run-start' : 'run-spawn', { run: id, [PLUGIN_CHECKS_PASSED]: true })
       // **carry 4 (R18, 사용자의 Q2), 그리고 U1: 뒤 회차도 앞 회차와 같이 코디네이터를 띄운다.** 그
@@ -2697,8 +2761,8 @@ export async function handleCommand(
           intakeObjective(intake, source, inputs, verbatim && { tasks: verbatim.lines, skipped: verbatim.skippedLines }) +
           // W10-A: the CLI shows the plan, not this reply's notice
           (notice !== undefined ? `\n\n${notice}.` : '')
-        // W7-D (#68): the plan's name, so its boilerplate objective is never what the plan is called. A title already
-        // there is kept.
+        // W7-D (#68): the plan's name, so its boilerplate objective is never what the plan is called. It replaces
+        // run-create's name of the objective; a source's title is kept (T7).
         const title = intakeTitle(intake, source, inputs?.names ?? [])
         const cur = deps.getState()
         await deps.setState({
@@ -2708,7 +2772,7 @@ export async function handleCommand(
               ? {
                   ...j,
                   objective,
-                  ...(title !== undefined && j.title === undefined ? { title } : {}),
+                  ...(title !== undefined && j.source?.title === undefined ? { title } : {}),
                   // W8-C prompts mode: the owner wrote the plan, so it starts on its own unless `--approve ask`
                   ...(verbatim !== undefined ? { verbatim: verbatim.entries, autoApprove: intake.approve !== 'ask' } : {}),
                   // W10-A: what the names resolved to, for the approval
@@ -2726,11 +2790,11 @@ export async function handleCommand(
           if (set.ok) await deps.setState(set.state)
         }
       } else {
-        // #113: a plain description keeps its objective but a long one is named by its first sentence
+        // #113: a plain description keeps its objective and is named by its first sentence, cut short (T7)
         const title = intakeTitle(intake, source, [])
         if (title !== undefined) {
           const cur = deps.getState()
-          await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id && j.title === undefined ? { ...j, title } : j)) })
+          await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id && j.source?.title === undefined ? { ...j, title } : j)) })
         }
       }
       // W7-E: `--no-review`: this plan's Tasks are not reviewed (`jobs plan` turns review on otherwise, Job.review)
@@ -2899,7 +2963,7 @@ export async function handleCommand(
         )
       const starting = stillStarting(open, now)
       if (starting) return starting
-      for (const d of open.filter(releases)) await deps.releaseWorker({ dispatchId: d.id })
+      for (const d of open.filter(releases)) await deps.releaseWorker({ dispatchId: d.id, closeReason: 'stopped' })
       const stopped = new Set(open.map((d) => d.id))
       const latest = deps.getState()
       await deps.setState({
@@ -3133,7 +3197,7 @@ export async function handleCommand(
     // 가 아니다 — 워커도 자기가 무엇으로 검증될지 볼 수 있어야 한다.
     case 'run-configs': {
       if (!deps.listRunConfigs) return okBody([])
-      const run = latestRun(s)
+      const run = callerRun(s, caller.sessionId)
       const job = run && jobOf(s, run)
       if (!job) return bad(`no run exists`)
       return okBody(await deps.listRunConfigs(job.cwd))
@@ -3171,6 +3235,10 @@ export async function handleCommand(
       const id = str(args.id)
       if (!id) return bad('--id is required')
       if (typeof args.title !== 'string') return bad('--title is required: the new name, or "" to name the Job by its objective again')
+      // T7: the owner, or the Job's own planner (plannerRefusal holds it to its Job); no other agent renames a plan
+      const role = orchestrationRoleOf(s, caller.sessionId)
+      if (role !== undefined && plannerJobOf(s, caller.sessionId) === undefined)
+        return denied(`a ${role} session does not rename a plan: the owner or the plan's own planner does`)
       const r = renameJob(s, id, args.title)
       if (!r.ok) return refused(r)
       await deps.setState(r.state)
@@ -3200,7 +3268,7 @@ export async function handleCommand(
         const latestOfSession = new Map(s.dispatches.map((d) => [d.sessionId, d.id]))
         for (const d of s.dispatches)
           if (mine.has(d.taskId) && (d.outcome || d.endedAt) && latestOfSession.get(d.sessionId) === d.id && releases(d))
-            await deps.releaseWorker({ dispatchId: d.id })
+            await deps.releaseWorker({ dispatchId: d.id, closeReason: 'stopped' })
         for (const run of runs)
           if (run.coordinatorSessionId !== undefined && run.coordinatorStopPending === undefined)
             await handleCommand(deps, caller, 'run-coordinator-stop', { run: run.id })
@@ -3236,6 +3304,23 @@ export async function handleCommand(
         const filed = deps.getState().jobs.find((j) => j.id === id) ?? next
         return okBody(jobView(deps.getState(), filed, latestRunOf(deps.getState(), filed)))
       }
+      // T7 objective coverage: `--left-out`, alone, from the owner or the Job's own planner (plannerRefusal holds the rest)
+      if (args.leftOut !== undefined) {
+        const role = orchestrationRoleOf(s, caller.sessionId)
+        if (caller.role === 'mcp' || (role !== undefined && (id === null || plannerJobOf(s, caller.sessionId)?.id !== id)))
+          return denied("jobs-set --left-out is for the Job's planner or the owner")
+        if (!id) return bad('--id is required')
+        if (['concurrency', 'after', 'areas', 'planning', 'priority', 'project'].some((k) => args[k] !== undefined))
+          return bad('--left-out is set on its own')
+        const job = s.jobs.find((j) => j.id === id)
+        if (!job) return notFound(`unknown job: ${id}`)
+        const leftOut = leftOutArg(args.leftOut, job.objective)
+        if (!Array.isArray(leftOut)) return bad(leftOut.error)
+        const { leftOut: _old, ...rest } = job
+        const next: Job = leftOut.length > 0 ? { ...rest, leftOut } : rest
+        await deps.setState({ ...s, jobs: s.jobs.map((j) => (j.id === id ? next : j)) })
+        return okBody(jobView(deps.getState(), next, latestRunOf(deps.getState(), next)))
+      }
       if (fromAgentSession || caller.role === 'mcp') return denied('jobs-set is for the person, in Astera or at their own shell')
       if (!id) return bad('--id is required')
       // T3 workspaces: `--project <id>` files a plan not started yet under another project of its workspace
@@ -3267,7 +3352,7 @@ export async function handleCommand(
         await deps.setState({ ...s, jobs: s.jobs.map((j) => (j.id === id ? next : j)) })
         return okBody(jobView(deps.getState(), next, latestRunOf(deps.getState(), next)))
       }
-      if (args.concurrency === undefined && args.after === undefined) return bad('nothing to set: give --concurrency, --after, --areas, --planning or --priority')
+      if (args.concurrency === undefined && args.after === undefined) return bad('nothing to set: give --concurrency, --after, --areas, --left-out, --planning or --priority')
       // W8-C plan after plan: `--after <job|none>`, only alone (it is set before the plan starts, concurrency after)
       if (args.after !== undefined) {
         if (args.concurrency !== undefined) return bad('--after is set on its own, not with --concurrency')
@@ -3518,7 +3603,7 @@ export async function handleCommand(
         if (starting) return starting
         // 순차로 닫는다. releaseWorker 는 세션을 죽이는 부수 효과이고 상태를 쓰지 않는다 — 상태에서
         // 사라지는 것은 아래 deleteRuns 가 한꺼번에 한다.
-        for (const d of open.filter(releases)) await deps.releaseWorker({ dispatchId: d.id })
+        for (const d of open.filter(releases)) await deps.releaseWorker({ dispatchId: d.id, closeReason: 'stopped' })
       }
       // **병합이 먼저다.** 사람이 병합을 골랐는데 실패한 뒤 지우면 워커의 일이 워크트리 브랜치에
       // 갇힌 채 그 브랜치까지 사라진다 — 그래서 실패하면 아무것도 지우지 않고 이유를 돌려준다.
@@ -3714,7 +3799,7 @@ export async function handleCommand(
       // pauseSchedule 이 한꺼번에 한다(run-delete 가 releaseWorker 를 쓰는 순서와 같다).
       const done = new Set<string>()
       for (const d of open.filter(releases)) {
-        await deps.releaseWorker({ dispatchId: d.id })
+        await deps.releaseWorker({ dispatchId: d.id, closeReason: 'stopped' })
         done.add(d.id)
       }
       // On the state as it is now (audit OR-3): each release waits up to 5 s, and what landed meanwhile (a worker's
@@ -3734,7 +3819,7 @@ export async function handleCommand(
         const late = nowOpen.filter((d) => !done.has(d.id) && releases(d))
         if (late.length === 0) break
         for (const d of late) {
-          await deps.releaseWorker({ dispatchId: d.id })
+          await deps.releaseWorker({ dispatchId: d.id, closeReason: 'stopped' })
           done.add(d.id)
         }
         latest = deps.getState()
@@ -4031,7 +4116,7 @@ export async function handleCommand(
       // 계정을 묻는 사이에 생긴 Run 이 그 뜻이 되어, 부르는 사람이 명령을 낸 순간에는 있지도 않던
       // 곳에 Task 가 붙는다. 그 사이에 지워진 Run 을 가리키게 되는 경우는 아래 createTask 가
       // `latest` 로 검증해 "unknown run" 으로 거절한다 — 매달린 참조가 남지 않는다.
-      const runId = str(args.runId) ?? str(args.run) ?? latestRun(s)?.id
+      const runId = str(args.runId) ?? str(args.run) ?? callerRun(s, caller.sessionId)?.id
       const spec = str(args.spec)
       if (!runId) return bad('--run is required (no run exists)')
       if (!spec) return bad('--spec is required')
@@ -4213,8 +4298,8 @@ export async function handleCommand(
       if (run) tasks = tasks.filter((t) => (byJob ? t.jobId === run : t.runId === run))
       if (str(args.status)) tasks = tasks.filter((t) => t.status === args.status)
       if (args.ready === true) tasks = tasks.filter((t) => t.status === 'ready')
-      if (args.brief === true) return okBody(tasks.map(briefTask))
-      return okBody(tasks)
+      // spec_truncated is --brief's mark of a cut spec (publicViews.ts)
+      return listReply('tasks', args.brief === true ? tasks.map(briefTask) : tasks, args, [...TASK_FIELDS, 'spec_truncated', /* T7 */ 'covers'])
     }
     case 'task-update': {
       const id = str(args.id)
@@ -4240,26 +4325,42 @@ export async function handleCommand(
       // Stall watchdog: the app records a completed Task's merge into its plan branch (finishedSessions.ts
       // mergedIntoPlan). Astera's own, so an agent session cannot mark one. updatedAt stays: a dependent's readiness
       // moment (inbox.ts readyReminders) is read from it.
+      // A merging Task (state.ts doneStatusOf) is completed by its merge: here, with its dependents readied.
       if (args.mergedIntoPlan === true) {
         if (fromAgentSession || caller.role === 'mcp') return bad('--merged-into-plan is recorded by Astera itself')
         const target = s.tasks.find((t) => t.id === id)
         if (!target) return notFound(`unknown task: ${id}`)
+        if (target.status === 'merging') {
+          const landed: Task = { ...target, status: 'completed', updatedAt: now, mergedIntoPlanAt: now }
+          await deps.setState({ ...s, tasks: recomputeReady(s.tasks.map((t) => (t.id === id ? landed : t))) })
+          return okBody({ id, mergedIntoPlanAt: now })
+        }
         if (target.status !== 'completed') return bad(`task ${id} is ${target.status}, not completed`)
         if (target.mergedIntoPlanAt !== undefined) return okBody({ id, mergedIntoPlanAt: target.mergedIntoPlanAt })
         await deps.setState({ ...s, tasks: s.tasks.map((t) => (t.id === id ? { ...t, mergedIntoPlanAt: now } : t)) })
         return okBody({ id, mergedIntoPlanAt: now })
       }
       // W2-A: editing a plan's Task (its title, spec, deps and plan fields) instead of moving its status.
-      const PLAN_EDIT = ['title', 'spec', 'deps', 'prompt', 'criteria', 'affectedPaths', 'difficulty', 'provider', 'model', 'modelReason', /* W6-A */ 'basis', 'evidence']
+      const PLAN_EDIT = ['title', 'spec', 'deps', 'prompt', 'criteria', 'affectedPaths', 'difficulty', 'provider', 'model', 'modelReason', /* W6-A */ 'basis', 'evidence', /* T7 */ 'covers']
       if (args.status === undefined && PLAN_EDIT.some((k) => args[k] !== undefined)) {
         const plan = planFieldsFromArgs(args)
         if (!plan.ok) return bad(plan.error)
         if (args.deps !== undefined && !(Array.isArray(args.deps) && args.deps.every((d) => typeof d === 'string')))
           return bad('--deps must be a JSON array of Task ids')
         // 사람만(에이전트 세션·MCP 아님) 아직 시작하지 않은 run Task 도 고칠 수 있다 — 도는 계획에서 replan 만이 바꾸던 자리
+        // T7: the owner is any caller that is no orchestration session, so also a tab the owner opened in Astera (it has
+        // a session id too); a refusal names the rule that failed
         const runTask = s.tasks.find((t) => t.id === id)
-        const byOwner =
-          !fromAgentSession && caller.role !== 'mcp' && runTask?.runId !== undefined && outcomeOf(s, runTask.runId) === 'running'
+        const role = orchestrationRoleOf(s, caller.sessionId)
+        const runOutcome = runTask?.runId !== undefined ? outcomeOf(s, runTask.runId) : undefined
+        const owner: true | string =
+          caller.role === 'mcp'
+            ? 'an MCP client is not the owner: only the owner changes a running plan'
+            : role !== undefined
+              ? `this is a ${role} session: only the owner changes a running plan, not an agent`
+              : runOutcome !== 'running'
+                ? `its run is ${runOutcome ?? 'gone'}, not running`
+                : true
         return commit(
           editPlanTask(
             s,
@@ -4271,16 +4372,18 @@ export async function handleCommand(
               ...(args.deps !== undefined ? { deps: args.deps as string[] } : {})
             },
             now,
-            byOwner
+            owner
           )
         )
       }
-      const status = str(args.status)
-      if (!status) return bad('--status is required')
-      if (!isTaskStatus(status))
+      const asked = str(args.status)
+      if (!asked) return bad('--status is required')
+      if (!isTaskStatus(asked))
         return bad(`--status must be one of ${TASK_STATUSES.join('|')}`)
       const task = s.tasks.find((t) => t.id === id)
       if (!task) return notFound(`unknown task: ${id}`)
+      // Completed only once its work is on the plan branch, as every other move to completed (state.ts doneStatusOf)
+      const status = asked === 'completed' ? doneStatusOf(s, task) : asked
       // Deliberately bypasses the transition table (canTransition): task-update --status is allowed
       // to bypass that table because the orchestrator needs a way to correct things by hand — but
       // the bypass is written to the log. state.ts (moveTask/canTransition) owns the normal
@@ -4298,7 +4401,7 @@ export async function handleCommand(
       //
       // **요구는 이 한 경우에만 건다.** 평범한 손보기(ready 로 되돌리기, 회로 차단 풀기)는 그대로다 —
       // 거기까지 이유를 받으면 이 명령이 쓰이던 모든 구조 경로가 한 번에 막힌다.
-      const override = status === 'completed' && isOverrideCompletion(task, policyOf(s, task))
+      const override = asked === 'completed' && isOverrideCompletion(task, policyOf(s, task))
       const reason = str(args.reason)
       if (override && !reason)
         return bad(
@@ -4421,6 +4524,7 @@ export async function handleCommand(
       // 켰는지와 무관하다.
       if (task.status === 'validating' || task.status === 'reviewing')
         return bad(`task is awaiting a verdict: ${task.status}`)
+      if (task.status === 'merging') return bad('task is being merged into the plan branch')
       if (task.consecutiveFailures >= FAILURE_LIMIT)
         return bad(`circuit break: ${FAILURE_LIMIT} consecutive failures`)
       const openForTask = s.dispatches.find((d) => d.taskId === taskId && !d.outcome && !d.endedAt)
@@ -4749,7 +4853,7 @@ export async function handleCommand(
             s.dispatches.some((x) => x.taskId === task.id && x.repair !== undefined && !x.endedAt))
         if (converging) return conflict(`task ${task!.id} is still converging — release after it completes`)
       }
-      await deps.releaseWorker({ dispatchId: id })
+      await deps.releaseWorker({ dispatchId: id, closeReason: 'released' })
       return okBody(d?.retained === true ? { released: id, skipped: 'retained' } : { released: id })
     }
     case 'worker-retain': {
@@ -4782,8 +4886,8 @@ export async function handleCommand(
       // nothing still starting.
       const starting = !d.outcome && !d.endedAt ? stillStarting([d], now) : null
       if (starting) return starting
-      if (releases(d)) await deps.releaseWorker({ dispatchId: d.id })
-      await deps.setState({
+      if (releases(d)) await deps.releaseWorker({ dispatchId: d.id, closeReason: 'stopped' })
+      const stopped: OrchState = {
         ...deps.getState(),
         dispatches: deps
           .getState()
@@ -4792,8 +4896,14 @@ export async function handleCommand(
               ? { ...x, workerState: 'stopped' as const, endedAt: now, closedBy: 'stop' as const }
               : x
           )
-      })
-      return okBody({ stopped: d.id })
+      }
+      // A duplicate stopped while the original still runs the same spec untracked (its record lost): the original
+      // becomes the Task's Dispatch, so the Task is not left `dispatched` with nothing open (exec/adopt.ts)
+      const survivors = deps.profileDir ? (deps.liveWorkers?.() ?? []).filter((w) => specIdsOf(w.spec)?.taskId === d.taskId) : []
+      const adoption = adoptLiveWorkers(stopped, survivors, specsDirOf(deps.profileDir ?? ''), now)
+      await deps.setState(adoption.state)
+      const adopted = adoption.adopted[0]
+      return okBody({ stopped: d.id, ...(adopted ? { adopted: adopted.id, sessionId: adopted.sessionId } : {}) })
     }
     case 'worker-abandon': {
       // Does nothing remote, nothing to any process, nothing on the filesystem.
@@ -5096,7 +5206,7 @@ export async function handleCommand(
           return denied('cannot send for another task')
       }
       const task = s.tasks.find((t) => t.id === str(args.taskId))
-      const runId = task?.runId ?? latestRun(s)?.id
+      const runId = task?.runId ?? callerRun(s, caller.sessionId)?.id
       if (!runId) return bad('no run to post into')
       const next: OrchState = {
         ...s,
@@ -5128,7 +5238,7 @@ export async function handleCommand(
       return commit(applyReply(s, { messageId: id, body }, now))
     }
     case 'check': {
-      const runId = str(args.run) ?? latestRun(s)?.id
+      const runId = str(args.run) ?? callerRun(s, caller.sessionId)?.id
       if (!runId) return bad('no run exists')
       // **A named Run that is not there is a 404, before anything is acked or waited on.**
       // nextDelivery does not look the Run up — it only filters by it — so a mistyped `--run`
@@ -5446,7 +5556,7 @@ export async function handleCommand(
       const status = enumFilter('status', args.status, ['open', 'resolved'] as const)
       if ('error' in status) return bad(status.error)
       if (status.value !== undefined) gates = gates.filter((g) => g.status === status.value)
-      return okBody(gates)
+      return listReply('questions', args.brief === true ? gates.map(briefQuestion) : gates, args, QUESTION_FIELDS)
     }
     // **오케스트레이터가 거기 있는가, 그리고 무엇이 돌고 있는가**(공개 CLI 설계 §5). 이 명령에
     // 닿았다는 것이 이미 "Host 가 있다" 의 답이다 — 없으면 CLI 가 접속에서 걸리거나(HOST_NOT_RUNNING)
@@ -5526,6 +5636,18 @@ export async function handleCommand(
             ...s.runs.filter((r) => runIds.has(r.id) && r.coordinatorSessionId !== undefined).map((r) => r.coordinatorSessionId!)
           ])
           rows = rows.filter((x) => theirs.has(x.id) || (x.cwd !== null && isPathWithin(project.path, x.cwd)))
+        }
+        // `run` (T9, the plan Board): only that Run's workers and coordinator, not every session ever. Unknown is a 404,
+        // as questions-list's `--run` is.
+        if (args.run !== undefined) {
+          const run = str(args.run)
+          if (run === null) return bad('--run needs a value: the run id')
+          const r = s.runs.find((x) => x.id === run)
+          if (!r) return notFound(`unknown run: ${run}`)
+          const tasks = new Set(s.tasks.filter((t) => t.runId === run).map((t) => t.id))
+          const theirs = new Set(s.dispatches.filter((d) => tasks.has(d.taskId)).map((d) => d.sessionId))
+          if (r.coordinatorSessionId !== undefined) theirs.add(r.coordinatorSessionId)
+          rows = rows.filter((x) => theirs.has(x.id))
         }
         if (status.value === 'alive' || status.value === 'ended')
           rows = rows.filter((x) => x.alive === (status.value === 'alive'))
@@ -5986,7 +6108,7 @@ export async function handleCommand(
       const g = deps.github!
       const outcome = runView(s, t.run).outcome
       if (outcome === 'paused') return conflict('This Run is paused; resume it first')
-      if (outcome !== 'completed' && outcome !== 'failed') return conflict('This Run is still working')
+      if (outcome !== 'completed' && outcome !== 'failed' && outcome !== 'blocked') return conflict('This Run is still working')
       let changed: number
       try {
         changed = (await g.isClean(t.cwd)).changedCount
@@ -6095,7 +6217,7 @@ export async function handleCommand(
       if (done?.sha !== undefined) return okBody({ delivery: 'push', branch: done.branch ?? null, sha: done.sha, pushed: false })
       if (done?.error !== undefined && args.force !== true)
         return conflict(`Pushing this Run stopped before: ${done.error}. --force tries again`)
-      if (runView(s, run).outcome !== 'completed') return conflict('This Run has not completed; it is pushed once every task is done')
+      if (taskOutcomeOf(s, run) !== 'completed') return conflict('This Run has not completed; it is pushed once every task is done')
       if (!deps.deliverPush) return conflict('Pushing a plan is done by the Astera Host, and this caller is not one')
       const proj = projectOfJob(s, job)
       const branch = proj?.deliveryBranch
@@ -6181,7 +6303,7 @@ export async function handleCommand(
             ? okBody({ noRemote: true, branch: t.branch, message: noRemoteNote(t.branch, t.repoPath) })
             : conflict(`The push was rejected: ${pushed.detail.trim()}`)
         await pushNotes(t.cwd) // W8-A: the notes ref goes with the PR branch
-        const edited = await g.run(['pr', 'edit', open.url, '--body', body], t.cwd)
+        const edited = await setPrBody(g.run, open.url, body, t.cwd)
         if (!edited.ok) return ghRefusal({ ok: false, ...ghFailureSentence(edited) })
         await record({ ...open, at, draft: true, wavesDone: done })
         return okBody({ url: open.url, number: open.number ?? null, draft: true, wavesDone: done, opened: false })
@@ -6211,9 +6333,10 @@ export async function handleCommand(
       if (run.pr?.error !== undefined && args.force !== true)
         return conflict(`Opening this Run's pull request failed before: ${run.pr.error}. --force tries again`)
       // W8-E (#99): a Run that ended with failed Tasks delivers its completed Tasks' work, in a draft
-      const outcome = runView(s, run).outcome
-      if (outcome !== 'completed' && outcome !== 'failed') return conflict('This Run has not completed; its pull request opens once every task is done')
-      const failed = outcome === 'failed'
+      const outcome = taskOutcomeOf(s, run)
+      if (outcome !== 'completed' && outcome !== 'failed' && outcome !== 'blocked') return conflict('This Run has not completed; its pull request opens once every task is done')
+      // Item 2: a Run that finished with Tasks held for the owner delivers like a failed one, and its PR stays a draft to finish
+      const failed = outcome !== 'completed'
       if (!deps.github) return conflict('GitHub commands are answered by the Astera Host, and this caller is not one')
       const worktree = run.worktree
       if (worktree === undefined) return conflict('This Run has no integration branch; use Merge to bring its work into the project folder')
@@ -6271,10 +6394,10 @@ export async function handleCommand(
         if (!pushed.ok) return fail(pushed.kind === 'no-remote' ? noRemoteNote(t.branch, t.repoPath) : `The push was rejected: ${pushed.detail.trim()}`)
         await pushNotes(t.cwd) // W8-A: the notes ref goes with the PR branch
         // W8-E (#99): a Run with failed Tasks delivers its completed work and stays a draft
-        for (const step of [['pr', 'edit', draft.url, '--body', body], ...(failed ? [] : [['pr', 'ready', draft.url]])]) {
-          const r = await g.run(step, t.cwd)
-          if (!r.ok) return fail(`gh ${step[0]} ${step[1]}: ${ghFailureSentence(r).message}`)
-        }
+        const edited = await setPrBody(g.run, draft.url, body, t.cwd)
+        if (!edited.ok) return fail(`gh api (the pull request's body): ${ghFailureSentence(edited).message}`)
+        const readied = failed ? null : await markPrReady(g.run, draft.url, t.cwd)
+        if (readied !== null && !readied.ok) return fail(`gh pr ready: ${ghFailureSentence(readied).message}`)
         const { draft: _d, wavesDone: _w, error: _e, ...ready } = draft
         await record(failed ? { ...draft, at: now } : { ...ready, at: now })
         return okBody({ url: draft.url, number: draft.number ?? null, opened: false, ready: !failed })
@@ -6300,7 +6423,7 @@ export async function handleCommand(
         return made
       }
       const number = prNumberOf(url)
-      await record({ at: now, url, ...(number !== null ? { number } : {}) }, number !== null ? { prs: [{ number, url, state: 'open' }] } : undefined)
+      await record({ at: now, url, ...(number !== null ? { number } : {}), ...(outcome === 'blocked' ? { draft: true as const } : {}) }, number !== null ? { prs: [{ number, url, state: 'open' }] } : undefined)
       await pushNotes(worktree) // W8-A: the notes ref goes with the PR branch
       return okBody({ url, number, opened: made.status === 200 })
     }

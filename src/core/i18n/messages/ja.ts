@@ -395,6 +395,10 @@ export const ja: Catalog = {
   'settings.info.hostConnected': '接続済み · プロトコル {protocol} · {uptime} 前から',
   'settings.info.hostNotConnected': '未接続',
   'settings.info.hostNotConnectedWhy': '未接続 · {detail}',
+  'status.hostStarting': 'Astera を起動しています…',
+  'status.hostWaitingForPrevious': 'Astera を起動しています… 前のバックグラウンド Host の終了を待っています',
+  'app.renderError': 'この画面の描画中に問題が発生しました。',
+  'app.renderErrorReload': '再読み込み',
   'status.hostPreparing': 'Astera Host を準備しています…',
   'status.hostPreparingSlow': 'Astera Host を準備しています… まだ処理中です ({seconds}秒)',
   'status.hostPrepareFailed': 'Astera Host を準備できませんでした',
@@ -863,7 +867,14 @@ export const ja: Catalog = {
   // 他の conversation.* キーがまだ無く(en/ko で代替される)、この3つだけを先に入れる。
   'conversation.indexingFiles': 'ファイル一覧を作成しています…',
   'conversation.filesUnavailable': 'このフォルダーのファイル一覧を取得できません。',
-  'conversation.exited.withCode': 'このセッションは終了しました (コード {code})',
+  'exit.finished': '完了',
+  'exit.closedByAstera': 'Astera が閉じました — 作業は完了',
+  'exit.releasedByAstera': 'Astera が閉じました — 解放',
+  'exit.stoppedByAstera': 'Astera が閉じました — 停止',
+  'exit.replacedByAstera': 'Astera が閉じました — 差し替え',
+  'exit.stopped': '停止 (Ctrl+C)',
+  'exit.killed': '強制終了 (メモリ不足または強制停止)',
+  'exit.failed': '失敗 (コード {code})',
   'conversation.exited.detail': '詳細',
   'conversation.exited.restart': '再開',
   // design §4 F5 の確認ダイアログの5つの項目。S1(1〜2行)の例外 — 本人にしかできない判断なので、
@@ -910,7 +921,6 @@ export const ja: Catalog = {
   'session.toast.stalled':
     'セッション「{title}」が停止しています — 自動再開に失敗しました。確認が必要です',
   'session.terminal.loadingContent': '内容を読み込み中…',
-  'session.terminal.exited': '終了しました (コード {code})',
   'session.terminal.sizedRemote': 'リモートコンピューターのウィンドウサイズで表示しています。入力するとこのウィンドウのサイズに切り替わります。',
   'session.terminal.restart': '再起動',
   // TerminalView.tsx schedule banner
@@ -1104,7 +1114,6 @@ export const ja: Catalog = {
   'run.form.addOption': 'オプションを追加',
   'run.panel.tab': '実行',
   'run.panel.empty': 'まだ実行がありません — ツールバーの ▶ で開始してください',
-  'run.panel.exitCode': '終了 {code}',
   'run.panel.stopping': '停止中…',
   'run.panel.close': '実行を閉じる',
   'run.panel.openPreview': '{url} をプレビューで開く',
@@ -1251,6 +1260,7 @@ export const ja: Catalog = {
   'jobs.state.dispatchedStopped': 'ワーカーが停止した',
   'jobs.state.validating': '検証が実行中',
   'jobs.state.reviewing': '別のエージェントがレビュー中',
+  'jobs.state.merging': 'プランブランチにマージ中',
   'jobs.state.completed': '終わった',
   'jobs.state.failed': '失敗した',
   'jobs.state.blocked': '人を待っている',
@@ -1284,6 +1294,9 @@ export const ja: Catalog = {
   'jobs.run.mergeFailed': 'マージできませんでした: {reason}',
   'jobs.run.notStarted': '実行待ち',
   'jobs.run.notStartedHint': 'まだ実行していません — 詳細ウィンドウで実行を押すと開始します',
+  'jobs.run.notDelivered': '配信されませんでした: {reason}',
+  'pages.plans.status.checking': '最終確認中',
+  'pages.plans.status.blocked': 'ブロックされた Task を残して終了',
   // W2-A planner stage
   'jobs.new.planner': '先にプランナーで計画する',
   'jobs.new.plannerHint': 'プランナーセッション(プランナーモデル)がリポジトリを読み、Task を書きます。各 Task にはプロンプトと完了条件が付きます。ファイルは変更せず、何も開始しません。「承認して実行」で計画を承認してください。',
@@ -1512,6 +1525,24 @@ export const ja: Catalog = {
   'jobs.gate.workerLostNoApp': 'この Task のワーカーは、復旧できる Astera が開いていない間に失われました（dispatch {dispatch}）。この Gate を解決すると、もう一度開始します。',
   'jobs.gate.assignedAccountUnusable':
     'この Task に指定された最初のアカウントが使用できず、その後ろのアカウントは後で切り替えるための順番にすぎません — そのアカウントに再ログインするか、この Task のアカウント一覧を変更してください',
+  // exec/dispatchLoop.ts, exec/integrateGit.ts — the integration merge's Task titles and Gate reasons
+  'jobs.integration.title': "ワークツリーの統合: {title}",
+  'jobs.integration.runWorktreeNotRecorded': "Run のワークツリーを記録できませんでした: {error}",
+  'jobs.integration.runWorktreeNotMade': "Run のワークツリーを作成できませんでした: {error}",
+  'jobs.integration.taskFailed': "統合 Task({task})が失敗したため、ワークツリーを統合できませんでした。",
+  'jobs.integration.stillCannotMerge': "統合 Task が終わってもワークツリーを統合できません: {reason}",
+  'jobs.integration.taskNotMade': "ワークツリーを統合する統合 Task を作成できませんでした: {error}",
+  'jobs.integration.startFailed': "この Task を開始できませんでした: {error}",
+  'jobs.integration.mergeWorkerFailed': "{task} のブランチを計画ブランチ({root})に統合できず、統合ワーカーも失敗しました: {reason}",
+  'jobs.integration.noGit': "統合先フォルダ({folder})で git を実行できないため、ワークツリーを統合できませんでした — フォルダが消えたか、git リポジトリではありません。",
+  'jobs.integration.detachedHead': "統合先フォルダ({folder})の HEAD がブランチを指していないため、ワークツリーを統合しませんでした(切り離された HEAD — bisect や rebase の途中かもしれません)。その上で統合すると作ったコミットがどのブランチにも残らず、進行中の作業があれば壊れます。ブランチをチェックアウトしてからこの Gate を解決してください。",
+  'jobs.integration.gitDirUnreachable': "統合先フォルダの git ディレクトリ({dir})に進行中の作業があるか確認できなかったため、ワークツリーを統合しませんでした({marker} に届きませんでした — ネットワークドライブが切断されている可能性があります)。フォルダに届くことを確認してからこの Gate を解決してください。",
+  'jobs.integration.inProgress': "統合先フォルダで {op} の作業が進行中({marker})のため、ワークツリーを統合しませんでした。その途中で統合すると進行中の作業が壊れます — 完了するか中止してからこの Gate を解決してください。",
+  'jobs.integration.statusUnreadable': "統合先フォルダ({folder})の git の状態を読めないため、ワークツリーを統合できませんでした: {error}",
+  'jobs.integration.uncommitted': "統合先フォルダにコミットされていない変更が {count} 件あるため、ワークツリーを統合できません。コミットするか元に戻してからこの Gate を解決してください(追跡されていない新しいファイルはここでは数えません)。",
+  'jobs.integration.worktreeListUnreadable': "ワークツリーの一覧を読めません: {error}",
+  'jobs.integration.mergeFailedRestored': "{branch} ブランチを統合先フォルダに統合できませんでした: {output}。統合先フォルダは統合前の状態に戻しました。",
+  'jobs.integration.mergeFailedLeft': "{branch} ブランチを統合先フォルダに統合できませんでした: {output}。**統合先フォルダが統合の途中の状態で残っている可能性があります — git status で直接確認してください。**",
   // NewTaskModal.tsx — Task を組み立てている間、詳細ウィンドウの下段(.detail-events)が変わるフォーム。
   // deps はこのフォームではなくグラフが持つ(選ぶ場所がグラフだから) — このカタログには deps の値
   // 自体ではなく、グラフを指すヒント文言(depsHint)だけがある。
@@ -1780,6 +1811,10 @@ export const ja: Catalog = {
   'plan.pick.picked': '#{n} {title}: {why}',
   'plan.pick.skipped': 'スキップ #{n} {title}: {why}',
   'plan.decisions.title': '代わりに決めたこと',
+  // T7: an objective item the plan leaves out on purpose, and the owner's edit of a running plan's Task
+  'plan.leftOut.title': '計画から外した項目',
+  'plan.leftOut.item': '{n}. {text} — {reason}',
+  'activity.taskEdited': '{title}: あなたが編集 — {fields}',
   'plan.decisions.kind.approval': '承認',
   'plan.decisions.kind.escalation': '質問',
   'plan.decisions.kind.gate': 'ゲート',
@@ -1932,4 +1967,8 @@ export const ja: Catalog = {
   'inbox.age.d': '{n} 日',
   'inbox.overlap.issue': '{mine} と {plan} の {theirs} はどちらもイシュー #{issue} にリンクしています',
   'inbox.overlap.edit': '{mine} と {plan} の {theirs} はどちらも {path} を編集します',
+  'wall.section.coordinators': 'コーディネーター',
+  'wall.section.planners': 'プランナー',
+  'wall.section.workers': 'ワーカー',
+  'wall.section.consoles': 'コンソール',
 }

@@ -9,6 +9,7 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { OrchServerDeps } from '../command'
+import { t, type Message, type MessageKey, type MessageParams } from '../../i18n'
 import { isSamePath } from '../../files/tree'
 import { createWorktree } from '../../worktrees/create'
 import { workerBaseFailure } from '../../worktrees/base'
@@ -224,7 +225,9 @@ export type Integration =
        *  to delete folders keeps these: the changes live only there. Absent when there are none. */
       dirty?: string[]
     }
-  | { kind: 'human'; reason: string }
+  /** `reason` is English (logs, `run-merge`, a merge worker's spec); `message`, when set, is the same sentence for the
+   *  owner's Gate, rendered in the app's language by the caller (dispatchLoop.ts). */
+  | { kind: 'human'; reason: string; message?: Message }
   | { kind: 'agent'; reason: string; worktrees: { path: string; branch: string | null }[] }
 
 export interface IntegrateContext {
@@ -245,6 +248,13 @@ export interface IntegrateContext {
    *  check stuck on another drive never refuses this one. */
   presence?: PresenceCheck
 }
+
+/** A result only a person can settle: English `reason`, the owner's own language through `message`. */
+const human = (key: MessageKey, params: MessageParams): Integration => ({
+  kind: 'human',
+  reason: t('en', key, params),
+  message: { key, params }
+})
 
 /** 워크트리에서 끝난 일을 **합칠 폴더에 실제로 합친다.** 그 폴더는 부르는 쪽이 정한다 —
  *  스케줄러는 Run 뿌리를 주고 `run-delete --merge` 는 프로젝트 폴더를 준다. 무엇을 합쳐야
@@ -271,7 +281,7 @@ export interface IntegrateContext {
 export async function integrateWorktrees(
   mergeInto: string,
   paths: string[],
-  opts: { reap?: boolean; message?: string },
+  opts: { reap?: boolean; message?: string; heads?: Record<string, string> },
   ctx: IntegrateContext
 ): Promise<Integration> {
   const reap = opts.reap ?? true
@@ -308,22 +318,10 @@ export async function integrateWorktrees(
   // 헤매게 했고(그쪽 주석), 같은 질문을 같은 방식으로 묻는 이 자리도 같은 순서여야 한다.
   const dir = await gitDir(mergeInto)
   if (!dir)
-    return {
-      kind: 'human',
-      reason:
-        `합칠 폴더(${mergeInto})에서 git 을 돌릴 수 없어 워크트리를 합치지 못했습니다 — 그 폴더가 ` +
-        `사라졌거나 git 저장소가 아닙니다.`
-    }
+    return human('jobs.integration.noGit', { folder: mergeInto })
   const head = await (ctx.git ?? realGit)(['symbolic-ref', '--quiet', 'HEAD'], { cwd: mergeInto })
   if (!head.ok)
-    return {
-      kind: 'human',
-      reason:
-        `합칠 폴더(${mergeInto})의 HEAD 가 브랜치를 가리키지 않아 워크트리를 합치지 않았습니다` +
-        `(분리된 HEAD — bisect 나 rebase 중일 수도 있습니다). 그 위에 병합하면 만든 커밋이 어느 ` +
-        `브랜치에도 남지 않고, 진행 중인 작업이 있다면 그것이 깨집니다. 브랜치를 체크아웃한 뒤 ` +
-        `이 Gate 를 해결해 주세요.`
-    }
+    return human('jobs.integration.detachedHead', { folder: mergeInto })
   // 표시 파일과 사람에게 보일 이름. rebase-apply 는 `git am` 도 쓴다.
   //
   // **표시 파일은 비동기로, 시간 제한을 두고 묻는다**(worktrees/presence.ts). 동기 existsSync 는 끊긴
@@ -331,11 +329,11 @@ export async function integrateWorktrees(
   // 읽지 않는다 — 진행 중인 작업 위에 병합을 거는 것이 이 확인이 막으려는 바로 그것이다.
   const markers = [
     ['rebase-merge', 'rebase'],
-    ['rebase-apply', 'rebase 또는 am'],
+    ['rebase-apply', 'rebase or am'],
     ['BISECT_LOG', 'bisect'],
     ['CHERRY_PICK_HEAD', 'cherry-pick'],
     ['REVERT_HEAD', 'revert'],
-    ['MERGE_HEAD', '병합']
+    ['MERGE_HEAD', 'merge']
   ] as const
   let busy: (typeof markers)[number] | undefined
   for (const m of markers) {
@@ -347,22 +345,10 @@ export async function integrateWorktrees(
       busy = m
       break
     }
-    return {
-      kind: 'human',
-      reason:
-        `합칠 폴더의 git 디렉터리(${dir})에서 진행 중인 작업이 있는지 확인하지 못해 워크트리를 합치지 ` +
-        `않았습니다(${m[0]} 에 닿지 못했습니다 — 네트워크 드라이브가 끊겼을 수 있습니다). 폴더에 닿는지 ` +
-        `확인한 뒤 이 Gate 를 해결해 주세요.`
-    }
+    return human('jobs.integration.gitDirUnreachable', { dir, marker: m[0] })
   }
   if (busy)
-    return {
-      kind: 'human',
-      reason:
-        `합칠 폴더에서 ${busy[1]} 작업이 진행 중(${busy[0]})이어서 워크트리를 합치지 ` +
-        `않았습니다. 그 중간에 병합하면 진행 중인 작업이 깨집니다 — 끝내거나 중단한 뒤 이 Gate 를 ` +
-        `해결해 주세요.`
-    }
+    return human('jobs.integration.inProgress', { op: busy[1], marker: busy[0] })
 
   // 2. **추적되는 변경이 남아 있으면 아무것도 하지 않는다.** 병합은 작업 트리에 쓰므로, 그 위에
   //    사용자가 저장하지 않은 일이 있으면 그것을 위험에 놓는다. 그 일을 어떻게 할지는 사람의
@@ -380,18 +366,9 @@ export async function integrateWorktrees(
   //    하나만 준다. 그러면 Gate 의 문장이 사실을 말할 수 없다.
   const status = await (ctx.git ?? realGit)(['status', '--porcelain', '--untracked-files=no'], { cwd: mergeInto })
   if (!status.ok)
-    return {
-      kind: 'human',
-      reason: `합칠 폴더(${mergeInto})의 git 상태를 읽을 수 없어 워크트리를 합치지 못했습니다: ${status.stderr}`
-    }
+    return human('jobs.integration.statusUnreadable', { folder: mergeInto, error: status.stderr })
   if (status.stdout !== '')
-    return {
-      kind: 'human',
-      reason:
-        `합칠 폴더에 커밋되지 않은 변경이 ${status.stdout.split('\n').length}개 있어 워크트리를 ` +
-        `합칠 수 없습니다. 커밋하거나 되돌린 뒤 이 Gate 를 해결해 주세요(추적되지 않는 새 파일은 ` +
-        `여기에 세지 않습니다).`
-    }
+    return human('jobs.integration.uncommitted', { count: status.stdout.split('\n').length })
 
   // 3. 각 워크트리의 브랜치를 알아낸다. `git worktree list` 한 번으로 경로 → 브랜치가 전부 나온다.
   //    listGitWorktrees 는 git() 과 달리 **실패하면 던진다** — 그래서 감싼다.
@@ -399,14 +376,26 @@ export async function integrateWorktrees(
   try {
     rows = await listGitWorktrees(mergeInto)
   } catch (e) {
-    return { kind: 'human', reason: `워크트리 목록을 읽을 수 없습니다: ${String(e)}` }
+    return human('jobs.integration.worktreeListUnreadable', { error: String(e) })
   }
   // 경로 비교는 isSamePath 다 — 한쪽은 createWorktree 가 만들어 Dispatch 에 저장된 값이고 다른
   // 쪽은 git 이 방금 낸 값이라 대소문자나 구분자가 다를 수 있다(둘 다 절대경로이므로 결정적이다).
-  const targets = paths.map((p) => ({
+  const found = paths.map((p) => ({
     path: p,
     branch: rows.find((r) => isSamePath(r.path, p))?.branch ?? null
   }))
+  // A worktree gone with no branch to name was usually removed after its branch merged. The head the Dispatch recorded
+  // says so: when it is already in HEAD there is nothing to merge, and no Gate (a Gate here came back every pass).
+  const targets: typeof found = []
+  for (const x of found) {
+    const head = opts.heads?.[x.path]
+    if (!x.branch && head && (await (ctx.git ?? realGit)(['merge-base', '--is-ancestor', head, 'HEAD'], { cwd: mergeInto })).ok) {
+      ctx.log(`merge: ${x.path} has no branch, but its recorded head ${head} is already in ${mergeInto}`)
+      continue
+    }
+    targets.push(x)
+  }
+  if (targets.length === 0) return { kind: 'merged', uncommitted: 0 }
   const unknown = targets.filter((x) => !x.branch)
   if (unknown.length > 0)
     return {
@@ -540,14 +529,10 @@ export async function integrateWorktrees(
         // 사용자가 짐작하게 두지 않는다 — 이 경로가 있는 이유가 그것이다.
         if (aside) await restoreAside(aside, ctx.log)
         const after = await (ctx.git ?? realGit)(['status', '--porcelain', '--untracked-files=no'], { cwd: mergeInto })
-        const left =
-          after.ok && after.stdout === ''
-            ? '합칠 폴더는 병합 전 상태로 되돌렸습니다.'
-            : '**합칠 폴더가 병합 중간 상태로 남아 있을 수 있습니다 — git status 로 직접 확인해 주세요.**'
-        return {
-          kind: 'human',
-          reason: `${target.branch} 브랜치를 합칠 폴더에 합치지 못했습니다: ${merged.stderr || merged.stdout}. ${left}`
-        }
+        return human(after.ok && after.stdout === '' ? 'jobs.integration.mergeFailedRestored' : 'jobs.integration.mergeFailedLeft', {
+          branch: target.branch ?? '',
+          output: merged.stderr || merged.stdout
+        })
       }
       if (aside) await restoreAside(aside, ctx.log)
     } finally {

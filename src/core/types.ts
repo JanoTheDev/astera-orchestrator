@@ -111,12 +111,19 @@ export type SessionStatus = 'running' | 'exited'
 
 export type SessionKind = 'terminal' | 'chat'
 
+/** Why Astera ended a process it started: a worker released when its Task finished, stopped by a person,
+ *  or replaced by a fresh coordinator. Carried with `closedByAstera`, so a closed tab can say why. */
+export type CloseReason = 'released' | 'stopped' | 'replaced'
+
 export interface SessionInfo {
   id: string
   accountId: string
   cwd: string
   status: SessionStatus
   exitCode?: number
+  /** Astera ended this process itself (a tab close, a release, a stop): a SIGTERM/SIGHUP exit then reads as a normal close. */
+  closedByAstera?: boolean
+  closeReason?: CloseReason
   title: string
   resumeSessionId?: string
   rollAccountIds?: string[] // rolling account order; [0] is the initial account. One element waits out the reset instead of switching (every Job worker is one)
@@ -719,7 +726,14 @@ export interface RunDetailJournal {
  *  여기(web 포함 파일)에 선언하는 이유: JobRow 이 이 타입을 필드로 갖고, 그것을 계산하는
  *  core/orchestration/view.ts 는 node:path 를 끌고 와서 tsconfig.web.json 에 넣을 수 없다.
  *  그래서 타입은 이쪽이 선언하고 view.ts 가 가져간다 — TaskStatus 와 같은 방향이다. */
-export type RunOutcome = 'running' | 'completed' | 'failed'
+export type RunOutcome =
+  | 'running'
+  | 'completed'
+  | 'failed'
+  /** Every Task completed, and the final check (the completion replan) has not settled yet: not done until it adds nothing. */
+  | 'checking'
+  /** Finished with blocked Tasks: everything else ended, and Tasks held for the owner (and what waits on them) are left. */
+  | 'blocked'
 
 /** Jobs 목록의 한 줄. **도메인 타입이 아니라 화면이 읽는 모양이다** — view.ts 가 OrchState 에서
  *  계산해 내려보내고 저장되지 않는다.
@@ -750,6 +764,8 @@ export interface JobRow {
   rejected?: { at: string; reason?: string }
   /** W8-F (#94): `validatePlan`'s problems for a plan waiting for approval; absent when it holds. */
   planProblems?: string[]
+  /** T7: the objective items the plan leaves out on purpose (Job.leftOut), each with its text (objectiveItems.ts) and why. */
+  leftOut?: { item: number; text: string; reason: string }[]
   /** #116: the plan can be approved now (`planApprovable`): the only time an Approve is shown. Absent while planning. */
   planReady?: true
   /** #116: the plan starts by itself once it holds (`autoApproveOf`: its own setting, else its project's). */
@@ -782,6 +798,8 @@ export interface JobRow {
    *  앱이 스스로 다시 띄우지 않는 이유는 Run.coordinatorSessionId 의 주석에 있다 — 탭을 닫는 것은
    *  사람의 결정이다. */
   coordinatorMissing?: boolean
+  /** T5: the model the Run's coordinator was started on (`JobRun.coordinatorModel`), shown on the plan. */
+  coordinatorModel?: string
   /** 이 Run 이 동시에 열어 둘 Dispatch 수 — Run 이 들고 있는 값을 그대로 옮긴 것이다. 없으면
    *  DEFAULT_CONCURRENCY(core/orchestration/types.ts) 인데, 그 기본값도 여기서 채우지 않는다 —
    *  계산도 기본값도 이 값을 쓰는 쪽(RunDetail.tsx)의 일이라는 이 타입의 관례다.
@@ -793,6 +811,8 @@ export interface JobRow {
   concurrency?: number
   /** 저장된 값이 아니라 Task 에서 계산된다 — core/orchestration/view.ts 의 outcomeOf */
   outcome: RunOutcome
+  /** Why the Run's delivery failed (its `outcome` is `failed` for it): a merge conflict or a refused push */
+  deliveryError?: string
   done: number
   total: number
   /** 이 Run 의 타임라인 이벤트 수(core/orchestration/timeline.ts 의 eventCountFor).
@@ -934,7 +954,7 @@ export interface CoreEvents {
   'session:remote-gone': { sessionId: string; code: string; message: string }
   /** A remote tab's connection dropped (`down`, reconnecting) or is back (`up`) (Phase 9b review I1). */
   'session:remote-link': { sessionId: string; state: 'down' | 'up' }
-  'session:exit': { sessionId: string; exitCode: number }
+  'session:exit': { sessionId: string; exitCode: number; closedByAstera?: boolean; closeReason?: CloseReason }
   // main created a session without the renderer asking — an orchestration worker. The whole
   // SessionInfo is carried so the renderer can build the tab (the same value sessions.spawn returns).
   // It is not emitted on the user path (sessions.spawn) — doing so would place the same session twice.
@@ -1170,6 +1190,9 @@ export interface HostStatus {
   /** What the Host announced it can do (protocol.ts HOST_FEATURE_*); empty until a hello, and for a
    *  Host that predates the field. */
   features: string[]
+  /** A Host at the address is leaving (it hangs up before its hello) and the app is waiting for it to
+   *  finish before starting its own (main/host/client.ts RETIRING_WAIT_MS). Absent means false. */
+  waitingForPreviousHost?: boolean
 }
 
 /** Putting the Host's own runtime in place (win32), as the window shows it (stage 3 task 2).

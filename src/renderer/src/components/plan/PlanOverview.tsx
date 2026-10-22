@@ -4,15 +4,28 @@ import type { JobRow, JobTask } from '../../../../core/types'
 import { useI18n } from '../../i18n/I18nProvider'
 import { CATEGORIES, planProgressOf } from './planBoard'
 
-/** #119 "Picked for this plan" (the issues Let Astera pick took or left out) and #117 "Decided for you" (what the
- *  hands-off plan answered in the owner's place). Each is hidden when empty. */
-function PlanDecided({ pick, decisions }: Pick<JobRow, 'pick' | 'decisions'>): React.JSX.Element | null {
+type Decided = Pick<JobRow, 'pick' | 'decisions' | 'leftOut'>
+
+/** #119 "Picked for this plan" (the issues Let Astera pick took or left out), #117 "Decided for you" (what the
+ *  hands-off plan answered in the owner's place) and T7 "Left out of the plan" (objective items the planner skipped, and
+ *  why). Each is hidden when empty. */
+function PlanDecided({ pick, decisions, leftOut }: Decided): React.JSX.Element | null {
   const { t } = useI18n()
   const picked = pick?.picked ?? []
   const skipped = pick?.skipped ?? []
-  if (picked.length === 0 && skipped.length === 0 && !decisions?.length) return null
+  if (picked.length === 0 && skipped.length === 0 && !decisions?.length && !leftOut?.length) return null
   return (
     <div className="plan-decided">
+      {leftOut && leftOut.length > 0 && (
+        <section>
+          <h3>{t('plan.leftOut.title')}</h3>
+          <ul>
+            {leftOut.map((l) => (
+              <li key={l.item} className="plan-decided-skipped">{t('plan.leftOut.item', { n: l.item, text: l.text, reason: l.reason })}</li>
+            ))}
+          </ul>
+        </section>
+      )}
       {(picked.length > 0 || skipped.length > 0) && (
         <section>
           <h3>{t('plan.pick.title')}</h3>
@@ -43,14 +56,14 @@ function PlanDecided({ pick, decisions }: Pick<JobRow, 'pick' | 'decisions'>): R
   )
 }
 
-export function PlanOverview({ tasks, pick, decisions }: { tasks: readonly JobTask[] } & Pick<JobRow, 'pick' | 'decisions'>): React.JSX.Element {
+export function PlanOverview({ tasks, pick, decisions, leftOut }: { tasks: readonly JobTask[] } & Decided): React.JSX.Element {
   const { t } = useI18n()
   const p = planProgressOf(tasks)
   if (p.total === 0)
     return (
       <div className="plan-overview plan-overview-empty">
         {t('plan.overview.empty')}
-        <PlanDecided pick={pick} decisions={decisions} />
+        <PlanDecided pick={pick} decisions={decisions} leftOut={leftOut} />
       </div>
     )
   return (
@@ -75,7 +88,7 @@ export function PlanOverview({ tasks, pick, decisions }: { tasks: readonly JobTa
           </li>
         ))}
       </ul>
-      <PlanDecided pick={pick} decisions={decisions} />
+      <PlanDecided pick={pick} decisions={decisions} leftOut={leftOut} />
     </div>
   )
 }

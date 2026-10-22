@@ -93,6 +93,10 @@ export const en: Record<keyof typeof ko, string> = {
   'wall.group.open': 'Open plan',
   'wall.group.done': 'Done',
   'wall.group.progress': '{done}/{total} done',
+  'wall.section.coordinators': 'Coordinators',
+  'wall.section.planners': 'Planners',
+  'wall.section.workers': 'Workers',
+  'wall.section.consoles': 'Consoles',
   'higgsfield.loginTimeout': 'The login did not finish within 3 minutes and was stopped. Try again.',
   'higgsfield.loginFailed': 'Could not log in.',
   'higgsfield.needsWorkspace': 'Workspace needed',
@@ -741,6 +745,10 @@ export const en: Record<keyof typeof ko, string> = {
   'status.hostUnresponsive': 'Host not answering',
   'status.hostUnresponsiveTitle':
     'The Host is not answering. New sessions open inside the app and end when it closes. Press to restart the Host.',
+  'status.hostStarting': 'Starting Astera…',
+  'status.hostWaitingForPrevious': 'Starting Astera… waiting for the previous background Host to finish',
+  'app.renderError': 'Something went wrong while drawing this window.',
+  'app.renderErrorReload': 'Reload',
   'status.hostPreparing': 'Preparing the Astera Host…',
   'status.hostPreparingSlow': 'Preparing the Astera Host… still working ({seconds}s)',
   'status.hostPrepareFailed': 'Could not prepare the Astera Host',
@@ -1260,7 +1268,14 @@ export const en: Record<keyof typeof ko, string> = {
   'session.toast.stalled':
     'Session “{title}” is stuck — automatic resume failed, it needs a look',
   'session.terminal.loadingContent': 'Loading content…',
-  'session.terminal.exited': 'Exited (code {code})',
+  'exit.finished': 'Finished',
+  'exit.closedByAstera': 'Closed by Astera — work finished',
+  'exit.releasedByAstera': 'Closed by Astera — released',
+  'exit.stoppedByAstera': 'Closed by Astera — stopped',
+  'exit.replacedByAstera': 'Closed by Astera — replaced',
+  'exit.stopped': 'Stopped (Ctrl+C)',
+  'exit.killed': 'Killed (out of memory or force-stopped)',
+  'exit.failed': 'Failed (code {code})',
   'session.terminal.sizedRemote': "Shown at the remote computer's window size. Type here to switch to this window's size.",
   'session.terminal.restart': 'Restart',
   'session.terminal.schedFallback': 'Schedule',
@@ -1442,7 +1457,6 @@ export const en: Record<keyof typeof ko, string> = {
   'run.form.addOption': 'Add option',
   'run.panel.tab': 'Run',
   'run.panel.empty': 'No runs yet — press ▶ in the toolbar to start one',
-  'run.panel.exitCode': 'exit {code}',
   'run.panel.stopping': 'Stopping…',
   'run.panel.close': 'Close run',
   'run.panel.openPreview': 'Open {url} in a preview',
@@ -1615,6 +1629,7 @@ export const en: Record<keyof typeof ko, string> = {
   'jobs.state.dispatchedStopped': 'The worker was stopped',
   'jobs.state.validating': 'Validation is running',
   'jobs.state.reviewing': 'Another agent is reviewing it',
+  'jobs.state.merging': 'Merging into the plan branch',
   'jobs.state.completed': 'Done',
   'jobs.state.failed': 'Failed',
   'jobs.state.blocked': 'Waiting for a person',
@@ -1651,6 +1666,7 @@ export const en: Record<keyof typeof ko, string> = {
   'jobs.run.mergeFailed': 'Could not merge: {reason}',
   'jobs.run.notStarted': 'Not started',
   'jobs.run.notStartedHint': 'Not started yet — press Run in the detail window to start it',
+  'jobs.run.notDelivered': 'Not delivered: {reason}',
   // W2-A planner stage
   'jobs.new.planner': 'Plan with planner first',
   'jobs.new.plannerHint': 'A planner session (on the planner model) reads the repository and writes the Tasks, each with its prompt and acceptance criteria. It changes no files and starts nothing: you approve the plan with Approve & execute.',
@@ -1975,6 +1991,24 @@ export const en: Record<keyof typeof ko, string> = {
   // picked the account by — the sibling above names only the provider for the same reason.
   'jobs.gate.assignedAccountUnusable':
     "The first account assigned to this Task cannot be used, and the accounts after it are only there to move onto later — log that account back in, or change this Task's account list",
+  // exec/dispatchLoop.ts, exec/integrateGit.ts — the integration merge's Task titles and Gate reasons
+  'jobs.integration.title': "Merge worktrees: {title}",
+  'jobs.integration.runWorktreeNotRecorded': "Could not record the Run's worktree: {error}",
+  'jobs.integration.runWorktreeNotMade': "Could not make the Run's worktree: {error}",
+  'jobs.integration.taskFailed': "The integration Task ({task}) failed, so the worktrees were not merged.",
+  'jobs.integration.stillCannotMerge': "The integration Task finished, but the worktrees still cannot be merged: {reason}",
+  'jobs.integration.taskNotMade': "Could not make the integration Task that merges the worktrees: {error}",
+  'jobs.integration.startFailed': "Could not start this Task: {error}",
+  'jobs.integration.mergeWorkerFailed': "{task}'s branch could not be merged into the plan branch ({root}), and the merge worker failed too: {reason}",
+  'jobs.integration.noGit': "git cannot run in the folder to merge into ({folder}), so the worktrees were not merged — the folder is gone or is not a git repository.",
+  'jobs.integration.detachedHead': "The worktrees were not merged: HEAD in the folder to merge into ({folder}) does not point at a branch (a detached HEAD — a bisect or rebase may be in progress). A merge on top of it would leave its commit on no branch and break any work in progress. Check out a branch, then resolve this Gate.",
+  'jobs.integration.gitDirUnreachable': "The worktrees were not merged: could not check the git directory of the folder to merge into ({dir}) for work in progress ({marker} did not answer — a network drive may be disconnected). Check that the folder can be reached, then resolve this Gate.",
+  'jobs.integration.inProgress': "The worktrees were not merged: a {op} is in progress in the folder to merge into ({marker}). A merge in the middle of it would break that work — finish or abort it, then resolve this Gate.",
+  'jobs.integration.statusUnreadable': "Could not read the git status of the folder to merge into ({folder}), so the worktrees were not merged: {error}",
+  'jobs.integration.uncommitted': "The folder to merge into has {count} uncommitted change(s), so the worktrees cannot be merged. Commit or revert them, then resolve this Gate (new untracked files are not counted here).",
+  'jobs.integration.worktreeListUnreadable': "Could not read the worktree list: {error}",
+  'jobs.integration.mergeFailedRestored': "Could not merge the {branch} branch into the folder to merge into: {output}. The folder was put back as it was before the merge.",
+  'jobs.integration.mergeFailedLeft': "Could not merge the {branch} branch into the folder to merge into: {output}. **The folder may be left in the middle of a merge — check it yourself with git status.**",
   // NewTaskModal.tsx — the form RunDetail's bottom pane (.detail-events) turns into while a Task is
   // being authored. deps belongs to the graph, not this form (the graph is where dependencies get
   // picked) — that is why this catalog only has the hint text pointing at the graph, not the deps
@@ -2092,7 +2126,6 @@ export const en: Record<keyof typeof ko, string> = {
   'conversation.exited.title': 'This session has ended',
   // The terminal always showed an exit code, and the chat pane never did (design D2). A code alone
   // says nothing, so the first line the process left on stderr rides along — the tail folds away.
-  'conversation.exited.withCode': 'This session has ended (code {code})',
   'conversation.exited.detail': 'Details',
   'conversation.exited.restart': 'Restart',
   // design §4 F5's five-part confirmation. An exception to S1 (one or two lines) — the person is
@@ -2343,6 +2376,8 @@ export const en: Record<keyof typeof ko, string> = {
   'pages.plans.status.queued': 'Queued',
   'pages.plans.status.needsYou': 'Needs you',
   'pages.plans.status.working': 'Working',
+  'pages.plans.status.checking': 'Checking',
+  'pages.plans.status.blocked': 'Finished with blocked tasks',
   'pages.plans.status.failed': 'Failed',
   'pages.plans.status.done': 'Done',
   'pages.plans.wave': 'Wave {at} of {of}',
@@ -2640,6 +2675,10 @@ export const en: Record<keyof typeof ko, string> = {
   'plan.pick.picked': '#{n} {title}: {why}',
   'plan.pick.skipped': 'Skipped #{n} {title}: {why}',
   'plan.decisions.title': 'Decided for you',
+  // T7: an objective item the plan leaves out on purpose, and the owner's edit of a running plan's Task
+  'plan.leftOut.title': 'Left out of the plan',
+  'plan.leftOut.item': '{n}. {text} — {reason}',
+  'activity.taskEdited': '{title}: edited by you — {fields}',
   'plan.decisions.kind.approval': 'Approval',
   'plan.decisions.kind.escalation': 'Question',
   'plan.decisions.kind.gate': 'Gate',

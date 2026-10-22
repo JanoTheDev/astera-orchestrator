@@ -59,7 +59,8 @@ const URGENCY: readonly CompletionState[] = [
 // There is no 'needs-fix' state: routeFailure (state.ts) opens the repair Dispatch, or a Gate when it
 // cannot, in the same state change that records the failure, so a failed result never sits unattended.
 export function taskCompletionState(s: OrchState, task: Task): CompletionState {
-  if (task.status === 'completed') return 'converged'
+  // merging: its checks and review are done, the app lands it on the plan branch (state.ts doneStatusOf)
+  if (task.status === 'completed' || task.status === 'merging') return 'converged'
   if (task.status === 'failed') return 'failed'
   if (task.status === 'blocked') {
     const gate = s.gates.find((g) => g.taskId === task.id && g.status === 'open')

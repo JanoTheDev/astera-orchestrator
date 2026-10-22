@@ -160,7 +160,8 @@ describe('Remote Runtime Phase 4 acceptance (design §6 Phase 4)', { timeout: 30
   it('a change whose answer is lost is sent again and replayed: one Job, not two', async () => {
     const rt = await runtime()
     await pair(await rt.pairing())
-    const jobs = (): number => (JSON.stringify(rt.state()).match(/lost answer/g) ?? []).length
+    // the objective's, not the title's (T7 names every Job by its objective's words)
+    const jobs = (): number => (JSON.stringify(rt.state()).match(/"objective":"lost answer"/g) ?? []).length
     let conn = 0
     const r = await remote('rt_p4', 'jobs-create', { objective: 'lost answer', cwd: 'D:/repo' }, {
       request: 'req-lost',

@@ -44,7 +44,21 @@ import type {
   VALIDATION_FIELDS
 } from '../publicContract'
 
-export { publicEvent, publicFor, TASK_FIELDS as TASK_PUBLIC_FIELDS } from '../publicContract'
+import { publicFor as shapeFor } from '../publicContract'
+
+export { publicEvent, TASK_FIELDS as TASK_PUBLIC_FIELDS } from '../publicContract'
+
+/** The list a paged read carries (`tasks list --limit`, `questions list --offset`, command.ts listReply). */
+const PAGED: Record<string, string> = { 'tasks-list': 'tasks', 'questions-list': 'questions' }
+
+/** The package's shaping, plus a paged list read's `{ <list>, total, offset, limit }`: its list is shaped row by row
+ *  as the plain list is, and the counts pass as they are. */
+export function publicFor(cmd: string, body: unknown): unknown {
+  const key = Object.hasOwn(PAGED, cmd) ? PAGED[cmd] : undefined
+  if (key !== undefined && body !== null && typeof body === 'object' && Array.isArray((body as Record<string, unknown>)[key]))
+    return { ...body, [key]: shapeFor(cmd, (body as Record<string, unknown>)[key]) }
+  return shapeFor(cmd, body)
+}
 
 /** The names the two lists leave uncovered. */
 type Unlisted<
@@ -71,11 +85,13 @@ const RUN_HIDDEN = [
   // W6-H: a push delivery's result, answered by `run-deliver`; not in the SDK's contract yet
   'delivery',
   // Coordinator rotation: the app's own record of fresh coordinators, not in the SDK's contract yet
-  'coordinatorRefreshes'
+  'coordinatorRefreshes',
+  // T5: the model the coordinator was started on, shown on the plan; not in the SDK's contract yet
+  'coordinatorModel'
 ] as const
 
 /** W6-H: how a project's plans land, set by `projects-set`; not in the SDK's contract yet. */
-const PROJECT_HIDDEN = ['delivery', 'deliveryBranch', /* W7-B: project settings, not in the SDK's contract yet */ 'autoApprove', /* #117 */ 'handsOff', 'testConfigId', 'concurrency', 'reviewRounds', 'replan', 'defaultBranch', /* W10-A: the prompts folder, not in the SDK's contract yet */ 'promptsDir', /* T3 workspaces: a sub-project's folders and a root's auto-create switch */ 'focus', 'autoProjects'] as const
+const PROJECT_HIDDEN = ['delivery', 'deliveryBranch', /* W7-B: project settings, not in the SDK's contract yet */ 'autoApprove', /* #117 */ 'handsOff', 'testConfigId', 'concurrency', 'reviewRounds', 'replan', 'defaultBranch', /* W10-A: the prompts folder, not in the SDK's contract yet */ 'promptsDir', /* T3 workspaces: a sub-project's folders and a root's auto-create switch */ 'focus', 'autoProjects', /* T5: standing grants and the coordinator model; shown by projects list/get, not in the SDK's contract yet */ 'grants', 'coordinatorModel'] as const
 
 /**
  * A Task's fields kept back on purpose: all of them **the ledger the app keeps to drive convergence**. The guide
@@ -110,7 +126,9 @@ const TASK_HIDDEN = [
   // W8-C prompts mode: a Run-as-written Task's source, not in the SDK's contract yet
   'verbatimOf',
   // Stall watchdog: the app's own merge record (finishedSessions.ts mergedIntoPlan)
-  'mergedIntoPlanAt'
+  'mergedIntoPlanAt',
+  // T7: the objective items a Task covers (`--covers`), held back with the planner's other fields
+  'covers'
 ] as const
 
 /** W1-A role models: a Job's per-role model override, held back from the SDK like the Task's three above. */
@@ -140,7 +158,8 @@ const JOB_HIDDEN = [
   /* W8-D several plans in one repo: overlaps and areas, not in the SDK's contract yet */ 'overlaps',
   'areas',
   /* W10-A Run as written by name: what the typed names resolved to, not in the SDK's contract yet */ 'byName',
-  /* T1 chat-first planning: chat or auto, not in the SDK's contract yet */ 'planning'
+  /* T1 chat-first planning: chat or auto, not in the SDK's contract yet */ 'planning',
+  /* T7: the objective items the planner left out, not in the SDK's contract yet */ 'leftOut'
 ] as const
 
 /** A followed event's message body (pages long) and the app's link from an event to a tab. */

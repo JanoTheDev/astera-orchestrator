@@ -72,6 +72,12 @@ export interface CommandUsage {
 }
 
 const ID = (value: string, about: string): UsageFlag => ({ name: 'id', value, required: true, about })
+/** `tasks list` and `questions list`: only some fields, and one page with the total (command.ts listReply). */
+const LIST_PAGE_FLAGS: UsageFlag[] = [
+  { name: 'fields', value: '<a,b,…>', about: 'only these fields of each row (an unknown one is 2 and lists them)' },
+  { name: 'limit', value: '<n>', about: 'at most n rows; the reply then carries total, offset and limit' },
+  { name: 'offset', value: '<n>', about: 'skip the first n rows (default 0); the reply then carries total' }
+]
 
 const TIMEOUT: UsageFlag = {
   name: 'timeout-ms',
@@ -333,7 +339,7 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
   'projects-remove': {
     summary: 'unregister a project; its folder and plans are not touched',
     detail:
-      'Refused (CONFLICT, exit 6) while the project has a plan that is not archived, and for a workspace that still has sub-projects: remove those first; removing one project never removes another. Refused from an agent session and an MCP client.',
+      'Refused (CONFLICT, exit 6) while the project has a plan that is running, paused or queued (a completed, delivered, stopped or archived plan does not hold it), and for a workspace that still has sub-projects: remove those first; removing one project never removes another. Refused from an agent session and an MCP client.',
     flags: [ID('<projectId>', 'the project to unregister')]
   },
   // W7-B
@@ -354,7 +360,7 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
   },
   // W6-H delivery (delivery.ts)
   'projects-set': {
-    summary: "set a project's delivery, auto-approve, hands-off, test command, concurrency, review rounds, replan, prompts folder and account",
+    summary: "set a project's delivery, auto-approve, hands-off, test command, concurrency, review rounds, replan, prompts folder, standing grants, coordinator model and account",
     detail:
       'pr (the default) opens one pull request per plan and never merges it. push merges a finished plan into the delivery branch (the default branch unless --delivery-branch) and pushes it, with no review by a person, after the reviews, the final check and the validation pass; it stops and escalates when the folder is not on that branch, has uncommitted changes, cannot fast-forward, conflicts, fails validation or is rejected, and never force-pushes. A Job may override it (`jobs create --delivery`). Defaults: delivery pr, auto-approve off, concurrency 3, review rounds 5, replan waves. --auto-approve on starts a plan without waiting for approval; --hands-off on also lets its coordinator answer its own escalations and bypasses permissions for its sessions. --test-command is saved as a run configuration and validates every new Task that has no --validate (--test-config picks an existing one). A new Job copies the concurrency, replan and review rounds when it sets none. An empty value clears a setting back to its default. Refused from an agent session and an MCP client.',
     flags: [
@@ -374,7 +380,10 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       // W10-A
       { name: 'prompts-dir', value: '<path|none>', about: 'the folder (in the repository) whose <id>-*.md files Run as written finds by name; none clears it' },
       // T3 workspaces
-      { name: 'auto-projects', value: '<on|off>', about: 'file each plan under a sub-project named after its first area, created when missing (default on)' }
+      { name: 'auto-projects', value: '<on|off>', about: 'file each plan under a sub-project named after its first area, created when missing (off for a project added from now on)' },
+      // T5
+      { name: 'grants', value: '<kind,...|none>', about: "kinds of decision granted in advance (kebab-case, e.g. protected-paths,migrations): the plan's coordinator writes a covered grant itself instead of escalating it; none clears them" },
+      { name: 'coordinator-model', value: '<id|none>', about: "the coordinator's model for this project's plans, over the plan-size rule (a strong model for more than 5 Tasks or any hard Task); none clears it" }
     ]
   },
   'projects-find': {
@@ -440,7 +449,7 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
   'jobs-rename': {
     summary: 'name a Job',
     detail:
-      'The name is one line, cut at 300 characters, and is what the app, `jobs list --human` and the notifications show. An empty --title drops it, and the Job is named by its objective again. The objective, which is what agents are given, does not change.',
+      'The name is one line, cut at 300 characters, and is what the app, `jobs list --human` and the notifications show. An empty --title drops it, and the Job is named by its objective again. The objective, which is what agents are given, does not change. Every Job is named at creation by the first words of its objective (about 6 words); its planner renames it once it knows the goal. Refused from an agent session other than the Job\'s own planner.',
     flags: [ID('<jobId>', 'the Job to name'), { name: 'title', value: '<text>', required: true, about: 'the new name' }]
   },
   // W7-D (#67)
@@ -454,6 +463,8 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       '--areas names where the plan works, 1 to 3 short words (none clears them); `jobs list --area` filters by them. It is set on its own, and the Job\'s own planner may set it too. ' +
       // T1 chat-first planning
       '--planning and --priority (an integer, as at `jobs create`) change those two after creation, alone or together; --planning applies to the next planner start. ' +
+      // T7 objective coverage
+      "--left-out lists the objective's numbered or bulleted items the plan leaves out on purpose, each with why, as JSON ('[{\"item\":2,\"reason\":\"already built: src/x.ts\"}]', [] clears it): approval refuses a plan with an item no Task covers (`tasks add --covers`) and none left out. It is set on its own, and the Job's own planner may set it too. " +
       // T3 workspaces
       "Setting --areas files the plan under the sub-project of its workspace named after its first area, created when missing (a workspace's projects set autoProjects off stops it). --project <projectId> moves a plan that has not started to another project of the same workspace, on its own.",
     flags: [
@@ -463,6 +474,8 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       { name: 'after', value: '<jobId|none>', about: 'the Job this one is queued after; none clears it' },
       // W8-D plan areas
       { name: 'areas', value: '<a,b,c|none>', about: "1–3 short words for where the plan works (auth, api, ui); alone; its planner may set it too" },
+      // T7 objective coverage
+      { name: 'left-out', value: '<json array>', about: 'objective items left out on purpose, each {"item":<n>,"reason":"<why>"}; alone; its planner may set it too' },
       // T1 chat-first planning
       { name: 'planning', value: '<chat|auto>', about: 'how its planner works: chat brainstorms with you, auto decides alone' },
       { name: 'priority', value: '<n>', about: 'which Job gets a free slot first when the worker cap is reached (higher first, default 0)' },
@@ -590,7 +603,8 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       },
       { name: 'status', value: '<s>', about: 'only tasks in this status' },
       { name: 'ready', about: 'only tasks that are ready to be picked up' },
-      { name: 'brief', about: 'cut each spec to 160 characters' }
+      { name: 'brief', about: 'cut each spec to 160 characters' },
+      ...LIST_PAGE_FLAGS
     ]
   },
   // W3-C search and inbox
@@ -647,7 +661,9 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       { name: 'model', value: '<id>', about: 'the worker model itself, ahead of --difficulty (e.g. sonnet)' },
       // W6-A: a planned Job's Task needs one to be approved
       { name: 'basis', value: '<missing|partial|broken>', about: "what exists of the item, checked before planning (with --evidence); a planned Job's Task needs it" },
-      { name: 'evidence', value: '<text>', about: 'with --basis: file:line, an issue or PR number, a Job id' }
+      { name: 'evidence', value: '<text>', about: 'with --basis: file:line, an issue or PR number, a Job id' },
+      // T7 objective coverage
+      { name: 'covers', value: '<n,…>', about: "the numbers of the Job objective's items this task covers (a planned Job's every item needs one, or `jobs set --left-out`)" }
     ]
   },
 
@@ -663,7 +679,9 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
     flags: [
       { name: 'run', value: '<runId>', about: 'only the questions of this run (an unknown run is 4)' },
       { name: 'task', value: '<taskId>', about: 'only the questions of this task' },
-      { name: 'status', value: '<open|resolved>', about: 'only questions in this state (any other value is 2)' }
+      { name: 'status', value: '<open|resolved>', about: 'only questions in this state (any other value is 2)' },
+      { name: 'brief', about: 'each question and resolution on one line, cut to 160 characters' },
+      ...LIST_PAGE_FLAGS
     ]
   },
   'questions-get': {
