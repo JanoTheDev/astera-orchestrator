@@ -1,0 +1,1 @@
+{"v":1,"tool":"astera","job":"job_9077b3572fe25e9a","task":"tsk_077fe49bc787658e","session":"43e9a949-4322-499a-b4eb-faf47c86ef76","agent":"claude","model":"opus","account":"71b8fb23-5c26-4782-a9d1-2f7ba1ff753e","role":"worker","lines":{"src/core/github/ghCalls.test.ts":[[1,55]],"src/core/github/prUpdate.test.ts":[[2,2],[56,64]],"src/core/github/prUpdate.ts":[[43,58]]}}
