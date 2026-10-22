@@ -315,6 +315,7 @@ const SESSION = {
       { name: 'status', value: '<s>', about: 'the status to set' },
       { name: 'result', value: '<text|->', about: 'what the Task produced' },
       { name: 'reason', value: '<text>', about: 'why it was set by hand' },
+      { name: 'gaps', value: '<text>', about: 'with --status completed: the parts the work could not reach and why' },
       { name: 'convergence', value: '<off>', about: 'stop repairing this Task (there is no on)' },
       // W2-A planner stage: without --status, these edit a plan's Task (one of a Job not run yet) instead
       { name: 'title', value: '<text>', about: "without --status: a plan's Task's new name" },
@@ -348,6 +349,7 @@ const SESSION = {
       { name: 'subject', value: '<text>', about: 'one line' },
       { name: 'body', value: '<text|->', about: 'the body (a value of `-` reads it from stdin)' },
       { name: 'files-modified', value: '<a,b,c>', about: 'the files this Task changed (worker_done only)' },
+      { name: 'gaps', value: '<text>', about: 'with --outcome succeeded: the few parts it could not reach and why (worker_done only; ignored on failed)' },
       // W2-D GitHub links
       { name: 'issue', value: '<n>', about: "this Task's GitHub issue number, linked to the Task (worker_done only)" },
       { name: 'issue-created', about: "the repository's workflow created that issue for this Task, so the plan's PR closes it (worker_done only)" }
@@ -540,6 +542,23 @@ const SESSION = {
     summary: 'drop a Task that has not started (planner or replan session)',
     detail: 'Refused while an unfinished Task still depends on it.',
     flags: [req('id', '<taskId>', 'the Task to drop'), req('reason', '<text>', 'why')]
+  },
+  // T36: a plan stalled on a failed Task
+  'task-failed-resolve': {
+    summary: 'move a plan past a failed Task that holds it back: retry it, accept it as done, or cancel what waits on it',
+    detail:
+      'Refused from an agent session and an MCP client. accept records the reason as a completion override; cancel drops ' +
+      'the not-started Tasks that wait on it, and the plan ends.',
+    flags: [
+      req('id', '<taskId>', 'the failed Task'),
+      req('action', '<retry|accept|cancel>', 'what to do'),
+      { name: 'reason', value: '<text>', about: 'accept: why its work counts as done (its gaps)' }
+    ]
+  },
+  'run-failed-ask': {
+    summary: "Astera's own: ask the owner about each failed Task a stalled Run waits on, once per failure",
+    detail: 'Refused from an agent session and an MCP client. Answers whether the Run is stalled and what it asked.',
+    flags: [req('run', '<runId>', 'the Run')]
   },
   // W6-A
   'github-issue-assign': {

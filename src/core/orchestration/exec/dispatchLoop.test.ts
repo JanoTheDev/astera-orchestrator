@@ -2531,6 +2531,83 @@ describe('wave replanning (W6-D)', () => {
 
 // W8-C: a long `pr` plan's draft PR is asked once per finished wave while later waves remain, and the completed Run's
 // delivery still comes for a Run whose PR is that draft.
+// T36: a plan never stalls silently on a failed Task: a replan first when the plan replans, else (or after it) one
+// owner question, whose answer the loop carries out.
+describe('a Run stalled on a failed Task (T36)', () => {
+  /** tsk_1 failed (its worker reported failed), tsk_2 waits on it, nothing else runs. */
+  const failedFirst = (h: ReturnType<typeof rig>, job: Partial<Job> = {}): void => {
+    const s = h.state()
+    h.setState({
+      ...s,
+      jobs: s.jobs.map((j) => ({ ...j, title: 'Shots', ...job })),
+      tasks: s.tasks.map((t) =>
+        t.id === 'tsk_1'
+          ? { ...t, status: 'failed' as const, consecutiveFailures: 1, result: 'made 19 screens, gaps listed', prompt: 'p', acceptanceCriteria: ['c'], affectedPaths: ['src/a'], basis: { state: 'missing' as const, evidence: 'e' } }
+          : { ...t, status: 'pending' as const, deps: ['tsk_1'], prompt: 'p', acceptanceCriteria: ['c'], affectedPaths: ['src/b'], basis: { state: 'missing' as const, evidence: 'e' } }
+      )
+    })
+  }
+  const asked = (h: ReturnType<typeof rig>) => h.state().messages.filter((m) => m.type === 'escalation' && m.taskId === 'tsk_1' && m.options?.length === 3)
+
+  it('with replanning off: one pass asks the owner once, logs the stall once, and carries out the answer', async () => {
+    const h = rig()
+    failedFirst(h)
+    await h.loop.run()
+    await h.settle()
+    expect(asked(h)).toHaveLength(1)
+    expect(asked(h)[0].subject).toBe('Shots: 1 Task wait on failed tsk_1: made 19 screens, gaps listed')
+    expect(asked(h)[0].options).toEqual(['Retry', 'Accept as done', 'Cancel what waits on it'])
+    await h.loop.run()
+    await h.loop.nudge()
+    await h.settle()
+    expect(asked(h)).toHaveLength(1)
+    expect(h.logs.filter((l) => l.startsWith('run=run_1 stalled: waiting on tsk_1'))).toHaveLength(1)
+
+    expect((await h.real('questions-answer', { id: asked(h)[0].id, answer: 'Accept as done' })).status).toBe(200)
+    await h.loop.run()
+    await h.settle()
+    const t1 = h.state().tasks.find((t) => t.id === 'tsk_1')!
+    expect(t1.status).toBe('completed')
+    expect(t1.completionOverride?.reason).toContain('made 19 screens')
+    expect(h.handled()).toContain('task-failed-resolve')
+  })
+
+  it('a hands-off plan still asks the owner, and the answer Retry runs the Task again', async () => {
+    const h = rig()
+    failedFirst(h, { handsOff: true })
+    await h.loop.run()
+    await h.loop.nudge()
+    await h.settle()
+    expect(asked(h)).toHaveLength(1)
+    expect(asked(h)[0].answered).toBe(false)
+    await h.real('questions-answer', { id: asked(h)[0].id, answer: 'Retry' })
+    await h.loop.run()
+    await h.settle()
+    expect(h.state().tasks.find((t) => t.id === 'tsk_1')).toMatchObject({ status: 'ready', consecutiveFailures: 0 })
+    // the commit's own pass places it
+    await h.loop.run()
+    await h.settle()
+    expect(h.startWorker.mock.calls.map((c) => JSON.stringify(c)).some((c) => c.includes('tsk_1'))).toBe(true)
+  })
+
+  it('with replanning on: a scoped replan first, and the owner is asked once it ended with the Task still failed', async () => {
+    const h = rig()
+    failedFirst(h, { plannerSessionIds: ['ses-planner'], coordinatorAccountId: 'accA' })
+    await h.loop.run()
+    await h.settle()
+    expect(h.handled()).toContain('jobs-replan')
+    expect(h.state().jobs[0].replanning).toMatchObject({ scoped: true })
+    expect(asked(h)).toHaveLength(0)
+    const session = h.state().jobs[0].replanning!.sessionId!
+    h.clock += 60_000
+    expect((await h.as(session, 'jobs-replan-done', { id: 'job_1', summary: 'left it' })).status).toBe(200)
+    await h.loop.run()
+    await h.settle()
+    expect(h.handled().filter((c) => c === 'jobs-replan')).toHaveLength(1)
+    expect(asked(h)).toHaveLength(1)
+  })
+})
+
 describe('a long plan keeps a draft PR (W8-C)', () => {
   const twoWaves = (h: ReturnType<typeof rig>, first: Task['status'], second: Task['status']): void => {
     const s = h.state()

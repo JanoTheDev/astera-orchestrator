@@ -103,6 +103,8 @@ interface RigOpts {
   /** Phase 3R: a Host recovery (remote runtime design §2.6); none means the journal is off. */
   recovery?: { owns(): boolean; sweep(why: string): Promise<void>; catchUp(): Promise<void> }
   guard?: LostGateGuard
+  /** T36: tsk_f failed (its worker reported failed) and tsk_w waits on it; nothing else runs, no coordinator. */
+  failedBlock?: boolean
 }
 
 /** Under the test's own folder (review m7): never a literal path, should the fake ever resolve one. */
@@ -129,6 +131,10 @@ function fixture(o: RigOpts): OrchState {
   if (o.lostDispatch) {
     tasks.push(task({ id: 'tsk_lost', status: 'dispatched' }))
     dispatches.push(dispatch({ id: 'dsp_lost', taskId: 'tsk_lost', endedAt: NOW }))
+  }
+  if (o.failedBlock) {
+    tasks.push(task({ id: 'tsk_f', status: 'failed', consecutiveFailures: 1, result: 'made 19 of the screens' }))
+    tasks.push(task({ id: 'tsk_w', status: 'pending', deps: ['tsk_f'] }))
   }
   if (o.openRepairWithoutSpec) {
     tasks.push(task({ id: 'tsk_rep', status: 'validating' }))
@@ -626,6 +632,19 @@ describe('createHostDriving', () => {
     await vi.waitFor(() => expect(h.taskStatus()).toBe('blocked'))
     expect(h.openGateQuestion()).toMatch(/lost/i)
     expect(h.openGateQuestion()).toContain('dsp_lost')
+  })
+  // T36: the Host's pass finds the plan stalled on its failed Task and asks the owner, once, with no app attached
+  it('asks the owner once, within one pass, when a Run can move only through a failed Task, and logs the stall', async () => {
+    const h = await rig({ failedBlock: true })
+    await h.load()
+    const asked = () => h.orch.state().messages.filter((m) => m.type === 'escalation' && m.taskId === 'tsk_f')
+    await vi.waitFor(() => expect(asked()).toHaveLength(1))
+    expect(asked()[0]).toMatchObject({ options: ['Retry', 'Accept as done', 'Cancel what waits on it'], answered: false })
+    expect(asked()[0].subject).toContain('1 Task wait on failed tsk_f: made 19 of the screens')
+    await h.tickNow()
+    await h.settle()
+    expect(asked()).toHaveLength(1)
+    expect(h.logs.filter((l) => l.includes('run=run_1 stalled: waiting on tsk_f'))).toHaveLength(1)
   })
   // Phase 3R (remote runtime design §2.6): the Host's own reconciler decides, at the load's handover.
   it('with a Host recovery that owns recovery, the handover sweeps and no lost-worker Gate opens', async () => {

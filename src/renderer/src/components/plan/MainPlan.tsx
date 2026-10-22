@@ -25,7 +25,7 @@ export function MainPlan({ rows, acts }: { rows: readonly JobRow[]; acts: PlanAc
             <Button variant="ghost" className="plans-row__name" title={name} onClick={() => acts.onOpen(row.id)}>
               {name}
             </Button>
-            <Chip tone={planStatusOf(row).tone}>{t(planStatusOf(row).key)}</Chip>
+            <Chip tone={planStatusOf(row).tone}>{t(planStatusOf(row).key, planStatusOf(row).params)}</Chip>
             {row.areas?.length ? <span className="plans-row__facts">{row.areas.join(' · ')}</span> : null}
             <span className="plans-row__spacer" />
             <span className="plans-row__meta">{t('pages.plans.main.count', { done: row.done, total: row.total })}</span>

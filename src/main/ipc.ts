@@ -4865,7 +4865,9 @@ export function registerIpc(
     'task-update': ['id'],
     'dispatch-show': ['task'],
     'gate-create': ['task'],
-    'worker-start': ['taskId', 'task']
+    'worker-start': ['taskId', 'task'],
+    // T36: the owner's answer to a failed Task that holds back its plan
+    'task-failed-resolve': ['id']
   }
   const DISPATCH_ID_ARG: Record<string, string> = { 'worker-stop': 'dispatch', 'worker-hold': 'dispatch', 'worker-unhold': 'dispatch' }
   /** orch.command 가 받은 명령의 args 가 project 가 아닌 다른 프로젝트의 Run·Task·Dispatch 를

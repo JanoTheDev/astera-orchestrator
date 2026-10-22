@@ -4,6 +4,7 @@
 import type { OrchState } from '../state'
 import { projectOfJob } from '../projects'
 import type { Decision, Task } from '../types'
+import { isFailedWait } from '../replan'
 import { readAppSettingsObject } from '../../settings/settingsObject'
 
 /** One open question as `questions-list` returns it: a Gate (with its `kind`) or an ask / escalation (`source`). */
@@ -138,6 +139,10 @@ function safeDefault(q: OpenQuestion, choices: string[], retried: boolean): Auto
   return null
 }
 
+/** T36: the owner's question over a failed Task that holds back its plan (replan.ts `failedWaitQuestion`): never
+ *  answered by Astera, nor handed to a hands-off coordinator. Nothing else can move that plan. */
+const ownersOnly = (q: OpenQuestion): boolean => q.source === 'escalation' && isFailedWait({ type: 'escalation', options: q.options })
+
 /** Whether an earlier Gate on the question's Task was already answered with a retry. */
 const retriedOf = (s: OrchState, q: OpenQuestion): boolean =>
   s.gates.some((g) => g.taskId === q.taskId && g.id !== q.id && g.status === 'resolved' && /^retry/i.test(g.resolution ?? ''))
@@ -145,6 +150,7 @@ const retriedOf = (s: OrchState, q: OpenQuestion): boolean =>
 /** The open questions due an answer now, each with its answer. Asks wait out `ASK_GRACE_MS` for their coordinator. */
 export function autoAnswersDue(s: OrchState, open: OpenQuestion[], nowMs: number): AutoAnswer[] {
   return open.flatMap((q) => {
+    if (ownersOnly(q)) return []
     if (q.source === 'ask' && nowMs - Date.parse(q.createdAt) < ASK_GRACE_MS) return []
     return autoAnswerOf(s, q, retriedOf(s, q)) ?? []
   })
@@ -208,6 +214,7 @@ const firstLine = (text: string, max: number): string => {
  */
 export function handsOffStepsDue(s: OrchState, open: OpenQuestion[], nowMs: number): HandsOffStep[] {
   return open.flatMap((q): HandsOffStep[] => {
+    if (ownersOnly(q)) return []
     if (q.source !== undefined && nowMs - Date.parse(q.createdAt) < ASK_GRACE_MS) return []
     const retried = retriedOf(s, q)
     const asked = firstLine(q.question, 300)

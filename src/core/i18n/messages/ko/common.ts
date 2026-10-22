@@ -434,6 +434,15 @@ export const common = {
   'new.title': '새로 만들기',
   'plan.outcome.needsYou': '확인 필요',
   'plan.outcome.stalled': '멈춤 — doctor 실행',
+  // T36: a plan stalled on a failed Task (plan card, Plan detail, jobActions.resolveFailed)
+  'plan.outcome.stalledOnFailed': '실패한 작업을 기다리며 멈춤: {task}',
+  'plan.failedWait.hint': '이 작업이 실패했고 남은 작업이 이것을 기다립니다: 다시 시도, 완료로 인정, 또는 기다리는 작업 취소',
+  'plan.failedWait.retry': '다시 시도',
+  'plan.failedWait.accept': '완료로 인정',
+  'plan.failedWait.cancel': '기다리는 작업 취소',
+  'plan.failedWait.cancelBody': '이 실패한 작업을 기다리는, 시작하지 않은 작업이 계획에서 빠집니다. 되돌릴 수 없습니다.',
+  'plan.failedWait.acceptReason': '소유자가 완료로 인정함',
+  'plan.failedWait.failed': '실패한 작업을 처리하지 못했습니다',
   // W9-F: orchestration panels (shell, attribution, inbox …)
   'shell.page.inbox': '받은편지함',
   'inbox.kind.waiting': '대기 중',

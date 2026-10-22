@@ -14,6 +14,8 @@ export interface PlanStatus {
   tone: ChipTone
   /** Why a failed plan's delivery failed (the Run's deliveryError) */
   reason?: string
+  /** The key's placeholders (T36: the failed Task's title) */
+  params?: MessageParams
 }
 
 /** The one word a plan row's status chip says. A person's part first (approve, a gate), then what holds it, then how it runs. */
@@ -27,6 +29,8 @@ export function planStatusOf(row: JobRow): PlanStatus {
   if (slot === 'auto') return { key: 'jobs.run.startsByItself', tone: 'info' }
   if (row.pendingStart) return row.after !== undefined ? { key: 'pages.plans.status.queued', tone: 'neutral' } : { key: 'jobs.run.notStarted', tone: 'neutral' }
   if (row.paused) return { key: 'jobs.run.roundStopped', tone: 'neutral' }
+  // T36: waits on a failed Task, never read as paused or running (stallOf is already undefined for a paused Run)
+  if (row.stalledOn) return { key: 'plan.outcome.stalledOnFailed', tone: 'danger', params: { task: row.stalledOn.title } }
   // Item 2: everything else ended, and the Tasks held for the owner are left
   if (row.outcome === 'blocked') return { key: 'pages.plans.status.blocked', tone: 'warn' }
   // T8: nothing can move until the owner answers (JobRow.stuck)

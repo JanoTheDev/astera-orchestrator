@@ -197,7 +197,7 @@ import {
   type JobSourcesDeps
 } from './commandSources'
 // W6-D wave replanning
-import { replanJobOf, waveOpen, type ReplanRecord } from './replan'
+import { failedWaitAsked, failedWaitQuestion, replanJobOf, resolveFailedWait, stallOf, waveOpen, type ReplanRecord } from './replan'
 import { REPLAN_COMMANDS, replanCommand, replanRefusal } from './exec/replanStart'
 // Coordinator rotation
 import { coordinatorHandoff, refreshCoordinator } from './exec/coordinatorRotate'
@@ -4628,7 +4628,8 @@ export async function handleCommand(
         // escape hatch. It happens as part of the same single state change as the status update (the
         // design that opens the circuit at 3 failures is unchanged).
         consecutiveFailures: 0,
-        ...(result !== null ? { result } : {})
+        ...(result !== null ? { result } : {}),
+        ...(asked === 'completed' && str(args.gaps) ? { gaps: str(args.gaps)! } : {})
       }
       // Without recomputeReady, correcting this Task to completed would leave the pending Tasks that
       // depend on it unpromoted to ready, stranded indefinitely until the next trigger (task-create
@@ -5195,6 +5196,28 @@ export async function handleCommand(
       await deps.setState({ ...s, jobs: s.jobs.map((j) => (j.id === id ? next : j)) })
       return okBody(next)
     }
+    // T36: the owner's way past a failed Task that holds back its plan (replan.ts resolveFailedWait): the plan views'
+    // buttons, and the driving loop carrying out an answered question. Never an agent's: a hands-off plan asks here.
+    case 'task-failed-resolve': {
+      if (fromAgentSession || caller.role === 'mcp') return denied(`${cmd} is for the person, in Astera or at their own shell`)
+      const id = str(args.id)
+      if (!id) return bad('--id is required: the failed Task')
+      const action = str(args.action)
+      if (action !== 'retry' && action !== 'accept' && action !== 'cancel') return bad('--action must be one of retry|accept|cancel')
+      return commit(resolveFailedWait(s, id, action, now, { reason: str(args.reason) ?? undefined }))
+    }
+    // T36: the driving loop asks the owner once about each failure a stalled Run waits on (replan.ts stallOf).
+    case 'run-failed-ask': {
+      if (fromAgentSession || caller.role === 'mcp') return denied(`${cmd} is Astera's own`)
+      const id = str(args.run)
+      const run = s.runs.find((r) => r.id === id)
+      if (!run) return notFound(`unknown run: ${String(id)}`)
+      const stall = stallOf(s, run)
+      if (!stall) return okBody({ stalled: false, asked: [] })
+      const questions = stall.blocks.filter((b) => !failedWaitAsked(s, b.task)).map((b) => failedWaitQuestion(s, b, now))
+      if (questions.length) await deps.setState({ ...s, messages: [...s.messages, ...questions] })
+      return okBody({ stalled: true, reason: stall.reason, asked: questions.map((q) => ({ id: q.id, taskId: q.taskId })) })
+    }
     case 'run-use': {
       // Run binding. For now this assumes real use has exactly one Run and is left as a no-op
       // success — check falls back to latestRun(s) anyway, so for an ordinary Run the
@@ -5387,6 +5410,7 @@ export async function handleCommand(
               typeof args.filesModified === 'string'
                 ? args.filesModified.split(',').filter(Boolean)
                 : undefined,
+            gaps: str(args.gaps) ?? undefined,
             // 검증기가 주입되지 않은 배선에서는 검증이 없는 것으로 동작한다. validating 으로
             // 보내면 결과를 가져다줄 것이 없어 Task 가 거기서 영원히 멈춘다(startValidation 참고).
             canValidate: !!deps.startValidation,

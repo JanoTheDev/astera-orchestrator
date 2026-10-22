@@ -11,7 +11,7 @@ import { otherPlansBrief } from '../overlap'
 import { collectChanges, rangesFor } from '../changedFiles'
 import type { OrchServerDeps } from '../command'
 import { PLANNER_COMMANDS, planFieldsFromArgs, validatePlan } from '../planner'
-import { REPLAN_FOLLOW_UPS_MAX, affectedLeft, cancelRemainingTask, deviatingTasks, editRemainingTask, notStarted, replanAccountOf, replanJobOf, replanOn, runTasks, waveOpen, type ReplanEnded, type ReplanRecord } from '../replan'
+import { REPLAN_FOLLOW_UPS_MAX, affectedLeft, cancelRemainingTask, deviatingTasks, editRemainingTask, notStarted, replanAccountOf, replanJobOf, replanOn, resolveFailedWait, runTasks, waveOpen, type ReplanEnded, type ReplanRecord } from '../replan'
 import { isIntegrationTask } from '../integrate'
 import { jobNameOf } from '../jobName'
 import { placedByApp, type OrchState } from '../state'
@@ -87,6 +87,11 @@ export function replanRefusal(s: OrchState, sessionId: string, cmd: string, args
   if (cmd === 'task-update' || cmd === 'task-cancel') {
     const task = s.tasks.find((t) => t.id === args.id)
     if (!task || task.runId !== runId) return `a replan changes the Tasks of its Run (${runId}) only`
+    // T36: a failed Task is retried (--status ready, with a changed spec) or accepted as done (--status completed --reason)
+    if (cmd === 'task-update' && task.status === 'failed' && args.convergence === undefined)
+      return args.status === 'ready' || args.status === 'completed'
+        ? null
+        : `${task.id} failed: retry it with --status ready (and a changed spec), or accept it with --status completed --reason "<its gaps>"`
     if (!notStarted(s, task)) return `${task.id} has started or finished: a replan changes only Tasks that have not started`
     if (args.status !== undefined || args.convergence !== undefined) return 'a replan edits what a Task asks for, not its status'
   }
@@ -126,7 +131,7 @@ export function replanSummary(s: OrchState, job: Job, note?: string): { line: st
 
 /** One completed Task, as the replan brief shows it. */
 export interface DoneTask {
-  task: Pick<Task, 'id' | 'title' | 'result' | 'reviewRequested' | 'reviewIssues' | 'filesModified'>
+  task: Pick<Task, 'id' | 'title' | 'result' | 'reviewRequested' | 'reviewIssues' | 'filesModified' | 'gaps'>
   /** The files git says it changed (`runs-changed-files`), or null when git could not tell. */
   changed: string[] | null
 }
@@ -142,6 +147,8 @@ export function buildReplanBrief(a: {
   accountId: string
   followUps: number
   done: DoneTask[]
+  /** T36: failed Tasks that hold back not-started ones, with their worker's report. */
+  failed?: Pick<Task, 'id' | 'title' | 'result'>[]
   running: Pick<Task, 'id' | 'title'>[]
   left: Pick<Task, 'id' | 'title' | 'deps' | 'affectedPaths'>[]
   /** W7-A: the owner's feedback this replan was started for, at once rather than at a wave boundary. */
@@ -180,9 +187,17 @@ export function buildReplanBrief(a: {
           `- ${t.id} (${t.title})`,
           `  report: ${oneLine(t.result, 600)}`,
           `  review: ${reviewOf(t)}`,
+          ...(t.gaps ? [`  gaps: ${oneLine(t.gaps, 600)}`] : []),
           `  changed files: ${(changed ?? t.filesModified ?? []).join(', ') || '(none recorded)'}`
         ])
       : ['- (none)']),
+    ...(a.failed?.length
+      ? [
+          '',
+          'WHAT FAILED (its worker failed and nothing retries it; what waits on it cannot start until you act)',
+          ...a.failed.flatMap((t) => [`- ${t.id} (${t.title})`, `  report: ${oneLine(t.result, 600)}`])
+        ]
+      : []),
     ...(a.running.length ? ['', 'RUNNING NOW (leave these alone)', ...a.running.map((t) => `- ${t.id} (${t.title})`)] : []),
     '',
     a.focused ? 'WHAT IS LEFT THAT THESE CAN AFFECT (not started; these you may change)' : 'WHAT IS LEFT (not started; these you may change)',
@@ -212,6 +227,13 @@ export function buildReplanBrief(a: {
     `- Add a Task: \`astera task-create --run ${a.runId} --account ${a.accountId}\` with the planner flags (--prompt -, --criteria, --affected-paths, --deps, --difficulty, --model-reason) and, on every Task, --basis missing|partial|broken and --evidence "<file:line, #issue, PR or Job id>".`,
     '  A follow-up for a review\'s leftovers uses `--basis partial` with evidence naming the parent Task id and its review (for example "tsk_x review round 2: <issue>").',
     '- Cancel a Task that has not started and is no longer needed: `astera task-cancel --id <taskId> --reason "<why>"`.',
+    ...(a.failed?.length
+      ? [
+          '- For a failed Task: retry it with what it asks changed (`astera task-update --id <taskId> --status ready` with --spec or --prompt -),',
+          '  accept what it did as done with its gaps (`astera task-update --id <taskId> --status completed --reason "<its gaps>"`),',
+          '  or rewire or cancel what waits on it, or add a Task that covers the gap. Left as it is, the owner is asked.'
+        ]
+      : []),
     'Astera refuses any change to a completed or running Task, and every command that starts work.',
     ...(completion
       ? [
@@ -231,7 +253,7 @@ export function buildReplanBrief(a: {
 }
 
 /** The Job's Run and its Tasks split for the brief, with each completed Task's changed files read from git. */
-async function briefParts(deps: OrchServerDeps, s: OrchState, runId: string, only?: readonly Task[]): Promise<Pick<Parameters<typeof buildReplanBrief>[0], 'done' | 'running' | 'left'>> {
+async function briefParts(deps: OrchServerDeps, s: OrchState, runId: string, only?: readonly Task[]): Promise<Pick<Parameters<typeof buildReplanBrief>[0], 'done' | 'failed' | 'running' | 'left'>> {
   const own = s.tasks.filter((t) => t.runId === runId && !isIntegrationTask(t))
   const done: DoneTask[] = []
   for (const t of own.filter((x) => x.status === 'completed' && (!only || only.some((o) => o.id === x.id)))) {
@@ -244,9 +266,12 @@ async function briefParts(deps: OrchServerDeps, s: OrchState, runId: string, onl
     done.push({ task: t, changed })
   }
   const left = own.filter((t) => notStarted(s, t))
+  // T36: a failed Task the replan was started for is listed with its report, not as running
+  const failed = own.filter((t) => t.status === 'failed' && only?.some((o) => o.id === t.id))
   return {
     done,
-    running: own.filter((t) => t.status !== 'completed' && !notStarted(s, t)),
+    failed,
+    running: own.filter((t) => t.status !== 'completed' && !notStarted(s, t) && !failed.includes(t)),
     left: only ? affectedLeft(only, left) : left
   }
 }
@@ -278,6 +303,16 @@ export async function replanCommand(deps: OrchServerDeps, caller: Caller, cmd: s
     if (!plan.ok) return bad(plan.error)
     if (args.deps !== undefined && !(Array.isArray(args.deps) && args.deps.every((d) => typeof d === 'string')))
       return bad('--deps must be a JSON array of Task ids')
+    // T36: the failed Task the replan was started for: retried with what it asks changed, or accepted with its gaps
+    if (s.tasks.find((t) => t.id === id)?.status === 'failed') {
+      const accept = args.status === 'completed'
+      if (accept && !str(args.reason)) return bad('--reason is required: why its work counts as done (its gaps)')
+      const patch = { ...plan.fields, ...(str(args.title) ? { title: str(args.title)! } : {}), ...(str(args.spec) ? { spec: str(args.spec)! } : {}) }
+      const r = resolveFailedWait(s, id, accept ? 'accept' : 'retry', now, accept ? { reason: str(args.reason)! } : { patch })
+      if (!r.ok) return r.missing ? notFound(r.error) : bad(r.error)
+      await deps.setState(r.state)
+      return ok(r.value)
+    }
     const r = editRemainingTask(
       s,
       id,

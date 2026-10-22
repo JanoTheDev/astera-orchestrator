@@ -5,7 +5,10 @@
 // once every Task it waits on (its deps, transitively) has completed. Unrelated Tasks of a lower wave never hold it, and
 // a failure holds back only what depends on it. With replanning on, a completed Task that did not go as planned
 // (`deviatingTasks`) holds the not-started Tasks it can affect (`affectedLeft`: downstream of it, or sharing paths with
-// it) until a replan has looked at it. The driving loop starts that replan (`replansDue`, exec/dispatchLoop.ts) through
+// it) until a replan has looked at it. T36: so does a failed Task nothing else retries (no coordinator, or its tries used
+// up) while not-started Tasks wait on it (`failedBlocks`): the replan may retry it, accept it as done, or rewire what
+// waits. A Run whose only way on is through a failed Task is stalled (`stallOf`): the driving loop then asks the owner
+// once (`failedWaitQuestion`) and carries out the answer (`resolveFailedWait`). The driving loop starts that replan (`replansDue`, exec/dispatchLoop.ts) through
 // `jobs-replan` (exec/replanStart.ts); such a replan is *scoped*: it holds only those Tasks, the rest of the plan goes
 // on. The final check, owner feedback and a person's own replan are not scoped: they hold the whole Job
 // (`dispatchHold`). The planner may change only what has not started: `replanRefusal` is asked before
@@ -20,8 +23,9 @@ import { reviewRoundIn } from './convergence'
 import { layersOf } from './graph'
 import { crossPlanDepRefusal, externalDepsOf, waitsOnItself } from './mainPlan'
 import { jobActive, pathsOverlap } from './schedule'
-import { jobOf, type OrchState, type PlanFields, type Res } from './state'
-import type { Job, ReplanMark, Task } from './types'
+import { doneStatusOf, jobOf, type OrchState, type PlanFields, type Res } from './state'
+import { jobNameOf } from './jobName'
+import { FAILURE_LIMIT, newId, recomputeReady, type Job, type JobRun, type Message, type ReplanMark, type Task } from './types'
 
 /** The replan under way, with `scoped`: started for deviations, so it holds only the Tasks they can affect (no
  *  `dispatchHold`). Absent (also in an older file): it holds the whole Job. */
@@ -109,10 +113,11 @@ const completedIn = (ts: readonly Task[]): number => ts.filter((t) => t.status =
 
 /** Whether a completed Task went as planned, from Host state only: no attempt of it failed (a retry resets its failure
  *  count, so the Dispatches say), it needed one review round at most,
- *  was not let through by a person, and touched files only inside its affected paths (no paths: nothing to leave). */
+ *  was not let through by a person, reported no gaps, and touched files only inside its affected paths (no paths: nothing to leave). */
 const wentAsPlanned = (s: OrchState, t: Task): boolean =>
   !s.dispatches.some((d) => d.taskId === t.id && !d.review && d.outcome === 'failed') &&
   t.completionOverride === undefined &&
+  !t.gaps &&
   reviewRoundIn(s.dispatches.filter((d) => d.taskId === t.id)) <= 1 &&
   (t.filesModified ?? []).every((f) => !t.affectedPaths?.length || t.affectedPaths.some((p) => pathsOverlap(f, p)))
 
@@ -122,10 +127,19 @@ function coveredSince(job: Job, runId: string): string {
   return last?.runId === runId ? (last.startedAt ?? last.at) : ''
 }
 
-/** The completed Tasks of a Run that did not go as planned and that no replan has looked at yet. */
+/** The Tasks of a Run that did not go as planned and that no replan has looked at yet: completed ones that went
+ *  another way, and (T36) failed ones holding back not-started Tasks that nothing else retries: the Run has no
+ *  coordinator, or the Task's tries are used up. */
 function unplanned(s: OrchState, job: Job, runId: string): Task[] {
   const since = coveredSince(job, runId)
-  return runTasks(s, runId).filter((t) => t.status === 'completed' && t.updatedAt > since && !wentAsPlanned(s, t))
+  const run = s.runs.find((r) => r.id === runId)
+  const coordinator = run?.coordinatorSessionId !== undefined || run?.externalCoordinatorSessionId !== undefined
+  const failed = new Set(
+    failedBlocks(s, runId)
+      .filter((b) => !coordinator || b.task.consecutiveFailures >= FAILURE_LIMIT)
+      .map((b) => b.task.id)
+  )
+  return runTasks(s, runId).filter((t) => t.updatedAt > since && (t.status === 'completed' ? !wentAsPlanned(s, t) : failed.has(t.id)))
 }
 
 /** The Tasks a wave replan has to look at: those completed since this Run's last replan began that did not go as
@@ -142,6 +156,177 @@ function heldForReplan(s: OrchState, job: Job, runId: string): Set<string> {
   const deviating = unplanned(s, job, runId)
   if (deviating.length === 0) return new Set()
   return new Set(affectedLeft(deviating, runTasks(s, runId).filter((t) => notStarted(s, t))).map((t) => t.id))
+}
+
+/** T36: a failed Task with no worker on it, and the not-started Tasks that wait on it, directly or through others. */
+export interface FailedBlock {
+  task: Task
+  waiting: Task[]
+}
+
+/** The failed Tasks of a Run that hold back not-started Tasks, each with what waits on it. */
+export function failedBlocks(s: OrchState, runId: string): FailedBlock[] {
+  const own = runTasks(s, runId)
+  const working = new Set(s.dispatches.filter((d) => !d.outcome && !d.endedAt).map((d) => d.taskId))
+  const left = own.filter((t) => notStarted(s, t))
+  return own
+    .filter((t) => t.status === 'failed' && !working.has(t.id))
+    .map((task) => ({ task, waiting: downstreamIn(task.id, left) }))
+    .filter((b) => b.waiting.length > 0)
+}
+
+/** The Tasks of `left` that wait on `id`, directly or through others of `left`. */
+function downstreamIn(id: string, left: readonly Task[]): Task[] {
+  const hit = new Set([id])
+  for (let grew = true; grew; ) {
+    grew = false
+    for (const t of left)
+      if (!hit.has(t.id) && t.deps.some((d) => hit.has(d))) {
+        hit.add(t.id)
+        grew = true
+      }
+  }
+  return left.filter((t) => t.id !== id && hit.has(t.id))
+}
+
+/** T36: why a Run cannot move, and the failed Tasks it waits on. */
+export interface RunStall {
+  reason: string
+  blocks: FailedBlock[]
+}
+
+/**
+ * T36: whether Run `run` is stalled, the one place that says so (the driving loop, `runs doctor` and the plan views read
+ * it). Stalled: its plan is active, not paused, not held by a person, not replanning; no coordinator, worker or reviewer
+ * works on it; no open Gate, no unanswered worker question and no escalation waiting for a choice (the question this
+ * raises, `isFailedWait`, does not count: it is how the stall is resolved); and every unfinished Task is a failed one
+ * that holds back not-started Tasks, or one of those. A Run with nothing waiting on its failures has ended, not stalled.
+ */
+export function stallOf(s: OrchState, run: JobRun): RunStall | undefined {
+  const job = jobOf(s, run)
+  if (!job || !jobActive(job) || job.dispatchHold || job.replanning || run.paused) return undefined
+  if (run.coordinatorSessionId !== undefined || run.externalCoordinatorSessionId !== undefined) return undefined
+  const own = runTasks(s, run.id)
+  const ids = new Set(own.map((t) => t.id))
+  if (s.dispatches.some((d) => ids.has(d.taskId) && !d.outcome && !d.endedAt)) return undefined
+  if (s.gates.some((g) => g.runId === run.id && g.status === 'open')) return undefined
+  const asked = (m: Message): boolean =>
+    m.runId === run.id && !m.answered && (m.type === 'question' || (m.type === 'escalation' && (m.options?.length ?? 0) > 0 && !isFailedWait(m)))
+  if (s.messages.some(asked)) return undefined
+  const blocks = failedBlocks(s, run.id)
+  if (blocks.length === 0) return undefined
+  const stuck = new Set(blocks.flatMap((b) => [b.task.id, ...b.waiting.map((t) => t.id)]))
+  if (!own.every((t) => t.status === 'completed' || (t.status === 'failed' && t.consecutiveFailures >= FAILURE_LIMIT) || stuck.has(t.id)))
+    return undefined
+  const first = blocks[0]
+  const more = blocks.length > 1 ? ` and ${blocks.length - 1} other failed Task(s)` : ''
+  return { reason: `waiting on ${first.task.id} (${first.task.title}) (failed): ${first.waiting.length} Task(s) wait on it${more}`, blocks }
+}
+
+/** T36: the answers of the owner question over a failed Task that holds back the rest of its plan. */
+export const FAILED_WAIT_OPTIONS = ['Retry', 'Accept as done', 'Cancel what waits on it'] as const
+export type FailedWaitAction = 'retry' | 'accept' | 'cancel'
+const FAILED_WAIT_ACTIONS: readonly FailedWaitAction[] = ['retry', 'accept', 'cancel']
+
+/** The owner question `failedWaitQuestion` raised: told apart by its answers. */
+export const isFailedWait = (m: Pick<Message, 'type' | 'options'>): boolean =>
+  m.type === 'escalation' && m.options?.length === FAILED_WAIT_OPTIONS.length && FAILED_WAIT_OPTIONS.every((o, i) => m.options![i] === o)
+
+/** The questions raised over `task` since it last failed. */
+const failedWaitsOf = (s: OrchState, task: Task): Message[] =>
+  s.messages.filter((m) => isFailedWait(m) && m.taskId === task.id && m.createdAt >= task.updatedAt)
+
+/** Whether the owner was asked about this failure of `task` already: one question per failure. */
+export const failedWaitAsked = (s: OrchState, task: Task): boolean => failedWaitsOf(s, task).length > 0
+
+const oneLine = (text: string | undefined, max: number): string => (text ?? '').replace(/\s+/g, ' ').trim().slice(0, max) || '(no report)'
+
+/** The owner question over a failed Task that holds back `block.waiting`: an escalation in its Run, with the three
+ *  answers. "<plan>: N Tasks wait on failed <Task>: <its result>". */
+export function failedWaitQuestion(s: OrchState, block: FailedBlock, now: string): Message {
+  const run = s.runs.find((r) => r.id === block.task.runId)
+  const job = run && jobOf(s, run)
+  const plan = job ? jobNameOf(job) : (block.task.runId ?? '')
+  const n = block.waiting.length
+  return {
+    id: newId('msg'),
+    runId: block.task.runId ?? '',
+    type: 'escalation',
+    taskId: block.task.id,
+    subject: `${plan}: ${n} Task${n === 1 ? '' : 's'} wait on failed ${block.task.title}: ${oneLine(block.task.result, 300)}`.slice(0, 500),
+    body:
+      `${block.task.title} (${block.task.id}) failed, and nothing else can move the plan: ` +
+      `${block.waiting.map((t) => t.title).join(', ')} wait on it.\n\n` +
+      `${FAILED_WAIT_OPTIONS[0]}: run it again. ${FAILED_WAIT_OPTIONS[1]}: take what it did as done, with its gaps, so what ` +
+      `waits on it starts. ${FAILED_WAIT_OPTIONS[2]}: drop the Tasks that wait on it; the rest of the plan ends.`,
+    options: [...FAILED_WAIT_OPTIONS],
+    answered: false,
+    createdAt: now
+  }
+}
+
+/** The owner's answer to the question over this failure of `task`, while the Task is still failed: the newest
+ *  answered one. A hands-off answer reads "<choice>. Why: <reason>", so the choice is the part before it. */
+export function failedWaitChoice(s: OrchState, task: Task): FailedWaitAction | undefined {
+  if (task.status !== 'failed') return undefined
+  const m = failedWaitsOf(s, task).filter((x) => x.answered && x.answerBody !== undefined).at(-1)
+  const said = m?.answerBody?.split(/\.\s*why:/i)[0].trim().toLowerCase()
+  if (said === undefined) return undefined
+  const i = FAILED_WAIT_OPTIONS.findIndex((o) => o.toLowerCase() === said)
+  return i >= 0 ? FAILED_WAIT_ACTIONS[i] : FAILED_WAIT_ACTIONS.find((a) => a === said)
+}
+
+/**
+ * T36: carries out a choice over a failed Task (the owner's answer, the plan views' buttons, or a replan):
+ * - `retry`: it is ready again with its tries reset, with `patch` (a replan's changed spec) applied;
+ * - `accept`: it counts as done with its gaps (`completionOverride` with `reason`), so what waits on it starts;
+ * - `cancel`: the not-started Tasks that wait on it leave the Run, and it stays failed with its tries used up, so the
+ *   Run ends.
+ * Its open questions are marked answered with the choice.
+ */
+export function resolveFailedWait(
+  s: OrchState,
+  taskId: string,
+  action: FailedWaitAction,
+  now: string,
+  opts: { reason?: string; patch?: PlanFields & { title?: string; spec?: string } } = {}
+): Res<Task> {
+  const task = s.tasks.find((t) => t.id === taskId)
+  if (!task) return { ok: false, error: `unknown task: ${taskId}`, missing: true }
+  if (task.status !== 'failed') return { ok: false, error: `${taskId} is ${task.status}, not failed` }
+  if (s.dispatches.some((d) => d.taskId === taskId && !d.outcome && !d.endedAt)) return { ok: false, error: `${taskId} has a worker on it` }
+  let next: OrchState = s
+  if (action === 'cancel') {
+    let rest = task.runId === undefined ? [] : (failedBlocks(s, task.runId).find((b) => b.task.id === taskId)?.waiting ?? [])
+    // Leaves first: a Task is cancelled once nothing unfinished waits on it (cancelRemainingTask)
+    while (rest.length > 0) {
+      const before = rest.length
+      for (const t of [...rest]) {
+        const r = cancelRemainingTask(next, t.id)
+        if (!r.ok) continue
+        next = r.state
+        rest = rest.filter((x) => x.id !== t.id)
+      }
+      if (rest.length === before) return { ok: false, error: `${rest.map((t) => t.id).join(', ')} could not be cancelled` }
+    }
+    const done = { ...task, consecutiveFailures: Math.max(task.consecutiveFailures, FAILURE_LIMIT), updatedAt: now }
+    next = { ...next, tasks: next.tasks.map((t) => (t.id === taskId ? done : t)) }
+  } else if (action === 'retry') {
+    const done: Task = { ...task, ...opts.patch, status: 'ready', consecutiveFailures: 0, updatedAt: now }
+    next = { ...next, tasks: next.tasks.map((t) => (t.id === taskId ? done : t)) }
+  } else {
+    const done: Task = {
+      ...task,
+      status: doneStatusOf(s, task),
+      consecutiveFailures: 0,
+      completionOverride: { reason: opts.reason?.trim() || 'accepted as done with its gaps', at: now },
+      updatedAt: now
+    }
+    next = { ...next, tasks: recomputeReady(next.tasks.map((t) => (t.id === taskId ? done : t))) }
+  }
+  const label = FAILED_WAIT_OPTIONS[FAILED_WAIT_ACTIONS.indexOf(action)]
+  next = { ...next, messages: next.messages.map((m) => (isFailedWait(m) && m.taskId === taskId && !m.answered ? { ...m, answered: true, answerBody: label } : m)) }
+  return { ok: true, state: next, value: next.tasks.find((t) => t.id === taskId)! }
 }
 
 /** The not-started Tasks `deviating` can affect: waiting on one of them (or on a Task so affected), or sharing paths
@@ -168,7 +353,8 @@ export function affectedLeft(deviating: readonly Task[], left: readonly Task[]):
  * The replans the driving loop should start now, one per Run at most:
  * - `wave`: a completed Task did not go as planned, no replan has looked at it, and a not-started Task it can affect is
  *   left (`heldForReplan`). Its `wave` is the lowest wave of those Tasks. A plan that goes as planned never replans
- *   before the end, and a failed Task is no deviation: what waits on it simply does not start.
+ *   before the end. T36: a failed Task that holds back not-started Tasks and that nothing else retries counts too
+ *   (`unplanned`): the replan looks at it once; still failed after that, the Run stalls and the owner is asked.
  * - `completion`: every Task is completed and the last replan was not a completion pass over this many done Tasks.
  *   Only for a Run `seenRunning` says this process watched run, so a Run that ended before (or before this existed)
  *   is not reopened.

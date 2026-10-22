@@ -18,6 +18,7 @@ import { SourceChip } from '../SourceChip'
 import { RunPrChip } from '../TaskLinkChips'
 import { STATE_KEY, TaskGlyph, TaskIcon } from '../JobIcons'
 import { approveSlot } from './planTalk'
+import { FailedWaitButtons } from './FailedWaitButtons'
 import { ageOf } from './planBoard'
 import { convergenceText, isRunningTask, lastActivityOf, planStatusOf, taskMeta } from './planList'
 
@@ -35,6 +36,8 @@ export interface PlanActs {
   onArchive?: (id: string) => void
   onUnarchive?: (id: string) => void
   onHold?: (id: string, hold: boolean) => void
+  /** T36: the owner's answer to the failed Task a stalled plan waits on (JobRow.stalledOn) */
+  onResolveFailed?: (taskId: string, action: 'retry' | 'accept' | 'cancel') => void
 }
 
 /** Running worker lines drawn; the rest fold into "+N". */
@@ -144,7 +147,7 @@ export function PlanRow({
           </Button>
         )}
         <Chip tone={status.tone} dot>
-          {t(status.key)}
+          {t(status.key, status.params)}
         </Chip>
         {status.reason !== undefined && <span className="plans-row__reason">{t('jobs.run.notDelivered', { reason: status.reason })}</span>}
         <SourceChip source={row.source} />
@@ -172,6 +175,10 @@ export function PlanRow({
           <span className="plans-row__meta" title={new Date(last).toLocaleString()}>
             {t('pages.plans.age', { age: ageOf(new Date(last).toISOString(), ageMs ?? nowMs) })}
           </span>
+        )}
+        {/* T36: a plan stalled on a failed Task: the three ways on stand on the row */}
+        {row.stalledOn && acts.onResolveFailed && (
+          <FailedWaitButtons title={row.stalledOn.result} onAct={(a) => acts.onResolveFailed?.(row.stalledOn!.taskId, a)} />
         )}
         {slot === 'approve' && acts.onApprove && (
           <Button size="sm" title={t('jobs.run.approveHint')} onClick={() => acts.onApprove?.(row.id)}>

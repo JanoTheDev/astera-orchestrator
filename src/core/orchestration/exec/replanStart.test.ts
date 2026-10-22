@@ -6,7 +6,7 @@ import { emptyState, type OrchState } from '../state'
 import { deriveActivity, noticeOf, type ActivityEvent } from '../activity'
 import type { Dispatch, Task } from '../types'
 import { replanOn, replansDue } from '../replan'
-import { REPLAN_LIFT_HOLD } from './replanStart'
+import { REPLAN_LIFT_HOLD, buildReplanBrief } from './replanStart'
 
 const NOW = '2026-10-18T00:00:00.000Z'
 const LATER = '2026-10-18T01:00:00.000Z'
@@ -566,5 +566,97 @@ describe('the wave boundary moves on', () => {
     }
     await r.person('jobs-replan', { id: jobId })
     expect(r.state().messages.find((m) => m.type === 'escalation')?.options).toEqual([REPLAN_LIFT_HOLD])
+  })
+})
+
+describe('T36: the replan brief and gaps', () => {
+  it('prints a gaps line for a done Task that reported gaps, and none for one that did not', () => {
+    const brief = (gaps?: string): string =>
+      buildReplanBrief({
+        job: { id: 'job_1', objective: 'o', cwd: '/r' },
+        runId: 'run_1',
+        mode: 'wave',
+        wave: 1,
+        accountId: 'acc1',
+        followUps: 0,
+        done: [{ task: { id: 'tsk_a', title: 'A', result: 'built A', ...(gaps ? { gaps } : {}) }, changed: null }],
+        running: [],
+        left: []
+      })
+    expect(brief('e2e not run: no display')).toContain('  gaps: e2e not run: no display')
+    expect(brief()).not.toContain('gaps:')
+  })
+})
+
+describe('T36: a replan for a failed Task', () => {
+  /** A completed as planned; B failed with its tries used up; C waits on B. */
+  const failedB = async (r: Rig) => {
+    const ids = await approved(r, {}, true)
+    const b = ids.id('B')
+    r.set({
+      ...r.state(),
+      tasks: r.state().tasks.map((t) => (t.id === b ? { ...t, status: 'failed' as const, consecutiveFailures: 3, result: 'made 19 of 25 screens' } : t)),
+      dispatches: [
+        ...r.state().dispatches,
+        { id: 'dsp_b', taskId: b, outcome: 'failed', workerState: 'failed', sessionId: 'ses-b', provider: 'claude', accountId: 'acc1', cwd: '/repo', specPath: '/s.md', startedAt: NOW, endedAt: NOW, retained: false } as Dispatch
+      ]
+    })
+    return ids
+  }
+
+  it('is due, and briefs the failure with its report and what waits on it', async () => {
+    const r = rig()
+    const { jobId, runId, id } = await failedB(r)
+    const due = replansDue(r.state(), () => true)
+    expect(due).toEqual([expect.objectContaining({ runId, mode: 'wave' })])
+    expect((await r.person('jobs-replan', { id: jobId, run: runId, mode: 'wave', wave: due[0].wave })).status).toBe(200)
+    expect(job(r).replanning).toMatchObject({ scoped: true })
+    const brief = r.starts.at(-1)!.brief as string
+    expect(brief).toContain('WHAT FAILED')
+    expect(brief).toContain('report: made 19 of 25 screens')
+    expect(brief).toContain(`${id('C')} (C)`)
+    expect(brief).not.toMatch(/RUNNING NOW[^]*\(B\)/)
+    expect(brief).toContain('--status completed --reason')
+  })
+
+  it('may retry it with a changed spec, or accept it with a reason, and nothing else about its status', async () => {
+    const r = rig()
+    const { jobId, runId, id } = await failedB(r)
+    await r.person('jobs-replan', { id: jobId, run: runId, mode: 'wave', wave: 1 })
+    const replanner = r.as('ses-planner-2')
+    expect((await replanner('task-update', { id: id('B'), status: 'blocked' })).status).toBe(403)
+    expect((await replanner('task-update', { id: id('B'), status: 'completed' })).status).toBe(400)
+    expect((await replanner('task-update', { id: id('B'), status: 'ready', spec: 'only the 6 missing screens' })).status).toBe(200)
+    expect(r.state().tasks.find((t) => t.id === id('B'))).toMatchObject({ status: 'ready', consecutiveFailures: 0, spec: 'only the 6 missing screens' })
+  })
+
+  it('may accept it as done with its gaps', async () => {
+    const r = rig()
+    const { jobId, runId, id } = await failedB(r)
+    await r.person('jobs-replan', { id: jobId, run: runId, mode: 'wave', wave: 1 })
+    const reply = await r.as('ses-planner-2')('task-update', { id: id('B'), status: 'completed', reason: 'the 19 screens cover the plan' })
+    expect(reply.status).toBe(200)
+    const b = r.state().tasks.find((t) => t.id === id('B'))!
+    expect(['completed', 'merging']).toContain(b.status)
+    expect(b.completionOverride?.reason).toBe('the 19 screens cover the plan')
+  })
+})
+
+describe('T36: task-failed-resolve and run-failed-ask', () => {
+  it('are the person\'s and Astera\'s, never an agent\'s; the person resolves, Astera asks once', async () => {
+    const r = rig()
+    const { runId, id } = await approved(r, {}, true)
+    const b = id('B')
+    r.set({ ...r.state(), jobs: r.state().jobs.map((j) => ({ ...j, replan: 'off' as const })), runs: r.state().runs.map((x) => ({ ...x, coordinatorSessionId: undefined })), tasks: r.state().tasks.map((t) => (t.id === b ? { ...t, status: 'failed' as const, result: 'half done' } : t)) })
+    expect((await r.as('ses-coordinator')('task-failed-resolve', { id: b, action: 'retry' })).status).toBe(403)
+    expect((await r.as('ses-coordinator')('run-failed-ask', { run: runId })).status).toBe(403)
+    expect((await r.person('task-failed-resolve', { id: b, action: 'nope' })).status).toBe(400)
+    const ask = await r.person('run-failed-ask', { run: runId })
+    expect(ask.body).toMatchObject({ stalled: true, asked: [{ taskId: b }] })
+    expect((await r.person('run-failed-ask', { run: runId })).body).toMatchObject({ stalled: true, asked: [] })
+    const c = id('C')
+    expect((await r.person('task-failed-resolve', { id: b, action: 'cancel' })).status).toBe(200)
+    expect(r.state().tasks.some((t) => t.id === c)).toBe(false)
+    expect(r.state().messages.find((m) => m.taskId === b && m.type === 'escalation')).toMatchObject({ answered: true, answerBody: 'Cancel what waits on it' })
   })
 })

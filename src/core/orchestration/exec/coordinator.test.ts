@@ -147,6 +147,11 @@ describe('buildSpecFile', () => {
     expect(out).toContain('Never hand the final check to a subagent.')
     expect(out.indexOf('## Work fast')).toBeLessThan(out.indexOf('## Reporting obligation'))
   })
+  it('T36: the reporting section tells a worker that a few gaps are a succeeded report with --gaps', () => {
+    const out = buildSpecFile({ title: 'T', spec: 'S', taskId: 'tsk_1', dispatchId: 'dsp_1' })
+    expect(out).toContain('report --outcome succeeded and add --gaps "<what you could not reach and why>"')
+    expect(out).toContain('only when the main job is not done, or when a gap blocks what depends on this task')
+  })
   it('task 제목과 spec 전문을 담는다', () => {
     const out = buildSpecFile({ title: 'T', spec: 'S', taskId: 'tsk_1', dispatchId: 'dsp_1' })
     expect(out).toContain('# T')

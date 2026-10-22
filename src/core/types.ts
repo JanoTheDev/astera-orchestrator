@@ -842,6 +842,9 @@ export interface JobRow {
   outcome: RunOutcome
   /** T8: set only while `outcome` is `running` and nothing can move (RunStuck) */
   stuck?: RunStuck
+  /** T36: set while `stallOf` (replan.ts) says the Run waits on a failed Task: that Task, its last result and how many
+   *  not-started Tasks wait on it. The plan card and Plan detail show it with Retry, Accept as done and Cancel. */
+  stalledOn?: { taskId: string; title: string; result?: string; waiting: number }
   /** Why the Run's delivery failed (its `outcome` is `failed` for it): a merge conflict or a refused push */
   deliveryError?: string
   /** T34: the owner dismissed a failed delivery, so the work never landed. Not in `delivery`: that row is for actions to take. */
