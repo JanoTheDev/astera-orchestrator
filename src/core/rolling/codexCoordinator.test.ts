@@ -1202,12 +1202,21 @@ describe('CodexRollingCoordinator', () => {
     h.coord.stop()
   })
 
-  it('switchTo locates a plain tab registered at the click, whose rollout predates the chain', async () => {
+  it('switchTo switches a plain terminal tab handed its own rollout at registration', async () => {
     const h = harness()
-    await writeRollout({ accountId: 'c1', uuid: 'cx-plain', cwd: h.info1.cwd, primary: 3 })
-    h.coord.register({ ...h.info1, rollAccountIds: ['c1'] }) // no advance: the poll never ran
+    const file = await writeRollout({ accountId: 'c1', uuid: 'cx-plain', cwd: h.info1.cwd, primary: 3 })
+    h.coord.register({ ...h.info1, rollAccountIds: ['c1'] }, file, false, false, 'cx-plain')
     expect(await h.coord.switchTo('s1', 'c2')).toEqual({ outcome: 'switched' })
     expect(h.spawned[0].resumeSessionId).toBe('cx-plain')
+    h.coord.stop()
+  })
+
+  it('switchTo refuses a fresh terminal tab and never takes an older rollout from its folder', async () => {
+    const h = harness()
+    await writeRollout({ accountId: 'c1', uuid: 'cx-older', cwd: h.info1.cwd, primary: 3 })
+    h.coord.register({ ...h.info1, rollAccountIds: ['c1'] })
+    expect(await h.coord.switchTo('s1', 'c2')).toEqual({ outcome: 'refused', reason: 'conversation not located yet' })
+    expect(h.spawned).toHaveLength(0)
     h.coord.stop()
   })
 

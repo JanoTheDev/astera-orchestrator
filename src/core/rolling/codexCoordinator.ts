@@ -784,13 +784,15 @@ export class CodexRollingCoordinator {
       await this.refresh(chain)
       if (chain.disposed) throw new Error('no active codex rolling chain')
       if (busy()) return { outcome: 'busy' }
-      // A tab registered at this very click has had no poll run: look once now, from the epoch, because
-      // its conversation was born before the chain. A chat tab is matched by the thread id main recorded.
-      // shortcut: a plain pty tab takes the newest unclaimed rollout in its folder, the poll's own rule.
-      if (!chain.rolloutPath) {
+      // A tab registered at this very click has had no poll run, and its conversation predates the chain.
+      // Look once, by the id main recorded (a chat's thread, a resume's session): an exact match, so a
+      // fresh tab never takes another conversation's file. A terminal tab with no recorded id is mapped by
+      // main's rollout watcher, which hands the pair to register(); without it the tab is refused.
+      const knownId = chain.codexSessionId ?? chain.liveInfo.threadId ?? chain.liveInfo.resumeSessionId
+      if (!chain.rolloutPath && knownId) {
         const own = this.deps.getAccount(chain.accountIds[chain.cycle.currentIndex])
         if (own) {
-          chain.codexSessionId ??= chain.liveInfo.threadId ?? null
+          chain.codexSessionId = knownId
           await this.locateOnce(chain, own, chain.liveId, 0)
           if (chain.disposed) throw new Error('no active codex rolling chain')
           if (busy()) return { outcome: 'busy' }
