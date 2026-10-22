@@ -2,8 +2,13 @@
 // <package version>-build.<UTC time>.<short sha>, so no two builds share a name, and the package.json on disk is never
 // rewritten. A build whose HEAD is the release tag v<package version> keeps the plain version: that is what release CI
 // ships, and electron-updater must order it as the release it is.
-//   node scripts/dist-version.mjs                              prints the version
-//   node scripts/dist-version.mjs --electron-builder <args>    runs electron-builder with that version as extraMetadata
+//
+// One version per dist run, given to every step that bakes it: electron-builder (extraMetadata, so app.getVersion() and
+// the artifact names), and the processes before it that read ASTERA_BUILD_VERSION (electron-vite, host-runtime). The
+// Host runtime is laid out under builds/<that version>, and the app looks for it under app.getVersion(), so they must agree.
+//   node scripts/dist-version.mjs                                  prints the version
+//   node scripts/dist-version.mjs <cmd> <args> + <cmd> <args>      runs the steps in order, stopping at the first failure
+// A step starting with electron-builder gets -c.extraMetadata.version=<version> inserted.
 import { execFileSync, spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
@@ -41,17 +46,37 @@ export function currentBuildVersion(now = new Date()) {
   return buildVersion({ version, now, ...gitFacts(version) })
 }
 
+/** The argv tokens split on `+` into steps. Throws when a step is empty. */
+export function chainSteps(argv) {
+  const steps = [[]]
+  for (const t of argv) t === '+' ? steps.push([]) : steps.at(-1).push(t)
+  if (steps.some((s) => s.length === 0)) throw new Error('usage: dist-version.mjs <cmd> <args> [+ <cmd> <args>]…')
+  return steps
+}
+
+/** A step with the version handed to electron-builder; any other step is unchanged. */
+export function withVersion(step, version) {
+  return step[0] === 'electron-builder' ? [step[0], `-c.extraMetadata.version=${version}`, ...step.slice(1)] : step
+}
+
 if (isMain(process.argv[1], import.meta.url)) {
-  const [flag, ...args] = process.argv.slice(2)
+  const argv = process.argv.slice(2)
   const version = currentBuildVersion()
-  if (flag === undefined) {
+  if (argv.length === 0) {
     process.stdout.write(`${version}\n`)
-  } else if (flag === '--electron-builder') {
-    // shell on Windows: npm puts node_modules/.bin on PATH there as a .cmd shim, which spawn cannot run directly.
-    const r = spawnSync('electron-builder', [`-c.extraMetadata.version=${version}`, ...args], { stdio: 'inherit', shell: process.platform === 'win32' })
-    process.exit(r.status ?? 1)
   } else {
-    process.stderr.write('usage: dist-version.mjs | dist-version.mjs --electron-builder <args>\n')
-    process.exit(2)
+    let steps
+    try {
+      steps = chainSteps(argv)
+    } catch (e) {
+      process.stderr.write(`${e.message}\n`)
+      process.exit(2)
+    }
+    const env = { ...process.env, ASTERA_BUILD_VERSION: version }
+    for (const step of steps) {
+      // shell: npm puts node_modules/.bin on PATH, where the Windows entry is a .cmd shim spawn cannot run directly.
+      const r = spawnSync(withVersion(step, version).join(' '), { stdio: 'inherit', shell: true, env })
+      if (r.status !== 0) process.exit(r.status ?? 1)
+    }
   }
 }

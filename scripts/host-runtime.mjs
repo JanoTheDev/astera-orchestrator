@@ -100,7 +100,8 @@ async function fetchPinned({ url, sha256, cache }) {
 
 async function main() {
   const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
-  const appVersion = pkg.version
+  // The build version when dist-version.mjs runs this (one version per dist run); the package version otherwise.
+  const appVersion = process.env.ASTERA_BUILD_VERSION || pkg.version
 
   // The build output this wraps. Failing here rather than shipping a runtime with no entry: a Host
   // that cannot start is worse than one that was never installed, because the app would keep trying.
