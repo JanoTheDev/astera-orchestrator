@@ -39,7 +39,7 @@ export function UsageStrip({ accounts, tasks }: { accounts: readonly Account[] |
       </span>
     )
   return (
-    <div className="usage-strip" aria-label={t('usage.strip.label')}>
+    <div className="usage-strip" role="group" aria-label={t('usage.strip.label')}>
       <span className="usage-strip-title">{t('usage.strip.label')}</span>
       {rows.pool !== null && (
         <span className="usage-strip-dim">

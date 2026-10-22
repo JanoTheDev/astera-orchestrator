@@ -45,9 +45,9 @@ describe('ProjectSwitcher', () => {
   it('lists All tabs, each project with its running tabs and its key, a dot on the one waiting, then Other', () => {
     const items = switcherItems(props())
     expect(items.map((i) => i.id).slice(0, 4)).toEqual(['all', 'g', 'a', OTHER_WORKSPACE])
-    expect(html(items[1].label)).toMatch(/tb-sw-waiting[^>]*><\/span><span class="tb-sw-name">gameful<\/span><span class="tb-sw-count"[^>]*>2<\/span><kbd class="tb-sw-key">Ctrl\+Alt\+1</)
+    expect(html(items[1].label)).toMatch(/tb-sw-waiting[^>]*><\/span><span class="tb-sw-name">gameful<\/span><span class="tb-sw-count"[^>]*>2<\/span><span class="ui-kbd tb-sw-key"><kbd>Ctrl<\/kbd><kbd>Alt<\/kbd><kbd>1<\/kbd>/)
     expect(html(items[2].label)).toMatch(/<span class="tb-sw-dot"><\/span><span class="tb-sw-name">Astera<\/span><span class="tb-sw-count"[^>]*>0</)
-    expect(html(items[3].label)).toMatch(/Other<\/span><span class="tb-sw-count"[^>]*>1<\/span><kbd class="tb-sw-key">Ctrl\+Alt\+3</)
+    expect(html(items[3].label)).toMatch(/Other<\/span><span class="tb-sw-count"[^>]*>1<\/span><span class="ui-kbd tb-sw-key"><kbd>Ctrl<\/kbd><kbd>Alt<\/kbd><kbd>3<\/kbd>/)
   })
 
   it('offers each real project’s settings and the project tools, off with their reason when nothing anchors them', () => {

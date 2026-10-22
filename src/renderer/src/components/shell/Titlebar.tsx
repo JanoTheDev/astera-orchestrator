@@ -6,6 +6,7 @@ import { confirmModalWithChoices } from '../../lib/confirm'
 import { quitConfirmBody } from '../../lib/quitConfirm'
 import { useI18n } from '../../i18n/I18nProvider'
 import { titlebarView } from '../../../../core/update/sourceView'
+import { Button, Icon, IconButton } from '../ui'
 
 function UpdateIndicator({
   update,
@@ -23,9 +24,9 @@ function UpdateIndicator({
   const text = t(view.message.key, view.message.params)
   if (view.kind === 'button')
     return (
-      <button className="tb-update-btn" onClick={onInstall}>
+      <Button variant="secondary" size="sm" className="tb-update-btn" icon={<Icon name="refresh" size={14} />} onClick={onInstall}>
         {text}
-      </button>
+      </Button>
     )
   return (
     <span className={view.kind === 'error' ? 'tb-update tb-update-err' : 'tb-update'} title={update?.message}>
@@ -99,44 +100,15 @@ export function Titlebar({
       <UpdateIndicator update={update} onInstall={onInstall} />
       {!isMac && (
         <div className="tb-controls" onDoubleClick={(e) => e.stopPropagation()}>
-          <button
+          {/* square, flush with the window edge like the OS's own chrome (shell.css .tb-btn) */}
+          <IconButton className="tb-btn" icon={<Icon name="remove" />} label={t('common.minimize')} onClick={() => window.api.win.minimize()} />
+          <IconButton
             className="tb-btn"
-            aria-label={t('common.minimize')}
-            title={t('common.minimize')}
-            onClick={() => window.api.win.minimize()}
-          >
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1">
-              <line x1="1" y1="5" x2="9" y2="5" />
-            </svg>
-          </button>
-          <button
-            className="tb-btn"
-            aria-label={isMax ? t('common.restore') : t('common.maximize')}
-            title={isMax ? t('common.restore') : t('common.maximize')}
+            icon={<Icon name={isMax ? 'copy' : 'stop'} />}
+            label={isMax ? t('common.restore') : t('common.maximize')}
             onClick={() => window.api.win.maximizeToggle()}
-          >
-            {isMax ? (
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1">
-                <rect x="1" y="2.5" width="6" height="6" />
-                <rect x="2.5" y="1" width="6" height="6" />
-              </svg>
-            ) : (
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1">
-                <rect x="1" y="1" width="8" height="8" />
-              </svg>
-            )}
-          </button>
-          <button
-            className="tb-btn close"
-            aria-label={t('common.close')}
-            title={t('common.close')}
-            onClick={() => void closeWindow()}
-          >
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1">
-              <line x1="1" y1="1" x2="9" y2="9" />
-              <line x1="9" y1="1" x2="1" y2="9" />
-            </svg>
-          </button>
+          />
+          <IconButton className="tb-btn close" icon={<Icon name="close" />} label={t('common.close')} onClick={() => void closeWindow()} />
         </div>
       )}
     </div>

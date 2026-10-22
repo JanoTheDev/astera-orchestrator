@@ -2,14 +2,12 @@
 // projects, then every project with its running tabs (a count only when there are some), a dot while one waits for the
 // owner, its Ctrl+Alt+N key and a check on the open one, each row with its own new-window and settings actions on
 // hover, then the W7-B project tools. switcherItems stays the one list of actions; the popover only lays it out.
-import { useEffect, useId, useRef, useState } from 'react'
-import { AppWindow, Check, ChevronDown, Search, Settings2 } from 'lucide-react'
+import { useRef, useState } from 'react'
 import type { Attention, SessionInfo } from '../../../../core/types'
 import { OTHER_WORKSPACE, workspaceSummaries, type WorkspaceProject } from '../../state/workspaceTree'
 import { switcherName } from '../../state/projectScope'
 import * as sticky from '../../lib/stickyProject'
-import { Button, IconButton, Tooltip, type MenuItem } from '../ui'
-import { rovingKeyDown } from '../ui/Nav'
+import { Button, Icon, IconButton, Input, Kbd, Popover, Tooltip, type MenuItem } from '../ui'
 import type { Translate } from '../checkText'
 
 export interface SwitcherProps {
@@ -48,7 +46,7 @@ export function switcherItems(p: SwitcherProps): MenuItem[] {
           <span className="tb-sw-count" data-zero={r.running === 0 ? '' : undefined} aria-label={t('shell.switcher.running', { n: r.running })}>
             {r.running}
           </span>
-          {i < 9 && <kbd className="tb-sw-key">Ctrl+Alt+{i + 1}</kbd>}
+          {i < 9 && <Kbd className="tb-sw-key">{`Ctrl+Alt+${i + 1}`}</Kbd>}
         </span>
       ),
       onSelect: () => p.onSelect(r.id)
@@ -74,125 +72,111 @@ export function matchesProject(name: string, query: string): boolean {
   return q === '' || name.toLowerCase().includes(q)
 }
 
+/** The button and its searchable panel. On the house Popover: outside click and Esc close (Esc refocuses the button),
+ *  ArrowUp/Down/Home/End move over the `data-roving` controls (the search field first, then each row and its actions).
+ *  In the field Home/End keep the caret and Enter opens the first match; Tab closes the panel. */
 export function ProjectSwitcher(p: SwitcherProps): React.JSX.Element {
   const { t } = p
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const root = useRef<HTMLDivElement>(null)
-  const list = useRef<HTMLDivElement>(null)
-  const button = useRef<HTMLButtonElement>(null)
-  const search = useRef<HTMLInputElement>(null)
-  const menuId = useId()
   const label = switcherName(p.selectedId, p.tree, p.selectedId ? sticky.readName(p.selectedId) : null)
   const name = label.kind === 'all' ? t('wall.scope.all') : label.kind === 'other' ? t('shell.switcher.other') : label.kind === 'name' ? label.name : t('shell.switcher.label')
   const rows = workspaceSummaries(p.tree, p.byWorkspace, p.sessions, p.attention)
   const waiting = rows.some((r) => r.waiting)
 
-  useEffect(() => {
-    if (!open) return
-    search.current?.focus()
-    const outside = (e: MouseEvent): void => {
-      if (!root.current?.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', outside)
-    return () => document.removeEventListener('mousedown', outside)
-  }, [open])
-  useEffect(() => {
-    if (!open) setQuery('')
-  }, [open])
-
-  const close = (): void => {
-    setOpen(false)
-    button.current?.focus()
+  const setShown = (next: boolean): void => {
+    setOpen(next)
+    if (!next) setQuery('')
   }
   const pick = (it: MenuItem | undefined): void => {
     if (!it || it.disabled) return
-    close()
+    setShown(false)
+    root.current?.querySelector<HTMLElement>('.tb-switcher')?.focus()
     it.onSelect()
   }
   const items = open ? switcherItems(p) : []
   const byId = new Map(items.map((it) => [it.id, it]))
   const shown = rows.filter((r) => matchesProject(r.id === OTHER_WORKSPACE ? t('shell.switcher.other') : r.name, query))
-  const onKeyDown = (e: React.KeyboardEvent): void => {
-    if (e.key === 'Escape') {
-      e.preventDefault()
-      e.stopPropagation()
-      close()
-    } else if (e.key === 'Tab') setOpen(false)
-    else if (e.target === search.current && e.key === 'Enter') pick(byId.get(shown[0]?.id ?? ''))
-    // Home/End stay with the search field's caret
-    else if (e.target !== search.current || e.key === 'ArrowDown' || e.key === 'ArrowUp') rovingKeyDown(list.current, e, 'vertical')
+  const onSearchKey = (e: React.KeyboardEvent): void => {
+    if (e.key === 'Home' || e.key === 'End') e.stopPropagation() // the caret's, not the list's
+    else if (e.key === 'Enter') pick(byId.get(shown[0]?.id ?? ''))
   }
-  const row = (it: MenuItem, extra?: React.ReactNode): React.JSX.Element => (
-    <div key={it.id} className="tb-sw-item">
-      <button type="button" role="menuitem" data-roving="" tabIndex={-1} disabled={it.disabled} className="tb-sw-main" onClick={() => pick(it)}>
-        {it.label}
-        {(it.id === 'all' ? p.selectedId === null : it.id === p.selectedId) && <Check size={14} className="tb-sw-check" aria-hidden="true" />}
-      </button>
-      {extra}
-    </div>
-  )
+  const row = (it: MenuItem, extra?: React.ReactNode): React.JSX.Element => {
+    const current = it.id === 'all' ? p.selectedId === null : it.id === p.selectedId
+    return (
+      <div key={it.id} className="tb-sw-item">
+        <Button variant="ghost" data-roving="" tabIndex={-1} disabled={it.disabled} aria-current={current || undefined} className="tb-sw-main" onClick={() => pick(it)}>
+          {it.label}
+          {current && <Icon name="check" size={14} className="tb-sw-check" />}
+        </Button>
+        {extra}
+      </div>
+    )
+  }
 
   return (
-    <div ref={root} className="tb-sw">
-      <Tooltip content={p.toolsDisabledReason ? `${t('shell.switcher.overline')} · ${p.toolsDisabledReason}` : t('shell.switcher.overline')}>
-        <Button
-          ref={button}
-          variant="ghost"
-          size="sm"
-          className="tb-switcher"
-          aria-label={t('shell.switcher.label')}
-          aria-haspopup="menu"
-          aria-expanded={open}
-          aria-controls={open ? menuId : undefined}
-          onClick={() => setOpen(!open)}
-        >
-          <span className={`tb-sw-dot${waiting ? ' tb-sw-waiting' : label.kind === 'name' ? ' tb-sw-on' : ''}`} aria-label={waiting ? t('shell.switcher.waiting') : undefined} />
-          <span className="tb-switcher-name">{name}</span>
-          <ChevronDown size={14} aria-hidden="true" />
-        </Button>
-      </Tooltip>
-      {open && (
-        <div className="tb-sw-pop" onKeyDown={onKeyDown}>
-          <label className="tb-sw-search">
-            <Search size={14} aria-hidden="true" />
-            <input ref={search} type="text" value={query} placeholder={t('shell.switcher.search')} aria-label={t('shell.switcher.search')} onChange={(e) => setQuery(e.target.value)} />
-          </label>
-          <div ref={list} id={menuId} role="menu" aria-label={t('shell.switcher.label')} className="tb-sw-list">
-            {byId.get('all') && row(byId.get('all')!)}
-            <div className="tb-sw-sep" role="separator" />
-            {shown.length === 0 && <div className="tb-sw-empty">{t('shell.switcher.noMatch')}</div>}
-            {shown.map((r) => {
-              const win = byId.get(`window:${r.id}`)
-              const set = byId.get(`settings:${r.id}`)
-              const it = byId.get(r.id)
-              if (!it) return null
-              return row(
-                it,
-                (win || set) && (
-                  <span className="tb-sw-actions">
-                    {win && <IconButton size="sm" data-roving="" tabIndex={-1} icon={<AppWindow size={14} />} label={String(win.label)} onClick={() => pick(win)} />}
-                    {set && (
-                      <IconButton
-                        size="sm"
-                        data-roving=""
-                        tabIndex={-1}
-                        icon={<Settings2 size={14} />}
-                        label={String(set.label)}
-                        disabled={set.disabled}
-                        title={set.disabled ? p.toolsDisabledReason : String(set.label)}
-                        onClick={() => pick(set)}
-                      />
-                    )}
-                  </span>
-                )
+    <div ref={root} className="tb-sw" onKeyDown={(e) => e.key === 'Tab' && open && setShown(false)}>
+      <Popover
+        open={open}
+        onOpenChange={setShown}
+        label={t('shell.switcher.label')}
+        panelClassName="tb-sw-pop"
+        trigger={(tp) => (
+          <Tooltip content={p.toolsDisabledReason ? `${t('shell.switcher.overline')} · ${p.toolsDisabledReason}` : t('shell.switcher.overline')}>
+            <Button {...tp} variant="ghost" size="sm" className="tb-switcher" aria-label={label.kind === 'pending' ? name : `${t('shell.switcher.label')}: ${name}`}>
+              <span className={`tb-sw-dot${waiting ? ' tb-sw-waiting' : label.kind === 'name' ? ' tb-sw-on' : ''}`} aria-label={waiting ? t('shell.switcher.waiting') : undefined} />
+              <span className="tb-switcher-name">{name}</span>
+              <Icon name="chevronDown" size={14} />
+            </Button>
+          </Tooltip>
+        )}
+      >
+        <label className="tb-sw-search">
+          <Icon name="search" size={14} />
+          <Input
+            data-roving=""
+            value={query}
+            placeholder={t('shell.switcher.search')}
+            aria-label={t('shell.switcher.search')}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={onSearchKey}
+          />
+        </label>
+        <div className="tb-sw-list">
+          {byId.get('all') && row(byId.get('all')!)}
+          <div className="tb-sw-sep" role="separator" />
+          {shown.length === 0 && <div className="tb-sw-empty">{t('shell.switcher.noMatch')}</div>}
+          {shown.map((r) => {
+            const win = byId.get(`window:${r.id}`)
+            const set = byId.get(`settings:${r.id}`)
+            const it = byId.get(r.id)
+            if (!it) return null
+            return row(
+              it,
+              (win || set) && (
+                <span className="tb-sw-actions">
+                  {win && <IconButton size="sm" data-roving="" tabIndex={-1} icon={<Icon name="external" size={14} />} label={String(win.label)} onClick={() => pick(win)} />}
+                  {set && (
+                    <IconButton
+                      size="sm"
+                      data-roving=""
+                      tabIndex={-1}
+                      icon={<Icon name="settings" size={14} />}
+                      label={String(set.label)}
+                      disabled={set.disabled}
+                      title={set.disabled ? p.toolsDisabledReason : String(set.label)}
+                      onClick={() => pick(set)}
+                    />
+                  )}
+                </span>
               )
-            })}
-            <div className="tb-sw-sep" role="separator" />
-            {['new', 'add'].map((id) => byId.get(id)).map((it) => it && row(it))}
-          </div>
+            )
+          })}
+          <div className="tb-sw-sep" role="separator" />
+          {['new', 'add'].map((id) => byId.get(id)).map((it) => it && row(it))}
         </div>
-      )}
+      </Popover>
     </div>
   )
 }
