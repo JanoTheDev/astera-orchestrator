@@ -3,6 +3,7 @@ import type { ScheduleConfig, ScheduleRule } from '../../../core/types'
 import { scheduleConfigOf } from '../../../core/scheduler/rule'
 import { useI18n } from '../i18n/I18nProvider'
 import { ScheduleRuleFields } from './ScheduleRuleFields'
+import { Input } from './ui'
 
 /** 주기 명령 예약 입력(NewSessionDialog 에서 뽑아낸 것). 새 세션 모달과 이어하기 모달이 나눠 쓴다 —
  *  복사해 두면 두 모달의 검증 규칙이 갈라진다.
@@ -40,8 +41,9 @@ export function ScheduleFields({
   return (
     <div className="field sched-field">
       <ScheduleRuleFields initial={initial?.rule ?? null} onChange={setRule} />
-      <input
+      <Input
         type="text"
+        aria-label={t(chat ? 'session.new.schedCommandPlaceholderChat' : 'session.new.schedCommandPlaceholder')}
         value={command}
         maxLength={500}
         placeholder={t(chat ? 'session.new.schedCommandPlaceholderChat' : 'session.new.schedCommandPlaceholder')}
