@@ -1,0 +1,1 @@
+{"v":1,"tool":"astera","job":"job_9077b3572fe25e9a","task":"tsk_54c471c8623ad68c","session":"339d0da2-78e0-49bc-b5c5-3aa1f0f6dee9","agent":"claude","model":"opus","account":"71b8fb23-5c26-4782-a9d1-2f7ba1ff753e","role":"worker","lines":{"src/renderer/src/components/ui/logic.test.ts":[[2,5],[53,163]],"src/renderer/src/components/ui/logic.ts":[[71,159]]}}
