@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { PAGE_IDS, MORE_PAGE_IDS, DEFAULT_PAGE, KEYED_PAGES, initialPage, isPageId, pageOf, pageOfSidebarPane, togglePage, viewFlagsOf } from './pages'
+import { PAGE_IDS, MORE_PAGE_IDS, DEFAULT_PAGE, KEYED_PAGES, MORE_MENU_PAGES, TAB_PAGES, initialPage, tabOf, isPageId, pageOf, pageOfSidebarPane, togglePage, viewFlagsOf } from './pages'
 
 describe('pages', () => {
   it('the contract ids (PLAN.md "Wave 9 contracts")', () => {
@@ -39,6 +39,7 @@ describe('the shell’s pages', () => {
     expect(initialPage('jobs')).toBe('agents')
     expect(initialPage('settings')).toBe('agents')
     expect(initialPage('more:history')).toBe('agents')
+    expect(initialPage('inbox')).toBe('agents')
   })
 
   // moved from core/ui/sidebar.test.ts: pressing a view's key twice puts things back
@@ -56,5 +57,22 @@ describe('the shell’s pages', () => {
     expect(viewFlagsOf('tasks')).toEqual({ explorer: false, jobs: true, understanding: false })
     expect(viewFlagsOf('more:hiw')).toEqual({ explorer: false, jobs: false, understanding: true })
     expect(viewFlagsOf('agents')).toEqual({ explorer: false, jobs: false, understanding: false })
+  })
+
+  // T9: a clean shell
+  it('the top bar has Home, Plans and Files; More holds Worktrees, History, Runs, How it works and Browser', () => {
+    expect(TAB_PAGES).toEqual(['agents', 'plans', 'files'])
+    expect(MORE_MENU_PAGES).toEqual(['worktrees', 'more:history', 'more:runs', 'more:hiw', 'more:browser'])
+    expect([...TAB_PAGES, ...MORE_MENU_PAGES]).not.toContain('inbox')
+  })
+
+  it('the tasks id is Plans › All tasks; Inbox and Settings light no tab', () => {
+    expect(isPageId('tasks')).toBe(true)
+    expect(tabOf('tasks')).toBe('plans')
+    expect(tabOf('plans')).toBe('plans')
+    expect(tabOf('agents')).toBe('agents')
+    expect(tabOf('inbox')).toBeNull()
+    expect(tabOf('settings')).toBeNull()
+    expect(tabOf('worktrees')).toBeNull()
   })
 })

@@ -168,6 +168,37 @@ body.resizing-row { cursor: row-resize; user-select: none; }
   animation: ui-rise var(--dur) var(--ease-out);
 }
 
+/* T9 (DESIGN-W11 §8): the More menu's rows carry a one-line description; the bell sits left of the usage meter */
+.ui-menu__item:has(.tb-more-item) { height: auto; padding: 6px 8px; align-items: flex-start; }
+.tb-more-item { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tb-more-desc { color: var(--text-faint); font-size: var(--fs-11); white-space: normal; max-width: 260px; }
+.tb-bell { position: relative; display: flex; }
+.tb-bell-btn { position: relative; }
+.tb-bell-badge {
+  position: absolute; top: 2px; right: 2px; min-width: 14px; height: 14px; padding: 0 3px; border-radius: var(--radius-pill);
+  background: var(--warn); color: var(--bg); font-size: 10px; font-weight: var(--fw-semi); line-height: 14px; text-align: center;
+  font-variant-numeric: tabular-nums; pointer-events: none;
+}
+.tb-popover.bell { width: 380px; border: 1px solid var(--line-strong); }
+.bell__head { display: flex; align-items: center; gap: 4px; padding: 8px 8px 4px 12px; }
+.bell__title { flex: 1; margin: 0; font-size: var(--fs-13); font-weight: var(--fw-semi); color: var(--text); }
+.bell__h { margin: 0; padding: 8px 12px 4px; font-size: var(--fs-11); font-weight: var(--fw-semi); letter-spacing: .04em; color: var(--text-faint); }
+.bell__none { margin: 0; padding: 4px 12px 8px; color: var(--text-dim); font-size: var(--fs-12); }
+.bell__list { list-style: none; margin: 0; padding: 0 4px; }
+.bell__item { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-radius: var(--radius-sm); }
+.bell__item--unread { background: var(--hover); }
+.bell__where, .bell__text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: var(--fs-12); }
+.bell__age, .bell__plan { flex: none; color: var(--text-faint); font-size: var(--fs-11); white-space: nowrap; }
+.bell__plan { max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
+.bell__line {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 4px 8px; border: 0; border-radius: var(--radius-sm);
+  background: none; font: inherit; text-align: left; cursor: pointer;
+}
+.bell__line:hover:not(:disabled) { background: var(--hover); }
+.bell__line:disabled { cursor: default; }
+.bell__line:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.bell__foot { display: flex; justify-content: center; padding: 4px 8px 8px; border-top: 1px solid var(--line); margin-top: 4px; }
+
 /* ---------- status bar (DESIGN-W11 §8); .sb outranks the older statusBar.css, which still holds the Host notices ---------- */
 .statusbar.sb {
   height: var(--statusbar-h); margin-top: 0; gap: 4px; padding: 0 8px; background: var(--panel); color: var(--text-dim);
@@ -201,6 +232,7 @@ body.resizing-row { cursor: row-resize; user-select: none; }
 .page { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; background: var(--bg); }
 .page-title { margin: 0; padding: 12px 16px 8px; font-size: 15px; font-weight: 600; color: var(--text); }
 .page-note { margin: 0; color: var(--text-dim); font-size: 13px; }
+.page-views { display: flex; justify-content: center; padding: 12px 16px 0; }
 .page-jobs { flex: 1; min-height: 0; display: flex; flex-direction: column; max-width: 960px; width: 100%; margin: 0 auto; }
 /* the Plans list page runs full width like the other pages (its rows stay readable-width); a plan's own page stays centred */
 .page-jobs:has(> .plans-page) { max-width: none; }

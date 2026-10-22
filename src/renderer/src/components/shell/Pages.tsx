@@ -20,7 +20,7 @@ import { openPage } from './navigation'
 import { AgentsPage, type AgentsPageProps } from '../pages/AgentsPage' // W9-H
 import { getWallView, setWallView } from '../wall/wallView' // W9-H
 import type { PageId } from '../../../../core/ui/pages'
-import { Button, Field } from '../ui'
+import { Button, Field, Tabs } from '../ui'
 import { Content, type ContentProps } from './Content'
 import type { AppState } from '../../state/appState'
 
@@ -115,6 +115,21 @@ export function Pages(p: PagesProps): React.JSX.Element {
         <section className="page" aria-label={page}>
           {/* W9-C: the Plans page (PlansPage, its plan page included) and the Tasks page; a paired Runtime's plans keep
               their selector and list here (PlansPage's shortcut note) */}
+          {/* T9: All tasks is a view inside Plans (the `tasks` id keeps its shortcut and links); a plan's own page has none */}
+          {(page === 'plans' || page === 'tasks') && !openRun && (
+            <div className="page-views">
+              <Tabs
+                variant="segmented"
+                label={t('shell.plans.views')}
+                items={[
+                  { id: 'plans', label: t('shell.plans.viewPlans') },
+                  { id: 'tasks', label: t('shell.plans.viewTasks') }
+                ]}
+                value={page}
+                onChange={openPage}
+              />
+            </div>
+          )}
           {page === 'plans' && (
             <div className="page-jobs">
         {pairedRuntimes.length > 0 && (
@@ -179,7 +194,7 @@ export function Pages(p: PagesProps): React.JSX.Element {
             </div>
           )}
           {page === 'tasks' && <TasksPage {...p} />}
-          {/* W9-D: the Inbox page */}
+          {/* W9-D: the Inbox page; T9: not a tab, the bell's "View all" opens it */}
           {page === 'inbox' && <InboxPage tree={scopedTree} data={scopedData} accounts={accounts} ui={actionUi} />}
           {page === 'worktrees' && (
             <WorktreesPage
