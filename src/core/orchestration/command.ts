@@ -197,7 +197,7 @@ import {
   type JobSourcesDeps
 } from './commandSources'
 // W6-D wave replanning
-import { replanJobOf, waveOpen } from './replan'
+import { replanJobOf, waveOpen, type ReplanRecord } from './replan'
 import { REPLAN_COMMANDS, replanCommand, replanRefusal } from './exec/replanStart'
 // Coordinator rotation
 import { coordinatorHandoff, refreshCoordinator } from './exec/coordinatorRotate'
@@ -2236,7 +2236,9 @@ export async function handleCommand(
           accountId,
           promptsMode: job.verbatim !== undefined,
           handsOff: handsOffOf(base, job),
-          grants: projectOfJob(base, job)?.grants
+          grants: projectOfJob(base, job)?.grants,
+          // placedByApp once this coordinator is attached: every Job but a scheduled one (T3)
+          appPlaces: job.schedule === undefined
         }) +
           // T23: a coordinator restarted for a stated reason (`run-start --reason`, the crash resume) replaces one whose
           // conversation is gone, so it gets the fresh-coordinator hand-off read from the state.
@@ -4724,7 +4726,13 @@ export async function handleCommand(
       if (task.consecutiveFailures >= FAILURE_LIMIT)
         return bad(`circuit break: ${FAILURE_LIMIT} consecutive failures`)
       const openForTask = s.dispatches.find((d) => d.taskId === taskId && !d.outcome && !d.endedAt)
-      if (openForTask) return bad(`dispatch already open: ${openForTask.id}`)
+      // T3: the app places a coordinator Run's ready Tasks itself, so a coordinator's worker-start often finds the
+      // worker already up. The words say so, so it is not taken for a failure to escalate.
+      if (openForTask)
+        return bad(
+          `dispatch already open: ${openForTask.id} — Astera already started this Task's worker; this is not an error, ` +
+            'do not start it again: wait for its report'
+        )
 
       const run = s.runs.find((r) => r.id === task.runId)
       const runJob = run && jobOf(s, run)
@@ -4745,8 +4753,9 @@ export async function handleCommand(
       // W5-C: a plan held from launching (`jobs-hold`) gets no new worker from any placer: the app's loop, `tasks
       // dispatch`, a coordinator, a person. `held` tells the loop this is a wait, not a reason for a Gate.
       // W8-E (#95): a replan holds the plan too (dispatchHold), but it lifts by itself: the coordinator waits for
-      // `plan.replanned` instead of asking the owner to run `jobs-unhold`, which no agent may
-      if (runJob?.replanning)
+      // `plan.replanned` instead of asking the owner to run `jobs-unhold`, which no agent may. A scoped replan (one for
+      // deviations) holds only the Tasks it can affect: waveOpen below refuses those
+      if (runJob?.replanning && !(runJob.replanning as ReplanRecord).scoped)
         return {
           status: 409,
           body: { error: `replanning wave ${runJob.replanning.wave}: this lifts by itself; wait for plan.replanned in your inbox`, held: true, replanning: true }
@@ -4756,8 +4765,8 @@ export async function handleCommand(
       // W6-D: a Task of a later wave waits for the waves before it and for a replan under way (replan.ts waveOpen)
       if (task.status === 'ready' && !waveOpen(task, s))
         return { status: 409, body: { error: `task ${taskId} waits for the earlier waves of its plan to complete, or for its replan`, held: true } }
-      // W8-E (#92): never two workers on the same files (W6-C), for every placer: a coordinator's Job has no
-      // autoDispatch, so `slotsToFill` never places for it and this is the only door its workers pass
+      // W8-E (#92): never two workers on the same files (W6-C), for every placer: a person, `tasks dispatch`, a
+      // coordinator's retry, and a scheduled Job's coordinator, for which `slotsToFill` does not place (placedByApp)
       // W8-D: of any plan of the same project
       const clash = runJob ? sameFilesAs(task, editingByProject(s).get(projectKeyOf(s, runJob)) ?? []) : undefined
       const clashJob = clash && s.jobs.find((j) => j.id === s.runs.find((r) => r.id === clash.task.runId)?.jobId)

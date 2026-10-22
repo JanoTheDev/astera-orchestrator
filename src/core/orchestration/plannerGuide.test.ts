@@ -24,7 +24,7 @@ describe('planner-guide.md — planning mode (T1)', () => {
 describe('planner-guide.md — multi-file planning and waves', () => {
   it('states the path rules for --affected-paths', () => {
     const section = guide.slice(guide.indexOf('**Path rules for `--affected-paths`'), guide.indexOf('**Prompts.**'))
-    for (const needle of ['Repo-relative, forward slashes', 'No leading `/` and no `./`', 'A folder ends with `/`', '`*` appears only in the last segment', 'Never `.` or `/`', 'List every file or folder'])
+    for (const needle of ['Repo-relative, forward slashes', 'No leading `/` and no `./`', 'A folder ends with `/`', '`*` appears only in the last segment', 'Never `.` or `/`', 'List exactly the files'])
       expect(section, needle).toContain(needle)
   })
   it('cuts by ownership, handles shared files and sizes the waves', () => {
@@ -55,5 +55,19 @@ describe('planner-guide.md — the main plan (T3)', () => {
     const write = guide.slice(guide.indexOf('## 3. Write each Task'), guide.indexOf('## 4.'))
     for (const needle of ['`--validate` is quick', 'delivery check', 'whole-plan check'])
       expect(write, needle).toContain(needle)
+  })
+})
+
+describe('planner-guide.md — precise paths and per-Task waves', () => {
+  it('asks for exact paths, merge and check Task paths', () => {
+    const section = guide.slice(guide.indexOf('**Path rules for `--affected-paths`'), guide.indexOf('**Prompts.**'))
+    for (const needle of ['exactly the files', 'git diff --name-only <base>...<branch>', 'never `src/` or `.`', 'every other worker'])
+      expect(section, needle).toContain(needle)
+  })
+  it('describes per-Task opening, scoped and unscoped replans and leases', () => {
+    const section = guide.slice(guide.indexOf('## 5. Replanning'), guide.indexOf('**Final check.**'))
+    for (const needle of ['no whole-wave barrier', 'its own deps', '**scoped**', '**unscoped**', 'whole Job', 'really changed'])
+      expect(section, needle).toContain(needle)
+    expect(section).not.toContain('only when every Task of the waves before it')
   })
 })

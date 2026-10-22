@@ -63,8 +63,8 @@ shows it: each plan with its open Tasks, and the links between plans.
 - **Maximise safe parallelism.** Tasks with no dependency between them run at the same time, each in its own
   git worktree, and are merged afterwards. Parallel is safe only when their `--affected-paths` do not
   overlap. Two Tasks that must change the same file are either one Task or a chain (`--deps`).
-- **Dependencies are real orderings only**: B depends on A when B needs A's code or A's answer. Do not chain
-  Tasks just to be careful; every needless link makes the plan slower.
+- **Dependencies are real orderings only**: B depends on A when B needs A's code or A's answer. Do not add deps "to
+  be careful": they are the only thing that orders Tasks, and every needless link makes the plan slower.
 - **Keep it small.** Plan what the objective asks for and nothing more. Prefer a few solid Tasks to many thin
   ones; do not plan "polish" or "docs" Tasks nobody asked for.
 - **Cut by ownership, not by step.** One Task owns a folder or a feature slice. Do not split one folder's files
@@ -72,7 +72,7 @@ shows it: each plan with its open Tasks, and the links between plans.
 - **Shared files go to one Task.** Shared files (i18n catalogs, `types.ts`, central command tables, route indexes)
   belong to one Task. If several Tasks must add to one, each edits only its own block and its prompt says so. A Task
   that must touch a file another parallel Task owns is a chain (`--deps`).
-- **Size the waves.** A wave is a Task's dependency depth (section 5). Put foundations (types, shared helpers, design
+- **Size the waves.** A Task opens as soon as its own deps have completed (section 5). Put foundations (types, shared helpers, design
   tokens) in wave 1 and their consumers after. When the Tasks are independent, fill each wave to the Job's worker limit.
   Never add a link "to be careful".
 
@@ -93,7 +93,7 @@ Create Tasks in dependency order (a Task can only depend on one that exists). Ea
 | `--spec` | one paragraph: what the Task is for |
 | `--prompt -` | the worker's whole prompt, on stdin. It must stand alone: the goal, the files, the repo rules that apply, what not to touch, how to check the result |
 | `--criteria '[...]'` | one or more acceptance criteria, each checkable by reading code or running a command ("`npm test -- foo` passes", not "works well") |
-| `--affected-paths '[...]'` | the files or folders it will change |
+| `--affected-paths '[...]'` | exactly the files it will change |
 | `--deps '[...]'` | the Task ids it waits for |
 | `--kind` | `bugfix`, `feature`, `refactor`, `ui`, `audit`, `docs`, `test` or `ops`. It picks the skills the worker is told to use (systematic debugging and a failing test first for `bugfix`, test-first for `feature`, the design rules for `ui`, read-only findings first for `audit`). Pass it on every Task; without it Astera guesses from the title |
 | `--difficulty` | `light` (mechanical, small), `standard` (ordinary feature or fix), `hard` (design, subtle bug, wide change). It picks the worker's model |
@@ -127,8 +127,12 @@ name of 3 to 6 words: `astera jobs rename --id <jobId> --title "<3-6 words>"`. A
 - A folder ends with `/` and covers everything under it: `src/billing/`.
 - `*` appears only in the last segment: `src/billing/*.ts`. Never `src/*/billing/`.
 - Never `.` or `/`: that is the whole repository. Use it only when the Task truly owns everything.
-- List every file or folder the Task will create or edit, tests included. A path left out is a path another parallel
-  Task may also edit.
+- List exactly the files the Task will create or edit, tests included. A path left out is a path another parallel
+  Task may also edit; a path too broad holds back every other worker in the repository while the Task runs, so use a
+  folder only when the Task really changes files across it (`src/` holds the whole repository).
+- A **merge Task** lists the files the merge brings: `git diff --name-only <base>...<branch>`.
+- A **whole-plan check Task** lists only the files it may fix, never `src/` or `.`. Prefer leaving the whole-plan check
+  to the final check (section 5) over a Task that depends on everything.
 
 **Prompts.** Tell each worker to use subagents for read-only exploration of several files at once, and for independent
 sub-parts of its Task. The worker keeps its own decisions and the final check; a prompt that says nothing about subagents
@@ -153,17 +157,22 @@ person to confirm again.
 
 ## 5. Replanning
 
-A planned Job runs in **waves**: a Task's wave is its dependency depth (no deps: wave 1 here, 0 in the code). The next
-wave starts only when every Task of the waves before it has completed. At each boundary Astera holds the Job, so no new
-worker starts, and opens a **fresh** planner session with a replan brief. Once the last wave has completed, the same
-session runs once more as the **final check**. Turn it off per Job with `--replan off` (`jobs create` / `jobs plan`) or
-the "Replan between waves" box.
+A planned Job has no whole-wave barrier: a Task starts as soon as its own deps have completed, whatever else is still
+running. A Task's wave (its dependency depth; no deps: wave 1 here, 0 in the code) only names where it sits. A Task that
+did not go as planned (it failed, needed more than one review round, changed files outside its affected paths, or was
+let through by a person) starts a **wave replan**: Astera opens a **fresh** planner session with a replan brief. That
+replan is **scoped** and holds only the Tasks it can affect, those downstream of the deviating Task or sharing its paths;
+every other Task still starts. An **unscoped** replan (owner feedback, the final check, a person's own ask) holds the
+whole Job: no Task starts until you end it. Once every Task has completed, the same session runs once more as the
+**final check**. Turn replans off per Job with `--replan off` (`jobs create` / `jobs plan`) or the "Replan between
+waves" box.
 
-Astera starts a wave replan only when the wave did not go as planned: a Task failed, needed more than one review round,
-changed files outside its affected paths, was let through by a person, or the owner sent feedback. Otherwise it skips you
-and the next wave starts. When you are started, your brief is **focused**: it lists only the Tasks that deviated and the
-not-started Tasks they can affect (by dependency or shared paths). Read those, not the whole plan. The final check and
-owner feedback always get the full brief.
+When you are started for a deviation, your brief is **focused**: it lists only the Tasks that deviated and the
+not-started Tasks they can affect. Read those, not the whole plan. The final check and owner feedback always get the
+full brief.
+
+Between Jobs, a completed Task holds a lease on the files it really changed (from git), so another plan's workers wait
+only for those files; a Task that changed nothing recorded falls back to its declared paths.
 
 Your brief lists, for every completed Task, its worker's report, its review and the files it changed, then what is
 running and what is left. Read the changed code (`astera runs-changed-files --id <runId> --task <taskId> --json`, then
@@ -179,14 +188,14 @@ You may:
 You may never touch a completed or running Task: Astera refuses it, whatever the command.
 
 Change only what the facts call for: a done Task that went another way than planned, a dependency that
-turned out to be needed, a Task that is no longer needed. Keep the next wave's `--affected-paths` apart, as in section 2.
+turned out to be needed, a Task that is no longer needed. Keep the `--affected-paths` of Tasks that can run together apart, as in section 2.
 
 **Final check.** Compare the result with the objective. If it is met, change nothing. If something is missing or
 broken, add follow-up Tasks for exactly that. A Job gets at most 3 follow-up waves; a 4th goes to the person.
 
 **End** with `astera jobs-replan-done --id <jobId> --summary "<one line: what you changed and why>"`. Astera then checks
 the remaining plan as it checks a plan for approval (each Task has a prompt and a criterion, its deps exist, no cycle).
-If it holds, the hold is lifted and the next wave starts; if not, the Job stays held and the person is asked. Your
+If it holds, the hold is lifted and held Tasks start; if not, the Job stays held and the person is asked. Your
 session is ended either way.
 
 ## 6. Run as written (W8-C)

@@ -94,14 +94,15 @@ const approved = async (r: Rig, job: Record<string, unknown> = {}, asPlanned = f
 const job = (r: Rig) => r.state().jobs[0]
 
 describe('jobs-replan', () => {
-  it('holds the Job and starts a fresh planner whose brief has what was done and what is left', async () => {
+  it('starts a fresh planner, scoped to the deviation, whose brief has what was done and what is left', async () => {
     const r = rig()
     const { jobId, runId, id } = await approved(r)
     const before = r.state()
     const started = await r.person('jobs-replan', { id: jobId, run: runId, mode: 'wave', wave: 1 })
     expect(started.status).toBe(200)
-    expect(job(r).dispatchHold).toBe(true)
-    expect(job(r).replanning).toMatchObject({ runId, mode: 'wave', wave: 1, done: 1, sessionId: 'ses-planner-2' })
+    // a replan for deviations holds only the Tasks they can affect (replan.ts waveOpen), not the Job
+    expect(job(r).dispatchHold).toBeUndefined()
+    expect(job(r).replanning).toMatchObject({ runId, mode: 'wave', wave: 1, done: 1, sessionId: 'ses-planner-2', scoped: true })
     expect(job(r).plannerSessionIds).toContain('ses-planner-2')
     const start = r.starts.at(-1)!
     expect(start).toMatchObject({ role: 'planner', runId: jobId, accountId: 'acc1' })
@@ -112,6 +113,7 @@ describe('jobs-replan', () => {
     expect(brief).toContain('changed files: src/A.ts')
     expect(brief).toContain(`${id('B')} (B)`)
     expect(brief).toContain(`--run ${runId}`)
+    expect(brief).toContain('the rest of the plan goes on meanwhile')
     expect(deriveActivity(before, r.state()).map((e) => e.type)).toContain('plan.replanning')
   })
 
@@ -162,6 +164,21 @@ describe('jobs-replan', () => {
     expect(res.status).toBe(200)
     expect(res.body).not.toHaveProperty('skipped')
     expect(job(r).replanning).toBeDefined()
+    // owner feedback holds the whole Job, as before
+    expect(job(r).dispatchHold).toBe(true)
+    expect(job(r).replanning).not.toHaveProperty('scoped')
+  })
+
+  it("holds the whole Job for the final check and for a person's own ask", async () => {
+    const asked = rig()
+    const a = await approved(asked)
+    await asked.person('jobs-replan', { id: a.jobId, run: a.runId })
+    expect(job(asked).dispatchHold).toBe(true)
+    const final = rig()
+    const f = await approved(final)
+    final.set({ ...final.state(), tasks: final.state().tasks.map((t) => (t.runId === f.runId ? { ...t, status: 'completed' as const } : t)) })
+    await final.person('jobs-replan', { id: f.jobId, run: f.runId, mode: 'completion', wave: 3 })
+    expect(job(final).dispatchHold).toBe(true)
   })
 
   it('is refused to an agent session, while one runs, and with replanning off', async () => {
@@ -278,6 +295,18 @@ describe('jobs-replan-done', () => {
     expect(r.stopped).toContain('ses-planner-2')
   })
 
+  it("leaves a person's hold placed while a scoped replan ran, and records when it began", async () => {
+    const r = rig()
+    const { jobId, runId } = await approved(r)
+    await r.person('jobs-replan', { id: jobId, run: runId, mode: 'wave', wave: 1 })
+    await r.person('jobs-hold', { id: jobId })
+    r.tick()
+    await r.as('ses-planner-2')('jobs-replan-done', { id: jobId, summary: 'fine' })
+    expect(job(r).dispatchHold).toBe(true)
+    expect(job(r).lastReplan).toMatchObject({ startedAt: NOW, at: LATER })
+    expect(job(r).lastReplan).not.toHaveProperty('scoped')
+  })
+
   it("leaves a person's own hold in place", async () => {
     const r = rig()
     const { jobId } = await approved(r)
@@ -333,17 +362,43 @@ describe('jobs-replan-done', () => {
   })
 })
 
-describe('the wave gate on worker-start', () => {
-  it('refuses a later wave while an earlier Task is unfinished, as a wait', async () => {
+describe('the per-Task gate on worker-start', () => {
+  it('refuses a Task downstream of a deviation until its replan, as a wait, not for an unrelated unfinished Task', async () => {
+    for (const asPlanned of [false, true]) {
+      const r = rig()
+      const { runId, id } = await approved(r, {}, asPlanned)
+      const s = r.state()
+      // a second wave-0 Task not finished; B (wave 1) is ready, and A, all it waits on, completed
+      const extra: Task = { ...s.tasks.find((t) => t.id === id('A'))!, id: 'tsk_extra', title: 'E', status: 'pending', deps: [], affectedPaths: ['src/E.ts'] }
+      r.set({ ...s, tasks: [...s.tasks, { ...extra, runId }] })
+      const reply = await r.as('ses-coordinator')('worker-start', { task: id('B'), agent: 'claude', account: 'acc1' })
+      if (asPlanned) expect(reply.body).not.toMatchObject({ held: true })
+      else expect(reply).toMatchObject({ status: 409, body: { held: true } })
+    }
+  })
+})
+
+describe('worker-start during a scoped replan', () => {
+  it('accepts a Task the deviation cannot affect and refuses one it can, as a wait', async () => {
     const r = rig()
-    const { runId, id } = await approved(r)
+    const { jobId, runId, id } = await approved(r)
     const s = r.state()
-    // a second wave-0 Task still running: B (wave 1) is ready but its wave is not open
-    const extra: Task = { ...s.tasks.find((t) => t.id === id('A'))!, id: 'tsk_extra', title: 'E', status: 'pending', deps: [] }
-    r.set({ ...s, tasks: [...s.tasks, { ...extra, runId }] })
-    const reply = await r.as('ses-coordinator')('worker-start', { task: id('B'), agent: 'claude', account: 'acc1' })
-    expect(reply.status).toBe(409)
-    expect(reply.body).toMatchObject({ held: true })
+    // E neither waits on A (which deviated) nor shares its paths
+    const e: Task = { ...s.tasks.find((t) => t.id === id('A'))!, id: 'tsk_e', title: 'E', status: 'ready', deps: [], affectedPaths: ['src/E.ts'], filesModified: undefined }
+    r.set({ ...s, runs: s.runs.map((x) => (x.id === runId ? { ...x, worktree: '/wt' } : x)), tasks: [...s.tasks, e] })
+    await r.person('jobs-replan', { id: jobId, run: runId, mode: 'wave', wave: 1 })
+    expect(job(r).replanning).toMatchObject({ scoped: true })
+    const coordinator = r.as('ses-coordinator')
+    expect(await coordinator('worker-start', { task: id('B'), agent: 'claude', account: 'acc1' })).toMatchObject({ status: 409, body: { held: true } })
+    const started = await coordinator('worker-start', { task: 'tsk_e', agent: 'claude', account: 'acc1' })
+    expect(started.status).toBe(200)
+  })
+
+  it('still refuses every Task while an unscoped replan runs', async () => {
+    const r = rig()
+    const { jobId, runId, id } = await approved(r)
+    await r.person('jobs-replan', { id: jobId, run: runId })
+    expect(await r.as('ses-coordinator')('worker-start', { task: id('B'), agent: 'claude', account: 'acc1' })).toMatchObject({ status: 409, body: { held: true, replanning: true } })
   })
 })
 
@@ -421,19 +476,32 @@ describe('W7-E', () => {
 
 describe('the wave boundary moves on', () => {
   const inbox = (r: Rig, subject: string) => r.state().messages.filter((m) => m.subject === subject)
+  /** T3: the app places an attached coordinator's ready Tasks, so only a Run driven from outside still starts its
+   *  own: its Astera coordinator detached, an outside session in its place. */
+  const drivenFromOutside = (r: Rig, runId: string) =>
+    r.set({
+      ...r.state(),
+      runs: r.state().runs.map((x) => {
+        if (x.id !== runId) return x
+        const { coordinatorSessionId: _gone, ...rest } = x
+        return { ...rest, externalCoordinatorSessionId: 'ses-outside' }
+      })
+    })
 
-  it('posts plan.replanned with the startable Tasks to a coordinator when a wave opens, skipped or replanned', async () => {
+  it('posts plan.replanned with the startable Tasks to a Run driven from outside when a wave opens, skipped or replanned', async () => {
     const skip = rig()
     const s = await approved(skip, {}, true)
+    drivenFromOutside(skip, s.runId)
     await skip.person('jobs-replan', { id: s.jobId, run: s.runId, mode: 'wave', wave: 1 })
     const [skipped] = inbox(skip, 'plan.replanned')
     expect(skipped).toMatchObject({ runId: s.runId, type: 'status', answered: false })
-    expect(skipped.body).toContain('Wave 2 of the plan is open')
+    expect(skipped.body).toContain('The replan before wave 2 has ended')
     expect(skipped.body).toContain(`${s.id('B')} (B)`)
     expect(skipped.body).not.toContain(`${s.id('C')} (C)`)
 
     const done = rig()
     const d = await approved(done, {})
+    drivenFromOutside(done, d.runId)
     await done.person('jobs-replan', { id: d.jobId, run: d.runId, mode: 'wave', wave: 1 })
     expect(inbox(done, 'plan.replanned')).toHaveLength(0)
     await done.as('ses-planner-2')('jobs-replan-done', { id: d.jobId, summary: 'fine' })
@@ -449,9 +517,18 @@ describe('the wave boundary moves on', () => {
     expect(inbox(r, 'plan.replanned')).toHaveLength(0)
   })
 
+  it('posts no plan.replanned to an attached coordinator: the app starts the wave (T3)', async () => {
+    const r = rig()
+    const { jobId, runId } = await approved(r, {}, true)
+    expect(r.state().runs[0].coordinatorSessionId).toBeDefined()
+    await r.person('jobs-replan', { id: jobId, run: runId, mode: 'wave', wave: 1 })
+    expect(inbox(r, 'plan.replanned')).toHaveLength(0)
+  })
+
   it('ends a timed-out replan as skipped: the hold lifts, the planner stops, the feed says so', async () => {
     const r = rig()
     const { jobId, runId } = await approved(r, {})
+    drivenFromOutside(r, runId)
     await r.person('jobs-replan', { id: jobId, run: runId, mode: 'wave', wave: 1 })
     const before = r.state()
     // the driving loop's call (exec/dispatchLoop.ts hurryReplan)

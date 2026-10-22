@@ -1,21 +1,34 @@
-// W6-D wave replanning (orchestrator SPEC §2, §3): between waves, a fresh planner looks at what really happened and
-// fixes the rest of the plan; after the last wave it checks the result against the objective once more.
+// W6-D wave replanning (orchestrator SPEC §2, §3): a fresh planner looks at what really happened and fixes the rest of
+// the plan; after the last Task it checks the result against the objective once more.
 //
-// A wave is a Task's dependency depth (`waveOf`). With replanning on, a Task of wave n+1 starts only once every Task of
-// a lower wave is completed, the boundary has been replanned and no replan runs (`waveOpen`, asked by `slotsToFill` and
-// `worker-start`). The driving loop starts a replan at each boundary (`replansDue`, exec/dispatchLoop.ts), through
-// `jobs-replan` (exec/replanStart.ts), which holds the Job (`dispatchHold`) while the planner works. The planner may
-// change only what has not started: `replanRefusal` is asked before `plannerRefusal`, and the edits check it again.
+// The gate is per Task (`waveOpen`, asked by `slotsToFill`, `worker-start` and the coordinator's inbox): a Task starts
+// once every Task it waits on (its deps, transitively) has completed. Unrelated Tasks of a lower wave never hold it, and
+// a failure holds back only what depends on it. With replanning on, a completed Task that did not go as planned
+// (`deviatingTasks`) holds the not-started Tasks it can affect (`affectedLeft`: downstream of it, or sharing paths with
+// it) until a replan has looked at it. The driving loop starts that replan (`replansDue`, exec/dispatchLoop.ts) through
+// `jobs-replan` (exec/replanStart.ts); such a replan is *scoped*: it holds only those Tasks, the rest of the plan goes
+// on. The final check, owner feedback and a person's own replan are not scoped: they hold the whole Job
+// (`dispatchHold`). The planner may change only what has not started: `replanRefusal` is asked before
+// `plannerRefusal`, and the edits check it again.
+//
+// Two fields beyond types.ts are kept on the Job's replan records (`ReplanRecord`, `ReplanEnded`); a file written before
+// them reads as an unscoped replan and as one that covered what completed before it ended.
 //
 // Pure: no clock, no files, and renderer-safe (tsconfig.web.json lists it): what needs the planner's rules
 // (`replanRefusal`, `replanProblems`, `replanSummary`) is in exec/replanStart.ts.
 import { reviewRoundIn } from './convergence'
 import { layersOf } from './graph'
 import { crossPlanDepRefusal, externalDepsOf, waitsOnItself } from './mainPlan'
-import { heldBack } from './running'
 import { jobActive, pathsOverlap } from './schedule'
 import { jobOf, type OrchState, type PlanFields, type Res } from './state'
 import type { Job, ReplanMark, Task } from './types'
+
+/** The replan under way, with `scoped`: started for deviations, so it holds only the Tasks they can affect (no
+ *  `dispatchHold`). Absent (also in an older file): it holds the whole Job. */
+export type ReplanRecord = NonNullable<Job['replanning']> & { scoped?: true }
+/** The last replan that ended, with `startedAt`: a deviation that completed after it began was not in its brief, so it
+ *  still waits for the next one. Absent (an older file, a skipped or failed start): `at` stands in. */
+export type ReplanEnded = NonNullable<Job['lastReplan']> & { startedAt?: string }
 
 /** Follow-up waves the completion pass may add to one Job before it must hand the Job to the person. */
 export const REPLAN_FOLLOW_UPS_MAX = 3
@@ -72,36 +85,19 @@ function upstreamOf(task: Node, tasks: readonly Node[]): Set<string> {
   return out
 }
 
-/** A Task that failed, or that waits (directly or through others) on one that failed: it will not complete on its own,
- *  so it holds back only the Tasks that depend on it, never a whole later wave (`waveOpen`, `replansDue`). A Task held
- *  for its owner (running.ts `heldBack`: a hands-off plan refused the decision it needs) and what waits on it are the
- *  same: the rest of the plan goes on without them. */
-function deadEnd(t: Task, tasks: readonly Task[], held: ReadonlySet<string>): boolean {
-  if (t.status === 'failed' || held.has(t.id)) return true
-  if (t.status === 'completed') return false
-  const up = upstreamOf(t, tasks)
-  return tasks.some((x) => x.status === 'failed' && up.has(x.id))
-}
-
-/** Whether a Task may start as far as waves go: always with replanning off; otherwise only while no replan runs for its
- *  Job, and for wave n > 0 once the boundary before n has been replanned (its `lastReplan`) and every Task of a lower
- *  wave in its Run is settled for it. A lower-wave Task is settled when it completed, or when it failed (or waits on one
- *  that failed) and `task` does not depend on it: an unrelated failure does not stop a later wave, a failure upstream
- *  of `task` does. */
+/** Whether a Task may start as far as the plan goes: always with replanning off. Otherwise once every Task it waits on
+ *  (deps, transitively, in its Run) has completed, so a failure holds back only what depends on it; never while an
+ *  unscoped replan holds its Job; and, not started yet, not while a deviation it can affect waits for its replan
+ *  (`heldForReplan`). Unrelated Tasks of a lower wave, and a scoped replan elsewhere in the plan, do not hold it. */
 export function waveOpen(task: Task, s: OrchState): boolean {
   const run = task.runId === undefined ? undefined : s.runs.find((r) => r.id === task.runId)
   const job = run && jobOf(s, run)
   if (!job || !replanOn(job)) return true
-  if (job.replanning) return false
-  const w = waveOf(task, s.tasks)
-  if (w === 0) return true
-  // The boundary must have been replanned too, so no placer (the loop, a coordinator) slips in before the replan starts
-  const last = job.lastReplan
-  if (last?.runId !== run.id || last.mode !== 'wave' || last.wave !== w) return false
+  if (job.replanning && !(job.replanning as ReplanRecord).scoped) return false
   const own = runTasks(s, run.id)
   const up = upstreamOf(task, own)
-  const held = heldBack(own, s.gates)
-  return own.every((t) => t.status === 'completed' || waveOf(t, s.tasks) >= w || (!up.has(t.id) && deadEnd(t, own, held)))
+  if (own.some((t) => up.has(t.id) && t.status !== 'completed')) return false
+  return !notStarted(s, task) || !heldForReplan(s, job, run.id).has(task.id)
 }
 
 /** Not started: waiting, ready, or blocked by a Gate before it ever ran (W8-E, #95: the coordinator's question about
@@ -120,13 +116,32 @@ const wentAsPlanned = (s: OrchState, t: Task): boolean =>
   reviewRoundIn(s.dispatches.filter((d) => d.taskId === t.id)) <= 1 &&
   (t.filesModified ?? []).every((f) => !t.affectedPaths?.length || t.affectedPaths.some((p) => pathsOverlap(f, p)))
 
-/** The Tasks a wave replan has to look at: those of a lower wave, finished since this Run's last replan, that did not go
- *  as planned. Owner feedback not yet answered by a replan counts as a deviation of the whole plan (all done Tasks). */
-export function deviatingTasks(s: OrchState, job: Job, mark: ReplanMark): Task[] {
-  const since = job.lastReplan?.runId === mark.runId ? job.lastReplan.at : ''
-  const done = runTasks(s, mark.runId).filter((t) => t.status === 'completed' && waveOf(t, s.tasks) < mark.wave)
-  if ((job.feedback ?? []).some((f) => f.phase === 'run' && f.changes === undefined)) return done
-  return done.filter((t) => t.updatedAt > since && !wentAsPlanned(s, t))
+/** When this Run's deviations were last looked at: the start of its last replan that ended. '' for none. */
+function coveredSince(job: Job, runId: string): string {
+  const last = job.lastReplan as ReplanEnded | undefined
+  return last?.runId === runId ? (last.startedAt ?? last.at) : ''
+}
+
+/** The completed Tasks of a Run that did not go as planned and that no replan has looked at yet. */
+function unplanned(s: OrchState, job: Job, runId: string): Task[] {
+  const since = coveredSince(job, runId)
+  return runTasks(s, runId).filter((t) => t.status === 'completed' && t.updatedAt > since && !wentAsPlanned(s, t))
+}
+
+/** The Tasks a wave replan has to look at: those completed since this Run's last replan began that did not go as
+ *  planned. Owner feedback not yet answered by a replan counts as a deviation of the whole plan (all done Tasks). */
+export function deviatingTasks(s: OrchState, job: Job, runId: string): Task[] {
+  if ((job.feedback ?? []).some((f) => f.phase === 'run' && f.changes === undefined))
+    return runTasks(s, runId).filter((t) => t.status === 'completed')
+  return unplanned(s, job, runId)
+}
+
+/** The not-started Tasks of a Run that wait for a replan: those the unplanned deviations can affect. A scoped replan
+ *  under way holds them too: its deviations count until it ends (`coveredSince`), with any that completed meanwhile. */
+function heldForReplan(s: OrchState, job: Job, runId: string): Set<string> {
+  const deviating = unplanned(s, job, runId)
+  if (deviating.length === 0) return new Set()
+  return new Set(affectedLeft(deviating, runTasks(s, runId).filter((t) => notStarted(s, t))).map((t) => t.id))
 }
 
 /** The not-started Tasks `deviating` can affect: waiting on one of them (or on a Task so affected), or sharing paths
@@ -151,9 +166,9 @@ export function affectedLeft(deviating: readonly Task[], left: readonly Task[]):
 
 /**
  * The replans the driving loop should start now, one per Run at most:
- * - `wave`: the lowest wave with an unfinished Task is n > 0 (every lower Task is completed, or failed, or waits on one
- *   that failed: those are not counted), something there has not started, and this Run's last replan was not for that
- *   wave already.
+ * - `wave`: a completed Task did not go as planned, no replan has looked at it, and a not-started Task it can affect is
+ *   left (`heldForReplan`). Its `wave` is the lowest wave of those Tasks. A plan that goes as planned never replans
+ *   before the end, and a failed Task is no deviation: what waits on it simply does not start.
  * - `completion`: every Task is completed and the last replan was not a completion pass over this many done Tasks.
  *   Only for a Run `seenRunning` says this process watched run, so a Run that ended before (or before this existed)
  *   is not reopened.
@@ -172,14 +187,9 @@ export function replansDue(s: OrchState, seenRunning: (runId: string) => boolean
       out.push({ runId: run.id, mode: 'completion', wave: 1 + Math.max(...ts.map((t) => waveOf(t, s.tasks))), done })
       continue
     }
-    // A failed Task and what waits on it do not hold the boundary: the Tasks that do not depend on them go on (waveOpen)
-    const held = heldBack(ts, s.gates)
-    const open = ts.filter((t) => t.status !== 'completed' && !deadEnd(t, ts, held))
-    if (open.length === 0) continue
-    const wave = Math.min(...open.map((t) => waveOf(t, s.tasks)))
-    if (wave === 0 || (last?.mode === 'wave' && last.wave === wave)) continue
-    if (!open.some((t) => notStarted(s, t))) continue
-    out.push({ runId: run.id, mode: 'wave', wave, done })
+    const held = heldForReplan(s, job, run.id)
+    if (held.size === 0) continue
+    out.push({ runId: run.id, mode: 'wave', wave: Math.min(...ts.filter((t) => held.has(t.id)).map((t) => waveOf(t, s.tasks))), done })
   }
   return out
 }

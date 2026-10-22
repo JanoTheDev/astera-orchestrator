@@ -158,3 +158,36 @@ describe('tasks dispatch — who may place one ready Task now', () => {
     expect(error(r)).toContain('Host')
   })
 })
+
+// T3: the app places a coordinator Run's ready Tasks itself, so the coordinator's own worker-start for the same Task
+// arrives second. It must not start a second worker, and its words must not read as a failure to escalate.
+describe('worker-start — a Task the app already started', () => {
+  it('is refused as a duplicate, saying the app already started it; a retry of a closed attempt still starts', async () => {
+    const { deps, taskId } = await seeded()
+    const startWorker = vi.fn(async () => ({ sessionId: `sess_${startWorker.mock.calls.length}`, cwd: 'D:/p', specPath: 'S' }))
+    deps.startWorker = startWorker
+    const args = { task: taskId, agent: 'claude', account: 'acc_c', worktree: 'current' }
+    expect((await call(deps, 'worker-start', args)).status).toBe(200)
+    const first = deps.state().dispatches.find((d) => d.taskId === taskId)!
+
+    const again = await call(deps, 'worker-start', args, 'coord_1')
+    expect(again.status).toBe(400)
+    expect(error(again)).toContain(`dispatch already open: ${first.id}`)
+    expect(error(again)).toContain('Astera already started this Task')
+    expect(error(again)).toContain('not an error')
+    expect(startWorker).toHaveBeenCalledTimes(1)
+    expect(deps.state().dispatches.filter((d) => d.taskId === taskId)).toHaveLength(1)
+
+    // The attempt died: the coordinator's retry is its own job, and it goes through
+    const s = deps.state()
+    await deps.setState({
+      ...s,
+      dispatches: s.dispatches.map((d) => (d.id === first.id ? { ...d, endedAt: NOW, outcome: 'failed' as const } : d)),
+      tasks: s.tasks.map((t) => (t.id === taskId ? { ...t, status: 'failed' as const, consecutiveFailures: 1 } : t))
+    })
+    const retry = await call(deps, 'worker-start', { ...args, retryOf: first.id }, 'coord_1')
+    expect(retry.status).toBe(200)
+    expect(startWorker).toHaveBeenCalledTimes(2)
+    expect(deps.state().dispatches.find((d) => d.retryOf === first.id)).toBeDefined()
+  })
+})

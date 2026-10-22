@@ -5914,25 +5914,36 @@ describe('jobs wait / runs wait', () => {
     await coordinatorStops(working.deps, working.runId, '2026-08-04T03:00:00.000Z')
     expect((await call(working.deps, 'runs-wait', { id: working.runId, timeoutMs: 120 })).body).toMatchObject({ state: 'timeout' })
   })
-  // Only the stopped coordinator starts a ready Task of a Run the app does not drive: nothing moves.
-  it('a ready Task does not hold off limited when only the coordinator starts it, and does when the app drives the Run', async () => {
+  /** A scheduled Job's Run: its coordinator, not the app, starts its ready Tasks (placedByApp, T3). */
+  const scheduledJob = async (deps: OrchServerDeps & { state: OrchState }, jobId: string): Promise<void> => {
+    const cur = deps.getState()
+    await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === jobId ? { ...j, schedule: { kind: 'daily' as const, time: '09:00' } } : j)) })
+  }
+  // Only the stopped coordinator starts a ready Task of a Run the app does not place (a scheduled Job's): nothing moves.
+  it('a ready Task does not hold off limited when only the coordinator starts it, and does when the app places it', async () => {
     const { deps, runId, jobId } = await seeded()
     expect(deps.getState().tasks[0].status).toBe('ready')
+    await scheduledJob(deps, jobId)
     await coordinatorStops(deps, runId, '2026-08-04T03:00:00.000Z')
     expect((await call(deps, 'runs-wait', { id: runId, timeoutMs: 500 })).body).toMatchObject({
       state: 'limited',
       resetsAt: '2026-08-04T03:00:00.000Z'
     })
+    // T3: a plan that is not a schedule has its ready Tasks placed by the app, coordinator or not
     const cur = deps.getState()
+    await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === jobId ? { ...j, schedule: undefined } : j)) })
+    expect((await call(deps, 'runs-wait', { id: runId, timeoutMs: 120 })).body).toMatchObject({ state: 'timeout' })
     await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === jobId ? { ...j, autoDispatch: true } : j)) })
     expect((await call(deps, 'runs-wait', { id: runId, timeoutMs: 120 })).body).toMatchObject({ state: 'timeout' })
   })
   // A clear that never came must not end every wait at once, forever.
   it('ignores a coordinator stop whose reset is more than ten minutes past', async () => {
     const stale = await seeded()
+    await scheduledJob(stale.deps, stale.jobId)
     await coordinatorStops(stale.deps, stale.runId, '2026-08-03T23:49:00.000Z')
     expect((await call(stale.deps, 'runs-wait', { id: stale.runId, timeoutMs: 120 })).body).toMatchObject({ state: 'timeout' })
     const recent = await seeded()
+    await scheduledJob(recent.deps, recent.jobId)
     await coordinatorStops(recent.deps, recent.runId, '2026-08-03T23:55:00.000Z')
     expect((await call(recent.deps, 'runs-wait', { id: recent.runId, timeoutMs: 500 })).body).toMatchObject({ state: 'limited' })
   })

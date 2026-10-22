@@ -212,6 +212,8 @@ const NOT_STARTED: ReadonlySet<TaskStatus> = new Set<TaskStatus>(['pending', 're
 /** T9: the completed Tasks whose files stay leased, by project: those of each plan's latest Run while the plan has not
  *  delivered (`afterStandOf` 'waiting': no landed push, no opened PR, not stopped or archived). Their changes sit on an
  *  undelivered branch, so another plan editing the same files from an older base would conflict at delivery.
+ *  A lease covers the files the Task really changed (`Task.changedFiles`, T2) when recorded, else its `affectedPaths`;
+ *  the returned holder carries them as its `affectedPaths`, so `sameFilesAs` and the cycle rule below read the same.
  *
  *  **Never a deadlock.** Plan X waits on plan Y when a not-started Task of X overlaps one of Y's leases. When Y also
  *  waits (directly or through others) on X and X outranks Y (`planOutranks`), Y's leases do not hold X back: the older
@@ -232,8 +234,11 @@ export function leasesByProject(s: OrchState): Map<string, FileHolder[]> {
   for (const t of s.tasks) {
     const run = t.runId === undefined ? undefined : runById.get(t.runId)
     if (!run || latest.get(run.jobId) !== run) continue
-    if (t.status === 'completed' && (t.affectedPaths?.length ?? 0) > 0) held.set(run.jobId, [...(held.get(run.jobId) ?? []), t])
-    else if (NOT_STARTED.has(t.status)) waiting.set(run.jobId, [...(waiting.get(run.jobId) ?? []), t])
+    if (t.status === 'completed') {
+      // T2: the files it really changed when recorded (exec/validation.ts), else its declared paths
+      const lease = t.changedFiles ? { ...t, affectedPaths: t.changedFiles } : t
+      if ((lease.affectedPaths?.length ?? 0) > 0) held.set(run.jobId, [...(held.get(run.jobId) ?? []), lease])
+    } else if (NOT_STARTED.has(t.status)) waiting.set(run.jobId, [...(waiting.get(run.jobId) ?? []), t])
   }
   for (const jobId of [...held.keys()]) if (afterStandOf(s, jobId) !== 'waiting') held.delete(jobId)
   if (held.size === 0) return new Map()

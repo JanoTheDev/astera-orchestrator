@@ -244,6 +244,30 @@ describe('buildPlannerBrief (W7-E #69)', () => {
   })
 })
 
+// T3: the app places a coordinator Run's ready Tasks; the coordinator keeps the rest.
+describe('who starts workers', () => {
+  it('when the app places, the coordinator is told not to start ready Tasks and what stays its job', () => {
+    const p = prompt({ appPlaces: true })
+    expect(p).toContain('WHO STARTS WORKERS')
+    expect(p).toContain('Astera starts a worker for each ready Task itself')
+    expect(p).toContain('Do not start ready Tasks yourself')
+    expect(p).toContain('that refusal is not an error')
+    for (const part of ['questions and Gates', 'failures and repairs', '--retry-of', 'reviews', 'delivery'])
+      expect(p).toContain(part)
+    expect(p).toContain('A Task that becomes ready needs nothing from you')
+    expect(p).not.toContain('the app starts no workers for this Run')
+  })
+  it("a scheduled Job's coordinator still places, as before", () => {
+    const p = prompt({ appPlaces: false })
+    expect(p).toContain('the app starts no workers for this Run')
+    expect(p).not.toContain('WHO STARTS WORKERS')
+    expect(p).not.toContain('needs nothing from you')
+  })
+  it('a prompts-mode plan the app places says Astera starts the ready ones', () => {
+    expect(prompt({ promptsMode: true, appPlaces: true })).toContain('do not task-update them. Astera starts the ready ones.')
+  })
+})
+
 describe('prompts-mode Job (Run as written)', () => {
   const START = 'The Tasks are already planned and approved; do not task-update them. Start the ready ones.'
   it('coordinator brief has the start line and no fill-in text', () => {

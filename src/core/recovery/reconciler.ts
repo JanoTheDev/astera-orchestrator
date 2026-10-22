@@ -2,7 +2,7 @@
 // strategy, journals the decision, and hands it to execute.ts. Nothing here decides or carries out a
 // strategy — those live in core/recovery/decide.ts and core/recovery/execute.ts, the same split the
 // orchestration guide draws between "what happened", "what to do" and "doing it".
-import { jobOf, placedByApp, type OrchState } from '../orchestration/state'
+import { drivenByAppAlone, jobOf, type OrchState } from '../orchestration/state'
 import { checkConfigIdsOf, policyOf } from '../orchestration/convergence'
 import { DEFAULT_CONCURRENCY } from '../orchestration/types'
 import type { GitFacts, LostAttempt, RecoveryDecision } from './types'
@@ -253,7 +253,9 @@ export class RecoveryReconciler {
       // policyOf 로 본다, run.convergence !== undefined 가 아니다 — 손으로 고친 "convergence": null 은
       // !== undefined 로는 정책이 있다고 잘못 읽히지만, policyOf 는 falsy 한 convergence 를 그대로
       // "정책 없음" 으로 읽는다(이 파일이 손으로 고쳐질 수 있다는 전제는 곳곳에 이미 있다).
-      appDriven: placedByApp(jobOf(state, run), run) || (policyOf(state, task) !== null && dispatch.repair !== undefined),
+      // drivenByAppAlone, not placedByApp (T3): the app also places a coordinator Run's ready Tasks, but a lost
+      // attempt there stays the coordinator's to retry.
+      appDriven: drivenByAppAlone(jobOf(state, run), run) || (policyOf(state, task) !== null && dispatch.repair !== undefined),
       ...(dispatch.repair ? { repair: dispatch.repair } : {}),
       ...(dispatch.grantedExtra ? { grantedExtra: true } : {})
     }
