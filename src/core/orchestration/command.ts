@@ -122,7 +122,7 @@ import { FINISHED_RUN_GRACE_MS } from './exec/dispatchLoop'
 import { diagnoseRuns, doctorRunIds, repairFindings } from './runsDoctor'
 import { orchOwnerOfCaller } from './exec/runEnd'
 import { appDriven, editingByProject, projectKeyOf, sameFilesAs, workerCapOf, workersAgainstCap } from './schedule'
-import type { CloseReason, JobEvent, SessionInfo, WorktreeInfo } from '../types'
+import { closedWithReason, type CloseReason, type JobEvent, type SessionInfo, type WorktreeInfo } from '../types'
 import { ghFailureSentence, type GhFailed, type GhRunner } from '../github/gh'
 import { failedLogTail, readPrChecks, rerunFailed } from '../github/checks'
 import { prForBranch } from '../github/prs'
@@ -6114,7 +6114,7 @@ export async function handleCommand(
         if (!known) return notFound(`unknown session: ${id}`)
         if (!known.alive) return okBody({ sessionId: id, closed: false, alreadyEnded: true })
       }
-      await deps.stopCoordinator(id, reason, 'closed')
+      await deps.stopCoordinator(id, reason, closedWithReason(reason))
       return okBody({ sessionId: id, closed: true, reason })
     }
     /**

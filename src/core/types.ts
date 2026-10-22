@@ -112,8 +112,13 @@ export type SessionStatus = 'running' | 'exited'
 export type SessionKind = 'terminal' | 'chat'
 
 /** Why Astera ended a process it started: a worker released when its Task finished, stopped by a person,
- *  or replaced by a fresh coordinator. Carried with `closedByAstera`, so a closed tab can say why. */
-export type CloseReason = 'released' | 'stopped' | 'replaced' | 'closed'
+ *  or replaced by a fresh coordinator. Carried with `closedByAstera`, so a closed tab can say why.
+ *  T8: `closed:<text>` is `astera sessions close` with its `--reason`; the text rides the same path (pty-kill,
+ *  pty-exit, the session's exit) and the tab reads "Closed by Astera — <text>" (exitWording.ts). */
+export type CloseReason = 'released' | 'stopped' | 'replaced' | `closed:${string}`
+
+/** The `closed:<text>` CloseReason for a reason a person gave (`sessions close --reason`): one line, at most 200 characters. */
+export const closedWithReason = (text: string): CloseReason => `closed:${text.replace(/\s+/g, ' ').trim().slice(0, 200)}`
 
 export interface SessionInfo {
   id: string

@@ -1403,7 +1403,7 @@ export const ko = {
   'exit.releasedByAstera': 'Astera가 닫음 — 해제',
   'exit.stoppedByAstera': 'Astera가 닫음 — 중지',
   'exit.replacedByAstera': 'Astera가 닫음 — 교체',
-  'exit.closedOnRequest': 'Astera가 닫음 — sessions close로 닫힘',
+  'exit.closedOnRequest': 'Astera가 닫음 — {reason}',
   'exit.stopped': '중지됨 (Ctrl+C)',
   'exit.killed': '강제 종료됨 (메모리 부족 또는 강제 중지)',
   'exit.failed': '실패 (코드 {code})',

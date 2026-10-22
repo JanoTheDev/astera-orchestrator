@@ -872,7 +872,7 @@ export const ja: Catalog = {
   'exit.releasedByAstera': 'Astera が閉じました — 解放',
   'exit.stoppedByAstera': 'Astera が閉じました — 停止',
   'exit.replacedByAstera': 'Astera が閉じました — 差し替え',
-  'exit.closedOnRequest': 'Astera が閉じました — sessions close で終了',
+  'exit.closedOnRequest': 'Astera が閉じました — {reason}',
   'exit.stopped': '停止 (Ctrl+C)',
   'exit.killed': '強制終了 (メモリ不足または強制停止)',
   'exit.failed': '失敗 (コード {code})',

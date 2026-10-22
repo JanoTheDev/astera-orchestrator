@@ -882,7 +882,7 @@ export const es: Catalog = {
   'exit.releasedByAstera': 'Cerrado por Astera — liberado',
   'exit.stoppedByAstera': 'Cerrado por Astera — detenido',
   'exit.replacedByAstera': 'Cerrado por Astera — reemplazado',
-  'exit.closedOnRequest': 'Cerrado por Astera — cerrado con sessions close',
+  'exit.closedOnRequest': 'Cerrado por Astera — {reason}',
   'exit.stopped': 'Detenido (Ctrl+C)',
   'exit.killed': 'Terminado a la fuerza (sin memoria o forzado)',
   'exit.failed': 'Error (código {code})',

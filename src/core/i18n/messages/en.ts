@@ -1273,7 +1273,7 @@ export const en: Record<keyof typeof ko, string> = {
   'exit.releasedByAstera': 'Closed by Astera — released',
   'exit.stoppedByAstera': 'Closed by Astera — stopped',
   'exit.replacedByAstera': 'Closed by Astera — replaced',
-  'exit.closedOnRequest': 'Closed by Astera — closed with sessions close',
+  'exit.closedOnRequest': 'Closed by Astera — {reason}',
   'exit.stopped': 'Stopped (Ctrl+C)',
   'exit.killed': 'Killed (out of memory or force-stopped)',
   'exit.failed': 'Failed (code {code})',

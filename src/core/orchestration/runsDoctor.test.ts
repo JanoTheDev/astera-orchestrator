@@ -5,6 +5,8 @@ import { handleCommand, type HostSession, type OrchServerDeps } from './command'
 import { emptyState, type OrchState } from './state'
 import { diagnoseRuns, repairFindings, type DoctorFinding } from './runsDoctor'
 import { exitWording } from '../sessions/exitWording'
+import { t } from '../i18n'
+import type { CloseReason } from '../types'
 import type { Dispatch, Job, JobRun, Task } from './types'
 
 const NOW = '2026-10-22T00:00:00.000Z'
@@ -196,8 +198,25 @@ describe('sessions close', () => {
     const deps = makeDeps(state(), { stopCoordinator, listSessions: live })
     const r = await handleCommand(deps, { sessionId: '' }, 'sessions-close', { id: 'ses_x', reason: 'left over from yesterday' })
     expect(r.status).toBe(200)
-    expect(stopCoordinator).toHaveBeenCalledWith('ses_x', 'left over from yesterday', 'closed')
-    expect(exitWording(129, { closedByAstera: true, closeReason: 'closed' }).key).toBe('exit.closedOnRequest')
+    expect(stopCoordinator).toHaveBeenCalledWith('ses_x', 'left over from yesterday', 'closed:left over from yesterday')
+    // the close reason the stop carries is what the tab's exit line reads (pty-kill → pty-exit → session:exit)
+    const closeReason = (stopCoordinator.mock.calls[0] as unknown[])[2] as CloseReason
+    for (const code of [129, 143]) {
+      const w = exitWording(code, { closedByAstera: true, closeReason })
+      expect(w.tone).toBe('muted')
+      expect(t('en', w.key, w.params)).toBe('Closed by Astera — left over from yesterday')
+    }
+  })
+
+  it('a close with no --reason says so in the tab, and a long or multi-line reason is one short line', async () => {
+    const stopCoordinator = vi.fn(async () => {})
+    const deps = makeDeps(state(), { stopCoordinator, listSessions: live })
+    await handleCommand(deps, { sessionId: '' }, 'sessions-close', { id: 'ses_x' })
+    expect(stopCoordinator).toHaveBeenLastCalledWith('ses_x', 'closed with astera sessions close', 'closed:closed with astera sessions close')
+    await handleCommand(deps, { sessionId: '' }, 'sessions-close', { id: 'ses_x', reason: `a\n  b ${'x'.repeat(300)}` })
+    const sent = (stopCoordinator.mock.calls.at(-1) as unknown[])[2] as string
+    expect(sent.startsWith('closed:a b x')).toBe(true)
+    expect(sent.length).toBe('closed:'.length + 200)
   })
 
   it('a coordinator closes its own Run’s session, and is refused another Run’s', async () => {
