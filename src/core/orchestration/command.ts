@@ -187,7 +187,7 @@ import {
   type JobSourcesDeps
 } from './commandSources'
 // W6-D wave replanning
-import { replanJobOf, waveOpen } from './replan'
+import { replanJobOf, waveOpen, type ReplanRecord } from './replan'
 import { REPLAN_COMMANDS, replanCommand, replanRefusal } from './exec/replanStart'
 // Coordinator rotation
 import { coordinatorHandoff, refreshCoordinator } from './exec/coordinatorRotate'
@@ -4445,8 +4445,9 @@ export async function handleCommand(
       // W5-C: a plan held from launching (`jobs-hold`) gets no new worker from any placer: the app's loop, `tasks
       // dispatch`, a coordinator, a person. `held` tells the loop this is a wait, not a reason for a Gate.
       // W8-E (#95): a replan holds the plan too (dispatchHold), but it lifts by itself: the coordinator waits for
-      // `plan.replanned` instead of asking the owner to run `jobs-unhold`, which no agent may
-      if (runJob?.replanning)
+      // `plan.replanned` instead of asking the owner to run `jobs-unhold`, which no agent may. A scoped replan (one for
+      // deviations) holds only the Tasks it can affect: waveOpen below refuses those
+      if (runJob?.replanning && !(runJob.replanning as ReplanRecord).scoped)
         return {
           status: 409,
           body: { error: `replanning wave ${runJob.replanning.wave}: this lifts by itself; wait for plan.replanned in your inbox`, held: true, replanning: true }

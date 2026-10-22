@@ -136,8 +136,9 @@ describe('stallRemedies', () => {
   })
 
   it('a Task whose wave is not open is no stall: never told or started', () => {
+    // tsk_0 completed outside its paths, so tsk_1, which builds on it, waits for a replan (replan.ts waveOpen)
     const s = plan(
-      { tasks: [task({ id: 'tsk_0', status: 'completed' }), task({ id: 'tsk_1', deps: ['tsk_0'] })], dispatches: [ended('tsk_0', '/wt1')] },
+      { tasks: [task({ id: 'tsk_0', status: 'completed', affectedPaths: ['src/a'], filesModified: ['src/b'] }), task({ id: 'tsk_1', deps: ['tsk_0'] })], dispatches: [ended('tsk_0', '/wt1')] },
       { plannerSessionIds: ['pl'], coordinatorAccountId: 'accA' }
     )
     expect(watch(s, every30s(60 * MIN)).filter((x) => !x.startsWith('draft-pr'))).toEqual([])

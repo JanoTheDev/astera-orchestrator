@@ -2084,18 +2084,21 @@ describe('wave replanning (W6-D)', () => {
     h.setState({ ...s, dispatches: [...s.dispatches, { id: 'dsp_failed', taskId: 'tsk_1', outcome: 'failed', workerState: 'failed', sessionId: 'ses-dead', provider: 'claude', accountId: 'acc1', cwd: '/repo', specPath: '/s.md', startedAt: '2026-10-17T00:00:00.000Z', endedAt: '2026-10-17T00:01:00.000Z' } as Dispatch] })
   }
 
-  it('holds the Job and starts a replan when the last Task of a wave completes, and starts no worker of the next', async () => {
+  it('starts a replan when a Task deviates, and holds only the Tasks it can affect, not the Job', async () => {
     const h = rig()
     planned(h, (t) => (t.id === 'tsk_1' ? { ...t, status: 'completed' } : t))
     failedOnce(h)
+    // tsk_3 neither waits on tsk_1 nor shares its paths
+    const s = h.state()
+    h.setState({ ...s, tasks: [...s.tasks, task({ id: 'tsk_3', prompt: 'p', acceptanceCriteria: ['c'], affectedPaths: ['src/tsk_3'], basis: { state: 'missing', evidence: 'e' } })] })
     await h.loop.run()
     await h.settle()
     expect(h.handled()).toContain('jobs-replan')
     const job = h.state().jobs.find((j) => j.id === 'job_1')!
-    expect(job.dispatchHold).toBe(true)
-    expect(job.replanning).toMatchObject({ runId: 'run_1', mode: 'wave', wave: 1 })
+    expect(job.dispatchHold).toBeUndefined()
+    expect(job.replanning).toMatchObject({ runId: 'run_1', mode: 'wave', wave: 1, scoped: true })
     expect(h.startCoordinator).toHaveBeenCalledWith(expect.objectContaining({ role: 'planner', runId: 'job_1' }))
-    expect(h.startWorker).not.toHaveBeenCalled()
+    expect(h.startWorker.mock.calls.map((c) => JSON.stringify(c))).toEqual([expect.stringContaining('tsk_3')])
   })
 
   it('runs the final check before the PR, and opens the PR once it settles', async () => {
