@@ -1314,3 +1314,26 @@ describe('mcpHttp', () => {
     expect(store.getMcpHttp().hosts).toEqual(['a'])
   })
 })
+
+// T27: crash reports, ask by default; only 'never' is written
+describe('crashReports', () => {
+  it('is ask by default, and never survives a reload', async () => {
+    const store = new AppSettingsStore(file())
+    await store.load()
+    expect(store.getCrashReports()).toBe('ask')
+    await store.setCrashReports('never')
+    expect(JSON.parse(await fs.readFile(file(), 'utf8')).crashReports).toBe('never')
+    const again = new AppSettingsStore(file())
+    await again.load()
+    expect(again.getCrashReports()).toBe('never')
+    await again.setCrashReports('ask')
+    expect(JSON.parse(await fs.readFile(file(), 'utf8')).crashReports).toBeUndefined()
+  })
+
+  it('reads anything but never as ask', async () => {
+    await fs.writeFile(file(), JSON.stringify({ crashReports: 'sometimes' }))
+    const store = new AppSettingsStore(file())
+    await store.load()
+    expect(store.getCrashReports()).toBe('ask')
+  })
+})

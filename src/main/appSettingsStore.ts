@@ -34,6 +34,7 @@ import { ACTIVITY_DIGEST_DEFAULT_MINUTES, activityDigestMinutesOf } from '../cor
 import { tabSummariesOf } from '../core/settings/tabSummaries'
 import { FRESH_COORDINATOR_DEFAULT_PCT, freshCoordinatorPctOf } from '../core/settings/freshCoordinator'
 import { stallWatchOnOf } from '../core/settings/stallWatch'
+import { crashReportsOf, type CrashReportsSetting } from '../core/crash/report' // T27
 import { startAtLoginOf } from '../core/settings/startAtLogin'
 import { autoAnswerOnOf } from '../core/orchestration/exec/autoAnswer'
 import { autoCleanWorktreesOf } from '../core/settings/autoCleanWorktrees'
@@ -143,6 +144,8 @@ export class AppSettingsStore {
   private freshCoordinatorContextPct = FRESH_COORDINATOR_DEFAULT_PCT
   /** Stall watchdog (orchestration/exec/stallWatch.ts): on by default; only an explicit false turns it off. */
   private stallWatch = true
+  /** T27 crash reports (core/crash): 'ask' by default; only an explicit 'never' turns the prompt off. */
+  private crashReports: CrashReportsSetting = 'ask'
   /** T23 (main/autostart.ts): on by default; only an explicit false turns it off. */
   private startAtLogin = true
   /** T21 (orchestration/exec/autoAnswer.ts): on by default; only an explicit false turns it off. */
@@ -256,6 +259,7 @@ export class AppSettingsStore {
         (parsed as { freshCoordinatorContextPct?: unknown }).freshCoordinatorContextPct
       )
       this.stallWatch = stallWatchOnOf((parsed as { stallWatch?: unknown }).stallWatch)
+      this.crashReports = crashReportsOf((parsed as { crashReports?: unknown }).crashReports) // T27
       this.startAtLogin = startAtLoginOf((parsed as { startAtLogin?: unknown }).startAtLogin)
       this.autoAnswer = autoAnswerOnOf((parsed as { autoAnswer?: unknown }).autoAnswer)
       this.autoCleanWorktrees = autoCleanWorktreesOf((parsed as { autoCleanWorktrees?: unknown }).autoCleanWorktrees)
@@ -341,6 +345,7 @@ export class AppSettingsStore {
         this.activityDigestMinutes = ACTIVITY_DIGEST_DEFAULT_MINUTES
         this.freshCoordinatorContextPct = FRESH_COORDINATOR_DEFAULT_PCT
         this.stallWatch = true
+        this.crashReports = 'ask'
         this.startAtLogin = true
         this.autoAnswer = true
         this.autoCleanWorktrees = true
@@ -390,6 +395,7 @@ export class AppSettingsStore {
       this.activityDigestMinutes = ACTIVITY_DIGEST_DEFAULT_MINUTES
       this.freshCoordinatorContextPct = FRESH_COORDINATOR_DEFAULT_PCT
       this.stallWatch = true
+      this.crashReports = 'ask'
       this.startAtLogin = true
       this.autoAnswer = true
       this.autoCleanWorktrees = true
@@ -663,6 +669,16 @@ export class AppSettingsStore {
     await this.persist()
   }
 
+  /** T27 */
+  getCrashReports(): CrashReportsSetting {
+    return this.crashReports
+  }
+
+  async setCrashReports(v: CrashReportsSetting): Promise<void> {
+    this.crashReports = crashReportsOf(v)
+    await this.persist()
+  }
+
   getStartAtLogin(): boolean {
     return this.startAtLogin
   }
@@ -900,6 +916,7 @@ export class AppSettingsStore {
       activityDigestMinutes?: number
       freshCoordinatorContextPct?: number
       stallWatch?: false
+      crashReports?: 'never' // T27
       startAtLogin?: false
       autoAnswer?: false
       autoCleanWorktrees?: false
@@ -952,6 +969,7 @@ export class AppSettingsStore {
     if (this.activityDigestMinutes !== ACTIVITY_DIGEST_DEFAULT_MINUTES) data.activityDigestMinutes = this.activityDigestMinutes
     if (this.freshCoordinatorContextPct !== FRESH_COORDINATOR_DEFAULT_PCT) data.freshCoordinatorContextPct = this.freshCoordinatorContextPct
     if (!this.stallWatch) data.stallWatch = false
+    if (this.crashReports === 'never') data.crashReports = 'never' // T27
     if (!this.startAtLogin) data.startAtLogin = false
     if (!this.autoAnswer) data.autoAnswer = false
     if (!this.autoCleanWorktrees) data.autoCleanWorktrees = false
