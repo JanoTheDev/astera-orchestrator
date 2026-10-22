@@ -6,7 +6,7 @@
 - UnderstandingIcons: status icons (RECORD_ICON via Icon). RECORD_GLYPH characters stay only for the tab strip (PaneGrid), outside this Task.
 - RecordDetail: all buttons are ui Buttons; chevron/close are Icons; narrow reference drawer has aria-expanded, a region name and closes on Esc.
 - FlowDiagram: pickable steps are Buttons (aria-pressed) inside the same box. Edge lines stay SVG (diagram, not an icon).
-- Browser pane, AppMirrorPane, AnnotationTray, AnnotationPopover: see the agent notes below.
+- Browser pane, AppMirrorPane, AnnotationTray, AnnotationPopover: see "Browser pane and annotations" below.
 - New keys (en/es/ja/ko): history.panel.count, history.panel.emptyHint, history.menu.label, history.entry.unread, hiw.empty.title, preview.design.sessionBusy, preview.menu.page.
 - spinnerCss.test.ts: dropped the `.loading-dots` pin (the dots were replaced by Skeleton).
 
@@ -21,3 +21,10 @@
 
 ## Not changed
 - Webview, mirror and annotation capture logic. browserSlot.ts untouched. Edit button in the record pane still only says "not ready yet" (kept; candidate to remove).
+
+## Browser pane and annotations
+- BrowserPane (`src/renderer/src/components/BrowserPane.tsx`): toolbar buttons are IconButtons with a label; viewport choice is a ui Select; the send-to-session and page menus are ui Menu. A busy session shows a spinning Icon with a name. Load error and empty state use EmptyState; retry is a Button.
+- AppMirrorPane: Stop and Close are Buttons with Icons; the waiting and closed states are EmptyState.
+- AnnotationTray: Send, Copy, Clear and Collapse are Button/IconButton; per-note Edit and Delete are IconButtons; the note editor's Save and Cancel are Buttons over a ui Textarea.
+- AnnotationPopover: close is an IconButton; its action is a Button; the note is a ui Textarea.
+- Left: no raw `<button>`, `<select>`, `<input>` or direct lucide import in these four files. Webview, mirror and annotation capture logic are untouched (see "Not changed"). No screenshot was taken for these panes in this pass.

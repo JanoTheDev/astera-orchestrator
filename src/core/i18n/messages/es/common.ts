@@ -331,7 +331,7 @@ export const common: Partial<Record<keyof typeof ko, string>> = {
   'tabs.recent.cannotResume': '"{title}" no se puede reanudar: no dejó transcripción (una sesión de Codex, o una que terminó antes de su primera respuesta).',
   'new.title': 'Nuevo',
   'plan.outcome.needsYou': 'Te necesita',
-  'plan.outcome.stalled': 'Atascado — ejecuta doctor',
+  'plan.outcome.stalled': 'Atascado — sin avance. Abre el plan y pulsa Arreglar',
   'plan.outcome.stalledOnFailed': 'Atascado: esperando a {task} (falló)',
   'plan.failedWait.hint': 'Esta tarea falló y el resto del plan la espera: reinténtala, acéptala como hecha o cancela lo que la espera',
   'plan.failedWait.retry': 'Reintentar',

@@ -326,7 +326,7 @@ export const common: Partial<Record<keyof typeof ko, string>> = {
   'tabs.recent.cannotResume': '「{title}」は再開できません。トランスクリプトが残っていません（Codex セッション、または最初の回答前に終わったセッション）。',
   'new.title': '新規',
   'plan.outcome.needsYou': '対応が必要',
-  'plan.outcome.stalled': '停止中 — doctor を実行',
+  'plan.outcome.stalled': '停止中 — 進捗なし。プランを開いて「修復」を押す',
   'plan.outcome.stalledOnFailed': '停止中: {task} を待機中（失敗）',
   'plan.failedWait.hint': 'このタスクが失敗し、プランの残りがこれを待っています: 再試行、完了として承認、または待機中のものをキャンセル',
   'plan.failedWait.retry': '再試行',
