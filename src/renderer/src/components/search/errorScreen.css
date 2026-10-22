@@ -1,0 +1,8 @@
+/* ErrorScreen: the technical details under the plain-words sentence. Tokens only. */
+.err-screen { min-height: 100vh; display: grid; place-items: center; background: var(--bg); }
+.err-screen__details {
+  width: min(560px, 90vw); max-height: 160px; overflow: auto; margin: 0; padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius); background: var(--elevated); color: var(--text-dim);
+  font-family: var(--mono); font-size: var(--fs-12); text-align: left; white-space: pre-wrap; word-break: break-word;
+}
+.err-screen__actions { display: flex; gap: var(--sp-2); flex-wrap: wrap; justify-content: center; }

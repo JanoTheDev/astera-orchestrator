@@ -4,4 +4,9 @@ import type { errors as ko } from '../ko/errors'
 export const errors: Partial<Record<keyof typeof ko, string>> = {
   'app.renderError': 'Algo salió mal al dibujar esta ventana.',
   'app.renderErrorReload': 'Recargar',
+  'app.renderErrorWhat': 'Esta página dejó de funcionar. Recargar suele resolverlo y tu trabajo está guardado.',
+  'app.renderErrorDetails': 'Detalles del error',
+  'app.renderErrorCopy': 'Copiar detalles',
+  'app.renderErrorCopied': 'Copiado',
+  'app.renderErrorReport': 'Informar',
 }
