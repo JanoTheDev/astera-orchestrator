@@ -2,6 +2,8 @@ import type { JobTask, TaskStatus } from '../../../core/types'
 import type { MessageKey } from '../../../core/i18n'
 import { isStoppedWorker } from '../../../core/orchestration/running'
 import { useI18n } from '../i18n/I18nProvider'
+import { CircleDashed, CircleDot, LockOpen, Pause } from 'lucide-react'
+import { Icon } from './ui'
 
 /** 여덟 상태의 툴팁 키. 글리프와 **같은 파일에** 있는 이유는 글리프가 여기 있는 이유와 같다 —
  *  아이콘이 말로 풀리는 자리(툴팁, 접근성 이름)가 화면마다 다른 낱말을 쓰면 같은 모양이 두 뜻을
@@ -50,7 +52,7 @@ export const STATUS_COLOR: Record<TaskStatus, string> = {
  *  styles.css)을 공유하고 색만 다르다: "무언가 돌고 있다"가 하나의 신호로 읽히고, 무엇이 도는지는
  *  색이 말한다. 여럿을 묶은 자리에서는 이 글리프가 아니라 RunIcon 을 쓴다.
  *
- *  색은 svg 의 color 로 한 번만 주고 안쪽은 currentColor 로 받는다 — 여덟 곱하기 두세 군데의 색을
+ *  색은 감싸는 span 의 color 로 한 번만 주고 ui Icon(lucide, stroke=currentColor)이 그것을 받는다 — 여덟 곱하기 두세 군데의 색을
  *  글리프마다 적으면, 한 상태의 색을 바꿀 때 고칠 자리가 흩어진다.
  *
  *  label 은 툴팁이자 접근성 이름이다. 없으면 aria-hidden — 옆에 글자가 이미 같은 말을 하는 자리
@@ -70,7 +72,7 @@ export function TaskIcon({
 }): React.JSX.Element {
   return (
     <Glyph color={STATUS_COLOR[status]} size={size} label={label}>
-      {shapeOf(status, still)}
+      {glyphShape(status, still)}
     </Glyph>
   )
 }
@@ -102,10 +104,7 @@ export function TaskGlyph({ task, size }: { task: JobTask; size?: number }): Rea
   return <TaskIcon status={task.status} label={t(g.key)} still={g.still} size={size} />
 }
 
-/** 자물쇠 둘 — Gate 를 걸고 푸는 노드 버튼이 쓴다.
- *
- *  **왜 그림인가**: 이 버튼들의 이웃(`▶ ⏹ ↗ ↻`)은 전부 단색 텍스트 글리프인데 자물쇠에는 널리
- *  쓰이는 단색 문자가 없다 — `🔒`/`🔓` 는 컬러 이모지라 그 줄에서 혼자 튄다.
+/** 자물쇠 둘 — Gate 를 걸고 푸는 노드 버튼이 쓴다(plan/PlanGraph).
  *
  *  **왜 자물쇠인가**: 이 짝은 한때 `물어보기`/`답하기` 였는데 대화처럼 읽혔다. 실제로 하는 일은
  *  잠금이다 — Gate 는 Task 를 `blocked` 로 내려 **시작을 막고**, 푸는 것이 그것을 되돌린다.
@@ -113,83 +112,23 @@ export function TaskGlyph({ task, size }: { task: JobTask; size?: number }): Rea
  *  때 막을 이유가 없다). 가이드도 "a decision block … for deciding the task DAG" 라 적는다.
  *
  *  Glyph 를 쓰지 않는다 — 그것은 색을 스스로 정하는데, 이 둘은 버튼의 색(--text-faint → hover
- *  accent)을 물려받아야 한다. Select.tsx 의 Chevron 과 같은 모양이다. */
-export const LockIcon = (): React.JSX.Element => (
-  <svg
-    viewBox="0 0 16 16"
-    width="12"
-    height="12"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.6"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    <rect x="3.5" y="7" width="9" height="6.5" rx="1.2" />
-    <path d="M5.8 7V5.2a2.2 2.2 0 0 1 4.4 0V7" />
-  </svg>
-)
+ *  accent)을 물려받아야 한다. W12: the registry's glyphs (ui Icon), names kept for their callers. */
+export const LockIcon = (): React.JSX.Element => <Icon name="lock" size={14} />
 
-/** 풀린 자물쇠 — 고리가 한쪽만 걸려 있다. 잠긴 것과 **몸통이 같고 고리만 다르다**: 두 상태가 한
- *  물건의 두 모습으로 읽혀야 하고, 모양을 통째로 바꾸면 서로 다른 두 아이콘이 된다. */
-export const UnlockIcon = (): React.JSX.Element => (
-  <svg
-    viewBox="0 0 16 16"
-    width="12"
-    height="12"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.6"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    <rect x="3.5" y="7" width="9" height="6.5" rx="1.2" />
-    <path d="M5.8 7V5.2a2.2 2.2 0 0 1 4.3-.7" />
-  </svg>
-)
+/** 풀린 자물쇠 — 잠긴 것과 **몸통이 같고 고리만 다르다**: 두 상태가 한 물건의 두 모습으로 읽혀야 한다.
+ *  shortcut: LockOpen is not in ICONS yet; switch to a registry name once promoted. */
+export const UnlockIcon = (): React.JSX.Element => <Icon icon={LockOpen} size={14} />
 
-/** 휴지통 — Run 을 물러나게 하는 버튼이 쓴다. 자물쇠 둘과 같은 관례다(단색, currentColor 를
- *  물려받아 버튼의 색과 hover 를 따라간다). `✕` 로 하지 않는 이유: 이 사이드바에서 `✕` 는 이미
- *  "닫는다·취소한다"의 모양이고(상세 창의 필터 지우기, 폼 취소), 지우는 것은 되돌릴 수 없어 같은
- *  모양을 빌려 쓸 자리가 아니다. */
-export const TrashIcon = (): React.JSX.Element => (
-  <svg
-    viewBox="0 0 16 16"
-    width="12"
-    height="12"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.5"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    <path d="M3 4.5h10" />
-    <path d="M6.5 4.5V3.2h3v1.3" />
-    <path d="M4.4 4.5l.6 8a.9.9 0 0 0 .9.8h4.2a.9.9 0 0 0 .9-.8l.6-8" />
-    <path d="M6.8 7v4M9.2 7v4" />
-  </svg>
-)
+/** 휴지통 — Run 을 물러나게 하는 버튼이 쓴다. `✕` 로 하지 않는 이유: 이 사이드바에서 `✕` 는 이미
+ *  "닫는다·취소한다"의 모양이고, 지우는 것은 되돌릴 수 없어 같은 모양을 빌려 쓸 자리가 아니다. */
+export const TrashIcon = (): React.JSX.Element => <Icon name="delete" size={14} />
 
-/** 예약을 세우는 자리. TrashIcon 과 같은 뼈대(12px, currentColor)를 쓰므로 같은 줄에 나란히 서도
- *  무게가 같다. 채워서 그리는 이유: 이 둘은 상태가 아니라 **누르는 것**이라, 획으로 그린 상태
- *  글리프들과 구별되어야 한다. */
-export const PauseIcon = (): React.JSX.Element => (
-  <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor" aria-hidden="true">
-    <rect x="4.5" y="3.5" width="2.6" height="9" rx="0.8" />
-    <rect x="8.9" y="3.5" width="2.6" height="9" rx="0.8" />
-  </svg>
-)
+/** 예약을 세우는 자리. shortcut: Pause is not in ICONS yet; switch to a registry name once promoted. */
+export const PauseIcon = (): React.JSX.Element => <Icon icon={Pause} size={14} />
 
 /** 멈춘 예약을 다시 돌리는 자리. 한 번도 돌리지 않은 템플릿에도 같은 아이콘이 선다 — 시작과 재생은
  *  같은 동작이다(둘 다 pendingStart 를 걷는다). */
-export const PlayIcon = (): React.JSX.Element => (
-  <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor" aria-hidden="true">
-    <path d="M5 3.6a.8.8 0 0 1 1.2-.7l6 4.4a.8.8 0 0 1 0 1.3l-6 4.4A.8.8 0 0 1 5 12.4z" />
-  </svg>
-)
+export const PlayIcon = (): React.JSX.Element => <Icon name="run" size={14} />
 
 export type RunIconKind = 'running' | 'blocked' | 'done' | 'failed'
 
@@ -218,13 +157,15 @@ export function RunIcon({
   }
   return (
     <Glyph color={STATUS_COLOR.dispatched} size={size} label={label}>
-      <circle cx="8" cy="8" r="4.2" fill="currentColor" />
+      {/* shortcut: CircleDot is not in ICONS yet; switch to a registry name once promoted */}
+      <Icon icon={CircleDot} size={14} />
     </Glyph>
   )
 }
 
-/** 앱의 SVG 관례대로 16 viewBox 하나. 툴팁은 title 속성이 아니라 <title> 자식이다 — SVG 에서는
- *  브라우저가 그쪽을 읽는다. */
+/** 색과 크기와 이름을 한 자리에서 준다. 안의 Icon 은 늘 장식이다(aria-hidden): 이름은 이 span 이
+ *  role="img" 와 aria-label 로, 툴팁은 title 로 갖는다. 크기는 Icon 의 14/16/20 이 아니라 호출부의
+ *  숫자다(그래프 노드 10px, 줄 13px) — jobs.css 의 .job-ic svg 가 안의 svg 를 이 상자에 맞춘다. */
 function Glyph({
   color,
   size,
@@ -237,99 +178,43 @@ function Glyph({
   children: React.ReactNode
 }): React.JSX.Element {
   return (
-    <svg
+    <span
       className="job-ic"
-      width={size}
-      height={size}
-      viewBox="0 0 16 16"
-      style={{ color }}
+      style={{ color, width: size, height: size }}
       role={label ? 'img' : undefined}
+      aria-label={label}
+      title={label}
       aria-hidden={label ? undefined : true}
     >
-      {label ? <title>{label}</title> : null}
       {children}
-    </svg>
+    </span>
   )
 }
 
-function shapeOf(status: TaskStatus, still: boolean): React.JSX.Element {
+/** 상태 하나의 registry 글리프. 도는 넷은 같은 회전(.job-arc)을 공유하고 색만 다르다.
+ *  still 이면 같은 그림이 멈춘다. 클래스를 떼는 것만으로 되는 이유는 회전이 CSS 에 있기 때문이다(.job-arc).
+ *  **멈춤은 이 글리프에서 오직 still 만 뜻한다.** 한때 styles.css 가 reduced-motion 에서도 그
+ *  회전을 껐는데, 그러면 도는 Task 와 워커가 멈춘 Task 가 똑같이 그려져 이 구별 자체가 사라진다 —
+ *  그래서 그 예외를 걷었다(jobs.css 의 .job-arc 주석, core/orchestration/spinnerCss.test.ts).
+ *  시작 전 둘은 비어 있다 — 채우지 않는 것이 "아직 아무 일도 없었다"를 말한다. 점선은 그중에서도
+ *  자기 힘으로 시작할 수 없는 쪽(의존이 막고 있다). */
+function glyphShape(status: TaskStatus, still: boolean): React.JSX.Element {
   switch (status) {
-    // 도는 셋. 회색 테두리 위를 4분의 1 호가 돈다 — 호만 있으면 작은 크기에서 무엇이 도는지
-    // 읽히지 않아서, 도는 자리를 테두리가 먼저 그려 준다.
-    // still 이면 같은 그림이 멈춘다. 클래스를 떼는 것만으로 되는 이유는 회전이 CSS 에 있기
-    // 때문이다(.job-arc).
-    // **멈춤은 이 글리프에서 오직 still 만 뜻한다.** 한때 styles.css 가 reduced-motion 에서도 그
-    // 회전을 껐는데, 그러면 도는 Task 와 워커가 멈춘 Task 가 똑같이 그려져 이 구별 자체가 사라진다 —
-    // 그래서 그 예외를 걷었다(styles.css 의 .job-arc 주석, core/orchestration/spinnerCss.test.ts)
     case 'dispatched':
     case 'validating':
     case 'reviewing':
     case 'merging':
-      return (
-        <>
-          <circle cx="8" cy="8" r="6" fill="none" stroke="var(--line-soft)" strokeWidth="2" />
-          <path
-            className={still ? undefined : 'job-arc'}
-            d="M8 2a6 6 0 0 1 6 6"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-          />
-        </>
-      )
-    // 끝난 셋은 채워진 점에 표식을 파낸다. 파내는 색이 --bg 인 것은 이 글리프가 --panel 위에도
-    // --elevated 위에도 서기 때문이다 — 표면색을 따라가게 하면 자리마다 다른 글리프가 된다
+      return <Icon name="loading" size={14} className={still ? undefined : 'job-arc'} />
     case 'completed':
-      return (
-        <>
-          <circle cx="8" cy="8" r="6.5" fill="currentColor" />
-          <path
-            d="M5 8.2l2 2 4-4.2"
-            fill="none"
-            stroke="var(--bg)"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </>
-      )
+      return <Icon name="done" size={14} />
     case 'failed':
-      return (
-        <>
-          <circle cx="8" cy="8" r="6.5" fill="currentColor" />
-          <path
-            d="M5.6 5.6l4.8 4.8M10.4 5.6l-4.8 4.8"
-            fill="none"
-            stroke="var(--bg)"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-          />
-        </>
-      )
+      return <Icon name="error" size={14} />
     case 'blocked':
-      return (
-        <>
-          <circle cx="8" cy="8" r="6.5" fill="currentColor" />
-          <path d="M8 4.6v4.2" fill="none" stroke="var(--bg)" strokeWidth="1.9" strokeLinecap="round" />
-          <circle cx="8" cy="11.3" r="1.05" fill="var(--bg)" />
-        </>
-      )
-    // 시작 전 둘은 비어 있다 — 채우지 않는 것이 "아직 아무 일도 없었다"를 말한다. 점선은 그중에서도
-    // 자기 힘으로 시작할 수 없는 쪽(의존이 막고 있다)
+      return <Icon name="warning" size={14} />
     case 'ready':
-      return <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="1.6" />
+      return <Icon name="pending" size={14} />
     case 'pending':
-      return (
-        <circle
-          cx="8"
-          cy="8"
-          r="6"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.6"
-          strokeDasharray="2.6 2.6"
-        />
-      )
+      // shortcut: CircleDashed is not in ICONS yet; switch to a registry name once promoted
+      return <Icon icon={CircleDashed} size={14} />
   }
 }

@@ -146,14 +146,14 @@ export const tools: Partial<Record<keyof typeof ko, string>> = {
   'jobs.empty': 'まだ開始したジョブがありません',
   // サイドバーに「+ 新しい作業」ボタンができた後も、コーディネーターセッションは作業ができるもう
   // 一つの経路のままなので、どちらも消さずに言う
-  'jobs.empty.hint': '作業はここで直接作れます — コーディネーターセッションで作った作業もここに表示されます',
+  'jobs.empty.hint': '作業はここで直接作れます — リードエージェントのセッションで作った作業もここに表示されます',
   // 8 つの状態グリフ(JobIcons.tsx)のツールチップ。サイドバーが状態を言葉で書かなくなったので、
   // これらは常時表示されない — アイコンを初めて見る人が学ぶ場所。pending と blocked は書き分ける:
   // 前者は依存が、後者は人が止めている
   'jobs.state.pending': 'まだ依存でふさがっている',
   'jobs.state.ready': '開始できる',
-  'jobs.state.dispatched': 'ワーカーが作業中',
-  'jobs.state.dispatchedStopped': 'ワーカーが停止した',
+  'jobs.state.dispatched': 'エージェントが作業中',
+  'jobs.state.dispatchedStopped': 'エージェントが停止した',
   'jobs.state.validating': '検証が実行中',
   'jobs.state.reviewing': '別のエージェントがレビュー中',
   'jobs.state.merging': 'プランブランチにマージ中',
@@ -205,4 +205,27 @@ export const tools: Partial<Record<keyof typeof ko, string>> = {
   'jobs.detail.journalBusy': 'ジャーナルが使用中のため、最後に読み込んだ記録を表示しています。次の更新で再度読み込みます。',
   'jobs.task.checkPlugin': 'プラグイン: {name}',
   'jobs.task.checkPluginStatus': 'プラグイン: {name} ({status})',
+  // W12 redesign · Jobs view (JobsView, JobIcons)
+  'jobs.view.title': '計画',
+  'jobs.view.expand': '展開',
+  'jobs.view.collapse': '折りたたむ',
+  'jobs.view.openTab': 'このエージェントのタブを開く',
+  'jobs.view.hold': '新しいエージェントの起動を止める（動いているものは続行）',
+  'jobs.view.holdRelease': '新しいエージェントの起動を再開',
+  'jobs.view.leadRestart': 'リードエージェントを再起動',
+  'jobs.view.leadRestartHint': 'このジョブを管理するリードエージェントがいません — クリックで再起動します',
+  'jobs.view.approveHint': 'この計画を承認してエージェントを開始します',
+  'jobs.view.sharedFolderHint': '別の作業のエージェントと同じフォルダで動いています — 互いの編集が混ざることがあり、アプリはそれを防ぐことも気づくこともできません',
+  'jobs.view.hostWaiting': 'バックグラウンドサービスに接続中です',
+  'jobs.view.hostUnreachable': 'バックグラウンドサービスに接続できません',
+  'jobs.view.stallParked': 'バックグラウンドサービスが作業を一時停止しています: {reason}',
+  'jobs.view.stallUnresponsive': 'バックグラウンドサービスが応答しないため、作業が進みません。設定の情報タブから再起動できます',
+  'jobs.view.stallReading': 'バックグラウンドサービスがまだ設定を読み込み中のため、作業はまだ進みません',
+  // W12 end jobs
+  // W12 redesign · run configs (RunConfigForm/Manager/Menu, RunTypePicker, ConfigRefList, EnvTable, RuntimeSelector)
+  // W12 end config
+  // W12 redesign · bottom panel (BottomPanel, RunPanel, RunToolbar, RunToolRail, RunFindBar)
+  // W12 end panel
+  // W12 redesign · run detail (RunDetailJournal, CompletionBlock, CompletionChecks, PrBadge, PushBadge, checkText)
+  // W12 end detail
 }
