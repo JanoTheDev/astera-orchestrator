@@ -1946,6 +1946,9 @@ export interface UpdateStatus {
   step?: SourceBuildStep
   /** Source channel only: how far this build is behind origin/main, and the commits it lacks (up to 20). */
   source?: { behind: number; commits: { sha: string; subject: string }[]; target: string }
+  /** Source channel only, on every status: the short commit this build was made from, and whether it can build and
+   *  swap itself in (Linux AppImage). Its presence tells the renderer which channel it is looking at. */
+  sourceBuild?: { commit: string; selfInstall: boolean }
 }
 
 export type SourceBuildStep = 'cloning' | 'installing' | 'waiting' | 'building'
@@ -1989,6 +1992,8 @@ export interface UpdateApi {
   campaignState(): Promise<UpdateCampaignInfo | null>
   /** The user dismissed the notice — the same campaign is not shown again */
   dismissCampaign(id: string): Promise<void>
+  /** Source channel only: the latest status, for a renderer that mounted after the first ones went out. */
+  current(): Promise<UpdateStatus>
   check(): Promise<void>
   /** autoDownload starts the download on its own — this is the manual fallback */
   download(): Promise<void>

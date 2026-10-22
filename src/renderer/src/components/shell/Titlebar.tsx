@@ -5,6 +5,7 @@ import logoUrl from '../../assets/mark.svg'
 import { confirmModalWithChoices } from '../../lib/confirm'
 import { quitConfirmBody } from '../../lib/quitConfirm'
 import { useI18n } from '../../i18n/I18nProvider'
+import { titlebarView } from '../../../../core/update/sourceView'
 
 function UpdateIndicator({
   update,
@@ -17,35 +18,17 @@ function UpdateIndicator({
   onInstall: () => void
 }): React.JSX.Element | null {
   const { t } = useI18n()
-  if (!update || update.state === 'init' || update.state === 'uptodate') return null
-  if (update.state === 'downloaded')
+  const view = titlebarView(update)
+  if (view.kind === 'none') return null
+  const text = t(view.message.key, view.message.params)
+  if (view.kind === 'button')
     return (
       <button className="tb-update-btn" onClick={onInstall}>
-        {t('update.tb.restartInstallVersion', { version: update.version ?? '' })}
+        {text}
       </button>
     )
-  // The same build, and the same button, but restarting will not install it — so the titlebar must
-  // not say it will. Without this branch 'manual' falls through to the error text below, which is
-  // both wrong and unactionable.
-  if (update.state === 'manual')
-    return (
-      <button className="tb-update-btn" onClick={onInstall}>
-        {t('update.tb.manualInstallVersion', { version: update.version ?? '' })}
-      </button>
-    )
-  const text =
-    update.state === 'checking'
-      ? t('update.tb.checking')
-      : update.state === 'available'
-        ? t('update.tb.available', { version: update.version ?? '' })
-        : update.state === 'downloading'
-          ? t('update.tb.downloading', { percent: update.percent ?? 0 })
-          : t('update.tb.error')
   return (
-    <span
-      className={update.state === 'error' ? 'tb-update tb-update-err' : 'tb-update'}
-      title={update.message}
-    >
+    <span className={view.kind === 'error' ? 'tb-update tb-update-err' : 'tb-update'} title={update?.message}>
       {text}
     </span>
   )

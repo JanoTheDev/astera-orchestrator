@@ -383,6 +383,7 @@ const api = {
     },
     campaignState: () => ipcRenderer.invoke('update:campaignState'),
     dismissCampaign: (id: string) => ipcRenderer.invoke('update:dismissCampaign', id),
+    current: () => ipcRenderer.invoke('update:status'),
     check: () => ipcRenderer.invoke('update:check'),
     download: () => ipcRenderer.invoke('update:download'),
     install: () => ipcRenderer.invoke('update:install')

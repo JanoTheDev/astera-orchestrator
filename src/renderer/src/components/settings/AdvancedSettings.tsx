@@ -5,9 +5,107 @@ import { GeneratorSettings } from '../GeneratorSettings'
 import { CliInstallRows } from '../CliInstallRows'
 import { formatCheckedAt } from '../../../../core/update/checkFeedback'
 import { AUTO_UPDATE } from '../../../../core/update/autoUpdate'
+import { isSourceStatus, modeHintKey, sourceCard } from '../../../../core/update/sourceView'
+import type { UpdateMode } from '../../../../core/types'
+import { useEffect, useState } from 'react'
 import { toast } from '../../lib/toast'
 import { SettingRow, type GroupProps } from './SettingRow'
-import { Button } from '../ui'
+import { Button, Select } from '../ui'
+
+const UPDATE_MODES: readonly UpdateMode[] = ['off', 'notify', 'build', 'install-when-idle']
+
+/** The updates card of a build made from a git checkout: where it stands, what is new, and how automatic it is. */
+function SourceUpdateCard({
+  update, updateChecking, installUpdate, setCheckClickedAt, t
+}: Pick<GroupProps, 'update' | 'updateChecking' | 'installUpdate' | 'setCheckClickedAt' | 't'>): React.JSX.Element | null {
+  const [mode, setMode] = useState<UpdateMode>('build')
+  const [open, setOpen] = useState(false)
+  useEffect(() => {
+    void window.api.settings.getUpdateMode().then(setMode).catch(() => {})
+  }, [])
+  if (!update) return null
+  const card = sourceCard(update)
+  const changeMode = (next: UpdateMode): void => {
+    const prev = mode
+    setMode(next) // optimistic; the updater reads the mode on its next tick, no restart
+    void window.api.settings.setUpdateMode(next).catch((err) => {
+      setMode(prev)
+      toast.error(t('update.ui.modeSaveFailed', { detail: err instanceof Error ? err.message : String(err) }))
+    })
+  }
+  const status = updateChecking
+    ? t('update.info.checking')
+    : card.phase === 'building'
+      ? card.buildStep === 'waiting' ? t('update.tb.buildWaiting') : t('update.tb.building', { step: update.message ?? '' })
+      : card.phase === 'ready'
+        ? t('update.ui.ready', { count: card.behind })
+        : card.phase === 'changes'
+          ? t('update.ui.changes', { count: card.behind })
+          : card.phase === 'upToDate'
+            ? t('update.ui.upToDate')
+            : ''
+  return (
+    <div className="settings-group">
+      <div className="settings-row">
+        <span className="update-label">{t('settings.info.update')}</span>
+        <span className="update-cell">
+          <span className="update-note">
+            {t('update.ui.build')} <code style={{ fontFamily: 'var(--mono)' }}>{card.commit}</code>
+            {update.checkedAt !== null && ` · ${t('update.ui.checkedAt', { time: formatCheckedAt(update.checkedAt) })}`}
+          </span>
+        </span>
+      </div>
+      <div className="settings-row">
+        <span>{status}</span>
+        <span className="update-cell">
+          {card.showRestart && (
+            <Button variant="primary" onClick={() => void installUpdate()}>{t('update.ui.restart')}</Button>
+          )}
+          {card.showBuild && (
+            <Button variant="primary" onClick={() => void window.api.update.download()}>{t('update.ui.buildNow')}</Button>
+          )}
+          <Button
+            disabled={updateChecking || card.phase === 'building'}
+            onClick={() => {
+              setCheckClickedAt(Date.now())
+              void window.api.update.check()
+            }}
+          >
+            {updateChecking ? t('update.info.checking') : t('update.info.checkButton')}
+          </Button>
+        </span>
+      </div>
+      {card.manualOnly && card.behind > 0 && <span className="settings-hint">{t('update.info.manualOnly')}</span>}
+      {card.error && <span className="update-note update-err" title={card.error}>{t('update.ui.lastError', { message: card.error })}</span>}
+      {card.commits.length > 0 && (
+        <div>
+          <Button variant="ghost" size="sm" aria-expanded={open} onClick={() => setOpen(!open)}>
+            {open ? t('update.ui.hideChanges') : t('update.ui.showChanges', { count: card.behind })}
+          </Button>
+          {open && (
+            <ul className="settings-hint" style={{ margin: 0, paddingLeft: 0, listStyle: 'none' }}>
+              {card.commits.map((c) => (
+                <li key={c.sha}>
+                  <code style={{ fontFamily: 'var(--mono)' }}>{c.sha.slice(0, 7)}</code> {c.subject}
+                </li>
+              ))}
+              {card.more > 0 && <li>{t('update.ui.moreChanges', { count: card.more })}</li>}
+            </ul>
+          )}
+        </div>
+      )}
+      <label className="settings-row">
+        <span>{t('update.ui.mode')}</span>
+        <Select value={mode} onChange={(e) => changeMode(e.target.value as UpdateMode)}>
+          {UPDATE_MODES.map((m) => (
+            <option key={m} value={m}>{t(`update.ui.mode.${m}` as never)}</option>
+          ))}
+        </Select>
+      </label>
+      <span className="settings-hint">{t(modeHintKey(mode))}</span>
+    </div>
+  )
+}
 
 /** "7m", "2h" — a coarse uptime is all this row needs; it is a sign of life, not a metric, which is
  *  also why the unit is not translated. */
@@ -215,6 +313,12 @@ export function AdvancedSettings(p: GroupProps): React.JSX.Element | null {
           </div>
         </SettingRow>
         <SettingRow a="update" only={only}>
+          {isSourceStatus(update) ? (
+            <SourceUpdateCard
+              update={update} updateChecking={updateChecking} installUpdate={installUpdate}
+              setCheckClickedAt={setCheckClickedAt} t={t}
+            />
+          ) : (
           <div className="settings-row">
             {/* When the check time widens the cell, the label used to break across lines in a narrow modal */}
             <span className="update-label">{t('settings.info.update')}</span>
@@ -291,6 +395,7 @@ export function AdvancedSettings(p: GroupProps): React.JSX.Element | null {
               )}
             </span>
           </div>
+          )}
         </SettingRow>
       </div>
     </>

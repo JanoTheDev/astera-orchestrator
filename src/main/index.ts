@@ -83,7 +83,7 @@ import { CodexRolloutWatcher } from '../core/sessions/codexRolloutWatcher'
 import { t } from '../core/i18n'
 import { loadPolicy, nextCheckDelayMs, parsePolicyUrl, shouldApplyCampaign } from './updatePolicy'
 import { AUTO_UPDATE } from '../core/update/autoUpdate'
-import { BUILT_COMMIT, SOURCE_DIR } from '../core/update/sourceUpdate'
+import { BUILT_COMMIT, canSelfInstall, SOURCE_DIR } from '../core/update/sourceUpdate'
 import { createSourceUpdater } from './sourceUpdate'
 import type { MessageKey } from '../core/i18n'
 import {
@@ -1718,10 +1718,13 @@ app.whenReady().then(async () => {
     // The source channel, for a build made from a git checkout: origin/main's new commits are built in a private
     // clone and installed on a restart (main/sourceUpdate.ts). The releases updater above is never on with it.
     const flog = lineLog(path.join(app.getPath('userData'), 'updater.log'))
+    const sourceBuild = { commit: BUILT_COMMIT.slice(0, 7), selfInstall: canSelfInstall(process.platform, process.env.APPIMAGE) }
+    let lastStatus: UpdateStatus = { state: 'init' }
     const push = (s: UpdateStatus): void => {
       flog(JSON.stringify(s))
+      lastStatus = { ...s, sourceBuild }
       try {
-        windows.broadcast('update:status', s)
+        windows.broadcast('update:status', lastStatus)
       } catch {
         /* renderer send failures are ignored */
       }
@@ -1750,6 +1753,8 @@ app.whenReady().then(async () => {
         app.quit()
       }
     })
+    // The renderer mounts after the first statuses went out, so it asks for the latest one.
+    ipcMain.handle('update:status', () => lastStatus)
     ipcMain.handle('update:check', () => source.check(true))
     ipcMain.handle('update:download', () => source.build())
     ipcMain.handle('update:install', () => source.install())
