@@ -41,9 +41,15 @@ export function gitFacts(version) {
   return { sha: git(['rev-parse', '--short=7', 'HEAD']) || null, tagAtHead: git(['tag', '--points-at', 'HEAD']).split('\n').includes(`v${version}`) }
 }
 
+/** Whether this CI run was started by the tag v<version>. Does not need git: a container job cannot always read the checkout's .git. */
+export function ciTagIs(version, env = process.env) {
+  return env.GITHUB_REF_TYPE === 'tag' && env.GITHUB_REF_NAME === `v${version}`
+}
+
 export function currentBuildVersion(now = new Date()) {
   const { version } = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8'))
-  return buildVersion({ version, now, ...gitFacts(version) })
+  const git = gitFacts(version)
+  return buildVersion({ version, now, sha: git.sha, tagAtHead: git.tagAtHead || ciTagIs(version) })
 }
 
 /** The argv tokens split on `+` into steps. Throws when a step is empty. */

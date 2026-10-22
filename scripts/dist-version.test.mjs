@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { buildVersion, chainSteps, utcStamp, withVersion } from './dist-version.mjs'
+import { buildVersion, chainSteps, ciTagIs, utcStamp, withVersion } from './dist-version.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const now = new Date(Date.UTC(2026, 9, 22, 7, 5)) // 2026-10-22 07:05 UTC
@@ -16,6 +16,14 @@ describe('buildVersion', () => {
 
   it('keeps the plain version when HEAD is the release tag, so electron-updater orders it as the release', () => {
     expect(buildVersion({ version: '1.4.14', now, sha: 'ab0021b', tagAtHead: true })).toBe('1.4.14')
+  })
+
+  it('keeps the plain version for a CI run started by the tag, even where git cannot be read', () => {
+    expect(ciTagIs('1.4.14', { GITHUB_REF_TYPE: 'tag', GITHUB_REF_NAME: 'v1.4.14' })).toBe(true)
+    expect(ciTagIs('1.4.14', { GITHUB_REF_TYPE: 'branch', GITHUB_REF_NAME: 'v1.4.14' })).toBe(false)
+    expect(ciTagIs('1.4.14', { GITHUB_REF_TYPE: 'tag', GITHUB_REF_NAME: 'v1.4.13' })).toBe(false)
+    expect(ciTagIs('1.4.14', {})).toBe(false)
+    expect(buildVersion({ version: '1.4.14', now, sha: null, tagAtHead: ciTagIs('1.4.14', { GITHUB_REF_TYPE: 'tag', GITHUB_REF_NAME: 'v1.4.14' }) })).toBe('1.4.14')
   })
 
   it('drops the sha outside a git checkout', () => {
