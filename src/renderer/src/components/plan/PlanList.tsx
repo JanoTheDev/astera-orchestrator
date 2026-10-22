@@ -168,10 +168,10 @@ export function PlanList({
     <p className="plans-stall" role="status">
       <TriangleAlert size={16} aria-hidden="true" />
       {stall.kind === 'unresponsive'
-        ? t('jobs.stall.unresponsive')
+        ? t('pages.plans.stall.unresponsive')
         : stall.kind === 'reading'
-          ? t('jobs.stall.reading')
-          : t('jobs.stall.parked', { reason: t(stall.gate === 'unreadable' ? 'jobs.stall.gate.unreadable' : 'jobs.stall.gate.notMigrated') })}
+          ? t('pages.plans.stall.reading')
+          : t('pages.plans.stall.parked', { reason: t(stall.gate === 'unreadable' ? 'jobs.stall.gate.unreadable' : 'jobs.stall.gate.notMigrated') })}
     </p>
   )
 
@@ -180,9 +180,9 @@ export function PlanList({
     // The Host is why there is nothing: saying so is the whole point (with no Host there is no state to read)
     const waiting = hostGate.state === 'waiting'
     body = (
-      <EmptyState icon={ServerOff} title={t(waiting ? 'jobs.host.waiting' : 'jobs.host.unreachable')}>
+      <EmptyState icon={ServerOff} title={t(waiting ? 'pages.plans.host.waiting' : 'pages.plans.host.unreachable')}>
         <span className="plans-host">
-          <span>{t('jobs.host.features')}</span>
+          <span>{t('pages.plans.host.features')}</span>
           {!waiting && hostGate.reason && <span>{t('jobs.host.reason', { reason: hostGate.reason })}</span>}
           {!waiting && <span>{t('jobs.host.retry')}</span>}
           {!waiting && <span>{t('jobs.host.log', { path: hostGate.logPath })}</span>}

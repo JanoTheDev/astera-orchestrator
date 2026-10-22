@@ -24,3 +24,6 @@ None.
 ## Not done (report)
 - `lucide-react` imports remain in PlanList/PlanRow/MainPlan/PlansPage for glyphs not in the `ICONS` registry
   (ChevronDown/Right, Archive, Hand, RotateCcw, Hourglass...). Promote them to the registry to drop the imports.
+
+## Repair 1
+- Plan row, Host gate and stall banner now use plans-area keys saying lead agent, agents, background service, rounds (`pages.plans.restartLead*`, `holdNew`, `releaseNew`, `approveHint`, `sharedFolderHint`, `host.*`, `stall.*`, `roundNumber`, `roundsSoFar`).
