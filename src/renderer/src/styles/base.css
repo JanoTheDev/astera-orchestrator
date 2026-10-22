@@ -4,6 +4,12 @@
    nothing and stays. */
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; }
+/* The one focus ring (DESIGN-W11 §6): every focusable element — button, link, input, [tabindex] — on keyboard
+   focus only. A component with its own ring or marker (an inset selected row, a field whose wrapper draws the
+   ring) overrides this with a more specific rule; tokenUse.test.ts refuses an `outline: none` without one. */
+:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+/* The editor and the terminal show focus with their own caret and cursor; a ring around the typing surface is noise. */
+.cm-content:focus-visible, .xterm-helper-textarea:focus-visible { box-shadow: none; }
 body { font-family: var(--sans); letter-spacing: var(--tracking); background: var(--bg); color: var(--text); }
 
 /* ---------- scrollbars ---------- */

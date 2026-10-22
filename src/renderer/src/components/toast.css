@@ -18,7 +18,7 @@
 .toast.success { border-left-color: var(--ok); }
 .toast.info { border-left-color: var(--accent); }
 /* alert messages contain \n, so line breaks are preserved */
-.toast-msg { flex: 1; min-width: 0; font-size: 12.5px; line-height: 1.5; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
+.toast-msg { flex: 1; min-width: 0; font-size: var(--fs-12); line-height: 1.5; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
 .toast-close { width: 20px; height: 20px; flex: none; border-radius: var(--radius); }
 /* Shortcut editing — change and default buttons on the right of the row. Key labels are kept from wrapping. */
 /* The edit buttons hold a single icon each. With text buttons (Change, Default) in a narrow modal (600px)
@@ -27,7 +27,7 @@
 .shortcut-actions { display: flex; gap: 4px; flex: none; align-self: center; }
 .shortcut-actions button {
   width: 22px; height: 20px; flex: none; display: grid; place-items: center;
-  font-size: 12px; line-height: 1; padding: 0; border-radius: var(--radius);
+  font-size: var(--fs-12); line-height: 1; padding: 0; border-radius: var(--radius);
 }
 .shortcut-actions button:disabled { opacity: .4; cursor: default; }
 /* Lets the description have the leftover width — otherwise the key and button columns squeeze it a character at a time */
@@ -41,16 +41,16 @@ kbd.shortcut-conflict { color: var(--fi-red); border-color: var(--fi-red); }
    Its z-index is above modals (100) and toasts (200) — nothing comes in front while the gate is up. */
 .update-gate { position: fixed; inset: 44px 0 0 0; z-index: 500; background: var(--bg); display: flex; align-items: center; justify-content: center; padding: 24px; }
 .update-gate-card { width: min(440px, 100%); display: flex; flex-direction: column; gap: 12px; background: var(--panel); border: 1px solid var(--line-soft); border-radius: var(--radius-lg); padding: 24px; }
-.update-gate-card h2 { font-size: 15px; font-weight: 600; color: var(--text); }
-.update-gate-body { font-size: 13px; line-height: 1.6; color: var(--text); }
-.update-gate-state { font-size: 12px; color: var(--text-dim); }
+.update-gate-card h2 { font-size: var(--fs-15); font-weight: 600; color: var(--text); }
+.update-gate-body { font-size: var(--fs-13); line-height: 1.6; color: var(--text); }
+.update-gate-state { font-size: var(--fs-12); color: var(--text-dim); }
 .update-gate-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
 .update-gate-actions button { white-space: nowrap; }
 .update-gate-primary { background: var(--confirm); color: var(--ink-white); border: none; border-radius: var(--radius); padding: 5px 12px; cursor: pointer; }
 .update-gate-primary:hover:not(:disabled) { background: var(--confirm-hover); }
 .update-gate-primary:disabled { opacity: .5; cursor: default; }
 /* Action buttons. flex: none plus nowrap so the label does not wrap however long the message gets. */
-.toast-action { flex: none; white-space: nowrap; align-self: center; background: var(--confirm); color: var(--ink-white); border: none; border-radius: var(--radius); padding: 4px 10px; font-size: 12px; cursor: pointer; }
+.toast-action { flex: none; white-space: nowrap; align-self: center; background: var(--confirm); color: var(--ink-white); border: none; border-radius: var(--radius); padding: 4px 10px; font-size: var(--fs-12); cursor: pointer; }
 .toast-action:hover { background: var(--confirm-hover); }
 @keyframes toast-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 /* the confirmation modal body — preserves paths and multi-line messages verbatim (the existing .confirm-text is excluded, being multi-line JSX) */

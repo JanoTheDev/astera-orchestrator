@@ -3,9 +3,9 @@
 .history-panel.collapsed { flex: 0 0 auto; } /* W7-F (#83): folded, it gives its room back */
 .history-list { list-style: none; padding: 0; overflow-y: auto; flex: 1; }
 .unread-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); flex-shrink: 0; }
-.entry-title { flex: 1; min-width: 0; font-size: 11.5px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.entry-sub { font-size: 9.5px; font-family: var(--mono); color: var(--text-faint); flex-shrink: 0; }
-.history-sentinel { padding: 8px 12px; font-size: 10.5px; color: var(--text-faint); text-align: center; }
+.entry-title { flex: 1; min-width: 0; font-size: var(--fs-12); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.entry-sub { font-size: var(--fs-11); font-family: var(--mono); color: var(--text-faint); flex-shrink: 0; }
+.history-sentinel { padding: 8px 12px; font-size: var(--fs-11); color: var(--text-faint); text-align: center; }
 /* The first page of a list still loading — the dots on their own row, centred. Text-align does not
    centre them (the indicator is a flex box, not an inline glyph), hence the flex row. */
 .history-loading { display: flex; justify-content: center; padding: 14px 12px; }
@@ -27,8 +27,8 @@
 .project-row { display: flex; align-items: center; gap: 9px; padding: 10px 12px; cursor: pointer; user-select: none; transition: background var(--ease); }
 .project-row:hover { background: var(--elevated); }
 .project-chevron { flex-shrink: 0; width: 12px; color: var(--text-faint); }
-.project-name { flex: 1; min-width: 0; font-size: 13.5px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.project-meta { font-size: 10px; font-family: var(--mono); color: var(--text-faint); flex-shrink: 0; }
+.project-name { flex: 1; min-width: 0; font-size: var(--fs-13); font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-meta { font-size: var(--fs-11); font-family: var(--mono); color: var(--text-faint); flex-shrink: 0; }
 /* An expanded session: bound by a vertical rail in the account colour, with the title dimmed — the density stays as it is */
 .session-sublist { list-style: none; margin: 0 0 5px 22px; padding: 0; border-left: 2px solid var(--line); }
 .session-row { display: flex; align-items: center; gap: 8px; padding: var(--row-pad-y) 12px var(--row-pad-y) 10px; cursor: pointer; transition: background var(--ease); }
@@ -44,7 +44,7 @@
 .detect-row { display: flex; align-items: flex-start; gap: 8px; padding: 4px 2px; border-bottom: 1px solid var(--line-soft); }
 .detect-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .detect-main input[type="text"] { background: var(--bg); color: var(--text); border: 1px solid var(--line-soft); padding: 4px 6px; border-radius: var(--radius); width: 100%; }
-.detect-path { font-size: 11px; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.detect-path { font-size: var(--fs-11); color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* The JDK and Python interpreter pickers — paths are long, and .sel-value already ellipsises. This only
    claims the leftover width next to the "Browse…" button — a plain width:100% loses to the
    minimum size in a flex child, so flex:1 plus min-width:0 is stated explicitly */

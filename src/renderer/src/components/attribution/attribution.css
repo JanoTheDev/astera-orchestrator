@@ -1,17 +1,16 @@
 /* W8-B: attribution chips, blame gutter, details. Theme tokens only; the chip text (AI / H / ?) carries the meaning,
    colour only repeats it. */
-.attr-chip { display: inline-block; min-width: 18px; padding: 0 4px; border-radius: var(--radius-sm); border: 1px solid var(--line-soft); font: 600 9px/14px var(--mono); text-align: center; background: var(--elevated); color: var(--text-dim); }
+.attr-chip { display: inline-block; min-width: 18px; padding: 0 4px; border-radius: var(--radius-sm); border: 1px solid var(--line-soft); font: 600 var(--fs-11)/14px var(--mono); text-align: center; background: var(--elevated); color: var(--text-dim); }
 .attr-chip.attr-ai { color: var(--accent); }
 .attr-chip.attr-human { color: var(--ok); background: var(--ok-bg); }
 .attr-chip.attr-unknown { color: var(--text-dim); border-style: dashed; }
 button.attr-chip { cursor: pointer; }
-button.attr-chip:focus-visible, .attr-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .attr-gutter .cm-gutterElement { padding: 0 2px; }
 .attr-toggle-wrap { position: absolute; right: 10px; bottom: 10px; z-index: 5; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
-.attr-toggle { font-size: 11px; padding: 2px 8px; background: var(--elevated); color: var(--text); border: 1px solid var(--line-soft); border-radius: var(--radius-sm); }
+.attr-toggle { font-size: var(--fs-11); padding: 2px 8px; background: var(--elevated); color: var(--text); border: 1px solid var(--line-soft); border-radius: var(--radius-sm); }
 .attr-toggle[aria-pressed='true'] { border-color: var(--accent); }
-.attr-note { font-size: 11px; color: var(--text-dim); background: var(--panel); padding: 2px 6px; border-radius: var(--radius-sm); }
-.attr-details { min-width: 220px; max-width: 320px; background: var(--panel); border: 1px solid var(--line-soft); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); padding: 8px; font-size: 12px; color: var(--text); }
+.attr-note { font-size: var(--fs-11); color: var(--text-dim); background: var(--panel); padding: 2px 6px; border-radius: var(--radius-sm); }
+.attr-details { min-width: 220px; max-width: 320px; background: var(--panel); border: 1px solid var(--line-soft); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); padding: 8px; font-size: var(--fs-12); color: var(--text); }
 .attr-details-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
 .attr-close { margin-left: auto; background: none; border: none; color: var(--text-dim); cursor: pointer; }
 .attr-meta { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; }
@@ -20,7 +19,7 @@ button.attr-chip:focus-visible, .attr-toggle:focus-visible { outline: 2px solid 
 .attr-more { grid-column: 1 / -1; }
 .attr-stats { margin-top: 4px; }
 .attr-stats-head { display: flex; justify-content: space-between; font-weight: 600; }
-.attr-stats ul { list-style: none; margin: 2px 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
-.attr-empty { margin: 2px 0 0; color: var(--text-dim); font-size: 12px; }
+.attr-stats ul { list-style: none; margin: 2px 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-12); }
+.attr-empty { margin: 2px 0 0; color: var(--text-dim); font-size: var(--fs-12); }
 .attr-task-lines { display: flex; align-items: center; gap: 4px; }
 .attr-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

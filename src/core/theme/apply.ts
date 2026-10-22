@@ -46,7 +46,8 @@ export function themeCssVars(theme: Theme): Record<string, string> {
     '--rail-icon': c.textDim,
     '--accent': c.accent,
     '--accent-ink': c.accentInk,
-    '--ring': withAlpha(c.accent, 0.35),
+    // The colour of the focus ring (--focus-ring in tokens.css is the shadow built from it); Tailwind's ring-* reads it too.
+    '--ring': withAlpha(c.accent, 0.6),
     '--status-bg': c.panel,
     '--status-ink': c.textDim,
     // 프리뷰는 테마를 따라간다.

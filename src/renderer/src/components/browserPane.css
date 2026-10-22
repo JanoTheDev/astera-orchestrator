@@ -4,13 +4,13 @@
 .bp-toolbar { flex: none; height: 30px; display: flex; align-items: center; gap: 4px; padding: 0 6px;
   border-bottom: 1px solid var(--line-soft); background: var(--panel); }
 .bp-toolbar button { background: none; border: 1px solid transparent; border-radius: var(--radius-sm);
-  color: inherit; opacity: .7; cursor: pointer; padding: 1px 7px; font-size: 13px; line-height: 1.4; white-space: nowrap; }
+  color: inherit; opacity: .7; cursor: pointer; padding: 1px 7px; font-size: var(--fs-13); line-height: 1.4; white-space: nowrap; }
 .bp-toolbar button:hover:not(:disabled) { opacity: 1; }
 .bp-toolbar button:disabled { opacity: .3; cursor: default; }
 .bp-toolbar button.active { opacity: 1; border-color: var(--line-soft); background: color-mix(in srgb, var(--text) 7%, transparent); }
-.bp-address { flex: 1; min-width: 0; height: 22px; font: 12px var(--mono); color: var(--text);
+.bp-address { flex: 1; min-width: 0; height: 22px; font: var(--fs-12) var(--mono); color: var(--text);
   background: var(--bg); border: 1px solid var(--line-soft); border-radius: var(--radius-sm); padding: 0 8px; }
-.bp-address:focus { outline: none; border-color: var(--accent); }
+.bp-address:focus { border-color: var(--accent); }
 .bp-viewport { flex: none; }
 /* The stage holds the <webview> and, over it, the overlays. `overflow: hidden` clips a fixed-width
    viewport that is wider than the pane */
@@ -28,14 +28,14 @@
 .bp-stage.fixed .bp-view { flex: none; }
 .bp-overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
   justify-content: center; gap: 12px; padding: 20px; background: var(--bg); color: var(--text-dim);
-  font-size: 13px; text-align: center; }
+  font-size: var(--fs-13); text-align: center; }
 /* The agent's in-use UI, the computer-use look scaled to one tab: a frame around the page area, a
    pill at the top naming the key that cancels. Both are decoration: pointer-events none, so the page
    underneath keeps every click, and aria-hidden, so a reader never announces them.
    A solid 3 px edge with a glow fading inward, because the reference is a band of light along the
    screen's edges, not a line. */
 .bp-agent-frame { position: absolute; pointer-events: none; z-index: 2; border: 0; box-shadow: inset 0 0 0 3px var(--agent-accent), inset 0 0 60px 14px color-mix(in srgb, var(--agent-accent) 75%, transparent); }
-.bp-agent-banner { position: absolute; transform: translateX(-50%); pointer-events: none; z-index: 2; background: var(--agent-accent); color: var(--ink-white); padding: 4px 12px; border-radius: 999px; font-size: 12px; line-height: 1.4; white-space: nowrap; box-shadow: 0 2px 8px color-mix(in srgb, var(--ink-black) 25%, transparent); }
+.bp-agent-banner { position: absolute; transform: translateX(-50%); pointer-events: none; z-index: 2; background: var(--agent-accent); color: var(--ink-white); padding: 4px 12px; border-radius: var(--radius-pill); font-size: var(--fs-12); line-height: 1.4; white-space: nowrap; box-shadow: var(--shadow-md); }
 /* The agent's pointer: the reference's arrow, black with a white edge, a violet glow that follows the arrow's own outline (drop-shadow keeps the shape; a circle behind the tip did not), and
    a ripple on a click. Drawn for the whole run (it unmounts with the frame) because a fade after each
    action left nothing to see between actions that land milliseconds apart. The transform is the
@@ -48,17 +48,17 @@
 /* The agent app workspace mirror (AppMirrorPane): the agent's app on a desktop the person never sees.
    The violet is the agent browser's (--agent-accent), so the same colour means the same thing. */
 .app-mirror { display: flex; flex-direction: column; width: 100%; height: 100%; min-height: 0; background: var(--bg); color: var(--text); }
-.app-mirror-bar { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--line-soft); font-size: 12px; }
+.app-mirror-bar { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--line-soft); font-size: var(--fs-12); }
 .app-mirror-title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40%; }
 .app-mirror-status { flex: 1; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.app-mirror-btn { font-size: 12px; padding: 2px 10px; }
-.app-mirror-stage { position: relative; flex: 1; min-height: 0; margin: 10px; display: flex; align-items: center; justify-content: center; overflow: hidden; border: 3px solid var(--agent-accent); border-radius: 6px; }
+.app-mirror-btn { font-size: var(--fs-12); padding: 2px 10px; }
+.app-mirror-stage { position: relative; flex: 1; min-height: 0; margin: 10px; display: flex; align-items: center; justify-content: center; overflow: hidden; border: 3px solid var(--agent-accent); border-radius: var(--radius); }
 .app-mirror-stage.running { box-shadow: inset 0 0 40px 6px color-mix(in srgb, var(--agent-accent) 45%, transparent); }
 .app-mirror-stage.closed { border-color: var(--line-soft); opacity: 0.6; }
 /* The frame fills the stage: the Host sizes the app's window to the stage (AppMirrorPane reports it), so
    the picture has the stage's shape; contain keeps it whole while a resize is on its way. */
 .app-mirror-frame { display: block; width: 100%; height: 100%; object-fit: contain; user-select: none; }
-.app-mirror-empty { color: var(--text-dim); font-size: 13px; }
+.app-mirror-empty { color: var(--text-dim); font-size: var(--fs-13); }
 .bp-spinner { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--line);
   border-top-color: var(--accent); animation: cm-spin .6s linear infinite; }
 /* The browser tab's busy ring on the tab bar — the session ring's shape, in the accent colour */

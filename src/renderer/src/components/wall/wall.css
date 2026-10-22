@@ -13,7 +13,7 @@ button.summary-card__title:hover .summary-card__title-text { text-decoration: un
 .branch-link:hover { text-decoration: underline; }
 .summary-rollup { display: flex; flex-direction: column; gap: 6px; }
 /* The one line a board card or History row shows */
-.summary-line { display: block; overflow: hidden; color: var(--text-dim); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.summary-line { display: block; overflow: hidden; color: var(--text-dim); font-size: var(--fs-11); text-overflow: ellipsis; white-space: nowrap; }
 /* A History row with a summary wraps it onto a second line (HistoryBrowser .session-row is a flex row) */
 .session-row:has(> .session-summary) { flex-wrap: wrap; }
 .session-summary { flex-basis: 100%; padding-left: 18px; }
@@ -159,7 +159,6 @@ button.summary-card__title:hover .summary-card__title-text { text-decoration: un
   background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer;
 }
 .wall-details__task:hover { background: var(--hover); }
-.wall-details__task:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .wall-details__task-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wall-details__task-who { flex: none; color: var(--text-faint); font-size: var(--fs-11); }
 

@@ -1,7 +1,7 @@
 /* W7-B: new / add / settings dialogs; the modal, field and button classes come from styles.css */
 .proj-row { display: flex; gap: 6px; align-items: center; }
 .proj-row > input { flex: 1; min-width: 0; }
-.proj-ok { color: var(--accent); font-size: 12px; }
+.proj-ok { color: var(--accent); font-size: var(--fs-12); }
 .proj-settings { display: flex; flex-direction: column; gap: 12px; } /* W9-E: the body, in ui/Modal or inline on the Settings page */
 .ws-tools { display: flex; gap: 4px; flex-basis: 100%; }
 .ws-gear { padding: 0 4px; }

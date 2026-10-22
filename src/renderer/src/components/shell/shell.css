@@ -26,15 +26,15 @@
   height: 18px;
   /* Deliberately bespoke: matched to the artwork, not the control scale — a brand mark, not a control,
      so it does not owe --radius/--radius-sm anything. Leave it hardcoded on a later tokenising pass. */
-  border-radius: 5px;
+  border-radius: var(--radius);
   object-fit: contain;
   display: block;
   -webkit-user-drag: none;
 }
 .tb-controls { margin-left: auto; flex: none; display: flex; -webkit-app-region: no-drag; }
-.tb-update { margin-left: auto; padding: 0 12px; font-size: 12px; color: var(--text-dim); white-space: nowrap; align-self: center; -webkit-app-region: no-drag; }
+.tb-update { margin-left: auto; padding: 0 12px; font-size: var(--fs-12); color: var(--text-dim); white-space: nowrap; align-self: center; -webkit-app-region: no-drag; }
 .tb-update-err { color: var(--danger); cursor: default; }
-.tb-update-btn { margin-left: auto; margin-right: 8px; align-self: center; background: var(--confirm); color: var(--ink-white); border: none; border-radius: var(--radius); padding: 4px 10px; font-size: 12px; cursor: pointer; -webkit-app-region: no-drag; }
+.tb-update-btn { margin-left: auto; margin-right: 8px; align-self: center; background: var(--confirm); color: var(--ink-white); border: none; border-radius: var(--radius); padding: 4px 10px; font-size: var(--fs-12); cursor: pointer; -webkit-app-region: no-drag; }
 .tb-update-btn:hover { background: var(--confirm-hover); }
 /* When the install and check buttons appear together, a narrow modal (600px) cannot fit both on one
    line. The cell wraps rather than the label — the label stays on one line even as the version digits grow. */
@@ -42,7 +42,7 @@
 .update-cell button { white-space: nowrap; }
 /* Only the update row pins its label — as the cell widened, flex squeezed the label and broke it across lines */
 .settings-row .update-label { white-space: nowrap; }
-.update-note { font-size: 12px; color: var(--text-dim); }
+.update-note { font-size: var(--fs-12); color: var(--text-dim); }
 .update-note.update-err { color: var(--danger); }
 .tb-btn {
   width: 46px;
@@ -74,7 +74,7 @@ body.resizing-row { cursor: row-resize; user-select: none; }
    Not named .workbench: that class already belongs to the app shell above (rail | sidebar | content),
    and a second rule under the same name overrode the shell's row direction and stacked it. */
 .surfaces { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.placeholder { margin: auto; color: var(--text-faint); font-size: 13px; }
+.placeholder { margin: auto; color: var(--text-faint); font-size: var(--fs-13); }
 
 /* ---------- top bar (DESIGN-W11 §8) ---------- */
 /* The bar's working half. Everything in it is clickable, so the window drag stops here; the brand and the spacer
@@ -109,7 +109,6 @@ body.resizing-row { cursor: row-resize; user-select: none; }
   flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: var(--h-md); padding: 0 8px; border: 0;
   border-radius: var(--radius); background: transparent; color: var(--text); font: inherit; font-size: var(--fs-13); text-align: left; cursor: pointer;
 }
-.tb-sw-main:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .tb-sw-main:disabled { color: var(--text-faint); cursor: default; }
 .tb-sw-row { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
 .tb-sw-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -149,7 +148,6 @@ body.resizing-row { cursor: row-resize; user-select: none; }
 .tb-search > svg, .tb-search .ui-kbd { flex: none; }
 .tb-search span:not(.ui-kbd) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; text-align: left; }
 .tb-search:hover { color: var(--text-dim); border-color: var(--line-strong); }
-.tb-search:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 @media (max-width: 1240px) { .tb-search { width: auto; } .tb-search span:not(.ui-kbd) { display: none; } }
 .tb-usage { position: relative; display: flex; }
 .tb-usage-btn {
@@ -157,7 +155,6 @@ body.resizing-row { cursor: row-resize; user-select: none; }
   background: none; color: var(--text-dim); font: inherit; font-size: var(--fs-12); font-variant-numeric: tabular-nums; cursor: pointer; white-space: nowrap;
 }
 .tb-usage-btn:hover, .tb-usage-btn[aria-expanded='true'] { background: var(--hover); color: var(--text); }
-.tb-usage-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .tb-usage-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--text-faint); }
 .tb-usage-pct { flex: none; min-width: 3ch; text-align: right; color: var(--text); }
 .tb-meter { width: 40px; flex: none; }
@@ -176,7 +173,7 @@ body.resizing-row { cursor: row-resize; user-select: none; }
 .tb-bell-btn { position: relative; }
 .tb-bell-badge {
   position: absolute; top: 2px; right: 2px; min-width: 14px; height: 14px; padding: 0 3px; border-radius: var(--radius-pill);
-  background: var(--warn); color: var(--bg); font-size: 10px; font-weight: var(--fw-semi); line-height: 14px; text-align: center;
+  background: var(--warn); color: var(--bg); font-size: var(--fs-11); font-weight: var(--fw-semi); line-height: 14px; text-align: center;
   font-variant-numeric: tabular-nums; pointer-events: none;
 }
 .tb-popover.bell { width: 380px; border: 1px solid var(--line-strong); }
@@ -196,7 +193,6 @@ body.resizing-row { cursor: row-resize; user-select: none; }
 }
 .bell__line:hover:not(:disabled) { background: var(--hover); }
 .bell__line:disabled { cursor: default; }
-.bell__line:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .bell__foot { display: flex; justify-content: center; padding: 4px 8px 8px; border-top: 1px solid var(--line); margin-top: 4px; }
 
 /* ---------- status bar (DESIGN-W11 §8); .sb outranks the older statusBar.css, which still holds the Host notices ---------- */
@@ -209,7 +205,6 @@ body.resizing-row { cursor: row-resize; user-select: none; }
   background: none; color: inherit; font: inherit; white-space: nowrap; cursor: pointer;
 }
 .sb-item:hover { background: var(--hover); color: var(--text); }
-.sb-item:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .sb-item--warn { color: var(--warn); }
 .sb-item--warn:hover { color: var(--warn); }
 .sb-dot { width: 6px; height: 6px; border-radius: var(--radius-pill); flex: none; background: var(--text-faint); }
@@ -230,8 +225,8 @@ body.resizing-row { cursor: row-resize; user-select: none; }
 .page-side { width: 300px; flex: none; display: flex; flex-direction: column; min-height: 0; overflow-y: auto; background: var(--panel); border-right: 1px solid var(--line); }
 /* A full-width page */
 .page { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; background: var(--bg); }
-.page-title { margin: 0; padding: 12px 16px 8px; font-size: 15px; font-weight: 600; color: var(--text); }
-.page-note { margin: 0; color: var(--text-dim); font-size: 13px; }
+.page-title { margin: 0; padding: 12px 16px 8px; font-size: var(--fs-15); font-weight: 600; color: var(--text); }
+.page-note { margin: 0; color: var(--text-dim); font-size: var(--fs-13); }
 .page-views { display: flex; justify-content: center; padding: 12px 16px 0; }
 .page-jobs { flex: 1; min-height: 0; display: flex; flex-direction: column; max-width: 960px; width: 100%; margin: 0 auto; }
 /* the Plans list page runs full width like the other pages (its rows stay readable-width); a plan's own page stays centred */
