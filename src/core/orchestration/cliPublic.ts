@@ -91,6 +91,8 @@ const TASK_HIDDEN = [
   'convergenceStartedAt',
   'convergenceOff',
   'suspiciousFiles',
+  // T2: what the lease of a completed Task covers, the app's own bookkeeping
+  'changedFiles',
   'reviewRequested',
   // A skipped round's bookkeeping (plugin Phase 5 C9): its results are the Task's `checks` once it settles
   'checkResume',

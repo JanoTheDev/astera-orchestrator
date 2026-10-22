@@ -222,8 +222,11 @@ export function createTaskValidation(c: ValidationContext): TaskValidation {
    *  부르지 않고 Task 가 이미 보고한 filesModified 로 물러난다 — 이 계산의 실패가 검증 자체를 막아서는
    *  안 되므로(호출부의 주석), git 이 실패해도(c.diffNames 가 null) 같은 자리로 물러난다.
    *
-   *  **Task 의 filesModified 를 쓴다, Dispatch 의 것이 아니다** — Dispatch 에는 그런 칸이 없다. */
-  const changedFilesSince = async (first: Dispatch, cwd: string): Promise<string[]> => {
+   *  **Task 의 filesModified 를 쓴다, Dispatch 의 것이 아니다** — Dispatch 에는 그런 칸이 없다.
+   *
+   *  T2: undefined when neither git nor the worker named a file — nothing known, so the Task records no
+   *  `changedFiles` and its lease stays on its declared paths. Only git's answer can be an empty list. */
+  const changedFilesSince = async (first: Dispatch, cwd: string): Promise<string[] | undefined> => {
     const head = await c.firstCheckpointHead(first.id)
     // 기준점이 있을 수 있는데 저널이 답하지 못했다(stage 3 T1) — 없는 것과 다르므로 로그에 그렇게 남긴다.
     // 그래도 filesModified 로 물러난다: 건너뛰면 check 파일을 건드렸다는 경고 자체를 잃는다.
@@ -231,9 +234,10 @@ export function createTaskValidation(c: ValidationContext): TaskValidation {
       c.log(`suspicious files task=${first.taskId}: the baseline head could not be read (journal busy), filesModified stands in`)
     else if (head) {
       const names = await c.diffNames(cwd, head)
-      if (names) return names
+      if (names) return [...new Set(names)]
     }
-    return c.getState().tasks.find((t) => t.id === first.taskId)?.filesModified ?? []
+    const reported = c.getState().tasks.find((t) => t.id === first.taskId)?.filesModified ?? []
+    return reported.length > 0 ? [...new Set(reported)] : undefined
   }
 
   // checkConfigIdsOf 는 옛 validateConfigId 와 새 validateConfigIds 를 함께 읽으므로, 지금
@@ -259,6 +263,29 @@ export function createTaskValidation(c: ValidationContext): TaskValidation {
     // 없으면 아무것도 쓰지 않는다(빈 배열을 Task 에 남기지 않는다). 실패해도 검증 자체는 이미
     // 큐에 들어가 그대로 돈다 — 그래서 종단 .catch 는 로그만 남긴다.
     const pol = task ? policyOf(c.getState(), task) : null
+    // T2: what this Task really changed, recorded on every Run (each round recomputes it) so its lease after
+    // completion covers those files rather than its declared paths (schedule.ts `leasesByProject`). Off the
+    // critical path like the suspicious files below, which read the same diff on a convergence Run.
+    if (task)
+      void (async () => {
+        const first = firstImplDispatch(c.getState(), taskId)
+        if (!first) return
+        const changed = await changedFilesSince(first, cwd)
+        const suspicious = pol === null ? [] : suspiciousCheckFiles(changed ?? [])
+        const st = c.getState()
+        await c.setState({
+          ...st,
+          tasks: st.tasks.map((t) => {
+            if (t.id !== taskId) return t
+            const { changedFiles: _old, ...rest } = t
+            return {
+              ...rest,
+              ...(changed ? { changedFiles: changed } : {}),
+              ...(suspicious.length > 0 ? { suspiciousFiles: suspicious } : {})
+            }
+          })
+        })
+      })().catch((e) => c.log(`changed files task=${taskId}: ${String(e)}`))
     if (!task || pol === null) return
     // 설계 G3(명세 §37·§36): 이 라운드가 쓰는 완료 정책의 지문을 찍는다. 처음이면 스냅숏이 되고,
     // 이미 있는데 달라졌으면 `policyChanged` 가 선다 — 막지 않고 표시한다.
@@ -280,17 +307,6 @@ export function createTaskValidation(c: ValidationContext): TaskValidation {
       })
       await c.setState(stampPolicySnapshot(c.getState(), { taskId, key }, c.now()))
     })().catch((e) => c.log(`policy snapshot task=${taskId}: ${String(e)}`))
-    void (async () => {
-      const first = firstImplDispatch(c.getState(), taskId)
-      if (!first) return
-      const suspicious = suspiciousCheckFiles(await changedFilesSince(first, cwd))
-      if (suspicious.length === 0) return
-      const st = c.getState()
-      await c.setState({
-        ...st,
-        tasks: st.tasks.map((t) => (t.id === taskId ? { ...t, suspiciousFiles: suspicious } : t))
-      })
-    })().catch((e) => c.log(`suspicious files task=${taskId}: ${String(e)}`))
   }
 
   return { validator, startValidation }

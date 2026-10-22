@@ -607,6 +607,10 @@ export interface Task {
   mergedIntoPlanAt?: string
   /** 이 attempt 가 check 의 동작을 바꾸는 파일을 건드렸다(설계 §8.3). 실패 사유가 아니라 표시다 */
   suspiciousFiles?: string[]
+  /** T2: the files git saw this Task change (repo-relative, deduped), written when its validation starts, each round
+   *  anew; the worker's filesModified stands in when git has no baseline. Once completed, its plan's lease covers these
+   *  rather than `affectedPaths` (schedule.ts `leasesByProject`); an empty list leases nothing. Absent: not known. */
+  changedFiles?: string[]
   /** 이 Task 를 **다른 provider** 가 읽어 "요구가 충족됐는가"를 판정할지. task-create --review 가
    *  켠다. 검증(validateConfigId)과 독립이고, 둘 다 걸리면 검증이 먼저다 — 컴파일도 안 되는 코드를
    *  읽으라고 에이전트 세션을 태우는 것은 낭비다. */

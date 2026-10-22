@@ -343,6 +343,35 @@ describe('createTaskValidation', () => {
     await conv.finish()
   })
 
+  // T2: the files a Task really changed, recorded on every Run for its lease (schedule.ts leasesByProject).
+  it('records changedFiles on a Run without a convergence policy, from the worker’s filesModified when git has no baseline', async () => {
+    const plain = rig({ filesModified: ['tsconfig.web.json', 'tsconfig.web.json'] })
+    plain.validation.startValidation({ taskId: plain.taskId, cwd: plain.cwd })
+    await vi.waitFor(() => expect(plain.task().changedFiles).toEqual(['tsconfig.web.json']))
+    expect(plain.task().suspiciousFiles).toBeUndefined()
+    await plain.finish()
+  })
+
+  it('records git’s answer, an empty one included, and each round recomputes it', async () => {
+    const h = rig({ filesModified: ['x.ts'], checkpointHead: () => 'abc123' })
+    h.diffNames.mockResolvedValue(['a.ts', 'b.ts'])
+    h.validation.startValidation({ taskId: h.taskId, cwd: h.cwd })
+    await vi.waitFor(() => expect(h.task().changedFiles).toEqual(['a.ts', 'b.ts']))
+    await h.finish()
+    h.diffNames.mockResolvedValue([])
+    h.validation.startValidation({ taskId: h.taskId, cwd: h.cwd })
+    await vi.waitFor(() => expect(h.task().changedFiles).toEqual([]))
+    await h.finish()
+  })
+
+  it('records nothing when neither git nor the worker named a file', async () => {
+    const h = rig()
+    h.validation.startValidation({ taskId: h.taskId, cwd: h.cwd })
+    await h.finish()
+    await h.settle()
+    expect(h.task().changedFiles).toBeUndefined()
+  })
+
   it('with no checkpoint head it uses the Task’s filesModified and never runs git (R12)', async () => {
     const conv = rig({ convergence: true, filesModified: ['vitest.config.ts'] })
     conv.validation.startValidation({ taskId: conv.taskId, cwd: conv.cwd })
