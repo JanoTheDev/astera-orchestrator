@@ -784,6 +784,18 @@ export class CodexRollingCoordinator {
       await this.refresh(chain)
       if (chain.disposed) throw new Error('no active codex rolling chain')
       if (busy()) return { outcome: 'busy' }
+      // A tab registered at this very click has had no poll run: look once now, from the epoch, because
+      // its conversation was born before the chain. A chat tab is matched by the thread id main recorded.
+      // shortcut: a plain pty tab takes the newest unclaimed rollout in its folder, the poll's own rule.
+      if (!chain.rolloutPath) {
+        const own = this.deps.getAccount(chain.accountIds[chain.cycle.currentIndex])
+        if (own) {
+          chain.codexSessionId ??= chain.liveInfo.threadId ?? null
+          await this.locateOnce(chain, own, chain.liveId, 0)
+          if (chain.disposed) throw new Error('no active codex rolling chain')
+          if (busy()) return { outcome: 'busy' }
+        }
+      }
       // Checked here rather than left to roll(): its abort would arm a wait on a session nothing blocks.
       if (!chain.codexSessionId || !chain.rolloutPath)
         return { outcome: 'refused', reason: 'conversation not located yet' }
@@ -967,47 +979,7 @@ export class CodexRollingCoordinator {
     const liveId = chain.liveId
     const tick = async (): Promise<void> => {
       if (chain.disposed || chain.liveId !== liveId) return
-      const found = await findRollout({
-        configDir: account.configDir,
-        cwd: chain.cwd,
-        since,
-        ...(bornBefore !== undefined ? { bornBefore } : {}),
-        now: this.now,
-        excludePaths: this.claimedRollouts(chain),
-        sessionId: chain.codexSessionId ?? undefined
-      })
-      // `rolloutPath` joins the guard here and not above: an `attachChat` that lands while findRollout is
-      // in flight clears the locate timer, and clearing a timer cannot stop a tick already running. Left
-      // out, that tick would attach again — and it builds its tail *without* startAtEnd, which is the
-      // re-anchoring attachChat's timer-clearing exists to prevent (see attachChat).
-      if (chain.disposed || chain.liveId !== liveId || chain.rolloutPath) return
-      // When two chains poll side by side, the other one can bite first while the findRollout above is in
-      // flight — re-checking after the await keeps one rollout to one chain. Both paths were produced by
-      // findRollout, so the strings are identical.
-      if (found && this.claimedRollouts(chain).includes(found.path)) {
-        // Logged once per chain so the same line does not pile up on every 1-second poll
-        if (!chain.preemptWarned) {
-          chain.preemptWarned = true
-          this.deps.log(
-            `codex rollout preempted — waiting for the next candidate session=${liveId} path=${found.path}`
-          )
-        }
-      } else if (found) {
-        chain.rolloutPath = found.path
-        if (chain.codexSessionId !== found.sessionId) this.deps.onNativeSession?.(chain.liveId, found.sessionId)
-        chain.codexSessionId = found.sessionId
-        chain.tail = new CodexRolloutTail(found.path, this.now)
-        chain.locateSince = null
-        chain.unmappedWarned = false
-        chain.preemptWarned = false
-        this.deps.persistConfig?.(found.sessionId, {
-          accountIds: chain.accountIds,
-          prompt: chain.prompt
-        })
-        this.deps.log(`codex rollout located session=${liveId} id=${found.sessionId}`)
-        this.snap(chain)
-        return
-      }
+      if (await this.locateOnce(chain, account, liveId, since, bornBefore)) return
       if (this.now() - startedAt >= LOCATE_TIMEOUT_MS) {
         this.deps.log(
           `codex rollout not found within ${LOCATE_TIMEOUT_MS}ms — rolling disabled session=${liveId}`
@@ -1017,6 +989,60 @@ export class CodexRollingCoordinator {
       chain.locateTimer = setTimeout(() => void tick(), LOCATE_POLL_MS)
     }
     chain.locateTimer = setTimeout(() => void tick(), LOCATE_POLL_MS)
+  }
+
+  /** One look for the chain's rollout under `liveId`: attaches it and answers true when the poll should
+   *  stop (found, or the chain moved on). The poll above repeats it; switchTo calls it once for a chain
+   *  whose poll never ran (a plain tab registered at the click). */
+  private async locateOnce(
+    chain: Chain,
+    account: Account,
+    liveId: string,
+    since: number,
+    bornBefore?: number
+  ): Promise<boolean> {
+    const found = await findRollout({
+      configDir: account.configDir,
+      cwd: chain.cwd,
+      since,
+      ...(bornBefore !== undefined ? { bornBefore } : {}),
+      now: this.now,
+      excludePaths: this.claimedRollouts(chain),
+      sessionId: chain.codexSessionId ?? undefined
+    })
+    // `rolloutPath` joins the guard here and not above: an `attachChat` that lands while findRollout is
+    // in flight clears the locate timer, and clearing a timer cannot stop a tick already running. Left
+    // out, that tick would attach again — and it builds its tail *without* startAtEnd, which is the
+    // re-anchoring attachChat's timer-clearing exists to prevent (see attachChat).
+    if (chain.disposed || chain.liveId !== liveId || chain.rolloutPath) return true
+    // When two chains poll side by side, the other one can bite first while the findRollout above is in
+    // flight — re-checking after the await keeps one rollout to one chain. Both paths were produced by
+    // findRollout, so the strings are identical.
+    if (found && this.claimedRollouts(chain).includes(found.path)) {
+      // Logged once per chain so the same line does not pile up on every 1-second poll
+      if (!chain.preemptWarned) {
+        chain.preemptWarned = true
+        this.deps.log(
+          `codex rollout preempted — waiting for the next candidate session=${liveId} path=${found.path}`
+        )
+      }
+    } else if (found) {
+      chain.rolloutPath = found.path
+      if (chain.codexSessionId !== found.sessionId) this.deps.onNativeSession?.(chain.liveId, found.sessionId)
+      chain.codexSessionId = found.sessionId
+      chain.tail = new CodexRolloutTail(found.path, this.now)
+      chain.locateSince = null
+      chain.unmappedWarned = false
+      chain.preemptWarned = false
+      this.deps.persistConfig?.(found.sessionId, {
+        accountIds: chain.accountIds,
+        prompt: chain.prompt
+      })
+      this.deps.log(`codex rollout located session=${liveId} id=${found.sessionId}`)
+      this.snap(chain)
+      return true
+    }
+    return false
   }
 
   private async refresh(chain: Chain): Promise<void> {

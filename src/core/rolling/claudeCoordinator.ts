@@ -166,6 +166,10 @@ export interface RollingDeps {
   kill(sessionId: string): void
   getAccount(id: string): Account | null
   readStatusPayload(sessionId: string): Promise<unknown | null>
+  /** A claude chat conversation's transcript file by account and thread id (the history index's lookup).
+   *  Only switchTo asks, for a chain registered after the chat's `ready` event already went by — nothing
+   *  else would tell it where the file is. Optional: without it such a chain is refused as not located. */
+  locateTranscript?(accountId: string, threadId: string): Promise<string | null>
   send(channel: 'session:rolled' | 'session:rollState', payload: unknown): void
   log(message: string): void
   lang: () => Lang // taken as a getter rather than a value so the latest language is used even after setLang
@@ -943,6 +947,15 @@ export class RollingCoordinator {
       await this.refreshMeta(chain)
       if (chain.disposed) throw new Error('no active rolling chain')
       if (busy()) return { outcome: 'busy' }
+      // A chat tab registered at this click missed its `ready`: replay what main recorded (the thread id)
+      // through the same onChatMeta the live event uses. A terminal tab was located by refreshMeta above.
+      const threadId = chain.liveInfo.threadId
+      if (!chain.transcriptPath && threadId && this.deps.locateTranscript) {
+        const found = await this.deps.locateTranscript(chain.liveInfo.accountId, threadId).catch(() => null)
+        if (chain.disposed) throw new Error('no active rolling chain')
+        if (found) this.onChatMeta(sessionId, { claudeSessionId: threadId, transcriptPath: found })
+        if (busy()) return { outcome: 'busy' }
+      }
       // Checked here rather than left to roll(): its abort would arm a wait on a session nothing blocks.
       if (!(chain.claudeSessionId ?? chain.resumeSeedSessionId) || !(chain.transcriptPath ?? chain.resumeSeedTranscriptPath))
         return { outcome: 'refused', reason: 'conversation not located yet' }

@@ -742,6 +742,24 @@ describe('RollingCoordinator switchTo (Use for this tab)', () => {
     expect(h.spawned).toHaveLength(0)
   })
 
+  it('locates a chat tab registered after its ready event from the thread id main recorded', async () => {
+    const h = harness({ locateTranscript: (accountId, threadId) => Promise.resolve(`/h/${accountId}/${threadId}.jsonl`) })
+    h.chatIds.add('s1')
+    h.coord.register({ ...h.info1, kind: 'chat', threadId: 'th-1', rollAccountIds: ['a1'] })
+    expect(await h.coord.switchTo('s1', 'a2')).toEqual({ outcome: 'switched' })
+    expect(h.copied[0].src).toBe('/h/a1/th-1.jsonl')
+    expect(h.spawned.map((s) => s.accountId)).toEqual(['a2'])
+  })
+
+  it('refuses a chat tab with no conversation yet and leaves nothing behind', async () => {
+    const h = harness({ locateTranscript: () => Promise.resolve(null) })
+    h.chatIds.add('s1')
+    h.coord.register({ ...h.info1, kind: 'chat', threadId: 'th-1', rollAccountIds: ['a1'] })
+    expect(await h.coord.switchTo('s1', 'a2')).toEqual({ outcome: 'refused', reason: 'conversation not located yet' })
+    expect(h.spawned).toHaveLength(0)
+    expect(h.sent.some((m) => m.payload.state === 'waiting')).toBe(false)
+  })
+
   it('refuses a chain with no located conversation and arms no wait', async () => {
     const h = harness()
     h.coord.register(h.info1) // no statusLine payload
