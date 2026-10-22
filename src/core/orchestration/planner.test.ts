@@ -112,6 +112,23 @@ describe('jobs plan', () => {
     expect((await person(r)('jobs-plan', { id: jobId })).status).toBe(400)
     expect(r.deps.getState().jobs[0]).not.toHaveProperty('plannerSessionIds')
   })
+  // T25: a planner start waiting for an account with room shows its reason on the Job, and the Job loses it once it starts
+  it('records why the planner start waits on the Job, and clears it once the planner starts', async () => {
+    const r = rig()
+    let seen: string | undefined
+    r.deps.startCoordinator = async (a) => {
+      const onWait = a.onWait as (why: string | null) => void
+      onWait('no claude account has room to start the planner on: acc1 (its weekly limit is at the usage threshold)')
+      seen = r.deps.getState().jobs[0].startWait
+      onWait(null)
+      return { sessionId: PLANNER }
+    }
+    const made = await person(r)('run-create', { objective: 'o', cwd: 'D:/p', coordinatorAccount: 'acc1', auto: true })
+    const jobId = (made.body as { id: string }).id
+    expect((await person(r)('jobs-plan', { id: jobId })).status).toBe(200)
+    expect(seen).toMatch(/no claude account has room.*weekly limit/)
+    expect(r.deps.getState().jobs[0]).not.toHaveProperty('startWait')
+  })
   // T5b (decision 6): the named account is a preference; the Job records the one actually started
   it('records the account the planner actually started on, and keeps the named one as the preference', async () => {
     const r = rig()

@@ -421,7 +421,7 @@ export async function autoStartChain(
 export async function startChainHolding(
   ctx: CoordinatorStartContext,
   accountId: string,
-  o: { purpose: StartPurpose; auto?: boolean; subject: string; gone(): boolean }
+  o: { purpose: StartPurpose; auto?: boolean; subject: string; gone(): boolean; onWait?(why: string | null): void }
 ): ReturnType<typeof autoStartChain> {
   let waiting: string | undefined
   for (;;) {
@@ -429,19 +429,25 @@ export async function startChainHolding(
       const chain = await autoStartChain(ctx, accountId, o)
       if (waiting !== undefined) {
         ctx.hold?.note?.(o.subject, null)
+        o.onWait?.(null)
         ctx.log(`${o.purpose} start ${o.subject}: an account has room, starting`)
       }
       return chain
     } catch (e) {
-      if (!(e instanceof NoRoomError)) throw e
+      if (!(e instanceof NoRoomError)) {
+        if (waiting !== undefined) o.onWait?.(null)
+        throw e
+      }
       if (o.gone()) {
         ctx.hold?.note?.(o.subject, null)
+        o.onWait?.(null)
         throw new Error(`${o.purpose} start ${o.subject} stopped waiting for an account: it was removed`)
       }
       if (e.message !== waiting) {
         waiting = e.message
         ctx.log(`${o.purpose} start ${o.subject} waits: ${waiting}`)
         ctx.hold?.note?.(o.subject, waiting)
+        o.onWait?.(waiting)
       }
       await (ctx.hold?.sleep ?? ((ms) => new Promise<void>((r) => setTimeout(r, ms))))(ctx.hold?.pollMs ?? HOLD_POLL_MS)
     }
@@ -492,6 +498,7 @@ export async function startCoordinatorSession(
   const { accountId, chain, release } = await startChainHolding(ctx, a.accountId, {
     purpose: 'coordinator',
     subject: a.runId,
+    ...(a.onWait ? { onWait: a.onWait } : {}),
     gone: () => jobOfRunId(ctx.getState(), a.runId)?.archivedAt !== undefined || !ctx.getState().runs.some((r) => r.id === a.runId),
     ...(a.auto ? { auto: true } : {})
   })

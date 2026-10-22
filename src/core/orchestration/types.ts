@@ -348,6 +348,9 @@ export interface Job {
    *  a start takes it while it has room, else the account with most room (chooseStartAccount), and records that one
    *  in `plannerAccountId` / `coordinatorAccountId`. Absent: none named, the start picks. */
   preferredAccountId?: string
+  /** T25: why this plan's planner or coordinator start is waiting (no account has room: which, weekly or 5-hour, when the
+   *  earliest limit resets). Set while the start is held, gone once it runs or is given up (exec/workerStart.ts). */
+  startWait?: string
   // W7-A plan feedback (exec/plannerFeedback.ts)
   /** This plan's own auto-approve, ahead of its project's (`autoApproveOf`). Absent: the project's. */
   autoApprove?: boolean

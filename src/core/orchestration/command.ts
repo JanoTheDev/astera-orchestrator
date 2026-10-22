@@ -499,6 +499,8 @@ export interface OrchServerDeps {
     /** T5b: no account was named: `accountId` only says the provider, and the start takes the account with most room
      *  (chooseStartAccount, exec/workerStart.ts). */
     auto?: true
+    /** T25: told why the start waits for an account with room (the plain reason), and null once it runs or is given up. */
+    onWait?(why: string | null): void
   }): Promise<{
     sessionId: string
     /** T5: the model it was started on, recorded on the Run (`Run.coordinatorModel`) */ model?: string
@@ -2054,6 +2056,19 @@ export async function handleCommand(
     return true
   }
 
+  /** T25: records on the Job why its planner or coordinator start waits for an account with room (null: it no longer does).
+   *  Best-effort: a write that fails is not a reason to fail the start. */
+  const setStartWait = (jobId: string) => (why: string | null): void => {
+    const current = deps.getState()
+    if (!current.jobs.some((j) => j.id === jobId && j.startWait !== (why ?? undefined))) return
+    const jobs = current.jobs.map((j) => {
+      if (j.id !== jobId) return j
+      const { startWait: _was, ...rest } = j
+      return why === null ? rest : { ...rest, startWait: why }
+    })
+    void deps.setState({ ...current, jobs }).catch(() => {})
+  }
+
   /** W5-B (#46, #47): ends a Job's planner sessions. The ids stay on the Job: they still say the Job was planned
    *  (`awaitsApproval`, the workspace tree). Best-effort, as every tidy-up through `stopCoordinator` is. */
   const endPlanners = async (job: Job, reason: string): Promise<void> => {
@@ -2191,6 +2206,7 @@ export async function handleCommand(
         runId: target.id,
         cwd: job.cwd,
         accountId,
+        onWait: setStartWait(job.id),
         ...(resume ? { resume } : {}),
         brief: resume ? crashResumedBrief('coordinator', target.id) : buildHandoverPrompt({
           runId: target.id,
@@ -3592,6 +3608,7 @@ export async function handleCommand(
           cwd: job.cwd,
           accountId,
           ...(preferredId === undefined ? { auto: true as const } : {}),
+          onWait: setStartWait(id),
           role: 'planner',
           ...(resume ? { resume } : {}),
           brief: resume ? crashResumedBrief('planner', id) : buildPlannerBrief({

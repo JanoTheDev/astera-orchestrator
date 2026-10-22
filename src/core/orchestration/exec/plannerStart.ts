@@ -31,6 +31,7 @@ export async function startPlannerSession(ctx: CoordinatorStartContext, a: Start
   const { accountId, chain, release } = await startChainHolding(ctx, a.accountId, {
     purpose: 'planner',
     subject: a.runId,
+    ...(a.onWait ? { onWait: a.onWait } : {}),
     gone: () => {
       const j = ctx.getState().jobs.find((x) => x.id === a.runId)
       return j === undefined || j.archivedAt !== undefined

@@ -437,13 +437,13 @@ describe('chooseStartAccount (T5b)', () => {
       const hold = { sleep: async () => { readings = { ...FULL, a2: [10, 10] } }, note: (_: string, why: string | null) => { notes.push(why) } }
       return { g, hold, notes }
     }
-    const runSpawn = async (o: { g: AutoStartGuard; hold: object; role?: 'planner'; state: OrchState; runId: string }) => {
+    const runSpawn = async (o: { g: AutoStartGuard; hold: object; onWait?: (why: string | null) => void; role?: 'planner'; state: OrchState; runId: string }) => {
       const spawn = vi.fn().mockResolvedValue({ id: 'ses_h' })
       const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'astera-t25-'))
       try {
         const r = await startCoordinatorSession(
           { ...ctxOf(o.g), specsDir: dir, preTrust: async () => {}, bypassPermissions: async () => false, spawn, getState: () => o.state, roleModels: async () => ({}), hold: o.hold },
-          { runId: o.runId, cwd: 'D:/p', accountId: 'a1', brief: 'B', ...(o.role ? { role: o.role } : {}) }
+          { runId: o.runId, cwd: 'D:/p', accountId: 'a1', brief: 'B', ...(o.role ? { role: o.role } : {}), ...(o.onWait ? { onWait: o.onWait } : {}) }
         )
         return { r, spawn }
       } finally {
@@ -454,7 +454,11 @@ describe('chooseStartAccount (T5b)', () => {
     it('a planner holds with the reason (accounts, which limit, earliest reset), then starts on the account that freed up', async () => {
       const { g, hold, notes } = freeAfterFirstWait()
       const job = createJob(emptyState(), { objective: 'o', cwd: 'D:/p', pendingStart: true }, NOW); if (!job.ok) throw new Error(job.error)
-      const { r, spawn } = await runSpawn({ g, hold, role: 'planner', state: job.state, runId: job.value.id })
+      const waits: Array<string | null> = []
+      const { r, spawn } = await runSpawn({ g, hold, role: 'planner', state: job.state, runId: job.value.id, onWait: (w) => waits.push(w) })
+      expect(waits).toHaveLength(2)
+      expect(waits[0]).toMatch(/no claude account has room to start the planner/)
+      expect(waits[1]).toBeNull()
       expect(notes[0]).toMatch(/start the planner on: .*a1 \(its weekly limit/)
       expect(notes[0]).toMatch(/a3 \(its 5-hour limit.*the earliest limit resets 2099-01-01T00:00:00.000Z/)
       expect(notes.at(-1)).toBeNull()
