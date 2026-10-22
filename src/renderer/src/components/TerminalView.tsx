@@ -16,6 +16,7 @@ import { SessionStateBanners } from './SessionStateBanners'
 import { terminalMayTakeFocus } from '../lib/terminalFocus'
 import { registerDockable } from './wall/consoleDock'
 import { exitWording } from '../../../core/sessions/exitWording'
+import { Button, Icon } from './ui'
 
 /** W9-H: a wall tile's font (DESIGN §2: the session's own xterm at 10.5–11px). */
 export const TILE_FONT = 11
@@ -415,7 +416,9 @@ export function TerminalView({
       {session.status === 'exited' && (
         <div className="exit-overlay">
           <p>{t(exit.key, exit.params)}</p>
-          <button onClick={() => onRestart(session)}>{t('session.terminal.restart')}</button>
+          <Button variant="primary" icon={<Icon name="refresh" />} onClick={() => onRestart(session)}>
+            {t('session.terminal.restart')}
+          </Button>
         </div>
       )}
     </div>

@@ -7,6 +7,7 @@ import { previewTargetOf } from '../../../../core/preview/url'
 import { sessionTab } from '../../../../core/panes/tabId'
 import { PaneGrid } from '../PaneGrid'
 import { useWallView } from '../wall/wallView'
+import { Button, Icon } from '../ui'
 import type { AppState } from '../../state/appState'
 
 export type ContentProps = Pick<
@@ -107,15 +108,18 @@ export function Content(p: ContentProps): React.JSX.Element {
                   place. Same guard as a group's '+' (newInGroup): with no CLI, pressing it does not open
                   the dialog */}
               {!layout && (
-                <button
-                  className="placeholder primary"
-                  disabled={!canStart()}
-                  onClick={() => {
-                    if (canStart()) setShowNew(true)
-                  }}
-                >
-                  {t('session.placeholder.start')}
-                </button>
+                <div className="placeholder">
+                  <Button
+                    variant="primary"
+                    icon={<Icon name="add" />}
+                    disabled={!canStart()}
+                    onClick={() => {
+                      if (canStart()) setShowNew(true)
+                    }}
+                  >
+                    {t('session.placeholder.start')}
+                  </Button>
+                </div>
               )}
             </div>
           </div>

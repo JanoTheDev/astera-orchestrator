@@ -1,6 +1,7 @@
 import type { RollStateEvent, SchedStateEvent } from '../../../core/types'
 import { schedRuleSummary } from '../../../core/scheduler/summary'
 import { useI18n } from '../i18n/I18nProvider'
+import { Button } from './ui'
 
 const fmtTime = (iso?: string): string =>
   iso ? new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''
@@ -78,9 +79,9 @@ export function SessionStateBanners({
             {schedRuleSummary(t, schedState.rule)}
             {t('session.terminal.schedNextRun', { time: fmtDateTime(schedState.nextAt) })}
           </span>
-          <button onClick={() => void window.api.scheduler.disable(sessionId)}>
+          <Button size="sm" variant="ghost" onClick={() => void window.api.scheduler.disable(sessionId)}>
             {t('session.terminal.schedDisable')}
-          </button>
+          </Button>
         </div>
       )}
     </>
