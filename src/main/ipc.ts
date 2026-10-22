@@ -4437,6 +4437,12 @@ export function registerIpc(
     if (typeof on !== 'boolean') throw new Error(`INVALID_STALL_WATCH: ${String(on)}`)
     await core.appSettings.setStallWatch(on)
   })
+  // T27: crash reports, ask by default (core/crash/report.ts crashReportsOf)
+  ipcMain.handle('settings.getCrashReports', () => core.appSettings.getCrashReports())
+  ipcMain.handle('settings.setCrashReports', async (_e, v: unknown) => {
+    if (v !== 'ask' && v !== 'never') throw new Error(`INVALID_CRASH_REPORTS: ${String(v)}`)
+    await core.appSettings.setCrashReports(v)
+  })
   // T23: start the Host at login, on by default
   ipcMain.handle('settings.getStartAtLogin', () => core.appSettings.getStartAtLogin())
   ipcMain.handle('settings.setStartAtLogin', async (_e, on: unknown) => {

@@ -133,3 +133,15 @@ export function toPrune(files: Array<{ name: string; mtimeMs: number }>, now: nu
   const newest = [...files].sort((a, b) => b.mtimeMs - a.mtimeMs)
   return newest.filter((f, i) => i >= KEEP_FILES || f.mtimeMs < cutoff).map((f) => f.name)
 }
+
+/** What the prompt shows and Send opens: the report's issue, exactly. `ask` is false while the setting is never
+ *  (the prompt then opens only from ErrorScreen's Report button). */
+export interface CrashOffer {
+  id: string
+  title: string
+  body: string
+  ask: boolean
+}
+
+/** Renderer error kinds main accepts: window `error`, `unhandledrejection`, and ErrorBoundary's `render` */
+export const RENDERER_KINDS = ['error', 'unhandledrejection', 'render'] as const

@@ -1,3 +1,4 @@
+import type { CrashOffer, CrashReportsSetting, RENDERER_KINDS } from './crash/report' // T27
 import type { Decision, IssuePick, PlanFeedback } from './orchestration/types'
 import type { WorktreeDetail, WorktreeRow } from './worktrees/cleanup'
 import type { SlashCommand } from './commands/slashCommands'
@@ -1663,6 +1664,9 @@ export interface CoreApi {
     /** Stall watchdog (orchestration/exec/stallWatch.ts); default true. */
     getStallWatch(): Promise<boolean>
     setStallWatch(on: boolean): Promise<void>
+    /** T27: crash reports, 'ask' (default) or 'never' (core/crash/report.ts). */
+    getCrashReports(): Promise<CrashReportsSetting>
+    setCrashReports(v: CrashReportsSetting): Promise<void>
     /** T23: start Astera's Host at login (main/autostart.ts); default true. */
     getStartAtLogin(): Promise<boolean>
     setStartAtLogin(on: boolean): Promise<void>
@@ -2412,7 +2416,18 @@ export interface ShuttleWarning {
   detail: string
 }
 
+/** T27: crash reports (main/crashReports.ts). Nothing here sends anything: `send` opens the issue page in the
+ *  browser, for a report the prompt showed. */
+export interface CrashApi {
+  /** The renderer's own error, by name and stack only; the offer the prompt shows, or null for a repeat */
+  report(e: { kind: (typeof RENDERER_KINDS)[number]; name: string; stack: string }): Promise<CrashOffer | null>
+  /** Reports from a crash before this start, each offered once; none while the setting is never */
+  pending(): Promise<CrashOffer[]>
+  send(id: string): Promise<boolean>
+}
+
 export type RendererApi = CoreApi & {
+  crash: CrashApi // T27
   system: SystemApi
   preview: PreviewApi
   clipboard: ClipboardApi
