@@ -232,6 +232,8 @@ async function boot(
       const pty = ptys.get(pid)
       if (pty) setTimeout(() => pty.exit(1), 5)
     },
+    // Never the machine's real heavy queue/lock: `seed:npm:test` is a heavy check.
+    heavySlot: async () => () => {},
     journal
   })
   const orch = createHostOrch({

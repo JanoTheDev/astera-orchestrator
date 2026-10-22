@@ -298,7 +298,9 @@ async function rig(o: RigOpts) {
       const pid = Number(cmd.args[cmd.args.indexOf('/pid') + 1])
       const p = ptys.get(pid)
       if (p) setTimeout(() => p.exit(1), 5)
-    }
+    },
+    // Never the machine's real heavy queue/lock: `seed:npm:test` is a heavy check.
+    heavySlot: async () => () => {}
   })
   box.wiring = wiring
 

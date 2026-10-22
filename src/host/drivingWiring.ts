@@ -90,6 +90,8 @@ export function composeHostDriving(a: {
   readGate?(settingsPath: string): Promise<DispatchGate>
   /** Test seam, passed through to createHostChecks: the tree kill of a foreign validation run. */
   killRunner?: (cmd: { file: string; args: string[] }) => void
+  /** Test seam, passed through to createHostChecks: the machine's heavy slot. */
+  heavySlot?: (a: { cwd: string; cmd: string }) => Promise<() => void>
   /** W6-G: the Host's usage guard, for the dispatch loop. Absent: no usage pause. */
   usageGuard?: DispatchLoopContext['usageGuard']
   /** Stall watchdog: its feed lines, into the Host's activity log. Absent (test rigs): no watchdog. */
@@ -122,7 +124,8 @@ export function composeHostDriving(a: {
     log,
     now: () => a.now(),
     retiring: () => disposed,
-    ...(a.killRunner ? { killRunner: a.killRunner } : {})
+    ...(a.killRunner ? { killRunner: a.killRunner } : {}),
+    ...(a.heavySlot ? { heavySlot: a.heavySlot } : {})
   })
 
   /** The driving's own `mayStart`, asked through the driving once it exists: drives, not leaving, loaded. */
