@@ -6,7 +6,7 @@ import type { InboxItem } from '../../../../core/orchestration/sessionIndex'
 import type { Job, PlanOverlap } from '../../../../core/orchestration/types'
 import { feedOf, lineOf, whoOf, type Tone } from '../activity/activityView'
 import type { OpenQuestion } from '../plan/planBoard'
-import type { Message } from '../../../../core/i18n'
+import type { Message, MessageKey } from '../../../../core/i18n'
 import type { Translate } from '../checkText'
 
 /** An open row of `questions-list`: an ask or escalation (`source`), or a Gate (none). */
@@ -32,6 +32,16 @@ export function parseFilter(raw: string | undefined): InboxFilter {
   if (raw === undefined) return { group: 'all' }
   if (raw.startsWith('plan:') && raw.length > 5) return { group: 'all', planId: raw.slice(5) }
   return raw === 'approvals' || raw === 'questions' || raw === 'permissions' || raw === 'handled' ? { group: raw } : { group: 'all' }
+}
+
+/** The chip a card leads with: its kind as a word, and the word's tone. */
+export const NEED_WORD: Record<NeedKind, [MessageKey, 'info' | 'warn' | 'danger']> = {
+  approval: ['inbox.kind.approval', 'info'],
+  question: ['inbox.kind.question', 'warn'],
+  gate: ['inbox.kind.question', 'warn'],
+  escalation: ['inbox.kind.decision', 'danger'],
+  permission: ['inbox.kind.permission', 'warn'],
+  waiting: ['inbox.kind.waiting', 'warn']
 }
 
 /** One thing Astera cannot go on without. */

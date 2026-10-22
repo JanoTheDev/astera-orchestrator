@@ -120,29 +120,46 @@ Line height `--lh` 1.45 for prose, `--lh-tight` 1.25 for titles and single-line 
      tooltip; opens a searchable menu: search field, "All projects" view option, separator, project rows (dot,
      name, count only when > 0, `Ctrl+Alt+N` hint, check on current), separator, "Open project…". Per-project
      actions (new window, settings) live in a row's hover overflow, not as extra sections.
-  3. Vertical hairline, then page tabs (`--fs-13`/500, dim; active = `--text` + 2px accent underline). At narrow
-     widths tabs drop labels to icons before folding into a menu.
-  4. Right: search (a field-shaped button with `Ctrl+K` Kbd), usage meter (label + percent, e.g. "5h 16%"),
-     New (the one filled accent button in the bar), settings icon button. Window controls (Linux/Windows) after
-     a hairline.
+  3. Vertical hairline, then exactly three page tabs in plain words — **Home** (the Agents wall, page id
+     `agents`), **Plans**, **Files** (`--fs-13`/500, dim; active = `--text` + 2px accent underline) — and a
+     **More ▾** menu. More lists Worktrees, History, Run configs, How it works and Browser, each row an icon, its
+     name and one sentence saying what it is (also its tooltip); on one of those pages More shows that page's
+     name and is underlined. Below 1024px the tabs and More fold into one menu. No other page gets a tab and no
+     global sidebar comes back (`core/ui/pages.ts` `TAB_PAGES`, `MORE_MENU_PAGES`).
+  4. Right: search (a field-shaped button with `Ctrl+K` Kbd), the **bell**, usage meter (label + percent, e.g.
+     "5h 16%"), New (the one filled accent button in the bar), settings gear. Window controls (Linux/Windows)
+     after a hairline.
+- **Bell** (`shell/NotificationBell.tsx`): the Inbox as a dropdown. An icon button with lucide `Bell`; the badge
+  is the unread "needs you" count of the current project (hidden at 0, "9+" above 9) and the button's
+  `aria-label` says the count. The popover (`ui/Popover.tsx`: outside click or Esc closes, Esc returns focus to
+  the bell, arrows move between rows) has a header "Notifications" with "All projects" (only when there is more
+  than one project; off by default) and "Mark all read"; then "Needs you", the newest 8 cards, each one line
+  (kind chip, project › plan · task, age) with its one action (Approve / Answer / Open); then "Recent", the
+  last 5 handled lines (title · plan · time); a footer "View all" opens the full Inbox. Read marks are kept in
+  `cm.bell.read`; an unread card has a `--hover` background.
 - **Status bar** (`--statusbar-h` 26, `--panel`, `--fs-12` sans, not mono): left group = work ("2 working ·
-  1 needs you" as clickable items with dots), right group = usage ("5h 16% · week 40%") and the host state as a
-  word ("Connected" / "Host offline", warn colour only when not ok). Zero counts are hidden.
-- Settings is a page: when it is open no page tab is marked.
+  1 needs you" as clickable items with dots; "needs you" opens the bell), right group = usage ("5h 16% · week
+  40%") and the host state as a word ("Connected" / "Host offline", warn colour only when not ok). Zero counts
+  are hidden.
+- Settings, the full Inbox and the Start page are places one visits: when one is open no page tab is marked.
+- Every page shows the current project. "All projects" is a choice in the switcher (and the bell), never what a
+  page falls back to once a project is picked (`state/projectScope.ts`).
 
 ## 9. Per-page intent (what the person needs first)
 
-- **Agents** (home): which consoles need me now, then which are working. Header: title, segmented
+- **Home** (the Agents wall): which consoles need me now, then which are working. Header: title, segmented
   "All / Needs you / Working / Done", project/plan scope as Chips; primary "New console". Cards in a responsive
   grid (min 360px), title = task or agent name, meta = project · account · last activity; terminal preview
   below. Empty: "No consoles yet" + New console.
-- **Tasks**: what is moving and what is stuck. Board with column backgrounds (`--panel`, 10px radius) and counts;
+- **Plans › All tasks**: what is moving and what is stuck. A view inside Plans, chosen by the segmented
+  "Plans | All tasks" above the page (the `tasks` page id and its `Ctrl+2` land here). Board with column backgrounds (`--panel`, 10px radius) and counts;
   one page-level empty state when every column is empty; primary "New task". Columns scroll horizontally under
   1100px.
-- **Plans / Plan**: list of plans with status, progress meter and last activity; primary "New job", secondary
+- **Plans / Plan**: the segmented "Plans | All tasks" on top (not on a plan's own page); list of plans with status, progress meter and last activity; primary "New job", secondary
   "From a source". A Plan page shows the goal, then the task board, then the log. "By area / Overlap" is a
   segmented control with a one-line explanation as its tooltip.
-- **Inbox**: decisions waiting for me first and only. Single column; "Needs you" items as cards with the action
+- **Inbox** (the bell's "View all"; not a tab): decisions waiting for me first and only, for the current project.
+  Single column; "Needs you" items as cards with the action
   inline; "Handled for you" below, grouped by day, one line per event (title + plan + time), objective in the
   row's expanded view only. Empty "Needs you" collapses to one line ("Nothing needs you").
 - **Start**: a page (the New tab shows as active), not a modal. One question at `--fs-22`, the goal textarea,

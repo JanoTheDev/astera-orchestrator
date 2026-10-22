@@ -17,10 +17,16 @@ export interface InboxState {
   pathOfJob: ReadonlyMap<string, string>
 }
 
-export function useInbox(tree: readonly WorkspaceProject[], data: WorkspaceData | null): InboxState {
+/** `withFeed` false skips polling the feed (the closed bell needs only the cards; their ages wait for it). */
+export function useInbox(tree: readonly WorkspaceProject[], data: WorkspaceData | null, withFeed = true): InboxState {
   const attention = useAttention(tree.flatMap((p) => p.plans.flatMap((plan) => planSessions(plan).map((s) => s.sessionId))))
   const hostWaiting = useHostWaiting(data?.projects[0]?.path ?? null)
-  const events = useActivityFeed(true)
+  const feed = useActivityFeed(withFeed)
+  // T9: per project: a line about a plan of another project is not this one's (a line about no plan stays)
+  const events = useMemo(() => {
+    const ids = new Set(tree.flatMap((p) => p.plans.map((pl) => pl.jobId)))
+    return feed.filter((e) => e.jobId === undefined || ids.has(e.jobId))
+  }, [feed, tree])
   return useMemo(() => {
     const jobs = Object.values(data?.jobsByProject ?? {}).flat()
     const runs = data?.runs ?? []
