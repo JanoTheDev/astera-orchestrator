@@ -111,6 +111,8 @@ linux:
   icon: build/icon.png
   # freedesktop category — the same role mac.category's public.app-category.developer-tools plays.
   category: Development
+  # desktopName (package.json) names the .desktop file and Electron's app_id; this makes the file carry that name.
+  syncDesktopName: true
   # W9-K: "New Window" in the launcher's menu. The app holds one process (requestSingleInstanceLock), so this second
   # launch lands in its second-instance handler, which opens an All window (src/main/windows.ts newWindowArgOf).
   # /opt/<productName>/<executableName> is where the deb installs; AppImage integration rewrites Exec lines itself.
