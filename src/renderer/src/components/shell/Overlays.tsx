@@ -25,6 +25,8 @@ import { parseTab, sessionTab } from '../../../../core/panes/tabId'
 import { Menu, ToastViewport, type MenuItem } from '../ui'
 import type { AppState } from '../../state/appState'
 import { SettingsDialog } from './SettingsDialog'
+import { HelpPanel } from '../help/HelpPanel'
+import { setHelpOpen, useHelpOpen } from '../help/helpStore'
 
 export type OverlaysProps = Pick<
   AppState,
@@ -72,6 +74,7 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
     workspacePlanId, workspaceTree, wtRoot, start, openStart, newOpen, setNewOpen, sessions
   } = p
   const onboardingReplay = useOnboardingReplay()
+  const helpOpen = useHelpOpen()
   // W9-E: an empty project lands on Start; files dropped on the window open it
   useStartLanding(currentProject, sessions, openStart)
   useDropToStart(openStart)
@@ -342,6 +345,8 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
           }}
         />
       )}
+      {/* T30: the in-app help (F1, the top bar's More menu, the command box) */}
+      {helpOpen && <HelpPanel keyOverrides={keyOverrides} onClose={() => setHelpOpen(false)} />}
       <ConfirmHost />
       {/* T27: a crash report is offered here, and sent only on its Send */}
       <CrashReportHost />

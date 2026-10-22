@@ -53,6 +53,8 @@ export type ActionId =
   | `page.${KeyedPage}`
   // W9-K: a new window (DESIGN.md §1a)
   | 'window.new'
+  // T30: the in-app help panel
+  | 'help.open'
 
 /** W6-F: the project workspaces with a key of their own, the first nine in the switcher. */
 export type WorkspaceSlot = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
@@ -307,6 +309,14 @@ export function makeActions(platform: string): readonly ActionSpec[] {
       id: 'window.new',
       defaults: [`${M}+Shift+N`],
       descKey: 'shortcut.window.new',
+      yieldsToTerminal: false
+    },
+    // T30: F1 opens the help panel. The same on every platform, like the run keys; no shell reads F1, so it works
+    // over a console too.
+    {
+      id: 'help.open',
+      defaults: ['F1'],
+      descKey: 'help.shortcut',
       yieldsToTerminal: false
     }
   ]

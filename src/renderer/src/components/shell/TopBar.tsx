@@ -11,6 +11,7 @@ import { Button, Icon, IconButton, Kbd, Menu, Meter, Nav, Popover, type IconName
 import { useAdvancedMode } from '../../state/useAdvancedMode'
 import { openPage } from './navigation'
 import { NotificationBell } from './NotificationBell'
+import { setHelpOpen } from '../help/helpStore'
 import { ProjectSwitcher } from './ProjectSwitcher'
 import type { AppState } from '../../state/appState'
 import type { ShellState } from './useShell'
@@ -57,6 +58,11 @@ export function moreItems(t: AppState['t'], advanced = true): MenuItem[] {
       onSelect: () => openPage(id)
     }
   })
+}
+
+/** T30: the More menu's last row, below a separator: the in-app help. */
+export function helpItems(t: AppState['t']): Array<MenuItem | 'separator'> {
+  return ['separator', { id: 'help', icon: <Icon name="info" />, label: t('help.title'), onSelect: () => setHelpOpen(true) }]
 }
 
 export type TopBarProps = Pick<
@@ -106,7 +112,7 @@ export function TopBar(p: TopBarProps): React.JSX.Element {
         <span className={onMore ? 'tb-more tb-more--active' : 'tb-more'}>
           <Menu
             label={t('shell.morePages')}
-            items={moreItems(t, advanced)}
+            items={[...moreItems(t, advanced), ...helpItems(t)]}
             trigger={{ variant: 'ghost', size: 'sm', children: <>{onMore ? t(PAGE_LABEL[page]) : t('shell.more')} <Icon name="chevronDown" size={14} /></> }}
           />
         </span>
@@ -115,7 +121,7 @@ export function TopBar(p: TopBarProps): React.JSX.Element {
       <span className="tb-pages-narrow">
         <Menu
           label={t('shell.pages')}
-          items={[...TAB_PAGES.map((id) => ({ id, label: t(PAGE_LABEL[id]), onSelect: () => openPage(id) })), 'separator', ...moreItems(t, advanced)]}
+          items={[...TAB_PAGES.map((id) => ({ id, label: t(PAGE_LABEL[id]), onSelect: () => openPage(id) })), 'separator', ...moreItems(t, advanced), ...helpItems(t)]}
           trigger={{ variant: 'ghost', size: 'sm', children: <>{t(PAGE_LABEL[tab ?? page])} <Icon name="chevronDown" size={14} /></> }}
         />
       </span>

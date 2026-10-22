@@ -20,11 +20,20 @@ export type BoxHit =
   | { kind: 'session'; key: string; title: string; where: string; sessionId: string; jobId: string; waiting: boolean }
   | { kind: 'plan'; key: string; title: string; where: string; jobId: string }
   | { kind: 'task'; key: string; title: string; where: string; jobId: string; taskId: string }
+  // T30: the in-app help, found by its name and words that point to it
+  | { kind: 'help'; key: string; title: string; where: string }
+
+/** What the box needs to offer the help: its name, a line under it and the words that find it. */
+export interface HelpRef {
+  title: string
+  where: string
+  words: readonly string[]
+}
 
 /** Most results of each kind; the box is a list to pick from, not a report. */
 const PER_KIND = 6
 
-export function boxHits(src: { sessions: readonly IndexedSession[]; plans: readonly PlanRef[]; tasks: readonly TaskRef[] }, query: string): BoxHit[] {
+export function boxHits(src: { sessions: readonly IndexedSession[]; plans: readonly PlanRef[]; tasks: readonly TaskRef[]; help?: HelpRef }, query: string): BoxHit[] {
   const sessions = searchSessions(src.sessions, query, PER_KIND).map(
     (s): BoxHit => ({
       kind: 'session',
@@ -42,5 +51,10 @@ export function boxHits(src: { sessions: readonly IndexedSession[]; plans: reado
   const tasks = rankByFields(src.tasks, query, (t) => [t.title.toLowerCase(), t.planName.toLowerCase(), t.projectName.toLowerCase()], PER_KIND).map(
     (t): BoxHit => ({ kind: 'task', key: `t:${t.taskId}`, title: t.title, where: whereOf(t.projectName, t.planName, t.title), jobId: t.jobId, taskId: t.taskId })
   )
-  return [...sessions, ...plans, ...tasks]
+  const help = src.help
+    ? rankByFields([src.help], query, (h) => [h.title.toLowerCase(), ...h.words.map((w) => w.toLowerCase())], 1).map(
+        (h): BoxHit => ({ kind: 'help', key: 'help', title: h.title, where: h.where })
+      )
+    : []
+  return [...sessions, ...plans, ...tasks, ...help]
 }
