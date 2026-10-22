@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { runningCount, isStoppedWorker, runningRunCount, outcomeOf, outcomeOfTasks, outcomeOfRun, deliveryErrorOf } from './running'
+import { runningCount, isStoppedWorker, runningRunCount, outcomeOf, outcomeOfTasks, outcomeOfRun, deliveryErrorOf, stuckOf } from './running'
 import { snapshotFor } from './view'
 import { emptyState } from './state'
 import type { OrchState } from './state'
@@ -95,6 +95,16 @@ describe('runningCount', () => {
 
   // reviewing 은 상태가 먼저 바뀌고 검토 세션이 async 로 뒤따라 뜬다(ipc.ts 의 void startReview).
   // 그 틈에 0 으로 떨어지면 검토가 시작될 때마다 숫자가 깜빡인다
+  // T8: a reviewer that started and ended leaves its Task reviewing with nothing to finish it
+  it('does not count a reviewing Task whose reviewer ended', () => {
+    const ts = [task('t1', 'reviewing')]
+    const worker = { ...open('d1', 't1'), outcome: 'succeeded' as const, endedAt: '2026-08-20T02:00:00.000Z' }
+    const reviewer = { ...open('d2', 't1'), startedAt: '2026-08-20T03:00:00.000Z', review: true, endedAt: '2026-08-20T04:00:00.000Z' }
+    expect(countOf(ts, [worker, reviewer])).toBe(0)
+    expect(runningRunCount(stateFromLegacy({ runs: [run('r1')], tasks: ts, dispatches: [worker, reviewer] }))).toBe(0)
+    expect(countOf(ts, [worker, { ...reviewer, endedAt: undefined }])).toBe(1)
+  })
+
   it('reviewing 은 검토 세션이 아직 안 떴어도 센다', () => {
     const ts = [task('t1', 'reviewing')]
     expect(countOf(ts, [{ ...open('d1', 't1'), outcome: 'succeeded', endedAt: '2026-08-20T02:00:00.000Z' }])).toBe(1)
@@ -280,3 +290,58 @@ describe('a Run that finished with blocked Tasks, and one in its final check', (
     expect(runningRunCount(planned(held, {}, { coordinatorSessionId: 'ses_c' }))).toBe(0)
   })
 })
+
+// T8 (decision 7): a running Run with nothing that can move reads needs-you or stalled, never plain running
+describe('stuckOf', () => {
+  const NOW = '2026-10-22T00:00:00.000Z'
+  const at = (id: string, over: Partial<Task> = {}): Task => ({ ...task(id, 'completed'), runId: 'run_1', ...over })
+  const stateOf = (tasks: Task[], over: Partial<OrchState> = {}, runOver: Partial<JobRun> = {}): OrchState => ({
+    ...emptyState(),
+    jobs: [{ id: 'job_1', objective: 'o', cwd: PROJ, createdAt: NOW, autoDispatch: true }],
+    runs: [{ id: 'run_1', jobId: 'job_1', ordinal: 1, createdAt: NOW, ...runOver }],
+    tasks,
+    ...over
+  })
+  const gate = { id: 'gat_1', runId: 'run_1', taskId: 'g', question: 'Drop the table?', status: 'open' as const, createdAt: NOW }
+  const stuck = (s: OrchState): ReturnType<typeof stuckOf> => stuckOf(s, s.runs[0])
+
+  it('a Run with one Task blocked on an unanswered Gate, and the rest behind it, needs you', () => {
+    const s = stateOf([at('c'), at('g', { status: 'blocked' }), at('p', { status: 'pending', deps: ['g'] })], { gates: [gate] })
+    expect(outcomeOf(s, 'run_1')).toBe('running')
+    expect(stuck(s)).toBe('needs-you')
+    // with a coordinator too: the Gate is still the owner's to answer
+    expect(stuck({ ...s, runs: [{ ...s.runs[0], coordinatorSessionId: 'ses_c' }] })).toBe('needs-you')
+  })
+
+  it('a failed Task with retries left, no retry and no coordinator, is stalled', () => {
+    const s = stateOf([at('c'), at('f', { status: 'failed', consecutiveFailures: 1 }), at('p', { status: 'pending', deps: ['f'] })])
+    expect(outcomeOf(s, 'run_1')).toBe('running')
+    expect(stuck(s)).toBe('stalled')
+  })
+
+  it('is running while something can move', () => {
+    const failed = at('f', { status: 'failed', consecutiveFailures: 1 })
+    // a coordinator retries failed Tasks (worker-start --retry-of)
+    expect(stuck(stateOf([failed], {}, { coordinatorSessionId: 'ses_c' }))).toBeUndefined()
+    // a ready Task the app places
+    expect(stuck(stateOf([failed, at('r', { status: 'ready' })]))).toBeUndefined()
+    // an open Dispatch
+    const working = at('w', { status: 'dispatched' })
+    const d: Dispatch = { ...open('d1', 'w') }
+    expect(stuck(stateOf([failed, working], { dispatches: [d] }))).toBeUndefined()
+    // a planner replanning it
+    const s = stateOf([failed])
+    expect(stuck({ ...s, jobs: [{ ...s.jobs[0], replanning: { runId: 'run_1', mode: 'completion', wave: 1, done: 0, startedAt: NOW } }] })).toBeUndefined()
+    // a Run that ended reads its own outcome
+    expect(stuck(stateOf([at('c')]))).toBeUndefined()
+  })
+
+  it('a worker waiting on its own unanswered question, with no coordinator to answer it, needs you', () => {
+    const d: Dispatch = { ...open('d1', 'w') }
+    const q = { id: 'msg_q', runId: 'run_1', type: 'question' as const, taskId: 'w', dispatchId: 'd1', subject: 'which?', body: 'which?', createdAt: NOW, answered: false }
+    const s = stateOf([at('w', { status: 'dispatched' })], { dispatches: [d], messages: [q] as OrchState['messages'] })
+    expect(stuck(s)).toBe('needs-you')
+    expect(stuck({ ...s, runs: [{ ...s.runs[0], coordinatorSessionId: 'ses_c' }] })).toBeUndefined()
+  })
+})
+

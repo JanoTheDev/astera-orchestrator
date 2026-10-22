@@ -30,7 +30,8 @@
 // `validating` or `reviewing` with nothing checking it (a closed app's check, a forwarded start an app
 // refused) is not restarted by the sweep, and it keeps its Run running, so the Host never idles and
 // `host stop` refuses. The load's own restart Gate (`interruptStalledTask`) is opened for it, armed at
-// the moment above and again on every tick that may start work with no app attached, and confirmed on
+// the moment above and again on every tick that may start work (with an app attached, only a Task whose
+// reviewer ended: `unchecked`), and confirmed on
 // a tick at least `STALL_CONFIRM_MS` later with the Task unchanged and still held by none of this
 // Host's checks: in between, the Host's own worker_done may sit between its commit and its check's
 // start.
@@ -52,6 +53,7 @@ import { createRunEndSweep } from '../core/orchestration/exec/runEnd'
 import { lostWithNobody } from '../core/orchestration/lostGate'
 import { createLostGateGuard, type LostGateGuard } from './lostGateGuard'
 import { policyOf } from '../core/orchestration/convergence'
+import { reviewerEnded } from '../core/orchestration/running'
 import { addDecision, interruptStalledTask, type OrchState } from '../core/orchestration/state'
 import { liveAppPid } from '../core/host/pidFile'
 import { APP_LEFT_GRACE_MS, createAppLeftGrace } from './appGone'
@@ -200,15 +202,24 @@ export function createHostDriving(d: {
    *  no open Dispatch (a live reviewer or repair) and none of this Host's checks (`checking`: its own
    *  validator, a review start in flight, or a foreign validation run alive in its folder). Once that
    *  run is gone, the next tick that drives arms the Task (`tick`). Exactly the Tasks
-   *  the load gates (`interruptStalledTask` with no `resume`), less the ones with work under way. */
-  const unchecked = (s: OrchState): OrchState['tasks'] =>
-    s.tasks.filter(
+   *  the load gates (`interruptStalledTask` with no `resume`), less the ones with work under way.
+   *
+   *  **With an app attached, only a `reviewing` Task whose reviewer started and ended** (T8): a reviewer
+   *  has a Dispatch, so a stopped one shows here whoever is attached. A `validating` Task, and a
+   *  `reviewing` one with no review Dispatch yet, stay the app's: its validator runs in-process with no
+   *  Dispatch and its review start is async (ipc.ts), and neither shows in this Host's `checking`, so
+   *  gating them would interrupt the app's own work. */
+  const unchecked = (s: OrchState): OrchState['tasks'] => {
+    const appAttached = d.server.hasApp()
+    return s.tasks.filter(
       (t) =>
         (t.status === 'validating' || t.status === 'reviewing') &&
         policyOf(s, t) === null &&
         !s.dispatches.some((x) => x.taskId === t.id && !x.outcome && !x.endedAt) &&
-        !d.checks.checking(t.id)
+        !d.checks.checking(t.id) &&
+        (!appAttached || (t.status === 'reviewing' && reviewerEnded(s.dispatches, t.id)))
     )
+  }
   /** Armed Tasks, by id: what each looked like when armed, and when. */
   const suspects = new Map<string, { status: string; updatedAt: string; armedAt: number }>()
   /** Tasks whose restart Gate was refused, by id, as they looked then: not armed again until they
@@ -216,7 +227,6 @@ export function createHostDriving(d: {
   const refused = new Map<string, string>()
   const seenAs = (t: { status: string; updatedAt: string }): string => `${t.status} ${t.updatedAt}`
   const armStalled = (why: string): void => {
-    if (d.server.hasApp()) return
     const at = d.nowMs()
     // A refusal is kept only while its Task exists (audit OR-9).
     const s = d.orch.state()
@@ -235,14 +245,14 @@ export function createHostDriving(d: {
    *  synchronous memory move), so nothing commits in between. */
   const gateStalled = async (): Promise<void> => {
     if (suspects.size === 0) return
-    if (!mayStart() || d.server.hasApp()) {
+    if (!mayStart()) {
       suspects.clear()
       return
     }
     for (const [id, seen] of [...suspects]) {
       if (d.nowMs() - seen.armedAt < STALL_CONFIRM_MS) continue
       suspects.delete(id)
-      if (!mayStart() || d.server.hasApp()) return
+      if (!mayStart()) return
       const deps = d.orch.internalDeps()
       const s = deps.getState()
       const t = unchecked(s).find((x) => x.id === id)
@@ -612,12 +622,13 @@ export function createHostDriving(d: {
       if (mayStart()) await loop.fireTick()
       else loop.forgetArming()
       // Final review I1: the restart Gate for the Tasks armed earlier. **Then armed again on every
-      // tick that may start work with no app attached** (S4+S5 tidy): a tick that found the Host not
+      // tick that may start work** (S4+S5 tidy; T8: with an app attached too, for a stopped reviewer only,
+      // `unchecked`): a tick that found the Host not
       // driving cleared every armed Task, and a Task a foreign run held was never armed, and nothing
       // but the next change of drive armed either again. A Task armed here is confirmed on a later
       // tick, `STALL_CONFIRM_MS` on at the least, as before.
       await gateStalled()
-      if (mayStart() && !d.server.hasApp()) armStalled('a tick')
+      if (mayStart()) armStalled('a tick')
       // Last round (a): steps a same-pid app kept, once app.pid shows it gone.
       if (mayStart()) grace.tick()
       // R22: the spec pile-up, narrowly — no app attached (an app writes specs too) and no spawn of

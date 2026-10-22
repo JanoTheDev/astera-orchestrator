@@ -120,8 +120,11 @@ import { parseCheckFlag } from '../workUnit/verification'
 import { isTerminal as taskFinished, outcomeOf, progressOf } from './view'
 import { outcomeOfTasks, runningRunCount, tasksOwnedBy } from './running'
 import { FINISHED_RUN_GRACE_MS } from './exec/dispatchLoop'
+// T8 runs doctor, sessions close
+import { diagnoseRuns, doctorRunIds, repairFindings } from './runsDoctor'
+import { orchOwnerOfCaller } from './exec/runEnd'
 import { appDriven, editingByProject, projectKeyOf, sameFilesAs, workerCapOf, workersAgainstCap } from './schedule'
-import type { CloseReason, JobEvent, SessionInfo, WorktreeInfo } from '../types'
+import { closedWithReason, type CloseReason, type JobEvent, type SessionInfo, type WorktreeInfo } from '../types'
 import { ghFailureSentence, type GhFailed, type GhRunner } from '../github/gh'
 import { failedLogTail, readPrChecks, rerunFailed } from '../github/checks'
 import { prForBranch } from '../github/prs'
@@ -1214,7 +1217,10 @@ const COORDINATOR_ONLY = new Set([
   // W8-C draft PR
   'run-draft-pr',
   // W8-A: the squash remap is Astera's, asked when the PR poll sees the plan's PR merged
-  'attribution-remap'
+  'attribution-remap',
+  // T8: the owner's and a coordinator's
+  'runs-doctor',
+  'sessions-close'
 ])
 
 /** Session-task commands answer to the work-unit tracking toggle, not the orchestration one. They
@@ -3860,6 +3866,40 @@ export async function handleCommand(
       if (r.ok && r.state === s) return okBody(r.value)
       return commit(r)
     }
+    // T8 (decision 8): every Run whose stored state disagrees with reality, and with `--fix` the repair each has
+    // (runsDoctor.ts). The owner's for any Run; a coordinator's for its own Run only.
+    case 'runs-doctor': {
+      const owner = !fromAgentSession && caller.role !== 'mcp'
+      const mine = owner ? undefined : coordinatedBy(s, caller.sessionId)
+      if (!owner && !mine) return denied('runs doctor is for the person, or for a Run’s coordinator on its own Run')
+      const scope = { run: str(args.run) ?? undefined, job: str(args.job) ?? undefined, all: args.all !== undefined && args.all !== false }
+      if ([scope.run, scope.job, scope.all || undefined].filter((x) => x !== undefined).length > 1) return bad('runs doctor takes one of --run, --job and --all')
+      if (mine) {
+        if (scope.job !== undefined || scope.all || (scope.run !== undefined && scope.run !== mine.id)) return denied(`a coordinator may doctor its own Run only (${mine.id})`)
+        scope.run = mine.id
+      }
+      const runIds = doctorRunIds(s, scope)
+      if (runIds === null) return notFound(scope.run !== undefined ? `unknown run: ${scope.run}` : `unknown job: ${scope.job}`)
+      let sessions: HostSession[] | undefined
+      try {
+        sessions = await deps.listSessions?.()
+      } catch (e) {
+        deps.log?.(`runs doctor: the session list could not be read: ${String(e)}`)
+      }
+      const findings = diagnoseRuns(s, runIds, sessions)
+      const checkedSessions = sessions !== undefined
+      if (args.fix === undefined || args.fix === false) return okBody({ runs: runIds.length, checkedSessions, findings })
+      const lang = (await deps.lang?.()) ?? 'en'
+      const repairs = await repairFindings(findings, {
+        getState: () => deps.getState(),
+        setState: (next) => deps.setState(next),
+        now: () => deps.now?.() ?? new Date().toISOString(),
+        lang,
+        sessionExited: (sessionId) => handleExit(deps, { sessionId, exitCode: 1 }),
+        ...(deps.stopCoordinator ? { stopSession: (id: string, reason: string) => deps.stopCoordinator!(id, reason, 'released') } : {})
+      })
+      return okBody({ runs: runIds.length, checkedSessions, findings, repairs })
+    }
     case 'run-worktree-set': {
       const id = str(args.run)
       if (!id) return bad('--run is required')
@@ -6059,6 +6099,31 @@ export async function handleCommand(
       const found = cards.find((c) => c.sessionId === id)
       return found ? okBody(found) : notFound(`no summary for session: ${id}`)
     }
+    // T8 (decision 8): ends a session the way the Run-end sweep does (`stopCoordinator`), with no app needed. The
+    // owner's for any session; a coordinator's for the sessions of its own Run (runEnd.ts orchOwnerOfCaller). A worker
+    // with an open Dispatch is refused: its exit would read as lost and be started again; `worker-stop` ends one.
+    case 'sessions-close': {
+      const id = str(args.id)
+      if (!id) return bad('--id is required: a session id (from `sessions list`)')
+      const reason = str(args.reason) ?? 'closed with astera sessions close'
+      const owner = !fromAgentSession && caller.role !== 'mcp'
+      if (!owner) {
+        const mine = coordinatedBy(s, caller.sessionId)
+        if (!mine) return denied('sessions close is for the person, or for a Run’s coordinator on its own Run’s sessions')
+        const of = orchOwnerOfCaller(s, id)
+        if (of !== mine.id && of !== mine.jobId) return denied(`session ${id} is not a session of your Run (${mine.id})`)
+      }
+      const open = s.dispatches.find((d) => d.sessionId === id && !d.outcome && !d.endedAt)
+      if (open) return conflict(`session ${id} is the worker of dispatch ${open.id}: stop it with worker-stop`)
+      if (!deps.stopCoordinator) return conflict('sessions are closed by the Astera Host')
+      if (deps.listSessions) {
+        const known = (await deps.listSessions()).find((x) => x.id === id)
+        if (!known) return notFound(`unknown session: ${id}`)
+        if (!known.alive) return okBody({ sessionId: id, closed: false, alreadyEnded: true })
+      }
+      await deps.stopCoordinator(id, reason, closedWithReason(reason))
+      return okBody({ sessionId: id, closed: true, reason })
+    }
     /**
      * How It Works records (MCP P2-C), read only, answered by the Host only (`deps.readUnderstanding`).
      * `--project` is the project's id, as for `github-*`; its records are the understanding.json entry
@@ -6735,6 +6800,11 @@ export async function handleCommand(
     }
   }
 }
+
+/** T8: the Run this session coordinates (its slot or its external coordinator), or undefined. Not `callerRun`, which
+ *  falls back to the latest Run: a permission check must not read any session as that Run's coordinator. */
+const coordinatedBy = (s: OrchState, sessionId: string): JobRun | undefined =>
+  sessionId === '' ? undefined : s.runs.find((r) => r.coordinatorSessionId === sessionId || r.externalCoordinatorSessionId === sessionId)
 
 /** Closes a Dispatch when its session goes away (exit). Moved here from coordinator.ts — because
  *  closeDispatch touches OrchState it has to live on the server side, which owns the state (the

@@ -18,7 +18,7 @@ import type { JobRow, JobTask, OrchSnapshot, TaskBoard, WorktreeInfo, UsagePause
 import { repoPathOf } from '../worktrees/repo'
 import { coordinatorStarting, type OrchState } from './state'
 import { eventCountsOf } from './timeline'
-import { deliveryErrorOf, isTerminal, outcomeOf, outcomeOfRun, outcomeOfTasks, tasksOwnedBy } from './running'
+import { deliveryErrorOf, isTerminal, outcomeOf, outcomeOfRun, outcomeOfTasks, reviewerEnded, stuckIndexOf, stuckOf, tasksOwnedBy, type StuckIndex } from './running'
 import { policyOfJob, repairCountIn, reviewRoundIn } from './convergence'
 import type { Dispatch, Gate, Job, JobRun, Task } from './types'
 import { taskBoardsOf } from './blocked'
@@ -207,6 +207,7 @@ function jobTaskOf(
         }
       : {}),
     openGates: open.length,
+    ...(task.status === 'reviewing' && reviewerEnded(own, task.id) ? { reviewerEnded: true as const } : {}),
     ...(running ? { provider: running.provider, startedAt: running.startedAt } : {}),
     ...(openEntry
       ? {
@@ -397,6 +398,9 @@ export function snapshotFor(
   // 것은 두 값(폴더 수준과 Run 수준)이 다른 순간의 상태를 볼 수 있다는 것이다.
   const workingHere = runsWorkingIn(state, projectPath)
   const ix = foldIndex(state)
+  // T8: read once, and only when a row needs it
+  let stuckIndex: StuckIndex | undefined
+  const stuckIx = (): StuckIndex => (stuckIndex ??= stuckIndexOf(state))
   const boards = taskBoardsOf(state, limits, usagePauseOf)
   // #117: the project list copied once, so a row's `handsOffOf` reads no state list per Run ('snapshotFor cost')
   const projectsOnce: OrchState = { ...state, projects: [...state.projects] }
@@ -416,6 +420,7 @@ export function snapshotFor(
     // 계획이지 한 회차가 아니다. 회차 줄만 회차의 id 를 쓴다.
     const rowId = asJob ? job.id : (run?.id ?? job.id)
     const ownedTasks = ix.owned.get(ownerId) ?? []
+    const stuck = run === undefined ? undefined : stuckOf(state, run, ownedTasks, stuckIx(), job)
     const { done, total } = progressOfTasks(ownedTasks)
     const planProblems = job.pendingStart && job.plannerSessionIds !== undefined ? validatePlan(state, job.id) : []
     const worktreesOf = (
@@ -446,6 +451,8 @@ export function snapshotFor(
       ...(run?.coordinatorModel !== undefined ? { coordinatorModel: run.coordinatorModel } : {}),
       concurrency: job.concurrency,
       outcome: outcomeOfRun(ownedTasks, run, state),
+      // T8: a running Run with nothing that can move
+      ...(stuck !== undefined ? { stuck } : {}),
       // A Run whose delivery failed reads failed; the reason rides with it
       ...(deliveryErrorOf(run) !== undefined ? { deliveryError: deliveryErrorOf(run) } : {}),
       done,

@@ -112,8 +112,13 @@ export type SessionStatus = 'running' | 'exited'
 export type SessionKind = 'terminal' | 'chat'
 
 /** Why Astera ended a process it started: a worker released when its Task finished, stopped by a person,
- *  or replaced by a fresh coordinator. Carried with `closedByAstera`, so a closed tab can say why. */
-export type CloseReason = 'released' | 'stopped' | 'replaced'
+ *  or replaced by a fresh coordinator. Carried with `closedByAstera`, so a closed tab can say why.
+ *  T8: `closed:<text>` is `astera sessions close` with its `--reason`; the text rides the same path (pty-kill,
+ *  pty-exit, the session's exit) and the tab reads "Closed by Astera — <text>" (exitWording.ts). */
+export type CloseReason = 'released' | 'stopped' | 'replaced' | `closed:${string}`
+
+/** The `closed:<text>` CloseReason for a reason a person gave (`sessions close --reason`): one line, at most 200 characters. */
+export const closedWithReason = (text: string): CloseReason => `closed:${text.replace(/\s+/g, ' ').trim().slice(0, 200)}`
 
 export interface SessionInfo {
   id: string
@@ -510,6 +515,8 @@ export interface JobTask {
    *  repairs >= maxFixAttempts 로 되짚으면 사람이 한 번 더 허락한 수정(grantedExtra)이 그 셈을 깨뜨린다. */
   gate?: { id: string; question: string; options?: string[]; kind?: GateKind }
   openGates: number
+  /** T8: the Task is `reviewing` and its reviewer started and ended (running.ts `reviewerEnded`): nothing reviews it */
+  reviewerEnded?: true
   /** The provider of the Dispatch that is **running this Task right now**. A Dispatch that has ended
    *  does not count — the sidebar's rows are the running ones, and this is the field that badge draws
    *  from. */
@@ -735,6 +742,13 @@ export type RunOutcome =
   /** Finished with blocked Tasks: everything else ended, and Tasks held for the owner (and what waits on them) are left. */
   | 'blocked'
 
+/** T8: why a Run that reads `running` has nothing that can move (running.ts `stuckOf`). `needs-you`: every unfinished
+ *  Task waits on the owner (an open Gate, a Task held for them, a worker's unanswered question with no coordinator to
+ *  answer it). `stalled`: what is left failed with retries to spare, and nothing (no worker, no coordinator) retries
+ *  it. Beside `outcome`, not in it: the code that asks `outcome === 'running'` (delivery, the watchdog, the stop and
+ *  coordinator controls) must keep treating such a Run as unfinished. */
+export type RunStuck = 'needs-you' | 'stalled'
+
 /** Jobs 목록의 한 줄. **도메인 타입이 아니라 화면이 읽는 모양이다** — view.ts 가 OrchState 에서
  *  계산해 내려보내고 저장되지 않는다.
  *
@@ -811,6 +825,8 @@ export interface JobRow {
   concurrency?: number
   /** 저장된 값이 아니라 Task 에서 계산된다 — core/orchestration/view.ts 의 outcomeOf */
   outcome: RunOutcome
+  /** T8: set only while `outcome` is `running` and nothing can move (RunStuck) */
+  stuck?: RunStuck
   /** Why the Run's delivery failed (its `outcome` is `failed` for it): a merge conflict or a refused push */
   deliveryError?: string
   done: number

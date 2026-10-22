@@ -1,6 +1,6 @@
-import type { JobTask, RunOutcome } from '../types'
+import type { JobTask, RunOutcome, RunStuck } from '../types'
 import { jobOf, type OrchState } from './state'
-import { FAILURE_LIMIT, type Gate, type JobRun, type Task } from './types'
+import { FAILURE_LIMIT, type Dispatch, type Gate, type JobRun, type Task } from './types'
 import { completionSettled, replanOn } from './replan'
 import { jobActive } from './schedule'
 
@@ -100,6 +100,73 @@ export function outcomeOfTasks(tasks: readonly Task[], gates?: readonly Gate[]):
   return held.size > 0 ? 'blocked' : 'completed'
 }
 
+/** T8 (decision 7): why a Run that reads `running` has nothing that can move, or undefined while something can.
+ *
+ *  Something can move while the Run has an open Dispatch that is not waiting on a question, a Task the app or a
+ *  coordinator can take up (ready, pending on deps that will finish, validating, reviewing, merging, dispatched), a
+ *  planner replanning it, or, for a failed Task, a coordinator to retry it (`worker-start --retry-of`; no other path
+ *  retries a failed Task). What is left is stuck: Tasks waiting on the owner (blocked, or a worker's open question no
+ *  coordinator answers), failed Tasks with tries left and no coordinator, and the pending Tasks behind either.
+ *  `needs-you` when any of them waits on the owner (an answer moves it), else `stalled` (`runs doctor`). */
+export function stuckOf(
+  s: OrchState,
+  run: JobRun,
+  tasks: readonly Task[] = tasksOwnedBy(s, run.id),
+  /** The fold's own (view.ts reads each list a fixed number of times, performance audit M1); built here when absent */
+  ix?: StuckIndex,
+  job = jobOf(s, run)
+): RunStuck | undefined {
+  if (tasks.length === 0 || outcomeOfRun(tasks, run, s) !== 'running') return undefined
+  if (job?.replanning !== undefined) return undefined
+  // Work the app or a coordinator takes up as it is: no list read needed to say the Run can move
+  if (tasks.some((t) => t.status === 'ready' || t.status === 'validating' || t.status === 'reviewing' || t.status === 'merging')) return undefined
+  const coordinator = run.coordinatorSessionId !== undefined || run.externalCoordinatorSessionId !== undefined
+  const { open, asked: askedIds } = ix ?? stuckIndexOf(s)
+  const asked = (t: Task): boolean => {
+    const d = open.get(t.id)
+    return d !== undefined && askedIds.has(d.id)
+  }
+  const owner = new Set<string>()
+  const stuck = new Set<string>()
+  for (const t of tasks) {
+    if (t.status === 'blocked' || (!coordinator && asked(t))) owner.add(t.id)
+    else if (t.status === 'failed' && !coordinator && !open.has(t.id)) stuck.add(t.id)
+  }
+  for (const id of owner) stuck.add(id)
+  // The pending Tasks behind a stuck one cannot start either
+  for (let grew = true; grew; ) {
+    grew = false
+    for (const t of tasks)
+      if (t.status === 'pending' && !stuck.has(t.id) && t.deps.some((d) => stuck.has(d))) {
+        stuck.add(t.id)
+        grew = true
+      }
+  }
+  if (stuck.size === 0 || !tasks.every((t) => isTerminal(t) || stuck.has(t.id))) return undefined
+  return owner.size > 0 ? 'needs-you' : 'stalled'
+}
+
+/** What `stuckOf` reads off the lists: each Task's open Dispatch, and the Dispatches with an unanswered question. */
+export interface StuckIndex {
+  open: Map<string, Dispatch>
+  asked: Set<string>
+}
+export function stuckIndexOf(s: OrchState): StuckIndex {
+  const open = new Map<string, Dispatch>()
+  for (const d of s.dispatches) if (!d.outcome && !d.endedAt) open.set(d.taskId, d)
+  const asked = new Set<string>()
+  for (const m of s.messages) if (m.type === 'question' && !m.answered && m.dispatchId !== undefined) asked.add(m.dispatchId)
+  return { open, asked }
+}
+
+/** Whether a Task's latest Dispatch is a reviewer that has ended: a stopped reviewer, which leaves its Task `reviewing`
+ *  with nothing to finish it (T8). A review start in flight has no review Dispatch yet, so it does not read so. */
+export function reviewerEnded(dispatches: readonly Dispatch[], taskId: string): boolean {
+  let last: Dispatch | undefined
+  for (const d of dispatches) if (d.taskId === taskId && (last === undefined || d.startedAt.localeCompare(last.startedAt) >= 0)) last = d
+  return last?.review === true && (last.endedAt !== undefined || last.outcome !== undefined)
+}
+
 /** 지금 일이 도는 Task 의 개수. 사이드바의 `+N` 과 두 화면(JobsView·RunDetail)의 머리 숫자가
  *  이것을 센다. 렌더러가 아니라 여기 있는 이유는 elapsed.ts 와 같다 — 렌더러에 테스트가 없어서,
  *  이 규칙은 테스트가 닿는 자리에 있어야 한다. 실제로 이 함수는 그 이유 때문에 생겼다: 규칙이
@@ -122,15 +189,14 @@ export function outcomeOfTasks(tasks: readonly Task[], gates?: readonly Gate[]):
  *  Dispatch 에서만 싣고, JobTask.provider 의 주석이 그것을 "A Dispatch that has ended does not
  *  count" 로 적어 두었다.
  *
- *  **남은 구멍(의도한 것):** *검토* 워커를 멈추면 reviewing 이 그대로 세어진다. reviewing +
- *  열린 Dispatch 없음은 "곧 뜰 것"과 "껐다"가 JobTask 만으로 구별되지 않는다 — 구별하려면 그 Task
- *  의 검토 Dispatch 가 존재하는지를 봐야 하고 그것은 이 투영에 실려 있지 않다. 흔한 쪽(구현 워커를
- *  멈추는 것)을 고치고, 검토가 뜨는 동안 숫자가 깜빡이는 것을 사는 대신 이쪽을 남겼다. */
+ *  **The stopped reviewer** (T8, once the gap left here): reviewing with no open Dispatch is "about to start" or
+ *  "stopped". The projection now carries which (`JobTask.reviewerEnded`, running.ts `reviewerEnded`): a review start
+ *  in flight has no review Dispatch yet and still counts, so the number does not blink; an ended reviewer does not. */
 export function runningCount(tasks: readonly JobTask[]): number {
   return tasks.filter((t) =>
     t.status === 'dispatched'
       ? t.startedAt !== undefined
-      : t.status === 'validating' || t.status === 'reviewing' || t.status === 'merging'
+      : t.status === 'validating' || (t.status === 'reviewing' && t.reviewerEnded !== true) || t.status === 'merging'
   ).length
 }
 
@@ -175,7 +241,7 @@ export function runningRunCount(s: OrchState): number {
       (t) =>
         t.runId === run.id &&
         (t.status === 'validating' ||
-          t.status === 'reviewing' ||
+          (t.status === 'reviewing' && !reviewerEnded(s.dispatches, t.id)) ||
           t.status === 'merging' ||
           (t.status === 'dispatched' && open.some((d) => d.taskId === t.id)))
     )
