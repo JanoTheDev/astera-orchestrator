@@ -9,6 +9,9 @@
 // ValidationContext 로 주입받는다: 경로 가드(앱의 assertAllowedPath, Host 의 hostPathGuard), 저장된
 // 실행 구성(앱의 RunConfigStore, Host 의 run-configs.json), 실행 관리자, 세션 생존 여부, 검토·수리의
 // 시작, continuity journal 의 첫 체크포인트 head(Host 에서는 언제나 null, R12), git diff.
+import { spawn } from 'node:child_process'
+import { mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { t, type Lang, type MessageKey } from '../../i18n'
 import type { RunConfig } from '../../run/config'
 import { seedKeyOf } from '../../run/config'
@@ -26,6 +29,7 @@ import {
 import { cutTail } from '../taskOutput'
 import type { Dispatch } from '../types'
 import { checkInputOf, pluginIdOfCheck, type CompletionCheckInput, type PluginCheckAnswer } from '../pluginChecks'
+import { HEAVY_LOCK, HEAVY_QUEUE_DIR, heavyQueue } from '../heavyLock'
 import { repairTargetFor } from './repair'
 import { TaskValidator } from './validator'
 
@@ -58,6 +62,8 @@ export interface ValidationContext {
    *  command `checks-plugin-run` where the app does. Never rejects: a plugin that could not answer is an `error`
    *  answer, its reason in `summary`. */
   pluginCheck(plugin: string, input: CompletionCheckInput): Promise<PluginCheckAnswer>
+  /** T2: waits for the machine's heavy slot and answers its release (`heavySlot`). Test seam; defaults to the real one. */
+  heavySlot?(a: { cwd: string; cmd: string }): Promise<() => void>
 }
 /** A git head, null when there is no baseline, 'unknown' when there may be one the journal could not give. */
 export type CheckpointHead = string | null | 'unknown'
@@ -65,6 +71,57 @@ export interface TaskValidation {
   validator: TaskValidator
   /** OrchServerDeps.startValidation's body: enqueue, then the policy stamp and the suspicious files beside it. */
   startValidation(a: { taskId: string; cwd: string }): void
+}
+
+/** T2: a heavy check: the npm script `test`, `build`, `build:*`, `dist` or `dist:*`, by its seed key. Two at once
+ *  crashed the owner's laptop, so these run one at a time on the machine (`heavySlot`); every other check runs at once. */
+export const isHeavyCheck = (config: RunConfig): boolean => /^npm:(test|(build|dist)(:.+)?)$/.test(seedKeyOf(config))
+
+let heavySeq = 0
+
+/** T2: waits for the machine's heavy slot, the one `astera heavy` takes (heavyLock.ts): a ticket in its FIFO queue, then
+ *  its OS lock, held by a `flock` child until the answered release. The child holds the lock with `cat` on a pipe from
+ *  this process, so a process that dies drops the lock with the pipe, and its ticket reads dead. Rejects when `flock`
+ *  cannot run. (runHeavy itself is not called: it takes over SIGINT/SIGTERM, which would keep the Host from stopping.) */
+export async function heavySlot(a: { cwd: string; cmd: string; lock?: string; queueDir?: string; pollMs?: number }): Promise<() => void> {
+  const dir = a.queueDir ?? HEAVY_QUEUE_DIR
+  const lock = a.lock ?? HEAVY_LOCK
+  // The same ticket as runHeavy's: the name sorts by arrival among every caller's, the pid keeps it alive
+  const name = `${process.hrtime.bigint().toString().padStart(20, '0')}-${String(process.pid).padStart(8, '0')}-${String(heavySeq++).padStart(4, '0')}.json`
+  const file = join(dir, name)
+  const body = JSON.stringify({ pid: process.pid, cmd: a.cmd, cwd: a.cwd, at: Date.now() })
+  const writeTicket = (): void => {
+    mkdirSync(dir, { recursive: true, mode: 0o700 })
+    writeFileSync(`${file}.tmp`, body)
+    renameSync(`${file}.tmp`, file)
+  }
+  const drop = (): void => rmSync(file, { force: true })
+  writeTicket()
+  try {
+    for (;;) {
+      const q = heavyQueue(dir)
+      if (!q.some((x) => x.file === name)) writeTicket()
+      else if (q[0].file === name) break
+      await new Promise((r) => setTimeout(r, a.pollMs ?? 1000))
+    }
+    const child = spawn('flock', [lock, 'sh', '-c', 'echo held; exec cat'], { stdio: ['pipe', 'pipe', 'ignore'] })
+    child.stdin.on('error', () => {}) // EPIPE once the holder is gone
+    await new Promise<void>((resolve, reject) => {
+      child.stdout.once('data', () => resolve())
+      child.once('error', reject)
+      child.once('exit', (code) => reject(new Error(`flock ${lock} ended (${String(code)}) before it held the lock`)))
+    })
+    let freed = false
+    return () => {
+      if (freed) return
+      freed = true
+      child.stdin.end()
+      drop()
+    }
+  } catch (e) {
+    drop()
+    throw e
+  }
 }
 
 export function createTaskValidation(c: ValidationContext): TaskValidation {
@@ -99,12 +156,28 @@ export function createTaskValidation(c: ValidationContext): TaskValidation {
           assertAllowedPath: (p) => c.assertAllowedPath(p),
           t: (key, params) => t(c.lang(), key as MessageKey, params)
         })
+        // T2: a heavy check waits its turn on the machine first. It is queued, not failed: the validator's timer
+        // starts only once this answers, so the wait counts toward no timeout
+        let release: (() => void) | undefined
+        if (isHeavyCheck(config)) {
+          c.log(`check "${config.name}" task=${taskId} is queued for the machine's heavy slot`)
+          release = await (c.heavySlot ?? heavySlot)({ cwd, cmd: config.name })
+          if (c.getState().tasks.find((x) => x.id === taskId)?.status !== 'validating') {
+            release()
+            return 'skip'
+          }
+        }
         // validation: marks this run as not the user's. The run list and the global badge label it,
         // and run.stop routes markStopped by it (RunStatus.validation). Nothing waits for the user's
         // own runs any more — a validation starts beside them; same-tree validations are serialised
         // by TaskValidator's own queue.
-        const started = c.runs.start({ projectPath: cwd, projectName, config, command, validation: true })
-        return { runId: started.runId, name: config.name }
+        try {
+          const started = c.runs.start({ projectPath: cwd, projectName, config, command, validation: true })
+          return { runId: started.runId, name: config.name, ...(release ? { release } : {}) }
+        } catch (e) {
+          release?.()
+          throw e
+        }
       },
       output: (runId) => cutTail(c.runs.recentOutput(runId), 4000),
       // 타임아웃이 이 PTY 를 두 번째로 멈춘다(validator.ts 의 startCheck 타이머). **c.runs.stop 을

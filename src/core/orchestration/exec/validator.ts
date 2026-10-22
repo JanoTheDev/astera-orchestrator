@@ -39,7 +39,7 @@ export interface ValidatorRunner {
    *  (ready/failed -> blocked is allowed by the transition table), so a quiet exit from the queue has
    *  to exist. The judgement sits on this interface because the runner is a closure in ipc.ts that tests
    *  do not reach — it reports the fact, and this class decides what to do with it. */
-  start(a: { cwd: string; taskId: string; configId: string }): Promise<{ runId: string; name: string } | 'skip'>
+  start(a: { cwd: string; taskId: string; configId: string }): Promise<{ runId: string; name: string; release?: () => void } | 'skip'>
   /** That run's recent output */
   output(runId: string): string
   /** timeout 이 부른다. 이어 오는 exit 는 timed-out 으로 읽힌다 */
@@ -68,6 +68,8 @@ interface Pending {
   stopped: boolean
   /** timeout 이 stop 을 불렀다. 다음 exit 는 결과가 아니라 timed-out 이다 */
   timedOut: boolean
+  /** T2: frees the machine's heavy slot the running check holds (`release` of ValidatorRunner.start), once it ended */
+  release: (() => void) | null
   /** 한 번 timeout 을 낸 configId 들. 두 번째면 onCannotRun */
   timedOutOnce: Set<string>
   /** The plugin checks that answered `error` once this round: a second settles it (plugin Phase 5 C9) */
@@ -127,7 +129,7 @@ export class TaskValidator {
     const entry: Pending = {
       taskId: a.taskId, cwd: a.cwd, configIds, index: 0, results: [...(a.done ?? [])],
       runId: null, name: null, startedAt: null, settling: false, stopped: false,
-      timedOut: false, timedOutOnce: new Set(), erroredOnce: new Set(), timer: null
+      timedOut: false, timedOutOnce: new Set(), erroredOnce: new Set(), timer: null, release: null
     }
     const q = this.queues.get(a.cwd)
     if (q) {
@@ -174,6 +176,7 @@ export class TaskValidator {
     if (head.settling) return
     head.settling = true
     this.clearTimer(head)
+    this.release(head)
     const configId = head.configIds[head.index]
     const name = head.name ?? configId
     const now = new Date().toISOString()
@@ -269,6 +272,16 @@ export class TaskValidator {
     }
   }
 
+  private release(head: Pending): void {
+    const r = head.release
+    head.release = null
+    try {
+      r?.()
+    } catch (e) {
+      this.deps.log?.(`releasing the heavy slot failed task=${head.taskId}: ${String(e)}`)
+    }
+  }
+
   private clearTimer(head: Pending): void {
     if (head.timer) clearTimeout(head.timer)
     head.timer = null
@@ -328,6 +341,7 @@ export class TaskValidator {
       else {
         head.runId = outcome.runId
         head.name = outcome.name
+        head.release = outcome.release ?? null
         head.startedAt = new Date().toISOString()
         head.timer = setTimeout(() => {
           if (head.runId !== outcome.runId || head.settling) return
@@ -446,6 +460,7 @@ export class TaskValidator {
    *  with no recovery short of a restart. That is exactly the failure this class exists to prevent. */
   private advance(cwd: string, entry: Pending): void {
     this.clearTimer(entry)
+    this.release(entry)
     const q = this.queues.get(cwd)
     if (!q || q[0] !== entry) return
     q.shift()

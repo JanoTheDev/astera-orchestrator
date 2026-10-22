@@ -155,6 +155,7 @@ import {
   rangeCommits
 } from '../github/taskLinks'
 import { jobNameOf } from './jobName'
+import { deliveryWaitStep } from './exec/deliveryWait'
 // W8-D several plans in one repo
 import { areasArg, otherPlansBrief, overlapLines, planOverlapWarnings, planTasksOf, taskCreateWarnings } from './overlap'
 import { isSamePath } from '../files/tree'
@@ -6515,8 +6516,16 @@ export async function handleCommand(
         return conflict('This Run has not completed; it is pushed once every task is done')
       }
       if (!deps.deliverPush) return conflict('Pushing a plan is done by the Astera Host, and this caller is not one')
+      // T2: checks run once, where the code comes together: a plan that goes first and meets this one is landing, so
+      // this one validates after it (exec/deliveryWait.ts). Not an attempt: it stays due. A person's --force goes now
+      if (!force) {
+        const w = deliveryWaitStep(deps.getState(), id, deps.now?.() ?? now)
+        if (w.state !== deps.getState()) await deps.setState(w.state)
+        if (w.waitingFor)
+          return { status: 409, body: { error: `waiting for ${jobNameOf(w.waitingFor)} to land first`, code: 'waiting', deliveryState: progressOf(w.state) } }
+      }
       await deps.setState(
-        withProgress(deps.getState(), { ...(run.deliveryState ?? { attempts: 0 }), state: 'delivering', lastAttemptAt: deps.now?.() ?? now })
+        withProgress(deps.getState(), { ...(progressOf(deps.getState()) ?? { attempts: 0 }), state: 'delivering', lastAttemptAt: deps.now?.() ?? now })
       )
       const r = await deps.deliverPush({
         ...pushTarget,

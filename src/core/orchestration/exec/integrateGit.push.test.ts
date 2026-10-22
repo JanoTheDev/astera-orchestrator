@@ -7,6 +7,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { git as realGit, type GitResult } from '../../worktrees/git'
 import { deliverByPush, type PushContext } from './integrateGit'
+import { createJob, createTask, emptyState, startJobRun, type OrchState } from '../state'
+import { deliveryWaitStep } from './deliveryWait'
 
 type Reply = Partial<GitResult> | ((cwd?: string) => Partial<GitResult>)
 
@@ -449,5 +451,55 @@ describe('deliverByPush over a real bare origin (T3)', () => {
     r.sh(r.mate, 'push', 'origin', 'plan:main')
     const yes = await deliverByPush({ cwd: r.work, branch: 'main', worktrees: [r.mate], message: 'm', ownerPushed: true }, ctx)
     expect(yes).toMatchObject({ ok: true, branch: 'main' })
+  })
+})
+
+describe('T2: a delivery that waited for another plan validates once', () => {
+  /** Two done push plans of /repo; B (newer) meets A (older, so it goes first). */
+  function plans() {
+    let s: OrchState = emptyState()
+    const ids: { job: string; run: string }[] = []
+    for (const [name, at] of [['A', '2026-10-22T10:00:00.000Z'], ['B', '2026-10-22T10:00:01.000Z']] as const) {
+      const j = createJob(s, { objective: name, cwd: '/repo' }, at)
+      if (!j.ok) throw new Error(j.error)
+      const r = startJobRun(j.state, j.value.id, at)
+      if (!r.ok) throw new Error(r.error)
+      const t = createTask(r.state, { runId: r.value.id, title: name, spec: 's', deps: [] }, at)
+      if (!t.ok) throw new Error(t.error)
+      s = { ...t.state, tasks: t.state.tasks.map((x) => (x.id === t.value.id ? { ...x, status: 'completed' } : x)) }
+      ids.push({ job: j.value.id, run: r.value.id })
+    }
+    const [a, b] = ids
+    s = {
+      ...s,
+      jobs: s.jobs.map((j) => ({
+        ...j,
+        delivery: 'push' as const,
+        ...(j.id === b.job ? { overlaps: [{ taskId: 't', jobId: a.job, otherTaskId: 'u', by: 'path' as const, path: 'src/x.ts' }] } : {})
+      }))
+    }
+    return { s, a, b }
+  }
+
+  it('B does not start while A lands; after A delivered it fetches origin once and validates once', async () => {
+    const p = plans()
+    let s = p.s
+    const h = setup()
+    const tick = async (at: string): Promise<boolean> => {
+      const w = deliveryWaitStep(s, p.b.run, at)
+      s = w.state
+      if (w.waitingFor) return false
+      await h.go()
+      return true
+    }
+    expect(await tick('2026-10-22T10:01:00.000Z')).toBe(false)
+    expect(await tick('2026-10-22T10:02:00.000Z')).toBe(false)
+    expect(s.runs.find((r) => r.id === p.b.run)?.deliveryState?.waitingFor?.jobId).toBe(p.a.job)
+    expect(h.calls).toEqual([])
+    s = { ...s, runs: s.runs.map((r) => (r.id === p.a.run ? { ...r, delivery: { at: '2026-10-22T10:03:00.000Z', branch: 'main', sha: 'a1' } } : r)) }
+    expect(await tick('2026-10-22T10:04:00.000Z')).toBe(true)
+    expect(h.validated).toEqual(['/repo'])
+    expect(h.calls.filter((c) => c[0] === 'fetch')).toHaveLength(1)
+    expect(h.calls.filter((c) => c[0] === 'push' && c[2] === 'main')).toHaveLength(1)
   })
 })
