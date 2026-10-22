@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { createAttentionState, type Attention } from './attention'
+import { createAttentionState, isWorking, type Attention } from './attention'
+import { sessionStateOf } from '../hooks/sessionState'
 
 const pre = (toolUseId: string): unknown => ({ hook_event_name: 'PreToolUse', tool_use_id: toolUseId })
 const post = (toolUseId: string): unknown => ({ hook_event_name: 'PostToolUse', tool_use_id: toolUseId })
@@ -309,5 +310,71 @@ describe('createAttentionState — malformed input', () => {
     expect(() => state.onHookEvent('s1', 'PreToolUse')).not.toThrow()
     expect(() => state.onHookEvent('s1', { hook_event_name: 'SessionStart' })).not.toThrow()
     expect(state.get('s1')).toBe('idle')
+  })
+})
+
+describe('createAttentionState — working only while it really works', () => {
+  const MIN = 60_000
+  const at = (e: Record<string, unknown>, t: number): unknown => ({ ...e, astera_at: t })
+  const clock = (t0: number): { now: () => number; set: (t: number) => void } => {
+    let t = t0
+    return { now: () => t, set: (n) => (t = n) }
+  }
+
+  it('person input after the tool started (Esc) ends working', () => {
+    const c = clock(1000)
+    const state = createAttentionState(c.now)
+    state.onHookEvent('s1', at({ hook_event_name: 'PreToolUse', tool_use_id: 'a' }, 1000))
+    expect(state.get('s1')).toBe('working')
+    state.noteInput('s1', 2000)
+    expect(state.get('s1')).toBe('idle')
+  })
+
+  it('11 minutes without output reads idle after a recheck; output keeps it working', () => {
+    const c = clock(0)
+    const state = createAttentionState(c.now)
+    state.onHookEvent('s1', at({ hook_event_name: 'PreToolUse', tool_use_id: 'a' }, 0))
+    state.onHookEvent('s2', at({ hook_event_name: 'PreToolUse', tool_use_id: 'b' }, 0))
+    state.noteOutput('s2', 10 * MIN)
+    c.set(11 * MIN)
+    state.recheck()
+    expect(state.get('s1')).toBe('idle')
+    expect(state.get('s2')).toBe('working')
+  })
+
+  it('PostToolUseFailure clears the outstanding tool', () => {
+    const state = createAttentionState()
+    state.onHookEvent('s1', pre('a'))
+    state.onHookEvent('s1', { hook_event_name: 'PostToolUseFailure', tool_use_id: 'a' })
+    expect(state.get('s1')).toBe('idle')
+  })
+
+  it('an exited session is never working', () => {
+    const state = createAttentionState()
+    state.onHookEvent('s1', pre('a'))
+    state.recheck((id) => id === 's1')
+    expect(state.get('s1')).toBe('idle')
+    expect(isWorking({ open: true, exited: true, eventAt: 1, personInputAt: null, lastOutputAt: 1, toolStartedAt: 1, now: 2 })).toBe(false)
+  })
+
+  it('app and Host agree on a shared event table', () => {
+    const pre0 = at({ hook_event_name: 'PreToolUse', tool_use_id: 'a' }, 1000)
+    const table: { name: string; event: unknown; eventAt: number; input: number | null; now: number; want: 'working' | 'idle' }[] = [
+      { name: 'fresh tool', event: pre0, eventAt: 1000, input: null, now: 2000, want: 'working' },
+      { name: 'input after', event: pre0, eventAt: 1000, input: 1500, now: 2000, want: 'idle' },
+      { name: 'input before', event: pre0, eventAt: 1000, input: 500, now: 2000, want: 'working' },
+      { name: 'decayed', event: pre0, eventAt: 1000, input: null, now: 1000 + 11 * MIN, want: 'idle' }
+    ]
+    for (const row of table) {
+      const state = createAttentionState(() => row.now)
+      state.onHookEvent('s', row.event)
+      if (row.input !== null) state.noteInput('s', row.input)
+      state.recheck()
+      const host = sessionStateOf({ lastLine: JSON.stringify(row.event), eventAt: row.eventAt, lastInputAt: row.input, now: row.now })
+      // The Host answers unknown for input after the event where the app says idle: neither is working
+      const norm = host === 'unknown' ? 'idle' : host
+      expect(state.get('s'), row.name).toBe(row.want)
+      expect(norm, row.name).toBe(row.want === 'working' ? 'working' : 'idle')
+    }
   })
 })

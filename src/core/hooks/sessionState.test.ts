@@ -230,3 +230,11 @@ describe('lastActionOf — the last tool call a session started (W6-E)', () => {
     expect(lastActionOf([line({ hook_event_name: 'Stop' }), 'garbage', ''], 0)).toBeNull()
   })
 })
+
+describe('sessionStateOf — decay', () => {
+  const pre = '{"hook_event_name":"PreToolUse"}'
+  it('a tool call 11 minutes old reads idle once the clock is given; 9 minutes still working', () => {
+    expect(sessionStateOf({ lastLine: pre, eventAt: 0, lastInputAt: null, now: 11 * 60_000 })).toBe('idle')
+    expect(sessionStateOf({ lastLine: pre, eventAt: 0, lastInputAt: null, now: 9 * 60_000 })).toBe('working')
+  })
+})

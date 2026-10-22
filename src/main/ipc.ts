@@ -1008,6 +1008,8 @@ export function registerIpc(
   // Every attention change, for every session — unlike conversation:append this is not gated on an
   // open conversation. It is the same per-session verdict the desktop notifier already reads.
   attention.subscribe((sessionId, value) => send('conversation:attention', { sessionId, value }))
+  // The decay (core/sessions/attention.ts WORKING_DECAY_MS) shows without a new event.
+  setInterval(() => attention.recheck((id) => core.sessions.list().some((x) => x.id === id && x.status === 'exited')), 30_000).unref()
   pendingPrompt.subscribe((sessionId, prompt) => send('conversation:pendingPrompt', { sessionId, prompt }))
   // A renderer reload leaves every open conversation with nobody watching it — the same kind of gap
   // the preview.registerAgentGuest handler's own 'destroyed' listener exists for below, just with a
@@ -1613,6 +1615,7 @@ export function registerIpc(
   // Events: core to renderer (session:data is batched at 16ms)
   const batcher = new DataBatcher(16, (sessionId, data) => send('session:data', { sessionId, data }))
   core.sessions.onData = (e) => {
+    attention.noteOutput(e.sessionId, Date.now())
     batcher.push(e.sessionId, e.data)
     rolling?.handleData(e)
     codexRolling?.handleData(e)
@@ -4086,7 +4089,10 @@ export function registerIpc(
   // other four reasons to come here now only decide which commands are answered.
   if (orchWiring) void startOrch().catch((err) => orchLog(`startup failed: ${String(err)}`))
   ipcMain.on('sessions.write', (_e, id, data) => {
-    if (typeof data === 'string' && !isOnlyTerminalReports(data)) personInputAt.set(id, Date.now())
+    if (typeof data === 'string' && !isOnlyTerminalReports(data)) {
+      personInputAt.set(id, Date.now())
+      attention.noteInput(id, Date.now())
+    }
     // The tab's own input, marked: only it takes the pty's size back from a controller (the app's other writes do not).
     core.sessions.write(id, data, typeof data === 'string' && !isOnlyTerminalReports(data) ? { typed: true } : undefined)
   })

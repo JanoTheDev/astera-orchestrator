@@ -19,6 +19,31 @@ import type { Attention } from '../types'
  *  rule in both processes. */
 export type { Attention }
 
+/** How long a session reads `working` with no sign of life: no output from its pty and no tool call
+ *  started inside the window. Past it, a turn nobody ended (Esc fires no Stop) reads `idle`. */
+export const WORKING_DECAY_MS = 10 * 60_000
+
+/** The one rule for "is this session really working", shared by the app (`createAttentionState`) and
+ *  the Host (`sessionStateOf`, core/hooks/sessionState.ts) so `astera sessions list` and the tiles
+ *  agree. Working only if a turn or tool call is open, the process lives, no person input came after
+ *  the last hook event (a tie counts as after: the two cannot be ordered), and something happened
+ *  within the decay window. `now` null skips the decay (a caller with no clock). */
+export function isWorking(a: {
+  open: boolean
+  exited: boolean
+  eventAt: number | null
+  personInputAt: number | null
+  lastOutputAt: number | null
+  toolStartedAt: number | null
+  now: number | null
+}): boolean {
+  if (a.exited || !a.open) return false
+  if (a.personInputAt !== null && (a.eventAt === null || a.personInputAt >= a.eventAt)) return false
+  if (a.now === null) return true
+  const fresh = (t: number | null): boolean => t !== null && a.now! - t < WORKING_DECAY_MS
+  return fresh(a.lastOutputAt) || fresh(a.toolStartedAt)
+}
+
 export interface AttentionState {
   /** One hook event for one session. The payload is the raw hook payload, exactly as the existing
    *  taps receive it, so this can be added to the same fan-out without reshaping anything:
@@ -33,6 +58,14 @@ export interface AttentionState {
    *  no hook stream to infer one from. Fires subscribers only when the value actually changes, the
    *  same rule every other write here follows. */
   set(sessionId: string, value: Attention): void
+  /** A person typed into the session (terminal reports left out). A turn the person interrupted with
+   *  Esc fires no hook, so this is what ends its `working`. */
+  noteInput(sessionId: string, at: number): void
+  /** The pty produced output. Keeps a long quiet-but-alive tool call `working` for the decay window. */
+  noteOutput(sessionId: string, at: number): void
+  /** Re-reads every `working` session against the clock, so the decay shows without a new event.
+   *  `isExited` says which sessions' processes are gone; those are never `working`. */
+  recheck(isExited?: (sessionId: string) => boolean): void
   /** The session ended; forget it. */
   forget(sessionId: string): void
   get(sessionId: string): Attention
@@ -50,16 +83,22 @@ interface SessionAttention {
   /** When the latest UserPromptSubmit seen for this session happened (its capture's stamp), or null
    *  before one with a stamp. A turn end older than this belongs to the turn before it. */
   promptAt: number | null
+  /** When the last hook event happened (its stamp, else when it landed), what person input is ordered against. */
+  eventAt: number | null
+  personInputAt: number | null
+  lastOutputAt: number | null
+  /** When the latest PreToolUse started. */
+  toolStartedAt: number | null
 }
 
-export function createAttentionState(): AttentionState {
+export function createAttentionState(now: () => number = Date.now): AttentionState {
   const sessions = new Map<string, SessionAttention>()
   const listeners = new Set<(sessionId: string, value: Attention) => void>()
 
   function recordFor(sessionId: string): SessionAttention {
     let record = sessions.get(sessionId)
     if (!record) {
-      record = { value: 'idle', outstanding: new Set(), promptAt: null }
+      record = { value: 'idle', outstanding: new Set(), promptAt: null, eventAt: null, personInputAt: null, lastOutputAt: null, toolStartedAt: null }
       sessions.set(sessionId, record)
     }
     return record
@@ -71,10 +110,21 @@ export function createAttentionState(): AttentionState {
     for (const fn of listeners) fn(sessionId, next)
   }
 
+  /** A `working` that the shared rule no longer holds up reads idle, and its stale calls are dropped. */
+  function revalidate(sessionId: string, record: SessionAttention, exited = false): void {
+    if (record.value !== 'working') return
+    const working = isWorking({ open: record.outstanding.size > 0, exited, ...record, now: now() })
+    if (working) return
+    record.outstanding.clear()
+    setValue(sessionId, record, 'idle')
+  }
+
   return {
     onHookEvent(sessionId, payload) {
       if (typeof payload !== 'object' || payload === null) return
       const p = payload as { hook_event_name?: unknown; tool_use_id?: unknown } & NotificationPayload
+      const eventAt = hookEventAt(p) ?? now()
+      if (sessions.has(sessionId)) sessions.get(sessionId)!.eventAt = eventAt
 
       if (p.hook_event_name === 'UserPromptSubmit') {
         // A turn starting is no reason to change the value. What is kept is when it happened, so a
@@ -85,9 +135,11 @@ export function createAttentionState(): AttentionState {
         if (!happenedBefore(at, record.promptAt)) record.promptAt = at
       } else if (p.hook_event_name === 'PreToolUse') {
         const record = recordFor(sessionId)
+        record.eventAt = eventAt
+        record.toolStartedAt = eventAt
         if (typeof p.tool_use_id === 'string') record.outstanding.add(p.tool_use_id)
         setValue(sessionId, record, 'working')
-      } else if (p.hook_event_name === 'PostToolUse') {
+      } else if (p.hook_event_name === 'PostToolUse' || p.hook_event_name === 'PostToolUseFailure') {
         // A PostToolUse for a session this state never saw a PreToolUse from has nothing to clear —
         // reading idle by default already gives the right answer, so no entry is created for it.
         const record = sessions.get(sessionId)
@@ -145,6 +197,19 @@ export function createAttentionState(): AttentionState {
         record.outstanding.clear()
         setValue(sessionId, record, 'idle')
       }
+    },
+    noteInput(sessionId, at) {
+      const record = sessions.get(sessionId)
+      if (!record) return
+      record.personInputAt = at
+      revalidate(sessionId, record)
+    },
+    noteOutput(sessionId, at) {
+      const record = sessions.get(sessionId)
+      if (record) record.lastOutputAt = at
+    },
+    recheck(isExited) {
+      for (const [id, record] of sessions) revalidate(id, record, isExited?.(id) === true)
     },
     set(sessionId, value) {
       setValue(sessionId, recordFor(sessionId), value)

@@ -230,7 +230,7 @@ export function registrySessions(a: {
   const stateOf = async (e: PtyEntry): Promise<{ state: SessionState; prompt: Prompt; lastAction: LastAction }> => {
     if (!e.alive) return { state: 'unknown', prompt: null, lastAction: null }
     const last = await latestEvent(hookEventsFileIn(a.hookEventsDir, e.meta!.id))
-    const state = sessionStateOf({ lastLine: last?.line ?? null, eventAt: last?.at ?? null, lastInputAt: a.ptys.lastWrite(e.id) })
+    const state = sessionStateOf({ lastLine: last?.line ?? null, eventAt: last?.at ?? null, lastInputAt: a.ptys.lastWrite(e.id), now: Date.now() })
     const lastAction = last?.lastAction ?? null
     if (state !== 'waiting' || !last) return { state, prompt: null, lastAction }
     try {
@@ -293,7 +293,7 @@ export function registrySessions(a: {
       if (!e) return null
       if (!e.alive) return { alive: false, state: 'unknown', prompt: null }
       const last = await latestEvent(hookEventsFileIn(a.hookEventsDir, id))
-      let state = sessionStateOf({ lastLine: last?.line ?? null, eventAt: last?.at ?? null, lastInputAt: a.ptys.lastWrite(e.id) })
+      let state = sessionStateOf({ lastLine: last?.line ?? null, eventAt: last?.at ?? null, lastInputAt: a.ptys.lastWrite(e.id), now: Date.now() })
       let payload: unknown = null
       try {
         payload = last ? JSON.parse(last.line) : null
