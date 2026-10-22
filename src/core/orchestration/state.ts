@@ -45,6 +45,12 @@ import { failedChecksSummary } from './completion'
 import { oneLine, pluginCheckText, skippedResult } from './pluginChecks'
 import { isJobActive } from './lifecycle'
 import { foldPathCase } from '../files/paths'
+// T1 the main plan: a dep on another plan's Task is met once that plan delivers
+import { crossPlanDepRefusal, holdExternalDeps, planIdOf } from './mainPlan'
+
+/** `recomputeReady` with the cross-plan rule on top (mainPlan.ts `holdExternalDeps`): another plan's completed Task
+ *  readies its waiters only once its plan has delivered. */
+const readyIn = (s: OrchState, tasks: Task[]): Task[] => holdExternalDeps({ ...s, tasks: recomputeReady(tasks) }).tasks
 
 export interface OrchState {
   /** 계획. 설계 §4 — 여기 있는 것이 "무엇을 시킬 것인가" 이고, 아래 runs 가 "실제로 돈 것" 이다. */
@@ -409,12 +415,20 @@ export function startJobRun(s: OrchState, jobId: string, now: string): Res<JobRu
         ? s.tasks.filter((t) => t.runId === previous.id).sort(byCreated)
         : []
   const idMap = new Map(source.map((t) => [t.id, newId('tsk')]))
+  const external = new Set(
+    source.flatMap((t) => t.deps).filter((d) => !idMap.has(d) && s.tasks.some((o) => o.id === d && planIdOf(s, o) !== jobId))
+  )
+  // T1: another plan's Tasks that wait on the Tasks copied here wait on the copies, the ones that run
+  const others = s.tasks.map((t) =>
+    planIdOf(s, t) !== jobId && t.deps.some((d) => idMap.has(d)) ? { ...t, deps: t.deps.map((d) => idMap.get(d) ?? d) } : t
+  )
   const copies: Task[] = source.map((t) => ({
     id: idMap.get(t.id)!,
     runId: run.id,
     title: t.title,
     spec: t.spec,
-    deps: t.deps.map((d) => idMap.get(d)).filter((d): d is string => d !== undefined),
+    // T1: a dep on another plan's Task keeps its id; only this plan's ids move
+    deps: t.deps.map((d) => idMap.get(d) ?? (external.has(d) ? d : undefined)).filter((d): d is string => d !== undefined),
     ...(t.parentId !== undefined && idMap.has(t.parentId)
       ? { parentId: idMap.get(t.parentId)! }
       : {}),
@@ -439,7 +453,7 @@ export function startJobRun(s: OrchState, jobId: string, now: string): Res<JobRu
       // Job 에서 움직이는 것은 이 카운터 하나다 — 정의 Task 는 계획이므로 손대면 다음 회차가 달라진다
       jobs: s.jobs.map((j) => (j.id === jobId ? { ...j, fireCount: ordinal } : j)),
       runs: [...s.runs, run],
-      tasks: recomputeReady([...s.tasks, ...copies])
+      tasks: readyIn({ ...s, runs: [...s.runs, run] }, [...others, ...copies])
     },
     run
   )
@@ -686,6 +700,12 @@ export function createTask(
   const known = new Set(s.tasks.map((t) => t.id))
   const missing = a.deps.filter((d) => !known.has(d))
   if (missing.length) return gone(`unknown deps: ${missing.join(',')}`)
+  // T1: a Task of another plan only of this project's, and only one that can still come
+  const planId = a.jobId ?? s.runs.find((r) => r.id === a.runId)?.jobId
+  for (const d of a.deps) {
+    const refused = crossPlanDepRefusal(s, planId, s.tasks.find((t) => t.id === d)!)
+    if (refused !== undefined) return err(refused)
+  }
   if (a.parentId && !known.has(a.parentId)) return gone(`unknown parent: ${a.parentId}`)
   // W7-B: a Task that names no check is validated with its project's test command, when the project has one
   if (!a.validateConfigId && !a.validateConfigIds?.length) {
@@ -715,7 +735,7 @@ export function createTask(
     createdAt: now,
     updatedAt: now
   }
-  const tasks = recomputeReady([...s.tasks, task])
+  const tasks = readyIn(s, [...s.tasks, task])
   return ok({ ...s, tasks }, tasks.find((t) => t.id === task.id)!)
 }
 
@@ -921,7 +941,7 @@ export function applyWorkerDone(
   }
   let state: OrchState = {
     ...s,
-    tasks: recomputeReady(replace(s.tasks, nextTask)),
+    tasks: readyIn(s, replace(s.tasks, nextTask)),
     dispatches: replace(s.dispatches, nextDispatch)
   }
   state = pushMessage(
@@ -1058,7 +1078,7 @@ export function applyValidationResult(
       consecutiveFailures: reviewing ? task.consecutiveFailures : passed ? 0 : task.consecutiveFailures + 1,
       ...(passed ? {} : { result: `validation failed (exit ${exitCode})\n${output}` })
     }
-    let state: OrchState = { ...s, tasks: recomputeReady(replace(s.tasks, next)) }
+    let state: OrchState = { ...s, tasks: readyIn(s, replace(s.tasks, next)) }
     state = pushMessage(
       state,
       {
@@ -1081,7 +1101,7 @@ export function applyValidationResult(
     const moved = moveTask(recorded, to, now)
     if (!moved) return err(`cannot move task ${task.status} -> ${to}`)
     const next: Task = { ...moved, consecutiveFailures: reviewing ? task.consecutiveFailures : 0 }
-    let state: OrchState = { ...s, tasks: recomputeReady(replace(s.tasks, next)) }
+    let state: OrchState = { ...s, tasks: readyIn(s, replace(s.tasks, next)) }
     state = pushMessage(
       state,
       {
@@ -1533,7 +1553,7 @@ export function applyReviewResult(
       ...(passed ? {} : { result: a.body }),
       consecutiveFailures: passed ? 0 : task.consecutiveFailures + 1
     }
-    let state: OrchState = { ...closed, tasks: recomputeReady(replace(closed.tasks, next)) }
+    let state: OrchState = { ...closed, tasks: readyIn(closed, replace(closed.tasks, next)) }
     state = pushMessage(
       state,
       {
@@ -1574,7 +1594,7 @@ export function applyReviewResult(
     const moved = moveTask(recorded, to, now)
     if (!moved) return err(`cannot move task ${task.status} -> ${to}`)
     const next: Task = { ...moved, consecutiveFailures: 0 }
-    let state: OrchState = { ...closed, tasks: recomputeReady(replace(closed.tasks, next)) }
+    let state: OrchState = { ...closed, tasks: readyIn(closed, replace(closed.tasks, next)) }
     const notes = issues.length
     state = pushMessage(
       state,
@@ -2295,7 +2315,7 @@ export function resolveGate(
     {
       ...s,
       gates: replace(s.gates, next),
-      tasks: stillBlocked ? s.tasks : recomputeReady(replace(s.tasks, moved))
+      tasks: stillBlocked ? s.tasks : readyIn(s, replace(s.tasks, moved))
     },
     next
   )

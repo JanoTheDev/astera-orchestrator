@@ -326,13 +326,62 @@ describe('validatePlan', () => {
     expect(problems).toContain(`${t.id} (by hand) has no acceptance criterion`)
   })
 
-  it('names a dependency outside the plan', async () => {
+  it('names a dependency that is no Task of a plan', async () => {
+    const { r, jobId } = await planWith()
+    const t = (await planner(r)('task-create', goodTask(jobId))).body as { id: string }
+    const s = r.deps.getState()
+    await r.deps.setState({ ...s, tasks: s.tasks.map((x) => (x.id === t.id ? { ...x, deps: ['tsk_gone'] } : x)) })
+    expect(validatePlan(r.deps.getState(), jobId)).toEqual([`${t.id} (form): tsk_gone is not a Task of this plan or of another plan of this project`])
+  })
+
+  // T1 the main plan: a Task may wait on a Task of another active plan of the same project
+  it('accepts a dep on a Task of another active plan of the project', async () => {
     const { r, jobId } = await planWith()
     const other = await person(r)('run-create', { objective: 'other', cwd: 'D:/p', auto: true })
     const foreign = (await person(r)('task-create', { run: (other.body as { id: string }).id, account: 'acc1', spec: 's' })).body as { id: string }
-    // createTask accepts any existing id; the plan does not.
-    const t = (await person(r)('task-create', { ...goodTask(jobId), deps: [foreign.id] })).body as { id: string }
-    expect(validatePlan(r.deps.getState(), jobId)).toEqual([`${t.id} (form) depends on ${foreign.id}, which is not a Task of this plan`])
+    const t = await person(r)('task-create', { ...goodTask(jobId), deps: [foreign.id] })
+    expect(t.status).toBe(200)
+    expect(validatePlan(r.deps.getState(), jobId)).toEqual([])
+  })
+
+  it("refuses a dep on another project's Task, at task-create and task-update", async () => {
+    const { r, jobId } = await planWith()
+    const other = await person(r)('run-create', { objective: 'other', cwd: 'D:/q', auto: true })
+    const foreign = (await person(r)('task-create', { run: (other.body as { id: string }).id, account: 'acc1', spec: 's' })).body as { id: string }
+    const made = await planner(r)('task-create', { ...goodTask(jobId), deps: [foreign.id] })
+    expect(made.status).toBe(400)
+    expect(JSON.stringify(made.body)).toContain('another project')
+    const t = (await planner(r)('task-create', goodTask(jobId))).body as { id: string }
+    const edited = await planner(r)('task-update', { id: t.id, deps: [foreign.id] })
+    expect(edited.status).toBe(400)
+    expect(JSON.stringify(edited.body)).toContain('another project')
+  })
+
+  it("refuses a dep on an archived plan's Task", async () => {
+    const { r, jobId } = await planWith()
+    const other = (await person(r)('run-create', { objective: 'other', cwd: 'D:/p', auto: true })).body as { id: string }
+    const foreign = (await person(r)('task-create', { run: other.id, account: 'acc1', spec: 's' })).body as { id: string }
+    const s = r.deps.getState()
+    await r.deps.setState({ ...s, jobs: s.jobs.map((j) => (j.id === other.id ? { ...j, archivedAt: NOW } : j)) })
+    const made = await planner(r)('task-create', { ...goodTask(jobId), deps: [foreign.id] })
+    expect(made.status).toBe(400)
+    expect(JSON.stringify(made.body)).toContain('archived')
+  })
+
+  it('refuses a cycle across two plans', async () => {
+    const { r, jobId } = await planWith()
+    const other = (await person(r)('run-create', { objective: 'other', cwd: 'D:/p', auto: true })).body as { id: string }
+    const b = (await person(r)('task-create', { run: other.id, account: 'acc1', spec: 's' })).body as { id: string }
+    const a = (await planner(r)('task-create', { ...goodTask(jobId), deps: [b.id] })).body as { id: string }
+    const back = await person(r)('task-update', { id: b.id, deps: [a.id] })
+    expect(back.status).toBe(400)
+    expect(JSON.stringify(back.body)).toContain('wait on itself')
+    // written by hand, validatePlan names it
+    const s = r.deps.getState()
+    await r.deps.setState({ ...s, tasks: s.tasks.map((x) => (x.id === b.id ? { ...x, deps: [a.id] } : x)) })
+    expect(validatePlan(r.deps.getState(), jobId)).toContain(
+      `${a.id} (form) waits on itself through another plan's Tasks: these plans wait on each other in a cycle`
+    )
   })
 
   it('names a Task without affected paths, but not one the app made for a merge', async () => {

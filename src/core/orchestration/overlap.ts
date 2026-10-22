@@ -12,30 +12,16 @@
 import { jobNameOf } from './jobName'
 import { isJobActive } from './lifecycle'
 import { outcomeOfTasks } from './running'
+// T1 the main plan
+import { activeOrQueued, externalDepsOf, holdExternalDeps, otherPlansOf, planIdOf, planTasksOf } from './mainPlan'
 import { isLeaseWaitGate, LEASE_WAIT_OPTIONS, leasesByProject, pathsOverlap, planOutranks, projectKeyOf, sameFilesAs } from './schedule'
 import { createGate, type OrchState } from './state'
 import { afterStandOf } from './after'
 import { cancelRemainingTask } from './replan'
-import { FAILURE_LIMIT, newId, type Gate, type Job, type Message, type PlanOverlap, type Task } from './types'
+import { FAILURE_LIMIT, newId, recomputeReady, type Gate, type Job, type Message, type PlanOverlap, type Task } from './types'
 
-/** A plan's Tasks as they stand: its latest Run's, else (not started) its definition Tasks (a cancelled Task is removed). */
-export function planTasksOf(s: OrchState, job: Job): Task[] {
-  const run = s.runs.filter((r) => r.jobId === job.id).sort((a, b) => a.ordinal - b.ordinal).at(-1)
-  return s.tasks.filter((t) => (run ? t.runId === run.id : t.jobId === job.id))
-}
-
-/** A plan that may still do work: not archived, and either not started (queued, awaiting approval) or still running. */
-const activeOrQueued = (s: OrchState, job: Job): boolean =>
-  isJobActive(job) && (job.pendingStart === true || outcomeOfTasks(planTasksOf(s, job)) === 'running')
-
-/** The other plans of `job`'s project (`projectKeyOf`) that are not archived. `finished` too: the briefs read what they
- *  built; the overlap check only the active and queued ones. */
-export function otherPlansOf(s: OrchState, job: Job, o: { finished?: boolean } = {}): Job[] {
-  const key = projectKeyOf(s, job)
-  return s.jobs.filter(
-    (j) => j.id !== job.id && projectKeyOf(s, j) === key && isJobActive(j) && (o.finished === true || activeOrQueued(s, j))
-  )
-}
+// T1: the plan helpers live with the main plan (mainPlan.ts, web-safe); kept exported from here for their callers
+export { planTasksOf, otherPlansOf } from './mainPlan'
 
 /** Each of `job`'s Tasks against every Task of every active or queued plan of the same project: one entry per pair that
  *  links the same issue (`Task.links.issue`) or has overlapping affected paths. */
@@ -81,7 +67,8 @@ export function refreshOverlaps(prev: OrchState, next: OrchState, now: string = 
   })
   let out = changed ? { ...next, jobs } : next
   for (const n of notices) out = noticeTo(out, n.job, 'Another plan of this project goes first', n.lines, now)
-  return coordinate(prev, out, now)
+  // T1: a delivery readies the Tasks of other plans that wait on it
+  return holdExternalDeps(coordinate(prev, out, now))
 }
 
 const overlapKey = (o: PlanOverlap): string => `${o.taskId}|${o.otherTaskId}`
@@ -109,6 +96,31 @@ export const DUPLICATE_OPTIONS = ['cancel as duplicate', 'keep both'] as const
  *  give it a kind of its own if another Gate ever offers the same two. */
 export const isDuplicateGate = (g: Pick<Gate, 'options'>): boolean =>
   g.options?.length === 2 && g.options[0] === DUPLICATE_OPTIONS[0] && g.options[1] === DUPLICATE_OPTIONS[1]
+
+/** T1: the three answers of the owner question over a Task whose dep on another plan's Task will not come: that plan
+ *  stopped, or the Task was cancelled (mainPlan.ts `externalDepsOf` 'stopped' or 'gone'). */
+export const STOPPED_DEP_OPTIONS = ['keep waiting', 'drop this dependency', 'cancel this Task'] as const
+
+/** A Gate this file opened over a stopped cross-plan dep: told apart by its answers (`isDuplicateGate`). */
+export const isStoppedDepGate = (g: Pick<Gate, 'options'>): boolean =>
+  g.options?.length === STOPPED_DEP_OPTIONS.length && STOPPED_DEP_OPTIONS.every((o, i) => g.options![i] === o)
+
+/** T1: carries out a stopped-dep question answered in this commit. "drop this dependency" takes the deps that will not
+ *  come off the Task (the ready rule then decides, `holdExternalDeps`); "cancel this Task" takes it out of its Run;
+ *  "keep waiting" leaves it pending, so it runs if that plan is taken up again. */
+function carryOutStoppedDep(s: OrchState, g: Gate, now: string): OrchState {
+  if (g.resolution === STOPPED_DEP_OPTIONS[2]) {
+    const r = cancelRemainingTask(s, g.taskId)
+    return r.ok ? r.state : s
+  }
+  if (g.resolution !== STOPPED_DEP_OPTIONS[1]) return s
+  const tasks = s.tasks.map((t) => {
+    if (t.id !== g.taskId) return t
+    const lost = new Set(externalDepsOf(s, t).filter((d) => d.why === 'stopped' || d.why === 'gone').map((d) => d.id))
+    return lost.size === 0 ? t : { ...t, deps: t.deps.filter((d) => !lost.has(d)), updatedAt: now }
+  })
+  return { ...s, tasks: recomputeReady(tasks) }
+}
 
 /** T11: titles this alike (`titleSimilarity`) on overlapping paths read as one piece of work. */
 export const SIMILAR_TITLE = 0.6
@@ -227,7 +239,9 @@ function carryOutWatchdogAnswer(s: OrchState, g: Gate, now: string): OrchState {
  *     delivered: held behind one Gate (the owner's, or the hands-off decider's, Inbox item) "cancel as duplicate / keep
  *     both". Once per Task: a resolved one is not asked again.
  *  3. That Gate answered "cancel as duplicate": the Task leaves its Run (`cancelRemainingTask`). T11: so do the watchdog's
- *     questions (`carryOutWatchdogAnswer`). */
+ *     questions (`carryOutWatchdogAnswer`). T1: and the stopped-dep question (`carryOutStoppedDep`).
+ *  4. T1: a not-started Task whose dep on another plan's Task will not come (that plan stopped, the Task is gone): held
+ *     behind one Gate "keep waiting / drop this dependency / cancel this Task". Once per Task, never a silent stall. */
 function coordinate(prev: OrchState, next: OrchState, now: string): OrchState {
   let s = next
   // 3. carry out a cancel answered in this commit
@@ -238,6 +252,7 @@ function coordinate(prev: OrchState, next: OrchState, now: string): OrchState {
       const r = cancelRemainingTask(s, g.taskId)
       if (r.ok) s = r.state
     } else if (isLeaseWaitGate(g) || isDroppedGate(g)) s = carryOutWatchdogAnswer(s, g, now)
+    else if (isStoppedDepGate(g)) s = carryOutStoppedDep(s, g, now)
   }
   // 1. newly held back by a lease
   const before = leaseWaits(prev)
@@ -275,6 +290,29 @@ function coordinate(prev: OrchState, next: OrchState, now: string): OrchState {
         s = r.state
         asked.add(t.id)
       }
+    }
+  }
+  // 4. T1: a not-started Task waiting on another plan's Task that will not come: one Gate, asked once per Task
+  const askedDep = new Set(s.gates.filter(isStoppedDepGate).map((g) => g.taskId))
+  for (const t of s.tasks) {
+    if ((t.status !== 'ready' && t.status !== 'pending') || t.runId === undefined || started.has(t.id) || askedDep.has(t.id)) continue
+    const lost = externalDepsOf(s, t).filter((d) => d.why === 'stopped' || d.why === 'gone')
+    const plan = jobById.get(planIdOf(s, t) ?? '')
+    if (lost.length === 0 || !plan || !isJobActive(plan)) continue
+    const what = lost
+      .map((d) => {
+        const other = d.jobId === undefined ? undefined : s.jobs.find((j) => j.id === d.jobId)
+        const name = d.task ? `"${d.task.title}"${other ? ` of plan ${jobNameOf(other)}` : ''}` : d.id
+        return `${name}, ${d.why === 'stopped' ? 'whose plan stopped' : 'which was cancelled'}`
+      })
+      .join('; ')
+    const question =
+      `"${t.title}" (plan ${jobNameOf(plan)}) waits on ${what}. It will not come unless that plan is taken up again. ` +
+      'Keep waiting, drop this dependency, or cancel this Task?'
+    const r = createGate(s, { taskId: t.id, question, options: [...STOPPED_DEP_OPTIONS] }, now)
+    if (r.ok) {
+      s = r.state
+      askedDep.add(t.id)
     }
   }
   return s

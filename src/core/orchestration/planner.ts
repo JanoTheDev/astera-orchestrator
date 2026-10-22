@@ -17,6 +17,27 @@ import { sha256Of } from './promptWaves'
 import { isTerminal } from './running'
 // T7 objective coverage
 import { objectiveItemsOf } from './objectiveItems'
+// T1 the main plan: deps on another plan's Tasks of the project
+import { crossPlanDepRefusal, holdExternalDeps, waitsOnItself } from './mainPlan'
+
+/** T1: why `task` may not take `deps`, or undefined: each one a Task of `own` (its plan or Run), or of another active or
+ *  queued plan of the project (mainPlan.ts `crossPlanDepRefusal`), and none that would make it wait on itself across plans. */
+function depsRefusal(s: OrchState, task: Task, deps: string[], own: ReadonlySet<string>): string | undefined {
+  if (deps.includes(task.id)) return `${task.id} cannot wait on itself`
+  const planId = task.jobId ?? s.runs.find((r) => r.id === task.runId)?.jobId
+  for (const d of deps) {
+    if (own.has(d)) continue
+    const dep = s.tasks.find((t) => t.id === d)
+    if (!dep) return `unknown dep ${d}: deps must be Tasks of this plan or of another active plan of this project`
+    const refused = crossPlanDepRefusal(s, planId, dep)
+    if (refused !== undefined) return refused
+    if (dep.jobId === planId || s.runs.some((r) => r.id === dep.runId && r.jobId === planId))
+      return `${d} is a Task of another Run of this plan: deps must be Tasks of the same run`
+  }
+  const tasks = s.tasks.map((t) => (t.id === task.id ? { ...t, deps } : t))
+  if (waitsOnItself(tasks, task.id)) return `those deps would make ${task.id} wait on itself`
+  return undefined
+}
 
 /** W8-C prompts mode: what a planner of a Run-as-written plan is told when it tries to change the owner's text. */
 export const VERBATIM_REFUSAL =
@@ -242,8 +263,9 @@ const notStartedYet = (s: OrchState, t: Task): boolean =>
   (t.status === 'pending' || t.status === 'ready' || t.status === 'blocked') && !s.dispatches.some((d) => d.taskId === t.id)
 
 /** What is wrong with a Job's plan, one sentence each; empty when it may be approved. Every Task needs a
- *  prompt and at least one acceptance criterion, its deps must be Tasks of the same plan, and the deps must
- *  not form a cycle (graph.ts's `layersOf`, which already finds what it cannot order). */
+ *  prompt and at least one acceptance criterion, its deps must be Tasks of the same plan (T1: or of another active or
+ *  queued plan of the project), and the deps must not form a cycle (graph.ts's `layersOf`, which already finds what it
+ *  cannot order; T1: `waitsOnItself` across plans). */
 export function validatePlan(s: OrchState, jobId: string): string[] {
   const tasks = s.tasks.filter((t) => t.jobId === jobId && t.runId === undefined)
   if (tasks.length === 0) return ['the plan has no Task']
@@ -255,8 +277,14 @@ export function validatePlan(s: OrchState, jobId: string): string[] {
     if (!t.acceptanceCriteria?.length) problems.push(`${name} has no acceptance criterion`)
     // W6-A: no worker opens on unchecked work
     if (!t.basis?.evidence.trim()) problems.push(`${name} has no basis: give --basis missing|partial|broken and its --evidence`)
-    const unknown = t.deps.filter((d) => !own.has(d))
-    if (unknown.length) problems.push(`${name} depends on ${unknown.join(', ')}, which is not a Task of this plan`)
+    // T1: a dep outside the plan names a Task of another active or queued plan of the project
+    for (const d of t.deps.filter((x) => !own.has(x))) {
+      const dep = s.tasks.find((x) => x.id === d)
+      const refused = dep ? crossPlanDepRefusal(s, jobId, dep) : `${d} is not a Task of this plan or of another plan of this project`
+      if (refused !== undefined) problems.push(`${name}: ${refused}`)
+    }
+    if (t.deps.some((d) => !own.has(d)) && waitsOnItself(s.tasks, t.id))
+      problems.push(`${name} waits on itself through another plan's Tasks: these plans wait on each other in a cycle`)
     // the file guard only sees declared paths; a Task without any overlaps nothing and conflicts at merge
     if (!t.affectedPaths?.length && !isIntegrationTask(t)) problems.push(`Task ${name} names no files (--affected-paths)`)
   }
@@ -307,7 +335,8 @@ export function validatePlan(s: OrchState, jobId: string): string[] {
 const clip = (t: string): string => (t.length > 40 ? `${t.slice(0, 39).trimEnd()}…` : t)
 
 /** Edits a definition Task's plan (`task-update` with plan fields): its title, spec, deps and plan fields.
- *  Refused for a Task already in a run, for deps outside its plan, and for deps that would close a cycle. */
+ *  Refused for a Task already in a run, for deps outside its plan (T1: other than another active plan's of the project,
+ *  `depsRefusal`), and for deps that would close a cycle. */
 export function editPlanTask(
   s: OrchState,
   taskId: string,
@@ -324,14 +353,14 @@ export function editPlanTask(
     if (!notStartedYet(s, task))
       return { ok: false, error: `${taskId} has started already (${task.status}): only a Task that has not started is re-planned; it takes new --criteria only` }
     if (patch.deps) {
-      const outside = patch.deps.filter((d) => d === taskId || !s.tasks.some((t) => t.id === d && t.runId === task.runId))
-      if (outside.length) return { ok: false, error: `deps must be other Tasks of the same run: ${outside.join(', ')}` }
+      const refused = depsRefusal(s, task, patch.deps, new Set(s.tasks.filter((t) => t.runId === task.runId).map((t) => t.id)))
+      if (refused !== undefined) return { ok: false, error: refused }
     }
     const next: Task = { ...task, ...patch, updatedAt: now }
     const tasks = s.tasks.map((t) => (t.id === taskId ? next : t))
     if (layersOf({ ...s, tasks }, task.runId).cyclic.length)
       return { ok: false, error: `those deps would make ${taskId} wait on itself` }
-    const settled = recomputeReady(tasks)
+    const settled = holdExternalDeps({ ...s, tasks: recomputeReady(tasks) }).tasks
     return { ok: true, state: { ...s, tasks: settled }, value: settled.find((t) => t.id === taskId)! }
   }
   // W8-F (#100): a Task in a run that has not finished keeps one editable field: its acceptance criteria, which the
@@ -346,14 +375,14 @@ export function editPlanTask(
   if (task.jobId === undefined) return { ok: false, error: `${taskId} is in a run already: only a plan's own Tasks are edited` }
   if (patch.deps) {
     const own = new Set(s.tasks.filter((t) => t.jobId === task.jobId && t.runId === undefined).map((t) => t.id))
-    const outside = patch.deps.filter((d) => !own.has(d) || d === taskId)
-    if (outside.length) return { ok: false, error: `deps must be other Tasks of the same plan: ${outside.join(', ')}` }
+    const refused = depsRefusal(s, task, patch.deps, own)
+    if (refused !== undefined) return { ok: false, error: refused }
   }
   const next: Task = { ...task, ...patch, updatedAt: now }
   const tasks = s.tasks.map((t) => (t.id === taskId ? next : t))
   if (layersOf({ ...s, tasks }, task.jobId).cyclic.length)
     return { ok: false, error: `those deps would make ${taskId} wait on itself` }
-  const settled = recomputeReady(tasks)
+  const settled = holdExternalDeps({ ...s, tasks: recomputeReady(tasks) }).tasks
   return { ok: true, state: { ...s, tasks: settled }, value: settled.find((t) => t.id === taskId)! }
 }
 
