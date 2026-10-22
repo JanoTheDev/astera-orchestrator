@@ -500,7 +500,7 @@ export interface OrchServerDeps {
      *  (chooseStartAccount, exec/workerStart.ts). */
     auto?: true
     /** T25: told why the start waits for an account with room (the plain reason), and null once it runs or is given up. */
-    onWait?(why: string | null): void
+    onWait?(why: string | null): void | Promise<void>
   }): Promise<{
     sessionId: string
     /** T5: the model it was started on, recorded on the Run (`Run.coordinatorModel`) */ model?: string
@@ -2057,8 +2057,9 @@ export async function handleCommand(
   }
 
   /** T25: records on the Job why its planner or coordinator start waits for an account with room (null: it no longer does).
-   *  Best-effort: a write that fails is not a reason to fail the start. */
-  const setStartWait = (jobId: string) => (why: string | null): void => {
+   *  Best-effort: a write that fails is not a reason to fail the start. The start is then answered at once and the dispatch
+   *  loop asks again (retryHeldStarts): a held start must not hold the Host's command chain. */
+  const setStartWait = (jobId: string) => async (why: string | null): Promise<void> => {
     const current = deps.getState()
     if (!current.jobs.some((j) => j.id === jobId && j.startWait !== (why ?? undefined))) return
     const jobs = current.jobs.map((j) => {
@@ -2066,7 +2067,7 @@ export async function handleCommand(
       const { startWait: _was, ...rest } = j
       return why === null ? rest : { ...rest, startWait: why }
     })
-    void deps.setState({ ...current, jobs }).catch(() => {})
+    await deps.setState({ ...current, jobs }).catch(() => {})
   }
 
   /** W5-B (#46, #47): ends a Job's planner sessions. The ids stay on the Job: they still say the Job was planned
@@ -2276,6 +2277,8 @@ export async function handleCommand(
           }
         }
       }
+      const waiting = deps.getState().jobs.find((j) => j.id === job.id)?.startWait
+      if (waiting !== undefined) return okBody({ runId: target.id, waiting })
       return bad(`could not start the coordinator: ${String(e)}${orphanNote}`)
     }
     // autoDispatch 는 **지운다** — false 로 두면 JSON 비교에서 "없음" 과 다른 값이 되고, 이
@@ -3629,6 +3632,8 @@ export async function handleCommand(
         startedOn = started.accountId
       } catch (e) {
         if (marked) await setJobPlanners(id, () => undefined)
+        const waiting = deps.getState().jobs.find((j) => j.id === id)?.startWait
+        if (waiting !== undefined) return okBody({ jobId: id, waiting })
         return bad(`could not start the planner: ${String(e)}`)
       }
       if (!(await setJobPlanners(id, (ids) => [...ids, sessionId]))) {

@@ -2857,3 +2857,25 @@ describe('plans of one project: one delivery at a time, the others refreshed ont
     expect(most).toBe(1)
   })
 })
+
+// T25: a planner start that found no account with room (Job.startWait) is asked again by the loop's tick, with no press.
+describe('a held planner start (T25)', () => {
+  it('is asked again on the next tick and starts once an account has room', async () => {
+    const h = rig()
+    const s = h.state()
+    h.setState({
+      ...s,
+      jobs: [...s.jobs, { id: 'job_h', objective: 'held', cwd: '/p', createdAt: NOW, pendingStart: true, coordinatorAccountId: 'accA', startWait: 'no claude account has room' }]
+    })
+    h.startCoordinator.mockImplementationOnce(async (a) => {
+      await (a as { onWait?: (w: string | null) => Promise<void> }).onWait?.(null)
+      return { sessionId: 'coord-held' }
+    })
+    await h.loop.run()
+    await h.settle()
+    expect(h.startCoordinator.mock.calls.filter(([a]) => a.runId === 'job_h')).toHaveLength(1)
+    const job = h.state().jobs.find((j) => j.id === 'job_h')
+    expect(job?.plannerSessionIds).toEqual(['coord-held'])
+    expect(job).not.toHaveProperty('startWait')
+  })
+})

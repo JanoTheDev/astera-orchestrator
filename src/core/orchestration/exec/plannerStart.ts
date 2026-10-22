@@ -32,10 +32,6 @@ export async function startPlannerSession(ctx: CoordinatorStartContext, a: Start
     purpose: 'planner',
     subject: a.runId,
     ...(a.onWait ? { onWait: a.onWait } : {}),
-    gone: () => {
-      const j = ctx.getState().jobs.find((x) => x.id === a.runId)
-      return j === undefined || j.archivedAt !== undefined
-    },
     ...(a.auto ? { auto: true } : {})
   })
   try {

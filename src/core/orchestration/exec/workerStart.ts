@@ -265,10 +265,6 @@ export interface CoordinatorStartContext {
    *  the setting off: the session starts on the named account alone, as before. */
   usageGuard?: AutoStartGuard
   loginStatus?(accountId: string): Promise<boolean>
-  /** T25: a planner or coordinator start with no account that has room waits (startChainHolding) and retries every
-   *  `pollMs` (each try reads the usage guard again). `note` gets the plain reason while it waits and null once it starts
-   *  or gives up. All absent: the built-in poll, the reason in the log only. */
-  hold?: { pollMs?: number; sleep?(ms: number): Promise<void>; note?(subject: string, why: string | null): void }
 }
 
 /** T5b: how long a start waits for the usage guard's read (its first one fetches every idle account) before it ranks
@@ -283,11 +279,8 @@ export type StartAccountChoice =
   | { ok: true; accountId: string; chain: string[]; release(): void; switched?: string }
   | { ok: false; why: string }
 
-/** T25: no account has room to start on. The message is the plain reason; a start waits on it (startChainHolding). */
+/** T25: no account has room to start on. The message is the plain reason; a planner or coordinator start is held on it (startChainHolding). */
 export class NoRoomError extends Error {}
-
-/** How often a held planner or coordinator start tries again. */
-const HOLD_POLL_MS = 30_000
 
 const UNUSABLE_WHY: Record<UnusableReason, string> = {
   'weekly-full': 'its weekly limit is at the usage threshold',
@@ -412,45 +405,27 @@ export async function autoStartChain(
 }
 
 /**
- * T25: autoStartChain for a planner or coordinator start (`subject` is its Job or Run). With no account that has room it
- * waits, in place of failing the start: the reason goes to `hold.note` and the log when it changes, and every poll reads
- * the usage guard again (chooseStartAccount), so the start goes on by itself once a window resets or a reading frees an
- * account. Stops with an error when `gone()` says the Job or Run was removed. Host sessions (host/spawner.ts) call
- * autoStartChain and still fail at once.
+ * T25: autoStartChain for a planner or coordinator start (`subject` is its Job or Run). With no account that has room the
+ * start does not hold the command that asked for it: `onWait` gets the plain reason (the command records it on the Job and
+ * answers at once) and the start fails with NoRoomError; the dispatch loop asks again every tick (retryHeldStarts), and each
+ * try reads the usage guard again (chooseStartAccount). `onWait(null)` once an account has room or the start fails otherwise.
+ * Host sessions (host/spawner.ts) call autoStartChain and still fail at once.
  */
 export async function startChainHolding(
   ctx: CoordinatorStartContext,
   accountId: string,
-  o: { purpose: StartPurpose; auto?: boolean; subject: string; gone(): boolean; onWait?(why: string | null): void }
+  o: { purpose: StartPurpose; auto?: boolean; subject: string; onWait?(why: string | null): void | Promise<void> }
 ): ReturnType<typeof autoStartChain> {
-  let waiting: string | undefined
-  for (;;) {
-    try {
-      const chain = await autoStartChain(ctx, accountId, o)
-      if (waiting !== undefined) {
-        ctx.hold?.note?.(o.subject, null)
-        o.onWait?.(null)
-        ctx.log(`${o.purpose} start ${o.subject}: an account has room, starting`)
-      }
-      return chain
-    } catch (e) {
-      if (!(e instanceof NoRoomError)) {
-        if (waiting !== undefined) o.onWait?.(null)
-        throw e
-      }
-      if (o.gone()) {
-        ctx.hold?.note?.(o.subject, null)
-        o.onWait?.(null)
-        throw new Error(`${o.purpose} start ${o.subject} stopped waiting for an account: it was removed`)
-      }
-      if (e.message !== waiting) {
-        waiting = e.message
-        ctx.log(`${o.purpose} start ${o.subject} waits: ${waiting}`)
-        ctx.hold?.note?.(o.subject, waiting)
-        o.onWait?.(waiting)
-      }
-      await (ctx.hold?.sleep ?? ((ms) => new Promise<void>((r) => setTimeout(r, ms))))(ctx.hold?.pollMs ?? HOLD_POLL_MS)
-    }
+  try {
+    const chain = await autoStartChain(ctx, accountId, o)
+    await o.onWait?.(null)
+    return chain
+  } catch (e) {
+    if (e instanceof NoRoomError) {
+      ctx.log(`${o.purpose} start ${o.subject} waits: ${e.message}`)
+      await o.onWait?.(e.message)
+    } else await o.onWait?.(null)
+    throw e
   }
 }
 
@@ -499,7 +474,6 @@ export async function startCoordinatorSession(
     purpose: 'coordinator',
     subject: a.runId,
     ...(a.onWait ? { onWait: a.onWait } : {}),
-    gone: () => jobOfRunId(ctx.getState(), a.runId)?.archivedAt !== undefined || !ctx.getState().runs.some((r) => r.id === a.runId),
     ...(a.auto ? { auto: true } : {})
   })
   try {

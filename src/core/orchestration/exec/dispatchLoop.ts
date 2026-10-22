@@ -1029,6 +1029,34 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     }
   }
 
+  /** T25: a planner or coordinator start that found no account with room (Job.startWait) is asked again every tick; each try
+   *  reads the usage again, so it starts by itself once a window resets. A Run with no coordinator yet is a coordinator's
+   *  start (`run-start`), else a planner's (`jobs-plan`). */
+  let retryingHeld = false
+  const retryHeldStarts = async (): Promise<void> => {
+    if (retryingHeld) return
+    retryingHeld = true
+    try {
+      for (const job of c.getState().jobs) {
+        if (job.startWait === undefined || job.archivedAt !== undefined) continue
+        if (!c.mayStart()) return
+        const s = c.getState()
+        const run = s.runs.filter((r) => r.jobId === job.id).at(-1)
+        try {
+          const r =
+            run && run.coordinatorSessionId === undefined
+              ? await c.handle('run-start', { run: run.id })
+              : await c.handle('jobs-plan', { id: job.id })
+          if (r.status >= 400) log(`job=${job.id}: retrying its held start failed: ${JSON.stringify(r.body)}`)
+        } catch (e) {
+          log(`job=${job.id}: retrying its held start failed: ${String(e)}`)
+        }
+      }
+    } finally {
+      retryingHeld = false
+    }
+  }
+
   /** The coordinator housekeeping: the stale start marks (L2), then the stops due (U4, L1), then the
    *  finished Runs' idle workers. Run from the pass and from the timer's `nudge`, since the app runs the
    *  pass only on commits and a stop to retry, a mark to drop or a grace that ran out comes due with
@@ -1073,6 +1101,8 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       if (!c.mayStart()) return
       // W8-C: after the delivery, so a plan queued after one delivered in this pass starts in it too
       await startQueuedPlans()
+      if (!c.mayStart()) return
+      await retryHeldStarts()
       if (!c.mayStart()) return
       await stopFinishedCoordinators()
       if (!c.mayStart()) return

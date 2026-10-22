@@ -364,13 +364,13 @@ describe('chooseStartAccount (T5b)', () => {
     const spawn = vi.fn()
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'astera-t5b-'))
     try {
-      // T25: the start waits on the reason; it ends with an error only when its Run is gone
+      // T25: the start fails at once with the plain reason (the command records it and the loop asks again)
       await expect(
         startCoordinatorSession(
-          { ...ctxOf(g), specsDir: dir, preTrust: async () => {}, bypassPermissions: async () => false, spawn, getState: emptyState, roleModels: async () => ({}), hold: { sleep: async () => {} } },
+          { ...ctxOf(g), specsDir: dir, preTrust: async () => {}, bypassPermissions: async () => false, spawn, getState: emptyState, roleModels: async () => ({}) },
           { runId: 'run_x', cwd: 'D:/p', accountId: 'a1', brief: 'B' }
         )
-      ).rejects.toThrow(/stopped waiting/)
+      ).rejects.toThrow(/no claude account has room/)
       expect(spawn).not.toHaveBeenCalled()
     } finally {
       await fs.rm(dir, { recursive: true, force: true })
@@ -422,68 +422,66 @@ describe('chooseStartAccount (T5b)', () => {
       vi.useRealTimers()
     }
   })
-  // T25: a planner or coordinator start with every account full holds with a plain reason and starts once one has room
+  // T25: a planner or coordinator start with every account full is held with a plain reason, and starts once one has room
   describe('a start with every account full (T25)', () => {
     const FULL = { a1: [100, 0], a2: [95, 0], a3: [0, 99], a4: [100, 100] } as Record<string, [number, number]>
-    const freeAfterFirstWait = () => {
-      let readings = FULL
-      const g = createUsageGuard({
+    let readings = FULL
+    const guard = () =>
+      createUsageGuard({
         readings: async () => new Map(Object.entries(readings).map(([id, [w, s]]) => [id, { weekly: win(w), session: win(s) }])),
         pauseAt: async () => 90,
         autoAccounts: async () => true,
         nowMs: () => Date.parse(NOW)
       })
-      const notes: Array<string | null> = []
-      const hold = { sleep: async () => { readings = { ...FULL, a2: [10, 10] } }, note: (_: string, why: string | null) => { notes.push(why) } }
-      return { g, hold, notes }
-    }
-    const runSpawn = async (o: { g: AutoStartGuard; hold: object; onWait?: (why: string | null) => void; role?: 'planner'; state: OrchState; runId: string }) => {
+    const start = async (o: { role?: 'planner'; state: OrchState; runId: string; waits: Array<string | null> }) => {
       const spawn = vi.fn().mockResolvedValue({ id: 'ses_h' })
       const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'astera-t25-'))
-      try {
-        const r = await startCoordinatorSession(
-          { ...ctxOf(o.g), specsDir: dir, preTrust: async () => {}, bypassPermissions: async () => false, spawn, getState: () => o.state, roleModels: async () => ({}), hold: o.hold },
-          { runId: o.runId, cwd: 'D:/p', accountId: 'a1', brief: 'B', ...(o.role ? { role: o.role } : {}), ...(o.onWait ? { onWait: o.onWait } : {}) }
+      const run = () =>
+        startCoordinatorSession(
+          { ...ctxOf(guard()), specsDir: dir, preTrust: async () => {}, bypassPermissions: async () => false, spawn, getState: () => o.state, roleModels: async () => ({}) },
+          { runId: o.runId, cwd: 'D:/p', accountId: 'a1', brief: 'B', onWait: (w) => void o.waits.push(w), ...(o.role ? { role: o.role } : {}) }
         )
-        return { r, spawn }
-      } finally {
-        await fs.rm(dir, { recursive: true, force: true })
-      }
+      return { run, spawn, done: () => fs.rm(dir, { recursive: true, force: true }) }
     }
+    beforeEach(() => { readings = FULL })
 
-    it('a planner holds with the reason (accounts, which limit, earliest reset), then starts on the account that freed up', async () => {
-      const { g, hold, notes } = freeAfterFirstWait()
+    it('a planner is held with the reason (accounts, which limit, earliest reset), then starts once an account frees up', async () => {
       const job = createJob(emptyState(), { objective: 'o', cwd: 'D:/p', pendingStart: true }, NOW); if (!job.ok) throw new Error(job.error)
       const waits: Array<string | null> = []
-      const { r, spawn } = await runSpawn({ g, hold, role: 'planner', state: job.state, runId: job.value.id, onWait: (w) => waits.push(w) })
-      expect(waits).toHaveLength(2)
-      expect(waits[0]).toMatch(/no claude account has room to start the planner/)
-      expect(waits[1]).toBeNull()
-      expect(notes[0]).toMatch(/start the planner on: .*a1 \(its weekly limit/)
-      expect(notes[0]).toMatch(/a3 \(its 5-hour limit.*the earliest limit resets 2099-01-01T00:00:00.000Z/)
-      expect(notes.at(-1)).toBeNull()
-      expect(r.accountId).toBe('a2')
-      expect(spawn).toHaveBeenCalledTimes(1)
+      const t = await start({ role: 'planner', state: job.state, runId: job.value.id, waits })
+      try {
+        await expect(t.run()).rejects.toThrow(/no claude account has room to start the planner/)
+        expect(t.spawn).not.toHaveBeenCalled()
+        expect(waits).toHaveLength(1)
+        expect(waits[0]).toMatch(/start the planner on: .*a1 \(its weekly limit/)
+        expect(waits[0]).toMatch(/a3 \(its 5-hour limit.*the earliest limit resets 2099-01-01T00:00:00.000Z/)
+        readings = { ...FULL, a2: [10, 10] } // the next try (the loop's tick) reads a freed account
+        expect(await t.run()).toMatchObject({ accountId: 'a2' })
+        expect(waits.at(-1)).toBeNull()
+        expect(t.spawn).toHaveBeenCalledTimes(1)
+      } finally {
+        await t.done()
+      }
     })
 
-    it('a coordinator holds the same way and starts once a reading frees an account', async () => {
-      const { g, hold, notes } = freeAfterFirstWait()
-      const { s, taskId } = stateWithTask(); void taskId
-      const { r, spawn } = await runSpawn({ g, hold, state: s, runId: s.runs[0].id })
-      expect(notes[0]).toMatch(/no claude account has room to start the coordinator on/)
-      expect(r.sessionId).toBe('ses_h')
-      expect(spawn.mock.calls[0][0].accountId).toBe('a2')
-    })
-
-    it('stops waiting when its Job is archived', async () => {
-      const g = realGuard({ readings: FULL })
-      const job = createJob(emptyState(), { objective: 'o', cwd: 'D:/p', pendingStart: true }, NOW); if (!job.ok) throw new Error(job.error)
-      const state = { ...job.state, jobs: job.state.jobs.map((j) => ({ ...j, archivedAt: NOW })) }
-      await expect(runSpawn({ g, hold: { sleep: async () => {} }, role: 'planner', state, runId: job.value.id })).rejects.toThrow(/stopped waiting/)
+    it('a coordinator is held the same way and starts once a reading frees an account', async () => {
+      const { s } = stateWithTask()
+      const waits: Array<string | null> = []
+      const t = await start({ state: s, runId: s.runs[0].id, waits })
+      try {
+        await expect(t.run()).rejects.toThrow(/no claude account has room to start the coordinator/)
+        expect(waits[0]).toMatch(/start the coordinator on/)
+        readings = { ...FULL, a2: [10, 10] }
+        expect(await t.run()).toMatchObject({ sessionId: 'ses_h' })
+        expect(t.spawn.mock.calls[0][0].accountId).toBe('a2')
+        expect(waits.at(-1)).toBeNull()
+      } finally {
+        await t.done()
+      }
     })
 
     it('autoStartChain (Host sessions) still fails at once', async () => {
-      await expect(autoStartChain(ctxOf(realGuard({ readings: FULL })), 'a1')).rejects.toThrow(/no claude account has room/)
+      await expect(autoStartChain(ctxOf(guard()), 'a1')).rejects.toThrow(/no claude account has room/)
     })
   })
 
