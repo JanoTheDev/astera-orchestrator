@@ -21,6 +21,13 @@ describe('planStatusOf', () => {
     expect(planStatusOf(row({ outcome: 'failed' })).tone).toBe('danger')
     expect(planStatusOf(row({ outcome: 'completed' }))).toEqual({ key: 'pages.plans.status.done', tone: 'ok' })
   })
+
+  // T8: a running plan with nothing that can move never reads Working
+  it('says Needs you or Stalled for a running plan nothing can move', () => {
+    expect(planStatusOf(row({ stuck: 'needs-you', tasks: [task('a', { status: 'blocked' })] }))).toEqual({ key: 'plan.outcome.needsYou', tone: 'warn' })
+    expect(planStatusOf(row({ stuck: 'stalled', tasks: [task('a', { status: 'failed' })] }))).toEqual({ key: 'plan.outcome.stalled', tone: 'danger' })
+    expect(planStatusOf(row({ stuck: 'stalled', paused: true })).key).toBe('jobs.run.roundStopped')
+  })
 })
 
 describe('planStatusOf delivery', () => {

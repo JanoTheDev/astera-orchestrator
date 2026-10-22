@@ -592,6 +592,18 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       'One row per task of the run: `validation` (the run configurations it must pass, the last round of checks, each with its status, exit code and output tail) and `review` (whether one was asked for, and the verdict of the last reviewer that gave one, with its findings). Each has a `status`: not-required, pending, running, passed or failed. `failureSummary` says in one line what failed, validation first. A plugin check (`plugin:<id>`) carries its `summary`, `diagnostics` (the first 20, none once it passed), `diagnosticsTotal` (how many it found, when more) and `externalUrl`; its status `error` means it could not be made, and the task waits on a question. It reads what the checks already recorded and runs nothing.',
     flags: [ID('<runId>', 'the run whose checks to read')]
   },
+  // T8
+  'runs-doctor': {
+    summary: 'every run whose stored state disagrees with what is really going on, and --fix to repair it',
+    detail:
+      "Each finding has a `kind`: `stuck` (the run reads running but nothing can move: `needs-you` when every unfinished task waits on you, `stalled` when its failed tasks have no coordinator and nothing retries them), `stopped-reviewer` (a task left reviewing after its reviewer ended), `lost-worker` (a task dispatched whose worker ended unreported, with no coordinator), `dead-dispatch` (a dispatch open whose session has exited) and `stray-session` (a session alive after its run finished). The two session checks need the Host's session list; `checkedSessions` says whether they ran. --fix applies the repair each already has and lists it in `repairs`: a retry Gate on each stalled task, the restart Gate for a stopped reviewer, the lost-worker Gate, the dispatch closed as its session's exit would have, the stray session closed. A `needs-you` run is left for you to answer. With no scope it looks at every run; a coordinator may doctor its own run only.",
+    flags: [
+      { name: 'run', value: '<runId>', about: 'only this run' },
+      { name: 'job', value: '<jobId>', about: "only this Job's runs" },
+      { name: 'all', about: 'every run (the default)' },
+      { name: 'fix', about: 'repair what it finds' }
+    ]
+  },
 
   'tasks-list': {
     summary: 'the tasks of a run',
@@ -784,6 +796,16 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       { name: 'prompt', value: '<text|->', about: 'the first prompt (a value of `-` reads it from stdin)' },
       { name: 'roll-accounts', value: '<id,…>', about: 'the accounts to roll onto at a usage limit, in order' },
       { name: 'unattended', value: '<hold|deny-after-60s>', about: 'chat: a permission prompt nobody answers' }
+    ]
+  },
+  // T8
+  'sessions-close': {
+    summary: 'end a session, as closing its tab does, with Astera open or closed',
+    detail:
+      "The Host ends it the way it ends a finished run's sessions, and its tab says Astera closed it. A coordinator may close only its own run's sessions (3). A worker session with an open dispatch is refused (5): stop it with `worker-stop`. An unknown session is 4; one that already ended answers `alreadyEnded`.",
+    flags: [
+      ID('<sessionId>', 'the session to end (from `sessions list`)'),
+      { name: 'reason', value: '<text>', about: 'why, written to the log (default: closed with astera sessions close)' }
     ]
   },
   'chats-pending': {

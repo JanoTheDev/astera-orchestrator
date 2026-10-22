@@ -16,7 +16,9 @@ export interface ExitWording {
 const REASON_KEY: Record<CloseReason, MessageKey> = {
   released: 'exit.releasedByAstera',
   stopped: 'exit.stoppedByAstera',
-  replaced: 'exit.replacedByAstera'
+  replaced: 'exit.replacedByAstera',
+  // T8: `astera sessions close`
+  closed: 'exit.closedOnRequest'
 }
 
 export function exitWording(

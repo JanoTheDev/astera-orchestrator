@@ -293,7 +293,7 @@ describe('공개 표면 — 두 낱말 명령', () => {
       cmd: 'sessions-create',
       args: { account: 'a', cwd: '.', rollAccounts: 'a,b' }
     })
-    expect(parseArgs(['sessions'])).toEqual({ error: 'sessions needs one of: list, read, send, create' })
+    expect(parseArgs(['sessions'])).toEqual({ error: 'sessions needs one of: list, read, send, create, close' })
   })
 
   // 코디네이터 전용 명령은 한 낱말 그대로다 — 개명이 가이드 재작성만 사고 아무것도 주지 않는다

@@ -29,8 +29,12 @@ export function planStatusOf(row: JobRow): PlanStatus {
   if (row.paused) return { key: 'jobs.run.roundStopped', tone: 'neutral' }
   // Item 2: everything else ended, and the Tasks held for the owner are left
   if (row.outcome === 'blocked') return { key: 'pages.plans.status.blocked', tone: 'warn' }
+  // T8: nothing can move until the owner answers (JobRow.stuck)
+  if (row.stuck === 'needs-you') return { key: 'plan.outcome.needsYou', tone: 'warn' }
   if (row.tasks.some((t) => t.status === 'blocked')) return { key: 'pages.plans.status.needsYou', tone: 'warn' }
   if (row.dispatchHold) return { key: 'jobs.hold.held', tone: 'warn' }
+  // T8: reads running, and nothing works on it or retries it (`runs doctor`)
+  if (row.stuck === 'stalled') return { key: 'plan.outcome.stalled', tone: 'danger' }
   if (row.outcome === 'running') return { key: 'pages.plans.status.working', tone: 'info' }
   // Item 8: every Task completed, the final check has not settled: not done yet
   if (row.outcome === 'checking') return { key: 'pages.plans.status.checking', tone: 'info' }
