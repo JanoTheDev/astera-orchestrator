@@ -329,6 +329,13 @@ export function taskColumnOf(task: JobTask, session?: LiveSession, asked = false
 export const PLAN_SECTIONS = ['overview', 'waves', 'files', 'changes', 'journal'] as const
 export type PlanSection = (typeof PLAN_SECTIONS)[number]
 
+/** The Plans page's modes; the one last used is remembered (PlanList). */
+export type PlansView = 'area' | 'overlap' | 'main'
+
+export function plansViewOf(v: unknown): PlansView {
+  return v === 'overlap' || v === 'main' ? v : 'area'
+}
+
 /** A section named by `openPlan(jobId, section?)` or read back from storage; anything else is the default. Old names
  *  from before W9-C (the RunDetail views and the navigation test's `tasks`) map onto their new home. */
 export function planSectionOf(v: unknown): PlanSection {

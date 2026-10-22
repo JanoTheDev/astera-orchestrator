@@ -10,12 +10,22 @@ import { jobName } from '../../lib/jobName'
 import { clockFor } from '../../lib/runClock'
 import { Button, Chip, EmptyState, Menu, PageHeader, Tabs, Tooltip } from '../ui'
 import { useProjectDelivery } from '../delivery/ProjectDelivery'
-import { areaGroupsOf } from './planBoard'
+import { areaGroupsOf, plansViewOf, type PlansView } from './planBoard'
 import { Coordinator } from './Coordinator'
 import { PlanRow, type PlanActs } from './PlanRow'
 import './plans.css'
 
-type View = 'area' | 'overlap'
+type View = PlansView
+
+const VIEW_KEY = 'cm.plansView'
+
+function storedView(): View {
+  try {
+    return plansViewOf(localStorage.getItem(VIEW_KEY))
+  } catch {
+    return 'area'
+  }
+}
 
 /** "When a plan is done" (W6-H) as a View options menu: a setting, not a filter (DESIGN-W11 §7). The push branch is
  *  set in the project's settings. */
@@ -49,7 +59,8 @@ export function PlanList({
   onNewRun,
   onNewFromSource,
   onNewConsole,
-  overlap
+  overlap,
+  mainPlan
 }: {
   snapshot: OrchSnapshot | null
   hostGate: OrchHostGate | null
@@ -64,9 +75,19 @@ export function PlanList({
   onNewConsole: () => void
   /** The Overlap view's table. */
   overlap: React.ReactNode
+  /** The Main plan view. */
+  mainPlan?: React.ReactNode
 }): React.JSX.Element {
   const { t } = useI18n()
-  const [view, setView] = useState<View>('area')
+  const [view, setView] = useState<View>(storedView)
+  const chooseView = (v: View): void => {
+    setView(v)
+    try {
+      localStorage.setItem(VIEW_KEY, v)
+    } catch {
+      /* no storage: the list opens on By area next time */
+    }
+  }
   // Archived plans are hidden until asked for. Not remembered: the list opens on the plans that work.
   const [showArchived, setShowArchived] = useState(false)
 
@@ -117,10 +138,11 @@ export function PlanList({
                 variant="segmented"
                 label={t('pages.plans.title')}
                 value={view}
-                onChange={setView}
+                onChange={chooseView}
                 items={[
                   { id: 'area', label: t('pages.plans.byArea') },
-                  { id: 'overlap', label: t('pages.plans.overlap') }
+                  { id: 'overlap', label: t('pages.plans.overlap') },
+                  { id: 'main', label: t('pages.plans.main') }
                 ]}
               />
             </Tooltip>
@@ -199,6 +221,8 @@ export function PlanList({
     )
   } else if (view === 'overlap') {
     body = overlap
+  } else if (view === 'main') {
+    body = mainPlan
   } else {
     body = (
       <div className="plans-list">
