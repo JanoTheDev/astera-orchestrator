@@ -718,6 +718,9 @@ export interface OrchServerDeps {
   /** W7-A: the agent CLI's own conversation id of a terminal session, by the app's session id, read off its hook events
    *  (`session_id`): what `claude --resume` takes. null when none was recorded. Answered after the session ended too. */
   agentSessionOf?(id: string): Promise<string | null>
+  /** T20: when a person last typed into this session's console in a window (epoch ms), null for never. Typing is the only
+   *  thing that counts: `sessions send` and every other agent's input never set it. Host-only. */
+  ownerInputAt?(id: string): number | null
   /** A chat session's last `turns` turns, oldest first, from the transcript or rollout file its agent
    *  CLI writes (core/sessions/chatRead.ts). Host-injected, beside the three above. */
   readChat?(id: string, turns: number): Promise<ChatTurn[]>
@@ -1869,7 +1872,10 @@ export async function handleCommand(
   // W6-D: a replan session is a planner that edits what has not started in its Run (replan.ts); undefined: not one.
   const replanNo = replanRefusal(deps.getState(), caller.sessionId, cmd, args)
   if (typeof replanNo === 'string') return denied(replanNo)
-  const plannerNo = replanNo === null ? null : plannerRefusal(deps.getState(), caller.sessionId, cmd, args)
+  const plannerNo =
+    replanNo === null
+      ? null
+      : plannerRefusal(deps.getState(), caller.sessionId, cmd, args, { typedAt: deps.ownerInputAt?.(caller.sessionId) ?? null, now: Date.parse(deps.now?.() ?? new Date().toISOString()) })
   if (plannerNo !== null) return denied(plannerNo)
   // W7-A: talking to the planner, rejecting a plan, auto-approve; and a planner's cancel of a Task of its plan
   if (isFeedbackCommand(deps.getState(), caller.sessionId, cmd))
@@ -3820,6 +3826,7 @@ export async function handleCommand(
       // W2-A: starting a planned Job is approving its plan. That is the person's act (the app, or their own
       // shell), not an agent's, and the plan must hold together first (validatePlan).
       const approving = job.pendingStart === true && job.plannerSessionIds !== undefined
+      let chatWords: string | null = null
       // W5-B (#47): an approved plan's planner has done its work (SPEC §2), so it ends with the approval. Left alive it
       // idled for hours and got the limit reset's "Continue the work" on the planner model.
       // T11: the plan's open overlaps with plans planning or running ride along with the approval; they never block it
@@ -3830,16 +3837,30 @@ export async function handleCommand(
       }
       if (approving) {
         // W3-D: an MCP client calls with an empty session id, but its call comes from an agent (sessions-send's fromMcp)
-        if (fromAgentSession || caller.role === 'mcp') return denied('approving a plan is for the person, in Astera or at their own shell')
+        // T20: except the Job's own planner, when the person told it to run the plan here (plannerRefusal vetted that above)
+        const ownerSaid = plannerJobOf(s, caller.sessionId)?.id === id ? str(args.ownerSaid) : null
+        if (ownerSaid === null && (fromAgentSession || caller.role === 'mcp')) return denied('approving a plan is for the person, in Astera or at their own shell')
         const problems = validatePlan(s, id)
-        if (problems.length) return { status: 400, body: { error: `the plan cannot be approved yet: ${problems.join('; ')}`, problems } }
+        if (problems.length)
+          return {
+            status: 400,
+            body: {
+              error: `the plan cannot be approved yet: ${problems.join('; ')}${ownerSaid !== null ? '. Fix each, read the plan back, and ask the person to confirm again here' : ''}`,
+              problems
+            }
+          }
+        chatWords = ownerSaid
       }
       // **Not reachable today.** releaseJob and startJobRun refuse only `unknown job: <id>` — the id
       // this command was given, which the guard above has just found in the same state. Were that
       // guard ever to drift from them, the answer is still "no such id", so they go through
       // `refused` like every other pure-layer refusal here.
-      const released = releaseJob(s, id)
-      if (!released.ok) return refused(released)
+      const releasedPlain = releaseJob(s, id)
+      if (!releasedPlain.ok) return refused(releasedPlain)
+      const released =
+        chatWords === null
+          ? releasedPlain
+          : { ...releasedPlain, state: { ...releasedPlain.state, jobs: releasedPlain.state.jobs.map((j) => (j.id === id ? { ...j, approvedFromChat: { at: now, words: chatWords! } } : j)) } }
       // 예약 Job 은 여기서 회차를 만들지 않는다 — 발화가 만든다. 게이트만 걷힌다.
       let started = released
       let target = released.state.runs.filter((r) => r.jobId === id).at(-1)

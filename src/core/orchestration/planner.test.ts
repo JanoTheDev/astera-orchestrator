@@ -9,6 +9,7 @@ import type { Task } from './types'
 import { cancelPlanTask, editPlanTask, kindOf, planFileOf, renderPlanFolder, renderPlanMd, renderTaskMd, validatePlan, workerSpecOf } from './planner'
 import { OrchestrationStore } from './store'
 import { replanProblems } from './exec/replanStart'
+import { deriveActivity } from './activity'
 
 const NOW = '2026-10-17T00:00:00.000Z'
 const PLANNER = 'ses-planner'
@@ -741,5 +742,89 @@ describe('T7 editPlanTask from the owner', () => {
       ok: false,
       error: expect.stringContaining('this is a worker session')
     })
+  })
+})
+
+describe('T20 run it from the planner chat', () => {
+  const T0 = Date.parse(NOW)
+  const MIN = 60_000
+  const WORDS = 'okay finish the plan and start'
+  /** A ready plan; `typedAt` is when a person last typed in the planner's terminal (registry.ts lastTyped), null for never. */
+  const ready = async (typedAt: number | null) => {
+    const r = rig()
+    ;(r.deps as { ownerInputAt?: (id: string) => number | null }).ownerInputAt = (id) => (id === PLANNER ? typedAt : null)
+    const jobId = await plannedJob(r)
+    expect((await planner(r)('task-create', goodTask(jobId))).status).toBe(200)
+    return { r, jobId }
+  }
+  const approve = (r: Rig, args: Record<string, unknown>) => planner(r)('run-start', args)
+
+  it('approves when the person typed after the last plan change, and records their words', async () => {
+    const { r, jobId } = await ready(T0 + MIN)
+    const before = r.deps.getState()
+    const reply = await approve(r, { run: jobId, ownerSaid: WORDS })
+    expect(reply.status).toBe(200)
+    const s = r.deps.getState()
+    expect(s.jobs[0]).not.toHaveProperty('pendingStart')
+    expect(s.jobs[0].approvedFromChat).toEqual({ at: NOW, words: WORDS })
+    expect(deriveActivity(before, s).find((d) => d.type === 'plan.chat-approved')?.payload.reason).toBe(WORDS)
+    expect(r.stopped.map(([id]) => id)).toContain(PLANNER)
+  })
+
+  it('refuses with the ask-the-person text when nobody typed (what input sent by an agent leaves: sessions send never sets it)', async () => {
+    const { r, jobId } = await ready(null)
+    const reply = await approve(r, { run: jobId, ownerSaid: WORDS })
+    expect(reply.status).toBe(403)
+    expect(JSON.stringify(reply.body)).toContain("ask them to confirm here (type 'run it')")
+    expect(r.deps.getState().jobs[0].pendingStart).toBe(true)
+  })
+
+  it('refuses input from before the plan last changed, and a cancel is a change', async () => {
+    const { r, jobId } = await ready(T0 - MIN)
+    expect((await approve(r, { run: jobId, ownerSaid: WORDS })).status).toBe(403)
+    const t = await ready(T0 + MIN)
+    const second = (await planner(t.r)('task-create', goodTask(t.jobId, { title: 'b', affectedPaths: ['src/b.tsx'] }))).body as { id: string }
+    t.r.deps.now = () => new Date(T0 + 2 * MIN).toISOString()
+    // the second Task was made at NOW; cancelling it later is the last change
+    expect((await planner(t.r)('task-cancel', { id: second.id, reason: 'not needed' })).status).toBe(200)
+    expect((await approve(t.r, { run: t.jobId, ownerSaid: WORDS })).status).toBe(403)
+  })
+
+  it('refuses input older than 30 minutes', async () => {
+    const { r, jobId } = await ready(T0 + MIN)
+    r.deps.now = () => new Date(T0 + 40 * MIN).toISOString()
+    expect((await approve(r, { run: jobId, ownerSaid: WORDS })).status).toBe(403)
+  })
+
+  it('needs the words, and only its own Job', async () => {
+    const { r, jobId } = await ready(T0 + MIN)
+    expect(JSON.stringify((await approve(r, { run: jobId })).body)).toContain('--owner-said')
+    const other = await approve(r, { run: 'job_other', ownerSaid: WORDS })
+    expect(other.status).toBe(403)
+    expect(JSON.stringify(other.body)).toContain(`pass --run ${jobId}`)
+    expect(r.deps.getState().jobs[0].pendingStart).toBe(true)
+  })
+
+  it('a plan that does not hold answers with every problem, and stays unapproved', async () => {
+    const { r, jobId } = await ready(T0 + MIN)
+    await person(r)('task-create', { run: jobId, account: 'acc1', title: 'by hand', spec: 's' })
+    r.deps.ownerInputAt = () => T0 + MIN
+    const reply = await approve(r, { run: jobId, ownerSaid: WORDS })
+    expect(reply.status).toBe(400)
+    const body = reply.body as { problems: string[]; error: string }
+    expect(body.problems).toHaveLength(4)
+    expect(body.error).toContain('ask the person to confirm again')
+    expect(r.deps.getState().jobs[0].pendingStart).toBe(true)
+  })
+
+  it('the app button path is unchanged: a person approves with no words and nothing is recorded', async () => {
+    const { r, jobId } = await ready(null)
+    expect((await person(r)('run-start', { run: jobId })).status).toBe(200)
+    expect(r.deps.getState().jobs[0]).not.toHaveProperty('approvedFromChat')
+  })
+
+  it('another agent session cannot use --owner-said', async () => {
+    const { r, jobId } = await ready(T0 + MIN)
+    expect((await handleCommand(r.deps, { sessionId: 'ses-other' }, 'run-start', { run: jobId, ownerSaid: WORDS })).status).toBe(403)
   })
 })

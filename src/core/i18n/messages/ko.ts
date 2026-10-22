@@ -2663,6 +2663,7 @@ export const ko = {
   'plan.wave.last.one': '마지막 웨이브: Task {count}개 남음',
   'plan.wave.allDone': '모든 웨이브 완료',
   'plan.simple.progress': '{total}개 중 {done}개 완료',
+  'plan.simple.approvedFromChat': '플래너 채팅에서 승인됨: “{words}”',
   'plan.simple.showDetails': '자세히 보기',
   'plan.simple.hideDetails': '자세히 숨기기',
   'plan.view.label': '웨이브 보기',

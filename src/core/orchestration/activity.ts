@@ -85,6 +85,8 @@ export const ACTIVITY_KINDS = [
   'plan.overlap',
   // #111: the owner rejected a plan (`jobs-reject`); the Job is archived with `rejected`. Feed only (the Inbox's handled list too)
   'plan.rejected',
+  // T20: the owner told the planner in its terminal to run the plan (payload.reason: their words); feed only
+  'plan.chat-approved',
   // Coordinator rotation: a fresh coordinator took the Run's slot (JobRun.coordinatorRefreshes); feed only
   'coordinator.refreshed',
   // Stall watchdog (exec/stallWatch.ts): one line per action it took on a stalled plan (payload.reason); feed only
@@ -398,6 +400,9 @@ export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[
   if (prev.jobs !== next.jobs) {
     const was = byId(prev.jobs)
     for (const j of next.jobs) {
+      // T20: approved from the planner chat
+      if (j.approvedFromChat !== undefined && was.get(j.id)?.approvedFromChat === undefined)
+        push('plan.chat-approved', { ...(j.projectId !== undefined ? { projectId: j.projectId } : {}), jobId: j.id, job: j }, { title: jobNameOf(j), reason: j.approvedFromChat.words })
       // W7-A: started with no approval step (jobs-auto-start)
       if (j.autoStartedAt !== undefined && was.get(j.id)?.autoStartedAt === undefined)
         push(

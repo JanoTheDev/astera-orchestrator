@@ -499,6 +499,7 @@ export function snapshotFor(
       ...(job.feedback && job.feedback.length > 0 ? { feedback: job.feedback } : {}),
       ...(job.autoStartedAt !== undefined ? { autoStartedAt: job.autoStartedAt } : {}),
       ...(job.rejected !== undefined ? { rejected: job.rejected } : {}),
+      ...(job.approvedFromChat !== undefined ? { approvedFromChat: job.approvedFromChat } : {}),
       // W8-F (#94): what keeps a plan waiting for approval from being approved, shown before Run is pressed
       ...(planProblems.length > 0 ? { planProblems } : {}),
       // T11: and what it meets in plans planning or running, beside the problems, never one of them

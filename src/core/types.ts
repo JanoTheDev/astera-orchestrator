@@ -776,6 +776,8 @@ export interface JobRow {
   feedback?: PlanFeedback[]
   autoStartedAt?: string
   rejected?: { at: string; reason?: string }
+  /** T20: the owner's words that started the plan from its planner's terminal. */
+  approvedFromChat?: { at: string; words: string }
   /** W8-F (#94): `validatePlan`'s problems for a plan waiting for approval; absent when it holds. */
   planProblems?: string[]
   /** T11: before approval, the plan's open overlaps with plans planning or running (overlap.ts `planOverlapWarnings`),

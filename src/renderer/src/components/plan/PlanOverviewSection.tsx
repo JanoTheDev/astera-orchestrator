@@ -84,6 +84,7 @@ export function PlanOverviewSection({
       )}
       {/* W7-A: talk to the planner, reject, and the auto-start notice */}
       {run && <PlanTalk row={run} door={door} name={jobName(run)} ui={p.ui} />}
+      {run?.approvedFromChat && <p className="modal-hint">{t('plan.simple.approvedFromChat', { words: run.approvedFromChat.words })}</p>}
       {!p.authoringOpen && (
         <div className="detail-graph-head">
           {/* Task 를 다 짜고 누르는 버튼. **Task 가 없으면 잠근다** — 빈 Run 을 시작하면

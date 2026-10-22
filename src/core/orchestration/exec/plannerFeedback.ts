@@ -137,7 +137,7 @@ export async function feedbackCommand(deps: OrchServerDeps, caller: Caller, cmd:
     const id = str(args.id)
     if (!id) return bad('--id is required')
     if (!str(args.reason)) return bad('--reason is required: why this Task is no longer needed')
-    const r = cancelPlanTask(s, id)
+    const r = cancelPlanTask(s, id, now)
     if (!r.ok) return r.missing ? notFound(r.error) : bad(r.error)
     await deps.setState(r.state)
     return ok({ id, cancelled: true })

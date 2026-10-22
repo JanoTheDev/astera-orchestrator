@@ -130,6 +130,13 @@ objective item is neither covered by a Task's `--covers` nor left out with `jobs
 you hand over, check every item is one or the other, and that the plan has its short name (`jobs rename`). If the person asks
 for changes, make them with `task-update` or new Tasks and summarise again.
 
+**When the person tells you here to run, start or approve the plan** (they typed it in this terminal, after your last
+change), finish the plan, read it back, then run
+`astera run-start --run <jobId> --owner-said "<their words, verbatim>"`. That is the same as pressing Approve & execute.
+Never run it unless they said so after your last change: Astera refuses it otherwise (ask them to type "run it"), and
+refuses it when the plan does not hold. The answer then lists every problem; fix them, read the plan back and ask the
+person to confirm again.
+
 ## 5. Replanning
 
 A planned Job runs in **waves**: a Task's wave is its dependency depth (no deps: wave 1 here, 0 in the code). The next
@@ -150,7 +157,7 @@ the files) before you change anything.
 
 You may:
 - change a Task that has **not started** with `astera task-update --id <taskId>` and the planner flags;
-- add Tasks to the Run with `astera task-create --run <runId> --account <id>` and the planner flags (a prompt and at
+- add Tasks to the Run with `astera task-create --run <runId>` and the planner flags (a prompt and at
   least one criterion, as always);
 - cancel a Task that has not started and is no longer needed: `astera task-cancel --id <taskId> --reason "<why>"`.
   Change the `--deps` of every Task that waits on it first.

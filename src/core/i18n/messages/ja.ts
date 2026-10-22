@@ -1809,6 +1809,7 @@ export const ja: Catalog = {
   'settings.basic.showAdvanced': '詳細設定を表示',
   'settings.basic.hideAdvanced': '詳細設定を隠す',
   'plan.simple.progress': '{total} 件中 {done} 件完了',
+  'plan.simple.approvedFromChat': 'プランナーのチャットから承認: 「{words}」',
   'plan.simple.showDetails': '詳細を表示',
   'plan.simple.hideDetails': '詳細を隠す',
   'settings.search.placeholder': '設定を検索',
