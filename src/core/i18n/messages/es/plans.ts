@@ -14,4 +14,8 @@ export const plans: Partial<Record<keyof typeof ko, string>> = {
   'jobs.task.waitingReset': 'Esperando el reinicio · {left}',
   'jobs.task.waitingNoTime': 'Esperando el reinicio',
   'jobs.task.resumedCount': 'reanudada {n}×',
+  'pages.plans.wave': 'Paso {at} de {of}',
+  'pages.plans.coordinator': 'Agentes líder · planes en curso',
+  'pages.plans.workers': '{n} agentes trabajando',
+  'pages.plans.lease': 'archivos en uso por {plan}',
 }

@@ -16,7 +16,7 @@ export function FailedWaitButtons({
 }): React.JSX.Element {
   const { t } = useI18n()
   return (
-    <span title={title ?? t('plan.failedWait.hint')}>
+    <span role="group" aria-label={t('plan.failedWait.hint')} title={title ?? t('plan.failedWait.hint')}>
       <Button size="sm" disabled={disabled} onClick={() => onAct('retry')}>
         {t('plan.failedWait.retry')}
       </Button>

@@ -13,4 +13,8 @@ export const plans: Partial<Record<keyof typeof ko, string>> = {
   'jobs.task.waitingReset': 'リセット待ち · {left}',
   'jobs.task.waitingNoTime': 'リセット待ち',
   'jobs.task.resumedCount': '{n} 回再開',
+  'pages.plans.wave': 'ステップ {at}/{of}',
+  'pages.plans.coordinator': 'リードエージェント · 進行中のプラン',
+  'pages.plans.workers': '{n} 件のエージェントが作業中',
+  'pages.plans.lease': '{plan} がファイルを使用中',
 }

@@ -1,6 +1,5 @@
 // T14 Coordinator strip: the project's live plans side by side (scrolls sideways), each with its state, wave, workers
 // and what it waits on. A card opens its plan. The cards are coordinator.ts'.
-import { Users } from "lucide-react";
 import type { JobRow } from "../../../../core/types";
 import { useI18n } from "../../i18n/I18nProvider";
 import { Card, Chip, Icon } from "../ui";
@@ -54,7 +53,7 @@ export function Coordinator({
                 </span>
               )}
               <span className="plans-coord__workers">
-                <Icon icon={Users} size={14} />
+                <Icon name="users" size={14} />
                 {t("pages.plans.workers", { n: c.workers })}
               </span>
             </span>
