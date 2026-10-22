@@ -38,26 +38,23 @@
   background: var(--panel); border: 1px solid var(--line-soft);
   border-radius: var(--radius-lg); box-shadow: var(--shadow-lg);
 }
-.fe-find-expand { flex: none; width: 20px; display: grid; place-items: center; background: transparent; border: 0; border-radius: var(--radius-sm); color: var(--text-faint); padding: 0; cursor: pointer; }
-.fe-find-expand:hover { background: var(--elevated); color: var(--text); }
 .fe-find-rows { display: flex; flex-direction: column; gap: 4px; }
-.fe-find-row { display: flex; align-items: center; gap: 4px; height: 22px; }
+.fe-find-row { display: flex; align-items: center; gap: 4px; height: var(--h-sm); }
+/* The buttons are ui IconButtons (ghost, sm): size, ring and hover come from the primitive. The toggles sit inside the
+   field, so they are a step smaller; an on toggle is filled with the accent and its ink, as the app's checkboxes are. */
+.fe-find .fe-find-expand.ui-btn { width: 20px; align-self: flex-start; }
+.fe-find .fe-find-toggle.ui-btn { width: 20px; height: 20px; }
+.fe-find .fe-find-toggle.ui-btn.is-active { background: var(--accent); color: var(--accent-ink); }
 /* 두 줄의 입력칸 너비를 같은 값으로 못 박는다. 오른쪽에 붙는 버튼 묶음의 길이가 서로 달라서, 늘어나게
    두면 찾기 칸과 바꾸기 칸의 오른쪽 끝이 어긋난다 */
-.fe-find-field { width: 240px; height: 22px; display: flex; align-items: center; gap: 4px; background: var(--bg); border: 1px solid var(--line-soft); border-radius: var(--radius-sm); padding: 0 3px 0 7px; }
+.fe-find-field { width: 240px; height: var(--h-sm); display: flex; align-items: center; gap: 4px; background: var(--bg); border: 1px solid var(--line-soft); border-radius: var(--radius-sm); padding: 0 3px 0 7px; }
 .fe-find-field:focus-within { border-color: var(--accent); box-shadow: var(--focus-ring); }
 .fe-find-field-icon { flex: none; color: var(--text-faint); }
 .fe-find-field > input { flex: 1; min-width: 0; background: transparent; border: 0; outline: none; box-shadow: none; padding: 0; color: var(--text); font-family: var(--mono); font-size: var(--fs-12); }
 .fe-find-field > input::placeholder { color: var(--text-faint); font-family: var(--sans); }
 .fe-find-toggles { flex: none; display: flex; gap: 2px; }
-.fe-find-toggle { width: 18px; height: 18px; display: grid; place-items: center; background: transparent; border: 0; border-radius: var(--radius-sm); color: var(--text-faint); padding: 0; cursor: pointer; }
-.fe-find-toggle:hover { background: var(--elevated); color: var(--text); }
-/* 켜짐은 앱의 체크박스와 같은 말을 쓴다 — accent 로 채우고 표시는 accent-ink */
-.fe-find-toggle.on { background: var(--accent); color: var(--accent-ink); }
 /* .run-find-count 와 같다. 스페인어의 '{total} coincidencias' 처럼 긴 문구에서는 자리가 늘어난다 —
    바가 오른쪽에 붙어 있어서 왼쪽으로 늘어난다 */
 .fe-find-count { flex: none; min-width: 56px; text-align: right; font-size: var(--fs-11); color: var(--text-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .fe-find-count.bad { color: var(--danger); }
 .fe-find-sep { flex: none; width: 1px; height: 16px; background: var(--line-soft); margin: 0 1px; }
-.fe-find-btn { width: 22px; height: 22px; display: grid; place-items: center; background: transparent; border: 0; border-radius: var(--radius); color: var(--text-dim); padding: 0; cursor: pointer; }
-.fe-find-btn:hover { background: var(--elevated); color: var(--text); }

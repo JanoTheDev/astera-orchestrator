@@ -60,6 +60,7 @@ export const files = {
   'explorer.view.all': '전체',
   'explorer.view.changed': '변경됨',
   'explorer.changed.empty': '변경 사항 없음',
+  'explorer.changed.emptyHint': '수정하거나 추가하거나 삭제한 파일이 여기에 나타납니다.',
   // FileFindBar.tsx — 파일 에디터의 Ctrl+F 찾기·바꾸기 바. 세는 문구는 콘솔 찾기 바(run.find)와
   // 같은 모양을 쓴다 — 같은 부품으로 보여야 한다
   'explorer.find.placeholder': '파일에서 찾기',
@@ -83,6 +84,7 @@ export const files = {
   // ('Local History' is treated as a proper noun and left untranslated — following the existing catalog precedent)
   'localHistory.loading': '불러오는 중…',
   'localHistory.empty': '삭제 이력이 없습니다',
+  'localHistory.emptyHint': '파일 목록에서 삭제한 파일은 여기에 보관되어 되돌릴 수 있습니다.',
   'localHistory.restoring': '복구 중…',
   'localHistory.restored': '복구됨: {path}',
   'localHistory.restoreFailed': '복구 실패: {detail}',

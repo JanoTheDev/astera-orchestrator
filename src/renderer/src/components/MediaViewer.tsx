@@ -7,6 +7,7 @@ import { mediaKindOf, mediaUrl, mediaVersion, reloadStep, resumeAt, type MediaSt
 import { parentDir } from '../../../core/files/paths'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
+import { Button, Icon } from './ui'
 
 /** How often a viewer on screen re-reads the file's stat. An agent rewriting a clip while the person
  *  watches it in a split is the case this is for; one stat every few seconds is nothing next to a
@@ -105,12 +106,12 @@ export function MediaViewer({ path, active, nonce }: { path: string; active: boo
         <span className="media-viewer-folder" title={folder}>
           {folder}
         </span>
-        <button type="button" className="media-viewer-btn" onClick={() => window.api.media.openExternal(path).catch(fail)}>
+        <Button size="sm" icon={<Icon name="external" size={14} />} onClick={() => window.api.media.openExternal(path).catch(fail)}>
           {t('media.action.openExternal')}
-        </button>
-        <button type="button" className="media-viewer-btn" onClick={() => window.api.media.reveal(path).catch(fail)}>
+        </Button>
+        <Button size="sm" variant="ghost" icon={<Icon name="folder" size={14} />} onClick={() => window.api.media.reveal(path).catch(fail)}>
           {t('media.action.reveal')}
-        </button>
+        </Button>
       </div>
       <div className="media-viewer-stage">
         {stat === null || broken || kind === null ? (

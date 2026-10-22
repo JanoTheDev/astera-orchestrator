@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { markerOf, type BlameLine } from './attribution'
 import { useI18n } from '../../i18n/I18nProvider'
+import { Button, Modal } from '../ui'
 
 /** W8-B: what a gutter chip opens. First the Task (and its Job), then, on request, the session that wrote the line:
- *  agent, model, account and session id. A human or unknown line shows its commit. Escape closes; focus starts on the
- *  first button so the keyboard path continues from the chip. */
+ *  agent, model, account and session id. A human or unknown line shows its commit. It is a ui Modal: Esc and the close
+ *  button close it, Tab stays inside, and focus goes back to the chip that opened it. */
 export function BlameDetails({
   line: l,
   initialStep = 'task',
@@ -16,30 +17,21 @@ export function BlameDetails({
 }): React.JSX.Element {
   const { t } = useI18n()
   const [step, setStep] = useState(initialStep)
-  const first = useRef<HTMLButtonElement>(null)
-  useEffect(() => first.current?.focus(), [l])
   const m = markerOf(l, t)
   return (
-    <div
-      className="attr-details"
-      role="dialog"
-      aria-label={m.label}
-      onKeyDown={(e) => {
-        if (e.key === 'Escape') {
-          e.stopPropagation()
-          onClose()
-        }
-      }}
-    >
-      <div className="attr-details-head">
-        <span className={m.className} aria-hidden="true">
-          {m.text}
+    <Modal
+      size="sm"
+      onClose={onClose}
+      closeLabel={t('common.close')}
+      title={
+        <span className="attr-details-title">
+          <span className={m.className} title={m.label}>
+            {m.text}
+          </span>
+          {t('attribution.line', { line: l.line })}
         </span>
-        <span>{t('attribution.line', { line: l.line })}</span>
-        <button type="button" ref={first} className="attr-close" aria-label={t('common.close')} onClick={onClose}>
-          ×
-        </button>
-      </div>
+      }
+    >
       {l.kind === 'ai' ? (
         <dl className="attr-meta">
           <dt>{t('attribution.field.task')}</dt>
@@ -71,9 +63,9 @@ export function BlameDetails({
             </>
           ) : (
             <dd className="attr-more">
-              <button type="button" onClick={() => setStep('session')}>
+              <Button variant="ghost" size="sm" onClick={() => setStep('session')}>
                 {t('attribution.showSession')}
-              </button>
+              </Button>
             </dd>
           )}
         </dl>
@@ -84,6 +76,6 @@ export function BlameDetails({
             : t(l.kind === 'human' ? 'attribution.byPerson' : 'attribution.unrecorded')}
         </p>
       )}
-    </div>
+    </Modal>
   )
 }

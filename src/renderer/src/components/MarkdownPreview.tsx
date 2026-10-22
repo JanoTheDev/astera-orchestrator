@@ -15,7 +15,7 @@ import { StandardSQL } from '@codemirror/lang-sql'
 import { xmlLanguage } from '@codemirror/lang-xml'
 import { yamlLanguage } from '@codemirror/lang-yaml'
 import { goLanguage } from '@codemirror/lang-go'
-import { Copy } from 'lucide-react'
+import { Icon, IconButton } from './ui'
 import {
   parseMarkdown, classifyHref,
   type MdBlock, type MdInline, type MdAttrs, type MdHref
@@ -145,20 +145,18 @@ const CodeBlock = memo(function CodeBlock({
           inside so it scrolls with a wide block, first so it never introduces a text node after the
           <code> inside a white-space: pre parent. It carries no text of its own, so a mouse selection
           across the block still copies only the code. */}
-      <button
-        type="button"
+      <IconButton
+        size="sm"
         className="md-copy"
-        title={copyLabel}
-        aria-label={copyLabel}
+        label={copyLabel}
+        icon={<Icon name="copy" size={14} />}
         onClick={() => {
           // `text` is the fence body exactly as parseMarkdown read it — info string and closing fence
           // already stripped, no trailing newline — so what lands on the clipboard is what is shown.
           window.api.clipboard.writeText(text)
           toast.success(t('files.markdown.codeCopied'))
         }}
-      >
-        <Copy size={13} />
-      </button>
+      />
       <code>{nodes}</code>
     </pre>
   )

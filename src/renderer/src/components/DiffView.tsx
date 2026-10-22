@@ -4,6 +4,7 @@
 import { useMemo, useState } from 'react'
 import { DIFF_ROWS_STEP, diffLines } from '../lib/diffLines'
 import { useI18n } from '../i18n/I18nProvider'
+import { Button } from './ui'
 
 export function DiffView({ diff, truncated, binary }: { diff: string; truncated: boolean; binary: boolean }): React.JSX.Element {
   const { t } = useI18n()
@@ -25,9 +26,9 @@ export function DiffView({ diff, truncated, binary }: { diff: string; truncated:
         </tbody>
       </table>
       {rows.length > shown && (
-        <button type="button" className="detail-completion-head diff-more" onClick={() => setShown((n) => n + DIFF_ROWS_STEP)}>
+        <Button variant="ghost" size="sm" onClick={() => setShown((n) => n + DIFF_ROWS_STEP)}>
           {t('jobs.changes.moreRows', { count: Math.min(DIFF_ROWS_STEP, rows.length - shown), left: rows.length - shown })}
-        </button>
+        </Button>
       )}
     </div>
   )
