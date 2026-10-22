@@ -126,7 +126,7 @@ export function TopBar(p: TopBarProps): React.JSX.Element {
       </Button>
       <NotificationBell {...p} />
       <UsageButton t={t} accounts={p.accounts} label={p.shellAccount?.label} percent={fiveHour} />
-      <Button variant="primary" size="sm" icon={<Icon name="add" size={14} />} disabled={p.newDisabled} onClick={p.onNew}>
+      <Button variant="primary" size="sm" icon={<Icon name="add" size={14} />} disabled={p.newDisabled} title={p.newDisabled ? t('cliBanner.cannotStart') : undefined} onClick={p.onNew}>
         {t('new.title')}
       </Button>
       <IconButton label={t('settings.title')} icon={<Icon name="settings" />} active={page === 'settings'} onClick={() => openPage('settings')} />

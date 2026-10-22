@@ -73,7 +73,10 @@ export async function findAfterInstall(cli: 'claude' | 'codex', deps: AfterInsta
     if (!(await deps.run(addUserPathCommand(dir)))) return null
   } else {
     const file = profileFileFor({ shell: deps.shell, platform: deps.platform, home: deps.home, zdotdir: deps.zdotdir, exists: deps.exists })
-    if (file === null || !(await deps.addToProfile(file, PROFILE_PATH_LINE))) return null
+    // No file this code knows the syntax of (fish, plain sh): nothing is written, but the installed file is still
+    // answered so the caller can put its folder on this process's own PATH and the app works without a restart.
+    if (file === null) return exe
+    if (!(await deps.addToProfile(file, PROFILE_PATH_LINE))) return null
   }
   return (await deps.locate(cli)) ?? exe
 }

@@ -70,9 +70,11 @@ describe('findAfterInstall', () => {
     expect(r.ran).toEqual([])
   })
 
-  it('on macOS and Linux, answers null for a shell with no file it knows', async () => {
+  // T29: no profile file to write (fish, plain sh) still answers the installed file, so main puts its folder on its own
+  // PATH for this run and the app carries on; nothing is written to a file this code does not know the syntax of.
+  it('on macOS and Linux, answers the installed file for a shell with no file it knows, writing nothing', async () => {
     const r = rig({ platform: 'linux', home: '/home/kim', shell: '/usr/bin/fish', files: ['/home/kim/.local/bin/claude'] })
-    expect(await findAfterInstall('claude', r.deps)).toBeNull()
+    expect(await findAfterInstall('claude', r.deps)).toBe('/home/kim/.local/bin/claude')
     expect(r.profiles).toEqual([])
   })
 })

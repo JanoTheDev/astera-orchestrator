@@ -113,6 +113,7 @@ export function Content(p: ContentProps): React.JSX.Element {
                     variant="primary"
                     icon={<Icon name="add" />}
                     disabled={!canStart()}
+                    title={canStart() ? undefined : t('cliBanner.cannotStart')}
                     onClick={() => {
                       if (canStart()) setShowNew(true)
                     }}
