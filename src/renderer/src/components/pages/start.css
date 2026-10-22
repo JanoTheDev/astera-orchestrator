@@ -16,15 +16,14 @@
 .start-scroll { flex: 1; min-height: 0; overflow-y: auto; }
 .start-inner { max-width: 760px; margin: 0 auto; padding: var(--sp-4) var(--page-pad) var(--sp-8); display: grid; gap: var(--sp-5); }
 
-.start-head { display: flex; align-items: center; gap: var(--sp-3); margin-left: calc(-1 * var(--sp-3)); }
+.start-head { padding-inline: 0; }
 .start-project { max-width: 320px; }
-.start-title { margin: 0; font-size: var(--fs-22); font-weight: var(--fw-semi); line-height: var(--lh-tight); }
 .start-starters { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-top: calc(-1 * var(--sp-2)); }
 .start-console { justify-self: start; margin-left: calc(-1 * var(--sp-3)); }
 
 .start-composer { display: grid; gap: var(--sp-2); padding: var(--sp-3); }
 .start-composer:focus-within { box-shadow: var(--focus-ring); }
-.start-text {
+.start-composer .start-text {
   width: 100%;
   min-height: 168px;
   padding: var(--sp-1) var(--sp-2);
@@ -36,8 +35,8 @@
   line-height: var(--lh);
   resize: vertical;
 }
-.start-text::placeholder { color: var(--text-faint); }
-.start-text:focus-visible { outline: none; box-shadow: none; }
+.start-composer .start-text::placeholder { color: var(--text-faint); }
+.start-composer .start-text:focus-visible { outline: none; box-shadow: none; }
 .start-chips { display: flex; flex-wrap: wrap; gap: var(--sp-1); }
 .start-chip { gap: 2px; padding-right: 2px; }
 .start-attach { display: flex; flex-wrap: wrap; gap: var(--sp-1); border-top: 1px solid var(--line); padding-top: var(--sp-2); }
