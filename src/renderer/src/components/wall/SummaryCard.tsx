@@ -2,8 +2,7 @@
 // Agents wall's Finished row (W9-H), the board and the plan roll-up draw it.
 import type { SessionSummary } from '../../../../core/sessions/summary'
 import { useI18n } from '../../i18n/I18nProvider'
-import { Card } from '../ui/Card'
-import { Chip } from '../ui/Chip'
+import { Button, Card, Chip, Icon } from '../ui'
 import { durationText, outcomeText, outcomeTone, summaryFactsLine } from './summaryText'
 import './wall.css'
 
@@ -23,9 +22,9 @@ export function SummaryCard({ summary: s, compact = false, onOpen }: { summary: 
     <Card className={compact ? 'wall-card summary-card summary-card--compact' : 'wall-card summary-card'}>
       <div className="wall-card__head">
         {onOpen ? (
-          <button type="button" className="wall-card__title summary-card__title" title={t('summary.card.open')} onClick={onOpen}>
+          <Button size="sm" variant="ghost" className="wall-card__title summary-card__title" title={t('summary.card.open')} onClick={onOpen}>
             {title}
-          </button>
+          </Button>
         ) : (
           <span className="wall-card__title summary-card__title">{title}</span>
         )}
@@ -37,9 +36,16 @@ export function SummaryCard({ summary: s, compact = false, onOpen }: { summary: 
         {ago}
         {facts && <span>{facts}</span>}
         {s.facts.pr && (
-          <button type="button" className="summary-card__link" title={s.facts.pr} onClick={() => void window.api.system.openExternal(s.facts.pr!)}>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="summary-card__link"
+            icon={<Icon name="external" size={14} />}
+            title={s.facts.pr}
+            onClick={() => void window.api.system.openExternal(s.facts.pr!)}
+          >
             {t('summary.card.pr')}
-          </button>
+          </Button>
         )}
       </div>
       {s.text && (
