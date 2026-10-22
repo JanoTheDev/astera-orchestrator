@@ -1,0 +1,89 @@
+// Korean · accounts area. Which files each area serves: ../README.md.
+export const accounts = {
+  'settings.accounts.hint':
+    '⤓ 는 같은 CLI의 기본 계정에서 설정을 가져옵니다. 기본 계정은 로그인된 계정 중 가장 먼저 등록된 것으로, CLI마다 하나씩 있습니다.',
+  // AccountPanel.tsx — account register, import, detect, logout, settings sync
+  'account.field.kind': '종류',
+  'account.field.label': '라벨',
+  'account.panel.title': '계정',
+  'account.panel.empty': '계정을 추가하세요',
+  'account.add.title': '계정 추가',
+  'account.add.button': '추가',
+  'account.add.adding': '추가 중…',
+  'account.add.labelPlaceholder': '예: 회사 계정',
+  'account.add.copySettingsLabel': '기본 계정에서 설정 가져오기',
+  'account.add.loginHintClaude': '추가하면 Astera가 이 계정의 로그인 링크를 띄웁니다.',
+  'account.add.loginHintCodex': '추가하면 Astera가 이 계정의 codex 로그인 링크를 띄웁니다.',
+  // W7-F (#82): sign an account in from the app
+  'account.rename.label': '계정 이름',
+  'account.rename.hint': '두 번 눌러 이름 바꾸기',
+  'account.signIn.title': '{label} 로그인',
+  'account.signIn.starting': '로그인을 시작하는 중…',
+  'account.signIn.body': '이 링크를 열어 로그인하세요. 로그인되면 이 창은 저절로 닫힙니다.',
+  'account.signIn.open': '브라우저에서 열기',
+  'account.signIn.copy': '복사',
+  'account.signIn.copied': '로그인 링크를 복사했습니다.',
+  'account.signIn.codeLabel': '브라우저에 나온 코드 (나올 때만)',
+  'account.signIn.codeSubmit': '코드 보내기',
+  'account.signIn.done': '{label} 로그인됨.',
+  'account.signIn.failed': '로그인 실패: {detail}',
+  'account.signIn.timeout': '로그인 시간이 지났습니다. 다시 로그인을 누르세요.',
+  'account.add.syncFailed': '계정은 추가됐지만 설정 가져오기에 실패했습니다: {detail}',
+  'account.import.title': '계정 가져오기',
+  'account.import.button': '가져오기',
+  'account.import.someFailed': '{count}개 계정 등록에 실패했습니다.',
+  'account.detect.title': '감지된 계정',
+  'account.detect.empty': '감지된 계정이 없습니다',
+  'account.detect.importSelected': '선택 등록',
+  'account.detect.failed': '자동 감지 실패: {detail}',
+  'account.usage.fiveHour': '5시간',
+  'account.usage.weekly': '주간',
+  'account.usage.resetsIn': '{d} 뒤',
+  // One key, not a sentence assembled from fragments — word order differs between the languages,
+  // which is exactly what concatenation gets wrong.
+  'account.usage.refreshedAgo': '{d} 전 갱신',
+  // Usage run-out estimate: when the account runs out at the current pace, before its reset
+  'account.usage.runOut': '지금 속도(약 {rate}%/시간)면 리셋 전에 {duration} 뒤 바닥납니다',
+  'account.usage.lasts': '지금 속도(약 {rate}%/시간)면 리셋까지 버팁니다',
+  'accounts.add': '계정 추가',
+  'accounts.default': '기본',
+  // AccountPanel.tsx — unregister. When logout comes with it, it says the credentials are removed (destructive).
+  'account.remove.title': '계정 등록 해제',
+  'account.remove.button': '등록 해제',
+  'account.remove.confirm': '‘{label}’ 계정 등록을 해제하시겠습니까?',
+  'account.remove.logoutToo': '로그아웃까지 진행 (인증 제거)',
+  'account.remove.logoutWarning':
+    '로그아웃하면 이 계정의 인증이 제거되어 다시 로그인해야 합니다. 홈 디렉토리(~/.claude, ~/.codex)를 쓰는 계정이면 이 앱 밖에서 쓰던 로그인도 함께 해제됩니다.',
+  'account.remove.processing': '처리 중…',
+  'account.remove.confirmWithLogout': '해제 + 로그아웃',
+  'account.logout.failed': '로그아웃 실패: {detail}\n\n등록 해제는 계속 진행합니다.',
+  'account.remove.inUse': '돌아가는 세션이 이 계정을 쓰고 있어 등록을 해제할 수 없습니다: {titles}\n\n세션을 닫거나, 그 세션의 롤링 순서에서 이 계정을 빼 주세요.',
+  // AccountPanel.tsx — default-account settings sync. A destructive action that overwrites the target account's settings.
+  'account.sync.title': '기본 계정 설정 가져오기',
+  'account.sync.confirmBody': '‘{source}’ 계정의 설정을 ‘{label}’ 계정으로 가져옵니다.',
+  // The two CLIs copy differently and the wording has to say so — claude merges per key, codex has
+  // everything in one config.toml and there is no TOML parser here, so that file is replaced outright.
+  'account.sync.mergeNote':
+    '플러그인·MCP·개인 스킬/커맨드/에이전트를 항목 단위로 합칩니다. 같은 항목은 원본 값으로 덮어쓰고, 이 계정에만 있는 항목은 남습니다.',
+  'account.sync.replaceNote':
+    'config.toml 파일이 원본으로 통째 대체됩니다. 이 계정에만 있던 설정은 사라지며, 기존 파일은 .bak으로 백업합니다.',
+  'account.sync.appliesNextSession': '실행 중인 세션에는 적용되지 않고 다음 세션부터 반영됩니다.',
+  'account.sync.confirm': '가져오기',
+  'account.sync.confirming': '가져오는 중…',
+  'account.sync.done': '설정을 가져왔습니다.',
+  'account.sync.failed': '가져오기 실패: {detail}',
+  // Account picker: the signed-out label, the usage figures and the project default row
+  'account.select.signedOut': '로그인 안 됨',
+  'account.select.usage': '5시간 {session}% · 주간 {weekly}%',
+  // Switch a running tab account: the menu action, its confirmation and its failure messages
+  'account.switch.action': '이 탭에서 사용',
+  'account.switch.title': '열린 탭을 {label}(으)로 옮깁니다. 대화는 거기서 이어집니다',
+  'account.switch.done': '이 탭은 이제 {label}에서 실행됩니다',
+  'account.switch.failed': '계정을 바꾸지 못했습니다: {detail}',
+  'account.switch.busy': '이 탭은 이미 계정을 바꾸는 중입니다. 잠시 뒤 다시 시도하세요',
+  'account.switch.noTab': '다른 계정으로 옮기려면 세션 탭을 여세요',
+  'account.switch.otherProvider': '{provider} 계정만 이 탭을 넘겨받을 수 있습니다',
+  'settings.usageGuard.subagentsHint': '1에서 10까지. 더 띄우려는 Claude 탭은 하나가 끝날 때까지 기다리라는 답을 받는다.',
+  'settings.usageGuard.pauseAtHint': '5시간 또는 7일 한도의 이만큼을 쓴 계정에서는 새 워커를 띄우지 않는다. Task 의 다른 계정이 그 아래이면 그 계정으로 띄운다. 도는 워커는 그대로 둔다.',
+  'settings.usageGuard.saveFailed': '사용량 설정을 저장하지 못했습니다: {detail}',
+} as const
