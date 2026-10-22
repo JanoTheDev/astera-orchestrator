@@ -39,4 +39,21 @@ describe('stripRows', () => {
     expect(rows.pauseAt).toBe(90)
     expect(rows.maxSubagents).toBe(10)
   })
+
+  it('run-out: per account only when not paused or over, and one pool figure', () => {
+    const now = Date.parse('2026-10-18T10:00:00.000Z')
+    const at = (ageMs: number): string => new Date(now - ageMs + 5 * 3_600_000).toISOString()
+    const v: UsageGuardView = {
+      pauseAt: 90,
+      maxSubagents: 10,
+      accounts: [
+        { accountId: 'a', session: { usedPercent: 60, resetsAt: at(3_600_000) }, weekly: null, paused: null },
+        { accountId: 'b', session: { usedPercent: 95, resetsAt: at(3_600_000) }, weekly: null, paused: null }
+      ],
+      subagents: []
+    }
+    const rows = stripRows(v, null, [], now)
+    expect(rows.accounts.map((a) => a.runOutInMs)).toEqual([40 * 60_000, null])
+    expect(rows.pool).not.toBeNull()
+  })
 })
