@@ -304,6 +304,7 @@ import { readAutoAccountsOn } from '../core/settings/autoAccounts'
 import { readSubagentCount, SUBAGENT_CAP_MAX } from '../core/sessions/subagentCap'
 import { isUpdateMode } from '../core/update/sourceUpdate'
 import { isUpdateChannel } from '../core/update/updateChannel'
+import { licensesFile, readLicenses } from './licenses'
 import type { UsageGuardView } from '../core/types'
 import { createPullRequest, readCommits } from '../core/github/prCreate'
 import { fillFromCommits } from '../core/github/fill'
@@ -8411,6 +8412,10 @@ export function registerIpc(
   })
 
   ipcMain.handle('system.appVersion', () => app.getVersion())
+  // T28: the third-party notices, null when licenses.json was not generated (a dev run: node scripts/gen-licenses.mjs)
+  ipcMain.handle('app.licenses', () =>
+    readLicenses(licensesFile({ packaged: app.isPackaged, resourcesPath: process.resourcesPath, appPath: app.getAppPath() }))
+  )
   // 프로젝트가 지정되지 않았을 때 아래쪽 패널의 터미널이 열릴 자리. cmd 나 셸을 직접 띄웠을 때와
   // 같은 곳이고, 세 플랫폼 모두 app.getPath('home') 이 그 값을 준다.
   ipcMain.handle('system.homeDir', () => app.getPath('home'))

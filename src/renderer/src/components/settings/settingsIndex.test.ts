@@ -42,7 +42,10 @@ describe('basic and advanced rows', () => {
   })
   it('simple view shows exactly the basic rows', () => {
     const shown = SETTINGS_ROWS.filter((r) => rowVisible(r.anchor, false, null)).map((r) => r.anchor)
-    expect(shown.sort()).toEqual(['accounts', 'advancedMode', 'language', 'notifications', 'onboarding', 'projects', 'remote', 'theme'])
+    expect(shown.sort()).toEqual([
+      'accounts', 'advancedMode', 'appName', 'buildVersion', 'crashReports', 'language', 'license', 'licenses', 'notifications', 'onboarding',
+      'projects', 'remote', 'theme', 'update', 'updateChannel', 'version'
+    ])
     expect(SETTINGS_ROWS.every((r) => rowVisible(r.anchor, true, null))).toBe(true)
   })
   it('a search shows its advanced hit even in simple mode, and only its hits', () => {
@@ -53,6 +56,18 @@ describe('basic and advanced rows', () => {
   })
   it('the groups with no basic row leave the nav in simple mode', () => {
     expect(SETTINGS_GROUPS.filter((g) => !groupHasBasic(g))).toEqual(['agents', 'advanced'])
+  })
+})
+
+describe('About group', () => {
+  it('is last, and holds the info rows that moved from Advanced, each found by search', () => {
+    expect(SETTINGS_GROUPS[SETTINGS_GROUPS.length - 1]).toBe('about')
+    for (const anchor of ['appName', 'version', 'cliVersions', 'host', 'accountsCount', 'update']) {
+      expect(SETTINGS_ROWS.find((r) => r.anchor === anchor)?.group, anchor).toBe('about')
+    }
+    expect(filterSettings(SETTINGS_ROWS, 'open source', t).map((r) => r.anchor)).toEqual(['licenses'])
+    expect(filterSettings(SETTINGS_ROWS, 'build version', t).map((r) => r.anchor)).toContain('buildVersion')
+    expect(groupOfOldTab('info')).toEqual({ group: 'about', anchor: 'appName' })
   })
 })
 
