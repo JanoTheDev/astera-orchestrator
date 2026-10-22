@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { INTENTS, PICK_BUDGET, type Annotation, type Intent } from '../../../core/preview/pick/types'
 import { annotationLabel } from '../../../core/preview/pick/prompt'
 import { useI18n } from '../i18n/I18nProvider'
+import { Button, Icon, IconButton, Textarea } from './ui'
 
 /** The comment box for the element just picked, opened beside the pointer.
  *
@@ -47,9 +48,9 @@ export function AnnotationPopover({
       <div className="dm-pop-head">
         <span className="dm-seq" aria-hidden="true">{annotation.seq}</span>
         <span className="dm-pop-label" title={annotationLabel(annotation.payload)}>{annotationLabel(annotation.payload)}</span>
-        <button type="button" className="ghost" aria-label={t('preview.design.close')} onClick={onClose}>×</button>
+        <IconButton size="sm" icon={<Icon name="close" size={14} />} label={t('preview.design.close')} onClick={onClose} />
       </div>
-      <textarea
+      <Textarea
         ref={boxRef}
         rows={2}
         maxLength={PICK_BUDGET.comment}
@@ -59,15 +60,16 @@ export function AnnotationPopover({
       />
       <div className="dm-intents" role="group" aria-label={t('preview.design.intent.label')}>
         {INTENTS.map((i) => (
-          <button
+          <Button
             key={i}
-            type="button"
-            className={i === annotation.intent ? 'on' : undefined}
+            size="sm"
+            variant="ghost"
+            className={i === annotation.intent ? 'is-active' : undefined}
             aria-pressed={i === annotation.intent}
             onClick={() => onChange(annotation.id, { intent: i })}
           >
             {t(`preview.design.intent.${i}`)}
-          </button>
+          </Button>
         ))}
       </div>
     </div>

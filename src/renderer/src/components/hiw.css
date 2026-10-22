@@ -2,18 +2,21 @@
    reason line below the date/source meta, and a [Write it up again] button on the rows that need it. */
 .hiw-side { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .hiw-head { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-bottom: 1px solid var(--line-soft); }
-.hiw-head b { font-size: var(--fs-12); font-weight: 600; color: var(--text); }
+.hiw-head h2 { margin: 0; font-size: var(--fs-13); font-weight: 600; color: var(--text); }
 
 .hiw-list { flex: 1; overflow-y: auto; padding: 4px 0; min-height: 0; }
 /* Clicking opens that record's tab — the same as this file's other clickable rows (.jobs-task,
    .lh-row, .fx-row) */
-.hiw-row { display: flex; gap: 8px; padding: calc(var(--row-pad-y) + 3px) 12px; cursor: pointer; }
+.hiw-row { display: flex; flex-direction: column; align-items: stretch; padding: 0 8px 4px 0; }
+/* The whole row is one button (Tab, Enter/Space); the retry button is its sibling underneath */
+.ui-btn.hiw-row-main { width: 100%; height: auto; justify-content: flex-start; align-items: flex-start; gap: 8px; padding: calc(var(--row-pad-y) + 3px) 12px; border-radius: 0; font-weight: 400; text-align: left; white-space: normal; }
+.ui-btn.hiw-row-retry { align-self: flex-start; margin: 0 0 0 32px; }
 .hiw-row:hover { background: var(--surface-hover); }
 /* 배경과 띠를 함께 준다 — Umbra·Sirius 는 --marker-w 가 0 이라 띠만으로는 아무것도 보이지 않는다.
    .fx-row.selected, .rail-btn.on 이 쓰는 그 조합이다 */
 .hiw-row.on { background: var(--line-soft); box-shadow: inset var(--marker-w) 0 0 var(--accent); }
 /* Colour is not here for the same reason as .tab-glyph — it comes inline from RECORD_GLYPH_COLOR */
-.hiw-g { flex: 0 0 auto; width: 12px; text-align: center; font-size: var(--fs-11); line-height: 1.45; }
+.hiw-g { flex: 0 0 auto; width: 14px; display: inline-flex; justify-content: center; padding-top: 1px; }
 /* "지금 돌고 있다"를 **움직임으로** 말한다. 상태 문구가 이미 그렇게 적혀 있어도, 멈춘 화면에서는
    3~4분짜리 생성과 그 자리에서 죽어 버린 화면이 똑같이 보인다 — Jobs 사이드바가 같은 이유로 같은
    언어를 쓴다(아래 job-spin 주석).
@@ -38,7 +41,6 @@
    instead of reading as ordinary dim text. */
 .hiw-summary.w { color: var(--warn); }
 .hiw-meta { font-family: var(--mono); font-size: var(--fs-11); color: var(--text-faint); }
-.hiw-review { align-self: flex-start; margin-top: 4px; font-size: var(--fs-11); color: var(--accent); background: var(--elevated); border: 1px solid var(--line-soft); border-radius: var(--radius-sm); padding: 1px 7px; cursor: pointer; }
 
 .hiw-lab { font-family: var(--mono); font-size: var(--fs-11); letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-faint); margin-bottom: 5px; }
 
@@ -48,17 +50,13 @@
 .hiw-fine { font-size: var(--fs-11); color: var(--text-faint); }
 
 .hiw-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 22px; text-align: center; }
-.hiw-empty p { font-size: var(--fs-12); color: var(--text-dim); line-height: 1.6; margin: 0; }
 
 /* The open-task section, above .hiw-list (UnderstandingView.tsx). A row reuses .hiw-row's skeleton
    but is not clickable — there is no record behind it yet — so the pointer cursor is turned off. */
 .hiw-open { border-bottom: 1px solid var(--line-soft); padding-bottom: 2px; }
 .hiw-open .hiw-lab { padding: 8px 12px 2px; margin: 0; }
-.hiw-open-row { cursor: default; }
-.hiw-open-row:hover { background: none; }
+.hiw-open-row { flex-direction: row; gap: 8px; padding: calc(var(--row-pad-y) + 3px) 12px; }
 .hiw-open-actions { display: flex; gap: 6px; margin-top: 4px; }
-.hiw-open-actions .hiw-review { align-self: auto; margin-top: 0; }
-
 /* How It Works record detail pane. The left side is the story to read, the right side is the
    reference to double-check — the width ratio between the two (1.62 : 1) is the whole of this
    screen's layout. It draws its own head because it sits in the same row as a session tab or a file
@@ -82,8 +80,6 @@
 /* Colour comes from the same table as .hiw-g and .tab-glyph (RECORD_GLYPH_COLOR) */
 .hiw-st { font-size: var(--fs-11); }
 .hiw-sp { flex: 1; }
-.hiw-ghost { font-size: var(--fs-11); color: var(--text-dim); background: none; border: 1px solid var(--line-soft); border-radius: var(--radius-sm); padding: 2px 9px; cursor: pointer; }
-.hiw-ghost.acc { color: var(--accent); }
 
 /* What was checked, one line under the head (RecordDetail.tsx). */
 .hiw-verify { padding: 8px 18px; border-bottom: 1px solid var(--line-soft); }
@@ -145,7 +141,13 @@
 .hiw-node--decision { border-color: var(--warn); }
 .hiw-node--failure { border-color: var(--warn); }
 .hiw-node--success { border-color: var(--ok); }
-.hiw-node.pickable { cursor: pointer; }
+.hiw-node.pickable { padding: 0; }
+/* The pickable step is a button that fills its box: Tab reaches it, Enter/Space pick it, aria-pressed says which is chosen */
+.ui-btn.flow-pick { width: 100%; height: 100%; padding: 0 8px; border-radius: 0; background: none; color: inherit; font-size: var(--fs-12); font-weight: 400; white-space: normal; }
+.ui-btn.flow-pick .ui-btn__label { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; text-align: center; line-height: 1.35; word-break: keep-all; overflow-wrap: anywhere; }
+.ui-btn.flow-pick:focus-visible { box-shadow: none; }
+/* The box carries the ring: the button's own would be clipped by the box's overflow */
+.hiw-node.pickable:has(.flow-pick:focus-visible) { box-shadow: var(--focus-ring); }
 .hiw-node.pickable:hover { border-color: var(--accent); }
 .hiw-node.selected { border-color: var(--accent); background: var(--surface-hover); }
 .hiw-node.muted { opacity: 0.34; }
@@ -177,9 +179,9 @@
 .hiw-impl { display: flex; flex-direction: column; gap: 5px; }
 .hiw-impl-row { display: flex; gap: 12px; align-items: baseline; }
 .hiw-impl-row b { font-size: var(--fs-12); font-weight: 400; color: var(--text-dim); }
-.hiw-impl-row button { font-family: var(--mono); font-size: var(--fs-11); color: var(--accent); background: none; border: 0; border-bottom: 1px dotted var(--accent); padding: 0; cursor: pointer; }
+.ui-btn.hiw-impl-file { height: auto; padding: 0 4px; font-family: var(--mono); font-size: var(--fs-11); color: var(--accent); }
 
 /* 좁힘 머리. --marker-w 가 0 인 테마(Umbra·Sirius)에서도 보이도록 배경을 함께 준다 */
 .hiw-scope { display: flex; align-items: center; gap: 8px; padding: 9px 15px; background: var(--elevated); border-bottom: 1px solid var(--line-soft); box-shadow: inset var(--marker-w) 0 0 var(--accent); }
 .hiw-scope-label { font-size: var(--fs-12); font-weight: 500; color: var(--text); }
-.hiw-scope-clear { margin-left: auto; font-size: var(--fs-11); color: var(--text-faint); background: none; border: 0; cursor: pointer; }
+.ui-btn.hiw-scope-clear { margin-left: auto; color: var(--text-dim); }
