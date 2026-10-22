@@ -8,7 +8,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { createTaskValidation, type ValidationContext } from './validation'
+import { createTaskValidation, heavySlot, isHeavyCheck, type ValidationContext } from './validation'
 import { applyWorkerDone, createJob, createTask, emptyState, openDispatch, startJobRun, type OrchState } from '../state'
 import { CHECK_TIMEOUT_MS, type CheckResult } from '../types'
 import type { StartOpts } from '../../run/runManager'
@@ -49,7 +49,7 @@ function rig(o: RigOpts = {}) {
   dirs.push(dir)
   fs.writeFileSync(
     path.join(dir, 'package.json'),
-    JSON.stringify({ scripts: { test: 'node -e "process.exit(0)"' } })
+    JSON.stringify({ scripts: { test: 'node -e "process.exit(0)"', lint: 'node -e "process.exit(0)"' } })
   )
   const cwd = dir
 
@@ -109,6 +109,8 @@ function rig(o: RigOpts = {}) {
   const startReview = vi.fn(async (_a: { taskId: string }) => {})
   const startRepair = vi.fn(async (_a: { dispatchId: string }) => undefined as unknown)
   const diffNames = vi.fn(async (_cwd: string, _head: string) => null as string[] | null)
+  // T2: the machine's heavy slot, granted at once; each grant's release is counted
+  const heavy = { taken: [] as string[], released: 0 }
 
   const ctx: ValidationContext = {
     getState: () => state,
@@ -142,6 +144,10 @@ function rig(o: RigOpts = {}) {
     pluginCheck: async (plugin, input) => {
       pluginAsks.push({ plugin, input })
       return o.pluginCheck ? o.pluginCheck(plugin, input) : { name: plugin.toUpperCase(), status: 'passed', summary: 'passed' }
+    },
+    heavySlot: async ({ cmd }) => {
+      heavy.taken.push(cmd)
+      return () => void heavy.released++
     }
   }
   const validation = createTaskValidation(ctx)
@@ -169,6 +175,7 @@ function rig(o: RigOpts = {}) {
     },
     lastRunId: () => `r${startedOpts.length}`,
     pluginAsks,
+    heavy,
     task: () => state.tasks.find((x) => x.id === taskId)!,
     state: () => state,
     runsStarted: () => startedOpts.length,
@@ -404,5 +411,49 @@ describe('createTaskValidation', () => {
     await vi.waitFor(() => expect(h.task().status).not.toBe('validating'))
     expect(h.runsStarted()).toBe(1)
     expect(h.logs.join(' | ')).not.toMatch(/could not start|rejected/)
+  })
+})
+
+describe('T2: heavy checks take the machine heavy slot', () => {
+  const npm = (script: string) => ({ id: `seed:npm:${script}`, name: script, type: 'npm' as const, script })
+
+  it('test, build, build:*, dist and dist:* are heavy; typecheck, lint and the rest are not', () => {
+    for (const s of ['test', 'build', 'build:web', 'dist', 'dist:linux']) expect(isHeavyCheck(npm(s))).toBe(true)
+    for (const s of ['typecheck', 'lint', 'test:unit', 'builder', 'distill', 'dev']) expect(isHeavyCheck(npm(s))).toBe(false)
+    expect(isHeavyCheck({ id: 'x', name: 'test', type: 'shell', command: 'npm test' })).toBe(false)
+  })
+
+  it('a heavy check runs only once it holds the slot, and frees it when its run exits', async () => {
+    const h = rig({ checks: ['seed:npm:test'] })
+    h.validation.startValidation({ taskId: h.taskId, cwd: h.cwd })
+    await h.started()
+    expect(h.heavy.taken).toEqual(['test'])
+    expect(h.heavy.released).toBe(0)
+    await h.finish(0)
+    expect(h.heavy.released).toBe(1)
+    expect(h.logs.some((m) => m.includes('queued for the machine'))).toBe(true)
+  })
+
+  it('a light check does not wait for the slot', async () => {
+    const h = rig({ checks: ['seed:npm:lint'] })
+    h.validation.startValidation({ taskId: h.taskId, cwd: h.cwd })
+    await h.started()
+    await h.finish(0)
+    expect(h.heavy.taken).toEqual([])
+  })
+
+  it('the real slot is one at a time, in arrival order, under the OS lock', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'astera-heavy-'))
+    dirs.push(dir)
+    const at = { cwd: dir, lock: path.join(dir, 'lock'), queueDir: path.join(dir, 'q'), pollMs: 20 }
+    const first = await heavySlot({ ...at, cmd: 'a' })
+    let second: (() => void) | null = null
+    const waiting = heavySlot({ ...at, cmd: 'b' }).then((r) => (second = r))
+    await new Promise((r) => setTimeout(r, 200))
+    expect(second).toBeNull()
+    first()
+    await waiting
+    expect(second).not.toBeNull()
+    second!()
   })
 })

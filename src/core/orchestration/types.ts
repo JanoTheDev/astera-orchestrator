@@ -1004,6 +1004,10 @@ export interface DeliveryProgress {
   lastAttemptAt?: string
   questionId?: string
   ownerPushes?: true
+  /** T2: the plan this delivery waits for before it validates (exec/deliveryWait.ts): one that outranks this plan, meets
+   *  it and is landing now, so this one merges origin and validates once, after it. `escalated`: when the owner was told
+   *  it waited 30 minutes. */
+  waitingFor?: { jobId: string; since: string; escalated?: string }
 }
 
 /** The plan's pull request: its URL and number once opened, or the error that stopped it. */
