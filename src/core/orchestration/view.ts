@@ -458,7 +458,7 @@ export function snapshotFor(
       ...(deliveryErrorOf(run) !== undefined ? { deliveryError: deliveryErrorOf(run) } : {}),
       // T3: the plan page's "Retry delivery" (PlanHeader) reads it
       ...(run?.deliveryState &&
-      (['delivering', 'retrying', 'failed', 'needs-owner'].includes(run.deliveryState.state) || run.deliveryState.waitingFor !== undefined)
+      (['delivering', 'retrying', 'failed', 'needs-owner', 'dismissed'].includes(run.deliveryState.state) || run.deliveryState.waitingFor !== undefined)
         ? {
             delivery: {
               runId: run.id,

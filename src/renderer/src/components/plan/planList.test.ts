@@ -36,6 +36,11 @@ describe('planStatusOf delivery', () => {
     expect(planStatusOf(row({ outcome: 'failed', deliveryError: 'merge conflict' }))).toEqual({ key: 'pages.plans.status.failed', tone: 'danger', reason: 'merge conflict' })
     expect(planStatusOf(row({ outcome: 'failed' }))).not.toHaveProperty('reason')
   })
+  // T34: the Tasks are done but the owner gave up the delivery: never "Done"
+  it('reads a dismissed delivery as its own status, not Done', () => {
+    const dismissed = row({ outcome: 'completed', delivery: { runId: 'r', state: 'dismissed' } })
+    expect(planStatusOf(dismissed)).toEqual({ key: 'pages.plans.status.deliveryDismissed', tone: 'warn' })
+  })
 })
 
 describe('lastActivityOf', () => {

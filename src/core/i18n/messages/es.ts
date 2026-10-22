@@ -1358,6 +1358,7 @@ export const es: Catalog = {
   'jobs.run.notDelivered': 'No entregado: {reason}',
   'pages.plans.status.checking': 'Comprobando',
   'pages.plans.status.blocked': 'Terminado con tareas bloqueadas',
+  'pages.plans.status.deliveryDismissed': 'Descartada',
   // W2-A planner stage
   'jobs.new.planner': 'Planificar primero con el planificador',
   'jobs.new.plannerHint': 'Una sesión de planificación (con el modelo de planificación) lee el repositorio y escribe las tareas, cada una con su prompt y sus criterios de aceptación. No cambia archivos ni inicia nada: apruebas el plan con Aprobar y ejecutar.',
@@ -1982,6 +1983,7 @@ export const es: Catalog = {
   'plan.leftOut.title': 'Fuera del plan',
   'plan.leftOut.item': '{n}. {text} — {reason}',
   'activity.taskEdited': '{title}: editado por ti — {fields}',
+  'activity.deliveryDismissed': '{title}: entrega descartada por ti; no se vuelve a intentar',
   'plan.decisions.kind.approval': 'Aprobación',
   'plan.decisions.kind.escalation': 'Pregunta',
   'plan.decisions.kind.gate': 'Control',

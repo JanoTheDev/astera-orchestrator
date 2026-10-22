@@ -848,8 +848,8 @@ export interface JobRow {
    *  its step and the last reason. Absent while pending or once delivered. */
   delivery?: {
     runId: string
-    /** `pending`: only the wait below is recorded (the checks have not started). */
-    state: 'pending' | 'delivering' | 'retrying' | 'failed' | 'needs-owner'
+    /** `pending`: only the wait below is recorded (the checks have not started). `dismissed`: the owner gave up a failed delivery; the work never landed. */
+    state: 'pending' | 'delivering' | 'retrying' | 'failed' | 'needs-owner' | 'dismissed'
     reason?: string
     nextRetryAt?: string
     /** T2: the plan this delivery waits for before it validates (Run.deliveryState.waitingFor). */

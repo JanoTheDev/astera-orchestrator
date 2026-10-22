@@ -39,6 +39,8 @@ export function planStatusOf(row: JobRow): PlanStatus {
   // Item 8: every Task completed, the final check has not settled: not done yet
   if (row.outcome === 'checking') return { key: 'pages.plans.status.checking', tone: 'info' }
   if (row.outcome === 'failed') return { key: 'pages.plans.status.failed', tone: 'danger', ...(row.deliveryError !== undefined ? { reason: row.deliveryError } : {}) }
+  // The owner dismissed a failed delivery: the Tasks are done but the work never landed
+  if (row.delivery?.state === 'dismissed') return { key: 'pages.plans.status.deliveryDismissed', tone: 'warn' }
   return { key: 'pages.plans.status.done', tone: 'ok' }
 }
 

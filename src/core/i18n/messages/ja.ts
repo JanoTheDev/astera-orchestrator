@@ -1342,6 +1342,7 @@ export const ja: Catalog = {
   'jobs.run.notDelivered': '配信されませんでした: {reason}',
   'pages.plans.status.checking': '最終確認中',
   'pages.plans.status.blocked': 'ブロックされた Task を残して終了',
+  'pages.plans.status.deliveryDismissed': '配信を見送り',
   // W2-A planner stage
   'jobs.new.planner': '先にプランナーで計画する',
   'jobs.new.plannerHint': 'プランナーセッション(プランナーモデル)がリポジトリを読み、Task を書きます。各 Task にはプロンプトと完了条件が付きます。ファイルは変更せず、何も開始しません。「承認して実行」で計画を承認してください。',
@@ -1957,6 +1958,7 @@ export const ja: Catalog = {
   'plan.leftOut.title': '計画から外した項目',
   'plan.leftOut.item': '{n}. {text} — {reason}',
   'activity.taskEdited': '{title}: あなたが編集 — {fields}',
+  'activity.deliveryDismissed': '{title}: あなたが配信を見送りました。再試行しません',
   'plan.decisions.kind.approval': '承認',
   'plan.decisions.kind.escalation': '質問',
   'plan.decisions.kind.gate': 'ゲート',
