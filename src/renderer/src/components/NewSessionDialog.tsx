@@ -350,7 +350,9 @@ export function NewSessionDialog({
       (a) =>
         (slot === 0 || provider(a) === primaryProvider) &&
         (a.id === accountIds[slot] || !accountIds.includes(a.id)) &&
-        (live === null || a.id === accountIds[slot] || live.has(a.id))
+        (live === null || a.id === accountIds[slot] || live.has(a.id)) &&
+        // The primary slot also stops offering accounts known to be logged out (the selected one stays)
+        (slot !== 0 || a.id === accountIds[0] || loginMap[a.id] !== false)
     )
   }
   const canAdd =

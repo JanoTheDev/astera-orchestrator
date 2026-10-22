@@ -4,6 +4,7 @@ import type { ModelDescriptor } from '../../../core/models/types'
 import type { GeneratorSettings as GeneratorSettingsValue } from '../../../core/understanding/generatorSettings'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
+import { AccountSelect } from './AccountSelect'
 import { Select } from './Select'
 import { createLatest } from '../lib/latest'
 
@@ -88,16 +89,13 @@ export function GeneratorSettings(): React.JSX.Element {
     <div className="settings-gen">
       <div className="settings-row">
         <span>{t('settings.gen.label')}</span>
-        <Select
+        <AccountSelect
           className="settings-gen-select"
           ariaLabel={t('settings.gen.label')}
           value={value.accountId ?? ''}
-          placeholder={t('settings.gen.none')}
           onChange={pickAccount}
-          items={[
-            { value: '', label: t('settings.gen.none') },
-            ...accounts.map((a) => ({ value: a.id, label: a.label, meta: a.provider ?? 'claude' }))
-          ]}
+          accounts={accounts}
+          allLabel={t('settings.gen.none')}
         />
       </div>
       <span className="settings-hint">{t('settings.gen.hint')}</span>
