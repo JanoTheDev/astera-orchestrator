@@ -67,3 +67,93 @@ export function cx(...names: Array<string | false | null | undefined>): string {
 
 export const FOCUSABLE =
   'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])'
+
+// ---- Keyboard for the list primitives (Select, Menu): moves skip disabled rows, typeahead finds rows by their label ----
+
+export type ListMove = 'next' | 'prev' | 'first' | 'last'
+
+/** The row a move lands on, skipping `disabled` ones; next/prev wrap. -1 when no row is enabled. */
+export function moveIndex(current: number, disabled: readonly boolean[], move: ListMove): number {
+  const n = disabled.length
+  const enabled = (i: number): boolean => !disabled[i]
+  if (move === 'first' || move === 'last') {
+    const step = move === 'first' ? 1 : -1
+    for (let k = 0, i = move === 'first' ? 0 : n - 1; k < n; k++, i += step) if (enabled(i)) return i
+    return -1
+  }
+  const step = move === 'next' ? 1 : -1
+  // from nowhere, next starts before the first row and prev after the last
+  const from = current < 0 || current >= n ? (step === 1 ? -1 : n) : current
+  for (let k = 1; k <= n; k++) {
+    const i = (((from + step * k) % n) + n) % n
+    if (enabled(i)) return i
+  }
+  return -1
+}
+
+/** How long a pause ends a typeahead word (the WAI-ARIA practice uses about half a second). */
+export const TYPEAHEAD_PAUSE_MS = 500
+
+/** The typed word after `key`: it grows while keys come within the pause, and restarts after it. */
+export function typeaheadBuffer(prev: string, prevAt: number, key: string, now: number): string {
+  return now - prevAt > TYPEAHEAD_PAUSE_MS ? key : prev + key
+}
+
+/** A key that types ahead: one printable character, no Ctrl/Alt/Meta. Space is not one — it picks. */
+export function isTypeaheadKey(e: { key: string; ctrlKey: boolean; altKey: boolean; metaKey: boolean }): boolean {
+  return e.key.length === 1 && e.key !== ' ' && !e.ctrlKey && !e.altKey && !e.metaKey
+}
+
+/** The row whose label starts with `query` (case-insensitive), skipping disabled ones; -1 when none.
+ *  One letter (or one letter repeated) cycles: the search starts after `current`. A longer word starts at `current`,
+ *  so the row stays put while the word still matches it. */
+export function typeaheadIndex(labels: readonly string[], disabled: readonly boolean[], query: string, current: number): number {
+  if (query === '' || labels.length === 0) return -1
+  const q = query.toLowerCase()
+  const cycling = [...q].every((c) => c === q[0])
+  const needle = cycling ? q[0] : q
+  const n = labels.length
+  const start = Math.max(0, current) + (cycling ? 1 : 0)
+  for (let k = 0; k < n; k++) {
+    const i = (start + k) % n
+    if (!disabled[i] && labels[i].toLowerCase().startsWith(needle)) return i
+  }
+  return -1
+}
+
+export type ListKeyAction = 'open' | 'close' | 'commit' | 'tab' | { move: ListMove } | null
+
+const MOVE_KEYS: Record<string, ListMove> = { ArrowDown: 'next', ArrowUp: 'prev', Home: 'first', End: 'last' }
+
+/** A Select trigger's key. Closed: Enter, Space and the arrows open. Open: arrows and Home/End move, Enter/Space pick,
+ *  Esc closes, Tab leaves (closing without picking). Typeahead is separate (isTypeaheadKey). Null: not ours. */
+export function listboxKeyAction(key: string, open: boolean): ListKeyAction {
+  if (!open) return key === 'Enter' || key === ' ' || key === 'ArrowDown' || key === 'ArrowUp' ? 'open' : null
+  if (key in MOVE_KEYS) return { move: MOVE_KEYS[key] }
+  if (key === 'Enter' || key === ' ') return 'commit'
+  if (key === 'Escape') return 'close'
+  if (key === 'Tab') return 'tab'
+  return null
+}
+
+export type MenuKeyAction = 'close' | 'activate' | 'tab' | { move: ListMove } | null
+
+/** An open Menu's key: arrows and Home/End move focus, Enter/Space activate, Esc closes (focus back to the opener),
+ *  Tab closes and lets focus go on. Null: not ours. */
+export function menuKeyAction(key: string): MenuKeyAction {
+  if (key in MOVE_KEYS) return { move: MOVE_KEYS[key] }
+  if (key === 'Enter' || key === ' ') return 'activate'
+  if (key === 'Escape') return 'close'
+  if (key === 'Tab') return 'tab'
+  return null
+}
+
+/** Where a context menu opens: at the pointer, or under the target when the keyboard (Shift+F10, the ContextMenu key)
+ *  raised the event — that one has no pointer type, and some engines report it at 0,0. */
+export function contextMenuPoint(
+  e: { clientX: number; clientY: number; pointerType?: string },
+  target: { left: number; bottom: number }
+): { x: number; y: number } {
+  const keyboard = e.pointerType === '' || (e.clientX === 0 && e.clientY === 0)
+  return keyboard ? { x: target.left, y: target.bottom } : { x: e.clientX, y: e.clientY }
+}
