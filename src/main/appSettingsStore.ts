@@ -197,6 +197,9 @@ export class AppSettingsStore {
    * means a first run.
    */
   private firstRunAsked = true
+  /** The onboarding step a first run had reached, so a restart mid-way resumes there. Only meaningful
+   *  while firstRunAsked is false: finishing or skipping onboarding marks it asked and drops this. */
+  private onboardingStep: string | null = null
   /** Desktop notifications, one flag per event. Written and read as one object, so the four move
    *  together and there is one place that knows what a missing file means. */
   private desktopNotify: DesktopNotifySettings = { ...DESKTOP_NOTIFY_DEFAULTS }
@@ -306,6 +309,8 @@ export class AppSettingsStore {
       const mode = (parsed as { updateMode?: unknown }).updateMode
       this.updateMode = isUpdateMode(mode) ? mode : DEFAULT_UPDATE_MODE
       this.firstRunAsked = (parsed as { firstRunAsked?: unknown }).firstRunAsked !== false
+      const step = (parsed as { onboardingStep?: unknown }).onboardingStep
+      this.onboardingStep = !this.firstRunAsked && typeof step === 'string' ? step : null
       return { recovered: false }
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
@@ -349,6 +354,7 @@ export class AppSettingsStore {
         // No settings file at all: nobody has used this app on this machine yet. The one state the
         // first-run question is for.
         this.firstRunAsked = false
+        this.onboardingStep = null
         return { recovered: false }
       }
       await fs.copyFile(this.filePath, this.filePath + '.bak').catch(() => {})
@@ -400,6 +406,7 @@ export class AppSettingsStore {
       // A file that could not be read is still a file: this person has used the app before, and a
       // corrupt settings file is not a reason to put a first-run question in front of them.
       this.firstRunAsked = true
+      this.onboardingStep = null
       this.recoveryNotice = true
       // Written back now rather than at the next setting change: the CLI and the Host refuse a
       // damaged file and tell the person to open Astera to repair it, so opening Astera has to leave a
@@ -789,6 +796,20 @@ export class AppSettingsStore {
    *  once. */
   async markFirstRunAsked(): Promise<void> {
     this.firstRunAsked = true
+    this.onboardingStep = null
+    await this.persist()
+  }
+
+  /** The step a first run's onboarding had reached; null once it is done (or never started). */
+  getOnboardingStep(): string | null {
+    return this.firstRunAsked ? null : this.onboardingStep
+  }
+
+  /** Remembers the step a first run's onboarding is on. Ignored once it is done: a replay from Settings
+   *  is not a first run, so it has nothing to resume. */
+  async setOnboardingStep(step: string): Promise<void> {
+    if (this.firstRunAsked) return
+    this.onboardingStep = step
     await this.persist()
   }
 
@@ -862,6 +883,7 @@ export class AppSettingsStore {
       defaultSessionKind?: SessionKind
       updateMode?: UpdateMode
       firstRunAsked?: false
+      onboardingStep?: string
     } = {}
     if (this.lang) data.lang = this.lang
     if (this.dismissedCampaignId) data.dismissedCampaignId = this.dismissedCampaignId
@@ -900,6 +922,7 @@ export class AppSettingsStore {
     // below — and here it carries the difference between a new install and an old one, so an absent
     // key has to keep meaning "asked". See the field's own note.
     if (this.firstRunAsked === false) data.firstRunAsked = false
+    if (this.firstRunAsked === false && this.onboardingStep) data.onboardingStep = this.onboardingStep
     // Written only when it is not the default, for the same reason githubPolling is: the default belongs in one
     // place, and that place is load's narrowing. Fork W0: the default is 'manual', so only 'yolo' is written.
     if (this.agentPermissionMode === 'yolo') data.agentPermissionMode = 'yolo'

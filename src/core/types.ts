@@ -1647,6 +1647,9 @@ export interface CoreApi {
     getFirstRunAsked(): Promise<boolean>
     /** It has been put to them. Answering and dismissing are the same thing here: it asks once. */
     markFirstRunAsked(): Promise<void>
+    /** The onboarding step a first run had reached (resumed after a restart); null once onboarding is done. */
+    getOnboardingStep(): Promise<string | null>
+    setOnboardingStep(step: string): Promise<void>
     /** True once after main's load recovered app-settings.json from a damaged file (settings reset,
      *  permission prompts on); asking clears it. */
     takeRecoveryNotice(): Promise<boolean>

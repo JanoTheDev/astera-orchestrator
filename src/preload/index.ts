@@ -273,6 +273,8 @@ const api = {
     setTheme: invoke('settings.setTheme'),
     getFirstRunAsked: invoke('settings.getFirstRunAsked'),
     markFirstRunAsked: invoke('settings.markFirstRunAsked'),
+    getOnboardingStep: invoke('settings.getOnboardingStep'),
+    setOnboardingStep: invoke('settings.setOnboardingStep'),
     takeRecoveryNotice: invoke('settings.takeRecoveryNotice'),
     getDefaultSessionKind: invoke('settings.getDefaultSessionKind'),
     setDefaultSessionKind: invoke('settings.setDefaultSessionKind'),

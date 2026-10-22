@@ -1051,6 +1051,49 @@ describe('AppSettingsStore first-run question', () => {
   })
 })
 
+// Onboarding rides on the first-run flag: shown while it is open, its step resumed across a restart,
+// and gone for good once finished or skipped (both mark the question asked).
+describe('AppSettingsStore onboarding', () => {
+  it('a fresh profile has onboarding to show, from no step yet', async () => {
+    const store = new AppSettingsStore(file())
+    await store.load()
+    expect(store.getFirstRunAsked()).toBe(false)
+    expect(store.getOnboardingStep()).toBeNull()
+  })
+
+  it('a pre-existing install never shows it, even with a stray step in the file', async () => {
+    await fs.writeFile(file(), JSON.stringify({ lang: 'ko', onboardingStep: 'tools' }), 'utf8')
+    const store = new AppSettingsStore(file())
+    await store.load()
+    expect(store.getFirstRunAsked()).toBe(true)
+    expect(store.getOnboardingStep()).toBeNull()
+    await store.setOnboardingStep('accounts')
+    expect(store.getOnboardingStep()).toBeNull()
+  })
+
+  it('resumes at the step it reached after a restart', async () => {
+    const a = new AppSettingsStore(file())
+    await a.load()
+    await a.setOnboardingStep('accounts')
+    const b = new AppSettingsStore(file())
+    await b.load()
+    expect(b.getFirstRunAsked()).toBe(false)
+    expect(b.getOnboardingStep()).toBe('accounts')
+  })
+
+  it('finishing or skipping marks it done and the first-run question asked', async () => {
+    const a = new AppSettingsStore(file())
+    await a.load()
+    await a.setOnboardingStep('project')
+    await a.markFirstRunAsked()
+    const b = new AppSettingsStore(file())
+    await b.load()
+    expect(b.getFirstRunAsked()).toBe(true)
+    expect(b.getOnboardingStep()).toBeNull()
+    expect(JSON.parse(await fs.readFile(file(), 'utf8'))).not.toHaveProperty('onboardingStep')
+  })
+})
+
 describe('readSkillSettings on a corrupt file', () => {
   it('is refused as a RepairNeeded naming the file, with the repair message', async () => {
     const dirX = await fs.mkdtemp(path.join(os.tmpdir(), 'astera-skillset-'))

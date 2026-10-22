@@ -8,9 +8,11 @@ import { remoteNewJobFolder } from '../../lib/remoteJobs'
 import { localDoor } from '../../lib/orchDoor'
 import { defaultAccountIdOf } from '../../../../core/accounts/defaultAccount'
 import { CommandBar } from '../command/CommandBar'
-import { openPlan } from './navigation'
+import { openPage, openPlan } from './navigation'
 import { ConfirmHost } from '../ConfirmHost'
-import { FirstRunDialog } from '../FirstRunDialog'
+import { Onboarding } from '../onboarding/Onboarding'
+import { exitEffects, isOnboardingShown } from '../onboarding/onboardingModel'
+import { setOnboardingReplay, useOnboardingReplay } from '../onboarding/replay'
 import { findRun } from '../../../../core/orchestration/snapshot'
 import { toast } from '../../lib/toast'
 import { NewProjectDialog } from '../projects/NewProjectDialog'
@@ -27,7 +29,7 @@ import { SettingsDialog } from './SettingsDialog'
 export type OverlaysProps = Pick<
   AppState,
   'accounts' | 'actionUi' | 'agentAppEnabled' | 'agentBrowserEnabled' | 'agentBusy' | 'agentYolo' | 'appVersion' |
-  'autoCloseEndedPlanTabs' | 'browserTabsRef' | 'cli' | 'cliInstallStatus' | 'closeWorkbenchTab' | 'commandOpen' |
+  'autoCloseEndedPlanTabs' | 'browserTabsRef' | 'cli' | 'cliInstallStatus' | 'cliInstalled' | 'closeWorkbenchTab' | 'commandOpen' |
   'currentProject' | 'defaultSessionKind' | 'firstPlan' | 'firstRunAsked' | 'homeDir' |
   'hostHolding' | 'hostRestarting' | 'hostStatus' | 'installUpdate' | 'jobsRuntime' | 'keyOverrides' | 'layout' |
   'layoutRef' | 'managerFor' | 'managerInitialSelectedId' | 'newSessionCwd' | 'openLinkedFolder' |
@@ -52,7 +54,7 @@ export type OverlaysProps = Pick<
 export function Overlays(p: OverlaysProps): React.JSX.Element {
   const {
     accounts, actionUi, agentAppEnabled, agentBrowserEnabled, agentBusy, agentYolo, appVersion,
-    autoCloseEndedPlanTabs, browserTabsRef, cli, cliInstallStatus, closeWorkbenchTab, commandOpen, currentProject,
+    autoCloseEndedPlanTabs, browserTabsRef, cli, cliInstallStatus, cliInstalled, closeWorkbenchTab, commandOpen, currentProject,
     defaultSessionKind, firstPlan, firstRunAsked, homeDir, hostHolding, hostRestarting,
     hostStatus, installUpdate, jobsRuntime, keyOverrides, layout, layoutRef, managerFor, managerInitialSelectedId,
     newSessionCwd, openLinkedFolder, openRemoteSession, openWorkspacePlan, openWorkspaceProject,
@@ -69,6 +71,7 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
     tabMenu, talkSignal, unsplitPane, update, updateChecking, workUnitTrackingEnabled, workspaceCwd, workspaceData,
     workspacePlanId, workspaceTree, wtRoot, start, openStart, newOpen, setNewOpen, sessions
   } = p
+  const onboardingReplay = useOnboardingReplay()
   // W9-E: an empty project lands on Start; files dropped on the window open it
   useStartLanding(currentProject, sessions, openStart)
   useDropToStart(openStart)
@@ -337,29 +340,31 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
         />
       )}
       <ConfirmHost />
-      {/* The first-run question. Two things gate it, and the second was measured rather than guessed:
-          it sits below the CLI-missing branch above, which returns early, and it waits for an account
-          to exist. A genuinely fresh profile opens with the detected-accounts modal already up, and
-          this one stacked straight on top of it — two modals on the very first screen. Waiting is also
-          the better question: before there is an account there are no sessions to have a default view
-          for. Answering and dismissing settle it the same way — it asks once.
-
-          A chat tab is the third gate, and the reason is that the question does not apply to one: a
-          chat session has one view and no terminal to default to, so asking "터미널 or 대화?" over it
-          would settle a preference the tab underneath cannot honour — and dismissing is permanent, so
-          it would burn the one asking. Deferred, not dismissed: the next time a terminal tab is
-          active, the question is still waiting. */}
-      {firstRunAsked === false && accounts.length > 0 && (
-        <FirstRunDialog
-          onPick={(kind) => {
-            setFirstRunAsked(true)
-            setDefaultSessionKind(kind)
-            void window.api.settings.setDefaultSessionKind(kind)
-            void window.api.settings.markFirstRunAsked()
+      {/* The first-run onboarding, replacing the old single question. Shown on a genuinely fresh profile only
+          (main/appSettingsStore.ts's firstRunAsked carries how that is told from an install that predates it) or
+          when Settings > General asks to show it again. Every way out settles firstRunAsked, so it shows once. */}
+      {isOnboardingShown(firstRunAsked, onboardingReplay) && (
+        <Onboarding
+          replay={onboardingReplay}
+          cli={cli}
+          cliInstalled={cliInstalled}
+          onCliInstalled={(installed) => {
+            setCliInstalled(installed)
+            void window.api.system.checkCli().then(setCli)
           }}
-          onDismiss={() => {
+          accounts={accounts}
+          currentProject={currentProject}
+          onAddProject={projectAnchor ? () => setProjectDialog('add') : undefined}
+          defaultSessionKind={defaultSessionKind}
+          setDefaultSessionKind={setDefaultSessionKind}
+          update={update}
+          onExit={(exit) => {
+            const { open } = exitEffects(exit)
             setFirstRunAsked(true)
+            setOnboardingReplay(false)
             void window.api.settings.markFirstRunAsked()
+            if (open === 'start') openStart({ mode: 'plan' })
+            else if (open === 'agents') openPage('agents')
           }}
         />
       )}

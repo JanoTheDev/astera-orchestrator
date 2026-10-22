@@ -6435,6 +6435,13 @@ export function registerIpc(
    *  file counts. */
   ipcMain.handle('settings.getFirstRunAsked', () => core.appSettings.getFirstRunAsked())
   ipcMain.handle('settings.markFirstRunAsked', () => core.appSettings.markFirstRunAsked())
+  // The onboarding step a first run has reached; the renderer's model maps an unknown one to the first step.
+  ipcMain.handle('settings.getOnboardingStep', () => core.appSettings.getOnboardingStep())
+  ipcMain.handle('settings.setOnboardingStep', async (_e, step: unknown) => {
+    if (typeof step !== 'string' || step.length === 0 || step.length > 32)
+      throw new Error(`INVALID_ONBOARDING_STEP: ${String(step)}`)
+    await core.appSettings.setOnboardingStep(step)
+  })
   /** Whether this launch recovered app-settings.json from a damaged file — answered true once. */
   ipcMain.handle('settings.takeRecoveryNotice', () => core.appSettings.takeRecoveryNotice())
   ipcMain.handle('settings.getDefaultSessionKind', () => core.appSettings.getDefaultSessionKind())

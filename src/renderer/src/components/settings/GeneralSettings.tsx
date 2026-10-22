@@ -5,7 +5,8 @@ import type { Lang, MessageKey } from '../../../../core/i18n'
 import { CATALOGS, LANGS } from '../../../../core/i18n'
 import { useState } from 'react'
 import { Search } from 'lucide-react'
-import { Input, Kbd, Select } from '../ui'
+import { Button, Input, Kbd, Select } from '../ui'
+import { setOnboardingReplay } from '../onboarding/replay'
 import { ShortcutSettings, shortcutRows } from '../ShortcutSettings'
 import { resolveBindings } from '../../../../core/keys/binding'
 import { ACTIONS } from '../../lib/actions'
@@ -175,6 +176,24 @@ export function GeneralSettings(p: GroupProps): React.JSX.Element | null {
         {/* W7-F (#84): an ended plan's tabs close on their own */}
         <SettingRow a="autoCloseTabs" only={only}>
           <AutoCloseTabsSetting on={autoCloseEndedPlanTabs} onChange={setAutoCloseEndedPlanTabs} />
+        </SettingRow>
+        {/* The first-run onboarding again, from Welcome. It only walks through setup; no setting is reset. */}
+        <SettingRow a="onboarding" only={only}>
+          <div className="settings-group">
+            <div className="settings-row">
+              <span>{t('onboarding.settings.replay')}</span>
+              <Button
+                size="sm"
+                onClick={() => {
+                  setOnboardingReplay(true)
+                  p.setShowSettings(false)
+                }}
+              >
+                {t('onboarding.settings.replayButton')}
+              </Button>
+            </div>
+            <p className="settings-hint">{t('onboarding.settings.replayHint')}</p>
+          </div>
         </SettingRow>
       </div>
       <SettingRow a="theme" only={only}>

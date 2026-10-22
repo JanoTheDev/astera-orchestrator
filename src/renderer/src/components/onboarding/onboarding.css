@@ -1,0 +1,60 @@
+/* The first-run onboarding (DESIGN-W11): a full-window page under the title bar, one column, neutral surfaces.
+   Above the app and its old .modal-backdrop (100), below toasts (200) and ui Modals (1000), so a sign-in or
+   add-project dialog opened from a step sits on top of it. */
+.onb {
+  position: fixed;
+  inset: var(--topbar-h) 0 0 0;
+  z-index: 150;
+  display: flex;
+  justify-content: center;
+  overflow-y: auto;
+  background: var(--bg);
+  color: var(--text);
+}
+.onb__page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-6);
+  width: 100%;
+  max-width: 600px;
+  padding: var(--sp-10) var(--page-pad) var(--sp-8);
+}
+.onb__progress { display: flex; align-items: center; gap: var(--sp-3); font-size: var(--fs-12); color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.onb__dots { display: flex; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.onb__dots li { width: 6px; height: 6px; border-radius: var(--radius-pill); background: var(--track); }
+.onb__dots li.is-past { background: var(--text-faint); }
+.onb__dots li.is-current { width: 18px; background: var(--accent); }
+.onb__body { display: flex; flex-direction: column; gap: var(--sp-4); }
+.onb__mark { width: 48px; height: 48px; }
+.onb__title { margin: 0; font-size: var(--fs-22); font-weight: var(--fw-semi); line-height: var(--lh-tight); }
+.onb__title:focus { outline: none; }
+.onb__lead { margin: 0; font-size: var(--fs-14); line-height: var(--lh); color: var(--text-dim); }
+.onb__label { margin-top: var(--sp-2); font-size: var(--fs-12); font-weight: var(--fw-medium); color: var(--text-dim); }
+.onb__dim { color: var(--text-dim); font-size: var(--fs-13); }
+.onb__lang { display: flex; align-items: center; gap: var(--sp-3); font-size: var(--fs-13); color: var(--text-dim); }
+.onb__lang .ui-select { width: auto; min-width: 200px; }
+.onb__card { padding: var(--sp-3) var(--sp-4); }
+.onb .onb__rows { display: flex; flex-direction: column; gap: var(--sp-3); }
+.onb .onb__list { display: flex; flex-direction: column; padding: var(--sp-1) var(--sp-4); }
+.onb__list .onb__row { padding: var(--sp-2) 0; }
+.onb__list .onb__row + .onb__row { border-top: 1px solid var(--line); }
+.onb .onb__row { display: flex; align-items: center; gap: var(--sp-3); font-size: var(--fs-13); }
+.onb__row-main { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.onb__path { font-family: var(--mono); font-size: var(--fs-11); color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.onb__inline { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.onb__status { display: flex; align-items: center; gap: var(--sp-2); margin: 0; font-size: var(--fs-13); color: var(--text-dim); }
+.onb__status.is-ok { color: var(--text); }
+.onb__status.is-ok svg { color: var(--ok); }
+.onb__choices { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); }
+.onb__choice { display: flex; flex-direction: column; gap: var(--sp-1); }
+.onb__choice-name { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-14); font-weight: var(--fw-medium); }
+.onb__choice[aria-checked='true'] .onb__choice-name svg { color: var(--accent); }
+.onb__summary { display: flex; flex-direction: column; margin: 0; }
+.onb__summary > div { display: flex; justify-content: space-between; gap: var(--sp-4); padding: var(--sp-2) 0; font-size: var(--fs-13); }
+.onb__summary > div + div { border-top: 1px solid var(--line); }
+.onb__summary dt { color: var(--text-dim); }
+.onb__summary dd { margin: 0; text-align: right; }
+.onb__foot { display: flex; align-items: center; gap: var(--sp-2); padding-top: var(--sp-4); border-top: 1px solid var(--line); }
+.onb__spacer { flex: 1; }
+/* CliInstallRows draws Settings rows; inside the card they keep their layout. */
+.onb__rows .settings-cli-log { max-height: 180px; }

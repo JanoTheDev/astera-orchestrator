@@ -28,6 +28,7 @@ export const SETTINGS_ROWS: readonly SettingsRow[] = [
   { anchor: 'language', group: 'general', labelKey: 'settings.general.language' },
   { anchor: 'defaultKind', group: 'general', labelKey: 'settings.defaultKind.title', descKey: 'settings.defaultKind.hint' },
   { anchor: 'autoCloseTabs', group: 'general', labelKey: 'settings.autoCloseTabs.label', descKey: 'settings.autoCloseTabs.hint' },
+  { anchor: 'onboarding', group: 'general', labelKey: 'onboarding.settings.replay', descKey: 'onboarding.settings.replayHint' },
   { anchor: 'theme', group: 'general', labelKey: 'settings.theme.label', descKey: 'settings.theme.hint' },
   { anchor: 'terminalFont', group: 'general', labelKey: 'settings.font.latin', descKey: 'settings.font.hangul' },
   { anchor: 'shortcuts', group: 'general', labelKey: 'settings.tab.shortcuts' },
