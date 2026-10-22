@@ -5,7 +5,8 @@ import { scopeToStep } from '../../../core/understanding/scope'
 import { toast } from '../lib/toast'
 import { useI18n } from '../i18n/I18nProvider'
 import { FlowDiagram } from './FlowDiagram'
-import { RECORD_GLYPH, RECORD_GLYPH_COLOR, RECORD_STATUS_KEY, StatusGlyph } from './UnderstandingIcons'
+import { RECORD_GLYPH_COLOR, RECORD_STATUS_KEY, StatusGlyph } from './UnderstandingIcons'
+import { Button, Icon } from './ui'
 
 /** 참조 단이 접히는 폭. 이 아래에서는 왼쪽 본문이 40자 밑으로 내려가 흐름도가 잘린다. */
 const NARROW_PANE = 720
@@ -95,9 +96,9 @@ export function RecordDetail({
       {scoped && (
         <div className="hiw-scope">
           <span className="hiw-scope-label">{scoped.node.label}</span>
-          <button className="hiw-scope-clear" onClick={() => onPickStep(null)}>
-            × {t('hiw.scope.clear')}
-          </button>
+          <Button size="sm" variant="ghost" className="hiw-scope-clear" icon={<Icon name="close" size={14} />} onClick={() => onPickStep(null)}>
+            {t('hiw.scope.clear')}
+          </Button>
         </div>
       )}
 
@@ -135,7 +136,9 @@ export function RecordDetail({
               {/* Splits on both separators — if the stored path uses backslashes, `/` alone cuts
                   nothing and the whole path lands where the filename should. The click side
                   (onOpenPath, App's openRecordPath) also accepts both. */}
-              <button onClick={() => onOpenPath(i.path)}>{i.path.split(/[/\\]/).pop()}</button>
+              <Button size="sm" variant="ghost" className="hiw-impl-file" title={i.path} onClick={() => onOpenPath(i.path)}>
+                {i.path.split(/[/\\]/).pop()}
+              </Button>
             </span>
           ))}
         </div>
@@ -163,31 +166,37 @@ export function RecordDetail({
             the sidebar does (design §8). Picking the colour separately here would let the three
             places drift apart (UnderstandingIcons' RECORD_GLYPH_COLOR). */}
         <span className="hiw-st" style={{ color: RECORD_GLYPH_COLOR[record.status] }}>
-          <StatusGlyph glyph={RECORD_GLYPH[record.status]} spinning={record.status === 'generating'} />{' '}
+          <StatusGlyph status={record.status} spinning={record.status === 'generating'} />{' '}
           {t(RECORD_STATUS_KEY[record.status])}
         </span>
         <span className="hiw-sp" />
         {/* This button has nothing behind it yet — editing has no place to save to (§56's
             userEdited) yet. Saying "not yet" beats a button that does nothing when pressed: on a
             screen like this, an unresponsive button reads as broken. */}
-        <button className="hiw-ghost" onClick={notYet}>
+        <Button size="sm" variant="ghost" onClick={notYet}>
           {t('hiw.pane.edit')}
-        </button>
+        </Button>
         {/* 이쪽은 뒤가 있다. 도는 동안은 잠근다 — 두 번 누르면 두 번 돈다 */}
-        <button className="hiw-ghost acc" onClick={onRegenerate} disabled={record.status === 'generating'}>
+        <Button size="sm" variant="secondary" onClick={onRegenerate} disabled={record.status === 'generating'}>
           {/* 방금 누른 자리에서 움직임이 보여야 한다 — 잠긴 버튼만으로는 눌린 것인지 고장인지 모른다 */}
           {record.status === 'generating' ? (
             <>
-              <StatusGlyph glyph={RECORD_GLYPH.generating} spinning /> {t('hiw.record.generating')}
+              <StatusGlyph status="generating" spinning /> {t('hiw.record.generating')}
             </>
           ) : (
             t('hiw.record.regenerate')
           )}
-        </button>
+        </Button>
         {narrow && (
-          <button className="hiw-ghost acc" onClick={onToggleDrawer}>
-            {t('hiw.pane.reference')} {drawerOpen ? '▾' : '▸'}
-          </button>
+          <Button
+            size="sm"
+            variant="ghost"
+            aria-expanded={drawerOpen}
+            icon={<Icon name={drawerOpen ? 'chevronDown' : 'chevronRight'} size={14} />}
+            onClick={onToggleDrawer}
+          >
+            {t('hiw.pane.reference')}
+          </Button>
         )}
       </div>
 
@@ -241,7 +250,22 @@ export function RecordDetail({
         </div>
 
         {!narrow && reference}
-        {narrow && drawerOpen && <div className="hiw-drawer">{reference}</div>}
+        {/* Esc folds the drawer, like any popover; the reference button that opened it is still in the head */}
+        {narrow && drawerOpen && (
+          <div
+            className="hiw-drawer"
+            role="region"
+            aria-label={t('hiw.pane.reference')}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                e.stopPropagation()
+                onToggleDrawer()
+              }
+            }}
+          >
+            {reference}
+          </div>
+        )}
       </div>
     </div>
   )

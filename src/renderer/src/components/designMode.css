@@ -10,12 +10,6 @@
 .dm-head { flex: none; display: flex; align-items: center; gap: 6px; padding: 6px 8px;
   border-bottom: 1px solid var(--line-soft); font-size: var(--fs-12); color: var(--text-dim); }
 .dm-head .dm-title { flex: 1; min-width: 0; font-weight: 600; color: var(--text); }
-.dm-head button, .dm-edit-actions button { background: none; border: 1px solid transparent; border-radius: var(--radius-sm);
-  color: inherit; opacity: .8; cursor: pointer; padding: 1px 7px; font-size: var(--fs-12); }
-.dm-head button:hover:not(:disabled), .dm-edit-actions button:hover:not(:disabled) { opacity: 1; border-color: var(--line-soft); }
-.dm-head button:disabled, .dm-edit-actions button:disabled { opacity: .3; cursor: default; }
-.dm-head button.primary, .dm-edit-actions button.primary { background: var(--accent); color: var(--accent-ink); opacity: 1; }
-.dm-head button.ghost { padding: 1px 4px; }
 
 .dm-rows { flex: 1; min-height: 0; overflow: auto; padding: 4px; }
 .dm-row { display: flex; gap: 8px; align-items: flex-start; padding: 6px 8px; border-radius: var(--radius-sm); cursor: default; }
@@ -30,18 +24,11 @@
 /* The row's own actions appear on hover, so a list of ten reads as ten labels and not as twenty buttons */
 .dm-actions { flex: none; display: flex; gap: 2px; opacity: 0; transition: opacity .12s; }
 .dm-row:hover .dm-actions, .dm-row:focus-within .dm-actions { opacity: 1; }
-.dm-actions button { background: none; border: 0; border-radius: var(--radius-sm); color: var(--text-dim); cursor: pointer; padding: 1px 4px; font-size: var(--fs-12); }
-.dm-actions button:hover { color: var(--text); background: var(--panel); }
-.dm-actions button.danger:hover { color: var(--danger); }
 
 .dm-edit { flex: 1; min-width: 0; }
-.dm-edit textarea { width: 100%; box-sizing: border-box; font: var(--fs-12) var(--mono); color: var(--text);
-  background: var(--bg); border: 1px solid var(--line-soft); border-radius: var(--radius-sm); padding: 4px 6px; resize: vertical; }
-.dm-edit textarea:focus { border-color: var(--accent); }
+.dm-edit .ui-textarea, .dm-pop .ui-textarea { width: 100%; box-sizing: border-box; font: var(--fs-12) var(--mono); }
 .dm-intents { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 4px; }
-.dm-intents button { background: none; border: 1px solid var(--line-soft); border-radius: var(--radius-sm);
-  color: var(--text-dim); cursor: pointer; padding: 1px 6px; font-size: var(--fs-11); }
-.dm-intents button.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.dm-intents .ui-btn.is-active { background: var(--accent-soft); color: var(--text); }
 .dm-edit-actions { display: flex; justify-content: flex-end; gap: 4px; margin-top: 6px; }
 
 /* The comment box that opens beside the pointer on a pick — components/AnnotationPopover.tsx.
@@ -53,9 +40,4 @@
 .dm-pop-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
 .dm-pop-label { flex: 1; min-width: 0; font-size: var(--fs-12); font-weight: 500; color: var(--text);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.dm-pop-head button { background: none; border: 0; color: var(--text-dim); cursor: pointer; padding: 0 3px; font-size: var(--fs-13); }
-.dm-pop-head button:hover { color: var(--text); }
-.dm-pop textarea { width: 100%; box-sizing: border-box; font: var(--fs-12) var(--mono); color: var(--text);
-  background: var(--bg); border: 1px solid var(--line-soft); border-radius: var(--radius-sm); padding: 4px 6px; resize: vertical; }
-.dm-pop textarea:focus { border-color: var(--accent); }
 .dm-pop .dm-intents { margin-top: 6px; }

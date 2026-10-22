@@ -47,7 +47,7 @@ describe('ProjectRow — 세션 목록을 기다리는 동안', () => {
   it('그 자리에 불러오는 중 표시를 세운다', () => {
     const html = renderExpanded()
     expect(html).toContain('history-loading')
-    expect(html).toContain('loading-dots')
+    expect(html).toContain('ui-skeleton')
     expect(html).toContain('history.loading') // 글자가 없으므로 읽히는 이름은 aria-label 이 맡는다
   })
 })

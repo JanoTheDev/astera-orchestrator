@@ -15,6 +15,11 @@ export const history: Partial<Record<keyof typeof ko, string>> = {
   'history.resume.folderMissingBody':
     'La carpeta original del proyecto no existe:\n{cwd}\n\n¿Elegir otra carpeta para reanudar?',
   'history.resume.pickFolder': 'Elegir carpeta',
+  'history.panel.count': '{n} proyectos',
+  'history.panel.emptyHint': 'Las sesiones anteriores con agentes aparecen aquí, agrupadas por proyecto.',
+  'history.menu.label': 'Acciones del proyecto',
+  'history.entry.unread': 'Esperando tu respuesta',
+  'hiw.empty.title': 'Aún no hay registros',
   'preview.toolbar.back': 'Atrás',
   'preview.toolbar.forward': 'Adelante',
   'preview.toolbar.reload': 'Recargar',
@@ -40,6 +45,9 @@ export const history: Partial<Record<keyof typeof ko, string>> = {
   'preview.error.crashed': 'La página dejó de responder',
   'preview.error.retry': 'Reintentar',
   'preview.design.toggle': 'Design Mode',
+  // browser pane
+  'preview.design.sessionBusy': 'Trabajando',
+  'preview.menu.page': 'Acciones de la página',
   'preview.design.tray.title': '{count} notas',
   'preview.design.send': 'Enviar a la sesión',
   'preview.design.copy': 'Copiar',

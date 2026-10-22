@@ -15,6 +15,11 @@ export const history: Partial<Record<keyof typeof ko, string>> = {
   'history.resume.folderMissingBody':
     '元のプロジェクトフォルダがありません:\n{cwd}\n\n再開するフォルダを選び直しますか？',
   'history.resume.pickFolder': 'フォルダを選択',
+  'history.panel.count': '{n} 件のプロジェクト',
+  'history.panel.emptyHint': 'これまでのエージェントとのセッションがプロジェクトごとにここに並びます。',
+  'history.menu.label': 'プロジェクトの操作',
+  'history.entry.unread': 'あなたの返信を待っています',
+  'hiw.empty.title': 'まだ記録がありません',
   'preview.toolbar.back': '戻る',
   'preview.toolbar.forward': '進む',
   'preview.toolbar.reload': '再読み込み',
@@ -40,6 +45,9 @@ export const history: Partial<Record<keyof typeof ko, string>> = {
   'preview.error.crashed': 'ページが応答を停止しました',
   'preview.error.retry': '再試行',
   'preview.design.toggle': 'Design Mode',
+  // browser pane
+  'preview.design.sessionBusy': '作業中',
+  'preview.menu.page': 'ページの操作',
   'preview.design.tray.title': 'メモ {count}',
   'preview.design.send': 'セッションに送る',
   'preview.design.copy': 'コピー',

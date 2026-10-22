@@ -4,6 +4,7 @@
 // the Host gives the app's window that size, so the picture fills the stage (src/core/workspace/size.ts).
 import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react'
 import { useI18n } from '../i18n/I18nProvider'
+import { Button, EmptyState, Icon, ICONS } from './ui'
 import { mirrorStatus, type MirrorEntry, type SessionSizeReporters } from '../lib/workspaceMirror'
 import { mirrorFrames } from '../lib/mirrorFrames'
 
@@ -65,12 +66,12 @@ export function AppMirrorPane(props: {
       <div className="app-mirror-bar">
         <span className="app-mirror-title">{t('workspace.pane.title', { session: props.sessionTitle })}</span>
         <span className="app-mirror-status">{status}</span>
-        <button type="button" className="app-mirror-btn" disabled={m?.running !== true} onClick={props.onStop}>
+        <Button size="sm" icon={<Icon name="stop" size={14} />} disabled={m?.running !== true} onClick={props.onStop}>
           {t('workspace.pane.stop')}
-        </button>
-        <button type="button" className="app-mirror-btn" disabled={!open} onClick={props.onClose}>
+        </Button>
+        <Button size="sm" icon={<Icon name="close" size={14} />} disabled={!open} onClick={props.onClose}>
           {t('workspace.pane.close')}
-        </button>
+        </Button>
       </div>
       <div ref={stage} className={`app-mirror-stage${open ? '' : ' closed'}${m?.running ? ' running' : ''}`}>
         {frame ? (
@@ -83,7 +84,7 @@ export function AppMirrorPane(props: {
             draggable={false}
           />
         ) : (
-          <div className="app-mirror-empty">{open ? t('workspace.pane.waiting') : t('workspace.pane.closed')}</div>
+          <EmptyState icon={ICONS.web}>{open ? t('workspace.pane.waiting') : t('workspace.pane.closed')}</EmptyState>
         )}
       </div>
     </div>

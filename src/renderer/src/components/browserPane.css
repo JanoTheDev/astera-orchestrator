@@ -3,14 +3,9 @@
 .bp-host { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--bg); }
 .bp-toolbar { flex: none; height: 30px; display: flex; align-items: center; gap: 4px; padding: 0 6px;
   border-bottom: 1px solid var(--line-soft); background: var(--panel); }
-.bp-toolbar button { background: none; border: 1px solid transparent; border-radius: var(--radius-sm);
-  color: inherit; opacity: .7; cursor: pointer; padding: 1px 7px; font-size: var(--fs-13); line-height: 1.4; white-space: nowrap; }
-.bp-toolbar button:hover:not(:disabled) { opacity: 1; }
-.bp-toolbar button:disabled { opacity: .3; cursor: default; }
-.bp-toolbar button.active { opacity: 1; border-color: var(--line-soft); background: color-mix(in srgb, var(--text) 7%, transparent); }
-.bp-address { flex: 1; min-width: 0; height: 22px; font: var(--fs-12) var(--mono); color: var(--text);
-  background: var(--bg); border: 1px solid var(--line-soft); border-radius: var(--radius-sm); padding: 0 8px; }
-.bp-address:focus { border-color: var(--accent); }
+/* Forward is the back arrow turned around: the icon registry has one arrow */
+.bp-flip { transform: rotate(180deg); }
+.bp-address { flex: 1; min-width: 0; height: var(--h-sm); font: var(--fs-12) var(--mono); }
 .bp-viewport { flex: none; }
 /* The stage holds the <webview> and, over it, the overlays. `overflow: hidden` clips a fixed-width
    viewport that is wider than the pane */
@@ -42,7 +37,11 @@
    position so the slide is one composited transition. The ripple keyframe is new on purpose: cm-spin
    is a rotation, this is a scale and fade. */
 .bp-agent-cursor { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 3; transition: transform 160ms ease-out; will-change: transform; }
-.bp-agent-cursor svg { position: relative; display: block; filter: drop-shadow(0 0 3px color-mix(in srgb, var(--agent-accent) 95%, transparent)) drop-shadow(0 0 8px color-mix(in srgb, var(--agent-accent) 80%, transparent)) drop-shadow(0 0 16px color-mix(in srgb, var(--agent-accent) 55%, transparent)); }
+.bp-agent-arrow { position: relative; display: block; width: 24px; height: 33px; filter: drop-shadow(0 0 3px color-mix(in srgb, var(--agent-accent) 95%, transparent)) drop-shadow(0 0 8px color-mix(in srgb, var(--agent-accent) 80%, transparent)) drop-shadow(0 0 16px color-mix(in srgb, var(--agent-accent) 55%, transparent)); }
+/* The arrow is two clipped boxes (a white edge under a black fill) on the old 16x22 path, so no hand-drawn svg is left. The filter sits on the wrapper because clip-path would cut it off the clipped boxes. */
+.bp-agent-arrow i { position: absolute; inset: 0; }
+.bp-agent-arrow i:first-child { background: var(--ink-white); clip-path: polygon(0 0%, 0 84%, 34% 60%, 54% 95%, 78% 89%, 58% 57%, 96% 57%); }
+.bp-agent-arrow i:last-child { background: var(--ink-black); clip-path: polygon(6% 4.5%, 6% 77%, 34% 57%, 56% 91%, 72% 86%, 50% 52%, 87% 52%); }
 .bp-agent-ripple { position: absolute; left: -18px; top: -18px; width: 36px; height: 36px; border: 2px solid var(--agent-accent); border-radius: 50%; animation: bp-agent-ripple 400ms ease-out forwards; }
 @keyframes bp-agent-ripple { from { transform: scale(0.4); opacity: 0.9; } to { transform: scale(1); opacity: 0; } }
 /* The agent app workspace mirror (AppMirrorPane): the agent's app on a desktop the person never sees.
@@ -51,15 +50,11 @@
 .app-mirror-bar { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--line-soft); font-size: var(--fs-12); }
 .app-mirror-title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40%; }
 .app-mirror-status { flex: 1; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.app-mirror-btn { font-size: var(--fs-12); padding: 2px 10px; }
 .app-mirror-stage { position: relative; flex: 1; min-height: 0; margin: 10px; display: flex; align-items: center; justify-content: center; overflow: hidden; border: 3px solid var(--agent-accent); border-radius: var(--radius); }
 .app-mirror-stage.running { box-shadow: inset 0 0 40px 6px color-mix(in srgb, var(--agent-accent) 45%, transparent); }
 .app-mirror-stage.closed { border-color: var(--line-soft); opacity: 0.6; }
 /* The frame fills the stage: the Host sizes the app's window to the stage (AppMirrorPane reports it), so
    the picture has the stage's shape; contain keeps it whole while a resize is on its way. */
 .app-mirror-frame { display: block; width: 100%; height: 100%; object-fit: contain; user-select: none; }
-.app-mirror-empty { color: var(--text-dim); font-size: var(--fs-13); }
-.bp-spinner { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--line);
-  border-top-color: var(--accent); animation: cm-spin .6s linear infinite; }
 /* The browser tab's busy ring on the tab bar — the session ring's shape, in the accent colour */
 .tab-dot.busy.bp-tab-busy { border-color: var(--line); border-top-color: var(--accent); border-right-color: var(--accent); }

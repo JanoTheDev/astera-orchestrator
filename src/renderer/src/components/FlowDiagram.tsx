@@ -1,6 +1,7 @@
 import type { FlowNode } from '../../../core/understanding/types'
 import { layoutFlow, NODE_H, NODE_W } from '../../../core/understanding/flowLayout'
 import { isScopable } from '../../../core/understanding/scope'
+import { Button } from './ui'
 
 /** 흐름도. 자리는 core 가 계산하고(flowLayout.ts) 여기서는 그리기만 한다 —
  *  RunDetail 의 의존 그래프가 graphLayout.ts 와 나눠 갖는 것과 같은 갈래다.
@@ -85,14 +86,20 @@ export function FlowDiagram({
             className={cls}
             style={{ left: b.x, top: b.y, width: NODE_W, height: NODE_H }}
             title={node.label}
-            onClick={pickable ? () => onPick(selected ? null : b.id) : undefined}
           >
             {/* 라벨을 span 으로 한 겹 감싸는 이유: 줄 수를 두 줄로 묶는 것(-webkit-line-clamp)은
                 display 를 -webkit-box 로 바꾸는데, 그러면 바깥 칸의 flex 가운데 정렬이 사라진다.
                 바깥은 정렬만, 안쪽은 감싸기만 맡는다. 클래스를 주지 않는 것도 뜻이 있다 —
                 `hiw-node` 로 시작하는 이름을 주면 FlowDiagram.test.ts 의 칸 개수 단언이 이 span 까지
-                세어 두 배가 된다. */}
-            <span>{node.label}</span>
+                세어 두 배가 된다.
+                고를 수 있는 단계는 칸을 덮는 버튼이다 — 키보드로 닿고, 고른 상태는 aria-pressed 가 말한다. */}
+            {pickable ? (
+              <Button variant="ghost" className="flow-pick" aria-pressed={selected} onClick={() => onPick(selected ? null : b.id)}>
+                {node.label}
+              </Button>
+            ) : (
+              <span>{node.label}</span>
+            )}
           </div>
         )
       })}

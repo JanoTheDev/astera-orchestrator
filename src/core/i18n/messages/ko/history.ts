@@ -13,6 +13,11 @@ export const history = {
   'history.resume.folderMissingBody':
     '원래 프로젝트 폴더가 없습니다:\n{cwd}\n\n재개할 폴더를 새로 선택할까요?',
   'history.resume.pickFolder': '폴더 선택',
+  'history.panel.count': '프로젝트 {n}개',
+  'history.panel.emptyHint': '에이전트와 나눈 대화가 끝나면 프로젝트별로 여기에 쌓입니다.',
+  'history.menu.label': '프로젝트 메뉴',
+  'history.entry.unread': '답을 기다리는 대화',
+  'hiw.empty.title': '아직 기록이 없습니다',
   'preview.toolbar.back': '뒤로',
   'preview.toolbar.forward': '앞으로',
   'preview.toolbar.reload': '새로고침',
@@ -38,6 +43,9 @@ export const history = {
   'preview.error.crashed': '페이지가 멈췄습니다',
   'preview.error.retry': '다시 시도',
   'preview.design.toggle': 'Design Mode',
+  // browser pane
+  'preview.design.sessionBusy': '작업 중',
+  'preview.menu.page': '페이지 작업',
   'preview.design.tray.title': '메모 {count}',
   'preview.design.send': '세션에 보내기',
   'preview.design.copy': '복사',

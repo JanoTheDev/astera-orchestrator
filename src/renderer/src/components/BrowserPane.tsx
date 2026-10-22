@@ -21,8 +21,7 @@ import { toast } from '../lib/toast'
 import { escStopsAgent, pointerToView, type AgentPointerState } from './agentOverlay'
 import { AnnotationPopover } from './AnnotationPopover'
 import { AnnotationTray } from './AnnotationTray'
-import { ContextMenu, type MenuItem } from './ContextMenu'
-import { Select } from './Select'
+import { EmptyState, Icon, ICONS, IconButton, Input, Menu, Button, Select, type MenuItem } from './ui'
 import type { BrowserTab } from './WorkbenchTabs'
 
 /** What the pane reports back to App. `loading` is chip state; `url`/`title` follow the page;
@@ -792,11 +791,17 @@ export function BrowserPane({
     if (sessions.length === 1) { sendTo(sessions[0].id); return }
     setSendMenu({ x: anchor.left, y: anchor.bottom + 2 })
   }
-  const sendItems: MenuItem[] = sessions.map((s) => ({ label: `${s.busy ? '● ' : ''}${s.title}`, onSelect: () => sendTo(s.id) }))
+  // A busy session carries a spinner icon (named for a reader) instead of a glyph in the title
+  const sendItems: Array<MenuItem | 'separator'> = sessions.map((s) => ({
+    id: s.id,
+    label: s.title,
+    icon: s.busy ? <Icon name="loading" className="ui-spin" label={t('preview.design.sessionBusy')} /> : undefined,
+    onSelect: () => sendTo(s.id)
+  }))
 
   const waiting = error?.kind === 'unreachable' && serverPending && !gaveUp
 
-  const menuItems: MenuItem[] = menu
+  const menuItems: Array<MenuItem | 'separator'> = menu
     ? [
         { label: t('preview.toolbar.back'), disabled: !canBack, onSelect: () => viewRef.current?.goBack() },
         { label: t('preview.toolbar.reload'), onSelect: () => viewRef.current?.reload() },
@@ -809,21 +814,15 @@ export function BrowserPane({
   return (
     <div className="bp-host">
       <div className="bp-toolbar">
-        <button type="button" disabled={!canBack} title={t('preview.toolbar.back')} aria-label={t('preview.toolbar.back')} onClick={() => viewRef.current?.goBack()}>
-          ◀
-        </button>
-        <button type="button" disabled={!canForward} title={t('preview.toolbar.forward')} aria-label={t('preview.toolbar.forward')} onClick={() => viewRef.current?.goForward()}>
-          ▶
-        </button>
-        <button
-          type="button"
-          title={loading ? t('preview.toolbar.stop') : t('preview.toolbar.reload')}
-          aria-label={loading ? t('preview.toolbar.stop') : t('preview.toolbar.reload')}
+        <IconButton size="sm" icon={<Icon name="back" />} label={t('preview.toolbar.back')} disabled={!canBack} onClick={() => viewRef.current?.goBack()} />
+        <IconButton size="sm" icon={<Icon name="back" className="bp-flip" />} label={t('preview.toolbar.forward')} disabled={!canForward} onClick={() => viewRef.current?.goForward()} />
+        <IconButton
+          size="sm"
+          icon={<Icon name={loading ? 'close' : 'refresh'} />}
+          label={loading ? t('preview.toolbar.stop') : t('preview.toolbar.reload')}
           onClick={() => (loading ? viewRef.current?.stop() : viewRef.current?.reload())}
-        >
-          {loading ? '✕' : '↻'}
-        </button>
-        <input
+        />
+        <Input
           className="bp-address"
           aria-label={t('preview.toolbar.address')}
           value={address}
@@ -850,7 +849,7 @@ export function BrowserPane({
           }}
         />
         <Select
-          className="bp-viewport"
+          className="bp-viewport dense"
           items={VIEWPORTS.map((v) => ({
             value: v.key,
             // The dimensions are part of the label on purpose: what a developer is choosing is a width,
@@ -864,24 +863,17 @@ export function BrowserPane({
           ariaLabel={t('preview.viewport.label')}
         />
         {presetSize && (
-          <button
-            type="button"
+          <IconButton
+            size="sm"
+            icon={<Icon name="refresh" />}
+            label={t('preview.viewport.rotate')}
             title={`${t('preview.viewport.rotate')} (${presetSize.width} × ${presetSize.height})`}
-            aria-label={t('preview.viewport.rotate')}
             onClick={() => setRotated((r) => !r)}
-          >
-            ⟳
-          </button>
+          />
         )}
-        <button type="button" className={devtools ? 'active' : ''} title={t('preview.toolbar.devtools')} onClick={toggleDevtools}>
-          {t('preview.toolbar.devtools')}
-        </button>
-        <button type="button" className={designMode ? 'active' : ''} title={t('preview.design.toggle')} onClick={() => setDesignMode((d) => !d)}>
-          {t('preview.design.toggle')}
-        </button>
-        <button type="button" title={t('preview.toolbar.openExternal')} aria-label={t('preview.toolbar.openExternal')} onClick={() => onOpenExternal(tab.url)}>
-          ↗
-        </button>
+        <IconButton size="sm" icon={<Icon name="terminal" />} label={t('preview.toolbar.devtools')} active={devtools} aria-pressed={devtools} onClick={toggleDevtools} />
+        <IconButton size="sm" icon={<Icon name="edit" />} label={t('preview.design.toggle')} active={designMode} aria-pressed={designMode} onClick={() => setDesignMode((d) => !d)} />
+        <IconButton size="sm" icon={<Icon name="external" />} label={t('preview.toolbar.openExternal')} onClick={() => onOpenExternal(tab.url)} />
       </div>
       <div className={`bp-stage${frame ? ' fixed' : ''}`} ref={stageRef}>
         {/* allowpopups looks like the opposite of what this pane wants, and it is not. Without it the
@@ -923,10 +915,8 @@ export function BrowserPane({
           return (
             <div className="bp-agent-cursor" aria-hidden="true" style={{ transform: `translate(${at.left}px, ${at.top}px)` }}>
               {pointer && pointer.kind === 'click' && <span key={pointer.seq} className="bp-agent-ripple" />}
-              {/* The tip of the arrow is the point: the path starts at (1,1), scaled 1.5x by the viewBox. */}
-              <svg width="24" height="33" viewBox="0 0 16 22">
-                <path d="M1 1 L1 17 L5.5 12.5 L9 20 L11.5 19 L8 11.5 L14 11.5 Z" fill="#000" stroke="#fff" strokeWidth="1.5" strokeLinejoin="round" />
-              </svg>
+              {/* The tip of the arrow is the point: the polygon starts at (1,1) of a 16x22 box, drawn 1.5x (browserPane.css). */}
+              <span className="bp-agent-arrow"><i /><i /></span>
             </div>
           )
         })()}
@@ -934,22 +924,25 @@ export function BrowserPane({
           <div className="bp-overlay">
             {waiting ? (
               <>
-                <span className="bp-spinner" />
+                <Icon name="loading" size={20} className="ui-spin" />
                 <div>{t('preview.waiting')}</div>
               </>
             ) : (
-              <>
-                <div>
-                  {error.kind === 'unreachable'
+              <EmptyState
+                icon={ICONS.warning}
+                title={
+                  error.kind === 'unreachable'
                     ? t('preview.error.unreachable', { host: displayHostOf(error.url) })
                     : error.kind === 'crashed'
                       ? t('preview.error.crashed')
-                      : t('preview.error.failed', { detail: error.description })}
-                </div>
-                <button type="button" onClick={() => load(error.kind === 'crashed' ? tab.url : error.url)}>
-                  {t('preview.error.retry')}
-                </button>
-              </>
+                      : t('preview.error.failed', { detail: error.description })
+                }
+                action={
+                  <Button variant="secondary" icon={<Icon name="refresh" />} onClick={() => load(error.kind === 'crashed' ? tab.url : error.url)}>
+                    {t('preview.error.retry')}
+                  </Button>
+                }
+              />
             )}
           </div>
         )}
@@ -974,8 +967,8 @@ export function BrowserPane({
           />
         )}
       </div>
-      {sendMenu && <ContextMenu x={sendMenu.x} y={sendMenu.y} items={sendItems} onClose={() => setSendMenu(null)} />}
-      {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />}
+      {sendMenu && <Menu at={sendMenu} label={t('preview.design.send')} items={sendItems} onClose={() => setSendMenu(null)} />}
+      {menu && <Menu at={menu} label={t('preview.menu.page')} items={menuItems} onClose={() => setMenu(null)} />}
     </div>
   )
 }
