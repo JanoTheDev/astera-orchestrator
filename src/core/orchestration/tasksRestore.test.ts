@@ -20,7 +20,9 @@ const backup: OrchState = {
     task('t2', 'run_a', 'pending'),
     task('t3', 'run_a', 'dispatched'),
     task('t4', 'run_a', 'completed'),
-    task('tb', 'run_b')
+    task('tb', 'run_b'),
+    { ...task('da', 'x'), runId: undefined, jobId: 'job_a' } as Task,
+    { ...task('db2', 'x'), runId: undefined, jobId: 'job_b' } as Task
   ],
   dispatches: [dispatch('d3', 't3'), dispatch('d4', 't4', AT), dispatch('db', 'tb', AT)]
 }
@@ -34,14 +36,16 @@ const live: OrchState = {
 describe('planTasksRestore', () => {
   it('lists only the missing Tasks of the chosen Job', () => {
     const p = planTasksRestore(live, backup, { job: 'job_a' })
-    expect(p.tasks.map((t) => t.id)).toEqual(['t2', 't3', 't4'])
-    expect(p.state.tasks).toHaveLength(4)
+    expect(p.tasks.map((t) => t.id)).toEqual(['t2', 't3', 't4', 'da'])
+    expect(p.state.tasks).toHaveLength(5)
   })
 
   it('restores them, skips existing ids and leaves other Jobs alone', () => {
     const p = planTasksRestore(live, backup, { run: 'run_a' })
     expect(p.state.tasks.find((t) => t.id === 't1')?.title).toBe('live edit')
     expect(p.state.tasks.some((t) => t.id === 'tb')).toBe(false)
+    expect(p.state.tasks.some((t) => t.id === 'da')).toBe(false) // a run scope is run Tasks only
+    expect(planTasksRestore(live, backup, { job: 'job_a' }).state.tasks.some((t) => t.id === 'db2')).toBe(false)
     expect(p.state.dispatches.some((d) => d.id === 'db')).toBe(false)
   })
 
@@ -59,8 +63,13 @@ describe('planTasksRestore', () => {
     expect(() => planTasksRestore(live, backup, {})).toThrow()
   })
 
+  it('leaves out definition Tasks whose Job is gone from the live store', () => {
+    const p = planTasksRestore({ ...live, jobs: [job('job_b')] }, backup, { job: 'job_a' })
+    expect(p.tasks.map((t) => t.id)).toEqual(['t2', 't3', 't4'])
+  })
+
   it('leaves out Tasks whose Run is gone from the live store', () => {
     const p = planTasksRestore({ ...live, runs: [] }, backup, { job: 'job_a' })
-    expect(p.tasks).toEqual([])
+    expect(p.tasks.map((t) => t.id)).toEqual(['da']) // only the definition Task: no Run to hang run Tasks on
   })
 })
