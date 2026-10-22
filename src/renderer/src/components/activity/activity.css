@@ -8,11 +8,8 @@
 .act-faint { color: var(--text-faint); }
 .act-feed { list-style: none; margin: 0; padding: 0; max-height: 260px; overflow-y: auto; }
 .act-line { border-left: 2px solid transparent; }
-.act-row {
-  display: flex; gap: 6px; width: 100%; min-width: 0; padding: 2px 12px 0; background: none; border: 0;
-  color: var(--text); text-align: left; font-size: var(--fs-12);
-}
-.act-row:not(:disabled) { cursor: pointer; }
+.act-row { width: 100%; min-width: 0; height: auto; justify-content: flex-start; padding: 2px 12px 0; color: var(--text); text-align: left; font-size: var(--fs-12); font-weight: var(--fw-regular); }
+.act-row .ui-btn__label { display: flex; flex: 1; gap: 6px; min-width: 0; }
 .act-row:hover:not(:disabled) { background: var(--elevated); }
 .act-time { flex: none; color: var(--text-faint); font-variant-numeric: tabular-nums; }
 .act-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -2,10 +2,11 @@
 // summary on top. Drawing and polling only: the lines are the Host's (core/orchestration/activity.ts), the words
 // activityView.ts's, a blocked Task's reason planBoard.ts's.
 import { useEffect, useState } from 'react'
-import { ChevronDown, ChevronRight } from 'lucide-react'
 import type { ActivityEvent, ActivitySummary } from '../../../../core/orchestration/activity'
 import type { Account, TaskBlockedReason } from '../../../../core/types'
 import { useI18n } from '../../i18n/I18nProvider'
+import type { MessageKey } from '../../../../core/i18n'
+import { Button, Icon } from '../ui'
 import { reasonText } from '../plan/planBoard'
 import { feedOf, lineOf, mergePage, summaryOf, whoOf } from './activityView'
 import './activity.css'
@@ -15,6 +16,14 @@ import { usePanelOpen } from '../../hooks/usePanelOpen'
 const POLL_MS = 5000
 const SUMMARY_MS = 30_000
 const SUMMARY_WINDOW_MS = 15 * 60_000
+
+const BUCKET_KEY: Record<string, MessageKey> = {
+  completed: 'activity.bucket.completed',
+  failed: 'activity.bucket.failed',
+  cancelled: 'activity.bucket.cancelled',
+  'awaiting review': 'activity.bucket.awaitingReview',
+  blocked: 'activity.bucket.blocked'
+}
 
 const timeOf = (iso: string): string => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 
@@ -91,26 +100,26 @@ export function ActivityPanel({
   return (
     <section className="worktree-panel activity-panel">
       <header className="panel-header">
-        <button className="panel-toggle" onClick={() => setOpen((v) => !v)}>
-          {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />} Activity
-        </button>
+        <Button variant="ghost" size="sm" className="panel-toggle" aria-expanded={open} icon={<Icon name={open ? 'chevronDown' : 'chevronRight'} size={14} />} onClick={() => setOpen((v) => !v)}>
+          {t('activity.panel.title')}
+        </Button>
         {planId !== null && (
           <div className="panel-actions">
-            <button className="ws-link" onClick={() => setAll((v) => !v)} title={all ? 'Only the open plan' : 'Every plan'}>
-              {all ? 'This plan' : 'All plans'}
-            </button>
+            <Button variant="ghost" size="sm" className="ws-link" onClick={() => setAll((v) => !v)} title={all ? t('activity.panel.onlyOpen') : t('activity.panel.everyPlan')}>
+              {all ? t('activity.panel.thisPlan') : t('activity.panel.allPlans')}
+            </Button>
           </div>
         )}
       </header>
       {open && (
         <>
-          <div className="act-summary" aria-label="Last 15 minutes">
-            <span className="act-summary-head">Last 15 min</span>
-            {buckets.length === 0 && <span className="act-faint">nothing new</span>}
+          <div className="act-summary" aria-label={t('activity.panel.last15')}>
+            <span className="act-summary-head">{t('activity.panel.last15')}</span>
+            {buckets.length === 0 && <span className="act-faint">{t('activity.panel.nothingNew')}</span>}
             {buckets.map((b) => (
               <details key={b.label} className={`act-bucket act-${b.tone}`}>
                 <summary>
-                  {b.items.length} {b.label}
+                  {b.items.length} {BUCKET_KEY[b.label] ? t(BUCKET_KEY[b.label]) : b.label}
                 </summary>
                 <ul>
                   {b.items.map((x) => (
@@ -124,22 +133,24 @@ export function ActivityPanel({
             ))}
           </div>
           <ul className="act-feed">
-            {lines.length === 0 && <li className="ws-empty">No activity yet</li>}
+            {lines.length === 0 && <li className="ws-empty">{t('activity.panel.empty')}</li>}
             {lines.map((e) => {
               const { text, tone } = lineOf(e, label, lang)
-              const who = whoOf(e, label)
+              const who = whoOf(e, label, lang)
               const openable = e.sessionId !== undefined && e.jobId !== undefined && onOpenSession !== undefined
               return (
                 <li key={e.id} className={`act-line act-${tone}`}>
-                  <button
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     className="act-row"
                     disabled={!openable}
-                    title={openable ? 'Open its session' : undefined}
+                    title={openable ? t('activity.panel.openSession') : undefined}
                     onClick={() => openable && onOpenSession!(e.sessionId!, e.jobId!)}
                   >
                     <span className="act-time">{timeOf(e.occurredAt)}</span>
                     <span className="act-text">{text}</span>
-                  </button>
+                  </Button>
                   {who && <div className="act-who">{who}</div>}
                 </li>
               )

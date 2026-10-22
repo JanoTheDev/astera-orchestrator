@@ -30,16 +30,13 @@
   height: 30px;
   padding: 0 var(--sp-2);
   box-sizing: border-box;
-  border: 0;
-  border-radius: var(--radius);
-  background: none;
   color: var(--text);
-  font: inherit;
   font-size: var(--fs-13);
+  justify-content: flex-start;
+  font-weight: var(--fw-regular);
   text-align: left;
-  cursor: pointer;
-  transition: background var(--dur-fast) var(--ease-out);
 }
+.inbox__line-row .ui-btn__label { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; }
 .inbox__line-row:hover:not(:disabled) { background: var(--hover); }
 .inbox__line-row:disabled { cursor: default; color: var(--text); opacity: 1; }
 .inbox__tone { flex: none; color: var(--text-faint); }
@@ -65,3 +62,6 @@
   .inbox__cols--quiet { overflow: hidden; }
   .inbox__cols--quiet .inbox__col--handled { overflow-y: auto; }
 }
+/* The bell popover's handled lines (shell/NotificationBell.tsx) are ui Buttons: their label span carries the row layout */
+.bell__line { justify-content: flex-start; font-weight: var(--fw-regular); }
+.bell__line .ui-btn__label { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; }
