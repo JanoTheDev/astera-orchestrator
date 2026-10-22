@@ -172,3 +172,41 @@ describe('toast ttlMs (W8-F, #94)', () => {
     expect(w.items.map((t) => t.message)).toEqual(['stays'])
   })
 })
+
+describe('pausing the timers (T7: a toast under the pointer or focus does not close)', () => {
+  it('holds every auto-dismiss while paused and resumes with the time that was left', () => {
+    const w = watch()
+    mod.toast.info('held')
+    vi.advanceTimersByTime(3000)
+    mod.pauseTimers()
+    vi.advanceTimersByTime(60_000)
+    expect(w.items).toHaveLength(1)
+    mod.resumeTimers()
+    vi.advanceTimersByTime(999)
+    expect(w.items).toHaveLength(1)
+    vi.advanceTimersByTime(1)
+    expect(w.items).toHaveLength(0)
+  })
+
+  it('a toast raised while paused waits for the resume', () => {
+    const w = watch()
+    mod.pauseTimers()
+    mod.toast.success('later')
+    vi.advanceTimersByTime(10_000)
+    expect(w.items).toHaveLength(1)
+    mod.resumeTimers()
+    vi.advanceTimersByTime(4000)
+    expect(w.items).toHaveLength(0)
+  })
+
+  it('pausing twice or resuming unpaused changes nothing; errors still never auto-close', () => {
+    const w = watch()
+    mod.toast.error('stays')
+    mod.resumeTimers()
+    mod.pauseTimers()
+    mod.pauseTimers()
+    mod.resumeTimers()
+    vi.advanceTimersByTime(60_000)
+    expect(w.items).toHaveLength(1)
+  })
+})

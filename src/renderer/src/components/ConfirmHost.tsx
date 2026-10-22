@@ -1,12 +1,12 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { settle, subscribe, type PendingConfirm } from '../lib/confirm'
 import { useI18n } from '../i18n/I18nProvider'
-import { Button, Modal } from './ui'
+import { ConfirmDialog } from './ui/ConfirmDialog'
 
 /** Where confirmation modals are displayed — mounted exactly once, at App's root. It only subscribes to
  *  the store (lib/confirm), so the asking side does nothing but await confirmModal(...). The cancel paths
  *  match window.confirm: ESC (Modal) and a backdrop click = cancel, and since the confirm button has focus,
- *  Enter = confirm. */
+ *  Enter = confirm. The dialog is ui/ConfirmDialog; this file only binds it to the store. */
 export function ConfirmHost(): React.JSX.Element | null {
   const [pending, setPending] = useState<PendingConfirm | null>(null)
   /** 켜진 choice 의 id 들. 창이 바뀌면 초기화한다 — 남겨 두면 다음 확인 창이 앞의 선택을 물려받는다 */
@@ -37,24 +37,16 @@ export function ConfirmView({
   onChecked: (update: (prev: string[]) => string[]) => void
 }): React.JSX.Element {
   const { t } = useI18n()
-  const confirmRef = useRef<HTMLButtonElement>(null)
-  // Modal puts focus on the first control in the body; the confirm button (in the footer) must have it so Enter confirms.
-  // This effect runs after Modal's, since ConfirmView is its parent.
-  useEffect(() => confirmRef.current?.focus(), [])
   return (
-    <Modal
+    <ConfirmDialog
       title={pending.title}
-      onClose={() => settle(false)}
-      size="sm"
+      danger={pending.danger}
+      confirmLabel={pending.confirmLabel ?? t('common.confirm')}
+      cancelLabel={pending.cancelLabel ?? t('common.cancel')}
       closeLabel={t('common.close')}
-      footer={
-        <>
-          <Button onClick={() => settle(false, checked)}>{pending.cancelLabel ?? t('common.cancel')}</Button>
-          <Button ref={confirmRef} variant="primary" onClick={() => settle(true, checked)}>
-            {pending.confirmLabel ?? t('common.confirm')}
-          </Button>
-        </>
-      }
+      onConfirm={() => settle(true, checked)}
+      onCancel={() => settle(false, checked)}
+      onDismiss={() => settle(false)}
     >
       <div className="dlg">
         <p className="confirm-text confirm-body">{pending.body}</p>
@@ -84,6 +76,6 @@ export function ConfirmView({
         {/* Read last, after the choices: the plugin install warning's trust sentence (spec §31). */}
         {pending.footer !== undefined && pending.footer !== '' && <p className="confirm-text confirm-body">{pending.footer}</p>}
       </div>
-    </Modal>
+    </ConfirmDialog>
   )
 }
