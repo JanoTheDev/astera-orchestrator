@@ -19,6 +19,7 @@ import { useAttention } from '../../state/useAttention'
 import { openConsole, openPlan } from '../shell/navigation'
 import type { ActionUi } from '../../lib/jobActions'
 import { boxHits, type BoxHit } from './boxHits'
+import { setHelpOpen } from '../help/helpStore'
 import { boxModeOf } from './boxMode'
 import { boxSourceOf } from './boxSource'
 import { directoryOf } from './directory'
@@ -76,13 +77,17 @@ export function CommandBar({
   // W9-D: the search half. Attention is read only while the box is open.
   const attention = useAttention(open ? tree.flatMap((p) => p.plans.flatMap((pl) => planSessions(pl).map((s) => s.sessionId))) : [])
   const source = useMemo(() => (open ? boxSourceOf(tree, data, attention) : null), [open, tree, data, attention])
-  const hits = useMemo(() => (source ? boxHits(source, input.trim()) : []), [source, input])
+  const hits = useMemo(
+    () => (source ? boxHits({ ...source, help: { title: t('help.title'), where: t('help.where'), words: ['help', '?', 'f1', 'how to'] } }, input.trim()) : []),
+    [source, input, t]
+  )
   const mode = boxModeOf(input, hits.length)
   const [sel, setSel] = useState(0)
   useEffect(() => setSel(0), [input])
   const pick = (h: BoxHit): void => {
     onClose()
     if (h.kind === 'session') openConsole(h.sessionId)
+    else if (h.kind === 'help') setHelpOpen(true)
     else openPlan(h.jobId, h.kind === 'task' ? 'tasks' : undefined)
   }
 
@@ -314,7 +319,7 @@ export function CommandBar({
                 <>
                   <span className="ov-pick-kind">
                     <Icon name={HIT_ICON[h.kind]} size={14} />
-                    {tr(`command.group.${h.kind}s`)}
+                    {h.kind === 'help' ? tr('help.title') : tr(`command.group.${h.kind}s`)}
                   </span>
                   <span className="ov-pick-main">
                     <span className="ov-pick-title">{h.title}</span>
@@ -342,4 +347,4 @@ export function CommandBar({
   )
 }
 
-const HIT_ICON: Record<BoxHit['kind'], IconName> = { session: 'terminal', plan: 'layers', task: 'tasks' }
+const HIT_ICON: Record<BoxHit['kind'], IconName> = { session: 'terminal', plan: 'layers', task: 'tasks', help: 'info' }

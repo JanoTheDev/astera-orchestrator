@@ -322,3 +322,16 @@ describe('page shortcuts', () => {
     expect(findActionForEvent(resolveBindings({}, actions), ev({ code: 'Digit2', metaKey: true }), actions)).toBe('page.tasks')
   })
 })
+
+describe('help.open (T30)', () => {
+  it('F1 opens help and the action is rebindable', () => {
+    const bindings = resolveBindings({}, ACTIONS)
+    expect(bindings['help.open'].map(formatChord)).toEqual(['F1'])
+    expect(findActionForEvent(bindings, ev({ code: 'F1' }), ACTIONS)).toBe('help.open')
+    const moved = resolveBindings({ 'help.open': ['Ctrl+Shift+/'] }, ACTIONS)
+    expect(findActionForEvent(moved, ev({ code: 'F1' }), ACTIONS)).toBeNull()
+  })
+  it('F1 clashes with no other default', () => {
+    expect(findConflicts(resolveBindings({}, ACTIONS), ACTIONS)).toEqual([])
+  })
+})

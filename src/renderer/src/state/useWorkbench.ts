@@ -45,6 +45,7 @@ import type { useSettings } from './useSettings'
 import type { useDialogs } from './useDialogs'
 import { scopeKey } from './appConstants'
 import { openInbox } from '../components/shell/navigation'
+import { setHelpOpen } from '../components/help/helpStore'
 import { closeSessionTab, dropClosed, isAgentSession, ownConsolePref, recentlyClosed, recordClosed, reopenClosed, reopenWayOf, setOwnConsolePref, setReopenHandler, type ClosedTab, type CloseHow } from '../lib/recentlyClosed'
 
 export type WorkbenchDeps = Pick<ReturnType<typeof useWorkbenchState>,
@@ -468,6 +469,13 @@ export function useWorkbench(deps: WorkbenchDeps) {
         e.preventDefault()
         e.stopPropagation()
         if (!e.repeat) window.api.win.openNew(null)
+        return
+      }
+      // T30: the in-app help opens (or closes) like the switcher
+      if (action === 'help.open') {
+        e.preventDefault()
+        e.stopPropagation()
+        if (!e.repeat) setHelpOpen((v) => !v)
         return
       }
       // T13: the newest of Recently closed comes back
