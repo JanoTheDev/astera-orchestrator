@@ -19,25 +19,7 @@ import { isTerminal } from './running'
 import { objectiveItemsOf } from './objectiveItems'
 // T1 the main plan: deps on another plan's Tasks of the project
 import { crossPlanDepRefusal, holdExternalDeps, waitsOnItself } from './mainPlan'
-
-/** T1: why `task` may not take `deps`, or undefined: each one a Task of `own` (its plan or Run), or of another active or
- *  queued plan of the project (mainPlan.ts `crossPlanDepRefusal`), and none that would make it wait on itself across plans. */
-function depsRefusal(s: OrchState, task: Task, deps: string[], own: ReadonlySet<string>): string | undefined {
-  if (deps.includes(task.id)) return `${task.id} cannot wait on itself`
-  const planId = task.jobId ?? s.runs.find((r) => r.id === task.runId)?.jobId
-  for (const d of deps) {
-    if (own.has(d)) continue
-    const dep = s.tasks.find((t) => t.id === d)
-    if (!dep) return `unknown dep ${d}: deps must be Tasks of this plan or of another active plan of this project`
-    const refused = crossPlanDepRefusal(s, planId, dep)
-    if (refused !== undefined) return refused
-    if (dep.jobId === planId || s.runs.some((r) => r.id === dep.runId && r.jobId === planId))
-      return `${d} is a Task of another Run of this plan: deps must be Tasks of the same run`
-  }
-  const tasks = s.tasks.map((t) => (t.id === task.id ? { ...t, deps } : t))
-  if (waitsOnItself(tasks, task.id)) return `those deps would make ${task.id} wait on itself`
-  return undefined
-}
+import { depsRefusal } from './replan'
 
 /** W8-C prompts mode: what a planner of a Run-as-written plan is told when it tries to change the owner's text. */
 export const VERBATIM_REFUSAL =
@@ -70,6 +52,8 @@ export const PLANNER_COMMANDS: ReadonlySet<string> = new Set([
   'jobs-feedback-done',
   // W8-D several plans in one repo: read where the plan meets another, and name its areas (`jobs-set --areas` only)
   'jobs-overlaps',
+  // T3: the whole main plan of its project
+  'main-plan',
   'jobs-set',
   // T7: the planner names its own Job once it knows the goal
   'jobs-rename'

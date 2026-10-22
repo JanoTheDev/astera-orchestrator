@@ -1,7 +1,7 @@
 // W6-D wave replanning: waves, the wave gate, when a replan is due, and the edits a replan may make.
 import { describe, it, expect } from 'vitest'
 import { emptyState, type OrchState } from './state'
-import type { Dispatch, Job, Task } from './types'
+import type { Dispatch, Job, JobRun, Task } from './types'
 import { cancelRemainingTask, completionSettled, editRemainingTask, notStarted, replanOn, replansDue, waveOf, waveOpen } from './replan'
 import { slotsToFill } from './schedule'
 
@@ -226,6 +226,35 @@ describe('editRemainingTask / cancelRemainingTask', () => {
   it('refuses deps outside the Run and a cycle', () => {
     expect(editRemainingTask(s, 'b', { deps: ['elsewhere'] }, NOW).ok).toBe(false)
     expect(editRemainingTask(s, 'b', { deps: ['c'] }, NOW).ok).toBe(false)
+  })
+
+  // T3: a cross-plan dep, as task-create allows. Plan job_2 (same project) holds x1; job_3 is another project's.
+  const withOthers = (x1: Partial<Task> = {}, delivery?: JobRun['delivery']): OrchState => ({
+    ...s,
+    jobs: [
+      ...s.jobs,
+      { id: 'job_2', objective: 'o', cwd: '/p', createdAt: NOW, autoDispatch: true, concurrency: 5 },
+      { id: 'job_3', objective: 'o', cwd: '/q', createdAt: NOW, autoDispatch: true, concurrency: 5 }
+    ],
+    runs: [...s.runs, { id: 'run_2', jobId: 'job_2', ordinal: 1, createdAt: NOW, ...(delivery ? { delivery } : {}) }, { id: 'run_3', jobId: 'job_3', ordinal: 1, createdAt: NOW }],
+    tasks: [...s.tasks, task('x1', { runId: 'run_2', status: 'completed', ...x1 }), task('y1', { runId: 'run_3', status: 'dispatched' })]
+  })
+
+  it('takes a dep on a Task of another plan of the project, and keeps the Task pending until that plan delivers', () => {
+    const held = editRemainingTask(withOthers(), 'b', { deps: ['a', 'x1'] }, NOW)
+    expect(held.ok && held.value).toMatchObject({ deps: ['a', 'x1'], status: 'pending' })
+    const landed = editRemainingTask(withOthers({}, { sha: 'abc' } as JobRun['delivery']), 'b', { deps: ['a', 'x1'] }, NOW)
+    expect(landed.ok && landed.value).toMatchObject({ status: 'ready' })
+  })
+
+  it('refuses a dep on another project’s Task, an unknown one and a cycle across plans', () => {
+    const other = editRemainingTask(withOthers(), 'b', { deps: ['y1'] }, NOW)
+    expect(!other.ok && other.error).toMatch(/another project/)
+    expect(editRemainingTask(withOthers(), 'b', { deps: ['nope'] }, NOW).ok).toBe(false)
+    const looped = withOthers()
+    looped.tasks = looped.tasks.map((t) => (t.id === 'x1' ? { ...t, status: 'pending' as const, deps: ['b'] } : t))
+    const cycle = editRemainingTask(looped, 'b', { deps: ['x1'] }, NOW)
+    expect(!cycle.ok && cycle.error).toMatch(/wait on itself/)
   })
 
   it('cancels a Task nothing unfinished waits on', () => {

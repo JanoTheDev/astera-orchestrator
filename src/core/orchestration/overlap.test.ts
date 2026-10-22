@@ -7,18 +7,20 @@ import { buildPlannerBrief } from './handover'
 import {
   areasArg,
   DROPPED_OPTIONS,
+  mainPlanText,
   otherPlansBrief,
   overlapLines,
   overlapsOf,
   planOverlapWarnings,
   plannerOverlapNotices,
   refreshOverlaps,
+  STOPPED_DEP_OPTIONS,
   taskCreateWarnings,
   titleSimilarity
 } from './overlap'
 import { plannerRefusal } from './planner'
 import { LEASE_WAIT_OPTIONS, slotsToFill } from './schedule'
-import { emptyState, type OrchState } from './state'
+import { emptyState, resolveGate, type OrchState } from './state'
 import type { Dispatch, Job, JobRun, Task } from './types'
 import { buildReplanBrief } from './exec/replanStart'
 import { deriveActivity, noticeOf, type ActivityEvent } from './activity'
@@ -169,25 +171,105 @@ describe('the briefs list the other plans of the repository', () => {
     ]
   }
 
-  it("in the planner's brief: their Tasks, state and paths", () => {
+  it("in the planner's brief: the main plan, with the open Tasks of live plans", () => {
     const other = otherPlansBrief(s, s.jobs[1])
-    expect(other).toContain('Auth rework (job jA, completed, areas: auth)')
-    // T1: a finished plan is one line, with no Task lines
-    expect(other).toContain('1 Tasks done (astera tasks list --run jA --json)')
-    expect(other).not.toContain('T6 [completed]')
-    // an active plan keeps its Task lines
+    expect(other).toContain('MAIN PLAN OF THIS PROJECT')
+    expect(other).toContain('depend on its Task with `--deps <taskId>` (it waits until that plan delivers) or leave it out, and name it in')
+    // a finished plan is one line, with no Task lines
+    expect(other).toContain('- Auth rework (job jA, completed, areas: auth)')
+    expect(other).not.toContain('T6')
+    // an active plan lists its Tasks not completed: id, title, status, paths
     expect(other).toContain('Live plan (job jD')
-    expect(other).toContain('  - T9 [dispatched]: src/ui/')
+    expect(other).toContain('  - t9 T9 [dispatched]: src/ui/')
     expect(other).not.toContain('Elsewhere')
     const brief = buildPlannerBrief({ jobId: 'jB', objective: 'o', repoRoot: '/repo', accountId: 'acc_1', concurrency: 2, otherPlans: other })
-    expect(brief).toContain('OTHER PLANS IN THIS REPOSITORY')
+    expect(brief).toContain('MAIN PLAN OF THIS PROJECT')
     expect(brief).toContain('--areas')
     expect(otherPlansBrief(s, s.jobs[2])).toBe('')
   })
 
   it("in the replan's brief", () => {
     const brief = buildReplanBrief({ job: s.jobs[1], runId: 'r2', mode: 'wave', wave: 1, accountId: 'a', followUps: 0, done: [], running: [], left: [], otherPlans: otherPlansBrief(s, s.jobs[1]) })
-    expect(brief).toContain('Auth rework (job jA, completed, areas: auth): 1 Tasks done (astera tasks list --run jA --json)')
+    expect(brief).toContain('- Auth rework (job jA, completed, areas: auth)')
+  })
+
+  it('lists the links of live plans, and counts Tasks past the cap', () => {
+    const linked: OrchState = {
+      ...s,
+      tasks: [...s.tasks, task('t10', { runId: 'r4' }, { title: 'T10', status: 'pending', deps: ['t6'] })]
+    }
+    expect(otherPlansBrief(linked, linked.jobs[1])).toContain('link: t10 waits on t6 (not delivered)')
+    const many: OrchState = {
+      ...s,
+      tasks: [...s.tasks, ...Array.from({ length: 45 }, (_, i) => task(`m${i}`, { runId: 'r4' }, { status: 'pending' }))]
+    }
+    expect(otherPlansBrief(many, many.jobs[1])).toContain('… 6 more (astera main-plan --json)')
+  })
+
+  it('is shorter than the old list of every Task for ten plans', () => {
+    const jobs = Array.from({ length: 10 }, (_, i) => job(`j${i}`, { title: `Plan number ${i}`, areas: ['api'] }))
+    const runs = jobs.map((j, i) => run(`rr${i}`, j.id))
+    // plans 0-6 finished with 6 Tasks each; plans 7-9 running with 4 done and 2 open
+    const tasks = jobs.flatMap((j, i) =>
+      Array.from({ length: 6 }, (_, n) =>
+        task(`tsk_${i}_${n}`, { runId: `rr${i}` }, { title: `Task ${i}.${n} of the plan`, status: i < 7 || n < 4 ? 'completed' : 'ready', affectedPaths: [`src/area${i}/file${n}.ts`] })
+      )
+    )
+    const big: OrchState = { ...emptyState(), jobs: [...jobs, job('me', { pendingStart: true })], runs, tasks }
+    // the old brief: five rules lines, then every Task of every plan, a finished plan with its count and command
+    const old = [
+      'OTHER PLANS IN THIS REPOSITORY',
+      'Other plans work in this repository too. Never plan a Task another plan already holds: if one of yours would',
+      'do the same work, leave it out and name that plan and Task in existing.md (as you would an open issue). Plan',
+      'around their files where you can; where you cannot, say so in existing.md. Astera runs no two workers on the',
+      'same files at once, so an overlap only waits, but duplicated work is wasted.',
+      ...jobs.flatMap((j, i) => [
+        `- ${j.title} (job ${j.id}, ${i < 7 ? 'completed' : 'running'}, areas: api)` + (i < 7 ? ': 6 Tasks done (astera tasks list --run ' + j.id + ' --json)' : ''),
+        ...(i < 7 ? [] : tasks.filter((t) => t.runId === `rr${i}`).map((t) => `  - ${t.title} [${t.status}]: ${t.affectedPaths!.join(', ')}`))
+      ])
+    ].join('\n')
+    const now = otherPlansBrief(big, big.jobs[10])
+    expect(now).toContain('Plan number 9')
+    expect(now.length).toBeLessThan(old.length)
+  })
+})
+
+describe('astera main-plan text', () => {
+  it('includes every plan, the caller’s own too, and is empty for a project with none', () => {
+    const s: OrchState = { ...emptyState(), jobs: [job('jA'), job('jB', { pendingStart: true })] }
+    expect(mainPlanText(s, 'prj_1')).toMatch(/- jA .*\n- jB /s)
+    expect(mainPlanText(s, 'prj_9')).toBe('')
+  })
+})
+
+describe('the stopped-dependency Gate is asked once per Task and dep', () => {
+  it('a second dep that stops opens its own Gate after "keep waiting"; the same dep is never asked twice', () => {
+    const base: OrchState = {
+      ...emptyState(),
+      jobs: [job('jA', { archivedAt: T0 }), job('jC', { archivedAt: T0 }), job('jB')],
+      runs: [run('r1', 'jA'), run('r3', 'jC'), run('r2', 'jB')],
+      tasks: [
+        task('tA', { runId: 'r1' }, { status: 'completed' }),
+        task('tC', { runId: 'r3' }, { status: 'completed' }),
+        task('tB', { runId: 'r2' }, { deps: ['tA', 'tC'], status: 'pending' })
+      ]
+    }
+    const keep = (from: OrchState): OrchState => {
+      const open = from.gates.find((g) => g.status === 'open')!
+      const r = resolveGate(from, { gateId: open.id, resolution: STOPPED_DEP_OPTIONS[0] }, T0)
+      if (!r.ok) throw new Error(r.error)
+      return refreshOverlaps(from, r.state, T0)
+    }
+    const first = refreshOverlaps(emptyState(), base, T0)
+    expect(first.gates).toHaveLength(1)
+    expect(first.gates[0].question).toContain('[dep tA]')
+    const second = keep(first)
+    expect(second.gates.map((g) => g.status)).toEqual(['resolved', 'open'])
+    expect(second.gates[1].question).toContain('[dep tC]')
+    // both answered "keep waiting": nothing more is asked, however often the state moves
+    const third = keep(second)
+    expect(third.gates).toHaveLength(2)
+    expect(refreshOverlaps(third, { ...third, tasks: [...third.tasks] }, T0).gates).toHaveLength(2)
   })
 })
 

@@ -107,6 +107,7 @@ import {
   type TaskStatus
 } from './types'
 import { runWorktrees, runWorktreesFrom } from './integrate'
+import { mainPlanOf } from './mainPlan'
 import { isPathWithin } from '../files/tree'
 import { buildHandoverPrompt, buildPlannerBrief } from './handover'
 import { noRemoteNote, unmergedPlanBranches } from './unmergedBranches' // W8-G (#101)
@@ -157,7 +158,7 @@ import {
 import { jobNameOf } from './jobName'
 import { deliveryWaitStep } from './exec/deliveryWait'
 // W8-D several plans in one repo
-import { areasArg, otherPlansBrief, overlapLines, planOverlapWarnings, planTasksOf, taskCreateWarnings } from './overlap'
+import { areasArg, mainPlanText, otherPlansBrief, overlapLines, planOverlapWarnings, planTasksOf, taskCreateWarnings } from './overlap'
 import { isSamePath } from '../files/tree'
 import type { RunPr, TaskKind, TaskLinks } from './types'
 import { escalationOpen } from './sessionIndex' // W7-C
@@ -3505,6 +3506,27 @@ export async function handleCommand(
           line: lines[i]
         }))
       })
+    }
+    // T3 the main plan: the project's plans in run order and how they meet (mainPlan.ts). Read only; a planner may call it.
+    // `--project` is a project id; by default the caller's own Job's project.
+    case 'main-plan': {
+      const named = str(args.project)
+      let key: string | undefined
+      if (named) {
+        const project = findProject(s, named)
+        if (!project) return notFound(`unknown project: ${named}`)
+        key = project.parentId ?? project.id
+      } else {
+        // not `callerRun`: it falls back to the newest Run, which would name some other project for a shell
+        const sid = caller.sessionId
+        const taskId = s.dispatches.find((d) => d.sessionId === sid && !d.endedAt)?.taskId
+        const run = sid === '' ? undefined : s.runs.find((r) => r.coordinatorSessionId === sid || r.externalCoordinatorSessionId === sid || r.id === s.tasks.find((t) => t.id === taskId)?.runId)
+        const job = plannerJobOf(s, sid) ?? (run && jobOf(s, run))
+        if (job) key = projectKeyOf(s, job)
+      }
+      if (key === undefined) return bad('--project <projectId> is required outside a plan or worker session (projects list)')
+      // `text` is what the brief shows, for --human; --json readers take the rest, which is the main plan itself
+      return okBody({ ...mainPlanOf(s, key), text: mainPlanText(s, key) || 'no plan in this project' })
     }
     case 'jobs-unarchive': {
       const id = str(args.id)

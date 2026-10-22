@@ -719,6 +719,7 @@ astera jobs    wait   --id <jobId>  [--timeout-ms <n>]
 astera jobs    rename --id <jobId> --title <text>
 astera jobs    set    --id <jobId | runId> [--concurrency <n>] [--after <jobId|none>] [--areas <a,b,c|none>] [--left-out <json array>] [--planning <chat|auto>] [--priority <n>] [--project <projectId>]
 astera jobs    overlaps --id <jobId>
+astera main-plan [--project <projectId>]
 astera jobs    archive --id <jobId> [--kill-sessions]
 astera jobs    unarchive --id <jobId>
 astera jobs    plan --id <jobId> [--account <id>] [--replan <waves|off>] [--concurrency <n>] [--delivery <pr|push>] [--no-review] [--auto-approve <on|off>] [--hands-off <on|off>] [--planning <chat|auto>]

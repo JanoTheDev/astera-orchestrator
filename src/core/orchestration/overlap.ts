@@ -13,7 +13,7 @@ import { jobNameOf } from './jobName'
 import { isJobActive } from './lifecycle'
 import { outcomeOfTasks } from './running'
 // T1 the main plan
-import { activeOrQueued, externalDepsOf, holdExternalDeps, otherPlansOf, planIdOf, planTasksOf } from './mainPlan'
+import { activeOrQueued, externalDepsOf, holdExternalDeps, mainPlanOf, otherPlansOf, planIdOf, planTasksOf } from './mainPlan'
 import { isLeaseWaitGate, LEASE_WAIT_OPTIONS, leasesByProject, pathsOverlap, planOutranks, projectKeyOf, sameFilesAs } from './schedule'
 import { createGate, type OrchState } from './state'
 import { afterStandOf } from './after'
@@ -105,9 +105,15 @@ export const STOPPED_DEP_OPTIONS = ['keep waiting', 'drop this dependency', 'can
 export const isStoppedDepGate = (g: Pick<Gate, 'options'>): boolean =>
   g.options?.length === STOPPED_DEP_OPTIONS.length && STOPPED_DEP_OPTIONS.every((o, i) => g.options![i] === o)
 
-/** T1: carries out a stopped-dep question answered in this commit. "drop this dependency" takes the deps that will not
- *  come off the Task (the ready rule then decides, `holdExternalDeps`); "cancel this Task" takes it out of its Run;
- *  "keep waiting" leaves it pending, so it runs if that plan is taken up again. */
+/** The tag that ends a stopped-dep question and names the dep it is about, so a Task gets one Gate per stopped dep.
+ *  shortcut: in the question text, as Gate has no field for it; add one if Gates ever need more such keys. */
+const stoppedDepTag = (depId: string): string => ` [dep ${depId}]`
+const stoppedDepOf = (g: Pick<Gate, 'question'>): string | undefined => /\[dep ([^\]]+)\]$/.exec(g.question)?.[1]
+
+/** T1: carries out a stopped-dep question answered in this commit. "drop this dependency" takes the dep it asked about
+ *  off the Task (all that will not come, for a question without a dep tag; the ready rule then decides,
+ *  `holdExternalDeps`); "cancel this Task" takes it out of its Run; "keep waiting" leaves it pending, so it runs if that
+ *  plan is taken up again. */
 function carryOutStoppedDep(s: OrchState, g: Gate, now: string): OrchState {
   if (g.resolution === STOPPED_DEP_OPTIONS[2]) {
     const r = cancelRemainingTask(s, g.taskId)
@@ -116,7 +122,8 @@ function carryOutStoppedDep(s: OrchState, g: Gate, now: string): OrchState {
   if (g.resolution !== STOPPED_DEP_OPTIONS[1]) return s
   const tasks = s.tasks.map((t) => {
     if (t.id !== g.taskId) return t
-    const lost = new Set(externalDepsOf(s, t).filter((d) => d.why === 'stopped' || d.why === 'gone').map((d) => d.id))
+    const only = stoppedDepOf(g)
+    const lost = new Set(externalDepsOf(s, t).filter((d) => (d.why === 'stopped' || d.why === 'gone') && (only === undefined || d.id === only)).map((d) => d.id))
     return lost.size === 0 ? t : { ...t, deps: t.deps.filter((d) => !lost.has(d)), updatedAt: now }
   })
   return { ...s, tasks: recomputeReady(tasks) }
@@ -241,7 +248,8 @@ function carryOutWatchdogAnswer(s: OrchState, g: Gate, now: string): OrchState {
  *  3. That Gate answered "cancel as duplicate": the Task leaves its Run (`cancelRemainingTask`). T11: so do the watchdog's
  *     questions (`carryOutWatchdogAnswer`). T1: and the stopped-dep question (`carryOutStoppedDep`).
  *  4. T1: a not-started Task whose dep on another plan's Task will not come (that plan stopped, the Task is gone): held
- *     behind one Gate "keep waiting / drop this dependency / cancel this Task". Once per Task, never a silent stall. */
+ *     behind one Gate "keep waiting / drop this dependency / cancel this Task". Once per Task and stopped dep (a new
+ *     one opens a new Gate, the same one is not asked twice), never a silent stall. */
 function coordinate(prev: OrchState, next: OrchState, now: string): OrchState {
   let s = next
   // 3. carry out a cancel answered in this commit
@@ -292,27 +300,28 @@ function coordinate(prev: OrchState, next: OrchState, now: string): OrchState {
       }
     }
   }
-  // 4. T1: a not-started Task waiting on another plan's Task that will not come: one Gate, asked once per Task
-  const askedDep = new Set(s.gates.filter(isStoppedDepGate).map((g) => g.taskId))
+  // 4. T1: a not-started Task waiting on another plan's Task that will not come: one Gate per Task and stopped dep, one at a time
+  const gatesOfDep = s.gates.filter(isStoppedDepGate)
   for (const t of s.tasks) {
-    if ((t.status !== 'ready' && t.status !== 'pending') || t.runId === undefined || started.has(t.id) || askedDep.has(t.id)) continue
-    const lost = externalDepsOf(s, t).filter((d) => d.why === 'stopped' || d.why === 'gone')
+    if ((t.status !== 'ready' && t.status !== 'pending') || t.runId === undefined || started.has(t.id)) continue
     const plan = jobById.get(planIdOf(s, t) ?? '')
-    if (lost.length === 0 || !plan || !isJobActive(plan)) continue
-    const what = lost
-      .map((d) => {
-        const other = d.jobId === undefined ? undefined : s.jobs.find((j) => j.id === d.jobId)
-        const name = d.task ? `"${d.task.title}"${other ? ` of plan ${jobNameOf(other)}` : ''}` : d.id
-        return `${name}, ${d.why === 'stopped' ? 'whose plan stopped' : 'which was cancelled'}`
-      })
-      .join('; ')
-    const question =
-      `"${t.title}" (plan ${jobNameOf(plan)}) waits on ${what}. It will not come unless that plan is taken up again. ` +
-      'Keep waiting, drop this dependency, or cancel this Task?'
-    const r = createGate(s, { taskId: t.id, question, options: [...STOPPED_DEP_OPTIONS] }, now)
-    if (r.ok) {
-      s = r.state
-      askedDep.add(t.id)
+    if (!plan || !isJobActive(plan)) continue
+    for (const d of externalDepsOf(s, t)) {
+      if (d.why !== 'stopped' && d.why !== 'gone') continue
+      // a question from before the tag asked about every dep the Task had
+      if (gatesOfDep.some((g) => g.taskId === t.id && (stoppedDepOf(g) ?? d.id) === d.id)) continue
+      const other = d.jobId === undefined ? undefined : s.jobs.find((j) => j.id === d.jobId)
+      const name = d.task ? `"${d.task.title}"${other ? ` of plan ${jobNameOf(other)}` : ''}` : d.id
+      const question =
+        `"${t.title}" (plan ${jobNameOf(plan)}) waits on ${name}, ${d.why === 'stopped' ? 'whose plan stopped' : 'which was cancelled'}. ` +
+        `It will not come unless that plan is taken up again. Keep waiting, drop this dependency, or cancel this Task?${stoppedDepTag(d.id)}`
+      const r = createGate(s, { taskId: t.id, question, options: [...STOPPED_DEP_OPTIONS] }, now)
+      if (r.ok) {
+        s = r.state
+        gatesOfDep.push(r.state.gates[r.state.gates.length - 1])
+        // the Task is blocked now: its next stopped dep is asked after this answer
+        break
+      }
     }
   }
   return s
@@ -369,36 +378,41 @@ export function planOverlapWarnings(s: OrchState, jobId: string): string[] {
 /** At most this many Tasks of one other plan in a brief; the rest are counted. */
 const BRIEF_TASKS_MAX = 40
 
-/** The other plans of this project, for the planner's and the replan's brief: each plan's name, id and state, then (an
- *  active or queued plan only; a finished one is a single line) its Tasks with their status and affected paths. Empty
- *  when there is none. */
-export function otherPlansBrief(s: OrchState, job: Job): string {
-  const plans = otherPlansOf(s, job, { finished: true })
+/** The main plan of `projectKey` as text, for the planner's and the replan's brief and `astera main-plan`: the rules, then
+ *  each sub-plan in run order with its name, id, state and areas. An active or queued plan lists its Tasks not completed
+ *  (id, title, status, paths); a finished one is a single line. Then the links that involve an active plan. `except` (the
+ *  reader's own plan) is left out. Empty when no other plan is in it. */
+export function mainPlanText(s: OrchState, projectKey: string, except?: string): string {
+  const plans = mainPlanOf(s, projectKey).plans.filter((p) => p.job.id !== except)
   if (plans.length === 0) return ''
+  const live = new Set(plans.filter((p) => activeOrQueued(s, p.job)).map((p) => p.job.id))
   const lines = [
-    'OTHER PLANS IN THIS REPOSITORY',
-    'Other plans work in this repository too. Never plan a Task another plan already holds: if one of yours would',
-    'do the same work, leave it out and name that plan and Task in existing.md (as you would an open issue). Plan',
-    'around their files where you can; where you cannot, say so in existing.md. Astera runs no two workers on the',
-    'same files at once, so an overlap only waits, but duplicated work is wasted.'
+    'MAIN PLAN OF THIS PROJECT',
+    "Your plan is a sub-plan of this project's main plan. Work another sub-plan already holds is never planned again:",
+    'depend on its Task with `--deps <taskId>` (it waits until that plan delivers) or leave it out, and name it in',
+    'existing.md. Plan around their files where you can.'
   ]
-  for (const p of plans) {
-    const tasks = planTasksOf(s, p)
-    const state = p.pendingStart ? 'not started' : outcomeOfTasks(tasks)
-    lines.push(`- ${jobNameOf(p)} (job ${p.id}, ${state}${p.areas?.length ? `, areas: ${p.areas.join(', ')}` : ''})`)
-    // T1: a finished plan is one line; its Tasks are one command away
-    if (!activeOrQueued(s, p)) {
-      lines[lines.length - 1] += `: ${tasks.filter((t) => t.status === 'completed').length} Tasks done (astera tasks list --run ${p.id} --json)`
-      continue
-    }
-    for (const t of tasks.slice(0, BRIEF_TASKS_MAX)) {
-      const issue = t.links?.issue ? `, issue #${t.links.issue.number}` : ''
-      lines.push(`  - ${t.title} [${t.status}${issue}]: ${(t.affectedPaths ?? []).join(', ') || 'no paths given'}`)
-    }
-    if (tasks.length > BRIEF_TASKS_MAX) lines.push(`  - … ${tasks.length - BRIEF_TASKS_MAX} more (astera tasks list --run ${p.id} --json)`)
+  for (const { job, state, tasks } of plans) {
+    lines.push(`- ${jobNameOf(job)} (job ${job.id}, ${state}${job.areas?.length ? `, areas: ${job.areas.join(', ')}` : ''})`)
+    if (!live.has(job.id)) continue
+    const open = tasks.filter((t) => t.status !== 'completed')
+    for (const t of open.slice(0, BRIEF_TASKS_MAX)) lines.push(`  - ${t.id} ${t.title} [${t.status}]: ${(t.affectedPaths ?? []).join(', ') || 'no paths given'}`)
+    if (open.length > BRIEF_TASKS_MAX) lines.push(`  - … ${open.length - BRIEF_TASKS_MAX} more (astera main-plan --json)`)
+  }
+  for (const l of mainPlanOf(s, projectKey).links) {
+    if (l.kind !== 'dep' && l.kind !== 'lease') continue
+    if (!live.has(l.jobId) && !(l.otherJobId !== undefined && live.has(l.otherJobId))) continue
+    lines.push(
+      l.kind === 'dep'
+        ? `link: ${l.taskId} waits on ${l.otherTaskId} (${l.why})`
+        : `link: ${l.taskId} waits for ${l.otherTaskId} to deliver ${l.path}`
+    )
   }
   return lines.join('\n')
 }
+
+/** `mainPlanText` for the project of `job`, without `job`'s own plan: what the planner's and the replan's brief carry. */
+export const otherPlansBrief = (s: OrchState, job: Job): string => mainPlanText(s, projectKeyOf(s, job), job.id)
 
 /** At most this many areas, each at most AREA_MAX characters. */
 export const AREAS_MAX = 3

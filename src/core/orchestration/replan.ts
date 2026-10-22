@@ -11,6 +11,7 @@
 // (`replanRefusal`, `replanProblems`, `replanSummary`) is in exec/replanStart.ts.
 import { reviewRoundIn } from './convergence'
 import { layersOf } from './graph'
+import { crossPlanDepRefusal, externalDepsOf, waitsOnItself } from './mainPlan'
 import { heldBack } from './running'
 import { jobActive, pathsOverlap } from './schedule'
 import { jobOf, type OrchState, type PlanFields, type Res } from './state'
@@ -204,8 +205,28 @@ export function replanJobOf(s: OrchState, sessionId: string): Job | undefined {
   return s.jobs.find((j) => j.replanning?.sessionId === sessionId)
 }
 
-/** Edits a not-started Task of a Run (`task-update` from a replan session): its title, spec, deps and plan fields. Deps
- *  stay inside the Run and may not close a cycle; a Task whose deps are not all completed waits (pending). */
+/** T1: why `task` may not take `deps`, or undefined: each one a Task of `own` (its plan or Run), or of another active or
+ *  queued plan of the project (mainPlan.ts `crossPlanDepRefusal`), and none that would make it wait on itself across plans. */
+export function depsRefusal(s: OrchState, task: Task, deps: string[], own: ReadonlySet<string>): string | undefined {
+  if (deps.includes(task.id)) return `${task.id} cannot wait on itself`
+  const planId = task.jobId ?? s.runs.find((r) => r.id === task.runId)?.jobId
+  for (const d of deps) {
+    if (own.has(d)) continue
+    const dep = s.tasks.find((t) => t.id === d)
+    if (!dep) return `unknown dep ${d}: deps must be Tasks of this plan or of another active plan of this project`
+    const refused = crossPlanDepRefusal(s, planId, dep)
+    if (refused !== undefined) return refused
+    if (dep.jobId === planId || s.runs.some((r) => r.id === dep.runId && r.jobId === planId))
+      return `${d} is a Task of another Run of this plan: deps must be Tasks of the same run`
+  }
+  const tasks = s.tasks.map((t) => (t.id === task.id ? { ...t, deps } : t))
+  if (waitsOnItself(tasks, task.id)) return `those deps would make ${task.id} wait on itself`
+  return undefined
+}
+
+/** Edits a not-started Task of a Run (`task-update` from a replan session): its title, spec, deps and plan fields. A dep is
+ *  a Task of the Run or, as `task-create` allows, of another plan of the project (planner.ts `depsRefusal`); deps may not
+ *  close a cycle. A Task waits (pending) until its own deps are completed and the other plans' are completed and delivered. */
 export function editRemainingTask(
   s: OrchState,
   taskId: string,
@@ -218,14 +239,15 @@ export function editRemainingTask(
     return { ok: false, error: `${taskId} has started or finished: a replan changes only Tasks that have not started` }
   const own = runTasks(s, task.runId)
   if (patch.deps) {
-    const ids = new Set(own.map((t) => t.id))
-    const outside = patch.deps.filter((d) => !ids.has(d) || d === taskId)
-    if (outside.length) return { ok: false, error: `deps must be other Tasks of the same run: ${outside.join(', ')}` }
+    const refused = depsRefusal(s, task, patch.deps, new Set(own.filter((t) => t.id !== taskId).map((t) => t.id)))
+    if (refused !== undefined) return { ok: false, error: refused }
   }
   const merged: Task = { ...task, ...patch, updatedAt: now }
   const doneIds = new Set(own.filter((t) => t.status === 'completed').map((t) => t.id))
   // A Task under an open Gate stays blocked: the Gate's answer unblocks it (resolveGate), and the deps then decide
-  const next: Task = { ...merged, status: task.status === 'blocked' ? 'blocked' : merged.deps.every((d) => doneIds.has(d)) ? 'ready' : 'pending' }
+  const other = externalDepsOf(s, merged)
+  const met = merged.deps.every((d) => doneIds.has(d) || other.find((x) => x.id === d)?.satisfied === true)
+  const next: Task = { ...merged, status: task.status === 'blocked' ? 'blocked' : met ? 'ready' : 'pending' }
   const tasks = s.tasks.map((t) => (t.id === taskId ? next : t))
   if (layersOf({ ...s, tasks }, task.runId).cyclic.length) return { ok: false, error: `those deps would make ${taskId} wait on itself` }
   return { ok: true, state: { ...s, tasks }, value: next }

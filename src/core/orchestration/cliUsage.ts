@@ -47,7 +47,7 @@ type NounCommand = {
  *
  *  **`agent-context` has a dash and is still one token.** `spelledCommand` below reads that off
  *  `NOUNS` rather than off this list — `agent` is not a noun, so nothing splits it. */
-const TOP = ['version', 'status', 'help', 'agent-context'] as const
+const TOP = ['version', 'status', 'help', 'agent-context', 'main-plan'] as const
 
 export type PublicCommand =
   | NounCommand
@@ -541,6 +541,13 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
     detail:
       'One entry per pair of Tasks that touch overlapping affected paths or link the same issue, each with a line such as "T3 · Auth rework · T6 (same files: src/api/routes.ts)". Refreshed whenever either plan\'s Tasks change. An overlap never blocks approval: two workers of one project never run on the same files at once, so the later one waits.',
     flags: [ID('<jobId>', 'the Job to check')]
+  },
+  // T3 the main plan (mainPlan.ts)
+  'main-plan': {
+    summary: "the main plan of a project: its plans in run order, their open Tasks, and how they meet",
+    detail:
+      'Every plan of a project is a sub-plan of its main plan. Each shows its state and areas; a plan that is running or queued also its Tasks not completed (id, title, status, paths). Links name a Task that waits on another plan\'s Task (`--deps`) or on files another plan holds. --json gives the plans and links in full. Read only. Without --project it is the project of the plan or worker session that calls it.',
+    flags: [{ name: 'project', value: '<projectId>', about: 'the project (from `projects list`; default: the calling session\'s Job\'s project)' }]
   },
   'jobs-archive': {
     summary: 'archive a Job: hide it and start nothing new for it',

@@ -14,9 +14,9 @@ Every plan starts here, whatever its source. Nothing is built twice.
    - search the code (`git grep`, reading files);
    - search open and closed GitHub issues and pull requests (`gh issue list --state all --search "<words>"`,
      `gh pr list --state all --search "<words>"`);
-   - list this project's other Jobs (`astera jobs list --project <projectId> --json`). Your brief's "OTHER PLANS IN
-     THIS REPOSITORY" lists their Tasks, state and paths (W8-D). A Task another plan already holds is never planned
-     again: link it as you would an issue, and name that plan and Task in `existing.md`. Plan around their files
+   - list this project's other Jobs (`astera jobs list --project <projectId> --json`). Your brief's "MAIN PLAN OF
+     THIS PROJECT" lists their Tasks, state and paths (W8-D; `astera main-plan` shows it whole). A Task another plan
+     already holds is never planned again: depend on it (below), and name that plan and Task in `existing.md`. Plan around their files
      where you can; an overlap left in the plan only waits (two workers never edit the same files at once).
 3. **Write `existing.md`** in this Job's inputs folder, `$ASTERA_PROFILE_DIR/plans/<jobId>/inputs/existing.md`
    (the objective names the folder when it has one). One row per requested item: its state, `missing`,
@@ -36,6 +36,15 @@ Every plan starts here, whatever its source. Nothing is built twice.
 5. **Nothing left to do?** Create no Task. End the Job with
    `astera plan-nothing-to-do --job <jobId> --summary - < "$ASTERA_PROFILE_DIR/plans/<jobId>/inputs/existing.md"`.
    The Job is archived with that summary, the person is told, and your session ends.
+
+**The main plan.** All plans of a project are sub-plans of one main plan, in the order they run. `astera main-plan`
+shows it: each plan with its open Tasks, and the links between plans.
+
+- Work another plan already holds is not planned again. Depend on its Task: `--deps <taskId>`, with the id from the main
+  plan. Your Task waits until that Task is completed and its plan has delivered, so its code is on the branch your
+  worker starts from. Or leave the work out and say so in `existing.md`.
+- Only Tasks of a plan of the same project that is not archived can be a dep. Two plans may not wait on each other.
+- If that plan stops, Astera asks the person whether to keep waiting, drop the dependency or cancel your Task.
 
 ## 1. Understand before you cut
 
@@ -100,12 +109,17 @@ scope, is left out on purpose with the reason: `astera jobs-set --id <jobId> --l
 '[{"item":2,"reason":"already built: src/x.ts:12"}]'` (the whole list each time; `[]` clears it). The person sees the
 left-out items and their reasons on the plan. Approval refuses an item that is neither covered nor left out.
 
+**Checks.**
+
+- A Task's `--validate` is quick: the typecheck or the tests of the files it touches. The full test suite runs once, as
+  the plan's delivery check, after overlapping plans have landed. Do not add a hand-made "whole-plan check" Task.
+
 **Name the plan.** Every Job starts named by the first words of its objective. Once you know the goal, give it a short
 name of 3 to 6 words: `astera jobs rename --id <jobId> --title "<3-6 words>"`. Always do it for a chat-planned Job
 (section 7): its objective is a placeholder until you and the person agree on the work.
 
 `--provider` and `--model` only when a Task needs a specific one. Fix a Task with `astera task-update --id
-<taskId>` and the same flags; deps stay inside the plan and may not form a cycle.
+<taskId>` and the same flags; deps are Tasks of the plan or of another plan of the project (section 0) and may not form a cycle.
 
 **Path rules for `--affected-paths`:**
 

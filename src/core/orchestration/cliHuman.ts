@@ -197,6 +197,8 @@ function pluginCheckLines(validation: unknown): { before: string[]; after: strin
 
 export function humanFor(cmd: string, data: Record<string, unknown>): string | null {
   switch (cmd) {
+    case 'main-plan':
+      return str(data.text)
     case 'plugins-logs': {
       const lines = Array.isArray(data.lines) ? (data.lines as unknown[]).map(str) : []
       return lines.length > 0 ? lines.join('\n') : 'no log yet'
