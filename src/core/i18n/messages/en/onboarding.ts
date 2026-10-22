@@ -6,13 +6,13 @@ export const onboarding: Record<keyof typeof ko, string> = {
   'settings.info.cliReinstall': 'Reinstall',
   'settings.info.cliInstallDone': 'Installed.',
   'status.hostStarting': 'Starting Astera…',
-  'status.hostWaitingForPrevious': 'Starting Astera… waiting for the previous background Host to finish',
-  'status.hostPreparing': 'Preparing the Astera Host…',
-  'status.hostPreparingSlow': 'Preparing the Astera Host… still working ({seconds}s)',
-  'status.hostPrepareFailed': 'Could not prepare the Astera Host',
+  'status.hostWaitingForPrevious': 'Starting Astera… waiting for the previous background service to finish',
+  'status.hostPreparing': 'Preparing Astera\'s background service…',
+  'status.hostPreparingSlow': 'Preparing Astera\'s background service… still working ({seconds}s)',
+  'status.hostPrepareFailed': 'Could not prepare Astera\'s background service',
   'status.hostPrepareFailedTitle':
-    '{reason} ({detail}) The Host runs from the app executable this time, and it is prepared again on the next start.',
-  'status.hostPrepareReason.copy': 'The Host files could not be copied.',
+    '{reason} ({detail}) The background service runs from the app itself this time, and it is prepared again on the next start.',
+  'status.hostPrepareReason.copy': 'The background service files could not be copied.',
   'status.hostPrepareReason.timeout': 'Preparing did not finish within two minutes.',
   'status.hostPrepareReason.unknown': 'An unexpected error stopped the preparation.',
   // The first-run screen — see the Korean catalog for what it is and who reads it.
@@ -49,6 +49,7 @@ export const onboarding: Record<keyof typeof ko, string> = {
   // The first-run onboarding (renderer/components/onboarding/).
   'onboarding.label': 'Setup',
   'onboarding.step': 'Step {n} of {total}',
+  'onboarding.stepsLabel': 'Setup progress',
   'onboarding.next': 'Next',
   'onboarding.back': 'Back',
   'onboarding.skip': 'Skip setup',

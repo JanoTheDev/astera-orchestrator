@@ -3,6 +3,7 @@ import { installCommandFor, type InstallableCli } from '../../../core/install/cl
 import { CATALOGS, LANGS } from '../../../core/i18n'
 import { useI18n } from '../i18n/I18nProvider'
 import { useCliInstall } from '../hooks/useCliInstall'
+import { Button, Card, Icon, Select } from './ui'
 
 /** The two programs, in the order they are offered. Neither is recommended over the other: the app
  *  runs both, and picking for someone is a claim this screen has no business making. */
@@ -62,13 +63,9 @@ export function CliMissingScreen({
       {unseen ? (
         <>
           <p>{t('setup.notFoundYet', { name: unseenName ?? '' })}</p>
-          <button
-            type="button"
-            className="cli-missing-primary"
-            onClick={() => void window.api.system.relaunch()}
-          >
+          <Button variant="primary" size="lg" onClick={() => void window.api.system.relaunch()}>
             {t('setup.restart')}
-          </button>
+          </Button>
         </>
       ) : (
         <div className="cli-missing-actions">
@@ -76,56 +73,62 @@ export function CliMissingScreen({
             const plan = installCommandFor(id, window.api.platform)
             const busy = running && phase.cli === id
             return (
-              <div key={id} className="cli-missing-row">
+              <Card key={id} className="cli-missing-row">
                 <div className="cli-missing-head">
                   <div>
                     <div className="cli-missing-name">{name}</div>
                     <div className="cli-missing-what">{t(what)}</div>
                   </div>
                   {plan && (
-                    <button type="button" disabled={running} onClick={() => install(id)}>
+                    <Button loading={busy} disabled={running} onClick={() => install(id)}>
                       {busy ? t('setup.installing') : t('setup.install')}
-                    </button>
+                    </Button>
                   )}
                 </div>
                 {plan ? (
                   <>
                     <div className="cli-missing-source">
                       {t('setup.source', { host: plan.source })}
-                      <button
-                        type="button"
-                        className="cli-missing-link"
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        icon={<Icon name={shown === id ? 'chevronUp' : 'chevronDown'} size={14} />}
+                        aria-expanded={shown === id}
                         onClick={() => setShown((prev) => (prev === id ? null : id))}
                       >
                         {shown === id ? t('setup.hideCommand') : t('setup.showCommand')}
-                      </button>
+                      </Button>
                     </div>
                     {shown === id && <code>{plan.display}</code>}
                   </>
                 ) : (
                   <div className="cli-missing-source">{t('setup.unsupported')}</div>
                 )}
-              </div>
+              </Card>
             )
           })}
         </div>
       )}
 
       {phase.state === 'done' && !phase.ok && (
-        <p className="cli-missing-failed">
+        <p className="cli-missing-failed" role="alert">
+          <Icon name="warning" />
           {t('setup.failed')} {t('setup.failedHelp')}
         </p>
       )}
 
       {log !== '' && (
         <>
-          <button
-            type="button"
-            className="cli-missing-link"
+          <Button
+            variant="ghost"
+            size="sm"
+            className="cli-missing-toggle"
+            icon={<Icon name={logOpen ? 'chevronUp' : 'chevronDown'} size={14} />}
+            aria-expanded={logOpen}
             onClick={() => setLogOpen((prev) => !prev)}
           >
             {logOpen ? t('setup.hideLog') : t('setup.showLog')}
-          </button>
+          </Button>
           {logOpen && (
             <pre ref={logRef} className="cli-missing-log">
               {log}
@@ -138,16 +141,13 @@ export function CliMissingScreen({
           drawn on this screen, so without it the stored language would be final. */}
       <div className="cli-missing-lang">
         <span>{t('setup.language')}</span>
-        {LANGS.map((l) => (
-          <button
-            key={l}
-            type="button"
-            className={`cli-missing-link${l === lang ? ' is-current' : ''}`}
-            onClick={() => setLang(l)}
-          >
-            {CATALOGS[l].nativeName}
-          </button>
-        ))}
+        <Select
+          className="dense"
+          items={LANGS.map((l) => ({ value: l, label: CATALOGS[l].nativeName }))}
+          value={lang}
+          onChange={(v) => setLang(v as typeof lang)}
+          ariaLabel={t('setup.language')}
+        />
       </div>
     </div>
   )
