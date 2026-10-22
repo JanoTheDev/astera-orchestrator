@@ -19,6 +19,8 @@ import {
 import { coordinatorReleaseOf } from './releaseDefer'
 import { REPLAN_LIFT_HOLD } from './replanStart'
 import { handleCommand, type OrchServerDeps } from '../command'
+import { createDispatchLoop as freshLoop } from './dispatchLoop'
+import { DELIVERY_OWNER_PUSHES, DELIVERY_RETRY_NOW } from '../delivery'
 import { APP_CALLER } from '../../host/driver'
 import { addDecision, COORDINATOR_START_WINDOW_MS, emptyState, type OrchState } from '../state'
 import { needsInput } from '../sessionIndex'
@@ -65,6 +67,8 @@ const message = (over: Partial<Message> & Pick<Message, 'id' | 'type'>): Message
 
 interface RigOpts {
   concurrency?: number
+  /** T3: the Host's push delivery, so `run-deliver` on a push plan runs for real over it. */
+  deliverPush?: OrchServerDeps['deliverPush']
   /** 몇 번째 startWorker 호출(0부터)이 던지는가. 'all' 이면 전부. */
   startFailsFor?: number | 'all'
   /** gate-create 가 거절된다(열린 Dispatch 가 있는 Task 의 Gate 처럼). */
@@ -215,7 +219,8 @@ function rig(o: RigOpts = {}) {
     listAccounts: async () => [{ id: 'accA', label: 'accA', provider: 'claude' as const }],
     log: () => {},
     runningSessions: () => 0,
-    appVersion: () => '1.0.0'
+    appVersion: () => '1.0.0',
+    ...(o.deliverPush ? { deliverPush: o.deliverPush } : {})
   } as unknown as OrchServerDeps
 
   /** 진짜 command layer — 테스트가 ctx.handle 을 갈아 끼워도 그 안에서 부를 수 있게 따로 둔다. */
@@ -259,7 +264,8 @@ function rig(o: RigOpts = {}) {
     get(target, key, receiver) {
       if (key === 'handle')
         return (cmd: string, args: Record<string, unknown>) => {
-          cmds.push(cmd)
+          // T3: the loop's mark that a Run it saw running has a delivery pending is bookkeeping, not a step under test
+          if (!(cmd === 'run-deliver' && args.pending === true)) cmds.push(cmd)
           return target.handle(cmd, args)
         }
       return Reflect.get(target, key, receiver)
@@ -2026,7 +2032,13 @@ describe("a completed Run opens its plan's pull request (W2-D)", () => {
   }
   const fakePr = (h: ReturnType<typeof rig>): void => {
     // W6-H: the loop asks `run-deliver`, which is `run-open-pr` for a `pr` project
-    h.ctx.handle = async (cmd, args) => (cmd === 'run-deliver' ? { status: 200, body: { url: 'https://github.com/o/r/pull/1' } } : h.real(cmd, args))
+    // T3: the pending mark goes through; an attempt is recorded delivered, as the command does
+    h.ctx.handle = async (cmd, args) => {
+      if (cmd !== 'run-deliver' || args.pending === true) return h.real(cmd, args)
+      const s = h.state()
+      h.setState({ ...s, runs: s.runs.map((r) => (r.id === args.run ? { ...r, deliveryState: { state: 'delivered' as const, attempts: 1 } } : r)) })
+      return { status: 200, body: { url: 'https://github.com/o/r/pull/1' } }
+    }
   }
   const asked = (h: ReturnType<typeof rig>): number => h.handled().filter((c) => c === 'run-deliver').length
 
@@ -2045,15 +2057,16 @@ describe("a completed Run opens its plan's pull request (W2-D)", () => {
     expect(asked(h)).toBe(1)
   })
 
-  it('a delivery that failed reads failed, is escalated once, and is not asked again, replanned or drafted', async () => {
+  it('T3: a delivery that failed reads failed, is not escalated yet, and is not asked again before its retry time', async () => {
     const h = rig()
     withWorktree(h, 'run_1')
     const why = 'git merge-tree says x does not merge cleanly'
     h.ctx.handle = async (cmd, args) => {
-      if (cmd !== 'run-deliver') return h.real(cmd, args)
+      if (cmd !== 'run-deliver' || args.pending === true) return h.real(cmd, args)
       const s = h.state()
-      h.setState({ ...s, runs: s.runs.map((r) => (r.id === 'run_1' ? { ...r, pr: { at: NOW, error: why } } : r)) })
-      return { status: 409, body: { error: why } }
+      const p = { state: 'retrying' as const, attempts: 1, lastError: why, nextRetryAt: new Date(h.clock + 60_000).toISOString() }
+      h.setState({ ...s, runs: s.runs.map((r) => (r.id === 'run_1' ? { ...r, pr: { at: NOW, error: why }, deliveryState: p } : r)) })
+      return { status: 409, body: { error: why, deliveryState: p } }
     }
     await h.loop.run()
     await h.settle()
@@ -2064,11 +2077,12 @@ describe("a completed Run opens its plan's pull request (W2-D)", () => {
     }
     expect(asked(h)).toBe(1)
     expect(outcomeOf(h.state(), 'run_1')).toBe('failed')
-    const esc = h.state().messages.filter((m) => m.type === 'escalation' && m.runId === 'run_1')
-    expect(esc).toHaveLength(1)
-    expect(esc[0].subject).toContain(why)
-    expect(h.handled()).not.toContain('run-open-pr')
+    expect(h.state().messages.filter((m) => m.type === 'escalation' && m.runId === 'run_1')).toHaveLength(0)
     expect(h.handled()).not.toContain('jobs-replan')
+    h.clock += 61_000
+    await h.loop.run()
+    await h.settle()
+    expect(asked(h)).toBe(2)
   })
 
   it('does not ask for a Run that was already done when it started', async () => {
@@ -2107,7 +2121,7 @@ describe("a completed Run opens its plan's pull request (W2-D)", () => {
     await h.loop.run()
     await h.settle()
     const s = h.state()
-    h.setState({ ...s, runs: s.runs.map((r) => ({ ...r, delivery: { at: 'x', error: 'stopped' } })) })
+    h.setState({ ...s, runs: s.runs.map((r) => ({ ...r, delivery: { at: 'x', sha: 'abc1234' } })) })
     finish(h, 'run_1')
     await h.loop.run()
     await h.settle()
@@ -2133,18 +2147,23 @@ describe("a completed Run opens its plan's pull request (W2-D)", () => {
     await h.settle()
     expect(asked(h)).toBe(1)
   })
-  it('never pushes a Run that ended with a failed Task', async () => {
-    const h = rig()
+  it('never pushes a Run that ended with a failed Task, and says why once (T3)', async () => {
+    const pushes: unknown[] = []
+    const h = rig({ deliverPush: async (a) => (pushes.push(a), { ok: true, branch: 'main', sha: 's', merged: [], validated: 0 }) })
     const s = h.state()
     h.setState({ ...s, jobs: s.jobs.map((j) => ({ ...j, delivery: 'push' as const })) })
     withWorktree(h, 'run_1')
-    fakePr(h)
     await h.loop.run()
     await h.settle()
     failOne(h)
-    await h.loop.run()
-    await h.settle()
-    expect(asked(h)).toBe(0)
+    for (let i = 0; i < 3; i++) {
+      await h.loop.run()
+      await h.settle()
+    }
+    expect(pushes).toEqual([])
+    expect(asked(h)).toBe(1)
+    expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'failed', lastError: expect.stringContaining('failed tasks') })
+    expect(h.logs.filter((l) => l.includes('it was not delivered') && l.includes('failed tasks'))).toHaveLength(1)
   })
 
   // Item 2: a plan that finished with a Task held for the owner delivers its completed work too, never by a push, and
@@ -2194,6 +2213,100 @@ describe("a completed Run opens its plan's pull request (W2-D)", () => {
   })
 })
 
+// T3: a push plan's delivery over the real `run-deliver`, with the Host's push faked: persisted attempts, retries with
+// backoff, one owner question, a restart that resumes, an integration Task for a conflict with origin.
+describe('a delivery that finishes by itself (T3)', () => {
+  type Push = NonNullable<OrchServerDeps['deliverPush']>
+  const pushPlan = (push: Push) => {
+    const h = rig({ deliverPush: push })
+    const s = h.state()
+    h.setState({ ...s, jobs: s.jobs.map((j) => ({ ...j, delivery: 'push' as const })), runs: s.runs.map((r) => ({ ...r, worktree: '/wt-run' })) })
+    return h
+  }
+  const finishAll = (h: ReturnType<typeof rig>): void => {
+    const s = h.state()
+    h.setState({ ...s, tasks: s.tasks.map((t) => ({ ...t, status: 'completed' as const })), dispatches: [] })
+  }
+  const pass = async (h: ReturnType<typeof rig>, loop = h.loop): Promise<void> => {
+    await loop.run()
+    await h.settle()
+  }
+  const stopped: Push = async () => ({ ok: false, reason: 'git fetch origin main failed: offline', branch: 'main', code: 'fetch-failed' })
+  const ok: Push = async () => ({ ok: true, branch: 'main', sha: 'abc1234', merged: [], validated: 0 })
+
+  it('a failed push is retried after nextRetryAt, and a restarted loop over the same state resumes it', async () => {
+    let calls = 0
+    const h = pushPlan(async (a) => (++calls === 1 ? stopped(a) : ok(a)))
+    await pass(h)
+    finishAll(h)
+    await pass(h)
+    await pass(h)
+    expect(calls).toBe(1)
+    const p = h.state().runs[0].deliveryState!
+    expect(p).toMatchObject({ state: 'retrying', attempts: 1, lastError: expect.stringContaining('offline') })
+    expect(Date.parse(p.nextRetryAt!)).toBe(h.clock + 60_000)
+    // a Host restart: a new loop, nothing in memory, the same state
+    const again = freshLoop(h.ctx)
+    await pass(h, again)
+    expect(calls).toBe(1)
+    h.clock += 60_000
+    await pass(h, again)
+    expect(calls).toBe(2)
+    expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'delivered', attempts: 2 })
+    expect(h.state().runs[0].delivery).toMatchObject({ sha: 'abc1234' })
+  })
+
+  it('after 5 failed attempts exactly one owner question exists, and its answer is acted on', async () => {
+    let calls = 0
+    let ownerDone = false
+    const h = pushPlan(async (a) => (a.ownerPushed ? (ownerDone ? ok(a) : stopped(a)) : (++calls, stopped(a))))
+    await pass(h)
+    finishAll(h)
+    for (let i = 0; i < 8; i++) {
+      await pass(h)
+      h.clock += 61 * 60_000
+    }
+    expect(calls).toBeGreaterThanOrEqual(5)
+    const questions = h.state().messages.filter((m) => m.type === 'escalation' && m.runId === 'run_1')
+    expect(questions).toHaveLength(1)
+    expect(questions[0].options).toEqual([DELIVERY_RETRY_NOW, DELIVERY_OWNER_PUSHES])
+    expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'needs-owner', questionId: questions[0].id })
+    // "I'll push it myself": git (the fake) is asked whether the commits reached the branch, until they did
+    const s = h.state()
+    h.setState({ ...s, messages: s.messages.map((m) => (m.id === questions[0].id ? { ...m, answered: true, answerBody: DELIVERY_OWNER_PUSHES } : m)) })
+    const before = calls
+    await pass(h)
+    expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'needs-owner', ownerPushes: true })
+    ownerDone = true
+    h.clock += 5 * 60_000
+    await pass(h)
+    expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'delivered-by-owner' })
+    expect(calls).toBe(before)
+  })
+
+  it('a Run finishing, then a restart before delivery, still delivers', async () => {
+    let calls = 0
+    const h = pushPlan(async (a) => (++calls, ok(a)))
+    await pass(h)
+    expect(h.state().runs[0].deliveryState).toEqual({ state: 'pending', attempts: 0 })
+    finishAll(h)
+    const restarted = freshLoop(h.ctx)
+    await pass(h, restarted)
+    expect(calls).toBe(1)
+    expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'delivered' })
+  })
+
+  it('a conflict with origin opens an integration Task in the plan', async () => {
+    const h = pushPlan(async () => ({ ok: false, reason: 'origin/main moved on and does not merge cleanly', branch: 'main', code: 'origin-conflict', conflictWith: 'f00dfeed' }))
+    await pass(h)
+    finishAll(h)
+    await pass(h)
+    const merge = h.state().tasks.find((t) => t.spec.includes('f00dfeed'))
+    expect(merge).toBeDefined()
+    expect(merge!.runId).toBe('run_1')
+  })
+})
+
 // W6-D: a wave boundary replans before the next wave, and a completed Run gets its final check before its PR.
 describe('wave replanning (W6-D)', () => {
   /** job_1 planned (so it replans), tsk_2 waiting on tsk_1. */
@@ -2231,7 +2344,12 @@ describe('wave replanning (W6-D)', () => {
     planned(h, (t) => t)
     const s = h.state()
     h.setState({ ...s, runs: s.runs.map((r) => ({ ...r, worktree: '/wt-run' })) })
-    h.ctx.handle = async (cmd, args) => (cmd === 'run-deliver' ? { status: 200, body: { url: 'u' } } : h.real(cmd, args))
+    h.ctx.handle = async (cmd, args) => {
+      if (cmd !== 'run-deliver' || args.pending === true) return h.real(cmd, args)
+      const st = h.state()
+      h.setState({ ...st, runs: st.runs.map((r) => ({ ...r, deliveryState: { state: 'delivered' as const, attempts: 1 } })) })
+      return { status: 200, body: { url: 'u' } }
+    }
     h.startWorker.mockImplementation(async () => ({ sessionId: 'w', cwd: '/wt-run', specPath: 'x' }))
     await h.loop.run()
     await h.settle()
@@ -2350,16 +2468,29 @@ describe('a long plan keeps a draft PR (W8-C)', () => {
     h.ctx.handle = async (cmd, args) => {
       if (cmd === 'run-draft-pr') {
         const s = h.state()
-        h.setState({ ...s, runs: s.runs.map((r) => ({ ...r, pr: { at: NOW, url: 'u', draft: true as const, wavesDone: 1 } })) })
-        return { status: 200, body: { url: 'u', opened: true } }
+        const done = s.tasks.filter((t) => t.runId === 'run_1' && t.status === 'completed').length
+        const push = s.jobs[0].delivery === 'push'
+        h.setState({
+          ...s,
+          runs: s.runs.map((r) => ({
+            ...r,
+            ...(push ? {} : { pr: { at: NOW, url: 'u', draft: true as const, wavesDone: 1 } }),
+            branchPush: { state: 'delivered' as const, attempts: 1, tasksDone: done }
+          }))
+        })
+        return { status: 200, body: push ? { pushed: true } : { url: 'u', opened: true } }
       }
-      if (cmd === 'run-deliver') return { status: 200, body: { url: 'u' } }
+      if (cmd === 'run-deliver' && args.pending !== true) {
+        const s = h.state()
+        h.setState({ ...s, runs: s.runs.map((r) => ({ ...r, deliveryState: { state: 'delivered' as const, attempts: 1 } })) })
+        return { status: 200, body: { url: 'u' } }
+      }
       return h.real(cmd, args)
     }
   }
   const count = (h: ReturnType<typeof rig>, cmd: string): number => h.handled().filter((c) => c === cmd).length
 
-  it('asks once after the first wave, then delivers the draft Run at completion', async () => {
+  it('T3: asks once per Task merged, then delivers the draft Run at completion', async () => {
     const h = rig()
     fake(h)
     twoWaves(h, 'completed', 'pending')
@@ -2372,18 +2503,18 @@ describe('a long plan keeps a draft PR (W8-C)', () => {
     twoWaves(h, 'completed', 'completed')
     await h.loop.run()
     await h.settle()
-    expect(count(h, 'run-draft-pr')).toBe(1)
+    expect(count(h, 'run-draft-pr')).toBe(2)
     expect(count(h, 'run-deliver')).toBe(1)
   })
 
-  it('asks nothing for a one-wave plan or a push delivery', async () => {
+  it('T3: a one-wave plan and a push delivery push their plan branch after each Task too', async () => {
     const one = rig()
     fake(one)
     const s = one.state()
     one.setState({ ...s, tasks: s.tasks.map((t) => (t.id === 'tsk_1' ? { ...t, status: 'completed' as const } : t)) })
     await one.loop.run()
     await one.settle()
-    expect(count(one, 'run-draft-pr')).toBe(0)
+    expect(count(one, 'run-draft-pr')).toBe(1)
     const push = rig()
     fake(push)
     const p = push.state()
@@ -2391,7 +2522,30 @@ describe('a long plan keeps a draft PR (W8-C)', () => {
     twoWaves(push, 'completed', 'pending')
     await push.loop.run()
     await push.settle()
-    expect(count(push, 'run-draft-pr')).toBe(0)
+    expect(count(push, 'run-draft-pr')).toBe(1)
+  })
+
+  it('T3: a failed branch push is retried after its retry time, not before', async () => {
+    const h = rig()
+    h.ctx.handle = async (cmd, args) => {
+      if (cmd !== 'run-draft-pr') return h.real(cmd, args)
+      const s = h.state()
+      h.setState({
+        ...s,
+        runs: s.runs.map((r) => ({ ...r, branchPush: { state: 'retrying' as const, attempts: 1, lastError: 'offline', nextRetryAt: new Date(h.clock + 60_000).toISOString() } }))
+      })
+      return { status: 409, body: { error: 'offline' } }
+    }
+    twoWaves(h, 'completed', 'pending')
+    await h.loop.run()
+    await h.settle()
+    await h.loop.run()
+    await h.settle()
+    expect(count(h, 'run-draft-pr')).toBe(1)
+    h.clock += 61_000
+    await h.loop.run()
+    await h.settle()
+    expect(count(h, 'run-draft-pr')).toBe(2)
   })
 })
 

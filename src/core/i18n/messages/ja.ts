@@ -1819,6 +1819,13 @@ export const ja: Catalog = {
   'plan.decisions.kind.escalation': '質問',
   'plan.decisions.kind.gate': 'ゲート',
   'plan.decisions.kind.refused': '拒否',
+  'plan.delivery.retrying': '配信を自動で再試行しています: {reason}',
+  'plan.delivery.failed': '未配信: {reason}',
+  'plan.delivery.needsOwner': '配信にあなたの対応が必要です: {reason}',
+  'plan.delivery.retry': '配信を再試行',
+  'plan.delivery.delivering': '配信中…',
+  'plan.delivery.retryFailed': '配信できませんでした: {reason}',
+  'plan.delivery.delivered': 'プランを配信しました',
   'start.go.plan': '計画を始める',
   // T2 Start: Audit mode, sticky hands-off, More options
   'start.next.audit': 'プランナーが選んだパスを監査し、見つけたことを inputs/audit.md に書いてから、それを直すタスクを計画します。',

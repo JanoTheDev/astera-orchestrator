@@ -46,7 +46,7 @@ import { jobActive, slotsToFill, tasksMissingAccounts, type Slot } from '../sche
 import { coordinatorStarting, jobOf, type OrchState } from '../state'
 import { isJobActive } from '../lifecycle'
 import { DEFAULT_CONCURRENCY, FAILURE_LIMIT, type Decision, type Job, type JobRun, type Task } from '../types'
-import { deliveryErrorOf, outcomeOfTasks, tasksOwnedBy } from '../running'
+import { outcomeOfTasks, tasksOwnedBy } from '../running'
 import { outcomeOf } from '../view'
 import { completionSettled, replansDue } from '../replan'
 import { REPLAN_LIFT_HOLD } from './replanStart'
@@ -54,7 +54,7 @@ import { REPLAN_LIFT_HOLD } from './replanStart'
 import { draftPrDue } from '../draftPr'
 import { refreshOnto, type Integration, type Refresh } from './integrateGit'
 import { usageChoice, usagePauseWhy, type UsageGuard } from '../usageGuard'
-import { deliveryOf, handsOffOf, projectOfJob } from '../delivery'
+import { deliveryAnswerOf, deliveryDue, deliveryOf, handsOffOf, ownerCheckDue, projectOfJob } from '../delivery'
 // W8-C plan after plan
 import { afterStartsDue, afterSweep } from '../after'
 // Coordinator rotation and finished tabs
@@ -389,7 +389,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
         if (outcomeOf(s, run.id) === 'running' || outcomeOf(s, run.id) === 'blocked') continue
         // W6-D: a Run this process watched finish keeps its coordinator until its final check settles
         const runJob = jobOf(s, run)
-        if (runJob && seenRunning.has(run.id) && !completionSettled(s, runJob, run.id)) continue
+        if (runJob && seenRunning(run.id) && !completionSettled(s, runJob, run.id)) continue
         if (!graceOver(s, run, sessionId, c.nowMs())) continue
       }
       // **A session this process knows has ended is the stop confirmed** (L1): its exit was never heard
@@ -527,11 +527,12 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
 
   /**
    * W2-D: **a Run that completes opens its plan's one pull request** (`run-open-pr`, the owner's decision of
-   * 2026-10-17). Only a Run this process saw running: a Run that was already done when it started (every Run on disk
-   * from before this existed among them) gets no PR it never asked for; `run-open-pr` still opens one by hand. Not a
-   * scheduled Job's (a PR per fire is noise) and not one with no integration branch (that one is Merged). The command
-   * records the outcome on the Run, so each is asked once; a refusal the command did not record is not asked again
-   * by this process either. Driving process only, asked before each one; a failure is logged and never thrown.
+   * 2026-10-17). Only a Run seen running (T3: marked on the Run, `deliveryState`, so a restart keeps it): a Run that was
+   * already done before that (every Run on disk from before this existed among them) gets no PR it never asked for;
+   * `run-open-pr` still opens one by hand. Not a scheduled Job's (a PR per fire is noise) and not one with no
+   * integration branch (that one is Merged). T3: each attempt is recorded on the Run and retried with backoff (1, 5,
+   * 15, 30, 60 min); after the fifth the owner is asked once. Driving process only, asked before each one; a failure is
+   * logged and never thrown.
    */
   // ── T11: deliveries across plans never collide ──
   /** The project a plan delivers into: its registered project (T3: its workspace, so sibling sub-projects of one
@@ -659,10 +660,13 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
    *  projects deliver side by side. In memory: a delivery never outlives its process, and what it landed is in the state. */
   const delivering = new Set<string>()
 
-  const seenRunning = new Set<string>()
-  const prAsked = new Set<string>()
+  /** T3: a Run seen running has its delivery pending on the Run itself (`deliveryState`), so a restarted Host still
+   *  delivers it; a Run that was already done before this existed has none and gets no delivery it never asked for. */
+  const seenRunning = (runId: string): boolean => c.getState().runs.find((r) => r.id === runId)?.deliveryState !== undefined
+  type DeliveryStep = { run: JobRun; push: boolean; action: 'auto' | 'retry' | 'self'; outcome: string }
   const openCompletedRunPrs = async (): Promise<void> => {
     const s = c.getState()
+    const nowMs = c.nowMs()
     // One sweep of the Tasks per pass, not one per Run: a month of history is many Runs (audit OR-1's reason)
     const owned = new Map<string, Task[]>()
     for (const t of s.tasks) {
@@ -671,33 +675,47 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       if (list) list.push(t)
       else owned.set(t.runId, [t])
     }
-    const due = new Map<string, { run: JobRun; push: boolean }[]>()
+    const due = new Map<string, DeliveryStep[]>()
     for (const run of s.runs) {
-      // W6-H: a push delivery records its own result (`run.delivery`)
-      // W8-C: a draft opened between waves is finished here (`run-open-pr` marks it ready); any other PR is the end
-      if ((run.pr !== undefined && run.pr.draft !== true) || run.delivery !== undefined) continue
-      const outcome = outcomeOfTasks(owned.get(run.id) ?? [], s.gates)
-      if (outcome === 'running') {
-        seenRunning.add(run.id)
-        // Item 2: a plan that finished with blocked Tasks and runs again (the owner released one) is delivered again
-        prAsked.delete(run.id)
-        continue
-      }
-      if (prAsked.has(run.id) || !seenRunning.has(run.id)) continue
+      // W6-H: a pushed delivery is done; W8-C: a draft opened between waves is finished here (`run-open-pr` marks it
+      // ready); any other opened PR (or a no-remote note) is the end
+      if (run.delivery?.sha !== undefined || run.pr?.note !== undefined || (run.pr?.url !== undefined && run.pr.draft !== true)) continue
       const job = jobOf(s, run)
       if (!job || !isJobActive(job) || job.schedule !== undefined) continue
+      const p = run.deliveryState
+      const outcome = outcomeOfTasks(owned.get(run.id) ?? [], s.gates)
+      if (outcome === 'running') {
+        // T3: persisted, so a restart still delivers it. Item 2: a plan that finished with blocked Tasks (or whose
+        // delivery became an integration Task) and runs again is delivered again, its attempts counted afresh
+        if ((p?.state !== 'pending' || p.attempts !== 0) && c.mayStart()) {
+          try {
+            const r = await c.handle('run-deliver', { run: run.id, pending: true })
+            if (r.status >= 400) log(`run=${run.id}: its delivery was not marked pending: ${JSON.stringify(r.body)}`)
+          } catch (e) {
+            log(`run=${run.id}: marking its delivery pending failed: ${String(e)}`)
+          }
+        }
+        continue
+      }
+      if (p === undefined) continue
+      const push = deliveryOf(s, job) === 'push'
+      const answer = deliveryAnswerOf(s, p)
+      const action: DeliveryStep['action'] | null =
+        answer === 'self' || ownerCheckDue(p, nowMs) ? 'self' : answer === 'retry' ? 'retry' : deliveryDue(p, nowMs) ? 'auto' : null
+      if (action === null) continue
       // W6-D: the PR waits for the final check (replan.ts completionSettled). W8-E (#99): a failed plan has none
       if (outcome === 'completed' && !completionSettled(s, job, run.id)) continue
+      // W8-E (#99): a failed plan's completed work goes into a draft PR (or its branch note). Item 2: so does a plan that
+      // finished with Tasks held for the owner; its draft is finished once they are done. A push plan held for the owner
+      // waits for them; T3: one that ended failed is told once (`run-deliver` records it `failed`)
+      if (outcome === 'blocked' && push) continue
       // W6-H: a push merges the Run's worktrees into the project folder itself, so it needs no integration branch
-      const push = deliveryOf(s, job) === 'push'
-      // W8-E (#99): a failed plan's completed work goes into a draft PR (or its branch note), never pushed. Item 2: so
-      // does a plan that finished with Tasks held for the owner; its draft is finished once they are done
-      if ((outcome === 'failed' || outcome === 'blocked') && push) continue
       if (!push && run.worktree === undefined) continue
       const key = projectKeyOf(s, job)
       const list = due.get(key)
-      if (list) list.push({ run, push })
-      else due.set(key, [{ run, push }])
+      const step = { run, push, action, outcome }
+      if (list) list.push(step)
+      else due.set(key, [step])
     }
     // T11: one delivery per project at a time, projects side by side
     await Promise.all(
@@ -705,7 +723,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
         if (delivering.has(key)) return
         delivering.add(key)
         try {
-          for (const x of list) await deliverOne(x.run, x.push)
+          for (const x of list) await deliverOne(x)
         } finally {
           delivering.delete(key)
         }
@@ -713,64 +731,93 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     )
   }
 
-  /** One completed Run's delivery (`openCompletedRunPrs`), under its project's lock. */
-  const deliverOne = async (run: JobRun, push: boolean): Promise<void> => {
+  /** One completed Run's delivery step (`openCompletedRunPrs`), under its project's lock: an attempt (`auto`, its retry
+   *  time come), the owner's "Retry now" (`retry`, a forced attempt that counts afresh) or "I'll push it myself" (`self`,
+   *  git asked whether the commits reached the branch). Each attempt is recorded on the Run by `run-deliver` (T3:
+   *  retried with backoff, the owner asked once after the last automatic one). Never throws. */
+  const deliverOne = async ({ run, push, action, outcome }: DeliveryStep): Promise<void> => {
     if (!c.mayStart()) return
+    const job = jobOf(c.getState(), run)
+    const plan = job ? jobNameOf(job) : run.id
+    if (action === 'self') {
+      try {
+        const r = await c.handle('run-deliver', { run: run.id, ownerPushed: true })
+        if (r.status < 400) {
+          log(`run=${run.id}: the owner delivered it; its commits are on the delivery branch`)
+          planActivity(run.id, `Plan ${plan} was delivered by its owner`)
+        } else log(`run=${run.id}: waiting for the owner's push: ${JSON.stringify(r.body)}`)
+      } catch (e) {
+        log(`run=${run.id}: checking the owner's push failed: ${String(e)}`)
+      }
+      return
+    }
     // T11: a push first takes in what other plans of the project delivered meanwhile. A conflict became an integration
-    // Task (the Run is running again, and comes back here once it is done); a Gate is the push's own guards' to say
+    // Task (the Run is running again, and comes back here once it is done). T3: a Gate stops this pass's delivery and
+    // counts as a failed attempt, so it is retried and, at the last, asked of the owner
     const anchor = anchorOf(c.getState(), run.id)
-    if (push && anchor) {
+    if (push && anchor && outcome === 'completed') {
       try {
         const fresh = await refreshRun(run.id, anchor.id)
         if (fresh.kind === 'wait') {
           log(`run=${run.id} completed, and is not delivered yet: ${fresh.why}`)
           return
         }
+        if (fresh.kind === 'gate') {
+          const r = await c.handle('run-deliver', { run: run.id, stopped: fresh.reason })
+          log(`run=${run.id} completed, and is not delivered this time: ${fresh.reason} (${JSON.stringify((r.body as { deliveryState?: unknown } | null)?.deliveryState)})`)
+          return
+        }
       } catch (e) {
         log(`run=${run.id}: refreshing onto other plans' deliveries failed, delivering as it is: ${String(e)}`)
       }
     }
-    prAsked.add(run.id)
     try {
       // W6-H: `run-deliver` is `run-open-pr` for a `pr` project, and the guarded push for a `push` one
-      const r = await c.handle('run-deliver', { run: run.id })
-      const body = r.body as { url?: unknown; sha?: unknown; branch?: unknown; message?: unknown } | null
-      if (r.status >= 400) await escalateDelivery(run.id, push, (body as { error?: unknown } | null)?.error ?? JSON.stringify(r.body))
+      const r = await c.handle('run-deliver', action === 'retry' ? { run: run.id, force: true } : { run: run.id, auto: true })
+      const body = r.body as {
+        url?: unknown
+        sha?: unknown
+        branch?: unknown
+        message?: unknown
+        error?: unknown
+        code?: unknown
+        conflictWith?: unknown
+        deliveryState?: { state?: unknown; nextRetryAt?: unknown }
+      } | null
+      if (r.status >= 400) {
+        const why = typeof body?.error === 'string' ? body.error : JSON.stringify(r.body)
+        const next = body?.deliveryState
+        log(
+          `run=${run.id} completed, and it was not delivered: ${why}` +
+            (next?.state === 'retrying' || next?.state === 'needs-owner' ? ` (${String(next.state)}, next try at ${String(next.nextRetryAt)})` : '')
+        )
+        // T3: a push plan that ended failed is never pushed: the feed says so, once (the Run now reads `failed`)
+        if (body?.code === 'not-completed') planActivity(run.id, `Plan ${plan} was not delivered: ${why}`)
+        // T3: origin moved on and conflicts with the plan: the owner's branch is back where it was, and an integration
+        // Task in this plan merges origin's commit, as the T11 refresh does; the delivery comes back here after it
+        if (body?.code === 'origin-conflict' && typeof body.conflictWith === 'string' && anchor && run.worktree !== undefined) {
+          const sha = body.conflictWith
+          const where = typeof body.branch === 'string' ? `origin/${body.branch}` : 'origin'
+          await startMergeWorker({
+            runId: run.id,
+            taskId: anchor.id,
+            key: sha,
+            reason: `${where} moved on to ${sha} while the plan was being delivered, and it conflicts with this plan's branch: merge it in with \`git merge --no-edit ${sha}\` and resolve the conflict. ${why}`,
+            worktrees: []
+          })
+          planActivity(run.id, `Integration Task created in plan ${plan} for its conflict with ${where} (${sha.slice(0, 7)})`)
+        }
+        return
+      }
       log(
-        r.status >= 400
-          ? `run=${run.id} completed, and it was not delivered: ${JSON.stringify(r.body)}`
-          : typeof body?.message === 'string' // W7-E (#80): no remote
-            ? `run=${run.id} completed: ${body.message}`
-            : push
+        typeof body?.message === 'string' // W7-E (#80): no remote
+          ? `run=${run.id} completed: ${body.message}`
+          : push
             ? `run=${run.id} completed: pushed ${String(body?.sha)} to ${String(body?.branch)}`
             : `run=${run.id} completed: its pull request is ${String(body?.url)}`
       )
     } catch (e) {
-      await escalateDelivery(run.id, push, String(e))
-      log(`run=${run.id} completed, and opening its pull request failed: ${String(e)}`)
-    }
-  }
-
-  /** The owner is told once that a Run's delivery failed: the Run reads failed with that reason (running.ts
-   *  deliveryErrorOf), and nothing here asks again, since the loop skips a Run with a recorded error. A push that
-   *  stopped has been escalated by `recordDelivery` already. */
-  const escalateDelivery = async (runId: string, push: boolean, why: unknown): Promise<void> => {
-    const s = c.getState()
-    const run = s.runs.find((x) => x.id === runId)
-    const anchor = anchorOf(s, runId)
-    const job = run && jobOf(s, run)
-    if (!run || !anchor || !job || (push && run.delivery?.error !== undefined)) return
-    const reason = deliveryErrorOf(run) ?? (typeof why === 'string' ? why : JSON.stringify(why))
-    try {
-      const r = await c.handle('send', {
-        type: 'escalation',
-        taskId: anchor.id,
-        subject: `Delivery of ${jobNameOf(job)} failed: ${reason}`.slice(0, 300),
-        body: `Run ${runId} of plan "${jobNameOf(job)}" completed, and it was not delivered: ${reason}\n\nThe Run reads failed until a delivery succeeds. Fix the cause, then deliver again with \`astera run-deliver --run ${runId} --force\`.`
-      })
-      if (r.status >= 400) log(`run=${runId}: the delivery escalation was refused: ${JSON.stringify(r.body)}`)
-    } catch (e) {
-      log(`run=${runId}: the delivery escalation failed: ${String(e)}`)
+      log(`run=${run.id} completed, and delivering it failed: ${String(e)}`)
     }
   }
 
@@ -801,7 +848,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
         log(`job=${job.id}: ending its replan failed: ${String(e)}`)
       }
     }
-    for (const due of replansDue(c.getState(), (id) => seenRunning.has(id))) {
+    for (const due of replansDue(c.getState(), seenRunning)) {
       if (!c.mayStart()) return
       const job = jobOf(c.getState(), c.getState().runs.find((x) => x.id === due.runId)!)
       try {
@@ -891,17 +938,16 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
   /**
    * W8-C: **a long `pr` plan is followed from GitHub.** After each wave while later waves remain (draftPr.ts
    * draftPrDue), `run-draft-pr` pushes the integration branch and opens the plan's PR as a draft, or rewrites its body.
-   * Asked once per Run and done count in this process (a refusal is not recorded on the Run, so this set is what stops
-   * a repeat each pass). After the replans, so a wave's replan has its say first. Driving process only, asked before
-   * each one; a failure is logged and never thrown.
+   * T3: after every Task merged into the plan branch, for `push` plans too (the branch is pushed, no PR). Each attempt
+   * is recorded on the Run (`branchPush`), so a failure is retried after its backoff and a restart resumes. After the
+   * replans, so a wave's replan has its say first. Driving process only, asked before each one; a failure is logged
+   * and never thrown.
    */
-  const draftAsked = new Set<string>()
   const updateDraftPrs = async (): Promise<void> => {
     for (const run of c.getState().runs) {
-      const done = draftPrDue(c.getState(), run)
-      if (done === null || draftAsked.has(`${run.id}:${done}`)) continue
+      const done = draftPrDue(c.getState(), run, c.nowMs())
+      if (done === null) continue
       if (!c.mayStart()) return
-      draftAsked.add(`${run.id}:${done}`)
       log((await askDraftPr(run.id, done)).line)
     }
   }
@@ -911,11 +957,12 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       const r = await c.handle('run-draft-pr', { run: runId })
       const body = r.body as { url?: unknown; message?: unknown; opened?: unknown } | null
       if (r.status >= 400)
-        return { ok: false, line: `run=${runId}: its draft pull request after wave ${done} was not updated: ${JSON.stringify(r.body)}` }
+        return { ok: false, line: `run=${runId}: its plan branch was not pushed after ${done} task(s), retried later: ${JSON.stringify(r.body)}` }
       if (typeof body?.message === 'string') return { ok: false, line: `run=${runId}: no draft pull request: ${body.message}` }
+      if (body?.url === undefined) return { ok: true, line: `run=${runId}: plan branch pushed after ${done} task(s)` }
       return {
         ok: true,
-        line: `run=${runId}: draft pull request ${body?.opened === true ? 'opened' : 'updated'} after wave ${done}: ${String(body?.url)}`
+        line: `run=${runId}: draft pull request ${body?.opened === true ? 'opened' : 'updated'} after ${done} task(s): ${String(body?.url)}`
       }
     } catch (e) {
       return { ok: false, line: `run=${runId}: updating its draft pull request failed: ${String(e)}` }
@@ -2210,8 +2257,8 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
         watchdogLine(
           r.runId,
           ok
-            ? `the draft PR after wave ${r.done} had not been opened or updated; it is now`
-            : `the draft PR after wave ${r.done} is still not opened or updated: ${line.replace(/^run=\S+: /, '')}`
+            ? `the plan branch after ${r.done} task(s) had not been pushed; it is now`
+            : `the plan branch after ${r.done} task(s) is still not pushed: ${line.replace(/^run=\S+: /, '')}`
         )
         return
       }

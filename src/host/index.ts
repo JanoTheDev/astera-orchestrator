@@ -869,7 +869,8 @@ async function main(): Promise<void> {
             deliverByPush(push, {
               mergeWorktrees: (into, paths, o) => worktrees.mergeWorktrees(into, paths, o),
               validate: (cwd) => wiring.checks.validateTree(cwd, checks),
-              log: (m) => log.write(m)
+              log: (m) => log.write(m),
+              gitOp: worktrees.gitOp // T3: the catch-up merge with origin is Astera's, not an external change
             }),
           // W9-J: a delivered plan's ready worktrees go, unless the setting is off
           cleanWorktrees: async (runId) => {

@@ -2930,6 +2930,13 @@ export const ko = {
   'plan.decisions.kind.escalation': '질문',
   'plan.decisions.kind.gate': '게이트',
   'plan.decisions.kind.refused': '거부',
+  'plan.delivery.retrying': '전달을 자동으로 다시 시도합니다: {reason}',
+  'plan.delivery.failed': '전달되지 않음: {reason}',
+  'plan.delivery.needsOwner': '전달에 확인이 필요합니다: {reason}',
+  'plan.delivery.retry': '전달 다시 시도',
+  'plan.delivery.delivering': '전달 중…',
+  'plan.delivery.retryFailed': '전달하지 못했습니다: {reason}',
+  'plan.delivery.delivered': '계획을 전달했습니다',
   'start.go.plan': '계획 시작',
   // T2 Start: Audit mode, sticky hands-off, More options
   'start.next.audit': '플래너가 고른 경로를 감사하고, 찾은 것을 inputs/audit.md 에 적은 뒤, 그것을 고칠 작업을 계획합니다.',

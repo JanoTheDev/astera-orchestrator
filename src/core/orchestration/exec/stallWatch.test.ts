@@ -256,11 +256,11 @@ describe('stallRemedies', () => {
 
   it('a completed Task left out of the plan branch is merged again after 2 min, once', () => {
     const s = plan({ tasks: [task({ id: 'tsk_1', status: 'completed' })], dispatches: [ended('tsk_1', '/wt-child')] })
-    expect(watch(s, every30s(10 * MIN))).toEqual(['merge:tsk_1'])
+    expect(watch(s, every30s(10 * MIN)).filter((x) => !x.startsWith('draft-pr'))).toEqual(['merge:tsk_1'])
     expect(watch(s, [T0 + MERGE_STALL_MS - 1])).toEqual([])
     // marked merged (the wave merge's message): nothing
     const marked = { ...s, messages: [{ id: 'm', runId: 'run_1', type: 'status' as const, subject: 'task tsk_1 merged into the plan', body: '', answered: false, createdAt: NOW }] }
-    expect(watch(marked, every30s(10 * MIN))).toEqual([])
+    expect(watch(marked, every30s(10 * MIN)).filter((x) => !x.startsWith('draft-pr'))).toEqual([])
   })
 
   it('a wave done with its draft PR not opened is asked again after 2 min, once', () => {
@@ -276,7 +276,8 @@ describe('stallRemedies', () => {
       tasks: [task({ id: 'tsk_1', status: 'dispatched' }), task({ id: 'tsk_2', status: 'completed' })],
       dispatches: [{ ...ended('tsk_1', '/wt1'), endedAt: undefined, outcome: undefined } as Dispatch, ended('tsk_2', '/wt1')]
     })
-    expect(watch(s, every30s(60 * MIN), { ...idle, busy: () => true })).toEqual([])
+    // T3: the plan branch push after the completed Task is the driving loop's; nothing else waits
+    expect(watch(s, every30s(60 * MIN), { ...idle, busy: () => true }).filter((x) => !x.startsWith('draft-pr'))).toEqual([])
   })
 })
 
@@ -385,7 +386,7 @@ describe('watchStalls', () => {
     for (let t = 0; t <= 10 * MIN; t += STALL_WATCH_MS) await h.at(t)
     expect(merges).toBe(1)
     expect(h.state().tasks[0].mergedIntoPlanAt).toBe(NOW)
-    expect(h.lines.map((l) => l.payload.reason)).toEqual(['Merged TSK_1 into the plan branch; it had waited since it completed'])
+    expect(h.lines.map((l) => l.payload.reason).filter((x) => !x?.includes('plan branch after'))).toEqual(['Merged TSK_1 into the plan branch; it had waited since it completed'])
   })
 
   it('a failed draft PR retry says why in the feed', async () => {
@@ -400,7 +401,7 @@ describe('watchStalls', () => {
     h.ctx.handle = async (cmd, args) => (cmd === 'run-draft-pr' ? { status: 409, body: { error: 'no remote push access' } } : real(cmd, args))
     for (let t = 0; t <= 10 * MIN; t += STALL_WATCH_MS) await h.at(t)
     expect(h.lines.map((l) => l.payload.reason)).toEqual([
-      'The draft PR after wave 1 is still not opened or updated: its draft pull request after wave 1 was not updated: {"error":"no remote push access"}'
+      'The plan branch after 1 task(s) is still not pushed: its plan branch was not pushed after 1 task(s), retried later: {"error":"no remote push access"}'
     ])
   })
 

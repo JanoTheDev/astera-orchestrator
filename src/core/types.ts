@@ -813,6 +813,9 @@ export interface JobRow {
   outcome: RunOutcome
   /** Why the Run's delivery failed (its `outcome` is `failed` for it): a merge conflict or a refused push */
   deliveryError?: string
+  /** T3: a delivery that is being retried, failed, waits on the owner or runs now: the Run it is of (for `run-deliver`),
+   *  its step and the last reason. Absent while pending or once delivered. */
+  delivery?: { runId: string; state: 'delivering' | 'retrying' | 'failed' | 'needs-owner'; reason?: string; nextRetryAt?: string }
   done: number
   total: number
   /** 이 Run 의 타임라인 이벤트 수(core/orchestration/timeline.ts 의 eventCountFor).

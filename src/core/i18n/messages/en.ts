@@ -2683,6 +2683,13 @@ export const en: Record<keyof typeof ko, string> = {
   'plan.decisions.kind.escalation': 'Question',
   'plan.decisions.kind.gate': 'Gate',
   'plan.decisions.kind.refused': 'Refused',
+  'plan.delivery.retrying': 'Delivery is retried by itself: {reason}',
+  'plan.delivery.failed': 'Not delivered: {reason}',
+  'plan.delivery.needsOwner': 'Delivery needs you: {reason}',
+  'plan.delivery.retry': 'Retry delivery',
+  'plan.delivery.delivering': 'delivering…',
+  'plan.delivery.retryFailed': 'Delivery did not go through: {reason}',
+  'plan.delivery.delivered': 'Plan delivered',
   'start.go.plan': 'Start planning',
   // T2 Start: Audit mode, sticky hands-off, More options
   'start.next.audit': 'The planner audits the paths you pick, writes its findings to inputs/audit.md, then plans tasks that fix them.',

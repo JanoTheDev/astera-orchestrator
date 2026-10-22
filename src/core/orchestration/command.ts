@@ -218,8 +218,14 @@ import {
   cleanAfterDelivery,
   recordDelivery,
   setJobDelivery,
-  setProjectDelivery
+  setProjectDelivery,
+  // T3: delivery that finishes by itself
+  afterAttempt,
+  deliveryDue,
+  OWNER_PUSH_CHECK_MS,
+  raiseDeliveryQuestion
 } from './delivery'
+import type { DeliveryProgress } from './types'
 import type { PushDelivery, PushResult } from './exec/integrateGit'
 
 /** One row of `listAccounts`. Named only because the declaration below is a union and repeating the
@@ -6207,34 +6213,117 @@ export async function handleCommand(
       if (!run) return notFound(`unknown run: ${id}`)
       const job = jobOf(s, run)
       if (!job) return notFound(`no plan for run ${id}`)
-      if (deliveryOf(s, job) === 'pr') {
-        const opened = await handleCommand(deps, caller, 'run-open-pr', { run: id, ...(args.force === true ? { force: true } : {}) })
-        if (opened.status < 400) await cleanAfterDelivery(deps, id) // W9-J
-        return opened
+      const push = deliveryOf(s, job) === 'push'
+      // T3: the driving loop's own steps (persisted delivery state, retries, the owner's answer) are Astera's
+      const loopStep = args.pending === true || args.auto === true || args.ownerPushed === true || typeof args.stopped === 'string'
+      if ((push || loopStep) && (fromAgentSession || caller.role === 'mcp'))
+        return denied('a delivery is made by Astera itself, or by the person')
+      const progressOf = (st: OrchState): DeliveryProgress | undefined => st.runs.find((r) => r.id === id)?.deliveryState
+      const withProgress = (st: OrchState, p: DeliveryProgress): OrchState => ({
+        ...st,
+        runs: st.runs.map((r) => (r.id === id ? { ...r, deliveryState: p } : r))
+      })
+      // T3: a Run the loop saw running has a delivery pending (also again after it finished blocked and runs once more)
+      if (args.pending === true) {
+        const next: DeliveryProgress = { state: 'pending', attempts: 0 }
+        await deps.setState(withProgress(deps.getState(), next))
+        return okBody({ deliveryState: next })
       }
-      if (fromAgentSession || caller.role === 'mcp') return denied('a push delivery is made by Astera itself, or by the person')
-      const done = run.delivery
-      if (done?.sha !== undefined) return okBody({ delivery: 'push', branch: done.branch ?? null, sha: done.sha, pushed: false })
-      if (done?.error !== undefined && args.force !== true)
-        return conflict(`Pushing this Run stopped before: ${done.error}. --force tries again`)
-      if (taskOutcomeOf(s, run) !== 'completed') return conflict('This Run has not completed; it is pushed once every task is done')
-      if (!deps.deliverPush) return conflict('Pushing a plan is done by the Astera Host, and this caller is not one')
       const proj = projectOfJob(s, job)
       const branch = proj?.deliveryBranch
-      const r = await deps.deliverPush({
+      const pushTarget = {
         cwd: job.cwd,
         ...(branch !== undefined ? { branch } : {}),
         ...(proj?.defaultBranch ? { defaultBranch: proj.defaultBranch } : {}), // W8-G
-
-        worktrees: runWorktrees(s, id),
+        worktrees: runWorktrees(s, id)
+      }
+      // T3: the owner answered they push it themselves: delivered once git sees every worktree's commit on the branch
+      if (args.ownerPushed === true) {
+        const p = run.deliveryState
+        if (p?.state !== 'needs-owner') return conflict('No delivery of this Run waits on the owner')
+        const at = deps.now?.() ?? now
+        const mine: DeliveryProgress = { ...p, state: 'delivered-by-owner', ownerPushes: true }
+        delete mine.nextRetryAt
+        if (!push) {
+          await deps.setState(withProgress(deps.getState(), mine))
+          return okBody({ deliveryState: mine })
+        }
+        if (!deps.deliverPush) return conflict('Pushing a plan is done by the Astera Host, and this caller is not one')
+        const r = await deps.deliverPush({ ...pushTarget, message: '', checks: [], ownerPushed: true })
+        if (!r.ok) {
+          const wait: DeliveryProgress = { ...p, ownerPushes: true, nextRetryAt: new Date(Date.parse(at) + OWNER_PUSH_CHECK_MS).toISOString() }
+          await deps.setState(withProgress(deps.getState(), wait))
+          return { status: 409, body: { error: r.reason, deliveryState: wait } }
+        }
+        await deps.setState(withProgress(recordDelivery(deps.getState(), id, { at, branch: r.branch, sha: r.sha }), mine))
+        await cleanAfterDelivery(deps, id) // W9-J
+        return okBody({ delivery: 'push', branch: r.branch, sha: r.sha, pushed: false, deliveryState: mine })
+      }
+      const force = args.force === true
+      // T3: the loop's attempt is made only when it is due (pending, or a failure's retry time came)
+      if (args.auto === true && !deliveryDue(run.deliveryState, Date.parse(deps.now?.() ?? now)))
+        return conflict('No delivery attempt is due for this Run yet')
+      /** One attempt's end, recorded: delivered, or one more failure with its retry time; the fifth asks the owner once.
+       *  A person's --force starts the count again. */
+      const settle = async (error: string | undefined, st: OrchState = deps.getState()): Promise<DeliveryProgress> => {
+        const at = deps.now?.() ?? now
+        let next = afterAttempt(force ? undefined : progressOf(s), at, error)
+        let out = withProgress(st, next)
+        if (next.state === 'needs-owner' && next.questionId === undefined) {
+          out = raiseDeliveryQuestion(out, id, at)
+          next = progressOf(out) ?? next
+        }
+        if (error === undefined && next.questionId !== undefined)
+          out = { ...out, messages: out.messages.map((m) => (m.id === next.questionId && !m.answered ? { ...m, answered: true, answerBody: 'delivered' } : m)) }
+        await deps.setState(out)
+        return next
+      }
+      // T3: the loop stopped this attempt itself (a refresh onto another plan's delivery needs a person): one failure
+      if (typeof args.stopped === 'string') return { status: 409, body: { error: args.stopped, deliveryState: await settle(args.stopped) } }
+      if (!push) {
+        const opened = await handleCommand(deps, caller, 'run-open-pr', { run: id, ...(force || args.auto === true ? { force: true } : {}) })
+        if (opened.status < 400) await cleanAfterDelivery(deps, id) // W9-J
+        const error = opened.status < 400 ? undefined : String((opened.body as { error?: unknown } | null)?.error ?? `run-open-pr answered ${opened.status}`)
+        const p = await settle(error)
+        return { ...opened, body: { ...((opened.body ?? {}) as object), deliveryState: p } }
+      }
+      const done = run.delivery
+      if (done?.sha !== undefined) return okBody({ delivery: 'push', branch: done.branch ?? null, sha: done.sha, pushed: false })
+      if (done?.error !== undefined && !force && args.auto !== true)
+        return conflict(`Pushing this Run stopped before: ${done.error}. --force tries again`)
+      if (taskOutcomeOf(s, run) !== 'completed') {
+        // T3: a push plan delivers only when every Task completed; the loop's Run that ended failed says so once
+        if (args.auto === true && taskOutcomeOf(s, run) === 'failed') {
+          const failed: DeliveryProgress = {
+            state: 'failed',
+            attempts: run.deliveryState?.attempts ?? 0,
+            lastError: 'the plan ended with failed tasks, and a push plan is delivered only when every task completed'
+          }
+          await deps.setState(withProgress(deps.getState(), failed))
+          return { status: 409, body: { error: failed.lastError, code: 'not-completed', deliveryState: failed } }
+        }
+        return conflict('This Run has not completed; it is pushed once every task is done')
+      }
+      if (!deps.deliverPush) return conflict('Pushing a plan is done by the Astera Host, and this caller is not one')
+      await deps.setState(
+        withProgress(deps.getState(), { ...(run.deliveryState ?? { attempts: 0 }), state: 'delivering', lastAttemptAt: deps.now?.() ?? now })
+      )
+      const r = await deps.deliverPush({
+        ...pushTarget,
         message: deliveryMessage(jobNameOf(job), deliveryIssuesOf(s, run)),
         checks: deliveryChecksOf(s, id)
       })
       const at = deps.now?.() ?? now
-      await deps.setState(
-        recordDelivery(deps.getState(), id, r.ok ? { at, branch: r.branch, sha: r.sha } : { at, ...(r.branch ? { branch: r.branch } : {}), error: r.reason })
+      // T3: recorded quietly: the owner is asked once, after the last automatic attempt (settle)
+      const recorded = recordDelivery(
+        deps.getState(),
+        id,
+        r.ok ? { at, branch: r.branch, sha: r.sha } : { at, ...(r.branch ? { branch: r.branch } : {}), error: r.reason },
+        { quiet: true }
       )
-      if (!r.ok) return conflict(r.reason)
+      const p = await settle(r.ok ? undefined : r.reason, recorded)
+      if (!r.ok)
+        return { status: 409, body: { error: r.reason, ...(r.branch ? { branch: r.branch } : {}), ...(r.code ? { code: r.code } : {}), ...(r.conflictWith ? { conflictWith: r.conflictWith } : {}), deliveryState: p } }
       const removed = deps.removeWorktrees && r.merged.length > 0 ? await deps.removeWorktrees(r.merged) : null
       await cleanAfterDelivery(deps, id) // W9-J: what the push left (the Run's own folder)
       return okBody({
@@ -6243,15 +6332,18 @@ export async function handleCommand(
         sha: r.sha,
         pushed: true,
         validated: r.validated,
+        deliveryState: p,
         ...(removed && removed.failed.length > 0 ? { worktreesKept: removed.failed } : {})
       })
     }
-    // W8-C draft PR: a long `pr` plan is followed from GitHub. After a wave, while later waves remain (draftPr.ts
-    // draftPrDue), the completed Tasks' worktrees are folded into the Run's integration branch, it is pushed, and the
-    // plan's PR is opened as a draft, or its body rewritten with the done and remaining waves. Recorded as
-    // `run.pr = { url, number, draft, wavesDone }`; `run-open-pr` marks it ready after the final check. A failure is
-    // not recorded (a recorded error would stop the final delivery) and no remote is no failure: nothing is opened.
-    // Never merged. Astera's own step: refused from an agent session and an MCP client.
+    // W8-C draft PR: a long `pr` plan is followed from GitHub. T3: after every Task merged into the plan branch
+    // (draftPr.ts draftPrDue), the completed Tasks' worktrees are folded into the Run's integration branch and it is
+    // pushed (never forced, never the base branch), for a `push` plan too; a `pr` plan's PR is then opened as a draft,
+    // or its body rewritten with the done and remaining waves (`run.pr = { url, number, draft, wavesDone }`;
+    // `run-open-pr` marks it ready after the final check). Each attempt is recorded on the Run (`branchPush`: the Tasks
+    // done at the last push that went through, or the failure and its retry time), never as a PR error (that would stop
+    // the final delivery); no remote is no failure: nothing is opened. Never merged. Astera's own step: refused from an
+    // agent session and an MCP client.
     case 'run-draft-pr': {
       const id = str(args.run)
       if (!id) return bad('--run is required')
@@ -6260,67 +6352,90 @@ export async function handleCommand(
       if (!run) return notFound(`unknown run: ${id}`)
       const job = jobOf(s, run)
       if (!job) return notFound(`no plan for run ${id}`)
-      if (draftPrDue(s, run) === null)
-        return conflict('No draft update is due: a pull request plan updates its draft once per finished wave while later waves remain')
-      const t = githubTarget(deps, s, { run: id })
-      if ('error' in t) return t.error
-      if (!('branch' in t)) return conflict('This Run has no branch of its own')
-      const g = deps.github!
-      if (!g.push) return conflict('pushing a branch is not available in this build')
-      const fold = completedWorktrees(s, run)
-      if (fold.length > 0) {
-        if (!deps.mergeWorktrees) return conflict('merging is not available in this build')
-        const merged = await deps.mergeWorktrees(t.cwd, fold)
-        if (!merged.ok) return conflict(merged.reason)
-      }
-      let accounts: OrchAccount[] = []
-      try {
-        accounts = await deps.listAccounts()
-      } catch {
-        // The PR names an account by its id then
-      }
-      const cur = deps.getState()
-      const waves = runWaves(cur, id)
-      const done = wavesDoneOf(waves)
-      const title = jobNameOf(job)
-      const tasks = planPrTasksOf(cur, id, (a) => accounts.find((x) => x.id === a)?.label)
-      const body =
-        planPrBody({ plan: title, tasks, waves: wavesSection(waves), did: await prSummaries(deps, cur, id), footer: DRAFT_PR_FOOTER }) + (await prAttribution(cur, id, t.cwd)) // W8-A
-      const at = deps.now?.() ?? now
-      const record = async (pr: RunPr, links?: TaskLinks): Promise<void> => {
-        const st = deps.getState()
-        await deps.setState({
-          ...st,
-          runs: st.runs.map((r) => (r.id === id ? { ...r, pr } : r)),
-          tasks: links ? st.tasks.map((x) => (x.runId === id ? { ...x, links: mergeLinks(x.links, links) } : x)) : st.tasks
-        })
-      }
-      const open = run.pr
-      if (open?.url !== undefined) {
-        const pushed = await g.push(t.cwd, t.branch)
-        if (!pushed.ok)
-          return pushed.kind === 'no-remote'
-            ? okBody({ noRemote: true, branch: t.branch, message: noRemoteNote(t.branch, t.repoPath) })
-            : conflict(`The push was rejected: ${pushed.detail.trim()}`)
+      const tasksDone = draftPrDue(s, run)
+      if (tasksDone === null) return conflict("No plan-branch push is due: the plan's branch is pushed once per Task merged into it")
+      const reply = await (async (): Promise<Reply> => {
+        const t = githubTarget(deps, s, { run: id })
+        if ('error' in t) return t.error
+        if (!('branch' in t)) return conflict('This Run has no branch of its own')
+        const g = deps.github!
+        if (!g.push) return conflict('pushing a branch is not available in this build')
+        if (t.branch === t.baseRef) return conflict(`The plan branch ${t.branch} is the base branch, which only the final delivery pushes`)
+        const fold = completedWorktrees(s, run)
+        if (fold.length > 0) {
+          if (!deps.mergeWorktrees) return conflict('merging is not available in this build')
+          const merged = await deps.mergeWorktrees(t.cwd, fold)
+          if (!merged.ok) return conflict(merged.reason)
+        }
+        // T3: a push plan's branch is pushed for safekeeping; main receives the plan once, validated, at the end
+        if (deliveryOf(s, job) === 'push') {
+          const pushed = await g.push(t.cwd, t.branch)
+          if (!pushed.ok)
+            return pushed.kind === 'no-remote'
+              ? okBody({ noRemote: true, branch: t.branch, message: noRemoteNote(t.branch, t.repoPath) })
+              : conflict(`The push was rejected: ${pushed.detail.trim()}`)
+          await pushNotes(t.cwd) // W8-A
+          return okBody({ branch: t.branch, pushed: true, tasksDone })
+        }
+        let accounts: OrchAccount[] = []
+        try {
+          accounts = await deps.listAccounts()
+        } catch {
+          // The PR names an account by its id then
+        }
+        const cur = deps.getState()
+        const waves = runWaves(cur, id)
+        const done = wavesDoneOf(waves)
+        const title = jobNameOf(job)
+        const tasks = planPrTasksOf(cur, id, (a) => accounts.find((x) => x.id === a)?.label)
+        const body =
+          planPrBody({ plan: title, tasks, waves: wavesSection(waves), did: await prSummaries(deps, cur, id), footer: DRAFT_PR_FOOTER }) + (await prAttribution(cur, id, t.cwd)) // W8-A
+        const at = deps.now?.() ?? now
+        const record = async (pr: RunPr, links?: TaskLinks): Promise<void> => {
+          const st = deps.getState()
+          await deps.setState({
+            ...st,
+            runs: st.runs.map((r) => (r.id === id ? { ...r, pr } : r)),
+            tasks: links ? st.tasks.map((x) => (x.runId === id ? { ...x, links: mergeLinks(x.links, links) } : x)) : st.tasks
+          })
+        }
+        const open = run.pr
+        if (open?.url !== undefined) {
+          const pushed = await g.push(t.cwd, t.branch)
+          if (!pushed.ok)
+            return pushed.kind === 'no-remote'
+              ? okBody({ noRemote: true, branch: t.branch, message: noRemoteNote(t.branch, t.repoPath) })
+              : conflict(`The push was rejected: ${pushed.detail.trim()}`)
+          await pushNotes(t.cwd) // W8-A: the notes ref goes with the PR branch
+          const edited = await setPrBody(g.run, open.url, body, t.cwd)
+          if (!edited.ok) return ghRefusal({ ok: false, ...ghFailureSentence(edited) })
+          await record({ ...open, at, draft: true, wavesDone: done })
+          return okBody({ url: open.url, number: open.number ?? null, draft: true, wavesDone: done, opened: false })
+        }
+        const base = (await defaultBranchOf(g.run, t.cwd)) ?? t.baseRef
+        const made = await g.createPr({ worktreePath: t.cwd, repoPath: t.repoPath, branch: t.branch, base, title, body, draft: true, needsPush: true })
+        if (!made.ok) {
+          if (made.kind === 'no-remote') return okBody({ noRemote: true, branch: t.branch, message: noRemoteNote(t.branch, t.repoPath) })
+          return conflict(`The draft pull request was not opened (${made.stage}, ${made.kind}): ${made.detail.trim()}`)
+        }
         await pushNotes(t.cwd) // W8-A: the notes ref goes with the PR branch
-        const edited = await setPrBody(g.run, open.url, body, t.cwd)
-        if (!edited.ok) return ghRefusal({ ok: false, ...ghFailureSentence(edited) })
-        await record({ ...open, at, draft: true, wavesDone: done })
-        return okBody({ url: open.url, number: open.number ?? null, draft: true, wavesDone: done, opened: false })
-      }
-      const base = (await defaultBranchOf(g.run, t.cwd)) ?? t.baseRef
-      const made = await g.createPr({ worktreePath: t.cwd, repoPath: t.repoPath, branch: t.branch, base, title, body, draft: true, needsPush: true })
-      if (!made.ok) {
-        if (made.kind === 'no-remote') return okBody({ noRemote: true, branch: t.branch, message: noRemoteNote(t.branch, t.repoPath) })
-        return conflict(`The draft pull request was not opened (${made.stage}, ${made.kind}): ${made.detail.trim()}`)
-      }
-      await pushNotes(t.cwd) // W8-A: the notes ref goes with the PR branch
-      const number = prNumberOf(made.url)
-      await record(
-        { at, url: made.url, ...(number !== null ? { number } : {}), draft: true, wavesDone: done },
-        number !== null ? { prs: [{ number, url: made.url, state: 'open' }] } : undefined
-      )
-      return okBody({ url: made.url, number, draft: true, wavesDone: done, opened: true })
+        const number = prNumberOf(made.url)
+        await record(
+          { at, url: made.url, ...(number !== null ? { number } : {}), draft: true, wavesDone: done },
+          number !== null ? { prs: [{ number, url: made.url, state: 'open' }] } : undefined
+        )
+        return okBody({ url: made.url, number, draft: true, wavesDone: done, opened: true })
+      })()
+      const at = deps.now?.() ?? now
+      const failed = reply.status >= 400 ? String((reply.body as { error?: unknown } | null)?.error ?? `answered ${reply.status}`) : undefined
+      const bp = afterAttempt(run.branchPush, at, failed, { ask: false })
+      const cur = deps.getState()
+      const tasksPushed = failed === undefined ? tasksDone : run.branchPush?.tasksDone
+      await deps.setState({
+        ...cur,
+        runs: cur.runs.map((r) => (r.id === id ? { ...r, branchPush: { ...bp, ...(tasksPushed !== undefined ? { tasksDone: tasksPushed } : {}) } } : r))
+      })
+      return reply
     }
     case 'run-open-pr': {
       const id = str(args.run)
