@@ -9,10 +9,9 @@ import type { MessageKey } from '../../../core/i18n'
 import { runTypeIcon } from '../../../core/run/typeIcon'
 import { useI18n } from '../i18n/I18nProvider'
 import { FileIcon } from './FileIcon'
-import { Select, type SelectOption } from './Select'
+import { Button, Icon, Menu, Select, type SelectOption } from './ui'
 import { EnvTable } from './EnvTable'
 import { ConfigRefList } from './ConfigRefList'
-import { ChevronDown } from 'lucide-react'
 
 /** Label for the JDK select — the version, vendor and path all have to be visible.
  *  Lifted from RunConfigDialog (deleted in Task 8) rather than imported from it. */
@@ -93,7 +92,6 @@ export function RunConfigForm({
   // Optional fields added during this editing session but still empty — shown until the value is
   // typed (then visible() below picks it up from the value itself) or the selection changes.
   const [shown, setShown] = useState<Set<string>>(new Set())
-  const [addOpen, setAddOpen] = useState(false)
   // The name to restore when the field is blurred empty. It cannot come from `config` any more: with
   // update() reporting every keystroke, config.name is already '' by the time blur runs. Seeded when
   // the selection changes and refreshed on every blur that leaves a real name, so a rename that
@@ -103,7 +101,6 @@ export function RunConfigForm({
     setDraftForId(config.id)
     setDraft(config)
     setShown(new Set())
-    setAddOpen(false)
     setLastGoodName(config.name)
   } else if (config.folder !== draft.folder) {
     // `folder` is the one field this form does not own: the tree's folder button, the picker and a
@@ -318,9 +315,9 @@ export function RunConfigForm({
               onChange={(e) => update({ ...draft, file: e.target.value })}
               onBlur={normalizeOnBlur}
             />
-            <button type="button" onClick={() => void pickFile()}>
+            <Button icon={<Icon name="folder" size={14} />} onClick={() => void pickFile()}>
               {t('run.form.fileBrowse')}
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -378,9 +375,9 @@ export function RunConfigForm({
                 onChange={(v) => update({ ...draft, project: v })}
                 ariaLabel={t('run.field.project')}
               />
-              <button type="button" onClick={() => void pickProject()}>
+              <Button icon={<Icon name="folder" size={14} />} onClick={() => void pickProject()}>
                 {t('run.form.projectBrowse')}
-              </button>
+              </Button>
             </div>
           )}
         </div>
@@ -414,9 +411,9 @@ export function RunConfigForm({
                 onChange={(v) => update({ ...draft, javaHome: v || undefined })}
                 ariaLabel={t('run.field.javaHome')}
               />
-              <button type="button" onClick={() => void pickJdk()}>
+              <Button icon={<Icon name="folder" size={14} />} onClick={() => void pickJdk()}>
                 {t('run.form.jdkBrowse')}
-              </button>
+              </Button>
             </div>
           )}
         </div>
@@ -519,9 +516,9 @@ export function RunConfigForm({
                 onChange={(v) => update({ ...draft, interpreter: v || undefined })}
                 ariaLabel={t('run.field.interpreter')}
               />
-              <button type="button" onClick={() => void pickInterpreter()}>
+              <Button icon={<Icon name="folder" size={14} />} onClick={() => void pickInterpreter()}>
                 {t('run.form.interpreterBrowse')}
-              </button>
+              </Button>
             </div>
           )}
         </div>
@@ -536,9 +533,9 @@ export function RunConfigForm({
               onChange={(e) => update({ ...draft, composeFile: e.target.value })}
               onBlur={normalizeOnBlur}
             />
-            <button type="button" onClick={() => void pickComposeFile()}>
+            <Button icon={<Icon name="folder" size={14} />} onClick={() => void pickComposeFile()}>
               {t('run.form.composeFileBrowse')}
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -586,9 +583,9 @@ export function RunConfigForm({
               onChange={(e) => update({ ...draft, dockerfilePath: e.target.value })}
               onBlur={normalizeOnBlur}
             />
-            <button type="button" onClick={() => void pickDockerfilePath()}>
+            <Button icon={<Icon name="folder" size={14} />} onClick={() => void pickDockerfilePath()}>
               {t('run.form.dockerfilePathBrowse')}
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -689,9 +686,9 @@ export function RunConfigForm({
               onChange={(e) => update({ ...draft, cwd: e.target.value })}
               onBlur={normalizeOnBlur}
             />
-            <button type="button" onClick={() => void pickCwd()}>
+            <Button icon={<Icon name="folder" size={14} />} onClick={() => void pickCwd()}>
               {t('run.form.cwdBrowse')}
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -714,27 +711,21 @@ export function RunConfigForm({
       )}
 
       <div className="rcm-add-option">
-        <button type="button" disabled={available.length === 0} onClick={() => setAddOpen((v) => !v)}>
-          {t('run.form.addOption')}
-          <ChevronDown size={12} />
-        </button>
-        {addOpen && (
-          <div className="rcm-add-option-menu" onMouseLeave={() => setAddOpen(false)}>
-            {available.map((key) => (
-              <button
-                key={key}
-                type="button"
-                className="rcm-add-option-item"
-                onClick={() => {
-                  setShown((s) => new Set(s).add(key))
-                  setAddOpen(false)
-                }}
-              >
-                {t(`run.field.${key}` as MessageKey)}
-              </button>
-            ))}
-          </div>
-        )}
+        <Menu
+          label={t('run.form.addOption')}
+          trigger={{
+            children: t('run.form.addOption'),
+            icon: <Icon name="add" size={14} />,
+            size: 'sm',
+            variant: 'ghost',
+            disabled: available.length === 0
+          }}
+          items={available.map((key) => ({
+            id: key,
+            label: t(`run.field.${key}` as MessageKey),
+            onSelect: () => setShown((s) => new Set(s).add(key))
+          }))}
+        />
       </div>
 
       <div className="rcm-section">{t('run.section.beforeLaunch')}</div>

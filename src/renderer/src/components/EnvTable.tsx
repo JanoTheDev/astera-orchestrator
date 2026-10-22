@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
-import { AlertTriangle, Plus, X } from 'lucide-react'
 import { applyEnvPaste, envRecordOf, envRowIssues, envRowsOf, type EnvRow } from '../../../core/run/envTable'
 import { useI18n } from '../i18n/I18nProvider'
+import { Button, Icon, IconButton } from './ui'
 
 /** A configuration's environment variables as a Key · Value table. The rows are this component's
  *  state — while typing, an empty key or a duplicate has to be allowed to exist — and every change is
@@ -86,26 +86,24 @@ export function EnvTable({
               }}
             />
             <span className="env-issue" title={issue ? t(`run.env.issue.${issue}`) : undefined}>
-              {issue && <AlertTriangle size={11} />}
+              {issue && <Icon name="warning" size={14} label={t(`run.env.issue.${issue}`)} />}
             </span>
             {/* Out of the Tab sequence: Key -> Value -> next row's Key. Still reachable by mouse and by
                 screen readers, which enumerate controls independently of tab order. */}
-            <button
-              type="button"
+            <IconButton
               className="env-remove"
+              size="sm"
               tabIndex={-1}
-              title={t('run.env.removeRow')}
+              icon={<Icon name="close" size={14} />}
+              label={t('run.env.removeRow')}
               onClick={() => commit(rows.filter((_, k) => k !== i))}
-            >
-              <X size={11} />
-            </button>
+            />
           </div>
         )
       })}
-      <button type="button" className="env-add" onClick={addRow}>
-        <Plus size={12} />
+      <Button className="env-add" size="sm" variant="ghost" icon={<Icon name="add" size={14} />} onClick={addRow}>
         {t('run.env.addRow')}
-      </button>
+      </Button>
     </div>
   )
 }

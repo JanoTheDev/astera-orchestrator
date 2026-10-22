@@ -1,10 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
 import type { RunConfig } from '../../../core/run/types'
 import { addableTargets, type RefField } from '../../../core/run/launch'
 import { runTypeIcon } from '../../../core/run/typeIcon'
 import { useI18n } from '../i18n/I18nProvider'
 import { FileIcon } from './FileIcon'
-import { Plus, X } from 'lucide-react'
+import { Chip, Icon, IconButton, Menu } from './ui'
 
 /** A list of other run configurations, as chips. Used twice with the same meaning — "these
  *  configurations, named by id" — and two different readings of the order:
@@ -33,77 +32,40 @@ export function ConfigRefList({
   onChange: (ids: string[]) => void
 }): React.JSX.Element {
   const { t } = useI18n()
-  const [open, setOpen] = useState(false)
-  const rootRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const onDocDown = (e: MouseEvent): void => {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false)
-    }
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') {
-        e.stopPropagation()
-        setOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', onDocDown)
-    document.addEventListener('keydown', onKey, true)
-    return () => {
-      document.removeEventListener('mousedown', onDocDown)
-      document.removeEventListener('keydown', onKey, true)
-    }
-  }, [open])
-
   const targets = addableTargets(all, hostId, field, ids)
 
   return (
-    <div className="ref-list" ref={rootRef}>
+    <div className="ref-list">
       {ids.map((id) => {
         const c = all.find((x) => x.id === id)
         return (
-          <span className={`ref-chip${c ? '' : ' broken'}`} key={id}>
+          <Chip tone={c ? 'neutral' : 'danger'} className={`ref-chip${c ? '' : ' broken'}`} key={id}>
             {c ? <FileIcon {...runTypeIcon(c.type)} /> : null}
             <span className="ref-chip-name">{c ? c.name : id}</span>
-            <button
-              type="button"
+            <IconButton
               className="ref-chip-x"
-              title={t('run.ref.remove')}
+              size="sm"
+              icon={<Icon name="close" size={14} />}
+              label={`${t('run.ref.remove')}: ${c ? c.name : id}`}
               onClick={() => onChange(ids.filter((x) => x !== id))}
-            >
-              <X size={11} />
-            </button>
-          </span>
+            />
+          </Chip>
         )
       })}
-      <span className="ref-add">
-        <button type="button" className="ref-chip add" onClick={() => setOpen((v) => !v)}>
-          <Plus size={11} />
-          {t('run.ref.add')}
-        </button>
-        {open && (
-          <div className="rtp-menu" role="menu">
-            {targets.length === 0 ? (
-              <div className="rtp-group">{t('run.ref.none')}</div>
-            ) : (
-              targets.map((c) => (
-                <button
-                  key={c.id}
-                  type="button"
-                  className="rtp-item"
-                  onClick={() => {
-                    setOpen(false)
-                    onChange([...ids, c.id])
-                  }}
-                >
-                  <FileIcon {...runTypeIcon(c.type)} />
-                  {c.name}
-                </button>
-              ))
-            )}
-          </div>
-        )}
-      </span>
+      <Menu
+        label={t('run.ref.add')}
+        trigger={{ icon: <Icon name="add" size={14} />, children: t('run.ref.add'), size: 'sm', variant: 'ghost', className: 'ref-add' }}
+        items={
+          targets.length === 0
+            ? [{ id: 'none', label: t('run.ref.none'), disabled: true, onSelect: () => {} }]
+            : targets.map((c) => ({
+                id: c.id,
+                label: c.name,
+                icon: <FileIcon {...runTypeIcon(c.type)} />,
+                onSelect: () => onChange([...ids, c.id])
+              }))
+        }
+      />
     </div>
   )
 }

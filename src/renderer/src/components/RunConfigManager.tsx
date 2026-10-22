@@ -29,8 +29,7 @@ import { confirmModal } from '../lib/confirm'
 import { FileIcon } from './FileIcon'
 import { RunConfigForm } from './RunConfigForm'
 import { RunTypePicker } from './RunTypePicker'
-import { AlertTriangle, ChevronDown, ChevronUp, Copy, FolderPlus, Minus, Plus, Search } from 'lucide-react'
-import { Button, Modal } from './ui'
+import { Button, Icon, IconButton, Modal } from './ui'
 
 /** The error element of a refused Apply — SaveConfigsResult's own shape, not restated, so a reason
  *  added to SaveReason without a `run.manager.reason.*` catalogue entry fails typecheck here instead
@@ -275,7 +274,6 @@ export function RunConfigManager({
       ...(dotnetProjects && dotnetProjects.length > 0 ? (['dotnet'] as const) : [])
     ])
   )
-  const [pickerOpen, setPickerOpen] = useState(false)
 
   // Grouped by folder, then by kind for whatever is not in one — one rule, shared with the toolbar's
   // menu (core/run/grouping.ts). Filtering happens first, so a group nobody matched is simply absent;
@@ -314,7 +312,7 @@ export function RunConfigManager({
         <div className="rcm-panes">
           <div className="rcm-list">
             <label className="rcm-search">
-              <Search size={13} />
+              <Icon name="search" size={14} />
               <input
                 type="text"
                 value={query}
@@ -324,30 +322,22 @@ export function RunConfigManager({
               />
             </label>
             <div className="rcm-tools">
-              <div className="rtp-anchor">
-                <button title={t('run.manager.add')} onClick={() => setPickerOpen((v) => !v)}>
-                  <Plus size={13} />
-                </button>
-                {pickerOpen && (
-                  <RunTypePicker
-                    detected={detectedTypes}
-                    onPick={(type) => {
-                      const id = newId()
-                      const name = t(`run.type.${type}` as MessageKey)
-                      setPickerOpen(false)
-                      // Draft only — nothing is stored until Apply, so a ＋ followed by Cancel leaves no
-                      // trace. The starting values are picked so the new configuration cannot take a
-                      // detected configuration's identity and hide its row — see defaultConfigFor.
-                      setDraft(addItem(draft, defaultConfigFor(type, id, name, draft.items, npmScripts, dotnetProjects ?? [])))
-                      setSelectedId(id)
-                    }}
-                    onClose={() => setPickerOpen(false)}
-                  />
-                )}
-              </div>
-              <button
-                type="button"
-                title={t('run.manager.remove')}
+              <RunTypePicker
+                detected={detectedTypes}
+                onPick={(type) => {
+                  const id = newId()
+                  const name = t(`run.type.${type}` as MessageKey)
+                  // Draft only — nothing is stored until Apply, so a ＋ followed by Cancel leaves no
+                  // trace. The starting values are picked so the new configuration cannot take a
+                  // detected configuration's identity and hide its row — see defaultConfigFor.
+                  setDraft(addItem(draft, defaultConfigFor(type, id, name, draft.items, npmScripts, dotnetProjects ?? [])))
+                  setSelectedId(id)
+                }}
+              />
+              <IconButton
+                size="sm"
+                icon={<Icon name="remove" size={14} />}
+                label={t('run.manager.remove')}
                 disabled={!selected || isSeed}
                 onClick={() => {
                   if (!selected) return
@@ -357,12 +347,11 @@ export function RunConfigManager({
                   setDraft(removeItem(draft, selected.id))
                   setApplyErrors((errs) => errs.filter((e) => e.id !== selected.id))
                 }}
-              >
-                <Minus size={13} />
-              </button>
-              <button
-                type="button"
-                title={t('run.manager.duplicate')}
+              />
+              <IconButton
+                size="sm"
+                icon={<Icon name="copy" size={14} />}
+                label={t('run.manager.duplicate')}
                 disabled={!selected}
                 onClick={() => {
                   if (!selected) return
@@ -370,13 +359,12 @@ export function RunConfigManager({
                   setDraft(duplicateItem(draft, selected.id, id))
                   setSelectedId(id)
                 }}
-              >
-                <Copy size={13} />
-              </button>
+              />
               <span className="rcm-tools-sep" />
-              <button
-                type="button"
-                title={t('run.manager.newFolder')}
+              <IconButton
+                size="sm"
+                icon={<Icon name="folderAdd" size={14} />}
+                label={t('run.manager.newFolder')}
                 disabled={!selected}
                 onClick={() => {
                   if (!selected) return
@@ -394,26 +382,22 @@ export function RunConfigManager({
                   // filter that might have been hiding it is cleared.
                   setQuery('')
                 }}
-              >
-                <FolderPlus size={13} />
-              </button>
+              />
               <span className="rcm-tools-sep" />
-              <button
-                type="button"
-                title={t('run.manager.moveUp')}
+              <IconButton
+                size="sm"
+                icon={<Icon name="chevronUp" size={14} />}
+                label={t('run.manager.moveUp')}
                 disabled={!selected || !canMoveItem(draft, selected.id, -1)}
                 onClick={() => selected && setDraft(moveItem(draft, selected.id, -1))}
-              >
-                <ChevronUp size={13} />
-              </button>
-              <button
-                type="button"
-                title={t('run.manager.moveDown')}
+              />
+              <IconButton
+                size="sm"
+                icon={<Icon name="chevronDown" size={14} />}
+                label={t('run.manager.moveDown')}
                 disabled={!selected || !canMoveItem(draft, selected.id, 1)}
                 onClick={() => selected && setDraft(moveItem(draft, selected.id, 1))}
-              >
-                <ChevronDown size={13} />
-              </button>
+              />
             </div>
             <div className="rcm-tree">
               {groups.map((g) => (
@@ -462,8 +446,11 @@ export function RunConfigManager({
                     const broken = referencedIds(c).some((id) => !draft.items.some((x) => x.id === id))
                     const incomplete = !isSeedId(c.id) && missingRequiredFields(c).length > 0
                     return (
-                      <button
+                      <Button
                         key={c.id}
+                        variant="ghost"
+                        size="sm"
+                        aria-current={c.id === selectedId ? 'true' : undefined}
                         className={`rcm-item${c.id === selectedId ? ' on' : ''}${isSeedId(c.id) ? ' seed' : ''}${rejected.has(c.id) ? ' rejected' : ''}`}
                         onClick={() => setSelectedId(c.id)}
                       >
@@ -474,7 +461,7 @@ export function RunConfigManager({
                             className="rcm-mark warn"
                             title={t(broken ? 'run.manager.markBrokenRef' : 'run.manager.markIncomplete')}
                           >
-                            <AlertTriangle size={11} />
+                            <Icon name="warning" size={14} label={t(broken ? 'run.manager.markBrokenRef' : 'run.manager.markIncomplete')} />
                           </span>
                         )}
                         {c.temporary && (
@@ -482,7 +469,7 @@ export function RunConfigManager({
                             {t('run.menu.temporary')}
                           </span>
                         )}
-                      </button>
+                      </Button>
                     )
                   })}
                 </div>
