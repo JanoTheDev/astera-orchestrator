@@ -40,7 +40,7 @@ describe('redact', () => {
   })
 
   it('turns home directories into ~', () => {
-    expect(redact('at f (/home/jane/proj/a.ts:1:2)')).toBe('at f (~/proj/a.ts:1:2)')
+    expect(redact('at f (/home/jane/proj/a.js:1:2)')).toBe('at f (~/proj/a.js:1:2)')
     expect(redact('at /Users/jane/x.js')).toBe('at ~/x.js')
     expect(redact('at C:\\Users\\Jane Doe\\x.js')).toBe('at ~\\x.js')
     expect(redact('at file:///home/jane/app/out/main.js:3:4')).toBe('at file://~/app/out/main.js:3:4')
