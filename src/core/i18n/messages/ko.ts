@@ -3402,4 +3402,15 @@ export const ko = {
   'onboarding.settings.replay': '온보딩 다시 보기',
   'onboarding.settings.replayHint': '설정 안내를 처음부터 다시 봅니다. 설정은 그대로 유지됩니다.',
   'onboarding.settings.replayButton': '보기',
+  // T6 switcher workspaces: project settings (auto-created projects, sub-projects, removal)
+  'project.autoProjects': '작업에 맞춰 프로젝트 자동 생성',
+  'project.autoProjects.hint': 'Astera가 각 플랜을 첫 영역 이름의 하위 프로젝트에 넣고, 없으면 만듭니다.',
+  'project.sub.add': '하위 프로젝트 추가',
+  'project.sub.name': '하위 프로젝트 이름',
+  'project.sub.submit': '추가',
+  'project.remove': '프로젝트 제거',
+  'project.remove.title': '{name}을(를) 제거할까요?',
+  'project.remove.body': '프로젝트 등록만 해제됩니다. 폴더와 플랜은 그대로입니다.',
+  'project.remove.confirm': '제거',
+  'project.remove.cancel': '취소',
 } as const

@@ -2282,4 +2282,15 @@ export const es: Catalog = {
   'onboarding.settings.replay': 'Mostrar la bienvenida de nuevo',
   'onboarding.settings.replayHint': 'Recorre la configuración desde el principio. Tus ajustes no cambian.',
   'onboarding.settings.replayButton': 'Mostrar',
+  // T6 switcher workspaces: project settings (auto-created projects, sub-projects, removal)
+  'project.autoProjects': 'Crear proyectos automáticamente según el trabajo',
+  'project.autoProjects.hint': 'Astera archiva cada plan en un subproyecto con el nombre de su primera área y lo crea si el espacio no lo tiene.',
+  'project.sub.add': 'Añadir subproyecto',
+  'project.sub.name': 'Nombre del subproyecto',
+  'project.sub.submit': 'Añadir',
+  'project.remove': 'Quitar proyecto',
+  'project.remove.title': '¿Quitar {name}?',
+  'project.remove.body': 'Solo se anula el registro del proyecto. No se toca ninguna carpeta ni plan.',
+  'project.remove.confirm': 'Quitar',
+  'project.remove.cancel': 'Cancelar',
 }

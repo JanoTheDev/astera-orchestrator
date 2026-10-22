@@ -65,3 +65,27 @@ export function writeName(id: string, name: string): void {
     // the label falls back to neutral until the list is read
   }
 }
+
+// ── T6: the window's own scope, readable on the first frame ──────────────────────────────────────────────────────
+// Main binds a window to a project, but `win.boundProject` answers asynchronously, and until it does the pane tree
+// would show every project's tabs. sessionStorage is per window and survives its reload, so the window's last scope
+// is there at mount; a window that has none yet (just opened) is `undefined` and its tabs wait for the bound answer.
+const SCOPE_KEY = 'cm.windowScope'
+
+/** The window's last scope: a project id, null for All projects, undefined when this window has none yet. */
+export function readScope(): string | null | undefined {
+  try {
+    const raw = sessionStorage.getItem(SCOPE_KEY)
+    return raw === null ? undefined : raw === '' ? null : raw
+  } catch {
+    return undefined
+  }
+}
+
+export function writeScope(projectId: string | null): void {
+  try {
+    sessionStorage.setItem(SCOPE_KEY, projectId ?? '')
+  } catch {
+    // this window only forgets the scope across a reload
+  }
+}

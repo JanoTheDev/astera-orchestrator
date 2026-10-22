@@ -3156,4 +3156,15 @@ export const en: Record<keyof typeof ko, string> = {
   'onboarding.settings.replay': 'Show onboarding again',
   'onboarding.settings.replayHint': 'Walks through setup from the start. Your settings stay as they are.',
   'onboarding.settings.replayButton': 'Show',
+  // T6 switcher workspaces: project settings (auto-created projects, sub-projects, removal)
+  'project.autoProjects': 'Auto-create projects from the work',
+  'project.autoProjects.hint': 'Astera files each plan under a sub-project named after its first area, creating it when the workspace has none.',
+  'project.sub.add': 'Add sub-project',
+  'project.sub.name': 'Sub-project name',
+  'project.sub.submit': 'Add',
+  'project.remove': 'Remove project',
+  'project.remove.title': 'Remove {name}?',
+  'project.remove.body': 'This unregisters the project. No folder or plan is touched.',
+  'project.remove.confirm': 'Remove',
+  'project.remove.cancel': 'Cancel',
 }

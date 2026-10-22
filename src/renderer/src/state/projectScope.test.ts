@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { OTHER_WORKSPACE } from './workspaceTree'
-import { ownerOf, scopeFor, switcherName } from './projectScope'
+import { initialScope, ownerOf, scopeFor, switcherName } from './projectScope'
 
 const byWorkspace = new Map<string, ReadonlySet<string>>([
   ['a', new Set(['s1'])],
@@ -33,5 +33,13 @@ describe('project scope', () => {
     expect(switcherName('a', [{ id: 'a', name: 'Fresh', path: '/a', plans: [] }], 'Old')).toEqual({ kind: 'name', name: 'Fresh' })
     expect(switcherName(null, [], null)).toEqual({ kind: 'all' })
     expect(switcherName(OTHER_WORKSPACE, [], null)).toEqual({ kind: 'other' })
+  })
+})
+
+describe('T6 window scope', () => {
+  it('the initial scope is the window’s stored one, never a null first frame', () => {
+    expect(initialScope('a')).toEqual({ projectId: 'a', known: true })
+    expect(initialScope(null)).toEqual({ projectId: null, known: true }) // All, chosen
+    expect(initialScope(undefined)).toEqual({ projectId: null, known: false }) // tabs wait for main’s answer
   })
 })

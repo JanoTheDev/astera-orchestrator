@@ -22,3 +22,8 @@ export function switcherName(selectedId: string | null, tree: readonly Workspace
   const name = tree.find((p) => p.id === selectedId)?.name ?? remembered
   return name ? { kind: 'name', name } : { kind: 'pending' }
 }
+
+/** T6: the scope a window starts with. Its stored one, even All; none yet means "not known": show no tabs until main
+ *  says which project the window is bound to, rather than flashing every project's. */
+export const initialScope = (stored: string | null | undefined): { projectId: string | null; known: boolean } =>
+  stored === undefined ? { projectId: null, known: false } : { projectId: stored, known: true }
