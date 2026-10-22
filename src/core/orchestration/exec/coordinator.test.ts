@@ -12,7 +12,7 @@ import {
   LAUNCH_FORBIDDEN,
   type CoordinatorDeps
 } from './coordinator'
-import type { CheckResult, ReviewIssue } from '../types'
+import { TASK_KINDS, type CheckResult, type ReviewIssue } from '../types'
 
 let dir: string
 /** spec 디렉토리는 **워커 cwd 밖**이다 — 배선이 `<userData>/orch/specs`를 주입한다.
@@ -94,6 +94,41 @@ describe('launchPrompt', () => {
   })
   it('경로를 포함한다', () => {
     expect(launchPrompt(SPEC_ABS)).toContain(SPEC_ABS)
+  })
+})
+
+describe('buildSpecFile skills section (T9)', () => {
+  const base = { title: 'T', spec: 'S', taskId: 'tsk_1', dispatchId: 'dsp_1' }
+  const all = new Set(['superpowers:systematic-debugging', 'superpowers:test-driven-development', 'superpowers:verification-before-completion'])
+
+  it('a bugfix Task names systematic debugging and test-first, and ends with verification', () => {
+    const out = buildSpecFile({ ...base, kind: 'bugfix', installedSkills: all })
+    const section = out.slice(out.indexOf('## Skills for this Task'))
+    expect(section).toContain('`superpowers:systematic-debugging`')
+    expect(section).toContain('`superpowers:test-driven-development`')
+    expect(section.indexOf('systematic-debugging')).toBeLessThan(section.indexOf('test-driven-development'))
+    expect(section.indexOf('test-driven-development')).toBeLessThan(section.indexOf('verification-before-completion'))
+  })
+
+  it('a ui Task names the design rules; every kind ends with the verification rule', () => {
+    expect(buildSpecFile({ ...base, kind: 'ui' })).toContain('docs/dev/DESIGN-W11.md')
+    for (const kind of TASK_KINDS) {
+      const section = buildSpecFile({ ...base, kind, installedSkills: all })
+      const lines = section.slice(section.indexOf('## Skills for this Task')).split('\n---')[0].trim().split('\n')
+      expect(lines.at(-1)).toContain('superpowers:verification-before-completion')
+    }
+  })
+
+  it('a skill that is not installed becomes plain words', () => {
+    const out = buildSpecFile({ ...base, kind: 'bugfix', installedSkills: new Set() })
+    expect(out).not.toContain('superpowers:')
+    expect(out).toContain('Find the root cause before you change anything')
+    expect(out).toContain('write the failing test first')
+    expect(out).toContain('no success claim without it')
+  })
+
+  it('no kind, no section', () => {
+    expect(buildSpecFile(base)).not.toContain('Skills for this Task')
   })
 })
 

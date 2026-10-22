@@ -4,7 +4,7 @@
 // views' derived fields, wait endings, a stop's answer) are defined here and pinned by tests.
 
 export type Provider = 'claude' | 'codex'
-export type TaskStatus = 'pending' | 'ready' | 'dispatched' | 'validating' | 'reviewing' | 'completed' | 'failed' | 'blocked'
+export type TaskStatus = 'pending' | 'ready' | 'dispatched' | 'validating' | 'reviewing' | 'merging' | 'completed' | 'failed' | 'blocked'
 export type Outcome = 'succeeded' | 'failed'
 export type MessageType = 'status' | 'worker_done' | 'question' | 'escalation' | 'heartbeat' | 'decision_gate'
 export type RepairReason = 'check-failure' | 'review-failure'
@@ -38,8 +38,8 @@ export interface Progress {
 }
 
 /** How a Job stands: `pending` before its first Run, `paused` when its latest Run is. */
-export type JobOutcome = 'running' | 'completed' | 'failed' | 'paused' | 'pending'
-export type RunOutcome = 'running' | 'completed' | 'failed' | 'paused'
+export type JobOutcome = 'running' | 'checking' | 'completed' | 'blocked' | 'failed' | 'paused' | 'pending'
+export type RunOutcome = 'running' | 'checking' | 'completed' | 'blocked' | 'failed' | 'paused'
 
 export interface Project {
   readonly id: string
@@ -310,13 +310,13 @@ interface WaitBase {
   readonly progress: Progress
 }
 
-/** Where a wait ends: the work is done (`completed`, `failed`), or it needs a person (`waiting` on a question,
+/** Where a wait ends: the work is done (`completed`, `failed`, or `blocked`: finished with Tasks held for the owner), or it needs a person (`waiting` on a question,
  *  `paused`), or every worker waits for a usage limit to reset (`limited`). Data, not an error. */
 export type WaitEnding =
   | (WaitBase & { readonly state: 'waiting'; readonly questionId: string; readonly taskId: string })
   | (WaitBase & { readonly state: 'paused' })
   | (WaitBase & { readonly state: 'limited'; readonly resetsAt: string })
-  | (WaitBase & { readonly state: 'completed' | 'failed' })
+  | (WaitBase & { readonly state: 'completed' | 'failed' | 'blocked' })
 
 /** The Host's deadline passed first. `runId` is null when a Job had no Run yet; `jobId` is absent when a Run id named no
  *  Run. */

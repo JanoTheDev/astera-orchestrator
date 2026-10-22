@@ -228,3 +228,8 @@ Current importers (under `src/renderer/src/components/`):
 - `ui/skeleton`: assistant-ui/elements/thread.aui.
 
 Tailwind stays for those files only. Delete a legacy file once its last importer moves to the house primitives.
+
+## Advanced mode
+
+`const [advanced, setAdvanced] = useAdvancedMode()` (`state/useAdvancedMode.ts`) is the one switch for power-user UI, off by default and kept in `localStorage` (`cm.advancedMode`).
+Show only essentials while it is `false`; put technical rows and options behind it (the Start page's "More options" opens by default when it is `true`).

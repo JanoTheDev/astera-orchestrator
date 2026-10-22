@@ -4,9 +4,20 @@ import { describe, expect, it } from 'vitest'
 import { taskBoardsOf } from './blocked'
 import { handleCommand, type OrchServerDeps } from './command'
 import { buildPlannerBrief } from './handover'
-import { areasArg, otherPlansBrief, overlapLines, overlapsOf, refreshOverlaps } from './overlap'
+import {
+  areasArg,
+  DROPPED_OPTIONS,
+  otherPlansBrief,
+  overlapLines,
+  overlapsOf,
+  planOverlapWarnings,
+  plannerOverlapNotices,
+  refreshOverlaps,
+  taskCreateWarnings,
+  titleSimilarity
+} from './overlap'
 import { plannerRefusal } from './planner'
-import { slotsToFill } from './schedule'
+import { LEASE_WAIT_OPTIONS, slotsToFill } from './schedule'
 import { emptyState, type OrchState } from './state'
 import type { Dispatch, Job, JobRun, Task } from './types'
 import { buildReplanBrief } from './exec/replanStart'
@@ -313,5 +324,130 @@ describe('the project coordinator (T9)', () => {
     const kept = answer('keep both')
     expect(kept.tasks.find((t) => t.id === 't3')?.status).toBe('ready')
     expect(kept.gates.filter((g) => g.status === 'open')).toEqual([])
+  })
+})
+
+describe('plans that know about each other (T11)', () => {
+  /** Two plans still planning at the same time, each with a definition Task on src/api/, each with a live planner. */
+  const planning = (): OrchState => ({
+    ...emptyState(),
+    jobs: [
+      job('jA', { title: 'Auth rework', pendingStart: true, plannerSessionIds: ['ses_pa'] }),
+      job('jB', { title: 'Api cleanup', pendingStart: true, plannerSessionIds: ['ses_old', 'ses_pb'] })
+    ],
+    tasks: [
+      task('ta', { jobId: 'jA' }, { title: 'Rework routes', status: 'pending', affectedPaths: ['src/api/routes.ts'] }),
+      task('tb', { jobId: 'jB' }, { title: 'Clean handlers', status: 'pending', affectedPaths: ['src/api/'] })
+    ]
+  })
+
+  it('two planning plans with overlapping paths: each latest planner gets one notice naming the other plan, its Tasks and the paths', () => {
+    const s = refreshOverlaps(emptyState(), planning(), T0)
+    const notices = plannerOverlapNotices(s)
+    expect(notices.map((n) => n.sessionId).sort()).toEqual(['ses_pa', 'ses_pb'])
+    const toA = notices.find((n) => n.sessionId === 'ses_pa')!
+    expect(toA.text).toContain('Api cleanup (job jB)')
+    expect(toA.text).toContain('Clean handlers')
+    expect(toA.text).toContain('src/api/routes.ts')
+    // the same pair and paths keep the same key, so the Host tells it once
+    expect(plannerOverlapNotices(refreshOverlaps(s, { ...s, tasks: [...s.tasks] }, T0)).map((n) => n.key)).toEqual(notices.map((n) => n.key))
+    // a plan that started is no longer told as a planner
+    expect(plannerOverlapNotices({ ...s, jobs: s.jobs.map((j) => (j.id === 'jA' ? { ...j, pendingStart: undefined } : j)) }).map((n) => n.sessionId)).toEqual(['ses_pb'])
+  })
+
+  it('before approval the plan lists its open overlaps with plans planning or running, never blocking', async () => {
+    const s = planning()
+    expect(planOverlapWarnings(s, 'jA')).toEqual(['Rework routes · Api cleanup · Clean handlers (same files: src/api/routes.ts)'])
+    // a plan archived (or finished) is no open overlap
+    expect(planOverlapWarnings({ ...s, jobs: s.jobs.map((j) => (j.id === 'jB' ? { ...j, archivedAt: T0 } : j)) }, 'jA')).toEqual([])
+    // run-start approves the plan and carries the lines in its answer
+    const ready = (t: Task): Task => ({ ...t, prompt: 'p', acceptanceCriteria: ['c'], basis: { state: 'missing', evidence: 'e' } })
+    let st: OrchState = { ...s, tasks: s.tasks.map(ready) }
+    const deps = { getState: () => st, setState: async (n: OrchState) => void (st = n), now: () => T0 } as unknown as OrchServerDeps
+    const reply = await handleCommand(deps, { sessionId: '' }, 'run-start', { run: 'jA' })
+    expect(reply.status).toBe(200)
+    expect((reply.body as { overlaps?: string[] }).overlaps).toEqual(['Rework routes · Api cleanup · Clean handlers (same files: src/api/routes.ts)'])
+  })
+
+  it('jobs-plan-ready, before approval, answers with the open overlaps and still marks the plan ready', async () => {
+    const ready = (t: Task): Task => ({ ...t, prompt: 'p', acceptanceCriteria: ['c'], basis: { state: 'missing', evidence: 'e' } })
+    let st: OrchState = { ...planning(), tasks: planning().tasks.map(ready) }
+    const deps = { getState: () => st, setState: async (n: OrchState) => void (st = n), now: () => T0 } as unknown as OrchServerDeps
+    const reply = await handleCommand(deps, { sessionId: '' }, 'jobs-plan-ready', { id: 'jA' })
+    expect(reply.status).toBe(200)
+    expect((reply.body as { overlaps?: string[] }).overlaps).toEqual(['Rework routes · Api cleanup · Clean handlers (same files: src/api/routes.ts)'])
+    expect(st.jobs.find((j) => j.id === 'jA')?.planReadyAt).toBe(T0)
+    expect(st.jobs.find((j) => j.id === 'jA')?.pendingStart).toBe(true)
+  })
+
+  it('titles alike by words (Jaccard >= 0.6)', () => {
+    expect(titleSimilarity('Fix the login form', 'fix login form')).toBeGreaterThanOrEqual(0.6)
+    expect(titleSimilarity('Fix login', 'Rework billing page')).toBe(0)
+  })
+
+  it('task-create warns of a similar title on overlapping paths of another plan, not a similar title elsewhere', () => {
+    const s = planning()
+    const mine = (title: string, paths: string[]): Task => task('tn', { jobId: 'jB' }, { title, status: 'pending', affectedPaths: paths })
+    const warn = taskCreateWarnings(s, mine('Rework routes api', ['src/api/routes.ts']))
+    expect(warn).toHaveLength(1)
+    expect(warn[0]).toContain('"Rework routes" (ta) of plan Auth rework')
+    expect(warn[0]).toContain('similar title, same files: src/api/routes.ts')
+    expect(taskCreateWarnings(s, mine('Rework routes api', ['docs/']))).toEqual([])
+    expect(taskCreateWarnings(s, mine('Write docs', ['src/api/routes.ts']))).toEqual([])
+  })
+
+  it('task-create answers with the warning line', async () => {
+    let s: OrchState = { ...planning(), tasks: planning().tasks.filter((t) => t.id === 'ta') }
+    const deps = {
+      getState: () => s,
+      setState: async (n: OrchState) => void (s = n),
+      listAccounts: async () => [{ id: 'acc_1' }],
+      now: () => T0
+    } as unknown as OrchServerDeps
+    const reply = await handleCommand(deps, { sessionId: '' }, 'task-create', {
+      run: 'jB',
+      spec: 'x',
+      title: 'Rework routes api',
+      account: 'acc_1',
+      affectedPaths: ['src/api/routes.ts'],
+      prompt: 'p',
+      criteria: ['c']
+    })
+    expect(reply.status).toBe(200)
+    expect((reply.body as { warnings?: string[] }).warnings?.[0]).toContain('possible duplicate')
+  })
+
+  it('a similar title on overlapping paths is held as a duplicate too', () => {
+    const s: OrchState = {
+      ...emptyState(),
+      jobs: [job('jA', { title: 'Auth rework' }), job('jB', { title: 'Api cleanup', createdAt: '2026-10-18T01:00:00.000Z' })],
+      runs: [run('r1', 'jA'), run('r2', 'jB')],
+      tasks: [
+        task('t6', { runId: 'r1' }, { title: 'Fix the login form', affectedPaths: ['src/auth/'] }),
+        task('t3', { runId: 'r2' }, { title: 'fix login form', affectedPaths: ['src/auth/form.ts'] })
+      ]
+    }
+    expect(refreshOverlaps(emptyState(), s, T0).gates[0]?.question).toContain('similar title')
+  })
+
+  it('carries out the watchdog questions: cancel, another account, retry once more', async () => {
+    const { createGate, resolveGate } = await import('./state')
+    const base: OrchState = {
+      ...emptyState(),
+      jobs: [job('jA')],
+      runs: [run('r1', 'jA')],
+      tasks: [task('t1', { runId: 'r1' }, { accountIds: ['acc_1', 'acc_2'], consecutiveFailures: 3 })]
+    }
+    const answered = (options: readonly string[], resolution: string): OrchState => {
+      const g = createGate(base, { taskId: 't1', question: 'q', options: [...options] }, T0)
+      if (!g.ok) throw new Error(g.error)
+      const r = resolveGate(g.state, { gateId: g.value.id, resolution }, T0)
+      if (!r.ok) throw new Error(r.error)
+      return refreshOverlaps(g.state, r.state, T0)
+    }
+    expect(answered(LEASE_WAIT_OPTIONS, 'Cancel this Task').tasks.some((t) => t.id === 't1')).toBe(false)
+    expect(answered(LEASE_WAIT_OPTIONS, 'Let it wait').tasks.find((t) => t.id === 't1')?.status).toBe('ready')
+    expect(answered(DROPPED_OPTIONS, 'Use another account').tasks[0]).toMatchObject({ accountIds: ['acc_2', 'acc_1'], consecutiveFailures: 0 })
+    expect(answered(DROPPED_OPTIONS, 'Retry once more').tasks[0]).toMatchObject({ consecutiveFailures: 2 })
   })
 })

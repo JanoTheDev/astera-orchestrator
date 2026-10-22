@@ -72,6 +72,8 @@ export function buildHandoverPrompt(a: {
   promptsMode?: boolean
   /** #117: the plan runs hands-off (`handsOffOf`): its coordinator decides escalations itself. */
   handsOff?: boolean
+  /** T5: the kinds the owner granted in advance (`Project.grants`): the coordinator writes those grants itself. */
+  grants?: readonly string[]
 }): string {
   const sequential = a.concurrency <= 1
   // A Job from MCP `create_job` or `jobs create` carries only its objective (e2e 2026-10-01, second
@@ -83,12 +85,10 @@ export function buildHandoverPrompt(a: {
         'PLAN THIS JOB FIRST',
         'This Job came with an objective and no plan: no Task exists yet. Planning it is your first job.',
         'Break the objective into Tasks, then run them under the same rules as any other plan:',
-        `- Create each one with \`astera task-create --run ${a.runId} --spec - --account <id>\` (the spec on`,
+        `- Create each one with \`astera task-create --run ${a.runId} --spec -\` (the spec on`,
         '  stdin, in full: the worker reads only that). Pass `--title <text>` for a short name.',
         '- Order them with `--deps \'["<tsk>", ...]\'` (a JSON array of the Task ids it waits for).',
-        a.accountId !== undefined
-          ? `- Account: \`--account ${a.accountId}\`, the one you run on, unless the objective names another;`
-          : '- Account: the one you run on, unless the objective names another;',
+        `${ACCOUNT_RULE};`,
         '  `astera accounts list --json` lists the rest. One provider per Task: never mix providers inside one Task.',
         `- Checks: \`astera run-configs list --job ${a.jobId ?? '<jobId>'} --json\` lists the project's run`,
         '  configurations. When there are any that test the work, pass their ids as `--validate <id,...>`',
@@ -158,6 +158,10 @@ export function buildHandoverPrompt(a: {
     `Never let more than ${a.concurrency} dispatch(es) be open in this Run at once. Count the open`,
     'ones before you start another. `worker-start` rejects the call that would exceed the limit, and',
     'a rejection costs you a turn.',
+    // T5: a haiku coordinator started ten workers at once with shell `&` and ended turns with ready work left
+    'Start workers one at a time: one `astera worker-start` per command, wait for its answer before the next;',
+    'never background it with `&` or run several in one shell line. Before ending your turn, start every ready',
+    'Task the concurrency allows.',
     '',
     'WHERE WORKERS RUN',
     sequential
@@ -197,6 +201,15 @@ export function buildHandoverPrompt(a: {
     '`astera gate-create --task <tsk> --question -` opens a Gate and the person answers it in the',
     'app. A Gate cannot be created for a Task that has an open dispatch — if that worker must not',
     'carry on, stop it first with `worker-stop`.',
+    '',
+    'STANDING GRANTS',
+    ...(a.grants && a.grants.length > 0
+      ? [
+          `The owner granted in advance: ${a.grants.join(', ')}. When a Task needs one of these, write the grant yourself`,
+          "the way this repository's own policy asks (its CLAUDE.md/AGENTS.md or the Task's instructions), note it in",
+          'your summary, and continue; do not escalate it.'
+        ]
+      : ['The owner granted nothing in advance. Owner-only decisions are blocked for the owner: the Task that needs one', 'waits for them, and the plan continues without it.']),
     ...(a.handsOff
       ? [
           '',
@@ -213,6 +226,9 @@ export function buildHandoverPrompt(a: {
       : [])
   ].join('\n')
 }
+
+/** T9: the account rule of both briefs. Tasks with no account run on the account with the most room (weekly first). */
+const ACCOUNT_RULE = '- Account: omit `--account` unless the objective names one; Astera picks the account with the most room (weekly first)'
 
 // W2-A planner stage (SPEC §2). The planner's brief, beside the coordinator's for the same reasons: words an
 // agent reads, written to a file and pointed at with `coordinatorLaunchPrompt`'s one line.
@@ -296,7 +312,7 @@ export function buildPlannerBrief(a: {
     '  other command that starts work when it comes from this session.',
     '',
     'WRITE THE PLAN AS TASKS',
-    `Create each Task with \`astera task-create --run ${a.jobId} --account ${a.accountId} --title <short name>\`, and:`,
+    `Create each Task with \`astera task-create --run ${a.jobId} --title <short name>\`, and:`,
     '- `--spec <one paragraph>`: what the Task is for.',
     '- `--prompt -`: the full prompt the worker starts with, on stdin. The worker sees nothing else of this',
     '  conversation, so the prompt must stand alone: goal, files, constraints, how to check the result.',
@@ -305,12 +321,21 @@ export function buildPlannerBrief(a: {
     // W8-F (#94): a plan with a Task that has no basis is refused at approval
     '- `--basis missing|partial|broken` and `--evidence "<file:line, #issue, PR or Job id>"`: what you found of it; a Task without them is refused.',
     '- `--deps \'["<taskId>", ...]\'`: the Tasks it must wait for. Create Tasks in dependency order.',
+    // T7 objective coverage: approval refuses an objective item neither covered nor left out
+    "- `--covers 1,3`: the numbers of the objective's items this Task covers (its numbered lines, else its bullets).",
+    '  Every item needs a Task with --covers, or is left out on purpose with the reason:',
+    `  \`astera jobs-set --id ${a.jobId} --left-out '[{"item":2,"reason":"already built: src/x.ts"}]'\`.`,
+    '  A plan with an item that is neither is refused at approval.',
+    '- `--kind bugfix|feature|refactor|ui|audit|docs|test|ops`: on every Task. It picks the skills the worker is told to use.',
     '- `--difficulty light|standard|hard`: picks the worker\'s model (light is a small, mechanical change;',
     '  hard is design or a subtle bug). Add `--model-reason "<one line>"` saying why.',
     '  `--provider claude|codex` and `--model <id>` only when the Task needs a specific one.',
-    `- Account: \`--account ${a.accountId}\` unless the objective names another (\`astera accounts list --json\`).`,
+    `${ACCOUNT_RULE}; \`astera accounts list --json\` lists them.`,
     '- Checks: `astera run-configs list --job ' + a.jobId + ' --json`; pass the ones that test the work as `--validate <id,...>`.',
     // W8-D plan areas
+    // T7: every Job is named at creation by its objective's first words; the planner gives it a real name
+    `- Name: once you know the goal, give the plan a short name: \`astera jobs rename --id ${a.jobId} --title "<3-6 words>"\`.`,
+    ...(a.planning === 'chat' || a.planning === undefined ? ['  Always do it here: a chat-planned Job starts with no real objective, so its name is a placeholder.'] : []),
     `- Areas: name where the plan works in 1 to 3 short words from its Tasks' paths (auth, api, ui):`,
     `  \`astera jobs-set --id ${a.jobId} --areas <a,b>\`.`,
     `To fix a Task: \`astera task-update --id <taskId>\` with any of the flags above. Read the plan back with`,
@@ -319,6 +344,9 @@ export function buildPlannerBrief(a: {
     'WHEN THE PLAN IS DONE',
     'Print a short summary in this terminal: the Tasks in order, which run in parallel and why that is safe,',
     'and anything the person must decide. Then tell them to press "Approve & execute" on the Job in Astera,',
-    'and wait. If they ask for changes here, change the Tasks and summarise again.'
+    'and wait. If they ask for changes here, change the Tasks and summarise again.',
+    'If the person tells you in this terminal to run, start or approve the plan: finish the plan, read it back, then run',
+    `\`astera run-start --run ${a.jobId} --owner-said "<their words, verbatim>"\`. Never run it unless they said so after your`,
+    'last change. If it lists problems, fix them and ask the person to confirm again here.'
   ].join('\n')
 }

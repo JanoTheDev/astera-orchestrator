@@ -40,6 +40,7 @@
 .plans-row__rename { flex: 1 1 240px; max-width: 420px; }
 .plans-row__spacer { flex: 1; }
 .plans-row__meta { flex: none; color: var(--text-faint); font-size: var(--fs-11); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.plans-row__reason { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--git-deleted); font-size: var(--fs-11); }
 .plans-row__progress { flex: 0 0 120px; }
 .plans-row__meter.ui-meter { --ui-meter-fill: var(--accent); }
 .plans-row__pr .jobs-new { width: auto; margin: 0; padding: 0 var(--sp-2); height: var(--h-sm); font-size: var(--fs-11); }

@@ -26,6 +26,7 @@ import { maxConcurrentWorkersOf } from '../core/settings/maxConcurrentWorkers'
 // W6-G usage guards
 import { maxSubagentsPerSessionOf, SUBAGENT_CAP_DEFAULT } from '../core/sessions/subagentCap'
 import { usagePauseAtOf, USAGE_PAUSE_AT_DEFAULT } from '../core/orchestration/usageGuard'
+import { accountMaxSessionsOf } from '../core/settings/accountMaxSessions'
 import { ACTIVITY_DIGEST_DEFAULT_MINUTES, activityDigestMinutesOf } from '../core/settings/activityDigest'
 import { tabSummariesOf } from '../core/settings/tabSummaries'
 import { FRESH_COORDINATOR_DEFAULT_PCT, freshCoordinatorPctOf } from '../core/settings/freshCoordinator'
@@ -132,6 +133,8 @@ export class AppSettingsStore {
    *  when not the default. */
   private maxSubagentsPerSession = SUBAGENT_CAP_DEFAULT
   private usagePauseAt = USAGE_PAUSE_AT_DEFAULT
+  /** T5b: live sessions per account at most ({} = no cap). Written only when not empty. */
+  private accountMaxSessions: Record<string, number> = {}
   /** W3-A: minutes between activity digests, 0 for none. Written only when it is not the default. */
   private activityDigestMinutes = ACTIVITY_DIGEST_DEFAULT_MINUTES
   private freshCoordinatorContextPct = FRESH_COORDINATOR_DEFAULT_PCT
@@ -234,6 +237,7 @@ export class AppSettingsStore {
       )
       this.maxSubagentsPerSession = maxSubagentsPerSessionOf((parsed as { maxSubagentsPerSession?: unknown }).maxSubagentsPerSession)
       this.usagePauseAt = usagePauseAtOf((parsed as { usagePauseAt?: unknown }).usagePauseAt)
+      this.accountMaxSessions = accountMaxSessionsOf((parsed as { accountMaxSessions?: unknown }).accountMaxSessions)
       // The same function the Host's read uses (readActivityDigestMinutes)
       this.activityDigestMinutes = activityDigestMinutesOf(
         (parsed as { activityDigestMinutes?: unknown }).activityDigestMinutes
@@ -318,6 +322,7 @@ export class AppSettingsStore {
         this.maxConcurrentWorkers = null
         this.maxSubagentsPerSession = SUBAGENT_CAP_DEFAULT
         this.usagePauseAt = USAGE_PAUSE_AT_DEFAULT
+        this.accountMaxSessions = {}
         this.activityDigestMinutes = ACTIVITY_DIGEST_DEFAULT_MINUTES
         this.freshCoordinatorContextPct = FRESH_COORDINATOR_DEFAULT_PCT
         this.stallWatch = true
@@ -363,6 +368,7 @@ export class AppSettingsStore {
       this.maxConcurrentWorkers = null
       this.maxSubagentsPerSession = SUBAGENT_CAP_DEFAULT
       this.usagePauseAt = USAGE_PAUSE_AT_DEFAULT
+      this.accountMaxSessions = {}
       this.activityDigestMinutes = ACTIVITY_DIGEST_DEFAULT_MINUTES
       this.freshCoordinatorContextPct = FRESH_COORDINATOR_DEFAULT_PCT
       this.stallWatch = true
@@ -589,6 +595,16 @@ export class AppSettingsStore {
   /** Narrowed like the file: the value arrives from the renderer. */
   async setUsagePauseAt(n: number): Promise<void> {
     this.usagePauseAt = usagePauseAtOf(n)
+    await this.persist()
+  }
+
+  getAccountMaxSessions(): Record<string, number> {
+    return { ...this.accountMaxSessions }
+  }
+
+  /** Narrowed like the file: the value arrives from the renderer. */
+  async setAccountMaxSessions(v: unknown): Promise<void> {
+    this.accountMaxSessions = accountMaxSessionsOf(v)
     await this.persist()
   }
 
@@ -822,6 +838,7 @@ export class AppSettingsStore {
       maxConcurrentWorkers?: number
       maxSubagentsPerSession?: number
       usagePauseAt?: number
+      accountMaxSessions?: Record<string, number>
       activityDigestMinutes?: number
       freshCoordinatorContextPct?: number
       stallWatch?: false
@@ -870,6 +887,7 @@ export class AppSettingsStore {
     if (this.maxConcurrentWorkers !== null) data.maxConcurrentWorkers = this.maxConcurrentWorkers
     if (this.maxSubagentsPerSession !== SUBAGENT_CAP_DEFAULT) data.maxSubagentsPerSession = this.maxSubagentsPerSession
     if (this.usagePauseAt !== USAGE_PAUSE_AT_DEFAULT) data.usagePauseAt = this.usagePauseAt
+    if (Object.keys(this.accountMaxSessions).length > 0) data.accountMaxSessions = this.accountMaxSessions
     if (this.activityDigestMinutes !== ACTIVITY_DIGEST_DEFAULT_MINUTES) data.activityDigestMinutes = this.activityDigestMinutes
     if (this.freshCoordinatorContextPct !== FRESH_COORDINATOR_DEFAULT_PCT) data.freshCoordinatorContextPct = this.freshCoordinatorContextPct
     if (!this.stallWatch) data.stallWatch = false

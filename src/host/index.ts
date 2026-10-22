@@ -44,6 +44,7 @@ import { HOST_FEATURE_ORCH, HOST_FEATURE_REQUESTS, HOST_PROTOCOL, HOST_YIELD_JOU
 import { createHostJournal } from './hostJournal'
 import { createHostEventLog } from './eventLog'
 import { activityOf, followActivity, hostSessionActivity } from './activity'
+import { watchdogActivity } from '../core/orchestration/exec/stallWatch'
 import { ACTIVITY_KINDS, deriveActivity } from '../core/orchestration/activity'
 import { readActivityDigestMinutes } from '../core/settings/activityDigest'
 import { readMaxConcurrentWorkers } from '../core/settings/maxConcurrentWorkers'
@@ -61,6 +62,7 @@ import { createHostOrch } from './orch'
 import { composeHostDriving } from './drivingWiring'
 // W6-G
 import { createUsageGuard } from '../core/orchestration/usageGuard'
+import { readAccountMaxSessions } from '../core/settings/accountMaxSessions'
 import { usageActivity } from '../core/orchestration/activity'
 import { resumeAfterCrash } from '../core/orchestration/exec/crashResume'
 // T5 crash restore
@@ -91,6 +93,7 @@ import { readWorkUnitsFile } from '../core/workUnit/store'
 import { announceChatProc, createHostSessionStarter } from './sessionCreate'
 import { previewShotsDir } from '../core/preview/shotsDir'
 import { hostCliPaths, hostWorkerBaseEnv, type HostCliPaths } from '../core/host/spawn'
+import { createLoginTerminal } from './loginTerminal'
 import { readAgentAppEnabled } from '../core/settings/agentAppEnabled'
 import { DISPOSE_CAP_MS, createWorkspaceManager, disposeWithin } from './workspace/manager'
 import { createLaunchResolver } from './workspace/launch'
@@ -384,6 +387,8 @@ async function main(): Promise<void> {
       server.broadcast(m)
     },
     log: (m) => log.write(m),
+    // T5: what a clean-up kept, in the plan's feed (`activityLog` is made below; this only runs inside an operation)
+    activity: (runId, line) => activityLog.recorded([watchdogActivity(orch.state(), runId, line)]),
     app: { hasApp: () => server.hasApp(), act: (name, args) => server.act(name, args), lastAppPid: () => server.lastAppPid() }
   })
 
@@ -445,6 +450,14 @@ async function main(): Promise<void> {
     },
     pauseAt: () => readUsagePauseAt(path.join(profileDir, 'app-settings.json')),
     autoAccounts: () => readAutoAccountsOn(path.join(profileDir, 'app-settings.json')),
+    // T5b (decision 21): the sessions live on each account, so starts spread, and the per-account caps
+    sessions: () =>
+      registry.list().flatMap((e) =>
+        e.alive && e.meta?.kind === 'session'
+          ? [{ accountId: typeof e.meta.restore.accountId === 'string' ? e.meta.restore.accountId : null }]
+          : []
+      ),
+    maxSessions: () => readAccountMaxSessions(path.join(profileDir, 'app-settings.json')),
     nowMs: () => Date.now(),
     onChange: (e) => {
       try {
@@ -869,12 +882,14 @@ async function main(): Promise<void> {
             deliverByPush(push, {
               mergeWorktrees: (into, paths, o) => worktrees.mergeWorktrees(into, paths, o),
               validate: (cwd) => wiring.checks.validateTree(cwd, checks),
-              log: (m) => log.write(m)
+              log: (m) => log.write(m),
+              gitOp: worktrees.gitOp // T3: the catch-up merge with origin is Astera's, not an external change
             }),
           // W9-J: a delivered plan's ready worktrees go, unless the setting is off
           cleanWorktrees: async (runId) => {
             if (await readAutoCleanWorktrees(path.join(profileDir, 'app-settings.json'))) await worktrees.cleanRun(runId)
-          }
+          },
+          worktreesOps: worktrees.ops
         }
       : {}),
     now: () => new Date().toISOString(),
@@ -924,6 +939,18 @@ async function main(): Promise<void> {
       accounts: () => readAccountEntries(path.join(profileDir, 'accounts.json')),
       chats: rollingWiring?.chats ?? null
     })),
+    // T12b: Settings › Remote Runtimes › Sign in account, a terminal running `astera accounts login --new` here
+    startLoginTerminal: createLoginTerminal({
+      registry,
+      cli: ((): { exec: string; entry: string } | null => {
+        const p = hostCliPaths(process.env, existsSync)
+        return 'exec' in p ? { exec: p.exec, entry: p.entry } : null
+      })(),
+      profileDir,
+      home: os.homedir(),
+      env: process.env,
+      log: (m) => log.write(m)
+    }),
     // `sessions create` (CLI spec §14): the spawner's path for a terminal session, the chat manager's for
     // a chat one (sessionCreate.ts). Without a spawner both refuse with 6.
     createSession: createHostSessionStarter({
@@ -1005,6 +1032,12 @@ async function main(): Promise<void> {
         log.write(`the Host's after-load pass failed to start: ${String(err)}`)
       }
       runGit?.onState(orch.state())
+      // T5: the sweep — worktrees a crash or an older version left behind for plans that are finished (delivered, or archived)
+      if (spawner)
+        void readAutoCleanWorktrees(path.join(profileDir, 'app-settings.json'))
+          .then((on) => (on ? worktrees.cleanFinished() : undefined))
+          .then((r) => (r && r.removed.length > 0 ? log.write(`worktree sweep at start: removed ${r.removed.length}, kept ${r.kept.length}`) : undefined))
+          .catch((err: unknown) => log.write(`worktree sweep at start failed: ${String(err)}`))
       // #116 fold-in: a plan left waiting before planReadyAt existed gets it once, unless its planner still runs
       void hostSessions
         .listSessions()

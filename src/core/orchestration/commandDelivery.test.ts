@@ -2,11 +2,17 @@
 // worktrees), `projects-set`, `--delivery` on jobs-create and jobs-plan, the pure helpers of delivery.ts and the
 // `plan.delivered` feed line. The push itself is exec/integrateGit.push.test.ts's.
 import { describe, it, expect } from 'vitest'
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { pushBranch } from '../github/prCreate'
 import { handleCommand, type OrchServerDeps } from './command'
 import { emptyState, type OrchState } from './state'
 import type { JobRun, Project, Task } from './types'
 import { HOST_CALLER } from '../host/driver'
 import { cleanAfterDelivery, deliveryChecksOf, deliveryIssuesOf, deliveryMessage, deliveryOf, recordDelivery, setProjectDelivery } from './delivery'
+import { outcomeOf } from './running'
 import { deriveActivity, noticeOf, type ActivityEvent } from './activity'
 import type { PushDelivery, PushResult } from './exec/integrateGit'
 
@@ -17,7 +23,7 @@ const task = (over: Partial<Task> = {}): Task =>
   ({ id: 't1', runId: 'r1', title: 'Fix login', spec: 's', deps: [], status: 'completed', consecutiveFailures: 0, createdAt: NOW, updatedAt: NOW, ...over }) as Task
 const project = (over: Partial<Project> = {}): Project => ({ id: 'p1', path: REPO, name: 'gameful', addedAt: NOW, ...over })
 
-const setup = (o: { project?: Partial<Project>; tasks?: Task[]; run?: Partial<JobRun>; push?: PushResult; noPush?: boolean; cleanThrows?: boolean } = {}) => {
+const setup = (o: { project?: Partial<Project>; tasks?: Task[]; run?: Partial<JobRun>; push?: PushResult; noPush?: boolean; cleanThrows?: boolean; mergeFails?: string } = {}) => {
   const box: { state: OrchState } = {
     state: {
       ...emptyState(),
@@ -56,8 +62,9 @@ const setup = (o: { project?: Partial<Project>; tasks?: Task[]; run?: Partial<Jo
       cleaned.push(runId)
       if (o.cleanThrows) throw new Error('boom')
     },
+    ...(o.mergeFails ? { mergeWorktrees: async () => ({ ok: false as const, reason: o.mergeFails }) } : {}),
     // run-open-pr's own refusal when there is no GitHub: enough to see that `pr` went there
-    github: undefined
+    github: o.mergeFails ? {} : undefined
   } as unknown as OrchServerDeps
   const call = (cmd: string, args: Record<string, unknown>, sessionId = HOST_CALLER, role?: 'mcp') =>
     handleCommand(deps, { sessionId, ...(role ? { role } : {}) }, cmd, args)
@@ -79,7 +86,10 @@ describe('run-deliver (W6-H)', () => {
       tasks: [task({ validateConfigIds: ['test'], links: { issue: { number: 7, url: 'u', closes: true } } }), task({ id: 't2', validateConfigId: 'lint' })]
     })
     const r = await h.call('run-deliver', { run: 'r1' })
-    expect(r).toEqual({ status: 200, body: { delivery: 'push', branch: 'main', sha: 'abc1234def', pushed: true, validated: 2 } })
+    expect(r).toEqual({
+      status: 200,
+      body: { delivery: 'push', branch: 'main', sha: 'abc1234def', pushed: true, validated: 2, deliveryState: { state: 'delivered', attempts: 1, lastAttemptAt: NOW } }
+    })
     expect(h.pushes).toEqual([
       { cwd: REPO, branch: 'main', worktrees: ['/wt/t1', '/wt/t2'], message: 'Deliver plan: Fix auth\n\nFixes #7', checks: ['test', 'lint'] }
     ])
@@ -90,19 +100,92 @@ describe('run-deliver (W6-H)', () => {
     expect(h.pushes).toHaveLength(1)
   })
 
-  it('records a stop, escalates it, keeps the worktrees, and tries again only with --force', async () => {
+  it('records a stop with its retry time (T3: no escalation before the last attempt), keeps the worktrees, and tries again only with --force', async () => {
     const h = setup({ project: { delivery: 'push' }, push: { ok: false, branch: 'main', reason: 'your folder /repo is on branch dev, not main' } })
     const r = await h.call('run-deliver', { run: 'r1' })
     expect(r.status).toBe(409)
     expect(h.state().runs[0].delivery).toEqual({ at: NOW, branch: 'main', error: 'your folder /repo is on branch dev, not main' })
-    const esc = h.state().messages.filter((m) => m.type === 'escalation')
-    expect(esc).toHaveLength(1)
-    expect(esc[0]).toMatchObject({ runId: 'r1', subject: 'Delivery stopped: your folder /repo is on branch dev, not main' })
+    expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'retrying', attempts: 1, nextRetryAt: new Date(Date.parse(NOW) + 60_000).toISOString() })
+    expect(h.state().messages.filter((m) => m.type === 'escalation')).toEqual([])
     expect(h.removed).toEqual([])
     expect((await h.call('run-deliver', { run: 'r1' })).status).toBe(409)
     expect(h.pushes).toHaveLength(1)
     await h.call('run-deliver', { run: 'r1', force: true })
     expect(h.pushes).toHaveLength(2)
+  })
+
+  it('a push that stopped reads failed with its reason, and a forced push that lands reads completed again', async () => {
+    const h = setup({ project: { delivery: 'push' }, push: { ok: false, branch: 'main', reason: 'push refused' } })
+    expect(outcomeOf(h.state(), 'r1')).toBe('completed')
+    await h.call('run-deliver', { run: 'r1' })
+    expect(outcomeOf(h.state(), 'r1')).toBe('failed')
+    const ok = setup({ project: { delivery: 'push' }, run: { delivery: { at: NOW, error: 'push refused' } } })
+    expect(outcomeOf(ok.state(), 'r1')).toBe('failed')
+    expect((await ok.call('run-deliver', { run: 'r1', force: true })).status).toBe(200)
+    expect(outcomeOf(ok.state(), 'r1')).toBe('completed')
+  })
+
+  it('a conflicting branch at delivery leaves the Run failed with the conflict as its reason', async () => {
+    const why = 'git merge-tree says x does not merge cleanly'
+    const h = setup({ run: { worktree: '/wt/run' }, mergeFails: why })
+    const r = await h.call('run-deliver', { run: 'r1' })
+    expect(r.status).toBe(409)
+    expect(h.state().runs[0].pr).toEqual({ at: NOW, error: why })
+    expect(outcomeOf(h.state(), 'r1')).toBe('failed')
+    // --force asks again as a Run whose Tasks completed, not as a failed plan (no draft pull request)
+    const again = await h.call('run-deliver', { run: 'r1', force: true })
+    expect(again.body).toMatchObject({ error: why, deliveryState: { state: 'retrying', attempts: 1 } })
+  })
+
+  // T3: the driving loop's steps, over the real command
+  it('T3: the pending mark, an auto attempt only when due, and the fifth failure asks the owner exactly once', async () => {
+    const h = setup({ project: { delivery: 'push' }, push: { ok: false, branch: 'main', reason: 'git fetch origin main failed: offline', code: 'fetch-failed' } })
+    expect((await h.call('run-deliver', { run: 'r1', auto: true })).status).toBe(409) // nothing pending yet
+    expect(h.pushes).toHaveLength(0)
+    await h.call('run-deliver', { run: 'r1', pending: true })
+    expect(h.state().runs[0].deliveryState).toEqual({ state: 'pending', attempts: 0 })
+    const first = await h.call('run-deliver', { run: 'r1', auto: true })
+    expect(first.body).toMatchObject({ code: 'fetch-failed', deliveryState: { state: 'retrying', attempts: 1 } })
+    // not due again until its retry time
+    expect((await h.call('run-deliver', { run: 'r1', auto: true })).status).toBe(409)
+    expect(h.pushes).toHaveLength(1)
+    for (let i = 2; i <= 5; i++) {
+      // its retry time came
+      const run = h.state().runs[0]
+      h.state().runs[0] = { ...run, deliveryState: { ...run.deliveryState!, nextRetryAt: NOW } }
+      await h.call('run-deliver', { run: 'r1', auto: true })
+    }
+    expect(h.pushes).toHaveLength(5)
+    const questions = h.state().messages.filter((m) => m.type === 'escalation' && m.runId === 'r1')
+    expect(questions).toHaveLength(1)
+    expect(questions[0].options).toEqual(['Retry now', "I'll push it myself"])
+    expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'needs-owner', attempts: 5, questionId: questions[0].id })
+  })
+
+  it("T3: a push plan that ended failed is recorded failed once, with why, and never pushed", async () => {
+    const h = setup({ project: { delivery: 'push' }, tasks: [task({ status: 'failed', consecutiveFailures: 3 }), task({ id: 't2' })] })
+    await h.call('run-deliver', { run: 'r1', pending: true })
+    const r = await h.call('run-deliver', { run: 'r1', auto: true })
+    expect(r.body).toMatchObject({ code: 'not-completed', deliveryState: { state: 'failed' } })
+    expect((await h.call('run-deliver', { run: 'r1', auto: true })).status).toBe(409)
+    expect(h.pushes).toEqual([])
+  })
+
+  it("T3: \"I'll push it myself\" reads delivered-by-owner once git confirms the commits reached the branch", async () => {
+    const h = setup({ project: { delivery: 'push' } })
+    expect((await h.call('run-deliver', { run: 'r1', ownerPushed: true })).status).toBe(409) // nobody asked the owner
+    const s = h.state()
+    h.state().runs[0] = { ...s.runs[0], deliveryState: { state: 'needs-owner', attempts: 5, questionId: 'msg_q' } }
+    const r = await h.call('run-deliver', { run: 'r1', ownerPushed: true })
+    expect(r.status).toBe(200)
+    expect(h.pushes[0]).toMatchObject({ ownerPushed: true, worktrees: ['/wt/t1', '/wt/t2'] })
+    expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'delivered-by-owner', ownerPushes: true })
+    expect(h.state().runs[0].delivery).toMatchObject({ sha: 'abc1234def' })
+  })
+
+  it('T3: the loop steps are refused from an agent session', async () => {
+    const h = setup({ project: { delivery: 'push' } })
+    expect((await h.call('run-deliver', { run: 'r1', pending: true }, 'sess_agent', 'mcp')).status).toBe(403)
   })
 
   it("follows the Job's own delivery over its project's", async () => {
@@ -248,5 +331,129 @@ describe('worktrees are cleaned once a plan is delivered (W9-J)', () => {
   })
   it('cleanAfterDelivery without the dep (an app caller) does nothing', async () => {
     await expect(cleanAfterDelivery({}, 'r1')).resolves.toBeUndefined()
+  })
+})
+
+// T3: the plan branch is pushed after each Task, over real repositories: the Task's commit is on origin's plan branch
+describe('run-draft-pr pushes the plan branch after a Task (T3, real git)', () => {
+  it('a Task merged into the plan branch leaves origin with that commit on the plan branch', async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'plan-push-'))
+    const sh = (cwd: string, ...a: string[]): string =>
+      execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { cwd, encoding: 'utf8' }).trim()
+    const origin = path.join(dir, 'origin.git')
+    const repo = path.join(dir, 'repo')
+    const wt = path.join(dir, 'wt-run')
+    sh(dir, 'init', '--bare', '-b', 'main', origin)
+    sh(dir, 'init', '-b', 'main', repo)
+    writeFileSync(path.join(repo, 'a.txt'), 'a')
+    sh(repo, 'add', '-A')
+    sh(repo, 'commit', '-m', 'init')
+    sh(repo, 'remote', 'add', 'origin', origin)
+    sh(repo, 'push', '-u', 'origin', 'main')
+    sh(repo, 'worktree', 'add', '-b', 'astera/run', wt)
+    // the Task's work, merged into the plan branch (the Run's worktree)
+    writeFileSync(path.join(wt, 'task.txt'), 'done')
+    sh(wt, 'add', '-A')
+    sh(wt, 'commit', '-m', 'task t1')
+    const box: { state: OrchState } = {
+      state: {
+        ...emptyState(),
+        projects: [project({ path: repo, delivery: 'push' })],
+        jobs: [{ id: 'job_1', objective: 'Fix auth', cwd: repo, projectId: 'p1', createdAt: NOW }],
+        runs: [{ id: 'r1', jobId: 'job_1', ordinal: 1, createdAt: NOW, worktree: wt } as JobRun],
+        tasks: [task({ mergedIntoPlanAt: NOW }), task({ id: 't2', status: 'ready' })],
+        dispatches: [{ id: 'd1', taskId: 't1', cwd: wt, accountId: 'a', endedAt: NOW, outcome: 'succeeded' } as never]
+      }
+    }
+    const deps = {
+      getState: () => box.state,
+      setState: async (next: OrchState) => {
+        box.state = next
+      },
+      now: () => NOW,
+      listAccounts: () => [],
+      github: {
+        run: async () => ({ ok: false, stdout: '', stderr: 'no gh here' }),
+        worktreeOf: (p: string) => (p === wt ? { path: wt, repoPath: repo, branch: 'astera/run', baseRef: 'main' } : null),
+        push: (w: string, b: string) => pushBranch(w, b)
+      }
+    } as unknown as OrchServerDeps
+    const r = await handleCommand(deps, { sessionId: HOST_CALLER }, 'run-draft-pr', { run: 'r1' })
+    expect(r.body).toMatchObject({ branch: 'astera/run', pushed: true })
+    expect(sh(origin, 'rev-parse', 'astera/run')).toBe(sh(wt, 'rev-parse', 'HEAD'))
+    expect(sh(origin, 'rev-parse', 'main')).toBe(sh(repo, 'rev-parse', 'main')) // main is never pushed here
+    expect(box.state.runs[0].branchPush).toMatchObject({ state: 'delivered', tasksDone: 1 })
+  })
+})
+
+describe('a plan-branch push that keeps failing asks the owner (T4)', () => {
+  const pushSetup = () => {
+    const outcome: { ok: boolean } = { ok: false }
+    let clock = Date.parse(NOW)
+    const box: { state: OrchState } = {
+      state: {
+        ...emptyState(),
+        projects: [project({ delivery: 'push' })],
+        jobs: [{ id: 'job_1', objective: 'Fix auth', cwd: REPO, projectId: 'p1', createdAt: NOW }],
+        runs: [{ id: 'r1', jobId: 'job_1', ordinal: 1, createdAt: NOW, worktree: '/wt/run' } as JobRun],
+        tasks: [task(), task({ id: 't2', status: 'ready' })],
+        dispatches: []
+      }
+    }
+    const deps = {
+      getState: () => box.state,
+      setState: async (next: OrchState) => {
+        box.state = next
+      },
+      now: () => new Date(clock).toISOString(),
+      listAccounts: () => [],
+      github: {
+        run: async () => ({ ok: false, stdout: '', stderr: 'no gh here' }),
+        worktreeOf: (p: string) => (p === '/wt/run' ? { path: '/wt/run', repoPath: REPO, branch: 'astera/run', baseRef: 'main' } : null),
+        push: async () => (outcome.ok ? { ok: true } : { ok: false, kind: 'rejected', detail: 'remote hung up' })
+      }
+    } as unknown as OrchServerDeps
+    const push = async (args: Record<string, unknown> = {}) => {
+      clock += 61 * 60_000 // past every retry wait
+      return handleCommand(deps, { sessionId: HOST_CALLER }, 'run-draft-pr', { run: 'r1', ...args })
+    }
+    const questions = () => box.state.messages.filter((m) => m.type === 'escalation')
+    return { outcome, push, questions, state: () => box.state }
+  }
+
+  it('the fifth consecutive failure raises exactly one question with Retry now / I\'ll push it myself; a later success answers it', async () => {
+    const { outcome, push, questions, state } = pushSetup()
+    for (let i = 1; i <= 4; i++) expect((await push()).status).toBe(409)
+    expect(questions()).toHaveLength(0)
+    expect(state().runs[0].branchPush).toMatchObject({ state: 'retrying', attempts: 4 })
+    await push()
+    await push()
+    expect(questions()).toHaveLength(1)
+    expect(questions()[0]).toMatchObject({ options: ['Retry now', "I'll push it myself"], answered: false })
+    expect(questions()[0].subject).toContain('Pushing the plan branch')
+    expect(state().runs[0].branchPush).toMatchObject({ state: 'needs-owner', attempts: 6, questionId: questions()[0].id })
+    outcome.ok = true
+    expect((await push()).status).toBe(200)
+    expect(questions()[0]).toMatchObject({ answered: true })
+    expect(state().runs[0].branchPush).toMatchObject({ state: 'delivered', tasksDone: 1 })
+    // the count starts afresh: four failures after a success ask nothing
+    outcome.ok = false
+    for (let i = 1; i <= 4; i++) await push({ synced: true })
+    expect(questions()).toHaveLength(1)
+    expect(state().runs[0].branchPush).toMatchObject({ state: 'retrying', attempts: 4 })
+  })
+
+  it('"Retry now" (--force) counts afresh; "I\'ll push it myself" stops the plan-branch pushes', async () => {
+    const { push, questions, state } = pushSetup()
+    for (let i = 1; i <= 5; i++) await push()
+    expect(questions()).toHaveLength(1)
+    await push({ force: true })
+    expect(state().runs[0].branchPush).toMatchObject({ state: 'retrying', attempts: 1 })
+    for (let i = 1; i <= 4; i++) await push()
+    expect(questions()).toHaveLength(2)
+    expect((await push({ ownerPushes: true })).status).toBe(200)
+    expect(state().runs[0].branchPush).toMatchObject({ ownerPushes: true })
+    expect((await push()).status).toBe(409) // never due again
+    expect(state().runs[0].branchPush).toMatchObject({ ownerPushes: true, attempts: 5 })
   })
 })

@@ -5,7 +5,7 @@
 // It never starts work: `plannerRefusal` is the gate `handleCommand` asks first, in the app and in the Host
 // alike, and a person approves the plan with the Job's start (`run-start`), which `validatePlan` guards.
 import path from 'node:path'
-import { BASIS_STATES, recomputeReady, type Job, type Task } from './types'
+import { BASIS_STATES, TASK_KINDS, recomputeReady, type Job, type LeftOutItem, type Task, type TaskKind } from './types'
 import type { OrchState, PlanFields, Res } from './state'
 import { chainOf, layersOf } from './graph'
 import { isIntegrationTask } from './integrate'
@@ -15,6 +15,8 @@ import { DIFFICULTIES, MODEL_ID } from './roleModels'
 // W8-C prompts mode
 import { sha256Of } from './promptWaves'
 import { isTerminal } from './running'
+// T7 objective coverage
+import { objectiveItemsOf } from './objectiveItems'
 
 /** W8-C prompts mode: what a planner of a Run-as-written plan is told when it tries to change the owner's text. */
 export const VERBATIM_REFUSAL =
@@ -47,7 +49,9 @@ export const PLANNER_COMMANDS: ReadonlySet<string> = new Set([
   'jobs-feedback-done',
   // W8-D several plans in one repo: read where the plan meets another, and name its areas (`jobs-set --areas` only)
   'jobs-overlaps',
-  'jobs-set'
+  'jobs-set',
+  // T7: the planner names its own Job once it knows the goal
+  'jobs-rename'
 ])
 
 /** The Job whose planner `sessionId` is, if it is one. An empty id (a shell, an MCP client) is never one. */
@@ -58,9 +62,17 @@ export function plannerJobOf(s: OrchState, sessionId: string): Job | undefined {
 
 /** Why `cmd` is refused to the planner session `sessionId`, or null when it is not a planner or may call it.
  *  A planner writes only its own Job's definition Tasks, and `task-update` only edits them (no status). */
-export function plannerRefusal(s: OrchState, sessionId: string, cmd: string, args: Record<string, unknown>): string | null {
+export function plannerRefusal(
+  s: OrchState,
+  sessionId: string,
+  cmd: string,
+  args: Record<string, unknown>,
+  /** T20: when a person last typed in this planner's terminal (epoch ms, null for never) and the time now. */
+  owner: { typedAt: number | null; now: number } = { typedAt: null, now: Date.now() }
+): string | null {
   const job = plannerJobOf(s, sessionId)
   if (!job) return null
+  if (cmd === 'run-start') return chatApprovalRefusal(s, job, args, owner)
   if (!PLANNER_COMMANDS.has(cmd))
     return `planner sessions only plan: ${cmd} is refused. The person approves the plan in Astera ("Approve & execute"), and that starts the work`
   // W8-C prompts mode: Astera wrote one Task per prompt; the planner fills them in and never adds, drops or rewrites one
@@ -72,9 +84,16 @@ export function plannerRefusal(s: OrchState, sessionId: string, cmd: string, arg
     const target = args.runId ?? args.run
     if (target !== job.id) return `a planner adds Tasks to its own Job only: pass --run ${job.id}`
   }
-  // W8-D: areas only, and only its own Job
-  if (cmd === 'jobs-set' && (args.id !== job.id || args.areas === undefined || args.concurrency !== undefined || args.after !== undefined))
-    return `a planner sets its own Job's areas only: jobs-set --id ${job.id} --areas <a,b>`
+  // W8-D: areas only, and only its own Job; T7: or the objective items it leaves out
+  if (
+    cmd === 'jobs-set' &&
+    (args.id !== job.id ||
+      (args.areas === undefined) === (args.leftOut === undefined) ||
+      ['concurrency', 'after', 'planning', 'priority', 'project'].some((k) => args[k] !== undefined))
+  )
+    return `a planner sets its own Job's areas only, or its left-out items (one per call): jobs-set --id ${job.id} --areas <a,b> | --left-out '<json>'`
+  // T7: only its own Job
+  if (cmd === 'jobs-rename' && args.id !== job.id) return `a planner names its own Job only: pass --id ${job.id}`
   // W6-A: only its own Job
   if (cmd === 'plan-nothing-to-do' && args.job !== job.id) return `a planner ends its own Job only: pass --job ${job.id}`
   // W7-A: only its own Job, and only a Task of its plan (a replan's cancel is replanRefusal's)
@@ -89,6 +108,30 @@ export function plannerRefusal(s: OrchState, sessionId: string, cmd: string, arg
     if (args.status !== undefined || args.convergence !== undefined)
       return 'a planner edits what a Task asks for, not its status'
   }
+  return null
+}
+
+/** T20: how long the owner's word to run the plan holds. */
+export const CHAT_APPROVAL_MS = 30 * 60_000
+
+/** When the plan last changed: a Task made or edited, or one cancelled. null for a plan with no Task. */
+export function planChangedAt(s: OrchState, job: Job): number | null {
+  const stamps = [...s.tasks.filter((t) => t.jobId === job.id && t.runId === undefined).map((t) => t.updatedAt), job.planCancelledAt]
+  const times = stamps.flatMap((x) => (x === undefined ? [] : [Date.parse(x)])).filter((n) => !Number.isNaN(n))
+  return times.length ? Math.max(...times) : null
+}
+
+/** T20: a planner may start its own Job (`run-start`, the app's "Approve & execute") only when the owner typed in its
+ *  terminal after the plan's last change, less than 30 minutes ago, and it quotes what they said. Input an agent sent
+ *  (`sessions send`) never sets `typedAt`. The plan itself is still validated by `run-start` (validatePlan). */
+function chatApprovalRefusal(s: OrchState, job: Job, args: Record<string, unknown>, owner: { typedAt: number | null; now: number }): string | null {
+  if (args.run !== job.id) return `a planner starts its own Job only: pass --run ${job.id}`
+  if (!text(args.ownerSaid))
+    return `a planner starts its plan only when the person tells it to here: pass --owner-said "<their words, verbatim>". Otherwise the person presses "Approve & execute" in Astera`
+  const changed = planChangedAt(s, job)
+  const { typedAt, now } = owner
+  if (typedAt === null || (changed !== null && typedAt <= changed) || now - typedAt > CHAT_APPROVAL_MS)
+    return `the person has not told you to run the plan since its last change: ask them to confirm here (type 'run it'), or they press "Approve & execute" in Astera`
   return null
 }
 
@@ -137,8 +180,66 @@ export function planFieldsFromArgs(args: Record<string, unknown>): { ok: true; f
     if (!text(args.evidence)) return { ok: false, error: '--evidence is required with --basis: file:line, an issue or PR number, a Job id' }
     fields.basis = { state: args.basis as (typeof BASIS_STATES)[number], evidence: (args.evidence as string).trim() }
   }
+  // T9
+  if (args.kind !== undefined) {
+    if (!(TASK_KINDS as readonly unknown[]).includes(args.kind)) return { ok: false, error: `--kind must be one of ${TASK_KINDS.join('|')}` }
+    fields.kind = args.kind as TaskKind
+  }
+  // T7: the objective items it covers, `--covers 1,3`
+  if (args.covers !== undefined) {
+    const covers = coversArg(args.covers)
+    if (covers === null) return { ok: false, error: '--covers takes the numbers of the objective items the Task covers, e.g. 1,3' }
+    fields.covers = covers
+  }
   return { ok: true, fields }
 }
+
+/** `--covers`: "1,3", a number, or an array of them; null when any is not a whole number of 1 or more. */
+const coversArg = (v: unknown): number[] | null => {
+  const raw = typeof v === 'string' ? v.split(',').map((x) => x.trim()) : Array.isArray(v) ? v : [v]
+  const nums = raw.map((x) => (typeof x === 'string' && /^\d+$/.test(x) ? Number(x) : x))
+  if (nums.length === 0 || !nums.every((n) => typeof n === 'number' && Number.isInteger(n) && n >= 1)) return null
+  return [...new Set(nums as number[])].sort((a, b) => a - b)
+}
+
+/** T7 `jobs-set --left-out '[{"item":2,"reason":"..."}]'`: the objective items the plan leaves out on purpose, checked
+ *  against the Job's objective. A JSON string (the CLI's) or the array itself; `[]` clears the list. */
+export function leftOutArg(v: unknown, objective: string): LeftOutItem[] | { error: string } {
+  let list = v
+  if (typeof v === 'string') {
+    try {
+      list = JSON.parse(v)
+    } catch {
+      return { error: `--left-out must be JSON: '[{"item":2,"reason":"already built: src/x.ts"}]'` }
+    }
+  }
+  if (!Array.isArray(list)) return { error: '--left-out must be a JSON array of {"item": <n>, "reason": "<why>"}' }
+  const items = new Set(objectiveItemsOf(objective).map((i) => i.n))
+  const out: LeftOutItem[] = []
+  for (const e of list as unknown[]) {
+    const r = e as { item?: unknown; reason?: unknown }
+    if (typeof e !== 'object' || e === null || typeof r.item !== 'number' || !Number.isInteger(r.item) || !text(r.reason))
+      return { error: '--left-out entries are {"item": <n>, "reason": "<why>"}, each with a reason' }
+    if (!items.has(r.item)) return { error: `the objective has no item ${r.item}${items.size ? ` (its items: ${[...items].join(', ')})` : ''}` }
+    out.push({ item: r.item, reason: (r.reason as string).replace(/\s+/g, ' ').trim() })
+  }
+  return out
+}
+
+/** T7: what `sessionId` is to orchestration: a worker's or reviewer's Dispatch, a Run's coordinator, a Job's planner or
+ *  replanner. Undefined for any other caller: a shell, the app, the Host, or a tab the owner opened in Astera. */
+export function orchestrationRoleOf(s: OrchState, sessionId: string): 'worker' | 'reviewer' | 'coordinator' | 'planner' | undefined {
+  if (sessionId === '') return undefined
+  const d = s.dispatches.find((x) => x.sessionId === sessionId)
+  if (d) return d.review ? 'reviewer' : 'worker'
+  if (s.runs.some((r) => r.coordinatorSessionId === sessionId || r.externalCoordinatorSessionId === sessionId)) return 'coordinator'
+  if (s.jobs.some((j) => j.plannerSessionIds?.includes(sessionId) || j.replanning?.sessionId === sessionId)) return 'planner'
+  return undefined
+}
+
+/** T7: a run Task the owner may still re-plan: it has never had a Dispatch, and is pending, ready, or blocked. */
+const notStartedYet = (s: OrchState, t: Task): boolean =>
+  (t.status === 'pending' || t.status === 'ready' || t.status === 'blocked') && !s.dispatches.some((d) => d.taskId === t.id)
 
 /** What is wrong with a Job's plan, one sentence each; empty when it may be approved. Every Task needs a
  *  prompt and at least one acceptance criterion, its deps must be Tasks of the same plan, and the deps must
@@ -188,8 +289,22 @@ export function validatePlan(s: OrchState, jobId: string): string[] {
       if (t.verbatimOf === undefined || !sources.has(t.verbatimOf))
         problems.push(`${t.id} (${t.title}) is not one of the owner's prompts: Run as written plans the attached prompts only`)
   }
+  // T7: every item the objective lists is covered by a Task or left out with a reason. Only for a Job's own plan: a
+  // replan's key (replanProblems) names no Job, and its finished Tasks, which covered items too, are not in `tasks`.
+  // Run as written is checked above, prompt by prompt.
+  const job = s.jobs.find((j) => j.id === jobId)
+  if (job !== undefined && verbatim === undefined) {
+    const covered = new Set([...tasks.flatMap((t) => t.covers ?? []), ...(job.leftOut ?? []).map((l) => l.item)])
+    for (const item of objectiveItemsOf(job.objective))
+      if (!covered.has(item.n))
+        problems.push(
+          `objective item ${item.n} ("${clip(item.text)}") has no Task: add one with --covers ${item.n}, or list it with jobs-set --left-out and a reason`
+        )
+  }
   return problems
 }
+
+const clip = (t: string): string => (t.length > 40 ? `${t.slice(0, 39).trimEnd()}…` : t)
 
 /** Edits a definition Task's plan (`task-update` with plan fields): its title, spec, deps and plan fields.
  *  Refused for a Task already in a run, for deps outside its plan, and for deps that would close a cycle. */
@@ -198,13 +313,16 @@ export function editPlanTask(
   taskId: string,
   patch: PlanFields & { title?: string; spec?: string; deps?: string[] },
   now: string,
-  /** The owner (never an agent session) may also change a run Task that has not started: pending/ready, no dispatch */
-  byOwner = false
+  /** T7: who asks, for a run Task: `true` is the owner of a running run, who may also change a run Task that has not
+   *  started (pending, ready or blocked, no Dispatch ever); a string is why the caller is not that owner. */
+  owner: true | string = 'only the owner changes a running plan'
 ): Res<Task> {
   const task = s.tasks.find((t) => t.id === taskId)
   if (!task) return { ok: false, error: `unknown task: ${taskId}`, missing: true }
-  // a started Task falls through to the rule below: it takes new --criteria only
-  if (byOwner && task.runId !== undefined && (task.status === 'pending' || task.status === 'ready') && !s.dispatches.some((d) => d.taskId === taskId)) {
+  const criteriaOnly = patch.acceptanceCriteria !== undefined && Object.keys(patch).every((k) => k === 'acceptanceCriteria')
+  if (owner === true && task.runId !== undefined && !criteriaOnly) {
+    if (!notStartedYet(s, task))
+      return { ok: false, error: `${taskId} has started already (${task.status}): only a Task that has not started is re-planned; it takes new --criteria only` }
     if (patch.deps) {
       const outside = patch.deps.filter((d) => d === taskId || !s.tasks.some((t) => t.id === d && t.runId === task.runId))
       if (outside.length) return { ok: false, error: `deps must be other Tasks of the same run: ${outside.join(', ')}` }
@@ -219,8 +337,9 @@ export function editPlanTask(
   // W8-F (#100): a Task in a run that has not finished keeps one editable field: its acceptance criteria, which the
   // coordinator narrows when the owner's answer does (the review judges the Task against them)
   if (task.runId !== undefined) {
-    if (isTerminal(task) || patch.acceptanceCriteria === undefined || Object.keys(patch).some((k) => k !== 'acceptanceCriteria'))
-      return { ok: false, error: `${taskId} is in a run already: only a plan's own Tasks are edited (a Task that has not finished takes new --criteria only)` }
+    if (isTerminal(task)) return { ok: false, error: `${taskId} has finished (${task.status}): it is not edited` }
+    if (!criteriaOnly)
+      return { ok: false, error: `${taskId} is in a run already and ${owner === true ? 'has started' : owner}: it takes new --criteria only` }
     const next: Task = { ...task, acceptanceCriteria: patch.acceptanceCriteria, updatedAt: now }
     return { ok: true, state: { ...s, tasks: s.tasks.map((t) => (t.id === taskId ? next : t)) }, value: next }
   }
@@ -240,14 +359,15 @@ export function editPlanTask(
 
 /** W7-A: removes a Task from a plan before approval (`task-cancel` from its planner). Refused while another Task of the
  *  plan depends on it: the planner changes that Task's deps first, as a replan's cancel asks (cancelRemainingTask). */
-export function cancelPlanTask(s: OrchState, taskId: string): Res<Task> {
+export function cancelPlanTask(s: OrchState, taskId: string, now: string = new Date().toISOString()): Res<Task> {
   const task = s.tasks.find((t) => t.id === taskId)
   if (!task) return { ok: false, error: `unknown task: ${taskId}`, missing: true }
   if (task.jobId === undefined || task.runId !== undefined)
     return { ok: false, error: `${taskId} is in a run already: only a plan's own Tasks are cancelled before approval` }
   const waiting = s.tasks.filter((t) => t.jobId === task.jobId && t.runId === undefined && t.deps.includes(taskId))
   if (waiting.length) return { ok: false, error: `${waiting.map((t) => t.id).join(', ')} depend on ${taskId}: change their --deps first` }
-  return { ok: true, state: { ...s, tasks: s.tasks.filter((t) => t.id !== taskId) }, value: task }
+  const jobs = s.jobs.map((j) => (j.id === task.jobId ? { ...j, planCancelledAt: now } : j))
+  return { ok: true, state: { ...s, jobs, tasks: s.tasks.filter((t) => t.id !== taskId) }, value: task }
 }
 
 /** The body a worker's spec file carries (OrchCoordinator.startWorker wraps it). A Task with no plan fields
@@ -269,36 +389,99 @@ export function workerSpecOf(task: Pick<Task, 'spec' | 'prompt' | 'acceptanceCri
 /** Where a Job's plan.md lives: beside orchestration.json in the profile, one folder per Job. */
 export const planFileOf = (profileDir: string, jobId: string): string => path.join(profileDir, 'plans', jobId, 'plan.md')
 
-/** The human-readable plan.md of a Job: its definition Tasks in dependency order (graph.ts's layers). */
-export function renderPlanMd(s: OrchState, job: Job): string {
-  const byId = new Map(s.tasks.filter((t) => t.jobId === job.id && t.runId === undefined).map((t) => [t.id, t]))
-  const { layers, cyclic } = layersOf(s, job.id)
+/** T9: a Task's kind: its own `--kind`, else read from its title and then its spec (fix/bug, audit, page/button/design),
+ *  else `feature`. */
+export function kindOf(t: Pick<Task, 'kind' | 'title' | 'spec'>): TaskKind {
+  if (t.kind !== undefined) return t.kind
+  const rules: Array<[TaskKind, RegExp]> = [
+    ['audit', /\baudit/i],
+    ['bugfix', /\b(fix|fixes|fixing|bugs?|regression)\b/i],
+    ['ui', /\b(pages?|buttons?|designs?|screens?|layouts?|dialogs?|modals?|ui)\b/i]
+  ]
+  for (const text of [t.title, t.spec]) for (const [kind, re] of rules) if (re.test(text)) return kind
+  return 'feature'
+}
+
+/** T9: what the plan folder needs of the Job's Tasks and Run: the Run's own Tasks once there is a Run, else the plan's. */
+const planTasksOf = (s: OrchState, job: Job): { tasks: Task[]; scope: string; run?: OrchState['runs'][number] } => {
+  const run = s.runs.filter((r) => r.jobId === job.id).at(-1)
+  if (run) return { tasks: s.tasks.filter((t) => t.runId === run.id), scope: run.id, run }
+  return { tasks: s.tasks.filter((t) => t.jobId === job.id && t.runId === undefined), scope: job.id }
+}
+
+const slugOf = (title: string): string =>
+  title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40)
+    .replace(/-+$/, '') || 'task'
+
+/** `tasks/<NN>-<slug>.md` for the Task at `index` (0-based) of the plan's order. */
+const taskFileOf = (index: number, t: Task): string => `tasks/${String(index + 1).padStart(2, '0')}-${slugOf(t.title)}.md`
+
+/** The Tasks in plan order (waves, then creation), each with its 1-based wave and file path. */
+function orderedTasks(s: OrchState, job: Job): { task: Task; wave: number; file: string }[] {
+  const { tasks, scope } = planTasksOf(s, job)
+  const byId = new Map(tasks.map((t) => [t.id, t]))
+  const { layers, cyclic } = layersOf(s, scope)
+  const ids = [...layers.flat(), ...cyclic]
+  const wave = new Map(layers.flatMap((l, i) => l.map((id) => [id, i + 1] as const)))
+  return ids.flatMap((id, n) => {
+    const task = byId.get(id)
+    return task ? [{ task, wave: wave.get(id) ?? layers.length + 1, file: taskFileOf(n, task) }] : []
+  })
+}
+
+/** T9: where the Job stands, in words: planning, waiting for approval, running wave N of M, delivered or failed. */
+function planStatusOf(s: OrchState, job: Job): string {
+  const { tasks, run } = planTasksOf(s, job)
+  if (!run) return job.pendingStart && tasks.length > 0 ? 'waiting for approval' : job.pendingStart ? 'planning' : 'approved'
+  if (run.delivery?.sha !== undefined || run.deliveryState?.state === 'delivered' || run.deliveryState?.state === 'delivered-by-owner') return 'delivered'
+  const open = tasks.filter((t) => t.status !== 'completed')
+  if (open.length === 0) return 'all Tasks done, delivering'
+  const working = open.some((t) => ['dispatched', 'validating', 'reviewing', 'merging', 'ready', 'pending'].includes(t.status))
+  if (!working && open.some((t) => t.status === 'failed' || t.status === 'blocked')) return 'failed'
+  const { layers } = layersOf(s, run.id)
+  const waveOf = (t: Task): number => layers.findIndex((l) => l.includes(t.id)) + 1
+  return `running wave ${Math.min(...open.map(waveOf).filter((w) => w > 0), layers.length)} of ${layers.length}`
+}
+
+const cell = (v: string): string => v.replace(/\|/g, '\\|').replace(/\s+/g, ' ').trim()
+
+/** The `## Decisions` section of a planner's existing.md (without its heading), or undefined. */
+export function decisionsOf(existingMd: string | undefined): string | undefined {
+  const m = existingMd?.match(/^## Decisions[^\n]*\n([\s\S]*?)(?=^## |(?![\s\S]))/m)
+  return m?.[1].trim() || undefined
+}
+
+/** The human-readable plan.md of a Job: status, objective, its Decisions, the waves table and links to each Task's file
+ *  (`renderTaskMd`) and to `inputs/`. `decisions` is the Decisions section of inputs/existing.md, read by the caller. */
+export function renderPlanMd(s: OrchState, job: Job, decisions?: string): string {
+  const rows = orderedTasks(s, job)
+  const { cyclic } = layersOf(s, planTasksOf(s, job).scope)
+  const accountOf = (t: Task): string => t.accountIds?.join(', ') || 'auto'
   const lines = [
     `# Plan: ${jobNameOf(job)}`,
     '',
     `- Job: \`${job.id}\``,
-    `- Status: ${job.pendingStart ? 'waiting for approval' : 'approved'}`,
+    `- Status: ${planStatusOf(s, job)}`,
     `- Objective: ${job.objective}`,
-    `- Repository: ${job.cwd}`
+    `- Repository: ${job.cwd}`,
+    `- Inputs: [inputs/](inputs/)`
   ]
-  let n = 0
-  layers.forEach((layer, depth) => {
-    lines.push('', `## Batch ${depth + 1}${layer.length > 1 ? ` (${layer.length} Tasks in parallel)` : ''}`)
-    for (const id of layer) {
-      const t = byId.get(id)!
-      n++
-      lines.push('', `### ${n}. ${t.title} (\`${t.id}\`)`, '')
-      const model = [t.difficulty, t.provider, t.model].filter(Boolean).join(', ')
-      if (model) lines.push(`- Model: ${model}${t.modelReason ? ` (${t.modelReason})` : ''}`)
-      if (t.deps.length) lines.push(`- Waits for: ${t.deps.map((d) => `\`${d}\``).join(', ')}`)
-      if (t.affectedPaths?.length) lines.push(`- Affected paths: ${t.affectedPaths.map((p) => `\`${p}\``).join(', ')}`)
-      lines.push('', t.spec)
-      if (t.prompt) lines.push('', '**Prompt**', '', t.prompt)
-      if (t.acceptanceCriteria?.length) lines.push('', '**Acceptance criteria**', '', ...t.acceptanceCriteria.map((c) => `- ${c}`))
-    }
-  })
+  if (decisions) lines.push('', '## Decisions', '', decisions)
+  lines.push('', '## Waves', '')
+  if (rows.length === 0) lines.push('_No Task yet._')
+  else {
+    lines.push('| Wave | Task | Kind | Difficulty | Status | Account | Waits for |', '| --- | --- | --- | --- | --- | --- | --- |')
+    const num = new Map(rows.map((r, i) => [r.task.id, String(i + 1).padStart(2, '0')]))
+    for (const { task: t, wave, file } of rows)
+      lines.push(
+        `| ${wave} | [${cell(t.title)}](${file}) | ${kindOf(t)} | ${t.difficulty ?? '-'} | ${t.status} | ${cell(accountOf(t))} | ${t.deps.map((d) => num.get(d) ?? d).join(', ') || '-'} |`
+      )
+  }
   if (cyclic.length) lines.push('', `## Cannot be ordered (dependency cycle)`, '', ...cyclic.map((id) => `- \`${id}\``))
-  if (byId.size === 0) lines.push('', '_No Task yet._')
   // W8-C prompts mode: the prompts Astera left out, so the owner sees them at approval
   const skipped = (job.verbatim ?? []).filter((v) => v.skipped !== undefined)
   if (skipped.length) lines.push('', '## Already done (skipped)', '', ...skipped.map((v) => `- ${v.source}: ${v.skipped}`))
@@ -309,4 +492,52 @@ export function renderPlanMd(s: OrchState, job: Job): string {
     if (b.skipped.length) lines.push('', 'Skipped:', '', ...b.skipped.map((x) => `- ${x.id}: ${x.why}`))
   }
   return lines.join('\n') + '\n'
+}
+
+/** T9: a Task's status over time, from what the state records: created, each worker's start and end, and where it stands. */
+function statusHistoryOf(s: OrchState, t: Task): { at: string; what: string }[] {
+  const events = [{ at: t.createdAt, what: 'pending' }]
+  for (const d of s.dispatches.filter((x) => x.taskId === t.id)) {
+    events.push({ at: d.startedAt, what: `dispatched (${d.provider} ${d.accountId})` })
+    if (d.endedAt) events.push({ at: d.endedAt, what: `worker ${d.outcome ?? d.workerState}` })
+  }
+  if (t.status !== 'pending' && t.updatedAt !== t.createdAt) events.push({ at: t.updatedAt, what: t.status })
+  return events.sort((a, b) => a.at.localeCompare(b.at))
+}
+
+/** T9: one Task's file of the plan folder: spec, kind, difficulty, deps, paths, criteria as a checklist (ticked once the
+ *  Task is completed), status history, the worker's report when there is one, and the prompt last. */
+export function renderTaskMd(s: OrchState, task: Task, n: number): string {
+  const byId = new Map(s.tasks.map((t) => [t.id, t]))
+  const lines = [
+    `# ${n}. ${task.title}`,
+    '',
+    `- Task: \`${task.id}\``,
+    `- Status: ${task.status}`,
+    `- Kind: ${kindOf(task)}`,
+    `- Difficulty: ${task.difficulty ?? '-'}${task.modelReason ? ` (${task.modelReason})` : ''}`,
+    `- Waits for: ${task.deps.map((d) => byId.get(d)?.title ?? d).join(', ') || '-'}`,
+    `- Affected paths: ${task.affectedPaths?.map((p) => `\`${p}\``).join(', ') || '-'}`,
+    '',
+    '## Spec',
+    '',
+    task.spec
+  ]
+  const done = task.status === 'completed' ? 'x' : ' '
+  if (task.acceptanceCriteria?.length) lines.push('', '## Acceptance criteria', '', ...task.acceptanceCriteria.map((c) => `- [${done}] ${c}`))
+  lines.push('', '## Status history', '', ...statusHistoryOf(s, task).map((e) => `- ${e.at} ${e.what}`))
+  if (task.result || task.filesModified?.length) {
+    lines.push('', '## Report', '')
+    if (task.result) lines.push(task.result)
+    if (task.filesModified?.length) lines.push('', 'Changed files:', ...task.filesModified.map((f) => `- \`${f}\``))
+  }
+  if (task.prompt) lines.push('', '## Prompt', '', task.prompt)
+  return lines.join('\n') + '\n'
+}
+
+/** T9: the plan folder of a Job, `plans/<jobId>/`: path (relative to it) → text. `plan.md` and `tasks/<NN>-<slug>.md`. */
+export function renderPlanFolder(s: OrchState, job: Job, decisions?: string): Map<string, string> {
+  const files = new Map([['plan.md', renderPlanMd(s, job, decisions)]])
+  orderedTasks(s, job).forEach(({ task, file }, i) => files.set(file, renderTaskMd(s, task, i + 1)))
+  return files
 }

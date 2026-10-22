@@ -88,6 +88,26 @@ function rig(initial: OrchState, o: { pct?: number | null; threshold?: number; t
 }
 
 describe('coordinator rotation', () => {
+  it("T5: records the fresh coordinator's model on the Run and lists the project's standing grants in its brief", async () => {
+    const withProject = plan([task({ id: 't1', status: 'completed' }), task({ id: 't2', deps: ['t1'] })], {
+      projects: [{ id: 'prj_1', path: '/p', name: 'p', addedAt: NOW, grants: ['migrations'] }]
+    })
+    const h = rig({ ...withProject, jobs: withProject.jobs.map((j) => ({ ...j, projectId: 'prj_1' })), runs: withProject.runs.map((r) => ({ ...r, coordinatorModel: 'haiku' })) })
+    h.startCoordinator.mockImplementationOnce(async (a: { brief: string }) => ({ sessionId: 'coord-new-1', brief: a.brief, model: 'opus' }))
+    await h.rotation.rotate()
+    expect(h.startCoordinator.mock.calls[0][0].brief).toContain('The owner granted in advance: migrations.')
+    expect(h.state().runs[0]).toMatchObject({ coordinatorSessionId: 'coord-new-1', coordinatorModel: 'opus' })
+  })
+
+  // T5b: the restart re-ranks (chooseStartAccount behind startCoordinator) and the Job records where it started
+  it('records the account a restarted coordinator actually started on, keeping the named one as the preference', async () => {
+    const h = rig(plan([task({ id: 't1', status: 'completed' }), task({ id: 't2', deps: ['t1'] })]))
+    h.startCoordinator.mockImplementationOnce(async (a: { brief: string }) => ({ sessionId: 'coord-new-1', brief: a.brief, accountId: 'accB' }))
+    await h.rotation.rotate()
+    expect(h.startCoordinator.mock.calls[0][0]).toMatchObject({ accountId: 'accA' })
+    expect(h.state().jobs[0]).toMatchObject({ coordinatorAccountId: 'accB', preferredAccountId: 'accA' })
+  })
+
   it('replaces the coordinator at a wave boundary, starting the new one before ending the old', async () => {
     const h = rig(plan([task({ id: 't1', status: 'completed' }), task({ id: 't2', deps: ['t1'] })]))
     await h.rotation.rotate()

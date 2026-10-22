@@ -57,7 +57,7 @@ function harness(confirm: boolean): { deps: ExecDeps; sent: Array<{ path: string
       readOnlyReason: null,
       command: async (cmd: string, args: Record<string, unknown>) => {
         sent.push({ path, cmd, args })
-        return cmd === 'run-create' ? { status: 200, body: { id: 'j-new' } } : { status: 200, body: {} }
+        return cmd === 'jobs-create' ? { status: 200, body: { id: 'j-new' } } : { status: 200, body: {} }
       }
     }) as unknown as OrchDoor
   const ui: ActionUi = {
@@ -133,14 +133,30 @@ describe('confirm-class intents run only through a confirmation', () => {
 })
 
 describe('intent → command', () => {
-  it('plan = the "+ New job" call, then the planner on the new Job', async () => {
+  it('plan = the Start page call (jobs-create, which names the plan short), then the planner on the new Job', async () => {
     const h = harness(true)
-    await execute(ready({ kind: 'plan', objective: 'the next Gameful refactor' }), h.deps)
+    const lines = await execute(ready({ kind: 'plan', objective: 'the next Gameful refactor' }), h.deps)
     expect(h.sent).toEqual([
-      { path: '/p/g', cmd: 'run-create', args: { objective: 'the next Gameful refactor', cwd: '/p/g', coordinatorAccount: 'acc-1', auto: true } },
+      {
+        path: '/p/g',
+        cmd: 'jobs-create',
+        args: { cwd: '/p/g', coordinatorAccount: 'acc-1', objective: 'the next Gameful refactor' }
+      },
       { path: '/p/g', cmd: 'jobs-plan', args: { id: 'j-new' } }
     ])
+    expect(lines).toEqual([{ text: 'command.done.planned', jobId: 'j-new' }])
     expect(h.asked).toEqual([])
+  })
+
+  it('plan on Auto sends no account (the Host picks the one with most room); none signed in is refused', async () => {
+    const h = harness(true)
+    h.deps.coordinatorAccount = async () => ''
+    await execute(ready({ kind: 'plan', objective: 'x' }), h.deps)
+    expect(h.sent[0].args).toEqual({ cwd: '/p/g', objective: 'x' })
+    const none = harness(true)
+    none.deps.coordinatorAccount = async () => null
+    expect(await execute(ready({ kind: 'plan', objective: 'x' }), none.deps)).toEqual([{ text: 'command.noAccount' }])
+    expect(none.sent).toEqual([])
   })
 
   it('resume of a stopped Run is runs-resume; of a schedule, run-resume', async () => {

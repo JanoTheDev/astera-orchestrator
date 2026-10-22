@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { execFileSync } from 'node:child_process'
 import { promises as fs, existsSync } from 'node:fs'
 import path from 'node:path'
-import { removeWorktree, isDangerousRemovalPath } from './remove'
+import { blockingChanges, removeWorktree, isDangerousRemovalPath } from './remove'
 import { createWorktree } from './create'
 import { WorktreeRegistry } from './registry'
 import { localBranchExists } from './git'
@@ -424,5 +424,70 @@ describe('removeWorktree without force, refused before the link walk', () => {
     expect(walked).toEqual([])
     expect(existsSync(path.join(info.path, 'f.txt'))).toBe(true)
     expect(reg.get(info.id)).not.toBeNull()
+  })
+})
+
+// ── T5: what blocks a removal, and which branches go with it ──
+
+describe('blockingChanges', () => {
+  it('ignored files do not count, an untracked symlink does not, an untracked file does and is listed', async () => {
+    const { info } = await createWorktree({ repoPath: repo, name: 'blocks', registry: reg })
+    await fs.writeFile(path.join(info.path, '.gitignore'), 'node_modules/\ndist/\n')
+    gitIn(info.path, ['add', '.gitignore'])
+    gitIn(info.path, ['commit', '-m', 'ignore'])
+    await fs.mkdir(path.join(info.path, 'dist'))
+    await fs.writeFile(path.join(info.path, 'dist', 'o.js'), '1')
+    await fs.symlink(await tempDir('astera-nm-'), path.join(info.path, 'node_modules'))
+    expect(await blockingChanges(info.path)).toEqual({ count: 0, untrackedCount: 0, untracked: [] })
+    await fs.writeFile(path.join(info.path, 'notes.txt'), 'mine')
+    expect(await blockingChanges(info.path)).toEqual({ count: 1, untrackedCount: 1, untracked: ['notes.txt'] })
+    await fs.appendFile(path.join(info.path, '.gitignore'), 'more\n')
+    expect((await blockingChanges(info.path)).count).toBe(2)
+    await expect(removeWorktree({ id: info.id, registry: reg, isPathInUse: noUse })).rejects.toThrow('DIRTY: 2')
+  })
+  it('a worktree with only an ignored node_modules link is removed', async () => {
+    const { info } = await createWorktree({ repoPath: repo, name: 'linked', registry: reg })
+    await fs.symlink(await tempDir('astera-nm-'), path.join(info.path, 'node_modules'))
+    expect((await removeWorktree({ id: info.id, registry: reg, isPathInUse: noUse })).removed).toBe(true)
+    expect(existsSync(info.path)).toBe(false)
+  })
+})
+
+describe('removeWorktree branches (T5)', () => {
+  it('a Task branch merged into the branch it was forked from is deleted, though neither HEAD nor its base has it', async () => {
+    const plan = (await createWorktree({ repoPath: repo, name: 'plan-b', registry: reg })).info
+    const task = (await createWorktree({ repoPath: repo, name: 'task-b', baseRef: plan.branch, registry: reg })).info
+    await fs.writeFile(path.join(task.path, 't.txt'), 't')
+    gitIn(task.path, ['add', '-A'])
+    gitIn(task.path, ['commit', '-m', 'task'])
+    gitIn(plan.path, ['merge', '--no-ff', '-m', 'merge', task.branch])
+    const r = await removeWorktree({ id: task.id, registry: reg, isPathInUse: noUse })
+    expect(r.branchDeleted).toBe(true)
+    expect(await localBranchExists(repo, task.branch)).toBe(false)
+  })
+  it('a Task branch that is not in the plan branch is kept', async () => {
+    const plan = (await createWorktree({ repoPath: repo, name: 'plan-c', registry: reg })).info
+    const task = (await createWorktree({ repoPath: repo, name: 'task-c', baseRef: plan.branch, registry: reg })).info
+    await fs.writeFile(path.join(task.path, 't.txt'), 't')
+    gitIn(task.path, ['add', '-A'])
+    gitIn(task.path, ['commit', '-m', 'task'])
+    const r = await removeWorktree({ id: task.id, registry: reg, isPathInUse: noUse })
+    expect(r.branchDeleted).toBe(false)
+    expect(await localBranchExists(repo, task.branch)).toBe(true)
+  })
+  it('deleteRemoteBranch deletes origin’s copy of a branch that was deleted locally, and only then', async () => {
+    const origin = await tempDir('astera-wt-origin-')
+    gitIn(origin, ['init', '--bare', '-q'])
+    gitIn(repo, ['remote', 'add', 'origin', origin])
+    const merged = (await createWorktree({ repoPath: repo, name: 'pushed-ok', registry: reg })).info
+    const kept = (await createWorktree({ repoPath: repo, name: 'pushed-wip', registry: reg })).info
+    await fs.writeFile(path.join(kept.path, 'k.txt'), 'k')
+    gitIn(kept.path, ['add', '-A'])
+    gitIn(kept.path, ['commit', '-m', 'wip'])
+    for (const w of [merged, kept]) gitIn(w.path, ['push', 'origin', w.branch])
+    await removeWorktree({ id: merged.id, registry: reg, isPathInUse: noUse, deleteRemoteBranch: true })
+    await removeWorktree({ id: kept.id, registry: reg, isPathInUse: noUse, deleteRemoteBranch: true })
+    expect(gitIn(repo, ['ls-remote', '--heads', 'origin', merged.branch])).toBe('')
+    expect(gitIn(repo, ['ls-remote', '--heads', 'origin', kept.branch])).not.toBe('')
   })
 })

@@ -2,7 +2,8 @@
 // (W9-C Plans/Tasks, W9-D Inbox, W9-E Settings, W9-H Agents, W9-J Worktrees); until one lands, its page here is the
 // panel that held that view in the retired sidebar. The consoles (Content) are rendered after the page's own column,
 // always at the same place, and only hidden off the pages that show them, so no xterm remounts on a page switch.
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { repoInScope } from '../../state/projectView'
 import { HistoryBrowser } from '../HistoryBrowser'
 import { FileExplorer } from '../FileExplorer'
 import { JobsView } from '../JobsView'
@@ -19,7 +20,7 @@ import { openPage } from './navigation'
 import { AgentsPage, type AgentsPageProps } from '../pages/AgentsPage' // W9-H
 import { getWallView, setWallView } from '../wall/wallView' // W9-H
 import type { PageId } from '../../../../core/ui/pages'
-import { Button, Field } from '../ui'
+import { Button, Field, Tabs } from '../ui'
 import { Content, type ContentProps } from './Content'
 import type { AppState } from '../../state/appState'
 
@@ -43,7 +44,7 @@ export type PagesProps = ContentProps &
     'remoteViewPermission' | 'resumeFromHistory' | 'runConfigs' | 'runFile' | 'runJump' | 'runMenuOpen' | 'runs' |
     'runSelectConfigShortcut' | 'runSelectedId' | 'runStart' | 'runStop' | 'setDetail' | 'setExplorerReveal' |
     'setJobsRuntime' | 'setNewSessionCwd' | 'setOpenRun' | 'setRemoteProject' |
-    'setRunMenuOpen' | 'setRunPanelOpen' | 'setShowNew' | 't' | 'understanding' | 'workspaceData' | 'workspaceTree'
+    'setRunMenuOpen' | 'setRunPanelOpen' | 'setShowNew' | 't' | 'understanding' | 'workspaceData' | 'workspaceTree' | 'scopedData' | 'scopedTree' | 'scopeId'
   >
 
 export function Pages(p: PagesProps): React.JSX.Element {
@@ -56,9 +57,10 @@ export function Pages(p: PagesProps): React.JSX.Element {
     remoteViewPermission, resumeFromHistory, runConfigs, runFile, runJump, runMenuOpen, runs, runSelectConfigShortcut,
     runSelectedId, runStart, runStop, setDetail, setExplorerReveal, setJobsRuntime, setNewSessionCwd, setOpenRun,
     setRemoteProject, setRunMenuOpen, setRunPanelOpen, setShowNew, t, understanding,
-    workspaceData, workspaceTree
+    workspaceData, workspaceTree, scopedData, scopedTree, scopeId
   } = p
   const [browserUrl, setBrowserUrl] = useState('')
+  const repoFilter = useCallback((repo: string) => repoInScope(workspaceTree, scopeId, repo), [workspaceTree, scopeId])
   const wide = !showsConsoles(page)
   // W9-H: the wall is the Agents page's; any other page has the window, and coming back opens on the wall
   useEffect(() => {
@@ -113,6 +115,21 @@ export function Pages(p: PagesProps): React.JSX.Element {
         <section className="page" aria-label={page}>
           {/* W9-C: the Plans page (PlansPage, its plan page included) and the Tasks page; a paired Runtime's plans keep
               their selector and list here (PlansPage's shortcut note) */}
+          {/* T9: All tasks is a view inside Plans (the `tasks` id keeps its shortcut and links); a plan's own page has none */}
+          {(page === 'plans' || page === 'tasks') && !openRun && (
+            <div className="page-views">
+              <Tabs
+                variant="segmented"
+                label={t('shell.plans.views')}
+                items={[
+                  { id: 'plans', label: t('shell.plans.viewPlans') },
+                  { id: 'tasks', label: t('shell.plans.viewTasks') }
+                ]}
+                value={page}
+                onChange={openPage}
+              />
+            </div>
+          )}
           {page === 'plans' && (
             <div className="page-jobs">
         {pairedRuntimes.length > 0 && (
@@ -177,8 +194,8 @@ export function Pages(p: PagesProps): React.JSX.Element {
             </div>
           )}
           {page === 'tasks' && <TasksPage {...p} />}
-          {/* W9-D: the Inbox page */}
-          {page === 'inbox' && <InboxPage tree={workspaceTree} data={workspaceData} accounts={accounts} ui={actionUi} />}
+          {/* W9-D: the Inbox page; T9: not a tab, the bell's "View all" opens it */}
+          {page === 'inbox' && <InboxPage tree={scopedTree} data={scopedData} accounts={accounts} ui={actionUi} />}
           {page === 'worktrees' && (
             <WorktreesPage
               onStartSession={(path) => {
@@ -187,6 +204,7 @@ export function Pages(p: PagesProps): React.JSX.Element {
               }}
               onOpenFiles={(path) => p.openLinkedFolder(path)}
               onClose={() => openPage('agents')}
+              repoFilter={repoFilter}
             />
           )}
           {page === 'more:history' && (

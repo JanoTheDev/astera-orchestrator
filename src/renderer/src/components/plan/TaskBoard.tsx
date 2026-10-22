@@ -2,7 +2,7 @@
 // marked, and a replan in progress as a banner on it. Each card has its model, account, branch, attempts, its files,
 // what its worker is doing now, the coordinator's answers to it and, when it is not running, why
 // (core/orchestration/blocked.ts). Drawing only: the waves, reasons, counts and "now" lines are planBoard.ts's.
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ChevronDown, ChevronRight, GitBranch } from 'lucide-react'
 import type { ActivityEvent } from '../../../../core/orchestration/activity'
 import type { Account, JobEvent, JobTask } from '../../../../core/types'
@@ -35,8 +35,6 @@ import { summaryOneLine } from '../wall/summaryText' // W9-I
 import '../wall/wall.css'
 import './plan.css'
 
-/** How often the "resumes in …" and "… ago" texts refresh. */
-const TICK_MS = 5_000
 /** Files a card lists before "+N more". */
 const FILES_SHOWN = 3
 
@@ -56,7 +54,9 @@ export function TaskBoard({
   canOpenSession,
   onOpenSession,
   projectPath,
-  summaries
+  summaries,
+  compact = false,
+  nowMs = Date.now()
 }: {
   tasks: readonly JobTask[]
   accounts: Account[] | null
@@ -83,13 +83,17 @@ export function TaskBoard({
   projectPath?: string
   /** W9-I: the plan's tab summaries by Task; a card whose Task has one says what it did */
   summaries?: ReadonlyMap<string, SessionSummary>
+  /** T19: simple mode: a card drops its model, account, branch, commits and files */
+  compact?: boolean
+  /** T9: the clock of "resumes in …" and "… ago", the live read's tick (usePlanLive): one timer for the whole board. */
+  nowMs?: number
 }): React.JSX.Element {
   const { t } = useI18n()
-  const [nowMs, setNowMs] = useState(() => Date.now())
-  useEffect(() => {
-    const id = setInterval(() => setNowMs(Date.now()), TICK_MS)
-    return () => clearInterval(id)
-  }, [])
+  // T9: each Task's slice of the timeline, the feed and the open questions, cut once when they change, so a card reads
+  // its own and a tick costs the Tasks plus the events, not the Tasks times the events
+  const eventsOf = useMemo(() => byTask(events), [events])
+  const activityOf = useMemo(() => byTask(activity), [activity])
+  const questionsOf = useMemo(() => byTask(questions), [questions])
   const [roleModels, setRoleModels] = useState<RoleModelSettings>({})
   useEffect(() => {
     void window.api?.settings?.getRoleModels?.().then(setRoleModels).catch(() => {})
@@ -161,13 +165,14 @@ export function TaskBoard({
                     nowMs={nowMs}
                     label={label}
                     model={cardModelOf(tk, roleModels, accounts ?? [])}
-                    now={nowOf(tk, tk.sessionId ? sessions[tk.sessionId] : undefined, events, nowMs)}
-                    answers={autoAnswersOf(activity, tk.id)}
-                    questions={onAnswer ? [...questionsOfTask(questions, tk.id), ...gateQuestionsOfTask(tk)] : []}
+                    now={nowOf(tk, tk.sessionId ? sessions[tk.sessionId] : undefined, eventsOf.get(tk.id) ?? NONE, nowMs)}
+                    answers={autoAnswersOf(activityOf.get(tk.id) ?? NONE, tk.id)}
+                    questions={onAnswer ? [...questionsOfTask(questionsOf.get(tk.id) ?? NONE, tk.id), ...gateQuestionsOfTask(tk)] : []}
                     onAnswer={onAnswer}
                     onSelect={onSelect}
                     projectPath={projectPath}
                     summary={summaries?.get(tk.id)}
+                    compact={compact}
                     onFocus={
                       tk.sessionId && categoryOf(tk) === 'running' && onOpenSession && canOpenSession?.(tk.sessionId)
                         ? () => onOpenSession(tk.sessionId!)
@@ -183,6 +188,15 @@ export function TaskBoard({
   )
 }
 
+const NONE: readonly never[] = []
+
+/** Rows by their Task, in their order; rows of no Task are left out. */
+function byTask<T extends { taskId?: string }>(rows: readonly T[]): Map<string, T[]> {
+  const by = new Map<string, T[]>()
+  for (const r of rows) if (r.taskId !== undefined) by.get(r.taskId)?.push(r) ?? by.set(r.taskId, [r])
+  return by
+}
+
 function TaskCard({
   task: tk,
   selected,
@@ -196,7 +210,8 @@ function TaskCard({
   onSelect,
   onFocus,
   projectPath,
-  summary
+  summary,
+  compact
 }: {
   task: JobTask
   selected: boolean
@@ -212,6 +227,7 @@ function TaskCard({
   onFocus?: () => void
   projectPath?: string // W8-B
   summary?: SessionSummary // W9-I
+  compact: boolean
 }): React.JSX.Element {
   const { t } = useI18n()
   const [allFiles, setAllFiles] = useState(false)
@@ -241,6 +257,7 @@ function TaskCard({
       {now && <span className="plan-now">{t(now.key, now.params)}</span>}
       {reason && text && <span className={`plan-reason plan-reason-${reasonTone(reason)}`}>{t(text.key, text.params)}</span>}
       {summary && <span className="summary-line" title={summary.text || undefined}>{summaryOneLine(summary, t)}</span>}
+      {!compact && (
       <dl className="plan-card-meta">
         <dt>{t('plan.card.model')}</dt>
         <dd>{model ?? t('plan.card.cliDefault')}</dd>
@@ -274,7 +291,8 @@ function TaskCard({
         )}
         {projectPath && <TaskLines projectPath={projectPath} commits={tk.links?.commits ?? []} />}
       </dl>
-      {files.length > 0 && (
+      )}
+      {!compact && files.length > 0 && (
         <ul className="plan-card-files">
           {shown.map((p) => (
             <li key={p} title={p}>

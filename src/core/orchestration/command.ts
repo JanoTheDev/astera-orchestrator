@@ -8,8 +8,8 @@
 // — the app's loopback HTTP server was removed once nothing reached it any more (§7). Nothing here
 // knows whether a dependency is answered locally or across a socket, which is what lets the same
 // command layer run in both places.
-import { FOLLOW_WINDOW_MS, type AnsweredQuestion, type StopResult, type WaitEnding, type WaitTimeout } from '../publicContract'
-import { briefTask, jobView, latestRunOf, runView } from './publicViews'
+import { FOLLOW_WINDOW_MS, QUESTION_FIELDS, TASK_FIELDS, type AnsweredQuestion, type StopResult, type WaitEnding, type WaitTimeout } from '../publicContract'
+import { briefQuestion, briefTask, jobView, latestRunOf, runView } from './publicViews'
 // W8-C plan after plan
 import { afterNameOf, afterRefusal, afterSweep, jobDelivered } from './after'
 import { lastByState } from './stateMemo'
@@ -23,11 +23,13 @@ import {
   blockForReview,
   closeDispatch,
   createGate,
+  doneStatusOf,
   createQuestion,
   createJob,
   createTask,
   emptyState,
   latestRun,
+  callerRun,
   nextDelivery,
   openDispatch,
   resolveGate,
@@ -61,6 +63,8 @@ import { CLI_PROTOCOL } from './cliOutput'
 import { collectChanges, rangesFor } from './changedFiles'
 import type { ChangedFile } from '../git/changes'
 import type { SwitchedCommand } from './cliAgentContext'
+import { isValidState, migrateLoadedState } from './store'
+import { planTasksRestore } from './tasksRestore'
 import { findProject, findProjectByPath, findProjectContaining, jobInProject, setProjectSettings, type ProjectSettingsPatch } from './projects'
 // T3 workspaces
 import { autoProjectFor, moveJobToProject, removeProject } from './projects'
@@ -107,28 +111,32 @@ import { isPathWithin } from '../files/tree'
 import { buildHandoverPrompt, buildPlannerBrief } from './handover'
 import { noRemoteNote, unmergedPlanBranches } from './unmergedBranches' // W8-G (#101)
 // W2-A planner stage
-import { editPlanTask, planFieldsFromArgs, plannerJobOf, plannerRefusal, validatePlan, workerSpecOf } from './planner'
+import { editPlanTask, kindOf, leftOutArg, orchestrationRoleOf, planFieldsFromArgs, plannerJobOf, plannerRefusal, validatePlan, workerSpecOf } from './planner'
 import { parseReviewFile, type ReviewIssueInput } from './review'
 import { nameForRun } from '../worktrees/naming'
 import type { Provider } from '../providers/meta'
 import { isValidRule, type ScheduleRule } from '../scheduler/rule'
 import { parseCheckFlag } from '../workUnit/verification'
 import { isTerminal as taskFinished, outcomeOf, progressOf } from './view'
-import { runningRunCount } from './running'
+import { outcomeOfTasks, runningRunCount, tasksOwnedBy } from './running'
 import { FINISHED_RUN_GRACE_MS } from './exec/dispatchLoop'
+// T8 runs doctor, sessions close
+import { diagnoseRuns, doctorRunIds, repairFindings } from './runsDoctor'
+import { orchOwnerOfCaller } from './exec/runEnd'
 import { appDriven, editingByProject, projectKeyOf, sameFilesAs, workerCapOf, workersAgainstCap } from './schedule'
-import type { JobEvent, SessionInfo, WorktreeInfo } from '../types'
+import { closedWithReason, type CloseReason, type JobEvent, type SessionInfo, type WorktreeInfo } from '../types'
 import { ghFailureSentence, type GhFailed, type GhRunner } from '../github/gh'
 import { failedLogTail, readPrChecks, rerunFailed } from '../github/checks'
 import { prForBranch } from '../github/prs'
+import { markPrReady, setPrBody } from '../github/prUpdate'
 import { ISSUE_JOB_ASSOCIATIONS, ISSUES_PER_CALL_MAX, assignIssueToMe, issueNumbersOf, readIssue, type GhIssue } from '../github/issue'
 import { GITHUB_SOURCE_ID, issuesContext, issuesTitleOf } from '../github/issueSource'
 // W6-A intake
 import { SOURCED_OBJECTIVE_MAX } from '../sources/objective'
-import { intakeChanges, intakeObjective, intakeOf, intakeTitle, needsInputs, planningArg } from './intake'
+import { intakeChanges, intakeObjective, intakeOf, intakeTitle, needsInputs, planningArg, shortTitle } from './intake'
 // W8-C prompts mode
 import path from 'node:path'
-import { access } from 'node:fs/promises'
+import { access, readFile } from 'node:fs/promises'
 import { promptPlanOf, sha256Of } from './promptWaves'
 // W10-A Run as written by name
 import { detectPromptsDir, isNamesText, PROMPTS_DIR_MAX_DEPTH, promptNamesOf, repoRelative, resolvePromptNames, takenPrompts } from './promptNames'
@@ -148,9 +156,9 @@ import {
 } from '../github/taskLinks'
 import { jobNameOf } from './jobName'
 // W8-D several plans in one repo
-import { areasArg, otherPlansBrief, overlapLines, planTasksOf } from './overlap'
+import { areasArg, otherPlansBrief, overlapLines, planOverlapWarnings, planTasksOf, taskCreateWarnings } from './overlap'
 import { isSamePath } from '../files/tree'
-import type { RunPr, TaskLinks } from './types'
+import type { RunPr, TaskKind, TaskLinks } from './types'
 import { escalationOpen } from './sessionIndex' // W7-C
 import type { Gate, Message } from './types' // W7-C
 import type { BranchPushResult, PrCreateRequest, PrCreateResult } from '../github/prCreate'
@@ -193,6 +201,8 @@ import { REPLAN_COMMANDS, replanCommand, replanRefusal } from './exec/replanStar
 import { coordinatorHandoff, refreshCoordinator } from './exec/coordinatorRotate'
 // T5 crash restore
 import { crashResumedBrief } from './exec/crashResume'
+import { adoptLiveWorkers, specIdsOf, type LiveWorker } from './exec/adopt'
+import { specsDirOf } from './exec/specFiles'
 import { feedbackCommand, handsOffOf, isFeedbackCommand } from './exec/plannerFeedback'
 export { JOB_SOURCE } from './commandSources'
 import { pluginIdOfCheck, type CompletionCheckInput, type PluginCheckAnswer } from './pluginChecks'
@@ -200,6 +210,7 @@ import { checkIdsOf, pluginCheckRefusal, tasksOfNextRun } from './commandChecks'
 import { dispatchModelFields } from './roleModels'
 // W1-C plan lifecycle
 import { archiveJob, archivedTargetOf, isJobActive, renameJob, unarchiveJob } from './lifecycle'
+import { worktreesList, worktreesRemove, type WorktreesOps } from './worktreesCommand'
 // W6-G
 import { usageChoice, usagePauseWhy, type UsageGuard } from './usageGuard'
 // W6-H delivery
@@ -213,8 +224,14 @@ import {
   cleanAfterDelivery,
   recordDelivery,
   setJobDelivery,
-  setProjectDelivery
+  setProjectDelivery,
+  // T3: delivery that finishes by itself
+  afterAttempt,
+  deliveryDue,
+  OWNER_PUSH_CHECK_MS,
+  raiseDeliveryQuestion
 } from './delivery'
+import type { DeliveryProgress } from './types'
 import type { PushDelivery, PushResult } from './exec/integrateGit'
 
 /** One row of `listAccounts`. Named only because the declaration below is a union and repeating the
@@ -339,7 +356,7 @@ export interface OrchServerDeps {
    *  so, after its own `openDispatch`, and only when `startWorker`'s error says the start left
    *  nothing (`leftNothingBehind`: refused before acting, or undone before failing). The Host's receipts then count the two commits as none. Every
    *  other wiring may ignore it: it changes nothing about what is written. */
-  setState(next: OrchState, how?: { rollsBack: true }): Promise<void>
+  setState(next: OrchState, how?: { rollsBack?: true; allowMassDelete?: true }): Promise<void>
   /** Filled in by the wiring that wraps the coordinator (OrchCoordinator.startWorker). worker-start
    *  has already created the dispatchId (after committing openDispatch) and passes it in — this
    *  function only creates the session process, the worktree and the spec file, and never touches
@@ -348,6 +365,8 @@ export interface OrchServerDeps {
   startWorker(a: {
     dispatchId: string
     taskId: string
+    /** T9: the Task's kind, for the skills section of its spec. */
+    kind?: TaskKind
     title: string
     spec: string
     /** The finished spec file, when the caller assembled it itself — passed straight through to
@@ -380,7 +399,7 @@ export interface OrchServerDeps {
     model?: string
     modelNote?: string
   }>
-  releaseWorker(a: { dispatchId: string }): Promise<void>
+  releaseWorker(a: { dispatchId: string; closeReason?: CloseReason }): Promise<void>
   /** 그 세션의 롤링 체인을 버린다 — **세션은 죽이지 않는다**(releaseWorker 와 그 점이 다르다).
    *
    *  **Dispatch 가 닫혔는데 세션이 살아 있는 자리에서만 부른다.** 워커는 보고한 뒤에도 일부러 살아
@@ -477,11 +496,21 @@ export interface OrchServerDeps {
     /** W7-A: the agent CLI's own conversation id (`agentSessionOf`) to resume instead of starting a new conversation;
      *  the brief is then the next prompt in that conversation. A planner, and (T5) a coordinator after a crash. */
     resume?: string
-  }): Promise<{ sessionId: string }>
+    /** T5b: no account was named: `accountId` only says the provider, and the start takes the account with most room
+     *  (chooseStartAccount, exec/workerStart.ts). */
+    auto?: true
+    /** T25: told why the start waits for an account with room (the plain reason), and null once it runs or is given up. */
+    onWait?(why: string | null): void | Promise<void>
+  }): Promise<{
+    sessionId: string
+    /** T5: the model it was started on, recorded on the Run (`Run.coordinatorModel`) */ model?: string
+    /** T5b: the account it actually started on (the named one is only a preference). Absent: the named one. */
+    accountId?: string
+  }>
   /** Stops a coordinator session `startCoordinator` opened, when the hand-over finds another one
    *  already in the Run's slot (Task 1 fix round 1, I2). Optional: without it that session is left
    *  running and the command says so in the log. `reason` is why, for the log line of whoever stops it. */
-  stopCoordinator?(sessionId: string, reason?: string): Promise<void>
+  stopCoordinator?(sessionId: string, reason?: string, closeReason?: CloseReason): Promise<void>
   /** How long `runs resume` waits for a stopped coordinator's slot to empty before it refuses (review
    *  fix round 1, I2). Absent means RESUME_STOP_WAIT_MS; tests shorten it. */
   resumeStopWaitMs?: number
@@ -689,6 +718,9 @@ export interface OrchServerDeps {
   /** W7-A: the agent CLI's own conversation id of a terminal session, by the app's session id, read off its hook events
    *  (`session_id`): what `claude --resume` takes. null when none was recorded. Answered after the session ended too. */
   agentSessionOf?(id: string): Promise<string | null>
+  /** T20: when a person last typed into this session's console in a window (epoch ms), null for never. Typing is the only
+   *  thing that counts: `sessions send` and every other agent's input never set it. Host-only. */
+  ownerInputAt?(id: string): number | null
   /** A chat session's last `turns` turns, oldest first, from the transcript or rollout file its agent
    *  CLI writes (core/sessions/chatRead.ts). Host-injected, beside the three above. */
   readChat?(id: string, turns: number): Promise<ChatTurn[]>
@@ -720,7 +752,17 @@ export interface OrchServerDeps {
   maxConcurrentWorkers?(): number | null | Promise<number | null>
   /** W6-G: the usage guard (usageGuard.ts): `worker-start` refuses a nearly spent account, for every placer. Each
    *  process keeps its own over its own sessions' statusLine readings. Absent: no usage pause. */
-  usageGuard?: Pick<UsageGuard, 'refresh' | 'pauseOf'>
+  usageGuard?: Pick<UsageGuard, 'refresh' | 'pauseOf' | 'reserve'>
+  /** T5b (decision 6): the account a start takes (chooseStartAccount, exec/workerStart.ts): `preferred` while it has
+   *  room, else the first usable of `own`, else the provider's account with most room; `ok: false` when none has room.
+   *  The answer counts on its account until `release`. `worker-start` without `--account` starts on it, and a paused
+   *  `--account` names it. Absent: `--account` is required, as before. */
+  startAccount?(a: {
+    preferred?: string
+    provider: Provider
+    own: readonly string[]
+    purpose: 'worker' | 'reviewer'
+  }): Promise<{ ok: true; accountId: string; release(): void } | { ok: false; why: string }>
   /** Starts an agent session for `sessions create` (CLI spec §14): a terminal one through the Host's
    *  spawner (the path its workers take), a chat one through the Host's chat manager (the path its rolls
    *  take). **Only the Host injects it.** Rejects with the reason when the start fails; answers the new
@@ -806,6 +848,8 @@ export interface OrchServerDeps {
   /** Removes a delivered Run's worktrees that are ready (worktrees/cleanup.ts), unless `autoCleanWorktrees` is off.
    *  **Only the Host injects it.** Absent, nothing is cleaned and the Worktrees page offers "Clean up". */
   cleanWorktrees?(runId: string): Promise<unknown>
+  /** T5: the facts and the removal behind `worktrees list|remove`. **Only the Host injects it.** Absent, both answer 409. */
+  worktreesOps?: WorktreesOps
   // ── W7-B project settings kept in the app's own files ──
   /** Saves `command` as the project's test run configuration in run-configs.json and answers its id; null removes it
    *  and answers null. **Only the app injects it** (it is that file's one writer); the Host forwards it to an attached
@@ -821,6 +865,9 @@ export interface OrchServerDeps {
   /** The profile folder (`attribution/` holds the checkpoint logs the stamp's line data reads). **Only the Host injects
    *  it**, as it does hookEventsDir; absent, the stamp notes commits without line data. */
   profileDir?: string
+  /** The worker sessions the Host holds live, each with the text that names its spec (exec/adopt.ts): `worker-stop` of
+   *  a duplicate adopts the original still running the same spec. **Only the Host injects it**, beside profileDir. */
+  liveWorkers?(): LiveWorker[]
 }
 
 /** A plugin as the early refusal reads it (plugin Phase 5 C7). */
@@ -877,6 +924,30 @@ const boundedInt = (v: unknown, name: string, min: number, max: number, fallback
   return v
 }
 const bad = (msg: string): Reply => ({ status: 400, body: { error: msg } })
+/**
+ * The end of a list read (`tasks list`, `questions list`): `--fields` keeps only the named fields of each row, and
+ * `--limit`/`--offset` take one page. Paged, the reply is `{ <key>: page, total, offset, limit }` so a caller knows
+ * there is more; without either flag it stays the plain list every other reader (the app, MCP) gets. `valid` is the
+ * public field list, the only fields a CLI reply carries, so an unknown name is a 400 that lists them.
+ */
+const listReply = (key: string, rows: readonly object[], args: Record<string, unknown>, valid: readonly string[]): Reply => {
+  // --limit arrives a number (cliArgs NUMERIC), --offset as the text typed
+  const asInt = (v: unknown): unknown => (typeof v === 'string' && /^\d+$/.test(v) ? Number(v) : v)
+  const offset = boundedInt(asInt(args.offset), 'offset', 0, Number.MAX_SAFE_INTEGER, 0)
+  const limit = boundedInt(asInt(args.limit), 'limit', 1, Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER)
+  if (typeof offset === 'string') return bad(offset)
+  if (typeof limit === 'string') return bad(limit)
+  const paged = args.limit !== undefined || args.offset !== undefined
+  let out = (paged ? rows.slice(offset, offset + limit) : rows) as Array<Record<string, unknown>>
+  if (args.fields !== undefined) {
+    const names = typeof args.fields === 'string' ? args.fields.split(',').map((f) => f.trim()).filter((f) => f !== '') : []
+    const unknown = names.filter((n) => !valid.includes(n))
+    if (names.length === 0 || unknown.length > 0)
+      return bad(`--fields ${names.length === 0 ? 'needs a comma-separated list' : `has no field ${unknown.join(', ')}`}; the fields are ${valid.join(', ')}`)
+    out = out.map((r) => Object.fromEntries(names.filter((n) => Object.hasOwn(r, n)).map((n) => [n, r[n]])))
+  }
+  return okBody(paged ? { [key]: out, total: rows.length, offset, limit: args.limit === undefined ? null : limit } : out)
+}
 /** 지목한 것이 없다. **400 과 가르는 이유는 CLI 다** — 스크립트가 "인자를 잘못 줬다"(exit 2)와
  *  "그런 id 가 없다"(exit 4)를 구별할 수 있어야 한다(공개 CLI 설계 §8). 그 전에는 둘 다 400 이라
  *  부르는 쪽이 문구를 읽어야 알 수 있었다. */
@@ -888,6 +959,11 @@ const refused = (r: { error: string; missing?: true }): Reply =>
   r.missing ? notFound(r.error) : bad(r.error)
 const denied = (msg: string): Reply => ({ status: 403, body: { error: msg } })
 const conflict = (msg: string): Reply => ({ status: 409, body: { error: msg } })
+
+/** What the Run's Tasks say, not what it reads: a Run whose delivery failed reads `failed`, and a delivery retried
+ *  (`--force`) must still see its Tasks completed. A paused Run is neither. */
+const taskOutcomeOf = (s: OrchState, run: JobRun): ReturnType<typeof outcomeOfTasks> | 'paused' =>
+  run.paused === true ? 'paused' : outcomeOfTasks(tasksOwnedBy(s, run.id), s.gates)
 /** How long after its `startedAt` a `pending:` Dispatch still counts as a start in flight (Host S2
  *  fix round 2, N1). A start waits at most a spawn deadline (SPAWN_DEADLINE_MS, 20 s) plus the
  *  coordinator's idle wait before its prompt (30 s), plus trust and account reads; two minutes covers
@@ -959,7 +1035,7 @@ const runMoves = (s: OrchState, job: Job, run: JobRun, now: string): boolean => 
   if (coordinatorStarting(run, Date.parse(now))) return true
   const ids = new Set(tasks.map((t) => t.id))
   if (s.dispatches.some((d) => ids.has(d.taskId) && !d.outcome && !d.endedAt)) return true
-  if (tasks.some((t) => t.status === 'validating' || t.status === 'reviewing')) return true
+  if (tasks.some((t) => t.status === 'validating' || t.status === 'reviewing' || t.status === 'merging')) return true
   if (s.gates.some((g) => g.status === 'open' && g.runId === run.id)) return true
   if (limitedUntil(s, run.id, now) !== null) return true
   const coordinated = run.coordinatorSessionId !== undefined
@@ -970,8 +1046,8 @@ const runMoves = (s: OrchState, job: Job, run: JobRun, now: string): boolean => 
 /**
  * The Tasks of one Run its driver can still start, by id (final review I1). The driver is a live
  * coordinator when `coordinated`, else the app's loop.
- * - `ready` under the circuit break: the loop places it (slotsToFill), or opens a Gate on it when it
- *   has no account (tasksMissingAccounts); a coordinator starts it.
+ * - `ready` under the circuit break: the loop places it (slotsToFill; T5b: one with no account on the account with
+ *   most room); a coordinator starts it.
  * - `failed` under the circuit break, and `dispatched` with its Dispatch closed: **only a coordinator**
  *   starts them again (`worker-start --retry-of`). Nothing in the app does: slotsToFill takes `ready`
  *   only, and recovery acts on open Dispatches alone.
@@ -982,7 +1058,7 @@ const startable = (tasks: readonly Task[], coordinated: boolean): Set<string> =>
   const byId = new Map(tasks.map((t) => [t.id, t]))
   const memo = new Map<string, boolean>()
   /** Whether this Task can still reach `completed`. A Task under way or with a person (`validating`,
-   *  `reviewing`, `blocked`) can. A cycle, or a dependency outside this Run, cannot. */
+   *  `reviewing`, `merging`, `blocked`) can. A cycle, or a dependency outside this Run, cannot. */
   const canComplete = (id: string): boolean => {
     const known = memo.get(id)
     if (known !== undefined) return known
@@ -993,6 +1069,7 @@ const startable = (tasks: readonly Task[], coordinated: boolean): Set<string> =>
       (t.status === 'completed' ||
         t.status === 'validating' ||
         t.status === 'reviewing' ||
+        t.status === 'merging' ||
         t.status === 'blocked' ||
         canStart(t))
     memo.set(id, answer)
@@ -1038,7 +1115,8 @@ const waitEndingFor = (s: OrchState, runId: string, now: string): WaitEnding | n
   const limited = limitedUntil(s, runId, now)
   if (limited) return { ...base, state: 'limited', resetsAt: limited }
   const outcome = outcomeOf(s, runId)
-  return outcome === 'running' ? null : { ...base, state: outcome }
+  // A Run in its final check is not done yet (item 8)
+  return outcome === 'running' || outcome === 'checking' ? null : { ...base, state: outcome }
 }
 
 /** How long past its reset a coordinator's stop still counts (S6 limits D2). A stop that should have
@@ -1087,7 +1165,7 @@ const limitedUntil = (s: OrchState, runId: string, now: string): string | null =
     s.tasks.some(
       (t) =>
         tasks.has(t.id) &&
-        (t.status === 'validating' || t.status === 'reviewing' || (t.status === 'ready' && readyHolds))
+        (t.status === 'validating' || t.status === 'reviewing' || t.status === 'merging' || (t.status === 'ready' && readyHolds))
     )
   )
     return null
@@ -1172,8 +1250,16 @@ const COORDINATOR_ONLY = new Set([
   'run-deliver',
   // W8-C draft PR
   'run-draft-pr',
+  // T4 origin sync
+  'run-origin-synced',
   // W8-A: the squash remap is Astera's, asked when the PR poll sees the plan's PR merged
-  'attribution-remap'
+  'attribution-remap',
+  // T8: the owner's and a coordinator's
+  'runs-doctor',
+  'sessions-close',
+  // T5: the person's and a coordinator's
+  'worktrees-list',
+  'worktrees-remove'
 ])
 
 /** Session-task commands answer to the work-unit tracking toggle, not the orchestration one. They
@@ -1247,6 +1333,12 @@ function projectSettingsArgs(
     else if (args.replan === 'waves' || args.replan === 'off') patch.replan = args.replan
     else return { error: '--replan must be waves or off' }
   }
+  // T4: on (the default) clears it; off stops the origin sync of the project's running plans
+  if (args.originSync !== undefined) {
+    const on = cleared(args.originSync) ? true : onOff(args.originSync)
+    if (on === null) return { error: '--origin-sync must be on or off' }
+    patch.originSync = on ? null : 'off'
+  }
   if (args.testConfig !== undefined) {
     if (typeof args.testConfig !== 'string') return { error: '--test-config needs a run configuration id' }
     patch.testConfigId = args.testConfig.trim() || null
@@ -1259,6 +1351,17 @@ function projectSettingsArgs(
     if (typeof args.promptsDir !== 'string') return { error: '--prompts-dir needs a folder in the repository, or none' }
     const v = args.promptsDir.trim()
     patch.promptsDir = v === '' || v === 'none' ? null : v
+  }
+  // T5: comma-separated kinds granted in advance, checked by setProjectSettings; `none` (or empty) clears them
+  if (args.grants !== undefined) {
+    if (typeof args.grants !== 'string') return { error: '--grants needs a comma-separated list of kinds, or none' }
+    const v = args.grants.trim()
+    patch.grants = v === '' || v === 'none' ? null : v.split(',').map((g) => g.trim()).filter((g) => g !== '')
+  }
+  if (args.coordinatorModel !== undefined) {
+    if (typeof args.coordinatorModel !== 'string') return { error: '--coordinator-model needs a model id, or none' }
+    const v = args.coordinatorModel.trim()
+    patch.coordinatorModel = v === '' || v === 'none' ? null : v
   }
   return {
     patch,
@@ -1284,6 +1387,7 @@ const TASK_STATUSES: TaskStatus[] = [
   'dispatched',
   'validating',
   'reviewing',
+  'merging',
   'completed',
   'failed',
   'blocked'
@@ -1633,7 +1737,7 @@ function coordinatorWanted(deps: OrchServerDeps, s: OrchState, run: JobRun, job:
 // W8-C prompts mode
 /** Writes a Run-as-written plan's Tasks (`jobs-create --mode prompts`): one definition Task per prompt, its text the
  *  prompt byte for byte, in the order docs/dev/PLAN.md (or docs/orchestrator/PLAN.md) and the prompts' own sentences give (promptWaves.ts).
- *  Their account is the plan's coordinator account, else the default one. Answers the `Job.verbatim` entries and the
+ *  Their account is the one the owner named for the plan, else none: auto, picked by room at each start (T5b). Answers the `Job.verbatim` entries and the
  *  lines the planner's objective lists, or the sentence to refuse with. */
 async function writePromptTasks(
   deps: OrchServerDeps,
@@ -1651,11 +1755,9 @@ async function writePromptTasks(
   }
   const job = deps.getState().jobs.find((j) => j.id === jobId)!
   const plan = promptPlanOf(files, pasted, await readPlanMd(deps, job.cwd))
-  let account = job.coordinatorAccountId
-  if (account === undefined) {
-    const all = await deps.listAccounts(undefined, { withDefault: true })
-    account = (all.find((a) => a.default && a.provider === 'claude') ?? all.find((a) => a.default) ?? all[0])?.id
-  }
+  // T5b: no account named is "auto" (`accountIds: []`): each Task starts on the account with most room when it is
+  // placed (exec/dispatchLoop.ts placeSlot, `worker-start` without --account)
+  const account = job.preferredAccountId
   let st = deps.getState()
   const idOf = new Map<string, string>()
   for (const t of plan.tasks) {
@@ -1770,7 +1872,10 @@ export async function handleCommand(
   // W6-D: a replan session is a planner that edits what has not started in its Run (replan.ts); undefined: not one.
   const replanNo = replanRefusal(deps.getState(), caller.sessionId, cmd, args)
   if (typeof replanNo === 'string') return denied(replanNo)
-  const plannerNo = replanNo === null ? null : plannerRefusal(deps.getState(), caller.sessionId, cmd, args)
+  const plannerNo =
+    replanNo === null
+      ? null
+      : plannerRefusal(deps.getState(), caller.sessionId, cmd, args, { typedAt: deps.ownerInputAt?.(caller.sessionId) ?? null, now: Date.parse(deps.now?.() ?? new Date().toISOString()) })
   if (plannerNo !== null) return denied(plannerNo)
   // W7-A: talking to the planner, rejecting a plan, auto-approve; and a planner's cancel of a Task of its plan
   if (isFeedbackCommand(deps.getState(), caller.sessionId, cmd))
@@ -1871,6 +1976,11 @@ export async function handleCommand(
   // such a caller can be a Run's external coordinator (JobRun.externalCoordinatorSessionId).
   const fromAgentSession = caller.sessionId !== '' && caller.sessionId !== APP_CALLER && caller.sessionId !== HOST_CALLER
 
+  // Wiping state and bringing it back are the person's: every agent role (worker, coordinator, planner, reviewer) is a
+  // session with an id, a shell and the app are not. The 2026-10-22 wipe was a coordinator's `reset --tasks`.
+  if ((cmd === 'reset' || cmd === 'tasks-restore') && fromAgentSession)
+    return denied(`${cmd === 'reset' ? 'reset' : 'tasks restore'} is for the person at a terminal or in the app, not for an agent session`)
+
   const commit = async <T>(r: Res<T>): Promise<Reply> => {
     // **404 is what state.ts marked `missing`, nothing else** (R4). This used to read the words: any
     // refusal starting `unknown ` was a 404. That made the status depend on how a message was phrased,
@@ -1952,6 +2062,20 @@ export async function handleCommand(
     return true
   }
 
+  /** T25: records on the Job why its planner or coordinator start waits for an account with room (null: it no longer does).
+   *  Best-effort: a write that fails is not a reason to fail the start. The start is then answered at once and the dispatch
+   *  loop asks again (retryHeldStarts): a held start must not hold the Host's command chain. */
+  const setStartWait = (jobId: string) => async (why: string | null): Promise<void> => {
+    const current = deps.getState()
+    if (!current.jobs.some((j) => j.id === jobId && j.startWait !== (why ?? undefined))) return
+    const jobs = current.jobs.map((j) => {
+      if (j.id !== jobId) return j
+      const { startWait: _was, ...rest } = j
+      return why === null ? rest : { ...rest, startWait: why }
+    })
+    await deps.setState({ ...current, jobs }).catch(() => {})
+  }
+
   /** W5-B (#46, #47): ends a Job's planner sessions. The ids stay on the Job: they still say the Job was planned
    *  (`awaitsApproval`, the workspace tree). Best-effort, as every tidy-up through `stopCoordinator` is. */
   const endPlanners = async (job: Job, reason: string): Promise<void> => {
@@ -2016,7 +2140,7 @@ export async function handleCommand(
     still: (current: OrchState) => boolean = () => true
   ): Promise<'retired' | 'moved' | 'gone'> => {
     try {
-      if (deps.stopCoordinator) await deps.stopCoordinator(sessionId, why)
+      if (deps.stopCoordinator) await deps.stopCoordinator(sessionId, why, 'stopped')
       else deps.log?.(`coordinator ${sessionId} of run ${runId} could not be stopped: nothing here can stop a session`)
     } catch (e) {
       deps.log?.(`coordinator ${sessionId} of run ${runId} could not be stopped: ${String(e)}`)
@@ -2081,6 +2205,7 @@ export async function handleCommand(
       }
     }
     let sessionId: string
+    let model: string | undefined
     // T5: the crash resume's `run-start --resume <native id>`: the dead coordinator's own conversation goes on
     const resume = cmd === 'run-start' ? str(args.resume) : null
     try {
@@ -2088,6 +2213,7 @@ export async function handleCommand(
         runId: target.id,
         cwd: job.cwd,
         accountId,
+        onWait: setStartWait(job.id),
         ...(resume ? { resume } : {}),
         brief: resume ? crashResumedBrief('coordinator', target.id) : buildHandoverPrompt({
           runId: target.id,
@@ -2107,13 +2233,15 @@ export async function handleCommand(
           jobId: job.id,
           accountId,
           promptsMode: job.verbatim !== undefined,
-          handsOff: handsOffOf(base, job)
+          handsOff: handsOffOf(base, job),
+          grants: projectOfJob(base, job)?.grants
         }) +
           // T23: a coordinator restarted for a stated reason (`run-start --reason`, the crash resume) replaces one whose
           // conversation is gone, so it gets the fresh-coordinator hand-off read from the state.
           (cmd === 'run-start' && str(args.reason) ? `\n\n${coordinatorHandoff(base, target.id, str(args.reason)!)}` : '')
       })
       sessionId = spawned.sessionId
+      model = spawned.model
     } catch (e) {
       // **`pendingStart` 를 그대로 둔다.** 걷어 버리면 실행 버튼이 사라져 사람이 다시 누를 수
       // 없고, 운전자도 없는 Run 이 남는다 — 아무것도 돌지 않는데 화면은 시작한 것처럼 보인다.
@@ -2155,6 +2283,8 @@ export async function handleCommand(
           }
         }
       }
+      const waiting = deps.getState().jobs.find((j) => j.id === job.id)?.startWait
+      if (waiting !== undefined) return okBody({ runId: target.id, waiting })
       return bad(`could not start the coordinator: ${String(e)}${orphanNote}`)
     }
     // autoDispatch 는 **지운다** — false 로 두면 JSON 비교에서 "없음" 과 다른 값이 되고, 이
@@ -2173,7 +2303,7 @@ export async function handleCommand(
             `stopping the one this start opened (${sessionId})`
         )
         try {
-          if (deps.stopCoordinator) await deps.stopCoordinator(sessionId, 'another coordinator already manages its Run')
+          if (deps.stopCoordinator) await deps.stopCoordinator(sessionId, 'another coordinator already manages its Run', 'replaced')
           else deps.log?.(`coordinator ${sessionId} could not be stopped: nothing here can stop a session`)
         } catch (e) {
           deps.log?.(`coordinator ${sessionId} could not be stopped: ${String(e)}`)
@@ -2194,7 +2324,7 @@ export async function handleCommand(
       const { autoDispatch: _drop, ...rest } = j
       return rest
     })
-    return commit(attachCoordinator({ ...onto, jobs: handed }, { runId: target.id, sessionId }))
+    return commit(attachCoordinator({ ...onto, jobs: handed }, { runId: target.id, sessionId, ...(model ? { model } : {}) }))
   }
 
   // W1-C: an archived plan starts no new Run, coordinator or worker (lifecycle.ts). One refusal for the five commands
@@ -2364,6 +2494,8 @@ export async function handleCommand(
             ...(priority !== 0 ? { priority } : {}),
             ...(args.replan === 'off' ? { replan: 'off' as const } : {}),
             ...(coordinatorAccountId ? { coordinatorAccountId } : {}),
+            // T5b: an account the owner named is kept as the plan's preference (Job.preferredAccountId)
+            ...(coordArg !== null ? { preferredAccountId: coordArg } : {}),
             // `--auto` 는 값이 없는 플래그다(task-create --review 와 같은 모양). **예약이면 켜지
             // 않는다** — 템플릿 자신은 돌지 않기 때문이다.
             //
@@ -2387,10 +2519,12 @@ export async function handleCommand(
         now
       )
       if (!made.ok) return commit(made)
+      // T7: every plan has a short name from the start (the planner renames it); a source's title already names one
+      const titled = made.value.source?.title !== undefined ? made : (renameJob(made.state, made.value.id, shortTitle(objective)) as typeof made)
       const created =
         delivery === undefined
-          ? made
-          : (setJobDelivery(made.state, made.value.id, delivery) as typeof made)
+          ? titled
+          : (setJobDelivery(titled.state, titled.value.id, delivery) as typeof made)
       // **코디네이터에게는 곧바로 회차를 준다.** 계획만 만들고 끝내면 `--run` 에 넣을 id 가 없고,
       // 코디네이터는 Task 를 만들어 가며 일하므로 붙일 자리가 그 자리에 있어야 한다.
       //
@@ -2451,7 +2585,7 @@ export async function handleCommand(
       if ('error' in settings) return bad(settings.error)
       const { testCommand, account } = settings
       if (delivery === undefined && branchArg === undefined && Object.keys(settings.patch).length === 0 && testCommand === undefined && account === undefined)
-        return bad('nothing to set: give --delivery, --delivery-branch, --auto-approve, --hands-off, --auto-projects, --test-command, --test-config, --concurrency, --review-rounds, --replan, --prompts-dir or --account')
+        return bad('nothing to set: give --delivery, --delivery-branch, --auto-approve, --hands-off, --auto-projects, --test-command, --test-config, --concurrency, --review-rounds, --replan, --prompts-dir, --grants, --coordinator-model or --account')
       const project = findProject(s, id)
       if (!project) return notFound(`unknown project: ${id}`)
       // W10-A: the prompts folder is kept repository-relative, and a folder outside the repository is refused
@@ -2543,6 +2677,14 @@ export async function handleCommand(
       // "이 예약을 켜라" 가 아니다 — 켜는 것은 발화 시각마다 도는 것을 뜻하고, 사람이 그것까지
       // 원했다면 사이드바의 '실행' 이 그 버튼이다.
       const first = job.schedule === undefined && (job.pendingStart === true || latest === undefined)
+      // A first run of a Job nobody planned (no Tasks of its own, no planner, no coordinator to plan it) would be an
+      // empty Run that run-start commits and answers 200 for, and then nothing happens (run_b5cb9e36ae1d4cad). Refused
+      // here, not in run-start, which the app's Run/Approve also use.
+      if (first && !job.coordinatorAccountId && !job.plannerSessionIds?.length && !s.tasks.some((t) => t.jobId === id))
+        return conflict(
+          `job ${id} has no plan: no tasks, no planner and no coordinator account, so a run would do nothing. ` +
+            `Plan it with \`astera jobs plan --id ${id} --account <accountId>\`, or add tasks with \`astera tasks add --job ${id}\``
+        )
       // Its plugin checks were looked at before the state (above): the run-start this calls does not look again
       const reply = await handleCommand(deps, caller, first ? 'run-start' : 'run-spawn', { run: id, [PLUGIN_CHECKS_PASSED]: true })
       // **carry 4 (R18, 사용자의 Q2), 그리고 U1: 뒤 회차도 앞 회차와 같이 코디네이터를 띄운다.** 그
@@ -2697,8 +2839,8 @@ export async function handleCommand(
           intakeObjective(intake, source, inputs, verbatim && { tasks: verbatim.lines, skipped: verbatim.skippedLines }) +
           // W10-A: the CLI shows the plan, not this reply's notice
           (notice !== undefined ? `\n\n${notice}.` : '')
-        // W7-D (#68): the plan's name, so its boilerplate objective is never what the plan is called. A title already
-        // there is kept.
+        // W7-D (#68): the plan's name, so its boilerplate objective is never what the plan is called. It replaces
+        // run-create's name of the objective; a source's title is kept (T7).
         const title = intakeTitle(intake, source, inputs?.names ?? [])
         const cur = deps.getState()
         await deps.setState({
@@ -2708,7 +2850,7 @@ export async function handleCommand(
               ? {
                   ...j,
                   objective,
-                  ...(title !== undefined && j.title === undefined ? { title } : {}),
+                  ...(title !== undefined && j.source?.title === undefined ? { title } : {}),
                   // W8-C prompts mode: the owner wrote the plan, so it starts on its own unless `--approve ask`
                   ...(verbatim !== undefined ? { verbatim: verbatim.entries, autoApprove: intake.approve !== 'ask' } : {}),
                   // W10-A: what the names resolved to, for the approval
@@ -2726,11 +2868,11 @@ export async function handleCommand(
           if (set.ok) await deps.setState(set.state)
         }
       } else {
-        // #113: a plain description keeps its objective but a long one is named by its first sentence
+        // #113: a plain description keeps its objective and is named by its first sentence, cut short (T7)
         const title = intakeTitle(intake, source, [])
         if (title !== undefined) {
           const cur = deps.getState()
-          await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id && j.title === undefined ? { ...j, title } : j)) })
+          await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id && j.source?.title === undefined ? { ...j, title } : j)) })
         }
       }
       // W7-E: `--no-review`: this plan's Tasks are not reviewed (`jobs plan` turns review on otherwise, Job.review)
@@ -2899,7 +3041,7 @@ export async function handleCommand(
         )
       const starting = stillStarting(open, now)
       if (starting) return starting
-      for (const d of open.filter(releases)) await deps.releaseWorker({ dispatchId: d.id })
+      for (const d of open.filter(releases)) await deps.releaseWorker({ dispatchId: d.id, closeReason: 'stopped' })
       const stopped = new Set(open.map((d) => d.id))
       const latest = deps.getState()
       await deps.setState({
@@ -3133,7 +3275,7 @@ export async function handleCommand(
     // 가 아니다 — 워커도 자기가 무엇으로 검증될지 볼 수 있어야 한다.
     case 'run-configs': {
       if (!deps.listRunConfigs) return okBody([])
-      const run = latestRun(s)
+      const run = callerRun(s, caller.sessionId)
       const job = run && jobOf(s, run)
       if (!job) return bad(`no run exists`)
       return okBody(await deps.listRunConfigs(job.cwd))
@@ -3171,6 +3313,10 @@ export async function handleCommand(
       const id = str(args.id)
       if (!id) return bad('--id is required')
       if (typeof args.title !== 'string') return bad('--title is required: the new name, or "" to name the Job by its objective again')
+      // T7: the owner, or the Job's own planner (plannerRefusal holds it to its Job); no other agent renames a plan
+      const role = orchestrationRoleOf(s, caller.sessionId)
+      if (role !== undefined && plannerJobOf(s, caller.sessionId) === undefined)
+        return denied(`a ${role} session does not rename a plan: the owner or the plan's own planner does`)
       const r = renameJob(s, id, args.title)
       if (!r.ok) return refused(r)
       await deps.setState(r.state)
@@ -3200,7 +3346,7 @@ export async function handleCommand(
         const latestOfSession = new Map(s.dispatches.map((d) => [d.sessionId, d.id]))
         for (const d of s.dispatches)
           if (mine.has(d.taskId) && (d.outcome || d.endedAt) && latestOfSession.get(d.sessionId) === d.id && releases(d))
-            await deps.releaseWorker({ dispatchId: d.id })
+            await deps.releaseWorker({ dispatchId: d.id, closeReason: 'stopped' })
         for (const run of runs)
           if (run.coordinatorSessionId !== undefined && run.coordinatorStopPending === undefined)
             await handleCommand(deps, caller, 'run-coordinator-stop', { run: run.id })
@@ -3211,6 +3357,9 @@ export async function handleCommand(
       const r = archiveJob(after, id, now)
       if (!r.ok) return refused(r)
       await deps.setState(r.state)
+      // T5: an archived plan's finished Runs (a failed or cancelled one included) lose the worktrees whose work is merged
+      // or pushed; the Host says in the feed which it kept. A Run still working keeps all of them.
+      for (const run of r.state.runs.filter((x) => x.jobId === id && outcomeOf(r.state, x.id) !== 'running')) await cleanAfterDelivery(deps, run.id)
       return okBody(jobView(r.state, r.value, latestRunOf(r.state, r.value)))
     }
     // W7-D (#67): how many workers a plan runs at once, changed until it finishes. A lower value only limits new starts
@@ -3235,6 +3384,23 @@ export async function handleCommand(
         await deps.setState(state)
         const filed = deps.getState().jobs.find((j) => j.id === id) ?? next
         return okBody(jobView(deps.getState(), filed, latestRunOf(deps.getState(), filed)))
+      }
+      // T7 objective coverage: `--left-out`, alone, from the owner or the Job's own planner (plannerRefusal holds the rest)
+      if (args.leftOut !== undefined) {
+        const role = orchestrationRoleOf(s, caller.sessionId)
+        if (caller.role === 'mcp' || (role !== undefined && (id === null || plannerJobOf(s, caller.sessionId)?.id !== id)))
+          return denied("jobs-set --left-out is for the Job's planner or the owner")
+        if (!id) return bad('--id is required')
+        if (['concurrency', 'after', 'areas', 'planning', 'priority', 'project'].some((k) => args[k] !== undefined))
+          return bad('--left-out is set on its own')
+        const job = s.jobs.find((j) => j.id === id)
+        if (!job) return notFound(`unknown job: ${id}`)
+        const leftOut = leftOutArg(args.leftOut, job.objective)
+        if (!Array.isArray(leftOut)) return bad(leftOut.error)
+        const { leftOut: _old, ...rest } = job
+        const next: Job = leftOut.length > 0 ? { ...rest, leftOut } : rest
+        await deps.setState({ ...s, jobs: s.jobs.map((j) => (j.id === id ? next : j)) })
+        return okBody(jobView(deps.getState(), next, latestRunOf(deps.getState(), next)))
       }
       if (fromAgentSession || caller.role === 'mcp') return denied('jobs-set is for the person, in Astera or at their own shell')
       if (!id) return bad('--id is required')
@@ -3267,7 +3433,7 @@ export async function handleCommand(
         await deps.setState({ ...s, jobs: s.jobs.map((j) => (j.id === id ? next : j)) })
         return okBody(jobView(deps.getState(), next, latestRunOf(deps.getState(), next)))
       }
-      if (args.concurrency === undefined && args.after === undefined) return bad('nothing to set: give --concurrency, --after, --areas, --planning or --priority')
+      if (args.concurrency === undefined && args.after === undefined) return bad('nothing to set: give --concurrency, --after, --areas, --left-out, --planning or --priority')
       // W8-C plan after plan: `--after <job|none>`, only alone (it is set before the plan starts, concurrency after)
       if (args.after !== undefined) {
         if (args.concurrency !== undefined) return bad('--after is set on its own, not with --concurrency')
@@ -3394,11 +3560,18 @@ export async function handleCommand(
         if (!set.ok) return refused(set)
         await deps.setState(set.state)
       }
+      // T5b (decision 6): a named account (`--account`, or the one the owner named before) is only a preference; with none
+      // the planner starts on the account with most room (`auto`), the provider's default only saying which provider
       const accountArg = str(args.account)
-      const accountId = accountArg ?? job.coordinatorAccountId
-      if (!accountId) return bad('--account is required: the Job names no coordinator account to plan on')
       if (accountArg !== null && !(await deps.listAccounts()).some((k) => k.id === accountArg))
         return notFound(`unknown account: ${accountArg}`)
+      const preferredId = accountArg ?? job.preferredAccountId
+      const accountId =
+        preferredId ??
+        job.coordinatorAccountId ??
+        (await deps.listAccounts('claude', { withDefault: true })).find((k) => k.default === true)?.id ??
+        (await deps.listAccounts(undefined, { withDefault: true })).find((k) => k.default === true)?.id
+      if (!accountId) return bad('no account is logged in to plan on: log in to an account first')
       // W6-C: how many workers the plan may run at once, set with the plan (up to MAX_CONCURRENT_WORKERS)
       const concurrency = args.concurrency === undefined ? null : concurrencyArg(args.concurrency)
       if (args.concurrency !== undefined && concurrency === null) return bad('--concurrency must be an integer >= 1')
@@ -3415,7 +3588,15 @@ export async function handleCommand(
         await deps.setState({
           ...cur,
           jobs: cur.jobs.map((j) =>
-            j.id === id ? { ...j, review, plannerAccountId: accountId, ...(review && !j.convergence ? { convergence: {} } : {}) } : j
+            j.id === id
+              ? {
+                  ...j,
+                  review,
+                  plannerAccountId: accountId,
+                  ...(preferredId !== undefined ? { preferredAccountId: preferredId } : {}),
+                  ...(review && !j.convergence ? { convergence: {} } : {})
+                }
+              : j
           )
         })
       }
@@ -3424,36 +3605,41 @@ export async function handleCommand(
       const marked = job.plannerSessionIds === undefined
       if (marked) await setJobPlanners(id, (ids) => ids)
       let sessionId: string
+      let startedOn: string | undefined
       // W8-G (#101): earlier plans' work that sits on an unmerged branch, which the workers of this plan will not have
       const projectOfPlan = projectOfJob(deps.getState(), job)
       const unmerged = projectOfPlan ? await unmergedPlanBranches(deps.getState(), projectOfPlan) : null
       // T5: the crash restore's `jobs-plan --resume <native id>`: the dead planner's own conversation goes on
       const resume = str(args.resume)
       try {
-        sessionId = (
-          await deps.startCoordinator({
-            runId: id,
-            cwd: job.cwd,
+        const started = await deps.startCoordinator({
+          runId: id,
+          cwd: job.cwd,
+          accountId,
+          ...(preferredId === undefined ? { auto: true as const } : {}),
+          onWait: setStartWait(id),
+          role: 'planner',
+          ...(resume ? { resume } : {}),
+          brief: resume ? crashResumedBrief('planner', id) : buildPlannerBrief({
+            jobId: id,
+            objective: job.objective,
+            repoRoot: job.cwd,
+            ...(unmerged && unmerged.branches.length > 0 ? { unmergedBranches: unmerged.branches, defaultBranch: unmerged.into } : {}),
             accountId,
-            role: 'planner',
-            ...(resume ? { resume } : {}),
-            brief: resume ? crashResumedBrief('planner', id) : buildPlannerBrief({
-              jobId: id,
-              objective: job.objective,
-              repoRoot: job.cwd,
-              ...(unmerged && unmerged.branches.length > 0 ? { unmergedBranches: unmerged.branches, defaultBranch: unmerged.into } : {}),
-              accountId,
-              promptsMode: job.verbatim !== undefined,
-              // T1: the Job's own choice, else auto when hands-off
-              planning: planningFlag ?? job.planning ?? (handsOffOf(deps.getState(), { ...job, ...(handsOff !== undefined ? { handsOff } : {}) }) ? 'auto' : 'chat'),
-              concurrency: concurrency ?? job.concurrency ?? DEFAULT_CONCURRENCY,
-              // W8-D: the other plans of this repository, so it plans around them
-              otherPlans: otherPlansBrief(deps.getState(), job)
-            })
+            promptsMode: job.verbatim !== undefined,
+            // T1: the Job's own choice, else auto when hands-off
+            planning: planningFlag ?? job.planning ?? (handsOffOf(deps.getState(), { ...job, ...(handsOff !== undefined ? { handsOff } : {}) }) ? 'auto' : 'chat'),
+            concurrency: concurrency ?? job.concurrency ?? DEFAULT_CONCURRENCY,
+            // W8-D: the other plans of this repository, so it plans around them
+            otherPlans: otherPlansBrief(deps.getState(), job)
           })
-        ).sessionId
+        })
+        sessionId = started.sessionId
+        startedOn = started.accountId
       } catch (e) {
         if (marked) await setJobPlanners(id, () => undefined)
+        const waiting = deps.getState().jobs.find((j) => j.id === id)?.startWait
+        if (waiting !== undefined) return okBody({ jobId: id, waiting })
         return bad(`could not start the planner: ${String(e)}`)
       }
       if (!(await setJobPlanners(id, (ids) => [...ids, sessionId]))) {
@@ -3461,7 +3647,12 @@ export async function handleCommand(
         await deps.stopCoordinator?.(sessionId, 'its Job was deleted while the planner started').catch(() => {})
         return notFound(`unknown job: ${id}`)
       }
-      return okBody({ jobId: id, sessionId })
+      // T5b: the account the planner actually started on, which replans and feedback rounds then plan on
+      if (startedOn !== undefined && startedOn !== accountId) {
+        const cur = deps.getState()
+        await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id ? { ...j, plannerAccountId: startedOn } : j)) })
+      }
+      return okBody({ jobId: id, sessionId, ...(startedOn !== undefined ? { accountId: startedOn } : {}) })
     }
     // 사람이 사이드바에서 Run 을 물러나게 한다. **되돌릴 수 없다.**
     //
@@ -3518,7 +3709,7 @@ export async function handleCommand(
         if (starting) return starting
         // 순차로 닫는다. releaseWorker 는 세션을 죽이는 부수 효과이고 상태를 쓰지 않는다 — 상태에서
         // 사라지는 것은 아래 deleteRuns 가 한꺼번에 한다.
-        for (const d of open.filter(releases)) await deps.releaseWorker({ dispatchId: d.id })
+        for (const d of open.filter(releases)) await deps.releaseWorker({ dispatchId: d.id, closeReason: 'stopped' })
       }
       // **병합이 먼저다.** 사람이 병합을 골랐는데 실패한 뒤 지우면 워커의 일이 워크트리 브랜치에
       // 갇힌 채 그 브랜치까지 사라진다 — 그래서 실패하면 아무것도 지우지 않고 이유를 돌려준다.
@@ -3635,24 +3826,41 @@ export async function handleCommand(
       // W2-A: starting a planned Job is approving its plan. That is the person's act (the app, or their own
       // shell), not an agent's, and the plan must hold together first (validatePlan).
       const approving = job.pendingStart === true && job.plannerSessionIds !== undefined
+      let chatWords: string | null = null
       // W5-B (#47): an approved plan's planner has done its work (SPEC §2), so it ends with the approval. Left alive it
       // idled for hours and got the limit reset's "Continue the work" on the planner model.
+      // T11: the plan's open overlaps with plans planning or running ride along with the approval; they never block it
+      const overlapWarnings = approving ? planOverlapWarnings(s, id) : []
       const approved = async (reply: Reply): Promise<Reply> => {
         if (approving && reply.status >= 200 && reply.status < 300) await endPlanners(job, 'its plan was approved')
-        return reply
+        return overlapWarnings.length > 0 && reply.status < 300 ? { ...reply, body: { ...(reply.body as object), overlaps: overlapWarnings } } : reply
       }
       if (approving) {
         // W3-D: an MCP client calls with an empty session id, but its call comes from an agent (sessions-send's fromMcp)
-        if (fromAgentSession || caller.role === 'mcp') return denied('approving a plan is for the person, in Astera or at their own shell')
+        // T20: except the Job's own planner, when the person told it to run the plan here (plannerRefusal vetted that above)
+        const ownerSaid = plannerJobOf(s, caller.sessionId)?.id === id ? str(args.ownerSaid) : null
+        if (ownerSaid === null && (fromAgentSession || caller.role === 'mcp')) return denied('approving a plan is for the person, in Astera or at their own shell')
         const problems = validatePlan(s, id)
-        if (problems.length) return { status: 400, body: { error: `the plan cannot be approved yet: ${problems.join('; ')}`, problems } }
+        if (problems.length)
+          return {
+            status: 400,
+            body: {
+              error: `the plan cannot be approved yet: ${problems.join('; ')}${ownerSaid !== null ? '. Fix each, read the plan back, and ask the person to confirm again here' : ''}`,
+              problems
+            }
+          }
+        chatWords = ownerSaid
       }
       // **Not reachable today.** releaseJob and startJobRun refuse only `unknown job: <id>` — the id
       // this command was given, which the guard above has just found in the same state. Were that
       // guard ever to drift from them, the answer is still "no such id", so they go through
       // `refused` like every other pure-layer refusal here.
-      const released = releaseJob(s, id)
-      if (!released.ok) return refused(released)
+      const releasedPlain = releaseJob(s, id)
+      if (!releasedPlain.ok) return refused(releasedPlain)
+      const released =
+        chatWords === null
+          ? releasedPlain
+          : { ...releasedPlain, state: { ...releasedPlain.state, jobs: releasedPlain.state.jobs.map((j) => (j.id === id ? { ...j, approvedFromChat: { at: now, words: chatWords! } } : j)) } }
       // 예약 Job 은 여기서 회차를 만들지 않는다 — 발화가 만든다. 게이트만 걷힌다.
       let started = released
       let target = released.state.runs.filter((r) => r.jobId === id).at(-1)
@@ -3714,7 +3922,7 @@ export async function handleCommand(
       // pauseSchedule 이 한꺼번에 한다(run-delete 가 releaseWorker 를 쓰는 순서와 같다).
       const done = new Set<string>()
       for (const d of open.filter(releases)) {
-        await deps.releaseWorker({ dispatchId: d.id })
+        await deps.releaseWorker({ dispatchId: d.id, closeReason: 'stopped' })
         done.add(d.id)
       }
       // On the state as it is now (audit OR-3): each release waits up to 5 s, and what landed meanwhile (a worker's
@@ -3734,7 +3942,7 @@ export async function handleCommand(
         const late = nowOpen.filter((d) => !done.has(d.id) && releases(d))
         if (late.length === 0) break
         for (const d of late) {
-          await deps.releaseWorker({ dispatchId: d.id })
+          await deps.releaseWorker({ dispatchId: d.id, closeReason: 'stopped' })
           done.add(d.id)
         }
         latest = deps.getState()
@@ -3768,6 +3976,40 @@ export async function handleCommand(
       if (r.ok && r.state === s) return okBody(r.value)
       return commit(r)
     }
+    // T8 (decision 8): every Run whose stored state disagrees with reality, and with `--fix` the repair each has
+    // (runsDoctor.ts). The owner's for any Run; a coordinator's for its own Run only.
+    case 'runs-doctor': {
+      const owner = !fromAgentSession && caller.role !== 'mcp'
+      const mine = owner ? undefined : coordinatedBy(s, caller.sessionId)
+      if (!owner && !mine) return denied('runs doctor is for the person, or for a Run’s coordinator on its own Run')
+      const scope = { run: str(args.run) ?? undefined, job: str(args.job) ?? undefined, all: args.all !== undefined && args.all !== false }
+      if ([scope.run, scope.job, scope.all || undefined].filter((x) => x !== undefined).length > 1) return bad('runs doctor takes one of --run, --job and --all')
+      if (mine) {
+        if (scope.job !== undefined || scope.all || (scope.run !== undefined && scope.run !== mine.id)) return denied(`a coordinator may doctor its own Run only (${mine.id})`)
+        scope.run = mine.id
+      }
+      const runIds = doctorRunIds(s, scope)
+      if (runIds === null) return notFound(scope.run !== undefined ? `unknown run: ${scope.run}` : `unknown job: ${scope.job}`)
+      let sessions: HostSession[] | undefined
+      try {
+        sessions = await deps.listSessions?.()
+      } catch (e) {
+        deps.log?.(`runs doctor: the session list could not be read: ${String(e)}`)
+      }
+      const findings = diagnoseRuns(s, runIds, sessions)
+      const checkedSessions = sessions !== undefined
+      if (args.fix === undefined || args.fix === false) return okBody({ runs: runIds.length, checkedSessions, findings })
+      const lang = (await deps.lang?.()) ?? 'en'
+      const repairs = await repairFindings(findings, {
+        getState: () => deps.getState(),
+        setState: (next) => deps.setState(next),
+        now: () => deps.now?.() ?? new Date().toISOString(),
+        lang,
+        sessionExited: (sessionId) => handleExit(deps, { sessionId, exitCode: 1 }),
+        ...(deps.stopCoordinator ? { stopSession: (id: string, reason: string) => deps.stopCoordinator!(id, reason, 'released') } : {})
+      })
+      return okBody({ runs: runIds.length, checkedSessions, findings, repairs })
+    }
     case 'run-worktree-set': {
       const id = str(args.run)
       if (!id) return bad('--run is required')
@@ -3785,6 +4027,19 @@ export async function handleCommand(
       if (existing !== undefined)
         return conflict(`run ${id} already has a worktree: ${existing}`)
       return commit(setRunWorktree(s, id, worktree))
+    }
+    // T5 (decision 5): the worktrees Astera made, what each holds, and removing the ones that are safe to remove. The
+    // owner's for every worktree; a coordinator's for its own Run's only (worktreesCommand.ts holds the rules).
+    case 'worktrees-list':
+    case 'worktrees-remove': {
+      const owner = !fromAgentSession && caller.role !== 'mcp'
+      const mine = owner ? undefined : coordinatedBy(s, caller.sessionId)
+      if (!owner && !mine) return denied('worktrees is for the person, or for a Run’s coordinator on its own Run')
+      if (mine && cmd === 'worktrees-remove' && (args.run !== undefined && args.run !== mine.id)) return denied(`a coordinator may remove its own Run's worktrees only (${mine.id})`)
+      if (!deps.worktreesOps) return conflict('worktrees are answered by the Astera Host')
+      const only = mine ? { run: mine.id } : undefined
+      const at = Date.parse(deps.now?.() ?? new Date().toISOString())
+      return cmd === 'worktrees-list' ? worktreesList(deps.worktreesOps, s, args, at, only) : worktreesRemove(deps.worktreesOps, s, args, at, only)
     }
     case 'run-merge': {
       const id = str(args.run)
@@ -4031,7 +4286,7 @@ export async function handleCommand(
       // 계정을 묻는 사이에 생긴 Run 이 그 뜻이 되어, 부르는 사람이 명령을 낸 순간에는 있지도 않던
       // 곳에 Task 가 붙는다. 그 사이에 지워진 Run 을 가리키게 되는 경우는 아래 createTask 가
       // `latest` 로 검증해 "unknown run" 으로 거절한다 — 매달린 참조가 남지 않는다.
-      const runId = str(args.runId) ?? str(args.run) ?? latestRun(s)?.id
+      const runId = str(args.runId) ?? str(args.run) ?? callerRun(s, caller.sessionId)?.id
       const spec = str(args.spec)
       if (!runId) return bad('--run is required (no run exists)')
       if (!spec) return bad('--spec is required')
@@ -4078,8 +4333,7 @@ export async function handleCommand(
       if (plannerJobOf(s, caller.sessionId) && (!plan.fields.prompt || !plan.fields.acceptanceCriteria))
         return bad('a planner Task needs --prompt and --criteria (one or more acceptance criteria)')
       const latest = deps.getState()
-      return commit(
-        createTask(
+      const made = createTask(
           latest,
           {
             // **Job 을 지목하면 정의 Task 다.** 화면은 아직 돌지 않은 Job 에 Task 를 짜 넣고('실행'
@@ -4101,7 +4355,10 @@ export async function handleCommand(
           },
           now
         )
-      )
+      // T11: a Task that looks like another plan's: the answer carries warning lines, nothing is refused
+      const warnings = made.ok ? taskCreateWarnings(made.state, made.value) : []
+      const reply = await commit(made)
+      return warnings.length > 0 && reply.status < 300 ? { ...reply, body: { ...(reply.body as object), warnings } } : reply
     }
     /**
      * **One ready Task, placed now** (CLI spec §18). A person or a script asks; the driver places it
@@ -4213,8 +4470,8 @@ export async function handleCommand(
       if (run) tasks = tasks.filter((t) => (byJob ? t.jobId === run : t.runId === run))
       if (str(args.status)) tasks = tasks.filter((t) => t.status === args.status)
       if (args.ready === true) tasks = tasks.filter((t) => t.status === 'ready')
-      if (args.brief === true) return okBody(tasks.map(briefTask))
-      return okBody(tasks)
+      // spec_truncated is --brief's mark of a cut spec (publicViews.ts)
+      return listReply('tasks', args.brief === true ? tasks.map(briefTask) : tasks, args, [...TASK_FIELDS, 'spec_truncated', /* T7 */ 'covers'])
     }
     case 'task-update': {
       const id = str(args.id)
@@ -4240,26 +4497,42 @@ export async function handleCommand(
       // Stall watchdog: the app records a completed Task's merge into its plan branch (finishedSessions.ts
       // mergedIntoPlan). Astera's own, so an agent session cannot mark one. updatedAt stays: a dependent's readiness
       // moment (inbox.ts readyReminders) is read from it.
+      // A merging Task (state.ts doneStatusOf) is completed by its merge: here, with its dependents readied.
       if (args.mergedIntoPlan === true) {
         if (fromAgentSession || caller.role === 'mcp') return bad('--merged-into-plan is recorded by Astera itself')
         const target = s.tasks.find((t) => t.id === id)
         if (!target) return notFound(`unknown task: ${id}`)
+        if (target.status === 'merging') {
+          const landed: Task = { ...target, status: 'completed', updatedAt: now, mergedIntoPlanAt: now }
+          await deps.setState({ ...s, tasks: recomputeReady(s.tasks.map((t) => (t.id === id ? landed : t))) })
+          return okBody({ id, mergedIntoPlanAt: now })
+        }
         if (target.status !== 'completed') return bad(`task ${id} is ${target.status}, not completed`)
         if (target.mergedIntoPlanAt !== undefined) return okBody({ id, mergedIntoPlanAt: target.mergedIntoPlanAt })
         await deps.setState({ ...s, tasks: s.tasks.map((t) => (t.id === id ? { ...t, mergedIntoPlanAt: now } : t)) })
         return okBody({ id, mergedIntoPlanAt: now })
       }
       // W2-A: editing a plan's Task (its title, spec, deps and plan fields) instead of moving its status.
-      const PLAN_EDIT = ['title', 'spec', 'deps', 'prompt', 'criteria', 'affectedPaths', 'difficulty', 'provider', 'model', 'modelReason', /* W6-A */ 'basis', 'evidence']
+      const PLAN_EDIT = ['title', 'spec', 'deps', 'prompt', 'criteria', 'affectedPaths', 'difficulty', 'provider', 'model', 'modelReason', /* W6-A */ 'basis', 'evidence', /* T7 */ 'covers', /* T9 */ 'kind']
       if (args.status === undefined && PLAN_EDIT.some((k) => args[k] !== undefined)) {
         const plan = planFieldsFromArgs(args)
         if (!plan.ok) return bad(plan.error)
         if (args.deps !== undefined && !(Array.isArray(args.deps) && args.deps.every((d) => typeof d === 'string')))
           return bad('--deps must be a JSON array of Task ids')
         // 사람만(에이전트 세션·MCP 아님) 아직 시작하지 않은 run Task 도 고칠 수 있다 — 도는 계획에서 replan 만이 바꾸던 자리
+        // T7: the owner is any caller that is no orchestration session, so also a tab the owner opened in Astera (it has
+        // a session id too); a refusal names the rule that failed
         const runTask = s.tasks.find((t) => t.id === id)
-        const byOwner =
-          !fromAgentSession && caller.role !== 'mcp' && runTask?.runId !== undefined && outcomeOf(s, runTask.runId) === 'running'
+        const role = orchestrationRoleOf(s, caller.sessionId)
+        const runOutcome = runTask?.runId !== undefined ? outcomeOf(s, runTask.runId) : undefined
+        const owner: true | string =
+          caller.role === 'mcp'
+            ? 'an MCP client is not the owner: only the owner changes a running plan'
+            : role !== undefined
+              ? `this is a ${role} session: only the owner changes a running plan, not an agent`
+              : runOutcome !== 'running'
+                ? `its run is ${runOutcome ?? 'gone'}, not running`
+                : true
         return commit(
           editPlanTask(
             s,
@@ -4271,16 +4544,18 @@ export async function handleCommand(
               ...(args.deps !== undefined ? { deps: args.deps as string[] } : {})
             },
             now,
-            byOwner
+            owner
           )
         )
       }
-      const status = str(args.status)
-      if (!status) return bad('--status is required')
-      if (!isTaskStatus(status))
+      const asked = str(args.status)
+      if (!asked) return bad('--status is required')
+      if (!isTaskStatus(asked))
         return bad(`--status must be one of ${TASK_STATUSES.join('|')}`)
       const task = s.tasks.find((t) => t.id === id)
       if (!task) return notFound(`unknown task: ${id}`)
+      // Completed only once its work is on the plan branch, as every other move to completed (state.ts doneStatusOf)
+      const status = asked === 'completed' ? doneStatusOf(s, task) : asked
       // Deliberately bypasses the transition table (canTransition): task-update --status is allowed
       // to bypass that table because the orchestrator needs a way to correct things by hand — but
       // the bypass is written to the log. state.ts (moveTask/canTransition) owns the normal
@@ -4298,7 +4573,7 @@ export async function handleCommand(
       //
       // **요구는 이 한 경우에만 건다.** 평범한 손보기(ready 로 되돌리기, 회로 차단 풀기)는 그대로다 —
       // 거기까지 이유를 받으면 이 명령이 쓰이던 모든 구조 경로가 한 번에 막힌다.
-      const override = status === 'completed' && isOverrideCompletion(task, policyOf(s, task))
+      const override = asked === 'completed' && isOverrideCompletion(task, policyOf(s, task))
       const reason = str(args.reason)
       if (override && !reason)
         return bad(
@@ -4398,10 +4673,11 @@ export async function handleCommand(
     case 'worker-start': {
       const taskId = str(args.taskId ?? args.task)
       const agent = str(args.agent)
-      const account = str(args.account)
+      // T5b: without --account, Astera picks the account with most room (deps.startAccount, below)
+      let account = str(args.account)
       if (!taskId) return bad('--task is required')
       if (agent !== 'claude' && agent !== 'codex') return bad('--agent must be claude|codex')
-      if (!account) return bad('--account is required')
+      if (!account && !deps.startAccount) return bad('--account is required')
       const retryOf = str(args.retryOf) ?? undefined
       const name = str(args.name) ?? undefined
       const terminal = str(args.terminal) ?? undefined
@@ -4421,6 +4697,7 @@ export async function handleCommand(
       // 켰는지와 무관하다.
       if (task.status === 'validating' || task.status === 'reviewing')
         return bad(`task is awaiting a verdict: ${task.status}`)
+      if (task.status === 'merging') return bad('task is being merged into the plan branch')
       if (task.consecutiveFailures >= FAILURE_LIMIT)
         return bad(`circuit break: ${FAILURE_LIMIT} consecutive failures`)
       const openForTask = s.dispatches.find((d) => d.taskId === taskId && !d.outcome && !d.endedAt)
@@ -4505,22 +4782,36 @@ export async function handleCommand(
       // W6-G: no new worker on an account at `usagePauseAt` of a usage window, for every placer (a coordinator's
       // worker spends the same account). New work only, like the cap above. The answer names an account of the
       // Task's chain that is under the threshold, when there is one; `usagePaused` tells the app's loop to wait.
-      if (deps.usageGuard) {
+      // T5b: counted on its account from the choice on, so a burst of starts spreads (UsageGuard.reserve); let go once
+      // the worker runs or its start failed.
+      // shortcut: a refusal between here and the start below leaves the count to expire (START_RESERVATION_MS); fine
+      // while those refusals are rare, give each its release if they are not.
+      let release = (): void => {}
+      if (!account) {
+        const choice = await deps.startAccount!({ provider: agent, own: task.accountIds ?? [], purpose: 'worker' })
+        if (!choice.ok) return { status: 409, body: { error: choice.why, held: true } }
+        account = choice.accountId
+        release = choice.release
+      } else if (deps.usageGuard) {
         await deps.usageGuard.refresh()
         const pause = deps.usageGuard.pauseOf(account)
         if (pause) {
-          const alternative = usageChoice(task.accountIds ?? [], (id) => deps.usageGuard!.pauseOf(id))
-          const other = alternative.ok && alternative.accountId !== undefined ? alternative.accountId : undefined
+          // T5b: the best usable account of every account of that provider, not only the Task's chain
+          const best = deps.startAccount ? await deps.startAccount({ provider: agent, own: task.accountIds ?? [], purpose: 'worker' }) : null
+          if (best?.ok) best.release()
+          const alternative = best ? (best.ok ? { ok: true as const, accountId: best.accountId } : { ok: false as const }) : usageChoice(task.accountIds ?? [], (id) => deps.usageGuard!.pauseOf(id))
+          const other = alternative.ok && alternative.accountId !== undefined && alternative.accountId !== account ? alternative.accountId : undefined
           return {
             status: 409,
             body: {
-              error: usagePauseWhy(pause) + (other !== undefined ? `; start it with --account ${other}` : ''),
+              error: usagePauseWhy(pause) + (other !== undefined ? `; start it with --account ${other}, or without --account to let Astera pick` : ''),
               usagePaused: pause,
               ...(other !== undefined ? { alternative: other } : {})
             }
           }
         }
       }
+      if (str(args.account)) release = deps.usageGuard?.reserve?.(account) ?? release
 
 
       // **`--worktree` 를 생략한 호출은 "이 Run 이 일하는 자리" 를 뜻한다** — 그것은 Run 이
@@ -4630,12 +4921,14 @@ export async function handleCommand(
 
       let started: { sessionId: string; cwd: string; specPath: string; model?: string; modelNote?: string }
       try {
+        // T5b: the session now counts itself on its account (a live session), so the start's own count goes
         started = await deps.startWorker({
           dispatchId,
           taskId,
           title: task.title,
           // W2-A: a planned Task's prompt, criteria and paths go into the worker's spec file.
           spec: workerSpecOf(task),
+          kind: kindOf(task),
           provider: agent,
           accountId: account,
           runCwd: runJob?.cwd ?? '',
@@ -4647,6 +4940,7 @@ export async function handleCommand(
           terminalAccountId
         })
       } catch (e) {
+        release()
         // Failure rollback — this is the server's transaction handling, not a pure-layer transition
         // rule. Calling closeDispatch alone would leave the Task at dispatched, and the --ready list
         // does not show those, so nothing would pick it up on its own. A Gate can reach it now:
@@ -4681,6 +4975,7 @@ export async function handleCommand(
         return bad(`failed to start worker: ${e instanceof Error ? e.message : String(e)}`)
       }
 
+      release()
       // Success — read the latest state again and patch this dispatch's placeholders to their real
       // values. The snapshot taken on entry (s) is deliberately not used: while waiting for the
       // coordinator a concurrent change such as another worker's worker_done may have landed on that
@@ -4749,7 +5044,7 @@ export async function handleCommand(
             s.dispatches.some((x) => x.taskId === task.id && x.repair !== undefined && !x.endedAt))
         if (converging) return conflict(`task ${task!.id} is still converging — release after it completes`)
       }
-      await deps.releaseWorker({ dispatchId: id })
+      await deps.releaseWorker({ dispatchId: id, closeReason: 'released' })
       return okBody(d?.retained === true ? { released: id, skipped: 'retained' } : { released: id })
     }
     case 'worker-retain': {
@@ -4782,8 +5077,8 @@ export async function handleCommand(
       // nothing still starting.
       const starting = !d.outcome && !d.endedAt ? stillStarting([d], now) : null
       if (starting) return starting
-      if (releases(d)) await deps.releaseWorker({ dispatchId: d.id })
-      await deps.setState({
+      if (releases(d)) await deps.releaseWorker({ dispatchId: d.id, closeReason: 'stopped' })
+      const stopped: OrchState = {
         ...deps.getState(),
         dispatches: deps
           .getState()
@@ -4792,8 +5087,14 @@ export async function handleCommand(
               ? { ...x, workerState: 'stopped' as const, endedAt: now, closedBy: 'stop' as const }
               : x
           )
-      })
-      return okBody({ stopped: d.id })
+      }
+      // A duplicate stopped while the original still runs the same spec untracked (its record lost): the original
+      // becomes the Task's Dispatch, so the Task is not left `dispatched` with nothing open (exec/adopt.ts)
+      const survivors = deps.profileDir ? (deps.liveWorkers?.() ?? []).filter((w) => specIdsOf(w.spec)?.taskId === d.taskId) : []
+      const adoption = adoptLiveWorkers(stopped, survivors, specsDirOf(deps.profileDir ?? ''), now)
+      await deps.setState(adoption.state)
+      const adopted = adoption.adopted[0]
+      return okBody({ stopped: d.id, ...(adopted ? { adopted: adopted.id, sessionId: adopted.sessionId } : {}) })
     }
     case 'worker-abandon': {
       // Does nothing remote, nothing to any process, nothing on the filesystem.
@@ -5096,7 +5397,7 @@ export async function handleCommand(
           return denied('cannot send for another task')
       }
       const task = s.tasks.find((t) => t.id === str(args.taskId))
-      const runId = task?.runId ?? latestRun(s)?.id
+      const runId = task?.runId ?? callerRun(s, caller.sessionId)?.id
       if (!runId) return bad('no run to post into')
       const next: OrchState = {
         ...s,
@@ -5128,7 +5429,7 @@ export async function handleCommand(
       return commit(applyReply(s, { messageId: id, body }, now))
     }
     case 'check': {
-      const runId = str(args.run) ?? latestRun(s)?.id
+      const runId = str(args.run) ?? callerRun(s, caller.sessionId)?.id
       if (!runId) return bad('no run exists')
       // **A named Run that is not there is a 404, before anything is acked or waited on.**
       // nextDelivery does not look the Run up — it only filters by it — so a mistyped `--run`
@@ -5446,7 +5747,7 @@ export async function handleCommand(
       const status = enumFilter('status', args.status, ['open', 'resolved'] as const)
       if ('error' in status) return bad(status.error)
       if (status.value !== undefined) gates = gates.filter((g) => g.status === status.value)
-      return okBody(gates)
+      return listReply('questions', args.brief === true ? gates.map(briefQuestion) : gates, args, QUESTION_FIELDS)
     }
     // **오케스트레이터가 거기 있는가, 그리고 무엇이 돌고 있는가**(공개 CLI 설계 §5). 이 명령에
     // 닿았다는 것이 이미 "Host 가 있다" 의 답이다 — 없으면 CLI 가 접속에서 걸리거나(HOST_NOT_RUNNING)
@@ -5526,6 +5827,18 @@ export async function handleCommand(
             ...s.runs.filter((r) => runIds.has(r.id) && r.coordinatorSessionId !== undefined).map((r) => r.coordinatorSessionId!)
           ])
           rows = rows.filter((x) => theirs.has(x.id) || (x.cwd !== null && isPathWithin(project.path, x.cwd)))
+        }
+        // `run` (T9, the plan Board): only that Run's workers and coordinator, not every session ever. Unknown is a 404,
+        // as questions-list's `--run` is.
+        if (args.run !== undefined) {
+          const run = str(args.run)
+          if (run === null) return bad('--run needs a value: the run id')
+          const r = s.runs.find((x) => x.id === run)
+          if (!r) return notFound(`unknown run: ${run}`)
+          const tasks = new Set(s.tasks.filter((t) => t.runId === run).map((t) => t.id))
+          const theirs = new Set(s.dispatches.filter((d) => tasks.has(d.taskId)).map((d) => d.sessionId))
+          if (r.coordinatorSessionId !== undefined) theirs.add(r.coordinatorSessionId)
+          rows = rows.filter((x) => theirs.has(x.id))
         }
         if (status.value === 'alive' || status.value === 'ended')
           rows = rows.filter((x) => x.alive === (status.value === 'alive'))
@@ -5930,6 +6243,31 @@ export async function handleCommand(
       const found = cards.find((c) => c.sessionId === id)
       return found ? okBody(found) : notFound(`no summary for session: ${id}`)
     }
+    // T8 (decision 8): ends a session the way the Run-end sweep does (`stopCoordinator`), with no app needed. The
+    // owner's for any session; a coordinator's for the sessions of its own Run (runEnd.ts orchOwnerOfCaller). A worker
+    // with an open Dispatch is refused: its exit would read as lost and be started again; `worker-stop` ends one.
+    case 'sessions-close': {
+      const id = str(args.id)
+      if (!id) return bad('--id is required: a session id (from `sessions list`)')
+      const reason = str(args.reason) ?? 'closed with astera sessions close'
+      const owner = !fromAgentSession && caller.role !== 'mcp'
+      if (!owner) {
+        const mine = coordinatedBy(s, caller.sessionId)
+        if (!mine) return denied('sessions close is for the person, or for a Run’s coordinator on its own Run’s sessions')
+        const of = orchOwnerOfCaller(s, id)
+        if (of !== mine.id && of !== mine.jobId) return denied(`session ${id} is not a session of your Run (${mine.id})`)
+      }
+      const open = s.dispatches.find((d) => d.sessionId === id && !d.outcome && !d.endedAt)
+      if (open) return conflict(`session ${id} is the worker of dispatch ${open.id}: stop it with worker-stop`)
+      if (!deps.stopCoordinator) return conflict('sessions are closed by the Astera Host')
+      if (deps.listSessions) {
+        const known = (await deps.listSessions()).find((x) => x.id === id)
+        if (!known) return notFound(`unknown session: ${id}`)
+        if (!known.alive) return okBody({ sessionId: id, closed: false, alreadyEnded: true })
+      }
+      await deps.stopCoordinator(id, reason, closedWithReason(reason))
+      return okBody({ sessionId: id, closed: true, reason })
+    }
     /**
      * How It Works records (MCP P2-C), read only, answered by the Host only (`deps.readUnderstanding`).
      * `--project` is the project's id, as for `github-*`; its records are the understanding.json entry
@@ -5986,7 +6324,7 @@ export async function handleCommand(
       const g = deps.github!
       const outcome = runView(s, t.run).outcome
       if (outcome === 'paused') return conflict('This Run is paused; resume it first')
-      if (outcome !== 'completed' && outcome !== 'failed') return conflict('This Run is still working')
+      if (outcome !== 'completed' && outcome !== 'failed' && outcome !== 'blocked') return conflict('This Run is still working')
       let changed: number
       try {
         changed = (await g.isClean(t.cwd)).changedCount
@@ -6085,34 +6423,117 @@ export async function handleCommand(
       if (!run) return notFound(`unknown run: ${id}`)
       const job = jobOf(s, run)
       if (!job) return notFound(`no plan for run ${id}`)
-      if (deliveryOf(s, job) === 'pr') {
-        const opened = await handleCommand(deps, caller, 'run-open-pr', { run: id, ...(args.force === true ? { force: true } : {}) })
-        if (opened.status < 400) await cleanAfterDelivery(deps, id) // W9-J
-        return opened
+      const push = deliveryOf(s, job) === 'push'
+      // T3: the driving loop's own steps (persisted delivery state, retries, the owner's answer) are Astera's
+      const loopStep = args.pending === true || args.auto === true || args.ownerPushed === true || typeof args.stopped === 'string'
+      if ((push || loopStep) && (fromAgentSession || caller.role === 'mcp'))
+        return denied('a delivery is made by Astera itself, or by the person')
+      const progressOf = (st: OrchState): DeliveryProgress | undefined => st.runs.find((r) => r.id === id)?.deliveryState
+      const withProgress = (st: OrchState, p: DeliveryProgress): OrchState => ({
+        ...st,
+        runs: st.runs.map((r) => (r.id === id ? { ...r, deliveryState: p } : r))
+      })
+      // T3: a Run the loop saw running has a delivery pending (also again after it finished blocked and runs once more)
+      if (args.pending === true) {
+        const next: DeliveryProgress = { state: 'pending', attempts: 0 }
+        await deps.setState(withProgress(deps.getState(), next))
+        return okBody({ deliveryState: next })
       }
-      if (fromAgentSession || caller.role === 'mcp') return denied('a push delivery is made by Astera itself, or by the person')
-      const done = run.delivery
-      if (done?.sha !== undefined) return okBody({ delivery: 'push', branch: done.branch ?? null, sha: done.sha, pushed: false })
-      if (done?.error !== undefined && args.force !== true)
-        return conflict(`Pushing this Run stopped before: ${done.error}. --force tries again`)
-      if (runView(s, run).outcome !== 'completed') return conflict('This Run has not completed; it is pushed once every task is done')
-      if (!deps.deliverPush) return conflict('Pushing a plan is done by the Astera Host, and this caller is not one')
       const proj = projectOfJob(s, job)
       const branch = proj?.deliveryBranch
-      const r = await deps.deliverPush({
+      const pushTarget = {
         cwd: job.cwd,
         ...(branch !== undefined ? { branch } : {}),
         ...(proj?.defaultBranch ? { defaultBranch: proj.defaultBranch } : {}), // W8-G
-
-        worktrees: runWorktrees(s, id),
+        worktrees: runWorktrees(s, id)
+      }
+      // T3: the owner answered they push it themselves: delivered once git sees every worktree's commit on the branch
+      if (args.ownerPushed === true) {
+        const p = run.deliveryState
+        if (p?.state !== 'needs-owner') return conflict('No delivery of this Run waits on the owner')
+        const at = deps.now?.() ?? now
+        const mine: DeliveryProgress = { ...p, state: 'delivered-by-owner', ownerPushes: true }
+        delete mine.nextRetryAt
+        if (!push) {
+          await deps.setState(withProgress(deps.getState(), mine))
+          return okBody({ deliveryState: mine })
+        }
+        if (!deps.deliverPush) return conflict('Pushing a plan is done by the Astera Host, and this caller is not one')
+        const r = await deps.deliverPush({ ...pushTarget, message: '', checks: [], ownerPushed: true })
+        if (!r.ok) {
+          const wait: DeliveryProgress = { ...p, ownerPushes: true, nextRetryAt: new Date(Date.parse(at) + OWNER_PUSH_CHECK_MS).toISOString() }
+          await deps.setState(withProgress(deps.getState(), wait))
+          return { status: 409, body: { error: r.reason, deliveryState: wait } }
+        }
+        await deps.setState(withProgress(recordDelivery(deps.getState(), id, { at, branch: r.branch, sha: r.sha }), mine))
+        await cleanAfterDelivery(deps, id) // W9-J
+        return okBody({ delivery: 'push', branch: r.branch, sha: r.sha, pushed: false, deliveryState: mine })
+      }
+      const force = args.force === true
+      // T3: the loop's attempt is made only when it is due (pending, or a failure's retry time came)
+      if (args.auto === true && !deliveryDue(run.deliveryState, Date.parse(deps.now?.() ?? now)))
+        return conflict('No delivery attempt is due for this Run yet')
+      /** One attempt's end, recorded: delivered, or one more failure with its retry time; the fifth asks the owner once.
+       *  A person's --force starts the count again. */
+      const settle = async (error: string | undefined, st: OrchState = deps.getState()): Promise<DeliveryProgress> => {
+        const at = deps.now?.() ?? now
+        let next = afterAttempt(force ? undefined : progressOf(s), at, error)
+        let out = withProgress(st, next)
+        if (next.state === 'needs-owner' && next.questionId === undefined) {
+          out = raiseDeliveryQuestion(out, id, at)
+          next = progressOf(out) ?? next
+        }
+        if (error === undefined && next.questionId !== undefined)
+          out = { ...out, messages: out.messages.map((m) => (m.id === next.questionId && !m.answered ? { ...m, answered: true, answerBody: 'delivered' } : m)) }
+        await deps.setState(out)
+        return next
+      }
+      // T3: the loop stopped this attempt itself (a refresh onto another plan's delivery needs a person): one failure
+      if (typeof args.stopped === 'string') return { status: 409, body: { error: args.stopped, deliveryState: await settle(args.stopped) } }
+      if (!push) {
+        const opened = await handleCommand(deps, caller, 'run-open-pr', { run: id, ...(force || args.auto === true ? { force: true } : {}) })
+        if (opened.status < 400) await cleanAfterDelivery(deps, id) // W9-J
+        const error = opened.status < 400 ? undefined : String((opened.body as { error?: unknown } | null)?.error ?? `run-open-pr answered ${opened.status}`)
+        const p = await settle(error)
+        return { ...opened, body: { ...((opened.body ?? {}) as object), deliveryState: p } }
+      }
+      const done = run.delivery
+      if (done?.sha !== undefined) return okBody({ delivery: 'push', branch: done.branch ?? null, sha: done.sha, pushed: false })
+      if (done?.error !== undefined && !force && args.auto !== true)
+        return conflict(`Pushing this Run stopped before: ${done.error}. --force tries again`)
+      if (taskOutcomeOf(s, run) !== 'completed') {
+        // T3: a push plan delivers only when every Task completed; the loop's Run that ended failed says so once
+        if (args.auto === true && taskOutcomeOf(s, run) === 'failed') {
+          const failed: DeliveryProgress = {
+            state: 'failed',
+            attempts: run.deliveryState?.attempts ?? 0,
+            lastError: 'the plan ended with failed tasks, and a push plan is delivered only when every task completed'
+          }
+          await deps.setState(withProgress(deps.getState(), failed))
+          return { status: 409, body: { error: failed.lastError, code: 'not-completed', deliveryState: failed } }
+        }
+        return conflict('This Run has not completed; it is pushed once every task is done')
+      }
+      if (!deps.deliverPush) return conflict('Pushing a plan is done by the Astera Host, and this caller is not one')
+      await deps.setState(
+        withProgress(deps.getState(), { ...(run.deliveryState ?? { attempts: 0 }), state: 'delivering', lastAttemptAt: deps.now?.() ?? now })
+      )
+      const r = await deps.deliverPush({
+        ...pushTarget,
         message: deliveryMessage(jobNameOf(job), deliveryIssuesOf(s, run)),
         checks: deliveryChecksOf(s, id)
       })
       const at = deps.now?.() ?? now
-      await deps.setState(
-        recordDelivery(deps.getState(), id, r.ok ? { at, branch: r.branch, sha: r.sha } : { at, ...(r.branch ? { branch: r.branch } : {}), error: r.reason })
+      // T3: recorded quietly: the owner is asked once, after the last automatic attempt (settle)
+      const recorded = recordDelivery(
+        deps.getState(),
+        id,
+        r.ok ? { at, branch: r.branch, sha: r.sha } : { at, ...(r.branch ? { branch: r.branch } : {}), error: r.reason },
+        { quiet: true }
       )
-      if (!r.ok) return conflict(r.reason)
+      const p = await settle(r.ok ? undefined : r.reason, recorded)
+      if (!r.ok)
+        return { status: 409, body: { error: r.reason, ...(r.branch ? { branch: r.branch } : {}), ...(r.code ? { code: r.code } : {}), ...(r.conflictWith ? { conflictWith: r.conflictWith } : {}), deliveryState: p } }
       const removed = deps.removeWorktrees && r.merged.length > 0 ? await deps.removeWorktrees(r.merged) : null
       await cleanAfterDelivery(deps, id) // W9-J: what the push left (the Run's own folder)
       return okBody({
@@ -6121,15 +6542,18 @@ export async function handleCommand(
         sha: r.sha,
         pushed: true,
         validated: r.validated,
+        deliveryState: p,
         ...(removed && removed.failed.length > 0 ? { worktreesKept: removed.failed } : {})
       })
     }
-    // W8-C draft PR: a long `pr` plan is followed from GitHub. After a wave, while later waves remain (draftPr.ts
-    // draftPrDue), the completed Tasks' worktrees are folded into the Run's integration branch, it is pushed, and the
-    // plan's PR is opened as a draft, or its body rewritten with the done and remaining waves. Recorded as
-    // `run.pr = { url, number, draft, wavesDone }`; `run-open-pr` marks it ready after the final check. A failure is
-    // not recorded (a recorded error would stop the final delivery) and no remote is no failure: nothing is opened.
-    // Never merged. Astera's own step: refused from an agent session and an MCP client.
+    // W8-C draft PR: a long `pr` plan is followed from GitHub. T3: after every Task merged into the plan branch
+    // (draftPr.ts draftPrDue), the completed Tasks' worktrees are folded into the Run's integration branch and it is
+    // pushed (never forced, never the base branch), for a `push` plan too; a `pr` plan's PR is then opened as a draft,
+    // or its body rewritten with the done and remaining waves (`run.pr = { url, number, draft, wavesDone }`;
+    // `run-open-pr` marks it ready after the final check). Each attempt is recorded on the Run (`branchPush`: the Tasks
+    // done at the last push that went through, or the failure and its retry time), never as a PR error (that would stop
+    // the final delivery); no remote is no failure: nothing is opened. Never merged. Astera's own step: refused from an
+    // agent session and an MCP client.
     case 'run-draft-pr': {
       const id = str(args.run)
       if (!id) return bad('--run is required')
@@ -6138,67 +6562,118 @@ export async function handleCommand(
       if (!run) return notFound(`unknown run: ${id}`)
       const job = jobOf(s, run)
       if (!job) return notFound(`no plan for run ${id}`)
-      if (draftPrDue(s, run) === null)
-        return conflict('No draft update is due: a pull request plan updates its draft once per finished wave while later waves remain')
-      const t = githubTarget(deps, s, { run: id })
-      if ('error' in t) return t.error
-      if (!('branch' in t)) return conflict('This Run has no branch of its own')
-      const g = deps.github!
-      if (!g.push) return conflict('pushing a branch is not available in this build')
-      const fold = completedWorktrees(s, run)
-      if (fold.length > 0) {
-        if (!deps.mergeWorktrees) return conflict('merging is not available in this build')
-        const merged = await deps.mergeWorktrees(t.cwd, fold)
-        if (!merged.ok) return conflict(merged.reason)
+      // T4: the owner answered they push the plan branch themselves: Astera stops pushing it
+      if (args.ownerPushes === true) {
+        const bp = run.branchPush
+        if (bp?.state !== 'needs-owner') return conflict("No plan-branch push of this Run waits on the owner")
+        const mine = { ...bp, ownerPushes: true as const }
+        delete mine.nextRetryAt
+        const cur = deps.getState()
+        await deps.setState({ ...cur, runs: cur.runs.map((r) => (r.id === id ? { ...r, branchPush: mine } : r)) })
+        return okBody({ branchPush: mine })
       }
-      let accounts: OrchAccount[] = []
-      try {
-        accounts = await deps.listAccounts()
-      } catch {
-        // The PR names an account by its id then
-      }
-      const cur = deps.getState()
-      const waves = runWaves(cur, id)
-      const done = wavesDoneOf(waves)
-      const title = jobNameOf(job)
-      const tasks = planPrTasksOf(cur, id, (a) => accounts.find((x) => x.id === a)?.label)
-      const body =
-        planPrBody({ plan: title, tasks, waves: wavesSection(waves), did: await prSummaries(deps, cur, id), footer: DRAFT_PR_FOOTER }) + (await prAttribution(cur, id, t.cwd)) // W8-A
-      const at = deps.now?.() ?? now
-      const record = async (pr: RunPr, links?: TaskLinks): Promise<void> => {
-        const st = deps.getState()
-        await deps.setState({
-          ...st,
-          runs: st.runs.map((r) => (r.id === id ? { ...r, pr } : r)),
-          tasks: links ? st.tasks.map((x) => (x.runId === id ? { ...x, links: mergeLinks(x.links, links) } : x)) : st.tasks
-        })
-      }
-      const open = run.pr
-      if (open?.url !== undefined) {
-        const pushed = await g.push(t.cwd, t.branch)
-        if (!pushed.ok)
-          return pushed.kind === 'no-remote'
-            ? okBody({ noRemote: true, branch: t.branch, message: noRemoteNote(t.branch, t.repoPath) })
-            : conflict(`The push was rejected: ${pushed.detail.trim()}`)
+      // T4: `synced`: an origin sync merged into the plan branch, which is pushed with no new Task
+      const tasksDone = draftPrDue(s, run, undefined, { synced: args.synced === true })
+      if (tasksDone === null) return conflict("No plan-branch push is due: the plan's branch is pushed once per Task merged into it")
+      const reply = await (async (): Promise<Reply> => {
+        const t = githubTarget(deps, s, { run: id })
+        if ('error' in t) return t.error
+        if (!('branch' in t)) return conflict('This Run has no branch of its own')
+        const g = deps.github!
+        if (!g.push) return conflict('pushing a branch is not available in this build')
+        if (t.branch === t.baseRef) return conflict(`The plan branch ${t.branch} is the base branch, which only the final delivery pushes`)
+        const fold = completedWorktrees(s, run)
+        if (fold.length > 0) {
+          if (!deps.mergeWorktrees) return conflict('merging is not available in this build')
+          const merged = await deps.mergeWorktrees(t.cwd, fold)
+          if (!merged.ok) return conflict(merged.reason)
+        }
+        // T3: a push plan's branch is pushed for safekeeping; main receives the plan once, validated, at the end. T4: so is
+        // a `pr` plan's synced before its first Task: its draft opens with that Task
+        if (deliveryOf(s, job) === 'push' || (run.pr?.url === undefined && tasksDone < 1)) {
+          const pushed = await g.push(t.cwd, t.branch)
+          if (!pushed.ok)
+            return pushed.kind === 'no-remote'
+              ? okBody({ noRemote: true, branch: t.branch, message: noRemoteNote(t.branch, t.repoPath) })
+              : conflict(`The push was rejected: ${pushed.detail.trim()}`)
+          await pushNotes(t.cwd) // W8-A
+          return okBody({ branch: t.branch, pushed: true, tasksDone })
+        }
+        let accounts: OrchAccount[] = []
+        try {
+          accounts = await deps.listAccounts()
+        } catch {
+          // The PR names an account by its id then
+        }
+        const cur = deps.getState()
+        const waves = runWaves(cur, id)
+        const done = wavesDoneOf(waves)
+        const title = jobNameOf(job)
+        const tasks = planPrTasksOf(cur, id, (a) => accounts.find((x) => x.id === a)?.label)
+        const body =
+          planPrBody({ plan: title, tasks, waves: wavesSection(waves), did: await prSummaries(deps, cur, id), footer: DRAFT_PR_FOOTER }) + (await prAttribution(cur, id, t.cwd)) // W8-A
+        const at = deps.now?.() ?? now
+        const record = async (pr: RunPr, links?: TaskLinks): Promise<void> => {
+          const st = deps.getState()
+          await deps.setState({
+            ...st,
+            runs: st.runs.map((r) => (r.id === id ? { ...r, pr } : r)),
+            tasks: links ? st.tasks.map((x) => (x.runId === id ? { ...x, links: mergeLinks(x.links, links) } : x)) : st.tasks
+          })
+        }
+        const open = run.pr
+        if (open?.url !== undefined) {
+          const pushed = await g.push(t.cwd, t.branch)
+          if (!pushed.ok)
+            return pushed.kind === 'no-remote'
+              ? okBody({ noRemote: true, branch: t.branch, message: noRemoteNote(t.branch, t.repoPath) })
+              : conflict(`The push was rejected: ${pushed.detail.trim()}`)
+          await pushNotes(t.cwd) // W8-A: the notes ref goes with the PR branch
+          const edited = await setPrBody(g.run, open.url, body, t.cwd)
+          if (!edited.ok) return ghRefusal({ ok: false, ...ghFailureSentence(edited) })
+          await record({ ...open, at, draft: true, wavesDone: done })
+          return okBody({ url: open.url, number: open.number ?? null, draft: true, wavesDone: done, opened: false })
+        }
+        const base = (await defaultBranchOf(g.run, t.cwd)) ?? t.baseRef
+        const made = await g.createPr({ worktreePath: t.cwd, repoPath: t.repoPath, branch: t.branch, base, title, body, draft: true, needsPush: true })
+        if (!made.ok) {
+          if (made.kind === 'no-remote') return okBody({ noRemote: true, branch: t.branch, message: noRemoteNote(t.branch, t.repoPath) })
+          return conflict(`The draft pull request was not opened (${made.stage}, ${made.kind}): ${made.detail.trim()}`)
+        }
         await pushNotes(t.cwd) // W8-A: the notes ref goes with the PR branch
-        const edited = await g.run(['pr', 'edit', open.url, '--body', body], t.cwd)
-        if (!edited.ok) return ghRefusal({ ok: false, ...ghFailureSentence(edited) })
-        await record({ ...open, at, draft: true, wavesDone: done })
-        return okBody({ url: open.url, number: open.number ?? null, draft: true, wavesDone: done, opened: false })
-      }
-      const base = (await defaultBranchOf(g.run, t.cwd)) ?? t.baseRef
-      const made = await g.createPr({ worktreePath: t.cwd, repoPath: t.repoPath, branch: t.branch, base, title, body, draft: true, needsPush: true })
-      if (!made.ok) {
-        if (made.kind === 'no-remote') return okBody({ noRemote: true, branch: t.branch, message: noRemoteNote(t.branch, t.repoPath) })
-        return conflict(`The draft pull request was not opened (${made.stage}, ${made.kind}): ${made.detail.trim()}`)
-      }
-      await pushNotes(t.cwd) // W8-A: the notes ref goes with the PR branch
-      const number = prNumberOf(made.url)
-      await record(
-        { at, url: made.url, ...(number !== null ? { number } : {}), draft: true, wavesDone: done },
-        number !== null ? { prs: [{ number, url: made.url, state: 'open' }] } : undefined
-      )
-      return okBody({ url: made.url, number, draft: true, wavesDone: done, opened: true })
+        const number = prNumberOf(made.url)
+        await record(
+          { at, url: made.url, ...(number !== null ? { number } : {}), draft: true, wavesDone: done },
+          number !== null ? { prs: [{ number, url: made.url, state: 'open' }] } : undefined
+        )
+        return okBody({ url: made.url, number, draft: true, wavesDone: done, opened: true })
+      })()
+      const at = deps.now?.() ?? now
+      const failed = reply.status >= 400 ? String((reply.body as { error?: unknown } | null)?.error ?? `answered ${reply.status}`) : undefined
+      // T4: consecutive failures count (a push that went through, or the owner's "Retry now", starts afresh); the fifth asks
+      // the owner once, as a delivery does (`raiseDeliveryQuestion`), and a push that goes through answers that question
+      const prev = run.branchPush
+      const bp = afterAttempt(prev?.state === 'delivered' || args.force === true ? undefined : prev, at, failed)
+      const tasksPushed = failed === undefined ? tasksDone : prev?.tasksDone
+      let cur = deps.getState()
+      cur = { ...cur, runs: cur.runs.map((r) => (r.id === id ? { ...r, branchPush: { ...bp, ...(tasksPushed !== undefined ? { tasksDone: tasksPushed } : {}) } } : r)) }
+      if (bp.state === 'needs-owner' && bp.questionId === undefined) cur = raiseDeliveryQuestion(cur, id, at, 'branchPush')
+      const asked = prev?.questionId
+      if (failed === undefined && asked !== undefined)
+        cur = { ...cur, messages: cur.messages.map((m) => (m.id === asked && !m.answered ? { ...m, answered: true, answerBody: 'pushed' } : m)) }
+      await deps.setState(cur)
+      return reply
+    }
+    // T4: the origin sync's time on the Run (exec/originSync.ts), so a restart does not sync again early. Astera's own step
+    case 'run-origin-synced': {
+      const id = str(args.run)
+      const at = str(args.at)
+      if (!id) return bad('--run is required')
+      if (!at || Number.isNaN(Date.parse(at))) return bad('--at must be a time')
+      if (fromAgentSession || caller.role === 'mcp') return denied("a plan's origin sync is Astera's own")
+      if (!s.runs.some((r) => r.id === id)) return notFound(`unknown run: ${id}`)
+      await deps.setState({ ...s, runs: s.runs.map((r) => (r.id === id ? { ...r, lastOriginSyncAt: at } : r)) })
+      return okBody({ run: id, lastOriginSyncAt: at })
     }
     case 'run-open-pr': {
       const id = str(args.run)
@@ -6211,9 +6686,10 @@ export async function handleCommand(
       if (run.pr?.error !== undefined && args.force !== true)
         return conflict(`Opening this Run's pull request failed before: ${run.pr.error}. --force tries again`)
       // W8-E (#99): a Run that ended with failed Tasks delivers its completed Tasks' work, in a draft
-      const outcome = runView(s, run).outcome
-      if (outcome !== 'completed' && outcome !== 'failed') return conflict('This Run has not completed; its pull request opens once every task is done')
-      const failed = outcome === 'failed'
+      const outcome = taskOutcomeOf(s, run)
+      if (outcome !== 'completed' && outcome !== 'failed' && outcome !== 'blocked') return conflict('This Run has not completed; its pull request opens once every task is done')
+      // Item 2: a Run that finished with Tasks held for the owner delivers like a failed one, and its PR stays a draft to finish
+      const failed = outcome !== 'completed'
       if (!deps.github) return conflict('GitHub commands are answered by the Astera Host, and this caller is not one')
       const worktree = run.worktree
       if (worktree === undefined) return conflict('This Run has no integration branch; use Merge to bring its work into the project folder')
@@ -6271,10 +6747,10 @@ export async function handleCommand(
         if (!pushed.ok) return fail(pushed.kind === 'no-remote' ? noRemoteNote(t.branch, t.repoPath) : `The push was rejected: ${pushed.detail.trim()}`)
         await pushNotes(t.cwd) // W8-A: the notes ref goes with the PR branch
         // W8-E (#99): a Run with failed Tasks delivers its completed work and stays a draft
-        for (const step of [['pr', 'edit', draft.url, '--body', body], ...(failed ? [] : [['pr', 'ready', draft.url]])]) {
-          const r = await g.run(step, t.cwd)
-          if (!r.ok) return fail(`gh ${step[0]} ${step[1]}: ${ghFailureSentence(r).message}`)
-        }
+        const edited = await setPrBody(g.run, draft.url, body, t.cwd)
+        if (!edited.ok) return fail(`gh api (the pull request's body): ${ghFailureSentence(edited).message}`)
+        const readied = failed ? null : await markPrReady(g.run, draft.url, t.cwd)
+        if (readied !== null && !readied.ok) return fail(`gh pr ready: ${ghFailureSentence(readied).message}`)
         const { draft: _d, wavesDone: _w, error: _e, ...ready } = draft
         await record(failed ? { ...draft, at: now } : { ...ready, at: now })
         return okBody({ url: draft.url, number: draft.number ?? null, opened: false, ready: !failed })
@@ -6300,7 +6776,7 @@ export async function handleCommand(
         return made
       }
       const number = prNumberOf(url)
-      await record({ at: now, url, ...(number !== null ? { number } : {}) }, number !== null ? { prs: [{ number, url, state: 'open' }] } : undefined)
+      await record({ at: now, url, ...(number !== null ? { number } : {}), ...(outcome === 'blocked' ? { draft: true as const } : {}) }, number !== null ? { prs: [{ number, url, state: 'open' }] } : undefined)
       await pushNotes(worktree) // W8-A: the notes ref goes with the PR branch
       return okBody({ url, number, opened: made.status === 200 })
     }
@@ -6341,6 +6817,7 @@ export async function handleCommand(
       const pushed = r.noted.length > 0 ? await pushNotes(job.cwd) : 'none'
       const cur = deps.getState()
       await deps.setState({ ...cur, runs: cur.runs.map((x) => (x.id === run.id && x.pr ? { ...x, pr: { ...x.pr, attributed: sha, attributedAt: deps.now?.() ?? new Date().toISOString(), baseRefName: pr.baseRefName as string } } : x)) })
+      await cleanAfterDelivery(deps, run.id) // T5: the plan's pull request is merged: its worktrees and branches go
       return okBody({ remapped: true, kind: r.kind, noted: r.noted, sha, notesPushed: pushed === 'pushed' })
     }
     case 'github-ci-rerun': {
@@ -6538,10 +7015,59 @@ export async function handleCommand(
               ? emptyState
               : null
       if (!wipe) return bad('specify one of --tasks, --messages, --all')
+      // Without --yes nothing is touched: say what would go, per list and per Job, and refuse.
+      if (args.yes !== true) {
+        const gone = wipe()
+        const jobOf = (t: { jobId?: string; runId?: string }): string =>
+          t.jobId ?? s.runs.find((r) => r.id === t.runId)?.jobId ?? 'unknown'
+        const perJob: Record<string, { tasks: number; dispatches: number }> = {}
+        const at = (j: string): { tasks: number; dispatches: number } => (perJob[j] ??= { tasks: 0, dispatches: 0 })
+        const keptTasks = new Set(gone.tasks.map((t) => t.id))
+        const keptDispatches = new Set(gone.dispatches.map((d) => d.id))
+        for (const t of s.tasks) if (!keptTasks.has(t.id)) at(jobOf(t)).tasks++
+        for (const d of s.dispatches)
+          if (!keptDispatches.has(d.id)) at(jobOf(s.tasks.find((t) => t.id === d.taskId) ?? {})).dispatches++
+        const would = {
+          tasks: s.tasks.length - gone.tasks.length,
+          dispatches: s.dispatches.length - gone.dispatches.length,
+          messages: s.messages.length - gone.messages.length,
+          deliveries: s.deliveries.length - gone.deliveries.length,
+          runs: s.runs.length - gone.runs.length,
+          jobs: s.jobs.length - gone.jobs.length,
+          gates: s.gates.length - gone.gates.length
+        }
+        return { status: 400, body: { error: 'reset deletes data for good: nothing was changed. Add --yes to do it', wouldDelete: would, perJob } }
+      }
       // The documented safety net for destructive operations — copies the current file **before** setState.
       await deps.backup?.()
-      await deps.setState(wipe())
+      await deps.setState(wipe(), { allowMassDelete: true })
       return okBody({ reset: true })
+    }
+    case 'tasks-restore': {
+      const from = str(args.from)
+      if (from === null) return bad('--from is required: the backup file to read')
+      const job = str(args.job)
+      const run = str(args.run)
+      if ((args.job === undefined) === (args.run === undefined))
+        return bad('exactly one of --job or --run is required')
+      let backup: OrchState
+      try {
+        const parsed: unknown = JSON.parse(await readFile(from, 'utf8'))
+        if (!isValidState(parsed)) return bad(`${from} is not an orchestration state file`)
+        backup = migrateLoadedState(parsed)
+      } catch (e) {
+        return bad(`cannot read ${from}: ${(e as Error).message}`)
+      }
+      // Read after the file: this await is a yield point, and the plan must be built on what the store holds now.
+      const live = deps.getState()
+      const plan = planTasksRestore(live, backup, job !== null ? { job } : { run: run! })
+      const list = plan.tasks.map((t) => ({ id: t.id, title: t.title, status: t.status, restoredAs: t.restoredAs, run: t.runId ?? null }))
+      if (args.dryRun === true) return okBody({ dryRun: true, tasks: list, dispatches: plan.dispatches })
+      if (plan.tasks.length === 0) return okBody({ restored: { tasks: 0, dispatches: 0 }, tasks: [] })
+      await deps.backup?.()
+      await deps.setState(plan.state)
+      deps.log?.(`tasks.restored: ${plan.tasks.length} task(s), ${plan.dispatches.length} dispatch(es) from ${from} for ${job ?? run}`)
+      return okBody({ restored: { tasks: plan.tasks.length, dispatches: plan.dispatches.length }, tasks: list })
     }
     default: {
       // **모르는 명령은 501 이지 404 가 아니다**(공개 CLI 설계 §8). 404 는 없는 id 의 자리다 — 둘을
@@ -6556,6 +7082,11 @@ export async function handleCommand(
     }
   }
 }
+
+/** T8: the Run this session coordinates (its slot or its external coordinator), or undefined. Not `callerRun`, which
+ *  falls back to the latest Run: a permission check must not read any session as that Run's coordinator. */
+const coordinatedBy = (s: OrchState, sessionId: string): JobRun | undefined =>
+  sessionId === '' ? undefined : s.runs.find((r) => r.coordinatorSessionId === sessionId || r.externalCoordinatorSessionId === sessionId)
 
 /** Closes a Dispatch when its session goes away (exit). Moved here from coordinator.ts — because
  *  closeDispatch touches OrchState it has to live on the server side, which owns the state (the

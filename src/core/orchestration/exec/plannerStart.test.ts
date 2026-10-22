@@ -32,7 +32,7 @@ describe('startCoordinatorSession with role planner', () => {
         roleModels: async () => ({})
       }
       const r = await startCoordinatorSession(ctx, { runId: job.value.id, cwd: '/repo', accountId: 'acc1', brief: 'PLAN IT', role: 'planner' })
-      expect(r).toEqual({ sessionId: 'ses-planner' })
+      expect(r).toEqual({ sessionId: 'ses-planner', accountId: 'acc1' })
       expect(spawned[0]).toMatchObject({ accountId: 'acc1', cwd: '/repo', bypassPermissions: false, model: 'opus', rollAccountIds: ['acc1'], title: 'Planner · add a login page' })
       const briefPath = path.join(dir, plannerBriefName(job.value.id))
       expect(await fs.readFile(briefPath, 'utf8')).toBe('PLAN IT')

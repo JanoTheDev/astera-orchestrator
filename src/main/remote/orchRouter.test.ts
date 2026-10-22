@@ -234,3 +234,34 @@ describe('merged reads across Runtimes (W5-D, #44)', () => {
     expect(page.body).toEqual({ ...empty, since: 'S', failed: [{ title: 'local f' }, { title: 'remote f', runtimeId: 'rt_a' }] })
   })
 })
+
+describe('projects-add on a Runtime (T12b)', () => {
+  const routerWith = (permission: string) => {
+    const l = recordingLocal()
+    const client = fakeClient()
+    const r = createOrchRouter({ local: l.local, remote: { client: async () => client, list: async () => [{ runtimeId: 'rt_a', permission }] } })
+    return { r, l, client }
+  }
+
+  it('sends projects-add --clone to a full-control Runtime, and never to the local Host', async () => {
+    const { r, l, client } = routerWith('full-control')
+    expect(await r.command('/p', 'projects-add', { clone: 'https://github.com/o/r.git' }, 'rt_a')).toEqual({ status: 200, body: { remote: true } })
+    expect(client.seen).toEqual(['command:projects-add'])
+    expect(l.calls).toEqual([])
+  })
+
+  it('refuses it for a read-only pairing before anything is sent', async () => {
+    const { r, l, client } = routerWith('read-only')
+    const reply = await r.command('/p', 'projects-add', { clone: 'https://github.com/o/r.git' }, 'rt_a')
+    expect(reply.status).toBe(403)
+    expect(reply.body).toMatchObject({ code: 'RUNTIME_PERMISSION_DENIED' })
+    expect(client.seen).toEqual([])
+    expect(l.calls).toEqual([])
+  })
+
+  it('refuses it for a Runtime it cannot find in the paired list', async () => {
+    const { r, client } = routerWith('full-control')
+    expect((await r.command('/p', 'projects-add', { clone: 'https://x/y.git' }, 'rt_other')).status).toBe(403)
+    expect(client.seen).toEqual([])
+  })
+})

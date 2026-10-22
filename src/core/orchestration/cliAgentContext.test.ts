@@ -132,6 +132,9 @@ const NOT_SWITCHED = [
   'projects-create',
   'skills-list',
   'skills-install',
+  'accounts-login',
+  // T12c
+  'accounts-import',
   'higgsfield-list',
   'higgsfield-use',
   'mcp-serve',
@@ -144,9 +147,13 @@ const NOT_SWITCHED = [
   'runtime-pair',
   'runtime-clients',
   'runtime-revoke',
+  'runtime-setup',
   'runtimes-add',
   'runtimes-list',
   'runtimes-remove',
+  'machines-add',
+  // T12c
+  'machines-migrate',
   'plugins-install',
   'plugins-list',
   'plugins-get',

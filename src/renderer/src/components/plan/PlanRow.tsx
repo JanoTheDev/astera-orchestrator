@@ -143,6 +143,7 @@ export function PlanRow({
         <Chip tone={status.tone} dot>
           {t(status.key)}
         </Chip>
+        {status.reason !== undefined && <span className="plans-row__reason">{t('jobs.run.notDelivered', { reason: status.reason })}</span>}
         <SourceChip source={row.source} />
         {row.pr && (
           <span className="plans-row__pr">
@@ -206,9 +207,9 @@ export function PlanRow({
       )}
 
       {/* W8-D: before approval, one line per overlap with another plan; it never blocks the approve */}
-      {row.pendingStart && (row.overlaps?.length ?? 0) > 0 && (
+      {row.pendingStart && ((row.planOverlaps ?? row.overlaps)?.length ?? 0) > 0 && (
         <ul className="plans-row__sub plans-row__overlaps" aria-label={t('jobs.run.overlaps')}>
-          {row.overlaps?.map((line) => (
+          {(row.planOverlaps ?? row.overlaps)?.map((line) => (
             <li key={line} title={t('jobs.run.overlapsHint')}>
               {t('jobs.run.overlaps')}: {line}
             </li>

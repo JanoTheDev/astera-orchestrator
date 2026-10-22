@@ -1,6 +1,7 @@
 import {
   readConversationWindow,
   ConversationFollow,
+  lastReplyTextOf,
   type ReduceLines
 } from '../core/history/conversationRead'
 import { reduceTranscript } from '../core/history/conversation'
@@ -90,6 +91,9 @@ export interface ConversationSessions {
    *  since nothing re-emits a turn that already resolved. Not read by ipc.ts's own wiring. 0 for a
    *  session that is not open. */
   retainedCount(sessionId: string): number
+  /** The text of the session's newest assistant reply in its transcript (lastReplyTextOf), read once; null when
+   *  there is none or the session has no readable transcript. The chat tiles on the Agents wall read it. */
+  lastReply(sessionId: string): Promise<string | null>
 }
 
 interface Entry {
@@ -327,6 +331,14 @@ export function createConversationSessions(deps: {
     },
     retainedCount(sessionId) {
       return entries.get(sessionId)?.partOwner.size ?? 0
+    },
+    // The chat tiles' preview. Reads the transcript once and follows nothing: a tile must not open the
+    // conversation, since a second open replaces the pane's own follow (see the interface above).
+    async lastReply(sessionId) {
+      const source = await deps.sourceFor(sessionId)
+      if (source === null) return null
+      const window = await readConversationWindow(source.path, { reduce: REDUCERS[source.format] })
+      return window === null ? null : lastReplyTextOf(window.turns)
     }
   }
 }

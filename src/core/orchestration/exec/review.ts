@@ -14,7 +14,8 @@
 import { workerSpecOf } from '../planner'
 import path from 'node:path'
 import { randomBytes } from 'node:crypto'
-import type { Account } from '../../types'
+import type { Account, Provider } from '../../types'
+import { PROVIDERS } from '../../providers/meta'
 import type { OrchServerDeps } from '../command'
 import { checkConfigIdsOf, policyOf } from '../convergence'
 import { ownerAnswersOf, pickReviewer } from '../reviewer'
@@ -34,6 +35,9 @@ export interface ReviewContext {
   /** The start wrapper that attaches the chain and the tail — never the bare coordinator. */
   startWorker: OrchServerDeps['startWorker']
   specsDir: string
+  /** T5b: the account with most room per provider (OrchServerDeps.startAccount), so a review skips a full account.
+   *  Absent, or null: the provider's default account, as before. */
+  startAccount?(a: Parameters<NonNullable<OrchServerDeps['startAccount']>>[0]): ReturnType<NonNullable<OrchServerDeps['startAccount']>> | null
 }
 
 /** OrchServerDeps.startReview 의 본문을 돌려준다. 돌려준 함수는 흘려보내는 쪽이 종단 .catch 를
@@ -83,7 +87,15 @@ export function createReviewStarter(c: ReviewContext): (a: { taskId: string }) =
         accounts.map(async (a) => ((await c.loginStatus(a.id)) ? a.id : null))
       )
       const loggedIn = new Set(loggedInIds.filter((id): id is string => id !== null))
-      const picked = pickReviewer({ implProvider: impl.provider, accounts, loggedInIds: loggedIn })
+      // T5b: each provider's account with most room; a provider whose accounts are all full is skipped
+      const best = new Map<Provider, string | null>()
+      for (const provider of PROVIDERS) {
+        const x = await c.startAccount?.({ provider, own: [], purpose: 'reviewer' })
+        if (!x) continue
+        if (x.ok) x.release()
+        best.set(provider, x.ok ? x.accountId : null)
+      }
+      const picked = pickReviewer({ implProvider: impl.provider, accounts, loggedInIds: loggedIn, best: (p) => best.get(p) })
       if (!picked)
         return void (await gate(`no logged-in account on a provider other than ${impl.provider}`))
       // Same-provider review (W1-A): the reviewer's model is kept off the implementer's by

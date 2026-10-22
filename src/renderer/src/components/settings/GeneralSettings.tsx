@@ -14,6 +14,7 @@ import { ThemeSettings } from '../ThemeSettings'
 import { AutoCloseTabsSetting } from '../AutoCloseTabsSetting'
 import { toast } from '../../lib/toast'
 import { deleteKey, isMac as isMacPlatform, modKey } from '../../lib/platformKeys'
+import { useAdvancedMode } from '../../state/useAdvancedMode'
 import { SettingRow, type GroupProps } from './SettingRow'
 
 // The shortcut list for the settings modal. When a binding changes (the TerminalView key handler or
@@ -106,6 +107,7 @@ export function GeneralSettings(p: GroupProps): React.JSX.Element | null {
     systemLang,
     t
   } = p
+  const [advanced, setAdvanced] = useAdvancedMode()
   if (!shown) return null
   return (
     <>
@@ -135,6 +137,15 @@ export function GeneralSettings(p: GroupProps): React.JSX.Element | null {
                 </option>
               ))}
             </Select>
+          </div>
+        </SettingRow>
+        <SettingRow a="advancedMode" only={only}>
+          <div className="settings-group">
+            <label className="settings-row">
+              <span>{t('settings.basic.advancedMode.label')}</span>
+              <input type="checkbox" role="switch" className="ui-toggle" checked={advanced} onChange={(e) => setAdvanced(e.target.checked)} />
+            </label>
+            <span className="settings-hint">{t('settings.basic.advancedMode.hint')}</span>
           </div>
         </SettingRow>
         {/* Which kind the two session dialogs open on. A plain enum with nothing coupled

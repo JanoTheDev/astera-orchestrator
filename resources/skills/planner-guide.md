@@ -67,6 +67,10 @@ Every plan starts here, whatever its source. Nothing is built twice.
   tokens) in wave 1 and their consumers after. When the Tasks are independent, fill each wave to the Job's worker limit.
   Never add a link "to be careful".
 
+- **A Task prompt states five things**: the goal, the findings with `file:line`, numbered build steps, the files, the
+  tests with their commands, and what not to touch. A worker sees nothing else of the plan, so a prompt that leaves one
+  out is a Task that goes wrong.
+
 - **Name the plan's areas** (W8-D): 1 to 3 short words for where its Tasks work, read off their paths
   (`auth`, `api`, `ui`): `astera jobs-set --id <jobId> --areas auth,api`. The Plans page groups plans by them.
 
@@ -82,10 +86,23 @@ Create Tasks in dependency order (a Task can only depend on one that exists). Ea
 | `--criteria '[...]'` | one or more acceptance criteria, each checkable by reading code or running a command ("`npm test -- foo` passes", not "works well") |
 | `--affected-paths '[...]'` | the files or folders it will change |
 | `--deps '[...]'` | the Task ids it waits for |
+| `--kind` | `bugfix`, `feature`, `refactor`, `ui`, `audit`, `docs`, `test` or `ops`. It picks the skills the worker is told to use (systematic debugging and a failing test first for `bugfix`, test-first for `feature`, the design rules for `ui`, read-only findings first for `audit`). Pass it on every Task; without it Astera guesses from the title |
 | `--difficulty` | `light` (mechanical, small), `standard` (ordinary feature or fix), `hard` (design, subtle bug, wide change). It picks the worker's model |
 | `--model-reason` | one line: why that difficulty (and provider or model, if you set one) |
 | `--basis` + `--evidence` | what you found of the item before planning (section 0): `missing`, `partial` or `broken`, and the file:line, issue, PR or Job id that shows it |
 | `--validate` | run configurations that test the work, when the project has any |
+| `--covers` | the numbers of the objective items the Task covers, e.g. `1,3` (see below) |
+
+**Cover every objective item.** When the objective lists items (top-level numbered lines `1.` / `1)`, or bullets when it
+has no numbered ones; nested lines belong to the item above), give every Task `--covers` with the numbers of the items it
+covers (bullets count 1, 2, 3 in order). An item you do not plan, because it is already built (section 0) or out of
+scope, is left out on purpose with the reason: `astera jobs-set --id <jobId> --left-out
+'[{"item":2,"reason":"already built: src/x.ts:12"}]'` (the whole list each time; `[]` clears it). The person sees the
+left-out items and their reasons on the plan. Approval refuses an item that is neither covered nor left out.
+
+**Name the plan.** Every Job starts named by the first words of its objective. Once you know the goal, give it a short
+name of 3 to 6 words: `astera jobs rename --id <jobId> --title "<3-6 words>"`. Always do it for a chat-planned Job
+(section 7): its objective is a placeholder until you and the person agree on the work.
 
 `--provider` and `--model` only when a Task needs a specific one. Fix a Task with `astera task-update --id
 <taskId>` and the same flags; deps stay inside the plan and may not form a cycle.
@@ -108,8 +125,17 @@ gets a slower worker.
 Read the plan back (`astera tasks list --run <jobId> --json`). Then print a short summary in your terminal:
 the Tasks in order, what runs in parallel and why that is safe, the open questions. Tell the person to press
 **Approve & execute** on the Job in Astera, and wait. Approval is refused while a Task has no prompt or no
-acceptance criterion or no basis, depends on a Task outside the plan, or the dependencies form a cycle. If the person asks
+acceptance criterion or no basis, depends on a Task outside the plan, or the dependencies form a cycle, and while an
+objective item is neither covered by a Task's `--covers` nor left out with `jobs-set --left-out` and a reason. Before
+you hand over, check every item is one or the other, and that the plan has its short name (`jobs rename`). If the person asks
 for changes, make them with `task-update` or new Tasks and summarise again.
+
+**When the person tells you here to run, start or approve the plan** (they typed it in this terminal, after your last
+change), finish the plan, read it back, then run
+`astera run-start --run <jobId> --owner-said "<their words, verbatim>"`. That is the same as pressing Approve & execute.
+Never run it unless they said so after your last change: Astera refuses it otherwise (ask them to type "run it"), and
+refuses it when the plan does not hold. The answer then lists every problem; fix them, read the plan back and ask the
+person to confirm again.
 
 ## 5. Replanning
 
@@ -131,7 +157,7 @@ the files) before you change anything.
 
 You may:
 - change a Task that has **not started** with `astera task-update --id <taskId>` and the planner flags;
-- add Tasks to the Run with `astera task-create --run <runId> --account <id>` and the planner flags (a prompt and at
+- add Tasks to the Run with `astera task-create --run <runId>` and the planner flags (a prompt and at
   least one criterion, as always);
 - cancel a Task that has not started and is no longer needed: `astera task-cancel --id <taskId> --reason "<why>"`.
   Change the `--deps` of every Task that waits on it first.

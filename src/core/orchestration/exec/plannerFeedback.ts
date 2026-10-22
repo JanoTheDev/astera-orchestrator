@@ -11,7 +11,7 @@ import type { OrchServerDeps } from '../command'
 import { handsOffOf, projectOfJob } from '../delivery'
 import { buildPlannerBrief } from '../handover'
 // W8-D several plans in one repo
-import { otherPlansBrief } from '../overlap'
+import { otherPlansBrief, planOverlapWarnings } from '../overlap'
 import { archiveJob, isJobActive } from '../lifecycle'
 import { cancelPlanTask, plannerJobOf, validatePlan } from '../planner'
 import { replanJobOf } from '../replan'
@@ -137,7 +137,7 @@ export async function feedbackCommand(deps: OrchServerDeps, caller: Caller, cmd:
     const id = str(args.id)
     if (!id) return bad('--id is required')
     if (!str(args.reason)) return bad('--reason is required: why this Task is no longer needed')
-    const r = cancelPlanTask(s, id)
+    const r = cancelPlanTask(s, id, now)
     if (!r.ok) return r.missing ? notFound(r.error) : bad(r.error)
     await deps.setState(r.state)
     return ok({ id, cancelled: true })
@@ -184,7 +184,9 @@ export async function feedbackCommand(deps: OrchServerDeps, caller: Caller, cmd:
     const problems = validatePlan(s, jobId)
     if (problems.length) return { status: 400, body: { error: `the plan does not hold: ${problems.join('; ')}`, problems } }
     await setJob(jobId, (j) => ({ ...j, planReadyAt: now }))
-    return ok({ jobId, planReadyAt: now })
+    // T11: the plan's open overlaps with plans planning or running, for the owner's approval; never a problem
+    const overlaps = planOverlapWarnings(s, jobId)
+    return ok({ jobId, planReadyAt: now, ...(overlaps.length > 0 ? { overlaps } : {}) })
   }
 
   if (cmd === 'jobs-auto-start') {
@@ -222,7 +224,9 @@ export async function feedbackCommand(deps: OrchServerDeps, caller: Caller, cmd:
     return reply
   }
 
-  const accountId = job.coordinatorAccountId
+  // T5b (decision 6): the account named for the plan is a preference; with none, the planner starts where there is room
+  // (`auto`), the account it ran on before only saying the provider
+  const accountId = job.preferredAccountId ?? job.coordinatorAccountId ?? job.plannerAccountId
   const last = job.plannerSessionIds?.at(-1)
   // 1. Typed into the planner while it lives: the same conversation, nothing to start
   const live = last && deps.listSessions && deps.sendSession ? (await deps.listSessions()).find((x) => x.id === last && x.alive && x.kind === 'terminal') : undefined
@@ -235,9 +239,21 @@ export async function feedbackCommand(deps: OrchServerDeps, caller: Caller, cmd:
     return ok({ jobId, sessionId: last, via: 'typed' })
   }
   if (!deps.startCoordinator) return conflict('starting a planner is not available in this build')
-  if (!accountId) return bad('the Job names no coordinator account to plan on')
-  const start = async (brief: string, resume?: string): Promise<string> =>
-    (await deps.startCoordinator!({ runId: jobId, cwd: job.cwd, accountId, role: 'planner', brief, ...(resume ? { resume } : {}) })).sessionId
+  if (!accountId) return bad('the Job names no account to plan on')
+  let startedOn: string | undefined
+  const start = async (brief: string, resume?: string): Promise<string> => {
+    const started = await deps.startCoordinator!({
+      runId: jobId,
+      cwd: job.cwd,
+      accountId,
+      ...(job.preferredAccountId === undefined ? { auto: true as const } : {}),
+      role: 'planner',
+      brief,
+      ...(resume ? { resume } : {})
+    })
+    startedOn = started.accountId
+    return started.sessionId
+  }
   await record(entry('plan'))
   // 2. Its own conversation resumed: cheaper than a fresh planner, and it keeps everything it read
   const agent = last ? await deps.agentSessionOf?.(last).catch(() => null) : null
@@ -260,7 +276,8 @@ export async function feedbackCommand(deps: OrchServerDeps, caller: Caller, cmd:
     }
   }
   const started = sessionId
-  await setJob(jobId, (j) => ({ ...j, plannerSessionIds: [...(j.plannerSessionIds ?? []), started] }))
+  // T5b: the account it actually started on
+  await setJob(jobId, (j) => ({ ...j, plannerSessionIds: [...(j.plannerSessionIds ?? []), started], ...(startedOn ? { plannerAccountId: startedOn } : {}) }))
   return ok({ jobId, sessionId: started, via })
 }
 

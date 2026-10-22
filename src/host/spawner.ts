@@ -51,7 +51,7 @@ import type { PtyFactory, PtyLike } from '../core/sessions/pty'
 import { StatusLineManager, resolveNodePath } from '../core/sessions/statusline'
 import { BusyScanner } from '../core/terminal/busy'
 import { previewShotsDir } from '../core/preview/shotsDir'
-import type { Account, SessionInfo } from '../core/types'
+import type { Account, CloseReason, SessionInfo } from '../core/types'
 import type { PtyRegistry } from './registry'
 import type { HostRollSpawner, RollSpawnOpts } from './rolling'
 import type { HostWorktrees } from './worktrees'
@@ -86,7 +86,7 @@ export interface HostLocal {
   /** Kills the pty of this session when this Host's registry holds it, and answers whether it did
    *  (Task 1 fix round 1, I2: a coordinator the hand-over must stop). Optional, and not a
    *  HostLocalName: `hostOrchDeps` builds `stopCoordinator` by hand over it. */
-  stopSession?(sessionId: string, reason?: string): boolean
+  stopSession?(sessionId: string, reason?: string, closeReason?: CloseReason): boolean
   /** Whether this call is the Host's to answer (R1). */
   owns(name: HostLocalName, args: unknown[]): boolean
 }
@@ -587,9 +587,9 @@ export function createHostSpawner(d: HostSpawnerDeps): HostSpawner | null {
         if (p) registry.write(p, data)
       },
       isAlive: (sid) => registry.sessionPty(sid) !== null,
-      killSession: (sid) => {
+      killSession: (sid, reason) => {
         const p = registry.sessionPty(sid)
-        if (p) registry.kill(p)
+        if (p) registry.kill(p, reason)
       },
       // R4: the scanner alone, gated on the provider, as the app's orchIsBusy does.
       isBusy: (sid) => {
@@ -613,6 +613,7 @@ export function createHostSpawner(d: HostSpawnerDeps): HostSpawner | null {
         const a = accounts.find((x) => x.id === id)
         return a ? providerOf(a) : null
       },
+      accountConfigDir: (id) => accounts.find((x) => x.id === id)?.configDir ?? null,
       specsDir,
       log,
       // Host journal (A19 lifted): the prompt rows recovery reasons from. Isolated: the coordinator calls
@@ -786,6 +787,8 @@ export function createHostSpawner(d: HostSpawnerDeps): HostSpawner | null {
           accounts,
           trace
         )
+        // T5b: the session counts itself on its account now
+        picked?.release()
         return info as SessionInfo
       } catch (err) {
         // Nothing started (no pty opened): a keyed retry keeps no receipt over it, as for a coordinator.
@@ -827,20 +830,20 @@ export function createHostSpawner(d: HostSpawnerDeps): HostSpawner | null {
         throw !trace.opened && err instanceof Error ? refusedBeforeActing(err) : err
       }
     }),
-    stopSession: (sessionId, reason) => {
+    stopSession: (sessionId, reason, closeReason) => {
       const p = registry.sessionPty(sessionId)
       if (!p) return false
-      registry.kill(p)
+      registry.kill(p, closeReason)
       log(`coordinator ${sessionId} stopped${reason === undefined ? '' : `: ${reason}`}`)
       return true
     },
-    releaseWorker: async ({ dispatchId }) => {
+    releaseWorker: async ({ dispatchId, closeReason }) => {
       const args = releaseArgsFor(d.getState().dispatches, dispatchId)
       if (!args) {
         log(`worker-release: unknown dispatch ${dispatchId} — there is no session to close`)
         return
       }
-      await coordinatorFor([]).releaseWorker(args)
+      await coordinatorFor([]).releaseWorker({ ...args, closeReason })
     },
     readWorker: async ({ dispatchId, limit }) =>
       d.getState().dispatches.some((x) => x.id === dispatchId)

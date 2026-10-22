@@ -71,7 +71,7 @@ const ROUNDS_PAGE = 5
  *  하지 않은 Run 에 체크 표시가 붙는다. */
 function runKind(run: JobRow): RunIconKind {
   if (run.tasks.some((t) => t.status === 'blocked')) return 'blocked'
-  if (run.outcome === 'running') return 'running'
+  if (run.outcome === 'running' || run.outcome === 'checking') return 'running'
   return run.outcome === 'failed' ? 'failed' : 'done'
 }
 

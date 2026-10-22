@@ -4,6 +4,7 @@
 // Host has answered: `pid` is 0 until it does, and writes made in between are queued. That is safe
 // because `pid` is read in exactly one place in this repository — RunManager's tree-kill, at stop
 // time. Everything else only writes, resizes and listens.
+import type { CloseReason } from '../../core/types'
 import { randomUUID } from 'node:crypto'
 import type { ClientMessage, HostMessage } from '../../core/host/protocol'
 import {
@@ -54,13 +55,13 @@ function handle(t: HostPtyTransport, id: string, startLive: boolean, startPid: n
   let onData: (d: string) => void = () => {}
   let onExit: (e: { exitCode: number }) => void = () => {}
 
-  const end = (exitCode: number): void => {
+  const end = (exitCode: number, closeReason?: CloseReason): void => {
     state = 'exited'
     queue.length = 0
     clearDeadline()
     unsubscribe()
     unsubscribeGone()
-    onExit({ exitCode })
+    onExit({ exitCode, ...(closeReason ? { closeReason } : {}) })
   }
 
   /** Written on the terminal itself, because that is where the person is looking. A session that ends
@@ -106,7 +107,7 @@ function handle(t: HostPtyTransport, id: string, startLive: boolean, startPid: n
       // with a bare code 1 and an empty screen. The Host says useful things there: a runtime whose
       // node-pty is half deleted names the missing file (design F7).
       if (m.t === 'pty-failed') say(m.error)
-      end(m.t === 'pty-exit' ? m.exitCode : 1)
+      end(m.t === 'pty-exit' ? m.exitCode : 1, m.t === 'pty-exit' ? m.closeReason : undefined)
     }
   })
 
@@ -177,8 +178,8 @@ function handle(t: HostPtyTransport, id: string, startLive: boolean, startPid: n
     // ordered behind. write and resize queue instead because their payload is real content — input
     // the user typed, a size the app needs applied — that must not be sent to a pty that turns out
     // never to have started at all.
-    kill: () => {
-      if (state !== 'exited') t.send({ t: 'pty-kill', id })
+    kill: (reason) => {
+      if (state !== 'exited') t.send({ t: 'pty-kill', id, ...(reason ? { closeReason: reason } : {}) })
     },
     pause: () => {
       if (state !== 'exited') t.send({ t: 'pty-pause', id })

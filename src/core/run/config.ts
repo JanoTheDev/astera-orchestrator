@@ -4,6 +4,7 @@
 // interfaces live in ./types and are only re-exported here, so a renderer module that needs both
 // still has one import.
 export type { RunConfig, RunConfigType, SaveReason, SaveConfigsResult } from './types'
+import type { CloseReason } from '../types'
 import type { RunConfig, RunConfigType } from './types'
 import { foldPathCase, runtimePlatform } from '../files/paths'
 
@@ -26,6 +27,10 @@ export interface RunStatus {
    *  rather than racing the dying process — and the list can show that ▶ did something. */
   status: 'running' | 'stopping' | 'exited'
   exitCode?: number
+  /** Astera stopped this run (stop()): its exit is a normal close, not a failure. */
+  closedByAstera?: true
+  /** Why Astera stopped it, when the caller said (stop()'s `reason`). */
+  closeReason?: CloseReason
   startedAt: number
   exitedAt?: number
   /** The first loopback address this run printed — the dev server's own URL, seen in its output

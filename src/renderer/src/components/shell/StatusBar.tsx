@@ -1,8 +1,9 @@
-// The status bar (DESIGN-W11 §8): on the left the work (consoles → Agents, "n working", "n needs you" → the Inbox, the
+// The status bar (DESIGN-W11 §8): on the left the work (consoles → Agents, "n working", "n needs you" → the bell, the
 // next queued plan), on the right the shown account's usage as words ("5h 16% · week 40%") and the Host as a word.
 // Zero counts are hidden; sans, not mono.
 import { HostRuntimeNotice } from '../HostRuntimeNotice'
-import { openInbox, openPage } from './navigation'
+import { openPage } from './navigation'
+import { openBell } from './NotificationBell'
 import type { AppState } from '../../state/appState'
 import type { ShellState } from './useShell'
 
@@ -41,10 +42,10 @@ export type StatusBarProps = Pick<
   AppState,
   'appVersion' | 'hostRestarting' | 'hostRuntime' | 'hostRuntimeNow' | 'hostStatus' | 'restartHost' | 't'
 > &
-  Pick<ShellState, 'counts' | 'nextQueued' | 'shellAccount' | 'shellUsage'>
+  Pick<ShellState, 'counts' | 'needsYouUnread' | 'nextQueued' | 'shellAccount' | 'shellUsage'>
 
 export function StatusBar(p: StatusBarProps): React.JSX.Element {
-  const { appVersion, counts, hostRestarting, hostRuntime, hostRuntimeNow, hostStatus, nextQueued, restartHost, shellAccount, shellUsage, t } = p
+  const { appVersion, counts, needsYouUnread, hostRestarting, hostRuntime, hostRuntimeNow, hostStatus, nextQueued, restartHost, shellAccount, shellUsage, t } = p
   const hostOk = !!hostStatus?.connected && !hostStatus.outdated && !hostStatus.unresponsive
   return (
     <>
@@ -60,10 +61,10 @@ export function StatusBar(p: StatusBarProps): React.JSX.Element {
             {t('shell.status.working', { n: counts.working })}
           </button>
         )}
-        {counts.waiting > 0 && (
-          <button type="button" className="sb-item sb-item--warn" onClick={() => openInbox()}>
+        {needsYouUnread > 0 && (
+          <button type="button" className="sb-item sb-item--warn" onClick={openBell}>
             <span className="sb-dot sb-dot--warn" aria-hidden="true" />
-            {t('shell.status.needsYou', { n: counts.waiting })}
+            {t('shell.status.needsYou', { n: needsYouUnread })}
           </button>
         )}
         {nextQueued && <span className="sb-next">{nextQueued}</span>}

@@ -38,6 +38,7 @@ function categoryOf(task: Task, open: Dispatch | undefined, latest: Dispatch | u
     case 'reviewing':
       return 'awaiting-review'
     case 'validating':
+    case 'merging':
       return 'running'
     case 'dispatched':
       if (open) return 'running'

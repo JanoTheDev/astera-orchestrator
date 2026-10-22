@@ -49,6 +49,9 @@
 .tab-overflow-item:hover, .tab-overflow-item:focus-visible { background: var(--elevated); color: var(--text); outline: none; }
 .tab-overflow-item.active { color: var(--text); font-weight: 600; }
 .tab-overflow-item.exited .tab-title { text-decoration: line-through; color: var(--text-faint); }
+/* T13: Recently closed, under the open tabs */
+.tab-overflow-head { padding: 8px 8px 4px; margin-top: 4px; border-top: 1px solid var(--line-soft); color: var(--text-faint); font-size: 11px; }
+.tab-overflow-note { margin-left: auto; color: var(--text-faint); font-size: 11px; }
 .modal.tab-switcher { width: 560px; max-width: calc(100vw - 48px); align-self: flex-start; margin-top: 12vh; gap: 8px; }
 .modal.tab-switcher input { width: 100%; box-sizing: border-box; }
 .tab-switcher-list { margin: 0; padding: 0; list-style: none; max-height: 50vh; overflow-y: auto; }

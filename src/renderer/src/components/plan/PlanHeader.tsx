@@ -38,7 +38,8 @@ export function PlanHeader({
   plans,
   snapshot,
   onClose,
-  onOpenConsoles
+  onOpenConsoles,
+  simple = false
 }: {
   p: PlanPageState
   run: JobRow | undefined
@@ -51,10 +52,30 @@ export function PlanHeader({
   snapshot: OrchSnapshot | null
   onClose: () => void
   onOpenConsoles: () => void
+  /** T19: simple mode: no section tabs and no workers-at-once field */
+  simple?: boolean
 }): React.JSX.Element {
   const { t } = useI18n()
   const { lockedReason, ui, formOpen, running, counts, waveStatus } = p
   const [renaming, setRenaming] = useState(false)
+  // T8: the Stalled chip's Fix in flight
+  const [fixing, setFixing] = useState(false)
+  // T3: a delivery being retried, failed or waiting on the owner can be tried again from here (`run-deliver --force`)
+  const [redelivering, setRedelivering] = useState(false)
+  const delivery = run?.delivery
+  const retryDelivery = async (): Promise<void> => {
+    if (!delivery) return
+    setRedelivering(true)
+    try {
+      const reply = await door.command('run-deliver', { run: delivery.runId, force: true })
+      if (reply.status >= 400) toast.error(t('plan.delivery.retryFailed', { reason: replyNote(reply, t as never, t('jobs.node.failed')) }))
+      else toast.success(t('plan.delivery.delivered'))
+    } catch {
+      toast.error(t('jobs.node.failed'))
+    } finally {
+      setRedelivering(false)
+    }
+  }
   // W9-C: the plan's own actions in the header and its ⋯ menu (DESIGN.md §2 "Plan page"); each is lib/jobActions'.
   const off = lockedReason !== undefined
   // W1-C/W5-C lifecycle (rename, start after, hold, archive) is this computer's Jobs only, as the Jobs list offers it
@@ -139,6 +160,54 @@ export function PlanHeader({
           {run?.archivedAt !== undefined && <Chip>{t('jobs.lifecycle.archived')}</Chip>}
           {run?.dispatchHold && <Chip tone="warn">{t('jobs.hold.held')}</Chip>}
           {run?.pendingStart && <Chip tone="info">{t('jobs.run.notStarted')}</Chip>}
+          {run?.outcome === 'checking' && <Chip tone="info">{t('pages.plans.status.checking')}</Chip>}
+          {run?.outcome === 'blocked' && <Chip tone="warn">{t('pages.plans.status.blocked')}</Chip>}
+          {/* T8: a running plan nothing can move. Needs you opens the overview, where its question is answered; Stalled
+              runs `runs doctor --fix` on this Run (runsDoctor.ts) */}
+          {run?.stuck === 'needs-you' && (
+            <Button size="sm" variant="ghost" title={t('plan.outcome.needsYouHint')} onClick={() => onSection('overview')}>
+              <Chip tone="warn">{t('plan.outcome.needsYou')}</Chip>
+            </Button>
+          )}
+          {run?.stuck === 'stalled' && (
+            <>
+              <span title={t('plan.outcome.stalledHint')}>
+                <Chip tone="danger">{t('plan.outcome.stalled')}</Chip>
+              </span>
+              <Button
+                size="sm"
+                disabled={off || fixing}
+                title={lockedReason}
+                onClick={() => {
+                  setFixing(true)
+                  void door
+                    .command('runs-doctor', { run: runId, fix: true })
+                    .then((reply) => {
+                      if (reply.status >= 400) return toast.error(replyNote(reply, t as never, t('plan.doctor.failed')))
+                      const n = ((reply.body as { repairs?: Array<{ fixed: boolean }> } | null)?.repairs ?? []).filter((r) => r.fixed).length
+                      toast.info(n > 0 ? t('plan.doctor.fixed', { n }) : t('plan.doctor.nothing'))
+                    })
+                    .catch(() => toast.error(t('plan.doctor.failed')))
+                    .finally(() => setFixing(false))
+                }}
+              >
+                {fixing ? t('plan.doctor.fixing') : t('plan.doctor.fix')}
+              </Button>
+            </>
+          )}
+          {run?.outcome === 'failed' && run.deliveryError !== undefined && delivery === undefined && (
+            <Chip tone="danger">{t('jobs.run.notDelivered', { reason: run.deliveryError })}</Chip>
+          )}
+          {/* T3: why the delivery has not gone through yet; "Retry delivery" stands in the actions */}
+          {delivery !== undefined && delivery.state !== 'delivering' && (
+            <Chip tone={delivery.state === 'failed' ? 'danger' : 'warn'}>
+              {t(delivery.state === 'retrying' ? 'plan.delivery.retrying' : delivery.state === 'failed' ? 'plan.delivery.failed' : 'plan.delivery.needsOwner', {
+                reason: delivery.reason ?? '—'
+              })}
+            </Chip>
+          )}
+          {/* T5: the coordinator's model, picked by the plan's size (roleModels.ts resolveCoordinatorModel) */}
+          {run?.coordinatorModel !== undefined && <Chip>{`${t('plan.card.model')}: ${run.coordinatorModel}`}</Chip>}
           <SourceChip source={run?.source} />
           <WaveLine status={waveStatus} brief />
           {running > 0 && (
@@ -158,7 +227,7 @@ export function PlanHeader({
       actions={
         <>
           {/* W7-D (#67): workers at once, changeable while the Job runs; a lower number only holds back new starts */}
-          {run && run.outcome === 'running' && (
+          {!simple && run && run.outcome === 'running' && (
             <label className="jobs-count plan-page-concurrency" title={t('runDetail.concurrencyHint')}>
               <span>{t('runDetail.concurrency')}</span>
               <Input
@@ -188,6 +257,17 @@ export function PlanHeader({
             {t('pages.plan.consoles')}
           </Button>
           {pauseButton}
+          {delivery !== undefined && (
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={off || redelivering || delivery.state === 'delivering'}
+              title={lockedReason ?? delivery.reason}
+              onClick={() => void retryDelivery()}
+            >
+              {redelivering || delivery.state === 'delivering' ? t('plan.delivery.delivering') : t('plan.delivery.retry')}
+            </Button>
+          )}
           {run?.planned && (
             <Button size="sm" variant="ghost" onClick={() => onSection('overview')}>
               {t('pages.plan.talk')}
@@ -199,6 +279,7 @@ export function PlanHeader({
         </>
       }
       filters={
+        simple ? undefined : (
         <Tabs
           variant="underline"
           label={t('pages.plan.sections')}
@@ -206,6 +287,7 @@ export function PlanHeader({
           onChange={onSection}
           items={PLAN_SECTIONS.map((id) => ({ id, label: t(`pages.plan.section.${id}`) }))}
         />
+        )
       }
     />
   )
