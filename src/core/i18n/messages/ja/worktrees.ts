@@ -33,4 +33,9 @@ export const worktrees: Partial<Record<keyof typeof ko, string>> = {
   // WorktreePanel.tsx — panel header, row icon buttons
   'worktree.refresh': '更新',
   'worktree.action.startSession': 'セッションを開始',
+  'worktrees.hint': 'ワークツリーは同じリポジトリの別フォルダーで、専用のブランチを持ちます。エージェントがあなたのファイルに触れずに作業できます。',
+  'worktrees.helpLabel': 'ワークツリーとは？',
+  'worktrees.aheadBehind': '{ahead} 先行、{behind} 遅れ',
+  'worktrees.rowMenu': 'ワークツリーの操作',
+  'worktrees.prMenu': 'プルリクエストの操作',
 }

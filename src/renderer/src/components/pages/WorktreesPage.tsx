@@ -4,8 +4,7 @@ import type { WorktreeRow } from '../../../../core/worktrees/cleanup'
 import { useI18n } from '../../i18n/I18nProvider'
 import { toast } from '../../lib/toast'
 import { WorktreePanel, type WorktreeListHandle } from '../WorktreePanel'
-import { FolderGit2, SlidersHorizontal, X } from 'lucide-react'
-import { EmptyState, IconButton, Menu } from '../ui'
+import { EmptyState, ICONS, Icon, IconButton, Menu } from '../ui'
 import { WorktreeDetail } from '../worktrees/WorktreeDetail'
 import { selectWorktree, useWorktreeView } from '../worktrees/worktreeView'
 
@@ -46,7 +45,7 @@ export function WorktreesPage({
     <Menu
       label={t('worktrees.viewOptions')}
       align="end"
-      trigger={{ icon: <SlidersHorizontal size={16} />, title: t('worktrees.viewOptions') }}
+      trigger={{ icon: <Icon name="filter" />, title: t('worktrees.viewOptions') }}
       items={[
         {
           id: 'auto-clean',
@@ -75,7 +74,7 @@ export function WorktreesPage({
         actions={
           <>
             {viewOptions}
-            {onClose && <IconButton icon={<X size={16} />} label={t('worktrees.close')} onClick={onClose} />}
+            {onClose && <IconButton icon={<Icon name="close" />} label={t('worktrees.close')} onClick={onClose} />}
           </>
         }
       >
@@ -83,7 +82,7 @@ export function WorktreesPage({
           {row ? (
             <WorktreeDetail row={row} list={list} onStartSession={onStartSession} onOpenFiles={onOpenFiles} />
           ) : (
-            <EmptyState icon={FolderGit2} title={t('worktrees.pickTitle')}>
+            <EmptyState icon={ICONS.repo} title={t('worktrees.pickTitle')}>
               {t('worktrees.pick')}
             </EmptyState>
           )}

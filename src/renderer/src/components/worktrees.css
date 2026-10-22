@@ -8,20 +8,26 @@
 .worktree-repo { display: flex; align-items: baseline; gap: 6px; padding: var(--sp-3) var(--sp-4) var(--sp-1); font-size: var(--fs-11); font-weight: var(--fw-medium); color: var(--text-dim); text-transform: uppercase; letter-spacing: .04em; }
 .worktree-repo__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .worktree-list { display: flex; flex-direction: column; }
-.worktree-row { display: flex; align-items: center; gap: var(--sp-2); height: var(--h-lg); padding: 0 var(--sp-2) 0 var(--sp-4); cursor: pointer; box-shadow: inset 2px 0 0 transparent; transition: background var(--dur-fast) var(--ease-out); }
+.worktree-row { display: flex; align-items: center; gap: var(--sp-2); height: var(--h-lg); padding: 0 var(--sp-2) 0 var(--sp-4); box-shadow: inset 2px 0 0 transparent; transition: background var(--dur-fast) var(--ease-out); }
 .worktree-row:hover { background: var(--hover); }
 .worktree-row.is-selected { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
+/* The select button fills the row; Button wraps its children in a label span, which carries the row's flex layout. */
+.worktree-main { flex: 1; min-width: 0; height: 100%; justify-content: flex-start; padding: 0; border-radius: 0; font-weight: var(--fw-regular); color: inherit; }
+.worktree-main:hover:not(:disabled) { background: transparent; color: inherit; }
+.worktree-main .ui-btn__label { display: flex; align-items: center; gap: var(--sp-2); flex: 1; min-width: 0; overflow: hidden; }
 .worktree-name { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: var(--sp-2); overflow: hidden; white-space: nowrap; }
 .worktree-branch { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-family: var(--mono); font-size: var(--fs-13); font-weight: var(--fw-medium); color: var(--text); }
 .worktree-task { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: var(--fs-11); color: var(--text-faint); }
 .worktree-row .ui-chip { flex: none; }
+.changed-file-row.ui-btn { height: auto; justify-content: flex-start; }
+.changed-file-row .ui-btn__label { display: flex; align-items: baseline; gap: var(--sp-2); flex: 1; min-width: 0; overflow: visible; text-overflow: clip; }
 .worktree-aheadbehind { display: inline-flex; align-items: center; gap: 2px; flex: none; font-size: var(--fs-11); color: var(--text-faint); font-variant-numeric: tabular-nums; }
 .worktree-count { color: var(--text-faint); font-weight: var(--fw-regular); font-variant-numeric: tabular-nums; }
 .worktree-empty { margin: 0; padding: var(--sp-4); font-size: var(--fs-13); color: var(--text-faint); }
 /* Row actions on hover, focus or selection only; the spinner of a running removal stays. */
-.worktree-actions { display: flex; gap: 2px; flex: none; visibility: hidden; }
+.worktree-actions { display: flex; gap: 2px; flex: none; opacity: 0; }
 .worktree-row:hover .worktree-actions, .worktree-row:focus-within .worktree-actions,
-.worktree-row.is-selected .worktree-actions, .worktree-actions.is-busy { visibility: visible; }
+.worktree-row.is-selected .worktree-actions, .worktree-actions.is-busy { opacity: 1; }
 .worktree-delete:hover:not(:disabled) { color: var(--danger); }
 /* The rows git could not vouch for: one warning per status group, at the bottom of the list. */
 .worktree-group--trouble { border-top: 1px solid var(--line); }
