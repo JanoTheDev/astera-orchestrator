@@ -11,9 +11,9 @@ export const settings: Partial<Record<keyof typeof ko, string>> = {
   'settings.agentPermission.hint':
     'Todas las sesiones de agente que inicia la aplicación se ejecutan sin preguntar por permisos ' +
     '(--dangerously-skip-permissions para claude, --dangerously-bypass-approvals-and-sandbox para codex). ' +
-    'Desactivado de forma predeterminada. Un worker de Job siempre arranca en un worktree recién creado: esa ' +
+    'Desactivado de forma predeterminada. Un agente de un plan siempre arranca en un worktree recién creado: esa ' +
     'carpeta no tiene historial de aprobaciones y la lista de permitidos acumulada en el proyecto ' +
-    '(.claude/settings.local.json) no lo acompaña, así que al desactivarlo el worker se detiene en su primer comando. ' +
+    '(.claude/settings.local.json) no lo acompaña, así que al desactivarlo el agente se detiene en su primer comando. ' +
     'Las sesiones ya abiertas no se ven afectadas. Se aplica a partir de la siguiente sesión.',
   'settings.agentPermission.saveFailed': 'No se pudo guardar el modo de permisos: {detail}',
   // Seguimiento de unidades de trabajo
@@ -58,7 +58,7 @@ export const settings: Partial<Record<keyof typeof ko, string>> = {
   'settings.info.version': 'Versión',
   'settings.info.registeredAccounts': 'Cuentas registradas',
   'settings.info.update': 'Actualización',
-  'settings.info.host': 'Host en segundo plano',
+  'settings.info.host': 'Servicio en segundo plano',
   'settings.info.hostConnected': 'Conectado · protocolo {protocol} · desde hace {uptime}',
   'settings.info.hostNotConnected': 'Sin conexión',
   'settings.info.hostNotConnectedWhy': 'Sin conexión · {detail}',
@@ -96,17 +96,13 @@ export const settings: Partial<Record<keyof typeof ko, string>> = {
   'settings.resumeStrategy.original.label': 'Reanudar la sesión original',
   'settings.resumeStrategy.original.hint': 'Continúa la conversación con el resume propio del CLI.',
   'settings.resumeStrategy.saveFailed': 'No se pudo guardar la estrategia de reanudación: {detail}',
-  'settings.jobContinuity.label': 'Continuidad de trabajos',
-  'settings.jobContinuity.hint':
-    'Mantiene los trabajos recuperables tras fallos y reinicios. ' +
-    'Usa el estado duradero del trabajo, la recuperación de la sesión nativa y la reanudación inteligente cuando hace falta.',
-  'settings.jobContinuity.smartResumeTurnedOn':
-    'Continuidad de trabajos activada. La reanudación inteligente también se activó para una recuperación automática completa.',
+  'settings.jobContinuity.label': 'Continuidad de planes',
+  'settings.jobContinuity.hint': 'Mantiene los planes recuperables tras fallos y reinicios. Usa el estado duradero del plan, la recuperación de la sesión nativa y la reanudación inteligente cuando hace falta.',
+  'settings.jobContinuity.smartResumeTurnedOn': 'Continuidad de planes activada. La reanudación inteligente también se activó para una recuperación automática completa.',
   'settings.jobContinuity.turnOffSmartResume.title': '¿Desactivar la reanudación inteligente?',
-  'settings.jobContinuity.turnOffSmartResume.body':
-    'La continuidad de trabajos seguirá activada, pero un trabajo puede detenerse cuando no se pueda recuperar su sesión original de Claude Code o Codex.',
+  'settings.jobContinuity.turnOffSmartResume.body': 'La continuidad de planes seguirá activada, pero un plan puede detenerse cuando no se pueda recuperar su sesión original de Claude Code o Codex.',
   'settings.jobContinuity.turnOffSmartResume.confirm': 'Desactivar',
-  'settings.jobContinuity.saveFailed': 'No se pudo guardar el ajuste de continuidad de trabajos: {detail}',
+  'settings.jobContinuity.saveFailed': 'No se pudo guardar el ajuste de continuidad de planes: {detail}',
   // TerminalFontSettings.tsx — the terminal font picker rows
   'settings.font.latin': 'Fuente latina del terminal',
   'settings.font.hangul': 'Fuente hangul del terminal',
@@ -169,17 +165,17 @@ export const settings: Partial<Record<keyof typeof ko, string>> = {
   'shortcut.gesture.itemDrag': 'Arrastrar el elemento',
   'shortcut.explorer.move': 'Mover · con {mod}, copiar',
   'shortcut.explorer.undo': 'Deshacer',
-  'settings.freshCoordinator.label': 'Coordinador nuevo al llegar al contexto (%)',
-  'settings.freshCoordinator.hint': 'Cuando el coordinador de un plan ha usado esta parte de su ventana de contexto, Astera lo sustituye por una sesión nueva (misma cuenta y modelo) informada con el estado del plan. También se sustituye en cada cambio de oleada. 0 desactiva la comprobación de contexto.',
-  'settings.freshCoordinator.saveFailed': 'No se pudo guardar el ajuste del coordinador nuevo: {detail}',
+  'settings.freshCoordinator.label': 'Agente principal nuevo al llegar al contexto (%)',
+  'settings.freshCoordinator.hint': 'Cada plan tiene un agente principal: la sesión que lo dirige. Cuando ha usado esta parte de su ventana de contexto, Astera lo sustituye por una sesión nueva (misma cuenta y modelo) informada con el estado del plan. También se sustituye cuando el plan pasa a su siguiente paso. 0 desactiva la comprobación de contexto.',
+  'settings.freshCoordinator.saveFailed': 'No se pudo guardar el ajuste del agente principal nuevo: {detail}',
   'settings.stallWatch.label': 'Vigilar planes detenidos',
-  'settings.stallWatch.hint': 'Cada 30 segundos Astera revisa cada plan en marcha: una Task lista sin empezar durante 2 minutos con un hueco libre, un coordinador ocupado durante minutos sin empezar nada, una Task completada que no está en la rama del plan, un PR borrador que no se abrió tras una oleada. Avisa al coordinador o lo arregla él mismo, con una línea en el feed por acción. Nunca cancela trabajo ni fusiona en main.',
+  'settings.stallWatch.hint': 'Cada 30 segundos Astera revisa cada plan en marcha: una Task lista sin empezar durante 2 minutos con un hueco libre, un agente principal ocupado durante minutos sin empezar nada, una Task completada que no está en la rama del plan, un PR borrador que no se abrió tras un paso. Avisa al agente principal o lo arregla él mismo, con una línea en el feed por acción. Nunca cancela trabajo ni fusiona en main.',
   'settings.stallWatch.saveFailed': 'No se pudo guardar el ajuste de vigilancia de planes detenidos: {detail}',
   'settings.startAtLogin.label': 'Iniciar Astera al iniciar sesión',
   'settings.startAtLogin.hint': 'Inicia Astera en segundo plano al iniciar sesión, para que los planes interrumpidos por un fallo o reinicio continúen donde se quedaron antes de abrir la ventana. Solo Linux.',
   'settings.startAtLogin.saveFailed': 'No se pudo guardar el ajuste de inicio al iniciar sesión: {detail}',
   'settings.autoAnswer.label': 'Responder preguntas automáticamente',
-  'settings.autoAnswer.hint': 'Astera responde por sí mismo las preguntas de un plan cuando puede hacerlo con seguridad: con lo que sabe (si una Task se fusionó, si una oleada terminó) o con la recomendación de quien pregunta o la opción segura (esperar, retener, reintentar una vez, saltar la comprobación). Una línea en el feed por respuesta. Borrar trabajo, enviar o fusionar en la rama principal, dinero, credenciales y permisos siempre te llegan a ti.',
+  'settings.autoAnswer.hint': 'Astera responde por sí mismo las preguntas de un plan cuando puede hacerlo con seguridad: con lo que sabe (si una Task se fusionó, si un paso terminó) o con la recomendación de quien pregunta o la opción segura (esperar, retener, reintentar una vez, saltar la comprobación). Una línea en el feed por respuesta. Borrar trabajo, enviar o fusionar en la rama principal, dinero, credenciales y permisos siempre te llegan a ti.',
   'settings.autoAnswer.saveFailed': 'No se pudo guardar el ajuste de respuestas automáticas: {detail}',
   // W9-E settings page
   'settings.group.general': 'General',
@@ -205,4 +201,16 @@ export const settings: Partial<Record<keyof typeof ko, string>> = {
   'onboarding.settings.replay': 'Mostrar la bienvenida de nuevo',
   'onboarding.settings.replayHint': 'Recorre la configuración desde el principio. Tus ajustes no cambian.',
   'onboarding.settings.replayButton': 'Mostrar',
+  'settings.worktree.tooltip': 'Un worktree es una copia aparte de la carpeta del proyecto en su propia rama, para que un agente cambie archivos sin tocar los tuyos.',
+  'settings.search.emptyTitle': 'No se encontraron ajustes',
+  'settings.alertSound.hint': 'Un breve sonido con el aviso de una solicitud de permiso, una pregunta, una escalada o una pregunta de un plan que te espera. Como mucho uno cada 5 segundos.',
+  'settings.roleModels.hint': 'El modelo con el que arranca cada sesión de un plan. Primero cuenta el modelo de la propia Task, luego su dificultad, luego el del plan y por último estos. Vacío usa el modelo predeterminado de la CLI.',
+  'settings.roleModels.role.coordinator': 'Agente principal',
+  'settings.roleModels.role.worker': 'Agente',
+  'settings.info.hostOutdated': 'Servicio en segundo plano {host} · app {app}: al cerrar todas las sesiones se actualiza solo a la nueva versión. Reiniciar ahora lo actualiza de inmediato.',
+  'settings.info.hostRuntimeIncomplete': 'Faltan algunos archivos con los que funciona el servicio en segundo plano. Si se deja así, dejará de responder en la próxima sesión. Se repara solo cuando no tiene nada abierto, y reiniciar ahora hace lo mismo.',
+  'settings.maxWorkers.label': 'Máximo de agentes en todos los planes',
+  'settings.maxWorkers.hint': 'Hasta 100; vacío usa la recomendación para esta máquina. En el límite, los planes de mayor prioridad reciben el siguiente hueco libre; los iguales se turnan.',
+  'settings.maxWorkers.saveFailed': 'No se pudo guardar el límite de agentes: {detail}',
+  'settings.tabSummaries.hint': 'Cuando termina una pestaña, Astera escribe una tarjeta breve: qué hizo, sus archivos, comprobaciones y revisión, y dos o tres frases del modelo del agente principal. Las tarjetas aparecen en el tablero de Tasks, en el historial y en el resumen del plan.',
 }

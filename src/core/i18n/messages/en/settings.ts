@@ -10,13 +10,7 @@ export const settings: Record<keyof typeof ko, string> = {
   'settings.tab.plugins': 'Plugins',
   // Agent permission mode
   'settings.agentPermission.label': 'Run agents without permission checks',
-  'settings.agentPermission.hint':
-    'Every agent session the app starts runs without permission prompts ' +
-    '(--dangerously-skip-permissions for claude, --dangerously-bypass-approvals-and-sandbox for codex). ' +
-    'Off by default. A Job worker always starts in a worktree created moments earlier: that folder has no ' +
-    'approval history, and the allow list built up in the project (.claude/settings.local.json) does not ' +
-    'follow it there, so with this off a worker stalls on its first command. ' +
-    'Sessions already running are unaffected. It applies from the next session.',
+  'settings.agentPermission.hint': 'Every agent session the app starts runs without permission prompts (--dangerously-skip-permissions for claude, --dangerously-bypass-approvals-and-sandbox for codex). Off by default. An agent working on a plan always starts in a worktree created moments earlier: that folder has no approval history, and the allow list built up in the project (.claude/settings.local.json) does not follow it there, so with this off the agent stalls on its first command. Sessions already running are unaffected. It applies from the next session.',
   'settings.agentPermission.saveFailed': 'Could not save the permission mode: {detail}',
   // Work unit tracking
   'settings.workUnit.label': 'Work unit tracking',
@@ -56,15 +50,15 @@ export const settings: Record<keyof typeof ko, string> = {
   'settings.gen.saveFailed': "Couldn't save the explanation settings: {detail}",
   // Orchestrator W1-A: role models (OrchestratorModelsSettings.tsx)
   'settings.roleModels.title': 'Orchestration models',
-  'settings.roleModels.hint': "The model each Job session starts on. A Task's own model wins, then its difficulty, then the Job's override, then these. Empty uses the CLI's default model.",
+  'settings.roleModels.hint': 'The model each plan session starts on. A Task\'s own model wins, then its difficulty, then the plan\'s override, then these. Empty uses the CLI\'s default model.',
   'settings.roleModels.placeholder': 'CLI default',
   'settings.roleModels.workerPlaceholder': 'By difficulty, else CLI default',
   'settings.roleModels.noAccounts': 'Add an account to choose its models.',
   'settings.roleModels.saveFailed': "Couldn't save the orchestration models: {detail}",
   'settings.roleModels.invalid': '"{model}" is not a model id. Use an alias like opus or a full id like claude-opus-5-5.',
-  'settings.roleModels.role.coordinator': 'Coordinator',
+  'settings.roleModels.role.coordinator': 'Lead agent',
   'settings.roleModels.role.planner': 'Planner',
-  'settings.roleModels.role.worker': 'Worker',
+  'settings.roleModels.role.worker': 'Agent',
   'settings.roleModels.role.reviewer': 'Reviewer',
   'settings.roleModels.difficulty.light': 'Light task',
   'settings.roleModels.difficulty.standard': 'Standard task',
@@ -87,18 +81,16 @@ export const settings: Record<keyof typeof ko, string> = {
   'settings.info.version': 'Version',
   'settings.info.registeredAccounts': 'Registered accounts',
   'settings.info.update': 'Update',
-  'settings.info.host': 'Background host',
+  'settings.info.host': 'Background service',
   'settings.info.hostConnected': 'Connected · protocol {protocol} · up {uptime}',
   'settings.info.hostHolding':
     'holding {sessions} session(s), {chats} chat(s), {terminals} terminal(s), {runs} run(s)',
-  'settings.info.hostOutdated':
-    'Host {host} · app {app} — closing every session updates it to the new version on its own. Restart now updates it straight away.',
+  'settings.info.hostOutdated': 'Background service {host} · app {app} — closing every session updates it to the new version on its own. Restart now updates it straight away.',
   'settings.info.hostNotConnected': 'Not connected',
   'settings.info.hostNotConnectedWhy': 'Not connected · {detail}',
   'settings.info.hostUnresponsive': 'Not answering · {detail}',
   'settings.info.hostUnresponsiveWhat': 'New sessions are opening inside the app. Those end when the app closes.',
-  'settings.info.hostRuntimeIncomplete':
-    'Some of the files this Host runs from are gone. Left alone it will stop answering at the next session. It is repaired on its own once it is holding nothing, and restarting now does the same.',
+  'settings.info.hostRuntimeIncomplete': 'Some of the files the background service runs from are gone. Left alone it will stop answering at the next session. It is repaired on its own once it is holding nothing, and restarting now does the same.',
   'settings.worktree.createLocation': 'Worktree creation location',
   'settings.worktree.change': 'Change…',
   'settings.worktree.hint':
@@ -135,17 +127,13 @@ export const settings: Record<keyof typeof ko, string> = {
   'settings.resumeStrategy.original.label': 'Resume original session',
   'settings.resumeStrategy.original.hint': "Continues the conversation with the CLI's own resume.",
   'settings.resumeStrategy.saveFailed': 'Could not save the resume strategy: {detail}',
-  'settings.jobContinuity.label': 'Job Continuity',
-  'settings.jobContinuity.hint':
-    'Keep Jobs recoverable across crashes and restarts. ' +
-    'Uses durable job state, native session recovery, and Smart Resume when needed.',
-  'settings.jobContinuity.smartResumeTurnedOn':
-    'Job Continuity enabled. Smart Resume was also enabled for full automatic recovery.',
+  'settings.jobContinuity.label': 'Plan continuity',
+  'settings.jobContinuity.hint': 'Keep plans recoverable across crashes and restarts. Uses durable plan state, native session recovery, and Smart Resume when needed.',
+  'settings.jobContinuity.smartResumeTurnedOn': 'Plan continuity enabled. Smart Resume was also enabled for full automatic recovery.',
   'settings.jobContinuity.turnOffSmartResume.title': 'Turn off Smart Resume?',
-  'settings.jobContinuity.turnOffSmartResume.body':
-    'Job Continuity will remain enabled, but a Job may pause when its original Claude Code or Codex session cannot be recovered.',
+  'settings.jobContinuity.turnOffSmartResume.body': 'Plan continuity will remain enabled, but a plan may pause when its original Claude Code or Codex session cannot be recovered.',
   'settings.jobContinuity.turnOffSmartResume.confirm': 'Turn off',
-  'settings.jobContinuity.saveFailed': 'Could not save the Job Continuity setting: {detail}',
+  'settings.jobContinuity.saveFailed': 'Could not save the plan continuity setting: {detail}',
   'settings.defaultKind.hint':
     'The new-session and resume dialogs open on this kind. Changing it in the dialog applies to that session only.',
   'settings.font.latin': 'Terminal font (Latin)',
@@ -206,29 +194,29 @@ export const settings: Record<keyof typeof ko, string> = {
   'shortcut.gesture.itemDrag': 'Drag item',
   'shortcut.explorer.move': 'Move · hold {mod} to copy',
   'shortcut.explorer.undo': 'Undo',
-  'settings.maxWorkers.label': 'Max workers across all jobs',
-  'settings.maxWorkers.hint': 'Up to 100; empty uses the recommendation for this machine. At the limit, higher-priority jobs get the next free slot; equal ones take turns.',
+  'settings.maxWorkers.label': 'Max agents across all plans',
+  'settings.maxWorkers.hint': 'Up to 100; empty uses the recommendation for this machine. At the limit, higher-priority plans get the next free slot; equal ones take turns.',
   // Machine-aware worker cap: the recommendation for this machine and the warning above it
   'settings.maxWorkers.recommended': 'Recommended for this machine: {count} ({memory} GB memory, {cores} cores)',
   'settings.maxWorkers.overRecommended': 'Above the {count} this machine is likely to handle: agents may slow down or the system may run out of memory.',
-  'settings.maxWorkers.saveFailed': 'Could not save the worker limit: {detail}',
+  'settings.maxWorkers.saveFailed': 'Could not save the agent limit: {detail}',
   'settings.activityDigest.label': 'Activity summary every (minutes)',
   'settings.activityDigest.hint': 'How often to send a summary of what finished, failed or is waiting, to the desktop and Slack. Sent only when something happened. 0 turns it off.',
   'settings.activityDigest.saveFailed': 'Could not save the summary interval: {detail}',
-  'settings.freshCoordinator.label': 'Fresh coordinator at context (%)',
-  'settings.freshCoordinator.hint': 'When a plan\'s coordinator has used this much of its context window, Astera replaces it with a fresh session (same account and model) briefed from the plan\'s state. It is also replaced at every wave boundary. 0 turns the context check off.',
-  'settings.freshCoordinator.saveFailed': 'Could not save the fresh coordinator setting: {detail}',
+  'settings.freshCoordinator.label': 'Fresh lead agent at context (%)',
+  'settings.freshCoordinator.hint': 'Each plan has a lead agent: the session that steers it. When the lead agent has used this much of its context window, Astera replaces it with a fresh session (same account and model) briefed from the plan\'s state. It is also replaced when the plan moves to its next step. 0 turns the context check off.',
+  'settings.freshCoordinator.saveFailed': 'Could not save the fresh lead agent setting: {detail}',
   'settings.stallWatch.label': 'Watch for stalled plans',
-  'settings.stallWatch.hint': 'Every 30 seconds Astera checks each running plan: a ready Task left unstarted for 2 minutes with a free slot, a coordinator busy for minutes without starting anything, a completed Task not merged into the plan branch, a draft PR not opened after a wave. It tells the coordinator or fixes it itself, one feed line per action. It never cancels work or merges into main.',
+  'settings.stallWatch.hint': 'Every 30 seconds Astera checks each running plan: a ready Task left unstarted for 2 minutes with a free slot, a lead agent busy for minutes without starting anything, a completed Task not merged into the plan branch, a draft PR not opened after a step. It tells the lead agent or fixes it itself, one feed line per action. It never cancels work or merges into main.',
   'settings.stallWatch.saveFailed': 'Could not save the stalled-plan watch setting: {detail}',
   'settings.startAtLogin.label': 'Start Astera at login',
   'settings.startAtLogin.hint': 'Starts Astera in the background when you log in, so plans a crash or restart interrupted pick up where they left off before you open the window. Linux only.',
   'settings.startAtLogin.saveFailed': 'Could not save the start-at-login setting: {detail}',
   'settings.autoAnswer.label': 'Answer questions automatically',
-  'settings.autoAnswer.hint': 'Astera answers a plan’s questions itself when it safely can: from what it knows (whether a Task merged, whether a wave is done), else with the asker’s own recommendation or the safe default (hold, wait, retry once, skip the check). One feed line per answer. Deleting work, pushing or merging to the default branch, money, credentials and permissions always come to you.',
+  'settings.autoAnswer.hint': 'Astera answers a plan’s questions itself when it safely can: from what it knows (whether a Task merged, whether a step is done), else with the asker’s own recommendation or the safe default (hold, wait, retry once, skip the check). One feed line per answer. Deleting work, pushing or merging to the default branch, money, credentials and permissions always come to you.',
   'settings.autoAnswer.saveFailed': 'Could not save the automatic answers setting: {detail}',
   'settings.alertSound.label': 'Chime when something needs you',
-  'settings.alertSound.hint': 'A short chime with the notice for a permission prompt, a question, an escalation or an open question gate. At most one every 5 seconds.',
+  'settings.alertSound.hint': 'A short chime with the notice for a permission prompt, a question, an escalation or a plan question waiting for you. At most one every 5 seconds.',
   'settings.alertSound.saveFailed': 'Could not save the chime setting: {detail}',
   'settings.voice.title': 'Voice commands (local whisper.cpp)',
   'settings.voice.hint': 'Push-to-talk in the command bar is transcribed on this computer by whisper.cpp. Audio never leaves the machine and nothing is downloaded: build whisper.cpp and download a model yourself, then set both absolute paths here.',
@@ -241,7 +229,7 @@ export const settings: Record<keyof typeof ko, string> = {
   'settings.autoCloseTabs.saveFailed': 'Could not save the tab auto-close setting: {detail}',
   // W9-I: tab summaries
   'settings.tabSummaries.label': 'Summarise a tab when it ends',
-  'settings.tabSummaries.hint': 'When a tab ends, Astera writes a short card: what it did, its files, checks and review, and two or three sentences from the coordinator model. The cards show on the Task board, in History and in the plan overview.',
+  'settings.tabSummaries.hint': 'When a tab ends, Astera writes a short card: what it did, its files, checks and review, and two or three sentences from the lead agent\'s model. The cards show on the Task board, in History and in the plan overview.',
   'settings.tabSummaries.saveFailed': 'Could not save the tab summaries setting: {detail}',
   // W9-E settings page
   'settings.group.general': 'General',
@@ -269,4 +257,6 @@ export const settings: Record<keyof typeof ko, string> = {
   'onboarding.settings.replay': 'Show onboarding again',
   'onboarding.settings.replayHint': 'Walks through setup from the start. Your settings stay as they are.',
   'onboarding.settings.replayButton': 'Show',
+  'settings.worktree.tooltip': 'A worktree is a separate copy of the project folder on its own branch, so an agent can change files without touching yours.',
+  'settings.search.emptyTitle': 'No settings found',
 }

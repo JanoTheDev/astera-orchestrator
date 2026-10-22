@@ -20,8 +20,8 @@ describe('filterSettings', () => {
     expect(filterSettings(rows, '   ', t)).toEqual(rows)
   })
   it('matches the label, case-insensitively, and keeps the group', () => {
-    expect(filterSettings(rows, 'MAX WORK', t)).toEqual([rows[1]])
-    expect(filterSettings(rows, 'max work', t)[0].group).toBe('agents')
+    expect(filterSettings(rows, 'MAX AGENTS', t)).toEqual([rows[1]])
+    expect(filterSettings(rows, 'max agents', t)[0].group).toBe('agents')
   })
   it('matches the description', () => {
     const hint = en['settings.theme.hint'].slice(2, 12).toUpperCase()
