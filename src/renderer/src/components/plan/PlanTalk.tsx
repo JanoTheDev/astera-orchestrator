@@ -5,6 +5,7 @@ import type { JobRow } from '../../../../core/types'
 import { useI18n } from '../../i18n/I18nProvider'
 import type { OrchDoor } from '../../lib/orchDoor'
 import { rejectPlan, sendPlanFeedback, stopRun, type ActionUi } from '../../lib/jobActions'
+import { Button, Icon, Input, Textarea } from '../ui'
 import { planTalkView } from './planTalk'
 
 export function PlanTalk({ row, door, ui, name }: { row: JobRow; door: OrchDoor; ui: ActionUi; name: string }): JSX.Element | null {
@@ -35,9 +36,9 @@ export function PlanTalk({ row, door, ui, name }: { row: JobRow; door: OrchDoor;
       {view.autoStarted !== null && (
         <div className="plan-talk-auto">
           <span>{t('plan.talk.autoStarted', { count: view.autoStarted })}</span>
-          <button type="button" disabled={door.readOnlyReason != null} onClick={() => void stopRun(door, row.foldedRunId ?? row.id, name, ui)}>
+          <Button size="sm" variant="ghost" icon={<Icon name="stop" size={14} />} disabled={door.readOnlyReason != null} onClick={() => void stopRun(door, row.foldedRunId ?? row.id, name, ui)}>
             {t('plan.talk.stop')}
-          </button>
+          </Button>
         </div>
       )}
       {/* W8-F (#94): what keeps Run from working, before it is pressed */}
@@ -71,7 +72,7 @@ export function PlanTalk({ row, door, ui, name }: { row: JobRow; door: OrchDoor;
         </ul>
       )}
       <div className="plan-talk-form">
-        <textarea
+        <Textarea
           aria-label={t('plan.talk.input')}
           placeholder={t('plan.talk.placeholder')}
           value={text}
@@ -84,26 +85,36 @@ export function PlanTalk({ row, door, ui, name }: { row: JobRow; door: OrchDoor;
             }
           }}
         />
-        <button type="button" disabled={sending || !text.trim() || door.readOnlyReason != null} onClick={() => void send()}>
+        {/* secondary, not primary: the overview's Start is this view's one filled button */}
+        <Button size="sm" loading={sending} disabled={!text.trim() || door.readOnlyReason != null} title={t('plan.talk.placeholder')} onClick={() => void send()}>
           {t('plan.talk.send')}
-        </button>
+        </Button>
       </div>
       {view.canReject &&
         (rejecting ? (
           <div className="plan-talk-reject">
-            <input aria-label={t('plan.talk.reason')} placeholder={t('plan.talk.reasonPlaceholder')} value={reason} onChange={(e) => setReason(e.target.value)} />
-            <button type="button" onClick={() => void reject()}>
+            <Input
+              autoFocus
+              aria-label={t('plan.talk.reason')}
+              placeholder={t('plan.talk.reasonPlaceholder')}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') setRejecting(false)
+              }}
+            />
+            <Button size="sm" variant="danger" onClick={() => void reject()}>
               {t('plan.talk.reject')}
-            </button>
-            <button type="button" onClick={() => setRejecting(false)}>
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setRejecting(false)}>
               {t('plan.talk.cancel')}
-            </button>
+            </Button>
           </div>
         ) : (
           <div className="plan-talk-reject">
-            <button type="button" disabled={door.readOnlyReason != null} onClick={() => setRejecting(true)}>
+            <Button size="sm" variant="ghost" disabled={door.readOnlyReason != null} onClick={() => setRejecting(true)}>
               {t('plan.talk.reject')}
-            </button>
+            </Button>
           </div>
         ))}
     </section>

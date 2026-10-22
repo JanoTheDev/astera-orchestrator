@@ -191,7 +191,7 @@ describe('nowOf', () => {
       params: { target: 'src/x.ts', ago: '0:12' }
     })
     expect(nowOf(c, { lastAction: { tool: 'Bash', target: 'npm test', at } }, [], now)?.key).toBe('plan.now.running')
-    expect(nowOf(c, { lastAction: { tool: 'Edit', at } }, [question(false)], now)?.key).toBe('plan.now.asked')
+    expect(nowOf(c, { lastAction: { tool: 'Edit', at } }, [question(false)], now)?.key).toBe('plan.steps.now.asked')
     expect(nowOf(c, { lastAction: { tool: 'Edit', at } }, [question(true)], now)?.key).toBe('plan.now.editing')
     expect(nowOf(c, { prompt: 'permission' }, [question(false)], now)?.key).toBe('plan.now.permission')
     expect(nowOf(c, undefined, [], now)).toBeNull()

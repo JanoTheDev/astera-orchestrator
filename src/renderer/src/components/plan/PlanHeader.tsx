@@ -22,8 +22,9 @@ import { toast } from '../../lib/toast'
 import { jobName } from '../../lib/jobName'
 import { RunIcon, STATE_KEY, TaskIcon } from '../JobIcons'
 import { SourceChip } from '../SourceChip'
-import { Archive, ArchiveRestore, ArrowLeft, ListOrdered, MoreHorizontal, Pencil, Play, Square, Trash2 } from 'lucide-react'
-import { Button, Chip, Input, Menu, PageHeader, Tabs, type MenuItem } from '../ui'
+// ListOrdered is not in the ui Icon registry yet (listed for promotion in docs/dev/shots/w12-plan/NOTES.md)
+import { ListOrdered } from 'lucide-react'
+import { Button, Chip, Icon, Input, Menu, PageHeader, Tabs, type MenuItem } from '../ui'
 import { PLAN_SECTIONS, type PlanSection } from './planBoard'
 import { deliveryActionsOf } from './planPage'
 import type { PlanPageState } from './usePlanPage'
@@ -106,19 +107,19 @@ export function PlanHeader({
   }
   const menu: MenuItem[] = run
     ? [
-        ...(local ? [{ id: 'rename', label: t('jobs.lifecycle.rename'), icon: <Pencil size={14} />, disabled: off, onSelect: () => setRenaming(true) }] : []),
+        ...(local ? [{ id: 'rename', label: t('jobs.lifecycle.rename'), icon: <Icon name="edit" size={14} />, disabled: off, onSelect: () => setRenaming(true) }] : []),
         // W8-C: a plan not planned yet can wait for another to deliver
         ...(local && run.pendingStart && !run.planned
-          ? [{ id: 'after', label: t('pages.plan.startAfter'), icon: <ListOrdered size={14} />, disabled: off, onSelect: () => void pickAfter() }]
+          ? [{ id: 'after', label: t('pages.plan.startAfter'), icon: <Icon icon={ListOrdered} size={14} />, disabled: off, onSelect: () => void pickAfter() }]
           : []),
         ...(run.coordinatorMissing
-          ? [{ id: 'coordinator', label: t('jobs.run.coordinatorRestart'), icon: <Play size={14} />, disabled: off, onSelect: () => void restartCoordinator(door, runId, ui) }]
+          ? [{ id: 'coordinator', label: t('plan.header.restartLead'), icon: <Icon name="run" size={14} />, disabled: off, onSelect: () => void restartCoordinator(door, runId, ui) }]
           : []),
-        { id: 'kill', label: t('pages.plan.kill'), icon: <Square size={14} />, danger: true, disabled: off || running === 0, onSelect: () => void stopRun(door, run.foldedRunId ?? runId, jobName(run), ui) },
+        { id: 'kill', label: t('pages.plan.kill'), icon: <Icon name="stop" size={14} />, danger: true, disabled: off || running === 0, onSelect: () => void stopRun(door, run.foldedRunId ?? runId, jobName(run), ui) },
         ...(!local ? [] : run.archivedAt !== undefined
-          ? [{ id: 'unarchive', label: t('jobs.lifecycle.unarchive'), icon: <ArchiveRestore size={14} />, disabled: off, onSelect: () => void unarchiveJob(door, runId, ui) }]
-          : [{ id: 'archive', label: t('jobs.lifecycle.archive'), icon: <Archive size={14} />, disabled: off, onSelect: () => void archiveJob(door, snapshot, runId, ui) }]),
-        { id: 'delete', label: t('jobs.run.delete'), icon: <Trash2 size={14} />, danger: true, disabled: off, onSelect: () => void deleteRun(door, snapshot, runId, ui) }
+          ? [{ id: 'unarchive', label: t('jobs.lifecycle.unarchive'), icon: <Icon name="restore" size={14} />, disabled: off, onSelect: () => void unarchiveJob(door, runId, ui) }]
+          : [{ id: 'archive', label: t('jobs.lifecycle.archive'), icon: <Icon name="archive" size={14} />, disabled: off, onSelect: () => void archiveJob(door, snapshot, runId, ui) }]),
+        { id: 'delete', label: t('jobs.run.delete'), icon: <Icon name="delete" size={14} />, danger: true, disabled: off, onSelect: () => void deleteRun(door, snapshot, runId, ui) }
       ]
     : []
   // W5-C: a plan pauses by holding its new starts (jobs-hold); a schedule pauses as a whole (run-pause)
@@ -128,7 +129,7 @@ export function PlanHeader({
         {run.paused ? t('jobs.run.resume') : t('jobs.run.pause')}
       </Button>
     ) : !local ? null : (
-      <Button size="sm" variant="ghost" disabled={off} title={lockedReason ?? (run.dispatchHold ? t('jobs.hold.release') : t('jobs.hold.hold'))} onClick={() => void holdJob(door, runId, !run.dispatchHold, ui)}>
+      <Button size="sm" variant="ghost" disabled={off} title={lockedReason ?? (run.dispatchHold ? t('plan.header.release') : t('plan.header.hold'))} onClick={() => void holdJob(door, runId, !run.dispatchHold, ui)}>
         {run.dispatchHold ? t('jobs.run.resume') : t('jobs.run.pause')}
       </Button>
     )
@@ -138,7 +139,7 @@ export function PlanHeader({
       className="plan-page-header"
       leading={
         // While a form is open or a command runs, leaving would drop it (the old window's ✕ hid then)
-        <Button size="sm" variant="ghost" icon={<ArrowLeft size={14} />} title={t('pages.plan.back')} disabled={formOpen} onClick={onClose}>
+        <Button size="sm" variant="ghost" icon={<Icon name="back" size={14} />} title={t('pages.plan.back')} disabled={formOpen} onClick={onClose}>
           {t('pages.plans.title')}
         </Button>
       }
@@ -146,7 +147,7 @@ export function PlanHeader({
         // 머리말이 없다 — Job 의 이름(jobName: 티켓에서 만든 Job 은 티켓 제목, 아니면 목표)이 제목이고, 그 옆의 아이콘과 숫자가 상태를 말한다
         // W9-C: rename inline (Enter keeps, Escape or leaving drops), as the Jobs card's head does
         renaming && run ? (
-          <input
+          <Input
             className="jobs-title-input"
             autoFocus
             defaultValue={jobName(run)}
@@ -197,7 +198,7 @@ export function PlanHeader({
           {run?.stuck === 'stalled' && !run.stalledOn && (
             <>
               <span title={t('plan.outcome.stalledHint')}>
-                <Chip tone="danger">{t('plan.outcome.stalled')}</Chip>
+                <Chip tone="danger">{t('plan.header.stalled')}</Chip>
               </span>
               <Button
                 size="sm"
@@ -253,8 +254,8 @@ export function PlanHeader({
         <>
           {/* W7-D (#67): workers at once, changeable while the Job runs; a lower number only holds back new starts */}
           {!simple && run && run.outcome === 'running' && (
-            <label className="jobs-count plan-page-concurrency" title={t('runDetail.concurrencyHint')}>
-              <span>{t('runDetail.concurrency')}</span>
+            <label className="jobs-count plan-page-concurrency" title={t('plan.header.concurrencyHint')}>
+              <span>{t('plan.header.concurrency')}</span>
               <Input
                 type="number"
                 min={1}
@@ -262,7 +263,7 @@ export function PlanHeader({
                 key={run.concurrency ?? DEFAULT_CONCURRENCY}
                 defaultValue={run.concurrency ?? DEFAULT_CONCURRENCY}
                 disabled={lockedReason !== undefined}
-                aria-label={t('runDetail.concurrencyHint')}
+                aria-label={t('plan.header.concurrency')}
                 onBlur={(e) => {
                   const n = Math.min(MAX_CONCURRENT_WORKERS, Math.max(1, Math.round(Number(e.target.value)) || 1))
                   e.target.value = String(n)
@@ -309,7 +310,7 @@ export function PlanHeader({
             </Button>
           )}
           {menu.length > 0 && (
-            <Menu label={t('pages.plan.more')} align="end" items={menu} trigger={{ variant: 'ghost', size: 'sm', icon: <MoreHorizontal size={14} /> }} />
+            <Menu label={t('plan.header.more')} align="end" items={menu} trigger={{ variant: 'ghost', size: 'sm', icon: <Icon name="more" size={14} />, title: t('plan.header.more') }} />
           )}
         </>
       }

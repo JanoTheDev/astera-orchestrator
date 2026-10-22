@@ -1,9 +1,8 @@
-// W2-C task board, grouped by wave since W6-E: one section per dependency depth ("Wave 1 · 3/4 done"), the current wave
+// W2-C task board, grouped by wave since W6-E: one section per dependency depth ("Step 1 · 3/4 done"; W12 shows a wave as a step), the current wave
 // marked, and a replan in progress as a banner on it. Each card has its model, account, branch, attempts, its files,
 // what its worker is doing now, the coordinator's answers to it and, when it is not running, why
 // (core/orchestration/blocked.ts). Drawing only: the waves, reasons, counts and "now" lines are planBoard.ts's.
 import { useEffect, useMemo, useState } from 'react'
-import { ChevronDown, ChevronRight, GitBranch } from 'lucide-react'
 import type { ActivityEvent } from '../../../../core/orchestration/activity'
 import type { Account, JobEvent, JobTask } from '../../../../core/types'
 import { type RoleModelSettings } from '../../../../core/orchestration/roleModels'
@@ -27,7 +26,7 @@ import {
   type OpenQuestion
 } from './planBoard'
 import { QuestionAnswer } from './QuestionAnswer'
-import { Icon } from '../ui'
+import { Button, Icon, IconButton, Tooltip } from '../ui'
 import { openWorktree } from '../shell/navigation' // W9-J
 import { TaskLines } from '../attribution/TaskLines' // W8-B
 import type { SessionSummary } from '../../../../core/sessions/summary'
@@ -116,16 +115,22 @@ export function TaskBoard({
         if (hidden)
           return (
             <section key={w.index} className="plan-wave plan-wave-folded">
-              <button type="button" className="plan-link plan-wave-fold" aria-expanded={false} onClick={() => flip(w.index)}>
-                <Icon icon={ChevronRight} size={14} />
-                {t('plan.wave.title', { n: w.index + 1 })} · {t('plan.wave.progress', { done: w.done, total: w.tasks.length })}
-              </button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="plan-wave-fold"
+                aria-expanded={false}
+                icon={<Icon name="chevronRight" size={14} />}
+                onClick={() => flip(w.index)}
+              >
+                {t('plan.steps.title', { n: w.index + 1 })} · {t('plan.wave.progress', { done: w.done, total: w.tasks.length })}
+              </Button>
             </section>
           )
         return (
           <section key={w.index} className={`plan-wave${isCurrent ? ' plan-wave-current' : ''}`} aria-current={isCurrent ? 'step' : undefined}>
             <h3 className="plan-wave-head">
-              <span className="plan-wave-name">{t('plan.wave.title', { n: w.index + 1 })}</span>
+              <span className="plan-wave-name">{t('plan.steps.title', { n: w.index + 1 })}</span>
               <span className="plan-wave-count">{t('plan.wave.progress', { done: w.done, total: w.tasks.length })}</span>
               <span
                 className="plan-progress plan-wave-bar"
@@ -139,19 +144,24 @@ export function TaskBoard({
               </span>
               {isCurrent && <span className="plan-wave-now">{t('plan.wave.current')}</span>}
               {foldable && (
-                <button type="button" className="plan-link plan-wave-fold" aria-expanded onClick={() => flip(w.index)}>
-                  <Icon icon={ChevronDown} size={14} />
-                </button>
+                <IconButton
+                  size="sm"
+                  className="plan-wave-fold"
+                  aria-expanded
+                  label={t('plan.steps.fold', { n: w.index + 1 })}
+                  icon={<Icon name="chevronDown" size={14} />}
+                  onClick={() => flip(w.index)}
+                />
               )}
             </h3>
             {isCurrent && refreshed !== null && (
               <div className="plan-wave-banner" role="status">
-                {t('plan.wave.coordinatorRefreshed', { reason: refreshed })}
+                {t('plan.steps.leadRefreshed', { reason: refreshed })}
               </div>
             )}
             {isCurrent && replanning && (
               <div className="plan-wave-banner" role="status">
-                {t('plan.wave.replanning', { n: w.index + 1 })}
+                {t('plan.steps.replanning', { n: w.index + 1 })}
               </div>
             )}
             <div className="plan-wave-cards">
@@ -241,19 +251,20 @@ function TaskCard({
   return (
     // The card is the click target; its title is the keyboard's (a button may not hold the buttons below it)
     <article className={`plan-card plan-cat-${categoryOf(tk)}${selected ? ' selected' : ''}`} onClick={activate}>
-      <button
-        type="button"
+      <Button
+        variant="ghost"
+        size="sm"
         className="plan-card-title"
         aria-pressed={selected}
         title={onFocus ? t('plan.card.focus') : undefined}
+        icon={<TaskGlyph task={tk} size={12} />}
         onClick={(e) => {
           e.stopPropagation()
           activate()
         }}
       >
-        <TaskGlyph task={tk} size={12} />
-        <span>{tk.title}</span>
-      </button>
+        {tk.title}
+      </Button>
       {now && <span className="plan-now">{t(now.key, now.params)}</span>}
       {reason && text && <span className={`plan-reason plan-reason-${reasonTone(reason)}`}>{t(text.key, text.params)}</span>}
       {summary && <span className="summary-line" title={summary.text || undefined}>{summaryOneLine(summary, t)}</span>}
@@ -271,21 +282,25 @@ function TaskCard({
           <>
             <dt>{t('plan.card.branch')}</dt>
             <dd title={tk.branch}>
-              {/* W9-J: the Task's worktree, found by its branch in the registry, on the Worktrees page */}
-              <button
-                type="button"
-                className="branch-link"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  void window.api.worktrees.list().then((ws) => {
-                    const w = ws.find((x) => x.branch === tk.branch)
-                    if (w) openWorktree(w.path)
-                  }, () => {})
-                }}
-              >
-                <Icon icon={GitBranch} size={14} />
-                {tk.branch}
-              </button>
+              {/* W9-J: the Task's worktree, found by its branch in the registry, on the Worktrees page. W12: the tooltip says
+                  what a worktree is. */}
+              <Tooltip content={t('plan.steps.worktreeHint')}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="branch-link"
+                  icon={<Icon name="branch" size={14} />}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    void window.api.worktrees.list().then((ws) => {
+                      const w = ws.find((x) => x.branch === tk.branch)
+                      if (w) openWorktree(w.path)
+                    }, () => {})
+                  }}
+                >
+                  {tk.branch}
+                </Button>
+              </Tooltip>
             </dd>
           </>
         )}
@@ -301,33 +316,37 @@ function TaskCard({
           ))}
           {files.length > FILES_SHOWN && (
             <li>
-              <button
-                type="button"
+              <Button
+                variant="ghost"
+                size="sm"
                 className="plan-link"
+                aria-expanded={allFiles}
                 onClick={(e) => {
                   e.stopPropagation()
                   setAllFiles((v) => !v)
                 }}
               >
                 {allFiles ? t('plan.card.fewerFiles') : t('plan.card.moreFiles', { n: files.length - FILES_SHOWN })}
-              </button>
+              </Button>
             </li>
           )}
         </ul>
       )}
       {answers.length > 0 && (
         <div className="plan-answers">
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="sm"
             className="plan-link"
             aria-expanded={showAnswers}
+            icon={<Icon name={showAnswers ? 'chevronDown' : 'chevronRight'} size={14} />}
             onClick={(e) => {
               e.stopPropagation()
               setShowAnswers((v) => !v)
             }}
           >
             {t(answersKey(answers.length), { n: answers.length })}
-          </button>
+          </Button>
           {showAnswers && (
             <ol className="plan-answers-list">
               {answers.map((a, i) => (

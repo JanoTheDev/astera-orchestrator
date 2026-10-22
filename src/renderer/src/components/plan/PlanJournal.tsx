@@ -11,8 +11,7 @@ import { STATE_KEY, TaskGlyph, TaskIcon } from '../JobIcons'
 import { NewTaskModal } from '../NewTaskModal'
 import { JournalBusy, JournalOlder } from '../RunDetailJournal'
 import type { OrchDoor } from '../../lib/orchDoor'
-import { ArrowUpRight, X } from 'lucide-react'
-import { Button } from '../ui'
+import { Button, Icon, IconButton, Textarea } from '../ui'
 import { CALLS_FOR_A_PERSON, KIND_LABEL, MSG_LABEL, RECOVERY_LABEL, timeOf } from './planPage'
 import type { PlanPageState } from './usePlanPage'
 
@@ -101,19 +100,19 @@ export function PlanJournal({
               보여 주던 자리를 그대로 쓴다 */}
           <div className="detail-filter">
             <b>{t('jobs.node.gate')}</b>
-            <button
+            <IconButton
               className="detail-clear"
-              title={t('common.cancel')}
-              aria-label={t('common.cancel')}
+              size="sm"
+              icon={<Icon name="close" size={14} />}
+              label={t('common.cancel')}
               onClick={cancelAsk}
-            >
-              <X size={12} />
-            </button>
+            />
           </div>
           <div className="detail-task-fields">
             <div className="field">
-              <label>{t('jobs.node.gateQuestion')}</label>
-              <textarea
+              <label htmlFor="plan-journal-ask">{t('jobs.node.gateQuestion')}</label>
+              <Textarea
+                id="plan-journal-ask"
                 rows={4}
                 value={question}
                 onChange={(e) => setQuestion(e.target.value)}
@@ -161,14 +160,13 @@ export function PlanJournal({
               )}
               {/* W2-D GitHub links */}
               <TaskLinkChips links={selectedTask.links} />
-              <button
+              <IconButton
                 className="detail-clear"
-                title={t('jobs.detail.clearFilter')}
-                aria-label={t('jobs.detail.clearFilter')}
+                size="sm"
+                icon={<Icon name="close" size={14} />}
+                label={t('jobs.detail.clearFilter')}
                 onClick={() => setSelected(null)}
-              >
-                <X size={12} />
-              </button>
+              />
             </div>
           )}
           {/* 고른 Task 의 완료 상세 — 왜 못 넘었는가(설계 §2). 필터 줄 바로 아래, 이벤트
@@ -262,18 +260,31 @@ export function PlanJournal({
                             {e.taskTitle}
                           </span>
                         )}
+                        {/* The row click is mouse-only; this is its keyboard twin */}
+                        {e.body && (
+                          <IconButton
+                            className="plan-journal-toggle"
+                            size="sm"
+                            icon={<Icon name={expanded ? 'chevronDown' : 'chevronRight'} size={14} />}
+                            label={t(expanded ? 'plan.journal.collapse' : 'plan.journal.expand')}
+                            aria-expanded={expanded}
+                            onClick={(ev) => {
+                              ev.stopPropagation() // the row click toggles too
+                              toggle(key)
+                            }}
+                          />
+                        )}
                         {sessionId && (
-                          <button
+                          <IconButton
                             className="detail-jump"
-                            title={t('jobs.timeline.openSession')}
-                            aria-label={t('jobs.timeline.openSession')}
+                            size="sm"
+                            icon={<Icon name="open" size={14} />}
+                            label={t('jobs.timeline.openSession')}
                             onClick={(ev) => {
                               ev.stopPropagation() // 펼치기와 겹치지 않게 한다
                               onOpenSession(sessionId)
                             }}
-                          >
-                            <ArrowUpRight size={12} />
-                          </button>
+                          />
                         )}
                       </div>
                       {summary && (

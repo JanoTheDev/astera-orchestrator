@@ -1,10 +1,10 @@
 // The answer form of a Task's open question in the run's graph (RunDetail): the question, its choices and a box for an
 // answer in words. A check that could not be made (plugin Phase 5 C9) takes one of its three choices and nothing else,
 // so each is shown in this app's words with what it does, and there is no box: gate-resolve refuses any other answer.
-import { X } from 'lucide-react'
 import type { JobTask } from '../../../core/types'
 import { useI18n } from '../i18n/I18nProvider'
 import type { Translate } from './checkText'
+import { Button, Icon, IconButton, Textarea } from './ui'
 
 type Gate = NonNullable<JobTask['gate']>
 export interface GateChoice {
@@ -70,12 +70,19 @@ export function GateAnswer({
   const { t } = useI18n()
   const { choices, freeText } = gateChoicesOf(gate, t)
   return (
-    <>
+    // Esc anywhere in the form cancels it, as the close button does (display: contents keeps the old layout)
+    <div
+      className="gate-answer"
+      onKeyDown={(e) => {
+        if (e.key === 'Escape' && !busy && !e.defaultPrevented) {
+          e.preventDefault()
+          onCancel()
+        }
+      }}
+    >
       <div className="detail-filter">
-        <b>{t('jobs.node.answer')}</b>
-        <button className="detail-clear" title={t('common.cancel')} aria-label={t('common.cancel')} onClick={onCancel}>
-          <X size={12} />
-        </button>
+        <b>{t('plan.question.title')}</b>
+        <IconButton className="detail-clear" size="sm" icon={<Icon name="close" size={14} />} label={t('common.cancel')} onClick={onCancel} />
       </div>
       <div className="detail-task-fields">
         {/* 질문을 그대로 보여 준다 — 답하는 사람이 그래프의 Gate 줄을 기억하고 있을
@@ -87,31 +94,43 @@ export function GateAnswer({
           <div className="detail-gate-options">
             {/* With no box to focus, the first choice takes the focus the Unlock button had: it left with the form's opening */}
             {choices.map((c, i) => (
-              <button key={c.value} autoFocus={!freeText && i === 0} disabled={busy} onClick={() => onResolve(c.value)}>
+              <Button key={c.value} autoFocus={!freeText && i === 0} disabled={busy} onClick={() => onResolve(c.value)}>
                 {c.label}
                 {c.hint !== undefined && <span className="detail-gate-option-hint">{c.hint}</span>}
-              </button>
+              </Button>
             ))}
           </div>
         )}
         {freeText && (
           <div className="field">
-            <label>{t('jobs.node.answerLabel')}</label>
-            <textarea rows={3} value={answer} onChange={(e) => onAnswer(e.target.value)} autoFocus />
+            <label htmlFor="gate-answer-text">{t('jobs.node.answerLabel')}</label>
+            <Textarea
+              id="gate-answer-text"
+              rows={3}
+              value={answer}
+              onChange={(e) => onAnswer(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && answer.trim() && !busy) {
+                  e.preventDefault()
+                  onResolve(answer)
+                }
+              }}
+              autoFocus
+            />
           </div>
         )}
         {error && <p className="warn">{error}</p>}
       </div>
       <div className="row right">
-        <button onClick={onCancel} disabled={busy}>
+        <Button variant="ghost" onClick={onCancel} disabled={busy}>
           {t('common.cancel')}
-        </button>
+        </Button>
         {freeText && (
-          <button className="primary" disabled={busy || !answer.trim()} onClick={() => onResolve(answer)}>
-            {t('jobs.node.answer')}
-          </button>
+          <Button variant="primary" loading={busy} disabled={!answer.trim()} onClick={() => onResolve(answer)}>
+            {t('plan.question.answer')}
+          </Button>
         )}
       </div>
-    </>
+    </div>
   )
 }

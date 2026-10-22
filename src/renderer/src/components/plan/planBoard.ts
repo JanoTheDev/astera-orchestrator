@@ -46,7 +46,8 @@ export function planProgressOf(tasks: readonly JobTask[]): PlanProgress {
   return { total, percent: total === 0 ? 0 : Math.floor((counts.done * 100) / total), counts }
 }
 
-/** A reason as a catalog key and its params. `accountLabel` turns an account id into the name the person gave it. */
+/** A reason as a catalog key and its params. `accountLabel` turns an account id into the name the person gave it.
+ *  W12: the shown words say lead agent / agent, never coordinator / worker (the plan.steps.reason.* keys). */
 export function reasonText(
   reason: TaskBlockedReason,
   nowMs: number,
@@ -71,30 +72,30 @@ export function reasonText(
     case 'paused':
       return { key: 'plan.reason.paused' }
     case 'definition':
-      return { key: 'plan.reason.definition' }
+      return { key: 'plan.steps.reason.definition' }
     case 'gate':
       return { key: 'plan.reason.gate', params: { question: reason.question } }
     case 'failure-limit':
       return { key: 'plan.reason.failureLimit', params: { failures: reason.failures } }
     case 'failed-retry':
       return {
-        key: reason.noCoordinator ? 'plan.reason.failedRetryByYou' : 'plan.reason.failedRetry',
+        key: reason.noCoordinator ? 'plan.steps.reason.failedRetryByYou' : 'plan.steps.reason.failedRetry',
         params: { failures: reason.failures, limit: reason.limit }
       }
     case 'awaiting-review':
       return { key: 'plan.reason.awaitingReview' }
     case 'stopped':
-      return { key: 'plan.reason.stopped' }
+      return { key: 'plan.steps.reason.stopped' }
     case 'deps':
       return { key: 'plan.reason.deps', params: { tasks: reason.waitingOn.map((d) => d.title).join(', ') } }
     case 'no-account':
       return { key: 'plan.reason.noAccount' }
     case 'coordinator':
-      return { key: 'plan.reason.coordinator' }
+      return { key: 'plan.steps.reason.lead' }
     case 'plan-cap':
-      return { key: 'plan.reason.planCap', params: { used: reason.used, limit: reason.limit } }
+      return { key: 'plan.steps.reason.planCap', params: { used: reason.used, limit: reason.limit } }
     case 'global-cap':
-      return { key: 'plan.reason.globalCap', params: { used: reason.used, limit: reason.limit, priority: reason.priority } }
+      return { key: 'plan.steps.reason.globalCap', params: { used: reason.used, limit: reason.limit, priority: reason.priority } }
     // W6-C
     case 'same-files':
       // W8-D: "Waits for Auth rework · T6 (same files: src/api/routes.ts)" when it is another plan's
@@ -273,7 +274,7 @@ export function nowOf(
   if (session?.prompt === 'permission') return { key: 'plan.now.permission' }
   if (session?.prompt === 'question') return { key: 'plan.now.question' }
   const asked = events.filter((e) => e.taskId === task.id && e.kind === 'message' && e.messageType === 'question').at(-1)
-  if (asked?.answered === false) return { key: 'plan.now.asked' }
+  if (asked?.answered === false) return { key: 'plan.steps.now.asked' }
   if (session?.heavyWait) return { key: 'plan.now.heavyWait', params: { place: ordinal(session.heavyWait) } }
   const a = session?.lastAction
   if (!a) return null

@@ -9,8 +9,9 @@ import type { AppState } from '../../state/appState'
 import { localDoor } from '../../lib/orchDoor'
 import { jobName } from '../../lib/jobName'
 import { openConsole, openInbox, openPlan } from '../shell/navigation'
-import { Button, Card, Chip, EmptyState, Icon, PageHeader, Tabs } from '../ui'
-import { CircleCheck, FileStack, Gauge, Layers, ListOrdered, ListTodo, Lock, PenLine, Plus, SquareTerminal, Users, type LucideIcon } from 'lucide-react'
+import { Button, Card, Chip, EmptyState, ICONS, Icon, PageHeader, Tabs } from '../ui'
+// Not in the ui Icon registry yet (listed for promotion in docs/dev/shots/w12-plan/NOTES.md)
+import { FileStack, Gauge, ListOrdered, PenLine, type LucideIcon } from 'lucide-react'
 import {
   DONE_PER_PLAN,
   TASK_COLUMNS,
@@ -94,7 +95,7 @@ export function TasksPage({ accounts, currentProject, layout, openStart, orchSna
   const empty = planning.length === 0 && TASK_COLUMNS.every((c) => (columns.get(c)?.length ?? 0) === 0)
   const newTask =
     currentProject !== null ? (
-      <Button variant="primary" icon={<Plus size={16} />} onClick={() => openStart({})}>
+      <Button variant="primary" icon={<Icon name="add" />} onClick={() => openStart({})}>
         {t('pages.tasks.new')}
       </Button>
     ) : undefined
@@ -125,7 +126,7 @@ export function TasksPage({ accounts, currentProject, layout, openStart, orchSna
         }
       />
       {empty ? (
-        <EmptyState icon={ListTodo} title={t('pages.tasks.emptyTitle')} action={newTask}>
+        <EmptyState icon={ICONS.tasks} title={t('pages.tasks.emptyTitle')} action={newTask}>
           {t('pages.tasks.emptyBody')}
         </EmptyState>
       ) : (
@@ -142,7 +143,7 @@ export function TasksPage({ accounts, currentProject, layout, openStart, orchSna
                   return (
                     <Card key={e.plan.id} className="tasks-card tasks-planning-row" onClick={() => openPlan(e.plan.id)}>
                       <span className="tasks-card-head">
-                        <Icon icon={e.stage === 'queued' ? ListOrdered : e.stage === 'ready' ? CircleCheck : PenLine} size={14} />
+                        {e.stage === 'ready' ? <Icon name="done" size={14} /> : <Icon icon={e.stage === 'queued' ? ListOrdered : PenLine} size={14} />}
                         <span className="tasks-card-title" title={jobName(e.plan)}>
                           {jobName(e.plan)}
                         </span>
@@ -154,7 +155,7 @@ export function TasksPage({ accounts, currentProject, layout, openStart, orchSna
                           <Button
                             size="sm"
                             variant="ghost"
-                            icon={<SquareTerminal size={14} />}
+                            icon={<Icon name="terminal" size={14} />}
                             onClick={(ev) => {
                               ev.stopPropagation()
                               openConsole(e.plan.plannerSessionId as string)
@@ -231,12 +232,12 @@ export function TasksPage({ accounts, currentProject, layout, openStart, orchSna
 const ALL = '.all'
 
 const WAIT_ICON: Record<WaitKind, LucideIcon> = {
-  lease: Lock,
+  lease: ICONS.lock,
   queued: ListOrdered,
-  wave: Layers,
+  wave: ICONS.layers,
   files: FileStack,
   limit: Gauge,
-  cap: Users
+  cap: ICONS.users
 }
 
 /** usePlanLive's door while no project is open: never polled (enabled is false). */
