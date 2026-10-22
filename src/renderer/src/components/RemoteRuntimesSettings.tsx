@@ -4,8 +4,7 @@ import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
 import { confirmModal } from '../lib/confirm'
 import { refOf, remoteCall, type RemoteSessionRef, type RemoteSessionRow } from '../lib/remoteSessions'
-import { Select } from './Select'
-import { Button, Card, Chip, Field, Modal } from './ui'
+import { Button, Card, Chip, Field, Modal, Select } from './ui'
 import { MachineSteps } from './MachineSteps'
 import { addressLabel, controlFailureLine, failureLine, pairedStateLine, pairingLeftLine, pairingState, pingLine, thisMachineLine } from './remoteRuntimesText'
 
@@ -123,7 +122,7 @@ export function RemoteRuntimesSettings({
       toast.success(t('settings.remote.start.done', { listen: String(r.body.listen ?? listen), port: String(r.body.port ?? '') }))
     })
   const turnOff = async (): Promise<void> => {
-    const ok = await confirmModal({ title: t('settings.remote.stop.title'), body: t('settings.remote.stop.body'), confirmLabel: t('settings.remote.stop.button') })
+    const ok = await confirmModal({ title: t('settings.remote.stop.title'), body: t('settings.remote.stop.body'), confirmLabel: t('settings.remote.stop.button'), danger: true })
     if (!ok) return
     await control(async () => {
       const r = await window.api.remote.stop()
@@ -153,7 +152,7 @@ export function RemoteRuntimesSettings({
     toast.success(t('settings.remote.newPair.copied'))
   }
   const revoke = async (c: { clientId: string; name: string }): Promise<void> => {
-    const ok = await confirmModal({ title: t('settings.remote.revoke.title'), body: t('settings.remote.revoke.body', { name: c.name }), confirmLabel: t('settings.remote.revoke.button') })
+    const ok = await confirmModal({ title: t('settings.remote.revoke.title'), body: t('settings.remote.revoke.body', { name: c.name }), confirmLabel: t('settings.remote.revoke.button'), danger: true })
     if (!ok) return
     await control(async () => {
       const r = await window.api.remote.revoke(c.clientId)
@@ -191,7 +190,8 @@ export function RemoteRuntimesSettings({
     const ok = await confirmModal({
       title: t('settings.remote.paired.remove'),
       body: t('settings.remote.paired.removeConfirm', { name: r.name }),
-      confirmLabel: t('settings.remote.paired.remove')
+      confirmLabel: t('settings.remote.paired.remove'),
+      danger: true
     })
     if (!ok) return
     const done = await window.api.remote.remove(r.runtimeId)
@@ -262,18 +262,18 @@ export function RemoteRuntimesSettings({
             </div>
             <span className="settings-hint">{t('settings.remote.start.hint')}</span>
             <div className="remote-actions is-end">
-              <button className="primary" disabled={switching || listen === ''} onClick={() => void turnOn()}>
+              <Button variant="primary" disabled={switching || listen === ''} onClick={() => void turnOn()}>
                 {t('settings.remote.start.button')}
-              </button>
+              </Button>
             </div>
           </>
         )}
         {mine && remoteOn && (
           <>
             <div className="remote-actions is-end">
-              <button className="ghost danger" disabled={switching} onClick={() => void turnOff()}>
+              <Button variant="danger" size="sm" disabled={switching} onClick={() => void turnOff()}>
                 {t('settings.remote.stop.button')}
-              </button>
+              </Button>
             </div>
 
             <div className="settings-field-label">{t('settings.remote.newPair.title')}</div>
@@ -296,9 +296,9 @@ export function RemoteRuntimesSettings({
                 maxLength={64}
                 onChange={(e) => setPairName(e.target.value)}
               />
-              <button className="primary" disabled={switching || gatewayState !== 'ready'} onClick={() => void makePairing()}>
+              <Button variant="primary" disabled={switching || gatewayState !== 'ready'} onClick={() => void makePairing()}>
                 {t('settings.remote.newPair.button')}
-              </button>
+              </Button>
             </div>
             {gatewayState !== 'ready' && <p className="settings-hint">{t('settings.remote.newPair.notReady', { state: gatewayState })}</p>}
             {fullControl && <p className="settings-hint is-warning">{t('settings.remote.newPair.fullControlWarning')}</p>}
@@ -308,9 +308,9 @@ export function RemoteRuntimesSettings({
               <>
                 <div className="remote-actions">
                   <input className="settings-gen-input remote-actions-grow" readOnly value={made.pairing} aria-label={t('settings.remote.newPair.title')} spellCheck={false} onFocus={(e) => e.target.select()} />
-                  <button className="settings-gen-refresh" onClick={copyPairing}>
+                  <Button size="sm" onClick={copyPairing}>
                     {t('settings.remote.newPair.copy')}
-                  </button>
+                  </Button>
                 </div>
                 <p className="settings-hint">
                   {made.permission === 'full-control' ? t('settings.remote.paired.fullControl') : t('settings.remote.paired.readOnly')} · {pairingLeftLine(made.expiresAt, now, t as never)}
@@ -333,9 +333,9 @@ export function RemoteRuntimesSettings({
                   <span>
                     {c.name} · {c.permission === 'read-only' ? t('settings.remote.paired.readOnly') : t('settings.remote.paired.fullControl')}
                   </span>
-                  <button className="ghost danger" disabled={switching} onClick={() => void revoke(c)}>
+                  <Button variant="danger" size="sm" disabled={switching} onClick={() => void revoke(c)}>
                     {t('settings.remote.revoke.button')}
-                  </button>
+                  </Button>
                 </div>
               ))
             )}
@@ -370,34 +370,34 @@ export function RemoteRuntimesSettings({
           </div>
           {accountsLine(accountsOf[r.runtimeId]) && <p className="settings-hint">{accountsLine(accountsOf[r.runtimeId])}</p>}
           <div className="remote-actions is-end">
-            <button className="settings-gen-refresh" onClick={() => void ping(r.runtimeId)}>
+            <Button size="sm" onClick={() => void ping(r.runtimeId)}>
               {t('settings.remote.paired.ping')}
-            </button>
+            </Button>
             {onNewConsole && (
-              <button className="settings-gen-refresh" onClick={() => onNewConsole(r.runtimeId)}>
+              <Button size="sm" onClick={() => onNewConsole(r.runtimeId)}>
                 {t('remote.machines.newConsole')}
-              </button>
+              </Button>
             )}
-            <button
-              className="settings-gen-refresh"
+            <Button
+              size="sm"
               disabled={r.permission === 'read-only'}
               title={r.permission === 'read-only' ? t('remote.machines.needsFullControl') : undefined}
               aria-expanded={addingFor === r.runtimeId}
               onClick={() => setAddingFor((cur) => (cur === r.runtimeId ? null : r.runtimeId))}
             >
               {t('remote.machines.addProject')}
-            </button>
-            <button className="settings-gen-refresh" onClick={() => void signIn(r)}>
+            </Button>
+            <Button size="sm" onClick={() => void signIn(r)}>
               {t('remote.machines.signIn')}
-            </button>
+            </Button>
             {migratable.includes(r.runtimeId) && (
-              <button className="settings-gen-refresh" aria-expanded={migrateFor === r.runtimeId} onClick={() => setMigrateFor((cur) => (cur === r.runtimeId ? null : r.runtimeId))}>
+              <Button size="sm" aria-expanded={migrateFor === r.runtimeId} onClick={() => setMigrateFor((cur) => (cur === r.runtimeId ? null : r.runtimeId))}>
                 {t('remote.machines.migrate.again')}
-              </button>
+              </Button>
             )}
-            <button className="ghost danger" onClick={() => void remove(r)}>
+            <Button variant="danger" size="sm" onClick={() => void remove(r)}>
               {t('settings.remote.paired.remove')}
-            </button>
+            </Button>
           </div>
           {migrateFor === r.runtimeId && <MigratePanel runtimeId={r.runtimeId} onFinished={() => undefined} />}
           {addingFor === r.runtimeId && (
@@ -418,9 +418,9 @@ export function RemoteRuntimesSettings({
                 onChange={(e) => setClonePath(e.target.value)}
                 spellCheck={false}
               />
-              <button className="primary" disabled={cloning || cloneUrl.trim() === ''} onClick={() => void addProject(r)}>
+              <Button variant="secondary" size="sm" disabled={cloning || cloneUrl.trim() === ''} onClick={() => void addProject(r)}>
                 {t('remote.machines.addProjectButton')}
-              </button>
+              </Button>
             </div>
           )}
           </div>
