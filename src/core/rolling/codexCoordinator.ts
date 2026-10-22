@@ -9,6 +9,7 @@ import type {
   Attention,
   ResumeStrategy,
   RollStateEvent,
+  RollSwitchResult,
   SessionInfo,
   SessionKind
 } from '../types'
@@ -337,6 +338,7 @@ const retryState = (chain: Chain, blocks: BlockRegistry, now: number): RetryStat
 
 export class CodexRollingCoordinator {
   private chains = new Map<string, Chain>() // liveId → chain
+  private readonly switching = new WeakSet<Chain>() // chains with a switchTo in flight
   private ticker: ReturnType<typeof setInterval> | null = null
   private readonly copy: (src: string, dest: string) => Promise<void>
   private readonly rolloutSize: (filePath: string) => Promise<number | null>
@@ -759,6 +761,39 @@ export class CodexRollingCoordinator {
     await this.refresh(chain)
     // Whether the chain acted (S6 final review M1), as on the claude side.
     return this.onLimit(chain, 'force')
+  }
+
+  /** A person's "Use for this tab" — mirrors switchTo in claudeCoordinator.ts: the chain rolls onto the
+   *  chosen account of its own chain through the same roll() a limit takes, and an abort arms no wait. */
+  async switchTo(sessionId: string, accountId: string): Promise<RollSwitchResult> {
+    const chain = this.chains.get(sessionId)
+    if (!chain || chain.disposed) throw new Error('no active codex rolling chain')
+    const toIndex = chain.accountIds.indexOf(accountId)
+    if (toIndex < 0) return { outcome: 'refused', reason: 'account is not in the rolling chain' }
+    if (toIndex === chain.cycle.currentIndex) return { outcome: 'same' }
+    const busy = (): boolean =>
+      chain.rolling || chain.waitTimer !== null || chain.heldTimer !== null
+    if (this.switching.has(chain) || busy()) return { outcome: 'busy' }
+    // Held across the awaits below: a second click there would otherwise pass the checks too.
+    this.switching.add(chain)
+    try {
+      if (!this.deps.getAccount(accountId)) return { outcome: 'refused', reason: 'no such account' }
+      if (chain.loggedOut.has(accountId)) return { outcome: 'refused', reason: 'account signed out' }
+      if (!this.acts(chain)) return { outcome: 'refused', reason: 'another app window holds this tab' }
+      await this.refresh(chain)
+      if (chain.disposed) throw new Error('no active codex rolling chain')
+      if (busy()) return { outcome: 'busy' }
+      // Checked here rather than left to roll(): its abort would arm a wait on a session nothing blocks.
+      if (!chain.codexSessionId || !chain.rolloutPath)
+        return { outcome: 'refused', reason: 'conversation not located yet' }
+      this.deps.log(`codex switch requested session=${chain.liveId} to=${accountId}`)
+      await this.roll(chain, toIndex, true)
+      return !chain.disposed && chain.cycle.currentIndex === toIndex
+        ? { outcome: 'switched' }
+        : { outcome: 'refused', reason: 'roll aborted' }
+    } finally {
+      this.switching.delete(chain)
+    }
   }
 
   /** The roll banner's snapshot, read once as the renderer adopts a session — session:rollState is
@@ -1547,7 +1582,13 @@ export class CodexRollingCoordinator {
    *  This is a second copy of the claude side's function of the same name, deliberately — lifting timer
    *  lifetimes into a common parent is the axis of this app that has produced the most bugs
    *  (core/rolling/retry.ts's header records that decision). */
-  private rescheduleAbortedRoll(chain: Chain, why: string): void {
+  private rescheduleAbortedRoll(chain: Chain, why: string, manual = false): void {
+    // A switch a person asked for left a working session: nothing to retry, only the banner to take down.
+    if (manual) {
+      this.deps.log(`codex switch aborted (${why}) session=${chain.liveId}`)
+      this.pushState(chain, 'none')
+      return
+    }
     // Defensive. No caller can actually reach here with a wait already armed — onLimit's wait branch
     // does not call roll() — but it is checked because being wrong once costs a second timer on the
     // same chain: one of the two leaks with nothing left holding its handle, and the session resumes
@@ -1566,7 +1607,7 @@ export class CodexRollingCoordinator {
   /** Runs the roll: copy the rollout → kill → respawn in the same slot with codex resume. When Smart
    *  Resume is on and a briefing was built, the copy and the `--resume` are skipped instead — the new
    *  session starts blank, carrying only the briefing (see the `smart` branch below). */
-  private async roll(chain: Chain, toIndex: number): Promise<void> {
+  private async roll(chain: Chain, toIndex: number, manual = false): Promise<void> {
     if (chain.rolling || chain.disposed) return
     // S6 R26: settleInPlace, resumeAfterWait and forceRoll reach here without passing onLimit.
     if (!this.acts(chain)) return this.requeueRoll(chain, toIndex, 'quiet at entry')
@@ -1580,18 +1621,18 @@ export class CodexRollingCoordinator {
       const target = this.deps.getAccount(chain.accountIds[toIndex])
       if (!target) {
         this.deps.log(`codex roll aborted — no such account id=${chain.accountIds[toIndex]}`)
-        this.rescheduleAbortedRoll(chain, 'no such account')
+        this.rescheduleAbortedRoll(chain, 'no such account', manual)
         return
       }
       if (!chain.codexSessionId || !chain.rolloutPath) {
         this.deps.log(`codex roll aborted — rollout unmapped session=${chain.liveId}`)
         chain.unmappedWarned = false // let a still-unmapped state report itself again on the next retry round
-        this.rescheduleAbortedRoll(chain, 'rollout unmapped')
+        this.rescheduleAbortedRoll(chain, 'rollout unmapped', manual)
         return
       }
       const codexSessionId = chain.codexSessionId // pinned before the awaits below — attachRollout needs it non-null
       const srcRolloutPath = chain.rolloutPath // pinned for the same reason — a blank-slate roll clears chain.rolloutPath before this function reads it again
-      this.pushState(chain, 'switching', { accountLabel: target.label })
+      this.pushState(chain, 'switching', { accountLabel: target.label, ...(manual ? { manual } : {}) })
       // resumeText 는 spec 파일에 쓰는 부수 효과가 있는 await 이므로, kill 과 재키잉 사이에는 두지
       // 않는다 — 그 구간에 await 를 두지 않는다는 것이 아래 kill/spawn 의 불변이다(exit 가 옛 id 로
       // 도착해도 disposeChain 이 오작동하지 않는 이유). 그래서 kill 앞에서, 세션이 아직 살아 있을
@@ -1682,7 +1723,7 @@ export class CodexRollingCoordinator {
         } catch (err) {
           const why = err instanceof Error ? err.message : String(err)
           this.deps.log(`codex roll aborted — the respawn would be refused: ${why} session=${chain.liveId}`)
-          this.rescheduleAbortedRoll(chain, `spawn refused: ${why}`)
+          this.rescheduleAbortedRoll(chain, `spawn refused: ${why}`, manual)
           return
         }
         if (chain.disposed) {
@@ -1836,7 +1877,7 @@ export class CodexRollingCoordinator {
       // dest is undefined — there is no known rollout yet, and the watcher's own registration already
       // falls back to searching for one, the same as it does for any ordinary fresh spawn.
       this.deps.send('session:rolled', { oldSessionId: oldId, info, dest })
-      this.pushState(chain, 'switching', { accountLabel: target.label, reattach: true })
+      this.pushState(chain, 'switching', { accountLabel: target.label, reattach: true, ...(manual ? { manual } : {}) })
       this.deps.log(`codex rolled ${oldId} → ${info.id} account=${target.label}`)
       if (!chat) {
         // No limit detected for 60 seconds after the switch → reset the consecutive block count.
@@ -1869,7 +1910,7 @@ export class CodexRollingCoordinator {
       // It is deliberately not distinguished: a flag saying "the kill already happened" would have to be
       // threaded through the whole kill→spawn→re-key sequence to be correct, and a wrong flag would
       // silence the reschedule on the aborts that need it.
-      this.rescheduleAbortedRoll(chain, 'roll failed')
+      this.rescheduleAbortedRoll(chain, 'roll failed', manual)
     } finally {
       chain.rolling = false
       chain.killing = false

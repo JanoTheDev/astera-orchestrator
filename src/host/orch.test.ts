@@ -3246,7 +3246,7 @@ describe('Host-local spawn (S2)', () => {
 
   it('answers roll-state and roll-force for the app only (S6 §3.4)', async () => {
     const event = { sessionId: 's1', state: 'waiting' as const, nextRetryAt: '2026-09-25T10:00:00.000Z' }
-    const rolling = { unregister: vi.fn(), stateOf: vi.fn((id: string) => (id === 's1' ? event : null)), forceRoll: vi.fn(async (_id: string) => false), has: (id: string) => id === 's1' }
+    const rolling = { unregister: vi.fn(), stateOf: vi.fn((id: string) => (id === 's1' ? event : null)), forceRoll: vi.fn(async (_id: string) => false), switchTo: vi.fn(async (_id: string, _account: string) => ({ outcome: 'busy' as const })), has: (id: string) => id === 's1' }
     const orch = orchOver({ rolling })
     const app = { role: 'app' as const, toOthers: () => {} }
     const cli = { role: 'cli' as const, toOthers: () => {} }
@@ -3263,6 +3263,25 @@ describe('Host-local spawn (S2)', () => {
     expect((await orch.call({ cmd: 'roll-force', args: { sessionId: 's9' }, sessionId: '', from: app })).status).toBe(404)
     expect((await orchOver().call({ cmd: 'roll-state', args: { sessionId: 's1' }, sessionId: '', from: app })).status).toBe(501)
     expect((await orch.call({ cmd: 'roll-state', args: {}, sessionId: '', from: app })).status).toBe(400)
+  })
+  it('answers roll-switch for the app only, 200 with the outcome, 404 for a chain it does not hold', async () => {
+    const rolling = {
+      unregister: vi.fn(),
+      stateOf: vi.fn(() => null),
+      forceRoll: vi.fn(async () => false),
+      switchTo: vi.fn(async (_id: string, _account: string) => ({ outcome: 'switched' as const })),
+      has: (id: string) => id === 's1'
+    }
+    const orch = orchOver({ rolling })
+    const app = { role: 'app' as const, toOthers: () => {} }
+    const cli = { role: 'cli' as const, toOthers: () => {} }
+    const ok = await orch.call({ cmd: 'roll-switch', args: { sessionId: 's1', accountId: 'a2' }, sessionId: '', from: app })
+    expect(ok).toMatchObject({ status: 200, body: { outcome: 'switched' } })
+    expect(rolling.switchTo).toHaveBeenCalledWith('s1', 'a2')
+    expect((await orch.call({ cmd: 'roll-switch', args: { sessionId: 's9', accountId: 'a2' }, sessionId: '', from: app })).status).toBe(404)
+    expect((await orch.call({ cmd: 'roll-switch', args: { sessionId: 's1' }, sessionId: '', from: app })).status).toBe(400)
+    expect((await orch.call({ cmd: 'roll-switch', args: { sessionId: 's1', accountId: 'a2' }, sessionId: '', from: cli })).status).toBe(403)
+    expect((await orchOver().call({ cmd: 'roll-switch', args: { sessionId: 's1', accountId: 'a2' }, sessionId: '', from: app })).status).toBe(501)
   })
   it('answers roll-journal for the app only, with the entries after the ack (S6 limits D5)', async () => {
     const entry = { seq: 3, at: '2026-09-25T00:00:00.000Z', kind: 'rolled' as const, sessionId: 's2', oldSessionId: 's1' }

@@ -1147,6 +1147,43 @@ describe('CodexRollingCoordinator', () => {
     h.coord.stop()
   })
 
+  it('switchTo moves the tab onto the chosen account through the roll path, marked manual', async () => {
+    const h = harness()
+    await writeRollout({ accountId: 'c1', uuid: 'cx-6', cwd: h.info1.cwd, primary: 3 })
+    h.coord.register(h.info1)
+    await advance(1_500)
+    expect(await h.coord.switchTo('s1', 'c2')).toEqual({ outcome: 'switched' })
+    expect(h.events).toContain('spawn:s2:c2')
+    expect(h.sent.some((m) => m.payload.state === 'switching' && m.payload.manual === true)).toBe(true)
+    h.coord.stop()
+  })
+
+  it('switchTo answers same, busy and refused without spawning', async () => {
+    const h = harness()
+    await writeRollout({ accountId: 'c1', uuid: 'cx-7', cwd: h.info1.cwd, primary: 3 })
+    h.coord.register(h.info1)
+    await advance(1_500)
+    expect(await h.coord.switchTo('s1', 'c1')).toEqual({ outcome: 'same' })
+    // Another provider's account is never in a codex chain.
+    expect((await h.coord.switchTo('s1', 'a1')).outcome).toBe('refused')
+    expect(h.events.filter((e) => e.startsWith('spawn:'))).toHaveLength(0)
+    // Two clicks at once: the second finds the first rolling.
+    const first = h.coord.switchTo('s1', 'c2')
+    const second = h.coord.switchTo('s1', 'c2')
+    expect(await second).toEqual({ outcome: 'busy' })
+    expect(await first).toEqual({ outcome: 'switched' })
+    expect(h.events.filter((e) => e.startsWith('spawn:'))).toHaveLength(1)
+    h.coord.stop()
+  })
+
+  it('switchTo refuses a chain whose rollout is not located yet and arms no wait', async () => {
+    const h = harness()
+    h.coord.register(h.info1)
+    expect(await h.coord.switchTo('s1', 'c2')).toMatchObject({ outcome: 'refused' })
+    expect(h.sent.some((m) => m.payload.state === 'waiting')).toBe(false)
+    h.coord.stop()
+  })
+
   // 아래 unregister 테스트의 대조군. 그 테스트와 setup 이 같고 unregister 한 줄만 없다 — 그것이
   // 부정 단언의 근거다(이 테스트가 통과하는 동안에만 아래가 무언가를 증명한다).
   // **하네스마다 테스트를 나눈다**: findRollout 은 파일의 실제 생성 시각을 register 시각(가짜 시계)과

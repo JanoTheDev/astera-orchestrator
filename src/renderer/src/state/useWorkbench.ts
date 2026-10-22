@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { HistoryEntry, ScheduleConfig, SessionInfo, SessionKind } from '../../../core/types'
 import type { UnattendedPermission } from '../../../core/chat/types'
 import { invalidateImageCache } from '../components/MarkdownPreview'
+import { setActiveSession } from '../lib/activeSession'
 import type { EditorState, StateEffect } from '@codemirror/state'
 import { openSessionIds, placeAppTabs, removeAppTab } from '../lib/workspaceMirror'
 import { flushPendingEdits } from '../lib/editCoalescer'
@@ -1539,6 +1540,7 @@ export function useWorkbench(deps: WorkbenchDeps) {
 
   // 마지막으로 활성이었던 세션. 그 세션이 이미 닫혔으면 find가 못 찾아 null이 되므로 별도의 청소가 없다
   const active = sessions.find((s) => s.id === (activeSessionId ?? lastSessionIdRef.current)) ?? null
+  useEffect(() => setActiveSession(active), [active]) // for the accounts popover's "Use for this tab"
   const runningCount = sessions.filter((s) => s.status === 'running').length
   runningCountRef.current = runningCount // the toast's install button has to see the value at click time
   // A check round trip is around 350ms, so watching only the real state would make 'Checking…' invisible

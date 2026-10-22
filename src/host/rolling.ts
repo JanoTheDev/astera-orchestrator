@@ -21,7 +21,7 @@ import { RateLimitFetcher, USAGE_GATE_MAX_AGE_MS } from '../core/usage/rateLimit
 import { findClaudeTranscript } from '../core/history/strategies/claude'
 import type { RollSnapshot, RollSpawnExtra } from '../core/rolling/snapshot'
 import type { Lang } from '../core/i18n'
-import type { Account, RateLimitPeak, ResumeStrategy, RollStateEvent, SessionInfo, SessionKind } from '../core/types'
+import type { Account, RateLimitPeak, ResumeStrategy, RollStateEvent, RollSwitchResult, SessionInfo, SessionKind } from '../core/types'
 import type { PtyRegistry } from './registry'
 import type { HostChats } from './hostChats'
 import { createChatRollFeed } from './chatRollFeed'
@@ -129,6 +129,8 @@ export interface HostRolling {
   stateOf(sessionId: string): RollStateEvent | null
   /** The dev hook: whether the chain acted, false when it was rolling, waiting, settling or quiet. */
   forceRoll(sessionId: string): Promise<boolean>
+  /** "Use for this tab": the chain moves onto a chosen account of its own chain (coordinators' switchTo). */
+  switchTo(sessionId: string, accountId: string): Promise<RollSwitchResult>
   /** The accounts snapshot and the resume strategy, read again (the tick, and at start). */
   refresh(): Promise<void>
   /** Whether accounts.json has ever been read (R23). Until it has, no account resolves, and a takeover's
@@ -476,6 +478,7 @@ export function createHostRolling(d: HostRollingDeps): HostRolling {
     },
     stateOf: (id) => claude.stateOf(id) ?? codex.stateOf(id),
     forceRoll: (id) => (codex.has(id) ? codex.forceRoll(id) : claude.forceRoll(id)),
+    switchTo: (id, accountId) => (codex.has(id) ? codex.switchTo(id, accountId) : claude.switchTo(id, accountId)),
     refresh: async () => {
       try {
         accounts = await readAccounts()

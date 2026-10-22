@@ -17,6 +17,7 @@ import type {
   SessionInfo,
   SessionKind,
   RollStateEvent,
+  RollSwitchResult,
   SessionUsage
 } from '../types'
 import type { RateLimitInfo } from '../chat/types'
@@ -439,6 +440,7 @@ const retryState = (chain: Chain, blocks: BlockRegistry, now: number): RetryStat
 
 export class RollingCoordinator {
   private chains = new Map<string, Chain>() // liveId → chain
+  private readonly switching = new WeakSet<Chain>() // chains with a switchTo in flight
   private ticker: ReturnType<typeof setInterval> | null = null
   private readonly copy: (src: string, dest: string) => Promise<void>
   private readonly now: () => number
@@ -915,6 +917,42 @@ export class RollingCoordinator {
     if (!chain || chain.disposed) throw new Error('no active rolling chain')
     await this.refreshMeta(chain)
     return this.onLimit(chain)
+  }
+
+  /** A person's "Use for this tab": the chain moves onto the account they chose instead of the next one,
+   *  through the same roll() a limit takes (copy, kill, respawn, re-key, state). The cycle then sits on
+   *  that account, so later limits roll on from it in the chain's own order. Only accounts in this
+   *  chain qualify — a claude chain holds claude accounts only, so another provider's id is refused.
+   *  An abort inside the roll arms no wait: nothing is blocked, the session simply stays where it was. */
+  async switchTo(sessionId: string, accountId: string): Promise<RollSwitchResult> {
+    const chain = this.chains.get(sessionId)
+    if (!chain || chain.disposed) throw new Error('no active rolling chain')
+    const toIndex = chain.accountIds.indexOf(accountId)
+    if (toIndex < 0) return { outcome: 'refused', reason: 'account is not in the rolling chain' }
+    if (toIndex === chain.cycle.currentIndex) return { outcome: 'same' }
+    const busy = (): boolean =>
+      chain.rolling || chain.waitTimer !== null || chain.heldTimer !== null || chain.awaitingReady
+    if (this.switching.has(chain) || busy()) return { outcome: 'busy' }
+    // Held across the awaits below: a second click there would otherwise pass the checks too.
+    this.switching.add(chain)
+    try {
+      if (!this.deps.getAccount(accountId)) return { outcome: 'refused', reason: 'no such account' }
+      if (chain.loggedOut.has(accountId)) return { outcome: 'refused', reason: 'account signed out' }
+      if (!this.acts(chain)) return { outcome: 'refused', reason: 'another app window holds this tab' }
+      await this.refreshMeta(chain)
+      if (chain.disposed) throw new Error('no active rolling chain')
+      if (busy()) return { outcome: 'busy' }
+      // Checked here rather than left to roll(): its abort would arm a wait on a session nothing blocks.
+      if (!(chain.claudeSessionId ?? chain.resumeSeedSessionId) || !(chain.transcriptPath ?? chain.resumeSeedTranscriptPath))
+        return { outcome: 'refused', reason: 'conversation not located yet' }
+      this.deps.log(`switch requested session=${chain.liveId} to=${accountId}`)
+      await this.roll(chain, toIndex, true)
+      return !chain.disposed && chain.cycle.currentIndex === toIndex
+        ? { outcome: 'switched' }
+        : { outcome: 'refused', reason: 'roll aborted' }
+    } finally {
+      this.switching.delete(chain)
+    }
   }
 
   /** The roll banner's snapshot, read once as the renderer adopts a session — session:rollState is
@@ -1636,7 +1674,13 @@ export class RollingCoordinator {
    *  ordinary wait path has always had, so none of it is new behaviour — and it is still better than
    *  silence, because the log is the only thing that can tell someone to re-add the account or close
    *  the session. */
-  private rescheduleAbortedRoll(chain: Chain, why: string): void {
+  private rescheduleAbortedRoll(chain: Chain, why: string, manual = false): void {
+    // A switch a person asked for left a working session: nothing to retry, only the banner to take down.
+    if (manual) {
+      this.deps.log(`switch aborted (${why}) session=${chain.liveId}`)
+      this.pushState(chain, 'none')
+      return
+    }
     // Defensive. No caller can actually reach here with a wait already armed — onLimit's wait branch
     // does not call roll() — but it is checked because being wrong once costs a second timer on the
     // same chain: one of the two leaks with nothing left holding its handle, and the session resumes
@@ -1656,7 +1700,7 @@ export class RollingCoordinator {
    *  order is fixed). When Smart Resume is on and a briefing was built, the copy and `resumeSessionId`
    *  are skipped instead — the new session starts blank, carrying only the briefing (see the `smart`
    *  branch below). */
-  private async roll(chain: Chain, toIndex: number): Promise<void> {
+  private async roll(chain: Chain, toIndex: number, manual = false): Promise<void> {
     if (chain.rolling || chain.disposed) return
     // S6 R26: settleInPlace, resumeAfterWait and forceRoll reach here without passing onLimit.
     if (!this.acts(chain)) return this.requeueRoll(chain, toIndex, 'quiet at entry')
@@ -1674,7 +1718,7 @@ export class RollingCoordinator {
       const target = this.deps.getAccount(chain.accountIds[toIndex])
       if (!target) {
         this.deps.log(`roll aborted — no such account id=${chain.accountIds[toIndex]}`)
-        this.rescheduleAbortedRoll(chain, 'no such account')
+        this.rescheduleAbortedRoll(chain, 'no such account', manual)
         return
       }
       if (!chain.claudeSessionId || !chain.transcriptPath) await this.refreshMeta(chain)
@@ -1685,7 +1729,7 @@ export class RollingCoordinator {
       const transcriptPath = chain.transcriptPath ?? chain.resumeSeedTranscriptPath
       if (!sessionId || !transcriptPath) {
         this.deps.log(`roll aborted — no session metadata (statusline never recorded) session=${chain.liveId}`)
-        this.rescheduleAbortedRoll(chain, 'no session metadata')
+        this.rescheduleAbortedRoll(chain, 'no session metadata', manual)
         return
       }
       // resumeText 는 spec 파일에 쓰는 부수 효과가 있는 await 이므로 kill 과 재키잉 사이에는 두지
@@ -1735,7 +1779,7 @@ export class RollingCoordinator {
       // before the metadata check announced a switch to Slack that never happens, and it also claimed the
       // stop episode in the orchestration tap with reason 'switching' (no reset time), so the reschedule's
       // own 'waiting' publication just below was then ignored as a repeat of the same stop.
-      this.pushState(chain, 'switching', { accountLabel: target.label })
+      this.pushState(chain, 'switching', { accountLabel: target.label, ...(manual ? { manual } : {}) })
       // ① copy — a claude blocked by a limit is idle, so there is no write contention. Smart Resume
       // skips this: the new session starts blank, so there is no transcript to hand it.
       let dest: string | undefined
@@ -1758,7 +1802,7 @@ export class RollingCoordinator {
         } catch (err) {
           const why = err instanceof Error ? err.message : String(err)
           this.deps.log(`roll aborted — the respawn would be refused: ${why} session=${chain.liveId}`)
-          this.rescheduleAbortedRoll(chain, `spawn refused: ${why}`)
+          this.rescheduleAbortedRoll(chain, `spawn refused: ${why}`, manual)
           return
         }
         if (chain.disposed) {
@@ -1892,7 +1936,7 @@ export class RollingCoordinator {
       this.snap(chain)
       this.deps.send('session:rolled', { oldSessionId: oldId, info })
       // A re-publish that reattaches the banner to the new sessionId — not a new switch, so Slack does not announce it
-      this.pushState(chain, 'switching', { accountLabel: target.label, reattach: true })
+      this.pushState(chain, 'switching', { accountLabel: target.label, reattach: true, ...(manual ? { manual } : {}) })
       this.deps.log(`rolled ${oldId} → ${info.id} account=${target.label}`)
       if (chain.kind === 'chat') {
         // A chat roll is already finished here, which is why it does not go through scheduleAutoPrompt:
@@ -1936,7 +1980,7 @@ export class RollingCoordinator {
       // It is deliberately not distinguished: a flag saying "the kill already happened" would have to be
       // threaded through the whole kill→spawn→re-key sequence to be correct, and a wrong flag would
       // silence the reschedule on the aborts that need it.
-      this.rescheduleAbortedRoll(chain, 'roll failed')
+      this.rescheduleAbortedRoll(chain, 'roll failed', manual)
     } finally {
       chain.rolling = false
       chain.killing = false

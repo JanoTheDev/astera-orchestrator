@@ -78,7 +78,7 @@ import { hostRollConfigPath, readRollConfigKey } from '../core/rolling/config'
 import { DataBatcher } from '../core/sessions/batcher'
 import { BusyScanner } from '../core/terminal/busy'
 import { isOnlyTerminalReports } from '../core/terminal/reports'
-import type { Account, CoreEvents, HistoryPageRequest, HistoryProjectsPageRequest, HostHoldings, HostStatus, OrchHostGate, OrchSnapshot, RunDetail, CompletionDetail, Provider, RateLimitWindow, ResumeStrategy, RollStateEvent, RunConfig, RunStatus, ScheduleConfig, SessionInfo } from '../core/types'
+import type { Account, CoreEvents, HistoryPageRequest, HistoryProjectsPageRequest, HostHoldings, HostStatus, OrchHostGate, OrchSnapshot, RunDetail, CompletionDetail, Provider, RateLimitWindow, ResumeStrategy, RollStateEvent, RollSwitchResult, RunConfig, RunStatus, ScheduleConfig, SessionInfo } from '../core/types'
 import { providerOf } from '../core/providers/meta'
 import { orchAccountsFor } from '../core/accounts/accountsFile'
 import { descriptorOf } from '../core/providers/descriptor'
@@ -8369,4 +8369,18 @@ export function registerIpc(
       }
       return (await rolling?.forceRoll(sessionId)) ?? false
     })
+
+  // "Use for this tab" (accounts popover) — every build. Routed like forceRoll above: the local chain
+  // that holds the session, else the Host's when it rolls; a session nobody rolls rejects.
+  ipcMain.handle('rolling.switchTo', async (_e, sessionId: unknown, accountId: unknown): Promise<RollSwitchResult> => {
+    if (typeof sessionId !== 'string' || sessionId === '' || typeof accountId !== 'string' || accountId === '')
+      throw new Error('rolling.switchTo needs a sessionId and an accountId')
+    if (codexRolling?.has(sessionId)) return codexRolling.switchTo(sessionId, accountId)
+    if (rolling?.has(sessionId)) return rolling.switchTo(sessionId, accountId)
+    if (!hostSpeaksRolling(hostClient?.status() ?? { connected: false, features: [] }))
+      throw new Error('this tab does not roll accounts')
+    const r = await orchCall({ cmd: 'roll-switch', args: { sessionId, accountId }, sessionId: '' })
+    if (r.status !== 200) throw new Error(`the Host refused roll-switch (${r.status}): ${JSON.stringify(r.body)}`)
+    return r.body as RollSwitchResult
+  })
 }

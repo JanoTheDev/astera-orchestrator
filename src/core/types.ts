@@ -405,6 +405,15 @@ export interface RollStateEvent {
   reattach?: boolean
   nextRetryAt?: string // ISO — the retry time, when state='waiting'
   scope?: 'session' | 'weekly' // which limit, when state='waiting' — selects the banner wording and time format
+  // Set on state='switching' when a person asked for the move ("Use for this tab") rather than a limit
+  manual?: boolean
+}
+
+/** What a chosen-account switch (`RollingApi.switchTo`) did. 'same': the tab already runs there. 'busy':
+ *  the chain is rolling, waiting or settling after a roll. 'refused': not possible, `reason` says why. */
+export interface RollSwitchResult {
+  outcome: 'switched' | 'same' | 'busy' | 'refused'
+  reason?: string
 }
 
 /** Schedule progress (main to renderer, for the banner both views wear — the terminal and the chat pane) */
@@ -1999,6 +2008,9 @@ export interface RollingApi {
   /** Whether a chain acted: false when it was rolling, waiting, settling or quiet (nothing happened). */
   forceRoll(sessionId?: string): Promise<boolean>
   state(sessionId: string): Promise<RollStateEvent | null>
+  /** Registered in every build: moves the session's rolling chain onto a chosen account of its own chain,
+   *  through the same roll a limit takes. Rejects when the session has no rolling chain. */
+  switchTo(sessionId: string, accountId: string): Promise<RollSwitchResult>
 }
 
 /** Window controls (not core — the renderer/Electron layer, the same layer as system) */

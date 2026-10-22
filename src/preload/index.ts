@@ -388,7 +388,8 @@ const api = {
   },
   rolling: {
     forceRoll: invoke('rolling.forceRoll'),
-    state: invoke('rolling.state')
+    state: invoke('rolling.state'),
+    switchTo: invoke('rolling.switchTo')
   },
   app: {
     // The 'quit app' of the forced-update gate. win.close cannot be used: on win32/macOS it only minimises to the tray
