@@ -8,12 +8,13 @@ import { providerOf } from '../../providers/meta'
 import { coordinatorLaunchPrompt } from '../handover'
 import { jobNameOf } from '../jobName'
 import { resolveRoleModel, type RoleModelSettings } from '../roleModels'
+import { plannerBriefName } from './specFiles'
 import { handsOffOf } from './plannerFeedback'
 import { startChainHolding, type CoordinatorStartContext, type StartCoordinatorArgs } from './workerStart'
 
-/** The planner's brief, named for its Job, in the spec directory beside the coordinators' briefs. The boot
- *  sweep (`staleSpecFiles`) removes it at the next start; the planner has read it by then. */
-export const plannerBriefName = (jobId: string): string => `planner-${jobId}.md`
+/** The planner's brief lives in the spec directory (`plannerBriefName`). The sweep (`staleSpecFiles`) keeps
+ *  it while its Job is unarchived: a resumed or reused planner is told to read it again. */
+export { plannerBriefName }
 
 /** Starts a planner on the Job `a.runId` names (a planner has no Run yet: its Job is `pendingStart`).
  *

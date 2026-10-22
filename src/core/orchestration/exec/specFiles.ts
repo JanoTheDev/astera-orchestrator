@@ -12,18 +12,29 @@ export const specsDirOf = (profileDir: string): string => path.join(profileDir, 
  *  it. The name is here, in one place, so those two cannot drift. */
 export const coordinatorBriefName = (runId: string): string => `coordinator-${runId}.md`
 
+/** The planner's brief, named for its Job, beside the coordinators' briefs. `startPlannerSession` writes
+ *  it; named here for the same reason as `coordinatorBriefName`. */
+export const plannerBriefName = (jobId: string): string => `planner-${jobId}.md`
+
 /**
  * Which of the spec directory's files a boot clears out. `files` is the directory listing, the rest
  * is the state the restart cleanup left behind, and the answer is the names to delete.
  *
- * The rule is short because the invariant behind it is: **a file in here is live exactly as long as
- * the thing that was told to read it is.** Two kinds live here.
+ * The rule is short because the invariant behind it is: **a file lives as long as the work it
+ * describes.** Three kinds live here.
  *
  * - A worker's spec, kept while its Dispatch is open. The worker was launched with "read this path
  *   and follow it", and `buildResumePacket` (exec/resumePacket.ts) writes the resume
  *   briefing back into that same file, acting only on an open Dispatch.
  *   **Open, not alive.** A Dispatch left open because its worker really is gone is one recovery may
  *   resume, and resuming reads the original spec — so keeping it is right there too, not lenient.
+ *   **Open is not the only way to be unfinished.** The restart cleanup closes a Dispatch as
+ *   `outcome_unknown` and pause/stop/abandon set `endedAt`, yet the Task goes on and its tab is resumed
+ *   (`claude --resume`) into a conversation that still points at the spec, the only copy of the Task
+ *   spec. So the latest Dispatch of every Task that is not `completed` or `failed` keeps its spec too;
+ *   older Dispatches of it, and every Dispatch of a finished Task, are swept.
+ * - A planner's brief, `planner-<jobId>.md`, kept while its Job is not archived: a planner that is
+ *   resumed or reused for a replan is told to read it again.
  * - A coordinator's brief, kept while the session managing that Run is one the Host handed back.
  *   `Run.coordinatorSessionId` is that session, and an adopted session keeps its id, so the match is
  *   direct. With no Host nothing was handed back and every brief goes, exactly as before the Host
@@ -47,7 +58,11 @@ export function staleSpecFiles(a: {
   /** The spec directory's listing, as plain names. */
   files: readonly string[]
   /** Every Dispatch in the state the restart cleanup produced — open ones keep their spec. */
-  dispatches: readonly { endedAt?: string; specPath: string }[]
+  dispatches: readonly { taskId?: string; startedAt?: string; endedAt?: string; specPath: string }[]
+  /** Every Task in that state — an unfinished one keeps its latest Dispatch's spec. */
+  tasks?: readonly { id: string; status: string }[]
+  /** Every Job in that state — an unarchived one keeps its planner's brief. */
+  jobs?: readonly { id: string; archivedAt?: string }[]
   /** Every Run in that same state. */
   runs: readonly { id: string; coordinatorSessionId?: string }[]
   /** What the Host said about the sessions it still runs, in `load`'s own three answers. */
@@ -55,6 +70,14 @@ export function staleSpecFiles(a: {
 }): string[] {
   const fileName = (p: string): string => p.split(/[\\/]/).pop() ?? ''
   const keep = a.dispatches.filter((d) => !d.endedAt).map((d) => fileName(d.specPath))
+  const unfinished = new Set((a.tasks ?? []).filter((t) => t.status !== 'completed' && t.status !== 'failed').map((t) => t.id))
+  const latest = new Map<string, { startedAt?: string; specPath: string }>()
+  for (const d of a.dispatches) {
+    const prev = d.taskId === undefined ? undefined : latest.get(d.taskId)
+    if (d.taskId !== undefined && unfinished.has(d.taskId) && (!prev || (d.startedAt ?? '') >= (prev.startedAt ?? ''))) latest.set(d.taskId, d)
+  }
+  for (const d of latest.values()) keep.push(fileName(d.specPath))
+  for (const j of a.jobs ?? []) if (!j.archivedAt) keep.push(plannerBriefName(j.id))
   for (const r of a.runs) {
     if (r.coordinatorSessionId === undefined) continue
     if (a.live === 'unknown' || a.live?.has(r.coordinatorSessionId)) keep.push(coordinatorBriefName(r.id))
@@ -87,15 +110,12 @@ export function staleSpecFiles(a: {
 export async function sweepStaleSpecFiles(a: {
   dir: string
   /** The state the restart cleanup produced. */
-  state: {
-    dispatches: readonly { endedAt?: string; specPath: string }[]
-    runs: readonly { id: string; coordinatorSessionId?: string }[]
-  }
+  state: Pick<Parameters<typeof staleSpecFiles>[0], 'dispatches' | 'tasks' | 'jobs' | 'runs'>
   live: ReadonlySet<string> | 'unknown' | undefined
 }): Promise<string[]> {
   const files = await fs.readdir(a.dir).catch((): string[] => [])
   const removed: string[] = []
-  for (const name of staleSpecFiles({ files, dispatches: a.state.dispatches, runs: a.state.runs, live: a.live })) {
+  for (const name of staleSpecFiles({ files, ...a.state, live: a.live })) {
     const gone = await fs
       .rm(path.join(a.dir, name), { recursive: true, force: true })
       .then(() => true)
