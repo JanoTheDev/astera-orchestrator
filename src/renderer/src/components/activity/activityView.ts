@@ -83,6 +83,8 @@ export function lineOf(e: ActivityEvent, accountLabel: (id: string) => string, l
     case 'plan.nothing-to-do':
       return { text: `${p.title}: nothing to do, already built${p.summary ? `: ${p.summary.split('\n')[0]}` : ''}`, tone: 'ok' }
     // #111
+    case 'plan.chat-approved':
+      return { text: `${p.title}: approved from the planner chat: ${p.reason ?? ''}`, tone: 'ok' }
     case 'plan.rejected':
       return { text: `${p.title}: plan rejected${p.reason ? `: ${p.reason}` : ''}`, tone: 'bad' }
     case 'task.waiting':

@@ -1834,6 +1834,7 @@ export const es: Catalog = {
   'settings.basic.showAdvanced': 'Mostrar ajustes avanzados',
   'settings.basic.hideAdvanced': 'Ocultar ajustes avanzados',
   'plan.simple.progress': '{done} de {total} hechas',
+  'plan.simple.approvedFromChat': 'Aprobado desde el chat del planificador: «{words}»',
   'plan.simple.showDetails': 'Mostrar detalles',
   'plan.simple.hideDetails': 'Ocultar detalles',
   'settings.search.placeholder': 'Buscar ajustes',

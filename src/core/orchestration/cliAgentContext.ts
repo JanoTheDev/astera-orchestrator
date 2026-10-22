@@ -104,8 +104,12 @@ const SESSION = {
   },
   'run-start': {
     summary: "clear a Job's start gate and run it, or restart a run's coordinator",
-    detail: "Given a run id, it only starts that run's coordinator when it has none; the Job's gate is left alone.",
-    flags: [RUN_ARG('<jobId|runId>', 'the Job to start, or the run whose coordinator to restart')]
+    detail:
+      "Given a run id, it only starts that run's coordinator when it has none; the Job's gate is left alone. A planner session starts its own planned Job with --owner-said, only after the person told it to in its terminal following the plan's last change (under 30 minutes ago); the plan must hold, and the activity feed records the words.",
+    flags: [
+      RUN_ARG('<jobId|runId>', 'the Job to start, or the run whose coordinator to restart'),
+      { name: 'owner-said', value: '<text>', about: "planner only: the person's words telling you to run the plan, verbatim" }
+    ]
   },
   'run-pause': {
     summary: 'hold a scheduled Job so it fires no more runs',

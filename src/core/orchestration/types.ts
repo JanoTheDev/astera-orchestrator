@@ -376,6 +376,10 @@ export interface Job {
   planReadyAt?: string
   /** The owner rejected the plan (`jobs-reject`): it is archived with this, and unarchiving keeps it as a record. */
   rejected?: { at: string; reason?: string }
+  /** T20: when the plan's Tasks last lost one (a cancelled Task leaves no row to carry a later `updatedAt`). */
+  planCancelledAt?: string
+  /** T20: the plan's own planner started it because the owner said so in the planner's terminal; `words` are theirs, verbatim. */
+  approvedFromChat?: { at: string; words: string }
   // W8-C plan after plan (schedule.ts / blocked.ts / exec/dispatchLoop.ts)
   /** The Job this one is queued after. **Present: it stays `pendingStart`** and its planner is not started until that
    *  Job is delivered (`afterDelivered`); then the Host starts its planner and the project's approval setting decides. */

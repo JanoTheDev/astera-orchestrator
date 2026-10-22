@@ -62,9 +62,17 @@ export function plannerJobOf(s: OrchState, sessionId: string): Job | undefined {
 
 /** Why `cmd` is refused to the planner session `sessionId`, or null when it is not a planner or may call it.
  *  A planner writes only its own Job's definition Tasks, and `task-update` only edits them (no status). */
-export function plannerRefusal(s: OrchState, sessionId: string, cmd: string, args: Record<string, unknown>): string | null {
+export function plannerRefusal(
+  s: OrchState,
+  sessionId: string,
+  cmd: string,
+  args: Record<string, unknown>,
+  /** T20: when a person last typed in this planner's terminal (epoch ms, null for never) and the time now. */
+  owner: { typedAt: number | null; now: number } = { typedAt: null, now: Date.now() }
+): string | null {
   const job = plannerJobOf(s, sessionId)
   if (!job) return null
+  if (cmd === 'run-start') return chatApprovalRefusal(s, job, args, owner)
   if (!PLANNER_COMMANDS.has(cmd))
     return `planner sessions only plan: ${cmd} is refused. The person approves the plan in Astera ("Approve & execute"), and that starts the work`
   // W8-C prompts mode: Astera wrote one Task per prompt; the planner fills them in and never adds, drops or rewrites one
@@ -100,6 +108,30 @@ export function plannerRefusal(s: OrchState, sessionId: string, cmd: string, arg
     if (args.status !== undefined || args.convergence !== undefined)
       return 'a planner edits what a Task asks for, not its status'
   }
+  return null
+}
+
+/** T20: how long the owner's word to run the plan holds. */
+export const CHAT_APPROVAL_MS = 30 * 60_000
+
+/** When the plan last changed: a Task made or edited, or one cancelled. null for a plan with no Task. */
+export function planChangedAt(s: OrchState, job: Job): number | null {
+  const stamps = [...s.tasks.filter((t) => t.jobId === job.id && t.runId === undefined).map((t) => t.updatedAt), job.planCancelledAt]
+  const times = stamps.flatMap((x) => (x === undefined ? [] : [Date.parse(x)])).filter((n) => !Number.isNaN(n))
+  return times.length ? Math.max(...times) : null
+}
+
+/** T20: a planner may start its own Job (`run-start`, the app's "Approve & execute") only when the owner typed in its
+ *  terminal after the plan's last change, less than 30 minutes ago, and it quotes what they said. Input an agent sent
+ *  (`sessions send`) never sets `typedAt`. The plan itself is still validated by `run-start` (validatePlan). */
+function chatApprovalRefusal(s: OrchState, job: Job, args: Record<string, unknown>, owner: { typedAt: number | null; now: number }): string | null {
+  if (args.run !== job.id) return `a planner starts its own Job only: pass --run ${job.id}`
+  if (!text(args.ownerSaid))
+    return `a planner starts its plan only when the person tells it to here: pass --owner-said "<their words, verbatim>". Otherwise the person presses "Approve & execute" in Astera`
+  const changed = planChangedAt(s, job)
+  const { typedAt, now } = owner
+  if (typedAt === null || (changed !== null && typedAt <= changed) || now - typedAt > CHAT_APPROVAL_MS)
+    return `the person has not told you to run the plan since its last change: ask them to confirm here (type 'run it'), or they press "Approve & execute" in Astera`
   return null
 }
 
@@ -327,14 +359,15 @@ export function editPlanTask(
 
 /** W7-A: removes a Task from a plan before approval (`task-cancel` from its planner). Refused while another Task of the
  *  plan depends on it: the planner changes that Task's deps first, as a replan's cancel asks (cancelRemainingTask). */
-export function cancelPlanTask(s: OrchState, taskId: string): Res<Task> {
+export function cancelPlanTask(s: OrchState, taskId: string, now: string = new Date().toISOString()): Res<Task> {
   const task = s.tasks.find((t) => t.id === taskId)
   if (!task) return { ok: false, error: `unknown task: ${taskId}`, missing: true }
   if (task.jobId === undefined || task.runId !== undefined)
     return { ok: false, error: `${taskId} is in a run already: only a plan's own Tasks are cancelled before approval` }
   const waiting = s.tasks.filter((t) => t.jobId === task.jobId && t.runId === undefined && t.deps.includes(taskId))
   if (waiting.length) return { ok: false, error: `${waiting.map((t) => t.id).join(', ')} depend on ${taskId}: change their --deps first` }
-  return { ok: true, state: { ...s, tasks: s.tasks.filter((t) => t.id !== taskId) }, value: task }
+  const jobs = s.jobs.map((j) => (j.id === task.jobId ? { ...j, planCancelledAt: now } : j))
+  return { ok: true, state: { ...s, jobs, tasks: s.tasks.filter((t) => t.id !== taskId) }, value: task }
 }
 
 /** The body a worker's spec file carries (OrchCoordinator.startWorker wraps it). A Task with no plan fields

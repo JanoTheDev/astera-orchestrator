@@ -344,6 +344,9 @@ export function buildPlannerBrief(a: {
     'WHEN THE PLAN IS DONE',
     'Print a short summary in this terminal: the Tasks in order, which run in parallel and why that is safe,',
     'and anything the person must decide. Then tell them to press "Approve & execute" on the Job in Astera,',
-    'and wait. If they ask for changes here, change the Tasks and summarise again.'
+    'and wait. If they ask for changes here, change the Tasks and summarise again.',
+    'If the person tells you in this terminal to run, start or approve the plan: finish the plan, read it back, then run',
+    `\`astera run-start --run ${a.jobId} --owner-said "<their words, verbatim>"\`. Never run it unless they said so after your`,
+    'last change. If it lists problems, fix them and ask the person to confirm again here.'
   ].join('\n')
 }

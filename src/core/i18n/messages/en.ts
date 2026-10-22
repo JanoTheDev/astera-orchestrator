@@ -2416,6 +2416,7 @@ export const en: Record<keyof typeof ko, string> = {
   'plan.wave.last.one': 'Last wave: {count} Task left',
   'plan.wave.allDone': 'All waves done',
   'plan.simple.progress': '{done} of {total} done',
+  'plan.simple.approvedFromChat': 'Approved from the planner chat: “{words}”',
   'plan.simple.showDetails': 'Show details',
   'plan.simple.hideDetails': 'Hide details',
   'plan.view.label': 'Waves view',
