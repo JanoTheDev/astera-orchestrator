@@ -42,6 +42,8 @@ interface RigOpts {
   checkResume?: { dispatchId?: string; done: CheckResult[]; rest: string[] }
   /** How a plugin check is asked (plugin Phase 5 C8); answers passed when left out. */
   pluginCheck?: (plugin: string, input: CompletionCheckInput) => Promise<PluginCheckAnswer>
+  /** The real heavy slot over a temp queue and lock (its ticket and flock); the granting stub when left out. */
+  heavyQueue?: { lock: string; queueDir: string }
 }
 
 function rig(o: RigOpts = {}) {
@@ -145,10 +147,12 @@ function rig(o: RigOpts = {}) {
       pluginAsks.push({ plugin, input })
       return o.pluginCheck ? o.pluginCheck(plugin, input) : { name: plugin.toUpperCase(), status: 'passed', summary: 'passed' }
     },
-    heavySlot: async ({ cmd }) => {
-      heavy.taken.push(cmd)
-      return () => void heavy.released++
-    }
+    heavySlot: o.heavyQueue
+      ? (a) => heavySlot({ ...a, ...o.heavyQueue, pollMs: 20 })
+      : async ({ cmd }) => {
+          heavy.taken.push(cmd)
+          return () => void heavy.released++
+        }
   }
   const validation = createTaskValidation(ctx)
 
@@ -475,7 +479,7 @@ describe('T2: heavy checks take the machine heavy slot', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'astera-heavy-'))
     dirs.push(dir)
     const at = { cwd: dir, lock: path.join(dir, 'lock'), queueDir: path.join(dir, 'q'), pollMs: 20 }
-    const first = await heavySlot({ ...at, cmd: 'a' })
+    const first = (await heavySlot({ ...at, cmd: 'a' }))!
     let second: (() => void) | null = null
     const waiting = heavySlot({ ...at, cwd: path.join(dir, 'other'), cmd: 'b' }).then((r) => (second = r))
     await new Promise((r) => setTimeout(r, 200))
@@ -495,7 +499,7 @@ describe('T2: heavy checks take the machine heavy slot', () => {
 
   it('a waiter whose check was abandoned drops its ticket and stops polling', async () => {
     const { dir, at } = tmpQueue()
-    const holder = await heavySlot({ ...at, cwd: path.join(dir, 'held'), cmd: 'held' })
+    const holder = (await heavySlot({ ...at, cwd: path.join(dir, 'held'), cmd: 'held' }))!
     let gone = false
     const waiting = heavySlot({ ...at, cmd: 'w', abandoned: () => gone })
     await new Promise((r) => setTimeout(r, 100))
@@ -503,24 +507,46 @@ describe('T2: heavy checks take the machine heavy slot', () => {
     gone = true
     const release = await waiting
     expect(tickets(at.queueDir)).toHaveLength(1) // only the holder's
-    release()
+    release!()
     holder()
     expect(tickets(at.queueDir)).toEqual([])
   })
 
-  it('a newer check of the same folder replaces the ticket, and the old waiter does not rewrite it', async () => {
+  it('a newer check of the same folder replaces the ticket: the old waiter answers null and does not rewrite it', async () => {
     const { dir, at } = tmpQueue()
-    const holder = await heavySlot({ ...at, cwd: path.join(dir, 'held'), cmd: 'held' })
+    const holder = (await heavySlot({ ...at, cwd: path.join(dir, 'held'), cmd: 'held' }))!
     const old = heavySlot({ ...at, cmd: 'old' })
-    const oldFailed = old.catch((e: Error) => e.message)
     await new Promise((r) => setTimeout(r, 100))
     const fresh = heavySlot({ ...at, cmd: 'new' })
-    expect(await oldFailed).toMatch(/taken over/)
+    expect(await old).toBeNull()
     await new Promise((r) => setTimeout(r, 100))
     expect(tickets(at.queueDir)).toHaveLength(2) // holder + the new one, not three
     holder()
     const release = await fresh
-    release()
+    release!()
+    expect(tickets(at.queueDir)).toEqual([])
+  })
+
+  it('a flock that cannot run rejects: a failure, not a skip', async () => {
+    const { dir, at } = tmpQueue()
+    await expect(heavySlot({ ...at, lock: path.join(dir, 'no', 'such', 'lock'), cmd: 'x' })).rejects.toThrow(/flock/)
+    expect(tickets(at.queueDir)).toEqual([])
+  })
+
+  it('a heavy check whose waiter a newer check of its folder replaced skips, not fails; the newer one gets the slot', async () => {
+    const { dir, at } = tmpQueue()
+    const h = rig({ checks: ['seed:npm:test'], heavyQueue: { lock: at.lock, queueDir: at.queueDir } })
+    const holder = (await heavySlot({ ...at, cwd: path.join(dir, 'held'), cmd: 'held' }))!
+    h.validation.startValidation({ taskId: h.taskId, cwd: h.cwd })
+    await vi.waitFor(() => expect(tickets(at.queueDir)).toHaveLength(2))
+    const fresh = heavySlot({ ...at, cwd: h.cwd, cmd: 'new' })
+    await vi.waitFor(() => expect(h.logs.some((m) => m.includes('no longer needed'))).toBe(true))
+    expect(h.task().status).toBe('validating') // a failure would have blocked it
+    expect(h.logs.some((m) => m.includes('could not'))).toBe(false)
+    holder()
+    const release = await fresh
+    expect(release).not.toBeNull()
+    release!()
     expect(tickets(at.queueDir)).toEqual([])
   })
 })

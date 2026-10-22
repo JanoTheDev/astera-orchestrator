@@ -62,8 +62,8 @@ export interface ValidationContext {
    *  command `checks-plugin-run` where the app does. Never rejects: a plugin that could not answer is an `error`
    *  answer, its reason in `summary`. */
   pluginCheck(plugin: string, input: CompletionCheckInput): Promise<PluginCheckAnswer>
-  /** T2: waits for the machine's heavy slot and answers its release (`heavySlot`). Test seam; defaults to the real one. */
-  heavySlot?(a: { cwd: string; cmd: string; abandoned?: () => boolean }): Promise<() => void>
+  /** T2: waits for the machine's heavy slot and answers its release, or null when superseded (`heavySlot`). Test seam; defaults to the real one. */
+  heavySlot?(a: { cwd: string; cmd: string; abandoned?: () => boolean }): Promise<(() => void) | null>
 }
 /** A git head, null when there is no baseline, 'unknown' when there may be one the journal could not give. */
 export type CheckpointHead = string | null | 'unknown'
@@ -82,7 +82,8 @@ let heavySeq = 0
 /** T2: waits for the machine's heavy slot, the one `astera heavy` takes (heavyLock.ts): a ticket in its FIFO queue, then
  *  its OS lock, held by a `flock` child until the answered release. The child holds the lock with `cat` on a pipe from
  *  this process, so a process that dies drops the lock with the pipe, and its ticket reads dead. Rejects when `flock`
- *  cannot run. (runHeavy itself is not called: it takes over SIGINT/SIGTERM, which would keep the Host from stopping.) */
+ *  cannot run. Answers null when a newer check of this folder replaced the ticket: that check takes this one's place, so
+ *  this waiter is no longer work, not a failure. (runHeavy itself is not called: it takes over SIGINT/SIGTERM, which would keep the Host from stopping.) */
 export async function heavySlot(a: {
   cwd: string
   cmd: string
@@ -91,7 +92,7 @@ export async function heavySlot(a: {
   lock?: string
   queueDir?: string
   pollMs?: number
-}): Promise<() => void> {
+}): Promise<(() => void) | null> {
   const dir = a.queueDir ?? HEAVY_QUEUE_DIR
   const lock = a.lock ?? HEAVY_LOCK
   // The same ticket as runHeavy's: the name sorts by arrival among every caller's, the pid keeps it alive
@@ -118,7 +119,7 @@ export async function heavySlot(a: {
       if (!q.some((x) => x.file === name)) {
         // Gone from the queue: rewrite it, unless a newer ticket for this cwd replaced it — this waiter is then the
         // predecessor, and rewriting would make two waiters of one cwd fight over the queue for ever
-        if (q.some((x) => x.kind === 'check' && x.cwd === a.cwd && x.file > name)) throw new Error('heavy slot taken over by a newer check of this folder')
+        if (q.some((x) => x.kind === 'check' && x.cwd === a.cwd && x.file > name)) return null
         writeTicket()
       } else if (q[0].file === name) break
       await new Promise((r) => setTimeout(r, a.pollMs ?? 1000))
@@ -180,11 +181,14 @@ export function createTaskValidation(c: ValidationContext): TaskValidation {
         let release: (() => void) | undefined
         if (isHeavyCheck(config)) {
           c.log(`check "${config.name}" task=${taskId} is queued for the machine's heavy slot`)
-          release = await (c.heavySlot ?? heavySlot)({
+          const slot = await (c.heavySlot ?? heavySlot)({
             cwd,
             cmd: config.name,
             abandoned: () => c.getState().tasks.find((x) => x.id === taskId)?.status !== 'validating'
           })
+          // Superseded by a newer check of this folder, which runs in this one's place: skip, not a start failure
+          if (slot === null) return 'skip'
+          release = slot
           if (c.getState().tasks.find((x) => x.id === taskId)?.status !== 'validating') {
             release()
             return 'skip'
