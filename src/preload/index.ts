@@ -410,7 +410,8 @@ const api = {
   app: {
     // The 'quit app' of the forced-update gate. win.close cannot be used: on win32/macOS it only minimises to the tray
     quit: () => ipcRenderer.send('app.quit'),
-    quitEndingSessions: () => ipcRenderer.send('app.quitEndingSessions')
+    quitEndingSessions: () => ipcRenderer.send('app.quitEndingSessions'),
+    licenses: invoke('app.licenses') // T28
   },
   keys: {
     get: invoke('keys.get'),

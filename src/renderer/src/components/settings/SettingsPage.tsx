@@ -2,8 +2,8 @@
 // right. W11 (DESIGN-W11 §9): PageHeader with Back as leading, a 200px icon nav, the content at 720px in cards. A search shows every matching row under its group's label. openSettings(group, anchor) scrolls to the row
 // and briefly highlights it.
 import { useEffect, useMemo, useRef, useState } from 'react'
-// Bot, FolderKanban, Plug and Wrench are not in the icon registry yet (ui/Icon.tsx ICONS): drawn through Icon's `icon`.
-import { Bot, FolderKanban, Plug, Wrench, type LucideIcon } from 'lucide-react'
+// Bot, FolderKanban, Info, Plug and Wrench are not in the icon registry yet (ui/Icon.tsx ICONS): drawn through Icon's `icon`.
+import { Bot, FolderKanban, Info, Plug, Wrench, type LucideIcon } from 'lucide-react'
 import { Button, EmptyState, ICONS, Icon, Input, PageHeader, type IconName } from '../ui'
 import { useAdvancedMode } from '../../state/useAdvancedMode'
 import type { SettingsDialogProps } from '../shell/SettingsDialog'
@@ -16,6 +16,7 @@ import { ProjectsSettings } from './ProjectsSettings'
 import { IntegrationsSettings } from './IntegrationsSettings'
 import { NotificationsSettings } from './NotificationsSettings'
 import { AdvancedSettings } from './AdvancedSettings'
+import { AboutSettings } from './AboutSettings'
 import './settingsPage.css'
 
 const GROUP_VIEW: Record<SettingsGroupId, (p: GroupProps) => React.JSX.Element | null> = {
@@ -25,7 +26,8 @@ const GROUP_VIEW: Record<SettingsGroupId, (p: GroupProps) => React.JSX.Element |
   projects: ProjectsSettings,
   integrations: IntegrationsSettings,
   notifications: NotificationsSettings,
-  advanced: AdvancedSettings
+  advanced: AdvancedSettings,
+  about: AboutSettings
 }
 
 const GROUP_ICON: Record<SettingsGroupId, IconName | LucideIcon> = {
@@ -35,7 +37,8 @@ const GROUP_ICON: Record<SettingsGroupId, IconName | LucideIcon> = {
   projects: FolderKanban,
   integrations: Plug,
   notifications: 'notifications',
-  advanced: Wrench
+  advanced: Wrench,
+  about: Info
 }
 
 function GroupIcon({ g }: { g: SettingsGroupId }): React.JSX.Element {

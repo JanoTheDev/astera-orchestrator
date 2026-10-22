@@ -2068,6 +2068,15 @@ export type UpdateMode = 'off' | 'notify' | 'build' | 'install-when-idle'
 export type UpdateChannel = 'stable' | 'beta'
 export type UpdateDisabledReason = 'unpackaged' | 'notBuiltForUpdates'
 
+// T28 (About page): one third-party notice, as scripts/gen-licenses.mjs writes it to licenses.json.
+export interface LicenseEntry {
+  kind: 'package' | 'runtime' | 'font'
+  name: string
+  version: string
+  license: string
+  text: string
+}
+
 /**
  * What pressing the install button actually did.
  *
@@ -2161,6 +2170,8 @@ export interface AppControlApi {
   /** Quit and end what the Host is keeping alive, instead of leaving it running. The Host is retired
    *  first — `will-quit` skips its ptys by design, so this is the one path that reaches them. */
   quitEndingSessions(): void
+  /** T28: the third-party notices of Settings › About; null when licenses.json was not generated (a dev run). */
+  licenses(): Promise<LicenseEntry[] | null>
 }
 
 /**

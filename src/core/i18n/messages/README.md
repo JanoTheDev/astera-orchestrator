@@ -29,7 +29,8 @@ A key's area is the screen whose files use it. Paths are under `src/renderer/src
 | overlays | `command/` (except VoiceSettings); QuickSwitcher; SourceJobModal; NewSessionDialog; RemoteSessionsDialog; NewTaskModal; CreatePrDialog; ResumeDialog; TranscriptPreviewModal; projects/AddProjectDialog, NewProjectDialog; shell/Overlays |
 | tools | JobsView, JobIcons, RunPanel, RunToolbar, RunToolRail, RunConfigForm, RunConfigManager, RunConfigMenu, RunTypePicker, RunDetailJournal, RunFindBar, RuntimeSelector, ConfigRefList, EnvTable, BottomPanel, CompletionBlock, CompletionChecks, PrBadge, PushBadge, checkText |
 | history | HistoryBrowser, RecordDetail, UnderstandingView, UnderstandingIcons, FlowDiagram, BrowserPane, browserSlot, AppMirrorPane, AnnotationTray, AnnotationPopover |
-| about, crash, help | empty for now |
+| about | settings/AboutSettings, LicensesView (the Settings › About group, its group label `settings.group.about`) |
+| crash, help | empty for now |
 | misc | keys nothing uses |
 
 A key built at runtime from a prefix (`` t(`plan.outcome.${x}`) ``) sits with the files that build it.

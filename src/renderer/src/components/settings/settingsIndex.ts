@@ -3,7 +3,7 @@
 // anchor) scrolls to.
 import type { MessageKey } from '../../../../core/i18n'
 
-export const SETTINGS_GROUPS = ['general', 'accounts', 'agents', 'projects', 'integrations', 'notifications', 'advanced'] as const
+export const SETTINGS_GROUPS = ['general', 'accounts', 'agents', 'projects', 'integrations', 'notifications', 'advanced', 'about'] as const
 export type SettingsGroupId = (typeof SETTINGS_GROUPS)[number]
 
 export const GROUP_LABEL: Record<SettingsGroupId, MessageKey> = {
@@ -13,7 +13,8 @@ export const GROUP_LABEL: Record<SettingsGroupId, MessageKey> = {
   projects: 'settings.group.projects',
   integrations: 'settings.group.integrations',
   notifications: 'settings.group.notifications',
-  advanced: 'settings.group.advanced'
+  advanced: 'settings.group.advanced',
+  about: 'settings.group.about'
 }
 
 export type SettingsLevel = 'basic' | 'advanced'
@@ -71,12 +72,18 @@ export const SETTINGS_ROWS: readonly SettingsRow[] = [
   { anchor: 'generator', group: 'advanced', labelKey: 'settings.gen.label', descKey: 'settings.gen.hint', level: 'advanced' },
   { anchor: 'worktreeRoot', group: 'advanced', labelKey: 'settings.worktree.createLocation', descKey: 'settings.worktree.hint', level: 'advanced' },
   { anchor: 'history', group: 'advanced', labelKey: 'settings.tab.history', level: 'advanced' },
-  { anchor: 'appName', group: 'advanced', labelKey: 'settings.info.appName', level: 'advanced' },
-  { anchor: 'version', group: 'advanced', labelKey: 'settings.info.version', level: 'advanced' },
-  { anchor: 'cliVersions', group: 'advanced', labelKey: 'settings.row.cliVersions', level: 'advanced' },
-  { anchor: 'host', group: 'advanced', labelKey: 'settings.info.host', level: 'advanced' },
-  { anchor: 'accountsCount', group: 'advanced', labelKey: 'settings.info.registeredAccounts', level: 'advanced' },
-  { anchor: 'update', group: 'advanced', labelKey: 'settings.info.update', level: 'advanced' }
+
+  { anchor: 'appName', group: 'about', labelKey: 'settings.info.appName', level: 'basic' },
+  { anchor: 'version', group: 'about', labelKey: 'settings.info.version', level: 'basic' },
+  { anchor: 'buildVersion', group: 'about', labelKey: 'about.buildVersion', level: 'basic' },
+  { anchor: 'cliVersions', group: 'about', labelKey: 'settings.row.cliVersions', level: 'advanced' },
+  { anchor: 'host', group: 'about', labelKey: 'settings.info.host', level: 'advanced' },
+  { anchor: 'accountsCount', group: 'about', labelKey: 'settings.info.registeredAccounts', level: 'advanced' },
+  { anchor: 'update', group: 'about', labelKey: 'settings.info.update', level: 'basic' },
+  { anchor: 'updateChannel', group: 'about', labelKey: 'about.updateChannel', descKey: 'about.channel.hint', level: 'basic' },
+  { anchor: 'crashReports', group: 'about', labelKey: 'about.crashReports', descKey: 'about.crash.hint', level: 'basic' },
+  { anchor: 'license', group: 'about', labelKey: 'about.license', level: 'basic' },
+  { anchor: 'licenses', group: 'about', labelKey: 'about.licenses.title', descKey: 'about.licenses.hint', level: 'basic' }
 ]
 
 /** Whether a group has a row simple mode shows (a group without one leaves the nav until Advanced mode). */
@@ -119,7 +126,7 @@ const OLD_TAB: Record<OldSettingsTab, { group: SettingsGroupId; anchor: string }
   github: { group: 'integrations', anchor: 'github' },
   worktree: { group: 'advanced', anchor: 'worktreeRoot' },
   history: { group: 'advanced', anchor: 'history' },
-  info: { group: 'advanced', anchor: 'appName' }
+  info: { group: 'about', anchor: 'appName' }
 }
 
 /** Where an old tab's content lives now, so a caller still passing an old name lands on it. */

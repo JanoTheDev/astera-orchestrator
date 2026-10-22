@@ -44,6 +44,9 @@ extraResources:
   # LICENSE 와 같은 이유로 extraFiles 가 아니라 extraResources 다(macOS 코드사인).
   - from: resources/font-licenses
     to: font-licenses
+  # T28: Settings › About › Open source licenses reads this (scripts/gen-licenses.mjs writes it before packaging).
+  - from: build/licenses.json
+    to: licenses.json
   # T12b: `astera machines add` and Settings › Add a machine upload these to the machine they set up.
   - from: scripts
     to: runtime-scripts
