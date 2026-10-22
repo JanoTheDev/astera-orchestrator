@@ -62,6 +62,8 @@ Releases, and installed apps then update themselves through `electron-updater`.
    Anything else on the page does not belong there. An older app picks the update up on its next
    check.
 
+**Build versions.** `npm run dist*` packages a local build as `<version>-build.<UTC time>.<short sha>` (for example `1.4.14-build.202610220705.ab0021b`), so builds are told apart and `package.json` is never rewritten; a build at the tag `v<version>` keeps the plain version. See `scripts/dist-version.mjs`.
+
 ### How the workflow publishes
 
 The release is created as a **draft**, and only becomes visible once every asset is attached. This
