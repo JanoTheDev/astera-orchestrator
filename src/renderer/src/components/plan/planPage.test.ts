@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { JobRow, JobTask } from '../../../../core/types'
 import { wavesOf } from './planBoard'
-import { canManualStartOf, headCountsOf, waveStatusOf } from './planPage'
+import { canManualStartOf, deliveryActionsOf, headCountsOf, waveStatusOf } from './planPage'
 
 const task = (id: string, status: JobTask['status']): JobTask => ({ id, title: id, status }) as unknown as JobTask
 const tasks = [task('a', 'completed'), task('b', 'dispatched'), task('c', 'ready'), task('d', 'pending')]
@@ -38,5 +38,22 @@ describe('head counts and manual start', () => {
     expect(canManualStartOf(row({ concurrency: 1 }))).toBe(true)
     expect(canManualStartOf(row({}))).toBe(false)
     expect(canManualStartOf(row({ concurrency: 1, pendingStart: true }))).toBe(false)
+  })
+})
+
+describe('deliveryActionsOf', () => {
+  const of = (state: NonNullable<JobRow['delivery']>['state'] | undefined) =>
+    deliveryActionsOf({ delivery: state ? { runId: 'r', state } : undefined } as unknown as JobRow)
+  it('offers retry, already-pushed and dismiss on a failed delivery', () => {
+    expect(of('failed')).toEqual({ retry: true, alreadyPushed: true, dismiss: true })
+  })
+  it('lets the owner settle a delivery that waits on them, but not dismiss it', () => {
+    expect(of('needs-owner')).toEqual({ retry: true, alreadyPushed: true, dismiss: false })
+  })
+  it('only retries one that retries by itself or runs now; nothing for pending or no delivery', () => {
+    expect(of('retrying')).toEqual({ retry: true, alreadyPushed: false, dismiss: false })
+    expect(of('delivering')).toEqual({ retry: true, alreadyPushed: false, dismiss: false })
+    expect(of('pending')).toEqual({ retry: false, alreadyPushed: false, dismiss: false })
+    expect(of(undefined)).toEqual({ retry: false, alreadyPushed: false, dismiss: false })
   })
 })

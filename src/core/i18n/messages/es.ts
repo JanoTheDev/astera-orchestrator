@@ -2003,6 +2003,12 @@ export const es: Catalog = {
   'plan.delivery.delivering': 'entregando…',
   'plan.delivery.retryFailed': 'La entrega no se completó: {reason}',
   'plan.delivery.delivered': 'Plan entregado',
+  'plan.delivery.alreadyPushed': 'Ya lo subí',
+  'plan.delivery.alreadyPushedHint': 'Subí esta rama yo mismo; Astera comprueba que git la tiene.',
+  'plan.delivery.dismiss': 'Descartar',
+  'plan.delivery.dismissTitle': '¿Descartar esta entrega?',
+  'plan.delivery.dismissBody': 'El plan queda como está y Astera deja de intentar entregarlo. No se sube ni se deshace nada.',
+  'plan.delivery.dismissed': 'Entrega descartada',
   'start.go.plan': 'Empezar a planificar',
   // T2 Start: Audit mode, sticky hands-off, More options
   'start.next.audit': 'El planificador audita las rutas que elijas, escribe lo que encuentra en inputs/audit.md y luego planifica tareas que lo arreglan.',
@@ -2029,7 +2035,7 @@ export const es: Catalog = {
   'start.more.ask': 'preguntar',
   'start.more.auto': 'automática',
   'start.more.priority': 'prioridad {n}',
-  'start.more.schedule': 'Repetir según un horario…',
+  'start.more.schedule': 'Repetir según un horario',
   'start.opt.priority': 'Prioridad',
   // T4 Start opens the planner chat
   'start.t4.title': '¿En qué trabajamos en {project}?',

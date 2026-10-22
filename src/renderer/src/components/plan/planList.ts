@@ -42,10 +42,10 @@ export function planStatusOf(row: JobRow): PlanStatus {
   return { key: 'pages.plans.status.done', tone: 'ok' }
 }
 
-/** The latest time the snapshot knows something happened to the plan (made, started, a worker started, its PR, archived),
+/** The latest time the snapshot knows something happened to the plan (made, started, a worker started, its PR, a delivery attempt, archived),
  *  as epoch ms. Undefined: no time at all (a snapshot from an older Runtime). */
 export function lastActivityOf(row: JobRow): number | undefined {
-  const times = [row.createdAt, row.autoStartedAt, row.archivedAt, row.pr?.at, ...row.tasks.map((t) => t.startedAt)]
+  const times = [row.createdAt, row.autoStartedAt, row.archivedAt, row.pr?.at, row.delivery?.lastAttemptAt, ...row.tasks.map((t) => t.startedAt)]
     .map((iso) => (iso === undefined ? NaN : Date.parse(iso)))
     .filter((ms) => !Number.isNaN(ms))
   return times.length > 0 ? Math.max(...times) : undefined

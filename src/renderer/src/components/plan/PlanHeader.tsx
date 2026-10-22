@@ -24,6 +24,7 @@ import { SourceChip } from '../SourceChip'
 import { Archive, ArchiveRestore, ArrowLeft, ListOrdered, MoreHorizontal, Pencil, Play, Square, Trash2 } from 'lucide-react'
 import { Button, Chip, Input, Menu, PageHeader, Tabs, type MenuItem } from '../ui'
 import { PLAN_SECTIONS, type PlanSection } from './planBoard'
+import { deliveryActionsOf } from './planPage'
 import type { PlanPageState } from './usePlanPage'
 import { WaveLine } from './PlanWaves'
 
@@ -64,18 +65,26 @@ export function PlanHeader({
   const [redelivering, setRedelivering] = useState(false)
   // a row that only carries the wait for another plan (state 'pending') has nothing to retry
   const delivery = run?.delivery?.state === 'pending' ? undefined : run?.delivery
-  const retryDelivery = async (): Promise<void> => {
+  const deliveryActions = deliveryActionsOf({ delivery })
+  // Retry (force), It's already pushed (ownerPushed) and Dismiss share one in-flight flag and one error toast
+  const runDelivery = async (command: 'run-deliver' | 'run-delivery-dismiss', args: Record<string, unknown>, done: string): Promise<void> => {
     if (!delivery) return
     setRedelivering(true)
     try {
-      const reply = await door.command('run-deliver', { run: delivery.runId, force: true })
+      const reply = await door.command(command, { run: delivery.runId, ...args })
       if (reply.status >= 400) toast.error(t('plan.delivery.retryFailed', { reason: replyNote(reply, t as never, t('jobs.node.failed')) }))
-      else toast.success(t('plan.delivery.delivered'))
+      else toast.success(done)
     } catch {
       toast.error(t('jobs.node.failed'))
     } finally {
       setRedelivering(false)
     }
+  }
+  const retryDelivery = (): Promise<void> => runDelivery('run-deliver', { force: true }, t('plan.delivery.delivered'))
+  const alreadyPushed = (): Promise<void> => runDelivery('run-deliver', { ownerPushed: true }, t('plan.delivery.delivered'))
+  const dismissDelivery = async (): Promise<void> => {
+    const ok = await ui.confirm({ title: t('plan.delivery.dismissTitle'), body: t('plan.delivery.dismissBody'), confirmLabel: t('plan.delivery.dismiss') })
+    if (ok) await runDelivery('run-delivery-dismiss', {}, t('plan.delivery.dismissed'))
   }
   // W9-C: the plan's own actions in the header and its ⋯ menu (DESIGN.md §2 "Plan page"); each is lib/jobActions'.
   const off = lockedReason !== undefined
@@ -258,15 +267,25 @@ export function PlanHeader({
             {t('pages.plan.consoles')}
           </Button>
           {pauseButton}
-          {delivery !== undefined && (
+          {deliveryActions.retry && (
             <Button
               size="sm"
               variant="secondary"
-              disabled={off || redelivering || delivery.state === 'delivering'}
-              title={lockedReason ?? delivery.reason}
+              disabled={off || redelivering || delivery?.state === 'delivering'}
+              title={lockedReason ?? delivery?.reason}
               onClick={() => void retryDelivery()}
             >
-              {redelivering || delivery.state === 'delivering' ? t('plan.delivery.delivering') : t('plan.delivery.retry')}
+              {redelivering || delivery?.state === 'delivering' ? t('plan.delivery.delivering') : t('plan.delivery.retry')}
+            </Button>
+          )}
+          {deliveryActions.alreadyPushed && (
+            <Button size="sm" variant="ghost" disabled={off || redelivering} title={lockedReason ?? t('plan.delivery.alreadyPushedHint')} onClick={() => void alreadyPushed()}>
+              {t('plan.delivery.alreadyPushed')}
+            </Button>
+          )}
+          {deliveryActions.dismiss && (
+            <Button size="sm" variant="ghost" disabled={off || redelivering} title={lockedReason} onClick={() => void dismissDelivery()}>
+              {t('plan.delivery.dismiss')}
             </Button>
           )}
           {run?.planned && (

@@ -11,7 +11,7 @@ import { runningCount } from '../../../../core/orchestration/running'
 import { schedRuleSummary } from '../../../../core/scheduler/summary'
 import { convergenceChipOf } from '../../../../core/orchestration/nodeMeta'
 import { useI18n } from '../../i18n/I18nProvider'
-import { clockFor } from '../../lib/runClock'
+import { clockFor, minuteClock } from '../../lib/runClock'
 import { jobName } from '../../lib/jobName'
 import { Button, Chip, IconButton, Input, Menu, Meter, cx, type MenuItem } from '../ui'
 import { SourceChip } from '../SourceChip'
@@ -48,12 +48,15 @@ export function PlanRow({
   row,
   acts,
   nowMs,
+  ageMs,
   nameOf,
   ordinal
 }: {
   row: JobRow
   acts: PlanActs
   nowMs: number
+  /** The real time (to the minute) the age is counted against; `nowMs` is 0 for a plan with nothing running. Absent: `nowMs`. */
+  ageMs?: number
   /** Another plan's name by id, for the queue and overlap chips. Absent on a schedule's round. */
   nameOf?: (id: string) => string
   /** A schedule's round: its number. A round is a Run, not a plan: no rename, hold or archive. */
@@ -145,6 +148,9 @@ export function PlanRow({
         </Chip>
         {status.reason !== undefined && <span className="plans-row__reason">{t('jobs.run.notDelivered', { reason: status.reason })}</span>}
         <SourceChip source={row.source} />
+        {row.areas?.map((area) => (
+          <Chip key={area}>{area}</Chip>
+        ))}
         {row.pr && (
           <span className="plans-row__pr">
             <RunPrChip pr={row.pr} />
@@ -162,7 +168,11 @@ export function PlanRow({
             <Meter className="plans-row__meter" value={percent} label={t('pages.plans.progress', { done: row.done, total: row.total })} />
           </span>
         )}
-        {last !== undefined && <span className="plans-row__meta">{t('pages.plans.age', { age: ageOf(new Date(last).toISOString(), nowMs) })}</span>}
+        {last !== undefined && (
+          <span className="plans-row__meta" title={new Date(last).toLocaleString()}>
+            {t('pages.plans.age', { age: ageOf(new Date(last).toISOString(), ageMs ?? nowMs) })}
+          </span>
+        )}
         {slot === 'approve' && acts.onApprove && (
           <Button size="sm" title={t('jobs.run.approveHint')} onClick={() => acts.onApprove?.(row.id)}>
             {t('jobs.run.approve')}
@@ -272,7 +282,7 @@ export function PlanRow({
             <p className="plans-row__meta">{t(row.pendingStart ? 'jobs.run.schedulePending' : 'jobs.run.scheduleEmpty')}</p>
           ) : (
             kids.slice(0, shown).map((kid) => (
-              <PlanRow key={kid.id} row={kid} acts={{ ...acts, onPause: undefined, onResume: undefined }} nowMs={clockFor(kid, nowMs)} ordinal={kid.fireOrdinal ?? 0} />
+              <PlanRow key={kid.id} row={kid} acts={{ ...acts, onPause: undefined, onResume: undefined }} nowMs={clockFor(kid, nowMs)} ageMs={minuteClock(nowMs)} ordinal={kid.fireOrdinal ?? 0} />
             ))
           )}
           {kids.length > shown && (

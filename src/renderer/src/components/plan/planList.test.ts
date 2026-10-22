@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { JobRow, JobTask } from '../../../../core/types'
+import { ageOf } from './planBoard'
 import { lastActivityOf, planStatusOf } from './planList'
 
 const task = (id: string, over: Partial<JobTask> = {}): JobTask => ({ id, title: id, status: 'pending', openGates: 0, ...over })
@@ -42,6 +43,11 @@ describe('lastActivityOf', () => {
     expect(lastActivityOf(row())).toBeUndefined()
     const at = lastActivityOf(row({ createdAt: '2026-01-01T00:00:00Z', tasks: [task('a', { startedAt: '2026-01-02T00:00:00Z' }), task('b')] }))
     expect(at).toBe(Date.parse('2026-01-02T00:00:00Z'))
+  })
+  it('counts the last delivery attempt, so a failed plan reads from when it failed', () => {
+    const failed = row({ createdAt: '2026-01-01T00:00:00Z', delivery: { runId: 'r', state: 'failed', lastAttemptAt: '2026-01-01T09:00:00Z' } })
+    expect(lastActivityOf(failed)).toBe(Date.parse('2026-01-01T09:00:00Z'))
+    expect(ageOf(new Date(lastActivityOf(failed) as number).toISOString(), Date.parse('2026-01-01T12:00:00Z'))).toBe('3h')
   })
 })
 

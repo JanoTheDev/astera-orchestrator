@@ -384,11 +384,11 @@ export function topFolderOf(path: string): string {
 const foldersOf = (row: JobRow): string[] =>
   [...new Set(row.tasks.flatMap((t) => (t.affectedPaths ?? []).map(topFolderOf)))].sort((a, b) => a.localeCompare(b))
 
-/** "By area": plans grouped under their areas (Job.areas), each group with its folders. A plan in two areas is under
- *  both; one with none is in the `''` group, last. Groups are sorted by name and keep the list order inside. */
+/** "By area": plans grouped under their first area (Job.areas), each group with its folders. A plan in two areas is listed
+ *  once (its row shows every area as a chip); one with none is in the `''` group, last. Groups are sorted by name and keep the list order inside. */
 export function areaGroupsOf(rows: readonly JobRow[]): { area: string; folders: string[]; rows: JobRow[] }[] {
   const by = new Map<string, JobRow[]>()
-  for (const r of planListOrder(rows)) for (const a of r.areas?.length ? r.areas : ['']) by.set(a, [...(by.get(a) ?? []), r])
+  for (const r of planListOrder(rows)) { const a = r.areas?.[0] ?? ''; by.set(a, [...(by.get(a) ?? []), r]) }
   return [...by]
     .sort(([a], [b]) => (a === '' ? 1 : b === '' ? -1 : a.localeCompare(b)))
     .map(([area, rs]) => ({ area, folders: [...new Set(rs.flatMap(foldersOf))].sort((a, b) => a.localeCompare(b)), rows: rs }))

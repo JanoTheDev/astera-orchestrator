@@ -7,7 +7,7 @@ import type { JobRow, OrchHostGate, OrchSnapshot } from '../../../../core/types'
 import { jobsViewScreen, type JobsStall } from '../../../../core/orchestration/jobsView'
 import { useI18n } from '../../i18n/I18nProvider'
 import { jobName } from '../../lib/jobName'
-import { clockFor } from '../../lib/runClock'
+import { clockFor, minuteClock } from '../../lib/runClock'
 import { Button, Chip, EmptyState, Menu, PageHeader, Tabs, Tooltip } from '../ui'
 import { useProjectDelivery } from '../delivery/ProjectDelivery'
 import { areaGroupsOf, plansViewOf, type PlansView } from './planBoard'
@@ -233,7 +233,7 @@ export function PlanList({
               {g.folders.length > 0 && <span className="plans-group__folders">{g.folders.join(' · ')}</span>}
             </h2>
             {g.rows.map((row: JobRow) => (
-              <PlanRow key={row.id} row={row} acts={acts} nowMs={clockFor(row, nowMs)} nameOf={nameOf} />
+              <PlanRow key={row.id} row={row} acts={acts} nowMs={clockFor(row, nowMs)} ageMs={minuteClock(nowMs)} nameOf={nameOf} />
             ))}
           </Fragment>
         ))}

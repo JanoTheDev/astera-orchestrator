@@ -367,6 +367,13 @@ describe('areaGroupsOf / overlapTableOf (Plans views)', () => {
       ['', ['docs'], ['c']]
     ])
   })
+  it('lists a plan in two areas once, under its first', () => {
+    const two = row('two', { areas: ['leaderboard', 'auth'] })
+    expect(areaGroupsOf([two, a]).map((g) => [g.area, g.rows.map((r) => r.id)])).toEqual([
+      ['auth', ['a']],
+      ['leaderboard', ['two']]
+    ])
+  })
   it('says what each plan does per folder and marks the folders two plans still work in', () => {
     const tbl = overlapTableOf([a, b, c])
     expect(tbl.folders).toEqual(['docs', 'src/api'])

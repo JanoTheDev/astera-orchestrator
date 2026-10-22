@@ -52,6 +52,14 @@ export const CALLS_FOR_A_PERSON: ReadonlySet<MessageType> = new Set<MessageType>
 /** 헤더에서 따로 세는 다섯. 순서는 눈이 가야 하는 차례다 — 사람을 기다리는 것이 먼저다 */
 export const HEAD_STATES: readonly TaskStatus[] = ['blocked', 'completed', 'failed', 'ready', 'pending']
 
+/** Which delivery actions the plan header offers (T2). Retry: any delivery that has started. It's already pushed: the
+ *  owner settles a failed or owner-held one (`run-deliver --ownerPushed`). Dismiss: a failed one only (`run-delivery-dismiss`). */
+export function deliveryActionsOf(row: Pick<JobRow, 'delivery'>): { retry: boolean; alreadyPushed: boolean; dismiss: boolean } {
+  const state = row.delivery?.state
+  const held = state === 'failed' || state === 'needs-owner'
+  return { retry: state !== undefined && state !== 'pending', alreadyPushed: held, dismiss: state === 'failed' }
+}
+
 /** The header's per-status counts, in HEAD_STATES order, zero counts left out. */
 export const headCountsOf = (tasks: readonly JobTask[]): (readonly [TaskStatus, number])[] =>
   HEAD_STATES.map((status) => [status, tasks.filter((tk) => tk.status === status).length] as const).filter(([, n]) => n > 0)

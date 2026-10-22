@@ -3137,6 +3137,12 @@ export const ko = {
   'plan.delivery.delivering': '전달 중…',
   'plan.delivery.retryFailed': '전달하지 못했습니다: {reason}',
   'plan.delivery.delivered': '계획을 전달했습니다',
+  'plan.delivery.alreadyPushed': '이미 푸시했어요',
+  'plan.delivery.alreadyPushedHint': '이 브랜치는 직접 푸시했습니다. git에 있는지 Astera가 확인합니다.',
+  'plan.delivery.dismiss': '닫기',
+  'plan.delivery.dismissTitle': '이 전달을 닫을까요?',
+  'plan.delivery.dismissBody': '계획은 그대로 두고 Astera는 더 이상 전달을 시도하지 않습니다. 푸시하거나 되돌리는 것은 없습니다.',
+  'plan.delivery.dismissed': '전달을 닫았습니다',
   'start.go.plan': '계획 시작',
   // T2 Start: Audit mode, sticky hands-off, More options
   'start.next.audit': '플래너가 고른 경로를 감사하고, 찾은 것을 inputs/audit.md 에 적은 뒤, 그것을 고칠 작업을 계획합니다.',
@@ -3163,7 +3169,7 @@ export const ko = {
   'start.more.ask': '물어보기',
   'start.more.auto': '자동',
   'start.more.priority': '우선순위 {n}',
-  'start.more.schedule': '일정에 따라 반복…',
+  'start.more.schedule': '일정에 따라 반복',
   'start.opt.priority': '우선순위',
   // T4 Start opens the planner chat
   'start.t4.title': '{project}에서 무엇을 작업할까요?',
