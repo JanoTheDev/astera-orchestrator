@@ -2368,6 +2368,9 @@ export type RendererApi = CoreApi & {
     /** The tool call this session's CLI is waiting on, read once on mount — the push above fires only on
      *  a change, so a question already up when the pane opens needs this. null when nothing is waiting. */
     pendingPrompt(sessionId: string): Promise<PendingToolPrompt | null>
+    /** The text of the session's newest assistant reply, read once from its transcript (no follow). Null when there is
+     *  none. The Agents wall's chat tiles show it. */
+    lastReply(sessionId: string): Promise<string | null>
     /** The model and effort the CLI last reported for this session, or nulls when it has reported
      *  nothing yet. Read rather than pushed: it changes only when a person changes it, which they do
      *  through the CLI's own screen, and there is no event for that. */

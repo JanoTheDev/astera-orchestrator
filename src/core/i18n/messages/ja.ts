@@ -3,6 +3,9 @@ import type { Catalog } from '../index'
 /** Japanese. Partial by design: a key that is not here falls back to English, then to Korean, so a new
  *  string can ship before its translation does. */
 export const ja: Catalog = {
+  'wall.tile.chatEmpty': 'まだ返信がありません。',
+  'wall.tile.menu': 'コンソールの操作',
+  'wall.tile.openWindow': '新しいウィンドウで開く',
   'settings.title': '設定',
   'settings.tab.general': '一般',
   'settings.tab.appearance': '外観',

@@ -499,6 +499,7 @@ const api = {
     pause: invoke('conversation.pause'),
     attention: invoke('conversation.attention'),
     pendingPrompt: invoke('conversation.pendingPrompt'),
+    lastReply: invoke('conversation.lastReply'),
     model: invoke('conversation.model'),
     models: invoke('conversation.models'),
     attach: invoke('conversation.attach'),

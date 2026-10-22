@@ -3,7 +3,7 @@ import type { Attention, JobRow, JobTask, SessionInfo } from '../../../../core/t
 import type { WorkspaceProject, WorkspaceSession } from '../../state/workspaceTree'
 import {
   ALL_PLANS, NO_PLAN, consolesOf, detailLineOf, detailsOf, filterConsoles, gridColumns, groupWall, indexJobRows, orderWall, pillCount, planPills,
-  progressSegments, stripLabel, type WallInput
+  PREVIEW_LINES, previewOf, progressSegments, stripLabel, tileMenuOf, type WallInput
 } from './wallModel'
 
 const session = (id: string, over: Partial<SessionInfo> = {}): SessionInfo => ({
@@ -257,5 +257,32 @@ describe('the wall reads progress from the fold rows', () => {
     expect([d.plan!.done, d.plan!.total]).toEqual([1, 3])
     expect(d.plan!.tasks.map((t) => t.id)).toEqual(['d', 'e', 'f'])
     expect(d.task).toMatchObject({ title: 'Next' })
+  })
+})
+
+describe('a chat tile', () => {
+  it('shows the last lines of its last reply, bottom-anchored', () => {
+    const reply = Array.from({ length: 9 }, (_, i) => `line ${i + 1}`).join('\n')
+    expect(PREVIEW_LINES).toBe(6)
+    expect(previewOf(reply)).toBe('line 4\nline 5\nline 6\nline 7\nline 8\nline 9')
+  })
+
+  it('updates when a newer reply arrives: the preview follows the reply it is given', () => {
+    expect(previewOf('first answer')).toBe('first answer')
+    expect(previewOf('first answer\nand more')).toBe('first answer\nand more')
+  })
+
+  it('has no preview before a reply, or for a blank one', () => {
+    expect(previewOf(null)).toBeNull()
+    expect(previewOf('  \n ')).toBeNull()
+  })
+
+  it('its overflow menu has Open in new window, which opens the window on the console project', () => {
+    const c = consolesOf({ sessions: [session('chat1', { kind: 'chat' })], tree: [], data: null, attention: {}, live: {}, rows: {} })[0]
+    const opened: Array<string | null> = []
+    const items = tileMenuOf(c, { openWindow: 'Open in new window' }, (projectId) => opened.push(projectId))
+    expect(items.map((i) => i.label)).toEqual(['Open in new window'])
+    items[0].onSelect()
+    expect(opened).toEqual([c.projectId])
   })
 })

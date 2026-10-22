@@ -6,8 +6,10 @@ import {
   readConversationWindow,
   ConversationFollow,
   CONVERSATION_TAIL_BYTES,
-  CONVERSATION_TAIL_BYTES_MAX
+  CONVERSATION_TAIL_BYTES_MAX,
+  lastReplyTextOf
 } from './conversationRead'
+import type { ConvTurn } from './conversation'
 
 let dir: string
 beforeEach(async () => {
@@ -372,5 +374,28 @@ describe('ConversationFollow', () => {
     await appendFile(p, '\n')
     const afterNewline = await follow.read()
     expect(afterNewline?.turns.map((t) => t.id)).toEqual(['u2'])
+  })
+})
+
+describe('lastReplyTextOf', () => {
+  const user: ConvTurn = { id: 'u', role: 'user', parts: [{ kind: 'text', text: 'hi' }] }
+  it('answers the newest assistant text, skipping a tool-only turn after it', () => {
+    const turns: ConvTurn[] = [
+      user,
+      { id: 'a1', role: 'assistant', parts: [{ kind: 'text', text: 'first' }] },
+      { id: 'a2', role: 'assistant', parts: [{ kind: 'tool', id: 't', name: 'Read', target: 'a.ts', outcome: null }] }
+    ]
+    expect(lastReplyTextOf(turns)).toBe('first')
+  })
+  it('joins the text parts of the newest assistant turn', () => {
+    const turns: ConvTurn[] = [
+      user,
+      { id: 'a', role: 'assistant', parts: [{ kind: 'text', text: 'one' }, { kind: 'tool', id: 't', name: 'Bash', target: 'ls', outcome: null }, { kind: 'text', text: 'two' }] }
+    ]
+    expect(lastReplyTextOf(turns)).toBe('one\ntwo')
+  })
+  it('is null when no assistant turn says anything', () => {
+    expect(lastReplyTextOf([user])).toBeNull()
+    expect(lastReplyTextOf([])).toBeNull()
   })
 })

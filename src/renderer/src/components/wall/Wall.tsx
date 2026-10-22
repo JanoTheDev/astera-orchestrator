@@ -1,13 +1,14 @@
 // W9-H, W11: the Agents page's wall (DESIGN-W11 §7, §9): the filters of the page header, the plan groups with their
 // tiles and Done cards, the empty state, and the console strip of the full-size view. What goes where is
 // wallModel.ts's; this file only draws it.
-import { useEffect, useRef } from 'react'
-import { ExternalLink, Plus, TerminalSquare } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { ExternalLink, MoreHorizontal, Plus, TerminalSquare } from 'lucide-react'
 import { useI18n } from '../../i18n/I18nProvider'
-import { Button, Chip, Tabs, EmptyState, Select, cx, type ChipTone } from '../ui'
+import { useChatState } from '../../hooks/useChatState'
+import { Button, Chip, Tabs, EmptyState, Menu, Select, cx, type ChipTone } from '../ui'
 import { claimTerminal } from './consoleDock'
 import {
-  ALL_PLANS, NO_PLAN, pillCount, progressSegments, stripLabel,
+  ALL_PLANS, NO_PLAN, pillCount, previewOf, progressSegments, stripLabel, tileMenuOf,
   type PlanFilter, type PlanPill, type StateFilter, type TileState, type WallConsole
 } from './wallModel'
 import type { PlanProgress } from '../plan/planBoard'
@@ -260,6 +261,23 @@ export function ConsoleTile({
     if (c.chat || !anchor.current) return
     return claimTerminal(c.sessionId, anchor.current)
   }, [c.sessionId, c.chat])
+  // A chat tile has no xterm: its preview is the session's last reply, read again each time a turn ends (the
+  // status leaves 'working'). A terminal tile subscribes to nothing here (enabled=false).
+  const chatStatus = useChatState(c.sessionId, c.chat)?.status ?? null
+  const [reply, setReply] = useState<string | null>(null)
+  useEffect(() => {
+    if (!c.chat || chatStatus === 'working') return
+    let current = true
+    void window.api.conversation.lastReply(c.sessionId).then(
+      (text) => current && setReply(text),
+      () => {}
+    )
+    return () => {
+      current = false
+    }
+  }, [c.sessionId, c.chat, chatStatus])
+  const preview = previewOf(reply)
+  const menu = tileMenuOf(c, { openWindow: t('wall.tile.openWindow') }, (projectId) => window.api.win.openNew(projectId))
   return (
     <div
       role="button"
@@ -281,9 +299,19 @@ export function ConsoleTile({
           {c.taskTitle && <span className="wall-tile__task">{c.taskTitle}</span>}
         </div>
         <StateChip c={c} />
+        {/* The menu is a button of its own inside the tile's button: its clicks and keys must not open the tile. */}
+        <span className="wall-tile__menu" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+          <Menu label={t('wall.tile.menu')} align="end" trigger={{ size: 'sm', icon: <MoreHorizontal size={14} /> }} items={menu} />
+        </span>
       </div>
       {meta.length > 0 && <div className="wall-tile__meta">{meta.join(' · ')}</div>}
-      {c.chat ? <div className="wall-tile__chat">{t('wall.tile.chat')}</div> : <div ref={anchor} className="terminal-host wall-tile__term" />}
+      {c.chat ? (
+        <div className={cx('wall-tile__chat', preview === null && 'wall-tile__chat--empty')}>
+          {preview === null ? t('wall.tile.chatEmpty') : <p className="wall-tile__reply">{preview}</p>}
+        </div>
+      ) : (
+        <div ref={anchor} className="terminal-host wall-tile__term" />
+      )}
     </div>
   )
 }
