@@ -37,6 +37,10 @@ export { clientTimeoutMs, followRun, type FollowEnd, type HostAnswer } from './f
 import { remoteTarget } from '../core/remote/targets'
 import { connectRuntime } from '../core/remote/client'
 import { runServe, type ServeDeps } from './runtime/serve'
+import { runSetup, setupOptionsOf } from './runtime/setup'
+import { setupMachine } from './runtime/setupMachine'
+import { loginNewAccount } from '../core/accounts/cliLogin'
+import { makeDescriptors } from '../core/providers/descriptor'
 import { readValidHold } from '../core/remote/updateHold'
 import { readRemoteSettings, writeRemoteSettings } from '../core/remote/settings'
 import { loadIdentity, loadOrCreateIdentity } from '../core/remote/identity'
@@ -725,13 +729,13 @@ const serveDeps = (a: { env: NodeJS.ProcessEnv; platform: NodeJS.Platform; home:
 }
 
 /** What `astera runtime ...` reads and asks on this machine (cli/runtime/commands.ts). */
-const runtimeDeps = (a: { env: NodeJS.ProcessEnv; platform: NodeJS.Platform; home: string; noKeepalive: boolean }): RuntimeCommandDeps => {
+const runtimeDeps = (a: { env: NodeJS.ProcessEnv; platform: NodeJS.Platform; home: string; noKeepalive: boolean; displayName?: string }): RuntimeCommandDeps => {
   const { address, profileDir } = cliHostTarget({ env: a.env, platform: a.platform, home: a.home })
   const store = () => openSecretStore({ dir: path.join(profileDir, 'remote'), profileDir })
   return {
     readSettings: () => readRemoteSettings(profileDir),
     writeSettings: (p) => writeRemoteSettings(profileDir, p),
-    ensureIdentity: (san) => loadOrCreateIdentity(store(), { displayName: os.hostname(), ...(san === '0.0.0.0' || san === '::' ? {} : { san }) }),
+    ensureIdentity: (san) => loadOrCreateIdentity(store(), { displayName: a.displayName ?? os.hostname(), ...(san === '0.0.0.0' || san === '::' ? {} : { san }) }),
     loadIdentity: () => loadIdentity(store()),
     hostCall: async (cmd, args, o) => {
       let conn = await connectHost({ address, profileDir, app: CLI_VERSION, log: logToStderr })
@@ -1366,6 +1370,22 @@ export async function main(): Promise<void> {
     if (parsed.cmd === 'runtime-serve') {
       process.exit(await runServe(serveDeps({ env: process.env, platform: process.platform, home: homedir() })))
     }
+    // `setup` installs and starts everything a Runtime needs, then pairs (cli/runtime/setup.ts); its steps go to stderr.
+    if (parsed.cmd === 'runtime-setup') {
+      const env = process.env
+      const deps = runtimeDeps({ env, platform: process.platform, home: homedir(), noKeepalive: parsed.noKeepalive, ...(typeof parsed.args.name === 'string' ? { displayName: parsed.args.name } : {}) })
+      const done = await runSetup(setupOptionsOf(parsed.args), setupMachine({
+        env,
+        platform: process.platform,
+        home: homedir(),
+        profileDir: cliHostTarget({ env, platform: process.platform, home: homedir() }).profileDir,
+        runtime: (cmd, args) => runRuntimeCommand(cmd, args, deps),
+        log: (m) => logToStderr(`astera runtime setup: ${m}`)
+      }))
+      if (!done.ok) fail(done.error)
+      out(renderOk(parsed.cmd, done.body, mode))
+      process.exit(0)
+    }
     const done = await runRuntimeCommand(parsed.cmd, parsed.args, runtimeDeps({ env: process.env, platform: process.platform, home: homedir(), noKeepalive: parsed.noKeepalive }))
     if (!done.ok) fail(done.error)
     out(renderOk(parsed.cmd, done.body, mode))
@@ -1396,6 +1416,32 @@ export async function main(): Promise<void> {
   // 폴더에 스킬 파일을 심는다(cli/skills.ts). Host 에게 물을 것이 없으므로 host 명령보다도 앞선
   // 자리가 맞지만, `--request-id` 를 거절하려면 그것을 걷어 낸 뒤여야 한다. 거절하는 이유는 바로
   // 위 host 명령과 같다: 명령 층에 닿지 않아 영수증이 없고, `skills install` 은 일을 한다.
+  // `accounts login --new` signs a new Claude account in from this terminal, no app or Host (core/accounts/cliLogin.ts).
+  // The CLI's login owns the terminal, so its link and prompt reach the person; stdout stays this envelope.
+  if (parsed.cmd === 'accounts-login') {
+    if (presented)
+      fail({
+        code: 'INVALID_ARGUMENTS',
+        message: `${spelledCommand(parsed.cmd)} does not go through the Host's command layer, so it cannot carry a request id`
+      })
+    if (args.new !== true) fail({ code: 'INVALID_ARGUMENTS', message: 'accounts login needs --new: it signs a new account in' })
+    if (args.label !== undefined && typeof args.label !== 'string') fail({ code: 'INVALID_ARGUMENTS', message: '--label needs a name' })
+    const done = await loginNewAccount(typeof args.label === 'string' ? { label: args.label } : {}, {
+      profileDir,
+      home: homedir(),
+      descriptors: makeDescriptors(process.platform),
+      run: (command, cliArgs, env) =>
+        new Promise((resolve) => {
+          const child = spawn(command, cliArgs, { env: { ...process.env, ...env }, stdio: [0, 2, 2], shell: process.platform === 'win32' })
+          child.once('error', () => resolve(127))
+          child.once('close', (code) => resolve(code ?? 1))
+        })
+    })
+    if (!done.ok) fail({ code: 'FAILED', message: done.message })
+    out(renderOk(parsed.cmd, { id: done.account.id, label: done.account.label, provider: done.account.provider, configDir: done.account.configDir }, mode))
+    process.exit(0)
+  }
+
   if (parsed.cmd === 'skills-list' || parsed.cmd === 'skills-install') {
     if (presented)
       fail({

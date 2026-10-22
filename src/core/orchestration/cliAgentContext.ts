@@ -701,6 +701,8 @@ const NOT_SWITCHED = [
   'requests-show',
   'skills-list',
   'skills-install',
+  // T15: signs a new account in from this terminal, answered in the CLI process (core/accounts/cliLogin.ts).
+  'accounts-login',
   'higgsfield-list',
   'higgsfield-use',
   'mcp-serve',
@@ -716,6 +718,7 @@ const NOT_SWITCHED = [
   'runtime-pair',
   'runtime-clients',
   'runtime-revoke',
+  'runtime-setup',
   // The controller's side (src/cli/runtimes.ts), answered in the CLI process from <profile>/runtimes.
   'runtimes-add',
   'runtimes-list',
