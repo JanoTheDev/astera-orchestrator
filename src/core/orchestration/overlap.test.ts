@@ -10,6 +10,7 @@ import {
   otherPlansBrief,
   overlapLines,
   overlapsOf,
+  planOverlapWarnings,
   plannerOverlapNotices,
   refreshOverlaps,
   taskCreateWarnings,
@@ -352,6 +353,20 @@ describe('plans that know about each other (T11)', () => {
     expect(plannerOverlapNotices(refreshOverlaps(s, { ...s, tasks: [...s.tasks] }, T0)).map((n) => n.key)).toEqual(notices.map((n) => n.key))
     // a plan that started is no longer told as a planner
     expect(plannerOverlapNotices({ ...s, jobs: s.jobs.map((j) => (j.id === 'jA' ? { ...j, pendingStart: undefined } : j)) }).map((n) => n.sessionId)).toEqual(['ses_pb'])
+  })
+
+  it('before approval the plan lists its open overlaps with plans planning or running, never blocking', async () => {
+    const s = planning()
+    expect(planOverlapWarnings(s, 'jA')).toEqual(['Rework routes · Api cleanup · Clean handlers (same files: src/api/routes.ts)'])
+    // a plan archived (or finished) is no open overlap
+    expect(planOverlapWarnings({ ...s, jobs: s.jobs.map((j) => (j.id === 'jB' ? { ...j, archivedAt: T0 } : j)) }, 'jA')).toEqual([])
+    // run-start approves the plan and carries the lines in its answer
+    const ready = (t: Task): Task => ({ ...t, prompt: 'p', acceptanceCriteria: ['c'], basis: { state: 'missing', evidence: 'e' } })
+    let st: OrchState = { ...s, tasks: s.tasks.map(ready) }
+    const deps = { getState: () => st, setState: async (n: OrchState) => void (st = n), now: () => T0 } as unknown as OrchServerDeps
+    const reply = await handleCommand(deps, { sessionId: '' }, 'run-start', { run: 'jA' })
+    expect(reply.status).toBe(200)
+    expect((reply.body as { overlaps?: string[] }).overlaps).toEqual(['Rework routes · Api cleanup · Clean handlers (same files: src/api/routes.ts)'])
   })
 
   it('titles alike by words (Jaccard >= 0.6)', () => {

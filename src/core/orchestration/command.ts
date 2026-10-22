@@ -156,7 +156,7 @@ import {
 } from '../github/taskLinks'
 import { jobNameOf } from './jobName'
 // W8-D several plans in one repo
-import { areasArg, otherPlansBrief, overlapLines, planTasksOf, taskCreateWarnings } from './overlap'
+import { areasArg, otherPlansBrief, overlapLines, planOverlapWarnings, planTasksOf, taskCreateWarnings } from './overlap'
 import { isSamePath } from '../files/tree'
 import type { RunPr, TaskLinks } from './types'
 import { escalationOpen } from './sessionIndex' // W7-C
@@ -3741,9 +3741,11 @@ export async function handleCommand(
       const approving = job.pendingStart === true && job.plannerSessionIds !== undefined
       // W5-B (#47): an approved plan's planner has done its work (SPEC §2), so it ends with the approval. Left alive it
       // idled for hours and got the limit reset's "Continue the work" on the planner model.
+      // T11: the plan's open overlaps with plans planning or running ride along with the approval; they never block it
+      const overlapWarnings = approving ? planOverlapWarnings(s, id) : []
       const approved = async (reply: Reply): Promise<Reply> => {
         if (approving && reply.status >= 200 && reply.status < 300) await endPlanners(job, 'its plan was approved')
-        return reply
+        return overlapWarnings.length > 0 && reply.status < 300 ? { ...reply, body: { ...(reply.body as object), overlaps: overlapWarnings } } : reply
       }
       if (approving) {
         // W3-D: an MCP client calls with an empty session id, but its call comes from an agent (sessions-send's fromMcp)

@@ -314,6 +314,20 @@ export function overlapLines(s: OrchState, job: Job): string[] {
   })
 }
 
+/** T11: beside `validatePlan` (planner.ts), never blocking: the plan's open overlaps with plans still planning or
+ *  running, one line each (`overlapLines`), for the approval (`run-start`'s answer) and the plan page (`Job.overlaps`).
+ *  Fresh from `overlapsOf`, so it does not wait for the next save. Empty when it meets none. */
+export function planOverlapWarnings(s: OrchState, jobId: string): string[] {
+  const job = s.jobs.find((j) => j.id === jobId)
+  if (!job) return []
+  const plan = new Map(s.jobs.map((j) => [j.id, j]))
+  const open = overlapsOf(job, s).filter((o) => {
+    const other = plan.get(o.jobId)
+    return other !== undefined && (other.pendingStart === true || outcomeOfTasks(planTasksOf(s, other)) === 'running')
+  })
+  return overlapLines(s, { ...job, overlaps: open })
+}
+
 /** At most this many Tasks of one other plan in a brief; the rest are counted. */
 const BRIEF_TASKS_MAX = 40
 
