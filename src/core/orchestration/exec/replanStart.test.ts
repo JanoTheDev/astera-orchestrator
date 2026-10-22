@@ -354,6 +354,30 @@ describe('the per-Task gate on worker-start', () => {
   })
 })
 
+describe('worker-start during a scoped replan', () => {
+  it('accepts a Task the deviation cannot affect and refuses one it can, as a wait', async () => {
+    const r = rig()
+    const { jobId, runId, id } = await approved(r)
+    const s = r.state()
+    // E neither waits on A (which deviated) nor shares its paths
+    const e: Task = { ...s.tasks.find((t) => t.id === id('A'))!, id: 'tsk_e', title: 'E', status: 'ready', deps: [], affectedPaths: ['src/E.ts'], filesModified: undefined }
+    r.set({ ...s, runs: s.runs.map((x) => (x.id === runId ? { ...x, worktree: '/wt' } : x)), tasks: [...s.tasks, e] })
+    await r.person('jobs-replan', { id: jobId, run: runId, mode: 'wave', wave: 1 })
+    expect(job(r).replanning).toMatchObject({ scoped: true })
+    const coordinator = r.as('ses-coordinator')
+    expect(await coordinator('worker-start', { task: id('B'), agent: 'claude', account: 'acc1' })).toMatchObject({ status: 409, body: { held: true } })
+    const started = await coordinator('worker-start', { task: 'tsk_e', agent: 'claude', account: 'acc1' })
+    expect(started.status).toBe(200)
+  })
+
+  it('still refuses every Task while an unscoped replan runs', async () => {
+    const r = rig()
+    const { jobId, runId, id } = await approved(r)
+    await r.person('jobs-replan', { id: jobId, run: runId })
+    expect(await r.as('ses-coordinator')('worker-start', { task: id('B'), agent: 'claude', account: 'acc1' })).toMatchObject({ status: 409, body: { held: true, replanning: true } })
+  })
+})
+
 describe('--replan', () => {
   it('is set by jobs plan, and only to waves or off', async () => {
     const r = rig()
