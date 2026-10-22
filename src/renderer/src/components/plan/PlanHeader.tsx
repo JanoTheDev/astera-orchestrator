@@ -57,6 +57,22 @@ export function PlanHeader({
   const [renaming, setRenaming] = useState(false)
   // T8: the Stalled chip's Fix in flight
   const [fixing, setFixing] = useState(false)
+  // T3: a delivery being retried, failed or waiting on the owner can be tried again from here (`run-deliver --force`)
+  const [redelivering, setRedelivering] = useState(false)
+  const delivery = run?.delivery
+  const retryDelivery = async (): Promise<void> => {
+    if (!delivery) return
+    setRedelivering(true)
+    try {
+      const reply = await door.command('run-deliver', { run: delivery.runId, force: true })
+      if (reply.status >= 400) toast.error(t('plan.delivery.retryFailed', { reason: replyNote(reply, t as never, t('jobs.node.failed')) }))
+      else toast.success(t('plan.delivery.delivered'))
+    } catch {
+      toast.error(t('jobs.node.failed'))
+    } finally {
+      setRedelivering(false)
+    }
+  }
   // W9-C: the plan's own actions in the header and its ⋯ menu (DESIGN.md §2 "Plan page"); each is lib/jobActions'.
   const off = lockedReason !== undefined
   // W1-C/W5-C lifecycle (rename, start after, hold, archive) is this computer's Jobs only, as the Jobs list offers it
@@ -176,7 +192,17 @@ export function PlanHeader({
               </Button>
             </>
           )}
-          {run?.outcome === 'failed' && run.deliveryError !== undefined && <Chip tone="danger">{t('jobs.run.notDelivered', { reason: run.deliveryError })}</Chip>}
+          {run?.outcome === 'failed' && run.deliveryError !== undefined && delivery === undefined && (
+            <Chip tone="danger">{t('jobs.run.notDelivered', { reason: run.deliveryError })}</Chip>
+          )}
+          {/* T3: why the delivery has not gone through yet; "Retry delivery" stands in the actions */}
+          {delivery !== undefined && delivery.state !== 'delivering' && (
+            <Chip tone={delivery.state === 'failed' ? 'danger' : 'warn'}>
+              {t(delivery.state === 'retrying' ? 'plan.delivery.retrying' : delivery.state === 'failed' ? 'plan.delivery.failed' : 'plan.delivery.needsOwner', {
+                reason: delivery.reason ?? '—'
+              })}
+            </Chip>
+          )}
           {/* T5: the coordinator's model, picked by the plan's size (roleModels.ts resolveCoordinatorModel) */}
           {run?.coordinatorModel !== undefined && <Chip>{`${t('plan.card.model')}: ${run.coordinatorModel}`}</Chip>}
           <SourceChip source={run?.source} />
@@ -228,6 +254,17 @@ export function PlanHeader({
             {t('pages.plan.consoles')}
           </Button>
           {pauseButton}
+          {delivery !== undefined && (
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={off || redelivering || delivery.state === 'delivering'}
+              title={lockedReason ?? delivery.reason}
+              onClick={() => void retryDelivery()}
+            >
+              {redelivering || delivery.state === 'delivering' ? t('plan.delivery.delivering') : t('plan.delivery.retry')}
+            </Button>
+          )}
           {run?.planned && (
             <Button size="sm" variant="ghost" onClick={() => onSection('overview')}>
               {t('pages.plan.talk')}

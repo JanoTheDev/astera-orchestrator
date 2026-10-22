@@ -27,6 +27,7 @@ import {
   integrateWorktrees,
   reapWorktree,
   worktreeDeps,
+  type IntegrateContext,
   type Integration,
   type ReapContext
 } from '../core/orchestration/exec/integrateGit'
@@ -76,6 +77,8 @@ export interface HostWorktrees {
   makeRunWorktree: NonNullable<OrchServerDeps['makeRunWorktree']>
   mergeWorktrees: NonNullable<OrchServerDeps['mergeWorktrees']>
   removeWorktrees: NonNullable<OrchServerDeps['removeWorktrees']>
+  /** T3: the git-op announcement a push delivery's catch-up merge goes through, as the integration merges do. */
+  gitOp: IntegrateContext['gitOp']
   /** The dispatch loop's integration merge (Task 12): integrateWorktrees over this Host's git-op and
    *  reap, the same pair `mergeWorktrees` sends. */
   integrate(runRoot: string, merges: string[], heads?: Record<string, string>): Promise<Integration>
@@ -369,6 +372,7 @@ export function createHostWorktrees(d: HostWorktreesDeps): HostWorktrees {
       await registry.load()
     },
     fork,
+    gitOp,
     makeRunWorktree: (a) => fork(a),
     // No re-read: a merge never reads the registry (rule 5 asks git for the branches), so a damaged
     // worktrees.json must not stop one. Only what reads or writes the registry re-reads it.

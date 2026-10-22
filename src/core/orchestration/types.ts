@@ -539,6 +539,13 @@ export interface JobRun {
   /** The pushed commit, or why the push stopped (escalated). Present: the driving loop does not try again
    *  (`run-deliver --force` does). */
   delivery?: RunDelivery
+  // ── T3: delivery that finishes by itself (delivery.ts deliveryAttempt) ──
+  /** The plan's end delivery (`run-deliver`): pending once seen running, then each attempt, retried with backoff and
+   *  asked of the owner once. Persisted, so a restarted Host resumes it. */
+  deliveryState?: DeliveryProgress
+  /** The plan branch pushed (and, for `pr`, the draft PR updated) after each Task (`run-draft-pr`), retried alike.
+   *  `tasksDone`: how many of the Run's Tasks were completed at the last push that went through. */
+  branchPush?: DeliveryProgress & { tasksDone?: number }
   // Coordinator rotation (exec/coordinatorRotate.ts)
   /** The fresh coordinators this Run was given (`run-coordinator-refresh`), oldest first, the last 20: why (`wave 3`,
    *  `context 72%`), the session it replaced and the one it started. The feed says "Coordinator refreshed (…)" for each,
@@ -954,6 +961,23 @@ export interface RunDelivery {
   branch?: string
   sha?: string
   error?: string
+}
+
+/** T3: where a delivery (or a plan-branch push) stands. `delivered-by-owner`: the owner said they push it, and git
+ *  confirmed the commits reached the base. */
+export type DeliveryStep = 'pending' | 'delivering' | 'delivered' | 'retrying' | 'failed' | 'needs-owner' | 'delivered-by-owner'
+
+/** T3: a delivery's attempts, persisted on the Run. `nextRetryAt` is when the driving loop tries again by itself;
+ *  `questionId` the one owner question (an escalation message) raised after the last automatic attempt; `ownerPushes`
+ *  the owner answered they push it themselves (checked until git confirms it). */
+export interface DeliveryProgress {
+  state: DeliveryStep
+  attempts: number
+  lastError?: string
+  nextRetryAt?: string
+  lastAttemptAt?: string
+  questionId?: string
+  ownerPushes?: true
 }
 
 /** The plan's pull request: its URL and number once opened, or the error that stopped it. */

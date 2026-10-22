@@ -861,6 +861,9 @@ export interface PushDelivery {
   defaultBranch?: string
   worktrees: string[]
   message: string
+  /** T3: the owner said they push the plan themselves: nothing is merged or pushed, the answer only says whether every
+   *  worktree's HEAD is on `branch` (local or origin's, `git branch -a --contains`). */
+  ownerPushed?: boolean
 }
 
 export interface PushContext {
@@ -873,26 +876,36 @@ export interface PushContext {
   git?: typeof realGit
   /** Test seam for `refreshOnto`'s git version check; defaults to the real one. */
   gitAtLeast?: typeof gitVersionAtLeast
+  /** T3: who is told Astera moves HEAD for the catch-up merge with origin (integrateWorktrees' own). Optional. */
+  gitOp?: IntegrateContext['gitOp']
 }
+
+/** T3: why a push delivery stopped part-way, for the caller to tell a retry from an integration Task: `fetch-failed`
+ *  origin could not be read, `rejected` origin kept refusing the push, `origin-conflict` origin moved on and does not
+ *  merge with the plan, `merge-failed` the plan's worktrees did not merge into the branch. */
+export type PushStop = 'fetch-failed' | 'rejected' | 'origin-conflict' | 'merge-failed'
 
 export type PushResult =
   | { ok: true; branch: string; sha: string; merged: string[]; validated: number }
-  | { ok: false; reason: string; branch?: string }
+  | { ok: false; reason: string; branch?: string; code?: PushStop; /** origin-conflict: origin's commit the plan clashes with */ conflictWith?: string }
 
 /**
  * **Lands a finished plan on a branch and pushes it, with no person reviewing** (W6-H). Every guard stops the push and
  * answers why, for the caller to escalate; nothing here stashes, resets or overwrites the owner's own work:
  * 1. the branch is `branch`, else origin's default (`refs/remotes/origin/HEAD`); neither is a stop;
- * 2. the folder stands on that branch with nothing uncommitted (untracked files count: they are the owner's too);
+ * 2. the folder stands on that branch with no uncommitted tracked change (T3: untracked files never block: no merge or
+ *    reset here touches them);
  * 3. `fetch`, then `merge --ff-only` from origin; a local branch that cannot fast-forward is a stop;
  * 4. the Run's worktrees merge (`mergeWorktrees`). T11: when that fails (another plan landed on the branch first), the
  *    folder goes back to the commit recorded before it, the plan's worktrees are refreshed onto that commit
- *    (`refreshOnto`) and merged once more; a second failure leaves the folder as that merge left it;
+ *    (`refreshOnto`) and merged once more; T3: a second failure undoes the merges as 5 does;
  * 5. the validation runs on the merged folder; a failure resets to the commit recorded before 4, which undoes only
  *    Astera's merges (the folder was clean at 2);
  * 6. `push origin <branch>`, **never forced**; a rejected push fetches, and when origin moved on merges it in and runs
- *    the validation again, then pushes; up to `PUSH_ROUNDS` times. A conflict with origin stops with the plan's
- *    commits kept; a failed second validation undoes them as 5 does.
+ *    the validation again, then pushes; up to `PUSH_ROUNDS` times. T3: every stop here (a conflict with origin, a
+ *    failed fetch, a push still rejected, a failed second validation) undoes the merges as 5 does, so no half
+ *    delivery sits unpushed on the owner's branch.
+ * The undo resets only while the folder is still on `branch` with no tracked change Astera did not make.
  */
 export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<PushResult> {
   const run = ctx.git ?? realGit
@@ -908,19 +921,40 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
     else if (a.defaultBranch) branch = a.defaultBranch
     else return { ok: false, reason: `could not tell the repository's default branch (origin/HEAD is not set): set the project's delivery branch` }
   }
-  const fail = (reason: string): PushResult => ({ ok: false, reason, branch })
+  const fail = (reason: string, code?: PushStop, conflictWith?: string): PushResult => ({
+    ok: false,
+    reason,
+    branch,
+    ...(code ? { code } : {}),
+    ...(conflictWith ? { conflictWith } : {})
+  })
+
+  // T3: the owner pushed it: is every worktree's HEAD on the branch, here or on origin? Nothing is written
+  if (a.ownerPushed) {
+    await run(['fetch', 'origin', branch], w)
+    for (const wt of a.worktrees) {
+      const head = await run(['rev-parse', 'HEAD'], { cwd: wt })
+      if (!head.ok) continue // a folder already gone holds nothing that is not somewhere else
+      const holders = await run(['branch', '-a', '--contains', head.stdout, '--format=%(refname:short)'], { cwd })
+      const names = holders.ok ? holders.stdout.split('\n').map((x) => x.trim()) : []
+      if (!names.includes(branch) && !names.includes(`origin/${branch}`))
+        return fail(`${wt}'s commit ${head.stdout.slice(0, 7)} is not on ${branch} yet`)
+    }
+    const tip = await run(['rev-parse', `origin/${branch}`], { cwd })
+    return { ok: true, branch, sha: tip.ok ? tip.stdout : '', merged: [], validated: 0 }
+  }
 
   // 2.
   const on = await run(['symbolic-ref', '--quiet', '--short', 'HEAD'], { cwd })
   if (!on.ok) return fail(`your folder ${cwd} is not on a branch (detached HEAD); put it on ${branch}`)
   if (on.stdout !== branch) return fail(`your folder ${cwd} is on branch ${on.stdout}, not ${branch}`)
-  const status = await run(['status', '--porcelain'], { cwd })
+  const status = await run(['status', '--porcelain', '--untracked-files=no'], { cwd })
   if (!status.ok) return fail(`could not read git status in ${cwd}: ${why(status)}`)
   if (status.stdout !== '') return fail(`your folder ${cwd} has ${status.stdout.split('\n').length} uncommitted change(s)`)
 
   // 3.
   const fetched = await run(['fetch', 'origin', branch], w)
-  if (!fetched.ok) return fail(`git fetch origin ${branch} failed: ${why(fetched)}`)
+  if (!fetched.ok) return fail(`git fetch origin ${branch} failed: ${why(fetched)}`, 'fetch-failed')
   const ff = await run(['merge', '--ff-only', `origin/${branch}`], w)
   if (!ff.ok) return fail(`your ${branch} cannot fast-forward to origin/${branch} (it has commits origin does not): ${why(ff)}`)
 
@@ -951,23 +985,27 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
       merged = again.ok ? again : { ok: false, reason: `${merged.reason}; after refreshing onto ${base}: ${again.reason}` }
     } else merged = { ok: false, reason: `${merged.reason}; refreshing onto ${base} did not help: ${stop}` }
   }
-  if (!merged.ok) {
+  /** Undoes Astera's merges: back to `base`, the clean commit recorded before them. T3: only while the folder is still on
+   *  `branch` with no tracked change (the owner may have moved on meanwhile; their work is never reset). */
+  const undo = async (reason: string, code?: PushStop, conflictWith?: string): Promise<PushResult> => {
     const now = await run(['rev-parse', 'HEAD'], { cwd })
-    const moved = now.ok && now.stdout !== base
-    return fail(
-      `merging the plan's worktrees failed: ${merged.reason}` +
-        (moved ? ` The merges before it are on your ${branch}, not pushed; git reset --hard ${base} undoes them.` : '')
-    )
-  }
-  /** Undoes Astera's merges: back to `base`, the clean commit recorded before them. */
-  const undo = async (reason: string): Promise<PushResult> => {
+    if (now.ok && now.stdout === base) return fail(reason, code, conflictWith)
+    const still = await run(['symbolic-ref', '--quiet', '--short', 'HEAD'], { cwd })
+    const clean = await run(['status', '--porcelain', '--untracked-files=no'], { cwd })
+    if (!still.ok || still.stdout !== branch || !clean.ok || clean.stdout !== '')
+      return fail(
+        `${reason} Your folder changed meanwhile, so Astera's merges were left on ${branch}, not pushed; git reset --hard ${base} undoes them.`,
+        code,
+        conflictWith
+      )
     const reset = await run(['reset', '--hard', base], w)
     const back = await run(['rev-parse', 'HEAD'], { cwd })
     if (!reset.ok || !back.ok || back.stdout !== base)
-      return fail(`${reason} Astera could not undo its merges (git reset --hard ${base}: ${why(reset)}); check ${cwd} by hand.`)
+      return fail(`${reason} Astera could not undo its merges (git reset --hard ${base}: ${why(reset)}); check ${cwd} by hand.`, code, conflictWith)
     ctx.log(`delivery: undid Astera's merges in ${cwd}, back at ${base}`)
-    return fail(`${reason} Astera's merges were undone; ${branch} is back at ${base}.`)
+    return fail(`${reason} Astera's merges were undone; ${branch} is back at ${base}.`, code, conflictWith)
   }
+  if (!merged.ok) return undo(`merging the plan's worktrees failed: ${merged.reason}`, 'merge-failed')
   const left = [...(merged.dirty ?? []), ...(merged.unchecked ?? []), ...(merged.notMerged ?? [])]
   if (left.length > 0) return undo(`these worktrees hold work that was not merged (uncommitted, or not reachable): ${left.join(', ')}.`)
 
@@ -980,16 +1018,28 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
   // never forced
   let pushed = await run(['push', 'origin', branch], w)
   let validated = checked.ran
+  const ident = pushed.ok ? [] : await mergeIdentityArgs(cwd, run)
   for (let round = 1; !pushed.ok && round <= PUSH_ROUNDS; round++) {
     ctx.log(`delivery: push of ${branch} was rejected (${why(pushed)}), fetching (round ${round} of ${PUSH_ROUNDS})`)
-    if (!(await run(['fetch', 'origin', branch], w)).ok) break
+    const refetched = await run(['fetch', 'origin', branch], w)
+    if (!refetched.ok)
+      return undo(`git push origin ${branch} was rejected (${why(pushed)}), and fetching origin to catch up failed: ${why(refetched)}.`, 'fetch-failed')
     if (!(await run(['merge-base', '--is-ancestor', `origin/${branch}`, 'HEAD'], { cwd })).ok) {
-      const caught = await run(['merge', '--no-edit', `origin/${branch}`], w)
+      // T3: a merge commit needs an identity (none on a fresh machine), and the app's git watcher is told it is Astera's
+      const op = ctx.gitOp ? await ctx.gitOp.begin('job-merge', cwd) : null
+      let caught: Awaited<ReturnType<typeof run>>
+      try {
+        caught = await run([...ident, 'merge', '--no-edit', `origin/${branch}`], w)
+        if (!caught.ok) await run(['merge', '--abort'], w)
+      } finally {
+        if (op !== null) await Promise.resolve(ctx.gitOp!.end(op)).catch((e) => ctx.log(`delivery: git-op end failed: ${String(e)}`))
+      }
       if (!caught.ok) {
-        await run(['merge', '--abort'], w)
-        return fail(
-          `origin/${branch} moved on during the delivery and does not merge cleanly with the plan: ${why(caught)}. ` +
-            `The merged and validated commits are on your ${branch}, not pushed; git reset --hard ${base} undoes them.`
+        const tip = await run(['rev-parse', `origin/${branch}`], { cwd })
+        return undo(
+          `origin/${branch} moved on during the delivery and does not merge cleanly with the plan: ${why(caught)}.`,
+          'origin-conflict',
+          tip.ok ? tip.stdout : undefined
         )
       }
       const rechecked = await ctx.validate(cwd)
@@ -998,11 +1048,7 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
     }
     pushed = await run(['push', 'origin', branch], w)
   }
-  if (!pushed.ok)
-    return fail(
-      `git push origin ${branch} was rejected: ${why(pushed)}. The merged and validated commits are on your ${branch}, ` +
-        `not pushed; git reset --hard ${base} undoes them.`
-    )
+  if (!pushed.ok) return undo(`git push origin ${branch} was rejected: ${why(pushed)}.`, 'rejected')
   // W8-A: the notes ref goes next to the branch; a rejected notes push costs the delivery nothing
   if ((await pushNotes(cwd, run)) === 'rejected') ctx.log(`delivery: the attribution notes (refs/notes/astera) were not pushed`)
   const sha = await run(['rev-parse', 'HEAD'], { cwd })

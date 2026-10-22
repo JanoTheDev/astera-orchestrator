@@ -370,15 +370,29 @@ describe('run-draft-pr: a long plan followed from GitHub (W8-C)', () => {
     expect(h.state().runs[0].pr).toEqual({ at: NOW, url: PR, number: 13 })
   })
 
-  it('no draft for a one-wave plan, a push delivery, a non-draft PR, or an agent session', async () => {
-    expect((await rig([task(), task({ id: 't2', title: 'b', status: 'ready' })]).app('run-draft-pr', { run: 'r1' })).status).toBe(409)
-    const push = rig(plan('completed', 'ready', 'pending'))
-    void push.deps.setState({ ...push.state(), jobs: push.state().jobs.map((j) => ({ ...j, delivery: 'push' as const })) })
-    expect((await push.app('run-draft-pr', { run: 'r1' })).status).toBe(409)
+  it('T3: a draft after the first Task of a one-wave plan; none before any Task, for a non-draft PR or an agent session', async () => {
+    const one = rig([task(), task({ id: 't2', title: 'b', status: 'ready' })])
+    expect((await one.app('run-draft-pr', { run: 'r1' })).body).toMatchObject({ url: PR, draft: true, opened: true })
+    expect(one.state().runs[0].branchPush).toMatchObject({ state: 'delivered', tasksDone: 1 })
+    expect((await rig([task({ status: 'ready' })], []).app('run-draft-pr', { run: 'r1' })).status).toBe(409)
     const opened = rig(plan('completed', 'ready', 'pending'))
     void opened.deps.setState({ ...opened.state(), runs: opened.state().runs.map((r) => ({ ...r, pr: { at: NOW, url: PR } })) })
     expect((await opened.app('run-draft-pr', { run: 'r1' })).status).toBe(409)
     expect((await rig(plan('completed', 'ready', 'pending')).call('run-draft-pr', { run: 'r1' })).status).toBe(403)
+  })
+
+  it('T3: a push plan pushes its plan branch after each Task, opens no PR, and a failed push is recorded for a retry', async () => {
+    const push = rig(plan('completed', 'ready', 'pending'))
+    void push.deps.setState({ ...push.state(), jobs: push.state().jobs.map((j) => ({ ...j, delivery: 'push' as const })) })
+    expect((await push.app('run-draft-pr', { run: 'r1' })).body).toMatchObject({ branch: 'astera/run', pushed: true, tasksDone: 1 })
+    expect(push.pushes).toEqual([[WT, 'astera/run']])
+    expect(push.prs).toEqual([])
+    expect(push.state().runs[0].branchPush).toMatchObject({ state: 'delivered', tasksDone: 1 })
+    push.set(plan('completed', 'completed', 'ready'))
+    push.deps.github!.push = async () => ({ ok: false as const, kind: 'rejected', detail: 'remote: denied' }) as never
+    expect((await push.app('run-draft-pr', { run: 'r1' })).status).toBe(409)
+    expect(push.state().runs[0].branchPush).toMatchObject({ state: 'retrying', attempts: 2, tasksDone: 1, lastError: expect.stringContaining('denied') })
+    expect(push.state().runs[0].branchPush?.nextRetryAt).toBeDefined()
   })
 
   it('a project with no remote opens nothing and records nothing', async () => {

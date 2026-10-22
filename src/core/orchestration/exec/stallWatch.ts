@@ -345,9 +345,10 @@ export function stallRemedies(
     stepped(key, e)
   }
 
-  // A wave done, its draft PR not opened or updated (draftPr.ts draftPrDue stays due until the PR records it)
+  // A Task merged, the plan branch not pushed (draftPr.ts draftPrDue stays due until a push records it; T3: not while a
+  // failed push waits for its retry time, which the driving loop keeps itself)
   for (const run of s.runs) {
-    const done = draftPrDue(s, run)
+    const done = draftPrDue(s, run, nowMs)
     if (done === null) continue
     const key = `draft:${run.id}:${done}`
     const e = seen(key, nowMs)

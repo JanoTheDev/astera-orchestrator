@@ -1840,6 +1840,13 @@ export const ja: Catalog = {
   'plan.doctor.nothing': '修復するものはありません',
   'plan.doctor.failed': 'プランを修復できませんでした',
   'plan.doctor.failedGate': 'このタスクは {limit} 回中 {failures} 回失敗し、再試行するもの（コーディネーター）がありません。このゲートを解決すると再実行します。',
+  'plan.delivery.retrying': '配信を自動で再試行しています: {reason}',
+  'plan.delivery.failed': '未配信: {reason}',
+  'plan.delivery.needsOwner': '配信にあなたの対応が必要です: {reason}',
+  'plan.delivery.retry': '配信を再試行',
+  'plan.delivery.delivering': '配信中…',
+  'plan.delivery.retryFailed': '配信できませんでした: {reason}',
+  'plan.delivery.delivered': 'プランを配信しました',
   'start.go.plan': '計画を始める',
   // T2 Start: Audit mode, sticky hands-off, More options
   'start.next.audit': 'プランナーが選んだパスを監査し、見つけたことを inputs/audit.md に書いてから、それを直すタスクを計画します。',

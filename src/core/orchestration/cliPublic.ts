@@ -84,6 +84,9 @@ const RUN_HIDDEN = [
   'pr',
   // W6-H: a push delivery's result, answered by `run-deliver`; not in the SDK's contract yet
   'delivery',
+  // T3: the delivery's and the plan-branch push's attempts, answered by `run-deliver`; not in the SDK's contract yet
+  'deliveryState',
+  'branchPush',
   // Coordinator rotation: the app's own record of fresh coordinators, not in the SDK's contract yet
   'coordinatorRefreshes',
   // T5: the model the coordinator was started on, shown on the plan; not in the SDK's contract yet

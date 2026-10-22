@@ -1865,6 +1865,13 @@ export const es: Catalog = {
   'plan.doctor.nothing': 'Nada que arreglar aquí',
   'plan.doctor.failed': 'No se pudo arreglar el plan',
   'plan.doctor.failedGate': 'Esta tarea falló {failures} de {limit} veces y nada la reintenta (sin coordinador). Resuelve esta compuerta para ejecutarla de nuevo.',
+  'plan.delivery.retrying': 'La entrega se reintenta sola: {reason}',
+  'plan.delivery.failed': 'No entregado: {reason}',
+  'plan.delivery.needsOwner': 'La entrega te necesita: {reason}',
+  'plan.delivery.retry': 'Reintentar entrega',
+  'plan.delivery.delivering': 'entregando…',
+  'plan.delivery.retryFailed': 'La entrega no se completó: {reason}',
+  'plan.delivery.delivered': 'Plan entregado',
   'start.go.plan': 'Empezar a planificar',
   // T2 Start: Audit mode, sticky hands-off, More options
   'start.next.audit': 'El planificador audita las rutas que elijas, escribe lo que encuentra en inputs/audit.md y luego planifica tareas que lo arreglan.',
