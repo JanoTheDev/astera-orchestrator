@@ -303,6 +303,7 @@ import { readAccountReadings, withFetchedReadings } from '../core/usage/accountR
 import { readAutoAccountsOn } from '../core/settings/autoAccounts'
 import { readSubagentCount, SUBAGENT_CAP_MAX } from '../core/sessions/subagentCap'
 import { isUpdateMode } from '../core/update/sourceUpdate'
+import { isUpdateChannel } from '../core/update/updateChannel'
 import type { UsageGuardView } from '../core/types'
 import { createPullRequest, readCommits } from '../core/github/prCreate'
 import { fillFromCommits } from '../core/github/fill'
@@ -6535,6 +6536,12 @@ export function registerIpc(
   ipcMain.handle('settings.setUpdateMode', async (_e, mode: unknown) => {
     if (!isUpdateMode(mode)) throw new Error(`INVALID_UPDATE_MODE: ${String(mode)}`)
     await core.appSettings.setUpdateMode(mode)
+  })
+  // The releases updater reads the channel before every check, so a change needs no restart (main/index.ts).
+  ipcMain.handle('settings.getUpdateChannel', () => core.appSettings.getUpdateChannel())
+  ipcMain.handle('settings.setUpdateChannel', async (_e, channel: unknown) => {
+    if (!isUpdateChannel(channel)) throw new Error(`INVALID_UPDATE_CHANNEL: ${String(channel)}`)
+    await core.appSettings.setUpdateChannel(channel)
   })
 
   /**

@@ -1,10 +1,12 @@
 name: Release
 
-# Push a vX.Y.Z tag to cut a release:
+# Push a vX.Y.Z tag to cut a release, or vX.Y.Z-beta.N for a beta (docs/releasing.md):
 #   bump version in package.json -> commit -> git tag vX.Y.Z && git push origin vX.Y.Z
 # Builds the Windows installer, the macOS (universal) dmg/zip, and the Linux AppImage/deb, code-signs
-# them where possible, and publishes them to GitHub Releases. Installed apps pick up the new version
-# through electron-updater.
+# them where possible, and publishes them to GitHub Releases. Every build is made with
+# ASTERA_AUTO_UPDATE=1, so installed apps pick up the new version through electron-updater: stable
+# releases for everyone, and a beta tag (published as a GitHub prerelease) only for apps set to the
+# beta channel (src/core/update/updateChannel.ts).
 #
 # The shape is validate -> {windows, macos, linux} -> publish. Publish is a separate job because every
 # platform's assets must land before the release goes public — latest.yml / latest-mac.yml /
@@ -14,8 +16,9 @@ name: Release
 # Code signing is FAIL-OPEN on Windows and macOS: when the relevant secrets/variables are not
 # configured the signing steps are skipped and the release ships unsigned, exactly as before. Once
 # signing is attempted, however, it is FAIL-CLOSED: a signing or notarization failure fails the build
-# rather than shipping a half-signed release. Linux has no signing path at all — the AppImage and the
-# deb ship unsigned, which is what that distribution channel expects.
+# rather than shipping a half-signed release. Linux signs the way that channel does: a SHA256SUMS of
+# the AppImage and the deb with a detached GPG signature (SHA256SUMS.asc), under the same rule —
+# skipped with a notice without the key, fail-closed once started (linux-package.yml).
 #
 # Windows (SignPath, docs/releasing.md has the full walkthrough):
 #   secret   SIGNPATH_API_TOKEN            - SignPath REST API token
@@ -28,9 +31,17 @@ name: Release
 #   secret   APPLE_ID                      - Apple account used for notarization
 #   secret   APPLE_APP_SPECIFIC_PASSWORD   - app-specific password for that account
 #   secret   APPLE_TEAM_ID                 - Developer Team ID
+# Linux (GPG, linux-package.yml):
+#   secret   LINUX_GPG_PRIVATE_KEY         - ASCII-armored private key that signs SHA256SUMS
+#   secret   LINUX_GPG_PASSPHRASE          - its passphrase (empty for a key without one)
 on:
   push:
-    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+    tags: ['v[0-9]+.[0-9]+.[0-9]+', 'v[0-9]+.[0-9]+.[0-9]+-beta.[0-9]+']
+
+# The releases update channel is compiled in (electron.vite.config.ts): without this the published app
+# never checks for updates. Called workflows do not inherit it, so the linux job passes it as an input.
+env:
+  ASTERA_AUTO_UPDATE: '1'
 
 permissions:
   contents: write # creating the release and uploading its assets
@@ -65,7 +76,8 @@ jobs:
       - name: Validate update campaign policy
         shell: pwsh
         run: |
-          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          # [version] cannot read a prerelease suffix; a beta is checked against the release it leads up to.
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version -replace '-.*$', ''
           if (-not (Test-Path policy.json)) { Write-Host 'No policy.json — no campaign'; exit 0 }
           try { $policy = Get-Content policy.json -Raw | ConvertFrom-Json }
           catch { throw "policy.json failed to parse: $($_.Exception.Message)" }
@@ -383,11 +395,16 @@ jobs:
   # runs only on a tag, so a job written inline here could not be tried before the release that
   # depends on it; linux-package.yml can be pushed and rehearsed, and this call runs that same file.
   # It also holds the reason the glibc floor is pinned by a container image rather than a runner
-  # label. There is no signing step for Linux — no counterpart to SignPath or a Developer ID exists
-  # for it, and that distribution channel does not expect one.
+  # label, and the SHA256SUMS signing, which needs the GPG secrets passed explicitly: a called
+  # workflow sees only the secrets its caller hands it.
   linux:
     needs: validate
     uses: ./.github/workflows/linux-package.yml
+    with:
+      auto-update: true
+    secrets:
+      LINUX_GPG_PRIVATE_KEY: ${{ secrets.LINUX_GPG_PRIVATE_KEY }}
+      LINUX_GPG_PASSPHRASE: ${{ secrets.LINUX_GPG_PASSPHRASE }}
 
   # The release is created as a draft and only made public once every asset is attached. That
   # ordering is the whole point: latest.yml / latest-mac.yml ARE the update feeds, so a half-built
@@ -440,12 +457,22 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           tag='${{ github.ref_name }}'
+          # A beta tag is a prerelease: electron-updater offers it only to apps on the beta channel
+          # (allowPrerelease), and releases/latest — the stable feed and policy.json — skips it.
+          prerelease=''
+          case "$tag" in *-*) prerelease='--prerelease' ;; esac
           gh release view "$tag" >/dev/null 2>&1 || \
-            gh release create "$tag" --draft --title "$tag" \
+            gh release create "$tag" --draft $prerelease --title "$tag" \
               --notes "$(node scripts/build-release-notes.cjs "$tag")"
           gh release upload "$tag" release-assets/* policy.json --clobber
 
+      # A beta must never become "latest": that is what stable apps and policy.json read.
       - name: Publish the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit '${{ github.ref_name }}' --draft=false --latest
+        run: |
+          tag='${{ github.ref_name }}'
+          case "$tag" in
+            *-*) gh release edit "$tag" --draft=false --prerelease --latest=false ;;
+            *) gh release edit "$tag" --draft=false --latest ;;
+          esac

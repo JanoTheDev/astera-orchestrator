@@ -285,7 +285,9 @@ const api = {
     getDefaultSessionKind: invoke('settings.getDefaultSessionKind'),
     setDefaultSessionKind: invoke('settings.setDefaultSessionKind'),
     getUpdateMode: invoke('settings.getUpdateMode'),
-    setUpdateMode: invoke('settings.setUpdateMode')
+    setUpdateMode: invoke('settings.setUpdateMode'),
+    getUpdateChannel: invoke('settings.getUpdateChannel'),
+    setUpdateChannel: invoke('settings.setUpdateChannel')
   },
   files: {
     list: invoke('files.list'),

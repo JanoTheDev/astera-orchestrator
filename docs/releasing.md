@@ -1,9 +1,15 @@
 # Releasing
 
-Astera is released by **pushing a `vX.Y.Z` tag**. That triggers
+Astera is released by **pushing a `vX.Y.Z` tag** (or `vX.Y.Z-beta.N` for a beta). That triggers
 [`.github/workflows/release.yml`](../.github/workflows/release.yml), which builds the Windows
-installer, the macOS universal package and the Linux AppImage/deb, publishes them all to GitHub
-Releases, and installed apps then update themselves through `electron-updater`.
+installer, the macOS universal package and the Linux AppImage/deb, signs each the way its OS expects
+(see [Secrets](#secrets)), and publishes them to GitHub Releases on this fork
+(`JanoTheDev/astera-orchestrator`).
+
+Release builds are made with `ASTERA_AUTO_UPDATE=1`, which compiles in the **releases update
+channel**: an installed release updates itself from GitHub Releases through `electron-updater`, on the
+track its settings name. Any other build has that channel compiled out. See
+[Update channels](#update-channels).
 
 ## Procedure
 
@@ -12,6 +18,8 @@ Releases, and installed apps then update themselves through `electron-updater`.
    - `patch` (1.0.0 → 1.0.1): bug fixes
    - `minor` (1.0.0 → 1.1.0): backwards-compatible additions
    - `major` (1.0.0 → 2.0.0): breaking changes
+   - **beta** (1.1.0 → 1.2.0-beta.1 → 1.2.0-beta.2 → 1.2.0): a prerelease of the next version. Only
+     `-beta.N` is built; a tag with any other suffix starts no workflow.
 
 2. **Write the release up.** Have an agent do it, in a session with this repository open:
 
@@ -52,13 +60,19 @@ Releases, and installed apps then update themselves through `electron-updater`.
    > If the tag and `package.json` disagree the workflow fails immediately, before building — this is
    > what keeps the update feed from advertising the wrong version.
 
+   **A beta** is the same steps with `package.json` at `1.2.0-beta.1` and the tag `v1.2.0-beta.1`. The
+   publish job sees the `-` and creates a GitHub **prerelease** that is never marked latest, so stable
+   apps (which read `releases/latest`) and `policy.json` skip it, and only apps on the beta channel take
+   it. The stable `v1.2.0` that follows reaches both tracks.
+
 5. **Check** the `Release / validate`, `Release / windows`, `Release / macos`, `Release / linux`
-   (which expands into `build` and `verify`) and `Release / publish` runs under **Actions**, then confirm the release page has all twelve assets
+   (which expands into `build` and `verify`) and `Release / publish` runs under **Actions**, then confirm the release page has all its assets (thirteen, fourteen with the Linux key)
    attached — three from Windows (`astera-<version>-setup.exe`, its `.blockmap`, `latest.yml`), five
    from macOS (`astera-<version>-universal.dmg` and `Astera-<version>-universal-mac.zip`, a
    `.blockmap` for each, and `latest-mac.yml`), three from Linux
    (`astera-<version>-x86_64.AppImage`, `astera-<version>-amd64.deb`, `latest-linux.yml` — the
-   AppImage carries its block map inside the file, so there is no sidecar for it), plus `policy.json`.
+   AppImage carries its block map inside the file, so there is no sidecar for it), `SHA256SUMS` (and
+   `SHA256SUMS.asc` once the Linux key is configured), plus `policy.json`.
    Anything else on the page does not belong there. An older app picks the update up on its next
    check.
 
@@ -115,6 +129,49 @@ hand-install note for Windows 1.1.0 and earlier live at the **end** of the body,
 GitHub renders the asset list below the body, so there they sit on the way to the download instead of
 in front of the changes. The macOS one drops out on its own once the Apple secrets are configured:
 `publish` passes `MAC_SIGNED` to the script, which omits it.
+
+## Update channels
+
+An app runs at most one update channel, chosen when it is built (`activeUpdateChannelOf` in
+[`src/core/update/updateChannel.ts`](../src/core/update/updateChannel.ts), wired in
+`src/main/index.ts`):
+
+| Build | Channel | Where updates come from |
+| --- | --- | --- |
+| Release build (this workflow, `ASTERA_AUTO_UPDATE=1`) | **releases** | GitHub Releases of this fork, through `electron-updater` |
+| Packaged from a git checkout (`npm run dist*` on the owner's machine) | **source** | `origin/main`, built in a private clone ([`src/main/sourceUpdate.ts`](../src/main/sourceUpdate.ts)); its modes off / notify / build / install-when-idle are unchanged |
+| A dev run, or a packaged build with neither | none | — every `update:*` call answers `{ state: 'disabled', reason }` (`unpackaged` or `notBuiltForUpdates`) |
+
+The releases channel has two tracks, stored as `updateChannel` in `app-settings.json` (IPC
+`settings.getUpdateChannel` / `settings.setUpdateChannel`; left out of the file at the default):
+
+- **stable** (default): `allowPrerelease = false`. Only releases marked latest — a beta never is.
+  Set explicitly, because `electron-updater` turns prereleases on by itself when the running version is
+  one: someone on a beta who switches to stable gets the next stable release (no downgrade).
+- **beta**: `allowPrerelease = true`. The newest release, prerelease or not. `channel` stays unset:
+  electron-builder's github provider writes `latest*.yml` for a beta version too, and the updater
+  falls back to it.
+
+The track is read before every check, so a change applies on the next check without a restart.
+
+## Secrets
+
+Every signing step is **fail-open, then fail-closed**: without its secrets it is skipped (with a
+notice) and the asset ships unsigned; once it starts, a failure fails the release.
+
+| OS | Name | Kind | What |
+| --- | --- | --- | --- |
+| Windows | `SIGNPATH_API_TOKEN` | secret | SignPath REST API token ([Windows code signing](#windows-code-signing-signpath)) |
+| Windows | `SIGNPATH_ORGANIZATION_ID` | variable | SignPath organization id |
+| Windows | `SIGNPATH_PROJECT_SLUG` | variable | SignPath project |
+| Windows | `SIGNPATH_POLICY_SLUG` | variable | optional, default `release-signing` |
+| macOS | `APPLE_CSC_LINK` | secret | base64 of the Developer ID Application `.p12` ([macOS](#code-signing-and-notarization-apple-developer-id)) |
+| macOS | `APPLE_CSC_KEY_PASSWORD` | secret | its password |
+| macOS | `APPLE_ID` | secret | Apple account for notarization |
+| macOS | `APPLE_APP_SPECIFIC_PASSWORD` | secret | app-specific password for it |
+| macOS | `APPLE_TEAM_ID` | secret | Developer Team ID |
+| Linux | `LINUX_GPG_PRIVATE_KEY` | secret | ASCII-armored private key that signs `SHA256SUMS` ([Linux](#linux-releases)) |
+| Linux | `LINUX_GPG_PASSPHRASE` | secret | its passphrase (unset for a key without one) |
 
 ## What the appId means per OS
 
@@ -404,9 +461,40 @@ measured not to disturb the ad-hoc code signature, and the app still launches an
 
 The `linux` job is a call into
 [`.github/workflows/linux-package.yml`](../.github/workflows/linux-package.yml), which builds the
-AppImage and the deb and attaches them together with `latest-linux.yml`. There is no signing step —
-no Linux counterpart to SignPath or to a Developer ID exists for this project, and that distribution
-channel does not expect one.
+AppImage and the deb and attaches them together with `latest-linux.yml`, a `SHA256SUMS` of the two
+and, when `LINUX_GPG_PRIVATE_KEY` is set, its detached signature `SHA256SUMS.asc`. The checksums are
+written in the `verify` job, after the link check, so what is summed is what was checked; the
+signature is verified in the same step before it is uploaded. Without the key the step is skipped
+with a notice and `SHA256SUMS` ships alone. (In-app updates do not depend on it: `electron-updater`
+checks the sha512 in `latest-linux.yml`.)
+
+### The release key
+
+Create it once, on a trusted machine, and keep the private half off it afterwards:
+
+```bash
+gpg --quick-generate-key "Astera releases <JanoTheDev@users.noreply.github.com>" ed25519 sign 2y
+gpg --armor --export-secret-keys <fingerprint>   # paste into the LINUX_GPG_PRIVATE_KEY secret
+gpg --armor --export <fingerprint>               # publish: commit as docs/release-key.asc
+```
+
+Put the passphrase in `LINUX_GPG_PASSPHRASE`. The `Sign SHA256SUMS` step prints the fingerprint, so
+any release's log can be compared with the one below.
+
+**Fingerprint:** _not yet generated — record it here, with `docs/release-key.asc`, when the key is
+made._
+
+### Verifying a download
+
+With `SHA256SUMS`, `SHA256SUMS.asc` and the AppImage or deb in one directory:
+
+```bash
+gpg --import release-key.asc              # once; compare its fingerprint with the one above
+gpg --verify SHA256SUMS.asc SHA256SUMS && sha256sum -c --ignore-missing SHA256SUMS
+```
+
+`gpg` must report a good signature from the release key, and `sha256sum` must print `OK` for each file
+downloaded (`--ignore-missing` skips the one not downloaded).
 
 It is a callable workflow of its own rather than a job inline in `release.yml` because **release.yml
 runs only on a tag**: a job written inline there cannot be tried until the release that depends on it

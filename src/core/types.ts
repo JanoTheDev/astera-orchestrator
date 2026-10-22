@@ -1747,6 +1747,9 @@ export interface CoreApi {
     /** The source update channel's mode (default 'build'); a change takes effect within a minute, no restart. */
     getUpdateMode(): Promise<UpdateMode>
     setUpdateMode(mode: UpdateMode): Promise<void>
+    // T26 (signed releases): the releases updater's track. Read before every check, no restart.
+    getUpdateChannel(): Promise<UpdateChannel>
+    setUpdateChannel(channel: UpdateChannel): Promise<void>
   }
   files: {
     // The file explorer. Every files.* IPC call goes through assertAllowedPath, which permits only
@@ -2031,6 +2034,10 @@ export interface UpdateStatus {
     | 'error'
     /** Source channel only (src/core/update/sourceUpdate.ts): the new AppImage is being built from origin/main. */
     | 'building'
+    /** T26: no update channel runs in this build (src/core/update/updateChannel.ts); `reason` says why. */
+    | 'disabled'
+  /** `disabled` only. */
+  reason?: UpdateDisabledReason
   version?: string
   percent?: number
   message?: string
@@ -2048,6 +2055,9 @@ export type SourceBuildStep = 'cloning' | 'installing' | 'waiting' | 'building'
 /** How the source update channel acts on its own: never, check and tell, check and build, or also restart into the
  *  new build once the app is idle. A manual check works in every mode. */
 export type UpdateMode = 'off' | 'notify' | 'build' | 'install-when-idle'
+// T26 (signed releases): the releases updater's track, and why no update channel runs (src/core/update/updateChannel.ts).
+export type UpdateChannel = 'stable' | 'beta'
+export type UpdateDisabledReason = 'unpackaged' | 'notBuiltForUpdates'
 
 /**
  * What pressing the install button actually did.
@@ -2084,11 +2094,13 @@ export interface UpdateApi {
   campaignState(): Promise<UpdateCampaignInfo | null>
   /** The user dismissed the notice — the same campaign is not shown again */
   dismissCampaign(id: string): Promise<void>
-  /** Source channel only: the latest status, for a renderer that mounted after the first ones went out. */
+  /** The latest status, for a renderer that mounted after the first ones went out. */
   current(): Promise<UpdateStatus>
-  check(): Promise<void>
+  check(): Promise<void | UpdateStatus>
   /** autoDownload starts the download on its own — this is the manual fallback */
-  download(): Promise<void>
+  download(): Promise<void | UpdateStatus>
+  // T26: with no update channel (a dev run) every call here answers `{ state: 'disabled', reason }` instead of
+  // rejecting. install() does too; its button only shows after a download, which cannot happen then.
   /** Resolves with what actually happened — on macOS the app does not always quit. See InstallOutcome. */
   install(): Promise<InstallOutcome>
 }
