@@ -12,6 +12,18 @@ name: Linux package
 # first moment the copy drifts.
 on:
   workflow_call:
+    inputs:
+      # release.yml's ASTERA_AUTO_UPDATE=1: env is not inherited by a called workflow. A rehearsal
+      # leaves it off, so its build carries no updater.
+      auto-update:
+        type: boolean
+        default: false
+    # Optional: without the key SHA256SUMS ships unsigned, with a notice (verify job below).
+    secrets:
+      LINUX_GPG_PRIVATE_KEY:
+        required: false
+      LINUX_GPG_PASSPHRASE:
+        required: false
   # The rehearsal hatch. release.yml runs only on a tag, so without a way to start this workflow by
   # hand there is no trying a change to the Linux build before the release that depends on it — which
   # is how the container build below was confirmed before v1.3.0 was tagged. GitHub only lists a
@@ -60,6 +72,8 @@ jobs:
       # The same script a developer runs locally, so what ships is something that can be reproduced
       # by hand rather than a separately spelled-out command that drifts from it.
       - run: npm run dist:linux
+        env:
+          ASTERA_AUTO_UPDATE: ${{ inputs.auto-update && '1' || '' }}
 
       # latest-linux.yml IS the Linux update feed, the way latest.yml is Windows's. Were it missing,
       # the release would still look complete on the page while every installed Linux app's update
@@ -93,6 +107,9 @@ jobs:
     # daemon, and a job-level `container:` is not given the socket. That is the whole reason the
     # build and the check are two jobs instead of one.
     runs-on: ubuntu-latest
+    env:
+      # Like release.yml's SIGNING: the secrets context is not allowed in a step's if:.
+      GPG_SIGNING: ${{ secrets.LINUX_GPG_PRIVATE_KEY != '' }}
     steps:
       - uses: actions/download-artifact@v8
         with:
@@ -166,3 +183,45 @@ jobs:
               -v "$PWD/check-links.sh:/check-links.sh:ro" \
               "$image" bash /check-links.sh
           done
+
+      # Checksums are written here, after the link check, so what is summed is what was verified. The
+      # signing follows Windows's and macOS's rule: skipped with a notice without the key, and
+      # fail-closed once started — a SHA256SUMS.asc that does not verify must never ship. How a person
+      # checks a download is in docs/releasing.md.
+      - name: Write SHA256SUMS
+        working-directory: dist-installer
+        run: |
+          sha256sum -- *.AppImage *.deb > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Sign SHA256SUMS
+        if: env.GPG_SIGNING == 'true'
+        working-directory: dist-installer
+        env:
+          GPG_KEY: ${{ secrets.LINUX_GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.LINUX_GPG_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          # A throwaway keyring: the key never lands in the runner's default one.
+          export GNUPGHOME="$(mktemp -d)"
+          printf '%s\n' "$GPG_KEY" | gpg --batch --import
+          printf '%s' "$GPG_PASSPHRASE" | gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 \
+            --armor --detach-sign --output SHA256SUMS.asc SHA256SUMS
+          gpg --batch --verify SHA256SUMS.asc SHA256SUMS
+          # The fingerprint docs/releasing.md lists, printed so a release's log can be checked against it.
+          gpg --batch --fingerprint
+
+      - name: Note unsigned checksums
+        if: env.GPG_SIGNING != 'true'
+        run: echo "::notice::LINUX_GPG_PRIVATE_KEY is not set; SHA256SUMS ships without a signature"
+
+      # Its own artifact, so release.yml's release-* download picks it up next to release-linux.
+      - name: Upload checksums
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-linux-checksums
+          path: |
+            dist-installer/SHA256SUMS
+            dist-installer/SHA256SUMS.asc
+          if-no-files-found: error
+          retention-days: 1
