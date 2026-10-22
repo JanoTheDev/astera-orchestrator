@@ -4,4 +4,3 @@
   background: var(--elevated); color: var(--text-dim); cursor: pointer; font-variant-numeric: tabular-nums;
 }
 .ss-badge:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-.ss-badge.ss-due { background: var(--warn-soft); color: var(--warn); box-shadow: inset 0 0 0 1px var(--warn-line); }

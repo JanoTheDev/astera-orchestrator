@@ -186,7 +186,7 @@ export function SourceJobView(p: SourceJobViewProps): React.JSX.Element {
         </>
       }
     >
-      <div className="dlg source-job">
+      <div className="dlg">
         <p className="modal-hint">{t('jobs.new.gitRequired')}</p>
         {/* The app's Select in its list form: a source that is not ready is a greyed, unpickable row with its reason
             (§3.1). `field` gives the search the app's input look. */}

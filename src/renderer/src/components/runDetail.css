@@ -17,8 +17,6 @@
    flex: 1 로 남는 자리를 다 가져가므로 개수 묶음과 이 버튼은 이미 오른쪽 끝에 붙어 있고, auto 를
    또 주면 개수 묶음과 이 버튼 사이가 벌어진다. 글자를 --text-faint 로 두지 않는 이유는 사이드바에서
    배운 것과 같다: 이 패널 위에서 그 색의 12px 글리프는 찾을 수 없다 */
-.detail-x { flex: none; background: none; border: 0; padding: 0 2px; color: var(--text-dim); font-size: var(--fs-13); line-height: 1; cursor: pointer; }
-.detail-x:hover { color: var(--accent); }
 /* 위아래로 **정확히 반반** 쌓는다 — 그래프는 층이 넓어질수록 가로로 자라는데, 옆에 이벤트를
    세우면 그래프가 쓸 수 있는 폭이 창의 절반도 안 된다. 넷만 나란히 서도 잘려서 가로 스크롤이
    생겼다. 위아래로 두면 그래프가 창의 온 폭을 쓰고, 이벤트는 어차피 세로로 읽는 것이라 폭이

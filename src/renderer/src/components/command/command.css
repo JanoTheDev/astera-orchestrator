@@ -4,7 +4,6 @@
 .command-log { max-height: 40vh; overflow-y: auto; display: flex; flex-direction: column; gap: var(--sp-2); }
 .command-log:empty { display: none; }
 .command-entry { display: flex; flex-direction: column; gap: 2px; }
-.command-you { align-items: flex-end; color: var(--text-dim); }
 .command-line { white-space: pre-wrap; overflow-wrap: anywhere; line-height: var(--lh); }
 .ui-btn.ov-cmd-link { height: auto; padding: 0; color: var(--accent); text-align: left; justify-content: flex-start; white-space: pre-wrap; }
 .ui-btn.ov-cmd-link:hover:not(:disabled) { background: none; color: var(--accent); text-decoration: underline; }

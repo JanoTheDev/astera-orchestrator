@@ -58,11 +58,6 @@
 /* The pages cover Content and leave it mounted (its terminals keep their state), until W9-B's page switch */
 .workbench:has(> .plan-pages) > .content { display: none; }
 .plan-pages { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 12px; padding: 16px 20px; overflow: auto; background: var(--bg); }
-.plans-head { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
-.plans-head h1 { margin: 0; font-size: var(--fs-18); font-weight: 600; }
-.plans-area { display: flex; align-items: baseline; gap: 10px; margin: 14px 0 4px; font-size: var(--fs-13); font-weight: 600; text-transform: capitalize; }
-.plans-area-folders { font-size: var(--fs-11); font-weight: 400; text-transform: none; color: var(--text-faint); font-family: var(--font-mono, monospace); }
-.jobs-age { flex: none; font-size: var(--fs-11); color: var(--text-faint); }
 
 .plans-overlap { overflow: auto; }
 .plans-overlap table { border-collapse: collapse; font-size: var(--fs-12); }
@@ -78,7 +73,6 @@
 .plan-crumb-cur { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .plan-crumb-link { padding: 0; border: 0; background: none; color: var(--text-dim); font: inherit; cursor: pointer; }
 .plan-crumb-link:hover { color: var(--accent); }
-.plan-head-actions { flex: none; display: flex; align-items: center; gap: 6px; }
 .plan-page .detail-head h2 { font-size: var(--fs-18); margin: 0; }
 .plan-page .detail-body:not(:has(> .detail-events)) { grid-template-rows: minmax(0, 1fr); }
 .plan-page .detail-body:not(:has(> .detail-events)) > .detail-graph { border-bottom: 0; }

@@ -70,12 +70,3 @@
 .run-tab .run-tab-preview.ui-btn { color: var(--accent); }
 .run-tab .run-tab-close.ui-btn { color: var(--text-faint); }
 .run-tab .run-tab-close.ui-btn:hover:not(:disabled) { color: var(--text); }
-.modal.tab-switcher { width: 560px; max-width: calc(100vw - 48px); align-self: flex-start; margin-top: 12vh; gap: 8px; }
-.modal.tab-switcher input { width: 100%; box-sizing: border-box; }
-.tab-switcher-list { margin: 0; padding: 0; list-style: none; max-height: 50vh; overflow-y: auto; }
-.tab-switcher-row { display: flex; align-items: baseline; gap: 10px; padding: 6px 8px; border-radius: var(--radius); cursor: pointer; font-size: var(--fs-12); color: var(--text-dim); }
-.tab-switcher-row.selected { background: var(--elevated); color: var(--text); }
-.tab-switcher-row.active .tab-switcher-title { font-weight: 600; }
-.tab-switcher-title { flex: none; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tab-switcher-meta { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-11); color: var(--text-faint); }
-.tab-switcher-empty { padding: 6px 8px; font-size: var(--fs-12); color: var(--text-faint); }

@@ -3,8 +3,6 @@
 .proj-row > input { flex: 1; min-width: 0; }
 .proj-ok { color: var(--accent); font-size: var(--fs-12); }
 .proj-settings { display: flex; flex-direction: column; gap: var(--sp-4); } /* W9-E: the body, in ui/Modal or inline on the Settings page */
-.ws-tools { display: flex; gap: 4px; flex-basis: 100%; }
-.ws-gear { padding: 0 4px; }
 .proj-sub-add { display: flex; gap: var(--sp-2); align-items: center; }
 .proj-sub-add > .ui-input { flex: 1; min-width: 0; }
 /* W12: the body's groups (DESIGN §9 Settings): a quiet heading over its fields, a hairline between groups */
