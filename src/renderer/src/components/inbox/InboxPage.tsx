@@ -3,13 +3,12 @@
 // here. Right, "Handled for you": the W3-A feed, one line per event grouped by day.
 // A permission prompt stays in the real CLI (CONTEXT rule 6), so its card only opens the console.
 import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, CheckCircle2, Circle, Inbox as InboxIcon, TerminalSquare, X, XCircle, type LucideIcon } from 'lucide-react'
 import type { Account } from '../../../../core/types'
 import type { MessageKey } from '../../../../core/i18n'
 import { useI18n } from '../../i18n/I18nProvider'
 import { approvePlan, type ActionUi } from '../../lib/jobActions'
 import { localDoor, replyNote } from '../../lib/orchDoor'
-import { Button, Card, Chip, EmptyState, Icon, IconButton, PageHeader, Tabs, type TabItem } from '../ui'
+import { Button, Card, Chip, EmptyState, ICONS, Icon, IconButton, PageHeader, Tabs, type IconName, type TabItem } from '../ui'
 import { openConsole, openPlan } from '../shell/navigation'
 import { QuestionAnswer } from '../plan/QuestionAnswer'
 import type { WorkspaceData, WorkspaceProject } from '../../state/workspaceTree'
@@ -28,7 +27,7 @@ const GROUPS: Array<[InboxGroup, MessageKey]> = [
 ]
 
 /** Status needs a second cue (DESIGN-W11 §2): each feed line leads with its tone's icon. */
-const TONE_ICON: Record<Tone, LucideIcon> = { ok: CheckCircle2, bad: XCircle, warn: AlertTriangle, info: Circle }
+const TONE_ICON: Record<Tone, IconName> = { ok: 'done', bad: 'error', warn: 'warning', info: 'pending' }
 
 const timeOf = (iso: string): string => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 
@@ -76,14 +75,14 @@ export function InboxPage({
             {planName !== null && (
               <Chip tone="info" className="inbox__plan-chip">
                 {planName}
-                <IconButton size="sm" icon={<X size={14} />} label={t('inbox.allPlans')} onClick={() => setInboxFilter({ group: filter.group })} />
+                <IconButton size="sm" icon={<Icon name="close" size={14} />} label={t('inbox.allPlans')} onClick={() => setInboxFilter({ group: filter.group })} />
               </Chip>
             )}
           </>
         }
       />
       {shown.length === 0 && handled.length === 0 ? (
-        <EmptyState icon={InboxIcon} title={t('inbox.empty.title')}>
+        <EmptyState icon={ICONS.inbox} title={t('inbox.empty.title')}>
           {t('inbox.empty.text')}
         </EmptyState>
       ) : (
@@ -95,7 +94,7 @@ export function InboxPage({
             </h2>
             {shown.length === 0 ? (
               <p className="inbox__none">
-                <Icon icon={CheckCircle2} size={14} />
+                <Icon name="done" size={14} />
                 {filter.group === 'handled' ? t('inbox.showingHandled') : t('inbox.nothingNeeds')}
               </p>
             ) : (
@@ -133,12 +132,11 @@ function HandledRow({ l, t }: { l: HandledLine; t: ReturnType<typeof useI18n>['t
   const title = [l.text, l.who, l.sessionId ? t('inbox.openConsole') : ''].filter(Boolean).join('\n')
   return (
     <li className={`inbox__line inbox__line--${l.tone}`}>
-      <button type="button" className="inbox__line-row" disabled={l.sessionId === undefined} title={title} onClick={() => l.sessionId && openConsole(l.sessionId)}>
-        <Icon icon={TONE_ICON[l.tone]} size={14} className="inbox__tone" />
+      <Button variant="ghost" className="inbox__line-row" disabled={l.sessionId === undefined} title={title} icon={<Icon name={TONE_ICON[l.tone]} size={14} className="inbox__tone" />} onClick={() => l.sessionId && openConsole(l.sessionId)}>
         <span className="inbox__text">{l.text}</span>
         {l.plan && <span className="inbox__plan">{l.plan}</span>}
         <span className="inbox__time">{timeOf(l.at)}</span>
-      </button>
+      </Button>
     </li>
   )
 }
@@ -192,7 +190,7 @@ export function NeedCardView({
           />
           <div className="inbox__actions">
             {c.sessionId && (
-              <Button size="sm" variant="ghost" icon={<TerminalSquare size={14} />} onClick={() => openConsole(c.sessionId!)}>
+              <Button size="sm" variant="ghost" icon={<Icon name="terminal" size={14} />} onClick={() => openConsole(c.sessionId!)}>
                 {t('inbox.openConsole')}
               </Button>
             )}
@@ -207,7 +205,7 @@ export function NeedCardView({
         <>
           <p className="inbox__body">{c.kind === 'permission' ? t('inbox.body.permission') : t('inbox.body.waiting')}</p>
           <div className="inbox__actions">
-            <Button size="sm" variant="primary" icon={<TerminalSquare size={14} />} onClick={() => openConsole(c.sessionId!)}>
+            <Button size="sm" variant="primary" icon={<Icon name="terminal" size={14} />} onClick={() => openConsole(c.sessionId!)}>
               {t('inbox.answerInConsole')}
             </Button>
           </div>
