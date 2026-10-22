@@ -1,6 +1,6 @@
 // Moved out of App.tsx unchanged (W9-A): the JSX is App's, the values come from App's state hooks.
 import { SourceJobModal } from '../SourceJobModal'
-import { NewSessionDialog } from '../NewSessionDialog'
+import { NewSessionDialog, rememberMachine } from '../NewSessionDialog'
 import { RemoteSessionsDialog } from '../RemoteSessionsDialog'
 import { RunConfigManager } from '../RunConfigManager'
 import { ToastHost } from '../ToastHost'
@@ -106,6 +106,8 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
           readOnly={remoteReadOnly(remoteDialog)}
           onRuntime={setRemoteDialog}
           onLocal={() => {
+            // This computer is the pick for the project now, or the new console dialog would hand straight back.
+            rememberMachine(newSessionCwd ?? workspaceCwd, 'local')
             setRemoteDialog(null)
             setShowNew(true)
           }}

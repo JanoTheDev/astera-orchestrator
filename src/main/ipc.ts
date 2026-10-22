@@ -124,6 +124,8 @@ import { executeRecovery } from '../core/recovery/execute'
 import { readGitFacts } from '../core/recovery/git'
 import { createRecoveryOwner } from './host/recoveryOwner'
 import { createRemoteRuntimes } from './remote/runtimes'
+import { createMachineProvisioner } from './remote/provisioning'
+import type { AddMachineOptions } from '../cli/machines'
 import { createRemoteStreams, type RemoteStreams } from './remote/remoteStreams'
 import { createOrchRouter } from './remote/orchRouter'
 import type { Handoff } from '../core/handoff/types'
@@ -5051,6 +5053,7 @@ export function registerIpc(
   ipcMain.handle('sources.create', (_e, a: unknown) => sources.create(a as Parameters<typeof sources.create>[0]))
   // Settings › Remote Runtimes and the Jobs view's selectors (remote runtime design Phase 6). A runtime id that is not a
   // string names nothing; every answer is the client's or the registry's own, never a local fallback.
+  const machineProvisioner = createMachineProvisioner({ remote: remoteRuntimes })
   ipcMain.handle('remote.list', () => remoteRuntimes.list())
   ipcMain.handle('remote.add', (_e, pairing: unknown, name?: unknown) =>
     typeof pairing === 'string'
@@ -5064,6 +5067,18 @@ export function registerIpc(
     if (typeof runtimeId !== 'string') return { ok: false, code: 'RUNTIME_NOT_FOUND', message: 'a runtime id is a string' }
     const c = await remoteRuntimes.client(runtimeId)
     return 'code' in c ? { ok: false, code: c.code, message: c.message } : c.ping()
+  })
+  // Add a machine over SSH (T12b): validated here, the steps streamed to the window that asked as they happen.
+  ipcMain.handle('remote.addMachine', (e, o: unknown) => {
+    const v = (o ?? {}) as Record<string, unknown>
+    const strOr = (k: string): boolean => v[k] === undefined || typeof v[k] === 'string'
+    const boolOr = (k: string): boolean => v[k] === undefined || typeof v[k] === 'boolean'
+    if (typeof v.target !== 'string' || v.target.trim() === '' || !(v.port === undefined || Number.isInteger(v.port)) ||
+      !['installer', 'name', 'listen'].every(strOr) || !['tailscale', 'fullControl'].every(boolOr))
+      return { ok: false, step: 'connect', message: 'a machine needs user@host, and the options their own types', stderrTail: '', fix: 'Fill in user@host.' }
+    return machineProvisioner.add({ ...(v as unknown as AddMachineOptions), target: v.target.trim() }, (p) => {
+      if (!e.sender.isDestroyed()) e.sender.send('remote:machineProgress', p)
+    })
   })
   ipcMain.handle('remote.projects', async (_e, runtimeId: unknown) => {
     if (typeof runtimeId !== 'string') return null

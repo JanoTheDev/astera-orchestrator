@@ -5,6 +5,7 @@ import type {
   CoreEvents,
   HostStatus,
   HostRuntimeInstallState,
+  MachineProgress,
   UpdateCampaignInfo,
   UpdateStatus
 } from '../core/types'
@@ -446,7 +447,15 @@ const api = {
     start: invoke('remote.start'),
     stop: invoke('remote.stop'),
     pair: invoke('remote.pair'),
-    revoke: invoke('remote.revoke')
+    revoke: invoke('remote.revoke'),
+    addMachine: invoke('remote.addMachine'),
+    onMachineProgress: (cb: (p: MachineProgress) => void) => {
+      const l = (_e: unknown, p: MachineProgress): void => cb(p)
+      ipcRenderer.on('remote:machineProgress', l)
+      return (): void => {
+        ipcRenderer.removeListener('remote:machineProgress', l)
+      }
+    }
   },
   remoteSessions: {
     attach: invoke('remoteSessions.attach'),

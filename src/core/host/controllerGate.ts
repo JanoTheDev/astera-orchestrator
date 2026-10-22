@@ -75,7 +75,11 @@ export const CONTROLLER_CONTROL_COMMANDS = [
   'sessions-input',
   'sessions-resize',
   'sessions-stop',
-  'sessions-answer'
+  'sessions-answer',
+  // T12b: clone a repository on the Runtime with its own git credentials, or register a folder there (host/orch.ts)
+  'projects-add',
+  // T12b: a terminal on the Runtime running `astera accounts login --new` (host/loginTerminal.ts)
+  'accounts-login-start'
 ] as const
 
 const READ: ReadonlySet<string> = new Set(CONTROLLER_READ_COMMANDS)

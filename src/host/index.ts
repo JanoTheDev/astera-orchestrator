@@ -93,6 +93,7 @@ import { readWorkUnitsFile } from '../core/workUnit/store'
 import { announceChatProc, createHostSessionStarter } from './sessionCreate'
 import { previewShotsDir } from '../core/preview/shotsDir'
 import { hostCliPaths, hostWorkerBaseEnv, type HostCliPaths } from '../core/host/spawn'
+import { createLoginTerminal } from './loginTerminal'
 import { readAgentAppEnabled } from '../core/settings/agentAppEnabled'
 import { DISPOSE_CAP_MS, createWorkspaceManager, disposeWithin } from './workspace/manager'
 import { createLaunchResolver } from './workspace/launch'
@@ -938,6 +939,18 @@ async function main(): Promise<void> {
       accounts: () => readAccountEntries(path.join(profileDir, 'accounts.json')),
       chats: rollingWiring?.chats ?? null
     })),
+    // T12b: Settings › Remote Runtimes › Sign in account, a terminal running `astera accounts login --new` here
+    startLoginTerminal: createLoginTerminal({
+      registry,
+      cli: ((): { exec: string; entry: string } | null => {
+        const p = hostCliPaths(process.env, existsSync)
+        return 'exec' in p ? { exec: p.exec, entry: p.entry } : null
+      })(),
+      profileDir,
+      home: os.homedir(),
+      env: process.env,
+      log: (m) => log.write(m)
+    }),
     // `sessions create` (CLI spec §14): the spawner's path for a terminal session, the chat manager's for
     // a chat one (sessionCreate.ts). Without a spawner both refuse with 6.
     createSession: createHostSessionStarter({

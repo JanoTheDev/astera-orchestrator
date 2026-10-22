@@ -261,6 +261,21 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
     summary: 'forget a paired Runtime on this machine (it does not revoke the pairing there)',
     flags: [ID('<runtimeId|name>', 'the Runtime to forget (from `runtimes list`)')]
   },
+  // T12b
+  'machines-add': {
+    summary: 'install Astera on a Linux or Windows machine over SSH and pair it, in one step',
+    detail:
+      'Uses the system ssh and scp with your own keys or agent (BatchMode): Astera never asks for or keeps a password. Finds out the OS, uploads the installer (Linux: --installer or the newest dist-installer/astera-*-amd64.deb; Windows: --installer is required) with the matching install-runtime script, runs it, pairs with the ASTERA_PAIR= string it prints and pings the machine. Each step prints one line; a failure names the step, the end of what the machine wrote (secrets removed) and the fix. Running it again on a paired machine upgrades it and pairs again only when the pairing no longer answers. On Linux the install asks sudo for your password in this terminal.',
+    flags: [
+      { name: 'target', value: '<user@host>', required: true, about: 'the machine, as ssh takes it (also the first word after add)' },
+      { name: 'port', value: '<n>', about: 'its SSH port (default 22)' },
+      { name: 'installer', value: '<path>', about: 'the Astera installer to put on it (.deb for Linux, Astera-Setup.exe for Windows)' },
+      { name: 'name', value: '<n>', about: 'what to call the machine (default its host name)' },
+      { name: 'listen', value: '<ip>', about: 'the address its Runtime listens on' },
+      { name: 'tailscale', about: 'listen on its Tailscale address' },
+      { name: 'full-control', about: 'the pairing may also change things (needed to add projects there)' }
+    ]
+  },
   'plugins-install': {
     summary: 'install a plugin from a folder or from npm, after you approve what it asks for',
     detail:
@@ -336,7 +351,7 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
   'projects-add': {
     summary: 'register a folder of this machine as a project, or add a sub-project to a workspace',
     detail:
-      'For the person at this machine, or a script on it: a remote controller cannot, nor an agent session (ASTERA_SESSION is set; refused with 5). The path is an existing git repository folder that is not a worktree (a relative path is taken from the shell folder); a subfolder or a linked worktree registers the repository itself. A repository with no commit is refused (409 needsInitialCommit) unless --initial-commit makes one. The answer carries the proposed test command and records the default branch. Adding a folder already registered answers that project. ' +
+      'For the person at this machine, a script on it, or a full-control controller through `astera --runtime <id> projects add` (T12b); never an agent session (ASTERA_SESSION is set; refused with 5). The path is an existing git repository folder that is not a worktree (a relative path is taken from the shell folder); a subfolder or a linked worktree registers the repository itself. A repository with no commit is refused (409 needsInitialCommit) unless --initial-commit makes one. The answer carries the proposed test command and records the default branch. Adding a folder already registered answers that project. ' +
       // T3 workspaces
       'With --parent <projectId> --name <name> (and no --path) it adds a sub-project to that workspace instead: the same repository under its own name, whose plans share the workspace\'s file guard, leases and overlap checks; a name the workspace already has answers that sub-project. A sub-project reads every setting it leaves unset from its workspace.',
     flags: [
@@ -345,7 +360,9 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       // T3 workspaces
       { name: 'parent', value: '<projectId>', about: 'add a sub-project to this workspace (a root project) instead of a folder' },
       { name: 'name', value: '<name>', about: 'the sub-project name (with --parent)' },
-      { name: 'focus', value: '<a,b>', about: 'folders the sub-project usually works in, comma-separated (with --parent)' }
+      { name: 'focus', value: '<a,b>', about: 'folders the sub-project usually works in, comma-separated (with --parent)' },
+      // T12b
+      { name: 'clone', value: '<git url>', about: 'clone this repository first, with the machine\'s own git credentials, into --path or ~/astera-projects/<name>' }
     ]
   },
   // T3 workspaces (projects.ts `removeProject`)

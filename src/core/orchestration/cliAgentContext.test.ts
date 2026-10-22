@@ -149,6 +149,7 @@ const NOT_SWITCHED = [
   'runtimes-add',
   'runtimes-list',
   'runtimes-remove',
+  'machines-add',
   'plugins-install',
   'plugins-list',
   'plugins-get',

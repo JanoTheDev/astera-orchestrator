@@ -100,3 +100,26 @@ export async function githubCreate(gh: GhRunner, root: string, name: string, vis
   if (!r.ok) throw new Error(`gh repo create failed: ${r.stderr || 'no answer'}`)
   return r.stdout.split('\n').find((l) => l.startsWith('https://')) ?? r.stdout
 }
+
+// T12b: `projects-add --clone <url>`, sent to a Runtime by a full-control controller (or typed on that machine): the
+// machine clones with its own git credentials, then registers the folder as `projects-add --path` does.
+const CLONE_URL = /^(?:(?:https?|ssh|git|file):\/\/[^\s]+|[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[^\s]+)$/
+
+/** Why a clone URL is refused, or null: only plain https, ssh, git, file and user@host:path URLs, never an option. */
+export function cloneUrlRefusal(url: unknown): string | null {
+  return typeof url === 'string' && CLONE_URL.test(url) ? null : '--clone needs a git URL (https://…, ssh://… or user@host:path)'
+}
+
+/** Where a clone with no --path goes: <home>/astera-projects/<repository name>. */
+export function cloneDestination(url: string, home: string): string {
+  const name = (url.replace(/[/\\]+$/, '').split(/[/:\\]/).pop() ?? '').replace(/\.git$/i, '')
+  return path.join(home, 'astera-projects', validateName(name) === null && name !== '' ? name : 'project')
+}
+
+/** Clones `url` into `dest`, which must not exist yet; throws git's own words when it fails. */
+export async function cloneRepository(url: string, dest: string): Promise<void> {
+  if (await fs.stat(dest).then(() => true, () => false)) throw new Error(`${dest} already exists; give another --path`)
+  await fs.mkdir(path.dirname(dest), { recursive: true })
+  const r = await git(['-c', 'protocol.ext.allow=never', 'clone', '--', url, dest], { timeoutMs: GIT_WRITE_TIMEOUT_MS })
+  if (!r.ok) throw new Error(`git clone failed: ${r.stderr.trim() || 'no reason given'}`)
+}
