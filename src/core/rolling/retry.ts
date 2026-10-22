@@ -9,7 +9,7 @@
 // of this app that has produced the most bugs.
 
 import { usagePauseOf, type AccountReading } from '../orchestration/usageGuard'
-import { rankAccounts, rankedIds } from '../accounts/autoAccountOrder'
+import { rankAccounts } from '../accounts/autoAccountOrder'
 
 /** Record of one account being blocked. at=reset time; if unknown (null), treat it as blocked until since+RETRY_FALLBACK_MS. */
 export interface BlockRecord {
@@ -43,7 +43,7 @@ export interface AccountUsage {
 }
 
 /** T5a: what the accounts' usage readings add to a chain's retry state — a block per full account (usageBlockOf) and
- *  the chain's ids in rankAccounts order, live sessions spreading the load. */
+ *  the chain's usable ids in rankAccounts order, live sessions spreading the load. */
 export function usageRetryOf(
   accountIds: readonly string[],
   usage: AccountUsage,
@@ -58,7 +58,9 @@ export function usageRetryOf(
   })
   return {
     blocks: accountIds.map((id) => usageBlockOf(usage.readings.get(id), usage.pauseAt, now)),
-    order: rankedIds(ranked)
+    // Only the usable ones are ranked: the rest (unknown, stale) keep the round robin behind them, so a chain with no
+    // readings at all (codex) rolls exactly as before.
+    order: ranked.usable.map((x) => x.id)
   }
 }
 

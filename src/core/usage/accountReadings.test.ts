@@ -61,3 +61,34 @@ describe('readingsFresh', () => {
     expect([...out.keys()].sort()).toEqual(['a', 'b'])
   })
 })
+
+describe('createAccountUsageSource', () => {
+  it('reads the statusLine, fetches what is stale or weekly-less, and counts live sessions per account', async () => {
+    const { promises: fs } = await import('node:fs')
+    const os = await import('node:os')
+    const path = await import('node:path')
+    const { createAccountUsageSource } = await import('./accountReadings')
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'astera-usage-src-'))
+    try {
+      // a's only session reports 0% 5-hour and no weekly window: the fetch says weekly is 100%
+      await fs.writeFile(path.join(dir, 's1.json'), JSON.stringify({ rate_limits: { five_hour: { used_percentage: 0 } } }))
+      const f = fetcher({ '/cfg/a': usage(0, 100), '/cfg/b': usage(40, 40) })
+      const src = createAccountUsageSource({
+        statuslineDir: dir,
+        sessions: () => [{ id: 's1', accountId: 'a' }, { id: 's2', accountId: 'a' }, { id: 's3', accountId: null }],
+        accounts: async () => [acct('a'), acct('b')],
+        fetch: f.fetch,
+        pauseAt: async () => 90
+      })
+      expect(src.current()).toBeNull()
+      await src.refresh()
+      const u = src.current()!
+      expect(u.pauseAt).toBe(90)
+      expect(u.readings.get('a')?.weekly).toEqual(win(100))
+      expect(u.readings.get('b')?.weekly).toEqual(win(40))
+      expect([...u.liveSessions!]).toEqual([['a', 2]])
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true })
+    }
+  })
+})

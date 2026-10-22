@@ -9,6 +9,7 @@ import { parseStatusLinePayload } from './statusline'
 import type { Account, RateLimitUsage } from '../types'
 import { providerOf } from '../providers/meta'
 import { READING_MAX_AGE_MS } from '../accounts/autoAccountOrder'
+import type { AccountUsage } from '../rolling/retry'
 
 export async function readAccountReadings(
   statuslineDir: string,
@@ -90,4 +91,40 @@ export async function readingsFresh(
   const ids = new Set(accountIds)
   const all = await withFetchedReadings(d.live, d.accounts.filter((a) => ids.has(a.id)), d.fetch, d.nowMs)
   return new Map([...all].filter(([id]) => ids.has(id)))
+}
+
+/** T5a: what a roll judges its target by (rolling/retry.ts AccountUsage), kept current for the coordinators, whose
+ *  limit verdict is synchronous: `refresh` (the rolling tick, and once at start) reads every session's statusLine,
+ *  fetches through readingsFresh what is missing, stale or weekly-less, and counts the live sessions per account;
+ *  `current` hands the last result, or null before the first one. Overlapping refreshes share one read. */
+export function createAccountUsageSource(d: {
+  statuslineDir: string
+  sessions(): ReadonlyArray<{ id: string; accountId: string | null | undefined }>
+  accounts(): Promise<readonly Account[]>
+  fetch(configDir: string): Promise<RateLimitUsage>
+  pauseAt(): Promise<number>
+  nowMs?(): number
+}): { refresh(): Promise<void>; current(): AccountUsage | null } {
+  let last: AccountUsage | null = null
+  let inFlight: Promise<void> | null = null
+  const read = async (): Promise<void> => {
+    const sessions = d.sessions()
+    const [live, accounts, pauseAt] = await Promise.all([readAccountReadings(d.statuslineDir, sessions), d.accounts(), d.pauseAt()])
+    const readings = await readingsFresh(
+      accounts.map((a) => a.id),
+      { live, accounts, fetch: d.fetch, nowMs: d.nowMs?.() ?? Date.now() }
+    )
+    const liveSessions = new Map<string, number>()
+    for (const s of sessions) if (s.accountId) liveSessions.set(s.accountId, (liveSessions.get(s.accountId) ?? 0) + 1)
+    last = { readings, pauseAt, liveSessions }
+  }
+  return {
+    refresh() {
+      inFlight ??= read().finally(() => {
+        inFlight = null
+      })
+      return inFlight
+    },
+    current: () => last
+  }
 }
