@@ -391,3 +391,28 @@ export function detailLineOf(d: ConsoleDetails, nowMs: number, elapsed: (iso: st
   if (d.role === 'planner' && d.plan) return { key: 'wall.detail.planner', params: { tasks: d.plan.total } }
   return null
 }
+
+// ---- A chat tile (it has no xterm): its preview and its overflow menu ----
+
+/** The lines a tile's preview keeps: the same 6 lines a console tile's xterm shows at the bottom. */
+export const PREVIEW_LINES = 6
+
+/** The last PREVIEW_LINES lines of a chat session's last reply, or null when there is no reply yet. The tile
+ *  crops the top when it draws (bottom-anchored), so this only has to keep the end. */
+export function previewOf(reply: string | null): string | null {
+  const text = reply?.trimEnd() ?? ''
+  if (text === '') return null
+  return text.split('\n').slice(-PREVIEW_LINES).join('\n')
+}
+
+export interface TileMenuItem {
+  id: 'openWindow'
+  label: string
+  onSelect: () => void
+}
+
+/** A tile's overflow menu. "Open in new window" is the project switcher's own action (`window.api.win.openNew`),
+ *  handed in as `openWindow` so this stays pure; it opens on the console's project. */
+export function tileMenuOf(c: WallConsole, labels: { openWindow: string }, openWindow: (projectId: string | null) => void): TileMenuItem[] {
+  return [{ id: 'openWindow', label: labels.openWindow, onSelect: () => openWindow(c.projectId) }]
+}

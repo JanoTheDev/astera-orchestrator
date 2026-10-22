@@ -1,14 +1,15 @@
 // W9-H, W11: the Agents page's wall (DESIGN-W11 §7, §9): the filters of the page header, the plan groups with their
 // tiles and Done cards, the empty state, and the console strip of the full-size view. What goes where is
 // wallModel.ts's; this file only draws it.
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Activity, CircleAlert, CircleCheck, CirclePause, ExternalLink, EyeOff, MoreHorizontal, Plus, Power, ShieldAlert, TerminalSquare } from 'lucide-react'
 import type { MessageKey } from '../../../../core/i18n'
 import { useI18n } from '../../i18n/I18nProvider'
+import { useChatState } from '../../hooks/useChatState'
 import { Button, Card, Chip, Tabs, EmptyState, Menu, Select, cx, type ChipTone } from '../ui'
 import { claimTerminal } from './consoleDock'
 import {
-  ALL_PLANS, NO_PLAN, pillCount, progressSegments, stripLabel,
+  ALL_PLANS, NO_PLAN, pillCount, previewOf, progressSegments, stripLabel, tileMenuOf,
   type PlanFilter, type PlanPill, type StateFilter, type TileState, type WallConsole, type WallSectionRole
 } from './wallModel'
 import type { PlanProgress } from '../plan/planBoard'
@@ -292,7 +293,24 @@ export function ConsoleTile({
     return claimTerminal(c.sessionId, anchor.current)
   }, [c.sessionId, c.chat])
   const title = c.taskTitle ?? c.label
+  // A chat tile has no xterm: its preview is the session's last reply, read again each time a turn ends (the
+  // status leaves 'working'). A terminal tile subscribes to nothing here (enabled=false).
+  const chatStatus = useChatState(c.sessionId, c.chat)?.status ?? null
+  const [reply, setReply] = useState<string | null>(null)
+  useEffect(() => {
+    if (!c.chat || chatStatus === 'working') return
+    let current = true
+    void window.api.conversation.lastReply(c.sessionId).then(
+      (text) => current && setReply(text),
+      () => {}
+    )
+    return () => {
+      current = false
+    }
+  }, [c.sessionId, c.chat, chatStatus])
+  const preview = previewOf(reply)
   const actions = [
+    ...tileMenuOf(c, { openWindow: t('wall.tile.openWindow') }, (projectId) => window.api.win.openNew(projectId)).map((i) => ({ ...i, icon: <ExternalLink size={14} /> })),
     ...(onHide ? [{ id: 'hide', label: t('wall.tile.hide'), icon: <EyeOff size={14} />, onSelect: onHide }] : []),
     ...(onEnd ? [{ id: 'end', label: t('wall.tile.end'), icon: <Power size={14} />, danger: true, onSelect: onEnd }] : [])
   ]
@@ -311,7 +329,13 @@ export function ConsoleTile({
         </span>
         {meta.length > 0 && <span className="wall-card__meta">{meta.join(' · ')}</span>}
         <span className="wall-card__line">{activity}</span>
-        {c.chat ? <span className="wall-tile__chat">{t('wall.tile.chat')}</span> : <span ref={anchor} className="terminal-host wall-tile__term" />}
+        {c.chat ? (
+          <span className={cx('wall-tile__chat', preview === null && 'wall-tile__chat--empty')}>
+            {preview === null ? t('wall.tile.chatEmpty') : <span className="wall-tile__reply">{preview}</span>}
+          </span>
+        ) : (
+          <span ref={anchor} className="terminal-host wall-tile__term" />
+        )}
       </Card>
       {actions.length > 0 && (
         // a click in the menu stays here: it must never reach the card's open

@@ -110,7 +110,12 @@ button.summary-card__title:hover .summary-card__title-text { text-decoration: un
 }
 .wall-tile--main .wall-tile__term { flex: 1; min-height: calc(6 * 14px + var(--sp-2)); }
 .wall-tile__term > .xterm { position: absolute; left: var(--sp-2); bottom: var(--sp-1); transform-origin: left bottom; }
-.wall-tile__chat { display: block; overflow: hidden; color: var(--text-faint); font-size: var(--fs-12); text-overflow: ellipsis; white-space: nowrap; }
+/* A chat tile's preview: the last reply's lines, bottom-anchored so the top is what gets cropped (the xterm tiles crop the
+   same way). Its line count is PREVIEW_LINES in wallModel.ts. */
+.wall-tile__chat { display: flex; flex: none; flex-direction: column; justify-content: flex-end; height: calc(6 * 14px + var(--sp-2)); margin-top: var(--sp-1); overflow: hidden; padding: var(--sp-1) var(--sp-2); border-radius: var(--radius); color: var(--text-faint); font-size: var(--fs-12); background: var(--term-bg); }
+.wall-tile--main .wall-tile__chat { flex: 1; min-height: calc(6 * 14px + var(--sp-2)); }
+.wall-tile__chat--empty { align-items: center; justify-content: center; }
+.wall-tile__reply { display: block; margin: 0; color: var(--text-dim); font-size: var(--fs-12); white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* Done: what each finished console did (SummaryCard, or FinishedCard until its summary is written) */
 .wall-done { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: var(--sp-2); }

@@ -7854,6 +7854,8 @@ export function registerIpc(
   // conversationSessions.
   ipcMain.handle('conversation.attention', (_e, sessionId: string) => conversationAttentionOf(attention, sessionId))
   ipcMain.handle('conversation.pendingPrompt', (_e, sessionId: string) => pendingPrompt.get(sessionId))
+  // The chat tiles' preview line: one read of the transcript, no follow (see conversation.ts lastReply).
+  ipcMain.handle('conversation.lastReply', (_e, sessionId: string) => conversationSessions.lastReply(sessionId))
   // Same shape of thing and the same reason as `attention` above: the conversation view has no
   // statusline of its own, so what the CLI reports about the model is read on demand. Never throws —
   // core.statusLinePayload answers null for a session that has written nothing, and the extractor

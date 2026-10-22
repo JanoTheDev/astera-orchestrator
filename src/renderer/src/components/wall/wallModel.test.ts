@@ -3,7 +3,7 @@ import type { Attention, JobRow, JobTask, SessionInfo } from '../../../../core/t
 import type { WorkspaceProject, WorkspaceSession } from '../../state/workspaceTree'
 import {
   ALL_PLANS, NO_PLAN, activityOf, consolesOf, detailLineOf, detailsOf, filterConsoles, gridColumns, groupWall, indexJobRows, orderWall, pillCount, planPills,
-  progressSegments, sectionWall, stripLabel, type WallConsole, type WallInput
+  PREVIEW_LINES, previewOf, progressSegments, sectionWall, stripLabel, tileMenuOf, type WallConsole, type WallInput
 } from './wallModel'
 
 const session = (id: string, over: Partial<SessionInfo> = {}): SessionInfo => ({
@@ -313,5 +313,32 @@ describe('activityOf', () => {
     expect(activityOf(c({ state: 'needs', needs: 'question' }), { tool: 'Edit', target: 'a', at }).key).toBe('wall.activity.question')
     expect(activityOf(c({ state: 'needs', needs: 'permission' }), undefined).key).toBe('wall.activity.permission')
     expect(activityOf(c({ state: 'needs', needs: 'gate' }), undefined).key).toBe('wall.activity.gate')
+  })
+})
+
+describe('a chat tile', () => {
+  it('shows the last lines of its last reply, bottom-anchored', () => {
+    const reply = Array.from({ length: 9 }, (_, i) => `line ${i + 1}`).join('\n')
+    expect(PREVIEW_LINES).toBe(6)
+    expect(previewOf(reply)).toBe('line 4\nline 5\nline 6\nline 7\nline 8\nline 9')
+  })
+
+  it('updates when a newer reply arrives: the preview follows the reply it is given', () => {
+    expect(previewOf('first answer')).toBe('first answer')
+    expect(previewOf('first answer\nand more')).toBe('first answer\nand more')
+  })
+
+  it('has no preview before a reply, or for a blank one', () => {
+    expect(previewOf(null)).toBeNull()
+    expect(previewOf('  \n ')).toBeNull()
+  })
+
+  it('its overflow menu has Open in new window, which opens the window on the console project', () => {
+    const c = consolesOf({ sessions: [session('chat1', { kind: 'chat' })], tree: [], data: null, attention: {}, live: {}, rows: {} })[0]
+    const opened: Array<string | null> = []
+    const items = tileMenuOf(c, { openWindow: 'Open in new window' }, (projectId) => opened.push(projectId))
+    expect(items.map((i) => i.label)).toEqual(['Open in new window'])
+    items[0].onSelect()
+    expect(opened).toEqual([c.projectId])
   })
 })

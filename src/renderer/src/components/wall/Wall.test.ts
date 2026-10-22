@@ -44,8 +44,8 @@ describe('ConsoleTile', () => {
     expect(out.indexOf('wall-tile__more')).toBeGreaterThan(out.indexOf('</button>'))
   })
 
-  it('no menu without actions; a chat console shows a line instead of the preview', () => {
-    expect(render({ onHide: undefined, onEnd: undefined })).not.toContain('wall-tile__more')
+  it('the menu stays without hide or end (it holds Open in new window); a chat console shows its reply instead of the xterm', () => {
+    expect(render({ onHide: undefined, onEnd: undefined })).toContain('wall-tile__more')
     const chat = render({ c: { ...c, chat: true } })
     expect(chat).not.toContain('wall-tile__term')
     expect(chat).toContain('wall-tile__chat')

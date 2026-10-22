@@ -2,6 +2,9 @@ import type { Catalog } from '../index'
 
 /** Spanish. Partial by design — see ja.ts for why. */
 export const es: Catalog = {
+  'wall.tile.chatEmpty': 'Aún no hay respuesta.',
+  'wall.tile.menu': 'Acciones de la consola',
+  'wall.tile.openWindow': 'Abrir en una ventana nueva',
   'settings.title': 'Configuración',
   'settings.tab.general': 'General',
   'settings.tab.appearance': 'Apariencia',
