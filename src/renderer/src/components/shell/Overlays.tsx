@@ -3,7 +3,6 @@ import { SourceJobModal } from '../SourceJobModal'
 import { NewSessionDialog, rememberMachine } from '../NewSessionDialog'
 import { RemoteSessionsDialog } from '../RemoteSessionsDialog'
 import { RunConfigManager } from '../RunConfigManager'
-import { ToastHost } from '../ToastHost'
 import { remoteNewJobFolder } from '../../lib/remoteJobs'
 import { localDoor } from '../../lib/orchDoor'
 import { defaultAccountIdOf } from '../../../../core/accounts/defaultAccount'
@@ -22,7 +21,7 @@ import { StartPage, useDropToStart, useStartLanding } from '../pages/StartPage'
 import { NewModal } from '../NewModal'
 import { MAX_PANES, countLeaves, groupOfTab, splitAndMove, type PaneDir } from '../../../../core/panes/tree'
 import { parseTab, sessionTab } from '../../../../core/panes/tabId'
-import { ContextMenu, type MenuItem } from '../ContextMenu'
+import { Menu, ToastViewport, type MenuItem } from '../ui'
 import type { AppState } from '../../state/appState'
 import { SettingsDialog } from './SettingsDialog'
 
@@ -128,11 +127,11 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
           right-clicked tab belongs to, not the active pane — so right-clicking a tab in another group
           does not split the wrong one (the same as IntelliJ). */}
       {tabMenu && (
-        <ContextMenu
-          x={tabMenu.x}
-          y={tabMenu.y}
+        <Menu
+          at={{ x: tabMenu.x, y: tabMenu.y }}
+          label={t('overlays.tabMenu.label')}
           onClose={() => setTabMenu(null)}
-          items={((): MenuItem[] => {
+          items={((): Array<MenuItem | 'separator'> => {
             const cur = layout
             const tid = tabMenu.tabId
             const group = cur ? groupOfTab(cur, tid) : null
@@ -169,7 +168,7 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
                       onSelect: () => setRenamingTabId(tid)
                     },
                     'separator'
-                  ] as MenuItem[])
+                  ] as Array<MenuItem | 'separator'>)
                 : []),
               ...(remote
                 ? ([
@@ -180,7 +179,7 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
                       onSelect: () => void stopRemoteSession(remote)
                     },
                     'separator'
-                  ] as MenuItem[])
+                  ] as Array<MenuItem | 'separator'>)
                 : []),
               ...(agentSid !== undefined
                 ? ([
@@ -194,7 +193,7 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
                       }
                     },
                     'separator'
-                  ] as MenuItem[])
+                  ] as Array<MenuItem | 'separator'>)
                 : []),
               {
                 label: t('session.pane.splitRight'),
@@ -371,7 +370,7 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
           }}
         />
       )}
-      <ToastHost />
+      <ToastViewport />
     </>
   )
 }
