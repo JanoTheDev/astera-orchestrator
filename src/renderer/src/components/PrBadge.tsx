@@ -1,7 +1,8 @@
-import { GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft } from 'lucide-react'
+import { GitPullRequestClosed, GitPullRequestDraft, type LucideIcon } from 'lucide-react'
 import type { PrChecks, PrInfo, PrState } from '../../../core/github/types'
 import type { MessageKey } from '../../../core/i18n'
 import { useI18n } from '../i18n/I18nProvider'
+import { Button, Icon, type IconName } from './ui'
 
 /** The four states a badge can be in. Not `PrState` — a draft is an open PR carrying a flag,
  *  and it reads as its own thing here, so the badge folds the two into one vocabulary. */
@@ -18,11 +19,12 @@ const STATE_KEY: Record<BadgeState, MessageKey> = {
  *  one pair red-green colour blindness cannot separate, and open/closed were exactly that pair.
  *  These are GitHub's own glyphs (via lucide), for the same reason the colours are GitHub's:
  *  the reader already knows them. */
-const STATE_GLYPH: Record<BadgeState, typeof GitPullRequest> = {
-  open: GitPullRequest,
-  merged: GitMerge,
-  closed: GitPullRequestClosed,
-  draft: GitPullRequestDraft
+const STATE_GLYPH: Record<BadgeState, { name: IconName } | { icon: LucideIcon }> = {
+  open: { name: 'pullRequest' },
+  merged: { name: 'merge' },
+  // shortcut: closed and draft are not in the ICONS registry yet, so they come in by component until promoted
+  closed: { icon: GitPullRequestClosed },
+  draft: { icon: GitPullRequestDraft }
 }
 
 /** Every check outcome gets a word in the title, including the two that draw nothing — "all
@@ -49,7 +51,6 @@ export function PrBadge({
 }): React.JSX.Element {
   const { t } = useI18n()
   const state: BadgeState = pr.state === 'open' && pr.isDraft ? 'draft' : pr.state
-  const Glyph = STATE_GLYPH[state]
   // Only these two earn a mark. Passing and "no checks at all" both stay silent on screen and
   // are told apart in the title below.
   const mark: 'pending' | 'failing' | null =
@@ -63,7 +64,9 @@ export function PrBadge({
     .filter(Boolean)
     .join(' · ')
   return (
-    <button
+    <Button
+      variant="ghost"
+      size="sm"
       className={`pr-badge ${state}${stale ? ' stale' : ''}`}
       title={title}
       aria-label={title}
@@ -72,8 +75,8 @@ export function PrBadge({
         onOpenMenu(e)
       }}
     >
-      <Glyph className="pr-glyph" size={11} aria-hidden="true" />#{pr.number}
+      <Icon {...STATE_GLYPH[state]} className="pr-glyph" size={14} />#{pr.number}
       {mark && <span className={`pr-checks ${mark}`} aria-hidden="true" />}
-    </button>
+    </Button>
   )
 }

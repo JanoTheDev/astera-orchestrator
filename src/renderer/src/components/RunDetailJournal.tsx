@@ -3,6 +3,7 @@
 // locked answers at once with the lines last read instead of making the window wait.
 import { useI18n } from '../i18n/I18nProvider'
 import type { RunDetailJournal } from '../../../core/types'
+import { Button } from './ui'
 
 /** "Show older journal entries", only while main says older lines are left and more can be read. Each press asks for one more
  *  page (App.tsx keeps the count); the window asks again at every snapshot change with the same count. */
@@ -18,9 +19,9 @@ export function JournalOlder({
   // At the most pages one read may ask for, a press would read nothing more: say so instead.
   if (journal.capped) return <p className="modal-hint">{t('jobs.detail.journalCapped')}</p>
   return (
-    <button className="detail-journal-older" onClick={onShowOlder}>
+    <Button variant="ghost" size="sm" className="detail-journal-older" onClick={onShowOlder}>
       {t('jobs.detail.journalOlder')}
-    </button>
+    </Button>
   )
 }
 
