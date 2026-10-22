@@ -233,6 +233,12 @@ describe('a failed delivery', () => {
     expect(deliveryErrorOf(undefined)).toBeUndefined()
   })
 
+  it('T1: a delivery the owner dismissed, pushed themselves, or that later went through never reads failed', () => {
+    for (const state of ['dismissed', 'delivered-by-owner', 'delivered'] as const)
+      expect(deliveryErrorOf(run({ delivery: { at: 'x', error: 'push refused' }, deliveryState: { state, attempts: 1 } }))).toBeUndefined()
+    expect(deliveryErrorOf(run({ delivery: { at: 'x', error: 'push refused' }, deliveryState: { state: 'needs-owner', attempts: 5 } }))).toBe('push refused')
+  })
+
   it('makes a Run whose Tasks all completed read failed, and leaves the Tasks-only answer alone', () => {
     expect(outcomeOfRun(done, run({ pr: { at: 'x', error: 'merge conflict' } }), state)).toBe('failed')
     expect(outcomeOfRun(done, run({ delivery: { at: 'x', error: 'push refused' } }), state)).toBe('failed')

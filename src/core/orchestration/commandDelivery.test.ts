@@ -457,3 +457,196 @@ describe('a plan-branch push that keeps failing asks the owner (T4)', () => {
     expect(state().runs[0].branchPush).toMatchObject({ ownerPushes: true, attempts: 5 })
   })
 })
+
+// ── T1: delivery state machine ──
+describe('T1: a pull request merged or closed on GitHub is delivered', () => {
+  const ghSetup = (state: 'MERGED' | 'CLOSED' | 'OPEN') => {
+    const calls: string[][] = []
+    const box: { state: OrchState } = {
+      state: {
+        ...emptyState(),
+        projects: [project()],
+        jobs: [{ id: 'job_1', objective: 'Fix auth', cwd: REPO, projectId: 'p1', createdAt: NOW }],
+        runs: [
+          {
+            id: 'r1',
+            jobId: 'job_1',
+            ordinal: 1,
+            createdAt: NOW,
+            worktree: '/wt/run',
+            pr: { at: NOW, url: 'https://github.com/o/r/pull/5', number: 5, draft: true, wavesDone: 2, error: 'gh pr ready: Pull request is in merged state' },
+            deliveryState: { state: 'needs-owner', attempts: 5, lastError: 'gh pr ready failed', nextRetryAt: NOW, questionId: 'msg_q' }
+          } as JobRun
+        ],
+        tasks: [task()],
+        messages: [{ id: 'msg_q', runId: 'r1', type: 'escalation', subject: 'Delivery failed', body: '', answered: false, createdAt: NOW } as never],
+        dispatches: []
+      }
+    }
+    const deps = {
+      getState: () => box.state,
+      setState: async (next: OrchState) => {
+        box.state = next
+      },
+      now: () => NOW,
+      listAccounts: () => [],
+      cleanWorktrees: async () => {
+        throw new Error('nothing is cleaned for a PR GitHub ended')
+      },
+      github: {
+        run: async (args: string[]) => {
+          calls.push(args)
+          if (args[0] === 'pr' && args[1] === 'view') return { ok: true, stdout: JSON.stringify({ state, mergedAt: null, closedAt: null }), stderr: '' }
+          return { ok: false, stdout: '', stderr: `unexpected gh ${args.join(' ')}` }
+        },
+        worktreeOf: () => ({ path: '/wt/run', repoPath: REPO, branch: 'astera/run', baseRef: 'main' }),
+        push: async () => ({ ok: false, kind: 'rejected', detail: 'must not push' })
+      }
+    } as unknown as OrchServerDeps
+    const call = (cmd: string, args: Record<string, unknown>) => handleCommand(deps, { sessionId: HOST_CALLER }, cmd, args)
+    return { call, calls, state: () => box.state }
+  }
+
+  it('a merged draft reads delivered: no push, no gh pr ready, the error and the owner question cleared, no more attempts', async () => {
+    const h = ghSetup('MERGED')
+    const r = await h.call('run-deliver', { run: 'r1', auto: true })
+    expect(r.status).toBe(200)
+    expect(r.body).toMatchObject({ landed: 'merged', deliveryState: { state: 'delivered', attempts: 5 } })
+    expect(h.calls).toEqual([['pr', 'view', 'https://github.com/o/r/pull/5', '--json', 'state,mergedAt,closedAt']])
+    const run = h.state().runs[0]
+    expect(run.pr).toEqual({ at: NOW, url: 'https://github.com/o/r/pull/5', number: 5, landed: 'merged' })
+    expect(outcomeOf(h.state(), 'r1')).toBe('completed')
+    expect(h.state().messages[0]).toMatchObject({ answered: true, answerBody: 'merged on GitHub' })
+    // the loop finds nothing due
+    expect((await h.call('run-deliver', { run: 'r1', auto: true })).status).toBe(409)
+    expect(h.calls).toHaveLength(1)
+  })
+
+  it('a closed draft reads delivered with the note "closed on GitHub"', async () => {
+    const h = ghSetup('CLOSED')
+    await h.call('run-deliver', { run: 'r1', auto: true })
+    expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'delivered', note: 'closed on GitHub' })
+    expect(h.state().runs[0].pr).toMatchObject({ landed: 'closed' })
+    expect(outcomeOf(h.state(), 'r1')).toBe('completed')
+  })
+
+  it('an open draft goes on as before (here: its push is rejected, one more failure)', async () => {
+    const h = ghSetup('OPEN')
+    const r = await h.call('run-deliver', { run: 'r1', auto: true })
+    expect(r.status).toBe(409)
+    expect(h.state().runs[0].pr).toMatchObject({ draft: true, error: expect.stringContaining('must not push') })
+  })
+
+  it('attribution-remap records a closed PR delivered instead of refusing it', async () => {
+    const h = ghSetup('CLOSED')
+    const r = await h.call('attribution-remap', { pr: 'https://github.com/o/r/pull/5' })
+    expect(r.body).toMatchObject({ remapped: false, landed: 'closed' })
+    expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'delivered', note: 'closed on GitHub' })
+  })
+})
+
+describe('T1: main that cannot fast-forward is retried by itself and clears once delivered', () => {
+  it('records the main-diverged code, stays retryable through needs-owner, and a later push clears run.delivery.error', async () => {
+    // deliverPush answers `o.push` at each call: the owner fixes their main between attempts
+    const o: Parameters<typeof setup>[0] = {
+      project: { delivery: 'push' },
+      push: { ok: false, branch: 'main', reason: 'your main cannot fast-forward to origin/main', code: 'main-diverged' }
+    }
+    const h = setup(o)
+    const due = (): void => {
+      const run = h.state().runs[0]
+      h.state().runs[0] = { ...run, deliveryState: { ...(run.deliveryState ?? { state: 'pending', attempts: 0 }), nextRetryAt: NOW } }
+    }
+    await h.call('run-deliver', { run: 'r1', pending: true })
+    for (let i = 1; i <= 5; i++) {
+      due()
+      expect((await h.call('run-deliver', { run: 'r1', auto: true })).body).toMatchObject({ code: 'main-diverged' })
+    }
+    expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'needs-owner', attempts: 5, lastCode: 'main-diverged' })
+    expect(outcomeOf(h.state(), 'r1')).toBe('failed')
+    // the loop's hourly look at needs-owner (deliveryDue) delivers it once main is fixed
+    o.push = { ok: true, branch: 'main', sha: 'fixed123', merged: [], validated: 0 }
+    due()
+    expect((await h.call('run-deliver', { run: 'r1', auto: true })).status).toBe(200)
+    expect(h.state().runs[0].delivery).toEqual({ at: NOW, branch: 'main', sha: 'fixed123' })
+    expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'delivered', attempts: 6 })
+    expect(h.state().runs[0].deliveryState?.lastCode).toBeUndefined()
+    expect(outcomeOf(h.state(), 'r1')).toBe('completed')
+  })
+})
+
+describe("T1: \"It's already pushed\" from any failed delivery", () => {
+  const states = [
+    ['failed', { deliveryState: { state: 'failed', attempts: 0, lastError: 'x' }, delivery: { at: NOW, error: 'x' } }],
+    ['retrying', { deliveryState: { state: 'retrying', attempts: 2, lastError: 'x', nextRetryAt: NOW }, delivery: { at: NOW, error: 'x' } }],
+    ['needs-owner', { deliveryState: { state: 'needs-owner', attempts: 5, lastError: 'x' }, delivery: { at: NOW, error: 'x' } }],
+    ['legacy delivery.error', { delivery: { at: NOW, branch: 'main', error: 'your main cannot fast-forward' } }],
+    ['legacy pr.error', { pr: { at: NOW, error: 'opening the pull request failed' } }]
+  ] as const
+
+  for (const [name, run] of states)
+    it(`a push plan, from ${name}: delivered-by-owner once git sees the work, and no longer failed`, async () => {
+      const h = setup({ project: { delivery: 'push' }, run: run as Partial<JobRun> })
+      expect(outcomeOf(h.state(), 'r1')).toBe('failed')
+      const r = await h.call('run-deliver', { run: 'r1', ownerPushed: true })
+      expect(r.status).toBe(200)
+      expect(h.pushes[0]).toMatchObject({ ownerPushed: true })
+      expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'delivered-by-owner', ownerPushes: true })
+      expect(h.state().runs[0].pr?.error).toBeUndefined()
+      expect(outcomeOf(h.state(), 'r1')).toBe('completed')
+    })
+
+  it('a pr plan clears pr.error and reads delivered-by-owner', async () => {
+    const h = setup({ run: { pr: { at: NOW, url: 'https://github.com/o/r/pull/5', draft: true, error: 'gh pr ready failed' } } })
+    expect(outcomeOf(h.state(), 'r1')).toBe('failed')
+    expect((await h.call('run-deliver', { run: 'r1', ownerPushed: true })).status).toBe(200)
+    expect(h.state().runs[0].pr).toEqual({ at: NOW, url: 'https://github.com/o/r/pull/5', draft: true })
+    expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'delivered-by-owner' })
+    expect(outcomeOf(h.state(), 'r1')).toBe('completed')
+  })
+
+  it('work not on origin yet waits as needs-owner, checked again by the loop', async () => {
+    const h = setup({ project: { delivery: 'push' }, run: { delivery: { at: NOW, error: 'x' } }, push: { ok: false, reason: "/wt/t1's commit abc is not on main yet" } })
+    const r = await h.call('run-deliver', { run: 'r1', ownerPushed: true })
+    expect(r.status).toBe(409)
+    expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'needs-owner', ownerPushes: true, nextRetryAt: expect.any(String) })
+  })
+
+  it('is refused for a delivery nothing failed in, and from an agent session', async () => {
+    expect((await setup({ project: { delivery: 'push' } }).call('run-deliver', { run: 'r1', ownerPushed: true })).status).toBe(409)
+    const h = setup({ project: { delivery: 'push' }, run: { delivery: { at: NOW, error: 'x' } } })
+    expect((await h.call('run-deliver', { run: 'r1', ownerPushed: true }, 'sess_agent')).status).toBe(403)
+  })
+})
+
+describe('T1: run-delivery-dismiss', () => {
+  it('clears a legacy failed delivery: no longer failed, never attempted again, a feed line', async () => {
+    const h = setup({ project: { delivery: 'push' }, run: { delivery: { at: NOW, branch: 'main', error: 'push refused' } } })
+    const before = h.state()
+    expect(outcomeOf(before, 'r1')).toBe('failed')
+    const r = await h.call('run-delivery-dismiss', { run: 'r1' })
+    expect(r.status).toBe(200)
+    expect(h.state().runs[0].delivery).toEqual({ at: NOW, branch: 'main' })
+    expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'dismissed' })
+    expect(outcomeOf(h.state(), 'r1')).toBe('completed')
+    expect(deriveActivity(before, h.state())).toEqual([expect.objectContaining({ type: 'watchdog', runId: 'r1', payload: expect.objectContaining({ reason: expect.stringContaining('dismissed') }) })])
+    expect((await h.call('run-deliver', { run: 'r1', auto: true })).status).toBe(409)
+    expect(h.pushes).toEqual([])
+  })
+
+  it('answers the open owner question of a needs-owner delivery', async () => {
+    const h = setup({ project: { delivery: 'push' }, run: { deliveryState: { state: 'needs-owner', attempts: 5, questionId: 'msg_q' }, delivery: { at: NOW, error: 'x' } } })
+    h.state().messages.push({ id: 'msg_q', runId: 'r1', type: 'escalation', subject: 's', body: '', answered: false, createdAt: NOW } as never)
+    expect((await h.call('run-delivery-dismiss', { run: 'r1' })).status).toBe(200)
+    expect(h.state().messages[0]).toMatchObject({ answered: true, answerBody: 'dismissed' })
+  })
+
+  it('is refused from an agent session and an MCP client, for a delivery that did not fail, and without --run', async () => {
+    const h = setup({ project: { delivery: 'push' }, run: { delivery: { at: NOW, error: 'x' } } })
+    expect((await h.call('run-delivery-dismiss', { run: 'r1' }, 'sess_agent')).status).toBe(403)
+    expect((await h.call('run-delivery-dismiss', { run: 'r1' }, '', 'mcp')).status).toBe(403)
+    expect((await h.call('run-delivery-dismiss', {})).status).toBe(400)
+    expect((await setup().call('run-delivery-dismiss', { run: 'r1' })).status).toBe(409)
+    expect(h.state().runs[0].delivery?.error).toBe('x')
+  })
+})

@@ -690,9 +690,63 @@ describe('refreshOnto: a running plan takes in another plan\'s delivery (T11)', 
     await fs.writeFile(path.join(other, 'pr.txt'), 'pr'); gitSync(other, ['add', 'pr.txt']); gitSync(other, ['commit', '-m', 'PR A'])
     gitSync(other, ['push', 'origin', 'main'])
     const sha = gitSync(other, ['rev-parse', 'HEAD']).trim()
-    expect(await refreshOnto(wt, sha, 'refresh', { log: logTo() })).toMatchObject({ kind: 'human' })
     expect(await refreshOnto(wt, sha, 'refresh', { log: logTo(), fetchBranch: 'main' })).toEqual({ kind: 'merged' })
     await expect(fs.readFile(path.join(wt, 'pr.txt'), 'utf8')).resolves.toBe('pr')
+  })
+
+  // T1: the delivered commit is looked for until found: origin, the project folder's origin, the project folder itself
+  /** A clone of `from` with one commit of its own, `file`; its folder and the commit. */
+  const cloneWith = async (from: string, file: string): Promise<{ dir: string; sha: string }> => {
+    const dir = await tempDir('astera-integrate-proj-')
+    gitSync(dir, ['clone', from, '.'])
+    gitSync(dir, ['config', 'user.email', 't@t.com']); gitSync(dir, ['config', 'user.name', 'T'])
+    await fs.writeFile(path.join(dir, file), file); gitSync(dir, ['add', file]); gitSync(dir, ['commit', '-m', file])
+    return { dir, sha: gitSync(dir, ['rev-parse', 'HEAD']).trim() }
+  }
+
+  it('T1: with no branch known, the whole of origin is fetched', async () => {
+    const bare = await addOrigin(repo)
+    const wt = await worked('b')
+    const other = await cloneWith(bare, 'pr.txt')
+    gitSync(other.dir, ['push', 'origin', 'main'])
+    expect(await refreshOnto(wt, other.sha, 'refresh', { log: logTo() })).toEqual({ kind: 'merged' })
+  })
+
+  it("T1: a commit only in the project folder (another clone) is fetched from it as a local remote", async () => {
+    const bare = await addOrigin(repo)
+    const wt = await worked('b')
+    // the delivering plan's project folder: a clone whose delivery never reached origin
+    const proj = await cloneWith(bare, 'local.txt')
+    expect(await refreshOnto(wt, proj.sha, 'refresh', { log: logTo(), fetchBranch: 'main', projectDir: proj.dir })).toEqual({ kind: 'merged' })
+    await expect(fs.readFile(path.join(wt, 'local.txt'), 'utf8')).resolves.toBe('local.txt')
+  })
+
+  it("T1: a commit on the project folder's own origin (not the worktree's) is fetched through the project folder", async () => {
+    await addOrigin(repo)
+    const wt = await worked('b')
+    const elsewhere = await tempDir('astera-integrate-origin2-')
+    gitSync(elsewhere, ['init', '--bare', '-b', 'main'])
+    gitSync(repo, ['push', elsewhere, 'main'])
+    const pusher = await cloneWith(elsewhere, 'theirs.txt')
+    gitSync(pusher.dir, ['push', 'origin', 'main'])
+    const proj = await tempDir('astera-integrate-proj2-')
+    gitSync(proj, ['init', '-b', 'main'])
+    gitSync(proj, ['remote', 'add', 'origin', elsewhere])
+    expect(await refreshOnto(wt, pusher.sha, 'refresh', { log: logTo(), projectDir: proj })).toEqual({ kind: 'merged' })
+  })
+
+  it('T1: when nothing gives the commit, the reason names every try and what git said', async () => {
+    const wt = await worked('b') // no origin at all
+    const proj = await makeRepo('astera-integrate-empty-')
+    const missing = 'f'.repeat(40)
+    const r = await refreshOnto(wt, missing, 'refresh', { log: logTo(), fetchBranch: 'main', projectDir: proj })
+    expect(r.kind).toBe('human')
+    const reason = (r as { reason: string }).reason
+    expect(reason).toContain('Tried:')
+    expect(reason).toContain(`git fetch origin main in ${wt}`)
+    expect(reason).toContain(`git fetch origin in the project folder ${proj}`)
+    expect(reason).toContain(`git fetch ${proj} (the project folder as a remote): fetched, but ffffff`)
+    expect(reason).not.toContain('fetching it failed')
   })
 
   it('never merges under uncommitted changes', async () => {

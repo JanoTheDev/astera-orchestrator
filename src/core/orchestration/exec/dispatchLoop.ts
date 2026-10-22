@@ -160,7 +160,7 @@ export interface DispatchLoopContext {
   integrate(runRoot: string, merges: string[], heads?: Record<string, string>): Promise<Integration>
   /** T11: merges another plan's delivered commit into a running plan's Run worktree (integrateGit.ts refreshOnto).
    *  Optional: defaults to that function over the real git. */
-  refreshOnto?(worktree: string, base: string, message: string, fetchBranch?: string): Promise<Refresh>
+  refreshOnto?(worktree: string, base: string, message: string, fetchBranch?: string, projectDir?: string): Promise<Refresh>
   reap(worktreePath: string): Promise<boolean>
   isRegisteredWorktree(p: string): boolean
   sessionAlive(sessionId: string): boolean
@@ -597,11 +597,13 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       const plan = jobNameOf(d.job)
       let r: Refresh
       try {
-        r = await (c.refreshOnto ?? ((w, b, m, f) => refreshOnto(w, b, m, { log, ...(f ? { fetchBranch: f } : {}) })))(
+        // T1: a commit origin does not give is looked for in the project folder too (the delivering plan's)
+        r = await (c.refreshOnto ?? ((w, b, m, f, p) => refreshOnto(w, b, m, { log, ...(f ? { fetchBranch: f } : {}), ...(p ? { projectDir: p } : {}) })))(
           worktree,
           d.sha,
           `Refresh onto plan ${plan}'s delivery`,
-          d.branch
+          d.branch,
+          d.job.cwd
         )
       } catch (e) {
         r = { kind: 'human', reason: String(e) }
@@ -679,8 +681,8 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     const due = new Map<string, DeliveryStep[]>()
     for (const run of s.runs) {
       // W6-H: a pushed delivery is done; W8-C: a draft opened between waves is finished here (`run-open-pr` marks it
-      // ready); any other opened PR (or a no-remote note) is the end
-      if (run.delivery?.sha !== undefined || run.pr?.note !== undefined || (run.pr?.url !== undefined && run.pr.draft !== true)) continue
+      // ready); any other opened PR (or a no-remote note) is the end. T1: so is a PR merged or closed on GitHub
+      if (run.delivery?.sha !== undefined || run.pr?.note !== undefined || run.pr?.landed !== undefined || (run.pr?.url !== undefined && run.pr.draft !== true)) continue
       const job = jobOf(s, run)
       if (!job || !isJobActive(job) || job.schedule !== undefined) continue
       const p = run.deliveryState

@@ -854,6 +854,11 @@ export interface JobRow {
     nextRetryAt?: string
     /** T2: the plan this delivery waits for before it validates (Run.deliveryState.waitingFor). */
     waitingFor?: { jobId: string; escalated?: string }
+    // T1: delivery state machine
+    /** When the last attempt ran (Run.deliveryState.lastAttemptAt). */
+    lastAttemptAt?: string
+    /** Why the last attempt stopped, as a code (Run.deliveryState.lastCode, e.g. `main-diverged`). */
+    code?: string
   }
   done: number
   total: number

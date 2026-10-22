@@ -70,6 +70,8 @@ interface RigOpts {
   concurrency?: number
   /** T3: the Host's push delivery, so `run-deliver` on a push plan runs for real over it. */
   deliverPush?: OrchServerDeps['deliverPush']
+  /** T1: the Host's GitHub (a fake gh runner and branch pushes) */
+  github?: OrchServerDeps['github']
   /** 몇 번째 startWorker 호출(0부터)이 던지는가. 'all' 이면 전부. */
   startFailsFor?: number | 'all'
   /** gate-create 가 거절된다(열린 Dispatch 가 있는 Task 의 Gate 처럼). */
@@ -221,7 +223,8 @@ function rig(o: RigOpts = {}) {
     log: () => {},
     runningSessions: () => 0,
     appVersion: () => '1.0.0',
-    ...(o.deliverPush ? { deliverPush: o.deliverPush } : {})
+    ...(o.deliverPush ? { deliverPush: o.deliverPush } : {}),
+    ...(o.github ? { github: o.github } : {})
   } as unknown as OrchServerDeps
 
   /** 진짜 command layer — 테스트가 ctx.handle 을 갈아 끼워도 그 안에서 부를 수 있게 따로 둔다. */
@@ -2243,6 +2246,47 @@ describe("a completed Run opens its plan's pull request (W2-D)", () => {
 
 // T3: a push plan's delivery over the real `run-deliver`, with the Host's push faked: persisted attempts, retries with
 // backoff, one owner question, a restart that resumes, an integration Task for a conflict with origin.
+describe('T1: a pull request merged on GitHub ends the delivery', () => {
+  it('a draft PR the owner merged reads delivered: no gh pr ready, no push, and the loop never attempts it again', async () => {
+    const gh: string[][] = []
+    const h = rig({
+      github: {
+        run: async (args: string[]) => {
+          gh.push(args)
+          return args[1] === 'view' ? { ok: true, stdout: '{"state":"MERGED"}', stderr: '' } : { ok: false, stdout: '', stderr: 'unexpected' }
+        },
+        push: async () => ({ ok: false, kind: 'rejected', detail: 'must not push' })
+      } as unknown as OrchServerDeps['github']
+    })
+    const s = h.state()
+    h.setState({
+      ...s,
+      runs: s.runs.map((r) => ({ ...r, worktree: '/wt-run', pr: { at: NOW, url: 'https://github.com/o/r/pull/9', number: 9, draft: true as const, error: 'gh pr ready failed' } }))
+    })
+    await h.loop.run()
+    await h.settle()
+    const done = h.state()
+    h.setState({
+      ...done,
+      tasks: done.tasks.map((t) => ({ ...t, status: 'completed' as const })),
+      dispatches: [],
+      runs: done.runs.map((r) => ({ ...r, deliveryState: { state: 'needs-owner' as const, attempts: 5, nextRetryAt: NOW } }))
+    })
+    await h.loop.run()
+    await h.settle()
+    expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'delivered' })
+    expect(h.state().runs[0].pr).toMatchObject({ landed: 'merged' })
+    expect(h.state().runs[0].pr).not.toHaveProperty('error')
+    expect(outcomeOf(h.state(), h.state().runs[0].id)).toBe('completed')
+    expect(gh.filter((a) => a[1] !== 'view')).toEqual([])
+    const views = gh.length
+    h.clock += 2 * 60 * 60_000
+    await h.loop.run()
+    await h.settle()
+    expect(gh).toHaveLength(views)
+  })
+})
+
 describe('a delivery that finishes by itself (T3)', () => {
   type Push = NonNullable<OrchServerDeps['deliverPush']>
   const pushPlan = (push: Push) => {
@@ -2768,7 +2812,7 @@ describe('plans of one project: one delivery at a time, the others refreshed ont
     h.ctx.refreshOnto = refresh
     await h.loop.run()
     await h.settle()
-    expect(refresh).toHaveBeenCalledWith('/wt1', 'shaA', "Refresh onto plan A's delivery", 'main')
+    expect(refresh).toHaveBeenCalledWith('/wt1', 'shaA', "Refresh onto plan A's delivery", 'main', '/p')
     expect(h.startWorker).toHaveBeenCalled()
     expect(refresh.mock.invocationCallOrder[0]).toBeLessThan(h.startWorker.mock.invocationCallOrder[0])
     expect(feed.filter((l) => l.startsWith("Plan B refreshed onto plan A's delivery"))).toHaveLength(1)
@@ -2815,7 +2859,7 @@ describe('plans of one project: one delivery at a time, the others refreshed ont
     h.ctx.refreshOnto = refresh
     await h.loop.run()
     await h.settle()
-    expect(refresh).toHaveBeenCalledWith('/wt1', 'mergeA', "Refresh onto plan A's delivery", 'main')
+    expect(refresh).toHaveBeenCalledWith('/wt1', 'mergeA', "Refresh onto plan A's delivery", 'main', '/p')
     expect(refresh.mock.invocationCallOrder[0]).toBeLessThan(h.startWorker.mock.invocationCallOrder[0])
     expect(feed.some((l) => l.startsWith("Plan B refreshed onto plan A's delivery"))).toBe(true)
   })

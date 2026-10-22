@@ -472,10 +472,16 @@ export function snapshotFor(
                   }
                 : {}),
               ...(run.deliveryState.lastError !== undefined ? { reason: run.deliveryState.lastError } : {}),
-              ...(run.deliveryState.nextRetryAt !== undefined ? { nextRetryAt: run.deliveryState.nextRetryAt } : {})
+              ...(run.deliveryState.nextRetryAt !== undefined ? { nextRetryAt: run.deliveryState.nextRetryAt } : {}),
+              // T1: when it last ran, and the stop's code
+              ...(run.deliveryState.lastAttemptAt !== undefined ? { lastAttemptAt: run.deliveryState.lastAttemptAt } : {}),
+              ...(run.deliveryState.lastCode !== undefined ? { code: run.deliveryState.lastCode } : {})
             }
           }
-        : {}),
+        : // T1: a Run that failed before `deliveryState` existed has only its error: a failed row, so the owner can act on it
+          run !== undefined && run.deliveryState === undefined && deliveryErrorOf(run) !== undefined
+          ? { delivery: { runId: run.id, state: 'failed' as const, reason: deliveryErrorOf(run)! } }
+          : {}),
       done,
       total,
       eventCount: ix.eventCounts.get(ownerId) ?? 0,

@@ -385,6 +385,13 @@ export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[
       const at = where(r.id)
       push('plan.delivered', at, { title: at.job ? jobNameOf(at.job) : r.id, sha: r.delivery.sha, ...(r.delivery.branch !== undefined ? { branch: r.delivery.branch } : {}) })
     }
+    // T1: the owner dismissed a failed delivery (`run-delivery-dismiss`): a feed line of the existing `watchdog` kind
+    for (const r of next.runs) {
+      const was = before.get(r.id)
+      if (r.deliveryState?.state !== 'dismissed' || was === undefined || was.deliveryState?.state === 'dismissed') continue
+      const at = where(r.id)
+      push('watchdog', at, { title: at.job ? jobNameOf(at.job) : r.id, reason: 'Delivery dismissed by the owner; it is not tried again' })
+    }
     // Coordinator rotation: each refresh added since the last commit, by its new session
     for (const r of next.runs) {
       const was = before.get(r.id)

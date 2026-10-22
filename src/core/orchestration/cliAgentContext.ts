@@ -217,7 +217,19 @@ const SESSION = {
     summary: "land a completed run the way its project says: its pull request, or a push to the delivery branch",
     detail:
       "pr is `run-open-pr`. push merges the run's worktrees into the project folder's delivery branch, validates the merged tree and pushes it, never forced; every guard that stops it is recorded on the run and escalated, and the worktrees are removed only after a push. The driving loop does this when a run completes; a recorded stop is tried again only with --force. A push is refused from an agent session and an MCP client. Answered by the Host.",
-    flags: [RUN_ARG('<runId>', 'the completed run'), { name: 'force', about: 'try again after a recorded stop' }]
+    flags: [
+      RUN_ARG('<runId>', 'the completed run'),
+      { name: 'force', about: 'try again after a recorded stop' },
+      // T1: the owner's "It's already pushed", from any failed delivery
+      { name: 'owner-pushed', about: 'the work is already on the delivery branch: delivered once git sees it on origin' }
+    ]
+  },
+  // T1: delivery state machine
+  'run-delivery-dismiss': {
+    summary: "dismiss a run's failed delivery: it no longer reads failed and is not tried again",
+    detail:
+      "For a delivery that failed, is being retried or waits on the owner, and a run from before the delivery's state was kept that has only an error. Clears the error, records the delivery as dismissed (a feed line says so) and answers its open owner question. Nothing is pushed, merged or removed. The person's or the app's: refused from an agent session and an MCP client. Answered by the Host.",
+    flags: [RUN_ARG('<runId>', 'the run whose delivery failed')]
   },
   'runs-changed-files': {
     summary: 'the files a run, or one of its tasks, changed, from git',

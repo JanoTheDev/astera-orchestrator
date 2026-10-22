@@ -1321,4 +1321,32 @@ describe('a Run whose delivery failed', () => {
     expect(rowOf(delivered())).toMatchObject({ outcome: 'completed' })
     expect(rowOf(delivered())).not.toHaveProperty('deliveryError')
   })
+  // T1: the plan page's Retry / It's already pushed / Dismiss read the row
+  it('a Run from before deliveryState with only an error gets a failed delivery row; a settled one gets none', () => {
+    const legacy = delivered('push refused')
+    expect(rowOf(legacy).delivery).toEqual({ runId: 'r1', state: 'failed', reason: 'push refused' })
+    const dismissed = { ...legacy, runs: legacy.runs.map((r) => ({ ...r, deliveryState: { state: 'dismissed' as const, attempts: 1 } })) }
+    expect(rowOf(dismissed).delivery).toBeUndefined()
+    expect(rowOf(dismissed)).toMatchObject({ outcome: 'completed' })
+    expect(rowOf(delivered()).delivery).toBeUndefined()
+  })
+
+  it('carries lastAttemptAt and the stop code of a retried delivery', () => {
+    const s = delivered('your main cannot fast-forward')
+    const retrying = {
+      ...s,
+      runs: s.runs.map((r) => ({
+        ...r,
+        deliveryState: { state: 'retrying' as const, attempts: 2, lastError: 'diverged', lastAttemptAt: '2026-10-22T10:00:00.000Z', nextRetryAt: '2026-10-22T10:05:00.000Z', lastCode: 'main-diverged' }
+      }))
+    }
+    expect(rowOf(retrying).delivery).toEqual({
+      runId: 'r1',
+      state: 'retrying',
+      reason: 'diverged',
+      nextRetryAt: '2026-10-22T10:05:00.000Z',
+      lastAttemptAt: '2026-10-22T10:00:00.000Z',
+      code: 'main-diverged'
+    })
+  })
 })

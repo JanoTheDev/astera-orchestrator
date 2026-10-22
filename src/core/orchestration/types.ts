@@ -996,6 +996,8 @@ export interface RunDelivery {
 /** T3: where a delivery (or a plan-branch push) stands. `delivered-by-owner`: the owner said they push it, and git
  *  confirmed the commits reached the base. */
 export type DeliveryStep = 'pending' | 'delivering' | 'delivered' | 'retrying' | 'failed' | 'needs-owner' | 'delivered-by-owner'
+  // T1: the owner dismissed a failed delivery (`run-delivery-dismiss`): no longer failed, never attempted again
+  | 'dismissed'
 
 /** T3: a delivery's attempts, persisted on the Run. `nextRetryAt` is when the driving loop tries again by itself;
  *  `questionId` the one owner question (an escalation message) raised after the last automatic attempt; `ownerPushes`
@@ -1012,6 +1014,11 @@ export interface DeliveryProgress {
    *  it and is landing now, so this one merges origin and validates once, after it. `escalated`: when the owner was told
    *  it waited 30 minutes. */
   waitingFor?: { jobId: string; since: string; escalated?: string }
+  // ── T1: delivery state machine ──
+  /** Why the last attempt stopped, as a code the app can act on (integrateGit.ts PushStop, e.g. `main-diverged`). */
+  lastCode?: string
+  /** A delivered state's remark: `closed on GitHub` for a pull request closed without merging. */
+  note?: string
 }
 
 /** The plan's pull request: its URL and number once opened, or the error that stopped it. */
@@ -1036,4 +1043,7 @@ export interface RunPr {
   /** T11: when the merge of `attributed` was seen, on `baseRefName`: the other plans of the project are refreshed onto it. */
   attributedAt?: string
   baseRefName?: string
+  // T1: delivery state machine
+  /** The pull request was merged or closed on GitHub: the plan's delivery ended there (`gh pr view --json state`). */
+  landed?: 'merged' | 'closed'
 }
