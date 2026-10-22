@@ -1,6 +1,6 @@
 # w12-help: the in-app help (T30)
 
-Dev app on the dev profile, 1440x900, Night and Day. PNGs stay local (CONTEXT.md); this file is tracked.
+Dev app on the dev profile, 1440x900, Night and Day. The PNGs are committed with this Task.
 
 ## What it is
 - `components/help/HelpPanel.tsx`: a ui `Modal` (lg). Left: search field and the topic list. Right: the chosen topic.
