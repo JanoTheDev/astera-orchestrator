@@ -55,11 +55,12 @@ import { createControllerRegistry } from './controllers'
 import { createPluginManager } from './plugins/manager'
 import { git } from '../core/worktrees/git'
 
-const NOW = '2026-09-22T00:00:00.000Z'
+// Relative, not a fixed date: the store prunes finished Runs older than RUN_TTL_MS, so a fixed one rots into a 404.
+const NOW = new Date().toISOString()
 /** 이 Host 가 선 시각. `now` 보다 **앞**이어야 하는 값이다 — `requests show` 가 이것을 실어 주는
  *  이유가 "네가 보낸 때보다 이 Host 가 늦게 섰다면 그 요청은 여기 온 적이 없다" 이므로(설계 §6),
  *  둘이 같은 문자열이면 그 비교가 시험에서 아무 말도 하지 않는다. */
-const HOST_STARTED_AT = '2026-09-21T23:00:00.000Z'
+const HOST_STARTED_AT = new Date(Date.parse(NOW) - 3_600_000).toISOString()
 
 let dir: string
 beforeEach(async () => {

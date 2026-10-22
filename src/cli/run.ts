@@ -1442,6 +1442,8 @@ export async function main(): Promise<void> {
       fail({ code: /agent session/.test(done.message) ? 'PERMISSION_DENIED' : 'FAILED', message: done.message })
     }
     out(mode === 'json' ? renderOk(parsed.cmd, done, mode) : migrationText(done))
+    // FAIL_SEAM:exempt — a step that failed is already named in the report just printed (per-item states); exit 1 only
+    // tells a script that the migration was partial, so there is no second envelope to build.
     process.exit(done.results.some((r) => r.state === 'failed') ? 1 : 0)
   }
 

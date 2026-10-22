@@ -191,7 +191,7 @@ export function WorkbenchTabs({
   // W7-F (#84): the overflow menu's place on screen while open. Fixed, not inside .tabs, which scrolls and clips.
   const [overflowAt, setOverflowAt] = useState<{ right: number; top: number } | null>(null)
   // T13: the menu's Recently closed (hidden or ended tabs, newest first); Ctrl+Shift+T reopens the first
-  const recent = useSyncExternalStore(subscribeRecentlyClosed, recentlyClosed)
+  const recent = useSyncExternalStore(subscribeRecentlyClosed, recentlyClosed, recentlyClosed)
 
   const endDrag = (): void => {
     setDragId(null)

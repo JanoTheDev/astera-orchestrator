@@ -3820,7 +3820,7 @@ describe('run-start — 코디네이터 인계', () => {
     expect(brief).toContain('PLAN THIS JOB FIRST')
     expect(brief).not.toContain('Do not create Tasks')
     expect(brief).toContain(`task-create --run ${runOf(deps, jobId).id}`)
-    expect(brief).toContain('--account cl1')
+    expect(brief).toContain('omit `--account` unless the objective names one')
     expect(brief).toContain(`run-configs list --job ${jobId}`)
   })
 

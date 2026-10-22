@@ -175,10 +175,10 @@ export function ProjectSettingsBody({
             </select>
           </div>
           <div className="field">
-            <label htmlFor="project-origin-sync">Keep running plans in sync with origin</label>
+            <label htmlFor="project-origin-sync">{t('project.originSync')}</label>
             <select id="project-origin-sync" value={project.originSync ?? 'on'} onChange={(e) => void save({ originSync: e.target.value })}>
-              <option value="on">On (every 10 minutes and at each wave)</option>
-              <option value="off">Off (no network)</option>
+              <option value="on">{t('project.originSync.on')}</option>
+              <option value="off">{t('project.originSync.off')}</option>
             </select>
           </div>
           <div className="field">
