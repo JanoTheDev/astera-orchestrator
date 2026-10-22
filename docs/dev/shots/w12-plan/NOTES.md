@@ -36,7 +36,7 @@ All controls on the plan page and Tasks page are ui primitives now (`components/
 - **PlanFiles / ChangedFilesBlock / TaskLinkChips / PlanChanges**: ghost Buttons with registry icons; file rows keep
   `aria-pressed` and `is-open`; link chips keep their titles and open GitHub as before.
 - **TasksPage**: icons from the registry where it has the glyph.
-- Wording sweep (en, es, ja, ko): worker → agent, coordinator → lead agent, gate → question for you, wave → step,
+- Section tab "Waves" is now "Steps" (es Pasos, ja ステップ, ko 단계). Wording sweep (en, es, ja, ko): worker → agent, coordinator → lead agent, gate → question for you, wave → step,
   Runtime → that computer, job → plan, re-dispatch → start a new attempt.
 
 ## Keyboard map

@@ -163,4 +163,10 @@ export const plan: Partial<Record<keyof typeof ko, string>> = {
   'plan.header.startHint': 'タスクをすべて用意してから押すと、この計画が始まります',
   'plan.question.title': 'あなたへの質問',
   'plan.question.answer': '回答する',
+  // W12 repair: the plan page's section tabs
+  'pages.plan.section.overview': '概要',
+  'pages.plan.section.waves': 'ステップ',
+  'pages.plan.section.files': 'ファイル',
+  'pages.plan.section.changes': '変更',
+  'pages.plan.section.journal': '記録',
 }

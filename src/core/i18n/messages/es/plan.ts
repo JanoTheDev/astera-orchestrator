@@ -163,4 +163,10 @@ export const plan: Partial<Record<keyof typeof ko, string>> = {
   'plan.header.startHint': 'Púlsalo cuando las tareas estén listas y este plan empieza',
   'plan.question.title': 'Pregunta para ti',
   'plan.question.answer': 'Responder',
+  // W12 repair: the plan page's section tabs
+  'pages.plan.section.overview': 'Resumen',
+  'pages.plan.section.waves': 'Pasos',
+  'pages.plan.section.files': 'Archivos',
+  'pages.plan.section.changes': 'Cambios',
+  'pages.plan.section.journal': 'Registro',
 }
