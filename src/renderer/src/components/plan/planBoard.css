@@ -40,3 +40,19 @@
 .plan-decided h3 { margin: 0 0 4px; font-size: var(--fs-12); font-weight: 600; color: var(--text-dim); }
 .plan-decided ul { margin: 0; padding-left: 16px; display: grid; gap: 2px; font-size: var(--fs-12); }
 .plan-decided-skipped, .plan-decided-why { color: var(--text-dim); }
+
+/* W12 plan steps: the board's and the graph's controls are ui Buttons; these keep them the size of the old text links. */
+.plan-waves .plan-card-title.ui-btn { height: auto; justify-content: flex-start; padding: 0; color: var(--text); font-weight: var(--fw-medium); }
+.plan-waves .plan-link.ui-btn { height: auto; padding: 0; background: none; color: var(--accent); font-size: var(--fs-11); }
+.plan-waves .plan-link.ui-btn:hover:not(:disabled) { background: none; text-decoration: underline; }
+.plan-wave-folded .plan-wave-fold.ui-btn { align-self: flex-start; }
+.plan-wave-head .plan-wave-fold { margin-left: auto; }
+.plan-card-meta dd:has(.ui-tip) { overflow: visible; }
+.plan-card-meta .ui-tip { max-width: 100%; min-width: 0; }
+.plan-card-meta .branch-link.ui-btn { height: auto; max-width: 100%; padding: 0; background: none; color: var(--accent); font-size: var(--fs-11); }
+.plan-card-meta .ui-tip__body { white-space: normal; width: max-content; max-width: 260px; }
+/* Graph node: the title button reads as the old title text; the action icons fit the 54px the node keeps for them */
+.detail-node .detail-node-title.ui-btn { height: auto; padding: 0; justify-content: flex-start; background: none; color: inherit; font-size: inherit; font-weight: var(--fw-semi); }
+.detail-node-acts .ui-btn.ui-btn--icon { width: 18px; height: 18px; padding: 0; background: none; color: var(--text-faint); }
+.detail-node-acts .ui-btn.ui-btn--icon:hover:not(:disabled) { color: var(--accent); }
+.detail-checks .detail-check { display: inline-flex; align-items: center; }

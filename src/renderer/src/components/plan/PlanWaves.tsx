@@ -1,10 +1,9 @@
-// The Waves section of the plan page (moved out of pages/PlanPage.tsx): "Wave n of m" and what opens the next one,
-// the board/graph switch, adding a Task, and the board (by wave) or the dependency graph.
+// The Waves section of the plan page (moved out of pages/PlanPage.tsx): "Step n of m" and what opens the next one,
+// the board/graph switch, adding a Task, and the board (by wave) or the dependency graph. W12: a wave is shown as a "step".
 import type { RunDetail as RunDetailData } from '../../../../core/types'
 import { useI18n } from '../../i18n/I18nProvider'
 import { replyNote, type OrchDoor } from '../../lib/orchDoor'
-import { Layers, Plus } from 'lucide-react'
-import { Button, Tabs } from '../ui'
+import { Button, Icon, Tabs } from '../ui'
 import { coordinatorRefreshOf, replanningOf } from './planBoard'
 import type { WaveStatus } from './planPage'
 import { Graph } from './PlanGraph'
@@ -12,8 +11,8 @@ import { TaskBoard } from './TaskBoard'
 import type { PlanPageState } from './usePlanPage'
 import './planPage.css'
 
-/** "Wave 2 of 4 · Wave 3 opens when 2 Tasks finish". Nothing while the plan has no Tasks. */
-/** `brief`: only "Wave n of m" (the page header, where the title needs the room). */
+/** "Step 2 of 4 · Step 3 starts when 2 tasks finish". Nothing while the plan has no Tasks. */
+/** `brief`: only "Step n of m" (the page header, where the title needs the room). */
 export function WaveLine({ status, brief = false }: { status: WaveStatus | null; brief?: boolean }): React.JSX.Element | null {
   const { t } = useI18n()
   if (status === null) return null
@@ -22,16 +21,16 @@ export function WaveLine({ status, brief = false }: { status: WaveStatus | null;
     next === null
       ? null
       : next.kind === 'replan'
-        ? t('plan.wave.replanning', { n: next.n })
+        ? t('plan.steps.replanning', { n: next.n })
         : next.kind === 'opens'
-          ? t(next.left === 1 ? 'plan.wave.opens.one' : 'plan.wave.opens', { n: next.n, count: next.left })
+          ? t(next.left === 1 ? 'plan.steps.opens.one' : 'plan.steps.opens', { n: next.n, count: next.left })
           : next.kind === 'last'
-            ? t(next.left === 1 ? 'plan.wave.last.one' : 'plan.wave.last', { count: next.left })
-            : t('plan.wave.allDone')
+            ? t(next.left === 1 ? 'plan.steps.last.one' : 'plan.steps.last', { count: next.left })
+            : t('plan.steps.allDone')
   return (
     <span className="plan-page-wave">
-      <Layers size={14} aria-hidden="true" />
-      <span className="plan-page-wave-at">{t('plan.wave.of', { at: status.at, of: status.of })}</span>
+      <Icon name="layers" size={14} />
+      <span className="plan-page-wave-at">{t('plan.steps.of', { at: status.at, of: status.of })}</span>
       {!brief && nextText !== null && <span className="plan-page-wave-next">{nextText}</span>}
     </span>
   )
@@ -112,7 +111,7 @@ export function PlanWaves({
         <WaveLine status={waveStatus} />
         <Tabs
           variant="segmented"
-          label={t('plan.view.label')}
+          label={t('plan.steps.viewLabel')}
           value={view}
           onChange={setView}
           items={(['graph', 'board'] as const).map((v) => ({ id: v, label: t(`plan.view.${v}`) }))}
@@ -129,7 +128,7 @@ export function PlanWaves({
               실행·병합이 busy 를 잠그는 것과 같은 이유다. */}
           <Button
             size="sm"
-            icon={<Plus size={14} />}
+            icon={<Icon name="add" size={14} />}
             disabled={lockedReason !== undefined || busy !== null}
             title={lockedReason}
             onClick={() => p.setAuthoring(true)}
@@ -153,6 +152,7 @@ export function PlanWaves({
           canManualStart={p.canManualStart}
           formOpen={p.formOpen}
           lockedReason={lockedReason}
+          accountLabel={(id) => accounts?.find((a) => a.id === id)?.label ?? id}
           onStart={(taskId) => void p.startTask(taskId)}
           onStop={(taskId) => void p.stopTask(taskId)}
           onGate={(taskId) => {

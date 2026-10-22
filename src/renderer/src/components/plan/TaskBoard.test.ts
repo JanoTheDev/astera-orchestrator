@@ -46,14 +46,19 @@ describe('TaskBoard by wave', () => {
   it('draws one section per wave with its progress, and marks the current one', () => {
     const html = board()
     expect(html.match(/class="plan-wave[ "]/g)).toHaveLength(3)
-    expect(html).toContain('plan.wave.title(n=1)')
+    expect(html).toContain('plan.steps.title(n=1)')
     expect(html).toContain('plan.wave.progress(done=1,total=1)')
     // Wave 2 is the first not done
-    expect(html.match(/<section class="plan-wave plan-wave-current"[^>]*>.*?<\/h3>/)?.[0]).toContain('plan.wave.title(n=2)')
+    expect(html.match(/<section class="plan-wave plan-wave-current"[^>]*>.*?<\/h3>/)?.[0]).toContain('plan.steps.title(n=2)')
     expect(html).not.toContain('plan-wave-banner')
+    // W12: a finished step folds behind a ui Button that says it is folded
+    expect(html).toMatch(/class="ui-btn[^"]*plan-wave-fold"[^>]*aria-expanded="false"/)
+  })
+  it("W12: a card's branch says what a worktree is", () => {
+    expect(board({ tasks: [task('w', { branch: 'feat/x' })], layers: [['w']] })).toContain('plan.steps.worktreeHint')
   })
   it('shows a replan in progress as a banner on the current wave', () => {
-    expect(board({ replanning: true })).toContain('plan.wave.replanning(n=2)')
+    expect(board({ replanning: true })).toContain('plan.steps.replanning(n=2)')
   })
   it("lists a card's files, three and then +N more", () => {
     const html = board()
@@ -92,14 +97,14 @@ describe('TaskBoard coordinator Gates (W8-F, #97)', () => {
     const html = board({ tasks: [gated], layers: [['g']], onAnswer: async () => null })
     expect(html).toContain('plan-question')
     expect(html).toContain('Out of tries: Task g')
-    expect(html).toMatch(/<button[^>]*>retry-once<\/button>/)
-    expect(html).toMatch(/<button[^>]*>mark-failed<\/button>/)
+    expect(html).toMatch(/<(?:button)[^>]*>(<span[^>]*>)?retry-once(<\/span>)?<\/button>/)
+    expect(html).toMatch(/<(?:button)[^>]*>(<span[^>]*>)?mark-failed(<\/span>)?<\/button>/)
     expect(html).toContain('<textarea')
   })
   it('a check that could not be made has its buttons and no text box', () => {
     const t = task('g', { status: 'blocked', openGates: 1, gate: { id: 'gat_2', question: 'q', options: ['retry', 'skip-check'], kind: 'check-unavailable' } })
     const html = board({ tasks: [t], layers: [['g']], onAnswer: async () => null })
-    expect(html).toMatch(/<button[^>]*>skip-check<\/button>/)
+    expect(html).toMatch(/<(?:button)[^>]*>(<span[^>]*>)?skip-check(<\/span>)?<\/button>/)
     expect(html).not.toContain('<textarea')
   })
   it('no box without an answer route (a remote Runtime)', () => {

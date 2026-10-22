@@ -1,14 +1,29 @@
 // The dependency graph of the Waves section (moved out of pages/PlanPage.tsx): one row per layer, the edges coloured by
-// whether they still wait. Drawing only; the page decides what a click means.
+// whether they still wait. Drawing only; the page decides what a click means. W12: the node controls are ui IconButtons,
+// the title is a ui Button (the keyboard's way to select a node), a layer is shown as "Step n" and a waiting node's
+// title says why it waits (planBoard reasonText).
 import type { JobTask, TaskStatus } from '../../../../core/types'
 import { chainOf } from '../../../../core/orchestration/graph'
 import type { GraphBox } from '../../../../core/orchestration/graphLayout'
 import { edgePath, layoutRows, NODE_H, NODE_W } from '../../../../core/orchestration/graphLayout'
 import { canStopConvergence, nodeMetaOf, retryingCheckOf } from '../../../../core/orchestration/nodeMeta'
 import { useI18n } from '../../i18n/I18nProvider'
-import { GLYPH, checkTooltip, nodeMetaText, type GlyphKind } from '../checkText'
-import { LockIcon, STATUS_COLOR, TaskGlyph, UnlockIcon } from '../JobIcons'
-import { ArrowUpRight, Play, Square, WrenchOff } from 'lucide-react'
+import { checkTooltip, nodeMetaText, type GlyphKind } from '../checkText'
+import { STATUS_COLOR, TaskGlyph } from '../JobIcons'
+// Not in the ui ICONS registry yet (listed for promotion in the W12 report): unlock, stop auto-fix
+import { LockOpen, WrenchOff } from 'lucide-react'
+import { Button, Icon, IconButton, type IconName } from '../ui'
+import { reasonText } from './planBoard'
+
+/** A check's state as a registry icon, in place of the old glyph characters (checkText GLYPH). */
+const CHECK_ICON: Record<GlyphKind, IconName> = {
+  passed: 'check',
+  failed: 'close',
+  'timed-out': 'close',
+  'not-run': 'pending',
+  error: 'warning',
+  retrying: 'loading'
+}
 
 /** 노드 테두리의 색. 시작 전 둘과 끝난 것은 선을 세우지 않는다 — 안의 글리프가 이미 그 셋을 말하고
  *  있고, 그래프에서 눈이 가야 하는 것은 지금 도는 것과 손이 필요한 것이다. */
@@ -58,7 +73,8 @@ export function Graph({
   onAnswer,
   onRestart,
   onStopConvergence,
-  lockedReason
+  lockedReason,
+  accountLabel = (id) => id
 }: {
   tasks: JobTask[]
   layers: string[][]
@@ -93,6 +109,8 @@ export function Graph({
   onStopConvergence: (taskId: string) => void
   /** Why the node actions are off (a read-only pairing, Phase 7): drawn disabled with this as their title. */
   lockedReason?: string
+  /** W12: an account id as the name the person gave it, for a waiting node's "why" (reasonText). */
+  accountLabel?: (id: string) => string
 }): React.JSX.Element {
   const { t } = useI18n()
   const byId = new Map(tasks.map((tk) => [tk.id, tk]))
@@ -143,6 +161,10 @@ export function Graph({
     const retrying = retryingCheckOf(task)
     // 고른 Task 와 의존으로 닿지 않는 것. 이 Task 를 멈춰도 저것은 멈추지 않는다는 뜻이다
     const away = chain !== undefined && !chain.has(task.id)
+    // W12: why it waits, in plain words — the board card's reason line, here on the node's title (NODE_H has no room for a line)
+    const reason = task.board?.reason
+    const why = reason ? reasonText(reason, Date.now(), accountLabel) : undefined
+    const tip = why ? `${task.title} — ${t(why.key, why.params)}` : task.title
     const cls = ['detail-node', `detail-node--${task.status}`, away ? 'away' : '']
       .filter(Boolean)
       .join(' ')
@@ -163,14 +185,27 @@ export function Graph({
           ...(pos ? { left: pos.x, top: pos.y } : {})
         }}
         onClick={() => onSelect(task.id)}
-        title={task.title}
+        title={tip}
       >
         {/* 글리프는 왼쪽 칸에서 두 줄에 걸쳐 선다 — 제목 줄에만 붙이면 부제가 있는 카드에서
             글리프가 위로 딸려 올라가 카드마다 다른 높이에 놓인다(styles.css 의 grid-row: 1 / -1) */}
         <span className="detail-node-sig">
           <TaskGlyph task={task} />
         </span>
-        <span className="detail-node-title">{task.title}</span>
+        {/* 제목이 키보드의 클릭 자리다 — 노드 안에 버튼이 있어 노드 자체를 버튼으로 둘 수 없다(TaskBoard 카드와 같은 모양) */}
+        <Button
+          variant="ghost"
+          size="sm"
+          className="detail-node-title"
+          aria-pressed={selected === task.id}
+          title={tip}
+          onClick={(ev) => {
+            ev.stopPropagation()
+            onSelect(task.id)
+          }}
+        >
+          {task.title}
+        </Button>
         {meta !== undefined && <span className="detail-node-meta">{meta}</span>}
         {/* 검사 칩 한 줄 — 검사가 걸린 Task 만(없으면 요소도 없다: NODE_H 안에서 제목·meta 두 줄이 가운데 서는
             지금 모양을 그대로 두려면 빈 줄을 세우면 안 된다). meta 줄과 따로인 이유는 Gate 질문이 meta 를 차지해도
@@ -182,7 +217,7 @@ export function Graph({
               const glyph: GlyphKind = retrying !== null && c.configId === retrying.configId ? 'retrying' : c.status
               return (
                 <span key={c.configId} className={`detail-check detail-check--${glyph}`} title={checkTooltip(c, glyph, t)}>
-                  {GLYPH[glyph]}
+                  <Icon name={CHECK_ICON[glyph]} size={14} />
                   {c.unstable && <sub>~</sub>}
                 </span>
               )
@@ -200,106 +235,105 @@ export function Graph({
         {!formOpen && (
           <span className="detail-node-acts">
             {sessionId && (
-              <button
+              <IconButton
+                size="sm"
                 className="detail-node-jump"
-                title={t('jobs.timeline.openSession')}
-                aria-label={t('jobs.timeline.openSession')}
+                label={t('plan.card.focus')}
+                icon={<Icon name="open" size={14} />}
                 onClick={(ev) => {
                   ev.stopPropagation()
                   onOpenSession(sessionId)
                 }}
-              >
-                <ArrowUpRight size={12} />
-              </button>
+              />
             )}
             {showStart && (
-              <button
+              <IconButton
+                size="sm"
                 className="detail-node-btn"
+                label={t('jobs.node.start')}
                 disabled={lockedReason !== undefined}
                 title={lockedReason ?? t('jobs.node.start')}
-                aria-label={t('jobs.node.start')}
+                icon={<Icon name="run" size={14} />}
                 onClick={(ev) => {
                   ev.stopPropagation()
                   onStart(task.id)
                 }}
-              >
-                <Play size={12} fill="currentColor" strokeWidth={0} />
-              </button>
+              />
             )}
             {showGate && (
-              <button
+              <IconButton
+                size="sm"
                 className="detail-node-btn"
+                label={t('plan.graph.gate')}
                 disabled={lockedReason !== undefined}
-                title={lockedReason ?? t('jobs.node.gate')}
-                aria-label={t('jobs.node.gate')}
+                title={lockedReason ?? t('plan.graph.gate')}
+                icon={<Icon name="lock" size={14} />}
                 onClick={(ev) => {
                   ev.stopPropagation()
                   onGate(task.id)
                 }}
-              >
-                <LockIcon />
-              </button>
+              />
             )}
             {/* 답하기 — Gate 가 열려 있는 blocked 노드에만. 이 버튼이 이 슬라이스의 전부다: 앱은
                 Gate 를 열고(위 `?`) 보여 주기만 하고 푸는 곳이 아무 데도 없었다. */}
             {showAnswer && (
-              <button
+              <IconButton
+                size="sm"
                 className="detail-node-btn"
+                label={t('plan.graph.answer')}
                 disabled={lockedReason !== undefined}
-                title={lockedReason ?? t('jobs.node.answer')}
-                aria-label={t('jobs.node.answer')}
+                title={lockedReason ?? t('plan.graph.answer')}
+                icon={<Icon icon={LockOpen} size={14} />}
                 onClick={(ev) => {
                   ev.stopPropagation()
                   onAnswer(task.id)
                 }}
-              >
-                <UnlockIcon />
-              </button>
+              />
             )}
             {showStop && (
-              <button
+              <IconButton
+                size="sm"
                 className="detail-node-btn"
+                label={t('jobs.node.stop')}
                 disabled={lockedReason !== undefined}
                 title={lockedReason ?? t('jobs.node.stop')}
-                aria-label={t('jobs.node.stop')}
+                icon={<Icon name="stop" size={14} />}
                 onClick={(ev) => {
                   ev.stopPropagation()
                   onStop(task.id)
                 }}
-              >
-                <Square size={12} fill="currentColor" strokeWidth={0} />
-              </button>
+              />
             )}
             {showRestart && (
-              <button
+              <IconButton
+                size="sm"
                 className="detail-node-btn"
+                label={t('jobs.node.restart')}
                 disabled={lockedReason !== undefined}
                 title={lockedReason ?? t('jobs.node.restart')}
-                aria-label={t('jobs.node.restart')}
+                icon={<Icon name="refresh" size={14} />}
                 onClick={(ev) => {
                   ev.stopPropagation()
                   onRestart(task.id)
                 }}
-              >
-                <Play size={12} fill="currentColor" strokeWidth={0} />
-              </button>
+              />
             )}
             {/* 자동 수정 중지 (설계 §4.1, 명세 §29 의 Stop Auto-Fix). 보일 조건은 core 가 정한다 —
                 자동 수정이 걸려 있고, 아직 안 멈췄고, 끝나지 않은 Task 만. 되돌릴 수 없는 버튼이라
                 확인 창이 먼저 뜬다(RunDetail 의 stopConvergence). */}
             {canStopConvergence(task) && (
-              <button
+              <IconButton
+                size="sm"
                 className="detail-node-btn"
+                label={t('jobs.convergence.stop')}
                 disabled={lockedReason !== undefined}
                 title={lockedReason ?? t('jobs.convergence.stop')}
-                aria-label={t('jobs.convergence.stop')}
+                icon={<Icon icon={WrenchOff} size={14} />}
                 onClick={(ev) => {
                   ev.stopPropagation()
                   onStopConvergence(task.id)
                 }}
-              >
-                <WrenchOff size={12} strokeWidth={2} />
-              </button>
+              />
             )}
           </span>
         )}
@@ -360,7 +394,7 @@ export function Graph({
                   strokeDasharray="6 6"
                 />
                 <text className="detail-lane-label" x={lane.x + 20} y={lane.labelY}>
-                  {t('jobs.detail.layer', { n: String(i + 1).padStart(2, '0') })}
+                  {t('plan.steps.title', { n: i + 1 })}
                 </text>
               </g>
             ))}
