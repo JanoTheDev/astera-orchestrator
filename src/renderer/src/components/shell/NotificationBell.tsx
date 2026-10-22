@@ -1,7 +1,7 @@
 // T9 (DESIGN-W11 §8 "Bell"): the Inbox as a bell in the top bar. The badge counts the unread "needs you" cards of the
 // open project; the popover lists the newest of them, each with its one action, then the latest handled lines, and
 // "View all" opens the full Inbox (InboxPage, the `inbox` page, not a tab). The status bar's "needs you" opens it too.
-import { useMemo, useState, useSyncExternalStore } from 'react'
+import { useMemo, useSyncExternalStore } from 'react'
 import { Bell } from 'lucide-react'
 import type { MessageKey } from '../../../../core/i18n'
 import type { AppState } from '../../state/appState'
@@ -9,9 +9,10 @@ import { approvePlan, type ActionUi } from '../../lib/jobActions'
 import { localDoor } from '../../lib/orchDoor'
 import { Button, Chip, IconButton } from '../ui'
 import { Popover } from '../ui/Popover'
-import { useInbox } from '../inbox/useInbox'
+import { markRead, setRead, toggleAllProjects } from '../inbox/bellStore'
+import { useNeedsYou } from '../inbox/useNeedsYou'
 import { NEED_WORD, ageOf, handledOf, whereOf, type HandledLine, type NeedCard } from '../inbox/inboxView'
-import { BELL_RECENT_MAX, badgeOf, bellActionOf, bellItems, loadRead, markAllRead, offersAllProjects, saveRead, type BellAction } from '../inbox/bellView'
+import { BELL_RECENT_MAX, badgeOf, bellActionOf, bellItems, markAllRead, type BellAction } from '../inbox/bellView'
 import { openConsole, openInbox, openPlan } from './navigation'
 
 // Open or shut from anywhere (the status bar), like inboxNav's request
@@ -43,12 +44,8 @@ export type NotificationBellProps = Pick<AppState, 'accounts' | 'actionUi' | 'sc
 
 export function NotificationBell({ accounts, actionUi, scopedData, scopedTree, t, workspaceData, workspaceTree }: NotificationBellProps): React.JSX.Element {
   const open = useBellOpen()
-  const [allProjects, setAllProjects] = useState(false)
-  const many = offersAllProjects(workspaceTree)
-  const wide = many && allProjects
   // the feed is read only while the popover shows: the badge needs the cards alone
-  const { needs, events, pathOfJob } = useInbox(wide ? workspaceTree : scopedTree, wide ? workspaceData : scopedData, open)
-  const [read, setRead] = useState(loadRead)
+  const { needs, events, pathOfJob, read, many, allProjects } = useNeedsYou({ scopedData, scopedTree, workspaceData, workspaceTree }, open)
   const handled = useMemo(
     () => (open ? handledOf(events, { group: 'all' }, (id) => accounts?.find((a) => a.id === id)?.label ?? id, BELL_RECENT_MAX) : []),
     [open, events, accounts]
@@ -57,6 +54,7 @@ export function NotificationBell({ accounts, actionUi, scopedData, scopedTree, t
   const badge = badgeOf(items.unread)
 
   const act = (c: NeedCard, ui: ActionUi): void => {
+    markRead(c.key)
     const action = bellActionOf(c)
     if (action === 'approve') {
       void approvePlan(localDoor(window.api, pathOfJob.get(c.jobId) ?? ''), c.jobId, c.planName, ui)
@@ -100,15 +98,14 @@ export function NotificationBell({ accounts, actionUi, scopedData, scopedTree, t
         read={read}
         nowMs={Date.now()}
         t={t}
-        allProjects={many ? { on: allProjects, toggle: () => setAllProjects((v) => !v) } : undefined}
+        allProjects={many ? { on: allProjects, toggle: toggleAllProjects } : undefined}
         onMarkAllRead={() => {
-          const keys = markAllRead(needs, handled)
-          saveRead(keys)
-          setRead(new Set(keys))
+          setRead(markAllRead(needs, handled))
         }}
         onAct={(c) => act(c, actionUi)}
         onLine={(l) => {
           if (!l.sessionId) return
+          markRead(l.id)
           setBellOpen(false)
           openConsole(l.sessionId)
         }}

@@ -19,6 +19,10 @@ describe('More menu', () => {
     }
   })
 
+  it('simple mode lists Worktrees and History only', () => {
+    expect(moreItems(t, false).map((it) => it.id)).toEqual(['worktrees', 'more:history'])
+  })
+
   it('a row opens its page', () => {
     const handlers = { openPage: vi.fn() } as unknown as NavigationHandlers
     const off = registerNavigation(handlers)

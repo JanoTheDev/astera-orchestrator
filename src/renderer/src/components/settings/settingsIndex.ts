@@ -16,62 +16,77 @@ export const GROUP_LABEL: Record<SettingsGroupId, MessageKey> = {
   advanced: 'settings.group.advanced'
 }
 
+export type SettingsLevel = 'basic' | 'advanced'
+
 export interface SettingsRow {
   anchor: string
   group: SettingsGroupId
   labelKey: MessageKey
   descKey?: MessageKey
+  /** `basic` rows show in simple mode; `advanced` ones only with Advanced mode, a group's "Show advanced settings" link or a search hit. */
+  level: SettingsLevel
 }
 
 /** In page order: a group's rows render in this order. */
 export const SETTINGS_ROWS: readonly SettingsRow[] = [
-  { anchor: 'language', group: 'general', labelKey: 'settings.general.language' },
-  { anchor: 'defaultKind', group: 'general', labelKey: 'settings.defaultKind.title', descKey: 'settings.defaultKind.hint' },
-  { anchor: 'autoCloseTabs', group: 'general', labelKey: 'settings.autoCloseTabs.label', descKey: 'settings.autoCloseTabs.hint' },
-  { anchor: 'theme', group: 'general', labelKey: 'settings.theme.label', descKey: 'settings.theme.hint' },
-  { anchor: 'terminalFont', group: 'general', labelKey: 'settings.font.latin', descKey: 'settings.font.hangul' },
-  { anchor: 'shortcuts', group: 'general', labelKey: 'settings.tab.shortcuts' },
+  { anchor: 'language', group: 'general', labelKey: 'settings.general.language', level: 'basic' },
+  { anchor: 'advancedMode', group: 'general', labelKey: 'settings.basic.advancedMode.label', descKey: 'settings.basic.advancedMode.hint', level: 'basic' },
+  { anchor: 'defaultKind', group: 'general', labelKey: 'settings.defaultKind.title', descKey: 'settings.defaultKind.hint', level: 'advanced' },
+  { anchor: 'autoCloseTabs', group: 'general', labelKey: 'settings.autoCloseTabs.label', descKey: 'settings.autoCloseTabs.hint', level: 'advanced' },
+  { anchor: 'theme', group: 'general', labelKey: 'settings.theme.label', descKey: 'settings.theme.hint', level: 'basic' },
+  { anchor: 'terminalFont', group: 'general', labelKey: 'settings.font.latin', descKey: 'settings.font.hangul', level: 'advanced' },
+  { anchor: 'shortcuts', group: 'general', labelKey: 'settings.tab.shortcuts', level: 'advanced' },
 
-  { anchor: 'accounts', group: 'accounts', labelKey: 'settings.tab.accounts' },
-  { anchor: 'usageGuard', group: 'accounts', labelKey: 'settings.usageGuard.pauseAtLabel', descKey: 'settings.usageGuard.subagentsLabel' },
-  { anchor: 'accountMaxSessions', group: 'accounts', labelKey: 'settings.accountMaxSessions.label', descKey: 'settings.accountMaxSessions.hint' },
+  { anchor: 'accounts', group: 'accounts', labelKey: 'settings.tab.accounts', level: 'basic' },
+  { anchor: 'usageGuard', group: 'accounts', labelKey: 'settings.usageGuard.pauseAtLabel', descKey: 'settings.usageGuard.subagentsLabel', level: 'advanced' },
+  { anchor: 'accountMaxSessions', group: 'accounts', labelKey: 'settings.accountMaxSessions.label', descKey: 'settings.accountMaxSessions.hint', level: 'advanced' },
 
-  { anchor: 'permission', group: 'agents', labelKey: 'settings.agentPermission.label', descKey: 'settings.agentPermission.hint' },
-  { anchor: 'maxWorkers', group: 'agents', labelKey: 'settings.maxWorkers.label', descKey: 'settings.maxWorkers.hint' },
-  { anchor: 'freshCoordinator', group: 'agents', labelKey: 'settings.freshCoordinator.label', descKey: 'settings.freshCoordinator.hint' },
-  { anchor: 'stallWatch', group: 'agents', labelKey: 'settings.stallWatch.label', descKey: 'settings.stallWatch.hint' },
-  { anchor: 'startAtLogin', group: 'agents', labelKey: 'settings.startAtLogin.label', descKey: 'settings.startAtLogin.hint' },
-  { anchor: 'autoAnswer', group: 'agents', labelKey: 'settings.autoAnswer.label', descKey: 'settings.autoAnswer.hint' },
-  { anchor: 'resumeStrategy', group: 'agents', labelKey: 'settings.jobContinuity.label', descKey: 'settings.jobContinuity.hint' },
-  { anchor: 'roleModels', group: 'agents', labelKey: 'settings.roleModels.title', descKey: 'settings.roleModels.hint' },
-  { anchor: 'voice', group: 'agents', labelKey: 'settings.voice.title', descKey: 'settings.voice.hint' },
-  { anchor: 'agentBrowser', group: 'agents', labelKey: 'settings.agentBrowser.label', descKey: 'settings.agentBrowser.hint' },
-  { anchor: 'agentApp', group: 'agents', labelKey: 'settings.agentApp.label', descKey: 'settings.agentApp.hint' },
+  { anchor: 'permission', group: 'agents', labelKey: 'settings.agentPermission.label', descKey: 'settings.agentPermission.hint', level: 'advanced' },
+  { anchor: 'maxWorkers', group: 'agents', labelKey: 'settings.maxWorkers.label', descKey: 'settings.maxWorkers.hint', level: 'advanced' },
+  { anchor: 'freshCoordinator', group: 'agents', labelKey: 'settings.freshCoordinator.label', descKey: 'settings.freshCoordinator.hint', level: 'advanced' },
+  { anchor: 'stallWatch', group: 'agents', labelKey: 'settings.stallWatch.label', descKey: 'settings.stallWatch.hint', level: 'advanced' },
+  { anchor: 'startAtLogin', group: 'agents', labelKey: 'settings.startAtLogin.label', descKey: 'settings.startAtLogin.hint', level: 'advanced' },
+  { anchor: 'autoAnswer', group: 'agents', labelKey: 'settings.autoAnswer.label', descKey: 'settings.autoAnswer.hint', level: 'advanced' },
+  { anchor: 'resumeStrategy', group: 'agents', labelKey: 'settings.jobContinuity.label', descKey: 'settings.jobContinuity.hint', level: 'advanced' },
+  { anchor: 'roleModels', group: 'agents', labelKey: 'settings.roleModels.title', descKey: 'settings.roleModels.hint', level: 'advanced' },
+  { anchor: 'voice', group: 'agents', labelKey: 'settings.voice.title', descKey: 'settings.voice.hint', level: 'advanced' },
+  { anchor: 'agentBrowser', group: 'agents', labelKey: 'settings.agentBrowser.label', descKey: 'settings.agentBrowser.hint', level: 'advanced' },
+  { anchor: 'agentApp', group: 'agents', labelKey: 'settings.agentApp.label', descKey: 'settings.agentApp.hint', level: 'advanced' },
 
-  { anchor: 'projects', group: 'projects', labelKey: 'settings.projects.list', descKey: 'settings.projects.hint' },
+  { anchor: 'projects', group: 'projects', labelKey: 'settings.projects.list', descKey: 'settings.projects.hint', level: 'basic' },
 
-  { anchor: 'github', group: 'integrations', labelKey: 'settings.row.github' },
-  { anchor: 'slack', group: 'integrations', labelKey: 'settings.row.slack', descKey: 'settings.slack.hint' },
-  { anchor: 'telegram', group: 'integrations', labelKey: 'settings.row.telegram', descKey: 'settings.telegram.hint' },
-  { anchor: 'cli', group: 'integrations', labelKey: 'settings.row.cli', descKey: 'settings.cli.hint' },
-  { anchor: 'mcp', group: 'integrations', labelKey: 'settings.row.mcp', descKey: 'settings.mcp.hint' },
-  { anchor: 'remote', group: 'integrations', labelKey: 'settings.tab.remote', descKey: 'settings.remote.hint' },
-  { anchor: 'plugins', group: 'integrations', labelKey: 'settings.tab.plugins', descKey: 'settings.plugins.hint' },
-  { anchor: 'creativeHub', group: 'integrations', labelKey: 'settings.tab.creativeHub' },
+  { anchor: 'github', group: 'integrations', labelKey: 'settings.row.github', level: 'advanced' },
+  { anchor: 'slack', group: 'integrations', labelKey: 'settings.row.slack', descKey: 'settings.slack.hint', level: 'advanced' },
+  { anchor: 'telegram', group: 'integrations', labelKey: 'settings.row.telegram', descKey: 'settings.telegram.hint', level: 'advanced' },
+  { anchor: 'cli', group: 'integrations', labelKey: 'settings.row.cli', descKey: 'settings.cli.hint', level: 'advanced' },
+  { anchor: 'mcp', group: 'integrations', labelKey: 'settings.row.mcp', descKey: 'settings.mcp.hint', level: 'advanced' },
+  { anchor: 'remote', group: 'integrations', labelKey: 'settings.tab.remote', descKey: 'settings.remote.hint', level: 'basic' },
+  { anchor: 'plugins', group: 'integrations', labelKey: 'settings.tab.plugins', descKey: 'settings.plugins.hint', level: 'advanced' },
+  { anchor: 'creativeHub', group: 'integrations', labelKey: 'settings.tab.creativeHub', level: 'advanced' },
 
-  { anchor: 'notifications', group: 'notifications', labelKey: 'settings.tab.notifications', descKey: 'settings.notifications.hint' },
+  { anchor: 'notifications', group: 'notifications', labelKey: 'settings.tab.notifications', descKey: 'settings.notifications.hint', level: 'basic' },
 
-  { anchor: 'workUnit', group: 'advanced', labelKey: 'settings.workUnit.label', descKey: 'settings.workUnit.hint' },
-  { anchor: 'generator', group: 'advanced', labelKey: 'settings.gen.label', descKey: 'settings.gen.hint' },
-  { anchor: 'worktreeRoot', group: 'advanced', labelKey: 'settings.worktree.createLocation', descKey: 'settings.worktree.hint' },
-  { anchor: 'history', group: 'advanced', labelKey: 'settings.tab.history' },
-  { anchor: 'appName', group: 'advanced', labelKey: 'settings.info.appName' },
-  { anchor: 'version', group: 'advanced', labelKey: 'settings.info.version' },
-  { anchor: 'cliVersions', group: 'advanced', labelKey: 'settings.row.cliVersions' },
-  { anchor: 'host', group: 'advanced', labelKey: 'settings.info.host' },
-  { anchor: 'accountsCount', group: 'advanced', labelKey: 'settings.info.registeredAccounts' },
-  { anchor: 'update', group: 'advanced', labelKey: 'settings.info.update' }
+  { anchor: 'workUnit', group: 'advanced', labelKey: 'settings.workUnit.label', descKey: 'settings.workUnit.hint', level: 'advanced' },
+  { anchor: 'generator', group: 'advanced', labelKey: 'settings.gen.label', descKey: 'settings.gen.hint', level: 'advanced' },
+  { anchor: 'worktreeRoot', group: 'advanced', labelKey: 'settings.worktree.createLocation', descKey: 'settings.worktree.hint', level: 'advanced' },
+  { anchor: 'history', group: 'advanced', labelKey: 'settings.tab.history', level: 'advanced' },
+  { anchor: 'appName', group: 'advanced', labelKey: 'settings.info.appName', level: 'advanced' },
+  { anchor: 'version', group: 'advanced', labelKey: 'settings.info.version', level: 'advanced' },
+  { anchor: 'cliVersions', group: 'advanced', labelKey: 'settings.row.cliVersions', level: 'advanced' },
+  { anchor: 'host', group: 'advanced', labelKey: 'settings.info.host', level: 'advanced' },
+  { anchor: 'accountsCount', group: 'advanced', labelKey: 'settings.info.registeredAccounts', level: 'advanced' },
+  { anchor: 'update', group: 'advanced', labelKey: 'settings.info.update', level: 'advanced' }
 ]
+
+/** Whether a group has a row simple mode shows (a group without one leaves the nav until Advanced mode). */
+export const groupHasBasic = (g: SettingsGroupId): boolean => SETTINGS_ROWS.some((r) => r.group === g && r.level === 'basic')
+
+/** Whether a row is on screen. A search shows exactly its hits, advanced ones included; otherwise the advanced rows wait for
+ *  Advanced mode or their group's "Show advanced settings" link. */
+export function rowVisible(anchor: string, showAdvanced: boolean, only: ReadonlySet<string> | null): boolean {
+  if (only !== null) return only.has(anchor)
+  return showAdvanced || SETTINGS_ROWS.find((r) => r.anchor === anchor)?.level !== 'advanced'
+}
 
 /** Rows whose label or description contains the query, case-insensitively, in page order. An empty query is every row. */
 export function filterSettings(rows: readonly SettingsRow[], query: string, t: (key: MessageKey) => string): SettingsRow[] {

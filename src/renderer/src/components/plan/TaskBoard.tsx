@@ -55,6 +55,7 @@ export function TaskBoard({
   onOpenSession,
   projectPath,
   summaries,
+  compact = false,
   nowMs = Date.now()
 }: {
   tasks: readonly JobTask[]
@@ -82,6 +83,8 @@ export function TaskBoard({
   projectPath?: string
   /** W9-I: the plan's tab summaries by Task; a card whose Task has one says what it did */
   summaries?: ReadonlyMap<string, SessionSummary>
+  /** T19: simple mode: a card drops its model, account, branch, commits and files */
+  compact?: boolean
   /** T9: the clock of "resumes in …" and "… ago", the live read's tick (usePlanLive): one timer for the whole board. */
   nowMs?: number
 }): React.JSX.Element {
@@ -169,6 +172,7 @@ export function TaskBoard({
                     onSelect={onSelect}
                     projectPath={projectPath}
                     summary={summaries?.get(tk.id)}
+                    compact={compact}
                     onFocus={
                       tk.sessionId && categoryOf(tk) === 'running' && onOpenSession && canOpenSession?.(tk.sessionId)
                         ? () => onOpenSession(tk.sessionId!)
@@ -206,7 +210,8 @@ function TaskCard({
   onSelect,
   onFocus,
   projectPath,
-  summary
+  summary,
+  compact
 }: {
   task: JobTask
   selected: boolean
@@ -222,6 +227,7 @@ function TaskCard({
   onFocus?: () => void
   projectPath?: string // W8-B
   summary?: SessionSummary // W9-I
+  compact: boolean
 }): React.JSX.Element {
   const { t } = useI18n()
   const [allFiles, setAllFiles] = useState(false)
@@ -251,6 +257,7 @@ function TaskCard({
       {now && <span className="plan-now">{t(now.key, now.params)}</span>}
       {reason && text && <span className={`plan-reason plan-reason-${reasonTone(reason)}`}>{t(text.key, text.params)}</span>}
       {summary && <span className="summary-line" title={summary.text || undefined}>{summaryOneLine(summary, t)}</span>}
+      {!compact && (
       <dl className="plan-card-meta">
         <dt>{t('plan.card.model')}</dt>
         <dd>{model ?? t('plan.card.cliDefault')}</dd>
@@ -284,7 +291,8 @@ function TaskCard({
         )}
         {projectPath && <TaskLines projectPath={projectPath} commits={tk.links?.commits ?? []} />}
       </dl>
-      {files.length > 0 && (
+      )}
+      {!compact && files.length > 0 && (
         <ul className="plan-card-files">
           {shown.map((p) => (
             <li key={p} title={p}>

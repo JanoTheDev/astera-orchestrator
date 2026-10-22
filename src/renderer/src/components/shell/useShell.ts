@@ -2,6 +2,7 @@
 import { useMemo } from 'react'
 import { buildSessionIndex, needsInput } from '../../../../core/orchestration/sessionIndex'
 import { useAttention } from '../../state/useAttention'
+import { useNeedsYou } from '../inbox/useNeedsYou'
 import { useHostWaiting } from '../search/useHostWaiting'
 import { useAccountUsage } from '../../hooks/useAccountUsage'
 import type { AppState } from '../../state/appState'
@@ -10,7 +11,9 @@ import { activeAccountOf, nextQueuedLine, shellCounts } from './shellView'
 
 export type ShellDeps = Pick<AppState, 'accounts' | 'active' | 'sessions' | 't' | 'workspaceData' | 'workspaceTree' | 'workspaceIds' | 'scopeId' | 'scopedTree' | 'scopedData'>
 
-export function useShell({ accounts, active, sessions: allSessions, t, workspaceIds, scopeId, scopedTree: workspaceTree, scopedData: workspaceData }: ShellDeps) {
+export function useShell({ accounts, active, sessions: allSessions, t, workspaceIds, scopeId, scopedTree: workspaceTree, scopedData: workspaceData, ...wide }: ShellDeps) {
+  // T19: the status bar's "needs you" is the bell's own unread count (one selector, inbox/useNeedsYou.ts)
+  const { unread: needsYouUnread } = useNeedsYou({ scopedData: workspaceData, scopedTree: workspaceTree, workspaceData: wide.workspaceData, workspaceTree: wide.workspaceTree }, false)
   const attention = useAttention(allSessions.map((s) => s.id))
   // W5-D (#42): the Host's own waits, read with the app closed too
   const hostWaiting = useHostWaiting(workspaceData?.projects[0]?.path ?? null)
@@ -36,7 +39,7 @@ export function useShell({ accounts, active, sessions: allSessions, t, workspace
     : null
   const accountUsage = useAccountUsage()
   const shellAccount = activeAccountOf(accounts, active?.accountId)
-  return { attention, sessionIndex, needsYou, counts, nextQueued, shellAccount, shellUsage: shellAccount ? accountUsage[shellAccount.configDir] : undefined }
+  return { attention, sessionIndex, needsYou, needsYouUnread, counts, nextQueued, shellAccount, shellUsage: shellAccount ? accountUsage[shellAccount.configDir] : undefined }
 }
 
 export type ShellState = ReturnType<typeof useShell>

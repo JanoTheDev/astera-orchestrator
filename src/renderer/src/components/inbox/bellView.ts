@@ -12,12 +12,15 @@ export const BELL_READ_KEY = 'cm.bell.read'
 /** The badge: the unread "needs you" count, none at 0, "9+" above 9. */
 export const badgeOf = (n: number): string | null => (n <= 0 ? null : n > 9 ? '9+' : String(n))
 
+/** The one count of cards still waiting on the owner and unread: the bell's badge and the status bar's "needs you" both read it. */
+export const unreadCount = (needs: readonly NeedCard[], read: ReadonlySet<string>): number => needs.filter((c) => !read.has(c.key)).length
+
 /** What the popover lists. `unread` counts every unread card, also the ones past the first 8. */
 export function bellItems(needs: readonly NeedCard[], handled: readonly HandledLine[], read: ReadonlySet<string>): { needs: NeedCard[]; recent: HandledLine[]; unread: number } {
   return {
     needs: [...needs].reverse().slice(0, BELL_NEEDS_MAX),
     recent: handled.slice(0, BELL_RECENT_MAX),
-    unread: needs.filter((c) => !read.has(c.key)).length
+    unread: unreadCount(needs, read)
   }
 }
 

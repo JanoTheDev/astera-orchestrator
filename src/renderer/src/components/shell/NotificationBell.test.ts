@@ -85,7 +85,7 @@ describe('the bell opens and closes', () => {
   })
 
   it('the status bar’s "needs you" opens the popover', () => {
-    const props = { t, counts: { consoles: 1, working: 0, waiting: 3 }, nextQueued: null, hostStatus: null } as unknown as StatusBarProps
+    const props = { t, counts: { consoles: 1, working: 0, waiting: 3 }, needsYouUnread: 3, nextQueued: null, hostStatus: null } as unknown as StatusBarProps
     const needsYou = elements(StatusBar(props)).find((el) => el.props.className === 'sb-item sb-item--warn')
     expect(needsYou).toBeDefined()
     ;(needsYou!.props.onClick as () => void)()

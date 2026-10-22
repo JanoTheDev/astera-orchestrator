@@ -15,9 +15,10 @@ import {
   type LucideIcon
 } from 'lucide-react'
 import { Button, EmptyState, PageHeader } from '../ui'
+import { useAdvancedMode } from '../../state/useAdvancedMode'
 import type { SettingsDialogProps } from '../shell/SettingsDialog'
-import { GROUP_LABEL, SETTINGS_GROUPS, SETTINGS_ROWS, filterSettings, type SettingsGroupId } from './settingsIndex'
-import type { GroupProps } from './SettingRow'
+import { GROUP_LABEL, SETTINGS_GROUPS, SETTINGS_ROWS, filterSettings, groupHasBasic, type SettingsGroupId } from './settingsIndex'
+import { ShowAdvancedContext, type GroupProps } from './SettingRow'
 import { GeneralSettings } from './GeneralSettings'
 import { AccountsUsageSettings } from './AccountsUsageSettings'
 import { AgentsSettings } from './AgentsSettings'
@@ -53,6 +54,16 @@ const FLASH_MS = 1600
 export function SettingsPage(p: SettingsDialogProps & { onClose: () => void }): React.JSX.Element {
   const { settingsTab, setSettingsTab, settingsAnchor, setSettingsAnchor, t, onClose } = p
   const [query, setQuery] = useState('')
+  const [advanced] = useAdvancedMode()
+  // T19: the groups whose "Show advanced settings" link was pressed (simple mode only)
+  const [revealed, setRevealed] = useState<ReadonlySet<SettingsGroupId>>(new Set())
+  const reveal = (g: SettingsGroupId, on = true): void =>
+    setRevealed((prev) => {
+      const next = new Set(prev)
+      if (on) next.add(g)
+      else next.delete(g)
+      return next
+    })
   const root = useRef<HTMLDivElement>(null)
   const content = useRef<HTMLDivElement>(null)
 
@@ -72,6 +83,9 @@ export function SettingsPage(p: SettingsDialogProps & { onClose: () => void }): 
   useEffect(() => {
     if (!settingsAnchor) return
     setQuery('')
+    // an advanced row would not be drawn, so its group opens first
+    const target = SETTINGS_ROWS.find((r) => r.anchor === settingsAnchor)
+    if (target?.level === 'advanced') reveal(target.group)
     let timer: ReturnType<typeof setTimeout> | undefined
     const frame = requestAnimationFrame(() => {
       const row = content.current?.querySelector<HTMLElement>(`[data-anchor="${CSS.escape(settingsAnchor)}"]`)
@@ -125,7 +139,7 @@ export function SettingsPage(p: SettingsDialogProps & { onClose: () => void }): 
               onChange={(e) => setQuery(e.target.value)}
             />
           </label>
-          {SETTINGS_GROUPS.map((g) => {
+          {SETTINGS_GROUPS.filter((g) => advanced || groupHasBasic(g) || revealed.has(g) || settingsTab === g).map((g) => {
             const GroupIcon = GROUP_ICON[g]
             return (
               <button
@@ -152,10 +166,18 @@ export function SettingsPage(p: SettingsDialogProps & { onClose: () => void }): 
           {SETTINGS_GROUPS.map((g) => {
             const shown = hits ? hitGroups.has(g) : settingsTab === g
             const View = GROUP_VIEW[g]
+            const showAdvanced = advanced || revealed.has(g)
             return (
               <section key={g} className="settings-page__group" hidden={!shown}>
                 {shown && <h2 className="settings-page__group-label">{t(GROUP_LABEL[g])}</h2>}
-                <View {...p} shown={shown} only={only} />
+                <ShowAdvancedContext.Provider value={showAdvanced}>
+                  <View {...p} shown={shown} only={only} />
+                </ShowAdvancedContext.Provider>
+                {shown && !advanced && !hits && (
+                  <Button variant="ghost" size="sm" className="settings-page__more" onClick={() => reveal(g, !revealed.has(g))}>
+                    {t(revealed.has(g) ? 'settings.basic.hideAdvanced' : 'settings.basic.showAdvanced')}
+                  </Button>
+                )}
               </section>
             )
           })}

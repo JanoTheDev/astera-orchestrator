@@ -10,6 +10,7 @@ import type { MessageKey } from '../../../../core/i18n'
 import { AccountPanel } from '../AccountPanel'
 import { Button, IconButton, Kbd, Menu, Meter, Nav, type MenuItem, type NavItem } from '../ui'
 import { Popover } from '../ui/Popover'
+import { useAdvancedMode } from '../../state/useAdvancedMode'
 import { openPage } from './navigation'
 import { NotificationBell } from './NotificationBell'
 import { ProjectSwitcher } from './ProjectSwitcher'
@@ -39,9 +40,12 @@ const MORE_ITEM: Record<MorePage, [LucideIcon, MessageKey]> = {
   'more:browser': [Globe, 'shell.moreDesc.browser']
 }
 
+/** T19: what the More menu lists in simple mode; Runs, How it works and Browser need Advanced mode. */
+export const SIMPLE_MORE_PAGES: readonly MorePage[] = ['worktrees', 'more:history']
+
 /** The More menu's rows: icon, plain name, one line saying what it is. */
-export function moreItems(t: AppState['t']): MenuItem[] {
-  return MORE_MENU_PAGES.map((id) => {
+export function moreItems(t: AppState['t'], advanced = true): MenuItem[] {
+  return MORE_MENU_PAGES.filter((id) => advanced || SIMPLE_MORE_PAGES.includes(id)).map((id) => {
     const [Glyph, desc] = MORE_ITEM[id]
     return {
       id,
@@ -73,6 +77,7 @@ export type TopBarProps = Pick<
 export function TopBar(p: TopBarProps): React.JSX.Element {
   const { page, t } = p
   const tab = tabOf(page)
+  const [advanced] = useAdvancedMode()
   const navItems: NavItem<PageId>[] = TAB_PAGES.map((id) => ({
     id,
     label: <span title={`Ctrl+${KEYED_PAGES.indexOf(id) + 1}`}>{t(PAGE_LABEL[id])}</span>
@@ -103,7 +108,7 @@ export function TopBar(p: TopBarProps): React.JSX.Element {
         <span className={onMore ? 'tb-more tb-more--active' : 'tb-more'}>
           <Menu
             label={t('shell.morePages')}
-            items={moreItems(t)}
+            items={moreItems(t, advanced)}
             trigger={{ variant: 'ghost', size: 'sm', children: <>{onMore ? t(PAGE_LABEL[page]) : t('shell.more')} <ChevronDown size={12} aria-hidden="true" /></> }}
           />
         </span>
@@ -112,7 +117,7 @@ export function TopBar(p: TopBarProps): React.JSX.Element {
       <span className="tb-pages-narrow">
         <Menu
           label={t('shell.pages')}
-          items={[...TAB_PAGES.map((id) => ({ id, label: t(PAGE_LABEL[id]), onSelect: () => openPage(id) })), 'separator', ...moreItems(t)]}
+          items={[...TAB_PAGES.map((id) => ({ id, label: t(PAGE_LABEL[id]), onSelect: () => openPage(id) })), 'separator', ...moreItems(t, advanced)]}
           trigger={{ variant: 'ghost', size: 'sm', children: <>{t(PAGE_LABEL[tab ?? page])} <ChevronDown size={12} aria-hidden="true" /></> }}
         />
       </span>

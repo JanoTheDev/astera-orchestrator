@@ -38,7 +38,8 @@ export function PlanHeader({
   plans,
   snapshot,
   onClose,
-  onOpenConsoles
+  onOpenConsoles,
+  simple = false
 }: {
   p: PlanPageState
   run: JobRow | undefined
@@ -51,6 +52,8 @@ export function PlanHeader({
   snapshot: OrchSnapshot | null
   onClose: () => void
   onOpenConsoles: () => void
+  /** T19: simple mode: no section tabs and no workers-at-once field */
+  simple?: boolean
 }): React.JSX.Element {
   const { t } = useI18n()
   const { lockedReason, ui, formOpen, running, counts, waveStatus } = p
@@ -224,7 +227,7 @@ export function PlanHeader({
       actions={
         <>
           {/* W7-D (#67): workers at once, changeable while the Job runs; a lower number only holds back new starts */}
-          {run && run.outcome === 'running' && (
+          {!simple && run && run.outcome === 'running' && (
             <label className="jobs-count plan-page-concurrency" title={t('runDetail.concurrencyHint')}>
               <span>{t('runDetail.concurrency')}</span>
               <Input
@@ -276,6 +279,7 @@ export function PlanHeader({
         </>
       }
       filters={
+        simple ? undefined : (
         <Tabs
           variant="underline"
           label={t('pages.plan.sections')}
@@ -283,6 +287,7 @@ export function PlanHeader({
           onChange={onSection}
           items={PLAN_SECTIONS.map((id) => ({ id, label: t(`pages.plan.section.${id}`) }))}
         />
+        )
       }
     />
   )

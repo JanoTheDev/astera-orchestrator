@@ -1,6 +1,7 @@
 // W9-C plan page: a plan's own page (RunDetail's window became it). A thin shell since W11: the header, the section
 // switch and the shared state (plan/usePlanPage.ts); each section is its own file under components/plan/.
 import type { JobRow, OrchSnapshot, RunDetail as RunDetailData } from '../../../../core/types'
+import { useState } from 'react'
 import { useI18n } from '../../i18n/I18nProvider'
 import type { OrchDoor } from '../../lib/orchDoor'
 import type { PlanSection } from '../plan/planBoard'
@@ -9,7 +10,9 @@ import { PlanFiles } from '../plan/PlanFiles'
 import { PlanHeader } from '../plan/PlanHeader'
 import { PlanJournal } from '../plan/PlanJournal'
 import { PlanOverviewSection } from '../plan/PlanOverviewSection'
-import { PlanWaves } from '../plan/PlanWaves'
+import { PlanTaskBoard, PlanWaves } from '../plan/PlanWaves'
+import { Button } from '../ui'
+import { useAdvancedMode } from '../../state/useAdvancedMode'
 import { usePlanPage } from '../plan/usePlanPage'
 
 export function PlanPage({
@@ -65,6 +68,11 @@ export function PlanPage({
 }): React.JSX.Element {
   const { t } = useI18n()
   const p = usePlanPage({ run, detail, runId, door, section })
+  // T19: simple by default: goal, progress, board, questions and delivery. Advanced mode, or "Show details" for this plan,
+  // brings back the sections, graph, journal and the technical parts.
+  const [advanced] = useAdvancedMode()
+  const [details, setDetails] = useState(false)
+  const simple = !advanced && !details
   return (
     <div className="plan-page run-detail">
       <PlanHeader
@@ -79,6 +87,7 @@ export function PlanPage({
         snapshot={snapshot}
         onClose={onClose}
         onOpenConsoles={onOpenConsoles}
+        simple={simple}
       />
       {run === undefined && <p className="jobs-disabled-reason">{t('pages.plan.gone')}</p>}
       {p.lockedReason !== undefined && <p className="jobs-disabled-reason">{p.lockedReason}</p>}
@@ -86,10 +95,42 @@ export function PlanPage({
           넘치고 닫기 버튼이 밀려난다. 이 저장소가 실제로 그 결함을 냈던 자리다 */}
       <div className="detail-body" data-section={section}>
         <div className="detail-graph">
-          {section === 'overview' && (
+          {simple && (
+            <>
+              <PlanOverviewSection
+                p={p}
+                run={run}
+                door={door}
+                canOpenSession={canOpenSession}
+                onOpenSession={onOpenSession}
+                simple
+                board={
+                  <PlanTaskBoard
+                    p={p}
+                    door={door}
+                    runId={runId}
+                    projectPath={projectPath}
+                    detail={detail}
+                    canOpenSession={canOpenSession}
+                    onOpenSession={onOpenSession}
+                    compact
+                  />
+                }
+              />
+              <Button size="sm" variant="ghost" className="plan-simple-details" onClick={() => setDetails(true)}>
+                {t('plan.simple.showDetails')}
+              </Button>
+            </>
+          )}
+          {!simple && !advanced && (
+            <Button size="sm" variant="ghost" className="plan-simple-details" onClick={() => setDetails(false)}>
+              {t('plan.simple.hideDetails')}
+            </Button>
+          )}
+          {!simple && section === 'overview' && (
             <PlanOverviewSection p={p} run={run} door={door} canOpenSession={canOpenSession} onOpenSession={onOpenSession} />
           )}
-          {section === 'waves' && (
+          {!simple && section === 'waves' && (
             <PlanWaves
               p={p}
               door={door}
@@ -100,10 +141,10 @@ export function PlanPage({
               onOpenSession={onOpenSession}
             />
           )}
-          {section === 'changes' && <PlanChanges p={p} run={run} door={door} runId={runId} />}
-          {section === 'files' && <PlanFiles tasks={p.tasks} onOpenPath={onOpenPath} onSelect={p.onNodeClick} />}
+          {!simple && section === 'changes' && <PlanChanges p={p} run={run} door={door} runId={runId} />}
+          {!simple && section === 'files' && <PlanFiles tasks={p.tasks} onOpenPath={onOpenPath} onSelect={p.onNodeClick} />}
         </div>
-        {p.eventsShown && (
+        {!simple && p.eventsShown && (
           <PlanJournal
             p={p}
             door={door}
