@@ -464,13 +464,15 @@ describe('Host-owned recovery after a restart, with no app (remote runtime desig
     expect(host2.state().tasks.find((t) => t.id === keeping.taskId)?.status).toBe('dispatched')
   })
 
-  it('journal off: the restarted Host opens today’s lost-worker Gate', async () => {
+  // An app-driven plan is not stopped on an owner Gate: its lost worker is the stall watchdog's to start again.
+  it('journal off: the restarted Host opens no lost-worker Gate on an app-driven plan', async () => {
     const { p, server, first, taskId } = await lostWorker({ settings: { jobContinuityEnabled: false } })
     first.kill()
     const second = await boot(p, '2026-10-08T02:00:00.000Z', server)
     await second.cli('jobs-list', {})
-    await until(() => expect(second.state().tasks.find((t) => t.id === taskId)?.status).toBe('blocked'))
-    expect(second.spawns()).toHaveLength(0)
+    await second.settle()
+    expect(second.state().tasks.find((t) => t.id === taskId)?.status).not.toBe('blocked')
+    expect(second.state().gates.filter((g) => g.taskId === taskId)).toEqual([])
   })
 
   // W3-D (SPEC §10 "recover after restart without duplicate workers"): of two workers, the one whose session is

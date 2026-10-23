@@ -5,6 +5,7 @@ import { dropNonGitProjects, ensureGitProject, ensureProject, findProject, findP
 import { addSubProject, autoProjectFor, childProjectsOf, findProjectContaining, jobInProject, moveJobToProject, projectOfJob, removeProject } from './projects'
 import type { JobRun, Project, Task } from './types'
 import { foldsCaseHere } from '../testPaths'
+import { deliveryChecksOf } from './delivery'
 
 /** An absolute path this platform actually produces, so the case and separator rules under test are
  *  the real ones rather than a win32 string a posix runner never sees. */
@@ -141,23 +142,19 @@ describe('a new Job and Task take their project settings (W7-B)', () => {
     expect(v.convergence).toEqual({})
   })
 
-  it("validates a Task that names no check with the project's test configuration", () => {
+  it("gives a Task that names no check none, even with a project test configuration: it runs once at delivery", () => {
     const s = withSettings({ testConfigId: 'astera:test' })
     const j = job(s)
-    const def = createTask(j.state, { jobId: j.value.id, title: 'a', spec: 's', deps: [] }, 'T2')
-    if (!def.ok) throw new Error(def.error)
-    expect(def.value.validateConfigIds).toEqual(['astera:test'])
-    const run = startJobRun(def.state, j.value.id, 'T3')
+    const run = startJobRun(j.state, j.value.id, 'T3')
     if (!run.ok) throw new Error(run.error)
     const inst = createTask(run.state, { runId: run.value.id, title: 'b', spec: 's', deps: [] }, 'T4')
     if (!inst.ok) throw new Error(inst.error)
-    expect(inst.value.validateConfigIds).toEqual(['astera:test'])
-    const named = createTask(run.state, { runId: run.value.id, title: 'c', spec: 's', deps: [], validateConfigIds: ['lint'] }, 'T4')
+    expect(inst.value.validateConfigIds).toBeUndefined()
+    expect(deliveryChecksOf(inst.state, run.value.id)).toEqual(['astera:test'])
+    const named = createTask(inst.state, { runId: run.value.id, title: 'c', spec: 's', deps: [], validateConfigIds: ['lint'] }, 'T4')
     if (!named.ok) throw new Error(named.error)
     expect(named.value.validateConfigIds).toEqual(['lint'])
-    const single = createTask(run.state, { runId: run.value.id, title: 'd', spec: 's', deps: [], validateConfigId: 'lint' }, 'T4')
-    if (!single.ok) throw new Error(single.error)
-    expect(single.value.validateConfigIds ?? []).not.toContain('astera:test')
+    expect(deliveryChecksOf(named.state, run.value.id)).toEqual(['lint', 'astera:test'])
   })
 
   it('gives no check when the project has no test configuration', () => {

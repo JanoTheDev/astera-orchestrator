@@ -27,7 +27,7 @@ import { wavesToMerge } from '../integrate'
 import { draftPrDue } from '../draftPr'
 import { handsOffOf } from '../delivery'
 import { isJobActive } from '../lifecycle'
-import { lostWithCoordinator, lostWithNobody } from '../lostGate'
+import { lostRetriedIn, lostWithDriver, lostWithNobody } from '../lostGate'
 import { isLost } from '../../recovery/candidates'
 import { editingByProject, isLeaseWaitGate, LEASE_WAIT_OPTIONS, projectKeyOf, sameFilesAs, workerCapOf, workersAgainstCap } from '../schedule'
 import { DROPPED_OPTIONS, isDroppedGate, plannerOverlapNotices } from '../overlap'
@@ -453,20 +453,21 @@ export function stallRemedies(
   }
 
   // Lost: `dispatched`, its last Dispatch ended unreported and its coordinator has not started it again. Retried
-  // (`--retry-of`) up to the Task's retry limit, then the owner. A Run with no coordinator has the lost-worker Gate.
+  // (`--retry-of`) up to the Task's retry limit, then the owner. A Run nobody drives has the lost-worker Gate.
   // Untracked: `dispatched` with no Dispatch at all (its record lost, candidates.ts lostAttemptOf sees none) and no live
   // worker left to adopt (adoption ran first, header): started again the same way, never left silent.
   const untracked = s.tasks
     .filter((t) => t.status === 'dispatched' && !runGatedForTask(s, t) && !s.dispatches.some((d) => d.taskId === t.id))
     .map((t) => ({ runId: t.runId ?? '', taskId: t.id, dispatch: undefined as Dispatch | undefined }))
-  for (const seed of [...lostWithCoordinator(s), ...untracked]) {
+  for (const seed of [...lostWithDriver(s), ...untracked]) {
     const run = s.runs.find((r) => r.id === seed.runId)
     const job = run && jobOf(s, run)
     const task = s.tasks.find((t) => t.id === seed.taskId)
     if (!run || !placing(run, job) || !task) continue
-    // No coordinator to retry it (an app-driven Run): an untracked Task is raised to its owner once, never started again.
-    // One whose lost Dispatch ended has the lost-worker Gate instead (lostGate.ts). A live external coordinator drives it.
-    const driven = !!run.coordinatorSessionId || (run.externalCoordinatorSessionId !== undefined && (probe.alive?.(run.externalCoordinatorSessionId) ?? true))
+    // Nobody to retry it (no coordinator, not app-driven): an untracked Task is raised to its owner once, never started
+    // again. One whose lost Dispatch ended has the lost-worker Gate instead (lostGate.ts). A live external coordinator
+    // drives it. An app-driven Run is driven: this watchdog starts its lost Tasks again, as a coordinator would.
+    const driven = lostRetriedIn(s, run) || (run.externalCoordinatorSessionId !== undefined && (probe.alive?.(run.externalCoordinatorSessionId) ?? true))
     if (!driven && seed.dispatch) continue
     const lostAt = seed.dispatch ? Date.parse(seed.dispatch.endedAt!) : (at.get(task.id) ?? nowMs)
     if (nowMs - lostAt < LOST_STALL_MS) continue
