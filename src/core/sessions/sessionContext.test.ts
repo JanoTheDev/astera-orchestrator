@@ -5,6 +5,7 @@ import os from 'node:os'
 import { spawnSync } from 'node:child_process'
 import { SESSION_CONTEXT_SCRIPT, QUICKREF_FILE, codexDeveloperInstructions, sessionContextLines } from './sessionContext'
 import { LAUNCH_FORBIDDEN } from './commands'
+import { OWNER_HEADING } from '../prompts/ownerInstructions'
 import { coordinatorBriefName } from '../orchestration/exec/specFiles'
 import { plannerBriefName } from '../orchestration/exec/plannerStart'
 
@@ -101,6 +102,26 @@ describe('SessionStart context script', () => {
       const shipped = readFileSync(path.join(__dirname, '../../../resources/skills', QUICKREF_FILE), 'utf8')
       const t = (await run({}, { ASTERA_CLI: 'x', ASTERA_SKILLS: path.join(__dirname, '../../../resources/skills') }))!
       expect(t).toContain(shipped.trim())
+    })
+  })
+
+  describe('the owner\'s session instructions', () => {
+    const own = async (text: string | null) => {
+      await fs.mkdir(path.join(dir, 'prompts'), { recursive: true })
+      if (text !== null) await fs.writeFile(path.join(dir, 'prompts', 'session.md'), text)
+    }
+    it('end the context under the owner heading, the same text sessionContextLines gives codex', async () => {
+      await own('Answer in French.\n')
+      const t = (await run({}))!
+      expect(t.endsWith(`${OWNER_HEADING}:\nAnswer in French.`)).toBe(true)
+      expect(t).toBe(sessionContextLines({}, null, null, 'Answer in French.\n').join('\n'))
+    })
+    it('add nothing when the file is missing or blank', async () => {
+      const plain = sessionContextLines({}, null).join('\n')
+      await own(null)
+      expect(await run({})).toBe(plain)
+      await own('  \n')
+      expect(await run({})).toBe(plain)
     })
   })
 
@@ -213,6 +234,23 @@ describe('codexDeveloperInstructions', () => {
     })
     it('is left out when the file is missing', () => {
       expect(codex(files({ settings: {} }))).toBe(brief({ settings: {} }))
+    })
+  })
+
+  describe('the owner\'s session instructions', () => {
+    const OWN = path.join('P', 'prompts', 'session.md')
+    const withOwn = (text: string) => {
+      const base = files({ settings: {} })
+      return (p: string): string | null => (p === OWN ? text : base(p))
+    }
+    const codex = (read: (p: string) => string | null) => codexDeveloperInstructions({ profileDir: 'P', codexHome: 'C', read })
+    it('end the one line under the owner heading', () => {
+      expect(codex(withOwn('Be brief.\nNo emoji.'))!.endsWith(`${OWNER_HEADING.replace('>', ')')}: Be brief. No emoji.`)).toBe(true)
+    })
+    it('are dropped alone when they hold cmd.exe syntax', () => {
+      const t = codex(withOwn('a | b'))!
+      expect(t).not.toContain('a | b')
+      expect(t).toBe(brief({ settings: {} }))
     })
   })
 

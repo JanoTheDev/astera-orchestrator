@@ -13,6 +13,7 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { LAUNCH_FORBIDDEN } from './commands'
+import { OWNER_HEADING, ownerFile } from '../prompts/ownerInstructions'
 import { coordinatorBriefName } from '../orchestration/exec/specFiles'
 import { plannerBriefName } from '../orchestration/exec/plannerStart'
 
@@ -41,7 +42,7 @@ const REPLAN = 'Your plan for this Astera session is %PATH%. Read it again now a
 export const SESSION_CONTEXT_SCRIPT = `const fs = require('fs')
 const path = require('path')
 const dir = process.env.ASTERA_PROFILE_DIR
-const H = ${JSON.stringify({ HEADER, LINES, FOOTER, REPLAN, QUICKREF: QUICKREF_FILE, COORD: nameAround(coordinatorBriefName), PLANNER: nameAround(plannerBriefName) })}
+const H = ${JSON.stringify({ HEADER, LINES, FOOTER, REPLAN, QUICKREF: QUICKREF_FILE, OWNER: OWNER_HEADING, OWNER_FILE: path.join('prompts', 'session.md'), COORD: nameAround(coordinatorBriefName), PLANNER: nameAround(plannerBriefName) })}
 function readJson(file) {
   try { return JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8')) } catch { return null }
 }
@@ -75,6 +76,11 @@ try {
     // A missing or unreadable file leaves the pointer line above as the only mention.
     try { lines.push(fs.readFileSync(path.join(process.env.ASTERA_SKILLS, H.QUICKREF), 'utf8').trim()) } catch {}
     lines.push(H.FOOTER)
+    // The owner's own text for every session (Settings > Agents); unreadable or blank adds nothing.
+    try {
+      const own = fs.readFileSync(path.join(dir, H.OWNER_FILE), 'utf8').trim()
+      if (own) lines.push(H.OWNER + ':', own)
+    } catch {}
     let plan = null
     try { plan = planPath() } catch {}
     if (plan) lines.push(H.REPLAN.replace('%PATH%', plan))
@@ -87,7 +93,7 @@ process.exit(0)
 /** The lines the script above prints, decided by the same rules, for a session that cannot run it: a
  *  codex TUI (codexDeveloperInstructions). The script keeps its own copy because it runs as a separate
  *  file; a test runs both over the same settings (sessionContext.test.ts) so the two cannot drift. */
-export function sessionContextLines(settings: unknown, higgsfield: unknown, quickref?: string | null): string[] {
+export function sessionContextLines(settings: unknown, higgsfield: unknown, quickref?: string | null, owner?: string | null): string[] {
   const s = settings && typeof settings === 'object' ? (settings as Record<string, unknown>) : {}
   const hf = higgsfield && typeof higgsfield === 'object' ? (higgsfield as { accounts?: unknown }) : null
   const lines = [HEADER]
@@ -99,6 +105,7 @@ export function sessionContextLines(settings: unknown, higgsfield: unknown, quic
   if (hf && Array.isArray(hf.accounts) && hf.accounts.length > 0) lines.push(LINES.higgsfield)
   if (quickref?.trim()) lines.push(quickref.trim())
   lines.push(FOOTER)
+  if (owner?.trim()) lines.push(OWNER_HEADING + ':', owner.trim())
   return lines
 }
 
@@ -158,11 +165,14 @@ export function codexDeveloperInstructions(a: {
   if (own !== null && setsDeveloperInstructions(own)) return null
   const settings = readJson(read, path.join(a.profileDir, 'app-settings.json'))
   const higgsfield = readJson(read, path.join(a.profileDir, 'higgsfield', 'accounts.json'))
-  const oneLine = (quickref: string | null): string =>
-    sessionContextLines(settings, higgsfield, quickref).join(' ').replace(/\s*\r?\n\s*/g, ' ').replace(/</g, '(').replace(/>/g, ')')
+  const owner = read(ownerFile(a.profileDir, 'session'))
+  const oneLine = (quickref: string | null, ownerText: string | null = owner): string =>
+    sessionContextLines(settings, higgsfield, quickref, ownerText).join(' ').replace(/\s*\r?\n\s*/g, ' ').replace(/</g, '(').replace(/>/g, ')')
   const quickref = a.skillsDir ? read(path.join(a.skillsDir, QUICKREF_FILE)) : null
   // A quick reference with cmd.exe syntax in it costs the session its list; the pointer lines still go.
   let text = oneLine(quickref)
   if (quickref !== null && LAUNCH_FORBIDDEN.test(text)) text = oneLine(null)
+  // The owner's text with cmd.exe syntax in it is dropped the same way, rather than the session's list.
+  if (LAUNCH_FORBIDDEN.test(text)) text = oneLine(null, null)
   return LAUNCH_FORBIDDEN.test(text) ? null : text
 }

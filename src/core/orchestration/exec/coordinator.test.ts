@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { OWNER_HEADING } from '../../prompts/ownerInstructions'
 import {
   OrchCoordinator,
   buildSpecFile,
@@ -1286,5 +1287,23 @@ describe('OrchCoordinator.startWorker — launchPhrase', () => {
     const r = await co.startWorker({ ...baseArgs(), runCwd: dir, launchPhrase: 'Read {specPath} and fix it' })
     const spawned = deps.spawned[0] as { initialPrompt: string }
     expect(spawned.initialPrompt).toBe(`Read ${posix(r.specPath)} and fix it`)
+  })
+})
+
+describe('owner instructions in the worker and reviewer specs', () => {
+  const base = { title: 'T', spec: 'S', taskId: 'tsk_1', dispatchId: 'dsp_1' }
+  const tail = `\n---\n## ${OWNER_HEADING}\n\nPrefer small commits.\n`
+
+  it('the worker spec ends with the owner block, and is unchanged without it', () => {
+    const plain = buildSpecFile(base)
+    expect(buildSpecFile({ ...base, ownerInstructions: '' })).toBe(plain)
+    const out = buildSpecFile({ ...base, ownerInstructions: 'Prefer small commits.' })
+    expect(out).toBe(plain.trimEnd() + '\n' + tail)
+  })
+  it('the reviewer spec ends with the owner block, and is unchanged without it', () => {
+    const r = { ...base, validated: true }
+    const plain = buildReviewSpecFile(r)
+    expect(buildReviewSpecFile({ ...r, ownerInstructions: ' ' })).toBe(plain)
+    expect(buildReviewSpecFile({ ...r, ownerInstructions: 'Prefer small commits.' })).toBe(plain.trimEnd() + '\n' + tail)
   })
 })

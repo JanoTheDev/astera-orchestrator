@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { buildHandoverPrompt, buildPlannerBrief, coordinatorLaunchPrompt } from './handover'
+import { OWNER_HEADING } from '../prompts/ownerInstructions'
 import { buildReplanBrief } from './exec/replanStart'
 import { feedbackLine, replanFeedbackLine, resumeBrief } from './exec/plannerFeedback'
 
@@ -324,5 +325,26 @@ describe('--worktree in the planner guide and briefs (T3)', () => {
     const guide = await fs.readFile(path.join(__dirname, '../../../resources/skills/planner-guide.md'), 'utf8')
     expect(guide).toContain('**New worktree or reuse (`--worktree new|reuse`).**')
     expect(guide).toContain('never reuse only to save time on a Task that could run in parallel')
+  })
+})
+
+describe('owner instructions and the quick reference', () => {
+  const planner = { jobId: 'job_x', objective: 'o', repoRoot: '/repo', accountId: 'acc1', concurrency: 2 }
+  const coordinator = { runId: 'run_abc', objective: 'o', concurrency: 3, taskCount: 4 }
+
+  it('the briefs point at --brief and help <N>, not at the whole guide', () => {
+    for (const b of [buildHandoverPrompt(coordinator), buildPlannerBrief(planner)]) {
+      expect(b).toContain('`astera help --brief`')
+      expect(b).toContain('`astera help <N>`')
+      expect(b).not.toContain('read the reference before your first command')
+    }
+  })
+  it('both end with the owner block when text is given, and are unchanged without it', () => {
+    const block = `\n---\n## ${OWNER_HEADING}\n\nUse British spelling.\n`
+    for (const [build, args] of [[buildHandoverPrompt, coordinator], [buildPlannerBrief, planner]] as const) {
+      const plain = build(args as never)
+      expect(build({ ...args, ownerInstructions: '' } as never)).toBe(plain)
+      expect(build({ ...args, ownerInstructions: 'Use British spelling.' } as never)).toBe(plain + '\n' + block)
+    }
   })
 })

@@ -1315,6 +1315,31 @@ export interface ExtensionsApi {
   skillReposSet(added: string[]): Promise<{ ok: true; repos: SkillRepos } | ExtensionError>
 }
 
+/** The agents Astera writes prompts for; the owner's custom instructions are kept per role (core/prompts/ownerInstructions.ts). */
+export type PromptRole = 'session' | 'planner' | 'coordinator' | 'worker' | 'reviewer'
+
+export interface PromptInfo {
+  role: PromptRole
+  /** Size of the saved text; 0 when none. */
+  bytes: number
+  set: boolean
+}
+
+export type PromptSetResult =
+  | { ok: true }
+  | { ok: false; error: 'invalid-role' | 'invalid-text' }
+  | { ok: false; error: 'too-long'; max: number }
+  | { ok: false; error: 'write-failed'; message: string }
+
+/** Settings › Agents (main/promptsIpc.ts). `preview` is a sample of the built-in text the owner's text is appended to. */
+export interface PromptsApi {
+  list(): Promise<PromptInfo[]>
+  get(role: PromptRole): Promise<string>
+  set(role: PromptRole, text: string): Promise<PromptSetResult>
+  reset(role: PromptRole): Promise<PromptSetResult>
+  preview(role: PromptRole): Promise<string>
+}
+
 /** The MCP over HTTP setting in app-settings.json (MCP HTTP design §2), narrowed by core/settings/mcpHttp.ts. */
 export interface McpHttpSettings {
   enabled: boolean
@@ -2633,6 +2658,8 @@ export type RendererApi = CoreApi & {
   plugins: PluginsApi
   /** The MCP & skills finder: third-party MCP servers and skills per account. */
   extensions: ExtensionsApi
+  /** The owner's custom instructions for Astera's agent prompts. */
+  prompts: PromptsApi
   /** The Jobs view's "+ From a source" (plugin Phase 4c): the Host's job sources, as the app. */
   sources: SourcesApi
   remoteSessions: RemoteSessionsApi

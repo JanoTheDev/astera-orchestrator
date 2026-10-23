@@ -1,6 +1,8 @@
 // 사이드바로 만든 Run 을 코디네이터 세션에 인계하는 프롬프트. 순수 함수다 — 문구가 곧 계약이고,
 // 계약은 기계가 검사할 수 있어야 한다(schedule.ts 머리말과 같은 이유).
 
+import { appendTo } from '../prompts/ownerInstructions'
+
 /** 코디네이터 세션의 첫 입력. **영어인 이유**: 에이전트가 읽는 문구다 — spec 파일
  *  (coordinator.ts 의 buildSpecFile)과 재개 지시문(resumeSection.ts)이 영어인 것과 같은 자리이고,
  *  화면 문구가 아니므로 i18n 을 타지 않는다.
@@ -77,6 +79,8 @@ export function buildHandoverPrompt(a: {
   /** T3: the app places this Run's ready Tasks itself (`placedByApp` with the coordinator attached), so the
    *  coordinator does not start them. False (or absent) for a scheduled Job's Run, whose coordinator still places. */
   appPlaces?: boolean
+  /** The owner's text for the coordinator (core/prompts/ownerInstructions.ts), appended at the end. */
+  ownerInstructions?: string
 }): string {
   const sequential = a.concurrency <= 1
   // A Job from MCP `create_job` or `jobs create` carries only its objective (e2e 2026-10-01, second
@@ -117,7 +121,7 @@ export function buildHandoverPrompt(a: {
             ]
           : [])
       ]
-  return [
+  const text = [
     planning
       ? 'You are the coordinator for one Job in Astera. It was started with an objective and no Tasks.'
       : 'You are the coordinator for one Job in Astera. Its Tasks were laid out before you joined.',
@@ -147,7 +151,8 @@ export function buildHandoverPrompt(a: {
     `- concurrency limit: ${a.concurrency}`,
     '',
     'START HERE',
-    'Run `astera help` and read the reference before your first command.',
+    'The quick reference is in your start context, or `astera help --brief`; `astera help <N>` prints one section of the guide.',
+    'Run the full `astera help` only when neither answers your question.',
     '',
     'TAKE STOCK BEFORE YOU START ANYTHING',
     'You may be joining this Run part-way through: a person can restart a coordinator from the Jobs',
@@ -246,6 +251,7 @@ export function buildHandoverPrompt(a: {
         ]
       : [])
   ].join('\n')
+  return appendTo(text, a.ownerInstructions)
 }
 
 /** T9: the account rule of both briefs. Tasks with no account run on the account with the most room (weekly first). */
@@ -292,8 +298,10 @@ export function buildPlannerBrief(a: {
   promptsMode?: boolean
   /** T1: how the planner works with the person. Absent: `chat`. */
   planning?: 'chat' | 'auto'
+  /** The owner's text for the planner (core/prompts/ownerInstructions.ts), appended at the end. */
+  ownerInstructions?: string
 }): string {
-  return [
+  const text = [
     'You are the PLANNER for one Job in Astera. You analyse and plan. You do not implement anything.',
     'A person reads your plan and approves it in Astera ("Approve & execute"); only then do workers start,',
     'one terminal per Task, each with the prompt you wrote for it.',
@@ -312,7 +320,8 @@ export function buildPlannerBrief(a: {
     'BEFORE YOU PLAN',
     '- Read the repository\'s own instructions first: CLAUDE.md and AGENTS.md at the root and in the folders',
     '  you plan to touch. Follow them, and tell each worker the ones that apply to its Task.',
-    '- Read `$ASTERA_SKILLS/planner-guide.md` (how to cut a plan into Tasks), then `astera help`.',
+    '- Read `$ASTERA_SKILLS/planner-guide.md` (how to cut a plan into Tasks). The quick reference is in your start context, or',
+    '  `astera help --brief`; `astera help <N>` prints one section; the full `astera help` only when neither answers.',
     '',
     ...(a.unmergedBranches && a.unmergedBranches.length > 0
       ? [
@@ -375,4 +384,5 @@ export function buildPlannerBrief(a: {
     `\`astera run-start --run ${a.jobId} --owner-said "<their words, verbatim>"\`. Never run it unless they said so after your`,
     'last change. If it lists problems, fix them and ask the person to confirm again here.'
   ].join('\n')
+  return appendTo(text, a.ownerInstructions)
 }

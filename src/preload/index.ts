@@ -216,6 +216,13 @@ const api = {
     skillReposGet: invoke('extensions.skillReposGet'),
     skillReposSet: invoke('extensions.skillReposSet')
   },
+  prompts: {
+    list: invoke('prompts.list'),
+    get: invoke('prompts.get'),
+    set: invoke('prompts.set'),
+    reset: invoke('prompts.reset'),
+    preview: invoke('prompts.preview')
+  },
   mcpHttp: {
     status: invoke('mcpHttp.status'),
     token: invoke('mcpHttp.token'),
