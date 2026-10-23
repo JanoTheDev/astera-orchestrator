@@ -15,7 +15,7 @@ import { localDoor, replyNote } from '../../lib/orchDoor'
 import { jobName } from '../../lib/jobName'
 import { toast } from '../../lib/toast'
 import { archiveJob, deleteRun, holdJob, pauseRun, restartCoordinator as restartRunCoordinator, resumeRun, unarchiveJob } from '../../lib/jobActions'
-import { openConsole, openPage, openPlan, openView } from '../shell/navigation'
+import { openConsole, openPage, openView } from '../shell/navigation'
 import { ViewToolbar, type SideBarViewProps } from '../shell/SideBar'
 import { planStatusOf } from '../plan/planList'
 import { approveSlot } from '../plan/planTalk'
@@ -194,11 +194,13 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
   // every group and step shown closes; the plans opened go back to closed
   const collapseAll = (): void => setToggled(new Set(rows.filter((r) => openByDefault(r.node)).map((r) => r.id)))
 
-  /** The plan tab, at a section (`openPlan`'s: `settings`, `task-<id>`) or its top. */
+  /** The plan tab, at a section (`settings`, `task-<id>`, as planAnchorOf reads it) or its top. Opens from orchSnapshot
+   *  like before (archived plans too), so the section goes to the page state, not navigation's openPlan (workspaceTree). */
   const openPlanTab = (jobId: string, section?: PlanSection): void => {
     if (!currentProject) return
     p.setDetail(null) // the previous plan's detail never shows for a frame
-    openPlan(jobId, section)
+    p.setPlanPage({ page: 'plans', ...(section !== undefined ? { section } : {}) })
+    p.setOpenRun({ projectPath: currentProject, runId: jobId })
   }
   /** DESIGN-W13 §10: a Task opens its console when one runs for it, else its plan tab scrolled to it. */
   const openTask = (row: JobRow, taskId: string, sessionId?: string): void => {

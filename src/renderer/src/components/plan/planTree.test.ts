@@ -157,6 +157,14 @@ describe('Plans view sections for the plan tab', () => {
     expect(planAnchorOf(planSectionOf(taskSection('tsk_9')))).toEqual({ kind: 'task', taskId: 'tsk_9' })
     expect(planAnchorOf(planSectionOf('settings'))).toEqual({ kind: 'settings' })
   })
+
+  it('the Plans view opens the plan from orchSnapshot (archived plans too) and sets the section on the page state', () => {
+    const view = readFileSync(path.join(__dirname, '../views/PlansView.tsx'), 'utf8')
+    const body = /const openPlanTab = [\s\S]*?\n  }\n/.exec(view)?.[0] ?? ''
+    expect(body).toMatch(/p\.setPlanPage\(\{ page: 'plans', \.\.\.\(section !== undefined \? \{ section \} : \{\}\) \}\)/)
+    expect(body).toMatch(/p\.setOpenRun\(\{ projectPath: currentProject, runId: jobId \}\)/)
+    expect(body).not.toMatch(/\bopenPlan\(/)
+  })
 })
 
 describe('plan name truncation priority (plans.css)', () => {
