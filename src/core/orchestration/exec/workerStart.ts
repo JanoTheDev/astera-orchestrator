@@ -271,7 +271,7 @@ export interface CoordinatorStartContext {
  *  on what the guard already holds. */
 export const START_READ_WAIT_MS = 5_000
 
-export type StartPurpose = 'planner' | 'coordinator' | 'worker' | 'reviewer'
+export type StartPurpose = 'planner' | 'coordinator' | 'worker' | 'reviewer' | 'session'
 
 export type StartAccountChoice =
   /** `release` ends the start's place in the live count (UsageGuard.reserve): call it once the session runs or the
@@ -402,6 +402,36 @@ export async function autoStartChain(
   })
   if (!choice.ok) throw new NoRoomError(choice.why)
   return choice
+}
+
+/**
+ * T1: the account a plain session (New Session, Resume, Restart, Reopen, `sessions create`) starts on, and the chain it
+ * rolls on: chooseStartAccount. No account named is auto: the best ranked account of `provider` (claude by default),
+ * rolling over the whole ranking. A named account is a preference: with room it keeps its own chain as given (none: no
+ * rolling); full, logged out or gone, the session starts on the first of its chain with room, else the best ranked, and
+ * that chain follows the start. "Pick accounts automatically" off: the named account and chain as given (none named: the
+ * provider's first account, not rolling). Throws NoRoomError when nothing has room. `release` once the session runs.
+ */
+export async function chooseSessionStart(
+  ctx: Pick<CoordinatorStartContext, 'usageGuard' | 'loginStatus' | 'accounts' | 'log'>,
+  a: { accountId?: string; provider?: Provider; rollAccountIds?: readonly string[] }
+): Promise<{ accountId: string; rollAccountIds: string[]; release(): void }> {
+  const own = a.rollAccountIds ?? []
+  // Setting off as of the guard's last read: the start as asked, with no usage read in its way
+  if (a.accountId && ctx.usageGuard?.autoAccounts() === false) return { accountId: a.accountId, rollAccountIds: [...own], release: () => {} }
+  const choice = await chooseStartAccount(ctx, {
+    ...(a.accountId ? { preferred: a.accountId } : {}),
+    ...(a.provider ? { provider: a.provider } : {}),
+    purpose: 'session',
+    own
+  })
+  if (!choice.ok) throw new NoRoomError(choice.why)
+  // chooseStartAccount's chain is the ranking only while the setting is on (else the start alone)
+  const ranked = ctx.usageGuard?.autoAccounts() === true && ctx.loginStatus !== undefined
+  const rollAccountIds = !a.accountId
+    ? ranked ? choice.chain : []
+    : choice.accountId === a.accountId || own.length === 0 ? [...own] : [...new Set([choice.accountId, ...own])]
+  return { accountId: choice.accountId, rollAccountIds, release: choice.release }
 }
 
 /**

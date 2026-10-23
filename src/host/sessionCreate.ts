@@ -31,7 +31,7 @@ import { sourcesOf } from './sessions'
 
 export function createHostSessionStarter(d: {
   /** Null for a Host started without the agent CLI paths: it starts no session. */
-  spawner: Pick<HostSpawner, 'createSession'> | null
+  spawner: Pick<HostSpawner, 'createSession' | 'startAccount'> | null
   /** Null when the Host has no chat manager (no spawner, so no rolling wiring). */
   chats: Pick<HostChats, 'spawn' | 'started' | 'procOf'> | null
   rolling: Pick<HostRolling, 'adoptSpawned'> | null
@@ -75,6 +75,23 @@ export function createHostSessionStarter(d: {
     }
   }
 
+  // T1: the account by usage (the spawner's startAccount): none named is auto, the best ranked of `o.provider` rolling
+  // over the whole ranking; a named one is a preference, never started on while full. Nothing has started yet.
+  const startOf = async (o: SessionCreate): Promise<{ accountId: string; rollAccountIds: string[]; release(): void }> => {
+    try {
+      if (d.spawner?.startAccount)
+        return await d.spawner.startAccount({
+          ...(o.accountId !== undefined ? { accountId: o.accountId } : {}),
+          ...(o.provider !== undefined ? { provider: o.provider } : {}),
+          rollAccountIds: o.rollAccountIds
+        })
+      if (o.accountId === undefined) throw new Error('this Host picks no account: name one with --account')
+      return { accountId: o.accountId, rollAccountIds: o.rollAccountIds, release: () => {} }
+    } catch (err) {
+      throw err instanceof Error ? refusedBeforeActing(err) : err
+    }
+  }
+
   const terminal = async (o: SessionCreate): Promise<HostSession> => {
     if (!d.spawner)
       throw refusedBeforeActing(new Error('this Host starts no sessions: it was started without the agent CLI paths'))
@@ -82,14 +99,20 @@ export function createHostSessionStarter(d: {
     // (commands.ts LAUNCH_FORBIDDEN — a command-line prompt, cmd.exe on win32)
     if (o.prompt !== undefined && LAUNCH_FORBIDDEN.test(o.prompt))
       throw refusedBeforeActing(new Error('the prompt must not contain " & | < > ^ % or a line break'))
-    const info = await d.spawner.createSession({
-      accountId: o.accountId,
-      cwd: o.cwd,
-      ...(o.title !== undefined ? { title: o.title } : {}),
-      ...(o.prompt !== undefined ? { initialPrompt: o.prompt } : {}),
-      rollAccountIds: o.rollAccountIds
-    })
-    d.log(`sessions create: terminal session ${info.id} on ${o.accountId} in ${o.cwd}`)
+    const start = await startOf(o)
+    let info: SessionInfo
+    try {
+      info = await d.spawner.createSession({
+        accountId: start.accountId,
+        cwd: o.cwd,
+        ...(o.title !== undefined ? { title: o.title } : {}),
+        ...(o.prompt !== undefined ? { initialPrompt: o.prompt } : {}),
+        rollAccountIds: start.rollAccountIds
+      })
+    } finally {
+      start.release()
+    }
+    d.log(`sessions create: terminal session ${info.id} on ${start.accountId} in ${o.cwd}`)
     return rowOf(info, 'terminal')
   }
 
@@ -99,10 +122,12 @@ export function createHostSessionStarter(d: {
     // Everything that can refuse comes before the spawn, so a refusal starts nothing.
     let account: Account
     let bypass: boolean
+    const start = await startOf(o)
+    const chain = start.rollAccountIds
     try {
       const accounts = await d.readAccounts()
-      const found = accounts.find((a) => a.id === o.accountId)
-      if (!found) throw new Error(`unknown account: ${o.accountId}`)
+      const found = accounts.find((a) => a.id === start.accountId)
+      if (!found) throw new Error(`unknown account: ${start.accountId}`)
       account = found
       await checkCwd(o.cwd, d.probeCwd, `CWD_MISSING: ${o.cwd} does not exist`)
       // win32: a CLI installed since this Host started, found on the Path Windows keeps (windowsPath.ts)
@@ -110,24 +135,30 @@ export function createHostSessionStarter(d: {
       await ensureInstallDirOnPath([providerOf(account)]) // macOS and Linux: Claude Code installed since this process started (installDirPath.ts)
       bypass = await d.bypass()
     } catch (err) {
+      start.release()
       throw err instanceof Error ? refusedBeforeActing(err) : err
     }
-    const info = chats.spawn({
-      account,
-      cwd: o.cwd,
-      bypassPermissions: bypass,
-      ...(o.title !== undefined ? { title: o.title } : {}),
-      ...(o.prompt !== undefined ? { initialPrompt: o.prompt } : {}),
-      ...(o.rollAccountIds.length > 0 ? { rollAccountIds: o.rollAccountIds } : {}),
-      unattendedPermission: o.unattended ?? 'hold'
-    })
+    let info: SessionInfo
+    try {
+      info = chats.spawn({
+        account,
+        cwd: o.cwd,
+        bypassPermissions: bypass,
+        ...(o.title !== undefined ? { title: o.title } : {}),
+        ...(o.prompt !== undefined ? { initialPrompt: o.prompt } : {}),
+        ...(chain.length > 0 ? { rollAccountIds: chain } : {}),
+        unattendedPermission: o.unattended ?? 'hold'
+      })
+    } finally {
+      start.release()
+    }
     // The handshake and the first prompt settle before anyone else may take the session.
     if (!(await chats.started(info.id)))
       throw new Error(`chat session ${info.id} did not finish starting, so it was ended`)
-    if (o.rollAccountIds.length > 0) d.rolling?.adoptSpawned(info, account)
+    if (chain.length > 0) d.rolling?.adoptSpawned(info, account)
     const procId = chats.procOf(info.id)
     if (procId !== null) d.announceProc(procId)
-    d.log(`sessions create: chat session ${info.id} on ${o.accountId} in ${o.cwd}`)
+    d.log(`sessions create: chat session ${info.id} on ${start.accountId} in ${o.cwd}`)
     return rowOf(info, 'chat')
   }
 

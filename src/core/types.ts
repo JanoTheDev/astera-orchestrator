@@ -1340,7 +1340,10 @@ export interface CoreApi {
   }
   sessions: {
     spawn(opts: {
-      accountId: string
+      /** T1: absent (or empty) is auto — the account with most room of `provider` (claude by default), rolling over
+       *  the provider's ranking; a named one is a preference, never started on while full (main/ipc.ts sessions.spawn). */
+      accountId?: string
+      provider?: Provider
       cwd: string
       cols?: number
       rows?: number

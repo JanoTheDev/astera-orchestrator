@@ -6931,6 +6931,27 @@ describe('jobs create / tasks add / accounts list', () => {
     expect(accounts.asked).toContainEqual({ provider: 'claude', withDefault: true })
   })
 
+  // T1: the provider's default only says the provider; the coordinator starts on its account with most room
+  it('--coordinator-provider keeps no preferred account, so its coordinator starts auto; a named account stays the preference', async () => {
+    const accounts = withDefaults([
+      { id: 'cl1', provider: 'claude', default: true },
+      { id: 'cl2', provider: 'claude' }
+    ])
+    for (const [given, auto] of [[{ coordinatorProvider: 'claude' }, true], [{ coordinatorAccount: 'cl1' }, false]] as const) {
+      const startCoordinator = vi.fn(async (a: { runId: string }) => ({ sessionId: `coord-${a.runId}` }))
+      const deps = { ...makeDeps(), listAccounts: accounts.listAccounts, startCoordinator }
+      const r = await shell(deps, 'jobs-create', { objective: 'o', cwd: 'D:/p', ...given })
+      expect(r.status).toBe(200)
+      const id = (r.body as { id: string }).id
+      expect(deps.getState().jobs.find((j) => j.id === id)?.preferredAccountId).toBe(auto ? undefined : 'cl1')
+      expect((await shell(deps, 'jobs-run', { id })).status).toBe(200)
+      expect(startCoordinator).toHaveBeenCalledTimes(1)
+      const asked = startCoordinator.mock.calls[0][0] as unknown as { accountId: string; auto?: true }
+      expect(asked.accountId).toBe('cl1')
+      expect(asked.auto).toBe(auto ? true : undefined)
+    }
+  })
+
   it('an explicit --coordinator-account wins over --coordinator-provider', async () => {
     const accounts = withDefaults([
       { id: 'cl1', provider: 'claude', default: true },

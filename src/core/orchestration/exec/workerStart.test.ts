@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { startWorkerWithChain, startCoordinatorSession, preTrustWorkspace, chooseStartAccount, autoStartChain, START_READ_WAIT_MS, type AutoStartGuard, type WorkerStartContext } from './workerStart'
+import { startWorkerWithChain, startCoordinatorSession, preTrustWorkspace, chooseStartAccount, chooseSessionStart, autoStartChain, START_READ_WAIT_MS, type AutoStartGuard, type WorkerStartContext } from './workerStart'
 import { createUsageGuard, type UsageChange } from '../usageGuard'
 import { WorkerTails, TAIL_EMPTY } from './tail'
 import { createJob, createTask, emptyState, startJobRun, type OrchState } from '../state'
@@ -505,5 +505,60 @@ describe('chooseStartAccount (T5b)', () => {
     // nothing known at all: the named account starts
     const none = createUsageGuard({ readings: async () => new Map(), pauseAt: async () => 90, autoAccounts: async () => true, nowMs: () => Date.parse(NOW) })
     expect(await chooseStartAccount(ctxOf(none, accounts), { preferred: 'a1', purpose: 'planner' })).toMatchObject({ ok: true, accountId: 'a1' })
+  })
+
+  // T1: a plain session (New Session, Resume, Restart, Reopen, `sessions create`) takes the same choice
+  describe('chooseSessionStart (T1)', () => {
+    const off = () =>
+      createUsageGuard({
+        readings: async () => new Map(Object.entries({ a1: [100, 100], a2: [10, 10] } as Record<string, [number, number]>).map(([id, [w, s]]) => [id, { weekly: win(w), session: win(s) }])),
+        pauseAt: async () => 90,
+        autoAccounts: async () => false,
+        nowMs: () => Date.parse(NOW)
+      })
+
+    it('no account named: the usable account rankAccounts puts first, rolling over the whole ranking', async () => {
+      const g = realGuard({ readings: { a1: [50, 50], a2: [20, 5], a3: [30, 10], a4: [100, 0] } })
+      const r = await chooseSessionStart(ctxOf(g), {})
+      expect(r.accountId).toBe('a2')
+      expect(r.rollAccountIds).toEqual(['a2', 'a3', 'a1', 'a4'])
+    })
+
+    it('no account named and the first account full: another one', async () => {
+      const g = realGuard({ readings: { ...allEmpty, a1: [95, 0] } })
+      const r = await chooseSessionStart(ctxOf(g), {})
+      expect(r.accountId).not.toBe('a1')
+      expect(r.rollAccountIds.at(-1)).toBe('a1')
+    })
+
+    it('no account named: only the asked provider', async () => {
+      const g = realGuard({ readings: { a1: [5, 5], x1: [50, 50], x2: [10, 10] } })
+      const r = await chooseSessionStart(ctxOf(g, [acct('a1'), acct('x1', 'codex'), acct('x2', 'codex')]), { provider: 'codex' })
+      expect(r).toMatchObject({ accountId: 'x2', rollAccountIds: ['x2', 'x1'] })
+    })
+
+    it('a picked account with room keeps its own chain (none: no rolling), as before', async () => {
+      const g = realGuard({ readings: { ...allEmpty, a1: [80, 80] } })
+      expect(await chooseSessionStart(ctxOf(g), { accountId: 'a1', rollAccountIds: ['a1', 'a3'] })).toMatchObject({ accountId: 'a1', rollAccountIds: ['a1', 'a3'] })
+      expect(await chooseSessionStart(ctxOf(g), { accountId: 'a1' })).toMatchObject({ accountId: 'a1', rollAccountIds: [] })
+    })
+
+    it('a picked full account is not started on: its own chain first, else the best ranked; the chain follows the start', async () => {
+      const g = realGuard({ readings: { a1: [100, 0], a2: [10, 10], a3: [50, 50], a4: [5, 5] } })
+      expect(await chooseSessionStart(ctxOf(g), { accountId: 'a1', rollAccountIds: ['a1', 'a3'] })).toMatchObject({ accountId: 'a3', rollAccountIds: ['a3', 'a1'] })
+      expect(await chooseSessionStart(ctxOf(g), { accountId: 'a1' })).toMatchObject({ accountId: 'a4', rollAccountIds: [] })
+    })
+
+    it('nothing has room: refused with the plain reason', async () => {
+      const g = realGuard({ readings: { a1: [100, 0], a2: [100, 0], a3: [100, 0], a4: [100, 0] } })
+      await expect(chooseSessionStart(ctxOf(g), {})).rejects.toThrow(/no claude account has room to start the session on/)
+      await expect(chooseSessionStart(ctxOf(g), { accountId: 'a1' })).rejects.toThrow(/no claude account has room/)
+    })
+
+    it('setting off: the named account and chain as given, and no account named is the first one, not rolling', async () => {
+      expect(await chooseSessionStart(ctxOf(off()), { accountId: 'a1', rollAccountIds: ['a1', 'a2'] })).toMatchObject({ accountId: 'a1', rollAccountIds: ['a1', 'a2'] })
+      expect(await chooseSessionStart(ctxOf(off()), { accountId: 'a1' })).toMatchObject({ accountId: 'a1', rollAccountIds: [] })
+      expect(await chooseSessionStart(ctxOf(off()), {})).toMatchObject({ accountId: 'a1', rollAccountIds: [] })
+    })
   })
 })
