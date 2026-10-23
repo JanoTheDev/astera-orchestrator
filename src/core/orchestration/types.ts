@@ -425,6 +425,8 @@ export interface PlanFeedback {
   text: string
   phase: 'plan' | 'run'
   changes?: string[]
+  /** T1: sent while a replan ran and its planner could not take it: the next replan starts with it when that one ends. */
+  queued?: true
 }
 
 /** W6-D: which boundary a replan is for. `wave` is the wave about to start; a completion pass stands after the last. */

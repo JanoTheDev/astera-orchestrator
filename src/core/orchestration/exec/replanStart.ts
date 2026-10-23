@@ -14,11 +14,14 @@ import { PLANNER_COMMANDS, planFieldsFromArgs, validatePlan } from '../planner'
 import { REPLAN_FOLLOW_UPS_MAX, affectedLeft, cancelRemainingTask, deviatingTasks, editRemainingTask, notStarted, replanAccountOf, replanJobOf, replanOn, resolveFailedWait, runTasks, waveOpen, type ReplanEnded, type ReplanRecord } from '../replan'
 import { isIntegrationTask } from '../integrate'
 import { jobNameOf } from '../jobName'
+import { outcomeOfTasks } from '../running'
 import { placedByApp, type OrchState } from '../state'
 import { newId, type Job, type Message, type ReplanMark, type Task } from '../types'
+import { HOST_CALLER } from '../../host/driver'
 
 type Reply = { status: number; body: unknown }
 type Caller = { sessionId: string; role?: 'app' | 'cli' | 'mcp' | 'controller' | 'plugin' }
+type Handle = (deps: OrchServerDeps, caller: Caller, cmd: string, args: Record<string, unknown>) => Promise<Reply>
 
 export const REPLAN_COMMANDS: ReadonlySet<string> = new Set(['jobs-replan', 'jobs-replan-done', 'task-cancel'])
 
@@ -165,7 +168,10 @@ export function buildReplanBrief(a: {
   }
   const completion = a.mode === 'completion'
   return [
-    a.feedback !== undefined
+    // T1: feedback on a finished plan is more work, not a final check
+    a.feedback !== undefined && completion
+      ? 'You are the PLANNER for one Job in Astera, REPLANNING NOW because the owner sent feedback on the finished plan. Every Task has completed or failed.'
+      : a.feedback !== undefined
       ? 'You are the PLANNER for one Job in Astera, REPLANNING NOW because the owner sent feedback while the plan runs.'
       : completion
       ? 'You are the PLANNER for one Job in Astera, doing its FINAL CHECK. Every Task has completed.'
@@ -212,8 +218,12 @@ export function buildReplanBrief(a: {
       ? [
           'OWNER FEEDBACK',
           a.feedback.trim(),
-          'Apply it to the Tasks that have not started. If it is about a running or completed Task, change nothing',
-          'there: say so in your summary, so the owner can stop that Task from its card.',
+          ...(completion
+            ? ['Add follow-up Tasks for what it asks. A completed Task is not changed: a follow-up Task does the new work.']
+            : [
+                'Apply it to the Tasks that have not started. If it is about a running or completed Task, change nothing',
+                'there: say so in your summary, so the owner can stop that Task from its card.'
+              ]),
           ''
         ]
       : []),
@@ -224,7 +234,7 @@ export function buildReplanBrief(a: {
     '',
     'WHAT YOU MAY DO',
     `- Change a Task that has not started: \`astera task-update --id <taskId>\` with --prompt -, --criteria, --affected-paths, --deps, --difficulty, --title, --spec.`,
-    `- Add a Task: \`astera task-create --run ${a.runId} --account ${a.accountId}\` with the planner flags (--prompt -, --criteria, --affected-paths, --deps, --difficulty, --model-reason) and, on every Task, --basis missing|partial|broken and --evidence "<file:line, #issue, PR or Job id>".`,
+    `- Add a Task: \`astera task-create --run ${a.runId} --account ${a.accountId}\` with the planner flags (--prompt -, --criteria, --affected-paths, --deps, --kind bugfix|feature|refactor|ui|audit|docs|test|ops, --difficulty, --model-reason) and, on every Task, --basis missing|partial|broken and --evidence "<file:line, #issue, PR or Job id>".`,
     '  A follow-up for a review\'s leftovers uses `--basis partial` with evidence naming the parent Task id and its review (for example "tsk_x review round 2: <issue>").',
     '- Cancel a Task that has not started and is no longer needed: `astera task-cancel --id <taskId> --reason "<why>"`.',
     ...(a.failed?.length
@@ -235,7 +245,7 @@ export function buildReplanBrief(a: {
         ]
       : []),
     'Astera refuses any change to a completed or running Task, and every command that starts work.',
-    ...(completion
+    ...(completion && a.feedback === undefined
       ? [
           '',
           'THE FINAL CHECK',
@@ -277,7 +287,7 @@ async function briefParts(deps: OrchServerDeps, s: OrchState, runId: string, onl
 }
 
 /** The replan commands. `fromAgent`: the caller is an agent session (not the app, the Host, a shell). */
-export async function replanCommand(deps: OrchServerDeps, caller: Caller, cmd: string, args: Record<string, unknown>, fromAgent: boolean): Promise<Reply> {
+export async function replanCommand(deps: OrchServerDeps, caller: Caller, cmd: string, args: Record<string, unknown>, fromAgent: boolean, handle?: Handle): Promise<Reply> {
   const now = deps.now?.() ?? new Date().toISOString()
   const s = deps.getState()
   const setJob = async (jobId: string, f: (j: Job) => Job): Promise<Job | undefined> => {
@@ -368,7 +378,8 @@ export async function replanCommand(deps: OrchServerDeps, caller: Caller, cmd: s
     // W7-A: a feedback replan is at no boundary of its own: it re-records the Run's last boundary, so the waves open and
     // replan as they would have (waveOpen, replansDue)
     const last = feedback !== undefined && job.lastReplan?.runId === runId ? job.lastReplan : undefined
-    const mode = last?.mode ?? (args.mode === 'completion' ? 'completion' : 'wave')
+    // T1: feedback on a finished plan asks for completion itself, whatever the last boundary was
+    const mode = args.mode === 'completion' ? 'completion' : (last?.mode ?? 'wave')
     const mark: ReplanMark = {
       runId,
       mode,
@@ -456,20 +467,22 @@ export async function replanCommand(deps: OrchServerDeps, caller: Caller, cmd: s
   // The planner repairs its own plan: a plan that does not hold refuses its end, so the owner is never asked
   if (fromAgent && args.gone !== true && problems.length)
     return { status: 409, body: { error: `the plan does not hold yet: ${problems.join('; ')}. Fix them with task-update, then call jobs-replan-done again`, problems } }
-  const followUps = (job.replanFollowUps ?? 0) + (r.mode === 'completion' && added > 0 ? 1 : 0)
+  // T1: the cap is the automatic final check's; the owner's own feedback always gets its follow-ups
+  const followUps = (job.replanFollowUps ?? 0) + (r.mode === 'completion' && added > 0 && r.feedbackAt === undefined ? 1 : 0)
   const escalated = problems.length
     ? `the plan does not hold after the replan: ${problems.join('; ')}`
     : followUps > REPLAN_FOLLOW_UPS_MAX
       ? `the final check wants a follow-up wave beyond ${REPLAN_FOLLOW_UPS_MAX}: ${line}`
       : undefined
-  const { startedAt, sessionId, heldBefore, cancelled: _c, before: _b, feedbackAt, scoped, ...mark } = r as ReplanRecord
+  const { startedAt, sessionId, heldBefore, cancelled: _c, before: _b, feedbackAt: _f, scoped, ...mark } = r as ReplanRecord
   const ended: ReplanEnded = { ...mark, startedAt, at: now, summary: line, ...(escalated ? { escalated } : {}) }
   // A scoped replan set no hold, so it leaves the Job's hold as it finds it (a person's jobs-hold meanwhile stays)
   await setJob(jobId, ({ replanning: _r, dispatchHold: hold, ...j }) => ({
     ...j,
-    // W7-A: the summary is what the planner changed for the owner's feedback
-    ...(feedbackAt !== undefined && j.feedback
-      ? { feedback: j.feedback.map((f) => (f.at === feedbackAt && f.phase === 'run' && f.changes === undefined ? { ...f, changes: [escalated ?? line] } : f)) }
+    // W7-A: the summary is what the planner changed for the owner's feedback. T1: also for what was typed into it
+    // meanwhile; what was queued waits for the next replan
+    ...(j.feedback
+      ? { feedback: j.feedback.map((f) => (f.phase === 'run' && f.changes === undefined && !f.queued ? { ...f, changes: [escalated ?? line] } : f)) }
       : {}),
     ...(escalated || heldBefore || (scoped && hold) ? { dispatchHold: true as const } : {}),
     ...(followUps > 0 ? { replanFollowUps: followUps } : {}),
@@ -486,5 +499,24 @@ export async function replanCommand(deps: OrchServerDeps, caller: Caller, cmd: s
   // #47: the planner's work is recorded, so its session ends.
   if (sessionId && args.gone !== true)
     await deps.stopCoordinator?.(sessionId, 'its replan is done').catch((e) => deps.log?.(`replan planner ${sessionId} could not be stopped: ${String(e)}`))
+  // T1: a finished plan the replan gave new Tasks runs again: its coordinator had stopped, and placing needs one
+  // (state.ts placedByApp). run-start starts none for a Run still finished, paused, or with one attached.
+  if (r.mode === 'completion' && added > 0 && !escalated && handle && deps.getState().runs.find((x) => x.id === r.runId)?.coordinatorSessionId === undefined) {
+    const started = await handle(deps, { sessionId: HOST_CALLER }, 'run-start', { run: r.runId }).catch((e) => ({ status: 500, body: String(e) }))
+    if (started.status >= 300) deps.log?.(`run=${r.runId}: its coordinator could not start after the replan: ${JSON.stringify(started.body)}`)
+  }
+  // T1: the owner's feedback queued while this replan ran starts the next one, all of it in one brief
+  const queued = (deps.getState().jobs.find((j) => j.id === jobId)?.feedback ?? []).filter((f) => f.queued)
+  if (queued.length) {
+    const setQueued = (q: true | undefined) =>
+      setJob(jobId, (j) => ({ ...j, feedback: (j.feedback ?? []).map((f) => (queued.some((x) => x.at === f.at && x.text === f.text) ? { ...f, queued: q } : f)) }))
+    await setQueued(undefined)
+    const finished = outcomeOfTasks(runTasks(deps.getState(), r.runId)) !== 'running'
+    const next = await replanCommand(deps, { sessionId: HOST_CALLER }, 'jobs-replan', { id: jobId, run: r.runId, feedback: queued.map((f) => f.text).join('\n\n'), feedbackAt: now, ...(finished ? { mode: 'completion' } : {}) }, false, handle)
+    if (next.status >= 300) {
+      await setQueued(true)
+      deps.log?.(`job=${jobId}: its queued feedback could not start a replan: ${JSON.stringify(next.body)}`)
+    }
+  }
   return ok({ jobId, summary: line, ...(escalated ? { escalated, held: true } : {}) })
 }

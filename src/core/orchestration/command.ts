@@ -1888,7 +1888,7 @@ export async function handleCommand(
   if (isFeedbackCommand(deps.getState(), caller.sessionId, cmd))
     return feedbackCommand(deps, caller, cmd, args, caller.sessionId !== '' && caller.sessionId !== APP_CALLER && caller.sessionId !== HOST_CALLER, handleCommand)
   if (REPLAN_COMMANDS.has(cmd) || (cmd === 'task-update' && replanJobOf(deps.getState(), caller.sessionId)))
-    return replanCommand(deps, caller, cmd, args, caller.sessionId !== '' && caller.sessionId !== APP_CALLER && caller.sessionId !== HOST_CALLER)
+    return replanCommand(deps, caller, cmd, args, caller.sessionId !== '' && caller.sessionId !== APP_CALLER && caller.sessionId !== HOST_CALLER, handleCommand)
   // The job-source commands (plugin Phase 4), in a module of their own; jobs-create-from-source comes back here
   if (SOURCE_COMMANDS.has(cmd)) return sourcesCommand(deps, caller, cmd, args, handleCommand)
   if (cmd === 'browser-js') {
