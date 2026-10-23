@@ -1,10 +1,9 @@
 // T4 Plans page "Main plan" (plan/mainPlanView.ts): the project's plans in run order, each with its Tasks and, under a
 // Task or plan that waits for another plan, one plain line. Clicking a plan opens its page; a Task opens its worker's
 // console when it has one, else its plan, as the plan rows do.
-import { Hourglass, ListTodo } from 'lucide-react'
 import { useI18n } from '../../i18n/I18nProvider'
 import { STATE_KEY, TaskGlyph } from '../JobIcons'
-import { Button, Chip, EmptyState } from '../ui'
+import { Button, Chip, EmptyState, ICONS, Icon } from '../ui'
 import { mainPlanViewOf, type Line } from './mainPlanView'
 import { planStatusOf } from './planList'
 import type { PlanActs } from './PlanRow'
@@ -15,7 +14,7 @@ export function MainPlan({ rows, acts }: { rows: readonly JobRow[]; acts: PlanAc
   const { t } = useI18n()
   const view = mainPlanViewOf(rows)
   const say = (l: Line): string => t(l.key, l.params)
-  if (view.plans.length === 0) return <EmptyState icon={ListTodo} title={t('pages.plans.main.empty')} />
+  if (view.plans.length === 0) return <EmptyState icon={ICONS.tasks} title={t('pages.plans.main.empty')} />
   return (
     <div className="plans-list plans-main">
       <h2 className="plans-main__head">{t('pages.plans.main.head', { plans: view.plans.length, done: view.done, total: view.total })}</h2>
@@ -32,7 +31,7 @@ export function MainPlan({ rows, acts }: { rows: readonly JobRow[]; acts: PlanAc
           </div>
           {checks && (
             <p className="plans-main__wait">
-              <Hourglass size={14} aria-hidden="true" />
+              <Icon name="waiting" size={14} />
               {say(checks)}
             </p>
           )}
@@ -55,7 +54,7 @@ export function MainPlan({ rows, acts }: { rows: readonly JobRow[]; acts: PlanAc
                 </Button>
                 {wait && (
                   <p className="plans-main__wait">
-                    <Hourglass size={14} aria-hidden="true" />
+                    <Icon name="waiting" size={14} />
                     {say(wait)}
                   </p>
                 )}

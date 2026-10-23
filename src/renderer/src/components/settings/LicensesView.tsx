@@ -1,10 +1,9 @@
 // T28: Settings › About › Open source licenses. Every third-party notice scripts/gen-licenses.mjs collected, a search
 // over name and license, and the full text of the one picked. Without the generated file (a dev run) it says how to make it.
 import { useEffect, useMemo, useState } from 'react'
-import { ScrollText } from 'lucide-react'
 import type { LicenseEntry } from '../../../../core/types'
 import type { MessageKey } from '../../../../core/i18n'
-import { Button, EmptyState, Input, Modal } from '../ui'
+import { Button, EmptyState, ICONS, Input, Modal } from '../ui'
 
 type T = (key: MessageKey, params?: Record<string, string | number>) => string
 
@@ -31,7 +30,7 @@ export function LicensesView({ t, onClose }: { t: T; onClose: () => void }): Rea
       {entries === undefined ? (
         <p className="settings-hint">{t('about.licenses.loading')}</p>
       ) : entries === null ? (
-        <EmptyState icon={ScrollText} title={t('about.licenses.missingTitle')}>
+        <EmptyState icon={ICONS.licenses} title={t('about.licenses.missingTitle')}>
           {t('about.licenses.missing')}
         </EmptyState>
       ) : (

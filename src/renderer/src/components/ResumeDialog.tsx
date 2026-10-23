@@ -8,7 +8,7 @@ import { useChatAvailability } from '../hooks/useChatAvailability'
 import { isGhostAccountId } from '../../../core/accounts/ghostId'
 import { AccountSelect } from './AccountSelect'
 import { ScheduleFields } from './ScheduleFields'
-import { Button, Modal, Tabs } from './ui'
+import { Button, Modal, Tabs, Checkbox } from './ui'
 
 /** Modal for resuming a session from history. Only logged-in accounts appear as candidates and the
  *  original account is preselected. Picking a different account makes ipc copy the transcript into that
@@ -232,7 +232,7 @@ export function ResumeDialog({
         </div>
         {/* Rolling now applies to 대화 too (slice 4c) — see NewSessionDialog's own note. */}
         <label className="row check-small">
-          <input type="checkbox" checked={rollOn} onChange={(e) => setRollOn(e.target.checked)} />
+          <Checkbox checked={rollOn} onChange={(v) => setRollOn(v)} />
           {t('session.new.rollLabel')}
         </label>
         {rollOn && (
@@ -255,7 +255,7 @@ export function ResumeDialog({
         )}
         {/* The label follows the field below it — see NewSessionDialog's own note. */}
         <label className="row check-small">
-          <input type="checkbox" checked={schedOn} onChange={(e) => setSchedOn(e.target.checked)} />
+          <Checkbox checked={schedOn} onChange={(v) => setSchedOn(v)} />
           {t(kind === 'chat' ? 'session.new.schedLabelChat' : 'session.new.schedLabel')}
         </label>
         {/* Mounted only after the saved-value lookup finishes — ScheduleFields reads initial exactly
@@ -268,20 +268,18 @@ export function ResumeDialog({
           <ScheduleFields initial={schedule ?? savedSchedule} onChange={setSchedule} chat={kind === 'chat'} />
         )}
         <label className="row check-small">
-          <input
-            type="checkbox"
+          <Checkbox
             checked={slackReady && slackNotify}
             disabled={!slackReady}
-            onChange={(e) => setSlackNotify(e.target.checked)}
+            onChange={(v) => setSlackNotify(v)}
           />
           {t('session.new.slackNotify')}
           {!slackReady && <span className="check-note">{t('session.new.slackNeedsWebhook')}</span>}
         </label>
         <label className="row check-small">
-          <input
-            type="checkbox"
+          <Checkbox
             checked={bypassPermissions}
-            onChange={(e) => setBypassPermissions(e.target.checked)}
+            onChange={(v) => setBypassPermissions(v)}
           />
           {t('session.new.bypassPermissions')}
         </label>

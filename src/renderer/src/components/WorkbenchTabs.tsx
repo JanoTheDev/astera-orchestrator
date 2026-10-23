@@ -3,7 +3,6 @@ import type { SessionKind } from '../../../core/types'
 import { resolveFileIcon } from '../../../core/files/icons'
 import { useI18n } from '../i18n/I18nProvider'
 import { FileIcon } from './FileIcon'
-import { Film, Image as ImageIcon, Monitor, Repeat } from 'lucide-react'
 import { Icon, IconButton, Menu, menuPointOf, nextFocusIndex, type MenuItem } from './ui'
 import { endRenameOnce } from '../lib/renameOnce'
 import { recentlyClosed, reopenClosed, subscribeRecentlyClosed } from '../lib/recentlyClosed'
@@ -367,12 +366,12 @@ export function WorkbenchTabs({
               <span className="tab-dot busy bp-tab-busy" title={t('workspace.tab.running')} />
             ) : (
               <span className="tab-glyph" aria-hidden="true">
-                <Icon icon={Monitor} size={14} />
+                <Icon name="screen" size={14} />
               </span>
             )
           ) : tab.kind === 'media' ? (
             <span className="tab-glyph" aria-hidden="true">
-              {tab.video ? <Icon icon={Film} size={14} /> : <Icon icon={ImageIcon} size={14} />}
+              {tab.video ? <Icon name="video" size={14} /> : <Icon name="image" size={14} />}
             </span>
           ) : tab.kind === 'record' ? (
             // Same glyph as the sidebar row's .hiw-g — the same record must not wear two different
@@ -440,7 +439,7 @@ export function WorkbenchTabs({
           )}
           {tab.kind === 'session' && tab.rollTooltip && (
             <span className="tab-roll" title={tab.rollTooltip}>
-              <Icon icon={Repeat} size={14} />
+              <Icon name="repeat" size={14} />
             </span>
           )}
           <IconButton

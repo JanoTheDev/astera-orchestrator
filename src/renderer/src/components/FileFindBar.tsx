@@ -12,7 +12,6 @@ import {
   selectMatches,
   setSearchQuery
 } from '@codemirror/search'
-import { CaseSensitive, Regex, Replace, ReplaceAll, TextSelect, WholeWord, type LucideIcon } from 'lucide-react'
 import { useI18n } from '../i18n/I18nProvider'
 import { countMatches } from './fileFind'
 import { Icon, IconButton, type IconName } from './ui'
@@ -154,15 +153,13 @@ export function FileFindBar({
           : t('explorer.find.count', { n: results.index, total: results.total })
   const countBad = badPattern || results?.total === 0
 
-  // One glyph per control: a registry name, or a lucide component the registry does not hold yet
-  type Glyph = { name: IconName } | { icon: LucideIcon }
-  const glyph = (g: Glyph): React.JSX.Element => ('name' in g ? <Icon name={g.name} size={14} /> : <Icon icon={g.icon} size={14} />)
+  const glyph = (name: IconName): React.JSX.Element => <Icon name={name} size={14} />
 
-  const toggle = (on: boolean, label: string, g: Glyph, flip: () => void): React.JSX.Element => (
+  const toggle = (on: boolean, label: string, g: IconName, flip: () => void): React.JSX.Element => (
     <IconButton size="sm" className="fe-find-toggle" icon={glyph(g)} label={label} aria-pressed={on} active={on} onMouseDown={keepFocus} onClick={flip} />
   )
 
-  const action = (label: string, g: Glyph, run: () => void): React.JSX.Element => (
+  const action = (label: string, g: IconName, run: () => void): React.JSX.Element => (
     <IconButton size="sm" className="fe-find-btn" icon={glyph(g)} label={label} onMouseDown={keepFocus} onClick={run} />
   )
 
@@ -214,30 +211,30 @@ export function FileFindBar({
               }}
             />
             <span className="fe-find-toggles">
-              {toggle(caseSensitive, t('explorer.find.caseSensitive'), { icon: CaseSensitive }, () =>
+              {toggle(caseSensitive, t('explorer.find.caseSensitive'), 'matchCase', () =>
                 setCaseSensitive((v) => !v)
               )}
-              {toggle(wholeWord, t('explorer.find.wholeWord'), { icon: WholeWord }, () =>
+              {toggle(wholeWord, t('explorer.find.wholeWord'), 'wholeWord', () =>
                 setWholeWord((v) => !v)
               )}
-              {toggle(regexp, t('explorer.find.regexp'), { icon: Regex }, () => setRegexp((v) => !v))}
+              {toggle(regexp, t('explorer.find.regexp'), 'regex', () => setRegexp((v) => !v))}
             </span>
           </div>
           <span className={`fe-find-count${countBad ? ' bad' : ''}`}>{countText}</span>
           <span className="fe-find-sep" />
-          {action(t('explorer.find.prev'), { name: 'chevronUp' }, () => findPrevious(view))}
-          {action(t('explorer.find.next'), { name: 'chevronDown' }, () => findNext(view))}
-          {action(t('explorer.find.selectAll'), { icon: TextSelect }, () => {
+          {action(t('explorer.find.prev'), 'chevronUp', () => findPrevious(view))}
+          {action(t('explorer.find.next'), 'chevronDown', () => findNext(view))}
+          {action(t('explorer.find.selectAll'), 'selectText', () => {
             selectMatches(view)
             view.focus()
           })}
           <span className="fe-find-sep" />
-          {action(t('explorer.find.close'), { name: 'close' }, close)}
+          {action(t('explorer.find.close'), 'close', close)}
         </div>
         {showReplace && !readOnly && (
           <div className="fe-find-row">
             <div className="fe-find-field">
-              <Icon icon={Replace} size={14} className="fe-find-field-icon" />
+              <Icon name="replace" size={14} className="fe-find-field-icon" />
               <input
                 type="text"
                 value={replace}
@@ -256,8 +253,8 @@ export function FileFindBar({
                 }}
               />
             </div>
-            {action(t('explorer.find.replace'), { icon: Replace }, () => replaceNext(view))}
-            {action(t('explorer.find.replaceAll'), { icon: ReplaceAll }, () => replaceAll(view))}
+            {action(t('explorer.find.replace'), 'replace', () => replaceNext(view))}
+            {action(t('explorer.find.replaceAll'), 'replaceAll', () => replaceAll(view))}
           </div>
         )}
       </div>

@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { Inbox } from 'lucide-react'
 import {
-  Badge, Button, Card, Chip, ConfirmDialog, EmptyState, Field, Icon, ICONS, Input, itemsOfOptions, Kbd, kbdKeys, Menu, Meter, Nav, PageHeader, Popover,
+  Badge, Button, Card, Checkbox, Chip, ConfirmDialog, EmptyState, Field, Icon, ICONS, Input, itemsOfOptions, Kbd, kbdKeys, Menu, Meter, Nav, PageHeader, Popover,
   Section, Select, Skeleton, Switch, Tabs, Textarea, Toast, ToastViewport
 } from './index'
 import type { NativeSelectProps } from './index'
@@ -208,6 +208,13 @@ describe('T7 primitives', () => {
     expect(out).toMatch(/^<input type="checkbox" role="switch" class="ui-toggle"/)
     expect(out).toContain('checked=""')
     expect(html(React.createElement(Field, { kind: 'toggle', label: 'T', checked: false, onChange: () => {} }))).toContain('role="switch"')
+  })
+
+  it('Checkbox is a native checkbox reflecting checked, wrapped when labelled', () => {
+    const out = html(React.createElement(Checkbox, { checked: true, onChange: () => {}, 'aria-label': 'Pick' }))
+    expect(out).toMatch(/^<input type="checkbox" class="ui-check"/)
+    expect(out).toContain('checked=""')
+    expect(html(React.createElement(Checkbox, { checked: false, onChange: () => {}, label: 'Draft' }))).toMatch(/^<label class="check-small"><input[^>]*\/>Draft<\/label>$/)
   })
 
   it('Skeleton is hidden from readers and sized by props', () => {

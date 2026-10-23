@@ -1,4 +1,3 @@
-import { ArrowUp } from 'lucide-react'
 import { useI18n } from '../i18n/I18nProvider'
 import { Button, Icon } from './ui'
 
@@ -29,7 +28,7 @@ export function PushBadge({
       variant="ghost"
       size="sm"
       className="push-badge"
-      icon={<Icon icon={ArrowUp} size={14} />}
+      icon={<Icon name="arrowUp" size={14} />}
       title={title}
       aria-label={title}
       disabled={disabled}

@@ -2,7 +2,6 @@ import type { JobTask, TaskStatus } from '../../../core/types'
 import type { MessageKey } from '../../../core/i18n'
 import { isStoppedWorker } from '../../../core/orchestration/running'
 import { useI18n } from '../i18n/I18nProvider'
-import { CircleDashed, CircleDot, LockOpen, Pause } from 'lucide-react'
 import { Icon } from './ui'
 
 /** 여덟 상태의 툴팁 키. 글리프와 **같은 파일에** 있는 이유는 글리프가 여기 있는 이유와 같다 —
@@ -116,15 +115,15 @@ export function TaskGlyph({ task, size }: { task: JobTask; size?: number }): Rea
 export const LockIcon = (): React.JSX.Element => <Icon name="lock" size={14} />
 
 /** 풀린 자물쇠 — 잠긴 것과 **몸통이 같고 고리만 다르다**: 두 상태가 한 물건의 두 모습으로 읽혀야 한다.
- *  shortcut: LockOpen is not in ICONS yet; switch to a registry name once promoted. */
-export const UnlockIcon = (): React.JSX.Element => <Icon icon={LockOpen} size={14} />
+ */
+export const UnlockIcon = (): React.JSX.Element => <Icon name="unlock" size={14} />
 
 /** 휴지통 — Run 을 물러나게 하는 버튼이 쓴다. `✕` 로 하지 않는 이유: 이 사이드바에서 `✕` 는 이미
  *  "닫는다·취소한다"의 모양이고, 지우는 것은 되돌릴 수 없어 같은 모양을 빌려 쓸 자리가 아니다. */
 export const TrashIcon = (): React.JSX.Element => <Icon name="delete" size={14} />
 
-/** 예약을 세우는 자리. shortcut: Pause is not in ICONS yet; switch to a registry name once promoted. */
-export const PauseIcon = (): React.JSX.Element => <Icon icon={Pause} size={14} />
+/** 예약을 세우는 자리. */
+export const PauseIcon = (): React.JSX.Element => <Icon name="pause" size={14} />
 
 /** 멈춘 예약을 다시 돌리는 자리. 한 번도 돌리지 않은 템플릿에도 같은 아이콘이 선다 — 시작과 재생은
  *  같은 동작이다(둘 다 pendingStart 를 걷는다). */
@@ -157,8 +156,7 @@ export function RunIcon({
   }
   return (
     <Glyph color={STATUS_COLOR.dispatched} size={size} label={label}>
-      {/* shortcut: CircleDot is not in ICONS yet; switch to a registry name once promoted */}
-      <Icon icon={CircleDot} size={14} />
+      <Icon name="active" size={14} />
     </Glyph>
   )
 }
@@ -215,6 +213,6 @@ function glyphShape(status: TaskStatus, still: boolean): React.JSX.Element {
       return <Icon name="pending" size={14} />
     case 'pending':
       // shortcut: CircleDashed is not in ICONS yet; switch to a registry name once promoted
-      return <Icon icon={CircleDashed} size={14} />
+      return <Icon name="queued" size={14} />
   }
 }

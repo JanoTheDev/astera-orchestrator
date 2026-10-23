@@ -4,7 +4,7 @@ import type { SettingField } from '../../../core/plugins/settings'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
 import { confirmModal, confirmModalWithChoices } from '../lib/confirm'
-import { Button, Select } from './ui'
+import { Button, Select, Checkbox } from './ui'
 import { configureChanges, configureDoneLine, failureLine, installFailureLine, installPrompt, npmNotice, permissionLabel, reasonLine, statusLabel } from './pluginsText'
 import { createPluginsPoller, installBlocked, installHolds, keepOnly } from './pluginsList'
 
@@ -436,10 +436,9 @@ export function PluginSettingsForm({
           <div key={f.key} className="plugin-field">
             {f.type === 'boolean' ? (
               <label className="check-small">
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={typeof draft[f.key] === 'boolean' ? (draft[f.key] as boolean) : values[f.key] === true}
-                  onChange={(e) => onDraft(f.key, e.target.checked)}
+                  onChange={(v) => onDraft(f.key, v)}
                 />
                 {label}
               </label>
@@ -463,7 +462,7 @@ export function PluginSettingsForm({
                 <span className="settings-hint">{set ? t('settings.plugins.form.secretSet') : t('settings.plugins.form.secretUnset')}</span>
                 {set && (
                   <label className="check-small">
-                    <input type="checkbox" checked={clear.has(f.key)} onChange={(e) => onClear(f.key, e.target.checked)} />
+                    <Checkbox checked={clear.has(f.key)} onChange={(v) => onClear(f.key, v)} />
                     <span>{t('settings.plugins.form.clear')}</span>
                   </label>
                 )}

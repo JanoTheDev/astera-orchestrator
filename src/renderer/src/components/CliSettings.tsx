@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { CliInstallStatus } from '../../../core/types'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
-import { Button, Icon } from './ui'
+import { Button, Icon, Checkbox } from './ui'
 
 /** 설정 화면의 명령줄 도구 칸 (공개 CLI 설계 §10).
  *
@@ -87,7 +87,7 @@ export function CliSettings({ onStatus }: { onStatus?: (s: CliInstallStatus) => 
       {status?.canEditUserPath && !status.onPath && (
         <label className="settings-row cli-add-to-path">
           <span>{t('settings.cli.addToPath')}</span>
-          <input type="checkbox" checked={addToPath} disabled={busy} onChange={(e) => setAddToPath(e.target.checked)} />
+          <Checkbox checked={addToPath} disabled={busy} onChange={(v) => setAddToPath(v)} />
         </label>
       )}
       {status !== null && (

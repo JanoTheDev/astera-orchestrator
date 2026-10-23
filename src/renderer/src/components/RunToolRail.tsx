@@ -1,7 +1,6 @@
 import type { RunStatus } from '../../../core/types'
 import { useI18n } from '../i18n/I18nProvider'
 import { Icon, IconButton } from './ui'
-import { ChevronsDown, Eraser, RotateCw } from 'lucide-react'
 
 /** The vertical tool rail on the console's left, acting on the selected run: rerun · stop, then
  *  scroll-to-end · clear, then find. Rerun starts the run's configuration again (main decides whether
@@ -37,7 +36,7 @@ export function RunToolRail({
       <IconButton
         size="sm"
         className="run-rail-btn rerun"
-        icon={<Icon icon={RotateCw} size={14} />}
+        icon={<Icon name="rerun" size={14} />}
         label={t('run.action.rerun')}
         title={rerunGone ? t('run.rail.rerunGone') : t('run.action.rerun')}
         disabled={none || rerunGone}
@@ -45,8 +44,8 @@ export function RunToolRail({
       />
       <IconButton size="sm" className="run-rail-btn stop" icon={<Icon name="stop" size={14} />} label={t('run.action.stop')} disabled={run?.status !== 'running'} onClick={() => run && onStop(run.runId)} />
       <span className="run-rail-sep" />
-      <IconButton size="sm" icon={<Icon icon={ChevronsDown} size={14} />} label={t('run.rail.scrollToEnd')} disabled={none} onClick={onScrollToEnd} />
-      <IconButton size="sm" icon={<Icon icon={Eraser} size={14} />} label={t('run.panel.clear')} disabled={none} onClick={onClear} />
+      <IconButton size="sm" icon={<Icon name="scrollToEnd" size={14} />} label={t('run.rail.scrollToEnd')} disabled={none} onClick={onScrollToEnd} />
+      <IconButton size="sm" icon={<Icon name="clear" size={14} />} label={t('run.panel.clear')} disabled={none} onClick={onClear} />
       <span className="run-rail-sep" />
       <IconButton size="sm" icon={<Icon name="search" size={14} />} label={t('run.rail.find')} active={findOpen} aria-pressed={findOpen} disabled={none} onClick={onToggleFind} />
     </div>

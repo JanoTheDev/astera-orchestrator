@@ -9,9 +9,7 @@ import type { AppState } from '../../state/appState'
 import { localDoor } from '../../lib/orchDoor'
 import { jobName } from '../../lib/jobName'
 import { openConsole, openInbox, openPlan } from '../shell/navigation'
-import { Button, Card, Chip, EmptyState, ICONS, Icon, PageHeader, Tabs } from '../ui'
-// Not in the ui Icon registry yet (listed for promotion in docs/dev/shots/w12-plan/NOTES.md)
-import { FileStack, Gauge, ListOrdered, PenLine, type LucideIcon } from 'lucide-react'
+import { Button, Card, Chip, EmptyState, ICONS, Icon, PageHeader, Tabs, type IconName } from '../ui'
 import {
   DONE_PER_PLAN,
   TASK_COLUMNS,
@@ -143,7 +141,7 @@ export function TasksPage({ accounts, currentProject, layout, openStart, orchSna
                   return (
                     <Card key={e.plan.id} className="tasks-card tasks-planning-row" onClick={() => openPlan(e.plan.id)}>
                       <span className="tasks-card-head">
-                        {e.stage === 'ready' ? <Icon name="done" size={14} /> : <Icon icon={e.stage === 'queued' ? ListOrdered : PenLine} size={14} />}
+                        {e.stage === 'ready' ? <Icon name="done" size={14} /> : <Icon name={e.stage === 'queued' ? 'ordered' : 'draft'} size={14} />}
                         <span className="tasks-card-title" title={jobName(e.plan)}>
                           {jobName(e.plan)}
                         </span>
@@ -198,7 +196,7 @@ export function TasksPage({ accounts, currentProject, layout, openStart, orchSna
                           </span>
                           {waitWords && kind && (
                             <Chip tone={kind === 'limit' ? 'warn' : 'neutral'} className="tasks-wait">
-                              <Icon icon={WAIT_ICON[kind]} size={14} />
+                              <Icon name={WAIT_ICON[kind]} size={14} />
                               {waitWords}
                             </Chip>
                           )}
@@ -231,13 +229,13 @@ export function TasksPage({ accounts, currentProject, layout, openStart, orchSna
 /** The Tabs id of "All plans" (no plan id starts with a dot). */
 const ALL = '.all'
 
-const WAIT_ICON: Record<WaitKind, LucideIcon> = {
-  lease: ICONS.lock,
-  queued: ListOrdered,
-  wave: ICONS.layers,
-  files: FileStack,
-  limit: Gauge,
-  cap: ICONS.users
+const WAIT_ICON: Record<WaitKind, IconName> = {
+  lease: 'lock',
+  queued: 'ordered',
+  wave: 'layers',
+  files: 'files',
+  limit: 'limit',
+  cap: 'users'
 }
 
 /** usePlanLive's door while no project is open: never polled (enabled is false). */

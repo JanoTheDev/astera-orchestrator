@@ -94,6 +94,18 @@ input[type="checkbox"]:not(.md-task input):not(.ui-toggle):checked::after {
   background: var(--accent-ink);
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center / contain no-repeat;
 }
+/* Indeterminate (a select-all over a partial pick): a bar in place of the check. */
+input[type="checkbox"]:not(.md-task input):not(.ui-toggle):indeterminate {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+input[type="checkbox"]:not(.md-task input):not(.ui-toggle):indeterminate::after {
+  content: '';
+  width: 8px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent-ink);
+}
 input[type="checkbox"]:not(.md-task input):not(.ui-toggle):focus-visible {
   outline: none;
   border-color: var(--accent);

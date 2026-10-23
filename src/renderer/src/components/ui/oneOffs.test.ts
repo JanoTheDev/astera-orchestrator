@@ -20,7 +20,9 @@ const RULES: [string, RegExp][] = [
   ['raw <select', /<select\b/],
   ['role="menu"/"listbox"', /role=["']?\{?["']?(menu|listbox)\b/],
   ['window.confirm', /\bwindow\.confirm\b/],
-  ['inline <svg', /<svg\b/]
+  ['inline <svg', /<svg\b/],
+  ['lucide-react import', /from ['"]lucide-react['"]/],
+  ['raw checkbox', /type=["']checkbox["']/]
 ]
 
 function tsxFiles(dir: string): string[] {
@@ -45,8 +47,10 @@ export function findOneOffs(files: Record<string, string>): string[] {
 
 describe('one-off guard', () => {
   it('flags every banned one-off', () => {
-    const bad = '<button/><select/><ul role="menu"/><ul role="listbox"/>window.confirm("x")<svg/>'
-    expect(findOneOffs({ 'a.tsx': bad })).toHaveLength(5)
+    const bad =
+      '<button/><select/><ul role="menu"/><ul role="listbox"/>window.confirm("x")<svg/>' +
+      "import { X } from 'lucide-react'<input type=\"checkbox\"/>"
+    expect(findOneOffs({ 'a.tsx': bad })).toHaveLength(7)
     expect(findOneOffs({ 'a.tsx': '// <button>\n/* <svg */ const x = 1' })).toEqual([])
   })
 

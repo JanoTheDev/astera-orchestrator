@@ -422,7 +422,7 @@ function AccountsStep({
                 </Chip>
               )}
               {loginMap[a.id] === false && (
-                <Button size="sm" onClick={() => setSignIn(a)}>
+                <Button size="sm" icon={<Icon name="login" size={14} />} onClick={() => setSignIn(a)}>
                   {t('account.signIn.button')}
                 </Button>
               )}
@@ -455,7 +455,7 @@ function AccountsStep({
       {accounts.length === 0 && candidates.length === 0 && <p className="onb__dim">{t('onboarding.accounts.none')}</p>}
       <div className="onb__inline">
         {providers.map((pr) => (
-          <Button key={pr} loading={busy === pr} onClick={() => void signInNew(pr)}>
+          <Button key={pr} icon={<Icon name="login" />} loading={busy === pr} onClick={() => void signInNew(pr)}>
             {t('onboarding.accounts.signInWith', { name: PROVIDER_META[pr].displayName })}
           </Button>
         ))}

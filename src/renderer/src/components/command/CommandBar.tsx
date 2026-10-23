@@ -4,7 +4,6 @@
 // fast path, else the coordinator role model), the intent's names become exact ids or a question, and only then does
 // anything run: `read` at once, `act` on Run, `confirm` through a dialog (core/intents/safety.ts).
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Mic } from 'lucide-react'
 import { Button, Chip, Icon, IconButton, Modal, type IconName } from '../ui'
 import { PickKeys, PickList, pickListEnter } from '../QuickSwitcher'
 import { useI18n } from '../../i18n/I18nProvider'
@@ -301,7 +300,7 @@ export function CommandBar({
           />
           <IconButton
             className={`command-mic${recording ? ' recording' : ''}`}
-            icon={<Icon icon={Mic} />}
+            icon={<Icon name="mic" />}
             label={tr('command.voice.hold')}
             active={recording}
             aria-pressed={recording}

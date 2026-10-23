@@ -6,7 +6,6 @@ import { RunTabStrip } from './RunTabStrip'
 import { RunToolRail } from './RunToolRail'
 import { TerminalBody } from './TerminalBody'
 import { Icon, IconButton } from './ui'
-import { Delete } from 'lucide-react'
 
 /**
  * Bottom panel. The Run tab and the project terminals share this one panel through tabs.
@@ -167,7 +166,7 @@ export function BottomPanel({
           {/* On the Run tab, stop and clear live in the rail beside the console; the header keeps them
               for terminal tabs, which have no rail. */}
           {activeTab !== 'run' && (
-            <IconButton size="sm" icon={<Icon icon={Delete} size={14} />} label={t('run.panel.clear')} onClick={() => bump(setClearNonces, activeTab)} />
+            <IconButton size="sm" icon={<Icon name="backspace" size={14} />} label={t('run.panel.clear')} onClick={() => bump(setClearNonces, activeTab)} />
           )}
           <IconButton size="sm" icon={<Icon name="chevronDown" size={14} />} label={t('run.panel.collapse')} onClick={onCollapse} />
         </span>

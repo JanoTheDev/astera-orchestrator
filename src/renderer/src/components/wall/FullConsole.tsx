@@ -1,8 +1,6 @@
 // W9-H: one console full size (DESIGN.md §2). The slim header and the details panel; the console itself is the
 // session's own pane (PaneGrid, mounted for the session's life), so keys go to that PTY and nowhere else. There is no
 // Astera input box and no chat UI here (DESIGN §0).
-// shortcut: these glyphs are not in the ui ICONS registry yet; drop the import once they are promoted there.
-import { CheckSquare, Keyboard, Square, PanelRightClose, PanelRightOpen } from 'lucide-react'
 import { useI18n } from '../../i18n/I18nProvider'
 import { formatElapsed } from '../../../../core/orchestration/elapsed'
 import type { Account } from '../../../../core/types'
@@ -42,7 +40,7 @@ export function ConsoleHeader({
         {c.cwd}
       </span>
       <span className="wall-console-head__hold" title={t('wall.console.hold')}>
-        <Icon icon={Keyboard} size={14} />
+        <Icon name="keyboard" size={14} />
         <span className="wall-console-head__hold-text">{t('wall.console.hold')}</span>
       </span>
       <IconButton
@@ -51,7 +49,7 @@ export function ConsoleHeader({
         active={detailsOpen}
         aria-pressed={detailsOpen}
         aria-keyshortcuts="Control+."
-        icon={<Icon icon={detailsOpen ? PanelRightClose : PanelRightOpen} size={14} />}
+        icon={<Icon name={detailsOpen ? 'panelRightClose' : 'panelRightOpen'} size={14} />}
         onClick={onToggleDetails}
       />
     </div>
@@ -123,7 +121,7 @@ export function DetailsPanel({
           <ul className="wall-details__criteria">
             {d.task.criteria.map((cr) => (
               <li key={cr.text} className={cx(cr.met && 'wall-details__criterion--met')}>
-                <Icon icon={cr.met ? CheckSquare : Square} size={14} /> {cr.text}
+                <Icon name={cr.met ? 'checked' : 'unchecked'} size={14} /> {cr.text}
               </li>
             ))}
           </ul>

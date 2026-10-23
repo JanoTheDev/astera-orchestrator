@@ -1,6 +1,5 @@
 // W2-D GitHub links (SPEC §7): a Task's issue, pull requests and branch, and a plan's one pull request, as chips that
 // open GitHub. Live PR state and checks stay with the worktree panel's PrBadge, which the existing PR poller feeds.
-import { CircleDot } from 'lucide-react' // no "issue" name in the Icon registry yet
 import type { RunPr, TaskLinks } from '../../../core/orchestration/types'
 import { useI18n } from '../i18n/I18nProvider'
 import { Button, Icon } from './ui'
@@ -13,7 +12,7 @@ export function TaskLinkChips({ links }: { links?: TaskLinks }): React.JSX.Eleme
   return (
     <>
       {links.issue && (
-        <Button size="sm" variant="ghost" icon={<Icon icon={CircleDot} size={14} />} title={`${t('github.link.issue')} — ${links.issue.url}`} onClick={openUrl(links.issue.url)}>
+        <Button size="sm" variant="ghost" icon={<Icon name="issue" size={14} />} title={`${t('github.link.issue')} — ${links.issue.url}`} onClick={openUrl(links.issue.url)}>
           #{links.issue.number}
         </Button>
       )}

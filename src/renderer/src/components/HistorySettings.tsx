@@ -4,9 +4,7 @@ import { viewOf } from '../lib/hiddenProjectsView'
 import { confirmModal } from '../lib/confirm'
 import { toast } from '../lib/toast'
 import { useI18n } from '../i18n/I18nProvider'
-// ChevronLeft is not in the icon registry yet (ui/Icon.tsx ICONS): drawn through Icon's `icon`.
-import { ChevronLeft } from 'lucide-react'
-import { Button, Icon, IconButton, Input } from './ui'
+import { Button, Icon, IconButton, Input, Checkbox } from './ui'
 
 /** 한 페이지에 그릴 줄 수. 설정 모달 본문 높이에 맞춘 값으로, 이보다 적으면 검색도 페이지 이동도
  *  붙이지 않는다 — 세 줄짜리 목록 위의 검색창은 도움이 아니라 잡음이다. */
@@ -122,7 +120,7 @@ export function HistorySettings(): React.JSX.Element {
       {view.matchedAll.length > 0 && (
         <div className="settings-history-bulk">
           <label className="settings-history-check">
-            <input type="checkbox" checked={allPicked} onChange={toggleAll} />
+            <Checkbox checked={allPicked} onChange={toggleAll} />
             {t('settings.history.selectAll')}
           </label>
           <Button
@@ -145,8 +143,7 @@ export function HistorySettings(): React.JSX.Element {
       ) : (
         view.rows.map((p) => (
           <div className="settings-row" key={p}>
-            <input
-              type="checkbox"
+            <Checkbox
               aria-label={p}
               checked={picked.has(p)}
               onChange={() => toggle(p)}
@@ -168,7 +165,7 @@ export function HistorySettings(): React.JSX.Element {
               {/* 글리프뿐인 버튼이라 이름은 aria-label 로만 준다 */}
               <IconButton
                 size="sm"
-                icon={<Icon icon={ChevronLeft} size={14} />}
+                icon={<Icon name="chevronLeft" size={14} />}
                 label={t('settings.history.prevPage')}
                 disabled={view.page === 0}
                 onClick={() => setPage(view.page - 1)}

@@ -3,9 +3,6 @@
 // what they showed: the status, progress, queue and overlaps, the source and PR chips, gates, running workers (a click
 // opens the worker's tab), auto-fix chips, and a schedule's rule and rounds. The words are planList.ts'.
 import { useState } from 'react'
-import {
-  Archive, ArchiveRestore, ArrowUpRight, ChevronDown, ChevronRight, Hand, MoreHorizontal, Pause, Pencil, Play, PlayCircle, RotateCcw, Trash2
-} from 'lucide-react'
 import type { JobRow } from '../../../../core/types'
 import { runningCount } from '../../../../core/orchestration/running'
 import { schedRuleSummary } from '../../../../core/scheduler/summary'
@@ -13,7 +10,7 @@ import { convergenceChipOf } from '../../../../core/orchestration/nodeMeta'
 import { useI18n } from '../../i18n/I18nProvider'
 import { clockFor, minuteClock } from '../../lib/runClock'
 import { jobName } from '../../lib/jobName'
-import { Button, Chip, IconButton, Input, Menu, Meter, cx, type MenuItem } from '../ui'
+import { Button, Chip, Icon, IconButton, Input, Menu, Meter, cx, type MenuItem } from '../ui'
 import { SourceChip } from '../SourceChip'
 import { RunPrChip } from '../TaskLinkChips'
 import { STATE_KEY, TaskGlyph, TaskIcon } from '../JobIcons'
@@ -84,29 +81,29 @@ export function PlanRow({
   const holdable = plan && acts.onHold !== undefined && !archived && !row.schedule && !row.pendingStart
 
   const items: Array<MenuItem | 'separator'> = [
-    { id: 'open', label: t('jobs.detail.open'), icon: <ArrowUpRight size={16} />, onSelect: () => acts.onOpen(row.id) },
+    { id: 'open', label: t('jobs.detail.open'), icon: <Icon name="open" size={16} />, onSelect: () => acts.onOpen(row.id) },
     ...(row.schedule && acts.onPause && acts.onResume
       ? [row.paused
-          ? { id: 'resume', label: t('jobs.run.resume'), icon: <Play size={16} />, onSelect: () => acts.onResume?.(row.id) }
-          : { id: 'pause', label: t('jobs.run.pause'), icon: <Pause size={16} />, onSelect: () => acts.onPause?.(row.id) }]
+          ? { id: 'resume', label: t('jobs.run.resume'), icon: <Icon name="run" size={16} />, onSelect: () => acts.onResume?.(row.id) }
+          : { id: 'pause', label: t('jobs.run.pause'), icon: <Icon name="pause" size={16} />, onSelect: () => acts.onPause?.(row.id) }]
       : []),
     ...(row.coordinatorMissing && acts.onRestartCoordinator
-      ? [{ id: 'coord', label: t('pages.plans.restartLead'), icon: <RotateCcw size={16} />, onSelect: () => acts.onRestartCoordinator?.(row.id) }]
+      ? [{ id: 'coord', label: t('pages.plans.restartLead'), icon: <Icon name="reset" size={16} />, onSelect: () => acts.onRestartCoordinator?.(row.id) }]
       : []),
     ...(holdable
       ? [row.dispatchHold
-          ? { id: 'release', label: t('pages.plans.releaseNew'), icon: <PlayCircle size={16} />, onSelect: () => acts.onHold?.(row.id, false) }
-          : { id: 'hold', label: t('pages.plans.holdNew'), icon: <Hand size={16} />, onSelect: () => acts.onHold?.(row.id, true) }]
+          ? { id: 'release', label: t('pages.plans.releaseNew'), icon: <Icon name="release" size={16} />, onSelect: () => acts.onHold?.(row.id, false) }
+          : { id: 'hold', label: t('pages.plans.holdNew'), icon: <Icon name="hold" size={16} />, onSelect: () => acts.onHold?.(row.id, true) }]
       : []),
-    ...(plan && acts.onRename ? [{ id: 'rename', label: t('jobs.lifecycle.rename'), icon: <Pencil size={16} />, onSelect: () => setRenaming(true) }] : []),
+    ...(plan && acts.onRename ? [{ id: 'rename', label: t('jobs.lifecycle.rename'), icon: <Icon name="edit" size={16} />, onSelect: () => setRenaming(true) }] : []),
     ...(plan && archived && acts.onUnarchive
-      ? [{ id: 'unarchive', label: t('jobs.lifecycle.unarchive'), icon: <ArchiveRestore size={16} />, onSelect: () => acts.onUnarchive?.(row.id) }]
+      ? [{ id: 'unarchive', label: t('jobs.lifecycle.unarchive'), icon: <Icon name="restore" size={16} />, onSelect: () => acts.onUnarchive?.(row.id) }]
       : []),
     ...(plan && !archived && acts.onArchive
-      ? [{ id: 'archive', label: t('jobs.lifecycle.archive'), icon: <Archive size={16} />, onSelect: () => acts.onArchive?.(row.id) }]
+      ? [{ id: 'archive', label: t('jobs.lifecycle.archive'), icon: <Icon name="archive" size={16} />, onSelect: () => acts.onArchive?.(row.id) }]
       : []),
     ...(acts.onDelete
-      ? ['separator' as const, { id: 'delete', label: t('jobs.run.delete'), icon: <Trash2 size={16} />, danger: true, onSelect: () => acts.onDelete?.(row.id) }]
+      ? ['separator' as const, { id: 'delete', label: t('jobs.run.delete'), icon: <Icon name="delete" size={16} />, danger: true, onSelect: () => acts.onDelete?.(row.id) }]
       : [])
   ]
 
@@ -116,7 +113,7 @@ export function PlanRow({
         {template && (
           <IconButton
             size="sm"
-            icon={roundsOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            icon={roundsOpen ? <Icon name="chevronDown" size={14} /> : <Icon name="chevronRight" size={14} />}
             label={t('pages.plans.rounds')}
             active={roundsOpen}
             aria-expanded={roundsOpen}
@@ -191,14 +188,14 @@ export function PlanRow({
         {row.coordinatorMissing && acts.onRestartCoordinator && (
           <IconButton
             size="sm"
-            icon={<RotateCcw size={14} />}
+            icon={<Icon name="reset" size={14} />}
             label={t('pages.plans.restartLead')}
             title={t('pages.plans.restartLeadHint')}
             onClick={() => acts.onRestartCoordinator?.(row.id)}
           />
         )}
         <span className="plans-row__menu">
-          <Menu label={t('pages.plans.more')} align="end" trigger={{ icon: <MoreHorizontal size={16} />, size: 'sm' }} items={items} />
+          <Menu label={t('pages.plans.more')} align="end" trigger={{ icon: <Icon name="more" size={16} />, size: 'sm' }} items={items} />
         </span>
       </div>
 
@@ -268,7 +265,7 @@ export function PlanRow({
                   {meta}
                 </span>
                 {chip && <Chip tone="info">{convergenceText(chip, t)}</Chip>}
-                {sessionId && <ArrowUpRight size={14} aria-hidden="true" />}
+                {sessionId && <Icon name="open" size={14} />}
               </>
             )
             return sessionId ? (

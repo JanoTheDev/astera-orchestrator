@@ -6,7 +6,7 @@ import { useAccountUsage } from '../hooks/useAccountUsage'
 import { AccountRow } from './AccountRow'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
-import { Button, EmptyState, ICONS, Icon, IconButton, Modal } from './ui'
+import { Button, EmptyState, ICONS, Icon, IconButton, Modal, Checkbox } from './ui'
 
 /** The Accounts tab of the settings modal. It holds the delete and import-settings flows moved over from
  *  the sidebar. The sidebar (AccountPanel) is left with only listing and adding accounts. */
@@ -176,10 +176,9 @@ export function RemoveAccountDialog({ account, onClose }: { account: Account; on
           {t('account.remove.confirm', { label: account.label })}
         </p>
         <label className="toggle-row">
-          <input
-            type="checkbox"
+          <Checkbox
             checked={logoutToo}
-            onChange={(e) => setLogoutToo(e.target.checked)}
+            onChange={(v) => setLogoutToo(v)}
           />
           <span>{t('account.remove.logoutToo')}</span>
         </label>

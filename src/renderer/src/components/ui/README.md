@@ -235,8 +235,7 @@ Top-bar page tabs with arrow-key focus. Props: `items: { id, label, count? }[]`,
 
 ## Icon
 
-Renders a lucide icon. Props: `name` (a key of `ICONS` in `Icon.tsx`; preferred) or `icon` (an imported lucide component, for a
-glyph not in the registry yet; add the name to `ICONS` before using it on a page), `size` (`14` | `16` | `20`, default `16`), `label`
+Renders a lucide icon. Props: `name` (a key of `ICONS` in `Icon.tsx`; add the glyph there under a plain semantic name before using it on a page) or `icon` (a registry component such as `ICONS.users`, for `EmptyState`), `size` (`14` | `16` | `20`, default `16`), `label`
 (makes it `role="img"` with that name; otherwise decorative), `className`.
 
 ```tsx
@@ -276,6 +275,18 @@ An on/off setting that applies at once (`role="switch"`, a native checkbox under
 
 ```tsx
 <Switch aria-label="Auto-merge" checked={on} onChange={setOn} />
+```
+
+## Checkbox
+
+A choice applied later with a form (a `Switch` applies at once). A native checkbox in the token style; Space toggles it and
+`:focus-visible` draws the token focus ring. Props: `checked`, `onChange(checked: boolean)` (omit for a read-only box),
+`indeterminate` (a select-all over a partial pick), `label` (wraps box and text in one `<label>`), plus input props except `type`.
+Without `label`, name it with a wrapping `<label>`, a `<label htmlFor>` or `aria-label`.
+
+```tsx
+<Checkbox label="Draft pull request" checked={draft} onChange={setDraft} />
+<Checkbox aria-label={path} checked={picked.has(path)} onChange={() => toggle(path)} />
 ```
 
 ## Skeleton
@@ -338,6 +349,6 @@ Show only essentials while it is `false`; put technical rows and options behind 
 
 Still legacy, do not import in new code:
 - `ui/Inputs` native `<select>` shape -> the `items` form of `Select`.
-- Direct `lucide-react` imports in screens -> `Icon name="..."`.
+- Direct `lucide-react` imports in screens -> `Icon name="..."` (the guard in `oneOffs.test.ts` fails the build). A raw `<input type="checkbox">` -> `Checkbox`.
 - Vendored lowercase shadcn files (`button.tsx`, `dialog.tsx`, `skeleton.tsx`, `tooltip.tsx`, `textarea.tsx`...): assistant-ui only.
 - The removed `.context-menu*` classes and `.toast-*` classes.

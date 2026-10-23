@@ -10,7 +10,7 @@ import {
 import type { McpHttpUrl } from '../../../core/mcp/httpUrls'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
-import { Button, Select } from './ui'
+import { Button, Select, Checkbox } from './ui'
 
 /** The saved value into `set`, or a toast when it cannot be read; the control then keeps its default. */
 export function loadMcpAccess(
@@ -356,11 +356,10 @@ export function McpSettings({ cliStatus }: { cliStatus: CliInstallStatus | null 
       <div className="settings-group">
         <label className="settings-row">
           <span>{t('settings.mcp.sessions.label')}</span>
-          <input
-            type="checkbox"
+          <Checkbox
             checked={sessions}
             disabled={sessionsDisabled(access)}
-            onChange={(e) => void saveMcpSessions(e.target.checked, sessions, setSessions, t)}
+            onChange={(v) => void saveMcpSessions(v, sessions, setSessions, t)}
           />
         </label>
         <span className="settings-hint">{t('settings.mcp.sessions.hint')}</span>
@@ -368,11 +367,10 @@ export function McpSettings({ cliStatus }: { cliStatus: CliInstallStatus | null 
       <div className="settings-group">
         <label className="settings-row">
           <span>{t('settings.mcp.githubWrite.label')}</span>
-          <input
-            type="checkbox"
+          <Checkbox
             checked={githubWrite}
             disabled={githubWriteDisabled(access)}
-            onChange={(e) => void saveMcpGithubWrite(e.target.checked, githubWrite, setGithubWrite, t)}
+            onChange={(v) => void saveMcpGithubWrite(v, githubWrite, setGithubWrite, t)}
           />
         </label>
         <span className="settings-hint">{t('settings.mcp.githubWrite.hint')}</span>
@@ -502,7 +500,7 @@ function McpHttpSection(): React.JSX.Element | null {
     <div className="settings-group">
       <label className="settings-row">
         <span>{t('settings.mcpHttp.title')}</span>
-        <input type="checkbox" checked={http.enabled} disabled={locked} onChange={(e) => save({ ...http, enabled: e.target.checked })} />
+        <Checkbox checked={http.enabled} disabled={locked} onChange={(v) => save({ ...http, enabled: v })} />
       </label>
       <span className="settings-hint">{t('settings.mcpHttp.hint')}</span>
       {stateLine && <span className="settings-hint mcp-http-state">{t(stateLine.key, stateLine.params)}</span>}
@@ -523,7 +521,7 @@ function McpHttpSection(): React.JSX.Element | null {
       </label>
       <label className="settings-row">
         <span>{t('settings.mcpHttp.lan')}</span>
-        <input type="checkbox" checked={http.lan} disabled={locked} onChange={(e) => save({ ...http, lan: e.target.checked })} />
+        <Checkbox checked={http.lan} disabled={locked} onChange={(v) => save({ ...http, lan: v })} />
       </label>
       <span className="settings-hint mcp-http-warning">{t('settings.mcpHttp.lanWarning')}</span>
       <label className="settings-row">

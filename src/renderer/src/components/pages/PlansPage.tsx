@@ -3,7 +3,6 @@
 // (plan/PlanList.tsx, its rows plan/PlanRow.tsx, the Coordinator strip plan/Coordinator.tsx); the order, the groups and
 // the table are planBoard.ts's.
 import { useEffect, useState } from 'react'
-import { Layers } from 'lucide-react'
 import type { JobRow } from '../../../../core/types'
 import type { PageId } from '../../../../core/ui/pages'
 import { findRun } from '../../../../core/orchestration/snapshot'
@@ -15,7 +14,7 @@ import { localDoor } from '../../lib/orchDoor'
 import { archiveJob, deleteRun, holdJob, renameJob, resolveFailed, unarchiveJob } from '../../lib/jobActions'
 import { jobName } from '../../lib/jobName'
 import { jobsStall } from '../../../../core/orchestration/jobsView'
-import { Button, EmptyState } from '../ui'
+import { Button, EmptyState, ICONS } from '../ui'
 import { openPage } from '../shell/navigation'
 import { overlapTableOf, planSectionOf, type OverlapCell, type PlanSection } from '../plan/planBoard'
 import { MainPlan } from '../plan/MainPlan'
@@ -186,7 +185,7 @@ export function PlansPage(p: PlansPageProps): React.JSX.Element {
 /** "Overlap": plans × top folders, a folder two plans still work in highlighted. */
 function OverlapTable({ rows, t, onOpen }: { rows: readonly JobRow[]; t: AppState['t']; onOpen: (jobId: string) => void }): React.JSX.Element {
   const table = overlapTableOf(rows)
-  if (table.folders.length === 0) return <EmptyState icon={Layers} title={t('pages.plans.noFolders')} />
+  if (table.folders.length === 0) return <EmptyState icon={ICONS.layers} title={t('pages.plans.noFolders')} />
   const cellText = (c: OverlapCell): string =>
     c === null ? '' : c.kind === 'editing' ? t('pages.plans.cell.editing', { task: c.task }) : t(`pages.plans.cell.${c.kind}`)
   return (

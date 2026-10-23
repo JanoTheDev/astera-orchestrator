@@ -32,7 +32,6 @@ import { useGitStatus } from '../hooks/useGitStatus'
 import { useI18n } from '../i18n/I18nProvider'
 import type { UndoEntry } from '../../../core/files/undo'
 import { runnableKindForFile } from '../../../core/run/runFile'
-import { ChevronsDownUp, FilePlus } from 'lucide-react'
 import { EmptyState, Icon, ICONS, IconButton, Menu, menuPointOf, Tabs, type MenuItem } from './ui'
 import { ChangedList } from './ChangedList'
 import { deleteKey, isMac, modKey } from '../lib/platformKeys'
@@ -917,7 +916,7 @@ export function FileExplorer({
           <span className="fx-root-name">{rootName}</span>
         </h2>
         <div className="fx-actions">
-          <IconButton size="sm" icon={<Icon icon={FilePlus} size={14} />} label={t('explorer.newFile')} onClick={() => startCreate(root, false)} />
+          <IconButton size="sm" icon={<Icon name="fileAdd" size={14} />} label={t('explorer.newFile')} onClick={() => startCreate(root, false)} />
           <IconButton size="sm" icon={<Icon name="folderAdd" size={14} />} label={t('explorer.newFolder')} onClick={() => startCreate(root, true)} />
           <IconButton
             size="sm"
@@ -925,7 +924,7 @@ export function FileExplorer({
             label={t('explorer.refresh')}
             onClick={refresh}
           />
-          <IconButton size="sm" icon={<Icon icon={ChevronsDownUp} size={14} />} label={t('explorer.collapseAll')} onClick={tree.collapseAll} />
+          <IconButton size="sm" icon={<Icon name="collapseAll" size={14} />} label={t('explorer.collapseAll')} onClick={tree.collapseAll} />
           <IconButton size="sm" icon={<Icon name="close" size={14} />} label={t('explorer.close')} onClick={onClose} />
         </div>
       </header>

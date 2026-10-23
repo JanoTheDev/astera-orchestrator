@@ -1,6 +1,5 @@
 // W9-J: the right side of the Worktrees page: what one worktree is, what it changed against its base, and its commits.
 import { useEffect, useState } from 'react'
-import { ArrowDown, ArrowUp } from 'lucide-react'
 import type { ChangedFile } from '../../../../core/git/changedFile'
 import type { WorktreeDetail as Detail, WorktreeRow } from '../../../../core/worktrees/cleanup'
 import { useI18n } from '../../i18n/I18nProvider'
@@ -28,9 +27,9 @@ export function AheadBehind({ ahead, behind, className }: { ahead: number | null
   const words = t('worktrees.aheadBehind', { ahead: ahead ?? '?', behind: behind ?? '?' })
   return (
     <span className={`worktree-aheadbehind${className ? ` ${className}` : ''}`} title={words} aria-label={words}>
-      <Icon icon={ArrowUp} size={14} />
+      <Icon name="arrowUp" size={14} />
       {ahead ?? '?'}
-      <Icon icon={ArrowDown} size={14} />
+      <Icon name="arrowDown" size={14} />
       {behind ?? '?'}
     </span>
   )

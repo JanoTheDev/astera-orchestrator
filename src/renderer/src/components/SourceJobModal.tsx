@@ -6,7 +6,7 @@ import { FAILURE_LIMIT, MAX_REVIEW_ROUNDS } from '../../../core/orchestration/ty
 import { useI18n } from '../i18n/I18nProvider'
 import { AccountSelect } from './AccountSelect'
 import { failureLine } from './pluginsText'
-import { Button, Input, Modal, Select } from './ui'
+import { Button, Input, Modal, Select, Checkbox } from './ui'
 import './overlays.css'
 import { createPause } from '../lib/pausedSearch'
 
@@ -329,7 +329,7 @@ export function SourceJobView(p: SourceJobViewProps): React.JSX.Element {
         {/* As the new-Job window has them (plan P4, 4c final review M16) */}
         <div className="field">
           <label className="check-small">
-            <input type="checkbox" checked={p.convergence} onChange={(e) => p.onConvergence(e.target.checked)} />
+            <Checkbox checked={p.convergence} onChange={(v) => p.onConvergence(v)} />
             {t('overlays.sourceJob.fixUntilPass')}
           </label>
           <p className="modal-hint">{t('overlays.sourceJob.fixUntilPassHint')}</p>

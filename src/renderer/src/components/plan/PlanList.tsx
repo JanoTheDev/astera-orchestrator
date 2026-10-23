@@ -2,13 +2,12 @@
 // Overlap choice and the archived chip as filters, the Coordinator strip, then the plans by area as PlanRows. The Host
 // gate, the stall line and the empty states are the ones JobsView drew (core's jobsViewScreen and jobsStall decide).
 import { Fragment, useEffect, useState } from 'react'
-import { Archive, FolderOpen, ListTodo, Plus, ServerOff, SlidersHorizontal, TriangleAlert } from 'lucide-react'
 import type { JobRow, OrchHostGate, OrchSnapshot } from '../../../../core/types'
 import { jobsViewScreen, type JobsStall } from '../../../../core/orchestration/jobsView'
 import { useI18n } from '../../i18n/I18nProvider'
 import { jobName } from '../../lib/jobName'
 import { clockFor, minuteClock } from '../../lib/runClock'
-import { Button, Chip, EmptyState, Menu, PageHeader, Tabs, Tooltip } from '../ui'
+import { Button, Chip, EmptyState, ICONS, Icon, Menu, PageHeader, Tabs, Tooltip } from '../ui'
 import { useProjectDelivery } from '../delivery/ProjectDelivery'
 import { areaGroupsOf, plansViewOf, type PlansView } from './planBoard'
 import { Coordinator } from './Coordinator'
@@ -39,7 +38,7 @@ function ViewOptions({ projectPath }: { projectPath: string }): React.JSX.Elemen
     <Menu
       label={t('pages.plans.viewOptions')}
       align="end"
-      trigger={{ icon: <SlidersHorizontal size={16} />, title: t('pages.plans.viewOptions') }}
+      trigger={{ icon: <Icon name="filter" size={16} />, title: t('pages.plans.viewOptions') }}
       items={[
         { id: 'head', label: t('delivery.label'), disabled: true, onSelect: () => {} },
         { id: 'pr', label: t('delivery.pr'), checked: mode === 'pr', onSelect: () => choose('pr') },
@@ -120,10 +119,10 @@ export function PlanList({
       actions={
         hasProject && (
           <>
-            <Button variant="ghost" icon={<FolderOpen size={16} />} onClick={onNewFromSource}>
+            <Button variant="ghost" icon={<Icon name="folder" size={16} />} onClick={onNewFromSource}>
               {t('jobs.source.open')}
             </Button>
-            <Button variant="primary" icon={<Plus size={16} />} onClick={onNewRun}>
+            <Button variant="primary" icon={<Icon name="add" size={16} />} onClick={onNewRun}>
               {t('jobs.new.open')}
             </Button>
             <ViewOptions projectPath={projectPath} />
@@ -152,7 +151,7 @@ export function PlanList({
                 variant="ghost"
                 className="plans-chip"
                 aria-pressed={showArchived}
-                icon={<Archive size={14} />}
+                icon={<Icon name="archive" size={14} />}
                 onClick={() => setShowArchived((v) => !v)}
               >
                 {showArchived ? t('jobs.lifecycle.hideArchived') : t('jobs.lifecycle.showArchived', { count: archivedCount })}
@@ -166,7 +165,7 @@ export function PlanList({
 
   const stallLine = stall && (
     <p className="plans-stall" role="status">
-      <TriangleAlert size={16} aria-hidden="true" />
+      <Icon name="warning" size={16} />
       {stall.kind === 'unresponsive'
         ? t('pages.plans.stall.unresponsive')
         : stall.kind === 'reading'
@@ -180,7 +179,7 @@ export function PlanList({
     // The Host is why there is nothing: saying so is the whole point (with no Host there is no state to read)
     const waiting = hostGate.state === 'waiting'
     body = (
-      <EmptyState icon={ServerOff} title={t(waiting ? 'pages.plans.host.waiting' : 'pages.plans.host.unreachable')}>
+      <EmptyState icon={ICONS.serverOff} title={t(waiting ? 'pages.plans.host.waiting' : 'pages.plans.host.unreachable')}>
         <span className="plans-host">
           <span>{t('pages.plans.host.features')}</span>
           {!waiting && hostGate.reason && <span>{t('jobs.host.reason', { reason: hostGate.reason })}</span>}
@@ -196,10 +195,10 @@ export function PlanList({
     // 'runs' with every plan archived lists nothing: the same empty state, the archived toggle stays above it
     body = hasProject ? (
       <EmptyState
-        icon={ListTodo}
+        icon={ICONS.tasks}
         title={t('pages.plans.empty.title')}
         action={
-          <Button variant="primary" icon={<Plus size={16} />} onClick={onNewRun}>
+          <Button variant="primary" icon={<Icon name="add" size={16} />} onClick={onNewRun}>
             {t('jobs.new.open')}
           </Button>
         }
@@ -208,10 +207,10 @@ export function PlanList({
       </EmptyState>
     ) : (
       <EmptyState
-        icon={FolderOpen}
+        icon={ICONS.folder}
         title={t('jobs.noProject')}
         action={
-          <Button variant="primary" icon={<Plus size={16} />} onClick={onNewConsole}>
+          <Button variant="primary" icon={<Icon name="add" size={16} />} onClick={onNewConsole}>
             {t('wall.new')}
           </Button>
         }

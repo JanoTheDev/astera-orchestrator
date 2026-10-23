@@ -1,4 +1,3 @@
-import { GitPullRequestClosed, GitPullRequestDraft, type LucideIcon } from 'lucide-react'
 import type { PrChecks, PrInfo, PrState } from '../../../core/github/types'
 import type { MessageKey } from '../../../core/i18n'
 import { useI18n } from '../i18n/I18nProvider'
@@ -19,12 +18,11 @@ const STATE_KEY: Record<BadgeState, MessageKey> = {
  *  one pair red-green colour blindness cannot separate, and open/closed were exactly that pair.
  *  These are GitHub's own glyphs (via lucide), for the same reason the colours are GitHub's:
  *  the reader already knows them. */
-const STATE_GLYPH: Record<BadgeState, { name: IconName } | { icon: LucideIcon }> = {
-  open: { name: 'pullRequest' },
-  merged: { name: 'merge' },
-  // shortcut: closed and draft are not in the ICONS registry yet, so they come in by component until promoted
-  closed: { icon: GitPullRequestClosed },
-  draft: { icon: GitPullRequestDraft }
+const STATE_GLYPH: Record<BadgeState, IconName> = {
+  open: 'pullRequest',
+  merged: 'merge',
+  closed: 'pullRequestClosed',
+  draft: 'pullRequestDraft'
 }
 
 /** Every check outcome gets a word in the title, including the two that draw nothing — "all
@@ -75,7 +73,7 @@ export function PrBadge({
         onOpenMenu(e)
       }}
     >
-      <Icon {...STATE_GLYPH[state]} className="pr-glyph" size={14} />#{pr.number}
+      <Icon name={STATE_GLYPH[state]} className="pr-glyph" size={14} />#{pr.number}
       {mark && <span className={`pr-checks ${mark}`} aria-hidden="true" />}
     </Button>
   )

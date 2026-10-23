@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { BranchRef, WorktreeListItem } from '../../../core/types'
 import { useI18n } from '../i18n/I18nProvider'
-import { Button, Icon, Modal, Select } from './ui'
+import { Button, Icon, Modal, Select, Checkbox } from './ui'
 
 type Failure = { kind: string; detail: string; pushed: boolean; stage: 'push' | 'create' }
 
@@ -177,7 +177,7 @@ export function CreatePrDialog({
           />
         </div>
         <label className="row check-small">
-          <input type="checkbox" checked={draft} onChange={(e) => setDraft(e.target.checked)} />
+          <Checkbox checked={draft} onChange={(v) => setDraft(v)} />
           {t('pr.create.draft')}
         </label>
         {willPush && <span className="modal-hint">{t('pr.create.willPush')}</span>}

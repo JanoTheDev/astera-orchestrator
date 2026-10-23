@@ -15,7 +15,7 @@ import { StandardSQL } from '@codemirror/lang-sql'
 import { xmlLanguage } from '@codemirror/lang-xml'
 import { yamlLanguage } from '@codemirror/lang-yaml'
 import { goLanguage } from '@codemirror/lang-go'
-import { Icon, IconButton } from './ui'
+import { Icon, IconButton, Checkbox } from './ui'
 import {
   parseMarkdown, classifyHref,
   type MdBlock, type MdInline, type MdAttrs, type MdHref
@@ -627,7 +627,7 @@ export function MarkdownPreview({
                     // React's controlled re-render snaps it back — disabled is what actually blocks
                     // the click. readOnly stays too: it is what suppresses the dev warning about a
                     // checked prop with no onChange handler.
-                    <input type="checkbox" checked={item.task} disabled readOnly tabIndex={-1} />
+                    <Checkbox checked={item.task} disabled readOnly tabIndex={-1} />
                   )}
                   {renderBlocks(item.children)}
                 </li>

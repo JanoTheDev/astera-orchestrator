@@ -2,8 +2,6 @@
 // right. W11 (DESIGN-W11 §9): PageHeader with Back as leading, a 200px icon nav, the content at 720px in cards. A search shows every matching row under its group's label. openSettings(group, anchor) scrolls to the row
 // and briefly highlights it.
 import { useEffect, useMemo, useRef, useState } from 'react'
-// Bot, FolderKanban, Info, Plug and Wrench are not in the icon registry yet (ui/Icon.tsx ICONS): drawn through Icon's `icon`.
-import { Bot, FolderKanban, Info, Plug, Wrench, type LucideIcon } from 'lucide-react'
 import { Button, EmptyState, ICONS, Icon, Input, PageHeader, type IconName } from '../ui'
 import { useAdvancedMode } from '../../state/useAdvancedMode'
 import type { SettingsDialogProps } from '../shell/SettingsDialog'
@@ -30,20 +28,19 @@ const GROUP_VIEW: Record<SettingsGroupId, (p: GroupProps) => React.JSX.Element |
   about: AboutSettings
 }
 
-const GROUP_ICON: Record<SettingsGroupId, IconName | LucideIcon> = {
+const GROUP_ICON: Record<SettingsGroupId, IconName> = {
   general: 'filter',
   accounts: 'users',
-  agents: Bot,
-  projects: FolderKanban,
-  integrations: Plug,
+  agents: 'agent',
+  projects: 'projects',
+  integrations: 'integrations',
   notifications: 'notifications',
-  advanced: Wrench,
-  about: Info
+  advanced: 'advanced',
+  about: 'info'
 }
 
 function GroupIcon({ g }: { g: SettingsGroupId }): React.JSX.Element {
-  const i = GROUP_ICON[g]
-  return typeof i === 'string' ? <Icon name={i} /> : <Icon icon={i} />
+  return <Icon name={GROUP_ICON[g]} />
 }
 
 /** Up/Down/Home/End move focus between the side nav's group buttons (one Tab stop each, in order). */

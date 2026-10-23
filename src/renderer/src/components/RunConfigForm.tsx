@@ -9,7 +9,7 @@ import type { MessageKey } from '../../../core/i18n'
 import { runTypeIcon } from '../../../core/run/typeIcon'
 import { useI18n } from '../i18n/I18nProvider'
 import { FileIcon } from './FileIcon'
-import { Button, Icon, Menu, Select, type SelectOption } from './ui'
+import { Button, Icon, Menu, Select, type SelectOption, Checkbox } from './ui'
 import { EnvTable } from './EnvTable'
 import { ConfigRefList } from './ConfigRefList'
 
@@ -459,10 +459,9 @@ export function RunConfigForm({
       )}
       {draft.type === 'cargo' && visible('release') && (
         <label className="row check-small">
-          <input
-            type="checkbox"
+          <Checkbox
             checked={!!draft.release}
-            onChange={(e) => update({ ...draft, release: e.target.checked })}
+            onChange={(v) => update({ ...draft, release: v })}
           />
           {t('run.field.release')}
         </label>
@@ -655,10 +654,9 @@ export function RunConfigForm({
       )}
       {visible('allowMultipleInstances') && (
         <label className="row check-small">
-          <input
-            type="checkbox"
+          <Checkbox
             checked={!!draft.allowMultipleInstances}
-            onChange={(e) => update({ ...draft, allowMultipleInstances: e.target.checked })}
+            onChange={(v) => update({ ...draft, allowMultipleInstances: v })}
           />
           {t('run.field.allowMultipleInstances')}
         </label>

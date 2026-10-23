@@ -22,8 +22,6 @@ import { toast } from '../../lib/toast'
 import { jobName } from '../../lib/jobName'
 import { RunIcon, STATE_KEY, TaskIcon } from '../JobIcons'
 import { SourceChip } from '../SourceChip'
-// ListOrdered is not in the ui Icon registry yet (listed for promotion in docs/dev/shots/w12-plan/NOTES.md)
-import { ListOrdered } from 'lucide-react'
 import { Button, Chip, Icon, Input, Menu, PageHeader, Tabs, type MenuItem } from '../ui'
 import { PLAN_SECTIONS, type PlanSection } from './planBoard'
 import { deliveryActionsOf } from './planPage'
@@ -110,7 +108,7 @@ export function PlanHeader({
         ...(local ? [{ id: 'rename', label: t('jobs.lifecycle.rename'), icon: <Icon name="edit" size={14} />, disabled: off, onSelect: () => setRenaming(true) }] : []),
         // W8-C: a plan not planned yet can wait for another to deliver
         ...(local && run.pendingStart && !run.planned
-          ? [{ id: 'after', label: t('pages.plan.startAfter'), icon: <Icon icon={ListOrdered} size={14} />, disabled: off, onSelect: () => void pickAfter() }]
+          ? [{ id: 'after', label: t('pages.plan.startAfter'), icon: <Icon name="ordered" size={14} />, disabled: off, onSelect: () => void pickAfter() }]
           : []),
         ...(run.coordinatorMissing
           ? [{ id: 'coordinator', label: t('plan.header.restartLead'), icon: <Icon name="run" size={14} />, disabled: off, onSelect: () => void restartCoordinator(door, runId, ui) }]

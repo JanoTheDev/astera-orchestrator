@@ -12,8 +12,6 @@ import { useI18n } from '../i18n/I18nProvider'
 import { confirmModal } from '../lib/confirm'
 import { toast } from '../lib/toast'
 import type { MessageKey } from '../../../core/i18n'
-// RotateCcw is not in the icon registry yet (ui/Icon.tsx ICONS): drawn through Icon's `icon`.
-import { RotateCcw } from 'lucide-react'
 import { Icon, IconButton, Kbd } from './ui'
 
 /** The editable shortcuts as the table shows them: the action, its name and its chords. */
@@ -142,7 +140,7 @@ export function ShortcutSettings({
                 />
                 <IconButton
                   size="sm"
-                  icon={<Icon icon={RotateCcw} size={14} />}
+                  icon={<Icon name="reset" size={14} />}
                   label={t('shortcut.resetOne')}
                   disabled={capturing !== null || overrides[action.id] === undefined}
                   onClick={() => void reset(action.id)}

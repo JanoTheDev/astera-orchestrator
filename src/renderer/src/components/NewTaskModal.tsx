@@ -4,7 +4,7 @@ import { providerOf } from '../../../core/providers/meta'
 import { useI18n } from '../i18n/I18nProvider'
 import { formFailure, type OrchDoor } from '../lib/orchDoor'
 import { AccountSelect } from './AccountSelect'
-import { Button, Field, Icon, IconButton, Modal, Select, type SelectOption } from './ui'
+import { Button, Field, Icon, IconButton, Modal, Select, type SelectOption, Checkbox } from './ui'
 
 /** 계정 슬롯 최대 개수. 새 세션 대화상자의 MAX_ROLL_ACCOUNTS 와 같은 값이지만 **상수를 공유하지
  *  않는다** — 저쪽은 탭 세션의 롤링이고 이쪽은 Task 의 체인이다. 한쪽을 늘릴 때 다른 쪽이 따라
@@ -337,7 +337,7 @@ export function NewTaskModal({
           </div>
         )}
         <label className="row check-small">
-          <input type="checkbox" checked={review} onChange={(e) => setReview(e.target.checked)} />
+          <Checkbox checked={review} onChange={(v) => setReview(v)} />
           {t('jobs.task.review')}
         </label>
         {error && <p className="warn">{error}</p>}

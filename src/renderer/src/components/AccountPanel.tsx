@@ -10,7 +10,7 @@ import { ProviderBadge } from './ProviderBadge'
 import { AccountRow } from './AccountRow'
 import { AccountSignInDialog } from './AccountSignIn'
 import { RemoveAccountDialog } from './AccountSettings'
-import { Button, Chip, EmptyState, Field, ICONS, Icon, IconButton, Input, Modal, Tabs } from './ui'
+import { Button, Chip, EmptyState, Field, ICONS, Icon, IconButton, Input, Modal, Tabs, Checkbox } from './ui'
 
 interface DetectItem {
   configDir: string
@@ -252,7 +252,7 @@ export function AccountPanel({ accounts }: { accounts: Account[] }): React.JSX.E
             {/* W7-F (#82): sign in and remove from the row itself. `false`, not undefined: no button before the
                 login check has answered. */}
             {loginMap[a.id] === false && (
-              <Button size="sm" variant="ghost" className="account-signin-btn" onClick={() => setSignInTarget(a)}>
+              <Button size="sm" variant="ghost" className="account-signin-btn" icon={<Icon name="login" size={14} />} onClick={() => setSignInTarget(a)}>
                 {t('account.signIn.button')}
               </Button>
             )}
@@ -322,10 +322,9 @@ export function AccountPanel({ accounts }: { accounts: Account[] }): React.JSX.E
               />
               {/* Shown for both providers — claude and codex each import from their own default account */}
               <label className="toggle-row">
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={addCopySettings}
-                  onChange={(e) => setAddCopySettings(e.target.checked)}
+                  onChange={(v) => setAddCopySettings(v)}
                 />
                 <span>{t('account.add.copySettingsLabel')}</span>
               </label>
@@ -408,8 +407,7 @@ export function AccountPanel({ accounts }: { accounts: Account[] }): React.JSX.E
               <ul className="detect-list">
                 {detectItems.map((item, idx) => (
                   <li key={item.configDir} className="detect-row">
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={item.selected}
                       aria-label={item.label}
                       onChange={() => toggleDetectItem(idx)}

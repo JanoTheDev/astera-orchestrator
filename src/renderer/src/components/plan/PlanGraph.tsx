@@ -10,8 +10,6 @@ import { canStopConvergence, nodeMetaOf, retryingCheckOf } from '../../../../cor
 import { useI18n } from '../../i18n/I18nProvider'
 import { checkTooltip, nodeMetaText, type GlyphKind } from '../checkText'
 import { STATUS_COLOR, TaskGlyph } from '../JobIcons'
-// Not in the ui ICONS registry yet (listed for promotion in the W12 report): unlock, stop auto-fix
-import { LockOpen, WrenchOff } from 'lucide-react'
 import { Button, Icon, IconButton, type IconName } from '../ui'
 import { reasonText } from './planBoard'
 
@@ -283,7 +281,7 @@ export function Graph({
                 label={t('plan.graph.answer')}
                 disabled={lockedReason !== undefined}
                 title={lockedReason ?? t('plan.graph.answer')}
-                icon={<Icon icon={LockOpen} size={14} />}
+                icon={<Icon name="unlock" size={14} />}
                 onClick={(ev) => {
                   ev.stopPropagation()
                   onAnswer(task.id)
@@ -328,7 +326,7 @@ export function Graph({
                 label={t('jobs.convergence.stop')}
                 disabled={lockedReason !== undefined}
                 title={lockedReason ?? t('jobs.convergence.stop')}
-                icon={<Icon icon={WrenchOff} size={14} />}
+                icon={<Icon name="stopFix" size={14} />}
                 onClick={(ev) => {
                   ev.stopPropagation()
                   onStopConvergence(task.id)

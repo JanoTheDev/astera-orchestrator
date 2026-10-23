@@ -4,7 +4,6 @@ import { actedConfigIds, decideStart, toolbarState } from '../../../core/run/ins
 import { useI18n } from '../i18n/I18nProvider'
 import { RunConfigMenu } from './RunConfigMenu'
 import { Button, Icon, IconButton, Menu, Popover } from './ui'
-import { EllipsisVertical } from 'lucide-react'
 
 /** Run toolbar. It sits in the title bar, next to the app name, and is drawn whenever a project is
  *  known — the explorer toggle does not reach it. Its own chrome (border, background, padding) is
@@ -120,7 +119,7 @@ export function RunToolbar({
       <Menu
         label={t('run.config.more')}
         align="end"
-        trigger={{ icon: <Icon icon={EllipsisVertical} size={16} />, title: t('run.config.more') }}
+        trigger={{ icon: <Icon name="moreVertical" size={16} />, title: t('run.config.more') }}
         items={[{ id: 'manager', label: t('run.manager.open'), onSelect: onOpenManager }]}
       />
       {activeRuns.length > 0 && (

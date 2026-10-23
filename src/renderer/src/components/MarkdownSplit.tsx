@@ -6,7 +6,6 @@ import {
   type MdViewMode, type ScrollAnchor
 } from '../../../core/files/markdownView'
 import { useI18n } from '../i18n/I18nProvider'
-import { Columns2, PanelLeft } from 'lucide-react'
 import { Icon, IconButton, Tabs } from './ui'
 
 const RATIO_KEY = 'cm.md.splitRatio'
@@ -16,8 +15,8 @@ const RATIO_KEY = 'cm.md.splitRatio'
  *  템플릿 리터럴 타입이 세 조합으로 즉시 펼쳐지고, 그 세 문자열이 전부 `ko.ts` 에 이미 있는 키라서다.
  *  캐스트도, 따로 든 `key: MessageKey` 필드도 필요 없다. */
 const MODES: { id: MdViewMode; icon: React.ReactNode }[] = [
-  { id: 'editor', icon: <Icon icon={PanelLeft} size={14} /> },
-  { id: 'split', icon: <Icon icon={Columns2} size={14} /> },
+  { id: 'editor', icon: <Icon name="panelLeft" size={14} /> },
+  { id: 'split', icon: <Icon name="splitView" size={14} /> },
   { id: 'preview', icon: <Icon name="show" size={14} /> }
 ]
 

@@ -11,8 +11,6 @@ import { useI18n } from '../i18n/I18nProvider'
 import { ProjectDelivery } from './delivery/ProjectDelivery'
 import { PauseIcon, PlayIcon, RunIcon, STATE_KEY, STATUS_COLOR, TaskGlyph, TaskIcon, TrashIcon } from './JobIcons'
 import type { RunIconKind } from './JobIcons'
-// shortcut: Hand and ServerOff are not in ICONS yet; switch to registry names once promoted
-import { Hand, ServerOff } from 'lucide-react'
 import { Button, EmptyState, Icon, ICONS, IconButton, Input, PageHeader } from './ui'
 import { SourceChip } from './SourceChip'
 import { approveSlot } from './plan/planTalk'
@@ -172,8 +170,7 @@ function LifecycleButtons({
       {holdable &&
         (run.dispatchHold
           ? button(t('jobs.view.holdRelease'), <Icon name="run" size={14} />, () => acts.onHoldJob?.(run.id, false))
-          : // shortcut: Hand is not in ICONS yet; switch to a registry name once promoted
-            button(t('jobs.view.hold'), <Icon icon={Hand} size={14} />, () => acts.onHoldJob?.(run.id, true)))}
+          : button(t('jobs.view.hold'), <Icon name="hold" size={14} />, () => acts.onHoldJob?.(run.id, true)))}
       {acts.onRenameJob && button(t('jobs.lifecycle.rename'), <Icon name="edit" size={14} />, onStartRename)}
       {run.archivedAt !== undefined
         ? acts.onUnarchiveJob && button(t('jobs.lifecycle.unarchive'), <Icon name="restore" size={14} />, () => acts.onUnarchiveJob?.(run.id))
@@ -905,7 +902,7 @@ export function JobsView({
     return (
       <div className="jobs-empty">
         {header()}
-        <EmptyState icon={ServerOff} title={t(waiting ? 'jobs.view.hostWaiting' : 'jobs.view.hostUnreachable')}>
+        <EmptyState icon={ICONS.serverOff} title={t(waiting ? 'jobs.view.hostWaiting' : 'jobs.view.hostUnreachable')}>
           {t('jobs.host.features')}
           {/* 못 붙은 뒤에만 사유와 기록을 적는다 — 아직 시도 중일 때는 적을 사유가 없고, 있지도
               않은 실패를 화면에 두면 기다리는 중을 실패로 읽는다. */}
