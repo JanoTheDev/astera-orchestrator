@@ -115,4 +115,7 @@ export const history: Partial<Record<keyof typeof ko, string>> = {
   'hiw.verify.unverified': '確認されたものはありません',
   'hiw.verify.failed': '報告された検査が失敗しました',
   'hiw.verify.reported': 'エージェントが報告した内容です — アプリ自身が実行したわけではありません',
+  'history.entry.copyId': 'セッションIDをコピー',
+  'history.session.menu': 'セッションのメニュー',
+  'history.view.accountFilter': 'アカウントで絞り込む',
 }

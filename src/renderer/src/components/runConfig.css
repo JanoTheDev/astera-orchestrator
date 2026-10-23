@@ -110,3 +110,10 @@
    an icon as the second cue beside the words, aligned with the first line. */
 .runtime-note { display: flex; align-items: flex-start; gap: var(--sp-1); }
 .runtime-note > svg { flex: none; margin-top: 1px; }
+
+/* DESIGN-W13 §4: the Run view's list. Rows come from ui/Tree. */
+.run-tree { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.run-tree .ui-tree { flex: 1; min-height: 0; }
+.run-row-spin { animation: run-row-spin 1s linear infinite; }
+@keyframes run-row-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .run-row-spin { animation: none; } }

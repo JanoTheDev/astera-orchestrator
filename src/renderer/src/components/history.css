@@ -57,3 +57,9 @@
 .msg { font-size: var(--fs-13); line-height: 1.5; }
 .msg.user b { color: var(--role-user); }
 .msg.assistant b { color: var(--role-assistant); }
+
+/* DESIGN-W13 §4: the Sessions tree. Rows come from ui/Tree; these are only the pieces around it. */
+.history-filter { padding: 2px 8px; flex-shrink: 0; }
+.history-scan { padding: 4px 20px; font-size: var(--fs-11); color: var(--text-faint); }
+.history-tree { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.history-tree .ui-tree { flex: 1; min-height: 0; }

@@ -56,6 +56,7 @@ export function RunConfigManager({
   hasDockerfile,
   projectPath,
   initialSelectedId,
+  initialNewType,
   onApply,
   onClose
 }: {
@@ -75,6 +76,9 @@ export function RunConfigManager({
   /** Which configuration the dialog opens on. The toolbar menu's "Edit '<name>'…" supplies it; absent,
    *  the first configuration is selected as before. */
   initialSelectedId?: string
+  /** The Run view's "New configuration": open with one draft configuration of this kind already added and selected
+   *  (a draft like any ＋, so Cancel leaves no trace). Takes the place of `initialSelectedId`. */
+  initialNewType?: RunConfigType
   /** Apply: the stored list becomes this list, or nothing changes and the refused items are named. The
    *  caller refetches run.list on success so the toolbar follows. */
   onApply: (configs: RunConfig[]) => Promise<SaveConfigsResult>
@@ -85,10 +89,14 @@ export function RunConfigManager({
   const { t } = useI18n()
 
   // The snapshot: taken once, on mount. `configs` is deliberately not a dependency of anything below.
-  const [draft, setDraft] = useState<ConfigDraft>(() => draftOf(configs))
+  // shortcut: a new configuration opened from the Run view starts without the npm scripts / .NET projects the manager's own ＋ offers, since both load later
+  const [first] = useState<RunConfig | null>(() =>
+    initialNewType ? defaultConfigFor(initialNewType, `user:${crypto.randomUUID()}`, t(`run.type.${initialNewType}` as MessageKey), configs, [], []) : null
+  )
+  const [draft, setDraft] = useState<ConfigDraft>(() => (first ? addItem(draftOf(configs), first) : draftOf(configs)))
   const [baseline, setBaseline] = useState<RunConfig[]>(() => configs.filter((c) => !isSeedId(c.id)))
   const [selectedId, setSelectedId] = useState<string | null>(
-    (initialSelectedId && configs.some((c) => c.id === initialSelectedId) ? initialSelectedId : configs[0]?.id) ?? null
+    first?.id ?? ((initialSelectedId && configs.some((c) => c.id === initialSelectedId) ? initialSelectedId : configs[0]?.id) ?? null)
   )
   const [query, setQuery] = useState('')
   const [applyErrors, setApplyErrors] = useState<ApplyError[]>([])

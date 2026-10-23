@@ -112,4 +112,7 @@ export const history = {
   'hiw.verify.unverified': '확인된 것이 없습니다',
   'hiw.verify.failed': '보고된 검사가 실패했습니다',
   'hiw.verify.reported': '에이전트가 보고한 것입니다 — 앱이 직접 돌려 보지는 않았습니다',
+  'history.entry.copyId': '세션 ID 복사',
+  'history.session.menu': '세션 메뉴',
+  'history.view.accountFilter': '계정 필터',
 } as const
