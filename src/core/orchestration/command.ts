@@ -110,6 +110,7 @@ import { buildIntegrationSpec, deliveryWorktrees, integrationTaskFor, isIntegrat
 import { mainPlanOf } from './mainPlan'
 import { isPathWithin } from '../files/tree'
 import { buildHandoverPrompt, buildPlannerBrief } from './handover'
+import { read as readOwner } from '../prompts/ownerInstructions'
 import { noRemoteNote, unmergedPlanBranches } from './unmergedBranches' // W8-G (#101)
 // W2-A planner stage
 import { editPlanTask, kindOf, leftOutArg, orchestrationRoleOf, planFieldsFromArgs, plannerJobOf, plannerRefusal, validatePlan, workerSpecOf, worktreeRefusal } from './planner'
@@ -383,6 +384,9 @@ export interface OrchServerDeps {
      *  it (task.spec is a body and the implementer's template is the right wrapper for it); the
      *  wiring's review path does. */
     specFileContent?: string
+    /** The role whose owner instructions `startWorker` appends to `specFileContent`: repair and recovery hand over a worker
+     *  spec without the block. Absent: none is appended (a review's file carries its own reviewer block). */
+    specOwnerRole?: 'worker'
     provider: Provider
     accountId: string
     runCwd: string
@@ -2293,6 +2297,7 @@ export async function handleCommand(
           // 스냅샷이라 이 회차가 없고, 그러면 policyOf 가 회차를 찾지 못해 정책이 걸린 Job 도
           // "정책 없음" 으로 읽힌다 — 코디네이터가 수렴 절 없는 브리핑을 받는다.
           convergence: policyOf(base, { runId: target.id }) !== null,
+          ownerInstructions: await readOwner(deps.profileDir, 'coordinator'),
           jobId: job.id,
           accountId,
           promptsMode: job.verbatim !== undefined,
@@ -3768,7 +3773,8 @@ export async function handleCommand(
             planning: planningFlag ?? job.planning ?? (handsOffOf(deps.getState(), { ...job, ...(handsOff !== undefined ? { handsOff } : {}) }) ? 'auto' : 'chat'),
             concurrency: concurrency ?? job.concurrency ?? DEFAULT_CONCURRENCY,
             // W8-D: the other plans of this repository, so it plans around them
-            otherPlans: otherPlansBrief(deps.getState(), job)
+            otherPlans: otherPlansBrief(deps.getState(), job),
+            ownerInstructions: await readOwner(deps.profileDir, 'planner')
           })
         })
         sessionId = started.sessionId

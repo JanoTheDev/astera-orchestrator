@@ -8,9 +8,11 @@ import { GithubSettings } from '../GithubSettings'
 import { CreativeHubSettings } from '../CreativeHubSettings'
 import { SlackSettings } from '../SlackSettings'
 import { TelegramSettings } from '../TelegramSettings'
+import { FinderPanel } from '../extensions/FinderPanel'
+import { SettingItem } from './SettingItem'
 import { SettingRow, type GroupProps } from './SettingRow'
 
-export function IntegrationsSettings({ shown, only, cliInstallStatus, setCliInstallStatus }: GroupProps): React.JSX.Element {
+export function IntegrationsSettings({ shown, only, cliInstallStatus, setCliInstallStatus, accounts, t }: GroupProps): React.JSX.Element {
   return (
     <>
       {shown && (
@@ -35,6 +37,12 @@ export function IntegrationsSettings({ shown, only, cliInstallStatus, setCliInst
             </SettingRow>
             <SettingRow a="mcp" only={only}>
               <McpSettings cliStatus={cliInstallStatus} />
+            </SettingRow>
+            {/* Third-party MCP servers and skills, per account (core/extensions/, main/extensions.ts). */}
+            <SettingRow a="finder" only={only}>
+              <SettingItem title={t('settings.row.finder')} hint={t('settings.finder.hint')}>
+                <FinderPanel accounts={accounts} />
+              </SettingItem>
             </SettingRow>
           </div>
           {/* Remote Runtimes (remote runtime design Phase 6): pairing with another computer, and this one as a Runtime. */}

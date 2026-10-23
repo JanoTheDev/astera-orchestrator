@@ -1414,9 +1414,9 @@ describe('run.ts — 모드가 정해진 뒤의 실패는 한 문으로만 나�
 
   // 앞선 세 자리는 아직 모드가 없어서 봉투로 나간다 — 그것이 errorOutput 이 남아 있는 이유이고,
   // 그 수가 늘면 모드 뒤의 실패가 앞으로 새어 나온 것이다.
-  it('모드 앞의 봉투는 셋뿐이다 — 사용법·파서·모드 자신', () => {
+  it('모드 앞의 봉투는 넷뿐이다 — 사용법·파서·모드·help 인자', () => {
     const before = runSource.slice(0, runSource.indexOf('// FAIL_SEAM'))
-    expect(before.split('out(errorOutput(').length - 1).toBe(3)
+    expect(before.split('out(errorOutput(').length - 1).toBe(4)
   })
 })
 

@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { promises as fs } from 'node:fs'
+import { promises as fs, readFileSync } from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import { spawnSync } from 'node:child_process'
-import { SESSION_CONTEXT_SCRIPT, codexDeveloperInstructions, sessionContextLines } from './sessionContext'
+import { SESSION_CONTEXT_SCRIPT, QUICKREF_FILE, codexDeveloperInstructions, sessionContextLines } from './sessionContext'
 import { LAUNCH_FORBIDDEN } from './commands'
+import { OWNER_HEADING } from '../prompts/ownerInstructions'
 import { coordinatorBriefName } from '../orchestration/exec/specFiles'
 import { plannerBriefName } from '../orchestration/exec/plannerStart'
 
@@ -68,6 +69,60 @@ describe('SessionStart context script', () => {
     expect(await run(null)).toContain('inside Astera')
     await fs.writeFile(path.join(dir, 'app-settings.json'), '{not json')
     expect(await run(null)).not.toContain('astera app js')
+  })
+
+  describe('the quick reference', () => {
+    const QR = 'Astera quick reference.\n```\nastera sessions list --json\n```'
+    const withSkills = async (text: string | null) => {
+      const skills = path.join(dir, 'skills')
+      await fs.mkdir(skills, { recursive: true })
+      if (text !== null) await fs.writeFile(path.join(skills, QUICKREF_FILE), text)
+      return { ASTERA_CLI: 'x', ASTERA_SKILLS: skills }
+    }
+
+    it('is carried before the footer, which points at --brief and a section', async () => {
+      const t = (await run({}, await withSkills(QR)))!
+      expect(t).toContain(QR)
+      expect(t.indexOf(QR)).toBeLessThan(t.indexOf('Full list:'))
+      expect(t).toContain('`astera help --brief`')
+      expect(t).toContain('`astera help <N>`')
+    })
+    it('falls back to the pointer line when the file or the folder is missing', async () => {
+      const plain = sessionContextLines({}, null).join('\n')
+      expect(await run({}, await withSkills(null))).toBe(plain)
+      expect(await run({}, { ASTERA_CLI: 'x' })).toBe(plain)
+      expect(plain).toContain('`astera help`')
+    })
+    it('is the same text sessionContextLines gives codex', async () => {
+      expect(await run({ agentAppEnabled: true }, await withSkills(QR + '\n'))).toBe(
+        sessionContextLines({ agentAppEnabled: true }, null, QR).join('\n')
+      )
+    })
+    it('the shipped file is carried whole', async () => {
+      const shipped = readFileSync(path.join(__dirname, '../../../resources/skills', QUICKREF_FILE), 'utf8')
+      const t = (await run({}, { ASTERA_CLI: 'x', ASTERA_SKILLS: path.join(__dirname, '../../../resources/skills') }))!
+      expect(t).toContain(shipped.trim())
+    })
+  })
+
+  describe('the owner\'s session instructions', () => {
+    const own = async (text: string | null) => {
+      await fs.mkdir(path.join(dir, 'prompts'), { recursive: true })
+      if (text !== null) await fs.writeFile(path.join(dir, 'prompts', 'session.md'), text)
+    }
+    it('end the context under the owner heading, the same text sessionContextLines gives codex', async () => {
+      await own('Answer in French.\n')
+      const t = (await run({}))!
+      expect(t.endsWith(`${OWNER_HEADING}:\nAnswer in French.`)).toBe(true)
+      expect(t).toBe(sessionContextLines({}, null, null, 'Answer in French.\n').join('\n'))
+    })
+    it('add nothing when the file is missing or blank', async () => {
+      const plain = sessionContextLines({}, null).join('\n')
+      await own(null)
+      expect(await run({})).toBe(plain)
+      await own('  \n')
+      expect(await run({})).toBe(plain)
+    })
   })
 
   it('prints nothing outside a session Astera started (no ASTERA_CLI)', async () => {
@@ -150,6 +205,53 @@ describe('codexDeveloperInstructions', () => {
   // An npm-installed codex starts through `cmd.exe /c call`, which reads these as syntax.
   it('carries nothing cmd.exe would read as syntax, with every feature on', () => {
     expect(LAUNCH_FORBIDDEN.test(brief({ settings: ALL_ON, hf: HF })!)).toBe(false)
+  })
+
+  describe('the quick reference', () => {
+    const QR_PATH = path.join('S', QUICKREF_FILE)
+    const withQr = (text: string) => {
+      const base = files({ settings: {} })
+      return (p: string): string | null => (p === QR_PATH ? text : base(p))
+    }
+    const codex = (read: (p: string) => string | null) =>
+      codexDeveloperInstructions({ profileDir: 'P', codexHome: 'C', skillsDir: 'S', read })
+
+    it('is carried on the one line, line breaks as spaces and angle brackets as parentheses', () => {
+      const t = codex(withQr('Quick.\n```\nastera help <N>\n```'))!
+      expect(t).not.toContain('\n')
+      expect(t).toContain('Quick. ``` astera help (N) ```')
+    })
+    it('the shipped file passes the cmd.exe check', () => {
+      const shipped = readFileSync(path.join(__dirname, '../../../resources/skills', QUICKREF_FILE), 'utf8')
+      const t = codex(withQr(shipped))!
+      expect(t).toContain('astera sessions list --json')
+      expect(LAUNCH_FORBIDDEN.test(t)).toBe(false)
+    })
+    it('drops only the quick reference when it holds cmd.exe syntax', () => {
+      const t = codex(withQr('run a | b'))!
+      expect(t).not.toContain('a | b')
+      expect(t).toContain('astera help')
+    })
+    it('is left out when the file is missing', () => {
+      expect(codex(files({ settings: {} }))).toBe(brief({ settings: {} }))
+    })
+  })
+
+  describe('the owner\'s session instructions', () => {
+    const OWN = path.join('P', 'prompts', 'session.md')
+    const withOwn = (text: string) => {
+      const base = files({ settings: {} })
+      return (p: string): string | null => (p === OWN ? text : base(p))
+    }
+    const codex = (read: (p: string) => string | null) => codexDeveloperInstructions({ profileDir: 'P', codexHome: 'C', read })
+    it('end the one line under the owner heading', () => {
+      expect(codex(withOwn('Be brief.\nNo emoji.'))!.endsWith(`${OWNER_HEADING.replace('>', ')')}: Be brief. No emoji.`)).toBe(true)
+    })
+    it('are dropped alone when they hold cmd.exe syntax', () => {
+      const t = codex(withOwn('a | b'))!
+      expect(t).not.toContain('a | b')
+      expect(t).toBe(brief({ settings: {} }))
+    })
   })
 
   it('drops the lines of the features that are off, as the hook does', () => {

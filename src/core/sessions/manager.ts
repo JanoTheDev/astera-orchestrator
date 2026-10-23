@@ -283,6 +283,7 @@ export class SessionManager {
       opts.orchEnv && providerOf(opts.account) === 'codex'
         ? (codexDeveloperInstructions({
             profileDir: opts.orchEnv.profileDir,
+            skillsDir: opts.orchEnv.skillsPath,
             codexHome: env.CODEX_HOME ?? path.join(this.homeDir, '.codex')
           }) ?? undefined)
         : undefined

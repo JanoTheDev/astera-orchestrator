@@ -25,6 +25,7 @@ import { installedSkillsIn, skillsSection } from './workerSkills'
 import type { CloseReason } from '../../types'
 import { REPAIR_DIAGNOSTICS, diagnosticLine, findingsCountOf } from '../pluginChecks'
 import { boundedSlug } from '../../worktrees/naming'
+import { appendTo, profileDirOfSpecs, read as readOwner } from '../../prompts/ownerInstructions'
 
 /** Job Continuity's two prompt events (P0 design §5): 'requested' right before the prompt leaves
  *  the app, 'confirmed' once it has — the spawned process holds it as argv, or the typed prompt's
@@ -426,6 +427,8 @@ export function buildSpecFile(a: {
   /** T9: the Task's kind and the skills its worker has; with `kind` the spec gets a "Skills for this Task" section. */
   kind?: TaskKind
   installedSkills?: ReadonlySet<string>
+  /** The owner's text for workers (core/prompts/ownerInstructions.ts), appended at the very end. */
+  ownerInstructions?: string
 }): string {
   // 커밋·보고 의무보다 앞에 둔다 — 그 둘은 일이 끝난 뒤의 의무이고 이것은 시작하기 전에 읽을
   // 것이다. spec 본문 뒤인 이유: 무엇을 하는 일인지 읽은 다음에야 "그 결정이 어디 있는지"가
@@ -485,7 +488,7 @@ If this task has an issue, add \`--issue <number>\` to the worker_done report be
 \`--issue-created\` when you created that issue for this task.
 `
 
-  return `# ${a.title}
+  return appendTo(`# ${a.title}
 
 ${a.spec}
 ${knowledgeSection}${commitObligation}${issueSection}${WORKER_MACHINE_RULES}${WORKER_WORK_FAST}${a.repair ? repairSection(a.repair) : ''}${a.kind ? skillsSection(a.kind, (s) => a.installedSkills?.has(s) ?? false) : ''}
@@ -536,7 +539,7 @@ If ownership is still valid but the orchestrator needs to step in (notify withou
 
 Do not copy the code itself into the body — you share a working directory with the orchestrator.
 For files you changed, give the paths through --files-modified.
-`
+`, a.ownerInstructions)
 }
 
 /** 검토 워커의 spec 파일. buildSpecFile 의 형제이고, 다른 것은 두 가지다 — 판정 기준이 원래 Task 의
@@ -575,6 +578,8 @@ export function buildReviewSpecFile(a: {
    *  사람에게 간다"는 거짓말을 하게 된다(전체 브랜치 리뷰, Important 1) — 그래서 없으면 절 자체가
    *  붙지 않는다. */
   resultPath?: string
+  /** The owner's text for reviewers (core/prompts/ownerInstructions.ts), appended at the very end. */
+  ownerInstructions?: string
 }): string {
   // 구현자용 문구를 그대로 쓰지 않는다. 구현자는 "고치기 전에 읽어라"를 받고, 검토자는 "다시 열린
   // 결정은 구체적 결함이다"를 받아야 한다 — 같은 글을 두 번 실으면 이 자리가 값을 못 낸다.
@@ -685,7 +690,7 @@ Then report as below — \`--outcome failed\` when the requirement is not satisf
 `
     : ''
 
-  return `# Review: ${a.title}
+  return appendTo(`# Review: ${a.title}
 
 You are reviewing work another agent finished. **Do not change any code.** Read, judge, report.
 
@@ -740,7 +745,7 @@ session.
   EOF
 
 Use \`--outcome failed\` instead when it is not satisfied, and put what is missing in the body.
-`
+`, a.ownerInstructions)
 }
 
 export class OrchCoordinator {
@@ -794,6 +799,9 @@ export class OrchCoordinator {
      *  file. So the caller hands the whole file over and this skips the builder. Not named specFile:
      *  specPath in the return value already means a location and the two must not read alike. */
     specFileContent?: string
+    /** The role whose owner instructions `startWorker` appends to `specFileContent`: repair and recovery hand over a worker
+     *  spec without the block. Absent: none is appended (a review's file carries its own reviewer block). */
+    specOwnerRole?: 'worker'
     provider: Provider
     accountId: string
     /** T9: the Task's kind (`kindOf`): names the skills the spec tells the worker to use. Absent: no such section. */
@@ -961,11 +969,15 @@ export class OrchCoordinator {
     // elsewhere (view.ts's project ownership check, ipc.ts's home-path check), so it is reused here
     // rather than inventing a fresh comparison: separators unified by path.resolve, case folded where
     // the filesystem ignores it (win32, darwin — foldPathCase in core/files/paths.ts) and kept on linux.
+    // Repair and recovery hand over a worker spec without the block (specOwnerRole); a review's file has its own.
+    const owner = await readOwner(profileDirOfSpecs(this.deps.specsDir), 'worker')
     await fs.writeFile(
       specPath,
       // The caller may have assembled the file already (a review dispatch does — see
       // specFileContent). Only when it did not does the implementer's template get built here.
-      a.specFileContent ??
+      (a.specFileContent !== undefined
+        ? a.specOwnerRole ? appendTo(a.specFileContent, owner) : a.specFileContent
+        : undefined) ??
         buildSpecFile({
           title: a.title,
           spec: a.spec,
@@ -973,6 +985,7 @@ export class OrchCoordinator {
           dispatchId: a.dispatchId,
           committing: !isSamePath(cwd, a.runCwd),
           knowledge: await knowledgeIn(cwd, this.deps.log),
+          ownerInstructions: owner,
           ...(a.kind ? { kind: a.kind, installedSkills: await this.installedSkillsOf(a.accountId) } : {})
         }),
       'utf8'

@@ -44,6 +44,7 @@ import { mcpSessionsOf } from '../core/settings/mcpSessions'
 import { mcpGithubWriteOf } from '../core/settings/mcpGithubWrite'
 import { MCP_HTTP_DEFAULT_PORT, mcpHttpOf, type McpHttpSettings } from '../core/settings/mcpHttp'
 import { RepairNeeded } from '../core/settings/repairNeeded'
+import { skillReposOf } from '../core/extensions/skillsCatalog'
 
 /** The three settings that gate Astera's agent skills when the file does not say otherwise — a
  *  missing file, a corrupt one, or an absent key. */
@@ -182,6 +183,8 @@ export class AppSettingsStore {
   private mcpGithubWrite = false
   /** MCP over HTTP (MCP HTTP design §2). Off by default; written only while a field differs from its default. */
   private mcpHttp: McpHttpSettings = mcpHttpOf(undefined)
+  /** GitHub repos (`owner/repo`) the skills finder searches besides its default one. Written only when non-empty. */
+  private skillRepos: string[] = []
   private terminalFont: TerminalFont = { latin: null, hangul: null }
   private theme: ThemeId = DEFAULT_THEME_ID
   /** Which kind the new-session and resume dialogs open on — a terminal session or a 대화 one. It
@@ -294,6 +297,7 @@ export class AppSettingsStore {
       this.mcpGithubWrite = mcpGithubWriteOf((parsed as { mcpGithubWrite?: unknown }).mcpGithubWrite)
       // The same function the Host's readMcpHttp uses, so the two cannot differ.
       this.mcpHttp = mcpHttpOf((parsed as { mcpHttp?: unknown }).mcpHttp)
+      this.skillRepos = skillReposOf((parsed as { skillRepos?: unknown }).skillRepos)
       // Sanitised on read as well as on write: the file is user-editable, and the value ends up in a
       // CSS font-family string. Anything that does not survive is treated as unset.
       const font = (parsed as { terminalFont?: unknown }).terminalFont
@@ -367,6 +371,7 @@ export class AppSettingsStore {
         this.mcpSessions = false
         this.mcpGithubWrite = false
         this.mcpHttp = mcpHttpOf(undefined)
+        this.skillRepos = []
         this.terminalFont = { latin: null, hangul: null }
         this.theme = DEFAULT_THEME_ID
         this.defaultSessionKind = 'terminal'
@@ -423,6 +428,7 @@ export class AppSettingsStore {
       this.mcpSessions = false
       this.mcpGithubWrite = false
       this.mcpHttp = mcpHttpOf(undefined)
+      this.skillRepos = []
       this.terminalFont = { latin: null, hangul: null }
       this.theme = DEFAULT_THEME_ID
       this.defaultSessionKind = 'terminal'
@@ -589,6 +595,16 @@ export class AppSettingsStore {
   /** The Host reads the file on `mcp-http-reload`, which ipc.ts sends after this save. */
   async setMcpHttp(v: McpHttpSettings): Promise<void> {
     this.mcpHttp = { ...v, hosts: [...v.hosts] }
+    await this.persist()
+  }
+
+  getSkillRepos(): string[] {
+    return [...this.skillRepos]
+  }
+
+  /** Narrowed the way load narrows it: valid `owner/repo` strings, each once. */
+  async setSkillRepos(repos: string[]): Promise<void> {
+    this.skillRepos = skillReposOf(repos)
     await this.persist()
   }
 
@@ -951,6 +967,7 @@ export class AppSettingsStore {
       mcpSessions?: true
       mcpGithubWrite?: true
       mcpHttp?: McpHttpSettings
+      skillRepos?: string[]
       terminalFont?: TerminalFont
       theme?: ThemeId
       defaultSessionKind?: SessionKind
@@ -1009,6 +1026,7 @@ export class AppSettingsStore {
     if (this.mcpGithubWrite) data.mcpGithubWrite = true
     const h = this.mcpHttp
     if (h.enabled || h.lan || h.port !== MCP_HTTP_DEFAULT_PORT || h.hosts.length > 0) data.mcpHttp = h
+    if (this.skillRepos.length > 0) data.skillRepos = this.skillRepos
     // Every flag at its default leaves the key out of the file entirely; load reconstructs those
     // defaults from an absent key, so nothing is lost.
     const desktopNotify = writableDesktopNotify(this.desktopNotify)

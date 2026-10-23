@@ -1204,6 +1204,142 @@ export interface McpClientStatus {
 }
 export type McpRegisterResult = { ok: true } | { ok: false; message: string }
 
+// The MCP & skills finder (main/extensions.ts, core/extensions/): third-party MCP servers and agent
+// skills installed per account. Astera's own `astera` server and its managed skills are never listed
+// as removable here.
+
+/** A failure answered as a value: `network` when the catalog could not be reached, `invalid` when the
+ *  request or what came back failed validation, `refused` when installing or removing would touch
+ *  something the finder does not own, `cli` when the client's CLI failed. */
+export interface ExtensionError {
+  ok: false
+  error: 'network' | 'invalid' | 'refused' | 'cli'
+  message: string
+}
+/** A value an MCP server asks for: an environment variable (stdio) or a header (http). `hint` is the
+ *  registry's template for it, such as `Bearer {api_key}`, when it has one. */
+export interface McpInput {
+  name: string
+  description: string
+  required: boolean
+  secret: boolean
+  default?: string
+  hint?: string
+}
+/** How a registry server is run: a package started by npx or uvx, or a remote URL. */
+export type McpRecipe =
+  | { kind: 'stdio'; command: 'npx' | 'uvx'; args: string[]; env: McpInput[] }
+  | { kind: 'http'; transport: 'http' | 'sse'; url: string; headers: McpInput[] }
+/** One server of the official MCP registry. `recipe` is null when the finder cannot install it
+ *  (`notInstallable` says why): an OCI image, a NuGet package, a URL with variables in it. */
+export interface McpCatalogEntry {
+  /** The registry's name, such as `io.github.owner/server`. */
+  id: string
+  /** A local name suggested for it, in the charset both clients accept. */
+  name: string
+  title: string
+  description: string
+  version: string
+  repositoryUrl?: string
+  websiteUrl?: string
+  recipe: McpRecipe | null
+  notInstallable?: string
+}
+export type McpSearchResult = { ok: true; servers: McpCatalogEntry[]; nextCursor: string | null } | ExtensionError
+/** An MCP server in an account's own config (never its env or header values). */
+export interface McpInstalled {
+  accountId: string
+  name: string
+  transport: 'stdio' | 'http' | 'sse'
+  command?: string
+  url?: string
+}
+export interface McpInstallRequest {
+  accountIds: string[]
+  name: string
+  recipe: McpRecipe
+  /** Values for the recipe's env vars or headers, by name. Never logged. */
+  values: Record<string, string>
+}
+export type ExtensionAccountResult = { accountId: string; ok: true } | ({ accountId: string } & ExtensionError)
+/** `note`: sessions already open do not pick up what was installed. */
+export interface ExtensionInstallResult {
+  results: ExtensionAccountResult[]
+  note: string
+}
+/** A skill folder in a GitHub repo (`<path>/SKILL.md`), at the commit it was read at. */
+export interface SkillCatalogEntry {
+  repo: string
+  path: string
+  name: string
+  description: string
+  commit: string
+}
+/** Skills from every repo that answered; `errors` names the repos that did not. */
+export interface SkillsSearchResult {
+  skills: SkillCatalogEntry[]
+  errors: { repo: string; message: string }[]
+}
+/** Where an installed skill came from: `astera` (Astera's own, managed by the app), `finder` (installed
+ *  here, removable), `user` (anything else, read-only here). */
+export type SkillOrigin = 'astera' | 'finder' | 'user'
+export interface SkillInstalled {
+  accountId: string
+  name: string
+  description: string
+  origin: SkillOrigin
+  source?: { repo: string; path: string; commit: string }
+}
+export interface SkillInstallRequest {
+  accountIds: string[]
+  repo: string
+  path: string
+}
+/** The repos the skills finder searches: `default` always, then the ones the person added. */
+export interface SkillRepos {
+  default: string
+  added: string[]
+}
+
+/** The MCP & skills finder (main/extensionsIpc.ts). Every call answers failures as values. */
+export interface ExtensionsApi {
+  mcpSearch(query: string, cursor?: string): Promise<McpSearchResult>
+  mcpInstalled(): Promise<McpInstalled[]>
+  mcpInstall(req: McpInstallRequest): Promise<ExtensionInstallResult>
+  mcpRemove(accountId: string, name: string): Promise<ExtensionAccountResult>
+  skillsSearch(query: string): Promise<SkillsSearchResult>
+  skillsInstalled(): Promise<SkillInstalled[]>
+  skillsInstall(req: SkillInstallRequest): Promise<ExtensionInstallResult>
+  skillsRemove(accountId: string, name: string): Promise<ExtensionAccountResult>
+  skillReposGet(): Promise<SkillRepos>
+  skillReposSet(added: string[]): Promise<{ ok: true; repos: SkillRepos } | ExtensionError>
+}
+
+/** The agents Astera writes prompts for; the owner's custom instructions are kept per role (core/prompts/ownerInstructions.ts). */
+export type PromptRole = 'session' | 'planner' | 'coordinator' | 'worker' | 'reviewer'
+
+export interface PromptInfo {
+  role: PromptRole
+  /** Size of the saved text; 0 when none. */
+  bytes: number
+  set: boolean
+}
+
+export type PromptSetResult =
+  | { ok: true }
+  | { ok: false; error: 'invalid-role' | 'invalid-text' }
+  | { ok: false; error: 'too-long'; max: number }
+  | { ok: false; error: 'write-failed'; message: string }
+
+/** Settings › Agents (main/promptsIpc.ts). `preview` is a sample of the built-in text the owner's text is appended to. */
+export interface PromptsApi {
+  list(): Promise<PromptInfo[]>
+  get(role: PromptRole): Promise<string>
+  set(role: PromptRole, text: string): Promise<PromptSetResult>
+  reset(role: PromptRole): Promise<PromptSetResult>
+  preview(role: PromptRole): Promise<string>
+}
+
 /** The MCP over HTTP setting in app-settings.json (MCP HTTP design §2), narrowed by core/settings/mcpHttp.ts. */
 export interface McpHttpSettings {
   enabled: boolean
@@ -2520,6 +2656,10 @@ export type RendererApi = CoreApi & {
   /** Remote Runtimes (remote runtime design Phase 6): Settings › Remote Runtimes and the Jobs view's selectors. */
   remote: RemoteApi
   plugins: PluginsApi
+  /** The MCP & skills finder: third-party MCP servers and skills per account. */
+  extensions: ExtensionsApi
+  /** The owner's custom instructions for Astera's agent prompts. */
+  prompts: PromptsApi
   /** The Jobs view's "+ From a source" (plugin Phase 4c): the Host's job sources, as the app. */
   sources: SourcesApi
   remoteSessions: RemoteSessionsApi

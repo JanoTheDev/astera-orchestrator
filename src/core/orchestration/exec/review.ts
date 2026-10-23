@@ -21,6 +21,7 @@ import { checkConfigIdsOf, policyOf } from '../convergence'
 import { ownerAnswersOf, pickReviewer } from '../reviewer'
 import { openReviewDispatch, type OrchState } from '../state'
 import { buildReviewSpecFile, knowledgeIn, specFileName } from './coordinator'
+import { profileDirOfSpecs, read as readOwner } from '../../prompts/ownerInstructions'
 import { createReviewGate } from './reviewGate'
 import { dispatchModelFields } from '../roleModels'
 
@@ -156,6 +157,7 @@ export function createReviewStarter(c: ReviewContext): (a: { taskId: string }) =
         // 그 목록을 안 주면 그 자리가 빈다. 훑는 뿌리도 같다: 검토자는 구현자가 일한 트리에서
         // 돈다(바로 아래 worktree 'current' + runCwd = 그 cwd).
         knowledge: await knowledgeIn(cwd, c.log),
+        ownerInstructions: await readOwner(profileDirOfSpecs(c.specsDir), 'reviewer'),
         // 이 Task 가 이미 들고 있는 값을 그대로 옮긴다(설계 §8.1·§8.3) — checks 는 마지막 검증
         // 라운드의 check 별 결과, previousIssues 는 직전 검토 라운드의 이슈(buildReviewSpecFile
         // 이 그중 blocking 만 추린다), suspiciousFiles 는 startValidation 이 검증을 큐에 넣을 때

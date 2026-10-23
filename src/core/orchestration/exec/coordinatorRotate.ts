@@ -13,6 +13,7 @@
 // The driving loop calls `createCoordinatorRotation` from its tidy-up pass (dispatchLoop.ts); everything goes through
 // the command layer, like every other thing that loop does, and a failure is logged and never thrown (R14).
 import { buildHandoverPrompt } from '../handover'
+import { read as readOwner } from '../../prompts/ownerInstructions'
 import { policyOf } from '../convergence'
 import { runWaves, wavesDoneOf } from '../draftPr'
 import { isIntegrationTask } from '../integrate'
@@ -176,6 +177,7 @@ export async function refreshCoordinator(
       concurrency: job.concurrency ?? DEFAULT_CONCURRENCY,
       taskCount: tasks.length,
       convergence: policyOf(s, { runId: run.id }) !== null,
+      ownerInstructions: await readOwner(deps.profileDir, 'coordinator'),
       jobId: job.id,
       accountId: job.coordinatorAccountId,
       promptsMode: job.verbatim !== undefined,

@@ -13,6 +13,7 @@ import { toast } from '../../lib/toast'
 import { SettingRow, type GroupProps } from './SettingRow'
 import { Switch } from '../ui'
 import { SettingItem } from './SettingItem'
+import { PromptInstructionsEditor } from '../extensions/PromptInstructionsEditor'
 
 export function AgentsSettings(p: GroupProps): React.JSX.Element | null {
   const {
@@ -72,6 +73,12 @@ export function AgentsSettings(p: GroupProps): React.JSX.Element | null {
       {/* Orchestrator W1-A: the model each Job role and task difficulty starts on. */}
       <SettingRow a="roleModels" only={only}>
         <OrchestratorModelsSettings accounts={accounts} />
+      </SettingRow>
+      {/* The owner's text appended to each role's prompt (core/prompts/ownerInstructions.ts). */}
+      <SettingRow a="instructions" only={only}>
+        <SettingItem title={t('settings.row.instructions')} hint={t('settings.instructions.hint')}>
+          <PromptInstructionsEditor />
+        </SettingItem>
       </SettingRow>
       {/* W3-B: the local whisper.cpp the command bar's push-to-talk runs on */}
       <SettingRow a="voice" only={only}>
