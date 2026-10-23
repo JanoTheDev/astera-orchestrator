@@ -149,7 +149,9 @@ export function PlanRow({
         <Chip tone={status.tone} dot>
           {t(status.key, status.params)}
         </Chip>
-        {status.reason !== undefined && <span className="plans-row__reason">{t('jobs.run.notDelivered', { reason: status.reason })}</span>}
+        {status.reason !== undefined && <span className="plans-row__reason" title={t('jobs.run.notDelivered', { reason: status.reason })}>
+            {t('jobs.run.notDelivered', { reason: status.reason })}
+          </span>}
         <SourceChip source={row.source} />
         {row.areas?.map((area) => (
           <Chip key={area}>{area}</Chip>

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  contextMenuPoint, isTypeaheadKey, listboxKeyAction, menuKeyAction, moveIndex, nextFocusIndex, readSectionOpen, sectionStorageKey,
+  contextMenuPoint, FOCUSABLE, isTypeaheadKey, listboxKeyAction, menuKeyAction, moveIndex, nextFocusIndex, readSectionOpen, sectionStorageKey,
   TYPEAHEAD_PAUSE_MS, typeaheadBuffer, typeaheadIndex, writeSectionOpen
 } from './logic'
 
@@ -159,5 +159,11 @@ describe('contextMenuPoint', () => {
   it('Shift+F10 / the ContextMenu key opens under the focused element', () => {
     expect(contextMenuPoint({ clientX: 0, clientY: 0 }, rect)).toEqual({ x: 40, y: 90 })
     expect(contextMenuPoint({ clientX: 55, clientY: 70, pointerType: '' }, rect)).toEqual({ x: 40, y: 90 })
+  })
+})
+
+describe('FOCUSABLE', () => {
+  it('leaves out every part a roving row (tabindex -1) would match, so a modal trap ends on a Tab stop', () => {
+    for (const part of FOCUSABLE.split(',')) expect(part).toContain(':not([tabindex="-1"])')
   })
 })

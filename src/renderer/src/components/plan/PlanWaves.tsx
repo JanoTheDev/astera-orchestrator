@@ -3,6 +3,8 @@
 import type { RunDetail as RunDetailData } from '../../../../core/types'
 import { useI18n } from '../../i18n/I18nProvider'
 import { replyNote, type OrchDoor } from '../../lib/orchDoor'
+import { checkChoicesOf } from '../checkText'
+import { NewTaskModal } from '../NewTaskModal'
 import { Button, Icon, Tabs } from '../ui'
 import { coordinatorRefreshOf, replanningOf } from './planBoard'
 import type { WaveStatus } from './planPage'
@@ -121,6 +123,19 @@ export function PlanWaves({
           통째로 NewTaskModal 로 바뀌어 아직 안 보낸 질문을 잃고, Task 를 짓는 중에 누르면
           폼이 다시 그려져 채워 둔 것을 잃는다. 이 버튼이 여는 것은 새 창이 아니라 아래 칸
           (.detail-events)의 두 번째 모습이다: 그래프는 그대로 보이고 아래만 바뀐다. */}
+      {p.authoring && (
+        // **계정을 provider 로 걸러 보내지 않는다** — 이 폼에서 고른 첫 계정이 provider 를 정하므로(Task.accountIds),
+        // 걸러 보낼 기준이 이 시점에 없다. 두 번째 칸부터 첫 계정의 provider 로 좁히는 일은 폼 안에서 한다.
+        <NewTaskModal
+          door={door}
+          runId={runId}
+          tasks={p.tasks}
+          accounts={p.accounts}
+          runConfigs={p.runConfigs === null ? null : checkChoicesOf(p.runConfigs, p.checkPlugins, t)}
+          onClose={() => p.setAuthoring(false)}
+          onCreated={() => p.setAuthoring(false)}
+        />
+      )}
       {!p.authoringOpen && (
         <div className="detail-graph-head">
           {/* 명령이 도는 동안 이 줄은 남지만(authoringOpen 의 주석), 그 동안 Task 를 짓기

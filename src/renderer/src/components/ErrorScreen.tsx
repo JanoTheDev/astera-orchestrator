@@ -8,7 +8,9 @@ import './search/errorScreen.css'
 export function ErrorScreen({ error, onReport }: { error: Error; onReport?: () => void }): React.JSX.Element {
   const { t } = useI18n()
   const [copied, setCopied] = useState(false)
-  const details = [error.name + ': ' + error.message, error.stack].filter(Boolean).join('\n')
+  // Chromium's stack already begins with "Name: message": do not print that line twice
+  const head = error.name + ': ' + error.message
+  const details = error.stack?.startsWith(head) ? error.stack : [head, error.stack].filter(Boolean).join('\n')
   const copy = (): void => {
     window.api.clipboard.writeText(details)
     setCopied(true)

@@ -6,9 +6,7 @@ import { TaskLinkChips } from '../TaskLinkChips'
 import { ChangedFilesBlock } from '../ChangedFilesBlock'
 import { CompletionBlock } from '../CompletionBlock'
 import { GateAnswer } from '../GateAnswer'
-import { checkChoicesOf } from '../checkText'
 import { STATE_KEY, TaskGlyph, TaskIcon } from '../JobIcons'
-import { NewTaskModal } from '../NewTaskModal'
 import { JournalBusy, JournalOlder } from '../RunDetailJournal'
 import type { OrchDoor } from '../../lib/orchDoor'
 import { Button, Icon, IconButton, Textarea } from '../ui'
@@ -38,8 +36,8 @@ export function PlanJournal({
 }): React.JSX.Element {
   const { t } = useI18n()
   const {
-    authoring, setAuthoring, answering, answer, setAnswer, asking, question, setQuestion, busy, gateError,
-    accounts, tasks, runConfigs, checkPlugins, selectedTask, setSelected, events, open, toggle,
+    answering, answer, setAnswer, asking, question, setQuestion, busy, gateError,
+    accounts, tasks, selectedTask, setSelected, events, open, toggle,
     resolveGate, cancelAnswer, askQuestion, cancelAsk
   } = p
   const keyOf = (e: JobEvent): string => `${e.kind}:${e.sourceId}`
@@ -62,20 +60,7 @@ export function PlanJournal({
 
   return (
     <div className="detail-events">
-      {authoring ? (
-        // **계정을 provider 로 걸러 보내지 않는다** — 이 폼에서 고른 첫 계정이 provider 를
-        // 정하므로(Task.accountIds), 걸러 보낼 기준이 이 시점에 없다. 두 번째 칸부터 첫
-        // 계정의 provider 로 좁히는 일은 폼 안에서 한다.
-        <NewTaskModal
-          door={door}
-          runId={runId}
-          tasks={tasks}
-          accounts={accounts}
-          runConfigs={runConfigs === null ? null : checkChoicesOf(runConfigs, checkPlugins, t)}
-          onClose={() => setAuthoring(false)}
-          onCreated={() => setAuthoring(false)}
-        />
-      ) : answering !== null ? (
+      {answering !== null ? (
         (() => {
           // 답할 Gate 는 스냅숏에서 다시 찾는다 — 폼을 연 뒤에 그 Gate 가 풀렸을 수 있고
           // (코디네이터나 CLI 가 답할 수 있다), 그때 열어 둔 id 로 보내면 이미 끝난 것을

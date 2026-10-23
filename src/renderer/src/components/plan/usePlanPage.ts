@@ -249,8 +249,9 @@ export function usePlanPage({
     busy, setBusy, setGateError, setAsking, setQuestion, setAnswering, setAnswer
   })
 
-  /** Shows the moved events pane: always on Journal; on Waves while a form is open or a Task is picked. */
-  const eventsShown = section === 'journal' || (section === 'waves' && (authoringOpen || selectedTask !== undefined))
+  /** Shows the moved events pane: always on Journal; on Waves while a question form is open or a Task is picked. The
+   *  New task form is a Modal over the board (PlanWaves), so it does not open the pane and squeeze the board. */
+  const eventsShown = section === 'journal' || (section === 'waves' && ((authoringOpen && !authoring) || selectedTask !== undefined))
 
   return {
     ...commands,

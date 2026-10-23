@@ -83,13 +83,13 @@
 .plan-sofar h3 { margin: 8px 0 4px; font-size: var(--fs-13); }
 
 /* Tasks page (DESIGN-W11 §9): PageHeader, the Planning section first, then the board; columns are --panel surfaces with
-   counts and scroll sideways under 1100px. */
+   counts and shrink to fit (the board alone scrolls under 900px). */
 .plan-pages.tasks-page { padding: 0; gap: 0; }
 .tasks-body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: var(--sp-4); padding: 0 var(--page-pad) var(--page-pad); }
 .tasks-page .ui-empty { flex: 1; justify-content: center; }
 .tasks-planning { display: flex; flex-direction: column; gap: var(--sp-2); }
 .tasks-planning-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: var(--sp-2); }
-.tasks-board { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(5, minmax(200px, 1fr)); gap: var(--sp-3); overflow: auto; }
+.tasks-board { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--sp-2); overflow: auto; }
 .tasks-col { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-2); border-radius: var(--radius-lg); background: var(--panel); border: 1px solid var(--line); }
 .tasks-col-cards { display: flex; flex-direction: column; gap: var(--sp-2); min-height: 0; overflow: auto; }
 .tasks-col-cards > * { flex: none; }
@@ -108,8 +108,9 @@
 .tasks-card-plan { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tasks-card .tasks-wait.ui-chip { align-self: flex-start; max-width: 100%; height: auto; min-height: var(--h-sm); gap: 4px; padding-block: 2px; white-space: normal; text-align: left; }
 .tasks-card .tasks-wait svg { flex: none; }
-@media (max-width: 1100px) {
-  .tasks-board { grid-template-columns: repeat(5, 220px); }
+/* Five columns shrink to fit down to 1024; only a window narrower than that scrolls the board, not the page. */
+@media (max-width: 900px) {
+  .tasks-board { grid-template-columns: repeat(5, 170px); }
 }
 
 /* The answer form (QuestionAnswer, in the Inbox card and on a Waves card): a full-width box and a Send under it, flat

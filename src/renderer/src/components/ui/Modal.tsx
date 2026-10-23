@@ -26,7 +26,8 @@ export function Modal({ title, onClose, size = 'md', footer, closeLabel = 'Close
   useEffect(() => {
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
     const box = ref.current
-    const first = box?.querySelector<HTMLElement>(`.ui-modal__body ${FOCUSABLE}`) ?? box
+    // FOCUSABLE is a selector list: scope each part to the body, or the header's Close button is the first match
+    const first = box?.querySelector<HTMLElement>('.ui-modal__body')?.querySelector<HTMLElement>(FOCUSABLE) ?? box
     first?.focus()
     return () => opener?.focus()
   }, [])
