@@ -123,6 +123,10 @@ describe('removeWorktree', () => {
     const r = await removeWorktree({ id: info.id, force: true, registry: reg, isPathInUse: noUse })
     expect(r.removed).toBe(true)
     expect(existsSync(info.path)).toBe(false)
+    // never deleted: moved aside under the registry root's .trash
+    const trash = path.join(reg.getRoot(), '.trash')
+    const kept = (await fs.readdir(trash)).find((n) => n.startsWith(path.basename(info.path)))
+    expect(existsSync(path.join(trash, kept!, 'f.txt'))).toBe(true)
   })
 
   it('고아: 미커밋/미추적 파일이 있으면 확인 불가로 거부(디렉토리 보존)', async () => {
@@ -138,7 +142,7 @@ describe('removeWorktree', () => {
     expect(existsSync(info.path)).toBe(true)
   })
 
-  it('고아 확인 불가라도 force면 삭제된다', async () => {
+  it('고아 확인 불가라도 force면 치워진다 — 지우지 않고 .trash 로 옮긴다', async () => {
     const { info } = await createWorktree({ repoPath: repo, name: 'orphan-force', registry: reg })
     await fs.rm(path.join(repo, '.git', 'worktrees', path.basename(info.path)), {
       recursive: true,
@@ -148,6 +152,23 @@ describe('removeWorktree', () => {
     const r = await removeWorktree({ id: info.id, force: true, registry: reg, isPathInUse: noUse })
     expect(r.removed).toBe(true)
     expect(existsSync(info.path)).toBe(false)
+    const trash = path.join(reg.getRoot(), '.trash')
+    const kept = (await fs.readdir(trash)).find((n) => n.startsWith(path.basename(info.path)))
+    expect(await fs.readFile(path.join(trash, kept!, 'untracked.txt'), 'utf8')).toBe('u')
+  })
+
+  it('branch -D first writes a backup ref at the branch head', async () => {
+    const { info } = await createWorktree({ repoPath: repo, name: 'backup', registry: reg })
+    await fs.writeFile(path.join(info.path, 's.txt'), 's', 'utf8')
+    gitIn(info.path, ['add', 's.txt'])
+    gitIn(info.path, ['commit', '-m', 'work'])
+    const head = gitIn(info.path, ['rev-parse', 'HEAD'])
+    gitIn(repo, ['merge', '--squash', info.branch])
+    gitIn(repo, ['commit', '-m', 'squashed'])
+    const r = await removeWorktree({ id: info.id, registry: reg, isPathInUse: noUse })
+    expect(r.branchDeleted).toBe(true)
+    const refs = gitIn(repo, ['for-each-ref', '--format=%(refname) %(objectname)', 'refs/astera/backup/'])
+    expect(refs).toMatch(new RegExp(`^refs/astera/backup/\\d{8}-\\d{6}-branch-D-.+ ${head}$`, 'm'))
   })
 
   it('고아: .git만 남으면 force 없이도 삭제된다(빈 케이스는 어렵게 만들지 않는다)', async () => {

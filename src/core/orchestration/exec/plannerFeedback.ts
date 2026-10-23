@@ -6,7 +6,8 @@
 // gets the plan, `existing.md` and the whole feedback history. The planner revises with `task-update` / `task-create` /
 // `task-cancel`, reports one line per change (`jobs-feedback-done`) and ends its turn, which makes the plan ready again
 // (host/activity.ts `planReadyActivity`, once per feedback round). **While the plan runs** the feedback starts a W6-D
-// replan at once (`jobs-replan --feedback`), with W6-D's rules: only Tasks that have not started change.
+// replan at once (`jobs-replan --feedback`), with W6-D's rules: only Tasks that have not started change. T1: feedback
+// during a replan is typed into its planner or queued for the next one, and a finished plan reopens with a final check.
 import type { OrchServerDeps } from '../command'
 import { handsOffOf, projectOfJob } from '../delivery'
 import { buildPlannerBrief } from '../handover'
@@ -73,12 +74,17 @@ const oneLine = (t: string): string => t.replace(/\s+/g, ' ').trim()
 const howToRevise = (jobId: string): string =>
   `Revise the plan for it: change Tasks with \`astera task-update --id <taskId>\`, add with \`astera task-create --run ${jobId}\`, ` +
   `remove with \`astera task-cancel --id <taskId> --reason "<why>"\`. A Task you add carries what the first plan's Tasks carry: ` +
-  `\`--prompt -\`, \`--criteria\`, \`--affected-paths\`, and \`--basis missing|partial|broken\` with its \`--evidence "<file:line, #issue, PR or Job id>"\`; ` +
+  `\`--prompt -\`, \`--criteria\`, \`--affected-paths\`, \`--kind bugfix|feature|refactor|ui|audit|docs|test|ops\`, \`--worktree new|reuse\` (reuse only for a direct continuation of its one dep on the same files), and \`--basis missing|partial|broken\` with its \`--evidence "<file:line, #issue, PR or Job id>"\`; ` +
   `\`astera tasks-list --job ${jobId}\` must show no Task without a basis. Then run \`astera jobs-feedback-done --id ${jobId} --changes '["<one short line per change>"]'\` ` +
   `(an empty list when nothing needed to change) and end your turn. Do not start any work.`
 
 /** The line typed into a live planner: one line, since a terminal's Enter would cut a longer one. */
 export const feedbackLine = (jobId: string, text: string): string => `Owner feedback on the plan: «${oneLine(text)}». ${howToRevise(jobId)}`
+
+/** T1: the line typed into a live replan planner: the replan it runs takes this feedback too. */
+export const replanFeedbackLine = (jobId: string, text: string): string =>
+  `More owner feedback on the plan: «${oneLine(text)}». Apply it the way your brief's OWNER FEEDBACK says, with the same rules ` +
+  `(a Task you add carries --kind bugfix|feature|refactor|ui|audit|docs|test|ops, and --worktree reuse only for a direct continuation of its one dep), before you run \`astera jobs-replan-done --id ${jobId}\`; its summary covers this too.`
 
 /** The brief for a resumed planner: its own conversation goes on, so the feedback is all it needs. */
 export const resumeBrief = (jobId: string, text: string): string =>
@@ -215,11 +221,25 @@ export async function feedbackCommand(deps: OrchServerDeps, caller: Caller, cmd:
 
   if (!awaitsApproval(job)) {
     if (job.plannerSessionIds === undefined) return conflict(`job ${jobId} was not planned: there is no planner to talk to`)
+    // T1: a replan runs already: typed into its planner while it lives, else queued for the next replan (jobs-replan-done)
+    if (job.replanning) {
+      const sid = job.replanning.sessionId
+      const live = sid && deps.listSessions && deps.sendSession ? (await deps.listSessions()).find((x) => x.id === sid && x.alive && x.kind === 'terminal') : undefined
+      const turn = live && sid ? await deps.sessionTurn?.(sid) : undefined
+      if (live && sid && !(turn?.state === 'waiting' && turn.prompt !== null)) {
+        await record(entry('run'))
+        await deps.sendSession!(sid, replanFeedbackLine(jobId, text), true)
+        return ok({ jobId, sessionId: sid, via: 'typed' })
+      }
+      await record({ ...entry('run'), queued: true })
+      return ok({ jobId, via: 'queued' })
+    }
     const run = s.runs.filter((r) => r.jobId === jobId).at(-1)
-    if (!run || outcomeOfTasks(s.tasks.filter((t) => t.runId === run.id)) !== 'running')
-      return conflict(`job ${jobId} is not running: there is nothing left to replan`)
+    if (!run) return conflict(`job ${jobId} has no run: there is nothing to replan`)
+    // T1: a finished plan (completed or failed) takes more work through a final-check replan, its follow-ups run as those do
+    const finished = outcomeOfTasks(s.tasks.filter((t) => t.runId === run.id)) !== 'running'
     // W6-D's replan, started now instead of at the wave boundary; it holds the plan while it runs
-    const reply = await replanCommand(deps, caller, 'jobs-replan', { id: jobId, run: run.id, feedback: text, feedbackAt: now }, false)
+    const reply = await replanCommand(deps, caller, 'jobs-replan', { id: jobId, run: run.id, feedback: text, feedbackAt: now, ...(finished ? { mode: 'completion' } : {}) }, false, handle)
     if (reply.status < 300) await record(entry('run'))
     return reply
   }

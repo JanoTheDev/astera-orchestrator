@@ -90,6 +90,14 @@ shows it: each plan with its open Tasks, and the links between plans.
   foundation Task in wave 1 so its consumers run in parallel in wave 2. Never add a dep "to be careful", and never split
   one file between parallel Tasks.
 
+- **New worktree or reuse (`--worktree new|reuse`).** By default every Task's worker starts in a new worktree forked
+  from the plan branch, with its finished deps merged in. `--worktree reuse` lets it continue in the worktree and
+  branch of its one dep instead, with the plan branch merged in first, so the worker keeps the dep's build state
+  (installed dependencies, build output, warm caches). Reuse only a direct continuation of one dep on the same files:
+  the next step, a fix-up, tests for what the dep built. Use `new` for anything that can run in parallel or works in
+  another area, and never reuse only to save time on a Task that could run in parallel. A reuse Task has exactly one
+  dep, of its own plan, and no other Task reuses that dep; Astera refuses anything else.
+
 - **A Task prompt states five things**: the goal, the findings with `file:line`, numbered build steps, the files, the
   tests with their commands, and what not to touch. A worker sees nothing else of the plan, so a prompt that leaves one
   out is a Task that goes wrong.
@@ -109,6 +117,7 @@ Create Tasks in dependency order (a Task can only depend on one that exists). Ea
 | `--criteria '[...]'` | one or more acceptance criteria, each checkable by reading code or running a command ("`npm test -- foo` passes", not "works well") |
 | `--affected-paths '[...]'` | exactly the files it will change |
 | `--deps '[...]'` | the Task ids it waits for |
+| `--worktree` | `new` (default) or `reuse`: continue in the one dep's worktree, for a direct continuation on the same files (section 2) |
 | `--kind` | `bugfix`, `feature`, `refactor`, `ui`, `audit`, `docs`, `test` or `ops`. It picks the skills the worker is told to use (systematic debugging and a failing test first for `bugfix`, test-first for `feature`, the design rules for `ui`, read-only findings first for `audit`). Pass it on every Task; without it Astera guesses from the title |
 | `--difficulty` | `light` (mechanical, small), `standard` (ordinary feature or fix), `hard` (design, subtle bug, wide change). It picks the worker's model |
 | `--model-reason` | one line: why that difficulty (and provider or model, if you set one) |

@@ -14,7 +14,7 @@ import { isSamePath } from '../../files/tree'
 import { createWorktree } from '../../worktrees/create'
 import { workerBaseFailure } from '../../worktrees/base'
 import { git as realGit, gitDir, gitVersionAtLeast, listGitWorktrees, fetchOrigin, GIT_WRITE_TIMEOUT_MS } from '../../worktrees/git'
-import { removeWorktree } from '../../worktrees/remove'
+import { backupRef, removeWorktree } from '../../worktrees/remove'
 import { runWorktreeSetup } from '../../worktrees/setup'
 import { askUntilAnswered, defaultActionPresenceCheck, type CheckResult, type PresenceCheck } from '../../worktrees/presence'
 import type { WorktreeStore } from '../../worktrees/registry'
@@ -592,7 +592,10 @@ export async function integrateWorktrees(
     // 정리가 안 됐다고 Gate 를 열면 사람이 손쓸 것도 없는 자리에서 파이프라인이 선다. 도는
     // 세션이 그 폴더를 쓰고 있으면 removeWorktree 가 IN_USE 로 던지고 **그것이 맞다**: 살아 있는
     // 프로세스 밑의 폴더는 지우지 않는다. 그때 그 워크트리는 남고 이유는 로그에 남는다.
-    if (reap) await ctx.reap(target.path)
+    // A folder with uncommitted changes, or one whose status could not be read, is never reaped: the force remove
+    // would take that work with it. It stays, reported in `dirty`/`unchecked`, and the caller does not count it merged.
+    if (reap && dirty.ok && n === 0) await ctx.reap(target.path)
+    else if (reap) ctx.log(`merge: kept ${target.path}: it holds uncommitted changes (or its status could not be read)`)
   }
   return {
     kind: 'merged',
@@ -741,7 +744,8 @@ export function worktreeDeps(ctx: {
       // 손쓸 수 없는 이유로 병합 버튼과 삭제가 막힌다.
       if (alive.length === 0) return { ok: true, merged: [], uncommitted: 0, ...unreached }
       const r = await ctx.integrate(runCwd, alive, { reap: false, ...(opts?.message !== undefined ? { message: opts.message } : {}) })
-      if (r.kind !== 'merged') return { ok: false, reason: r.reason }
+      // An `agent` result names its worktrees: run-merge and run-integrate-all hand them to the AI merge Task
+      if (r.kind !== 'merged') return { ok: false, reason: r.reason, ...(r.kind === 'agent' ? { conflict: r.worktrees } : {}) }
       return {
         ok: true,
         merged: alive,
@@ -1056,9 +1060,12 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
     const now = await run(['rev-parse', 'HEAD'], { cwd })
     if (!now.ok || now.stdout !== base) {
       // Only Astera's own merges are above `base` (the folder was clean at 2), as in `undo` below
-      const reset = await run(['reset', '--hard', base], w)
-      const back = await run(['rev-parse', 'HEAD'], { cwd })
-      if (!reset.ok || !back.ok || back.stdout !== base) stop = `could not go back to ${base} to try again: ${why(reset)}`
+      if ((await backupRef(cwd, 'HEAD', 'reset-hard-delivery-retry', ctx.log, run)) === null) stop = `could not write a backup ref of HEAD before going back to ${base}`
+      else {
+        const reset = await run(['reset', '--hard', base], w)
+        const back = await run(['rev-parse', 'HEAD'], { cwd })
+        if (!reset.ok || !back.ok || back.stdout !== base) stop = `could not go back to ${base} to try again: ${why(reset)}`
+      }
     }
     const tips = stop === null ? await tipsOf(a.worktrees, run) : []
     for (const wt of tips) {
@@ -1084,6 +1091,8 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
         code,
         conflictWith
       )
+    if ((await backupRef(cwd, 'HEAD', 'reset-hard-delivery-undo', ctx.log, run)) === null)
+      return fail(`${reason} Astera's merges were left on ${branch}, not pushed: no backup ref could be written; git reset --hard ${base} undoes them.`, code, conflictWith)
     const reset = await run(['reset', '--hard', base], w)
     const back = await run(['rev-parse', 'HEAD'], { cwd })
     if (!reset.ok || !back.ok || back.stdout !== base)
