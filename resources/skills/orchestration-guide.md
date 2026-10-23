@@ -839,8 +839,12 @@ A timeout you expected is `--resume`; an answer you lost is the key.
   names the held Tasks. Retry their `worker-start` right away. Waiting with `--types` that leaves out
   `status` does not wake on it.
 <!-- W8-E: coordinator guards -->
-- **A worker-start refused for the same files** (409, `sameFiles`: "waiting for <title>: same files <path>"): two
-  workers never edit the same files at once. Start it when that Task ends; do not open a Gate about it.
+- **Same files run together.** Two Tasks on overlapping `--affected-paths` start side by side, each in its own
+  worktree; a conflict between their branches goes to the merge worker (an AI merge Task) when they meet. Never hold a
+  Task back, or add a dep, only because another Task edits the same files.
+- **A worker-start refused for the same files** (409, `sameFiles`: "waiting for <title>: same files <path>"): only on a
+  project with serial files on (`projects set --serial-files on`), where two workers never edit the same files at once.
+  Start it when that Task ends; do not open a Gate about it.
 - **A worker-start refused for a replan** (409, `replanning`: "replanning wave N: this lifts by itself"): the plan
   is being adjusted. A replan a deviating Task started holds only the Tasks it can affect (downstream of it or
   sharing its paths); worker-start for any other Task is accepted. An unscoped replan (owner feedback, the final

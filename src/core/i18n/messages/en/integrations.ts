@@ -365,6 +365,8 @@ export const integrations: Record<keyof typeof ko, string> = {
   'settings.projects.empty': 'No projects yet',
   'project.handsOff': 'Hands-off plans (Astera decides for me)',
   'project.handsOff.hint': 'Plans start on their own, decide their questions themselves and start their consoles with permissions bypassed.',
+  'project.serialFiles': 'One Task at a time on the same files',
+  'project.serialFiles.hint': 'Tasks that edit the same files wait for each other, and a finished Task holds its files until its plan delivers. Off: they run side by side in their own worktrees and the merge worker resolves conflicts.',
   'project.originSync': 'Keep running plans in sync with origin',
   'project.originSync.on': 'On (every 10 minutes and at each step)',
   'project.originSync.off': 'Off (no network)',

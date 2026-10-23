@@ -311,6 +311,16 @@ describe('validatePlan', () => {
     const jobId = await plannedJob(r)
     return { r, jobId }
   }
+  /** T7: the Job's project, with serial files on. */
+  const serialFiles = async (r: Rig, jobId: string): Promise<void> => {
+    const s = r.deps.getState()
+    const cwd = s.jobs.find((j) => j.id === jobId)!.cwd
+    await r.deps.setState({
+      ...s,
+      projects: [...s.projects, { id: 'prj_t7', path: cwd, name: 'p', addedAt: s.jobs[0].createdAt, serialFiles: true }],
+      jobs: s.jobs.map((j) => (j.id === jobId ? { ...j, projectId: 'prj_t7' } : j))
+    })
+  }
 
   it('wants at least one Task', async () => {
     const { r, jobId } = await planWith()
@@ -395,6 +405,7 @@ describe('validatePlan', () => {
 
   it('names two parallel Tasks whose paths overlap (folder vs file), and accepts a dep chain', async () => {
     const { r, jobId } = await planWith()
+    await serialFiles(r, jobId)
     const a = (await planner(r)('task-create', goodTask(jobId, { title: 'a', affectedPaths: ['src/ui'] }))).body as { id: string }
     const b = (await planner(r)('task-create', goodTask(jobId, { title: 'b', affectedPaths: ['src/ui/form.tsx'] }))).body as { id: string }
     expect(validatePlan(r.deps.getState(), jobId)).toEqual([
@@ -403,6 +414,13 @@ describe('validatePlan', () => {
     // a transitive dependency (b waits on c, c waits on a) serialises them
     const c = (await planner(r)('task-create', goodTask(jobId, { title: 'c', affectedPaths: ['docs'], deps: [a.id] }))).body as { id: string }
     await planner(r)('task-update', { id: b.id, deps: [c.id] })
+    expect(validatePlan(r.deps.getState(), jobId)).toEqual([])
+  })
+
+  it('T7: without serial files two parallel Tasks on the same files are a valid plan', async () => {
+    const { r, jobId } = await planWith()
+    await planner(r)('task-create', goodTask(jobId, { title: 'a', affectedPaths: ['src/ui'] }))
+    await planner(r)('task-create', goodTask(jobId, { title: 'b', affectedPaths: ['src/ui/form.tsx'] }))
     expect(validatePlan(r.deps.getState(), jobId)).toEqual([])
   })
 

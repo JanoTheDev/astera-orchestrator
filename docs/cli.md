@@ -710,7 +710,7 @@ astera projects find  --path <path>
 astera projects add   [--path <path>] [--initial-commit] [--parent <projectId>] [--name <name>] [--focus <a,b>] [--clone <git url>]
 astera projects remove --id <projectId>
 astera projects create --name <name> --parent <path> [--describe <text>] [--github <private|public>]
-astera projects set   --id <projectId> [--delivery <pr|push>] [--delivery-branch <branch>] [--auto-approve <on|off>] [--hands-off <on|off>] [--test-command <cmd>] [--test-config <id>] [--concurrency <1-100>] [--review-rounds <n>] [--replan <waves|off>] [--account <id>] [--setup-command <cmd|off>] [--prompts-dir <path|none>] [--auto-projects <on|off>] [--grants <kind,...|none>] [--coordinator-model <id|none>]
+astera projects set   --id <projectId> [--delivery <pr|push>] [--delivery-branch <branch>] [--auto-approve <on|off>] [--hands-off <on|off>] [--serial-files <on|off>] [--test-command <cmd>] [--test-config <id>] [--concurrency <1-100>] [--review-rounds <n>] [--replan <waves|off>] [--account <id>] [--setup-command <cmd|off>] [--prompts-dir <path|none>] [--auto-projects <on|off>] [--grants <kind,...|none>] [--coordinator-model <id|none>]
 
 astera jobs    list   [--status <pending|paused|scheduled|waiting|running|completed|failed>] [--project <path>] [--archived] [--area <word>]
 astera jobs    get    --id <jobId | runId>
@@ -958,8 +958,8 @@ holds is a 4 with `astera projects list` as its step.
 **Workspaces: several projects in one repository.** A project with sub-projects is a workspace. `projects add
 --parent <projectId> --name <name> [--focus <a,b>]` adds a sub-project: the same repository under its own name (its
 `parentId` in `projects list`), with the folders it usually works in as `focus`. Every plan of a workspace, whichever
-sub-project it is filed under, shares one file guard, one set of leases and one overlap check: two plans that touch the
-same files wait for each other, and plans on different files run side by side. A sub-project reads every setting it
+sub-project it is filed under, shares one overlap check (and, with `--serial-files on` on the workspace, one file guard and one set of leases: two
+plans that touch the same files then wait for each other). A sub-project reads every setting it
 leaves unset (delivery, auto-approve, hands-off, test command, concurrency…) from its workspace. Astera makes
 sub-projects by itself from the work: `jobs set --areas` (the planner names a plan's areas) files the plan under the
 sub-project named after its first area, created when the workspace has none by that name, once `projects set

@@ -29,7 +29,7 @@ import { handsOffOf } from '../delivery'
 import { isJobActive } from '../lifecycle'
 import { lostRetriedIn, lostWithDriver, lostWithNobody } from '../lostGate'
 import { isLost } from '../../recovery/candidates'
-import { editingByProject, isLeaseWaitGate, LEASE_WAIT_OPTIONS, projectKeyOf, sameFilesAs, workerCapOf, workersAgainstCap } from '../schedule'
+import { editingByProject, isLeaseWaitGate, LEASE_WAIT_OPTIONS, projectKeyOf, sameFilesAs, serialFilesOf, workerCapOf, workersAgainstCap } from '../schedule'
 import { DROPPED_OPTIONS, isDroppedGate, plannerOverlapNotices } from '../overlap'
 import { coordinatorStarting, jobOf, runGatedForTask, type OrchState } from '../state'
 import { DEFAULT_CONCURRENCY, FAILURE_LIMIT, type Dispatch, type Job, type JobRun, type Task } from '../types'
@@ -328,7 +328,8 @@ export function stallRemedies(
       free--
       capFree--
       startable++
-      editing.set(project, [...(editing.get(project) ?? []), t])
+      // T7: only a project that keeps same-file Tasks apart (schedule.ts `serialFilesOf`)
+      if (serialFilesOf(s, project)) editing.set(project, [...(editing.get(project) ?? []), t])
       const key = `${base}free`
       // Held until now: the stall counts from the moment it could start
       const wasHeld = !memo.has(key) && [...memo.keys()].some((k) => k.startsWith(base))

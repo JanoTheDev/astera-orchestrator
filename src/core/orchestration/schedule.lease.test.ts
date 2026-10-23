@@ -1,5 +1,6 @@
 // T2: a completed Task of an undelivered plan leases the files it really changed (Task.changedFiles, recorded when its
 // validation starts), not its declared affectedPaths; its declared paths stand in only when nothing was recorded.
+// T7: leases hold only on a project with serial files on (schedule.serial.test.ts has the default).
 import { describe, expect, it } from 'vitest'
 import { leasesByProject, slotsToFill } from './schedule'
 import { emptyState, type OrchState } from './state'
@@ -28,7 +29,7 @@ const dispatch = (id: string, taskId: string): Dispatch =>
 /** Plan A (undelivered) has the merge Task `ta` (declared `src/`) in `over`'s state; plan B has a ready Task at `bPaths`. */
 const plans = (over: Partial<Task>, bPaths: string[]): OrchState => ({
   ...emptyState(),
-  projects: [{ id: 'prj', path: '/repo', name: 'repo', addedAt: T0 }],
+  projects: [{ id: 'prj', path: '/repo', name: 'repo', addedAt: T0, serialFiles: true }],
   jobs: [job('jA'), job('jB')],
   runs: [run('r1', 'jA'), run('r2', 'jB')],
   tasks: [task('ta', 'r1', { status: 'completed', affectedPaths: ['src/'], ...over }), task('tb', 'r2', { affectedPaths: bPaths })]
@@ -60,7 +61,7 @@ describe('leasesByProject — the files a Task really changed (T2)', () => {
   it('a cycle on the recorded files lets the older plan proceed', () => {
     const s: OrchState = {
       ...emptyState(),
-      projects: [{ id: 'prj', path: '/repo', name: 'repo', addedAt: T0 }],
+      projects: [{ id: 'prj', path: '/repo', name: 'repo', addedAt: T0, serialFiles: true }],
       jobs: [job('jA'), job('jB', '2026-10-22T01:00:00.000Z')],
       runs: [run('r1', 'jA'), run('r2', 'jB')],
       tasks: [

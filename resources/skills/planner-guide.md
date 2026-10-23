@@ -17,7 +17,8 @@ Every plan starts here, whatever its source. Nothing is built twice.
    - list this project's other Jobs (`astera jobs list --project <projectId> --json`). Your brief's "MAIN PLAN OF
      THIS PROJECT" lists their Tasks, state and paths (W8-D; `astera main-plan` shows it whole). A Task another plan
      already holds is never planned again: depend on it (below), and name that plan and Task in `existing.md`. Plan around their files
-     where you can; an overlap left in the plan only waits (two workers never edit the same files at once).
+     where you can; an overlap left in the plan runs side by side, and the merge worker settles a conflict when the
+     branches meet (unless the project turns on serial files: then the later Task waits).
 3. **Write `existing.md`** in this Job's inputs folder, `$ASTERA_PROFILE_DIR/plans/<jobId>/inputs/existing.md`
    (the objective names the folder when it has one). One row per requested item: its state, `missing`,
    `partial`, `broken` or `built`, and its evidence (file:line, issue or PR number, Job id). Every plan writes
@@ -60,9 +61,11 @@ shows it: each plan with its open Tasks, and the links between plans.
 
 - **One Task = one worker = one terminal.** A Task is a piece of work one agent can finish, check and report
   in one sitting. If you cannot write its acceptance criteria, it is not a Task yet.
-- **Maximise safe parallelism.** Tasks with no dependency between them run at the same time, each in its own
-  git worktree, and are merged afterwards. Parallel is safe only when their `--affected-paths` do not
-  overlap. Two Tasks that must change the same file are either one Task or a chain (`--deps`).
+- **Maximise parallelism.** Tasks with no dependency between them run at the same time, each in its own
+  git worktree, and are merged afterwards, even when their `--affected-paths` overlap: two Tasks on the same file
+  both run, and their merge may need the merge worker (an AI merge Task). Disjoint paths merge cleanly, so keep them
+  apart where the cut allows, but never add a dep only because two Tasks touch the same file. (A project with serial
+  files on runs same-file Tasks one at a time; there, two Tasks that must change the same file are one Task or a chain.)
 - **Dependencies are real orderings only**: B depends on A only when B uses code, an API, a file's content or a decision
   A produces. Same area, same files, nicer order and "review after" are never reasons: each Task has its own worktree and
   the merge worker resolves conflicts. Do not add deps "to be careful": they are the only thing that orders Tasks, and
@@ -75,8 +78,8 @@ shows it: each plan with its open Tasks, and the links between plans.
 - **Cut by ownership, not by step.** One Task owns a folder or a feature slice. Do not split one folder's files
   across Tasks by what each step does to them (write, then test, then docs): that makes a chain out of parallel work.
 - **Shared files go to one Task.** Shared files (i18n catalogs, `types.ts`, central command tables, route indexes)
-  belong to one Task. If several Tasks must add to one, each edits only its own block and its prompt says so. A Task
-  that must touch a file another parallel Task owns is a chain (`--deps`). To keep consumers parallel, a **foundation
+  belong to one Task. If several Tasks must add to one, each edits only its own block and its prompt says so, so their
+  merge stays clean. A Task that needs another's code is a chain (`--deps`). To keep consumers parallel, a **foundation
   Task** adds the type, keys or IPC stub first (small, wave 1); the consumers then fill their own parts side by side in wave 2.
 - **Size the waves.** A Task opens as soon as its own deps have completed (section 5). Put foundations (types, shared helpers, design
   tokens) in wave 1 and their consumers after. When the Tasks are independent, fill each wave to the Job's worker limit.
@@ -139,8 +142,8 @@ name of 3 to 6 words: `astera jobs rename --id <jobId> --title "<3-6 words>"`. A
 - `*` appears only in the last segment: `src/billing/*.ts`. Never `src/*/billing/`.
 - Never `.` or `/`: that is the whole repository. Use it only when the Task truly owns everything.
 - List exactly the files the Task will create or edit, tests included. A path left out is a path another parallel
-  Task may also edit; a path too broad holds back every other worker in the repository while the Task runs, so use a
-  folder only when the Task really changes files across it (`src/` holds the whole repository).
+  Task may also edit; a path too broad hides where Tasks meet (and, with serial files on, holds back every other worker
+  in the repository while the Task runs), so use a folder only when the Task really changes files across it.
 - A **merge Task** lists the files the merge brings: `git diff --name-only <base>...<branch>`.
 - A **whole-plan check Task** lists only the files it may fix, never `src/` or `.`. Prefer leaving the whole-plan check
   to the final check (section 5) over a Task that depends on everything.
@@ -182,8 +185,10 @@ When you are started for a deviation, your brief is **focused**: it lists only t
 not-started Tasks they can affect. Read those, not the whole plan. The final check and owner feedback always get the
 full brief.
 
-Between Jobs, a completed Task holds a lease on the files it really changed (from git), so another plan's workers wait
-only for those files; a Task that changed nothing recorded falls back to its declared paths.
+Between Jobs, Tasks of different plans on the same files run side by side, and the plan that delivers second merges the
+first and validates before it lands. On a project with serial files on, a completed Task holds a lease on the files it
+really changed (from git) until its plan delivers, so another plan's workers wait only for those files; a Task that
+changed nothing recorded falls back to its declared paths.
 
 Your brief lists, for every completed Task, its worker's report, its review and the files it changed, then what is
 running and what is left. Read the changed code (`astera runs-changed-files --id <runId> --task <taskId> --json`, then

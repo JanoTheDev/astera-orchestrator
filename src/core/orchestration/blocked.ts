@@ -13,6 +13,7 @@ import {
   jobActive,
   projectKeyOf,
   sameFilesAs,
+  serialFilesOf,
   slotsToFill,
   workerCapOf,
   workersAgainstCap,
@@ -86,7 +87,9 @@ export function taskBoardsOf(
     for (const x of slots) {
       const t = taskById.get(x.taskId)
       const job = jobById.get(runById.get(x.runId)?.jobId ?? '')
-      if (t && job) editing.set(projectKeyOf(s, job), [...(editing.get(projectKeyOf(s, job)) ?? []), t])
+      const key = job && projectKeyOf(s, job)
+      // T7: only a project that keeps same-file Tasks apart (schedule.ts `serialFilesOf`)
+      if (t && key !== undefined && serialFilesOf(s, key)) editing.set(key, [...(editing.get(key) ?? []), t])
     }
     placement = { count: slots.length, slotted: new Set(slots.map((x) => x.taskId)), byRun, used: workersAgainstCap(s), editing }
     return placement

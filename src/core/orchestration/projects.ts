@@ -167,6 +167,8 @@ export type ProjectSettingsPatch = {
   originSync?: 'off' | null
   // a one-line shell command, `off`, or null for auto-detect
   setupCommand?: string | null
+  // T7: on brings back the same-file wait (schedule.ts `serialFilesOf`)
+  serialFiles?: boolean | null
 }
 
 const MAX_SETUP_COMMAND_LENGTH = 500
