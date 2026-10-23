@@ -212,5 +212,8 @@ export const settings: Partial<Record<keyof typeof ko, string>> = {
   'settings.maxWorkers.label': 'Máximo de agentes en todos los planes',
   'settings.maxWorkers.hint': 'Hasta 100; vacío usa la recomendación para esta máquina. En el límite, los planes de mayor prioridad reciben el siguiente hueco libre; los iguales se turnan.',
   'settings.maxWorkers.saveFailed': 'No se pudo guardar el límite de agentes: {detail}',
+  'settings.heavyJobs.label': 'Trabajos pesados a la vez',
+  'settings.heavyJobs.hint': 'Limita las suites de pruebas completas, Electron, las compilaciones dist y las comprobaciones de Tasks en toda la máquina. 1 es lo más seguro en un portátil; más usa más CPU y memoria.',
+  'settings.heavyJobs.saveFailed': 'No se pudo guardar el límite de trabajos pesados: {detail}',
   'settings.tabSummaries.hint': 'Cuando termina una pestaña, Astera escribe una tarjeta breve: qué hizo, sus archivos, comprobaciones y revisión, y dos o tres frases del modelo del agente principal. Las tarjetas aparecen en el tablero de Tasks, en el historial y en el resumen del plan.',
 }

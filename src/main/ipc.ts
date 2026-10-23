@@ -57,6 +57,7 @@ import { createHostDriverView, type HostDriverView } from './host/hostDriver'
 import { createHostWorkspaceView, type HostWorkspaceView } from './host/hostWorkspace'
 import { clampAppSize } from '../core/workspace/size'
 import { createHostMcpHttpView, type HostMcpHttpView } from './host/hostMcpHttp'
+import { heavyJobsAtOnceOf } from '../core/settings/heavyJobs'
 import { machineSpecs } from '../core/settings/machineSpecs'
 import { mcpHttpHostsProblem, mcpHttpOf, type McpHttpSettings } from '../core/settings/mcpHttp'
 import { createTokenReader, newToken, tokenPath } from '../core/mcp/httpToken'
@@ -3220,7 +3221,8 @@ export function registerIpc(
       },
       // Plugins run in the Host: the app asks it (plugin Phase 5 C8). `deps` is defined below and read at the call.
       pluginCheck: (plugin, input) =>
-        deps.completionChecks?.run(plugin, input) ?? Promise.resolve({ name: plugin, ...unavailable('plugin checks cannot run here') })
+        deps.completionChecks?.run(plugin, input) ?? Promise.resolve({ name: plugin, ...unavailable('plugin checks cannot run here') }),
+      heavyJobsAtOnce: async () => core.appSettings.getHeavyJobsAtOnce()
     })
     orchValidator = validation.validator
 
@@ -4544,6 +4546,12 @@ export function registerIpc(
     if (n !== null && (typeof n !== 'number' || !Number.isInteger(n) || n < 1))
       throw new Error(`INVALID_MAX_CONCURRENT_WORKERS: ${String(n)}`)
     await core.appSettings.setMaxConcurrentWorkers(n)
+  })
+  ipcMain.handle('settings.getHeavyJobsAtOnce', () => core.appSettings.getHeavyJobsAtOnce())
+  ipcMain.handle('settings.setHeavyJobsAtOnce', async (_e, n: unknown) => {
+    const slots = heavyJobsAtOnceOf(n)
+    if (slots === null) throw new Error(`INVALID_HEAVY_JOBS_AT_ONCE: ${String(n)}`)
+    await core.appSettings.setHeavyJobsAtOnce(slots)
   })
 
   // The renderer pushes the session on screen; main cannot work it out (§7). Narrowed on arrival, and

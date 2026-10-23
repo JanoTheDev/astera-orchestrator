@@ -1290,8 +1290,9 @@ export const HEAVY_USAGE = [
   'usage: astera heavy -- <command> [args…]',
   '',
   '  Runs a heavy job (the full test suite, `npm run dev` / Electron, `npm run dist:linux`) under the',
-  '  machine-wide lock /tmp/astera-fullsuite.lock: one at a time, first come first served. Hand-opened',
-  '  tabs that run `flock /tmp/astera-fullsuite.lock <command>` share the same slot. The lock is released',
+  '  machine-wide lock /tmp/astera-fullsuite.lock: up to the Settings value "Heavy jobs at once" (default 1)',
+  '  at a time, first come first served. Hand-opened tabs that run `flock /tmp/astera-fullsuite.lock <command>`',
+  '  share slot 1. The lock is released',
   '  when the command exits or crashes. Exits with the command\'s exit code (a signal is 128+n).',
   '',
   '  example: astera heavy -- nice -n 10 npx vitest run --maxWorkers=2'
