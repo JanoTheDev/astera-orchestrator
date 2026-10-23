@@ -237,6 +237,12 @@ export function gateQuestionsOfTask(tk: JobTask): OpenQuestion[] {
   return [{ id: g.id, source: 'ask', taskId: tk.id, question: g.question, ...(g.options?.length ? { options: g.options } : {}), ...(fixed ? { freeText: false as const } : {}) }]
 }
 
+/** T8 "Needs you": every open question and Gate of the plan with its Task, in the plan's Task order: what the owner
+ *  answers at the top of the plan tab, instead of on each Task's card. */
+export function needsYouOf(tasks: readonly JobTask[], questions: readonly OpenQuestion[]): { task: JobTask; q: OpenQuestion }[] {
+  return tasks.flatMap((task) => [...questionsOfTask(questions, task.id), ...gateQuestionsOfTask(task)].map((q) => ({ task, q })))
+}
+
 /** Every affected path of the plan with the Tasks that touch it, by path. More than one Task is an overlap. */
 export function filesOf(tasks: readonly JobTask[]): { path: string; tasks: JobTask[] }[] {
   const byPath = new Map<string, JobTask[]>()
@@ -326,9 +332,10 @@ export function taskColumnOf(task: JobTask, session?: LiveSession, asked = false
   return 'planned'
 }
 
-/** The plan page's sections, in their segmented order (DESIGN.md §2 "Plan page"). */
+/** The plan page's sections (DESIGN.md §2 "Plan page"). T8: the page is one document; a section, or an anchor on it
+ *  (`settings`, `task-<id>`), says where it scrolls to (planPage.ts planAnchorOf). */
 export const PLAN_SECTIONS = ['overview', 'waves', 'files', 'changes', 'journal'] as const
-export type PlanSection = (typeof PLAN_SECTIONS)[number]
+export type PlanSection = (typeof PLAN_SECTIONS)[number] | 'settings' | `task-${string}`
 
 /** The Plans page's modes; the one last used is remembered (PlanList). */
 export type PlansView = 'area' | 'overlap' | 'main'
@@ -342,6 +349,10 @@ export function plansViewOf(v: unknown): PlansView {
 export function planSectionOf(v: unknown): PlanSection {
   if (typeof v !== 'string') return 'overview'
   if ((PLAN_SECTIONS as readonly string[]).includes(v)) return v as PlanSection
+  // T8 anchors, with or without the `#` of a tab arg
+  const anchor = v.startsWith('#') ? v.slice(1) : v
+  if (anchor === 'settings') return 'settings'
+  if (anchor.startsWith('task-') && anchor.length > 'task-'.length) return anchor as `task-${string}`
   if (v === 'board' || v === 'graph' || v === 'tasks') return 'waves'
   return 'overview'
 }

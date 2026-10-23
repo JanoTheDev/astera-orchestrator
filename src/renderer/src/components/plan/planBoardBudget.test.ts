@@ -6,8 +6,8 @@ import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { ActivityEvent } from '../../../../core/orchestration/activity'
 import type { JobEvent, JobTask } from '../../../../core/types'
-import { TaskBoard } from './TaskBoard'
-import { coordinatorRefreshOf, replanningOf, type LiveSession, type OpenQuestion } from './planBoard'
+import { NeedsYou, TaskBoard } from './TaskBoard'
+import { coordinatorRefreshOf, needsYouOf, replanningOf, type LiveSession, type OpenQuestion } from './planBoard'
 import { liveSessionsOf, planActivityOf, PLAN_ACTIVITY_MAX } from './usePlanLive'
 
 vi.mock('../../i18n/I18nProvider', () => ({ useI18n: () => ({ lang: 'en', t: (key: string) => key }) }))
@@ -61,22 +61,26 @@ const questions: OpenQuestion[] = Array.from({ length: 20 }, (_, i) => ({ id: `q
 const tick = (held: ActivityEvent[], page: ActivityEvent[], prev: Record<string, LiveSession>, nowMs: number) => {
   const sessions = liveSessionsOf(sessionRows, prev)
   const activity = planActivityOf(held, page, RUN)
+  // T8: the open questions are the plan tab's Needs you, drawn beside the board on the same tick
   const html = renderToStaticMarkup(
-    React.createElement(TaskBoard, {
-      tasks,
-      accounts: null,
-      selected: undefined,
-      onSelect: () => {},
-      layers,
-      events,
-      activity,
-      sessions,
-      questions,
-      onAnswer: async () => null,
-      replanning: replanningOf(activity, RUN),
-      refreshed: coordinatorRefreshOf(activity, RUN),
-      nowMs
-    })
+    React.createElement(
+      React.Fragment,
+      null,
+      React.createElement(NeedsYou, { items: needsYouOf(tasks, questions), onAnswer: async () => null, onShowTask: () => {} }),
+      React.createElement(TaskBoard, {
+        tasks,
+        accounts: null,
+        selected: undefined,
+        onSelect: () => {},
+        layers,
+        events,
+        activity,
+        sessions,
+        replanning: replanningOf(activity, RUN),
+        refreshed: coordinatorRefreshOf(activity, RUN),
+        nowMs
+      })
+    )
   )
   return { sessions, activity, html }
 }

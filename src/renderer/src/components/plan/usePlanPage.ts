@@ -11,7 +11,7 @@ import { toast } from '../../lib/toast'
 import { useSummaries } from '../../state/useSummaries'
 import { planCommands } from './planCommands'
 import { canManualStartOf, headCountsOf, waveStatusOf } from './planPage'
-import { wavesOf, type PlanSection } from './planBoard'
+import { wavesOf } from './planBoard'
 import { usePlanLive } from './usePlanLive'
 
 /** 한 Run 의 상세 창 — 위가 의존 그래프, 아래가 이벤트다. **더 이상 읽기 전용이 아니다** — Task 8 이
@@ -40,14 +40,12 @@ export function usePlanPage({
   run,
   detail,
   runId,
-  door,
-  section
+  door
 }: {
   run: JobRow | undefined
   detail: RunDetailData | null
   runId: string
   door: OrchDoor
-  section: PlanSection
 }) {
   const { t } = useI18n()
   /** Why the controls are off: a read-only pairing (Phase 7). They are drawn disabled with it as their title, and it
@@ -218,8 +216,9 @@ export function usePlanPage({
   // W2-C plan board: the graph or the board in the upper half; the overview sits above either.
   // W6-E: the board (by wave) opens first, as the place a plan run is watched, and a files tab joins them
   // W9-C: the board and the graph are the Waves section; files is its own section
+  // T8: the steps and Needs you are always on the plan tab, so the live read always runs while it is open
   const [view, setView] = useState<'graph' | 'board'>('board')
-  const live = usePlanLive(door, section === 'waves', runId)
+  const live = usePlanLive(door, true, runId)
   const summaries = useSummaries(door, runId) // W9-I: the board's lines and "What happened so far"
   // 고른 Task 가 스냅샷에서 사라졌으면 필터도 없다 — 걸러 낸 목록이 영원히 비는 대신 전체를 그린다
   const selectedTask = tasks.find((tk) => tk.id === selected)
@@ -249,16 +248,12 @@ export function usePlanPage({
     busy, setBusy, setGateError, setAsking, setQuestion, setAnswering, setAnswer
   })
 
-  /** Shows the moved events pane: always on Journal; on Waves while a question form is open or a Task is picked. The
-   *  New task form is a Modal over the board (PlanWaves), so it does not open the pane and squeeze the board. */
-  const eventsShown = section === 'journal' || (section === 'waves' && ((authoringOpen && !authoring) || selectedTask !== undefined))
-
   return {
     ...commands,
     lockedReason, ui, selected, setSelected, open, toggle, authoring, setAuthoring, runConfigs, accounts, checkPlugins,
     asking, setAsking, question, setQuestion, answering, setAnswering, answer, setAnswer, busy, gateError, setGateError,
     authoringOpen, formOpen, canManualStart, tasks, view, setView, live, summaries, selectedTask, events, running,
-    counts, waveStatus, onNodeClick, eventsShown
+    counts, waveStatus, onNodeClick
   }
 }
 

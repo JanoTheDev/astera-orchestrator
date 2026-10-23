@@ -3,7 +3,7 @@
 import type { MessageKey } from '../../../../core/i18n'
 import type { JobEvent, JobRow, JobTask, MessageType, TaskStatus } from '../../../../core/types'
 import { DEFAULT_CONCURRENCY } from '../../../../core/orchestration/types'
-import { currentWaveOf, type PlanWave } from './planBoard'
+import { currentWaveOf, type PlanSection, type PlanWave } from './planBoard'
 
 /** 종류 배지의 문구. message 는 messageType 이 정한다.
  *  heartbeat 과 decision_gate 는 timeline.ts 의 SKIP 이 걸러 지금은 도달하지 않지만, 맵을
@@ -160,3 +160,19 @@ export function waveStatusOf(row: Pick<JobRow, 'wave' | 'replanWave'> | undefine
   if (at < of) return { at, of, next: left > 0 ? { kind: 'opens', n: at + 1, left } : null }
   return { at, of, next: left === 0 ? { kind: 'done' } : { kind: 'last', left } }
 }
+
+/** T8: where the plan tab scrolls on opening: a Task (expanded), the Plan settings, the Steps or the Activity; null
+ *  for the top. `openPlan(jobId, section)` carries it (planBoard planSectionOf keeps `settings` and `task-<id>`). */
+export type PlanAnchor = { kind: 'task'; taskId: string } | { kind: 'settings' } | { kind: 'steps' } | { kind: 'activity' }
+
+export function planAnchorOf(section: PlanSection | undefined): PlanAnchor | null {
+  if (section === undefined || section === 'overview') return null
+  if (section === 'settings') return { kind: 'settings' }
+  if (section === 'waves') return { kind: 'steps' }
+  if (section === 'files' || section === 'changes' || section === 'journal') return { kind: 'activity' }
+  return { kind: 'task', taskId: section.slice('task-'.length) }
+}
+
+/** The element id an anchor scrolls to; each section and Task row of the plan tab carries its own. */
+export const planAnchorId = (a: PlanAnchor): string => (a.kind === 'task' ? taskAnchorId(a.taskId) : `plan-${a.kind}`)
+export const taskAnchorId = (taskId: string): string => `plan-task-${taskId}`

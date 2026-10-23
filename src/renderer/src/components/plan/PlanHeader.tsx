@@ -1,8 +1,8 @@
-// The plan page's header (moved out of pages/PlanPage.tsx, restyled to DESIGN-W11 §7): back to Plans, the plan's name
-// (renamed inline), its state and wave, its actions and ⋯ menu, and the section tabs under them.
+// The plan tab's header (moved out of pages/PlanPage.tsx; T8 restyled to DESIGN-W13): the plan's name (renamed inline),
+// its status as an icon and a word, "Step 2 of 3 · 4/7 done" with a progress Meter, and its actions: Approve when it
+// applies, Merge, Pause/Resume, Open consoles and the ⋯ menu (delivery, lifecycle). Workers at once moved to Plan settings.
 import { useState } from 'react'
 import type { JobRow, OrchSnapshot } from '../../../../core/types'
-import { DEFAULT_CONCURRENCY, MAX_CONCURRENT_WORKERS } from '../../../../core/orchestration/types'
 import { useI18n } from '../../i18n/I18nProvider'
 import { replyNote, type OrchDoor } from '../../lib/orchDoor'
 import {
@@ -22,11 +22,13 @@ import { toast } from '../../lib/toast'
 import { jobName } from '../../lib/jobName'
 import { RunIcon, STATE_KEY, TaskIcon } from '../JobIcons'
 import { SourceChip } from '../SourceChip'
-import { Button, Chip, Icon, Input, Menu, PageHeader, Tabs, type MenuItem } from '../ui'
-import { PLAN_SECTIONS, type PlanSection } from './planBoard'
-import { deliveryActionsOf } from './planPage'
+import { Button, Chip, Icon, Input, Menu, Meter, PageHeader, type MenuItem } from '../ui'
+import { planProgressOf } from './planBoard'
+import { planStatusOf } from './planList'
+import { approveSlot } from './planTalk'
+import { PlanMergeActions } from './PlanChanges'
+import { deliveryActionsOf, RUN_START } from './planPage'
 import type { PlanPageState } from './usePlanPage'
-import { WaveLine } from './PlanWaves'
 import { FailedWaitButtons } from './FailedWaitButtons'
 
 export function PlanHeader({
@@ -35,11 +37,8 @@ export function PlanHeader({
   runId,
   runtimeId,
   door,
-  section,
-  onSection,
   plans,
   snapshot,
-  onClose,
   onOpenConsoles,
   simple = false
 }: {
@@ -48,17 +47,15 @@ export function PlanHeader({
   runId: string
   runtimeId?: string
   door: OrchDoor
-  section: PlanSection
-  onSection: (section: PlanSection) => void
   plans: readonly JobRow[]
   snapshot: OrchSnapshot | null
-  onClose: () => void
+  /** The plan's consoles: the wall, filtered to this plan. */
   onOpenConsoles: () => void
-  /** T19: simple mode: no section tabs and no workers-at-once field */
+  /** T19: simple mode: no per-status counts and no model chip */
   simple?: boolean
 }): React.JSX.Element {
   const { t } = useI18n()
-  const { lockedReason, ui, formOpen, running, counts, waveStatus } = p
+  const { lockedReason, ui, running, counts, waveStatus, tasks, busy } = p
   const [renaming, setRenaming] = useState(false)
   // T8: the Stalled chip's Fix in flight
   const [fixing, setFixing] = useState(false)
@@ -113,6 +110,16 @@ export function PlanHeader({
         ...(run.coordinatorMissing
           ? [{ id: 'coordinator', label: t('plan.header.restartLead'), icon: <Icon name="run" size={14} />, disabled: off, onSelect: () => void restartCoordinator(door, runId, ui) }]
           : []),
+        // T8: the delivery's own answers live in the menu; the chip above says why it has not gone through
+        ...(deliveryActions.retry
+          ? [{ id: 'redeliver', label: redelivering || delivery?.state === 'delivering' ? t('plan.delivery.delivering') : t('plan.delivery.retry'), icon: <Icon name="rerun" size={14} />, disabled: off || redelivering || delivery?.state === 'delivering', onSelect: () => void retryDelivery() }]
+          : []),
+        ...(deliveryActions.alreadyPushed
+          ? [{ id: 'pushed', label: t('plan.delivery.alreadyPushed'), icon: <Icon name="check" size={14} />, disabled: off || redelivering, onSelect: () => void alreadyPushed() }]
+          : []),
+        ...(deliveryActions.dismiss
+          ? [{ id: 'dismiss', label: t('plan.delivery.dismiss'), icon: <Icon name="close" size={14} />, disabled: off || redelivering, onSelect: () => void dismissDelivery() }]
+          : []),
         { id: 'kill', label: t('pages.plan.kill'), icon: <Icon name="stop" size={14} />, danger: true, disabled: off || running === 0, onSelect: () => void stopRun(door, run.foldedRunId ?? runId, jobName(run), ui) },
         ...(!local ? [] : run.archivedAt !== undefined
           ? [{ id: 'unarchive', label: t('jobs.lifecycle.unarchive'), icon: <Icon name="restore" size={14} />, disabled: off, onSelect: () => void unarchiveJob(door, runId, ui) }]
@@ -132,15 +139,16 @@ export function PlanHeader({
       </Button>
     )
 
+  const status = run ? planStatusOf(run) : null
+  const prog = planProgressOf(tasks)
+  const slot = run ? approveSlot(run) : null
+  const progressText = [waveStatus ? t('plan.steps.of', { at: waveStatus.at, of: waveStatus.of }) : null, prog.total > 0 ? t('plan.wave.progress', { done: prog.counts.done, total: prog.total }) : null]
+    .filter((x) => x !== null)
+    .join(' · ')
+
   return (
     <PageHeader
       className="plan-page-header"
-      leading={
-        // While a form is open or a command runs, leaving would drop it (the old window's ✕ hid then)
-        <Button size="sm" variant="ghost" icon={<Icon name="back" size={14} />} title={t('pages.plan.back')} disabled={formOpen} onClick={onClose}>
-          {t('pages.plans.title')}
-        </Button>
-      }
       title={
         // 머리말이 없다 — Job 의 이름(jobName: 티켓에서 만든 Job 은 티켓 제목, 아니면 목표)이 제목이고, 그 옆의 아이콘과 숫자가 상태를 말한다
         // W9-C: rename inline (Enter keeps, Escape or leaving drops), as the Jobs card's head does
@@ -168,61 +176,50 @@ export function PlanHeader({
       }
       subtitle={
         <span className="plan-page-sub">
-          {run?.archivedAt !== undefined && <Chip>{t('jobs.lifecycle.archived')}</Chip>}
-          {run?.dispatchHold && <Chip tone="warn">{t('jobs.hold.held')}</Chip>}
-          {run?.pendingStart && <Chip tone="info">{t('jobs.run.notStarted')}</Chip>}
-          {run?.outcome === 'checking' && <Chip tone="info">{t('pages.plans.status.checking')}</Chip>}
-          {run?.outcome === 'blocked' && <Chip tone="warn">{t('pages.plans.status.blocked')}</Chip>}
-          {/* T8: a running plan nothing can move. Needs you opens the overview, where its question is answered; Stalled
-              runs `runs doctor --fix` on this Run (runsDoctor.ts) */}
-          {run?.stuck === 'needs-you' && !run.stalledOn && (
-            <Button size="sm" variant="ghost" title={t('plan.outcome.needsYouHint')} onClick={() => onSection('overview')}>
-              <Chip tone="warn">{t('plan.outcome.needsYou')}</Chip>
-            </Button>
+          {/* the status as a dot and a word (DESIGN-W13: colour always has a second cue) */}
+          {status && (
+            <Chip tone={status.tone} dot>
+              {t(status.key, status.params)}
+            </Chip>
           )}
-          {/* T36: waits on a failed Task: say which, and offer the owner's three answers instead of the generic Fix */}
+          {progressText !== '' && <span className="plan-page-wave">{progressText}</span>}
+          {prog.total > 0 && <Meter className="plan-meter plan-page-meter" value={prog.percent} />}
+          {/* T36: waits on a failed Task: the owner's three answers instead of the generic Fix */}
           {run?.stalledOn && (
-            <>
-              <span title={run.stalledOn.result ?? t('plan.failedWait.hint')}>
-                <Chip tone="danger">{t('plan.outcome.stalledOnFailed', { task: run.stalledOn.title })}</Chip>
-              </span>
+            <span title={run.stalledOn.result ?? t('plan.failedWait.hint')}>
               <FailedWaitButtons
                 disabled={off}
                 title={lockedReason}
                 onAct={(action) => run.stalledOn && void resolveFailed(door, run.stalledOn.taskId, action, ui)}
               />
-            </>
+            </span>
           )}
+          {/* T8: a running plan nothing can move: Fix runs `runs doctor --fix` on this Run (runsDoctor.ts) */}
           {run?.stuck === 'stalled' && !run.stalledOn && (
-            <>
-              <span title={t('plan.outcome.stalledHint')}>
-                <Chip tone="danger">{t('plan.header.stalled')}</Chip>
-              </span>
-              <Button
-                size="sm"
-                disabled={off || fixing}
-                title={lockedReason}
-                onClick={() => {
-                  setFixing(true)
-                  void door
-                    .command('runs-doctor', { run: runId, fix: true })
-                    .then((reply) => {
-                      if (reply.status >= 400) return toast.error(replyNote(reply, t as never, t('plan.doctor.failed')))
-                      const n = ((reply.body as { repairs?: Array<{ fixed: boolean }> } | null)?.repairs ?? []).filter((r) => r.fixed).length
-                      toast.info(n > 0 ? t('plan.doctor.fixed', { n }) : t('plan.doctor.nothing'))
-                    })
-                    .catch(() => toast.error(t('plan.doctor.failed')))
-                    .finally(() => setFixing(false))
-                }}
-              >
-                {fixing ? t('plan.doctor.fixing') : t('plan.doctor.fix')}
-              </Button>
-            </>
+            <Button
+              size="sm"
+              disabled={off || fixing}
+              title={lockedReason ?? t('plan.outcome.stalledHint')}
+              onClick={() => {
+                setFixing(true)
+                void door
+                  .command('runs-doctor', { run: runId, fix: true })
+                  .then((reply) => {
+                    if (reply.status >= 400) return toast.error(replyNote(reply, t as never, t('plan.doctor.failed')))
+                    const n = ((reply.body as { repairs?: Array<{ fixed: boolean }> } | null)?.repairs ?? []).filter((r) => r.fixed).length
+                    toast.info(n > 0 ? t('plan.doctor.fixed', { n }) : t('plan.doctor.nothing'))
+                  })
+                  .catch(() => toast.error(t('plan.doctor.failed')))
+                  .finally(() => setFixing(false))
+              }}
+            >
+              {fixing ? t('plan.doctor.fixing') : t('plan.doctor.fix')}
+            </Button>
           )}
           {run?.outcome === 'failed' && run.deliveryError !== undefined && delivery === undefined && (
             <Chip tone="danger">{t('jobs.run.notDelivered', { reason: run.deliveryError })}</Chip>
           )}
-          {/* T3: why the delivery has not gone through yet; "Retry delivery" stands in the actions */}
+          {/* T3: why the delivery has not gone through yet; Retry delivery stands in the ⋯ menu */}
           {delivery !== undefined && delivery.state !== 'delivering' && (
             <Chip tone={delivery.state === 'failed' ? 'danger' : 'warn'}>
               {t(delivery.state === 'retrying' ? 'plan.delivery.retrying' : delivery.state === 'failed' ? 'plan.delivery.failed' : 'plan.delivery.needsOwner', {
@@ -231,97 +228,51 @@ export function PlanHeader({
             </Chip>
           )}
           {/* T5: the coordinator's model, picked by the plan's size (roleModels.ts resolveCoordinatorModel) */}
-          {run?.coordinatorModel !== undefined && <Chip>{`${t('plan.card.model')}: ${run.coordinatorModel}`}</Chip>}
+          {!simple && run?.coordinatorModel !== undefined && <Chip>{`${t('plan.card.model')}: ${run.coordinatorModel}`}</Chip>}
           <SourceChip source={run?.source} />
-          <WaveLine status={waveStatus} brief />
-          {running > 0 && (
+          {!simple && running > 0 && (
             <span className="jobs-count">
               <RunIcon kind="running" label={t('jobs.run.running')} />
               <span>{running}</span>
             </span>
           )}
-          {counts.map(([status, n]) => (
-            <span key={status} className="jobs-count">
-              <TaskIcon status={status} label={t(STATE_KEY[status])} />
-              <span>{n}</span>
-            </span>
-          ))}
+          {!simple &&
+            counts.map(([s, n]) => (
+              <span key={s} className="jobs-count">
+                <TaskIcon status={s} label={t(STATE_KEY[s])} />
+                <span>{n}</span>
+              </span>
+            ))}
         </span>
       }
       actions={
         <>
-          {/* W7-D (#67): workers at once, changeable while the Job runs; a lower number only holds back new starts */}
-          {!simple && run && run.outcome === 'running' && (
-            <label className="jobs-count plan-page-concurrency" title={t('plan.header.concurrencyHint')}>
-              <span>{t('plan.header.concurrency')}</span>
-              <Input
-                type="number"
-                min={1}
-                max={MAX_CONCURRENT_WORKERS}
-                key={run.concurrency ?? DEFAULT_CONCURRENCY}
-                defaultValue={run.concurrency ?? DEFAULT_CONCURRENCY}
-                disabled={lockedReason !== undefined}
-                aria-label={t('plan.header.concurrency')}
-                onBlur={(e) => {
-                  const n = Math.min(MAX_CONCURRENT_WORKERS, Math.max(1, Math.round(Number(e.target.value)) || 1))
-                  e.target.value = String(n)
-                  if (n === (run.concurrency ?? DEFAULT_CONCURRENCY)) return
-                  door
-                    .command('jobs-set', { id: runId, concurrency: n })
-                    .then((reply) => {
-                      if (reply.status >= 400) toast.error(replyNote(reply, t as never, t('jobs.node.failed')))
-                    })
-                    .catch(() => toast.error(t('jobs.node.failed')))
-                }}
-              />
-            </label>
-          )}
-          {/* W9-C: the ✕ of the old window is the back button; the plan's actions stand here instead */}
-          <Button size="sm" variant="ghost" onClick={onOpenConsoles}>
-            {t('pages.plan.consoles')}
-          </Button>
-          {pauseButton}
-          {deliveryActions.retry && (
+          {/* #116 (approveSlot): a planned Job's planner not done yet, or an auto-approve plan: words, no button. Moved here
+              from the overview (T8); the logic is planTalk.ts'. */}
+          {/* Task 를 다 짜고 누르는 버튼. **Task 가 없으면 잠근다** — 빈 Run 을 시작하면 pendingStart 만 걷히고
+              아무 일도 일어나지 않는다. 누르면 게이트가 걷히고 이 버튼도 사라진다. 도는 동안은 회전과 문구로 바뀐다. */}
+          {run && slot === 'approve' && (
             <Button
               size="sm"
-              variant="secondary"
-              disabled={off || redelivering || delivery?.state === 'delivering'}
-              title={lockedReason ?? delivery?.reason}
-              onClick={() => void retryDelivery()}
+              variant="primary"
+              icon={<Icon name="run" size={14} />}
+              loading={busy === RUN_START}
+              disabled={off || busy === RUN_START || tasks.length === 0}
+              title={lockedReason ?? t('plan.header.startHint')}
+              onClick={() => void p.startRunNow()}
             >
-              {redelivering || delivery?.state === 'delivering' ? t('plan.delivery.delivering') : t('plan.delivery.retry')}
+              {busy === RUN_START ? t('jobs.run.starting') : t('plan.header.start')}
             </Button>
           )}
-          {deliveryActions.alreadyPushed && (
-            <Button size="sm" variant="ghost" disabled={off || redelivering} title={lockedReason ?? t('plan.delivery.alreadyPushedHint')} onClick={() => void alreadyPushed()}>
-              {t('plan.delivery.alreadyPushed')}
-            </Button>
-          )}
-          {deliveryActions.dismiss && (
-            <Button size="sm" variant="ghost" disabled={off || redelivering} title={lockedReason} onClick={() => void dismissDelivery()}>
-              {t('plan.delivery.dismiss')}
-            </Button>
-          )}
-          {run?.planned && (
-            <Button size="sm" variant="ghost" onClick={() => onSection('overview')}>
-              {t('pages.plan.talk')}
-            </Button>
-          )}
+          {!p.authoringOpen && <PlanMergeActions p={p} run={run} />}
+          {pauseButton}
+          <Button size="sm" variant="ghost" icon={<Icon name="layoutGrid" size={14} />} onClick={onOpenConsoles}>
+            {t('plan.doc.openConsoles')}
+          </Button>
           {menu.length > 0 && (
             <Menu label={t('plan.header.more')} align="end" items={menu} trigger={{ variant: 'ghost', size: 'sm', icon: <Icon name="more" size={14} />, title: t('plan.header.more') }} />
           )}
         </>
-      }
-      filters={
-        simple ? undefined : (
-        <Tabs
-          variant="underline"
-          label={t('pages.plan.sections')}
-          value={section}
-          onChange={onSection}
-          items={PLAN_SECTIONS.map((id) => ({ id, label: t(`pages.plan.section.${id}`) }))}
-        />
-        )
       }
     />
   )
