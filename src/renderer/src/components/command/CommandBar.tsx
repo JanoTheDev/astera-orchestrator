@@ -1,11 +1,13 @@
+// DESIGN-W13 §9: the one box is also the command palette (`>`, Ctrl+Shift+P), quick open (no prefix, Ctrl+P) and the
+// Task search (`@`); a sentence is still a command for the coordinator, and the microphone and Talk key work as before.
 // W9-D: this is also the session search (W3-C): text that finds a session, plan or Task is a search, a sentence is a
 // command (boxMode.ts). One box, one key.
 // W3-B command bar: a conversation with the coordinator (SPEC §8, §4). Typed or spoken text becomes one intent (the
 // fast path, else the coordinator role model), the intent's names become exact ids or a question, and only then does
 // anything run: `read` at once, `act` on Run, `confirm` through a dialog (core/intents/safety.ts).
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Button, Chip, Icon, IconButton, Modal, type IconName } from '../ui'
-import { PickKeys, PickList, pickListEnter } from '../QuickSwitcher'
+import { Button, Chip, Icon, IconButton, Kbd, Modal, type IconName } from '../ui'
+import { PickKeys, PickList, pickListEnter, type PickRow } from '../QuickSwitcher'
 import { useI18n } from '../../i18n/I18nProvider'
 import type { Intent } from '../../../../core/intents/types'
 import type { Pins } from '../../../../core/intents/resolve'
@@ -16,12 +18,27 @@ import { planStatus } from '../../../../core/intents/summary'
 import { planSessions, type WorkspaceData, type WorkspaceProject } from '../../state/workspaceTree'
 import { useAttention } from '../../state/useAttention'
 import { openConsole, openPlan } from '../shell/navigation'
+import { viewTabInfo } from '../shell/viewTabs'
+import { leaves, type PaneNode } from '../../../../core/panes/tree'
+import { parseTab, parseViewTab, sessionTab } from '../../../../core/panes/tabId'
+import { formatChord, resolveBindings } from '../../../../core/keys/binding'
+import { THEME_IDS, themeById, type ThemeId } from '../../../../core/theme/themes'
+import type { OrchSnapshot } from '../../../../core/types'
+import { rankByFields } from '../../../../core/orchestration/sessionIndex'
+import type { MessageKey } from '../../../../core/i18n'
+import type { SwitcherTab } from '../../lib/tabSwitcher'
+import { createLatest } from '../../lib/latest'
+import { ACTIONS } from '../../lib/actions'
+import { useTheme } from '../../lib/theme'
+import { toast } from '../../lib/toast'
 import type { ActionUi } from '../../lib/jobActions'
 import { boxHits, type BoxHit } from './boxHits'
 import { setHelpOpen } from '../help/helpStore'
 import { boxModeOf } from './boxMode'
 import { boxSourceOf } from './boxSource'
-import { directoryOf } from './directory'
+import { directoryOf, PALETTE_COMMANDS, type PaletteCommand, type PaletteCx, type PaletteStage } from './directory'
+import { takeBoxRequest } from './boxStore'
+import { pushRecent, quickModeOf, quickRows, rankCommands, startsSection, type QuickRow, type QuickSection } from './quickOpen'
 import { execute, resolveIntent, type ExecDeps, type Line, type Resolution } from './execute'
 import { whisperSpeech } from './speech'
 import './command.css'
@@ -30,6 +47,25 @@ interface Entry {
   who: 'you' | 'coordinator'
   lines: Line[]
 }
+
+const RECENT_KEY = 'cm.palette.recent'
+const readRecent = (): string[] => {
+  try {
+    const v: unknown = JSON.parse(localStorage.getItem(RECENT_KEY) ?? '[]')
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
+  } catch {
+    return []
+  }
+}
+const writeRecent = (ids: string[]): void => {
+  try {
+    localStorage.setItem(RECENT_KEY, JSON.stringify(ids))
+  } catch {
+    // a private window: the list is just not kept
+  }
+}
+
+const baseName = (p: string): string => p.split(/[\\/]/).filter(Boolean).pop() ?? p
 
 interface Pending {
   intent: Intent
@@ -47,7 +83,12 @@ export function CommandBar({
   deps,
   ui,
   talkSignal,
-  onOpenSession
+  onOpenSession,
+  keyOverrides,
+  layout,
+  orchSnapshot,
+  onSelectTab,
+  onOpenFile
 }: {
   open: boolean
   onClose: () => void
@@ -61,6 +102,14 @@ export function CommandBar({
   /** Bumped by the voice shortcut: starts recording, or stops and sends what was said. */
   talkSignal: number
   onOpenSession: (sessionId: string, jobId: string | undefined) => void
+  /** The person's own keys: the palette shows each command's chord as they have it. */
+  keyOverrides: Record<string, string[]>
+  /** The open tabs, for quick open's first section. */
+  layout: PaneNode | null
+  orchSnapshot: OrchSnapshot | null
+  onSelectTab: (tabId: string) => void
+  /** Opens a project file by its absolute path (a file tab, or the media viewer). */
+  onOpenFile: (path: string) => void
 }): React.JSX.Element | null {
   const { t } = useI18n()
   const tr = t as unknown as ActionUi['t']
@@ -76,14 +125,69 @@ export function CommandBar({
   // W9-D: the search half. Attention is read only while the box is open.
   const attention = useAttention(open ? tree.flatMap((p) => p.plans.flatMap((pl) => planSessions(pl).map((s) => s.sessionId))) : [])
   const source = useMemo(() => (open ? boxSourceOf(tree, data, attention) : null), [open, tree, data, attention])
+  const qm = quickModeOf(input)
+  const [stage, setStage] = useState<PaletteStage | null>(null)
+  const stageRef = useRef<PaletteStage | null>(null)
+  stageRef.current = stage
+  const [recent, setRecent] = useState<string[]>(readRecent)
+  const [files, setFiles] = useState<string[]>([])
   const hits = useMemo(
-    () => (source ? boxHits({ ...source, help: { title: t('help.title'), where: t('help.where'), words: ['help', '?', 'f1', 'how to'] } }, input.trim()) : []),
-    [source, input, t]
+    () =>
+      source && stage === null && qm.mode !== 'commands'
+        ? boxHits({ ...source, help: { title: t('help.title'), where: t('help.where'), words: ['help', '?', 'f1', 'how to'] } }, qm.query)
+        : [],
+    [source, stage, qm.mode, qm.query, t]
   )
-  const mode = boxModeOf(input, hits.length)
+  // Quick open's file section: the project's file index (the `@` mentions' own walk), asked as the text changes.
+  const latestFiles = useRef(createLatest())
+  useEffect(() => {
+    const ticket = latestFiles.current.next()
+    if (!open || stage !== null || qm.mode !== 'open' || qm.query === '' || !currentProject) return setFiles([])
+    window.api.files.index(currentProject, qm.query).then(
+      (r) => latestFiles.current.isCurrent(ticket) && setFiles(r.paths),
+      () => latestFiles.current.isCurrent(ticket) && setFiles([])
+    )
+  }, [open, stage, qm.mode, qm.query, currentProject])
+  const mode = stage === null && qm.mode === 'open' ? boxModeOf(qm.query, hits.length + files.length) : 'search'
   const [sel, setSel] = useState(0)
-  useEffect(() => setSel(0), [input])
-  const pick = (h: BoxHit): void => {
+  useEffect(() => setSel(0), [input, stage])
+
+  // Opens with what Ctrl+P / Ctrl+Shift+P / the command center asked for (boxStore.ts); closing drops a theme preview.
+  useEffect(() => {
+    if (open) {
+      setInput(takeBoxRequest())
+      setPending(null)
+    } else {
+      takeBoxRequest()
+      stageRef.current?.cancel?.()
+      setStage(null)
+    }
+  }, [open])
+
+  const bindings = useMemo(() => resolveBindings(keyOverrides, ACTIONS), [keyOverrides])
+  const { themeId, setThemeId } = useTheme()
+  const tabs = useMemo<SwitcherTab[]>(() => {
+    if (!open || !layout) return []
+    return leaves(layout)
+      .flatMap((l) => l.tabIds)
+      .map((tabId): SwitcherTab => {
+        const ref = parseTab(tabId)
+        if (ref?.kind === 'session') {
+          const s = source?.sessions.find((x) => x.sessionId === ref.id)
+          return s ? { tabId, title: s.label, label: s.label, planName: s.planName, taskTitle: s.taskTitle, projectName: s.projectName } : { tabId, title: ref.id }
+        }
+        const view = parseViewTab(tabId)
+        if (view) return { tabId, title: viewTabInfo({ t, orchSnapshot } as Parameters<typeof viewTabInfo>[0], view.name, view.arg).title }
+        return { tabId, title: ref ? baseName(ref.id) : tabId }
+      })
+  }, [open, layout, source, t, orchSnapshot])
+
+  const openFileRel = (rel: string): void => {
+    const root = currentProject ?? ''
+    const sep = root.includes('\\') ? '\\' : '/'
+    onOpenFile(`${root.replace(/[\\/]+$/, '')}${sep}${rel.split('/').join(sep)}`)
+  }
+  const pickHit = (h: BoxHit): void => {
     onClose()
     if (h.kind === 'session') openConsole(h.sessionId)
     else if (h.kind === 'help') setHelpOpen(true)
@@ -197,7 +301,6 @@ export function CommandBar({
   // the app's confirm dialog stacks above it, so neither reaches the bar while that is up). Closing goes through
   // onClose, so the effect above still stops the microphone mid-recording.
 
-  if (!open) return null
   const describe = (p: Pending): string => {
     if (!p.res.ok) return ''
     const r = p.res
@@ -230,9 +333,138 @@ export function CommandBar({
       </div>
     )
 
-  const searching = input.trim() !== '' && mode === 'search'
+  // ---- the list under the field: one of the palette's commands, a stage's rows, the Tasks, or quick open's sections
+  interface Item {
+    row: PickRow
+    pick: () => void
+    preview?: () => void
+  }
+  const palette: PaletteCx = {
+    t: tr,
+    currentPlanId,
+    plans: dir.plans,
+    intent: (intent, pins) => void evaluate(intent, pins, 'submit'),
+    theme: {
+      current: themeId,
+      ids: THEME_IDS,
+      name: (id: ThemeId) => (id === 'system' ? tr('settings.theme.system') : themeById(id).name),
+      preview: setThemeId,
+      commit: (id) => {
+        const prev = themeId
+        setThemeId(id)
+        void window.api.settings.setTheme(id).catch((err) => {
+          setThemeId(prev)
+          toast.error(tr('settings.theme.saveFailed', { detail: err instanceof Error ? err.message : String(err) }))
+        })
+      }
+    }
+  }
+  const commandText = (c: PaletteCommand): string => `${tr(`palette.cat.${c.category}` as MessageKey)}: ${tr(c.label, c.name ? { name: tr(c.name) } : undefined)}`
+  const runCommand = (c: PaletteCommand): void => {
+    const next = pushRecent(recent, c.id)
+    setRecent(next)
+    writeRecent(next)
+    const res = c.run(palette)
+    if (res) {
+      setStage(res)
+      setInput('')
+    } else onClose()
+  }
+  const items = ((): Item[] => {
+    const text = (title: string, meta?: string): React.ReactNode => (
+      <>
+        <span className="ov-pick-title">{title}</span>
+        {meta && <span className="ov-pick-meta">{meta}</span>}
+      </>
+    )
+    if (stage) {
+      const rows = qm.query === '' ? stage.rows : rankByFields(stage.rows, qm.query, (r) => [r.label.toLowerCase(), (r.detail ?? '').toLowerCase()], 50)
+      return rows.map((r) => ({
+        row: { key: r.key, current: r.current, className: 'pal-row', content: text(r.label, r.detail) },
+        preview: r.preview,
+        pick: () => {
+          stageRef.current = null // a pick keeps what it set; only a close without one reverts
+          setStage(null)
+          r.pick()
+          onClose()
+        }
+      }))
+    }
+    if (qm.mode === 'commands') {
+      const { rows, recents } = rankCommands(PALETTE_COMMANDS, qm.query, recent, (c) => [commandText(c).toLowerCase(), tr(c.label, c.name ? { name: tr(c.name) } : undefined).toLowerCase()])
+      return rows.map((c, i) => {
+        const chord = c.action ? bindings[c.action]?.[0] : undefined
+        return {
+          row: {
+            key: c.id,
+            className: 'pal-row',
+            heading: recents > 0 && (i === 0 || i === recents) ? tr(i === 0 ? 'palette.recent' : 'palette.other') : undefined,
+            content: (
+              <>
+                <span className="ov-pick-title">{commandText(c)}</span>
+                {chord && <Kbd className="pal-chord">{formatChord(chord)}</Kbd>}
+              </>
+            )
+          },
+          pick: () => runCommand(c)
+        }
+      })
+    }
+    if (qm.mode === 'tasks')
+      return hits.flatMap((h): Item[] =>
+        h.kind === 'task' ? [{ row: { key: h.key, className: 'pal-row', content: text(h.title, h.where) }, pick: () => pickHit(h) }] : []
+      )
+    const quick = quickRows({ tabs, hits, files }, qm.query)
+    return quick.map((r, i) => ({
+      row: {
+        key: r.key,
+        className: 'pal-row',
+        heading: startsSection(quick, i) ? tr(`quick.section.${r.section}` as MessageKey) : undefined,
+        content: (
+          <>
+            <Icon name={SECTION_ICON[r.section]} size={14} className="pal-icon" />
+            <span className="ov-pick-title">{r.title}</span>
+            {r.where && <span className="ov-pick-meta">{r.where}</span>}
+            {r.section === 'console' && r.waiting && (
+              <Chip tone="warn" dot>
+                {tr('overlays.command.waiting')}
+              </Chip>
+            )}
+          </>
+        )
+      },
+      pick: () => pickQuick(r)
+    }))
+  })()
+  const pickQuick = (r: QuickRow): void => {
+    onClose()
+    if (r.section === 'tab') onSelectTab(r.tabId)
+    else if (r.section === 'plan') openPlan(r.jobId)
+    else if (r.section === 'file') openFileRel(r.path)
+    else if (r.section === 'console') openConsole(r.sessionId)
+    else setHelpOpen(true)
+  }
+  // The highlighted row of a stage is previewed (the theme changes as the arrows move)
+  const previewRef = useRef<(() => void) | undefined>(undefined)
+  previewRef.current = stage ? items[sel]?.preview : undefined
+  const previewKey = stage ? items[sel]?.row.key : undefined
+  useEffect(() => {
+    previewRef.current?.()
+  }, [previewKey])
+  if (!open) return null
+
+  const inList = stage !== null || qm.mode !== 'open' || (mode === 'search' && (qm.query !== '' || items.length > 0))
+  const placeholder = recording
+    ? tr('command.voice.listening')
+    : stage
+      ? stage.title
+      : qm.mode === 'commands'
+        ? tr('palette.placeholder')
+        : qm.mode === 'tasks'
+          ? tr('quick.placeholderTasks')
+          : tr('command.placeholder')
   return (
-    <Modal title={tr('command.title')} closeLabel={tr('command.close')} onClose={onClose} footer={searching ? <PickKeys /> : undefined}>
+    <Modal title={tr('command.title')} closeLabel={tr('command.close')} onClose={onClose} footer={inList ? <PickKeys /> : undefined}>
       <div className="ov-cmd">
         <div className="command-log">
           {entries.map((en, i) => (
@@ -278,19 +510,27 @@ export function CommandBar({
             value={input}
             disabled={busy}
             aria-label={tr('command.title')}
-            placeholder={recording ? tr('command.voice.listening') : tr('command.placeholder')}
+            placeholder={placeholder}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
               if (e.nativeEvent.isComposing) return
-              if (searching && pickListEnter(listRef.current, e.key, sel, hits.length)) {
+              // Backspace on an empty stage field goes back to the commands
+              if (stage && input === '' && e.key === 'Backspace') {
+                e.preventDefault()
+                stage.cancel?.()
+                setStage(null)
+                setInput('>')
+                return
+              }
+              if (inList && pickListEnter(listRef.current, e.key, sel, items.length)) {
                 e.preventDefault()
                 return
               }
               if (e.key !== 'Enter') return
               e.preventDefault()
-              // A search opens the chosen hit; a sentence falls through to the command below
-              if (searching) {
-                if (hits[sel]) pick(hits[sel])
+              // A list opens the highlighted row; a sentence falls through to the command below
+              if (inList) {
+                items[sel]?.pick()
                 return
               }
               // Enter on an empty line runs an `act` preview; a `confirm` still opens its dialog first
@@ -310,31 +550,12 @@ export function CommandBar({
             onPointerLeave={() => void stopTalk()}
           />
         </div>
-        {searching && (
+        {inList && (
           <PickList
-            rows={hits.map((h) => ({
-              key: h.key,
-              content: (
-                <>
-                  <span className="ov-pick-kind">
-                    <Icon name={HIT_ICON[h.kind]} size={14} />
-                    {h.kind === 'help' ? tr('help.title') : tr(`command.group.${h.kind}s`)}
-                  </span>
-                  <span className="ov-pick-main">
-                    <span className="ov-pick-title">{h.title}</span>
-                    <span className="ov-pick-meta">{h.where}</span>
-                  </span>
-                  {h.kind === 'session' && h.waiting && (
-                    <Chip tone="warn" dot>
-                      {tr('overlays.command.waiting')}
-                    </Chip>
-                  )}
-                </>
-              )
-            }))}
+            rows={items.map((x) => x.row)}
             sel={sel}
             onSel={setSel}
-            onPick={(i) => pick(hits[i])}
+            onPick={(i) => items[i]?.pick()}
             field={inputRef}
             label={tr('command.title')}
             empty={tr('command.noMatch')}
@@ -346,4 +567,4 @@ export function CommandBar({
   )
 }
 
-const HIT_ICON: Record<BoxHit['kind'], IconName> = { session: 'terminal', plan: 'layers', task: 'tasks', help: 'info' }
+const SECTION_ICON: Record<QuickSection, IconName> = { tab: 'file', plan: 'layers', file: 'file', console: 'terminal', help: 'info' }
