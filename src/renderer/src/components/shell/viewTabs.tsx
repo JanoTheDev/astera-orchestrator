@@ -202,7 +202,9 @@ export function useViewTabSync(p: SyncDeps): void {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- follows the flag only
   }, [showSettings])
 
-  // Plans: openRun opens its tab; a remote plan's runtime is remembered for when its tab is activated again
+  // Plans: openRun opens its tab; a remote plan's runtime is remembered for when its tab is activated again.
+  // Keyed on the request object, not its runId: every open (a click in the Plans tree, Welcome, the Inbox) sets a new
+  // one, so the same plan opens again after its tab was closed (the runId alone had not changed).
   const opened = useRef(new Map<string, { projectPath: string; runId: string; runtimeId?: string }>())
   useEffect(() => {
     if (!openRun) return
@@ -210,7 +212,7 @@ export function useViewTabSync(p: SyncDeps): void {
     const id = viewTab('plan', openRun.runId)
     if (activeTabId !== id) place(id)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- follows the open plan only
-  }, [openRun?.runId, openRun?.runtimeId])
+  }, [openRun])
   const lastActive = useRef(activeTabId)
   useEffect(() => {
     if (lastActive.current === activeTabId) return

@@ -117,15 +117,14 @@ export function AgentsPage({ sessions, accounts, currentProject, scopeId, allPro
     ].filter((x): x is string => !!x)
   }
 
-  // Any tab but the wall's leaves the wall for it. The first tab (the saved layout restored at start) is not such a
-  // move: the app opens on the wall.
+  // Any tab but the wall's leaves the wall for it, and so does closing the last tab: the wall's own tab is the only
+  // way back (EditorArea turns it on again for `view:wall`), so a wall left on with no tab would cover the next tab
+  // opened. The app opens away from the wall (EditorArea), so the first tab needs no exemption.
   const lastTab = useRef(activeTabId)
   useEffect(() => {
     if (lastTab.current === activeTabId) return
-    const first = lastTab.current === null
     lastTab.current = activeTabId
-    if (first) return
-    if (activeTabId) setWallView({ kind: 'away' })
+    setWallView({ kind: 'away' })
   }, [activeTabId])
 
   // The owner hold (DESIGN §2): a console tab in view holds the coordinator's messages to it in the Host until the
