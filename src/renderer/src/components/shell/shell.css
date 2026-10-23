@@ -245,6 +245,8 @@ body.resizing-row { cursor: row-resize; user-select: none; }
 .wb-row { position: relative; flex-direction: row; }
 .wb-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .wb-editor { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--editor-bg); }
+/* Welcome fills the empty grid, not the window */
+.wb-editor .session-view { position: relative; }
 
 /* §8 command center: one field in the middle of the title bar; the spacers either side still drag the window */
 .wb-cc {
