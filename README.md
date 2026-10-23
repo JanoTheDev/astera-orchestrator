@@ -91,7 +91,7 @@ your line. A finished console leaves a short summary card of what it did.
 **Tasks and Plans.**
 - A board of every Task across plans, and plans grouped by area, with an overlap view of who works where.
 - Per-role models: coordinator, planner, workers and reviewer each run on their own model.
-- One app-wide cap on workers (at most 10). Plans with a higher priority get the next free slot.
+- One app-wide cap on workers (1 to 100, set in Settings › Agents). Plans with a higher priority get the next free slot.
 - Wave replanning, a reviewer on every Task (up to 5 rounds) and a final check against the goal.
 - Pause or stop a plan or one worker. Rename, archive and unarchive plans. Queue a plan behind another.
 - Per plan: Overview, Waves, Files, Changes (who wrote each line, agent or human) and a Journal.
@@ -144,6 +144,7 @@ instead of you attaching them. The decided plans and the contracts are in [docs/
 
 ## Documentation
 
+- [Product docs](docs/product/): features, known limits (platforms, tools, network, open gaps) and the licensing seam.
 - [User guide](docs/guide.md): projects, plans, approval, the Agents, Tasks, Plans, Inbox and Worktrees pages, delivery.
 - [Everyday usage](docs/usage-guide.md): sessions, accounts, files, recovery and settings.
 - [Jobs](docs/jobs.md): what a plan does from creation to delivery, and scheduled jobs.
