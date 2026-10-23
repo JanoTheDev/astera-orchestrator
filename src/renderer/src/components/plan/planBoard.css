@@ -1,27 +1,11 @@
-/* W2-C plan board (components/plan/). The overview sits above the graph or the board, so it stays one short row
-   (flex: none) and the half below keeps its height. Bucket colours borrow the task glyph palette (STATUS_COLOR):
-   cancelled is the faint grey of a stopped thing, never failed's red. */
-.plan-head { flex: none; display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
-.plan-overview { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: var(--fs-12); color: var(--text-dim); }
-.plan-progress { width: 120px; height: 6px; border-radius: var(--radius-sm); background: var(--line-soft); overflow: hidden; flex: none; }
-.plan-progress-fill { height: 100%; background: var(--ok); }
-.plan-progress-text { font-variant-numeric: tabular-nums; }
-.plan-counts { display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 0; padding: 0; list-style: none; }
-.plan-count-n { font-variant-numeric: tabular-nums; font-weight: 600; }
-.plan-count-zero { opacity: .7; }
+/* W2-C plan board (components/plan/). Bucket colours borrow the task glyph palette (STATUS_COLOR): cancelled is the
+   faint grey of a stopped thing, never failed's red. */
 .plan-cat-done { --plan-cat: var(--ok); }
 .plan-cat-running { --plan-cat: var(--accent); }
 .plan-cat-awaiting-review { --plan-cat: var(--fi-purple); }
 .plan-cat-queued { --plan-cat: var(--text-dim); }
 .plan-cat-failed { --plan-cat: var(--danger); }
 .plan-cat-cancelled { --plan-cat: var(--text-faint); }
-.plan-count .plan-count-n, .plan-col-head { color: var(--plan-cat); }
-.plan-view-toggle { flex: none; display: inline-flex; }
-.plan-view-toggle button { font-size: var(--fs-11); padding: 2px 8px; }
-.plan-view-toggle button.active { color: var(--accent); border-color: var(--accent); }
-.plan-board { flex: 1; min-height: 0; overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; align-items: start; }
-.plan-col { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.plan-col-head { margin: 0; font-size: var(--fs-12); font-weight: 600; border-bottom: 2px solid var(--plan-cat); padding-bottom: 3px; }
 .plan-card { display: flex; flex-direction: column; align-items: stretch; gap: 4px; text-align: left; padding: 6px 8px; border: 1px solid var(--line-soft); border-left: 3px solid var(--plan-cat); border-radius: var(--radius-sm); background: none; color: inherit; font-size: var(--fs-12); cursor: pointer; }
 .plan-card.selected { outline: 1px solid var(--accent); }
 .plan-card-title { display: flex; align-items: center; gap: 6px; min-width: 0; }

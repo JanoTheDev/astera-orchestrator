@@ -1,12 +1,14 @@
 /* W6-E progress view: the board by wave and the files tab. Builds on the W2-C plan rules in planBoard.css (.plan-card,
    .plan-progress, the .plan-cat-* colours) and the app's tokens. T8 (DESIGN-W13): the steps stack vertically, each a
    collapsible head over a list of 24px Task rows; no card inside a card. A row's state is its icon and a 2px marker. */
-.plan-board.plan-waves { display: flex; flex-direction: column; gap: var(--sp-3); flex: none; overflow: visible; min-height: auto; }
+/* W17: one list of steps; an ultrawide tab sets them side by side (one column per 560px), each step's rows under its
+   head. A narrow tab's step head sticks while its rows scroll by. */
+.plan-board.plan-waves { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 560px), 1fr)); align-items: start; gap: var(--sp-4) var(--sp-6); flex: none; overflow: visible; min-height: auto; }
 .plan-wave { display: flex; flex-direction: column; gap: var(--sp-1); min-width: 0; }
 .plan-wave-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-2); margin: 0; font-size: var(--fs-13); font-weight: var(--fw-semi); }
 .plan-wave-head .plan-wave-fold.ui-btn { height: var(--h-sm); padding: 0 var(--sp-1); font-weight: var(--fw-semi); color: var(--text); }
 .plan-wave-count { font-size: var(--fs-12); font-weight: var(--fw-regular); color: var(--text-dim); font-variant-numeric: tabular-nums; }
-.plan-wave-bar { width: 72px; }
+.plan-wave-bar { width: clamp(48px, 8cqi, 120px); }
 .plan-wave-now { flex: none; font-size: var(--fs-11); font-weight: var(--fw-semi); text-transform: uppercase; letter-spacing: .04em; color: var(--link); }
 .plan-wave-banner { font-size: var(--fs-12); padding: 2px var(--sp-2); border-left: 2px solid var(--info); color: var(--text-dim); }
 .plan-wave-cards { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
@@ -22,7 +24,7 @@
 .plan-row-line--fault { color: var(--danger); }
 .plan-row-line--action { color: var(--warn); }
 .plan-row-meta { margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-11); color: var(--text-faint); }
-.plan-row-account { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plan-row-account { max-width: clamp(80px, 15cqi, 240px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .plan-waves .plan-row-console.ui-btn { flex: none; }
 .plan-row-detail { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-1) var(--sp-2) var(--sp-3) calc(var(--sp-2) + 20px); }
 .plan-card-files { margin: 0; padding: 0; list-style: none; font-size: var(--fs-11); font-family: var(--mono); color: var(--text-dim); }
@@ -32,6 +34,13 @@
 .plan-answers-list { margin: 2px 0 0; padding-left: 16px; font-size: var(--fs-11); display: flex; flex-direction: column; gap: 3px; }
 .plan-answer-q { display: block; color: var(--text-dim); }
 .plan-answer-a { display: block; color: var(--text); }
+@container plan-tab (max-width: 559px) {
+  .plan-wave-head { position: sticky; top: calc(-1 * var(--sp-4)); z-index: 1; padding-block: var(--sp-1); background: var(--editor-bg); }
+  /* the Task's name gets the row's first line; its status line and meta share the second instead of squeezing it */
+  .plan-row { flex-wrap: wrap; padding-block: 2px; }
+  .plan-waves .plan-row .plan-card-title.ui-btn { flex-basis: 100%; }
+  .plan-row-line { padding-left: 22px; }
+}
 
 .plan-files { flex: 1; min-height: 0; overflow: auto; margin: 0; padding: 0; list-style: none; font-size: var(--fs-12); }
 .plan-files-empty { padding: 8px; color: var(--text-faint); }
@@ -41,14 +50,14 @@
 .plan-file-path:hover:not(:disabled) { color: var(--accent); text-decoration: underline; }
 .plan-file-n { flex: none; font-size: var(--fs-11); padding: 0 5px; border-radius: var(--radius-sm); color: var(--warn-ink); border: 1px solid var(--warn-line); }
 .plan-file-tasks { margin-left: auto; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; min-width: 0; }
-.plan-file-task { display: inline-flex; align-items: center; gap: 4px; max-width: 180px; padding: 0 6px; border: 1px solid var(--line-soft); border-left: 3px solid var(--plan-cat); border-radius: var(--radius-sm); background: none; color: inherit; font-size: var(--fs-11); cursor: pointer; }
+.plan-file-task { display: inline-flex; align-items: center; gap: 4px; max-width: clamp(120px, 20cqi, 320px); padding: 0 6px; border: 1px solid var(--line-soft); border-left: 3px solid var(--plan-cat); border-radius: var(--radius-sm); background: none; color: inherit; font-size: var(--fs-11); cursor: pointer; }
 .plan-file-task > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* W7-A talk to the planner: history, the message box, reject, and the auto-start notice. */
 .plan-talk { display: flex; flex-direction: column; gap: var(--sp-2); font-size: var(--fs-12); }
 .plan-talk-head { margin: 0; font-size: var(--fs-12); font-weight: 600; }
 .plan-talk-history { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
-.plan-talk-msg { white-space: pre-wrap; }
+.plan-talk-msg { max-width: 80ch; white-space: pre-wrap; }
 .plan-talk-phase { margin-left: 6px; font-size: var(--fs-11); color: var(--text-faint); }
 .plan-talk-changes { margin: 2px 0 0; padding-left: 16px; color: var(--text-dim); }
 .plan-talk-wait { margin: 2px 0 0; color: var(--text-faint); font-style: italic; }
@@ -68,13 +77,8 @@
 .workbench:has(> .plan-pages) > .content { display: none; }
 .plan-pages { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 12px; padding: 16px 20px; overflow: auto; background: var(--bg); }
 
-
 /* Plan page: the old window's body, full size */
 .plan-page { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
-.plan-crumb { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: var(--fs-12); color: var(--text-dim); }
-.plan-crumb-cur { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.plan-crumb-link { padding: 0; border: 0; background: none; color: var(--text-dim); font: inherit; cursor: pointer; }
-.plan-crumb-link:hover { color: var(--accent); }
 
 /* The answer form (QuestionAnswer, in the Inbox card and on a Waves card): a full-width box and a Send under it, flat
    like every other field (W9-F: it was the browser's default textarea, 180px wide). W12: ui Textarea and Buttons. */
@@ -91,7 +95,7 @@
 .plan-file-path.ui-btn { height: auto; padding: 0; min-width: 0; justify-content: flex-start; font-family: var(--font-mono, monospace); font-size: var(--fs-11); color: var(--text); }
 .plan-file-path .ui-btn__label, .plan-file-task .ui-btn__label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .plan-file-path.ui-btn:hover:not(:disabled) { color: var(--accent); text-decoration: underline; background: none; }
-.plan-file-task.ui-btn { height: auto; max-width: 180px; padding: 0 6px; border: 1px solid var(--line-soft); border-left: 3px solid var(--plan-cat); font-size: var(--fs-11); }
+.plan-file-task.ui-btn { height: auto; max-width: clamp(120px, 20cqi, 320px); padding: 0 6px; border: 1px solid var(--line-soft); border-left: 3px solid var(--plan-cat); font-size: var(--fs-11); }
 .changed-files-toggle.ui-btn { align-self: flex-start; color: var(--accent); }
 .changed-files-list > li > .ui-btn { width: 100%; height: auto; justify-content: flex-start; padding: 3px 6px; font-size: var(--fs-12); }
 .changed-files-list > li > .ui-btn .ui-btn__label { display: flex; align-items: baseline; gap: 8px; min-width: 0; flex: 1; text-align: left; }

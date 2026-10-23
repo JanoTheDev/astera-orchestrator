@@ -2,6 +2,7 @@
 // whether they still wait. Drawing only; the page decides what a click means. W12: the node controls are ui IconButtons,
 // the title is a ui Button (the keyboard's way to select a node), a layer is shown as "Step n" and a waiting node's
 // title says why it waits (planBoard reasonText).
+import { useEffect, useRef, useState } from 'react'
 import type { JobTask, TaskStatus } from '../../../../core/types'
 import { chainOf } from '../../../../core/orchestration/graph'
 import type { GraphBox } from '../../../../core/orchestration/graphLayout'
@@ -21,6 +22,13 @@ const CHECK_ICON: Record<GlyphKind, IconName> = {
   'not-run': 'pending',
   error: 'warning',
   retrying: 'loading'
+}
+
+/** W17: the graph shrinks to its box's width down to `min` (its nodes stay readable), then scrolls instead of squashing;
+ *  it never grows past its drawn size. An unmeasured box (0) draws it as laid out. */
+export function graphZoomOf(boxWidth: number, graphWidth: number, min = 0.7): number {
+  if (boxWidth <= 0 || graphWidth <= 0) return 1
+  return Math.min(1, Math.max(min, boxWidth / graphWidth))
 }
 
 /** 노드 테두리의 색. 시작 전 둘과 끝난 것은 선을 세우지 않는다 — 안의 글리프가 이미 그 셋을 말하고
@@ -119,6 +127,16 @@ export function Graph({
   const rows = layers.map(pick).filter((r) => r.length > 0)
   const cycle = pick(cyclic)
   const layout = layoutRows(rows.map((r) => r.length))
+  // W17: the tab's width, so the graph scales with it (graphZoomOf)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const [boxWidth, setBoxWidth] = useState(0)
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const ro = new ResizeObserver(([entry]) => setBoxWidth(entry.contentRect.width))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
   // 그려진 노드의 자리. 선은 이 표에 양쪽 끝이 다 있을 때만 그어진다 — 순환에 든 Task 를 가리키는
   // 의존은 끝점이 없고(그 묶음에는 자리가 없다), 그래서 저절로 빠진다
   const posOf = new Map<string, GraphBox>(
@@ -344,8 +362,8 @@ export function Graph({
       {/* 스크롤은 **이 안에서만** 돈다 — 범례는 이 밖에 있어 무엇을 스크롤하든 칸의 왼쪽 아래에
           그대로 붙어 있다. 선의 색을 설명하는 글이 스크롤에 밀려 사라지면, 색을 물어볼 자리가
           화면에서 없어진다(선에는 툴팁을 달 곳이 없다). */}
-      <div className="detail-scroll">
-        <div className="detail-canvas" style={{ width: layout.width, height: layout.height }}>
+      <div className="detail-scroll" ref={scrollRef}>
+        <div className="detail-canvas" style={{ width: layout.width, height: layout.height, zoom: graphZoomOf(boxWidth, layout.width) }}>
           <svg className="detail-edges" width={layout.width} height={layout.height} aria-hidden="true">
             <defs>
               {/* 화살촉은 marker 라 참조한 path 의 stroke 를 물려받지 못한다 — 색마다 하나씩 둔다.
