@@ -292,6 +292,11 @@ export const common: Partial<Record<keyof typeof ko, string>> = {
   // (el grafo es donde se eligen las dependencias) — por eso este catálogo solo tiene el texto que
   // apunta al grafo, no los valores de deps en sí.
   'jobs.task.new': 'Añadir tarea',
+  // T2: the new-Task form hands its description to the planner
+  "jobs.task.askPlanner": "Pedírselo al planificador",
+  "jobs.task.askPlannerHint": "Envía la descripción al planificador, que encaja la tarea en el plan",
+  "jobs.task.askedPlanner": "Enviado al planificador.",
+  "jobs.task.askFailed": "No se pudo contactar con el planificador",
   'jobs.task.accountHint':
     'Las cuentas en las que esta tarea ejecuta su worker. Automática elige la cuenta con más margen; fija cuentas solo para mantener el trabajo fuera de otras. Con más de una fijada, al alcanzar el límite de uso el worker pasa a la siguiente en el orden indicado',
   // How It Works — comprensión del proyecto

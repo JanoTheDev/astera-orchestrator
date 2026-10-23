@@ -5,6 +5,7 @@
 // files and the coordinator's answers. The open questions moved to "Needs you" (NeedsYou below). Drawing only: the
 // waves, reasons, counts and "now" lines are planBoard.ts's. T4: a card carries its kind (and a merge Task its badge, a
 // reusing Task the worktree it continues in), and a kind filter sits above the steps.
+// T2: an expanded row opens with everything about its Task (renderAbout: TaskDetail), above what it showed before.
 import { useEffect, useMemo, useState } from 'react'
 import type { ActivityEvent } from '../../../../core/orchestration/activity'
 import type { Account, JobEvent, JobTask } from '../../../../core/types'
@@ -63,6 +64,7 @@ export function TaskBoard({
   projectPath,
   summaries,
   renderDetail,
+  renderAbout,
   compact = false,
   nowMs = Date.now(),
   onAddTask
@@ -93,6 +95,8 @@ export function TaskBoard({
   summaries?: ReadonlyMap<string, SessionSummary>
   /** T8: what an expanded row adds under its own detail (the completion checks and the Task's changes). */
   renderDetail?: (task: JobTask) => React.ReactNode
+  /** T2: what an expanded row shows first: everything about the Task (TaskDetail) and its Edit and Request changes. */
+  renderAbout?: (task: JobTask) => React.ReactNode
   /** T19: simple mode: a row's detail drops its model, account, branch, commits and files */
   compact?: boolean
   /** T9: the clock of "resumes in …" and "… ago", the live read's tick (usePlanLive): one timer for the whole board. */
@@ -199,6 +203,7 @@ export function TaskBoard({
                       projectPath={projectPath}
                       summary={summaries?.get(tk.id)}
                       detail={selected === tk.id ? renderDetail?.(tk) : undefined}
+                      about={selected === tk.id ? renderAbout?.(tk) : undefined}
                       compact={compact}
                       onOpenConsole={
                         tk.sessionId && categoryOf(tk) === 'running' && onOpenSession && canOpenSession?.(tk.sessionId)
@@ -293,6 +298,7 @@ function TaskRow({
   projectPath,
   summary,
   detail,
+  about,
   compact
 }: {
   task: JobTask
@@ -310,6 +316,7 @@ function TaskRow({
   projectPath?: string // W8-B
   summary?: SessionSummary // W9-I
   detail?: React.ReactNode
+  about?: React.ReactNode
   compact: boolean
 }): React.JSX.Element {
   const { t } = useI18n()
@@ -367,6 +374,7 @@ function TaskRow({
       )}
       {expanded && (
         <div className="plan-row-detail">
+          {about}
           {reason && text && now && <span className={`plan-reason plan-reason-${reasonTone(reason)}`}>{t(text.key, text.params)}</span>}
           {summary && <span className="summary-line" title={summary.text || undefined}>{summaryOneLine(summary, t)}</span>}
           {!compact && (

@@ -287,6 +287,11 @@ export const common: Partial<Record<keyof typeof ko, string>> = {
   // deps はこのフォームではなくグラフが持つ(選ぶ場所がグラフだから) — このカタログには deps の値
   // 自体ではなく、グラフを指すヒント文言(depsHint)だけがある。
   'jobs.task.new': 'Task を追加',
+  // T2: the new-Task form hands its description to the planner
+  "jobs.task.askPlanner": "代わりにプランナーに頼む",
+  "jobs.task.askPlannerHint": "説明をプランナーに送り、計画に合わせてタスクを入れてもらいます",
+  "jobs.task.askedPlanner": "プランナーに送りました。",
+  "jobs.task.askFailed": "プランナーに送れませんでした",
   'jobs.task.accountHint':
     'この Task のワーカーを起動するアカウントです。自動は余裕が最も大きいアカウントを選ぶので、他のアカウントで動かしたくないときだけ指定してください。2つ以上指定すると、利用上限に達したときに並べた順に切り替わります',
   // How It Works — プロジェクト理解

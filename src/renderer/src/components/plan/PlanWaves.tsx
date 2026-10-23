@@ -11,9 +11,10 @@ import { ChangedFilesBlock } from '../ChangedFilesBlock'
 import { CompletionBlock } from '../CompletionBlock'
 import { Button, Icon, Tabs } from '../ui'
 import { coordinatorRefreshOf, replanningOf } from './planBoard'
-import type { WaveStatus } from './planPage'
+import { taskAnchorId, type WaveStatus } from './planPage'
 import { Graph } from './PlanGraph'
 import { TaskBoard } from './TaskBoard'
+import { TaskDetail } from './TaskDetail'
 import type { PlanPageState } from './usePlanPage'
 import './planPage.css'
 
@@ -96,6 +97,22 @@ export function PlanTaskBoard({
       nowMs={live.nowMs}
       compact={compact}
       onAddTask={onAddTask}
+      renderAbout={(tk) => (
+        // T2: everything about the Task, its Edit and its Request changes; a dep's title opens that Task's row
+        <TaskDetail
+          door={door}
+          jobId={runId}
+          task={tk}
+          tasks={tasks}
+          ui={p.ui}
+          compact={compact}
+          accountLabel={(id) => accounts?.find((a) => a.id === id)?.label ?? id}
+          onShowTask={(id) => {
+            p.setSelected(id)
+            requestAnimationFrame(() => document.getElementById(taskAnchorId(id))?.scrollIntoView({ block: 'center' }))
+          }}
+        />
+      )}
       renderDetail={(tk) => (
         <>
           {/* 고른 Task 의 완료 상세 — 왜 못 넘었는가(설계 §2) — and what it changed (Phase 10) */}

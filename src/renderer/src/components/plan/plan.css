@@ -102,3 +102,28 @@
 .changed-files-list > li > .ui-btn { width: 100%; height: auto; justify-content: flex-start; padding: 3px 6px; font-size: var(--fs-12); }
 .changed-files-list > li > .ui-btn .ui-btn__label { display: flex; align-items: baseline; gap: 8px; min-width: 0; flex: 1; text-align: left; }
 .plan-journal-toggle { flex: none; }
+
+/* T2 Task details: everything about a Task in its expanded row (TaskDetail), its edit form (TaskEditModal) and its change request */
+.plan-task { display: flex; flex-direction: column; gap: var(--sp-2); font-size: var(--fs-12); }
+.plan-task-note { margin: 0; font-size: var(--fs-11); color: var(--text-faint); }
+.plan-task-part { display: flex; flex-direction: column; gap: var(--sp-1); }
+.plan-task-head { margin: 0; font-size: var(--fs-11); font-weight: var(--fw-semi); color: var(--text-faint); }
+.plan-task-spec { margin: 0; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
+.plan-task-gaps { color: var(--warn); }
+.plan-task-criteria { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
+.plan-task-criteria li { display: flex; align-items: flex-start; gap: var(--sp-1); color: var(--text); }
+.plan-task-criteria li > svg { flex: none; margin-top: 1px; color: var(--text-faint); }
+.plan-cat-done .plan-task-criteria li > svg { color: var(--ok); }
+.plan-task-deps { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-2); }
+.plan-task .plan-card-meta dd { white-space: normal; overflow-wrap: anywhere; }
+.plan-task-evidence { font-family: var(--mono); }
+.plan-task-prompt-bar { display: flex; align-items: center; gap: var(--sp-1); }
+.plan-task-prompt { margin: 0; max-height: 320px; overflow: auto; padding: var(--sp-2); border: 1px solid var(--line-soft); border-radius: var(--radius-sm); background: var(--panel-bg); font-family: var(--mono); font-size: var(--fs-11); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); }
+.plan-task-attempts { margin: 0; padding-left: 18px; font-size: var(--fs-11); color: var(--text-dim); }
+.plan-task-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+.plan-task-request { display: flex; flex-direction: column; gap: var(--sp-1); max-width: 640px; }
+.plan-task-sent { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-11); color: var(--ok); }
+.plan-edit-why { display: flex; align-items: center; gap: var(--sp-1); color: var(--warn); }
+.plan-edit-prompt textarea, .plan-edit-paths textarea { font-family: var(--mono); font-size: var(--fs-11); }
+.new-task-ask { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-2); }
+.plan-task-refused { margin: 0; font-size: var(--fs-11); color: var(--warn); }

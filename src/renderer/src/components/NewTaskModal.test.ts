@@ -52,3 +52,15 @@ describe('NewTaskModal initialDeps', () => {
     expect(html).toMatch(/detail-dep[^>]*>.*Prev step task/)
   })
 })
+
+describe('NewTaskModal plan fields (T2)', () => {
+  it('offers the prompt, criteria and kind, and Ask the planner instead', () => {
+    const html = render(door(), [])
+    expect(html).toContain('plan.edit.field.prompt')
+    expect(html).toContain('plan.edit.field.criteria')
+    expect(html).toContain('plan.edit.field.kind')
+    expect(html).toContain('jobs.task.askPlanner')
+    // difficulty and affected paths are the edit form's only
+    expect(html).not.toContain('plan.edit.field.difficulty')
+  })
+})
