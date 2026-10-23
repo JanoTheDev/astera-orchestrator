@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { JobRow } from '../../../../core/types'
-import { approveSlot, planTalkView } from './planTalk'
+import { approveSlot, feedbackMark, feedbackOutcomeOf, planTalkView, plannerWaitingIn } from './planTalk'
 
 const row = (o: Partial<JobRow>): JobRow => ({ id: 'j', tasks: [{}, {}], ...o }) as unknown as JobRow
 
@@ -8,6 +8,10 @@ describe('planTalkView', () => {
   it('hides for unplanned and archived rows', () => {
     expect(planTalkView(row({})).show).toBe(false)
     expect(planTalkView(row({ planned: true, archivedAt: 'x' })).show).toBe(false)
+  })
+  it('shows on a finished, not archived plan, so the talk box can reopen it', () => {
+    expect(planTalkView(row({ planned: true, outcome: 'completed' })).show).toBe(true)
+    expect(planTalkView(row({ planned: true, outcome: 'failed', archivedAt: 'x' })).show).toBe(false)
   })
   it('reject only while pending; auto notice counts tasks', () => {
     expect(planTalkView(row({ planned: true, pendingStart: true }))).toMatchObject({ show: true, canReject: true, autoStarted: null })
@@ -30,5 +34,37 @@ describe('approveSlot (#116)', () => {
     expect(approveSlot(row({ pendingStart: true, planned: true, handsOff: true }))).toBe('auto')
     expect(approveSlot(row({ pendingStart: true, planned: true, autoApprove: true, planProblems: ['no tasks'] }))).toBe('planning')
     expect(approveSlot(row({ pendingStart: true, planned: true, handsOff: true, planProblems: [] }))).toBe('auto')
+  })
+})
+
+describe('feedbackOutcomeOf (T4)', () => {
+  it('typed or handed to a planner is sent; a message kept for the running replan is queued', () => {
+    expect(feedbackOutcomeOf({ via: 'typed' }, row({ outcome: 'running' }))).toBe('sent')
+    expect(feedbackOutcomeOf({ via: 'resumed' }, row({}))).toBe('sent')
+    expect(feedbackOutcomeOf({ via: 'queued' }, row({ outcome: 'running' }))).toBe('queued')
+    expect(feedbackOutcomeOf(null, row({}))).toBe('sent')
+  })
+  it('a completion replan on a finished plan reopened it; on a running plan it is only sent', () => {
+    expect(feedbackOutcomeOf({ mode: 'completion', sessionId: 's' }, row({ outcome: 'completed' }))).toBe('reopened')
+    expect(feedbackOutcomeOf({ mode: 'completion', sessionId: 's' }, row({ outcome: 'failed' }))).toBe('reopened')
+    expect(feedbackOutcomeOf({ mode: 'completion', sessionId: 's' }, row({ outcome: 'running' }))).toBe('sent')
+    expect(feedbackOutcomeOf({ mode: 'wave' }, row({ outcome: 'completed' }))).toBe('sent')
+  })
+})
+
+describe('plannerWaitingIn (T4)', () => {
+  it('only the 409 that says the planner waits on a question or a prompt', () => {
+    expect(plannerWaitingIn({ status: 409, body: { error: 'the planner waits on a question: answer it in its tab first' } })).toBe(true)
+    expect(plannerWaitingIn({ status: 409, body: { error: 'job j is archived: unarchive it first' } })).toBe(false)
+    expect(plannerWaitingIn({ status: 200, body: {} })).toBe(false)
+  })
+})
+
+describe('feedbackMark (T4)', () => {
+  it('a queued entry is marked until the planner answers it', () => {
+    expect(feedbackMark({ phase: 'run', queued: true })).toBe('queued')
+    expect(feedbackMark({ phase: 'run', queued: true, changes: [] })).toBe('duringRun')
+    expect(feedbackMark({ phase: 'run' })).toBe('duringRun')
+    expect(feedbackMark({ phase: 'plan' })).toBeNull()
   })
 })

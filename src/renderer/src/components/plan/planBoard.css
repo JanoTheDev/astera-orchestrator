@@ -54,3 +54,18 @@
 .detail-node-acts .ui-btn.ui-btn--icon { width: 18px; height: 18px; padding: 0; background: none; color: var(--text-faint); }
 .detail-node-acts .ui-btn.ui-btn--icon:hover:not(:disabled) { color: var(--accent); }
 .detail-checks .detail-check { display: inline-flex; align-items: center; }
+
+/* T4 task kinds: one token colour per kind on the badge's icon; the label keeps the text colour */
+.plan-kind { --plan-kind: var(--text-dim); flex: none; }
+.plan-kind svg { color: var(--plan-kind); }
+.plan-kind--bugfix { --plan-kind: var(--danger); }
+.plan-kind--feature { --plan-kind: var(--accent); }
+.plan-kind--refactor { --plan-kind: var(--fi-cyan); }
+.plan-kind--ui { --plan-kind: var(--fi-purple); }
+.plan-kind--audit { --plan-kind: var(--fi-yellow); }
+.plan-kind--docs { --plan-kind: var(--fi-blue); }
+.plan-kind--test { --plan-kind: var(--ok); }
+.plan-kind--ops { --plan-kind: var(--fi-orange); }
+.plan-kind-merge { flex: none; }
+.plan-kind-filter { grid-column: 1 / -1; display: flex; }
+.plan-row-reuse { margin: 0; display: flex; align-items: center; gap: 4px; font-size: var(--fs-11); color: var(--text-faint); }

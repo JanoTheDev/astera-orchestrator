@@ -24,10 +24,11 @@ import { RunIcon, STATE_KEY, TaskIcon } from '../JobIcons'
 import { SourceChip } from '../SourceChip'
 import { Button, Chip, Icon, Input, Menu, Meter, PageHeader, type MenuItem } from '../ui'
 import { planProgressOf } from './planBoard'
+import { integrateAllOutcomeOf, type IntegrateAllOutcome } from './planCommands'
 import { planStatusOf } from './planList'
 import { approveSlot } from './planTalk'
 import { PlanMergeActions } from './PlanChanges'
-import { deliveryActionsOf, RUN_START } from './planPage'
+import { deliveryActionsOf, RUN_START, taskAnchorId } from './planPage'
 import type { PlanPageState } from './usePlanPage'
 import { FailedWaitButtons } from './FailedWaitButtons'
 
@@ -61,6 +62,9 @@ export function PlanHeader({
   const [fixing, setFixing] = useState(false)
   // T3: a delivery being retried, failed or waiting on the owner can be tried again from here (`run-deliver --force`)
   const [redelivering, setRedelivering] = useState(false)
+  // T4: "Merge everything and fix conflicts" in flight, and what it answered (a hand-off to the merge Task stays on screen)
+  const [integrating, setIntegrating] = useState(false)
+  const [integrated, setIntegrated] = useState<IntegrateAllOutcome | null>(null)
   // a row that only carries the wait for another plan (state 'pending') has nothing to retry
   const delivery = run?.delivery?.state === 'pending' ? undefined : run?.delivery
   const deliveryActions = deliveryActionsOf({ delivery })
@@ -77,6 +81,29 @@ export function PlanHeader({
     } finally {
       setRedelivering(false)
     }
+  }
+  const mergeEverything = async (): Promise<void> => {
+    if (!run) return
+    const ok = await ui.confirm({ title: t('plan.integrate.title'), body: t('plan.integrate.body', { plan: jobName(run) }), confirmLabel: t('plan.integrate.confirm') })
+    if (!ok) return
+    setIntegrating(true)
+    setIntegrated(null)
+    try {
+      const reply = await door.command('run-integrate-all', { run: run.foldedRunId ?? runId })
+      const out = integrateAllOutcomeOf(reply)
+      if (out.state === 'delivered') toast.success(t('plan.integrate.delivered'))
+      else if (out.state === 'refused') toast.error(t('plan.integrate.failed', { reason: replyNote(reply, t as never, out.error ?? t('jobs.node.failed')) }))
+      else setIntegrated(out)
+    } catch {
+      toast.error(t('jobs.node.failed'))
+    } finally {
+      setIntegrating(false)
+    }
+  }
+  /** Brings the AI merge Task's row into view, expanded, as Needs you's Task names do. */
+  const showMergeTask = (taskId: string): void => {
+    p.setSelected(taskId)
+    requestAnimationFrame(() => document.getElementById(taskAnchorId(taskId))?.scrollIntoView({ block: 'center' }))
   }
   const retryDelivery = (): Promise<void> => runDelivery('run-deliver', { force: true }, t('plan.delivery.delivered'))
   const alreadyPushed = (): Promise<void> => runDelivery('run-deliver', { ownerPushed: true }, t('plan.delivery.delivered'))
@@ -119,6 +146,10 @@ export function PlanHeader({
           : []),
         ...(deliveryActions.dismiss
           ? [{ id: 'dismiss', label: t('plan.delivery.dismiss'), icon: <Icon name="close" size={14} />, disabled: off || redelivering, onSelect: () => void dismissDelivery() }]
+          : []),
+        // T4 (advanced): every worktree into the plan branch, an agent fixes the conflicts, then the plan's own delivery
+        ...(run.archivedAt === undefined && !run.pendingStart
+          ? [{ id: 'integrate', label: integrating ? t('plan.integrate.working') : t('plan.integrate.menu'), icon: <Icon name="merge" size={14} />, disabled: off || integrating, onSelect: () => void mergeEverything() }]
           : []),
         { id: 'kill', label: t('pages.plan.kill'), icon: <Icon name="stop" size={14} />, danger: true, disabled: off || running === 0, onSelect: () => void stopRun(door, run.foldedRunId ?? runId, jobName(run), ui) },
         ...(!local ? [] : run.archivedAt !== undefined
@@ -229,6 +260,15 @@ export function PlanHeader({
           )}
           {/* T5: the coordinator's model, picked by the plan's size (roleModels.ts resolveCoordinatorModel) */}
           {!simple && run?.coordinatorModel !== undefined && <Chip>{`${t('plan.card.model')}: ${run.coordinatorModel}`}</Chip>}
+          {integrated?.state === 'stopped' && <Chip tone="danger">{t('plan.integrate.stopped', { reason: integrated.error ?? '—' })}</Chip>}
+          {integrated?.state === 'fixing-conflicts' && (
+            <>
+              <Chip tone="info">{t('plan.integrate.fixing')}</Chip>
+              <Button size="sm" variant="ghost" icon={<Icon name="tasks" size={14} />} onClick={() => showMergeTask(integrated.taskId)}>
+                {t('plan.integrate.openTask')}
+              </Button>
+            </>
+          )}
           <SourceChip source={run?.source} />
           {!simple && running > 0 && (
             <span className="jobs-count">

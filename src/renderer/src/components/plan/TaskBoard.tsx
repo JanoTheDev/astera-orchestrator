@@ -3,7 +3,8 @@
 // section of Task rows (state icon, title, account, attempts, "Open console" for a running one); a row expands inline
 // to its detail: what its worker is doing now, why it is not running (core/orchestration/blocked.ts), model, branch,
 // files and the coordinator's answers. The open questions moved to "Needs you" (NeedsYou below). Drawing only: the
-// waves, reasons, counts and "now" lines are planBoard.ts's.
+// waves, reasons, counts and "now" lines are planBoard.ts's. T4: a card carries its kind (and a merge Task its badge, a
+// reusing Task the worktree it continues in), and a kind filter sits above the steps.
 import { useEffect, useMemo, useState } from 'react'
 import type { ActivityEvent } from '../../../../core/orchestration/activity'
 import type { Account, JobEvent, JobTask } from '../../../../core/types'
@@ -19,15 +20,20 @@ import {
   categoryOf,
   collapsedWavesOf,
   currentWaveOf,
+  filterByKind,
+  KIND_ICON,
+  kindsOf,
+  type KindFilter,
   type needsYouOf,
   nowOf,
   reasonText,
   reasonTone,
+  reuseOf,
   wavesOf,
   type LiveSession,
 } from './planBoard'
 import { QuestionAnswer } from './QuestionAnswer'
-import { Button, Icon, Meter, Tooltip } from '../ui'
+import { Button, Chip, Icon, Meter, Select, Tooltip } from '../ui'
 import { openWorktree } from '../shell/navigation' // W9-J
 import { TaskLines } from '../attribution/TaskLines' // W8-B
 import type { SessionSummary } from '../../../../core/sessions/summary'
@@ -44,6 +50,7 @@ export function TaskBoard({
   selected,
   onSelect,
   layers = [],
+  deps,
   events = [],
   activity = [],
   sessions = {},
@@ -64,6 +71,8 @@ export function TaskBoard({
   onSelect: (taskId: string) => void
   /** W6-E: the plan's dependency depths (RunDetail `layers`). Empty puts every Task in one wave. */
   layers?: readonly string[][]
+  /** T4: Task id → the ids it depends on (RunDetail `deps`): names the worktree a reusing Task continues in. */
+  deps?: Readonly<Record<string, readonly string[]>>
   /** W6-E: the Run's timeline, for a question to the coordinator still unanswered. */
   events?: readonly JobEvent[]
   /** W6-E: the activity feed's lines of this plan (auto-answered questions). */
@@ -102,10 +111,30 @@ export function TaskBoard({
   const folded = collapsedWavesOf(waves)
   const [flipped, setFlipped] = useState<ReadonlySet<number>>(() => new Set())
   const flip = (i: number): void => setFlipped((cur) => { const n = new Set(cur); if (!n.delete(i)) n.add(i); return n })
+  // T4: the kind filter shows when the Tasks carry more than one kind; the steps keep their numbers and counts, the cards narrow
+  const kinds = useMemo(() => kindsOf(tasks), [tasks])
+  const [kindFilter, setKindFilter] = useState<KindFilter>('all')
+  const kind = kinds.some((k) => k.kind === kindFilter) ? kindFilter : 'all'
   const rank = (tk: JobTask): number => CATEGORIES.indexOf(categoryOf(tk))
   return (
     <div className="plan-board plan-waves">
+      {kinds.length > 1 && (
+        <div className="plan-kind-filter">
+          <Select
+            className="dense"
+            ariaLabel={t('plan.kind.filter')}
+            value={kind}
+            onChange={(v) => setKindFilter(v as KindFilter)}
+            items={[
+              { value: 'all', label: t('plan.kind.all', { n: tasks.length }) },
+              ...kinds.map((k) => ({ value: k.kind, label: t('plan.kind.option', { kind: t(`plan.kind.${k.kind}`), n: k.count }), icon: <Icon name={KIND_ICON[k.kind]} size={14} /> }))
+            ]}
+          />
+        </div>
+      )}
       {waves.map((w) => {
+        const shown = filterByKind(w.tasks, kind)
+        if (shown.length === 0) return null
         const isCurrent = w.index === current
         const percent = Math.floor((w.done * 100) / w.tasks.length)
         const hidden = folded.has(w.index) !== flipped.has(w.index) && !w.tasks.some((tk) => tk.id === selected)
@@ -143,12 +172,13 @@ export function TaskBoard({
             )}
             {!hidden && (
               <ul className="plan-wave-cards">
-                {[...w.tasks]
+                {[...shown]
                   .sort((a, b) => rank(a) - rank(b))
                   .map((tk) => (
                     <TaskRow
                       key={tk.id}
                       task={tk}
+                      reuse={reuseOf(tk, tasks, deps)}
                       expanded={selected === tk.id}
                       nowMs={nowMs}
                       label={label}
@@ -215,6 +245,7 @@ function byTask<T extends { taskId?: string }>(rows: readonly T[]): Map<string, 
 
 function TaskRow({
   task: tk,
+  reuse,
   expanded,
   nowMs,
   label,
@@ -229,6 +260,8 @@ function TaskRow({
   compact
 }: {
   task: JobTask
+  /** T4: the worktree this Task continues in (planBoard reuseOf), or null */
+  reuse: ReturnType<typeof reuseOf>
   expanded: boolean
   nowMs: number
   label: (id: string) => string
@@ -267,6 +300,18 @@ function TaskRow({
         >
           {tk.title}
         </Button>
+        {tk.kind !== undefined && (
+          <Chip className={`plan-kind plan-kind--${tk.kind}`}>
+            <Icon name={KIND_ICON[tk.kind]} size={14} />
+            {t(`plan.kind.${tk.kind}`)}
+          </Chip>
+        )}
+        {tk.isMerge === true && (
+          <Chip tone="info" className="plan-kind-merge">
+            <Icon name="merge" size={14} />
+            {t('plan.kind.merge')}
+          </Chip>
+        )}
         {line !== undefined && <span className={reason && !now ? `plan-row-line plan-row-line--${reasonTone(reason)}` : 'plan-row-line plan-now'}>{line}</span>}
         <span className="plan-row-meta">
           {account !== undefined && <span className="plan-row-account">{label(account)}</span>}
@@ -278,6 +323,12 @@ function TaskRow({
           </Button>
         )}
       </div>
+      {reuse !== null && (
+        <p className="plan-row-reuse">
+          <Icon name="branch" size={14} />
+          {reuse.title !== undefined ? t('plan.card.reuses', { task: reuse.title }) : t('plan.card.reusesDep')}
+        </p>
+      )}
       {expanded && (
         <div className="plan-row-detail">
           {reason && text && now && <span className={`plan-reason plan-reason-${reasonTone(reason)}`}>{t(text.key, text.params)}</span>}
