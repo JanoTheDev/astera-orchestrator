@@ -240,6 +240,8 @@ export const integrations: Partial<Record<keyof typeof ko, string>> = {
   'settings.projects.empty': 'Aún no hay proyectos',
   'project.handsOff': 'Planes sin intervención (Astera decide por mí)',
   'project.handsOff.hint': 'Los planes arrancan solos, deciden sus preguntas y abren sus consolas con los permisos omitidos.',
+  'project.serialFiles': 'Una Task a la vez en los mismos archivos',
+  'project.serialFiles.hint': 'Las Tasks que editan los mismos archivos se esperan entre sí, y una Task terminada retiene sus archivos hasta que su plan se entrega. Desactivado: corren a la vez en sus propios worktrees y el worker de fusión resuelve los conflictos.',
   'project.originSync': 'Mantener los planes en marcha sincronizados con origin',
   'project.originSync.on': 'Activado (cada 10 minutos y en cada paso)',
   'project.originSync.off': 'Desactivado (sin red)',

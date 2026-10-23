@@ -208,10 +208,12 @@ the worker's explicit report plus any checks, not a quiet terminal.
 - **Review** (on by default). Every Task is checked by a fresh reviewer before it counts as done. A blocking finding
   goes back to the worker, up to 5 rounds, then the Task escalates. Turn it off with `--no-review`, or for one Task
   with `tasks add --no-review`.
-- **Same files, one at a time.** No two workers of one project edit overlapping files at once, in one plan or across
-  plans (by each Task's affected paths). The later Task waits, and its card says why: "Waits for Auth rework · T6 (same
-  files: src/api/routes.ts)". It starts by itself when that Task is done. Plans in different projects never wait for
-  each other. Tasks from a shell: `astera tasks add --job <job> … --difficulty <light|standard|hard>` (or `--model
+- **Same files, side by side.** Tasks whose affected paths overlap still start at once, each in its own worktree, in
+  one plan or across plans; when their branches meet, the merge worker (an AI merge Task) settles a conflict. To run
+  them one at a time instead, turn on **One Task at a time on the same files** in the project's settings
+  (`astera projects set --serial-files on`): then the later Task waits, a done Task holds its files until its plan
+  delivers, and its card says why: "Waits for Auth rework · T6 (same files: src/api/routes.ts)". Plans in different
+  projects never wait for each other. Tasks from a shell: `astera tasks add --job <job> … --difficulty <light|standard|hard>` (or `--model
   <id>`), `--affected-paths '["src/a.ts"]'`, and a spec with quotes on stdin: `--spec - <<'EOF'`. `astera tasks list
   --run <job>` lists a plan's Tasks before its first run.
 - **One heavy job at a time.** `astera heavy -- <cmd…>` runs a command under one machine-wide slot, first come first

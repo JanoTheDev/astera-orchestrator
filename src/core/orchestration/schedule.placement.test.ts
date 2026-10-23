@@ -57,7 +57,10 @@ describe('slotsToFill — a coordinator-run plan', () => {
 
   it('keeps the file guard and the waves, the circuit break and an open Dispatch', () => {
     const editing = task('busy', { status: 'dispatched', affectedPaths: ['src/a'] })
-    expect(placed(state([editing, task('clash', { affectedPaths: ['src/a/b.ts'] })], { dispatches: [dispatch('d1', 'busy')] }))).toEqual([])
+    const guarded = state([editing, task('clash', { affectedPaths: ['src/a/b.ts'] })], { job: { projectId: 'prj' }, dispatches: [dispatch('d1', 'busy')] })
+    // T7: the file guard holds on a project with serial files on; without, the two run side by side
+    expect(placed({ ...guarded, projects: [{ id: 'prj', path: '/p', name: 'p', addedAt: T0, serialFiles: true }] })).toEqual([])
+    expect(placed(guarded)).toEqual(['clash'])
     // a planned plan while its replan between waves is under way
     const replanning = { runId: 'r1', wave: 0, startedAt: T0 } as unknown as Job['replanning']
     expect(placed(state([task('a')], { job: { plannerSessionIds: ['pl_1'], replanning } }))).toEqual([])

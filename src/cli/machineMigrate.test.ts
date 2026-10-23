@@ -181,9 +181,10 @@ describe('helpers', () => {
     expect(cloneUrl('https://gitlab.com/o/r.git')).toBe('https://gitlab.com/o/r.git')
   })
   it('projectSettingsFlags carries the settings a projects set takes, not local ids', () => {
-    expect(projectSettingsFlags({ delivery: 'push', handsOff: true, autoApprove: false, originSync: 'off', grants: ['a', 'b'], testConfigId: 'x' })).toEqual({
+    expect(projectSettingsFlags({ delivery: 'push', handsOff: true, serialFiles: true, autoApprove: false, originSync: 'off', grants: ['a', 'b'], testConfigId: 'x' })).toEqual({
       delivery: 'push',
       'hands-off': 'on',
+      'serial-files': 'on',
       'auto-approve': 'off',
       'origin-sync': 'off',
       grants: 'a,b'

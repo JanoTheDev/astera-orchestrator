@@ -1,7 +1,8 @@
 // W8-D several plans in one repo: where one plan's Tasks meet another plan's of the same project.
 //
 // **Two layers, one rule each.** At run time the file guard (schedule.ts `editingByProject`) keeps two workers of any
-// plans of one project off the same files; nothing here blocks anything. Before and between waves this file says where
+// plans of one project off the same files, on a project with serial files on (T7 `serialFilesOf`; otherwise they run
+// side by side and the merge worker settles a conflict); nothing here blocks anything. Before and between waves this file says where
 // the plans meet, so the planner plans around another plan and the owner sees it at approval (`Job.overlaps`, never a
 // refusal). Paths overlap by `pathsOverlap`, the guard's own rule.
 //
@@ -14,7 +15,7 @@ import { isJobActive } from './lifecycle'
 import { outcomeOfTasks } from './running'
 // T1 the main plan
 import { activeOrQueued, externalDepsOf, holdExternalDeps, mainPlanOf, otherPlansOf, planIdOf, planTasksOf } from './mainPlan'
-import { isLeaseWaitGate, LEASE_WAIT_OPTIONS, leasesByProject, pathsOverlap, planOutranks, projectKeyOf, sameFilesAs } from './schedule'
+import { isLeaseWaitGate, LEASE_WAIT_OPTIONS, leasesByProject, pathsOverlap, planOutranks, projectKeyOf, sameFilesAs, serialFilesOf } from './schedule'
 import { createGate, type OrchState } from './state'
 import { afterStandOf } from './after'
 import { cancelRemainingTask } from './replan'
@@ -66,7 +67,17 @@ export function refreshOverlaps(prev: OrchState, next: OrchState, now: string = 
     return found.length > 0 ? { ...rest, overlaps: found } : rest
   })
   let out = changed ? { ...next, jobs } : next
-  for (const n of notices) out = noticeTo(out, n.job, 'Another plan of this project goes first', n.lines, now)
+  // T7: without serial files the two run side by side, and the plan that goes first lands first (exec/deliveryWait.ts)
+  for (const n of notices)
+    out = noticeTo(
+      out,
+      n.job,
+      serialFilesOf(out, projectKeyOf(out, n.job))
+        ? 'Another plan of this project goes first'
+        : 'Another plan of this project edits the same files and goes first; the merge may need the merge worker',
+      n.lines,
+      now
+    )
   // T1: a delivery readies the Tasks of other plans that wait on it
   return holdExternalDeps(coordinate(prev, out, now))
 }
@@ -82,7 +93,10 @@ function noticeTo(s: OrchState, job: Job, subject: string, lines: string[], now:
   if (runId === undefined || lines.length === 0) return s
   const body = [
     ...lines,
-    'Astera holds the waiting Task until the other plan delivers; plan around those files if you can, or wait.'
+    serialFilesOf(s, projectKeyOf(s, job))
+      ? 'Astera holds the waiting Task until the other plan delivers; plan around those files if you can, or wait.'
+      : // T7: nothing waits; the plan that goes first lands first, and this one merges it and validates (exec/deliveryWait.ts)
+        'Both run now, each in its own worktree; this plan merges the other when it delivers, and the merge worker settles a conflict.'
   ].join('\n')
   const message: Message = { id: newId('msg'), runId, type: 'status', subject: `${subject}: ${lines[0]}`.slice(0, 500), body, answered: false, createdAt: now }
   return { ...s, messages: [...s.messages, message] }

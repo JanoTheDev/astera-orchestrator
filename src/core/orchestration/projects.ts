@@ -165,6 +165,8 @@ export type ProjectSettingsPatch = {
   coordinatorModel?: string | null
   // T4: off stops keeping running plans in sync with origin
   originSync?: 'off' | null
+  // T7: on brings back the same-file wait (schedule.ts `serialFilesOf`)
+  serialFiles?: boolean | null
 }
 
 /** T5: a standing grant's kind: a short kebab-case word (`protected-paths`, `migrations`). */

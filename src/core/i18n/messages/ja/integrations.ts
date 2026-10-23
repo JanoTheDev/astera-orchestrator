@@ -237,6 +237,8 @@ export const integrations: Partial<Record<keyof typeof ko, string>> = {
   'settings.projects.empty': 'まだプロジェクトがありません',
   'project.handsOff': 'おまかせプラン（Astera が代わりに決める）',
   'project.handsOff.hint': 'プランは自動で始まり、質問も自分で決め、コンソールは権限をバイパスして起動します。',
+  'project.serialFiles': '同じファイルは一度に一つの Task だけ',
+  'project.serialFiles.hint': '同じファイルを編集する Task は互いを待ち、終わった Task はプランが届くまでそのファイルを押さえます。オフ：それぞれのワークツリーで並行して動き、競合はマージワーカーが解決します。',
   'project.originSync': '実行中のプランを origin と同期する',
   'project.originSync.on': 'オン（10 分ごと、および各ステップで）',
   'project.originSync.off': 'オフ（ネットワークを使わない）',
