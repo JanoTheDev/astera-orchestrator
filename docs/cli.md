@@ -710,23 +710,23 @@ astera projects find  --path <path>
 astera projects add   [--path <path>] [--initial-commit] [--parent <projectId>] [--name <name>] [--focus <a,b>] [--clone <git url>]
 astera projects remove --id <projectId>
 astera projects create --name <name> --parent <path> [--describe <text>] [--github <private|public>]
-astera projects set   --id <projectId> [--delivery <pr|push>] [--delivery-branch <branch>] [--auto-approve <on|off>] [--hands-off <on|off>] [--test-command <cmd>] [--test-config <id>] [--concurrency <1-100>] [--review-rounds <n>] [--replan <waves|off>] [--account <id>] [--prompts-dir <path|none>] [--auto-projects <on|off>] [--grants <kind,...|none>] [--coordinator-model <id|none>]
+astera projects set   --id <projectId> [--delivery <pr|push|manual>] [--delivery-branch <branch>] [--auto-approve <on|off>] [--hands-off <on|off>] [--test-command <cmd>] [--test-config <id>] [--concurrency <1-100>] [--review-rounds <n>] [--replan <waves|off>] [--account <id>] [--prompts-dir <path|none>] [--auto-projects <on|off>] [--grants <kind,...|none>] [--coordinator-model <id|none>]
 
 astera jobs    list   [--status <pending|paused|scheduled|waiting|running|completed|failed>] [--project <path>] [--archived] [--area <word>]
 astera jobs    get    --id <jobId | runId>
 astera jobs    run    --id <jobId>
 astera jobs    wait   --id <jobId>  [--timeout-ms <n>]
 astera jobs    rename --id <jobId> --title <text>
-astera jobs    set    --id <jobId | runId> [--concurrency <n>] [--after <jobId|none>] [--areas <a,b,c|none>] [--left-out <json array>] [--planning <chat|auto>] [--priority <n>] [--review-rounds <n>] [--replan <waves|off>] [--auto-approve <on|off>] [--hands-off <on|off>] [--delivery <pr|push>] [--project <projectId>]
+astera jobs    set    --id <jobId | runId> [--concurrency <n>] [--after <jobId|none>] [--areas <a,b,c|none>] [--left-out <json array>] [--planning <chat|auto>] [--priority <n>] [--review-rounds <n>] [--replan <waves|off>] [--auto-approve <on|off>] [--hands-off <on|off>] [--delivery <pr|push|manual>] [--project <projectId>]
 astera jobs    overlaps --id <jobId>
 astera main-plan [--project <projectId>]
 astera jobs    archive --id <jobId> [--kill-sessions]
 astera jobs    unarchive --id <jobId>
-astera jobs    plan --id <jobId> [--account <id>] [--replan <waves|off>] [--concurrency <n>] [--delivery <pr|push>] [--no-review] [--auto-approve <on|off>] [--hands-off <on|off>] [--planning <chat|auto>]
+astera jobs    plan --id <jobId> [--account <id>] [--replan <waves|off>] [--concurrency <n>] [--delivery <pr|push|manual>] [--no-review] [--auto-approve <on|off>] [--hands-off <on|off>] [--planning <chat|auto>]
 astera jobs    feedback --job <jobId> --text <text|->
 astera jobs    reject --job <jobId> [--reason <text>]
-astera jobs    create --objective <text> [--cwd <path>] [--concurrency <n>] [--priority <n>] [--replan <waves|off>] [--coordinator-account <accountId>] [--coordinator-provider <claude|codex>] [--convergence [--max-fix-attempts <n>] [--max-review-rounds <n>] [--blocking-severity <high|medium>] [--max-total-minutes <n>]] [--mode <plan|audit|fixlist|prompts>] [--scope <path[,path…]|all>] [--focus <list>] [--instructions <text>] [--attach <path>] [--approve <auto|ask>] [--delivery <pr|push>] [--no-review] [--after <jobId>] [--hands-off] [--planning <chat|auto>]
-astera jobs    create-from-source --source <sourceId> --item <itemId> --project <projectId> [--concurrency <n>] [--priority <n>] [--replan <waves|off>] [--coordinator-account <accountId>] [--coordinator-provider <claude|codex>] [--convergence [--max-fix-attempts <n>] [--max-review-rounds <n>] [--blocking-severity <high|medium>] [--max-total-minutes <n>]] [--delivery <pr|push>] [--planning <chat|auto>]
+astera jobs    create --objective <text> [--cwd <path>] [--concurrency <n>] [--priority <n>] [--replan <waves|off>] [--coordinator-account <accountId>] [--coordinator-provider <claude|codex>] [--convergence [--max-fix-attempts <n>] [--max-review-rounds <n>] [--blocking-severity <high|medium>] [--max-total-minutes <n>]] [--mode <plan|audit|fixlist|prompts>] [--scope <path[,path…]|all>] [--focus <list>] [--instructions <text>] [--attach <path>] [--approve <auto|ask>] [--delivery <pr|push|manual>] [--no-review] [--after <jobId>] [--hands-off] [--planning <chat|auto>]
+astera jobs    create-from-source --source <sourceId> --item <itemId> --project <projectId> [--concurrency <n>] [--priority <n>] [--replan <waves|off>] [--coordinator-account <accountId>] [--coordinator-provider <claude|codex>] [--convergence [--max-fix-attempts <n>] [--max-review-rounds <n>] [--blocking-severity <high|medium>] [--max-total-minutes <n>]] [--delivery <pr|push|manual>] [--planning <chat|auto>]
 
 astera runs    list   [--job <jobId>] [--project <path>]
 astera runs    get    --id <runId>
@@ -813,7 +813,7 @@ plan and for a Job an agent session makes) has it decide every open choice itsel
 `jobs set --priority <n>` changes a Job's priority after creation (an integer, higher first).
 
 **Change a running plan.** `jobs set --id <job>` takes any mix of `--concurrency`, `--priority`, `--review-rounds <n>`,
-`--replan waves|off`, `--auto-approve on|off`, `--hands-off on|off` and `--delivery pr|push` on a running or queued plan.
+`--replan waves|off`, `--auto-approve on|off`, `--hands-off on|off` and `--delivery pr|push|manual` on a running or queued plan.
 All are validated before one write, and they apply to work that has not started yet. `--delivery` is refused (409)
 once delivery has started; a finished plan refuses every flag; `--hands-off` is refused from an agent session or MCP client.
 
@@ -865,6 +865,12 @@ prints the whole orchestration guide, which is a reference for agents rather tha
 A command a coordinator or worker session uses answers `--help` as well, with the entry
 `agent-context` prints for it: `astera worker-release --help` shows the flags you need to close
 finished workers before `host stop`.
+
+**A manual plan** (`--delivery manual`) delivers nothing by itself: its integration branch is pushed for safekeeping, and the
+finished run reads `awaiting-review`. The owner reviews the worktree, then `run-deliver --run <runId> [--as pr|push]`
+delivers it by that route (default `pr`; `push` is refused from an agent session and an MCP client), or
+`run-pr-merge --run <runId> [--method merge|squash|rebase]` merges the run's open pull request with `gh pr merge` and
+records the run as delivered. `run-pr-merge` is the owner's: refused from an agent session and an MCP client.
 
 **A failed delivery is settled by the owner with three commands** (the plan page's buttons call them):
 `run-deliver --run <runId> --force` tries again now; `run-deliver --run <runId> --owner-pushed` says the

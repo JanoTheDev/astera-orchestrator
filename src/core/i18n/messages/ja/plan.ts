@@ -200,6 +200,7 @@ export const plan: Partial<Record<keyof typeof ko, string>> = {
   'plan.settings.deliveryHelp': '完了した作業をプルリクエストにするか、ブランチへ直接プッシュするかです。',
   'plan.settings.delivery.pr': 'プルリクエスト',
   'plan.settings.delivery.push': 'プッシュ',
+  'plan.settings.delivery.manual': '手動',
   'plan.settings.saved': '保存しました。これから開始するエージェントに適用されます。',
   'plan.settings.failed': '保存できませんでした: {reason}',
   'plan.settings.loading': 'プランの設定を読み込んでいます…',

@@ -200,6 +200,7 @@ export const plan: Partial<Record<keyof typeof ko, string>> = {
   'plan.settings.deliveryHelp': 'Cómo llega el trabajo terminado: una pull request o un push a la rama.',
   'plan.settings.delivery.pr': 'Pull request',
   'plan.settings.delivery.push': 'Push',
+  'plan.settings.delivery.manual': 'Manual',
   'plan.settings.saved': 'Guardado. Se aplica a los agentes que empiecen a partir de ahora.',
   'plan.settings.failed': 'No se guardó: {reason}',
   'plan.settings.loading': 'Leyendo los ajustes del plan…',

@@ -221,8 +221,15 @@ const SESSION = {
       RUN_ARG('<runId>', 'the completed run'),
       { name: 'force', about: 'try again after a recorded stop' },
       // T1: the owner's "It's already pushed", from any failed delivery
-      { name: 'owner-pushed', about: 'the work is already on the delivery branch: delivered once git sees it on origin' }
+      { name: 'owner-pushed', about: 'the work is already on the delivery branch: delivered once git sees it on origin' },
+      { name: 'as', value: '<pr|push>', about: "the route for this one delivery, for a manual plan (default pr); push is the person's, never an agent's" }
     ]
+  },
+  'run-pr-merge': {
+    summary: "merge a run's open pull request on GitHub (gh pr merge)",
+    detail:
+      "Merges the pull request recorded on the run, then records the run as delivered and merged. For a manual plan the owner has reviewed, or any plan whose PR is open. The person's: refused from an agent session and an MCP client. Answered by the Host.",
+    flags: [RUN_ARG('<runId>', 'the run whose pull request is merged'), { name: 'method', value: '<merge|squash|rebase>', about: 'how GitHub merges it (default merge)' }]
   },
   // T1: delivery state machine
   'run-delivery-dismiss': {

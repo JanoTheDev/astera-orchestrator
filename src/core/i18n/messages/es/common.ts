@@ -285,6 +285,7 @@ export const common: Partial<Record<keyof typeof ko, string>> = {
   'delivery.label': 'Cuando un plan termina:',
   'delivery.pr': 'Abrir una pull request (Astera nunca la fusiona)',
   'delivery.push': 'Hacer push a {branch} cuando el plan termine (sin revisión de una persona)',
+  'delivery.manual': 'Manual: reviso yo, luego creo un PR o fusiono',
   'delivery.defaultBranch': 'la rama por defecto',
   // NewTaskModal.tsx — el formulario en el que se convierte el panel inferior de RunDetail
   // (.detail-events) mientras se está creando una Task. deps pertenece al grafo, no a este formulario

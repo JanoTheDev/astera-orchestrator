@@ -281,6 +281,7 @@ export const common: Partial<Record<keyof typeof ko, string>> = {
   'delivery.label': 'プランが終わったら:',
   'delivery.pr': 'プルリクエストを1つ開く (Astera はマージしない)',
   'delivery.push': 'プランが終わったら {branch} にプッシュする (人によるレビューなし)',
+  'delivery.manual': '手動: 自分でレビューしてから PR を作成またはマージする',
   'delivery.defaultBranch': 'デフォルトブランチ',
   // NewTaskModal.tsx — Task を組み立てている間、詳細ウィンドウの下段(.detail-events)が変わるフォーム。
   // deps はこのフォームではなくグラフが持つ(選ぶ場所がグラフだから) — このカタログには deps の値

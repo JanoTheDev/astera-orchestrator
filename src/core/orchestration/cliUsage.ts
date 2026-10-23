@@ -133,7 +133,7 @@ const JOB_MAKING_FLAGS: readonly UsageFlag[] = [
     about: 'repair failing tasks instead of failing them'
   },
   // W6-H delivery
-  { name: 'delivery', value: '<pr|push>', about: "how this Job's finished plan lands, ahead of its project's: one pull request, or pushed to the delivery branch with no review by a person" },
+  { name: 'delivery', value: '<pr|push|manual>', about: "how this Job's finished plan lands, ahead of its project's: one pull request, pushed to the delivery branch with no review by a person, or left for you to review and deliver (manual)" },
   { name: 'max-fix-attempts', value: '<n>', about: 'repairs per task; needs --convergence' },
   { name: 'max-review-rounds', value: '<n>', about: 'review rounds per task; needs --convergence' },
   {
@@ -417,7 +417,7 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       'pr (the default) opens one pull request per plan and never merges it. push merges a finished plan into the delivery branch (the default branch unless --delivery-branch) and pushes it, with no review by a person, after the reviews, the final check and the validation pass; it stops and escalates when the folder is not on that branch, has uncommitted changes, cannot fast-forward, conflicts, fails validation or is rejected, and never force-pushes. A Job may override it (`jobs create --delivery`). Defaults: delivery pr, auto-approve off, concurrency 3, review rounds 5, replan waves. --auto-approve on starts a plan without waiting for approval; --hands-off on also lets its coordinator answer its own escalations and bypasses permissions for its sessions. --test-command is saved as a run configuration and validates every new Task that has no --validate (--test-config picks an existing one). A new Job copies the concurrency, replan and review rounds when it sets none. An empty value clears a setting back to its default. Refused from an agent session and an MCP client.',
     flags: [
       ID('<projectId>', 'the project to set'),
-      { name: 'delivery', value: '<pr|push>', about: 'how its finished plans land' },
+      { name: 'delivery', value: '<pr|push|manual>', about: 'how its finished plans land' },
       { name: 'delivery-branch', value: '<branch>', about: 'the branch a push lands on (default: the repository default branch)' },
       // W7-A, W7-B
       { name: 'auto-approve', value: '<on|off>', about: 'approve this project\'s plans as soon as their planner finishes, with no one asked (default off)' },
@@ -537,7 +537,7 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       { name: 'replan', value: '<waves|off>', about: 'replan between steps, from the next step' },
       { name: 'auto-approve', value: '<on|off>', about: 'start the plan once planned without waiting for approval' },
       { name: 'hands-off', value: '<on|off>', about: 'run without asking; from a person only' },
-      { name: 'delivery', value: '<pr|push>', about: 'how the plan lands; refused once delivery has started' },
+      { name: 'delivery', value: '<pr|push|manual>', about: 'how the plan lands; refused once delivery has started' },
       // T3 workspaces
       { name: 'project', value: '<projectId>', about: 'file a plan not started yet under another project of its workspace; alone' }
     ]
@@ -583,7 +583,7 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       // T1 chat-first planning
       { name: 'planning', value: '<chat|auto>', about: "how the planner works: chat brainstorms with you in its terminal, auto decides alone (default: the Job's own)" },
       // W6-H delivery
-      { name: 'delivery', value: '<pr|push>', about: "how this Job's finished plan lands, ahead of its project's: one pull request, or pushed to the delivery branch with no review by a person" },
+      { name: 'delivery', value: '<pr|push|manual>', about: "how this Job's finished plan lands, ahead of its project's: one pull request, pushed to the delivery branch with no review by a person, or left for you to review and deliver (manual)" },
       // W6-D wave replanning
       { name: 'replan', value: '<waves|off>', about: 'replan the rest of the plan between waves and check it once more at the end (default waves)' },
       // W7-E: a planned Job's Tasks are reviewed by a fresh reviewer, up to 5 rounds, then escalated
