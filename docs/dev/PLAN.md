@@ -304,7 +304,7 @@ The W7 fixes (#70 reviewer, #72/#73 answering and the blocking coordinator, #74 
 found. **W8-C (with W8-E, the 7V re-run's coordinator fixes) is the last wave run by hand.** It adds three things:
 - prompt files become Tasks verbatim;
 - a plan can wait for another plan;
-- heavy jobs (full suite, dev app, AppImage build) take one machine-wide slot.
+- heavy jobs (full suite, dev app, AppImage build) take one of N machine-wide slots: N is the Settings "Heavy jobs at once" value (default 1, at most 8), slot 0 is `/tmp/astera-fullsuite.lock` (hand-opened `flock` tabs take only this one) and slot k is `/tmp/astera-fullsuite.<k>.lock`.
 
 From then on, each wave is one Astera plan, queued after the one before it. Run these from the packaged app's
 profile, never the dev profile:

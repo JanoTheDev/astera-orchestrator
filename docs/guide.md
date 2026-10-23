@@ -217,16 +217,20 @@ the worker's explicit report plus any checks, not a quiet terminal.
 - **Review** (on by default). Every Task is checked by a fresh reviewer before it counts as done. A blocking finding
   goes back to the worker, up to 5 rounds, then the Task escalates. Turn it off with `--no-review`, or for one Task
   with `tasks add --no-review`.
-- **Same files, one at a time.** No two workers of one project edit overlapping files at once, in one plan or across
-  plans (by each Task's affected paths). The later Task waits, and its card says why: "Waits for Auth rework · T6 (same
-  files: src/api/routes.ts)". It starts by itself when that Task is done. Plans in different projects never wait for
-  each other. Tasks from a shell: `astera tasks add --job <job> … --difficulty <light|standard|hard>` (or `--model
+- **Same files, side by side.** Tasks whose affected paths overlap still start at once, each in its own worktree, in
+  one plan or across plans; when their branches meet, the merge worker (an AI merge Task) settles a conflict. To run
+  them one at a time instead, turn on **One Task at a time on the same files** in the project's settings
+  (`astera projects set --serial-files on`): then the later Task waits, a done Task holds its files until its plan
+  delivers, and its card says why: "Waits for Auth rework · T6 (same files: src/api/routes.ts)". Plans in different
+  projects never wait for each other. Tasks from a shell: `astera tasks add --job <job> … --difficulty <light|standard|hard>` (or `--model
   <id>`), `--affected-paths '["src/a.ts"]'`, and a spec with quotes on stdin: `--spec - <<'EOF'`. `astera tasks list
   --run <job>` lists a plan's Tasks before its first run.
-- **One heavy job at a time.** `astera heavy -- <cmd…>` runs a command under one machine-wide slot, first come first
-  served: the full test suite, `npm run dev` / Electron and `npm run dist:linux`. A Task's live line shows "Waiting for
-  the heavy-job slot (2nd in line)". It uses the same lock as hand-opened tabs (`flock /tmp/astera-fullsuite.lock …`),
-  so both share one queue. A crash or exit frees the slot.
+- **Heavy jobs at once.** `astera heavy -- <cmd…>` runs a heavy job (the full test suite, `npm run dev` / Electron,
+  `npm run dist:linux`, a Task's heavy checks) under one of N machine-wide slots. N is the Settings "Heavy jobs at once"
+  value (default 1, at most 8). Past N, jobs wait in one first come first served queue. A Task's live line shows
+  "Waiting for the heavy-job slot (2nd in line)". Slot 0 is `/tmp/astera-fullsuite.lock`. A hand-opened
+  `flock /tmp/astera-fullsuite.lock …` tab takes slot 0 only, so it shares that slot and no other. Slot k is
+  `/tmp/astera-fullsuite.<k>.lock`. A crash or exit frees the slot.
 - **Hold, stop, resume.** The plan tab's **Pause** / **Resume** (or "pause <plan>" in the box) **holds** a plan: no new
   worker starts, running workers carry on and nothing is closed, so nothing is asked. "pause worker 2" pauses one
   worker after a confirmation: its console stays open and keeps its slot, and no agent types into it until "resume

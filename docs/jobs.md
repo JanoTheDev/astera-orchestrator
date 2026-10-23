@@ -113,8 +113,9 @@ folder the integration Task merges into. So the button is not there and the sche
 the default is 3, **a Job made with the defaults never shows this button.** A schedule template never runs its own
 Tasks (section 7); its runs show the button as usual.
 
-Two Tasks that edit the same files never run at once, in one plan or across plans of the project; see
-[While it runs](guide.md#while-it-runs).
+Two Tasks that edit the same files run side by side, each in its own worktree, in one plan or across plans of the
+project; the merge worker settles a conflict when their branches meet. A project with serial files on runs them one at
+a time; see [While it runs](guide.md#while-it-runs).
 
 ## 4. When it is done: delivery, or a merge you press
 

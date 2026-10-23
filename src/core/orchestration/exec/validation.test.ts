@@ -44,6 +44,8 @@ interface RigOpts {
   pluginCheck?: (plugin: string, input: CompletionCheckInput) => Promise<PluginCheckAnswer>
   /** The real heavy slot over a temp queue and lock (its ticket and flock); the granting stub when left out. */
   heavyQueue?: { lock: string; queueDir: string }
+  /** The context's heavyJobsAtOnce; absent from the context when left out. */
+  heavyJobsAtOnce?: number
 }
 
 function rig(o: RigOpts = {}) {
@@ -112,7 +114,7 @@ function rig(o: RigOpts = {}) {
   const startRepair = vi.fn(async (_a: { dispatchId: string }) => undefined as unknown)
   const diffNames = vi.fn(async (_cwd: string, _head: string) => null as string[] | null)
   // T2: the machine's heavy slot, granted at once; each grant's release is counted
-  const heavy = { taken: [] as string[], released: 0 }
+  const heavy = { taken: [] as string[], slots: [] as (number | undefined)[], released: 0 }
 
   const ctx: ValidationContext = {
     getState: () => state,
@@ -147,10 +149,12 @@ function rig(o: RigOpts = {}) {
       pluginAsks.push({ plugin, input })
       return o.pluginCheck ? o.pluginCheck(plugin, input) : { name: plugin.toUpperCase(), status: 'passed', summary: 'passed' }
     },
+    ...(o.heavyJobsAtOnce ? { heavyJobsAtOnce: async () => o.heavyJobsAtOnce! } : {}),
     heavySlot: o.heavyQueue
       ? (a) => heavySlot({ ...a, ...o.heavyQueue, pollMs: 20 })
-      : async ({ cmd }) => {
+      : async ({ cmd, slots }) => {
           heavy.taken.push(cmd)
+          heavy.slots.push(slots)
           return () => void heavy.released++
         }
   }
@@ -465,6 +469,33 @@ describe('T2: heavy checks take the machine heavy slot', () => {
     await h.finish(0)
     expect(h.heavy.released).toBe(1)
     expect(h.logs.some((m) => m.includes('queued for the machine'))).toBe(true)
+  })
+
+  it('a heavy check asks for the slot with the setting read at call time, 1 when the context has none', async () => {
+    for (const [n, want] of [[undefined, 1], [3, 3]] as const) {
+      const h = rig({ checks: ['seed:npm:test'], heavyJobsAtOnce: n })
+      h.validation.startValidation({ taskId: h.taskId, cwd: h.cwd })
+      await h.started()
+      expect(h.heavy.slots).toEqual([want])
+      await h.finish(0)
+    }
+  })
+
+  it('with two slots the real slot hands out two releases at once, and a third waits for one of them', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'astera-heavy-'))
+    dirs.push(dir)
+    const at = { lock: path.join(dir, 'lock'), queueDir: path.join(dir, 'q'), pollMs: 20, slots: 2 }
+    const first = (await heavySlot({ ...at, cwd: path.join(dir, 'a'), cmd: 'a' }))!
+    const second = (await heavySlot({ ...at, cwd: path.join(dir, 'b'), cmd: 'b' }))!
+    let third: (() => void) | null = null
+    const waiting = heavySlot({ ...at, cwd: path.join(dir, 'c'), cmd: 'c' }).then((r) => (third = r))
+    await new Promise((r) => setTimeout(r, 200))
+    expect(third).toBeNull()
+    first()
+    await waiting
+    expect(third).not.toBeNull()
+    second()
+    third!()
   })
 
   it('a light check does not wait for the slot', async () => {

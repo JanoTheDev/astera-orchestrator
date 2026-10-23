@@ -4,6 +4,7 @@
 .usage-strip-account { display: inline-flex; align-items: center; gap: 6px; }
 .usage-strip-account strong { font-weight: 600; color: var(--text); }
 .usage-strip-over { color: var(--danger); font-weight: 600; }
+.usage-strip-room { padding: 2px 8px; border-radius: var(--radius-sm); background: var(--warn-bg); color: var(--warn-ink); font-weight: 600; }
 .usage-strip-flag { padding: 0 5px; border-radius: var(--radius-sm); background: var(--warn-bg); color: var(--warn-ink); }
 .usage-strip-dim { opacity: 0.75; }
 .usage-strip-tab { margin-right: 8px; }

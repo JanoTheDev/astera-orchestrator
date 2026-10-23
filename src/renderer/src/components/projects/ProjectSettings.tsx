@@ -165,6 +165,16 @@ export function ProjectSettingsBody({
               checked={project.handsOff ?? PROJECT_DEFAULTS.handsOff}
               onChange={(on) => void save({ handsOff: on })}
             />
+            {/* T7: read on the workspace, whose plans share one file guard (schedule.ts serialFilesOf) */}
+            {!project.parentId && (
+              <Field
+                kind="toggle"
+                label={t('project.serialFiles')}
+                hint={t('project.serialFiles.hint')}
+                checked={project.serialFiles ?? PROJECT_DEFAULTS.serialFiles}
+                onChange={(on) => void save({ serialFiles: on })}
+              />
+            )}
             <Field
               kind="select"
               label={t('project.replan')}

@@ -84,6 +84,12 @@ describe('renameProject', () => {
 describe('setProjectSettings (W7-B)', () => {
   const registered = () => ensureProject(emptyState(), { path: abs('work', 'shop'), now: 'T0' })
 
+  it('validates the setup command', () => {
+    const { state, project } = registered()
+    for (const bad of ['', '  ', 'a\nb', 'x'.repeat(501)]) expect(setProjectSettings(state, project.id, { setupCommand: bad }).ok).toBe(false)
+    expect(setProjectSettings(state, project.id, { setupCommand: 'off' }).ok).toBe(true)
+  })
+
   it('sets each field, keeps what is left out, and clears what is null', () => {
     const { state, project } = registered()
     const set = setProjectSettings(state, project.id, { autoApprove: true, testConfigId: 'astera:test', concurrency: 10, reviewRounds: 2, replan: 'off', defaultBranch: 'main' })

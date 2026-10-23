@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { Account, JobTask, UsageGuardView } from '../../../../core/types'
 import { stripRows } from './usageView'
+import { resetClock } from '../../../../core/orchestration/activity'
 
 describe('stripRows', () => {
   const view: UsageGuardView = {
@@ -55,5 +56,66 @@ describe('stripRows', () => {
     const rows = stripRows(v, null, [], now)
     expect(rows.accounts.map((a) => a.runOutInMs)).toEqual([40 * 60_000, null])
     expect(rows.pool).not.toBeNull()
+  })
+})
+
+describe('stripRows room', () => {
+  const now = Date.parse('2026-10-18T10:00:00.000Z')
+  const future = '2026-10-18T14:20:00.000Z'
+  const later = '2026-10-19T09:00:00.000Z'
+  const free = { usedPercent: 10, resetsAt: null }
+  const full = (resetsAt: string | null = future) => ({ usedPercent: 95, resetsAt })
+  const accountsOf = [
+    { id: 'a', label: 'Alpha' },
+    { id: 'b', label: 'Beta' },
+    { id: 'c', label: 'Gamma' }
+  ] as Account[]
+  const rowOf = (accountId: string, session: { usedPercent: number; resetsAt: string | null } | null, weekly: { usedPercent: number; resetsAt: string | null } | null, paused = false): UsageGuardView['accounts'][number] => ({
+    accountId,
+    session,
+    weekly,
+    paused: paused ? { accountId, window: 'five_hour', percent: 95, resetsAt: future } : null
+  })
+  const viewOf = (accounts: UsageGuardView['accounts']): UsageGuardView => ({ pauseAt: 90, maxSubagents: 10, accounts, subagents: [] })
+
+  it('one account with room is named when the others are over the threshold', () => {
+    const v = viewOf([rowOf('a', null, full()), rowOf('b', null, full()), rowOf('c', free, free)])
+    expect(stripRows(v, accountsOf, [], now).room).toEqual({ kind: 'one', accountId: 'c', label: 'Gamma' })
+  })
+
+  it('one account with room is named when the others are paused', () => {
+    const v = viewOf([rowOf('a', free, free, true), rowOf('b', free, free), rowOf('c', free, free, true)])
+    expect(stripRows(v, accountsOf, [], now).room).toEqual({ kind: 'one', accountId: 'b', label: 'Beta' })
+  })
+
+  it('no account with room gives none, resuming at the soonest full reset', () => {
+    const v = viewOf([rowOf('a', full(later), null), rowOf('b', full(future), null), rowOf('c', null, full(later))])
+    expect(stripRows(v, accountsOf, [], now).room).toEqual({ kind: 'none', resumes: resetClock(future, false) })
+  })
+
+  it('no account with room and no known reset gives none with no time', () => {
+    const v = viewOf([rowOf('a', full(null), null), rowOf('b', null, full(null))])
+    expect(stripRows(v, accountsOf, [], now).room).toEqual({ kind: 'none', resumes: null })
+  })
+
+  it('a paused account counts as no room, even with both windows under the threshold', () => {
+    const v = viewOf([rowOf('a', free, free, true), rowOf('b', full(later), null)])
+    expect(stripRows(v, accountsOf, [], now).room).toEqual({ kind: 'none', resumes: resetClock(later, false) })
+  })
+
+  it('a full window whose reset has passed counts as room', () => {
+    const passed = '2026-10-18T09:00:00.000Z'
+    const v = viewOf([rowOf('a', null, full(passed)), rowOf('b', full(later), null)])
+    expect(stripRows(v, accountsOf, [], now).room).toEqual({ kind: 'one', accountId: 'a', label: 'Alpha' })
+  })
+
+  it('two or more accounts with room give null', () => {
+    const v = viewOf([rowOf('a', null, full()), rowOf('b', free, free), rowOf('c', free, free)])
+    expect(stripRows(v, accountsOf, [], now).room).toBeNull()
+  })
+
+  it('a single account gives null', () => {
+    const v = viewOf([rowOf('a', null, full())])
+    expect(stripRows(v, [accountsOf[0]], [], now).room).toBeNull()
   })
 })
