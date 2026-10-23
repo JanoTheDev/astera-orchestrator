@@ -125,7 +125,7 @@ async function runtime(o: { streamPerKey?: number } = {}) {
     // The Host's starter, as far as this test needs it: a terminal session in a new pty, answered as its row.
     createSession: async (spec) => {
       const id = `s${++n}`
-      open(id, spec.accountId)
+      open(id, spec.accountId!)
       return { id, kind: 'terminal', title: spec.title ?? id, accountId: spec.accountId, cwd: spec.cwd, alive: true, state: 'running', ptyId: `pty-${id}`, provider: 'claude' } as never
     }
   })

@@ -11,6 +11,7 @@ import type { OrchState } from '../state'
 import type { Account, Provider } from '../../types'
 import { descriptorOf, isAmbientDir, type ProviderDescriptor } from '../../providers/descriptor'
 import { providerOf } from '../../providers/meta'
+import { findClaudeTranscript } from '../../history/strategies/claude'
 import { rollChainFor } from '../../accounts/dispatchAccount'
 import { autoOrderOf, rankAccounts, type AutoAccountsGuard, type UnusableReason } from '../../accounts/autoAccountOrder'
 import { isGhostAccountId } from '../../accounts/ghostId'
@@ -271,7 +272,7 @@ export interface CoordinatorStartContext {
  *  on what the guard already holds. */
 export const START_READ_WAIT_MS = 5_000
 
-export type StartPurpose = 'planner' | 'coordinator' | 'worker' | 'reviewer'
+export type StartPurpose = 'planner' | 'coordinator' | 'worker' | 'reviewer' | 'session'
 
 export type StartAccountChoice =
   /** `release` ends the start's place in the live count (UsageGuard.reserve): call it once the session runs or the
@@ -402,6 +403,57 @@ export async function autoStartChain(
   })
   if (!choice.ok) throw new NoRoomError(choice.why)
   return choice
+}
+
+/**
+ * T1: the account a plain session (New Session, Resume, Restart, Reopen, `sessions create`) starts on, and the chain it
+ * rolls on: chooseStartAccount. No account named is auto: the best ranked account of `provider` (claude by default),
+ * rolling over the whole ranking. A named account is a preference: with room it keeps its own chain as given (none: no
+ * rolling); full, logged out or gone, the session starts on the first of its chain with room, else the best ranked, and
+ * that chain follows the start. "Pick accounts automatically" off: the named account and chain as given (none named: the
+ * provider's first account, not rolling). Throws NoRoomError when nothing has room. `release` once the session runs.
+ */
+export async function chooseSessionStart(
+  ctx: Pick<CoordinatorStartContext, 'usageGuard' | 'loginStatus' | 'accounts' | 'log'>,
+  a: { accountId?: string; provider?: Provider; rollAccountIds?: readonly string[] }
+): Promise<{ accountId: string; rollAccountIds: string[]; release(): void }> {
+  const own = a.rollAccountIds ?? []
+  // Setting off as of the guard's last read: the start as asked, with no usage read in its way
+  if (a.accountId && ctx.usageGuard?.autoAccounts() === false) return { accountId: a.accountId, rollAccountIds: [...own], release: () => {} }
+  const choice = await chooseStartAccount(ctx, {
+    ...(a.accountId ? { preferred: a.accountId } : {}),
+    ...(a.provider ? { provider: a.provider } : {}),
+    purpose: 'session',
+    own
+  })
+  if (!choice.ok) throw new NoRoomError(choice.why)
+  // chooseStartAccount's chain is the ranking only while the setting is on (else the start alone)
+  const ranked = ctx.usageGuard?.autoAccounts() === true && ctx.loginStatus !== undefined
+  const rollAccountIds = !a.accountId
+    ? ranked ? choice.chain : []
+    : choice.accountId === a.accountId || own.length === 0 ? [...own] : [...new Set([choice.accountId, ...own])]
+  return { accountId: choice.accountId, rollAccountIds, release: choice.release }
+}
+
+/**
+ * T1: chooseSessionStart for a session that may resume a conversation (`resumeId`). A claude resume moved off its
+ * named account with no transcript path from the caller (a chat's Restart or Reopen names only its thread) gets the
+ * original account's transcript as `transcriptPath`, so the spawn copies it to the new account as for any other.
+ * A codex resume with no rollout path stays on its account: its rollout is found by its path, which a thread id alone
+ * does not give (host/sessionRestore.ts carryTranscript).
+ */
+export async function chooseResumeStart(
+  ctx: Pick<CoordinatorStartContext, 'usageGuard' | 'loginStatus' | 'accounts' | 'log'>,
+  a: { accountId?: string; provider?: Provider; rollAccountIds?: readonly string[]; resumeId?: string; transcriptPath?: string },
+  find: (configDir: string, id: string) => Promise<string | null> = findClaudeTranscript
+): Promise<{ accountId: string; rollAccountIds: string[]; release(): void; transcriptPath?: string }> {
+  const { resumeId, transcriptPath, ...ask } = a
+  const named = resumeId && !transcriptPath && a.accountId ? (await ctx.accounts()).find((x) => x.id === a.accountId) : undefined
+  if (named && providerOf(named) !== 'claude') return { accountId: named.id, rollAccountIds: [...(a.rollAccountIds ?? [])], release: () => {} }
+  const start = await chooseSessionStart(ctx, ask)
+  if (!named || !resumeId || start.accountId === named.id) return start
+  const found = await find(named.configDir, resumeId).catch(() => null)
+  return found ? { ...start, transcriptPath: found } : start
 }
 
 /**
