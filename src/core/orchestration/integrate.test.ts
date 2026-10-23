@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  deliveryWorktrees,
   latestAttempts,
   buildIntegrationSpec,
   integrationTaskFor,
@@ -550,6 +551,23 @@ describe('runWorktrees 와 Run 워크트리', () => {
       ]
     })
     expect(runWorktrees(s, 'run_1')).toEqual([WT_B, WT_A])
+  })
+})
+
+describe('deliveryWorktrees', () => {
+  it("leaves out a Task merged into the plan branch: the plan's folder brings its work", () => {
+    const at = '2026-10-23T11:00:00Z'
+    const s: OrchState = {
+      ...emptyState(),
+      jobs: [{ id: 'job_1', objective: 'o', cwd: '/repo', createdAt: at }],
+      runs: [{ id: 'run_1', jobId: 'job_1', ordinal: 1, createdAt: at, worktree: '/wt/plan' }],
+      tasks: [
+        { id: 't1', runId: 'run_1', title: 'a', spec: 's', deps: [], status: 'completed', consecutiveFailures: 0, createdAt: at, updatedAt: at, mergedIntoPlanAt: at },
+        { id: 't2', runId: 'run_1', title: 'b', spec: 's', deps: [], status: 'completed', consecutiveFailures: 0, createdAt: at, updatedAt: at }
+      ],
+      dispatches: [{ id: 'd1', taskId: 't1', startedAt: at, cwd: '/wt/a' } as Dispatch, { id: 'd2', taskId: 't2', startedAt: at, cwd: '/wt/b' } as Dispatch]
+    }
+    expect(deliveryWorktrees(s, 'run_1')).toEqual(['/wt/b', '/wt/plan'])
   })
 })
 
