@@ -106,7 +106,7 @@ import {
   type Task,
   type TaskStatus
 } from './types'
-import { runWorktrees, runWorktreesFrom } from './integrate'
+import { buildIntegrationSpec, integrationTaskFor, isIntegrationTask, runRootOf, runWorktrees, runWorktreesFrom, workingInRunRoot } from './integrate'
 import { mainPlanOf } from './mainPlan'
 import { isPathWithin } from '../files/tree'
 import { buildHandoverPrompt, buildPlannerBrief } from './handover'
@@ -178,7 +178,7 @@ import { PTY_LOST_SIGHT_EXIT_CODE } from '../sessions/pty'
 import { LAUNCH_FORBIDDEN } from '../sessions/commands'
 import { parseHandoffBody } from '../handoff/parse'
 import type { HandoffBody } from '../handoff/types'
-import type { Lang } from '../i18n'
+import { t as tr, type Lang } from '../i18n'
 import { isOverrideCompletion, policyOf } from './convergence'
 import { leftNothingBehind } from '../host/orchProtocol'
 import { APP_CALLER, HOST_CALLER } from '../host/driver'
@@ -456,7 +456,12 @@ export interface OrchServerDeps {
          *  drive). Their work stays on their branch; `run-delete` keeps these folders too. */
         notMerged?: string[]
       }
-    | { ok: false; reason: string }
+    | {
+        ok: false
+        reason: string
+        /** The worktrees git could not merge cleanly (integrateWorktrees' `agent`): an AI merge Task's to resolve. */
+        conflict?: { path: string; branch: string | null }[]
+      }
   >
   /** 이 경로들의 워크트리를 폴더째 지운다 — `run-delete --remove-worktrees` 가 부른다. 그 안에서
    *  도는 세션을 닫는 일까지 배선이 한다(removeWorktree 의 isPathInUse 가 그러지 않으면 거절한다).
@@ -1255,6 +1260,7 @@ const COORDINATOR_ONLY = new Set([
   // W6-H: how the plan lands is the person's setting, and the landing is Astera's
   'projects-set',
   'run-deliver',
+  'run-integrate-all',
   // W8-C draft PR
   'run-draft-pr',
   // T4 origin sync
@@ -1864,6 +1870,39 @@ const jobSourceOf = (args: Record<string, unknown>): JobSourceRef | undefined =>
     ...(typeof r.title === 'string' ? { title: r.title } : {}),
     ...(typeof r.url === 'string' ? { url: r.url } : {})
   }
+}
+
+/**
+ * The AI merge Task an owner's merge hands a conflict to (`run-merge`, `run-integrate-all`): the one the dispatch loop's
+ * startMergeWorker makes (task-create under the Run's last Task, buildIntegrationSpec, unreviewed), left ready for the
+ * loop to start in the Run's worktree; once it completes the loop delivers the Run again. One still open is reused.
+ */
+async function openMergeTask(
+  deps: OrchServerDeps,
+  caller: Parameters<typeof handleCommand>[1],
+  runId: string,
+  reason: string,
+  worktrees: { path: string; branch: string | null }[]
+): Promise<{ taskId: string } | Reply> {
+  const s = deps.getState()
+  const run = s.runs.find((r) => r.id === runId)
+  const own = s.tasks.filter((x) => x.runId === runId)
+  const anchor = own.filter((x) => !isIntegrationTask(x)).at(-1) ?? own.at(-1)
+  if (!run || !anchor) return conflict(`run ${runId} has no task to hang a merge task off: ${reason}`)
+  const open = integrationTaskFor(s, anchor.id)
+  if (open && open.status !== 'completed') return { taskId: open.id }
+  const lang = (await deps.lang?.()) ?? 'en'
+  const made = await handleCommand(deps, caller, 'task-create', {
+    runId,
+    parent: anchor.id,
+    deps: [],
+    account: (anchor.accountIds ?? []).join(','),
+    noReview: true,
+    title: tr(lang, 'jobs.integration.title', { title: anchor.title }).slice(0, 80),
+    spec: buildIntegrationSpec({ mergeInto: runRootOf(run, jobOf(s, run)), reason, worktrees })
+  })
+  const id = (made.body as { id?: unknown } | null)?.id
+  return made.status < 400 && typeof id === 'string' ? { taskId: id } : made
 }
 
 export async function handleCommand(
@@ -4091,6 +4130,16 @@ export async function handleCommand(
       const mergeCwd = jobOf(s, run)?.cwd
       if (mergeCwd === undefined) return bad(`no project folder for ${id}`)
       const merged = await deps.mergeWorktrees(mergeCwd, worktrees)
+      if (!merged.ok && merged.conflict) {
+        // A conflict is the AI merge Task's, as in the scheduler's merge: it merges them into the Run's plan branch
+        const root = runRootOf(run, jobOf(s, run))
+        const reason = isSamePath(root, mergeCwd)
+          ? merged.reason
+          : `${merged.reason}. The owner's Merge brings this plan branch into the project folder ${mergeCwd}: also merge the branch that folder is on (\`git -C ${mergeCwd} symbolic-ref --short HEAD\`) into this one, so that Merge goes through cleanly`
+        const opened = await openMergeTask(deps, caller, id, reason, merged.conflict)
+        if (!('taskId' in opened)) return opened
+        return okBody({ merged: [], state: 'fixing-conflicts', taskId: opened.taskId, reason: merged.reason })
+      }
       if (!merged.ok) return conflict(merged.reason)
       // **워크트리를 걷지 않는다.** 사람이 결과를 보고 다시 합칠 수도 있고, 폴더 정리는 삭제
       // 모달의 체크박스가 이미 하는 일이다 — 이 명령이 그것까지 하면 "합치기" 가 "합치고 지우기" 가
@@ -6419,6 +6468,9 @@ export async function handleCommand(
       // remote. `exists` keeps gh's own words, which end with the existing pull request's URL.
       if (made.kind === 'exists') return { status: 409, body: { error: made.detail.trim(), pushed: made.pushed } }
       if (made.kind === 'rejected') return { status: 409, body: { error: 'The push was rejected', pushed: made.pushed } }
+      // Origin's copy of the branch moved on and clashes: the delivery loop hands that commit to an integration Task
+      if (made.kind === 'origin-conflict')
+        return { status: 409, body: { error: made.detail, code: 'origin-conflict', branch: t.branch, pushed: false, ...(made.conflictWith ? { conflictWith: made.conflictWith } : {}) } }
       // W7-E (#80): nowhere to push to is the project's setup, not a failure of the plan
       if (made.kind === 'no-remote')
         return { status: 409, body: { error: noRemoteNote(t.branch, t.repoPath), noRemote: true, branch: t.branch, pushed: false } }
@@ -6571,7 +6623,8 @@ export async function handleCommand(
         if ((opened.body as { landed?: unknown } | null)?.landed !== undefined) return { ...opened, body: { ...(opened.body as object), deliveryState: progressOf(deps.getState()) } }
         if (opened.status < 400) await cleanAfterDelivery(deps, id) // W9-J
         const error = opened.status < 400 ? undefined : String((opened.body as { error?: unknown } | null)?.error ?? `run-open-pr answered ${opened.status}`)
-        const p = await settle(error)
+        const code = (opened.body as { code?: unknown } | null)?.code
+        const p = await settle(error, undefined, typeof code === 'string' ? code : undefined)
         return { ...opened, body: { ...((opened.body ?? {}) as object), deliveryState: p } }
       }
       const done = run.delivery
@@ -6772,6 +6825,51 @@ export async function handleCommand(
       await deps.setState(r.state)
       return okBody({ run: id, deliveryState: r.value })
     }
+    /**
+     * The owner's "Merge everything and fix conflicts": every Task worktree of the Run into its plan worktree
+     * (`mergeWorktrees`, the owner's merge: nothing reaped), a conflict handed to the AI merge Task (`fixing-conflicts`;
+     * the loop delivers once it completes), and when all merged cleanly the delivery the owner's Retry makes
+     * (`run-deliver --force`: a pull request or a push, per the plan). A Run with no plan worktree is merged by the
+     * delivery itself. A delivery that stops on a conflict goes to the merge Task too.
+     */
+    case 'run-integrate-all': {
+      const id = str(args.run)
+      if (!id) return bad('--run is required')
+      if (fromAgentSession || caller.role === 'mcp') return denied('merging everything is the owner\'s action')
+      const run = s.runs.find((r) => r.id === id)
+      if (!run) return notFound(`unknown run: ${id}`)
+      if (!jobOf(s, run)) return notFound(`no plan for run ${id}`)
+      if (workingInRunRoot(s, id)) return conflict('A worker is still working in the plan branch; merge once it is done')
+      const plan = run.worktree
+      if (plan !== undefined) {
+        const rest = runWorktrees(s, id).filter((p) => !isSamePath(p, plan))
+        if (rest.length > 0) {
+          if (!deps.mergeWorktrees) return conflict('merging is not available in this build')
+          const merged = await deps.mergeWorktrees(plan, rest)
+          if (!merged.ok && !merged.conflict) return conflict(merged.reason)
+          if (!merged.ok) {
+            const opened = await openMergeTask(deps, caller, id, merged.reason, merged.conflict!)
+            return 'taskId' in opened ? okBody({ state: 'fixing-conflicts', taskId: opened.taskId, reason: merged.reason }) : opened
+          }
+          const left = [...(merged.dirty ?? []), ...(merged.unchecked ?? []), ...(merged.notMerged ?? [])]
+          if (left.length > 0) return conflict(`these worktrees hold work that was not merged (uncommitted, or not reachable): ${left.join(', ')}`)
+        }
+      }
+      const delivered = await handleCommand(deps, caller, 'run-deliver', { run: id, force: true })
+      const body = (delivered.body ?? {}) as { code?: unknown; conflictWith?: unknown; branch?: unknown; error?: unknown }
+      const why = String(body.error ?? '')
+      // Origin moved on and clashes (as the loop's deliverOne hands it on), or the worktrees clash in a push delivery
+      const handOff =
+        body.code === 'origin-conflict' && typeof body.conflictWith === 'string' && plan !== undefined
+          ? `${typeof body.branch === 'string' ? `origin/${body.branch}` : 'origin'} moved on to ${body.conflictWith} and conflicts with this plan's branch: merge it in with \`git merge --no-edit ${body.conflictWith}\` and resolve the conflict. ${why}`
+          : body.code === 'merge-failed'
+            ? why
+            : null
+      if (delivered.status < 400 || handOff === null) return { ...delivered, body: { ...(delivered.body as object), state: delivered.status < 400 ? 'delivered' : 'stopped' } }
+      const worktrees = body.code === 'merge-failed' ? runWorktrees(s, id).map((p) => ({ path: p, branch: null })) : []
+      const opened = await openMergeTask(deps, caller, id, handOff, worktrees)
+      return 'taskId' in opened ? okBody({ state: 'fixing-conflicts', taskId: opened.taskId, reason: why }) : opened
+    }
     case 'run-open-pr': {
       const id = str(args.run)
       if (!id) return bad('--run is required')
@@ -6850,6 +6948,10 @@ export async function handleCommand(
         }
         if (!g.push) return conflict('pushing a branch is not available in this build')
         const pushed = await g.push(t.cwd, t.branch)
+        if (!pushed.ok && pushed.kind === 'origin-conflict') {
+          await record({ ...draft, at: now, error: pushed.detail })
+          return { status: 409, body: { error: pushed.detail, code: 'origin-conflict', branch: t.branch, conflictWith: pushed.conflictWith } }
+        }
         if (!pushed.ok) return fail(pushed.kind === 'no-remote' ? noRemoteNote(t.branch, t.repoPath) : `The push was rejected: ${pushed.detail.trim()}`)
         await pushNotes(t.cwd) // W8-A: the notes ref goes with the PR branch
         // W8-E (#99): a Run with failed Tasks delivers its completed work and stays a draft

@@ -405,6 +405,15 @@ describe('integrateWorktrees — the rules of the one automatic writer into a re
     expect(await integrateWorktrees(repo, [a], { reap: false }, ctx())).toEqual({ kind: 'merged', uncommitted: 1, dirty: [a] })
     expect(logs.join('\n')).toMatch(/1 uncommitted change\(s\) — not merged/)
   })
+  it('never reaps a worktree with uncommitted changes, also with reap on, and names it dirty', async () => {
+    const a = await worked('a'); const b = await worked('b')
+    await fs.writeFile(path.join(a, 'forgot.txt'), 'x')
+    const r = await integrateWorktrees(repo, [a, b], {}, ctx())
+    expect(r).toEqual({ kind: 'merged', uncommitted: 1, dirty: [a] })
+    expect(reaped).toEqual([b])
+    expect(await fs.readFile(path.join(a, 'forgot.txt'), 'utf8')).toBe('x')
+    expect(logs.join('\n')).toMatch(/kept .*it holds uncommitted changes/)
+  })
 })
 
 describe('reapWorktree (rule 11)', () => {

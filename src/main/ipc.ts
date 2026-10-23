@@ -4850,6 +4850,7 @@ export function registerIpc(
     'task-create': 'runId',
     'run-start': 'run',
     'run-merge': 'run',
+    'run-integrate-all': 'run',
     'run-pause': 'run',
     'run-resume': 'run',
     'run-delete': 'id',

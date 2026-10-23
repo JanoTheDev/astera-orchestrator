@@ -23,7 +23,7 @@ const task = (over: Partial<Task> = {}): Task =>
   ({ id: 't1', runId: 'r1', title: 'Fix login', spec: 's', deps: [], status: 'completed', consecutiveFailures: 0, createdAt: NOW, updatedAt: NOW, ...over }) as Task
 const project = (over: Partial<Project> = {}): Project => ({ id: 'p1', path: REPO, name: 'gameful', addedAt: NOW, ...over })
 
-const setup = (o: { project?: Partial<Project>; tasks?: Task[]; run?: Partial<JobRun>; push?: PushResult; noPush?: boolean; cleanThrows?: boolean; mergeFails?: string } = {}) => {
+const setup = (o: { project?: Partial<Project>; tasks?: Task[]; run?: Partial<JobRun>; push?: PushResult; noPush?: boolean; cleanThrows?: boolean; mergeFails?: string; merge?: OrchServerDeps['mergeWorktrees'] } = {}) => {
   const box: { state: OrchState } = {
     state: {
       ...emptyState(),
@@ -44,7 +44,7 @@ const setup = (o: { project?: Partial<Project>; tasks?: Task[]; run?: Partial<Jo
       box.state = next
     },
     now: () => NOW,
-    listAccounts: () => [],
+    listAccounts: () => [{ id: 'a', label: 'a', provider: 'claude' }],
     removeWorktrees: async (paths: string[]) => {
       removed.push(paths)
       return { failed: [] }
@@ -63,6 +63,7 @@ const setup = (o: { project?: Partial<Project>; tasks?: Task[]; run?: Partial<Jo
       if (o.cleanThrows) throw new Error('boom')
     },
     ...(o.mergeFails ? { mergeWorktrees: async () => ({ ok: false as const, reason: o.mergeFails }) } : {}),
+    ...(o.merge ? { mergeWorktrees: o.merge } : {}),
     // run-open-pr's own refusal when there is no GitHub: enough to see that `pr` went there
     github: o.mergeFails ? {} : undefined
   } as unknown as OrchServerDeps
@@ -648,5 +649,76 @@ describe('T1: run-delivery-dismiss', () => {
     expect((await h.call('run-delivery-dismiss', {})).status).toBe(400)
     expect((await setup().call('run-delivery-dismiss', { run: 'r1' })).status).toBe(409)
     expect(h.state().runs[0].delivery?.error).toBe('x')
+  })
+})
+
+describe('run-integrate-all: merge everything, the AI merge Task fixes conflicts, then deliver', () => {
+  const tasks = (): Task[] => [task({ accountIds: ['a'] }), task({ id: 't2', accountIds: ['a'] })]
+  const conflicting = (calls: { into: string; paths: string[] }[]): OrchServerDeps['mergeWorktrees'] => async (into, paths) => {
+    calls.push({ into, paths })
+    return { ok: false, reason: 'git merge-tree says b does not merge cleanly', conflict: [{ path: '/wt/t2', branch: 'b' }] }
+  }
+
+  it('merges every Task worktree into the plan worktree, then delivers as run-deliver --force does', async () => {
+    const calls: { into: string; paths: string[] }[] = []
+    const h = setup({
+      project: { delivery: 'push' },
+      tasks: tasks(),
+      run: { worktree: '/wt/run' },
+      merge: async (into, paths) => {
+        calls.push({ into, paths })
+        return { ok: true, merged: paths, uncommitted: 0 }
+      }
+    })
+    const r = await h.call('run-integrate-all', { run: 'r1' })
+    expect(r.status).toBe(200)
+    expect(r.body).toMatchObject({ state: 'delivered', pushed: true, sha: 'abc1234def' })
+    expect(calls).toEqual([{ into: '/wt/run', paths: ['/wt/t1', '/wt/t2'] }])
+    expect(h.pushes).toHaveLength(1)
+  })
+
+  it('a conflict starts the AI merge Task under the Run and delivers nothing yet', async () => {
+    const calls: { into: string; paths: string[] }[] = []
+    const h = setup({ project: { delivery: 'push' }, tasks: tasks(), run: { worktree: '/wt/run' }, merge: conflicting(calls) })
+    const r = await h.call('run-integrate-all', { run: 'r1' })
+    expect(r.status).toBe(200)
+    const body = r.body as { state: string; taskId: string }
+    expect(body.state).toBe('fixing-conflicts')
+    const merge = h.state().tasks.find((x) => x.id === body.taskId)!
+    expect(merge).toMatchObject({ parentId: 't2', status: 'ready', accountIds: ['a'] })
+    expect(merge.spec).toContain('git merge --no-edit refs/heads/b')
+    expect(merge.spec).toContain('/wt/run')
+    expect(h.pushes).toEqual([])
+    // Asked again while it works: the same merge Task, not a second
+    expect(((await h.call('run-integrate-all', { run: 'r1' })).body as { taskId: string }).taskId).toBe(body.taskId)
+    expect(h.state().tasks.filter((x) => x.parentId === 't2')).toHaveLength(1)
+  })
+
+  it('is the owner\'s: refused from an agent session and an MCP client', async () => {
+    const h = setup({ project: { delivery: 'push' }, run: { worktree: '/wt/run' } })
+    expect((await h.call('run-integrate-all', { run: 'r1' }, 'coordinator-session')).status).toBe(403)
+    expect((await h.call('run-integrate-all', { run: 'r1' }, '', 'mcp')).status).toBe(403)
+    expect(h.pushes).toEqual([])
+  })
+})
+
+describe('run-merge hands a conflict to the AI merge Task', () => {
+  it('starts the merge Task instead of failing', async () => {
+    const h = setup({
+      tasks: [task({ accountIds: ['a'] })],
+      merge: async () => ({ ok: false, reason: 'git merge-tree says b does not merge cleanly', conflict: [{ path: '/wt/t1', branch: 'b' }] })
+    })
+    const r = await h.call('run-merge', { run: 'r1' })
+    expect(r.status).toBe(200)
+    expect(r.body).toMatchObject({ merged: [], state: 'fixing-conflicts' })
+    const merge = h.state().tasks.find((x) => x.id === (r.body as { taskId: string }).taskId)!
+    expect(merge).toMatchObject({ parentId: 't1', status: 'ready' })
+  })
+
+  it('still fails on what only a person can settle', async () => {
+    const h = setup({ tasks: [task({ accountIds: ['a'] })], merge: async () => ({ ok: false, reason: 'your folder has 2 uncommitted change(s)' }) })
+    const r = await h.call('run-merge', { run: 'r1' })
+    expect(r.status).toBe(409)
+    expect(h.state().tasks).toHaveLength(1)
   })
 })

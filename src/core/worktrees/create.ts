@@ -18,6 +18,7 @@ import { createProber, defaultGateProbe, type Probe, type ProbePool } from '../s
 import { runFsWork, FS_WORK_TIMEOUT_MS } from './fsWork'
 import { detachLinks } from './detachLinks'
 import { askUntilAnswered, defaultActionPresenceCheck, type PresenceCheck } from './presence'
+import { backupRef } from './remove'
 
 const WORKTREE_ADD_TIMEOUT_MS = 180_000
 
@@ -131,7 +132,8 @@ export async function rollbackAdd(
     }
   }
   await git(['worktree', 'prune'], { cwd: repo })
-  if (await localBranchExists(repo, branch)) await git(['branch', '-D', branch], { cwd: repo })
+  if ((await localBranchExists(repo, branch)) && (await backupRef(repo, `refs/heads/${branch}`, `rollback-branch-D-${branch}`)) !== null)
+    await git(['branch', '-D', branch], { cwd: repo })
 
   const remains: string[] = []
   if (kept) remains.push('unverified')

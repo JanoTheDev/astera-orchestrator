@@ -133,6 +133,18 @@ async function countOrphanEntries(
   }
 }
 
+/** Moves a folder git no longer tracks to `<root>/.trash/<name>-<time>`, where the owner can still open it. A failed
+ *  move (another drive: EXDEV) throws and nothing is removed. */
+async function moveToTrash(folder: string, root: string): Promise<void> {
+  const to = path.join(root, '.trash', `${path.basename(folder)}-${Date.now()}`)
+  try {
+    await fs.mkdir(path.dirname(to), { recursive: true })
+    await fs.rename(folder, to)
+  } catch (err) {
+    throw new Error(`ORPHAN_NOT_MOVED: ${folder} could not be moved aside, nothing was removed (${err instanceof Error ? err.message : String(err)})`)
+  }
+}
+
 /** create() makes <root>/<repoDirName> on the way to the worktree, and nothing else ever removed it —
  *  so a repo whose last worktree is gone left an empty directory behind for good. rmdir is not recursive:
  *  a surviving sibling worktree turns this into a silent no-op. The registry root itself is left alone,
@@ -183,9 +195,34 @@ async function isAncestorOf(repo: string, branch: string, base: string): Promise
   return (await git(['merge-base', '--is-ancestor', `refs/heads/${branch}`, base], { cwd: repo })).ok
 }
 
+/** Points `refs/astera/backup/<yyyymmdd-hhmmss>-<what>-<sha7>` at the commit `rev` names, before a step that would lose
+ *  it (`reset --hard`, `branch -D`, `push --delete`), and logs it. The ref's name, or null when `rev` names no commit or
+ *  the ref could not be written: a caller then skips its destructive step, since nothing would bring the commit back. */
+export async function backupRef(
+  cwd: string,
+  rev: string,
+  what: string,
+  log: (m: string) => void = console.warn,
+  run: typeof git = git
+): Promise<string | null> {
+  const sha = await run(['rev-parse', '--verify', '--quiet', `${rev}^{commit}`], { cwd })
+  if (!sha.ok || sha.stdout === '') return null
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15)
+  const name = `refs/astera/backup/${stamp}-${what.replace(/[^A-Za-z0-9._-]+/g, '-')}-${sha.stdout.slice(0, 7)}`
+  const w = await run(['update-ref', name, sha.stdout], { cwd })
+  if (!w.ok) {
+    log(`backup: could not write ${name} for ${rev} (${w.stderr}); the step that would lose it is skipped`)
+    return null
+  }
+  log(`backup: ${name} -> ${sha.stdout} (${rev}, before ${what})`)
+  return name
+}
+
 /** Deletes origin's copy of a branch that is gone locally, when origin has one. Best effort: a failure leaves the copy. */
 async function deleteOriginCopy(repo: string, branch: string): Promise<void> {
   if (!(await git(['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`], { cwd: repo })).ok) return
+  // A teammate may have pushed to origin's copy since: kept under a backup ref first
+  if ((await backupRef(repo, `refs/remotes/origin/${branch}`, `push-delete-${branch}`)) === null) return
   await git(['push', 'origin', '--delete', '--', branch], { cwd: repo, timeoutMs: 30_000 })
 }
 
@@ -254,9 +291,10 @@ export async function removeWorktree(args: {
         // has nothing to lose, and demanding proof there left the row undeletable forever
         if ((await countOrphanEntries(info.path, { countGitDir: true })) > 0)
           throw new Error(`ORPHAN_UNPROVEN: ownership cannot be proven, so nothing is deleted (${info.path})`)
-      } else if (!args.force) {
-        const entryCount = await countOrphanEntries(info.path)
-        if (entryCount > 0) throw new Error(`ORPHAN_UNVERIFIABLE: ${info.path}`)
+      } else if ((await countOrphanEntries(info.path)) > 0) {
+        if (!args.force) throw new Error(`ORPHAN_UNVERIFIABLE: ${info.path}`)
+        // git cannot say whether its files hold uncommitted work, so force moves the folder aside, never deletes it
+        await moveToTrash(info.path, args.registry.getRoot())
       }
       try {
         await fs.rm(info.path, { recursive: true, force: true })
@@ -294,7 +332,8 @@ export async function removeWorktree(args: {
   const del = await git(['branch', '-d', '--', info.branch], write(info.repoPath))
   if (del.ok) branchDeleted = true
   else if ((await isBranchMerged(info.repoPath, info.branch)) || (await isAncestorOf(info.repoPath, info.branch, info.baseRef))) {
-    branchDeleted = (await git(['branch', '-D', '--', info.branch], write(info.repoPath))).ok
+    if ((await backupRef(info.repoPath, `refs/heads/${info.branch}`, `branch-D-${info.branch}`)) !== null)
+      branchDeleted = (await git(['branch', '-D', '--', info.branch], write(info.repoPath))).ok
   }
   if (branchDeleted && args.deleteRemoteBranch) await deleteOriginCopy(info.repoPath, info.branch)
   if (!branchDeleted) {

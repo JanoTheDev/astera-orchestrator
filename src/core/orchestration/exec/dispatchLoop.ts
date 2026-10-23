@@ -2114,10 +2114,19 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     } catch (e) {
       result = { kind: 'human', reason: String(e) }
     }
-    if (result.kind === 'merged') {
+    // A worktree that still holds uncommitted work is kept (integrateWorktrees does not reap it) and not counted merged:
+    // the merge worker takes it, as a conflict, so the work reaches the plan branch instead of being lost
+    const left = result.kind === 'merged' ? [...(result.dirty ?? []), ...(result.unchecked ?? [])] : []
+    if (result.kind === 'merged' && left.length === 0) {
       await recordMerge(w)
       return result
     }
+    if (result.kind === 'merged')
+      result = {
+        kind: 'agent',
+        reason: `${left.join(', ')} still holds uncommitted changes (or its git status could not be read): the committed work was merged, the rest is only in that folder. Commit it there, merge it into the plan branch, then report.`,
+        worktrees: [{ path: w.worktree, branch: null }]
+      }
     log(`run=${w.runId}: task=${w.taskId} did not merge into ${w.runRoot}: ${result.reason}`)
     if (result.kind === 'human' && c.getState().tasks.find((t) => t.id === w.taskId)?.status === 'merging') {
       await gateSlot(w.taskId, `${w.taskId}'s branch (${w.worktree}) could not be merged into the plan branch (${w.runRoot}): ${result.reason}`)

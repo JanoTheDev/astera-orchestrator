@@ -23,6 +23,9 @@ function fakeGit(replies: Record<string, Reply | Reply[]>) {
     calls.push(args)
     const key = args.join(' ')
     if (key === 'rev-parse HEAD') return { ok: true, stdout: head, stderr: '' }
+    // backupRef before every reset --hard
+    if (key === 'rev-parse --verify --quiet HEAD^{commit}') return { ok: true, stdout: head, stderr: '' }
+    if (args[0] === 'update-ref') return { ok: true, stdout: '', stderr: '' }
     if (args[0] === 'reset' && args[1] === '--hard') {
       const r = left[key]?.shift()
       if (r === undefined) head = args[2]
@@ -132,6 +135,14 @@ describe('deliverByPush (W6-H)', () => {
     const r = await h.go()
     expect(r).toMatchObject({ ok: false, reason: expect.stringContaining('does not merge cleanly') })
     expect(!r.ok && r.reason).toContain('refreshing onto base did not help')
+    // the commit about to be lost is kept under a backup ref first
+    const order = h.calls.map((a) => a[0])
+    expect(order.lastIndexOf('update-ref')).toBeLessThan(order.indexOf('reset'))
+    expect(h.calls.find((a) => a[0] === 'update-ref')).toEqual([
+      'update-ref',
+      expect.stringMatching(/^refs\/astera\/backup\/\d{8}-\d{6}-reset-hard-delivery-retry-merged-$/),
+      'merged-1'
+    ])
     expect(h.calls.filter((a) => a[0] === 'reset')).toEqual([['reset', '--hard', 'base']])
     expect(h.head()).toBe('base')
     expect(h.calls.some((a) => a[0] === 'push')).toBe(false)
