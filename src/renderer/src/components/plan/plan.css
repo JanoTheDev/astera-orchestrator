@@ -19,8 +19,8 @@
 .plan-waves .plan-row .plan-card-title.ui-btn { flex: 0 1 auto; min-width: 0; height: var(--list-row-h); padding: 0; justify-content: flex-start; background: none; color: var(--text); font-weight: var(--fw-regular); }
 .plan-row .plan-card-title .ui-btn__label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .plan-row-line { flex: 1 1 0; min-width: 0; font-size: var(--fs-12); color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.plan-row-line.plan-reason-fault { color: var(--danger); }
-.plan-row-line.plan-reason-action { color: var(--warn); }
+.plan-row-line--fault { color: var(--danger); }
+.plan-row-line--action { color: var(--warn); }
 .plan-row-meta { margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-11); color: var(--text-faint); }
 .plan-row-account { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .plan-waves .plan-row-console.ui-btn { flex: none; }

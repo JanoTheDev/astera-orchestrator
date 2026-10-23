@@ -267,7 +267,7 @@ function TaskRow({
         >
           {tk.title}
         </Button>
-        {line !== undefined && <span className={reason && !now ? `plan-row-line plan-reason-${reasonTone(reason)}` : 'plan-row-line plan-now'}>{line}</span>}
+        {line !== undefined && <span className={reason && !now ? `plan-row-line plan-row-line--${reasonTone(reason)}` : 'plan-row-line plan-now'}>{line}</span>}
         <span className="plan-row-meta">
           {account !== undefined && <span className="plan-row-account">{label(account)}</span>}
           {tk.attempts !== undefined && <span className="plan-card-attempts">{t(tk.attempts === 1 ? 'plan.card.attempts.one' : 'plan.card.attempts', { n: tk.attempts })}</span>}
