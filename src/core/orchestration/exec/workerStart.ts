@@ -11,6 +11,7 @@ import type { OrchState } from '../state'
 import type { Account, Provider } from '../../types'
 import { descriptorOf, isAmbientDir, type ProviderDescriptor } from '../../providers/descriptor'
 import { providerOf } from '../../providers/meta'
+import { findClaudeTranscript } from '../../history/strategies/claude'
 import { rollChainFor } from '../../accounts/dispatchAccount'
 import { autoOrderOf, rankAccounts, type AutoAccountsGuard, type UnusableReason } from '../../accounts/autoAccountOrder'
 import { isGhostAccountId } from '../../accounts/ghostId'
@@ -432,6 +433,27 @@ export async function chooseSessionStart(
     ? ranked ? choice.chain : []
     : choice.accountId === a.accountId || own.length === 0 ? [...own] : [...new Set([choice.accountId, ...own])]
   return { accountId: choice.accountId, rollAccountIds, release: choice.release }
+}
+
+/**
+ * T1: chooseSessionStart for a session that may resume a conversation (`resumeId`). A claude resume moved off its
+ * named account with no transcript path from the caller (a chat's Restart or Reopen names only its thread) gets the
+ * original account's transcript as `transcriptPath`, so the spawn copies it to the new account as for any other.
+ * A codex resume with no rollout path stays on its account: its rollout is found by its path, which a thread id alone
+ * does not give (host/sessionRestore.ts carryTranscript).
+ */
+export async function chooseResumeStart(
+  ctx: Pick<CoordinatorStartContext, 'usageGuard' | 'loginStatus' | 'accounts' | 'log'>,
+  a: { accountId?: string; provider?: Provider; rollAccountIds?: readonly string[]; resumeId?: string; transcriptPath?: string },
+  find: (configDir: string, id: string) => Promise<string | null> = findClaudeTranscript
+): Promise<{ accountId: string; rollAccountIds: string[]; release(): void; transcriptPath?: string }> {
+  const { resumeId, transcriptPath, ...ask } = a
+  const named = resumeId && !transcriptPath && a.accountId ? (await ctx.accounts()).find((x) => x.id === a.accountId) : undefined
+  if (named && providerOf(named) !== 'claude') return { accountId: named.id, rollAccountIds: [...(a.rollAccountIds ?? [])], release: () => {} }
+  const start = await chooseSessionStart(ctx, ask)
+  if (!named || !resumeId || start.accountId === named.id) return start
+  const found = await find(named.configDir, resumeId).catch(() => null)
+  return found ? { ...start, transcriptPath: found } : start
 }
 
 /**

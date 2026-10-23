@@ -212,7 +212,7 @@ import {
   startCoordinatorSession,
   startWorkerWithChain,
   chooseStartAccount,
-  chooseSessionStart
+  chooseResumeStart
 } from '../core/orchestration/exec/workerStart'
 import {
   forkWorktree,
@@ -2419,18 +2419,23 @@ export function registerIpc(
   // ranking; a named one is a preference, never started on while full (a resume's transcript is copied below as for any
   // other account). A coordinator's spawnSession call was chosen already, so only this entry ranks.
   ipcMain.handle('sessions.spawn', async (_e, opts) => {
-    const start = await chooseSessionStart(
+    // A chat's Restart or Reopen names only its thread: moved, its transcript is found on the old account (chooseResumeStart)
+    const resumeId: string | undefined = opts.resumeSessionId ?? opts.resumeThreadId
+    const start = await chooseResumeStart(
       { usageGuard, accounts: async () => core.accounts.list(), loginStatus: (id) => core.accounts.loginStatus(id), log: orchLog },
       {
         ...(opts.accountId ? { accountId: opts.accountId } : {}),
         ...(opts.provider ? { provider: opts.provider } : {}),
-        ...(opts.rollAccountIds ? { rollAccountIds: opts.rollAccountIds } : {})
+        ...(opts.rollAccountIds ? { rollAccountIds: opts.rollAccountIds } : {}),
+        ...(resumeId ? { resumeId } : {}),
+        ...(opts.resumeTranscriptPath ? { transcriptPath: opts.resumeTranscriptPath } : {})
       }
     )
     try {
       return await spawnSession({
         ...opts,
         accountId: start.accountId,
+        ...(start.transcriptPath ? { resumeTranscriptPath: start.transcriptPath } : {}),
         rollAccountIds: start.rollAccountIds.length > 0 ? start.rollAccountIds : opts.rollAccountIds
       })
     } finally {

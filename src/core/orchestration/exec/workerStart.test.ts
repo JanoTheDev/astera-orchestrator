@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { startWorkerWithChain, startCoordinatorSession, preTrustWorkspace, chooseStartAccount, chooseSessionStart, autoStartChain, START_READ_WAIT_MS, type AutoStartGuard, type WorkerStartContext } from './workerStart'
+import { startWorkerWithChain, startCoordinatorSession, preTrustWorkspace, chooseStartAccount, chooseSessionStart, chooseResumeStart, autoStartChain, START_READ_WAIT_MS, type AutoStartGuard, type WorkerStartContext } from './workerStart'
 import { createUsageGuard, type UsageChange } from '../usageGuard'
 import { WorkerTails, TAIL_EMPTY } from './tail'
 import { createJob, createTask, emptyState, startJobRun, type OrchState } from '../state'
@@ -553,6 +553,25 @@ describe('chooseStartAccount (T5b)', () => {
       const g = realGuard({ readings: { a1: [100, 0], a2: [100, 0], a3: [100, 0], a4: [100, 0] } })
       await expect(chooseSessionStart(ctxOf(g), {})).rejects.toThrow(/no claude account has room to start the session on/)
       await expect(chooseSessionStart(ctxOf(g), { accountId: 'a1' })).rejects.toThrow(/no claude account has room/)
+    })
+
+    // Restart/Reopen of a chat names only its thread: a move to another account must still carry the conversation
+    it('a resume moved off a full claude account finds the transcript on the original account', async () => {
+      const g = realGuard({ readings: { ...allEmpty, a1: [100, 0] } })
+      const find = vi.fn(async (dir: string, id: string) => (dir === 'D:/cfg/a1' && id === 'n-1' ? 'D:/cfg/a1/projects/p/n-1.jsonl' : null))
+      const r = await chooseResumeStart(ctxOf(g), { accountId: 'a1', resumeId: 'n-1' }, find)
+      expect(r.accountId).not.toBe('a1')
+      expect(r.transcriptPath).toBe('D:/cfg/a1/projects/p/n-1.jsonl')
+      // a path the caller already has is kept, and a resume that stays needs none
+      expect((await chooseResumeStart(ctxOf(g), { accountId: 'a1', resumeId: 'n-1', transcriptPath: 'X' }, find)).transcriptPath).toBeUndefined()
+      const stays = await chooseResumeStart(ctxOf(g), { accountId: 'a2', resumeId: 'n-1' }, find)
+      expect([stays.accountId, stays.transcriptPath]).toEqual(['a2', undefined])
+    })
+
+    it('a codex resume with no rollout path stays on its account, full or not', async () => {
+      const g = realGuard({ readings: { x1: [100, 0], x2: [5, 5] } })
+      const r = await chooseResumeStart(ctxOf(g, [acct('x1', 'codex'), acct('x2', 'codex')]), { accountId: 'x1', resumeId: 't-1' }, vi.fn())
+      expect(r).toMatchObject({ accountId: 'x1', rollAccountIds: [] })
     })
 
     it('setting off: the named account and chain as given, and no account named is the first one, not rolling', async () => {
