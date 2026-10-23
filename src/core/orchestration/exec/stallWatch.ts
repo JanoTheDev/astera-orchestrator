@@ -649,12 +649,11 @@ export function createStallWatch(d: StallWatchDeps): { adopt(): Promise<void>; w
           (await Promise.resolve(d.accounts?.() ?? [])).map((a) => (a.id === account ? providerOf(a) : null)).find((p) => p !== null) ??
           r.task.provider ??
           'claude'
-        const reply = await d.handle('worker-start', {
-          task: r.task.id,
-          agent,
-          account,
-          ...(r.dispatch ? { retryOf: r.dispatch.id } : {})
-        })
+        const start = (on?: string) =>
+          d.handle('worker-start', { task: r.task.id, agent, ...(on ? { account: on } : {}), ...(r.dispatch ? { retryOf: r.dispatch.id } : {}) })
+        let reply = await start(account)
+        // That account is out of usage (paused until its window resets): any other with room, as worker-start picks
+        if (reply.status === 409 && (reply.body as { usagePaused?: unknown })?.usagePaused !== undefined) reply = await start()
         line(
           r.runId,
           reply.status < 400

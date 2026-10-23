@@ -416,7 +416,13 @@ describe('watchStalls', () => {
 })
 
 // The Host's applier for the remedies the loop does not apply: each through the existing command, one feed line each.
-function watchRig(s0: OrchState, busy: (id: string) => boolean | null = () => false, live: LiveWorker[] = [], alive: (id: string) => boolean = () => false) {
+function watchRig(
+  s0: OrchState,
+  busy: (id: string) => boolean | null = () => false,
+  live: LiveWorker[] = [],
+  alive: (id: string) => boolean = () => false,
+  answer: (cmd: string, args: Record<string, unknown>) => { status: number; body: unknown } | undefined = () => undefined
+) {
   let state = s0
   let clock = T0
   const cmds: { cmd: string; args: Record<string, unknown> }[] = []
@@ -426,6 +432,8 @@ function watchRig(s0: OrchState, busy: (id: string) => boolean | null = () => fa
   const w = createStallWatch({
     handle: async (cmd, args) => {
       cmds.push({ cmd, args })
+      const given = answer(cmd, args)
+      if (given) return given
       if (cmd === 'send')
         state = {
           ...state,
@@ -471,6 +479,18 @@ describe('createStallWatch', () => {
     await h.run(3 * MIN)
     expect(h.cmds).toEqual([{ cmd: 'run-start', args: { run: 'run_1' } }])
     expect(h.lines).toEqual(['Restarted the coordinator: it was gone 2 min with work waiting (try 1 of 4)'])
+  })
+
+  it('retries a lost worker on an account with room when its own is paused for usage', async () => {
+    const paused = (cmd: string, args: Record<string, unknown>) =>
+      cmd === 'worker-start' && args.account === 'accA' ? { status: 409, body: { error: 'at 99%', usagePaused: 'accA' } } : undefined
+    const h = watchRig(plan({ tasks: [task({ id: 'tsk_1', status: 'dispatched' })], dispatches: [{ ...ended('tsk_1', '/wt1'), outcome: undefined } as Dispatch] }), undefined, undefined, undefined, paused)
+    await h.run(3 * MIN)
+    expect(h.cmds.map((c) => c.args)).toEqual([
+      { task: 'tsk_1', agent: 'claude', account: 'accA', retryOf: 'dsp_tsk_1' },
+      { task: 'tsk_1', agent: 'claude', retryOf: 'dsp_tsk_1' }
+    ])
+    expect(h.lines).toEqual(['Started TSK_1 again: its worker ended without a report (try 1 of 4)'])
   })
 
   it('retries a lost worker with --retry-of on its account and agent, and leaves the ready-Task remedies to the loop', async () => {
