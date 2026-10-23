@@ -46,6 +46,15 @@ const call = (deps: OrchServerDeps, args: Record<string, unknown>) =>
 const error = (r: { body: unknown }): string => (r.body as { error: string }).error
 
 describe('sessions create — what reaches the Host starter', () => {
+  // T1: the Host picks the account with most room (host/sessionCreate.ts)
+  it('without --account the session is auto: no account sent, the provider if given', async () => {
+    const createSession = vi.fn(async () => row())
+    expect((await call(makeDeps({ createSession }), { cwd: 'D:/p' })).status).toBe(200)
+    expect(createSession).toHaveBeenLastCalledWith({ kind: 'terminal', cwd: 'D:/p', rollAccountIds: [] })
+    expect((await call(makeDeps({ createSession }), { cwd: 'D:/p', provider: 'codex', kind: 'chat' })).status).toBe(200)
+    expect(createSession).toHaveBeenLastCalledWith({ kind: 'chat', provider: 'codex', cwd: 'D:/p', rollAccountIds: [], unattended: 'hold' })
+  })
+
   it('a terminal session by default, with the account at the head of its chain', async () => {
     const createSession = vi.fn(async () => row())
     const r = await call(makeDeps({ createSession }), { account: 'acc_c', cwd: 'D:/p', title: 'fix', prompt: 'run the tests' })
@@ -87,10 +96,16 @@ describe('sessions create — refused before anything starts', () => {
     expect(createSession).not.toHaveBeenCalled()
   }
 
-  it('needs --account and --cwd (2)', async () => {
-    await refused({ cwd: 'D:/p' }, 400, '--account')
+  it('needs --cwd, and --account a value when given (2)', async () => {
     await refused({ account: 'acc_c' }, 400, '--cwd')
     await refused({ account: true, cwd: 'D:/p' }, 400, '--account')
+  })
+
+  // T1: no --account is auto, so a chain has nothing to go behind and --provider must agree with a named account
+  it('--roll-accounts without --account, an unknown --provider, or one --account is not of, is 2', async () => {
+    await refused({ cwd: 'D:/p', rollAccounts: 'acc_c' }, 400, '--account')
+    await refused({ cwd: 'D:/p', provider: 'gemini' }, 400, 'provider')
+    await refused({ account: 'acc_c', cwd: 'D:/p', provider: 'codex' }, 400, 'provider')
   })
 
   it('an account that is not there is 4', async () => {

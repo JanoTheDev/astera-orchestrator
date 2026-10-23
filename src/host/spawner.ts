@@ -25,7 +25,7 @@ import { ensureShuttle, sessionCmdLink } from '../core/orchestration/exec/shuttl
 import type { ChatOrchEnv } from '../core/chat/manager'
 import { binDirFor } from '../core/orchestration/cliInstall'
 import {
-  autoStartChain,
+  chooseSessionStart,
   preTrustWorkspace,
   startCoordinatorSession,
   startWorkerWithChain,
@@ -51,7 +51,7 @@ import type { PtyFactory, PtyLike } from '../core/sessions/pty'
 import { StatusLineManager, resolveNodePath } from '../core/sessions/statusline'
 import { BusyScanner } from '../core/terminal/busy'
 import { previewShotsDir } from '../core/preview/shotsDir'
-import type { Account, CloseReason, SessionInfo } from '../core/types'
+import type { Account, CloseReason, Provider, SessionInfo } from '../core/types'
 import type { PtyRegistry } from './registry'
 import type { HostRollSpawner, RollSpawnOpts } from './rolling'
 import type { HostWorktrees } from './worktrees'
@@ -168,12 +168,18 @@ export interface HostSpawner extends HostLocal, HostRollSpawner {
     rollAccountIds: string[]
     /** T5 (crash restore): the agent CLI's own conversation to go on with (`claude --resume`, `codex resume`). */
     resumeSessionId?: string
-    /** T5: the account picked by usage when "Pick accounts automatically" is on (autoStartChain), as a planner's is. */
+    /** T5: the account picked by usage when "Pick accounts automatically" is on (startAccount), as a planner's is. */
     autoAccounts?: boolean
   }): Promise<SessionInfo>
+  /** T1: the account a person's session starts on and the chain it rolls on (chooseSessionStart over the Host's usage
+   *  guard and logins): none named is auto, a named one a preference. `release` once the session runs. */
+  startAccount?(o: SessionStartAsk): Promise<{ accountId: string; rollAccountIds: string[]; release(): void }>
 }
 
 type SpawnOpts = Parameters<CoordinatorDeps['spawnSession']>[0]
+
+/** T1: what a person's session asks of startAccount: an account (absent: auto), the provider for auto, its chain. */
+type SessionStartAsk = { accountId?: string; provider?: Provider; rollAccountIds: string[] }
 
 /** What one start did, filled in as it runs (Host S3 follow-up A36): whether its own pty was opened,
  *  the folder a `--worktree new` fork made for it, and whether the permission setting refused the
@@ -468,6 +474,23 @@ export function createHostSpawner(d: HostSpawnerDeps): HostSpawner | null {
     return account
   }
 
+  /** T1: a person's session by usage (chooseSessionStart), over the accounts read now unless the caller has them. */
+  const startAccount = async (o: SessionStartAsk, read?: Account[]): Promise<{ accountId: string; rollAccountIds: string[]; release(): void }> => {
+    const accounts = read ?? (await readAccounts(accountsPath))
+    return chooseSessionStart(
+      {
+        accounts: async () => accounts,
+        loginStatus: async (id) => {
+          const x = accounts.find((y) => y.id === id)
+          return x ? isLoggedIn(x, descriptors) : false
+        },
+        log,
+        ...(d.usageGuard ? { usageGuard: d.usageGuard } : {})
+      },
+      o
+    )
+  }
+
   /** The coordinator's spawn adapter: field for field what the app's coordinator adapter hands its
    *  spawnSession, and what that hands core.sessions.spawn. */
   const spawnSession = async (o: SpawnOpts, accounts: Account[], trace?: StartTrace): Promise<{ id: string }> => {
@@ -750,29 +773,19 @@ export function createHostSpawner(d: HostSpawnerDeps): HostSpawner | null {
         throw err
       }
     }),
+    startAccount: (o) => startAccount(o),
     createSession: spawning(async (o) => {
       const trace: StartTrace = { opened: false, forked: null, settingsRefused: false }
       try {
         const accounts = await readAccounts(accountsPath)
-        // T5: over the usage threshold, the start goes to the first of the usage order, and so does its chain
+        // T5: by usage (startAccount) when asked to, as a planner's start; the chain follows the start.
         // A codex resume stays put: its rollout cannot be carried to another account (carryTranscript)
         const named = accountIn(accounts, o.accountId)
         const picked = o.autoAccounts && (o.resumeSessionId === undefined || providerOf(named) === 'claude')
-          ? await autoStartChain(
-              {
-                accounts: async () => accounts,
-                loginStatus: async (id) => {
-                  const x = accounts.find((y) => y.id === id)
-                  return x ? isLoggedIn(x, descriptors) : false
-                },
-                log,
-                ...(d.usageGuard ? { usageGuard: d.usageGuard } : {})
-              },
-              o.accountId
-            )
+          ? await startAccount({ accountId: o.accountId, rollAccountIds: o.rollAccountIds }, accounts)
           : null
         const accountId = picked?.accountId ?? o.accountId
-        if (accountId !== o.accountId) log(`session in ${o.cwd}: ${o.accountId} is at the usage threshold, starting on ${accountId}`)
+        if (accountId !== o.accountId) log(`session in ${o.cwd}: ${o.accountId} has no room, starting on ${accountId}`)
         // The folder is probed once here; spawnSession's own prepare reuses this answer.
         await sessions.prepare({ account: accountIn(accounts, accountId), cwd: o.cwd, missing: `CWD_MISSING: ${o.cwd} does not exist` })
         const info = await spawnSession(
@@ -781,7 +794,7 @@ export function createHostSpawner(d: HostSpawnerDeps): HostSpawner | null {
             cwd: o.cwd,
             title: o.title ?? defaultSessionTitle(o.cwd),
             ...(o.initialPrompt !== undefined ? { initialPrompt: o.initialPrompt } : {}),
-            rollAccountIds: accountId !== o.accountId ? picked!.chain : o.rollAccountIds,
+            rollAccountIds: picked?.rollAccountIds ?? o.rollAccountIds,
             ...(o.resumeSessionId !== undefined ? { resumeSessionId: o.resumeSessionId } : {})
           },
           accounts,

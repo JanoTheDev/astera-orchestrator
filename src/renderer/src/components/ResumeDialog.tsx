@@ -1,17 +1,19 @@
 import { useEffect, useState } from 'react'
 import type { Account, HistoryEntry, RollConfig, ScheduleConfig, SessionKind } from '../../../core/types'
-import { resumeAccountOptions, resumeChatAllowed, resumeRollAccountIds } from '../../../core/resume'
+import { resumeAccountOptions, resumeRollAccountIds } from '../../../core/resume'
+import { providerOf } from '../../../core/providers/meta'
 import { isSlackReady } from '../../../core/slack/ready'
 import { isTelegramReady } from '../../../core/telegram/ready'
 import { useI18n } from '../i18n/I18nProvider'
 import { useChatAvailability } from '../hooks/useChatAvailability'
 import { isGhostAccountId } from '../../../core/accounts/ghostId'
-import { AccountSelect } from './AccountSelect'
+import { AccountDisclosure, AccountSelect } from './AccountSelect'
 import { ScheduleFields } from './ScheduleFields'
 import { Button, Modal, Tabs, Checkbox } from './ui'
 
-/** Modal for resuming a session from history. Only logged-in accounts appear as candidates and the
- *  original account is preselected. Picking a different account makes ipc copy the transcript into that
+/** Modal for resuming a session from history. Only logged-in accounts appear as candidates; a claude
+ *  conversation opens on Auto (most room) with the picker folded, so a full original account is never the
+ *  default (main moves a resume off it, carrying the transcript). Picking a different account makes ipc copy the transcript into that
  *  account's configDir before --resume — since slice 4c both 터미널 and 대화 resume this way, so either
  *  kind can run on any candidate the picker offers (resumeChatAllowed).
  *
@@ -50,7 +52,10 @@ export function ResumeDialog({
 }): React.JSX.Element {
   const { t } = useI18n()
   const [options, setOptions] = useState<Account[] | null>(null) // null = login status still being checked
+  /** '' is Auto (most room): sent as no account, main ranks the accounts. Only a claude conversation has it —
+   *  sessions.spawn ranks claude by default and the resume path has no way to name another provider. */
   const [selectedId, setSelectedId] = useState<string>('')
+  const [acctOpen, setAcctOpen] = useState(false)
   // Session kind — terminal (pty) or chat (a Host-owned line process resumed by its protocol thread
   // id — since slice 4c the transcript is copied into the chosen account first, same as terminal, so
   // either kind can land on any candidate the picker offers). Same seeded-and-falls-back rule as
@@ -72,6 +77,7 @@ export function ResumeDialog({
   // more (an old entry whose folder is gone) — resume still works on another account.
   const owner = accounts.find((a) => a.id === entry.accountId) ?? ghostAccounts.find((a) => a.id === entry.accountId)
   const ownerGone = owner === undefined || isGhostAccountId(owner.id)
+  const autoOk = (owner ? providerOf(owner) : 'claude') === 'claude'
 
   useEffect(() => {
     let cancelled = false
@@ -88,7 +94,7 @@ export function ResumeDialog({
       // transcript. Only registered accounts are passed as candidates.
       const opts = resumeAccountOptions(accounts, loggedIn, owner)
       setOptions(opts)
-      setSelectedId(opts[0]?.id ?? '')
+      setSelectedId(autoOk ? '' : (opts[0]?.id ?? ''))
     })
     return () => {
       cancelled = true
@@ -124,23 +130,34 @@ export function ResumeDialog({
     }
   }, [entry.sessionId])
 
+  // Something can start: an account is picked, or Auto has a signed-in account to rank
+  const canStart = options !== null && options.length > 0 && (selectedId !== '' || autoOk)
   const crossAccount = selectedId !== '' && selectedId !== entry.accountId
   // The chain that actually goes to spawn — the display uses this value too (the result after the provider filter and the rotation reorder)
   const rollChain = selectedId ? resumeRollAccountIds(savedRoll?.accountIds ?? null, accounts, selectedId) : []
   const labelOf = (id: string): string => accounts.find((a) => a.id === id)?.label ?? id
+  const picker = options && (
+    <AccountSelect
+      accounts={options}
+      value={selectedId}
+      onChange={setSelectedId}
+      {...(autoOk ? { allLabel: t('accounts.auto') } : {})}
+      suffixOf={(a) => (a.id === entry.accountId ? t('session.resume.originalAccountSuffix') : null)}
+    />
+  )
 
   // The Host poll is shared with NewSessionDialog; either provider's account can open a chat session.
   const { enabled: chatEnabled, checking: chatChecking } = useChatAvailability()
   // Resuming one is no narrower than starting one any more (resumeChatAllowed) — the chat spawn path
   // copies the transcript into the chosen account too, so any candidate the picker offers works.
-  const chatAllowed = resumeChatAllowed({ chatEnabled, selectedId })
+  const chatAllowed = chatEnabled && canStart
   // A remembered 대화 falls back to 터미널 while it is unavailable — never persisted, so it is offered
   // again once the condition clears (same reasoning as NewSessionDialog's own fallback effect). Picking
   // another account is one of those conditions: the choice comes back the moment the owner is picked
   // again, which is why the fallback is state here and never written back to the setting.
   // Two things here are unknown for the first moment rather than false: whether the Host can run 대화
-  // at all (chatChecking), and which account this resumes on — `options` is null until the login probe
-  // answers, and `selectedId` is '' until then, which alone makes chatAllowed false. Acting on either
+  // at all (chatChecking), and whether an account can start it — `options` is null until the login probe
+  // answers, which alone makes chatAllowed false. Acting on either
   // before it is known threw the seeded 대화 selection away and never put it back. Same defect as
   // NewSessionDialog's, with one more source of "not yet".
   useEffect(() => {
@@ -148,9 +165,10 @@ export function ResumeDialog({
   }, [kind, chatAllowed, chatChecking, options])
 
   const confirm = (): void => {
-    if (!selectedId) return
+    if (!canStart) return
     onConfirm({
-      accountIds: rollOn ? rollChain : [selectedId],
+      // Auto sends no account: main picks the best and rolls over the ranking
+      accountIds: !selectedId ? [] : rollOn ? rollChain : [selectedId],
       kind,
       roll: rollOn,
       rollPrompt: rollOn ? rollPrompt.trim() || undefined : undefined,
@@ -168,7 +186,7 @@ export function ResumeDialog({
       footer={
         <>
           <Button variant="ghost" onClick={onCancel}>{t('common.cancel')}</Button>
-          <Button variant="primary" disabled={!selectedId || (schedOn && !schedule)} onClick={confirm}>
+          <Button variant="primary" disabled={!canStart || (schedOn && !schedule)} onClick={confirm}>
             {t('session.resume.confirm')}
           </Button>
         </>
@@ -201,8 +219,8 @@ export function ResumeDialog({
           <label>{t('session.field.projectFolder')}</label>
           <span className="path">{cwd}</span>
         </div>
-        {/* Only when the owning account is gone. With it alive the picker already preselects it and puts
-            the '(original account)' suffix on it, so a second row would just repeat that. */}
+        {/* Only when the owning account is gone. With it alive the picker lists it with the
+            '(original account)' suffix, so a second row would just repeat that. */}
         {ownerGone && (
           <div className="field">
             <label>{t('session.resume.originAccount')}</label>
@@ -218,13 +236,17 @@ export function ResumeDialog({
             <span className="check-note">{t('session.resume.checkingLogin')}</span>
           ) : options.length === 0 ? (
             <span className="warn">{t('session.resume.noLoggedInAccounts')}</span>
+          ) : autoOk ? (
+            <AccountDisclosure
+              id="resume-accounts"
+              open={acctOpen}
+              onToggle={() => setAcctOpen((v) => !v)}
+              summary={selectedId ? labelOf(selectedId) : t('accounts.auto')}
+            >
+              {picker}
+            </AccountDisclosure>
           ) : (
-            <AccountSelect
-              accounts={options}
-              value={selectedId}
-              onChange={setSelectedId}
-              suffixOf={(a) => (a.id === entry.accountId ? t('session.resume.originalAccountSuffix') : null)}
-            />
+            picker
           )}
           {crossAccount && (
             <span className="roll-prompt-hint">{t('session.resume.crossAccountHint')}</span>

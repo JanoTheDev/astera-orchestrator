@@ -5,7 +5,7 @@ import { useAccountUsage } from '../hooks/useAccountUsage'
 import { useI18n } from '../i18n/I18nProvider'
 import { accountSelectItems } from './accountSelectItems'
 import { ProviderBadge } from './ProviderBadge'
-import { Select, type SelectOption } from './ui'
+import { Button, Icon, Select, type SelectOption } from './ui'
 
 const NO_ACCOUNTS: Account[] = [] // stable identity: useAccountStatus re-queries when its argument changes
 
@@ -65,4 +65,42 @@ export function AccountSelect({
     })
   }, [accounts, loginMap, usage, t, allLabel, suffixOf])
   return <Select items={items} value={value} onChange={onChange} className={className} disabled={disabled} ariaLabel={ariaLabel} noCheck />
+}
+
+/** The folded "Choose account" area every start dialog puts its account control in: Auto (most room) is the default
+ *  and the control opens only to pin an account (StartPage's "More options" pattern). The caller owns `open`, since
+ *  a pinned default may open it by itself. */
+export function AccountDisclosure({
+  id,
+  open,
+  onToggle,
+  summary,
+  children
+}: {
+  id: string
+  open: boolean
+  onToggle: () => void
+  /** What applies while it is folded (Auto, or the pinned account's name) */
+  summary?: string
+  children: React.ReactNode
+}): React.JSX.Element {
+  const { t } = useI18n()
+  return (
+    <>
+      <div>
+        <Button
+          variant="ghost"
+          size="sm"
+          icon={<Icon name={open ? 'chevronDown' : 'chevronRight'} size={14} />}
+          aria-expanded={open}
+          aria-controls={id}
+          onClick={onToggle}
+        >
+          {t('overlays.account.choose')}
+        </Button>
+        {!open && summary && <span className="modal-hint">{summary}</span>}
+      </div>
+      {open && <div id={id}>{children}</div>}
+    </>
+  )
 }

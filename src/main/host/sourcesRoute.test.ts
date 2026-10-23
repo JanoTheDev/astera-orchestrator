@@ -61,6 +61,8 @@ describe('createSourcesRoute', () => {
       { cmd: 'jobs-create-from-source', args: { source: 'github', item: '12', project: 'proj_1', coordinatorAccount: 'acc_1', convergence: true }, timeoutMs: SOURCES_DEADLINE_MS },
       { cmd: 'jobs-create-from-source', args: { source: 'github', item: '12', project: 'proj_1', coordinatorAccount: 'acc_1' }, timeoutMs: SOURCES_DEADLINE_MS }
     ])
+    await route.create({ source: 'github', item: '12', projectPath: 'D:/p', coordinatorAccount: '' })
+    expect(sent.at(-1)).toEqual({ cmd: 'jobs-create-from-source', args: { source: 'github', item: '12', project: 'proj_1', coordinatorProvider: 'claude' }, timeoutMs: SOURCES_DEADLINE_MS }) // no account is Auto
     const none = host(unknown)
     expect(await none.route.create({ source: 'github', item: '12', projectPath: 'D:/q', coordinatorAccount: 'acc_1' })).toEqual({
       ok: false,
