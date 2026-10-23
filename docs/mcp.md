@@ -729,6 +729,34 @@ to 10 seconds before it exits. A cut call may still have happened in the Host: r
 `get_` tool, or retry with the same `requestId`. The client has to connect again once the entrance
 is back.
 
+## Finding other MCP servers and skills
+
+Astera can also install other people's MCP servers and agent skills into the Claude Code and Codex
+accounts it manages, one account or several at a time.
+
+**MCP servers come from the official MCP registry** (registry.modelcontextprotocol.io). A server
+published as an npm package is added as `npx -y <package>@<version>`, a PyPI one as `uvx <package>`,
+and a remote one by its URL. Anything else (a Docker image, a NuGet package, a URL with variables in
+it, a package that needs arguments) is shown but not installable here. The values a server asks for,
+such as API keys or an `Authorization` header, are passed to the client and never written to a log.
+
+**Installing goes through each client's own CLI**, with the account's `CLAUDE_CONFIG_DIR` or
+`CODEX_HOME` set: `claude mcp add -s user` and `codex mcp add`, and `mcp remove` to take one out. The
+list of installed servers is read from each account's `.claude.json` (`~/.claude.json` for the home
+account) or `config.toml`, never written. Codex takes no headers from its CLI and runs no SSE servers,
+so such a server can only go into a Claude account. A name already set up in an account is not
+replaced. The `astera` entry is never listed, added or removed here: Settings › CLI owns it.
+
+**Skills come from GitHub repos** that hold `<folder>/SKILL.md`: `anthropics/skills` always, plus any
+`owner/repo` you add. Each repo is read once every ten minutes at most. Installing copies the skill's
+folder, pinned to the commit that was listed, into `skills/<name>/` of each chosen account, with a
+`.astera-finder.json` file that records where it came from. A skill is capped at 200 files and 2 MB,
+and a name or path that is not a plain folder or file name is refused. Only folders with that file are
+replaced or removed. Astera's own skills and skills you put there yourself are listed but left alone.
+
+**Open sessions keep what they started with.** A new MCP server or skill is picked up by sessions
+started after the install.
+
 ## Troubleshooting
 
 **Start with `astera mcp status`.** Run it in a shell on the same machine. It starts no Host and says

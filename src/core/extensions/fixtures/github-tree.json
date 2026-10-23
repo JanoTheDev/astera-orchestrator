@@ -1,0 +1,145 @@
+{
+  "sha": "dbd4588f9e1033efb41dad4bef2f7947c8993d44",
+  "truncated": false,
+  "tree": [
+    {
+      "path": "README.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "eb54ee8b92f2d40b4b26569be0772be3c1e23156",
+      "size": 5552
+    },
+    {
+      "path": "skills",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "5ddb5296df8bb291d21eddad51f5c07e347cc5be"
+    },
+    {
+      "path": "skills/pdf",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "6369f4649de69bd6857c9bc3b058a77206009238"
+    },
+    {
+      "path": "skills/pdf/LICENSE.txt",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "c55ab42224874608473643de0a85736b7fec0730",
+      "size": 1467
+    },
+    {
+      "path": "skills/pdf/SKILL.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "d3e046a5ae107a6cb23cfb16c219837094ab35d3",
+      "size": 8072
+    },
+    {
+      "path": "skills/pdf/forms.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "6e7e1e0d9e6ae17215db3e130aea3c3c546487e6",
+      "size": 11854
+    },
+    {
+      "path": "skills/pdf/reference.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "41400bf4fc67f15fb062d43695ec92f078226023",
+      "size": 16692
+    },
+    {
+      "path": "skills/pdf/scripts",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "1ef561e00964ee68f40f377f3a895ee8fcfc4da0"
+    },
+    {
+      "path": "template",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "a38aa7fa73fd2835b9ce77a60274f7dc62d015a6"
+    },
+    {
+      "path": "template/SKILL.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "50a4f9b104357d96361e257adb70454604cd15c0",
+      "size": 140
+    },
+    {
+      "path": "skills/bad:name",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "0000000000000000000000000000000000000000"
+    },
+    {
+      "path": "skills/bad:name/SKILL.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "1111111111111111111111111111111111111111",
+      "size": 10
+    },
+    {
+      "path": "skills/sneaky",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "0000000000000000000000000000000000000000"
+    },
+    {
+      "path": "skills/sneaky/SKILL.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "2222222222222222222222222222222222222222",
+      "size": 10
+    },
+    {
+      "path": "skills/sneaky/a\\..\\..\\x",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "3333333333333333333333333333333333333333",
+      "size": 10
+    },
+    {
+      "path": "skills/huge",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "0000000000000000000000000000000000000000"
+    },
+    {
+      "path": "skills/huge/SKILL.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "4444444444444444444444444444444444444444",
+      "size": 10
+    },
+    {
+      "path": "skills/huge/blob.bin",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "5555555555555555555555555555555555555555",
+      "size": 3000000
+    },
+    {
+      "path": "skills/linked",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "0000000000000000000000000000000000000000"
+    },
+    {
+      "path": "skills/linked/SKILL.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "6666666666666666666666666666666666666666",
+      "size": 10
+    },
+    {
+      "path": "skills/linked/escape",
+      "mode": "120000",
+      "type": "blob",
+      "sha": "7777777777777777777777777777777777777777",
+      "size": 10
+    }
+  ]
+}

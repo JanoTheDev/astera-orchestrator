@@ -34,6 +34,7 @@ import { pickInitialLang } from '../core/i18n/locale'
 import { shouldForceWaylandOzone } from './ozone'
 import { registerReviewIpc } from './reviewIpc'
 import { registerIpc, parseAllowedExternalUrl, type AppWindows, type OrchHandle } from './ipc'
+import { registerExtensionsIpc } from './extensionsIpc'
 // W9-K: one window per project
 import { isValidState } from '../core/orchestration/store'
 import {
@@ -1447,6 +1448,12 @@ app.whenReady().then(async () => {
       }
     }
   )
+  registerExtensionsIpc(ipcMain, {
+    accounts: () => core!.accounts.list(),
+    descriptors: core!.descriptors,
+    homeDir: app.getPath('home'),
+    settings: core!.appSettings
+  })
   // No tray on Linux. With close quitting for real there is nothing to hide, so the menu's
   // Open/Quit would only repeat what the window and its close button already do — while tying the
   // app to AppIndicator support the desktop may not have. refreshTrayMenu guards on `tray?.`, so the

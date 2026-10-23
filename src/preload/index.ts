@@ -204,6 +204,18 @@ const api = {
     status: invoke('mcpClients.status'),
     register: invoke('mcpClients.register')
   },
+  extensions: {
+    mcpSearch: invoke('extensions.mcpSearch'),
+    mcpInstalled: invoke('extensions.mcpInstalled'),
+    mcpInstall: invoke('extensions.mcpInstall'),
+    mcpRemove: invoke('extensions.mcpRemove'),
+    skillsSearch: invoke('extensions.skillsSearch'),
+    skillsInstalled: invoke('extensions.skillsInstalled'),
+    skillsInstall: invoke('extensions.skillsInstall'),
+    skillsRemove: invoke('extensions.skillsRemove'),
+    skillReposGet: invoke('extensions.skillReposGet'),
+    skillReposSet: invoke('extensions.skillReposSet')
+  },
   mcpHttp: {
     status: invoke('mcpHttp.status'),
     token: invoke('mcpHttp.token'),
