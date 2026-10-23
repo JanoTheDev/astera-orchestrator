@@ -105,6 +105,8 @@ export function PlanPage({
   const ready = anchor !== null && (anchor.kind !== 'task' || p.tasks.some((tk) => tk.id === anchor.taskId))
   const applied = useRef<string | null>(null)
   useEffect(() => {
+    // the top again (a plan opened without a section): the next Task or settings anchor scrolls, even the same one
+    if (anchor === null) applied.current = null
     if (anchor === null || !ready || applied.current === `${runId}:${section}`) return
     applied.current = `${runId}:${section}`
     if (anchor.kind === 'task') p.setSelected(anchor.taskId)

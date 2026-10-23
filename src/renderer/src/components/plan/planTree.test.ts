@@ -1,27 +1,25 @@
 /// <reference types="node" />
 // T7 Plans tree: the rows of each group-by, their order, the filter (plan names and Task titles), archived plans, the
-// overlap decoration, the step level, the menu's Pause / Resume, the plan tab anchors, and the order a plan row is cut in.
+// overlap decoration, the step level, the menu's Pause / Resume, the plan tab sections, and the order a plan row is cut in.
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { JobRow, JobTask } from '../../../../core/types'
+import { planAnchorOf } from './planPage'
+import { planSectionOf } from './planBoard'
 import {
   groupByOf,
   groupCount,
   needsYouOf,
-  onPlanAnchor,
   openByDefault,
   overlapOf,
-  parsePlanArg,
   pauseActionOf,
   planDescription,
   planTreeRows,
-  setPlanAnchor,
   statusGroupOf,
   stepsOf,
-  takePlanAnchor,
-  taskAnchor,
   taskDescription,
+  taskSection,
   type GroupBy,
   type PlanNode
 } from './planTree'
@@ -154,25 +152,10 @@ describe('steps, status and row text', () => {
   })
 })
 
-describe('plan tab anchors', () => {
-  it('parses `<jobId>#task-<id>` and `<jobId>#settings`, and drops an anchor it does not know', () => {
-    expect(parsePlanArg('job_1')).toEqual({ jobId: 'job_1' })
-    expect(parsePlanArg(`job_1${taskAnchor('tsk_9')}`)).toEqual({ jobId: 'job_1', anchor: '#task-tsk_9' })
-    expect(parsePlanArg('job_1#settings')).toEqual({ jobId: 'job_1', anchor: '#settings' })
-    expect(parsePlanArg('job_1#nope')).toEqual({ jobId: 'job_1' })
-    expect(parsePlanArg('job_1#task-')).toEqual({ jobId: 'job_1' })
-  })
-
-  it('hands the anchor to the plan tab once, and tells a tab already open', () => {
-    const told: string[] = []
-    const off = onPlanAnchor((id) => told.push(id))
-    setPlanAnchor('job_1', '#settings')
-    off()
-    setPlanAnchor('job_2', taskAnchor('t'))
-    expect(told).toEqual(['job_1'])
-    expect(takePlanAnchor('job_1')).toBe('#settings')
-    expect(takePlanAnchor('job_1')).toBeUndefined()
-    expect(takePlanAnchor('job_2')).toBe('#task-t')
+describe('Plans view sections for the plan tab', () => {
+  it('a Task click and "Edit plan settings…" send the sections the plan tab scrolls to', () => {
+    expect(planAnchorOf(planSectionOf(taskSection('tsk_9')))).toEqual({ kind: 'task', taskId: 'tsk_9' })
+    expect(planAnchorOf(planSectionOf('settings'))).toEqual({ kind: 'settings' })
   })
 })
 

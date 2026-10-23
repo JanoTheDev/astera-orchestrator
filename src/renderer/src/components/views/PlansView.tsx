@@ -15,11 +15,12 @@ import { localDoor, replyNote } from '../../lib/orchDoor'
 import { jobName } from '../../lib/jobName'
 import { toast } from '../../lib/toast'
 import { archiveJob, deleteRun, holdJob, pauseRun, restartCoordinator as restartRunCoordinator, resumeRun, unarchiveJob } from '../../lib/jobActions'
-import { openConsole, openPage, openView } from '../shell/navigation'
+import { openConsole, openPage, openPlan, openView } from '../shell/navigation'
 import { ViewToolbar, type SideBarViewProps } from '../shell/SideBar'
 import { planStatusOf } from '../plan/planList'
 import { approveSlot } from '../plan/planTalk'
 import { deliveryActionsOf } from '../plan/planPage'
+import { type PlanSection } from '../plan/planBoard'
 import { mainPlanViewOf } from '../plan/mainPlanView'
 import {
   GROUP_BYS,
@@ -31,11 +32,9 @@ import {
   pauseActionOf,
   planDescription,
   planTreeRows,
-  setPlanAnchor,
-  taskAnchor,
   taskDescription,
+  taskSection,
   type GroupBy,
-  type PlanAnchor,
   type PlanNode,
   type PlanTreeRow,
   type StatusGroup
@@ -195,16 +194,16 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
   // every group and step shown closes; the plans opened go back to closed
   const collapseAll = (): void => setToggled(new Set(rows.filter((r) => openByDefault(r.node)).map((r) => r.id)))
 
-  const openPlanTab = (jobId: string, anchor?: PlanAnchor): void => {
+  /** The plan tab, at a section (`openPlan`'s: `settings`, `task-<id>`) or its top. */
+  const openPlanTab = (jobId: string, section?: PlanSection): void => {
     if (!currentProject) return
-    if (anchor) setPlanAnchor(jobId, anchor)
     p.setDetail(null) // the previous plan's detail never shows for a frame
-    p.setOpenRun({ projectPath: currentProject, runId: jobId })
+    openPlan(jobId, section)
   }
   /** DESIGN-W13 §10: a Task opens its console when one runs for it, else its plan tab scrolled to it. */
   const openTask = (row: JobRow, taskId: string, sessionId?: string): void => {
     if (sessionId && canOpenSession(sessionId)) openConsole(sessionId)
-    else openPlanTab(row.id, taskAnchor(taskId))
+    else openPlanTab(row.id, taskSection(taskId))
   }
   const activate = (id: string): void => {
     const row = byId.get(id)
@@ -240,7 +239,7 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
     return [
       item('open', t('pages.plans.tree.menu.open'), 'open', () => openPlanTab(row.id)),
       item('consoles', t('pages.plans.tree.menu.consoles'), 'terminal', () => openPage('agents', row.id)),
-      item('settings', t('pages.plans.tree.menu.settings'), 'settings', () => openPlanTab(row.id, '#settings')),
+      item('settings', t('pages.plans.tree.menu.settings'), 'settings', () => openPlanTab(row.id, 'settings')),
       'separator',
       ...(approveSlot(row) === 'approve' && local ? [item('approve', t('jobs.run.approve'), 'check', () => p.approve(local, orchSnapshot, row.id, actionUi))] : []),
       ...(pause === 'pause-schedule' ? [item('pause', t('jobs.run.pause'), 'pause', () => p.pauseScheduleRun(row.id))] : []),
@@ -265,7 +264,7 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
       disabled: !(sessionId && canOpenSession(sessionId)),
       onSelect: () => sessionId && openConsole(sessionId)
     },
-    { id: 'plan', label: t('pages.plans.tree.menu.openInPlan'), icon: <Icon name="listTree" />, onSelect: () => openPlanTab(row.id, taskAnchor(taskId)) },
+    { id: 'plan', label: t('pages.plans.tree.menu.openInPlan'), icon: <Icon name="listTree" />, onSelect: () => openPlanTab(row.id, taskSection(taskId)) },
     { id: 'copy', label: t('pages.plans.tree.menu.copyId'), icon: <Icon name="copy" />, onSelect: () => window.api.clipboard.writeText(taskId) }
   ]
   const menuOf = (node: PlanNode): Array<MenuItem | 'separator'> | null =>

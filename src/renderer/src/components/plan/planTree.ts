@@ -1,11 +1,10 @@
 // T7 Plans view (DESIGN-W13 §4 "Plans"): the one tree Plan › Step › Task, grouped by plan, by Task status (the old All
 // tasks board) or by area (the old By area list), with the old Overlap tab as a warning on the rows that overlap. Pure,
 // so the node-only test suite reaches it; views/PlansView.tsx draws the rows. Also the `#task-<id>` / `#settings`
-// anchor a plan tab is opened at (the plan tab reads it with takePlanAnchor).
 import type { MessageKey, MessageParams } from '../../../../core/i18n'
 import type { JobRow, JobTask } from '../../../../core/types'
 import { jobName } from '../../lib/jobName'
-import { ageOf, areaGroupsOf, categoryOf, planListOrder } from './planBoard'
+import { ageOf, areaGroupsOf, categoryOf, planListOrder, type PlanSection } from './planBoard'
 import { lastActivityOf } from './planList'
 
 type T = (key: MessageKey, params?: MessageParams) => string
@@ -195,38 +194,5 @@ export function pauseActionOf(row: JobRow): PauseAction | null {
   return row.dispatchHold ? 'release' : 'hold'
 }
 
-// The anchor a plan tab opens at. A plan tab is `view:plan:<jobId>`; where it scrolls to rides beside it, so the tab id
-// (and the open-or-focus rule that keys on it) stays the plan's.
-
-export type PlanAnchor = `#task-${string}` | '#settings'
-export const taskAnchor = (taskId: string): PlanAnchor => `#task-${taskId}`
-
-/** `<jobId>[#anchor]`: the plan and the anchor of a plan tab arg. */
-export function parsePlanArg(arg: string): { jobId: string; anchor?: PlanAnchor } {
-  const i = arg.indexOf('#')
-  if (i < 0) return { jobId: arg }
-  const anchor = arg.slice(i)
-  return anchor === '#settings' || (anchor.startsWith('#task-') && anchor.length > 6) ? { jobId: arg.slice(0, i), anchor: anchor as PlanAnchor } : { jobId: arg.slice(0, i) }
-}
-
-const pending = new Map<string, PlanAnchor>()
-const listeners = new Set<(jobId: string) => void>()
-
-/** Asks the plan tab of `jobId` to scroll to `anchor` the next time it reads (it opens, or is told by onPlanAnchor). */
-export function setPlanAnchor(jobId: string, anchor: PlanAnchor): void {
-  pending.set(jobId, anchor)
-  for (const l of listeners) l(jobId)
-}
-
-/** The anchor waiting for that plan's tab, taken once. */
-export function takePlanAnchor(jobId: string): PlanAnchor | undefined {
-  const a = pending.get(jobId)
-  pending.delete(jobId)
-  return a
-}
-
-/** Tells an already open plan tab that an anchor waits for it; returns the unsubscribe. */
-export function onPlanAnchor(listener: (jobId: string) => void): () => void {
-  listeners.add(listener)
-  return () => listeners.delete(listener)
-}
+/** The plan tab section of a Task: `openPlan(jobId, taskSection(id))` scrolls the tab to it (planPage.ts planAnchorOf). */
+export const taskSection = (taskId: string): PlanSection => `task-${taskId}`
