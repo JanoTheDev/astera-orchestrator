@@ -60,5 +60,12 @@ describe('boxHits', () => {
     expect(boxHits(src, 'trw2').map((h) => h.key)).toEqual(['s:s1'])
     expect(boxHits(src, 'lb').map((h) => h.key)).toEqual(['s:s1', 'p:j1']) // the session works in that plan
   })
+  it('offers the help for its name and its words, and only when asked for', () => {
+    const help = { title: 'Help', where: 'Topics', words: ['how to', 'f1'] }
+    expect(boxHits({ ...src, help }, 'hel').map((h) => h.key)).toEqual(['help'])
+    expect(boxHits({ ...src, help }, 'f1').map((h) => h.kind)).toEqual(['help'])
+    expect(boxHits({ ...src, help }, 'auth').map((h) => h.kind)).not.toContain('help')
+    expect(boxHits(src, 'help')).toEqual([])
+  })
   it('nothing typed finds nothing', () => expect(boxHits(src, '')).toEqual([]))
 })

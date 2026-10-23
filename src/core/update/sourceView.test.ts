@@ -12,6 +12,8 @@ describe('titlebarView', () => {
     expect(titlebarView(null)).toEqual({ kind: 'none' })
     expect(titlebarView({ state: 'init' })).toEqual({ kind: 'none' })
     expect(titlebarView(src({ state: 'uptodate', version: 'abc1234' }))).toEqual({ kind: 'none' })
+    // A dev run answers update:status with disabled; that is no error to show.
+    expect(titlebarView({ state: 'disabled', reason: 'unpackaged' })).toEqual({ kind: 'none' })
   })
   it('counts new changes for a source build', () => {
     expect(titlebarView(src({ state: 'available', version: 'deadbee', source: withChanges }))).toEqual({

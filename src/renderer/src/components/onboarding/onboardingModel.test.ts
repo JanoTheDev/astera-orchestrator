@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type { UpdateStatus } from '../../../../core/types'
-import { ONBOARDING_STEPS, canNext, exitEffects, isOnboardingShown, nextStep, prevStep, resumeStep, showUpdateChoice } from './onboardingModel'
+import {
+  ONBOARDING_STEPS, canNext, canSkipStep, cliBannerShown, donePrimary, doneNotes, exitEffects, isOnboardingShown, nextStep, prevStep, replayStart,
+  resumeStep, showUpdateChoice, type OnboardingStep
+} from './onboardingModel'
 
 describe('onboardingModel', () => {
   it('has the six steps in order', () => {
@@ -48,5 +51,48 @@ describe('onboardingModel', () => {
     expect(exitEffects('skip')).toEqual({ markDone: true, open: null })
     expect(exitEffects('start')).toEqual({ markDone: true, open: 'start' })
     expect(exitEffects('agents')).toEqual({ markDone: true, open: 'agents' })
+  })
+
+  it('lets Tools and Accounts be skipped for now, and nothing else (they have no Skip: they are passable or final)', () => {
+    expect(canSkipStep('tools')).toBe(true)
+    expect(canSkipStep('accounts')).toBe(true)
+    for (const s of ['welcome', 'project', 'preferences', 'done'] as const) expect(canSkipStep(s)).toBe(false)
+  })
+
+  it('walks the whole flow with no CLI and no account by skipping the two blocked steps', () => {
+    const ctx = { cliFound: false, accountCount: 0 }
+    let step = 'welcome' as OnboardingStep
+    const seen = [step]
+    while (step !== 'done') {
+      expect(canNext(step, ctx) || canSkipStep(step)).toBe(true)
+      step = nextStep(step)
+      seen.push(step)
+    }
+    expect(seen).toEqual([...ONBOARDING_STEPS])
+  })
+
+  it('says on the Done step what is missing and what that means', () => {
+    expect(doneNotes({ cliFound: true, accountCount: 1 })).toEqual([])
+    expect(doneNotes({ cliFound: false, accountCount: 0 })).toEqual(['noCli'])
+    expect(doneNotes({ cliFound: true, accountCount: 0 })).toEqual(['noAccount'])
+  })
+
+  it('makes the Done primary Start only with a CLI; with none it goes back to Tools', () => {
+    expect(donePrimary({ cliFound: true })).toBe('start')
+    expect(donePrimary({ cliFound: false })).toBe('tools')
+  })
+
+  it('shows the no-CLI banner only once the answer is known, onboarding is closed and it was not dismissed', () => {
+    const none = { claude: false, codex: false }
+    expect(cliBannerShown({ cliInstalled: none, onboarding: false, dismissed: false })).toBe(true)
+    expect(cliBannerShown({ cliInstalled: null, onboarding: false, dismissed: false })).toBe(false)
+    expect(cliBannerShown({ cliInstalled: { ...none, codex: true }, onboarding: false, dismissed: false })).toBe(false)
+    expect(cliBannerShown({ cliInstalled: none, onboarding: true, dismissed: false })).toBe(false)
+    expect(cliBannerShown({ cliInstalled: none, onboarding: false, dismissed: true })).toBe(false)
+  })
+
+  it('a replay opened from the banner starts at Tools, from Settings at Welcome', () => {
+    expect(replayStart(undefined)).toBe('welcome')
+    expect(replayStart('tools')).toBe('tools')
   })
 })

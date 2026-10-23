@@ -3,7 +3,7 @@ import { labelRuns } from '../../../core/run/instances'
 import { formatRunDuration } from '../../../core/run/duration'
 import { exitWording } from '../../../core/sessions/exitWording'
 import { useI18n } from '../i18n/I18nProvider'
-import { Globe, X } from 'lucide-react'
+import { Icon, IconButton, nextFocusIndex } from './ui'
 
 /** The tab strip above the console: one tab per run of the current project, in seat order — state dot,
  *  label (repeats of a configuration are numbered by labelRuns), exit code once finished, the Validation
@@ -30,15 +30,26 @@ export function RunTabStrip({
   if (runs.length === 0) return <div className="run-tabstrip run-tabstrip-empty" role="note" aria-label={t('run.panel.tab')}>{t('run.panel.empty')}</div>
   const labels = new Map(labelRuns(runs).map((l) => [l.runId, l.label]))
   const selected = runs.find((r) => r.runId === selectedId) ?? null
+  // The one tab in the Tab order (roving tabindex): the selected run, or the first when none is selected
+  const rovingId = selected?.runId ?? runs[0].runId
   // A tab holds a button, so it is a span with role=tab (no button inside a button) — the same reason
-  // the bottom tabs are spans. Enter/Space select; a key from the nested ✕ is left to that button.
+  // the bottom tabs are spans. Enter/Space select; arrows, Home and End move focus over the tabs; a key
+  // from the nested ✕ is left to that button.
   const tabKeyDown =
     (runId: string) =>
     (e: React.KeyboardEvent): void => {
       if (e.target !== e.currentTarget) return
-      if (e.key !== 'Enter' && e.key !== ' ') return
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault()
+        onSelect(runId)
+        return
+      }
+      const list = e.currentTarget.parentElement
+      const rows = Array.from(list?.querySelectorAll<HTMLElement>('[role="tab"]') ?? [])
+      const next = nextFocusIndex(rows.indexOf(e.currentTarget as HTMLElement), rows.length, e.key, 'horizontal')
+      if (next === null) return
       e.preventDefault()
-      onSelect(runId)
+      rows[next]?.focus()
     }
   return (
     <div className="run-tabstrip">
@@ -48,7 +59,7 @@ export function RunTabStrip({
             key={r.runId}
             role="tab"
             aria-selected={r.runId === selectedId}
-            tabIndex={0}
+            tabIndex={r.runId === rovingId ? 0 : -1}
             className={`run-tab${r.runId === selectedId ? ' on' : ''}`}
             onClick={() => onSelect(r.runId)}
             onKeyDown={tabKeyDown(r.runId)}
@@ -63,18 +74,16 @@ export function RunTabStrip({
             {r.status === 'running' && r.detectedUrl !== undefined && (
               // The one place the preview is offered without knowing it exists: the address the run
               // printed, one click from the tab the user is already looking at after pressing ▶.
-              <button
-                type="button"
+              <IconButton
                 className="run-tab-preview"
-                title={t('run.panel.openPreview', { url: r.detectedUrl })}
-                aria-label={t('run.panel.openPreview', { url: r.detectedUrl })}
+                size="sm"
+                icon={<Icon name="web" size={14} />}
+                label={t('run.panel.openPreview', { url: r.detectedUrl })}
                 onClick={(e) => {
                   e.stopPropagation() // opening the preview must not also change the selected run
                   onOpenPreview(r.detectedUrl as string)
                 }}
-              >
-                <Globe size={11} />
-              </button>
+              />
             )}
             {r.status === 'exited' && (
               <span className={`run-tab-exit${exitWording(r.exitCode, { closedByAstera: r.closedByAstera, closeReason: r.closeReason }).tone === 'danger' ? ' fail' : ''}`}>
@@ -82,18 +91,16 @@ export function RunTabStrip({
               </span>
             )}
             {r.status === 'exited' && (
-              <button
-                type="button"
+              <IconButton
                 className="run-tab-close"
-                title={t('run.panel.close')}
-                aria-label={t('run.panel.close')}
+                size="sm"
+                icon={<Icon name="close" size={14} />}
+                label={t('run.panel.close')}
                 onClick={(e) => {
                   e.stopPropagation() // keeps close from also selecting the tab
                   onDismiss(r.runId)
                 }}
-              >
-                <X size={10} />
-              </button>
+              />
             )}
           </span>
         ))}

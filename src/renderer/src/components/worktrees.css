@@ -1,27 +1,33 @@
 /* ---------- worktree list (DESIGN-W11 §7 lists, §9 Worktrees) ---------- */
 /* Reuses the look of .panel-header h2 as a collapse/expand button */
 /* 캐럿이 아이콘이 된 뒤로 정렬이 필요하다 — 인라인 svg 는 baseline 에 앉아 대문자 글자보다 내려간다. */
-.panel-toggle { background: none; border: none; padding: 0; font-size: 10.5px; letter-spacing: .11em; text-transform: uppercase; color: var(--text-dim); font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
+.panel-toggle { background: none; border: none; padding: 0; font-size: var(--fs-11); letter-spacing: .11em; text-transform: uppercase; color: var(--text-dim); font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
 .panel-toggle:hover { color: var(--text); }
 /* 36px rows: branch (mono 13/500) and its Task faint after it, state chips, meta faint on the right. */
 .worktree-group { padding-bottom: var(--sp-2); }
 .worktree-repo { display: flex; align-items: baseline; gap: 6px; padding: var(--sp-3) var(--sp-4) var(--sp-1); font-size: var(--fs-11); font-weight: var(--fw-medium); color: var(--text-dim); text-transform: uppercase; letter-spacing: .04em; }
 .worktree-repo__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .worktree-list { display: flex; flex-direction: column; }
-.worktree-row { display: flex; align-items: center; gap: var(--sp-2); height: var(--h-lg); padding: 0 var(--sp-2) 0 var(--sp-4); cursor: pointer; box-shadow: inset 2px 0 0 transparent; transition: background var(--dur-fast) var(--ease-out); }
+.worktree-row { display: flex; align-items: center; gap: var(--sp-2); height: var(--h-lg); padding: 0 var(--sp-2) 0 var(--sp-4); box-shadow: inset 2px 0 0 transparent; transition: background var(--dur-fast) var(--ease-out); }
 .worktree-row:hover { background: var(--hover); }
 .worktree-row.is-selected { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
+/* The select button fills the row; Button wraps its children in a label span, which carries the row's flex layout. */
+.worktree-main { flex: 1; min-width: 0; height: 100%; justify-content: flex-start; padding: 0; border-radius: 0; font-weight: var(--fw-regular); color: inherit; }
+.worktree-main:hover:not(:disabled) { background: transparent; color: inherit; }
+.worktree-main .ui-btn__label { display: flex; align-items: center; gap: var(--sp-2); flex: 1; min-width: 0; overflow: hidden; }
 .worktree-name { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: var(--sp-2); overflow: hidden; white-space: nowrap; }
 .worktree-branch { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-family: var(--mono); font-size: var(--fs-13); font-weight: var(--fw-medium); color: var(--text); }
 .worktree-task { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: var(--fs-11); color: var(--text-faint); }
 .worktree-row .ui-chip { flex: none; }
+.changed-file-row.ui-btn { height: auto; justify-content: flex-start; }
+.changed-file-row .ui-btn__label { display: flex; align-items: baseline; gap: var(--sp-2); flex: 1; min-width: 0; overflow: visible; text-overflow: clip; }
 .worktree-aheadbehind { display: inline-flex; align-items: center; gap: 2px; flex: none; font-size: var(--fs-11); color: var(--text-faint); font-variant-numeric: tabular-nums; }
 .worktree-count { color: var(--text-faint); font-weight: var(--fw-regular); font-variant-numeric: tabular-nums; }
 .worktree-empty { margin: 0; padding: var(--sp-4); font-size: var(--fs-13); color: var(--text-faint); }
 /* Row actions on hover, focus or selection only; the spinner of a running removal stays. */
-.worktree-actions { display: flex; gap: 2px; flex: none; visibility: hidden; }
+.worktree-actions { display: flex; gap: 2px; flex: none; opacity: 0; }
 .worktree-row:hover .worktree-actions, .worktree-row:focus-within .worktree-actions,
-.worktree-row.is-selected .worktree-actions, .worktree-actions.is-busy { visibility: visible; }
+.worktree-row.is-selected .worktree-actions, .worktree-actions.is-busy { opacity: 1; }
 .worktree-delete:hover:not(:disabled) { color: var(--danger); }
 /* The rows git could not vouch for: one warning per status group, at the bottom of the list. */
 .worktree-group--trouble { border-top: 1px solid var(--line); }
@@ -34,7 +40,7 @@
 /* PR badge on a worktree row — read-only GitHub state (design doc §6). Colors reuse existing
    tokens on purpose, no new palette: open=--ok, merged=--accent, closed=--danger,
    draft=--text-faint. Passing checks draw nothing — only pending/failing earn a dot. */
-.pr-badge { display: inline-flex; align-items: center; gap: 3px; flex-shrink: 0; background: none; border: none; padding: 0 2px; font-family: var(--mono); font-size: 10px; cursor: pointer; }
+.pr-badge { display: inline-flex; align-items: center; gap: 3px; flex-shrink: 0; background: none; border: none; padding: 0 2px; font-family: var(--mono); font-size: var(--fs-11); cursor: pointer; }
 .pr-badge.open { color: var(--pr-open); }
 .pr-badge.merged { color: var(--pr-merged); }
 .pr-badge.closed { color: var(--pr-closed); }
@@ -54,9 +60,8 @@
 /* Unpushed commits, in the same slot the PR badge uses (rowSlot decides which). Quiet at rest so
    the row reads as a row, and only on hover does it announce that it is the way to open a pull
    request — Orca's "the primary action shifts with state", at the size a sidebar row allows. */
-.push-badge { flex: none; background: none; border: none; padding: 0 3px; font-family: var(--mono); font-size: 10px; color: var(--text-faint); cursor: pointer; border-radius: var(--radius-sm); }
+.push-badge { flex: none; background: none; border: none; padding: 0 3px; font-family: var(--mono); font-size: var(--fs-11); color: var(--text-faint); cursor: pointer; border-radius: var(--radius-sm); }
 .push-badge:hover { color: var(--accent); background: var(--elevated); }
-.push-badge:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--ring); }
 /* Disabled — a removal is holding the panel's git lock, or gh is not connected. The badge stays:
    unpushed commits are a fact that does not depend on gh, and hiding it would make a disconnect
    look like the work vanished. But it stops offering itself. Chromium still matches :hover on a
@@ -71,7 +76,7 @@
    .modal.new-session — both hold a loading overlay, and an overlay over a scrolling box is its
    own problem. position: relative is what that overlay is anchored to. */
 .create-pr .pr-base-row { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--line-soft); }
-.create-pr .pr-base-row .mono { font-family: var(--mono); font-size: 11.5px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.create-pr .pr-base-row .mono { font-family: var(--mono); font-size: var(--fs-12); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* label.check-small declares inline-flex so it sits in the flow at its own width, but .modal is a
    flex column with the default align-items: stretch, which widens it to the whole dialog — and a
    label toggles its control wherever it is clicked, so the empty space beside the words toggles
@@ -79,37 +84,8 @@
    every check-small in every modal; fixing it there is its own change, not this feature's. */
 .create-pr label.check-small { align-self: flex-start; }
 
-/* The Jobs view's "+ From a source" window (plugin Phase 4 J20): the source and the search on one line, then the list
-   beside the picked item, each scrolling on its own so the buttons stay in view. */
-/* Scrolls as a whole in a short app window, so the columns never run over the account field and the buttons (4c final review M11) */
-.source-job .source-pick { display: flex; gap: 8px; }
-.source-job .source-pick select { flex: 0 0 240px; background: var(--bg); color: var(--text); border: 1px solid var(--line-soft); padding: 6px; border-radius: var(--radius); color-scheme: dark; }
-.source-job .source-pick input { flex: 1; }
-.source-job .source-pick select:focus-visible, .source-job .source-pick input:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--ring); }
-.source-job .source-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; min-height: 0; }
-.source-job .source-items, .source-job .source-detail { max-height: 320px; overflow: auto; display: flex; flex-direction: column; gap: 6px; }
-.source-job .source-items ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
-.source-job .source-item { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; padding: 4px 6px; border-radius: var(--radius); cursor: pointer; font-size: 12.5px; }
-.source-job .source-item:hover { background: var(--surface-hover); }
-.source-job .source-item.picked { box-shadow: inset 2px 0 0 var(--accent); background: var(--surface-hover); }
-.source-job .source-item.disabled { opacity: 0.55; }
-/* A row takes the keyboard (4c final review M9): the app's focus ring, not the browser's outline */
-.source-job .source-item:focus { outline: none; }
-.source-job .source-item:focus-visible { box-shadow: inset 0 0 0 2px var(--ring); }
-.source-job .source-id { font-family: var(--mono); font-size: 11.5px; color: var(--text-faint); }
-.source-job .source-title { flex: 1; min-width: 0; color: var(--text); }
-.source-job .source-status, .source-job .source-reason { font-size: 11px; color: var(--text-faint); }
-.source-job .source-exists { font-size: 11px; padding: 0 6px; }
-.source-job .source-detail h3 { font-size: 13px; font-weight: 600; color: var(--text); margin: 0; }
-.source-job .source-fields { font-size: 11.5px; border-collapse: collapse; align-self: flex-start; }
-/* The detail's and the list's own buttons keep their size rather than the column's width */
-.source-job .source-detail > button, .source-job .source-items > button, .source-job .source-error > button { align-self: flex-start; }
-.source-job .source-fields th { text-align: left; color: var(--text-faint); font-weight: 400; padding-right: 10px; vertical-align: top; }
-/* The ticket's text as it is (§3.3): wrapped, never rendered */
-.source-job .source-body { white-space: pre-wrap; word-break: break-word; font-family: var(--mono); font-size: 11.5px; margin: 0; padding: 8px; background: var(--bg); border-radius: var(--radius); }
-.source-job .source-error { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
 /* A Job's source (plugin Phase 4 J18): a small chip after its objective, on the card and in the detail's header */
-.source-chip { flex: 0 0 auto; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10.5px; line-height: 16px; padding: 0 6px; border: 1px solid var(--line-soft); border-radius: var(--radius-sm); background: none; color: var(--text-dim); }
+.source-chip { flex: 0 0 auto; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-11); line-height: 16px; padding: 0 6px; border: 1px solid var(--line-soft); border-radius: var(--radius-sm); background: none; color: var(--text-dim); }
 button.source-chip { cursor: pointer; }
 button.source-chip:hover { color: var(--accent); border-color: var(--accent); }
 /* The palette, width and resize now come from `.field textarea`, which this dialog's fields sit in
@@ -118,8 +94,8 @@ button.source-chip:hover { color: var(--accent); border-color: var(--accent); }
 .create-pr textarea { padding: 6px 8px; font-family: inherit; }
 /* Failure stays in the dialog rather than becoming a toast — it answers a button just pressed. */
 .pr-create-failure { border: 1px solid var(--danger); border-radius: var(--radius); padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
-.pr-create-failure p { margin: 0; font-size: 12px; color: var(--text); }
-.pr-create-detail { margin: 0; max-height: 120px; overflow: auto; font-family: var(--mono); font-size: 10.5px; color: var(--text-dim); white-space: pre-wrap; }
+.pr-create-failure p { margin: 0; font-size: var(--fs-12); color: var(--text); }
+.pr-create-detail { margin: 0; max-height: 120px; overflow: auto; font-family: var(--mono); font-size: var(--fs-11); color: var(--text-dim); white-space: pre-wrap; }
 
 /* ---------- W9-J, W11 §9: the Worktrees page: header across, then the list and the detail side by side ---------- */
 .worktrees-page { display: flex; flex-direction: column; flex: 1; min-height: 0; width: 100%; }
@@ -140,12 +116,12 @@ button.source-chip:hover { color: var(--accent); border-color: var(--accent); }
 .worktree-detail__actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .worktree-facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
 .worktree-fact { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; }
-.worktree-fact__label { font-size: 11px; color: var(--text-faint); text-transform: uppercase; letter-spacing: .06em; }
-.worktree-fact__value { font-size: 13px; color: var(--text); overflow-wrap: anywhere; }
+.worktree-fact__label { font-size: var(--fs-11); color: var(--text-faint); text-transform: uppercase; letter-spacing: .06em; }
+.worktree-fact__value { font-size: var(--fs-13); color: var(--text); overflow-wrap: anywhere; }
 .worktree-fact--path { grid-column: 1 / -1; }
-.worktree-fact--path .worktree-fact__label { text-transform: none; letter-spacing: 0; font-family: var(--mono); font-size: 12px; color: var(--text-dim); user-select: text; overflow-wrap: anywhere; }
-.worktree-detail__section h3 { margin: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: .06em; }
+.worktree-fact--path .worktree-fact__label { text-transform: none; letter-spacing: 0; font-family: var(--mono); font-size: var(--fs-12); color: var(--text-dim); user-select: text; overflow-wrap: anywhere; }
+.worktree-detail__section h3 { margin: 0 0 8px; font-size: var(--fs-12); font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: .06em; }
 .worktree-commits { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
-.worktree-commits li { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--line-soft); font-size: 13px; }
-.worktree-commits code { color: var(--text-faint); font-family: var(--mono); font-size: 12px; }
+.worktree-commits li { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--line-soft); font-size: var(--fs-13); }
+.worktree-commits code { color: var(--text-faint); font-family: var(--mono); font-size: var(--fs-12); }
 .worktree-commits__subject { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }

@@ -2,18 +2,19 @@
 // open project; the popover lists the newest of them, each with its one action, then the latest handled lines, and
 // "View all" opens the full Inbox (InboxPage, the `inbox` page, not a tab). The status bar's "needs you" opens it too.
 import { useMemo, useSyncExternalStore } from 'react'
-import { Bell } from 'lucide-react'
 import type { MessageKey } from '../../../../core/i18n'
 import type { AppState } from '../../state/appState'
+import { useI18n } from '../../i18n/I18nProvider'
 import { approvePlan, type ActionUi } from '../../lib/jobActions'
 import { localDoor } from '../../lib/orchDoor'
-import { Button, Chip, IconButton } from '../ui'
+import { Button, Chip, Icon, IconButton } from '../ui'
 import { Popover } from '../ui/Popover'
 import { markRead, setRead, toggleAllProjects } from '../inbox/bellStore'
 import { useNeedsYou } from '../inbox/useNeedsYou'
 import { NEED_WORD, ageOf, handledOf, whereOf, type HandledLine, type NeedCard } from '../inbox/inboxView'
 import { BELL_RECENT_MAX, badgeOf, bellActionOf, bellItems, markAllRead, type BellAction } from '../inbox/bellView'
 import { openConsole, openInbox, openPlan } from './navigation'
+import '../inbox/inbox.css'
 
 // Open or shut from anywhere (the status bar), like inboxNav's request
 let opened = false
@@ -44,11 +45,12 @@ export type NotificationBellProps = Pick<AppState, 'accounts' | 'actionUi' | 'sc
 
 export function NotificationBell({ accounts, actionUi, scopedData, scopedTree, t, workspaceData, workspaceTree }: NotificationBellProps): React.JSX.Element {
   const open = useBellOpen()
+  const { lang } = useI18n()
   // the feed is read only while the popover shows: the badge needs the cards alone
   const { needs, events, pathOfJob, read, many, allProjects } = useNeedsYou({ scopedData, scopedTree, workspaceData, workspaceTree }, open)
   const handled = useMemo(
-    () => (open ? handledOf(events, { group: 'all' }, (id) => accounts?.find((a) => a.id === id)?.label ?? id, BELL_RECENT_MAX) : []),
-    [open, events, accounts]
+    () => (open ? handledOf(events, { group: 'all' }, (id) => accounts?.find((a) => a.id === id)?.label ?? id, BELL_RECENT_MAX, lang) : []),
+    [open, events, accounts, lang]
   )
   const items = bellItems(needs, handled, read)
   const badge = badgeOf(items.unread)
@@ -81,7 +83,7 @@ export function NotificationBell({ accounts, actionUi, scopedData, scopedTree, t
           label={items.unread > 0 ? t('bell.labelCount', { n: items.unread }) : t('bell.title')}
           icon={
             <>
-              <Bell size={16} aria-hidden="true" />
+              <Icon name="notifications" />
               {badge && (
                 <span className="tb-bell-badge" aria-hidden="true">
                   {badge}
@@ -187,11 +189,11 @@ export function BellPanel({
           <ul className="bell__list">
             {recent.map((l) => (
               <li key={l.id}>
-                <button type="button" className="bell__line" data-roving="" disabled={l.sessionId === undefined} title={l.text} onClick={() => onLine(l)}>
+                <Button variant="ghost" size="sm" className="bell__line" data-roving="" disabled={l.sessionId === undefined} title={l.text} onClick={() => onLine(l)}>
                   <span className="bell__text">{l.text}</span>
                   {l.plan && <span className="bell__plan">{l.plan}</span>}
                   <span className="bell__age">{timeOf(l.at)}</span>
-                </button>
+                </Button>
               </li>
             ))}
           </ul>

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { ScheduleRule } from '../../../core/types'
 import { buildScheduleRule } from '../../../core/scheduler/rule'
 import { useI18n } from '../i18n/I18nProvider'
-import { Select } from './Select'
+import { Button, Input, Select } from './ui'
 
 type SchedKind = ScheduleRule['kind']
 
@@ -56,6 +56,7 @@ export function ScheduleRuleFields({
       <div className="row">
         <Select
           className="sched-kind"
+          ariaLabel={t('session.new.schedMode.interval')}
           items={[
             { value: 'interval', label: t('session.new.schedMode.interval') },
             { value: 'daily', label: t('session.new.schedMode.daily') },
@@ -67,9 +68,10 @@ export function ScheduleRuleFields({
         />
         {kind === 'interval' && (
           <>
-            <input
+            <Input
               type="number"
               className="sched-minutes"
+              aria-label={t('session.new.schedMinutesUnit')}
               min={1}
               max={525_600}
               value={minutes}
@@ -80,9 +82,10 @@ export function ScheduleRuleFields({
         )}
         {kind === 'monthly' && (
           <>
-            <input
+            <Input
               type="text"
               className="sched-days"
+              aria-label={t('session.new.schedDaysUnit')}
               placeholder="1,15"
               value={days}
               onChange={(e) => setDays(e.target.value)}
@@ -91,9 +94,10 @@ export function ScheduleRuleFields({
           </>
         )}
         {kind !== 'interval' && (
-          <input
+          <Input
             type="time"
             className="sched-time"
+            aria-label={t('session.new.schedMode.daily')}
             value={time}
             onChange={(e) => setTime(e.target.value)}
           />
@@ -102,10 +106,12 @@ export function ScheduleRuleFields({
       {kind === 'weekly' && (
         <div className="row sched-weekdays">
           {weekdayLabels.map((label, d) => (
-            <button
+            <Button
               key={d}
-              type="button"
+              size="sm"
+              variant="ghost"
               className={weekdays.includes(d) ? 'weekday on' : 'weekday'}
+              aria-pressed={weekdays.includes(d)}
               onClick={() =>
                 setWeekdays((prev) =>
                   prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d].sort((a, b) => a - b)
@@ -113,7 +119,7 @@ export function ScheduleRuleFields({
               }
             >
               {label}
-            </button>
+            </Button>
           ))}
         </div>
       )}

@@ -7,7 +7,7 @@
 }
 .account-slot .slot-label {
   flex: 0 0 130px;
-  font-size: 11px;
+  font-size: var(--fs-11);
   opacity: 0.75;
 }
 .account-slot .sel-trigger {

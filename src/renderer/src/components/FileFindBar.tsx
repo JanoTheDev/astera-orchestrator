@@ -12,21 +12,9 @@ import {
   selectMatches,
   setSearchQuery
 } from '@codemirror/search'
-import {
-  CaseSensitive,
-  ChevronDown,
-  ChevronRight,
-  ChevronUp,
-  Regex,
-  Replace,
-  ReplaceAll,
-  Search,
-  TextSelect,
-  WholeWord,
-  X
-} from 'lucide-react'
 import { useI18n } from '../i18n/I18nProvider'
 import { countMatches } from './fileFind'
+import { Icon, IconButton, type IconName } from './ui'
 
 /** How long the count waits after the last change before walking the document. Long enough that a
  *  burst of typing costs one walk, short enough that pressing Enter does not feel like it lagged. */
@@ -165,62 +153,45 @@ export function FileFindBar({
           : t('explorer.find.count', { n: results.index, total: results.total })
   const countBad = badPattern || results?.total === 0
 
-  const toggle = (
-    on: boolean,
-    label: string,
-    Icon: typeof CaseSensitive,
-    flip: () => void
-  ): React.JSX.Element => (
-    <button
-      type="button"
-      className={`fe-find-toggle${on ? ' on' : ''}`}
-      title={label}
-      aria-label={label}
-      aria-pressed={on}
-      onMouseDown={keepFocus}
-      onClick={flip}
-    >
-      <Icon size={12} />
-    </button>
+  const glyph = (name: IconName): React.JSX.Element => <Icon name={name} size={14} />
+
+  const toggle = (on: boolean, label: string, g: IconName, flip: () => void): React.JSX.Element => (
+    <IconButton size="sm" className="fe-find-toggle" icon={glyph(g)} label={label} aria-pressed={on} active={on} onMouseDown={keepFocus} onClick={flip} />
   )
 
-  const action = (
-    label: string,
-    Icon: typeof CaseSensitive,
-    run: () => void
-  ): React.JSX.Element => (
-    <button
-      type="button"
-      className="fe-find-btn"
-      title={label}
-      aria-label={label}
-      onMouseDown={keepFocus}
-      onClick={run}
-    >
-      <Icon size={12} />
-    </button>
+  const action = (label: string, g: IconName, run: () => void): React.JSX.Element => (
+    <IconButton size="sm" className="fe-find-btn" icon={glyph(g)} label={label} onMouseDown={keepFocus} onClick={run} />
   )
 
   const expandLabel = t(showReplace ? 'explorer.find.hideReplace' : 'explorer.find.showReplace')
   return (
-    <div className="fe-find" role="search">
+    <div
+      className="fe-find"
+      role="search"
+      // Esc closes the bar from any control in it, not only from the two fields
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault()
+          e.stopPropagation()
+          close()
+        }
+      }}
+    >
       {!readOnly && (
-        <button
-          type="button"
+        <IconButton
+          size="sm"
           className="fe-find-expand"
-          title={expandLabel}
-          aria-label={expandLabel}
+          icon={<Icon name={showReplace ? 'chevronDown' : 'chevronRight'} size={14} />}
+          label={expandLabel}
           aria-expanded={showReplace}
           onMouseDown={keepFocus}
           onClick={() => setShowReplace((v) => !v)}
-        >
-          {showReplace ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-        </button>
+        />
       )}
       <div className="fe-find-rows">
         <div className="fe-find-row">
           <div className="fe-find-field">
-            <Search className="fe-find-field-icon" size={12} />
+            <Icon name="search" size={14} className="fe-find-field-icon" />
             <input
               ref={inputRef}
               type="text"
@@ -240,30 +211,30 @@ export function FileFindBar({
               }}
             />
             <span className="fe-find-toggles">
-              {toggle(caseSensitive, t('explorer.find.caseSensitive'), CaseSensitive, () =>
+              {toggle(caseSensitive, t('explorer.find.caseSensitive'), 'matchCase', () =>
                 setCaseSensitive((v) => !v)
               )}
-              {toggle(wholeWord, t('explorer.find.wholeWord'), WholeWord, () =>
+              {toggle(wholeWord, t('explorer.find.wholeWord'), 'wholeWord', () =>
                 setWholeWord((v) => !v)
               )}
-              {toggle(regexp, t('explorer.find.regexp'), Regex, () => setRegexp((v) => !v))}
+              {toggle(regexp, t('explorer.find.regexp'), 'regex', () => setRegexp((v) => !v))}
             </span>
           </div>
           <span className={`fe-find-count${countBad ? ' bad' : ''}`}>{countText}</span>
           <span className="fe-find-sep" />
-          {action(t('explorer.find.prev'), ChevronUp, () => findPrevious(view))}
-          {action(t('explorer.find.next'), ChevronDown, () => findNext(view))}
-          {action(t('explorer.find.selectAll'), TextSelect, () => {
+          {action(t('explorer.find.prev'), 'chevronUp', () => findPrevious(view))}
+          {action(t('explorer.find.next'), 'chevronDown', () => findNext(view))}
+          {action(t('explorer.find.selectAll'), 'selectText', () => {
             selectMatches(view)
             view.focus()
           })}
           <span className="fe-find-sep" />
-          {action(t('explorer.find.close'), X, close)}
+          {action(t('explorer.find.close'), 'close', close)}
         </div>
         {showReplace && !readOnly && (
           <div className="fe-find-row">
             <div className="fe-find-field">
-              <Replace className="fe-find-field-icon" size={12} />
+              <Icon name="replace" size={14} className="fe-find-field-icon" />
               <input
                 type="text"
                 value={replace}
@@ -282,8 +253,8 @@ export function FileFindBar({
                 }}
               />
             </div>
-            {action(t('explorer.find.replace'), Replace, () => replaceNext(view))}
-            {action(t('explorer.find.replaceAll'), ReplaceAll, () => replaceAll(view))}
+            {action(t('explorer.find.replace'), 'replace', () => replaceNext(view))}
+            {action(t('explorer.find.replaceAll'), 'replaceAll', () => replaceAll(view))}
           </div>
         )}
       </div>

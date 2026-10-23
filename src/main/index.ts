@@ -21,7 +21,9 @@ import { existsSync, readFileSync, promises as fsp } from 'node:fs'
 import type { AppUpdater } from 'electron-updater'
 import iconAsset from '../../resources/icon.png?asset'
 import trayAsset from '../../resources/tray.png?asset'
+import { APP_ID } from './appId'
 import { createCore, type Core } from './core'
+import { installCrashReports } from './crashReports'
 import { clearAppRunning, markAppRunning } from '../core/host/pidFile'
 import { flushAllLogsSync, lineLog } from '../core/log/logWriter'
 import { createHeldNotifications } from './heldNotifications'
@@ -84,6 +86,7 @@ import { t } from '../core/i18n'
 import { loadPolicy, nextCheckDelayMs, parsePolicyUrl, shouldApplyCampaign } from './updatePolicy'
 import { AUTO_UPDATE } from '../core/update/autoUpdate'
 import { BUILT_COMMIT, canSelfInstall, SOURCE_DIR } from '../core/update/sourceUpdate'
+import { activeUpdateChannelOf, UPDATE_IPC_CHANNELS, updateDisabledOf, updaterOptionsOf } from '../core/update/updateChannel'
 import { createSourceUpdater } from './sourceUpdate'
 import type { MessageKey } from '../core/i18n'
 import {
@@ -145,6 +148,15 @@ protocol.registerSchemesAsPrivileged([
 ])
 
 let core: Core | null = null
+// T27: crash reports, written from here on; offered only with the person's yes (main/crashReports.ts)
+installCrashReports({
+  proc: process,
+  app,
+  ipc: ipcMain,
+  build: BUILT_COMMIT,
+  setting: () => core?.appSettings.getCrashReports() ?? 'ask',
+  openExternal: (url) => shell.openExternal(url)
+})
 let codexRollingRef: CodexRollingCoordinator | null = null
 let schedulerRef: SchedulerCoordinator | null = null
 let codexRolloutRef: CodexRolloutWatcher | null = null
@@ -561,8 +573,8 @@ app.whenReady().then(async () => {
   // Windows delivers a toast against the process's AppUserModelID and silently drops it when that
   // does not match a shortcut's — indistinguishable from the OS-refusal case DesktopNotifierDeps's
   // `show` already expects to swallow (design doc §9). Called unconditionally rather than guarded to
-  // win32: Electron makes it a no-op on macOS/Linux. The id matches electron-builder.yml's appId.
-  app.setAppUserModelId('io.github.parsingk.astera')
+  // win32: Electron makes it a no-op on macOS/Linux. The id is APP_ID, which a test holds equal to electron-builder.yml's appId.
+  app.setAppUserModelId(APP_ID)
   // win32 doesn't use a menu bar (the custom titlebar takes that spot). macOS is different — edit
   // commands like Cmd+C/V/X/A/Z are provided by Electron's menu roles, so removing the menu would
   // kill those keys in every input field in the renderer. Hence a minimal, role-only menu on mac.
@@ -1496,13 +1508,21 @@ app.whenReady().then(async () => {
   // Auto-update: pulled from public GitHub Releases with no credentials. Progress is surfaced both
   // to a file log (userData/updater.log) and to the renderer (shown in the title bar).
   // Fork: off unless built with ASTERA_AUTO_UPDATE=1; this also skips the remote policy.json fetch below.
-  if (app.isPackaged && AUTO_UPDATE) {
+  const updateChannel = activeUpdateChannelOf({
+    packaged: app.isPackaged,
+    autoUpdate: AUTO_UPDATE,
+    builtCommit: BUILT_COMMIT,
+    sourceDir: SOURCE_DIR
+  })
+  if (updateChannel === 'releases') {
     const flog = lineLog(path.join(app.getPath('userData'), 'updater.log'))
     // The last state pushed, so a check that runs out of time knows what the screen is showing
     // (afterCheckTimeout).
     const updateStates = createUpdateStateTracker()
+    let lastStatus: UpdateStatus = { state: 'init' }
     const push = (s: UpdateStatus): void => {
       updateStates.record(s)
+      lastStatus = s
       flog(JSON.stringify(s))
       try {
         windows.broadcast('update:status', s)
@@ -1511,6 +1531,8 @@ app.whenReady().then(async () => {
       }
     }
     push({ state: 'init', version: app.getVersion() })
+    // Registered before the updater loads, so a renderer that mounts meanwhile is answered too.
+    ipcMain.handle('update:status', () => lastStatus)
     import('electron-updater')
       .then((mod) => {
         // electron-updater is CommonJS, so depending on the dynamic import's interop autoUpdater can
@@ -1610,6 +1632,10 @@ app.whenReady().then(async () => {
         // "checking" on screen for good (core/update/checkTimeout.ts). On the deadline the screen is
         // put back and the wait is logged; the check itself cannot be cancelled and may still land.
         const checkOnce = async (userInitiated: boolean): Promise<'done' | 'timedOut'> => {
+          // The stable/beta track is read before every check, so a change in settings needs no restart.
+          const track = core!.appSettings.getUpdateChannel()
+          Object.assign(autoUpdater, updaterOptionsOf(track))
+          flog(`check on the ${track} channel`)
           const r = await checkWithTimeout(
             () => autoUpdater.checkForUpdates(),
             UPDATE_CHECK_TIMEOUT_MS,
@@ -1748,7 +1774,7 @@ app.whenReady().then(async () => {
         void runAutomaticCheck()
       })
       .catch((e) => push({ state: 'error', message: `updater load failed: ${e?.message ?? String(e)}` }))
-  } else if (app.isPackaged && BUILT_COMMIT && SOURCE_DIR) {
+  } else if (updateChannel === 'source') {
     // The source channel, for a build made from a git checkout: origin/main's new commits are built in a private
     // clone and installed on a restart (main/sourceUpdate.ts). The releases updater above is never on with it.
     const flog = lineLog(path.join(app.getPath('userData'), 'updater.log'))
@@ -1793,6 +1819,11 @@ app.whenReady().then(async () => {
     ipcMain.handle('update:download', () => source.build())
     ipcMain.handle('update:install', () => source.install())
     source.start()
+  } else {
+    // No channel (a dev run, or a build made with neither flag): every update:* call is answered rather than left
+    // to reject with "No handler registered", which Electron logs from main on every call.
+    const disabled = updateDisabledOf(app.isPackaged)
+    for (const ch of UPDATE_IPC_CHANNELS) ipcMain.handle(ch, () => disabled)
   }
 })
 

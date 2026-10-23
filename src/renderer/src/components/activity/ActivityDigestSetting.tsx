@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useI18n } from '../../i18n/I18nProvider'
 import { toast } from '../../lib/toast'
+import { Input } from '../ui'
 
 /** W3-A: minutes between activity digests (core/settings/activityDigest.ts), 0 for none. Saved on blur, as
  *  MaxWorkersSetting is; a value that is not a whole number from 0 to a day goes back to what was saved. */
@@ -36,7 +37,7 @@ export function ActivityDigestSetting(): React.JSX.Element {
     <div>
       <label className="settings-row">
         <span>{t('settings.activityDigest.label')}</span>
-        <input
+        <Input
           type="number"
           min={0}
           max={1440}

@@ -4,8 +4,8 @@
 // fast path, else the coordinator role model), the intent's names become exact ids or a question, and only then does
 // anything run: `read` at once, `act` on Run, `confirm` through a dialog (core/intents/safety.ts).
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { MicIcon, Search, X } from 'lucide-react'
-import { Button, Chip, IconButton } from '../ui'
+import { Button, Chip, Icon, IconButton, Modal, type IconName } from '../ui'
+import { PickKeys, PickList, pickListEnter } from '../QuickSwitcher'
 import { useI18n } from '../../i18n/I18nProvider'
 import type { Intent } from '../../../../core/intents/types'
 import type { Pins } from '../../../../core/intents/resolve'
@@ -17,9 +17,8 @@ import { planSessions, type WorkspaceData, type WorkspaceProject } from '../../s
 import { useAttention } from '../../state/useAttention'
 import { openConsole, openPlan } from '../shell/navigation'
 import type { ActionUi } from '../../lib/jobActions'
-import { isConfirmOpen } from '../../lib/confirm'
-import { armBarClose } from './barClose'
 import { boxHits, type BoxHit } from './boxHits'
+import { setHelpOpen } from '../help/helpStore'
 import { boxModeOf } from './boxMode'
 import { boxSourceOf } from './boxSource'
 import { directoryOf } from './directory'
@@ -71,21 +70,23 @@ export function CommandBar({
   const [busy, setBusy] = useState(false)
   const [recording, setRecording] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
-  const barRef = useRef<HTMLDivElement>(null)
-  const closeRef = useRef(onClose)
-  closeRef.current = onClose
+  const listRef = useRef<HTMLDivElement>(null)
   const speech = useMemo(() => whisperSpeech((wav) => window.api.command.transcribe(wav)), [])
   const dir = useMemo(() => directoryOf(tree, data, currentProject, currentPlanId), [tree, data, currentProject, currentPlanId])
   // W9-D: the search half. Attention is read only while the box is open.
   const attention = useAttention(open ? tree.flatMap((p) => p.plans.flatMap((pl) => planSessions(pl).map((s) => s.sessionId))) : [])
   const source = useMemo(() => (open ? boxSourceOf(tree, data, attention) : null), [open, tree, data, attention])
-  const hits = useMemo(() => (source ? boxHits(source, input.trim()) : []), [source, input])
+  const hits = useMemo(
+    () => (source ? boxHits({ ...source, help: { title: t('help.title'), where: t('help.where'), words: ['help', '?', 'f1', 'how to'] } }, input.trim()) : []),
+    [source, input, t]
+  )
   const mode = boxModeOf(input, hits.length)
   const [sel, setSel] = useState(0)
   useEffect(() => setSel(0), [input])
   const pick = (h: BoxHit): void => {
     onClose()
     if (h.kind === 'session') openConsole(h.sessionId)
+    else if (h.kind === 'help') setHelpOpen(true)
     else openPlan(h.jobId, h.kind === 'task' ? 'tasks' : undefined)
   }
 
@@ -192,16 +193,9 @@ export function CommandBar({
     if (!open) setRecording(false)
   }, [open, speech])
 
-  // W5-C: a click away from the bar or Escape from anywhere closes it (not while the app's dialog is up). Closing goes
-  // through onClose, so the effect above still stops the microphone mid-recording.
-  useEffect(() => {
-    if (!open) return
-    return armBarClose(window, {
-      inside: (n) => n instanceof Node && barRef.current?.contains(n) === true,
-      confirmOpen: isConfirmOpen,
-      close: () => closeRef.current()
-    })
-  }, [open])
+  // W5-C: a click away from the bar or Escape closes it. W12: the ui Modal does both now (its backdrop and its Esc, and
+  // the app's confirm dialog stacks above it, so neither reaches the bar while that is up). Closing goes through
+  // onClose, so the effect above still stops the microphone mid-recording.
 
   if (!open) return null
   const describe = (p: Pending): string => {
@@ -221,119 +215,135 @@ export function CommandBar({
   }
   const lineButton = (l: Line, i: number): React.JSX.Element =>
     l.sessionId !== undefined || l.jobId !== undefined ? (
-      <button
+      <Button
         key={i}
-        className="command-line command-link"
+        variant="ghost"
+        size="sm"
+        className="command-line ov-cmd-link"
         onClick={() => (l.sessionId !== undefined ? onOpenSession(l.sessionId, l.jobId) : openPlan(l.jobId!))}
       >
         {l.text}
-      </button>
+      </Button>
     ) : (
       <div key={i} className="command-line">
         {l.text}
       </div>
     )
 
+  const searching = input.trim() !== '' && mode === 'search'
   return (
-    <div ref={barRef} className="command-bar" role="dialog" aria-label={tr('command.title')}>
-      <div className="command-log">
-        {entries.map((en, i) => (
-          <div key={i} className={`command-entry command-${en.who}`}>
-            {en.lines.map(lineButton)}
-          </div>
-        ))}
-        {pending && !pending.res.ok && (
-          <div className="command-entry command-coordinator">
-            <div className="command-line">
-              {tr(`command.clarify.${pending.res.miss.why}`, { what: tr(`command.what.${pending.res.miss.what}`), name: pending.res.miss.name ?? '' })}
+    <Modal title={tr('command.title')} closeLabel={tr('command.close')} onClose={onClose} footer={searching ? <PickKeys /> : undefined}>
+      <div className="ov-cmd">
+        <div className="command-log">
+          {entries.map((en, i) => (
+            <div key={i} className={`command-entry command-${en.who}`}>
+              {en.lines.map(lineButton)}
             </div>
-            <div className="command-choices">
-              {pending.res.miss.candidates.map((c, i) => (
-                <Button key={i} size="sm" onClick={() => void evaluate(pending.intent, { ...pending.pins, ...c.pin }, 'auto')}>
-                  {c.label}
-                </Button>
-              ))}
-            </div>
-          </div>
-        )}
-        {pending && pending.res.ok && (
-          <div className="command-entry command-coordinator command-preview">
-            <div className="command-line">{describe(pending)}</div>
-            {pending.intent.kind === 'send' && <div className="command-line command-quote">“{pending.intent.text}”</div>}
-            <div className="command-choices">
-              {/* `confirm` runs a function that asks in the app's dialog (jobActions); this click only opens it */}
-              <Button size="sm" variant="primary" disabled={busy} onClick={() => void evaluate(pending.intent, pending.pins, 'submit')}>
-                {SAFETY[pending.intent.kind] === 'confirm' ? tr('command.confirm') : tr('command.run')}
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => setPending(null)}>
-                {tr('command.cancel')}
-              </Button>
-            </div>
-          </div>
-        )}
-      </div>
-      {input.trim() !== '' && mode === 'search' && (
-        <ul className="command-hits" role="listbox" aria-label={tr('command.title')}>
-          {hits.length === 0 && <li className="command-nohit">{tr('command.noMatch')}</li>}
-          {hits.map((h, i) => (
-            <li key={h.key} role="option" aria-selected={i === sel}>
-              <button className={`command-hit${i === sel ? ' selected' : ''}`} onMouseEnter={() => setSel(i)} onClick={() => pick(h)}>
-                <span className="command-hit-kind">{tr(`command.group.${h.kind}s`)}</span>
-                <span className="command-hit-main">
-                  <span className="command-hit-title">{h.title}</span>
-                  <span className="command-hit-where">{h.where}</span>
-                </span>
-                {h.kind === 'session' && h.waiting && (
-                  <Chip tone="warn" dot>
-                    {tr('inbox.kind.waiting')}
-                  </Chip>
-                )}
-              </button>
-            </li>
           ))}
-        </ul>
-      )}
-      <div className="command-input-row">
-        <Search size={16} className="command-input-icon" aria-hidden="true" />
-        <input
-          ref={inputRef}
-          className="command-input"
-          value={input}
-          disabled={busy}
-          placeholder={recording ? tr('command.voice.listening') : tr('command.placeholder')}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.nativeEvent.isComposing) return
-            if (mode === 'search' && hits.length > 0 && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+          {pending && !pending.res.ok && (
+            <div className="command-entry command-coordinator">
+              <div className="command-line">
+                {tr(`command.clarify.${pending.res.miss.why}`, { what: tr(`command.what.${pending.res.miss.what}`), name: pending.res.miss.name ?? '' })}
+              </div>
+              <div className="command-choices">
+                {pending.res.miss.candidates.map((c, i) => (
+                  <Button key={i} size="sm" onClick={() => void evaluate(pending.intent, { ...pending.pins, ...c.pin }, 'auto')}>
+                    {c.label}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          )}
+          {pending && pending.res.ok && (
+            <div className="command-entry command-coordinator command-preview">
+              <div className="command-line">{describe(pending)}</div>
+              {pending.intent.kind === 'send' && <div className="command-line command-quote">“{pending.intent.text}”</div>}
+              <div className="command-choices">
+                {/* `confirm` runs a function that asks in the app's dialog (jobActions); this click only opens it */}
+                <Button size="sm" variant="primary" disabled={busy} onClick={() => void evaluate(pending.intent, pending.pins, 'submit')}>
+                  {SAFETY[pending.intent.kind] === 'confirm' ? tr('command.confirm') : tr('command.run')}
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setPending(null)}>
+                  {tr('command.cancel')}
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="command-input-row">
+          <Icon name="search" className="command-input-icon" />
+          <input
+            ref={inputRef}
+            className="command-input"
+            value={input}
+            disabled={busy}
+            aria-label={tr('command.title')}
+            placeholder={recording ? tr('command.voice.listening') : tr('command.placeholder')}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.nativeEvent.isComposing) return
+              if (searching && pickListEnter(listRef.current, e.key, sel, hits.length)) {
+                e.preventDefault()
+                return
+              }
+              if (e.key !== 'Enter') return
               e.preventDefault()
-              setSel((i) => (i + (e.key === 'ArrowDown' ? 1 : hits.length - 1)) % hits.length)
-              return
-            }
-            if (e.key !== 'Enter') return
-            e.preventDefault()
-            // A search opens the chosen hit; a sentence falls through to the command below
-            if (input.trim() !== '' && mode === 'search') {
-              if (hits[sel]) pick(hits[sel])
-              return
-            }
-            // Enter on an empty line runs an `act` preview; a `confirm` still opens its dialog first
-            if (input.trim() === '' && pending?.res.ok) void evaluate(pending.intent, pending.pins, 'submit')
-            else void submit(input)
-          }}
-        />
-        <IconButton
-          className={`command-mic${recording ? ' recording' : ''}`}
-          icon={<MicIcon size={16} />}
-          label={tr('command.voice.hold')}
-          active={recording}
-          aria-pressed={recording}
-          disabled={busy && !recording}
-          onPointerDown={() => void startTalk()}
-          onPointerUp={() => void stopTalk()}
-          onPointerLeave={() => void stopTalk()}
-        />
-        <IconButton icon={<X size={16} />} label={tr('command.close')} onClick={onClose} />
+              // A search opens the chosen hit; a sentence falls through to the command below
+              if (searching) {
+                if (hits[sel]) pick(hits[sel])
+                return
+              }
+              // Enter on an empty line runs an `act` preview; a `confirm` still opens its dialog first
+              if (input.trim() === '' && pending?.res.ok) void evaluate(pending.intent, pending.pins, 'submit')
+              else void submit(input)
+            }}
+          />
+          <IconButton
+            className={`command-mic${recording ? ' recording' : ''}`}
+            icon={<Icon name="mic" />}
+            label={tr('command.voice.hold')}
+            active={recording}
+            aria-pressed={recording}
+            disabled={busy && !recording}
+            onPointerDown={() => void startTalk()}
+            onPointerUp={() => void stopTalk()}
+            onPointerLeave={() => void stopTalk()}
+          />
+        </div>
+        {searching && (
+          <PickList
+            rows={hits.map((h) => ({
+              key: h.key,
+              content: (
+                <>
+                  <span className="ov-pick-kind">
+                    <Icon name={HIT_ICON[h.kind]} size={14} />
+                    {h.kind === 'help' ? tr('help.title') : tr(`command.group.${h.kind}s`)}
+                  </span>
+                  <span className="ov-pick-main">
+                    <span className="ov-pick-title">{h.title}</span>
+                    <span className="ov-pick-meta">{h.where}</span>
+                  </span>
+                  {h.kind === 'session' && h.waiting && (
+                    <Chip tone="warn" dot>
+                      {tr('overlays.command.waiting')}
+                    </Chip>
+                  )}
+                </>
+              )
+            }))}
+            sel={sel}
+            onSel={setSel}
+            onPick={(i) => pick(hits[i])}
+            field={inputRef}
+            label={tr('command.title')}
+            empty={tr('command.noMatch')}
+            listRef={listRef}
+          />
+        )}
       </div>
-    </div>
+    </Modal>
   )
 }
+
+const HIT_ICON: Record<BoxHit['kind'], IconName> = { session: 'terminal', plan: 'layers', task: 'tasks', help: 'info' }

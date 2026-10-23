@@ -7,7 +7,7 @@
   position: fixed; inset: 44px 0 26px 0; z-index: 90;
   display: flex; flex-direction: column;
   background: var(--bg); color: var(--text);
-  outline: none;
+  outline: none; box-shadow: none;
 }
 .settings-page__head { flex: none; border-bottom: 1px solid var(--line); }
 .settings-page__body { display: flex; flex: 1; min-height: 0; }
@@ -17,8 +17,9 @@
   display: flex; flex-direction: column; gap: 2px; width: 200px; flex: none;
   padding: var(--sp-3); border-right: 1px solid var(--line); background: var(--panel); overflow-y: auto;
 }
+/* Each group is a ghost ui Button: left-aligned and full width here. */
 .settings-page__nav .settings-nav-item {
-  display: flex; align-items: center; gap: var(--sp-2); min-height: var(--h-md); padding: 0 var(--sp-2);
+  display: flex; align-items: center; justify-content: flex-start; gap: var(--sp-2); width: 100%; min-height: var(--h-md); padding: 0 var(--sp-2);
   font-size: var(--fs-13); font-weight: var(--fw-medium); color: var(--text-dim);
   transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
@@ -34,7 +35,8 @@
   border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--bg); color: var(--text-faint);
 }
 .settings-page__search:focus-within { box-shadow: var(--focus-ring); }
-.settings-page__search input { flex: 1; min-width: 0; background: none; border: none; outline: none; color: var(--text); font: inherit; font-size: var(--fs-13); }
+.settings-page__search input:focus-visible { box-shadow: none; }
+.settings-page__search input { flex: 1; min-width: 0; background: none; border: none; outline: none; box-shadow: none; color: var(--text); font: inherit; font-size: var(--fs-13); }
 .settings-page__search input::placeholder { color: var(--text-faint); }
 
 /* The content: one column at 720px, centred in what the nav leaves. */
@@ -128,3 +130,19 @@
 .settings-projects-list .settings-nav-item.active { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
 .settings-projects-body { flex: 1; min-width: 0; }
 .settings-page__more { margin-top: var(--sp-2); }
+
+/* T28 About: the name with its mark, the build version with its Copy button, and the licenses window. */
+.about-name { display: inline-flex; align-items: center; gap: var(--sp-2); }
+.about-copy { display: inline-flex; align-items: center; gap: var(--sp-2); min-width: 0; }
+.about-code { font-family: var(--mono); font-size: var(--fs-12); color: var(--text-dim); overflow-wrap: anywhere; user-select: all; }
+.licenses { display: grid; grid-template-columns: minmax(200px, 280px) minmax(0, 1fr); gap: var(--sp-4); height: min(60vh, 520px); }
+.licenses__list { display: flex; flex-direction: column; gap: var(--sp-2); min-height: 0; }
+.licenses__items { margin: 0; padding: 0; list-style: none; overflow-y: auto; overflow-x: hidden; min-height: 0; }
+.licenses .licenses__item { justify-content: flex-start; gap: 0; width: 100%; min-width: 0; height: auto; padding: var(--sp-1) var(--sp-2); text-align: left; white-space: normal; }
+.licenses .licenses__item[aria-current='true'] { background: var(--accent-soft); }
+.licenses .licenses__item .ui-btn__label { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
+.licenses__name { font-size: var(--fs-13); color: var(--text); overflow-wrap: anywhere; }
+.licenses__meta { font-size: var(--fs-11); color: var(--text-faint); }
+.licenses__text { display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0; min-height: 0; overflow: auto; }
+.licenses__pre { margin: 0; font-family: var(--mono); font-size: var(--fs-12); line-height: var(--lh); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-dim); }
+@media (max-width: 720px) { .licenses { grid-template-columns: minmax(0, 1fr); height: auto; } }

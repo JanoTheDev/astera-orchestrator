@@ -544,6 +544,16 @@ describe('snapshotFor', () => {
     expect(r).not.toHaveProperty('coordinatorMissing')
   })
 
+  // T36: a Run whose only way on is through a failed Task carries it, for the card's Retry / Accept / Cancel
+  it('stalledOn names the failed Task the Run waits on, and how many wait', () => {
+    const failed = { ...task('f', 'r1', 'failed'), consecutiveFailures: 1, result: 'gaps: login' }
+    const s = withRuns([run('r1', absPath('p'))], [failed, { ...task('d', 'r1', 'pending'), deps: ['f'] }])
+    const [r] = snapshotFor(s, absPath('p'), anySession, noWorktrees, noFires, allExist).runs
+    expect(r.stalledOn).toEqual({ taskId: 'f', title: 'task f', result: 'gaps: login', waiting: 1 })
+    const moving = withRuns([run('r1', absPath('p'))], [failed, { ...task('d', 'r1', 'pending'), deps: ['f'] }, task('x', 'r1', 'ready')])
+    expect(snapshotFor(moving, absPath('p'), anySession, noWorktrees, noFires, allExist).runs[0]).not.toHaveProperty('stalledOn')
+  })
+
   // Task 1 fix round 1, I1: a coordinator start in flight shows no ▶, until its mark is past the window.
   it('코디네이터가 뜨는 중이면 그 칸이 없고, 표시가 창을 넘으면 다시 생긴다', () => {
     const base = withRuns([{ ...run('r1', absPath('p')), coordinatorAccountId: 'acc1' }])
@@ -1320,5 +1330,36 @@ describe('a Run whose delivery failed', () => {
     expect(outcomeOf(delivered(), 'r1')).toBe('completed')
     expect(rowOf(delivered())).toMatchObject({ outcome: 'completed' })
     expect(rowOf(delivered())).not.toHaveProperty('deliveryError')
+  })
+  // T1: the plan page's Retry / It's already pushed / Dismiss read the row
+  it('a Run from before deliveryState with only an error gets a failed delivery row; a settled one gets none', () => {
+    const legacy = delivered('push refused')
+    expect(rowOf(legacy).delivery).toEqual({ runId: 'r1', state: 'failed', reason: 'push refused' })
+    const dismissed = { ...legacy, runs: legacy.runs.map((r) => ({ ...r, deliveryState: { state: 'dismissed' as const, attempts: 1 } })) }
+    // T34: the row says so, so the Plans list does not read the undelivered plan Done
+    expect(rowOf(dismissed).delivery).toBeUndefined()
+    expect(rowOf(dismissed).deliveryDismissed).toBe(true)
+    expect(rowOf(delivered()).deliveryDismissed).toBeUndefined()
+    expect(rowOf(dismissed)).toMatchObject({ outcome: 'completed' })
+    expect(rowOf(delivered()).delivery).toBeUndefined()
+  })
+
+  it('carries lastAttemptAt and the stop code of a retried delivery', () => {
+    const s = delivered('your main cannot fast-forward')
+    const retrying = {
+      ...s,
+      runs: s.runs.map((r) => ({
+        ...r,
+        deliveryState: { state: 'retrying' as const, attempts: 2, lastError: 'diverged', lastAttemptAt: '2026-10-22T10:00:00.000Z', nextRetryAt: '2026-10-22T10:05:00.000Z', lastCode: 'main-diverged' }
+      }))
+    }
+    expect(rowOf(retrying).delivery).toEqual({
+      runId: 'r1',
+      state: 'retrying',
+      reason: 'diverged',
+      nextRetryAt: '2026-10-22T10:05:00.000Z',
+      lastAttemptAt: '2026-10-22T10:00:00.000Z',
+      code: 'main-diverged'
+    })
   })
 })

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { CliInstallStatus } from '../../../core/types'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
+import { Button, Icon, Checkbox } from './ui'
 
 /** 설정 화면의 명령줄 도구 칸 (공개 CLI 설계 §10).
  *
@@ -71,13 +72,13 @@ export function CliSettings({ onStatus }: { onStatus?: (s: CliInstallStatus) => 
       <div className="settings-row">
         <span>{t('settings.cli.label')}</span>
         <div className="cli-actions">
-          <button disabled={busy} onClick={() => void install()}>
+          <Button size="sm" variant={status?.installed ? 'secondary' : 'primary'} loading={busy} onClick={() => void install()}>
             {status?.installed ? t('settings.cli.reinstall') : t('settings.cli.install')}
-          </button>
+          </Button>
           {status?.installed && (
-            <button disabled={busy} onClick={() => void uninstall()}>
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => void uninstall()}>
               {t('settings.cli.uninstall')}
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -86,7 +87,7 @@ export function CliSettings({ onStatus }: { onStatus?: (s: CliInstallStatus) => 
       {status?.canEditUserPath && !status.onPath && (
         <label className="settings-row cli-add-to-path">
           <span>{t('settings.cli.addToPath')}</span>
-          <input type="checkbox" checked={addToPath} disabled={busy} onChange={(e) => setAddToPath(e.target.checked)} />
+          <Checkbox checked={addToPath} disabled={busy} onChange={(v) => setAddToPath(v)} />
         </label>
       )}
       {status !== null && (
@@ -114,9 +115,9 @@ export function CliSettings({ onStatus }: { onStatus?: (s: CliInstallStatus) => 
           {status.installed && !status.onPath && !status.userPathTooLong && (
             <div className="cli-path-hint">
               <code>{status.hint}</code>
-              <button onClick={() => void navigator.clipboard.writeText(status.hint)}>
+              <Button size="sm" icon={<Icon name="copy" size={14} />} onClick={() => void navigator.clipboard.writeText(status.hint)}>
                 {t('settings.cli.copy')}
-              </button>
+              </Button>
             </div>
           )}
         </>

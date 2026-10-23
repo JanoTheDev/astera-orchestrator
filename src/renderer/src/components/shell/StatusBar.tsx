@@ -2,6 +2,7 @@
 // next queued plan), on the right the shown account's usage as words ("5h 16% · week 40%") and the Host as a word.
 // Zero counts are hidden; sans, not mono.
 import { HostRuntimeNotice } from '../HostRuntimeNotice'
+import { Button } from '../ui'
 import { openPage } from './navigation'
 import { openBell } from './NotificationBell'
 import type { AppState } from '../../state/appState'
@@ -50,22 +51,20 @@ export function StatusBar(p: StatusBarProps): React.JSX.Element {
   return (
     <>
       <div className="statusbar sb">
-        <button type="button" className="sb-item" onClick={() => openPage('agents')}>
+        <Button variant="ghost" size="sm" className="sb-item" onClick={() => openPage('agents')}>
           {counts.consoles === 0
             ? t('shell.status.noConsoles')
             : t(counts.consoles === 1 ? 'shell.status.consoleN' : 'shell.status.consolesN', { n: counts.consoles })}
-        </button>
+        </Button>
         {counts.working > 0 && (
-          <button type="button" className="sb-item" onClick={() => openPage('agents')}>
-            <span className="sb-dot sb-dot--ok" aria-hidden="true" />
+          <Button variant="ghost" size="sm" className="sb-item" icon={<span className="sb-dot sb-dot--ok" aria-hidden="true" />} onClick={() => openPage('agents')}>
             {t('shell.status.working', { n: counts.working })}
-          </button>
+          </Button>
         )}
         {needsYouUnread > 0 && (
-          <button type="button" className="sb-item sb-item--warn" onClick={openBell}>
-            <span className="sb-dot sb-dot--warn" aria-hidden="true" />
+          <Button variant="ghost" size="sm" className="sb-item sb-item--warn" icon={<span className="sb-dot sb-dot--warn" aria-hidden="true" />} onClick={openBell}>
             {t('shell.status.needsYou', { n: needsYouUnread })}
-          </button>
+          </Button>
         )}
         {nextQueued && <span className="sb-next">{nextQueued}</span>}
         <span className="sp" />
@@ -78,11 +77,15 @@ export function StatusBar(p: StatusBarProps): React.JSX.Element {
           </span>
         )}
         {hostOk ? (
-          <span className="sb-host" title={hostStatus?.hostVersion ? t('shell.status.hostTitle', { version: hostStatus.hostVersion }) : 'Host'}>
+          <span className="sb-host" title={hostStatus?.hostVersion ? t('shell.status.hostTitle', { version: hostStatus.hostVersion }) : t('shell.status.hostAbout')}>
             {t('shell.status.connected')}
           </span>
         ) : (
-          !hostStatus?.connected && <span className="sb-host sb-host--warn">{t('shell.status.hostOffline')}</span>
+          !hostStatus?.connected && (
+            <span className="sb-host sb-host--warn" title={t('shell.status.hostAbout')}>
+              {t('shell.status.hostOffline')}
+            </span>
+          )
         )}
         {/* The Host outlived an update and still runs the previous build. It replaces itself the first
             moment it holds nothing (host-replacement design §4), which for someone who keeps sessions
@@ -97,10 +100,11 @@ export function StatusBar(p: StatusBarProps): React.JSX.Element {
             they are outside the session branches. */}
         <HostRuntimeNotice state={hostRuntime} nowMs={hostRuntimeNow} />
         {hostStatus?.connected && hostStatus.outdated && (
-          <button
-            type="button"
+          <Button
+            variant="secondary"
+            size="sm"
             className="status-host-outdated"
-            disabled={hostRestarting}
+            loading={hostRestarting}
             onClick={() => void restartHost()}
             title={t('status.hostOutdatedTitle', {
               host: hostStatus.hostVersion ?? '?',
@@ -108,7 +112,7 @@ export function StatusBar(p: StatusBarProps): React.JSX.Element {
             })}
           >
             {hostRestarting ? t('settings.info.hostRestarting') : t('status.hostOutdated')}
-          </button>
+          </Button>
         )}
         {/* The Host stopped answering. The same place and the same amber as the notice above, because
             it is the same kind of fact and a person should not have to learn two — but it is the more
@@ -116,15 +120,16 @@ export function StatusBar(p: StatusBarProps): React.JSX.Element {
             this button (docs/2026-09-22-host-unresponsive-recovery-design.md F5). Before this, the one
             place that said anything was Settings > Info, and what it said was "연결 안 됨". */}
         {hostStatus?.unresponsive && (
-          <button
-            type="button"
+          <Button
+            variant="secondary"
+            size="sm"
             className="status-host-outdated"
-            disabled={hostRestarting}
+            loading={hostRestarting}
             onClick={() => void restartHost()}
             title={t('status.hostUnresponsiveTitle')}
           >
             {hostRestarting ? t('settings.info.hostRestarting') : t('status.hostUnresponsive')}
-          </button>
+          </Button>
         )}
       </div>
     </>

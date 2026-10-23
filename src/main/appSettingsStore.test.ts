@@ -585,6 +585,34 @@ describe('updateMode', () => {
   })
 })
 
+describe('updateChannel', () => {
+  it('defaults to stable and leaves the key out of the file', async () => {
+    const store = new AppSettingsStore(file())
+    await store.load()
+    expect(store.getUpdateChannel()).toBe('stable')
+    await store.setUpdateChannel('beta')
+    await store.setUpdateChannel('stable')
+    expect(JSON.parse(await fs.readFile(file(), 'utf8'))).not.toHaveProperty('updateChannel')
+  })
+
+  it('persists beta and a new instance reads it back', async () => {
+    const a = new AppSettingsStore(file())
+    await a.load()
+    await a.setUpdateChannel('beta')
+    expect(JSON.parse(await fs.readFile(file(), 'utf8')).updateChannel).toBe('beta')
+    const b = new AppSettingsStore(file())
+    await b.load()
+    expect(b.getUpdateChannel()).toBe('beta')
+  })
+
+  it('reads an unknown value as stable', async () => {
+    await fs.writeFile(file(), JSON.stringify({ updateChannel: 'nightly' }), 'utf8')
+    const store = new AppSettingsStore(file())
+    await store.load()
+    expect(store.getUpdateChannel()).toBe('stable')
+  })
+})
+
 describe('defaultSessionKind', () => {
   it('기본값은 terminal이다', async () => {
     const store = new AppSettingsStore(file())
@@ -1284,5 +1312,28 @@ describe('mcpHttp', () => {
     await store.setMcpHttp({ ...DEFAULTS, hosts: ['a'] })
     store.getMcpHttp().hosts.push('b')
     expect(store.getMcpHttp().hosts).toEqual(['a'])
+  })
+})
+
+// T27: crash reports, ask by default; only 'never' is written
+describe('crashReports', () => {
+  it('is ask by default, and never survives a reload', async () => {
+    const store = new AppSettingsStore(file())
+    await store.load()
+    expect(store.getCrashReports()).toBe('ask')
+    await store.setCrashReports('never')
+    expect(JSON.parse(await fs.readFile(file(), 'utf8')).crashReports).toBe('never')
+    const again = new AppSettingsStore(file())
+    await again.load()
+    expect(again.getCrashReports()).toBe('never')
+    await again.setCrashReports('ask')
+    expect(JSON.parse(await fs.readFile(file(), 'utf8')).crashReports).toBeUndefined()
+  })
+
+  it('reads anything but never as ask', async () => {
+    await fs.writeFile(file(), JSON.stringify({ crashReports: 'sometimes' }))
+    const store = new AppSettingsStore(file())
+    await store.load()
+    expect(store.getCrashReports()).toBe('ask')
   })
 })

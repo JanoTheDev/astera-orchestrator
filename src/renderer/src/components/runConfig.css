@@ -2,31 +2,25 @@
    fields, drawn by RunConfigForm, live inside .rcm-form. */
 .rcm-panes { display: grid; grid-template-columns: 236px 1fr; gap: 14px; height: 420px; min-height: 0; }
 .rcm-list { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line-soft); padding-right: 14px; }
-.rcm-tools { display: flex; gap: 4px; padding-bottom: 8px; margin-bottom: 6px; border-bottom: 1px solid var(--line-soft); }
-/* Direct children only (plus the ＋ inside its popup anchor). The bare descendant form also matched
-   every button inside the kind picker, which is anchored inside this toolbar — and at class+element
-   specificity it beat .rtp-item, so the picker's rows were squeezed into these 26px grid boxes with
-   their icon and label drawn on top of each other. Found by reading the computed style off the live
-   window: the sheet said flex, the element said grid. */
-.rcm-tools > button, .rcm-tools > .rtp-anchor > button { width: 26px; height: 26px; display: grid; place-items: center; background: transparent; border: 0; border-radius: var(--radius); color: var(--text-dim); font-size: 14px; padding: 0; cursor: pointer; }
-.rcm-tools > button:hover:not(:disabled), .rcm-tools > .rtp-anchor > button:hover:not(:disabled) { background: var(--elevated); color: var(--text); }
-.rcm-tools > button:disabled, .rcm-tools > .rtp-anchor > button:disabled { color: var(--text-faint); cursor: default; }
+.rcm-tools { display: flex; align-items: center; gap: 4px; padding-bottom: 8px; margin-bottom: 6px; border-bottom: 1px solid var(--line-soft); }
 .rcm-tools-sep { width: 1px; align-self: stretch; margin: 2px 2px; background: var(--line-soft); }
 .rcm-tree { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; }
-/* flex: none, for the same reason as .rtp-*: the tree is a flex column with a bounded height, so
+/* flex: none: the tree is a flex column with a bounded height, so
    without it the groups and rows shrink once the list is taller than the pane. A shrunk row draws its
    hover fill shorter than its own text, which reads as the highlight being clipped. */
 .rcm-group-block { flex: none; display: flex; flex-direction: column; gap: 1px; }
-/* The tree and the kind picker are the same list seen twice, so they share one treatment: the group
-   headings and the rows match .rtp-group / .rtp-item exactly rather than each drifting to its own size. */
-.rcm-group { display: flex; align-items: center; gap: 6px; font-size: 10.5px; color: var(--text-faint); padding: 8px 6px 2px; text-transform: uppercase; letter-spacing: .05em; }
+/* The tree's group headings and rows keep the menus' type size (--fs-11 headings, --fs-12 rows) so the
+   dialog reads as one list treatment rather than each part drifting to its own size. */
+.rcm-group { display: flex; align-items: center; gap: 6px; font-size: var(--fs-11); color: var(--text-faint); padding: 8px 6px 2px; text-transform: uppercase; letter-spacing: .05em; }
 .rcm-group .fi { flex: none; }
-.rcm-item { flex: none; width: 100%; box-sizing: border-box; text-align: left; background: none; border: 0; border-left: 2px solid transparent; color: var(--text); font-size: 12px; padding: 4px 8px; border-radius: var(--radius); cursor: pointer; }
-.rcm-item:hover { background: var(--surface-hover); }
-.rcm-item.on { background: var(--elevated); border-left-color: var(--accent); }
+.rcm-item.ui-btn { flex: none; width: 100%; box-sizing: border-box; justify-content: flex-start; text-align: left; border: 0; border-left: 2px solid transparent; color: var(--text); font-weight: var(--fw-regular); padding: 4px 8px; }
+/* A ui Button wraps its children in .ui-btn__label; the row's name and marks lay out inside it. */
+.rcm-item > .ui-btn__label { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; }
+.rcm-item.ui-btn:hover:not(:disabled) { background: var(--surface-hover); color: var(--text); }
+.rcm-item.ui-btn.on { background: var(--elevated); border-left-color: var(--accent); }
 /* Auto-detected (seed) configurations — italic marks them as not yet a user configuration. Editing one
    promotes it into a plain (non-italic) user configuration copy (core/run/config.ts promoteSeed). */
-.rcm-item.seed { font-style: italic; color: var(--text-dim); }
+.rcm-item.ui-btn.seed { font-style: italic; color: var(--text-dim); }
 .rcm-form { display: flex; flex-direction: column; gap: 12px; min-height: 0; overflow-y: auto; }
 /* Every "찾아보기…"/"Browse…" row in the form — a text input or a .path-select next to a button, inside
    a plain .row (display:flex). The buttons carry no class of their own, so the only rule reaching them
@@ -49,60 +43,70 @@
    .rcm-tools > button above records.) */
 .rcm-form .row > input[type="text"] { flex: 1; min-width: 0; }
 .rcm-form .row > button { flex: none; white-space: nowrap; }
-.rcm-seed-hint { font-size: 12px; color: var(--text-faint); }
-.rcm-resolved { font-family: var(--mono); font-size: 12px; color: var(--ok); word-break: break-all; }
+/* RunConfigForm's "add optional field" Menu, kept to its own width at the start of the column. */
+.rcm-add-option { align-self: flex-start; }
+.rcm-resolved { font-family: var(--mono); font-size: var(--fs-12); color: var(--ok); word-break: break-all; }
 
 /* Run Configurations — the search field above the tree, the markers on a row, the footer. The
    footer replaces the old single Close button: Cancel · Apply · OK with the message slot on the left
    (the seed note, or the first reason Apply refused). */
 .rcm-search { display: flex; align-items: center; gap: 6px; padding: 0 6px; margin-bottom: 6px; background: var(--bg); border: 1px solid var(--line-soft); border-radius: var(--radius); color: var(--text-faint); }
-.rcm-search > input { flex: 1; min-width: 0; background: transparent; border: 0; color: var(--text); font-size: 12px; padding: 5px 0; outline: none; }
-.rcm-item { display: flex; align-items: center; gap: 6px; }
+.rcm-search:focus-within { box-shadow: var(--focus-ring); }
+.rcm-search > input { flex: 1; min-width: 0; background: transparent; border: 0; color: var(--text); font-size: var(--fs-12); padding: 5px 0; outline: none; box-shadow: none; }
 .rcm-item-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rcm-mark { flex: none; display: inline-grid; place-items: center; }
 .rcm-mark.dirty { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
 .rcm-mark.warn { color: var(--warn); }
-.rcm-mark.temp { flex: none; font-size: 10px; color: var(--text-faint); border: 1px solid var(--line-soft); border-radius: var(--radius-sm); padding: 0 4px; }
+.rcm-mark.temp { flex: none; font-size: var(--fs-11); color: var(--text-faint); border: 1px solid var(--line-soft); border-radius: var(--radius-sm); padding: 0 4px; }
 .rcm-item.rejected .rcm-item-name { color: var(--danger); }
 
 /* The tree's folder heading, and the inline input that renames it. The heading reuses .rcm-group's
    type and spacing so a folder and a kind line up; only the icon and the rename affordance differ. */
 .rcm-group[title] { cursor: default; }
-.rcm-folder-name { width: 100%; box-sizing: border-box; margin: 6px 0 2px; background: var(--bg); color: var(--text); border: 1px solid var(--accent); border-radius: var(--radius); padding: 3px 6px; font-size: 11px; }
-.rcm-footer-msg { flex: 1; min-width: 0; font-size: 12px; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rcm-folder-name { width: 100%; box-sizing: border-box; margin: 6px 0 2px; background: var(--bg); color: var(--text); border: 1px solid var(--accent); border-radius: var(--radius); padding: 3px 6px; font-size: var(--fs-11); }
+.rcm-footer-msg { flex: 1; min-width: 0; font-size: var(--fs-12); color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rcm-footer-msg.error { color: var(--danger); }
 
 /* The kind badge beside the name. Reads as a label, not a control: no border, muted, and it never
    takes focus — the kind is chosen when the configuration is created and does not change after. */
-.rcm-badge { flex: none; display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--text-dim); padding: 0 2px; white-space: nowrap; }
+.rcm-badge { flex: none; display: inline-flex; align-items: center; gap: 5px; font-size: var(--fs-12); color: var(--text-dim); padding: 0 2px; white-space: nowrap; }
 
 /* The form's section headings — Configuration · Environment · Before launch. Same treatment as the
    tree's group headings (.rcm-group) so the two panes read as one screen; a rule of its own only
    because it sits in a flex column with different spacing above it. */
-.rcm-section { display: flex; align-items: center; font-size: 10.5px; color: var(--text-faint); text-transform: uppercase; letter-spacing: .05em; margin-top: 4px; }
+.rcm-section { display: flex; align-items: center; font-size: var(--fs-11); color: var(--text-faint); text-transform: uppercase; letter-spacing: .05em; margin-top: 4px; }
 .rcm-section:first-child { margin-top: 0; }
 
-/* ConfigRefList — chips naming other run configurations, plus the add control. The picker inside
-   reuses .rtp-menu/.rtp-item, since it is the same list of configurations the ＋ button shows. */
+/* ConfigRefList — chips (ui Chip) naming other run configurations, plus the add Menu. */
 .ref-list { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.ref-chip { display: inline-flex; align-items: center; gap: 5px; max-width: 220px; background: var(--elevated); border: 1px solid var(--line-soft); border-radius: 999px; padding: 2px 4px 2px 8px; font-size: 11.5px; color: var(--text); }
+.ref-chip.ui-chip { max-width: 220px; height: auto; padding: 2px 2px 2px 8px; font-size: var(--fs-12); color: var(--text); }
 .ref-chip .fi { flex: none; }
 .ref-chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* A chip whose configuration is not in the list — the tree marks that row ⚠ too */
 .ref-chip.broken .ref-chip-name { color: var(--danger); font-family: var(--mono); }
-.ref-chip-x { display: grid; place-items: center; width: 16px; height: 16px; padding: 0; background: transparent; border: 0; border-radius: 50%; color: var(--text-faint); cursor: pointer; }
-.ref-chip-x:hover { background: var(--surface-hover); color: var(--text); }
-.ref-add { position: relative; display: inline-flex; }
-.ref-chip.add { cursor: pointer; padding: 2px 8px; color: var(--text-dim); border-style: dashed; background: transparent; }
-.ref-chip.add:hover { color: var(--text); background: var(--elevated); }
+.ref-chip-x.ui-btn { width: 18px; height: 18px; border-radius: var(--radius-pill); }
 
 /* EnvTable — Key · Value · issue · remove, as a grid so the columns line up across rows */
 .env-table { display: flex; flex-direction: column; gap: 4px; }
 .env-head, .env-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) 16px 22px; gap: 6px; align-items: center; }
-.env-head { font-size: 11px; color: var(--text-faint); padding: 0 6px; }
-.env-row input { width: 100%; box-sizing: border-box; background: var(--bg); color: var(--text); border: 1px solid var(--line-soft); padding: 5px 6px; border-radius: var(--radius); font-family: var(--mono); font-size: 12px; }
+.env-head { font-size: var(--fs-11); color: var(--text-faint); padding: 0 6px; }
+.env-row input { width: 100%; box-sizing: border-box; background: var(--bg); color: var(--text); border: 1px solid var(--line-soft); padding: 5px 6px; border-radius: var(--radius); font-family: var(--mono); font-size: var(--fs-12); }
 .env-row.issue input.env-key { border-color: var(--warn); }
 .env-issue { display: inline-grid; place-items: center; color: var(--warn); }
-.env-remove { width: 22px; height: 22px; display: grid; place-items: center; background: transparent; border: 0; border-radius: var(--radius); color: var(--text-faint); cursor: pointer; padding: 0; }
-.env-remove:hover { background: var(--elevated); color: var(--text); }
-.env-add { align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; }
+.env-remove.ui-btn { width: 22px; height: 22px; }
+.env-add { align-self: flex-start; }
+
+/* RunConfigMenu — the toolbar's configuration pill and its Popover. The pill's look and the rows'
+   columns stay in runToolbar.css (.rcmenu-*); these rules only undo what a ui Button brings that
+   those columns do not want: a centred, fixed-height label, and the label wrapper that the name,
+   tags and status now sit in. */
+.rcmenu-pill.ui-btn, .rcmenu-pick.ui-btn, .rcmenu-foot.ui-btn { justify-content: flex-start; height: auto; min-height: var(--h-sm); color: var(--text); font-weight: var(--fw-regular); }
+.rcmenu-pick.ui-btn { flex: 1; min-width: 0; }
+.rcmenu-foot.ui-btn { width: 100%; }
+.rcmenu-pill > .ui-btn__label, .rcmenu-pick > .ui-btn__label { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; }
+.rcmenu-run.ui-btn { width: 22px; height: 22px; }
+
+/* RuntimeSelector's notes above the Jobs view (no projects, unreachable, where actions run, Slack):
+   an icon as the second cue beside the words, aligned with the first line. */
+.runtime-note { display: flex; align-items: flex-start; gap: var(--sp-1); }
+.runtime-note > svg { flex: none; margin-top: 1px; }

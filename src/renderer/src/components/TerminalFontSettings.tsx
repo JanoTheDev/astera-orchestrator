@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Select, type SelectOption } from './Select'
+import { Select, type SelectOption } from './ui'
 import { useI18n } from '../i18n/I18nProvider'
 import { useTerminalFont } from '../lib/terminalFont'
 import { familyCoversHangul, listHangulFamilies, listLocalFontFamilies } from '../lib/fontProbe'

@@ -11,6 +11,7 @@ import {
   holdJob,
   pauseRun,
   renameJob,
+  resolveFailed,
   restartCoordinator,
   resumeRun,
   setJobAfter,
@@ -21,11 +22,12 @@ import { toast } from '../../lib/toast'
 import { jobName } from '../../lib/jobName'
 import { RunIcon, STATE_KEY, TaskIcon } from '../JobIcons'
 import { SourceChip } from '../SourceChip'
-import { Archive, ArchiveRestore, ArrowLeft, ListOrdered, MoreHorizontal, Pencil, Play, Square, Trash2 } from 'lucide-react'
-import { Button, Chip, Input, Menu, PageHeader, Tabs, type MenuItem } from '../ui'
+import { Button, Chip, Icon, Input, Menu, PageHeader, Tabs, type MenuItem } from '../ui'
 import { PLAN_SECTIONS, type PlanSection } from './planBoard'
+import { deliveryActionsOf } from './planPage'
 import type { PlanPageState } from './usePlanPage'
 import { WaveLine } from './PlanWaves'
+import { FailedWaitButtons } from './FailedWaitButtons'
 
 export function PlanHeader({
   p,
@@ -64,18 +66,26 @@ export function PlanHeader({
   const [redelivering, setRedelivering] = useState(false)
   // a row that only carries the wait for another plan (state 'pending') has nothing to retry
   const delivery = run?.delivery?.state === 'pending' ? undefined : run?.delivery
-  const retryDelivery = async (): Promise<void> => {
+  const deliveryActions = deliveryActionsOf({ delivery })
+  // Retry (force), It's already pushed (ownerPushed) and Dismiss share one in-flight flag and one error toast
+  const runDelivery = async (command: 'run-deliver' | 'run-delivery-dismiss', args: Record<string, unknown>, done: string): Promise<void> => {
     if (!delivery) return
     setRedelivering(true)
     try {
-      const reply = await door.command('run-deliver', { run: delivery.runId, force: true })
+      const reply = await door.command(command, { run: delivery.runId, ...args })
       if (reply.status >= 400) toast.error(t('plan.delivery.retryFailed', { reason: replyNote(reply, t as never, t('jobs.node.failed')) }))
-      else toast.success(t('plan.delivery.delivered'))
+      else toast.success(done)
     } catch {
       toast.error(t('jobs.node.failed'))
     } finally {
       setRedelivering(false)
     }
+  }
+  const retryDelivery = (): Promise<void> => runDelivery('run-deliver', { force: true }, t('plan.delivery.delivered'))
+  const alreadyPushed = (): Promise<void> => runDelivery('run-deliver', { ownerPushed: true }, t('plan.delivery.delivered'))
+  const dismissDelivery = async (): Promise<void> => {
+    const ok = await ui.confirm({ title: t('plan.delivery.dismissTitle'), body: t('plan.delivery.dismissBody'), confirmLabel: t('plan.delivery.dismiss') })
+    if (ok) await runDelivery('run-delivery-dismiss', {}, t('plan.delivery.dismissed'))
   }
   // W9-C: the plan's own actions in the header and its ⋯ menu (DESIGN.md §2 "Plan page"); each is lib/jobActions'.
   const off = lockedReason !== undefined
@@ -95,19 +105,19 @@ export function PlanHeader({
   }
   const menu: MenuItem[] = run
     ? [
-        ...(local ? [{ id: 'rename', label: t('jobs.lifecycle.rename'), icon: <Pencil size={14} />, disabled: off, onSelect: () => setRenaming(true) }] : []),
+        ...(local ? [{ id: 'rename', label: t('jobs.lifecycle.rename'), icon: <Icon name="edit" size={14} />, disabled: off, onSelect: () => setRenaming(true) }] : []),
         // W8-C: a plan not planned yet can wait for another to deliver
         ...(local && run.pendingStart && !run.planned
-          ? [{ id: 'after', label: t('pages.plan.startAfter'), icon: <ListOrdered size={14} />, disabled: off, onSelect: () => void pickAfter() }]
+          ? [{ id: 'after', label: t('pages.plan.startAfter'), icon: <Icon name="ordered" size={14} />, disabled: off, onSelect: () => void pickAfter() }]
           : []),
         ...(run.coordinatorMissing
-          ? [{ id: 'coordinator', label: t('jobs.run.coordinatorRestart'), icon: <Play size={14} />, disabled: off, onSelect: () => void restartCoordinator(door, runId, ui) }]
+          ? [{ id: 'coordinator', label: t('plan.header.restartLead'), icon: <Icon name="run" size={14} />, disabled: off, onSelect: () => void restartCoordinator(door, runId, ui) }]
           : []),
-        { id: 'kill', label: t('pages.plan.kill'), icon: <Square size={14} />, danger: true, disabled: off || running === 0, onSelect: () => void stopRun(door, run.foldedRunId ?? runId, jobName(run), ui) },
+        { id: 'kill', label: t('pages.plan.kill'), icon: <Icon name="stop" size={14} />, danger: true, disabled: off || running === 0, onSelect: () => void stopRun(door, run.foldedRunId ?? runId, jobName(run), ui) },
         ...(!local ? [] : run.archivedAt !== undefined
-          ? [{ id: 'unarchive', label: t('jobs.lifecycle.unarchive'), icon: <ArchiveRestore size={14} />, disabled: off, onSelect: () => void unarchiveJob(door, runId, ui) }]
-          : [{ id: 'archive', label: t('jobs.lifecycle.archive'), icon: <Archive size={14} />, disabled: off, onSelect: () => void archiveJob(door, snapshot, runId, ui) }]),
-        { id: 'delete', label: t('jobs.run.delete'), icon: <Trash2 size={14} />, danger: true, disabled: off, onSelect: () => void deleteRun(door, snapshot, runId, ui) }
+          ? [{ id: 'unarchive', label: t('jobs.lifecycle.unarchive'), icon: <Icon name="restore" size={14} />, disabled: off, onSelect: () => void unarchiveJob(door, runId, ui) }]
+          : [{ id: 'archive', label: t('jobs.lifecycle.archive'), icon: <Icon name="archive" size={14} />, disabled: off, onSelect: () => void archiveJob(door, snapshot, runId, ui) }]),
+        { id: 'delete', label: t('jobs.run.delete'), icon: <Icon name="delete" size={14} />, danger: true, disabled: off, onSelect: () => void deleteRun(door, snapshot, runId, ui) }
       ]
     : []
   // W5-C: a plan pauses by holding its new starts (jobs-hold); a schedule pauses as a whole (run-pause)
@@ -117,7 +127,7 @@ export function PlanHeader({
         {run.paused ? t('jobs.run.resume') : t('jobs.run.pause')}
       </Button>
     ) : !local ? null : (
-      <Button size="sm" variant="ghost" disabled={off} title={lockedReason ?? (run.dispatchHold ? t('jobs.hold.release') : t('jobs.hold.hold'))} onClick={() => void holdJob(door, runId, !run.dispatchHold, ui)}>
+      <Button size="sm" variant="ghost" disabled={off} title={lockedReason ?? (run.dispatchHold ? t('plan.header.release') : t('plan.header.hold'))} onClick={() => void holdJob(door, runId, !run.dispatchHold, ui)}>
         {run.dispatchHold ? t('jobs.run.resume') : t('jobs.run.pause')}
       </Button>
     )
@@ -127,7 +137,7 @@ export function PlanHeader({
       className="plan-page-header"
       leading={
         // While a form is open or a command runs, leaving would drop it (the old window's ✕ hid then)
-        <Button size="sm" variant="ghost" icon={<ArrowLeft size={14} />} title={t('pages.plan.back')} disabled={formOpen} onClick={onClose}>
+        <Button size="sm" variant="ghost" icon={<Icon name="back" size={14} />} title={t('pages.plan.back')} disabled={formOpen} onClick={onClose}>
           {t('pages.plans.title')}
         </Button>
       }
@@ -135,7 +145,7 @@ export function PlanHeader({
         // 머리말이 없다 — Job 의 이름(jobName: 티켓에서 만든 Job 은 티켓 제목, 아니면 목표)이 제목이고, 그 옆의 아이콘과 숫자가 상태를 말한다
         // W9-C: rename inline (Enter keeps, Escape or leaving drops), as the Jobs card's head does
         renaming && run ? (
-          <input
+          <Input
             className="jobs-title-input"
             autoFocus
             defaultValue={jobName(run)}
@@ -165,15 +175,28 @@ export function PlanHeader({
           {run?.outcome === 'blocked' && <Chip tone="warn">{t('pages.plans.status.blocked')}</Chip>}
           {/* T8: a running plan nothing can move. Needs you opens the overview, where its question is answered; Stalled
               runs `runs doctor --fix` on this Run (runsDoctor.ts) */}
-          {run?.stuck === 'needs-you' && (
+          {run?.stuck === 'needs-you' && !run.stalledOn && (
             <Button size="sm" variant="ghost" title={t('plan.outcome.needsYouHint')} onClick={() => onSection('overview')}>
               <Chip tone="warn">{t('plan.outcome.needsYou')}</Chip>
             </Button>
           )}
-          {run?.stuck === 'stalled' && (
+          {/* T36: waits on a failed Task: say which, and offer the owner's three answers instead of the generic Fix */}
+          {run?.stalledOn && (
+            <>
+              <span title={run.stalledOn.result ?? t('plan.failedWait.hint')}>
+                <Chip tone="danger">{t('plan.outcome.stalledOnFailed', { task: run.stalledOn.title })}</Chip>
+              </span>
+              <FailedWaitButtons
+                disabled={off}
+                title={lockedReason}
+                onAct={(action) => run.stalledOn && void resolveFailed(door, run.stalledOn.taskId, action, ui)}
+              />
+            </>
+          )}
+          {run?.stuck === 'stalled' && !run.stalledOn && (
             <>
               <span title={t('plan.outcome.stalledHint')}>
-                <Chip tone="danger">{t('plan.outcome.stalled')}</Chip>
+                <Chip tone="danger">{t('plan.header.stalled')}</Chip>
               </span>
               <Button
                 size="sm"
@@ -229,8 +252,8 @@ export function PlanHeader({
         <>
           {/* W7-D (#67): workers at once, changeable while the Job runs; a lower number only holds back new starts */}
           {!simple && run && run.outcome === 'running' && (
-            <label className="jobs-count plan-page-concurrency" title={t('runDetail.concurrencyHint')}>
-              <span>{t('runDetail.concurrency')}</span>
+            <label className="jobs-count plan-page-concurrency" title={t('plan.header.concurrencyHint')}>
+              <span>{t('plan.header.concurrency')}</span>
               <Input
                 type="number"
                 min={1}
@@ -238,7 +261,7 @@ export function PlanHeader({
                 key={run.concurrency ?? DEFAULT_CONCURRENCY}
                 defaultValue={run.concurrency ?? DEFAULT_CONCURRENCY}
                 disabled={lockedReason !== undefined}
-                aria-label={t('runDetail.concurrencyHint')}
+                aria-label={t('plan.header.concurrency')}
                 onBlur={(e) => {
                   const n = Math.min(MAX_CONCURRENT_WORKERS, Math.max(1, Math.round(Number(e.target.value)) || 1))
                   e.target.value = String(n)
@@ -258,15 +281,25 @@ export function PlanHeader({
             {t('pages.plan.consoles')}
           </Button>
           {pauseButton}
-          {delivery !== undefined && (
+          {deliveryActions.retry && (
             <Button
               size="sm"
               variant="secondary"
-              disabled={off || redelivering || delivery.state === 'delivering'}
-              title={lockedReason ?? delivery.reason}
+              disabled={off || redelivering || delivery?.state === 'delivering'}
+              title={lockedReason ?? delivery?.reason}
               onClick={() => void retryDelivery()}
             >
-              {redelivering || delivery.state === 'delivering' ? t('plan.delivery.delivering') : t('plan.delivery.retry')}
+              {redelivering || delivery?.state === 'delivering' ? t('plan.delivery.delivering') : t('plan.delivery.retry')}
+            </Button>
+          )}
+          {deliveryActions.alreadyPushed && (
+            <Button size="sm" variant="ghost" disabled={off || redelivering} title={lockedReason ?? t('plan.delivery.alreadyPushedHint')} onClick={() => void alreadyPushed()}>
+              {t('plan.delivery.alreadyPushed')}
+            </Button>
+          )}
+          {deliveryActions.dismiss && (
+            <Button size="sm" variant="ghost" disabled={off || redelivering} title={lockedReason} onClick={() => void dismissDelivery()}>
+              {t('plan.delivery.dismiss')}
             </Button>
           )}
           {run?.planned && (
@@ -275,7 +308,7 @@ export function PlanHeader({
             </Button>
           )}
           {menu.length > 0 && (
-            <Menu label={t('pages.plan.more')} align="end" items={menu} trigger={{ variant: 'ghost', size: 'sm', icon: <MoreHorizontal size={14} /> }} />
+            <Menu label={t('plan.header.more')} align="end" items={menu} trigger={{ variant: 'ghost', size: 'sm', icon: <Icon name="more" size={14} />, title: t('plan.header.more') }} />
           )}
         </>
       }

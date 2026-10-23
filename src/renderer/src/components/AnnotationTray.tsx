@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { INTENTS, PICK_BUDGET, type Annotation, type Intent } from '../../../core/preview/pick/types'
 import { annotationLabel } from '../../../core/preview/pick/prompt'
 import { useI18n } from '../i18n/I18nProvider'
+import { Button, Icon, IconButton, Textarea } from './ui'
 
 /** The collected annotations, as a card floating over the page rather than a strip beneath it.
  *
@@ -75,24 +76,26 @@ export function AnnotationTray({
     <div className={`dm-tray${collapsed ? ' collapsed' : ''}`}>
       <div className="dm-head">
         <span className="dm-title">{t('preview.design.tray.title', { count: annotations.length })}</span>
-        <button
-          type="button"
-          className="primary"
+        <Button
+          size="sm"
+          variant="primary"
           disabled={!canSend}
           title={canSend ? undefined : t('preview.design.noSession')}
           onClick={(e) => onSend(e.currentTarget.getBoundingClientRect())}
         >
           {t('preview.design.send')}
-        </button>
-        <button type="button" onClick={onCopy}>
+        </Button>
+        <Button size="sm" icon={<Icon name={copied ? 'check' : 'copy'} size={14} />} onClick={onCopy}>
           {copied ? t('preview.design.copied') : t('preview.design.copy')}
-        </button>
-        <button type="button" className="ghost" aria-label={t('preview.design.clear')} title={t('preview.design.clear')} onClick={onClear}>
-          🗑
-        </button>
-        <button type="button" className="ghost" aria-expanded={!collapsed} aria-label={t('preview.design.collapse')} onClick={() => setCollapsed((c) => !c)}>
-          {collapsed ? '▴' : '▾'}
-        </button>
+        </Button>
+        <IconButton size="sm" icon={<Icon name="delete" size={14} />} label={t('preview.design.clear')} onClick={onClear} />
+        <IconButton
+          size="sm"
+          icon={<Icon name={collapsed ? 'chevronUp' : 'chevronDown'} size={14} />}
+          label={t('preview.design.collapse')}
+          aria-expanded={!collapsed}
+          onClick={() => setCollapsed((c) => !c)}
+        />
       </div>
       {!collapsed && (
         <div className="dm-rows">
@@ -118,7 +121,7 @@ export function AnnotationTray({
                     if (e.key === 'Escape') { e.preventDefault(); setEditingId(null) }
                   }}
                 >
-                  <textarea
+                  <Textarea
                     ref={editRef}
                     rows={2}
                     maxLength={PICK_BUDGET.comment}
@@ -128,20 +131,21 @@ export function AnnotationTray({
                   />
                   <div className="dm-intents" role="group" aria-label={t('preview.design.intent.label')}>
                     {INTENTS.map((i) => (
-                      <button
+                      <Button
                         key={i}
-                        type="button"
-                        className={i === draftIntent ? 'on' : undefined}
+                        size="sm"
+                        variant="ghost"
+                        className={i === draftIntent ? 'is-active' : undefined}
                         aria-pressed={i === draftIntent}
                         onClick={() => setDraftIntent(i)}
                       >
                         {t(`preview.design.intent.${i}`)}
-                      </button>
+                      </Button>
                     ))}
                   </div>
                   <div className="dm-edit-actions">
-                    <button type="button" onClick={() => setEditingId(null)}>{t('preview.design.cancel')}</button>
-                    <button type="button" className="primary" onClick={saveEdit}>{t('preview.design.save')}</button>
+                    <Button size="sm" variant="ghost" onClick={() => setEditingId(null)}>{t('preview.design.cancel')}</Button>
+                    <Button size="sm" variant="primary" onClick={saveEdit}>{t('preview.design.save')}</Button>
                   </div>
                 </div>
               ) : (
@@ -152,12 +156,8 @@ export function AnnotationTray({
                     <div className="dm-intent">{t(`preview.design.intent.${a.intent}`)}</div>
                   </div>
                   <div className="dm-actions" onClick={(e) => e.stopPropagation()}>
-                    <button type="button" className="ghost" aria-label={t('preview.design.edit', { seq: a.seq })} title={t('preview.design.edit', { seq: a.seq })} onClick={() => startEdit(a)}>
-                      ✎
-                    </button>
-                    <button type="button" className="ghost danger" aria-label={t('preview.design.delete')} title={t('preview.design.delete')} onClick={() => onDelete(a.id)}>
-                      🗑
-                    </button>
+                    <IconButton size="sm" icon={<Icon name="edit" size={14} />} label={t('preview.design.edit', { seq: a.seq })} onClick={() => startEdit(a)} />
+                    <IconButton size="sm" icon={<Icon name="delete" size={14} />} label={t('preview.design.delete')} onClick={() => onDelete(a.id)} />
                   </div>
                 </>
               )}

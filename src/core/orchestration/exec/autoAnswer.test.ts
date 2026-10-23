@@ -1,13 +1,14 @@
 // T21 (owner, 2026-10-18): Astera answers the Gates it safely can, from Host state first, else the safe default, through
 // questions-answer with one feed line; the owner's kinds of question stay open; the setting turns it all off.
 import { describe, expect, it } from 'vitest'
-import { ASK_GRACE_MS, autoAnswerOf, autoAnswerOnOf, grantedAnswer, grantOf, handsOffStepsDue, REFUSED_ANSWER, type OpenQuestion } from './autoAnswer'
+import { ASK_GRACE_MS, autoAnswersDue, autoAnswerOf, autoAnswerOnOf, grantedAnswer, grantOf, handsOffStepsDue, REFUSED_ANSWER, type OpenQuestion } from './autoAnswer'
 import { createDispatchLoop, ORCH_FIRE_TICK_MS, type DispatchLoopContext } from './dispatchLoop'
 import { handleCommand, type OrchServerDeps } from '../command'
 import { addDecision, createGate, emptyState, type OrchState } from '../state'
 import { deriveActivity, noticeOf, type ActivityDraft } from '../activity'
 import { heldForOwner, outcomeOf } from '../running'
 import type { Task } from '../types'
+import { FAILED_WAIT_OPTIONS } from '../replan'
 
 const NOW = '2026-10-18T00:00:00.000Z'
 const T0 = Date.parse(NOW)
@@ -176,6 +177,16 @@ describe('the Host answers on its tick', () => {
 
 describe('hands-off plans decide for the owner (#117)', () => {
   const s = base([task({ id: 'tsk_x', title: 'T1 · Login' })])
+
+  it('T36: never answers, nor hands to a coordinator, the question over a failed Task that holds back the plan', () => {
+    const failedWait = q('Plan: 2 Tasks wait on failed T1 · Login: no network', {
+      source: 'escalation',
+      options: [...FAILED_WAIT_OPTIONS],
+      createdAt: new Date(T0 - 10 * ASK_GRACE_MS).toISOString()
+    })
+    expect(handsOffStepsDue(s, [failedWait], T0)).toEqual([])
+    expect(autoAnswersDue(s, [failedWait], T0)).toEqual([])
+  })
   const exhausted = q('Checks failed 3 times', { kind: 'convergence-exhausted', options: ['retry-once', 'mark-failed'] })
 
   it('an exhausted Gate is answered retry-once, then mark-failed once its Task was retried', () => {

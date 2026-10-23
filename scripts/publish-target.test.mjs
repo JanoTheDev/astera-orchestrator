@@ -135,7 +135,11 @@ describe('.github/workflows/publish-packages.yml', () => {
   })
 
   it('is apart from the app’s release, whose tag no package tag matches', () => {
-    expect(/^ {4}tags: \['(.+)'\]$/m.exec(read('.github/workflows/release.yml'))?.[1]).toBe('v[0-9]+.[0-9]+.[0-9]+')
+    // The app releases stable tags and betas; no package tag (`client-vX.Y.Z`) may match either pattern
+    const patterns = /^ {4}tags: \[(.+)\]$/m.exec(read('.github/workflows/release.yml'))?.[1].split(', ').map((x) => x.slice(1, -1))
+    expect(patterns).toEqual(['v[0-9]+.[0-9]+.[0-9]+', 'v[0-9]+.[0-9]+.[0-9]+-beta.[0-9]+'])
+    // Tag patterns are anchored globs: one starting with `v` cannot match a tag starting with a package name
+    for (const pat of patterns ?? []) expect(pat.startsWith('v['), pat).toBe(true)
   })
 })
 

@@ -1,4 +1,5 @@
 import { useI18n } from '../i18n/I18nProvider'
+import { Button, Icon } from './ui'
 
 /** Unpushed commits on a worktree row, doubling as the entry point to the create-PR dialog.
  *  Visible at rest rather than on hover: an affordance nobody can see is one nobody uses, and
@@ -21,10 +22,13 @@ export function PushBadge({
   const title =
     ahead === null
       ? t('worktree.push.aheadUnknown')
-      : t('worktree.push.createPrHint', { count: ahead, base })
+      : t(ahead === 1 ? 'worktree.push.createPrHint.one' : 'worktree.push.createPrHint', { count: ahead, base })
   return (
-    <button
+    <Button
+      variant="ghost"
+      size="sm"
       className="push-badge"
+      icon={<Icon name="arrowUp" size={14} />}
       title={title}
       aria-label={title}
       disabled={disabled}
@@ -34,7 +38,7 @@ export function PushBadge({
         onCreate(e)
       }}
     >
-      ↑{ahead === null ? '' : ahead}
-    </button>
+      {ahead}
+    </Button>
   )
 }

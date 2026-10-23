@@ -1,10 +1,10 @@
 blank_issues_enabled: false
 contact_links:
   - name: Question or idea to talk through
-    url: https://github.com/parsingk/Astera/discussions
+    url: https://github.com/JanoTheDev/astera-orchestrator/discussions
     about: Ask how something works, or discuss an idea before opening an issue.
   - name: Security problem
-    url: https://github.com/parsingk/Astera/security/advisories/new
+    url: https://github.com/JanoTheDev/astera-orchestrator/security/advisories/new
     about: Report a vulnerability privately. Please do not open a public issue for it.
   - name: Guide
     url: https://astera.run

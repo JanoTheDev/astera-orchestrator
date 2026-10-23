@@ -5,7 +5,16 @@ supply chain.
 
 ## Verdict: clean (no malicious code found, ~85–90% confidence)
 
-- No telemetry, analytics, crash reporting, obfuscation, or hidden egress.
+- No telemetry, analytics, obfuscation, or hidden egress.
+- **Rule since T27: no telemetry; crash reports only with consent per report.** Crashes of the main process, a
+  window and the Host are written as redacted reports to `<userData>/crash-reports/` (dir 700, files 600, at most
+  20 kept, none past 30 days): the error's name and stack frames, never its message, with tokens, keys, emails,
+  home paths and query strings removed (`src/core/crash/redact.ts`). The app makes no network request for them.
+  Each report is shown to the person in full, and only **Send** opens a prefilled issue on
+  `github.com/JanoTheDev/astera-orchestrator` in their browser, where they can still edit or drop it. Settings
+  `crashReports: "never"` stops the prompt. Why: a crash on someone else's machine is otherwise invisible to us,
+  and a report that is read, redacted and sent by its owner's choice gives us the frame without taking anything
+  they did not see.
 - No committed binaries (`.node`/ELF/PE/`.so`/`.wasm`/archives) in 1996 files or anywhere in history.
 - `new Function` / `Worker eval:true` only in `src/host/workspace/scriptWorker.ts`. It runs a fixed in-file
   sandbox source.

@@ -3,13 +3,13 @@ import { SourceJobModal } from '../SourceJobModal'
 import { NewSessionDialog, rememberMachine } from '../NewSessionDialog'
 import { RemoteSessionsDialog } from '../RemoteSessionsDialog'
 import { RunConfigManager } from '../RunConfigManager'
-import { ToastHost } from '../ToastHost'
 import { remoteNewJobFolder } from '../../lib/remoteJobs'
 import { localDoor } from '../../lib/orchDoor'
 import { defaultAccountIdOf } from '../../../../core/accounts/defaultAccount'
 import { CommandBar } from '../command/CommandBar'
 import { openPage, openPlan } from './navigation'
-import { ConfirmHost } from '../ConfirmHost'
+import { ConfirmHost } from '../ui/ConfirmHost'
+import { CrashReportHost } from '../CrashReportPrompt'
 import { Onboarding } from '../onboarding/Onboarding'
 import { exitEffects, isOnboardingShown } from '../onboarding/onboardingModel'
 import { setOnboardingReplay, useOnboardingReplay } from '../onboarding/replay'
@@ -22,9 +22,11 @@ import { StartPage, useDropToStart, useStartLanding } from '../pages/StartPage'
 import { NewModal } from '../NewModal'
 import { MAX_PANES, countLeaves, groupOfTab, splitAndMove, type PaneDir } from '../../../../core/panes/tree'
 import { parseTab, sessionTab } from '../../../../core/panes/tabId'
-import { ContextMenu, type MenuItem } from '../ContextMenu'
+import { Menu, ToastViewport, type MenuItem } from '../ui'
 import type { AppState } from '../../state/appState'
 import { SettingsDialog } from './SettingsDialog'
+import { HelpPanel } from '../help/HelpPanel'
+import { setHelpOpen, useHelpOpen } from '../help/helpStore'
 
 export type OverlaysProps = Pick<
   AppState,
@@ -72,6 +74,7 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
     workspacePlanId, workspaceTree, wtRoot, start, openStart, newOpen, setNewOpen, sessions
   } = p
   const onboardingReplay = useOnboardingReplay()
+  const helpOpen = useHelpOpen()
   // W9-E: an empty project lands on Start; files dropped on the window open it
   useStartLanding(currentProject, sessions, openStart)
   useDropToStart(openStart)
@@ -128,11 +131,11 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
           right-clicked tab belongs to, not the active pane — so right-clicking a tab in another group
           does not split the wrong one (the same as IntelliJ). */}
       {tabMenu && (
-        <ContextMenu
-          x={tabMenu.x}
-          y={tabMenu.y}
+        <Menu
+          at={{ x: tabMenu.x, y: tabMenu.y }}
+          label={t('overlays.tabMenu.label')}
           onClose={() => setTabMenu(null)}
-          items={((): MenuItem[] => {
+          items={((): Array<MenuItem | 'separator'> => {
             const cur = layout
             const tid = tabMenu.tabId
             const group = cur ? groupOfTab(cur, tid) : null
@@ -169,7 +172,7 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
                       onSelect: () => setRenamingTabId(tid)
                     },
                     'separator'
-                  ] as MenuItem[])
+                  ] as Array<MenuItem | 'separator'>)
                 : []),
               ...(remote
                 ? ([
@@ -180,7 +183,7 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
                       onSelect: () => void stopRemoteSession(remote)
                     },
                     'separator'
-                  ] as MenuItem[])
+                  ] as Array<MenuItem | 'separator'>)
                 : []),
               ...(agentSid !== undefined
                 ? ([
@@ -194,7 +197,7 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
                       }
                     },
                     'separator'
-                  ] as MenuItem[])
+                  ] as Array<MenuItem | 'separator'>)
                 : []),
               {
                 label: t('session.pane.splitRight'),
@@ -342,7 +345,11 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
           }}
         />
       )}
+      {/* T30: the in-app help (F1, the top bar's More menu, the command box) */}
+      {helpOpen && <HelpPanel keyOverrides={keyOverrides} onClose={() => setHelpOpen(false)} />}
       <ConfirmHost />
+      {/* T27: a crash report is offered here, and sent only on its Send */}
+      <CrashReportHost />
       {/* The first-run onboarding, replacing the old single question. Shown on a genuinely fresh profile only
           (main/appSettingsStore.ts's firstRunAsked carries how that is told from an install that predates it) or
           when Settings > General asks to show it again. Every way out settles firstRunAsked, so it shows once. */}
@@ -371,7 +378,7 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
           }}
         />
       )}
-      <ToastHost />
+      <ToastViewport />
     </>
   )
 }

@@ -27,6 +27,8 @@ export interface HeavyTicket {
   /** The agent session that asked (ASTERA_SESSION), so the Host can show its place on the board. */
   sessionId?: string
   at: number
+  /** 'check': taken by a Task's heavy check (exec/validation.ts heavySlot); absent: `astera heavy`. */
+  kind?: 'check'
 }
 
 function pidAlive(pid: number): boolean {

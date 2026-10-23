@@ -1,6 +1,8 @@
 import { useId } from 'react'
 import { cx } from './logic'
-import { Input, Select, Textarea } from './Inputs'
+import { Input, Textarea } from './Inputs'
+import { Select, type SelectChange, type SelectOption } from './Select'
+import { Switch } from './Switch'
 
 type Base = { label: React.ReactNode; hint?: React.ReactNode; error?: React.ReactNode; className?: string }
 
@@ -9,7 +11,7 @@ export type FieldProps = Base &
     | ({ kind?: 'text' } & Omit<React.InputHTMLAttributes<HTMLInputElement>, 'className'>)
     | ({ kind: 'number' } & Omit<React.InputHTMLAttributes<HTMLInputElement>, 'className' | 'type'>)
     | ({ kind: 'textarea' } & Omit<React.TextareaHTMLAttributes<HTMLTextAreaElement>, 'className'>)
-    | ({ kind: 'select'; options: Array<{ value: string; label: React.ReactNode }> } & Omit<React.SelectHTMLAttributes<HTMLSelectElement>, 'className'>)
+    | { kind: 'select'; options: SelectOption[]; value?: string; onChange?: (e: SelectChange) => void; id?: string; disabled?: boolean; placeholder?: string; required?: boolean }
     | ({ kind: 'toggle'; checked: boolean; onChange: (checked: boolean) => void } & Omit<React.InputHTMLAttributes<HTMLInputElement>, 'className' | 'type' | 'checked' | 'onChange'>)
   )
 
@@ -29,20 +31,13 @@ export function Field(props: FieldProps): React.JSX.Element {
     const { kind: _k, ...rest } = control
     input = <Textarea {...rest} {...aria} />
   } else if (control.kind === 'select') {
-    const { kind: _k, options, ...rest } = control
-    input = (
-      <Select {...rest} {...aria}>
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </Select>
-    )
+    // `required` has no native check on the listbox; the form's own error line says what is missing
+    const { kind: _k, options, onChange, required: _r, value, ...rest } = control
+    input = <Select {...rest} {...aria} value={value ?? ''} items={options} onChange={(v) => onChange?.({ target: { value: v } })} />
   } else if (control.kind === 'toggle') {
     const { kind: _k, checked, onChange, ...rest } = control
     input = (
-      <input type="checkbox" role="switch" className="ui-toggle" {...rest} {...aria} checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      <Switch {...rest} {...aria} checked={checked} onChange={onChange} />
     )
   } else if (control.kind === 'number') {
     const { kind: _k, ...rest } = control

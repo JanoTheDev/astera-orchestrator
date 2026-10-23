@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { GhProbe } from '../../../core/github/types'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
+import { Button, Icon, Switch } from './ui'
 
 /** The GitHub pane of the settings modal (design doc §5). Reads state and instructs — there is
  *  deliberately no login button: auth belongs to `gh auth login` in a terminal. */
@@ -54,38 +55,38 @@ export function GithubSettings(): React.JSX.Element {
       {probe?.kind === 'not-installed' && (
         <div className="settings-row">
           <span />
-          <button onClick={() => void window.api.system.openExternal('https://cli.github.com')}>
+          <Button size="sm" icon={<Icon name="external" size={14} />} onClick={() => void window.api.system.openExternal('https://cli.github.com')}>
             {t('github.settings.installLink')}
-          </button>
+          </Button>
         </div>
       )}
       {probe?.kind === 'not-authenticated' && (
         <div className="settings-row">
           <code>gh auth login</code>
-          <button
+          <Button
+            size="sm"
+            icon={<Icon name="copy" size={14} />}
             onClick={() => {
               window.api.clipboard.writeText('gh auth login')
               toast.success(t('github.settings.commandCopied'))
             }}
           >
             {t('github.settings.copyCommand')}
-          </button>
+          </Button>
         </div>
       )}
       <div className="settings-row">
         <span />
-        <button disabled={checking} onClick={() => void recheck()}>
+        <Button size="sm" variant="ghost" icon={<Icon name="refresh" size={14} />} loading={checking} onClick={() => void recheck()}>
           {t('github.settings.recheck')}
-        </button>
+        </Button>
       </div>
       {/* A label so pressing the text toggles too — the same wrapping the orchestration row uses */}
       <label className="settings-row">
         <span>{t('github.settings.polling')}</span>
-        <input
-          type="checkbox"
+        <Switch
           checked={polling}
-          onChange={(e) => {
-            const next = e.target.checked
+          onChange={(next) => {
             setPolling(next) // optimistic — reverted below on failure
             void window.api.settings.setGithubPolling(next).catch((err) => {
               setPolling(!next)

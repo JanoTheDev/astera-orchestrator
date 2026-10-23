@@ -10,3 +10,9 @@
 .plan-page-waves-head { justify-content: space-between; }
 .detail-graph > .plan-page-wave { margin: var(--sp-1) 0 var(--sp-3); }
 .plan-simple-details { align-self: flex-start; margin-top: var(--sp-2); }
+.detail-graph > .plan-overview { flex: none; }
+/* Title and status chips wrap instead of clipping: a long "Not delivered: <reason>" chip used to squeeze the title to "Set…" and cut itself off. */
+.plan-page-header .ui-page-header__titles { flex-wrap: wrap; row-gap: var(--sp-1); }
+.plan-page-header .ui-page-header__subtitle { overflow: visible; white-space: normal; }
+.plan-page-sub { flex-wrap: wrap; }
+.plan-page-sub .ui-chip { height: auto; min-height: 20px; padding-block: 2px; line-height: var(--lh-tight); white-space: normal; }

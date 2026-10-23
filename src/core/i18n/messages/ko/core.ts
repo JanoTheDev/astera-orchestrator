@@ -1,0 +1,323 @@
+// Korean · core area. Which files each area serves: ../README.md.
+export const core = {
+  // A key with interpolation — added so a test pins t()'s placeholder substitution.
+  // validateName uses this key as-is (the FORBIDDEN check in files/ops.ts).
+  'files.validate.badChar': '이름에 쓸 수 없는 문자가 있습니다: {char}',
+  // files/ops.ts — the Message keys validateName/canMove/canCopy return
+  'files.validate.empty': '이름을 입력하세요',
+  'files.validate.reserved': '사용할 수 없는 이름입니다',
+  'files.validate.separator': '이름에 경로 구분자를 쓸 수 없습니다',
+  'files.validate.windowsReserved': 'Windows에서 예약된 이름입니다',
+  'files.validate.trailing': '이름은 공백이나 마침표로 끝날 수 없습니다',
+  'files.validate.tooLong': '이름이 너무 깁니다',
+  'files.move.intoSelf': '폴더를 자기 자신 안으로 옮길 수 없습니다',
+  'files.move.alreadyThere': '이미 그 위치에 있습니다',
+  'files.copy.intoSelf': '폴더를 자기 자신 안으로 복사할 수 없습니다',
+  'files.error.pathNotAllowed': '허용되지 않은 경로입니다',
+  'files.error.unsupportedImageType': '지원하지 않는 이미지 형식입니다',
+  'files.error.imageTooLarge': '이미지가 너무 큽니다',
+  'files.error.alreadyExists': "'{name}' 이(가) 이미 있습니다",
+  'files.error.alreadyExistsInDest': "'{name}' 이(가) 대상 폴더에 이미 있습니다",
+  'files.error.renameStranded': "이름 변경에 실패했고 되돌리지도 못했습니다. 파일이 '{tmp}' 에 있습니다",
+  'files.error.unreachable': '폴더가 답하지 않아 아무것도 바꾸지 않았습니다(네트워크 드라이브가 끊겼을 수 있습니다). 닿을 수 있게 되면 다시 시도하세요.',
+  // worktrees/include.ts, worktrees/create.ts — worktree creation warnings
+  'worktree.include.tooManyEntries': '.worktreeinclude 항목이 {max}개를 넘어 이후 줄은 무시했습니다',
+  'worktree.include.globUnsupported': 'glob·부정 패턴 미지원: {line}',
+  'worktree.include.absolutePath': '절대 경로 불가: {line}',
+  'worktree.include.parentPath': '상위 경로(..) 불가: {line}',
+  'worktree.include.gitDir': '.git 하위 불가: {line}',
+  'worktree.include.fileTooLarge': '.worktreeinclude가 {max}바이트를 넘어 무시했습니다',
+  'worktree.include.missing': '존재하지 않아 건너뜀: {entry}',
+  'worktree.include.notIgnored': 'gitignore되지 않아 건너뜀: {entry}',
+  'worktree.include.sizeFailed': '용량 계산 실패: {entry} ({detail})',
+  'worktree.include.unreachable': '프로젝트 폴더가 답하지 않아 .worktreeinclude 항목을 복사하지 않았습니다: {path}',
+  'worktree.include.overLimit': '복사 상한(200MB) 초과로 건너뜀: {entry}',
+  'worktree.include.linkFailed': '링크를 다시 만들지 못해 이 항목은 복사하지 않음: {entry} ({detail})',
+  'worktree.include.unsafeDest': '복사할 자리로 가는 길에 링크({path})가 있어 그 아래는 복사하지 않음(워크트리 밖에 쓰지 않는다): {entry}',
+  'worktree.include.linkTargetMissing': '폴더 링크가 가리키는 저장소 안의 자리가 워크트리에 없어 링크를 다시 만들지 않음: {path} ({entry})',
+  'worktree.include.outsideLinkSkipped': '저장소 밖을 가리키는 폴더 링크를 심볼릭 링크로 만들지 못해 건너뜀({detail}). 필요하면 직접 만드세요: {path} ({entry})',
+  'worktree.include.overFileCount': '항목이 {max}개를 넘어 건너뜀: {entry}',
+  'worktree.include.copyFailed': '복사 실패: {entry} ({detail})',
+  'worktree.create.fetchFailed': '원격 갱신에 실패해 로컬에 있는 {baseRef} 기준으로 생성했습니다',
+  'worktree.create.baseRecordFailed': 'branch.base 기록 실패 — 삭제 시 머지 판정이 HEAD 기준이 됩니다',
+  'worktree.create.autoSetupRemoteFailed': 'push.autoSetupRemote 설정 실패 — 첫 push에 -u가 필요합니다',
+  'session.resume.hostChatNotAdopted': '이 대화는 아직 Astera Host 에서 돌고 있고 이 창이 아직 넘겨받지 못했습니다. 잠시 뒤 다시 시도하세요.',
+  // index.ts — system tray context menu
+  'common.trayOpen': '열기',
+  'common.trayQuit': '종료',
+  'common.trayNewWindow': '새 창', // W9-K
+  'common.trayQuitEnding': '세션 모두 끝내고 종료',
+  // A duration as one coarse unit. Its own keys rather than a suffix appended to a number, because
+  // the two are not separable in every language this app ships.
+  'duration.minutes': '{n}분',
+  'duration.hours': '{n}시간',
+  'duration.days': '{n}일',
+  // No settings.cliMissing.* here on purpose. That screen replaces the whole workbench, so the rail
+  // and the language switch on it are gone — it is hardcoded English in App.tsx instead.
+  // App.tsx — update status (the title-bar UpdateIndicator / the settings Info tab)
+  'update.tb.restartInstallVersion': '재시작하여 v{version} 설치',
+  'update.tb.manualInstallVersion': 'v{version} 직접 설치',
+  'update.tb.checking': '업데이트 확인 중…',
+  'update.tb.available': '새 버전 {version} 발견',
+  'update.tb.downloading': '다운로드 중 {percent}%',
+  'update.tb.error': '업데이트 오류',
+  'update.checkTimedOut': '업데이트 확인이 {seconds}초 안에 응답하지 않았습니다. 네트워크를 확인하고 다시 시도하세요.',
+  // index.ts — diagnostic message for when the electron-updater module does not export properly (title-bar tooltip)
+  'update.tb.autoUpdaterMissing': 'autoUpdater export를 찾지 못함',
+  'update.manual.done':
+    '새 버전을 Finder 에 열었습니다. Astera 를 응용 프로그램 폴더로 끌어다 놓고 다시 실행하세요.\n\n{path}',
+  'update.manual.failed': '설치 파일을 준비하지 못했습니다: {message}',
+  'update.manual.noFile': '내려받은 설치 파일이 없습니다',
+  'update.source.noCheckout': '소스 폴더 {dir} 가 origin 원격이 있는 git 저장소가 아닙니다',
+  'update.source.checkTimedOut': '{seconds}초 안에 origin 의 응답이 없습니다',
+  'update.source.buildFailed': '빌드 실패: {line}',
+  'update.source.noAppImage': '빌드가 끝났지만 AppImage 가 없습니다',
+  'update.source.nothingToInstall': '설치할 빌드가 없습니다',
+  'update.source.step.cloning': '빌드용 사본을 갱신하는 중…',
+  'update.source.step.installing': '의존성을 설치하는 중…',
+  'update.source.step.waiting': '무거운 작업 차례를 기다리는 중…',
+  'update.source.step.building': '새 버전을 빌드하는 중…',
+  'update.tb.restartSource': '다시 시작해 업데이트',
+  'update.tb.sourceChanges': '새 변경 사항: {count}',
+  'update.ui.toastReady': 'Astera 업데이트 준비됨 — 변경 {count}건',
+  'update.toast.ready': '업데이트 v{version} 준비됨',
+  'update.toast.manual': '업데이트 v{version}은 직접 설치해야 합니다',
+  'update.toast.manualInstall': '직접 설치',
+  'shortcut.sessionTab.prev': '이전 탭',
+  'shortcut.sessionTab.next': '다음 탭',
+  'shortcut.pane.splitRight': '우측 분할',
+  'shortcut.pane.splitDown': '하단 분할',
+  'shortcut.pane.focusLeft': '왼쪽 패널',
+  'shortcut.pane.focusRight': '오른쪽 패널',
+  'shortcut.pane.focusUp': '위 패널',
+  'shortcut.pane.focusDown': '아래 패널',
+  'shortcut.risk.interrupt': '터미널에서 실행 중인 작업을 중단하는 키입니다. 앱이 가져가면 세션에서 중단할 수 없습니다.',
+  'shortcut.risk.eof': '터미널에서 CLI를 종료하는 키입니다. 앱이 가져가면 세션에서 쓸 수 없습니다.',
+  'shortcut.risk.readline': '터미널 줄 편집에 쓰이는 키입니다(줄 처음·끝 이동, 단어 삭제 등). 앱이 가져가면 프롬프트 입력 중에 쓸 수 없습니다.',
+  'shortcut.risk.historySearch': '터미널 히스토리 검색에 쓰이는 키입니다. 앱이 가져가면 세션에서 쓸 수 없습니다.',
+  'shortcut.risk.clear': '터미널 화면을 지우는 키입니다. 앱이 가져가면 세션에서 쓸 수 없습니다.',
+  'shortcut.risk.newline': 'Codex에서 줄바꿈에 쓰이는 키입니다. 앱이 가져가면 여러 줄 입력이 막힙니다.',
+  'shortcut.risk.cliMode': 'Claude Code·Codex가 모드 전환·자동완성에 쓰는 키입니다. 앱이 가져가면 세션에서 쓸 수 없습니다.',
+  'shortcut.explorer.toggleMode': '탐색기 보이기/숨기기',
+  'shortcut.explorer.closeFileTab': '파일 탭 닫기',
+  'shortcut.explorer.cyclePreview': '마크다운 프리뷰 모드 전환',
+  'shortcut.sidebar.jobs': 'Jobs 사이드바 열기/닫기',
+  'shortcut.sidebar.home': '계정과 히스토리 열기/닫기',
+  'shortcut.sidebar.howItWorks': 'How It Works 사이드바 열기/닫기',
+  'shortcut.run.run': '실행',
+  'shortcut.run.stop': '실행 중지',
+  'shortcut.run.rerun': '선택한 실행 다시 실행',
+  'shortcut.run.selectConfig': '실행 구성 고르기',
+  'files.delete.skippedTooLarge': '항목이 너무 커서(50MB 또는 5,000개 항목 초과) Local History에 남기지 않았습니다',
+  'files.delete.skippedFailed': 'Local History 스냅샷에 실패했습니다 — 삭제는 완료됐습니다',
+  'files.undo.permanentTooLarge':
+    '되돌리기로 영구 삭제됐습니다 — 용량이 커(50MB 또는 5,000개 항목 초과) Local History에 남기지 않아 복구할 수 없습니다',
+  'files.undo.permanentSnapshotFailed':
+    '되돌리기로 지워졌습니다 — Local History 스냅샷에 실패해 복구할 수 없습니다',
+  // undo.ts — the Message keys describe/describeRestored return. undo.ts is a pure core
+  // module and cannot call t(), so it builds keys only, not finished sentences. Plurals get their own keys (the rule).
+  'files.undo.desc.createdOne': "'{name}' 생성",
+  'files.undo.desc.createdMany': '{count}개 항목 생성',
+  'files.undo.desc.copiedOne': "'{name}' 복사",
+  'files.undo.desc.copiedMany': '{count}개 항목 복사',
+  'files.undo.desc.renamed': "'{from}' → '{to}' 이름 변경",
+  'files.undo.desc.movedOne': "'{name}' 이동",
+  'files.undo.desc.movedMany': '{count}개 항목 이동',
+  'files.undo.desc.deletedOne': "'{name}' 삭제",
+  'files.undo.desc.deletedMany': '{count}개 항목 삭제',
+  'files.undo.restored.one': "'{name}' 삭제 되돌렸습니다",
+  'files.undo.restored.many': '{count}개 항목 삭제 되돌렸습니다',
+  'files.undo.restored.renamedOne': "'{name}' 삭제 되돌림 — 같은 이름이 있어 다른 경로로 복구됨: {to}",
+  'files.undo.restored.renamedMany':
+    '{count}개 항목 삭제 되돌림 — {renamedCount}개는 같은 이름이 있어 다른 이름으로 복구됨: {shown}',
+  'files.undo.restored.renamedManyWithMore':
+    '{count}개 항목 삭제 되돌림 — {renamedCount}개는 같은 이름이 있어 다른 이름으로 복구됨: {shown} 외 {moreCount}건',
+  // The error store.ts (core, which does not know the language) throws with the LOCAL_HISTORY_NOT_FOUND code — main
+  // (localHistory.restore in ipc.ts) inspects the code and rethrows it translated through this key (the layering rule)
+  'localHistory.notFound': '이력 항목을 찾을 수 없습니다',
+  // The Message key accountLogout in core.ts returns. account.logout.failed (above) is the outer template that
+  // slots this value into {detail}, so the two cannot share a name — it was split into the
+  // account.error.* namespace, alongside account.error.raw.
+  'account.error.raw': '{detail}',
+  'account.error.logoutFailed': '로그아웃 실패',
+  // The Message keys accountSyncSettings in core.ts returns
+  'account.sync.isDefaultSource': '이 계정이 기본 계정이라 설정의 원본입니다. 가져올 대상이 아닙니다.',
+  'account.sync.noDefault': '이 CLI에 로그인된 계정이 없어 가져올 원본이 없습니다.',
+  'account.sync.nothingToCopy': '가져올 설정이 없습니다 (원본 계정에 설정 파일 없음).',
+  'session.new.worktreeRepoUnknown': '이 폴더가 git 저장소인지 확인하지 못했습니다(git 이 제때 응답하지 않음 — 네트워크·WSL 경로는 느릴 수 있습니다). 여기서 세션은 시작할 수 있지만 worktree 로 분리해서는 시작할 수 없습니다.',
+  'session.new.worktreeRepoNoGit': 'git 을 실행하지 못해 이 폴더가 저장소인지 확인하지 못했습니다(git 이 설치돼 있고 PATH 에 있나요?). 여기서 세션은 시작할 수 있지만 worktree 로 분리해서는 시작할 수 없습니다.',
+  'session.new.worktreeRepoNoFolder': '이 폴더를 찾을 수 없습니다. 폴더를 다시 고르세요.',
+  'session.new.worktreeRepoError': '이 폴더가 git 저장소인지 확인하지 못했습니다. 여기서 세션은 시작할 수 있지만 worktree 로 분리해서는 시작할 수 없습니다.',
+  'startup.readingShellEnv': '셸 환경을 읽는 중…',
+  'exit.finished': '완료',
+  'exit.closedByAstera': 'Astera가 닫음 — 작업 완료',
+  'exit.releasedByAstera': 'Astera가 닫음 — 해제',
+  'exit.stoppedByAstera': 'Astera가 닫음 — 중지',
+  'exit.replacedByAstera': 'Astera가 닫음 — 교체',
+  'exit.closedOnRequest': 'Astera가 닫음 — {reason}',
+  'exit.stopped': '중지됨 (Ctrl+C)',
+  'exit.killed': '강제 종료됨 (메모리 부족 또는 강제 중지)',
+  'exit.failed': '실패 (코드 {code})',
+  // The schedule banner SessionStateBanners.tsx draws, on the terminal and on the conversation pane alike
+  // — schedRuleSummary is a module-level pure function, so it takes t as an argument (the same convention
+  // as fmtTime/fmtDateTime beside it). A merge from main brought in hardcoded text, later moved into this catalog
+  'session.terminal.schedFallback': '스케쥴',
+  'session.terminal.schedSummary.interval': '{minutes}분마다',
+  'session.terminal.schedSummary.daily': '매일 {time}',
+  'session.terminal.schedSummary.weekly': '매주 {days} {time}',
+  'session.terminal.schedSummary.monthly': '매월 {days}일 {time}',
+  // main/run/prepare.ts resolveRunCwd (run.start) and ipc.ts assertConfigCwd (run.saveConfigs) — a
+  // sentence main throws also shows up verbatim in a renderer toast, so it is translated here first (the layering rule)
+  'run.config.cwdNotString': '실행 구성의 작업 폴더가 올바르지 않습니다',
+  'run.config.cwdOutsideProject': '실행 구성의 작업 폴더는 프로젝트 안이어야 합니다',
+  // ipc.ts run.start — 필수 항목이 빈 구성은 저장은 되지만 실행은 거부한다. {fields} 는 아래 run.field.* 라벨이다
+  'run.start.incomplete': '실행 구성의 필수 항목이 비어 있습니다: {fields}',
+  'run.start.cycle': '실행 구성이 서로를 기다립니다: {path}',
+  'run.start.missingTask': '{name} 이(가) 가리키는 실행 구성이 없습니다',
+  'run.start.compoundNotRunnable': '묶음 구성은 여기서 실행할 수 없습니다 — 명령이 하나여야 합니다',
+  'run.start.stepFailed': '{name} 을(를) 시작하지 못했습니다: {detail}',
+  'run.runFile.notRunnable': '{name} 은(는) 실행할 수 있는 파일이 아닙니다',
+  'run.runFile.refused': '{name} 을(를) 실행 구성으로 저장할 수 없습니다: {detail}',
+  // claudeCoordinator.ts and codexCoordinator.ts — the default resume prompt main writes straight into the Claude PTY,
+  // or passes as a Codex CLI argument, when rolling resumes after a limit. It is also the default for the
+  // user's rollPrompt setting (session.new.rollPromptPlaceholder shows this value as its placeholder). It is
+  // an instruction sent to a CLI, but it follows the app language by decision.
+  'rolling.continuePrompt': '이어서 작업 진행해 줘',
+  // slack.ts — the notification text that goes out to Slack. Follows the app language (core.lang at send time).
+  'slack.turnDone': '✅ 응답 완료',
+  'slack.limitWaiting': '⏸ 한도 도달 — {at} 재개 예정 ({scope} 한도)',
+  'slack.limitScope.weekly': '주간',
+  'slack.limitScope.session': '5시간',
+  'slack.accountSwitched': '🔁 계정 전환 → {label}',
+  'slack.limitReset': '▶️ 한도 리셋 — 자동 재개 프롬프트 전송',
+  'slack.stalled': '⚠️ 세션이 멈춰 있습니다 — 자동 재개 실패, 확인이 필요합니다',
+  'slack.sessionExited': '⏹ 세션 종료 (exit {code})',
+  'slack.inputNeeded': '🙋 입력 필요',
+  'slack.inputNeededWith': '🙋 입력 필요 — {message}',
+  // core/connections/input.ts buildChoiceKeys — the reason a choice reply was in the wrong shape.
+  // core does not know the language, so it hands back a Message and main (slackInbox) translates it and posts it to the thread.
+  // With more than one question, the *At variants that say which question it was are used.
+  // core/connections/transcript.ts describePendingToolUse — the reply-format hint attached to the thread notification, and
+  // the notation for summarizing a sensitive argument as a character count instead of its value.
+  'slack.choice.hintPerQuestion': '💡 질문마다 `/`로 구분해 답장 (예: 1,3 / 2)',
+  'slack.choice.hintMulti': '💡 여러 개는 쉼표로 구분해 답장 (예: 1,3)',
+  'slack.pending.charCount': '{key}: {len}자',
+  'slack.choice.noShape': '대기 중인 선택지 정보를 찾지 못했습니다',
+  'slack.choice.countMismatch':
+    "질문이 {expected}개인데 답은 {got}개입니다 — 질문마다 '/'로 구분해 주세요 (예: 1,3 / 2)",
+  'slack.choice.noNumber': '번호를 찾지 못했습니다',
+  'slack.choice.noNumberAt': '{index}번째 질문: 번호를 찾지 못했습니다',
+  'slack.choice.singleOnly': '하나만 고를 수 있습니다',
+  'slack.choice.singleOnlyAt': '{index}번째 질문: 하나만 고를 수 있습니다',
+  'slack.choice.outOfRange': '{n}번은 없습니다 (1~{max})',
+  'slack.choice.outOfRangeAt': '{index}번째 질문: {n}번은 없습니다 (1~{max})',
+  // core/slack/inbox.ts — the notice left in the thread when a thread reply could not be injected into the session
+  'slack.inbox.tooLong': '⚠️ 답장이 너무 길어 전달하지 않았습니다 ({max}자 이하만 가능)',
+  'slack.inbox.sessionEnded': '⚠️ 이 세션은 종료되어 입력을 전달하지 못했습니다',
+  'slack.inbox.injectFailed': '⚠️ 입력을 전달하지 못했습니다',
+  // core/connections/chatRequest.ts — a chat session's open card as Slack text, and a thread reply's result.
+  'slack.approval.hint': '💡 허용 또는 거절로 답장',
+  'slack.approval.hintAlways': '💡 허용, 항상 허용 또는 거절로 답장',
+  'slack.approval.unknownReply': '⚠️ 허용 또는 거절로 답장해 주세요',
+  'slack.approval.unknownReplyAlways': '⚠️ 허용, 항상 허용 또는 거절로 답장해 주세요',
+  'slack.chat.sendRefused': '⚠️ CLI가 메시지를 받지 않았습니다 — {reason}',
+  'slack.chat.turnFailed': '⚠️ 턴 실패 — {message}',
+  'slack.limitNoResume': '⛔ 한도 도달 — 자동 재개 없음',
+  'slack.limitNoResumeAt': '⛔ 한도 도달 — 자동 재개 없음 (리셋 {at})',
+  // main/host/rollJournalSummary.ts — what the Host rolled while no app was attached (closed, or a dropped socket), one line per session
+  // (S6 D6). {events} is the parts below joined by commas, in the order they happened.
+  'slack.offline.summary': '🕘 Astera 가 Host 와 끊겨 있던 사이: {events}',
+  'slack.offline.limit': '{time} 한도 도달',
+  'slack.offline.limitUntil': '{time} 한도 도달 ({at} 재개 예정)',
+  'slack.offline.switched': '{label} 로 전환',
+  'slack.offline.switchedAnon': '계정 전환',
+  'slack.offline.resumed': '{time} 재개',
+  'slack.offline.stalled': '{time} 멈춤, 확인 필요',
+  // Desktop notification bodies. They follow the app language, the same way Slack's already do. The
+  // title is the session's own title, so the body says only what happened.
+  'notify.inputNeeded': '사용자 확인이 필요합니다',
+  'notify.limitWaiting': '한도에 걸려 재개를 기다립니다',
+  'notify.accountSwitched': '계정을 {label} 로 전환했습니다',
+  'notify.fallbackTitle': 'Astera',
+  // The one desktop notice for everything the Host rolled while no app was attached (S6 D6).
+  'notify.offlineRolls': 'Astera 가 Host 와 끊겨 있던 사이 세션 {n}개가 한도에 걸렸습니다',
+  // 복구가 왜 그렇게 정했는지. Gate 의 질문과 히스토리 줄이 같은 문장을 쓴다 —
+  // core/recovery/decide.ts 의 표가 줄마다 이 키 하나를 고른다.
+  'jobs.recovery.reason.worktreeGone': '워크트리가 사라져서 거기서는 아무것도 확인하거나 이어갈 수 없습니다',
+  'jobs.recovery.reason.operationInProgress': '워크트리에서 {operation} 작업이 진행 중이라 자동으로 이어가면 안 됩니다',
+  'jobs.recovery.reason.conflicts': '워크트리에 충돌 난 파일이 있습니다',
+  'jobs.recovery.reason.treeUnreadable': '워크트리를 읽지 못해서 그 상태를 하나도 믿을 수 없습니다',
+  'jobs.recovery.reason.journalUnreadable': '기록을 읽지 못해서 이 시도에 대해 아무것도 믿을 수 없습니다',
+  'jobs.recovery.reason.nativeSession': '에이전트의 원래 세션을 되살릴 수 있어서 대화가 그대로 이어집니다',
+  'jobs.recovery.reason.committedWithCheck': '워커가 사라지기 전에 커밋을 남겨서, 검사가 결과를 판정합니다',
+  'jobs.recovery.reason.committedNoCheck': '워커가 사라지기 전에 커밋을 남겼는데, 이 작업에는 결과를 증명할 검사가 없습니다',
+  'jobs.recovery.reason.producedNothing': '워커가 아무것도 만들지 않아서 다시 시작해도 겹치는 작업이 없습니다',
+  'jobs.recovery.reason.promptNeverLeft': '프롬프트가 앱을 떠나지 않아서 시작된 것이 없습니다',
+  'jobs.recovery.reason.briefing': '워크트리에 하던 작업이 남아 있어서, 새 워커가 인계문을 받고 시작합니다',
+  'jobs.recovery.reason.smartResumeOff': '워크트리에 하던 작업이 남아 있는데 스마트 재개가 꺼져 있습니다',
+  'jobs.recovery.reason.coordinatorRun': '이 Job 은 코디네이터가 관리합니다. 무엇을 시작할지는 코디네이터가 정하므로 앱이 임의로 띄우지 않았습니다',
+  'jobs.recovery.gate.question': '이 작업의 워커가 사라졌고 자동으로 이어갈 수 없었습니다: {reason}.',
+  'jobs.recovery.gate.reviewFirst': '답하기 전에 워크트리를 확인하세요.',
+  'jobs.recovery.gate.unsafeNote': '워크트리는 아무것도 건드리지 않았습니다.',
+  'jobs.recovery.gate.restart': '새 워커로 다시 시작',
+  'jobs.convergence.gate.exhausted':
+    '{repairs}번 수정한 뒤에도 완료 검사를 통과하지 못했습니다. 아직 실패: {failures}',
+  // 설계 G2(명세 §40). 횟수 소진과 같은 Gate 지만 이유가 다르다 — 얼마를 넘겼는지가 그 이유다.
+  'jobs.convergence.gate.timeExhausted':
+    '이 Task 의 자동 수정이 시간 예산({minutes}분)을 넘겼습니다. {repairs}번 고쳤고 아직 실패합니다: {failures}',
+  'jobs.convergence.gate.stopped': '이 Task 의 자동 수정이 멈춰 있고 검사는 아직 실패합니다: {failures}',
+  'jobs.convergence.gate.paused': '완료 검사가 도는 동안 이 Run 이 멈췄고, 검사는 아직 실패합니다: {failures}',
+  'jobs.convergence.gate.repairFailed': '수정할 워커를 띄울 수 없었습니다: {reason}',
+  'jobs.checks.gate.unavailable': '검사를 할 수 없었습니다: {check}: {reason}',
+  'jobs.gate.noAccount': '{provider} 계정에 로그인되어 있지 않아 이 Task 를 시작할 수 없습니다',
+  'jobs.gate.workerLostNoApp': '이 Task 의 워커가 복구해 줄 Astera 가 열려 있지 않은 동안 사라졌습니다(dispatch {dispatch}). 이 Gate 를 해결하면 다시 시작합니다.',
+  'jobs.gate.assignedAccountUnusable':
+    '이 Task 에 지정된 첫 계정을 쓸 수 없고, 그 뒤의 계정들은 나중에 갈아탈 순서일 뿐입니다 — 그 계정에 다시 로그인하거나 이 Task 의 계정 목록을 고치세요',
+  // exec/dispatchLoop.ts, exec/integrateGit.ts — 통합 병합의 Task 제목과 Gate 문장
+  'jobs.integration.title': "워크트리 병합: {title}",
+  'jobs.integration.runWorktreeNotRecorded': "Run 워크트리를 기록하지 못했습니다: {error}",
+  'jobs.integration.runWorktreeNotMade': "Run 워크트리를 만들지 못했습니다: {error}",
+  'jobs.integration.taskFailed': "통합 Task({task})가 실패해 워크트리를 합치지 못했습니다.",
+  'jobs.integration.stillCannotMerge': "통합 Task 가 끝났는데도 워크트리를 합칠 수 없습니다: {reason}",
+  'jobs.integration.taskNotMade': "워크트리를 합칠 통합 Task 를 만들지 못했습니다: {error}",
+  'jobs.integration.startFailed': "이 Task 를 시작하지 못했습니다: {error}",
+  'jobs.integration.mergeWorkerFailed': "{task} 의 브랜치를 계획 브랜치({root})에 합치지 못했고, 병합 워커도 실패했습니다: {reason}",
+  'jobs.integration.noGit': "합칠 폴더({folder})에서 git 을 돌릴 수 없어 워크트리를 합치지 못했습니다 — 그 폴더가 사라졌거나 git 저장소가 아닙니다.",
+  'jobs.integration.detachedHead': "합칠 폴더({folder})의 HEAD 가 브랜치를 가리키지 않아 워크트리를 합치지 않았습니다(분리된 HEAD — bisect 나 rebase 중일 수도 있습니다). 그 위에 병합하면 만든 커밋이 어느 브랜치에도 남지 않고, 진행 중인 작업이 있다면 그것이 깨집니다. 브랜치를 체크아웃한 뒤 이 Gate 를 해결해 주세요.",
+  'jobs.integration.gitDirUnreachable': "합칠 폴더의 git 디렉터리({dir})에서 진행 중인 작업이 있는지 확인하지 못해 워크트리를 합치지 않았습니다({marker} 에 닿지 못했습니다 — 네트워크 드라이브가 끊겼을 수 있습니다). 폴더에 닿는지 확인한 뒤 이 Gate 를 해결해 주세요.",
+  'jobs.integration.inProgress': "합칠 폴더에서 {op} 작업이 진행 중({marker})이어서 워크트리를 합치지 않았습니다. 그 중간에 병합하면 진행 중인 작업이 깨집니다 — 끝내거나 중단한 뒤 이 Gate 를 해결해 주세요.",
+  'jobs.integration.statusUnreadable': "합칠 폴더({folder})의 git 상태를 읽을 수 없어 워크트리를 합치지 못했습니다: {error}",
+  'jobs.integration.uncommitted': "합칠 폴더에 커밋되지 않은 변경이 {count}개 있어 워크트리를 합칠 수 없습니다. 커밋하거나 되돌린 뒤 이 Gate 를 해결해 주세요(추적되지 않는 새 파일은 여기에 세지 않습니다).",
+  'jobs.integration.worktreeListUnreadable': "워크트리 목록을 읽을 수 없습니다: {error}",
+  'jobs.integration.mergeFailedRestored': "{branch} 브랜치를 합칠 폴더에 합치지 못했습니다: {output}. 합칠 폴더는 병합 전 상태로 되돌렸습니다.",
+  'jobs.integration.mergeFailedLeft': "{branch} 브랜치를 합칠 폴더에 합치지 못했습니다: {output}. **합칠 폴더가 병합 중간 상태로 남아 있을 수 있습니다 — git status 로 직접 확인해 주세요.**",
+  // A notification plugin's sentences (plugin Phase 3 N10, src/core/plugins/notifications.ts), posted as they are
+  'pluginNotify.questionCreated': '답을 기다립니다: {question}',
+  'pluginNotify.inputNeeded.permission': '권한 허가를 기다립니다.',
+  'pluginNotify.inputNeeded.question': '질문의 답을 기다립니다.',
+  'pluginNotify.inputNeeded': '입력을 기다립니다.',
+  'pluginNotify.runFailed': '{ordinal}번째 Run 이 실패했습니다 (Task {total}개 중 {done}개 완료).',
+  'pluginNotify.completionExhausted': '{task} 의 완료 검사가 수정 기회를 모두 썼습니다.',
+  'pluginNotify.limitWaitingAt': '사용 한도에 걸려 멈췄습니다. {time} 에 다시 시도합니다.',
+  'pluginNotify.limitWaiting': '사용 한도에 걸려 멈췄습니다.',
+  'pluginNotify.runCompleted': '{ordinal}번째 Run 이 끝났습니다.',
+  'pluginNotify.accountSwitched': '{label} 계정으로 이어 갑니다.',
+  'shortcut.command.open': '명령 창 열기',
+  'shortcut.search.open': '세션·계획·Task 검색 (명령 창과 같은 창)',
+  'shortcut.command.talk': '명령 창에 말하기 (눌러서 시작, 다시 눌러 보내기)',
+  'shortcut.tabs.reopenClosed': '마지막으로 닫은 탭 다시 열기',
+  // W9-B: Ctrl+1…6 open the top bar's pages
+  'shortcut.page.agents': '에이전트 페이지 열기',
+  'shortcut.page.tasks': '작업 페이지 열기',
+  'shortcut.page.plans': '계획 페이지 열기',
+  'shortcut.page.inbox': '받은 편지함 열기',
+  'shortcut.page.worktrees': '워크트리 페이지 열기',
+  'shortcut.page.files': '파일 페이지 열기',
+  // W6-F
+  'shortcut.workspace.project': '프로젝트 작업 공간 {n} 열기',
+  'telegram.inbox.replyHint': '세션에 입력을 보내려면 그 세션의 메시지에 답장하세요',
+  // W9-E start page and New
+  'shortcut.new.open': '새로 만들기 열기',
+  'plan.doctor.failedGate': '이 Task는 {limit}번 중 {failures}번 실패했고 다시 시도할 코디네이터가 없습니다. 이 Gate를 해결하면 다시 실행합니다.',
+  'shortcut.window.new': '새 창 열기', // W9-K
+} as const

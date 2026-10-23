@@ -6,7 +6,8 @@
 // assets/mark.svg (same 64-unit coordinates); nothing else reads that file at build time.
 //
 // Outputs build/icon.png 512 · build/icon.ico 16..256 (PNG-in-ICO) · build/icon.icns 16..1024 (PNG chunks)
-//         resources/icon.png 256 (window icon) · resources/tray.png 32 (tray icon)
+//         resources/icon.png 256 (window icon) · resources/tray.png 32 (tray icon, shown at 16/22 px)
+//         assets/mark-1024.png 1024 (committed master; the source of truth is MARK below + assets/mark.svg)
 // Each size is rendered from the geometry at that size, not downscaled.
 import { writeFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
@@ -134,3 +135,4 @@ writeFileSync(
 )
 writeFileSync(join(root, 'resources/icon.png'), out[256])
 writeFileSync(join(root, 'resources/tray.png'), out[32])
+writeFileSync(join(root, 'assets/mark-1024.png'), out[1024])

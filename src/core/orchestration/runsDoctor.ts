@@ -1,6 +1,6 @@
 // `astera runs doctor` (T8, decision 8): every Run whose stored state disagrees with what is really going on, and the
 // repair each one already has elsewhere. Nothing here is a new rule: "nothing can move" is running.ts `stuckOf`, a
-// stopped reviewer is `reviewerEnded`, a lost worker is lostGate.ts `lostWithNobody`, a stray session is runEnd.ts
+// stopped reviewer is `reviewerEnded`, a Run stalled on a failed Task is replan.ts `stallOf` (T36), a lost worker is lostGate.ts `lostWithNobody`, a stray session is runEnd.ts
 // `runEndSessions`, and the repairs are the load's restart Gate (`interruptStalledTask`), the session-exit path
 // (`handleExit`, which closes a Dispatch whose process is gone), the Run-end sweep's stop, and a Gate.
 //
@@ -14,9 +14,10 @@ import { FAILURE_LIMIT, isPlaceholderSessionId, type JobRun } from './types'
 import { isTerminal, outcomeOf, reviewerEnded, stuckOf, tasksOwnedBy } from './running'
 import { lostWithNobody } from './lostGate'
 import { runEndSessions } from './exec/runEnd'
+import { failedWaitAsked, failedWaitQuestion, stallOf } from './replan'
 import type { RunStuck } from '../types'
 
-export type DoctorKind = 'stuck' | 'stopped-reviewer' | 'lost-worker' | 'dead-dispatch' | 'stray-session'
+export type DoctorKind = 'stuck' | 'stalled' | 'stopped-reviewer' | 'lost-worker' | 'dead-dispatch' | 'stray-session'
 
 export interface DoctorFinding {
   kind: DoctorKind
@@ -49,7 +50,10 @@ export function diagnoseRuns(s: OrchState, runIds: readonly string[], sessions?:
   const dead = new Set((sessions ?? []).filter((x) => !x.alive).map((x) => x.id))
   for (const run of runs) {
     const tasks = tasksOwnedBy(s, run.id)
-    const stuck = run.paused === true ? undefined : stuckOf(s, run, tasks)
+    // T36: a Run whose only way on is through a failed Task, with what the driving loop does about it (`stallOf`)
+    const stall = stallOf(s, run)
+    if (stall) out.push({ kind: 'stalled', runId: run.id, taskId: stall.blocks[0].task.id, detail: `stalled: ${stall.reason}` })
+    const stuck = run.paused === true || stall ? undefined : stuckOf(s, run, tasks)
     if (stuck)
       out.push({
         kind: 'stuck',
@@ -154,6 +158,17 @@ async function repairOne(f: DoctorFinding, c: DoctorFixContext): Promise<{ fixed
       if (gated.length === 0) return { fixed: false, did: 'no Gate could be opened' }
       await c.setState(next)
       return { fixed: true, did: `opened a retry Gate on ${gated.join(', ')}` }
+    }
+    case 'stalled': {
+      // The owner's question over each failure it waits on, as the driving loop raises it (dispatchLoop.ts unstallRuns)
+      const s = c.getState()
+      const run = s.runs.find((r) => r.id === f.runId)
+      const stall = run && stallOf(s, run)
+      if (!stall) return { fixed: false, did: 'no longer stalled' }
+      const questions = stall.blocks.filter((b) => !failedWaitAsked(s, b.task)).map((b) => failedWaitQuestion(s, b, c.now()))
+      if (questions.length === 0) return { fixed: false, did: 'left to the owner: answer its question (inbox): Retry, Accept as done or Cancel what waits on it' }
+      await c.setState({ ...s, messages: [...s.messages, ...questions] })
+      return { fixed: true, did: `asked the owner about ${questions.map((q) => q.taskId).join(', ')}` }
     }
     case 'stopped-reviewer': {
       const s = c.getState()

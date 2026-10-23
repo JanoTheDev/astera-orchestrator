@@ -14,6 +14,8 @@ export interface PlanStatus {
   tone: ChipTone
   /** Why a failed plan's delivery failed (the Run's deliveryError) */
   reason?: string
+  /** The key's placeholders (T36: the failed Task's title) */
+  params?: MessageParams
 }
 
 /** The one word a plan row's status chip says. A person's part first (approve, a gate), then what holds it, then how it runs. */
@@ -27,6 +29,8 @@ export function planStatusOf(row: JobRow): PlanStatus {
   if (slot === 'auto') return { key: 'jobs.run.startsByItself', tone: 'info' }
   if (row.pendingStart) return row.after !== undefined ? { key: 'pages.plans.status.queued', tone: 'neutral' } : { key: 'jobs.run.notStarted', tone: 'neutral' }
   if (row.paused) return { key: 'jobs.run.roundStopped', tone: 'neutral' }
+  // T36: waits on a failed Task, never read as paused or running (stallOf is already undefined for a paused Run)
+  if (row.stalledOn) return { key: 'plan.outcome.stalledOnFailed', tone: 'danger', params: { task: row.stalledOn.title } }
   // Item 2: everything else ended, and the Tasks held for the owner are left
   if (row.outcome === 'blocked') return { key: 'pages.plans.status.blocked', tone: 'warn' }
   // T8: nothing can move until the owner answers (JobRow.stuck)
@@ -39,13 +43,15 @@ export function planStatusOf(row: JobRow): PlanStatus {
   // Item 8: every Task completed, the final check has not settled: not done yet
   if (row.outcome === 'checking') return { key: 'pages.plans.status.checking', tone: 'info' }
   if (row.outcome === 'failed') return { key: 'pages.plans.status.failed', tone: 'danger', ...(row.deliveryError !== undefined ? { reason: row.deliveryError } : {}) }
+  // The owner dismissed a failed delivery: the Tasks are done but the work never landed
+  if (row.deliveryDismissed) return { key: 'pages.plans.status.deliveryDismissed', tone: 'warn' }
   return { key: 'pages.plans.status.done', tone: 'ok' }
 }
 
-/** The latest time the snapshot knows something happened to the plan (made, started, a worker started, its PR, archived),
+/** The latest time the snapshot knows something happened to the plan (made, started, a worker started, its PR, a delivery attempt, archived),
  *  as epoch ms. Undefined: no time at all (a snapshot from an older Runtime). */
 export function lastActivityOf(row: JobRow): number | undefined {
-  const times = [row.createdAt, row.autoStartedAt, row.archivedAt, row.pr?.at, ...row.tasks.map((t) => t.startedAt)]
+  const times = [row.createdAt, row.autoStartedAt, row.archivedAt, row.pr?.at, row.delivery?.lastAttemptAt, ...row.tasks.map((t) => t.startedAt)]
     .map((iso) => (iso === undefined ? NaN : Date.parse(iso)))
     .filter((ms) => !Number.isNaN(ms))
   return times.length > 0 ? Math.max(...times) : undefined

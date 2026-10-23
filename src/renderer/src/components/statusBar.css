@@ -15,7 +15,7 @@
   align-items: center;
   gap: 16px;
   padding: 0 14px;
-  font-size: 11.5px;
+  font-size: var(--fs-12);
   font-family: var(--mono);
   overflow: hidden;
 }
@@ -25,14 +25,13 @@
    Amber, not red: nothing is broken. The Host is waiting for a quiet moment to replace itself, and for
    someone who never opens a 대화 session it costs nothing at all. --warn-ink is the same colour the
    usage chips and the pending banner warn in, so the bar has one colour for "worth a look". */
-.statusbar .status-host-outdated {
-  flex: none; margin-left: 12px; display: inline-flex; align-items: center;
-  padding: 2px 8px; font: inherit; line-height: 1.4;
-  color: var(--warn-ink); background: none; border: 1px solid var(--warn-ink); border-radius: 999px;
-  cursor: pointer; transition: background 120ms;
+/* A ui Button (secondary, sm) dressed as the amber pill */
+.statusbar .status-host-outdated.ui-btn {
+  flex: none; margin-left: 12px; height: 20px; padding: 0 8px; font-size: inherit; font-weight: var(--fw-regular);
+  color: var(--warn-ink); background: none; border: 1px solid var(--warn-ink); border-radius: var(--radius-pill);
 }
-.statusbar .status-host-outdated:hover { background: var(--warn-bg); }
-.statusbar .status-host-outdated:disabled { cursor: default; opacity: 0.6; }
+.statusbar .status-host-outdated.ui-btn:hover:not(:disabled) { background: var(--warn-bg); }
+.statusbar .status-host-outdated.ui-btn:disabled { opacity: 0.6; }
 /* The Host runtime being put in place (stage 3 task 2). Plain text and the shared spinner while it
    works — nothing is wrong, it is only slow — and the same amber outline as the notices above if it
    failed, because that is the same kind of fact: worth a look, not broken. */
@@ -42,7 +41,7 @@
 }
 .statusbar .status-host-runtime.failed {
   padding: 2px 8px; line-height: 1.4; color: var(--warn-ink);
-  border: 1px solid var(--warn-ink); border-radius: 999px; cursor: default;
+  border: 1px solid var(--warn-ink); border-radius: var(--radius-pill); cursor: default;
 }
 /* The Host row's three facts, stacked. Right-aligned so their ragged left edges do not read as three
    unrelated things, and so the restart button beside them keeps one place whatever they say. */
@@ -50,7 +49,6 @@
 .host-row-outdated { color: var(--warn-ink); }
 .status-account { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-.status-item { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* No flex growth (0 1 auto) — keeps the path from eating the leftover width and pushing the usage chips to the far right. It shrinks with an ellipsis when narrow */
 .status-path { opacity: .85; min-width: 0; flex: 0 1 auto; }
 /* the usage chip group — to the left, next to the folder name. Each chip is a mini progress bar plus n% */
@@ -58,7 +56,6 @@
 .status-metric { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .metric-label { opacity: .9; }
 /* W9-B: usage is the house Meter (components/ui); here it is one 44px track on the bar's line */
-.status-meter { width: 44px; flex: none; }
 .metric-pct { font-weight: 600; min-width: 2.6ch; text-align: right; }
 .metric-reset { opacity: .7; }
 /* W9-B: the counts open their page */
@@ -68,7 +65,7 @@
 }
 .status-link:hover { color: var(--text); }
 .status-link--warn { color: var(--warn); }
-.status-link:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--ring); border-radius: var(--radius-sm); }
+.status-link:focus-visible { border-radius: var(--radius-sm); }
 .status-dot { background: var(--text-faint); }
 .status-dot--ok { background: var(--ok); }
 .status-dot--warn { background: var(--warn); }

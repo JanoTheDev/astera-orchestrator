@@ -1,10 +1,10 @@
 /* W6-G: the plan view's usage strip */
-.usage-strip { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; margin-bottom: 6px; font-size: 11px; color: var(--text-dim); }
+.usage-strip { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; margin-bottom: 6px; font-size: var(--fs-11); color: var(--text-dim); }
 .usage-strip-title { font-weight: 600; color: var(--text); }
 .usage-strip-account { display: inline-flex; align-items: center; gap: 6px; }
 .usage-strip-account strong { font-weight: 600; color: var(--text); }
 .usage-strip-over { color: var(--danger); font-weight: 600; }
-.usage-strip-flag { padding: 0 5px; border-radius: 3px; background: var(--warn-bg); color: var(--warn-ink); }
+.usage-strip-flag { padding: 0 5px; border-radius: var(--radius-sm); background: var(--warn-bg); color: var(--warn-ink); }
 .usage-strip-dim { opacity: 0.75; }
 .usage-strip-tab { margin-right: 8px; }
 .usage-strip-meter { display: inline-grid; width: 44px; vertical-align: middle; } /* W9-B: the house Meter */

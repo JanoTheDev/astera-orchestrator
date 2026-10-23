@@ -3,7 +3,7 @@ import type { SessionKind } from '../../../core/types'
 import { resolveFileIcon } from '../../../core/files/icons'
 import { useI18n } from '../i18n/I18nProvider'
 import { FileIcon } from './FileIcon'
-import { ChevronDown, Film, Globe, Image as ImageIcon, MessageSquare, Monitor, Repeat, Terminal, X } from 'lucide-react'
+import { Icon, IconButton, Menu, menuPointOf, nextFocusIndex, type MenuItem } from './ui'
 import { endRenameOnce } from '../lib/renameOnce'
 import { recentlyClosed, reopenClosed, subscribeRecentlyClosed } from '../lib/recentlyClosed'
 
@@ -189,7 +189,10 @@ export function WorkbenchTabs({
   const renameEnd = useRef({ ended: null as string | null })
   const [dropAt, setDropAt] = useState<number | null>(null)
   // W7-F (#84): the overflow menu's place on screen while open. Fixed, not inside .tabs, which scrolls and clips.
-  const [overflowAt, setOverflowAt] = useState<{ right: number; top: number } | null>(null)
+  const [overflowAt, setOverflowAt] = useState<{ x: number; y: number } | null>(null)
+  const tablist = useRef<HTMLDivElement>(null)
+  // The one tab in the Tab order (roving tabindex): the active tab, or the first when the active one is elsewhere
+  const rovingId = tabs.some((tab) => tab.tabId === activeTabId) ? activeTabId : (tabs[0]?.tabId ?? null)
   // T13: the menu's Recently closed (hidden or ended tabs, newest first); Ctrl+Shift+T reopens the first
   const recent = useSyncExternalStore(subscribeRecentlyClosed, recentlyClosed, recentlyClosed)
 
@@ -216,10 +219,73 @@ export function WorkbenchTabs({
     if (tabId && at !== null) onDropTabInBar(tabId, at)
   }
 
+  // Arrows, Home and End move focus over the tabs; Enter/Space select the focused one. Keys from a nested
+  // control (the close button, the rename input) are left to it.
+  const tabsKeyDown = (e: React.KeyboardEvent): void => {
+    const target = e.target as HTMLElement
+    if (!target.hasAttribute('data-roving')) return
+    if (e.key === 'Enter' || e.key === ' ') {
+      const id = target.getAttribute('data-tab-id')
+      if (id === null) return
+      e.preventDefault()
+      onSelect(id)
+      return
+    }
+    const rows = Array.from(tablist.current?.querySelectorAll<HTMLElement>('[data-roving]') ?? [])
+    const next = nextFocusIndex(rows.indexOf(target), rows.length, e.key, 'horizontal')
+    if (next === null) return
+    e.preventDefault()
+    rows[next]?.focus()
+  }
+
+  const overflowItems: Array<MenuItem | 'separator'> = allTabs
+    ? [
+        ...allTabs.map(
+          (tab): MenuItem => ({
+            id: tab.tabId,
+            icon: tab.kind === 'session' ? <span className="tab-dot" style={{ background: tab.color }} /> : undefined,
+            label: (
+              <span
+                className={`tab-overflow-label${tab.tabId === activeTabId ? ' active' : ''}${tab.kind === 'session' && tab.exited ? ' exited' : ''}`}
+                title={tab.kind === 'file' || tab.kind === 'media' ? tab.path : tab.kind === 'browser' ? tab.url : tab.title}
+              >
+                <span className="tab-title">{tab.title}</span>
+              </span>
+            ),
+            onSelect: () => onSelect(tab.tabId)
+          })
+        ),
+        // T13: Recently closed, under the open tabs. The heading is a disabled row: Menu holds only rows and
+        // separators, and arrows skip a disabled row.
+        ...(recent.length > 0
+          ? [
+              ...(allTabs.length > 0 ? ['separator' as const] : []),
+              { id: 'recent-head', label: <span className="tab-overflow-head">{t('tabs.recent.title')}</span>, disabled: true, onSelect: () => {} },
+              ...recent.map(
+                (r): MenuItem => ({
+                  id: `recent:${r.sessionId}`,
+                  label: (
+                    <span className="tab-overflow-label" title={r.cwd}>
+                      <span className="tab-title">{r.title}</span>
+                      <span className="tab-overflow-note">{t(r.ended ? 'tabs.recent.ended' : 'tabs.recent.running')}</span>
+                    </span>
+                  ),
+                  onSelect: () => reopenClosed(r.sessionId)
+                })
+              )
+            ]
+          : [])
+      ]
+    : []
+
   return (
     <>
     <div
+      ref={tablist}
       className="tabs"
+      role="tablist"
+      aria-label={t('tabs.strip.label')}
+      onKeyDown={tabsKeyDown}
       onDragOver={(e) => {
         if (!draggingTabId) return
         e.preventDefault()
@@ -236,8 +302,14 @@ export function WorkbenchTabs({
       {tabs.map((tab, index) => (
         <div
           key={tab.tabId}
+          role="tab"
+          aria-selected={tab.tabId === activeTabId}
+          tabIndex={tab.tabId === rovingId ? 0 : -1}
+          data-roving=""
+          data-tab-id={tab.tabId}
           className={
             `tab ${tab.kind === 'file' ? 'file-tab' : ''}` +
+            `${focused && tab.tabId === activeTabId ? ' marked' : ''}` +
             `${tab.tabId === activeTabId ? ' active' : ''}` +
             `${tab.kind === 'session' && tab.exited ? ' exited' : ''}` +
             `${tab.tabId === dragId ? ' dragging' : ''}` +
@@ -246,10 +318,11 @@ export function WorkbenchTabs({
           }
           style={
             focused && tab.tabId === activeTabId
-              ? {
+              ? ({
                   // 파일 탭에는 계정 색이 없으므로 강조색을 쓴다
-                  boxShadow: `inset 0 calc(-1 * var(--marker-w)) 0 ${tab.kind === 'session' ? tab.color : 'var(--accent)'}`
-                }
+                  // (the underline itself is drawn by .tab.marked in tabs.css, so the focus ring can stack on it)
+                  '--tab-mark': tab.kind === 'session' ? tab.color : 'var(--accent)'
+                } as React.CSSProperties)
               : undefined
           }
           title={tab.kind === 'file' || tab.kind === 'media' ? tab.path : tab.kind === 'browser' ? tab.url : tab.title}
@@ -262,7 +335,9 @@ export function WorkbenchTabs({
           }
           onContextMenu={(e) => {
             e.preventDefault()
-            onContextMenu(tab.tabId, e.clientX, e.clientY)
+            // the pointer, or under the tab when the keyboard raised it (Shift+F10, the ContextMenu key)
+            const at = menuPointOf(e)
+            onContextMenu(tab.tabId, at.x, at.y)
           }}
           onDragStart={(e) => {
             setDragId(tab.tabId)
@@ -283,7 +358,7 @@ export function WorkbenchTabs({
               <span className="tab-dot busy bp-tab-busy" title={tab.agentRunning ? t('preview.agent.running') : undefined} />
             ) : (
               <span className="tab-glyph" aria-hidden="true">
-                <Globe size={11} />
+                <Icon name="web" size={14} />
               </span>
             )
           ) : tab.kind === 'app' ? (
@@ -291,12 +366,12 @@ export function WorkbenchTabs({
               <span className="tab-dot busy bp-tab-busy" title={t('workspace.tab.running')} />
             ) : (
               <span className="tab-glyph" aria-hidden="true">
-                <Monitor size={11} />
+                <Icon name="screen" size={14} />
               </span>
             )
           ) : tab.kind === 'media' ? (
             <span className="tab-glyph" aria-hidden="true">
-              {tab.video ? <Film size={11} /> : <ImageIcon size={11} />}
+              {tab.video ? <Icon name="video" size={14} /> : <Icon name="image" size={14} />}
             </span>
           ) : tab.kind === 'record' ? (
             // Same glyph as the sidebar row's .hiw-g — the same record must not wear two different
@@ -364,99 +439,53 @@ export function WorkbenchTabs({
           )}
           {tab.kind === 'session' && tab.rollTooltip && (
             <span className="tab-roll" title={tab.rollTooltip}>
-              <Repeat size={11} />
+              <Icon name="repeat" size={14} />
             </span>
           )}
-          <button
-            className="ghost danger"
-            aria-label={t('common.close')}
-            title={t('common.close')}
+          <IconButton
+            className="tab-close"
+            size="sm"
+            icon={<Icon name="close" size={14} />}
+            label={t('common.close')}
             draggable={false}
             onClick={(e) => {
               e.stopPropagation()
               onClose(tab.tabId)
             }}
-          >
-            <X size={14} />
-          </button>
+          />
         </div>
       ))}
-      <button
+      <IconButton
         className="new-tab"
-        aria-label={t('session.new.title')}
-        title={t('session.new.title')}
+        icon={<Icon name="add" />}
+        label={t('session.new.title')}
         onClick={onNew}
         disabled={newDisabled}
-      >
-        +
-      </button>
+      />
     </div>
     {/* W7-F (#84): every tab of this workspace in one list, for when the strip has more than it can show */}
     {allTabs && (allTabs.length > 0 || recent.length > 0) && (
-      <button
+      <IconButton
         className="tab-overflow"
-        aria-label={t('tabs.overflow.title')}
-        title={t('tabs.overflow.title')}
+        icon={<Icon name="chevronDown" size={14} />}
+        label={t('tabs.overflow.title')}
+        aria-haspopup="menu"
         aria-expanded={overflowAt !== null}
+        active={overflowAt !== null}
+        // While open, a press on this button only closes it: keep the menu's outside-press close from firing
+        // first, which would let the click below open it again
+        onMouseDown={(e) => overflowAt && e.stopPropagation()}
         onClick={(e) => {
           const r = e.currentTarget.getBoundingClientRect()
-          setOverflowAt((v) => (v ? null : { right: window.innerWidth - r.right, top: r.bottom }))
+          setOverflowAt((v) => (v ? null : { x: r.left, y: r.bottom }))
         }}
-      >
-        <ChevronDown size={13} aria-hidden="true" />
-      </button>
+      />
     )}
     {allTabs && overflowAt && (
-      <>
-        <div className="tab-overflow-scrim" onMouseDown={() => setOverflowAt(null)} />
-        <ul
-          className="tab-overflow-menu"
-          role="menu"
-          style={{ right: overflowAt.right, top: overflowAt.top }}
-          onKeyDown={(e) => e.key === 'Escape' && setOverflowAt(null)}
-        >
-          {allTabs.map((tab, i) => (
-            <li key={tab.tabId} role="none">
-              <button
-                role="menuitem"
-                autoFocus={i === 0}
-                className={`tab-overflow-item${tab.tabId === activeTabId ? ' active' : ''}${tab.kind === 'session' && tab.exited ? ' exited' : ''}`}
-                title={tab.kind === 'file' || tab.kind === 'media' ? tab.path : tab.kind === 'browser' ? tab.url : tab.title}
-                onClick={() => {
-                  setOverflowAt(null)
-                  onSelect(tab.tabId)
-                }}
-              >
-                {tab.kind === 'session' && <span className="tab-dot" style={{ background: tab.color }} />}
-                <span className="tab-title">{tab.title}</span>
-              </button>
-            </li>
-          ))}
-          {recent.length > 0 && (
-            <li role="none" className="tab-overflow-head" id="tab-recent-head">
-              {t('tabs.recent.title')}
-            </li>
-          )}
-          {recent.map((r, i) => (
-            <li key={`recent:${r.sessionId}`} role="none">
-              <button
-                role="menuitem"
-                autoFocus={allTabs.length === 0 && i === 0}
-                aria-describedby="tab-recent-head"
-                className="tab-overflow-item"
-                title={r.cwd}
-                onClick={() => {
-                  setOverflowAt(null)
-                  reopenClosed(r.sessionId)
-                }}
-              >
-                <span className="tab-title">{r.title}</span>
-                <span className="tab-overflow-note">{t(r.ended ? 'tabs.recent.ended' : 'tabs.recent.running')}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      </>
+      // display: contents — the host only scopes the list's size limits (tabs.css); Menu draws the fixed list
+      <div className="tab-overflow-host">
+        <Menu at={overflowAt} onClose={() => setOverflowAt(null)} label={t('tabs.overflow.title')} items={overflowItems} />
+      </div>
     )}
     {/* What kind of session the active tab is. A sibling of .tabs, not a child of it: .tabs scrolls
         and clips (overflow-x: auto) once there are enough tabs to need it, and this has to stay
@@ -490,12 +519,12 @@ export function WorkbenchTabs({
       >
         {activeSession.kind === 'chat' ? (
           <span className="view-toggle-badge">
-            <MessageSquare size={13} aria-hidden="true" />
+            <Icon name="message" size={14} />
             {t('session.kind.chat')}
           </span>
         ) : (
           <span className="view-toggle-badge">
-            <Terminal size={13} aria-hidden="true" />
+            <Icon name="terminal" size={14} />
             {t('session.kind.terminal')}
           </span>
         )}

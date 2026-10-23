@@ -4,7 +4,8 @@
 import type { CompletionCheckDetail } from '../../../core/types'
 import { findingsCountOf, skipReasonOf } from '../../../core/orchestration/pluginChecks'
 import { useI18n } from '../i18n/I18nProvider'
-import { checkVerdict } from './checkText'
+import { CHECK_ICON, checkVerdict } from './checkText'
+import { Button, Icon } from './ui'
 
 export function CompletionChecks({
   checks,
@@ -32,22 +33,31 @@ export function CompletionChecks({
         const more = findingsCountOf(c) - (c.diagnostics?.length ?? 0)
         return (
           <li key={c.configId}>
+            {/* A status this app does not know (a Runtime of another version) still draws a mark; its verdict says it as it is */}
+            <Icon name={CHECK_ICON[c.status] ?? 'info'} size={14} className={`detail-completion-mark detail-completion-mark--${c.status}`} />
             <span className={`detail-completion-name detail-completion-name--${c.status}`}>{c.name}</span>
             <span className="detail-completion-verdict">
               {checkVerdict(c, t)}
               {c.unstable === true && ` · ${t('jobs.convergence.check.unstable')}`}
             </span>
             {link !== undefined && (
-              <button className="detail-completion-more" title={link} onClick={() => onOpenLink(link)}>
+              <Button variant="ghost" size="sm" className="detail-completion-more" icon={<Icon name="external" size={14} />} title={link} onClick={() => onOpenLink(link)}>
                 {t('jobs.completion.openReport')}
-              </button>
+              </Button>
             )}
             {/* 꼬리는 검사마다 따로 접는다 — 넷이 한꺼번에 펼쳐지면 그중 무엇이 막고 있는지
                 다시 찾아야 한다(설계 §2.3) */}
             {c.outputTail !== undefined && (
-              <button className="detail-completion-more" onClick={() => onToggleTail(c.configId)}>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="detail-completion-more"
+                icon={<Icon name={tails.has(c.configId) ? 'chevronDown' : 'chevronRight'} size={14} />}
+                aria-expanded={tails.has(c.configId)}
+                onClick={() => onToggleTail(c.configId)}
+              >
                 {tails.has(c.configId) ? t('jobs.completion.hideTail') : t('jobs.completion.showTail')}
-              </button>
+              </Button>
             )}
             {c.outputTail !== undefined && tails.has(c.configId) && <pre className="detail-completion-tail">{c.outputTail}</pre>}
             {said !== undefined && said.trim() !== '' && (

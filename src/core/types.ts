@@ -1,3 +1,4 @@
+import type { CrashOffer, CrashReportsSetting, RENDERER_KINDS } from './crash/report' // T27
 import type { Decision, IssuePick, PlanFeedback } from './orchestration/types'
 import type { WorktreeDetail, WorktreeRow } from './worktrees/cleanup'
 import type { SlashCommand } from './commands/slashCommands'
@@ -842,8 +843,13 @@ export interface JobRow {
   outcome: RunOutcome
   /** T8: set only while `outcome` is `running` and nothing can move (RunStuck) */
   stuck?: RunStuck
+  /** T36: set while `stallOf` (replan.ts) says the Run waits on a failed Task: that Task, its last result and how many
+   *  not-started Tasks wait on it. The plan card and Plan detail show it with Retry, Accept as done and Cancel. */
+  stalledOn?: { taskId: string; title: string; result?: string; waiting: number }
   /** Why the Run's delivery failed (its `outcome` is `failed` for it): a merge conflict or a refused push */
   deliveryError?: string
+  /** T34: the owner dismissed a failed delivery, so the work never landed. Not in `delivery`: that row is for actions to take. */
+  deliveryDismissed?: true
   /** T3: a delivery that is being retried, failed, waits on the owner or runs now: the Run it is of (for `run-deliver`),
    *  its step and the last reason. Absent while pending or once delivered. */
   delivery?: {
@@ -854,6 +860,11 @@ export interface JobRow {
     nextRetryAt?: string
     /** T2: the plan this delivery waits for before it validates (Run.deliveryState.waitingFor). */
     waitingFor?: { jobId: string; escalated?: string }
+    // T1: delivery state machine
+    /** When the last attempt ran (Run.deliveryState.lastAttemptAt). */
+    lastAttemptAt?: string
+    /** Why the last attempt stopped, as a code (Run.deliveryState.lastCode, e.g. `main-diverged`). */
+    code?: string
   }
   done: number
   total: number
@@ -1653,6 +1664,9 @@ export interface CoreApi {
     /** Stall watchdog (orchestration/exec/stallWatch.ts); default true. */
     getStallWatch(): Promise<boolean>
     setStallWatch(on: boolean): Promise<void>
+    /** T27: crash reports, 'ask' (default) or 'never' (core/crash/report.ts). */
+    getCrashReports(): Promise<CrashReportsSetting>
+    setCrashReports(v: CrashReportsSetting): Promise<void>
     /** T23: start Astera's Host at login (main/autostart.ts); default true. */
     getStartAtLogin(): Promise<boolean>
     setStartAtLogin(on: boolean): Promise<void>
@@ -1740,6 +1754,9 @@ export interface CoreApi {
     /** The source update channel's mode (default 'build'); a change takes effect within a minute, no restart. */
     getUpdateMode(): Promise<UpdateMode>
     setUpdateMode(mode: UpdateMode): Promise<void>
+    // T26 (signed releases): the releases updater's track. Read before every check, no restart.
+    getUpdateChannel(): Promise<UpdateChannel>
+    setUpdateChannel(channel: UpdateChannel): Promise<void>
   }
   files: {
     // The file explorer. Every files.* IPC call goes through assertAllowedPath, which permits only
@@ -1951,6 +1968,8 @@ export interface SystemApi {
   // complaining once installed, so it cannot answer this question (design D3). Cwd-independent, so
   // the renderer asks this once rather than per folder, unlike checkCli above.
   checkCliInstalled(): Promise<{ claude: boolean; codex: boolean }>
+  /** T29: whether git and gh answer `--version` on the app's PATH (onboarding's Tools step explains them). */
+  checkTools(): Promise<{ git: boolean; gh: boolean }>
   /** Installs one CLI with the command its vendor documents for this platform. Reached only from the
    *  screen shown when neither is present. Output arrives as `cli:install` events while it runs; this
    *  resolves when the installer exits. `error` names why nothing ran at all — an unmeasured platform,
@@ -2024,6 +2043,10 @@ export interface UpdateStatus {
     | 'error'
     /** Source channel only (src/core/update/sourceUpdate.ts): the new AppImage is being built from origin/main. */
     | 'building'
+    /** T26: no update channel runs in this build (src/core/update/updateChannel.ts); `reason` says why. */
+    | 'disabled'
+  /** `disabled` only. */
+  reason?: UpdateDisabledReason
   version?: string
   percent?: number
   message?: string
@@ -2041,6 +2064,18 @@ export type SourceBuildStep = 'cloning' | 'installing' | 'waiting' | 'building'
 /** How the source update channel acts on its own: never, check and tell, check and build, or also restart into the
  *  new build once the app is idle. A manual check works in every mode. */
 export type UpdateMode = 'off' | 'notify' | 'build' | 'install-when-idle'
+// T26 (signed releases): the releases updater's track, and why no update channel runs (src/core/update/updateChannel.ts).
+export type UpdateChannel = 'stable' | 'beta'
+export type UpdateDisabledReason = 'unpackaged' | 'notBuiltForUpdates'
+
+// T28 (About page): one third-party notice, as scripts/gen-licenses.mjs writes it to licenses.json.
+export interface LicenseEntry {
+  kind: 'package' | 'runtime' | 'font'
+  name: string
+  version: string
+  license: string
+  text: string
+}
 
 /**
  * What pressing the install button actually did.
@@ -2077,11 +2112,13 @@ export interface UpdateApi {
   campaignState(): Promise<UpdateCampaignInfo | null>
   /** The user dismissed the notice — the same campaign is not shown again */
   dismissCampaign(id: string): Promise<void>
-  /** Source channel only: the latest status, for a renderer that mounted after the first ones went out. */
+  /** The latest status, for a renderer that mounted after the first ones went out. */
   current(): Promise<UpdateStatus>
-  check(): Promise<void>
+  check(): Promise<void | UpdateStatus>
   /** autoDownload starts the download on its own — this is the manual fallback */
-  download(): Promise<void>
+  download(): Promise<void | UpdateStatus>
+  // T26: with no update channel (a dev run) every call here answers `{ state: 'disabled', reason }` instead of
+  // rejecting. install() does too; its button only shows after a download, which cannot happen then.
   /** Resolves with what actually happened — on macOS the app does not always quit. See InstallOutcome. */
   install(): Promise<InstallOutcome>
 }
@@ -2133,6 +2170,8 @@ export interface AppControlApi {
   /** Quit and end what the Host is keeping alive, instead of leaving it running. The Host is retired
    *  first — `will-quit` skips its ptys by design, so this is the one path that reaches them. */
   quitEndingSessions(): void
+  /** T28: the third-party notices of Settings › About; null when licenses.json was not generated (a dev run). */
+  licenses(): Promise<LicenseEntry[] | null>
 }
 
 /**
@@ -2390,7 +2429,18 @@ export interface ShuttleWarning {
   detail: string
 }
 
+/** T27: crash reports (main/crashReports.ts). Nothing here sends anything: `send` opens the issue page in the
+ *  browser, for a report the prompt showed. */
+export interface CrashApi {
+  /** The renderer's own error, by name and stack only; the offer the prompt shows, or null for a repeat */
+  report(e: { kind: (typeof RENDERER_KINDS)[number]; name: string; stack: string }): Promise<CrashOffer | null>
+  /** Reports from a crash before this start, each offered once; none while the setting is never */
+  pending(): Promise<CrashOffer[]>
+  send(id: string): Promise<boolean>
+}
+
 export type RendererApi = CoreApi & {
+  crash: CrashApi // T27
   system: SystemApi
   preview: PreviewApi
   clipboard: ClipboardApi

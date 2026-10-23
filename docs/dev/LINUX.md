@@ -462,3 +462,19 @@ Native engine on Linux:
 
 The spike's scratch `HOME`, its daemon (stopped with `kill`, since `git-ai bg shutdown` left it running) and its repos
 were all under the session scratch dir.
+
+## First run on a clean machine
+
+Checked with a dev app on an empty `HOME`, `PATH=/usr/local/bin:/usr/bin:/bin`, `SHELL=/bin/sh`, a fresh
+`ASTERA_PROFILE_DIR` and `--user-data-dir` (shots and walk in `docs/dev/shots/w12-firstrun/`):
+- With neither CLI found the app starts into onboarding; Tools and Accounts have "Skip for now"; Done says what is
+  missing. After onboarding the app opens with a dismissible banner whose Install reopens onboarding at Tools. The old
+  full-window "CLI missing" screen is gone. `New` and the placeholder start button are disabled with the reason as title.
+- Tools shows git and gh (gh optional). Install shows the source host, the exact command on request, live output, and
+  Retry after a failure.
+- A login shell rebuilds PATH from `~/.profile`/`~/.bashrc`, so a filtered PATH alone does not hide a CLI in
+  `~/.local/bin`: also set `HOME` to an empty dir. Claude Code's installer leaves PATH alone; when the shell is not zsh or
+  bash the install is still adopted for the running app (its folder goes on the app's PATH), but a new terminal needs the
+  PATH line `export PATH="$HOME/.local/bin:$PATH"` by hand.
+- Dev only: `ASTERA_DEV_CLI_INSTALLER=<script>` runs `<script> <cli>` instead of the vendor installer (ignored when packaged).
+  Never run the real installers against a real home in a check.

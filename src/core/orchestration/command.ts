@@ -129,7 +129,7 @@ import { closedWithReason, type CloseReason, type JobEvent, type SessionInfo, ty
 import { ghFailureSentence, type GhFailed, type GhRunner } from '../github/gh'
 import { failedLogTail, readPrChecks, rerunFailed } from '../github/checks'
 import { prForBranch } from '../github/prs'
-import { markPrReady, setPrBody } from '../github/prUpdate'
+import { markPrReady, prStateOf, setPrBody } from '../github/prUpdate'
 import { ISSUE_JOB_ASSOCIATIONS, ISSUES_PER_CALL_MAX, assignIssueToMe, issueNumbersOf, readIssue, type GhIssue } from '../github/issue'
 import { GITHUB_SOURCE_ID, issuesContext, issuesTitleOf } from '../github/issueSource'
 // W6-A intake
@@ -197,7 +197,7 @@ import {
   type JobSourcesDeps
 } from './commandSources'
 // W6-D wave replanning
-import { replanJobOf, waveOpen, type ReplanRecord } from './replan'
+import { failedWaitAsked, failedWaitQuestion, replanJobOf, resolveFailedWait, stallOf, waveOpen, type ReplanRecord } from './replan'
 import { REPLAN_COMMANDS, replanCommand, replanRefusal } from './exec/replanStart'
 // Coordinator rotation
 import { coordinatorHandoff, refreshCoordinator } from './exec/coordinatorRotate'
@@ -231,7 +231,12 @@ import {
   afterAttempt,
   deliveryDue,
   OWNER_PUSH_CHECK_MS,
-  raiseDeliveryQuestion
+  raiseDeliveryQuestion,
+  // T1: delivery state machine
+  dismissDelivery,
+  landedOnGitHub,
+  ownerMaySettle,
+  withoutDeliveryError
 } from './delivery'
 import type { DeliveryProgress } from './types'
 import type { PushDelivery, PushResult } from './exec/integrateGit'
@@ -4623,7 +4628,8 @@ export async function handleCommand(
         // escape hatch. It happens as part of the same single state change as the status update (the
         // design that opens the circuit at 3 failures is unchanged).
         consecutiveFailures: 0,
-        ...(result !== null ? { result } : {})
+        ...(result !== null ? { result } : {}),
+        ...(asked === 'completed' && str(args.gaps) ? { gaps: str(args.gaps)! } : {})
       }
       // Without recomputeReady, correcting this Task to completed would leave the pending Tasks that
       // depend on it unpromoted to ready, stranded indefinitely until the next trigger (task-create
@@ -5190,6 +5196,28 @@ export async function handleCommand(
       await deps.setState({ ...s, jobs: s.jobs.map((j) => (j.id === id ? next : j)) })
       return okBody(next)
     }
+    // T36: the owner's way past a failed Task that holds back its plan (replan.ts resolveFailedWait): the plan views'
+    // buttons, and the driving loop carrying out an answered question. Never an agent's: a hands-off plan asks here.
+    case 'task-failed-resolve': {
+      if (fromAgentSession || caller.role === 'mcp') return denied(`${cmd} is for the person, in Astera or at their own shell`)
+      const id = str(args.id)
+      if (!id) return bad('--id is required: the failed Task')
+      const action = str(args.action)
+      if (action !== 'retry' && action !== 'accept' && action !== 'cancel') return bad('--action must be one of retry|accept|cancel')
+      return commit(resolveFailedWait(s, id, action, now, { reason: str(args.reason) ?? undefined }))
+    }
+    // T36: the driving loop asks the owner once about each failure a stalled Run waits on (replan.ts stallOf).
+    case 'run-failed-ask': {
+      if (fromAgentSession || caller.role === 'mcp') return denied(`${cmd} is Astera's own`)
+      const id = str(args.run)
+      const run = s.runs.find((r) => r.id === id)
+      if (!run) return notFound(`unknown run: ${String(id)}`)
+      const stall = stallOf(s, run)
+      if (!stall) return okBody({ stalled: false, asked: [] })
+      const questions = stall.blocks.filter((b) => !failedWaitAsked(s, b.task)).map((b) => failedWaitQuestion(s, b, now))
+      if (questions.length) await deps.setState({ ...s, messages: [...s.messages, ...questions] })
+      return okBody({ stalled: true, reason: stall.reason, asked: questions.map((q) => ({ id: q.id, taskId: q.taskId })) })
+    }
     case 'run-use': {
       // Run binding. For now this assumes real use has exactly one Run and is left as a no-op
       // success — check falls back to latestRun(s) anyway, so for an ordinary Run the
@@ -5382,6 +5410,7 @@ export async function handleCommand(
               typeof args.filesModified === 'string'
                 ? args.filesModified.split(',').filter(Boolean)
                 : undefined,
+            gaps: str(args.gaps) ?? undefined,
             // 검증기가 주입되지 않은 배선에서는 검증이 없는 것으로 동작한다. validating 으로
             // 보내면 결과를 가져다줄 것이 없어 Task 가 거기서 영원히 멈춘다(startValidation 참고).
             canValidate: !!deps.startValidation,
@@ -6485,24 +6514,33 @@ export async function handleCommand(
         worktrees: runWorktrees(s, id)
       }
       // T3: the owner answered they push it themselves: delivered once git sees every worktree's commit on the branch
+      // T1: also from a failed or retrying delivery, and a Run from before `deliveryState` that has only an error
       if (args.ownerPushed === true) {
         const p = run.deliveryState
-        if (p?.state !== 'needs-owner') return conflict('No delivery of this Run waits on the owner')
+        if (!ownerMaySettle(run)) return conflict('No delivery of this Run failed or waits on the owner')
         const at = deps.now?.() ?? now
-        const mine: DeliveryProgress = { ...p, state: 'delivered-by-owner', ownerPushes: true }
+        const mine: DeliveryProgress = { ...(p ?? { attempts: 0 }), state: 'delivered-by-owner', ownerPushes: true }
         delete mine.nextRetryAt
+        /** The state with this Run's delivery errors cleared, so it no longer reads failed (running.ts deliveryErrorOf). */
+        const cleared = (st: OrchState): OrchState => ({ ...st, runs: st.runs.map((x) => (x.id === id ? withoutDeliveryError(x) : x)) })
         if (!push) {
-          await deps.setState(withProgress(deps.getState(), mine))
+          await deps.setState(withProgress(cleared(deps.getState()), mine))
           return okBody({ deliveryState: mine })
         }
         if (!deps.deliverPush) return conflict('Pushing a plan is done by the Astera Host, and this caller is not one')
         const r = await deps.deliverPush({ ...pushTarget, message: '', checks: [], ownerPushed: true })
         if (!r.ok) {
-          const wait: DeliveryProgress = { ...p, ownerPushes: true, nextRetryAt: new Date(Date.parse(at) + OWNER_PUSH_CHECK_MS).toISOString() }
+          // T1: checked again by the loop (ownerCheckDue reads needs-owner) until git sees the work on origin
+          const wait: DeliveryProgress = {
+            ...(p ?? { attempts: 0 }),
+            state: 'needs-owner',
+            ownerPushes: true,
+            nextRetryAt: new Date(Date.parse(at) + OWNER_PUSH_CHECK_MS).toISOString()
+          }
           await deps.setState(withProgress(deps.getState(), wait))
           return { status: 409, body: { error: r.reason, deliveryState: wait } }
         }
-        await deps.setState(withProgress(recordDelivery(deps.getState(), id, { at, branch: r.branch, sha: r.sha }), mine))
+        await deps.setState(withProgress(cleared(recordDelivery(deps.getState(), id, { at, branch: r.branch, sha: r.sha })), mine))
         await cleanAfterDelivery(deps, id) // W9-J
         return okBody({ delivery: 'push', branch: r.branch, sha: r.sha, pushed: false, deliveryState: mine })
       }
@@ -6512,9 +6550,9 @@ export async function handleCommand(
         return conflict('No delivery attempt is due for this Run yet')
       /** One attempt's end, recorded: delivered, or one more failure with its retry time; the fifth asks the owner once.
        *  A person's --force starts the count again. */
-      const settle = async (error: string | undefined, st: OrchState = deps.getState()): Promise<DeliveryProgress> => {
+      const settle = async (error: string | undefined, st: OrchState = deps.getState(), code?: string): Promise<DeliveryProgress> => {
         const at = deps.now?.() ?? now
-        let next = afterAttempt(force ? undefined : progressOf(s), at, error)
+        let next = afterAttempt(force ? undefined : progressOf(s), at, error, code !== undefined ? { code } : undefined)
         let out = withProgress(st, next)
         if (next.state === 'needs-owner' && next.questionId === undefined) {
           out = raiseDeliveryQuestion(out, id, at)
@@ -6529,6 +6567,8 @@ export async function handleCommand(
       if (typeof args.stopped === 'string') return { status: 409, body: { error: args.stopped, deliveryState: await settle(args.stopped) } }
       if (!push) {
         const opened = await handleCommand(deps, caller, 'run-open-pr', { run: id, ...(force || args.auto === true ? { force: true } : {}) })
+        // T1: merged or closed on GitHub: run-open-pr recorded it delivered, and no attempt is counted
+        if ((opened.body as { landed?: unknown } | null)?.landed !== undefined) return { ...opened, body: { ...(opened.body as object), deliveryState: progressOf(deps.getState()) } }
         if (opened.status < 400) await cleanAfterDelivery(deps, id) // W9-J
         const error = opened.status < 400 ? undefined : String((opened.body as { error?: unknown } | null)?.error ?? `run-open-pr answered ${opened.status}`)
         const p = await settle(error)
@@ -6576,7 +6616,7 @@ export async function handleCommand(
         r.ok ? { at, branch: r.branch, sha: r.sha } : { at, ...(r.branch ? { branch: r.branch } : {}), error: r.reason },
         { quiet: true }
       )
-      const p = await settle(r.ok ? undefined : r.reason, recorded)
+      const p = await settle(r.ok ? undefined : r.reason, recorded, r.ok ? undefined : r.code)
       if (!r.ok)
         return { status: 409, body: { error: r.reason, ...(r.branch ? { branch: r.branch } : {}), ...(r.code ? { code: r.code } : {}), ...(r.conflictWith ? { conflictWith: r.conflictWith } : {}), deliveryState: p } }
       const removed = deps.removeWorktrees && r.merged.length > 0 ? await deps.removeWorktrees(r.merged) : null
@@ -6720,6 +6760,18 @@ export async function handleCommand(
       await deps.setState({ ...s, runs: s.runs.map((r) => (r.id === id ? { ...r, lastOriginSyncAt: at } : r)) })
       return okBody({ run: id, lastOriginSyncAt: at })
     }
+    // T1: the owner dismisses a failed delivery: it no longer reads failed and is never attempted again (delivery.ts
+    // dismissDelivery). The person's or the app's; refused from an agent session and an MCP client
+    case 'run-delivery-dismiss': {
+      const id = str(args.run)
+      if (!id) return bad('--run is required')
+      if (fromAgentSession || caller.role === 'mcp') return denied('dismissing a delivery is the owner\'s')
+      if (!s.runs.some((r) => r.id === id)) return notFound(`unknown run: ${id}`)
+      const r = dismissDelivery(s, id, deps.now?.() ?? now)
+      if (!r.ok) return conflict(r.error)
+      await deps.setState(r.state)
+      return okBody({ run: id, deliveryState: r.value })
+    }
     case 'run-open-pr': {
       const id = str(args.run)
       if (!id) return bad('--run is required')
@@ -6728,6 +6780,15 @@ export async function handleCommand(
       // W8-C draft PR: a draft opened between waves is finished below, not answered as done
       const draft = run.pr?.draft === true ? run.pr : undefined
       if (run.pr?.url && !draft) return okBody({ url: run.pr.url, number: run.pr.number ?? null, opened: false })
+      // T1: a draft merged or closed on GitHub ends the delivery: nothing is pushed, marked ready or retried on it
+      if (draft?.url !== undefined && deps.github) {
+        const state = await prStateOf(deps.github.run, draft.url, jobOf(s, run)?.cwd ?? run.worktree ?? '')
+        if (state === 'MERGED' || state === 'CLOSED') {
+          const landed = state === 'MERGED' ? 'merged' : 'closed'
+          await deps.setState(landedOnGitHub(deps.getState(), id, landed, deps.now?.() ?? now))
+          return okBody({ url: draft.url, number: draft.number ?? null, opened: false, landed })
+        }
+      }
       if (run.pr?.error !== undefined && args.force !== true)
         return conflict(`Opening this Run's pull request failed before: ${run.pr.error}. --force tries again`)
       // W8-E (#99): a Run that ended with failed Tasks delivers its completed Tasks' work, in a draft
@@ -6849,6 +6910,12 @@ export async function handleCommand(
         return conflict('gh pr view did not answer JSON')
       }
       const sha = pr.mergeCommit?.oid
+      // T1: a merged or closed PR is the end of its plan's delivery, whatever the remap does next
+      const landedAt = deps.now?.() ?? new Date().toISOString()
+      if ((pr.state === 'MERGED' || pr.state === 'CLOSED') && run.pr?.landed === undefined) {
+        await deps.setState(landedOnGitHub(deps.getState(), run.id, pr.state === 'MERGED' ? 'merged' : 'closed', landedAt))
+      }
+      if (pr.state === 'CLOSED') return okBody({ remapped: false, landed: 'closed' })
       if (pr.state !== 'MERGED' || typeof sha !== 'string' || typeof pr.baseRefName !== 'string')
         return conflict('This pull request is not merged')
       if (run.pr?.attributed === sha) return okBody({ remapped: false, sha })

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
 import { hfAccountTitle, hfWorkspaceLabel } from '../../../core/higgsfield/display'
-import { Button, Modal } from './ui'
+import { Button, ConfirmDialog, Select } from './ui'
 
 type HfList = Awaited<ReturnType<typeof window.api.higgsfield.list>>
 type HfAccountRow = HfList['accounts'][number]
@@ -153,46 +153,45 @@ export function HiggsfieldSettings(): React.JSX.Element {
                 </span>
               )}
               <span className="account-row-actions">
-                <button disabled={busy || a.current || a.needsLogin} onClick={() => void act(() => window.api.higgsfield.setCurrent(a.id))}>
+                <Button size="sm" disabled={busy || a.current || a.needsLogin} onClick={() => void act(() => window.api.higgsfield.setCurrent(a.id))}>
                   {t('higgsfield.use')}
-                </button>
+                </Button>
                 {isLoggingIn ? (
                   <>
-                    <button disabled={url === null} onClick={() => { if (url !== null) void copyLoginUrl(url) }}>
+                    <Button size="sm" disabled={url === null} onClick={() => { if (url !== null) void copyLoginUrl(url) }}>
                       {t('higgsfield.copyUrl')}
-                    </button>
-                    <button onClick={() => void cancelLogin()}>{t('higgsfield.cancelLogin')}</button>
+                    </Button>
+                    <Button size="sm" onClick={() => void cancelLogin()}>{t('higgsfield.cancelLogin')}</Button>
                   </>
                 ) : (
-                  <button
+                  <Button
+                    size="sm"
                     disabled={busy || !data.cliFound || data.cliIssue !== null || loggingInId !== null}
                     onClick={() => void startLogin(a)}
                   >
                     {t('higgsfield.login')}
-                  </button>
+                  </Button>
                 )}
-                <button className="ghost danger" disabled={busy || isLoggingIn} onClick={() => setRemoveTarget(a)}>
+                <Button variant="danger" size="sm" disabled={busy || isLoggingIn} onClick={() => setRemoveTarget(a)}>
                   {t('higgsfield.remove')}
-                </button>
+                </Button>
               </span>
               {isLoggingIn && <span className="settings-hint account-row-hint">{t('higgsfield.loginHint')}</span>}
               {!isLoggingIn && a.needsWorkspace && (a.workspaces?.length ?? 0) > 0 && (
                 <span className="account-row-hint account-row-actions">
-                  <select
-                    aria-label={t('higgsfield.workspace')}
+                  <Select
+                    ariaLabel={t('higgsfield.workspace')}
                     value={picked[a.id] ?? a.workspaces![0].id}
-                    onChange={(e) => setPicked((p) => ({ ...p, [a.id]: e.target.value }))}
-                  >
-                    {a.workspaces!.map((w) => (
-                      <option key={w.id} value={w.id}>{hfWorkspaceLabel(w, (n) => t('higgsfield.credits', { n }))}</option>
-                    ))}
-                  </select>
-                  <button
+                    onChange={(v) => setPicked((p) => ({ ...p, [a.id]: v }))}
+                    items={a.workspaces!.map((w) => ({ value: w.id, label: hfWorkspaceLabel(w, (n) => t('higgsfield.credits', { n })) }))}
+                  />
+                  <Button
+                    size="sm"
                     disabled={busy}
                     onClick={() => void act(() => window.api.higgsfield.setWorkspace(a.id, picked[a.id] ?? a.workspaces![0].id))}
                   >
                     {t('higgsfield.pickWorkspace')}
-                  </button>
+                  </Button>
                 </span>
               )}
             </li>
@@ -212,31 +211,26 @@ export function HiggsfieldSettings(): React.JSX.Element {
             if (e.key === 'Enter') void addFrom('add')()
           }}
         />
-        <button className="primary" disabled={busy || label.trim() === ''} onClick={() => void addFrom('add')()}>
+        <Button variant="primary" disabled={busy || label.trim() === ''} onClick={() => void addFrom('add')()}>
           {t('higgsfield.add')}
-        </button>
-        <button disabled={busy || label.trim() === ''} onClick={() => void addFrom('importCurrent')()}>
+        </Button>
+        <Button disabled={busy || label.trim() === ''} onClick={() => void addFrom('importCurrent')()}>
           {t('higgsfield.import')}
-        </button>
+        </Button>
       </div>
       <span className="settings-hint">{t('higgsfield.importNote')}</span>
       {removeTarget && (
-        <Modal
+        <ConfirmDialog
           title={t('higgsfield.remove')}
-          onClose={() => setRemoveTarget(null)}
-          size="sm"
+          confirmLabel={t('higgsfield.remove')}
+          cancelLabel={t('common.cancel')}
           closeLabel={t('common.close')}
-          footer={
-            <>
-              <Button onClick={() => setRemoveTarget(null)}>{t('common.cancel')}</Button>
-              <Button variant="primary" onClick={() => void confirmRemove()}>
-                {t('higgsfield.remove')}
-              </Button>
-            </>
-          }
+          danger
+          onConfirm={() => void confirmRemove()}
+          onCancel={() => setRemoveTarget(null)}
         >
           <p className="confirm-text">{t('higgsfield.removeConfirm', { label: removeTarget.label })}</p>
-        </Modal>
+        </ConfirmDialog>
       )}
     </div>
   )

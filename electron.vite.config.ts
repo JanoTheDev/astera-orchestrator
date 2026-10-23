@@ -10,7 +10,8 @@ import { isNoise } from './electron.vite.warnings'
 // CLI 는 Electron 없이 도는 번들이라(ELECTRON_RUN_AS_NODE) `app.getVersion()` 을 부를 수 없다.
 // 앱과 CLI 는 한 프로그램이므로 버전도 하나여야 하고, 그 하나를 빌드가 박아 넣는다 — 두 곳에서
 // 읽으면 갈라진다.
-const version = (createRequire(import.meta.url)('./package.json') as { version: string }).version
+// A dist run (scripts/dist-version.mjs) sets ASTERA_BUILD_VERSION to the build's version, the same one electron-builder packs.
+const version = process.env.ASTERA_BUILD_VERSION || (createRequire(import.meta.url)('./package.json') as { version: string }).version
 // Fork: auto-update stays off unless built with ASTERA_AUTO_UPDATE=1 (src/core/update/autoUpdate.ts)
 const autoUpdate = JSON.stringify(process.env.ASTERA_AUTO_UPDATE === '1')
 // The source update channel (src/core/update/sourceUpdate.ts): the commit and the checkout this build came from.

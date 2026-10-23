@@ -48,7 +48,7 @@ import { isJobActive } from '../lifecycle'
 import { DEFAULT_CONCURRENCY, FAILURE_LIMIT, type Decision, type Job, type JobRun, type Task } from '../types'
 import { outcomeOfTasks, tasksOwnedBy } from '../running'
 import { outcomeOf } from '../view'
-import { completionSettled, replansDue } from '../replan'
+import { completionSettled, failedWaitAsked, failedWaitChoice, replansDue, stallOf } from '../replan'
 import { REPLAN_LIFT_HOLD } from './replanStart'
 // W8-C draft PR
 import { draftPrDue } from '../draftPr'
@@ -160,7 +160,7 @@ export interface DispatchLoopContext {
   integrate(runRoot: string, merges: string[], heads?: Record<string, string>): Promise<Integration>
   /** T11: merges another plan's delivered commit into a running plan's Run worktree (integrateGit.ts refreshOnto).
    *  Optional: defaults to that function over the real git. */
-  refreshOnto?(worktree: string, base: string, message: string, fetchBranch?: string): Promise<Refresh>
+  refreshOnto?(worktree: string, base: string, message: string, fetchBranch?: string, projectDir?: string): Promise<Refresh>
   reap(worktreePath: string): Promise<boolean>
   isRegisteredWorktree(p: string): boolean
   sessionAlive(sessionId: string): boolean
@@ -597,11 +597,13 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       const plan = jobNameOf(d.job)
       let r: Refresh
       try {
-        r = await (c.refreshOnto ?? ((w, b, m, f) => refreshOnto(w, b, m, { log, ...(f ? { fetchBranch: f } : {}) })))(
+        // T1: a commit origin does not give is looked for in the project folder too (the delivering plan's)
+        r = await (c.refreshOnto ?? ((w, b, m, f, p) => refreshOnto(w, b, m, { log, ...(f ? { fetchBranch: f } : {}), ...(p ? { projectDir: p } : {}) })))(
           worktree,
           d.sha,
           `Refresh onto plan ${plan}'s delivery`,
-          d.branch
+          d.branch,
+          d.job.cwd
         )
       } catch (e) {
         r = { kind: 'human', reason: String(e) }
@@ -679,8 +681,8 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     const due = new Map<string, DeliveryStep[]>()
     for (const run of s.runs) {
       // W6-H: a pushed delivery is done; W8-C: a draft opened between waves is finished here (`run-open-pr` marks it
-      // ready); any other opened PR (or a no-remote note) is the end
-      if (run.delivery?.sha !== undefined || run.pr?.note !== undefined || (run.pr?.url !== undefined && run.pr.draft !== true)) continue
+      // ready); any other opened PR (or a no-remote note) is the end. T1: so is a PR merged or closed on GitHub
+      if (run.delivery?.sha !== undefined || run.pr?.note !== undefined || run.pr?.landed !== undefined || (run.pr?.url !== undefined && run.pr.draft !== true)) continue
       const job = jobOf(s, run)
       if (!job || !isJobActive(job) || job.schedule !== undefined) continue
       const p = run.deliveryState
@@ -861,6 +863,49 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
         )
       } catch (e) {
         log(`run=${due.runId}: starting its ${due.mode} replan failed: ${String(e)}`)
+      }
+    }
+  }
+
+  /**
+   * T36: **a plan never stalls silently.** After the replans (a failed Task that holds back its plan gets one first,
+   * replan.ts `replansDue`), a Run that still cannot move (`stallOf`) is logged once per cause and its owner is asked
+   * once per failure (`run-failed-ask`), a hands-off plan too: nothing else can move it. The answer is carried out here
+   * (`task-failed-resolve`). Driving process only, asked before each one; a failure is logged and never thrown.
+   */
+  // In memory: a restart logs a stall that is still there once more
+  const stallLogged = new Map<string, string>()
+  const unstallRuns = async (): Promise<void> => {
+    const answered = c.getState().tasks.flatMap((t) => {
+      const action = failedWaitChoice(c.getState(), t)
+      return action ? [{ t, action }] : []
+    })
+    for (const { t, action } of answered) {
+      if (!c.mayStart()) return
+      const reason = action === 'accept' ? `the owner accepted it as done: ${(t.result ?? '').replace(/\s+/g, ' ').trim().slice(0, 300)}` : undefined
+      try {
+        const r = await c.handle('task-failed-resolve', { id: t.id, action, ...(reason ? { reason } : {}) })
+        log(r.status >= 400 ? `run=${t.runId}: the owner's ${action} of ${t.id} was refused: ${JSON.stringify(r.body)}` : `run=${t.runId}: the owner's ${action} of failed ${t.id} carried out`)
+      } catch (e) {
+        log(`run=${t.runId}: carrying out the owner's ${action} of ${t.id} failed: ${String(e)}`)
+      }
+    }
+    for (const run of c.getState().runs) {
+      const stall = stallOf(c.getState(), run)
+      if (!stall) {
+        stallLogged.delete(run.id)
+        continue
+      }
+      if (stallLogged.get(run.id) !== stall.reason) {
+        stallLogged.set(run.id, stall.reason)
+        log(`run=${run.id} stalled: ${stall.reason}`)
+      }
+      if (stall.blocks.every((b) => failedWaitAsked(c.getState(), b.task)) || !c.mayStart()) continue
+      try {
+        const r = await c.handle('run-failed-ask', { run: run.id })
+        log(r.status >= 400 ? `run=${run.id}: asking the owner about its failed Task was refused: ${JSON.stringify(r.body)}` : `run=${run.id}: asked the owner about its failed Task`)
+      } catch (e) {
+        log(`run=${run.id}: asking the owner about its failed Task failed: ${String(e)}`)
       }
     }
   }
@@ -1086,6 +1131,9 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       // W6-D: before the PR, which waits for the final check
       await liftAnsweredHolds()
       await replanAtBoundaries()
+      if (!c.mayStart()) return
+      // T36: after the replans, so a Run a replan just took up is not stalled
+      await unstallRuns()
       if (!c.mayStart()) return
       // W8-C draft PR: after a wave's replan, before the completed Run's delivery
       await updateDraftPrs()

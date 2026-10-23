@@ -11,7 +11,7 @@ import { useI18n } from '../i18n/I18nProvider'
 import { ProjectDelivery } from './delivery/ProjectDelivery'
 import { PauseIcon, PlayIcon, RunIcon, STATE_KEY, STATUS_COLOR, TaskGlyph, TaskIcon, TrashIcon } from './JobIcons'
 import type { RunIconKind } from './JobIcons'
-import { Archive, ArchiveRestore, ArrowUpRight, ChevronDown, ChevronRight, Hand, Pencil, PlayCircle } from 'lucide-react'
+import { Button, EmptyState, Icon, ICONS, IconButton, Input, PageHeader } from './ui'
 import { SourceChip } from './SourceChip'
 import { approveSlot } from './plan/planTalk'
 import { convergenceText, isRunningTask as isRunning, taskMeta } from './plan/planList'
@@ -124,7 +124,7 @@ function JobTitle({
       </span>
     )
   return (
-    <input
+    <Input
       className="jobs-title-input"
       autoFocus
       defaultValue={jobName(run)}
@@ -161,9 +161,7 @@ function LifecycleButtons({
   const { t } = useI18n()
   const off = disabledReason !== undefined
   const button = (label: string, icon: React.JSX.Element, onClick: () => void): React.JSX.Element => (
-    <button className="jobs-lifecycle" disabled={off} title={disabledReason ?? label} aria-label={label} onClick={onClick}>
-      {icon}
-    </button>
+    <IconButton className="jobs-lifecycle" size="sm" icon={icon} label={label} disabled={off} title={disabledReason ?? label} onClick={onClick} />
   )
   // W5-C: a schedule pauses as a whole (its ⏸), and a plan not started has nothing to launch yet
   const holdable = acts.onHoldJob !== undefined && run.archivedAt === undefined && !run.schedule && !run.pendingStart
@@ -171,12 +169,12 @@ function LifecycleButtons({
     <>
       {holdable &&
         (run.dispatchHold
-          ? button(t('jobs.hold.release'), <PlayCircle size={11} />, () => acts.onHoldJob?.(run.id, false))
-          : button(t('jobs.hold.hold'), <Hand size={11} />, () => acts.onHoldJob?.(run.id, true)))}
-      {acts.onRenameJob && button(t('jobs.lifecycle.rename'), <Pencil size={11} />, onStartRename)}
+          ? button(t('jobs.view.holdRelease'), <Icon name="run" size={14} />, () => acts.onHoldJob?.(run.id, false))
+          : button(t('jobs.view.hold'), <Icon name="hold" size={14} />, () => acts.onHoldJob?.(run.id, true)))}
+      {acts.onRenameJob && button(t('jobs.lifecycle.rename'), <Icon name="edit" size={14} />, onStartRename)}
       {run.archivedAt !== undefined
-        ? acts.onUnarchiveJob && button(t('jobs.lifecycle.unarchive'), <ArchiveRestore size={11} />, () => acts.onUnarchiveJob?.(run.id))
-        : acts.onArchiveJob && button(t('jobs.lifecycle.archive'), <Archive size={11} />, () => acts.onArchiveJob?.(run.id))}
+        ? acts.onUnarchiveJob && button(t('jobs.lifecycle.unarchive'), <Icon name="restore" size={14} />, () => acts.onUnarchiveJob?.(run.id))
+        : acts.onArchiveJob && button(t('jobs.lifecycle.archive'), <Icon name="archive" size={14} />, () => acts.onArchiveJob?.(run.id))}
     </>
   )
 }
@@ -247,7 +245,18 @@ function RunCardImpl({
       className={`jobs-run${open ? '' : ' collapsed'}${run.sharesProjectFolder ? ' shared-folder' : ''}`}
     >
       <div className="jobs-run-head" onClick={() => onToggle(run.id)}>
-        <span className="jobs-caret">{open ? <ChevronDown size={10} /> : <ChevronRight size={10} />}</span>
+        {/* The keyboard's way to fold: the head's click is the mouse's. stopPropagation so one click folds once */}
+        <IconButton
+          className="jobs-caret"
+          size="sm"
+          icon={<Icon name={open ? 'chevronDown' : 'chevronRight'} size={14} />}
+          label={t(open ? 'jobs.view.collapse' : 'jobs.view.expand')}
+          aria-expanded={open}
+          onClick={(e) => {
+            e.stopPropagation()
+            onToggle(run.id)
+          }}
+        />
         {/* 예약 회차의 번호. 한 템플릿의 회차들은 목표가 같아서(spawnScheduledRun 이 복사한다)
             제목만으로는 서로 구별되지 않는다 — 이 칩이 그것을 구별하는 유일한 표시다.
             평범한 Run 은 이 프롭을 받지 않으므로 그대로다. */}
@@ -286,7 +295,7 @@ function RunCardImpl({
           </span>
         )}
         {run.sharesProjectFolder && (
-          <span className="jobs-shared" title={t('jobs.run.sharedFolderHint')}>
+          <span className="jobs-shared" title={t('jobs.view.sharedFolderHint')}>
             {t('jobs.run.sharedFolder')}
           </span>
         )}
@@ -301,18 +310,18 @@ function RunCardImpl({
             생긴다 — 일시 중지 버튼이 이 줄에 있는 것과 같은 판단이다.
             stopPropagation: 이 줄 자체가 접기·펴기다 */}
         {run.coordinatorMissing && onRestartCoordinator && (
-          <button
+          <IconButton
             className="jobs-more"
+            size="sm"
+            icon={<PlayIcon />}
+            label={t('jobs.view.leadRestart')}
             disabled={disabledReason !== undefined}
-            title={disabledReason ?? t('jobs.run.coordinatorRestartHint')}
-            aria-label={t('jobs.run.coordinatorRestart')}
+            title={disabledReason ?? t('jobs.view.leadRestartHint')}
             onClick={(e) => {
               e.stopPropagation()
               onRestartCoordinator(run.id)
             }}
-          >
-            <PlayIcon />
-          </button>
+          />
         )}
         {/* W2-A: a Job not started yet is a plan waiting for its approval. Starting it (run-start, the same
             command as the ▶ above and the detail window's Run) approves it; a planned Job's plan is checked
@@ -330,34 +339,34 @@ function RunCardImpl({
           </span>
         )}
         {approveSlot(run) === 'approve' && onApprove && (
-          <button
+          <Button
             className="jobs-approve"
+            size="sm"
             disabled={disabledReason !== undefined}
-            title={disabledReason ?? t('jobs.run.approveHint')}
+            title={disabledReason ?? t('jobs.view.approveHint')}
             onClick={(e) => {
               e.stopPropagation()
               onApprove(run.id)
             }}
           >
             {t('jobs.run.approve')}
-          </button>
+          </Button>
         )}
         {/* 상세 창으로 가는 입구. **제목 줄에 있는 이유는 접기 때문이다** — 아래 한 줄은
             접으면 사라지는데, 접기는 세로를 아끼는 장치이지 유일한 문을 잠그는 장치가 아니다
             (같은 판단을 Gate 줄이 이미 하고 있다). 그리고 Run 이 쌓여 접어 두게 될 때가
             상세 창이 가장 필요한 때다.
             stopPropagation: 이 줄 자체가 접기·펴기라서, 없으면 창을 열면서 동시에 접는다 */}
-        <button
+        <IconButton
           className="jobs-more"
-          title={t('jobs.detail.open')}
-          aria-label={t('jobs.detail.open')}
+          size="sm"
+          icon={<Icon name="chevronRight" size={14} />}
+          label={t('jobs.detail.open')}
           onClick={(e) => {
             e.stopPropagation()
             onOpenRun(run.id)
           }}
-        >
-          ›
-        </button>
+        />
       </div>
       {/* 띠 — Task 하나가 칸 하나다. **클릭 대상이 아니다**: 6px 은 정확히 누를 수 없고,
           누를 수 있어 보이면 누르고 아무 일도 없는 자리가 된다.
@@ -412,10 +421,18 @@ function RunCardImpl({
                 </span>
                 {chip && <ConvergenceChipView chip={chip} t={t} />}
                 <TaskGlyph task={task} />
+                {/* The keyboard's way into the agent's tab: the row's click is the mouse's. stopPropagation so it opens once */}
                 {sessionId ? (
-                  <span className="jobs-jump" aria-hidden="true">
-                    <ArrowUpRight size={12} />
-                  </span>
+                  <IconButton
+                    className="jobs-jump"
+                    size="sm"
+                    icon={<Icon name="open" size={14} />}
+                    label={t('jobs.view.openTab')}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onOpenSession(sessionId)
+                    }}
+                  />
                 ) : null}
               </div>
             )
@@ -469,15 +486,15 @@ function RunCardImpl({
               409 로 거절하고 그것을 토스트로 말한다 — 버튼을 감추지 않는 것은 왜 못 지우는지가
               화면에 남아야 하기 때문이다. */}
           {onDeleteRun && (
-            <button
+            <IconButton
               className="jobs-delete"
+              size="sm"
+              icon={<TrashIcon />}
+              label={t('jobs.run.delete')}
               disabled={disabledReason !== undefined}
               title={disabledReason ?? t('jobs.run.delete')}
-              aria-label={t('jobs.run.delete')}
               onClick={() => onDeleteRun(run.id)}
-            >
-              <TrashIcon />
-            </button>
+            />
           )}
           {lifecycle && <LifecycleButtons run={run} acts={lifecycle} onStartRename={() => setRenaming(true)} disabledReason={disabledReason} />}
         </div>
@@ -552,7 +569,18 @@ function ScheduleCard({
   return (
     <div className={`jobs-run jobs-tmpl${open ? '' : ' collapsed'}`}>
       <div className="jobs-run-head" onClick={onToggle}>
-        <span className="jobs-caret">{open ? <ChevronDown size={10} /> : <ChevronRight size={10} />}</span>
+        {/* The keyboard's way to fold: the head's click is the mouse's. stopPropagation so one click folds once */}
+        <IconButton
+          className="jobs-caret"
+          size="sm"
+          icon={<Icon name={open ? 'chevronDown' : 'chevronRight'} size={14} />}
+          label={t(open ? 'jobs.view.collapse' : 'jobs.view.expand')}
+          aria-expanded={open}
+          onClick={(e) => {
+            e.stopPropagation()
+            onToggle()
+          }}
+        />
         <JobTitle
           run={run}
           className="jobs-objective"
@@ -582,34 +610,33 @@ function ScheduleCard({
             아무 일도 일어나지 않는 버튼을 두지 않는다. 그 Job 의 워커를 멈추는 것은 회차 안에서
             Dispatch 하나씩 하는 일이다. */}
         {run.schedule && onPauseRun && onResumeRun && (
-          <button
+          <IconButton
             className="jobs-more"
+            size="sm"
+            icon={run.paused ? <PlayIcon /> : <PauseIcon />}
+            label={run.paused ? t('jobs.run.resume') : t('jobs.run.pause')}
             disabled={disabledReason !== undefined}
             title={disabledReason ?? (run.paused ? t('jobs.run.resumeHint') : t('jobs.run.pauseHint'))}
-            aria-label={run.paused ? t('jobs.run.resume') : t('jobs.run.pause')}
             onClick={(e) => {
               e.stopPropagation()
               if (run.paused) onResumeRun(run.id)
               else onPauseRun(run.id)
             }}
-          >
-            {run.paused ? <PlayIcon /> : <PauseIcon />}
-          </button>
+          />
         )}
         {/* 상세 창으로 가는 입구 — 템플릿에서는 **Task 를 짜는 자리**다. 정의를 고치는 곳이
             여기뿐이라(회차는 읽기 전용 기록) 이 버튼이 회차보다 더 중요하다.
             stopPropagation: 이 줄 자체가 접기·펴기라서, 없으면 창을 열면서 동시에 접는다 */}
-        <button
+        <IconButton
           className="jobs-more"
-          title={t('jobs.detail.open')}
-          aria-label={t('jobs.detail.open')}
+          size="sm"
+          icon={<Icon name="chevronRight" size={14} />}
+          label={t('jobs.detail.open')}
           onClick={(e) => {
             e.stopPropagation()
             onOpenRun(run.id)
           }}
-        >
-          ›
-        </button>
+        />
       </div>
       {/* 규칙과 다음 발화 시각은 예약의 것이다 — 손으로 다시 돌린 Job 에는 그것이 없다.
           "N회 실행" 은 둘 다에 뜻이 있다(몇 번 돌았나). */}
@@ -664,22 +691,18 @@ function ScheduleCard({
                 거짓말을 한다 — 남은 것이 5보다 적으면 그 수가 곧 늘어날 수다.
                 stopPropagation: 이 줄은 템플릿 카드 안이고 그 카드는 클릭이 접기·펴기다 */}
             {rest > 0 && (
-              <div
+              <Button
                 className="jobs-tmpl-more"
-                role="button"
-                tabIndex={0}
+                variant="ghost"
+                size="sm"
+                icon={<Icon name="add" size={14} />}
                 onClick={(e) => {
                   e.stopPropagation()
                   setShown((n) => n + ROUNDS_PAGE)
                 }}
-                onKeyDown={(e) => {
-                  if (e.key !== 'Enter' && e.key !== ' ') return
-                  e.stopPropagation()
-                  setShown((n) => n + ROUNDS_PAGE)
-                }}
               >
-                + {t('jobs.run.scheduleMore', { count: Math.min(ROUNDS_PAGE, rest) })}
-              </div>
+                {t('jobs.run.scheduleMore', { count: Math.min(ROUNDS_PAGE, rest) })}
+              </Button>
             )}
           </div>
         ))}
@@ -696,15 +719,15 @@ function ScheduleCard({
               가는 `›` 옆에 두면 둘 다 작은 표적이라 오클릭이 값비싸고, 펼쳤을 때만 보이므로 그
               예약을 열어 본 사람만 지우게 된다. */}
           {onDeleteRun && (
-            <button
+            <IconButton
               className="jobs-delete"
+              size="sm"
+              icon={<TrashIcon />}
+              label={t('jobs.run.delete')}
               disabled={disabledReason !== undefined}
               title={disabledReason ?? t('jobs.run.delete')}
-              aria-label={t('jobs.run.delete')}
               onClick={() => onDeleteRun(run.id)}
-            >
-              <TrashIcon />
-            </button>
+            />
           )}
           {lifecycle && <LifecycleButtons run={run} acts={lifecycle} onStartRename={() => setRenaming(true)} disabledReason={disabledReason} />}
         </div>
@@ -819,10 +842,19 @@ export function JobsView({
   const delivery = projectPath !== undefined && !remote ? <ProjectDelivery projectPath={projectPath} disabledReason={disabledReason} /> : null
   const newFromSource =
     onNewFromSource !== undefined && !remote ? (
-      <button className="jobs-new jobs-new-source" disabled={disabledReason !== undefined} title={disabledReason} onClick={onNewFromSource}>
-        + {t('jobs.source.open')}
-      </button>
+      <Button className="jobs-create jobs-create-source" variant="ghost" icon={<Icon name="add" size={16} />} disabled={disabledReason !== undefined} title={disabledReason} onClick={onNewFromSource}>
+        {t('jobs.source.open')}
+      </Button>
     ) : null
+  // The view's one primary: in the empty view's action, else in the header (one place at a time, never both)
+  const newJob = (
+    <Button className="jobs-create" variant="primary" icon={<Icon name="add" size={16} />} disabled={newReason !== undefined} title={newReason} onClick={onNewRun}>
+      {t('jobs.new.open')}
+    </Button>
+  )
+  const header = (actions?: React.ReactNode, filters?: React.ReactNode): React.JSX.Element => (
+    <PageHeader className="jobs-header" title={t('jobs.view.title')} actions={actions} filters={filters} />
+  )
   // Runs the user collapsed. Absence means expanded — a Run that just appeared, or one from before this
   // component ever rendered, opens by default rather than needing to be found and expanded by hand.
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
@@ -869,19 +901,21 @@ export function JobsView({
     const waiting = hostGate.state === 'waiting'
     return (
       <div className="jobs-empty">
-        <p>{t(waiting ? 'jobs.host.waiting' : 'jobs.host.unreachable')}</p>
-        <p className="jobs-empty-hint">{t('jobs.host.features')}</p>
-        {/* 못 붙은 뒤에만 사유와 기록을 적는다 — 아직 시도 중일 때는 적을 사유가 없고, 있지도
-            않은 실패를 화면에 두면 기다리는 중을 실패로 읽는다. */}
-        {!waiting && hostGate.reason && (
-          <p className="jobs-empty-hint">{t('jobs.host.reason', { reason: hostGate.reason })}</p>
-        )}
-        {!waiting && (
-          <>
-            <p className="jobs-empty-hint">{t('jobs.host.retry')}</p>
-            <p className="jobs-empty-hint">{t('jobs.host.log', { path: hostGate.logPath })}</p>
-          </>
-        )}
+        {header()}
+        <EmptyState icon={ICONS.serverOff} title={t(waiting ? 'jobs.view.hostWaiting' : 'jobs.view.hostUnreachable')}>
+          {t('jobs.host.features')}
+          {/* 못 붙은 뒤에만 사유와 기록을 적는다 — 아직 시도 중일 때는 적을 사유가 없고, 있지도
+              않은 실패를 화면에 두면 기다리는 중을 실패로 읽는다. */}
+          {!waiting && hostGate.reason && (
+            <span className="jobs-empty-hint">{t('jobs.host.reason', { reason: hostGate.reason })}</span>
+          )}
+          {!waiting && (
+            <>
+              <span className="jobs-empty-hint">{t('jobs.host.retry')}</span>
+              <span className="jobs-empty-hint">{t('jobs.host.log', { path: hostGate.logPath })}</span>
+            </>
+          )}
+        </EmptyState>
       </div>
     )
   }
@@ -895,10 +929,10 @@ export function JobsView({
   const stallLine = stall && (
     <p className="jobs-stall" role="status">
       {stall.kind === 'unresponsive'
-        ? t('jobs.stall.unresponsive')
+        ? t('jobs.view.stallUnresponsive')
         : stall.kind === 'reading'
-          ? t('jobs.stall.reading')
-          : t('jobs.stall.parked', { reason: t(stall.gate === 'unreadable' ? 'jobs.stall.gate.unreadable' : 'jobs.stall.gate.notMigrated') })}
+          ? t('jobs.view.stallReading')
+          : t('jobs.view.stallParked', { reason: t(stall.gate === 'unreadable' ? 'jobs.stall.gate.unreadable' : 'jobs.stall.gate.notMigrated') })}
     </p>
   )
 
@@ -910,23 +944,26 @@ export function JobsView({
     // 함께 갈라, 무엇을 하면 되는지 그 자리에서 말한다.
     return (
       <div className="jobs-empty">
+        {header()}
         {stallLine}
-        {/* A paired Runtime's empty view says the Runtime has no Jobs here, not "create one here". */}
-        <p>{remote ? t('jobs.runtime.empty') : hasProject ? t('jobs.empty') : t('jobs.noProject')}</p>
-        {!remote && (
-          <p className="jobs-empty-hint">
-            {hasProject ? t('jobs.empty.hint') : t('jobs.noProject.hint')}
-          </p>
-        )}
-        {/* 아무것도 없을 때가 만들고 싶을 때다 — 목록이 생긴 뒤의 자리(아래)와 같은 버튼.
+        {/* A paired Runtime's empty view says the Runtime has no Jobs here, not "create one here".
+            아무것도 없을 때가 만들고 싶을 때다 — 목록이 생긴 뒤의 자리(머리말)와 같은 버튼.
             hasProject 로 가드하는 이유는 위 hasProject 의 주석대로다: 그때 이 버튼을 누르면
             만들 자리도 없는 newRunOpen 이 true 로 남아 전역 단축키를 죽인다. */}
-        {hasProject && (
-          <button className="jobs-new" disabled={newReason !== undefined} title={newReason} onClick={onNewRun}>
-            + {t('jobs.new.open')}
-          </button>
-        )}
-        {hasProject && newFromSource}
+        <EmptyState
+          icon={ICONS.tasks}
+          title={remote ? t('jobs.runtime.empty') : hasProject ? t('jobs.empty') : t('jobs.noProject')}
+          action={
+            hasProject ? (
+              <>
+                {newJob}
+                {newFromSource}
+              </>
+            ) : undefined
+          }
+        >
+          {remote ? undefined : hasProject ? t('jobs.empty.hint') : t('jobs.noProject.hint')}
+        </EmptyState>
         {hasProject && delivery}
       </div>
     )
@@ -936,18 +973,27 @@ export function JobsView({
   const listed = showArchived ? snapshot.runs : snapshot.runs.filter((r) => r.archivedAt === undefined)
   return (
     <section className="jobs-view">
-      {stallLine}
-      {/* 목록 위, 첫 자식 — 아이콘을 새로 만들지 않는다: '+' 글자로 충분하다 */}
-      <button className="jobs-new" disabled={newReason !== undefined} title={newReason} onClick={onNewRun}>
-        + {t('jobs.new.open')}
-      </button>
-      {newFromSource}
-      {delivery}
-      {archivedCount > 0 && (
-        <button className="jobs-archived-toggle" aria-pressed={showArchived} onClick={() => setShowArchived((v) => !v)}>
-          {showArchived ? t('jobs.lifecycle.hideArchived') : t('jobs.lifecycle.showArchived', { count: archivedCount })}
-        </button>
+      {/* 목록 위, 머리말 — 새 작업(이 화면의 유일한 primary)과 소스에서, 그 아래 보관함 토글 */}
+      {header(
+        <>
+          {newJob}
+          {newFromSource}
+        </>,
+        archivedCount > 0 ? (
+          <Button
+            className="jobs-archived-toggle"
+            variant="ghost"
+            size="sm"
+            icon={<Icon name={showArchived ? 'hide' : 'archive'} size={14} />}
+            aria-pressed={showArchived}
+            onClick={() => setShowArchived((v) => !v)}
+          >
+            {showArchived ? t('jobs.lifecycle.hideArchived') : t('jobs.lifecycle.showArchived', { count: archivedCount })}
+          </Button>
+        ) : undefined
       )}
+      {stallLine}
+      {delivery}
       {/* **회차가 여럿이면 예약이 아니어도 펼치는 카드다.** 접히는 카드를 예약에만 쓰던 것은 회차가
           예약에서만 생겼기 때문이고, 이제는 끝난 Job 을 다시 돌려도 생긴다 — 조건을 `schedule` 로
           두면 그 회차들이 화면에서 통째로 사라진다(상태에는 있는데 그리는 곳이 없다). */}

@@ -12,6 +12,7 @@ import {
 } from '../../../core/orchestration/roleModels'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
+import { Input } from './ui'
 
 /** Which model each orchestration role and task difficulty runs on (orchestrator W1-A, SPEC §4).
  *
@@ -47,9 +48,9 @@ export function OrchestratorModelsSettings({ accounts }: { accounts: Account[] }
     return (
       <label className="settings-row" key={`${provider}-${kind}-${key}`}>
         <span>{label}</span>
-        <input
+        <Input
           type="text"
-          className="settings-gen-input"
+          className="settings-text-field"
           aria-label={`${PROVIDER_META[provider].displayName} ${label}`}
           placeholder={key === 'worker' ? t('settings.roleModels.workerPlaceholder') : t('settings.roleModels.placeholder')}
           // keyed on the stored value so a revert or a late load re-renders the field

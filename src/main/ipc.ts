@@ -89,7 +89,7 @@ import { transcribe } from '../core/intents/transcribe'
 import { parseWithCoordinator } from '../core/intents/parseRun'
 import type { ModelListResult } from '../core/models/types'
 import { attachmentNameOf } from '../core/files/attachmentName'
-import { installCommandFor } from '../core/install/cliInstall'
+import { devInstallOverride, installCommandFor } from '../core/install/cliInstall'
 import { addToProfile, findAfterInstall, locateCli, runInstallCommand } from './cliLocate'
 import { mcpClientsStatus, registerMcpClientNow } from './mcpClients'
 import { mcpServerFor, shimPathFor } from '../core/install/mcpRegistration'
@@ -303,6 +303,8 @@ import { readAccountReadings, withFetchedReadings } from '../core/usage/accountR
 import { readAutoAccountsOn } from '../core/settings/autoAccounts'
 import { readSubagentCount, SUBAGENT_CAP_MAX } from '../core/sessions/subagentCap'
 import { isUpdateMode } from '../core/update/sourceUpdate'
+import { isUpdateChannel } from '../core/update/updateChannel'
+import { licensesFile, readLicenses } from './licenses'
 import type { UsageGuardView } from '../core/types'
 import { createPullRequest, readCommits } from '../core/github/prCreate'
 import { fillFromCommits } from '../core/github/fill'
@@ -4436,6 +4438,12 @@ export function registerIpc(
     if (typeof on !== 'boolean') throw new Error(`INVALID_STALL_WATCH: ${String(on)}`)
     await core.appSettings.setStallWatch(on)
   })
+  // T27: crash reports, ask by default (core/crash/report.ts crashReportsOf)
+  ipcMain.handle('settings.getCrashReports', () => core.appSettings.getCrashReports())
+  ipcMain.handle('settings.setCrashReports', async (_e, v: unknown) => {
+    if (v !== 'ask' && v !== 'never') throw new Error(`INVALID_CRASH_REPORTS: ${String(v)}`)
+    await core.appSettings.setCrashReports(v)
+  })
   // T23: start the Host at login, on by default
   ipcMain.handle('settings.getStartAtLogin', () => core.appSettings.getStartAtLogin())
   ipcMain.handle('settings.setStartAtLogin', async (_e, on: unknown) => {
@@ -4864,7 +4872,9 @@ export function registerIpc(
     'task-update': ['id'],
     'dispatch-show': ['task'],
     'gate-create': ['task'],
-    'worker-start': ['taskId', 'task']
+    'worker-start': ['taskId', 'task'],
+    // T36: the owner's answer to a failed Task that holds back its plan
+    'task-failed-resolve': ['id']
   }
   const DISPATCH_ID_ARG: Record<string, string> = { 'worker-stop': 'dispatch', 'worker-hold': 'dispatch', 'worker-unhold': 'dispatch' }
   /** orch.command 가 받은 명령의 args 가 project 가 아닌 다른 프로젝트의 Run·Task·Dispatch 를
@@ -6535,6 +6545,12 @@ export function registerIpc(
   ipcMain.handle('settings.setUpdateMode', async (_e, mode: unknown) => {
     if (!isUpdateMode(mode)) throw new Error(`INVALID_UPDATE_MODE: ${String(mode)}`)
     await core.appSettings.setUpdateMode(mode)
+  })
+  // The releases updater reads the channel before every check, so a change needs no restart (main/index.ts).
+  ipcMain.handle('settings.getUpdateChannel', () => core.appSettings.getUpdateChannel())
+  ipcMain.handle('settings.setUpdateChannel', async (_e, channel: unknown) => {
+    if (!isUpdateChannel(channel)) throw new Error(`INVALID_UPDATE_CHANNEL: ${String(channel)}`)
+    await core.appSettings.setUpdateChannel(channel)
   })
 
   /**
@@ -8289,6 +8305,14 @@ export function registerIpc(
 
   // Whether each CLI is installed on this machine at all — independent of any folder, so the renderer
   // asks this once (on mount) instead of on every folder pick, unlike `system.checkCli` above.
+  // T29: git and gh on the app's PATH — onboarding explains them (git for projects, gh optional for pull requests).
+  ipcMain.handle('system.checkTools', async () => {
+    const has = (bin: string): Promise<boolean> =>
+      new Promise((resolve) => execFile(bin, ['--version'], { timeout: 5000, windowsHide: true }, (err) => resolve(!err)))
+    const [git, gh] = await Promise.all([has('git'), has('gh')])
+    return { git, gh }
+  })
+
   ipcMain.handle('system.checkCliInstalled', async () => {
     const [claude, codex] = await Promise.all([locateCli('claude'), locateCli('codex')])
     return { claude: claude !== null, codex: codex !== null }
@@ -8331,8 +8355,10 @@ export function registerIpc(
   const INSTALL_CLI_TIMEOUT_MS = 15 * 60_000
   ipcMain.handle('system.installCli', async (_e, cli: unknown) => {
     if (cli !== 'claude' && cli !== 'codex') throw new Error(`INVALID_CLI: ${String(cli)}`)
-    const plan = installCommandFor(cli, process.platform)
-    if (plan === null) return { ok: false, code: null, error: 'UNSUPPORTED_PLATFORM' }
+    const vendorPlan = installCommandFor(cli, process.platform)
+    if (vendorPlan === null) return { ok: false, code: null, error: 'UNSUPPORTED_PLATFORM' }
+    // T29: a dev run may swap the vendor installer for a stub script (never in a packaged app).
+    const plan = app.isPackaged ? vendorPlan : devInstallOverride(vendorPlan, cli, process.env)
     if (installingCli) return { ok: false, code: null, error: 'ALREADY_RUNNING' }
     installingCli = true
     send('cli:install', { cli, kind: 'start', text: `$ ${plan.display}
@@ -8386,6 +8412,10 @@ export function registerIpc(
   })
 
   ipcMain.handle('system.appVersion', () => app.getVersion())
+  // T28: the third-party notices, null when licenses.json was not generated (a dev run: node scripts/gen-licenses.mjs)
+  ipcMain.handle('app.licenses', () =>
+    readLicenses(licensesFile({ packaged: app.isPackaged, resourcesPath: process.resourcesPath, appPath: app.getAppPath() }))
+  )
   // 프로젝트가 지정되지 않았을 때 아래쪽 패널의 터미널이 열릴 자리. cmd 나 셸을 직접 띄웠을 때와
   // 같은 곳이고, 세 플랫폼 모두 app.getPath('home') 이 그 값을 준다.
   ipcMain.handle('system.homeDir', () => app.getPath('home'))

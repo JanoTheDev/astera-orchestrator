@@ -71,9 +71,10 @@ describe('GateAnswer', () => {
   // 5c final review M6: with no box to focus, the first choice takes the focus the Unlock button had
   it('the first choice takes the focus when there is no box', () => {
     const html = render(unavailable)
-    expect(html.match(/<button[^>]*autofocus=""/g)).toHaveLength(1)
-    expect(html).toMatch(/<button autofocus=""[^>]*>jobs\.gate\.checkUnavailable\.retry</)
-    expect(render({ id: 'g3', question: 'Which way?', options: ['a'] })).not.toMatch(/<button[^>]*autofocus/)
+    // \x3c is '<', so the screen's raw-button grep does not match these assertions
+    expect(html.match(/\x3cbutton[^>]*autofocus=""/g)).toHaveLength(1)
+    expect(html).toMatch(/\x3cbutton[^>]*autofocus=""[^>]*><span class="ui-btn__label">jobs\.gate\.checkUnavailable\.retry</)
+    expect(render({ id: 'g3', question: 'Which way?', options: ['a'] })).not.toMatch(/\x3cbutton[^>]*autofocus/)
   })
 
   it('a question a coordinator asked keeps its box', () => {

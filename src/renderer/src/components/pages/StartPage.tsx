@@ -2,7 +2,6 @@
 // chips, three plain ways to plan, the rest folded under "More options", one sticky primary button. The W6-A intake keeps
 // its own state and calls (intake/useIntake.ts).
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, ChevronDown, ChevronRight, ListOrdered, Paperclip, SquareTerminal, X } from 'lucide-react'
 import type { Account, OrchSnapshot, ScheduleRule } from '../../../../core/types'
 import { MAX_CONCURRENT_WORKERS, PROJECT_DEFAULTS, type DeliveryMode } from '../../../../core/orchestration/types'
 import { foldsPathCase } from '../../../../core/files/paths'
@@ -10,7 +9,7 @@ import { useI18n } from '../../i18n/I18nProvider'
 import { formFailure, localDoor } from '../../lib/orchDoor'
 import { useAdvancedMode } from '../../state/useAdvancedMode'
 import { openConsole, openPage } from '../shell/navigation'
-import { Button, Card, Chip, Field, IconButton, Input, Tabs } from '../ui'
+import { Button, Card, Chip, Field, Icon, IconButton, Input, PageHeader, Tabs, Textarea } from '../ui'
 import { useIntake } from '../intake/useIntake'
 import { ScheduleRuleFields } from '../ScheduleRuleFields'
 import { useAccountUsage } from '../../hooks/useAccountUsage'
@@ -197,7 +196,7 @@ export function StartPage({
     if (canSubmit) void (scheduling ? createScheduled() : intake.create(planArgs))
   }
   const removeChip = (name: string, onRemove: () => void): React.JSX.Element => (
-    <IconButton size="sm" icon={<X size={14} />} label={t('start.remove', { name })} onClick={onRemove} />
+    <IconButton size="sm" icon={<Icon name="close" size={14} />} label={t('start.remove', { name })} onClick={onRemove} />
   )
 
   // T14 starter chips: a template in the box and the mode; "From GitHub issues" opens the picker, "From a file" the chooser
@@ -223,12 +222,15 @@ export function StartPage({
     >
       <div className="start-scroll">
         <div className="start-inner">
-          <header className="start-head">
-            <Button variant="ghost" icon={<ArrowLeft size={16} aria-hidden="true" />} onClick={onClose} disabled={intake.busy}>
-              {t('start.back')}
-            </Button>
-            <h1 className="start-title">{t('start.q.title')}</h1>
-          </header>
+          <PageHeader
+            className="start-head"
+            title={t('start.q.title')}
+            leading={
+              <Button variant="ghost" icon={<Icon name="back" />} onClick={onClose} disabled={intake.busy}>
+                {t('start.back')}
+              </Button>
+            }
+          />
 
           {/* 1. Project: first, required, never "All projects" */}
           <Field
@@ -245,7 +247,7 @@ export function StartPage({
 
           {/* 2. One box, then the starter chips */}
           <Card className="start-composer">
-            <textarea
+            <Textarea
               className="start-text"
               rows={5}
               value={text}
@@ -272,11 +274,11 @@ export function StartPage({
             )}
             {mode === 'prompts' && (
               <div className="start-attach">
-                <Button size="sm" variant="ghost" icon={<Paperclip size={14} aria-hidden="true" />} onClick={() => fileInput.current?.click()}>
+                <Button size="sm" variant="ghost" icon={<Icon name="file" size={14} />} onClick={() => fileInput.current?.click()}>
                   {t('start.attach')}
                 </Button>
                 {hasPromptsDir && (
-                  <Button size="sm" variant="ghost" icon={<ListOrdered size={14} aria-hidden="true" />} onClick={() => intake.setText('next waves')}>
+                  <Button size="sm" variant="ghost" icon={<Icon name="tasks" size={14} />} onClick={() => intake.setText('next waves')}>
                     {t('start.names.next')}
                   </Button>
                 )}
@@ -362,7 +364,7 @@ export function StartPage({
               <Button
                 variant="ghost"
                 size="sm"
-                icon={optsOpen ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}
+                icon={<Icon name={optsOpen ? 'chevronDown' : 'chevronRight'} size={14} />}
                 aria-expanded={optsOpen}
                 aria-controls="start-options"
                 onClick={() => setOptsOpen((v) => !v)}
@@ -452,7 +454,7 @@ export function StartPage({
             )}
           </section>
 
-          <Button className="start-console" variant="ghost" icon={<SquareTerminal size={16} aria-hidden="true" />} onClick={onOpenConsole}>
+          <Button className="start-console" variant="ghost" icon={<Icon name="terminal" />} onClick={onOpenConsole}>
             {t('new.consoleLink')}
           </Button>
         </div>

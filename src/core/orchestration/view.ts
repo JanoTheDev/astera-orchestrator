@@ -25,7 +25,7 @@ import { taskBoardsOf } from './blocked'
 import { validatePlan } from './planner'
 // T7 objective coverage
 import { objectiveItemsOf } from './objectiveItems'
-import { waveOf } from './replan'
+import { stallOf, waveOf } from './replan'
 import { autoApproveOf, handsOffOf, planApprovable } from './exec/plannerFeedback'
 import type { ScheduleLimits } from './schedule'
 
@@ -421,6 +421,8 @@ export function snapshotFor(
     const rowId = asJob ? job.id : (run?.id ?? job.id)
     const ownedTasks = ix.owned.get(ownerId) ?? []
     const stuck = run === undefined ? undefined : stuckOf(state, run, ownedTasks, stuckIx(), job)
+    // T36: only a Run stuckOf already calls stuck can be stalled, so the lists are read for those alone ('snapshotFor cost')
+    const failedOn = run === undefined || stuck === undefined ? undefined : stallOf(state, run)?.blocks[0]
     const { done, total } = progressOfTasks(ownedTasks)
     const planProblems = job.pendingStart && job.plannerSessionIds !== undefined ? validatePlan(state, job.id) : []
     const planOverlaps = job.pendingStart && job.plannerSessionIds !== undefined ? planOverlapWarnings(state, job.id) : []
@@ -454,8 +456,20 @@ export function snapshotFor(
       outcome: outcomeOfRun(ownedTasks, run, state),
       // T8: a running Run with nothing that can move
       ...(stuck !== undefined ? { stuck } : {}),
+      // T36: waits on a failed Task; the owner retries, accepts or cancels it
+      ...(failedOn !== undefined
+        ? {
+            stalledOn: {
+              taskId: failedOn.task.id,
+              title: failedOn.task.title,
+              ...(failedOn.task.result !== undefined ? { result: failedOn.task.result } : {}),
+              waiting: failedOn.waiting.length
+            }
+          }
+        : {}),
       // A Run whose delivery failed reads failed; the reason rides with it
       ...(deliveryErrorOf(run) !== undefined ? { deliveryError: deliveryErrorOf(run) } : {}),
+      ...(run?.deliveryState?.state === 'dismissed' ? { deliveryDismissed: true as const } : {}),
       // T3: the plan page's "Retry delivery" (PlanHeader) reads it
       ...(run?.deliveryState &&
       (['delivering', 'retrying', 'failed', 'needs-owner'].includes(run.deliveryState.state) || run.deliveryState.waitingFor !== undefined)
@@ -472,10 +486,16 @@ export function snapshotFor(
                   }
                 : {}),
               ...(run.deliveryState.lastError !== undefined ? { reason: run.deliveryState.lastError } : {}),
-              ...(run.deliveryState.nextRetryAt !== undefined ? { nextRetryAt: run.deliveryState.nextRetryAt } : {})
+              ...(run.deliveryState.nextRetryAt !== undefined ? { nextRetryAt: run.deliveryState.nextRetryAt } : {}),
+              // T1: when it last ran, and the stop's code
+              ...(run.deliveryState.lastAttemptAt !== undefined ? { lastAttemptAt: run.deliveryState.lastAttemptAt } : {}),
+              ...(run.deliveryState.lastCode !== undefined ? { code: run.deliveryState.lastCode } : {})
             }
           }
-        : {}),
+        : // T1: a Run that failed before `deliveryState` existed has only its error: a failed row, so the owner can act on it
+          run !== undefined && run.deliveryState === undefined && deliveryErrorOf(run) !== undefined
+          ? { delivery: { runId: run.id, state: 'failed' as const, reason: deliveryErrorOf(run)! } }
+          : {}),
       done,
       total,
       eventCount: ix.eventCounts.get(ownerId) ?? 0,

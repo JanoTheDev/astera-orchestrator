@@ -2,11 +2,10 @@
 // tiles and Done cards, the empty state, and the console strip of the full-size view. What goes where is
 // wallModel.ts's; this file only draws it.
 import { useEffect, useRef, useState } from 'react'
-import { Activity, CircleAlert, CircleCheck, CirclePause, ExternalLink, EyeOff, MoreHorizontal, Plus, Power, ShieldAlert, TerminalSquare } from 'lucide-react'
 import type { MessageKey } from '../../../../core/i18n'
 import { useI18n } from '../../i18n/I18nProvider'
 import { useChatState } from '../../hooks/useChatState'
-import { Button, Card, Chip, Tabs, EmptyState, Menu, Select, cx, type ChipTone } from '../ui'
+import { Button, Card, Chip, Tabs, EmptyState, ICONS, Icon, Menu, Select, cx, type ChipTone, type IconName } from '../ui'
 import { claimTerminal } from './consoleDock'
 import {
   ALL_PLANS, NO_PLAN, pillCount, previewOf, progressSegments, stripLabel, tileMenuOf,
@@ -27,10 +26,10 @@ export function StateChip({ c }: { c: WallConsole }): React.JSX.Element {
       ? t(c.needs === 'permission' ? 'wall.state.permission' : c.needs === 'gate' ? 'wall.state.gate' : 'wall.state.question')
       : t(c.state === 'working' ? 'wall.state.working' : c.state === 'finished' ? 'wall.state.finished' : 'wall.state.idle')
   // the second cue beside the colour (DESIGN-W11 §2): an icon per state
-  const Glyph = c.state === 'needs' ? (c.needs === 'permission' ? ShieldAlert : CircleAlert) : c.state === 'working' ? Activity : c.state === 'finished' ? CircleCheck : CirclePause
+  const glyph: IconName = c.state === 'needs' ? (c.needs === 'permission' ? 'lock' : 'warning') : c.state === 'working' ? 'activity' : c.state === 'finished' ? 'done' : 'pending'
   return (
     <Chip tone={stateTone(c)}>
-      <Glyph size={12} aria-hidden="true" />
+      <Icon name={glyph} size={14} />
       {word}
     </Chip>
   )
@@ -149,19 +148,20 @@ export function WallFilters({
       />
       {pills.length > 0 && <span className="wall-filters__sep" aria-hidden="true" />}
       {pills.length > PILLS_MAX ? (
-        <Select className="wall-filters__plan" aria-label={t('wall.plans.label')} value={plan} onChange={(e) => onPlan(e.target.value)}>
-          <option value={ALL_PLANS}>{t('wall.plans.all')}</option>
-          {[...new Set(pills.map((p) => p.projectName))].map((name) => (
-            <optgroup key={name} label={name}>
-              {pills
-                .filter((p) => p.projectName === name)
-                .map((p) => (
-                  <option key={p.jobId} value={p.jobId}>{`${p.name} · ${pillCount(p, words)}`}</option>
-                ))}
-            </optgroup>
-          ))}
-          <option value={NO_PLAN}>{t('wall.plans.none')}</option>
-        </Select>
+        <Select
+          className="wall-filters__plan"
+          ariaLabel={t('wall.plans.label')}
+          value={plan}
+          onChange={onPlan}
+          // a project's plans as one group, in the order the project first appears (the old optgroups)
+          items={[
+            { value: ALL_PLANS, label: t('wall.plans.all') },
+            ...[...new Set(pills.map((p) => p.projectName))].flatMap((name) =>
+              pills.filter((p) => p.projectName === name).map((p) => ({ value: p.jobId, label: p.name, meta: pillCount(p, words), group: name }))
+            ),
+            { value: NO_PLAN, label: t('wall.plans.none') }
+          ]}
+        />
       ) : (
         pills.length > 0 && (
           <div className="wall-filters__plans" role="group" aria-label={t('wall.plans.label')}>
@@ -243,7 +243,7 @@ export function PlanGroup({
           )}
           {pill?.approve && <Chip tone="warn">{t('wall.plans.approve')}</Chip>}
           {onOpenPlan && (
-            <Button size="sm" variant="ghost" className="wall-group__open" icon={<ExternalLink size={14} />} onClick={onOpenPlan}>
+            <Button size="sm" variant="ghost" className="wall-group__open" icon={<Icon name="external" size={14} />} onClick={onOpenPlan}>
               {t('wall.group.open')}
             </Button>
           )}
@@ -310,9 +310,9 @@ export function ConsoleTile({
   }, [c.sessionId, c.chat, chatStatus])
   const preview = previewOf(reply)
   const actions = [
-    ...tileMenuOf(c, { openWindow: t('wall.tile.openWindow') }, (projectId) => window.api.win.openNew(projectId)).map((i) => ({ ...i, icon: <ExternalLink size={14} /> })),
-    ...(onHide ? [{ id: 'hide', label: t('wall.tile.hide'), icon: <EyeOff size={14} />, onSelect: onHide }] : []),
-    ...(onEnd ? [{ id: 'end', label: t('wall.tile.end'), icon: <Power size={14} />, danger: true, onSelect: onEnd }] : [])
+    ...tileMenuOf(c, { openWindow: t('wall.tile.openWindow') }, (projectId) => window.api.win.openNew(projectId)).map((i) => ({ ...i, icon: <Icon name="external" size={14} /> })),
+    ...(onHide ? [{ id: 'hide', label: t('wall.tile.hide'), icon: <Icon name="hide" size={14} />, onSelect: onHide }] : []),
+    ...(onEnd ? [{ id: 'end', label: t('wall.tile.end'), icon: <Icon name="stop" size={14} />, danger: true, onSelect: onEnd }] : [])
   ]
   return (
     <div className={cx('wall-tile', main && 'wall-tile--main')}>
@@ -340,7 +340,7 @@ export function ConsoleTile({
       {actions.length > 0 && (
         // a click in the menu stays here: it must never reach the card's open
         <div className="wall-tile__more" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
-          <Menu label={t('wall.tile.more', { name: title })} align="end" items={actions} trigger={{ icon: <MoreHorizontal size={14} />, size: 'sm', variant: 'ghost' }} />
+          <Menu label={t('wall.tile.more', { name: title })} align="end" items={actions} trigger={{ icon: <Icon name="more" size={14} />, size: 'sm', variant: 'ghost' }} />
         </div>
       )}
     </div>
@@ -351,16 +351,16 @@ export function ConsoleTile({
 export function WallEmpty({ filtered, onNew, onReset }: { filtered: boolean; onNew?: () => void; onReset: () => void }): React.JSX.Element {
   const { t } = useI18n()
   return filtered ? (
-    <EmptyState icon={TerminalSquare} title={t('wall.empty.filtered.title')} action={<Button onClick={onReset}>{t('wall.empty.reset')}</Button>}>
+    <EmptyState icon={ICONS.terminal} title={t('wall.empty.filtered.title')} action={<Button onClick={onReset}>{t('wall.empty.reset')}</Button>}>
       {t('wall.empty.filtered')}
     </EmptyState>
   ) : (
     <EmptyState
-      icon={TerminalSquare}
+      icon={ICONS.terminal}
       title={t('wall.empty.title')}
       action={
         onNew && (
-          <Button variant="primary" icon={<Plus size={16} />} onClick={onNew}>
+          <Button variant="primary" icon={<Icon name="add" />} onClick={onNew}>
             {t('wall.new')}
           </Button>
         )

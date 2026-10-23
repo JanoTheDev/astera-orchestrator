@@ -1,5 +1,7 @@
-import { useState } from 'react'
-import { Button, Modal } from '../ui'
+import { useId, useState } from 'react'
+import { useI18n } from '../../i18n/I18nProvider'
+import { Button, Field, Icon, Input, Modal } from '../ui'
+import '../overlays.css'
 import './projects.css'
 
 /** W7-B: an existing git folder becomes a project. A repository with no commit is only committed after the owner
@@ -13,6 +15,8 @@ export function AddProjectDialog({
   onClose: () => void
   onAdded: (projectId: string) => void
 }): React.JSX.Element {
+  const { t } = useI18n()
+  const pathId = useId()
   const [path, setPath] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -36,8 +40,8 @@ export function AddProjectDialog({
       } | null
       if (r.status === 409 && body?.needsInitialCommit) {
         setNeedsCommit(true)
-        setError(body.error ?? 'This repository has no commit yet.')
-      } else if (r.status !== 200 || !body?.id) setError(body?.error ?? 'Could not add the project.')
+        setError(body.error ?? t('overlays.project.noCommit'))
+      } else if (r.status !== 200 || !body?.id) setError(body?.error ?? t('overlays.project.addFailed'))
       else {
         setNeedsCommit(false)
         setAdded({ id: body.id })
@@ -45,7 +49,7 @@ export function AddProjectDialog({
         onAdded(body.id)
       }
     } catch {
-      setError('Could not add the project.')
+      setError(t('overlays.project.addFailed'))
     } finally {
       setBusy(false)
     }
@@ -60,12 +64,12 @@ export function AddProjectDialog({
         testCommand: test.trim()
       })
       if (r.status !== 200) {
-        setError((r.body as { error?: string } | null)?.error ?? 'Could not save the test command.')
+        setError((r.body as { error?: string } | null)?.error ?? t('overlays.project.testSaveFailed'))
         return
       }
       onClose()
     } catch {
-      setError('Could not save the test command.')
+      setError(t('overlays.project.testSaveFailed'))
     } finally {
       setBusy(false)
     }
@@ -74,48 +78,54 @@ export function AddProjectDialog({
   const footer = added ? (
     <>
       <Button disabled={busy} onClick={onClose}>
-        Skip
+        {t('overlays.project.skip')}
       </Button>
       <Button variant="primary" disabled={busy || !test.trim()} onClick={() => void saveTest()}>
-        Use this test command
+        {t('overlays.project.useTest')}
       </Button>
     </>
   ) : (
     <>
       <Button disabled={busy} onClick={onClose}>
-        Cancel
+        {t('common.cancel')}
       </Button>
       {needsCommit && (
         <Button disabled={busy} onClick={() => void add(true)}>
-          Make the initial commit
+          {t('overlays.project.initialCommit')}
         </Button>
       )}
       <Button variant="primary" disabled={busy || !path.trim()} onClick={() => void add(false)}>
-        Add
+        {t('overlays.project.add')}
       </Button>
     </>
   )
 
   return (
-    <Modal title="Add project" onClose={() => !busy && onClose()} size="sm" footer={footer}>
+    <Modal title={t('overlays.project.addTitle')} onClose={() => !busy && onClose()} closeLabel={t('common.close')} size="sm" footer={footer}>
       <div className="dlg">
         {added ? (
           <>
-            <p className="proj-ok">Project added.</p>
-            <div className="field">
-              <label>Test command</label>
-              <input type="text" value={test} onChange={(e) => setTest(e.target.value)} placeholder="none" />
-              <p className="modal-hint">New tasks are checked with this. Leave it empty to skip.</p>
-            </div>
+            <p className="proj-ok">{t('overlays.project.added')}</p>
+            <Field
+              label={t('overlays.project.testCommand')}
+              hint={t('overlays.project.testHint')}
+              value={test}
+              onChange={(e) => setTest(e.target.value)}
+              placeholder={t('overlays.project.testNone')}
+            />
             {error && <p className="warn">{error}</p>}
           </>
         ) : (
           <>
-            <div className="field">
-              <label>Project folder</label>
-              <div className="proj-row">
-                <input type="text" value={path} onChange={(e) => setPath(e.target.value)} autoFocus />
-                <button onClick={() => void window.api.system.pickFolder().then((p) => p && setPath(p))}>Browse</button>
+            <div className="ui-field">
+              <label className="ui-field__label" htmlFor={pathId}>
+                {t('overlays.project.folder')}
+              </label>
+              <div className="ov-proj-row">
+                <Input id={pathId} value={path} onChange={(e) => setPath(e.target.value)} autoFocus />
+                <Button icon={<Icon name="folder" />} onClick={() => void window.api.system.pickFolder().then((p) => p && setPath(p))}>
+                  {t('overlays.project.browse')}
+                </Button>
               </div>
             </div>
             {error && <p className="warn">{error}</p>}

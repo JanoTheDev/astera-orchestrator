@@ -1,8 +1,8 @@
 import { memo } from 'react'
-import { ChevronDown, ChevronRight } from 'lucide-react'
 import { resolveFileIcon, resolveFolderIcon } from '../../../core/files/icons'
 import type { GitState } from '../../../core/git/status'
 import { FileIcon } from './FileIcon'
+import { Icon } from './ui'
 import { RowLoading } from './ExplorerLoading'
 import { ROW_H } from './explorerRows'
 import { useI18n } from '../i18n/I18nProvider'
@@ -126,7 +126,7 @@ export const ExplorerRow = memo(function ExplorerRow({
       className={`fx-row${selected ? ' selected' : ''}${cut ? ' cut' : ''}${dragging ? ' dragging' : ''}${dropInto ? ' drop-into' : ''}`}
       {...common}
     >
-      <span className="fx-caret">{open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</span>
+      <span className="fx-caret"><Icon name={open ? 'chevronDown' : 'chevronRight'} size={14} /></span>
       <FileIcon {...resolveFolderIcon(entry.name, open)} />
       <span className="fx-name">{entry.name}</span>
       {/* A first read already shows 'Loading…' under the row — the spinner is for re-reads only */}

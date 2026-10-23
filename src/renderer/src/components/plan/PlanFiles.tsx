@@ -3,6 +3,7 @@
 import type { JobTask } from '../../../../core/types'
 import { useI18n } from '../../i18n/I18nProvider'
 import { TaskGlyph } from '../JobIcons'
+import { Button } from '../ui'
 import { categoryOf, filesOf } from './planBoard'
 import './plan.css'
 
@@ -23,28 +24,30 @@ export function PlanFiles({
     <ul className="plan-files">
       {files.map((f) => (
         <li key={f.path} className={`plan-file${f.tasks.length > 1 ? ' plan-file-overlap' : ''}`}>
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="sm"
             className="plan-file-path"
             title={t('plan.files.open')}
             disabled={!onOpenPath}
             onClick={() => onOpenPath?.(f.path)}
           >
             {f.path}
-          </button>
+          </Button>
           {f.tasks.length > 1 && <span className="plan-file-n">{t('plan.files.overlap', { n: f.tasks.length })}</span>}
           <span className="plan-file-tasks">
             {f.tasks.map((tk) => (
-              <button
+              <Button
                 key={tk.id}
-                type="button"
+                variant="ghost"
+                size="sm"
                 className={`plan-file-task plan-cat-${categoryOf(tk)}`}
                 title={t(`plan.cat.${categoryOf(tk)}`)}
                 onClick={() => onSelect(tk.id)}
               >
                 <TaskGlyph task={tk} size={10} />
                 <span>{tk.title}</span>
-              </button>
+              </Button>
             ))}
           </span>
         </li>

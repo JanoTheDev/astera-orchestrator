@@ -121,7 +121,8 @@ describe('deliverByPush (W6-H)', () => {
   it('stops when the local branch cannot fast-forward to origin', async () => {
     const h = setup({ 'merge --ff-only origin/main': { ok: false, stderr: 'fatal: Not possible to fast-forward, aborting.' } })
     const r = await h.go()
-    expect(r).toMatchObject({ ok: false, reason: expect.stringContaining('cannot fast-forward') })
+    // T1: coded, so the loop and the app can tell it from the other stops
+    expect(r).toMatchObject({ ok: false, code: 'main-diverged', reason: expect.stringContaining('cannot fast-forward') })
     expect(h.merges).toEqual([])
   })
 
@@ -451,6 +452,44 @@ describe('deliverByPush over a real bare origin (T3)', () => {
     r.sh(r.mate, 'push', 'origin', 'plan:main')
     const yes = await deliverByPush({ cwd: r.work, branch: 'main', worktrees: [r.mate], message: 'm', ownerPushed: true }, ctx)
     expect(yes).toMatchObject({ ok: true, branch: 'main' })
+  })
+  it('T1: the owner-pushed check accepts work that landed on origin as other commits (a rebase), not work still missing', async () => {
+    const r = repos()
+    // the plan's worktree, of the owner's repository
+    const wt = path.join(r.dir, 'wt')
+    r.sh(r.work, 'worktree', 'add', '-b', 'plan', wt)
+    r.commit(wt, 'p.txt', 'p\n')
+    const ctx = ctxOf(r, { file: 'x', text: 'x' })
+    const no = await deliverByPush({ cwd: r.work, branch: 'main', worktrees: [wt], message: 'm', ownerPushed: true }, ctx)
+    expect(no).toMatchObject({ ok: false, reason: expect.stringContaining('is not on main yet') })
+    // the owner landed the same change on a newer main: another commit id, the same patch
+    r.commit(r.mate, 'other.txt', 'o\n')
+    r.commit(r.mate, 'p.txt', 'p\n')
+    r.sh(r.mate, 'push', 'origin', 'main')
+    expect(r.sh(r.work, 'rev-parse', 'plan')).not.toBe(r.sh(r.mate, 'rev-parse', 'HEAD'))
+    const yes = await deliverByPush({ cwd: r.work, branch: 'main', worktrees: [wt], message: 'm', ownerPushed: true }, ctx)
+    expect(yes).toMatchObject({ ok: true, branch: 'main', sha: r.sh(r.mate, 'rev-parse', 'HEAD') })
+  })
+  it('T34: the owner-pushed check accepts several commits squashed into one on origin, not work missing from it', async () => {
+    const r = repos()
+    const wt = path.join(r.dir, 'wt')
+    r.sh(r.work, 'worktree', 'add', '-b', 'plan', wt)
+    r.commit(wt, 'p.txt', 'p1\n')
+    r.commit(wt, 'q.txt', 'q\n')
+    const ctx = ctxOf(r, { file: 'x', text: 'x' })
+    // origin gets the plan's work as ONE commit (a squash merge): no patch-id matches either worktree commit
+    r.commit(r.mate, 'p.txt', 'p1\n')
+    r.commit(r.mate, 'q.txt', 'q\n')
+    r.sh(r.mate, 'reset', '--soft', 'HEAD~2')
+    r.sh(r.mate, ...r.id, 'commit', '-m', 'squash')
+    r.sh(r.mate, 'push', 'origin', 'main')
+    expect(r.sh(r.work, 'cherry', 'origin/main', 'plan')).toContain('+')
+    const yes = await deliverByPush({ cwd: r.work, branch: 'main', worktrees: [wt], message: 'm', ownerPushed: true }, ctx)
+    expect(yes).toMatchObject({ ok: true, branch: 'main', sha: r.sh(r.mate, 'rev-parse', 'HEAD') })
+    // a change the squash did not take is still refused
+    r.commit(wt, 'missing.txt', 'm\n')
+    const no = await deliverByPush({ cwd: r.work, branch: 'main', worktrees: [wt], message: 'm', ownerPushed: true }, ctx)
+    expect(no).toMatchObject({ ok: false, reason: expect.stringContaining('is not on main yet') })
   })
 })
 

@@ -4,7 +4,7 @@ import type { SettingField } from '../../../core/plugins/settings'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
 import { confirmModal, confirmModalWithChoices } from '../lib/confirm'
-import { Select } from './Select'
+import { Button, Select, Checkbox } from './ui'
 import { configureChanges, configureDoneLine, failureLine, installFailureLine, installPrompt, npmNotice, permissionLabel, reasonLine, statusLabel } from './pluginsText'
 import { createPluginsPoller, installBlocked, installHolds, keepOnly } from './pluginsList'
 
@@ -228,9 +228,9 @@ export function PluginsSettings(): React.JSX.Element {
       <p className="settings-hint">{t('settings.plugins.hint')}</p>
       <div className="remote-actions">
         {/* Nothing to install into with no Host, or one that runs no plugins (M5). */}
-        <button className="primary" disabled={installing !== 'idle' || installBlocked(listFailure?.code ?? null)} onClick={() => void installFolder()}>
+        <Button variant="primary" disabled={installing !== 'idle' || installBlocked(listFailure?.code ?? null)} onClick={() => void installFolder()}>
           {installing === 'installing' && installingFrom === 'folder' ? t('settings.plugins.installing') : t('settings.plugins.installFolder')}
-        </button>
+        </Button>
       </div>
       {/* A plugin published on npm (plugins 2e): the person's npm fetches it, or Astera's own where they have none
           (2e-2), after the same warning. */}
@@ -248,7 +248,7 @@ export function PluginsSettings(): React.JSX.Element {
             if (e.key === 'Enter') void installNpm()
           }}
         />
-        <button
+        <Button variant="secondary" size="sm"
           className="settings-gen-refresh"
           disabled={installing !== 'idle' || npmSpec.trim() === '' || installBlocked(listFailure?.code ?? null)}
           onClick={() => void installNpm()}
@@ -258,7 +258,7 @@ export function PluginsSettings(): React.JSX.Element {
             : installing === 'reading'
               ? t('settings.plugins.fetching')
               : t('settings.plugins.installing')}
-        </button>
+        </Button>
       </div>
       <p className="settings-hint">{t('settings.plugins.npmHint')}</p>
       {npmProblem !== null && <p className="settings-hint is-warning">{npmProblem}</p>}
@@ -367,23 +367,23 @@ export function PluginCard({
         </span>
       </div>
       <div className="remote-actions">
-        <button className="settings-gen-refresh" disabled={busy} onClick={onConfigure}>
+        <Button variant="secondary" size="sm" disabled={busy} onClick={onConfigure}>
           {t('settings.plugins.configure')}
-        </button>
+        </Button>
         {status === 'failed' && (
-          <button className="settings-gen-refresh" disabled={busy} onClick={onStartAgain}>
+          <Button variant="secondary" size="sm" disabled={busy} onClick={onStartAgain}>
             {t('settings.plugins.startAgain')}
-          </button>
+          </Button>
         )}
-        <button className="settings-gen-refresh" disabled={busy} onClick={() => onToggle(!enabled)}>
+        <Button variant="secondary" size="sm" disabled={busy} onClick={() => onToggle(!enabled)}>
           {enabled ? t('settings.plugins.disable') : t('settings.plugins.enable')}
-        </button>
-        <button className="settings-gen-refresh" disabled={busy} onClick={onLogs}>
+        </Button>
+        <Button variant="secondary" size="sm" disabled={busy} onClick={onLogs}>
           {t('settings.plugins.logs')}
-        </button>
-        <button className="ghost danger" disabled={busy} onClick={onRemove}>
+        </Button>
+        <Button variant="danger" size="sm" disabled={busy} onClick={onRemove}>
           {t('settings.plugins.remove')}
-        </button>
+        </Button>
       </div>
     </>
   )
@@ -436,10 +436,9 @@ export function PluginSettingsForm({
           <div key={f.key} className="plugin-field">
             {f.type === 'boolean' ? (
               <label className="check-small">
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={typeof draft[f.key] === 'boolean' ? (draft[f.key] as boolean) : values[f.key] === true}
-                  onChange={(e) => onDraft(f.key, e.target.checked)}
+                  onChange={(v) => onDraft(f.key, v)}
                 />
                 {label}
               </label>
@@ -463,7 +462,7 @@ export function PluginSettingsForm({
                 <span className="settings-hint">{set ? t('settings.plugins.form.secretSet') : t('settings.plugins.form.secretUnset')}</span>
                 {set && (
                   <label className="check-small">
-                    <input type="checkbox" checked={clear.has(f.key)} onChange={(e) => onClear(f.key, e.target.checked)} />
+                    <Checkbox checked={clear.has(f.key)} onChange={(v) => onClear(f.key, v)} />
                     <span>{t('settings.plugins.form.clear')}</span>
                   </label>
                 )}
@@ -495,9 +494,9 @@ export function PluginSettingsForm({
         )
       })}
       <div className="remote-actions is-end">
-        <button className="primary" disabled={!changed || saving} onClick={onSave}>
+        <Button variant="primary" disabled={!changed || saving} onClick={onSave}>
           {t('settings.plugins.form.save')}
-        </button>
+        </Button>
       </div>
     </fieldset>
   )
@@ -513,9 +512,9 @@ export function PluginLogs({ lines, onRefresh }: { lines: string[] | null; onRef
   return (
     <div className="plugin-logs">
       <div className="remote-actions is-end">
-        <button className="settings-gen-refresh" onClick={onRefresh}>
+        <Button variant="secondary" size="sm" onClick={onRefresh}>
           {t('settings.plugins.logs.refresh')}
-        </button>
+        </Button>
       </div>
       {lines !== null && (lines.length === 0 ? <p className="settings-hint">{t('settings.plugins.logs.none')}</p> : <pre ref={box} className="plugin-log">{lines.join('\n')}</pre>)}
     </div>

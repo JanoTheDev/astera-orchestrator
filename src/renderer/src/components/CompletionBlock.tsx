@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { CompletionDetail } from '../../../core/types'
 import { useI18n } from '../i18n/I18nProvider'
 import { CompletionChecks } from './CompletionChecks'
+import { Button, Icon } from './ui'
 
 /**
  * 고른 Task 가 **왜** 완료 정책을 못 넘었는가 — 칩이 말하지 않는 나머지.
@@ -69,9 +70,16 @@ export function CompletionBlock({
 
   return (
     <div className="detail-completion">
-      <button className="detail-completion-head" onClick={() => setOpen((p) => !p)}>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="detail-completion-head"
+        icon={<Icon name={open ? 'chevronDown' : 'chevronRight'} size={14} />}
+        aria-expanded={open}
+        onClick={() => setOpen((p) => !p)}
+      >
         {open ? t('jobs.completion.hide') : t('jobs.completion.show')}
-      </button>
+      </Button>
       {open && detail === undefined && <p className="modal-hint">{t('files.editor.loading')}</p>}
       {open && detail === null && <p className="modal-hint">{t('jobs.completion.empty')}</p>}
       {open && detail !== null && detail !== undefined && (

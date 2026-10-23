@@ -48,7 +48,7 @@ describe('summary card text', () => {
   })
 
   it('facts line, and nothing for no facts', () => {
-    expect(summaryFactsLine(card(), t)).toBe('files: 2 +40 −12 · checks 1/2 · review rounds: 2, approved · questions: 2 (coordinator 1, owner 1) · commits: 1')
+    expect(summaryFactsLine(card(), t)).toBe('files: 2 +40 −12 · checks 1/2 · review rounds: 2, approved · questions: 2 (lead agent 1, you 1) · commits: 1')
     const bare = card()
     bare.facts = { ...bare.facts, files: [], checks: [], review: { rounds: 0, verdict: 'none' }, questions: { coordinator: 0, owner: 0 }, commits: [] }
     expect(summaryFactsLine(bare, t)).toBe('')

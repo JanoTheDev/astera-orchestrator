@@ -1,6 +1,7 @@
 import type { WorktreeCreateProgress, WorktreeCreateStage } from '../../../core/types'
 import type { MessageKey } from '../../../core/i18n'
 import { useI18n } from '../i18n/I18nProvider'
+import { Button } from './ui'
 
 const STAGE_KEY: Record<WorktreeCreateStage, MessageKey> = {
   fetch: 'session.new.stage.fetch',
@@ -76,9 +77,9 @@ export function StartingOverlay({
         )}
       </div>
       {making && (
-        <button type="button" onClick={onCancel} disabled={cancelling}>
+        <Button size="sm" loading={cancelling} onClick={onCancel}>
           {cancelling ? t('session.new.cancelling') : t('common.cancel')}
-        </button>
+        </Button>
       )}
     </div>
   )

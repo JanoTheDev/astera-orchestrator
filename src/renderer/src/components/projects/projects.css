@@ -1,8 +1,15 @@
 /* W7-B: new / add / settings dialogs; the modal, field and button classes come from styles.css */
 .proj-row { display: flex; gap: 6px; align-items: center; }
 .proj-row > input { flex: 1; min-width: 0; }
-.proj-ok { color: var(--accent); font-size: 12px; }
-.proj-settings { display: flex; flex-direction: column; gap: 12px; } /* W9-E: the body, in ui/Modal or inline on the Settings page */
-.ws-tools { display: flex; gap: 4px; flex-basis: 100%; }
-.ws-gear { padding: 0 4px; }
-.proj-sub-add { display: flex; gap: var(--space-2, 8px); align-items: center; }
+.proj-ok { color: var(--accent); font-size: var(--fs-12); }
+.proj-settings { display: flex; flex-direction: column; gap: var(--sp-4); } /* W9-E: the body, in ui/Modal or inline on the Settings page */
+.proj-sub-add { display: flex; gap: var(--sp-2); align-items: center; }
+.proj-sub-add > .ui-input { flex: 1; min-width: 0; }
+/* W12: the body's groups (DESIGN §9 Settings): a quiet heading over its fields, a hairline between groups */
+.proj-group { display: flex; flex-direction: column; gap: var(--sp-3); padding-top: var(--sp-3); border-top: 1px solid var(--line-soft); }
+.proj-group:first-child { padding-top: 0; border-top: 0; }
+.proj-group__title { margin: 0; font-size: var(--fs-12); font-weight: 600; color: var(--text-dim); }
+.proj-remove { display: flex; justify-content: flex-start; padding-top: var(--sp-3); border-top: 1px solid var(--line-soft); }
+/* W12: the Settings page's project picker over the picked project's body */
+.proj-pick-body { display: flex; flex-direction: column; gap: var(--sp-4); }
+.proj-pick { max-width: 360px; }

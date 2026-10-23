@@ -23,6 +23,8 @@ export type ConfirmRequest = {
   /** The cancel button is an answer too (T13: "Keep running in background"), so its ticked choices go with it. ESC and
    *  the backdrop still answer with none. */
   cancelKeepsChoices?: boolean
+  /** A destructive action (delete, discard, force): the confirm button is drawn as the danger variant. */
+  danger?: boolean
 }
 /** 확인 결과. checked 는 켜진 choice 의 id 들 — 취소면 언제나 빈 배열이다 */
 export type ConfirmAnswer = { ok: boolean; checked: string[] }

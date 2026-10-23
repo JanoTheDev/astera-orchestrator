@@ -1,9 +1,8 @@
 // src/renderer/src/components/conversation/QuestionCard.tsx
 "use client";
 
-import type { ReactNode } from "react";
-import { CheckIcon, Loader2Icon } from "lucide-react";
-import { Button } from "../ui/button";
+import { useId, type ReactNode } from "react";
+import { Button, Icon } from "../ui";
 import { useI18n } from "../../i18n/I18nProvider";
 import { isAnswered, type AskForm, type Answer } from "../../../../core/prompts/askUserQuestion";
 
@@ -50,6 +49,7 @@ export function QuestionCard({
   onGoTerminal
 }: QuestionCardProps): ReactNode {
   const { t } = useI18n();
+  const id = useId();
   const busy = state === "answering";
   const drivable = state === "ready";
   // Drawn whether or not it can be pressed. Hiding it made a blocked answer look like a missing
@@ -68,7 +68,7 @@ export function QuestionCard({
       <div className="flex items-center justify-between gap-3">
         <p className="font-medium">{title ?? t("conversation.ask.title")}</p>
         {onGoTerminal !== null && (
-          <Button size="sm" variant={drivable ? "outline" : "default"} className="shrink-0" onClick={onGoTerminal}>
+          <Button size="sm" variant={drivable ? "secondary" : "primary"} className="shrink-0" onClick={onGoTerminal}>
             {t("conversation.pending.terminal")}
           </Button>
         )}
@@ -86,22 +86,27 @@ export function QuestionCard({
                     {q.header}
                   </span>
                 )}
-                {answered && <CheckIcon className="text-muted-foreground size-3.5" aria-hidden="true" />}
+                {answered && <Icon name="check" size={14} className="text-muted-foreground" />}
               </div>
-              <p className="font-medium">{q.question}</p>
-              <div role={q.multiSelect ? "group" : "radiogroup"} className="flex flex-col gap-0.5">
+              <p id={`${id}-q${qi}`} className="font-medium">{q.question}</p>
+              <div role={q.multiSelect ? "group" : "radiogroup"} aria-labelledby={`${id}-q${qi}`} className="flex flex-col gap-0.5">
                 {q.options.map((opt, oi) => {
                   const on = a.picks.includes(oi);
                   return (
-                    <button
+                    // A native radio or checkbox under the drawn indicator, so the whole row is the target and
+                    // the keyboard is the platform's: Tab reaches the group, arrows move a radio group, Space ticks.
+                    <label
                       key={`${oi}-${opt.label}`}
-                      type="button"
-                      role={q.multiSelect ? "checkbox" : "radio"}
-                      aria-checked={on}
-                      disabled={busy}
-                      onClick={() => onToggle(qi, oi)}
-                      className="hover:bg-muted/60 flex w-full items-start gap-2.5 rounded-md px-2 py-1.5 text-start disabled:opacity-60"
+                      className="hover:bg-muted/60 has-[:focus-visible]:shadow-[var(--focus-ring)] flex w-full cursor-pointer items-start gap-2.5 rounded-md px-2 py-1.5 text-start has-[:disabled]:cursor-default has-[:disabled]:opacity-60"
                     >
+                      <input
+                        type={q.multiSelect ? "checkbox" : "radio"}
+                        name={`${id}-q${qi}`}
+                        className="sr-only"
+                        checked={on}
+                        disabled={busy}
+                        onChange={() => onToggle(qi, oi)}
+                      />
                       <Indicator kind={q.multiSelect ? "box" : "dot"} on={on} />
                       <span className="min-w-0 flex-1">
                         <span className="font-medium">{opt.label}</span>
@@ -109,7 +114,7 @@ export function QuestionCard({
                           <span className="text-muted-foreground block text-xs leading-snug">{opt.description}</span>
                         )}
                       </span>
-                    </button>
+                    </label>
                   );
                 })}
                 <label className="hover:bg-muted/60 flex w-full items-center gap-2.5 rounded-md px-2 py-1.5">
@@ -132,12 +137,12 @@ export function QuestionCard({
 
       <div className="flex items-center justify-between gap-3">
         <p className="text-muted-foreground min-w-0 text-xs" role="status">
-          {busy && <Loader2Icon className="mr-1.5 inline size-3 animate-spin" aria-hidden="true" />}
+          {busy && <Icon name="loading" size={14} className="ui-spin mr-1.5 inline size-3" />}
           {status}
         </p>
         <Button
           size="sm"
-          variant="default"
+          variant="primary"
           className="shrink-0"
           disabled={!canPressSubmit}
           onClick={onSubmit}
@@ -157,7 +162,7 @@ function Indicator({ kind, on }: { kind: "dot" | "box"; on: boolean }): ReactNod
       aria-hidden="true"
       className={`mt-0.5 flex size-3.5 shrink-0 items-center justify-center border ${shape} ${on ? "border-foreground bg-foreground" : "border-border"}`}
     >
-      {on && (kind === "dot" ? <span className="bg-background size-1.5 rounded-full" /> : <CheckIcon className="text-background size-2.5" />)}
+      {on && (kind === "dot" ? <span className="bg-background size-1.5 rounded-full" /> : <Icon name="check" size={14} className="text-background size-2.5" />)}
     </span>
   );
 }

@@ -100,7 +100,9 @@ export const ACTIVITY_KINDS = [
   'plan.decided',
   'plan.refused',
   // T7: the owner changed a run Task's deps, spec, basis or evidence before it started (task-update); feed only
-  'task.edited'
+  'task.edited',
+  // T34: the owner dismissed a failed delivery (`run-delivery-dismiss`); feed only
+  'plan.deliveryDismissed'
 ] as const
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number]
 
@@ -384,6 +386,13 @@ export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[
       if (r.delivery?.sha === undefined || was === undefined || was.delivery?.sha === r.delivery.sha) continue
       const at = where(r.id)
       push('plan.delivered', at, { title: at.job ? jobNameOf(at.job) : r.id, sha: r.delivery.sha, ...(r.delivery.branch !== undefined ? { branch: r.delivery.branch } : {}) })
+    }
+    // T1: the owner dismissed a failed delivery (`run-delivery-dismiss`)
+    for (const r of next.runs) {
+      const was = before.get(r.id)
+      if (r.deliveryState?.state !== 'dismissed' || was === undefined || was.deliveryState?.state === 'dismissed') continue
+      const at = where(r.id)
+      push('plan.deliveryDismissed', at, { title: at.job ? jobNameOf(at.job) : r.id })
     }
     // Coordinator rotation: each refresh added since the last commit, by its new session
     for (const r of next.runs) {

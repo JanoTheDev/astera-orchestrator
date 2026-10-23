@@ -3,7 +3,6 @@ import { parentDir } from '../../../core/files/paths'
 import { validateName, isSubPath, canMove, canCopy } from '../../../core/files/ops'
 import { resolveFileIcon, resolveFolderIcon } from '../../../core/files/icons'
 import { FileIcon } from './FileIcon'
-import { ContextMenu, type MenuItem } from './ContextMenu'
 import { LocalHistoryDialog } from './LocalHistoryDialog'
 import { RootReading, FileOpStatusLine, ROOT_SLOW_MS } from './ExplorerLoading'
 import { ExplorerRow, type RowActions } from './ExplorerRow'
@@ -33,8 +32,7 @@ import { useGitStatus } from '../hooks/useGitStatus'
 import { useI18n } from '../i18n/I18nProvider'
 import type { UndoEntry } from '../../../core/files/undo'
 import { runnableKindForFile } from '../../../core/run/runFile'
-import { ChevronsDownUp, FilePlus, FolderOpen, FolderPlus, RefreshCw, X } from 'lucide-react'
-import { EmptyState, IconButton, Tabs } from './ui'
+import { EmptyState, Icon, ICONS, IconButton, Menu, menuPointOf, Tabs, type MenuItem } from './ui'
 import { ChangedList } from './ChangedList'
 import { deleteKey, isMac, modKey } from '../lib/platformKeys'
 import { isWindowsPath, revealFor, treeKeysTo, type FolderReveal } from '../lib/folderLink'
@@ -372,7 +370,7 @@ export function FileExplorer({
     gitStatus.refresh() // refresh git status along with the explorer — appended after the existing behavior, which is unchanged
   }
 
-  const menuItemsFor = (entry: Entry | null): MenuItem[] => {
+  const menuItemsFor = (entry: Entry | null): (MenuItem | 'separator')[] => {
     // entry=null (root empty space) is treated as the root folder. For a file, New File/New Folder are created in its parent (VS Code behavior)
     // root!: this menu only opens from the tree, and the tree only renders when root exists, so root is always non-null.
     const dirForCreate = entry === null ? root! : entry.isDir ? entry.path : parentDir(entry.path)
@@ -382,7 +380,7 @@ export function FileExplorer({
     // with its descendants). menuItemsFor runs during render, so selectionPaths() is computed once and
     // reused.
     const targetCount = sel.selectionPaths().length
-    const items: MenuItem[] = [
+    const items: (MenuItem | 'separator')[] = [
       { label: t('explorer.menu.newFile'), onSelect: () => startCreate(dirForCreate, false) },
       { label: t('explorer.menu.newFolder'), onSelect: () => startCreate(dirForCreate, true) }
     ]
@@ -752,7 +750,7 @@ export function FileExplorer({
       ev.preventDefault()
       keyCursorRef.current = null
       sel.applyContextSelection(entry.path)
-      setMenu({ x: ev.clientX, y: ev.clientY, entry })
+      setMenu({ ...menuPointOf(ev), entry })
     },
     dragStart: (entry, ev) => dragHandlers(entry).onDragStart?.(ev),
     dragEnd: (entry, ev) => dragHandlers(entry).onDragEnd?.(ev),
@@ -821,7 +819,9 @@ export function FileExplorer({
             {row.note === 'loading'
               ? t('explorer.dir.loading')
               : row.note === 'readFailed'
-                ? t('explorer.dir.readFailed', { detail: row.detail ?? '' })
+                ? row.detail?.includes('ENOENT')
+                  ? t('explorer.dir.missing')
+                  : t('explorer.dir.readFailed', { detail: row.detail ?? '' })
                 : t('explorer.dir.empty')}
           </div>
         )
@@ -843,9 +843,9 @@ export function FileExplorer({
       <section className="file-explorer">
         <header className="fx-header">
           <h2 className="fx-title">{t('explorer.title')}</h2>
-          <IconButton size="sm" icon={<X size={14} />} label={t('explorer.close')} onClick={onClose} />
+          <IconButton size="sm" icon={<Icon name="close" size={14} />} label={t('explorer.close')} onClick={onClose} />
         </header>
-        <EmptyState icon={FolderOpen} title={t('explorer.noActiveSession')}>
+        <EmptyState icon={ICONS.folder} title={t('explorer.noActiveSession')}>
           {t('explorer.noActiveSessionHint')}
         </EmptyState>
       </section>
@@ -916,16 +916,16 @@ export function FileExplorer({
           <span className="fx-root-name">{rootName}</span>
         </h2>
         <div className="fx-actions">
-          <IconButton size="sm" icon={<FilePlus size={14} />} label={t('explorer.newFile')} onClick={() => startCreate(root, false)} />
-          <IconButton size="sm" icon={<FolderPlus size={14} />} label={t('explorer.newFolder')} onClick={() => startCreate(root, true)} />
+          <IconButton size="sm" icon={<Icon name="fileAdd" size={14} />} label={t('explorer.newFile')} onClick={() => startCreate(root, false)} />
+          <IconButton size="sm" icon={<Icon name="folderAdd" size={14} />} label={t('explorer.newFolder')} onClick={() => startCreate(root, true)} />
           <IconButton
             size="sm"
-            icon={<RefreshCw size={14} className={refreshing ? 'fx-refreshing' : undefined} />}
+            icon={<Icon name="refresh" size={14} className={refreshing ? 'fx-refreshing' : undefined} />}
             label={t('explorer.refresh')}
             onClick={refresh}
           />
-          <IconButton size="sm" icon={<ChevronsDownUp size={14} />} label={t('explorer.collapseAll')} onClick={tree.collapseAll} />
-          <IconButton size="sm" icon={<X size={14} />} label={t('explorer.close')} onClick={onClose} />
+          <IconButton size="sm" icon={<Icon name="collapseAll" size={14} />} label={t('explorer.collapseAll')} onClick={tree.collapseAll} />
+          <IconButton size="sm" icon={<Icon name="close" size={14} />} label={t('explorer.close')} onClick={onClose} />
         </div>
       </header>
       {/* git did not answer the last status query: the badges below are the previous answer, dimmed */}
@@ -957,7 +957,10 @@ export function FileExplorer({
         onContextMenu={(ev) => {
           if (ev.target === ev.currentTarget || ev.target === spaceRef.current) {
             ev.preventDefault()
-            setMenu({ x: ev.clientX, y: ev.clientY, entry: null })
+            // Shift+F10 / the ContextMenu key arrive here with the tree focused: the menu is the selected row's when
+            // there is one, the root's otherwise (a right click on empty space is button 2, always the root's)
+            const picked = ev.button === 2 ? null : findEntry([...sel.selection][0] ?? '')
+            setMenu({ ...menuPointOf(ev), entry: picked ?? null })
           }
         }}
         onKeyDown={(ev) => {
@@ -1007,7 +1010,7 @@ export function FileExplorer({
       </div>
       )}
       {menu && (
-        <ContextMenu x={menu.x} y={menu.y} items={menuItemsFor(menu.entry)} onClose={() => setMenu(null)} />
+        <Menu at={{ x: menu.x, y: menu.y }} label={t('explorer.title')} items={menuItemsFor(menu.entry)} onClose={() => setMenu(null)} />
       )}
       {historyOpen && root && (
         <LocalHistoryDialog

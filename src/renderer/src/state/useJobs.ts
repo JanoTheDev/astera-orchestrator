@@ -33,6 +33,28 @@ import type { useHost } from './useHost'
 /** 저널이 바빠 상세가 마지막으로 읽은 줄을 받았을 때, 다시 묻기까지 기다리는 시간(stage 3 T1) */
 const DETAIL_BUSY_RETRY_MS = 2_000
 
+/** The selection after the probe of `probed` failed with `err`: dropped when that folder is gone and still selected. */
+export const scopeAfterProbe = (current: string | null, probed: string, err: unknown): string | null =>
+  current === probed && errText(err).includes('ENOENT') ? null : current
+
+/** The folders the focus probe asks files.list about: the stored key and the in-memory sticky root, each once. The two
+ *  can name different folders, since the scope effect writes the stored key too. */
+export const stickyProbes = (stored: string | null, remembered: string | null): string[] =>
+  [...new Set([stored, remembered])].filter((folder): folder is string => folder !== null)
+
+/** The in-memory sticky root once files.list rejected `gone`: dropped when it is that folder, kept otherwise. */
+export const stickyAfterGone = (current: string | null, gone: string): string | null => (current === gone ? null : current)
+
+/** The top bar's selection once the folder `droppedRoot` is gone: a selection on that folder moves to the project the
+ *  app falls back to (`fallbackRoot`, currentProject), or to All projects (null) when that is no project. Others stay. */
+export function selectionAfterDrop(
+  selectedId: string | null, tree: ReadonlyArray<{ id: string; path: string }>, droppedRoot: string | null, fallbackRoot: string | null
+): string | null {
+  if (!droppedRoot || tree.find((r) => r.id === selectedId)?.path !== droppedRoot) return selectedId
+  if (!fallbackRoot || fallbackRoot === droppedRoot) return null
+  return tree.find((r) => r.path === fallbackRoot)?.id ?? null
+}
+
 export type JobsDeps = Pick<ReturnType<typeof useLayout>,
     'activeTab' | 'activeTabId' | 'remoteSessions' | 'sessions' | 'setLayout' | 'setRemoteSessions' |
     'setRemoteStatus' | 't'> &
@@ -194,6 +216,9 @@ export function useJobs(deps: JobsDeps) {
   /** 탭이 하나도 없을 때의 현재 프로젝트. 마운트에서 한 번 복원하고, 그 뒤로는 활성 탭이 갱신한다.
    *  영속 규칙은 lib/stickyProject.ts 에 있다(렌더러에 테스트가 없어 App.tsx 안에서는 확인할 수 없다). */
   const [stickyRoot, setStickyRoot] = useState<string | null>(null)
+  // the focus listener below is registered once, so it reads the current in-memory value through this ref
+  const stickyRootRef = useRef(stickyRoot)
+  stickyRootRef.current = stickyRoot
   useEffect(() => {
     // 저장된 값을 그대로 채택하지 않는다. 폴더가 사라졌거나 이름이 바뀌었을 수 있고, main 의 경로
     // 가드가 더는 허용하지 않을 수도 있다 — 메시지를 하나도 남기지 않은 세션의 프로젝트는
@@ -202,18 +227,23 @@ export function useJobs(deps: JobsDeps) {
     // — 그러지 않으면 사이드바의 네 가지가 켤 때마다 '허용되지 않은 경로입니다'를 받는다.
     const probe = (): void => {
       const stored = sticky.read()
-      if (!stored) return
-      void window.api.files.list(stored).then(
-        // 복원이 도착하기 전에 활성 탭이 정한 값이 있으면 그쪽이 이긴다 (탭이 있는 채로 시작한 경우)
-        () => setStickyRoot((prev) => prev ?? stored),
-        () => {
-          // **메모리의 값도 함께 버린다.** 마운트에서만 확인하던 동안, 앱이 켜져 있는 사이에 폴더가
-          // 사라지면 stickyRoot 는 낡은 채로 남았고 currentProject 가 그것을 가리켰다 — 그 상태에서
-          // 만든 Run 은 cwd 가 없는 폴더라 워커를 띄울 때마다 실패했다(실제로 그렇게 보고됐다).
-          sticky.clear()
-          setStickyRoot((prev) => (prev === stored ? null : prev))
-        }
-      )
+      // **메모리의 값도 확인한다.** 저장값은 scopeRoot 효과가 덮어써서 메모리의 값과 다른 폴더를 가리킬 수
+      // 있고, 저장값만 물으면 사라진 메모리의 값은 영원히 확인되지 않았다.
+      for (const folder of stickyProbes(stored, stickyRootRef.current)) {
+        void window.api.files.list(folder).then(
+          // 복원이 도착하기 전에 활성 탭이 정한 값이 있으면 그쪽이 이긴다 (탭이 있는 채로 시작한 경우)
+          () => {
+            if (folder === stored) setStickyRoot((prev) => prev ?? stored)
+          },
+          () => {
+            // **메모리의 값도 함께 버린다.** 마운트에서만 확인하던 동안, 앱이 켜져 있는 사이에 폴더가
+            // 사라지면 stickyRoot 는 낡은 채로 남았고 currentProject 가 그것을 가리켰다 — 그 상태에서
+            // 만든 Run 은 cwd 가 없는 폴더라 워커를 띄울 때마다 실패했다(실제로 그렇게 보고됐다).
+            if (sticky.read() === folder) sticky.clear()
+            setStickyRoot((prev) => stickyAfterGone(prev, folder))
+          }
+        )
+      }
     }
     probe()
     // **포커스에서 다시 묻는다.** 폴더를 앱 밖에서 지우고 앱으로 돌아오는 순간이 그 계기고, IPC
@@ -233,8 +263,32 @@ export function useJobs(deps: JobsDeps) {
   /** 사이드바와 실행 구성이 '어느 프로젝트인가'로 읽는 값 — 활성 탭이 이기고, 없으면 마지막 기억. */
   /** The project the top bar's switcher has selected (useWorkspace); "All projects" leaves the last one in place. */
   const [scopeRoot, setScopeRoot] = useState<string | null>(null)
+  /** The folder the last drop removed from scopeRoot. The top bar's switcher reads it: its selection still names that
+   *  project, and it shows the fallback instead. Cleared when a root is picked again. */
+  const [droppedRoot, setDroppedRoot] = useState<string | null>(null)
   useEffect(() => {
     if (scopeRoot) sticky.write(scopeRoot)
+    if (scopeRoot) setDroppedRoot(null)
+  }, [scopeRoot])
+  // A selected project whose folder is gone is dropped (back to "All projects"): checked when it is picked and when
+  // the window regains focus, the moment a folder deleted outside the app is noticed. Only ENOENT drops it.
+  useEffect(() => {
+    if (!scopeRoot) return
+    const probe = (): void => {
+      void window.api.files.list(scopeRoot).then(
+        () => {},
+        (err: unknown) => {
+          if (scopeAfterProbe(scopeRoot, scopeRoot, err) !== null) return
+          // the remembered folder is the gone one: forget it too, or the next launch restores it
+          if (sticky.read() === scopeRoot) sticky.clear()
+          setDroppedRoot(scopeRoot)
+          setScopeRoot((prev) => scopeAfterProbe(prev, scopeRoot, err))
+        }
+      )
+    }
+    probe()
+    window.addEventListener('focus', probe)
+    return () => window.removeEventListener('focus', probe)
   }, [scopeRoot])
   const currentProject = scopeRoot ?? activeTabRoot ?? stickyRoot
 
@@ -460,7 +514,7 @@ export function useJobs(deps: JobsDeps) {
     setRemoteSnapshot, replyGate, jobsRuntimeRef, orchHostGate, setOrchHostGate, hostDriver, setHostDriver,
     parkedSinceMs, setParkedSinceMs, setStallTick, openRun, setOpenRun, detail, setDetail, setJournalPagesFor,
     homeDir, runHostRef, actionUi, remoteActionUi, pauseScheduleRun, resumeScheduleRun, restartCoordinator, approve,
-    setStickyRoot, setScopeRoot, currentProject, newRunOpen, setNewRunOpen, sourceJobOpen, setSourceJobOpen, runtimeName,
+    setStickyRoot, setScopeRoot, droppedRoot, currentProject, newRunOpen, setNewRunOpen, sourceJobOpen, setSourceJobOpen, runtimeName,
     remoteReadOnly, stopRemoteSession, remoteRefresh, detailDoor, remoteViewPermission, remoteViewDoor,
     remoteNewRunOpen, setRemoteNewRunOpen, remoteAccounts, setPendingRun, explorerReveal, setExplorerReveal,
     openLinkedFolder

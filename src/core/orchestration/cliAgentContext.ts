@@ -217,7 +217,19 @@ const SESSION = {
     summary: "land a completed run the way its project says: its pull request, or a push to the delivery branch",
     detail:
       "pr is `run-open-pr`. push merges the run's worktrees into the project folder's delivery branch, validates the merged tree and pushes it, never forced; every guard that stops it is recorded on the run and escalated, and the worktrees are removed only after a push. The driving loop does this when a run completes; a recorded stop is tried again only with --force. A push is refused from an agent session and an MCP client. Answered by the Host.",
-    flags: [RUN_ARG('<runId>', 'the completed run'), { name: 'force', about: 'try again after a recorded stop' }]
+    flags: [
+      RUN_ARG('<runId>', 'the completed run'),
+      { name: 'force', about: 'try again after a recorded stop' },
+      // T1: the owner's "It's already pushed", from any failed delivery
+      { name: 'owner-pushed', about: 'the work is already on the delivery branch: delivered once git sees it on origin' }
+    ]
+  },
+  // T1: delivery state machine
+  'run-delivery-dismiss': {
+    summary: "dismiss a run's failed delivery: it no longer reads failed and is not tried again",
+    detail:
+      "For a delivery that failed, is being retried or waits on the owner, and a run from before the delivery's state was kept that has only an error. Clears the error, records the delivery as dismissed (a feed line says so) and answers its open owner question. Nothing is pushed, merged or removed. The person's or the app's: refused from an agent session and an MCP client. Answered by the Host.",
+    flags: [RUN_ARG('<runId>', 'the run whose delivery failed')]
   },
   'runs-changed-files': {
     summary: 'the files a run, or one of its tasks, changed, from git',
@@ -303,6 +315,7 @@ const SESSION = {
       { name: 'status', value: '<s>', about: 'the status to set' },
       { name: 'result', value: '<text|->', about: 'what the Task produced' },
       { name: 'reason', value: '<text>', about: 'why it was set by hand' },
+      { name: 'gaps', value: '<text>', about: 'with --status completed: the parts the work could not reach and why' },
       { name: 'convergence', value: '<off>', about: 'stop repairing this Task (there is no on)' },
       // W2-A planner stage: without --status, these edit a plan's Task (one of a Job not run yet) instead
       { name: 'title', value: '<text>', about: "without --status: a plan's Task's new name" },
@@ -336,6 +349,7 @@ const SESSION = {
       { name: 'subject', value: '<text>', about: 'one line' },
       { name: 'body', value: '<text|->', about: 'the body (a value of `-` reads it from stdin)' },
       { name: 'files-modified', value: '<a,b,c>', about: 'the files this Task changed (worker_done only)' },
+      { name: 'gaps', value: '<text>', about: 'with --outcome succeeded: the few parts it could not reach and why (worker_done only; ignored on failed)' },
       // W2-D GitHub links
       { name: 'issue', value: '<n>', about: "this Task's GitHub issue number, linked to the Task (worker_done only)" },
       { name: 'issue-created', about: "the repository's workflow created that issue for this Task, so the plan's PR closes it (worker_done only)" }
@@ -528,6 +542,23 @@ const SESSION = {
     summary: 'drop a Task that has not started (planner or replan session)',
     detail: 'Refused while an unfinished Task still depends on it.',
     flags: [req('id', '<taskId>', 'the Task to drop'), req('reason', '<text>', 'why')]
+  },
+  // T36: a plan stalled on a failed Task
+  'task-failed-resolve': {
+    summary: 'move a plan past a failed Task that holds it back: retry it, accept it as done, or cancel what waits on it',
+    detail:
+      'Refused from an agent session and an MCP client. accept records the reason as a completion override; cancel drops ' +
+      'the not-started Tasks that wait on it, and the plan ends.',
+    flags: [
+      req('id', '<taskId>', 'the failed Task'),
+      req('action', '<retry|accept|cancel>', 'what to do'),
+      { name: 'reason', value: '<text>', about: 'accept: why its work counts as done (its gaps)' }
+    ]
+  },
+  'run-failed-ask': {
+    summary: "Astera's own: ask the owner about each failed Task a stalled Run waits on, once per failure",
+    detail: 'Refused from an agent session and an MCP client. Answers whether the Run is stalled and what it asked.',
+    flags: [req('run', '<runId>', 'the Run')]
   },
   // W6-A
   'github-issue-assign': {

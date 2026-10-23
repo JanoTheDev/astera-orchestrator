@@ -4,13 +4,11 @@ import { ResumeDialog } from './ResumeDialog'
 import { TranscriptPreviewModal } from './TranscriptPreviewModal'
 import { AccountSelect } from './AccountSelect'
 import { ProviderBadge } from './ProviderBadge'
-import { ResumeGlyph } from './ResumeGlyph'
 import { isGhostAccountId } from '../../../core/accounts/ghostId'
 import { confirmModal } from '../lib/confirm'
 import { useI18n } from '../i18n/I18nProvider'
-import { ContextMenu, type MenuItem } from './ContextMenu'
+import { Button, EmptyState, ICONS, Icon, IconButton, Menu, PageHeader, Skeleton, menuPointOf, type MenuItem } from './ui'
 import * as hiddenProjects from '../lib/hiddenProjects'
-import { ChevronDown, ChevronRight, RefreshCw } from 'lucide-react'
 import { usePanelOpen } from '../hooks/usePanelOpen'
 import { localDoor } from '../lib/orchDoor'
 import { useSummaries } from '../state/useSummaries' // W9-I
@@ -30,17 +28,15 @@ function loadSeenMap(): Record<string, string> {
   }
 }
 
-/** "Still loading" for this panel — three dots bouncing in turn. Local to the history browser: the
- *  shared .loading-spinner stays what the rest of the app uses (a terminal overlay, a dialog's
- *  submit button, a row action), and those are not lists. Both lists here are, and they show it in
- *  the same place a row would be, so they say it the same way. */
-function LoadingDots(): React.JSX.Element {
+/** "Still loading" for this panel — a few skeleton lines where the rows will land. Both lists here are
+ *  lists, so the placeholder sits in the place a row would be. The readable name is the status label. */
+function LoadingRows({ rows = 3 }: { rows?: number }): React.JSX.Element {
   return (
-    <span className="loading-dots" aria-hidden="true">
-      <i />
-      <i />
-      <i />
-    </span>
+    <>
+      {Array.from({ length: rows }, (_, i) => (
+        <Skeleton key={i} width={`${70 - i * 12}%`} />
+      ))}
+    </>
   )
 }
 
@@ -169,16 +165,19 @@ export function ProjectRow({
 
   return (
     <li className="project-group">
-      <div
+      <Button
+        variant="ghost"
         className="project-row"
+        aria-expanded={expanded}
         title={`${project.projectPath} · ${new Date(project.updatedAt).toLocaleString()}`}
+        icon={<Icon name={expanded ? 'chevronDown' : 'chevronRight'} size={14} />}
         onClick={() => onToggle(project.projectPath)}
         onContextMenu={(ev) => {
           ev.preventDefault() // Electron의 기본 메뉴를 막고 앱 메뉴를 띄운다
-          onContextMenu(ev.clientX, ev.clientY, project.projectPath)
+          const at = menuPointOf(ev) // the pointer, or under the row for Shift+F10 / the menu key
+          onContextMenu(at.x, at.y, project.projectPath)
         }}
       >
-        <span className="project-chevron">{expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</span>
         <span className="project-name">{project.name}</span>
         <span className="project-meta">
           {new Date(project.updatedAt).toLocaleString([], {
@@ -188,7 +187,7 @@ export function ProjectRow({
             minute: '2-digit'
           })}
         </span>
-      </div>
+      </Button>
       {expanded && (
         <ul
           className="session-sublist"
@@ -196,47 +195,45 @@ export function ProjectRow({
           style={{ borderLeftColor: accountOf(sessions[0]?.accountId ?? '')?.color }}
         >
           {sessions.map((e) => (
-            <li
-              key={e.id}
-              className="session-row"
-              title={`${e.title} · ${new Date(e.updatedAt).toLocaleString()}`}
-              onClick={() => {
-                markSeen(e)
-                onOpenPreview(e)
-              }} // clicking the row opens the preview — resuming is the button beside it
-            >
-              {/* A ghost gets a hollow dot: its colour is a single grey, so colour alone would not separate
-                  it from a registered account that happens to be grey */}
-              <span
-                className={isGhostAccountId(e.accountId) ? 'color-dot ghost' : 'color-dot'}
-                style={{ background: accountOf(e.accountId)?.color ?? '#888' }}
-              />
-              <ProviderBadge provider={accountOf(e.accountId)?.provider} />
-              {e.awaitingReply && !isSeen(e) && <span className="unread-dot" />}
-              <span className="entry-title">{e.title}</span>
-              <span className="entry-sub">
-                {new Date(e.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-              </span>
-              {/* Same ghost button as the worktree row actions — .icon-btn (28×28) is for panel header
-                  toolbars and is far too big inside a row */}
-              <button
-                className="ghost"
-                title={t('history.entry.resume')}
-                aria-label={t('history.entry.resume')}
-                onClick={(ev) => {
-                  ev.stopPropagation() // the button is resume — stops propagation to the row click (preview)
-                  onResume(e) // markSeen happens inside resume
-                }}
+            <li key={e.id} className="session-row">
+              {/* The row is the preview button; resume is its sibling (a button cannot hold a button) */}
+              <Button
+                variant="ghost"
+                className="session-open"
+                title={`${e.title} · ${new Date(e.updatedAt).toLocaleString()}`}
+                onClick={() => {
+                  markSeen(e)
+                  onOpenPreview(e)
+                }} // clicking the row opens the preview — resuming is the button beside it
               >
-                <ResumeGlyph />
-              </button>
+                {/* A ghost gets a hollow dot: its colour is a single grey, so colour alone would not separate
+                    it from a registered account that happens to be grey */}
+                <span
+                  className={isGhostAccountId(e.accountId) ? 'color-dot ghost' : 'color-dot'}
+                  style={{ background: accountOf(e.accountId)?.color ?? 'var(--text-faint)' }}
+                />
+                <ProviderBadge provider={accountOf(e.accountId)?.provider} />
+                {e.awaitingReply && !isSeen(e) && (
+                  <span className="unread-dot" role="img" aria-label={t('history.entry.unread')} title={t('history.entry.unread')} />
+                )}
+                <span className="entry-title">{e.title}</span>
+                <span className="entry-sub">
+                  {new Date(e.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              </Button>
+              <IconButton
+                size="sm"
+                icon={<Icon name="run" size={14} />}
+                label={t('history.entry.resume')}
+                onClick={() => onResume(e)} // markSeen happens inside resume
+              />
               {/* W9-I: what the tab did, on a line of its own under the row */}
               {bySession.has(e.sessionId) && <span className="summary-line session-summary">{summaryOneLine(bySession.get(e.sessionId)!, t)}</span>}
             </li>
           ))}
           {!loaded && (
-            <li className="history-loading" role="status" aria-label={t('history.loading')}>
-              <LoadingDots />
+            <li className="history-loading" role="status" aria-label={t('history.loading')} aria-busy="true">
+              <LoadingRows />
             </li>
           )}
           {loaded && sessions.length === 0 && (
@@ -484,36 +481,53 @@ export function HistoryBrowser({
     { label: t('history.menu.hide'), onSelect: () => hiddenProjects.hide(projectPath) }
   ]
 
+  const accountFilterNode = (
+    <AccountSelect
+      className="history-account-filter"
+      // Ghosts are filterable too — their sessions are in the list, so the filter has to be able to
+      // reach them. suffixOf marks them instead of rewriting the label.
+      accounts={[...accounts, ...ghostAccounts]}
+      suffixOf={(a) => (isGhostAccountId(a.id) ? t('history.filter.deletedSuffix') : '')}
+      value={accountFilter}
+      allLabel={t('history.filter.allAccounts')}
+      onChange={(v) => {
+        setAccountFilter(v)
+        setExpanded(new Set()) // reset the expansion when the filter changes
+        loadFirstProjects(v)
+      }}
+    />
+  )
+
   return (
     <section className={open ? 'history-panel' : 'history-panel collapsed'}>
-      <header className="panel-header">
-        {asPage ? (
-          <h2 className="page-title">{t('history.panel.title')}</h2>
-        ) : (
-          <button className="panel-toggle" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
-            {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />} {t('history.panel.title')}
-          </button>
-        )}
-        {open && <div className="panel-actions">
-          <AccountSelect
-            className="history-account-filter"
-            // Ghosts are filterable too — their sessions are in the list, so the filter has to be able to
-            // reach them. suffixOf marks them instead of rewriting the label.
-            accounts={[...accounts, ...ghostAccounts]}
-            suffixOf={(a) => (isGhostAccountId(a.id) ? t('history.filter.deletedSuffix') : '')}
-            value={accountFilter}
-            allLabel={t('history.filter.allAccounts')}
-            onChange={(v) => {
-              setAccountFilter(v)
-              setExpanded(new Set()) // reset the expansion when the filter changes
-              loadFirstProjects(v)
-            }}
-          />
-          <button title={t('history.refresh.tooltip')} onClick={() => void window.api.history.refresh()}>
-            <RefreshCw size={14} />
-          </button>
-        </div>}
-      </header>
+      {asPage ? (
+        <PageHeader
+          title={t('history.panel.title')}
+          subtitle={total > 0 ? t('history.panel.count', { n: total }) : undefined}
+          actions={
+            <IconButton icon={<Icon name="refresh" />} label={t('history.refresh.tooltip')} onClick={() => void window.api.history.refresh()} />
+          }
+          filters={accountFilterNode}
+        />
+      ) : (
+        <header className="history-head">
+          <Button
+            variant="ghost"
+            className="history-toggle"
+            aria-expanded={open}
+            icon={<Icon name={open ? 'chevronDown' : 'chevronRight'} size={14} />}
+            onClick={() => setOpen((v) => !v)}
+          >
+            {t('history.panel.title')}
+          </Button>
+          {open && (
+            <div className="panel-actions">
+              {accountFilterNode}
+              <IconButton size="sm" icon={<Icon name="refresh" size={14} />} label={t('history.refresh.tooltip')} onClick={() => void window.api.history.refresh()} />
+            </div>
+          )}
+        </header>
+      )}
       {/* Hidden, not unmounted: the list's scroll root and paging sentinel stay attached while it is folded. */}
       <ul className="history-list" ref={listRef} hidden={!open}>
         <ScanStatus scan={scan} />
@@ -538,12 +552,16 @@ export function HistoryBrowser({
             프로젝트 디렉터리를 훑는 동안 계속 '기록 없음'이 보인다. 글자는 없고 표시만 두므로 읽히는
             이름은 aria-label이 맡는다 (기존 history.loading 문구를 그대로 쓴다) */}
         {!loaded && (
-          <li className="history-loading" role="status" aria-label={t('history.loading')}>
-            <LoadingDots />
+          <li className="history-loading" role="status" aria-label={t('history.loading')} aria-busy="true">
+            <LoadingRows rows={5} />
           </li>
         )}
         {loaded && projects.length === 0 && (
-          <li className="empty">{t('history.panel.empty')}</li>
+          <li className="history-empty">
+            <EmptyState icon={ICONS.history} title={t('history.panel.empty')}>
+              {t('history.panel.emptyHint')}
+            </EmptyState>
+          </li>
         )}
         {projects.length < total && (
           <li ref={sentinelRef} className="history-sentinel">
@@ -552,9 +570,9 @@ export function HistoryBrowser({
         )}
       </ul>
       {menu && (
-        <ContextMenu
-          x={menu.x}
-          y={menu.y}
+        <Menu
+          at={{ x: menu.x, y: menu.y }}
+          label={t('history.menu.label')}
           items={menuItemsFor(menu.projectPath)}
           onClose={() => setMenu(null)}
         />

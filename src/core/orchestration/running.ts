@@ -44,8 +44,11 @@ export function outcomeOf(state: OrchState, runId: string): RunOutcome {
 }
 
 /** Why a Run's delivery failed (a merge conflict or a refused push, `run.pr.error` or `run.delivery.error`), or
- *  undefined. A later successful delivery replaces the record, so the error is gone with it. */
-export const deliveryErrorOf = (run: JobRun | undefined): string | undefined => run?.pr?.error ?? run?.delivery?.error
+ *  undefined. A later successful delivery replaces the record, so the error is gone with it. T1: a delivery that ended
+ *  (delivered, by the owner, or dismissed by them) never reads failed, whatever error a record still holds. */
+export const deliveryErrorOf = (run: JobRun | undefined): string | undefined =>
+  run?.deliveryState !== undefined && SETTLED.has(run.deliveryState.state) ? undefined : (run?.pr?.error ?? run?.delivery?.error)
+const SETTLED = new Set<string>(['delivered', 'delivered-by-owner', 'dismissed'])
 
 /** What a Run reads: its Tasks' outcome, except that a plan whose work did not get delivered did not complete, and a
  *  plan whose final check has not settled is `checking`, not completed (item 8: "Plan done" was read, then the check

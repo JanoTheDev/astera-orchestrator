@@ -1,5 +1,5 @@
 .panel-header { padding: 11px 12px 6px; display: flex; flex-direction: column; gap: 6px; }
-.panel-header h2 { font-size: 10.5px; letter-spacing: .11em; text-transform: uppercase; color: var(--text-dim); font-weight: 600; }
+.panel-header h2 { font-size: var(--fs-11); letter-spacing: .11em; text-transform: uppercase; color: var(--text-dim); font-weight: 600; }
 .panel-header h2 .count { color: var(--text-faint); font-weight: 400; margin-left: 4px; }
 .panel-actions { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 /* Panel-header pickers are denser than form fields — .sel.dense carries that; nothing else is needed. */
@@ -16,8 +16,6 @@
   cursor: pointer;
 }
 .icon-btn:hover { background: var(--elevated); color: var(--text); }
-/* Same ring as .sel-trigger below — no border to brighten on a ghost button, so only the ring shows. */
-.icon-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 
 button {
   background: var(--elevated);
@@ -25,7 +23,7 @@ button {
   border: 1px solid var(--line-soft);
   border-radius: var(--radius);
   padding: 3px 9px;
-  font-size: 12px;
+  font-size: var(--fs-12);
   font-family: var(--sans);
   cursor: pointer;
   transition: background var(--ease), color var(--ease), border-color var(--ease), box-shadow var(--ease);
@@ -34,9 +32,9 @@ button {
    어두워질 수 있다(예: Antares 의 --elevated #2c2822 는 옛 리터럴 #2a2a31 보다 이미 밝다) */
 button:hover { background: var(--elevated-hover); }
 button:disabled { opacity: .5; cursor: not-allowed; }
-/* Same ring as .sel-trigger below — this one keeps border-color too, since the default button has a real border to brighten. */
-button:focus-visible { outline: none; border-color: var(--accent); box-shadow: var(--focus-ring); }
-button.ghost { background: none; border: none; color: var(--text-dim); padding: 2px 5px; font-size: 13px; display: inline-flex; align-items: center; justify-content: center; }
+/* The ring is base.css's global :focus-visible; the default button also has a real border to brighten. */
+button:focus-visible { border-color: var(--accent); }
+button.ghost { background: none; border: none; color: var(--text-dim); padding: 2px 5px; font-size: var(--fs-13); display: inline-flex; align-items: center; justify-content: center; }
 button.ghost:hover { background: none; color: var(--text); }
 button.ghost.danger:hover { color: var(--danger); }
 button.primary { background: var(--btn-bg); border-color: var(--btn-bg); color: var(--btn-ink); font-weight: 600; }

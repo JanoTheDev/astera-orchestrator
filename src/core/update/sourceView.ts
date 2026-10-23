@@ -15,7 +15,7 @@ export type TitlebarView =
   | { kind: 'text' | 'error' | 'button'; message: Message }
 
 export function titlebarView(u: UpdateStatus | null): TitlebarView {
-  if (!u || u.state === 'init' || u.state === 'uptodate') return { kind: 'none' }
+  if (!u || u.state === 'init' || u.state === 'uptodate' || u.state === 'disabled') return { kind: 'none' }
   const version = u.version ?? ''
   const text = (key: MessageKey, params?: Message['params']): TitlebarView => ({ kind: 'text', message: { key, params } })
   switch (u.state) {

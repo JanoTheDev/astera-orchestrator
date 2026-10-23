@@ -11,9 +11,10 @@ import { sessionTab } from '../../../../core/panes/tabId'
 import { parentDir, resolveRelative } from '../../../../core/files/paths'
 import type { AppState } from '../../state/appState'
 import { localDoor } from '../../lib/orchDoor'
-import { archiveJob, deleteRun, holdJob, renameJob, unarchiveJob } from '../../lib/jobActions'
+import { archiveJob, deleteRun, holdJob, renameJob, resolveFailed, unarchiveJob } from '../../lib/jobActions'
 import { jobName } from '../../lib/jobName'
 import { jobsStall } from '../../../../core/orchestration/jobsView'
+import { Button, EmptyState, ICONS } from '../ui'
 import { openPage } from '../shell/navigation'
 import { overlapTableOf, planSectionOf, type OverlapCell, type PlanSection } from '../plan/planBoard'
 import { MainPlan } from '../plan/MainPlan'
@@ -158,7 +159,8 @@ export function PlansPage(p: PlansPageProps): React.JSX.Element {
     onRename: (jobId, title) => local && void renameJob(local, jobId, title, actionUi),
     onArchive: (jobId) => local && void archiveJob(local, orchSnapshot, jobId, actionUi),
     onUnarchive: (jobId) => local && void unarchiveJob(local, jobId, actionUi),
-    onHold: (jobId, hold) => local && void holdJob(local, jobId, hold, actionUi)
+    onHold: (jobId, hold) => local && void holdJob(local, jobId, hold, actionUi),
+    onResolveFailed: (taskId, action) => local && void resolveFailed(local, taskId, action, actionUi)
   }
   return (
     <div className="plan-pages plans-page">
@@ -183,7 +185,7 @@ export function PlansPage(p: PlansPageProps): React.JSX.Element {
 /** "Overlap": plans × top folders, a folder two plans still work in highlighted. */
 function OverlapTable({ rows, t, onOpen }: { rows: readonly JobRow[]; t: AppState['t']; onOpen: (jobId: string) => void }): React.JSX.Element {
   const table = overlapTableOf(rows)
-  if (table.folders.length === 0) return <p className="modal-hint">{t('pages.plans.noFolders')}</p>
+  if (table.folders.length === 0) return <EmptyState icon={ICONS.layers} title={t('pages.plans.noFolders')} />
   const cellText = (c: OverlapCell): string =>
     c === null ? '' : c.kind === 'editing' ? t('pages.plans.cell.editing', { task: c.task }) : t(`pages.plans.cell.${c.kind}`)
   return (
@@ -203,9 +205,9 @@ function OverlapTable({ rows, t, onOpen }: { rows: readonly JobRow[]; t: AppStat
           {table.rows.map(({ row, cells }) => (
             <tr key={row.id}>
               <th scope="row">
-                <button type="button" className="plan-crumb-link" onClick={() => onOpen(row.id)}>
+                <Button variant="ghost" size="sm" className="plan-crumb-link" onClick={() => onOpen(row.id)}>
                   {jobName(row)}
-                </button>
+                </Button>
               </th>
               {cells.map((c, i) => (
                 <td key={table.folders[i]} className={`${c?.kind ?? 'none'}${table.shared.has(table.folders[i]) && c ? ' shared' : ''}`}>

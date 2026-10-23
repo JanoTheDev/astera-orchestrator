@@ -1,4 +1,4 @@
-.settings-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 13.5px; }
+.settings-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: var(--fs-13); }
 .settings-row span:first-child { color: var(--text-dim); }
 /* CLI rows in Settings -> Info: the version (or "not detected") with an install button beside it.
    Right-aligned like every other value in this panel, and a row of its own for the notes the
@@ -7,10 +7,10 @@
 /* The note rows carry no label, so the empty first cell must not claim half the width */
 .settings-row.settings-cli-note span:first-child { flex: 0 0 0; }
 .settings-cli-failed { color: var(--danger); }
-.settings-cli-log { max-height: 180px; overflow: auto; text-align: left; font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-all; background: var(--elevated); border-radius: var(--radius-sm); padding: 8px 10px; margin: 0; }
+.settings-cli-log { max-height: 180px; overflow: auto; text-align: left; font-size: var(--fs-12); line-height: 1.5; white-space: pre-wrap; word-break: break-all; background: var(--elevated); border-radius: var(--radius-sm); padding: 8px 10px; margin: 0; }
 /* the language picker in settings. Its width on the Settings page is the page's one control width
    (--settings-control-w in settings/settingsPage.css); this is the fallback outside it. */
-.settings-lang-select { flex: 0 0 140px; font-size: 13px; }
+.settings-lang-select { flex: 0 0 140px; font-size: var(--fs-13); }
 /* terminal font pickers — pinned to the same width as .settings-lang-select so the three settings
    rows line up instead of the trigger shrinking to fit whichever font name is currently selected */
 .settings-font-select { flex: 0 0 140px; }
@@ -23,12 +23,12 @@
    first pass; the 24px is only the initial estimate. */
 .settings-font-select .sel-option { content-visibility: auto; contain-intrinsic-size: auto 24px; }
 /* W9-E: the modal frame (.modal.settings, header, close, body, nav) went with the modal; the page's frame is settings/settingsPage.css. */
-.settings-nav-item { text-align: left; background: none; border: none; color: var(--text-dim); font-size: 13.5px; padding: 8px 12px; border-radius: var(--radius); cursor: pointer; }
+.settings-nav-item { text-align: left; background: none; border: none; color: var(--text-dim); font-size: var(--fs-13); padding: 8px 12px; border-radius: var(--radius); cursor: pointer; }
 .settings-nav-item:hover { background: var(--line-soft); color: var(--text); }
 .settings-nav-item.active { background: var(--line-soft); color: var(--text); box-shadow: inset var(--marker-w) 0 0 var(--accent); }
 /* Same reasoning as .rail-btn.on:focus-visible above — box-shadow does not composite, so the current
    settings tab needs both shadows restated explicitly or tabbing to it shows no ring. */
-.settings-nav-item.active:focus-visible { box-shadow: inset var(--marker-w) 0 0 var(--accent), 0 0 0 2px var(--ring); }
+.settings-nav-item.active:focus-visible { box-shadow: inset var(--marker-w) 0 0 var(--accent), var(--focus-ring); }
 .settings-content { flex: 1; min-width: 0; padding: 24px 32px; overflow-y: auto; display: flex; flex-direction: column; gap: 18px; }
 .settings-worktree { display: flex; flex-direction: column; gap: 8px; }
 /* Same column+gap as its two sibling tabs above. A tab that puts rows straight into
@@ -42,12 +42,13 @@
 /* 카드는 자기 테마의 값으로 그린다(인라인 스타일) — 앱 토큰을 쓰면 일곱 장이 전부 같아 보인다.
    그래서 여기서는 색을 정하지 않고 배치만 정한다. 고른 카드만 앱의 액센트 링을 두른다 (W11: 카드마다
    제 액센트로 테두리를 그리면 일곱 가지 '선택됨'이 생긴다). */
-.theme-card { display: flex; flex-direction: column; gap: 8px; align-items: stretch;
+/* A ui Card (onClick): the grid prefix outranks .ui-card and its day-theme shadow, which would hide the ring. */
+.theme-grid .ui-card.theme-card { display: flex; flex-direction: column; gap: 8px; align-items: stretch;
   padding: 8px; border: 1px solid; border-radius: var(--radius-lg); cursor: pointer; text-align: left; font: inherit; font-size: var(--fs-12);
-  transition: box-shadow var(--dur-fast) var(--ease-out); }
-.theme-card:hover { box-shadow: 0 0 0 1px var(--line-strong); }
-.theme-card.on { box-shadow: 0 0 0 2px var(--accent); }
-.theme-card:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+  box-shadow: none; transition: box-shadow var(--dur-fast) var(--ease-out); }
+.theme-grid .ui-card.theme-card:hover { box-shadow: 0 0 0 1px var(--line-strong); }
+.theme-grid .ui-card.theme-card.on { box-shadow: 0 0 0 2px var(--accent); }
+.theme-grid .ui-card.theme-card:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .theme-card-bars { display: flex; width: 100%; height: 28px; border-radius: var(--radius); overflow: hidden; }
 .theme-card-bars i { flex: 1; }
 .theme-card-name { display: flex; align-items: center; justify-content: space-between; gap: 4px; font-weight: var(--fw-semi); }
@@ -68,15 +69,14 @@
 .cli-path-hint { display: flex; align-items: flex-start; gap: 8px; }
 .cli-path-hint code { flex: 1; padding: 6px 8px; border: 1px solid var(--line);
   border-radius: var(--radius); background: var(--bg); color: var(--text-dim);
-  font-size: 11.5px; word-break: break-all; white-space: pre-wrap; }
+  font-size: var(--fs-12); word-break: break-all; white-space: pre-wrap; }
 .cli-path-hint button { flex: none; padding: 5px 10px; border: 1px solid var(--line);
   border-radius: var(--radius); background: var(--bg); color: var(--text); cursor: pointer;
-  font-size: 12px; }
-.cli-path-hint button:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--ring); }
+  font-size: var(--fs-12); }
 /* The client a registration line is for (McpSettings), beside the line in the same row. */
-.mcp-register-client { flex: none; min-width: 84px; padding-top: 6px; font-size: 12px; color: var(--text-dim); }
+.mcp-register-client { flex: none; min-width: 84px; padding-top: 6px; font-size: var(--fs-12); color: var(--text-dim); }
 /* "Registered", where the Register button would be once Astera is registered with that client. */
-.mcp-register-state { flex: none; padding: 6px 2px; font-size: 12px; color: var(--text-dim); }
+.mcp-register-state { flex: none; padding: 6px 2px; font-size: var(--fs-12); color: var(--text-dim); }
 /* MCP over HTTP (McpSettings): the network warning in the app's warning colour, the port field kept short. */
 .mcp-http-warning { color: var(--warn); }
 .mcp-http-port { width: 90px; min-width: 0; }
@@ -88,22 +88,24 @@
 .settings-gen { display: flex; flex-direction: column; gap: 8px; }
 .settings-gen-select { min-width: 200px; }
 .settings-gen-input { min-width: 200px; padding: 5px 8px; border: 1px solid var(--line);
-  border-radius: var(--radius); background: var(--bg); color: var(--text); font-size: 12.5px; }
-.settings-gen-input:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--ring); }
+  border-radius: var(--radius); background: var(--bg); color: var(--text); font-size: var(--fs-12); }
 .settings-gen-refresh { align-self: flex-start; padding: 5px 10px; border: 1px solid var(--line);
-  border-radius: var(--radius); background: var(--bg); color: var(--text); cursor: pointer; font-size: 12px; }
+  border-radius: var(--radius); background: var(--bg); color: var(--text); cursor: pointer; font-size: var(--fs-12); }
 .settings-gen-refresh:disabled { opacity: 0.5; cursor: default; }
-.settings-gen-refresh:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--ring); }
+/* The Settings screen's own text fields (ui Input) and the generator's refresh (ui Button): width and place only. */
+.settings-text-field { min-width: 200px; }
+.settings-gen > .settings-gen-action { align-self: flex-start; }
 
 /* 안에 기능이 둘(작업 이어가기·재개 방식)이라 gap 은 묶음 사이 값이다 — .settings-stack 과
    같은 22px 라야 이 컴포넌트의 경계가 다른 기능 사이와 구별되지 않는다. */
 .settings-resume-strategy { display: flex; flex-direction: column; gap: 22px; }
 .resume-strategy-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
-.resume-strategy-card { display: flex; flex-direction: column; gap: 4px; align-items: flex-start;
+.resume-strategy-grid .ui-card.resume-strategy-card { display: flex; flex-direction: column; gap: 4px; align-items: flex-start;
   padding: 10px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--bg);
-  color: var(--text); cursor: pointer; text-align: left; font-size: 12.5px; }
-.resume-strategy-card.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
-.resume-strategy-card:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--ring); }
+  color: var(--text); cursor: pointer; text-align: left; font-size: var(--fs-12); box-shadow: none; }
+.resume-strategy-grid .ui-card.resume-strategy-card:hover { background: var(--hover); }
+.resume-strategy-grid .ui-card.resume-strategy-card.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+.resume-strategy-grid .ui-card.resume-strategy-card:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .resume-strategy-card-name { font-weight: 600; }
 .resume-strategy-card-desc { color: var(--text-dim); }
 /* worktree 기준 브랜치 — 라벨 문구를 위, 셀렉트를 아래에 둔다(.field label 들과 같은 관례).
@@ -112,15 +114,18 @@
    클래스 하나로 충분하다.
    font-size 는 문구에만 준다. 줄 전체에 주면 셀렉트가 상속해 .sel 의 12px 를 덮어쓴다. */
 .worktree-base-row { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
-.worktree-base-row > span { font-size: 12px; color: var(--text-dim); }
+.worktree-base-row > span { font-size: var(--fs-12); color: var(--text-dim); }
 .worktree-base-row .sel { min-width: 0; }
 /* 등록 해제된 계정의 세션 — 색은 회색 하나로 고정이라 색만으로는 구분되지 않는다. 속을 비워
    등록된 계정과 구별한다(background 는 inline style 이 그대로 두므로 테두리만 그린다). */
 .color-dot.ghost { background: transparent !important; border: 1px solid var(--text-faint); }
 /* 이어하기 모달의 '삭제된 계정' 배지 */
-.origin-deleted { margin-left: 6px; font-size: 11px; font-style: normal; color: var(--text-faint); }
+.origin-deleted { margin-left: 6px; font-size: var(--fs-11); font-style: normal; color: var(--text-faint); }
+.settings-worktree-label { display: inline-flex; align-items: center; gap: var(--sp-1); }
+.settings-worktree-info { display: inline-flex; color: var(--text-faint); border-radius: var(--radius-sm); cursor: help; }
+.settings-worktree-info:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .worktree-root-cell { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.worktree-root-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.worktree-root-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-13); }
 /* 숨긴 프로젝트는 전체 경로로 보여주므로 폭을 넘길 수 있다 — 줄바꿈 대신 말줄임으로 행 높이를 지킨다.
    .settings-row가 flex라서 이 span도 flex item이 되는데, flex item의 기본 min-width: auto는
    내용의 최소 크기(줄바꿈 없는 전체 텍스트 폭)로 계산된다. min-width: 0으로 그 하한을 없애야
@@ -135,25 +140,20 @@
 /* 검색창은 .rtp-search(런 타입 고르기)와 같은 생김새다. 클래스를 공유하지 않는 이유는 그쪽이
    드롭다운 메뉴 안에서만 쓰이는 폭·여백을 함께 갖고 있어서다 — 여기서 그 여백을 다시 덮는 것보다
    같은 값 몇 줄을 적는 편이 나중에 한쪽만 바꿀 때 안전하다. */
-.settings-history-search { background: var(--bg); color: var(--text); border: 1px solid var(--line-soft);
-  padding: 5px 7px; border-radius: var(--radius); font-size: 12px; }
+.settings-history-search { max-width: var(--settings-control-w, 220px); }
 /* 페이지 이동 줄. 전체 개수는 오른쪽 끝으로 밀어 두어(margin-left:auto) 가운데의 '2 / 3'과 섞이지 않는다.
    목록이 한 페이지뿐이면 이 줄 자체가 렌더되지 않는다. */
 .settings-history-nav { display: flex; align-items: center; gap: 8px; padding-top: 2px; }
 .settings-history-nav > .settings-hint { margin-left: auto; }
-.settings-history-nav button { padding: 2px 8px; line-height: 1.4; }
-.settings-history-nav button:disabled { opacity: 0.4; cursor: default; }
-.settings-history-page { font-size: 12px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.settings-history-page { font-size: var(--fs-12); color: var(--text-dim); font-variant-numeric: tabular-nums; }
 /* 고르기 줄 — 왼쪽에 '보이는 것 모두', 오른쪽 끝에 삭제 버튼. 목록에 보이는 것이 하나도 없으면
    이 줄 자체가 렌더되지 않는다. */
 .settings-history-bulk { display: flex; align-items: center; gap: 8px; }
-.settings-history-check { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-dim); cursor: pointer; }
-/* 되돌릴 수 없는 버튼이라 색으로 구분한다. 다른 danger 규칙(button.ghost.danger)은 ghost 전용이라
-   여기서 다시 적는다 — 그쪽에 클래스를 얹으면 그 규칙의 뜻이 바뀐다. */
-.settings-history-bulk button.danger { margin-left: auto; color: var(--danger); border-color: var(--danger); }
-.settings-history-bulk button.danger:disabled { opacity: 0.45; cursor: default; color: var(--text-dim); border-color: var(--line-soft); }
-.settings-field-label { font-size: 13.5px; color: var(--text-dim); }
-.settings-hint { font-size: 12px; color: var(--text-faint); }
+.settings-history-check { display: flex; align-items: center; gap: 6px; font-size: var(--fs-12); color: var(--text-dim); cursor: pointer; }
+/* 되돌릴 수 없는 버튼이라 색으로 구분한다 — ui Button 의 danger 변형이 색을 갖고, 여기서는 오른쪽 끝으로만 민다. */
+.settings-history-delete { margin-left: auto; }
+.settings-field-label { font-size: var(--fs-13); color: var(--text-dim); }
+.settings-hint { font-size: var(--fs-12); color: var(--text-faint); }
 /* The full-control warning on a pairing string about to be made (Settings › Remote Runtimes › This computer). */
 .settings-hint.is-warning { color: var(--warn); }
 /* A row of controls in Settings › Remote Runtimes › This computer: side by side with a gap, a text field taking what is
@@ -166,19 +166,19 @@
 .plugin-card { padding: 12px; border: 1px solid var(--line); border-radius: var(--radius); }
 .plugin-card .remote-actions { flex-wrap: wrap; }
 .plugin-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.plugin-name { font-size: 14px; font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
-.plugin-status { flex-shrink: 0; font-size: 11px; padding: 1px 6px; border-radius: var(--radius-sm); background: var(--elevated); color: var(--text-dim); }
+.plugin-name { font-size: var(--fs-14); font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
+.plugin-status { flex-shrink: 0; font-size: var(--fs-11); padding: 1px 6px; border-radius: var(--radius-sm); background: var(--elevated); color: var(--text-dim); }
 .plugin-status.is-running { color: var(--ok); background: var(--ok-bg); }
 .plugin-status.is-starting { color: var(--info); background: var(--info-bg); }
 .plugin-status.is-failed, .plugin-status.is-incompatible { color: var(--danger); background: var(--danger-bg); }
-.plugin-facts { display: flex; flex-wrap: wrap; gap: 4px 8px; font-size: 12.5px; }
+.plugin-facts { display: flex; flex-wrap: wrap; gap: 4px 8px; font-size: var(--fs-12); }
 .plugin-facts > span:last-child { color: var(--text); overflow-wrap: anywhere; }
 .plugin-card .settings-hint { overflow-wrap: anywhere; }
 /* A fieldset, so a save holds every field at once; its own frame is taken off. */
 .plugin-form { display: flex; flex-direction: column; gap: 12px; min-width: 0; margin: 6px 0 0; padding: 10px 0 0; border: 0; border-top: 1px solid var(--line-soft); }
 .plugin-field { display: flex; flex-direction: column; gap: 4px; }
-.plugin-field-label { font-size: 13px; color: var(--text); }
-.plugin-required { margin-left: 6px; font-size: 11px; color: var(--text-faint); }
+.plugin-field-label { font-size: var(--fs-13); color: var(--text); }
+.plugin-required { margin-left: 6px; font-size: var(--fs-11); color: var(--text-faint); }
 .plugin-logs { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; padding-top: 10px; border-top: 1px solid var(--line-soft); }
 .plugin-log { max-height: 260px; overflow: auto; margin: 0; padding: 8px; background: var(--bg); border: 1px solid var(--line-soft);
-  border-radius: var(--radius); font-family: var(--mono); font-size: 11.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  border-radius: var(--radius); font-family: var(--mono); font-size: var(--fs-12); white-space: pre-wrap; overflow-wrap: anywhere; }

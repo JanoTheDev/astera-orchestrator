@@ -138,7 +138,12 @@ export const DELIVERY_OWNER_PUSHES = "I'll push it myself"
 
 /** The record after one attempt: delivered, or one more failure with its retry time. `ask: false` (a plan-branch push)
  *  never reads `needs-owner`: only the end delivery asks the owner. */
-export function afterAttempt(prev: DeliveryProgress | undefined, at: string, error?: string, opts?: { ask?: boolean }): DeliveryProgress {
+export function afterAttempt(
+  prev: DeliveryProgress | undefined,
+  at: string,
+  error?: string,
+  opts?: { ask?: boolean; /** T1: the stop's code (PushStop), kept as `lastCode` */ code?: string }
+): DeliveryProgress {
   const attempts = (prev?.attempts ?? 0) + 1
   const keep = prev?.questionId !== undefined ? { questionId: prev.questionId } : {}
   if (error === undefined) return { state: 'delivered', attempts, lastAttemptAt: at, ...keep }
@@ -149,6 +154,7 @@ export function afterAttempt(prev: DeliveryProgress | undefined, at: string, err
     lastError: error,
     lastAttemptAt: at,
     nextRetryAt: new Date(Date.parse(at) + wait * 60_000).toISOString(),
+    ...(opts?.code !== undefined ? { lastCode: opts.code } : {}),
     ...keep
   }
 }
@@ -211,4 +217,72 @@ export function deliveryAnswerOf(s: OrchState, p: DeliveryProgress | undefined):
   if (choice === DELIVERY_RETRY_NOW.toLowerCase()) return 'retry'
   if (choice === DELIVERY_OWNER_PUSHES.toLowerCase()) return 'self'
   return null
+}
+
+// ── T1: delivery state machine ──
+
+/** The states the owner may settle by hand (`run-deliver --ownerPushed`, `run-delivery-dismiss`): a delivery that
+ *  failed, is being retried or waits on the owner, and a Run from before `deliveryState` existed that has only an error. */
+export function ownerMaySettle(run: JobRun): boolean {
+  const p = run.deliveryState
+  if (p === undefined) return run.delivery?.error !== undefined || run.pr?.error !== undefined
+  return p.state === 'failed' || p.state === 'retrying' || p.state === 'needs-owner'
+}
+
+/** The Run with its delivery errors cleared (`pr.error`, `delivery.error`), the records themselves kept: a Run with a
+ *  `pr` or `delivery` record reads as past its final check (running.ts checkPending). */
+export function withoutDeliveryError(run: JobRun): JobRun {
+  const out = { ...run }
+  if (run.pr?.error !== undefined) {
+    const { error: _e, ...pr } = run.pr
+    out.pr = pr
+  }
+  if (run.delivery?.error !== undefined) {
+    const { error: _e, ...delivery } = run.delivery
+    out.delivery = delivery
+  }
+  return out
+}
+
+/** Marks the open owner question of a delivery answered, so the Inbox does not keep asking about a settled one. */
+const answerQuestion = (s: OrchState, questionId: string | undefined, body: string): OrchState =>
+  questionId === undefined
+    ? s
+    : { ...s, messages: s.messages.map((m) => (m.id === questionId && !m.answered ? { ...m, answered: true, answerBody: body } : m)) }
+
+/** T1: the plan's pull request was merged or closed on GitHub: its delivery ends there. The PR record loses its draft
+ *  mark and its error (nothing is marked ready or retried on it again), and the delivery reads delivered, a closed one
+ *  with the note `closed on GitHub`. */
+export function landedOnGitHub(s: OrchState, runId: string, landed: 'merged' | 'closed', at: string): OrchState {
+  const run = s.runs.find((r) => r.id === runId)
+  if (!run) return s
+  const p = run.deliveryState
+  const next: DeliveryProgress = {
+    state: 'delivered',
+    attempts: p?.attempts ?? 0,
+    lastAttemptAt: at,
+    ...(p?.questionId !== undefined ? { questionId: p.questionId } : {}),
+    ...(landed === 'closed' ? { note: 'closed on GitHub' } : {})
+  }
+  const clean = withoutDeliveryError(run)
+  const { draft: _d, wavesDone: _w, ...pr } = clean.pr ?? { at }
+  const out = { ...s, runs: s.runs.map((r) => (r.id === runId ? { ...clean, pr: { ...pr, landed }, deliveryState: next } : r)) }
+  return answerQuestion(out, p?.questionId, landed === 'merged' ? 'merged on GitHub' : 'closed on GitHub')
+}
+
+/** T1: the owner dismissed a failed delivery (`run-delivery-dismiss`): its errors go, it reads `dismissed` (not failed,
+ *  never attempted again) and its open owner question is answered. */
+export function dismissDelivery(s: OrchState, runId: string, at: string): Res<DeliveryProgress> {
+  const run = s.runs.find((r) => r.id === runId)
+  if (!run) return { ok: false, error: `unknown run: ${runId}` }
+  if (!ownerMaySettle(run)) return { ok: false, error: 'This Run has no failed delivery to dismiss' }
+  const p = run.deliveryState
+  const next: DeliveryProgress = {
+    state: 'dismissed',
+    attempts: p?.attempts ?? 0,
+    lastAttemptAt: at,
+    ...(p?.questionId !== undefined ? { questionId: p.questionId } : {})
+  }
+  const out = { ...s, runs: s.runs.map((r) => (r.id === runId ? { ...withoutDeliveryError(r), deliveryState: next } : r)) }
+  return { ok: true, state: answerQuestion(out, p?.questionId, 'dismissed'), value: next }
 }

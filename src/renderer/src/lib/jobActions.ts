@@ -136,6 +136,19 @@ export async function resumeStoppedRun(door: OrchDoor, runId: string, ui: Action
   return reply !== null && reply.status < 400
 }
 
+/** T36: the owner's answer to a failed Task its plan waits on (`task-failed-resolve`): retry it, accept it as done (with a
+ *  reason the record keeps), or cancel the not-started Tasks that wait on it. Cancel drops Tasks, so it asks first. */
+export async function resolveFailed(door: OrchDoor, taskId: string, action: 'retry' | 'accept' | 'cancel', ui: ActionUi): Promise<boolean> {
+  if (action === 'cancel') {
+    const ok = await ui.confirm({ title: ui.t('plan.failedWait.cancel'), body: ui.t('plan.failedWait.cancelBody'), confirmLabel: ui.t('plan.failedWait.cancel') })
+    if (!ok) return false
+  }
+  const args = action === 'accept' ? { id: taskId, action, reason: ui.t('plan.failedWait.acceptReason') } : { id: taskId, action }
+  const reply = await send(door, 'task-failed-resolve', args, ui, ui.t('plan.failedWait.failed'))
+  if (reply && reply.status >= 400) failure(reply, ui, ui.t('plan.failedWait.failed'))
+  return reply !== null && reply.status < 400
+}
+
 /** Deletes a Run after a confirmation that counts what goes with it (a schedule's rounds too) and offers to merge
  *  and to remove the worktrees it used. Irreversible, so the counts never understate. */
 export async function deleteRun(door: OrchDoor, snapshot: OrchSnapshot | null, runId: string, ui: ActionUi): Promise<void> {

@@ -1,41 +1,25 @@
-/* W3-B command bar, restyled for W11 (DESIGN-W11 §5 level 2): a popover over the top of the window, above the panes,
-   with the search field at the bottom like a launcher. Tokens only. */
-.command-bar {
-  position: fixed; top: 52px; left: 50%; transform: translateX(-50%); z-index: 60;
-  width: min(640px, calc(100vw - 32px)); max-height: 60vh; display: flex; flex-direction: column;
-  background: var(--panel); border-radius: var(--radius-lg); box-shadow: var(--shadow-pop);
-  font-size: var(--fs-13); color: var(--text); overflow: hidden;
-}
-.command-log { flex: 1; min-height: 0; overflow-y: auto; padding: var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-2); }
+/* W3-B command bar, W12: inside the ui Modal (DESIGN-W11 §5 level 2). The conversation log on top, the field under it,
+   the search hits (overlays.css .ov-pick) below the field. Tokens only. */
+.ov-cmd { display: flex; flex-direction: column; gap: var(--sp-2); }
+.command-log { max-height: 40vh; overflow-y: auto; display: flex; flex-direction: column; gap: var(--sp-2); }
 .command-log:empty { display: none; }
 .command-entry { display: flex; flex-direction: column; gap: 2px; }
-.command-you { align-items: flex-end; color: var(--text-dim); }
 .command-line { white-space: pre-wrap; overflow-wrap: anywhere; line-height: var(--lh); }
-.command-link { background: none; border: 0; padding: 0; color: var(--accent); text-align: left; cursor: pointer; font: inherit; border-radius: var(--radius-sm); }
-.command-link:hover { text-decoration: underline; }
-.command-link:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.ui-btn.ov-cmd-link { height: auto; padding: 0; color: var(--accent); text-align: left; justify-content: flex-start; white-space: pre-wrap; }
+.ui-btn.ov-cmd-link:hover:not(:disabled) { background: none; color: var(--accent); text-decoration: underline; }
 .command-quote { color: var(--text-dim); }
 .command-preview { border-left: 2px solid var(--accent); padding-left: var(--sp-2); }
 .command-choices { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-top: var(--sp-1); }
-.command-input-row { display: flex; align-items: center; gap: var(--sp-1); height: 44px; padding: 0 var(--sp-2) 0 var(--sp-3); border-top: 1px solid var(--line); }
-.command-log:empty + .command-input-row { border-top: 0; }
+.command-input-row {
+  display: flex; align-items: center; gap: var(--sp-1); height: var(--h-lg); padding: 0 var(--sp-1) 0 var(--sp-3);
+  border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg);
+}
+.command-input-row:focus-within { border-color: var(--line-strong); box-shadow: var(--focus-ring); }
 .command-input-icon { flex: none; color: var(--text-faint); }
-.command-input { flex: 1; min-width: 0; height: 100%; padding: 0 var(--sp-2); border: 0; background: transparent; color: var(--text); font: inherit; font-size: var(--fs-14); }
+.command-input { flex: 1; min-width: 0; height: 100%; padding: 0 var(--sp-2); border: 0; background: transparent; color: var(--text); font: inherit; font-size: var(--fs-14); text-overflow: ellipsis; }
 .command-input::placeholder { color: var(--text-faint); }
-.command-input:focus { outline: none; }
+/* the row's focus-within ring is the field's focus ring */
+.command-input:focus-visible { outline: none; box-shadow: none; }
 .command-mic.recording { color: var(--warn); background: var(--warn-soft); }
 .voice-setup { margin: 4px 0 0; padding-left: 18px; font-size: var(--fs-12); color: var(--text-dim); }
 .voice-setup code { user-select: all; }
-/* W9-D: the search half of the one box */
-.command-hits { list-style: none; margin: 0; padding: var(--sp-1); border-top: 1px solid var(--line); overflow-y: auto; max-height: 40vh; }
-.command-nohit { padding: var(--sp-2) var(--sp-3); color: var(--text-faint); }
-.command-hit {
-  display: flex; align-items: center; gap: var(--sp-3); width: 100%; min-height: 40px; padding: var(--sp-1) var(--sp-3);
-  border: 0; border-radius: var(--radius); background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer;
-}
-.command-hit.selected { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
-.command-hit:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-.command-hit-kind { flex: none; width: 64px; font-size: var(--fs-11); font-weight: var(--fw-medium); text-transform: uppercase; letter-spacing: .04em; color: var(--text-faint); }
-.command-hit-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.command-hit-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--fw-medium); }
-.command-hit-where { font-size: var(--fs-11); color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

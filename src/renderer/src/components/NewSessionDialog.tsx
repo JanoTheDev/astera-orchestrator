@@ -29,11 +29,9 @@ import { trackWorktreeCreate } from '../lib/worktreeCreate'
 import { useI18n } from '../i18n/I18nProvider'
 import { AccountSelect } from './AccountSelect'
 import { BranchGlyph } from './BranchGlyph'
-import { Select, type SelectOption } from './Select'
 import { ScheduleFields } from './ScheduleFields'
 import { StartingOverlay } from './WorktreeCreateStatus'
-import { X } from 'lucide-react'
-import { Button, IconButton, Modal, Tabs } from './ui'
+import { Button, Icon, IconButton, Modal, Select, Tabs, type SelectOption, Checkbox } from './ui'
 
 const SOFT_LIMIT = 12
 const MAX_ROLL_ACCOUNTS = 3
@@ -571,8 +569,8 @@ export function NewSessionDialog({
         </div>
         {wtOption === 'unknown' && (
           <>
-            <label className="row check-small">
-              <input type="checkbox" checked={false} disabled />
+            <label className="row check-small" title={t('overlays.worktree.explain')}>
+              <Checkbox checked={false} disabled />
               {t('session.new.useWorktree')}
             </label>
             <span className="modal-hint">
@@ -582,11 +580,10 @@ export function NewSessionDialog({
         )}
         {wtOption === 'available' && (
           <>
-            <label className="row check-small">
-              <input
-                type="checkbox"
+            <label className="row check-small" title={t('overlays.worktree.explain')}>
+              <Checkbox
                 checked={useWorktree}
-                onChange={(e) => setUseWorktree(e.target.checked)}
+                onChange={(v) => setUseWorktree(v)}
               />
               {t('session.new.useWorktree')}
             </label>
@@ -648,7 +645,7 @@ export function NewSessionDialog({
                 <IconButton
                   size="sm"
                   className="slot-remove"
-                  icon={<X size={12} />}
+                  icon={<Icon name="close" size={14} />}
                   label={t('session.new.removeAccountSlot')}
                   onClick={() => setAccountIds((prev) => prev.filter((_, i) => i !== slot))}
                 />
@@ -678,11 +675,10 @@ export function NewSessionDialog({
             Unguarded by kind, with the schedule and Slack rows kept in the same order after it
             (spec §5.6). */}
         <label className="row check-small">
-          <input
-            type="checkbox"
+          <Checkbox
             checked={rollChecked}
             disabled={multi}
-            onChange={(e) => setRollMode(e.target.checked)}
+            onChange={(v) => setRollMode(v)}
           />
           {t('session.new.rollLabel')}
           {multi && <span className="check-note">{t('session.new.multiAccountAuto')}</span>}
@@ -706,7 +702,7 @@ export function NewSessionDialog({
         {/* The label follows the field below it: a 대화 gets a prompt sent as a new turn, a 터미널 gets a
             command run in its shell. */}
         <label className="row check-small">
-          <input type="checkbox" checked={schedOn} onChange={(e) => setSchedOn(e.target.checked)} />
+          <Checkbox checked={schedOn} onChange={(v) => setSchedOn(v)} />
           {t(kind === 'chat' ? 'session.new.schedLabelChat' : 'session.new.schedLabel')}
         </label>
         {/* initial={schedule} restores the previous input when this is toggled off and back on —
@@ -718,24 +714,22 @@ export function NewSessionDialog({
         {/* Slack notifications work for every provider — claude detects turn completion through the
             statusLine hook, codex through rollout's task_complete */}
         <label className="row check-small">
-          <input
-            type="checkbox"
+          <Checkbox
             checked={slackReady && slackNotify}
             disabled={!slackReady}
-            onChange={(e) => setSlackNotify(e.target.checked)}
+            onChange={(v) => setSlackNotify(v)}
           />
           {t('session.new.slackNotify')}
           {!slackReady && <span className="check-note">{t('session.new.slackNeedsWebhook')}</span>}
         </label>
         <label className="row check-small">
-          <input type="checkbox" checked={saveDefault} onChange={(e) => setSaveDefault(e.target.checked)} />
+          <Checkbox checked={saveDefault} onChange={(v) => setSaveDefault(v)} />
           {t('session.new.saveDefaultAccount')}
         </label>
         <label className="row check-small">
-          <input
-            type="checkbox"
+          <Checkbox
             checked={bypassPermissions}
-            onChange={(e) => setBypassPermissions(e.target.checked)}
+            onChange={(v) => setBypassPermissions(v)}
           />
           {t('session.new.bypassPermissions')}
         </label>

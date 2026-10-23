@@ -1,4 +1,4 @@
-appId: io.github.parsingk.astera
+appId: io.github.janothedev.astera
 productName: Astera
 directories:
   output: dist-installer
@@ -44,6 +44,9 @@ extraResources:
   # LICENSE 와 같은 이유로 extraFiles 가 아니라 extraResources 다(macOS 코드사인).
   - from: resources/font-licenses
     to: font-licenses
+  # T28: Settings › About › Open source licenses reads this (scripts/gen-licenses.mjs writes it before packaging).
+  - from: build/licenses.json
+    to: licenses.json
   # T12b: `astera machines add` and Settings › Add a machine upload these to the machine they set up.
   - from: scripts
     to: runtime-scripts
@@ -111,6 +114,8 @@ linux:
   icon: build/icon.png
   # freedesktop category — the same role mac.category's public.app-category.developer-tools plays.
   category: Development
+  # desktopName (package.json) names the .desktop file and Electron's app_id; this makes the file carry that name.
+  syncDesktopName: true
   # W9-K: "New Window" in the launcher's menu. The app holds one process (requestSingleInstanceLock), so this second
   # launch lands in its second-instance handler, which opens an All window (src/main/windows.ts newWindowArgOf).
   # /opt/<productName>/<executableName> is where the deb installs; AppImage integration rewrites Exec lines itself.
@@ -122,9 +127,9 @@ linux:
         Name: New Window
         Exec: /opt/Astera/astera --new-window
   # deb requires a maintainer and electron-builder cannot derive one from package.json's
-  # `author: "parsingk"`, which carries no email — packaging fails outright without this. The address
-  # is the one this repo's own commits use, so it satisfies the format without publishing a new one.
-  maintainer: parsingk <17137357+parsingk@users.noreply.github.com>
+  # `author: "JanoTheDev"`, which carries no email — packaging fails outright without this. The address
+  # is the fork owner's GitHub noreply form, so it satisfies the format without publishing a real one.
+  maintainer: JanoTheDev <JanoTheDev@users.noreply.github.com>
   # A space-free artifact name, the same rule dmg and nsis follow — it keeps percent-encoding out of
   # release asset URLs.
   artifactName: ${name}-${version}-${arch}.${ext}

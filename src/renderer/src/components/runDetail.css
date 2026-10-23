@@ -8,7 +8,7 @@
    중요하다** — 그래프는 한 층의 Task 가 늘 때 가로로 자라고, 1180px 에서는 한 층에 다섯 개까지만
    서던 것이 1440px 에서 일곱 개가 된다(옛 상자로 세던 수와 같다). 넘치면 그래프 칸이 스크롤된다 */
 /* Why a paired Runtime's controls are off (a read-only pairing, Phase 7): said once, above them. */
-.jobs-disabled-reason { margin: 4px 0 8px; font-size: 12px; color: var(--text-dim); }
+.jobs-disabled-reason { margin: 4px 0 8px; font-size: var(--fs-12); color: var(--text-dim); }
 /* 머리말 없이 목표가 제목이고, 그 옆이 묶음 개수다. .jobs-count 를 사이드바에서 그대로 빌린다 —
    같은 아이콘과 같은 숫자가 화면마다 다르게 생기면 "아이콘으로 읽는다"는 규칙이 무너진다 */
 .detail-head { flex: none; display: flex; align-items: center; gap: 9px; }
@@ -17,8 +17,6 @@
    flex: 1 로 남는 자리를 다 가져가므로 개수 묶음과 이 버튼은 이미 오른쪽 끝에 붙어 있고, auto 를
    또 주면 개수 묶음과 이 버튼 사이가 벌어진다. 글자를 --text-faint 로 두지 않는 이유는 사이드바에서
    배운 것과 같다: 이 패널 위에서 그 색의 12px 글리프는 찾을 수 없다 */
-.detail-x { flex: none; background: none; border: 0; padding: 0 2px; color: var(--text-dim); font-size: 13px; line-height: 1; cursor: pointer; }
-.detail-x:hover { color: var(--accent); }
 /* 위아래로 **정확히 반반** 쌓는다 — 그래프는 층이 넓어질수록 가로로 자라는데, 옆에 이벤트를
    세우면 그래프가 쓸 수 있는 폭이 창의 절반도 안 된다. 넷만 나란히 서도 잘려서 가로 스크롤이
    생겼다. 위아래로 두면 그래프가 창의 온 폭을 쓰고, 이벤트는 어차피 세로로 읽는 것이라 폭이
@@ -75,8 +73,8 @@
    176px 안에 글리프·제목·부제·버튼 셋을 넣으면서 제목을 가운데에 두면 제목에 남는 폭이 여덟 자
    남짓이고, 게다가 버튼이 없는 카드(세션이 없는 completed 등)만 중심이 달라져 한 층에서 제목이
    두 자리에 선다. 왼쪽 정렬이면 제목이 카드 폭을 다 쓰고 어느 카드에서도 같은 자리다 */
-.detail-node { box-sizing: border-box; position: relative; display: grid; grid-template-columns: auto 1fr; align-content: center; gap: 1px 7px; padding: 0 8px; border: 1.5px solid var(--line-soft); border-radius: var(--radius-sm); background: var(--elevated); font-size: 11.5px; cursor: pointer; }
-.detail-node:hover { box-shadow: inset 0 0 0 1px var(--ring); }
+.detail-node { box-sizing: border-box; position: relative; display: grid; grid-template-columns: auto 1fr; align-content: center; gap: 1px 7px; padding: 0 8px; border: 1.5px solid var(--line-soft); border-radius: var(--radius-sm); background: var(--elevated); font-size: var(--fs-12); cursor: pointer; }
+.detail-node:hover { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent); }
 /* 고른 노드 = 지금 오른쪽을 거르고 있는 것. **표시에 청록을 쓰지 않는다** — 한때 2px 청록 링이었는데
    빨간(failed) 노드를 고르면 빨강 테두리 위에 파란 링이 겹쳐 두 색이 싸웠다. 지금은 그 노드 자신의
    상태색으로 안쪽에 링을 하나 더 세운다(RunDetail 이 inline 으로 준다: 색이 STATUS_COLOR 에 있고
@@ -107,7 +105,7 @@
 .detail-node-title { grid-column: 2; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; line-height: 1.25; }
 /* 부제 — 열린 Gate 의 질문이나 provider. 긴 질문은 잘린다: 무엇인지(제목)가 먼저이므로 잘릴 쪽은
    이 줄이다. 값이 없는 Task 는 이 요소 자체가 없다(RunDetail) */
-.detail-node-meta { grid-column: 2; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 9px; line-height: 1.3; color: var(--text-faint); }
+.detail-node-meta { grid-column: 2; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: var(--fs-11); line-height: 1.3; color: var(--text-faint); }
 /* 검사 칩 줄 — 2열의 셋째 줄. NODE_H(52) 안에 제목(11.5px×1.25)·meta(9px×1.3)·이 줄(9.5px)이 든다; 요소가 없는
    Task 는 지금 그대로 두 줄이다(RunDetail). 색은 노드 배경이 쓰는 같은 토큰 — 상세 창과 사이드바가 같은 색으로 같은
    상태를 부른다. ~ 는 라운드 사이에 판정이 흔들린 검사(unstable) */
@@ -115,9 +113,9 @@
    nowrap 행이라 min-content 폭이 칩 전부를 늘어놓은 폭이다. 그 min-content 가 1fr 칼럼의 자동 최소값이 되어
    검사가 여덟 개쯤을 넘으면 고정폭 NODE_W 카드를 뚫고 나간다 — 이 규칙이 없으면 .detail-node 에도
    overflow: hidden 이 없어 칩 줄만이 아니라 같은 칼럼을 쓰는 제목까지 옆 노드 위로 흘러나온다 */
-.detail-checks { grid-column: 2; display: flex; gap: 5px; font-size: 9.5px; line-height: 1.2; min-width: 0; overflow: hidden; }
+.detail-checks { grid-column: 2; display: flex; gap: 5px; font-size: var(--fs-11); line-height: 1.2; min-width: 0; overflow: hidden; }
 .detail-check { flex: none; cursor: default; }
-.detail-check sub { font-size: 7px; color: var(--git-modified); vertical-align: baseline; }
+.detail-check sub { font-size: var(--fs-11); color: var(--git-modified); vertical-align: baseline; }
 .detail-check--passed { color: var(--ok); }
 .detail-check--failed, .detail-check--timed-out { color: var(--git-deleted); }
 .detail-check--not-run { color: var(--text-faint); }
@@ -130,7 +128,7 @@
    쓴 것과 별개로 또 한 번 헷갈릴 자리를 만든다 */
 /* .detail-node-btn 은 띄우기·멈추기·물어보기·다시 띄우기 네 버튼이 쓴다 — ↗(세션 열기)와 같은
    자리, 같은 존재감이어야 하므로 규칙을 나누지 않고 셀렉터에 더한다 */
-.detail-node-jump, .detail-node-btn { flex: none; background: none; border: 0; padding: 0 2px; color: var(--text-faint); font-size: 12px; cursor: pointer; }
+.detail-node-jump, .detail-node-btn { flex: none; background: none; border: 0; padding: 0 2px; color: var(--text-faint); font-size: var(--fs-12); cursor: pointer; }
 .detail-node-jump:hover, .detail-node-btn:hover { color: var(--accent); }
 /* 버튼들. 오른쪽 가장자리에 세로로 가운데 정렬한다 — 아래쪽에 두면 부제와 겹친다(부제는 가운데
    정렬이라 폭이 글자 수에 따라 변해서, 어느 폭에서도 안 겹치는 자리가 없다) */
@@ -144,7 +142,7 @@
    **archify 의 점 격자는 가져오지 않았다** — 40px 마다 1px 씩 찍히는 그림이라 이 크기의 캔버스에서는
    격자로 읽히지 않고, 캔버스의 경계라는 역할은 띠가 이미 한다(띠가 가장 넓은 층보다 넓다) */
 .detail-lane { fill: color-mix(in srgb, var(--text) 2%, transparent); stroke: color-mix(in srgb, var(--text) 9%, transparent); }
-.detail-lane-label { fill: var(--text-faint); font-family: var(--mono); font-size: 10px; font-weight: 600; }
+.detail-lane-label { fill: var(--text-faint); font-family: var(--mono); font-size: var(--fs-11); font-weight: 600; }
 /* 선의 색이 곧 뜻이다. **화살촉은 규칙이 따로 있다** — marker 는 자기를 참조한 path 의 stroke 를
    물려받지 못하므로 색마다 marker 를 하나씩 두고 fill 을 여기서 준다 */
 .detail-edge-wait { stroke: var(--accent); }
@@ -154,7 +152,7 @@
 .detail-edge-done { stroke: color-mix(in srgb, var(--text-faint) 45%, transparent); }
 .detail-arrow-done { fill: color-mix(in srgb, var(--text-faint) 45%, transparent); }
 /* 선 색의 뜻. 그래프에서 유일하게 글자로 적는 자리다 — 아이콘에는 툴팁을 달 수 있지만 선에는 달 곳이 없다 */
-.detail-legend { flex: none; display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 14px; color: var(--text-faint); font-size: 10.5px; }
+.detail-legend { flex: none; display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 14px; color: var(--text-faint); font-size: var(--fs-11); }
 .detail-legend span { display: inline-flex; align-items: center; gap: 6px; }
 /* 견본은 이제 svg 다(선 + 화살촉) — border-top 으로는 방향을 그릴 수 없다 */
 .detail-line { flex: none; display: block; }
@@ -163,20 +161,19 @@
    명령이 없다). 저장 파일(orchestration.json)이 프로세스 밖에서 손으로 고쳐졌을 때만 생기므로, 지금
    이 화면 말고는 아무도 그것을 말해 주지 않는다 */
 .detail-cycle { margin-top: 16px; }
-.detail-cycle-note { padding: 6px 8px; margin-bottom: 8px; background: color-mix(in srgb, var(--git-conflict) 9%, transparent); border-left: 2px solid var(--git-conflict); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; color: var(--text-dim); font-size: 11.5px; }
+.detail-cycle-note { padding: 6px 8px; margin-bottom: 8px; background: color-mix(in srgb, var(--git-conflict) 9%, transparent); border-left: 2px solid var(--git-conflict); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; color: var(--text-dim); font-size: var(--fs-12); }
 .detail-cycle-nodes { display: flex; flex-wrap: wrap; gap: 8px; }
 
 .detail-events { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 /* 무엇으로 걸러져 있는지. 이 줄과 아래의 .detail-hidden 이 없으면 걸러 놓은 화면이 이벤트가 원래
    적은 Run 과 똑같이 보인다 */
-.detail-filter { flex: none; display: flex; align-items: center; gap: 7px; padding: 0 2px 9px; margin-bottom: 6px; border-bottom: 1px solid var(--line-soft); color: var(--text-dim); font-size: 11.5px; }
+.detail-filter { flex: none; display: flex; align-items: center; gap: 7px; padding: 0 2px 9px; margin-bottom: 6px; border-bottom: 1px solid var(--line-soft); color: var(--text-dim); font-size: var(--fs-12); }
 .detail-filter b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
-.detail-clear { margin-left: auto; background: none; border: 0; padding: 0 2px; color: var(--text-faint); font-size: 12px; cursor: pointer; }
+.detail-clear { margin-left: auto; background: none; border: 0; padding: 0 2px; color: var(--text-faint); font-size: var(--fs-12); cursor: pointer; }
 .detail-clear:hover { color: var(--accent); }
 .detail-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; }
 /* 더 오래된 저널 줄을 한 쪽 더 부르는 버튼(stage 3 T1) — 목록 맨 위, 줄 하나 크기의 조용한 링크 */
-.detail-journal-older { align-self: center; flex: none; margin: 4px 0; background: none; border: 0; padding: 2px 6px; color: var(--text-faint); font-size: 12px; cursor: pointer; }
-.detail-journal-older:hover { color: var(--text); }
+.detail-journal-older { align-self: center; flex: none; margin: var(--sp-1) 0; }
 /* 행은 grid 다 — 시각과 표식이 줄마다 같은 x 에 서야 눈으로 훑을 수 있다. flex 로는 칸의 폭이
    내용에 끌려다녀 그 정렬이 깨진다 */
 .detail-ev { display: grid; grid-template-columns: 56px 15px 1fr; gap: 9px; align-items: flex-start; padding: 5px 6px; border-radius: var(--radius-sm); }
@@ -184,7 +181,7 @@
    과 같은 규칙을 지킨다: 반응하지 않는 행은 반응할 것처럼 보이지 않는다 */
 .detail-ev.has-body { cursor: pointer; }
 .detail-ev.has-body:hover { background: var(--elevated); }
-.detail-at { color: var(--text-faint); font-size: 11px; padding-top: 1px; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.detail-at { color: var(--text-faint); font-size: var(--fs-11); padding-top: 1px; font-family: var(--mono); font-variant-numeric: tabular-nums; }
 .detail-mark { display: grid; place-items: center; padding-top: 3px; }
 /* 기록 한 줄일 뿐인 사건의 중립적인 표식. 여덟 글리프를 빌리지 않는 이유가 그것이다 — 그 여덟은
    Task 의 상태를 뜻하고, 메시지 한 줄은 어떤 상태도 아니다 */
@@ -193,28 +190,28 @@
    붙는다(JobIcons.tsx), 그리고 이 줄은 이미 지나간 사건이다 */
 .detail-ring { width: 11px; height: 11px; box-sizing: border-box; border: 2px solid var(--accent); border-radius: 50%; }
 .detail-ev-main { min-width: 0; }
-.detail-eh { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; }
-.detail-chip { flex: none; font-size: 10px; padding: 1px 5px; border-radius: var(--radius-sm); background: var(--line-soft); color: var(--text-dim); }
+.detail-eh { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: var(--fs-12); }
+.detail-chip { flex: none; font-size: var(--fs-11); padding: 1px 5px; border-radius: var(--radius-sm); background: var(--line-soft); color: var(--text-dim); }
 /* 고른 선행 Task. 칩을 그대로 빌리되 지우는 ✕ 를 안에 하나 둔다 — 고른 것을 되돌리는 자리가 고른
    것 자신이어야 한다. 제목이 길 수 있어 줄바꿈을 허용한다(wrap): 사이드바처럼 한 줄에 밀어 넣고
    자르면 어느 Task 를 골랐는지 못 읽는다 */
 .detail-dep-list { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
-.detail-chip.detail-dep { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; padding: 2px 4px 2px 7px; max-width: 100%; }
+.detail-chip.detail-dep { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-11); padding: 2px 4px 2px 7px; max-width: 100%; }
 .detail-chip.detail-dep > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.detail-chip.detail-dep button { flex: none; background: none; border: 0; padding: 0 1px; color: var(--text-faint); font-size: 10px; line-height: 1; cursor: pointer; }
+.detail-chip.detail-dep button { flex: none; background: none; border: 0; padding: 0 1px; color: var(--text-faint); font-size: var(--fs-11); line-height: 1; cursor: pointer; }
 .detail-chip.detail-dep button:hover { background: none; color: var(--accent); }
 /* 새 Task 폼의 완료 검사 목록 — 고른 순서가 실행 순서라 번호를 앞에 세운다. 의존 칩(.detail-dep)과 달리 한 줄에
    하나씩 세우는 이유는 ↑↓ 버튼이다: 줄바꿈되는 칩 사이에서는 "위"가 어디인지 읽을 수 없다 */
 .detail-check-list { list-style: none; margin: 0 0 6px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-.detail-check-row { display: flex; align-items: center; gap: 6px; padding: 3px 4px 3px 6px; border-radius: var(--radius-sm); background: var(--line-soft); font-size: 11.5px; }
-.detail-check-no { flex: none; width: 16px; height: 16px; display: grid; place-items: center; border-radius: var(--radius-sm); background: var(--accent); color: var(--bg); font-size: 10px; font-variant-numeric: tabular-nums; }
+.detail-check-row { display: flex; align-items: center; gap: 6px; padding: 3px 4px 3px 6px; border-radius: var(--radius-sm); background: var(--line-soft); font-size: var(--fs-12); }
+.detail-check-no { flex: none; width: 16px; height: 16px; display: grid; place-items: center; border-radius: var(--radius-sm); background: var(--accent); color: var(--bg); font-size: var(--fs-11); font-variant-numeric: tabular-nums; }
 .detail-check-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.detail-check-row button { flex: none; background: none; border: 0; padding: 0 3px; color: var(--text-faint); font-size: 11px; line-height: 1; cursor: pointer; }
+.detail-check-row button { flex: none; background: none; border: 0; padding: 0 3px; color: var(--text-faint); font-size: var(--fs-11); line-height: 1; cursor: pointer; }
 .detail-check-row button:hover:not(:disabled) { background: none; color: var(--accent); }
 .detail-check-row button:disabled { opacity: .3; cursor: default; }
 /* 아직 고르지 않은 구성 — 점선 버튼. 누르면 목록 끝에 붙는다 */
 .detail-check-pick { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 6px; }
-.detail-check-add { background: none; border: 1px dashed var(--line-soft); border-radius: var(--radius-sm); padding: 2px 7px; color: var(--text-dim); font-size: 11px; cursor: pointer; }
+.detail-check-add { background: none; border: 1px dashed var(--line-soft); border-radius: var(--radius-sm); padding: 2px 7px; color: var(--text-dim); font-size: var(--fs-11); cursor: pointer; }
 .detail-check-add:hover { border-color: var(--accent); color: var(--accent); }
 .detail-chip.provider { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
 .detail-chip.retry { color: var(--git-modified); }
@@ -224,19 +221,19 @@
 /* 수리 줄 — 재시도(retry)와 같은 계열이되 구분되게. 무엇이 다시 도는지가 아니라 왜 다시 도는지를 말한다 */
 .detail-chip.repair { color: var(--warn-ink); }
 /* worker_done 의 결과. 색은 STATUS_COLOR 가 completed/failed 에 쓰는 둘과 같다 */
-.detail-outcome { font-size: 11px; }
+.detail-outcome { font-size: var(--fs-11); }
 .detail-outcome.o-succeeded { color: var(--ok); }
 .detail-outcome.o-failed { color: var(--git-deleted); }
 /* 어느 Task 의 일인가. 걸러 놓지 않았을 때만 나오고, 제목이 길어도 줄의 반을 넘지 않는다 */
-.detail-ev-task { min-width: 0; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-faint); font-size: 11px; }
-.detail-jump { margin-left: auto; background: none; border: 0; padding: 0 2px; color: var(--text-faint); font-size: 12px; cursor: pointer; }
+.detail-ev-task { min-width: 0; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-faint); font-size: var(--fs-11); }
+.detail-jump { margin-left: auto; background: none; border: 0; padding: 0 2px; color: var(--text-faint); font-size: var(--fs-12); cursor: pointer; }
 .detail-jump:hover { color: var(--accent); }
-.detail-summary { color: var(--text-dim); font-size: 11.5px; margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.detail-summary { color: var(--text-dim); font-size: var(--fs-12); margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 펼친 본문. 모달의 --panel 보다 어두운 --bg 라 안으로 들어간 블록으로 읽힌다. 왼쪽 65px 은 시각
    칸의 폭과 간격 — 본문이 표식 칸에 맞춰 들어가 어느 행에 딸린 것인지 보인다. */
-.detail-ev-body { margin: 2px 6px 6px 65px; padding: 6px 8px; background: var(--bg); border-radius: var(--radius-sm); color: var(--text-dim); font-family: var(--mono); font-size: 11.5px; white-space: pre-wrap; overflow-x: auto; max-height: 240px; overflow-y: auto; }
+.detail-ev-body { margin: 2px 6px 6px 65px; padding: 6px 8px; background: var(--bg); border-radius: var(--radius-sm); color: var(--text-dim); font-family: var(--mono); font-size: var(--fs-12); white-space: pre-wrap; overflow-x: auto; max-height: 240px; overflow-y: auto; }
 /* 가려진 개수. margin-top: auto 로 칸의 맨 아래에 붙는다 */
-.detail-hidden { flex: none; margin-top: auto; padding-top: 10px; border-top: 1px solid var(--line-soft); color: var(--text-faint); font-size: 11px; font-variant-numeric: tabular-nums; }
+.detail-hidden { flex: none; margin-top: auto; padding-top: 10px; border-top: 1px solid var(--line-soft); color: var(--text-faint); font-size: var(--fs-11); font-variant-numeric: tabular-nums; }
 /* NewTaskModal.tsx — Task 짓는 동안 .detail-events 가 통째로 바뀌는 폼의 입력 칸들.
    .detail-list 와 같은 이유로 flex: 1; min-height: 0; overflow-y: auto 다 — 필드가 늘어나도 이
    칸 안에서만 스크롤되어야, 높이가 고정된 .modal.run-detail 밖으로 넘쳐 아래 버튼 줄을 밀어내지
@@ -246,10 +243,10 @@
 /* 답할 Gate 의 질문. modal-hint 가 아닌 이유는 이것이 안내가 아니라 **읽어야 하는 글**이기 때문이다 —
    답을 쓰는 사람이 그래프의 Gate 줄을 기억하고 있을 이유가 없다. Gate 줄과 같은 경고 톤을 쓰되
    왼쪽 띠 없이: 여기서는 이 글이 화면의 주역이라 표식으로 가리킬 필요가 없다 */
-.detail-gate-question { color: var(--text); font-size: 12.5px; line-height: 1.5; white-space: pre-wrap; }
+.detail-gate-question { color: var(--text); font-size: var(--fs-12); line-height: 1.5; white-space: pre-wrap; }
 /* 코디네이터가 준 선택지. 줄바꿈을 허용한다 — 문장이 선택지로 오는 경우가 있고, 한 줄에 밀어 넣고
    자르면 무엇을 고르는지 읽을 수 없다 */
 .detail-gate-options { display: flex; flex-wrap: wrap; gap: 6px; }
 /* A choice that says what it does (a check that could not be made, plugin Phase 5 C9): its label, its line under it */
 .detail-gate-options > button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; }
-.detail-gate-option-hint { font-size: 11px; color: var(--text-dim); white-space: normal; }
+.detail-gate-option-hint { font-size: var(--fs-11); color: var(--text-dim); white-space: normal; }

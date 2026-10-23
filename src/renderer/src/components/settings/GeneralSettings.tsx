@@ -4,8 +4,7 @@ import type { SessionKind } from '../../../../core/types'
 import type { Lang, MessageKey } from '../../../../core/i18n'
 import { CATALOGS, LANGS } from '../../../../core/i18n'
 import { useState } from 'react'
-import { Search } from 'lucide-react'
-import { Button, Input, Kbd, Select } from '../ui'
+import { Button, Icon, Input, Kbd, Select, Switch } from '../ui'
 import { setOnboardingReplay } from '../onboarding/replay'
 import { ShortcutSettings, shortcutRows } from '../ShortcutSettings'
 import { resolveBindings } from '../../../../core/keys/binding'
@@ -119,32 +118,25 @@ export function GeneralSettings(p: GroupProps): React.JSX.Element | null {
         <SettingRow a="language" only={only}>
           <div className="settings-row">
             <span>{t('settings.general.language')}</span>
+            {/* Each language is written in its own language, so it can be found without knowing the current one.
+                Not a translation target. */}
             <Select
               className="settings-lang-select"
               value={storedLang ?? SYSTEM_LANG}
-              onChange={(e) => setLang(e.target.value === SYSTEM_LANG ? null : (e.target.value as Lang))}
-              aria-label={t('settings.general.language')}
-            >
-              <option value={SYSTEM_LANG}>
-                {t('settings.general.language.system', {
-                  lang: CATALOGS[systemLang].nativeName
-                })}
-              </option>
-              {/* Each language is written in its own language, so it can be found without knowing the current one.
-                  Not a translation target. */}
-              {LANGS.map((l) => (
-                <option key={l} value={l}>
-                  {CATALOGS[l].nativeName}
-                </option>
-              ))}
-            </Select>
+              onChange={(v) => setLang(v === SYSTEM_LANG ? null : (v as Lang))}
+              ariaLabel={t('settings.general.language')}
+              items={[
+                { value: SYSTEM_LANG, label: t('settings.general.language.system', { lang: CATALOGS[systemLang].nativeName }) },
+                ...LANGS.map((l) => ({ value: l, label: CATALOGS[l].nativeName }))
+              ]}
+            />
           </div>
         </SettingRow>
         <SettingRow a="advancedMode" only={only}>
           <div className="settings-group">
             <label className="settings-row">
               <span>{t('settings.basic.advancedMode.label')}</span>
-              <input type="checkbox" role="switch" className="ui-toggle" checked={advanced} onChange={(e) => setAdvanced(e.target.checked)} />
+              <Switch checked={advanced} onChange={setAdvanced} />
             </label>
             <span className="settings-hint">{t('settings.basic.advancedMode.hint')}</span>
           </div>
@@ -161,9 +153,13 @@ export function GeneralSettings(p: GroupProps): React.JSX.Element | null {
               <span>{t('settings.defaultKind.title')}</span>
               <Select
                 value={defaultSessionKind}
-                aria-label={t('settings.defaultKind.title')}
-                onChange={(e) => {
-                  const next = e.target.value as SessionKind
+                ariaLabel={t('settings.defaultKind.title')}
+                items={[
+                  { value: 'terminal', label: t('settings.defaultKind.terminal') },
+                  { value: 'chat', label: t('settings.defaultKind.chat') }
+                ]}
+                onChange={(v) => {
+                  const next = v as SessionKind
                   const prev = defaultSessionKind
                   settingsTouched.current.touch('defaultKind')
                   setDefaultSessionKind(next) // an optimistic update — reverted below on failure
@@ -176,10 +172,7 @@ export function GeneralSettings(p: GroupProps): React.JSX.Element | null {
                     )
                   })
                 }}
-              >
-                <option value="terminal">{t('settings.defaultKind.terminal')}</option>
-                <option value="chat">{t('settings.defaultKind.chat')}</option>
-              </Select>
+              />
             </div>
             <p className="settings-hint">{t('settings.defaultKind.hint')}</p>
           </div>
@@ -241,7 +234,7 @@ function ShortcutTable({
       <div className="settings-card-head">
         <h3 className="settings-card-title">{t('settings.tab.shortcuts')}</h3>
         <label className="settings-page__search shortcut-search">
-          <Search size={14} aria-hidden="true" />
+          <Icon name="search" size={14} />
           <Input
             type="search"
             value={query}

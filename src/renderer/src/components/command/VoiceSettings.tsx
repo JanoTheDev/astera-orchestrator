@@ -3,6 +3,7 @@ import { readVoiceSettings, type VoiceSettings as Voice } from '../../../../core
 import { useI18n } from '../../i18n/I18nProvider'
 import { toast } from '../../lib/toast'
 import './command.css'
+import { Input } from '../ui'
 
 /** W3-B: where the owner's whisper.cpp binary and model are. Nothing is downloaded; the steps to get both are shown
  *  here and in docs/guide.md. Paths must be absolute: a relative one would resolve against the app's cwd. */
@@ -19,9 +20,9 @@ export function VoiceSettings(): React.JSX.Element {
     return (
       <label className="settings-row">
         <span>{label}</span>
-        <input
+        <Input
           type="text"
-          className="settings-gen-input"
+          className="settings-text-field"
           aria-label={label}
           placeholder={placeholder}
           key={shown}

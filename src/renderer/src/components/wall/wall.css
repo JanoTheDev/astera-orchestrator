@@ -13,7 +13,7 @@ button.summary-card__title:hover .summary-card__title-text { text-decoration: un
 .branch-link:hover { text-decoration: underline; }
 .summary-rollup { display: flex; flex-direction: column; gap: 6px; }
 /* The one line a board card or History row shows */
-.summary-line { display: block; overflow: hidden; color: var(--text-dim); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.summary-line { display: block; overflow: hidden; color: var(--text-dim); font-size: var(--fs-11); text-overflow: ellipsis; white-space: nowrap; }
 /* A History row with a summary wraps it onto a second line (HistoryBrowser .session-row is a flex row) */
 .session-row:has(> .session-summary) { flex-wrap: wrap; }
 .session-summary { flex-basis: 100%; padding-left: 18px; }
@@ -159,8 +159,19 @@ button.summary-card__title:hover .summary-card__title-text { text-decoration: un
   background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer;
 }
 .wall-details__task:hover { background: var(--hover); }
-.wall-details__task:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .wall-details__task-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wall-details__task-who { flex: none; color: var(--text-faint); font-size: var(--fs-11); }
 
 @media (prefers-reduced-motion: reduce) { .wall-tile__more { transition: none; } }
+
+/* W12: the links and rows above as house Buttons (.ui-btn). Only these selectors meet the button, so TaskBoard's and
+   HistoryBrowser's plain .branch-link stays as it was. */
+.ui-btn.branch-link { height: auto; padding: 0; border: 0; background: none; color: var(--accent); font-weight: inherit; justify-content: flex-start; }
+.ui-btn.branch-link:hover { background: none; text-decoration: underline; }
+.ui-btn.summary-card__title { height: auto; padding: 0; border: 0; background: none; color: var(--text); font-weight: var(--fw-semi); min-width: 0; justify-content: flex-start; }
+.ui-btn.summary-card__title:hover { background: none; }
+.ui-btn.summary-card__title:hover .summary-card__title-text { text-decoration: underline; }
+.ui-btn.summary-card__link { height: auto; padding: 0; border: 0; background: none; color: var(--accent); font-weight: inherit; }
+.ui-btn.summary-card__link:hover { background: none; text-decoration: underline; }
+.ui-btn.wall-details__task { width: 100%; height: 28px; padding: 0 var(--sp-2); justify-content: flex-start; color: var(--text); font-weight: inherit; }
+.wall-details__task .ui-btn__label { display: flex; flex: 1; min-width: 0; align-items: center; gap: var(--sp-1); }

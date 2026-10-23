@@ -820,15 +820,23 @@ export async function refreshOnto(
   worktree: string,
   base: string,
   message: string,
-  ctx: { log(m: string): void; git?: typeof realGit; gitAtLeast?: typeof gitVersionAtLeast; fetchBranch?: string }
+  ctx: {
+    log(m: string): void
+    git?: typeof realGit
+    gitAtLeast?: typeof gitVersionAtLeast
+    fetchBranch?: string
+    /** T1: the plan's project folder (the Job's cwd), which may be another clone than the worktree's repository: where
+     *  the delivered commit is looked for when origin does not give it. */
+    projectDir?: string
+  }
 ): Promise<Refresh> {
   const run = ctx.git ?? realGit
   if ((await run(['merge-base', '--is-ancestor', base, 'HEAD'], { cwd: worktree })).ok) return { kind: 'current' }
   // A merged pull request's commit is on origin only until fetched: never mistaken for a conflict
   const known = async (): Promise<boolean> => (await run(['cat-file', '-e', `${base}^{commit}`], { cwd: worktree })).ok
   if (!(await known())) {
-    if (ctx.fetchBranch) await run(['fetch', 'origin', ctx.fetchBranch], { cwd: worktree, timeoutMs: GIT_WRITE_TIMEOUT_MS })
-    if (!(await known())) return { kind: 'human', reason: `${base} is not in ${worktree}'s repository (fetching it failed), so it was not merged` }
+    const tried = await fetchMissing(worktree, base, ctx.fetchBranch, ctx.projectDir, run, known)
+    if (tried !== null) return { kind: 'human', reason: `${base} is not in ${worktree}'s repository, so it was not merged. Tried: ${tried}` }
     if ((await run(['merge-base', '--is-ancestor', base, 'HEAD'], { cwd: worktree })).ok) return { kind: 'current' }
   }
   if (!(await run(['symbolic-ref', '--quiet', 'HEAD'], { cwd: worktree })).ok)
@@ -854,6 +862,40 @@ export async function refreshOnto(
   }
   ctx.log(`refresh: merged ${base} into ${worktree}`)
   return { kind: 'merged' }
+}
+
+/** T1: brings a commit the worktree's repository lacks, one source after another until it is there: origin (its
+ *  `fetchBranch`, else all of it), the project folder's own origin, then the project folder itself as a local remote
+ *  (its branches and its origin refs, under `refs/astera/project/`). Null once the commit is there; else each try and
+ *  the tail of what git said, for the reason a person reads. */
+async function fetchMissing(
+  worktree: string,
+  sha: string,
+  fetchBranch: string | undefined,
+  projectDir: string | undefined,
+  run: typeof realGit,
+  known: () => Promise<boolean>
+): Promise<string | null> {
+  const tail = (r: { ok: boolean; stderr: string; stdout: string }): string =>
+    r.ok ? `fetched, but ${sha.slice(0, 7)} was not there` : ((r.stderr || r.stdout).trim().split('\n').at(-1) ?? '') || 'failed'
+  const tries: { what: string; cwd: string; args: string[] }[] = [
+    { what: `git fetch origin ${fetchBranch ?? ''}`.trim() + ` in ${worktree}`, cwd: worktree, args: ['fetch', 'origin', ...(fetchBranch ? [fetchBranch] : [])] }
+  ]
+  if (projectDir !== undefined) {
+    tries.push({ what: `git fetch origin in the project folder ${projectDir}`, cwd: projectDir, args: ['fetch', 'origin', ...(fetchBranch ? [fetchBranch] : [])] })
+    tries.push({
+      what: `git fetch ${projectDir} (the project folder as a remote)`,
+      cwd: worktree,
+      args: ['fetch', '--no-tags', projectDir, '+refs/heads/*:refs/astera/project/heads/*', '+refs/remotes/origin/*:refs/astera/project/origin/*']
+    })
+  }
+  const said: string[] = []
+  for (const t of tries) {
+    const r = await run(t.args, { cwd: t.cwd, timeoutMs: GIT_WRITE_TIMEOUT_MS })
+    if (await known()) return null
+    said.push(`${t.what}: ${tail(r)}`)
+  }
+  return said.join('; ')
 }
 
 /** The worktrees whose HEAD no other one in the list already holds: merging those brings everything. A worktree whose
@@ -890,7 +932,8 @@ export interface PushDelivery {
   worktrees: string[]
   message: string
   /** T3: the owner said they push the plan themselves: nothing is merged or pushed, the answer only says whether every
-   *  worktree's HEAD is on `branch` (local or origin's, `git branch -a --contains`). */
+   *  worktree's HEAD is on `branch` (local or origin's, `git branch -a --contains`). T1: or its changes are on
+   *  origin's branch by other commits (a rebase or cherry-pick landing: `git cherry` marks every commit `-`). */
   ownerPushed?: boolean
 }
 
@@ -910,8 +953,9 @@ export interface PushContext {
 
 /** T3: why a push delivery stopped part-way, for the caller to tell a retry from an integration Task: `fetch-failed`
  *  origin could not be read, `rejected` origin kept refusing the push, `origin-conflict` origin moved on and does not
- *  merge with the plan, `merge-failed` the plan's worktrees did not merge into the branch. */
-export type PushStop = 'fetch-failed' | 'rejected' | 'origin-conflict' | 'merge-failed'
+ *  merge with the plan, `merge-failed` the plan's worktrees did not merge into the branch, T1: `main-diverged` the
+ *  folder's branch has commits origin does not, so it cannot fast-forward (the owner's to fix; retried by itself). */
+export type PushStop = 'fetch-failed' | 'rejected' | 'origin-conflict' | 'merge-failed' | 'main-diverged'
 
 export type PushResult =
   | { ok: true; branch: string; sha: string; merged: string[]; validated: number }
@@ -965,8 +1009,16 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
       if (!head.ok) continue // a folder already gone holds nothing that is not somewhere else
       const holders = await run(['branch', '-a', '--contains', head.stdout, '--format=%(refname:short)'], { cwd })
       const names = holders.ok ? holders.stdout.split('\n').map((x) => x.trim()) : []
-      if (!names.includes(branch) && !names.includes(`origin/${branch}`))
-        return fail(`${wt}'s commit ${head.stdout.slice(0, 7)} is not on ${branch} yet`)
+      if (names.includes(branch) || names.includes(`origin/${branch}`)) continue
+      // T1: patch-equivalent commits on origin (no `+`: none of the plan's changes is missing there)
+      const cherry = await run(['cherry', `origin/${branch}`, head.stdout], { cwd })
+      if (cherry.ok && !cherry.stdout.split('\n').some((l) => l.startsWith('+'))) continue
+      // A squash merge of several commits has `+` lines for every one: if merging the worktree into origin changes nothing,
+      // everything from it is already there
+      const merged = await run(['merge-tree', '--write-tree', `origin/${branch}`, head.stdout], { cwd })
+      const tree = await run(['rev-parse', `origin/${branch}^{tree}`], { cwd })
+      if (merged.ok && tree.ok && merged.stdout.split('\n')[0] === tree.stdout) continue
+      return fail(`${wt}'s commit ${head.stdout.slice(0, 7)} is not on ${branch} yet`)
     }
     const tip = await run(['rev-parse', `origin/${branch}`], { cwd })
     return { ok: true, branch, sha: tip.ok ? tip.stdout : '', merged: [], validated: 0 }
@@ -984,7 +1036,8 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
   const fetched = await run(['fetch', 'origin', branch], w)
   if (!fetched.ok) return fail(`git fetch origin ${branch} failed: ${why(fetched)}`, 'fetch-failed')
   const ff = await run(['merge', '--ff-only', `origin/${branch}`], w)
-  if (!ff.ok) return fail(`your ${branch} cannot fast-forward to origin/${branch} (it has commits origin does not): ${why(ff)}`)
+  // T1: coded, so a retry tells it apart: it delivers by itself once the owner fixed their branch
+  if (!ff.ok) return fail(`your ${branch} cannot fast-forward to origin/${branch} (it has commits origin does not): ${why(ff)}`, 'main-diverged')
 
   // 4.
   const before = await run(['rev-parse', 'HEAD'], { cwd })

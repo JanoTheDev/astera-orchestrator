@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { markPrReady, prBodyArgs, pullPathOf, READY_MUTATION, setPrBody } from './prUpdate'
+import { markPrReady, prBodyArgs, prStateOf, pullPathOf, READY_MUTATION, setPrBody } from './prUpdate'
 import type { GhResult } from './gh'
 
 const PR = 'https://github.com/o/r/pull/7'
@@ -51,5 +51,15 @@ describe('prUpdate', () => {
     const gh = fake(() => ({ ok: false, stderr: 'HTTP 401' }))
     expect((await markPrReady(gh.run, PR, '/r')).stderr).toBe('HTTP 401')
     expect(gh.calls).toHaveLength(1)
+  })
+
+  // T1
+  it('reads a pull request state with gh pr view --json, and null when gh cannot tell', async () => {
+    const merged = fake(() => ({ stdout: JSON.stringify({ state: 'MERGED', mergedAt: '2026-10-22T00:00:00Z', closedAt: '2026-10-22T00:00:00Z' }) }))
+    expect(await prStateOf(merged.run, PR, '/r')).toBe('MERGED')
+    expect(merged.calls).toEqual([['pr', 'view', PR, '--json', 'state,mergedAt,closedAt']])
+    expect(await prStateOf(fake(() => ({ stdout: '{"state":"CLOSED"}' })).run, PR, '/r')).toBe('CLOSED')
+    expect(await prStateOf(fake(() => ({ ok: false, stderr: 'HTTP 401' })).run, PR, '/r')).toBeNull()
+    expect(await prStateOf(fake(() => ({ stdout: 'not json' })).run, PR, '/r')).toBeNull()
   })
 })

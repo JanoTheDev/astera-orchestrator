@@ -16,7 +16,7 @@ import { parseTab, sessionTab } from '../../../core/panes/tabId'
 import type { useWorkbench } from './useWorkbench'
 import type { useLayout } from './useLayout'
 import type { useWorkbenchState } from './useWorkbenchState'
-import type { useJobs } from './useJobs'
+import { selectionAfterDrop, type useJobs } from './useJobs'
 
 export type WorkspaceDeps = Pick<ReturnType<typeof useWorkbench>,
     'bottomRootRef' | 'bottomTab' | 'openWorkspaceSlotRef' | 'selectWorkbenchTab' | 'terminals'> &
@@ -25,12 +25,12 @@ export type WorkspaceDeps = Pick<ReturnType<typeof useWorkbench>,
   Pick<ReturnType<typeof useWorkbenchState>,
     'closeWorkbenchTabRef'> &
   Pick<ReturnType<typeof useJobs>,
-    'currentProject' | 'homeDir' | 'setScopeRoot'>
+    'currentProject' | 'droppedRoot' | 'homeDir' | 'setScopeRoot'>
 
 export function useWorkspace(deps: WorkspaceDeps) {
   const {
     activeSessionId, activeTabId, bottomRootRef, bottomTab, closeWorkbenchTabRef,
-    currentProject, homeDir, setScopeRoot, layout, layoutRef, openWorkspaceSlotRef, remoteSessions, selectWorkbenchTab, sessions, terminals
+    currentProject, droppedRoot, homeDir, setScopeRoot, layout, layoutRef, openWorkspaceSlotRef, remoteSessions, selectWorkbenchTab, sessions, terminals
   } = deps
   // W2-B workspace: the selected plan, and the pane tree as its workspace shows it (scopeLayout). Read while the
   // tree is on screen or a plan is open; the anchor is only the path the reads are sent through.
@@ -188,6 +188,15 @@ export function useWorkspace(deps: WorkspaceDeps) {
   const workspaceName = workspaceTree.find((p) => p.id === workspaceProjectId)?.name
   // The switcher's selection is the project jobs are made in; its name is kept so a reload labels it before the tree is in.
   const selectedProject = workspaceTree.find((p) => p.id === workspaceProjectId)
+  // The folder of the selected project is gone (useJobs dropped it): the selection moves to the project the app falls
+  // back to, so the switcher, the tabs' scope and the window agree. Read once per drop: a pick of the same folder
+  // again must not be undone by a render that still has the old drop.
+  useEffect(() => {
+    if (!droppedRoot) return
+    const next = selectionAfterDrop(workspaceProjectId, workspaceTree, droppedRoot, currentProject)
+    if (next !== workspaceProjectId) setWorkspaceProjectId(next)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a new drop decides this, not a pick or a refresh
+  }, [droppedRoot])
   useEffect(() => {
     if (!workspaceProjectId || !selectedProject) return
     setScopeRoot(selectedProject.path)

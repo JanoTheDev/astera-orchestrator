@@ -5,7 +5,7 @@ import { useAccountUsage } from '../hooks/useAccountUsage'
 import { useI18n } from '../i18n/I18nProvider'
 import { accountSelectItems } from './accountSelectItems'
 import { ProviderBadge } from './ProviderBadge'
-import { Select, type SelectOption } from './Select'
+import { Select, type SelectOption } from './ui'
 
 const NO_ACCOUNTS: Account[] = [] // stable identity: useAccountStatus re-queries when its argument changes
 

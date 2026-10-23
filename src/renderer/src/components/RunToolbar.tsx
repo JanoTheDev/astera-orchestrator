@@ -3,7 +3,7 @@ import type { RunConfig, RunStatus } from '../../../core/types'
 import { actedConfigIds, decideStart, toolbarState } from '../../../core/run/instances'
 import { useI18n } from '../i18n/I18nProvider'
 import { RunConfigMenu } from './RunConfigMenu'
-import { EllipsisVertical, Play, Square } from 'lucide-react'
+import { Button, Icon, IconButton, Menu, Popover } from './ui'
 
 /** Run toolbar. It sits in the title bar, next to the app name, and is drawn whenever a project is
  *  known — the explorer toggle does not reach it. Its own chrome (border, background, padding) is
@@ -61,7 +61,6 @@ export function RunToolbar({
 }): React.JSX.Element {
   const { t } = useI18n()
   const [showRuns, setShowRuns] = useState(false)
-  const [showMore, setShowMore] = useState(false)
   const state = toolbarState(runs, selectedId, configs)
   // The Validation tag explains why ⏹ is offered for a run the user did not start. ⏹ now stops every
   // live member of a compound, so the question is whether *any* target is a validation run — a
@@ -100,80 +99,77 @@ export function RunToolbar({
           {t('run.validation.tag')}
         </span>
       )}
-      <button
+      <IconButton
         className="run-btn play"
-        title={t(restarts ? 'run.action.restart' : 'run.action.run')}
+        icon={<Icon name="run" size={16} />}
+        label={t(restarts ? 'run.action.restart' : 'run.action.run')}
         disabled={!state.canRun}
         onClick={onRun}
-      >
-        <Play size={14} fill="currentColor" strokeWidth={0} />
-      </button>
+      />
       {state.stopTargets.length > 0 && (
-        <button
+        <IconButton
           className="run-btn stop"
-          title={t('run.action.stop')}
+          icon={<Icon name="stop" size={16} />}
+          label={t('run.action.stop')}
           onClick={() => state.stopTargets.forEach((id) => onStop(id))}
-        >
-          <Square size={14} fill="currentColor" strokeWidth={0} />
-        </button>
+        />
       )}
       {/* Configuration management folds into ⋮. This toolbar now sits permanently in the title bar, so
           laying out a rarely used management screen too would keep eating window width. */}
-      <div className="run-more">
-        <button
-          className="run-btn"
-          title={t('run.config.more')}
-          aria-haspopup="menu"
-          aria-expanded={showMore}
-          onClick={() => setShowMore((v) => !v)}
-        >
-          <EllipsisVertical size={14} />
-        </button>
-        {showMore && (
-          <div className="run-more-menu" role="menu" onMouseLeave={() => setShowMore(false)}>
-            <button
-              className="run-more-item"
-              role="menuitem"
-              onClick={() => {
-                setShowMore(false)
-                onOpenManager()
-              }}
-            >
-              {t('run.manager.open')}
-            </button>
-          </div>
-        )}
-      </div>
+      <Menu
+        label={t('run.config.more')}
+        align="end"
+        trigger={{ icon: <Icon name="moreVertical" size={16} />, title: t('run.config.more') }}
+        items={[{ id: 'manager', label: t('run.manager.open'), onSelect: onOpenManager }]}
+      />
       {activeRuns.length > 0 && (
-        <div className="run-global">
-          <button className="run-global-badge" title={t('run.global.listTitle')} onClick={() => setShowRuns((v) => !v)}>
-            <span className="tri"><Play size={10} fill="currentColor" strokeWidth={0} /></span>
-            <span className="n">{activeRuns.length}</span>
-          </button>
-          {showRuns && (
-            <div className="run-global-menu" onMouseLeave={() => setShowRuns(false)}>
-              {/* Keyed by runId — a project now holds several runs, so its path is no longer unique here */}
-              {activeRuns.map((r) => (
-                <div className="run-global-row" key={r.runId}>
-                  <span className={`run-global-live${r.status === 'stopping' ? ' stopping' : ''}`} />
-                  {r.validation === true && (
-                    <span className="run-tag" title={t('run.validation.tag')}>
-                      {t('run.validation.tag')}
-                    </span>
-                  )}
-                  <button className="run-global-jump" title={t('run.global.jump')} onClick={() => { onJump(r.projectPath); setShowRuns(false) }}>
-                    {r.projectName} — {r.configName}
-                  </button>
-                  {r.status === 'running' && (
-                    <button className="run-global-stop" title={t('run.action.stop')} onClick={() => onStopRun(r.runId)}>
-                      <Square size={11} fill="currentColor" strokeWidth={0} />
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
+        <Popover
+          open={showRuns}
+          onOpenChange={setShowRuns}
+          label={t('run.global.listTitle')}
+          className="run-global"
+          panelClassName="run-global-menu"
+          trigger={(p) => (
+            <Button {...p} variant="ghost" size="sm" className="run-global-badge" title={t('run.global.listTitle')} icon={<Icon name="run" size={14} className="tri" />}>
+              <span className="n">{activeRuns.length}</span>
+            </Button>
           )}
-        </div>
+        >
+          {/* Keyed by runId — a project now holds several runs, so its path is no longer unique here */}
+          {activeRuns.map((r) => (
+            <div className="run-global-row" key={r.runId}>
+              <span className={`run-global-live${r.status === 'stopping' ? ' stopping' : ''}`} />
+              {r.validation === true && (
+                <span className="run-tag" title={t('run.validation.tag')}>
+                  {t('run.validation.tag')}
+                </span>
+              )}
+              <Button
+                data-roving=""
+                variant="ghost"
+                size="sm"
+                className="run-global-jump"
+                title={t('run.global.jump')}
+                onClick={() => {
+                  onJump(r.projectPath)
+                  setShowRuns(false)
+                }}
+              >
+                {r.projectName} — {r.configName}
+              </Button>
+              {r.status === 'running' && (
+                <IconButton
+                  data-roving=""
+                  size="sm"
+                  className="run-global-stop"
+                  icon={<Icon name="stop" size={14} />}
+                  label={t('run.action.stop')}
+                  onClick={() => onStopRun(r.runId)}
+                />
+              )}
+            </div>
+          ))}
+        </Popover>
       )}
     </div>
   )

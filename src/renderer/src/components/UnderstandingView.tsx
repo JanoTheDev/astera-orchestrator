@@ -2,7 +2,8 @@ import type { MessageKey } from '../../../core/i18n'
 import type { OpenSessionTask } from '../../../core/types'
 import type { ProjectUnderstanding, RecordStatus, WorkRecord } from '../../../core/understanding/types'
 import { useI18n } from '../i18n/I18nProvider'
-import { RECORD_GLYPH, RECORD_GLYPH_COLOR, StatusGlyph } from './UnderstandingIcons'
+import { RECORD_GLYPH_COLOR, StatusGlyph } from './UnderstandingIcons'
+import { Button, EmptyState, ICONS } from './ui'
 
 const dateOf = (iso: string): string => {
   const d = new Date(iso)
@@ -74,10 +75,12 @@ export function UnderstandingView({
     return (
       <div className="hiw-side">
         <div className="hiw-head">
-          <b>{t('hiw.title')}</b>
+          <h2>{t('hiw.title')}</h2>
         </div>
         <div className="hiw-empty">
-          <p>{t('hiw.empty.body')}</p>
+          <EmptyState icon={ICONS.layers} title={t('hiw.empty.title')}>
+            {t('hiw.empty.body')}
+          </EmptyState>
           <p className="hiw-fine">{t('hiw.empty.readOnly')}</p>
         </div>
       </div>
@@ -106,12 +109,12 @@ export function UnderstandingView({
           <span className="hiw-summary w">{reasonText(u.reason, t)}</span>
         )}
         <span className="hiw-open-actions">
-          <button className="hiw-review" onClick={() => onCompleteTask(u.id)}>
+          <Button size="sm" variant="secondary" onClick={() => onCompleteTask(u.id)}>
             {t('hiw.open.complete')}
-          </button>
-          <button className="hiw-review" onClick={() => onCancelTask(u.id)}>
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => onCancelTask(u.id)}>
             {t('hiw.open.cancel')}
-          </button>
+          </Button>
         </span>
       </span>
     </div>
@@ -120,7 +123,7 @@ export function UnderstandingView({
   return (
     <div className="hiw-side">
       <div className="hiw-head">
-        <b>{t('hiw.title')}</b>
+        <h2>{t('hiw.title')}</h2>
       </div>
       {openTasks.length > 0 && (
         <div className="hiw-open">
@@ -140,33 +143,32 @@ export function UnderstandingView({
       )}
       <div className="hiw-list">
         {records.map((r) => (
-          <div
-            key={r.id}
-            className={`hiw-row${r.id === selectedRecordId ? ' on' : ''}`}
-            onClick={() => onOpenRecord(r.id)}
-          >
-            <span className="hiw-g" style={{ color: RECORD_GLYPH_COLOR[r.status] }} aria-hidden="true">
-              <StatusGlyph glyph={RECORD_GLYPH[r.status]} spinning={r.status === 'generating'} />
-            </span>
-            <span className="hiw-body">
-              <span className="hiw-name" title={r.request}>{r.explanation?.title ?? r.request}</span>
-              <span className="hiw-meta">
-                {dateOf(r.at)} · {sourceLabel(r)}
+          // The row is a div around two siblings (the open button and the retry button): a button cannot hold a button,
+          // and the old whole-row click had no keyboard way in.
+          <div key={r.id} className={`hiw-row${r.id === selectedRecordId ? ' on' : ''}`}>
+            <Button
+              variant="ghost"
+              className="hiw-row-main"
+              aria-current={r.id === selectedRecordId ? 'true' : undefined}
+              onClick={() => onOpenRecord(r.id)}
+            >
+              <span className="hiw-g" style={{ color: RECORD_GLYPH_COLOR[r.status] }}>
+                <StatusGlyph status={r.status} spinning={r.status === 'generating'} />
               </span>
-              {/* The reason is the answer to "why would I press that button" — it belongs beside it */}
-              {r.reason && <span className="hiw-summary w">{reasonText(r.reason, t)}</span>}
-              {canRetry(r.status) && (
-                <button
-                  className="hiw-review"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onRegenerate(r.id)
-                  }}
-                >
-                  {t('hiw.record.regenerate')}
-                </button>
-              )}
-            </span>
+              <span className="hiw-body">
+                <span className="hiw-name" title={r.request}>{r.explanation?.title ?? r.request}</span>
+                <span className="hiw-meta">
+                  {dateOf(r.at)} · {sourceLabel(r)}
+                </span>
+                {/* The reason is the answer to "why would I press that button" — it belongs beside it */}
+                {r.reason && <span className="hiw-summary w">{reasonText(r.reason, t)}</span>}
+              </span>
+            </Button>
+            {canRetry(r.status) && (
+              <Button size="sm" variant="secondary" className="hiw-row-retry" onClick={() => onRegenerate(r.id)}>
+                {t('hiw.record.regenerate')}
+              </Button>
+            )}
           </div>
         ))}
       </div>

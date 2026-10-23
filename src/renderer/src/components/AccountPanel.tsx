@@ -10,8 +10,7 @@ import { ProviderBadge } from './ProviderBadge'
 import { AccountRow } from './AccountRow'
 import { AccountSignInDialog } from './AccountSignIn'
 import { RemoveAccountDialog } from './AccountSettings'
-import { FolderInput, Plus, ScanSearch, UserMinus } from 'lucide-react'
-import { Button, IconButton, Modal } from './ui'
+import { Button, Chip, EmptyState, Field, ICONS, Icon, IconButton, Input, Modal, Tabs, Checkbox } from './ui'
 
 interface DetectItem {
   configDir: string
@@ -23,26 +22,23 @@ interface DetectItem {
 
 /** CLI kind selector for the add and import account modals */
 function ProviderPicker({
-  name,
   value,
   onChange
 }: {
-  name: string
   value: Provider
   onChange: (p: Provider) => void
 }): React.JSX.Element {
   const { t } = useI18n()
   return (
-    <div className="field">
-      <label>{t('account.field.kind')}</label>
-      <div className="row">
-        {PROVIDERS.map((p) => (
-          <label key={p} className="check-small">
-            <input type="radio" name={name} checked={value === p} onChange={() => onChange(p)} />
-            {PROVIDER_META[p].displayName}
-          </label>
-        ))}
-      </div>
+    <div className="ui-field">
+      <span className="ui-field__label">{t('account.field.kind')}</span>
+      <Tabs
+        variant="segmented"
+        label={t('account.field.kind')}
+        value={value}
+        onChange={(id) => onChange(id as Provider)}
+        items={PROVIDERS.map((p) => ({ id: p, label: PROVIDER_META[p].displayName }))}
+      />
     </div>
   )
 }
@@ -236,9 +232,9 @@ export function AccountPanel({ accounts }: { accounts: Account[] }): React.JSX.E
           {t('account.panel.title')} <span className="count">{accounts.length}</span>
         </h2>
         <div className="panel-actions">
-          <IconButton size="sm" icon={<Plus size={14} />} label={t('accounts.add')} onClick={openAdd} />
-          <IconButton size="sm" icon={<FolderInput size={14} />} label={t('accounts.import')} onClick={() => void startImport()} />
-          <IconButton size="sm" icon={<ScanSearch size={14} />} label={t('accounts.detect')} onClick={() => void runDetect(false)} />
+          <IconButton size="sm" icon={<Icon name="add" size={14} />} label={t('accounts.add')} onClick={openAdd} />
+          <IconButton size="sm" icon={<Icon name="folderAdd" size={14} />} label={t('accounts.import')} onClick={() => void startImport()} />
+          <IconButton size="sm" icon={<Icon name="search" size={14} />} label={t('accounts.detect')} onClick={() => void runDetect(false)} />
         </div>
       </header>
       <ul>
@@ -256,7 +252,7 @@ export function AccountPanel({ accounts }: { accounts: Account[] }): React.JSX.E
             {/* W7-F (#82): sign in and remove from the row itself. `false`, not undefined: no button before the
                 login check has answered. */}
             {loginMap[a.id] === false && (
-              <Button size="sm" variant="ghost" className="account-signin-btn" onClick={() => setSignInTarget(a)}>
+              <Button size="sm" variant="ghost" className="account-signin-btn" icon={<Icon name="login" size={14} />} onClick={() => setSignInTarget(a)}>
                 {t('account.signIn.button')}
               </Button>
             )}
@@ -276,11 +272,23 @@ export function AccountPanel({ accounts }: { accounts: Account[] }): React.JSX.E
                 </Button>
               )
             })()}
-            <IconButton size="sm" className="account-remove-btn" icon={<UserMinus size={14} />} label={t('account.remove.button')} onClick={() => setRemoveTarget(a)} />
+            <IconButton size="sm" className="account-remove-btn" icon={<Icon name="delete" size={14} />} label={t('account.remove.button')} onClick={() => setRemoveTarget(a)} />
           </AccountRow>
         ))}
-        {accounts.length === 0 && <li className="empty">{t('account.panel.empty')}</li>}
       </ul>
+      {accounts.length === 0 && (
+        <EmptyState
+          icon={ICONS.users}
+          title={t('account.panel.empty')}
+          action={
+            <Button variant="primary" icon={<Icon name="add" />} onClick={openAdd}>
+              {t('accounts.add')}
+            </Button>
+          }
+        >
+          {t('account.empty.body')}
+        </EmptyState>
+      )}
       {addOpen && (
         <Modal
           title={t('account.add.title')}
@@ -304,23 +312,19 @@ export function AccountPanel({ accounts }: { accounts: Account[] }): React.JSX.E
                 void submitAdd()
               }}
             >
-              <ProviderPicker name="add-provider" value={addProvider} onChange={setAddProvider} />
-              <div className="field">
-                <label>{t('account.field.label')}</label>
-                <input
-                  autoFocus
-                  type="text"
-                  value={addLabel}
-                  placeholder={t('account.add.labelPlaceholder')}
-                  onChange={(e) => setAddLabel(e.target.value)}
-                />
-              </div>
+              <ProviderPicker value={addProvider} onChange={setAddProvider} />
+              <Field
+                autoFocus
+                label={t('account.field.label')}
+                value={addLabel}
+                placeholder={t('account.add.labelPlaceholder')}
+                onChange={(e) => setAddLabel(e.target.value)}
+              />
               {/* Shown for both providers — claude and codex each import from their own default account */}
               <label className="toggle-row">
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={addCopySettings}
-                  onChange={(e) => setAddCopySettings(e.target.checked)}
+                  onChange={(v) => setAddCopySettings(v)}
                 />
                 <span>{t('account.add.copySettingsLabel')}</span>
               </label>
@@ -360,19 +364,15 @@ export function AccountPanel({ accounts }: { accounts: Account[] }): React.JSX.E
               }}
             >
               <ProviderPicker
-                name="import-provider"
                 value={importProvider}
                 onChange={setImportProvider}
               />
-              <div className="field">
-                <label>{t('account.field.label')}</label>
-                <input
-                  autoFocus
-                  type="text"
-                  value={importLabel}
-                  onChange={(e) => setImportLabel(e.target.value)}
-                />
-              </div>
+              <Field
+                autoFocus
+                label={t('account.field.label')}
+                value={importLabel}
+                onChange={(e) => setImportLabel(e.target.value)}
+              />
             </form>
         </Modal>
       )}
@@ -402,28 +402,28 @@ export function AccountPanel({ accounts }: { accounts: Account[] }): React.JSX.E
         >
           <div className="dlg detect">
             {detectItems.length === 0 ? (
-              <p className="empty">{t('account.detect.empty')}</p>
+              <EmptyState icon={ICONS.search} title={t('account.detect.empty')} />
             ) : (
               <ul className="detect-list">
                 {detectItems.map((item, idx) => (
                   <li key={item.configDir} className="detect-row">
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={item.selected}
+                      aria-label={item.label}
                       onChange={() => toggleDetectItem(idx)}
                     />
                     <ProviderBadge provider={item.provider} />
                     <div className="detect-main">
-                      <input
-                        type="text"
+                      <Input
+                        aria-label={t('account.field.label')}
                         value={item.label}
                         onChange={(e) => setDetectLabel(idx, e.target.value)}
                       />
                       <span className="detect-path">{item.configDir}</span>
                     </div>
-                    <span className={item.loggedIn ? 'badge ok' : 'badge'}>
+                    <Chip tone={item.loggedIn ? 'ok' : 'warn'} dot>
                       {item.loggedIn ? t('account.status.loggedIn') : t('account.status.notLoggedIn')}
-                    </span>
+                    </Chip>
                   </li>
                 ))}
               </ul>

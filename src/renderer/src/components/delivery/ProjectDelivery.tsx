@@ -4,6 +4,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { DeliveryMode, Project } from '../../../../core/orchestration/types'
 import { useI18n } from '../../i18n/I18nProvider'
+import { confirmModal } from '../../lib/confirm'
+import { Input, Select } from '../ui'
 
 /** The project's delivery, read and written: shared by the inline control below and the Plans page's View options menu. */
 export function useProjectDelivery(projectPath: string): {
@@ -47,8 +49,20 @@ export function useProjectDelivery(projectPath: string): {
   }
   const choose = (next: DeliveryMode): void => {
     if (next === mode) return
-    if (next === 'push' && !window.confirm(t('delivery.pushConfirm', { branch: target }))) return
-    void save({ delivery: next })
+    // W12: the house confirm (was the native confirm, which halts the renderer)
+    void (async () => {
+      if (
+        next === 'push' &&
+        !(await confirmModal({
+          title: t('delivery.pushConfirm.title'),
+          body: t('delivery.pushConfirm', { branch: target }),
+          confirmLabel: t('delivery.pushConfirm.ok', { branch: target }),
+          danger: true
+        }))
+      )
+        return
+      await save({ delivery: next })
+    })()
   }
   return { project, mode, target, error, choose, save }
 }
@@ -65,15 +79,22 @@ export function ProjectDelivery({ projectPath, disabledReason }: { projectPath: 
     <div className="jobs-delivery" title={disabledReason}>
       <label>
         {t('delivery.label')}{' '}
-        <select value={mode} disabled={disabledReason !== undefined} onChange={(e) => choose(e.target.value as DeliveryMode)}>
-          <option value="pr">{t('delivery.pr')}</option>
-          <option value="push">{t('delivery.push', { branch: target })}</option>
-        </select>
+        <Select
+          className="dense"
+          ariaLabel={t('delivery.label')}
+          value={mode}
+          disabled={disabledReason !== undefined}
+          onChange={(v) => choose(v as DeliveryMode)}
+          items={[
+            { value: 'pr', label: t('delivery.pr') },
+            { value: 'push', label: t('delivery.push', { branch: target }) }
+          ]}
+        />
       </label>
       {mode === 'push' && (
         <label>
           {t('delivery.branch')}{' '}
-          <input
+          <Input
             value={branch}
             placeholder={t('delivery.defaultBranch')}
             disabled={disabledReason !== undefined}

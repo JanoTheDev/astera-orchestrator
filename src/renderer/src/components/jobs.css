@@ -4,6 +4,8 @@
    "무언가 돌고 있다"가 하나의 신호로 읽히고, 그것을 멈춰야 할 때 끌 자리가 하나여야 한다. */
 @keyframes job-spin { to { transform: rotate(360deg); } }
 .job-ic { flex: none; display: block; }
+/* The ui Icon inside a status glyph fills the glyph's box: the box is the caller's size (10px node, 13px row), not 14/16/20 */
+.job-ic > svg { display: block; width: 100%; height: 100%; }
 /* **reduced-motion 에서도 돈다.** 한때 이 줄 아래에 그 회전을 끄는 미디어 쿼리가 있었는데,
    되돌린 이유 둘:
    - 앱의 다른 "일하는 중" 회전(.tab-dot.busy 와 .loading-spinner)은 애초에 끄지 않았다. 이것
@@ -16,27 +18,10 @@
    계약은 core/orchestration/spinnerCss.test.ts 가 고정한다. */
 .job-arc { transform-origin: 50% 50%; animation: job-spin 1.5s linear infinite; }
 
-/* '+ 새 작업'/'+ Task' — 사이드바 목록의 첫 자식과 빈 화면(.jobs-empty), 그리고 RunDetail 의
-   그래프 칸(.detail-graph-head, Task 짓기 시작 버튼)까지 같은 모양에서 출발한다. 아이콘이 아니라
-   '+' 글자 하나이므로 배지 크기를 맞출 필요가 없고, 기존 토큰만 쓴다.
-   아래에서 '새 작업' 둘만 강조로 갈라진다 — RunDetail 의 '+ Task 추가'는 이 유령 테두리로 남는다 */
-.jobs-new { margin: 10px 10px 4px; padding: 5px 10px; border: 1px solid var(--line-soft); border-radius: var(--radius-sm); background: none; color: var(--text-dim); font-size: 12px; cursor: pointer; }
+/* The ghost-bordered small button of RunDetail's graph head (.detail-graph-head), TaskLinkChips and the plan rows.
+   The Jobs view's own New buttons are ui Buttons since W12 (.jobs-create), so they take none of this. */
+.jobs-new { margin: 10px 10px 4px; padding: 5px 10px; border: 1px solid var(--line-soft); border-radius: var(--radius-sm); background: none; color: var(--text-dim); font-size: var(--fs-12); cursor: pointer; }
 .jobs-new:hover { color: var(--accent); border-color: var(--accent); }
-/* '새 작업'은 이 화면의 주 행동이다 — 유령 테두리로는 눈에 걸리지 않아 button.primary 의 강조를
-   그대로 빌린다(새 토큰 없음). RunDetail 의 '+ Task 추가'가 여기 빠지는 이유는 그 칸의 주역이
-   그래프이기 때문이다. 두 자리 모두 `>` 로 잡아 특이도를 맞춰 두었다: 그러지 않으면 위
-   .jobs-new:hover 와 동점이 되어 순서에 기대게 된다. */
-.jobs-view > .jobs-new, .jobs-empty > .jobs-new { background: var(--btn-bg); border-color: var(--btn-bg); color: var(--btn-ink); font-weight: 600; }
-/* "+ From a source" (plugin Phase 4 J20) stands under "+ New job" as the plain button it is, not a second primary */
-.jobs-view > .jobs-new.jobs-new-source, .jobs-empty > .jobs-new.jobs-new-source { background: none; border-color: var(--line-soft); color: var(--text-dim); font-weight: 400; margin-top: 0; }
-/* Its hover is the plain button's, not the primary's dimming (4c final review M10) */
-.jobs-view > .jobs-new.jobs-new-source:hover:not(:disabled), .jobs-empty > .jobs-new.jobs-new-source:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); filter: none; }
-.jobs-view > .jobs-new:hover, .jobs-empty > .jobs-new:hover { filter: brightness(.85); }
-/* 목록 쪽만 오른쪽 끝에 선다 — 왼쪽 열은 Run 의 글리프와 제목이 쓰는 자리라, 버튼이 거기 서면
-   목록의 첫 줄처럼 읽힌다. 빈 화면 쪽은 .jobs-empty 의 text-align: center 를 그대로 따른다.
-   .jobs-view 를 flex 로 바꾸지 않고 margin-left: auto 로 미는 이유: 아래 .jobs-run 들은 블록으로
-   남아야 한다(flex 항목이 되면 여백 병합과 축소 규칙이 달라진다) */
-.jobs-view > .jobs-new { display: block; width: fit-content; margin-left: auto; }
 
 /* Run 사이의 경계. 두 번을 잘못 짚고 여기 왔다.
    (1) --line-soft: 그때 .jobs-foot 이 갖고 있던 위쪽 구분선과 픽셀까지 같아서 어느 선이 묶음의
@@ -57,7 +42,7 @@
    바탕이 아니라 테두리로 말하는 이유는 .jobs-task 의 hover 주석과 같다 — 안쪽 줄의 바탕은 이미
    상태를 말하고 있어서 덮으면 그 뜻이 사라진다. Run 에서는 진행 띠의 색이 그 자리다.
    아래쪽 1px 은 경계선이 이미 그리고 있으므로 그 색만 함께 바꿔 상자를 닫는다.
-   **--ring 이 아니라 --accent 다.** --ring 은 accent 의 35% 알파라 초점 링(여러 px 로 번지는
+   **--ring 이 아니라 --accent 다.** --ring 은 accent 의 60% 알파라 초점 링(여러 px 로 번지는
    자리)에서는 통하지만 1px 선에서는 남는 것이 없다 — 이 파일에서 1px inset 링이 실제로 읽히는
    자리는 전강도를 쓰고 있다(.fx-row.drop-into).
    **이 테두리는 "지금 이것을 가리키고 있다"이지 "여기를 누르면 된다"가 아니다** — 접기는 여전히
@@ -79,7 +64,7 @@
 }
 /* 줄에 붙는 글자. 개수 묶음(--text-dim)보다 앞에 서므로 톤으로 갈라 둔다 — 같은 색이면 그 옆의
    숫자와 한 덩어리로 읽힌다 */
-.jobs-shared { flex: none; font-size: 10px; padding: 1px 5px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--git-conflict) 14%, transparent); color: var(--git-conflict); white-space: nowrap; }
+.jobs-shared { flex: none; font-size: var(--fs-11); padding: 1px 5px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--git-conflict) 14%, transparent); color: var(--git-conflict); white-space: nowrap; }
 /* 제목 줄. **바탕을 깔지 않는다** — 한때 --elevated 밴드를 깔아 Run 경계를 표시했는데, 이
    사이드바에서 그 색은 이미 hover/활성 줄의 뜻이라 hover 가 무엇을 말하는지가 흐려졌다. 경계는
    위의 border 가 말하고, hover 도 그 자리에서 Run 전체로 말한다 — 이 줄은 바탕을 갖지 않는다.
@@ -87,13 +72,12 @@
    '자세히' 버튼은 stopPropagation 을 부른다 — JobsView.tsx 의 그 자리 주석 참고.
    **hover 를 이 줄에 두지 않는다** — 위 .jobs-run:hover 가 Run 전체로 말한다 */
 .jobs-run-head { display: flex; align-items: center; gap: 7px; padding: 8px 10px 0; cursor: pointer; }
-.jobs-caret { flex: none; width: 9px; color: var(--text-faint); }
-.jobs-objective { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; font-weight: 560; }
+.jobs-objective { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-12); font-weight: 560; }
 /* 끝난 Run 은 물러난다 — 목록이 길어질수록 눈이 가야 하는 것은 아직 도는 쪽이다. 실패한 Run 은
    여기서 흐려지지 않는다: 사람이 손봐야 하는 것이라 끝났어도 읽혀야 한다 */
 .jobs-objective.done { color: var(--text-faint); }
 /* 아이콘 하나와 숫자 하나 — 헤더의 묶음 표시와 아래 한 줄이 같은 모양을 쓴다 */
-.jobs-count { flex: none; display: inline-flex; align-items: center; gap: 3px; color: var(--text-dim); font-size: 11px; font-variant-numeric: tabular-nums; }
+.jobs-count { flex: none; display: inline-flex; align-items: center; gap: 3px; color: var(--text-dim); font-size: var(--fs-11); font-variant-numeric: tabular-nums; }
 /* 띠 — Task 하나가 칸 하나다. 접힌 Run 은 이것만 남으므로 아래 여백을 조금 더 준다 */
 .jobs-bar { display: flex; gap: 2px; height: 6px; margin: 7px 10px 8px; }
 .jobs-run.collapsed .jobs-bar { margin-bottom: 10px; }
@@ -102,91 +86,68 @@
 .jobs-task { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-radius: var(--radius-sm); background: var(--elevated); cursor: pointer; transition: box-shadow var(--ease); }
 /* 줄의 바탕이 이미 상태를 말하고 있어서(검토는 보라) hover 가 그 색을 덮지 않는다 — 덮으면
    가리키는 동안 그 줄이 무슨 상태인지 사라진다. 그래서 테두리로만 말한다 */
-.jobs-task:not(.no-session):not(.jobs-fold):hover { box-shadow: inset 0 0 0 1px var(--ring); }
+.jobs-task:not(.no-session):not(.jobs-fold):hover { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent); }
 /* No sessionId: never dispatched, a stale Dispatch from a previous app run, or the worker is still
    launching — there is no tab to open, so the row neither highlights on hover nor reacts to a click */
 .jobs-task.no-session { cursor: default; }
 .jobs-task--reviewing { background: color-mix(in srgb, var(--fi-purple) 10%, transparent); }
-.jobs-av { flex: none; width: 21px; height: 21px; display: grid; place-items: center; border-radius: var(--radius-sm); background: var(--line-soft); color: var(--text-dim); font-size: 9px; font-weight: 700; }
+.jobs-av { flex: none; width: 21px; height: 21px; display: grid; place-items: center; border-radius: var(--radius-sm); background: var(--line-soft); color: var(--text-dim); font-size: var(--fs-11); font-weight: 700; }
 /* 배지의 색은 provider 가 아니라 **상태**다 — 같은 워커가 구현으로 돌 때와 검토로 돌 때는 다른
    일이고, 어느 CLI 인지는 두 글자와 바로 아래 줄의 이름이 이미 말한다 */
 .jobs-task--dispatched .jobs-av { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
 .jobs-task--reviewing .jobs-av { background: color-mix(in srgb, var(--fi-purple) 18%, transparent); color: var(--fi-purple); }
 .jobs-task-body { flex: 1; min-width: 0; }
-.jobs-task-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.jobs-task-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-12); }
 /* 제목 줄과 같은 세 규칙을 쓴다 — 이 줄도 길어질 수 있다. 사이드바는 280px, 줄 본문은 약 199px
    인데 가장 긴 문구("claude · 리셋 대기 · 2:14:00 · 2번 이어짐", 스페인어는 더 길다)는 250px 쯤을
    요구해서, 자르지 않으면 둘째 줄로 넘어가며 줄 높이가 늘어난다 */
-.jobs-task-meta { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-faint); font-size: 10.5px; font-variant-numeric: tabular-nums; }
-.jobs-jump { flex: none; color: var(--text-faint); font-size: 12px; }
+.jobs-task-meta { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-faint); font-size: var(--fs-11); font-variant-numeric: tabular-nums; }
 /* 넷째부터를 접은 줄. 여는 곳이 없으므로 눌리지 않는다 */
-.jobs-fold { cursor: default; color: var(--text-dim); font-size: 11px; font-variant-numeric: tabular-nums; }
+.jobs-fold { cursor: default; color: var(--text-dim); font-size: var(--fs-11); font-variant-numeric: tabular-nums; }
 /* Gate — 사람을 부르는 유일한 줄이라 접힌 Run 에서도 남고, 유일하게 여러 줄로 접힌다 */
-.jobs-gate { display: flex; align-items: flex-start; gap: 7px; margin: 0 10px 9px; padding: 6px 8px; background: color-mix(in srgb, var(--git-conflict) 9%, transparent); border-left: 2px solid var(--git-conflict); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; color: var(--text-dim); font-size: 11.5px; white-space: normal; }
+.jobs-gate { display: flex; align-items: flex-start; gap: 7px; margin: 0 10px 9px; padding: 6px 8px; background: color-mix(in srgb, var(--git-conflict) 9%, transparent); border-left: 2px solid var(--git-conflict); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; color: var(--text-dim); font-size: var(--fs-12); white-space: normal; }
 .jobs-gate .job-ic { margin-top: 1px; }
 /* 아래 한 줄 — 개수뿐이다('자세히' 는 제목 줄로 갔다). **위쪽 구분선이 없다**: 펼칠 때만 나타나는
    옅은 선이라 한 Run 안에서 무엇이 갈리는지 말해 주지 않으면서, 이제 Run 경계가 쓰는 선과 굵기만
    같고 색만 다른 두 번째 가로선이 되어 경계를 읽기 어렵게 만든다. 이 줄은 색(--text-faint)과
    크기(11px)로 이미 본문과 갈린다 */
-.jobs-foot { display: flex; align-items: center; gap: 11px; padding: 6px 10px 9px; color: var(--text-faint); font-size: 11px; }
-/* 상세 창으로 가는 입구. 머리말 없이 이것 하나다 — 넓은 창을 여는 길은 하나뿐이라 이름이 필요 없다.
-   **이름이 없는 만큼 버튼으로 읽혀야 한다.** 처음에는 테두리가 없고 색이 주변 개수와 같은
-   --text-faint 여서, 회색 숫자 사이에 낀 구두점처럼 읽히고 찾지 못했다(누를 자리도 2px 이었다).
-   **유령 테두리로는 안 된다** — 한 번 그렇게 고쳤다가 되돌렸다. --line-soft(#26262c) 테두리는
-   --panel(#1a1a1e) 위에서 차이가 거의 없고, 그것이 '+ 새 작업'도 안 보이게 만들던 원인이다.
-   그래서 이 버튼은 **기본 button 규칙을 그대로 쓴다** — --elevated 바탕에 --text 글자, 앱의 다른
-   버튼과 같은 표면이다. 여기서 정하는 것은 이 자리에 맞는 크기뿐이고, 채움 색은 accent 로 올리지
-   않는다: 이 버튼은 Run 마다 하나씩 있어서 넷이 쌓이면 넷이 빛나고, 그러면 정작 상태 색과 다툰다 */
-.jobs-more { flex: none; display: inline-flex; align-items: center; padding: 2px 7px; border-radius: var(--radius-sm); font-size: 14px; line-height: 1.2; }
-.jobs-more:hover { color: var(--accent); border-color: var(--accent); }
-/* W2-A: "Approve & execute" on a Job not started yet */
-.jobs-approve { flex: none; padding: 1px 8px; border-radius: var(--radius-sm); font-size: 11px; line-height: 1.4; color: var(--accent); border-color: var(--accent); }
-.jobs-approve:hover:not(:disabled) { background: var(--accent); color: var(--bg); }
+.jobs-foot { display: flex; align-items: center; gap: 11px; padding: 6px 10px 9px; color: var(--text-faint); font-size: var(--fs-11); }
 /* W8-D: one line per overlap with another plan, in the approve area */
-.jobs-overlaps { margin: 2px 0 4px; padding: 0 0 0 14px; font-size: 11px; color: var(--warn-ink); list-style: disc; }
-/* Run 을 지우는 휴지통. **아래 한 줄의 오른쪽 끝**이다 — 제목 줄의 `›`(상세 창) 옆에 두면 되돌릴 수
-   없는 동작과 그냥 열어 보는 동작이 나란한 작은 표적 둘이 된다.
-   칩이 아니라 유령 버튼인 이유: 이 줄은 개수를 적는 조용한 자리(--text-faint, 11px)이고, 여기에
-   테두리 있는 칩을 세우면 그 줄에서 가장 무거운 것이 지우기 버튼이 된다.
-   평소에 붉지 않은 이유는 Run 마다 하나씩 있어서다 — 여섯 줄이 쌓이면 붉은 점 여섯이 상태 색과
-   다투고, 정작 봐야 하는 것(도는 중·막힘)을 이긴다. 되돌릴 수 없다는 경고는 색이 아니라 확인 창이
-   한다(App.tsx 의 onDeleteRun). --text-dim 인 것은 옆의 개수(--text-faint)보다 반 단계 위로 두어
-   그 숫자들과 한 덩어리로 읽히지 않게 하는 것이다 */
-.jobs-delete { margin-left: auto; display: inline-flex; align-items: center; padding: 2px; background: none; border: 0; color: var(--text-dim); cursor: pointer; }
-.jobs-delete:hover { background: none; color: var(--git-deleted); }
-/* W1-C plan lifecycle: rename and archive beside the trash, the name's field, and the archived toggle */
-.jobs-lifecycle { display: inline-flex; align-items: center; padding: 2px; background: none; border: 0; color: var(--text-dim); cursor: pointer; }
-.jobs-lifecycle:hover { background: none; color: var(--text); }
+.jobs-overlaps { margin: 2px 0 4px; padding: 0 0 0 14px; font-size: var(--fs-11); color: var(--warn-ink); list-style: disc; }
+/* W1-C plan lifecycle: the name's field (PlanHeader uses it too). The foot's trash, rename, archive and hold, the head's
+   caret, detail and restart, and the archived toggle are ui IconButton/Button: the primitive draws them (W12) */
 .jobs-title-input { flex: 1; min-width: 0; font: inherit; padding: 0 4px; }
-.jobs-archived-toggle { align-self: flex-start; background: none; border: 0; padding: 2px 0; color: var(--text-dim); cursor: pointer; font-size: 11px; }
-.jobs-archived-toggle:hover { color: var(--text); }
-.jobs-empty { margin: auto; text-align: center; padding: 0 24px; color: var(--text-faint); font-size: 13px; }
-.jobs-empty-hint { margin-top: 6px; font-size: 11.5px; }
+/* 휴지통은 아래 한 줄의 오른쪽 끝이다 — 제목 줄의 상세 버튼 옆에 두면 되돌릴 수 없는 동작과 그냥 열어 보는
+   동작이 나란한 작은 표적 둘이 된다. 되돌릴 수 없다는 경고는 색이 아니라 확인 창이 한다 */
+.jobs-foot .jobs-delete { margin-left: auto; }
+.jobs-empty { flex: 1; display: flex; flex-direction: column; }
+.jobs-empty-hint { margin-top: 6px; font-size: var(--fs-12); }
+/* The host screen's extra lines sit inside EmptyState's one sentence, each on its own line */
+.ui-empty .jobs-empty-hint { display: block; }
 /* #79: the Jobs panel at the 284px default sidebar: buttons, hints and the delivery select wrap instead of clipping */
 .jobs-view, .jobs-empty { min-width: 0; overflow-wrap: anywhere; }
-.jobs-view > .jobs-new, .jobs-empty > .jobs-new { max-width: calc(100% - 20px); white-space: normal; text-align: center; box-sizing: border-box; }
-.jobs-delivery { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; margin: 4px 10px; font-size: 12px; }
+.jobs-delivery { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; margin: 4px 10px; font-size: var(--fs-12); }
 .jobs-delivery label { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 0; max-width: 100%; }
 .jobs-delivery select, .jobs-delivery input { min-width: 0; max-width: 100%; }
 /* 아무것도 움직이지 않는 까닭(한도 L3). 경고 색 한 줄 — 사람이 할 일이 있을 수도 있다는 뜻이지 실패가 아니다 */
-.jobs-stall { margin: 10px 10px 4px; padding: 6px 10px; border: 1px solid var(--warn); border-radius: var(--radius-sm); color: var(--warn); font-size: 12px; text-align: left; }
+.jobs-stall { margin: 10px 10px 4px; padding: 6px 10px; border: 1px solid var(--warn); border-radius: var(--radius-sm); color: var(--warn); font-size: var(--fs-12); text-align: left; }
 /* A paired Runtime above the Jobs view (remote runtime design Phase 6): its selectors and its notes. Offline takes
    .jobs-stall's warning colour: something to know, never a failure (a network loss fails no Job). */
 .jobs-runtime { display: flex; flex-direction: column; gap: 6px; margin: 10px 10px 4px; color: var(--text-faint); }
 .jobs-runtime .jobs-empty-hint { margin-top: 0; }
-.jobs-runtime-offline { padding: 6px 10px; border: 1px solid var(--warn); border-radius: var(--radius-sm); color: var(--warn); font-size: 12px; }
+.jobs-runtime-offline { padding: 6px 10px; border: 1px solid var(--warn); border-radius: var(--radius-sm); color: var(--warn); font-size: var(--fs-12); }
 
 /* 예약 템플릿 줄. **띠도 진행률도 없다** — 템플릿은 돌지 않으므로 그것들이 말할 것이 없다
    (JobsView 의 ScheduleCard 주석). 대신 규칙·다음 시각·회차 수 한 줄이 그 자리를 쓴다 */
-.jobs-tmpl-badge { flex: none; font-size: 10px; padding: 1px 5px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); white-space: nowrap; }
-.jobs-tmpl-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 4px 10px 8px 26px; color: var(--text-dim); font-size: 11px; font-variant-numeric: tabular-nums; }
-.jobs-tmpl-empty { padding: 0 10px 10px 26px; color: var(--text-faint); font-size: 11px; }
+.jobs-tmpl-badge { flex: none; font-size: var(--fs-11); padding: 1px 5px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); white-space: nowrap; }
+.jobs-tmpl-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 4px 10px 8px 26px; color: var(--text-dim); font-size: var(--fs-11); font-variant-numeric: tabular-nums; }
+.jobs-tmpl-empty { padding: 0 10px 10px 26px; color: var(--text-faint); font-size: var(--fs-11); }
 /* 멈춘 예약. **경고가 아니라 상태다** — 사람이 스스로 세운 것이므로 붉게 쓰지 않는다. 다만 그 줄의
    나머지(규칙 요약, 회차 수)보다는 앞에 읽혀야 해서 흐린 본문색 대신 본문색을 쓰고 무게를 준다 */
 .jobs-tmpl-paused { flex: none; color: var(--text); font-weight: 500; }
 /* 회차 번호 칩. 한 템플릿의 회차는 목표가 같아 제목으로 구별되지 않으므로, 제목 앞에 번호가 먼저
    온다. .jobs-shared 와 같은 크기·모양이지만 경고가 아니라 이름표라 톤은 중립이다 */
-.jobs-ordinal { flex: none; font-size: 10px; padding: 1px 5px; border-radius: var(--radius-sm); background: var(--elevated); color: var(--text-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.jobs-ordinal { flex: none; font-size: var(--fs-11); padding: 1px 5px; border-radius: var(--radius-sm); background: var(--elevated); color: var(--text-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
 /* 자동 수정 칩 — .jobs-ordinal 의 모양에 kind 별 색. 노드 배경(.detail-node--validating 등)과 같은 토큰이라 상세
    창과 사이드바가 같은 색으로 같은 상태를 부른다. Gate 줄에서는 아이콘과 같은 높이에 선다.
    셀렉터를 .jobs-conv.jobs-conv--<kind> 로 겹쳐 쓰는 이유: 이 규칙이 덮는 .jobs-ordinal 과 단일 클래스
@@ -203,12 +164,11 @@
    사이에 접힌 채로 앉는다. 펼쳐도 이벤트를 화면 밖으로 밀지 않도록 자기 높이를 제한한다 —
    꼬리 하나가 4000자까지 온다. */
 .detail-completion { display: flex; flex-direction: column; gap: 6px; padding: 6px 0; border-bottom: 1px solid var(--line-soft); }
-.detail-completion-head { align-self: flex-start; background: none; border: 0; padding: 0; color: var(--accent); font-size: 12px; cursor: pointer; }
-.detail-completion-head:hover { text-decoration: underline; background: none; }
+.detail-completion-head { align-self: flex-start; }
 /* Opened, it shrinks to the room the events column has and scrolls inside itself, so a long list or diff never runs past the detail. */
 .changed-files { flex: 0 1 auto; min-height: 0; overflow-y: auto; }
 .changed-files-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
-.changed-files-list > li > button { display: flex; align-items: baseline; gap: 8px; width: 100%; padding: 3px 6px; border: 0; border-radius: 4px; background: transparent; text-align: left; font-size: 12px; }
+.changed-files-list > li > button { display: flex; align-items: baseline; gap: 8px; width: 100%; padding: 3px 6px; border: 0; border-radius: var(--radius-sm); background: transparent; text-align: left; font-size: var(--fs-12); }
 .changed-files-list > li > button:hover, .changed-files-list > li > button.is-open { background: var(--elevated); }
 .changed-file-status { flex: 0 0 auto; min-width: 56px; color: var(--text-dim); }
 .changed-file-status.is-added { color: var(--git-new); }
@@ -218,17 +178,17 @@
 .changed-file-from { margin-left: 6px; color: var(--text-dim); }
 .changed-file-counts { flex: 0 0 auto; color: var(--text-dim); font-family: var(--font-mono, monospace); }
 .changed-file-diff { margin: 4px 0 8px; }
-.changed-files-reported-head { margin: 6px 0 0; font-size: 12px; color: var(--text-dim); }
-.changed-files-reported { margin: 0; padding-left: 18px; font-size: 12px; font-family: var(--font-mono, monospace); color: var(--text); }
-.diff-view { max-height: 360px; overflow: auto; border: 1px solid var(--line-soft); border-radius: 6px; background: var(--bg); }
-.diff-table { border-collapse: collapse; width: 100%; font-family: var(--font-mono, monospace); font-size: 12px; }
+.changed-files-reported-head { margin: 6px 0 0; font-size: var(--fs-12); color: var(--text-dim); }
+.changed-files-reported { margin: 0; padding-left: 18px; font-size: var(--fs-12); font-family: var(--font-mono, monospace); color: var(--text); }
+.diff-view { max-height: 360px; overflow: auto; border: 1px solid var(--line-soft); border-radius: var(--radius); background: var(--bg); }
+.diff-table { border-collapse: collapse; width: 100%; font-family: var(--font-mono, monospace); font-size: var(--fs-12); }
 .diff-row td { padding: 0 6px; vertical-align: top; white-space: pre-wrap; overflow-wrap: anywhere; }
 .diff-no { width: 1%; min-width: 36px; text-align: right; color: var(--text-faint); user-select: none; white-space: nowrap !important; }
 .diff-add { background: var(--diff-add-bg); }
 .diff-del { background: var(--diff-del-bg); }
 .diff-hunk td { color: var(--accent); background: var(--elevated); }
 .diff-meta td { color: var(--text-dim); }
-.detail-completion-checks, .detail-completion-issues, .detail-completion-files { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.detail-completion-checks, .detail-completion-issues, .detail-completion-files { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-12); }
 .detail-completion-checks > li, .detail-completion-issues > li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
 .detail-completion-name { font-weight: 600; }
 /* 통과한 것은 가라앉히고 막은 것만 눈에 든다 — 칩 줄과 같은 규칙이다 */
@@ -240,22 +200,24 @@
    findings scroll here rather than push the graph away */
 .detail-completion-summary { flex: 0 0 100%; margin: 0; max-height: 160px; overflow: auto; color: var(--text-dim); white-space: pre-wrap; overflow-wrap: anywhere; }
 .detail-completion-summary--error { color: var(--warn-ink); }
-.detail-completion-diags { flex: 0 0 100%; list-style: none; margin: 0; padding: 0; max-height: 160px; overflow: auto; display: flex; flex-direction: column; gap: 2px; font-size: 11px; }
+.detail-completion-diags { flex: 0 0 100%; list-style: none; margin: 0; padding: 0; max-height: 160px; overflow: auto; display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-11); }
 .detail-completion-diags > li { display: flex; gap: 6px; align-items: baseline; overflow-wrap: anywhere; white-space: pre-wrap; }
 .detail-completion-diags > li.warning { color: var(--text-dim); }
 .detail-completion-verdict { color: var(--text-dim); }
-.detail-completion-more { background: none; border: 0; padding: 0; color: var(--accent); font-size: 11px; cursor: pointer; }
-.detail-completion-more:hover { text-decoration: underline; background: none; }
+/* The status icon beside a check's name: the word beside it (the verdict) carries the meaning, the icon is the second cue */
+.detail-completion-mark { flex: none; align-self: center; color: var(--text-dim); }
+.detail-completion-mark--failed, .detail-completion-mark--timed-out { color: var(--git-conflict); }
+.detail-completion-mark--error { color: var(--warn-ink); }
 /* 한 검사의 출력 꼬리. flex-basis 100% 로 제 줄을 차지한다 — 이름 옆에 붙으면 줄이 깨진다 */
-.detail-completion-tail { flex: 0 0 100%; max-height: 160px; overflow: auto; margin: 2px 0 0; padding: 6px 8px; background: var(--elevated); border-radius: var(--radius-sm); font-size: 11px; line-height: 1.5; white-space: pre-wrap; word-break: break-all; }
-.detail-completion-label { margin: 2px 0 0; font-size: 12px; color: var(--text-dim); }
-.detail-completion-sev { flex: none; font-size: 10px; text-transform: uppercase; letter-spacing: .02em; }
+.detail-completion-tail { flex: 0 0 100%; max-height: 160px; overflow: auto; margin: 2px 0 0; padding: 6px 8px; background: var(--elevated); border-radius: var(--radius-sm); font-size: var(--fs-11); line-height: 1.5; white-space: pre-wrap; word-break: break-all; }
+.detail-completion-label { margin: 2px 0 0; font-size: var(--fs-12); color: var(--text-dim); }
+.detail-completion-sev { flex: none; font-size: var(--fs-11); text-transform: uppercase; letter-spacing: .02em; }
 .detail-completion-sev.sev-critical, .detail-completion-sev.sev-high { color: var(--git-conflict); }
 .detail-completion-sev.sev-medium { color: var(--warn-ink); }
 .detail-completion-sev.sev-low, .detail-completion-sev.sev-info { color: var(--text-dim); }
 .detail-completion-issue-title { min-width: 0; }
-.detail-completion-where { color: var(--text-faint); font-size: 11px; }
-.detail-completion-files > li { color: var(--text-dim); font-size: 12px; }
+.detail-completion-where { color: var(--text-faint); font-size: var(--fs-11); }
+.detail-completion-files > li { color: var(--text-dim); font-size: var(--fs-12); }
 .jobs-gate .jobs-conv { margin-top: 1px; }
 /* 회차는 평범한 Run 카드다. 한 단 들여써서 부모에 속한 것으로 읽히게 하고, 자기 테두리는 지운다 —
    부모의 테두리 안에 또 테두리가 겹치면 어느 것이 묶음의 끝인지 읽을 수 없다(.jobs-run 의 주석과
@@ -278,11 +240,7 @@
   background: color-mix(in srgb, var(--text) 4%, transparent);
   border-bottom-color: var(--wash-strong);
 }
-/* 회차 목록의 페이징 줄. .jobs-fold 와 같은 자리·같은 톤이지만 누르는 것이라 커서와 hover 를 준다 */
-.jobs-tmpl-more {
-  display: flex; align-items: center; gap: 6px;
-  padding: 4px 10px 8px 26px; color: var(--text-dim); font-size: 11px; cursor: pointer;
-}
-.jobs-tmpl-more:hover { color: var(--accent); }
+/* 회차 목록의 페이징 줄 — .jobs-fold 와 같은 자리(ghost Button 이 모양을 그린다) */
+.jobs-tmpl-more { align-self: flex-start; margin: 0 10px 8px 26px; }
 .jobs-tmpl-kids .jobs-run { border-bottom: none; }
 .jobs-tmpl-kids .jobs-run:not(:last-child) { border-bottom: 1px solid var(--line-soft); }

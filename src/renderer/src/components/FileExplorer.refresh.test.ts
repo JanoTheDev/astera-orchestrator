@@ -30,8 +30,8 @@ describe("the explorer's refresh keeps the folders the person opened", () => {
   // icon turns while the root is being read (the loading set already waits ROW_SPINNER_DELAY_MS, so a quick one
   // does not flicker).
   it('turns the refresh icon while the root is being read', () => {
-    const button = body(explorer, 'icon={<RefreshCw', 'onClick={refresh}')
-    expect(button).toMatch(/<RefreshCw[^>]*className=\{refreshing \? 'fx-refreshing' : undefined\}/)
+    const button = body(explorer, 'icon={<Icon name="refresh"', 'onClick={refresh}')
+    expect(button).toMatch(/<Icon name="refresh"[^>]*className=\{refreshing \? 'fx-refreshing' : undefined\}/)
     expect(explorer).toMatch(/const refreshing = root !== null && tree\.loading\.has\(root\)/)
     expect(styles).toMatch(/\.fx-refreshing\s*\{[^}]*animation:\s*cm-spin/)
   })

@@ -1,0 +1,274 @@
+// Korean · tools area. Which files each area serves: ../README.md.
+export const tools = {
+  'jobs.runtime.label': 'Runtime',
+  'jobs.runtime.project': '{name} 의 프로젝트',
+  'jobs.runtime.empty': '이 Runtime 의 이 프로젝트에는 작업이 없습니다.',
+  'jobs.runtime.noProjects': '이 Runtime 에 프로젝트가 없습니다.',
+  'jobs.runtime.control': '여기서 하는 동작은 {name} 에서 실행됩니다.',
+  'jobs.runtime.slack': '이 Job 의 알림은 Runtime 컴퓨터의 Slack 설정을 따릅니다.',
+  'github.badge.stale': '레이트리밋으로 갱신이 멈춰 있습니다 — 마지막으로 확인한 상태입니다',
+  'github.badge.draft': '초안',
+  'github.badge.checks.pending': '체크 진행 중',
+  'github.badge.checks.failing': '체크 실패',
+  'github.badge.checks.passing': '체크 통과',
+  'github.badge.checks.none': '체크 없음',
+  'github.state.open': '열림',
+  'github.state.merged': '머지됨',
+  'github.state.closed': '닫힘',
+  'worktree.push.aheadUnknown': '푸시하지 않은 커밋이 있습니다',
+  'worktree.push.createPrHint': 'PR 만들기 — 커밋 {count}개를 {base}(으)로',
+  'worktree.push.createPrHint.one': 'PR 만들기 — 커밋 {count}개를 {base}(으)로',
+  // RunToolbar.tsx — config select, run/stop, the running list, ⋮ menu (only item opens RunConfigManager)
+  'run.config.selectLabel': '실행 구성 선택',
+  'run.config.none': '실행 구성 없음',
+  'run.config.more': '추가 동작',
+  'run.action.run': '실행',
+  'run.action.stop': '중지',
+  'run.action.rerun': '다시 실행',
+  'run.action.restart': '재시작',
+  'run.global.listTitle': '실행 중 목록',
+  'run.global.jump': '이동',
+  // RunConfigForm.tsx — name field and the JDK/file pickers shared by every per-kind form.
+  // 종류별 필드 라벨은 shell 의 명령까지 모두 아래 run.field.* 에 모여 있다
+  'run.form.nameLabel': '이름',
+  'run.form.folder': '폴더',
+  'run.form.folderNone': '(폴더 없음)',
+  'run.form.jdkLoading': 'JDK 조회 중…',
+  'run.form.jdkNone': '사용 안 함 (앱 환경 그대로)',
+  'run.form.jdkCustom': '{path} (직접 지정)',
+  'run.form.jdkBrowse': '찾아보기…',
+  'run.form.cwdBrowse': '선택…',
+  'run.form.fileBrowse': '찾아보기…',
+  // Python 인터프리터 Select + 찾기 버튼 (Task 9) — JDK 필드와 같은 모양
+  'run.form.interpreterLoading': '인터프리터 조회 중…',
+  'run.form.interpreterAuto': '자동 (PATH 의 python)',
+  'run.form.interpreterCustom': '{path} (직접 지정)',
+  'run.form.interpreterBrowse': '찾아보기…',
+  // Compose 파일 찾기 버튼과 services 필드의 후보 힌트 (Task 10)
+  'run.form.composeFileBrowse': '찾아보기…',
+  'run.form.composeServicesLoading': 'Compose 서비스 조회 중…',
+  'run.form.composeServicesHint': '후보: {list}',
+  // Dockerfile 경로 찾기 버튼 (Task 11)
+  'run.form.dockerfilePathBrowse': '찾아보기…',
+  // .NET 프로젝트 파일 Select + 찾기 버튼 (Task 12) — 인터프리터·JDK 필드와 같은 모양이다:
+  // 스캐너가 찾은 것을 고르거나, 찾지 못한 파일은 찾기 버튼으로 직접 지정한다
+  'run.form.projectLoading': '.NET 프로젝트 조회 중…',
+  'run.form.projectCustom': '{path} (직접 지정)',
+  'run.form.projectBrowse': '찾아보기…',
+  // RunConfigManager.tsx — the two-pane dialog. run.type.* are kind labels grouping the tree;
+  // product/tool names among them (npm, Gradle, Maven, cargo, go, Python, pytest) are not translated.
+  'run.manager.title': '실행 구성',
+  'run.manager.open': '실행 구성 관리…',
+  'run.manager.add': '추가',
+  'run.manager.remove': '제거',
+  'run.manager.duplicate': '복제',
+  // 시드를 고치면 그 순간 사용자 구성 사본으로 승격된다(promoteSeed) — 더 이상 읽기 전용이 아니다
+  'run.manager.seedHint': '자동 감지된 구성을 수정하면 사용자 구성 사본으로 저장됩니다.',
+  'run.manager.search': '구성 검색',
+  'run.manager.apply': '적용',
+  'run.manager.ok': '확인',
+  'run.manager.discardTitle': '변경 사항을 버릴까요?',
+  'run.manager.discardBody': '적용하지 않은 편집이 있습니다. 버리면 되돌릴 수 없습니다.',
+  'run.manager.discard': '버리기',
+  'run.manager.keepEditing': '계속 편집',
+  // The tree's markers, as tooltips
+  'run.manager.markDirty': '적용되지 않은 변경',
+  'run.manager.markIncomplete': '필수 항목이 비어 있어 실행할 수 없습니다',
+  'run.manager.markBrokenRef': '가리키는 구성이 없어 실행할 수 없습니다',
+  'run.manager.markTemporary': '임시 구성입니다 — 고치면 남습니다',
+  'run.manager.newFolder': '새 폴더로',
+  'run.manager.moveUp': '위로',
+  'run.manager.moveDown': '아래로',
+  // The name a new folder starts with; the tree appends a number when it is taken
+  'run.manager.folderNameDefault': '새 폴더',
+  'run.manager.renameFolder': '폴더 이름 바꾸기',
+  'run.type.shell': 'Shell',
+  'run.type.npm': 'npm',
+  'run.type.node': 'Node.js',
+  'run.type.gradle': 'Gradle',
+  'run.type.maven': 'Maven',
+  'run.type.cargo': 'cargo',
+  'run.type.go': 'go',
+  'run.type.python': 'Python',
+  'run.type.pytest': 'pytest',
+  'run.type.compose': 'Docker Compose',
+  'run.type.dockerfile': 'Dockerfile',
+  'run.type.dotnet': '.NET',
+  'run.type.compound': 'Compound',
+  // RunConfigForm.tsx / RunTypePicker.tsx (Task 7) — per-kind field labels and the ＋ kind-picker popup.
+  'run.field.javaHome': 'JDK',
+  'run.field.springProfiles': 'Spring 프로파일',
+  'run.field.args': '인자',
+  'run.field.cwd': '작업 폴더',
+  'run.field.env': '환경변수',
+  // EnvTable.tsx — the Key/Value table that edits a configuration's environment variables
+  'run.env.key': '키',
+  'run.env.value': '값',
+  'run.env.addRow': '행 추가',
+  'run.env.removeRow': '행 삭제',
+  'run.env.issue.emptyKey': '키가 비어 있어 저장되지 않습니다',
+  'run.env.issue.shadowed': '아래의 같은 키가 이 값을 덮어씁니다',
+  'run.field.allowMultipleInstances': '여러 인스턴스 허용',
+  'run.field.previewUrl': '미리보기 URL',
+  // 종류별 필수 필드. shell 의 command 도 여기 있어야 run.start 의 "빈 필수 항목" 메시지가
+  // run.field.<이름> 으로 라벨을 찾을 수 있다 (migrate.ts 의 REQUIRED 에 있는 이름은 모두 여기 있다)
+  'run.field.command': '명령',
+  'run.field.script': '스크립트',
+  'run.field.file': '파일',
+  'run.field.tasks': '작업',
+  'run.field.goals': '목표',
+  'run.field.subcommand': '하위 명령',
+  'run.field.packageManager': '패키지 매니저',
+  'run.field.packageManagerAuto': '자동',
+  'run.field.release': '릴리스 빌드',
+  'run.field.features': '기능',
+  'run.field.packagePath': '패키지 경로',
+  'run.field.nodePath': 'Node 실행 파일',
+  // Python(파일 필수)·pytest(대상 선택) 공용 인터프리터 필드와 pytest 전용 대상 필드 (Task 9)
+  'run.field.interpreter': '인터프리터',
+  'run.field.target': '테스트 대상',
+  // Docker Compose 필드 (Task 10) — 모두 선택 항목이다: composeFile 이 비면 문맥이 찾은 파일, services 가
+  // 비면 전체 서비스로 실행한다
+  'run.field.composeFile': 'Compose 파일',
+  'run.field.services': '서비스',
+  'run.field.action': '동작',
+  // Dockerfile 필드 (Task 11) — imageTag 만 필수, 나머지는 선택
+  'run.field.imageTag': '이미지 태그',
+  'run.field.dockerfilePath': 'Dockerfile 경로',
+  'run.field.buildArgs': '빌드 인자',
+  'run.field.runArgs': '실행 인자',
+  // .NET 필드 (Task 12) — project(.csproj/.fsproj/.sln) 만 필수다. 앱이 여는 '프로젝트'와 헷갈리지
+  // 않도록 '프로젝트 파일'로 적는다. subcommand 는 비면 run 이다
+  'run.field.project': '프로젝트 파일',
+  'run.field.configuration': '빌드 구성',
+  'run.section.configuration': '구성',
+  'run.section.environment': '환경',
+  'run.section.beforeLaunch': '실행 전 작업',
+  'run.ref.add': '추가',
+  'run.ref.remove': '목록에서 빼기',
+  'run.ref.none': '추가할 수 있는 구성이 없습니다',
+  'run.menu.recent': '최근',
+  'run.menu.detected': '감지됨',
+  'run.menu.temporary': '임시',
+  'run.menu.running': '{count}개 실행 중',
+  'run.menu.edit': '{name} 편집…',
+  'run.picker.search': '검색…',
+  'run.picker.detected': '이 프로젝트에서 감지됨',
+  'run.picker.other': '기타',
+  'run.form.addOption': '선택 항목 추가',
+  'run.panel.clear': '지우기',
+  'run.panel.collapse': '접기',
+  'run.find.placeholder': '출력에서 찾기',
+  'run.find.count': '{n} / {total}',
+  'run.find.countMany': '{total}개',
+  'run.find.noResults': '결과 없음',
+  'run.find.prev': '이전 일치',
+  'run.find.next': '다음 일치',
+  'run.find.close': '찾기 닫기',
+  'run.rail.scrollToEnd': '끝으로',
+  'run.rail.find': '찾기',
+  'run.rail.rerunGone': '구성이 삭제되었습니다',
+  // BottomPanel, the rail terminal button. The Run tab and the terminal tabs share the bottom panel.
+  'terminal.tab.label': '터미널 {n}',
+  'terminal.tab.new': '새 터미널',
+  'terminal.tab.close': '터미널 닫기',
+  // JobsView.tsx, App.tsx — the read-only Jobs sidebar (오케스트레이션 Run/Task 목록)
+  // 'Jobs'는 번역하지 않는다 — '작업'은 이미 Task를 가리키는 말이라, 뷰 이름까지 '작업'이라 하면
+  // 그 안의 Task 행들과 이름이 겹친다. catalog.test.ts의 LITERALS가 네 카탈로그 모두에서 그대로
+  // 남도록 강제한다.
+  'jobs.empty': '아직 시작한 작업이 없습니다',
+  // 사이드바에 '+ 새 작업' 버튼이 생긴 뒤로도 코디네이터 세션은 여전히 작업이 생기는 또 다른 경로다
+  // — 이 문장은 둘 중 하나를 지우지 않고 함께 말한다.
+  'jobs.empty.hint': '새 작업은 여기서 바로 만들 수 있습니다 — 리드 에이전트 세션에서 만든 작업도 여기에 나타납니다',
+  // 여덟 상태의 툴팁 — JobIcons.tsx 의 글리프가 달고 다닌다. 사이드바가 상태를 말로 적지 않게 된
+  // 뒤로 이 문구들은 상시로 보이지 않는다: 아이콘을 처음 보는 사람이 배우는 자리다.
+  // pending 과 blocked 를 다르게 적는 것이 특히 중요하다 — 앞은 의존이, 뒤는 사람이 막고 있다
+  'jobs.state.pending': '아직 막혀 있다',
+  'jobs.state.ready': '시작할 수 있다',
+  'jobs.state.dispatched': '에이전트가 일하는 중',
+  // dispatched 인데 워커가 없는 상태 — worker-stop 이 세션을 죽이고 Task 는 그대로 둔다.
+  // 글리프는 여전히 도는 모양이다(결론이 나지 않았다는 뜻이라 그것은 맞다) — 거짓이 되는 것은
+  // 살아 있는 워커를 약속하는 위 문구뿐이라, 그 자리에만 이것을 쓴다
+  'jobs.state.dispatchedStopped': '에이전트가 멈췄다',
+  'jobs.state.validating': '검증이 도는 중',
+  'jobs.state.reviewing': '다른 에이전트가 검토 중',
+  'jobs.state.merging': '플랜 브랜치에 병합하는 중',
+  'jobs.state.completed': '끝났다',
+  'jobs.state.failed': '실패했다',
+  'jobs.state.blocked': '사람을 기다린다',
+  'jobs.run.pauseHint': '이 예약을 세웁니다 — 도는 Task 도 함께 멈춥니다',
+  'jobs.run.roundStoppedHint': '예약이 세워져 이 회차는 멈췄습니다 — 다시 실행하면 다음 예약 시각의 새 회차가 돕니다',
+  'jobs.run.resumeHint': '다음 예약 시각부터 다시 돌기 시작합니다',
+  'jobs.run.notStartedHint': '아직 실행하지 않았습니다 — 상세 창에서 실행을 누르면 시작합니다',
+  'jobs.run.planningHint': '플래너가 아직 이 계획을 짜는 중입니다. 끝나면 승인 버튼이 나타납니다.',
+  'jobs.run.startsByItselfHint': '플래너가 끝나면 이 계획은 자동으로 시작됩니다.',
+  // 노드 meta 줄(RunDetail, nodeMetaOf 의 kind 별). 문장은 결과가 아니라 지금 무슨 일이 벌어지는지 말한다 —
+  // "수정 2/3 · Unit tests 실패" 는 두 번 고쳤고 아직 그 검사가 막고 있다는 뜻이다
+  'jobs.convergence.node.repairing': '수정 {repairs}/{max} · {failed} 실패',
+  'jobs.convergence.node.repairingNoCheck': '수정 {repairs}/{max}',
+  // validator 는 라운드 끝에 한 번 결과를 주므로 도는 동안 아는 것은 지난 라운드뿐이다 — "지금 도는 검사" 를
+  // 지어내지 않고 지난 라운드에 막힌 검사를 가리킨다(UI 설계 U12)
+  'jobs.convergence.node.rechecking': '다시 검사 중 · {name}',
+  'jobs.convergence.node.checking': '검사 중',
+  'jobs.convergence.node.reviewing': '검토 라운드 {round}/{max}',
+  'jobs.convergence.node.failed': '{name} 실패',
+  'jobs.convergence.node.unavailable': '{name} 검사 불가',
+  'jobs.convergence.node.stopped': '자동 수정 멈춤',
+  'jobs.convergence.node.stoppedWithCheck': '자동 수정 멈춤 · {failed} 실패',
+  'jobs.convergence.node.stoppedUnavailable': '자동 수정 멈춤 · {failed} 검사 불가',
+  // 검사 칩 툴팁 — "{이름} — {결과} ({지난 라운드 실제 시간})"
+  'jobs.convergence.check.passed': '통과',
+  'jobs.convergence.check.failed': '실패 (exit {code})',
+  'jobs.convergence.check.timedOut': '타임아웃',
+  'jobs.convergence.check.notRun': '돌지 않음',
+  'jobs.convergence.check.failedNoCode': '실패',
+  'jobs.convergence.check.error': '검사할 수 없었음',
+  'jobs.convergence.check.skipped': '사람이 건너뜀',
+  'jobs.convergence.check.retrying': '다시 도는 중',
+  'jobs.convergence.check.unstable': '라운드 사이에 판정이 흔들림',
+  // 설계 §2(V1). 칩은 '무엇이 어디서 멈췄나' 까지고, 이 블록이 '그래서 뭐가 틀렸나' 를 맡는다.
+  'jobs.completion.show': '왜 실패했는지 보기',
+  'jobs.completion.hide': '접기',
+  'jobs.completion.empty': '이 Task 에는 아직 검사 결과도 검토 지적도 없습니다.',
+  'jobs.completion.showTail': '출력 보기',
+  'jobs.completion.hideTail': '출력 접기',
+  'jobs.completion.openReport': '보고서 열기',
+  'jobs.completion.warning': '경고',
+  'jobs.completion.moreFindings': '… 그 밖에 {n}개는 여기 나오지 않습니다',
+  'jobs.completion.moreFindingsReport': '… 그 밖에 {n}개는 보고서에 있습니다',
+  'jobs.completion.findingsUnlisted': '지적 {n}개, 여기 나오지 않습니다',
+  'jobs.completion.findingsUnlistedReport': '지적 {n}개, 보고서에 있습니다',
+  'jobs.completion.blocking': '막는 검토 지적 {n}',
+  // 막지 않는 이슈는 개수만 말한다 — 없는 것과 다르다는 사실까지가 필요한 전부다.
+  'jobs.completion.other': '그 밖의 지적 {n}',
+  'jobs.completion.suspicious': '검사 설정이 바뀐 파일',
+  'jobs.completion.policyChanged': '이 Task 가 도는 동안 완료 검사 설정 자체가 달라졌습니다. 리뷰어에게도 알렸습니다.',
+  'jobs.detail.journalOlder': '이전 저널 기록 더 보기',
+  'jobs.detail.journalCapped': '더 오래된 저널 기록은 여기에 보이지 않습니다. 이 창은 최근 기록만 보여 줍니다.',
+  'jobs.detail.journalBusy': '지금은 저널이 사용 중이라 마지막으로 읽은 기록을 보여 줍니다. 다음 갱신 때 다시 읽습니다.',
+  'jobs.task.checkPlugin': '플러그인: {name}',
+  'jobs.task.checkPluginStatus': '플러그인: {name} ({status})',
+  // W12 redesign · Jobs view (JobsView, JobIcons)
+  'jobs.view.title': '계획',
+  'jobs.view.expand': '펼치기',
+  'jobs.view.collapse': '접기',
+  'jobs.view.openTab': '이 에이전트의 탭 열기',
+  'jobs.view.hold': '새 에이전트 시작 멈추기 (도는 에이전트는 계속한다)',
+  'jobs.view.holdRelease': '새 에이전트 다시 시작',
+  'jobs.view.leadRestart': '리드 에이전트 다시 띄우기',
+  'jobs.view.leadRestartHint': '이 작업을 이끄는 리드 에이전트가 없습니다 — 눌러서 다시 띄웁니다',
+  'jobs.view.approveHint': '이 계획을 승인하고 에이전트를 시작합니다',
+  'jobs.view.sharedFolderHint': '다른 작업의 에이전트와 같은 폴더에서 돌고 있습니다 — 서로의 편집이 섞일 수 있고, 앱은 그것을 막지도 알아채지도 못합니다',
+  'jobs.view.hostWaiting': '백그라운드 서비스에 연결하는 중입니다',
+  'jobs.view.hostUnreachable': '백그라운드 서비스에 연결할 수 없습니다',
+  'jobs.view.stallParked': '백그라운드 서비스가 작업을 멈춰 둠: {reason}',
+  'jobs.view.stallUnresponsive': '백그라운드 서비스가 응답하지 않아 작업이 움직이지 않습니다. 설정의 정보 탭에서 다시 시작할 수 있습니다',
+  'jobs.view.stallReading': '백그라운드 서비스가 아직 설정을 읽는 중이라 작업이 움직이지 않습니다',
+  // W12 end jobs
+  // W12 redesign · run configs (RunConfigForm/Manager/Menu, RunTypePicker, ConfigRefList, EnvTable, RuntimeSelector)
+  // W12 end config
+  // W12 redesign · bottom panel (BottomPanel, RunPanel, RunToolbar, RunToolRail, RunFindBar)
+  // W12 end panel
+  // W12 redesign · run detail (RunDetailJournal, CompletionBlock, CompletionChecks, PrBadge, PushBadge, checkText)
+  // W12 end detail
+} as const

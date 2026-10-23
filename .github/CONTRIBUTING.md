@@ -42,16 +42,16 @@ Longer design notes and decisions live in `knowledge/`, and the published guides
 
 ## Finding something to work on
 
-Issues labelled [good first issue](https://github.com/parsingk/Astera/labels/good%20first%20issue)
-are small and self-contained; [help wanted](https://github.com/parsingk/Astera/labels/help%20wanted)
+Issues labelled [good first issue](https://github.com/JanoTheDev/astera-orchestrator/labels/good%20first%20issue)
+are small and self-contained; [help wanted](https://github.com/JanoTheDev/astera-orchestrator/labels/help%20wanted)
 ones are larger. Reviewing the Japanese or Spanish translations is always welcome, since neither had a
 native speaker's review (see the i18n rule below). If you want to work on something bigger, open an
-issue or a [discussion](https://github.com/parsingk/Astera/discussions) first, so we can agree on the
+issue or a [discussion](https://github.com/JanoTheDev/astera-orchestrator/discussions) first, so we can agree on the
 approach before you spend time on it. Questions are welcome in Discussions too.
 
 ## Reporting a bug
 
-Use the bug report form in [Issues](https://github.com/parsingk/Astera/issues/new/choose). It asks for
+Use the bug report form in [Issues](https://github.com/JanoTheDev/astera-orchestrator/issues/new/choose). It asks for
 the app version (Settings, Info), your OS, and the lines of the relevant log. The logs are in the
 profile folder: `%APPDATA%\astera` on Windows, `~/Library/Application Support/astera` on macOS and
 `~/.config/astera` on Linux. `host/host.log` there is the background Host, and `rolling.log` is

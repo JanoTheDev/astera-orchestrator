@@ -49,4 +49,16 @@ describe('RuntimeSelector', () => {
     expect(html).toContain('Read only pairing')
     expect(html).not.toContain('jobs.runtime.control')
   })
+  it('each note pairs its words with an icon, and the offline line is a status', () => {
+    const html = render({ offline: 'Office does not answer', projects: [] })
+    const notes = html.match(/<p class="[^"]*runtime-note[^"]*"[^>]*>[\s\S]*?<\/p>/g) ?? []
+    expect(notes).toHaveLength(4) // no projects, offline, where actions run, Slack
+    for (const n of notes) expect(n).toMatch(/<svg[^>]*aria-hidden="true"/)
+    expect(html).toMatch(/class="jobs-runtime-offline runtime-note" role="status"/)
+  })
+  it('the runtime choice is the ui listbox Select, not a native select', () => {
+    const html = render()
+    expect(html).not.toContain('<option')
+    expect(html).toContain('role="combobox"')
+  })
 })

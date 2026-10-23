@@ -1,3 +1,4 @@
+import { Button } from './ui'
 import { useI18n } from '../i18n/I18nProvider'
 import type { UpdateStatus } from '../../../core/types'
 
@@ -33,10 +34,10 @@ export function UpdateGate({
   const version = update?.version
 
   return (
-    <div className="update-gate" role="alertdialog" aria-modal="true">
+    <div className="update-gate" role="alertdialog" aria-modal="true" aria-labelledby="update-gate-title" aria-describedby="update-gate-body">
       <div className="update-gate-card">
-        <h2>{t('update.gate.title')}</h2>
-        <p className="update-gate-body">
+        <h2 id="update-gate-title">{t('update.gate.title')}</h2>
+        <p id="update-gate-body" className="update-gate-body">
           {version
             ? t('update.gate.body', { version })
             : t('update.gate.bodyNoVersion')}
@@ -52,19 +53,19 @@ export function UpdateGate({
         </p>
         <div className="update-gate-actions">
           {ready ? (
-            <button className="update-gate-primary" onClick={onInstall}>
+            <Button variant="primary" autoFocus onClick={onInstall}>
               {t('update.toast.installNow')}
-            </button>
+            </Button>
           ) : available ? (
-            <button className="update-gate-primary" onClick={onDownload}>
+            <Button variant="primary" autoFocus onClick={onDownload}>
               {t('update.toast.download')}
-            </button>
+            </Button>
           ) : (
-            <button className="update-gate-primary" disabled={downloading} onClick={onRetry}>
+            <Button variant="primary" loading={downloading} onClick={onRetry}>
               {t('update.gate.retry')}
-            </button>
+            </Button>
           )}
-          <button onClick={() => window.api.app.quit()}>{t('update.gate.quit')}</button>
+          <Button variant="ghost" onClick={() => window.api.app.quit()}>{t('update.gate.quit')}</Button>
         </div>
       </div>
     </div>

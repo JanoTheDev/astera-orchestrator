@@ -4,6 +4,7 @@ import { blameLinesOf, type BlameLine } from './attribution'
 import { blameExtension, setBlame } from './blameGutter'
 import { BlameDetails } from './BlameDetails'
 import { useI18n } from '../../i18n/I18nProvider'
+import { Button } from '../ui'
 import './attribution.css'
 
 /**
@@ -56,9 +57,9 @@ export function BlameToggle({
           {note}
         </span>
       )}
-      <button type="button" className="attr-toggle" aria-pressed={on} onClick={() => setOn((v) => !v)}>
+      <Button size="sm" variant={on ? 'secondary' : 'ghost'} className="attr-toggle" aria-pressed={on} onClick={() => setOn((v) => !v)}>
         {t('attribution.blame')}
-      </button>
+      </Button>
     </div>
   )
 }

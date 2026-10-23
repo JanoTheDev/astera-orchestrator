@@ -552,6 +552,18 @@ describe('plan.done of a plan that replans', () => {
   })
 })
 
+describe('plan.deliveryDismissed (T34)', () => {
+  it('one line of its own kind when the owner dismisses a failed delivery, none when it was dismissed already', () => {
+    const failed = state({ runs: [run({ deliveryState: { state: 'failed', attempts: 1 } })] })
+    const dismissed = state({ runs: [run({ deliveryState: { state: 'dismissed', attempts: 1 } })] })
+    expect(deriveActivity(failed, dismissed).filter((d) => d.type === 'plan.deliveryDismissed')).toEqual([
+      { type: 'plan.deliveryDismissed', projectId: 'p1', jobId: 'j1', runId: 'r1', payload: { plan: 'Plan A', title: 'Plan A' } }
+    ])
+    expect(types(deriveActivity(failed, dismissed))).not.toContain('watchdog')
+    expect(types(deriveActivity(dismissed, state({ runs: [run({ deliveryState: { state: 'dismissed', attempts: 1 } })], tasks: [task('a', { spec: 'x' })] })))).not.toContain('plan.deliveryDismissed')
+  })
+})
+
 describe('task.edited (T7)', () => {
   it("one line when the owner changes a run Task's deps, spec, basis or evidence", () => {
     const before = state({ tasks: [task('a'), task('b', { status: 'pending', deps: ['a'], basis: { state: 'missing', evidence: 'none' } })] })

@@ -102,6 +102,30 @@ describe('runs doctor — diagnoseRuns', () => {
   })
 })
 
+describe('runs doctor — T36: a Run stalled on a failed Task', () => {
+  const stalled = (): OrchState => ({
+    ...emptyState(),
+    jobs: [job('j')],
+    runs: [run('r', 'j')],
+    tasks: [task('f', 'r', { status: 'failed', consecutiveFailures: 1, result: 'made 19 screens' }), task('w', 'r', { status: 'pending', deps: ['f'] })]
+  })
+
+  it('reports it once, as stalled with its reason, in place of the generic stuck finding', () => {
+    expect(diagnoseRuns(stalled(), ['r'])).toEqual([{ kind: 'stalled', runId: 'r', taskId: 'f', detail: 'stalled: waiting on f (f) (failed): 1 Task(s) wait on it' }])
+  })
+
+  it('--fix asks the owner once; a second fix leaves it to the owner', async () => {
+    const box = { s: stalled() }
+    const ctx = { getState: () => box.s, setState: async (n: OrchState) => void (box.s = n), now: () => LATER, lang: 'en' as const, sessionExited: async () => {} }
+    const first = await repairFindings(diagnoseRuns(box.s, ['r']), ctx)
+    expect(first[0]).toMatchObject({ fixed: true, did: 'asked the owner about f' })
+    expect(box.s.messages.filter((m) => m.type === 'escalation' && m.taskId === 'f')).toHaveLength(1)
+    const again = await repairFindings(diagnoseRuns(box.s, ['r']), ctx)
+    expect(again[0]).toMatchObject({ fixed: false })
+    expect(box.s.messages).toHaveLength(1)
+  })
+})
+
 describe('runs doctor — repairFindings', () => {
   it('repairs each kind with the repair it already has', async () => {
     const box = { s: fixture() }

@@ -191,7 +191,7 @@ describe('nowOf', () => {
       params: { target: 'src/x.ts', ago: '0:12' }
     })
     expect(nowOf(c, { lastAction: { tool: 'Bash', target: 'npm test', at } }, [], now)?.key).toBe('plan.now.running')
-    expect(nowOf(c, { lastAction: { tool: 'Edit', at } }, [question(false)], now)?.key).toBe('plan.now.asked')
+    expect(nowOf(c, { lastAction: { tool: 'Edit', at } }, [question(false)], now)?.key).toBe('plan.steps.now.asked')
     expect(nowOf(c, { lastAction: { tool: 'Edit', at } }, [question(true)], now)?.key).toBe('plan.now.editing')
     expect(nowOf(c, { prompt: 'permission' }, [question(false)], now)?.key).toBe('plan.now.permission')
     expect(nowOf(c, undefined, [], now)).toBeNull()
@@ -365,6 +365,13 @@ describe('areaGroupsOf / overlapTableOf (Plans views)', () => {
       ['auth', ['src/api'], ['a']],
       ['leaderboard', ['docs', 'src/api'], ['b']],
       ['', ['docs'], ['c']]
+    ])
+  })
+  it('lists a plan in two areas once, under its first', () => {
+    const two = row('two', { areas: ['leaderboard', 'auth'] })
+    expect(areaGroupsOf([two, a]).map((g) => [g.area, g.rows.map((r) => r.id)])).toEqual([
+      ['auth', ['a']],
+      ['leaderboard', ['two']]
     ])
   })
   it('says what each plan does per folder and marks the folders two plans still work in', () => {

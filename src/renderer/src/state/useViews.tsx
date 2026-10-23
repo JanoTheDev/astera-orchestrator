@@ -25,6 +25,7 @@ import type { useSidebar } from './useSidebar'
 import type { useSettings } from './useSettings'
 import type { useRunPanel } from './useRunPanel'
 import { scopeKey } from './appConstants'
+import { Button } from '../components/ui'
 
 export type ViewsDeps = Pick<ReturnType<typeof useLayout>,
     'activePaneId' | 'activePaneIdRef' | 'layout' | 'layoutRef' | 'sessions' | 'setActivePaneId' | 'setLayout' | 't'> &
@@ -118,8 +119,8 @@ export function useViews(deps: ViewsDeps) {
           {buf.conflict && (
             <div className="file-conflict">
               {t('files.editor.conflictChanged')}
-              <button onClick={() => reloadBufferFromDisk(f.id)}>{t('files.editor.reload')}</button>
-              <button onClick={() => setFileBuffers((prev) => (prev[f.id] ? { ...prev, [f.id]: { ...prev[f.id], conflict: false } } : prev))}>{t('files.editor.keepMine')}</button>
+              <Button size="sm" onClick={() => reloadBufferFromDisk(f.id)}>{t('files.editor.reload')}</Button>
+              <Button size="sm" onClick={() => setFileBuffers((prev) => (prev[f.id] ? { ...prev, [f.id]: { ...prev[f.id], conflict: false } } : prev))}>{t('files.editor.keepMine')}</Button>
             </div>
           )}
           {/* markdown=false 여도 MarkdownSplit 은 항상 렌더된다 — {md ? <MarkdownSplit/> : editor}

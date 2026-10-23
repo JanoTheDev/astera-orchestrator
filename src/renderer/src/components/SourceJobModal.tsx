@@ -6,7 +6,8 @@ import { FAILURE_LIMIT, MAX_REVIEW_ROUNDS } from '../../../core/orchestration/ty
 import { useI18n } from '../i18n/I18nProvider'
 import { AccountSelect } from './AccountSelect'
 import { failureLine } from './pluginsText'
-import { Button, Modal } from './ui'
+import { Button, Input, Modal, Select, Checkbox } from './ui'
+import './overlays.css'
 import { createPause } from '../lib/pausedSearch'
 
 // The Jobs view's "+ 소스에서" (plugin Phase 4 J20, §3): pick a source, find a ticket, read it, and make a Job from it
@@ -185,10 +186,10 @@ export function SourceJobView(p: SourceJobViewProps): React.JSX.Element {
         </>
       }
     >
-      <div className="dlg source-job">
+      <div className="dlg">
         <p className="modal-hint">{t('jobs.new.gitRequired')}</p>
-        {/* A native select, not the app's Select: a source that is not ready is a greyed option, which Select has no
-            way to draw (§3.1). `field` gives the search the app's input look. */}
+        {/* The app's Select in its list form: a source that is not ready is a greyed, unpickable row with its reason
+            (§3.1). `field` gives the search the app's input look. */}
         <div className="field source-pick">
           {p.sources === null ? (
             p.sourcesError !== undefined ? (
@@ -200,21 +201,17 @@ export function SourceJobView(p: SourceJobViewProps): React.JSX.Element {
               <p className="modal-hint">{t('jobs.source.sourcesLoading')}</p>
             )
           ) : (
-            <select value={p.source} onChange={(e) => p.onSource(e.target.value)} aria-label={t('jobs.source.source')} autoFocus>
-              <option value="">{t('jobs.source.sourcePick')}</option>
-              {p.sources.map((s) => {
-                const c = sourceChoice(s, t)
-                return (
-                  <option key={c.value} value={c.value} disabled={c.disabled}>
-                    {c.label}
-                  </option>
-                )
-              })}
-            </select>
+            <Select
+              className="ov-source-select"
+              value={p.source}
+              onChange={p.onSource}
+              ariaLabel={t('jobs.source.source')}
+              placeholder={t('jobs.source.sourcePick')}
+              items={[{ value: '', label: t('jobs.source.sourcePick') }, ...p.sources.map((s) => sourceChoice(s, t))]}
+            />
           )}
           {p.source !== '' && (
-            <input
-              type="text"
+            <Input
               value={p.query}
               placeholder={t('jobs.source.searchPlaceholder')}
               aria-label={t('jobs.source.search')}
@@ -323,19 +320,19 @@ export function SourceJobView(p: SourceJobViewProps): React.JSX.Element {
         )}
         {p.accounts !== null && (
           <div className="field">
-            <label>{t('jobs.new.coordinator')}</label>
+            <label>{t('overlays.sourceJob.leadAccount')}</label>
             <AccountSelect accounts={p.accounts} value={p.account} onChange={p.onAccount} allLabel={t('jobs.new.coordinatorPick')} />
-            <p className="modal-hint">{t('jobs.new.coordinatorHint')}</p>
+            <p className="modal-hint">{t('overlays.sourceJob.leadAccountHint')}</p>
             {p.accounts.length === 0 && <p className="warn-text">{t('jobs.task.accountEmpty')}</p>}
           </div>
         )}
         {/* As the new-Job window has them (plan P4, 4c final review M16) */}
         <div className="field">
           <label className="check-small">
-            <input type="checkbox" checked={p.convergence} onChange={(e) => p.onConvergence(e.target.checked)} />
-            {t('jobs.new.convergence')}
+            <Checkbox checked={p.convergence} onChange={(v) => p.onConvergence(v)} />
+            {t('overlays.sourceJob.fixUntilPass')}
           </label>
-          <p className="modal-hint">{t('jobs.new.convergenceHint')}</p>
+          <p className="modal-hint">{t('overlays.sourceJob.fixUntilPassHint')}</p>
           <p className="modal-hint">
             {t('jobs.new.convergenceDefaults', { fix: FAILURE_LIMIT, review: MAX_REVIEW_ROUNDS, severity: DEFAULT_BLOCKING_SEVERITY })}
             {' — '}

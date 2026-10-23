@@ -861,6 +861,17 @@ A command a coordinator or worker session uses answers `--help` as well, with th
 `agent-context` prints for it: `astera worker-release --help` shows the flags you need to close
 finished workers before `host stop`.
 
+**A failed delivery is settled by the owner with three commands** (the plan page's buttons call them):
+`run-deliver --run <runId> --force` tries again now; `run-deliver --run <runId> --owner-pushed` says the
+work is already on the delivery branch, and the run reads delivered once git sees it on origin (its commits, or
+the same changes as other commits after a rebase); `run-delivery-dismiss --run <runId>` dismisses the failure,
+so the run no longer reads failed and is not tried again, with a line in the activity feed. The last two take
+a delivery that failed, is being retried or waits on the owner, and a run from before the delivery's state was
+kept that has only an error. All three are refused from an agent session and an MCP client. A plan whose pull
+request was merged or closed on GitHub reads delivered by itself (a closed one with the note "closed on
+GitHub"), and a `push` delivery stopped because your branch cannot fast-forward to origin (code
+`main-diverged`) keeps retrying, so it lands once you fix your branch.
+
 **`jobs get` takes either id.** Give it a Job and it folds in that Job's latest run; give it a run
 and it folds in that one. A Job is the plan, a run is one execution of it. Jobs that only ever run
 once never need the `runs` commands.

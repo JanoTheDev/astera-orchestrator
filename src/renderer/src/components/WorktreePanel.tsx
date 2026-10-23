@@ -8,13 +8,11 @@ import { toast } from '../lib/toast'
 import { dirtyCount, isOrphanUnverifiable, worktreeErrorMessage } from '../lib/worktreeErrors'
 import { subscribeCreated } from '../lib/worktreeBus'
 import { useI18n } from '../i18n/I18nProvider'
-import { ContextMenu, type MenuItem } from './ContextMenu'
 import { CreatePrDialog } from './CreatePrDialog'
 import { PrBadge } from './PrBadge'
 import { PushBadge } from './PushBadge'
 import { rowSlot } from './rowSlot'
-import { Activity, FolderGit2, GitMerge, Play, RefreshCw, Trash2, TriangleAlert } from 'lucide-react'
-import { Button, Chip, EmptyState, Icon, IconButton, Input, PageHeader } from './ui'
+import { Button, Chip, EmptyState, ICONS, Icon, IconButton, Input, Menu, PageHeader, Tooltip, menuPointOf, type MenuItem } from './ui'
 import { AheadBehind } from './worktrees/WorktreeDetail'
 import { filterWorktrees, rowState } from './worktrees/worktreeView'
 
@@ -151,7 +149,8 @@ export const WorktreePanel = forwardRef<
     const ok = await confirmModal({
       title: t('worktree.remove.title'),
       body: t('worktree.remove.body', { name: w.name, branch: w.branch, path: w.path }),
-      confirmLabel: t('files.action.delete')
+      confirmLabel: t('files.action.delete'),
+      danger: true
     })
     if (!ok) return
     // Wait for the list refresh before dropping the spinner — dropping it first makes the removed row look like it briefly came back
@@ -203,7 +202,8 @@ export const WorktreePanel = forwardRef<
         body: unverifiable
           ? t('worktree.forceRemove.unverifiableBody', { name: w.name, path: w.path })
           : t('worktree.forceRemove.dirtyBody', { name: w.name, count: n as number }),
-        confirmLabel: t('worktree.forceRemove.confirm')
+        confirmLabel: t('worktree.forceRemove.confirm'),
+        danger: true
       })
       if (!force) return
       setRemovingId(w.id)
@@ -264,39 +264,47 @@ export const WorktreePanel = forwardRef<
       <div
         key={w.id}
         className={`worktree-row${selected === w.path ? ' is-selected' : ''}`}
-        onClick={() => onSelect(w.path)}
-        title={`${w.path}\n${w.branch}`}
         onContextMenu={(ev) => {
-          ev.preventDefault() // Electron's own menu would cover ours
-          setRowMenu({ x: ev.clientX, y: ev.clientY, w })
+          ev.preventDefault() // Electron's own menu would cover ours; Shift+F10 / the menu key land here too
+          setRowMenu({ ...menuPointOf(ev), w })
         }}
       >
-        <span className="worktree-name">
-          <span className="worktree-branch">{w.branch}</span>
-          {r.owner && r.owner.taskTitles.length > 0 && <span className="worktree-task">{r.owner.taskTitles.join(', ')}</span>}
-        </span>
-        {state === 'active' && (
-          <Chip tone="ok">
-            <Icon icon={Activity} size={14} />
-            {t('worktrees.state.active')}
-          </Chip>
-        )}
-        {state === 'merged' && (
-          <Chip tone="info">
-            <Icon icon={GitMerge} size={14} />
-            {t('worktrees.state.merged')}
-          </Chip>
-        )}
-        {r.dirty ? <Chip tone="warn">{t('worktrees.dirty', { count: r.dirty })}</Chip> : null}
+        {/* The row's one select target; the badges and actions beside it are their own buttons, so the row itself is not a button. */}
+        <Button
+          variant="ghost"
+          className="worktree-main"
+          data-worktree-main=""
+          aria-current={selected === w.path ? 'true' : undefined}
+          title={`${w.path}\n${w.branch}`}
+          onClick={() => onSelect(w.path)}
+        >
+          <span className="worktree-name">
+            <span className="worktree-branch">{w.branch}</span>
+            {r.owner && r.owner.taskTitles.length > 0 && <span className="worktree-task">{r.owner.taskTitles.join(', ')}</span>}
+          </span>
+          {state === 'active' && (
+            <Chip tone="ok">
+              <Icon name="activity" size={14} />
+              {t('worktrees.state.active')}
+            </Chip>
+          )}
+          {state === 'merged' && (
+            <Chip tone="info">
+              <Icon name="merge" size={14} />
+              {t('worktrees.state.merged')}
+            </Chip>
+          )}
+          {r.dirty ? <Chip tone="warn">{t('worktrees.dirty', { count: r.dirty })}</Chip> : null}
+          <AheadBehind ahead={r.ahead} behind={r.behind} className="worktree-meta" />
+        </Button>
         {(() => {
           const snap = prs[w.repoPath]
           const slot = rowSlot(snap?.byBranch[w.branch], pushState[w.repoPath]?.[w.baseRef]?.[w.branch])
           if (slot === null) return null
           if (slot.kind === 'pr')
-            return <PrBadge pr={slot.pr} stale={snap!.stale} onOpenMenu={(e) => setPrMenu({ x: e.clientX, y: e.clientY, url: slot.pr.url })} />
+            return <PrBadge pr={slot.pr} stale={snap!.stale} onOpenMenu={(e) => setPrMenu({ ...menuPointOf(e), url: slot.pr.url })} />
           return <PushBadge ahead={slot.ahead} base={w.baseRef} disabled={busy || !ghConnected} onCreate={() => setCreating(w)} />
         })()}
-        <AheadBehind ahead={r.ahead} behind={r.behind} className="worktree-meta" />
         {/* Shown on hover, focus or selection only (DESIGN-W11 §7: destructive row actions on hover, with a confirm —
             remove() asks first). While a removal runs the start button goes and the delete slot holds the spinner. */}
         <span className={`worktree-actions${removingId === w.id ? ' is-busy' : ''}`} onClick={(ev) => ev.stopPropagation()}>
@@ -305,9 +313,9 @@ export const WorktreePanel = forwardRef<
           ) : (
             <>
               {w.status === 'ok' && (
-                <IconButton size="sm" icon={<Play size={14} />} label={t('worktree.action.startSession')} disabled={busy} onClick={() => onStartSession(w.path)} />
+                <IconButton size="sm" icon={<Icon name="run" size={14} />} label={t('worktree.action.startSession')} disabled={busy} onClick={() => onStartSession(w.path)} />
               )}
-              <IconButton size="sm" className="worktree-delete" icon={<Trash2 size={14} />} label={t('files.action.delete')} disabled={busy} onClick={() => void remove(w)} />
+              <IconButton size="sm" className="worktree-delete" icon={<Icon name="delete" size={14} />} label={t('files.action.delete')} disabled={busy} onClick={() => void remove(w)} />
             </>
           )}
         </span>
@@ -325,6 +333,17 @@ export const WorktreePanel = forwardRef<
       </div>
     )
 
+  // ArrowUp/Down walk the rows' select buttons (Home/End jump); Tab still reaches each row's own badge and actions.
+  const listArrows = (e: React.KeyboardEvent<HTMLElement>): void => {
+    if (!['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(e.key)) return
+    const mains = Array.from(e.currentTarget.querySelectorAll<HTMLElement>('[data-worktree-main]'))
+    const at = mains.findIndex((m) => m.closest('.worktree-row')?.contains(document.activeElement))
+    if (at < 0) return
+    e.preventDefault()
+    const to = e.key === 'Home' ? 0 : e.key === 'End' ? mains.length - 1 : Math.max(0, Math.min(mains.length - 1, at + (e.key === 'ArrowDown' ? 1 : -1)))
+    mains[to]?.focus()
+  }
+
   const shown = filterWorktrees(rows, query, reachableOnly)
   const shownGroups = groupWorktrees(shown.reachable)
   const nothingShown = shown.reachable.length === 0 && shown.trouble.length === 0
@@ -333,7 +352,15 @@ export const WorktreePanel = forwardRef<
     <>
       <PageHeader
         title={t('worktrees.title')}
-        subtitle={items.length > 0 ? items.length : undefined}
+        subtitle={
+          <>
+            {items.length > 0 ? items.length : null}
+            {/* "Worktree" is a Git word: say once what it is, on hover or focus of the info button. */}
+            <Tooltip content={t('worktrees.hint')}>
+              <IconButton size="sm" icon={<Icon name="info" size={14} />} label={t('worktrees.helpLabel')} />
+            </Tooltip>
+          </>
+        }
         actions={
           <>
             {groups.ready.length > 0 && (
@@ -341,7 +368,7 @@ export const WorktreePanel = forwardRef<
                 {t('worktrees.cleanup.button', { count: groups.ready.length })}
               </Button>
             )}
-            <Button variant="ghost" icon={<RefreshCw size={16} />} disabled={busy || cleaning} onClick={() => void refresh()}>
+            <Button variant="ghost" icon={<Icon name="refresh" />} disabled={busy || cleaning} onClick={() => void refresh()}>
               {t('worktree.refresh')}
             </Button>
             {actions}
@@ -366,16 +393,16 @@ export const WorktreePanel = forwardRef<
         }
       />
       {failed !== null && items.length === 0 ? (
-        <EmptyState icon={TriangleAlert} title={t('worktrees.title')}>
+        <EmptyState icon={ICONS.warning} title={t('worktrees.title')}>
           {failed}
         </EmptyState>
       ) : read === null ? null : items.length === 0 ? (
-        <EmptyState icon={FolderGit2} title={t('worktrees.emptyTitle')}>
+        <EmptyState icon={ICONS.repo} title={t('worktrees.emptyTitle')}>
           {t('worktrees.empty')}
         </EmptyState>
       ) : (
         <div className="worktrees-page__split">
-          <section className="worktree-panel worktrees-page__list" aria-label={t('worktrees.title')}>
+          <section className="worktree-panel worktrees-page__list" aria-label={t('worktrees.title')} onKeyDown={listArrows}>
             {nothingShown && <p className="worktree-empty">{t('worktrees.noMatch')}</p>}
             {shownGroups.plans.map((p) => section(p.jobId, p.plan, p.rows))}
             {section('ready', t('worktrees.group.ready'), shownGroups.ready, t('worktrees.group.readyHint'))}
@@ -383,7 +410,7 @@ export const WorktreePanel = forwardRef<
             {shown.trouble.map((g) => (
               <div key={g.status} className="worktree-group worktree-group--trouble">
                 <div className="worktree-warning" role="note">
-                  <Icon icon={TriangleAlert} size={14} />
+                  <Icon name="warning" size={14} />
                   <span>
                     <strong>{t(STATUS_LABEL[g.status])}</strong> <span className="worktree-count">{g.rows.length}</span>
                     <span className="worktree-warning__hint">{t(TROUBLE_HINT[g.status])}</span>
@@ -397,9 +424,9 @@ export const WorktreePanel = forwardRef<
         </div>
       )}
       {prMenu && (
-        <ContextMenu
-          x={prMenu.x}
-          y={prMenu.y}
+        <Menu
+          at={prMenu}
+          label={t('worktrees.prMenu')}
           onClose={() => setPrMenu(null)}
           items={[
             {
@@ -421,7 +448,7 @@ export const WorktreePanel = forwardRef<
           const w = rowMenu.w
           const pr = prs[w.repoPath]?.byBranch[w.branch]
           const ahead = pushState[w.repoPath]?.[w.baseRef]?.[w.branch]?.ahead
-          const items: MenuItem[] = pr
+          const items: Array<MenuItem | 'separator'> = pr
             ? [
                 {
                   label: t('github.badge.openInBrowser'),
@@ -456,7 +483,7 @@ export const WorktreePanel = forwardRef<
             })
           }
           return (
-            <ContextMenu x={rowMenu.x} y={rowMenu.y} items={items} onClose={() => setRowMenu(null)} />
+            <Menu at={rowMenu} label={t('worktrees.rowMenu')} items={items} onClose={() => setRowMenu(null)} />
           )
         })()}
       {creating && (

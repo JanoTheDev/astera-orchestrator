@@ -4,6 +4,7 @@ import { viewOf } from '../lib/hiddenProjectsView'
 import { confirmModal } from '../lib/confirm'
 import { toast } from '../lib/toast'
 import { useI18n } from '../i18n/I18nProvider'
+import { Button, Icon, IconButton, Input, Checkbox } from './ui'
 
 /** 한 페이지에 그릴 줄 수. 설정 모달 본문 높이에 맞춘 값으로, 이보다 적으면 검색도 페이지 이동도
  *  붙이지 않는다 — 세 줄짜리 목록 위의 검색창은 도움이 아니라 잡음이다. */
@@ -103,9 +104,10 @@ export function HistorySettings(): React.JSX.Element {
     <div className="settings-history">
       <label className="settings-field-label">{t('settings.history.hiddenProjects')}</label>
       {paged && (
-        <input
-          type="text"
+        <Input
+          type="search"
           className="settings-history-search"
+          aria-label={t('settings.history.search')}
           placeholder={t('settings.history.search')}
           value={query}
           onChange={(e) => {
@@ -118,17 +120,20 @@ export function HistorySettings(): React.JSX.Element {
       {view.matchedAll.length > 0 && (
         <div className="settings-history-bulk">
           <label className="settings-history-check">
-            <input type="checkbox" checked={allPicked} onChange={toggleAll} />
+            <Checkbox checked={allPicked} onChange={toggleAll} />
             {t('settings.history.selectAll')}
           </label>
-          <button
-            type="button"
-            className="danger"
-            disabled={chosen.length === 0 || deleting}
+          <Button
+            size="sm"
+            variant="danger"
+            className="settings-history-delete"
+            icon={<Icon name="delete" size={14} />}
+            loading={deleting}
+            disabled={chosen.length === 0}
             onClick={() => void removeHistory()}
           >
             {t('settings.history.deleteSelected', { count: chosen.length })}
-          </button>
+          </Button>
         </div>
       )}
       {view.total === 0 ? (
@@ -138,8 +143,7 @@ export function HistorySettings(): React.JSX.Element {
       ) : (
         view.rows.map((p) => (
           <div className="settings-row" key={p}>
-            <input
-              type="checkbox"
+            <Checkbox
               aria-label={p}
               checked={picked.has(p)}
               onChange={() => toggle(p)}
@@ -148,7 +152,9 @@ export function HistorySettings(): React.JSX.Element {
               {p}
             </span>
             {/* 해제에 확인 모달을 두지 않는다 — 파괴적이지 않고, 되돌리려면 다시 숨기면 된다 */}
-            <button onClick={() => hiddenProjects.unhide(p)}>{t('settings.history.unhide')}</button>
+            <Button size="sm" variant="ghost" icon={<Icon name="show" size={14} />} onClick={() => hiddenProjects.unhide(p)}>
+              {t('settings.history.unhide')}
+            </Button>
           </div>
         ))
       )}
@@ -157,25 +163,23 @@ export function HistorySettings(): React.JSX.Element {
           {view.pages > 1 && (
             <>
               {/* 글리프뿐인 버튼이라 이름은 aria-label 로만 준다 */}
-              <button
-                type="button"
-                aria-label={t('settings.history.prevPage')}
+              <IconButton
+                size="sm"
+                icon={<Icon name="chevronLeft" size={14} />}
+                label={t('settings.history.prevPage')}
                 disabled={view.page === 0}
                 onClick={() => setPage(view.page - 1)}
-              >
-                ‹
-              </button>
+              />
               <span className="settings-history-page">
                 {view.page + 1} / {view.pages}
               </span>
-              <button
-                type="button"
-                aria-label={t('settings.history.nextPage')}
+              <IconButton
+                size="sm"
+                icon={<Icon name="chevronRight" size={14} />}
+                label={t('settings.history.nextPage')}
                 disabled={view.page >= view.pages - 1}
                 onClick={() => setPage(view.page + 1)}
-              >
-                ›
-              </button>
+              />
             </>
           )}
           <span className="settings-hint">

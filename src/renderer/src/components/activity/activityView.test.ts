@@ -3,6 +3,15 @@ import { describe, expect, it } from 'vitest'
 import type { ActivityEvent } from '../../../../core/orchestration/activity'
 import { feedOf, lineOf, mergePage, summaryOf, whoOf } from './activityView'
 
+describe('plan.deliveryDismissed (T34)', () => {
+  it("reads in the app's language", () => {
+    const e = ev(10, { type: 'plan.deliveryDismissed', payload: { title: 'Plan A', plan: 'Plan A' } })
+    expect(lineOf(e, label)).toEqual({ text: 'Plan A: delivery dismissed by you; it is not tried again', tone: 'warn' })
+    for (const lang of ['ko', 'ja', 'es'] as const) expect(lineOf(e, label, lang).text).toContain('Plan A')
+    expect(lineOf(e, label, 'es').text).toBe('Plan A: entrega descartada por ti; no se vuelve a intentar')
+  })
+})
+
 const T0 = '2026-10-17T00:00:00.000Z'
 const ev = (n: number, over: Partial<ActivityEvent> = {}): ActivityEvent => ({
   id: `ev_000000000000_${n}`,
@@ -44,13 +53,13 @@ describe('activityView', () => {
     expect(feedOf([ev(1), paused], 'j1').map((e) => e.sequence)).toEqual([1, 3])
     const line = lineOf(paused, label)
     expect(line.tone).toBe('warn')
-    expect(line.text).toMatch(/^Work: new workers paused, at 93% of its 5-hour limit, resumes ~/)
-    expect(lineOf({ ...paused, type: 'usage.resumed' }, label).text).toBe('Work: new workers resumed, under the usage threshold again')
+    expect(line.text).toMatch(/^Work: new agents paused, at 93% of its 5-hour limit, resumes ~/)
+    expect(lineOf({ ...paused, type: 'usage.resumed' }, label).text).toBe('Work: new agents resumed, under the usage threshold again')
   })
 
   it('W6-B: an auto-answer and an escalation', () => {
     expect(lineOf(ev(1, { type: 'question.auto-answered', payload: { title: 'T', question: 'Port?', answer: '8080' } }), label)).toEqual({
-      text: 'T: coordinator answered "Port?": 8080',
+      text: 'T: lead agent answered "Port?": 8080',
       tone: 'info'
     })
     expect(lineOf(ev(1, { type: 'task.escalated', payload: { title: 'T', reason: 'Drop it?' } }), label)).toEqual({ text: 'T: needs your decision: Drop it?', tone: 'bad' })
@@ -111,5 +120,21 @@ describe('task.edited (T7)', () => {
     expect(lineOf(edited, label, 'ko').text).toBe('Task A: 직접 수정함 — deps, spec')
     expect(lineOf(edited, label, 'ja').text).toBe('Task A: あなたが編集 — deps, spec')
     expect(lineOf(edited, label, 'es').text).toBe('Task A: editado por ti — deps, spec')
+  })
+})
+
+describe('plain words (no worker, coordinator, wave, watchdog)', () => {
+  it('agent, lead agent, step N, stuck-plan check', () => {
+    expect(lineOf(ev(1, { type: 'dispatch.started', payload: { title: 'T' } }), label).text).toBe('T: agent started')
+    expect(lineOf(ev(1, { type: 'dispatch.exited', payload: { title: 'T', outcome: 'failed' } }), label).text).toBe('T: agent failed')
+    expect(lineOf(ev(1, { type: 'plan.replanning', payload: { title: 'P', wave: 1 } }), label).text).toBe('P: replanning before step 2')
+    expect(lineOf(ev(1, { type: 'coordinator.refreshed', payload: { title: 'P' } }), label).text).toBe('P: lead agent refreshed (on request)')
+    expect(lineOf(ev(1, { type: 'watchdog', payload: { title: 'P', reason: 'no progress' } }), label).text).toBe('P: stuck-plan check: no progress')
+  })
+  it('reads in es, ja and ko', () => {
+    const e = ev(1, { type: 'dispatch.started', payload: { title: 'T' } })
+    expect(lineOf(e, label, 'es').text).toBe('T: agente iniciado')
+    expect(lineOf(e, label, 'ja').text).toContain('エージェント')
+    expect(lineOf(e, label, 'ko').text).toContain('에이전트')
   })
 })

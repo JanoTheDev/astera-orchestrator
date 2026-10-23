@@ -5,7 +5,6 @@ import { cx } from './logic'
 // shadcn's textarea.tsx on case-insensitive file systems.
 
 export type InputProps = React.InputHTMLAttributes<HTMLInputElement>
-export type SelectProps = React.SelectHTMLAttributes<HTMLSelectElement>
 export type TextareaProps = React.TextareaHTMLAttributes<HTMLTextAreaElement>
 
 /** A text-like <input> (text, number, search, password…). */
@@ -13,10 +12,9 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input({ c
   return <input ref={ref} type={type} className={cx('ui-input', className)} {...rest} />
 })
 
-/** A native <select> with the house chevron; options are its children. */
-export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select({ className, ...rest }, ref) {
-  return <select ref={ref} className={cx('ui-select', className)} {...rest} />
-})
+/** The one Select (the listbox in Select.tsx). It still takes the native shape — `<option>`/`<optgroup>` children and
+ *  `onChange(e)` reading `e.target.value` — so the callers written for the old native control keep working. */
+export { Select, type SelectProps } from './Select'
 
 /** A multi-line <textarea>, resizable in height. */
 export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function Textarea({ className, ...rest }, ref) {

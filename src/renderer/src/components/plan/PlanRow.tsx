@@ -3,21 +3,19 @@
 // what they showed: the status, progress, queue and overlaps, the source and PR chips, gates, running workers (a click
 // opens the worker's tab), auto-fix chips, and a schedule's rule and rounds. The words are planList.ts'.
 import { useState } from 'react'
-import {
-  Archive, ArchiveRestore, ArrowUpRight, ChevronDown, ChevronRight, Hand, MoreHorizontal, Pause, Pencil, Play, PlayCircle, RotateCcw, Trash2
-} from 'lucide-react'
 import type { JobRow } from '../../../../core/types'
 import { runningCount } from '../../../../core/orchestration/running'
 import { schedRuleSummary } from '../../../../core/scheduler/summary'
 import { convergenceChipOf } from '../../../../core/orchestration/nodeMeta'
 import { useI18n } from '../../i18n/I18nProvider'
-import { clockFor } from '../../lib/runClock'
+import { clockFor, minuteClock } from '../../lib/runClock'
 import { jobName } from '../../lib/jobName'
-import { Button, Chip, IconButton, Input, Menu, Meter, cx, type MenuItem } from '../ui'
+import { Button, Chip, Icon, IconButton, Input, Menu, Meter, cx, type MenuItem } from '../ui'
 import { SourceChip } from '../SourceChip'
 import { RunPrChip } from '../TaskLinkChips'
 import { STATE_KEY, TaskGlyph, TaskIcon } from '../JobIcons'
 import { approveSlot } from './planTalk'
+import { FailedWaitButtons } from './FailedWaitButtons'
 import { ageOf } from './planBoard'
 import { convergenceText, isRunningTask, lastActivityOf, planStatusOf, taskMeta } from './planList'
 
@@ -35,6 +33,8 @@ export interface PlanActs {
   onArchive?: (id: string) => void
   onUnarchive?: (id: string) => void
   onHold?: (id: string, hold: boolean) => void
+  /** T36: the owner's answer to the failed Task a stalled plan waits on (JobRow.stalledOn) */
+  onResolveFailed?: (taskId: string, action: 'retry' | 'accept' | 'cancel') => void
 }
 
 /** Running worker lines drawn; the rest fold into "+N". */
@@ -48,12 +48,15 @@ export function PlanRow({
   row,
   acts,
   nowMs,
+  ageMs,
   nameOf,
   ordinal
 }: {
   row: JobRow
   acts: PlanActs
   nowMs: number
+  /** The real time (to the minute) the age is counted against; `nowMs` is 0 for a plan with nothing running. Absent: `nowMs`. */
+  ageMs?: number
   /** Another plan's name by id, for the queue and overlap chips. Absent on a schedule's round. */
   nameOf?: (id: string) => string
   /** A schedule's round: its number. A round is a Run, not a plan: no rename, hold or archive. */
@@ -78,29 +81,29 @@ export function PlanRow({
   const holdable = plan && acts.onHold !== undefined && !archived && !row.schedule && !row.pendingStart
 
   const items: Array<MenuItem | 'separator'> = [
-    { id: 'open', label: t('jobs.detail.open'), icon: <ArrowUpRight size={16} />, onSelect: () => acts.onOpen(row.id) },
+    { id: 'open', label: t('jobs.detail.open'), icon: <Icon name="open" size={16} />, onSelect: () => acts.onOpen(row.id) },
     ...(row.schedule && acts.onPause && acts.onResume
       ? [row.paused
-          ? { id: 'resume', label: t('jobs.run.resume'), icon: <Play size={16} />, onSelect: () => acts.onResume?.(row.id) }
-          : { id: 'pause', label: t('jobs.run.pause'), icon: <Pause size={16} />, onSelect: () => acts.onPause?.(row.id) }]
+          ? { id: 'resume', label: t('jobs.run.resume'), icon: <Icon name="run" size={16} />, onSelect: () => acts.onResume?.(row.id) }
+          : { id: 'pause', label: t('jobs.run.pause'), icon: <Icon name="pause" size={16} />, onSelect: () => acts.onPause?.(row.id) }]
       : []),
     ...(row.coordinatorMissing && acts.onRestartCoordinator
-      ? [{ id: 'coord', label: t('jobs.run.coordinatorRestart'), icon: <RotateCcw size={16} />, onSelect: () => acts.onRestartCoordinator?.(row.id) }]
+      ? [{ id: 'coord', label: t('pages.plans.restartLead'), icon: <Icon name="reset" size={16} />, onSelect: () => acts.onRestartCoordinator?.(row.id) }]
       : []),
     ...(holdable
       ? [row.dispatchHold
-          ? { id: 'release', label: t('jobs.hold.release'), icon: <PlayCircle size={16} />, onSelect: () => acts.onHold?.(row.id, false) }
-          : { id: 'hold', label: t('jobs.hold.hold'), icon: <Hand size={16} />, onSelect: () => acts.onHold?.(row.id, true) }]
+          ? { id: 'release', label: t('pages.plans.releaseNew'), icon: <Icon name="release" size={16} />, onSelect: () => acts.onHold?.(row.id, false) }
+          : { id: 'hold', label: t('pages.plans.holdNew'), icon: <Icon name="hold" size={16} />, onSelect: () => acts.onHold?.(row.id, true) }]
       : []),
-    ...(plan && acts.onRename ? [{ id: 'rename', label: t('jobs.lifecycle.rename'), icon: <Pencil size={16} />, onSelect: () => setRenaming(true) }] : []),
+    ...(plan && acts.onRename ? [{ id: 'rename', label: t('jobs.lifecycle.rename'), icon: <Icon name="edit" size={16} />, onSelect: () => setRenaming(true) }] : []),
     ...(plan && archived && acts.onUnarchive
-      ? [{ id: 'unarchive', label: t('jobs.lifecycle.unarchive'), icon: <ArchiveRestore size={16} />, onSelect: () => acts.onUnarchive?.(row.id) }]
+      ? [{ id: 'unarchive', label: t('jobs.lifecycle.unarchive'), icon: <Icon name="restore" size={16} />, onSelect: () => acts.onUnarchive?.(row.id) }]
       : []),
     ...(plan && !archived && acts.onArchive
-      ? [{ id: 'archive', label: t('jobs.lifecycle.archive'), icon: <Archive size={16} />, onSelect: () => acts.onArchive?.(row.id) }]
+      ? [{ id: 'archive', label: t('jobs.lifecycle.archive'), icon: <Icon name="archive" size={16} />, onSelect: () => acts.onArchive?.(row.id) }]
       : []),
     ...(acts.onDelete
-      ? ['separator' as const, { id: 'delete', label: t('jobs.run.delete'), icon: <Trash2 size={16} />, danger: true, onSelect: () => acts.onDelete?.(row.id) }]
+      ? ['separator' as const, { id: 'delete', label: t('jobs.run.delete'), icon: <Icon name="delete" size={16} />, danger: true, onSelect: () => acts.onDelete?.(row.id) }]
       : [])
   ]
 
@@ -110,14 +113,14 @@ export function PlanRow({
         {template && (
           <IconButton
             size="sm"
-            icon={roundsOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            icon={roundsOpen ? <Icon name="chevronDown" size={14} /> : <Icon name="chevronRight" size={14} />}
             label={t('pages.plans.rounds')}
             active={roundsOpen}
             aria-expanded={roundsOpen}
             onClick={() => setRoundsOpen((o) => !o)}
           />
         )}
-        {ordinal !== undefined && <Chip>{t('jobs.run.scheduleOrdinal', { n: ordinal })}</Chip>}
+        {ordinal !== undefined && <Chip>{t('pages.plans.roundNumber', { n: ordinal })}</Chip>}
         {renaming && acts.onRename ? (
           <Input
             className="plans-row__rename"
@@ -141,17 +144,22 @@ export function PlanRow({
           </Button>
         )}
         <Chip tone={status.tone} dot>
-          {t(status.key)}
+          {t(status.key, status.params)}
         </Chip>
-        {status.reason !== undefined && <span className="plans-row__reason">{t('jobs.run.notDelivered', { reason: status.reason })}</span>}
+        {status.reason !== undefined && <span className="plans-row__reason" title={t('jobs.run.notDelivered', { reason: status.reason })}>
+            {t('jobs.run.notDelivered', { reason: status.reason })}
+          </span>}
         <SourceChip source={row.source} />
+        {row.areas?.map((area) => (
+          <Chip key={area}>{area}</Chip>
+        ))}
         {row.pr && (
           <span className="plans-row__pr">
             <RunPrChip pr={row.pr} />
           </span>
         )}
         {row.sharesProjectFolder && (
-          <span title={t('jobs.run.sharedFolderHint')}>
+          <span title={t('pages.plans.sharedFolderHint')}>
             <Chip tone="warn">{t('jobs.run.sharedFolder')}</Chip>
           </span>
         )}
@@ -162,9 +170,17 @@ export function PlanRow({
             <Meter className="plans-row__meter" value={percent} label={t('pages.plans.progress', { done: row.done, total: row.total })} />
           </span>
         )}
-        {last !== undefined && <span className="plans-row__meta">{t('pages.plans.age', { age: ageOf(new Date(last).toISOString(), nowMs) })}</span>}
+        {last !== undefined && (
+          <span className="plans-row__meta" title={new Date(last).toLocaleString()}>
+            {t('pages.plans.age', { age: ageOf(new Date(last).toISOString(), ageMs ?? nowMs) })}
+          </span>
+        )}
+        {/* T36: a plan stalled on a failed Task: the three ways on stand on the row */}
+        {row.stalledOn && acts.onResolveFailed && (
+          <FailedWaitButtons title={row.stalledOn.result} onAct={(a) => acts.onResolveFailed?.(row.stalledOn!.taskId, a)} />
+        )}
         {slot === 'approve' && acts.onApprove && (
-          <Button size="sm" title={t('jobs.run.approveHint')} onClick={() => acts.onApprove?.(row.id)}>
+          <Button size="sm" title={t('pages.plans.approveHint')} onClick={() => acts.onApprove?.(row.id)}>
             {t('jobs.run.approve')}
           </Button>
         )}
@@ -172,14 +188,14 @@ export function PlanRow({
         {row.coordinatorMissing && acts.onRestartCoordinator && (
           <IconButton
             size="sm"
-            icon={<RotateCcw size={14} />}
-            label={t('jobs.run.coordinatorRestart')}
-            title={t('jobs.run.coordinatorRestartHint')}
+            icon={<Icon name="reset" size={14} />}
+            label={t('pages.plans.restartLead')}
+            title={t('pages.plans.restartLeadHint')}
             onClick={() => acts.onRestartCoordinator?.(row.id)}
           />
         )}
         <span className="plans-row__menu">
-          <Menu label={t('pages.plans.more')} align="end" trigger={{ icon: <MoreHorizontal size={16} />, size: 'sm' }} items={items} />
+          <Menu label={t('pages.plans.more')} align="end" trigger={{ icon: <Icon name="more" size={16} />, size: 'sm' }} items={items} />
         </span>
       </div>
 
@@ -191,7 +207,7 @@ export function PlanRow({
           ) : (
             row.nextFireAt !== undefined && <span>{t('jobs.run.scheduleNext', { time: fmtNext(row.nextFireAt) })}</span>
           )}
-          <span>{t('jobs.run.scheduleRuns', { count: row.fireCount ?? 0 })}</span>
+          <span>{t('pages.plans.roundsSoFar', { count: row.fireCount ?? 0 })}</span>
         </div>
       )}
 
@@ -249,7 +265,7 @@ export function PlanRow({
                   {meta}
                 </span>
                 {chip && <Chip tone="info">{convergenceText(chip, t)}</Chip>}
-                {sessionId && <ArrowUpRight size={14} aria-hidden="true" />}
+                {sessionId && <Icon name="open" size={14} />}
               </>
             )
             return sessionId ? (
@@ -272,7 +288,7 @@ export function PlanRow({
             <p className="plans-row__meta">{t(row.pendingStart ? 'jobs.run.schedulePending' : 'jobs.run.scheduleEmpty')}</p>
           ) : (
             kids.slice(0, shown).map((kid) => (
-              <PlanRow key={kid.id} row={kid} acts={{ ...acts, onPause: undefined, onResume: undefined }} nowMs={clockFor(kid, nowMs)} ordinal={kid.fireOrdinal ?? 0} />
+              <PlanRow key={kid.id} row={kid} acts={{ ...acts, onPause: undefined, onResume: undefined }} nowMs={clockFor(kid, nowMs)} ageMs={minuteClock(nowMs)} ordinal={kid.fireOrdinal ?? 0} />
             ))
           )}
           {kids.length > shown && (
