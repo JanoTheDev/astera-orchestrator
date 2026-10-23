@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { isSubPath } from '../../../core/files/ops'
 import { flattenVisible } from '../../../core/files/selection'
 import { onFileChanges } from '../lib/fileChanges'
+import { errText } from './useFileOps'
 import {
   createDelayedPending,
   createDirLoadQueue,
@@ -74,7 +75,8 @@ export function useFileTree(
     window.api.files.list(dirPath).then(
       (entries) => setDirs((prev) => ({ ...prev, [dirPath]: { entries } })),
       (err) => {
-        const msg = err instanceof Error ? err.message : String(err)
+        // errText drops Electron's "Error invoking remote method 'files.list':" prefix, so the note shows only the reason
+        const msg = errText(err)
         // For a folder that is gone, do not cache the error — drop the entry itself. A cached ENOENT
         // left behind means 'Read failed: ENOENT' keeps showing after the folder is recreated under
         // the same name. It has to come out of expanded too, so the recreated folder appears cleanly

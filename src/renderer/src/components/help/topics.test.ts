@@ -11,6 +11,7 @@ import { filterTopics, TOPICS, topicLines, type ShortcutLine, type Translate } f
 const t: Translate = (key) => (en as Record<string, string>)[key] ?? key
 const shortcuts: ShortcutLine[] = [{ name: 'Open a new window', keys: ['Ctrl+Shift+N'] }]
 const words = (s: string): number => s.split(/\s+/).filter(Boolean).length
+const chars = (s: string): number => s.replace(/\s+/g, '').length
 
 describe('help topics', () => {
   it('has 6 to 8 topics, including shortcuts and a glossary', () => {
@@ -20,12 +21,17 @@ describe('help topics', () => {
   })
 
   it('each topic is about 200 words at most, in every language it is written for', () => {
-    // 36 shortcut lines of names and keys are not prose; the cap counts the written text
-    const prose = (loc: Record<string, string>, id: string): number => {
+    // 36 shortcut lines of names and keys are not prose; the cap counts the written text.
+    // en and es count words; ja and ko have no spaces between words, so they count characters (about 2 per English word).
+    const prose = (loc: Record<string, string>, id: string): string => {
       const tr: Translate = (key) => loc[key] ?? (en as Record<string, string>)[key] ?? key
-      return words(topicLines(TOPICS.find((x) => x.id === id)!, tr, []).join(' '))
+      return topicLines(TOPICS.find((x) => x.id === id)!, tr, []).join(' ')
     }
-    for (const topic of TOPICS) expect(prose(en, topic.id), topic.id).toBeLessThanOrEqual(200)
+    const caps = { en: [200, words], es: [200, words], ja: [400, chars], ko: [400, chars] } as const
+    for (const [name, loc] of Object.entries({ en, es, ja, ko }) as Array<[keyof typeof caps, Record<string, string>]>) {
+      const [cap, count] = caps[name]
+      for (const topic of TOPICS) expect(count(prose(loc, topic.id)), `${name} ${topic.id}`).toBeLessThanOrEqual(cap)
+    }
   })
 
   it('every text key exists in en, es, ja and ko', () => {
