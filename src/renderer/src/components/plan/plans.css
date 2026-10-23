@@ -34,7 +34,7 @@
 .plans-coord { display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0; }
 .plans-coord__title { margin: 0; color: var(--text-faint); font-size: var(--fs-11); font-weight: var(--fw-medium); letter-spacing: .04em; text-transform: uppercase; }
 .plans-coord__cards { display: flex; gap: var(--sp-3); overflow-x: auto; padding-bottom: var(--sp-1); }
-.plans-coord__card.ui-card { flex: 0 0 240px; display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0; padding: var(--sp-3); cursor: pointer; }
+.plans-coord__card.ui-card { flex: 1 0 240px; max-width: 400px; display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0; padding: var(--sp-3); cursor: pointer; }
 .plans-coord__card.ui-card:hover { background: var(--hover); }
 .plans-coord__name { overflow: hidden; color: var(--text); font-size: var(--fs-13); font-weight: var(--fw-medium); text-overflow: ellipsis; white-space: nowrap; }
 .plans-coord__facts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); color: var(--text-dim); font-size: var(--fs-11); }
@@ -44,7 +44,7 @@
 .plans-coord__wait--none { color: var(--text-faint); }
 
 /* The Main plan tab's rows (plan/MainPlan.tsx) */
-.plans-list { max-width: 960px; display: flex; flex-direction: column; min-width: 0; }
+.plans-list { display: flex; flex-direction: column; min-width: 0; }
 .plans-row__main { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; min-height: 36px; }
 .plans-row__name.ui-btn { min-width: 0; flex: 0 1 auto; justify-content: flex-start; overflow: hidden; color: var(--text); font-size: var(--fs-13); font-weight: var(--fw-medium); text-overflow: ellipsis; white-space: nowrap; }
 .plans-row__spacer { flex: 1; }

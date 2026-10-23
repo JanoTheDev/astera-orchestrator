@@ -1,7 +1,10 @@
-/* T8 plan tab (DESIGN-W13 §5 `view:plan`, §11, §12, §13): one document on the editor ground, 960px at most and
-   centred; sections are titled blocks separated by a 1px line, never cards. */
-.plan-pages:has(> .plan-doc) { background: var(--editor-bg); }
-.plan-page.plan-doc { flex: none; min-height: auto; width: 100%; max-width: 960px; margin: 0 auto; gap: var(--sp-6); }
+/* T8 plan tab (DESIGN-W13 §5 `view:plan`, §11, §12, §13): one document on the editor ground; sections are titled
+   blocks separated by a 1px line, never cards. W17: it fills its editor group at any width. The tab root is the size
+   container: every breakpoint below asks the tab's width (`@container plan-tab`), never the window's. Narrow is under
+   560px; prose caps at 80ch while the steps, graph and lists use the full width. */
+.plan-pages:has(> .plan-doc) { container: plan-tab / inline-size; background: var(--editor-bg); }
+.plan-page.plan-doc { flex: none; min-height: auto; width: 100%; gap: var(--sp-6); }
+.plan-goal, .plan-decided, .plan-needs-item { max-width: 80ch; }
 .plan-doc-section { display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0; scroll-margin-top: var(--sp-4); }
 .plan-doc-title { display: flex; align-items: center; gap: var(--sp-2); margin: 0; padding-bottom: var(--sp-1); border-bottom: 1px solid var(--line); font-size: var(--fs-15); font-weight: var(--fw-semi); line-height: var(--lh-tight); color: var(--text); }
 .plan-doc-count { min-width: 16px; padding: 0 var(--sp-1); border-radius: var(--radius-pill); background: var(--badge-bg); color: var(--badge-fg); font-size: var(--fs-11); font-weight: var(--fw-semi); text-align: center; font-variant-numeric: tabular-nums; }
@@ -10,15 +13,23 @@
 .plan-doc > .plan-page-header { padding: 0; flex: none; }
 .plan-doc .ui-page-header__title { font-size: var(--fs-18); font-weight: var(--fw-semi); }
 .plan-page-title { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.plan-page-header .jobs-title-input { font: inherit; min-width: 240px; }
+.plan-page-header .jobs-title-input { font: inherit; min-width: min(240px, 100%); }
 .plan-page-header .ui-page-header__titles { flex-wrap: wrap; row-gap: var(--sp-1); }
 .plan-page-header .ui-page-header__subtitle { overflow: visible; white-space: normal; }
 .plan-page-sub { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
 .plan-page-sub .ui-chip { height: auto; min-height: 20px; padding-block: 2px; line-height: var(--lh-tight); white-space: normal; }
 .plan-page-header .ui-page-header__actions { flex-wrap: wrap; justify-content: flex-end; }
+/* Narrow: Pause, Open consoles and the ⋯ menu fold into one ⋯ toolbar (PlanHeader draws both sets) */
+.plan-page-header .plan-header-wide { display: contents; }
+.plan-page-header .plan-header-narrow { display: none; }
+@container plan-tab (max-width: 559px) {
+  .plan-page-header .plan-header-wide { display: none; }
+  .plan-page-header .plan-header-narrow { display: inline-flex; }
+}
 /* Progress is accent at every value (the Meter's warn/danger tones are for usage) */
 .plan-meter.ui-meter { --ui-meter-fill: var(--accent); }
-.plan-page-meter { width: 120px; }
+/* the meter grows with the tab instead of a fixed 120px */
+.plan-page-meter { width: clamp(80px, 20cqi, 320px); }
 .plan-page-wave { display: inline-flex; align-items: center; gap: var(--sp-2); min-width: 0; color: var(--text-dim); font-size: var(--fs-12); font-variant-numeric: tabular-nums; }
 .plan-page-wave-at { color: var(--text); font-weight: var(--fw-medium); }
 .plan-page-wave-next { color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -40,11 +51,12 @@
 .plan-steps-bar > .ui-btn:last-child { margin-left: auto; }
 .plan-flash { background: var(--list-active); }
 
-/* Plan settings: settings-editor rows, title and help on the left, the control on the right */
-.plan-settings { display: flex; flex-direction: column; }
+/* Plan settings: settings-editor rows, title and help on the left, the control on the right; as many columns of rows
+   as fit (two on a wide tab), and the control under its title on a narrow one */
+.plan-settings { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 480px), 1fr)); column-gap: var(--sp-6); }
 .plan-settings-loading { margin: 0; color: var(--text-faint); font-size: var(--fs-12); }
-.plan-setting { display: grid; grid-template-columns: minmax(0, 1fr) 200px; align-items: center; gap: var(--sp-2) var(--sp-6); padding: var(--sp-2) 0 var(--sp-2) var(--sp-3); border-left: 2px solid transparent; }
-.plan-setting + .plan-setting { border-top: 1px solid var(--line-soft); }
+.plan-setting { display: grid; grid-template-columns: minmax(0, 1fr) minmax(120px, 200px); align-items: center; gap: var(--sp-2) var(--sp-6); padding: var(--sp-2) 0 var(--sp-2) var(--sp-3); border-left: 2px solid transparent; }
+.plan-setting { border-bottom: 1px solid var(--line-soft); }
 .plan-setting:hover { background: var(--list-hover); }
 .plan-setting-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .plan-setting-title { font-size: var(--fs-14); font-weight: var(--fw-medium); color: var(--text); }
@@ -52,9 +64,9 @@
 .plan-setting-why { color: var(--warn); }
 .plan-setting--readonly .plan-setting-title { color: var(--text-dim); }
 .plan-setting-control { display: flex; justify-content: flex-end; min-width: 0; }
-.plan-setting-control > .ui-input { width: 96px; }
+.plan-setting-control > .ui-input { width: min(96px, 100%); }
 .plan-setting-control > .sel, .plan-setting-control > .ui-select { width: 100%; }
-@media (max-width: 720px) {
+@container plan-tab (max-width: 559px) {
   .plan-setting { grid-template-columns: minmax(0, 1fr); }
   .plan-setting-control { justify-content: flex-start; }
 }

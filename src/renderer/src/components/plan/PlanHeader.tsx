@@ -22,7 +22,7 @@ import { toast } from '../../lib/toast'
 import { jobName } from '../../lib/jobName'
 import { RunIcon, STATE_KEY, TaskIcon } from '../JobIcons'
 import { SourceChip } from '../SourceChip'
-import { Button, Chip, Icon, Input, Menu, Meter, PageHeader, type MenuItem } from '../ui'
+import { Button, Chip, Icon, Input, Menu, Meter, PageHeader, Toolbar, type MenuItem } from '../ui'
 import { planProgressOf } from './planBoard'
 import { planStatusOf } from './planList'
 import { approveSlot } from './planTalk'
@@ -128,16 +128,22 @@ export function PlanHeader({
       ]
     : []
   // W5-C: a plan pauses by holding its new starts (jobs-hold); a schedule pauses as a whole (run-pause)
-  const pauseButton =
-    run === undefined || run.archivedAt !== undefined || run.pendingStart || run.outcome === 'completed' ? null : run.schedule ? (
-      <Button size="sm" variant="ghost" disabled={off} title={lockedReason} onClick={() => void (run.paused ? resumeRun(door, runId, ui) : pauseRun(door, runId, ui))}>
-        {run.paused ? t('jobs.run.resume') : t('jobs.run.pause')}
-      </Button>
-    ) : !local ? null : (
-      <Button size="sm" variant="ghost" disabled={off} title={lockedReason ?? (run.dispatchHold ? t('plan.header.release') : t('plan.header.hold'))} onClick={() => void holdJob(door, runId, !run.dispatchHold, ui)}>
-        {run.dispatchHold ? t('jobs.run.resume') : t('jobs.run.pause')}
-      </Button>
-    )
+  const pause: { label: string; title?: string; onSelect: () => void } | null =
+    run === undefined || run.archivedAt !== undefined || run.pendingStart || run.outcome === 'completed' ? null : run.schedule ? {
+      label: run.paused ? t('jobs.run.resume') : t('jobs.run.pause'),
+      title: lockedReason,
+      onSelect: () => void (run.paused ? resumeRun(door, runId, ui) : pauseRun(door, runId, ui))
+    } : !local ? null : {
+      label: run.dispatchHold ? t('jobs.run.resume') : t('jobs.run.pause'),
+      title: lockedReason ?? (run.dispatchHold ? t('plan.header.release') : t('plan.header.hold')),
+      onSelect: () => void holdJob(door, runId, !run.dispatchHold, ui)
+    }
+  // W17: a narrow tab folds Pause, Open consoles and the ⋯ menu into one ⋯ toolbar (planPage.css shows one set)
+  const narrowMenu: Array<MenuItem | 'separator'> = [
+    ...(pause ? [{ id: 'pause', label: pause.label, disabled: off, onSelect: pause.onSelect }] : []),
+    { id: 'consoles', label: t('plan.doc.openConsoles'), icon: <Icon name="layoutGrid" size={14} />, onSelect: onOpenConsoles },
+    ...(menu.length > 0 ? ['separator' as const, ...menu] : [])
+  ]
 
   const status = run ? planStatusOf(run) : null
   const prog = planProgressOf(tasks)
@@ -265,13 +271,20 @@ export function PlanHeader({
             </Button>
           )}
           {!p.authoringOpen && <PlanMergeActions p={p} run={run} />}
-          {pauseButton}
-          <Button size="sm" variant="ghost" icon={<Icon name="layoutGrid" size={14} />} onClick={onOpenConsoles}>
-            {t('plan.doc.openConsoles')}
-          </Button>
-          {menu.length > 0 && (
-            <Menu label={t('plan.header.more')} align="end" items={menu} trigger={{ variant: 'ghost', size: 'sm', icon: <Icon name="more" size={14} />, title: t('plan.header.more') }} />
-          )}
+          <span className="plan-header-wide">
+            {pause && (
+              <Button size="sm" variant="ghost" disabled={off} title={pause.title} onClick={pause.onSelect}>
+                {pause.label}
+              </Button>
+            )}
+            <Button size="sm" variant="ghost" icon={<Icon name="layoutGrid" size={14} />} onClick={onOpenConsoles}>
+              {t('plan.doc.openConsoles')}
+            </Button>
+            {menu.length > 0 && (
+              <Menu label={t('plan.header.more')} align="end" items={menu} trigger={{ variant: 'ghost', size: 'sm', icon: <Icon name="more" size={14} />, title: t('plan.header.more') }} />
+            )}
+          </span>
+          <Toolbar className="plan-header-narrow" label={t('plan.header.more')} overflowLabel={t('plan.header.more')} items={[]} overflow={narrowMenu} />
         </>
       }
     />
