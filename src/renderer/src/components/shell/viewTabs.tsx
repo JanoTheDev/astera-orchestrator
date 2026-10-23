@@ -18,8 +18,7 @@ import { SettingsPage } from '../settings/SettingsPage'
 import { KeyboardShortcuts } from '../ShortcutSettings'
 import { MainPlan } from '../plan/MainPlan'
 import type { PlanActs } from '../plan/PlanRow'
-import { selectWorktree, useWorktreeView } from '../worktrees/worktreeView'
-import { repoInScope } from '../../state/projectView'
+import { worktreeTitle } from '../worktrees/worktreeView'
 import { Welcome } from './Welcome'
 import { DeviceDetail } from '../devices/DeviceDetail'
 import { devicesSnapshot } from '../devices/useDevices'
@@ -47,7 +46,7 @@ export function viewTabInfo(p: Pick<ViewTabProps, 't' | 'orchSnapshot'>, name: V
     return { icon: meta.icon, title: run ? jobName(run) : p.t(meta.title) }
   }
   if (name === 'settings' && arg === 'keys') return { icon: 'keyboard', title: p.t('keys.title') }
-  if (name === 'worktree' && arg !== undefined) return { icon: meta.icon, title: arg.split(/[\\/]/).filter(Boolean).pop() ?? arg }
+  if (name === 'worktree' && arg !== undefined) return { icon: meta.icon, title: worktreeTitle(undefined, arg) }
   if (name === 'device' && arg !== undefined) return { icon: meta.icon, title: devicesSnapshot().paired?.find((r) => r.runtimeId === arg)?.name ?? p.t(meta.title) }
   return { icon: meta.icon, title: p.t(meta.title) }
 }
@@ -78,21 +77,20 @@ function planActs(p: ViewTabProps): PlanActs {
   }
 }
 
-/** A worktree tab: the worktree detail, selected while the tab shows. */
-function WorktreeTab({ p, path, active }: { p: ViewTabProps; path?: string; active: boolean }): React.JSX.Element {
-  const { selected } = useWorktreeView()
-  useEffect(() => {
-    if (active && path !== undefined) selectWorktree(path)
-  }, [active, path])
+/** A worktree tab: the one worktree at its own path, never the side bar's selection. */
+function WorktreeTab({ p, path, close }: { p: ViewTabProps; path?: string; close: () => void }): React.JSX.Element | null {
+  if (path === undefined) return null
   return (
     <WorktreeDetail
-      path={selected}
+      path={path}
+      runs={p.orchSnapshot?.runs ?? []}
+      door={p.currentProject ? localDoor(window.api, p.currentProject) : null}
+      onClose={close}
       onStartSession={(cwd) => {
         p.setNewSessionCwd(cwd)
         p.setShowNew(true)
       }}
       onOpenFiles={(cwd) => p.openLinkedFolder(cwd)}
-      repoFilter={(repo) => repoInScope(p.workspaceTree, p.scopeId, repo)}
     />
   )
 }
@@ -154,7 +152,7 @@ export function renderViewTab(p: ViewTabProps, name: ViewName, arg: string | und
       // `view:settings:keys` is the Keyboard Shortcuts editor tab
       return arg === 'keys' ? <KeyboardShortcuts keyOverrides={p.keyOverrides} setKeyOverrides={p.setKeyOverrides} /> : <SettingsPage {...p} onClose={close} />
     case 'worktree':
-      return <WorktreeTab p={p} path={arg} active={active} />
+      return <WorktreeTab p={p} path={arg} close={close} />
     case 'device':
       return arg === undefined ? null : (
         <DeviceDetail
