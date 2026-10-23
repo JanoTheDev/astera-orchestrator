@@ -2,7 +2,15 @@
 // project, Preferences, Done. The rules live in onboardingModel.ts; this draws them. Choices are saved as they are
 // made (the same setters Settings uses), so leaving at any step keeps what was set.
 import { useEffect, useRef, useState } from 'react'
-import type { Account, CliStatus, DetectCandidate, Provider, SessionKind, UpdateMode, UpdateStatus } from '../../../../core/types'
+import type {
+  Account,
+  CliStatus,
+  DetectCandidate,
+  Provider,
+  SessionKind,
+  UpdateMode,
+  UpdateStatus
+} from '../../../../core/types'
 import type { Lang } from '../../../../core/i18n'
 import { CATALOGS, LANGS } from '../../../../core/i18n'
 import { PROVIDER_META } from '../../../../core/providers/meta'
@@ -16,8 +24,18 @@ import { ProviderBadge } from '../ProviderBadge'
 import { Button, Card, Chip, Field, Icon, Select, type SelectOption } from '../ui'
 import logoUrl from '../../assets/mark.svg'
 import {
-  ONBOARDING_STEPS, canNext, canSkipStep, donePrimary, doneNotes, nextStep, prevStep, resumeStep, showUpdateChoice, stepIndex,
-  type OnboardingExit, type OnboardingStep
+  ONBOARDING_STEPS,
+  canNext,
+  canSkipStep,
+  donePrimary,
+  doneNotes,
+  nextStep,
+  prevStep,
+  resumeStep,
+  showUpdateChoice,
+  stepIndex,
+  type OnboardingExit,
+  type OnboardingStep
 } from './onboardingModel'
 import { onboardingReplayStart } from './replay'
 import './onboarding.css'
@@ -65,10 +83,16 @@ export function Onboarding(p: OnboardingProps): React.JSX.Element | null {
       .catch(() => setStep('welcome'))
   }, [p.replay])
   useEffect(() => {
-    void window.api.system.checkTools().then(setTools).catch(() => setTools(null))
+    void window.api.system
+      .checkTools()
+      .then(setTools)
+      .catch(() => setTools(null))
   }, [])
   useEffect(() => {
-    void window.api.settings.getUpdateMode().then(setUpdateMode).catch(() => {})
+    void window.api.settings
+      .getUpdateMode()
+      .then(setUpdateMode)
+      .catch(() => {})
   }, [])
   useEffect(() => {
     if (step === null) return
@@ -86,7 +110,11 @@ export function Onboarding(p: OnboardingProps): React.JSX.Element | null {
     p.setDefaultSessionKind(kind)
     void window.api.settings.setDefaultSessionKind(kind).catch((err) => {
       p.setDefaultSessionKind(prev)
-      toast.error(t('settings.defaultKind.saveFailed', { detail: err instanceof Error ? err.message : String(err) }))
+      toast.error(
+        t('settings.defaultKind.saveFailed', {
+          detail: err instanceof Error ? err.message : String(err)
+        })
+      )
     })
   }
   const pickMode = (mode: UpdateMode): void => {
@@ -94,17 +122,27 @@ export function Onboarding(p: OnboardingProps): React.JSX.Element | null {
     setUpdateMode(mode)
     void window.api.settings.setUpdateMode(mode).catch((err) => {
       setUpdateMode(prev)
-      toast.error(t('update.ui.modeSaveFailed', { detail: err instanceof Error ? err.message : String(err) }))
+      toast.error(
+        t('update.ui.modeSaveFailed', {
+          detail: err instanceof Error ? err.message : String(err)
+        })
+      )
     })
   }
 
   const langItems: SelectOption[] = [
-    { value: SYSTEM_LANG, label: t('settings.general.language.system', { lang: CATALOGS[systemLang].nativeName }) },
+    {
+      value: SYSTEM_LANG,
+      label: t('settings.general.language.system', {
+        lang: CATALOGS[systemLang].nativeName
+      })
+    },
     ...LANGS.map((l) => ({ value: l, label: CATALOGS[l].nativeName }))
   ]
   // Radio group keyboard: arrows move the choice and its focus together (roving tabindex), like Tabs.
   const kindKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
-    const d = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0
+    const d =
+      e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0
     if (!d) return
     e.preventDefault()
     const next = KINDS[(KINDS.indexOf(p.defaultSessionKind) + d + KINDS.length) % KINDS.length]
@@ -121,16 +159,14 @@ export function Onboarding(p: OnboardingProps): React.JSX.Element | null {
   let body: React.ReactNode
   let actions: React.ReactNode
   const nextButton = (
-    <Button variant="primary" size="lg" disabled={!enabled} onClick={() => go(nextStep(step))}>
+    <Button variant="primary" disabled={!enabled} onClick={() => go(nextStep(step))}>
       {t('onboarding.next')}
     </Button>
   )
   // Tools and Accounts wait on something the person may not be able to do yet: they can always go on without it.
   const skipButton =
     canSkipStep(step) && !enabled ? (
-      <Button size="lg" onClick={() => go(nextStep(step))}>
-        {t('onboarding.skipStep')}
-      </Button>
+      <Button onClick={() => go(nextStep(step))}>{t('onboarding.skipStep')}</Button>
     ) : null
 
   if (step === 'welcome') {
@@ -151,7 +187,7 @@ export function Onboarding(p: OnboardingProps): React.JSX.Element | null {
       </>
     )
     actions = (
-      <Button variant="primary" size="lg" onClick={() => go('tools')}>
+      <Button variant="primary" onClick={() => go('tools')}>
         {t('onboarding.welcome.start')}
       </Button>
     )
@@ -205,7 +241,12 @@ export function Onboarding(p: OnboardingProps): React.JSX.Element | null {
         <Card className="onb__card onb__row">
           <span className="onb__row-main">
             {p.currentProject ? (
-              <Status ok text={t('onboarding.project.current', { name: baseName(p.currentProject) })} />
+              <Status
+                ok
+                text={t('onboarding.project.current', {
+                  name: baseName(p.currentProject)
+                })}
+              />
             ) : (
               <span className="onb__dim">{t('onboarding.project.none')}</span>
             )}
@@ -223,7 +264,12 @@ export function Onboarding(p: OnboardingProps): React.JSX.Element | null {
         {title('onboarding.prefs.title')}
         <p className="onb__lead">{t('onboarding.prefs.body')}</p>
         <div className="onb__label">{t('settings.defaultKind.title')}</div>
-        <div className="onb__choices" role="radiogroup" aria-label={t('settings.defaultKind.title')} onKeyDown={kindKeyDown}>
+        <div
+          className="onb__choices"
+          role="radiogroup"
+          aria-label={t('settings.defaultKind.title')}
+          onKeyDown={kindKeyDown}
+        >
           {KINDS.map((kind) => (
             <Card
               key={kind}
@@ -239,7 +285,9 @@ export function Onboarding(p: OnboardingProps): React.JSX.Element | null {
                 <Icon name={p.defaultSessionKind === kind ? 'check' : 'pending'} />
                 {t(kind === 'terminal' ? 'settings.defaultKind.terminal' : 'settings.defaultKind.chat')}
               </span>
-              <span className="onb__dim">{t(kind === 'terminal' ? 'onboarding.prefs.terminalWhat' : 'onboarding.prefs.chatWhat')}</span>
+              <span className="onb__dim">
+                {t(kind === 'terminal' ? 'onboarding.prefs.terminalWhat' : 'onboarding.prefs.chatWhat')}
+              </span>
             </Card>
           ))}
         </div>
@@ -249,7 +297,10 @@ export function Onboarding(p: OnboardingProps): React.JSX.Element | null {
             label={t('update.ui.mode')}
             hint={t(modeHintKey(updateMode))}
             value={updateMode}
-            options={UPDATE_MODES.map((m) => ({ value: m, label: t(`update.ui.mode.${m}`) }))}
+            options={UPDATE_MODES.map((m) => ({
+              value: m,
+              label: t(`update.ui.mode.${m}`)
+            }))}
             onChange={(e) => pickMode(e.target.value as UpdateMode)}
           />
         )}
@@ -262,7 +313,10 @@ export function Onboarding(p: OnboardingProps): React.JSX.Element | null {
       [t('onboarding.done.tools'), clis || t('onboarding.done.none')],
       [t('onboarding.done.accounts'), String(p.accounts.length)],
       [t('onboarding.done.project'), p.currentProject ? baseName(p.currentProject) : t('onboarding.done.none')],
-      [t('settings.defaultKind.title'), t(p.defaultSessionKind === 'chat' ? 'settings.defaultKind.chat' : 'settings.defaultKind.terminal')]
+      [
+        t('settings.defaultKind.title'),
+        t(p.defaultSessionKind === 'chat' ? 'settings.defaultKind.chat' : 'settings.defaultKind.terminal')
+      ]
     ]
     if (updateChoice && updateMode !== null) rows.push([t('update.ui.mode'), t(`update.ui.mode.${updateMode}`)])
     body = (
@@ -270,7 +324,11 @@ export function Onboarding(p: OnboardingProps): React.JSX.Element | null {
         {title('onboarding.done.title')}
         <p className="onb__lead">{t('onboarding.done.body')}</p>
         {doneNotes({ cliFound, accountCount: p.accounts.length }).map((n) => (
-          <Status key={n} ok={false} text={t(n === 'noCli' ? 'onboarding.done.needCli' : 'onboarding.done.noAccount')} />
+          <Status
+            key={n}
+            ok={false}
+            text={t(n === 'noCli' ? 'onboarding.done.needCli' : 'onboarding.done.noAccount')}
+          />
         ))}
         <Card className="onb__card">
           <dl className="onb__summary">
@@ -286,15 +344,13 @@ export function Onboarding(p: OnboardingProps): React.JSX.Element | null {
     )
     actions = (
       <>
-        <Button size="lg" onClick={() => p.onExit('agents')}>
-          {t('onboarding.done.agents')}
-        </Button>
+        <Button onClick={() => p.onExit('agents')}>{t('onboarding.done.agents')}</Button>
         {donePrimary({ cliFound }) === 'start' ? (
-          <Button variant="primary" size="lg" onClick={() => p.onExit('start')}>
+          <Button variant="primary" onClick={() => p.onExit('start')}>
             {t('onboarding.done.start')}
           </Button>
         ) : (
-          <Button variant="primary" size="lg" onClick={() => go('tools')}>
+          <Button variant="primary" onClick={() => go('tools')}>
             {t('onboarding.done.installTool')}
           </Button>
         )}
@@ -313,7 +369,12 @@ export function Onboarding(p: OnboardingProps): React.JSX.Element | null {
         // app hidden under this page.
         if (e.key === 'Tab' && !e.defaultPrevented) {
           const items = Array.from(e.currentTarget.querySelectorAll<HTMLElement>(FOCUSABLE))
-          const action = modalKeyAction('Tab', e.shiftKey, items.indexOf(document.activeElement as HTMLElement), items.length)
+          const action = modalKeyAction(
+            'Tab',
+            e.shiftKey,
+            items.indexOf(document.activeElement as HTMLElement),
+            items.length
+          )
           if (action !== null && action !== 'close') {
             e.preventDefault()
             items[action.focus]?.focus()
@@ -327,28 +388,42 @@ export function Onboarding(p: OnboardingProps): React.JSX.Element | null {
       }}
     >
       <div className="onb__page">
-        <div className="onb__progress" role="group" aria-label={t('onboarding.stepsLabel')}>
-          <ol className="onb__dots" aria-hidden="true">
+        <nav className="onb__steps" aria-label={t('onboarding.stepsLabel')}>
+          <ol>
             {ONBOARDING_STEPS.map((s, i) => (
-              <li key={s} className={i === index ? 'is-current' : i < index ? 'is-past' : undefined} />
+              <li
+                key={s}
+                className={i === index ? 'is-current' : i < index ? 'is-done' : undefined}
+                aria-current={i === index ? 'step' : undefined}
+              >
+                <Icon name={i < index ? 'check' : 'pending'} size={14} />
+                <span>{t(`onboarding.nav.${s}`)}</span>
+              </li>
             ))}
           </ol>
-          <span>{t('onboarding.step', { n: index + 1, total: ONBOARDING_STEPS.length })}</span>
-        </div>
-        <div className="onb__body">{body}</div>
-        <div className="onb__foot">
-          {index > 0 && step !== 'done' && (
-            <Button variant="ghost" onClick={() => go(prevStep(step))}>
-              {t('onboarding.back')}
-            </Button>
-          )}
-          {step !== 'done' && (
-            <Button variant="ghost" onClick={() => p.onExit('skip')}>
-              {t('onboarding.skip')}
-            </Button>
-          )}
-          <span className="onb__spacer" />
-          {actions}
+          <span className="onb__count">
+            {t('onboarding.step', {
+              n: index + 1,
+              total: ONBOARDING_STEPS.length
+            })}
+          </span>
+        </nav>
+        <div className="onb__main">
+          <div className="onb__body">{body}</div>
+          <div className="onb__foot">
+            {index > 0 && step !== 'done' && (
+              <Button variant="ghost" onClick={() => go(prevStep(step))}>
+                {t('onboarding.back')}
+              </Button>
+            )}
+            {step !== 'done' && (
+              <Button variant="ghost" onClick={() => p.onExit('skip')}>
+                {t('onboarding.skip')}
+              </Button>
+            )}
+            <span className="onb__spacer" />
+            {actions}
+          </div>
         </div>
       </div>
     </div>
@@ -381,7 +456,10 @@ function AccountsStep({
   const [signIn, setSignIn] = useState<Account | null>(null)
 
   useEffect(() => {
-    void window.api.accounts.detect().then(setFound).catch(() => setFound([]))
+    void window.api.accounts
+      .detect()
+      .then(setFound)
+      .catch(() => setFound([]))
   }, [])
   const known = new Set(accounts.map((a) => a.configDir))
   const candidates = found.filter((c) => !known.has(c.configDir))
@@ -389,7 +467,11 @@ function AccountsStep({
   const add = async (c: DetectCandidate): Promise<void> => {
     setBusy(c.configDir)
     try {
-      await window.api.accounts.import({ label: c.suggestedLabel, configDir: c.configDir, provider: c.provider })
+      await window.api.accounts.import({
+        label: c.suggestedLabel,
+        configDir: c.configDir,
+        provider: c.provider
+      })
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err))
     } finally {
@@ -399,7 +481,12 @@ function AccountsStep({
   const signInNew = async (provider: Provider): Promise<void> => {
     setBusy(provider)
     try {
-      setSignIn(await window.api.accounts.create({ label: PROVIDER_META[provider].displayName, provider }))
+      setSignIn(
+        await window.api.accounts.create({
+          label: PROVIDER_META[provider].displayName,
+          provider
+        })
+      )
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err))
     } finally {
@@ -444,7 +531,12 @@ function AccountsStep({
                 <Chip tone={c.loggedIn ? 'ok' : 'neutral'} dot>
                   {c.loggedIn ? t('account.status.loggedIn') : t('account.status.notLoggedIn')}
                 </Chip>
-                <Button size="sm" icon={<Icon name="add" size={14} />} loading={busy === c.configDir} onClick={() => void add(c)}>
+                <Button
+                  size="sm"
+                  icon={<Icon name="add" size={14} />}
+                  loading={busy === c.configDir}
+                  onClick={() => void add(c)}
+                >
                   {t('onboarding.accounts.add')}
                 </Button>
               </div>
@@ -456,7 +548,9 @@ function AccountsStep({
       <div className="onb__inline">
         {providers.map((pr) => (
           <Button key={pr} icon={<Icon name="login" />} loading={busy === pr} onClick={() => void signInNew(pr)}>
-            {t('onboarding.accounts.signInWith', { name: PROVIDER_META[pr].displayName })}
+            {t('onboarding.accounts.signInWith', {
+              name: PROVIDER_META[pr].displayName
+            })}
           </Button>
         ))}
       </div>

@@ -100,6 +100,26 @@ export function runWorktrees(s: OrchState, runId: string): string[] {
   return runWorktreesFrom(run, jobOf(s, run)?.cwd, s.dispatches.filter((d) => taskIds.has(d.taskId)))
 }
 
+/** Each Task's latest Dispatch, in state order. What a plan delivers: an earlier attempt's worktree was replaced by
+ *  the attempt after it (a lost worker restarted in a fresh folder, a redo), and merging it again brings back work the
+ *  plan already redid, which conflicts and blocks the delivery for ever. Removal still sees them all (runWorktrees). */
+export function latestAttempts(dispatches: readonly Dispatch[]): Dispatch[] {
+  const latest = new Map<string, Dispatch>()
+  for (const d of dispatches) {
+    const seen = latest.get(d.taskId)
+    if (!seen || d.startedAt >= seen.startedAt) latest.set(d.taskId, d)
+  }
+  return dispatches.filter((d) => latest.get(d.taskId) === d)
+}
+
+/** The worktrees a plan's delivery merges: runWorktrees over each Task's latest attempt only (latestAttempts). */
+export function deliveryWorktrees(s: OrchState, runId: string, taskIds?: ReadonlySet<string>): string[] {
+  const run = s.runs.find((r) => r.id === runId)
+  if (!run) return []
+  const own = taskIds ?? new Set(s.tasks.filter((t) => t.runId === runId).map((t) => t.id))
+  return runWorktreesFrom(run, jobOf(s, run)?.cwd, latestAttempts(s.dispatches.filter((d) => own.has(d.taskId))))
+}
+
 /** runWorktrees with the Run's Job folder and its Tasks' Dispatches (in state order) already gathered — the Jobs
  *  sidebar fold indexes them once (performance audit M1). */
 export function runWorktreesFrom(run: JobRun, jobCwd: string | undefined, dispatches: readonly Dispatch[]): string[] {

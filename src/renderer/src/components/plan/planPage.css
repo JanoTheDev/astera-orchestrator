@@ -1,18 +1,65 @@
-/* W11 plan page (DESIGN-W11 §7): the PageHeader inside .plan-pages, which already pads the page, and the wave line. */
-.plan-page > .plan-page-header { padding: 0; flex: none; }
+/* T8 plan tab (DESIGN-W13 §5 `view:plan`, §11, §12, §13): one document on the editor ground, 960px at most and
+   centred; sections are titled blocks separated by a 1px line, never cards. */
+.plan-pages:has(> .plan-doc) { background: var(--editor-bg); }
+.plan-page.plan-doc { flex: none; min-height: auto; width: 100%; max-width: 960px; margin: 0 auto; gap: var(--sp-6); }
+.plan-doc-section { display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0; scroll-margin-top: var(--sp-4); }
+.plan-doc-title { display: flex; align-items: center; gap: var(--sp-2); margin: 0; padding-bottom: var(--sp-1); border-bottom: 1px solid var(--line); font-size: var(--fs-15); font-weight: var(--fw-semi); line-height: var(--lh-tight); color: var(--text); }
+.plan-doc-count { min-width: 16px; padding: 0 var(--sp-1); border-radius: var(--radius-pill); background: var(--badge-bg); color: var(--badge-fg); font-size: var(--fs-11); font-weight: var(--fw-semi); text-align: center; font-variant-numeric: tabular-nums; }
+
+/* Header: the plan's name (18/600), its status word, the step line and a progress Meter; actions on the right */
+.plan-doc > .plan-page-header { padding: 0; flex: none; }
+.plan-doc .ui-page-header__title { font-size: var(--fs-18); font-weight: var(--fw-semi); }
 .plan-page-title { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .plan-page-header .jobs-title-input { font: inherit; min-width: 240px; }
-.plan-page-sub { display: inline-flex; align-items: center; gap: var(--sp-2); }
-.plan-page-concurrency input { width: 3.5em; }
+.plan-page-header .ui-page-header__titles { flex-wrap: wrap; row-gap: var(--sp-1); }
+.plan-page-header .ui-page-header__subtitle { overflow: visible; white-space: normal; }
+.plan-page-sub { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+.plan-page-sub .ui-chip { height: auto; min-height: 20px; padding-block: 2px; line-height: var(--lh-tight); white-space: normal; }
+.plan-page-header .ui-page-header__actions { flex-wrap: wrap; justify-content: flex-end; }
+/* Progress is accent at every value (the Meter's warn/danger tones are for usage) */
+.plan-meter.ui-meter { --ui-meter-fill: var(--accent); }
+.plan-page-meter { width: 120px; }
 .plan-page-wave { display: inline-flex; align-items: center; gap: var(--sp-2); min-width: 0; color: var(--text-dim); font-size: var(--fs-12); font-variant-numeric: tabular-nums; }
 .plan-page-wave-at { color: var(--text); font-weight: var(--fw-medium); }
 .plan-page-wave-next { color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.plan-page-waves-head { justify-content: space-between; }
-.detail-graph > .plan-page-wave { margin: var(--sp-1) 0 var(--sp-3); }
-.plan-simple-details { align-self: flex-start; margin-top: var(--sp-2); }
-.detail-graph > .plan-overview { flex: none; }
-/* Title and status chips wrap instead of clipping: a long "Not delivered: <reason>" chip used to squeeze the title to "Set…" and cut itself off. */
-.plan-page-header .ui-page-header__titles { flex-wrap: wrap; row-gap: var(--sp-1); }
-.plan-page-header .ui-page-header__subtitle { overflow: visible; white-space: normal; }
-.plan-page-sub { flex-wrap: wrap; }
-.plan-page-sub .ui-chip { height: auto; min-height: 20px; padding-block: 2px; line-height: var(--lh-tight); white-space: normal; }
+
+/* Needs you: one row per question, full width, under its Task's name */
+.plan-needs-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; }
+.plan-needs-item { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-2) 0 var(--sp-3) var(--sp-3); border-left: 2px solid var(--warn); }
+.plan-needs-item + .plan-needs-item { margin-top: var(--sp-2); }
+.plan-needs-task.ui-btn { align-self: flex-start; height: auto; padding: 0; background: none; font-weight: var(--fw-medium); color: var(--text); }
+.plan-needs-task.ui-btn:hover:not(:disabled) { background: none; color: var(--link); }
+
+/* Goal: the objective, four lines until unfolded */
+.plan-goal { margin: 0; font-size: var(--fs-13); line-height: var(--lh); color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
+.plan-goal--folded { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.plan-doc-section > .plan-link.ui-btn { align-self: flex-start; height: auto; padding: 0; background: none; color: var(--link); font-size: var(--fs-12); }
+
+/* Steps: the wave line, the board/graph switch and New task on one bar */
+.plan-steps-bar { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+.plan-steps-bar > .ui-btn:last-child { margin-left: auto; }
+.plan-flash { background: var(--list-active); }
+
+/* Plan settings: settings-editor rows, title and help on the left, the control on the right */
+.plan-settings { display: flex; flex-direction: column; }
+.plan-settings-loading { margin: 0; color: var(--text-faint); font-size: var(--fs-12); }
+.plan-setting { display: grid; grid-template-columns: minmax(0, 1fr) 200px; align-items: center; gap: var(--sp-2) var(--sp-6); padding: var(--sp-2) 0 var(--sp-2) var(--sp-3); border-left: 2px solid transparent; }
+.plan-setting + .plan-setting { border-top: 1px solid var(--line-soft); }
+.plan-setting:hover { background: var(--list-hover); }
+.plan-setting-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.plan-setting-title { font-size: var(--fs-14); font-weight: var(--fw-medium); color: var(--text); }
+.plan-setting-help { font-size: var(--fs-12); color: var(--text-dim); line-height: var(--lh); }
+.plan-setting-why { color: var(--warn); }
+.plan-setting--readonly .plan-setting-title { color: var(--text-dim); }
+.plan-setting-control { display: flex; justify-content: flex-end; min-width: 0; }
+.plan-setting-control > .ui-input { width: 96px; }
+.plan-setting-control > .sel, .plan-setting-control > .ui-select { width: 100%; }
+@media (max-width: 720px) {
+  .plan-setting { grid-template-columns: minmax(0, 1fr); }
+  .plan-setting-control { justify-content: flex-start; }
+}
+
+/* Activity: Log, Changes, Files, Talk and So far as tabs; the log scrolls inside its own height */
+.plan-activity-body { display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0; padding-top: var(--sp-2); }
+.plan-activity-body .detail-list { max-height: 480px; }
+.plan-activity-body .plan-files { max-height: 480px; }

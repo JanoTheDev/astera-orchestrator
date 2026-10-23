@@ -1,18 +1,24 @@
-/* W11 Inbox page (DESIGN-W11 §7, §9): PageHeader, then Needs you (cards) and Handled for you (a day-grouped log). Tokens only. */
-.inbox { display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--bg); color: var(--text); }
+/* DESIGN-W13 §6 Needs you tab: compact 24px rows that expand in place; the bell popover's rows (shell/NotificationBell.tsx). Tokens only. */
+.needs { display: flex; flex-direction: column; min-height: 0; color: var(--text); }
+.needs__bar { display: flex; align-items: center; gap: 8px; padding: 4px 12px; border-bottom: 1px solid var(--line); }
+.needs__none { margin: 0; padding: 8px 12px; color: var(--text-dim); font-size: var(--fs-13); }
+.needs__list { list-style: none; margin: 0; padding: 0; }
 .inbox__plan-chip { gap: 2px; padding-right: 2px; }
-.inbox__cols { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); border-top: 1px solid var(--line); }
-.inbox__col { min-height: 0; overflow-y: auto; padding: var(--sp-4) var(--page-pad) var(--sp-6); }
-.inbox__col--handled { border-left: 1px solid var(--line); background: var(--panel); }
-.inbox__h { display: flex; align-items: center; gap: 8px; margin: 0 0 var(--sp-3); font-size: var(--fs-11); font-weight: var(--fw-semi); letter-spacing: .04em; text-transform: uppercase; color: var(--text-dim); }
-.inbox__count { min-width: 18px; padding: 0 6px; border-radius: var(--radius-pill); background: var(--warn-soft); color: var(--warn); font-size: var(--fs-11); text-align: center; font-variant-numeric: tabular-nums; letter-spacing: 0; }
-.inbox__none { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--text-dim); font-size: var(--fs-13); }
-.inbox__none svg { color: var(--ok); }
-.inbox__list, .inbox__feed { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
-.inbox__list { gap: var(--sp-3); }
-.inbox__card { display: flex; flex-direction: column; gap: var(--sp-3); text-align: left; }
-.inbox__card-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.inbox__where { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-13); font-weight: var(--fw-medium); color: var(--text); }
+.needs-row { border-bottom: 1px solid var(--line); }
+.needs-row:hover { background: var(--list-hover); }
+.needs-row--open { background: var(--list-hover); }
+.needs-row--danger { box-shadow: inset 2px 0 0 var(--danger); }
+.needs-row__head { display: flex; align-items: center; gap: 8px; min-height: 24px; padding: 0 12px 0 4px; }
+.needs-row__toggle { flex: 1; min-width: 0; justify-content: flex-start; font-weight: var(--fw-regular); font-size: var(--fs-13); text-align: left; }
+.needs-row__toggle:hover:not(:disabled) { background: transparent; }
+.needs-row__toggle .ui-btn__label { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; }
+.needs-row__kind { flex: none; color: var(--text-dim); }
+.needs-row__kind--warn { color: var(--warn); }
+.needs-row__kind--danger { color: var(--danger); }
+.needs-row__kind--info { color: var(--info); }
+.needs-row__word { flex: none; min-width: 72px; color: var(--text-dim); font-size: var(--fs-12); }
+.needs-row__body { display: flex; flex-direction: column; gap: var(--sp-2); padding: 4px 12px 10px 32px; }
+.inbox__where { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
 .inbox__age { flex: none; font-size: var(--fs-11); color: var(--text-faint); font-variant-numeric: tabular-nums; }
 .inbox__body { margin: 0; font-size: var(--fs-13); color: var(--text-dim); }
 .inbox__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
@@ -20,48 +26,22 @@
 .inbox__warn p { margin: 0; }
 .inbox__warn .inbox__actions { justify-content: flex-start; }
 
-.inbox__day + .inbox__day { margin-top: var(--sp-4); }
-.inbox__day-h { margin: 0 0 var(--sp-1); font-size: var(--fs-11); font-weight: var(--fw-medium); color: var(--text-faint); }
-.inbox__line-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  height: 30px;
-  padding: 0 var(--sp-2);
-  box-sizing: border-box;
-  color: var(--text);
-  font-size: var(--fs-13);
-  justify-content: flex-start;
-  font-weight: var(--fw-regular);
-  text-align: left;
-}
-.inbox__line-row .ui-btn__label { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; }
-.inbox__line-row:hover:not(:disabled) { background: var(--hover); }
-.inbox__line-row:disabled { cursor: default; color: var(--text); opacity: 1; }
-.inbox__tone { flex: none; color: var(--text-faint); }
-.inbox__line--ok .inbox__tone { color: var(--ok); }
-.inbox__line--bad .inbox__tone { color: var(--danger); }
-.inbox__line--warn .inbox__tone { color: var(--warn); }
-.inbox__line--info .inbox__tone { color: var(--info); }
-.inbox__text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.inbox__plan { flex: 0 1 auto; max-width: 30%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); font-size: var(--fs-12); }
-.inbox__time { flex: none; color: var(--text-faint); font-size: var(--fs-11); font-variant-numeric: tabular-nums; }
-/* Nothing needs you: that column collapses to one line above the log (DESIGN-W11 §9) */
-.inbox__cols--quiet { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
-.inbox__cols--quiet .inbox__col--needs { display: flex; align-items: center; gap: var(--sp-4); padding-bottom: var(--sp-4); }
-.inbox__cols--quiet .inbox__col--needs .inbox__h { margin: 0; }
-.inbox__cols--quiet .inbox__col--handled { border-left: 0; border-top: 1px solid var(--line); }
-@media (max-width: 1100px) {
-  .inbox__cols { grid-template-columns: minmax(0, 1fr); overflow-y: auto; }
-  .inbox__col { overflow: visible; min-height: auto; } /* a stacked column keeps its own height; with min-height 0 the cards ran over the next heading */
-  .inbox__col--handled { border-left: 0; border-top: 1px solid var(--line); }
-}
-/* Quiet + narrow: keep the log as its own scrolling pane filling the page, not a stacked box */
-@media (max-width: 1100px) {
-  .inbox__cols--quiet { overflow: hidden; }
-  .inbox__cols--quiet .inbox__col--handled { overflow-y: auto; }
-}
-/* The bell popover's handled lines (shell/NotificationBell.tsx) are ui Buttons: their label span carries the row layout */
-.bell__line { justify-content: flex-start; font-weight: var(--fw-regular); }
-.bell__line .ui-btn__label { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; }
+/* The bell popover (DESIGN-W13: menu-like, 22px rows) */
+.tb-popover.bell { width: 360px; padding: 4px 0; border-radius: var(--radius-lg); background: var(--elevated); box-shadow: var(--shadow-pop); }
+.bell .bell__head { padding: 2px 4px 2px 12px; }
+.bell .bell__title { font-size: var(--fs-12); font-weight: var(--fw-semi); }
+.bell .bell__h { padding: 4px 12px 2px; font-size: var(--fs-11); text-transform: uppercase; }
+.bell .bell__none { padding: 2px 12px 6px; }
+.bell .bell__list { padding: 0; }
+.bell .bell__item { height: 22px; padding: 0 4px 0 12px; border-radius: 0; gap: 8px; }
+.bell .bell__item:hover, .bell .bell__line:hover:not(:disabled) { background: var(--list-active); }
+.bell .bell__item--unread { background: transparent; box-shadow: inset 2px 0 0 var(--accent); }
+.bell .bell__item .ui-btn { height: 18px; }
+.bell .bell__line { width: 100%; height: 22px; padding: 0 12px; border-radius: 0; justify-content: flex-start; font-weight: var(--fw-regular); }
+.bell .bell__line .ui-btn__label { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; }
+.bell .bell__foot { padding: 2px 4px; margin-top: 2px; }
+.bell .bell__kind { flex: none; min-width: 64px; color: var(--text-dim); font-size: var(--fs-12); }
+.bell .bell__kind--warn { color: var(--warn); }
+.bell .bell__kind--danger { color: var(--danger); }
+.wb-status__bell .tb-popover.bell { width: 360px; }
+.bell .bell__line:disabled { opacity: 1; color: var(--text-dim); }

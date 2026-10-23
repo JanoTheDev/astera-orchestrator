@@ -1,10 +1,13 @@
-// The Waves section of the plan page (moved out of pages/PlanPage.tsx): "Step n of m" and what opens the next one,
+// The Steps section of the plan page (moved out of pages/PlanPage.tsx): "Step n of m" and what opens the next one,
 // the board/graph switch, adding a Task, and the board (by wave) or the dependency graph. W12: a wave is shown as a "step".
+// T8: the board is a vertical list of steps; an expanded Task row shows its completion checks and changes.
 import type { RunDetail as RunDetailData } from '../../../../core/types'
 import { useI18n } from '../../i18n/I18nProvider'
 import { replyNote, type OrchDoor } from '../../lib/orchDoor'
 import { checkChoicesOf } from '../checkText'
 import { NewTaskModal } from '../NewTaskModal'
+import { ChangedFilesBlock } from '../ChangedFilesBlock'
+import { CompletionBlock } from '../CompletionBlock'
 import { Button, Icon, Tabs } from '../ui'
 import { coordinatorRefreshOf, replanningOf } from './planBoard'
 import type { WaveStatus } from './planPage'
@@ -38,12 +41,21 @@ export function WaveLine({ status, brief = false }: { status: WaveStatus | null;
   )
 }
 
-/** The Task board of a plan with its answers and sessions wired in; the waves section and the simple plan view both draw it.
- *  `compact`: no model, account, branch or files on the cards (simple mode). */
+/** What `questions-answer` answered: null when it went through, else why not. The board's Needs you and the Inbox send it. */
+export const answerVia =
+  (door: OrchDoor, t: (k: string) => string) =>
+  async (id: string, answer: string): Promise<string | null> => {
+    const r = await door.command('questions-answer', { id, answer })
+    return r.status === 200 ? null : replyNote(r, t as never, (r.body as { error?: string } | null)?.error ?? t('plan.question.failed'))
+  }
+
+/** The Task board of a plan with its sessions wired in, and an expanded row's completion checks and changes.
+ *  `compact`: no model, account, branch or files in a row's detail (simple mode). */
 export function PlanTaskBoard({
   p,
   door,
   runId,
+  runtimeId,
   projectPath,
   detail,
   canOpenSession,
@@ -53,13 +65,13 @@ export function PlanTaskBoard({
   p: PlanPageState
   door: OrchDoor
   runId: string
+  runtimeId?: string
   projectPath: string
   detail: RunDetailData | null
   canOpenSession: (sessionId: string) => boolean
   onOpenSession: (sessionId: string) => void
   compact?: boolean
 }): React.JSX.Element {
-  const { t } = useI18n()
   const { tasks, accounts, selectedTask, onNodeClick, events, live, summaries } = p
   return (
     <TaskBoard
@@ -70,11 +82,6 @@ export function PlanTaskBoard({
       layers={detail?.layers ?? []}
       events={events ?? []}
       activity={live.activity}
-      questions={live.questions}
-      onAnswer={async (id, answer) => {
-        const r = await door.command('questions-answer', { id, answer })
-        return r.status === 200 ? null : replyNote(r, t as never, (r.body as { error?: string } | null)?.error ?? t('plan.question.failed'))
-      }}
       sessions={live.sessions}
       replanning={replanningOf(live.activity, runId)}
       refreshed={coordinatorRefreshOf(live.activity, runId)}
@@ -84,6 +91,13 @@ export function PlanTaskBoard({
       summaries={summaries.byTask}
       nowMs={live.nowMs}
       compact={compact}
+      renderDetail={(tk) => (
+        <>
+          {/* 고른 Task 의 완료 상세 — 왜 못 넘었는가(설계 §2) — and what it changed (Phase 10) */}
+          <CompletionBlock projectPath={projectPath} runId={runId} taskId={tk.id} runtimeId={runtimeId} />
+          <ChangedFilesBlock door={door} runId={runId} taskId={tk.id} />
+        </>
+      )}
     />
   )
 }
@@ -92,37 +106,52 @@ export function PlanWaves({
   p,
   door,
   runId,
+  runtimeId,
   projectPath,
   detail,
   canOpenSession,
-  onOpenSession
+  onOpenSession,
+  simple = false
 }: {
   p: PlanPageState
   door: OrchDoor
   runId: string
+  runtimeId?: string
   projectPath: string
   detail: RunDetailData | null
   canOpenSession: (sessionId: string) => boolean
   onOpenSession: (sessionId: string) => void
+  /** T19: simple mode: the board only (no graph), its rows without the technical detail */
+  simple?: boolean
 }): React.JSX.Element {
   const { t } = useI18n()
-  const { tasks, accounts, selectedTask, onNodeClick, events, live, summaries, view, setView, waveStatus, lockedReason, busy } = p
+  const { tasks, accounts, selectedTask, onNodeClick, view, setView, waveStatus, lockedReason, busy } = p
+  const graph = !simple && view === 'graph'
   return (
     <>
-      <div className="plan-head plan-page-waves-head">
+      <div className="plan-steps-bar">
         <WaveLine status={waveStatus} />
-        <Tabs
-          variant="segmented"
-          label={t('plan.steps.viewLabel')}
-          value={view}
-          onChange={setView}
-          items={(['graph', 'board'] as const).map((v) => ({ id: v, label: t(`plan.view.${v}`) }))}
-        />
+        {!simple && (
+          <Tabs
+            variant="segmented"
+            label={t('plan.steps.viewLabel')}
+            value={view}
+            onChange={setView}
+            items={(['board', 'graph'] as const).map((v) => ({ id: v, label: t(`plan.view.${v}`) }))}
+          />
+        )}
+        {/* 명령이 도는 동안에는 잠근다 — 그 동안 Task 를 짓기 시작하면 도는 명령의 결과를 아무도 보지 못한다
+            (실행·병합이 busy 를 잠그는 것과 같은 이유). The form is a Modal over the page (T8). */}
+        <Button
+          size="sm"
+          icon={<Icon name="add" size={14} />}
+          disabled={lockedReason !== undefined || busy !== null || p.authoringOpen}
+          title={lockedReason}
+          onClick={() => p.setAuthoring(true)}
+        >
+          {t('jobs.task.new')}
+        </Button>
       </div>
-      {/* 짓는 동안(또는 질문을 쓰는 동안)에는 치운다 — 질문을 쓰는 중에 누르면 아래 칸이
-          통째로 NewTaskModal 로 바뀌어 아직 안 보낸 질문을 잃고, Task 를 짓는 중에 누르면
-          폼이 다시 그려져 채워 둔 것을 잃는다. 이 버튼이 여는 것은 새 창이 아니라 아래 칸
-          (.detail-events)의 두 번째 모습이다: 그래프는 그대로 보이고 아래만 바뀐다. */}
       {p.authoring && (
         // **계정을 provider 로 걸러 보내지 않는다** — 이 폼에서 고른 첫 계정이 provider 를 정하므로(Task.accountIds),
         // 걸러 보낼 기준이 이 시점에 없다. 두 번째 칸부터 첫 계정의 provider 로 좁히는 일은 폼 안에서 한다.
@@ -136,24 +165,18 @@ export function PlanWaves({
           onCreated={() => p.setAuthoring(false)}
         />
       )}
-      {!p.authoringOpen && (
-        <div className="detail-graph-head">
-          {/* 명령이 도는 동안 이 줄은 남지만(authoringOpen 의 주석), 그 동안 Task 를 짓기
-              시작하면 폼이 열리며 줄이 사라지고 도는 명령의 결과를 아무도 보지 못한다 —
-              실행·병합이 busy 를 잠그는 것과 같은 이유다. */}
-          <Button
-            size="sm"
-            icon={<Icon name="add" size={14} />}
-            disabled={lockedReason !== undefined || busy !== null}
-            title={lockedReason}
-            onClick={() => p.setAuthoring(true)}
-          >
-            {t('jobs.task.new')}
-          </Button>
-        </div>
-      )}
-      {view === 'board' ? (
-        <PlanTaskBoard p={p} door={door} runId={runId} projectPath={projectPath} detail={detail} canOpenSession={canOpenSession} onOpenSession={onOpenSession} />
+      {!graph ? (
+        <PlanTaskBoard
+          p={p}
+          door={door}
+          runId={runId}
+          runtimeId={runtimeId}
+          projectPath={projectPath}
+          detail={detail}
+          canOpenSession={canOpenSession}
+          onOpenSession={onOpenSession}
+          compact={simple}
+        />
       ) : (
         <Graph
           tasks={tasks}

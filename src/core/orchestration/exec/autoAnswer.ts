@@ -5,6 +5,8 @@ import type { OrchState } from '../state'
 import { projectOfJob } from '../projects'
 import type { Decision, Task } from '../types'
 import { isFailedWait } from '../replan'
+import { isDroppedGate, isDuplicateGate, isStoppedDepGate } from '../overlap'
+import { isLeaseWaitGate } from '../schedule'
 import { readAppSettingsObject } from '../../settings/settingsObject'
 
 /** One open question as `questions-list` returns it: a Gate (with its `kind`) or an ask / escalation (`source`). */
@@ -49,9 +51,14 @@ const OWNER_ONLY: RegExp[] = [
   /\bask me\b/i
 ]
 const ownerOnly = (text: string): boolean => OWNER_ONLY.some((re) => re.test(text))
+/** A question the Host asked itself with fixed options (a stopped dep, a duplicate, a lease wait, a dropped Task): its
+ *  text quotes Task titles ("Remove the old shell") and options ("drop this dependency") that read as owner-only words,
+ *  so only its options are judged, as for a Gate with a `kind`. */
+const hostAsked = (q: OpenQuestion): boolean =>
+  !!q.kind || isStoppedDepGate(q) || isDuplicateGate(q) || isLeaseWaitGate(q) || isDroppedGate(q)
 
 // The safe defaults, in the owner's order; then the two words a state fact picks between
-const SAFE: RegExp[] = [/^(hold|keep holding)\b/i, /^wait\b/i, /^retry(-once)?\b/i, /^skip-check$/i]
+const SAFE: RegExp[] = [/^(hold|keep holding)\b/i, /^wait\b/i, /^(keep waiting|let it wait)\b/i, /^keep both\b/i, /^retry(-once)?\b/i, /^skip-check$/i]
 const GO = /^(go|go ahead|proceed|continue|yes|start|resume|release|unhold)\b/i
 const HOLD = /^(hold|wait|no|later|defer)\b/i
 
@@ -121,7 +128,7 @@ function fromState(s: OrchState, q: OpenQuestion, choices: string[]): AutoAnswer
 export function autoAnswerOf(s: OrchState, q: OpenQuestion, retried = false): AutoAnswer | null {
   const task = s.tasks.find((t) => t.id === q.taskId)
   // A Gate the Host wrote itself (`kind`) carries check output in its text; only its fixed options are judged
-  if (!q.kind && ownerOnly(q.question)) return null
+  if (!hostAsked(q) && ownerOnly(q.question)) return null
   if (task && /\bask me\b/i.test(`${task.prompt ?? ''}\n${task.spec}`)) return null
   const choices = choicesOf(q)
   return fromState(s, q, choices) ?? safeDefault(q, choices, retried)
@@ -173,7 +180,7 @@ export const REFUSED_ANSWER =
 /** Whether a hands-off plan refuses this question: a guardrail case only the owner decides (OWNER_ONLY). A Gate the
  *  Host wrote itself (`kind`) never is: its text is check output. The one place that decides a refusal, so a standing
  *  grant can be asked here too. */
-export const refusedHandsOff = (q: OpenQuestion): boolean => !q.kind && ownerOnly(q.question)
+export const refusedHandsOff = (q: OpenQuestion): boolean => !hostAsked(q) && ownerOnly(q.question)
 
 /** T5: the words a standing grant (`Project.grants`) covers in a question's text, besides the kind itself. */
 const GRANT_WORDS: Record<string, RegExp> = { migrations: /migrat/i, 'protected-paths': /protected/i }

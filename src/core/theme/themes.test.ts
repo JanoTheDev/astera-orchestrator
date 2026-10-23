@@ -36,7 +36,7 @@ describe('THEMES', () => {
   })
 
   it('--sans 스택에 한글 담당이 명시돼 있다', () => {
-    expect(SANS).toContain('IBM Plex Sans')
+    expect(SANS).toMatch(/^system-ui, /)
     expect(SANS).toContain('Malgun Gothic')
     expect(SANS).toContain('Apple SD Gothic Neo')
     expect(SANS).toContain('Noto Sans CJK KR')

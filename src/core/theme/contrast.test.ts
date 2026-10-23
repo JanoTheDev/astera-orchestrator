@@ -26,7 +26,7 @@ describe('relativeLuminance', () => {
   })
 })
 
-/** DESIGN.md §9 "Contrast", for every theme: dim on --elevated ≥ 4.5, faint ≥ 3, ink on accent ≥ 4.5, and
+/** DESIGN-W13.md §11 "Contrast", for every theme: dim on --elevated ≥ 4.5, faint ≥ 3, ink on accent ≥ 4.5, and
  *  chip text on its soft background ≥ 4.5. --text is AAA on the surface it is read on (--bg) and AA on
  *  the surfaces it passes over. */
 const CHECKS: { label: string; fg: keyof ThemeColors; bg: keyof ThemeColors; min: number }[] = [
@@ -39,14 +39,35 @@ const CHECKS: { label: string; fg: keyof ThemeColors; bg: keyof ThemeColors; min
   { label: 'text-faint on elevated', fg: 'textFaint', bg: 'elevated', min: 3 },
   { label: 'accent on bg', fg: 'accent', bg: 'bg', min: 3 },
   { label: 'accent-ink on accent', fg: 'accentInk', bg: 'accent', min: 4.5 },
-  { label: 'accent on accent-soft (chip)', fg: 'accent', bg: 'accentSoft', min: 4.5 },
+  // An accent chip or selected row is --text on --accent-soft; the accent itself is the 2px marker on it.
+  { label: 'text on accent-soft (chip, selected row)', fg: 'text', bg: 'accentSoft', min: 4.5 },
+  { label: 'accent marker on accent-soft', fg: 'accent', bg: 'accentSoft', min: 3 },
+  { label: 'link on bg', fg: 'link', bg: 'bg', min: 4.5 },
+  { label: 'link on panel', fg: 'link', bg: 'panel', min: 4.5 },
   { label: 'ok on ok-soft (chip)', fg: 'ok', bg: 'okSoft', min: 4.5 },
   { label: 'warn on warn-soft (chip)', fg: 'warn', bg: 'warnSoft', min: 4.5 },
   { label: 'danger on danger-soft (chip)', fg: 'danger', bg: 'dangerSoft', min: 4.5 },
   { label: 'info on info-soft (chip)', fg: 'info', bg: 'infoSoft', min: 4.5 },
   { label: 'ok on panel', fg: 'ok', bg: 'panel', min: 3 },
   { label: 'warn on panel', fg: 'warn', bg: 'panel', min: 3 },
-  { label: 'danger on panel', fg: 'danger', bg: 'panel', min: 3 }
+  { label: 'danger on panel', fg: 'danger', bg: 'panel', min: 3 },
+  // the workbench (DESIGN-W13.md §11): text on every surface it is read on, icons and marks at 3:1
+  { label: 'activity icon on activitybar', fg: 'activitybarFg', bg: 'activitybarBg', min: 4.5 },
+  { label: 'dim activity icon on activitybar', fg: 'activitybarFgDim', bg: 'activitybarBg', min: 3 },
+  { label: 'text on sidebar', fg: 'text', bg: 'sidebarBg', min: 4.5 },
+  { label: 'text-dim on sidebar', fg: 'textDim', bg: 'sidebarBg', min: 4.5 },
+  { label: 'text on editor', fg: 'text', bg: 'editorBg', min: 7 },
+  { label: 'text on active tab', fg: 'text', bg: 'tabActiveBg', min: 4.5 },
+  { label: 'text-dim on inactive tab', fg: 'textDim', bg: 'tabInactiveBg', min: 4.5 },
+  { label: 'active tab border on tab bar', fg: 'tabBorderActive', bg: 'tabBarBg', min: 3 },
+  { label: 'text on panel ground', fg: 'text', bg: 'panelBg', min: 4.5 },
+  { label: 'statusbar text', fg: 'statusbarFg', bg: 'statusbarBg', min: 4.5 },
+  { label: 'focus border on editor', fg: 'focusBorder', bg: 'editorBg', min: 3 },
+  { label: 'focus border on sidebar', fg: 'focusBorder', bg: 'sidebarBg', min: 3 },
+  { label: 'text on list hover', fg: 'text', bg: 'listHover', min: 4.5 },
+  { label: 'text on list active', fg: 'text', bg: 'listActive', min: 4.5 },
+  { label: 'text on inactive selection', fg: 'text', bg: 'listInactiveSelection', min: 4.5 },
+  { label: 'badge text', fg: 'badgeFg', bg: 'badgeBg', min: 4.5 }
 ]
 
 describe.each(THEMES.map((t) => [t.id, t] as const))('%s contrast', (_id, theme) => {

@@ -717,7 +717,7 @@ astera jobs    get    --id <jobId | runId>
 astera jobs    run    --id <jobId>
 astera jobs    wait   --id <jobId>  [--timeout-ms <n>]
 astera jobs    rename --id <jobId> --title <text>
-astera jobs    set    --id <jobId | runId> [--concurrency <n>] [--after <jobId|none>] [--areas <a,b,c|none>] [--left-out <json array>] [--planning <chat|auto>] [--priority <n>] [--project <projectId>]
+astera jobs    set    --id <jobId | runId> [--concurrency <n>] [--after <jobId|none>] [--areas <a,b,c|none>] [--left-out <json array>] [--planning <chat|auto>] [--priority <n>] [--review-rounds <n>] [--replan <waves|off>] [--auto-approve <on|off>] [--hands-off <on|off>] [--delivery <pr|push>] [--project <projectId>]
 astera jobs    overlaps --id <jobId>
 astera main-plan [--project <projectId>]
 astera jobs    archive --id <jobId> [--kill-sessions]
@@ -811,6 +811,11 @@ using the superpowers `brainstorming` skill, so the objective may be left empty;
 plan and for a Job an agent session makes) has it decide every open choice itself and record the decisions in
 `existing.md`. In both the person may just say "find issues", "audit <paths>" or name a file such as README.md.
 `jobs set --priority <n>` changes a Job's priority after creation (an integer, higher first).
+
+**Change a running plan.** `jobs set --id <job>` takes any mix of `--concurrency`, `--priority`, `--review-rounds <n>`,
+`--replan waves|off`, `--auto-approve on|off`, `--hands-off on|off` and `--delivery pr|push` on a running or queued plan.
+All are validated before one write, and they apply to work that has not started yet. `--delivery` is refused (409)
+once delivery has started; a finished plan refuses every flag; `--hands-off` is refused from an agent session or MCP client.
 
 **Every objective item is planned or left out on purpose.** When a Job's objective lists items (top-level numbered
 lines `1.` / `1)`, or bullets `-`, `*`, `•` when it has no numbered ones; nested lines belong to the item above), each

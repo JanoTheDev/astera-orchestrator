@@ -559,7 +559,7 @@ export function snapshotFor(
       // the dependency chain reads in. Task.deps is not a total order, so it cannot sort this.
       tasks: [...((run ? ix.tasksByRun.get(run.id) : ix.tasksByJob.get(job.id)) ?? [])]
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-        .map((t) => jobTaskOf(ix, t, isKnownSession, boards.get(t.id), branchOf))
+        .map((t, _, all) => ({ ...jobTaskOf(ix, t, isKnownSession, boards.get(t.id), branchOf), wave: waveOf(t, all) }))
     }
   }
 

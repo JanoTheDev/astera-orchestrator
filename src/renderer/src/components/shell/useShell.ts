@@ -4,6 +4,7 @@ import { buildSessionIndex, needsInput } from '../../../../core/orchestration/se
 import { useAttention } from '../../state/useAttention'
 import { useNeedsYou } from '../inbox/useNeedsYou'
 import { useHostWaiting } from '../search/useHostWaiting'
+import { useConsoleSnapshot } from '../wall/consoleStore'
 import { useAccountUsage } from '../../hooks/useAccountUsage'
 import type { AppState } from '../../state/appState'
 import { scopeSessions } from '../../state/projectView'
@@ -15,6 +16,8 @@ export function useShell({ accounts, active, sessions: allSessions, t, workspace
   // T19: the status bar's "needs you" is the bell's own unread count (one selector, inbox/useNeedsYou.ts)
   const { unread: needsYouUnread } = useNeedsYou({ scopedData: workspaceData, scopedTree: workspaceTree, workspaceData: wide.workspaceData, workspaceTree: wide.workspaceTree }, false)
   const attention = useAttention(allSessions.map((s) => s.id))
+  // the Agents view's consoles (AgentsPage publishes them): the badge counts the same list the pane shows
+  const { consoles } = useConsoleSnapshot()
   // W5-D (#42): the Host's own waits, read with the app closed too
   const hostWaiting = useHostWaiting(workspaceData?.projects[0]?.path ?? null)
   const { sessionIndex, needsYou } = useMemo(() => {
@@ -33,7 +36,7 @@ export function useShell({ accounts, active, sessions: allSessions, t, workspace
     return { sessionIndex, needsYou: needsInput(input, sessionIndex) }
   }, [workspaceTree, workspaceData, attention, hostWaiting])
   // The status bar counts the open project's work; "All projects" widens it
-  const counts = shellCounts(scopeSessions(allSessions, workspaceIds, scopeId), attention, needsYou)
+  const counts = shellCounts(scopeSessions(allSessions, workspaceIds, scopeId), attention, needsYou, consoles)
   const nextQueued = workspaceData
     ? nextQueuedLine({ jobs: Object.values(workspaceData.jobsByProject).flat(), runs: workspaceData.runs, tasks: workspaceData.tasks }, t)
     : null

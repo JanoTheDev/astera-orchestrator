@@ -2,36 +2,25 @@
    modals (z 100) so a dialog it opens (Add project, a confirm) comes in front. Until W9-B's page router mounts it.
    W11 (DESIGN-W11 §9): PageHeader, a 200px icon nav, the content centred at 720px, each block a card with rows
    "label + help left, control right", one control width for every select. */
-.settings-page {
+.settings-editor {
   --settings-control-w: 220px;
-  position: fixed; inset: 44px 0 26px 0; z-index: 90;
-  display: flex; flex-direction: column;
-  background: var(--bg); color: var(--text);
-  outline: none; box-shadow: none;
+  display: flex; flex-direction: column; height: 100%; min-height: 0;
+  background: var(--editor-bg); color: var(--text);
 }
-.settings-page__head { flex: none; border-bottom: 1px solid var(--line); }
-.settings-page__body { display: flex; flex: 1; min-height: 0; }
+.settings-editor__head {
+  display: flex; align-items: center; gap: var(--sp-4); flex: none; padding: var(--sp-3) var(--sp-5);
+  border-bottom: 1px solid var(--line);
+}
+.settings-editor__head .settings-page__search { flex: 1; max-width: 720px; margin: 0; }
+.settings-editor__advanced { display: inline-flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-13); color: var(--text-dim); white-space: nowrap; cursor: pointer; }
+.settings-editor__body { display: flex; flex: 1; min-height: 0; }
 
-/* The side nav: search, then one row per group with its icon. */
-.settings-page__nav {
-  display: flex; flex-direction: column; gap: 2px; width: 200px; flex: none;
-  padding: var(--sp-3); border-right: 1px solid var(--line); background: var(--panel); overflow-y: auto;
-}
-/* Each group is a ghost ui Button: left-aligned and full width here. */
-.settings-page__nav .settings-nav-item {
-  display: flex; align-items: center; justify-content: flex-start; gap: var(--sp-2); width: 100%; min-height: var(--h-md); padding: 0 var(--sp-2);
-  font-size: var(--fs-13); font-weight: var(--fw-medium); color: var(--text-dim);
-  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
-}
-.settings-page__nav .settings-nav-item > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.settings-page__nav .settings-nav-item:hover { background: var(--hover); color: var(--text); }
-.settings-page__nav .settings-nav-item.active { background: var(--accent-soft); color: var(--text); box-shadow: inset 2px 0 0 var(--accent); }
-.settings-page__nav .settings-nav-item:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-.settings-page__nav .settings-nav-item.active:focus-visible { box-shadow: inset 2px 0 0 var(--accent), var(--focus-ring); }
-.settings-nav-item--none { color: var(--text-faint); }
-.settings-page__nav .settings-nav-item--none { color: var(--text-faint); }
+/* The table of contents: one list row per group. */
+.settings-editor__toc { display: flex; flex-direction: column; width: 200px; flex: none; padding: var(--sp-2) 0; border-right: 1px solid var(--line); background: var(--sidebar-bg); overflow-y: auto; }
+.settings-editor__toc .ui-tree { flex: 1; }
+
 .settings-page__search {
-  display: flex; align-items: center; gap: var(--sp-2); height: var(--h-md); padding: 0 var(--sp-2); margin-bottom: var(--sp-2);
+  display: flex; align-items: center; gap: var(--sp-2); height: var(--h-md); padding: 0 var(--sp-2);
   border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--bg); color: var(--text-faint);
 }
 .settings-page__search:focus-within { box-shadow: var(--focus-ring); }
@@ -39,58 +28,52 @@
 .settings-page__search input { flex: 1; min-width: 0; background: none; border: none; outline: none; box-shadow: none; color: var(--text); font: inherit; font-size: var(--fs-13); }
 .settings-page__search input::placeholder { color: var(--text-faint); }
 
-/* The content: one column at 720px, centred in what the nav leaves. */
-.settings-page__content { padding: var(--sp-6) var(--page-pad) var(--sp-10); gap: var(--sp-6); align-items: center; }
-.settings-page__group { display: flex; flex-direction: column; gap: var(--sp-3); width: 100%; max-width: 720px; }
-.settings-page__group[hidden] { display: none; }
-.settings-page__group-label { margin: 0 0 var(--sp-1); font-size: var(--fs-15); font-weight: var(--fw-semi); line-height: var(--lh-tight); color: var(--text); }
-.settings-page .settings-stack:empty { display: none; }
-.settings-page .settings-content > .ui-empty { align-self: stretch; }
+/* The content: one scrolling column at 720px, groups stacked under their headings. */
+.settings-editor__content { flex: 1; min-width: 0; overflow-y: auto; padding: var(--sp-4) var(--sp-6) var(--sp-10); }
+.settings-editor__group { display: flex; flex-direction: column; width: 100%; max-width: 720px; margin-bottom: var(--sp-6); }
+.settings-editor__group[hidden] { display: none; }
+.settings-editor__group-label { margin: 0 0 var(--sp-2); font-size: var(--fs-15); font-weight: var(--fw-semi); line-height: var(--lh-tight); color: var(--text); scroll-margin-top: var(--sp-4); }
+.settings-editor .settings-stack { display: flex; flex-direction: column; }
+.settings-editor .settings-stack:empty { display: none; }
+.settings-editor .settings-content > .ui-empty { align-self: stretch; }
 
-/* Cards. A row on its own is a card; a .settings-stack is one card whose rows are split by hairlines. A row whose
-   component draws its own Card (Slack, Telegram) is left bare. */
-.settings-page__group > .settings-anchor:not(:has(> .ui-card)),
-.settings-page__group > .settings-stack {
-  padding: var(--sp-4); border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel);
+/* A row is flat: a hairline under it, no card. A row whose component draws its own Card (Slack, Telegram) is left bare. */
+.settings-editor__group > .settings-anchor:not(:has(> .ui-card)),
+.settings-editor__group > .settings-stack > .settings-anchor:not(:has(> .ui-card)) {
+  position: relative; padding: var(--sp-3) var(--sp-3) var(--sp-3) var(--sp-4); border-bottom: 1px solid var(--line);
 }
-:root[data-theme='day'] .settings-page__group > .settings-anchor:not(:has(> .ui-card)),
-:root[data-theme='day'] .settings-page__group > .settings-stack { border-color: var(--line-strong); box-shadow: var(--shadow-sm); }
-.settings-page__group > .settings-stack { gap: 0; }
-.settings-page .settings-stack > .settings-anchor:not([hidden]) ~ .settings-anchor:not([hidden]) {
-  margin-top: var(--sp-4); padding-top: var(--sp-4); border-top: 1px solid var(--line);
-}
+.settings-anchor--modified::before { content: ''; position: absolute; left: 0; top: var(--sp-2); bottom: var(--sp-2); width: 2px; background: var(--accent); }
 
 /* Rows: the label in --text, its help faint under it, the control on the right. */
-.settings-page .settings-row { min-height: var(--h-md); font-size: var(--fs-13); }
-.settings-page .settings-row > span:first-child,
-.settings-page .settings-stack .settings-row > span:first-child { color: var(--text); font-weight: var(--fw-medium); }
-.settings-page .settings-hint { font-size: var(--fs-12); line-height: var(--lh); color: var(--text-faint); }
-.settings-page .settings-group { gap: 2px; }
+.settings-editor .settings-row { min-height: var(--h-md); font-size: var(--fs-13); }
+.settings-editor .settings-row > span:first-child,
+.settings-editor .settings-stack .settings-row > span:first-child { color: var(--text); font-weight: var(--fw-medium); }
+.settings-editor .settings-hint { font-size: var(--fs-12); line-height: var(--lh); color: var(--text-faint); }
+.settings-editor .settings-group { gap: 2px; }
 /* A row of exactly a label and one control with its help after it: a grid, so the help sits under the label in the
    left column and the control stays right, centred on both. Rows with more controls keep their own flex line. */
-.settings-page div:has(> .settings-row:first-child > :nth-child(2):last-child) {
+.settings-editor div:has(> .settings-row:first-child > :nth-child(2):last-child) {
   display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--sp-6); row-gap: 2px; align-items: center;
 }
-.settings-page div:has(> .settings-row:first-child > :nth-child(2):last-child) > .settings-row:first-child { display: contents; }
-.settings-page div:has(> .settings-row:first-child > :nth-child(2):last-child) > .settings-row:first-child > :first-child { grid-column: 1; grid-row: 1; }
-.settings-page div:has(> .settings-row:first-child > :nth-child(2):last-child) > .settings-row:first-child > :last-child { grid-column: 2; grid-row: 1; justify-self: end; }
-.settings-page div:has(> .settings-row:first-child > :nth-child(2):last-child):has(> .settings-row:first-child + .settings-hint) > .settings-row:first-child > :last-child { grid-row: 1 / span 2; }
-.settings-page div:has(> .settings-row:first-child > :nth-child(2):last-child) > .settings-hint { grid-column: 1; }
-.settings-page div:has(> .settings-row:first-child > :nth-child(2):last-child) > :not(.settings-row):not(.settings-hint) { grid-column: 1 / -1; }
+.settings-editor div:has(> .settings-row:first-child > :nth-child(2):last-child) > .settings-row:first-child { display: contents; }
+.settings-editor div:has(> .settings-row:first-child > :nth-child(2):last-child) > .settings-row:first-child > :first-child { grid-column: 1; grid-row: 1; }
+.settings-editor div:has(> .settings-row:first-child > :nth-child(2):last-child) > .settings-row:first-child > :last-child { grid-column: 2; grid-row: 1; justify-self: end; }
+.settings-editor div:has(> .settings-row:first-child > :nth-child(2):last-child):has(> .settings-row:first-child + .settings-hint) > .settings-row:first-child > :last-child { grid-row: 1 / span 2; }
+.settings-editor div:has(> .settings-row:first-child > :nth-child(2):last-child) > .settings-hint { grid-column: 1; }
+.settings-editor div:has(> .settings-row:first-child > :nth-child(2):last-child) > :not(.settings-row):not(.settings-hint) { grid-column: 1 / -1; }
 
 /* One width for every picker and text value on the right of a row (NOTES 09: three dropdowns, three right edges). */
-.settings-page .settings-row > .ui-select,
-.settings-page .settings-row > .sel,
-.settings-page .settings-lang-select,
-.settings-page .settings-font-select { flex: 0 0 var(--settings-control-w); width: var(--settings-control-w); }
-.settings-page .settings-row > input[type='number'] { width: 96px; }
-.settings-page .settings-row > .settings-font-select { margin-left: auto; }
+.settings-editor .settings-row > .ui-select,
+.settings-editor .settings-row > .sel,
+.settings-editor .settings-lang-select,
+.settings-editor .settings-font-select { flex: 0 0 var(--settings-control-w); width: var(--settings-control-w); }
+.settings-editor .settings-row > input[type='number'] { width: 96px; }
+.settings-editor .settings-row > .settings-font-select { margin-left: auto; }
 
 /* A row's wrapper: openSettings(group, anchor) scrolls to it and flashes it. */
 .settings-anchor { display: flex; flex-direction: column; gap: var(--sp-2); scroll-margin-top: var(--sp-4); transition: box-shadow var(--dur) var(--ease-out), background-color var(--dur) var(--ease-out); }
 .settings-anchor[hidden] { display: none; }
-.settings-anchor--flash { box-shadow: 0 0 0 2px var(--accent); background: var(--accent-soft); }
-.settings-page .settings-stack > .settings-anchor { border-radius: var(--radius); }
+.settings-anchor--flash { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--focus-border); }
 @media (prefers-reduced-motion: reduce) { .settings-anchor { transition: none; } }
 
 /* A card's own head: title (and status) on the left, an action or a search on the right. */
@@ -126,10 +109,7 @@
 .settings-projects-head .settings-hint { flex: 1; }
 .settings-projects { display: flex; gap: var(--sp-4); align-items: flex-start; }
 .settings-projects-list { display: flex; flex-direction: column; gap: 2px; width: 180px; flex: none; }
-.settings-projects-list .settings-nav-item { min-height: var(--h-md); padding: 0 var(--sp-2); font-size: var(--fs-13); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.settings-projects-list .settings-nav-item.active { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
 .settings-projects-body { flex: 1; min-width: 0; }
-.settings-page__more { margin-top: var(--sp-2); }
 
 /* T28 About: the name with its mark, the build version with its Copy button, and the licenses window. */
 .about-name { display: inline-flex; align-items: center; gap: var(--sp-2); }
@@ -146,3 +126,14 @@
 .licenses__text { display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0; min-height: 0; overflow: auto; }
 .licenses__pre { margin: 0; font-family: var(--mono); font-size: var(--fs-12); line-height: var(--lh); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-dim); }
 @media (max-width: 720px) { .licenses { grid-template-columns: minmax(0, 1fr); height: auto; } }
+
+.view-slot > .settings-editor { flex: 1; min-height: 0; }
+
+/* The one settings row (SettingItem): text left, control right, extras under both. */
+.setting-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--sp-6); row-gap: var(--sp-2); align-items: center; }
+.setting-item__text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.setting-item__title { font-size: var(--fs-13); font-weight: var(--fw-semi); color: var(--text); }
+.setting-item__desc { margin: 0; font-size: var(--fs-12); line-height: var(--lh); color: var(--text-dim); }
+.setting-item__control { justify-self: end; display: flex; align-items: center; gap: var(--sp-2); }
+.setting-item__extra { grid-column: 1 / -1; display: flex; flex-direction: column; gap: var(--sp-2); }
+.setting-item__extra:empty { display: none; }

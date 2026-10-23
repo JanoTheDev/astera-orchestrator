@@ -230,4 +230,9 @@ export const tools: Partial<Record<keyof typeof ko, string>> = {
   // W12 end panel
   // W12 redesign · run detail (RunDetailJournal, CompletionBlock, CompletionChecks, PrBadge, PushBadge, checkText)
   // W12 end detail
+  'run.state.running': '実行中',
+  'run.state.stopping': '停止中',
+  'run.row.edit': '構成を編集',
+  'run.view.refresh': '構成を更新',
+  'run.view.empty': '実行構成はまだありません。+ で作成します。',
 }

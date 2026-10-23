@@ -15,7 +15,6 @@ export const history: Partial<Record<keyof typeof ko, string>> = {
   'history.resume.folderMissingBody':
     '元のプロジェクトフォルダがありません:\n{cwd}\n\n再開するフォルダを選び直しますか？',
   'history.resume.pickFolder': 'フォルダを選択',
-  'history.panel.count': '{n} 件のプロジェクト',
   'history.panel.emptyHint': 'これまでのエージェントとのセッションがプロジェクトごとにここに並びます。',
   'history.menu.label': 'プロジェクトの操作',
   'history.entry.unread': 'あなたの返信を待っています',
@@ -115,4 +114,7 @@ export const history: Partial<Record<keyof typeof ko, string>> = {
   'hiw.verify.unverified': '確認されたものはありません',
   'hiw.verify.failed': '報告された検査が失敗しました',
   'hiw.verify.reported': 'エージェントが報告した内容です — アプリ自身が実行したわけではありません',
+  'history.entry.copyId': 'セッションIDをコピー',
+  'history.session.menu': 'セッションのメニュー',
+  'history.view.accountFilter': 'アカウントで絞り込む',
 }

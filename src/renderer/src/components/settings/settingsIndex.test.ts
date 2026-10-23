@@ -4,7 +4,7 @@ import path from 'node:path'
 import { en } from '../../../../core/i18n/messages/en'
 import type { MessageKey } from '../../../../core/i18n'
 import {
-  OLD_SETTINGS_TABS, SETTINGS_GROUPS, SETTINGS_ROWS, filterSettings, groupHasBasic, groupOfOldTab, rowVisible, settingsTarget, type SettingsRow
+  OLD_SETTINGS_TABS, SETTINGS_GROUPS, SETTINGS_ROWS, filterSettings, groupHasBasic, groupsShown, groupOfOldTab, rowVisible, settingsTarget, type SettingsRow
 } from './settingsIndex'
 
 const t = (k: MessageKey): string => en[k]
@@ -103,5 +103,20 @@ describe('the page and the index agree', () => {
   it('Slack stays mounted while Settings is open (final review M-6)', () => {
     expect(src).toMatch(/<SettingRow a="slack" only=\{only\} keep hidden=\{!shown\}>\s*<SlackSettings \/>/)
     expect(src).toContain('Kept while Settings is open')
+  })
+})
+
+describe('groupsShown', () => {
+  it('lists the groups with a visible row: simple mode drops agents and advanced', () => {
+    expect([...groupsShown(false, null)].sort()).toEqual(SETTINGS_GROUPS.filter((g) => groupHasBasic(g)).sort())
+    expect(groupsShown(true, null).size).toBe(SETTINGS_GROUPS.length)
+  })
+  it('a search lists only the groups of its hits, advanced ones included', () => {
+    const only = new Set(filterSettings(SETTINGS_ROWS, 'worktree', t).map((r) => r.anchor))
+    expect([...groupsShown(false, only)].sort()).toEqual([...new Set(SETTINGS_ROWS.filter((r) => only.has(r.anchor)).map((r) => r.group))].sort())
+    expect(groupsShown(false, new Set()).size).toBe(0)
+  })
+  it('an anchor resolves to the group that holds it', () => {
+    for (const r of SETTINGS_ROWS) expect(groupsShown(true, new Set([r.anchor])).has(r.group), r.anchor).toBe(true)
   })
 })

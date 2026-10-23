@@ -85,6 +85,7 @@ export const accounts: Record<keyof typeof ko, string> = {
   'settings.usageGuard.saveFailed': 'Could not save the usage setting: {detail}',
   // W3 redesign: rename button, near-limit cue, plain import button, empty states
   'account.rename.button': "Rename",
+  'account.menu.label': "Actions for {label}",
   'account.usage.nearLimit': "Close to the limit",
   'account.sync.button': "Import settings",
   'account.empty.body': "Accounts let Astera run agents on your Claude or Codex subscription. Add one to get started.",

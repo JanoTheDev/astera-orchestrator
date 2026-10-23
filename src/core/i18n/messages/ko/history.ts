@@ -13,7 +13,6 @@ export const history = {
   'history.resume.folderMissingBody':
     '원래 프로젝트 폴더가 없습니다:\n{cwd}\n\n재개할 폴더를 새로 선택할까요?',
   'history.resume.pickFolder': '폴더 선택',
-  'history.panel.count': '프로젝트 {n}개',
   'history.panel.emptyHint': '에이전트와 나눈 대화가 끝나면 프로젝트별로 여기에 쌓입니다.',
   'history.menu.label': '프로젝트 메뉴',
   'history.entry.unread': '답을 기다리는 대화',
@@ -112,4 +111,7 @@ export const history = {
   'hiw.verify.unverified': '확인된 것이 없습니다',
   'hiw.verify.failed': '보고된 검사가 실패했습니다',
   'hiw.verify.reported': '에이전트가 보고한 것입니다 — 앱이 직접 돌려 보지는 않았습니다',
+  'history.entry.copyId': '세션 ID 복사',
+  'history.session.menu': '세션 메뉴',
+  'history.view.accountFilter': '계정 필터',
 } as const

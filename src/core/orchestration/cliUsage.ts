@@ -507,9 +507,11 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
   },
   // W7-D (#67)
   'jobs-set': {
-    summary: 'change how many workers a Job runs at once, which plan it is queued after, its areas, its planning mode or its priority',
+    summary: "change a running or queued plan's workers at once, priority, review rounds, replan, auto-approve, hands-off or delivery, or its queue, areas or planning mode",
     detail:
       'Until the Job finishes; a finished one is refused (CONFLICT, exit 6). A lower number only holds back new starts: running workers carry on. At most 10. Refused from an agent session and an MCP client. ' +
+      // Change a running plan
+      "--concurrency, --priority, --review-rounds, --replan, --auto-approve, --hands-off and --delivery change a running or queued plan in any mix, in one write; a bad value changes nothing. They take effect for work that has not started yet. --delivery is refused (CONFLICT, exit 6) once the plan's delivery has started; --hands-off is refused from an agent session. " +
       // W8-C plan after plan
       '--after queues a Job that has not started planning after another (none clears it): its planner starts by itself once that Job is delivered (pushed, its pull request opened and not a draft, or ended with nothing to do). If that Job gives up or is archived, the queued one waits and escalates once. A chain that would wait on itself is refused (exit 2); a Job already planning is refused (CONFLICT, exit 6). ' +
       // W8-D plan areas
@@ -532,6 +534,11 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       // T1 chat-first planning
       { name: 'planning', value: '<chat|auto>', about: 'how its planner works: chat brainstorms with you, auto decides alone' },
       { name: 'priority', value: '<n>', about: 'which Job gets a free slot first when the worker cap is reached (higher first, default 0)' },
+      { name: 'review-rounds', value: '<n>', about: 'review rounds before a Task escalates; applies to Tasks not yet reviewed' },
+      { name: 'replan', value: '<waves|off>', about: 'replan between steps, from the next step' },
+      { name: 'auto-approve', value: '<on|off>', about: 'start the plan once planned without waiting for approval' },
+      { name: 'hands-off', value: '<on|off>', about: 'run without asking; from a person only' },
+      { name: 'delivery', value: '<pr|push>', about: 'how the plan lands; refused once delivery has started' },
       // T3 workspaces
       { name: 'project', value: '<projectId>', about: 'file a plan not started yet under another project of its workspace; alone' }
     ]

@@ -182,3 +182,9 @@ export function summaryOf(
     { label: 'blocked', items: only(s.blocked), tone: 'info' as const }
   ].filter((b) => b.items.length > 0)
 }
+
+/** The lines whose text, plan, Task or actor contain `query` (case-insensitive); a blank query keeps all. */
+export function filterLines<L extends { text: string; plan?: string; task?: string; who?: string }>(lines: readonly L[], query: string): L[] {
+  const q = query.trim().toLowerCase()
+  return q === '' ? [...lines] : lines.filter((l) => [l.text, l.plan, l.task, l.who].some((f) => f?.toLowerCase().includes(q)))
+}

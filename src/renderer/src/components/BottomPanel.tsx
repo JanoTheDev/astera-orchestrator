@@ -3,16 +3,13 @@ import type { RunStatus, TerminalBuffer } from '../../../core/types'
 import { useI18n } from '../i18n/I18nProvider'
 import { RunPanel } from './RunPanel'
 import { RunTabStrip } from './RunTabStrip'
-import { RunToolRail } from './RunToolRail'
 import { TerminalBody } from './TerminalBody'
-import { Icon, IconButton } from './ui'
+import { Icon, Toolbar, type ToolbarItem } from './ui'
 
 /**
  * Bottom panel. The Run tab and the project terminals share this one panel through tabs.
- * The tab strip, collapse and clear chrome are owned only here; the bodies (RunPanel,
- * TerminalBody) draw nothing but xterm.
- * The Run tab's body is a tool rail on the left and, to its right, a strip of run tabs over the selected
- * run's console. Every run has its own RunPanel, and the ones not selected stay mounted under
+ * The tool row and the clear chrome are owned only here; the bodies (RunPanel, TerminalBody) draw nothing but xterm.
+ * The Run tab's body is the selected run's console under the run selector. Every run has its own RunPanel, and the ones not selected stay mounted under
  * display:none — the same approach as the session tabs (TerminalView) and the terminal tabs below — so
  * their scrollback and their find state survive switching tabs.
  */
@@ -35,7 +32,7 @@ export function BottomPanel({
   onSelectTab,
   onNewTerminal,
   onCloseTerminal,
-  onCollapse
+  only
 }: {
   /** Whether to draw the Run tab. false when no project is set (the panel opened from home) — run
    *  configurations are per project, there is nothing to run at home, and an empty Run tab looks broken.
@@ -69,7 +66,9 @@ export function BottomPanel({
   onSelectTab: (tab: string) => void
   onNewTerminal: () => void
   onCloseTerminal: (id: string) => void
-  onCollapse: () => void
+  /** DESIGN-W13 §6: the workbench panel's Output tab shows the run strip only, its Terminal tab the shells only. Both
+   *  bodies stay mounted either way. */
+  only: 'run' | 'terminal'
 }): React.JSX.Element {
   const { t } = useI18n()
   // Clear means emptying a body's xterm — bump a per-body counter (a runId or a terminal id) and let the
@@ -93,15 +92,12 @@ export function BottomPanel({
   }, [anyRunning])
 
   const selectedRun = runs.find((r) => r.runId === selectedRunId) ?? null
-  // The tab's own Enter/Space. A tab that holds a ✕ cannot be a <button> (no button inside a button),
-  // so it is a span and keyboard access is wired by hand. A key that bubbled up from the nested ✕ has
-  // already been handled by that button and is left alone — otherwise Space on a focused ✕ would both
-  // select and close.
+  // A terminal tab is a span, so keyboard access is wired by hand: arrows, Home/End move focus along the row
+  // (wrapping); Enter/Space select.
   const tabKeyDown =
     (tab: string) =>
     (e: React.KeyboardEvent): void => {
       if (e.target !== e.currentTarget) return
-      // ArrowLeft/Right, Home/End move focus along the tab row (wrapping); Enter/Space still select
       const tabs = Array.from(e.currentTarget.parentElement?.querySelectorAll<HTMLElement>('[role="tab"]') ?? [])
       const at = tabs.indexOf(e.currentTarget as HTMLElement)
       const to =
@@ -119,57 +115,48 @@ export function BottomPanel({
       e.preventDefault()
       onSelectTab(tab)
     }
+  const runId = selectedRunId
+  const noRun = selectedRun === null
+  const runTools: ToolbarItem[] = [
+    { id: 'stop', icon: <Icon name="stop" size={14} />, label: t('run.action.stop'), disabled: selectedRun?.status !== 'running', onClick: () => selectedRun && onStopRun(selectedRun.runId) },
+    { id: 'rerun', icon: <Icon name="rerun" size={14} />, label: selectedRun && !configIds.includes(selectedRun.configId) ? t('run.rail.rerunGone') : t('run.action.rerun'), disabled: noRun || !configIds.includes(selectedRun.configId), onClick: () => selectedRun && onRerun(selectedRun.configId) },
+    { id: 'end', icon: <Icon name="scrollToEnd" size={14} />, label: t('run.rail.scrollToEnd'), disabled: noRun, onClick: () => runId && bump(setScrollNonces, runId) },
+    { id: 'clear', icon: <Icon name="clear" size={14} />, label: t('run.panel.clear'), disabled: noRun, onClick: () => runId && bump(setClearNonces, runId) },
+    { id: 'find', icon: <Icon name="search" size={14} />, label: t('run.rail.find'), active: !!(runId && findOpen[runId]), disabled: noRun, onClick: () => runId && setFindOpen((prev) => ({ ...prev, [runId]: !prev[runId] })) }
+  ]
+  const terminalTools: ToolbarItem[] = [
+    { id: 'new', icon: <Icon name="add" size={14} />, label: t('terminal.tab.new'), onClick: onNewTerminal },
+    { id: 'clear', icon: <Icon name="clear" size={14} />, label: t('run.panel.clear'), disabled: !terminals.some((x) => x.id === activeTab), onClick: () => bump(setClearNonces, activeTab) },
+    { id: 'kill', icon: <Icon name="delete" size={14} />, label: t('terminal.tab.close'), disabled: !terminals.some((x) => x.id === activeTab), onClick: () => onCloseTerminal(activeTab) }
+  ]
   return (
     <div className="run-panel">
+      {/* DESIGN-W13 §6: one 30px tool row under the panel's own tabs. Output: the run selector on the right of the
+          selected run's command, then Stop / Rerun / Scroll / Clear / Find. Terminal: the shells listed on the right,
+          then + / Clear / Kill. */}
       <div className="bottom-tabs">
-        <span className="bottom-tab-list">
-          {runAvailable && (
-            <span
-              role="tab"
-              aria-selected={activeTab === 'run'}
-              tabIndex={0}
-              className={activeTab === 'run' ? 'bottom-tab on' : 'bottom-tab'}
-              onClick={() => onSelectTab('run')}
-              onKeyDown={tabKeyDown('run')}
-            >
-              {anyRunning && <span className="run-live-dot" />}
-              {t('run.panel.tab')}
-            </span>
-          )}
-          {terminals.map((term, i) => (
-            <span
-              key={term.id}
-              role="tab"
-              aria-selected={activeTab === term.id}
-              tabIndex={0}
-              className={activeTab === term.id ? 'bottom-tab on' : 'bottom-tab'}
-              onClick={() => onSelectTab(term.id)}
-              onKeyDown={tabKeyDown(term.id)}
-            >
-              {/* The number in the label is the display order in the current list — creation order is not remembered */}
-              {t('terminal.tab.label', { n: i + 1 })}
-              <IconButton
-                className="bottom-tab-close"
-                size="sm"
-                icon={<Icon name="close" size={14} />}
-                label={t('terminal.tab.close')}
-                onClick={(e) => {
-                  e.stopPropagation() // keeps close from misfiring the tab selection
-                  onCloseTerminal(term.id)
-                }}
-              />
-            </span>
-          ))}
-          <IconButton size="sm" icon={<Icon name="add" size={14} />} label={t('terminal.tab.new')} onClick={onNewTerminal} />
-        </span>
-        <span className="run-panel-actions">
-          {/* On the Run tab, stop and clear live in the rail beside the console; the header keeps them
-              for terminal tabs, which have no rail. */}
-          {activeTab !== 'run' && (
-            <IconButton size="sm" icon={<Icon name="backspace" size={14} />} label={t('run.panel.clear')} onClick={() => bump(setClearNonces, activeTab)} />
-          )}
-          <IconButton size="sm" icon={<Icon name="chevronDown" size={14} />} label={t('run.panel.collapse')} onClick={onCollapse} />
-        </span>
+        {only === 'run' ? (
+          <RunTabStrip runs={runs} selectedId={selectedRunId} now={now} onSelect={onSelectRun} onDismiss={onDismissRun} onOpenPreview={onOpenPreview} />
+        ) : (
+          <span className="bottom-tab-list" role="tablist" aria-label={t('panel.terminals')}>
+            {terminals.map((term, i) => (
+              <span
+                key={term.id}
+                role="tab"
+                aria-selected={activeTab === term.id}
+                tabIndex={0}
+                className={activeTab === term.id ? 'bottom-tab on' : 'bottom-tab'}
+                onClick={() => onSelectTab(term.id)}
+                onKeyDown={tabKeyDown(term.id)}
+              >
+                {/* The number in the label is the display order in the current list — creation order is not remembered */}
+                <Icon name="terminal" size={14} />
+                {t('terminal.tab.label', { n: i + 1 })}
+              </span>
+            ))}
+          </span>
+        )}
+        <Toolbar label={t(only === 'run' ? 'shell.panel.output' : 'shell.panel.terminal')} items={only === 'run' ? runTools : terminalTools} className="bottom-toolbar" />
       </div>
       <div className="bottom-bodies">
         {/* runAvailable gates the **mount itself**. Hidden tabs are kept alive with display:none elsewhere
@@ -177,18 +164,7 @@ export function BottomPanel({
             project there is no run to ask about. */}
         {runAvailable && (
           <div className="bottom-body run-body" style={{ display: activeTab === 'run' ? 'flex' : 'none' }}>
-            <RunToolRail
-              run={selectedRun}
-              rerunGone={!!selectedRun && !configIds.includes(selectedRun.configId)}
-              findOpen={!!(selectedRunId && findOpen[selectedRunId])}
-              onRerun={onRerun}
-              onStop={onStopRun}
-              onScrollToEnd={() => selectedRunId && bump(setScrollNonces, selectedRunId)}
-              onClear={() => selectedRunId && bump(setClearNonces, selectedRunId)}
-              onToggleFind={() => selectedRunId && setFindOpen((prev) => ({ ...prev, [selectedRunId]: !prev[selectedRunId] }))}
-            />
             <div className="run-main">
-              <RunTabStrip runs={runs} selectedId={selectedRunId} now={now} onSelect={onSelectRun} onDismiss={onDismissRun} onOpenPreview={onOpenPreview} />
               <div className="run-consoles">
                 {runs.map((r) => (
                   <div

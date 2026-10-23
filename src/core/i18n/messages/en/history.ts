@@ -15,7 +15,6 @@ export const history: Record<keyof typeof ko, string> = {
   'history.resume.folderMissingBody':
     'The original project folder does not exist:\n{cwd}\n\nChoose a new folder to resume in?',
   'history.resume.pickFolder': 'Choose folder',
-  'history.panel.count': '{n} projects',
   'history.panel.emptyHint': 'Past agent sessions are listed here, grouped by project.',
   'history.menu.label': 'Project actions',
   'history.entry.unread': 'Waiting for your reply',
@@ -115,4 +114,7 @@ export const history: Record<keyof typeof ko, string> = {
   'hiw.verify.unverified': 'Nothing was checked',
   'hiw.verify.failed': 'A reported check failed',
   'hiw.verify.reported': 'Reported by the agent — the app did not run it itself',
+  'history.entry.copyId': 'Copy session id',
+  'history.session.menu': 'Session actions',
+  'history.view.accountFilter': 'Filter by account',
 }
