@@ -59,6 +59,15 @@ describe('basic and advanced rows', () => {
   })
 })
 
+describe('MCP & skills finder and custom instructions', () => {
+  it('are rows of Integrations and Agents, found by search', () => {
+    expect(SETTINGS_ROWS.find((r) => r.anchor === 'finder')?.group).toBe('integrations')
+    expect(SETTINGS_ROWS.find((r) => r.anchor === 'instructions')?.group).toBe('agents')
+    expect(filterSettings(SETTINGS_ROWS, 'skills finder', t).map((r) => r.anchor)).toEqual(['finder'])
+    expect(filterSettings(SETTINGS_ROWS, 'custom instructions', t).map((r) => r.anchor)).toEqual(['instructions'])
+  })
+})
+
 describe('About group', () => {
   it('is last, and holds the info rows that moved from Advanced, each found by search', () => {
     expect(SETTINGS_GROUPS[SETTINGS_GROUPS.length - 1]).toBe('about')

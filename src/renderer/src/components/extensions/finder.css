@@ -1,0 +1,31 @@
+/* Settings › Integrations › MCP & skills finder, and Settings › Agents › Custom instructions. Tokens only. */
+.finder { display: flex; flex-direction: column; gap: var(--sp-3); min-width: 0; }
+.finder__search { display: flex; gap: var(--sp-2); align-items: center; }
+.finder__search > .ui-input { flex: 1; min-width: 0; }
+.finder__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--radius); }
+.finder__list:empty { display: none; }
+.finder__item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--sp-1) var(--sp-4); align-items: center; padding: var(--sp-2) var(--sp-3); }
+.finder__item + .finder__item { border-top: 1px solid var(--line-soft); }
+.finder__name { font-size: var(--fs-13); font-weight: var(--fw-semi); color: var(--text); overflow-wrap: anywhere; }
+.finder__desc { margin: 0; font-size: var(--fs-12); line-height: var(--lh); color: var(--text-dim); overflow-wrap: anywhere; }
+.finder__meta { font-size: var(--fs-11); color: var(--text-faint); font-family: var(--mono); overflow-wrap: anywhere; }
+.finder__actions { display: flex; gap: var(--sp-2); align-items: center; justify-self: end; }
+.finder__note { margin: 0; font-size: var(--fs-12); color: var(--text-dim); }
+.finder__note--error { color: var(--danger); }
+.finder__state { display: flex; gap: var(--sp-2); align-items: center; font-size: var(--fs-12); color: var(--text-dim); }
+.finder__heading { margin: var(--sp-2) 0 0; font-size: var(--fs-12); font-weight: var(--fw-semi); color: var(--text); }
+.finder__account { display: flex; flex-direction: column; gap: var(--sp-1); }
+.finder__account-name { display: flex; gap: var(--sp-2); align-items: center; font-size: var(--fs-12); color: var(--text-dim); }
+.finder__group { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
+.finder__group legend { padding: 0; margin-bottom: var(--sp-1); }
+.finder__indent { padding-left: var(--sp-6); display: flex; flex-direction: column; gap: var(--sp-1); }
+.finder__form { display: flex; flex-direction: column; gap: var(--sp-4); }
+.finder__repos { display: flex; flex-direction: column; gap: var(--sp-2); }
+
+.instructions { display: flex; flex-direction: column; gap: var(--sp-3); min-width: 0; }
+.instructions__text { font-family: var(--mono); font-size: var(--fs-12); min-height: 160px; resize: vertical; }
+.instructions__bar { display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; }
+.instructions__count { margin-right: auto; font-size: var(--fs-12); color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.instructions__count--over { color: var(--danger); }
+.instructions__preview { margin: 0; max-height: 280px; overflow: auto; padding: var(--sp-3); border: 1px solid var(--line); border-radius: var(--radius); font-family: var(--mono); font-size: var(--fs-11); color: var(--text-dim); white-space: pre-wrap; overflow-wrap: anywhere; }
+.finder__list--results { max-height: 360px; overflow: auto; }
