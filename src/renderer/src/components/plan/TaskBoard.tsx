@@ -5,6 +5,7 @@
 // files and the coordinator's answers. The open questions moved to "Needs you" (NeedsYou below). Drawing only: the
 // waves, reasons, counts and "now" lines are planBoard.ts's. T4: a card carries its kind (and a merge Task its badge, a
 // reusing Task the worktree it continues in), and a kind filter sits above the steps.
+// T2: an expanded row opens with everything about its Task (renderAbout: TaskDetail), above what it showed before.
 import { useEffect, useMemo, useState } from 'react'
 import type { ActivityEvent } from '../../../../core/orchestration/activity'
 import type { Account, JobEvent, JobTask } from '../../../../core/types'
@@ -29,11 +30,13 @@ import {
   reasonText,
   reasonTone,
   reuseOf,
+  stepStateOf,
+  type StepState,
   wavesOf,
   type LiveSession,
 } from './planBoard'
 import { QuestionAnswer } from './QuestionAnswer'
-import { Button, Chip, Icon, Meter, Select, Tooltip } from '../ui'
+import { Button, Chip, Icon, Meter, Select, Tooltip, type ChipTone, type IconName } from '../ui'
 import { openWorktree } from '../shell/navigation' // W9-J
 import { TaskLines } from '../attribution/TaskLines' // W8-B
 import type { SessionSummary } from '../../../../core/sessions/summary'
@@ -61,8 +64,10 @@ export function TaskBoard({
   projectPath,
   summaries,
   renderDetail,
+  renderAbout,
   compact = false,
-  nowMs = Date.now()
+  nowMs = Date.now(),
+  onAddTask
 }: {
   tasks: readonly JobTask[]
   accounts: Account[] | null
@@ -90,10 +95,14 @@ export function TaskBoard({
   summaries?: ReadonlyMap<string, SessionSummary>
   /** T8: what an expanded row adds under its own detail (the completion checks and the Task's changes). */
   renderDetail?: (task: JobTask) => React.ReactNode
+  /** T2: what an expanded row shows first: everything about the Task (TaskDetail) and its Edit and Request changes. */
+  renderAbout?: (task: JobTask) => React.ReactNode
   /** T19: simple mode: a row's detail drops its model, account, branch, commits and files */
   compact?: boolean
   /** T9: the clock of "resumes in …" and "… ago", the live read's tick (usePlanLive): one timer for the whole board. */
   nowMs?: number
+  /** Present: every step not done ends with "Add task to this step", handing over the previous step's Task ids. */
+  onAddTask?: (deps: string[]) => void
 }): React.JSX.Element {
   const { t } = useI18n()
   // T9: each Task's slice of the timeline and the feed, cut once when they change, so a row reads its own and a tick
@@ -132,13 +141,14 @@ export function TaskBoard({
           />
         </div>
       )}
-      {waves.map((w) => {
+      {waves.map((w, wi) => {
         const shown = filterByKind(w.tasks, kind)
         if (shown.length === 0) return null
         const isCurrent = w.index === current
         const percent = Math.floor((w.done * 100) / w.tasks.length)
         const hidden = folded.has(w.index) !== flipped.has(w.index) && !w.tasks.some((tk) => tk.id === selected)
         const progress = t('plan.wave.progress', { done: w.done, total: w.tasks.length })
+        const step = stepStateOf(w, waves, replanning)
         return (
           <section
             key={w.index}
@@ -156,10 +166,14 @@ export function TaskBoard({
               >
                 {t('plan.steps.title', { n: w.index + 1 })}
               </Button>
+              <StepStateChip step={step} />
               <span className="plan-wave-count">{progress}</span>
               <Meter className="plan-meter plan-wave-bar" value={percent} />
               {isCurrent && <span className="plan-wave-now">{t('plan.wave.current')}</span>}
             </h3>
+            {!hidden && step.state === 'waiting' && (
+              <p className="plan-wave-waits">{t(step.left === 1 ? 'plan.steps.startsWhen.one' : 'plan.steps.startsWhen', { n: step.on, count: step.left })}</p>
+            )}
             {!hidden && isCurrent && refreshed !== null && (
               <div className="plan-wave-banner" role="status">
                 {t('plan.steps.leadRefreshed', { reason: refreshed })}
@@ -189,6 +203,7 @@ export function TaskBoard({
                       projectPath={projectPath}
                       summary={summaries?.get(tk.id)}
                       detail={selected === tk.id ? renderDetail?.(tk) : undefined}
+                      about={selected === tk.id ? renderAbout?.(tk) : undefined}
                       compact={compact}
                       onOpenConsole={
                         tk.sessionId && categoryOf(tk) === 'running' && onOpenSession && canOpenSession?.(tk.sessionId)
@@ -199,10 +214,36 @@ export function TaskBoard({
                   ))}
               </ul>
             )}
+            {!hidden && onAddTask && step.state !== 'done' && (
+              <Button variant="ghost" size="sm" className="plan-wave-add" icon={<Icon name="add" size={14} />} onClick={() => onAddTask(wi === 0 ? [] : waves[wi - 1].tasks.map((tk) => tk.id))}>
+                {t('plan.steps.addTask')}
+              </Button>
+            )}
           </section>
         )
       })}
     </div>
+  )
+}
+
+const STEP_CHIP: Record<StepState['state'], { tone: ChipTone; icon: IconName }> = {
+  done: { tone: 'ok', icon: 'done' },
+  running: { tone: 'info', icon: 'active' },
+  ready: { tone: 'neutral', icon: 'queued' },
+  waiting: { tone: 'neutral', icon: 'waiting' },
+  blocked: { tone: 'warn', icon: 'circleAlert' },
+  failed: { tone: 'danger', icon: 'error' },
+  replanning: { tone: 'info', icon: 'refresh' }
+}
+
+function StepStateChip({ step }: { step: StepState }): React.JSX.Element {
+  const { t } = useI18n()
+  const { tone, icon } = STEP_CHIP[step.state]
+  return (
+    <Chip tone={tone} className="plan-wave-state">
+      <Icon name={icon} size={14} />
+      {t(`plan.steps.state.${step.state}`)}
+    </Chip>
   )
 }
 
@@ -257,6 +298,7 @@ function TaskRow({
   projectPath,
   summary,
   detail,
+  about,
   compact
 }: {
   task: JobTask
@@ -274,6 +316,7 @@ function TaskRow({
   projectPath?: string // W8-B
   summary?: SessionSummary // W9-I
   detail?: React.ReactNode
+  about?: React.ReactNode
   compact: boolean
 }): React.JSX.Element {
   const { t } = useI18n()
@@ -331,6 +374,7 @@ function TaskRow({
       )}
       {expanded && (
         <div className="plan-row-detail">
+          {about}
           {reason && text && now && <span className={`plan-reason plan-reason-${reasonTone(reason)}`}>{t(text.key, text.params)}</span>}
           {summary && <span className="summary-line" title={summary.text || undefined}>{summaryOneLine(summary, t)}</span>}
           {!compact && (

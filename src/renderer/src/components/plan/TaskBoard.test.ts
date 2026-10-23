@@ -80,6 +80,13 @@ describe('TaskBoard by wave', () => {
     expect(board()).toContain('plan.now.permission')
     expect(board({ selected: 'b' })).toContain('plan.card.answers(n=2)')
   })
+  it('T2: an expanded row opens with what renderAbout draws, before its existing detail', () => {
+    const html = board({ selected: 'b', renderAbout: (tk) => React.createElement('p', { className: 'about' }, `about ${tk.id}`), renderDetail: () => 'DETAIL' })
+    expect(html).toContain('about b')
+    expect(html.indexOf('about b')).toBeLessThan(html.indexOf('plan.card.model'))
+    expect(html.indexOf('plan.card.model')).toBeLessThan(html.indexOf('DETAIL'))
+    expect(board({ renderAbout: () => 'ABOUT' })).not.toContain('ABOUT')
+  })
   it('a running row whose tab is open links to its console', () => {
     expect(board()).toContain('plan.row.openConsole')
     expect(board({ canOpenSession: () => false })).not.toContain('plan.row.openConsole')

@@ -358,6 +358,11 @@ export const common = {
   // 이 폼이 아니라 그래프가 쥐고 있다(고르는 자리가 그래프이므로) — 그래서 이 카탈로그에는 deps
   // 자체의 값이 아니라 그것을 고르라고 안내하는 문구(depsHint)만 있다.
   'jobs.task.new': 'Task 추가',
+  // T2: the new-Task form hands its description to the planner
+  "jobs.task.askPlanner": "대신 플래너에게 요청",
+  "jobs.task.askPlannerHint": "설명을 플래너에게 보내 계획에 맞게 작업을 넣게 합니다",
+  "jobs.task.askedPlanner": "플래너에게 보냈습니다.",
+  "jobs.task.askFailed": "플래너에게 보내지 못했습니다",
   'jobs.task.accountHint':
     '이 Task 의 워커를 띄울 계정입니다. 자동은 여유가 가장 많은 계정을 고르니, 다른 계정에서 일을 떼어 놓고 싶을 때만 계정을 지정하세요. 둘 이상 지정하면 한도에 걸렸을 때 적은 순서대로 갈아탑니다',
   // How It Works — 프로젝트 이해

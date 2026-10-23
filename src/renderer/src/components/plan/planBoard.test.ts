@@ -4,7 +4,7 @@ import { ko } from '../../../../core/i18n/messages/ko'
 import { t } from '../../../../core/i18n'
 import type { ActivityEvent } from '../../../../core/orchestration/activity'
 import type { JobEvent } from '../../../../core/types'
-import { filterByKind, kindsOf, reuseOf, answersKey, autoAnswersOf, cardModelOf, categoryOf, collapsedWavesOf, currentWaveOf, filesOf, nowOf, ordinal, planProgressOf, reasonText, replanningOf, wavesOf } from './planBoard'
+import { filterByKind, kindsOf, reuseOf, answersKey, autoAnswersOf, cardModelOf, categoryOf, collapsedWavesOf, currentWaveOf, filesOf, nowOf, ordinal, planProgressOf, reasonText, replanningOf, stepStateOf, wavesOf } from './planBoard'
 // W8-C plan after plan
 import { reasonTone } from './planBoard'
 
@@ -452,5 +452,31 @@ describe('task kinds (T4)', () => {
     expect(reuseOf(all[1], all, { b: ['a', 'x'] })).toEqual({})
     expect(reuseOf(all[2], all, { c: ['a'] })).toBeNull()
     expect(reuseOf(all[0], all, {})).toBeNull()
+  })
+})
+
+describe('stepStateOf', () => {
+  const done = (id: string): JobTask => task(id, { status: 'completed', board: { category: 'done' } })
+  const run = (id: string): JobTask => task(id, { status: 'dispatched', board: { category: 'running' } })
+  const queued = (id: string): JobTask => task(id, { board: { category: 'queued', reason: { kind: 'deps', waitingOn: [] } } })
+  const steps = (...groups: JobTask[][]) => wavesOf(groups.flat(), groups.map((g) => g.map((t) => t.id)))
+  const of = (i: number, ws: ReturnType<typeof steps>, replanning = false) => stepStateOf(ws[i], ws, replanning)
+
+  it('done when every Task is done', () => expect(of(0, steps([done('a')], [queued('b')]))).toEqual({ state: 'done' }))
+  it('running when a Task is working', () => expect(of(0, steps([run('a'), queued('b')]))).toEqual({ state: 'running' }))
+  it('ready when it can start and nothing runs yet', () => expect(of(1, steps([done('a')], [queued('b')]))).toEqual({ state: 'ready' }))
+  it('waiting names the earlier step and its open Tasks', () =>
+    expect(of(2, steps([done('a'), run('b'), queued('c')], [queued('d')], [queued('e')]))).toEqual({ state: 'waiting', on: 1, left: 2 }))
+  it('blocked when a Task needs the owner', () =>
+    expect(of(0, steps([task('a', { openGates: 1 }), run('b')]))).toEqual({ state: 'blocked' }))
+  it('failed when a Task failed and nothing else runs', () => {
+    const failed = task('a', { status: 'failed', board: { category: 'failed' } })
+    expect(of(0, steps([failed, queued('b')]))).toEqual({ state: 'failed' })
+    expect(of(0, steps([failed, run('b')]))).toEqual({ state: 'running' })
+  })
+  it('replanning marks the step being worked on only', () => {
+    const ws = steps([queued('a')], [queued('b')])
+    expect(of(0, ws, true)).toEqual({ state: 'replanning' })
+    expect(of(1, ws, true)).toEqual({ state: 'waiting', on: 1, left: 1 })
   })
 })
