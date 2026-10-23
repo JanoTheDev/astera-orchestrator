@@ -42,3 +42,6 @@ export function sessionTreeRows(
   if (moreProjects) rows.push({ kind: 'more', id: 'more:' })
   return rows
 }
+
+/** A session row's secondary text: its date, then the one-line summary when a summary exists. */
+export const sessionDescription = (date: string, summaryLine?: string): string => (summaryLine ? `${date} · ${summaryLine}` : date)

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   openActivity, openConsole, openInbox, openPanel, openPlan, openSettings, openView, openWorktree,
-  registerNavigation, togglePanel, toggleSideBar, type NavigationHandlers
+  registerNavigation, revealRunConfigs, togglePanel, toggleSideBar, type NavigationHandlers
 } from './navigation'
 import { placeViewTab } from '../../../../core/panes/place'
 import { leaves } from '../../../../core/panes/tree'
@@ -83,5 +83,18 @@ describe('openView placement (placeViewTab)', () => {
     const again = placeViewTab(withOther.root, plan, withOther.paneId)
     expect(leaves(again.root!).flatMap((l) => l.tabIds).filter((id) => id === plan)).toHaveLength(1)
     expect(again.paneId).toBe(first.paneId)
+  })
+})
+
+describe('revealRunConfigs', () => {
+  it('opens the Run view first, then raises the focus flag', () => {
+    const h = handlers()
+    const calls: string[] = []
+    h.openActivity = vi.fn(() => void calls.push('open'))
+    const off = registerNavigation(h)
+    revealRunConfigs(() => calls.push('raise'))
+    expect(h.openActivity).toHaveBeenCalledWith('run')
+    expect(calls).toEqual(['open', 'raise'])
+    off()
   })
 })

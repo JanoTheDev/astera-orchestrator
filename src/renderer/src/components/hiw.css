@@ -80,8 +80,6 @@
    RecordDetail.tsx renders this only when a title is actually standing in for the heading, so the
    same sentence never appears twice. */
 .hiw-req { margin: 2px 0 0; font-size: var(--fs-11); color: var(--text-faint); }
-/* Colour comes from the same table as .hiw-g and .tab-glyph (RECORD_GLYPH_COLOR) */
-.hiw-st { font-size: var(--fs-11); }
 .hiw-sp { flex: 1; }
 
 /* What was checked, one line under the head (RecordDetail.tsx). */
@@ -173,11 +171,7 @@
 .hiw-why:last-child { margin-bottom: 0; }
 .hiw-wt { font-size: var(--fs-12); font-weight: 500; color: var(--text); }
 .hiw-wr { font-size: var(--fs-12); line-height: 1.55; color: var(--text-dim); }
-/* 반경도 테마가 정한다(설계 §7) — 99px 로 박으면 Quasar(--radius-sm: 1px)처럼 각진 테마에서
-   이 알약만 혼자 둥글다 */
-.hiw-src { align-self: flex-start; margin-top: 2px; font-family: var(--mono); font-size: var(--fs-11); color: var(--text-faint); border: 1px solid var(--line-soft); border-radius: var(--radius-sm); padding: 1px 8px; }
-/* 추정. ADR 과 색이 달라야 같은 무게로 읽히지 않는다 */
-.hiw-src.low { color: var(--warn); border-color: var(--warn); }
+.hiw-src { align-self: flex-start; margin-top: 2px; font-family: var(--mono); }
 
 .hiw-impl { display: flex; flex-direction: column; gap: 5px; }
 .hiw-impl-row { display: flex; gap: 12px; align-items: baseline; }

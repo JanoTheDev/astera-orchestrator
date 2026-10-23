@@ -27,7 +27,7 @@ export function RunView(p: SideBarViewProps): React.JSX.Element {
   } | null>(null)
   const treeRef = useRef<HTMLDivElement>(null)
 
-  // run.selectConfig used to open the top bar's menu; here it lands the keyboard on the list
+  // run.selectConfig (revealRunConfigs) shows this view and raises the flag; it lands the keyboard on the list
   const { runMenuOpen, setRunMenuOpen } = p
   useEffect(() => {
     if (!runMenuOpen) return

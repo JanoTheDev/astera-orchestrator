@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { HistoryEntry, ProjectSummary } from '../../../core/types'
-import { projectRowId, sessionTreeRows } from './historyTree'
+import { projectRowId, sessionDescription, sessionTreeRows } from './historyTree'
 
 const project = (name: string, updatedAt: string): ProjectSummary => ({ accountId: 'a1', projectPath: `/w/${name}`, name, updatedAt })
 const entry = (id: string, updatedAt: string): HistoryEntry => ({ id, updatedAt }) as HistoryEntry
@@ -32,5 +32,12 @@ describe('sessionTreeRows', () => {
   it('adds a more row for each page not yet fetched', () => {
     const rows = sessionTreeRows(projects, new Set(['/w/new']), () => ({ entries: [entry('s1', '2026-09-01T01:00:00Z')], total: 9 }), true)
     expect(rows.map((r) => r.id)).toEqual([projectRowId('/w/new'), 's1', 'more:/w/new', projectRowId('/w/old'), 'more:'])
+  })
+})
+
+describe('sessionDescription', () => {
+  it('appends the one-line summary to the date only when one exists', () => {
+    expect(sessionDescription('09/01 10:00')).toBe('09/01 10:00')
+    expect(sessionDescription('09/01 10:00', 'Merged the login fix.')).toBe('09/01 10:00 · Merged the login fix.')
   })
 })

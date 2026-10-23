@@ -1,9 +1,13 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { SessionSummary } from '../../../core/sessions/summary'
 import type { Account, HistoryEntry, ProjectSummary, ScheduleConfig, SessionKind, TranscriptPreview } from '../../../core/types'
 import { ResumeDialog } from './ResumeDialog'
 import { TranscriptPreviewModal } from './TranscriptPreviewModal'
 import { ProviderBadge } from './ProviderBadge'
-import { sessionTreeRows, type SessionPage } from './historyTree'
+import { sessionDescription, sessionTreeRows, type SessionPage } from './historyTree'
+import { localDoor } from '../lib/orchDoor'
+import { useSummaries } from '../state/useSummaries'
+import { summaryOneLine } from './wall/summaryText'
 import { ViewToolbar } from './shell/SideBar'
 import { isGhostAccountId } from '../../../core/accounts/ghostId'
 import { confirmModal } from '../lib/confirm'
@@ -34,6 +38,18 @@ function LoadingRows({ rows = 3 }: { rows?: number }): React.JSX.Element {
       ))}
     </>
   )
+}
+
+/** Reads one expanded project's session summaries (W9-I) and hands them up; renders nothing. A hook per project
+ *  cannot sit in the browser itself, since the number of expanded projects changes. */
+function SummaryFeed({ projectPath, onSummaries }: { projectPath: string; onSummaries: (projectPath: string, bySession: Map<string, SessionSummary>) => void }): null {
+  const door = useMemo(() => (typeof window !== 'undefined' ? localDoor(window.api, projectPath) : null), [projectPath])
+  const { bySession } = useSummaries(door)
+  useEffect(() => {
+    onSummaries(projectPath, bySession)
+    return () => onSummaries(projectPath, new Map())
+  }, [projectPath, bySession, onSummaries])
+  return null
 }
 
 type ScanState = { active: boolean; done: number; total: number }
@@ -87,6 +103,8 @@ export function HistoryBrowser({
   const [loaded, setLoaded] = useState(false)
   const [accountFilter, setAccountFilter] = useState<string>('')
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [summaries, setSummaries] = useState<Record<string, Map<string, SessionSummary>>>({})
+  const setProjectSummaries = useCallback((path: string, m: Map<string, SessionSummary>) => setSummaries((p) => ({ ...p, [path]: m })), [])
   // Each expanded project's sessions. A project with no entry here is still waiting for its first page.
   const [pages, setPages] = useState<Record<string, SessionPage & { entries: HistoryEntry[] }>>({})
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -296,6 +314,9 @@ export function HistoryBrowser({
   const treeRows = sessionTreeRows(projects, expanded, (path) => pages[path], projects.length < total)
   const byId = new Map(treeRows.map((r) => [r.id, r]))
 
+  const summaryLines = new Map<string, string>()
+  for (const m of Object.values(summaries)) for (const [id, sum] of m) summaryLines.set(id, summaryOneLine(sum, t))
+
   const items: TreeItem[] = treeRows.map((r): TreeItem => {
     switch (r.kind) {
       case 'project':
@@ -325,7 +346,10 @@ export function HistoryBrowser({
             <span className={isGhostAccountId(e.accountId) ? 'color-dot ghost' : 'color-dot'} style={{ background: account?.color ?? 'var(--text-faint)' }} />
           ),
           // the account is the dot's colour, the provider badge and the tooltip: a long account label would squeeze the title out of a side bar row
-          description: new Date(e.updatedAt).toLocaleString([], { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }),
+          description: sessionDescription(
+            new Date(e.updatedAt).toLocaleString([], { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }),
+            summaryLines.get(e.sessionId)
+          ),
           badge: (
             <>
               {e.awaitingReply && !isSeen(e) && <span className="unread-dot" role="img" aria-label={t('history.entry.unread')} title={t('history.entry.unread')} />}
@@ -451,6 +475,9 @@ export function HistoryBrowser({
           }}
         />
       </div>
+      {[...expanded].map((path) => (
+        <SummaryFeed key={path} projectPath={path} onSummaries={setProjectSummaries} />
+      ))}
       <ScanStatus scan={scan} />
       {/* 첫 페이지가 오기 전에는 점 셋, 도착한 뒤에 비어 있으면 '기록 없음'. 두 상태를 가르지 않으면
           프로젝트 디렉터리를 훑는 동안 계속 '기록 없음'이 보인다 */}

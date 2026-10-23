@@ -29,7 +29,7 @@ import { confirmModal } from '../lib/confirm'
 import { FileIcon } from './FileIcon'
 import { RunConfigForm } from './RunConfigForm'
 import { RunTypePicker } from './RunTypePicker'
-import { Button, Icon, IconButton, Modal } from './ui'
+import { Button, Icon, IconButton, Input, Modal } from './ui'
 
 /** The error element of a refused Apply — SaveConfigsResult's own shape, not restated, so a reason
  *  added to SaveReason without a `run.manager.reason.*` catalogue entry fails typecheck here instead
@@ -319,16 +319,14 @@ export function RunConfigManager({
       <div className="rcm">
         <div className="rcm-panes">
           <div className="rcm-list">
-            <label className="rcm-search">
-              <Icon name="search" size={14} />
-              <input
-                type="text"
-                value={query}
-                placeholder={t('run.manager.search')}
-                aria-label={t('run.manager.search')}
-                onChange={(e) => setQuery(e.target.value)}
-              />
-            </label>
+            <Input
+              className="rcm-search"
+              type="search"
+              value={query}
+              placeholder={t('run.manager.search')}
+              aria-label={t('run.manager.search')}
+              onChange={(e) => setQuery(e.target.value)}
+            />
             <div className="rcm-tools">
               <RunTypePicker
                 detected={detectedTypes}
@@ -414,7 +412,7 @@ export function RunConfigManager({
                 <div className="rcm-group-block" key={`${g.kind}:${g.key}`}>
                   {g.kind === 'folder' ? (
                     renamingFolder === g.key ? (
-                      <input
+                      <Input
                         className="rcm-folder-name"
                         autoFocus
                         defaultValue={g.key}
