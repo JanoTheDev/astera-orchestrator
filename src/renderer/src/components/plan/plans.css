@@ -10,8 +10,9 @@
 .plans-tree__wrap { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .plans-tree__wrap > .ui-tree { flex: 1; }
 
-/* A plan's name is cut last: the dim description goes first, then the status word, then the name (planTree.test.ts) */
-.plans-tree .ui-tree__label { flex-shrink: 1; }
+/* A plan's name is cut last: the dim description goes first, then the status word; the name only past 70% of the row
+   (planTree.test.ts) */
+.plans-tree .ui-tree__label { flex-shrink: 0; max-width: 70%; }
 .plans-tree .ui-tree__desc { flex-shrink: 1000; }
 .plans-tree .ui-tree__meta { flex: 0 100 auto; min-width: 0; overflow: hidden; }
 .plans-tree .ui-tree__deco { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -25,7 +26,7 @@
 .plans-tone--neutral { color: var(--text-dim); }
 
 /* The pinned Main plan pane: as tall as its plans, never more than a third of the view */
-.plans-mainpane.is-open { flex: 0 1 auto; max-height: 33%; }
+.ui-viewpane.plans-mainpane.is-open { flex: 0 1 auto; max-height: 33%; }
 .plans-mainpane__head { margin: 0; padding: var(--sp-1) var(--sp-2) var(--sp-1) 20px; color: var(--text-dim); font-size: var(--fs-12); }
 .plans-mainpane__open { padding: var(--sp-1) var(--sp-2) var(--sp-2) 20px; }
 
