@@ -88,7 +88,8 @@ describe('buildHandoverPrompt', () => {
       expect(p).toContain('astera run-configs list --job job_42')
       expect(p).toContain('--validate')
       expect(p).toContain('--review')
-      expect(p).toMatch(/few Tasks/)
+      expect(p).toContain('as many independent Tasks as the work splits into')
+      expect(p).not.toMatch(/few Tasks/)
     })
 
     it('says a Gate needs a Task, so a question before any Task goes on a first Task', () => {

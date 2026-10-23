@@ -97,8 +97,8 @@ export function buildHandoverPrompt(a: {
         '  configurations. When there are quick ones that test the work (a typecheck, the tests of the files a Task',
         '  touches), pass their ids as `--validate <id,...>`. Never the full test suite: it runs once at delivery.',
         '  Pass `--review` only when the objective asks for a review.',
-        'Keep the plan small and concrete: a few Tasks, each one a piece of work a worker can finish',
-        'and report. Do not plan what the objective does not ask for.',
+        'Plan as many independent Tasks as the work splits into, each one a piece a single worker finishes and',
+        'reports; add deps only for real needs. Do not plan what the objective does not ask for.',
         'A Gate needs a Task. If you must ask the person something before any Task exists, create the',
         'first Task (for example the investigation) and open the Gate on it;',
         'never ask only in your own terminal, where nobody outside the app can see it.'
