@@ -87,4 +87,4 @@
 .account-panel .account-row .ui-menu { opacity: 0; }
 .account-panel .account-row:hover .ui-menu, .account-panel .account-row:focus-within .ui-menu, .account-panel .account-row .ui-menu:has([aria-expanded='true']) { opacity: 1; }
 .account-panel .acct-meter { width: 148px; }
-.account-panel__foot { display: flex; gap: var(--sp-1); padding: var(--sp-1) var(--sp-2); border-top: 1px solid var(--line); }
+.account-panel__foot { display: flex; flex-wrap: wrap; gap: var(--sp-1); padding: var(--sp-1) var(--sp-2); border-top: 1px solid var(--line); }
