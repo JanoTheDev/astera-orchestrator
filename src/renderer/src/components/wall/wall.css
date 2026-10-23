@@ -120,16 +120,6 @@ button.summary-card__title:hover .summary-card__title-text { text-decoration: un
 /* Done: what each finished console did (SummaryCard, or FinishedCard until its summary is written) */
 .wall-done { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: var(--sp-2); }
 
-/* The full-size view: the console strip under the header */
-
-/* One console full size: the slim header, the console, the details panel */
-  flex: none; display: flex; align-items: center; gap: var(--sp-3); min-width: 0; height: 44px; padding: 0 var(--sp-3);
-  border-bottom: 1px solid var(--line); background: var(--panel); font-size: var(--fs-12); color: var(--text-dim);
-}
-  display: flex; align-items: center; gap: var(--sp-1); width: 100%; height: 28px; padding: 0 var(--sp-2); border: none; border-radius: var(--radius);
-  background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer;
-}
-
 @media (prefers-reduced-motion: reduce) { .wall-tile__more { transition: none; } }
 
 /* W12: the links and rows above as house Buttons (.ui-btn). Only these selectors meet the button, so TaskBoard's and
@@ -141,7 +131,6 @@ button.summary-card__title:hover .summary-card__title-text { text-decoration: un
 .ui-btn.summary-card__title:hover .summary-card__title-text { text-decoration: underline; }
 .ui-btn.summary-card__link { height: auto; padding: 0; border: 0; background: none; color: var(--accent); font-weight: inherit; }
 .ui-btn.summary-card__link:hover { background: none; text-decoration: underline; }
-.ui-btn.wall-details__task { width: 100%; height: 28px; padding: 0 var(--sp-2); justify-content: flex-start; color: var(--text); font-weight: inherit; }
 
 /* W13: the console tab's header (ConsoleHeader.tsx): plan › Task as links, then account, state and Stop / Restart. */
 .console-head { flex: none; display: flex; align-items: center; gap: var(--sp-2); height: 26px; padding: 0 var(--sp-2); border-bottom: 1px solid var(--line); background: var(--panel); font-size: var(--fs-12); }
