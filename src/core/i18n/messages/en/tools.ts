@@ -19,6 +19,7 @@ export const tools: Record<keyof typeof ko, string> = {
   'github.state.closed': 'Closed',
   'worktree.push.aheadUnknown': 'This branch has unpushed commits',
   'worktree.push.createPrHint': 'Create a pull request — {count} commits onto {base}',
+  'worktree.push.createPrHint.one': 'Create a pull request — {count} commit onto {base}',
   'run.config.selectLabel': 'Run configuration',
   'run.config.none': 'No run configs',
   'run.config.more': 'More actions',

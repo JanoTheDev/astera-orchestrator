@@ -23,7 +23,7 @@ export function PushBadge({
   const title =
     ahead === null
       ? t('worktree.push.aheadUnknown')
-      : t('worktree.push.createPrHint', { count: ahead, base })
+      : t(ahead === 1 ? 'worktree.push.createPrHint.one' : 'worktree.push.createPrHint', { count: ahead, base })
   return (
     <Button
       variant="ghost"

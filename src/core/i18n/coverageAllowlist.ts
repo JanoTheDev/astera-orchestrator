@@ -855,7 +855,6 @@ export const UNTRANSLATED: readonly MessageKey[] = [
   'github.state.merged',
   'github.state.closed',
   'worktree.push.aheadUnknown',
-  'worktree.push.createPrHint',
   'wall.plans.search',
   'wall.scope.label',
   'wall.scope.plan',

@@ -4,6 +4,8 @@ import type { tools as ko } from '../ko/tools'
 export const tools: Partial<Record<keyof typeof ko, string>> = {
   'jobs.runtime.label': 'Runtime',
   'jobs.runtime.project': '{name} のプロジェクト',
+  'worktree.push.createPrHint': 'プルリクエストを作成 — {base} へのコミット {count} 件',
+  'worktree.push.createPrHint.one': 'プルリクエストを作成 — {base} へのコミット {count} 件',
   'jobs.runtime.empty': 'この Runtime のこのプロジェクトにジョブはありません。',
   'jobs.runtime.noProjects': 'この Runtime にはプロジェクトがありません。',
   'jobs.runtime.control': 'ここでの操作は {name} で実行されます。',

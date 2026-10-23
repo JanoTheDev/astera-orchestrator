@@ -17,6 +17,7 @@ export const tools = {
   'github.state.closed': '닫힘',
   'worktree.push.aheadUnknown': '푸시하지 않은 커밋이 있습니다',
   'worktree.push.createPrHint': 'PR 만들기 — 커밋 {count}개를 {base}(으)로',
+  'worktree.push.createPrHint.one': 'PR 만들기 — 커밋 {count}개를 {base}(으)로',
   // RunToolbar.tsx — config select, run/stop, the running list, ⋮ menu (only item opens RunConfigManager)
   'run.config.selectLabel': '실행 구성 선택',
   'run.config.none': '실행 구성 없음',
