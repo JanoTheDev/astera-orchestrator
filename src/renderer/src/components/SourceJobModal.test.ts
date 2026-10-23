@@ -105,16 +105,15 @@ describe('SourceJobView', () => {
     expect(html).toContain('jobs.source.dataHint')
   })
 
-  it('makes the Job only with an item that can be picked and an account, and not while busy or locked', () => {
+  it('makes the Job only with an item that can be picked, with or without an account (Auto), and not while busy or locked', () => {
     const item = { id: 'ENG-1', title: 't', selectable: true, jobs: [] }
-    expect(canMake({ item, account: 'acc_1', busy: false, locked: false })).toBe(true)
-    expect(canMake({ item, account: '', busy: false, locked: false })).toBe(false)
-    expect(canMake({ item: { ...item, selectable: false }, account: 'acc_1', busy: false, locked: false })).toBe(false)
-    expect(canMake({ item: null, account: 'acc_1', busy: false, locked: false })).toBe(false)
-    expect(canMake({ item, account: 'acc_1', busy: true, locked: false })).toBe(false)
-    expect(canMake({ item, account: 'acc_1', busy: false, locked: true })).toBe(false)
+    expect(canMake({ item, busy: false, locked: false })).toBe(true) // no account is Auto
+    expect(canMake({ item: { ...item, selectable: false }, busy: false, locked: false })).toBe(false)
+    expect(canMake({ item: null, busy: false, locked: false })).toBe(false)
+    expect(canMake({ item, busy: true, locked: false })).toBe(false)
+    expect(canMake({ item, busy: false, locked: true })).toBe(false)
     const disabledMake = (html: string): boolean => /class="ui-btn ui-btn--primary[^"]*"[^>]*disabled=""><span class="ui-btn__label">jobs\.source\.make<\/span>/.test(html)
-    expect(disabledMake(render({ source: 'github', picked: 'ENG-1', detail: item, account: '' }))).toBe(true)
+    expect(disabledMake(render({ source: 'github', picked: 'ENG-1', detail: item, account: '' }))).toBe(false)
     expect(disabledMake(render({ source: 'github', picked: 'ENG-1', detail: item, account: 'acc_1' }))).toBe(false)
   })
 })

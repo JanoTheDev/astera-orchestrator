@@ -3,7 +3,7 @@ import type { Account, JobTask } from '../../../core/types'
 import { providerOf } from '../../../core/providers/meta'
 import { useI18n } from '../i18n/I18nProvider'
 import { formFailure, type OrchDoor } from '../lib/orchDoor'
-import { AccountSelect } from './AccountSelect'
+import { AccountDisclosure, AccountSelect } from './AccountSelect'
 import { Button, Field, Icon, IconButton, Modal, Select, type SelectOption, Checkbox } from './ui'
 
 /** 계정 슬롯 최대 개수. 새 세션 대화상자의 MAX_ROLL_ACCOUNTS 와 같은 값이지만 **상수를 공유하지
@@ -57,13 +57,14 @@ export function NewTaskModal({
   /** 고른 의존. **이 폼이 소유한다** — 예전에는 그래프가 들고 있었다(고르는 자리가 그래프였다).
    *  셀렉트로 옮기면서 값과 그 값을 고치는 화면이 같은 자리에 있게 됐다. */
   const [deps, setDeps] = useState<string[]>([])
-  /** 이 Task 를 띄울 계정들, 순서대로. **하나는 반드시 있어야 한다** — 이 목록이 provider 의 유일한
-   *  출처이므로(Task.accountIds), 비면 어느 에이전트로 띄울지 알 방법이 없다. 예전에는 빈 배열이
-   *  "지정 안 함"이었고 그때는 Run 이 정한 provider 의 기본 계정으로 갔다.
+  /** 이 Task 를 띄울 계정들, 순서대로. **빈 배열이 Auto 다**(Auto, most room) — task-create 가 `account` 없이도
+   *  받고, 그때는 앱이 provider 의 계정을 여유 순으로 골라 띄운다. 계정을 고르는 것은 다른 계정에서
+   *  일을 떼어 놓고 싶을 때뿐이라 칸은 접혀 있다.
    *
-   *  첫 계정으로 띄우고 나머지는 한도에 걸렸을 때 갈아탈 순서다. **첫 칸을 비우면 뒤 칸도 함께
+   *  첫 계정으로 띄우고 나머지는 한도에 걸렸을 때 갈아탈 순서다. **첫 칸을 비우면(Auto) 뒤 칸도 함께
    *  사라진다** — 첫 계정이 provider 를 정하므로 그것 없이 "두 번째 계정" 만 있는 상태는 뜻이 없다. */
   const [accountIds, setAccountIds] = useState<string[]>([])
+  const [acctOpen, setAcctOpen] = useState(false)
   /** 완료 검사 — 고른 RunConfig id, **이 순서가 실행 순서다**(Plan 1 설계 D9: 첫 실패에서 멈춘다). 그래서 Set 이
    *  아니라 배열이고, 순서를 바꾸는 손잡이(↑↓)가 있다. */
   const [checks, setChecks] = useState<string[]>([])
@@ -121,12 +122,15 @@ export function NewTaskModal({
     accountIds.length < MAX_TASK_ACCOUNTS &&
     choicesFor(accountIds.length, '').length > 0
 
+  /** 등록된 계정이 하나도 없으면 Auto 가 고를 것도 없다 — 아래 경고가 이유를 말한다. null 은 아직 안 온 것 */
+  const noAccounts = accounts !== null && accounts.length === 0
+
   const create = async (): Promise<void> => {
     const trimmedSpec = spec.trim()
     // busy 로 다시 걸러 이중 클릭이 Task 를 두 개 만들지 못하게 한다 — NewRunModal.create 와 같은
     // 이유다: 버튼의 disabled 는 같은 프레임에 반영되지 않을 수 있다.
-    // 계정도 함께 본다 — 버튼의 disabled 와 같은 조건이고, 같은 이유로 두 번 본다(위 주석).
-    if (!trimmedSpec || accountIds.length === 0 || busy || locked) return
+    // 계정이 하나도 없는 경우도 함께 본다 — 버튼의 disabled 와 같은 조건이고, 같은 이유로 두 번 본다(위 주석).
+    if (!trimmedSpec || noAccounts || busy || locked) return
     setBusy(true)
     setError(null)
     try {
@@ -137,9 +141,9 @@ export function NewTaskModal({
         title: title.trim(),
         spec: trimmedSpec,
         deps,
-        // 쉼표로 보낸다 — task-create 의 문법이다(server.ts). **언제나 보낸다** — 아래 버튼이
-        // 빈 목록으로는 눌리지 않으므로 이 자리에 빈 값이 오지 않는다.
-        account: accountIds.join(','),
+        // 쉼표로 보낸다 — task-create 의 문법이다(server.ts). Auto 면 키를 보내지 않는다: 빈 문자열은
+        // 서버가 400 으로 거절하고, 키가 없으면 앱이 계정을 고른다.
+        ...(accountIds.length > 0 ? { account: accountIds.join(',') } : {}),
         // 쉼표 목록 — task-create 의 문법이다(server.ts, `--account` 와 같은 규약). 고른 순서가 실행 순서다.
         // 하나도 안 골랐으면 키를 보내지 않는다: 빈 문자열은 서버가 400 으로 거절한다.
         ...(checks.length > 0 ? { validate: checks.join(',') } : {}),
@@ -177,11 +181,11 @@ export function NewTaskModal({
           <Button variant="ghost" onClick={onClose} disabled={busy}>
             {t('common.cancel')}
           </Button>
-          {/* 계정이 없으면 만들 수 없다 — provider 를 알 방법이 없다(accountIds 의 주석) */}
+          {/* 계정을 안 골라도 만든다(Auto). 등록된 계정이 아예 없을 때만 막는다 */}
           <Button
             variant="primary"
             loading={busy}
-            disabled={locked || busy || !spec.trim() || accountIds.length === 0}
+            disabled={locked || busy || !spec.trim() || noAccounts}
             onClick={() => void create()}
           >
             {t('jobs.task.create')}
@@ -235,31 +239,39 @@ export function NewTaskModal({
         {accounts !== null && (
           <div className="field">
             <label>{t('jobs.task.account')}</label>
-            {/* 슬롯 하나씩. 첫 칸은 '지정 안 함'(빈 값)을 가질 수 있고, 뒤 칸은 고른 것만 남는다 —
-                빈 뒤 칸은 뜻이 없으므로 값을 비우면 그 칸이 사라진다. 이미 고른 계정은 다른 칸의
-                항목에서 빠진다(같은 계정을 두 칸에 넣으면 롤링이 두 계정인 줄 알고 같은 계정으로
-                "갈아탄다" — task-create 도 그 조합을 거절한다). 맨 뒤의 빈 칸은 고를 것이 남았을
-                때만 붙는다(canAddSlot). */}
-            {(canAddSlot ? [...accountIds, ''] : accountIds).map((slot, i) => (
-              <AccountSelect
-                key={i}
-                className="stack-item"
-                accounts={choicesFor(i, slot)}
-                value={slot}
-                onChange={(id) =>
-                  setAccountIds((prev) => {
-                    const next = [...prev]
-                    if (id === '') next.splice(i) // 이 칸부터 뒤를 버린다 — 위 주석
-                    else next[i] = id
-                    return next.filter((x) => x !== '')
-                  })
-                }
-                // 첫 칸의 빈 값은 더 이상 "기본 계정" 이 아니라 **아직 안 골랐다**는 뜻이다 —
-                // 계정이 provider 를 정하므로 지정 없이 띄울 수 있는 길이 없다.
-                allLabel={i === 0 ? t('jobs.task.accountPick') : t('jobs.task.accountNone')}
-              />
-            ))}
             <p className="modal-hint">{t('jobs.task.accountHint')}</p>
+            {accounts.length > 0 && (
+              <AccountDisclosure
+                id="task-accounts"
+                open={acctOpen}
+                onToggle={() => setAcctOpen((v) => !v)}
+                summary={accountIds.length > 0 ? accountIds.map((id) => accounts.find((a) => a.id === id)?.label ?? id).join(' → ') : t('accounts.auto')}
+              >
+              {/* 슬롯 하나씩. 첫 칸은 Auto(빈 값)를 가질 수 있고, 뒤 칸은 고른 것만 남는다 —
+                  빈 뒤 칸은 뜻이 없으므로 값을 비우면 그 칸이 사라진다. 이미 고른 계정은 다른 칸의
+                  항목에서 빠진다(같은 계정을 두 칸에 넣으면 롤링이 두 계정인 줄 알고 같은 계정으로
+                  "갈아탄다" — task-create 도 그 조합을 거절한다). 맨 뒤의 빈 칸은 고를 것이 남았을
+                  때만 붙는다(canAddSlot). */}
+              {(canAddSlot ? [...accountIds, ''] : accountIds).map((slot, i) => (
+                <AccountSelect
+                  key={i}
+                  className="stack-item"
+                  accounts={choicesFor(i, slot)}
+                  value={slot}
+                  onChange={(id) =>
+                    setAccountIds((prev) => {
+                      const next = [...prev]
+                      if (id === '') next.splice(i) // 이 칸부터 뒤를 버린다 — 위 주석
+                      else next[i] = id
+                      return next.filter((x) => x !== '')
+                    })
+                  }
+                  // 첫 칸의 빈 값은 Auto 다 — 지정 없이 앱이 계정을 고른다(accountIds 의 주석).
+                  allLabel={i === 0 ? t('accounts.auto') : t('jobs.task.accountNone')}
+                />
+              ))}
+              </AccountDisclosure>
+            )}
             {/* 계정이 하나도 등록되지 않았으면 고를 것이 없어 이 Task 를 만들 수 없다 — 칸을
                 감추면 왜 만들기 버튼이 죽어 있는지 화면이 말하지 않는다. */}
             {accounts.length === 0 && (

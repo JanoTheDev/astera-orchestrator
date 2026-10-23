@@ -909,7 +909,9 @@ export interface ChatTurnState {
  *  included, or empty for none; `unattended` is only ever set for a chat session. */
 export interface SessionCreate {
   kind: 'terminal' | 'chat'
-  accountId: string
+  /** T1: absent is auto — the account with most room of `provider` (claude by default), rolling over its ranking. */
+  accountId?: string
+  provider?: Provider
   cwd: string
   title?: string
   prompt?: string
@@ -2221,6 +2223,9 @@ export async function handleCommand(
         runId: target.id,
         cwd: job.cwd,
         accountId,
+        // T1: no account named for the plan (`--coordinator-provider`, or none): `accountId` only says the provider, and
+        // the coordinator starts on that provider's account with most room (chooseStartAccount)
+        ...(job.preferredAccountId === undefined ? { auto: true as const } : {}),
         onWait: setStartWait(job.id),
         ...(resume ? { resume } : {}),
         brief: resume ? crashResumedBrief('coordinator', target.id) : buildHandoverPrompt({
@@ -2429,7 +2434,9 @@ export async function handleCommand(
         coordinatorAccountId = coordArg
       }
       // `--coordinator-provider`: with no `--coordinator-account`, that provider's default account
-      // (defaultAccountIdOf, which listAccounts marks when asked) coordinates. An explicit account wins.
+      // (defaultAccountIdOf, which listAccounts marks when asked) is recorded as the coordinator account. An explicit
+      // account wins. T1: it only says the provider: no preferredAccountId is kept, so the coordinator starts on that
+      // provider's account with most room (startAndAttach's `auto`).
       // An older app attached to a newer Host returns no default mark, so this fails with the no-account
       // 400 until the app is updated.
       const coordProvider = args.coordinatorProvider
@@ -6167,9 +6174,12 @@ export async function handleCommand(
       if (myDispatch !== undefined)
         return denied('a worker session cannot start sessions; ask your coordinator, or run it from a shell')
       if (!deps.createSession) return conflict('sessions are started by the Astera Host, and this caller is not one')
-      if (args.account === undefined) return bad('--account is required: the account the session runs on (from `accounts list`)')
-      const account = str(args.account)
+      // T1: no --account is auto: the account with most room of --provider (claude by default), rolling over the
+      // provider's ranking; a named one is a preference, never started on while full (host/sessionCreate.ts)
+      const account = args.account === undefined ? undefined : str(args.account)
       if (account === null) return bad('--account needs a value: an account id (from `accounts list`)')
+      const provider = enumFilter('provider', args.provider, ['claude', 'codex'] as const)
+      if ('error' in provider) return bad(provider.error)
       if (args.cwd === undefined) return bad('--cwd is required: the folder the session starts in')
       const asked = str(args.cwd)
       if (asked === null) return bad('--cwd needs a value: a folder')
@@ -6207,10 +6217,14 @@ export async function handleCommand(
           '--prompt for a terminal session must not contain " & | < > ^ % or a line break: it is passed on the command line. Put the text in a file and ask the session to read it, or start a chat session'
         )
       const known = await deps.listAccounts()
-      const mine = known.find((a) => a.id === account)
-      if (!mine) return notFound(`unknown account: ${account}`)
+      const mine = account === undefined ? undefined : known.find((a) => a.id === account)
+      if (account !== undefined && !mine) return notFound(`unknown account: ${account}`)
+      if (mine && provider.value !== undefined && mine.provider !== provider.value)
+        return bad(`--provider ${provider.value} does not match --account ${account}, which is ${mine.provider}`)
       let chain: string[] = []
-      if (args.rollAccounts !== undefined) {
+      if (args.rollAccounts !== undefined && !mine)
+        return bad('--roll-accounts needs --account: without one the session rolls over every account of its provider')
+      if (args.rollAccounts !== undefined && account !== undefined && mine) {
         const raw = str(args.rollAccounts)
         if (raw === null) return bad('--roll-accounts needs a value: account ids, comma-separated')
         const parsed = parseAccountList(raw, known, '--roll-accounts')
@@ -6224,7 +6238,8 @@ export async function handleCommand(
         return okBody(
           await deps.createSession({
             kind: sessionKind,
-            accountId: account,
+            ...(account !== undefined ? { accountId: account } : {}),
+            ...(provider.value !== undefined ? { provider: provider.value } : {}),
             cwd,
             ...(args.title !== undefined ? { title: str(args.title)! } : {}),
             ...(args.prompt !== undefined ? { prompt: str(args.prompt)! } : {}),

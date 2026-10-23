@@ -80,7 +80,7 @@ export function createSourcesRoute(d: {
       if (!('id' in p)) return !p.ok && (p.code === 'TIMEOUT' || p.code === 'HOST_LOST') ? { ok: false, code: 'FAILED', message: p.message } : p
       return ask(
         'jobs-create-from-source',
-        { source: a.source, item: a.item, project: p.id, coordinatorAccount: a.coordinatorAccount, ...(a.convergence === true ? { convergence: true } : {}) },
+        { source: a.source, item: a.item, project: p.id, ...(a.coordinatorAccount ? { coordinatorAccount: a.coordinatorAccount } : { coordinatorProvider: 'claude' }), ...(a.convergence === true ? { convergence: true } : {}) },
         SOURCES_DEADLINE_MS
       )
     }

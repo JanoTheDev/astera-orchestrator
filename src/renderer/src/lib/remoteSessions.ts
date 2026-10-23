@@ -137,7 +137,7 @@ export function remoteCall(runtimeId: string, cmd: string, args: Record<string, 
 }
 
 /** The new remote session form as `sessions-create` takes it (core/orchestration/command.ts): the account is `account`,
- *  and an empty title or prompt is left out rather than refused there. No roll, worktree or schedule: those are this
+ *  and an empty title, prompt or account is left out rather than refused there (no account is Auto: the Runtime picks). No roll, worktree or schedule: those are this
  *  machine's options (Phase 9b Task 8). */
 export function createSessionArgs(f: {
   kind: 'terminal' | 'chat'
@@ -148,7 +148,7 @@ export function createSessionArgs(f: {
 }): Record<string, string> {
   const title = f.title.trim()
   const prompt = f.prompt.trim()
-  return { kind: f.kind, account: f.accountId, cwd: f.cwd, ...(title ? { title } : {}), ...(prompt ? { prompt } : {}) }
+  return { kind: f.kind, ...(f.accountId ? { account: f.accountId } : {}), cwd: f.cwd, ...(title ? { title } : {}), ...(prompt ? { prompt } : {}) }
 }
 
 /** Codes after which subscribing again cannot help: core/remote/link.ts FINAL, a Runtime that cannot stream, and one

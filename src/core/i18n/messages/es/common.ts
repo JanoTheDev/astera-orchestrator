@@ -292,7 +292,7 @@ export const common: Partial<Record<keyof typeof ko, string>> = {
   // apunta al grafo, no los valores de deps en sí.
   'jobs.task.new': 'Añadir tarea',
   'jobs.task.accountHint':
-    'Las cuentas en las que esta tarea ejecuta su worker — la primera decide qué agente la ejecuta, así que hace falta al menos una. Con más de una, al alcanzar el límite de uso el worker pasa a la siguiente en el orden indicado',
+    'Las cuentas en las que esta tarea ejecuta su worker. Automática elige la cuenta con más margen; fija cuentas solo para mantener el trabajo fuera de otras. Con más de una fijada, al alcanzar el límite de uso el worker pasa a la siguiente en el orden indicado',
   // How It Works — comprensión del proyecto
   'hiw.record.regenerateFailed': 'No se pudo volver a redactar: {detail}',
   'hiw.pane.notInProject': 'El registro de esta pestaña no está en el proyecto abierto actualmente.',
