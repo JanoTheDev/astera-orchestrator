@@ -65,16 +65,24 @@ shows it: each plan with its open Tasks, and the links between plans.
   overlap. Two Tasks that must change the same file are either one Task or a chain (`--deps`).
 - **Dependencies are real orderings only**: B depends on A when B needs A's code or A's answer. Do not add deps "to
   be careful": they are the only thing that orders Tasks, and every needless link makes the plan slower.
-- **Keep it small.** Plan what the objective asks for and nothing more. Prefer a few solid Tasks to many thin
-  ones; do not plan "polish" or "docs" Tasks nobody asked for.
+- **Keep scope tight, Tasks sized for parallel work.** Plan what the objective asks for and nothing more; do not plan
+  "polish" or "docs" Tasks nobody asked for. Size each Task to one folder or feature slice that one worker finishes in
+  about an hour: split a Task that spans unrelated folders. When the objective has that many independent parts, aim
+  wave 1 at the worker limit.
 - **Cut by ownership, not by step.** One Task owns a folder or a feature slice. Do not split one folder's files
   across Tasks by what each step does to them (write, then test, then docs): that makes a chain out of parallel work.
 - **Shared files go to one Task.** Shared files (i18n catalogs, `types.ts`, central command tables, route indexes)
   belong to one Task. If several Tasks must add to one, each edits only its own block and its prompt says so. A Task
-  that must touch a file another parallel Task owns is a chain (`--deps`).
+  that must touch a file another parallel Task owns is a chain (`--deps`). To keep consumers parallel, a **foundation
+  Task** adds the type, keys or IPC stub first (small, wave 1); the consumers then fill their own parts side by side in wave 2.
 - **Size the waves.** A Task opens as soon as its own deps have completed (section 5). Put foundations (types, shared helpers, design
   tokens) in wave 1 and their consumers after. When the Tasks are independent, fill each wave to the Job's worker limit.
   Never add a link "to be careful".
+- **Before you hand over: check the shape.** Count the Tasks in each wave. If the widest wave is well under the worker
+  limit, look at each dep and ask: does B need A's code or answer, or only the same file? A same-file-only dep becomes
+  block-owned edits (each Task edits only its own block, and its prompt says so), or the shared edit moves into a small
+  foundation Task in wave 1 so its consumers run in parallel in wave 2. Never add a dep "to be careful", and never split
+  one file between parallel Tasks.
 
 - **A Task prompt states five things**: the goal, the findings with `file:line`, numbered build steps, the files, the
   tests with their commands, and what not to touch. A worker sees nothing else of the plan, so a prompt that leaves one

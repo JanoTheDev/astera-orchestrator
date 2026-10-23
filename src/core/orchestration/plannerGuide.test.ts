@@ -32,6 +32,12 @@ describe('planner-guide.md — multi-file planning and waves', () => {
     for (const needle of ['Cut by ownership, not by step', 'Shared files go to one Task', 'i18n catalogs', '`types.ts`', 'Size the waves', 'foundations', 'worker limit'])
       expect(section, needle).toContain(needle)
   })
+  it('cuts small, parallel Tasks and checks the shape against the worker limit', () => {
+    const section = guide.slice(guide.indexOf('## 2. Cut the objective'), guide.indexOf('## 3. Write each Task'))
+    expect(section).not.toContain('Prefer a few solid Tasks to many thin ones')
+    for (const needle of ['Keep scope tight, Tasks sized for parallel work', 'about an hour', 'aim\n  wave 1 at the worker limit', '**Before you hand over: check the shape.**', 'widest wave', 'only the same file', 'block-owned edits', '**foundation\n  Task**', 'never split\n  one file'])
+      expect(section, needle).toContain(needle)
+  })
   it('tells workers to use subagents for exploration', () => {
     expect(guide).toContain('Tell each worker to use subagents for read-only exploration')
   })

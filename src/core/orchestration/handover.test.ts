@@ -222,6 +222,14 @@ describe('buildPlannerBrief planning mode (T1)', () => {
   })
 })
 
+describe('buildPlannerBrief wider plans', () => {
+  it('asks for up to the worker limit of Tasks at once, right after the limit line', () => {
+    const b = buildPlannerBrief({ jobId: 'job_x', objective: 'o', repoRoot: '/repo', accountId: 'acc1', concurrency: 7 })
+    expect(b).toContain('- workers that may run at once: 7\n  Cut the plan so up to that many Tasks can run at once')
+    expect(b).toContain('deps only where one needs another\'s code (planner-guide.md section 2)')
+  })
+})
+
 describe('buildPlannerBrief objective coverage and the plan name (T7)', () => {
   const base = { jobId: 'job_x', objective: '1. a\n2. b', repoRoot: '/repo', accountId: 'acc1', concurrency: 2 }
   it('tells the planner to give every Task --covers, list skipped items with --left-out, and rename the Job', () => {
