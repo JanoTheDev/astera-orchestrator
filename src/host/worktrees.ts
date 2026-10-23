@@ -344,7 +344,14 @@ export function createHostWorktrees(d: HostWorktreesDeps): HostWorktrees {
 
   const fork = async (a: { repoPath: string; name?: string; baseOf?: string }): Promise<string> => {
     await fresh()
-    return forkWorktree(a, { registry, log: d.log, setupCommand: findProjectContaining(d.getState(), a.repoPath)?.setupCommand })
+    // The state may be unreadable: a fork never throws for it, it only runs no setup command (binding 5)
+    let setupCommand: string | undefined
+    try {
+      setupCommand = findProjectContaining(d.getState(), a.repoPath)?.setupCommand
+    } catch (e) {
+      d.log(`worktree fork: no setup command, the state could not be read: ${message(e)}`)
+    }
+    return forkWorktree(a, { registry, log: d.log, setupCommand })
   }
 
   // ---- the app's writes (R1) ----
