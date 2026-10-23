@@ -462,7 +462,14 @@ export function createHostDriving(d: {
         busy: (id) => d.spawner.sessionBusy(id),
         alive: (id) => hostSessionAlive(d.registry, d.procs, id),
         isRegistered: (p) => d.worktrees.isRegistered(p),
-        ...(d.usageGuard ? { paused: (id: string) => d.usageGuard!.pauseOf(id) !== null } : {}),
+        ...(d.usageGuard
+          ? {
+              paused: (id: string) => d.usageGuard!.pauseOf(id) !== null,
+              // T1: a paused account holds only while its provider has no account with room (stallPauseProbe)
+              autoAccounts: () => d.usageGuard!.autoAccounts?.() === true,
+              loginStatus: (id: string) => d.checks.loginStatus(id)
+            }
+          : {}),
         typeInto: (id, text) => d.spawner.typeInto(id, text),
         tell: (n) => loop.tell(n),
         activity: d.activity,
