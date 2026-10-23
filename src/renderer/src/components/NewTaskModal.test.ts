@@ -42,3 +42,13 @@ describe('NewTaskModal checks', () => {
     expect(render(door(), [])).toContain('jobs.task.accountEmpty')
   })
 })
+
+describe('NewTaskModal initialDeps', () => {
+  it('starts with the given Tasks as dependency chips', () => {
+    const tasks = [{ id: 't1', title: 'Prev step task', status: 'completed', openGates: 0 }]
+    const html = renderToStaticMarkup(
+      React.createElement(NewTaskModal, { door: door(), runId: 'run_1', tasks, accounts: [], runConfigs: [], initialDeps: ['t1'], onClose: () => {}, onCreated: () => {} } as never)
+    )
+    expect(html).toMatch(/detail-dep[^>]*>.*Prev step task/)
+  })
+})

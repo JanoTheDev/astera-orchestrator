@@ -10,6 +10,8 @@
 .plan-wave-count { font-size: var(--fs-12); font-weight: var(--fw-regular); color: var(--text-dim); font-variant-numeric: tabular-nums; }
 .plan-wave-bar { width: clamp(48px, 8cqi, 120px); }
 .plan-wave-now { flex: none; font-size: var(--fs-11); font-weight: var(--fw-semi); text-transform: uppercase; letter-spacing: .04em; color: var(--link); }
+.plan-wave-waits { margin: 0; font-size: var(--fs-12); color: var(--text-dim); }
+.plan-wave-add.ui-btn { align-self: flex-start; }
 .plan-wave-banner { font-size: var(--fs-12); padding: 2px var(--sp-2); border-left: 2px solid var(--info); color: var(--text-dim); }
 .plan-wave-cards { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
 /* T9: a row off screen is not laid out or painted until it scrolls near (a 40-Task board) */

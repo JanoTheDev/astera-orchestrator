@@ -31,6 +31,7 @@ export function NewTaskModal({
   tasks,
   accounts,
   runConfigs,
+  initialDeps,
   onClose,
   onCreated
 }: {
@@ -48,6 +49,8 @@ export function NewTaskModal({
   /** 검증 구성 목록. null 은 아직 안 온 것. The checks a Task can name: the run configurations, then this computer's
    *  check plugins as `plugin:<id>` (plugin Phase 5 C6, RunDetail's checkChoicesOf) */
   runConfigs: { id: string; name: string }[] | null
+  /** The Tasks the form starts with as dependencies ("Add task to this step": the previous step's Tasks). Still editable. */
+  initialDeps?: readonly string[]
   onClose: () => void
   onCreated: () => void
 }): React.JSX.Element {
@@ -56,7 +59,7 @@ export function NewTaskModal({
   const [spec, setSpec] = useState('')
   /** 고른 의존. **이 폼이 소유한다** — 예전에는 그래프가 들고 있었다(고르는 자리가 그래프였다).
    *  셀렉트로 옮기면서 값과 그 값을 고치는 화면이 같은 자리에 있게 됐다. */
-  const [deps, setDeps] = useState<string[]>([])
+  const [deps, setDeps] = useState<string[]>(() => [...(initialDeps ?? [])])
   /** 이 Task 를 띄울 계정들, 순서대로. **빈 배열이 Auto 다**(Auto, most room) — task-create 가 `account` 없이도
    *  받고, 그때는 앱이 provider 의 계정을 여유 순으로 골라 띄운다. 계정을 고르는 것은 다른 계정에서
    *  일을 떼어 놓고 싶을 때뿐이라 칸은 접혀 있다.
