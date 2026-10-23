@@ -32,7 +32,7 @@ describe('NewTaskModal checks', () => {
 
   // The account is Auto (most room) and folded: a Task is made without picking one
   it('opens on Auto with the account picker folded, and warns instead when no account is registered', () => {
-    const acct = { id: 'a1', label: 'Main', configDir: '/c', color: '', createdAt: '', provider: 'claude' }
+    const acct = { id: 'a1', label: 'Main', configDir: '/c', color: '', createdAt: '', provider: 'claude' as const }
     const withAccounts = renderToStaticMarkup(
       React.createElement(NewTaskModal, { door: door(), runId: 'run_1', tasks: [], accounts: [acct], runConfigs: [], onClose: () => {}, onCreated: () => {} })
     )
