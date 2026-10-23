@@ -95,6 +95,8 @@ describe('planTreeRows', () => {
   it("a schedule's rounds sit under it, each with its own Tasks", () => {
     const sched = row('s', { schedule: { kind: 'interval', minutes: 60 } as never, children: [row('r1', { tasks: [task('x')] })] })
     expect(ids('plans', [sched])).toEqual(['plan:s', 'plan:s/plan:r1', 'plan:s/plan:r1/task:x'])
+    // a schedule whose name matches keeps every round, though no round's own name or Task matches
+    expect(ids('plans', [sched], { filter: 'plan s' })).toEqual(['plan:s', 'plan:s/plan:r1', 'plan:s/plan:r1/task:x'])
   })
 
   it("names a plan made from a ticket by the ticket's title (jobName)", () => {

@@ -86,8 +86,8 @@ export function planTreeRows({ rows, groupBy, filter, showArchived, isOpen }: Tr
 
   // A plan, its rounds (a schedule's Runs) or its steps, then its Tasks. A filter keeps the plan whose name matches
   // whole, and of the others only the Tasks that match, opened down to them.
-  const plan = (row: JobRow, parent: string, depth: number): void => {
-    const nameHit = q === '' || has(jobName(row))
+  const plan = (row: JobRow, parent: string, depth: number, parentHit = false): void => {
+    const nameHit = q === '' || parentHit || has(jobName(row))
     const kids = row.children ?? []
     const tasks = nameHit ? row.tasks : row.tasks.filter((t) => has(t.title))
     const rounds = nameHit ? kids : kids.filter((k) => k.tasks.some((t) => has(t.title)))
@@ -96,7 +96,7 @@ export function planTreeRows({ rows, groupBy, filter, showArchived, isOpen }: Tr
     const forced = !nameHit
     if (!push(id, depth, { kind: 'plan', row }, kids.length > 0 || row.tasks.length > 0, forced)) return
     if (kids.length > 0) {
-      for (const kid of rounds) plan(kid, `${id}/`, depth + 1)
+      for (const kid of rounds) plan(kid, `${id}/`, depth + 1, nameHit)
       return
     }
     const steps = stepsOf(row)

@@ -122,19 +122,27 @@ export function PlansView(p: SideBarViewProps): React.JSX.Element {
   )
 }
 
-/** A Tree whose rows open on a click or Enter (DESIGN-W13 §4); the arrow keys only move the selection. */
+/** A Tree whose rows open on a click or Enter (DESIGN-W13 §4); the arrow keys and a right-click only move the
+ *  selection, a twistie only toggles, and a double-click's second click opens nothing more. */
 function ClickTree({ onActivate, onSelect, ...rest }: TreeProps & { onActivate: (id: string) => void }): React.JSX.Element {
-  const clicked = useRef(false)
+  // how the selection is moving right now: a row click opens, keys do not (Enter opens through onOpen)
+  const via = useRef<'click' | 'key' | null>(null)
   return (
-    <div className="plans-tree__wrap" onClickCapture={() => (clicked.current = true)} onKeyDownCapture={() => (clicked.current = false)}>
+    <div
+      className="plans-tree__wrap"
+      onClickCapture={(e) => (via.current = (e.target as Element).closest('.ui-tree__twistie') ? null : 'click')}
+      onKeyDownCapture={() => (via.current = 'key')}
+      onContextMenuCapture={() => (via.current = null)}
+    >
       <Tree
         {...rest}
         onSelect={(id) => {
           onSelect?.(id)
-          if (clicked.current) onActivate(id)
-          clicked.current = false
+          if (via.current === 'click') onActivate(id)
+          via.current = null
         }}
-        onOpen={onActivate}
+        // Enter; the double-click that also lands here already opened on its first click
+        onOpen={(id) => via.current === 'key' && onActivate(id)}
       />
     </div>
   )
@@ -420,6 +428,10 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
 
   const ctxRow = ctx ? byId.get(ctx.id) : undefined
   const ctxItems = ctxRow ? menuOf(ctxRow.node) : null
+  // the row went (a snapshot moved it): its menu goes too, and does not come back with it
+  useEffect(() => {
+    if (ctx && !ctxRow) setCtx(null)
+  }, [ctx, ctxRow])
   const main = mainPlanViewOf(runs)
 
   return (
@@ -442,6 +454,7 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
         <ViewPane title={t('pages.plans.main')} storageKey="plans.main" className="plans-mainpane">
           <p className="plans-mainpane__head">{t('pages.plans.main.head', { plans: main.plans.length, done: main.done, total: main.total })}</p>
           <ClickTree
+            className="plans-tree"
             label={t('pages.plans.main')}
             rows={main.plans.map(({ row, name }) => {
               const status = planStatusOf(row)
