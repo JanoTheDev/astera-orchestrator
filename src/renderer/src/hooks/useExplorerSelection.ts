@@ -15,7 +15,7 @@ export interface ExplorerSelection {
   /** operableSelection(state, root) — the operation targets (root filter + topLevelOnly) */
   selectionPaths: () => string[]
   /** Handles a row click. The return value is "was this a single-selection click" — that is what a
-   *  folder expands on. Files are not opened from here: they open on the row's double click. */
+   *  folder expands on. Files are not opened from here: the explorer's click handler opens them. */
   applyClickSelection: (path: string, ev: React.MouseEvent) => boolean
   /** Selection handling for a right-click. For an item already in the selection the selection is kept, so
    *  the menu targets multiple items; for an item outside it, only that one is selected (VS Code behavior). */
@@ -38,7 +38,7 @@ export function useExplorerSelection(
   /** Selection handling for a row click. Ctrl = toggle, Shift = range from the anchor, plain = single (the
    *  per-branch handling is done by the reducer's rowClicked case). The return value is "was this a
    *  single-selection click" — a folder expands only on such a click, because a Ctrl/Shift click just
-   *  changes the selection. A file is opened by the row's onDoubleClick, not from here. */
+   *  changes the selection. A file is opened by the explorer's click handler, not from here. */
   const applyClickSelection = (path: string, ev: React.MouseEvent): boolean => {
     const mods = { ctrl: ev.ctrlKey || ev.metaKey, shift: ev.shiftKey }
     // flat is computed only for Shift — flattenVisible walks the whole tree, so there is no need to run it
