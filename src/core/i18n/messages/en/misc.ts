@@ -2,11 +2,6 @@
 import type { misc as ko } from '../ko/misc'
 
 export const misc: Record<keyof typeof ko, string> = {
-  'wall.plans.search': 'Find a plan',
-  'wall.scope.label': 'Scope',
-  'wall.scope.plan': 'This plan',
-  'wall.scope.noProject': 'No project',
-  'wall.finished.title': 'Finished · what each console did',
   'worktrees.fact.ahead': 'Ahead of base',
   'worktrees.fact.behind': 'Behind base',
   'session.usage.fiveHourLabel': '5h usage',

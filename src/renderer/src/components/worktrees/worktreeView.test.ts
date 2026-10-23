@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import type { WorktreeRow } from '../../../../core/worktrees/cleanup'
-import { closeWorktrees, filterWorktrees, rowState, selectWorktree, showWorktrees, worktreeEntries, worktreeViewState } from './worktreeView'
+import { closeWorktrees, filterWorktrees, planOwnerOfPath, rowState, selectWorktree, showWorktrees, worktreeByPath, worktreeEntries, worktreeTitle, worktreeViewState } from './worktreeView'
 import { openWorktree, registerNavigation } from '../shell/navigation'
 
 describe('worktreeView', () => {
@@ -29,6 +29,8 @@ describe('worktreeView', () => {
       openPlan: () => {},
       openInbox: () => {},
       openSettings: () => {},
+      openFile: () => {},
+      startSession: async () => null,
       openActivity: () => {},
       openView: () => {},
       openPanel: () => {},
@@ -90,5 +92,30 @@ describe('worktreeEntries', () => {
   it('leaves the unreachable rows out when "Reachable only" is on', () => {
     const entries = worktreeEntries(filterWorktrees([row('a'), row('b', 'unreachable')], '', true))
     expect(entries.map((e) => e.row.item.branch)).toEqual(['a'])
+  })
+})
+
+describe('worktree tab lookups', () => {
+  const items = [
+    { path: '/wt/a', branch: 'feat/a' },
+    { path: '/wt/b/', branch: 'feat/b' }
+  ]
+
+  it('finds a worktree by its own path, not the selected one', () => {
+    expect(worktreeByPath(items, '/wt/b')?.branch).toBe('feat/b')
+    expect(worktreeByPath(items, '/wt/a/')?.branch).toBe('feat/a')
+    expect(worktreeByPath(items, '/wt/c')).toBeUndefined()
+  })
+
+  it('titles the tab with the branch, else the folder name', () => {
+    expect(worktreeTitle(items[0], '/wt/a')).toBe('feat/a')
+    expect(worktreeTitle(undefined, '/home/x/wt/gone')).toBe('gone')
+  })
+
+  it('maps a folder to its plan Run and says whether it is the Run\'s own folder', () => {
+    const rows = [{ id: 'run1', worktrees: ['/wt/a', '/wt/plan'], tasks: [{ branch: 'feat/a' }] }]
+    expect(planOwnerOfPath(rows, { path: '/wt/a', branch: 'feat/a' })).toMatchObject({ planFolder: false })
+    expect(planOwnerOfPath(rows, { path: '/wt/plan', branch: 'plan/x' })).toMatchObject({ planFolder: true })
+    expect(planOwnerOfPath(rows, { path: '/wt/none', branch: 'n' })).toBeUndefined()
   })
 })

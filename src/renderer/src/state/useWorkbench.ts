@@ -824,7 +824,8 @@ export function useWorkbench(deps: WorkbenchDeps) {
     schedule?: ScheduleConfig
     /** The old session id, for when an existing tab's session id has to be swapped, as on a restart */
     replacesSessionId?: string
-  }): Promise<void> => {
+  }): Promise<string | null> => {
+    // Answers the new session's id (T7 review: Ask AI types its prompt into it), null when nothing started
     // Once creation succeeds, the worktree is not rolled back even if a later step fails (the registry
     // is persistent by design) — kept outside the try so the catch can tell the user it is still there
     let createdWorktreeName: string | null = null
@@ -888,6 +889,7 @@ export function useWorkbench(deps: WorkbenchDeps) {
       place(cur, info.id, pending, opts.replacesSessionId)
       setShowNew(false)
       setNewSessionCwd(null)
+      return info.id
     } catch (err) {
       // If session creation fails while a split is pending, only the dialog closes and the layout stays
       // as it was — no empty pane is left behind
@@ -914,7 +916,7 @@ export function useWorkbench(deps: WorkbenchDeps) {
       // Cancelled and fully rolled back: what the person asked for, said as a notice rather than a failure
       if (isWorktreeCancelled(raw)) {
         toast.info(t('worktree.error.cancelled'))
-        return
+        return null
       }
       const msg = spawnErrorMessage(raw)
       // A Claude background session holds the conversation: say so, and offer to take it over —
@@ -929,7 +931,7 @@ export function useWorkbench(deps: WorkbenchDeps) {
             }
           }
         })
-        return
+        return null
       }
       const message = t(msg.key, msg.params)
       // On a failure after the worktree was created, the user is also told that it remains, unrolled-back
@@ -938,6 +940,7 @@ export function useWorkbench(deps: WorkbenchDeps) {
           ? t('session.spawn.failedWorktreeKept', { message, name: createdWorktreeName })
           : t('session.spawn.failed', { message })
       )
+      return null
     }
   }
 

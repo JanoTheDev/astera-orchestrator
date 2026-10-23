@@ -145,8 +145,8 @@ export function PlanSettings({ door, jobId, row, confirm }: { door: OrchDoor; jo
           {...props}
           aria-label={t('plan.settings.delivery')}
           value={values.delivery}
-          items={(['pr', 'push'] as const).map((d) => ({ value: d, label: t(`plan.settings.delivery.${d}`) }))}
-          onChange={(v) => set('delivery', v === 'push' ? 'push' : 'pr')}
+          items={(['pr', 'push', 'manual'] as const).map((d) => ({ value: d, label: t(`plan.settings.delivery.${d}`) }))}
+          onChange={(v) => set('delivery', v === 'push' || v === 'manual' ? v : 'pr')}
         />
       ))}
     </div>

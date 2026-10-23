@@ -7,8 +7,6 @@ export const common = {
   'higgsfield.remove': '삭제',
   'higgsfield.cancelLogin': '취소',
   'wall.scope.all': '모든 프로젝트',
-  'wall.filter.all': '전체',
-  'wall.filter.needs': '나를 기다림',
   'wall.new': '새 콘솔',
   'settings.general.language': '언어',
   // {lang} is the language the OS locale resolves to, shown so the effect of picking System is
@@ -354,6 +352,7 @@ export const common = {
   'delivery.label': '계획이 끝나면:',
   'delivery.pr': '풀 리퀘스트 하나를 연다 (Astera 는 병합하지 않는다)',
   'delivery.push': '계획이 끝나면 {branch} 에 푸시한다 (사람의 검토 없음)',
+  'delivery.manual': '수동: 내가 검토한 뒤 PR 을 만들거나 병합한다',
   'delivery.defaultBranch': '기본 브랜치',
   // NewTaskModal.tsx — Task 를 짜는 동안 상세 창의 아래 칸(.detail-events)이 바뀌는 폼. deps 는
   // 이 폼이 아니라 그래프가 쥐고 있다(고르는 자리가 그래프이므로) — 그래서 이 카탈로그에는 deps

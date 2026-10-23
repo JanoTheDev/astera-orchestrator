@@ -11,7 +11,7 @@ Astera is a VSCode-style workbench:
 - **Activity bar** (far left): **Agents · Plans · Explorer · Source Control · History · Run**, then Accounts and Manage
   at the bottom. `Ctrl+1…6` open the six views. Clicking the active one hides the side bar.
 - **Side bar**: the open view's lists. Drag its edge to resize it; `Ctrl+B` shows or hides it.
-- **Editor groups with tabs**: consoles, files, plans, Settings, worktrees, the Wall and Start open as tabs. Split the
+- **Editor groups with tabs**: consoles, files, plans, Settings, worktrees and Start open as tabs. Split the
   area to keep two side by side. The Welcome tab shows when nothing is open.
 - **Bottom panel** (`Ctrl+J`): **Needs you · Activity · Output · Terminal**. It never opens by itself.
 - **Status bar**: project and branch, how many consoles work and need you, account usage, the Host state and the
@@ -253,33 +253,25 @@ the worker's explicit report plus any checks, not a quiet terminal.
 
 ### Agents
 
-The **Agents** view is the side bar view Astera opens on. It lists the project's consoles in three sections, **Needs
-you**, **Working** and **Finished**; click a row to open that console as a tab. Its toolbar has **Open a console** and
-**Show the wall**, and a filter by plan. A row's context menu has Open, Open to the side, Open the plan, Rename and
-Stop.
+The **Agents** view is the side bar view Astera opens on. It lists the project's consoles in four panes, **Needs
+you**, **Working**, **Idle** and **Finished**, one row each; click a row to open that console as a tab. Its toolbar has
+**Open a console** and a filter by plan: **All plans**, one entry per plan, and **No plan**. A row's context menu has
+Open, Open to the side, Go to plan, Rename and Stop.
 
-The **Wall** tab shows every console of the project at once, each tile the session's own console (the real Claude Code
-or Codex screen, small, bottom lines in view), never a copy and never a second process. When consoles are live, Astera
-opens on the Wall.
+A plan's **Open its consoles** (in the plan's menu on the Plans view, and on the plan page) opens this view filtered to
+that plan. A plan with no console yet shows an empty line naming the plan, not every plan. A plan that is gone (archived,
+or in another project) falls back to **All plans**.
 
-- **Console strip** across the top: "All consoles", then one entry per live console with a state dot.
-- **Plan pills**: All plans, one per active or queued plan with a progress bar and a short count ("4/9 · 2 need you",
-  or "approve"; hover for the full counts), then No plan. Picking a plan filters the tiles and the strip, and that
-  plan's coordinator becomes the double-height **main** tile. On All plans every plan's coordinator is pinned first.
-  The pick is remembered per window. With more than six plans the pills become a search box.
-- **Scope** (this plan / the project / all projects) and **Show** (All / Needs you / Working / Finished).
-- **Tiles** come in the order needs you, working, idle. A tile waiting on a permission prompt has a red border, a
-  question or a Gate an amber one. The line under the name says what the console is doing: a worker's running time
-  and files, the coordinator's answered and escalated counts, the reviewer's round. Click a tile to open it.
-- **Finished · what each console did**: one card per ended console, see [Summaries](#summaries).
-- **One console in its tab**: a slim header (project › plan › name, Task, model, folder, **Back to all**, **Split**), the
-  console itself with your keyboard, and the details panel on the right (**Ctrl+.** folds it). For a worker it shows the
-  Task, brief, running time, model, account, worktree, files, questions, "Done when" and every Task of the plan with
-  who is on it; for the coordinator the plan's progress and its answered and escalated counts; for the planner the
-  planned Tasks; for the reviewer its round. There is no Astera input box: you type into the CLI itself.
+Each console opens as its own tab, the session's own console, never a copy and never a second process.
+
+- **One console in its tab**: a slim header (project › plan › name, Task, model, folder, **Split**), the console itself
+  with your keyboard, and the details panel on the right (**Ctrl+.** folds it). For a worker it shows the Task, brief,
+  running time, model, account, worktree, files, questions, "Done when" and every Task of the plan with who is on it;
+  for the coordinator the plan's progress and its answered and escalated counts; for the planner the planned Tasks; for
+  the reviewer its round. There is no Astera input box: you type into the CLI itself.
 - **Your keyboard is yours.** While a console is open in its tab, and for 60 s after your last keystroke in it, a
-  coordinator's `sessions send` to that console waits in the Host and is typed, in order, after you click Back to all
-  (or after 60 s idle). The coordinator is told `{ "queued": true, "reason": "owner-typing" }` at once and never waits
+  coordinator's `sessions send` to that console waits in the Host and is typed, in order, after you leave its tab (or
+  after 60 s idle). The coordinator is told `{ "queued": true, "reason": "owner-typing" }` at once and never waits
   on you. Nothing else pauses.
 - **Ended consoles close on their own.** When a plan is done or archived, every ended console of the plan closes, and
   a replan's planner console closes once the plan has moved on. Each stays in History. The ended console of a plain
@@ -436,7 +428,7 @@ Every console that ends leaves a short card, so you can see later what happened 
   asked and who answered, and the commits or PR. Under that, 2–3 sentences of what it did and what is left open, written by
   the coordinator role's model (haiku by default) from the facts, the agent's own summary and the last lines of the
   console. If the model cannot be asked, or does not answer within 90 s, the card keeps the facts and has no sentences.
-- **Where you see it.** The Wall's "Finished · what each console did"; History; the plan tab's So far
+- **Where you see it.** The Agents view's **Finished** pane; History; the plan tab's So far
   ("What happened so far"); and the plan's pull request.
 - **From a shell.** `astera summaries [--job <planId>]` lists the cards, newest first. `astera sessions summary --id
   <sessionId>` shows one, or 404 for a console that has none.

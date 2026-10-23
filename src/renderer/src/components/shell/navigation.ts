@@ -2,8 +2,8 @@
 // (state/useNavigation.ts); the exported functions forward to them. W9-A ships stubs that call
 // today's paths (the sidebar views, RunDetail, the settings modal); the 9.2 pages replace the handlers,
 // not the callers.
+import { setAgentsPlan } from '../views/agentsPlan'
 import type { ActivityId, PanelTab } from '../../../../core/ui/pages'
-import { setWallView } from '../wall/wallView'
 import type { ViewName } from '../../../../core/panes/tabId'
 import type { useSettings } from '../../state/useSettings'
 import type { OldSettingsTab } from '../settings/settingsIndex'
@@ -27,6 +27,11 @@ export interface NavigationHandlers {
   openWorktree: (path: string) => void
   /** An old tab name still lands right: it maps to its group and row (settingsTarget). */
   openSettings: (group: SettingsGroup | OldSettingsTab, anchor?: string) => void
+  /** T7 review: a file in an editor tab at a line, as a terminal link opens it. */
+  openFile: (path: string, at?: { line: number }) => void
+  /** T7 review: a new agent session in `cwd` on the Auto account, its tab opened (the New session dialog's spawn).
+   *  Answers its id, or null when it did not start (the spawn already said why). */
+  startSession: (cwd: string, kind: 'chat') => Promise<string | null>
 }
 
 let current: NavigationHandlers | null = null
@@ -58,13 +63,19 @@ export const openView = (name: ViewName, arg?: string): void => (arg === undefin
 export const openPanel = (tab: PanelTab): void => forward('openPanel', tab)
 export const toggleSideBar = (): void => forward('toggleSideBar')
 export const togglePanel = (): void => forward('togglePanel')
-/** A plan's "Its consoles": the wall, filtered to that plan (by Job or Run id). */
+/** A plan's "Its consoles": the Agents side bar, filtered to that plan (a Run id is its Job id). */
 export const openPlanConsoles = (plan: string): void => {
-  openView('wall')
-  setWallView({ kind: 'wall', plan })
+  openActivity('agents')
+  setAgentsPlan(plan)
 }
 export const openConsole = (sessionId: string): void => forward('openConsole', sessionId)
 export const openPlan = (jobId: string, section?: string): void => forward('openPlan', jobId, section)
 export const openInbox = (filter?: string): void => forward('openInbox', filter)
 export const openWorktree = (path: string): void => forward('openWorktree', path)
+export const openFile = (path: string, at?: { line: number }): void => forward('openFile', path, at)
+export const startSession = (cwd: string, kind: 'chat'): Promise<string | null> => {
+  if (current) return current.startSession(cwd, kind)
+  console.warn('navigation.startSession: no handlers registered')
+  return Promise.resolve(null)
+}
 export const openSettings = (group: SettingsGroup | OldSettingsTab, anchor?: string): void => forward('openSettings', group, anchor)

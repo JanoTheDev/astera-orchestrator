@@ -2116,6 +2116,22 @@ describe("a completed Run opens its plan's pull request (W2-D)", () => {
     expect(asked(h)).toBe(2)
   })
 
+  it('a manual plan that completes waits for its owner: no auto delivery, awaiting review', async () => {
+    const h = rig()
+    withWorktree(h, 'run_1')
+    const s = h.state()
+    h.setState({ ...s, jobs: s.jobs.map((j) => ({ ...j, delivery: 'manual' as const })) })
+    await h.loop.run()
+    await h.settle()
+    finish(h, 'run_1')
+    for (let i = 0; i < 3; i++) {
+      await h.loop.run()
+      await h.settle()
+    }
+    expect(h.handled().filter((c) => c === 'run-deliver')).toHaveLength(1) // the awaiting-review mark, never `auto`
+    expect(h.state().runs.find((r) => r.id === 'run_1')?.deliveryState).toEqual({ state: 'awaiting-review', attempts: 0 })
+  })
+
   it('does not ask for a Run that was already done when it started', async () => {
     const h = rig()
     withWorktree(h, 'run_1')

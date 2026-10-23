@@ -87,7 +87,8 @@ export function ProjectDelivery({ projectPath, disabledReason }: { projectPath: 
           onChange={(v) => choose(v as DeliveryMode)}
           items={[
             { value: 'pr', label: t('delivery.pr') },
-            { value: 'push', label: t('delivery.push', { branch: target }) }
+            { value: 'push', label: t('delivery.push', { branch: target }) },
+            { value: 'manual', label: t('delivery.manual') }
           ]}
         />
       </label>

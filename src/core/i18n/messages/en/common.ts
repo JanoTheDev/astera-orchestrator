@@ -9,8 +9,6 @@ export const common: Record<keyof typeof ko, string> = {
   'higgsfield.remove': 'Remove',
   'higgsfield.cancelLogin': 'Cancel',
   'wall.scope.all': 'All projects',
-  'wall.filter.all': 'All',
-  'wall.filter.needs': 'Needs you',
   'wall.new': 'New console',
   'settings.general.language': 'Language',
   'settings.general.language.system': 'System ({lang})',
@@ -318,6 +316,7 @@ export const common: Record<keyof typeof ko, string> = {
   'delivery.label': 'When a plan is done:',
   'delivery.pr': 'Open one pull request (never merged by Astera)',
   'delivery.push': 'Push to {branch} when the plan is done (no review by a person)',
+  'delivery.manual': 'Manual: I review, then create a PR or merge',
   'delivery.defaultBranch': 'the default branch',
   // NewTaskModal.tsx — the form RunDetail's bottom pane (.detail-events) turns into while a Task is
   // being authored. deps belongs to the graph, not this form (the graph is where dependencies get

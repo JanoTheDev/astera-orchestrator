@@ -80,6 +80,7 @@ describe('view tabs', () => {
     expect(parseViewTab(id)).toEqual({ name: 'worktree', arg: 'D:\\repo\\wt' })
   })
   it('an unknown name or another kind is null, never a throw', () => {
+    expect(parseViewTab('view:wall')).toBeNull() // the removed All consoles wall: a stale saved tab is dropped
     expect(parseViewTab('view:nope')).toBeNull()
     expect(parseViewTab('view:nope:x')).toBeNull()
     expect(parseViewTab('view:plan:')).toBeNull()

@@ -223,3 +223,12 @@ export function cursorOrigin(
   for (let i = paths.length - 1; i >= 0; i--) if (selection.has(paths[i])) return paths[i]
   return null
 }
+
+/** Whether a click on a row opens it: a plain click on a file does. A folder never opens (it toggles),
+ *  and a Ctrl/Meta/Shift click only changes the selection. */
+export function clickOpensFile(
+  entry: { isDir: boolean },
+  mods: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }
+): boolean {
+  return !entry.isDir && !mods.ctrlKey && !mods.metaKey && !mods.shiftKey
+}

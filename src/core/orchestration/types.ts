@@ -216,7 +216,9 @@ export type Decision = { at: string; kind: 'approval' | 'escalation' | 'gate' | 
 export type IssuePick = { number: number; title: string; why: string }
 
 /** W6-H: how a finished plan lands (`deliveryOf`). */
-export type DeliveryMode = 'pr' | 'push'
+/** `manual`: nothing is delivered by itself. The plan's integration branch is pushed for safekeeping and the finished plan
+ *  waits for the owner (`awaiting-review`), who creates the PR or merges from the app (`run-deliver --as pr|push`). */
+export type DeliveryMode = 'pr' | 'push' | 'manual'
 
 /** 계획. **무엇을 시킬 것인가이고, 그것이 실제로 돈 기록은 JobRun 이다**
  *  (docs/2026-09-21-job-run-split-and-projects-design.md §4).
@@ -1017,6 +1019,8 @@ export interface RunDelivery {
 /** T3: where a delivery (or a plan-branch push) stands. `delivered-by-owner`: the owner said they push it, and git
  *  confirmed the commits reached the base. */
 export type DeliveryStep = 'pending' | 'delivering' | 'delivered' | 'retrying' | 'failed' | 'needs-owner' | 'delivered-by-owner'
+  // A `manual` plan finished: waiting for the owner to review it and create a PR or merge
+  | 'awaiting-review'
   // T1: the owner dismissed a failed delivery (`run-delivery-dismiss`): no longer failed, never attempted again
   | 'dismissed'
 

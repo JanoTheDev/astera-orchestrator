@@ -8,7 +8,6 @@ import type { ActivityId } from '../../../core/ui/pages'
 import { registerNavigation, type SettingsGroup } from '../components/shell/navigation'
 import { requestInbox } from '../components/inbox/inboxNav'
 import { settingsTarget } from '../components/settings/settingsIndex'
-import { setWallView } from '../components/wall/wallView' // W9-H
 import { showWorktrees } from '../components/worktrees/worktreeView'
 import type { AppState } from './appState'
 import { planSectionOf } from '../components/plan/planBoard'
@@ -20,6 +19,7 @@ type NavigationDeps = Pick<
   | 'canOpenSessionTab' | 'setWorkspaceScope' | 'workspaceIds' | 'workspaceProjectId' | 'selectWorkbenchTab' | 'workspaceTree' | 'enterWorkspace' | 'setPendingRun'
   | 'setPlanPage' | 'showActivity' | 'setSidebarOpen' | 'openPanelTab' | 'setPanelVisible' | 'runPanelOpen' | 'layoutRef'
   | 'activePaneIdRef' | 'setLayout' | 'setActivePaneId' | 'openStart' | 'terminals' | 'setBottomTab' | 'openTerminal'
+  | 'openLinkedPath' | 'spawn'
 >
 
 export function useNavigation(app: NavigationDeps): void {
@@ -28,7 +28,7 @@ export function useNavigation(app: NavigationDeps): void {
       setSettingsTab, setSettingsAnchor, canOpenSessionTab, setWorkspaceScope,
       selectWorkbenchTab, workspaceTree, enterWorkspace, setPendingRun, setPlanPage, workspaceIds, workspaceProjectId,
       showActivity, setSidebarOpen, openPanelTab, setPanelVisible, runPanelOpen, layoutRef, activePaneIdRef, setLayout,
-      setActivePaneId, openStart, terminals, setBottomTab, openTerminal
+      setActivePaneId, openStart, terminals, setBottomTab, openTerminal, openLinkedPath, spawn
     } = app
     /** Opens the view tab, or focuses the one already open, in whichever group it sits. */
     const placeView = (name: ViewName, arg?: string): void => {
@@ -61,7 +61,6 @@ export function useNavigation(app: NavigationDeps): void {
       // Start's tab follows its request (useViewTabSync), so New/Start keeps one way in
       if (name === 'start') return openStart((cur) => cur ?? {})
       if (name === 'worktree' && arg !== undefined) showWorktrees(arg)
-      if (name === 'wall') setWallView({ kind: 'wall' })
       placeView(name, arg)
     }
     return registerNavigation({
@@ -93,7 +92,11 @@ export function useNavigation(app: NavigationDeps): void {
       },
       openWorktree: (path) => openView('worktree', path),
       // W9-E: the Settings tab scrolls to the anchor's row and clears it
-      openSettings
+      openSettings,
+      // T7 review: Edit on a hunk
+      openFile: (path, at) => openLinkedPath(path, at),
+      // T7 review: Ask AI on a plain worktree. No account named is Auto (T1); no default is saved for it
+      startSession: (cwd, kind) => spawn({ accountIds: [], cwd, saveDefault: false, kind })
     })
   })
 }

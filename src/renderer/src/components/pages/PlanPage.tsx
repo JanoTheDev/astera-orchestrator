@@ -188,7 +188,7 @@ export function PlanPage({
         <Tabs variant="underline" label={t('plan.doc.tabs')} value={tabs.some((x) => x.id === shownTab) ? shownTab : 'log'} onChange={setTab} items={tabs} />
         <div className="plan-activity-body">
           {shownTab === 'log' && <PlanJournal p={p} detail={detail} canOpenSession={canOpenSession} onOpenSession={onOpenSession} onShowOlderJournal={onShowOlderJournal} />}
-          {shownTab === 'changes' && <PlanChanges door={door} runId={runId} />}
+          {shownTab === 'changes' && <PlanChanges door={door} runId={runId} run={run} />}
           {shownTab === 'files' && <PlanFiles tasks={p.tasks} onOpenPath={onOpenPath} onSelect={p.onNodeClick} />}
           {shownTab === 'talk' && run && <PlanTalk row={run} door={door} name={jobName(run)} ui={p.ui} />}
           {shownTab === 'sofar' && <PlanSoFar p={p} canOpenSession={canOpenSession} onOpenSession={onOpenSession} />}

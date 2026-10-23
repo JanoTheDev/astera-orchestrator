@@ -117,7 +117,6 @@ export const PALETTE_COMMANDS: readonly PaletteCommand[] = [
       rows: cx.plans.flatMap((p) => p.sessions.map((s) => ({ key: s.sessionId, label: s.label, detail: `${p.projectName} › ${p.name}`, pick: () => openConsole(s.sessionId) })))
     })
   },
-  { id: 'console.wall', category: 'console', label: 'palette.showWall', run: () => openView('wall') },
   { id: 'preferences.settings', category: 'preferences', label: 'palette.openSettings', action: 'settings.open', run: () => openView('settings') },
   { id: 'preferences.keys', category: 'preferences', label: 'palette.keyboardShortcuts', run: () => openView('settings', 'keys') },
   {
