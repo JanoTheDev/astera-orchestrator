@@ -2,6 +2,7 @@
 // handler and the page meet without App state: the handler writes the request, the page reads it.
 import { useSyncExternalStore } from 'react'
 import { parseFilter, type HandledLine, type InboxFilter, type NeedCard } from './inboxView'
+import { taskAnchorId } from '../plan/planPage'
 
 export interface InboxRequest {
   filter: InboxFilter
@@ -50,9 +51,9 @@ export function lineTargetOf(l: Pick<HandledLine, 'jobId' | 'taskId' | 'sessionI
   return l.sessionId !== undefined ? { kind: 'console', sessionId: l.sessionId } : null
 }
 
-/** Scrolls the plan tab to the Task card `#task-<id>` once it has rendered (the plan opens on its next frames); gives up after ~2 s. */
+/** Scrolls the plan tab to the Task row (`taskAnchorId`) once it has rendered (the plan opens on its next frames); gives up after ~2 s. */
 export function revealTask(taskId: string, tries = 40): void {
-  const el = document.getElementById(`task-${taskId}`)
+  const el = document.getElementById(taskAnchorId(taskId))
   if (el) el.scrollIntoView({ block: 'center' })
   else if (tries > 0) setTimeout(() => revealTask(taskId, tries - 1), 50)
 }

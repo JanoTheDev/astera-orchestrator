@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { JobRow, JobTask } from '../../../../core/types'
-import { wavesOf } from './planBoard'
-import { canManualStartOf, deliveryActionsOf, headCountsOf, waveStatusOf } from './planPage'
+import { planSectionOf, wavesOf } from './planBoard'
+import { canManualStartOf, deliveryActionsOf, headCountsOf, planAnchorId, planAnchorOf, waveStatusOf } from './planPage'
 
 const task = (id: string, status: JobTask['status']): JobTask => ({ id, title: id, status }) as unknown as JobTask
 const tasks = [task('a', 'completed'), task('b', 'dispatched'), task('c', 'ready'), task('d', 'pending')]
@@ -55,5 +55,21 @@ describe('deliveryActionsOf', () => {
     expect(of('delivering')).toEqual({ retry: true, alreadyPushed: false, dismiss: false })
     expect(of('pending')).toEqual({ retry: false, alreadyPushed: false, dismiss: false })
     expect(of(undefined)).toEqual({ retry: false, alreadyPushed: false, dismiss: false })
+  })
+})
+
+describe('plan tab anchors (T8)', () => {
+  it('resolves #task-<id> and #settings, as openPlan carries them', () => {
+    expect(planAnchorOf(planSectionOf('#task-tsk_1'))).toEqual({ kind: 'task', taskId: 'tsk_1' })
+    expect(planAnchorOf(planSectionOf('task-tsk_1'))).toEqual({ kind: 'task', taskId: 'tsk_1' })
+    expect(planAnchorOf(planSectionOf('#settings'))).toEqual({ kind: 'settings' })
+    expect(planAnchorId({ kind: 'task', taskId: 'tsk_1' })).toBe('plan-task-tsk_1')
+    expect(planAnchorId({ kind: 'settings' })).toBe('plan-settings')
+  })
+  it('maps the old sections onto the document, the overview to the top', () => {
+    expect(planAnchorOf('waves')).toEqual({ kind: 'steps' })
+    expect(planAnchorOf('journal')).toEqual({ kind: 'activity' })
+    expect(planAnchorOf('overview')).toBeNull()
+    expect(planAnchorOf(planSectionOf('task-'))).toBeNull()
   })
 })
