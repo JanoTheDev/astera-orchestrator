@@ -2324,6 +2324,22 @@ export interface RemoteApi {
   /** Moves it; each item's result arrives on `onMigrateProgress` while it runs. */
   migrate(runtimeId: string, o: { only?: MigrateKind[] }): Promise<MigrateResult>
   onMigrateProgress(cb: (p: MigrateItemResult & { runtimeId: string }) => void): () => void
+  /** Computers found on this network (main/remote/discovery.ts): Runtimes' beacons and online Tailscale peers. The
+   *  first call starts listening; the list again, whenever it changes, on `onFound`. */
+  discover(): Promise<FoundDevice[]>
+  onFound(cb: (found: FoundDevice[]) => void): () => void
+}
+
+/** A computer found on this network (core/remote/discovery.ts): by a Runtime's beacon (`lan`), by Tailscale, or both.
+ *  `paired` is the runtime id when it is a Runtime paired here; `port` comes with a beacon only. */
+export interface FoundDevice {
+  key: string
+  name: string
+  address: string
+  port?: number
+  os: string
+  sources: Array<'lan' | 'tailscale'>
+  paired?: string
 }
 
 // The shapes of cli/machines.ts, restated here: the renderer cannot import a node-side module (tsconfig.web.json).

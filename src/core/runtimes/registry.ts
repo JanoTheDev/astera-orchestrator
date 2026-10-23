@@ -24,6 +24,9 @@ export interface RuntimeRegistry {
   token(runtimeId: string): Promise<string | null>
   /** When this machine last reached the Runtime (design §4.5). An id with no profile changes nothing. */
   touch(runtimeId: string, at: string): Promise<void>
+  /** Where the Runtime is now, once it was reached there under its pin (main/remote/discovery.ts). Only a profile with
+   *  that id and that pin changes; false when there is none, so a re-pair in between is never moved. */
+  setAddress(runtimeId: string, fingerprint: string, address: string, port: number): Promise<boolean>
 }
 
 const REGISTRY = 'runtimes.json'
@@ -85,6 +88,13 @@ export async function openRuntimeRegistry(store: SecretStore): Promise<RuntimeRe
         const list = await readAll(tx)
         if (!list.some((r) => r.runtimeId === id)) return
         await writeAll(tx, list.map((r) => (r.runtimeId === id ? { ...r, lastSeenAt: at } : r)))
+      }),
+    setAddress: (id, fingerprint, address, port) =>
+      store.withLock(async (tx) => {
+        const list = await readAll(tx)
+        if (!list.some((r) => r.runtimeId === id && r.fingerprint === fingerprint)) return false
+        await writeAll(tx, list.map((r) => (r.runtimeId === id ? { ...r, address, port } : r)))
+        return true
       }),
     token: async (id) => {
       const text = await store.read(tokenFile(id))
