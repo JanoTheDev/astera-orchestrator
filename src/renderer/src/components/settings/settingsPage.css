@@ -128,3 +128,12 @@
 @media (max-width: 720px) { .licenses { grid-template-columns: minmax(0, 1fr); height: auto; } }
 
 .view-slot > .settings-editor { flex: 1; min-height: 0; }
+
+/* The one settings row (SettingItem): text left, control right, extras under both. */
+.setting-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--sp-6); row-gap: var(--sp-2); align-items: center; }
+.setting-item__text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.setting-item__title { font-size: var(--fs-13); font-weight: var(--fw-semi); color: var(--text); }
+.setting-item__desc { margin: 0; font-size: var(--fs-12); line-height: var(--lh); color: var(--text-dim); }
+.setting-item__control { justify-self: end; display: flex; align-items: center; gap: var(--sp-2); }
+.setting-item__extra { grid-column: 1 / -1; display: flex; flex-direction: column; gap: var(--sp-2); }
+.setting-item__extra:empty { display: none; }

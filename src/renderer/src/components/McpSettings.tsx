@@ -10,7 +10,7 @@ import {
 import type { McpHttpUrl } from '../../../core/mcp/httpUrls'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
-import { Button, Select, Checkbox } from './ui'
+import { Button, Checkbox, Input, Select } from './ui'
 
 /** The saved value into `set`, or a toast when it cannot be read; the control then keeps its default. */
 export function loadMcpAccess(
@@ -506,10 +506,10 @@ function McpHttpSection(): React.JSX.Element | null {
       {stateLine && <span className="settings-hint mcp-http-state">{t(stateLine.key, stateLine.params)}</span>}
       <label className="settings-row">
         <span>{t('settings.mcpHttp.port')}</span>
-        <input
+        <Input
           type="text"
           inputMode="numeric"
-          className="settings-gen-input mcp-http-port"
+          className="mcp-http-port"
           value={portText}
           disabled={locked}
           onChange={(e) => setPortText(e.target.value)}
@@ -526,9 +526,9 @@ function McpHttpSection(): React.JSX.Element | null {
       <span className="settings-hint mcp-http-warning">{t('settings.mcpHttp.lanWarning')}</span>
       <label className="settings-row">
         <span>{t('settings.mcpHttp.hosts')}</span>
-        <input
+        <Input
           type="text"
-          className="settings-gen-input"
+          
           value={hostsText}
           disabled={locked || mcpHttpHostsDisabled(shown, http)}
           onChange={(e) => setHostsText(e.target.value)}

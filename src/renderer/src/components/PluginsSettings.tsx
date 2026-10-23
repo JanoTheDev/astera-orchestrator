@@ -4,7 +4,7 @@ import type { SettingField } from '../../../core/plugins/settings'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
 import { confirmModal, confirmModalWithChoices } from '../lib/confirm'
-import { Button, Select, Checkbox } from './ui'
+import { Button, Checkbox, Input, Select } from './ui'
 import { configureChanges, configureDoneLine, failureLine, installFailureLine, installPrompt, npmNotice, permissionLabel, reasonLine, statusLabel } from './pluginsText'
 import { createPluginsPoller, installBlocked, installHolds, keepOnly } from './pluginsList'
 
@@ -235,8 +235,8 @@ export function PluginsSettings(): React.JSX.Element {
       {/* A plugin published on npm (plugins 2e): the person's npm fetches it, or Astera's own where they have none
           (2e-2), after the same warning. */}
       <div className="remote-actions">
-        <input
-          className="settings-gen-input remote-actions-grow"
+        <Input
+          className="remote-actions-grow"
           aria-label={t('settings.plugins.installNpm')}
           placeholder={t('settings.plugins.npmPlaceholder')}
           value={npmSpec}
@@ -249,7 +249,7 @@ export function PluginsSettings(): React.JSX.Element {
           }}
         />
         <Button variant="secondary" size="sm"
-          className="settings-gen-refresh"
+         
           disabled={installing !== 'idle' || npmSpec.trim() === '' || installBlocked(listFailure?.code ?? null)}
           onClick={() => void installNpm()}
         >
@@ -448,9 +448,9 @@ export function PluginSettingsForm({
             {f.description !== undefined && <span className="settings-hint">{f.description}</span>}
             {f.secret ? (
               <div className="remote-actions">
-                <input
+                <Input
                   type="password"
-                  className="settings-gen-input remote-actions-grow"
+                  className="remote-actions-grow"
                   aria-label={f.title ?? f.key}
                   value={typeof draft[f.key] === 'string' ? (draft[f.key] as string) : ''}
                   placeholder={set ? t('settings.plugins.form.secretPlaceholder') : t('settings.plugins.form.secretPlaceholderNew')}
@@ -479,9 +479,9 @@ export function PluginSettingsForm({
                 ]}
               />
             ) : f.type !== 'boolean' ? (
-              <input
+              <Input
                 type="text"
-                className="settings-gen-input"
+                
                 aria-label={f.title ?? f.key}
                 inputMode={f.type === 'string' ? undefined : 'decimal'}
                 value={textOf(f)}

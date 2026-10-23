@@ -4,7 +4,7 @@ import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
 import { confirmModal } from '../lib/confirm'
 import { refOf, remoteCall, type RemoteSessionRef, type RemoteSessionRow } from '../lib/remoteSessions'
-import { Button, Card, Chip, Field, Modal, Select } from './ui'
+import { Button, Card, Chip, Field, Input, Modal, Select } from './ui'
 import { MachineSteps } from './MachineSteps'
 import { addressLabel, controlFailureLine, failureLine, pairedStateLine, pairingLeftLine, pairingState, pingLine, thisMachineLine } from './remoteRuntimesText'
 
@@ -288,8 +288,8 @@ export function RemoteRuntimesSettings({
                   { value: 'full-control', label: t('settings.remote.newPair.fullControl') }
                 ]}
               />
-              <input
-                className="settings-gen-input remote-actions-grow"
+              <Input
+                className="remote-actions-grow"
                 aria-label={t('settings.remote.newPair.name')}
                 placeholder={t('settings.remote.newPair.name')}
                 value={pairName}
@@ -307,7 +307,7 @@ export function RemoteRuntimesSettings({
             {made && madeState === 'live' && (
               <>
                 <div className="remote-actions">
-                  <input className="settings-gen-input remote-actions-grow" readOnly value={made.pairing} aria-label={t('settings.remote.newPair.title')} spellCheck={false} onFocus={(e) => e.target.select()} />
+                  <Input className="remote-actions-grow" readOnly value={made.pairing} aria-label={t('settings.remote.newPair.title')} spellCheck={false} onFocus={(e) => e.target.select()} />
                   <Button size="sm" onClick={copyPairing}>
                     {t('settings.remote.newPair.copy')}
                   </Button>
@@ -402,16 +402,16 @@ export function RemoteRuntimesSettings({
           {migrateFor === r.runtimeId && <MigratePanel runtimeId={r.runtimeId} onFinished={() => undefined} />}
           {addingFor === r.runtimeId && (
             <div className="remote-actions">
-              <input
-                className="settings-gen-input remote-actions-grow"
+              <Input
+                className="remote-actions-grow"
                 aria-label={t('remote.machines.cloneUrl')}
                 placeholder={t('remote.machines.cloneUrl')}
                 value={cloneUrl}
                 onChange={(e) => setCloneUrl(e.target.value)}
                 spellCheck={false}
               />
-              <input
-                className="settings-gen-input"
+              <Input
+                
                 aria-label={t('remote.machines.clonePath')}
                 placeholder={t('remote.machines.clonePath')}
                 value={clonePath}
@@ -588,8 +588,8 @@ function AddMachineModal({ onClose, onPaired }: { onClose: () => void; onPaired:
         {mode === 'pairing' && (
           <>
             <p className="settings-hint">{t('settings.remote.pair.hint')}</p>
-            <input
-              className="settings-gen-input"
+            <Input
+              
               aria-label={t('settings.remote.pair.title')}
               placeholder="astera-pair:v1:…"
               value={pairing}
@@ -597,8 +597,8 @@ function AddMachineModal({ onClose, onPaired }: { onClose: () => void; onPaired:
               spellCheck={false}
               autoComplete="off"
             />
-            <input
-              className="settings-gen-input"
+            <Input
+              
               aria-label={t('settings.remote.pair.name')}
               placeholder={t('settings.remote.pair.name')}
               value={name}
