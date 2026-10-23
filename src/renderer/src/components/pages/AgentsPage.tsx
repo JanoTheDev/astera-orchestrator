@@ -12,6 +12,7 @@ import { localDoor } from '../../lib/orchDoor'
 import { useJobRows } from '../wall/useJobRows'
 import { consolesOf } from '../wall/wallModel'
 import { setConsoleSnapshot } from '../wall/consoleStore'
+import { setAgentsPlanRefs } from '../views/agentsPlan'
 import { useSummaries } from '../../state/useSummaries'
 import type { AppState } from '../../state/appState'
 import { setAgentSessions } from '../../lib/recentlyClosed'
@@ -40,6 +41,8 @@ export function AgentsPage({ sessions, currentProject, homeDir, activeTabId, chi
   // T13: an agent's tab hides on close without asking (lib/recentlyClosed.ts); the tree says which sessions those are
   useEffect(() => setAgentSessions(consoles.filter((c) => c.role !== 'console').map((c) => c.sessionId)), [consoles])
   useEffect(() => setConsoleSnapshot({ consoles, summaries: summaries.bySession }), [consoles, summaries.bySession])
+  // the plans a plan filter id resolves against (a Run id to its Job), for the Agents side bar
+  useEffect(() => setAgentsPlanRefs(tree.flatMap((p) => p.plans).map((x) => ({ jobId: x.jobId, name: x.name, ...(x.runId ? { runId: x.runId } : {}) }))), [tree])
 
   // The owner hold (DESIGN §2): a console tab in view holds the coordinator's messages to it in the Host until the
   // owner leaves it. Typing holds it too, for 60 s, which the Host stamps on its own.

@@ -95,6 +95,7 @@ export const agents: Partial<Record<keyof typeof ko, string>> = {
   'conversation.completion.label': 'Sugerencias',
   'agents.view.idle': 'Inactivas',
   'agents.view.empty': 'No hay consolas en marcha en este proyecto.',
+  'agents.view.planEmpty': 'Todavía no hay consolas en {name}.',
   'agents.view.open': 'Abrir una consola',
   'agents.view.filter': 'Filtrar por plan',
   'agents.row.open': 'Abrir',

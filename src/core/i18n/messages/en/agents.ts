@@ -169,6 +169,7 @@ export const agents: Record<keyof typeof ko, string> = {
   'conversation.completion.label': 'Suggestions',
   'agents.view.idle': 'Idle',
   'agents.view.empty': 'No consoles are running in this project.',
+  'agents.view.planEmpty': 'No consoles in {name} yet.',
   'agents.view.open': 'Open a console',
   'agents.view.filter': 'Filter by plan',
   'agents.row.open': 'Open',

@@ -94,6 +94,7 @@ export const agents: Partial<Record<keyof typeof ko, string>> = {
   'conversation.completion.label': '候補',
   'agents.view.idle': '待機中',
   'agents.view.empty': 'このプロジェクトで実行中のコンソールはありません。',
+  'agents.view.planEmpty': '{name} にはまだコンソールがありません。',
   'agents.view.open': 'コンソールを開く',
   'agents.view.filter': 'プランで絞り込む',
   'agents.row.open': '開く',

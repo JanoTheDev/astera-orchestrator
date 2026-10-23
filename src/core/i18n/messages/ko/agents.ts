@@ -186,6 +186,7 @@ export const agents = {
   'conversation.completion.label': '추천 항목',
   'agents.view.idle': '유휴',
   'agents.view.empty': '이 프로젝트에 열린 콘솔이 없습니다.',
+  'agents.view.planEmpty': '{name}에는 아직 콘솔이 없습니다.',
   'agents.view.open': '콘솔 열기',
   'agents.view.filter': '계획별로 거르기',
   'agents.row.open': '열기',

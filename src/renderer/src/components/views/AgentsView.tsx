@@ -10,7 +10,7 @@ import { openConsole, openPlan } from '../shell/navigation'
 import { consolesOfSessions } from '../shell/shellView'
 import { ViewToolbar, type SideBarViewProps } from '../shell/SideBar'
 import { useConsoleSnapshot } from '../wall/consoleStore'
-import { setAgentsPlan, useAgentsPlan } from './agentsPlan'
+import { setAgentsPlan, useAgentsPlan, useAgentsPlanRefs } from './agentsPlan'
 import { stopConsole } from '../wall/stopConsole'
 import { stateGlyph, stateTone, stateWord } from '../wall/Wall'
 import { outcomeText, outcomeTone } from '../wall/summaryText'
@@ -28,14 +28,17 @@ export function AgentsView(p: SideBarViewProps): React.JSX.Element {
   const { t, sessions, workspaceIds, scopeId, accounts, closeWorkbenchTab } = p
   const { consoles, summaries } = useConsoleSnapshot()
   const plan = useAgentsPlan()
+  const refs = useAgentsPlanRefs()
   const [menu, setMenu] = useState<{ id: string; at: { x: number; y: number } } | null>(null)
   const setPlan = setAgentsPlan
 
   const scoped = useMemo(() => consolesOfSessions(consoles, scopeSessions(sessions, workspaceIds, scopeId)), [consoles, sessions, workspaceIds, scopeId])
   const plans = useMemo(() => plansOf(scoped), [scoped])
-  // a plan that is gone (archived, another project) falls back to every plan
-  const picked = plan === NO_PLAN || plans.some((x) => x.jobId === plan) ? plan : ALL_PLANS
+  // a plan that is gone (archived, another project) falls back to every plan; a plan that exists keeps its filter, even with no console yet
+  const picked = plan === NO_PLAN || refs.some((x) => x.jobId === plan) || plans.some((x) => x.jobId === plan) ? plan : ALL_PLANS
+  const pickedName = refs.find((x) => x.jobId === picked)?.name ?? plans.find((x) => x.jobId === picked)?.name ?? ''
   const shown = scoped.filter((c) => picked === ALL_PLANS || (picked === NO_PLAN ? !c.jobId : c.jobId === picked))
+  const planEmpty = picked !== ALL_PLANS && picked !== NO_PLAN && shown.length === 0
   const panes = useMemo(() => agentPanes(shown), [shown])
   const byId = new Map(shown.map((c) => [c.sessionId, c]))
 
@@ -109,28 +112,32 @@ export function AgentsView(p: SideBarViewProps): React.JSX.Element {
               label={t('agents.view.filter')}
               align="start"
               items={filterItems}
-              trigger={{ variant: 'ghost', size: 'sm', icon: <Icon name="filter" size={14} />, children: picked === ALL_PLANS ? t('wall.plans.all') : picked === NO_PLAN ? t('wall.plans.none') : (plans.find((x) => x.jobId === picked)?.name ?? '') }}
+              trigger={{ variant: 'ghost', size: 'sm', icon: <Icon name="filter" size={14} />, children: picked === ALL_PLANS ? t('wall.plans.all') : picked === NO_PLAN ? t('wall.plans.none') : pickedName }}
             />
           </div>
-          {PANES.map(({ state, title: key }) => (
-            <ViewPane key={state} title={t(key)} count={panes[state].length} storageKey={`agents.${state}`}>
-              {panes[state].length === 0 ? (
-                <p className="wb-view-empty">{t('shell.agents.none')}</p>
-              ) : (
-                <Tree
-                  label={t(key)}
-                  rows={panes[state].map(rowOf)}
-                  selectedId={null}
-                  onSelect={openConsole}
-                  onOpen={openConsole}
-                  onContextMenu={(id, e) => {
-                    e.preventDefault()
-                    setMenu({ id, at: menuPointOf(e) })
-                  }}
-                />
-              )}
-            </ViewPane>
-          ))}
+          {planEmpty ? (
+            <p className="wb-view-empty">{t('agents.view.planEmpty', { name: pickedName })}</p>
+          ) : (
+            PANES.map(({ state, title: key }) => (
+              <ViewPane key={state} title={t(key)} count={panes[state].length} storageKey={`agents.${state}`}>
+                {panes[state].length === 0 ? (
+                  <p className="wb-view-empty">{t('shell.agents.none')}</p>
+                ) : (
+                  <Tree
+                    label={t(key)}
+                    rows={panes[state].map(rowOf)}
+                    selectedId={null}
+                    onSelect={openConsole}
+                    onOpen={openConsole}
+                    onContextMenu={(id, e) => {
+                      e.preventDefault()
+                      setMenu({ id, at: menuPointOf(e) })
+                    }}
+                  />
+                )}
+              </ViewPane>
+            ))
+          )}
         </>
       )}
       {menu && open && <Menu items={menuOf(open)} at={menu.at} label={consoleTitle(open)} onClose={() => setMenu(null)} />}
