@@ -88,6 +88,7 @@ export const accounts = {
   'settings.usageGuard.saveFailed': '사용량 설정을 저장하지 못했습니다: {detail}',
   // W3 redesign: rename button, near-limit cue, plain import button, empty states
   'account.rename.button': "이름 바꾸기",
+  'account.menu.label': "{label} 작업",
   'account.usage.nearLimit': "한도에 가까워요",
   'account.sync.button': "설정 가져오기",
   'account.empty.body': "계정을 추가하면 Astera가 Claude 또는 Codex 구독으로 에이전트를 실행할 수 있습니다.",

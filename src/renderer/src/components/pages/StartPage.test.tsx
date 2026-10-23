@@ -7,7 +7,7 @@ import { resetAdvancedMode, setAdvancedMode } from '../../state/useAdvancedMode'
 vi.mock('../../i18n/I18nProvider', () => ({ useI18n: () => ({ t: (k: string) => k }) }))
 vi.mock('../../hooks/useAccountUsage', () => ({ useAccountUsage: () => ({}) }))
 vi.mock('../../lib/orchDoor', () => ({ localDoor: () => ({ command: () => new Promise(() => {}), signedInIds: () => new Promise(() => {}) }) }))
-vi.mock('../shell/navigation', () => ({ openConsole: () => {}, openPage: () => {} }))
+vi.mock('../shell/navigation', () => ({ openConsole: () => {}, openActivity: () => {} }))
 
 import { StartPage } from './StartPage'
 

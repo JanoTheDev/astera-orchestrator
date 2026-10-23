@@ -14,7 +14,7 @@ export function meterTone(value: number): MeterTone {
   return v >= 90 ? 'danger' : v >= 75 ? 'warn' : 'accent'
 }
 
-/** Roving focus for Nav, Tabs and Menu. `orientation` picks which arrows move; they wrap, Home/End jump. Null: not ours. */
+/** Roving focus for Tabs, Toolbar and Menu. `orientation` picks which arrows move; they wrap, Home/End jump. Null: not ours. */
 export function nextFocusIndex(current: number, count: number, key: string, orientation: 'horizontal' | 'vertical' = 'horizontal'): number | null {
   if (count <= 0) return null
   const [prev, next] = orientation === 'horizontal' ? ['ArrowLeft', 'ArrowRight'] : ['ArrowUp', 'ArrowDown']
@@ -24,6 +24,15 @@ export function nextFocusIndex(current: number, count: number, key: string, orie
   if (key === 'Home') return 0
   if (key === 'End') return count - 1
   return null
+}
+
+/** Roving arrow-key focus over the buttons inside `container`. */
+export function rovingKeyDown(container: HTMLElement | null, e: React.KeyboardEvent, orientation: 'horizontal' | 'vertical' = 'horizontal'): void {
+  const items = Array.from(container?.querySelectorAll<HTMLElement>('[data-roving]:not([disabled])') ?? [])
+  const next = nextFocusIndex(items.indexOf(document.activeElement as HTMLElement), items.length, e.key, orientation)
+  if (next === null) return
+  e.preventDefault()
+  items[next]?.focus()
 }
 
 export type ModalKeyAction = 'close' | { focus: number } | null
@@ -165,4 +174,25 @@ export function contextMenuPoint(
 ): { x: number; y: number } {
   const keyboard = e.pointerType === '' || (e.clientX === 0 && e.clientY === 0)
   return keyboard ? { x: target.left, y: target.bottom } : { x: e.clientX, y: e.clientY }
+}
+
+// ---- Workbench primitives (DESIGN-W13 §3, §12) ----
+
+/** A Sash's new size: `start` moved by the pointer's `delta`, clamped to [min, max]. `reverse` for a handle on the
+ *  pane's leading edge (a bottom panel grows when dragged up, a right side bar when dragged left). */
+export function sashSize(start: number, delta: number, min: number, max: number, reverse = false): number {
+  return Math.min(max, Math.max(min, Math.round(start + (reverse ? -delta : delta))))
+}
+
+/** The arrow-key step of a Sash (8px), signed like a pointer delta; 0 for other keys and the cross axis.
+ *  A vertical sash (between left and right) moves with Left/Right, a horizontal one with Up/Down. */
+export function sashKeyDelta(key: string, orientation: 'vertical' | 'horizontal'): number {
+  const [less, more] = orientation === 'vertical' ? ['ArrowLeft', 'ArrowRight'] : ['ArrowUp', 'ArrowDown']
+  return key === more ? 8 : key === less ? -8 : 0
+}
+
+/** An activity-bar badge: hidden at 0 (empty string), the count up to 9, "9+" above. */
+export function badgeText(count: number | undefined): string {
+  if (!count || count <= 0 || !Number.isFinite(count)) return ''
+  return count > 9 ? '9+' : String(Math.floor(count))
 }

@@ -1,13 +1,16 @@
 // W2-C task board, grouped by wave since W6-E: one section per dependency depth ("Step 1 · 3/4 done"; W12 shows a wave as a step), the current wave
-// marked, and a replan in progress as a banner on it. Each card has its model, account, branch, attempts, its files,
-// what its worker is doing now, the coordinator's answers to it and, when it is not running, why
-// (core/orchestration/blocked.ts). Drawing only: the waves, reasons, counts and "now" lines are planBoard.ts's.
+// marked, and a replan in progress as a banner on it. T8 (DESIGN-W13): the steps stack vertically, each a collapsible
+// section of Task rows (state icon, title, account, attempts, "Open console" for a running one); a row expands inline
+// to its detail: what its worker is doing now, why it is not running (core/orchestration/blocked.ts), model, branch,
+// files and the coordinator's answers. The open questions moved to "Needs you" (NeedsYou below). Drawing only: the
+// waves, reasons, counts and "now" lines are planBoard.ts's.
 import { useEffect, useMemo, useState } from 'react'
 import type { ActivityEvent } from '../../../../core/orchestration/activity'
 import type { Account, JobEvent, JobTask } from '../../../../core/types'
 import { type RoleModelSettings } from '../../../../core/orchestration/roleModels'
 import { useI18n } from '../../i18n/I18nProvider'
 import { TaskGlyph } from '../JobIcons'
+import { taskAnchorId } from './planPage'
 import {
   CATEGORIES,
   answersKey,
@@ -16,17 +19,15 @@ import {
   categoryOf,
   collapsedWavesOf,
   currentWaveOf,
+  type needsYouOf,
   nowOf,
   reasonText,
   reasonTone,
   wavesOf,
-  gateQuestionsOfTask,
-  questionsOfTask,
   type LiveSession,
-  type OpenQuestion
 } from './planBoard'
 import { QuestionAnswer } from './QuestionAnswer'
-import { Button, Icon, IconButton, Tooltip } from '../ui'
+import { Button, Icon, Meter, Tooltip } from '../ui'
 import { openWorktree } from '../shell/navigation' // W9-J
 import { TaskLines } from '../attribution/TaskLines' // W8-B
 import type { SessionSummary } from '../../../../core/sessions/summary'
@@ -48,17 +49,17 @@ export function TaskBoard({
   sessions = {},
   replanning = false,
   refreshed = null,
-  questions = [],
-  onAnswer,
   canOpenSession,
   onOpenSession,
   projectPath,
   summaries,
+  renderDetail,
   compact = false,
   nowMs = Date.now()
 }: {
   tasks: readonly JobTask[]
   accounts: Account[] | null
+  /** T8: the Task whose row is expanded (and the journal's filter). */
   selected: string | undefined
   onSelect: (taskId: string) => void
   /** W6-E: the plan's dependency depths (RunDetail `layers`). Empty puts every Task in one wave. */
@@ -72,27 +73,24 @@ export function TaskBoard({
   replanning?: boolean
   /** Coordinator rotation: why the plan's coordinator was last refreshed (planBoard coordinatorRefreshOf). */
   refreshed?: string | null
-  /** W7-C (#72): open asks and escalations; a Task's get an answer box. */
-  questions?: readonly OpenQuestion[]
-  /** Sends the owner's answer (`questions-answer`); resolves to an error text, or null when it went through. */
-  onAnswer?: (id: string, answer: string) => Promise<string | null>
   canOpenSession?: (sessionId: string) => boolean
   onOpenSession?: (sessionId: string) => void
   /** W8-B: present, each card shows its AI and human lines (components/attribution) */
   projectPath?: string
   /** W9-I: the plan's tab summaries by Task; a card whose Task has one says what it did */
   summaries?: ReadonlyMap<string, SessionSummary>
-  /** T19: simple mode: a card drops its model, account, branch, commits and files */
+  /** T8: what an expanded row adds under its own detail (the completion checks and the Task's changes). */
+  renderDetail?: (task: JobTask) => React.ReactNode
+  /** T19: simple mode: a row's detail drops its model, account, branch, commits and files */
   compact?: boolean
   /** T9: the clock of "resumes in …" and "… ago", the live read's tick (usePlanLive): one timer for the whole board. */
   nowMs?: number
 }): React.JSX.Element {
   const { t } = useI18n()
-  // T9: each Task's slice of the timeline, the feed and the open questions, cut once when they change, so a card reads
-  // its own and a tick costs the Tasks plus the events, not the Tasks times the events
+  // T9: each Task's slice of the timeline and the feed, cut once when they change, so a row reads its own and a tick
+  // costs the Tasks plus the events, not the Tasks times the events
   const eventsOf = useMemo(() => byTask(events), [events])
   const activityOf = useMemo(() => byTask(activity), [activity])
-  const questionsOf = useMemo(() => byTask(questions), [questions])
   const [roleModels, setRoleModels] = useState<RoleModelSettings>({})
   useEffect(() => {
     void window.api?.settings?.getRoleModels?.().then(setRoleModels).catch(() => {})
@@ -100,7 +98,7 @@ export function TaskBoard({
   const label = (id: string): string => accounts?.find((a) => a.id === id)?.label ?? id
   const waves = wavesOf(tasks, layers)
   const current = currentWaveOf(waves)
-  // T4: finished waves fold to one line; a click flips a wave from its default
+  // T4: finished waves fold to one line; a click flips a wave from its default. T8: the wave of the expanded Task opens.
   const folded = collapsedWavesOf(waves)
   const [flipped, setFlipped] = useState<ReadonlySet<number>>(() => new Set())
   const flip = (i: number): void => setFlipped((cur) => { const n = new Set(cur); if (!n.delete(i)) n.add(i); return n })
@@ -110,91 +108,99 @@ export function TaskBoard({
       {waves.map((w) => {
         const isCurrent = w.index === current
         const percent = Math.floor((w.done * 100) / w.tasks.length)
-        const foldable = folded.has(w.index)
-        const hidden = foldable && !flipped.has(w.index)
-        if (hidden)
-          return (
-            <section key={w.index} className="plan-wave plan-wave-folded">
+        const hidden = folded.has(w.index) !== flipped.has(w.index) && !w.tasks.some((tk) => tk.id === selected)
+        const progress = t('plan.wave.progress', { done: w.done, total: w.tasks.length })
+        return (
+          <section
+            key={w.index}
+            className={`plan-wave${isCurrent ? ' plan-wave-current' : ''}${hidden ? ' plan-wave-folded' : ''}`}
+            aria-current={isCurrent ? 'step' : undefined}
+          >
+            <h3 className="plan-wave-head">
               <Button
                 variant="ghost"
                 size="sm"
                 className="plan-wave-fold"
-                aria-expanded={false}
-                icon={<Icon name="chevronRight" size={14} />}
+                aria-expanded={!hidden}
+                icon={<Icon name={hidden ? 'chevronRight' : 'chevronDown'} size={14} />}
                 onClick={() => flip(w.index)}
               >
-                {t('plan.steps.title', { n: w.index + 1 })} · {t('plan.wave.progress', { done: w.done, total: w.tasks.length })}
+                {t('plan.steps.title', { n: w.index + 1 })}
               </Button>
-            </section>
-          )
-        return (
-          <section key={w.index} className={`plan-wave${isCurrent ? ' plan-wave-current' : ''}`} aria-current={isCurrent ? 'step' : undefined}>
-            <h3 className="plan-wave-head">
-              <span className="plan-wave-name">{t('plan.steps.title', { n: w.index + 1 })}</span>
-              <span className="plan-wave-count">{t('plan.wave.progress', { done: w.done, total: w.tasks.length })}</span>
-              <span
-                className="plan-progress plan-wave-bar"
-                role="progressbar"
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={percent}
-                aria-label={t('plan.wave.progress', { done: w.done, total: w.tasks.length })}
-              >
-                <span className="plan-progress-fill" style={{ width: `${percent}%` }} />
-              </span>
+              <span className="plan-wave-count">{progress}</span>
+              <Meter className="plan-meter plan-wave-bar" value={percent} />
               {isCurrent && <span className="plan-wave-now">{t('plan.wave.current')}</span>}
-              {foldable && (
-                <IconButton
-                  size="sm"
-                  className="plan-wave-fold"
-                  aria-expanded
-                  label={t('plan.steps.fold', { n: w.index + 1 })}
-                  icon={<Icon name="chevronDown" size={14} />}
-                  onClick={() => flip(w.index)}
-                />
-              )}
             </h3>
-            {isCurrent && refreshed !== null && (
+            {!hidden && isCurrent && refreshed !== null && (
               <div className="plan-wave-banner" role="status">
                 {t('plan.steps.leadRefreshed', { reason: refreshed })}
               </div>
             )}
-            {isCurrent && replanning && (
+            {!hidden && isCurrent && replanning && (
               <div className="plan-wave-banner" role="status">
                 {t('plan.steps.replanning', { n: w.index + 1 })}
               </div>
             )}
-            <div className="plan-wave-cards">
-              {[...w.tasks]
-                .sort((a, b) => rank(a) - rank(b))
-                .map((tk) => (
-                  <TaskCard
-                    key={tk.id}
-                    task={tk}
-                    selected={selected === tk.id}
-                    nowMs={nowMs}
-                    label={label}
-                    model={cardModelOf(tk, roleModels, accounts ?? [])}
-                    now={nowOf(tk, tk.sessionId ? sessions[tk.sessionId] : undefined, eventsOf.get(tk.id) ?? NONE, nowMs)}
-                    answers={autoAnswersOf(activityOf.get(tk.id) ?? NONE, tk.id)}
-                    questions={onAnswer ? [...questionsOfTask(questionsOf.get(tk.id) ?? NONE, tk.id), ...gateQuestionsOfTask(tk)] : []}
-                    onAnswer={onAnswer}
-                    onSelect={onSelect}
-                    projectPath={projectPath}
-                    summary={summaries?.get(tk.id)}
-                    compact={compact}
-                    onFocus={
-                      tk.sessionId && categoryOf(tk) === 'running' && onOpenSession && canOpenSession?.(tk.sessionId)
-                        ? () => onOpenSession(tk.sessionId!)
-                        : undefined
-                    }
-                  />
-                ))}
-            </div>
+            {!hidden && (
+              <ul className="plan-wave-cards">
+                {[...w.tasks]
+                  .sort((a, b) => rank(a) - rank(b))
+                  .map((tk) => (
+                    <TaskRow
+                      key={tk.id}
+                      task={tk}
+                      expanded={selected === tk.id}
+                      nowMs={nowMs}
+                      label={label}
+                      model={cardModelOf(tk, roleModels, accounts ?? [])}
+                      now={nowOf(tk, tk.sessionId ? sessions[tk.sessionId] : undefined, eventsOf.get(tk.id) ?? NONE, nowMs)}
+                      answers={autoAnswersOf(activityOf.get(tk.id) ?? NONE, tk.id)}
+                      onSelect={onSelect}
+                      projectPath={projectPath}
+                      summary={summaries?.get(tk.id)}
+                      detail={selected === tk.id ? renderDetail?.(tk) : undefined}
+                      compact={compact}
+                      onOpenConsole={
+                        tk.sessionId && categoryOf(tk) === 'running' && onOpenSession && canOpenSession?.(tk.sessionId)
+                          ? () => onOpenSession(tk.sessionId!)
+                          : undefined
+                      }
+                    />
+                  ))}
+              </ul>
+            )}
           </section>
         )
       })}
     </div>
+  )
+}
+
+/** T8 "Needs you": every open question and Gate of the plan, full width, each under its Task's name with its answer
+ *  box (QuestionAnswer). Nothing when none is open. */
+export function NeedsYou({
+  items,
+  onAnswer,
+  onShowTask
+}: {
+  /** planBoard needsYouOf */
+  items: ReturnType<typeof needsYouOf>
+  onAnswer: (id: string, answer: string) => Promise<string | null>
+  /** Scrolls to the Task's row and expands it. */
+  onShowTask: (taskId: string) => void
+}): React.JSX.Element | null {
+  if (items.length === 0) return null
+  return (
+    <ul className="plan-needs-list">
+      {items.map(({ task, q }) => (
+        <li key={q.id} className="plan-needs-item">
+          <Button variant="ghost" size="sm" className="plan-needs-task" icon={<TaskGlyph task={task} size={14} />} onClick={() => onShowTask(task.id)}>
+            {task.title}
+          </Button>
+          <QuestionAnswer q={q} onAnswer={onAnswer} />
+        </li>
+      ))}
+    </ul>
   )
 }
 
@@ -207,36 +213,34 @@ function byTask<T extends { taskId?: string }>(rows: readonly T[]): Map<string, 
   return by
 }
 
-function TaskCard({
+function TaskRow({
   task: tk,
-  selected,
+  expanded,
   nowMs,
   label,
   model,
   now,
   answers,
-  questions,
-  onAnswer,
   onSelect,
-  onFocus,
+  onOpenConsole,
   projectPath,
   summary,
+  detail,
   compact
 }: {
   task: JobTask
-  selected: boolean
+  expanded: boolean
   nowMs: number
   label: (id: string) => string
   model: string | undefined
   now: ReturnType<typeof nowOf>
   answers: ReturnType<typeof autoAnswersOf>
-  questions: OpenQuestion[]
-  onAnswer?: (id: string, answer: string) => Promise<string | null>
   onSelect: (taskId: string) => void
-  /** Present for a running Task whose tab is open: a click on the card goes there. */
-  onFocus?: () => void
+  /** Present for a running Task whose tab is open. */
+  onOpenConsole?: () => void
   projectPath?: string // W8-B
   summary?: SessionSummary // W9-I
+  detail?: React.ReactNode
   compact: boolean
 }): React.JSX.Element {
   const { t } = useI18n()
@@ -247,120 +251,112 @@ function TaskCard({
   const account = tk.accountId ?? tk.accountIds?.[0]
   const files = tk.affectedPaths ?? []
   const shown = allFiles ? files : files.slice(0, FILES_SHOWN)
-  const activate = onFocus ?? (() => onSelect(tk.id))
+  const line = now ? t(now.key, now.params) : reason && text ? t(text.key, text.params) : undefined
   return (
-    // The card is the click target; its title is the keyboard's (a button may not hold the buttons below it)
-    <article className={`plan-card plan-cat-${categoryOf(tk)}${selected ? ' selected' : ''}`} onClick={activate}>
-      <Button
-        variant="ghost"
-        size="sm"
-        className="plan-card-title"
-        aria-pressed={selected}
-        title={onFocus ? t('plan.card.focus') : undefined}
-        icon={<TaskGlyph task={tk} size={12} />}
-        onClick={(e) => {
-          e.stopPropagation()
-          activate()
-        }}
-      >
-        {tk.title}
-      </Button>
-      {now && <span className="plan-now">{t(now.key, now.params)}</span>}
-      {reason && text && <span className={`plan-reason plan-reason-${reasonTone(reason)}`}>{t(text.key, text.params)}</span>}
-      {summary && <span className="summary-line" title={summary.text || undefined}>{summaryOneLine(summary, t)}</span>}
-      {!compact && (
-      <dl className="plan-card-meta">
-        <dt>{t('plan.card.model')}</dt>
-        <dd>{model ?? t('plan.card.cliDefault')}</dd>
-        {account !== undefined && (
-          <>
-            <dt>{t('plan.card.account')}</dt>
-            <dd>{label(account)}</dd>
-          </>
+    <li id={taskAnchorId(tk.id)} className={`plan-card plan-cat-${categoryOf(tk)}${expanded ? ' selected' : ''}`}>
+      <div className="plan-row">
+        {/* The title is the row's toggle: one button, so a click anywhere on the name expands it */}
+        <Button
+          variant="ghost"
+          size="sm"
+          className="plan-card-title"
+          aria-expanded={expanded}
+          aria-label={t(expanded ? 'plan.row.collapse' : 'plan.row.expand', { task: tk.title })}
+          icon={<TaskGlyph task={tk} size={14} />}
+          onClick={() => onSelect(tk.id)}
+        >
+          {tk.title}
+        </Button>
+        {line !== undefined && <span className={reason && !now ? `plan-row-line plan-row-line--${reasonTone(reason)}` : 'plan-row-line plan-now'}>{line}</span>}
+        <span className="plan-row-meta">
+          {account !== undefined && <span className="plan-row-account">{label(account)}</span>}
+          {tk.attempts !== undefined && <span className="plan-card-attempts">{t(tk.attempts === 1 ? 'plan.card.attempts.one' : 'plan.card.attempts', { n: tk.attempts })}</span>}
+        </span>
+        {onOpenConsole && (
+          <Button variant="ghost" size="sm" className="plan-link plan-row-console" title={t('plan.card.focus')} icon={<Icon name="open" size={14} />} onClick={onOpenConsole}>
+            {t('plan.row.openConsole')}
+          </Button>
         )}
-        {tk.branch !== undefined && (
-          <>
-            <dt>{t('plan.card.branch')}</dt>
-            <dd title={tk.branch}>
-              {/* W9-J: the Task's worktree, found by its branch in the registry, on the Worktrees page. W12: the tooltip says
-                  what a worktree is. */}
-              <Tooltip content={t('plan.steps.worktreeHint')}>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="branch-link"
-                  icon={<Icon name="branch" size={14} />}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    void window.api.worktrees.list().then((ws) => {
-                      const w = ws.find((x) => x.branch === tk.branch)
-                      if (w) openWorktree(w.path)
-                    }, () => {})
-                  }}
-                >
-                  {tk.branch}
-                </Button>
-              </Tooltip>
-            </dd>
-          </>
-        )}
-        {projectPath && <TaskLines projectPath={projectPath} commits={tk.links?.commits ?? []} />}
-      </dl>
-      )}
-      {!compact && files.length > 0 && (
-        <ul className="plan-card-files">
-          {shown.map((p) => (
-            <li key={p} title={p}>
-              {p}
-            </li>
-          ))}
-          {files.length > FILES_SHOWN && (
-            <li>
+      </div>
+      {expanded && (
+        <div className="plan-row-detail">
+          {reason && text && now && <span className={`plan-reason plan-reason-${reasonTone(reason)}`}>{t(text.key, text.params)}</span>}
+          {summary && <span className="summary-line" title={summary.text || undefined}>{summaryOneLine(summary, t)}</span>}
+          {!compact && (
+            <dl className="plan-card-meta">
+              <dt>{t('plan.card.model')}</dt>
+              <dd>{model ?? t('plan.card.cliDefault')}</dd>
+              {tk.branch !== undefined && (
+                <>
+                  <dt>{t('plan.card.branch')}</dt>
+                  <dd title={tk.branch}>
+                    {/* W9-J: the Task's worktree, found by its branch in the registry, on the Worktrees page. W12: the tooltip says
+                        what a worktree is. */}
+                    <Tooltip content={t('plan.steps.worktreeHint')}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="branch-link"
+                        icon={<Icon name="branch" size={14} />}
+                        onClick={() => {
+                          void window.api.worktrees.list().then((ws) => {
+                            const w = ws.find((x) => x.branch === tk.branch)
+                            if (w) openWorktree(w.path)
+                          }, () => {})
+                        }}
+                      >
+                        {tk.branch}
+                      </Button>
+                    </Tooltip>
+                  </dd>
+                </>
+              )}
+              {projectPath && <TaskLines projectPath={projectPath} commits={tk.links?.commits ?? []} />}
+            </dl>
+          )}
+          {!compact && files.length > 0 && (
+            <ul className="plan-card-files">
+              {shown.map((p) => (
+                <li key={p} title={p}>
+                  {p}
+                </li>
+              ))}
+              {files.length > FILES_SHOWN && (
+                <li>
+                  <Button variant="ghost" size="sm" className="plan-link" aria-expanded={allFiles} onClick={() => setAllFiles((v) => !v)}>
+                    {allFiles ? t('plan.card.fewerFiles') : t('plan.card.moreFiles', { n: files.length - FILES_SHOWN })}
+                  </Button>
+                </li>
+              )}
+            </ul>
+          )}
+          {answers.length > 0 && (
+            <div className="plan-answers">
               <Button
                 variant="ghost"
                 size="sm"
                 className="plan-link"
-                aria-expanded={allFiles}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setAllFiles((v) => !v)
-                }}
+                aria-expanded={showAnswers}
+                icon={<Icon name={showAnswers ? 'chevronDown' : 'chevronRight'} size={14} />}
+                onClick={() => setShowAnswers((v) => !v)}
               >
-                {allFiles ? t('plan.card.fewerFiles') : t('plan.card.moreFiles', { n: files.length - FILES_SHOWN })}
+                {t(answersKey(answers.length), { n: answers.length })}
               </Button>
-            </li>
+              {showAnswers && (
+                <ol className="plan-answers-list">
+                  {answers.map((a, i) => (
+                    <li key={i}>
+                      <span className="plan-answer-q">{a.question}</span>
+                      <span className="plan-answer-a">{a.answer}</span>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </div>
           )}
-        </ul>
-      )}
-      {answers.length > 0 && (
-        <div className="plan-answers">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="plan-link"
-            aria-expanded={showAnswers}
-            icon={<Icon name={showAnswers ? 'chevronDown' : 'chevronRight'} size={14} />}
-            onClick={(e) => {
-              e.stopPropagation()
-              setShowAnswers((v) => !v)
-            }}
-          >
-            {t(answersKey(answers.length), { n: answers.length })}
-          </Button>
-          {showAnswers && (
-            <ol className="plan-answers-list">
-              {answers.map((a, i) => (
-                <li key={i}>
-                  <span className="plan-answer-q">{a.question}</span>
-                  <span className="plan-answer-a">{a.answer}</span>
-                </li>
-              ))}
-            </ol>
-          )}
+          {detail}
         </div>
       )}
-      {onAnswer && questions.map((q) => <QuestionAnswer key={q.id} q={q} onAnswer={onAnswer} />)}
-      {tk.attempts !== undefined && <span className="plan-card-attempts">{t(tk.attempts === 1 ? 'plan.card.attempts.one' : 'plan.card.attempts', { n: tk.attempts })}</span>}
-    </article>
+    </li>
   )
 }

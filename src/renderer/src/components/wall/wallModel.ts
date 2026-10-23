@@ -416,3 +416,44 @@ export interface TileMenuItem {
 export function tileMenuOf(c: WallConsole, labels: { openWindow: string }, openWindow: (projectId: string | null) => void): TileMenuItem[] {
   return [{ id: 'openWindow', label: labels.openWindow, onSelect: () => openWindow(c.projectId) }]
 }
+
+// ---- The Agents view's rows and the console tab's header (DESIGN-W13 §4, §12) ----
+
+/** The title of a console's row, card and tab: its Task, else the agent's own name. */
+export const consoleTitle = (c: WallConsole): string => c.taskTitle ?? c.label
+
+/** The dim line after the title, "plan › task · account". The title already names the Task, so the line names the
+ *  agent (`label`) after the plan; a console of no plan has only its account. */
+export function consoleDescription(c: WallConsole, account?: string): string {
+  const where = c.planName ? (c.taskTitle ? `${c.planName} › ${c.label}` : c.planName) : ''
+  return [where, account].filter(Boolean).join(' · ')
+}
+
+/** The Agents view's four panes: each state's consoles, keeping the wall's order (plan order, then role). */
+export function agentPanes(cs: readonly WallConsole[]): Record<TileState, WallConsole[]> {
+  const out: Record<TileState, WallConsole[]> = { needs: [], working: [], idle: [], finished: [] }
+  for (const c of [...cs].sort((a, b) => a.planOrder - b.planOrder || ROLE_ORDER[a.role] - ROLE_ORDER[b.role])) out[c.state].push(c)
+  return out
+}
+
+/** The plans the view's filter offers: those the consoles belong to, in plan order. */
+export function plansOf(cs: readonly WallConsole[]): { jobId: string; name: string }[] {
+  const seen = new Map<string, { jobId: string; name: string; order: number }>()
+  for (const c of cs) if (c.jobId && !seen.has(c.jobId)) seen.set(c.jobId, { jobId: c.jobId, name: c.planName ?? c.jobId, order: c.planOrder })
+  return [...seen.values()].sort((a, b) => a.order - b.order).map(({ jobId, name }) => ({ jobId, name }))
+}
+
+/** What the console tab's header says: a planned console links its plan and Task; any other shows its folder. */
+export interface ConsoleHeaderText {
+  plan?: { jobId: string; name: string }
+  task?: string
+  /** Only for a console of no plan. */
+  cwd?: string
+  account?: string
+}
+export function consoleHeaderOf(c: WallConsole, account?: string): ConsoleHeaderText {
+  return {
+    ...(c.jobId ? { plan: { jobId: c.jobId, name: c.planName ?? c.jobId }, task: consoleTitle(c) } : { cwd: c.cwd }),
+    ...(account ? { account } : {})
+  }
+}

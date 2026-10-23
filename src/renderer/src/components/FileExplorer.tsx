@@ -5,7 +5,7 @@ import { resolveFileIcon, resolveFolderIcon } from '../../../core/files/icons'
 import { FileIcon } from './FileIcon'
 import { LocalHistoryDialog } from './LocalHistoryDialog'
 import { RootReading, FileOpStatusLine, ROOT_SLOW_MS } from './ExplorerLoading'
-import { ExplorerRow, type RowActions } from './ExplorerRow'
+import { ExplorerRow, Indent, type RowActions } from './ExplorerRow'
 import {
   buildTreeRows,
   rowOffsets,
@@ -29,12 +29,11 @@ import { toast } from '../lib/toast'
 import { useFileTree, type Entry, type DirState } from '../hooks/useFileTree'
 import { useExplorerSelection, type ExplorerSelection } from '../hooks/useExplorerSelection'
 import { useFileOps, errText } from '../hooks/useFileOps'
-import { useGitStatus } from '../hooks/useGitStatus'
 import { useI18n } from '../i18n/I18nProvider'
 import type { UndoEntry } from '../../../core/files/undo'
 import { runnableKindForFile } from '../../../core/run/runFile'
-import { EmptyState, Icon, ICONS, IconButton, Menu, menuPointOf, Tabs, type MenuItem } from './ui'
-import { ChangedList } from './ChangedList'
+import { EmptyState, Icon, ICONS, Menu, menuPointOf, Toolbar, ViewPane, type MenuItem } from './ui'
+import { useGitStatus, type GitStatusMap } from '../hooks/useGitStatus'
 import { deleteKey, isMac, modKey } from '../lib/platformKeys'
 import { isWindowsPath, revealFor, treeKeysTo, type FolderReveal } from '../lib/folderLink'
 
@@ -66,7 +65,7 @@ const CURSOR_KEYS: Record<string, CursorKey> = {
 export function FileExplorer({
   root,
   onOpenFile,
-  onClose,
+  gitStatus: shared,
   stateRef,
   clipboardRef,
   undoRef,
@@ -78,7 +77,12 @@ export function FileExplorer({
 }: {
   root: string | null
   onOpenFile: (path: string) => void
-  onClose: () => void
+  /** Accepted for the legacy Files page slot (shell/Pages.tsx), which no navigation reaches any more: the pane has no
+   *  close button of its own. */
+  onClose?: () => void
+  /** git's status for `root`, when the caller already reads it (the Explorer view shares it with its Changed pane);
+   *  read here otherwise. */
+  gitStatus?: GitStatusMap
   /** Per-root tree snapshots, keyed by root so each project's expansion survives both an explorer
    *  toggle (unmount/remount) and the tree root changing to a different project. */
   stateRef: React.RefObject<Map<string, ExplorerTreeState>>
@@ -106,12 +110,13 @@ export function FileExplorer({
   onRevealDone?: (seq: number) => void
 }): React.JSX.Element {
   const { t, tm } = useI18n()
+  // a caller's status wins; the hook sits idle (null root) then
+  const ownStatus = useGitStatus(shared ? null : root)
+  const gitStatus = shared ?? ownStatus
   const [menu, setMenu] = useState<{ x: number; y: number; entry: Entry | null } | null>(null)
   // entry=null means a right-click on the root's empty space (a menu targeting the root)
   // Whether the Local History modal is open. The history is per-project, so it is unrelated to entry.
   const [historyOpen, setHistoryOpen] = useState(false)
-  // All = the tree; Changed = the flat list of changed files (ChangedList). The tree stays mounted-state-wise untouched.
-  const [view, setView] = useState<'all' | 'changed'>('all')
 
   /** Paths currently being dragged. Why a ref instead of dataTransfer: during dragover the contents of
    *  dataTransfer cannot be read (for security only the types are exposed), so canMove cannot decide
@@ -163,9 +168,6 @@ export function FileExplorer({
     const timer = setTimeout(() => setRootSlow(true), ROOT_SLOW_MS)
     return () => clearTimeout(timer)
   }, [rootPending, root])
-
-  // git status for the tree rows — the hook re-queries on its own when root changes
-  const gitStatus = useGitStatus(root)
 
   // The selection/anchor/clipboard state machine lives in the pure reducer in
   // core/files/explorerState.ts (extracted into useExplorerSelection so the data-loss guards can be
@@ -608,9 +610,10 @@ export function FileExplorer({
       <div
         key={key}
         className="fx-row fx-edit"
-        style={{ position: 'absolute', left: 0, right: 0, top, height, paddingLeft: depth * 14 + 8 }}
+        style={{ position: 'absolute', left: 0, right: 0, top, height, paddingLeft: 8 }}
       >
-        <span className="fx-caret" />
+        <Indent depth={depth} />
+        <span className="ui-tree__twistie" />
         <FileIcon
           {...(isDir
             ? resolveFolderIcon(editValue || 'folder', false)
@@ -810,7 +813,7 @@ export function FileExplorer({
           <div
             key={row.key}
             className="fx-note"
-            style={{ ...place, display: 'flex', alignItems: 'center', paddingLeft: row.depth * 14 + 24 }}
+            style={{ ...place, display: 'flex', alignItems: 'center', paddingLeft: row.depth * 8 + 30 }}
           >
             {row.note === 'loading'
               ? t('explorer.dir.loading')
@@ -836,20 +839,17 @@ export function FileExplorer({
 
   if (!root) {
     return (
-      <section className="file-explorer">
-        <header className="fx-header">
-          <h2 className="fx-title">{t('explorer.title')}</h2>
-          <IconButton size="sm" icon={<Icon name="close" size={14} />} label={t('explorer.close')} onClick={onClose} />
-        </header>
+      <ViewPane title={t('explorer.files')} storageKey="explorer.files">
         <EmptyState icon={ICONS.folder} title={t('explorer.noActiveSession')}>
           {t('explorer.noActiveSessionHint')}
         </EmptyState>
-      </section>
+      </ViewPane>
     )
   }
 
-  const rootName = root.split(/[\\/]/).filter(Boolean).pop() ?? root
   return (
+    // display: contents: the section is only where the keys and the paste are caught, so the ViewPane stays the
+    // ViewContainer's own child (its header buttons are inside it, which keeps Ctrl+V working after a click on them)
     <section
       className="file-explorer"
       // Ctrl+V, and the paste the menu's Paste item asks main for. The file list the OS clipboard is
@@ -905,25 +905,26 @@ export function FileExplorer({
         }
       }}
     >
-      <header className="fx-header">
-        {/* The project name, with the same folder icon as the tree rows */}
-        <h2 className="fx-title" title={root}>
-          <FileIcon {...resolveFolderIcon(rootName, true)} />
-          <span className="fx-root-name">{rootName}</span>
-        </h2>
-        <div className="fx-actions">
-          <IconButton size="sm" icon={<Icon name="fileAdd" size={14} />} label={t('explorer.newFile')} onClick={() => startCreate(root, false)} />
-          <IconButton size="sm" icon={<Icon name="folderAdd" size={14} />} label={t('explorer.newFolder')} onClick={() => startCreate(root, true)} />
-          <IconButton
-            size="sm"
-            icon={<Icon name="refresh" size={14} className={refreshing ? 'fx-refreshing' : undefined} />}
-            label={t('explorer.refresh')}
-            onClick={refresh}
+      <ViewPane
+        title={t('explorer.files')}
+        storageKey="explorer.files"
+        actions={
+          <Toolbar
+            label={t('explorer.title')}
+            items={[
+              { id: 'new-file', icon: <Icon name="fileAdd" size={16} />, label: t('explorer.newFile'), onClick: () => startCreate(root, false) },
+              { id: 'new-folder', icon: <Icon name="folderAdd" size={16} />, label: t('explorer.newFolder'), onClick: () => startCreate(root, true) },
+              {
+                id: 'refresh',
+                icon: <Icon name="refresh" size={16} className={refreshing ? 'fx-refreshing' : undefined} />,
+                label: t('explorer.refresh'),
+                onClick: refresh
+              },
+              { id: 'collapse', icon: <Icon name="collapseAll" size={16} />, label: t('explorer.collapseAll'), onClick: tree.collapseAll }
+            ]}
           />
-          <IconButton size="sm" icon={<Icon name="collapseAll" size={14} />} label={t('explorer.collapseAll')} onClick={tree.collapseAll} />
-          <IconButton size="sm" icon={<Icon name="close" size={14} />} label={t('explorer.close')} onClick={onClose} />
-        </div>
-      </header>
+        }
+      >
       {/* git did not answer the last status query: the badges below are the previous answer, dimmed */}
       {gitStatus.stale && (
         <div className="fx-note fx-git-stale" role="status">
@@ -932,21 +933,8 @@ export function FileExplorer({
       )}
       {/* A delete or paste past OP_STATUS_DELAY_MS: what it is doing and how many entries so far */}
       <FileOpStatusLine status={ops.opStatus} />
-      <Tabs
-        variant="segmented"
-        label={t('explorer.title')}
-        value={view}
-        onChange={setView}
-        items={[
-          { id: 'all', label: t('explorer.view.all') },
-          { id: 'changed', label: t('explorer.view.changed'), count: view === 'changed' ? undefined : Object.keys(gitStatus.fileState).length }
-        ]}
-      />
-      {view === 'changed' ? (
-        <ChangedList root={root} gitStatus={gitStatus} onOpenFile={onOpenFile} />
-      ) : (
       <div
-        className={`fx-tree${gitStatus.stale ? ' git-stale' : ''}`}
+        className={`fx-tree ui-tree${gitStatus.stale ? ' git-stale' : ''}`}
         ref={treeRef}
         tabIndex={0}
         onScroll={syncViewport}
@@ -1011,7 +999,7 @@ export function FileExplorer({
           {drawn.map((i) => renderRow(rows[i], offsets[i], offsets[i + 1] - offsets[i]))}
         </div>
       </div>
-      )}
+      </ViewPane>
       {menu && (
         <Menu at={{ x: menu.x, y: menu.y }} label={t('explorer.title')} items={menuItemsFor(menu.entry)} onClose={() => setMenu(null)} />
       )}

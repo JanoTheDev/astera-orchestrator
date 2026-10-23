@@ -8,24 +8,30 @@
 .file-conflict { flex: none; padding: 4px 12px; font-size: var(--fs-12); background: var(--warn-bg); color: var(--warn); display: flex; gap: 8px; align-items: center; }
 
 /* ---------- file explorer ---------- */
-.file-explorer { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+/* Only where the keys and the paste are caught: the ViewPane inside it stays the ViewContainer's own child. */
+.file-explorer { display: contents; }
 /* Shift-click range selection extends the browser's text selection across rows and lays down a blue
    highlight — the tree is not a text selection target, so it is blocked */
 .fx-tree { flex: 1; min-height: 0; overflow: auto; font-size: var(--fs-13); user-select: none; }
-.fx-row { display: flex; align-items: center; gap: var(--sp-2); padding: 0 var(--sp-2); cursor: pointer; white-space: nowrap; color: var(--text); transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
-.fx-row:hover { background: var(--hover); }
-.fx-row .fi { width: 16px; height: 16px; }
-/* A Changed row is a ui Button (ghost): a Tab stop with the house ring, arrows move between rows (ChangedList). The
-   primitive wraps its children in a label span, which carries the row layout here. */
-.fx-row.fx-changed-row.ui-btn { width: 100%; justify-content: flex-start; border-radius: 0; font-weight: var(--fw-regular); font-size: var(--fs-13); color: var(--text); }
-.fx-changed-row .ui-btn__label { flex: 1; display: flex; align-items: center; gap: var(--sp-2); overflow: hidden; }
-.fx-caret { flex: none; width: 14px; display: inline-flex; color: var(--text-faint); }
+/* A tree row is the Tree primitive's .ui-tree__row (22px, indent guides, twistie, hover and selection); the virtual
+   list places it, so these are only what the primitive does not know. */
+.fx-row { display: flex; align-items: center; gap: 0; padding: 0 8px; white-space: nowrap; cursor: pointer; }
+.fx-row .fi { flex: none; width: 16px; height: 16px; margin-right: 6px; }
+/* A Changed row is a ui Button (ghost): a Tab stop with the house ring, arrows move between rows (ChangedList). It is
+   drawn as a tree row: 22px, the file icon, the name, the folder dim, the status letter on the right. The primitive
+   wraps its children in a label span, which carries the row layout here. */
+.fx-changed-row.ui-btn { width: 100%; height: var(--row-h); padding: 0 8px; justify-content: flex-start; border-radius: 0; font-weight: var(--fw-regular); font-size: var(--fs-13); color: var(--text); }
+.fx-changed-row:hover:not(:disabled) { background: var(--list-hover); }
+.fx-changed-row[aria-expanded="true"] { background: var(--list-inactive-selection); }
+.fx-changed-row .ui-btn__label { flex: 1; display: flex; align-items: center; gap: 0; overflow: hidden; }
+.fx-changed-row .fi { flex: none; width: 16px; height: 16px; margin-right: 6px; }
 .fx-name { overflow: hidden; text-overflow: ellipsis; }
 /* git status — colour on the filename only. File type icon colours are left alone */
 .fx-name.git-new { color: var(--git-new); }
 .fx-name.git-modified { color: var(--git-modified); }
 .fx-name.git-deleted { color: var(--git-deleted); text-decoration: line-through; }
 .fx-name.git-conflict { color: var(--git-conflict); }
+.fx-name.git-renamed { color: var(--accent); }
 .fx-git-mark {
   flex: none; margin-left: auto; padding-left: 6px;
   font-family: var(--mono); font-size: var(--fs-11); font-weight: 600;
@@ -34,11 +40,13 @@
 .fx-git-mark.git-modified { color: var(--git-modified); }
 .fx-git-mark.git-deleted { color: var(--git-deleted); }
 .fx-git-mark.git-conflict { color: var(--git-conflict); }
+.fx-git-mark.git-renamed { color: var(--accent); }
 .fx-git-count {
   flex: none; margin-left: auto; padding-left: 6px;
   font-family: var(--mono); font-size: var(--fs-11); color: var(--text-faint);
   font-variant-numeric: tabular-nums;
 }
+.fx-changed-row .fx-note { padding: 0 0 0 6px; overflow: hidden; text-overflow: ellipsis; }
 .fx-note { padding: 0 var(--sp-2); font-size: var(--fs-12); color: var(--text-faint); white-space: nowrap; display: flex; align-items: center; }
 /* Loading states (ExplorerLoading.tsx): the small shared spinner after a folder's name while its children
    are read, and the "Reading folder…" line when the root's first read is slow */
@@ -51,17 +59,7 @@
 .fx-tree.git-stale .fx-git-mark,
 .fx-tree.git-stale .fx-git-count,
 .fx-tree.git-stale .fx-name[class*="git-"] { opacity: 0.55; }
-/* the header: the project name left, labelled icon buttons right (DESIGN-W11 §9 Files) */
-.fx-header { flex: none; display: flex; align-items: center; gap: var(--sp-2); height: 40px; padding: 0 var(--sp-2) 0 var(--sp-3); border-bottom: 1px solid var(--line); }
-.fx-title { flex: 1; min-width: 0; display: flex; align-items: center; gap: var(--sp-2); margin: 0; font-size: var(--fs-13); font-weight: var(--fw-semi); color: var(--text); line-height: var(--lh-tight); }
-.fx-title .fi { width: 16px; height: 16px; }
-.fx-actions { flex: none; display: flex; align-items: center; gap: 2px; }
-.fx-root-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
 /* tree selection and inline editing */
-/* Tree selection — a background alone overlaps :hover in luminance and multi-selection does not read.
-   It follows the convention of settings-nav-item.active (a left accent bar plus a line-soft background) */
-.fx-row.selected { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
 /* items pending a cut — dimmed until they are pasted */
 .fx-row.cut { opacity: .45; }
 /* drag and drop — the same vocabulary as session tab reordering (.tab.dragging) */
@@ -84,3 +82,7 @@
 .fx-edit-box input.invalid { border-color: var(--danger); }
 .fx-edit-reason { font-size: var(--fs-11); color: var(--danger); }
 
+
+/* The Changed pane follows the Files pane, which lives in a display: contents section, so the ViewPane sibling rule
+   does not see it. */
+.fx-changed-pane { border-top: 1px solid var(--line); }

@@ -1,6 +1,5 @@
 import { useRef } from 'react'
-import { cx } from './logic'
-import { rovingKeyDown } from './Nav'
+import { cx, rovingKeyDown } from './logic'
 
 export type TabItem<K extends string> = { id: K; label: React.ReactNode; count?: number; disabled?: boolean }
 

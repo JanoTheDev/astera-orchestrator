@@ -287,7 +287,7 @@ describe('gateQuestionsOfTask (W8-F, #97)', () => {
 
 // W9-C Tasks page, Plans page, plan page
 import type { JobRow } from '../../../../core/types'
-import { areaGroupsOf, overlapTableOf, planListOrder, planSectionOf, taskClickOf, taskColumnOf, topFolderOf } from './planBoard'
+import { areaGroupsOf, needsYouOf, overlapTableOf, planListOrder, planSectionOf, taskClickOf, taskColumnOf, topFolderOf } from './planBoard'
 
 const row = (id: string, over: Partial<JobRow> = {}): JobRow => ({
   id, objective: id, outcome: 'running', done: 0, total: 0, eventCount: 0, sharesProjectFolder: false, tasks: [], ...over
@@ -339,6 +339,22 @@ describe('planSectionOf (openPlan sections)', () => {
     expect(planSectionOf('tasks')).toBe('waves')
     expect(planSectionOf(undefined)).toBe('overview')
     expect(planSectionOf('nope')).toBe('overview')
+  })
+  it('T8: keeps the settings and Task anchors, with or without #', () => {
+    expect(planSectionOf('#settings')).toBe('settings')
+    expect(planSectionOf('task-tsk_1')).toBe('task-tsk_1')
+    expect(planSectionOf('#task-tsk_1')).toBe('task-tsk_1')
+    expect(planSectionOf('#task-')).toBe('overview')
+  })
+})
+
+describe('needsYouOf (T8 Needs you)', () => {
+  it("lists each Task's open questions and Gate, in the plan's Task order", () => {
+    const a = { id: 'a', title: 'A', status: 'blocked', openGates: 1, gate: { id: 'g1', question: 'Go?' } } as JobTask
+    const b = { id: 'b', title: 'B', status: 'dispatched', openGates: 0 } as JobTask
+    const asked = { id: 'q1', source: 'ask' as const, taskId: 'b', question: 'Which?' }
+    expect(needsYouOf([a, b], [asked]).map((x) => [x.task.id, x.q.id])).toEqual([['a', 'g1'], ['b', 'q1']])
+    expect(needsYouOf([b], [])).toEqual([])
   })
 })
 

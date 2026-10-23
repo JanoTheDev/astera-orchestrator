@@ -5,6 +5,7 @@
 //
 // Pure: no clock, no files.
 import { isSamePath } from '../files/tree'
+import { latestAttempts } from './integrate'
 import { waveOf, runTasks } from './replan'
 import { jobActive } from './schedule'
 import { jobOf, type OrchState } from './state'
@@ -83,7 +84,8 @@ export function completedWorktrees(s: OrchState, run: JobRun): string[] {
   const ds = s.dispatches.filter((d) => own.has(d.taskId))
   const busy = ds.filter((d) => !d.outcome && !d.endedAt).map((d) => d.cwd)
   const out: string[] = []
-  for (const d of ds) {
+  // Each Task's latest attempt only: an earlier one's worktree was replaced (integrate.ts latestAttempts)
+  for (const d of latestAttempts(ds)) {
     if (!done.has(d.taskId) || (!d.outcome && !d.endedAt)) continue
     if (run.worktree !== undefined && isSamePath(d.cwd, run.worktree)) continue
     if (cwd !== undefined && isSamePath(d.cwd, cwd)) continue

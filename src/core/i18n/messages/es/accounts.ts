@@ -63,6 +63,7 @@ export const accounts: Partial<Record<keyof typeof ko, string>> = {
   'account.switch.otherProvider': 'Solo las cuentas de {provider} pueden tomar esta pestaña',
   // W3 redesign: rename button, near-limit cue, plain import button, empty states
   'account.rename.button': "Renombrar",
+  'account.menu.label': "Acciones de {label}",
   'account.usage.nearLimit': "Cerca del límite",
   'account.sync.button': "Importar configuración",
   'account.empty.body': "Las cuentas permiten a Astera ejecutar agentes con su suscripción de Claude o Codex. Agregue una para empezar.",

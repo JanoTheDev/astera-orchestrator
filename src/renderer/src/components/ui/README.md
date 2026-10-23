@@ -1,6 +1,7 @@
 # House UI primitives
 
-The shared building blocks of every page (docs/dev/DESIGN-W11.md §10). Props below come from the source files.
+The shared building blocks of every page (docs/dev/DESIGN-W11.md §10), sized and styled to the compact VSCode look of
+docs/dev/DESIGN-W13.md §11–§12. Props below come from the source files.
 
 ## Rules
 
@@ -224,15 +225,6 @@ CSS-only hover/focus hint around one control. Props: `content`, `side` (`top` | 
 <Meter value={72} label="5h window" />
 ```
 
-## Nav
-
-Top-bar page tabs with arrow-key focus. Props: `items: { id, label, count? }[]`, `current`, `onSelect(id)`, `label`
-(aria-label). Used by the shell; pages use `Tabs`.
-
-```tsx
-<Nav label="Pages" items={pages} current={page} onSelect={setPage} />
-```
-
 ## Icon
 
 Renders a lucide icon. Props: `name` (a key of `ICONS` in `Icon.tsx`; add the glyph there under a plain semantic name before using it on a page) or `icon` (a registry component such as `ICONS.users`, for `EmptyState`), `size` (`14` | `16` | `20`, default `16`), `label`
@@ -310,6 +302,103 @@ close (Esc refocuses the trigger); arrows move over rows marked `data-roving`.
   trigger={(p) => <IconButton {...p} icon={<Icon name="activity" />} label="Usage" />}>
   <Meter value={72} label="5h window" />
 </Popover>
+```
+
+## Workbench primitives (DESIGN-W13)
+
+The blocks of the VSCode-style workbench (docs/dev/DESIGN-W13.md §2–§7, §12). Views build on these instead of
+hand-rolling rows, panes, splitters or tab strips. Labels come from props, as everywhere in this folder.
+
+### Tree, TreeRow
+
+An ARIA tree (`role="tree"` / `treeitem`) of 22px rows: 8px indent per level with hover indent guides, a twistie,
+a 16px icon, the label, a dim description, then badge / decoration on the right, which the hover actions replace.
+Props: `rows: TreeItem[]` (flattened, parents before children, collapsed subtrees left out), `selectedId`,
+`onSelect(id)`, `onToggle(id, expanded)`, `onOpen(id)` (Enter, double-click), `onContextMenu(id, e)` (pass `e` to
+`menuPointOf`), `label` (aria-label), `className`.
+`TreeItem`: `id`, `depth` (0 = top level), `label` (string: type-ahead reads it), `icon?`, `description?`, `badge?`,
+`expanded?`, `hasChildren?`, `actions?` (sm `IconButton`s), `decoration?` (`{ icon?, text, tone? }`, a status icon plus a word).
+Focus stays on the tree and `aria-activedescendant` names the cursor row; the selection follows the cursor.
+Keys: Up/Down, Right (expand, then first child), Left (collapse, then parent), Home/End, Enter, type-ahead; the logic
+is the pure `treeNav.ts` (`treeKeyAction`, `treeWindow`). Past 200 rows only the viewport plus overscan is drawn.
+The tree scrolls itself: give it a height (it fills a `ViewPane` body). `TreeRow` is one row on its own (depth 0,
+no children: a list row).
+
+```tsx
+<Tree label="Files" rows={rows} selectedId={sel} onSelect={setSel} onToggle={toggle} onOpen={openFile}
+  onContextMenu={(id, e) => { e.preventDefault(); setMenu({ id, at: menuPointOf(e) }) }} />
+```
+
+### ViewPane, ViewContainer
+
+`ViewPane` is a collapsible side-bar section: a 22px header (twistie, 11px uppercase title, count badge, actions
+shown on hover or focus-within) over a scrolling body. Props: `title`, `count?`, `actions?`, `storageKey?` (persists
+the expanded state under `cm.section.<key>`; localStorage in try/catch), `defaultExpanded` (default true),
+`children`, `className`. `ViewContainer` stacks panes: the open ones split the height, closed ones keep their header.
+
+```tsx
+<ViewContainer>
+  <ViewPane title="Consoles" count={4} storageKey="agents.consoles" actions={<Toolbar label="Consoles" items={acts} />}>
+    <Tree label="Consoles" rows={rows} />
+  </ViewPane>
+</ViewContainer>
+```
+
+### Sash
+
+A resize handle: a 4px hit area over the region border that shows `--focus-border` on hover and while dragging.
+Props: `orientation` (`vertical` resizes a width, `horizontal` a height), `size` (current px), `min`, `max`,
+`reverse` (the handle is on the pane's leading edge: a bottom panel, a right side bar), `onResize(px)` (each frame
+while dragging, rAF-throttled, and each arrow key), `onResizeEnd(px)` (persist here), `label`, `className`.
+`role="separator"` with `aria-valuenow/min/max`; arrow keys step 8px. The clamp maths is `sashSize` in `logic.ts`.
+
+```tsx
+<Sash orientation="horizontal" reverse size={panelH} min={100} max={800} label={t('panel.resize')}
+  onResize={setPanelH} onResizeEnd={savePanelH} />
+```
+
+### Toolbar
+
+A row of 22px icon buttons with one Tab stop (roving tabindex; Left/Right/Home/End move). Props: `items:
+{ id, icon, label, onClick, active?, disabled? }[]`, `overflow?` (Menu rows behind a trailing "⋯"), `overflowLabel`,
+`label` (aria-label), `className`.
+
+```tsx
+<Toolbar label="Explorer" items={[{ id: 'new', icon: <Icon name="fileAdd" />, label: 'New file', onClick: create }]}
+  overflow={[{ label: 'Collapse all', onSelect: collapse }]} overflowLabel="More actions" />
+```
+
+### ActivityBarItem
+
+A 48x48 activity-bar button: dim icon, full colour on hover and when active, plus a 2px accent bar on the left edge
+when active. Props: `icon` (24px lucide element), `label` (aria-label and title; a count is added to the aria-label),
+`active` (`aria-pressed`), `badge?` (hidden at 0, "9+" above 9: `badgeText` in `logic.ts`), plus native button props.
+
+```tsx
+<ActivityBarItem icon={<SquareTerminal size={24} />} label="Agents" active={view === 'agents'} badge={needsYou} onClick={...} />
+```
+
+### EditorTab
+
+A 35px `role="tab"`: icon, label, dim description, then a close button shown on hover and on the active tab; a
+`dirty` tab shows a dot there until hover. Middle-click and Delete close. Props: `label`, `icon?`, `description?`,
+`active`, `groupFocused` (default true: the active tab's 2px top border; false: none), `dirty`, `onSelect`,
+`onClose?`, `closeLabel` (required with `onClose`), plus div props (`draggable`, drag handlers, `title`, `tabIndex`).
+Put the tabs in a `role="tablist"` strip.
+
+```tsx
+<EditorTab icon={<Icon name="terminal" />} label="T4 · Worker 2" active dirty={live} onSelect={focus}
+  onClose={close} closeLabel={t('tab.close')} />
+```
+
+### StatusBarItem
+
+A 22px status-bar entry, icon (14px) and text. A button with a `--wash` hover when it has `onClick`, plain text
+without. Props: `icon?`, `children`, `onClick?`, `title?` (also the name of an icon-only item), `tone?` (`warn` |
+`danger`, pair with a word), `className`.
+
+```tsx
+<StatusBarItem icon={<Icon name="branch" size={14} />} onClick={openScm}>main</StatusBarItem>
 ```
 
 ## Which one when

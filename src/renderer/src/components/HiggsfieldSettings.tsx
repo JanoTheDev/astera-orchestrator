@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
 import { hfAccountTitle, hfWorkspaceLabel } from '../../../core/higgsfield/display'
-import { Button, ConfirmDialog, Select } from './ui'
+import { Button, ConfirmDialog, Input, Select } from './ui'
 
 type HfList = Awaited<ReturnType<typeof window.api.higgsfield.list>>
 type HfAccountRow = HfList['accounts'][number]
@@ -200,9 +200,9 @@ export function HiggsfieldSettings(): React.JSX.Element {
         {data !== null && data.accounts.length === 0 && <li className="empty">{t('higgsfield.none')}</li>}
       </ul>
       <div className="settings-row">
-        <input
+        <Input
           type="text"
-          className="settings-gen-input"
+          
           value={label}
           placeholder={t('higgsfield.label')}
           aria-label={t('higgsfield.label')}

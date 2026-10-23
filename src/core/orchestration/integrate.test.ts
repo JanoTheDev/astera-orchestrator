@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  latestAttempts,
   buildIntegrationSpec,
   integrationTaskFor,
   isIntegrationTask,
@@ -549,5 +550,13 @@ describe('runWorktrees 와 Run 워크트리', () => {
       ]
     })
     expect(runWorktrees(s, 'run_1')).toEqual([WT_B, WT_A])
+  })
+})
+
+describe('latestAttempts', () => {
+  it("keeps each Task's latest Dispatch: an earlier attempt's worktree is not delivered again", () => {
+    const d = (id: string, taskId: string, startedAt: string, cwd: string) => ({ id, taskId, startedAt, cwd }) as Dispatch
+    const all = [d('d1', 't1', '2026-10-23T11:00:00Z', '/wt/a'), d('d2', 't2', '2026-10-23T11:30:00Z', '/wt/b'), d('d3', 't1', '2026-10-23T15:00:00Z', '/wt/a-3')]
+    expect(latestAttempts(all).map((x) => x.id)).toEqual(['d2', 'd3'])
   })
 })

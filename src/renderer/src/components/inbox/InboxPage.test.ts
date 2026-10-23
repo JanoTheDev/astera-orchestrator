@@ -1,4 +1,4 @@
-// W9-D: what the cards offer (InboxPage.tsx NeedCardView), rendered to markup.
+// W9-D: what the Needs you rows offer (InboxPage.tsx NeedCardView), rendered to markup, expanded.
 import { describe, expect, it, vi } from 'vitest'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
@@ -15,6 +15,7 @@ const render = (c: NeedCard): string =>
     React.createElement(NeedCardView, {
       c,
       nowMs: Date.parse('2026-10-18T09:12:00Z'),
+      open: true,
       door: {} as never,
       ui: {} as ActionUi,
       t: ((k: Parameters<typeof t>[1], p?: Parameters<typeof t>[2]) => t('en', k, p)) as never
@@ -22,12 +23,20 @@ const render = (c: NeedCard): string =>
   )
 
 describe('NeedCardView', () => {
+  it('collapsed, a row is the toggle and its one action, with no body', () => {
+    const html = renderToStaticMarkup(React.createElement(NeedCardView, { c: card({ kind: 'permission', sessionId: 's1' }), nowMs: Date.parse('2026-10-18T09:12:00Z'), door: {} as never, ui: {} as ActionUi, t: ((k: Parameters<typeof t>[1]) => t('en', k)) as never }))
+    expect(html).toContain('aria-expanded="false"')
+    expect(html).not.toContain('Answer in its console')
+  })
+
   it('a permission wait offers only "Answer in its console"', () => {
     const html = render(card({ kind: 'permission', sessionId: 's1', taskTitle: 'T1' }))
     expect(html).toContain('Answer in its console')
     expect(html).toContain('gameful › L4 · T1')
     expect(html).toContain('12 min')
-    expect(html.match(/<button/g)).toHaveLength(1)
+    // the row's toggle and its Open action, plus the one body action
+    expect(html.match(/<button/g)).toHaveLength(3)
+    expect(html).toContain('>Open<')
   })
 
   it('an approval with an overlap names the files and offers Start after and Move', () => {

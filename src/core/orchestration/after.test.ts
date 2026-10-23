@@ -37,6 +37,8 @@ describe('afterStandOf', () => {
     expect(stand({}, { status: 'ready' })).toBe('waiting')
     expect(stand({})).toBe('waiting')
     expect(stand({ pr: { at: NOW, url: 'u', draft: true } })).toBe('waiting')
+    // a delivery that failed once and is retried is still coming
+    expect(stand({ pr: { at: NOW, error: 'does not merge cleanly' }, deliveryState: { state: 'retrying', attempts: 2 } })).toBe('waiting')
     expect(afterStandOf(state({ jobs: [job({ id: 'job_a', pendingStart: true })] }), 'job_a')).toBe('waiting')
   })
 

@@ -2,7 +2,8 @@
 import { useRef, useState } from 'react'
 import { formatChord, resolveBindings, type Bindings } from '../../../core/keys/binding'
 import { ACTIONS } from '../lib/actions'
-import { initialPage, PAGE_STORAGE_KEY, type PageId } from '../../../core/ui/pages'
+import { initialPage, PAGE_STORAGE_KEY, type ActivityId, type PageId } from '../../../core/ui/pages'
+import { readWorkbenchLayout, storageRead } from '../components/shell/shellView'
 import type { useLayout } from './useLayout'
 
 export type SidebarDeps = Pick<ReturnType<typeof useLayout>,
@@ -21,7 +22,13 @@ export function useSidebar(_deps: SidebarDeps) {
    *  so a rebind shows up here too. Undefined when the user cleared every binding for it. */
   const runSelectConfigChord = bindingsRef.current['run.selectConfig']?.[0]
   const runSelectConfigShortcut = runSelectConfigChord ? formatChord(runSelectConfigChord) : undefined
-  const [sidebarOpen, setSidebarOpen] = useState(true)
+  // DESIGN-W13: the side bar's view (activity), whether it shows and its width, as last left (shell/shellView.ts)
+  const [launch] = useState(() => readWorkbenchLayout(storageRead))
+  const [activity, setActivity] = useState<ActivityId>(launch.activity)
+  const activityRef = useRef(activity)
+  activityRef.current = activity
+  const [sidebarWidth, setSidebarWidth] = useState(launch.sidebarWidth)
+  const [sidebarOpen, setSidebarOpen] = useState(launch.sidebarVisible)
   const [explorerOpen, setExplorerOpen] = useState(false)
   // 키 핸들러는 []로 한 번만 등록되어 첫 렌더의 클로저를 붙잡는다. toggleExplorer 가 렌더 값을 읽으면
   // 단축키가 늘 같은 방향으로만 계산되므로, 최신 값을 이 ref 로 읽는다(이 파일의 다른 ref 들과 같은 이유)
@@ -45,6 +52,7 @@ export function useSidebar(_deps: SidebarDeps) {
   return {
     page, setPage, pageRef,
     keyOverrides, setKeyOverrides, bindingsRef, runSelectConfigShortcut,
+    activity, setActivity, activityRef, sidebarWidth, setSidebarWidth,
     sidebarOpen, setSidebarOpen, explorerOpen, setExplorerOpen, explorerOpenRef, sidebarOpenRef
   }
 }

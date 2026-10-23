@@ -182,7 +182,6 @@ export const common: Partial<Record<keyof typeof ko, string>> = {
   'session.toast.stalled':
     'セッション「{title}」が停止しています — 自動再開に失敗しました。確認が必要です',
   // HistoryBrowser.tsx
-  'history.panel.title': '履歴',
   'run.validation.tag': '検証',
   // App.tsx runManagerApply — shown when the run.saveConfigs IPC throws
   'run.config.saveFailed': '保存に失敗しました: {detail}',
@@ -290,7 +289,6 @@ export const common: Partial<Record<keyof typeof ko, string>> = {
   'jobs.task.accountHint':
     'この Task のワーカーを起動するアカウントです — 最初のアカウントがどのエージェントで動かすかを決めるので、必ず1つ選んでください。2つ以上選ぶと、利用上限に達したときに並べた順に切り替わります',
   // How It Works — プロジェクト理解
-  'hiw.title': 'How It Works',
   'hiw.record.regenerateFailed': '作り直しに失敗しました: {detail}',
   'hiw.pane.notInProject': 'このタブの記録は、現在開いているプロジェクトには見つかりません。',
   'hiw.open.complete': '完了',
@@ -336,6 +334,5 @@ export const common: Partial<Record<keyof typeof ko, string>> = {
   'plan.failedWait.acceptReason': 'オーナーが完了として承認',
   'plan.failedWait.failed': '失敗したタスクを処理できませんでした',
   // W9-F: orchestration panels (shell, attribution, inbox …)
-  'shell.page.inbox': '受信箱',
   'inbox.kind.waiting': '待機中',
 }

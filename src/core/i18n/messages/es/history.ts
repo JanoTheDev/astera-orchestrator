@@ -15,7 +15,6 @@ export const history: Partial<Record<keyof typeof ko, string>> = {
   'history.resume.folderMissingBody':
     'La carpeta original del proyecto no existe:\n{cwd}\n\n¿Elegir otra carpeta para reanudar?',
   'history.resume.pickFolder': 'Elegir carpeta',
-  'history.panel.count': '{n} proyectos',
   'history.panel.emptyHint': 'Las sesiones anteriores con agentes aparecen aquí, agrupadas por proyecto.',
   'history.menu.label': 'Acciones del proyecto',
   'history.entry.unread': 'Esperando tu respuesta',
@@ -119,4 +118,7 @@ export const history: Partial<Record<keyof typeof ko, string>> = {
   'hiw.verify.unverified': 'No se comprobó nada',
   'hiw.verify.failed': 'Una comprobación reportada falló',
   'hiw.verify.reported': 'Lo reportó el agente — la aplicación no lo ejecutó por su cuenta',
+  'history.entry.copyId': 'Copiar id de sesión',
+  'history.session.menu': 'Acciones de la sesión',
+  'history.view.accountFilter': 'Filtrar por cuenta',
 }

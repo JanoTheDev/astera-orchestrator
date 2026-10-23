@@ -175,8 +175,8 @@ export function projectOptions(projects: readonly { name: string; path: string }
 
 /** After Start made the Job: the planner's terminal opens when it started now; a plan queued after another goes to the
  *  agents list (no planner yet). */
-export const afterCreate = (sessionId: string | undefined): { openConsole: string } | { openPage: 'agents' } =>
-  sessionId ? { openConsole: sessionId } : { openPage: 'agents' }
+export const afterCreate = (sessionId: string | undefined): { openConsole: string } | { openActivity: 'agents' } =>
+  sessionId ? { openConsole: sessionId } : { openActivity: 'agents' }
 
 // T2 Start after: only plans that have not finished
 /** A `jobs-list` row: the Job with the fields `jobView` derives. */

@@ -74,6 +74,9 @@ input[type="checkbox"]:not(.md-task input):not(.ui-toggle):disabled { opacity: .
 /* 상자만 흐리면 라벨 글자는 그대로라 줄이 아직 살아 있어 보인다. 줄 전체를 흐리게 해야
    "이 항목은 지금 쓸 수 없다"가 읽힌다. :has() 는 Chrome 105+ 이고 이 앱은 146 이다. */
 label.check-small:has(input:disabled) { opacity: .55; }
+/* 비활성 줄은 위에서 이미 흐리다. 안내(.check-note)가 .dlg 의 .6 까지 곱하면 .55×.85×.6 ≈ .28 로 읽히지 않는다 —
+   안내는 되돌리고, 줄이 흐린 만큼은 muted 글자색이 맡는다. 안내가 바로 "왜 못 쓰는가"이므로 읽혀야 한다. */
+.dlg label.check-small:has(input:disabled) .check-note { opacity: 1; color: var(--text-dim); }
 input[type="checkbox"]:not(.md-task input):not(.ui-toggle):checked {
   background: var(--accent);
   border-color: var(--accent);
