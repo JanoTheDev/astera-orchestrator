@@ -6,6 +6,7 @@ import { EmptyState, ICONS, Icon, Input, Switch, Tree, type IconName, type TreeI
 import { useAdvancedMode } from '../../state/useAdvancedMode'
 import type { SettingsDialogProps } from '../shell/SettingsDialog'
 import { GROUP_LABEL, SETTINGS_GROUPS, SETTINGS_ROWS, filterSettings, groupsShown, type SettingsGroupId } from './settingsIndex'
+import { anchorRevealGroup } from './settingsAnchor'
 import { ShowAdvancedContext, type GroupProps } from './SettingRow'
 import { GeneralSettings } from './GeneralSettings'
 import { AccountsUsageSettings } from './AccountsUsageSettings'
@@ -46,11 +47,17 @@ export function SettingsPage(p: SettingsDialogProps & { onClose: () => void }): 
   const { settingsTab, setSettingsTab, settingsAnchor, setSettingsAnchor, t } = p
   const [query, setQuery] = useState('')
   const [advanced, setAdvanced] = useAdvancedMode()
+  // The groups an openSettings anchor revealed this visit: their advanced rows show, Advanced mode stays off.
+  const [revealed, setRevealed] = useState<ReadonlySet<SettingsGroupId>>(new Set())
   const content = useRef<HTMLDivElement>(null)
 
   const hits = useMemo(() => (query.trim() ? filterSettings(SETTINGS_ROWS, query, t) : null), [query, t])
   const only = useMemo(() => (hits ? new Set(hits.map((h) => h.anchor)) : null), [hits])
-  const visible = useMemo(() => groupsShown(advanced, only), [advanced, only])
+  const visible = useMemo(() => {
+    const shown = groupsShown(advanced, only)
+    if (only === null) revealed.forEach((g) => shown.add(g))
+    return shown
+  }, [advanced, only, revealed])
 
   const scrollToGroup = (g: SettingsGroupId): void => {
     content.current?.querySelector<HTMLElement>(`[data-group="${g}"]`)?.scrollIntoView({ block: 'start' })
@@ -72,12 +79,14 @@ export function SettingsPage(p: SettingsDialogProps & { onClose: () => void }): 
     return () => io.disconnect()
   }, [visible, setSettingsTab])
 
-  // openSettings(group, anchor): the search would hide the row, so it is cleared first; an advanced row opens Advanced
-  // mode; the scroll waits a frame for the rows to render. A bare group scrolls to its heading.
+  // openSettings(group, anchor): the search would hide the row, so it is cleared first; an advanced row's group is
+  // revealed for this visit (Advanced mode stays as it is); the scroll waits a frame for the rows to render. A bare
+  // group scrolls to its heading.
   useEffect(() => {
     if (!settingsAnchor) return
     setQuery('')
-    if (SETTINGS_ROWS.find((r) => r.anchor === settingsAnchor)?.level === 'advanced') setAdvanced(true)
+    const reveal = anchorRevealGroup(settingsAnchor)
+    if (reveal) setRevealed((prev) => new Set(prev).add(reveal))
     let timer: ReturnType<typeof setTimeout> | undefined
     const frame = requestAnimationFrame(() => {
       const row = content.current?.querySelector<HTMLElement>(`[data-anchor="${CSS.escape(settingsAnchor)}"]`)
@@ -91,7 +100,7 @@ export function SettingsPage(p: SettingsDialogProps & { onClose: () => void }): 
       cancelAnimationFrame(frame)
       if (timer) clearTimeout(timer)
     }
-  }, [settingsAnchor, setSettingsAnchor, setAdvanced])
+  }, [settingsAnchor, setSettingsAnchor])
 
   const toc: TreeItem[] = SETTINGS_GROUPS.filter((g) => visible.has(g)).map((g) => ({
     id: g,
@@ -149,7 +158,7 @@ export function SettingsPage(p: SettingsDialogProps & { onClose: () => void }): 
             return (
               <section key={g} className="settings-editor__group" data-group={g} hidden={!shown}>
                 {shown && <h2 className="settings-editor__group-label">{t(GROUP_LABEL[g])}</h2>}
-                <ShowAdvancedContext.Provider value={advanced || only !== null}>
+                <ShowAdvancedContext.Provider value={advanced || only !== null || revealed.has(g)}>
                   <View {...p} shown={shown} only={only} />
                 </ShowAdvancedContext.Provider>
               </section>

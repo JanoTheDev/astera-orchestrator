@@ -36,7 +36,7 @@ export function ConsoleHeader({
             {h.plan.name}
           </Button>
           <Icon name="chevronRight" size={14} aria-hidden="true" />
-          <Button size="sm" variant="ghost" className="console-head__link" title={t('agents.header.task', { name: h.task! })} onClick={() => openPlan(h.plan!.jobId, 'waves')}>
+          <Button size="sm" variant="ghost" className="console-head__link" title={t('agents.header.task', { name: h.task! })} onClick={() => openPlan(h.plan!.jobId, c.taskId ? `task-${c.taskId}` : 'waves')}>
             {h.task}
           </Button>
         </span>
