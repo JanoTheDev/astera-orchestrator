@@ -2491,16 +2491,18 @@ describe('task-create --account', () => {
       ]
     })
 
-  // 이 목록이 provider 의 유일한 출처이므로(Task.accountIds), 없으면 어느 CLI 로 띄울지 알 방법이
-  // 없다. 예전에는 Run 이 provider 를 들고 있어 비워 두면 그 provider 의 기본 계정으로 갔다.
-  it('--account 가 없으면 거절한다 — provider 의 출처가 이 목록뿐이다', async () => {
+  // T1: no --account is "auto" (accountIds empty): the Task starts on the account with most room when placed, instead
+  // of every coordinator pinning its own account (the owner's CLI default) on it
+  it('without --account the Task is auto (no account); a given --account still validates', async () => {
     const deps = accountDeps()
     const run = await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p' })
     const runId = (run.body as { id: string }).id
     const r = await call(deps, 'task-create', { runId, spec: 's' })
-    expect(r.status).toBe(400)
-    expect(String((r.body as { error?: string }).error)).toContain('--account is required')
-    expect(deps.getState().tasks).toHaveLength(0)
+    expect(r.status).toBe(200)
+    expect(deps.getState().tasks[0].accountIds ?? []).toEqual([])
+    const bad = await call(deps, 'task-create', { runId, spec: 's', account: 'nope' })
+    expect(bad.status).toBe(404)
+    expect(deps.getState().tasks).toHaveLength(1)
   })
 
   // 섞이면 첫 계정으로 띄운 CLI 가 한도에 걸렸을 때 다른 CLI 의 계정으로 갈아타려 한다 — 그것은
@@ -3615,6 +3617,26 @@ describe('worker-start — usage guard', () => {
     expect(auto.status).toBe(200)
     expect(deps.getState().dispatches.at(-1)!.accountId).toBe('acc9')
     expect(released).toBe(2)
+  })
+
+  // T1: with "Pick accounts automatically" on, a named account is a preference, as for planner and coordinator starts
+  it('auto on: a paused --account starts on the account with room and tells the switch; off: refused as before', async () => {
+    const { deps, task } = await setup({ acc1: pause })
+    const switched: unknown[] = []
+    let released = 0
+    deps.startAccount = async () => ({ ok: true, accountId: 'acc9', release: () => void released++ })
+    deps.usageGuard = { ...deps.usageGuard!, autoAccounts: () => true, switched: (e) => void switched.push(e) }
+    const r = await start(deps, task)
+    expect(r.status).toBe(200)
+    expect(deps.getState().dispatches.at(-1)!.accountId).toBe('acc9')
+    expect(switched).toEqual([{ from: 'acc1', to: 'acc9', reason: expect.stringContaining('93% of its 5-hour limit') }])
+    expect(released).toBe(1)
+    const off = await setup({ acc1: pause })
+    off.deps.startAccount = deps.startAccount
+    off.deps.usageGuard = { ...off.deps.usageGuard!, autoAccounts: () => false }
+    const refused = await start(off.deps, off.task)
+    expect(refused.status).toBe(409)
+    expect(refused.body).toMatchObject({ usagePaused: pause, alternative: 'acc9' })
   })
 
   it('without --account and no account with room: held with the reason, nothing opened', async () => {
@@ -6767,7 +6789,7 @@ describe('jobs create / tasks add / accounts list', () => {
     expect(deps.getState().tasks).toHaveLength(0)
   })
 
-  it('없는 계정·deps·parent 는 404, 없는 spec·account 는 400 이다', async () => {
+  it('없는 계정·deps·parent 는 404, 없는 spec 은 400, 없는 account 는 auto 다', async () => {
     const deps = makeDeps()
     const jobId = await jobOf(deps)
     expect((await shell(deps, 'tasks-add', { job: jobId, spec: 's', account: 'nope' })).status).toBe(404)
@@ -6778,7 +6800,8 @@ describe('jobs create / tasks add / accounts list', () => {
       (await shell(deps, 'tasks-add', { job: jobId, spec: 's', account: 'acc1', parent: 'tsk_x' })).status
     ).toBe(404)
     expect((await shell(deps, 'tasks-add', { job: jobId, account: 'acc1' })).status).toBe(400)
-    expect((await shell(deps, 'tasks-add', { job: jobId, spec: 's' })).status).toBe(400)
+    // T1: no --account is "auto" (no account)
+    expect((await shell(deps, 'tasks-add', { job: jobId, spec: 's' })).status).toBe(200)
   })
 
   // phase D: 검사 구성 id 는 `run-configs list --job` 이 준다. 그 목록은 계획의 폴더의 것이다 —

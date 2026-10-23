@@ -714,8 +714,8 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       {
         name: 'account',
         value: '<id,…>',
-        required: true,
-        about: 'the accounts a worker may run on, in failover order (from `accounts list`)'
+        // T1: omitted is auto, so Tasks do not all pin the caller's own account
+        about: 'only when the person named accounts: the ones a worker may run on, in failover order (from `accounts list`); omitted, Astera starts it on the account with most room'
       },
       { name: 'title', value: '<text>', about: "a short name (default: the spec's first line)" },
       { name: 'prompt', value: '<text|->', about: "the worker's prompt (default: the spec)" },

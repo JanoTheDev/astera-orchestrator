@@ -65,8 +65,8 @@ but every edit, build or commit is done by a worker, through a Task. Two cases:
   person through `gate-create` rather than editing around it.
 - **It came with no Tasks** (a Job made with `jobs create` or MCP `create_job` carries only its
   objective). Planning it is your first job: break the objective into a few concrete Tasks with
-  `task-create --run <runId>` (4.2), with `--deps`, an account per Task (the one you run on, which the
-  prompt names, unless the objective names another; one provider per Task), and `--validate` with the
+  `task-create --run <runId>` (4.2), with `--deps`, no `--account` unless the objective or the person
+  names one (omitted, Astera starts each Task on the account with most room; one provider per Task), and `--validate` with the
   Job's run configurations (`run-configs list --job <jobId>`) when there are any; `--review` only when
   the objective asks for one. Then run them as above. A Gate needs a Task: to ask the person
   something before any Task exists, create the first Task (the investigation, say) and open the Gate
@@ -202,24 +202,24 @@ spends quota** — attaching it to a Task like a one-line documentation fix is t
 # 1) Create the Run — always pass --cwd (see 4.1). --json returns its id; every task-create takes it
 astera run-create --objective "refactor the auth module" --cwd "/abs/path/to/repo" --json
 
-# 2) Check the accounts — a Task's --account decides which agent runs it, and it is required (4.2).
-#    If which account to use was not stated and more than one could apply, ask before creating Tasks.
+# 2) Accounts — leave --account off unless the person named one (4.2): Astera then starts each Task on the
+#    account with most room. When they did name one, check its id here.
 astera accounts --json
 
 # 3) Create N Tasks — pass --run with the id from step 1 (see 4.2; the default is app-wide)
-astera task-create --run run_9f8e7d6c5b4a3210 --account acc_main --title "consolidate types" --spec - --json <<'EOF'
+astera task-create --run run_9f8e7d6c5b4a3210 --title "consolidate types" --spec - --json <<'EOF'
 Consolidate the core/auth types into one place. ...
 EOF
-astera task-create --run run_9f8e7d6c5b4a3210 --account acc_sub --title "add tests" --spec - --deps '["tsk_1a2b3c4d"]' --json <<'EOF'
+astera task-create --run run_9f8e7d6c5b4a3210 --title "add tests" --spec - --deps '["tsk_1a2b3c4d"]' --json <<'EOF'
 Once the consolidation above is done, add regression tests. ...
 EOF
 
-# 4) Start N workers — the ids came from step 2
+# 4) Start N workers — without --account Astera picks the account with most room
 #    --worktree new **requires** --name (4.3) — without it the request is rejected with a 400
 #    One at a time: one `astera worker-start` per command, wait for its answer before the next; never background it
 #    with `&` or run several in one shell line. Before ending your turn, start every ready Task the concurrency allows.
-astera worker-start --task tsk_1a2b3c4d --agent claude --account acc_main --worktree new --name types-cleanup --json
-astera worker-start --task tsk_5e6f7a8b --agent codex --account acc_sub --worktree new --name add-tests --json
+astera worker-start --task tsk_1a2b3c4d --agent claude --worktree new --name types-cleanup --json
+astera worker-start --task tsk_5e6f7a8b --agent claude --worktree new --name add-tests --json
 
 # 5) End your turn. Do not wait in a loop: Astera sends you a message the moment a worker reports done or
 #    failed, a Task becomes ready, a merge into the plan branch succeeds or fails, or a Gate is answered,
@@ -234,7 +234,7 @@ EOF
 astera check --run run_9f8e7d6c5b4a3210 --ack dlv_aaaa1111 --json
 
 # 7) Clean up when done — reuse the session if there is follow-up work, otherwise release it
-astera worker-start --task tsk_next --agent claude --account acc_main --terminal <sessionId> --json
+astera worker-start --task tsk_next --agent claude --terminal <sessionId> --json
 astera worker-release --dispatch dsp_c3c3c3c3 --json
 ```
 
@@ -343,7 +343,7 @@ and several commands you would otherwise reach for are refused while that is hap
 ### 4.2 Task and Gate
 
 ```
-task-create --title <s> --spec <s|-> --account <id,…> [--run <run>] [--deps <json_array>] [--validate <configId,…>] [--review] [--json]
+task-create --title <s> --spec <s|-> [--account <id,…>] [--run <run>] [--deps <json_array>] [--validate <configId,…>] [--review] [--json]
 tasks list [--run <run>] [--status <s>] [--ready] [--brief] [--json]
 task-update --id <tsk> --status <s> [--result <s|->] [--json]   # bypasses the transition table — see section 8
 task-update --id <tsk> --convergence off [--json]                # stops the app's own repairs on this Task — section 11
@@ -373,10 +373,12 @@ questions list [--task <tsk>] [--status <s>] [--json]
   other Run — but `task-create` with no explicit run attaches to the most recently created Run, which
   can be one of those — pass `--run <run>` so it cannot. Use `--deps` to say what a Task follows;
   that is what the graph is built from (`--deps` orders Tasks, it does not choose their Run).
+- **Leave `--account` off unless the person named an account.** A Task with no account is automatic:
+  when it starts, Astera puts it on the claude account with the most room, and moves it on at a usage
+  limit; it waits only when every account is full. Do not put the account you run on: that pins every
+  Task to one account, and they all wait when it is spent while others have room.
 - **`--account <id>` or `--account <id>,<id>,…` sets the accounts this Task's worker runs on, in
-  order, and it is required** — the ids come from `accounts` (4.3). **This list is the only thing that
-  says which agent runs the Task.** A Run no longer carries a provider, so a Task with no accounts
-  cannot be started by anyone: `task-create` rejects it, and the app's own scheduler skips it.
+  order** — the ids come from `accounts` (4.3). Named, the list says which agent runs the Task.
 - **Every account in one `--account` list has to be the same provider** — `task-create` rejects a
   mixed list, naming both offending ids, the same way it rejects an empty entry (`a,,b`) or a repeated
   id (`a,a`). Two Tasks in the **same Run** may use different providers; that is the point of the
@@ -387,16 +389,10 @@ questions list [--task <tsk>] [--status <s>] [--json]
   or not logged in — the Task does not fall back to the next one: dispatch fails and a Gate opens for
   you to resolve, the same as an unrunnable validation or review (section 2). Only accounts after the
   first are dropped in place like that.
-- **When the person who asked for the Job did not say which account to use, do not pick one for them
-  beyond the one unambiguous case.** (A coordinator planning a Run handed to it with no Tasks, section
-  1, is the exception: the account it runs on is the default its first prompt names.) Run
-  `accounts --json` (4.3) first, then:
-  - exactly one account exists → use it, and say which one you used;
-  - they named a provider (or the work plainly requires one) and that provider has exactly one account
-    → use it, and say which one;
-  - anything else → **ask them, listing the accounts by label with their provider**, and wait. Do not
-    create the Tasks first and fix the accounts afterwards: a Task's accounts decide which agent runs
-    it, and picking on their behalf spends the quota they were saving.
+- **When the person who asked for the Job did not say which account to use, do not pick one for them**:
+  omit `--account` and Astera picks per Task. When they named a provider rather than an account (or the
+  work plainly requires codex), run `accounts --json` (4.3) and name that provider's accounts; when it
+  has more than one and they did not say which, ask them, listing the accounts by label.
 - **`--validate <configId>` or `--validate <configId>,<configId>,…` makes this Task's completion depend
   on one or more run configurations**, not just the worker's own report — the ids come from
   `run-configs` (4.1). Omit it and nothing changes: `worker_done --outcome succeeded` completes the
@@ -501,9 +497,9 @@ accounts [--agent <claude|codex>] [--json]
 - **On a convergence Run, `worker-release` refuses a Dispatch whose Task is still converging** —
   `409 task <tsk> is still converging — release after it completes`. Section 11 has the exact
   condition; do not read a 409 here as "retry the release," read it as "wait."
-- `accounts` returns `data.accounts`, a list of `{ id, label, provider }`. **Looking the accounts up first and then choosing
-  `--account`** is the core of what this app adds to orchestration — never guess, always confirm a
-  real id with `accounts` before passing it to `worker-start`. **Usage and remaining quota are not
+- `accounts` returns `data.accounts`, a list of `{ id, label, provider }`. **When you pass `--account`,
+  look the accounts up first** — never guess, always confirm a real id with `accounts` before passing
+  it to `worker-start`. Without `--account`, `worker-start` picks the account with most room. **Usage and remaining quota are not
   included** — they cannot be known at lookup time. Quota only becomes known through a failed
   worker's `limitResetsAt` (section 7).
 - A Task that has reached 3 consecutive failures (`consecutiveFailures`) has
@@ -1290,10 +1286,10 @@ astera jobs create --objective "migrate the payment module" --cwd "/abs/path/to/
 astera run-configs list --job job_4f2a --json
 
 # 4) Its Tasks. Each comes back with its own id in .data.id; --deps takes those ids
-astera tasks add --job job_4f2a --account acc_main --title "move the types" --spec - --json <<'EOF'
+astera tasks add --job job_4f2a --title "move the types" --spec - --json <<'EOF'
 Move the payment types into src/payments/types.ts. ...
 EOF
-astera tasks add --job job_4f2a --account acc_main --title "add tests" --spec - --deps '["tsk_1a2b3c4d"]' --validate <configId> --json <<'EOF'
+astera tasks add --job job_4f2a --title "add tests" --spec - --deps '["tsk_1a2b3c4d"]' --validate <configId> --json <<'EOF'
 Once the types have moved, add regression tests. ...
 EOF
 ```

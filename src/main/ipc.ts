@@ -298,7 +298,7 @@ import { registerHiggsfieldIpc } from './higgsfield'
 import { registerAccountLoginIpc } from './accountLogin'
 import { createAccountUsage } from './accountUsage'
 // W6-G usage guards
-import { createUsageGuard } from '../core/orchestration/usageGuard'
+import { createUsageGuard, startPauseOf } from '../core/orchestration/usageGuard'
 import { readAccountReadings, withFetchedReadings } from '../core/usage/accountReadings'
 import { readAutoAccountsOn } from '../core/settings/autoAccounts'
 import { readSubagentCount, SUBAGENT_CAP_MAX } from '../core/sessions/subagentCap'
@@ -1563,8 +1563,18 @@ export function registerIpc(
     maxSessions: async () => core.appSettings.getAccountMaxSessions(),
     nowMs: () => Date.now()
   })
+  // T1: the logged-in accounts the board's usage reason reads (startPauseOf); the fold is synchronous, so they are read
+  // beside the usage timer, never in the fold
+  let loggedInIds: ReadonlySet<string> = new Set()
+  const readLoggedIn = (): void => {
+    Promise.all(core.accounts.list().map(async (a) => ((await core.accounts.loginStatus(a.id)) ? a.id : null)))
+      .then((ids) => (loggedInIds = new Set(ids.filter((id): id is string => id !== null))))
+      .catch((err) => orchLog(`usage guard: could not read logins: ${String(err)}`))
+  }
+  readLoggedIn()
   const usageTimer = setInterval(() => {
     usageGuard.refresh().catch((err) => orchLog(`usage guard: could not read usage: ${String(err)}`))
+    readLoggedIn()
   }, 60_000)
   usageTimer.unref?.()
   const orchSnapshotOf = (state: OrchState, projectPath: string): OrchSnapshot => {
@@ -1587,8 +1597,8 @@ export function registerIpc(
       Date.now(),
       // W2-C plan board: the app-wide cap, so a Task held by it says so
       { maxConcurrentWorkers: core.appSettings.getEffectiveMaxConcurrentWorkers() },
-      // W6-G
-      (id) => usageGuard.pauseOf(id)
+      // W6-G. T1: with "Pick accounts automatically" on, held only while the provider has no account with room
+      startPauseOf((id) => usageGuard.pauseOf(id), { auto: usageGuard.autoAccounts(), accounts: core.accounts.list(), loggedInIds })
     )
   }
   // The push is a notification hung off the awaited setState (below). It folds later in the tick, so a fold that

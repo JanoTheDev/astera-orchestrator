@@ -760,7 +760,7 @@ export interface OrchServerDeps {
   maxConcurrentWorkers?(): number | null | Promise<number | null>
   /** W6-G: the usage guard (usageGuard.ts): `worker-start` refuses a nearly spent account, for every placer. Each
    *  process keeps its own over its own sessions' statusLine readings. Absent: no usage pause. */
-  usageGuard?: Pick<UsageGuard, 'refresh' | 'pauseOf' | 'reserve'>
+  usageGuard?: Pick<UsageGuard, 'refresh' | 'pauseOf' | 'reserve'> & Partial<Pick<UsageGuard, 'autoAccounts' | 'switched'>>
   /** T5b (decision 6): the account a start takes (chooseStartAccount, exec/workerStart.ts): `preferred` while it has
    *  room, else the first usable of `own`, else the provider's account with most room; `ok: false` when none has room.
    *  The answer counts on its account until `release`. `worker-start` without `--account` starts on it, and a paused
@@ -4394,11 +4394,13 @@ export async function handleCommand(
       // **쉼표인 이유**: parseArgs 는 같은 플래그를 두 번 주면 뒤가 앞을 덮고, 배열은 JSON_ARRAY 로만
       // 받는다. `ask --options` 가 이미 CSV 이므로 그 관례를 쓴다 — 계정 하나만 주는 기존 호출은
       // 쉼표가 없으므로 그대로 흐른다.
+      // T1: no longer required: omitted is "auto" (`accountIds: []`), the shape a prompt-file plan's Tasks have; it
+      // starts on the claude account with most room when placed (exec/dispatchLoop.ts placeSlot). Required, every
+      // coordinator pinned its own account (the owner's CLI default) on each Task, and they waited on its usage.
       const accountArg = str(args.account)
-      if (accountArg === null) return bad('--account is required')
       // 검증은 parseAccountList 가 한다 — `run-create --coordinator-account` 와 **같은 규칙**이고,
       // 두 번 적으면 한쪽만 고쳐지는 날이 온다(그 함수의 주석).
-      const parsedAccounts = parseAccountList(accountArg, await deps.listAccounts(), '--account')
+      const parsedAccounts = accountArg === null ? { ok: true as const, ids: [] } : parseAccountList(accountArg, await deps.listAccounts(), '--account')
       if (!parsedAccounts.ok)
         return parsedAccounts.missing ? notFound(parsedAccounts.reason) : bad(parsedAccounts.reason)
       const accountIds: string[] = parsedAccounts.ids
@@ -4500,7 +4502,8 @@ export async function handleCommand(
         )
       if (task.consecutiveFailures >= FAILURE_LIMIT)
         return conflict(`task ${id} has failed ${task.consecutiveFailures} times in a row (circuit break); reset it with task-update first`)
-      if ((task.accountIds?.length ?? 0) === 0)
+      // T1: no account is "auto" with "Pick accounts automatically" on: the loop places it on the account with most room
+      if ((task.accountIds?.length ?? 0) === 0 && deps.usageGuard?.autoAccounts?.() !== true)
         return conflict(`task ${id} names no account to run on`)
       const limit = job?.concurrency ?? DEFAULT_CONCURRENCY
       const mine = new Set(s.tasks.filter((t) => t.runId === run.id).map((t) => t.id))
@@ -4895,20 +4898,29 @@ export async function handleCommand(
         if (pause) {
           // T5b: the best usable account of every account of that provider, not only the Task's chain
           const best = deps.startAccount ? await deps.startAccount({ provider: agent, own: task.accountIds ?? [], purpose: 'worker' }) : null
-          if (best?.ok) best.release()
-          const alternative = best ? (best.ok ? { ok: true as const, accountId: best.accountId } : { ok: false as const }) : usageChoice(task.accountIds ?? [], (id) => deps.usageGuard!.pauseOf(id))
-          const other = alternative.ok && alternative.accountId !== undefined && alternative.accountId !== account ? alternative.accountId : undefined
-          return {
-            status: 409,
-            body: {
-              error: usagePauseWhy(pause) + (other !== undefined ? `; start it with --account ${other}, or without --account to let Astera pick` : ''),
-              usagePaused: pause,
-              ...(other !== undefined ? { alternative: other } : {})
+          // T1: with "Pick accounts automatically" on, the named account is a preference, as for a planner or
+          // coordinator start (exec/plannerStart.ts): it starts on the one with room, and the switch is told
+          if (best?.ok && best.accountId !== account && deps.usageGuard.autoAccounts?.() === true) {
+            deps.usageGuard.switched?.({ from: account, to: best.accountId, reason: usagePauseWhy(pause) })
+            account = best.accountId
+            release = best.release
+          } else {
+            if (best?.ok) best.release()
+            const alternative = best ? (best.ok ? { ok: true as const, accountId: best.accountId } : { ok: false as const }) : usageChoice(task.accountIds ?? [], (id) => deps.usageGuard!.pauseOf(id))
+            const other = alternative.ok && alternative.accountId !== undefined && alternative.accountId !== account ? alternative.accountId : undefined
+            return {
+              status: 409,
+              body: {
+                error: usagePauseWhy(pause) + (other !== undefined ? `; start it with --account ${other}, or without --account to let Astera pick` : ''),
+                usagePaused: pause,
+                ...(other !== undefined ? { alternative: other } : {})
+              }
             }
           }
         }
       }
-      if (str(args.account)) release = deps.usageGuard?.reserve?.(account) ?? release
+      // A switched start already counts on its account (its `release`, above)
+      if (str(args.account) === account) release = deps.usageGuard?.reserve?.(account) ?? release
 
 
       // **`--worktree` 를 생략한 호출은 "이 Run 이 일하는 자리" 를 뜻한다** — 그것은 Run 이

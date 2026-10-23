@@ -2,6 +2,7 @@
 // alone, and nothing at all with the setting off.
 import { describe, expect, it } from 'vitest'
 import { DROPPED_ASK_MS, HOLD_ASK_MS, LEASE_ASK_MS, LEASE_TELL_MS, PLANNER_IDLE_MS, PLANNER_NUDGE, PLANNER_RESTART_MS, BACKOFF_MS, BUSY_REFRESH_MS, BUSY_TELL_MS, DEAD_COORDINATOR_MS, DRAFT_STALL_MS, IDLE_NUDGE, IDLE_STALL_MS, LOST_STALL_MS, MERGE_STALL_MS, READY_STALL_MS, STALL_WATCH_MS, TRIES, createStallWatch, stallRemedies, type StallEntry, type StallProbe, type StallRemedy } from './stallWatch'
+import { startPauseOf } from '../usageGuard'
 import { createDispatchLoop, type DispatchLoopContext } from './dispatchLoop'
 import { emptyState, type OrchState } from '../state'
 import type { ActivityDraft } from '../activity'
@@ -227,6 +228,18 @@ describe('stallRemedies', () => {
     expect(watch(plan({}, { paused: true }), every30s(20 * MIN))).toEqual([])
     // T11: never started, but never silent either: a feed line, then one owner question
     expect(watch(plan(), every30s(20 * MIN), { ...idle, paused: () => true })).toEqual(['note-dropped:tsk_1', 'ask:tsk_1'])
+  })
+
+  // T1: "Pick accounts automatically" on: a start rolls to an account with room, so neither Task is dropped
+  it('auto on: an auto Task, or one whose first account is paused while another has room, is started, not dropped', () => {
+    const auto: StallProbe = { ...idle, autoAccounts: true }
+    expect(watch(plan({ tasks: [task({ id: 'tsk_1', accountIds: [] })] }), every30s(5 * MIN), auto)).toEqual(['tell-start:tsk_1', 'place:tsk_1'])
+    const pause = { accountId: 'accA', window: 'seven_day' as const, percent: 99, resetsAt: null }
+    const accounts = [{ id: 'accA' }, { id: 'accB' }]
+    const room = startPauseOf((id) => (id === 'accA' ? pause : null), { auto: true, accounts, loggedInIds: new Set(['accA', 'accB']) })
+    expect(watch(plan(), every30s(5 * MIN), { ...auto, paused: (id) => room(id) !== null })).toEqual(['tell-start:tsk_1', 'place:tsk_1'])
+    // auto off: dropped as before
+    expect(watch(plan({ tasks: [task({ id: 'tsk_1', accountIds: [] })] }), every30s(20 * MIN))).toEqual(['note-dropped:tsk_1', 'ask:tsk_1'])
   })
 
   it('a coordinator busy 5 min with work waiting and nothing started is told, and refreshed at 10 min, once', () => {

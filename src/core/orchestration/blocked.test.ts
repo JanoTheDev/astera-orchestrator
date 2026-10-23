@@ -1,6 +1,7 @@
 // W2-C: every "why is it waiting" reason and every board bucket (blocked.ts).
 import { describe, expect, it } from 'vitest'
 import { taskBoardsOf } from './blocked'
+import { startPauseOf } from './usageGuard'
 import { emptyState, type OrchState } from './state'
 import type { Dispatch, Gate, Job, JobRun, Task } from './types'
 import { FAILURE_LIMIT } from './types'
@@ -283,6 +284,21 @@ describe('taskBoardsOf — usage pause', () => {
   it('paused when every account of its chain is at the threshold', () => {
     const s = one([task('a', 'r1')])
     expect(taskBoardsOf(s, {}, pauseOf).get('a')?.reason).toEqual({ kind: 'usage-paused', ...pause })
+  })
+
+  // T1: "Pick accounts automatically" on (startPauseOf): a start rolls to the provider's account with room
+  it('auto on: usage-paused only when every account of the provider is paused; an auto Task is no no-account', () => {
+    const accounts = [{ id: 'acc_1' }, { id: 'acc_2' }]
+    const s = one([task('a', 'r1'), task('b', 'r1', { accountIds: [] })])
+    const room = startPauseOf(pauseOf, { auto: true, accounts, loggedInIds: new Set(['acc_1', 'acc_2']) })
+    expect(taskBoardsOf(s, {}, room).get('a')?.reason).toEqual({ kind: 'next' })
+    expect(taskBoardsOf(s, {}, room).get('b')?.reason).toEqual({ kind: 'next' })
+    const full = startPauseOf((id) => ({ ...pause, accountId: id }), { auto: true, accounts, loggedInIds: new Set(['acc_1', 'acc_2']) })
+    expect(taskBoardsOf(s, {}, full).get('a')?.reason).toEqual({ kind: 'usage-paused', ...pause })
+    // auto off keeps both
+    const off = startPauseOf(pauseOf, { auto: false, accounts, loggedInIds: new Set(['acc_1', 'acc_2']) })
+    expect(taskBoardsOf(s, {}, off).get('a')?.reason).toEqual({ kind: 'usage-paused', ...pause })
+    expect(taskBoardsOf(s, {}, off).get('b')?.reason).toEqual({ kind: 'no-account' })
   })
 
   it('not paused when its chain has an account under the threshold, or with no guard', () => {

@@ -58,7 +58,7 @@ export function taskBoardsOf(
   s: OrchState,
   limits: ScheduleLimits = {},
   /** W6-G: an account no new worker starts on (usageGuard.ts `UsageGuard.pauseOf`). Absent: no usage pause. */
-  usagePauseOf?: (accountId: string) => UsagePause | null
+  usagePauseOf?: ((accountId: string) => UsagePause | null) & { auto?: true }
 ): Map<string, TaskBoard> {
   const cap = workerCapOf(limits.maxConcurrentWorkers)
   const push = <T>(m: Map<string, T[]>, k: string, v: T): void => {
@@ -178,10 +178,11 @@ export function taskBoardsOf(
       return waitingOn.length > 0 ? { kind: 'deps', waitingOn } : { kind: 'next' }
     }
     if (task.status !== 'ready') return undefined
-    if ((task.accountIds?.length ?? 0) === 0) return { kind: 'no-account' }
+    // T1: with "Pick accounts automatically" on (startPauseOf's `auto`), no account is "auto": placed on one with room
+    if ((task.accountIds?.length ?? 0) === 0 && usagePauseOf?.auto !== true) return { kind: 'no-account' }
     // W6-G: every account of its chain is nearly spent, whoever places it (the guard holds in worker-start)
     if (usagePauseOf) {
-      const usage = usageChoice(task.accountIds as string[], usagePauseOf)
+      const usage = usageChoice(task.accountIds ?? [], usagePauseOf)
       if (!usage.ok) return { kind: 'usage-paused', ...usage.pause }
     }
     if (!placedByApp(job, run)) {
