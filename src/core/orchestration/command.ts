@@ -1323,6 +1323,10 @@ function projectSettingsArgs(
   const handsOff = flag(args.handsOff)
   if (handsOff === null) return { error: '--hands-off must be on or off' }
   if (handsOff !== undefined) patch.handsOff = handsOff ? true : null
+  // T7: like auto-approve, off clears it back to the default
+  const serialFiles = flag(args.serialFiles)
+  if (serialFiles === null) return { error: '--serial-files must be on or off' }
+  if (serialFiles !== undefined) patch.serialFiles = serialFiles ? true : null
   // T3 workspaces: on (the default) clears it; off stops `jobs-set --areas` making sub-projects
   const autoProjects = flag(args.autoProjects)
   if (autoProjects === null) return { error: '--auto-projects must be on or off' }
@@ -1348,6 +1352,11 @@ function projectSettingsArgs(
     const on = cleared(args.originSync) ? true : onOff(args.originSync)
     if (on === null) return { error: '--origin-sync must be on or off' }
     patch.originSync = on ? null : 'off'
+  }
+  // the command run in each new worktree to install dependencies: off runs none, empty detects from the lockfile again
+  if (args.setupCommand !== undefined) {
+    if (typeof args.setupCommand !== 'string') return { error: '--setup-command needs a command, or off' }
+    patch.setupCommand = args.setupCommand.trim() || null
   }
   if (args.testConfig !== undefined) {
     if (typeof args.testConfig !== 'string') return { error: '--test-config needs a run configuration id' }
@@ -2602,7 +2611,7 @@ export async function handleCommand(
       if ('error' in settings) return bad(settings.error)
       const { testCommand, account } = settings
       if (delivery === undefined && branchArg === undefined && Object.keys(settings.patch).length === 0 && testCommand === undefined && account === undefined)
-        return bad('nothing to set: give --delivery, --delivery-branch, --auto-approve, --hands-off, --auto-projects, --test-command, --test-config, --concurrency, --review-rounds, --replan, --prompts-dir, --grants, --coordinator-model or --account')
+        return bad('nothing to set: give --delivery, --delivery-branch, --auto-approve, --hands-off, --serial-files, --auto-projects, --test-command, --test-config, --concurrency, --review-rounds, --replan, --prompts-dir, --grants, --coordinator-model or --account')
       const project = findProject(s, id)
       if (!project) return notFound(`unknown project: ${id}`)
       // W10-A: the prompts folder is kept repository-relative, and a folder outside the repository is refused
@@ -4833,7 +4842,7 @@ export async function handleCommand(
         return { status: 409, body: { error: `task ${taskId} waits for the earlier waves of its plan to complete, or for its replan`, held: true } }
       // W8-E (#92): never two workers on the same files (W6-C), for every placer: a person, `tasks dispatch`, a
       // coordinator's retry, and a scheduled Job's coordinator, for which `slotsToFill` does not place (placedByApp)
-      // W8-D: of any plan of the same project
+      // W8-D: of any plan of the same project. T7: only on a project with serial files on (schedule.ts `serialFilesOf`)
       const clash = runJob ? sameFilesAs(task, editingByProject(s).get(projectKeyOf(s, runJob)) ?? []) : undefined
       const clashJob = clash && s.jobs.find((j) => j.id === s.runs.find((r) => r.id === clash.task.runId)?.jobId)
       if (clash)

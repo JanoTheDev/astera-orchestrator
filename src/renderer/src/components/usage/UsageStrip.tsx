@@ -32,6 +32,9 @@ export function UsageStrip({ accounts, tasks }: { accounts: readonly Account[] |
 
   if (view === null) return null
   const rows = stripRows(view, accounts, tasks)
+  const room = rows.room
+  // the one-account line draws the account name bold: its message splits around the {account} slot
+  const roomSlot = room?.kind === 'one' ? t('usage.strip.onlyOneRoom', { account: '\u0000' }).split('\u0000') : null
   const win = (name: string, w: StripWindow | null): React.JSX.Element | null =>
     w === null ? null : (
       <span className={`usage-strip-window${w.over ? ' usage-strip-over' : ''}`}>
@@ -40,6 +43,21 @@ export function UsageStrip({ accounts, tasks }: { accounts: readonly Account[] |
     )
   return (
     <div className="usage-strip" role="group" aria-label={t('usage.strip.label')}>
+      {room !== null && (
+        <span className="usage-strip-room" role="status">
+          {room.kind === 'one' ? (
+            <>
+              {roomSlot?.[0]}
+              <strong>{room.label}</strong>
+              {roomSlot?.[1]}
+            </>
+          ) : room.resumes === null ? (
+            t('usage.strip.noRoomNoTime')
+          ) : (
+            t('usage.strip.noRoom', { time: room.resumes })
+          )}
+        </span>
+      )}
       <span className="usage-strip-title">{t('usage.strip.label')}</span>
       {rows.pool !== null && (
         <span className="usage-strip-dim">

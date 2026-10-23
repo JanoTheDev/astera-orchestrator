@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { readMaxConcurrentWorkers } from '../core/settings/maxConcurrentWorkers'
+import { readHeavyJobsAtOnce } from '../core/settings/heavyJobs'
 import { machineSpecs } from '../core/settings/machineSpecs'
 import { readUsagePauseAt } from '../core/settings/usagePauseAt'
 import { readAccountMaxSessions } from '../core/settings/accountMaxSessions'
@@ -468,6 +469,24 @@ describe('maxConcurrentWorkers', () => {
       await store.load()
       expect(store.getMaxConcurrentWorkers()).toBeNull()
     }
+  })
+})
+
+describe('heavyJobsAtOnce', () => {
+  it('defaults to 1, persists a value the CLI and Host then read, and narrows what it is given', async () => {
+    const a = new AppSettingsStore(file())
+    await a.load()
+    expect(a.getHeavyJobsAtOnce()).toBe(1)
+    await a.setHeavyJobsAtOnce(3)
+    const b = new AppSettingsStore(file())
+    await b.load()
+    expect(b.getHeavyJobsAtOnce()).toBe(3)
+    expect(await readHeavyJobsAtOnce(file())).toBe(3)
+    await b.setHeavyJobsAtOnce(50)
+    expect(b.getHeavyJobsAtOnce()).toBe(8)
+    await b.setHeavyJobsAtOnce(0)
+    expect(b.getHeavyJobsAtOnce()).toBe(1)
+    expect(JSON.parse(await fs.readFile(file(), 'utf8'))).not.toHaveProperty('heavyJobsAtOnce')
   })
 })
 

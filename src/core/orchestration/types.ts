@@ -188,6 +188,14 @@ export interface Project {
   // ── T4 origin sync (exec/originSync.ts) ──
   /** `off`: running plans of this project are not kept in sync with origin (a repository with no network). Absent: on. */
   originSync?: 'off'
+  /** The command run in every new plan and Task worktree to install dependencies. Absent: detected from the lockfile
+   *  (core/worktrees/setup.ts); `off`: none; anything else runs as given. */
+  setupCommand?: string
+  // ── T7 same-file Tasks (schedule.ts `serialFilesOf`) ──
+  /** Two Tasks on the same files never run at once, and a done Task's files stay leased until its plan delivers (the
+   *  W6-C guard and T9 leases). Absent: they run side by side and the merge worker settles a conflict. Read on the
+   *  workspace (root project), whose plans share one guard. */
+  serialFiles?: boolean
 }
 
 /** W7-B: what a project nobody set up reads as. */
@@ -195,6 +203,7 @@ export const PROJECT_DEFAULTS = {
   delivery: 'pr',
   autoApprove: false,
   handsOff: false,
+  serialFiles: false,
   concurrency: DEFAULT_CONCURRENCY,
   reviewRounds: MAX_REVIEW_ROUNDS,
   replan: 'waves'
@@ -325,6 +334,8 @@ export interface Job {
     heldBefore?: true
     /** The Tasks it cancelled, as "title: reason". */
     cancelled?: string[]
+    /** The deps it dropped from not-started Tasks, as "title: dropped dep titles: reason". */
+    droppedDeps?: string[]
     /** The Run's Tasks when it began, id to `updatedAt`: what it added and changed is read against this. */
     before?: Record<string, string>
     /** W7-A: the owner's feedback this replan was started for (`PlanFeedback.at`); its summary is that feedback's change. */

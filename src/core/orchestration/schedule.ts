@@ -196,6 +196,13 @@ export function projectKeyOf(s: Pick<OrchState, 'projects'>, job: Pick<Job, 'pro
   return s.projects.find((p) => p.id === job.projectId)?.parentId ?? job.projectId
 }
 
+/** T7: whether the plans of project `key` (`projectKeyOf`) keep same-file Tasks apart: the W6-C file guard and the T9
+ *  leases, read by `editingByProject` and `leasesByProject`. Off (the default), two Tasks on the same files run side by
+ *  side, each in its own worktree, and the merge worker (integrate.ts) settles a conflict when their branches meet. The
+ *  key is the workspace's id, so the workspace (root project) setting holds for every plan of it; a `cwd:` key is off. */
+export const serialFilesOf = (s: Pick<OrchState, 'projects'>, key: string): boolean =>
+  s.projects.some((p) => p.id === key && p.serialFiles === true)
+
 /** T9: whether plan `a` goes before plan `b` when both want the same files: the higher `priority`, then the one created
  *  first, then the smaller id (so the order is total and every pass agrees). */
 export function planOutranks(a: Pick<Job, 'id' | 'priority' | 'createdAt'>, b: Pick<Job, 'id' | 'priority' | 'createdAt'>): boolean {
@@ -209,7 +216,7 @@ export function planOutranks(a: Pick<Job, 'id' | 'priority' | 'createdAt'>, b: P
 /** Not started yet: its plan may still wait on another plan's lease for it. */
 const NOT_STARTED: ReadonlySet<TaskStatus> = new Set<TaskStatus>(['pending', 'ready'])
 
-/** T9: the completed Tasks whose files stay leased, by project: those of each plan's latest Run while the plan has not
+/** T9: the completed Tasks whose files stay leased, by project (T7: only one with `serialFilesOf`): those of each plan's latest Run while the plan has not
  *  delivered (`afterStandOf` 'waiting': no landed push, no opened PR, not stopped or archived). Their changes sit on an
  *  undelivered branch, so another plan editing the same files from an older base would conflict at delivery.
  *  A lease covers the files the Task really changed (`Task.changedFiles`, T2) when recorded, else its `affectedPaths`;
@@ -240,7 +247,10 @@ export function leasesByProject(s: OrchState): Map<string, FileHolder[]> {
       if ((lease.affectedPaths?.length ?? 0) > 0) held.set(run.jobId, [...(held.get(run.jobId) ?? []), lease])
     } else if (NOT_STARTED.has(t.status)) waiting.set(run.jobId, [...(waiting.get(run.jobId) ?? []), t])
   }
-  for (const jobId of [...held.keys()]) if (afterStandOf(s, jobId) !== 'waiting') held.delete(jobId)
+  for (const jobId of [...held.keys()]) {
+    const j = jobById.get(jobId)
+    if (afterStandOf(s, jobId) !== 'waiting' || !j || !serialFilesOf(s, projectKeyOf(s, j))) held.delete(jobId)
+  }
   if (held.size === 0) return new Map()
   // The wait graph between plans of one project: X -> Y when a Task of X still to start overlaps a lease of Y
   const edges = new Map<string, Set<string>>()
@@ -286,7 +296,8 @@ export function leasesByProject(s: OrchState): Map<string, FileHolder[]> {
 
 /** What holds files right now, by project (`projectKeyOf`), whichever plan of it they belong to (W8-D): the Tasks at
  *  their files (an editing status or an open Dispatch), then (T9) the leases of plans not yet delivered
- *  (`leasesByProject`). The file guard of `slotsToFill`, the board and `worker-start` all read this one list. */
+ *  (`leasesByProject`). The file guard of `slotsToFill`, the board and `worker-start` all read this one list.
+ *  T7: only projects with `serialFilesOf` are in it; another project's Tasks never wait on each other's files. */
 export function editingByProject(s: OrchState): Map<string, FileHolder[]> {
   const jobById = new Map(s.jobs.map((j) => [j.id, j]))
   const jobOfRun = new Map<string, Job>()
@@ -301,6 +312,7 @@ export function editingByProject(s: OrchState): Map<string, FileHolder[]> {
     const job = t.runId === undefined ? undefined : jobOfRun.get(t.runId)
     if (job === undefined) continue
     const key = projectKeyOf(s, job)
+    if (!serialFilesOf(s, key)) continue
     out.set(key, [...(out.get(key) ?? []), { ...t, root: job.cwd }])
   }
   for (const [key, leases] of leasesByProject(s)) out.set(key, [...(out.get(key) ?? []), ...leases])
@@ -383,7 +395,7 @@ export function slotsToFill(s: OrchState, limits: ScheduleLimits = {}): Slot[] {
     // W6-C: the Task just placed now holds its files, so another ready Task on them waits for the next pass
     // W8-D: for every plan of its project
     const key = best.key
-    if (key !== undefined) {
+    if (key !== undefined && serialFilesOf(s, key)) {
       editing.set(key, [...(editing.get(key) ?? []), { ...t, root: best.root }])
       for (const q of queues) if (q.key === key) q.candidates = q.candidates.filter((c) => !sameFilesAs(c, [t]))
     }

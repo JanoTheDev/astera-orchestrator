@@ -45,6 +45,7 @@ export const SETTINGS_ROWS: readonly SettingsRow[] = [
 
   { anchor: 'permission', group: 'agents', labelKey: 'settings.agentPermission.label', descKey: 'settings.agentPermission.hint', level: 'advanced' },
   { anchor: 'maxWorkers', group: 'agents', labelKey: 'settings.maxWorkers.label', descKey: 'settings.maxWorkers.hint', level: 'advanced' },
+  { anchor: 'heavyJobs', group: 'agents', labelKey: 'settings.heavyJobs.label', descKey: 'settings.heavyJobs.hint', level: 'advanced' },
   { anchor: 'freshCoordinator', group: 'agents', labelKey: 'settings.freshCoordinator.label', descKey: 'settings.freshCoordinator.hint', level: 'advanced' },
   { anchor: 'stallWatch', group: 'agents', labelKey: 'settings.stallWatch.label', descKey: 'settings.stallWatch.hint', level: 'advanced' },
   { anchor: 'startAtLogin', group: 'agents', labelKey: 'settings.startAtLogin.label', descKey: 'settings.startAtLogin.hint', level: 'advanced' },

@@ -28,6 +28,7 @@
 // `turn/start`). Whether the Host writes it at all, or the app does, is orchDeps' decision (`chatSend`).
 import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
+import path from 'node:path'
 import type { HostSession, SessionScreen, SessionSources } from '../core/orchestration/command'
 import { hookEventPrompt, hookEventsFileIn, lastActionOf, latestEventLine, sessionStateOf, type SessionState } from '../core/hooks/sessionState'
 import { hookEventAt } from '../core/hooks/eventTime'
@@ -41,6 +42,7 @@ import { encodeRequest, turnStartParams } from '../core/chat/codexProtocol'
 import type { PtyRegistry } from './registry'
 import type { ProcRegistry } from './procRegistry'
 import { heavyWaits } from '../core/orchestration/heavyLock'
+import { readHeavyJobsAtOnce } from '../core/settings/heavyJobs'
 
 /** What the command layer is handed, and what orchDeps builds `chatSend` from. `Required`, because
  *  the Host always has them. */
@@ -184,6 +186,9 @@ export function registrySessions(a: {
   mintId?: () => string
   /** W8-C heavy: the `astera heavy` queue dir (core/orchestration/heavyLock.ts). Test injection; the wiring leaves it out. */
   heavyQueueDir?: string
+  /** How many heavy jobs run at once (heavyJobsAtOnce): the first that many tickets are running, not waiting. Test
+   *  injection; the wiring leaves it out and it is read from the Host profile's app-settings.json per listing. */
+  heavyJobsAtOnce?: () => Promise<number>
 }): HostSessions & Required<Pick<HostSessions, 'sessionTurn' | 'agentSessionOf' | 'ownerInputAt'>> {
   const mintId = a.mintId ?? (() => `astera-host-${randomUUID()}`)
   // T11: each pty's last output, so a long noisy tool with no hook event reads working (as the app's attention does)
@@ -245,8 +250,10 @@ export function registrySessions(a: {
   }
 
   /** W8-C heavy: each session's place in the heavy-job line, read from the queue dir (sync, small; missing = none). */
-  const withHeavyWait = (rows: HostSession[]): HostSession[] => {
-    const waits = heavyWaits(a.heavyQueueDir)
+  const profileDir = process.env.ASTERA_HOST_PROFILE_DIR
+  const heavyJobsAtOnce = a.heavyJobsAtOnce ?? (async () => (profileDir ? readHeavyJobsAtOnce(path.join(profileDir, 'app-settings.json')) : 1))
+  const withHeavyWait = async (rows: HostSession[]): Promise<HostSession[]> => {
+    const waits = heavyWaits(a.heavyQueueDir, undefined, await heavyJobsAtOnce())
     return waits.size === 0 ? rows : rows.map((r) => (waits.has(r.id) ? { ...r, heavyWait: waits.get(r.id) } : r))
   }
 
@@ -258,7 +265,7 @@ export function registrySessions(a: {
       if (terminals.length === 0 && chats.length === 0) return null
       const [states, accounts] = await Promise.all([Promise.all(terminals.map(stateOf)), a.accounts().catch(() => [] as Account[])])
       const providers = new Map(accounts.map((x) => [x.id, x.provider ?? 'claude'] as const))
-      const rows = withHeavyWait([...terminals.map((e, i) => rowOf(e, 'terminal', states[i].state, providers, states[i].prompt, states[i].lastAction)), ...chats.map((e) => rowOf(e, 'chat', 'unknown', providers))])
+      const rows = await withHeavyWait([...terminals.map((e, i) => rowOf(e, 'terminal', states[i].state, providers, states[i].prompt, states[i].lastAction)), ...chats.map((e) => rowOf(e, 'chat', 'unknown', providers))])
       // The live one, as the list keeps it.
       return rows.find((r) => r.alive) ?? rows[0]
     },
@@ -267,7 +274,7 @@ export function registrySessions(a: {
       const [states, accounts] = await Promise.all([Promise.all(terminals.map(stateOf)), a.accounts().catch(() => [] as Account[])])
       // An account with no provider field is a Claude account (core/types.ts Account.provider).
       const providers = new Map(accounts.map((x) => [x.id, x.provider ?? 'claude'] as const))
-      const rows = withHeavyWait([
+      const rows = await withHeavyWait([
         ...terminals.map((e, i) => rowOf(e, 'terminal', states[i].state, providers, states[i].prompt, states[i].lastAction)),
         ...a.procs.list().filter((e) => e.meta?.kind === 'chat').map((e) => rowOf(e, 'chat', 'unknown', providers))
       ])

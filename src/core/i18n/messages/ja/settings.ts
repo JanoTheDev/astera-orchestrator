@@ -215,5 +215,8 @@ export const settings: Partial<Record<keyof typeof ko, string>> = {
   'settings.maxWorkers.label': 'すべてのプランを合わせた最大エージェント数',
   'settings.maxWorkers.hint': '最大 100。空欄ならこのマシンの推奨値を使います。上限に達すると優先度の高いプランから空きを受け取り、同じなら交代で受け取ります。',
   'settings.maxWorkers.saveFailed': 'エージェントの上限を保存できませんでした: {detail}',
+  'settings.heavyJobs.label': '同時に実行する重いジョブ数',
+  'settings.heavyJobs.hint': 'フルテストスイート、Electron、dist ビルド、Task のチェックをマシン全体で同時に何件まで実行するかを決めます。ノート PC では 1 が最も安全で、増やすと CPU とメモリを多く使います。',
+  'settings.heavyJobs.saveFailed': '重いジョブの上限を保存できませんでした: {detail}',
   'settings.tabSummaries.hint': 'タブが終わると、Astera が短いカードを書きます: したこと、ファイル、チェックとレビュー、そしてリードエージェントのモデルによる 2〜3 文。カードは Task ボード、履歴、プランの概要に表示されます。',
 }

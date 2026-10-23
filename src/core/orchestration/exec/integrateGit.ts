@@ -15,6 +15,7 @@ import { createWorktree } from '../../worktrees/create'
 import { workerBaseFailure } from '../../worktrees/base'
 import { git as realGit, gitDir, gitVersionAtLeast, listGitWorktrees, fetchOrigin, GIT_WRITE_TIMEOUT_MS } from '../../worktrees/git'
 import { removeWorktree } from '../../worktrees/remove'
+import { runWorktreeSetup } from '../../worktrees/setup'
 import { askUntilAnswered, defaultActionPresenceCheck, type CheckResult, type PresenceCheck } from '../../worktrees/presence'
 import type { WorktreeStore } from '../../worktrees/registry'
 import { defaultGateProbe, type Probe } from '../../sessions/pathProbe'
@@ -66,6 +67,8 @@ export async function forkWorktree(
     log(m: string): void
     /** Test seam: the probe the project folder is asked through before git is spawned in it. */
     probe?: Probe
+    /** The project's `setupCommand` (absent: detect from the lockfile, `off`: none), run in the new worktree. */
+    setupCommand?: string
   }
 ): Promise<string> {
   // **폴더를 git 보다 먼저 묻는다** (예산 안의 세션 폴더 probe). 끊긴 공유 위의 폴더를 cwd 로
@@ -113,6 +116,8 @@ export async function forkWorktree(
         : `fork: ${r.info.path} could not fast-forward to origin/${head.stdout}, so it starts at the local ${head.stdout}: ${ff.stderr}`
     )
   }
+  // Fresh checkouts have no node_modules, which a pre-push hook that needs its tools rejects; never fails the fork
+  await runWorktreeSetup({ dir: r.info.path, setting: ctx.setupCommand, log: ctx.log })
   return r.info.path
 }
 

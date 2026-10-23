@@ -88,7 +88,8 @@ describe('buildHandoverPrompt', () => {
       expect(p).toContain('astera run-configs list --job job_42')
       expect(p).toContain('--validate')
       expect(p).toContain('--review')
-      expect(p).toMatch(/few Tasks/)
+      expect(p).toContain('as many independent Tasks as the work splits into')
+      expect(p).not.toMatch(/few Tasks/)
     })
 
     it('says a Gate needs a Task, so a question before any Task goes on a first Task', () => {
@@ -219,6 +220,14 @@ describe('buildPlannerBrief planning mode (T1)', () => {
     expect(b).toContain('do not wait for the person')
     expect(b).toContain('gh issue list --state open')
     expect(b).not.toContain('superpowers:brainstorming')
+  })
+})
+
+describe('buildPlannerBrief wider plans', () => {
+  it('asks for up to the worker limit of Tasks at once, right after the limit line', () => {
+    const b = buildPlannerBrief({ jobId: 'job_x', objective: 'o', repoRoot: '/repo', accountId: 'acc1', concurrency: 7 })
+    expect(b).toContain('- workers that may run at once: 7\n  Cut the plan so up to that many Tasks can run at once')
+    expect(b).toContain('same area or same files is never a reason (planner-guide.md section 2)')
   })
 })
 
