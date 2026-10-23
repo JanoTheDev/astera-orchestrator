@@ -67,7 +67,7 @@ export const MERGE_CLIENT_TIMEOUT_MS = 6 * GIT_WRITE_TIMEOUT_MS
 
 /** A call that makes the Host merge worktrees — see MERGE_CLIENT_TIMEOUT_MS. */
 export function mergeCommand(a: { cmd: string; args: Record<string, unknown> }): boolean {
-  return a.cmd === 'run-merge' || (a.cmd === 'run-delete' && a.args.merge === true)
+  return a.cmd === 'run-merge' || a.cmd === 'run-integrate-all' || (a.cmd === 'run-delete' && a.args.merge === true)
 }
 
 /**

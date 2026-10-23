@@ -6939,7 +6939,14 @@ export async function handleCommand(
             return 'taskId' in opened ? okBody({ state: 'fixing-conflicts', taskId: opened.taskId, reason: merged.reason }) : opened
           }
           const left = [...(merged.dirty ?? []), ...(merged.unchecked ?? []), ...(merged.notMerged ?? [])]
-          if (left.length > 0) return conflict(`these worktrees hold work that was not merged (uncommitted, or not reachable): ${left.join(', ')}`)
+          if (left.length > 0) {
+            const why =
+              `these worktrees hold work that was not merged (uncommitted, unchecked, or not reachable): ${left.join(', ')}. ` +
+              'First, in each of them, commit the uncommitted work (`git add -A && git commit -m "<summary>"`), then merge its branch as listed below. ' +
+              'Never discard, reset, clean or force-remove anything in these worktrees.'
+            const opened = await openMergeTask(deps, caller, id, why, left.map((p) => ({ path: p, branch: null })))
+            return 'taskId' in opened ? okBody({ state: 'fixing-conflicts', taskId: opened.taskId, reason: why }) : conflict(`these worktrees hold work that was not merged (uncommitted, or not reachable): ${left.join(', ')}`)
+          }
         }
       }
       const delivered = await handleCommand(deps, caller, 'run-deliver', { run: id, force: true })

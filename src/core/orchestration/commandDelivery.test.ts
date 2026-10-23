@@ -694,6 +694,28 @@ describe('run-integrate-all: merge everything, the AI merge Task fixes conflicts
     expect(h.state().tasks.filter((x) => x.parentId === 't2')).toHaveLength(1)
   })
 
+  it('a dirty worktree goes to the AI merge Task (commit first, never discard); asked again, the same Task', async () => {
+    const h = setup({
+      project: { delivery: 'push' },
+      tasks: tasks(),
+      run: { worktree: '/wt/run' },
+      merge: async () => ({ ok: true, merged: ['/wt/t1'], uncommitted: 1, dirty: ['/wt/t2'] })
+    })
+    const r = await h.call('run-integrate-all', { run: 'r1' })
+    expect(r.status).toBe(200)
+    const body = r.body as { state: string; taskId: string; reason: string }
+    expect(body.state).toBe('fixing-conflicts')
+    expect(body.reason).toContain('/wt/t2')
+    const merge = h.state().tasks.find((x) => x.id === body.taskId)!
+    expect(merge).toMatchObject({ parentId: 't2', status: 'ready' })
+    expect(merge.spec).toContain('commit the uncommitted work')
+    expect(merge.spec).toContain('Never discard, reset, clean or force-remove')
+    expect(merge.spec).toContain('/wt/t2')
+    expect(h.pushes).toEqual([])
+    expect(((await h.call('run-integrate-all', { run: 'r1' })).body as { taskId: string }).taskId).toBe(body.taskId)
+    expect(h.state().tasks.filter((x) => x.parentId === 't2')).toHaveLength(1)
+  })
+
   it('is the owner\'s: refused from an agent session and an MCP client', async () => {
     const h = setup({ project: { delivery: 'push' }, run: { worktree: '/wt/run' } })
     expect((await h.call('run-integrate-all', { run: 'r1' }, 'coordinator-session')).status).toBe(403)
