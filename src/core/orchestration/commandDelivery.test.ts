@@ -736,4 +736,41 @@ describe('run-pr-merge', () => {
     expect(blocked.h.state().runs[0].pr?.landed).toBeUndefined()
     expect(h.state().runs[0].pr?.landed).toBeUndefined()
   })
+
+  it('merges by the PR URL in the project root when the worktree and job cwd are gone, never with an empty cwd', async () => {
+    const h = setup({ project: { delivery: 'manual' }, run: { pr: { at: NOW, url: 'https://github.com/o/r/pull/9' } } })
+    h.state().jobs = h.state().jobs.map((j) => ({ ...j, cwd: undefined })) as never
+    const ghCalls: { args: string[]; cwd: string }[] = []
+    const deps = {
+      getState: () => h.state(),
+      setState: async (n: OrchState) => void (h.state().runs = n.runs),
+      now: () => NOW,
+      listAccounts: () => [],
+      github: {
+        run: async (args: string[], cwd: string) => {
+          ghCalls.push({ args, cwd })
+          return { ok: true, stdout: '', stderr: '' }
+        }
+      }
+    } as unknown as OrchServerDeps
+    const r = await handleCommand(deps, { sessionId: HOST_CALLER }, 'run-pr-merge', { run: 'r1', method: 'squash' })
+    expect(r.status).toBe(200)
+    expect(ghCalls).toEqual([{ args: ['pr', 'merge', 'https://github.com/o/r/pull/9', '--squash'], cwd: REPO }])
+  })
+
+  it('refuses to merge, and runs no gh, when no folder for the Run is left at all', async () => {
+    const h = setup({ project: { delivery: 'manual' }, run: { pr: { at: NOW, url: 'https://github.com/o/r/pull/9' } } })
+    h.state().jobs = h.state().jobs.map((j) => ({ ...j, cwd: undefined })) as never
+    h.state().projects = []
+    const ghCalls: string[][] = []
+    const deps = {
+      getState: () => h.state(),
+      setState: async (n: OrchState) => void (h.state().runs = n.runs),
+      now: () => NOW,
+      listAccounts: () => [],
+      github: { run: async (args: string[]) => (ghCalls.push(args), { ok: true, stdout: '', stderr: '' }) }
+    } as unknown as OrchServerDeps
+    expect((await handleCommand(deps, { sessionId: HOST_CALLER }, 'run-pr-merge', { run: 'r1' })).status).toBe(409)
+    expect(ghCalls).toEqual([])
+  })
 })

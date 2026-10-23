@@ -6872,8 +6872,13 @@ export async function handleCommand(
       if (run.pr?.url === undefined) return conflict('This Run has no open pull request to merge')
       if (run.pr.landed !== undefined) return conflict(`This Run's pull request was already ${run.pr.landed} on GitHub`)
       if (!deps.github) return conflict('GitHub commands are answered by the Astera Host, and this caller is not one')
+      // gh runs in the Run's own folder, never the Host's: the worktree, the job's cwd, then the project's root
+      const job = jobOf(s, run)
+      const cwd = run.worktree ?? job?.cwd ?? s.projects.find((p) => p.id === job?.projectId)?.path ?? ''
+      if (cwd === '') return conflict("This Run's folder is gone, so gh cannot find its pull request to merge")
+      // the PR URL names the repo; the number is only meaningful inside that folder's repo
       const merged = await mergePullRequest(
-        { cwd: run.worktree ?? jobOf(s, run)?.cwd ?? '', ...(run.pr.number !== undefined ? { number: run.pr.number } : { branch: run.pr.url }), method },
+        { cwd, ...(run.pr.number !== undefined ? { number: run.pr.number } : { branch: run.pr.url }), method },
         deps.github.run
       )
       if (!merged.ok) return { status: merged.kind === 'not-found' ? 404 : ['not-mergeable', 'already-merged', 'not-installed', 'auth'].includes(merged.kind) ? 409 : 502, body: { error: `gh pr merge: ${merged.detail}`, kind: merged.kind } }
