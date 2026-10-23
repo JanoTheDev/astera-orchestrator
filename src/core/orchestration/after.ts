@@ -32,7 +32,9 @@ export function afterStandOf(s: AfterState, jobId: string): AfterStand {
   if (run?.delivery?.sha !== undefined && run.delivery.error === undefined) return 'delivered'
   if (pr && pr.error === undefined && pr.draft === undefined && (pr.url !== undefined || pr.note !== undefined)) return 'delivered'
   if (!isJobActive(job)) return 'stopped'
-  if (run?.delivery?.error !== undefined || pr?.error !== undefined) return 'stopped'
+  // An error while Astera still retries the delivery is not a stop: what waits on it comes once that try lands
+  const retrying = run?.deliveryState?.state === 'retrying' || run?.deliveryState?.state === 'delivering' || run?.deliveryState?.state === 'pending'
+  if (!retrying && (run?.delivery?.error !== undefined || pr?.error !== undefined)) return 'stopped'
   return 'waiting'
 }
 

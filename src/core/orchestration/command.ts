@@ -106,7 +106,7 @@ import {
   type Task,
   type TaskStatus
 } from './types'
-import { runWorktrees, runWorktreesFrom } from './integrate'
+import { deliveryWorktrees, runWorktrees } from './integrate'
 import { mainPlanOf } from './mainPlan'
 import { isPathWithin } from '../files/tree'
 import { buildHandoverPrompt, buildPlannerBrief } from './handover'
@@ -6511,7 +6511,7 @@ export async function handleCommand(
         cwd: job.cwd,
         ...(branch !== undefined ? { branch } : {}),
         ...(proj?.defaultBranch ? { defaultBranch: proj.defaultBranch } : {}), // W8-G
-        worktrees: runWorktrees(s, id)
+        worktrees: deliveryWorktrees(s, id)
       }
       // T3: the owner answered they push it themselves: delivered once git sees every worktree's commit on the branch
       // T1: also from a failed or retrying delivery, and a Run from before `deliveryState` that has only an error
@@ -6812,7 +6812,7 @@ export async function handleCommand(
       // The leaves' work is still in their own worktrees: only a dependent's start folds a worktree into the Run's.
       const completedIds = new Set(s.tasks.filter((t) => t.runId === id && t.status === 'completed').map((t) => t.id))
       const rest = (
-        failed ? runWorktreesFrom(run, job.cwd, s.dispatches.filter((d) => completedIds.has(d.taskId))) : runWorktrees(s, id)
+        deliveryWorktrees(s, id, failed ? completedIds : undefined)
       ).filter((p) => !isSamePath(p, worktree))
       if (rest.length > 0) {
         if (!deps.mergeWorktrees) return conflict('merging is not available in this build')

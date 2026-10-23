@@ -1,6 +1,7 @@
 // T21 (owner, 2026-10-18): Astera answers the Gates it safely can, from Host state first, else the safe default, through
 // questions-answer with one feed line; the owner's kinds of question stay open; the setting turns it all off.
 import { describe, expect, it } from 'vitest'
+import { STOPPED_DEP_OPTIONS } from '../overlap'
 import { ASK_GRACE_MS, autoAnswersDue, autoAnswerOf, autoAnswerOnOf, grantedAnswer, grantOf, handsOffStepsDue, REFUSED_ANSWER, type OpenQuestion } from './autoAnswer'
 import { createDispatchLoop, ORCH_FIRE_TICK_MS, type DispatchLoopContext } from './dispatchLoop'
 import { handleCommand, type OrchServerDeps } from '../command'
@@ -196,6 +197,15 @@ describe('hands-off plans decide for the owner (#117)', () => {
     const retried: OrchState = { ...s, gates: [{ id: 'gat_0', runId: 'run_1', taskId: 'tsk_x', question: 'q', status: 'resolved', resolution: 'retry-once', createdAt: NOW }] }
     expect(handsOffStepsDue(retried, [exhausted], T0)).toEqual([
       { kind: 'answer', answer: expect.objectContaining({ answer: 'mark-failed' }), decision: expect.objectContaining({ kind: 'gate', choice: 'mark-failed' }) }
+    ])
+  })
+
+  it("a question Astera asked itself is judged by its options, not by the Task titles in its text", () => {
+    const stopped = q('"Remove the All consoles wall" (plan P) waits on "Visual check" of plan W, whose plan stopped. Keep waiting, drop this dependency, or cancel this Task? [dep tsk_d]', {
+      options: [...STOPPED_DEP_OPTIONS]
+    })
+    expect(handsOffStepsDue(s, [stopped], T0)).toEqual([
+      { kind: 'answer', answer: { id: 'gat_1', answer: 'keep waiting', why: 'safe default' }, decision: expect.objectContaining({ kind: 'gate', choice: 'keep waiting' }) }
     ])
   })
 
