@@ -21,6 +21,8 @@ build/licenses.json
 # local — written this way round so a new note defaults to "not published".
 docs/*
 !docs/releasing.md
+# Product docs for the owner and buyers (features, known limits, licensing seam): published deliberately.
+!docs/product/
 !docs/slack-bot-setup.md
 !docs/telegram-bot-setup.md
 !docs/jobs.md
