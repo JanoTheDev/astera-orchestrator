@@ -197,7 +197,7 @@ export const plan: Partial<Record<keyof typeof ko, string>> = {
   'plan.settings.handsOffConfirmBody': 'Los agentes de este plan trabajarán sin pedir permiso y el agente principal decidirá por ti. Actívalo solo para trabajo de confianza.',
   'plan.settings.handsOffConfirm': 'Activar',
   'plan.settings.delivery': 'Entrega',
-  'plan.settings.deliveryHelp': 'Cómo llega el trabajo terminado: una pull request o un push a la rama.',
+  'plan.settings.deliveryHelp': 'Cómo llega el trabajo terminado: una pull request, un push a la rama o manual (lo revisas antes).',
   'plan.settings.delivery.pr': 'Pull request',
   'plan.settings.delivery.push': 'Push',
   'plan.settings.delivery.manual': 'Manual',
