@@ -32,6 +32,7 @@ A key's area is the screen whose files use it. Paths are under `src/renderer/src
 | about | settings/AboutSettings, LicensesView (the Settings › About group, its group label `settings.group.about`) |
 | devices | views/DevicesView; `devices/` (DeviceDetail, AddDeviceModal, MigratePanel, devicesView, useDevices) |
 | crash, help | empty for now |
+| review | `review/` (ReviewView, ChangeMapView: the change map, the code panel and the hunk actions) |
 | misc | keys nothing uses |
 
 A key built at runtime from a prefix (`` t(`plan.outcome.${x}`) ``) sits with the files that build it.

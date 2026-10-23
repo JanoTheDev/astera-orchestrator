@@ -87,7 +87,7 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
           initialCwd={newSessionCwd ?? workspaceCwd}
           // The promise is passed straight through — the dialog awaits it to show a start-pending state
           // (discarding it with void would make the wait look instantly over)
-          onSpawn={spawn}
+          onSpawn={async (opts) => void (await spawn(opts))}
           runtimes={pairedRuntimes}
           onRemote={(runtimeId) => {
             pendingSplitRef.current = null

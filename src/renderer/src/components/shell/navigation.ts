@@ -27,6 +27,11 @@ export interface NavigationHandlers {
   openWorktree: (path: string) => void
   /** An old tab name still lands right: it maps to its group and row (settingsTarget). */
   openSettings: (group: SettingsGroup | OldSettingsTab, anchor?: string) => void
+  /** T7 review: a file in an editor tab at a line, as a terminal link opens it. */
+  openFile: (path: string, at?: { line: number }) => void
+  /** T7 review: a new agent session in `cwd` on the Auto account, its tab opened (the New session dialog's spawn).
+   *  Answers its id, or null when it did not start (the spawn already said why). */
+  startSession: (cwd: string, kind: 'chat') => Promise<string | null>
 }
 
 let current: NavigationHandlers | null = null
@@ -67,4 +72,10 @@ export const openConsole = (sessionId: string): void => forward('openConsole', s
 export const openPlan = (jobId: string, section?: string): void => forward('openPlan', jobId, section)
 export const openInbox = (filter?: string): void => forward('openInbox', filter)
 export const openWorktree = (path: string): void => forward('openWorktree', path)
+export const openFile = (path: string, at?: { line: number }): void => forward('openFile', path, at)
+export const startSession = (cwd: string, kind: 'chat'): Promise<string | null> => {
+  if (current) return current.startSession(cwd, kind)
+  console.warn('navigation.startSession: no handlers registered')
+  return Promise.resolve(null)
+}
 export const openSettings = (group: SettingsGroup | OldSettingsTab, anchor?: string): void => forward('openSettings', group, anchor)

@@ -1,11 +1,14 @@
 // The Changes tab of the plan's Activity (moved out of pages/PlanPage.tsx): what the whole plan changed; and the Merge
 // button and the plan's pull request, which the header shows.
-import type { JobRow } from '../../../../core/types'
+import { useEffect, useState } from 'react'
+import type { JobRow, WorktreeListItem } from '../../../../core/types'
 import { useI18n } from '../../i18n/I18nProvider'
 import type { OrchDoor } from '../../lib/orchDoor'
 import { ChangedFilesBlock } from '../ChangedFilesBlock'
+import { ReviewView } from '../review/ReviewView'
 import { RunPrChip } from '../TaskLinkChips'
 import { Button, Icon } from '../ui'
+import { planOwnerOfPath } from '../worktrees/worktreeView'
 import { RUN_MERGE } from './planPage'
 import type { PlanPageState } from './usePlanPage'
 
@@ -34,7 +37,35 @@ export function PlanMergeActions({ p, run }: { p: PlanPageState; run: JobRow | u
   )
 }
 
-/** What the whole plan changed, from git where it runs (Phase 10). Merge and the PR stand in the plan's header (T8). */
-export function PlanChanges({ door, runId }: { door: OrchDoor; runId: string }): React.JSX.Element {
-  return <ChangedFilesBlock door={door} runId={runId} />
+/** What the whole plan changed, from git where it runs (Phase 10). Merge and the PR stand in the plan's header (T8).
+ *  T7: above the file list, the review (change map, code, hunk actions) of the plan's own folder, when this computer
+ *  has it registered. */
+export function PlanChanges({ door, runId, run }: { door: OrchDoor; runId: string; run?: JobRow }): React.JSX.Element {
+  const folder = useRunFolder(run)
+  return (
+    <>
+      {run && folder && <ReviewView cwd={folder.path} base={folder.baseRef} owner={{ plan: run }} door={door} />}
+      <ChangedFilesBlock door={door} runId={runId} />
+    </>
+  )
+}
+
+/** The Run's own integration folder (the worktree no Task's branch is on), from this computer's worktree registry. */
+function useRunFolder(run: JobRow | undefined): WorktreeListItem | null {
+  const [folder, setFolder] = useState<WorktreeListItem | null>(null)
+  const key = (run?.worktrees ?? []).join('\n')
+  useEffect(() => {
+    setFolder(null)
+    if (!run || key === '') return
+    let live = true
+    void window.api.worktrees.list().then(
+      (items) => live && setFolder(items.find((w) => w.status === 'ok' && planOwnerOfPath([run], w)?.planFolder === true) ?? null),
+      () => undefined
+    )
+    return () => {
+      live = false
+    }
+    // the row changes on every snapshot; the folders it names are what matters
+  }, [run?.id, key])
+  return folder
 }
