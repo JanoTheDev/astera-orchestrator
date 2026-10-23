@@ -61,7 +61,7 @@ import { afterStartsDue, afterSweep } from '../after'
 // Coordinator rotation and finished tabs
 import { createCoordinatorRotation, refreshRunCoordinator } from './coordinatorRotate'
 import { autoAnswerLine, autoAnswersDue, coordinatorDecideBody, handsOffStepsDue, type AutoAnswer, type OpenQuestion } from './autoAnswer'
-import { STALL_WATCH_MS, stallRemedies, startNotice, watchdogActivity, type StallEntry, type StallRemedy } from './stallWatch'
+import { STALL_WATCH_MS, stallPauseProbe, stallRemedies, startNotice, watchdogActivity, type StallEntry, type StallRemedy } from './stallWatch'
 import type { ActivityDraft } from '../activity'
 
 /** W6-D: a replan whose start left no session after this long died with its process, and is ended. */
@@ -2185,12 +2185,10 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       await gateSlot(merge.id, t(c.lang(), 'jobs.gate.assignedAccountUnusable'))
       return
     }
-    const reply = await c.handle('worker-start', {
-      task: merge.id,
-      agent: providerOf(account),
-      account: account.id,
-      worktree: runRoot
-    })
+    const start = (on?: string) => c.handle('worker-start', { task: merge!.id, agent: providerOf(account), ...(on ? { account: on } : {}), worktree: runRoot })
+    let reply = await start(account.id)
+    // That account is out of usage (paused until its window resets): any other with room, as worker-start picks
+    if (reply.status === 409 && (reply.body as { usagePaused?: unknown })?.usagePaused !== undefined) reply = await start()
     // Refused (the Run's cap, a pause): the merge Task stays ready and the next tick starts it again.
     if (reply.status >= 400) {
       log(`run=${a.runId}: the merge worker for task=${a.taskId} did not start: ${JSON.stringify(reply.body)}`)
@@ -2248,10 +2246,17 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
         stallMemo = new Map()
         return
       }
+      // T1: with "Pick accounts automatically" on, held only while the provider has no account with room
+      const usage = await stallPauseProbe({
+        auto: c.usageGuard?.autoAccounts?.() === true,
+        paused: (id) => (c.usageGuard?.pauseOf(id) ?? null) !== null,
+        accounts: () => c.accounts(),
+        loginStatus: (id) => c.loginStatus(id)
+      })
       const planned = stallRemedies(c.getState(), c.nowMs(), stallMemo, {
         busy: (id) => c.sessionBusy(id),
         isRegistered: (p) => c.isRegisteredWorktree(p),
-        paused: (id) => (c.usageGuard?.pauseOf(id) ?? null) !== null
+        ...usage
       })
       stallMemo = planned.memo
       for (const r of planned.due) {

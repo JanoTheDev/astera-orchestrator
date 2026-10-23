@@ -184,7 +184,6 @@ export const common: Partial<Record<keyof typeof ko, string>> = {
   'session.toast.stalled':
     'La sesión «{title}» está detenida — falló la reanudación automática, hay que revisarla',
   // HistoryBrowser.tsx
-  'history.panel.title': 'Historial',
   'run.validation.tag': 'Validación',
   // App.tsx runManagerApply — shown when the run.saveConfigs IPC throws
   'run.config.saveFailed': 'Error al guardar: {detail}',
@@ -293,9 +292,8 @@ export const common: Partial<Record<keyof typeof ko, string>> = {
   // apunta al grafo, no los valores de deps en sí.
   'jobs.task.new': 'Añadir tarea',
   'jobs.task.accountHint':
-    'Las cuentas en las que esta tarea ejecuta su worker — la primera decide qué agente la ejecuta, así que hace falta al menos una. Con más de una, al alcanzar el límite de uso el worker pasa a la siguiente en el orden indicado',
+    'Las cuentas en las que esta tarea ejecuta su worker. Automática elige la cuenta con más margen; fija cuentas solo para mantener el trabajo fuera de otras. Con más de una fijada, al alcanzar el límite de uso el worker pasa a la siguiente en el orden indicado',
   // How It Works — comprensión del proyecto
-  'hiw.title': 'How It Works',
   'hiw.record.regenerateFailed': 'No se pudo volver a redactar: {detail}',
   'hiw.pane.notInProject': 'El registro de esta pestaña no está en el proyecto abierto actualmente.',
   'hiw.open.complete': 'Hecho',
@@ -341,6 +339,5 @@ export const common: Partial<Record<keyof typeof ko, string>> = {
   'plan.failedWait.acceptReason': 'Aceptada como hecha por el propietario',
   'plan.failedWait.failed': 'No se pudo resolver la tarea fallida',
   // W9-F: orchestration panels (shell, attribution, inbox …)
-  'shell.page.inbox': 'Bandeja de entrada',
   'inbox.kind.waiting': 'Esperando',
 }

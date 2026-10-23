@@ -106,7 +106,7 @@ import {
   type Task,
   type TaskStatus
 } from './types'
-import { runWorktrees, runWorktreesFrom } from './integrate'
+import { deliveryWorktrees, runWorktrees } from './integrate'
 import { mainPlanOf } from './mainPlan'
 import { isPathWithin } from '../files/tree'
 import { buildHandoverPrompt, buildPlannerBrief } from './handover'
@@ -760,7 +760,7 @@ export interface OrchServerDeps {
   maxConcurrentWorkers?(): number | null | Promise<number | null>
   /** W6-G: the usage guard (usageGuard.ts): `worker-start` refuses a nearly spent account, for every placer. Each
    *  process keeps its own over its own sessions' statusLine readings. Absent: no usage pause. */
-  usageGuard?: Pick<UsageGuard, 'refresh' | 'pauseOf' | 'reserve'>
+  usageGuard?: Pick<UsageGuard, 'refresh' | 'pauseOf' | 'reserve'> & Partial<Pick<UsageGuard, 'autoAccounts' | 'switched'>>
   /** T5b (decision 6): the account a start takes (chooseStartAccount, exec/workerStart.ts): `preferred` while it has
    *  room, else the first usable of `own`, else the provider's account with most room; `ok: false` when none has room.
    *  The answer counts on its account until `release`. `worker-start` without `--account` starts on it, and a paused
@@ -909,7 +909,9 @@ export interface ChatTurnState {
  *  included, or empty for none; `unattended` is only ever set for a chat session. */
 export interface SessionCreate {
   kind: 'terminal' | 'chat'
-  accountId: string
+  /** T1: absent is auto — the account with most room of `provider` (claude by default), rolling over its ranking. */
+  accountId?: string
+  provider?: Provider
   cwd: string
   title?: string
   prompt?: string
@@ -2221,6 +2223,9 @@ export async function handleCommand(
         runId: target.id,
         cwd: job.cwd,
         accountId,
+        // T1: no account named for the plan (`--coordinator-provider`, or none): `accountId` only says the provider, and
+        // the coordinator starts on that provider's account with most room (chooseStartAccount)
+        ...(job.preferredAccountId === undefined ? { auto: true as const } : {}),
         onWait: setStartWait(job.id),
         ...(resume ? { resume } : {}),
         brief: resume ? crashResumedBrief('coordinator', target.id) : buildHandoverPrompt({
@@ -2429,7 +2434,9 @@ export async function handleCommand(
         coordinatorAccountId = coordArg
       }
       // `--coordinator-provider`: with no `--coordinator-account`, that provider's default account
-      // (defaultAccountIdOf, which listAccounts marks when asked) coordinates. An explicit account wins.
+      // (defaultAccountIdOf, which listAccounts marks when asked) is recorded as the coordinator account. An explicit
+      // account wins. T1: it only says the provider: no preferredAccountId is kept, so the coordinator starts on that
+      // provider's account with most room (startAndAttach's `auto`).
       // An older app attached to a newer Host returns no default mark, so this fails with the no-account
       // 400 until the app is updated.
       const coordProvider = args.coordinatorProvider
@@ -4385,11 +4392,13 @@ export async function handleCommand(
       // **쉼표인 이유**: parseArgs 는 같은 플래그를 두 번 주면 뒤가 앞을 덮고, 배열은 JSON_ARRAY 로만
       // 받는다. `ask --options` 가 이미 CSV 이므로 그 관례를 쓴다 — 계정 하나만 주는 기존 호출은
       // 쉼표가 없으므로 그대로 흐른다.
+      // T1: no longer required: omitted is "auto" (`accountIds: []`), the shape a prompt-file plan's Tasks have; it
+      // starts on the claude account with most room when placed (exec/dispatchLoop.ts placeSlot). Required, every
+      // coordinator pinned its own account (the owner's CLI default) on each Task, and they waited on its usage.
       const accountArg = str(args.account)
-      if (accountArg === null) return bad('--account is required')
       // 검증은 parseAccountList 가 한다 — `run-create --coordinator-account` 와 **같은 규칙**이고,
       // 두 번 적으면 한쪽만 고쳐지는 날이 온다(그 함수의 주석).
-      const parsedAccounts = parseAccountList(accountArg, await deps.listAccounts(), '--account')
+      const parsedAccounts = accountArg === null ? { ok: true as const, ids: [] } : parseAccountList(accountArg, await deps.listAccounts(), '--account')
       if (!parsedAccounts.ok)
         return parsedAccounts.missing ? notFound(parsedAccounts.reason) : bad(parsedAccounts.reason)
       const accountIds: string[] = parsedAccounts.ids
@@ -4491,7 +4500,8 @@ export async function handleCommand(
         )
       if (task.consecutiveFailures >= FAILURE_LIMIT)
         return conflict(`task ${id} has failed ${task.consecutiveFailures} times in a row (circuit break); reset it with task-update first`)
-      if ((task.accountIds?.length ?? 0) === 0)
+      // T1: no account is "auto" with "Pick accounts automatically" on: the loop places it on the account with most room
+      if ((task.accountIds?.length ?? 0) === 0 && deps.usageGuard?.autoAccounts?.() !== true)
         return conflict(`task ${id} names no account to run on`)
       const limit = job?.concurrency ?? DEFAULT_CONCURRENCY
       const mine = new Set(s.tasks.filter((t) => t.runId === run.id).map((t) => t.id))
@@ -4886,20 +4896,29 @@ export async function handleCommand(
         if (pause) {
           // T5b: the best usable account of every account of that provider, not only the Task's chain
           const best = deps.startAccount ? await deps.startAccount({ provider: agent, own: task.accountIds ?? [], purpose: 'worker' }) : null
-          if (best?.ok) best.release()
-          const alternative = best ? (best.ok ? { ok: true as const, accountId: best.accountId } : { ok: false as const }) : usageChoice(task.accountIds ?? [], (id) => deps.usageGuard!.pauseOf(id))
-          const other = alternative.ok && alternative.accountId !== undefined && alternative.accountId !== account ? alternative.accountId : undefined
-          return {
-            status: 409,
-            body: {
-              error: usagePauseWhy(pause) + (other !== undefined ? `; start it with --account ${other}, or without --account to let Astera pick` : ''),
-              usagePaused: pause,
-              ...(other !== undefined ? { alternative: other } : {})
+          // T1: with "Pick accounts automatically" on, the named account is a preference, as for a planner or
+          // coordinator start (exec/plannerStart.ts): it starts on the one with room, and the switch is told
+          if (best?.ok && best.accountId !== account && deps.usageGuard.autoAccounts?.() === true) {
+            deps.usageGuard.switched?.({ from: account, to: best.accountId, reason: usagePauseWhy(pause) })
+            account = best.accountId
+            release = best.release
+          } else {
+            if (best?.ok) best.release()
+            const alternative = best ? (best.ok ? { ok: true as const, accountId: best.accountId } : { ok: false as const }) : usageChoice(task.accountIds ?? [], (id) => deps.usageGuard!.pauseOf(id))
+            const other = alternative.ok && alternative.accountId !== undefined && alternative.accountId !== account ? alternative.accountId : undefined
+            return {
+              status: 409,
+              body: {
+                error: usagePauseWhy(pause) + (other !== undefined ? `; start it with --account ${other}, or without --account to let Astera pick` : ''),
+                usagePaused: pause,
+                ...(other !== undefined ? { alternative: other } : {})
+              }
             }
           }
         }
       }
-      if (str(args.account)) release = deps.usageGuard?.reserve?.(account) ?? release
+      // A switched start already counts on its account (its `release`, above)
+      if (str(args.account) === account) release = deps.usageGuard?.reserve?.(account) ?? release
 
 
       // **`--worktree` 를 생략한 호출은 "이 Run 이 일하는 자리" 를 뜻한다** — 그것은 Run 이
@@ -6155,9 +6174,12 @@ export async function handleCommand(
       if (myDispatch !== undefined)
         return denied('a worker session cannot start sessions; ask your coordinator, or run it from a shell')
       if (!deps.createSession) return conflict('sessions are started by the Astera Host, and this caller is not one')
-      if (args.account === undefined) return bad('--account is required: the account the session runs on (from `accounts list`)')
-      const account = str(args.account)
+      // T1: no --account is auto: the account with most room of --provider (claude by default), rolling over the
+      // provider's ranking; a named one is a preference, never started on while full (host/sessionCreate.ts)
+      const account = args.account === undefined ? undefined : str(args.account)
       if (account === null) return bad('--account needs a value: an account id (from `accounts list`)')
+      const provider = enumFilter('provider', args.provider, ['claude', 'codex'] as const)
+      if ('error' in provider) return bad(provider.error)
       if (args.cwd === undefined) return bad('--cwd is required: the folder the session starts in')
       const asked = str(args.cwd)
       if (asked === null) return bad('--cwd needs a value: a folder')
@@ -6195,10 +6217,14 @@ export async function handleCommand(
           '--prompt for a terminal session must not contain " & | < > ^ % or a line break: it is passed on the command line. Put the text in a file and ask the session to read it, or start a chat session'
         )
       const known = await deps.listAccounts()
-      const mine = known.find((a) => a.id === account)
-      if (!mine) return notFound(`unknown account: ${account}`)
+      const mine = account === undefined ? undefined : known.find((a) => a.id === account)
+      if (account !== undefined && !mine) return notFound(`unknown account: ${account}`)
+      if (mine && provider.value !== undefined && mine.provider !== provider.value)
+        return bad(`--provider ${provider.value} does not match --account ${account}, which is ${mine.provider}`)
       let chain: string[] = []
-      if (args.rollAccounts !== undefined) {
+      if (args.rollAccounts !== undefined && !mine)
+        return bad('--roll-accounts needs --account: without one the session rolls over every account of its provider')
+      if (args.rollAccounts !== undefined && account !== undefined && mine) {
         const raw = str(args.rollAccounts)
         if (raw === null) return bad('--roll-accounts needs a value: account ids, comma-separated')
         const parsed = parseAccountList(raw, known, '--roll-accounts')
@@ -6212,7 +6238,8 @@ export async function handleCommand(
         return okBody(
           await deps.createSession({
             kind: sessionKind,
-            accountId: account,
+            ...(account !== undefined ? { accountId: account } : {}),
+            ...(provider.value !== undefined ? { provider: provider.value } : {}),
             cwd,
             ...(args.title !== undefined ? { title: str(args.title)! } : {}),
             ...(args.prompt !== undefined ? { prompt: str(args.prompt)! } : {}),
@@ -6556,7 +6583,7 @@ export async function handleCommand(
         cwd: job.cwd,
         ...(branch !== undefined ? { branch } : {}),
         ...(proj?.defaultBranch ? { defaultBranch: proj.defaultBranch } : {}), // W8-G
-        worktrees: runWorktrees(s, id)
+        worktrees: deliveryWorktrees(s, id)
       }
       // T3: the owner answered they push it themselves: delivered once git sees every worktree's commit on the branch
       // T1: also from a failed or retrying delivery, and a Run from before `deliveryState` that has only an error
@@ -6857,7 +6884,7 @@ export async function handleCommand(
       // The leaves' work is still in their own worktrees: only a dependent's start folds a worktree into the Run's.
       const completedIds = new Set(s.tasks.filter((t) => t.runId === id && t.status === 'completed').map((t) => t.id))
       const rest = (
-        failed ? runWorktreesFrom(run, job.cwd, s.dispatches.filter((d) => completedIds.has(d.taskId))) : runWorktrees(s, id)
+        deliveryWorktrees(s, id, failed ? completedIds : undefined)
       ).filter((p) => !isSamePath(p, worktree))
       if (rest.length > 0) {
         if (!deps.mergeWorktrees) return conflict('merging is not available in this build')

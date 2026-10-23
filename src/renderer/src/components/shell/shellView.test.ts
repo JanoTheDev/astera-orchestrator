@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { Account } from '../../../../core/types'
 import type { Job, JobRun, Task } from '../../../../core/orchestration/types'
-import { activeAccountOf, activityClick, activityOnLaunch, nextQueuedLine, readWorkbenchLayout, runningPlans, shellCounts, shownPanelTab } from './shellView'
+import { activeAccountOf, consolesOfSessions, activityClick, activityOnLaunch, nextQueuedLine, readWorkbenchLayout, runningPlans, shellCounts, shownPanelTab } from './shellView'
 import type { WallConsole } from '../wall/wallModel'
 import { t } from '../../../../core/i18n'
 
@@ -31,6 +31,11 @@ describe('shellCounts', () => {
     const consoles = [console('a', 'needs'), console('b', 'working'), console('d', 'finished')]
     const c = shellCounts(sessions, { a: 'waiting' }, [{ kind: 'session' }, { kind: 'gate' }, { kind: 'session' }], consoles)
     expect([c.agents, c.waiting]).toEqual([1, 3])
+  })
+
+  it('consolesOfSessions keeps only the consoles whose session is in the list', () => {
+    const consoles = [{ sessionId: 'a' }, { sessionId: 'x' }] as WallConsole[]
+    expect(consolesOfSessions(consoles, [{ id: 'a' }]).map((c) => c.sessionId)).toEqual(['a'])
   })
 
   it('the Agents badge counts only consoles of the scope it is given', () => {

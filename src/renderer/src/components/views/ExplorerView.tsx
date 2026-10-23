@@ -7,32 +7,35 @@ import { ViewContainer, ViewPane } from '../ui'
 import type { SideBarViewProps } from '../shell/SideBar'
 
 export function ExplorerView(p: SideBarViewProps): React.JSX.Element {
-  const { t, currentProject: root } = p
-  const gitStatus = useGitStatus(root)
+  const {
+    t, currentProject, openProjectFile, explorerTreesRef, explorerClipboardRef, explorerUndoRef, handlePathRenamed, handlePathDeleted,
+    runFile, explorerReveal, setExplorerReveal
+  } = p
+  const gitStatus = useGitStatus(currentProject)
   return (
     <div className="wb-view">
       <ViewContainer label={t('explorer.title')}>
         <FileExplorer
-          root={root}
-          onOpenFile={p.openProjectFile}
+          root={currentProject}
+          onOpenFile={openProjectFile}
           gitStatus={gitStatus}
-          stateRef={p.explorerTreesRef}
-          clipboardRef={p.explorerClipboardRef}
-          undoRef={p.explorerUndoRef}
-          onPathRenamed={p.handlePathRenamed}
-          onPathDeleted={p.handlePathDeleted}
-          onRunFile={p.runFile}
-          revealFolder={p.explorerReveal}
-          onRevealDone={(seq) => p.setExplorerReveal((r) => (r !== null && r.seq === seq ? null : r))}
+          stateRef={explorerTreesRef}
+          clipboardRef={explorerClipboardRef}
+          undoRef={explorerUndoRef}
+          onPathRenamed={handlePathRenamed}
+          onPathDeleted={handlePathDeleted}
+          onRunFile={runFile}
+          revealFolder={explorerReveal}
+          onRevealDone={(seq) => setExplorerReveal((r) => (r !== null && r.seq === seq ? null : r))}
         />
-        {root && (
+        {currentProject && (
           <ViewPane
             title={t('explorer.view.changed')}
             count={Object.keys(gitStatus.fileState).length}
             storageKey="explorer.changed"
             className="fx-changed-pane"
           >
-            <ChangedList root={root} gitStatus={gitStatus} onOpenFile={p.openProjectFile} />
+            <ChangedList root={currentProject} gitStatus={gitStatus} onOpenFile={openProjectFile} />
           </ViewPane>
         )}
       </ViewContainer>

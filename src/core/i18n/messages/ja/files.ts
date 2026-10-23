@@ -49,6 +49,7 @@ export const files: Partial<Record<keyof typeof ko, string>> = {
   'explorer.git.modified': '変更あり',
   'explorer.git.deleted': '削除済み',
   'explorer.git.conflict': '競合',
+  'explorer.git.renamed': '名前変更',
   'explorer.git.folderCount': '変更 {count} 件',
   'explorer.git.unavailable': 'git の状態を確認できません — 前回の結果を表示しています',
   'explorer.view.all': 'すべて',

@@ -1,4 +1,4 @@
-.app { display: flex; flex-direction: column; height: 100%; }
+.app { display: flex; flex-direction: column; height: 100%; overflow: clip; } /* the status bar items' half pixel below the bar must not make the page scroll */
 /* W9-B: one page at a time under the top bar, the run drawer under it (DESIGN.md §1) */
 .workbench { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 
@@ -65,12 +65,7 @@
 .tb-btn.ui-btn:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
 
 body.resizing-row { cursor: row-resize; user-select: none; }
-.run-resizer { flex: none; height: 6px; background: transparent; cursor: row-resize; position: relative; }
-.run-resizer::after { content: ''; position: absolute; left: 0; right: 0; top: 2px; height: 2px; background: var(--accent); opacity: 0; transition: opacity .12s; }
-.run-resizer:hover::after, .run-resizer:active::after { opacity: .8; }
 .content { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-/* W9-B: off the console pages the grid is hidden, never unmounted (Pages.tsx) */
-.content--hidden { display: none; }
 /* The common parent of the session and editor screens. Both being siblings means the JSX position
    does not change when the session is shown in editor mode, so xterm never remounts.
    Not named .workbench: that class already belongs to the app shell above (rail | sidebar | content),
@@ -81,10 +76,7 @@ body.resizing-row { cursor: row-resize; user-select: none; }
 /* ---------- top bar (DESIGN-W11 §8) ---------- */
 /* The bar's working half. Everything in it is clickable, so the window drag stops here; the brand and the spacer
    still drag. */
-.tb-main { flex: 1; min-width: 0; height: 100%; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 0; }
-.tb-main > :not(.tb-spacer) { -webkit-app-region: no-drag; }
 .tb-spacer { flex: 1; min-width: 8px; align-self: stretch; -webkit-app-region: drag; }
-.tb-divider { width: 1px; height: 18px; flex: none; background: var(--line); }
 
 /* the project switcher: "● name ▾" and its searchable popover */
 .tb-sw { position: relative; display: flex; }
@@ -127,41 +119,6 @@ body.resizing-row { cursor: row-resize; user-select: none; }
 .tb-sw-sep { height: 1px; margin: 4px -4px; background: var(--line); }
 .tb-sw-empty { padding: 8px; color: var(--text-faint); font-size: var(--fs-12); }
 
-/* page tabs */
-.tb-pages { display: flex; align-items: stretch; align-self: stretch; gap: 4px; margin-left: 4px; }
-.tb-pages .ui-nav { gap: 4px; }
-.tb-pages .ui-nav__item { padding: 0 8px; font-size: var(--fs-13); font-weight: var(--fw-medium); }
-.tb-pages .ui-nav__count { color: var(--warn); }
-.tb-more { display: flex; align-items: center; border-bottom: 2px solid transparent; }
-.tb-more--active { border-bottom-color: var(--accent); }
-.tb-more--active .ui-btn { color: var(--text); }
-.tb-pages-narrow { display: none; }
-/* the tabs, search, meter, New and the three window buttons need ~1100px; below it the tabs fold into Pages ▾ */
-@media (max-width: 1100px) {
-  .tb-pages { display: none; }
-  .tb-pages-narrow { display: inline-flex; }
-}
-
-/* right group: search, usage, New, settings */
-/* field-shaped: it opens the search box rather than being one */
-.tb-search.ui-btn {
-  justify-content: flex-start; gap: 8px; height: 28px; width: 220px; min-width: 0; padding: 0 6px 0 10px;
-  border-color: var(--line); background: var(--bg); color: var(--text-faint); font-weight: var(--fw-regular);
-}
-.tb-search.ui-btn:hover:not(:disabled) { background: var(--bg); color: var(--text-dim); border-color: var(--line-strong); }
-.tb-search .ui-btn__label { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
-/* the field gives up width before its Kbd does: the label truncates, the caps keep their size */
-.tb-search .ui-kbd { flex: none; }
-.tb-search-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; text-align: left; }
-@media (max-width: 1240px) { .tb-search.ui-btn { width: auto; } .tb-search-text { display: none; } }
-.tb-usage { position: relative; display: flex; }
-.tb-usage-btn.ui-btn { height: 28px; max-width: 200px; font-weight: var(--fw-regular); font-variant-numeric: tabular-nums; }
-.tb-usage-btn.ui-btn[aria-expanded='true'] { background: var(--hover); color: var(--text); }
-.tb-usage-btn .ui-btn__label { display: inline-flex; align-items: center; gap: 8px; }
-.tb-usage-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--text-faint); }
-.tb-usage-pct { flex: none; min-width: 3ch; text-align: right; color: var(--text); }
-.tb-meter { width: 40px; flex: none; }
-@media (max-width: 1100px) { .tb-usage-label { display: none; } }
 .tb-popover {
   position: absolute; top: calc(100% + 6px); right: 0; z-index: 900; width: 360px; max-height: 70vh; overflow: auto;
   background: var(--elevated); border-radius: var(--radius-lg); box-shadow: var(--shadow-pop);
@@ -169,9 +126,6 @@ body.resizing-row { cursor: row-resize; user-select: none; }
 }
 
 /* T9 (DESIGN-W11 §8): the More menu's rows carry a one-line description; the bell sits left of the usage meter */
-.ui-menu__item:has(.tb-more-item) { height: auto; padding: 6px 8px; align-items: flex-start; }
-.tb-more-item { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.tb-more-desc { color: var(--text-faint); font-size: var(--fs-11); white-space: normal; max-width: 260px; }
 .tb-bell { position: relative; display: flex; }
 .tb-bell-btn { position: relative; }
 .tb-bell-badge {
@@ -203,41 +157,19 @@ body.resizing-row { cursor: row-resize; user-select: none; }
   height: var(--statusbar-h); margin-top: 0; gap: 4px; padding: 0 8px; background: var(--panel); color: var(--text-dim);
   border-top: 1px solid var(--line); font-family: var(--sans); font-size: var(--fs-12); font-variant-numeric: tabular-nums;
 }
-.sb-item.ui-btn { gap: 6px; height: 20px; padding: 0 6px; flex: none; border-radius: var(--radius-sm); color: inherit; font-size: inherit; font-weight: var(--fw-regular); }
-.sb-item--warn.ui-btn, .sb-item--warn.ui-btn:hover:not(:disabled) { color: var(--warn); }
-.sb-dot { width: 6px; height: 6px; border-radius: var(--radius-pill); flex: none; background: var(--text-faint); }
-.sb-dot--ok { background: var(--ok); }
-.sb-dot--warn { background: var(--warn); }
+/* the bell sits in the status bar, whose overflow:hidden (statusBar.css) clipped the popover that opens upward from it */
+.statusbar.wb-status { overflow: visible; }
 .sb-next { min-width: 0; padding: 0 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-faint); }
-.sb-account { display: inline-flex; align-items: center; gap: 6px; flex: none; padding: 0 6px; white-space: nowrap; }
-.sb-account-name { color: var(--text-dim); max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
 .sb-usage { color: var(--text-dim); }
 .sb-usage + .sb-usage::before { content: '·'; margin-right: 6px; color: var(--text-faint); }
-.sb-account-name + .sb-usage { margin-left: 4px; }
-.sb-host { flex: none; padding: 0 6px; color: var(--text-faint); white-space: nowrap; }
-.sb-host--warn { color: var(--warn); }
 
 /* ---------- W9-B pages (DESIGN.md §2) ---------- */
 .pages { flex: 1; min-height: 0; display: flex; }
-/* The list column of a page that also shows the consoles (Files, How It Works) */
-.page-side { width: 300px; flex: none; display: flex; flex-direction: column; min-height: 0; overflow-y: auto; background: var(--panel); border-right: 1px solid var(--line); }
 /* A full-width page */
 .page { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; background: var(--bg); }
 .page-title { margin: 0; padding: 12px 16px 8px; font-size: var(--fs-15); font-weight: 600; color: var(--text); }
-.page-note { margin: 0; color: var(--text-dim); font-size: var(--fs-13); }
-.page-views { display: flex; justify-content: center; padding: 12px 16px 0; }
-.page-jobs { flex: 1; min-height: 0; display: flex; flex-direction: column; max-width: 960px; width: 100%; margin: 0 auto; }
 /* the Plans list page runs full width like the other pages (its rows stay readable-width); a plan's own page stays centred */
-.page-jobs:has(> .plans-page) { max-width: none; }
-.page-inbox { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
-.page-inbox-needs, .page-inbox-handled { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
-.page-inbox-handled { border-left: 1px solid var(--line); background: var(--panel); }
-.page-runs { display: flex; flex-direction: column; gap: 12px; padding: 0 16px 16px; }
-.page-runs .page-title { padding-left: 0; }
-.page > .history-panel, .page > .worktree-panel { max-width: 960px; width: 100%; margin: 0 auto; }
-.page-browser-form { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 0 16px 16px; }
-.page-browser-form .ui-field { align-self: stretch; }
-.page-actions { display: flex; gap: 8px; }
+.page > .history-panel { max-width: 960px; width: 100%; margin: 0 auto; }
 
 /* ---------- DESIGN-W13 §2: the workbench ---------- */
 .app > .titlebar { height: var(--titlebar-h); }
@@ -288,12 +220,11 @@ body.resizing-row { cursor: row-resize; user-select: none; }
 .wb-sidebar__sash { position: absolute; top: 0; bottom: 0; right: -2px; z-index: 5; }
 .wb-view { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .wb-view--scroll { overflow: auto; }
-.wb-view .page-views { padding: 0 8px 8px 20px; }
 .wb-view-empty { margin: 0; padding: 4px 20px; color: var(--text-dim); font-size: var(--fs-13); }
 .wb-view-pad { padding: 8px 8px 8px 20px; display: flex; flex-direction: column; gap: 8px; }
-.wb-view-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 /* the old full-width pages, narrowed into the side bar: their own width rules give way to the bar's */
-.wb-sidebar .plan-pages, .wb-sidebar .worktrees-page, .wb-sidebar .history-page { min-width: 0; width: 100%; }
+.wb-sidebar .plan-pages,
+.wb-sidebar .history-page { min-width: 0; width: 100%; }
 /* Under 1100px the side bar opens over the editor instead of pushing it (§2) */
 @media (max-width: 1100px) {
   .wb-sidebar { position: absolute; top: 0; bottom: 0; left: var(--activitybar-w); z-index: 40; box-shadow: var(--shadow-pop); }
@@ -303,7 +234,8 @@ body.resizing-row { cursor: row-resize; user-select: none; }
 .view-slot { flex-direction: column; overflow: auto; background: var(--editor-bg); }
 /* static: their own top (Start measures the title bar) and inset no longer apply */
 .view-slot > .start-page, .view-slot > .settings-page { position: static; flex: 1; min-height: 0; z-index: auto; }
-.view-slot > .plan-pages, .view-slot > .worktrees-page, .view-slot > .view-doc { flex: 1; min-height: 0; }
+.view-slot > .plan-pages,
+.view-slot > .view-doc { flex: 1; min-height: 0; }
 .view-doc { padding: 16px 24px; overflow: auto; }
 
 /* Welcome (§5): the empty editor area */

@@ -22,9 +22,9 @@ import { dismiss, toast } from '../lib/toast'
 import { spawnNotice } from '../lib/spawnNotice'
 import { announceSettingsRecovery } from '../lib/settingsRecoveryNotice'
 import { confirmModal, confirmModalWithChoices, isConfirmOpen } from '../lib/confirm'
-import { ACTIVITY_STORAGE_KEY, togglePage, type ActivityId, type PageId } from '../../../core/ui/pages'
+import { ACTIVITY_STORAGE_KEY, activityOfSaved, togglePage, type ActivityId, type PageId } from '../../../core/ui/pages'
 import { requestBox } from '../components/command/boxStore'
-import { openActivity, openPage, openView, pageTargetOf, togglePanel, toggleSideBar } from '../components/shell/navigation'
+import { openActivity, openView, revealRunConfigs, togglePanel, toggleSideBar } from '../components/shell/navigation'
 import { storageWrite } from '../components/shell/shellView'
 import { terminalsWithCreated } from '../lib/terminalTabs'
 import { isCancelled as isWorktreeCancelled } from '../lib/worktreeErrors'
@@ -77,6 +77,13 @@ export type WorkbenchDeps = Pick<ReturnType<typeof useWorkbenchState>,
     'setWorkUnitTrackingEnabled' | 'setWtRoot' | 'settingsTouched' | 'showSettings'> &
   Pick<ReturnType<typeof useDialogs>,
     'setCommandOpen' | 'setRunMenuOpen' | 'setSwitcherOpen' | 'setTalkSignal' | /* W9-E */ 'setNewOpen'>
+
+/** T1: a session's account and rolling chain for a respawn (Restart, Reopen): its account first, then the rest of its
+ *  chain; no chain, no rolling. */
+const chainOf = (accountId: string, chain: string[] | undefined): { accountIds: string[]; roll: boolean } =>
+  chain && chain.length > 0
+    ? { accountIds: [accountId, ...chain.filter((id) => id !== accountId)], roll: true }
+    : { accountIds: [accountId], roll: false }
 
 export function useWorkbench(deps: WorkbenchDeps) {
   const {
@@ -525,13 +532,6 @@ export function useWorkbench(deps: WorkbenchDeps) {
         else toggleHiw()
         return
       }
-      // W9-B: an old page key someone rebound still opens its page (no default chord any more).
-      if (action.startsWith('page.')) {
-        e.preventDefault()
-        e.stopPropagation()
-        if (!e.repeat) openPage(action.slice('page.'.length) as PageId)
-        return
-      }
       // DESIGN-W13 §9: the workbench chords. They go through navigation.ts, whose handlers hold the panel's state too.
       if (action.startsWith('activity.')) {
         e.preventDefault()
@@ -599,11 +599,10 @@ export function useWorkbench(deps: WorkbenchDeps) {
         e.stopPropagation()
         if (e.repeat) return
         if (action === 'run.selectConfig') {
-          // The toolbar (and its menu) is only rendered for an open project. Forcing the menu open
-          // with none open would arm it to spring open by itself the next time a project is opened,
-          // since RunConfigMenu is controlled and mounts already open.
+          // Without a project the Run view has no list to focus, and the flag would stay raised until
+          // the next project is opened and the list sprang into focus by itself.
           if (!currentProjectRef.current) return
-          setRunMenuOpen((v) => !v)
+          revealRunConfigs(() => setRunMenuOpen(true))
         } else if (action === 'run.run') runStartRef.current()
         else if (action === 'run.stop') runStopSelectionRef.current()
         else runRerunSelectedRef.current()
@@ -865,7 +864,8 @@ export function useWorkbench(deps: WorkbenchDeps) {
         schedule: opts.schedule
       })
       // The default account mapping is keyed on the original repo — a worktree path is new every time and mappings must not pile up
-      if (opts.saveDefault)
+      // T1: no account (auto) saves no default
+      if (opts.saveDefault && opts.accountIds[0])
         await window.api.projects.setDefaultAccount(opts.repoRoot ?? opts.cwd, opts.accountIds[0])
       // What actually happened to the resume the modal asked for — the rolling guard focused an existing
       // tab instead (its options quietly discarded), or Smart Resume started a blank session carrying a
@@ -1264,14 +1264,16 @@ export function useWorkbench(deps: WorkbenchDeps) {
       else place(cur, entry.sessionId)
       return
     }
-    const opts = { accountIds: [entry.accountId], roll: false, slackNotify: false, bypassPermissions: entry.bypassPermissions === true }
+    // T1: the session's own chain when it is still known (an auto one's is its provider's ranking), so it rolls again;
+    // main moves it off a full account (sessions.spawn)
+    const opts = { ...chainOf(entry.accountId, s?.rollAccountIds), slackNotify: false, bypassPermissions: entry.bypassPermissions === true }
     if (entry.kind === 'chat') {
       if (!entry.threadId) {
         toast.info(t('tabs.recent.cannotResume', { title: entry.title }))
         return
       }
       dropClosed(entry.sessionId)
-      void spawn({ accountIds: opts.accountIds, cwd: entry.cwd, saveDefault: false, kind: 'chat', resumeThreadId: entry.threadId, bypassPermissions: opts.bypassPermissions })
+      void spawn({ accountIds: opts.accountIds, roll: opts.roll, cwd: entry.cwd, saveDefault: false, kind: 'chat', resumeThreadId: entry.threadId, bypassPermissions: opts.bypassPermissions })
       return
     }
     const tr = await window.api.sessions.transcript(entry.sessionId).catch(() => null)
@@ -1487,8 +1489,8 @@ export function useWorkbench(deps: WorkbenchDeps) {
     pageRef.current = id
     setPage(id)
     // DESIGN-W13: a page is a side bar view now. Settings and the Inbox have none (a view tab, the panel): they leave it.
-    const target = pageTargetOf(id)
-    if ('activity' in target) showActivity(target.activity)
+    const to = activityOfSaved(id)
+    if (id !== 'settings' && !to.panelTab) showActivity(to.activity)
   }
   /** The side bar's view; the flags the app's effects read (explorerOpen, jobsOpen, hiwOpen) follow it, and it is kept
    *  for the next launch. Whether the side bar shows is the caller's (openActivity shows it, goPage leaves it). */
@@ -1652,8 +1654,9 @@ export function useWorkbench(deps: WorkbenchDeps) {
     // one instead — `spawn`'s default. `resumeThreadId` is the thread to pick the conversation back
     // up on; it is omitted (not sent as undefined-but-present) for a session that never reached
     // `ready` and so never got one, the same as any other resume path in this file.
+    // T1: the old chain goes with it (main moves the start off a full account, sessions.spawn)
     void spawn({
-      accountIds: [old.accountId],
+      ...chainOf(old.accountId, old.rollAccountIds),
       cwd: old.cwd,
       saveDefault: false,
       slackNotify: old.slackNotify,

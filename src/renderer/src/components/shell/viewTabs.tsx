@@ -13,12 +13,12 @@ import { archiveJob, deleteRun, holdJob, renameJob, resolveFailed, unarchiveJob 
 import { Button, EmptyState, ICONS, type IconName } from '../ui'
 import { PlansPage } from '../pages/PlansPage'
 import { StartPage } from '../pages/StartPage'
-import { WorktreesPage } from '../pages/WorktreesPage'
+import { WorktreeDetail } from '../worktrees/WorktreeDetail'
 import { SettingsPage } from '../settings/SettingsPage'
 import { KeyboardShortcuts } from '../ShortcutSettings'
 import { MainPlan } from '../plan/MainPlan'
 import type { PlanActs } from '../plan/PlanRow'
-import { selectWorktree } from '../worktrees/worktreeView'
+import { selectWorktree, useWorktreeView } from '../worktrees/worktreeView'
 import { repoInScope } from '../../state/projectView'
 import { Welcome } from './Welcome'
 import { DeviceDetail } from '../devices/DeviceDetail'
@@ -79,13 +79,15 @@ function planActs(p: ViewTabProps): PlanActs {
   }
 }
 
-/** A worktree tab: the Worktrees page on that worktree, selected while the tab shows. */
+/** A worktree tab: the worktree detail, selected while the tab shows. */
 function WorktreeTab({ p, path, active }: { p: ViewTabProps; path?: string; active: boolean }): React.JSX.Element {
+  const { selected } = useWorktreeView()
   useEffect(() => {
     if (active && path !== undefined) selectWorktree(path)
   }, [active, path])
   return (
-    <WorktreesPage
+    <WorktreeDetail
+      path={selected}
       onStartSession={(cwd) => {
         p.setNewSessionCwd(cwd)
         p.setShowNew(true)
@@ -214,7 +216,9 @@ export function useViewTabSync(p: SyncDeps): void {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- follows the flag only
   }, [showSettings])
 
-  // Plans: openRun opens its tab; a remote plan's runtime is remembered for when its tab is activated again
+  // Plans: openRun opens its tab; a remote plan's runtime is remembered for when its tab is activated again.
+  // Keyed on the request object, not its runId: every open (a click in the Plans tree, Welcome, the Inbox) sets a new
+  // one, so the same plan opens again after its tab was closed (the runId alone had not changed).
   const opened = useRef(new Map<string, { projectPath: string; runId: string; runtimeId?: string }>())
   useEffect(() => {
     if (!openRun) return
@@ -222,7 +226,7 @@ export function useViewTabSync(p: SyncDeps): void {
     const id = viewTab('plan', openRun.runId)
     if (activeTabId !== id) place(id)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- follows the open plan only
-  }, [openRun?.runId, openRun?.runtimeId])
+  }, [openRun])
   const lastActive = useRef(activeTabId)
   useEffect(() => {
     if (lastActive.current === activeTabId) return

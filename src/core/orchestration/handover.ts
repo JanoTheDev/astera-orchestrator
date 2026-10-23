@@ -94,8 +94,9 @@ export function buildHandoverPrompt(a: {
         `${ACCOUNT_RULE};`,
         '  `astera accounts list --json` lists the rest. One provider per Task: never mix providers inside one Task.',
         `- Checks: \`astera run-configs list --job ${a.jobId ?? '<jobId>'} --json\` lists the project's run`,
-        '  configurations. When there are any that test the work, pass their ids as `--validate <id,...>`',
-        '  so the result is checked. Pass `--review` only when the objective asks for a review.',
+        '  configurations. When there are quick ones that test the work (a typecheck, the tests of the files a Task',
+        '  touches), pass their ids as `--validate <id,...>`. Never the full test suite: it runs once at delivery.',
+        '  Pass `--review` only when the objective asks for a review.',
         'Keep the plan small and concrete: a few Tasks, each one a piece of work a worker can finish',
         'and report. Do not plan what the objective does not ask for.',
         'A Gate needs a Task. If you must ask the person something before any Task exists, create the',
@@ -351,7 +352,7 @@ export function buildPlannerBrief(a: {
     '  hard is design or a subtle bug). Add `--model-reason "<one line>"` saying why.',
     '  `--provider claude|codex` and `--model <id>` only when the Task needs a specific one.',
     `${ACCOUNT_RULE}; \`astera accounts list --json\` lists them.`,
-    '- Checks: `astera run-configs list --job ' + a.jobId + ' --json`; pass the ones that test the work as `--validate <id,...>`.',
+    '- Checks: `astera run-configs list --job ' + a.jobId + ' --json`; pass quick ones that test the work (never the full suite: it runs once at delivery) as `--validate <id,...>`.',
     // W8-D plan areas
     // T7: every Job is named at creation by its objective's first words; the planner gives it a real name
     `- Name: once you know the goal, give the plan a short name: \`astera jobs rename --id ${a.jobId} --title "<3-6 words>"\`.`,

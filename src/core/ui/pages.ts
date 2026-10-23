@@ -1,8 +1,7 @@
 import type { ViewName } from '../panes/tabId'
 
-// The pages of the Wave 9 shell (DESIGN.md §2, PLAN.md "Wave 9 contracts") and how saved state from the
-// sidebar shell maps onto them. W9-A only defines the ids and the mapping; the pages themselves arrive
-// in 9.2, and navigation goes through components/shell/navigation.ts.
+// The saved `cm.page` value of the top-bar shell and how it maps onto the workbench (activityOfSaved), plus the
+// workbench ids: activity bar views, side bar and bottom panel state. Navigation goes through components/shell/navigation.ts.
 
 /** The pages the top bar switches between. Start is not here: it is a mode of New and of an empty
  *  project, not a tab. */
@@ -34,21 +33,6 @@ export function pageOf(saved: unknown): PageId {
 
 // ---- W9-B: the shell's use of the ids ----
 
-/** The pages `Ctrl+1…6` open (DESIGN.md §1). T9 kept the order so saved shortcuts keep their page: Tasks opens Plans ›
- *  All tasks and Inbox the full Inbox view behind the bell. */
-export const KEYED_PAGES = ['agents', 'tasks', 'plans', 'inbox', 'worktrees', 'files'] as const satisfies readonly MainPageId[]
-
-/** T9 (DESIGN-W11 §8): the top bar's three tabs. Settings has its gear, the rest sit in More, Inbox behind the bell. */
-export const TAB_PAGES = ['agents', 'plans', 'files'] as const satisfies readonly PageId[]
-/** What the top bar's "More" menu lists, in its order. */
-export const MORE_MENU_PAGES = ['worktrees', 'more:history', 'more:runs', 'more:hiw', 'more:browser'] as const satisfies readonly PageId[]
-
-/** The tab a page lights: All tasks (`tasks`) is a view inside Plans; Inbox, Settings and the More pages light none. */
-export function tabOf(page: PageId): (typeof TAB_PAGES)[number] | null {
-  if (page === 'tasks') return 'plans'
-  return (TAB_PAGES as readonly PageId[]).includes(page) ? (page as (typeof TAB_PAGES)[number]) : null
-}
-
 /** Where the open page is kept between launches (`cm.` like the app's other renderer-only keys). */
 export const PAGE_STORAGE_KEY = 'cm.page'
 
@@ -64,12 +48,6 @@ export function initialPage(saved: string | null): PageId {
  *  the rule the sidebar toggles had ("a key that opens something puts things back when pressed again"). */
 export function togglePage(current: PageId, target: PageId): PageId {
   return current === target ? DEFAULT_PAGE : target
-}
-
-/** The sidebar flags the app's effects still read (`explorerOpen`, `jobsOpen`, `hiwOpen`: the Jobs snapshot and How
- *  It Works poll only while they are on), set from the page that shows that view now. */
-export function viewFlagsOf(page: PageId): { explorer: boolean; jobs: boolean; understanding: boolean } {
-  return { explorer: page === 'files', jobs: page === 'plans' || page === 'tasks', understanding: page === 'more:hiw' }
 }
 
 // ---- The VSCode-style workbench: activity bar views, side bar and bottom panel state ----

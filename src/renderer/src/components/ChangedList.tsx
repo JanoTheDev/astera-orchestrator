@@ -11,7 +11,11 @@ import { DiffView } from './DiffView'
 import { GIT_LABEL } from './ExplorerRow'
 import { FileIcon } from './FileIcon'
 import { Button, EmptyState, ICONS } from './ui'
-import { changedRows, changeLetter } from './explorerChanged'
+import { changedRows, changeLetter, type ChangedRow, type ChangeKind } from './explorerChanged'
+
+/** A row's status as the letter, colour and label show it: a renamed file reads R whatever its git state. */
+const kind = (r: ChangedRow): ChangeKind => (r.renamed ? 'renamed' : r.state)
+const label = (r: ChangedRow) => (r.renamed ? ('explorer.git.renamed' as const) : GIT_LABEL[r.state])
 
 type Diff = { path: string } & ({ state: 'loading' } | { state: 'shown'; diff: string; truncated: boolean })
 
@@ -81,10 +85,10 @@ export function ChangedList({ root, gitStatus, onOpenFile }: { root: string; git
             onClick={() => click(r.path, r.state)}
           >
             <FileIcon {...resolveFileIcon(r.name)} />
-            <span className={`fx-name git-${r.state}`}>{r.name}</span>
+            <span className={`fx-name git-${kind(r)}`}>{r.name}</span>
             {r.dir && <span className="fx-note">{r.dir}</span>}
-            <span className={`fx-git-mark git-${r.state}`} title={t(GIT_LABEL[r.state])} aria-label={t(GIT_LABEL[r.state])}>
-              {changeLetter(r.state)}
+            <span className={`fx-git-mark git-${kind(r)}`} title={t(label(r))} aria-label={t(label(r))}>
+              {changeLetter(kind(r))}
             </span>
           </Button>
           {diff?.path === r.path && diff.state === 'shown' && <DiffView diff={diff.diff} truncated={diff.truncated} binary={r.binary === true} />}

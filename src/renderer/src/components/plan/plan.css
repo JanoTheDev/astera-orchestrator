@@ -68,13 +68,6 @@
 .workbench:has(> .plan-pages) > .content { display: none; }
 .plan-pages { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 12px; padding: 16px 20px; overflow: auto; background: var(--bg); }
 
-.plans-overlap { overflow: auto; }
-.plans-overlap table { border-collapse: collapse; font-size: var(--fs-12); }
-.plans-overlap th, .plans-overlap td { padding: 5px 10px; border: 1px solid var(--line); text-align: left; white-space: nowrap; }
-.plans-overlap thead th { font-family: var(--font-mono, monospace); font-weight: 500; color: var(--text-dim); }
-.plans-overlap th.shared, .plans-overlap td.shared { background: var(--warn-soft); color: var(--warn); }
-.plans-overlap td.editing { color: var(--accent); }
-.plans-overlap td.done { color: var(--text-faint); }
 
 /* Plan page: the old window's body, full size */
 .plan-page { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
@@ -82,37 +75,6 @@
 .plan-crumb-cur { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .plan-crumb-link { padding: 0; border: 0; background: none; color: var(--text-dim); font: inherit; cursor: pointer; }
 .plan-crumb-link:hover { color: var(--accent); }
-
-/* Tasks page (DESIGN-W11 §9): PageHeader, the Planning section first, then the board; columns are --panel surfaces with
-   counts and shrink to fit (the board alone scrolls under 900px). */
-.plan-pages.tasks-page { padding: 0; gap: 0; }
-.tasks-body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: var(--sp-4); padding: 0 var(--page-pad) var(--page-pad); }
-.tasks-page .ui-empty { flex: 1; justify-content: center; }
-.tasks-planning { display: flex; flex-direction: column; gap: var(--sp-2); }
-.tasks-planning-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: var(--sp-2); }
-.tasks-board { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--sp-2); overflow: auto; }
-.tasks-col { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-2); border-radius: var(--radius-lg); background: var(--panel); border: 1px solid var(--line); }
-.tasks-col-cards { display: flex; flex-direction: column; gap: var(--sp-2); min-height: 0; overflow: auto; }
-.tasks-col-cards > * { flex: none; }
-.tasks-col-head { display: flex; align-items: center; gap: var(--sp-2); margin: 0; padding: 2px var(--sp-1); font-size: var(--fs-12); font-weight: var(--fw-semi); color: var(--text-dim); }
-.tasks-col-count { margin-left: auto; font-size: var(--fs-11); font-weight: 500; color: var(--text-faint); font-variant-numeric: tabular-nums; }
-.tasks-page .ui-page-header__filters .tasks-col-count { margin-left: 6px; }
-.tasks-scope-name { display: inline-block; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
-.tasks-col-more { margin: 0; padding: 0 var(--sp-1); font-size: var(--fs-11); color: var(--text-faint); }
-.tasks-card { display: flex; flex-direction: column; align-items: stretch; gap: 6px; width: 100%; min-width: 0; overflow: hidden; text-align: left; font-size: var(--fs-12); }
-.tasks-col .tasks-card { background: var(--bg); }
-.tasks-card-head { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--text-dim); }
-.tasks-card-id { margin-left: auto; flex: none; font-family: var(--font-mono, monospace); font-size: var(--fs-11); color: var(--text-faint); }
-.tasks-card-title { min-width: 0; font-size: var(--fs-13); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
-.tasks-card-line { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; font-size: var(--fs-12); line-height: var(--lh-tight); color: var(--text-dim); overflow: hidden; }
-.tasks-card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; font-size: var(--fs-11); color: var(--text-faint); }
-.tasks-card-plan { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tasks-card .tasks-wait.ui-chip { align-self: flex-start; max-width: 100%; height: auto; min-height: var(--h-sm); gap: 4px; padding-block: 2px; white-space: normal; text-align: left; }
-.tasks-card .tasks-wait svg { flex: none; }
-/* Five columns shrink to fit down to 1024; only a window narrower than that scrolls the board, not the page. */
-@media (max-width: 900px) {
-  .tasks-board { grid-template-columns: repeat(5, 170px); }
-}
 
 /* The answer form (QuestionAnswer, in the Inbox card and on a Waves card): a full-width box and a Send under it, flat
    like every other field (W9-F: it was the browser's default textarea, 180px wide). W12: ui Textarea and Buttons. */

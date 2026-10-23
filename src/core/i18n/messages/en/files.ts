@@ -56,6 +56,7 @@ export const files: Record<keyof typeof ko, string> = {
   'explorer.git.modified': 'Modified',
   'explorer.git.deleted': 'Deleted',
   'explorer.git.conflict': 'Conflict',
+  'explorer.git.renamed': 'Renamed',
   'explorer.git.folderCount': '{count} changed',
   'explorer.git.unavailable': 'Git status unavailable — showing the last result',
   'explorer.view.all': 'All',

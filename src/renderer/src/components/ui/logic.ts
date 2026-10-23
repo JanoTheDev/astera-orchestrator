@@ -14,7 +14,7 @@ export function meterTone(value: number): MeterTone {
   return v >= 90 ? 'danger' : v >= 75 ? 'warn' : 'accent'
 }
 
-/** Roving focus for Nav, Tabs and Menu. `orientation` picks which arrows move; they wrap, Home/End jump. Null: not ours. */
+/** Roving focus for Tabs, Toolbar and Menu. `orientation` picks which arrows move; they wrap, Home/End jump. Null: not ours. */
 export function nextFocusIndex(current: number, count: number, key: string, orientation: 'horizontal' | 'vertical' = 'horizontal'): number | null {
   if (count <= 0) return null
   const [prev, next] = orientation === 'horizontal' ? ['ArrowLeft', 'ArrowRight'] : ['ArrowUp', 'ArrowDown']
@@ -24,6 +24,15 @@ export function nextFocusIndex(current: number, count: number, key: string, orie
   if (key === 'Home') return 0
   if (key === 'End') return count - 1
   return null
+}
+
+/** Roving arrow-key focus over the buttons inside `container`. */
+export function rovingKeyDown(container: HTMLElement | null, e: React.KeyboardEvent, orientation: 'horizontal' | 'vertical' = 'horizontal'): void {
+  const items = Array.from(container?.querySelectorAll<HTMLElement>('[data-roving]:not([disabled])') ?? [])
+  const next = nextFocusIndex(items.indexOf(document.activeElement as HTMLElement), items.length, e.key, orientation)
+  if (next === null) return
+  e.preventDefault()
+  items[next]?.focus()
 }
 
 export type ModalKeyAction = 'close' | { focus: number } | null

@@ -8,8 +8,9 @@ import { groupOfTab } from '../../../../core/panes/tree'
 import { sessionTab } from '../../../../core/panes/tabId'
 import { parentDir, resolveRelative } from '../../../../core/files/paths'
 import type { AppState } from '../../state/appState'
-import { openPage } from '../shell/navigation'
+import { openPlanConsoles } from '../shell/navigation'
 import { planSectionOf, type PlanSection } from '../plan/planBoard'
+import { nextPlanOpen, type PlanOpen } from '../plan/planPage'
 import { PlanPage } from './PlanPage'
 import '../plan/plan.css'
 
@@ -24,14 +25,14 @@ export function usePlanPages({ openRun, page, goPage }: {
   page: PageId
   goPage: (id: PageId) => void
 }): {
-  planPage: PlanPages
+  planPage: (PlanPages & { seq: number }) | null
   setPlanPage: (next: PlanPages) => void
 } {
-  const [section, setSection] = useState<PlanSection | undefined>(undefined)
-  const planPage: PlanPages =
-    page === 'plans' || page === 'tasks' ? { page, ...(section !== undefined ? { section } : {}) } : null
+  const [open, setOpen] = useState<PlanOpen>({ seq: 0 })
+  const planPage: (PlanPages & { seq: number }) | null =
+    page === 'plans' || page === 'tasks' ? { page, ...(open.section !== undefined ? { section: open.section } : {}), seq: open.seq } : null
   const setPlanPage = (next: PlanPages): void => {
-    setSection(next?.section)
+    setOpen((prev) => nextPlanOpen(prev, next?.section))
     goPage(next ? next.page : 'agents')
   }
   const opened = openRun ? `${openRun.runtimeId ?? ''}:${openRun.runId}` : null
@@ -110,13 +111,14 @@ export function PlansPage(p: PlansPageProps): React.JSX.Element | null {
                 }
           }
           section={section}
+          seq={planPage?.seq}
           onSection={(s) => {
             storeSection(openRun.runId, s)
             setPlanPage({ page: 'plans', section: s })
           }}
           plans={snap?.runs ?? []}
           snapshot={snap}
-          onOpenConsoles={() => openPage('agents', openRun.runId)}
+          onOpenConsoles={() => openPlanConsoles(openRun.runId)}
         />
       </div>
     )

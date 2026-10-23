@@ -89,7 +89,6 @@ export const plan: Partial<Record<keyof typeof ko, string>> = {
   'jobs.changes.reportedNone': 'ワーカーが報告したファイルはありません。',
   'jobs.changes.unsupported': "そのコンピューターはまだ変更ファイルの表示に対応していません。そのコンピューターの Astera を更新してください。",
   'jobs.changes.listCut': 'ファイルが多すぎるため、{total} 件中 {shown} 件だけを表示します。',
-  'plan.wave.coordinatorRefreshed': 'リードエージェントを新しくしました ({reason})',
   'plan.simple.approvedFromChat': 'プランナーのチャットから承認: 「{words}」',
   'plan.pick.title': 'このプランに選んだ Issue',
   'plan.pick.picked': '#{n} {title}: {why}',
@@ -161,11 +160,6 @@ export const plan: Partial<Record<keyof typeof ko, string>> = {
   'plan.question.title': 'あなたへの質問',
   'plan.question.answer': '回答する',
   // W12 repair: the plan page's section tabs
-  'pages.plan.section.overview': '概要',
-  'pages.plan.section.waves': 'ステップ',
-  'pages.plan.section.files': 'ファイル',
-  'pages.plan.section.changes': '変更',
-  'pages.plan.section.journal': '記録',
   // T8 plan tab and Plan settings
   'plan.doc.needsYou': 'あなたの対応',
   'plan.doc.goal': '目標',

@@ -3,7 +3,7 @@
 // and neither has to thread a setter through App. The app opens on the wall (DESIGN §1: Agents is the default page).
 import { useSyncExternalStore } from 'react'
 
-/** `plan` on the wall: a request to filter it to that plan (navigation's openPage('agents', plan)); AgentsPage takes it. */
+/** `plan` on the wall: a request to filter it to that plan (navigation's openPlanConsoles(plan)); AgentsPage takes it. */
 export type WallView = { kind: 'wall'; plan?: string } | { kind: 'away' }
 
 let view: WallView = { kind: 'wall' }

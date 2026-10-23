@@ -856,6 +856,14 @@ async function runningJob(h: Rig): Promise<{ jobId: string; runId: string; taskI
   return { jobId, runId, taskId: worker.taskId, worker }
 }
 
+/** A worker that ended without reporting, and the question a person is asked about it. An app-driven plan's lost worker
+ *  is started again by the stall watchdog, not gated, so the question is opened here as the lost-worker Gate would. */
+async function lostWithQuestion(h: Rig, worker: Spawn): Promise<void> {
+  h.exitWorker(worker, 1)
+  await until(() => expect(h.state().dispatches.find((d) => d.id === worker.dispatchId)?.endedAt).toBeDefined())
+  okData(await astera(['gate-create', '--task', worker.taskId, '--question', `The worker was lost (dispatch ${worker.dispatchId}).`], h.env), 'gate-create')
+}
+
 /** What a Host restart finds after a worker died with the Host: a Job, its Run, one Task and an open
  *  Dispatch on a session no registry holds ('ses_gone'), built with the pure layer. The Host's load
  *  cleanup closes that Dispatch as lost. */
@@ -931,7 +939,7 @@ describe('the public CLI against a real Host (§48, §49)', { timeout: 60_000 },
   it('a worker question: questions list --run shows it, questions answer records it, and the Host places the worker again', async () => {
     const h = await hostRig()
     const { runId, taskId, worker } = await runningJob(h)
-    h.exitWorker(worker, 1)
+    await lostWithQuestion(h, worker)
     await until(() => expect(h.state().gates.filter((g) => g.status === 'open')).toHaveLength(1))
 
     // `runs wait` stops on it with 8, which is how a script learns there is a question.
@@ -1340,7 +1348,7 @@ describe('the Job Journal with Astera closed (Host journal)', { timeout: 60_000 
   it('a question answered from the CLI lands one GATE_RESOLVED row, and says the CLI did it', async () => {
     const h = await hostRig({ continuity: true })
     const { runId, taskId, worker } = await runningJob(h)
-    h.exitWorker(worker, 1)
+    await lostWithQuestion(h, worker)
     await until(() => expect(h.state().gates.filter((g) => g.status === 'open')).toHaveLength(1))
     const questionId = h.state().gates.find((g) => g.status === 'open')!.id
     okData(await astera(['questions', 'answer', '--id', questionId, '--answer', 'Use the existing DB.'], h.env), 'questions answer')
@@ -1352,7 +1360,8 @@ describe('the Job Journal with Astera closed (Host journal)', { timeout: 60_000 
     // Who did the rest: the CLI started the run, the Host placed the worker and opened the question.
     expect(rows.find((e) => e.type === 'JOB_RUN_STARTED')?.actor).toEqual({ surface: 'cli' })
     expect(rows.find((e) => e.type === 'ATTEMPT_START_REQUESTED')?.actor).toEqual({ surface: 'host' })
-    expect(rows.find((e) => e.type === 'TASK_WAITING_INPUT')?.actor).toEqual({ surface: 'host' })
+    // the question is opened from the CLI here (lostWithQuestion), so its row says so
+    expect(rows.find((e) => e.type === 'TASK_WAITING_INPUT')?.actor).toEqual({ surface: 'cli' })
     expect(rows.some((e) => e.type === 'PROMPT_WRITE_REQUESTED')).toBe(false) // the rig's spawner is fake; the real one is Task 5's test
   })
 
@@ -1630,7 +1639,7 @@ describe('MCP against the Host', { timeout: 60_000 }, () => {
     const h = await hostRig({ continuity: true })
     // The question a Host opens when a worker ends without reporting (the CLI tests above).
     const { runId, taskId, worker } = await runningJob(h)
-    h.exitWorker(worker, 1)
+    await lostWithQuestion(h, worker)
     await until(() => expect(h.state().gates.filter((g) => g.status === 'open')).toHaveLength(1))
     const mcp = await mcpClient(h, { clientInfo: { name: 'claude-code', version: '1.2.3' } })
 
@@ -2291,8 +2300,10 @@ describe('MCP against the Host', { timeout: 60_000 }, () => {
     // answers before its window with only that change and the ending that says a person is needed.
     t0 = Date.now()
     const pending = mcp.call('wait_for_run', { runId, seen: all.seen, waitSeconds: 10 })
-    setTimeout(() => h.exitWorker(worker, 1), 300)
+    let asked: Promise<void> = Promise.resolve()
+    setTimeout(() => (asked = lostWithQuestion(h, worker)), 300)
     const changed = await pending
+    await asked
     expect(Date.now() - t0).toBeLessThan(9_000)
     expect(changed.isError, changed.content[0]?.text).toBeFalsy()
     // The exit is two commits on the Host (the "ended without reporting" message, then the question), and a

@@ -52,6 +52,7 @@ export function PlanPage({
   door,
   onOpenPath,
   section,
+  seq = 0,
   plans,
   snapshot,
   onOpenConsoles
@@ -81,6 +82,8 @@ export function PlanPage({
   onOpenPath?: (path: string) => void
   /** T8: where the tab scrolls on opening (`openPlan(jobId, section)`): a section, `settings` or `task-<id>`. */
   section: PlanSection
+  /** Counts the opens (planPage.ts nextPlanOpen): the same section opened again scrolls again. */
+  seq?: number
   /** The page no longer has section tabs; kept for PlansPage, which passes it. */
   onSection: (section: PlanSection) => void
   /** The project's other plans: the ⋯ menu's "Start after". */
@@ -107,8 +110,9 @@ export function PlanPage({
   useEffect(() => {
     // the top again (a plan opened without a section): the next Task or settings anchor scrolls, even the same one
     if (anchor === null) applied.current = null
-    if (anchor === null || !ready || applied.current === `${runId}:${section}`) return
-    applied.current = `${runId}:${section}`
+    const key = `${runId}:${section}:${seq}`
+    if (anchor === null || !ready || applied.current === key) return
+    applied.current = key
     if (anchor.kind === 'task') p.setSelected(anchor.taskId)
     let timer: ReturnType<typeof setTimeout> | undefined
     const frame = requestAnimationFrame(() => {
@@ -123,8 +127,8 @@ export function PlanPage({
       cancelAnimationFrame(frame)
       if (timer) clearTimeout(timer)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per plan and anchor, when its target is drawn
-  }, [runId, section, ready])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per plan, anchor and open, when its target is drawn
+  }, [runId, section, seq, ready])
 
   /** Needs you's Task name: expand its row and bring it into view. */
   const showTask = (taskId: string): void => {

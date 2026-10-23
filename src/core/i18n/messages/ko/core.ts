@@ -307,12 +307,6 @@ export const core = {
   'shortcut.command.talk': '명령 창에 말하기 (눌러서 시작, 다시 눌러 보내기)',
   'shortcut.tabs.reopenClosed': '마지막으로 닫은 탭 다시 열기',
   // W9-B: Ctrl+1…6 open the top bar's pages
-  'shortcut.page.agents': '에이전트 페이지 열기',
-  'shortcut.page.tasks': '작업 페이지 열기',
-  'shortcut.page.plans': '계획 페이지 열기',
-  'shortcut.page.inbox': '받은 편지함 열기',
-  'shortcut.page.worktrees': '워크트리 페이지 열기',
-  'shortcut.page.files': '파일 페이지 열기',
   // W6-F
   'shortcut.workspace.project': '프로젝트 작업 공간 {n} 열기',
   'telegram.inbox.replyHint': '세션에 입력을 보내려면 그 세션의 메시지에 답장하세요',

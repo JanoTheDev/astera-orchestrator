@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  openActivity, openConsole, openInbox, openPage, openPanel, openPlan, openSettings, openView, openWorktree, pageTargetOf,
-  registerNavigation, togglePanel, toggleSideBar, type NavigationHandlers
+  openActivity, openConsole, openInbox, openPanel, openPlan, openSettings, openView, openWorktree,
+  registerNavigation, revealRunConfigs, togglePanel, toggleSideBar, type NavigationHandlers
 } from './navigation'
 import { placeViewTab } from '../../../../core/panes/place'
 import { leaves } from '../../../../core/panes/tree'
@@ -13,7 +13,6 @@ const handlers = (): NavigationHandlers => ({
   openPanel: vi.fn(),
   toggleSideBar: vi.fn(),
   togglePanel: vi.fn(),
-  openPage: vi.fn(),
   openConsole: vi.fn(),
   openPlan: vi.fn(),
   openInbox: vi.fn(),
@@ -27,7 +26,6 @@ describe('navigation registry', () => {
   it('forwards every call to the registered handlers', () => {
     const h = handlers()
     const off = registerNavigation(h)
-    openPage('files')
     openConsole('s1')
     openPlan('j1', 'tasks')
     openInbox('waiting')
@@ -39,7 +37,6 @@ describe('navigation registry', () => {
     openPanel('terminal')
     toggleSideBar()
     togglePanel()
-    expect(h.openPage).toHaveBeenCalledWith('files')
     expect(h.openConsole).toHaveBeenCalledWith('s1')
     expect(h.openPlan).toHaveBeenCalledWith('j1', 'tasks')
     expect(h.openInbox).toHaveBeenCalledWith('waiting')
@@ -56,7 +53,7 @@ describe('navigation registry', () => {
 
   it('is a no-op that warns when nothing is registered', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    expect(() => openPage('agents')).not.toThrow()
+    expect(() => openActivity('agents')).not.toThrow()
     expect(() => openConsole('s1')).not.toThrow()
     expect(warn).toHaveBeenCalledTimes(2)
   })
@@ -68,28 +65,13 @@ describe('navigation registry', () => {
     const offA = registerNavigation(a)
     const offB = registerNavigation(b)
     offA() // stale: b is installed now
-    openPage('plans')
-    expect(b.openPage).toHaveBeenCalledWith('plans')
-    expect(a.openPage).not.toHaveBeenCalled()
+    openActivity('plans')
+    expect(b.openActivity).toHaveBeenCalledWith('plans')
+    expect(a.openActivity).not.toHaveBeenCalled()
     offB()
-    openPage('plans')
-    expect(b.openPage).toHaveBeenCalledTimes(1)
+    openActivity('plans')
+    expect(b.openActivity).toHaveBeenCalledTimes(1)
     expect(warn).toHaveBeenCalledTimes(1)
-  })
-})
-
-describe('openPage shim (pageTargetOf)', () => {
-  it('maps every old page to its side bar view, Settings to its tab and the Inbox to the panel', () => {
-    expect(pageTargetOf('agents')).toEqual({ activity: 'agents' })
-    expect(pageTargetOf('plans')).toEqual({ activity: 'plans' })
-    expect(pageTargetOf('tasks')).toEqual({ activity: 'plans' })
-    expect(pageTargetOf('files')).toEqual({ activity: 'explorer' })
-    expect(pageTargetOf('worktrees')).toEqual({ activity: 'scm' })
-    expect(pageTargetOf('more:history')).toEqual({ activity: 'history' })
-    expect(pageTargetOf('more:hiw')).toEqual({ activity: 'history' })
-    expect(pageTargetOf('more:runs')).toEqual({ activity: 'run' })
-    expect(pageTargetOf('settings')).toEqual({ view: 'settings' })
-    expect(pageTargetOf('inbox')).toEqual({ panel: 'needs' })
   })
 })
 
@@ -101,5 +83,18 @@ describe('openView placement (placeViewTab)', () => {
     const again = placeViewTab(withOther.root, plan, withOther.paneId)
     expect(leaves(again.root!).flatMap((l) => l.tabIds).filter((id) => id === plan)).toHaveLength(1)
     expect(again.paneId).toBe(first.paneId)
+  })
+})
+
+describe('revealRunConfigs', () => {
+  it('opens the Run view first, then raises the focus flag', () => {
+    const h = handlers()
+    const calls: string[] = []
+    h.openActivity = vi.fn(() => void calls.push('open'))
+    const off = registerNavigation(h)
+    revealRunConfigs(() => calls.push('raise'))
+    expect(h.openActivity).toHaveBeenCalledWith('run')
+    expect(calls).toEqual(['open', 'raise'])
+    off()
   })
 })

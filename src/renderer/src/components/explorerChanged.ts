@@ -13,6 +13,8 @@ export interface ChangedRow {
   /** set when the file came from the base-branch list: readFileDiff can show its diff (worktrees.fileDiff takes this id) */
   fileId?: string
   binary?: true
+  /** git reports the file renamed: its state stays modified, the row shows R and the Renamed label */
+  renamed?: true
 }
 
 const STATE_OF: Record<ChangedFile['status'], GitState> = { added: 'new', deleted: 'deleted', modified: 'modified', renamed: 'modified' }
@@ -30,7 +32,11 @@ export function changedRows(root: string, fileState: Record<string, GitState>, b
   for (const [path, state] of Object.entries(fileState)) add(path, state)
   for (const f of base ?? []) {
     const path = root + sep + f.path.split('/').join(sep)
-    add(path, fileState[path] ?? STATE_OF[f.status], { fileId: f.id, ...(f.binary ? { binary: true as const } : {}) })
+    add(path, fileState[path] ?? STATE_OF[f.status], {
+      fileId: f.id,
+      ...(f.binary ? { binary: true as const } : {}),
+      ...(f.status === 'renamed' ? { renamed: true as const } : {})
+    })
   }
   return [...rows.values()].sort((a, b) => a.dir.localeCompare(b.dir) || a.name.localeCompare(b.name))
 }

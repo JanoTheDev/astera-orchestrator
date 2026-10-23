@@ -21,6 +21,12 @@ export interface ShellCounts {
   agents: number
 }
 
+/** The consoles of the given sessions: the one scope filter of the Agents view's panes and the Agents badge. */
+export function consolesOfSessions(consoles: readonly WallConsole[], sessions: readonly { id: string }[]): WallConsole[] {
+  const ids = new Set(sessions.map((s) => s.id))
+  return consoles.filter((c) => ids.has(c.sessionId))
+}
+
 export function shellCounts(
   sessions: readonly { id: string; status: string }[],
   attention: Readonly<Record<string, Attention>>,
@@ -28,12 +34,11 @@ export function shellCounts(
   consoles: readonly WallConsole[]
 ): ShellCounts {
   const live = sessions.filter((s) => s.status === 'running')
-  const inScope = new Set(sessions.map((s) => s.id))
   return {
     consoles: live.length,
     working: live.filter((s) => attention[s.id] === 'working').length,
     waiting: needsYou.length,
-    agents: agentPanes(consoles.filter((c) => inScope.has(c.sessionId))).needs.length
+    agents: agentPanes(consolesOfSessions(consoles, sessions)).needs.length
   }
 }
 

@@ -29,7 +29,7 @@ import { confirmModal } from '../lib/confirm'
 import { FileIcon } from './FileIcon'
 import { RunConfigForm } from './RunConfigForm'
 import { RunTypePicker } from './RunTypePicker'
-import { Button, Icon, IconButton, Modal } from './ui'
+import { Button, Icon, IconButton, Input, Modal } from './ui'
 
 /** The error element of a refused Apply — SaveConfigsResult's own shape, not restated, so a reason
  *  added to SaveReason without a `run.manager.reason.*` catalogue entry fails typecheck here instead
@@ -56,6 +56,7 @@ export function RunConfigManager({
   hasDockerfile,
   projectPath,
   initialSelectedId,
+  initialNewType,
   onApply,
   onClose
 }: {
@@ -75,6 +76,9 @@ export function RunConfigManager({
   /** Which configuration the dialog opens on. The toolbar menu's "Edit '<name>'…" supplies it; absent,
    *  the first configuration is selected as before. */
   initialSelectedId?: string
+  /** The Run view's "New configuration": open with one draft configuration of this kind already added and selected
+   *  (a draft like any ＋, so Cancel leaves no trace). Takes the place of `initialSelectedId`. */
+  initialNewType?: RunConfigType
   /** Apply: the stored list becomes this list, or nothing changes and the refused items are named. The
    *  caller refetches run.list on success so the toolbar follows. */
   onApply: (configs: RunConfig[]) => Promise<SaveConfigsResult>
@@ -85,10 +89,14 @@ export function RunConfigManager({
   const { t } = useI18n()
 
   // The snapshot: taken once, on mount. `configs` is deliberately not a dependency of anything below.
-  const [draft, setDraft] = useState<ConfigDraft>(() => draftOf(configs))
+  // shortcut: a new configuration opened from the Run view starts without the npm scripts / .NET projects the manager's own ＋ offers, since both load later
+  const [first] = useState<RunConfig | null>(() =>
+    initialNewType ? defaultConfigFor(initialNewType, `user:${crypto.randomUUID()}`, t(`run.type.${initialNewType}` as MessageKey), configs, [], []) : null
+  )
+  const [draft, setDraft] = useState<ConfigDraft>(() => (first ? addItem(draftOf(configs), first) : draftOf(configs)))
   const [baseline, setBaseline] = useState<RunConfig[]>(() => configs.filter((c) => !isSeedId(c.id)))
   const [selectedId, setSelectedId] = useState<string | null>(
-    (initialSelectedId && configs.some((c) => c.id === initialSelectedId) ? initialSelectedId : configs[0]?.id) ?? null
+    first?.id ?? ((initialSelectedId && configs.some((c) => c.id === initialSelectedId) ? initialSelectedId : configs[0]?.id) ?? null)
   )
   const [query, setQuery] = useState('')
   const [applyErrors, setApplyErrors] = useState<ApplyError[]>([])
@@ -311,16 +319,14 @@ export function RunConfigManager({
       <div className="rcm">
         <div className="rcm-panes">
           <div className="rcm-list">
-            <label className="rcm-search">
-              <Icon name="search" size={14} />
-              <input
-                type="text"
-                value={query}
-                placeholder={t('run.manager.search')}
-                aria-label={t('run.manager.search')}
-                onChange={(e) => setQuery(e.target.value)}
-              />
-            </label>
+            <Input
+              className="rcm-search"
+              type="search"
+              value={query}
+              placeholder={t('run.manager.search')}
+              aria-label={t('run.manager.search')}
+              onChange={(e) => setQuery(e.target.value)}
+            />
             <div className="rcm-tools">
               <RunTypePicker
                 detected={detectedTypes}
@@ -406,7 +412,7 @@ export function RunConfigManager({
                 <div className="rcm-group-block" key={`${g.kind}:${g.key}`}>
                   {g.kind === 'folder' ? (
                     renamingFolder === g.key ? (
-                      <input
+                      <Input
                         className="rcm-folder-name"
                         autoFocus
                         defaultValue={g.key}

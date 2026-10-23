@@ -27,7 +27,7 @@ import { wavesToMerge } from '../integrate'
 import { draftPrDue } from '../draftPr'
 import { handsOffOf } from '../delivery'
 import { isJobActive } from '../lifecycle'
-import { lostWithCoordinator, lostWithNobody } from '../lostGate'
+import { lostRetriedIn, lostWithDriver, lostWithNobody } from '../lostGate'
 import { isLost } from '../../recovery/candidates'
 import { editingByProject, isLeaseWaitGate, LEASE_WAIT_OPTIONS, projectKeyOf, sameFilesAs, workerCapOf, workersAgainstCap } from '../schedule'
 import { DROPPED_OPTIONS, isDroppedGate, plannerOverlapNotices } from '../overlap'
@@ -37,6 +37,7 @@ import { outcomeOf } from '../view'
 import { ENTER_DELAY_MS } from '../../sessions/sessionDriver'
 import { workerStartInFlight } from './coordinatorRotate'
 import { providerOf } from '../../providers/meta'
+import { startPauseOf } from '../usageGuard'
 import type { Account } from '../../types'
 
 /** How often the watchdog looks. */
@@ -98,6 +99,9 @@ export interface StallProbe {
   isRegistered(p: string): boolean
   /** The usage guard holds new workers on this account: its ready Tasks wait for it, not for the coordinator. */
   paused?(accountId: string): boolean
+  /** T1: "Pick accounts automatically" is on: a Task with no account is auto, not dropped (wrap `paused` in
+   *  startPauseOf, usageGuard.ts, so it holds only when the provider has no account with room). Absent: off. */
+  autoAccounts?: boolean
   /** The app-wide cap setting (`maxConcurrentWorkers`), null for the default. Absent: the default (`workerCapOf`). */
   cap?: number | null
   /** Whether a session is alive: a Run driven by a live external coordinator gets no restart. Absent: it is. */
@@ -173,6 +177,23 @@ function movedSince(s: OrchState, runId: string, since: number): boolean {
     s.messages.some((m) => m.runId === runId && (m.type === 'question' || m.type === 'escalation') && after(m.createdAt)) ||
     s.deliveries.some((d) => d.runId === runId && after(d.ackedAt))
   )
+}
+
+/** T1: the probe's usage hold. With "Pick accounts automatically" on, an account holds only while its provider has no
+ *  logged-in account with room (startPauseOf), and a Task with no account is auto. Off, or no hold wired: as it is. */
+export async function stallPauseProbe(a: {
+  auto: boolean
+  paused?(accountId: string): boolean
+  accounts(): Account[] | Promise<Account[]>
+  loginStatus(accountId: string): Promise<boolean>
+}): Promise<Pick<StallProbe, 'paused' | 'autoAccounts'>> {
+  const paused = a.paused
+  if (!a.auto) return paused ? { paused: (id) => paused(id) } : {}
+  if (!paused) return { autoAccounts: true }
+  const accounts = await a.accounts()
+  const loggedInIds = new Set((await Promise.all(accounts.map(async (x) => ((await a.loginStatus(x.id)) ? x.id : null)))).filter((id): id is string => id !== null))
+  const of = startPauseOf((id) => (paused(id) ? true : null), { auto: true, accounts, loggedInIds })
+  return { autoAccounts: true, paused: (id) => of(id) !== null }
 }
 
 /** The remedies due now, and the memo to keep. A healthy plan gets none. */
@@ -254,13 +275,15 @@ export function stallRemedies(
     // Wave-held Tasks are not ready to start (readyWithoutWorker), so they are no stall and spend no slot
     const candidates: Task[] = []
     for (const t of readyWithoutWorker(s, run.id)) {
+      // T1: with "Pick accounts automatically" on, no account is "auto" (placed on the account with most room)
+      const first = t.accountIds?.[0]
       const reason =
-        (t.accountIds?.length ?? 0) === 0
+        first === undefined && probe.autoAccounts !== true
           ? 'it has no account'
           : t.consecutiveFailures >= FAILURE_LIMIT
             ? `it failed ${t.consecutiveFailures} times in a row`
-            : probe.paused?.(t.accountIds![0]) === true
-              ? `its account ${t.accountIds![0]} is paused for usage`
+            : first !== undefined && probe.paused?.(first) === true
+              ? `its account ${first} is paused for usage`
               : null
       if (reason === null) {
         candidates.push(t)
@@ -453,20 +476,21 @@ export function stallRemedies(
   }
 
   // Lost: `dispatched`, its last Dispatch ended unreported and its coordinator has not started it again. Retried
-  // (`--retry-of`) up to the Task's retry limit, then the owner. A Run with no coordinator has the lost-worker Gate.
+  // (`--retry-of`) up to the Task's retry limit, then the owner. A Run nobody drives has the lost-worker Gate.
   // Untracked: `dispatched` with no Dispatch at all (its record lost, candidates.ts lostAttemptOf sees none) and no live
   // worker left to adopt (adoption ran first, header): started again the same way, never left silent.
   const untracked = s.tasks
     .filter((t) => t.status === 'dispatched' && !runGatedForTask(s, t) && !s.dispatches.some((d) => d.taskId === t.id))
     .map((t) => ({ runId: t.runId ?? '', taskId: t.id, dispatch: undefined as Dispatch | undefined }))
-  for (const seed of [...lostWithCoordinator(s), ...untracked]) {
+  for (const seed of [...lostWithDriver(s), ...untracked]) {
     const run = s.runs.find((r) => r.id === seed.runId)
     const job = run && jobOf(s, run)
     const task = s.tasks.find((t) => t.id === seed.taskId)
     if (!run || !placing(run, job) || !task) continue
-    // No coordinator to retry it (an app-driven Run): an untracked Task is raised to its owner once, never started again.
-    // One whose lost Dispatch ended has the lost-worker Gate instead (lostGate.ts). A live external coordinator drives it.
-    const driven = !!run.coordinatorSessionId || (run.externalCoordinatorSessionId !== undefined && (probe.alive?.(run.externalCoordinatorSessionId) ?? true))
+    // Nobody to retry it (no coordinator, not app-driven): an untracked Task is raised to its owner once, never started
+    // again. One whose lost Dispatch ended has the lost-worker Gate instead (lostGate.ts). A live external coordinator
+    // drives it. An app-driven Run is driven: this watchdog starts its lost Tasks again, as a coordinator would.
+    const driven = lostRetriedIn(s, run) || (run.externalCoordinatorSessionId !== undefined && (probe.alive?.(run.externalCoordinatorSessionId) ?? true))
     if (!driven && seed.dispatch) continue
     const lostAt = seed.dispatch ? Date.parse(seed.dispatch.endedAt!) : (at.get(task.id) ?? nowMs)
     if (nowMs - lostAt < LOST_STALL_MS) continue
@@ -571,7 +595,7 @@ export function startNotice(runId: string, t: Task, since: number, agent: string
     subject: `watchdog: task ${t.id} ready since ${new Date(since).toISOString()}`,
     body:
       `${t.id} (${t.title}) has been ready for 2 minutes with a free slot and no worker. Start it now:\n\n` +
-      `astera worker-start --task ${t.id} --agent ${agent} --account ${t.accountIds?.[0] ?? ''} --json\n\n` +
+      `astera worker-start --task ${t.id} --agent ${agent}${t.accountIds?.[0] ? ` --account ${t.accountIds[0]}` : ''} --json\n\n` +
       'If it is still unstarted in 2 minutes, Astera starts it itself.'
   }
 }
@@ -588,6 +612,9 @@ export interface StallWatchDeps {
   alive(sessionId: string): boolean
   isRegistered(p: string): boolean
   paused?(accountId: string): boolean
+  /** T1: "Pick accounts automatically" (UsageGuard.autoAccounts) and the login check, for stallPauseProbe. Absent: off. */
+  autoAccounts?(): boolean
+  loginStatus?(accountId: string): Promise<boolean>
   typeInto(sessionId: string, text: string): void
   /** DispatchLoop.tell: a `status` message into a coordinator's Run inbox. */
   tell(n: CoordinatorNotice): Promise<boolean>
@@ -648,12 +675,11 @@ export function createStallWatch(d: StallWatchDeps): { adopt(): Promise<void>; w
           (await Promise.resolve(d.accounts?.() ?? [])).map((a) => (a.id === account ? providerOf(a) : null)).find((p) => p !== null) ??
           r.task.provider ??
           'claude'
-        const reply = await d.handle('worker-start', {
-          task: r.task.id,
-          agent,
-          account,
-          ...(r.dispatch ? { retryOf: r.dispatch.id } : {})
-        })
+        const start = (on?: string) =>
+          d.handle('worker-start', { task: r.task.id, agent, ...(on ? { account: on } : {}), ...(r.dispatch ? { retryOf: r.dispatch.id } : {}) })
+        let reply = await start(account)
+        // That account is out of usage (paused until its window resets): any other with room, as worker-start picks
+        if (reply.status === 409 && (reply.body as { usagePaused?: unknown })?.usagePaused !== undefined) reply = await start()
         line(
           r.runId,
           reply.status < 400
@@ -828,10 +854,16 @@ export function createStallWatch(d: StallWatchDeps): { adopt(): Promise<void>; w
           return
         }
         const cap = await d.cap()
+        const usage = await stallPauseProbe({
+          auto: d.autoAccounts?.() === true && d.loginStatus !== undefined,
+          ...(d.paused ? { paused: (id: string) => d.paused!(id) } : {}),
+          accounts: () => d.accounts?.() ?? [],
+          loginStatus: (id) => d.loginStatus!(id)
+        })
         const planned = stallRemedies(d.getState(), d.nowMs(), memo, {
           busy: (id) => d.busy(id),
           isRegistered: (p) => d.isRegistered(p),
-          ...(d.paused ? { paused: (id: string) => d.paused!(id) } : {}),
+          ...usage,
           cap,
           alive: (id) => d.alive(id)
         })

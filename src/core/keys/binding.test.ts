@@ -329,16 +329,10 @@ describe('workbench shortcuts', () => {
       (['sidebar.toggle', 'panel.toggle', 'palette.open', 'quickOpen', 'settings.open', 'tabs.switcher'] as const).map((id) => b[id].map(formatChord))
     ).toEqual([['Ctrl+B'], ['Ctrl+J'], ['Ctrl+Shift+P'], ['Ctrl+P'], ['Ctrl+,'], ['Ctrl+Alt+P']])
   })
-
-  it('keeps page.* ids with no default chord', () => {
-    const b = resolveBindings({}, ACTIONS)
-    expect(b['page.agents']).toEqual([])
-    expect(b['page.inbox']).toEqual([])
-  })
 })
 
 describe('saved page.* overrides', () => {
-  it('map onto activity.*, and page.inbox is dropped', () => {
+  it('map onto activity.*, and page.inbox is dropped (no page.* action remains)', () => {
     const b = resolveBindings(
       { 'page.agents': ['Ctrl+Alt+1'], 'page.tasks': ['Ctrl+Alt+2'], 'page.files': ['Ctrl+Alt+3'], 'page.worktrees': ['Ctrl+Alt+4'], 'page.inbox': ['Ctrl+Alt+5'] },
       ACTIONS
@@ -347,7 +341,6 @@ describe('saved page.* overrides', () => {
     expect(b['activity.plans'].map(formatChord)).toEqual(['Ctrl+Alt+2'])
     expect(b['activity.explorer'].map(formatChord)).toEqual(['Ctrl+Alt+3'])
     expect(b['activity.scm'].map(formatChord)).toEqual(['Ctrl+Alt+4'])
-    expect(b['page.inbox']).toEqual([])
   })
   it('an explicit activity.* override wins', () => {
     const b = resolveBindings({ 'page.plans': ['Ctrl+Alt+2'], 'activity.plans': ['Ctrl+Alt+9'] }, ACTIONS)

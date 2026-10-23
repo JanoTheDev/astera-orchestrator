@@ -279,12 +279,6 @@ export const core: Record<keyof typeof ko, string> = {
   'shortcut.command.talk': 'Talk to the command bar (press to start, again to send)',
   'shortcut.tabs.reopenClosed': 'Reopen the last closed tab',
   // W9-B: Ctrl+1…6 open the top bar's pages
-  'shortcut.page.agents': 'Open the Agents page',
-  'shortcut.page.tasks': 'Open the Tasks page',
-  'shortcut.page.plans': 'Open the Plans page',
-  'shortcut.page.inbox': 'Open the Inbox',
-  'shortcut.page.worktrees': 'Open the Worktrees page',
-  'shortcut.page.files': 'Open the Files page',
   // W6-F
   'shortcut.workspace.project': 'Open project workspace {n}',
   'telegram.inbox.replyHint': 'Reply to one of a session’s messages to send it input',

@@ -13,7 +13,7 @@
  * On macOS the primary modifier is Cmd (see makeActions). The stored notation is still `Cmd+W`-shaped.
  */
 
-import { ACTIVITY_IDS, KEYED_ACTIVITY_COUNT, KEYED_PAGES, type ActivityId } from '../ui/pages'
+import { ACTIVITY_IDS, KEYED_ACTIVITY_COUNT, type ActivityId } from '../ui/pages'
 
 export type Chord = { ctrl: boolean; shift: boolean; alt: boolean; meta: boolean; code: string }
 
@@ -49,8 +49,6 @@ export type ActionId =
   | 'new.open'
   // W6-F: open the Nth project workspace
   | `workspace.project${WorkspaceSlot}`
-  // W9-B: the top bar's pages. Kept for the current renderer; no default chord since the workbench's activity.* took Ctrl+1…6
-  | `page.${KeyedPage}`
   // Workbench: Ctrl+1…6 open the activity bar's views
   | `activity.${ActivityId}`
   | 'sidebar.toggle'
@@ -66,9 +64,6 @@ export type ActionId =
 /** W6-F: the project workspaces with a key of their own, the first nine in the switcher. */
 export type WorkspaceSlot = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
 export const WORKSPACE_SLOTS: readonly WorkspaceSlot[] = [1, 2, 3, 4, 5, 6, 7, 8, 9]
-
-/** W9-B: the pages with a key of their own (core/ui/pages.ts KEYED_PAGES). */
-export type KeyedPage = (typeof KEYED_PAGES)[number]
 
 export type ActionSpec = {
   id: ActionId
@@ -319,15 +314,6 @@ export function makeActions(platform: string): readonly ActionSpec[] {
     { id: 'palette.open', defaults: [`${M}+Shift+P`], descKey: 'shortcut.palette.open', yieldsToTerminal: false },
     { id: 'quickOpen', defaults: [`${M}+P`], descKey: 'shortcut.quickOpen', yieldsToTerminal: !mac },
     { id: 'settings.open', defaults: [`${M}+,`], descKey: 'shortcut.settings.open', yieldsToTerminal: false },
-    // The old page.* ids stay in the union for the current renderer, with no default chord.
-    ...KEYED_PAGES.map(
-      (page): ActionSpec => ({
-        id: `page.${page}`,
-        defaults: [],
-        descKey: `shortcut.page.${page}`,
-        yieldsToTerminal: false
-      })
-    ),
     // W9-K: Ctrl+Shift+N opens a new window (DESIGN.md §1a). No readline or CLI key, and not yielded: it is the
     // window's, as the switcher keys are.
     {

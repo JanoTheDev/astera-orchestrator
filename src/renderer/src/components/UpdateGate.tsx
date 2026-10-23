@@ -1,3 +1,4 @@
+import { useId } from 'react'
 import { Button, Modal } from './ui'
 import './overlays.css'
 import { useI18n } from '../i18n/I18nProvider'
@@ -25,6 +26,7 @@ export function UpdateGate({
   onRetry: () => void
 }): React.JSX.Element {
   const { t } = useI18n()
+  const bodyId = useId()
   // 'manual' counts as ready here. It means the build is on disk and installable — just by hand
   // rather than by restarting, which is what onInstall works out for itself. Leaving it out would
   // strand a person the campaign has already blocked on "preparing…" with no button that does
@@ -54,6 +56,8 @@ export function UpdateGate({
       <Modal
         size="sm"
         title={t('update.gate.title')}
+        role="alertdialog"
+        describedBy={bodyId}
         footer={
           <>
             <Button variant="ghost" onClick={() => window.api.app.quit()}>
@@ -64,7 +68,7 @@ export function UpdateGate({
         }
       >
         <div className="dlg" role="status">
-          <p className="update-gate-body">
+          <p id={bodyId} className="update-gate-body">
             {version ? t('update.gate.body', { version }) : t('update.gate.bodyNoVersion')}
           </p>
           <p className="modal-hint">

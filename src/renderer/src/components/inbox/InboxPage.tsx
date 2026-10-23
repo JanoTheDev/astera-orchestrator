@@ -18,10 +18,11 @@ import './inbox.css'
 
 const KIND_ICON: Record<NeedKind, IconName> = { approval: 'listTree', question: 'message', gate: 'message', escalation: 'warning', permission: 'terminal', waiting: 'waiting' }
 
-/** Goes where an Open leads. A Task opens the plan on its waves, scrolled to the Task's card (`#task-<id>`). */
+/** Goes where an Open leads. A Task opens the plan at its section (`task-<id>`): the Task's step opens and its row
+ *  expands (PlanPage's anchor), then revealTask centres the card (a card in a folded step is not drawn until then). */
 export function goTo(target: OpenTarget): void {
   if (target.kind === 'console') return openConsole(target.sessionId)
-  openPlan(target.jobId, target.taskId !== undefined ? 'waves' : undefined)
+  openPlan(target.jobId, target.taskId !== undefined ? `task-${target.taskId}` : undefined)
   if (target.taskId !== undefined) revealTask(target.taskId)
 }
 

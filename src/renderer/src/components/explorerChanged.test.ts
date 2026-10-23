@@ -20,6 +20,14 @@ describe('changedRows', () => {
       { path: '/r/d/gone.ts', name: 'gone.ts', dir: 'd', state: 'deleted', fileId: 'i2' }
     ])
   })
+  it('marks a renamed file on its row, keeping its git state as modified', () => {
+    const rows = changedRows('/r', {}, [{ id: 'i3', path: 'new/name.ts', oldPath: 'old/name.ts', status: 'renamed' }])
+    expect(rows).toEqual([{ path: '/r/new/name.ts', name: 'name.ts', dir: 'new', state: 'modified', fileId: 'i3', renamed: true }])
+  })
+  it('does not mark a file that is not renamed', () => {
+    const [row] = changedRows('/r', {}, [{ id: 'i4', path: 'a.ts', status: 'modified' }])
+    expect('renamed' in row).toBe(false)
+  })
 })
 
 describe('changeLetter', () => {

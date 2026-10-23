@@ -83,11 +83,11 @@ export const worktrees = {
   'session.new.stage.copyIncludes': '포함 파일을 복사하는 중…',
   'session.new.stage.copyCount': '{copied} / {total} · 파일 {files} / {filesTotal}',
   'session.new.cancelling': '취소하는 중…',
-  // WorktreePanel.tsx — status labels (STATUS_LABEL; a module-level constant, so translated at render time)
+  // worktrees/useWorktrees.tsx, views/ScmView.tsx — status labels (STATUS_LABEL; a module-level constant, so translated at render time)
   'worktree.status.orphanDir': 'git 등록 소실',
   'worktree.status.unreachable': '폴더에 닿을 수 없음',
   'worktree.status.gitUnchecked': 'git 확인 못 함',
-  // WorktreePanel.tsx — delete confirmation modal, result toasts
+  // worktrees/useWorktrees.tsx, views/ScmView.tsx — delete confirmation modal, result toasts
   'worktree.remove.title': 'worktree 삭제',
   'worktree.remove.body':
     '{name} ({branch})\n{path}\n\n이 worktree를 삭제할까요? 폴더와 브랜치를 함께 삭제합니다. 머지되지 않은 브랜치는 커밋을 잃지 않도록 남겨둡니다.',
@@ -96,7 +96,7 @@ export const worktrees = {
   'worktree.remove.alreadyGone': '{name}은(는) 이미 삭제되어 목록에서 정리했습니다',
   // Shown on the row while deleting — git status, folder removal and the merge check (remote fetch) chain up and can pass 10 seconds
   'worktree.remove.removing': '삭제 중…',
-  // WorktreePanel.tsx — force-delete second confirmation. When dirtyCount() is null the count is unknown, so it is
+  // worktrees/useWorktrees.tsx, views/ScmView.tsx — force-delete second confirmation. When dirtyCount() is null the count is unknown, so it is
   // left out of unverifiableBody — the keys split on whether a count is shown, not on singular/plural.
   'worktree.forceRemove.unverifiableTitle': '변경 여부 확인 불가',
   'worktree.forceRemove.dirtyTitle': '커밋되지 않은 변경',
@@ -105,7 +105,7 @@ export const worktrees = {
   'worktree.forceRemove.dirtyBody':
     '{name}에 커밋되지 않은 변경 {count}개가 있습니다.\n강제 삭제하면 변경 내용이 사라집니다. 계속할까요?',
   'worktree.forceRemove.confirm': '강제 삭제',
-  // WorktreePanel.tsx — panel header, row icon buttons
+  // worktrees/useWorktrees.tsx, views/ScmView.tsx — panel header, row icon buttons
   'worktree.refresh': '새로 고침',
   'worktree.action.startSession': '세션 시작',
 } as const

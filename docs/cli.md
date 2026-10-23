@@ -738,7 +738,7 @@ astera runs    checks --id <runId>
 astera runs    doctor [--run <runId> | --job <jobId> | --all] [--fix]
 
 astera tasks   list   [--run <runId|jobId>] [--status <s>] [--ready] [--brief] [--fields <a,b,…>] [--limit <n>] [--offset <n>]
-astera tasks   add    [--job <jobId> | --run <runId>] --spec <text|-> --account <id,…> [--title <text>] [--prompt <text|->] [--criteria <json array>] [--deps <json array>] [--affected-paths <json array>] [--parent <taskId>] [--validate <configId,…>] [--review] [--no-review] [--difficulty <light|standard|hard>] [--model <id>] [--basis <missing|partial|broken>] [--evidence <text>] [--covers <n,…>] [--kind <bugfix|feature|refactor|ui|audit|docs|test|ops>]
+astera tasks   add    [--job <jobId> | --run <runId>] --spec <text|-> [--account <id,…>] [--title <text>] [--prompt <text|->] [--criteria <json array>] [--deps <json array>] [--affected-paths <json array>] [--parent <taskId>] [--validate <configId,…>] [--review] [--no-review] [--difficulty <light|standard|hard>] [--model <id>] [--basis <missing|partial|broken>] [--evidence <text>] [--covers <n,…>] [--kind <bugfix|feature|refactor|ui|audit|docs|test|ops>]
 astera tasks   dispatch --id <taskId>
 astera tasks   restore --from <file> [--job <jobId> | --run <runId>] [--dry-run]
 
@@ -762,7 +762,7 @@ astera mcp     status                    would mcp serve work here: the Host, MC
 astera sessions list  [--status <alive|ended|working|waiting|unknown>] [--provider <claude|codex>] [--project <path>]
 astera sessions read   --id <sessionId> [--lines <n>] [--turns <n>]
 astera sessions send   --id <sessionId> --text <text|-> [--no-enter] [--wait [--timeout-ms <n>]]
-astera sessions create --account <accountId> --cwd <path> [--kind <terminal|chat>] [--title <text>] [--prompt <text|->] [--roll-accounts <id,…>] [--unattended <hold|deny-after-60s>]
+astera sessions create [--account <accountId> | --provider <claude|codex>] --cwd <path> [--kind <terminal|chat>] [--title <text>] [--prompt <text|->] [--roll-accounts <id,…>] [--unattended <hold|deny-after-60s>]
 astera sessions close  --id <sessionId> [--reason <text>]
 
 astera worktrees list   [--project <id|path>] [--stale]
@@ -997,9 +997,10 @@ to have a coordinator session drive the Job once it runs; without it the workers
 A coordinator handed a run with tasks runs them as they stand. Handed one with no tasks, it plans the
 Job first: it breaks the objective into a few tasks (`task-create --run`, with `--deps`, an account,
 and `--validate` with the Job's run configurations when it has any), then runs them the same way.
-`--coordinator-provider claude` (or `codex`) picks that provider's default account for you: the
-earliest registered one that is logged in, the one `accounts list` marks `default: true`. With no
-account of that provider logged in it is a 2 that names the provider. When both flags are given,
+`--coordinator-provider claude` (or `codex`) records that provider's default account for you: the
+earliest registered one that is logged in, the one `accounts list` marks `default: true`. It only says
+the provider: the coordinator starts on that provider's account with the most room. With no account of
+that provider logged in it is a 2 that names the provider. When both flags are given,
 `--coordinator-account` wins.
 A Host that announces `dispatch` places them whether Astera is open or closed, and otherwise Astera
 does (see "Jobs run with Astera closed").
@@ -1382,8 +1383,12 @@ time: a recorded ending is replayed, and a recorded timeout waits again for the 
 `"observed": true`.
 
 **`sessions create` starts an agent session**, with Astera open or closed, because the Host starts it.
-`--account` and `--cwd` are required; a relative `--cwd` is taken from the directory you ran the
-command from. It answers the new session as `sessions list` shows it, and its `id` is the one
+`--cwd` is required; a relative `--cwd` is taken from the directory you ran the command from. Without
+`--account` the session starts on the account of `--provider` (claude by default) with the most room,
+ranked the way a planner's start ranks them, and rolls over every account of that provider at a usage
+limit. With **Pick accounts automatically** on, a named `--account` is a preference: one that is full
+or logged out is not started on, and the session takes the first account of its chain with room, else
+the one with most room. With no account that has room it is a 2 that says why. It answers the new session as `sessions list` shows it, and its `id` is the one
 `sessions read` and `sessions send` take.
 
 ```json
@@ -1406,7 +1411,7 @@ command from. It answers the new session as `sessions list` shows it, and its `i
 `--title` names the tab (the folder's name by default). `--prompt` is the first thing the session is
 asked, and `--prompt -` reads it from standard input. `--roll-accounts a,b` is the chain the session
 rolls onto when it reaches a usage limit, with `--account` first unless you place it in the list
-yourself; every account in it must be one vendor's, and a mix is a 2. The Host rolls the chain, Astera
+yourself; every account in it must be one vendor's, and a mix is a 2. It needs `--account`. The Host rolls the chain, Astera
 open or closed.
 
 **With Astera open, the session shows up as a tab**: Astera takes it back from the Host the moment it

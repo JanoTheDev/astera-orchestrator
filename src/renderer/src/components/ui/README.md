@@ -225,15 +225,6 @@ CSS-only hover/focus hint around one control. Props: `content`, `side` (`top` | 
 <Meter value={72} label="5h window" />
 ```
 
-## Nav
-
-Top-bar page tabs with arrow-key focus. Props: `items: { id, label, count? }[]`, `current`, `onSelect(id)`, `label`
-(aria-label). Used by the shell; pages use `Tabs`.
-
-```tsx
-<Nav label="Pages" items={pages} current={page} onSelect={setPage} />
-```
-
 ## Icon
 
 Renders a lucide icon. Props: `name` (a key of `ICONS` in `Icon.tsx`; add the glyph there under a plain semantic name before using it on a page) or `icon` (a registry component such as `ICONS.users`, for `EmptyState`), `size` (`14` | `16` | `20`, default `16`), `label`

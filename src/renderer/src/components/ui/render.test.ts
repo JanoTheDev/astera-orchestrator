@@ -4,11 +4,12 @@ import { readFileSync } from 'node:fs'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { Inbox } from 'lucide-react'
 import {
-  Badge, Button, Card, Checkbox, Chip, ConfirmDialog, EmptyState, Field, Icon, ICONS, Input, itemsOfOptions, Kbd, kbdKeys, Menu, Meter, Nav, PageHeader, Popover,
+  Badge, Button, Card, Checkbox, Chip, ConfirmDialog, EmptyState, Field, Icon, ICONS, Input, itemsOfOptions, Kbd, kbdKeys, Menu, Meter, Modal, PageHeader, Popover,
   Section, Select, Skeleton, Switch, Tabs, Textarea, Toast, ToastViewport,
   ActivityBarItem, EditorTab, Sash, StatusBarItem, Toolbar, Tree, TreeRow, ViewContainer, ViewPane
 } from './index'
 import type { NativeSelectProps } from './index'
+import { UpdateGate } from '../UpdateGate'
 
 // createElement types against Select's last (list) signature; the native form is what JSX callers pick by their props
 const NativeSelect = Select as (p: NativeSelectProps) => React.JSX.Element
@@ -49,9 +50,8 @@ describe('ui primitives render', () => {
     expect(html(React.createElement(Meter, { value: 130 }))).toContain('aria-valuenow="100"')
   })
 
-  it('Nav marks the current page, Tabs the selected tab', () => {
+  it('Tabs mark the selected tab', () => {
     const items = [{ id: 'a', label: 'A' }, { id: 'b', label: 'B', count: 2 }]
-    expect(html(React.createElement(Nav, { items, current: 'b', onSelect: () => {} }))).toMatch(/aria-current="page"[^>]*>B/)
     const tabs = html(React.createElement(Tabs, { items, value: 'a', onChange: () => {} }))
     expect(tabs).toContain('role="tablist"')
     expect(tabs).toMatch(/role="tab"[^>]*aria-selected="true"[^>]*>A/)
@@ -358,5 +358,27 @@ describe('workbench primitives (DESIGN-W13)', () => {
   it('StatusBarItem is a button with onClick, plain text without', () => {
     expect(html(React.createElement(StatusBarItem, { onClick: () => {}, children: 'Host ok' }))).toMatch(/^<button type="button" class="ui-status is-action"/)
     expect(html(React.createElement(StatusBarItem, { tone: 'danger', children: 'Host offline' }))).toMatch(/^<span class="ui-status ui-status--danger"/)
+  })
+})
+
+describe('Modal role and description', () => {
+  it('a plain Modal stays role="dialog" with no aria-describedby', () => {
+    const out = html(React.createElement(Modal, { title: 'T', onClose: () => {}, children: 'body' }))
+    expect(out).toMatch(/role="dialog"/)
+    expect(out).not.toContain('role="alertdialog"')
+    expect(out).not.toContain('aria-describedby')
+  })
+
+  it('the update gate is an alertdialog, labelled by its title and described by its body', () => {
+    const out = html(React.createElement(UpdateGate, { update: { state: 'available', version: '2.0.0' } as never, onDownload: () => {}, onInstall: () => {}, onRetry: () => {} }))
+    const dialog = out.match(/<div class="ui-modal [^"]*"[^>]*>/)?.[0] ?? ''
+    expect(dialog).toContain('role="alertdialog"')
+    expect(dialog).toContain('aria-modal="true"')
+    const labelledBy = /aria-labelledby="([^"]+)"/.exec(dialog)?.[1]
+    const describedBy = /aria-describedby="([^"]+)"/.exec(dialog)?.[1]
+    expect(labelledBy).toBeTruthy()
+    expect(describedBy).toBeTruthy()
+    expect(out).toContain(`<h2 id="${labelledBy}"`)
+    expect(out).toContain(`<p id="${describedBy}" class="update-gate-body">update.gate.body</p>`)
   })
 })

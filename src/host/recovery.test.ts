@@ -22,6 +22,8 @@ const lost = (over: Partial<Dispatch> = {}): Dispatch => ({
   endedAt: NOW, retained: false, ...over
 })
 const lostState = (): OrchState => stateFromLegacy({ runs: [run()], tasks: [task()], dispatches: [lost()] })
+/** The same lost attempt in a Run nobody drives (no coordinator, not app-driven): the one a Gate is for. */
+const undrivenLostState = (): OrchState => stateFromLegacy({ runs: [run({ autoDispatch: false })], tasks: [task()], dispatches: [lost()] })
 
 /** A Host recovery whose journal, git, executor and orch are recorded fakes. */
 function rig(over: {
@@ -128,17 +130,22 @@ describe('createHostRecovery (remote runtime design §2.6, Phase 3R)', () => {
     expect(h.appended.map((e) => e.type)).toContain('RECOVERY_FAILED')
   })
 
-  it('gates an unwitnessed lost attempt in a Run with no coordinator when no app is attached', async () => {
-    const h = rig({ events: [] })
+  it('gates an unwitnessed lost attempt in a Run nobody drives when no app is attached', async () => {
+    const h = rig({ events: [], state: undrivenLostState() })
     await h.r.sweep('a test')
     expect(h.executed).toEqual([])
     expect(h.handled).toEqual([{ cmd: 'gate-create', args: { task: 'tsk_1', question: expect.stringContaining('dsp_1') } }])
   })
 
   it('gates an unwitnessed lost attempt while an attached app yields recovery (it runs no reconciler)', async () => {
-    const h = rig({ events: [], hasApp: true })
+    const h = rig({ events: [], hasApp: true, state: undrivenLostState() })
     await h.r.sweep('a test')
     expect(h.handled.map((x) => x.cmd)).toEqual(['gate-create'])
+  })
+  it('leaves an unwitnessed lost attempt in an app-driven Run ungated: the stall watchdog starts it again', async () => {
+    const h = rig({ events: [] })
+    await h.r.sweep('a test')
+    expect(h.handled).toEqual([])
   })
   it('does not gate an unwitnessed attempt the driving is already gating', async () => {
     const guard = createLostGateGuard()

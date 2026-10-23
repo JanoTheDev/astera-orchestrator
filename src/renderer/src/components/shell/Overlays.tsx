@@ -7,7 +7,7 @@ import { remoteNewJobFolder } from '../../lib/remoteJobs'
 import { localDoor } from '../../lib/orchDoor'
 import { defaultAccountIdOf } from '../../../../core/accounts/defaultAccount'
 import { CommandBar } from '../command/CommandBar'
-import { openPage, openPlan } from './navigation'
+import { openActivity, openPlan } from './navigation'
 import { ConfirmHost } from '../ui/ConfirmHost'
 import { CrashReportHost } from '../CrashReportPrompt'
 import { Onboarding } from '../onboarding/Onboarding'
@@ -361,7 +361,7 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
             setOnboardingReplay(false)
             void window.api.settings.markFirstRunAsked()
             if (open === 'start') openStart({ mode: 'chat' })
-            else if (open === 'agents') openPage('agents')
+            else if (open === 'agents') openActivity('agents')
           }}
         />
       )}

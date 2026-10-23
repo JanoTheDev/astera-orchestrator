@@ -7,6 +7,7 @@ import { groupOfTab } from '../../../../core/panes/tree'
 import { Button, Icon, IconButton, Menu, Tree, ViewContainer, ViewPane, menuPointOf, type MenuItem, type TreeItem } from '../ui'
 import { scopeSessions } from '../../state/projectView'
 import { openConsole, openPlan, openView } from '../shell/navigation'
+import { consolesOfSessions } from '../shell/shellView'
 import { ViewToolbar, type SideBarViewProps } from '../shell/SideBar'
 import { useConsoleSnapshot } from '../wall/consoleStore'
 import { stopConsole } from '../wall/stopConsole'
@@ -45,10 +46,7 @@ export function AgentsView(p: SideBarViewProps): React.JSX.Element {
     }
   }
 
-  const scoped = useMemo(() => {
-    const ids = new Set(scopeSessions(sessions, workspaceIds, scopeId).map((s) => s.id))
-    return consoles.filter((c) => ids.has(c.sessionId))
-  }, [consoles, sessions, workspaceIds, scopeId])
+  const scoped = useMemo(() => consolesOfSessions(consoles, scopeSessions(sessions, workspaceIds, scopeId)), [consoles, sessions, workspaceIds, scopeId])
   const plans = useMemo(() => plansOf(scoped), [scoped])
   // a plan that is gone (archived, another project) falls back to every plan
   const picked = plan === NO_PLAN || plans.some((x) => x.jobId === plan) ? plan : ALL_PLANS

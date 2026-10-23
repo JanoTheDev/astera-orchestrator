@@ -1,6 +1,6 @@
 // The Source Control side bar view (DESIGN-W13 §4): the Worktrees pane (one row per worktree, the ones git could not
-// vouch for last) and the Changes pane (the selected worktree's changed files). A click opens the worktree's own
-// `view:worktree` tab, where its detail, commits and actions are.
+// vouch for last) and the Changes pane (the selected worktree's changed files). A click on a worktree opens its own
+// `view:worktree` tab, where its detail, commits and actions are; a click on a changed file shows that file's diff.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { WorktreeStatus } from '../../../../core/types'
 import { resolveFileIcon } from '../../../../core/files/icons'
@@ -12,6 +12,7 @@ import { PushBadge } from '../PushBadge'
 import { rowSlot } from '../rowSlot'
 import { EmptyState, ICONS, Icon, Input, Menu, Tree, ViewContainer, ViewPane, menuPointOf, type MenuItem, type ToolbarItem, Toolbar, type TreeItem } from '../ui'
 import { changeLetter } from '../explorerChanged'
+import { DiffView } from '../DiffView'
 import { openWorktree } from '../shell/navigation'
 import type { SideBarViewProps } from '../shell/SideBar'
 import { AheadBehind } from '../worktrees/WorktreeDetail'
@@ -24,6 +25,8 @@ const STATUS_LABEL: Record<Exclude<WorktreeStatus, 'ok'>, 'worktree.status.orpha
   unreachable: 'worktree.status.unreachable',
   'git-unchecked': 'worktree.status.gitUnchecked'
 }
+
+type Diff = { fileId: string } & ({ state: 'loading' } | { state: 'shown'; diff: string; truncated: boolean } | { state: 'failed' })
 
 /** A click opens the tab; the arrow keys only move the selection (Enter opens), as in VSCode's lists. */
 function useClickOpen(open: (id: string) => void): { handlers: React.HTMLAttributes<HTMLDivElement>; onSelect: (id: string) => void } {
@@ -107,7 +110,20 @@ export function ScmView(p: SideBarViewProps): React.JSX.Element {
   const tree = useClickOpen(openWorktree)
   const detail = useWorktreeDetail(row)
   const files = detail?.files ?? null
-  const fileTree = useClickOpen(() => row && openWorktree(row.item.path))
+  const [diff, setDiff] = useState<Diff | null>(null)
+  useEffect(() => setDiff(null), [selected])
+  // A click shows the file's diff, read as the Explorer's Changed pane reads it (worktrees.fileDiff by the file's id)
+  const showDiff = (fileId: string): void => {
+    if (!row) return
+    if (diff?.fileId === fileId) return setDiff(null)
+    setDiff({ fileId, state: 'loading' })
+    void window.api.worktrees.fileDiff(row.item.id, fileId).then(
+      (d) => setDiff((cur) => (cur?.fileId !== fileId ? cur : d ? { fileId, state: 'shown', ...d } : { fileId, state: 'failed' })),
+      () => setDiff((cur) => (cur?.fileId !== fileId ? cur : { fileId, state: 'failed' }))
+    )
+  }
+  const fileTree = useClickOpen(showDiff)
+  const shownFile = files?.find((f) => f.id === diff?.fileId)
   const changeItems: TreeItem[] = (files ?? []).map((f) => {
     const cut = f.path.lastIndexOf('/')
     const word = t(`jobs.changes.status.${f.status}` as never)
@@ -249,6 +265,8 @@ export function ScmView(p: SideBarViewProps): React.JSX.Element {
               <Tree rows={changeItems} label={t('worktrees.changesPane')} onSelect={fileTree.onSelect} onOpen={() => openWorktree(row.item.path)} />
             </div>
           )}
+          {diff?.state === 'shown' && <DiffView diff={diff.diff} truncated={diff.truncated} binary={shownFile?.binary === true} />}
+          {diff?.state === 'failed' && <p className="wb-view-empty">{t('worktrees.changes.unavailable')}</p>}
         </ViewPane>
       </ViewContainer>
       {wt.overlays}

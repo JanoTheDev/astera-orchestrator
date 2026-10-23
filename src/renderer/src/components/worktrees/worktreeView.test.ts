@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import type { WorktreeRow } from '../../../../core/worktrees/cleanup'
 import { closeWorktrees, filterWorktrees, rowState, selectWorktree, showWorktrees, worktreeEntries, worktreeViewState } from './worktreeView'
-import { openPage, openWorktree, registerNavigation } from '../shell/navigation'
+import { openWorktree, registerNavigation } from '../shell/navigation'
 
 describe('worktreeView', () => {
   afterEach(() => {
@@ -22,9 +22,8 @@ describe('worktreeView', () => {
     expect(worktreeViewState()).toEqual({ open: true, selected: '/wt/a' })
   })
 
-  it('openWorktree(path) through the navigation contract lands on the worktree; openPage("worktrees") on the page', () => {
+  it('openWorktree(path) through the navigation contract lands on the worktree', () => {
     const off = registerNavigation({
-      openPage: (id) => id === 'worktrees' && showWorktrees(),
       openWorktree: (p) => showWorktrees(p),
       openConsole: () => {},
       openPlan: () => {},
@@ -36,8 +35,6 @@ describe('worktreeView', () => {
       toggleSideBar: () => {},
       togglePanel: () => {}
     })
-    openPage('worktrees')
-    expect(worktreeViewState()).toEqual({ open: true, selected: null })
     openWorktree('/wt/b')
     expect(worktreeViewState()).toEqual({ open: true, selected: '/wt/b' })
     off()

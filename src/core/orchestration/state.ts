@@ -719,13 +719,8 @@ export function createTask(
     if (refused !== undefined) return err(refused)
   }
   if (a.parentId && !known.has(a.parentId)) return gone(`unknown parent: ${a.parentId}`)
-  // W7-B: a Task that names no check is validated with its project's test command, when the project has one
-  if (!a.validateConfigId && !a.validateConfigIds?.length) {
-    const jobId = a.jobId ?? s.runs.find((r) => r.id === a.runId)?.jobId
-    const projectId = s.jobs.find((j) => j.id === jobId)?.projectId
-    const test = projectId ? projectWithWorkspace(s, projectId)?.testConfigId : undefined
-    if (test) a = { ...a, validateConfigIds: [test] }
-  }
+  // A Task that names no check gets none: the project's test command (often the whole suite) runs once, as the plan's
+  // delivery check (delivery.ts deliveryChecksOf), not after every Task, where it held small Tasks for the full suite
   const task: Task = {
     id: newId('tsk'),
     // 없는 칸은 싣지 않는다 — 소유가 둘 중 하나라는 것이 값으로도 보여야 한다
