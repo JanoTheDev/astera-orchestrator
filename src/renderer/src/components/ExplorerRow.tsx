@@ -13,7 +13,6 @@ import type { Entry } from '../hooks/useFileTree'
  *  row's memo. */
 export interface RowActions {
   click: (entry: Entry, ev: React.MouseEvent<HTMLDivElement>) => void
-  doubleClick: (entry: Entry, ev: React.MouseEvent<HTMLDivElement>) => void
   contextMenu: (entry: Entry, ev: React.MouseEvent<HTMLDivElement>) => void
   dragStart: (entry: Entry, ev: React.DragEvent<HTMLDivElement>) => void
   dragEnd: (entry: Entry, ev: React.DragEvent<HTMLDivElement>) => void
@@ -100,12 +99,10 @@ export const ExplorerRow = memo(function ExplorerRow({
         // look like dropping inside that file.
         className={`fx-row file${selected ? ' selected' : ''}${cut ? ' cut' : ''}${dragging ? ' dragging' : ''}`}
         title={entry.path}
-        // Opening is the double click's job, so that a single click leaves focus on the tree. Opening a
-        // file hands the cursor to the editor (FileEditor's focused effect), and with the cursor in
-        // CodeMirror the next Ctrl+C is CodeMirror's copy, which on an empty selection copies the
-        // cursor's line — that is how "copy the file, paste it into the session" used to paste the
-        // file's first line instead of its path.
-        onDoubleClick={(ev) => actions.doubleClick(entry, ev)}
+        // A click opens the file (the click handler in FileExplorer). Opening hands the cursor to the editor
+        // (FileEditor's focused effect), and with the cursor in CodeMirror the next Ctrl+C is CodeMirror's
+        // copy, which on an empty selection copies the cursor's line — that is how "copy the file, paste it
+        // into the session" used to paste the file's first line instead of its path.
         {...common}
       >
         <span className="fx-caret" />

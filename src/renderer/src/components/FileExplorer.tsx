@@ -21,6 +21,7 @@ import {
   ROW_H,
   OVERSCAN,
   DEFAULT_VIEWPORT_H,
+  clickOpensFile,
   type CursorKey,
   type TreeRow
 } from './explorerRows'
@@ -736,15 +737,11 @@ export function FileExplorer({
   rowActionsRef.current = {
     click: (entry, ev) => {
       keyCursorRef.current = null
-      // A folder expands on a single-selection click; a file only selects (it opens on the double click)
-      if (sel.applyClickSelection(entry.path, ev) && entry.isDir) toggleDir(entry.path)
-    },
-    doubleClick: (entry, ev) => {
-      if (entry.isDir) return
-      // Ctrl/Shift only change the selection, they never open — the same rule the single click follows
-      // (applyClickSelection's return value)
-      if (ev.ctrlKey || ev.metaKey || ev.shiftKey) return
-      onOpenFile(entry.path)
+      // A folder expands on a single-selection click; a plain click on a file selects and opens it
+      const singleClick = sel.applyClickSelection(entry.path, ev)
+      if (entry.isDir) {
+        if (singleClick) toggleDir(entry.path)
+      } else if (clickOpensFile(entry, ev)) onOpenFile(entry.path)
     },
     contextMenu: (entry, ev) => {
       ev.preventDefault()
@@ -761,7 +758,6 @@ export function FileExplorer({
   const rowActions = useMemo<RowActions>(
     () => ({
       click: (e, ev) => rowActionsRef.current!.click(e, ev),
-      doubleClick: (e, ev) => rowActionsRef.current!.doubleClick(e, ev),
       contextMenu: (e, ev) => rowActionsRef.current!.contextMenu(e, ev),
       dragStart: (e, ev) => rowActionsRef.current!.dragStart(e, ev),
       dragEnd: (e, ev) => rowActionsRef.current!.dragEnd(e, ev),
@@ -988,7 +984,14 @@ export function FileExplorer({
             moveSelection(cursorKey, ev.shiftKey)
             return
           }
-          if (ev.key === 'F2') {
+          if (ev.key === 'Enter') {
+            // Enter opens the selected file, as a plain click does; with several selected there is no one file to open
+            if (sel.selection.size !== 1) return
+            const entry = findEntry([...sel.selection][0])
+            if (!entry || entry.isDir) return
+            ev.preventDefault()
+            onOpenFile(entry.path)
+          } else if (ev.key === 'F2') {
             // Rename needs exactly one target — with several there is no way to decide which one to change
             if (sel.selection.size !== 1) return
             const entry = findEntry([...sel.selection][0])
