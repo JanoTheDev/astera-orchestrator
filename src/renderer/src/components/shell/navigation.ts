@@ -2,7 +2,8 @@
 // (state/useNavigation.ts); the exported functions forward to them. W9-A ships stubs that call
 // today's paths (the sidebar views, RunDetail, the settings modal); the 9.2 pages replace the handlers,
 // not the callers.
-import type { PageId } from '../../../../core/ui/pages'
+import { activityOfSaved, type ActivityId, type PageId, type PanelTab } from '../../../../core/ui/pages'
+import type { ViewName } from '../../../../core/panes/tabId'
 import type { useSettings } from '../../state/useSettings'
 import type { OldSettingsTab } from '../settings/settingsIndex'
 
@@ -10,7 +11,17 @@ import type { OldSettingsTab } from '../settings/settingsIndex'
 export type SettingsGroup = ReturnType<typeof useSettings>['settingsTab']
 
 export interface NavigationHandlers {
-  /** `plan`: Agents opens filtered to that plan's consoles (W9-H plan pills). */
+  /** DESIGN-W13: shows that side bar view (and the side bar). */
+  openActivity: (id: ActivityId) => void
+  /** Opens the `view:<name>[:<arg>]` editor tab, or focuses the one already open (placeViewTab). */
+  openView: (name: ViewName, arg?: string) => void
+  /** Shows the bottom panel on that tab. */
+  openPanel: (tab: PanelTab) => void
+  /** Ctrl+B and Ctrl+J. */
+  toggleSideBar: () => void
+  togglePanel: () => void
+  /** `plan`: Agents opens filtered to that plan's consoles (W9-H plan pills). Kept for the old page ids: the handler
+   *  maps them through pageTargetOf. */
   openPage: (id: PageId, plan?: string) => void
   openConsole: (sessionId: string) => void
   openPlan: (jobId: string, section?: string) => void
@@ -38,6 +49,20 @@ function forward<K extends keyof NavigationHandlers>(name: K, ...args: Parameter
   ;(current[name] as (...a: Parameters<NavigationHandlers[K]>) => void)(...args)
 }
 
+/** Where an old page id lands in the workbench (the openPage shim). Settings, Start-less pages and the Inbox are no
+ *  longer side bar views: Settings is a view tab, the Inbox the panel's Needs you tab. */
+export type PageTarget = { activity: ActivityId } | { view: ViewName } | { panel: PanelTab }
+export function pageTargetOf(id: PageId): PageTarget {
+  if (id === 'settings') return { view: 'settings' }
+  const to = activityOfSaved(id)
+  return to.panelTab ? { panel: to.panelTab } : { activity: to.activity }
+}
+
+export const openActivity = (id: ActivityId): void => forward('openActivity', id)
+export const openView = (name: ViewName, arg?: string): void => (arg === undefined ? forward('openView', name) : forward('openView', name, arg))
+export const openPanel = (tab: PanelTab): void => forward('openPanel', tab)
+export const toggleSideBar = (): void => forward('toggleSideBar')
+export const togglePanel = (): void => forward('togglePanel')
 export const openPage = (id: PageId, plan?: string): void => (plan === undefined ? forward('openPage', id) : forward('openPage', id, plan))
 export const openConsole = (sessionId: string): void => forward('openConsole', sessionId)
 export const openPlan = (jobId: string, section?: string): void => forward('openPlan', jobId, section)

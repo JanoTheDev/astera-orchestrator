@@ -16,9 +16,10 @@ import {
   type PaneNode,
   type Rect
 } from '../../../core/panes/tree'
-import { parseTab, sessionTab } from '../../../core/panes/tabId'
+import { parseTab, parseViewTab, sessionTab, type ViewName } from '../../../core/panes/tabId'
 import { mediaKindOf } from '../../../core/files/media'
 import { MediaViewer } from './MediaViewer'
+import type { IconName } from './ui'
 import { tabLabels } from '../../../core/files/tabLabel'
 import { sessionKindOf } from '../../../core/sessions/kind'
 import type { RecordStatus } from '../../../core/understanding/types'
@@ -95,6 +96,8 @@ export function PaneGrid({
   renderBrowser,
   appTabInfo,
   renderApp,
+  renderView,
+  viewTabInfo,
   soloTabId,
   remoteSessions = [],
   remoteStatus = {},
@@ -195,6 +198,11 @@ export function PaneGrid({
   /** Solo display: draw only this tab, full size, with no tab bars or dividers. The stored layout is left alone and
    *  every other slot stays mounted (hidden), so no terminal loses its scrollback. */
   soloTabId?: string
+  /** DESIGN-W13 §5: a `view` tab's body (shell/viewTabs.tsx). Drawn for every view tab, active or not (the browser
+   *  slot rule), so Start keeps its draft and Settings its scroll; `active` tells it whether it shows. */
+  renderView: (name: ViewName, arg: string | undefined, active: boolean) => React.ReactNode
+  /** A view tab's title and icon, from the same registry. */
+  viewTabInfo: (name: ViewName, arg: string | undefined) => { title: string; icon: IconName }
 }): React.JSX.Element {
   const { t } = useI18n()
   const hostRef = useRef<HTMLDivElement>(null)
@@ -231,12 +239,15 @@ export function PaneGrid({
   const paneOfBrowser = new Map<string, PaneLeaf>()
   // Media tab id → its pane. The tree is the only list of media tabs (the id is the whole record)
   const paneOfMedia = new Map<string, PaneLeaf>()
+  // View tab id → its pane, the media map's shape
+  const paneOfView = new Map<string, PaneLeaf>()
   for (const l of paneLeaves)
     for (const tabId of l.tabIds) {
       const ref = parseTab(tabId)
       if (ref?.kind === 'session') paneOfSession.set(ref.id, l)
       else if (ref?.kind === 'browser') paneOfBrowser.set(tabId, l)
       else if (ref?.kind === 'media') paneOfMedia.set(tabId, l)
+      else if (ref?.kind === 'view') paneOfView.set(tabId, l)
     }
   // Session id → session info, file tab id → file tab. Used when a group's tab ids are turned into tabs
   const sessionOf = new Map(sessions.map((s) => [s.id, s]))
@@ -346,6 +357,12 @@ export function PaneGrid({
         // (UnderstandingIcons' RECORD_GLYPH_COLOR)
         glyphColor: status ? RECORD_GLYPH_COLOR[status] : null
       }
+    }
+    if (ref?.kind === 'view') {
+      const view = parseViewTab(tabId)
+      if (!view) return null
+      const info = viewTabInfo(view.name, view.arg)
+      return { tabId, kind: 'view', title: info.title, icon: info.icon }
     }
     if (ref?.kind === 'media') {
       const title = ref.id.split(/[\\/]/).pop() || t('media.tab.untitled')
@@ -650,6 +667,34 @@ export function PaneGrid({
             onMouseDown={() => onFocusPane(pane.id)}
           >
             <MediaViewer path={path} active={visible} nonce={mediaNonces[tabId] ?? 0} />
+          </div>
+        )
+      })}
+      {/* View slots (DESIGN-W13 §5): the media slots' rule, one per open view tab for its life, display:none unless it is
+          its pane's active tab, in tab-id order so a drag between panes never moves its node. */}
+      {[...paneOfView.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([tabId, pane]) => {
+        const view = parseViewTab(tabId)
+        if (!view) return null
+        const rect = rects.get(pane.id)
+        const visible = rect != null && pane.activeTabId === tabId
+        return (
+          <div
+            key={tabId}
+            className="terminal-slot view-slot"
+            style={
+              visible
+                ? {
+                    display: 'flex',
+                    left: `${rect.x}%`,
+                    width: `${rect.w}%`,
+                    top: `calc(${rect.y}% + ${barH})`,
+                    height: `calc(${rect.h}% - ${barH})`
+                  }
+                : { display: 'none' }
+            }
+            onMouseDown={() => onFocusPane(pane.id)}
+          >
+            {renderView(view.name, view.arg, visible)}
           </div>
         )
       })}

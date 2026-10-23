@@ -17,14 +17,17 @@ import { useWorkspace } from './state/useWorkspace'
 import { useLiveData } from './state/useLiveData'
 import { useRunActions } from './state/useRunActions'
 import { useNavigation } from './state/useNavigation'
-import { Pages } from './components/shell/Pages'
-import { RunDrawer } from './components/shell/Content'
-import { TopBar } from './components/shell/TopBar'
+import { EditorArea } from './components/shell/Content'
 import { useShell } from './components/shell/useShell'
-import { StatusBar } from './components/shell/StatusBar'
+import { StatusBar, useCurrentBranch } from './components/shell/StatusBar'
 import { Overlays } from './components/shell/Overlays'
-import { Titlebar } from './components/shell/Titlebar'
-// W9-C Tasks and Plans pages' state (the pages are mounted by Pages)
+import { CommandCenter, Titlebar } from './components/shell/Titlebar'
+import { ActivityBar } from './components/shell/ActivityBar'
+import { SideBar } from './components/shell/SideBar'
+import { Panel } from './components/shell/Panel'
+import { activityClick, runningPlans } from './components/shell/shellView'
+import { useViewTabSync } from './components/shell/viewTabs'
+// W9-C Tasks and Plans pages' state (the pages are mounted by the views and the plan tabs)
 import { usePlanPages } from './components/pages/PlansPage'
 import { cliBannerShown, isOnboardingShown } from './components/onboarding/onboardingModel'
 import { setOnboardingReplay, useOnboardingReplay } from './components/onboarding/replay'
@@ -66,11 +69,9 @@ export default function App(): React.JSX.Element {
     ...fromWorkbench, ...fromRunPanel, ...fromJobs, ...fromViews, ...fromWorkspace, ...fromLiveData,
     ...fromRunActions, ...fromPlanPages
   }
-  const {
-    campaign, canStart, cliInstalled, firstRunAsked, hostStatus, installUpdate, isMax, runningCount,
-    setCommandOpen, setNewOpen, update
-  } = app
+  const { activity, campaign, cliInstalled, firstRunAsked, hostStatus, installUpdate, isMax, runningCount, sidebarOpen, update } = app
   useNavigation(app)
+  useViewTabSync(app) // DESIGN-W13: the view tabs follow Start's request, the open plan and the Settings flag
   const shell = useShell(app) // W9-B
   // The first-run onboarding (Overlays) covers the window and has its own Tools step, so the CLI-missing screen
   // and the top bar stand aside while it is open.
@@ -83,21 +84,13 @@ export default function App(): React.JSX.Element {
   const [cliBannerDismissed, setCliBannerDismissed] = useState(false)
   const showCliBanner = cliBannerShown({ cliInstalled, onboarding, dismissed: cliBannerDismissed })
 
+  const branch = useCurrentBranch(app.currentProject)
+  const props = { ...app, ...shell }
   return (
     <div className="app">
-      {/* W9-B: the title bar is the 44px top bar. Run configs moved behind More ▾ (DESIGN.md §1). */}
+      {/* DESIGN-W13 §2: title bar (command center) / activity bar | side bar | editor area over the panel / status bar */}
       <Titlebar isMax={isMax} update={update} runningCount={runningCount} onInstall={() => void installUpdate()}>
-        {!onboarding && (
-          <TopBar
-            {...app}
-            {...shell}
-            onSearch={() => setCommandOpen(true)}
-            onNew={() => {
-              if (canStart()) setNewOpen(true) // the three-choice New (DESIGN §5), as Ctrl+N
-            }}
-            newDisabled={!canStart()}
-          />
-        )}
+        {!onboarding && <CommandCenter {...props} />}
       </Titlebar>
       {/* Only a block-mode campaign covers the workbench. notify is announced with a toast */}
       {campaign?.mode === 'block' && (
@@ -112,11 +105,23 @@ export default function App(): React.JSX.Element {
       {showCliBanner && (
         <CliMissingBanner onInstall={() => setOnboardingReplay(true, 'tools')} onDismiss={() => setCliBannerDismissed(true)} />
       )}
-      <div className="workbench">
-        <Pages {...app} {...shell} />
-        <RunDrawer {...app} />
+      <div className="workbench wb-row">
+        <ActivityBar
+          {...props}
+          badges={{ agents: shell.counts.waiting, plans: runningPlans(app.orchSnapshot?.runs ?? []) }}
+          onActivity={(id) => {
+            const next = activityClick({ activity, sidebarVisible: sidebarOpen }, id)
+            app.showActivity(next.activity)
+            app.setSidebarOpen(next.sidebarVisible)
+          }}
+        />
+        <SideBar {...props} />
+        <div className="wb-main">
+          <EditorArea {...props} />
+          <Panel {...props} />
+        </div>
       </div>
-      <StatusBar {...app} {...shell} />
+      <StatusBar {...props} branch={branch} />
       <Overlays {...app} />
     </div>
   )

@@ -29,7 +29,12 @@ describe('worktreeView', () => {
       openConsole: () => {},
       openPlan: () => {},
       openInbox: () => {},
-      openSettings: () => {}
+      openSettings: () => {},
+      openActivity: () => {},
+      openView: () => {},
+      openPanel: () => {},
+      toggleSideBar: () => {},
+      togglePanel: () => {}
     })
     openPage('worktrees')
     expect(worktreeViewState()).toEqual({ open: true, selected: null })

@@ -35,7 +35,8 @@ export function BottomPanel({
   onSelectTab,
   onNewTerminal,
   onCloseTerminal,
-  onCollapse
+  onCollapse,
+  only
 }: {
   /** Whether to draw the Run tab. false when no project is set (the panel opened from home) — run
    *  configurations are per project, there is nothing to run at home, and an empty Run tab looks broken.
@@ -70,6 +71,9 @@ export function BottomPanel({
   onNewTerminal: () => void
   onCloseTerminal: (id: string) => void
   onCollapse: () => void
+  /** DESIGN-W13 §6: the workbench panel's Output tab shows the run strip only, its Terminal tab the shells only. Both
+   *  bodies stay mounted either way. Absent: both, as before. */
+  only?: 'run' | 'terminal'
 }): React.JSX.Element {
   const { t } = useI18n()
   // Clear means emptying a body's xterm — bump a per-body counter (a runId or a terminal id) and let the
@@ -123,7 +127,7 @@ export function BottomPanel({
     <div className="run-panel">
       <div className="bottom-tabs">
         <span className="bottom-tab-list">
-          {runAvailable && (
+          {runAvailable && only !== 'terminal' && (
             <span
               role="tab"
               aria-selected={activeTab === 'run'}
@@ -136,7 +140,7 @@ export function BottomPanel({
               {t('run.panel.tab')}
             </span>
           )}
-          {terminals.map((term, i) => (
+          {only !== 'run' && terminals.map((term, i) => (
             <span
               key={term.id}
               role="tab"
@@ -160,7 +164,7 @@ export function BottomPanel({
               />
             </span>
           ))}
-          <IconButton size="sm" icon={<Icon name="add" size={14} />} label={t('terminal.tab.new')} onClick={onNewTerminal} />
+          {only !== 'run' && <IconButton size="sm" icon={<Icon name="add" size={14} />} label={t('terminal.tab.new')} onClick={onNewTerminal} />}
         </span>
         <span className="run-panel-actions">
           {/* On the Run tab, stop and clear live in the rail beside the console; the header keeps them

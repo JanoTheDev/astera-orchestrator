@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { Account } from '../../../../core/types'
 import type { Job, JobRun, Task } from '../../../../core/orchestration/types'
-import { activeAccountOf, nextQueuedLine, shellCounts } from './shellView'
+import { activeAccountOf, activityClick, activityOnLaunch, consoleGroups, nextQueuedLine, readWorkbenchLayout, runningPlans, shellCounts, shownPanelTab } from './shellView'
 import { t } from '../../../../core/i18n'
 
 const en = (k: Parameters<typeof t>[1], p?: Parameters<typeof t>[2]): string => t('en', k, p)
@@ -61,5 +61,60 @@ describe('activeAccountOf', () => {
     expect(activeAccountOf([acc('a'), acc('b')], undefined)?.id).toBe('a')
     expect(activeAccountOf([acc('a')], 'gone')?.id).toBe('a')
     expect(activeAccountOf([], 'a')).toBeUndefined()
+  })
+})
+
+describe('workbench layout (DESIGN-W13)', () => {
+  const store = (o: Record<string, string>) => (k: string): string | null => o[k] ?? null
+
+  it('defaults with nothing saved: Agents, side bar shown at 260px, panel hidden on Needs you', () => {
+    expect(readWorkbenchLayout(store({}))).toEqual({ activity: 'agents', sidebarVisible: true, sidebarWidth: 260, panelVisible: false, panelTab: 'needs' })
+  })
+
+  it('restores the side bar width (clamped), visibility, panel and panel tab', () => {
+    const l = readWorkbenchLayout(store({ 'cm.sidebar.width': '420', 'cm.sidebar.visible': 'false', 'cm.panel.visible': 'true', 'cm.panel.tab': 'terminal' }))
+    expect(l).toMatchObject({ sidebarWidth: 420, sidebarVisible: false, panelVisible: true, panelTab: 'terminal' })
+    expect(readWorkbenchLayout(store({ 'cm.sidebar.width': '9000' })).sidebarWidth).toBe(600)
+    expect(readWorkbenchLayout(store({ 'cm.sidebar.width': 'wide' })).sidebarWidth).toBe(260)
+    expect(readWorkbenchLayout(store({ 'cm.panel.tab': 'bogus' })).panelTab).toBe('needs')
+  })
+
+  it('restores the activity from cm.activity, else maps the old cm.page', () => {
+    expect(activityOnLaunch(store({ 'cm.activity': 'explorer' }))).toBe('explorer')
+    expect(activityOnLaunch(store({ 'cm.activity': 'scm', 'cm.page': 'plans' }))).toBe('scm')
+    expect(activityOnLaunch(store({ 'cm.page': 'files' }))).toBe('explorer')
+    expect(activityOnLaunch(store({ 'cm.page': 'worktrees' }))).toBe('scm')
+    expect(activityOnLaunch(store({ 'cm.page': 'settings' }))).toBe('agents')
+    expect(activityOnLaunch(store({ 'cm.activity': 'nope' }))).toBe('agents')
+  })
+
+  it('a click on the active activity collapses the side bar; any other click shows that view', () => {
+    expect(activityClick({ activity: 'plans', sidebarVisible: true }, 'plans')).toEqual({ activity: 'plans', sidebarVisible: false })
+    expect(activityClick({ activity: 'plans', sidebarVisible: false }, 'plans')).toEqual({ activity: 'plans', sidebarVisible: true })
+    expect(activityClick({ activity: 'plans', sidebarVisible: true }, 'scm')).toEqual({ activity: 'scm', sidebarVisible: true })
+  })
+
+  it('Output and Terminal follow the console strip: the run tab is Output, a shell is Terminal', () => {
+    expect(shownPanelTab('needs', 'run')).toBe('needs')
+    expect(shownPanelTab('activity', 't1')).toBe('activity')
+    expect(shownPanelTab('terminal', 'run')).toBe('output')
+    expect(shownPanelTab('output', 't1')).toBe('terminal')
+  })
+})
+
+describe('Agents view groups and the Plans badge', () => {
+  it('splits running consoles by attention and keeps the last ended ones', () => {
+    const s = [
+      { id: 'a', status: 'running' },
+      { id: 'b', status: 'running' },
+      { id: 'c', status: 'exited' },
+      { id: 'd', status: 'exited' }
+    ]
+    const g = consoleGroups(s, { a: 'waiting', b: 'working' }, 1)
+    expect([g.needs.map((x) => x.id), g.working.map((x) => x.id), g.finished.map((x) => x.id)]).toEqual([['a'], ['b'], ['d']])
+  })
+
+  it('counts running plans only', () => {
+    expect(runningPlans([{ outcome: 'running' }, { outcome: 'running', paused: true }, { outcome: 'running', archivedAt: 'x' }, { outcome: 'failed' }] as never)).toBe(1)
   })
 })

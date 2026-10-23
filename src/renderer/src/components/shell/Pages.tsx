@@ -283,7 +283,7 @@ export function Pages(p: PagesProps): React.JSX.Element {
       )}
       {/* W9-H: the Agents page wraps the pane grid, which stays mounted for every session's life (AgentsPage) */}
       <AgentsPage {...p} hidden={wide}>
-        <Content {...p} hidden={wide} />
+        <Content {...p} />
       </AgentsPage>
     </div>
   )

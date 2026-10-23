@@ -1,10 +1,13 @@
-// The status bar (DESIGN-W11 §8): on the left the work (consoles → Agents, "n working", "n needs you" → the bell, the
-// next queued plan), on the right the shown account's usage as words ("5h 16% · week 40%") and the Host as a word.
-// Zero counts are hidden; sans, not mono.
+// The status bar (DESIGN-W13 §7): on the left the project and its branch (→ Source Control), "n working" (→ Agents),
+// "n need you" (→ the panel's Needs you) and the next queued plan; on the right the shown account's usage as words
+// ("5h 16% · week 40%", → the accounts popover), the Host as a word, and the bell. Zero counts are hidden.
+import { useEffect, useState } from 'react'
 import { HostRuntimeNotice } from '../HostRuntimeNotice'
-import { Button } from '../ui'
-import { openPage } from './navigation'
-import { openBell } from './NotificationBell'
+import { Button, Icon, StatusBarItem } from '../ui'
+import { openActivity, openPanel } from './navigation'
+import { NotificationBell } from './NotificationBell'
+import { setAccountsOpen } from './ActivityBar'
+import { openProjectSwitcher } from './ProjectSwitcher'
 import type { AppState } from '../../state/appState'
 import type { ShellState } from './useShell'
 
@@ -41,50 +44,82 @@ function UsageWindow({ text, percent, resetsAt, title, t }: { text: 'shell.statu
 
 export type StatusBarProps = Pick<
   AppState,
-  'appVersion' | 'hostRestarting' | 'hostRuntime' | 'hostRuntimeNow' | 'hostStatus' | 'restartHost' | 't'
+  | 'appVersion' | 'hostRestarting' | 'hostRuntime' | 'hostRuntimeNow' | 'hostStatus' | 'restartHost' | 't' | 'accounts'
+  | 'actionUi' | 'scopedData' | 'scopedTree' | 'workspaceData' | 'workspaceTree' | 'workspaceProjectId' | 'currentProject'
 > &
-  Pick<ShellState, 'counts' | 'needsYouUnread' | 'nextQueued' | 'shellAccount' | 'shellUsage'>
+  Pick<ShellState, 'counts' | 'needsYouUnread' | 'nextQueued' | 'shellAccount' | 'shellUsage'> & {
+    /** The project's branch (useCurrentBranch), or null. */
+    branch: string | null
+  }
+
+/** The project folder's checked-out branch (git's HEAD), read when the project changes and when the window regains
+ *  focus; null outside a repo or while unknown. */
+export function useCurrentBranch(path: string | null): string | null {
+  const [branch, setBranch] = useState<string | null>(null)
+  useEffect(() => {
+    setBranch(null)
+    if (!path) return
+    let alive = true
+    const read = (): void =>
+      void window.api.worktrees.listBranches(path).then(
+        (r) => alive && setBranch(r.branches?.find((b) => b.current && !b.remote)?.name ?? null),
+        () => alive && setBranch(null)
+      )
+    read()
+    window.addEventListener('focus', read)
+    return () => {
+      alive = false
+      window.removeEventListener('focus', read)
+    }
+  }, [path])
+  return branch
+}
 
 export function StatusBar(p: StatusBarProps): React.JSX.Element {
   const { appVersion, counts, needsYouUnread, hostRestarting, hostRuntime, hostRuntimeNow, hostStatus, nextQueued, restartHost, shellAccount, shellUsage, t } = p
+  const { branch } = p
   const hostOk = !!hostStatus?.connected && !hostStatus.outdated && !hostStatus.unresponsive
+  const project = p.workspaceTree.find((x) => x.id === p.workspaceProjectId)?.name ?? p.currentProject?.split(/[\\/]/).filter(Boolean).pop()
+  const five = shellUsage?.session?.usedPercent
+  const week = shellUsage?.weekly?.usedPercent
   return (
     <>
-      <div className="statusbar sb">
-        <Button variant="ghost" size="sm" className="sb-item" onClick={() => openPage('agents')}>
-          {counts.consoles === 0
-            ? t('shell.status.noConsoles')
-            : t(counts.consoles === 1 ? 'shell.status.consoleN' : 'shell.status.consolesN', { n: counts.consoles })}
-        </Button>
+      {/* DESIGN-W13 §7: accent-tinted only when the background service is offline */}
+      <footer className={hostStatus && !hostStatus.connected ? 'statusbar sb wb-status wb-status--alert' : 'statusbar sb wb-status'}>
+        {project && (
+          <StatusBarItem icon={<Icon name="branch" size={14} />} title={t('shell.status.projectTitle')} onClick={openProjectSwitcher}>
+            <span className="wb-status__project">{project}</span>
+            {branch && <span className="wb-status__branch">{branch}</span>}
+          </StatusBarItem>
+        )}
         {counts.working > 0 && (
-          <Button variant="ghost" size="sm" className="sb-item" icon={<span className="sb-dot sb-dot--ok" aria-hidden="true" />} onClick={() => openPage('agents')}>
+          <StatusBarItem icon={<Icon name="loading" size={14} />} onClick={() => openActivity('agents')}>
             {t('shell.status.working', { n: counts.working })}
-          </Button>
+          </StatusBarItem>
         )}
         {needsYouUnread > 0 && (
-          <Button variant="ghost" size="sm" className="sb-item sb-item--warn" icon={<span className="sb-dot sb-dot--warn" aria-hidden="true" />} onClick={openBell}>
+          <StatusBarItem tone="warn" icon={<Icon name="circleAlert" size={14} />} onClick={() => openPanel('needs')}>
             {t('shell.status.needsYou', { n: needsYouUnread })}
-          </Button>
+          </StatusBarItem>
         )}
         {nextQueued && <span className="sb-next">{nextQueued}</span>}
         <span className="sp" />
-        {shellAccount && (
-          <span className="sb-account">
-            <span className="sb-dot" style={{ background: shellAccount.color }} aria-hidden="true" />
-            <span className="sb-account-name">{shellAccount.label}</span>
-            <UsageWindow t={t} text="shell.status.usage5h" percent={shellUsage?.session?.usedPercent} resetsAt={shellUsage?.session?.resetsAt} title={t('session.usage.fiveHourTitle')} />
-            <UsageWindow t={t} text="shell.status.usageWeek" percent={shellUsage?.weekly?.usedPercent} resetsAt={shellUsage?.weekly?.resetsAt} title={t('session.usage.weekly')} />
-          </span>
+        {shellAccount && (typeof five === 'number' || typeof week === 'number') && (
+          <StatusBarItem title={t('settings.tab.accounts')} onClick={() => setAccountsOpen(true)}>
+            <UsageWindow t={t} text="shell.status.usage5h" percent={five} resetsAt={shellUsage?.session?.resetsAt} title={t('session.usage.fiveHourTitle')} />
+            {typeof five === 'number' && typeof week === 'number' && <span aria-hidden="true">·</span>}
+            <UsageWindow t={t} text="shell.status.usageWeek" percent={week} resetsAt={shellUsage?.weekly?.resetsAt} title={t('session.usage.weekly')} />
+          </StatusBarItem>
         )}
         {hostOk ? (
-          <span className="sb-host" title={hostStatus?.hostVersion ? t('shell.status.hostTitle', { version: hostStatus.hostVersion }) : t('shell.status.hostAbout')}>
+          <StatusBarItem title={hostStatus?.hostVersion ? t('shell.status.hostTitle', { version: hostStatus.hostVersion }) : t('shell.status.hostAbout')}>
             {t('shell.status.connected')}
-          </span>
+          </StatusBarItem>
         ) : (
           !hostStatus?.connected && (
-            <span className="sb-host sb-host--warn" title={t('shell.status.hostAbout')}>
+            <StatusBarItem tone="warn" title={t('shell.status.hostAbout')}>
               {t('shell.status.hostOffline')}
-            </span>
+            </StatusBarItem>
           )
         )}
         {/* The Host outlived an update and still runs the previous build. It replaces itself the first
@@ -131,7 +166,10 @@ export function StatusBar(p: StatusBarProps): React.JSX.Element {
             {hostRestarting ? t('settings.info.hostRestarting') : t('status.hostUnresponsive')}
           </Button>
         )}
-      </div>
+        <span className="wb-status__bell">
+          <NotificationBell {...p} />
+        </span>
+      </footer>
     </>
   )
 }
