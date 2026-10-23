@@ -29,4 +29,16 @@ describe('NewTaskModal checks', () => {
   it('a Runtime’s Task says its plugin checks are added from the CLI, naming this Runtime and this run', () => {
     expect(render(door('rt_1'), [])).toContain('jobs.task.checksRuntimePlugins {&quot;runtime&quot;:&quot;rt_1&quot;,&quot;run&quot;:&quot;run_1&quot;}')
   })
+
+  // The account is Auto (most room) and folded: a Task is made without picking one
+  it('opens on Auto with the account picker folded, and warns instead when no account is registered', () => {
+    const acct = { id: 'a1', label: 'Main', configDir: '/c', color: '', createdAt: '', provider: 'claude' }
+    const withAccounts = renderToStaticMarkup(
+      React.createElement(NewTaskModal, { door: door(), runId: 'run_1', tasks: [], accounts: [acct], runConfigs: [], onClose: () => {}, onCreated: () => {} })
+    )
+    expect(withAccounts).toContain('aria-expanded="false"')
+    expect(withAccounts).toContain('accounts.auto')
+    expect(withAccounts).not.toContain('id="task-accounts"')
+    expect(render(door(), [])).toContain('jobs.task.accountEmpty')
+  })
 })

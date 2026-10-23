@@ -361,7 +361,7 @@ export const common = {
   // 자체의 값이 아니라 그것을 고르라고 안내하는 문구(depsHint)만 있다.
   'jobs.task.new': 'Task 추가',
   'jobs.task.accountHint':
-    '이 Task 의 워커를 띄울 계정입니다 — 첫 계정이 어느 에이전트로 돌릴지 정하므로 반드시 하나는 고르세요. 둘 이상 고르면 한도에 걸렸을 때 적은 순서대로 갈아탑니다',
+    '이 Task 의 워커를 띄울 계정입니다. 자동은 여유가 가장 많은 계정을 고르니, 다른 계정에서 일을 떼어 놓고 싶을 때만 계정을 지정하세요. 둘 이상 지정하면 한도에 걸렸을 때 적은 순서대로 갈아탑니다',
   // How It Works — 프로젝트 이해
   'hiw.title': 'How It Works',
   'hiw.record.regenerateFailed': '다시 만들기 실패: {detail}',

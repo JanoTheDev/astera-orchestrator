@@ -326,7 +326,7 @@ export const common: Record<keyof typeof ko, string> = {
   // values themselves.
   'jobs.task.new': 'Add task',
   'jobs.task.accountHint':
-    'The accounts this Task runs its worker on — the first one decides which agent runs it, so one is required. With more than one, a usage limit moves the worker to the next in the order you list them',
+    'The accounts this Task runs its worker on. Auto picks the account with the most room; pin accounts only to keep the work off others. With more than one pinned, a usage limit moves the worker to the next in the order you list them',
   // How It Works — project understanding
   'hiw.title': 'How It Works',
   'hiw.record.regenerateFailed': 'Could not write it up again: {detail}',

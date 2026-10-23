@@ -288,7 +288,7 @@ export const common: Partial<Record<keyof typeof ko, string>> = {
   // 自体ではなく、グラフを指すヒント文言(depsHint)だけがある。
   'jobs.task.new': 'Task を追加',
   'jobs.task.accountHint':
-    'この Task のワーカーを起動するアカウントです — 最初のアカウントがどのエージェントで動かすかを決めるので、必ず1つ選んでください。2つ以上選ぶと、利用上限に達したときに並べた順に切り替わります',
+    'この Task のワーカーを起動するアカウントです。自動は余裕が最も大きいアカウントを選ぶので、他のアカウントで動かしたくないときだけ指定してください。2つ以上指定すると、利用上限に達したときに並べた順に切り替わります',
   // How It Works — プロジェクト理解
   'hiw.title': 'How It Works',
   'hiw.record.regenerateFailed': '作り直しに失敗しました: {detail}',

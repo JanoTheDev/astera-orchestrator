@@ -64,7 +64,8 @@ export const overlays = {
   'session.new.bypassPermissions': '권한 확인 없이 실행 (bypass permissions)',
   'session.new.start': '시작',
   'session.new.blocked.noCwd': '폴더를 고르세요',
-  'session.new.blocked.noAccount': '계정을 고르세요',
+  'session.new.blocked.noAccount': '먼저 계정에 로그인하세요 (설정 → 계정)',
+  'overlays.account.choose': '계정 선택',
   'session.new.blocked.cliMissing': '이 계정의 CLI 를 찾지 못했습니다',
   'session.new.blocked.noSchedule': '예약 시각을 정하세요',
   'session.new.blocked.checkingFolder': '저장소를 확인하는 중…',
@@ -95,7 +96,6 @@ export const overlays = {
   'preview.agent.stop': '에이전트 스크립트 중단',
   'jobs.new.gitRequired': 'git 저장소로 등록된 폴더에서만 실행됩니다',
   'jobs.new.coordinator': '리드 에이전트 계정',
-  'jobs.new.coordinatorPick': '계정을 고르세요',
   'jobs.new.coordinatorHint': '이 작업을 관리할 에이전트 세션의 계정입니다.',
   // 통과할 때까지 자동 수정(Plan 1 설계 D12, UI 설계 U10). 이름표는 결과("통과")가 아니라 켜면 무슨 일이 생기는지
   // 말한다. 숫자 셋은 CLI 플래그만이고 여기서는 기본값을 보여만 준다 — 안 보이면 "얼마나 시도하는 건데?" 에 답이 없다
@@ -135,7 +135,6 @@ export const overlays = {
   // 못박음"은 계정이 하나뿐이어도 뜻이 다르다(로그아웃되고 둘째가 등록되면 갈리는 동작이
   // NewTaskModal.tsx 에 있다). 안 고르면 그 provider 의 기본 계정으로 간다(core/accounts/dispatchAccount.ts)
   'jobs.task.account': '계정',
-  'jobs.task.accountPick': '계정을 고르세요',
   'jobs.task.accountNone': '추가 안 함',
   'jobs.task.accountEmpty': '등록된 계정이 없습니다 — 설정 → 계정에서 먼저 추가하세요',
   // 고른 계정이 이 폴더를 처음 쓰면 CLI 가 신뢰 확인을 띄우고 **거기서 멈춘다** — 앱은 그것을
@@ -241,7 +240,7 @@ export const overlays = {
   'overlays.command.waiting': '응답 대기 중',
   'overlays.tabMenu.label': '탭 동작',
   'overlays.sourceJob.leadAccount': '리드 에이전트 계정',
-  'overlays.sourceJob.leadAccountHint': '이 작업을 계획하고 관리하는 리드 에이전트의 계정입니다.',
+  'overlays.sourceJob.leadAccountHint': '이 작업을 계획하고 관리하는 리드 에이전트의 계정입니다. 자동은 여유가 가장 많은 계정을 고릅니다.',
   'overlays.sourceJob.fixUntilPass': '검사를 통과할 때까지 수정',
   'overlays.sourceJob.fixUntilPassHint': '검사가 실패하면 앱이 같은 에이전트에게 무엇이 틀렸는지 알려 주고, 고친 뒤 다시 검사합니다. 정해진 횟수 안에 통과하지 못하면 멈추고 물어봅니다.',
   'overlays.newTask.checksHint': '빠른 검사를 앞에 두세요. 첫 실패에서 멈추므로, 느린 검사가 앞에 있으면 매 수정마다 그 시간을 버립니다.',
