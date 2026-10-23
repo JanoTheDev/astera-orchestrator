@@ -8,6 +8,7 @@ import { ExplorerView } from '../views/ExplorerView'
 import { ScmView } from '../views/ScmView'
 import { HistoryView } from '../views/HistoryView'
 import { RunView } from '../views/RunView'
+import { DevicesView } from '../views/DevicesView'
 import type { SideBarViewProps } from './SideBar'
 
 export const SIDE_BAR_VIEWS: Record<ActivityId, { title: MessageKey; View: (p: SideBarViewProps) => React.JSX.Element | null }> = {
@@ -16,5 +17,6 @@ export const SIDE_BAR_VIEWS: Record<ActivityId, { title: MessageKey; View: (p: S
   explorer: { title: 'shell.activity.explorer', View: ExplorerView },
   scm: { title: 'shell.activity.scm', View: ScmView },
   history: { title: 'shell.activity.history', View: HistoryView },
-  run: { title: 'shell.activity.run', View: RunView }
+  run: { title: 'shell.activity.run', View: RunView },
+  devices: { title: 'shell.activity.devices', View: DevicesView }
 }

@@ -265,6 +265,28 @@ never read from an argument or an environment variable.
 - **Offline.** When the Runtime cannot be reached, its screens show the last state they read, marked as not current,
   and never as failed. Work on the Runtime goes on.
 
+## Found on your network
+
+While Remote is on, a Runtime says it is there to the computers on its network, so the Astera app on a controller can
+list it under Devices without anyone typing an address. Every 5 seconds the Runtime sends one small UDP multicast
+packet to `239.255.71.83`, port **47832**, from its listen address and out of that interface only, one hop (it never
+crosses a router). A Runtime listening on `127.0.0.1` sends nothing, and nothing is sent while Remote is off.
+
+The packet is JSON, at most 512 bytes: `{ v, runtimeId, name, port, fingerprint, os, version }`, that is the Runtime's
+id, its display name, the Gateway's TCP port, its TLS key's public fingerprint, its OS and its Astera version. **It
+holds no secret**: never a token, a pairing code, an account or a project, and a controller reads nothing else from it.
+To stop it, block outgoing UDP port 47832 on the Runtime (or incoming on the controller).
+
+The app listens only once its Devices list asks, until it quits, and forgets a Runtime it has not heard for 20 seconds.
+Beside the beacons it lists the online Linux and Windows peers of `tailscale status --json`; with no Tailscale it lists
+the beacons alone. Each device is marked paired (a Runtime paired here, under the same fingerprint) or found.
+
+**A paired Runtime that moves is followed.** When a paired Runtime's beacon arrives from another address (its Wi-Fi
+got a new address from DHCP), the app connects there with the pinned TLS key and signs in; only once that succeeds does
+it store the new address and use it. A beacon under the Runtime's id with a different fingerprint is ignored, and a
+failed sign-in changes nothing (it is tried again at that address after a minute). A beacon can make the app try an
+address, never trust one: the pin decides. The app's log names only the runtime id and the address.
+
 ## Use it from the command line
 
 Put `--runtime <id|name>` before the command:

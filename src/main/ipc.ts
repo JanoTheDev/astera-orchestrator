@@ -125,6 +125,7 @@ import { executeRecovery } from '../core/recovery/execute'
 import { readGitFacts } from '../core/recovery/git'
 import { createRecoveryOwner } from './host/recoveryOwner'
 import { createRemoteRuntimes } from './remote/runtimes'
+import { createDiscovery } from './remote/discovery'
 import { createMachineProvisioner } from './remote/provisioning'
 import { createMigrationRunner } from './remote/migration'
 import { MIGRATE_KINDS, type MigrateKind, type MigrateOptions } from '../cli/machineMigrate'
@@ -5124,6 +5125,16 @@ export function registerIpc(
     const c = await remoteRuntimes.client(runtimeId)
     return 'code' in c ? { ok: false, code: c.code, message: c.message } : c.ping()
   })
+  // Found on your network (main/remote/discovery.ts): listening starts with the first ask and ends with the app; the
+  // list again on 'remote:found' whenever it changes. A paired Runtime heard at a new address is followed there.
+  const discovery = createDiscovery({
+    pins: () => remoteRuntimes.pins(),
+    follow: (runtimeId, fingerprint, address, port) => remoteRuntimes.follow(runtimeId, fingerprint, address, port),
+    onChange: (found) => send('remote:found', found),
+    log: (m) => hostWiring?.log(m)
+  })
+  app.once('will-quit', () => discovery.close())
+  ipcMain.handle('remote.discover', () => discovery.discover())
   // Add a machine over SSH (T12b): validated here, the steps streamed to the window that asked as they happen.
   ipcMain.handle('remote.addMachine', (e, o: unknown) => {
     const v = (o ?? {}) as Record<string, unknown>

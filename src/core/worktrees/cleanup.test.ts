@@ -55,6 +55,12 @@ describe('isReadyToClean: delivered, landed and archived plans', () => {
     expect(isReadyToClean(facts({ owner: forgotten, unpushed: 2 }))).toBe(false)
     expect(isReadyToClean(facts({ owner: forgotten, dirty: 1 }))).toBe(false)
   })
+  it("a plan's own folder goes only once its work is in the base or its PR merged, never on pushed alone", () => {
+    const plan = owner({ taskIds: [], delivered: true, merged: true, planFolder: true })
+    expect(isReadyToClean(facts({ owner: plan, unpushed: 0 }))).toBe(false)
+    expect(isReadyToClean(facts({ owner: plan, unpushed: 0, inBase: true }))).toBe(true)
+    expect(isReadyToClean(facts({ owner: { ...plan, landed: true }, unpushed: 3 }))).toBe(true)
+  })
   it('an archived plan frees what is pushed or merged, and keeps the rest; a plan neither delivered nor archived frees nothing unmerged', () => {
     const archived = owner({ merged: false, archived: true })
     expect(isReadyToClean(facts({ owner: archived, unpushed: 0 }))).toBe(true)

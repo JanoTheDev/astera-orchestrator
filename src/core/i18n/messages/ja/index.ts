@@ -21,6 +21,7 @@ import { errors } from './errors'
 import { overlays } from './overlays'
 import { tools } from './tools'
 import { history } from './history'
+import { devices } from './devices'
 import { about } from './about'
 import { crash } from './crash'
 import { help } from './help'
@@ -46,6 +47,7 @@ export const ja: Catalog = {
   ...overlays,
   ...tools,
   ...history,
+  ...devices,
   ...about,
   ...crash,
   ...help,
