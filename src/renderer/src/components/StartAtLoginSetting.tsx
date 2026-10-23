@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
 import { Switch } from './ui'
+import { SettingItem } from './settings/SettingItem'
 
 /** "Start Astera at login" (core/settings/startAtLogin.ts), on by default: AlertSoundSetting's optimistic toggle. */
 export function StartAtLoginSetting(): React.JSX.Element {
@@ -21,12 +22,6 @@ export function StartAtLoginSetting(): React.JSX.Element {
   }
 
   return (
-    <div className="settings-group">
-      <label className="settings-row">
-        <span>{t('settings.startAtLogin.label')}</span>
-        <Switch checked={on ?? true} disabled={on === null} onChange={toggle} />
-      </label>
-      <span className="settings-hint">{t('settings.startAtLogin.hint')}</span>
-    </div>
+    <SettingItem title={t('settings.startAtLogin.label')} hint={t('settings.startAtLogin.hint')} control={<Switch aria-label={t('settings.startAtLogin.label')} checked={on ?? true} disabled={on === null} onChange={toggle} />} />
   )
 }

@@ -10,7 +10,7 @@ import { ProviderBadge } from './ProviderBadge'
 import { AccountRow } from './AccountRow'
 import { AccountSignInDialog } from './AccountSignIn'
 import { RemoveAccountDialog } from './AccountSettings'
-import { Button, Chip, EmptyState, Field, ICONS, Icon, IconButton, Input, Modal, Tabs, Checkbox } from './ui'
+import { Button, Chip, EmptyState, Field, ICONS, Icon, Input, Modal, Tabs, Checkbox, type MenuItem } from './ui'
 
 interface DetectItem {
   configDir: string
@@ -95,6 +95,22 @@ export function AccountPanel({ accounts }: { accounts: Account[] }): React.JSX.E
     if (a.id === tab.accountId) return undefined
     if (loginMap[a.id] !== true) return t('account.status.notLoggedIn')
     return null
+  }
+
+  /** The row's "⋯" menu after Rename: Use for this tab (a real item, disabled with its reason as the label hint), Unregister last. */
+  const rowMenu = (a: Account): MenuItem[] => {
+    const block = switchBlock(a)
+    const items: MenuItem[] = []
+    if (block !== undefined)
+      items.push({
+        id: 'switch',
+        label: block === null ? t('account.switch.action') : `${t('account.switch.action')} · ${block}`,
+        icon: <Icon name="refresh" size={14} />,
+        disabled: block !== null || switching,
+        onSelect: () => void switchTab(a)
+      })
+    items.push({ id: 'remove', label: t('account.remove.button'), icon: <Icon name="delete" size={14} />, danger: true, onSelect: () => setRemoveTarget(a) })
+    return items
   }
 
   useEffect(() => {
@@ -231,11 +247,6 @@ export function AccountPanel({ accounts }: { accounts: Account[] }): React.JSX.E
         <h2>
           {t('account.panel.title')} <span className="count">{accounts.length}</span>
         </h2>
-        <div className="panel-actions">
-          <IconButton size="sm" icon={<Icon name="add" size={14} />} label={t('accounts.add')} onClick={openAdd} />
-          <IconButton size="sm" icon={<Icon name="folderAdd" size={14} />} label={t('accounts.import')} onClick={() => void startImport()} />
-          <IconButton size="sm" icon={<Icon name="search" size={14} />} label={t('accounts.detect')} onClick={() => void runDetect(false)} />
-        </div>
       </header>
       <ul>
         {accounts.map((a) => (
@@ -248,34 +259,24 @@ export function AccountPanel({ accounts }: { accounts: Account[] }): React.JSX.E
             usage={usage[a.configDir]}
             expanded={expandedId === a.id}
             onToggle={() => setExpandedId((cur) => (cur === a.id ? null : a.id))}
+            menu={rowMenu(a)}
           >
-            {/* W7-F (#82): sign in and remove from the row itself. `false`, not undefined: no button before the
-                login check has answered. */}
+            {/* W7-F (#82): sign in from the row itself. `false`, not undefined: no button before the login check has answered. */}
             {loginMap[a.id] === false && (
               <Button size="sm" variant="ghost" className="account-signin-btn" icon={<Icon name="login" size={14} />} onClick={() => setSignInTarget(a)}>
                 {t('account.signIn.button')}
               </Button>
             )}
-            {(() => {
-              const block = switchBlock(a)
-              if (block === undefined) return null
-              return (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="account-switch-btn"
-                  disabled={block !== null || switching}
-                  title={block ?? t('account.switch.title', { label: a.label })}
-                  onClick={() => void switchTab(a)}
-                >
-                  {t('account.switch.action')}
-                </Button>
-              )
-            })()}
-            <IconButton size="sm" className="account-remove-btn" icon={<Icon name="delete" size={14} />} label={t('account.remove.button')} onClick={() => setRemoveTarget(a)} />
           </AccountRow>
         ))}
       </ul>
+      {(
+        <footer className="account-panel__foot">
+          <Button size="sm" variant="ghost" icon={<Icon name="add" size={14} />} onClick={openAdd}>{t('accounts.add')}</Button>
+          <Button size="sm" variant="ghost" icon={<Icon name="folderAdd" size={14} />} onClick={() => void startImport()}>{t('accounts.import')}</Button>
+          <Button size="sm" variant="ghost" icon={<Icon name="search" size={14} />} onClick={() => void runDetect(false)}>{t('accounts.detect')}</Button>
+        </footer>
+      )}
       {accounts.length === 0 && (
         <EmptyState
           icon={ICONS.users}

@@ -1,12 +1,12 @@
-// W9-E: the Settings page (DESIGN §2 "Settings", §7): groups on the left with a search field, the group's rows on the
-// right. W11 (DESIGN-W11 §9): PageHeader with Back as leading, a 200px icon nav, the content at 720px in cards. A search shows every matching row under its group's label. openSettings(group, anchor) scrolls to the row
-// and briefly highlights it.
+// Settings as an editor tab (DESIGN-W13 §12): a search field and the "Show advanced" switch on top, a table of contents
+// on the left that scrolls the right side, every visible group stacked under its heading. openSettings(group, anchor)
+// scrolls to the row and briefly highlights it.
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Button, EmptyState, ICONS, Icon, Input, PageHeader, type IconName } from '../ui'
+import { EmptyState, ICONS, Icon, Input, Switch, Tree, type IconName, type TreeItem } from '../ui'
 import { useAdvancedMode } from '../../state/useAdvancedMode'
 import type { SettingsDialogProps } from '../shell/SettingsDialog'
-import { GROUP_LABEL, SETTINGS_GROUPS, SETTINGS_ROWS, filterSettings, groupHasBasic, type SettingsGroupId } from './settingsIndex'
-import { ShowAdvancedContext, arrowFocus, type GroupProps } from './SettingRow'
+import { GROUP_LABEL, SETTINGS_GROUPS, SETTINGS_ROWS, filterSettings, groupsShown, type SettingsGroupId } from './settingsIndex'
+import { ShowAdvancedContext, type GroupProps } from './SettingRow'
 import { GeneralSettings } from './GeneralSettings'
 import { AccountsUsageSettings } from './AccountsUsageSettings'
 import { AgentsSettings } from './AgentsSettings'
@@ -39,51 +39,45 @@ const GROUP_ICON: Record<SettingsGroupId, IconName> = {
   about: 'info'
 }
 
-function GroupIcon({ g }: { g: SettingsGroupId }): React.JSX.Element {
-  return <Icon name={GROUP_ICON[g]} />
-}
-
-/** Up/Down/Home/End move focus between the side nav's group buttons (one Tab stop each, in order). */
-const navKeyDown = arrowFocus('.settings-nav-item')
-
 /** How long a row openSettings landed on stays highlighted. */
 const FLASH_MS = 1600
 
 export function SettingsPage(p: SettingsDialogProps & { onClose: () => void }): React.JSX.Element {
-  const { settingsTab, setSettingsTab, settingsAnchor, setSettingsAnchor, t, onClose } = p
+  const { settingsTab, setSettingsTab, settingsAnchor, setSettingsAnchor, t } = p
   const [query, setQuery] = useState('')
-  const [advanced] = useAdvancedMode()
-  // T19: the groups whose "Show advanced settings" link was pressed (simple mode only)
-  const [revealed, setRevealed] = useState<ReadonlySet<SettingsGroupId>>(new Set())
-  const reveal = (g: SettingsGroupId, on = true): void =>
-    setRevealed((prev) => {
-      const next = new Set(prev)
-      if (on) next.add(g)
-      else next.delete(g)
-      return next
-    })
-  const root = useRef<HTMLDivElement>(null)
+  const [advanced, setAdvanced] = useAdvancedMode()
   const content = useRef<HTMLDivElement>(null)
 
   const hits = useMemo(() => (query.trim() ? filterSettings(SETTINGS_ROWS, query, t) : null), [query, t])
   const only = useMemo(() => (hits ? new Set(hits.map((h) => h.anchor)) : null), [hits])
-  const hitGroups = useMemo(() => new Set(hits?.map((h) => h.group)), [hits])
+  const visible = useMemo(() => groupsShown(advanced, only), [advanced, only])
 
-  // Focus comes in for Esc, and goes back to where it was when the page closes.
+  const scrollToGroup = (g: SettingsGroupId): void => {
+    content.current?.querySelector<HTMLElement>(`[data-group="${g}"]`)?.scrollIntoView({ block: 'start' })
+  }
+
+  // The TOC follows the scroll: the group whose heading passed the top is the current one.
   useEffect(() => {
-    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    root.current?.focus()
-    return () => opener?.focus()
-  }, [])
+    const el = content.current
+    if (!el || typeof IntersectionObserver === 'undefined') return
+    const io = new IntersectionObserver(
+      (entries) => {
+        const top = entries.filter((e) => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0]
+        const g = top?.target.getAttribute('data-group')
+        if (g) setSettingsTab(g as SettingsGroupId)
+      },
+      { root: el, rootMargin: '0px 0px -75% 0px' }
+    )
+    el.querySelectorAll('[data-group]').forEach((n) => io.observe(n))
+    return () => io.disconnect()
+  }, [visible, setSettingsTab])
 
-  // openSettings(group, anchor): the search would hide the row, so it is cleared first; the scroll waits a frame for
-  // the group to render.
+  // openSettings(group, anchor): the search would hide the row, so it is cleared first; an advanced row opens Advanced
+  // mode; the scroll waits a frame for the rows to render. A bare group scrolls to its heading.
   useEffect(() => {
     if (!settingsAnchor) return
     setQuery('')
-    // an advanced row would not be drawn, so its group opens first
-    const target = SETTINGS_ROWS.find((r) => r.anchor === settingsAnchor)
-    if (target?.level === 'advanced') reveal(target.group)
+    if (SETTINGS_ROWS.find((r) => r.anchor === settingsAnchor)?.level === 'advanced') setAdvanced(true)
     let timer: ReturnType<typeof setTimeout> | undefined
     const frame = requestAnimationFrame(() => {
       const row = content.current?.querySelector<HTMLElement>(`[data-anchor="${CSS.escape(settingsAnchor)}"]`)
@@ -97,65 +91,52 @@ export function SettingsPage(p: SettingsDialogProps & { onClose: () => void }): 
       cancelAnimationFrame(frame)
       if (timer) clearTimeout(timer)
     }
-  }, [settingsAnchor, settingsTab, setSettingsAnchor])
+  }, [settingsAnchor, setSettingsAnchor, setAdvanced])
 
-  const onKeyDown = (e: React.KeyboardEvent): void => {
-    // A control that used Esc itself (an open Select, a search with text) has already said so.
-    if (e.key !== 'Escape' || e.defaultPrevented) return
-    e.preventDefault()
-    if (query) setQuery('')
-    else onClose()
-  }
+  const toc: TreeItem[] = SETTINGS_GROUPS.filter((g) => visible.has(g)).map((g) => ({
+    id: g,
+    depth: 0,
+    label: t(GROUP_LABEL[g]),
+    icon: <Icon name={GROUP_ICON[g]} size={16} />
+  }))
 
   return (
-    <div
-      ref={root}
-      className="settings-page"
-      role="region"
-      aria-label={t('settings.title')}
-      tabIndex={-1}
-      onKeyDown={onKeyDown}
-    >
-      <PageHeader
-        className="settings-page__head"
-        title={t('settings.title')}
-        leading={
-          <Button variant="ghost" size="sm" icon={<Icon name="back" size={14} />} onClick={onClose}>
-            {t('settings.back')}
-          </Button>
-        }
-      />
-      <div className="settings-page__body">
-        <nav className="settings-page__nav" aria-label={t('settings.title')} onKeyDown={navKeyDown}>
-          <label className="settings-page__search">
-            <Icon name="search" size={14} />
-            <Input
-              type="search"
-              value={query}
-              placeholder={t('settings.search.placeholder')}
-              aria-label={t('settings.search.placeholder')}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-          </label>
-          {SETTINGS_GROUPS.filter((g) => advanced || groupHasBasic(g) || revealed.has(g) || settingsTab === g).map((g) => {
-            return (
-              <Button
-                key={g}
-                variant="ghost"
-                icon={<GroupIcon g={g} />}
-                className={`settings-nav-item ${!hits && settingsTab === g ? 'active' : ''} ${hits && !hitGroups.has(g) ? 'settings-nav-item--none' : ''}`}
-                aria-current={!hits && settingsTab === g ? 'page' : undefined}
-                onClick={() => {
-                  setQuery('')
-                  setSettingsTab(g)
-                }}
-              >
-                {t(GROUP_LABEL[g])}
-              </Button>
-            )
-          })}
+    <div className="settings-editor" role="region" aria-label={t('settings.title')}>
+      <div className="settings-editor__head">
+        <label className="settings-page__search">
+          <Icon name="search" size={14} />
+          <Input
+            type="search"
+            value={query}
+            placeholder={t('settings.search.placeholder')}
+            aria-label={t('settings.search.placeholder')}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape' && query) {
+                e.preventDefault()
+                setQuery('')
+              }
+            }}
+          />
+        </label>
+        <label className="settings-editor__advanced">
+          <Switch checked={advanced} onChange={setAdvanced} aria-label={t('settings.basic.showAdvanced')} />
+          <span>{t('settings.basic.showAdvanced')}</span>
+        </label>
+      </div>
+      <div className="settings-editor__body">
+        <nav className="settings-editor__toc" aria-label={t('settings.title')}>
+          <Tree
+            label={t('settings.title')}
+            rows={toc}
+            selectedId={settingsTab}
+            onSelect={(id) => {
+              setSettingsTab(id as SettingsGroupId)
+              scrollToGroup(id as SettingsGroupId)
+            }}
+          />
         </nav>
-        <div ref={content} className="settings-content settings-page__content">
+        <div ref={content} className="settings-content settings-editor__content">
           {hits && hits.length === 0 && (
             <EmptyState icon={ICONS.search} title={t('settings.search.emptyTitle')}>
               {t('settings.search.empty', { query: query.trim() })}
@@ -163,20 +144,14 @@ export function SettingsPage(p: SettingsDialogProps & { onClose: () => void }): 
           )}
           {/* Every group keeps its place in the tree, shown or not, so Integrations' Slack row is never remounted. */}
           {SETTINGS_GROUPS.map((g) => {
-            const shown = hits ? hitGroups.has(g) : settingsTab === g
+            const shown = visible.has(g)
             const View = GROUP_VIEW[g]
-            const showAdvanced = advanced || revealed.has(g)
             return (
-              <section key={g} className="settings-page__group" hidden={!shown}>
-                {shown && <h2 className="settings-page__group-label">{t(GROUP_LABEL[g])}</h2>}
-                <ShowAdvancedContext.Provider value={showAdvanced}>
+              <section key={g} className="settings-editor__group" data-group={g} hidden={!shown}>
+                {shown && <h2 className="settings-editor__group-label">{t(GROUP_LABEL[g])}</h2>}
+                <ShowAdvancedContext.Provider value={advanced || only !== null}>
                   <View {...p} shown={shown} only={only} />
                 </ShowAdvancedContext.Provider>
-                {shown && !advanced && !hits && (
-                  <Button variant="ghost" size="sm" className="settings-page__more" onClick={() => reveal(g, !revealed.has(g))}>
-                    {t(revealed.has(g) ? 'settings.basic.hideAdvanced' : 'settings.basic.showAdvanced')}
-                  </Button>
-                )}
               </section>
             )
           })}

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useI18n } from '../../i18n/I18nProvider'
 import { toast } from '../../lib/toast'
 import { Switch } from '../ui'
+import { SettingItem } from '../settings/SettingItem'
 
 /** W6-B: the chime with a notice that needs the owner (lib/alertSound.ts), the app setting `alertSound`. */
 export function AlertSoundSetting(): React.JSX.Element {
@@ -22,12 +23,6 @@ export function AlertSoundSetting(): React.JSX.Element {
   }
 
   return (
-    <div>
-      <label className="settings-row">
-        <span>{t('settings.alertSound.label')}</span>
-        <Switch checked={on ?? false} disabled={on === null} onChange={toggle} />
-      </label>
-      <span className="settings-hint">{t('settings.alertSound.hint')}</span>
-    </div>
+    <SettingItem title={t('settings.alertSound.label')} hint={t('settings.alertSound.hint')} control={<Switch aria-label={t('settings.alertSound.label')} checked={on ?? false} disabled={on === null} onChange={toggle} />} />
   )
 }

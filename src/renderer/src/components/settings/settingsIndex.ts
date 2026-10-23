@@ -96,6 +96,11 @@ export function rowVisible(anchor: string, showAdvanced: boolean, only: Readonly
   return showAdvanced || SETTINGS_ROWS.find((r) => r.anchor === anchor)?.level !== 'advanced'
 }
 
+/** The groups with at least one row on screen: the settings editor lists exactly these in its table of contents. */
+export function groupsShown(showAdvanced: boolean, only: ReadonlySet<string> | null): Set<SettingsGroupId> {
+  return new Set(SETTINGS_ROWS.filter((r) => rowVisible(r.anchor, showAdvanced, only)).map((r) => r.group))
+}
+
 /** Rows whose label or description contains the query, case-insensitively, in page order. An empty query is every row. */
 export function filterSettings(rows: readonly SettingsRow[], query: string, t: (key: MessageKey) => string): SettingsRow[] {
   const q = query.trim().toLocaleLowerCase()
