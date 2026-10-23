@@ -15,6 +15,7 @@ import { PlansPage } from '../pages/PlansPage'
 import { StartPage } from '../pages/StartPage'
 import { WorktreesPage } from '../pages/WorktreesPage'
 import { SettingsPage } from '../settings/SettingsPage'
+import { KeyboardShortcuts } from '../ShortcutSettings'
 import { MainPlan } from '../plan/MainPlan'
 import type { PlanActs } from '../plan/PlanRow'
 import { selectWorktree } from '../worktrees/worktreeView'
@@ -43,6 +44,7 @@ export function viewTabInfo(p: Pick<ViewTabProps, 't' | 'orchSnapshot'>, name: V
     const run = p.orchSnapshot ? findRun(p.orchSnapshot, arg) : undefined
     return { icon: meta.icon, title: run ? jobName(run) : p.t(meta.title) }
   }
+  if (name === 'settings' && arg === 'keys') return { icon: 'keyboard', title: p.t('keys.title') }
   if (name === 'worktree' && arg !== undefined) return { icon: meta.icon, title: arg.split(/[\\/]/).filter(Boolean).pop() ?? arg }
   return { icon: meta.icon, title: p.t(meta.title) }
 }
@@ -148,7 +150,8 @@ export function renderViewTab(p: ViewTabProps, name: ViewName, arg: string | und
       )
     }
     case 'settings':
-      return <SettingsPage {...p} onClose={close} />
+      // `view:settings:keys` is the Keyboard Shortcuts editor tab
+      return arg === 'keys' ? <KeyboardShortcuts keyOverrides={p.keyOverrides} setKeyOverrides={p.setKeyOverrides} /> : <SettingsPage {...p} onClose={close} />
     case 'worktree':
       return <WorktreeTab p={p} path={arg} active={active} />
   }

@@ -33,7 +33,7 @@ export type OverlaysProps = Pick<
   'autoCloseEndedPlanTabs' | 'browserTabsRef' | 'cli' | 'cliInstallStatus' | 'cliInstalled' | 'closeWorkbenchTab' | 'commandOpen' |
   'currentProject' | 'defaultSessionKind' | 'firstPlan' | 'firstRunAsked' | 'homeDir' |
   'hostHolding' | 'hostRestarting' | 'hostStatus' | 'installUpdate' | 'jobsRuntime' | 'keyOverrides' | 'layout' |
-  'layoutRef' | 'managerFor' | 'managerInitialSelectedId' | 'newSessionCwd' | 'openLinkedFolder' |
+  'layoutRef' | 'managerFor' | 'managerInitialSelectedId' | 'newSessionCwd' | 'openLinkedFolder' | 'openLinkedPath' |
   'openRemoteSession' | 'openWorkspacePlan' | 'openWorkspaceProject' | 'orchSnapshot' | 'pairedRuntimes' |
   'pendingSplitRef' | 'projectAnchor' | 'projectDialog' | 'remoteAccounts' | 'remoteDialog' |
   'remoteProject' | 'remoteProjects' | 'remoteReadOnly' | 'remoteSessions' | 'remoteSnapshot' | 'remoteViewDoor' |
@@ -58,7 +58,7 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
     autoCloseEndedPlanTabs, browserTabsRef, cli, cliInstallStatus, cliInstalled, closeWorkbenchTab, commandOpen, currentProject,
     defaultSessionKind, firstPlan, firstRunAsked, homeDir, hostHolding, hostRestarting,
     hostStatus, installUpdate, jobsRuntime, keyOverrides, layout, layoutRef, managerFor, managerInitialSelectedId,
-    newSessionCwd, openLinkedFolder, openRemoteSession, openWorkspacePlan, openWorkspaceProject,
+    newSessionCwd, openLinkedFolder, openLinkedPath, openRemoteSession, openWorkspacePlan, openWorkspaceProject,
     orchSnapshot, pairedRuntimes, pendingSplitRef, projectAnchor, projectDialog, remoteAccounts, remoteDialog,
     remoteProject, remoteProjects, remoteReadOnly, remoteSessions, remoteSnapshot, remoteViewDoor,
     restartHost, runManagerApply, runningCount, selectWorkbenchTab, setActivePaneId, setAgentAppEnabled,
@@ -285,6 +285,11 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
         currentPlanId={workspacePlanId}
         ui={actionUi}
         talkSignal={talkSignal}
+        keyOverrides={keyOverrides}
+        layout={layout}
+        orchSnapshot={orchSnapshot}
+        onSelectTab={selectWorkbenchTab}
+        onOpenFile={(path) => openLinkedPath(path)}
         onOpenSession={(sessionId, jobId) => {
           if (jobId) setWorkspaceScope(null, jobId)
           selectWorkbenchTab(sessionTab(sessionId))

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { Fragment, useMemo, useRef, useState } from 'react'
 import { useI18n } from '../i18n/I18nProvider'
 import { filterSwitcherTabs, type SwitcherTab } from '../lib/tabSwitcher'
 import { Button, Icon, Input, Kbd, Modal, cx, isTypeaheadKey, moveIndex, type ListMove } from './ui'
@@ -10,6 +10,10 @@ export interface PickRow {
   content: React.ReactNode
   /** Marks the row the app shows now (the active tab). */
   current?: boolean
+  /** A label above this row, for the first row of a section (quick open's Tabs, Plans, Files…). */
+  heading?: string
+  /** Extra class for the row (the palette's 22px rows). */
+  className?: string
 }
 
 const MOVES: Record<string, ListMove> = { ArrowDown: 'next', ArrowUp: 'prev', Home: 'first', End: 'last' }
@@ -66,20 +70,22 @@ export function PickList({
   return (
     <div ref={listRef} className="ov-pick" role="group" aria-label={label} onKeyDown={onKeyDown}>
       {rows.map((r, i) => (
-        <Button
-          key={r.key}
-          variant="ghost"
-          data-roving=""
-          tabIndex={i === sel ? 0 : -1}
-          aria-current={r.current || undefined}
-          className={cx('ov-pick-row', i === sel && 'is-sel', r.current && 'is-current')}
-          ref={i === sel ? (el) => el?.scrollIntoView({ block: 'nearest' }) : undefined}
-          onMouseEnter={() => onSel(i)}
-          onFocus={() => onSel(i)}
-          onClick={() => onPick(i)}
-        >
-          {r.content}
-        </Button>
+        <Fragment key={r.key}>
+          {r.heading && <div className="ov-pick-head">{r.heading}</div>}
+          <Button
+            variant="ghost"
+            data-roving=""
+            tabIndex={i === sel ? 0 : -1}
+            aria-current={r.current || undefined}
+            className={cx('ov-pick-row', r.className, i === sel && 'is-sel', r.current && 'is-current')}
+            ref={i === sel ? (el) => el?.scrollIntoView({ block: 'nearest' }) : undefined}
+            onMouseEnter={() => onSel(i)}
+            onFocus={() => onSel(i)}
+            onClick={() => onPick(i)}
+          >
+            {r.content}
+          </Button>
+        </Fragment>
       ))}
     </div>
   )
@@ -104,7 +110,8 @@ export function PickKeys(): React.JSX.Element {
   )
 }
 
-/** W7-F (#84): the quick tab switcher (`tabs.switcher`, Ctrl+Shift+P). Type to filter by tab, plan or Task name
+/** W7-F (#84): the quick tab switcher. Ctrl+P and `tabs.switcher` open quick open (command/CommandBar.tsx) now; this stays
+ *  for a pane that mounts it itself. Type to filter by tab, plan or Task name
  *  (filterSwitcherTabs), arrows move, Enter selects, Esc closes. */
 export function QuickSwitcher({
   tabs,

@@ -7,7 +7,7 @@ import type { MessageKey } from '../../../../core/i18n'
 import { ActivityBarItem, Icon, Menu, Popover, nextFocusIndex, type IconName, type MenuItem } from '../ui'
 import { AccountPanel } from '../AccountPanel'
 import { setHelpOpen } from '../help/helpStore'
-import { openSettings, openView } from './navigation'
+import { openView } from './navigation'
 import type { AppState } from '../../state/appState'
 
 export const ACTIVITY_META: Record<ActivityId, { icon: IconName; label: MessageKey }> = {
@@ -39,7 +39,7 @@ const useAccountsOpen = (): boolean =>
 export function manageItems(t: AppState['t']): MenuItem[] {
   return [
     { id: 'settings', icon: <Icon name="settings" />, label: t('settings.title'), onSelect: () => openView('settings') },
-    { id: 'keys', icon: <Icon name="keyboard" />, label: t('shell.manage.keys'), onSelect: () => openSettings('shortcuts') },
+    { id: 'keys', icon: <Icon name="keyboard" />, label: t('shell.manage.keys'), onSelect: () => openView('settings', 'keys') },
     { id: 'help', icon: <Icon name="info" />, label: t('help.title'), onSelect: () => setHelpOpen(true) },
     { id: 'update', icon: <Icon name="refresh" />, label: t('shell.manage.checkUpdates'), onSelect: () => void window.api.update.check() }
   ]

@@ -23,6 +23,7 @@ import { spawnNotice } from '../lib/spawnNotice'
 import { announceSettingsRecovery } from '../lib/settingsRecoveryNotice'
 import { confirmModal, confirmModalWithChoices, isConfirmOpen } from '../lib/confirm'
 import { ACTIVITY_STORAGE_KEY, togglePage, type ActivityId, type PageId } from '../../../core/ui/pages'
+import { requestBox } from '../components/command/boxStore'
 import { openActivity, openPage, openView, pageTargetOf, togglePanel, toggleSideBar } from '../components/shell/navigation'
 import { storageWrite } from '../components/shell/shellView'
 import { terminalsWithCreated } from '../lib/terminalTabs'
@@ -492,7 +493,8 @@ export function useWorkbench(deps: WorkbenchDeps) {
         e.preventDefault()
         e.stopPropagation()
         if (e.repeat) return
-        setSwitcherOpen((v) => !v)
+        requestBox('')
+        setCommandOpen((v) => !v) // the tab list is quick open's first section
         return
       }
       // W9-E: the New modal opens (or closes) like the switcher
@@ -546,13 +548,13 @@ export function useWorkbench(deps: WorkbenchDeps) {
         else openView('settings')
         return
       }
-      // Ctrl+Shift+P is the command box (an alias of command.open), Ctrl+P the quick tab switcher
+      // Ctrl+Shift+P is the command palette, Ctrl+P quick open: the same box, started with `>` or empty (command/boxStore.ts)
       if (action === 'palette.open' || action === 'quickOpen') {
         e.preventDefault()
         e.stopPropagation()
         if (e.repeat) return
-        if (action === 'palette.open') setCommandOpen((v) => !v)
-        else setSwitcherOpen((v) => !v)
+        requestBox(action === 'palette.open' ? '>' : '')
+        setCommandOpen((v) => !v)
         return
       }
       // Closing a file tab, same as closing a browser tab. When dirty, closeFileTab raises a

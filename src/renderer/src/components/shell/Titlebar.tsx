@@ -8,6 +8,7 @@ import { useI18n } from '../../i18n/I18nProvider'
 import { titlebarView } from '../../../../core/update/sourceView'
 import { Button, Icon, IconButton, Kbd } from '../ui'
 import { formatChord } from '../../../../core/keys/binding'
+import { requestBox } from '../command/boxStore'
 import { ProjectSwitcher } from './ProjectSwitcher'
 import type { AppState } from '../../state/appState'
 import type { ShellState } from './useShell'
@@ -149,7 +150,10 @@ export function CommandCenter(p: CommandCenterProps): React.JSX.Element {
           toolsDisabledReason={p.projectAnchor ? undefined : t('settings.projects.noAnchor')}
           t={t}
         />
-        <Button variant="ghost" size="sm" className="wb-cc__search" icon={<Icon name="search" size={14} />} onClick={() => p.setCommandOpen(true)}>
+        <Button variant="ghost" size="sm" className="wb-cc__search" icon={<Icon name="search" size={14} />} onClick={() => {
+            requestBox('>')
+            p.setCommandOpen(true)
+          }}>
           <span className="wb-cc__hint">{t('shell.commandCenter')}</span>
           {chord && <Kbd>{formatChord(chord)}</Kbd>}
         </Button>

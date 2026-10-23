@@ -1,4 +1,4 @@
-// T30: the in-app help. Opened by F1 (`help.open`), the top bar's More menu and the command box. A topic list on the left
+// T30: the in-app help. Opened by F1 (`help.open`), the Manage menu and the command palette. A topic list on the left
 // with a search field over it, the chosen topic on the right. Text is i18n; the shortcuts topic is read from the key
 // registry with the user's own bindings (topics.ts).
 import { useMemo, useState } from 'react'

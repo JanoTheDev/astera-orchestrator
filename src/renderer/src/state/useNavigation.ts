@@ -55,6 +55,7 @@ export function useNavigation(app: NavigationDeps): void {
       setPendingRun({ projectPath: project.path, runId: jobId })
     }
     const openView = (name: ViewName, arg?: string): void => {
+      if (name === 'settings' && arg === 'keys') return placeView(name, arg) // the Keyboard Shortcuts tab, not a Settings group
       if (name === 'settings') return openSettings((arg ?? 'general') as SettingsGroup)
       if (name === 'plan') return arg === undefined ? undefined : openPlan(arg)
       // Start's tab follows its request (useViewTabSync), so New/Start keeps one way in

@@ -1,0 +1,11 @@
+/* The Keyboard Shortcuts editor tab (ShortcutSettings.tsx KeyboardShortcuts). The table's own look is settingsPage.css's
+   .shortcut-table; this lays out the tab and the two things only it shows: a row's warning and its source. Tokens only. */
+.keys-view { height: 100%; overflow: auto; padding: var(--sp-4) var(--sp-6); display: flex; flex-direction: column; gap: var(--sp-3); background: var(--bg); }
+.keys-view__head { display: flex; align-items: center; gap: var(--sp-4); }
+.keys-view__title { margin: 0; font-size: var(--fs-15); font-weight: var(--fw-semi); }
+.keys-view__search { flex: 1; max-width: 480px; }
+.keys-view__table { width: 100%; max-width: 960px; }
+.keys-view__table th, .keys-view__table td { padding-right: var(--sp-4); }
+.keys-view__table thead th:nth-child(1) { width: 46%; }
+.shortcut-table__source { font-size: var(--fs-12); color: var(--text-faint); }
+.shortcut-table__warn { display: flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-11); color: var(--danger); }
