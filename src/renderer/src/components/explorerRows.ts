@@ -8,9 +8,9 @@ import type { Editing } from '../hooks/useFileOps'
 
 /** A tree row's height. Every row (entry, note, root reading) is drawn at exactly this height — the
  *  stylesheet does not decide it, the row's inline style does — so the offsets below are the truth. */
-export const ROW_H = 28
+export const ROW_H = 22
 /** The inline edit row (new file / rename): the input needs a little more than a plain row */
-export const EDIT_H = 30
+export const EDIT_H = 26
 /** Extra height of the edit row while its invalid-name reason is shown under the input */
 export const EDIT_REASON_H = 16
 /** Rows drawn beyond each edge of the viewport, so a fast scroll does not show blank space first */

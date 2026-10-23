@@ -44,7 +44,7 @@ function render(n: number): string {
     React.createElement(FileExplorer, {
       root: ROOT,
       onOpenFile: () => {},
-      onClose: () => {},
+      gitStatus: { fileState: {}, folderCount: {}, stale: false, refresh: () => {} },
       stateRef: { current: new Map([[ROOT, state]]) },
       clipboardRef: { current: null },
       undoRef: { current: [] },

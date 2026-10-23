@@ -24,6 +24,7 @@ export const files = {
   'files.op.busy': '작업 중…',
   // FileExplorer.tsx — panel header, context menu
   'explorer.title': '탐색기',
+  'explorer.files': '파일',
   'explorer.noActiveSession': '활성 세션이 없습니다',
   // Folder state shown inside the tree (the .fx-note row)
   'explorer.dir.loading': '불러오는 중…',

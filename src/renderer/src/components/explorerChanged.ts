@@ -34,3 +34,14 @@ export function changedRows(root: string, fileState: Record<string, GitState>, b
   }
   return [...rows.values()].sort((a, b) => a.dir.localeCompare(b.dir) || a.name.localeCompare(b.name))
 }
+
+/** A changed file's state as git's list or the base-branch list words it. */
+export type ChangeKind = GitState | ChangedFile['status']
+
+const LETTER: Record<ChangeKind, 'A' | 'M' | 'D' | 'R' | 'C'> = {
+  new: 'A', added: 'A', modified: 'M', deleted: 'D', renamed: 'R', conflict: 'C'
+}
+
+/** The status letter on a Changed row: A added (or untracked), M modified, D deleted, R renamed, C conflict. Colour
+ *  comes with it (`git-<state>`), and the word goes in the tooltip, so colour is never the only cue. */
+export const changeLetter = (kind: ChangeKind): 'A' | 'M' | 'D' | 'R' | 'C' => LETTER[kind]
