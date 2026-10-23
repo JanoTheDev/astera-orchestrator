@@ -31,7 +31,6 @@ export type ViewTabProps = AppState & ShellState
 
 const VIEW_META: Record<ViewName, { icon: IconName; title: MessageKey }> = {
   welcome: { icon: 'sparkles', title: 'shell.view.welcome' },
-  wall: { icon: 'layoutGrid', title: 'shell.view.wall' },
   plan: { icon: 'listTree', title: 'shell.view.plan' },
   mainplan: { icon: 'target', title: 'shell.view.mainplan' },
   start: { icon: 'add', title: 'shell.view.start' },
@@ -104,10 +103,6 @@ export function renderViewTab(p: ViewTabProps, name: ViewName, arg: string | und
   switch (name) {
     case 'welcome':
       return <Welcome {...p} />
-    case 'wall':
-      // The wall itself is the Agents page's, drawn over the editor area while this tab is the active one
-      // (EditorArea); the consoles it borrows live in the pane grid.
-      return null
     case 'plan': {
       if (arg !== undefined && p.openRun?.runId === arg && p.detailDoor)
         return (

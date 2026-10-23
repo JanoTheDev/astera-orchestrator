@@ -290,7 +290,6 @@ export const overlays = {
   'palette.pausePlan': '플랜 일시 정지',
   'palette.resumePlan': '플랜 다시 시작',
   'palette.openConsole': '콘솔 열기…',
-  'palette.showWall': '모든 콘솔 보기',
   'palette.openSettings': '설정 열기',
   'palette.keyboardShortcuts': '키보드 단축키',
   'palette.colorTheme': '색 테마…',

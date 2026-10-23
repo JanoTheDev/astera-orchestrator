@@ -195,7 +195,6 @@ export const overlays: Partial<Record<keyof typeof ko, string>> = {
   'palette.pausePlan': 'プランを一時停止',
   'palette.resumePlan': 'プランを再開',
   'palette.openConsole': 'コンソールを開く…',
-  'palette.showWall': 'すべてのコンソールを表示',
   'palette.openSettings': '設定を開く',
   'palette.keyboardShortcuts': 'キーボードショートカット',
   'palette.colorTheme': 'カラーテーマ…',

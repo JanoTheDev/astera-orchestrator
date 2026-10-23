@@ -32,7 +32,7 @@ any of them without stopping the rest.
 
 3. **Approve or talk.** The plan lands in the bottom panel's **Needs you** tab. Read the Tasks, then press **Approve & execute**. Or tell the
    planner what to change and it replans. Turn on auto-approve for a project to skip this step.
-4. **Watch it run.** The **Agents** view lists every console, and the **Wall** tab shows them all at once as live tiles. A coordinator places workers as their
+4. **Watch it run.** The **Agents** view lists every console, and each one opens as its own tab. A coordinator places workers as their
    dependencies finish. Tasks that touch the same files never run at the same time, not even across plans. Between
    waves a fresh planner adjusts what has not started yet. After the last wave a final check compares the result with
    the goal.
@@ -86,11 +86,10 @@ panel** (`Ctrl+J`) has **Needs you · Activity · Output · Terminal** tabs. The
 working and needs-you counts, account usage, the Host state and the notification bell. `Ctrl+Shift+P` opens the
 command palette.
 
-**Agents.** The Agents view lists the project's consoles by state (Needs you, Working, Finished). The **Wall** tab shows
-every console at once, as live tiles of the real terminals. Click one to open it in its own tab and type into it. While you type, the coordinator's messages to that console wait, so they never land in the middle of
+**Agents.** The Agents view lists the project's consoles by state (Needs you, Working, Finished). Click one to open it in its own tab and type into it. While you type, the coordinator's messages to that console wait, so they never land in the middle of
 your line. A finished console leaves a short summary card of what it did.
 
-<img src="assets/ui-agents-light.png" width="760" alt="The Wall in the Day theme: a grid of console tiles with plan pills above it" />
+<img src="assets/ui-agents-light.png" width="760" alt="The Agents view in the Day theme" />
 
 **Plans.**
 - The Plans view is a tree of plan, step and Task. Group it by plan, status or area; plans that touch the same files are flagged.

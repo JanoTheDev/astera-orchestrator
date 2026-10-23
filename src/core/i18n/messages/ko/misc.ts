@@ -1,10 +1,5 @@
 // Korean · misc area. Which files each area serves: ../README.md.
 export const misc = {
-  'wall.plans.search': '플랜 찾기',
-  'wall.scope.label': '범위',
-  'wall.scope.plan': '이 플랜',
-  'wall.scope.noProject': '프로젝트 없음',
-  'wall.finished.title': '끝남 · 각 콘솔이 한 일',
   // 에이전트 세션을 어떻게 띄우고 이어가는가 — 일반에서 갈라져 나온 탭이다
   'worktrees.fact.ahead': '기준보다 앞',
   'worktrees.fact.behind': '기준보다 뒤',
