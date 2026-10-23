@@ -36,7 +36,7 @@ describe('createCrashReports', () => {
 
   it('one renderer render error is one report: ErrorBoundary and the window both report it', async () => {
     const r = make()
-    const stack = 'TypeError: boom\n    at Row (/home/jane/x.tsx:4:2)'
+    const stack = 'TypeError: boom\n    at Row (/home/jane/x.tsx @ 4:2)'
     const boundary = await r.fromRenderer({ kind: 'render', name: 'TypeError', stack })
     const window = await r.fromRenderer({ kind: 'error', name: 'TypeError', stack })
     expect(files()).toHaveLength(1)

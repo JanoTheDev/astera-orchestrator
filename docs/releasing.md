@@ -290,8 +290,8 @@ Then, on npmjs.com, in each package's **Settings**, under **Trusted Publisher**,
 
 | Field | Value |
 |---|---|
-| Organization or user | `JanoTheDev` |
-| Repository | `astera-orchestrator` |
+| Organization or user | `parsingk` |
+| Repository | `Astera` |
 | Workflow filename | `publish-packages.yml` |
 | Environment | none |
 

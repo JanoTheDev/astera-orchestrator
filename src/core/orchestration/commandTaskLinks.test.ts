@@ -342,7 +342,7 @@ describe('run-draft-pr: a long plan followed from GitHub (W8-C)', () => {
     h.set(plan('completed', 'completed', 'completed'))
     const done = await h.app('run-open-pr', { run: 'r1' })
     expect(done).toEqual({ status: 200, body: { url: PR, number: 13, opened: false, ready: true } })
-    expect(h.ghCalls.filter((a) => a[0] === 'pr').map((a) => a[1])).toEqual(['ready'])
+    expect(h.ghCalls.filter((a) => a[0] === 'pr').map((a) => a[1])).toEqual(['view', 'ready'])
     expect(patches(h.ghCalls)).toHaveLength(2)
     expect(bodyOf(patches(h.ghCalls)[1])).not.toContain('Remaining:')
     expect(h.state().runs[0].pr).toEqual({ at: NOW, url: PR, number: 13 })

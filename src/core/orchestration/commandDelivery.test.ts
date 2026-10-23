@@ -629,7 +629,7 @@ describe('T1: run-delivery-dismiss', () => {
     expect(h.state().runs[0].delivery).toEqual({ at: NOW, branch: 'main' })
     expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'dismissed' })
     expect(outcomeOf(h.state(), 'r1')).toBe('completed')
-    expect(deriveActivity(before, h.state())).toEqual([expect.objectContaining({ type: 'watchdog', runId: 'r1', payload: expect.objectContaining({ reason: expect.stringContaining('dismissed') }) })])
+    expect(deriveActivity(before, h.state())).toEqual([expect.objectContaining({ type: 'plan.deliveryDismissed', runId: 'r1' })])
     expect((await h.call('run-deliver', { run: 'r1', auto: true })).status).toBe(409)
     expect(h.pushes).toEqual([])
   })
