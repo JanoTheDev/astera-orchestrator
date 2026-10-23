@@ -26,7 +26,7 @@ the README or a guide and not traced in code). A `doc` line needs a check before
 | Plan overview, waves, files, changes, journal | Per plan: its steps, files it touched, who wrote each change (agent or you), and a journal of events. | Plan page tabs | core | Plan page shots, `docs/dev/shots/w12-plan/` |
 | Pause, stop, rename, archive, queue | Pause or stop a plan or one worker; rename, archive and unarchive plans; queue a plan behind another; set a priority. | Plans list; plan header | core | README “Tasks and Plans” |
 | Usage guard | No new worker starts on an account at or over its limit (default 90%); it starts on the next account. | Settings › Accounts & usage; plan runs | core | `USAGE_PAUSE_AT_DEFAULT` (`src/core/orchestration/usageGuard.ts`) |
-| Per-role models | Coordinator, planner, workers and reviewer can each run on their own model. | Settings › Agents | pro candidate | `resolveRoleModel` (`src/core/models/`) |
+| Per-role models | Coordinator, planner, workers and reviewer can each run on their own model. | Settings › Agents | pro candidate | `resolveRoleModel` (`src/core/orchestration/roleModels.ts`) |
 | Workers at once | An app-wide cap on parallel workers, and a per-plan value. Up to 100. | Settings › Agents (“Workers at once”); plan header | core | `MAX_CONCURRENT_WORKERS = 100`, `MaxWorkersSetting.tsx` |
 | Scheduled work | Jobs can be scheduled to start later. | Plans | pro candidate | `doc` (`docs/usage-guide.md` “Schedule work”) |
 | Run configurations | Saved commands (dev server, build, test) you run from a panel. | More › Run configs; bottom panel | core | `docs/usage-guide.md` “Run a dev server”; run-configs shots |
@@ -41,7 +41,7 @@ the README or a guide and not traced in code). A `doc` line needs a check before
 | Finished-console summary | A finished console leaves a short card of what it did. | Agents wall | core | README “Agents” |
 | Consoles in tabs and windows | Consoles open as tabs; each project can have its own window, side by side. Closing a window stops nothing; the Host keeps the sessions. | Tab strip; More › new window | core | README “Accounts and windows” |
 | Waiting for permission | An agent that hits a permission prompt stops and shows “waiting for permission” until you answer. | Agents; Inbox “Permissions” | core | `src/core/` activity lines; CONTEXT rule 7 |
-| Run without permission checks | Turns off the permission prompts for agents. Off by default. | Settings › Agents (“Run agents without permission checks”) | pro candidate | `settings.agentPermission.label` (en) |
+| Run without permission checks | Turns off the permission prompts for agents. Off by default. | Settings › Agents (“Run agents without permission checks”) | core | `settings.agentPermission.label` (en) |
 | Push-to-talk voice | Speak a command or message; a local whisper.cpp model turns it into text. Nothing is downloaded. | Command bar (voice toggle) | pro candidate | `src/core/intents/transcribe.ts`, `VoiceSettings.tsx` |
 | Design Mode and browser pane | A built-in browser pane for a local dev server, with a Design Mode to point at elements and leave feedback for an agent. | More › Browser; browser toolbar | pro candidate | `docs/usage-guide.md` “Design Mode”; `w12-history` shots |
 
@@ -60,7 +60,7 @@ the README or a guide and not traced in code). A `doc` line needs a check before
 | --- | --- | --- | --- | --- |
 | File explorer and editor | Browse the project tree, open and save files, find in a file. | Files | core | `FileExplorer.tsx`, `FileEditor.tsx` |
 | Markdown view modes | Markdown files open as editor, split (editor and preview) or preview. | Files; file header “View mode” | core | `files.markdown.mode.*` (en) |
-| Changed view | Lists every changed file of a worktree or plan, with its diff. | Files › Changed | core | `ChangedFilesView.tsx` |
+| Changed view | Lists every changed file of a worktree or plan, with its diff. | Files › Changed | core | `ChangedList.tsx` |
 | Local History | Keeps a copy of a file before a delete or overwrite, so you can get it back. | Files; right-click › Local History… | core | `files.op.snapshotting` (en) |
 | Worktrees | One git worktree per worker, with its branch, commits, changes and an unpushed-commit count. Clean up or delete from here. | Worktrees | core | README “Worktrees and Files”, `w12-worktrees` shots |
 | Sessions history | Lists past sessions per project and reopens one. | More › History | pro candidate | `docs/usage-guide.md` “Reopen an earlier conversation” |
