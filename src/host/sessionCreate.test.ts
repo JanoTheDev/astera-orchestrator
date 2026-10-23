@@ -41,6 +41,19 @@ const rig = (over: Partial<Parameters<typeof createHostSessionStarter>[0]> = {})
   return { start, spawner, chats, rolling, announced }
 }
 
+/** The rig's own deps, to build a second starter around the same fakes. */
+const rigDeps = (h: ReturnType<typeof rig>): Parameters<typeof createHostSessionStarter>[0] => ({
+  spawner: h.spawner,
+  chats: h.chats,
+  rolling: h.rolling,
+  readAccounts: async () => [ACCOUNT],
+  bypass: async () => false,
+  probeCwd: async () => 'present' as const,
+  announceProc: (p) => h.announced.push(p),
+  list: async () => [],
+  log: () => {}
+})
+
 describe('createHostSessionStarter — sessions create, by the spawn paths the Host already has', () => {
   it('a terminal session goes through the spawner, and the answer is its sessions list row', async () => {
     const h = rig()
@@ -60,6 +73,34 @@ describe('createHostSessionStarter — sessions create, by the spawn paths the H
     expect(h.rolling.adoptSpawned).toHaveBeenCalledTimes(1)
     expect(h.announced).toEqual(['proc_1'])
     expect(r).toMatchObject({ id: 'chat_1', kind: 'chat' })
+  })
+
+  // T1: the account by usage, through the spawner's startAccount (chooseSessionStart)
+  it('with startAccount, a session with no account starts on the one it picks, with its chain, and lets the count go', async () => {
+    const OTHER: Account = { ...ACCOUNT, id: 'acc_c2' }
+    const release = vi.fn()
+    const startAccount = vi.fn(async () => ({ accountId: 'acc_c2', rollAccountIds: ['acc_c2', 'acc_c'], release }))
+    const h = rig({ readAccounts: async () => [ACCOUNT, OTHER] })
+    const spawner = { ...h.spawner, startAccount }
+    const start = createHostSessionStarter({ ...rigDeps(h), spawner, readAccounts: async () => [ACCOUNT, OTHER] })
+    await start({ kind: 'terminal', cwd: '/repo', provider: 'claude', rollAccountIds: [] })
+    expect(startAccount).toHaveBeenCalledWith({ provider: 'claude', rollAccountIds: [] })
+    expect(h.spawner.createSession).toHaveBeenCalledWith({ accountId: 'acc_c2', cwd: '/repo', rollAccountIds: ['acc_c2', 'acc_c'] })
+    await start({ kind: 'chat', cwd: '/repo', rollAccountIds: [], unattended: 'hold' })
+    expect(h.chats.spawn).toHaveBeenCalledWith(expect.objectContaining({ account: OTHER, rollAccountIds: ['acc_c2', 'acc_c'] }))
+    expect(h.rolling.adoptSpawned).toHaveBeenCalledWith(expect.anything(), OTHER)
+    expect(release).toHaveBeenCalledTimes(2)
+  })
+
+  it('nothing with room starts nothing and is tagged; with no startAccount a session must name its account', async () => {
+    const startAccount = vi.fn(async () => { throw new Error('no claude account has room to start the session on') })
+    const h = rig()
+    const start = createHostSessionStarter({ ...rigDeps(h), spawner: { ...h.spawner, startAccount } })
+    const err = await start({ kind: 'terminal', accountId: 'acc_c', cwd: '/repo', rollAccountIds: [] }).catch((e: unknown) => e)
+    expect(String(err)).toMatch(/no claude account has room/)
+    expect(wasRefusedBeforeActing(err)).toBe(true)
+    expect(h.spawner.createSession).not.toHaveBeenCalled()
+    await expect(h.start({ kind: 'terminal', cwd: '/repo', rollAccountIds: [] })).rejects.toThrow(/--account/)
   })
 
   it('a chat session with no chain registers none', async () => {

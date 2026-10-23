@@ -3,6 +3,7 @@ import { promises as fs, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createHostSpawner, type HostSpawnerDeps } from './spawner'
+import { createUsageGuard } from '../core/orchestration/usageGuard'
 import { RepairNeeded } from '../core/settings/repairNeeded'
 import { leftNothingBehind, wasRefusedBeforeActing } from '../core/host/orchProtocol'
 import { PtyRegistry, type RegistryPty } from './registry'
@@ -42,6 +43,7 @@ const rig = (over: {
   appKeepsWorktrees?: HostSpawnerDeps['appKeepsWorktrees']
   worktrees?: HostSpawnerDeps['worktrees']
   onPromptWrite?: HostSpawnerDeps['onPromptWrite']
+  usageGuard?: HostSpawnerDeps['usageGuard']
 } & LocateHooks = {}) => {
   const spawned: Spawned[] = []
   const logs: string[] = []
@@ -63,6 +65,7 @@ const rig = (over: {
     findRollout: over.findRollout, locatePollMs: over.locatePollMs, locateForMs: over.locateForMs, readAccounts: over.readAccounts,
     appKeepsWorktrees: over.appKeepsWorktrees ?? (() => false),
     onPromptWrite: over.onPromptWrite,
+    ...(over.usageGuard ? { usageGuard: over.usageGuard } : {}),
     worktrees: over.worktrees ?? { fork: () => Promise.reject(new Error('not in this test')), makeRunWorktree: vi.fn(), mergeWorktrees: vi.fn(), removeWorktrees: vi.fn() } })
   return { spawner, registry, spawned, logs, sent }
 }
@@ -838,5 +841,54 @@ describe('createHostSpawner — createSession', () => {
     expect(String(unknown)).toContain('unknown account')
     expect(wasRefusedBeforeActing(unknown)).toBe(true)
     expect(h.spawned).toHaveLength(0)
+  })
+
+  // T1/T5: a claude conversation resumed by usage (the crash restore's createSession) moves off a full account and
+  // takes its transcript along; "Pick accounts automatically" off, it stays where it was
+  describe('by usage', () => {
+    const LATER = '2099-01-01T00:00:00.000Z'
+    const guardOf = (on: boolean) =>
+      createUsageGuard({
+        readings: async () => new Map([
+          ['acc1', { weekly: { usedPercent: 100, resetsAt: LATER }, session: { usedPercent: 0, resetsAt: LATER } }],
+          ['acc3', { weekly: { usedPercent: 10, resetsAt: LATER }, session: { usedPercent: 10, resetsAt: LATER } }]
+        ]),
+        pauseAt: async () => 90,
+        autoAccounts: async () => on,
+        nowMs: () => Date.parse(NOW)
+      })
+    const transcript = (cfg: string): string => path.join(dir, cfg, 'projects', 'p-slug', 'native-1.jsonl')
+    beforeEach(async () => {
+      await fs.writeFile(path.join(profile, 'accounts.json'), JSON.stringify({ accounts: [
+        { id: 'acc1', label: 'one', configDir: path.join(dir, 'cfg1'), color: '#888', createdAt: NOW, provider: 'claude' },
+        { id: 'acc3', label: 'three', configDir: path.join(dir, 'cfg3'), color: '#888', createdAt: NOW, provider: 'claude' }
+      ] }))
+      for (const cfg of ['cfg1', 'cfg3']) {
+        await fs.mkdir(path.join(dir, cfg), { recursive: true })
+        await fs.writeFile(path.join(dir, cfg, '.credentials.json'), '{}')
+      }
+      await fs.mkdir(path.dirname(transcript('cfg1')), { recursive: true })
+      await fs.writeFile(transcript('cfg1'), JSON.stringify({ type: 'user', sessionId: 'native-1', cwd: repo, message: { role: 'user', content: 'hi' } }) + '\n')
+    })
+
+    it('a full original account: started on the best ranked one, the transcript carried there', async () => {
+      const h = rig({ usageGuard: guardOf(true) })
+      await h.spawner!.createSession({ accountId: 'acc1', cwd: repo, rollAccountIds: [], resumeSessionId: 'native-1', autoAccounts: true })
+      expect(h.registry.list()[0].meta).toMatchObject({ restore: { accountId: 'acc3' } })
+      await expect(fs.readFile(transcript('cfg3'), 'utf8')).resolves.toContain('native-1')
+    })
+
+    it('setting off: on the original account, as before', async () => {
+      const h = rig({ usageGuard: guardOf(false) })
+      await h.spawner!.createSession({ accountId: 'acc1', cwd: repo, rollAccountIds: [], resumeSessionId: 'native-1', autoAccounts: true })
+      expect(h.registry.list()[0].meta).toMatchObject({ restore: { accountId: 'acc1' } })
+    })
+
+    it('startAccount with no account named: the usable account ranked first and the whole ranking as its chain', async () => {
+      const h = rig({ usageGuard: guardOf(true) })
+      const r = await h.spawner!.startAccount!({ rollAccountIds: [] })
+      expect(r).toMatchObject({ accountId: 'acc3', rollAccountIds: ['acc3', 'acc1'] })
+      r.release()
+    })
   })
 })

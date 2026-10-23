@@ -211,7 +211,8 @@ import {
   preTrustWorkspace as preTrustWorkspaceFor,
   startCoordinatorSession,
   startWorkerWithChain,
-  chooseStartAccount
+  chooseStartAccount,
+  chooseResumeStart
 } from '../core/orchestration/exec/workerStart'
 import {
   forkWorktree,
@@ -2423,7 +2424,34 @@ export function registerIpc(
     }
     return info
   }
-  ipcMain.handle('sessions.spawn', async (_e, opts) => spawnSession(opts))
+  // T1: a session a person starts (New Session, Resume, Restart, Reopen) takes its account by usage, as a planner's does
+  // (chooseSessionStart): no account named is auto, the best ranked account of `opts.provider`, rolling over the whole
+  // ranking; a named one is a preference, never started on while full (a resume's transcript is copied below as for any
+  // other account). A coordinator's spawnSession call was chosen already, so only this entry ranks.
+  ipcMain.handle('sessions.spawn', async (_e, opts) => {
+    // A chat's Restart or Reopen names only its thread: moved, its transcript is found on the old account (chooseResumeStart)
+    const resumeId: string | undefined = opts.resumeSessionId ?? opts.resumeThreadId
+    const start = await chooseResumeStart(
+      { usageGuard, accounts: async () => core.accounts.list(), loginStatus: (id) => core.accounts.loginStatus(id), log: orchLog },
+      {
+        ...(opts.accountId ? { accountId: opts.accountId } : {}),
+        ...(opts.provider ? { provider: opts.provider } : {}),
+        ...(opts.rollAccountIds ? { rollAccountIds: opts.rollAccountIds } : {}),
+        ...(resumeId ? { resumeId } : {}),
+        ...(opts.resumeTranscriptPath ? { transcriptPath: opts.resumeTranscriptPath } : {})
+      }
+    )
+    try {
+      return await spawnSession({
+        ...opts,
+        accountId: start.accountId,
+        ...(start.transcriptPath ? { resumeTranscriptPath: start.transcriptPath } : {}),
+        rollAccountIds: start.rollAccountIds.length > 0 ? start.rollAccountIds : opts.rollAccountIds
+      })
+    } finally {
+      start.release()
+    }
+  })
 
   // ---- agent browser (spec: docs/superpowers/specs/2026-09-06-agent-browser-design.md) ----
   // It sits here, above the orchestration startup, because `agentRuns` is read from the server deps

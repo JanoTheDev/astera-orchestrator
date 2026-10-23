@@ -4,7 +4,7 @@ import type { MessageKey, MessageParams } from '../../../core/i18n'
 import { DEFAULT_BLOCKING_SEVERITY } from '../../../core/orchestration/convergence'
 import { FAILURE_LIMIT, MAX_REVIEW_ROUNDS } from '../../../core/orchestration/types'
 import { useI18n } from '../i18n/I18nProvider'
-import { AccountSelect } from './AccountSelect'
+import { AccountDisclosure, AccountSelect } from './AccountSelect'
 import { failureLine } from './pluginsText'
 import { Button, Input, Modal, Select, Checkbox } from './ui'
 import './overlays.css'
@@ -118,10 +118,10 @@ export function paneOnDetail(pane: PaneState, id: string, answer: SourcesCallAns
   return { picked: id, detail: null, detailLoading: false, detailError: sourceFailure(answer, t) }
 }
 
-/** Whether "Make the Job" may be pressed: an item that can be picked, read whole; a coordinator account (§3.4); not
- *  while a make is out, and never again after one whose answer was lost (Review Focus 3). */
-export function canMake(a: { item: ItemRow | null; account: string; busy: boolean; locked: boolean }): boolean {
-  return a.item !== null && a.item.selectable !== false && a.account !== '' && !a.busy && !a.locked
+/** Whether "Make the Job" may be pressed: an item that can be picked, read whole; not while a make is out, and never
+ *  again after one whose answer was lost (Review Focus 3). No coordinator account is Auto (most room), so none is needed. */
+export function canMake(a: { item: ItemRow | null; busy: boolean; locked: boolean }): boolean {
+  return a.item !== null && a.item.selectable !== false && !a.busy && !a.locked
 }
 
 /** What a make's answer means: the Job made, or why not. A lost answer or a deadline may have made the Job, so the
@@ -168,7 +168,8 @@ export interface SourceJobViewProps {
 
 export function SourceJobView(p: SourceJobViewProps): React.JSX.Element {
   const { t } = useI18n()
-  const makeable = canMake({ item: p.detail, account: p.account, busy: p.busy, locked: p.locked })
+  const [acctOpen, setAcctOpen] = useState(false)
+  const makeable = canMake({ item: p.detail, busy: p.busy, locked: p.locked })
   return (
     <Modal
       title={t('jobs.source.title')}
@@ -321,8 +322,17 @@ export function SourceJobView(p: SourceJobViewProps): React.JSX.Element {
         {p.accounts !== null && (
           <div className="field">
             <label>{t('overlays.sourceJob.leadAccount')}</label>
-            <AccountSelect accounts={p.accounts} value={p.account} onChange={p.onAccount} allLabel={t('jobs.new.coordinatorPick')} />
             <p className="modal-hint">{t('overlays.sourceJob.leadAccountHint')}</p>
+            {p.accounts.length > 0 && (
+              <AccountDisclosure
+                id="source-job-accounts"
+                open={acctOpen}
+                onToggle={() => setAcctOpen((v) => !v)}
+                summary={p.accounts.find((a) => a.id === p.account)?.label ?? t('accounts.auto')}
+              >
+                <AccountSelect accounts={p.accounts} value={p.account} onChange={p.onAccount} allLabel={t('accounts.auto')} />
+              </AccountDisclosure>
+            )}
             {p.accounts.length === 0 && <p className="warn-text">{t('jobs.task.accountEmpty')}</p>}
           </div>
         )}
@@ -443,7 +453,7 @@ export function SourceJobModal({
 
   const make = async (): Promise<void> => {
     const item = pane.detail
-    if (making.current || !canMake({ item, account, busy, locked }) || item === null) return
+    if (making.current || !canMake({ item, busy, locked }) || item === null) return
     making.current = true
     setBusy(true)
     setPane((p) => ({ ...p, error: undefined }))

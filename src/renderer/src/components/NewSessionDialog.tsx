@@ -27,7 +27,7 @@ import type { MessageKey } from '../../../core/i18n'
 import { toast } from '../lib/toast'
 import { trackWorktreeCreate } from '../lib/worktreeCreate'
 import { useI18n } from '../i18n/I18nProvider'
-import { AccountSelect } from './AccountSelect'
+import { AccountDisclosure, AccountSelect } from './AccountSelect'
 import { BranchGlyph } from './BranchGlyph'
 import { ScheduleFields } from './ScheduleFields'
 import { StartingOverlay } from './WorktreeCreateStatus'
@@ -112,8 +112,10 @@ export function NewSessionDialog({
     // Once, on open: a pick made in this dialog is the person's, not the memory's.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-  // Account slots — [0] is the primary account, slots 1 and 2 are the switch order once the limit is hit
-  const [accountIds, setAccountIds] = useState<string[]>([accounts[0]?.id ?? ''])
+  // Account slots — [0] is the primary account, slots 1 and 2 are the switch order once the limit is hit.
+  // Empty is Auto (most room): no account is sent and main picks and rolls over the ranking (sessions.spawn).
+  const [accountIds, setAccountIds] = useState<string[]>([])
+  const [acctOpen, setAcctOpen] = useState(false)
   const [saveDefault, setSaveDefault] = useState(false)
   // Session kind — terminal (pty) or chat (a Host-owned line process, no terminal at all). Seeded
   // from the Settings default and forced back to 'terminal' below whenever chat is not available, so
@@ -122,7 +124,8 @@ export function NewSessionDialog({
   // W9-H: a new console is always the CLI itself (DESIGN.md §0: no custom chat UI); the assistant-ui conversation pane
   // is no longer offered here. Existing chat sessions still open, resume and roll as they did.
   const [kind, setKind] = useState<SessionKind>('terminal')
-  const [rollMode, setRollMode] = useState(false) // auto-resume toggle for a single account
+  // auto-resume toggle for a single account; null until touched, then on for Auto and off for a pinned account
+  const [rollMode, setRollMode] = useState<boolean | null>(null)
   const [rollPrompt, setRollPrompt] = useState('') // text to send on a rolling resume (empty means the default)
   const [slackNotify, setSlackNotify] = useState(false) // Slack progress notifications
   // **전역 권한 모드가 이 칸의 기본값이다**(AgentPermissionMode, 기본 'yolo'). 초기값을 true 로 두는
@@ -312,6 +315,7 @@ export function NewSessionDialog({
       const id = await window.api.projects.getDefaultAccount(root ?? cwd)
       if (cancelled || !id || touched.current || !accounts.some((a) => a.id === id)) return
       setAccountIds((prev) => (prev.includes(id) ? prev : [id, ...prev.slice(1)]))
+      setAcctOpen(true) // a pinned default is shown, not hidden behind the fold
     })()
     return () => {
       cancelled = true
@@ -382,6 +386,7 @@ export function NewSessionDialog({
     )
   }
   const canAdd =
+    accountIds.length > 0 &&
     accountIds.length < MAX_ROLL_ACCOUNTS &&
     accounts.some(
       (a) =>
@@ -405,7 +410,10 @@ export function NewSessionDialog({
     meta: b.current ? t('session.new.worktreeBaseCurrent') : b.updatedAt.slice(5, 10)
   }))
 
-  const rollChecked = multi ? true : rollMode
+  const rollChecked = multi ? true : (rollMode ?? accountIds.length === 0)
+  // Auto needs a signed-in claude account to rank (sessions.spawn defaults to claude): without one the dialog says so
+  const autoNoAccount =
+    accountIds.length === 0 && !accounts.some((a) => provider(a) === 'claude' && loginMap[a.id] !== false)
 
   const wtOption = worktreeOption(repoProbe)
   const withWorktree = !!repoRoot && useWorktree
@@ -478,7 +486,7 @@ export function NewSessionDialog({
     cwd: cwd ?? '',
     starting,
     resolvingRepo,
-    accountIds,
+    accountIds: autoNoAccount ? [''] : accountIds,
     cliMissing: primaryCliMissing,
     schedOn,
     hasSchedule: schedule !== null
@@ -621,7 +629,17 @@ export function NewSessionDialog({
         )}
         <div className="field">
           <label>{t('session.field.account')}</label>
-          {accountIds.map((id, slot) => (
+          <AccountDisclosure
+            id="new-session-accounts"
+            open={acctOpen}
+            onToggle={() => setAcctOpen((v) => !v)}
+            summary={
+              accountIds.length > 0
+                ? accountIds.map((id) => accounts.find((a) => a.id === id)?.label ?? id).join(' → ')
+                : t('accounts.auto')
+            }
+          >
+          {(accountIds.length > 0 ? accountIds : ['']).map((id, slot) => (
             <div className="account-slot" key={slot}>
               <span className="slot-label">
                 {slot === 0
@@ -631,13 +649,15 @@ export function NewSessionDialog({
               <AccountSelect
                 accounts={options(slot)}
                 value={id}
+                allLabel={slot === 0 ? t('accounts.auto') : undefined}
                 onChange={(v) => {
                   if (slot === 0) touched.current = true
-                  // Changing the primary account's provider collapses the rolling slots — a mixed chain cannot be built
+                  // Changing the primary account's provider collapses the rolling slots — a mixed chain cannot be built;
+                  // Auto (empty) drops them all, the ranking is the chain
                   const nextProvider = provider(accounts.find((a) => a.id === v))
                   setAccountIds((prev) =>
-                    slot === 0 && nextProvider !== primaryProvider
-                      ? [v]
+                    slot === 0 && (v === '' || nextProvider !== primaryProvider)
+                      ? v === '' ? [] : [v]
                       : prev.map((p, i) => (i === slot ? v : p))
                   )
                 }}
@@ -670,6 +690,7 @@ export function NewSessionDialog({
               {t('session.new.addAccountSlot')}
             </Button>
           )}
+          </AccountDisclosure>
         </div>
         {/* Rolling now applies to 대화 too (slice 4c) — its resume path copies the transcript into
             the next account exactly as 터미널's does, so the same chain mechanism can hook into it.
@@ -724,7 +745,7 @@ export function NewSessionDialog({
           {!slackReady && <span className="check-note">{t('session.new.slackNeedsWebhook')}</span>}
         </label>
         <label className="row check-small">
-          <Checkbox checked={saveDefault} onChange={(v) => setSaveDefault(v)} />
+          <Checkbox checked={saveDefault && accountIds.length > 0} disabled={accountIds.length === 0} onChange={(v) => setSaveDefault(v)} />
           {t('session.new.saveDefaultAccount')}
         </label>
         <label className="row check-small">
