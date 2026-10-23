@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createSessionArgs, refOf, remoteCall, type RemoteSessionRef, type RemoteSessionRow } from '../lib/remoteSessions'
 import { useI18n } from '../i18n/I18nProvider'
-import { AccountSelect } from './AccountSelect'
+import { AccountDisclosure, AccountSelect } from './AccountSelect'
 import { Button, Card, Modal, Select, Tabs, nextFocusIndex } from './ui'
 import './overlays.css'
 
@@ -45,7 +45,8 @@ export function RemoteSessionsDialog({
   const [accounts, setAccounts] = useState<RemoteAccount[]>([])
   const [projects, setProjects] = useState<Array<{ name: string | null; path: string }>>([])
   const [kind, setKind] = useState<'terminal' | 'chat'>('terminal')
-  const [accountId, setAccountId] = useState('')
+  const [accountId, setAccountId] = useState('') // '' is Auto (most room): no account is sent and the Runtime picks
+  const [acctOpen, setAcctOpen] = useState(false)
   const [cwd, setCwd] = useState('')
   const [title, setTitle] = useState('')
   const [prompt, setPrompt] = useState('')
@@ -74,7 +75,6 @@ export function RemoteSessionsDialog({
         if (!alive || r.status !== 200 || !Array.isArray(r.body)) return
         const list = r.body as RemoteAccount[]
         setAccounts(list)
-        setAccountId((list.find((a) => a.default && a.signedIn !== false) ?? list.find((a) => a.signedIn !== false) ?? list[0])?.id ?? '')
       },
       () => {}
     )
@@ -118,7 +118,9 @@ export function RemoteSessionsDialog({
     e.preventDefault()
     rowEls[next]?.focus()
   }
-  const canStart = !readOnly && !starting && accountId !== '' && cwd !== ''
+  // Auto needs a signed-in account on the Runtime to rank; without one the picker stays open to show why
+  const anySignedIn = accounts.some((a) => a.signedIn !== false)
+  const canStart = !readOnly && !starting && anySignedIn && cwd !== ''
 
   return (
     <Modal
@@ -194,13 +196,33 @@ export function RemoteSessionsDialog({
         </div>
         <div className="field">
           <label>{t('remote.sessions.account')}</label>
-          <AccountSelect
-            accounts={accounts.map((a) => ({ id: a.id, label: a.label, configDir: '', color: '', createdAt: '', provider: a.provider }))}
-            loginMap={Object.fromEntries(accounts.map((a) => [a.id, a.signedIn !== false]))}
-            value={accountId}
-            disabled={readOnly || starting}
-            onChange={setAccountId}
-          />
+          {(() => {
+            const picker = (
+              <AccountSelect
+                accounts={accounts.map((a) => ({ id: a.id, label: a.label, configDir: '', color: '', createdAt: '', provider: a.provider }))}
+                loginMap={Object.fromEntries(accounts.map((a) => [a.id, a.signedIn !== false]))}
+                value={accountId}
+                allLabel={t('accounts.auto')}
+                disabled={readOnly || starting}
+                onChange={setAccountId}
+              />
+            )
+            return anySignedIn ? (
+              <AccountDisclosure
+                id="remote-accounts"
+                open={acctOpen}
+                onToggle={() => setAcctOpen((v) => !v)}
+                summary={accounts.find((a) => a.id === accountId)?.label ?? t('accounts.auto')}
+              >
+                {picker}
+              </AccountDisclosure>
+            ) : (
+              <>
+                {picker}
+                {accounts.length > 0 && <p className="warn-text">{t('session.new.blocked.noAccount')}</p>}
+              </>
+            )
+          })()}
         </div>
         <div className="field">
           <label>{t('remote.sessions.folder')}</label>
