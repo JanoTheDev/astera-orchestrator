@@ -9,7 +9,6 @@
 // ValidationContext 로 주입받는다: 경로 가드(앱의 assertAllowedPath, Host 의 hostPathGuard), 저장된
 // 실행 구성(앱의 RunConfigStore, Host 의 run-configs.json), 실행 관리자, 세션 생존 여부, 검토·수리의
 // 시작, continuity journal 의 첫 체크포인트 head(Host 에서는 언제나 null, R12), git diff.
-import { spawn } from 'node:child_process'
 import { mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { t, type Lang, type MessageKey } from '../../i18n'
@@ -29,7 +28,7 @@ import {
 import { cutTail } from '../taskOutput'
 import type { Dispatch } from '../types'
 import { checkInputOf, pluginIdOfCheck, type CompletionCheckInput, type PluginCheckAnswer } from '../pluginChecks'
-import { HEAVY_LOCK, HEAVY_QUEUE_DIR, heavyQueue } from '../heavyLock'
+import { HEAVY_LOCK, HEAVY_QUEUE_DIR, heavyQueue, takeHeavySlot } from '../heavyLock'
 import { repairTargetFor } from './repair'
 import { TaskValidator } from './validator'
 
@@ -63,7 +62,9 @@ export interface ValidationContext {
    *  answer, its reason in `summary`. */
   pluginCheck(plugin: string, input: CompletionCheckInput): Promise<PluginCheckAnswer>
   /** T2: waits for the machine's heavy slot and answers its release, or null when superseded (`heavySlot`). Test seam; defaults to the real one. */
-  heavySlot?(a: { cwd: string; cmd: string; abandoned?: () => boolean }): Promise<(() => void) | null>
+  heavySlot?(a: { cwd: string; cmd: string; abandoned?: () => boolean; slots?: number }): Promise<(() => void) | null>
+  /** How many heavy jobs the machine runs at once (the heavyJobsAtOnce setting), read per heavy check; 1 when absent. */
+  heavyJobsAtOnce?(): Promise<number>
 }
 /** A git head, null when there is no baseline, 'unknown' when there may be one the journal could not give. */
 export type CheckpointHead = string | null | 'unknown'
@@ -74,13 +75,15 @@ export interface TaskValidation {
 }
 
 /** T2: a heavy check: the npm script `test`, `build`, `build:*`, `dist` or `dist:*`, by its seed key. Two at once
- *  crashed the owner's laptop, so these run one at a time on the machine (`heavySlot`); every other check runs at once. */
+ *  crashed the owner's laptop, so these run at most heavyJobsAtOnce at a time on the machine (`heavySlot`); every
+ *  other check runs at once. */
 export const isHeavyCheck = (config: RunConfig): boolean => /^npm:(test|(build|dist)(:.+)?)$/.test(seedKeyOf(config))
 
 let heavySeq = 0
 
-/** T2: waits for the machine's heavy slot, the one `astera heavy` takes (heavyLock.ts): a ticket in its FIFO queue, then
- *  its OS lock, held by a `flock` child until the answered release. The child holds the lock with `cat` on a pipe from
+/** T2: waits for one of the machine's heavy slots, the ones `astera heavy` takes (heavyLock.ts): a ticket in its FIFO
+ *  queue among the first `slots`, then a free slot's OS lock (`takeHeavySlot`), held by a `flock` child until the
+ *  answered release. The child holds the lock with `cat` on a pipe from
  *  this process, so a process that dies drops the lock with the pipe, and its ticket reads dead. Rejects when `flock`
  *  cannot run. Answers null when a newer check of this folder replaced the ticket: that check takes this one's place, so
  *  this waiter is no longer work, not a failure. (runHeavy itself is not called: it takes over SIGINT/SIGTERM, which would keep the Host from stopping.) */
@@ -92,6 +95,8 @@ export async function heavySlot(a: {
   lock?: string
   queueDir?: string
   pollMs?: number
+  /** How many heavy jobs run at once; 1 when left out. */
+  slots?: number
 }): Promise<(() => void) | null> {
   const dir = a.queueDir ?? HEAVY_QUEUE_DIR
   const lock = a.lock ?? HEAVY_LOCK
@@ -109,6 +114,7 @@ export async function heavySlot(a: {
   // One waiter per cwd: the predecessor's ticket (the old Host's, still a live pid until it leaves) goes first
   for (const x of heavyQueue(dir)) if (x.kind === 'check' && x.cwd === a.cwd) rmSync(join(dir, x.file), { force: true })
   writeTicket()
+  const slots = a.slots ?? 1
   try {
     for (;;) {
       if (a.abandoned?.()) {
@@ -116,27 +122,28 @@ export async function heavySlot(a: {
         return () => {}
       }
       const q = heavyQueue(dir)
-      if (!q.some((x) => x.file === name)) {
+      const at = q.findIndex((x) => x.file === name)
+      if (at === -1) {
         // Gone from the queue: rewrite it, unless a newer ticket for this cwd replaced it — this waiter is then the
         // predecessor, and rewriting would make two waiters of one cwd fight over the queue for ever
         if (q.some((x) => x.kind === 'check' && x.cwd === a.cwd && x.file > name)) return null
         writeTicket()
-      } else if (q[0].file === name) break
+      } else if (at < slots) {
+        // Every slot held (a hand-opened tab may hold slot 0): keep the place in line and poll again
+        const took = await takeHeavySlot({ lock, slots, cmd: ['cat'], stdio: ['pipe', 'ignore', 'ignore'] })
+        if (took !== 'busy') {
+          const holder = took.child
+          holder.stdin!.on('error', () => {}) // EPIPE once the holder is gone
+          let freed = false
+          return () => {
+            if (freed) return
+            freed = true
+            holder.stdin!.end()
+            drop()
+          }
+        }
+      }
       await new Promise((r) => setTimeout(r, a.pollMs ?? 1000))
-    }
-    const child = spawn('flock', [lock, 'sh', '-c', 'echo held; exec cat'], { stdio: ['pipe', 'pipe', 'ignore'] })
-    child.stdin.on('error', () => {}) // EPIPE once the holder is gone
-    await new Promise<void>((resolve, reject) => {
-      child.stdout.once('data', () => resolve())
-      child.once('error', reject)
-      child.once('exit', (code) => reject(new Error(`flock ${lock} ended (${String(code)}) before it held the lock`)))
-    })
-    let freed = false
-    return () => {
-      if (freed) return
-      freed = true
-      child.stdin.end()
-      drop()
     }
   } catch (e) {
     drop()
@@ -184,7 +191,8 @@ export function createTaskValidation(c: ValidationContext): TaskValidation {
           const slot = await (c.heavySlot ?? heavySlot)({
             cwd,
             cmd: config.name,
-            abandoned: () => c.getState().tasks.find((x) => x.id === taskId)?.status !== 'validating'
+            abandoned: () => c.getState().tasks.find((x) => x.id === taskId)?.status !== 'validating',
+            slots: (await c.heavyJobsAtOnce?.()) ?? 1
           })
           // Superseded by a newer check of this folder, which runs in this one's place: skip, not a start failure
           if (slot === null) return 'skip'

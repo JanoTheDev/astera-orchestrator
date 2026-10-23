@@ -12,6 +12,7 @@ import { closeSync, existsSync, openSync, promises as fs } from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { heavyQueue, runHeavy } from '../core/orchestration/heavyLock'
+import { readHeavyJobsAtOnce } from '../core/settings/heavyJobs'
 import {
   appImagesToDelete,
   canSelfInstall,
@@ -255,9 +256,10 @@ export function createSourceUpdater(d: SourceUpdaterDeps): {
       }
 
       step('waiting')
-      // Our ticket first in the queue means the slot is ours (or about to be): show "building" from then on.
+      const slots = await readHeavyJobsAtOnce(path.join(d.userData, 'app-settings.json'))
+      // Our ticket among the first `slots` in the queue means a slot is ours (or about to be): show "building" from then on.
       const watch = setInterval(() => {
-        if (heavyQueue()[0]?.pid === process.pid && states.last() === 'building') {
+        if (heavyQueue().slice(0, slots).some((t) => t.pid === process.pid) && states.last() === 'building') {
           clearInterval(watch)
           step('building')
         }
@@ -270,6 +272,7 @@ export function createSourceUpdater(d: SourceUpdaterDeps): {
           env,
           cwd: srcDir,
           stdio: ['ignore', fd, fd],
+          slots,
           err: (t) => d.log(`source build: ${t.trim()}`)
         })
       } finally {

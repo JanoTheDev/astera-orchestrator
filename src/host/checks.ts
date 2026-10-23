@@ -51,6 +51,7 @@ import { hostPtyFactory } from './spawner'
 import { prepareRun } from '../core/run/prepare'
 import { CHECK_TIMEOUT_MS } from '../core/orchestration/types'
 import { stripAnsi } from '../core/rolling/detect'
+import { readHeavyJobsAtOnce } from '../core/settings/heavyJobs'
 
 export interface HostChecks {
   startValidation(a: { taskId: string; cwd: string }): void
@@ -117,7 +118,7 @@ export interface HostChecksDeps {
   /** Test seam: FOREIGN_KILL_WAIT_MS. */
   foreignKillWaitMs?: number
   /** Test seam, passed to createTaskValidation: the machine's heavy slot (a heavy check waits on it). Defaults to the real one. */
-  heavySlot?(a: { cwd: string; cmd: string }): Promise<() => void>
+  heavySlot?(a: { cwd: string; cmd: string; slots?: number }): Promise<() => void>
 }
 
 /** The OS locale as node reports it — what the app's `app.getLocale()` stands in for (R13). */
@@ -275,6 +276,7 @@ export function createHostChecksForTest(d: HostChecksDeps): HostChecks & { _vali
     },
     isAlive,
     ...(d.heavySlot ? { heavySlot: d.heavySlot } : {}),
+    heavyJobsAtOnce: () => readHeavyJobsAtOnce(settingsPath),
     startReview: (a) => reviewBody(a),
     startRepair: (a) => startRepairOnce(a),
     // R12: the continuity journal is the app's (D8), so there is no diff base here.
