@@ -36,11 +36,11 @@
 .plans-row--archived .plans-row__name { color: var(--text-faint); }
 .plans-row--shared { box-shadow: inset 2px 0 0 var(--warn); }
 .plans-row__main { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; min-height: 36px; }
-.plans-row__name.ui-btn { min-width: 0; max-width: 40%; flex: 0 1 auto; justify-content: flex-start; overflow: hidden; color: var(--text); font-size: var(--fs-13); font-weight: var(--fw-medium); text-overflow: ellipsis; white-space: nowrap; }
+.plans-row__name.ui-btn { min-width: 0; max-width: 40%; flex: 0 0 auto; justify-content: flex-start; overflow: hidden; color: var(--text); font-size: var(--fs-13); font-weight: var(--fw-medium); text-overflow: ellipsis; white-space: nowrap; }
 .plans-row__rename { flex: 1 1 240px; max-width: 420px; }
 .plans-row__spacer { flex: 1; }
 .plans-row__meta { flex: none; color: var(--text-faint); font-size: var(--fs-11); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.plans-row__reason { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--git-deleted); font-size: var(--fs-11); }
+.plans-row__reason { min-width: 0; flex: 0 100 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--git-deleted); font-size: var(--fs-11); }
 .plans-row__progress { flex: 0 0 120px; }
 .plans-row__meter.ui-meter { --ui-meter-fill: var(--accent); }
 .plans-row__pr .jobs-new { width: auto; margin: 0; padding: 0 var(--sp-2); height: var(--h-sm); font-size: var(--fs-11); }

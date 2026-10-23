@@ -33,6 +33,10 @@ import type { useHost } from './useHost'
 /** 저널이 바빠 상세가 마지막으로 읽은 줄을 받았을 때, 다시 묻기까지 기다리는 시간(stage 3 T1) */
 const DETAIL_BUSY_RETRY_MS = 2_000
 
+/** The selection after the probe of `probed` failed with `err`: dropped when that folder is gone and still selected. */
+export const scopeAfterProbe = (current: string | null, probed: string, err: unknown): string | null =>
+  current === probed && errText(err).includes('ENOENT') ? null : current
+
 export type JobsDeps = Pick<ReturnType<typeof useLayout>,
     'activeTab' | 'activeTabId' | 'remoteSessions' | 'sessions' | 'setLayout' | 'setRemoteSessions' |
     'setRemoteStatus' | 't'> &
@@ -235,6 +239,20 @@ export function useJobs(deps: JobsDeps) {
   const [scopeRoot, setScopeRoot] = useState<string | null>(null)
   useEffect(() => {
     if (scopeRoot) sticky.write(scopeRoot)
+  }, [scopeRoot])
+  // A selected project whose folder is gone is dropped (back to "All projects"): checked when it is picked and when
+  // the window regains focus, the moment a folder deleted outside the app is noticed. Only ENOENT drops it.
+  useEffect(() => {
+    if (!scopeRoot) return
+    const probe = (): void => {
+      void window.api.files.list(scopeRoot).then(
+        () => {},
+        (err: unknown) => setScopeRoot((prev) => scopeAfterProbe(prev, scopeRoot, err))
+      )
+    }
+    probe()
+    window.addEventListener('focus', probe)
+    return () => window.removeEventListener('focus', probe)
   }, [scopeRoot])
   const currentProject = scopeRoot ?? activeTabRoot ?? stickyRoot
 

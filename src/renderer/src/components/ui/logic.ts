@@ -65,8 +65,17 @@ export function cx(...names: Array<string | false | null | undefined>): string {
   return names.filter(Boolean).join(' ')
 }
 
-export const FOCUSABLE =
-  'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])'
+/** What Tab can reach: a roving row (tabindex -1) is not in it, or the trap's last stop is a row Tab skips and focus leaves. */
+export const FOCUSABLE = [
+  'a[href]',
+  'button:not([disabled])',
+  'input:not([disabled])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  '[tabindex]'
+]
+  .map((s) => `${s}:not([tabindex="-1"])`)
+  .join(',')
 
 // ---- Keyboard for the list primitives (Select, Menu): moves skip disabled rows, typeahead finds rows by their label ----
 

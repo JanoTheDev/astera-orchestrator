@@ -4,7 +4,7 @@ import { providerOf } from '../../../core/providers/meta'
 import { useI18n } from '../i18n/I18nProvider'
 import { formFailure, type OrchDoor } from '../lib/orchDoor'
 import { AccountSelect } from './AccountSelect'
-import { Button, Field, Icon, IconButton, Select, type SelectOption } from './ui'
+import { Button, Field, Icon, IconButton, Modal, Select, type SelectOption } from './ui'
 
 /** 계정 슬롯 최대 개수. 새 세션 대화상자의 MAX_ROLL_ACCOUNTS 와 같은 값이지만 **상수를 공유하지
  *  않는다** — 저쪽은 탭 세션의 롤링이고 이쪽은 Task 의 체인이다. 한쪽을 늘릴 때 다른 쪽이 따라
@@ -12,7 +12,11 @@ import { Button, Field, Icon, IconButton, Select, type SelectOption } from './ui
  *  사정이고, 이 폼은 만들기 전용이라 CLI 로 넷 이상 지정한 Task 를 여기서 보여 줄 일이 없다. */
 const MAX_TASK_ACCOUNTS = 3
 
-/** RunDetail 의 그래프가 Task 를 짓는 동안 상세 창의 아래 칸(.detail-events)이 통째로 바뀌는 폼.
+/** Task 를 짓는 폼. 예전에는 상세 창의 아래 칸(.detail-events)을 통째로 바꿨는데, 640px 높이에서 단계 보드가
+ *  두 줄로 눌렸다. 지금은 ui Modal 이라 보드는 그대로 두고(뒤에서 어둡게 보인다) 폼이 자기 높이를 갖는다.
+ *  아래의 옛 설명은 위치에 관한 것이라 낡았다 — 필드와 규칙은 그대로다.
+ *
+ *  (옛) RunDetail 의 그래프가 Task 를 짓는 동안 상세 창의 아래 칸(.detail-events)이 통째로 바뀌는 폼.
  *  이름은 NewRunModal 을 따랐지만 그 컴포넌트처럼 `.modal-backdrop` 을 새로 세우지 않는다 — 그 배경은
  *  화면 전체의 클릭을 삼킨다. **예전 이유는 "위의 그래프가 계속 눌려야 한다"였다** — 의존을 그래프
  *  노드를 눌러 골랐기 때문이다. 지금은 폼 안의 셀렉트로 고르므로 그 이유는 없어졌고, 그래도 이 자리에
@@ -163,20 +167,28 @@ export function NewTaskModal({
   }
 
   return (
-    <>
-      {/* .detail-filter/.detail-clear 를 그대로 빌린다 — 걸러 놓은 Task 를 보여 주던 바로 그 자리에
-          지금은 "무엇을 짓고 있는가"를 보여 준다. 같은 모양의 줄이 이 칸에서 늘 하던 일과 같은 일을
-          하므로 새 CSS 를 만들 이유가 없다. */}
-      <div className="detail-filter">
-        <b>{t('jobs.task.new')}</b>
-        <IconButton
-          className="detail-clear"
-          size="sm"
-          icon={<Icon name="close" size={14} />}
-          label={t('common.cancel')}
-          onClick={() => !busy && onClose()}
-        />
-      </div>
+    <Modal
+      title={t('jobs.task.new')}
+      size="lg"
+      closeLabel={t('common.cancel')}
+      onClose={() => !busy && onClose()}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={busy}>
+            {t('common.cancel')}
+          </Button>
+          {/* 계정이 없으면 만들 수 없다 — provider 를 알 방법이 없다(accountIds 의 주석) */}
+          <Button
+            variant="primary"
+            loading={busy}
+            disabled={locked || busy || !spec.trim() || accountIds.length === 0}
+            onClick={() => void create()}
+          >
+            {t('jobs.task.create')}
+          </Button>
+        </>
+      }
+    >
       <div className="detail-task-fields">
         <Field label={t('jobs.task.title')} value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />
         <Field kind="textarea" label={t('jobs.task.spec')} rows={4} value={spec} onChange={(e) => setSpec(e.target.value)} />
@@ -330,20 +342,6 @@ export function NewTaskModal({
         </label>
         {error && <p className="warn">{error}</p>}
       </div>
-      <div className="row right">
-        <Button variant="ghost" onClick={onClose} disabled={busy}>
-          {t('common.cancel')}
-        </Button>
-        {/* 계정이 없으면 만들 수 없다 — provider 를 알 방법이 없다(accountIds 의 주석) */}
-        <Button
-          variant="primary"
-          loading={busy}
-          disabled={locked || busy || !spec.trim() || accountIds.length === 0}
-          onClick={() => void create()}
-        >
-          {t('jobs.task.create')}
-        </Button>
-      </div>
-    </>
+    </Modal>
   )
 }
