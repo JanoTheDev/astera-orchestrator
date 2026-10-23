@@ -19,6 +19,9 @@ export interface StripRows {
   accounts: Array<{ accountId: string; label: string; fiveHour: StripWindow | null; sevenDay: StripWindow | null; paused: boolean; runOutInMs: number | null }>
   /** All accounts together: ms until the soonest pool runs out, null = lasts until the resets; the object itself is null with no estimate. */
   pool: { runOutInMs: number | null } | null
+  /** Room for a new worker: `one` names the only account with room, `none` says when the soonest full window resets (null when no reset is known).
+   *  The whole object is null with two or more accounts with room, or with fewer than two accounts. */
+  room: { kind: 'one'; accountId: string; label: string } | { kind: 'none'; resumes: string | null } | null
   /** Tabs with live subagents, named by the Task they work on when the plan has it. */
   subagents: Array<{ sessionId: string; label: string; count: number }>
   pauseAt: number
@@ -40,6 +43,25 @@ const poolOf = (view: UsageGuardView, now: number): StripRows['pool'] => {
   return runs.every((r) => r === null) ? null : { runOutInMs: soonest(runs, now) }
 }
 
+/** At or over the pause threshold and its reset not yet passed: a window whose reset has passed counts as not full (autoAccountOrder.ts usedNow). */
+const fullAt = (w: RateLimitWindow | null, pauseAt: number, now: number): boolean => {
+  if (w === null || w.usedPercent < pauseAt) return false
+  const resets = w.resetsAt === null ? NaN : Date.parse(w.resetsAt)
+  return !(Number.isFinite(resets) && resets <= now)
+}
+
+const roomOf = (view: UsageGuardView, label: (id: string) => string, now: number): StripRows['room'] => {
+  if (view.accounts.length < 2) return null
+  const free = view.accounts.filter((a) => a.paused === null && !fullAt(a.session, view.pauseAt, now) && !fullAt(a.weekly, view.pauseAt, now))
+  if (free.length === 1) return { kind: 'one', accountId: free[0].accountId, label: label(free[0].accountId) }
+  if (free.length > 1) return null
+  const resets = view.accounts
+    .flatMap((a) => [[a.session, false], [a.weekly, true]] as const)
+    .flatMap(([w, weekly]) => (w !== null && fullAt(w, view.pauseAt, now) && w.resetsAt !== null && Number.isFinite(Date.parse(w.resetsAt)) ? [{ at: Date.parse(w.resetsAt), iso: w.resetsAt, weekly }] : []))
+    .sort((x, y) => x.at - y.at)
+  return { kind: 'none', resumes: resets.length === 0 ? null : resetClock(resets[0].iso, resets[0].weekly) }
+}
+
 export function stripRows(view: UsageGuardView, accounts: readonly Account[] | null, tasks: readonly JobTask[], now = Date.now()): StripRows {
   const label = (id: string): string => accounts?.find((a) => a.id === id)?.label ?? id
   const taskOf = new Map(tasks.flatMap((t) => (t.sessionId !== undefined ? [[t.sessionId, t.title] as const] : [])))
@@ -57,6 +79,7 @@ export function stripRows(view: UsageGuardView, accounts: readonly Account[] | n
           : soonest([a.session && runOutOf(a.session, SESSION_WINDOW_MS, now), a.weekly && runOutOf(a.weekly, WEEKLY_WINDOW_MS, now)], now)
     })),
     pool: poolOf(view, now),
+    room: roomOf(view, label, now),
     subagents: view.subagents.map((s) => ({ sessionId: s.sessionId, label: taskOf.get(s.sessionId) ?? s.sessionId.slice(0, 8), count: s.count })),
     pauseAt: view.pauseAt,
     maxSubagents: view.maxSubagents
