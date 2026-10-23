@@ -53,6 +53,20 @@ describe('tasks dispatch — who may place one ready Task now', () => {
     expect(r.body).toMatchObject({ taskId, dispatchId: 'dsp_1' })
   })
 
+  // T1: no account is "auto" (the loop places it on the account with most room); refused only with the setting off
+  it('places a Task with no account when "Pick accounts automatically" is on; refuses it when off or with no guard', async () => {
+    const guard = (auto: boolean) => ({ refresh: async () => {}, pauseOf: () => null, autoAccounts: () => auto })
+    for (const [usageGuard, placed] of [[guard(true), true], [guard(false), false], [undefined, false]] as const) {
+      const { deps, taskId, dispatchTask } = await seeded(usageGuard ? { usageGuard } : {})
+      const s = deps.state()
+      await deps.setState({ ...s, tasks: s.tasks.map((t) => (t.id === taskId ? { ...t, accountIds: [] } : t)) })
+      const r = await call(deps, 'tasks-dispatch', { id: taskId })
+      expect(r.status).toBe(placed ? 200 : 409)
+      if (!placed) expect(error(r)).toContain('names no account')
+      expect(dispatchTask).toHaveBeenCalledTimes(placed ? 1 : 0)
+    }
+  })
+
   it('needs an id (2) that names a Task (4)', async () => {
     const { deps, dispatchTask } = await seeded()
     expect((await call(deps, 'tasks-dispatch')).status).toBe(400)

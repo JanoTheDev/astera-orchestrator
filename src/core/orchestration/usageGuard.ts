@@ -10,7 +10,9 @@
 //
 // Pure, apart from `createUsageGuard`, which only remembers the last answer per account so a pause and its end can
 // each be told once (`usage.paused` / `usage.resumed`).
-import type { RateLimitWindow, UsagePause } from '../types'
+import type { Provider, RateLimitWindow, UsagePause } from '../types'
+import { providerOf } from '../providers/meta'
+import { isGhostAccountId } from '../accounts/ghostId'
 
 export const USAGE_PAUSE_AT_DEFAULT = 90
 
@@ -60,6 +62,26 @@ export function usageChoice(
     first ??= p
   }
   return first === null ? { ok: true, accountId: undefined } : { ok: false, pause: first }
+}
+
+/** T1: whether a start on this account would be held. With "Pick accounts automatically" on, a start rolls to the
+ *  provider's account with room (chooseStartAccount, exec/workerStart.ts), so an account is no hold while any logged-in
+ *  account of its provider is unpaused; only when all are does its own pause count. Off: `pauseOf` as it is. The answer
+ *  carries `auto` so a reader knows an empty chain is "auto", not "no account". Synchronous: the caller brings the
+ *  account list and logins it already holds. */
+export function startPauseOf<P>(
+  pauseOf: (accountId: string) => P | null,
+  a: { auto: boolean; accounts: ReadonlyArray<{ id: string; provider?: Provider }>; loggedInIds: ReadonlySet<string> }
+): ((accountId: string) => P | null) & { auto?: true } {
+  if (!a.auto) return (id) => pauseOf(id)
+  const room = (id: string): boolean => {
+    const named = a.accounts.find((x) => x.id === id)
+    return (
+      named !== undefined &&
+      a.accounts.some((x) => providerOf(x) === providerOf(named) && !isGhostAccountId(x.id) && a.loggedInIds.has(x.id) && pauseOf(x.id) === null)
+    )
+  }
+  return Object.assign((id: string) => (room(id) ? null : pauseOf(id)), { auto: true as const })
 }
 
 /** A pause in one English line, for logs and command answers ("account a is at 93% of its 5-hour limit, …"). */
