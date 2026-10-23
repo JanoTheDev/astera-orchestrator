@@ -1,7 +1,7 @@
 // W3-A: the feed's words and list (activityView.ts).
 import { describe, expect, it } from 'vitest'
 import type { ActivityEvent } from '../../../../core/orchestration/activity'
-import { feedOf, lineOf, mergePage, summaryOf, whoOf } from './activityView'
+import { feedOf, filterLines, lineOf, mergePage, summaryOf, whoOf } from './activityView'
 
 describe('plan.deliveryDismissed (T34)', () => {
   it("reads in the app's language", () => {
@@ -136,5 +136,21 @@ describe('plain words (no worker, coordinator, wave, watchdog)', () => {
     expect(lineOf(e, label, 'es').text).toBe('T: agente iniciado')
     expect(lineOf(e, label, 'ja').text).toContain('エージェント')
     expect(lineOf(e, label, 'ko').text).toContain('에이전트')
+  })
+})
+
+describe('filterLines', () => {
+  const lines = [
+    { text: 'T1 delivered', plan: 'Auth rework' },
+    { text: 'T2 failed', plan: 'Docs', who: 'Account A' }
+  ]
+  it('keeps every line for a blank query', () => {
+    expect(filterLines(lines, '  ')).toHaveLength(2)
+  })
+  it('matches text, plan and actor, ignoring case', () => {
+    expect(filterLines(lines, 'DELIVERED')).toEqual([lines[0]])
+    expect(filterLines(lines, 'docs')).toEqual([lines[1]])
+    expect(filterLines(lines, 'account a')).toEqual([lines[1]])
+    expect(filterLines(lines, 'nope')).toEqual([])
   })
 })

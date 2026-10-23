@@ -1,7 +1,7 @@
 // W9-D: what `openInbox(filter?)` (components/shell/navigation.ts) asks of the Inbox page. A tiny store, so the
 // handler and the page meet without App state: the handler writes the request, the page reads it.
 import { useSyncExternalStore } from 'react'
-import { parseFilter, type InboxFilter } from './inboxView'
+import { parseFilter, type HandledLine, type InboxFilter, type NeedCard } from './inboxView'
 
 export interface InboxRequest {
   filter: InboxFilter
@@ -28,4 +28,24 @@ export function useInboxRequest(): InboxRequest {
     },
     () => current
   )
+}
+
+/** Where a row's "Open" goes: the console of a wait (permission or waiting), else the plan tab, at the Task when it has one. */
+export type OpenTarget = { kind: 'console'; sessionId: string } | { kind: 'plan'; jobId: string; taskId?: string; tab: string }
+
+const planTarget = (jobId: string, taskId?: string): OpenTarget => ({
+  kind: 'plan',
+  jobId,
+  ...(taskId !== undefined ? { taskId } : {}),
+  tab: `view:plan:${jobId}${taskId !== undefined ? `#task-${taskId}` : ''}`
+})
+
+export function openTargetOf(c: Pick<NeedCard, 'kind' | 'jobId' | 'taskId' | 'sessionId'>): OpenTarget {
+  return (c.kind === 'permission' || c.kind === 'waiting') && c.sessionId !== undefined ? { kind: 'console', sessionId: c.sessionId } : planTarget(c.jobId, c.taskId)
+}
+
+/** Where a handled line leads: its plan (its Task when it names one), else its console; none when it names neither. */
+export function lineTargetOf(l: Pick<HandledLine, 'jobId' | 'taskId' | 'sessionId'>): OpenTarget | null {
+  if (l.jobId !== undefined) return planTarget(l.jobId, l.taskId)
+  return l.sessionId !== undefined ? { kind: 'console', sessionId: l.sessionId } : null
 }

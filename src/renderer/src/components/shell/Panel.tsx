@@ -28,7 +28,7 @@ export type PanelProps = Pick<
   | 'openLinkedFolder' | 'openLinkedPath' | 'openUrl' | 'panelTab' | 'runAvailable'
   | 'runConfigs' | 'runDismiss' | 'runPanelHeight' | 'runPanelOpen' | 'runStart' | 'runStop' | 'runs' | 'scopedData'
   | 'scopedTree' | 'selectedRunId' | 'setBottomTab' | 'setPanelVisible' | 'setRunPanelHeight' | 'setSelectedRunId' | 't'
-  | 'terminals' | 'workspacePlanId'
+  | 'terminals' | 'workspaceData' | 'workspacePlanId' | 'workspaceTree'
 > &
   Pick<ShellState, 'needsYouUnread'>
 
@@ -69,7 +69,7 @@ export function Panel(p: PanelProps): React.JSX.Element | null {
       <div className="wb-panel__body">
         {shown === 'needs' && (
           <div className="wb-panel__scroll">
-            <InboxPage tree={p.scopedTree} data={p.scopedData} accounts={p.accounts} ui={p.actionUi} />
+            <InboxPage scope={p} ui={p.actionUi} />
           </div>
         )}
         {shown === 'activity' && (
@@ -99,7 +99,6 @@ export function Panel(p: PanelProps): React.JSX.Element | null {
               onSelectTab={p.setBottomTab}
               onNewTerminal={() => void p.newTerminal()}
               onCloseTerminal={p.closeTerminal}
-              onCollapse={() => p.setPanelVisible(false)}
               only={shown === 'output' ? 'run' : 'terminal'}
             />
           </div>
