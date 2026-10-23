@@ -116,6 +116,10 @@ through a flow, and read console and network errors. This browser is restricted 
 - **Plans and Tasks:** use the **Plans** view (or **New**) for an objective with
   workers, dependencies, and completion checks. See [Jobs](jobs.md) for worktrees,
   repair attempts, manual merging, and the differences between normal and scheduled runs.
+- **Change a running plan:** open the plan's tab and go to **Plan settings** (or choose
+  **Edit plan settings…** in the Plans view's context menu). Workers at once, priority, review
+  rounds, planning again between steps, auto-approve and hands-off can change while the plan runs;
+  see [Change a running plan](guide.md#change-a-running-plan).
 - **How It Works:** enable **Work unit tracking**, choose an **Explanation account**, and use
   `/astera-task` in a new session. See the [How It Works guide](how-it-works.md) for reading records,
   flow diagrams, decision sources, and verification results.

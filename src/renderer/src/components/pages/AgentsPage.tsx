@@ -72,7 +72,7 @@ export function AgentsPage({ sessions, accounts, currentProject, scopeId, allPro
       // a window without storage keeps the filter in memory only
     }
   }
-  // openPage('agents', plan): a plan page's "Its consoles" asks for that plan, by Job or Run id (the pills are by Job)
+  // openPlanConsoles(plan): a plan page's "Its consoles" asks for that plan, by Job or Run id (the pills are by Job)
   const asked = view.kind === 'wall' ? view.plan : undefined
   useEffect(() => {
     if (asked !== undefined) setPlan(tree.flatMap((p) => p.plans).find((x) => x.jobId === asked || x.runId === asked)?.jobId ?? asked)
