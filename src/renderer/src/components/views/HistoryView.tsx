@@ -9,9 +9,7 @@ export function HistoryView(p: SideBarViewProps): React.JSX.Element {
   const { t, currentProject, understanding, openTasks } = p
   return (
     <ViewContainer label={t('shell.activity.history')}>
-      <ViewPane title={t('shell.history.sessions')} storageKey="history.sessions">
-        <HistoryBrowser asPage accounts={p.accounts} ghostAccounts={p.ghostAccounts} defaultSessionKind={p.defaultSessionKind} onResume={p.resumeFromHistory} />
-      </ViewPane>
+      <HistoryBrowser accounts={p.accounts} ghostAccounts={p.ghostAccounts} defaultSessionKind={p.defaultSessionKind} onResume={p.resumeFromHistory} />
       <ViewPane title={t('shell.history.records')} storageKey="history.records">
         <UnderstandingView
           // only the current project's: right after a switch the cache still holds the previous project's records

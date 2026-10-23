@@ -36,6 +36,29 @@ import { Button, Icon, IconButton, Modal } from './ui'
  *  of throwing in the footer at runtime (t() throws on a missing key). */
 type ApplyError = Extract<SaveConfigsResult, { ok: false }>['errors'][number]
 
+const npmScriptsOf = (items: readonly RunConfig[]): string[] =>
+  Array.from(new Set(items.filter((c): c is Extract<RunConfig, { type: 'npm' }> => c.type === 'npm').map((c) => c.script)))
+
+/** Detection evidence for RunTypePicker: a kind already has a seed in this project's list — seeds are derived from the
+ *  project's own files, so their presence is the detection signal. python/pytest have no seed (no single entry point to
+ *  key one off of), so `isPythonProject` stands in for them. compose reuses the command-assembly context's compose file;
+ *  dockerfile follows isPythonProject's shape (a boolean from run.list's own file-list read); dotnet's evidence is the
+ *  project list the form's Select fetches, which only the manager has (a recursive scan, not worth a boolean in run.list). */
+export function detectedRunTypes(
+  items: readonly RunConfig[],
+  o: { isPythonProject: boolean; hasDockerfile: boolean; composeFile?: string | null; dotnetProjects?: readonly string[] | null }
+): RunConfigType[] {
+  return Array.from(
+    new Set<RunConfigType>([
+      ...items.filter((c) => isSeedId(c.id)).map((c) => c.type),
+      ...(o.isPythonProject ? (['python', 'pytest'] as const) : []),
+      ...(o.composeFile ? (['compose'] as const) : []),
+      ...(o.hasDockerfile ? (['dockerfile'] as const) : []),
+      ...(o.dotnetProjects && o.dotnetProjects.length > 0 ? (['dotnet'] as const) : [])
+    ])
+  )
+}
+
 /** Run configuration management — a tree on the left, the selected configuration's form on the right,
  *  IntelliJ's Run/Debug Configurations layout. Edits go to a **draft** (core/run/draft.ts) and reach
  *  the store only through Apply / OK, which commit the whole list in one call (run.saveConfigs);
@@ -56,6 +79,7 @@ export function RunConfigManager({
   hasDockerfile,
   projectPath,
   initialSelectedId,
+  initialNewType,
   onApply,
   onClose
 }: {
@@ -75,6 +99,8 @@ export function RunConfigManager({
   /** Which configuration the dialog opens on. The toolbar menu's "Edit '<name>'…" supplies it; absent,
    *  the first configuration is selected as before. */
   initialSelectedId?: string
+  /** The Run view's + picked this kind: the dialog opens on a new draft configuration of it (nothing is stored until Apply). */
+  initialNewType?: RunConfigType
   /** Apply: the stored list becomes this list, or nothing changes and the refused items are named. The
    *  caller refetches run.list on success so the toolbar follows. */
   onApply: (configs: RunConfig[]) => Promise<SaveConfigsResult>
@@ -84,11 +110,19 @@ export function RunConfigManager({
 }): React.JSX.Element {
   const { t } = useI18n()
 
+  const newId = (): string => `user:${crypto.randomUUID()}`
+
   // The snapshot: taken once, on mount. `configs` is deliberately not a dependency of anything below.
-  const [draft, setDraft] = useState<ConfigDraft>(() => draftOf(configs))
+  const [initial] = useState(() => {
+    const base = draftOf(configs)
+    if (!initialNewType) return { draft: base, id: null }
+    const id = newId()
+    return { draft: addItem(base, defaultConfigFor(initialNewType, id, t(`run.type.${initialNewType}` as MessageKey), base.items, npmScriptsOf(base.items), [])), id }
+  })
+  const [draft, setDraft] = useState<ConfigDraft>(initial.draft)
   const [baseline, setBaseline] = useState<RunConfig[]>(() => configs.filter((c) => !isSeedId(c.id)))
   const [selectedId, setSelectedId] = useState<string | null>(
-    (initialSelectedId && configs.some((c) => c.id === initialSelectedId) ? initialSelectedId : configs[0]?.id) ?? null
+    initial.id ?? (initialSelectedId && configs.some((c) => c.id === initialSelectedId) ? initialSelectedId : configs[0]?.id) ?? null
   )
   const [query, setQuery] = useState('')
   const [applyErrors, setApplyErrors] = useState<ApplyError[]>([])
@@ -101,8 +135,6 @@ export function RunConfigManager({
   const isSeed = !!selected && isSeedId(selected.id)
   const { dirty, ids: dirtyIds } = useMemo(() => dirtyOf(draft, baseline), [draft, baseline])
   const rejected = new Set(applyErrors.map((e) => e.id))
-
-  const newId = (): string => `user:${crypto.randomUUID()}`
 
   // RunConfigForm's onChange, for every configuration. A seed edit promotes (editItem), and the
   // selection follows the promoted copy so the next keystroke edits it rather than promoting again.
@@ -244,36 +276,8 @@ export function RunConfigManager({
 
   // The script Select's candidate list — the npm-typed entries already in the project's configuration
   // list (seeds from package.json, plus any user npm configurations), deduplicated.
-  const npmScripts = Array.from(
-    new Set(
-      draft.items
-        .filter((c): c is Extract<RunConfig, { type: 'npm' }> => c.type === 'npm')
-        .map((c) => c.script)
-    )
-  )
-  // Detection evidence for RunTypePicker: a kind already has a seed in this project's list — seeds are
-  // derived from the project's own files, so their presence is the detection signal. python/pytest have
-  // no seed config (no single entry point to key one off of), so isPythonProject stands in for them.
-  // compose is the same situation, but its signal is cheaper to reuse than adding a seed: buildRunContext
-  // already found (or didn't find) a compose file for the command-assembly context this component holds,
-  // so context.composeFile doubles as the detection evidence instead of a seed:compose:… entry.
-  // dockerfile has no seed either, but unlike compose its assembly (buildCommand's 'dockerfile' case)
-  // never reads context — imageTag/dockerfilePath/buildArgs/runArgs all live on the config — so there is
-  // no RunContext field to double-purpose. It follows isPythonProject's shape instead: a plain boolean
-  // threaded down from run.list's own file-list read (hasDockerfile in core/run/config.ts).
-  // dotnet needs neither: the project list the form's Select already fetches is itself the evidence — a
-  // .csproj/.fsproj/.sln anywhere in the project means .NET is here. It is deliberately not a third
-  // boolean from run.list, because finding those files is a recursive scan (main/dotnetScanner.ts), far
-  // more than the single root-directory read run.list does for the others.
-  const detectedTypes = Array.from(
-    new Set([
-      ...draft.items.filter((c) => isSeedId(c.id)).map((c) => c.type),
-      ...(isPythonProject ? (['python', 'pytest'] as const) : []),
-      ...(context.composeFile ? (['compose'] as const) : []),
-      ...(hasDockerfile ? (['dockerfile'] as const) : []),
-      ...(dotnetProjects && dotnetProjects.length > 0 ? (['dotnet'] as const) : [])
-    ])
-  )
+  const npmScripts = npmScriptsOf(draft.items)
+  const detectedTypes = detectedRunTypes(draft.items, { isPythonProject, hasDockerfile, composeFile: context.composeFile, dotnetProjects })
 
   // Grouped by folder, then by kind for whatever is not in one — one rule, shared with the toolbar's
   // menu (core/run/grouping.ts). Filtering happens first, so a group nobody matched is simply absent;

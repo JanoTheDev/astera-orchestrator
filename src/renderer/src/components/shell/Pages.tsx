@@ -210,7 +210,6 @@ export function Pages(p: PagesProps): React.JSX.Element {
           )}
           {page === 'more:history' && (
             <HistoryBrowser
-              asPage
               accounts={accounts}
               ghostAccounts={ghostAccounts}
               defaultSessionKind={defaultSessionKind}

@@ -115,4 +115,11 @@ export const history: Record<keyof typeof ko, string> = {
   'hiw.verify.unverified': 'Nothing was checked',
   'hiw.verify.failed': 'A reported check failed',
   'hiw.verify.reported': 'Reported by the agent — the app did not run it itself',
+  'history.menu.resume': 'Resume',
+  'history.menu.preview': 'Preview',
+  'history.menu.copyId': 'Copy session id',
+  'history.filter.label': 'Filter by account',
+  'history.refresh.label': 'Refresh',
+  'history.more': 'Load more…',
+  'history.tree.label': 'Sessions',
 }

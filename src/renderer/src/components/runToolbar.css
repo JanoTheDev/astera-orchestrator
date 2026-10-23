@@ -72,3 +72,9 @@
    modal is RunConfigManager (.modal.rcm, below). Its right anchor and its vertical stack with a fixed
    width went with it: the modal achieves what those were for (keeping the form visible and uncut), so
    this is a replacement rather than a revert. */
+
+/* The Run view's rows (views/RunView.tsx): the running mark spins; the list fills the pane above the output buttons */
+.run-view { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.run-view .ui-tree { flex: 1; }
+.run-view .wb-view-actions { padding: 8px 8px 8px 20px; }
+.run-spin { animation: cm-spin 1.5s linear infinite; }

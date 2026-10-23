@@ -1,7 +1,7 @@
 /* RunConfigManager — the two-pane run configuration dialog (list left, form right). The per-kind
    fields, drawn by RunConfigForm, live inside .rcm-form. */
-.rcm-panes { display: grid; grid-template-columns: 236px 1fr; gap: 14px; height: 420px; min-height: 0; }
-.rcm-list { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line-soft); padding-right: 14px; }
+.rcm-panes { display: grid; grid-template-columns: 220px 1fr; gap: 12px; height: 420px; min-height: 0; }
+.rcm-list { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); padding-right: 12px; }
 .rcm-tools { display: flex; align-items: center; gap: 4px; padding-bottom: 8px; margin-bottom: 6px; border-bottom: 1px solid var(--line-soft); }
 .rcm-tools-sep { width: 1px; align-self: stretch; margin: 2px 2px; background: var(--line-soft); }
 .rcm-tree { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; }
@@ -17,7 +17,7 @@
 /* A ui Button wraps its children in .ui-btn__label; the row's name and marks lay out inside it. */
 .rcm-item > .ui-btn__label { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; }
 .rcm-item.ui-btn:hover:not(:disabled) { background: var(--surface-hover); color: var(--text); }
-.rcm-item.ui-btn.on { background: var(--elevated); border-left-color: var(--accent); }
+.rcm-item.ui-btn.on { background: var(--list-active); border-left-color: var(--accent); }
 /* Auto-detected (seed) configurations — italic marks them as not yet a user configuration. Editing one
    promotes it into a plain (non-italic) user configuration copy (core/run/config.ts promoteSeed). */
 .rcm-item.ui-btn.seed { font-style: italic; color: var(--text-dim); }

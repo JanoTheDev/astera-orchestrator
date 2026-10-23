@@ -3,7 +3,7 @@ import type { OpenSessionTask } from '../../../core/types'
 import type { ProjectUnderstanding, RecordStatus, WorkRecord } from '../../../core/understanding/types'
 import { useI18n } from '../i18n/I18nProvider'
 import { RECORD_GLYPH_COLOR, StatusGlyph } from './UnderstandingIcons'
-import { Button, EmptyState, ICONS } from './ui'
+import { Button, EmptyState, ICONS, Icon, IconButton } from './ui'
 
 const dateOf = (iso: string): string => {
   const d = new Date(iso)
@@ -74,9 +74,6 @@ export function UnderstandingView({
   if (records.length === 0 && openTasks.length === 0) {
     return (
       <div className="hiw-side">
-        <div className="hiw-head">
-          <h2>{t('hiw.title')}</h2>
-        </div>
         <div className="hiw-empty">
           <EmptyState icon={ICONS.layers} title={t('hiw.empty.title')}>
             {t('hiw.empty.body')}
@@ -108,23 +105,16 @@ export function UnderstandingView({
         {u.status !== 'active' && u.reason && (
           <span className="hiw-summary w">{reasonText(u.reason, t)}</span>
         )}
-        <span className="hiw-open-actions">
-          <Button size="sm" variant="secondary" onClick={() => onCompleteTask(u.id)}>
-            {t('hiw.open.complete')}
-          </Button>
-          <Button size="sm" variant="ghost" onClick={() => onCancelTask(u.id)}>
-            {t('hiw.open.cancel')}
-          </Button>
-        </span>
+      </span>
+      <span className="hiw-row-actions">
+        <IconButton size="sm" icon={<Icon name="check" />} label={t('hiw.open.complete')} onClick={() => onCompleteTask(u.id)} />
+        <IconButton size="sm" icon={<Icon name="close" />} label={t('hiw.open.cancel')} onClick={() => onCancelTask(u.id)} />
       </span>
     </div>
   )
 
   return (
     <div className="hiw-side">
-      <div className="hiw-head">
-        <h2>{t('hiw.title')}</h2>
-      </div>
       {openTasks.length > 0 && (
         <div className="hiw-open">
           {active.length > 0 && (
@@ -165,9 +155,9 @@ export function UnderstandingView({
               </span>
             </Button>
             {canRetry(r.status) && (
-              <Button size="sm" variant="secondary" className="hiw-row-retry" onClick={() => onRegenerate(r.id)}>
-                {t('hiw.record.regenerate')}
-              </Button>
+              <span className="hiw-row-actions">
+                <IconButton size="sm" icon={<Icon name="rerun" />} label={t('hiw.record.regenerate')} onClick={() => onRegenerate(r.id)} />
+              </span>
             )}
           </div>
         ))}

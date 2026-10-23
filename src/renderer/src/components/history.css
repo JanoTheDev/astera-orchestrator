@@ -1,46 +1,11 @@
 /* ---------- history ---------- */
-.history-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.history-panel.collapsed { flex: 0 0 auto; } /* W7-F (#83): folded, it gives its room back */
-.history-list { list-style: none; padding: 0; overflow-y: auto; flex: 1; }
-.unread-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); flex-shrink: 0; }
-.entry-title { flex: 1; min-width: 0; font-size: var(--fs-12); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.entry-sub { font-size: var(--fs-11); font-family: var(--mono); color: var(--text-faint); flex-shrink: 0; }
-.history-sentinel { padding: 8px 12px; font-size: var(--fs-11); color: var(--text-faint); text-align: center; }
-/* The first page of a list still loading — the dots on their own row, centred. Text-align does not
-   centre them (the indicator is a flex box, not an inline glyph), hence the flex row. */
-.history-loading { display: flex; justify-content: center; padding: 14px 12px; }
-/* The first page still loading: skeleton lines where the rows will land (HistoryBrowser's LoadingRows). */
-.history-loading { flex-direction: column; gap: 10px; align-items: stretch; }
-.history-empty { list-style: none; padding: 24px 12px; }
-/* The page header carries the title; the account filter sits in its filters row */
-.history-panel .ui-page-header { flex-shrink: 0; }
-/* Not a page (the old sidebar fold): the fold button and the filter share one row */
-.history-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px; }
-.ui-btn.history-toggle { font-size: var(--fs-11); letter-spacing: .11em; text-transform: uppercase; color: var(--text-dim); }
-.history-head .panel-actions { display: flex; align-items: center; gap: 6px; }
-/* the per-project list */
-.project-group { border-bottom: 1px solid var(--line-soft); }
-/* 그룹 헤더라 .worktree-row/.session-row 와 같은 종류의 행이 아니다 — --row-pad-y 를 걸지 않은 게 빠뜨린 게 아니다 */
-/* A button (Tab reaches it, Enter/Space fold it); .ui-btn is named too so these beat the primitive's fixed height */
-.ui-btn.project-row { width: 100%; height: auto; justify-content: flex-start; gap: 9px; padding: 10px 12px; border-radius: 0; font-weight: 400; user-select: none; }
-.ui-btn.project-row:hover { background: var(--elevated); }
-.project-name { flex: 1; text-align: left; min-width: 0; font-size: var(--fs-13); font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.project-meta { font-size: var(--fs-11); font-family: var(--mono); color: var(--text-faint); flex-shrink: 0; }
-.ui-btn.project-row .ui-btn__label { display: flex; flex: 1; min-width: 0; align-items: baseline; gap: 9px; } /* the Button wraps its children in one label span: without this the name and date ran together */
-/* An expanded session: bound by a vertical rail in the account colour, with the title dimmed — the density stays as it is */
-.session-sublist { list-style: none; margin: 0 0 5px 22px; padding: 0; border-left: 2px solid var(--line); }
-/* The row holds two siblings: the open-preview button (fills the row) and the resume icon button */
-.session-row { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; padding: var(--row-pad-y) 8px var(--row-pad-y) 0; transition: background var(--ease); }
-.session-row:hover { background: var(--elevated); }
-.ui-btn.session-open { flex: 1; min-width: 0; height: auto; justify-content: flex-start; gap: 8px; padding: 2px 4px 2px 10px; font-weight: 400; text-align: left; background: none; }
-.session-row .entry-title { color: var(--text-dim); }
-.session-row .session-summary { flex: 0 0 100%; padding-left: 10px; }
-.session-sublist .history-sentinel { padding-left: 10px; text-align: left; }
-.session-sublist .empty { padding-left: 10px; }
-/* A project's sessions loading — centred like the project list's, only on a shorter row: the session
-   rows above and below it are denser than a project row, so the 14px padding of the outer list would
-   open a gap the sublist has nowhere else. Alignment is the base rule's; only the padding differs. */
-.session-sublist .history-loading { padding: 8px 12px; }
+/* The Sessions pane's body (HistoryBrowser): the tree fills it and scrolls; the scan / loading / empty states sit above or in place of it */
+.history-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.history-body .ui-tree { flex: 1; }
+.unread-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); flex-shrink: 0; display: inline-block; }
+.history-sentinel { padding: 4px 20px; font-size: var(--fs-11); color: var(--text-faint); }
+/* The first page still loading: skeleton lines where the rows will land (HistoryBrowser's LoadingRows) */
+.history-loading { display: flex; flex-direction: column; gap: 10px; padding: 8px 12px 8px 20px; }
 .detect-list { list-style: none; max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
 .detect-row { display: flex; align-items: flex-start; gap: 8px; padding: 4px 2px; border-bottom: 1px solid var(--line-soft); }
 .detect-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }

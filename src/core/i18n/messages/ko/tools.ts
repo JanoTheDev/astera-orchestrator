@@ -271,4 +271,9 @@ export const tools = {
   // W12 end panel
   // W12 redesign · run detail (RunDetailJournal, CompletionBlock, CompletionChecks, PrBadge, PushBadge, checkText)
   // W12 end detail
+  'run.view.running': '실행 중',
+  'run.view.edit': '구성 편집',
+  'run.view.tree': '실행 구성',
+  'run.view.add': '새 구성',
+  'run.view.empty': '실행 구성이 없습니다. +로 추가하세요.',
 } as const

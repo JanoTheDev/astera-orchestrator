@@ -119,4 +119,11 @@ export const history: Partial<Record<keyof typeof ko, string>> = {
   'hiw.verify.unverified': 'No se comprobó nada',
   'hiw.verify.failed': 'Una comprobación reportada falló',
   'hiw.verify.reported': 'Lo reportó el agente — la aplicación no lo ejecutó por su cuenta',
+  'history.menu.resume': 'Reanudar',
+  'history.menu.preview': 'Vista previa',
+  'history.menu.copyId': 'Copiar id de sesión',
+  'history.filter.label': 'Filtrar por cuenta',
+  'history.refresh.label': 'Actualizar',
+  'history.more': 'Cargar más…',
+  'history.tree.label': 'Sesiones',
 }
