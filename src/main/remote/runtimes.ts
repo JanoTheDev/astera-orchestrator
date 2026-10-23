@@ -16,6 +16,8 @@ import { createRemoteRuntimeClient, type RemoteRuntimeClient } from './runtimeCl
 /** How long a lost call from the app keeps trying to reach the Runtime again: a view waiting on it shows offline after
  *  this, where the CLI's one-shot command waits the link's full minute. */
 export const APP_RECONNECT_FOR_MS = 10_000
+/** How long `follow` gives a Runtime at a new address to answer its sign-in. */
+export const FOLLOW_SIGN_IN_MS = 10_000
 
 export interface RemoteRuntimes {
   client(runtimeId: string): Promise<RemoteRuntimeClient | { code: string; message: string }>
@@ -25,6 +27,12 @@ export interface RemoteRuntimes {
   add(pairing: string, name?: string): Promise<{ ok: true; runtime: Record<string, unknown> } | { ok: false; code: string; message: string }>
   /** Forgets a Runtime here; it does not revoke the pairing there (§4.5). */
   remove(runtimeId: string): Promise<{ ok: true } | { ok: false; code: string; message: string }>
+  /** Each paired Runtime's address and pin, never its token (main/remote/discovery.ts marks what it finds by them). */
+  pins(): Promise<Array<{ runtimeId: string; address: string; port: number; fingerprint: string }>>
+  /** A paired Runtime heard at a new address under its pin: signs in there (pinned TLS and hello), and only then moves
+   *  its address in the registry and its client there. True when it moved; a wrong pin or a failed sign-in changes
+   *  nothing. */
+  follow(runtimeId: string, fingerprint: string, address: string, port: number): Promise<boolean>
   close(): void
 }
 
@@ -35,6 +43,8 @@ export function createRemoteRuntimes(a: {
   version: string
   /** Test seam: the controller link for a target. */
   open?(t: RemoteTarget): RemoteLink
+  /** Test seam: the pinned connection `follow` signs in on. */
+  connect?: typeof connectRuntime
   /** This app's language, for the Runtime's journal rows (review I6). */
   lang?(): string
   /** A Runtime's client was replaced (a re-pair) or removed, after the fact. Its link does not tell the streams on it
@@ -104,6 +114,30 @@ export function createRemoteRuntimes(a: {
     return client
   }
 
+  const client = (runtimeId: string): Promise<Found> => {
+    const inFlight = pending.get(runtimeId)
+    if (inFlight) return inFlight
+    const p = lookup(runtimeId).finally(() => pending.delete(runtimeId))
+    pending.set(runtimeId, p)
+    return p
+  }
+
+  /** The Runtime's hello on a fresh pinned connection, closed after; null when it does not answer in FOLLOW_SIGN_IN_MS. */
+  const signIn = async (to: { host: string; port: number; pin: string }, token: string): Promise<{ runtimeId: string } | null> => {
+    const opening = (a.connect ?? connectRuntime)(to)
+    const hello = opening.then((l) => l.auth(token, { name: 'astera app', version: a.version, surface: 'desktop' }))
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      return await Promise.race([hello, new Promise<null>((resolve) => (timer = setTimeout(() => resolve(null), FOLLOW_SIGN_IN_MS)))])
+    } catch {
+      return null
+    } finally {
+      clearTimeout(timer)
+      // Closed whenever it opens, after the deadline too.
+      opening.then((l) => l.close(), () => {})
+    }
+  }
+
   return {
     list: async () => {
       const r = await reg()
@@ -142,13 +176,21 @@ export function createRemoteRuntimes(a: {
       a.onClientChange?.(runtimeId)
       return { ok: true }
     },
-    client: (runtimeId) => {
-      const inFlight = pending.get(runtimeId)
-      if (inFlight) return inFlight
-      const p = lookup(runtimeId).finally(() => pending.delete(runtimeId))
-      pending.set(runtimeId, p)
-      return p
+    pins: async () => (await (await reg()).list()).map((p) => ({ runtimeId: p.runtimeId, address: p.address, port: p.port, fingerprint: p.fingerprint })),
+    follow: async (runtimeId, fingerprint, address, port) => {
+      const r = await reg()
+      const p = (await r.list()).find((x) => x.runtimeId === runtimeId)
+      if (!p || p.fingerprint !== fingerprint || (p.address === address && p.port === port)) return false
+      const token = await r.token(runtimeId)
+      if (token === null) return false
+      const hello = await signIn({ host: address, port, pin: fingerprint }, token)
+      if (hello?.runtimeId !== runtimeId) return false
+      if (!(await r.setAddress(runtimeId, fingerprint, address, port))) return false
+      // The registry changed, so this lookup replaces the kept client with one at the new address (and rebinds its streams).
+      void client(runtimeId)
+      return true
     },
+    client,
     close: () => {
       for (const c of clients.values()) c.client.close()
       clients.clear()

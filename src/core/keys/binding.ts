@@ -13,7 +13,7 @@
  * On macOS the primary modifier is Cmd (see makeActions). The stored notation is still `Cmd+W`-shaped.
  */
 
-import { ACTIVITY_IDS, type ActivityId } from '../ui/pages'
+import { ACTIVITY_IDS, KEYED_ACTIVITY_COUNT, type ActivityId } from '../ui/pages'
 
 export type Chord = { ctrl: boolean; shift: boolean; alt: boolean; meta: boolean; code: string }
 
@@ -297,11 +297,12 @@ export function makeActions(platform: string): readonly ActionSpec[] {
         yieldsToTerminal: false
       })
     ),
-    // `${M}+1…6` open the activity bar's views in ACTIVITY_IDS order. Over a console too: no CLI reads Ctrl+digit.
+    // `${M}+1…6` open the activity bar's first six views in ACTIVITY_IDS order (the rest have no default). Over a
+    // console too: no CLI reads Ctrl+digit.
     ...ACTIVITY_IDS.map(
       (activity, i): ActionSpec => ({
         id: `activity.${activity}`,
-        defaults: [`${M}+${i + 1}`],
+        defaults: i < KEYED_ACTIVITY_COUNT ? [`${M}+${i + 1}`] : [],
         descKey: `shortcut.activity.${activity}`,
         yieldsToTerminal: false
       })

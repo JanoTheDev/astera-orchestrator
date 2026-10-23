@@ -59,6 +59,7 @@ export const shell: Record<keyof typeof ko, string> = {
   'shell.activity.scm': 'Source Control',
   'shell.activity.history': 'History',
   'shell.activity.run': 'Run',
+  'shell.activity.devices': 'Devices',
   'shell.activity.accounts': 'Accounts',
   'shell.activity.manage': 'Manage',
   'shell.manage.keys': 'Keyboard shortcuts',
