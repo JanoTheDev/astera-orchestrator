@@ -39,3 +39,21 @@
 /* AddProjectDialog, NewProjectDialog: a folder field with its Browse button */
 .ov-proj-row { display: flex; gap: var(--sp-2); align-items: center; }
 .ov-proj-row > .ui-input, .ov-proj-row > input { flex: 1; min-width: 0; }
+
+/* Compact VSCode-style forms (DESIGN-W13): label above the control, --h-md controls, footer right-aligned with the
+   primary last (the Modal's footer already is). Scoped to the New session and Remote sessions dialogs. */
+.dlg.new-session, .dlg.remote-sessions { gap: var(--sp-3); font-size: var(--fs-13); }
+.dlg.new-session .field label, .dlg.remote-sessions .field label { font-size: var(--fs-12); color: var(--text-dim); margin-bottom: var(--sp-1); }
+.dlg.new-session .field input[type="text"], .dlg.remote-sessions .field input[type="text"],
+.dlg.new-session .field textarea, .dlg.remote-sessions .field textarea {
+  box-sizing: border-box; background: var(--elevated); border: 1px solid var(--line-strong); border-radius: var(--radius);
+  padding: var(--sp-1) var(--sp-2); font-size: var(--fs-13); color: var(--text);
+}
+.dlg.new-session .field input[type="text"], .dlg.remote-sessions .field input[type="text"] { height: var(--h-md); }
+.dlg.new-session .field input[type="text"]:focus-visible, .dlg.remote-sessions .field input[type="text"]:focus-visible,
+.dlg.new-session .field textarea:focus-visible, .dlg.remote-sessions .field textarea:focus-visible { outline: none; border-color: var(--focus-border); box-shadow: var(--focus-ring); }
+.remote-sessions-new { margin: var(--sp-2) 0 0; font-size: var(--fs-11); font-weight: var(--fw-semi); letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-dim); }
+.dlg.new-session .warn, .dlg.remote-sessions .warn { margin: 0; padding: var(--sp-1) var(--sp-2); border-radius: var(--radius); background: var(--warn-soft); color: var(--warn); font-size: var(--fs-12); }
+
+/* UpdateGate: the Modal's backdrop starts below the title bar, so the window can still be moved and minimised. */
+.update-gate .ui-modal-backdrop { inset: var(--titlebar-h) 0 0 0; }

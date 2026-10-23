@@ -1,10 +1,15 @@
 import type { RollStateEvent, SchedStateEvent } from '../../../core/types'
 import { schedRuleSummary } from '../../../core/scheduler/summary'
 import { useI18n } from '../i18n/I18nProvider'
-import { Button } from './ui'
+import { Button, Icon } from './ui'
 
 const fmtTime = (iso?: string): string =>
-  iso ? new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''
+  iso
+    ? new Date(iso).toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit'
+      })
+    : ''
 // A weekly retry can be days away, so show month/day plus the time
 const fmtDateTime = (iso?: string): string =>
   iso
@@ -33,10 +38,7 @@ const BANNER_ROW_PX = 25
  *  reserves this much in its flex column instead and the thread starts below the strip. The terminal
  *  reserves nothing and is unchanged. The roll half asks rollBannerVisible rather than repeating its
  *  condition — a second copy would drift and the reserved height would stop matching what is drawn. */
-export const stateBannerHeight = (
-  rollState: RollStateEvent | null,
-  schedState: SchedStateEvent | null
-): number =>
+export const stateBannerHeight = (rollState: RollStateEvent | null, schedState: SchedStateEvent | null): number =>
   (rollBannerVisible(rollState) ? BANNER_ROW_PX : 0) + (schedState?.state === 'active' ? BANNER_ROW_PX : 0)
 
 /** The rolling and schedule banners a session shows across the top of its view — the terminal's since
@@ -58,26 +60,38 @@ export function SessionStateBanners({
   return (
     <>
       {rollBannerVisible(rollState) && (
-        <div className="roll-banner">
-          {rollState.state === 'switching' &&
-            t('session.terminal.rollSwitching', { label: rollState.accountLabel ?? '' })}
-          {rollState.state === 'trust' && t('session.terminal.trustAccepting')}
-          {/* No time and no promise, unlike 'waiting' just below: an adopted chain has neither a
+        <div className="notice-strip notice-strip--warn roll-banner">
+          <Icon name="pending" size={14} />
+          <span className="notice-strip__text">
+            {rollState.state === 'switching' &&
+              t('session.terminal.rollSwitching', {
+                label: rollState.accountLabel ?? ''
+              })}
+            {rollState.state === 'trust' && t('session.terminal.trustAccepting')}
+            {/* No time and no promise, unlike 'waiting' just below: an adopted chain has neither a
               retry armed nor a reset to name. See RollStateEvent's own note on the state. */}
-          {rollState.state === 'adopted' && t('session.terminal.rollAdopted')}
-          {rollState.state === 'waiting' &&
-            (rollState.scope === 'weekly'
-              ? t('session.terminal.weeklyLimitWaiting', {
-                  time: fmtDateTime(rollState.nextRetryAt)
-                })
-              : t('session.terminal.limitWaiting', { time: fmtTime(rollState.nextRetryAt) }))}
+            {rollState.state === 'adopted' && t('session.terminal.rollAdopted')}
+            {rollState.state === 'waiting' &&
+              (rollState.scope === 'weekly'
+                ? t('session.terminal.weeklyLimitWaiting', {
+                    time: fmtDateTime(rollState.nextRetryAt)
+                  })
+                : t('session.terminal.limitWaiting', {
+                    time: fmtTime(rollState.nextRetryAt)
+                  }))}
+          </span>
         </div>
       )}
       {schedState && schedState.state === 'active' && (
-        <div className={`sched-banner${rollBannerVisible(rollState) ? ' below-roll' : ''}`}>
-          <span>
+        <div
+          className={`notice-strip notice-strip--info sched-banner${rollBannerVisible(rollState) ? ' below-roll' : ''}`}
+        >
+          <Icon name="info" size={14} />
+          <span className="notice-strip__text">
             {schedRuleSummary(t, schedState.rule)}
-            {t('session.terminal.schedNextRun', { time: fmtDateTime(schedState.nextAt) })}
+            {t('session.terminal.schedNextRun', {
+              time: fmtDateTime(schedState.nextAt)
+            })}
           </span>
           <Button size="sm" variant="ghost" onClick={() => void window.api.scheduler.disable(sessionId)}>
             {t('session.terminal.schedDisable')}

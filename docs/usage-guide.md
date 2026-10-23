@@ -6,9 +6,9 @@ Claude Code and Codex tools using your own accounts.
 ## Start a session
 
 1. [Install Astera and your chosen CLI](../README.md#run-it).
-2. In **Accounts**, use **Auto-detect** to register an existing account, or **Add account** to
-   create a separate account entry and complete its sign-in.
-3. Open **New session**, choose your **Project folder** and **Account**, then choose
+2. Open **Accounts** (bottom of the activity bar, or the usage in the status bar), then use **Auto-detect** to
+   register an existing account, or **Add account** to create a separate account entry and complete its sign-in.
+3. Open **New session** (`Ctrl+N`, or **Open a console** in the Agents view), choose your **Project folder** and **Account**, then choose
    **Terminal** or **Chat** and click **Start**.
 4. Describe the result you want and how to check it. Answer questions and approvals as they arrive.
 
@@ -19,8 +19,8 @@ sessions under **Settings → General → New sessions start as**.
 
 ## Reopen an earlier conversation
 
-1. Open **Accounts and history** and expand the project in History.
-2. Click a conversation to preview it. Previewing does not start a session.
+1. Open the **History** view in the activity bar (`Ctrl+5`) and find the conversation under **Sessions**.
+2. Click a conversation to open its summary in a tab. Previewing does not start a session.
 3. Use its **Resume session** button, choose a logged-in account, and click **Resume**.
 
 If the project folder moved, select its current location when prompted. To bring back a project
@@ -58,13 +58,15 @@ no member's replies reach the session. Telegram works the same way: see the
 
 For notifications on your computer, open **Settings → Notifications**. Choose alerts for
 input needed, waiting on a limit, and account switches. Desktop alerts are sent when you are
-looking at another session or window.
+looking at another session or window. In the app, the bell in the status bar lists what needs you, and
+the bottom panel's **Needs you** tab holds the same items.
 
 ## Work with files and panes
 
-Open **Explorer** to browse files and their git status. File tabs and session tabs share a pane;
-split right or down to keep a file beside the session changing it. Use the project terminal for
-commands you want to run yourself.
+Open the **Explorer** view (`Ctrl+3`) to browse files; its **Changed** pane lists the changed files of
+the current worktree. A file opens as a tab. File tabs and session tabs share the editor groups;
+split right or down to keep a file beside the session changing it. Use the bottom panel's **Terminal**
+tab (`Ctrl+J`) for commands you want to run yourself.
 
 A Markdown file can be shown as an editor, split editor/preview, or preview alone. Press
 **Ctrl/Cmd + Shift + V** to cycle these modes. The split views follow each other's scrolling.
@@ -77,20 +79,20 @@ through this feature.
 
 ## Run a dev server, build, or test
 
-Choose a configuration in the Run toolbar and run it. Astera detects supported project scripts
+Open the **Run** view (`Ctrl+6`) and run a configuration from its row (Run, Stop and Edit sit on the row). Astera detects supported project scripts
 and tasks, including npm scripts and standard Gradle/Maven tasks. A detected configuration appears
 in italics until you edit it and save it as your own.
 
 Choose the appropriate configuration kind when adding one: Shell, npm, Node.js, Gradle, Maven,
 cargo, go, Python, pytest, Docker Compose, Dockerfile, .NET, or Compound. Use its fields for that
-tool rather than manually assembling every command. Read the Run console for output and errors.
+tool rather than manually assembling every command. Read the bottom panel's **Output** tab for output and errors.
 
 ## Isolate work and open a pull request
 
 1. In a git project with a commit and branch, enable **Start in a separate worktree** in
    **New session**. Choose the base branch if needed.
 2. Make and review changes in that worktree.
-3. Use the worktree list to see PR state. When the branch has commits its base does not have,
+3. Use the **Source Control** view's worktree list to see PR state. When the branch has commits its base does not have,
    its create-PR action can push the branch and open a pull request.
 
 Astera uses your existing GitHub CLI (`gh`) login. Review the target branch and PR details in the
@@ -98,7 +100,7 @@ dialog before creating it.
 
 ## Give visual feedback with Design Mode
 
-1. Open your web page in an Astera tab and turn on **Design Mode**.
+1. Open your web page in an Astera browser tab and turn on **Design Mode**.
 2. Click an element, write what should change, and choose **Change** or **Question**.
 3. Choose **Send to session** and select the session that should receive your notes.
 
@@ -111,9 +113,13 @@ through a flow, and read console and network errors. This browser is restricted 
 
 ## Coordinate tasks and understand the results
 
-- **Plans and Tasks:** use the **Plans** and **Tasks** pages (or **New**) for an objective with
+- **Plans and Tasks:** use the **Plans** view (or **New**) for an objective with
   workers, dependencies, and completion checks. See [Jobs](jobs.md) for worktrees,
   repair attempts, manual merging, and the differences between normal and scheduled runs.
+- **Change a running plan:** open the plan's tab and go to **Plan settings** (or choose
+  **Edit plan settings…** in the Plans view's context menu). Workers at once, priority, review
+  rounds, planning again between steps, auto-approve and hands-off can change while the plan runs;
+  see [Change a running plan](guide.md#change-a-running-plan).
 - **How It Works:** enable **Work unit tracking**, choose an **Explanation account**, and use
   `/astera-task` in a new session. See the [How It Works guide](how-it-works.md) for reading records,
   flow diagrams, decision sources, and verification results.
@@ -123,14 +129,17 @@ through a flow, and read console and network errors. This browser is restricted 
 - **Settings → Appearance:** choose a theme and terminal font. Theme changes apply to open
   terminals without clearing their scrollback.
 - **Settings → General → Language:** choose English, Korean, Japanese, Spanish, or System.
-- **Settings → Shortcuts:** inspect and remap the controls. The defaults use Cmd on macOS and
+- **Settings → Shortcuts:** inspect and remap the controls (Settings opens as a tab with `Ctrl+,`). The defaults use Cmd on macOS and
   Ctrl on other systems.
 
 | Action | Default shortcut |
 | --- | --- |
-| Explorer | Ctrl/Cmd + Shift + E |
-| Jobs | Ctrl/Cmd + Shift + J |
-| How It Works | Ctrl/Cmd + Shift + H |
+| Agents, Plans, Explorer, Source Control, History, Run views | Ctrl/Cmd + 1 to 6 |
+| Show or hide the side bar | Ctrl/Cmd + B |
+| Show or hide the bottom panel | Ctrl/Cmd + J |
+| Command palette | Ctrl/Cmd + Shift + P |
+| Go to a tab, plan or file | Ctrl/Cmd + P |
+| Settings | Ctrl/Cmd + , |
 | Markdown display mode | Ctrl/Cmd + Shift + V |
 
 ## Check for an update

@@ -88,44 +88,11 @@
 .remote-chat-note.is-block { padding: 6px 12px; border-bottom: 1px solid var(--line-soft); }
 .remote-chat-button { font-size: var(--fs-12); padding: 2px 8px; }
 .remote-chat-button.is-danger { color: var(--danger); }
-/* the rolling progress banner — an overlay at the top of the terminal */
-.roll-banner {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 5;
-  padding: 4px 10px;
-  font-size: var(--fs-12);
-  background: var(--warn-bg);
-  color: var(--warn-ink);
-  border-bottom: 1px solid var(--warn-line);
-  pointer-events: none;
-}
-
-/* the schedule banner — the same shape as roll-banner. It has an off button, so pointer-events are allowed */
-.sched-banner {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 5;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 2px 10px;
-  font-size: var(--fs-12);
-  background: var(--info-bg);
-  color: var(--info);
-  border-bottom: 1px solid var(--info-line);
-}
-/* Sits below the rolling banner when both are shown — the measured height of .roll-banner is 24.7px (at
-   DPR 1.5: 12px font + normal line-height ≈ 16px + 4+4 padding + ≈0.67px border), and 16+8+1=25px at DPR 1.
-   25px keeps them from covering each other on either side (the previous 23px overlapped by 1.7px and hid
-   the bottom border) */
+/* The rolling and schedule banners: .notice-strip (cliMissing.css) supplies the look; these only float it over the
+   terminal. Each is one 25px row (24 + the 1px border), so .below-roll offsets by exactly that. */
+.roll-banner, .sched-banner { position: absolute; top: 0; left: 0; right: 0; z-index: 5; height: 25px; }
+.roll-banner { pointer-events: none; }
 .sched-banner.below-roll { top: 25px; }
-.sched-banner .ui-btn { height: 20px; padding: 0 8px; font-size: var(--fs-11); color: inherit; }
 /* the scheduler form (NewSessionDialog) */
 .sched-field { display: flex; flex-direction: column; gap: 6px; } /* gap only applies on a flex container */
 .sched-minutes { width: 70px; }

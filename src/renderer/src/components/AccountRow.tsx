@@ -5,7 +5,7 @@ import { useRef, useState } from 'react'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
 import { endRenameOnce } from '../lib/renameOnce'
-import { Chip, Icon, IconButton, Input } from './ui'
+import { Chip, Icon, IconButton, Input, Menu, type MenuItem } from './ui'
 
 /** Account row UI. Shared by the sidebar and the settings Accounts tab.
  *  The action buttons come in as children — the row does not need to know "who gets which button".
@@ -19,6 +19,7 @@ export function AccountRow({
   usage,
   expanded,
   onToggle,
+  menu,
   children
 }: {
   account: Account
@@ -35,6 +36,8 @@ export function AccountRow({
   /** Toggle this row's detail. Called on a click or on Enter/Space; the list decides what that
    *  means for the other rows. */
   onToggle?: () => void
+  /** Extra items of the row's "⋯" menu, after Rename. Given, the menu replaces the separate rename button. */
+  menu?: MenuItem[]
   children?: React.ReactNode
 }): React.JSX.Element {
   const { t } = useI18n()
@@ -79,7 +82,6 @@ export function AccountRow({
       }
     >
       <span className="color-dot" style={{ background: account.color }} />
-      <ProviderBadge provider={account.provider} />
       {/* Double-click the name to rename the account (Enter saves, Escape cancels). */}
       {renaming ? (
         <Input
@@ -115,6 +117,7 @@ export function AccountRow({
           {account.label}
         </span>
       )}
+      <ProviderBadge provider={account.provider} />
       {isDefault && <Chip className="account-default">{t('accounts.default')}</Chip>}
       {/* Gated on loggedIn as well as on having a reading: §5 draws nothing for an account that is
           not logged in, and `undefined` (the state before useAccountStatus has answered) draws
@@ -126,8 +129,16 @@ export function AccountRow({
           pressing "remove account" would also open the usage detail. Stopped here rather than on
           each button so a caller cannot forget. */}
       <span className="account-row-actions" onClick={(e) => e.stopPropagation()}>
+        {!renaming && menu && (
+          <Menu
+            label={t('account.menu.label', { label: account.label })}
+            align="end"
+            trigger={{ icon: <Icon name="more" size={14} />, variant: 'ghost', size: 'sm', className: 'account-menu-btn' }}
+            items={[{ id: 'rename', label: t('account.rename.button'), icon: <Icon name="edit" size={14} />, onSelect: () => setRenaming(true) }, ...menu]}
+          />
+        )}
         {/* Renaming had only a double-click; this is its keyboard and pointer-visible way in. */}
-        {!renaming && (
+        {!renaming && !menu && (
           <IconButton size="sm" className="account-rename-btn" icon={<Icon name="edit" size={14} />} label={t('account.rename.button')} onClick={() => setRenaming(true)} />
         )}
         {children}

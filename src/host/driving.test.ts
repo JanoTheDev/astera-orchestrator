@@ -111,7 +111,8 @@ interface RigOpts {
 const childWorktrees = (): string[] => [path.join(dir, 'wt-child-1'), path.join(dir, 'wt-child-2')]
 
 function fixture(o: RigOpts): OrchState {
-  const jobs: Job[] = [{ id: 'job_1', objective: 'o', cwd: dir, createdAt: NOW, concurrency: 1, autoDispatch: true }]
+  // A lost worker's Run is not app-driven: an app-driven Run's lost worker is the watchdog's to retry, not a Gate
+  const jobs: Job[] = [{ id: 'job_1', objective: 'o', cwd: dir, createdAt: NOW, concurrency: 1, ...(o.lostDispatch ? {} : { autoDispatch: true as const }) }]
   if (o.scheduledJob)
     jobs.push({
       id: 'job_sched',

@@ -24,6 +24,7 @@ export const files = {
   'files.op.busy': '작업 중…',
   // FileExplorer.tsx — panel header, context menu
   'explorer.title': '탐색기',
+  'explorer.files': '파일',
   'explorer.noActiveSession': '활성 세션이 없습니다',
   // Folder state shown inside the tree (the .fx-note row)
   'explorer.dir.loading': '불러오는 중…',
@@ -56,6 +57,7 @@ export const files = {
   'explorer.git.modified': '수정됨',
   'explorer.git.deleted': '삭제됨',
   'explorer.git.conflict': '충돌',
+  'explorer.git.renamed': '이름 바뀜',
   'explorer.git.folderCount': '변경 {count}건',
   'explorer.git.unavailable': 'git 상태를 확인하지 못했습니다 — 표시는 마지막 결과입니다',
   'explorer.view.all': '전체',

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
 import { Switch } from './ui'
+import { SettingItem } from './settings/SettingItem'
 
 /** The stall watchdog's on/off (core/settings/stallWatch.ts), on by default: AlertSoundSetting's optimistic toggle. */
 export function StallWatchSetting(): React.JSX.Element {
@@ -21,12 +22,6 @@ export function StallWatchSetting(): React.JSX.Element {
   }
 
   return (
-    <div className="settings-group">
-      <label className="settings-row">
-        <span>{t('settings.stallWatch.label')}</span>
-        <Switch checked={on ?? true} disabled={on === null} onChange={toggle} />
-      </label>
-      <span className="settings-hint">{t('settings.stallWatch.hint')}</span>
-    </div>
+    <SettingItem title={t('settings.stallWatch.label')} hint={t('settings.stallWatch.hint')} control={<Switch aria-label={t('settings.stallWatch.label')} checked={on ?? true} disabled={on === null} onChange={toggle} />} />
   )
 }

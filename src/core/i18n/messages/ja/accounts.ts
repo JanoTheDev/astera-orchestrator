@@ -63,6 +63,7 @@ export const accounts: Partial<Record<keyof typeof ko, string>> = {
   'account.switch.otherProvider': '{provider} のアカウントだけがこのタブを引き継げます',
   // W3 redesign: rename button, near-limit cue, plain import button, empty states
   'account.rename.button': "名前を変更",
+  'account.menu.label': "{label} の操作",
   'account.usage.nearLimit': "上限に近づいています",
   'account.sync.button': "設定をインポート",
   'account.empty.body': "アカウントを追加すると、Astera が Claude または Codex のサブスクリプションでエージェントを実行できます。",

@@ -12,7 +12,8 @@ import type { Dispatch, Job, JobRun, Task } from './types'
 const NOW = '2026-10-22T00:00:00.000Z'
 const LATER = '2026-10-22T01:00:00.000Z'
 
-const job = (id: string): Job => ({ id, objective: id, cwd: '/p', createdAt: NOW, autoDispatch: true })
+// job_lost is not app-driven: a lost worker in an app-driven Run is retried by the watchdog, not a doctor finding
+const job = (id: string): Job => ({ id, objective: id, cwd: '/p', createdAt: NOW, ...(id === 'job_lost' ? {} : { autoDispatch: true as const }) })
 const run = (id: string, jobId: string, over: Partial<JobRun> = {}): JobRun => ({ id, jobId, ordinal: 1, createdAt: NOW, ...over })
 const task = (id: string, runId: string, over: Partial<Task> = {}): Task => ({
   id,

@@ -1,32 +1,40 @@
-/* The first-run onboarding (DESIGN-W11): a full-window page under the title bar, one column, neutral surfaces.
-   Above the app and its old .modal-backdrop (100), below toasts (200) and ui Modals (1000), so a sign-in or
-   add-project dialog opened from a step sits on top of it. */
+/* The first-run onboarding (DESIGN-W13 walkthrough): a step list on the left, the step on a 560px column on the right,
+   on the editor ground under the title bar. Above the app and its old .modal-backdrop (100), below toasts (200) and
+   ui Modals (1000), so a sign-in or add-project dialog opened from a step sits on top of it. */
 .onb {
   position: fixed;
-  inset: var(--topbar-h) 0 0 0;
+  inset: var(--titlebar-h) 0 0 0;
   z-index: 150;
   display: flex;
   justify-content: center;
   overflow-y: auto;
-  background: var(--bg);
+  background: var(--editor-bg);
   color: var(--text);
 }
 .onb__page {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-6);
-  width: 100%;
-  max-width: 600px;
-  padding: var(--sp-10) var(--page-pad) var(--sp-8);
+  display: grid;
+  grid-template-columns: 168px minmax(0, 560px);
+  align-items: stretch;
+  gap: var(--sp-8);
+  min-height: 100%;
+  padding: 0 var(--sp-6);
 }
-.onb__progress { display: flex; align-items: center; gap: var(--sp-3); font-size: var(--fs-12); color: var(--text-faint); font-variant-numeric: tabular-nums; }
-.onb__dots { display: flex; gap: 6px; margin: 0; padding: 0; list-style: none; }
-.onb__dots li { width: 6px; height: 6px; border-radius: var(--radius-pill); background: var(--track); }
-.onb__dots li.is-past { background: var(--text-faint); }
-.onb__dots li.is-current { width: 18px; background: var(--accent); }
-.onb__body { display: flex; flex-direction: column; gap: var(--sp-4); }
+.onb__steps { display: flex; flex-direction: column; gap: var(--sp-3); padding-top: var(--sp-10); }
+.onb__steps ol { display: flex; flex-direction: column; gap: 1px; margin: 0; padding: 0; list-style: none; }
+.onb__steps li { display: flex; align-items: center; gap: var(--sp-2); height: var(--list-row-h); padding: 0 var(--sp-2); border-radius: var(--radius); font-size: var(--fs-13); color: var(--text-dim); }
+.onb__steps li.is-done svg { color: var(--ok); }
+.onb__steps li.is-current { color: var(--text); background: var(--list-active); box-shadow: inset 2px 0 0 var(--accent); }
+.onb__steps li.is-current svg { color: var(--link); }
+.onb__count { padding: 0 var(--sp-2); font-size: var(--fs-12); color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.onb__main { display: flex; flex-direction: column; min-width: 0; padding-top: var(--sp-10); }
+@media (max-width: 760px) {
+  .onb__page { grid-template-columns: minmax(0, 560px); }
+  .onb__steps { display: none; }
+}
+.onb__body { display: flex; flex-direction: column; gap: var(--sp-4); flex: 1; padding-bottom: var(--sp-6); }
 .onb__mark { width: 48px; height: 48px; }
-.onb__title { margin: 0; font-size: var(--fs-22); font-weight: var(--fw-semi); line-height: var(--lh-tight); }
+.onb__title { margin: 0; font-size: var(--fs-18); font-weight: var(--fw-semi); line-height: var(--lh-tight); }
+.onb__mark + .onb__title { font-size: var(--fs-22); }
 .onb__title:focus-visible { outline: none; box-shadow: none; }
 .onb__lead { margin: 0; font-size: var(--fs-14); line-height: var(--lh); color: var(--text-dim); }
 .onb__label { margin-top: var(--sp-2); font-size: var(--fs-12); font-weight: var(--fw-medium); color: var(--text-dim); }
@@ -55,7 +63,7 @@
 .onb__summary dt { color: var(--text-dim); }
 .onb__summary dd { margin: 0; text-align: right; }
 /* Sticky: at 1024x640 the tools step is taller than the window, and Back / Skip / Next were scrolled out of sight. */
-.onb__foot { position: sticky; bottom: 0; z-index: 1; display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-4) 0; border-top: 1px solid var(--line); background: var(--bg); }
+.onb__foot { position: sticky; bottom: 0; z-index: 1; display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-4) 0; border-top: 1px solid var(--line); background: var(--editor-bg); }
 .onb__spacer { flex: 1; }
 /* CliInstallRows draws Settings rows; inside the card they keep their layout. */
 .onb__rows .settings-cli-log { max-height: 180px; }

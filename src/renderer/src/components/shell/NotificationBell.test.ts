@@ -84,12 +84,15 @@ describe('the bell opens and closes', () => {
     off()
   })
 
-  it('the status bar’s "needs you" opens the popover', () => {
-    const props = { t, counts: { consoles: 1, working: 0, waiting: 3 }, needsYouUnread: 3, nextQueued: null, hostStatus: null } as unknown as StatusBarProps
-    const needsYou = elements(StatusBar(props)).find((el) => el.props.className === 'sb-item sb-item--warn')
+  it('the status bar’s "needs you" opens the panel’s Needs you tab (DESIGN-W13 §7)', () => {
+    const props = { t, counts: { consoles: 1, working: 0, waiting: 3 }, needsYouUnread: 3, nextQueued: null, hostStatus: null, workspaceTree: [], workspaceProjectId: null, currentProject: null, branch: null } as unknown as StatusBarProps
+    const needsYou = elements(StatusBar(props)).find((el) => el.props.tone === 'warn' && typeof el.props.onClick === 'function')
     expect(needsYou).toBeDefined()
+    const handlers = { openPanel: vi.fn() } as unknown as NavigationHandlers
+    const off = registerNavigation(handlers)
     ;(needsYou!.props.onClick as () => void)()
-    expect(bellOpen()).toBe(true)
+    expect(handlers.openPanel).toHaveBeenCalledWith('needs')
+    off()
   })
 })
 

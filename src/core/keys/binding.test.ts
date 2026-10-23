@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { ACTIVITY_IDS } from '../ui/pages'
 import {
   chordFromEvent,
   findActionForEvent,
@@ -304,14 +305,13 @@ describe('project workspace shortcuts', () => {
   })
 })
 
-// W9-B: Ctrl+1…6 switch pages (DESIGN.md §1)
-describe('page shortcuts', () => {
-  it.each(['linux', 'win32'])('Ctrl+1…6 reach the top bar’s pages in order on %s, clear of every other key', (platform) => {
+// Workbench: Ctrl+1…6 open the activity bar's views
+describe('workbench shortcuts', () => {
+  it.each(['linux', 'win32'])('Ctrl+1…6 reach the activities in order on %s, clear of every other key', (platform) => {
     const actions = makeActions(platform)
     const bindings = resolveBindings({}, actions)
-    const pages = ['agents', 'tasks', 'plans', 'inbox', 'worktrees', 'files']
-    pages.forEach((page, i) =>
-      expect(findActionForEvent(bindings, ev({ code: `Digit${i + 1}`, ctrlKey: true }), actions)).toBe(`page.${page}`)
+    ACTIVITY_IDS.forEach((a, i) =>
+      expect(findActionForEvent(bindings, ev({ code: `Digit${i + 1}`, ctrlKey: true }), actions)).toBe(`activity.${a}`)
     )
     expect(findActionForEvent(bindings, ev({ code: 'Digit7', ctrlKey: true }), actions)).toBeNull()
     expect(findConflicts(bindings, actions)).toEqual([])
@@ -319,7 +319,32 @@ describe('page shortcuts', () => {
 
   it('is Cmd on macOS', () => {
     const actions = makeActions('darwin')
-    expect(findActionForEvent(resolveBindings({}, actions), ev({ code: 'Digit2', metaKey: true }), actions)).toBe('page.tasks')
+    expect(findActionForEvent(resolveBindings({}, actions), ev({ code: 'Digit2', metaKey: true }), actions)).toBe('activity.plans')
+    expect(findConflicts(resolveBindings({}, actions), actions)).toEqual([])
+  })
+
+  it('binds the panel keys', () => {
+    const b = resolveBindings({}, ACTIONS)
+    expect(
+      (['sidebar.toggle', 'panel.toggle', 'palette.open', 'quickOpen', 'settings.open', 'tabs.switcher'] as const).map((id) => b[id].map(formatChord))
+    ).toEqual([['Ctrl+B'], ['Ctrl+J'], ['Ctrl+Shift+P'], ['Ctrl+P'], ['Ctrl+,'], ['Ctrl+Alt+P']])
+  })
+})
+
+describe('saved page.* overrides', () => {
+  it('map onto activity.*, and page.inbox is dropped (no page.* action remains)', () => {
+    const b = resolveBindings(
+      { 'page.agents': ['Ctrl+Alt+1'], 'page.tasks': ['Ctrl+Alt+2'], 'page.files': ['Ctrl+Alt+3'], 'page.worktrees': ['Ctrl+Alt+4'], 'page.inbox': ['Ctrl+Alt+5'] },
+      ACTIONS
+    )
+    expect(b['activity.agents'].map(formatChord)).toEqual(['Ctrl+Alt+1'])
+    expect(b['activity.plans'].map(formatChord)).toEqual(['Ctrl+Alt+2'])
+    expect(b['activity.explorer'].map(formatChord)).toEqual(['Ctrl+Alt+3'])
+    expect(b['activity.scm'].map(formatChord)).toEqual(['Ctrl+Alt+4'])
+  })
+  it('an explicit activity.* override wins', () => {
+    const b = resolveBindings({ 'page.plans': ['Ctrl+Alt+2'], 'activity.plans': ['Ctrl+Alt+9'] }, ACTIONS)
+    expect(b['activity.plans'].map(formatChord)).toEqual(['Ctrl+Alt+9'])
   })
 })
 

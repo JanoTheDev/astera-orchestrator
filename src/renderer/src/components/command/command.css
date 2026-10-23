@@ -23,3 +23,21 @@
 .command-mic.recording { color: var(--warn); background: var(--warn-soft); }
 .voice-setup { margin: 4px 0 0; padding-left: 18px; font-size: var(--fs-12); color: var(--text-dim); }
 .voice-setup code { user-select: all; }
+
+/* DESIGN-W13 §9: the box is the command palette and quick open: a 600px panel at the top centre, no title row (the
+   title still names the dialog), 22px rows with the chord right-aligned. The ui Modal stays the shell. */
+.ui-modal-backdrop:has(.ov-cmd) { align-items: flex-start; padding-top: var(--sp-12); }
+.ui-modal:has(.ov-cmd) { max-width: 600px; border-radius: var(--radius); box-shadow: var(--shadow-pop); }
+.ui-modal:has(.ov-cmd) .ui-modal__head { display: none; }
+.ui-modal:has(.ov-cmd) .ui-modal__body { padding: var(--sp-2); }
+.ui-modal:has(.ov-cmd) .ui-modal__foot { padding: var(--sp-1) var(--sp-3); }
+.ov-cmd .ov-pick { padding-top: var(--sp-1); }
+.ov-pick-head { padding: var(--sp-1) var(--sp-3) 0; font-size: var(--fs-11); color: var(--text-faint); }
+.ui-btn.ov-pick-row.pal-row { height: var(--row-h); min-height: var(--row-h); padding: 0 var(--sp-3); font-size: var(--fs-13); gap: var(--sp-2); }
+.ui-btn.ov-pick-row.pal-row > .ui-btn__label { gap: var(--sp-2); }
+.ui-btn.ov-pick-row.pal-row.is-sel { background: var(--list-active); box-shadow: none; }
+.ui-btn.ov-pick-row.pal-row.is-sel:focus-visible { box-shadow: var(--focus-ring-inset); }
+.pal-row .ov-pick-title { max-width: none; flex: 0 1 auto; font-weight: var(--fw-regular); }
+.pal-row .ov-pick-meta { flex: 1; min-width: 0; }
+.pal-row .pal-chord { margin-left: auto; flex: none; }
+.pal-row .pal-icon { flex: none; color: var(--text-faint); }

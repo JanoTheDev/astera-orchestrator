@@ -11,6 +11,7 @@ import { AutoAnswerSetting } from '../AutoAnswerSetting'
 import { toast } from '../../lib/toast'
 import { SettingRow, type GroupProps } from './SettingRow'
 import { Switch } from '../ui'
+import { SettingItem } from './SettingItem'
 
 export function AgentsSettings(p: GroupProps): React.JSX.Element | null {
   const {
@@ -23,11 +24,8 @@ export function AgentsSettings(p: GroupProps): React.JSX.Element | null {
       {/* 권한 모드 — 이 탭의 첫 칸이다. 이 토글이 정하는 것은 Job 워커가 승인을
           묻는가이다. 같은 optimistic-update-then-revert 관례를 쓴다. 명령줄 도구는
           CLI 탭으로 옮겼다. */}
-      <SettingRow a="permission" only={only}>
-        <div className="settings-group">
-          <label className="settings-row">
-            <span>{t('settings.agentPermission.label')}</span>
-            <Switch
+      <SettingRow a="permission" only={only} modified={agentYolo}>
+        <SettingItem title={t('settings.agentPermission.label')} hint={t('settings.agentPermission.hint')} control={<Switch aria-label={t('settings.agentPermission.label')}
               checked={agentYolo}
               onChange={(next) => {
                 settingsTouched.current.touch('agentYolo')
@@ -43,10 +41,7 @@ export function AgentsSettings(p: GroupProps): React.JSX.Element | null {
                     )
                   })
               }}
-            />
-          </label>
-          <span className="settings-hint">{t('settings.agentPermission.hint')}</span>
-        </div>
+            />} />
       </SettingRow>
       {/* W1-B: the app-wide Job worker cap. */}
       <SettingRow a="maxWorkers" only={only}>
@@ -81,11 +76,8 @@ export function AgentsSettings(p: GroupProps): React.JSX.Element | null {
       {/* Agent browser — same settings-row/settings-hint/label shape and the same
           optimistic-update-then-revert as the two above. Off by default: it installs a
           skill into every account and starts the local server. */}
-      <SettingRow a="agentBrowser" only={only}>
-        <div className="settings-group">
-          <label className="settings-row">
-            <span>{t('settings.agentBrowser.label')}</span>
-            <Switch
+      <SettingRow a="agentBrowser" only={only} modified={agentBrowserEnabled}>
+        <SettingItem title={t('settings.agentBrowser.label')} hint={t('settings.agentBrowser.hint')} control={<Switch aria-label={t('settings.agentBrowser.label')}
               checked={agentBrowserEnabled}
               onChange={(next) => {
                 settingsTouched.current.touch('agentBrowser')
@@ -99,19 +91,13 @@ export function AgentsSettings(p: GroupProps): React.JSX.Element | null {
                   )
                 })
               }}
-            />
-          </label>
-          <span className="settings-hint">{t('settings.agentBrowser.hint')}</span>
-        </div>
+            />} />
       </SettingRow>
       {/* Agent app workspace: the same shape and the same optimistic update as the
           agent browser above. Off by default: it installs a skill into every account
           and lets the agent launch this project's app on a hidden desktop. */}
-      <SettingRow a="agentApp" only={only}>
-        <div className="settings-group">
-          <label className="settings-row">
-            <span>{t('settings.agentApp.label')}</span>
-            <Switch
+      <SettingRow a="agentApp" only={only} modified={agentAppEnabled}>
+        <SettingItem title={t('settings.agentApp.label')} hint={t('settings.agentApp.hint')} control={<Switch aria-label={t('settings.agentApp.label')}
               checked={agentAppEnabled}
               onChange={(next) => {
                 settingsTouched.current.touch('agentApp')
@@ -125,10 +111,7 @@ export function AgentsSettings(p: GroupProps): React.JSX.Element | null {
                   )
                 })
               }}
-            />
-          </label>
-          <span className="settings-hint">{t('settings.agentApp.hint')}</span>
-        </div>
+            />} />
       </SettingRow>
     </div>
   )

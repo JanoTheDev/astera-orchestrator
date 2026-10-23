@@ -196,7 +196,6 @@ export const common: Record<keyof typeof ko, string> = {
   'session.resume.noLoggedInAccounts': 'No accounts are logged in. Log in to an account first.',
   'session.toast.stalled':
     'Session “{title}” is stuck — automatic resume failed, it needs a look',
-  'history.panel.title': 'History',
   'run.validation.tag': 'Validation',
   'run.config.saveFailed': 'Save failed: {detail}',
   'run.manager.reason.INVALID_CONFIG': '{name}: this configuration cannot be stored',
@@ -328,7 +327,6 @@ export const common: Record<keyof typeof ko, string> = {
   'jobs.task.accountHint':
     'The accounts this Task runs its worker on — the first one decides which agent runs it, so one is required. With more than one, a usage limit moves the worker to the next in the order you list them',
   // How It Works — project understanding
-  'hiw.title': 'How It Works',
   'hiw.record.regenerateFailed': 'Could not write it up again: {detail}',
   'hiw.pane.notInProject': 'This tab’s record is not in the project that is open right now.',
   'hiw.open.complete': 'Done',
@@ -408,6 +406,5 @@ export const common: Record<keyof typeof ko, string> = {
   'plan.failedWait.acceptReason': 'Accepted as done by the owner',
   'plan.failedWait.failed': 'Could not resolve the failed Task',
   // W9-F: orchestration panels (shell, attribution, inbox …)
-  'shell.page.inbox': 'Inbox',
   'inbox.kind.waiting': 'Waiting',
 }

@@ -217,7 +217,6 @@ export const common = {
   // for a rolling session with Slack off, this is the only path that calls a human.
   'session.toast.stalled': "'{title}' 세션이 멈춰 있습니다 — 자동 재개 실패, 확인이 필요합니다",
   // HistoryBrowser.tsx
-  'history.panel.title': '히스토리',
   // 오케스트레이션이 Task 를 판정하려고 띄운 실행이라는 라벨. 사용자가 시작한 실행과 구별되지
   // 않으면 정지시켜 그 Task 를 실패시킨다(core/run/config.ts 의 RunStatus.validation)
   'run.validation.tag': '검증',
@@ -363,7 +362,6 @@ export const common = {
   'jobs.task.accountHint':
     '이 Task 의 워커를 띄울 계정입니다 — 첫 계정이 어느 에이전트로 돌릴지 정하므로 반드시 하나는 고르세요. 둘 이상 고르면 한도에 걸렸을 때 적은 순서대로 갈아탑니다',
   // How It Works — 프로젝트 이해
-  'hiw.title': 'How It Works',
   'hiw.record.regenerateFailed': '다시 만들기 실패: {detail}',
   'hiw.pane.notInProject': '이 탭의 기록을 지금 열려 있는 프로젝트에서 찾을 수 없습니다.',
   'hiw.open.complete': '완료',
@@ -444,6 +442,5 @@ export const common = {
   'plan.failedWait.acceptReason': '소유자가 완료로 인정함',
   'plan.failedWait.failed': '실패한 작업을 처리하지 못했습니다',
   // W9-F: orchestration panels (shell, attribution, inbox …)
-  'shell.page.inbox': '받은편지함',
   'inbox.kind.waiting': '대기 중',
 } as const

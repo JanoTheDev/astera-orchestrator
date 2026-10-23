@@ -105,6 +105,6 @@ describe('ErrorBoundary — a render error never leaves an empty window', () => 
     expect(html).toContain('app.renderError')
     expect(html).toContain('no Host yet')
     expect(html).toContain('app.renderErrorReload')
-    expect(html).not.toContain('workbench')
+    expect(html).not.toContain('>workbench<') // the tag, not the word: a stack-trace path may contain it
   })
 })

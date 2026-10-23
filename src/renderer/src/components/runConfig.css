@@ -41,7 +41,7 @@
    reachable from .rcm-form — without these two rules the trigger computes flex-shrink:1,
    white-space:normal — so what the sheet says is what the element computes: the trap
    .rcm-tools > button above records.) */
-.rcm-form .row > input[type="text"] { flex: 1; min-width: 0; }
+.rcm-form .row > .ui-input { flex: 1; min-width: 0; }
 .rcm-form .row > button { flex: none; white-space: nowrap; }
 /* RunConfigForm's "add optional field" Menu, kept to its own width at the start of the column. */
 .rcm-add-option { align-self: flex-start; }
@@ -50,20 +50,18 @@
 /* Run Configurations — the search field above the tree, the markers on a row, the footer. The
    footer replaces the old single Close button: Cancel · Apply · OK with the message slot on the left
    (the seed note, or the first reason Apply refused). */
-.rcm-search { display: flex; align-items: center; gap: 6px; padding: 0 6px; margin-bottom: 6px; background: var(--bg); border: 1px solid var(--line-soft); border-radius: var(--radius); color: var(--text-faint); }
-.rcm-search:focus-within { box-shadow: var(--focus-ring); }
-.rcm-search > input { flex: 1; min-width: 0; background: transparent; border: 0; color: var(--text); font-size: var(--fs-12); padding: 5px 0; outline: none; box-shadow: none; }
+.rcm-search { margin-bottom: var(--sp-2); }
 .rcm-item-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rcm-mark { flex: none; display: inline-grid; place-items: center; }
 .rcm-mark.dirty { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
 .rcm-mark.warn { color: var(--warn); }
-.rcm-mark.temp { flex: none; font-size: var(--fs-11); color: var(--text-faint); border: 1px solid var(--line-soft); border-radius: var(--radius-sm); padding: 0 4px; }
+.rcm-mark.temp { flex: none; font-size: var(--fs-11); color: var(--text-faint); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 0 4px; }
 .rcm-item.rejected .rcm-item-name { color: var(--danger); }
 
 /* The tree's folder heading, and the inline input that renames it. The heading reuses .rcm-group's
    type and spacing so a folder and a kind line up; only the icon and the rename affordance differ. */
 .rcm-group[title] { cursor: default; }
-.rcm-folder-name { width: 100%; box-sizing: border-box; margin: 6px 0 2px; background: var(--bg); color: var(--text); border: 1px solid var(--accent); border-radius: var(--radius); padding: 3px 6px; font-size: var(--fs-11); }
+.rcm-folder-name { margin: 6px 0 2px; }
 .rcm-footer-msg { flex: 1; min-width: 0; font-size: var(--fs-12); color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rcm-footer-msg.error { color: var(--danger); }
 
@@ -90,8 +88,8 @@
 .env-table { display: flex; flex-direction: column; gap: 4px; }
 .env-head, .env-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) 16px 22px; gap: 6px; align-items: center; }
 .env-head { font-size: var(--fs-11); color: var(--text-faint); padding: 0 6px; }
-.env-row input { width: 100%; box-sizing: border-box; background: var(--bg); color: var(--text); border: 1px solid var(--line-soft); padding: 5px 6px; border-radius: var(--radius); font-family: var(--mono); font-size: var(--fs-12); }
-.env-row.issue input.env-key { border-color: var(--warn); }
+.env-row .env-key, .env-row .env-value { font-family: var(--mono); }
+.env-row.issue .env-key { border-color: var(--warn); }
 .env-issue { display: inline-grid; place-items: center; color: var(--warn); }
 .env-remove.ui-btn { width: 22px; height: 22px; }
 .env-add { align-self: flex-start; }
@@ -110,3 +108,10 @@
    an icon as the second cue beside the words, aligned with the first line. */
 .runtime-note { display: flex; align-items: flex-start; gap: var(--sp-1); }
 .runtime-note > svg { flex: none; margin-top: 1px; }
+
+/* DESIGN-W13 §4: the Run view's list. Rows come from ui/Tree. */
+.run-tree { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.run-tree .ui-tree { flex: 1; min-height: 0; }
+.run-row-spin { animation: run-row-spin 1s linear infinite; }
+@keyframes run-row-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .run-row-spin { animation: none; } }

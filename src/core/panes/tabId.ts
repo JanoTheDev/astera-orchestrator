@@ -3,7 +3,7 @@
 // 파일 탭 id는 이 모듈이 생기기 전부터 `file:${path}` 형식이었다(FileTabs.tsx의 FileTab.id) — 새 형식을
 // 도입하는 것이 아니라 흩어져 있던 형식을 한 곳으로 모으는 것이다.
 // node: import 없음 — 렌더러가 import한다.
-export type TabKind = 'session' | 'file' | 'record' | 'browser' | 'app' | 'media'
+export type TabKind = 'session' | 'file' | 'record' | 'browser' | 'app' | 'media' | 'view'
 export type TabRef = { kind: TabKind; id: string }
 
 export const sessionTab = (sessionId: string): string => `session:${sessionId}`
@@ -32,6 +32,22 @@ export const appTab = (sessionId: string): string => `app:${sessionId}`
  *  the same file finds this one (place.ts placeMediaTab). */
 export const mediaTab = (path: string): string => `media:${path}`
 
+/** The pages that open as editor tabs in the workbench (`view:<name>` or `view:<name>:<arg>`). */
+export type ViewName = 'welcome' | 'wall' | 'plan' | 'mainplan' | 'start' | 'settings' | 'worktree'
+const VIEW_NAMES: readonly string[] = ['welcome', 'wall', 'plan', 'mainplan', 'start', 'settings', 'worktree']
+/** The arg may hold colons (a Windows path): only the first colon after the name splits. */
+export const viewTab = (name: ViewName, arg?: string): string => (arg === undefined ? `view:${name}` : `view:${name}:${arg}`)
+/** An unknown name or a non-view id is null — never throws. */
+export function parseViewTab(tabId: string): { name: ViewName; arg?: string } | null {
+  const ref = parseTab(tabId)
+  if (ref?.kind !== 'view') return null
+  const i = ref.id.indexOf(':')
+  const name = i < 0 ? ref.id : ref.id.slice(0, i)
+  const arg = i < 0 ? undefined : ref.id.slice(i + 1)
+  if (!VIEW_NAMES.includes(name) || arg === '') return null
+  return arg === undefined ? { name: name as ViewName } : { name: name as ViewName, arg }
+}
+
 /** 탭 id가 아닌 문자열은 null — 던지지 않는다. 저장된 옛 상태나 다른 종류의 id를 만나도 화면이 죽지
  *  않아야 한다. Windows 경로의 드라이브 콜론 때문에 쪼개기는 첫 콜론에서만 한다. */
 export function parseTab(tabId: string): TabRef | null {
@@ -40,7 +56,7 @@ export function parseTab(tabId: string): TabRef | null {
   const kind = tabId.slice(0, i)
   const id = tabId.slice(i + 1)
   if (id === '') return null
-  return kind === 'session' || kind === 'file' || kind === 'record' || kind === 'browser' || kind === 'app' || kind === 'media'
+  return kind === 'session' || kind === 'file' || kind === 'record' || kind === 'browser' || kind === 'app' || kind === 'media' || kind === 'view'
     ? { kind, id }
     : null
 }

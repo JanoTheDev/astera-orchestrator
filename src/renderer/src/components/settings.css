@@ -70,9 +70,6 @@
 .cli-path-hint code { flex: 1; padding: 6px 8px; border: 1px solid var(--line);
   border-radius: var(--radius); background: var(--bg); color: var(--text-dim);
   font-size: var(--fs-12); word-break: break-all; white-space: pre-wrap; }
-.cli-path-hint button { flex: none; padding: 5px 10px; border: 1px solid var(--line);
-  border-radius: var(--radius); background: var(--bg); color: var(--text); cursor: pointer;
-  font-size: var(--fs-12); }
 /* The client a registration line is for (McpSettings), beside the line in the same row. */
 .mcp-register-client { flex: none; min-width: 84px; padding-top: 6px; font-size: var(--fs-12); color: var(--text-dim); }
 /* "Registered", where the Register button would be once Astera is registered with that client. */
@@ -87,11 +84,6 @@
 /* 설명 생성 설정. 형제인 resume-strategy 와 같은 토큰만 쓴다 — 새 색을 만들지 않는다 */
 .settings-gen { display: flex; flex-direction: column; gap: 8px; }
 .settings-gen-select { min-width: 200px; }
-.settings-gen-input { min-width: 200px; padding: 5px 8px; border: 1px solid var(--line);
-  border-radius: var(--radius); background: var(--bg); color: var(--text); font-size: var(--fs-12); }
-.settings-gen-refresh { align-self: flex-start; padding: 5px 10px; border: 1px solid var(--line);
-  border-radius: var(--radius); background: var(--bg); color: var(--text); cursor: pointer; font-size: var(--fs-12); }
-.settings-gen-refresh:disabled { opacity: 0.5; cursor: default; }
 /* The Settings screen's own text fields (ui Input) and the generator's refresh (ui Button): width and place only. */
 .settings-text-field { min-width: 200px; }
 .settings-gen > .settings-gen-action { align-self: flex-start; }

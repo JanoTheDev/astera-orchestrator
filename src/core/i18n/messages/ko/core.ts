@@ -307,12 +307,6 @@ export const core = {
   'shortcut.command.talk': '명령 창에 말하기 (눌러서 시작, 다시 눌러 보내기)',
   'shortcut.tabs.reopenClosed': '마지막으로 닫은 탭 다시 열기',
   // W9-B: Ctrl+1…6 open the top bar's pages
-  'shortcut.page.agents': '에이전트 페이지 열기',
-  'shortcut.page.tasks': '작업 페이지 열기',
-  'shortcut.page.plans': '계획 페이지 열기',
-  'shortcut.page.inbox': '받은 편지함 열기',
-  'shortcut.page.worktrees': '워크트리 페이지 열기',
-  'shortcut.page.files': '파일 페이지 열기',
   // W6-F
   'shortcut.workspace.project': '프로젝트 작업 공간 {n} 열기',
   'telegram.inbox.replyHint': '세션에 입력을 보내려면 그 세션의 메시지에 답장하세요',
@@ -320,4 +314,15 @@ export const core = {
   'shortcut.new.open': '새로 만들기 열기',
   'plan.doctor.failedGate': '이 Task는 {limit}번 중 {failures}번 실패했고 다시 시도할 코디네이터가 없습니다. 이 Gate를 해결하면 다시 실행합니다.',
   'shortcut.window.new': '새 창 열기', // W9-K
+  'shortcut.activity.agents': '에이전트 뷰 열기',
+  'shortcut.activity.plans': '플랜 뷰 열기',
+  'shortcut.activity.explorer': '탐색기 뷰 열기',
+  'shortcut.activity.scm': '소스 제어 뷰 열기',
+  'shortcut.activity.history': '히스토리 뷰 열기',
+  'shortcut.activity.run': '실행 뷰 열기',
+  'shortcut.sidebar.toggle': '사이드바 표시/숨기기',
+  'shortcut.panel.toggle': '하단 패널 표시/숨기기',
+  'shortcut.palette.open': '명령 팔레트 열기',
+  'shortcut.quickOpen': '탭, 플랜, 파일로 이동',
+  'shortcut.settings.open': '설정 열기',
 } as const
