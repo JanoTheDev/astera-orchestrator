@@ -49,3 +49,10 @@ export function lineTargetOf(l: Pick<HandledLine, 'jobId' | 'taskId' | 'sessionI
   if (l.jobId !== undefined) return planTarget(l.jobId, l.taskId)
   return l.sessionId !== undefined ? { kind: 'console', sessionId: l.sessionId } : null
 }
+
+/** Scrolls the plan tab to the Task card `#task-<id>` once it has rendered (the plan opens on its next frames); gives up after ~2 s. */
+export function revealTask(taskId: string, tries = 40): void {
+  const el = document.getElementById(`task-${taskId}`)
+  if (el) el.scrollIntoView({ block: 'center' })
+  else if (tries > 0) setTimeout(() => revealTask(taskId, tries - 1), 50)
+}

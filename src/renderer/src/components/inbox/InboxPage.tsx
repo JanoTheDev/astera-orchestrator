@@ -9,7 +9,7 @@ import { localDoor, replyNote } from '../../lib/orchDoor'
 import { Button, Chip, Icon, IconButton, Tabs, type IconName } from '../ui'
 import { openConsole, openPlan } from '../shell/navigation'
 import { QuestionAnswer } from '../plan/QuestionAnswer'
-import { setInboxFilter, useInboxRequest, type OpenTarget, openTargetOf } from './inboxNav'
+import { setInboxFilter, useInboxRequest, type OpenTarget, openTargetOf, revealTask } from './inboxNav'
 import { toggleAllProjects } from './bellStore'
 import { BELL_ACTION_LABEL, bellActionOf } from './bellView'
 import { NEED_WORD, ageOf, filterNeeds, whereOf, type NeedCard, type NeedKind } from './inboxView'
@@ -18,8 +18,12 @@ import './inbox.css'
 
 const KIND_ICON: Record<NeedKind, IconName> = { approval: 'listTree', question: 'message', gate: 'message', escalation: 'warning', permission: 'terminal', waiting: 'waiting' }
 
-/** Goes where an Open leads. The plan tab opens on the plan; the `#task-<id>` part of the target is the Task's anchor. */
-export const goTo = (target: OpenTarget): void => (target.kind === 'console' ? openConsole(target.sessionId) : openPlan(target.jobId))
+/** Goes where an Open leads. A Task opens the plan on its waves, scrolled to the Task's card (`#task-<id>`). */
+export function goTo(target: OpenTarget): void {
+  if (target.kind === 'console') return openConsole(target.sessionId)
+  openPlan(target.jobId, target.taskId !== undefined ? 'waves' : undefined)
+  if (target.taskId !== undefined) revealTask(target.taskId)
+}
 
 export function InboxPage({ scope, ui }: { scope: NeedsYouScope; /** The app's Job action ui (confirm dialogs, toasts), for Approve. */ ui: ActionUi }): React.JSX.Element {
   const { t } = useI18n()

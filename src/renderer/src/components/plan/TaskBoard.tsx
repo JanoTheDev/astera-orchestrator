@@ -250,7 +250,7 @@ function TaskCard({
   const activate = onFocus ?? (() => onSelect(tk.id))
   return (
     // The card is the click target; its title is the keyboard's (a button may not hold the buttons below it)
-    <article className={`plan-card plan-cat-${categoryOf(tk)}${selected ? ' selected' : ''}`} onClick={activate}>
+    <article id={`task-${tk.id}`} className={`plan-card plan-cat-${categoryOf(tk)}${selected ? ' selected' : ''}`} onClick={activate}>
       <Button
         variant="ghost"
         size="sm"
