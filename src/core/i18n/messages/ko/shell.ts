@@ -72,6 +72,7 @@ export const shell = {
   'shell.activity.scm': '소스 제어',
   'shell.activity.history': '기록',
   'shell.activity.run': '실행',
+  'shell.activity.devices': '기기',
   'shell.activity.accounts': '계정',
   'shell.activity.manage': '관리',
   'shell.manage.keys': '단축키',

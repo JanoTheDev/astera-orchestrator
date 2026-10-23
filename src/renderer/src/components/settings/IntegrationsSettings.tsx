@@ -10,7 +10,7 @@ import { SlackSettings } from '../SlackSettings'
 import { TelegramSettings } from '../TelegramSettings'
 import { SettingRow, type GroupProps } from './SettingRow'
 
-export function IntegrationsSettings({ shown, only, cliInstallStatus, setCliInstallStatus, setPairedChanged, setShowSettings, setRemoteDialog, openRemoteSession }: GroupProps): React.JSX.Element {
+export function IntegrationsSettings({ shown, only, cliInstallStatus, setCliInstallStatus }: GroupProps): React.JSX.Element {
   return (
     <>
       {shown && (
@@ -39,17 +39,7 @@ export function IntegrationsSettings({ shown, only, cliInstallStatus, setCliInst
           </div>
           {/* Remote Runtimes (remote runtime design Phase 6): pairing with another computer, and this one as a Runtime. */}
           <SettingRow a="remote" only={only}>
-            <RemoteRuntimesSettings
-              onChanged={() => setPairedChanged((n) => n + 1)}
-              onNewConsole={(runtimeId) => {
-                setShowSettings(false)
-                setRemoteDialog(runtimeId)
-              }}
-              onOpenSession={(ref) => {
-                setShowSettings(false)
-                openRemoteSession(ref)
-              }}
-            />
+            <RemoteRuntimesSettings />
           </SettingRow>
           {/* Plugins (plugin runtime design slice 2d, spec §30): beside the other ways in to the Host. */}
           <SettingRow a="plugins" only={only}>
