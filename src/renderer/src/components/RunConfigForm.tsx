@@ -9,7 +9,7 @@ import type { MessageKey } from '../../../core/i18n'
 import { runTypeIcon } from '../../../core/run/typeIcon'
 import { useI18n } from '../i18n/I18nProvider'
 import { FileIcon } from './FileIcon'
-import { Button, Icon, Menu, Select, type SelectOption, Checkbox } from './ui'
+import { Button, Checkbox, Icon, Input, Menu, Select, type SelectOption } from './ui'
 import { EnvTable } from './EnvTable'
 import { ConfigRefList } from './ConfigRefList'
 
@@ -237,10 +237,10 @@ export function RunConfigForm({
   return (
     <>
       <div className="rcm-section">{t('run.section.configuration')}</div>
-      <div className="field">
-        <label>{t('run.form.nameLabel')}</label>
+      <div className="ui-field">
+        <label className="ui-field__label">{t('run.form.nameLabel')}</label>
         <div className="row">
-          <input
+          <Input
             type="text"
             value={draft.name}
             onChange={(e) => update({ ...draft, name: e.target.value })}
@@ -255,8 +255,8 @@ export function RunConfigForm({
         </div>
       </div>
 
-      <div className="field">
-        <label>{t('run.form.folder')}</label>
+      <div className="ui-field">
+        <label className="ui-field__label">{t('run.form.folder')}</label>
         <Select
           items={[
             { value: '', label: t('run.form.folderNone') },
@@ -270,8 +270,8 @@ export function RunConfigForm({
 
       {/* ---- required fields, one per kind ---- */}
       {draft.type === 'compound' && (
-        <div className="field">
-          <label>{t('run.field.members')}</label>
+        <div className="ui-field">
+          <label className="ui-field__label">{t('run.field.members')}</label>
           {/* Members start together; the order here is display only. Sequencing is what the
               Before launch section below is for. */}
           <ConfigRefList
@@ -284,9 +284,9 @@ export function RunConfigForm({
         </div>
       )}
       {draft.type === 'shell' && (
-        <div className="field">
-          <label>{t('run.field.command')}</label>
-          <input
+        <div className="ui-field">
+          <label className="ui-field__label">{t('run.field.command')}</label>
+          <Input
             type="text"
             value={draft.command}
             onChange={(e) => update({ ...draft, command: e.target.value })}
@@ -295,8 +295,8 @@ export function RunConfigForm({
         </div>
       )}
       {draft.type === 'npm' && (
-        <div className="field">
-          <label>{t('run.field.script')}</label>
+        <div className="ui-field">
+          <label className="ui-field__label">{t('run.field.script')}</label>
           <Select
             items={scriptItems}
             value={draft.script}
@@ -306,10 +306,10 @@ export function RunConfigForm({
         </div>
       )}
       {(draft.type === 'node' || draft.type === 'python') && (
-        <div className="field">
-          <label>{t('run.field.file')}</label>
+        <div className="ui-field">
+          <label className="ui-field__label">{t('run.field.file')}</label>
           <div className="row">
-            <input
+            <Input
               type="text"
               value={draft.file}
               onChange={(e) => update({ ...draft, file: e.target.value })}
@@ -322,9 +322,9 @@ export function RunConfigForm({
         </div>
       )}
       {draft.type === 'gradle' && (
-        <div className="field">
-          <label>{t('run.field.tasks')}</label>
-          <input
+        <div className="ui-field">
+          <label className="ui-field__label">{t('run.field.tasks')}</label>
+          <Input
             type="text"
             value={draft.tasks}
             onChange={(e) => update({ ...draft, tasks: e.target.value })}
@@ -333,9 +333,9 @@ export function RunConfigForm({
         </div>
       )}
       {draft.type === 'maven' && (
-        <div className="field">
-          <label>{t('run.field.goals')}</label>
-          <input
+        <div className="ui-field">
+          <label className="ui-field__label">{t('run.field.goals')}</label>
+          <Input
             type="text"
             value={draft.goals}
             onChange={(e) => update({ ...draft, goals: e.target.value })}
@@ -344,8 +344,8 @@ export function RunConfigForm({
         </div>
       )}
       {(draft.type === 'cargo' || draft.type === 'go') && (
-        <div className="field">
-          <label>{t('run.field.subcommand')}</label>
+        <div className="ui-field">
+          <label className="ui-field__label">{t('run.field.subcommand')}</label>
           <Select
             items={[
               { value: 'run', label: 'run' },
@@ -362,8 +362,8 @@ export function RunConfigForm({
           interpreter fields (Select + "Browse…") rather than like node's file (plain text + "Browse…"),
           because a .csproj path is not something anyone types from memory. */}
       {draft.type === 'dotnet' && (
-        <div className="field">
-          <label>{t('run.field.project')}</label>
+        <div className="ui-field">
+          <label className="ui-field__label">{t('run.field.project')}</label>
           {dotnetProjects === null ? (
             <span className="check-note">{t('run.form.projectLoading')}</span>
           ) : (
@@ -383,9 +383,9 @@ export function RunConfigForm({
         </div>
       )}
       {draft.type === 'dockerfile' && (
-        <div className="field">
-          <label>{t('run.field.imageTag')}</label>
-          <input
+        <div className="ui-field">
+          <label className="ui-field__label">{t('run.field.imageTag')}</label>
+          <Input
             type="text"
             value={draft.imageTag}
             onChange={(e) => update({ ...draft, imageTag: e.target.value })}
@@ -396,8 +396,8 @@ export function RunConfigForm({
 
       {/* ---- optional fields, shown when added this session or already valued ---- */}
       {(draft.type === 'gradle' || draft.type === 'maven') && visible('javaHome') && (
-        <div className="field">
-          <label>{t('run.field.javaHome')}</label>
+        <div className="ui-field">
+          <label className="ui-field__label">{t('run.field.javaHome')}</label>
           {jdks === null ? (
             <span className="check-note">
               <span className="loading-spinner small" aria-hidden="true" /> {t('run.form.jdkLoading')}
@@ -419,9 +419,9 @@ export function RunConfigForm({
         </div>
       )}
       {(draft.type === 'gradle' || draft.type === 'maven') && visible('springProfiles') && (
-        <div className="field">
-          <label>{t('run.field.springProfiles')}</label>
-          <input
+        <div className="ui-field">
+          <label className="ui-field__label">{t('run.field.springProfiles')}</label>
+          <Input
             type="text"
             value={draft.springProfiles ?? ''}
             onChange={(e) => update({ ...draft, springProfiles: e.target.value })}
@@ -430,8 +430,8 @@ export function RunConfigForm({
         </div>
       )}
       {draft.type === 'npm' && visible('packageManager') && (
-        <div className="field">
-          <label>{t('run.field.packageManager')}</label>
+        <div className="ui-field">
+          <label className="ui-field__label">{t('run.field.packageManager')}</label>
           <Select
             items={[
               { value: 'auto', label: `${t('run.field.packageManagerAuto')} — ${context.packageManager}` },
@@ -447,9 +447,9 @@ export function RunConfigForm({
         </div>
       )}
       {draft.type === 'node' && visible('nodePath') && (
-        <div className="field">
-          <label>{t('run.field.nodePath')}</label>
-          <input
+        <div className="ui-field">
+          <label className="ui-field__label">{t('run.field.nodePath')}</label>
+          <Input
             type="text"
             value={draft.nodePath ?? ''}
             onChange={(e) => update({ ...draft, nodePath: e.target.value })}
@@ -467,9 +467,9 @@ export function RunConfigForm({
         </label>
       )}
       {draft.type === 'cargo' && visible('features') && (
-        <div className="field">
-          <label>{t('run.field.features')}</label>
-          <input
+        <div className="ui-field">
+          <label className="ui-field__label">{t('run.field.features')}</label>
+          <Input
             type="text"
             value={draft.features ?? ''}
             onChange={(e) => update({ ...draft, features: e.target.value })}
@@ -478,9 +478,9 @@ export function RunConfigForm({
         </div>
       )}
       {draft.type === 'go' && visible('packagePath') && (
-        <div className="field">
-          <label>{t('run.field.packagePath')}</label>
-          <input
+        <div className="ui-field">
+          <label className="ui-field__label">{t('run.field.packagePath')}</label>
+          <Input
             type="text"
             value={draft.packagePath ?? ''}
             onChange={(e) => update({ ...draft, packagePath: e.target.value })}
@@ -489,9 +489,9 @@ export function RunConfigForm({
         </div>
       )}
       {draft.type === 'pytest' && visible('target') && (
-        <div className="field">
-          <label>{t('run.field.target')}</label>
-          <input
+        <div className="ui-field">
+          <label className="ui-field__label">{t('run.field.target')}</label>
+          <Input
             type="text"
             value={draft.target ?? ''}
             onChange={(e) => update({ ...draft, target: e.target.value })}
@@ -500,8 +500,8 @@ export function RunConfigForm({
         </div>
       )}
       {(draft.type === 'python' || draft.type === 'pytest') && visible('interpreter') && (
-        <div className="field">
-          <label>{t('run.field.interpreter')}</label>
+        <div className="ui-field">
+          <label className="ui-field__label">{t('run.field.interpreter')}</label>
           {pythonInterpreters === null ? (
             <span className="check-note">
               <span className="loading-spinner small" aria-hidden="true" /> {t('run.form.interpreterLoading')}
@@ -523,10 +523,10 @@ export function RunConfigForm({
         </div>
       )}
       {draft.type === 'compose' && visible('composeFile') && (
-        <div className="field">
-          <label>{t('run.field.composeFile')}</label>
+        <div className="ui-field">
+          <label className="ui-field__label">{t('run.field.composeFile')}</label>
           <div className="row">
-            <input
+            <Input
               type="text"
               value={draft.composeFile ?? ''}
               onChange={(e) => update({ ...draft, composeFile: e.target.value })}
@@ -539,9 +539,9 @@ export function RunConfigForm({
         </div>
       )}
       {draft.type === 'compose' && visible('services') && (
-        <div className="field">
-          <label>{t('run.field.services')}</label>
-          <input
+        <div className="ui-field">
+          <label className="ui-field__label">{t('run.field.services')}</label>
+          <Input
             type="text"
             value={draft.services ?? ''}
             onChange={(e) => update({ ...draft, services: e.target.value })}
@@ -559,8 +559,8 @@ export function RunConfigForm({
         </div>
       )}
       {draft.type === 'compose' && visible('action') && (
-        <div className="field">
-          <label>{t('run.field.action')}</label>
+        <div className="ui-field">
+          <label className="ui-field__label">{t('run.field.action')}</label>
           <Select
             items={[
               { value: 'up', label: 'up' },
@@ -573,10 +573,10 @@ export function RunConfigForm({
         </div>
       )}
       {draft.type === 'dockerfile' && visible('dockerfilePath') && (
-        <div className="field">
-          <label>{t('run.field.dockerfilePath')}</label>
+        <div className="ui-field">
+          <label className="ui-field__label">{t('run.field.dockerfilePath')}</label>
           <div className="row">
-            <input
+            <Input
               type="text"
               value={draft.dockerfilePath ?? ''}
               onChange={(e) => update({ ...draft, dockerfilePath: e.target.value })}
@@ -589,9 +589,9 @@ export function RunConfigForm({
         </div>
       )}
       {draft.type === 'dockerfile' && visible('buildArgs') && (
-        <div className="field">
-          <label>{t('run.field.buildArgs')}</label>
-          <input
+        <div className="ui-field">
+          <label className="ui-field__label">{t('run.field.buildArgs')}</label>
+          <Input
             type="text"
             value={draft.buildArgs ?? ''}
             onChange={(e) => update({ ...draft, buildArgs: e.target.value })}
@@ -600,9 +600,9 @@ export function RunConfigForm({
         </div>
       )}
       {draft.type === 'dockerfile' && visible('runArgs') && (
-        <div className="field">
-          <label>{t('run.field.runArgs')}</label>
-          <input
+        <div className="ui-field">
+          <label className="ui-field__label">{t('run.field.runArgs')}</label>
+          <Input
             type="text"
             value={draft.runArgs ?? ''}
             onChange={(e) => update({ ...draft, runArgs: e.target.value })}
@@ -613,8 +613,8 @@ export function RunConfigForm({
       {/* Unlike cargo/go, dotnet's subcommand is optional — an unset one runs, which is the same value
           the command assembly falls back to (build.ts's 'dotnet' case), so the Select shows 'run'. */}
       {draft.type === 'dotnet' && visible('subcommand') && (
-        <div className="field">
-          <label>{t('run.field.subcommand')}</label>
+        <div className="ui-field">
+          <label className="ui-field__label">{t('run.field.subcommand')}</label>
           <Select
             items={[
               { value: 'run', label: 'run' },
@@ -628,9 +628,9 @@ export function RunConfigForm({
         </div>
       )}
       {draft.type === 'dotnet' && visible('configuration') && (
-        <div className="field">
-          <label>{t('run.field.configuration')}</label>
-          <input
+        <div className="ui-field">
+          <label className="ui-field__label">{t('run.field.configuration')}</label>
+          <Input
             type="text"
             value={draft.configuration ?? ''}
             onChange={(e) => update({ ...draft, configuration: e.target.value })}
@@ -642,9 +642,9 @@ export function RunConfigForm({
           the same way shell is (shell's args go straight into the command instead). compound has no
           args either — it starts no process. */}
       {draft.type !== 'shell' && draft.type !== 'dockerfile' && draft.type !== 'compound' && visible('args') && (
-        <div className="field">
-          <label>{t('run.field.args')}</label>
-          <input
+        <div className="ui-field">
+          <label className="ui-field__label">{t('run.field.args')}</label>
+          <Input
             type="text"
             value={draft.args ?? ''}
             onChange={(e) => update({ ...draft, args: e.target.value })}
@@ -662,9 +662,9 @@ export function RunConfigForm({
         </label>
       )}
       {draft.type !== 'compound' && visible('previewUrl') && (
-        <div className="field">
-          <label>{t('run.field.previewUrl')}</label>
-          <input
+        <div className="ui-field">
+          <label className="ui-field__label">{t('run.field.previewUrl')}</label>
+          <Input
             type="text"
             placeholder="http://localhost:5173"
             value={draft.previewUrl ?? ''}
@@ -674,10 +674,10 @@ export function RunConfigForm({
         </div>
       )}
       {visible('cwd') && (
-        <div className="field">
-          <label>{t('run.field.cwd')}</label>
+        <div className="ui-field">
+          <label className="ui-field__label">{t('run.field.cwd')}</label>
           <div className="row">
-            <input
+            <Input
               type="text"
               className="run-config-cwd"
               value={draft.cwd ?? ''}
@@ -693,8 +693,8 @@ export function RunConfigForm({
       {visible('env') && (
         <>
           <div className="rcm-section">{t('run.section.environment')}</div>
-          <div className="field">
-            <label>{t('run.field.env')}</label>
+          <div className="ui-field">
+            <label className="ui-field__label">{t('run.field.env')}</label>
             {/* Once the table is on screen it stays: clearing the last key makes the record undefined, and
                 without this the section would unmount with the caret still in it. */}
             <EnvTable
@@ -727,7 +727,7 @@ export function RunConfigForm({
       </div>
 
       <div className="rcm-section">{t('run.section.beforeLaunch')}</div>
-      <div className="field">
+      <div className="ui-field">
         {/* Run to completion, in this order, before this configuration starts. A non-zero exit stops
             the chain (core/run/launch.ts). The order is the order they were added. */}
         <ConfigRefList

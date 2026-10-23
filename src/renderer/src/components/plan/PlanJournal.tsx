@@ -3,32 +3,21 @@
 import type { JobEvent, RunDetail as RunDetailData } from '../../../../core/types'
 import { useI18n } from '../../i18n/I18nProvider'
 import { TaskLinkChips } from '../TaskLinkChips'
-import { ChangedFilesBlock } from '../ChangedFilesBlock'
-import { CompletionBlock } from '../CompletionBlock'
 import { GateAnswer } from '../GateAnswer'
 import { STATE_KEY, TaskGlyph, TaskIcon } from '../JobIcons'
 import { JournalBusy, JournalOlder } from '../RunDetailJournal'
-import type { OrchDoor } from '../../lib/orchDoor'
 import { Button, Icon, IconButton, Textarea } from '../ui'
 import { CALLS_FOR_A_PERSON, KIND_LABEL, MSG_LABEL, RECOVERY_LABEL, timeOf } from './planPage'
 import type { PlanPageState } from './usePlanPage'
 
 export function PlanJournal({
   p,
-  door,
-  runId,
-  projectPath,
-  runtimeId,
   detail,
   canOpenSession,
   onOpenSession,
   onShowOlderJournal
 }: {
   p: PlanPageState
-  door: OrchDoor
-  runId: string
-  projectPath: string
-  runtimeId?: string
   detail: RunDetailData | null
   canOpenSession: (sessionId: string) => boolean
   onOpenSession: (sessionId: string) => void
@@ -154,16 +143,7 @@ export function PlanJournal({
               />
             </div>
           )}
-          {/* 고른 Task 의 완료 상세 — 왜 못 넘었는가(설계 §2). 필터 줄 바로 아래, 이벤트
-              목록 위다: 이벤트는 "무슨 일이 있었나" 이고 이것은 "지금 무엇이 막고 있나" 라,
-              찾는 사람이 스크롤하지 않고 만나야 하는 쪽이 이것이다. */}
-          {selectedTask && (
-            <CompletionBlock projectPath={projectPath} runId={runId} taskId={selectedTask.id} runtimeId={runtimeId} />
-          )}
-          {/* What the Task, or with none chosen the whole Run, changed (Phase 10): from git where the Run lives,
-              beside what its workers reported. */}
-          {/* W9-C: the whole plan's changes are the Changes section; the picked Task's stay here */}
-          {selectedTask && <ChangedFilesBlock door={door} runId={runId} taskId={selectedTask.id} />}
+          {/* T8: the picked Task's completion checks and changes moved into its expanded row (TaskBoard) */}
           <JournalBusy journal={detail?.journal} />
           <div className="detail-list">
             {/* 목록은 오래된 것이 위다 — 더 오래된 저널 줄을 부르는 자리도 맨 위다 */}

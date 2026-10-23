@@ -22,7 +22,10 @@ import { dismiss, toast } from '../lib/toast'
 import { spawnNotice } from '../lib/spawnNotice'
 import { announceSettingsRecovery } from '../lib/settingsRecoveryNotice'
 import { confirmModal, confirmModalWithChoices, isConfirmOpen } from '../lib/confirm'
-import { PAGE_STORAGE_KEY, togglePage, viewFlagsOf, type PageId } from '../../../core/ui/pages'
+import { ACTIVITY_STORAGE_KEY, activityOfSaved, togglePage, type ActivityId, type PageId } from '../../../core/ui/pages'
+import { requestBox } from '../components/command/boxStore'
+import { openActivity, openView, revealRunConfigs, togglePanel, toggleSideBar } from '../components/shell/navigation'
+import { storageWrite } from '../components/shell/shellView'
 import { terminalsWithCreated } from '../lib/terminalTabs'
 import { isCancelled as isWorktreeCancelled } from '../lib/worktreeErrors'
 import { spawnErrorMessage } from '../lib/spawnErrors'
@@ -64,7 +67,7 @@ export type WorkbenchDeps = Pick<ReturnType<typeof useWorkbenchState>,
     'setSessions' | 't'> &
   Pick<ReturnType<typeof useSidebar>,
     'bindingsRef' | 'explorerOpenRef' | 'setExplorerOpen' | 'setKeyOverrides' | 'setSidebarOpen' | 'sidebarOpenRef' |
-    'setPage' | 'pageRef'> &
+    'setPage' | 'pageRef' | 'setActivity'> &
   Pick<ReturnType<typeof useHost>,
     'campaignRef' | 'checkClickedAt' | 'cliInstalled' | 'notifiedUpdateRef' | 'readyToastRef' | 'setAppVersion' |
     'setCampaign' | 'setCheckClickedAt' | 'setCli' | 'setCliInstalled' | 'setHostHolding' | 'setHostStatus' |
@@ -90,7 +93,7 @@ export function useWorkbench(deps: WorkbenchDeps) {
     setKeyOverrides, setLayout, setMdMode, setMdModes, setMediaNonces, setNewSessionCwd, setPendingReveal,
     setRecordTabs, setRemoteSessions, setRemoteStatus, setRollStates, setRunMenuOpen, setSchedStates, setScopedNode,
     setSessions, setShowNew, setSidebarOpen, setSwitcherOpen, setTalkSignal, setUpdate, setWorkUnitTrackingEnabled,
-    setWtRoot, settingsTouched, showSettings, sidebarOpenRef, t, tRef, update, setPage, pageRef, setNewOpen
+    setWtRoot, settingsTouched, showSettings, sidebarOpenRef, t, tRef, update, setPage, pageRef, setNewOpen, setActivity
   } = deps
   // W9-A: declared here, ahead of where App's body had them, because effects and handlers in this hook
   // (or an earlier one) read them; they are state and refs, so moving them up changes nothing that runs.
@@ -490,7 +493,8 @@ export function useWorkbench(deps: WorkbenchDeps) {
         e.preventDefault()
         e.stopPropagation()
         if (e.repeat) return
-        setSwitcherOpen((v) => !v)
+        requestBox('')
+        setCommandOpen((v) => !v) // the tab list is quick open's first section
         return
       }
       // W9-E: the New modal opens (or closes) like the switcher
@@ -521,11 +525,29 @@ export function useWorkbench(deps: WorkbenchDeps) {
         else toggleHiw()
         return
       }
-      // W9-B: Ctrl+1…6 open a page. A page is not a toggle: pressing the one on screen leaves it there.
-      if (action.startsWith('page.')) {
+      // DESIGN-W13 §9: the workbench chords. They go through navigation.ts, whose handlers hold the panel's state too.
+      if (action.startsWith('activity.')) {
         e.preventDefault()
         e.stopPropagation()
-        if (!e.repeat) goPage(action.slice('page.'.length) as PageId)
+        if (!e.repeat) openActivity(action.slice('activity.'.length) as ActivityId)
+        return
+      }
+      if (action === 'sidebar.toggle' || action === 'panel.toggle' || action === 'settings.open') {
+        e.preventDefault()
+        e.stopPropagation()
+        if (e.repeat) return
+        if (action === 'sidebar.toggle') toggleSideBar()
+        else if (action === 'panel.toggle') togglePanel()
+        else openView('settings')
+        return
+      }
+      // Ctrl+Shift+P is the command palette, Ctrl+P quick open: the same box, started with `>` or empty (command/boxStore.ts)
+      if (action === 'palette.open' || action === 'quickOpen') {
+        e.preventDefault()
+        e.stopPropagation()
+        if (e.repeat) return
+        requestBox(action === 'palette.open' ? '>' : '')
+        setCommandOpen((v) => !v)
         return
       }
       // Closing a file tab, same as closing a browser tab. When dirty, closeFileTab raises a
@@ -570,11 +592,10 @@ export function useWorkbench(deps: WorkbenchDeps) {
         e.stopPropagation()
         if (e.repeat) return
         if (action === 'run.selectConfig') {
-          // The toolbar (and its menu) is only rendered for an open project. Forcing the menu open
-          // with none open would arm it to spring open by itself the next time a project is opened,
-          // since RunConfigMenu is controlled and mounts already open.
+          // Without a project the Run view has no list to focus, and the flag would stay raised until
+          // the next project is opened and the list sprang into focus by itself.
           if (!currentProjectRef.current) return
-          setRunMenuOpen((v) => !v)
+          revealRunConfigs(() => setRunMenuOpen(true))
         } else if (action === 'run.run') runStartRef.current()
         else if (action === 'run.stop') runStopSelectionRef.current()
         else runRerunSelectedRef.current()
@@ -1146,6 +1167,12 @@ export function useWorkbench(deps: WorkbenchDeps) {
       dropTabFromTree(tabId)
       return
     }
+    if (ref.kind === 'view') {
+      // DESIGN-W13: a document, not a process. What it showed (Start's request, the open plan) is let go by
+      // shell/viewTabs.tsx's useViewTabSync when the tab leaves the tree.
+      dropTabFromTree(tabId)
+      return
+    }
     if (ref.kind === 'media') {
       // The tab id is the whole record (tabId's mediaTab): dropping it, and its reload nonce, is the
       // whole close; the viewer's slot unmounts with it
@@ -1449,18 +1476,20 @@ export function useWorkbench(deps: WorkbenchDeps) {
    *  (explorerOpen, jobsOpen, hiwOpen) follow the page that shows their view, and the page is kept for the next
    *  launch. Runs from the keydown listener too, which closes over the first render: hence pageRef. */
   const goPage = (id: PageId): void => {
-    const flags = viewFlagsOf(id)
     pageRef.current = id
     setPage(id)
-    setSidebarOpen(true)
-    setExplorerOpen(flags.explorer)
-    setJobsOpen(flags.jobs)
-    setHiwOpen(flags.understanding)
-    try {
-      localStorage.setItem(PAGE_STORAGE_KEY, id)
-    } catch {
-      // storage refused (private profile): the page still opens, it is only not remembered
-    }
+    // DESIGN-W13: a page is a side bar view now. Settings and the Inbox have none (a view tab, the panel): they leave it.
+    const to = activityOfSaved(id)
+    if (id !== 'settings' && !to.panelTab) showActivity(to.activity)
+  }
+  /** The side bar's view; the flags the app's effects read (explorerOpen, jobsOpen, hiwOpen) follow it, and it is kept
+   *  for the next launch. Whether the side bar shows is the caller's (openActivity shows it, goPage leaves it). */
+  const showActivity = (id: ActivityId): void => {
+    setActivity(id)
+    setExplorerOpen(id === 'explorer')
+    setJobsOpen(id === 'plans')
+    setHiwOpen(id === 'history')
+    storageWrite(ACTIVITY_STORAGE_KEY, id)
   }
   /** The old sidebar views' keys: open the view's page, or go back to Agents from it (togglePage). */
   const toggleSidebar = (view: 'explorer' | 'jobs' | 'understanding' | 'sessions'): void => {
@@ -1468,7 +1497,7 @@ export function useWorkbench(deps: WorkbenchDeps) {
     goPage(togglePage(pageRef.current, target))
   }
   /** Shows the explorer whatever was showing: a folder link's reveal needs it open, never toggled shut. */
-  const showExplorer = (): void => goPage('files')
+  const showExplorer = (): void => openActivity('explorer')
   const toggleSessions = (): void => toggleSidebar('sessions')
   const toggleExplorer = (): void => toggleSidebar('explorer')
   const toggleJobs = (): void => toggleSidebar('jobs')
@@ -1683,7 +1712,7 @@ export function useWorkbench(deps: WorkbenchDeps) {
     isMarkdownPath, openWorkspaceSlotRef, closeAgentTabRef, currentProjectRef, spawn, openFile, openLinkedPath,
     openProjectFile, retireEditorState, setBufferContent, saveFile, reloadBufferFromDisk, dropTabFromTree,
     openRemoteSession, selectWorkbenchTab, closeWorkbenchTab, handlePathRenamed, handlePathDeleted, closeExplorer,
-    goPage, toggleSidebar, showExplorer, toggleSessions, toggleExplorer, toggleJobs, toggleHiw, dropOnPane, canStart,
+    goPage, showActivity, toggleSidebar, showExplorer, toggleSessions, toggleExplorer, toggleJobs, toggleHiw, dropOnPane, canStart,
     newInGroup, dropTabInGroup, unsplitPane, restart, resumeFromHistory, active, runningCount, updateChecking,
     dirtyIds
   }

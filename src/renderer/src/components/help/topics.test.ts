@@ -52,7 +52,7 @@ describe('help topics', () => {
   it('search keeps topics holding every word, in any case and order', () => {
     expect(filterTopics(TOPICS, '', t, shortcuts)).toHaveLength(TOPICS.length)
     expect(filterTopics(TOPICS, 'PULL request', t, shortcuts).map((x) => x.id)).toContain('delivery')
-    expect(filterTopics(TOPICS, 'ctrl shift', t, shortcuts).map((x) => x.id)).toEqual(['shortcuts'])
+    expect(filterTopics(TOPICS, 'ctrl+shift+n', t, shortcuts).map((x) => x.id)).toEqual(['shortcuts'])
     expect(filterTopics(TOPICS, 'zzzqqq', t, shortcuts)).toEqual([])
   })
 

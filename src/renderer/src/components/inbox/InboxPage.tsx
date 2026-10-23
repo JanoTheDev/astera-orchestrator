@@ -1,51 +1,35 @@
-// W9-D Inbox page, restyled for W11 (DESIGN-W11 §7, §9 "Inbox"): PageHeader with the group filter, then two columns.
-// Left, "Needs you": plan approvals, questions, escalations, Gates and permission waits, oldest first, each answered
-// here. Right, "Handled for you": the W3-A feed, one line per event grouped by day.
-// A permission prompt stays in the real CLI (CONTEXT rule 6), so its card only opens the console.
+// DESIGN-W13 §6: the bottom panel's Needs you tab (the former Inbox page). One compact row per decision: kind icon and
+// word, "project › plan · task", age, and its one action (Approve / Answer / Open). A click on the row expands it to
+// the question or gate with its answers inline. "Handled for you" lives in the Activity tab. A permission prompt stays
+// in the real CLI (CONTEXT rule 6), so its row only opens the console.
 import { useEffect, useMemo, useState } from 'react'
-import type { Account } from '../../../../core/types'
-import type { MessageKey } from '../../../../core/i18n'
 import { useI18n } from '../../i18n/I18nProvider'
 import { approvePlan, type ActionUi } from '../../lib/jobActions'
 import { localDoor, replyNote } from '../../lib/orchDoor'
-import { Button, Card, Chip, EmptyState, ICONS, Icon, IconButton, PageHeader, Tabs, type IconName, type TabItem } from '../ui'
+import { Button, Chip, Icon, IconButton, Tabs, type IconName } from '../ui'
 import { openConsole, openPlan } from '../shell/navigation'
 import { QuestionAnswer } from '../plan/QuestionAnswer'
-import type { WorkspaceData, WorkspaceProject } from '../../state/workspaceTree'
-import type { Tone } from '../activity/activityView'
-import { setInboxFilter, useInboxRequest } from './inboxNav'
-import { NEED_WORD, ageOf, byDay, filterNeeds, handledOf, whereOf, type HandledLine, type InboxGroup, type NeedCard } from './inboxView'
-import { useInbox } from './useInbox'
+import { setInboxFilter, useInboxRequest, type OpenTarget, openTargetOf, revealTask } from './inboxNav'
+import { toggleAllProjects } from './bellStore'
+import { BELL_ACTION_LABEL, bellActionOf } from './bellView'
+import { NEED_WORD, ageOf, filterNeeds, whereOf, type NeedCard, type NeedKind } from './inboxView'
+import { useNeedsYou, type NeedsYouScope } from './useNeedsYou'
 import './inbox.css'
 
-const GROUPS: Array<[InboxGroup, MessageKey]> = [
-  ['all', 'wall.filter.all'],
-  ['approvals', 'inbox.group.approvals'],
-  ['questions', 'inbox.group.questions'],
-  ['permissions', 'inbox.group.permissions'],
-  ['handled', 'inbox.group.handled']
-]
+const KIND_ICON: Record<NeedKind, IconName> = { approval: 'listTree', question: 'message', gate: 'message', escalation: 'warning', permission: 'terminal', waiting: 'waiting' }
 
-/** Status needs a second cue (DESIGN-W11 §2): each feed line leads with its tone's icon. */
-const TONE_ICON: Record<Tone, IconName> = { ok: 'done', bad: 'error', warn: 'warning', info: 'pending' }
+/** Goes where an Open leads. A Task opens the plan at its section (`task-<id>`): the Task's step opens and its row
+ *  expands (PlanPage's anchor), then revealTask centres the card (a card in a folded step is not drawn until then). */
+export function goTo(target: OpenTarget): void {
+  if (target.kind === 'console') return openConsole(target.sessionId)
+  openPlan(target.jobId, target.taskId !== undefined ? `task-${target.taskId}` : undefined)
+  if (target.taskId !== undefined) revealTask(target.taskId)
+}
 
-const timeOf = (iso: string): string => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-
-export function InboxPage({
-  tree,
-  data,
-  accounts,
-  ui
-}: {
-  tree: readonly WorkspaceProject[]
-  data: WorkspaceData | null
-  accounts: Account[] | null
-  /** The app's Job action ui (confirm dialogs, toasts), for Approve. */
-  ui: ActionUi
-}): React.JSX.Element {
-  const { t, lang } = useI18n()
+export function InboxPage({ scope, ui }: { scope: NeedsYouScope; /** The app's Job action ui (confirm dialogs, toasts), for Approve. */ ui: ActionUi }): React.JSX.Element {
+  const { t } = useI18n()
   const { filter } = useInboxRequest()
-  const { needs, events, pathOfJob } = useInbox(tree, data)
+  const { needs, pathOfJob, many, allProjects } = useNeedsYou(scope, true)
   const [nowMs, setNowMs] = useState(() => Date.now())
   useEffect(() => {
     const timer = setInterval(() => setNowMs(Date.now()), 30_000)
@@ -53,91 +37,45 @@ export function InboxPage({
   }, [])
 
   const shown = useMemo(() => filterNeeds(needs, filter), [needs, filter])
-  const label = (id: string): string => accounts?.find((a) => a.id === id)?.label ?? id
-  const handled = useMemo(() => handledOf(events, filter, label, undefined, lang), [events, filter, accounts, lang]) // eslint-disable-line react-hooks/exhaustive-deps
-  const days = useMemo(() => byDay(handled, nowMs, t), [handled, nowMs, t])
-  const tabs: TabItem<InboxGroup>[] = GROUPS.map(([id, key]) => {
-    const n = id === 'handled' ? handled.length : filterNeeds(needs, { ...filter, group: id }).length
-    return { id, label: t(key), ...(n > 0 ? { count: n } : {}) }
-  })
-  const planName = filter.planId !== undefined ? (tree.flatMap((p) => p.plans).find((pl) => pl.jobId === filter.planId)?.name ?? t('inbox.onePlan')) : null
-
-  const doorOf = (jobId: string) => localDoor(window.api, pathOfJob.get(jobId) ?? tree[0]?.path ?? '')
+  const planName = filter.planId !== undefined ? (needs.find((c) => c.jobId === filter.planId)?.planName ?? t('inbox.onePlan')) : null
+  const doorOf = (jobId: string) => localDoor(window.api, pathOfJob.get(jobId) ?? scope.scopedTree[0]?.path ?? '')
 
   return (
-    <div className="inbox">
-      <PageHeader
-        title={t('shell.page.inbox')}
-        subtitle={needs.length > 0 ? t('inbox.needsCount', { n: needs.length }) : undefined}
-        filters={
-          <>
-            <Tabs items={tabs} value={filter.group} onChange={(group) => setInboxFilter({ ...filter, group })} variant="segmented" label={t('inbox.filter')} />
-            {planName !== null && (
-              <Chip tone="info" className="inbox__plan-chip">
-                {planName}
-                <IconButton size="sm" icon={<Icon name="close" size={14} />} label={t('inbox.allPlans')} onClick={() => setInboxFilter({ group: filter.group })} />
-              </Chip>
-            )}
-          </>
-        }
-      />
-      {shown.length === 0 && handled.length === 0 ? (
-        <EmptyState icon={ICONS.inbox} title={t('inbox.empty.title')}>
-          {t('inbox.empty.text')}
-        </EmptyState>
-      ) : (
-        <div className={`inbox__cols${shown.length === 0 ? ' inbox__cols--quiet' : ''}`}>
-          <section className="inbox__col inbox__col--needs" aria-label={t('wall.filter.needs')}>
-            <h2 className="inbox__h">
-              {t('wall.filter.needs')}
-              {shown.length > 0 && <span className="inbox__count">{shown.length}</span>}
-            </h2>
-            {shown.length === 0 ? (
-              <p className="inbox__none">
-                <Icon name="done" size={14} />
-                {filter.group === 'handled' ? t('inbox.showingHandled') : t('inbox.nothingNeeds')}
-              </p>
-            ) : (
-              <ul className="inbox__list">
-                {shown.map((c) => (
-                  <li key={c.key}>
-                    <NeedCardView c={c} nowMs={nowMs} door={doorOf(c.jobId)} ui={ui} t={t} />
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-          <section className="inbox__col inbox__col--handled" aria-label={t('inbox.handled')}>
-            <h2 className="inbox__h">{t('inbox.handled')}</h2>
-            {handled.length === 0 && <p className="inbox__none">{t('inbox.handledEmpty')}</p>}
-            {days.map((d) => (
-              <div key={d.day} className="inbox__day">
-                <h3 className="inbox__day-h">{d.label}</h3>
-                <ul className="inbox__feed">
-                  {d.lines.map((l) => (
-                    <HandledRow key={l.id} l={l} t={t} />
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </section>
+    <div className="needs">
+      {(many || planName !== null) && (
+        <div className="needs__bar">
+          {many && (
+            <Tabs
+              items={[
+                { id: 'project', label: t('inbox.scope.project') },
+                { id: 'all', label: t('bell.allProjects') }
+              ]}
+              value={allProjects ? 'all' : 'project'}
+              onChange={(id) => (id === 'all') !== allProjects && toggleAllProjects()}
+              variant="segmented"
+              label={t('inbox.filter')}
+            />
+          )}
+          {planName !== null && (
+            <Chip tone="info" className="inbox__plan-chip">
+              {planName}
+              <IconButton size="sm" icon={<Icon name="close" size={14} />} label={t('inbox.allPlans')} onClick={() => setInboxFilter({ group: filter.group })} />
+            </Chip>
+          )}
         </div>
       )}
+      {shown.length === 0 ? (
+        <p className="needs__none">{t('inbox.empty.line')}</p>
+      ) : (
+        <ul className="needs__list">
+          {shown.map((c) => (
+            <li key={c.key}>
+              <NeedCardView c={c} nowMs={nowMs} door={doorOf(c.jobId)} ui={ui} t={t} />
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
-  )
-}
-
-/** One handled event: icon, what happened, its plan, the time. The full text and who did it show in the row's tooltip. */
-function HandledRow({ l, t }: { l: HandledLine; t: ReturnType<typeof useI18n>['t'] }): React.JSX.Element {
-  const title = [l.text, l.who, l.sessionId ? t('inbox.openConsole') : ''].filter(Boolean).join('\n')
-  return (
-    <li className={`inbox__line inbox__line--${l.tone}`}>
-      <Button variant="ghost" className="inbox__line-row" disabled={l.sessionId === undefined} title={title} icon={<Icon name={TONE_ICON[l.tone]} size={14} className="inbox__tone" />} onClick={() => l.sessionId && openConsole(l.sessionId)}>
-        <span className="inbox__text">{l.text}</span>
-        {l.plan && <span className="inbox__plan">{l.plan}</span>}
-        <span className="inbox__time">{timeOf(l.at)}</span>
-      </Button>
-    </li>
   )
 }
 
@@ -146,16 +84,21 @@ export function NeedCardView({
   nowMs,
   door,
   ui,
-  t
+  t,
+  open: startOpen = false
 }: {
   c: NeedCard
   nowMs: number
   door: ReturnType<typeof localDoor>
   ui: ActionUi
   t: ReturnType<typeof useI18n>['t']
+  /** Starts expanded (the markup tests). */
+  open?: boolean
 }): React.JSX.Element {
   const [word, tone] = NEED_WORD[c.kind]
   const [busy, setBusy] = useState(false)
+  const [open, setOpen] = useState(startOpen)
+  const action = bellActionOf(c)
   const run = async (fn: () => Promise<unknown>): Promise<void> => {
     setBusy(true)
     try {
@@ -172,13 +115,24 @@ export function NeedCardView({
   const others = [...new Map((c.overlaps ?? []).map((o) => [o.otherJobId, o.otherPlanName])).entries()]
 
   return (
-    <Card tone={c.kind === 'escalation' ? 'danger' : 'need'} className="inbox__card">
-      <div className="inbox__card-head">
-        <Chip tone={tone}>{t(word)}</Chip>
-        <span className="inbox__where">{whereOf(c.projectName, c.planName, c.taskTitle)}</span>
-        <span className="inbox__age">{ageOf(c.at, nowMs, t)}</span>
+    <div className={`needs-row${open ? ' needs-row--open' : ''}${c.kind === 'escalation' ? ' needs-row--danger' : ''}`}>
+      <div className="needs-row__head">
+        <Button variant="ghost" size="sm" className="needs-row__toggle" aria-expanded={open} icon={<Icon name={open ? 'chevronDown' : 'chevronRight'} size={14} />} onClick={() => setOpen((v) => !v)}>
+          <Icon name={KIND_ICON[c.kind]} size={14} className={`needs-row__kind needs-row__kind--${tone}`} />
+          <span className="needs-row__word">{t(word)}</span>
+          <span className="inbox__where">{whereOf(c.projectName, c.planName, c.taskTitle)}</span>
+          <span className="inbox__age">{ageOf(c.at, nowMs, t)}</span>
+        </Button>
+        <Button
+          size="sm"
+          variant={action === 'approve' ? 'primary' : 'secondary'}
+          disabled={busy}
+          onClick={() => (action === 'approve' ? void run(() => approvePlan(door, c.jobId, c.planName, ui)) : action === 'answer' ? setOpen(true) : goTo(openTargetOf(c)))}
+        >
+          {t(BELL_ACTION_LABEL[action])}
+        </Button>
       </div>
-
+      {open && <div className="needs-row__body">
       {c.q && (
         <>
           <QuestionAnswer
@@ -194,7 +148,7 @@ export function NeedCardView({
                 {t('inbox.openConsole')}
               </Button>
             )}
-            <Button size="sm" variant="ghost" onClick={() => openPlan(c.jobId)}>
+            <Button size="sm" variant="ghost" onClick={() => goTo(openTargetOf(c))}>
               {t('inbox.openPlan')}
             </Button>
           </div>
@@ -251,6 +205,7 @@ export function NeedCardView({
           </div>
         </>
       )}
-    </Card>
+      </div>}
+    </div>
   )
 }

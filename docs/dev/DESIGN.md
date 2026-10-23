@@ -31,6 +31,8 @@ Rules every screen follows:
 
 ## 1. Shell
 
+> Superseded: the "no icon rail and no persistent sidebar" rule below is replaced by DESIGN-W13.md (VSCode workbench), 2026-10.
+
 The window is 1440×900 in the mockup. The layout must hold down to 1024×640, where the page tabs collapse into a
 "Pages ▾" menu.
 

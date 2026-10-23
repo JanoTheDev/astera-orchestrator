@@ -2,7 +2,7 @@
 // projects, then every project with its running tabs (a count only when there are some), a dot while one waits for the
 // owner, its Ctrl+Alt+N key and a check on the open one, each row with its own new-window and settings actions on
 // hover, then the W7-B project tools. switcherItems stays the one list of actions; the popover only lays it out.
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Attention, SessionInfo } from '../../../../core/types'
 import { OTHER_WORKSPACE, workspaceSummaries, type WorkspaceProject } from '../../state/workspaceTree'
 import { switcherName } from '../../state/projectScope'
@@ -72,6 +72,10 @@ export function matchesProject(name: string, query: string): boolean {
   return q === '' || name.toLowerCase().includes(q)
 }
 
+const openers = new Set<() => void>()
+/** DESIGN-W13 §7: the status bar's project item opens the title bar's switcher. */
+export const openProjectSwitcher = (): void => openers.forEach((f) => f())
+
 /** The button and its searchable panel. On the house Popover: outside click and Esc close (Esc refocuses the button),
  *  ArrowUp/Down/Home/End move over the `data-roving` controls (the search field first, then each row and its actions).
  *  In the field Home/End keep the caret and Enter opens the first match; Tab closes the panel. */
@@ -80,6 +84,11 @@ export function ProjectSwitcher(p: SwitcherProps): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const root = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const show = (): void => setOpen(true)
+    openers.add(show)
+    return () => void openers.delete(show)
+  }, [])
   const label = switcherName(p.selectedId, p.tree, p.selectedId ? sticky.readName(p.selectedId) : null)
   const name = label.kind === 'all' ? t('wall.scope.all') : label.kind === 'other' ? t('shell.switcher.other') : label.kind === 'name' ? label.name : t('shell.switcher.label')
   const rows = workspaceSummaries(p.tree, p.byWorkspace, p.sessions, p.attention)

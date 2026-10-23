@@ -21,6 +21,7 @@ export const files: Partial<Record<keyof typeof ko, string>> = {
   'files.op.busy': 'Trabajando…',
   // FileExplorer.tsx — panel header, context menu
   'explorer.title': 'Explorador',
+  'explorer.files': 'Archivos',
   'explorer.noActiveSession': 'No hay ninguna sesión activa',
   // Folder state shown inside the tree (the .fx-note row)
   'explorer.dir.loading': 'Cargando…',
@@ -48,6 +49,7 @@ export const files: Partial<Record<keyof typeof ko, string>> = {
   'explorer.git.modified': 'Modificado',
   'explorer.git.deleted': 'Eliminado',
   'explorer.git.conflict': 'Conflicto',
+  'explorer.git.renamed': 'Renombrado',
   'explorer.git.folderCount': '{count} cambios',
   'explorer.git.unavailable': 'Estado de git no disponible: se muestra el último resultado',
   'explorer.view.all': 'Todos',

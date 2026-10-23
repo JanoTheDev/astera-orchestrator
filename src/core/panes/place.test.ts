@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { placeTab } from './place'
+import { placeTab, placeViewTab } from './place'
 import {
   MAX_PANES,
   addTab,
@@ -264,5 +264,27 @@ describe('placeTab — splitDir (Ctrl+\\ 가 예약한 분할)', () => {
     expect(countLeaves(res.root)).toBe(4)
     expect(groupOfTab(res.root, 's1')!.id).toBe(ids[0]) // s1은 원래 그룹에 남는다
     assertInvariants(res.root, ['s1', 's2', 's3', 'sNew'])
+  })
+})
+
+describe('placeViewTab', () => {
+  it('creates a group on an empty tree', () => {
+    const r = placeViewTab(null, 'view:welcome')
+    assertInvariants(r.root, ['view:welcome'])
+    expect(r.paneId).toBe(firstLeaf(r.root).id)
+  })
+  it('adds to the active group', () => {
+    const { root, ids } = threePane()
+    const r = placeViewTab(root, 'view:wall', ids[1])
+    assertInvariants(r.root, ['s1', 's2', 's3', 'view:wall'])
+    expect(groupOfTab(r.root, 'view:wall')?.id).toBe(ids[1])
+    expect(r.paneId).toBe(ids[1])
+  })
+  it('focuses an existing view tab in any group instead of adding a second', () => {
+    const { root, ids } = threePane()
+    const once = placeViewTab(root, 'view:wall', ids[0])
+    const r = placeViewTab(once.root, 'view:wall', ids[2])
+    assertInvariants(r.root, ['s1', 's2', 's3', 'view:wall'])
+    expect(r.paneId).toBe(ids[0])
   })
 })

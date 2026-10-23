@@ -1,5 +1,6 @@
 // T9: what the top bar's notification bell shows (DESIGN-W11 §8 "Bell"). Pure, so the node-only suite reaches it; the
 // cards and lines are the Inbox's own (inboxView.ts), so the bell and "View all" never disagree.
+import type { MessageKey } from '../../../../core/i18n'
 import { OTHER_WORKSPACE, type WorkspaceProject } from '../../state/workspaceTree'
 import type { HandledLine, NeedCard } from './inboxView'
 
@@ -31,6 +32,8 @@ export function bellActionOf(c: NeedCard): BellAction {
   if (c.kind === 'approval') return 'approve'
   return c.kind === 'permission' || c.kind === 'waiting' ? 'open' : 'answer'
 }
+
+export const BELL_ACTION_LABEL: Record<BellAction, MessageKey> = { answer: 'bell.answer', approve: 'bell.approve', open: 'bell.open' }
 
 /** "All projects" is offered only when there is more than one project to widen to. */
 export const offersAllProjects = (tree: readonly WorkspaceProject[]): boolean => tree.filter((p) => p.id !== OTHER_WORKSPACE).length > 1

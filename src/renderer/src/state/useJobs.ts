@@ -491,7 +491,8 @@ export function useJobs(deps: JobsDeps) {
   // the same chain: while it is open the shortcuts must not reach the workbench behind it.
   // newRunOpen joins for the same reason — it has a text input (objective), and without this a global
   // shortcut key would reach the workbench behind the modal while that field has focus.
-  modalOpenRef.current = modalOpenRef.current || runManagerVisible || openRun !== null || newRunOpen || remoteNewRunOpen || sourceJobOpen !== null
+  // DESIGN-W13: an open plan is an editor tab now, not a window over the workbench, so it no longer holds the keys.
+  modalOpenRef.current = modalOpenRef.current || runManagerVisible || newRunOpen || remoteNewRunOpen || sourceJobOpen !== null
   currentProjectRef.current = currentProject
 
   /** A folder a terminal link named (D2, 2026-10-14). The explorer shows the current project, so a folder under it is

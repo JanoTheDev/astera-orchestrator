@@ -5,11 +5,15 @@
 import { useEffect, useState } from 'react'
 import type { CrashOffer, RENDERER_KINDS } from '../../../core/crash/report'
 import { Button, Modal } from './ui'
+import { ErrorDetails } from './ErrorScreen'
 import { useI18n } from '../i18n/I18nProvider'
 import './search/errorScreen.css'
 
 /** What the renderer sends about its own error: name and stack, never the message (it can carry a token). */
-export function errorShapeOf(kind: (typeof RENDERER_KINDS)[number], err: unknown): { kind: (typeof RENDERER_KINDS)[number]; name: string; stack: string } {
+export function errorShapeOf(
+  kind: (typeof RENDERER_KINDS)[number],
+  err: unknown
+): { kind: (typeof RENDERER_KINDS)[number]; name: string; stack: string } {
   return err instanceof Error ? { kind, name: err.name, stack: err.stack ?? '' } : { kind, name: typeof err, stack: '' }
 }
 
@@ -19,7 +23,15 @@ export const reportRendererError = (kind: (typeof RENDERER_KINDS)[number], err: 
   window.api.crash.report(errorShapeOf(kind, err)).catch(() => null)
 
 /** `onNever` closes after Never ask; defaults to `onClose` (a queue passes one that drops the rest too). */
-export function CrashReportPrompt({ offer, onClose, onNever }: { offer: CrashOffer; onClose: () => void; onNever?: () => void }): React.JSX.Element {
+export function CrashReportPrompt({
+  offer,
+  onClose,
+  onNever
+}: {
+  offer: CrashOffer
+  onClose: () => void
+  onNever?: () => void
+}): React.JSX.Element {
   const { t } = useI18n()
   return (
     <Modal
@@ -50,13 +62,11 @@ export function CrashReportPrompt({ offer, onClose, onNever }: { offer: CrashOff
         </>
       }
     >
-      <p className="confirm-text">{t('crash.prompt.intro')}</p>
-      <pre className="err-screen__details" style={{ width: '100%', maxHeight: 320 }} tabIndex={0} aria-label={t('crash.prompt.reportLabel')}>
-        {`${offer.title}\n\n${offer.body}`}
-      </pre>
-      <p className="confirm-text" style={{ marginTop: 12, marginBottom: 0, color: 'var(--text-dim)' }}>
-        {t('crash.prompt.kept')}
-      </p>
+      <div className="dlg">
+        <p className="confirm-text">{t('crash.prompt.intro')}</p>
+        <ErrorDetails label={t('crash.prompt.reportLabel')} text={`${offer.title}\n\n${offer.body}`} defaultOpen />
+        <p className="modal-hint">{t('crash.prompt.kept')}</p>
+      </div>
     </Modal>
   )
 }
@@ -90,5 +100,12 @@ export function CrashReportHost(): React.JSX.Element | null {
 
   const offer = queue[0]
   if (!offer) return null
-  return <CrashReportPrompt key={offer.id} offer={offer} onClose={() => setQueue((q) => q.slice(1))} onNever={() => setQueue([])} />
+  return (
+    <CrashReportPrompt
+      key={offer.id}
+      offer={offer}
+      onClose={() => setQueue((q) => q.slice(1))}
+      onNever={() => setQueue([])}
+    />
+  )
 }

@@ -5,6 +5,7 @@ import { GeneratorSettings } from '../GeneratorSettings'
 import { toast } from '../../lib/toast'
 import { SettingRow, type GroupProps } from './SettingRow'
 import { Button, Icon, Switch, Tooltip } from '../ui'
+import { SettingItem } from './SettingItem'
 
 export function AdvancedSettings(p: GroupProps): React.JSX.Element | null {
   const { shown, only, setWorkUnitTrackingEnabled, setWtRoot, settingsTouched, t, workUnitTrackingEnabled, wtRoot } = p
@@ -19,11 +20,8 @@ export function AdvancedSettings(p: GroupProps): React.JSX.Element | null {
             in the agent tab, and the same optimistic-update-then-revert-on-failure
             behaviour. Off by default: nothing is read from before the moment this is
             turned on. */}
-        <SettingRow a="workUnit" only={only}>
-          <div className="settings-group">
-            <label className="settings-row">
-              <span>{t('settings.workUnit.label')}</span>
-              <Switch
+        <SettingRow a="workUnit" only={only} modified={workUnitTrackingEnabled}>
+          <SettingItem title={t('settings.workUnit.label')} hint={t('settings.workUnit.hint')} control={<Switch aria-label={t('settings.workUnit.label')}
                 checked={workUnitTrackingEnabled}
                 onChange={(next) => {
                   settingsTouched.current.touch('workUnits')
@@ -37,10 +35,7 @@ export function AdvancedSettings(p: GroupProps): React.JSX.Element | null {
                     )
                   })
                 }}
-              />
-            </label>
-            <span className="settings-hint">{t('settings.workUnit.hint')}</span>
-          </div>
+              />} />
         </SettingRow>
         <SettingRow a="generator" only={only}>
           <GeneratorSettings />

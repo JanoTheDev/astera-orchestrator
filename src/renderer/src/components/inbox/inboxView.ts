@@ -206,6 +206,7 @@ export interface HandledLine {
   /** The plan the line belongs to; the Task's title when the line is about a Task (W11 Inbox). */
   plan?: string
   task?: string
+  taskId?: string
   sessionId?: string
   jobId?: string
 }
@@ -225,7 +226,9 @@ export function handledOf(events: readonly ActivityEvent[], f: InboxFilter, acco
         tone,
         ...(e.payload.plan !== undefined ? { plan: e.payload.plan } : {}),
         ...(e.taskId !== undefined && e.payload.title !== e.payload.plan ? { task: e.payload.title } : {}),
-        ...(e.sessionId !== undefined && e.jobId !== undefined ? { sessionId: e.sessionId, jobId: e.jobId } : {})
+        ...(e.taskId !== undefined ? { taskId: e.taskId } : {}),
+        ...(e.sessionId !== undefined ? { sessionId: e.sessionId } : {}),
+        ...(e.jobId !== undefined ? { jobId: e.jobId } : {})
       }
     })
 }

@@ -2,7 +2,7 @@
 // it. A module store, because the page is mounted from the shell and the caller can be anywhere (a console's details
 // panel, a Task card).
 import { useSyncExternalStore } from 'react'
-import type { WorktreeRow } from '../../../../core/worktrees/cleanup'
+import { groupWorktrees, type WorktreeRow } from '../../../../core/worktrees/cleanup'
 import type { WorktreeStatus } from '../../../../core/types'
 
 export interface WorktreeViewState {
@@ -66,3 +66,20 @@ export function filterWorktrees(rows: readonly WorktreeRow[], query: string, rea
 
 /** The row's state chip: a live session wins, then a merged owner. Null draws none (the group heading says the rest). */
 export const rowState = (r: WorktreeRow): 'active' | 'merged' | null => (r.live ? 'active' : r.owner?.merged ? 'merged' : null)
+
+/** One row of the Source Control tree; `trouble` is the status git could not vouch for, null for a reachable one. */
+export interface WorktreeEntry {
+  row: WorktreeRow
+  trouble: Exclude<WorktreeStatus, 'ok'> | null
+}
+
+/** The Source Control tree's rows: the reachable ones first (plan by plan, then ready to clean up, then yours), the
+ *  rows git could not vouch for last, grouped by status. */
+export function worktreeEntries(f: WorktreeFilterResult): WorktreeEntry[] {
+  const g = groupWorktrees(f.reachable)
+  const reachable = [...g.plans.flatMap((p) => p.rows), ...g.ready, ...g.yours]
+  return [
+    ...reachable.map((row) => ({ row, trouble: null })),
+    ...f.trouble.flatMap((t) => t.rows.map((row) => ({ row, trouble: t.status })))
+  ]
+}

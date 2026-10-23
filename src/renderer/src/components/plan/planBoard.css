@@ -43,10 +43,8 @@
 
 /* W12 plan steps: the board's and the graph's controls are ui Buttons; these keep them the size of the old text links. */
 .plan-waves .plan-card-title.ui-btn { height: auto; justify-content: flex-start; padding: 0; color: var(--text); font-weight: var(--fw-medium); }
-.plan-waves .plan-link.ui-btn { height: auto; padding: 0; background: none; color: var(--accent); font-size: var(--fs-11); }
+.plan-waves .plan-link.ui-btn { height: auto; padding: 0; background: none; color: var(--link); font-size: var(--fs-11); }
 .plan-waves .plan-link.ui-btn:hover:not(:disabled) { background: none; text-decoration: underline; }
-.plan-wave-folded .plan-wave-fold.ui-btn { align-self: flex-start; }
-.plan-wave-head .plan-wave-fold { margin-left: auto; }
 .plan-card-meta dd:has(.ui-tip) { overflow: visible; }
 .plan-card-meta .ui-tip { max-width: 100%; min-width: 0; }
 .plan-card-meta .branch-link.ui-btn { height: auto; max-width: 100%; padding: 0; background: none; color: var(--accent); font-size: var(--fs-11); }

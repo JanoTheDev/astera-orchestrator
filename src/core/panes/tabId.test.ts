@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { appTab, browserTab, recordTab, fileTab, parseTab, sessionTab, remoteSessionKey, parseRemoteSessionKey, isRemoteSessionKey } from './tabId'
+import { appTab, browserTab, recordTab, fileTab, parseTab, sessionTab, remoteSessionKey, parseRemoteSessionKey, isRemoteSessionKey, viewTab, parseViewTab } from './tabId'
 
 describe('tabId', () => {
   it('세션 탭 id를 만들고 되읽는다', () => {
@@ -64,5 +64,27 @@ describe('tabId', () => {
     expect(isRemoteSessionKey('term_1')).toBe(false)
     expect(parseRemoteSessionKey(':s1')).toBeNull()
     expect(parseRemoteSessionKey('rt_1:')).toBeNull()
+  })
+})
+
+describe('view tabs', () => {
+  it('round trips a name, with and without an arg', () => {
+    expect(viewTab('welcome')).toBe('view:welcome')
+    expect(parseViewTab('view:welcome')).toEqual({ name: 'welcome' })
+    expect(parseTab('view:welcome')).toEqual({ kind: 'view', id: 'welcome' })
+    expect(viewTab('plan', 'p1')).toBe('view:plan:p1')
+    expect(parseViewTab('view:plan:p1')).toEqual({ name: 'plan', arg: 'p1' })
+  })
+  it('keeps the colons of a Windows path arg', () => {
+    const id = viewTab('worktree', 'D:\\repo\\wt')
+    expect(parseViewTab(id)).toEqual({ name: 'worktree', arg: 'D:\\repo\\wt' })
+  })
+  it('an unknown name or another kind is null, never a throw', () => {
+    expect(parseViewTab('view:nope')).toBeNull()
+    expect(parseViewTab('view:nope:x')).toBeNull()
+    expect(parseViewTab('view:plan:')).toBeNull()
+    expect(parseViewTab('view:')).toBeNull()
+    expect(parseViewTab('file:a.ts')).toBeNull()
+    expect(parseViewTab('junk')).toBeNull()
   })
 })

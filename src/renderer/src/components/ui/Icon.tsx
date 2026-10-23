@@ -97,6 +97,12 @@ import {
   WrenchOff,
   X,
   XCircle,
+  CircleAlert,
+  CircleUser,
+  LayoutGrid,
+  ListTree,
+  Sparkles,
+  Target,
   type LucideIcon
 } from 'lucide-react'
 
@@ -204,6 +210,13 @@ export const ICONS = {
   waiting: Hourglass,
   warning: AlertTriangle,
   web: Globe,
+  circleAlert: CircleAlert,
+  circleUser: CircleUser,
+  layoutGrid: LayoutGrid,
+  listTree: ListTree,
+  sparkles: Sparkles,
+  target: Target,
+  terminalSquare: SquareTerminal,
   wholeWord: WholeWord
 } satisfies Record<string, LucideIcon>
 

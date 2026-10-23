@@ -58,3 +58,11 @@
 .fe-find-count { flex: none; min-width: 56px; text-align: right; font-size: var(--fs-11); color: var(--text-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .fe-find-count.bad { color: var(--danger); }
 .fe-find-sep { flex: none; width: 1px; height: 16px; background: var(--line-soft); margin: 0 1px; }
+
+/* Day: oneDark's text colours are made for a dark ground (light grey #abb2bf on the light --md-code-bg read as nearly
+   blank). The extension is not rebuilt (that drops the undo history), so the content is inverted back: light ink
+   turns dark and hue-rotate 180deg puts the syntax hues back where they were. The gutters and the current-line
+   gutter are plain boxes, set from tokens. Night and Dusk keep oneDark as it is. */
+:root[data-theme='day'] .file-editor .cm-content { filter: invert(.9) hue-rotate(180deg); }
+:root[data-theme='day'] .file-editor .cm-gutters { color: var(--text-faint); border-right: 1px solid var(--line-soft); }
+:root[data-theme='day'] .file-editor .cm-activeLineGutter { background: var(--hover); color: var(--text); }
