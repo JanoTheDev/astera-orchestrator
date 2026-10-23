@@ -1,6 +1,7 @@
 // T7 Plans view (DESIGN-W13 §4 "Plans"): the one tree Plan › Step › Task, grouped by plan, by Task status (the old All
 // tasks board) or by area (the old By area list), with the old Overlap tab as a warning on the rows that overlap. Pure,
 // so the node-only test suite reaches it; views/PlansView.tsx draws the rows. Also the `#task-<id>` / `#settings`
+// anchors that the plan tab scrolls to.
 import type { MessageKey, MessageParams } from '../../../../core/i18n'
 import type { JobRow, JobTask } from '../../../../core/types'
 import { jobName } from '../../lib/jobName'

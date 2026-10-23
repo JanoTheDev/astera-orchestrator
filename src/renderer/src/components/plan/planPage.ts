@@ -173,6 +173,12 @@ export function planAnchorOf(section: PlanSection | undefined): PlanAnchor | nul
   return { kind: 'task', taskId: section.slice('task-'.length) }
 }
 
+/** The plan page's open: its section and `seq`, which counts the opens. Opening the section it already shows is still
+ *  a new open, so the anchor scroll keys on `seq`, not on the section alone (PlanPage.tsx). */
+export type PlanOpen = { section?: PlanSection; seq: number }
+
+export const nextPlanOpen = (prev: PlanOpen, section?: PlanSection): PlanOpen => ({ section, seq: prev.seq + 1 })
+
 /** The element id an anchor scrolls to; each section and Task row of the plan tab carries its own. */
 export const planAnchorId = (a: PlanAnchor): string => (a.kind === 'task' ? taskAnchorId(a.taskId) : `plan-${a.kind}`)
 export const taskAnchorId = (taskId: string): string => `plan-task-${taskId}`
