@@ -1,19 +1,19 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { SessionSummary } from '../../../core/sessions/summary'
 import type { Account, HistoryEntry, ProjectSummary, ScheduleConfig, SessionKind, TranscriptPreview } from '../../../core/types'
 import { ResumeDialog } from './ResumeDialog'
 import { TranscriptPreviewModal } from './TranscriptPreviewModal'
-import { AccountSelect } from './AccountSelect'
 import { ProviderBadge } from './ProviderBadge'
+import { sessionDescription, sessionTreeRows, type SessionPage } from './historyTree'
+import { localDoor } from '../lib/orchDoor'
+import { useSummaries } from '../state/useSummaries'
+import { summaryOneLine } from './wall/summaryText'
+import { ViewToolbar } from './shell/SideBar'
 import { isGhostAccountId } from '../../../core/accounts/ghostId'
 import { confirmModal } from '../lib/confirm'
 import { useI18n } from '../i18n/I18nProvider'
-import { Button, EmptyState, ICONS, Icon, IconButton, Menu, PageHeader, Skeleton, menuPointOf, type MenuItem } from './ui'
+import { EmptyState, ICONS, Icon, IconButton, Menu, Skeleton, Tree, menuPointOf, type MenuItem, type TreeItem } from './ui'
 import * as hiddenProjects from '../lib/hiddenProjects'
-import { usePanelOpen } from '../hooks/usePanelOpen'
-import { localDoor } from '../lib/orchDoor'
-import { useSummaries } from '../state/useSummaries' // W9-I
-import { summaryOneLine } from './wall/summaryText'
-import './wall/wall.css'
 
 const PAGE = 50
 const SEEN_KEY = 'cm.historySeen'
@@ -40,6 +40,18 @@ function LoadingRows({ rows = 3 }: { rows?: number }): React.JSX.Element {
   )
 }
 
+/** Reads one expanded project's session summaries (W9-I) and hands them up; renders nothing. A hook per project
+ *  cannot sit in the browser itself, since the number of expanded projects changes. */
+function SummaryFeed({ projectPath, onSummaries }: { projectPath: string; onSummaries: (projectPath: string, bySession: Map<string, SessionSummary>) => void }): null {
+  const door = useMemo(() => (typeof window !== 'undefined' ? localDoor(window.api, projectPath) : null), [projectPath])
+  const { bySession } = useSummaries(door)
+  useEffect(() => {
+    onSummaries(projectPath, bySession)
+    return () => onSummaries(projectPath, new Map())
+  }, [projectPath, bySession, onSummaries])
+  return null
+}
+
 type ScanState = { active: boolean; done: number; total: number }
 
 /** "Scanning Codex history… N/M" — shown while the codex rollout index reads the heads it does not
@@ -49,204 +61,9 @@ export function ScanStatus({ scan }: { scan: ScanState | null }): React.JSX.Elem
   const { t } = useI18n()
   if (!scan?.active) return null
   return (
-    <li className="history-sentinel" role="status">
+    <div className="history-scan" role="status">
       {t('history.scan.codex', { done: scan.done, total: scan.total })}
-    </li>
-  )
-}
-
-/** One project row plus, when expanded, that project's session list (infinite scroll). Each row owns its own session paging state.
- *  Exported for HistoryBrowser.test.ts only — the row's first render is the whole of what that test
- *  pins, and it cannot be reached through HistoryBrowser (its own project list is empty until an
- *  effect fills it, and effects do not run under renderToStaticMarkup). */
-export function ProjectRow({
-  project,
-  expanded,
-  onToggle,
-  accountId,
-  refreshNonce,
-  scrollRootRef,
-  accountOf,
-  isSeen,
-  markSeen,
-  onOpenPreview,
-  onResume,
-  onContextMenu
-}: {
-  project: ProjectSummary
-  expanded: boolean
-  onToggle: (projectPath: string) => void
-  accountId: string
-  refreshNonce: number
-  scrollRootRef: React.RefObject<HTMLUListElement | null>
-  accountOf: (id: string) => Account | undefined
-  isSeen: (e: HistoryEntry) => boolean
-  markSeen: (e: HistoryEntry) => void
-  onOpenPreview: (e: HistoryEntry) => void
-  onResume: (e: HistoryEntry) => void
-  onContextMenu: (x: number, y: number, projectPath: string) => void
-}): React.JSX.Element {
-  const { t } = useI18n()
-  const [sessions, setSessions] = useState<HistoryEntry[]>([])
-  const [total, setTotal] = useState(0)
-  // Whether this project's first session page has ever arrived — the same two-meanings-of-empty
-  // problem the project list solves one level up with its own `loaded`, and it was still here: an
-  // empty `sessions` meant both "the page is in flight" and "this project has none", so expanding a
-  // project showed "세션 없음" for the whole request and then swapped it for the list.
-  // It never goes back to false, for the reason given up there: on a refresh or an account-filter
-  // change the sessions already on screen stay until the new page replaces them, so there is no
-  // empty state to cover.
-  const [loaded, setLoaded] = useState(false)
-  const reqToken = useRef(0)
-  const fetchingRef = useRef(false)
-  const sentinelRef = useRef<HTMLLIElement>(null)
-  const sessionsLenRef = useRef(0)
-  sessionsLenRef.current = sessions.length
-  // W9-I: what an ended tab did, read only while the project is open
-  const summaryDoor = useMemo(() => (expanded && typeof window !== 'undefined' ? localDoor(window.api, project.projectPath) : null), [expanded, project.projectPath])
-  const { bySession } = useSummaries(summaryDoor)
-
-  const loadMore = (): void => {
-    if (fetchingRef.current || sessions.length >= total) return
-    fetchingRef.current = true
-    const token = reqToken.current
-    void window.api.history
-      .page({
-        accountId: accountId || undefined,
-        projectPath: project.projectPath,
-        offset: sessions.length,
-        limit: PAGE
-      })
-      .then((p) => {
-        fetchingRef.current = false
-        if (reqToken.current !== token) return // the window was swapped out in the meantime — ignore
-        setSessions((prev) => {
-          const seen = new Set(prev.map((e) => e.id))
-          return [...prev, ...p.entries.filter((e) => !seen.has(e.id))]
-        })
-        setTotal(p.total)
-      })
-  }
-
-  // On expand (and when the refresh nonce changes) re-query the first page at the current window size
-  useEffect(() => {
-    if (!expanded) return
-    const token = ++reqToken.current
-    void window.api.history
-      .page({
-        accountId: accountId || undefined,
-        projectPath: project.projectPath,
-        offset: 0,
-        limit: Math.max(sessionsLenRef.current, PAGE)
-      })
-      .then((p) => {
-        if (reqToken.current !== token) return
-        setSessions(p.entries)
-        setTotal(p.total)
-        setLoaded(true)
-      })
-  }, [expanded, refreshNonce, accountId, project.projectPath])
-
-  // Inner infinite scroll — the scroll root is the outer project list (.history-list)
-  useEffect(() => {
-    if (!expanded) return
-    const sentinel = sentinelRef.current
-    if (!sentinel) return
-    const io = new IntersectionObserver(
-      (ents) => {
-        if (ents.some((en) => en.isIntersecting)) loadMore()
-      },
-      { root: scrollRootRef.current, rootMargin: '120px' }
-    )
-    io.observe(sentinel)
-    return () => io.disconnect()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expanded, sessions.length, total])
-
-  return (
-    <li className="project-group">
-      <Button
-        variant="ghost"
-        className="project-row"
-        aria-expanded={expanded}
-        title={`${project.projectPath} · ${new Date(project.updatedAt).toLocaleString()}`}
-        icon={<Icon name={expanded ? 'chevronDown' : 'chevronRight'} size={14} />}
-        onClick={() => onToggle(project.projectPath)}
-        onContextMenu={(ev) => {
-          ev.preventDefault() // Electron의 기본 메뉴를 막고 앱 메뉴를 띄운다
-          const at = menuPointOf(ev) // the pointer, or under the row for Shift+F10 / the menu key
-          onContextMenu(at.x, at.y, project.projectPath)
-        }}
-      >
-        <span className="project-name">{project.name}</span>
-        <span className="project-meta">
-          {new Date(project.updatedAt).toLocaleString([], {
-            month: '2-digit',
-            day: '2-digit',
-            hour: '2-digit',
-            minute: '2-digit'
-          })}
-        </span>
-      </Button>
-      {expanded && (
-        <ul
-          className="session-sublist"
-          // Rail color = the account color of that project's most recent session (while loading, or unknown, the CSS default line color)
-          style={{ borderLeftColor: accountOf(sessions[0]?.accountId ?? '')?.color }}
-        >
-          {sessions.map((e) => (
-            <li key={e.id} className="session-row">
-              {/* The row is the preview button; resume is its sibling (a button cannot hold a button) */}
-              <Button
-                variant="ghost"
-                className="session-open"
-                title={`${e.title} · ${new Date(e.updatedAt).toLocaleString()}`}
-                onClick={() => {
-                  markSeen(e)
-                  onOpenPreview(e)
-                }} // clicking the row opens the preview — resuming is the button beside it
-              >
-                {/* A ghost gets a hollow dot: its colour is a single grey, so colour alone would not separate
-                    it from a registered account that happens to be grey */}
-                <span
-                  className={isGhostAccountId(e.accountId) ? 'color-dot ghost' : 'color-dot'}
-                  style={{ background: accountOf(e.accountId)?.color ?? 'var(--text-faint)' }}
-                />
-                <ProviderBadge provider={accountOf(e.accountId)?.provider} />
-                {e.awaitingReply && !isSeen(e) && (
-                  <span className="unread-dot" role="img" aria-label={t('history.entry.unread')} title={t('history.entry.unread')} />
-                )}
-                <span className="entry-title">{e.title}</span>
-                <span className="entry-sub">
-                  {new Date(e.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </span>
-              </Button>
-              <IconButton
-                size="sm"
-                icon={<Icon name="run" size={14} />}
-                label={t('history.entry.resume')}
-                onClick={() => onResume(e)} // markSeen happens inside resume
-              />
-              {/* W9-I: what the tab did, on a line of its own under the row */}
-              {bySession.has(e.sessionId) && <span className="summary-line session-summary">{summaryOneLine(bySession.get(e.sessionId)!, t)}</span>}
-            </li>
-          ))}
-          {!loaded && (
-            <li className="history-loading" role="status" aria-label={t('history.loading')} aria-busy="true">
-              <LoadingRows />
-            </li>
-          )}
-          {loaded && sessions.length === 0 && (
-            <li className="empty">{t('history.project.noSessions')}</li>
-          )}
-          {sessions.length < total && (
-            <li ref={sentinelRef} className="history-sentinel">
-              {t('history.loading')}
-            </li>
-          )}
-        </ul>
-      )}
-    </li>
+    </div>
   )
 }
 
@@ -254,8 +71,7 @@ export function HistoryBrowser({
   accounts,
   ghostAccounts,
   defaultSessionKind,
-  onResume,
-  asPage = false
+  onResume
 }: {
   accounts: Account[]
   /** Unregistered sources, for display only. Kept apart from `accounts` so nothing here can be picked as
@@ -275,49 +91,52 @@ export function HistoryBrowser({
       schedule?: ScheduleConfig
     }
   ) => void
-  /** W9-B: History is a page now (More ▾), always open; the fold belonged to the sidebar section. */
+  /** Kept for the compatibility page (shell/Pages.tsx); the tree is the same either way. */
   asPage?: boolean
 }): React.JSX.Element {
   const { t } = useI18n()
   const [projects, setProjects] = useState<ProjectSummary[]>([])
   const [total, setTotal] = useState(0)
   // Whether the first project page has ever arrived. Without it an empty `projects` means two different
-  // things — still loading, or genuinely nothing — and the list showed "기록 없음" for the whole first
-  // fetch, which enumerates every account's project directories and reads each newest file's meta.
-  // It never goes back to false: on an account-filter change or history:updated the previous list stays
-  // on screen until the new one lands, so there is no empty state to cover and replacing a populated
-  // list with a spinner would be a step backwards.
+  // things — still loading, or genuinely nothing. It never goes back to false: on an account-filter change or
+  // history:updated the previous list stays on screen until the new one lands.
   const [loaded, setLoaded] = useState(false)
   const [accountFilter, setAccountFilter] = useState<string>('')
-  // W7-F (#83): the same chevron header as Workspaces and Activity, remembered.
-  const [openState, setOpen] = usePanelOpen('history')
-  const open = asPage || openState
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [summaries, setSummaries] = useState<Record<string, Map<string, SessionSummary>>>({})
+  const setProjectSummaries = useCallback((path: string, m: Map<string, SessionSummary>) => setSummaries((p) => ({ ...p, [path]: m })), [])
+  // Each expanded project's sessions. A project with no entry here is still waiting for its first page.
+  const [pages, setPages] = useState<Record<string, SessionPage & { entries: HistoryEntry[] }>>({})
+  const [selectedId, setSelectedId] = useState<string | null>(null)
   const [preview, setPreview] = useState<TranscriptPreview | null>(null)
   const [resumingId, setResumingId] = useState<string | null>(null)
   // Account picker modal for resuming — opens after a row click has resolved the cwd
-  const [pendingResume, setPendingResume] = useState<{ entry: HistoryEntry; cwd: string } | null>(null)
+  const [pendingResume, setPendingResume] = useState<{
+    entry: HistoryEntry
+    cwd: string
+  } | null>(null)
   const [seenMap, setSeenMap] = useState<Record<string, string>>(loadSeenMap)
-  // Signal that makes the expanded projects re-pull their sessions on history:updated
-  const [refreshNonce, setRefreshNonce] = useState(0)
   // 우클릭 메뉴는 한 번에 하나만 열려야 하므로 행이 아니라 여기에 둔다 (FileExplorer와 같은 구조)
-  const [menu, setMenu] = useState<{ x: number; y: number; projectPath: string } | null>(null)
+  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null)
   const [hidden, setHidden] = useState<string[]>(() => hiddenProjects.list())
   const [scan, setScan] = useState<ScanState | null>(null)
   const previewReq = useRef<string | null>(null)
-  const sentinelRef = useRef<HTMLLIElement>(null)
-  const listRef = useRef<HTMLUListElement>(null)
+  const viaPointer = useRef(false)
   const reqToken = useRef(0)
   const fetchingRef = useRef(false)
+  const sessionTokens = useRef<Record<string, number>>({})
   const projectsLenRef = useRef(0)
   projectsLenRef.current = projects.length
   const accountFilterRef = useRef('')
   accountFilterRef.current = accountFilter
   const hiddenRef = useRef<string[]>(hidden)
   hiddenRef.current = hidden
+  const expandedRef = useRef(expanded)
+  expandedRef.current = expanded
+  const pagesRef = useRef(pages)
+  pagesRef.current = pages
 
-  const accountOf = (id: string): Account | undefined =>
-    accounts.find((a) => a.id === id) ?? ghostAccounts.find((a) => a.id === id)
+  const accountOf = (id: string): Account | undefined => accounts.find((a) => a.id === id) ?? ghostAccounts.find((a) => a.id === id)
   const isSeen = (e: HistoryEntry): boolean => seenMap[e.id] === e.updatedAt
 
   const markSeen = (e: HistoryEntry): void => {
@@ -336,7 +155,12 @@ export function HistoryBrowser({
   const loadFirstProjects = (acc: string, limit: number = PAGE): void => {
     const token = ++reqToken.current
     void window.api.history
-      .projectsPage({ accountId: acc || undefined, offset: 0, limit, hiddenPaths: hiddenRef.current })
+      .projectsPage({
+        accountId: acc || undefined,
+        offset: 0,
+        limit,
+        hiddenPaths: hiddenRef.current
+      })
       .then((p) => {
         if (reqToken.current !== token) return // ignore a late response
         setProjects(p.projects)
@@ -367,10 +191,37 @@ export function HistoryBrowser({
       })
   }
 
+  /** A project's sessions: its first page again at the window already shown (`append` false), or the next page. */
+  const loadSessions = (projectPath: string, append: boolean): void => {
+    const have = pagesRef.current[projectPath]?.entries.length ?? 0
+    const token = (sessionTokens.current[projectPath] = (sessionTokens.current[projectPath] ?? 0) + 1)
+    void window.api.history
+      .page({
+        accountId: accountFilterRef.current || undefined,
+        projectPath,
+        offset: append ? have : 0,
+        limit: append ? PAGE : Math.max(have, PAGE)
+      })
+      .then((p) => {
+        if (sessionTokens.current[projectPath] !== token) return // the window was swapped out in the meantime — ignore
+        setPages((prev) => {
+          const before = append ? (prev[projectPath]?.entries ?? []) : []
+          const seen = new Set(before.map((e) => e.id))
+          return {
+            ...prev,
+            [projectPath]: {
+              entries: [...before, ...p.entries.filter((e) => !seen.has(e.id))],
+              total: p.total
+            }
+          }
+        })
+      })
+  }
+
   useEffect(() => {
     loadFirstProjects('')
     return window.api.on('history:updated', () => {
-      // Re-query the project window at its current size, and bump the nonce so the expanded projects re-pull their sessions
+      // Re-query the project window at its current size, and the expanded projects' sessions with it
       const token = ++reqToken.current
       void window.api.history
         .projectsPage({
@@ -385,10 +236,9 @@ export function HistoryBrowser({
           setTotal(p.total)
           // Also settles the first load, not just a refresh of it: a transcript written while the mount
           // fetch is still in flight bumps reqToken here, which makes that fetch's own .then bail out.
-          // Without this line the spinner would then never come down.
           setLoaded(true)
         })
-      setRefreshNonce((n) => n + 1)
+      for (const path of expandedRef.current) loadSessions(path, false)
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -403,42 +253,25 @@ export function HistoryBrowser({
         const next = hiddenProjects.list()
         setHidden(next)
         hiddenRef.current = next // setState는 아직 커밋되지 않았고 아래 호출이 ref를 읽는다
-        // Unhiding a row should not resurrect it already expanded — that would fire ProjectRow's
-        // fetch-on-expand effect for a project the user only asked to make visible again
         setExpanded((prev) => {
           const nextSet = new Set([...prev].filter((p) => !next.includes(p)))
           return nextSet.size === prev.size ? prev : nextSet
         })
-        // PAGE가 아니라 현재 로드된 창 크기를 요청한다 — 마운트·계정 필터 변경과 달리 이 경로는
-        // 이미 여러 페이지를 스크롤해서 본 목록 중간 한 줄만 빠지는 경우라, PAGE로 자르면
-        // 방금 보고 있던 나머지 행들이 통째로 사라진다 (history:updated 핸들러와 같은 이유)
+        // the loaded window's size, not PAGE: one row leaving a long scrolled list must not drop the rest
         loadFirstProjects(accountFilterRef.current, Math.max(projectsLenRef.current, PAGE))
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     []
   )
 
-  useEffect(() => {
-    const sentinel = sentinelRef.current
-    if (!sentinel) return
-    const io = new IntersectionObserver(
-      (ents) => {
-        if (ents.some((en) => en.isIntersecting)) loadMoreProjects()
-      },
-      { root: listRef.current, rootMargin: '120px' }
-    )
-    io.observe(sentinel)
-    return () => io.disconnect()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projects.length, total])
-
-  const toggle = (projectPath: string): void => {
+  const toggle = (projectPath: string, open: boolean): void => {
     setExpanded((prev) => {
       const next = new Set(prev)
-      if (next.has(projectPath)) next.delete(projectPath)
-      else next.add(projectPath)
+      if (open) next.add(projectPath)
+      else next.delete(projectPath)
       return next
     })
+    if (open) loadSessions(projectPath, false)
   }
 
   const closePreview = (): void => {
@@ -447,6 +280,7 @@ export function HistoryBrowser({
   }
 
   const openPreview = (e: HistoryEntry): void => {
+    markSeen(e)
     previewReq.current = e.id
     void window.api.history.preview(e.id).then((p) => {
       if (previewReq.current === e.id) setPreview(p)
@@ -477,103 +311,219 @@ export function HistoryBrowser({
     }
   }
 
-  const menuItemsFor = (projectPath: string): MenuItem[] => [
-    { label: t('history.menu.hide'), onSelect: () => hiddenProjects.hide(projectPath) }
-  ]
+  const treeRows = sessionTreeRows(projects, expanded, (path) => pages[path], projects.length < total)
+  const byId = new Map(treeRows.map((r) => [r.id, r]))
 
-  const accountFilterNode = (
-    <AccountSelect
-      className="history-account-filter"
-      // Ghosts are filterable too — their sessions are in the list, so the filter has to be able to
-      // reach them. suffixOf marks them instead of rewriting the label.
-      accounts={[...accounts, ...ghostAccounts]}
-      suffixOf={(a) => (isGhostAccountId(a.id) ? t('history.filter.deletedSuffix') : '')}
-      value={accountFilter}
-      allLabel={t('history.filter.allAccounts')}
-      onChange={(v) => {
-        setAccountFilter(v)
-        setExpanded(new Set()) // reset the expansion when the filter changes
-        loadFirstProjects(v)
-      }}
-    />
-  )
+  const summaryLines = new Map<string, string>()
+  for (const m of Object.values(summaries)) for (const [id, sum] of m) summaryLines.set(id, summaryOneLine(sum, t))
+
+  const items: TreeItem[] = treeRows.map((r): TreeItem => {
+    switch (r.kind) {
+      case 'project':
+        return {
+          id: r.id,
+          depth: 0,
+          label: r.project.name,
+          title: `${r.project.projectPath} · ${new Date(r.project.updatedAt).toLocaleString()}`,
+          icon: <Icon name="folder" size={16} />,
+          hasChildren: true,
+          expanded: r.expanded,
+          description: new Date(r.project.updatedAt).toLocaleDateString([], {
+            month: '2-digit',
+            day: '2-digit'
+          })
+        }
+      case 'session': {
+        const e = r.entry
+        const account = accountOf(e.accountId)
+        return {
+          id: r.id,
+          depth: 1,
+          label: e.title,
+          title: `${e.title} · ${account?.label ?? ''} · ${new Date(e.updatedAt).toLocaleString()}`,
+          // A ghost gets a hollow dot: its colour is a single grey, so colour alone would not separate it from a registered grey account
+          icon: (
+            <span className={isGhostAccountId(e.accountId) ? 'color-dot ghost' : 'color-dot'} style={{ background: account?.color ?? 'var(--text-faint)' }} />
+          ),
+          // the account is the dot's colour, the provider badge and the tooltip: a long account label would squeeze the title out of a side bar row
+          description: sessionDescription(
+            new Date(e.updatedAt).toLocaleString([], { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }),
+            summaryLines.get(e.sessionId)
+          ),
+          badge: (
+            <>
+              {e.awaitingReply && !isSeen(e) && <span className="unread-dot" role="img" aria-label={t('history.entry.unread')} title={t('history.entry.unread')} />}
+              <ProviderBadge provider={account?.provider} />
+            </>
+          ),
+          actions: <IconButton size="sm" icon={<Icon name="run" size={14} />} label={t('history.entry.resume')} onClick={() => void resume(e)} />
+        }
+      }
+      case 'loading':
+        return {
+          id: r.id,
+          depth: 1,
+          label: t('history.loading'),
+          icon: <Icon name="loading" size={16} />
+        }
+      case 'empty':
+        return { id: r.id, depth: 1, label: t('history.project.noSessions') }
+      case 'more':
+        return {
+          id: r.id,
+          depth: r.projectPath ? 1 : 0,
+          label: t('history.loading'),
+          icon: <Icon name="more" size={16} />
+        }
+    }
+  })
+
+  const activate = (id: string): void => {
+    const r = byId.get(id)
+    if (!r) return
+    if (r.kind === 'session') openPreview(r.entry)
+    else if (r.kind === 'project') toggle(r.project.projectPath, !r.expanded)
+    else if (r.kind === 'more') {
+      if (r.projectPath) loadSessions(r.projectPath, true)
+      else loadMoreProjects()
+    }
+  }
+
+  const menuRow = menu ? byId.get(menu.id) : undefined
+  const menuItems = (): Array<MenuItem | 'separator'> => {
+    if (menuRow?.kind === 'project')
+      return [
+        {
+          id: 'hide',
+          label: t('history.menu.hide'),
+          icon: <Icon name="hide" size={14} />,
+          onSelect: () => hiddenProjects.hide(menuRow.project.projectPath)
+        }
+      ]
+    if (menuRow?.kind !== 'session') return []
+    const e = menuRow.entry
+    return [
+      {
+        id: 'resume',
+        label: t('history.entry.resume'),
+        icon: <Icon name="run" size={14} />,
+        onSelect: () => void resume(e)
+      },
+      {
+        id: 'preview',
+        label: t('history.entry.preview'),
+        icon: <Icon name="show" size={14} />,
+        onSelect: () => openPreview(e)
+      },
+      {
+        id: 'copy',
+        label: t('history.entry.copyId'),
+        icon: <Icon name="copy" size={14} />,
+        onSelect: () => void navigator.clipboard.writeText(e.id)
+      }
+    ]
+  }
+
+  const filterAccounts = [...accounts, ...ghostAccounts]
+  const filterLabel = accountFilter ? (accountOf(accountFilter)?.label ?? accountFilter) : t('history.filter.allAccounts')
+  const filterItems: Array<MenuItem | 'separator'> = [
+    {
+      id: '',
+      label: t('history.filter.allAccounts'),
+      checked: accountFilter === '',
+      onSelect: () => pickAccount('')
+    },
+    ...filterAccounts.map((a) => ({
+      id: a.id,
+      // Ghosts are filterable too — their sessions are in the list; the suffix marks them instead of rewriting the label
+      label: a.label + (isGhostAccountId(a.id) ? t('history.filter.deletedSuffix') : ''),
+      checked: accountFilter === a.id,
+      onSelect: () => pickAccount(a.id)
+    }))
+  ]
+  function pickAccount(id: string): void {
+    setAccountFilter(id)
+    accountFilterRef.current = id
+    setExpanded(new Set()) // reset the expansion when the filter changes
+    setPages({})
+    loadFirstProjects(id)
+  }
 
   return (
-    <section className={open ? 'history-panel' : 'history-panel collapsed'}>
-      {asPage ? (
-        <PageHeader
-          title={t('history.panel.title')}
-          subtitle={total > 0 ? t('history.panel.count', { n: total }) : undefined}
-          actions={
-            <IconButton icon={<Icon name="refresh" />} label={t('history.refresh.tooltip')} onClick={() => void window.api.history.refresh()} />
+    <section className="history-panel">
+      <ViewToolbar
+        label={t('shell.activity.history')}
+        items={[
+          {
+            id: 'refresh',
+            icon: <Icon name="refresh" />,
+            label: t('history.refresh.tooltip'),
+            onClick: () => void window.api.history.refresh()
           }
-          filters={accountFilterNode}
+        ]}
+      />
+      <div className="history-filter">
+        <Menu
+          label={t('history.view.accountFilter')}
+          align="start"
+          items={filterItems}
+          trigger={{
+            variant: 'ghost',
+            size: 'sm',
+            icon: <Icon name="filter" size={14} />,
+            children: filterLabel
+          }}
         />
-      ) : (
-        <header className="history-head">
-          <Button
-            variant="ghost"
-            className="history-toggle"
-            aria-expanded={open}
-            icon={<Icon name={open ? 'chevronDown' : 'chevronRight'} size={14} />}
-            onClick={() => setOpen((v) => !v)}
-          >
-            {t('history.panel.title')}
-          </Button>
-          {open && (
-            <div className="panel-actions">
-              {accountFilterNode}
-              <IconButton size="sm" icon={<Icon name="refresh" size={14} />} label={t('history.refresh.tooltip')} onClick={() => void window.api.history.refresh()} />
-            </div>
-          )}
-        </header>
+      </div>
+      {[...expanded].map((path) => (
+        <SummaryFeed key={path} projectPath={path} onSummaries={setProjectSummaries} />
+      ))}
+      <ScanStatus scan={scan} />
+      {/* 첫 페이지가 오기 전에는 점 셋, 도착한 뒤에 비어 있으면 '기록 없음'. 두 상태를 가르지 않으면
+          프로젝트 디렉터리를 훑는 동안 계속 '기록 없음'이 보인다 */}
+      {!loaded && (
+        <div className="history-loading" role="status" aria-label={t('history.loading')} aria-busy="true">
+          <LoadingRows rows={5} />
+        </div>
       )}
-      {/* Hidden, not unmounted: the list's scroll root and paging sentinel stay attached while it is folded. */}
-      <ul className="history-list" ref={listRef} hidden={!open}>
-        <ScanStatus scan={scan} />
-        {projects.map((p) => (
-          <ProjectRow
-            key={p.projectPath}
-            project={p}
-            expanded={expanded.has(p.projectPath)}
-            onToggle={toggle}
-            accountId={accountFilter}
-            refreshNonce={refreshNonce}
-            scrollRootRef={listRef}
-            accountOf={accountOf}
-            isSeen={isSeen}
-            markSeen={markSeen}
-            onOpenPreview={openPreview}
-            onResume={(e) => void resume(e)}
-            onContextMenu={(x, y, projectPath) => setMenu({ x, y, projectPath })}
+      {loaded && projects.length === 0 && (
+        <div className="history-empty">
+          <EmptyState icon={ICONS.history} title={t('history.panel.empty')}>
+            {t('history.panel.emptyHint')}
+          </EmptyState>
+        </div>
+      )}
+      {projects.length > 0 && (
+        // The tree's selection follows the keyboard cursor, so only a pointer press may open a preview;
+        // Enter opens through onOpen below.
+        <div className="history-tree" onPointerDownCapture={() => (viaPointer.current = true)} onKeyDownCapture={() => (viaPointer.current = false)}>
+          <Tree
+            label={t('shell.history.sessions')}
+            rows={items}
+            selectedId={selectedId}
+            onSelect={(id) => {
+              setSelectedId(id)
+              // a click on a row does its one thing: preview a session, fold a project, fetch a page
+              if (viaPointer.current) activate(id)
+            }}
+            onToggle={(id, open) => {
+              const r = byId.get(id)
+              if (r?.kind === 'project') toggle(r.project.projectPath, open)
+            }}
+            onOpen={activate}
+            onContextMenu={(id, e) => {
+              e.preventDefault() // Electron의 기본 메뉴를 막고 앱 메뉴를 띄운다
+              const at = menuPointOf(e)
+              setMenu({ id, ...at })
+            }}
           />
-        ))}
-        {/* 첫 페이지가 오기 전에는 점 셋, 도착한 뒤에 비어 있으면 '기록 없음'. 두 상태를 가르지 않으면
-            프로젝트 디렉터리를 훑는 동안 계속 '기록 없음'이 보인다. 글자는 없고 표시만 두므로 읽히는
-            이름은 aria-label이 맡는다 (기존 history.loading 문구를 그대로 쓴다) */}
-        {!loaded && (
-          <li className="history-loading" role="status" aria-label={t('history.loading')} aria-busy="true">
-            <LoadingRows rows={5} />
-          </li>
-        )}
-        {loaded && projects.length === 0 && (
-          <li className="history-empty">
-            <EmptyState icon={ICONS.history} title={t('history.panel.empty')}>
-              {t('history.panel.emptyHint')}
-            </EmptyState>
-          </li>
-        )}
-        {projects.length < total && (
-          <li ref={sentinelRef} className="history-sentinel">
-            {t('history.loading')}
-          </li>
-        )}
-      </ul>
-      {menu && (
+        </div>
+      )}
+      {menu && menuItems().length > 0 && (
         <Menu
           at={{ x: menu.x, y: menu.y }}
-          label={t('history.menu.label')}
-          items={menuItemsFor(menu.projectPath)}
+          label={t(menuRow?.kind === 'project' ? 'history.menu.label' : 'history.session.menu')}
+          items={menuItems()}
           onClose={() => setMenu(null)}
         />
       )}

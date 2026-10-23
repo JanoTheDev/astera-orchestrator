@@ -5,14 +5,16 @@ import { themeById, THEMES, DEFAULT_MONO } from './themes'
 describe('themeCssVars', () => {
   it('표면·텍스트 토큰을 CSS 변수 이름으로 낸다', () => {
     const v = themeCssVars(themeById('night'))
-    expect(v['--bg']).toBe('#0e0f12')
-    expect(v['--text-dim']).toBe('#a2a6b0')
-    expect(v['--hover']).toBe('#1a1b20')
-    expect(v['--term-bg']).toBe('#0b0c0e')
+    expect(v['--bg']).toBe('#1f1f1f')
+    expect(v['--text-dim']).toBe('#9d9d9d')
+    expect(v['--hover']).toBe('#2a2d2e')
+    expect(v['--term-bg']).toBe('#181818')
+    expect(v['--activitybar-bg']).toBe('#181818')
+    expect(v['--focus-border']).toBe('#0078d4')
   })
 
   it('--ring 은 액센트의 60% 알파다', () => {
-    expect(themeCssVars(themeById('night'))['--ring']).toBe('rgba(139, 147, 255, 0.6)')
+    expect(themeCssVars(themeById('night'))['--ring']).toBe('rgba(0, 120, 212, 0.6)')
   })
 
   it('the stylesheet\'s older names derive from the §9 tokens', () => {
@@ -27,9 +29,9 @@ describe('themeCssVars', () => {
     expect(v['--btn-ink']).toBe(v['--accent-ink'])
   })
 
-  it('every theme uses the bundled faces', () => {
+  it('every theme uses the system UI stack and the bundled mono', () => {
     for (const t of THEMES) {
-      expect(themeCssVars(t)['--sans']).toContain('IBM Plex Sans')
+      expect(themeCssVars(t)['--sans']).toMatch(/^system-ui, /)
       expect(themeCssVars(t)['--mono']).toBe(DEFAULT_MONO)
       expect(themeCssVars(t)['--mono']).toContain('JetBrains Mono')
     }
@@ -62,9 +64,9 @@ describe('themeCssVars', () => {
 describe('xtermThemeOf', () => {
   it('배경·전경·커서 셋만 낸다 — ANSI 16색은 건드리지 않는다', () => {
     expect(xtermThemeOf(themeById('night'))).toEqual({
-      background: '#0b0c0e',
-      foreground: '#eceef2',
-      cursor: '#8b93ff'
+      background: '#181818',
+      foreground: '#cccccc',
+      cursor: '#0078d4'
     })
   })
 })

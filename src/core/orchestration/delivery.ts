@@ -43,11 +43,16 @@ export function deliveryIssuesOf(s: OrchState, run: JobRun): number[] {
 export const deliveryMessage = (plan: string, issues: readonly number[]): string =>
   [`Deliver plan: ${plan}`, ...(issues.length > 0 ? ['', ...issues.map((n) => `Fixes #${n}`)] : [])].join('\n')
 
-/** The checks the merged tree runs once more before a push: every check any of the Run's Tasks was validated with, in
- *  first-seen order. Empty: the project has none configured, and the reviews are the only gate. */
+/** The checks the merged tree runs once before a push: every check any of the Run's Tasks was validated with, in
+ *  first-seen order, then the project's test command (Tasks are not given it, so the full suite runs here once). Empty:
+ *  the project has none configured, and the reviews are the only gate. */
 export function deliveryChecksOf(s: OrchState, runId: string): string[] {
   const ids = new Set<string>()
   for (const t of s.tasks) if (t.runId === runId) for (const id of checkConfigIdsOf(t)) ids.add(id)
+  const run = s.runs.find((r) => r.id === runId)
+  const job = run && jobOf(s, run)
+  const test = job && projectOfJob(s, job)?.testConfigId
+  if (test) ids.add(test)
   return [...ids]
 }
 

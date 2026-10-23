@@ -5,8 +5,8 @@ import { scopeToStep } from '../../../core/understanding/scope'
 import { toast } from '../lib/toast'
 import { useI18n } from '../i18n/I18nProvider'
 import { FlowDiagram } from './FlowDiagram'
-import { RECORD_GLYPH_COLOR, RECORD_STATUS_KEY, StatusGlyph } from './UnderstandingIcons'
-import { Button, Icon } from './ui'
+import { RECORD_STATUS_KEY, StatusGlyph } from './UnderstandingIcons'
+import { Button, Chip, Icon, type ChipTone } from './ui'
 
 /** 참조 단이 접히는 폭. 이 아래에서는 왼쪽 본문이 40자 밑으로 내려가 흐름도가 잘린다. */
 const NARROW_PANE = 720
@@ -16,6 +16,13 @@ const VERIFY_KEY: Record<Verification, MessageKey> = {
   partial: 'hiw.verify.partial',
   unverified: 'hiw.verify.unverified',
   failed: 'hiw.verify.failed'
+}
+
+const STATUS_TONE: Record<WorkRecord['status'], ChipTone> = {
+  generating: 'info',
+  ready: 'ok',
+  'needs-review': 'warn',
+  failed: 'danger'
 }
 
 /** `verification` is what every reader should prefer (types.ts). A record written before that
@@ -116,9 +123,9 @@ export function RecordDetail({
             <span className="hiw-wt">{d.title}</span>
             <span className="hiw-wr">{d.reason}</span>
             {/* 추정만 --warn 이다. 추정을 결정과 같은 무게로 보여 주지 않는다(설계 §4) */}
-            <span className={d.source === 'agent' ? 'hiw-src low' : 'hiw-src'}>
+            <Chip tone={d.source === 'agent' ? 'warn' : 'neutral'} className="hiw-src">
               {d.sourceLabel}
-            </span>
+            </Chip>
           </div>
         ))}
       </section>
@@ -162,13 +169,13 @@ export function RecordDetail({
             </p>
           )}
         </div>
-        {/* The status is not hard-coded here — shape, wording and colour all read the same table
-            the sidebar does (design §8). Picking the colour separately here would let the three
-            places drift apart (UnderstandingIcons' RECORD_GLYPH_COLOR). */}
-        <span className="hiw-st" style={{ color: RECORD_GLYPH_COLOR[record.status] }}>
+        {/* The status is not hard-coded here — shape and wording read the same table
+            the sidebar does; the Chip tone carries the colour (design §8). Picking the colour separately here would let the three
+            places drift apart (UnderstandingIcons' RECORD_STATUS_KEY). */}
+        <Chip tone={STATUS_TONE[record.status]}>
           <StatusGlyph status={record.status} spinning={record.status === 'generating'} />{' '}
           {t(RECORD_STATUS_KEY[record.status])}
-        </span>
+        </Chip>
         <span className="hiw-sp" />
         {/* This button has nothing behind it yet — editing has no place to save to (§56's
             userEdited) yet. Saying "not yet" beats a button that does nothing when pressed: on a

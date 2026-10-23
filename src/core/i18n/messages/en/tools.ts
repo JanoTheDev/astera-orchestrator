@@ -238,4 +238,9 @@ export const tools: Record<keyof typeof ko, string> = {
   // W12 end panel
   // W12 redesign · run detail (RunDetailJournal, CompletionBlock, CompletionChecks, PrBadge, PushBadge, checkText)
   // W12 end detail
+  'run.state.running': 'running',
+  'run.state.stopping': 'stopping',
+  'run.row.edit': 'Edit configuration',
+  'run.view.refresh': 'Refresh configurations',
+  'run.view.empty': 'No run configurations yet. Create one with +.',
 }

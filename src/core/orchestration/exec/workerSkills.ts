@@ -21,7 +21,7 @@ export function skillsSection(kind: TaskKind, has: (skill: string) => boolean): 
   const rules: Record<TaskKind, string[]> = {
     bugfix: [debugging, tdd('Then fix it')],
     feature: [tdd('Build it')],
-    refactor: ['- Keep behaviour exactly as it is. Run the tests before you start and again after every step.'],
+    refactor: ['- Keep behaviour exactly as it is. Run the tests of the files you touch before you start and again after every step.'],
     ui: [
       '- Follow `docs/dev/DESIGN-W11.md` and `components/ui/README.md`: house primitives only, tokens not colour literals.',
       '- Check the result with a screenshot (`npm run shots` only when no other heavy job is running).'

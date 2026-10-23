@@ -1,24 +1,33 @@
 # Astera user guide
 
-How to work with Astera day to day, page by page. A **project** is a git folder. A **plan** is a Job: a goal cut into
+How to work with Astera day to day, view by view. A **project** is a git folder. A **plan** is a Job: a goal cut into
 **Tasks**. Each attempt at a Task is one real `claude` (or `codex`) terminal, a **console**. Four roles run them: the
 **planner** writes the plan, the **coordinator** places workers and answers their questions, **workers** do the Tasks
 and a **reviewer** checks each one. The background **Host** owns every console and drives every plan, so closing the
 window stops nothing ([Linux notes](dev/LINUX.md), "Closing the window").
 
-The top bar has these pages: **Agents · Tasks · Plans · Inbox · Worktrees · Files · More ▾**, a search box, **New**, the
-usage meter and the project switcher. **Start** opens from New, from Plans → New plan, and by itself when a project has
-nothing yet. **More** holds History, How It Works, Browser and Run configs. **Settings** is a page. Below 1100 px the
-page tabs fold into a "Pages ▾" menu. `Ctrl+1…6` switch pages and `Ctrl+N` opens New (rebind in Settings →
-General → Shortcuts).
+Astera is a VSCode-style workbench:
+
+- **Activity bar** (far left): **Agents · Plans · Explorer · Source Control · History · Run**, then Accounts and Manage
+  at the bottom. `Ctrl+1…6` open the six views. Clicking the active one hides the side bar.
+- **Side bar**: the open view's lists. Drag its edge to resize it; `Ctrl+B` shows or hides it.
+- **Editor groups with tabs**: consoles, files, plans, Settings, worktrees, the Wall and Start open as tabs. Split the
+  area to keep two side by side. The Welcome tab shows when nothing is open.
+- **Bottom panel** (`Ctrl+J`): **Needs you · Activity · Output · Terminal**. It never opens by itself.
+- **Status bar**: project and branch, how many consoles work and need you, account usage, the Host state and the
+  notification bell.
+- **Command palette** (`Ctrl+Shift+P`, or the search field in the title bar) and quick open (`Ctrl+P`: tabs, plans,
+  files). `Ctrl+,` opens Settings and `Ctrl+N` opens New. Rebind any of these in Settings → General → Shortcuts.
+
+**Start** opens from New, from the Plans view's **New plan**, and by itself when a project has nothing yet.
 
 - [Before the first plan](#before-the-first-plan)
 - [Start: make a plan](#start-make-a-plan)
 - [Approve it, or talk to the planner](#approve-it-or-talk-to-the-planner)
 - [While it runs](#while-it-runs): Agents, Tasks, Plans
-- [Inbox](#inbox)
+- [Needs you](#needs-you)
 - [Delivery](#delivery)
-- [Worktrees](#worktrees)
+- [Worktrees](#worktrees) (Source Control)
 - [Projects and windows](#projects-and-windows)
 - [Settings](#settings)
 - [The box and voice](#the-box-and-voice)
@@ -26,7 +35,7 @@ General → Shortcuts).
 
 ## Before the first plan
 
-- **Sign in an account.** Click the usage meter in the top bar (the accounts popover) or open Settings → Accounts &
+- **Sign in an account.** Click the account usage in the status bar, or the Accounts button at the bottom of the activity bar or open Settings → Accounts &
   usage → **+**, pick Claude or Codex and a name, then **Add account**. Astera runs the CLI's own login for the new
   account's folder (`claude auth login` / `codex login`) and shows the sign-in link in a small dialog with **Open in
   browser** and **Copy**. Sign in in the browser; if it shows a code, paste it into the dialog's code box. The dialog
@@ -42,7 +51,7 @@ General → Shortcuts).
 - **Settings → Agents → "Max workers across all jobs"**: the app-wide cap, at most 10 (empty means 10). At the cap,
   plans with a higher priority get the next free slot.
 - **Settings → Agents → "Run agents without permission checks"** is **off**. Planners, coordinators and workers then
-  stop at every Claude permission prompt until you answer it; those show up in the Inbox.
+  stop at every Claude permission prompt until you answer it; those show up in the Needs you tab.
 - Set a git identity (`git config --global user.name …` / `user.email …`). Without one, the merges Astera makes for a
   plan are committed as `Astera <astera@localhost>`.
 - **Add a project.** The project switcher → **Add project** takes an existing git folder. **New project** asks for a
@@ -53,8 +62,8 @@ General → Shortcuts).
 ## Start: make a plan
 
 **New** (or `Ctrl+N`) offers three choices: **Console** (a plain Claude Code or Codex console: agent, account, folder,
-worktree), **Plan it for me** and **Run as written**. The last two open the **Start** page, which is the one place
-plans are made; the Plans page's **+ New job** opens it too. Dropping files anywhere on the window opens Start with
+worktree), **Plan it for me** and **Run as written**. The last two open the **Start** tab, which is the one place
+plans are made; the Plans view's **New plan** opens it too. Dropping files anywhere on the window opens Start with
 them attached.
 
 Start has one composer: a text box (a goal, rough notes, or a whole pasted plan), attached files, and under it
@@ -89,7 +98,7 @@ the planner's console appears.
 
 **Extra instructions** win over the source. **The plan's name** comes from the source: a problem list is named by its
 first problem, files by their names, an audit "Audit <a>, <b>" (or "Audit <a> +N" for more), and issues by the first one and how many more
-("#1 unique() is O(n²) +1"). Rename it any time on its plan page (click the title); Astera never renames it after that.
+("#1 unique() is O(n²) +1"). Rename it any time in its plan tab (click the title); Astera never renames it after that.
 
 **From a shell**
 ```bash
@@ -166,23 +175,23 @@ astera jobs create --mode prompts --coordinator-account "$A" --objective "next w
 stays unstarted until that plan is delivered (a PR opened and marked ready, a push, or work left on a branch with no
 remote), then its planner starts by itself and the project's approval setting decides the rest. If the earlier plan
 gives up or is archived, the queued one waits and you get one notice: "Waiting on <plan>, which stopped". The Plans
-page lists it as "Queued after <plan>", and the status bar shows the next one. `astera jobs set --id <job> --after
+view lists it as "Queued after <plan>", and the status bar shows the next one. `astera jobs set --id <job> --after
 <job|none>` changes it; a loop is refused. `--after` needs `--coordinator-account`, since the queued planner starts on
 it. Merge each plan's PR before the next one's workers branch off `main`, or the next plan builds without it.
 
 ## Approve it, or talk to the planner
 
-When the planner is done, the plan lands in the **Inbox** as "Plan ready" (a sound and a desktop notice). The card has
-**Review plan**, **Talk to planner** and **Approve**. The plan page → Overview has the same approve bar.
+When the planner is done, the plan lands in the bottom panel's **Needs you** tab as "Plan ready" (a sound and a desktop notice). Its row has
+**Review plan**, **Talk to planner** and **Approve**. The plan tab has the same approve bar.
 
-- **Approve.** Read the Tasks (plan page → Waves, or Overview), then press **Approve & execute** and confirm. From a
+- **Approve.** Read the Tasks (the plan tab's steps), then press **Approve & execute** and confirm. From a
   shell, `astera jobs run --id <job>`. Astera refuses a plan in which a Task lacks a prompt or a criterion, a
   dependency is missing, or the dependencies form a cycle, and lists what is wrong. If it says a Task "has no basis",
   tell the planner; it fixes the plan. An agent session can never approve. Approval ends the planner session.
 - **Request changes.** Type what to change in the "Talk to the planner" box and send it. The text goes to the same
   planner session; if that session has ended, its conversation is resumed, or else a fresh planner starts with
   `plan.md`, `existing.md` and the history. You approve again when it is done. `astera jobs feedback --job <job> --text
-  <text|->` does the same (`-` reads stdin). If the revised plan still does not hold, the Overview lists what is
+  <text|->` does the same (`-` reads stdin). If the revised plan still does not hold, the plan tab lists what is
   missing, the feed says "plan revised but not ready to approve", and no "ready for approval" notice is sent.
 - **Reject.** Reject (asks first, with an optional reason) archives the plan and ends its planner. `astera jobs reject
   --job <job> [--reason <text>]`; `astera jobs unarchive --id <job>` takes it back. Feedback and reject are refused from
@@ -204,7 +213,7 @@ the worker's explicit report plus any checks, not a quiet terminal.
   started to what the done ones reported, reviewed and changed, and to the progress of the project's other plans. It may add or cancel
   Tasks, never touch a running or completed one. After the last wave the same planner checks the result against the
   goal and may add up to 3 follow-up waves. If the plan no longer holds together, or a 4th follow-up is wanted, it
-  stays held and the Inbox asks you. Turn it off with `--replan off` (`jobs create`, `jobs plan`) or per project.
+  stays held and Needs you asks you. Turn it off with `--replan off` (`jobs create`, `jobs plan`) or per project.
 - **Review** (on by default). Every Task is checked by a fresh reviewer before it counts as done. A blocking finding
   goes back to the worker, up to 5 rounds, then the Task escalates. Turn it off with `--no-review`, or for one Task
   with `tasks add --no-review`.
@@ -218,13 +227,13 @@ the worker's explicit report plus any checks, not a quiet terminal.
   served: the full test suite, `npm run dev` / Electron and `npm run dist:linux`. A Task's live line shows "Waiting for
   the heavy-job slot (2nd in line)". It uses the same lock as hand-opened tabs (`flock /tmp/astera-fullsuite.lock …`),
   so both share one queue. A crash or exit frees the slot.
-- **Hold, stop, resume.** The plan page's **Pause** / **Resume** (or "pause <plan>" in the box) **holds** a plan: no new
+- **Hold, stop, resume.** The plan tab's **Pause** / **Resume** (or "pause <plan>" in the box) **holds** a plan: no new
   worker starts, running workers carry on and nothing is closed, so nothing is asked. "pause worker 2" pauses one
   worker after a confirmation: its console stays open and keeps its slot, and no agent types into it until "resume
   worker 2". "stop <plan>" (or `astera runs stop`) **closes** the plan's workers and coordinator, after a confirmation;
   resuming starts the coordinator again, which places one new worker per unfinished Task. A plan without a coordinator
   puts its stopped Tasks back to ready.
-- **Archive.** The plan page's ⋯ menu, or `astera jobs archive --id <job>`. Archiving starts nothing new and leaves
+- **Archive.** The plan tab's ⋯ menu or the Plans view's context menu, or `astera jobs archive --id <job>`. Archiving starts nothing new and leaves
   consoles running unless you add `--kill-sessions`, which ends every console of the plan, also those that already
   reported. Unarchive brings the plan back.
 - **Usage guards.** No new worker starts on an account whose latest reading is at Settings → "Pause new workers at
@@ -240,8 +249,14 @@ the worker's explicit report plus any checks, not a quiet terminal.
 
 ### Agents
 
-The page Astera opens on. It shows every console of the project at once, each tile the session's own console (the
-real Claude Code or Codex screen, small, bottom lines in view), never a copy and never a second process.
+The **Agents** view is the side bar view Astera opens on. It lists the project's consoles in three sections, **Needs
+you**, **Working** and **Finished**; click a row to open that console as a tab. Its toolbar has **Open a console** and
+**Show the wall**, and a filter by plan. A row's context menu has Open, Open to the side, Open the plan, Rename and
+Stop.
+
+The **Wall** tab shows every console of the project at once, each tile the session's own console (the real Claude Code
+or Codex screen, small, bottom lines in view), never a copy and never a second process. When consoles are live, Astera
+opens on the Wall.
 
 - **Console strip** across the top: "All consoles", then one entry per live console with a state dot.
 - **Plan pills**: All plans, one per active or queued plan with a progress bar and a short count ("4/9 · 2 need you",
@@ -253,12 +268,12 @@ real Claude Code or Codex screen, small, bottom lines in view), never a copy and
   question or a Gate an amber one. The line under the name says what the console is doing: a worker's running time
   and files, the coordinator's answered and escalated counts, the reviewer's round. Click a tile to open it.
 - **Finished · what each console did**: one card per ended console, see [Summaries](#summaries).
-- **One console full size**: a slim header (project › plan › name, Task, model, folder, **Back to all**, **Split**), the
+- **One console in its tab**: a slim header (project › plan › name, Task, model, folder, **Back to all**, **Split**), the
   console itself with your keyboard, and the details panel on the right (**Ctrl+.** folds it). For a worker it shows the
   Task, brief, running time, model, account, worktree, files, questions, "Done when" and every Task of the plan with
   who is on it; for the coordinator the plan's progress and its answered and escalated counts; for the planner the
   planned Tasks; for the reviewer its round. There is no Astera input box: you type into the CLI itself.
-- **Your keyboard is yours.** While a console is open full size, and for 60 s after your last keystroke in it, a
+- **Your keyboard is yours.** While a console is open in its tab, and for 60 s after your last keystroke in it, a
   coordinator's `sessions send` to that console waits in the Host and is typed, in order, after you click Back to all
   (or after 60 s idle). The coordinator is told `{ "queued": true, "reason": "owner-typing" }` at once and never waits
   on you. Nothing else pauses.
@@ -269,58 +284,73 @@ real Claude Code or Codex screen, small, bottom lines in view), never a copy and
 
 ### Tasks
 
-A board of every Task in the project, across plans, in five columns: Planned · Working · Needs you · In review · Done.
-Filter by plan with the pills. A card shows its id, title, live line (what its worker is doing: "Editing src/x.ts ·
-0:12 ago", "Running npm test", "Asked the coordinator", or why it waits: "waits for A", "App-wide limit full"), plan
-chip, worker and model. A card that needs you has a warn or danger border. Clicking a card goes where you need to be:
-working or in review → its console; needs you → its Inbox card; planned → its plan's Waves; done → its summary.
-Done keeps the last 20 per plan.
+Tasks live in the **Plans** view's tree (plan › step › Task), and in each plan's tab. To see every Task of the project
+across plans by state, set the view's **Group by** to **Status**. A Task row has a state icon, its title and a console
+mark while a worker runs. Clicking a Task goes where you need to be: its console tab when one runs for it, otherwise
+its plan's tab at that Task. The Task's context menu also has Open in plan and Copy id. The plan tab shows a Task's
+live line (what its worker is doing: "Editing src/x.ts · 0:12 ago", "Running npm test", "Asked the coordinator", or
+why it waits: "waits for A", "App-wide limit full").
 
 ### Plans
 
-Every plan of the project. **By area** (default) groups plans under their areas (`astera jobs set --id <job> --areas
-auth,api`, 1–3 short words; the planner sets them too) and marks a plan that overlaps another. **Overlap** is a table
-of plans × top folders that says what each plan does in each folder, so it is clear who works where. A row shows the
-state, source and wave line, progress, delivery and age. Order: running, awaiting approval, queued, then delivered and
-archived. **New plan** opens Start.
+The **Plans** view lists every plan of the project as a tree. **Group by** switches it between Plans (default), Status
+and Area. Areas are set with `astera jobs set --id <job> --areas auth,api` (1–3 short words; the planner sets them
+too), and a plan that overlaps another is marked. A text filter narrows the tree, and the filter menu can show
+archived plans. A plan row shows its state, progress and count. **New plan** opens Start. A plan's context menu has
+Open, Its consoles, **Edit plan settings…**, Approve, Pause / Resume, Archive and Delete.
 
-Click a plan for its page (breadcrumb "Plans › <name>"). The header has the title, state chips and the actions **Its
-consoles** (Agents filtered to this plan), Pause/Resume, Talk to planner and ⋯ (priority, workers at once, start after,
-hold, archive, kill consoles, open PR). Sections (the last one is remembered per plan):
+Click a plan to open its tab. The header has the title, state chips and the actions **Its consoles** (the Agents view
+filtered to this plan), Pause/Resume, Talk to planner and ⋯ (start after, hold, archive, kill consoles, open PR). The
+tab holds:
 
-- **Overview**: goal, source and `existing.md`; **What happened so far**, rolled up from the console summaries; the
-  approve bar; how it runs (models, workers, review, final check, delivery, usage); the final check result and gates.
-- **Waves**: one column per wave with state and count, the current wave marked ("Replanning wave 3…"). Cards as on
-  Tasks, plus their files. A toggle shows the dependency graph.
-- **Files**: every file of the plan with the Tasks that touch it. A file two Tasks share is marked "Shared · one at a
-  time".
-- **Changes**: the PR bar (number, state, checks, AI and human share), then files with +/−, Task, model and AI share.
-  A file opens its diff with the attribution gutter (who wrote each line: the agent and model, or the git author).
-- **Journal**: the plan's event log.
+- **Goal**, and **Needs you** when the plan waits on you, including the approve bar.
+- **Steps**: one block per wave with its Tasks, state and count, the current wave marked ("Replanning wave 3…"). A
+  toggle shows the dependency graph.
+- **Plan settings**: see [Change a running plan](#change-a-running-plan).
+- **Activity** views: **Log** (the plan's event log), **Changes** (the PR bar: number, state, checks, AI and human
+  share, then files with +/−, Task, model and AI share; a file opens its diff with the attribution gutter showing who
+  wrote each line, the agent and model or the git author), **Files** (every file of the plan with the Tasks that
+  touch it; a file two Tasks share is marked "Shared · one at a time"), **Talk to the plan** and **So far** (rolled up
+  from the console summaries).
+
+#### Change a running plan
+
+Open the plan's tab and go to **Plan settings**, or choose **Edit plan settings…** in the Plans view's context menu
+(it opens the tab at that section). You can change these while the plan runs:
+
+- **Workers at once**: lowering it never stops a running agent.
+- **Priority**: when the app-wide worker limit is full, a higher priority plan gets the next free slot.
+- **Review rounds**: applies to Tasks not reviewed yet.
+- **Plan again between steps**, **Auto-approve** and **Hands-off** (it asks you to confirm).
+- **Delivery** (pull request or push): a field that can no longer change is read-only and says why.
+
+Changes save as you make them and apply to agents that start from then on.
 
 **Several plans in one repo.** You can drop several plans on a large project at once. Before approval the planner's
 brief lists the other plans of the repository, with their Tasks, state and paths, and the planner plans around them.
 What still overlaps (paths, or the same linked issue) is stored on the plan and shown at its approve bar, one line per
 overlap, with **Start after <plan>**. An overlap never blocks approval, because the run-time rule makes it safe. A new
-overlap is a feed line and an Inbox notice ("Plans overlap"), with no chime. `astera jobs overlaps --id <job>` lists
+overlap is a feed line and a Needs you notice ("Plans overlap"), with no chime. `astera jobs overlaps --id <job>` lists
 them and `astera jobs list --area api` filters plans by area.
 
-## Inbox
+## Needs you
 
-Two columns. **Needs you** (left, oldest first) holds everything that waits on you: plan approvals, questions,
-permission prompts, give-ups and escalations. **Handled for you** (right) is the activity feed of what ran without you:
+The bottom panel's **Needs you** tab (`Ctrl+J` opens the panel) holds everything that waits on you, oldest first: plan
+approvals, questions, permission prompts, give-ups and escalations. Below it, **Handled for you** is the activity feed
+of what ran without you:
 auto-answers, merges, replans, clean-ups, deliveries and usage pauses. The feed is kept in `<profile>/orch/activity.jsonl`,
 so it survives a restart, and it includes the lines of every paired Remote runtime, marked "on <runtime>".
 
-Only Inbox items notify you: a desktop notice, a chime and the badge on the Inbox tab and in the status bar. Nothing
-else pops up by itself.
+Only Needs-you items notify you: a desktop notice, a chime and the badge on the Needs you tab and in the status bar.
+The notification bell in the status bar opens a short list of what needs you and what happened lately, with **View
+all**. Nothing else pops up by itself, and the panel never opens on its own.
 
 - **Questions and escalations.** A worker asks its coordinator with `astera ask`, and the coordinator answers from the
   plan, the spec files and the repo. Each answer is a feed line, "coordinator answered", and never a notice. Only an
   owner decision is escalated: a product choice the plan leaves open, anything irreversible, data loss, security, money,
-  or a question asked twice. An escalation, or a Gate opened because the attempts or review rounds ran out, becomes an
-  Inbox card ("Needs your decision") until you answer it or its Task or plan ends.
-- **How you answer.** The card shows the question, its options as buttons, a text box and **Send answer**. Your answer
+  or a question asked twice. An escalation, or a Gate opened because the attempts or review rounds ran out, becomes a
+  Needs-you row ("Needs your decision") until you answer it or its Task or plan ends.
+- **How you answer.** The row shows the question, its options as buttons, a text box and **Send answer**. Your answer
   goes to the worker's open question as the coordinator's would, and the coordinator gets a copy ("the owner
   answered"). If the worker no longer waits, the coordinator passes it on. The feed shows "answered by you". Only you
   answer an escalation: an agent session that tries is refused. From a shell: `astera questions list --status open`
@@ -370,8 +400,9 @@ Per project: Settings → Projects → "When a plan is done", or `astera project
 
 ## Worktrees
 
-The **Worktrees** page lists every worktree Astera made, on the left, and what is in the one you pick, on the right.
-A branch link in a console's details panel or on a Task card opens it too.
+The **Worktrees** pane of the **Source Control** view lists every worktree Astera made, with a **Changes** pane below
+for the changed files of the one you pick. Clicking a worktree opens its detail as a tab. A branch link in a console's
+details panel opens it too.
 
 - **Groups.** One group per plan that made worktrees, then **Ready to clean up**, then **Yours**. A row shows the
   branch, the Task, ahead/behind of its base, and `N changed` when the tree is dirty.
@@ -401,7 +432,7 @@ Every console that ends leaves a short card, so you can see later what happened 
   asked and who answered, and the commits or PR. Under that, 2–3 sentences of what it did and what is left open, written by
   the coordinator role's model (haiku by default) from the facts, the agent's own summary and the last lines of the
   console. If the model cannot be asked, or does not answer within 90 s, the card keeps the facts and has no sentences.
-- **Where you see it.** Agents → "Finished · what each console did"; the Task's card; History; the plan's Overview
+- **Where you see it.** The Wall's "Finished · what each console did"; History; the plan tab's So far
   ("What happened so far"); and the plan's pull request.
 - **From a shell.** `astera summaries [--job <planId>]` lists the cards, newest first. `astera sessions summary --id
   <sessionId>` shows one, or 404 for a console that has none.
@@ -410,10 +441,10 @@ Every console that ends leaves a short card, so you can see later what happened 
 
 ## Projects and windows
 
-- **Switcher.** The project name in the top bar lists each project with its number of running consoles and a dot
-  while one waits for you. Click a project, or press **Ctrl+Alt+1…9** for the first nine. Every page then shows only
+- **Switcher.** The project name in the status bar or the title bar's command center opens the switcher, which lists each project with its number of running consoles and a dot
+  while one waits for you. Click a project, or press **Ctrl+Alt+1…9** for the first nine. Every view then shows only
   that project. Consoles outside every project are under **Other**; **All projects** shows everything. Each project
-  returns to the page it had when you left it, and a new console opened in it starts in the project's folder.
+  returns to the view it had when you left it, and a new console opened in it starts in the project's folder.
   Consoles of other projects keep running, hidden.
 - **A window per project.** Open one with ⧉ ("Open in new window") on a project in the switcher, with **Ctrl+Shift+N**
   (pick its project in the switcher), from the tray's project list, or by launching again with `astera --project
@@ -433,7 +464,7 @@ Every console that ends leaves a short card, so you can see later what happened 
 
 ## Settings
 
-A page with groups on the left and a search box that filters rows by label and description.
+A Settings tab (`Ctrl+,`) with groups on the left and a search box that filters rows by label and description.
 
 | Group | Holds |
 |---|---|
@@ -450,7 +481,7 @@ Related guides: [accounts, rolling, files and everyday sessions](usage-guide.md)
 
 ## The box and voice
 
-The box is one overlay from the search field in the top bar or **Ctrl+Shift+K** (rebind it in Settings → General →
+The box is one overlay from **Ctrl+Shift+K** (rebind it in Settings → General →
 Shortcuts, action "Open the command bar"). It searches consoles, Tasks, plans, settings and commands, and matches
 initials too (`hw1` finds "Hold Worker 1"). Type a command and press Enter. It handles it in three steps:
 

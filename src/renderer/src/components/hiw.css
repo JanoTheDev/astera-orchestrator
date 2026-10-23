@@ -10,7 +10,10 @@
 .hiw-row { display: flex; flex-direction: column; align-items: stretch; padding: 0 8px 4px 0; }
 /* The whole row is one button (Tab, Enter/Space); the retry button is its sibling underneath */
 .ui-btn.hiw-row-main { width: 100%; height: auto; justify-content: flex-start; align-items: flex-start; gap: 8px; padding: calc(var(--row-pad-y) + 3px) 12px; border-radius: 0; font-weight: 400; text-align: left; white-space: normal; }
-.ui-btn.hiw-row-retry { align-self: flex-start; margin: 0 0 0 32px; }
+.hiw-row { position: relative; }
+/* DESIGN-W13 §4: the row's actions are hover actions, drawn over its trailing edge */
+.hiw-row-retry, .hiw-open-actions { position: absolute; top: 2px; right: 8px; opacity: 0; }
+.hiw-row:hover .hiw-row-retry, .hiw-row:focus-within .hiw-row-retry, .hiw-row:hover .hiw-open-actions, .hiw-row:focus-within .hiw-open-actions { opacity: 1; }
 .hiw-row:hover { background: var(--surface-hover); }
 /* 배경과 띠를 함께 준다 — Umbra·Sirius 는 --marker-w 가 0 이라 띠만으로는 아무것도 보이지 않는다.
    .fx-row.selected, .rail-btn.on 이 쓰는 그 조합이다 */
@@ -56,7 +59,7 @@
 .hiw-open { border-bottom: 1px solid var(--line-soft); padding-bottom: 2px; }
 .hiw-open .hiw-lab { padding: 8px 12px 2px; margin: 0; }
 .hiw-open-row { flex-direction: row; gap: 8px; padding: calc(var(--row-pad-y) + 3px) 12px; }
-.hiw-open-actions { display: flex; gap: 6px; margin-top: 4px; }
+.hiw-open-actions { display: flex; gap: 2px; }
 /* How It Works record detail pane. The left side is the story to read, the right side is the
    reference to double-check — the width ratio between the two (1.62 : 1) is the whole of this
    screen's layout. It draws its own head because it sits in the same row as a session tab or a file
@@ -77,8 +80,6 @@
    RecordDetail.tsx renders this only when a title is actually standing in for the heading, so the
    same sentence never appears twice. */
 .hiw-req { margin: 2px 0 0; font-size: var(--fs-11); color: var(--text-faint); }
-/* Colour comes from the same table as .hiw-g and .tab-glyph (RECORD_GLYPH_COLOR) */
-.hiw-st { font-size: var(--fs-11); }
 .hiw-sp { flex: 1; }
 
 /* What was checked, one line under the head (RecordDetail.tsx). */
@@ -170,11 +171,7 @@
 .hiw-why:last-child { margin-bottom: 0; }
 .hiw-wt { font-size: var(--fs-12); font-weight: 500; color: var(--text); }
 .hiw-wr { font-size: var(--fs-12); line-height: 1.55; color: var(--text-dim); }
-/* 반경도 테마가 정한다(설계 §7) — 99px 로 박으면 Quasar(--radius-sm: 1px)처럼 각진 테마에서
-   이 알약만 혼자 둥글다 */
-.hiw-src { align-self: flex-start; margin-top: 2px; font-family: var(--mono); font-size: var(--fs-11); color: var(--text-faint); border: 1px solid var(--line-soft); border-radius: var(--radius-sm); padding: 1px 8px; }
-/* 추정. ADR 과 색이 달라야 같은 무게로 읽히지 않는다 */
-.hiw-src.low { color: var(--warn); border-color: var(--warn); }
+.hiw-src { align-self: flex-start; margin-top: 2px; font-family: var(--mono); }
 
 .hiw-impl { display: flex; flex-direction: column; gap: 5px; }
 .hiw-impl-row { display: flex; gap: 12px; align-items: baseline; }

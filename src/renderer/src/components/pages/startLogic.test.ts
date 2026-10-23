@@ -154,7 +154,7 @@ describe('the last choice of a project', () => {
 describe('after Start made the Job', () => {
   it("opens the planner's terminal when it started; a queued plan goes to the agents list", () => {
     expect(afterCreate('ses_1')).toEqual({ openConsole: 'ses_1' })
-    expect(afterCreate(undefined)).toEqual({ openPage: 'agents' })
+    expect(afterCreate(undefined)).toEqual({ openActivity: 'agents' })
   })
 })
 

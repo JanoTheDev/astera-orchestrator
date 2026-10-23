@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   contextMenuPoint, FOCUSABLE, isTypeaheadKey, listboxKeyAction, menuKeyAction, moveIndex, nextFocusIndex, readSectionOpen, sectionStorageKey,
-  TYPEAHEAD_PAUSE_MS, typeaheadBuffer, typeaheadIndex, writeSectionOpen
+  TYPEAHEAD_PAUSE_MS, typeaheadBuffer, typeaheadIndex, writeSectionOpen, sashSize, sashKeyDelta, badgeText
 } from './logic'
 
 describe('nextFocusIndex', () => {
@@ -165,5 +165,34 @@ describe('contextMenuPoint', () => {
 describe('FOCUSABLE', () => {
   it('leaves out every part a roving row (tabindex -1) would match, so a modal trap ends on a Tab stop', () => {
     for (const part of FOCUSABLE.split(',')) expect(part).toContain(':not([tabindex="-1"])')
+  })
+})
+
+describe('Sash and ActivityBarItem helpers', () => {
+  it('sashSize clamps the dragged size to [min, max]; reverse grows toward the start', () => {
+    expect(sashSize(260, 40, 170, 600)).toBe(300)
+    expect(sashSize(260, -200, 170, 600)).toBe(170)
+    expect(sashSize(260, 1000, 170, 600)).toBe(600)
+    expect(sashSize(300, -50, 100, 800, true)).toBe(350)
+    expect(sashSize(300, 0.6, 100, 800)).toBe(301)
+  })
+
+  it('sashKeyDelta steps 8px on its own axis only', () => {
+    expect(sashKeyDelta('ArrowRight', 'vertical')).toBe(8)
+    expect(sashKeyDelta('ArrowLeft', 'vertical')).toBe(-8)
+    expect(sashKeyDelta('ArrowUp', 'vertical')).toBe(0)
+    expect(sashKeyDelta('ArrowDown', 'horizontal')).toBe(8)
+    expect(sashKeyDelta('ArrowUp', 'horizontal')).toBe(-8)
+    expect(sashKeyDelta('Enter', 'horizontal')).toBe(0)
+  })
+
+  it('badgeText hides 0, shows up to 9, then "9+"', () => {
+    expect(badgeText(0)).toBe('')
+    expect(badgeText(undefined)).toBe('')
+    expect(badgeText(-2)).toBe('')
+    expect(badgeText(1)).toBe('1')
+    expect(badgeText(9)).toBe('9')
+    expect(badgeText(10)).toBe('9+')
+    expect(badgeText(250)).toBe('9+')
   })
 })

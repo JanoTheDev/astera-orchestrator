@@ -138,6 +138,12 @@ export function placeTab(
   return intoGroup(root, tabId, opts.activePaneId)
 }
 
+/** Opens a view tab: focuses the tab with this id in whichever group holds it, else adds it to the active group
+ *  (a new group when the tree is empty). placeTab's intoGroup already does both. */
+export function placeViewTab(root: PaneNode | null, tabId: string, activePaneId?: string | null): PlaceResult {
+  return placeTab(root, tabId, { activePaneId })
+}
+
 /** A path as a comparison key: separators unified, `.` and `..` folded, case folded where the
  *  filesystem ignores it. No node:path — this file is imported by the renderer. */
 function pathKey(p: string, platform: string): string {

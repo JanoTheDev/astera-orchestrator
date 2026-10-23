@@ -2194,12 +2194,10 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       await gateSlot(merge.id, t(c.lang(), 'jobs.gate.assignedAccountUnusable'))
       return
     }
-    const reply = await c.handle('worker-start', {
-      task: merge.id,
-      agent: providerOf(account),
-      account: account.id,
-      worktree: runRoot
-    })
+    const start = (on?: string) => c.handle('worker-start', { task: merge!.id, agent: providerOf(account), ...(on ? { account: on } : {}), worktree: runRoot })
+    let reply = await start(account.id)
+    // That account is out of usage (paused until its window resets): any other with room, as worker-start picks
+    if (reply.status === 409 && (reply.body as { usagePaused?: unknown })?.usagePaused !== undefined) reply = await start()
     // Refused (the Run's cap, a pause): the merge Task stays ready and the next tick starts it again.
     if (reply.status >= 400) {
       log(`run=${a.runId}: the merge worker for task=${a.taskId} did not start: ${JSON.stringify(reply.body)}`)

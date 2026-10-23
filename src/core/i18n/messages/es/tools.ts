@@ -231,4 +231,9 @@ export const tools: Partial<Record<keyof typeof ko, string>> = {
   // W12 end panel
   // W12 redesign · run detail (RunDetailJournal, CompletionBlock, CompletionChecks, PrBadge, PushBadge, checkText)
   // W12 end detail
+  'run.state.running': 'en ejecución',
+  'run.state.stopping': 'deteniendo',
+  'run.row.edit': 'Editar configuración',
+  'run.view.refresh': 'Actualizar configuraciones',
+  'run.view.empty': 'Aún no hay configuraciones. Crea una con +.',
 }

@@ -12,12 +12,13 @@ interface DensityValues {
  *  테마 기능이 아니라 CSS 전면 재작성이 된다. */
 export const DENSITY: Record<Density, DensityValues> = {
   compact: { rowPadY: '3px', tabbarH: '30px', selH: '26px', modalPad: '16px' },
-  normal: { rowPadY: '4px', tabbarH: '34px', selH: '30px', modalPad: '20px' },
+  normal: { rowPadY: '4px', tabbarH: '35px', selH: '30px', modalPad: '20px' },
   roomy: { rowPadY: '6px', tabbarH: '38px', selH: '34px', modalPad: '24px' }
 }
 
-/** Shape is the same in every theme (DESIGN.md §9): flat buttons at radius 6, cards at 10, small marks at 4. */
-const SHAPE = { radius: '6px', radiusLg: '10px', radiusSm: '4px', markerW: '2px' }
+/** Shape is the same in every theme (DESIGN-W13.md §11): controls at radius 4, menus and cards at 6, small marks
+ *  at 3. Modals (8) are --radius-xl in tokens.css. */
+const SHAPE = { radius: '4px', radiusLg: '6px', radiusSm: '3px', markerW: '2px' }
 const SHADOW = {
   dark: { sm: '0 1px 2px rgba(0,0,0,.35)', lg: '0 10px 28px rgba(0,0,0,.55)' },
   light: { sm: '0 1px 2px rgba(22,24,29,.08)', lg: '0 10px 28px rgba(22,24,29,.16)' }
@@ -55,7 +56,7 @@ export function themeCssVars(theme: Theme): Record<string, string> {
     '--md-text': c.text,
     '--md-code-bg': c.elevated,
     '--md-line': c.line,
-    '--md-link': c.accent,
+    '--md-link': c.link,
     '--btn-bg': c.accent,
     '--btn-ink': c.accentInk,
     '--btn-border': 'transparent',
@@ -73,6 +74,27 @@ export function themeCssVars(theme: Theme): Record<string, string> {
     '--danger-bg': c.dangerSoft,
     '--info': c.info,
     '--info-soft': c.infoSoft,
+    '--link': c.link,
+    // The workbench surfaces (DESIGN-W13.md §2).
+    '--activitybar-bg': c.activitybarBg,
+    '--activitybar-fg': c.activitybarFg,
+    '--activitybar-fg-dim': c.activitybarFgDim,
+    '--sidebar-bg': c.sidebarBg,
+    '--editor-bg': c.editorBg,
+    '--tab-bar-bg': c.tabBarBg,
+    '--tab-active-bg': c.tabActiveBg,
+    '--tab-inactive-bg': c.tabInactiveBg,
+    '--tab-border-active': c.tabBorderActive,
+    '--panel-bg': c.panelBg,
+    '--panel-border': c.panelBorder,
+    '--statusbar-bg': c.statusbarBg,
+    '--statusbar-fg': c.statusbarFg,
+    '--focus-border': c.focusBorder,
+    '--list-hover': c.listHover,
+    '--list-active': c.listActive,
+    '--list-inactive-selection': c.listInactiveSelection,
+    '--badge-bg': c.badgeBg,
+    '--badge-fg': c.badgeFg,
     '--radius': SHAPE.radius,
     '--radius-lg': SHAPE.radiusLg,
     '--radius-sm': SHAPE.radiusSm,

@@ -1,8 +1,14 @@
-/* ErrorScreen: the technical details under the plain-words sentence. Tokens only. */
-.err-screen { min-height: 100vh; display: grid; place-items: center; background: var(--bg); }
+/* ErrorScreen and CrashReportPrompt: the technical details behind the plain-words sentence. Tokens only. */
+.err-screen { min-height: 100vh; display: grid; place-items: center; background: var(--editor-bg); }
+.err-screen .ui-empty { max-width: 560px; }
+.err-details { width: min(560px, 90vw); text-align: left; }
+.err-details > summary { cursor: pointer; font-size: var(--fs-12); color: var(--text-dim); padding: var(--sp-1) 0; }
+.err-details > summary:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.err-details > .ui-btn { margin-top: var(--sp-2); }
 .err-screen__details {
-  width: min(560px, 90vw); max-height: 160px; overflow: auto; margin: 0; padding: var(--sp-2) var(--sp-3);
-  border-radius: var(--radius); background: var(--elevated); color: var(--text-dim);
+  width: 100%; max-height: 160px; overflow: auto; margin: var(--sp-1) 0 0; padding: var(--sp-2) var(--sp-3); box-sizing: border-box;
+  border: 1px solid var(--line); border-radius: var(--radius); background: var(--elevated); color: var(--text-dim);
   font-family: var(--mono); font-size: var(--fs-12); text-align: left; white-space: pre-wrap; word-break: break-word;
 }
+.err-screen__details:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .err-screen__actions { display: flex; gap: var(--sp-2); flex-wrap: wrap; justify-content: center; }
