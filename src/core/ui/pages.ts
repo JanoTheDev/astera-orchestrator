@@ -74,7 +74,9 @@ export function viewFlagsOf(page: PageId): { explorer: boolean; jobs: boolean; u
 
 // ---- The VSCode-style workbench: activity bar views, side bar and bottom panel state ----
 
-export const ACTIVITY_IDS = ['agents', 'plans', 'explorer', 'scm', 'history', 'run'] as const
+export const ACTIVITY_IDS = ['agents', 'plans', 'explorer', 'scm', 'history', 'run', 'devices'] as const
+/** `Ctrl+1…6` open the first six activities; Devices, after them, has no digit key. */
+export const KEYED_ACTIVITY_COUNT = 6
 export type ActivityId = (typeof ACTIVITY_IDS)[number]
 export const DEFAULT_ACTIVITY: ActivityId = 'agents'
 export const ACTIVITY_STORAGE_KEY = 'cm.activity'

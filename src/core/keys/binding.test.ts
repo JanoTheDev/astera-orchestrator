@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { ACTIVITY_IDS } from '../ui/pages'
+import { ACTIVITY_IDS, KEYED_ACTIVITY_COUNT } from '../ui/pages'
 import {
   chordFromEvent,
   findActionForEvent,
@@ -310,7 +310,7 @@ describe('workbench shortcuts', () => {
   it.each(['linux', 'win32'])('Ctrl+1…6 reach the activities in order on %s, clear of every other key', (platform) => {
     const actions = makeActions(platform)
     const bindings = resolveBindings({}, actions)
-    ACTIVITY_IDS.forEach((a, i) =>
+    ACTIVITY_IDS.slice(0, KEYED_ACTIVITY_COUNT).forEach((a, i) =>
       expect(findActionForEvent(bindings, ev({ code: `Digit${i + 1}`, ctrlKey: true }), actions)).toBe(`activity.${a}`)
     )
     expect(findActionForEvent(bindings, ev({ code: 'Digit7', ctrlKey: true }), actions)).toBeNull()

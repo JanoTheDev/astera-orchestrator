@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { PAGE_IDS, MORE_PAGE_IDS, DEFAULT_PAGE, KEYED_PAGES, MORE_MENU_PAGES, TAB_PAGES, initialPage, tabOf, isPageId, pageOf, pageOfSidebarPane, togglePage, viewFlagsOf, ACTIVITY_IDS, DEFAULT_ACTIVITY, activityOfSaved, clampSidebarWidth } from './pages'
+import { PAGE_IDS, MORE_PAGE_IDS, DEFAULT_PAGE, KEYED_PAGES, MORE_MENU_PAGES, TAB_PAGES, initialPage, tabOf, isPageId, pageOf, pageOfSidebarPane, togglePage, viewFlagsOf, ACTIVITY_IDS, KEYED_ACTIVITY_COUNT, DEFAULT_ACTIVITY, activityOfSaved, clampSidebarWidth } from './pages'
 
 describe('pages', () => {
   it('the contract ids (PLAN.md "Wave 9 contracts")', () => {
@@ -79,7 +79,8 @@ describe('the shell’s pages', () => {
 
 describe('workbench ids', () => {
   it('lists the activities in key order', () => {
-    expect(ACTIVITY_IDS).toEqual(['agents', 'plans', 'explorer', 'scm', 'history', 'run'])
+    expect(ACTIVITY_IDS).toEqual(['agents', 'plans', 'explorer', 'scm', 'history', 'run', 'devices'])
+    expect(KEYED_ACTIVITY_COUNT).toBe(6)
     expect(DEFAULT_ACTIVITY).toBe('agents')
   })
   it.each([

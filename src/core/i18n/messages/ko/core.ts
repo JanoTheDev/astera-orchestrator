@@ -326,6 +326,7 @@ export const core = {
   'shortcut.activity.scm': '소스 제어 뷰 열기',
   'shortcut.activity.history': '히스토리 뷰 열기',
   'shortcut.activity.run': '실행 뷰 열기',
+  'shortcut.activity.devices': '기기 보기 열기',
   'shortcut.sidebar.toggle': '사이드바 표시/숨기기',
   'shortcut.panel.toggle': '하단 패널 표시/숨기기',
   'shortcut.palette.open': '명령 팔레트 열기',

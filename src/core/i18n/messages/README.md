@@ -21,7 +21,7 @@ A key's area is the screen whose files use it. Paths are under `src/renderer/src
 | worktrees | pages/WorktreesPage; WorktreePanel; WorktreeCreateStatus; `worktrees/`; BranchGlyph |
 | accounts | AccountPanel, AccountSettings, AccountRow, AccountSignIn, AccountSelect, accountSelectItems, AccountUsageMeter, settings/AccountsUsageSettings, usage/UsageGuardSettings |
 | settings | settings/SettingsPage, SettingRow, settingsIndex, GeneralSettings, AgentsSettings, NotificationsSettings, AdvancedSettings; shell/SettingsDialog; ThemeSettings, TerminalFontSettings, ShortcutSettings, AutoCloseTabsSetting, AutoAnswerSetting, FreshCoordinatorSetting, MaxWorkersSetting, OrchestratorModelsSettings, ResumeStrategySettings, StallWatchSetting, StartAtLoginSetting, TabSummariesSetting, NotificationSettings, GeneratorSettings, HistorySettings, command/VoiceSettings, activity/ActivityDigestSetting, activity/AlertSoundSetting |
-| integrations | settings/ProjectsSettings, IntegrationsSettings; projects/ProjectSettings, projectAnchor; `delivery/`; GithubSettings, SlackSettings, TelegramSettings, CliSettings, McpSettings, PluginsSettings, pluginsList, pluginsText, RemoteRuntimesSettings, remoteRuntimesText, CreativeHubSettings, creativeHub, HiggsfieldSettings |
+| integrations | settings/ProjectsSettings, IntegrationsSettings; projects/ProjectSettings, projectAnchor; `delivery/`; GithubSettings, SlackSettings, TelegramSettings, CliSettings, McpSettings, PluginsSettings, pluginsList, pluginsText, RemoteRuntimesSettings (This computer as a Runtime), remoteRuntimesText, CreativeHubSettings, creativeHub, HiggsfieldSettings |
 | onboarding | `onboarding/`; CliMissingScreen; CliInstallRows; HostRuntimeNotice; MachineSteps; `src/renderer/src/hooks/useCliInstall` |
 | inbox | `inbox/`; activity/ActivityPanel, activityView, useActivityFeed; shell/NotificationBell |
 | update | UpdateGate; the `update.*` keys used by `state/useWorkbench`, `state/useWorkbenchState` (installUpdate) and `lib/quitConfirm` (the update toasts and confirm) |
@@ -30,6 +30,7 @@ A key's area is the screen whose files use it. Paths are under `src/renderer/src
 | tools | JobsView, JobIcons, RunPanel, RunToolbar, RunToolRail, RunConfigForm, RunConfigManager, RunConfigMenu, RunTypePicker, RunDetailJournal, RunFindBar, RuntimeSelector, ConfigRefList, EnvTable, BottomPanel, CompletionBlock, CompletionChecks, PrBadge, PushBadge, checkText |
 | history | HistoryBrowser, RecordDetail, UnderstandingView, UnderstandingIcons, FlowDiagram, BrowserPane, browserSlot, AppMirrorPane, AnnotationTray, AnnotationPopover |
 | about | settings/AboutSettings, LicensesView (the Settings › About group, its group label `settings.group.about`) |
+| devices | views/DevicesView; `devices/` (DeviceDetail, AddDeviceModal, MigratePanel, devicesView, useDevices) |
 | crash, help | empty for now |
 | misc | keys nothing uses |
 

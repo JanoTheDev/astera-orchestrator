@@ -33,8 +33,8 @@ export const appTab = (sessionId: string): string => `app:${sessionId}`
 export const mediaTab = (path: string): string => `media:${path}`
 
 /** The pages that open as editor tabs in the workbench (`view:<name>` or `view:<name>:<arg>`). */
-export type ViewName = 'welcome' | 'wall' | 'plan' | 'mainplan' | 'start' | 'settings' | 'worktree'
-const VIEW_NAMES: readonly string[] = ['welcome', 'wall', 'plan', 'mainplan', 'start', 'settings', 'worktree']
+export type ViewName = 'welcome' | 'wall' | 'plan' | 'mainplan' | 'start' | 'settings' | 'worktree' | 'device'
+const VIEW_NAMES: readonly string[] = ['welcome', 'wall', 'plan', 'mainplan', 'start', 'settings', 'worktree', 'device']
 /** The arg may hold colons (a Windows path): only the first colon after the name splits. */
 export const viewTab = (name: ViewName, arg?: string): string => (arg === undefined ? `view:${name}` : `view:${name}:${arg}`)
 /** An unknown name or a non-view id is null — never throws. */
