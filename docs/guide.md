@@ -225,10 +225,12 @@ the worker's explicit report plus any checks, not a quiet terminal.
   projects never wait for each other. Tasks from a shell: `astera tasks add --job <job> … --difficulty <light|standard|hard>` (or `--model
   <id>`), `--affected-paths '["src/a.ts"]'`, and a spec with quotes on stdin: `--spec - <<'EOF'`. `astera tasks list
   --run <job>` lists a plan's Tasks before its first run.
-- **One heavy job at a time.** `astera heavy -- <cmd…>` runs a command under one machine-wide slot, first come first
-  served: the full test suite, `npm run dev` / Electron and `npm run dist:linux`. A Task's live line shows "Waiting for
-  the heavy-job slot (2nd in line)". It uses the same lock as hand-opened tabs (`flock /tmp/astera-fullsuite.lock …`),
-  so both share one queue. A crash or exit frees the slot.
+- **Heavy jobs at once.** `astera heavy -- <cmd…>` runs a heavy job (the full test suite, `npm run dev` / Electron,
+  `npm run dist:linux`, a Task's heavy checks) under one of N machine-wide slots. N is the Settings "Heavy jobs at once"
+  value (default 1, at most 8). Past N, jobs wait in one first come first served queue. A Task's live line shows
+  "Waiting for the heavy-job slot (2nd in line)". Slot 0 is `/tmp/astera-fullsuite.lock`. A hand-opened
+  `flock /tmp/astera-fullsuite.lock …` tab takes slot 0 only, so it shares that slot and no other. Slot k is
+  `/tmp/astera-fullsuite.<k>.lock`. A crash or exit frees the slot.
 - **Hold, stop, resume.** The plan tab's **Pause** / **Resume** (or "pause <plan>" in the box) **holds** a plan: no new
   worker starts, running workers carry on and nothing is closed, so nothing is asked. "pause worker 2" pauses one
   worker after a confirmation: its console stays open and keeps its slot, and no agent types into it until "resume
