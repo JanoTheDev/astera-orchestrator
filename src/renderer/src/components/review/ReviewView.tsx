@@ -16,6 +16,7 @@ import { DiffView } from '../DiffView'
 import { openConsole, openFile, startSession } from '../shell/navigation'
 import { Button, Checkbox, Chip, Icon, IconButton, Kbd, Popover, Textarea } from '../ui'
 import { ChangeMapView, SymbolMark } from './ChangeMapView'
+import { askInNewSession } from './askSession'
 import { changeRequestText, fixPrompt, type CodeRef } from './fixPrompt'
 import { anchorOf, hunkRange, isViewed, reviewModel, stepHunk, type ReviewFile } from './reviewModel'
 import { useChangeMap, useTaskReport, useViewed } from './useReview'
@@ -158,28 +159,16 @@ function ReviewBody({ map, cwd, owner, door, head }: { map: ChangeMap; cwd: stri
       }
       // A new chat session on the Auto account, its tab opened by the workbench's own spawn. Chat, because its turns go
       // over stdio: the quoted diff (quotes, pipes, newlines) arrives whole, where a terminal's first prompt is a
-      // command-line argument that refuses them (commands.ts LAUNCH_FORBIDDEN). The prompt goes in once the session
-      // says it is ready: a turn written before its handshake settles is refused (Codex) or misordered (Claude).
-      const ready = new Set<string>()
-      let made: string | null = null
-      let sent = false
-      const deliver = (id: string): void => {
-        if (sent) return
-        sent = true
-        off()
-        void window.api.chat.send(id, text).catch((err: unknown) => fail(err instanceof Error ? err.message : String(err)))
-      }
-      const off = window.api.on('chat:event', ({ sessionId, event }) => {
-        if (event.type !== 'ready') return
-        if (sessionId === made) deliver(sessionId)
-        else ready.add(sessionId)
+      // command-line argument that refuses them (commands.ts LAUNCH_FORBIDDEN).
+      const id = await askInNewSession(text, {
+        onReady: (cb) => window.api.on('chat:event', ({ sessionId, event }) => event.type === 'ready' && cb(sessionId)),
+        start: () => startSession(cwd, 'chat'),
+        send: (sid, prompt) => window.api.chat.send(sid, prompt),
+        settled: (o) => o !== 'sent' && fail(o === 'timeout' ? t('review.ask.notReady') : o.message),
+        setTimer: (fn, ms) => void window.setTimeout(fn, ms),
+        timeoutMs: 60_000
       })
-      window.setTimeout(() => {
-        if (!sent) (off(), made !== null && fail(t('review.ask.notReady')))
-      }, 60_000)
-      made = await startSession(cwd, 'chat')
-      if (made === null) return (off(), false)
-      if (ready.has(made)) deliver(made)
+      if (id === null) return false
       toast.success(t('review.ask.started'))
       return true
     } catch (err) {
