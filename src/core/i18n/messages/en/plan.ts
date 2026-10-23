@@ -125,6 +125,7 @@ export const plan: Record<keyof typeof ko, string> = {
   'plan.card.account': 'Account',
   'plan.card.branch': 'Branch',
   'plan.card.attempts': '{n} attempts',
+  'plan.card.attempts.one': '{n} attempt',
   'plan.question.send': 'Send answer',
   'plan.question.placeholder': 'Your answer',
   'plan.question.from': 'Needs your answer',

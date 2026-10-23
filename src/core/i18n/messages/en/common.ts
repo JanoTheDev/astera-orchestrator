@@ -393,7 +393,7 @@ export const common: Record<keyof typeof ko, string> = {
   'settings.telegram.hint':
     'Create a bot with @BotFather and send it any message. For a private chat, the chat id and user id are your own numeric Telegram id.',
   'settings.projects.list': 'Project settings',
-  'settings.projects.hint': 'Per project: delivery, approving plans automatically, test command, workers at once, review rounds, replanning between waves, default account and line attribution.',
+  'settings.projects.hint': 'Per project: delivery, approving plans automatically, test command, agents at once, review rounds, planning again between steps, default account and line attribution.',
   'settings.projects.add': 'Add project',
   'settings.projects.noAnchor': 'Open a tab first',
   'new.title': 'New',

@@ -26,6 +26,7 @@ export const files: Partial<Record<keyof typeof ko, string>> = {
   'explorer.dir.loading': '読み込み中…',
   'explorer.dir.reading': 'フォルダーを読み込み中…',
   'explorer.dir.readFailed': '読み込みに失敗しました: {detail}',
+  'explorer.dir.missing': 'このフォルダーはもう存在しません。',
   'explorer.dir.empty': '空です',
   'explorer.refresh': '更新',
   'explorer.reveal.failed': 'エクスプローラーの起動に失敗しました: {detail}',

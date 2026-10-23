@@ -428,7 +428,7 @@ export const common = {
   'settings.telegram.hint':
     '@BotFather로 봇을 만들고 봇에게 아무 메시지나 보내세요. 개인 채팅이라면 채팅 ID와 사용자 ID는 본인의 숫자 Telegram ID입니다.',
   'settings.projects.list': '프로젝트 설정',
-  'settings.projects.hint': '프로젝트마다 전달 방식, 플랜 자동 승인, 테스트 명령, 동시 워커 수, 리뷰 횟수, 웨이브 사이 재계획, 기본 계정, 줄 출처를 정합니다.',
+  'settings.projects.hint': '프로젝트마다 전달 방식, 플랜 자동 승인, 테스트 명령, 동시 에이전트 수, 리뷰 횟수, 단계 사이 재계획, 기본 계정, 줄 출처를 정합니다.',
   'settings.projects.add': '프로젝트 추가',
   'settings.projects.noAnchor': '먼저 탭을 여세요',
   'new.title': '새로 만들기',

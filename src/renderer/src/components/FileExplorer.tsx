@@ -820,7 +820,9 @@ export function FileExplorer({
             {row.note === 'loading'
               ? t('explorer.dir.loading')
               : row.note === 'readFailed'
-                ? t('explorer.dir.readFailed', { detail: row.detail ?? '' })
+                ? row.detail?.includes('ENOENT')
+                  ? t('explorer.dir.missing')
+                  : t('explorer.dir.readFailed', { detail: row.detail ?? '' })
                 : t('explorer.dir.empty')}
           </div>
         )

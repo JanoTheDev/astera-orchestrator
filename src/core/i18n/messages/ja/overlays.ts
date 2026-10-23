@@ -24,6 +24,8 @@ export const overlays: Partial<Record<keyof typeof ko, string>> = {
   'session.new.worktreeBranchesUnavailable': 'ブランチ一覧を確認できませんでした（git が応答しません）。基準ブランチは自動で決まります。',
   'session.new.checkingCli': 'このフォルダで CLI を確認しています…',
   'pr.create.branchesUnavailable': 'ブランチ一覧を確認できませんでした（git が応答しません）。',
+  'pr.create.commits': 'このプルリクエストに含まれるコミット: {count}件',
+  'pr.create.commits.one': 'このプルリクエストに含まれるコミット: {count}件',
   'session.new.worktreeBaseRef': '基準ブランチ',
   'session.new.worktreeBaseCurrent': '(現在のブランチ)',
   'session.new.worktreeBaseRemote': 'リモート',

@@ -313,7 +313,7 @@ export const common: Partial<Record<keyof typeof ko, string>> = {
   'settings.telegram.hint':
     '@BotFather でボットを作り、ボットに何かメッセージを送ってください。個人チャットでは、チャット ID とユーザー ID は自分の数値の Telegram ID です。',
   'settings.projects.list': 'プロジェクト設定',
-  'settings.projects.hint': 'プロジェクトごとに、配信方法、プランの自動承認、テストコマンド、同時ワーカー数、レビュー回数、ウェーブ間の再計画、既定のアカウント、行の出所を決めます。',
+  'settings.projects.hint': 'プロジェクトごとに、配信方法、プランの自動承認、テストコマンド、同時エージェント数、レビュー回数、ステップごとの再計画、既定のアカウント、行の出所を決めます。',
   'settings.projects.add': 'プロジェクトを追加',
   'settings.projects.noAnchor': '先にタブを開いてください',
   'settings.accountMaxSessions.label': 'アカウントごとの最大セッション数',

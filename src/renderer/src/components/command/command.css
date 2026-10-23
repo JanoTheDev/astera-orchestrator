@@ -16,7 +16,7 @@
 }
 .command-input-row:focus-within { border-color: var(--line-strong); box-shadow: var(--focus-ring); }
 .command-input-icon { flex: none; color: var(--text-faint); }
-.command-input { flex: 1; min-width: 0; height: 100%; padding: 0 var(--sp-2); border: 0; background: transparent; color: var(--text); font: inherit; font-size: var(--fs-14); }
+.command-input { flex: 1; min-width: 0; height: 100%; padding: 0 var(--sp-2); border: 0; background: transparent; color: var(--text); font: inherit; font-size: var(--fs-14); text-overflow: ellipsis; }
 .command-input::placeholder { color: var(--text-faint); }
 /* the row's focus-within ring is the field's focus ring */
 .command-input:focus-visible { outline: none; box-shadow: none; }

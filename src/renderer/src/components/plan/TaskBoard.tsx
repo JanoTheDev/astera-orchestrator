@@ -360,7 +360,7 @@ function TaskCard({
         </div>
       )}
       {onAnswer && questions.map((q) => <QuestionAnswer key={q.id} q={q} onAnswer={onAnswer} />)}
-      {tk.attempts !== undefined && <span className="plan-card-attempts">{t('plan.card.attempts', { n: tk.attempts })}</span>}
+      {tk.attempts !== undefined && <span className="plan-card-attempts">{t(tk.attempts === 1 ? 'plan.card.attempts.one' : 'plan.card.attempts', { n: tk.attempts })}</span>}
     </article>
   )
 }

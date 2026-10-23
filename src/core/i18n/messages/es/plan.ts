@@ -158,6 +158,8 @@ export const plan: Partial<Record<keyof typeof ko, string>> = {
   'plan.header.release': 'Volver a iniciar agentes nuevos',
   'plan.header.restartLead': 'Reiniciar el agente principal',
   'plan.header.concurrency': 'Agentes a la vez',
+  'plan.card.attempts': '{n} intentos',
+  'plan.card.attempts.one': '{n} intento',
   'plan.header.concurrencyHint': 'Un número menor solo frena los nuevos inicios; los agentes que ya trabajan siguen.',
   'plan.header.start': 'Iniciar',
   'plan.header.startHint': 'Púlsalo cuando las tareas estén listas y este plan empieza',

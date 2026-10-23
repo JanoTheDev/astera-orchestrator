@@ -26,6 +26,7 @@
 .ui-btn.project-row:hover { background: var(--elevated); }
 .project-name { flex: 1; text-align: left; min-width: 0; font-size: var(--fs-13); font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-meta { font-size: var(--fs-11); font-family: var(--mono); color: var(--text-faint); flex-shrink: 0; }
+.ui-btn.project-row .ui-btn__label { display: flex; flex: 1; min-width: 0; align-items: baseline; gap: 9px; } /* the Button wraps its children in one label span: without this the name and date ran together */
 /* An expanded session: bound by a vertical rail in the account colour, with the title dimmed — the density stays as it is */
 .session-sublist { list-style: none; margin: 0 0 5px 22px; padding: 0; border-left: 2px solid var(--line); }
 /* The row holds two siblings: the open-preview button (fills the row) and the resume icon button */

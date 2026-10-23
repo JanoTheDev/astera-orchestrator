@@ -10,6 +10,7 @@ export const overlays: Record<keyof typeof ko, string> = {
   'pr.create.draft': 'Create as draft',
   'pr.create.willPush': 'This branch is not on the remote. It will be pushed.',
   'pr.create.commits': '{count} commits will be in this pull request',
+  'pr.create.commits.one': '{count} commit will be in this pull request',
   'pr.create.dirty': '{count} uncommitted changes will not be in the pull request',
   'pr.create.behind': 'This branch is {count} commits behind the base',
   'pr.create.submit': 'Create pull request',

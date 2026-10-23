@@ -8,6 +8,7 @@ export const overlays = {
   'pr.create.draft': '초안으로 만들기',
   'pr.create.willPush': '이 브랜치는 원격에 없습니다. 만들 때 함께 푸시합니다.',
   'pr.create.commits': '이 PR에 들어갈 커밋 {count}개',
+  'pr.create.commits.one': '이 PR에 들어갈 커밋 {count}개',
   'pr.create.dirty': '커밋하지 않은 변경 {count}개는 PR에 들어가지 않습니다',
   'pr.create.behind': '기준 브랜치보다 {count}개 뒤처져 있습니다',
   'pr.create.submit': 'PR 만들기',

@@ -158,6 +158,8 @@ export const plan: Partial<Record<keyof typeof ko, string>> = {
   'plan.header.release': '新しいエージェントの開始を再開',
   'plan.header.restartLead': 'リードエージェントを再起動',
   'plan.header.concurrency': '同時エージェント数',
+  'plan.card.attempts': '{n}回試行',
+  'plan.card.attempts.one': '{n}回試行',
   'plan.header.concurrencyHint': '数を下げても新しい開始が控えられるだけで、作業中のエージェントは続けます。',
   'plan.header.start': '開始',
   'plan.header.startHint': 'タスクをすべて用意してから押すと、この計画が始まります',

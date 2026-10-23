@@ -29,6 +29,7 @@ export const files = {
   'explorer.dir.loading': '불러오는 중…',
   'explorer.dir.reading': '폴더를 읽는 중…',
   'explorer.dir.readFailed': '읽기 실패: {detail}',
+  'explorer.dir.missing': '이 폴더가 더 이상 없습니다.',
   'explorer.dir.empty': '비어 있음',
   'explorer.refresh': '새로고침',
   'explorer.noActiveSessionHint': '세션을 열면 그 프로젝트의 파일을 볼 수 있습니다.',

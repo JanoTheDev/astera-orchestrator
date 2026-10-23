@@ -185,7 +185,7 @@ export function CreatePrDialog({
           <span className="modal-hint">{t('pr.create.dirty', { count: dirtyCount })}</span>
         )}
         {commitCount > 0 && (
-          <span className="modal-hint">{t('pr.create.commits', { count: commitCount })}</span>
+          <span className="modal-hint">{t(commitCount === 1 ? 'pr.create.commits.one' : 'pr.create.commits', { count: commitCount })}</span>
         )}
         {behindCount !== null && behindCount > 0 && (
           <span className="modal-hint">{t('pr.create.behind', { count: behindCount })}</span>

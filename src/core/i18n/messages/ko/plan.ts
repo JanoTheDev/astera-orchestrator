@@ -146,6 +146,7 @@ export const plan = {
   'plan.card.account': '계정',
   'plan.card.branch': '브랜치',
   'plan.card.attempts': '{n}회 시도',
+  'plan.card.attempts.one': '{n}회 시도',
   'plan.question.send': '답 보내기',
   'plan.question.placeholder': '답을 입력하세요',
   'plan.question.from': '답이 필요합니다',

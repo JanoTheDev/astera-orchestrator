@@ -61,6 +61,7 @@
   transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
 }
 .ui-input::placeholder, .ui-textarea::placeholder { color: var(--text-faint); }
+.ui-input { text-overflow: ellipsis; } /* a long placeholder ends in an ellipsis, not a hard cut */
 .ui-input:hover:not(:disabled), .ui-select:hover:not(:disabled), .ui-textarea:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--line-strong), var(--text) 18%);
 }

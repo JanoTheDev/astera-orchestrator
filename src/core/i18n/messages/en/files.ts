@@ -29,6 +29,7 @@ export const files: Record<keyof typeof ko, string> = {
   'explorer.dir.loading': 'Loading…',
   'explorer.dir.reading': 'Reading folder…',
   'explorer.dir.readFailed': 'Read failed: {detail}',
+  'explorer.dir.missing': 'This folder no longer exists.',
   'explorer.dir.empty': 'Empty',
   'explorer.refresh': 'Refresh',
   'explorer.noActiveSessionHint': 'Open a session to browse its project files.',

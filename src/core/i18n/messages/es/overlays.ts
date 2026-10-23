@@ -23,6 +23,8 @@ export const overlays: Partial<Record<keyof typeof ko, string>> = {
   'session.new.worktreeBranchesUnavailable': 'No se pudo comprobar la lista de ramas (git no respondió). La rama base se detectará automáticamente.',
   'session.new.checkingCli': 'Comprobando la CLI en esta carpeta…',
   'pr.create.branchesUnavailable': 'No se pudo comprobar la lista de ramas (git no respondió).',
+  'pr.create.commits': '{count} commits irán en este pull request',
+  'pr.create.commits.one': '{count} commit irá en este pull request',
   'session.new.worktreeBaseRef': 'Rama base',
   'session.new.worktreeBaseCurrent': '(rama actual)',
   'session.new.worktreeBaseRemote': 'Remotas',

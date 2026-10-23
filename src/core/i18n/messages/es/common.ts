@@ -318,7 +318,7 @@ export const common: Partial<Record<keyof typeof ko, string>> = {
   'settings.telegram.hint':
     'Crea un bot con @BotFather y envíale cualquier mensaje. En un chat privado, el ID del chat y el ID de usuario son tu propio ID numérico de Telegram.',
   'settings.projects.list': 'Ajustes del proyecto',
-  'settings.projects.hint': 'Por proyecto: entrega, aprobar planes automáticamente, comando de prueba, workers a la vez, rondas de revisión, replanificar entre oleadas, cuenta predeterminada y atribución de líneas.',
+  'settings.projects.hint': 'Por proyecto: entrega, aprobar planes automáticamente, comando de prueba, agentes a la vez, rondas de revisión, replanificar entre pasos, cuenta predeterminada y atribución de líneas.',
   'settings.projects.add': 'Añadir proyecto',
   'settings.projects.noAnchor': 'Abre una pestaña primero',
   'settings.accountMaxSessions.label': 'Máximo de sesiones por cuenta',
