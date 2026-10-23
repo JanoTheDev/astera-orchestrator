@@ -1,5 +1,7 @@
 // W7-A: what the talk box shows for a Job row, apart from React so it can be tested.
 import type { JobRow } from '../../../../core/types'
+import type { PlanFeedback } from '../../../../core/orchestration/types'
+import type { CommandReply } from '../../lib/orchDoor'
 
 export interface PlanTalkView {
   /** The box shows at all: a planned, unarchived plan. */
@@ -10,6 +12,7 @@ export interface PlanTalkView {
   autoStarted: number | null
 }
 
+// T4: the talk box works in every phase of an unarchived plan, a finished one included (jobs-feedback reopens it).
 export function planTalkView(row: JobRow): PlanTalkView {
   const show = row.planned === true && row.archivedAt === undefined
   return {
@@ -30,4 +33,31 @@ export function approveSlot(row: Pick<JobRow, 'pendingStart' | 'planned' | 'plan
   // a plan that does not hold will not start by itself, so it is still being planned; hands-off implies auto-approve
   const holds = (row.planProblems?.length ?? 0) === 0
   return holds && (row.autoApprove === true || row.handsOff === true) ? 'auto' : 'planning'
+}
+
+/** What `jobs-feedback` did with a message (plannerFeedback.ts): `sent` typed into / handed to the planner or started a
+ *  replan, `queued` kept for the replan that is running, `reopened` started the final-check replan of a finished plan. */
+export type FeedbackOutcome = 'sent' | 'queued' | 'reopened'
+
+/** The outcome of an answered `jobs-feedback`. `finished`: the plan's Run was over when the message went (its row's
+ *  outcome is not running/checking), so the replan that answers it is the one that reopened the plan. */
+export function feedbackOutcomeOf(body: unknown, row: Pick<JobRow, 'outcome'>): FeedbackOutcome {
+  const b = (body ?? {}) as { via?: unknown; mode?: unknown }
+  if (b.via === 'queued') return 'queued'
+  const finished = row.outcome === 'completed' || row.outcome === 'failed' || row.outcome === 'blocked'
+  return b.via === undefined && b.mode === 'completion' && finished ? 'reopened' : 'sent'
+}
+
+/** The refusal of a message while the planner waits on a permission prompt or a question: answered in its own tab, so
+ *  the box offers to open it instead of only saying no. */
+export const plannerWaitingIn = (reply: CommandReply): boolean => {
+  const error = (reply.body as { error?: unknown } | null)?.error
+  return reply.status === 409 && typeof error === 'string' && error.startsWith('the planner waits on')
+}
+
+/** The mark a history entry carries: `queued` until the planner answers it (its `changes` arrive), `duringRun` for one
+ *  sent while the plan ran. */
+export function feedbackMark(f: Pick<PlanFeedback, 'phase' | 'queued' | 'changes'>): 'queued' | 'duringRun' | null {
+  if (f.queued === true && f.changes === undefined) return 'queued'
+  return f.phase === 'run' ? 'duringRun' : null
 }

@@ -6,13 +6,30 @@ import { accountToDispatchOn } from '../../../../core/accounts/dispatchAccount'
 import { providerOf } from '../../../../core/providers/meta'
 import type { Dispatch } from '../../../../core/orchestration/types'
 import { runIdToMerge } from '../../../../core/orchestration/snapshot'
-import { replyNote, type OrchDoor } from '../../lib/orchDoor'
+import { replyNote, type CommandReply, type OrchDoor } from '../../lib/orchDoor'
 import { confirmModal } from '../../lib/confirm'
 import { approvePlan, type ActionUi } from '../../lib/jobActions'
 import { toast } from '../../lib/toast'
 import { errText } from '../../hooks/useFileOps'
 import { jobName } from '../../lib/jobName'
 import { RUN_MERGE, RUN_START } from './planPage'
+
+/** What `run-integrate-all` answered (command.ts): delivered, stopped with the delivery's error, handed its conflicts to the
+ *  AI merge Task `taskId`, or refused (a 409 names the worktrees it could not merge). */
+export type IntegrateAllOutcome =
+  | { state: 'delivered' }
+  | { state: 'stopped'; error?: string }
+  | { state: 'fixing-conflicts'; taskId: string }
+  | { state: 'refused'; error?: string }
+
+export function integrateAllOutcomeOf(reply: CommandReply): IntegrateAllOutcome {
+  const b = (reply.body ?? {}) as { state?: unknown; taskId?: unknown; error?: unknown }
+  const error = typeof b.error === 'string' ? b.error : undefined
+  if (b.state === 'fixing-conflicts' && typeof b.taskId === 'string') return { state: 'fixing-conflicts', taskId: b.taskId }
+  if (b.state === 'stopped') return { state: 'stopped', ...(error ? { error } : {}) }
+  if (reply.status < 400) return { state: 'delivered' }
+  return { state: 'refused', ...(error ? { error } : {}) }
+}
 
 type T = (key: MessageKey, params?: MessageParams) => string
 

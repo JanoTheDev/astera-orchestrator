@@ -80,6 +80,7 @@ export function PlanTaskBoard({
       selected={selectedTask?.id}
       onSelect={onNodeClick}
       layers={detail?.layers ?? []}
+      deps={detail?.deps}
       events={events ?? []}
       activity={live.activity}
       sessions={live.sessions}
