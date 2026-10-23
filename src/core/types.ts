@@ -578,6 +578,8 @@ export interface JobTask {
   branch?: string
   /** How many times a worker started on it: implementation and repair Dispatches, not reviews. Absent when 0. */
   attempts?: number
+  /** Its step in the plan, from 0 (replan.ts waveOf over its Run's Tasks). Absent from an older Runtime's snapshot. */
+  wave?: number
   // W6-E progress view: the files the plan says the Task touches (Task.affectedPaths). Absent when none.
   affectedPaths?: string[]
 }

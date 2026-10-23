@@ -249,9 +249,10 @@ describe('snapshotFor', () => {
         // W9-C: the Job's age, on its row
         createdAt: '2026-08-18T00:00:00.000Z',
         tasks: [
-          { id: 't1', title: 'task t1', status: 'completed', sessionId: undefined, gateQuestion: undefined, openGates: 0, board: { category: 'done' } },
+          // T7 Plans tree: each Task carries its step (waveOf); neither has deps, so both are step 0
+          { id: 't1', title: 'task t1', status: 'completed', sessionId: undefined, gateQuestion: undefined, openGates: 0, board: { category: 'done' }, wave: 0 },
           // W2-C: a legacy Task has no account, so the board says that is why it waits
-          { id: 't2', title: 'task t2', status: 'ready', sessionId: undefined, gateQuestion: undefined, openGates: 0, board: { category: 'queued', reason: { kind: 'no-account' } } }
+          { id: 't2', title: 'task t2', status: 'ready', sessionId: undefined, gateQuestion: undefined, openGates: 0, board: { category: 'queued', reason: { kind: 'no-account' } }, wave: 0 }
         ]
       }
     ])

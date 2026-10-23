@@ -13,7 +13,6 @@ import { RunToolbar } from '../RunToolbar'
 import { controlReason, isRemoteRuntime, offlineNote } from '../../lib/remoteJobs'
 import { deleteRun, pauseRun, restartCoordinator as restartRunCoordinator, resumeRun } from '../../lib/jobActions'
 import { PlansPage, type PlansPageProps } from '../pages/PlansPage' // W9-C
-import { TasksPage, type TasksPageProps } from '../pages/TasksPage' // W9-C
 import { WorktreesPage } from '../pages/WorktreesPage' // W9-J
 import { openPage } from './navigation'
 import { AgentsPage, type AgentsPageProps } from '../pages/AgentsPage' // W9-H
@@ -31,7 +30,6 @@ export const showsConsoles = (page: PageId): boolean =>
 export type PagesProps = ContentProps &
   Omit<AgentsPageProps, 'children' | 'hidden'> &
   PlansPageProps &
-  TasksPageProps &
   Pick<
     AppState,
     'accounts' | 'actionUi' | 'activeRecordId' | 'activeRuns' | 'applyRunSelection' | 'approve' | 'cancelOpenTask' |
@@ -193,7 +191,6 @@ export function Pages(p: PagesProps): React.JSX.Element {
         )}
             </div>
           )}
-          {page === 'tasks' && <TasksPage {...p} />}
           {page === 'worktrees' && (
             <WorktreesPage
               onStartSession={(path) => {
