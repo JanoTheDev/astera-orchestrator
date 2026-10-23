@@ -131,3 +131,80 @@ export function layoutFlow(nodes: FlowNode[]): FlowLayout {
   const height = Math.max(...boxes.map((b) => b.y + NODE_H))
   return { boxes, edges, width, height }
 }
+
+// ── The review change map (T7): boxes of different heights in labelled groups, packed into as many columns as the
+// width holds, and curved links between boxes. Additive: layoutFlow above is unchanged.
+
+export interface AreaBox {
+  id: string
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+export interface AreaLayout {
+  /** One per group: its frame, label row included. */
+  groups: AreaBox[]
+  boxes: AreaBox[]
+  width: number
+  height: number
+}
+
+export interface AreaInput {
+  id: string
+  items: Array<{ id: string; h: number }>
+}
+
+/** Groups packed like masonry: each next group goes into the shortest column, so the map reads left to right and stays
+ *  about as tall as it is wide. Inside a group the items stack in order under a `headH` label row. */
+export function layoutAreas(
+  areas: readonly AreaInput[],
+  opts: { width: number; colW: number; gap?: number; headH?: number; pad?: number }
+): AreaLayout {
+  const gap = opts.gap ?? 16
+  const headH = opts.headH ?? 22
+  const pad = opts.pad ?? 8
+  const cols = Math.max(1, Math.min(areas.length, Math.floor((opts.width + gap) / (opts.colW + gap))))
+  const heights = new Array<number>(cols).fill(0)
+  const groups: AreaBox[] = []
+  const boxes: AreaBox[] = []
+  for (const a of areas) {
+    const c = heights.indexOf(Math.min(...heights))
+    const x = c * (opts.colW + gap)
+    const top = heights[c]
+    let y = top + headH
+    for (const it of a.items) {
+      boxes.push({ id: it.id, x: x + pad, y, w: opts.colW - 2 * pad, h: it.h })
+      y += it.h + pad
+    }
+    const h = y - top
+    groups.push({ id: a.id, x, y: top, w: opts.colW, h })
+    heights[c] = top + h + gap
+  }
+  const used = Math.max(0, ...heights.map((h) => h - gap))
+  return { groups, boxes, width: cols * opts.colW + (cols - 1) * gap, height: used }
+}
+
+/** A curved link from box `a` to box `b`: side to side when they are in different columns, and a loop out of the right
+ *  edge when one is above the other, so a link never crosses the boxes it joins. */
+export function linkPath(a: AreaBox, b: AreaBox, bow = 28): string {
+  const ay = a.y + a.h / 2
+  const by = b.y + b.h / 2
+  if (b.x >= a.x + a.w) {
+    const x1 = a.x + a.w
+    const x2 = b.x
+    const mx = (x1 + x2) / 2
+    return `M${x1} ${ay} C${mx} ${ay} ${mx} ${by} ${x2} ${by}`
+  }
+  if (b.x + b.w <= a.x) {
+    const x1 = a.x
+    const x2 = b.x + b.w
+    const mx = (x1 + x2) / 2
+    return `M${x1} ${ay} C${mx} ${ay} ${mx} ${by} ${x2} ${by}`
+  }
+  const x1 = a.x + a.w
+  const x2 = b.x + b.w
+  const out = Math.max(x1, x2) + bow
+  return `M${x1} ${ay} C${out} ${ay} ${out} ${by} ${x2} ${by}`
+}

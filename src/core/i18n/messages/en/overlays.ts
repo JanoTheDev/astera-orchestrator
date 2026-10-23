@@ -273,7 +273,6 @@ export const overlays: Record<keyof typeof ko, string> = {
   'palette.pausePlan': 'Pause Plan',
   'palette.resumePlan': 'Resume Plan',
   'palette.openConsole': 'Open a Console…',
-  'palette.showWall': 'Show All Consoles',
   'palette.openSettings': 'Open Settings',
   'palette.keyboardShortcuts': 'Keyboard Shortcuts',
   'palette.colorTheme': 'Color Theme…',

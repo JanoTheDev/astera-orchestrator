@@ -137,7 +137,11 @@ const api = {
   },
   pr: {
     draftFor: invoke('pr.draftFor'),
-    create: invoke('pr.create')
+    create: invoke('pr.create'),
+    merge: invoke('pr.merge')
+  },
+  review: {
+    changeMap: invoke('review.changeMap')
   },
   higgsfield: {
     list: invoke('higgsfield.list'),

@@ -652,6 +652,130 @@ describe('T1: run-delivery-dismiss', () => {
   })
 })
 
+// Manual delivery: nothing lands by itself; the owner picks the route (--as) or merges the Run's open PR (run-pr-merge)
+describe('manual delivery', () => {
+  it('run-deliver --as push pushes a manual plan, and --as pr goes to run-open-pr', async () => {
+    const h = setup({ project: { delivery: 'manual', deliveryBranch: 'main' } })
+    expect((await h.call('run-deliver', { run: 'r1', as: 'push' })).body).toMatchObject({ delivery: 'push', pushed: true })
+    expect(h.pushes).toHaveLength(1)
+    const g = setup({ project: { delivery: 'manual' } })
+    const r = await g.call('run-deliver', { run: 'r1', as: 'pr' })
+    expect(JSON.stringify(r.body)).toContain('GitHub commands are answered by the Astera Host')
+    expect((await g.call('run-deliver', { run: 'r1' })).status).toBe(409) // no --as: a PR
+    expect(g.pushes).toEqual([])
+  })
+
+  it('refuses --as push to an agent session and an MCP client, and a value that is neither route', async () => {
+    const h = setup({ project: { delivery: 'manual' } })
+    expect((await h.call('run-deliver', { run: 'r1', as: 'push' }, 'sess_agent')).status).toBe(403)
+    expect((await h.call('run-deliver', { run: 'r1', as: 'push' }, '', 'mcp')).status).toBe(403)
+    expect((await h.call('run-deliver', { run: 'r1', as: 'merge' })).status).toBe(400)
+    expect(h.pushes).toEqual([])
+  })
+
+  it('records a finished manual plan as awaiting review, and never delivers it by itself', async () => {
+    const h = setup({ project: { delivery: 'manual' } })
+    expect((await h.call('run-deliver', { run: 'r1', auto: true })).status).toBe(409)
+    expect((await h.call('run-deliver', { run: 'r1', awaitReview: true })).status).toBe(200)
+    expect(h.state().runs[0].deliveryState).toEqual({ state: 'awaiting-review', attempts: 0 })
+    expect(outcomeOf(h.state(), 'r1')).toBe('completed')
+    expect((await h.call('run-deliver', { run: 'r1', awaitReview: true }, 'sess_agent')).status).toBe(403)
+    expect((await setup().call('run-deliver', { run: 'r1', awaitReview: true })).status).toBe(409)
+  })
+})
+
+describe('run-pr-merge', () => {
+  const withGh = (stderr?: string) => {
+    const ghCalls: string[][] = []
+    const h = setup({ project: { delivery: 'manual' }, run: { worktree: '/wt/run', pr: { at: NOW, url: 'https://github.com/o/r/pull/9', number: 9 } } })
+    const run = async (cmd: string, args: Record<string, unknown>, sessionId = HOST_CALLER, role?: 'mcp') => {
+      const deps = {
+        getState: () => h.state(),
+        setState: async (n: OrchState) => void (h.state().runs = n.runs),
+        now: () => NOW,
+        listAccounts: () => [],
+        github: {
+          run: async (a: string[]) => {
+            ghCalls.push(a)
+            return stderr ? { ok: false, stdout: '', stderr } : { ok: true, stdout: '', stderr: '' }
+          }
+        }
+      } as unknown as OrchServerDeps
+      return handleCommand(deps, { sessionId, ...(role ? { role } : {}) }, cmd, args)
+    }
+    return { run, ghCalls, h }
+  }
+
+  it('merges the Run PR with gh and records the Run delivered and merged', async () => {
+    const { run, ghCalls, h } = withGh()
+    const r = await run('run-pr-merge', { run: 'r1', method: 'squash' })
+    expect(r.status).toBe(200)
+    expect(ghCalls).toEqual([['pr', 'merge', '9', '--squash']])
+    expect(h.state().runs[0].pr?.landed).toBe('merged')
+    expect(h.state().runs[0].deliveryState?.state).toBe('delivered')
+    expect((await run('run-pr-merge', { run: 'r1' })).status).toBe(409) // already merged
+  })
+
+  it('is refused to an agent session and an MCP client, and does not run gh', async () => {
+    const { run, ghCalls } = withGh()
+    expect((await run('run-pr-merge', { run: 'r1' }, 'sess_agent')).status).toBe(403)
+    expect((await run('run-pr-merge', { run: 'r1' }, '', 'mcp')).status).toBe(403)
+    expect(ghCalls).toEqual([])
+  })
+
+  it('rejects a bad method, a missing run and a Run with no PR; reports gh stopping it', async () => {
+    const { run, h } = withGh()
+    expect((await run('run-pr-merge', { run: 'r1', method: 'ff' })).status).toBe(400)
+    expect((await run('run-pr-merge', {})).status).toBe(400)
+    expect((await run('run-pr-merge', { run: 'nope' })).status).toBe(404)
+    const bare = setup()
+    expect((await bare.call('run-pr-merge', { run: 'r1' })).status).toBe(409)
+    const blocked = withGh('Pull request #9 is not mergeable: conflicts')
+    const r = await blocked.run('run-pr-merge', { run: 'r1' })
+    expect(r.status).toBe(409)
+    expect(r.body).toMatchObject({ kind: 'not-mergeable' })
+    expect(blocked.h.state().runs[0].pr?.landed).toBeUndefined()
+    expect(h.state().runs[0].pr?.landed).toBeUndefined()
+  })
+
+  it('merges by the PR URL in the project root when the worktree and job cwd are gone, never with an empty cwd', async () => {
+    const h = setup({ project: { delivery: 'manual' }, run: { pr: { at: NOW, url: 'https://github.com/o/r/pull/9' } } })
+    h.state().jobs = h.state().jobs.map((j) => ({ ...j, cwd: undefined })) as never
+    const ghCalls: { args: string[]; cwd: string }[] = []
+    const deps = {
+      getState: () => h.state(),
+      setState: async (n: OrchState) => void (h.state().runs = n.runs),
+      now: () => NOW,
+      listAccounts: () => [],
+      github: {
+        run: async (args: string[], cwd: string) => {
+          ghCalls.push({ args, cwd })
+          return { ok: true, stdout: '', stderr: '' }
+        }
+      }
+    } as unknown as OrchServerDeps
+    const r = await handleCommand(deps, { sessionId: HOST_CALLER }, 'run-pr-merge', { run: 'r1', method: 'squash' })
+    expect(r.status).toBe(200)
+    expect(ghCalls).toEqual([{ args: ['pr', 'merge', 'https://github.com/o/r/pull/9', '--squash'], cwd: REPO }])
+  })
+
+  it('refuses to merge, and runs no gh, when no folder for the Run is left at all', async () => {
+    const h = setup({ project: { delivery: 'manual' }, run: { pr: { at: NOW, url: 'https://github.com/o/r/pull/9' } } })
+    h.state().jobs = h.state().jobs.map((j) => ({ ...j, cwd: undefined })) as never
+    h.state().projects = []
+    const ghCalls: string[][] = []
+    const deps = {
+      getState: () => h.state(),
+      setState: async (n: OrchState) => void (h.state().runs = n.runs),
+      now: () => NOW,
+      listAccounts: () => [],
+      github: { run: async (args: string[]) => (ghCalls.push(args), { ok: true, stdout: '', stderr: '' }) }
+    } as unknown as OrchServerDeps
+    expect((await handleCommand(deps, { sessionId: HOST_CALLER }, 'run-pr-merge', { run: 'r1' })).status).toBe(409)
+    expect(ghCalls).toEqual([])
+  })
+})
+
 describe('run-integrate-all: merge everything, the AI merge Task fixes conflicts, then deliver', () => {
   const tasks = (): Task[] => [task({ accountIds: ['a'] }), task({ id: 't2', accountIds: ['a'] })]
   const conflicting = (calls: { into: string; paths: string[] }[]): OrchServerDeps['mergeWorktrees'] => async (into, paths) => {

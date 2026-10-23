@@ -164,6 +164,7 @@ import type { RunPr, TaskKind, TaskLinks } from './types'
 import { escalationOpen } from './sessionIndex' // W7-C
 import type { Gate, Message } from './types' // W7-C
 import type { BranchPushResult, PrCreateRequest, PrCreateResult } from '../github/prCreate'
+import { mergePullRequest, PR_MERGE_METHODS, type PrMergeMethod } from '../github/prMerge'
 // W8-A commit attribution
 import { NOTES_FETCH_REFSPEC, pushNotes, syncNotes } from '../attribution/note'
 import { readBusyWindows, stampCommits, WINDOW_SLACK_MS } from '../attribution/stamp'
@@ -1263,6 +1264,7 @@ const COORDINATOR_ONLY = new Set([
   // W6-H: how the plan lands is the person's setting, and the landing is Astera's
   'projects-set',
   'run-deliver',
+  'run-pr-merge',
   'run-integrate-all',
   // W8-C draft PR
   'run-draft-pr',
@@ -2424,7 +2426,7 @@ export async function handleCommand(
       if (args.replan !== undefined && args.replan !== 'waves' && args.replan !== 'off') return bad('--replan must be waves|off')
       // W6-H: the plan's own delivery, ahead of its project's
       const delivery = parseDelivery(args.delivery)
-      if (delivery === null) return bad('--delivery must be pr or push')
+      if (delivery === null) return bad('--delivery must be pr, push or manual')
       // 완료 수렴(설계 D12). --convergence 만 주면 빈 정책(기본값). 숫자 셋은 --convergence 없이는
       // 거절한다 — 조용히 받으면 "정책을 줬는데 꺼져 있다" 가 된다.
       let convergence: ConvergencePolicy | undefined
@@ -2642,7 +2644,7 @@ export async function handleCommand(
       if (!id) return bad('--id is required')
       if (fromAgentSession || caller.role === 'mcp') return denied("a project's settings are set by the person, in Astera or at their own shell")
       const delivery = parseDelivery(args.delivery)
-      if (delivery === null) return bad('--delivery must be pr or push')
+      if (delivery === null) return bad('--delivery must be pr, push or manual')
       const branchArg = args.deliveryBranch
       if (branchArg !== undefined && typeof branchArg !== 'string') return bad('--delivery-branch needs a value')
       // W7-B: the rest of the project's settings. An empty value clears one, back to PROJECT_DEFAULTS
@@ -3495,7 +3497,7 @@ export async function handleCommand(
         const auto = args.autoApprove === undefined ? undefined : onOff(args.autoApprove)
         if (auto === null) return bad('--auto-approve must be on or off')
         const delivery = parseDelivery(args.delivery)
-        if (delivery === null) return bad('--delivery must be pr or push')
+        if (delivery === null) return bad('--delivery must be pr, push or manual')
         const concurrency = args.concurrency === undefined ? undefined : concurrencyArg(args.concurrency)
         if (concurrency === null) return bad('--concurrency must be an integer >= 1')
         const priority = args.priority === undefined ? undefined : typeof args.priority === 'string' ? Number(args.priority) : args.priority
@@ -3570,7 +3572,7 @@ export async function handleCommand(
         const auto = args.autoApprove === undefined ? undefined : onOff(args.autoApprove)
         if (auto === null) return bad('--auto-approve must be on or off')
         const delivery = parseDelivery(args.delivery)
-        if (delivery === null) return bad('--delivery must be pr or push')
+        if (delivery === null) return bad('--delivery must be pr, push or manual')
         const { after: _old, afterStopNotified: _mark, ...rest } = job
         const kept: Job = handsOff === undefined ? rest : { ...rest, handsOff }
         const queued: Job = target === 'none' ? kept : { ...kept, after: target }
@@ -3671,7 +3673,7 @@ export async function handleCommand(
       if (auto === null) return bad('--auto-approve must be on or off')
       // W6-H: the plan's own delivery, set before its planner starts
       const delivery = parseDelivery(args.delivery)
-      if (delivery === null) return bad('--delivery must be pr or push')
+      if (delivery === null) return bad('--delivery must be pr, push or manual')
       // W6-C: how many workers the plan may run at once, set with the plan (up to MAX_CONCURRENT_WORKERS)
       const concurrency = args.concurrency === undefined ? null : concurrencyArg(args.concurrency)
       if (args.concurrency !== undefined && concurrency === null) return bad('--concurrency must be an integer >= 1')
@@ -6637,9 +6639,14 @@ export async function handleCommand(
       if (!run) return notFound(`unknown run: ${id}`)
       const job = jobOf(s, run)
       if (!job) return notFound(`no plan for run ${id}`)
-      const push = deliveryOf(s, job) === 'push'
+      const mode = deliveryOf(s, job)
+      // A manual plan is delivered by the owner, by the route they pick for this one delivery (--as); default a PR
+      const route = args.as === undefined ? (mode === 'manual' ? 'pr' : mode) : args.as
+      if (route !== 'pr' && route !== 'push') return bad('--as must be pr or push')
+      const push = route === 'push'
       // T3: the driving loop's own steps (persisted delivery state, retries, the owner's answer) are Astera's
-      const loopStep = args.pending === true || args.auto === true || args.ownerPushed === true || typeof args.stopped === 'string'
+      const loopStep =
+        args.pending === true || args.auto === true || args.awaitReview === true || args.ownerPushed === true || typeof args.stopped === 'string'
       if ((push || loopStep) && (fromAgentSession || caller.role === 'mcp'))
         return denied('a delivery is made by Astera itself, or by the person')
       const progressOf = (st: OrchState): DeliveryProgress | undefined => st.runs.find((r) => r.id === id)?.deliveryState
@@ -6647,6 +6654,14 @@ export async function handleCommand(
         ...st,
         runs: st.runs.map((r) => (r.id === id ? { ...r, deliveryState: p } : r))
       })
+      // A manual plan that finished waits for the owner: no attempt is due, nothing retries
+      if (args.awaitReview === true) {
+        if (mode !== 'manual') return conflict('Only a manual plan waits for its owner to review it')
+        const next: DeliveryProgress = { state: 'awaiting-review', attempts: 0 }
+        await deps.setState(withProgress(deps.getState(), next))
+        return okBody({ deliveryState: next })
+      }
+      if (args.auto === true && mode === 'manual') return conflict('A manual plan is not delivered by itself')
       // T3: a Run the loop saw running has a delivery pending (also again after it finished blocked and runs once more)
       if (args.pending === true) {
         const next: DeliveryProgress = { state: 'pending', attempts: 0 }
@@ -6824,7 +6839,7 @@ export async function handleCommand(
         }
         // T3: a push plan's branch is pushed for safekeeping; main receives the plan once, validated, at the end. T4: so is
         // a `pr` plan's synced before its first Task: its draft opens with that Task
-        if (deliveryOf(s, job) === 'push' || (run.pr?.url === undefined && tasksDone < 1)) {
+        if (deliveryOf(s, job) !== 'pr' || (run.pr?.url === undefined && tasksDone < 1)) {
           const pushed = await g.push(t.cwd, t.branch)
           if (!pushed.ok)
             return pushed.kind === 'no-remote'
@@ -6920,6 +6935,33 @@ export async function handleCommand(
       if (!r.ok) return conflict(r.error)
       await deps.setState(r.state)
       return okBody({ run: id, deliveryState: r.value })
+    }
+    // Merges the Run's open pull request on GitHub (`gh pr merge`), as the owner asked after reviewing it. The Run then
+    // reads delivered and merged (`landedOnGitHub`). Refused from an agent session and an MCP client.
+    case 'run-pr-merge': {
+      const id = str(args.run)
+      if (!id) return bad('--run is required')
+      if (fromAgentSession || caller.role === 'mcp') return denied("merging a plan's pull request is the owner's")
+      const method = args.method === undefined ? 'merge' : (PR_MERGE_METHODS as readonly unknown[]).includes(args.method) ? (args.method as PrMergeMethod) : null
+      if (method === null) return bad('--method must be merge, squash or rebase')
+      const run = s.runs.find((r) => r.id === id)
+      if (!run) return notFound(`unknown run: ${id}`)
+      if (run.pr?.url === undefined) return conflict('This Run has no open pull request to merge')
+      if (run.pr.landed !== undefined) return conflict(`This Run's pull request was already ${run.pr.landed} on GitHub`)
+      if (!deps.github) return conflict('GitHub commands are answered by the Astera Host, and this caller is not one')
+      // gh runs in the Run's own folder, never the Host's: the worktree, the job's cwd, then the project's root
+      const job = jobOf(s, run)
+      const cwd = run.worktree ?? job?.cwd ?? s.projects.find((p) => p.id === job?.projectId)?.path ?? ''
+      if (cwd === '') return conflict("This Run's folder is gone, so gh cannot find its pull request to merge")
+      // the PR URL names the repo; the number is only meaningful inside that folder's repo
+      const merged = await mergePullRequest(
+        { cwd, ...(run.pr.number !== undefined ? { number: run.pr.number } : { branch: run.pr.url }), method },
+        deps.github.run
+      )
+      if (!merged.ok) return { status: merged.kind === 'not-found' ? 404 : ['not-mergeable', 'already-merged', 'not-installed', 'auth'].includes(merged.kind) ? 409 : 502, body: { error: `gh pr merge: ${merged.detail}`, kind: merged.kind } }
+      await deps.setState(landedOnGitHub(deps.getState(), id, 'merged', deps.now?.() ?? now))
+      await cleanAfterDelivery(deps, id)
+      return okBody({ run: id, url: run.pr.url, merged: true, method, deliveryState: deps.getState().runs.find((r) => r.id === id)?.deliveryState })
     }
     /**
      * The owner's "Merge everything and fix conflicts": every Task worktree of the Run into its plan worktree

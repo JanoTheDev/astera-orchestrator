@@ -415,7 +415,8 @@ export function StartPage({
                   onChange={(e) => setDeliveryChoice(e.target.value as DeliveryMode)}
                   options={[
                     { value: 'pr', label: t('delivery.pr') },
-                    { value: 'push', label: t('delivery.push', { branch: project?.deliveryBranch ?? t('delivery.defaultBranch') }) }
+                    { value: 'push', label: t('delivery.push', { branch: project?.deliveryBranch ?? t('delivery.defaultBranch') }) },
+                    { value: 'manual', label: t('delivery.manual') }
                   ]}
                 />
                 {mode !== 'prompts' && (

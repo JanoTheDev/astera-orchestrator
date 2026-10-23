@@ -25,6 +25,7 @@ import { about } from './about'
 import { crash } from './crash'
 import { help } from './help'
 import { misc } from './misc'
+import { review } from './review'
 
 export const es: Catalog = {
   ...common,
@@ -50,5 +51,6 @@ export const es: Catalog = {
   ...about,
   ...crash,
   ...help,
-  ...misc
+  ...misc,
+  ...review
 }

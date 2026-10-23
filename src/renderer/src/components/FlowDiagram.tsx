@@ -1,3 +1,4 @@
+import { useId } from 'react'
 import type { FlowNode } from '../../../core/understanding/types'
 import { layoutFlow, NODE_H, NODE_W } from '../../../core/understanding/flowLayout'
 import { isScopable } from '../../../core/understanding/scope'
@@ -104,5 +105,35 @@ export function FlowDiagram({
         )
       })}
     </div>
+  )
+}
+
+/** T7 review: the line layer alone, for a diagram whose boxes the caller draws (the change map). Same rule as above:
+ *  lines in SVG, boxes in HTML. Each link names its own class so the caller's CSS colours and dashes it; `accent` picks
+ *  the arrow head drawn in `--link` instead of `--text-faint` (a marker cannot take its line's colour everywhere). */
+export function FlowLinks({
+  width,
+  height,
+  links
+}: {
+  width: number
+  height: number
+  links: ReadonlyArray<{ key: string; d: string; className?: string; accent?: boolean }>
+}): React.JSX.Element {
+  // useId holds characters a url(#…) reference does not take
+  const id = `fl${useId().replace(/[^\w-]/g, '')}`
+  return (
+    <svg className="flow-links" width={width} height={height} aria-hidden="true">
+      <defs>
+        {(['plain', 'accent'] as const).map((k) => (
+          <marker key={k} id={`${id}-${k}`} viewBox="0 0 8 8" refX="6.5" refY="4" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0.5 1 L6.5 4 L0.5 7 z" fill={k === 'accent' ? 'var(--link)' : 'var(--text-faint)'} />
+          </marker>
+        ))}
+      </defs>
+      {links.map((l) => (
+        <path key={l.key} d={l.d} className={l.className} fill="none" markerEnd={`url(#${id}-${l.accent ? 'accent' : 'plain'})`} />
+      ))}
+    </svg>
   )
 }

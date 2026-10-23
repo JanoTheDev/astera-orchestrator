@@ -704,6 +704,18 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       if (!job || !isJobActive(job) || job.schedule !== undefined) continue
       const p = run.deliveryState
       const outcome = outcomeOfTasks(owned.get(run.id) ?? [], s.gates)
+      // A manual plan is never delivered here: once its tasks are done and its final check settled it waits for the owner
+      if (deliveryOf(s, job) === 'manual') {
+        if (outcome === 'completed' && completionSettled(s, job, run.id) && (p === undefined || p.state === 'pending') && c.mayStart()) {
+          try {
+            const r = await c.handle('run-deliver', { run: run.id, awaitReview: true })
+            if (r.status >= 400) log(`run=${run.id}: its wait for the owner was not recorded: ${JSON.stringify(r.body)}`)
+          } catch (e) {
+            log(`run=${run.id}: recording its wait for the owner failed: ${String(e)}`)
+          }
+        }
+        continue
+      }
       if (outcome === 'running') {
         // T3: persisted, so a restart still delivers it. Item 2: a plan that finished with blocked Tasks (or whose
         // delivery became an integration Task) and runs again is delivered again, its attempts counted afresh

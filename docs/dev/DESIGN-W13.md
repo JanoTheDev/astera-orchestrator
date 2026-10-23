@@ -25,7 +25,7 @@ count opens what it counts. No page exists only to hold a list: lists live in th
 │ A  │ SIDE BAR        │ EDITOR AREA (PaneGrid groups)                                  │
 │ c  │ 170–600, def 260│ ┌ tabs 35 ──────────────────────────────────────────────────┐  │
 │ t  │ VIEW TITLE  ⋯ + │ │▔▔▔▔▔▔▔▔▔▔▔▔                                                 │  │
-│ i  │ ▾ SECTION  ⟳ ⋯  │ │ Wall │ T4 · Worker 2 ● │ Plan: Auth rework ×│            ⋯ │  │
+│ i  │ ▾ SECTION  ⟳ ⋯  │ │ Welcome │ T4 · Worker 2 ● │ Plan: Auth rework ×│            ⋯ │  │
 │ v  │   row 22        │ ├────────────────────────────────────────────────────────────┤  │
 │ i  │   row 22        │ │ editor content (console xterm, view, file)                 │  │
 │ t  │ ▸ SECTION       │ │                                                            │  │
@@ -91,8 +91,7 @@ view's toolbar on the right (icon buttons, 22px, shown always for the view title
 nothing to show uses the empty view pattern (§12).
 
 ### Agents
-Sections: **Needs you**, **Working**, **Finished**. Toolbar: Open a console (+), Show the wall
-(`LayoutGrid`, opens `view:wall`), filter (scope: this project / all projects).
+Sections: **Needs you**, **Working**, **Finished**. Toolbar: Open a console (+), filter (scope: this project / all projects).
 - Row (24px, `--list-row-h`): state icon (needs-you `CircleAlert` warn, working `Loader` spinning accent,
   finished `CheckCircle2` ok, failed `XCircle` danger), console title, then dim `plan › task`, account on the
   right (`--fs-11` faint). Click opens the console's tab. Context menu: Open, Open to the side, Copy session id,
@@ -159,7 +158,6 @@ Toolbar: Add device (+), Refresh. Empty panes use the empty view pattern (§12) 
 | View id | Title | Icon | Content |
 |---|---|---|---|
 | `welcome` | Welcome | `Sparkles` | shown when nothing is open: recent plans (5), New plan, Open a console, the six keys of §9 |
-| `wall` | Wall | `LayoutGrid` | every live console as a grid of live previews (min 360px cells); the owner's most important view. A card click opens that console's own tab |
 | `plan:<jobId>` | plan name | `ListTree` | goal, Plan settings (§13), steps and tasks, log |
 | `mainplan` | Main plan | `Target` | the project's main plan |
 | `start` | New plan | `Plus` | the Start flow (content owned by other plans, unchanged) |
@@ -210,7 +208,7 @@ Right group:
 - The command palette is an alias of the existing command box: one input at the top centre, 600px wide, list rows
   24px, the chord right-aligned in `Kbd`. Prefixes: `>` commands (default via Ctrl+Shift+P), none = quick open
   (Ctrl+P: open tabs, then files), `@` consoles, `#` plans.
-- Commands include: New plan, Open a console, Edit plan settings…, Show the wall, Toggle side bar, Toggle panel,
+- Commands include: New plan, Open a console, Edit plan settings…, Toggle side bar, Toggle panel,
   every activity view, Settings, Keyboard shortcuts, Check for updates.
 
 | Key | Action |
@@ -236,7 +234,7 @@ All are rebindable in Keyboard shortcuts. macOS uses Cmd for Ctrl.
 - Every status bar count opens the view or panel tab it counts (§7).
 - One "New plan" entry: the palette command and the Plans view's +, both opening `view:start`. "Open a console"
   is a separate command and the Agents view's +.
-- Wall card click → that console's tab. Worktree row → `view:worktree:<path>`.
+- Worktree row → `view:worktree:<path>`.
 
 ## 11. Visual language (D6)
 
@@ -402,5 +400,4 @@ No feature is deleted; each moves.
 - Hands-off by default: plans run by themselves; the owner answers in Needs you or the worker's own console,
   never by typing into the coordinator.
 - Ended consoles close on their own and leave a summary.
-- Seeing every console at once (the wall) is the most important view; it is one click away (Agents view toolbar,
-  `view:wall`) and opens on launch when consoles are live, else Welcome.
+- Every console is one row in the Agents view and opens as its own tab; the app opens on Welcome when nothing is open.

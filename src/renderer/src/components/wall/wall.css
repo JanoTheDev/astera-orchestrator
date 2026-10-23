@@ -25,104 +25,13 @@ button.summary-card__title:hover .summary-card__title-text { text-decoration: un
 /* App's Content (the pane grid, tab strip included) lives here for every session's life; the wall covers only the group body below the strip (.wall). */
 .agents-page__console { flex: 1; display: flex; min-width: 0; min-height: 0; }
 
-/* Status dots (the strip, the details panel's Task list) */
-.wall-dot { display: inline-block; width: 6px; height: 6px; border-radius: var(--radius-pill); margin-right: var(--sp-2); background: var(--text-faint); vertical-align: middle; flex: none; }
-.wall-dot--working { background: var(--info); }
-.wall-dot--idle { background: var(--ok); }
-.wall-dot--needs, .wall-dot--warn { background: var(--warn); }
-.wall-dot--danger { background: var(--danger); }
-.wall-dot--cat-done { background: var(--ok); }
-.wall-dot--cat-running { background: var(--info); }
-.wall-dot--cat-awaiting-review { background: var(--accent); }
-.wall-dot--cat-failed { background: var(--danger); }
-
-/* The wall: the page header, then the plan groups. The header stays put while the groups scroll under it. */
-.wall { position: absolute; inset: var(--pane-tabbar-h) 0 0 0; z-index: 1; display: flex; flex-direction: column; background: var(--bg); }
-.wall-toolbar { flex: none; display: flex; align-items: center; gap: var(--sp-2); height: 32px; padding: 0 var(--sp-3); border-bottom: 1px solid var(--line); background: var(--panel); overflow-x: auto; }
-.wall > .ui-empty { flex: 1; }
-.wall-body { flex: 1; min-height: 0; overflow: auto; padding: var(--sp-3) var(--sp-3) var(--sp-6); display: flex; flex-direction: column; gap: var(--sp-4); }
-
-/* The filters row: state (segmented), plans (chips or one select), "All projects" at the end */
-.wall-filters__sep { width: 1px; height: 18px; background: var(--line); }
-.wall-filters__plans { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1); min-width: 0; }
-.wall-filters__plan { width: auto; max-width: 280px; }
-.wall-filters__end { margin-left: auto; }
-.wall-chip { gap: var(--sp-2); font-size: var(--fs-12); box-shadow: inset 0 0 0 1px var(--line); }
-.wall-chip.is-active { box-shadow: inset 0 0 0 1px var(--accent); background: var(--accent-soft); color: var(--text); font-weight: 600; }
-.wall-chip__name { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.wall-chip__count { margin-left: var(--sp-1); color: var(--text-faint); font-size: var(--fs-11); font-variant-numeric: tabular-nums; }
-.wall-chip__count--need { color: var(--warn); }
-
-/* A plan's progress as one stacked bar */
-.wall-progress { display: inline-flex; width: 64px; height: 4px; border-radius: var(--radius-pill); overflow: hidden; background: var(--track); }
-.wall-progress__seg { display: block; height: 100%; flex-basis: 0; }
-.wall-progress__seg--done { background: var(--ok); }
-.wall-progress__seg--running { background: var(--info); }
-.wall-progress__seg--awaiting-review { background: var(--accent); }
-.wall-progress__seg--queued { background: var(--text-faint); }
-.wall-progress__seg--failed { background: var(--danger); }
-.wall-progress__seg--cancelled { background: var(--line-strong); }
-
-/* One plan's group: head (name, progress, needs, open), tiles, Done cards */
-.wall-section { display: flex; flex-direction: column; gap: var(--sp-4); min-width: 0; }
-.wall-section__head { margin: 0; padding-bottom: var(--sp-2); border-bottom: 1px solid var(--line); color: var(--text); font-size: var(--fs-15); font-weight: var(--fw-semi); line-height: var(--lh-tight); }
-.wall-group { display: flex; flex-direction: column; gap: var(--sp-3); min-width: 0; }
-.wall-group__head { display: flex; align-items: center; gap: var(--sp-3); min-width: 0; min-height: var(--h-sm); }
-.wall-group__name { margin: 0; min-width: 0; overflow: hidden; color: var(--text); font-size: var(--fs-13); font-weight: var(--fw-semi); line-height: var(--lh-tight); text-overflow: ellipsis; white-space: nowrap; }
-.wall-group__progress { display: inline-flex; align-items: center; gap: var(--sp-2); flex: none; }
-.wall-group__count { color: var(--text-faint); font-size: var(--fs-11); font-weight: var(--fw-medium); font-variant-numeric: tabular-nums; }
-.wall-group__open { margin-left: auto; }
-.wall-group__done { display: flex; flex-direction: column; gap: var(--sp-2); }
-.wall-group__done-title { margin: 0; color: var(--text-dim); font-size: var(--fs-11); font-weight: var(--fw-medium); letter-spacing: 0.04em; text-transform: uppercase; }
-
-/* The tiles: --wall-cols columns (AgentsPage: the auto grid, never more than the biggest group fills), fewer when a
-   tile would drop under 360px (DESIGN-W11 §9). A tile is as tall as its fixed preview; the main one spans two rows. */
-.wall-grid {
-  --gap: var(--sp-3);
-  display: grid; gap: var(--gap);
-  grid-template-columns: repeat(auto-fill, minmax(max(360px, calc((100% - (var(--wall-cols, 2) - 1) * var(--gap)) / var(--wall-cols, 2))), 1fr));
-}
-@media (max-width: 760px) { .wall-grid { grid-template-columns: minmax(0, 1fr); } }
-
-/* T13: the one card layout of the wall (tile, Done card, summary card): title + state, meta, one line of text */
+/* T13: the one card layout of the wall (the summary card): title + state, meta, one line of text */
 .ui-card.wall-card { display: flex; flex-direction: column; align-items: stretch; gap: var(--sp-1); min-width: 0; padding: var(--sp-2) var(--sp-3); }
 .wall-card__head { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; }
 .wall-card__head .ui-chip { flex: none; }
 .wall-card__title { flex: 1; min-width: 0; overflow: hidden; color: var(--text); font-size: var(--fs-13); font-weight: var(--fw-semi); line-height: var(--lh-tight); text-overflow: ellipsis; white-space: nowrap; }
 .wall-card__meta { display: block; min-width: 0; overflow: hidden; color: var(--text-faint); font-size: var(--fs-11); font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
 .wall-card__line { display: block; min-width: 0; overflow: hidden; color: var(--text-dim); font-size: var(--fs-12); text-overflow: ellipsis; white-space: nowrap; }
-
-.wall-tile { position: relative; display: flex; min-width: 0; }
-.wall-tile--main { grid-row: span 2; }
-.wall-tile__card { flex: 1; }
-/* room for the overflow button, so the chip does not move when it shows */
-.wall-tile__card .wall-card__head { padding-right: calc(var(--h-sm) + var(--sp-1)); }
-.wall-tile__main { flex: none; padding: 0 var(--sp-1); border-radius: var(--radius-sm); background: var(--accent-soft); color: var(--accent); font-size: var(--fs-11); font-weight: var(--fw-medium); }
-/* Shown on hover and on focus, and always reachable by Tab: opacity hides it, never display */
-.wall-tile__more { position: absolute; top: var(--sp-2); right: var(--sp-2); opacity: 0; transition: opacity var(--dur-fast) var(--ease-out); }
-.wall-tile:hover .wall-tile__more, .wall-tile:focus-within .wall-tile__more { opacity: 1; }
-/* The session's own xterm at the pty's size and the tile font: six rows, the bottom ones (TerminalView scaleTile
-   anchors it bottom-left), the top fading out. 14px is the 11px tile font's xterm row (TerminalView TILE_FONT). */
-.wall-tile__term {
-  position: relative; display: block; flex: none; height: calc(6 * 14px + var(--sp-2)); margin-top: var(--sp-1); overflow: hidden;
-  border-radius: var(--radius); pointer-events: none; background: var(--term-bg); font-family: var(--mono);
-  -webkit-mask-image: linear-gradient(to bottom, transparent, var(--term-bg) 35%); mask-image: linear-gradient(to bottom, transparent, var(--term-bg) 35%);
-}
-.wall-tile .wall-tile__term { flex: none; }
-.wall-tile--main .wall-tile__term { flex: 1; min-height: calc(6 * 14px + var(--sp-2)); }
-.wall-tile__term > .xterm { position: absolute; left: var(--sp-2); bottom: var(--sp-1); transform-origin: left bottom; }
-/* A chat tile's preview: the last reply's lines, bottom-anchored so the top is what gets cropped (the xterm tiles crop the
-   same way). Its line count is PREVIEW_LINES in wallModel.ts. */
-.wall-tile__chat { display: flex; flex: none; flex-direction: column; justify-content: flex-end; height: calc(6 * 14px + var(--sp-2)); margin-top: var(--sp-1); overflow: hidden; padding: var(--sp-1) var(--sp-2); border-radius: var(--radius); color: var(--text-faint); font-size: var(--fs-12); background: var(--term-bg); }
-.wall-tile--main .wall-tile__chat { flex: 1; min-height: calc(6 * 14px + var(--sp-2)); }
-.wall-tile__chat--empty { align-items: center; justify-content: center; }
-.wall-tile__reply { display: block; margin: 0; color: var(--text-dim); font-size: var(--fs-12); white-space: pre-wrap; overflow-wrap: anywhere; }
-
-/* Done: what each finished console did (SummaryCard, or FinishedCard until its summary is written) */
-.wall-done { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: var(--sp-2); }
-
-@media (prefers-reduced-motion: reduce) { .wall-tile__more { transition: none; } }
-
 /* W12: the links and rows above as house Buttons (.ui-btn). Only these selectors meet the button, so TaskBoard's and
    HistoryBrowser's plain .branch-link stays as it was. */
 .ui-btn.branch-link { height: auto; padding: 0; border: 0; background: none; color: var(--accent); font-weight: inherit; justify-content: flex-start; }

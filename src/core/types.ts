@@ -1,6 +1,7 @@
 import type { CrashOffer, CrashReportsSetting, RENDERER_KINDS } from './crash/report' // T27
 import type { Decision, IssuePick, PlanFeedback } from './orchestration/types'
 import type { WorktreeDetail, WorktreeRow } from './worktrees/cleanup'
+import type { ChangeMap } from './review/changeMap'
 import type { SlashCommand } from './commands/slashCommands'
 import type { RunConfig, RunStatus, SaveConfigsResult } from './run/config'
 import type { EmulationMetrics } from './preview/viewports'
@@ -859,6 +860,8 @@ export interface JobRow {
   deliveryError?: string
   /** T34: the owner dismissed a failed delivery, so the work never landed. Not in `delivery`: that row is for actions to take. */
   deliveryDismissed?: true
+  /** A `manual` plan finished and waits for its owner to review it and create the PR or merge (Run.deliveryState `awaiting-review`). */
+  awaitingReview?: true
   /** T3: a delivery that is being retried, failed, waits on the owner or runs now: the Run it is of (for `run-deliver`),
    *  its step and the last reason. Absent while pending or once delivered. */
   delivery?: {
@@ -1489,6 +1492,29 @@ export interface CoreApi {
           pushed: boolean
         }
     >
+    /** Merges the open PR of a branch or number with `gh pr merge`, for a worktree outside a plan. `cwd` must be a
+     *  registered worktree or a project folder (main checks it like `worktrees.detail`); the caller has already asked
+     *  the person to confirm. Mirrors PrMergeRequest / PrMergeResult (src/core/github/prMerge.ts). */
+    merge(req: {
+      cwd: string
+      number?: number
+      branch?: string
+      method: 'merge' | 'squash' | 'rebase'
+      deleteBranch?: boolean
+    }): Promise<
+      | { ok: true }
+      | {
+          ok: false
+          kind: 'rate-limit' | 'auth' | 'network' | 'not-found' | 'other' | 'not-mergeable' | 'already-merged' | 'not-installed'
+          detail: string
+        }
+    >
+  }
+  // Change map: what a worktree's commits changed against its base and how the changes connect.
+  review: {
+    /** Files, changed symbols, import edges between changed files and hunks of `base...HEAD` in `cwd`. `base` defaults
+     *  to the worktree's own base. Null: `cwd` is not a known worktree or project, or git could not answer. */
+    changeMap(opts: { cwd: string; base?: string }): Promise<ChangeMap | null>
   }
   higgsfield: {
     list(): Promise<{
