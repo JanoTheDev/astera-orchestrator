@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import type { Account } from '../../../../core/types'
 import type { Job, JobRun, Task } from '../../../../core/orchestration/types'
-import { activeAccountOf, activityClick, activityOnLaunch, consoleGroups, nextQueuedLine, readWorkbenchLayout, runningPlans, shellCounts, shownPanelTab } from './shellView'
+import { activeAccountOf, activityClick, activityOnLaunch, nextQueuedLine, readWorkbenchLayout, runningPlans, shellCounts, shownPanelTab } from './shellView'
+import type { WallConsole } from '../wall/wallModel'
 import { t } from '../../../../core/i18n'
 
 const en = (k: Parameters<typeof t>[1], p?: Parameters<typeof t>[2]): string => t('en', k, p)
@@ -15,13 +16,26 @@ describe('shellCounts', () => {
   ]
 
   it('counts live consoles and the working ones; an ended console counts for neither', () => {
-    const c = shellCounts(sessions, { a: 'working', b: 'waiting', d: 'working' }, [])
+    const c = shellCounts(sessions, { a: 'working', b: 'waiting', d: 'working' }, [], [])
     expect([c.consoles, c.working]).toEqual([3, 1])
   })
 
   it('the waiting count is the Inbox’s needs-you list, so the status bar and the Inbox tab never disagree', () => {
-    expect(shellCounts(sessions, { b: 'waiting' }, [{ kind: 'session' }, { kind: 'gate' }]).waiting).toBe(2)
-    expect(shellCounts([], {}, []).waiting).toBe(0)
+    expect(shellCounts(sessions, { b: 'waiting' }, [{ kind: 'session' }, { kind: 'gate' }], []).waiting).toBe(2)
+    expect(shellCounts([], {}, [], []).waiting).toBe(0)
+  })
+
+  it('the Agents badge is the Needs you pane’s row count: waiting consoles, not the Inbox items', () => {
+    const console = (sessionId: string, state: WallConsole['state']): WallConsole =>
+      ({ sessionId, label: sessionId, role: 'console', state, projectId: null, planOrder: 0, cwd: '/r', chat: true }) as WallConsole
+    const consoles = [console('a', 'needs'), console('b', 'working'), console('d', 'finished')]
+    const c = shellCounts(sessions, { a: 'waiting' }, [{ kind: 'session' }, { kind: 'gate' }, { kind: 'session' }], consoles)
+    expect([c.agents, c.waiting]).toEqual([1, 3])
+  })
+
+  it('the Agents badge counts only consoles of the scope it is given', () => {
+    const consoles = [{ sessionId: 'a', state: 'needs' }, { sessionId: 'x', state: 'needs' }] as WallConsole[]
+    expect(shellCounts(sessions, {}, [], consoles).agents).toBe(1)
   })
 })
 
@@ -103,17 +117,6 @@ describe('workbench layout (DESIGN-W13)', () => {
 })
 
 describe('Agents view groups and the Plans badge', () => {
-  it('splits running consoles by attention and keeps the last ended ones', () => {
-    const s = [
-      { id: 'a', status: 'running' },
-      { id: 'b', status: 'running' },
-      { id: 'c', status: 'exited' },
-      { id: 'd', status: 'exited' }
-    ]
-    const g = consoleGroups(s, { a: 'waiting', b: 'working' }, 1)
-    expect([g.needs.map((x) => x.id), g.working.map((x) => x.id), g.finished.map((x) => x.id)]).toEqual([['a'], ['b'], ['d']])
-  })
-
   it('counts running plans only', () => {
     expect(runningPlans([{ outcome: 'running' }, { outcome: 'running', paused: true }, { outcome: 'running', archivedAt: 'x' }, { outcome: 'failed' }] as never)).toBe(1)
   })
