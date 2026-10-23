@@ -11,10 +11,13 @@ description: Cross-vendor agent orchestration — dispatch tasks to worker agent
 The full reference comes from the CLI — the single source of truth lives in the executable so it
 cannot drift from the installed version.
 
-1. Get the full reference (`astera` is on this session's PATH). This is also the tool check: if the
-   command is not found, this session was not started by the app — say so and stop.
+1. Get the quick reference (`astera` is on this session's PATH). This is also the tool check: if the
+   command is not found, this session was not started by the app — say so and stop. A session the app
+   starts already has it in its start context; run it again only if you no longer have it. Read the
+   full guide (`astera help`) or one section of it (`astera help <N>`) only when the brief does not
+   answer your question.
    ```
-   astera help
+   astera help --brief
    ```
    If `astera` is not found but the variable below is set, call the same program by its absolute
    path. The variable is an environment variable, so read it the way your shell reads those —

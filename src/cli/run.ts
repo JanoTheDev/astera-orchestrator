@@ -931,7 +931,7 @@ export function resolveGuidePath(a: {
   bundled?: string
   /** Which guide. `astera help` is the orchestration guide; `astera browser help` the browser's;
    *  `astera app help` the agent app workspace's. */
-  guide?: 'orchestration' | 'browser' | 'app'
+  guide?: 'orchestration' | 'browser' | 'app' | 'quickref'
 }): { ok: true; path: string } | { ok: false; error: string } {
   const dir =
     typeof a.args.skillsDir === 'string' && a.args.skillsDir.length > 0
@@ -943,7 +943,14 @@ export function resolveGuidePath(a: {
       error:
         'ASTERA_SKILLS is not set, no --skills-dir was given, and no resources/skills was found beside this build'
     }
-  const file = a.guide === 'browser' ? 'browser-guide.md' : a.guide === 'app' ? 'app-guide.md' : 'orchestration-guide.md'
+  const file =
+    a.guide === 'browser'
+      ? 'browser-guide.md'
+      : a.guide === 'app'
+        ? 'app-guide.md'
+        : a.guide === 'quickref'
+          ? 'orchestration-quickref.md'
+          : 'orchestration-guide.md'
   return { ok: true, path: path.join(dir, file) }
 }
 
@@ -955,6 +962,36 @@ export function readGuide(
   } catch {
     return { ok: false, error: `cannot read ${guidePath} — is resources/skills packaged?` }
   }
+}
+
+/** The numbers of the guide's `## N. Title` sections, in order. */
+export function guideSectionNumbers(guide: string): number[] {
+  return [...guide.matchAll(/^## (\d+)\. /gm)].map((m) => Number(m[1]))
+}
+
+/** Section `n` of the guide, from its `## N.` heading up to the next `## ` heading; null when there is none. */
+export function guideSection(guide: string, n: number): string | null {
+  const start = guide.search(new RegExp(`^## ${n}\\. `, 'm'))
+  if (start < 0) return null
+  const next = guide.slice(start + 3).search(/^## /m)
+  return (next < 0 ? guide.slice(start) : guide.slice(start, start + 3 + next)).trimEnd() + '\n'
+}
+
+/** What `astera help` asked for beyond the whole guide: `--brief`, or one section number, plus the
+ *  `--skills-dir` the plain form takes. `parseArgs` takes no positional here, so run.ts reads these first. */
+export function helpGuideRequest(
+  rest: string[]
+): { brief: boolean; section?: number; skillsDir?: string } | { error: string } {
+  const req: { brief: boolean; section?: number; skillsDir?: string } = { brief: false }
+  for (let i = 0; i < rest.length; i++) {
+    const t = rest[i]
+    if (t === '--brief') req.brief = true
+    else if (t === '--skills-dir' && rest[i + 1] !== undefined) req.skillsDir = rest[++i]
+    else if (/^\d+$/.test(t) && req.section === undefined) req.section = Number(t)
+    else return { error: `unexpected argument: ${t} (astera help [--brief | <section number>])` }
+  }
+  if (req.brief && req.section !== undefined) return { error: 'astera help takes --brief or a section number, not both' }
+  return req
 }
 
 /** Writes one undelivered report into the queue in the profile.
@@ -1093,6 +1130,34 @@ export async function main(): Promise<void> {
   if (argv[0] !== undefined && Object.hasOwn(ATTRIBUTION_COMMANDS, argv[0])) {
     const code = await runAttribution(argv, { cwd: process.cwd(), out })
     process.exit(code)
+  }
+  // **`astera help --brief` and `astera help <N>` answer before usage and the parser**: `parseArgs` refuses a
+  // positional word, and `unknownFlagError` would refuse `--brief`. Plain `astera help` goes on as before.
+  if (argv[0] === 'help' && argv.length > 1 && !argv.some((t) => t === '--help' || t === '-h')) {
+    const refuse: (message: string, code?: CliErrorCode) => never = (message, code = 'INVALID_ARGUMENTS') => {
+      out(errorOutput(message, code))
+      process.exit(exitCodeFor(code))
+    }
+    const req = helpGuideRequest(argv.slice(1))
+    if ('error' in req) refuse(req.error)
+    else if (req.brief || req.section !== undefined) {
+      const resolved = resolveGuidePath({
+        args: req.skillsDir ? { skillsDir: req.skillsDir } : {},
+        env: process.env,
+        bundled: resolveSkillsDir({ resourcesPath: process.resourcesPath, cliEntry: process.argv[1] ?? '', exists: existsSync }),
+        guide: req.brief ? 'quickref' : 'orchestration'
+      })
+      const file = resolved.ok ? readGuide(resolved.path) : resolved
+      if (!file.ok) refuse(file.error, 'FAILED')
+      if (req.brief) out(file.content)
+      else {
+        const text = guideSection(file.content, req.section!)
+        if (text === null)
+          refuse(`no section ${req.section} in the guide (valid: ${guideSectionNumbers(file.content).join(', ')})`)
+        else out(text)
+      }
+      process.exit(0)
+    }
   }
   const help = usageFor(argv, sessionUsage)
   if (help !== null) {
