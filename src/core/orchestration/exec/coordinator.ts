@@ -799,6 +799,9 @@ export class OrchCoordinator {
      *  file. So the caller hands the whole file over and this skips the builder. Not named specFile:
      *  specPath in the return value already means a location and the two must not read alike. */
     specFileContent?: string
+    /** The role whose owner instructions `startWorker` appends to `specFileContent`: repair and recovery hand over a worker
+     *  spec without the block. Absent: none is appended (a review's file carries its own reviewer block). */
+    specOwnerRole?: 'worker'
     provider: Provider
     accountId: string
     /** T9: the Task's kind (`kindOf`): names the skills the spec tells the worker to use. Absent: no such section. */
@@ -966,13 +969,15 @@ export class OrchCoordinator {
     // elsewhere (view.ts's project ownership check, ipc.ts's home-path check), so it is reused here
     // rather than inventing a fresh comparison: separators unified by path.resolve, case folded where
     // the filesystem ignores it (win32, darwin — foldPathCase in core/files/paths.ts) and kept on linux.
-    // A review's file already carries the reviewer's block (review.ts); repair and recovery hand over a worker spec without one.
+    // Repair and recovery hand over a worker spec without the block (specOwnerRole); a review's file has its own.
     const owner = await readOwner(profileDirOfSpecs(this.deps.specsDir), 'worker')
     await fs.writeFile(
       specPath,
       // The caller may have assembled the file already (a review dispatch does — see
       // specFileContent). Only when it did not does the implementer's template get built here.
-      (a.specFileContent !== undefined ? appendTo(a.specFileContent, owner) : undefined) ??
+      (a.specFileContent !== undefined
+        ? a.specOwnerRole ? appendTo(a.specFileContent, owner) : a.specFileContent
+        : undefined) ??
         buildSpecFile({
           title: a.title,
           spec: a.spec,

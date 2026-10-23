@@ -31,6 +31,8 @@ export interface ExecuteDeps {
     /** The whole spec file, assembled here when the attempt is a repair — see startAttempt below.
      *  Absent otherwise, so the coordinator builds the plain implementer template as it always has. */
     specFileContent?: string
+    /** `startWorker` appends this role's owner instructions to `specFileContent`. */
+    specOwnerRole?: 'worker'
     provider: Provider
     accountId: string
     runCwd: string
@@ -201,7 +203,7 @@ async function startAttempt(a: ExecuteInput, deps: ExecuteDeps): Promise<Execute
       taskId: attempt.taskId,
       title: task.title,
       spec: task.spec,
-      ...(specFileContent ? { specFileContent } : {}),
+      ...(specFileContent ? { specFileContent, specOwnerRole: 'worker' as const } : {}),
       provider: attempt.provider,
       accountId: attempt.accountId,
       runCwd: jobOf(state, run)?.cwd ?? '',

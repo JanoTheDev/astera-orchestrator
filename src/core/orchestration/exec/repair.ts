@@ -125,6 +125,7 @@ export async function performRepair(deps: RepairDeps, a: { dispatchId: string })
       title: task.title,
       spec: task.spec,
       specFileContent,
+      specOwnerRole: 'worker',
       provider: d.provider,
       accountId: d.accountId,
       runCwd: run.cwd,

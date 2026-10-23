@@ -384,6 +384,9 @@ export interface OrchServerDeps {
      *  it (task.spec is a body and the implementer's template is the right wrapper for it); the
      *  wiring's review path does. */
     specFileContent?: string
+    /** The role whose owner instructions `startWorker` appends to `specFileContent`: repair and recovery hand over a worker
+     *  spec without the block. Absent: none is appended (a review's file carries its own reviewer block). */
+    specOwnerRole?: 'worker'
     provider: Provider
     accountId: string
     runCwd: string

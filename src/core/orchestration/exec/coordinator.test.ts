@@ -1307,3 +1307,26 @@ describe('owner instructions in the worker and reviewer specs', () => {
     expect(buildReviewSpecFile({ ...r, ownerInstructions: 'Prefer small commits.' })).toBe(plain.trimEnd() + '\n' + tail)
   })
 })
+
+describe('startWorker owner instructions on a caller-assembled spec', () => {
+  let profile: string
+  beforeEach(async () => {
+    profile = await fs.mkdtemp(path.join(os.tmpdir(), 'astera-orchprof-'))
+    await fs.mkdir(path.join(profile, 'orch', 'specs'), { recursive: true })
+    await fs.mkdir(path.join(profile, 'prompts'))
+    await fs.writeFile(path.join(profile, 'prompts', 'worker.md'), 'Worker only.')
+  })
+  afterEach(() => fs.rm(profile, { recursive: true, force: true }))
+  const start = (extra: object) =>
+    new OrchCoordinator({ ...makeDeps(), specsDir: path.join(profile, 'orch', 'specs') }).startWorker({ ...baseArgs(), runCwd: dir, ...extra })
+
+  it('a review spec does not get the worker text when reviewer.md is absent', async () => {
+    const file = buildReviewSpecFile({ title: 'T', spec: 'S', taskId: 'tsk_1', dispatchId: 'dsp_1', validated: true })
+    expect(await fs.readFile((await start({ specFileContent: file })).specPath, 'utf8')).toBe(file)
+  })
+  it('a repair spec (specOwnerRole worker) gets the worker block', async () => {
+    const file = buildSpecFile({ title: 'T', spec: 'S', taskId: 'tsk_1', dispatchId: 'dsp_1' })
+    const out = await fs.readFile((await start({ specFileContent: file, specOwnerRole: 'worker' })).specPath, 'utf8')
+    expect(out.endsWith(`## ${OWNER_HEADING}\n\nWorker only.\n`)).toBe(true)
+  })
+})
