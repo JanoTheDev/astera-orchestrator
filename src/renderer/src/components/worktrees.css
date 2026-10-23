@@ -96,3 +96,24 @@ button.source-chip:hover { color: var(--accent); border-color: var(--accent); }
 .worktree-detail__path { display: flex; align-items: center; gap: var(--sp-1); min-width: 0; }
 .worktree-detail__path code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: var(--fs-12); color: var(--text-dim); }
 .worktree-link { justify-content: flex-start; align-self: flex-start; max-width: 100%; }
+
+/* T6: the worktree tab is one worktree's review surface. Flat (DESIGN-W13): rules, not cards; fluid width; its own
+   container, so a narrow split (not a narrow window) folds the header actions into the ⋯ menu. */
+.worktree-tab { container: wt / inline-size; }
+.worktree-detail { max-width: none; }
+.wt-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; padding-bottom: var(--sp-3); border-bottom: 1px solid var(--line); }
+.wt-head__id { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; min-width: 0; flex: 1 1 320px; }
+.wt-head__id h2 { margin: 0; font-size: var(--fs-15); font-weight: var(--fw-semi); color: var(--text); overflow-wrap: anywhere; }
+.wt-head__branch { font-family: var(--mono); font-size: var(--fs-12); color: var(--text-dim); overflow-wrap: anywhere; }
+.wt-head__actions, .wt-review__actions, .wt-actions__inline { display: flex; align-items: center; gap: var(--sp-1); flex-wrap: wrap; }
+.wt-split { display: inline-flex; gap: 1px; }
+.wt-split > :first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.wt-split > :last-child { border-top-left-radius: 0; border-bottom-left-radius: 0; }
+.wt-review { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; padding: var(--sp-3) 0 var(--sp-3) var(--sp-3); border-left: 2px solid var(--warn, var(--accent)); }
+.wt-review__text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 280px; }
+.wt-review__text span { color: var(--text-dim); font-size: var(--fs-12); }
+.wt-actions__more { display: none; }
+@container wt (max-width: 560px) {
+  .wt-actions__inline { display: none; }
+  .wt-actions__more { display: inline-flex; }
+}

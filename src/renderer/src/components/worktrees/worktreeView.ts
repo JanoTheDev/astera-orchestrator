@@ -3,7 +3,7 @@
 // panel, a Task card).
 import { useSyncExternalStore } from 'react'
 import { groupWorktrees, type WorktreeRow } from '../../../../core/worktrees/cleanup'
-import type { WorktreeStatus } from '../../../../core/types'
+import type { WorktreeListItem, WorktreeStatus } from '../../../../core/types'
 
 export interface WorktreeViewState {
   /** The page is showing. */
@@ -82,4 +82,31 @@ export function worktreeEntries(f: WorktreeFilterResult): WorktreeEntry[] {
     ...reachable.map((row) => ({ row, trouble: null })),
     ...f.trouble.flatMap((t) => t.rows.map((row) => ({ row, trouble: t.status })))
   ]
+}
+
+// T6: the worktree editor tab shows the one worktree it was opened for. These find it by that tab's own path.
+
+const normPath = (p: string): string => p.replace(/[\\/]+/g, '/').replace(/\/$/, '')
+
+/** The registry item at `path` (separators and a trailing slash do not matter); undefined when it is gone. */
+export const worktreeByPath = <T extends { path: string }>(items: readonly T[], path: string): T | undefined => {
+  const want = normPath(path)
+  return items.find((w) => normPath(w.path) === want)
+}
+
+/** The tab's title: the worktree's branch, else its folder name. */
+export const worktreeTitle = (item: Pick<WorktreeListItem, 'branch' | 'path'> | undefined, path: string): string =>
+  item?.branch || normPath(item?.path ?? path).split('/').filter(Boolean).pop() || path
+
+/** The plan Run a folder belongs to: the row whose `worktrees` holds it. `planFolder` is the Run's own integration
+ *  folder (the one no Task's branch is on), the only one a plan-level PR or push delivery acts on. */
+export function planOwnerOfPath<R extends { id: string; worktrees?: string[]; tasks: readonly { branch?: string }[]; children?: R[] }>(
+  rows: readonly R[],
+  item: Pick<WorktreeListItem, 'branch' | 'path'>
+): { row: R; planFolder: boolean } | undefined {
+  for (const row of rows) {
+    const hit = [row, ...(row.children ?? [])].find((r) => r.worktrees?.some((p) => normPath(p) === normPath(item.path)))
+    if (hit) return { row: hit, planFolder: !hit.tasks.some((t) => t.branch === item.branch) }
+  }
+  return undefined
 }

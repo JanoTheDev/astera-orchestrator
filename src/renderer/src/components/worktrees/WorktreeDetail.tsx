@@ -1,18 +1,32 @@
-// A worktree's tab (DESIGN-W13 §5, `view:worktree:<path>`): what the worktree is, which plan and task made it, what it
-// changed against its base, its commits, and the actions on it (Open console here, Create pull request, Delete).
-import { useCallback, useRef, useState } from 'react'
+// A worktree's tab (DESIGN-W13 §5, `view:worktree:<path>`): the one worktree it was opened for, what it changed against its
+// base, its commits, and the review actions on it: Create PR, View / Merge PR, Merge into the base. The worktree list lives
+// in the Source Control side bar only.
+import { useState } from 'react'
 import type { ChangedFile } from '../../../../core/git/changedFile'
 import type { WorktreeRow } from '../../../../core/worktrees/cleanup'
+import type { JobRow, WorktreeListItem } from '../../../../core/types'
+import { runIdToMerge } from '../../../../core/orchestration/snapshot'
 import { useI18n } from '../../i18n/I18nProvider'
+import { confirmModal } from '../../lib/confirm'
+import { jobName } from '../../lib/jobName'
+import type { CommandReply, OrchDoor } from '../../lib/orchDoor'
 import { toast } from '../../lib/toast'
+import { CreatePrDialog } from '../CreatePrDialog'
 import { DiffView } from '../DiffView'
-import { Button, Card, Chip, EmptyState, ICONS, Icon, IconButton, type ChipTone } from '../ui'
+import { Button, Chip, EmptyState, ICONS, Icon, IconButton, Menu, type ChipTone, type MenuItem } from '../ui'
 import { changeLetter } from '../explorerChanged'
 import { openConsole, openPlan } from '../shell/navigation'
+import { ReviewSlot } from './ReviewSlot'
 import { useWorktreeDetail } from './useWorktreeDetail'
-import { useWorktrees, type Worktrees } from './useWorktrees'
+import { useWorktreeTab, type WorktreeTabData } from './useWorktreeTab'
+import { worktreeActions, type Gate } from './worktreeActions'
+import { planOwnerOfPath, worktreeTitle } from './worktreeView'
 
 type Diff = { fileId: string } & ({ state: 'loading' } | { state: 'shown'; diff: string; truncated: boolean } | { state: 'failed' })
+
+// src/core/github/prMerge.ts's methods; that module runs gh, so the renderer cannot import it
+type PrMergeMethod = 'merge' | 'squash' | 'rebase'
+const METHODS: PrMergeMethod[] = ['merge', 'squash', 'rebase']
 
 /** The state chip: ready wins, then the plan still running, then merged-but-not-landed, then Yours. */
 export function stateOf(r: WorktreeRow): { key: 'ready' | 'running' | 'waiting' | 'yours' | 'broken'; tone: ChipTone } {
@@ -38,45 +52,86 @@ export function AheadBehind({ ahead, behind, className }: { ahead: number | null
   )
 }
 
-/** The tab's body for the worktree at `path`: it reads the list itself (the Source Control view has its own copy). */
+const replyError = (r: CommandReply): string =>
+  typeof r.body === 'object' && r.body !== null && 'error' in r.body ? String((r.body as { error: unknown }).error) : String(r.status)
+
+/** The tab's body for the worktree at `path`. `runs` are the open project's plan rows (to find the plan it belongs
+ *  to); `door` runs the plan-level delivery commands, null when no project is open. */
 export function WorktreeDetail({
   path,
+  runs,
+  door,
+  onClose,
   onStartSession,
-  onOpenFiles,
-  repoFilter
+  onOpenFiles
 }: {
-  path: string | null
+  path: string
+  runs: readonly JobRow[]
+  door: OrchDoor | null
+  onClose: () => void
   onStartSession: (path: string) => void
   onOpenFiles: (path: string) => void
-  /** Only the open project's worktrees. The latest one is used; a new function each render does not re-read the list. */
-  repoFilter?: (repoPath: string) => boolean
 }): React.JSX.Element | null {
   const { t } = useI18n()
-  const latest = useRef(repoFilter)
-  latest.current = repoFilter
-  const stable = useCallback((repo: string) => latest.current?.(repo) ?? true, [])
-  const wt = useWorktrees(stable)
-  const row = path === null ? undefined : wt.rows?.find((r) => r.item.path === path)
-  if (wt.rows === null && wt.failed === null) return null
+  const wt = useWorktreeTab(path)
+  if (wt.item === undefined) return null
+  if (wt.item === null)
+    return (
+      <div className="worktree-tab">
+        <EmptyState icon={ICONS.repo} title={t('worktrees.removed.title')}>
+          <p>{t('worktrees.removed.body', { path })}</p>
+          <Button size="sm" variant="primary" onClick={onClose}>
+            {t('worktrees.removed.close')}
+          </Button>
+        </EmptyState>
+      </div>
+    )
   return (
     <div className="worktree-tab">
-      {row ? (
-        <Body row={row} wt={wt} onStartSession={onStartSession} onOpenFiles={onOpenFiles} />
-      ) : (
-        <EmptyState icon={wt.failed !== null ? ICONS.warning : ICONS.repo} title={t('worktrees.pickTitle')}>
-          {wt.failed ?? t('worktrees.gone')}
-        </EmptyState>
-      )}
-      {wt.overlays}
+      <Body item={wt.item} wt={wt} runs={runs} door={door} onStartSession={onStartSession} onOpenFiles={onOpenFiles} />
     </div>
   )
 }
 
-function Body({ row, wt, onStartSession, onOpenFiles }: { row: WorktreeRow; wt: Worktrees; onStartSession: (path: string) => void; onOpenFiles: (path: string) => void }): React.JSX.Element {
+function Body({
+  item: w,
+  wt,
+  runs,
+  door,
+  onStartSession,
+  onOpenFiles
+}: {
+  item: WorktreeListItem
+  wt: WorktreeTabData
+  runs: readonly JobRow[]
+  door: OrchDoor | null
+  onStartSession: (path: string) => void
+  onOpenFiles: (path: string) => void
+}): React.JSX.Element {
   const { t } = useI18n()
-  const w = row.item
-  const detail = useWorktreeDetail(row)
+  const detail = useWorktreeDetail({ item: w, ahead: wt.push?.ahead ?? null, dirty: wt.dirty, unpushed: null })
   const [diff, setDiff] = useState<Diff | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [creating, setCreating] = useState(false)
+
+  const owner = planOwnerOfPath(runs, w)
+  const plan = owner?.row
+  const planFolder = owner?.planFolder === true
+  const runId = plan ? runIdToMerge(plan, plan.id) : undefined
+  const ok = w.status === 'ok'
+  const acts = worktreeActions({
+    ok,
+    ghConnected: wt.ghConnected,
+    ahead: wt.push?.ahead ?? null,
+    dirty: wt.dirty,
+    pr: wt.pr,
+    // run-deliver --as push acts on the plan's own folder, until its work landed
+    pushable: planFolder && door !== null && runId !== undefined && plan?.pr?.landed === undefined && plan?.outcome !== 'running',
+    busy
+  })
+  const awaiting = planFolder && plan?.awaitingReview === true
+  const files = detail?.files ?? null
+  const taskTitles = plan ? plan.tasks.filter((x) => x.branch === w.branch).map((x) => x.title) : []
 
   const showDiff = (f: ChangedFile): void => {
     if (diff?.fileId === f.id) return setDiff(null)
@@ -87,88 +142,161 @@ function Body({ row, wt, onStartSession, onOpenFiles }: { row: WorktreeRow; wt: 
     )
   }
 
-  const st = stateOf(row)
-  const push = wt.pushStateOf(w)
-  const unknown = t('worktrees.fact.unknown')
-  const files = detail?.files ?? null
-  const ok = w.status === 'ok'
+  const run = async (work: () => Promise<string | null>, failed: 'worktrees.mergePr.failed' | 'worktrees.mergeBase.failed', done: string): Promise<void> => {
+    setBusy(true)
+    try {
+      const reason = await work()
+      if (reason === null) toast.success(done)
+      else toast.error(t(failed, { reason }))
+    } catch (err) {
+      toast.error(t(failed, { reason: err instanceof Error ? err.message : String(err) }))
+    } finally {
+      setBusy(false)
+      void window.api.github.refresh({ force: true })
+      await wt.refresh()
+    }
+  }
+
+  const mergePr = async (method: PrMergeMethod): Promise<void> => {
+    const pr = wt.pr
+    if (!pr) return
+    const methodName = t(`worktrees.act.method.${method}` as never)
+    const ok = await confirmModal({
+      title: t('worktrees.mergePr.title', { number: pr.number }),
+      body: t('worktrees.mergePr.body', { title: pr.title, branch: w.branch, base: w.baseRef, method: methodName }),
+      confirmLabel: t('worktrees.mergePr.confirm'),
+      danger: true
+    })
+    if (!ok) return
+    await run(
+      async () => {
+        // a plan Run whose PR Astera recorded is merged through the Run, so the plan reads delivered
+        if (planFolder && door && runId && plan?.pr?.url !== undefined) {
+          const r = await door.command('run-pr-merge', { run: runId, method })
+          return r.status >= 400 ? replyError(r) : null
+        }
+        const r = await window.api.pr.merge({ cwd: w.path, number: pr.number, method })
+        return r.ok ? null : r.detail
+      },
+      'worktrees.mergePr.failed',
+      t('worktrees.mergePr.done', { number: pr.number })
+    )
+  }
+
+  const mergeBase = async (): Promise<void> => {
+    if (!door || !runId) return
+    const ok = await confirmModal({
+      title: t('worktrees.mergeBase.title', { branch: w.branch, base: w.baseRef }),
+      body: t('worktrees.mergeBase.body', { branch: w.branch, base: w.baseRef }),
+      confirmLabel: t('worktrees.mergeBase.confirm', { base: w.baseRef }),
+      danger: true
+    })
+    if (!ok) return
+    await run(
+      async () => {
+        const r = await door.command('run-deliver', { run: runId, as: 'push' })
+        return r.status >= 400 ? replyError(r) : null
+      },
+      'worktrees.mergeBase.failed',
+      t('worktrees.mergeBase.done', { base: w.baseRef })
+    )
+  }
+
+  const reason = (g: Gate): string | undefined => (g.reason ? t(g.reason) : undefined)
+  const copyPath = (): void => {
+    window.api.clipboard.writeText(w.path)
+    toast.success(t('worktrees.detail.pathCopied'))
+  }
+
+  const actions = (
+    <>
+      {acts.createPr.show && (
+        <Button size="sm" variant="primary" icon={<Icon name="pullRequest" size={14} />} disabled={acts.createPr.reason !== undefined} title={reason(acts.createPr)} onClick={() => setCreating(true)}>
+          {t('worktree.push.createPr')}
+        </Button>
+      )}
+      {acts.viewPr.show && wt.pr && (
+        <Button size="sm" icon={<Icon name="external" size={14} />} onClick={() => void window.api.system.openExternal(wt.pr!.url)}>
+          {t('worktrees.act.viewPr', { number: wt.pr.number })}
+        </Button>
+      )}
+      {acts.mergePr.show && (
+        <span className="wt-split" title={reason(acts.mergePr)}>
+          <Button size="sm" variant="primary" icon={<Icon name="merge" size={14} />} disabled={acts.mergePr.reason !== undefined} onClick={() => void mergePr('merge')}>
+            {t('worktrees.act.mergePr')}
+          </Button>
+          <Menu
+            label={t('worktrees.act.mergeMethod')}
+            align="end"
+            trigger={{ size: 'sm', variant: 'primary', icon: <Icon name="chevronDown" size={14} />, disabled: acts.mergePr.reason !== undefined, 'aria-label': t('worktrees.act.mergeMethod') }}
+            items={METHODS.map((m) => ({ id: m, label: t(`worktrees.act.method.${m}` as never), onSelect: () => void mergePr(m) }))}
+          />
+        </span>
+      )}
+      {acts.mergeBase.show && (
+        <Button size="sm" icon={<Icon name="merge" size={14} />} disabled={acts.mergeBase.reason !== undefined} title={reason(acts.mergeBase)} onClick={() => void mergeBase()}>
+          {t('worktrees.act.mergeBase', { base: w.baseRef })}
+        </Button>
+      )}
+    </>
+  )
+
+  // The same actions as one menu: shown instead of the buttons when the tab is narrow (a container query in worktrees.css)
+  const item = (label: string, g: Gate, onSelect: () => void, icon: React.ReactNode): MenuItem[] =>
+    g.show ? [{ label: g.reason ? `${label} — ${t(g.reason)}` : label, onSelect, disabled: g.reason !== undefined, icon }] : []
+  const more: Array<MenuItem | 'separator'> = [
+    ...item(t('worktree.push.createPr'), acts.createPr, () => setCreating(true), <Icon name="pullRequest" size={14} />),
+    ...item(wt.pr ? t('worktrees.act.viewPr', { number: wt.pr.number }) : '', acts.viewPr, () => void window.api.system.openExternal(wt.pr!.url), <Icon name="external" size={14} />),
+    ...(acts.mergePr.show ? METHODS.flatMap((m) => item(`${t('worktrees.act.mergePr')}: ${t(`worktrees.act.method.${m}` as never)}`, acts.mergePr, () => void mergePr(m), <Icon name="merge" size={14} />)) : []),
+    ...item(t('worktrees.act.mergeBase', { base: w.baseRef }), acts.mergeBase, () => void mergeBase(), <Icon name="merge" size={14} />)
+  ]
+  const secondary: MenuItem[] = [
+    { label: t('worktrees.detail.openHere'), icon: <Icon name="run" size={14} />, disabled: !ok, onSelect: () => onStartSession(w.path) },
+    { label: t('worktrees.detail.openFiles'), icon: <Icon name="folder" size={14} />, disabled: !ok, onSelect: () => onOpenFiles(w.path) },
+    { label: t('worktrees.detail.copyPath'), icon: <Icon name="copy" size={14} />, onSelect: copyPath }
+  ]
+
+  const dirty = wt.dirty
+  const treeWords = dirty === null ? t('worktrees.fact.unknown') : dirty === 0 ? t('worktrees.fact.treeClean') : t('worktrees.fact.treeDirty', { count: dirty })
 
   return (
     <article className="worktree-detail">
-      <header className="worktree-detail__head">
-        <div className="worktree-detail__title">
-          <h2>{w.branch}</h2>
-          <Chip tone={st.tone} dot>
-            {t(`worktrees.detail.state.${st.key}` as never)}
-          </Chip>
+      <header className="wt-head">
+        <div className="wt-head__id">
+          <h2 title={w.path}>{worktreeTitle(w, w.path)}</h2>
+          <code className="wt-head__branch">{w.name !== w.branch ? `${w.name} · ${w.branch}` : w.branch}</code>
           <span className="worktree-detail__base">{t('worktrees.detail.base', { base: w.baseRef })}</span>
-          <AheadBehind ahead={row.ahead} behind={row.behind} />
-        </div>
-        <div className="worktree-detail__path">
-          <code title={w.path}>{w.path}</code>
-          <IconButton
-            size="sm"
-            icon={<Icon name="copy" size={14} />}
-            label={t('worktrees.detail.copyPath')}
-            onClick={() => {
-              window.api.clipboard.writeText(w.path)
-              toast.success(t('worktrees.detail.pathCopied'))
-            }}
-          />
-        </div>
-        <div className="worktree-detail__actions">
-          <Button size="sm" icon={<Icon name="run" size={14} />} disabled={!ok} onClick={() => onStartSession(w.path)}>
-            {t('worktrees.detail.openHere')}
-          </Button>
-          {row.owner?.sessionId && (
-            <Button size="sm" icon={<Icon name="terminal" size={14} />} onClick={() => openConsole(row.owner!.sessionId!)}>
-              {t('worktrees.detail.console')}
+          <AheadBehind ahead={wt.push?.ahead ?? null} behind={wt.push?.behind ?? null} />
+          <Chip tone={dirty ? 'warn' : dirty === 0 ? 'ok' : 'neutral'} dot>
+            {treeWords}
+          </Chip>
+          {plan && (
+            <Button size="sm" variant="ghost" className="worktree-link" icon={<Icon name="listTree" size={14} />} title={t('worktrees.plan.link', { plan: jobName(plan) })} onClick={() => openPlan(plan.id)}>
+              {taskTitles.length > 0 ? `${jobName(plan)} · ${taskTitles.join(', ')}` : jobName(plan)}
             </Button>
           )}
-          <Button size="sm" icon={<Icon name="folder" size={14} />} disabled={!ok} onClick={() => onOpenFiles(w.path)}>
-            {t('worktrees.detail.openFiles')}
-          </Button>
-          <Button
-            size="sm"
-            icon={<Icon name="pullRequest" size={14} />}
-            disabled={!ok || push?.ahead === 0 || !wt.ghConnected || wt.busy}
-            title={push?.ahead === 0 ? t('worktree.push.noCommits') : !wt.ghConnected ? t('worktree.push.ghDisconnected') : undefined}
-            onClick={() => wt.createPr(w)}
-          >
-            {t('worktree.push.createPr')}
-          </Button>
-          {/* remove() confirms first (and a second time before a forced removal). */}
-          <Button size="sm" variant="danger" icon={<Icon name="delete" size={14} />} className="worktree-detail__delete" disabled={wt.busy} onClick={() => void wt.remove(w)}>
-            {t('files.action.delete')}
-          </Button>
+        </div>
+        <div className="wt-head__actions">
+          {!awaiting && <div className="wt-actions__inline">{actions}</div>}
+          {!awaiting && more.length > 0 && (
+            <Menu label={t('worktrees.act.more')} align="end" items={more} trigger={{ size: 'sm', className: 'wt-actions__more', icon: <Icon name="more" size={14} />, 'aria-label': t('worktrees.act.more') }} />
+          )}
+          <Menu label={t('worktrees.act.other')} align="end" items={secondary} trigger={{ size: 'sm', icon: <Icon name="moreVertical" size={14} />, 'aria-label': t('worktrees.act.other') }} />
         </div>
       </header>
 
-      <div className="worktree-facts">
-        <Card tone="plain" className="worktree-fact">
-          <span className="worktree-fact__label">{t('worktrees.fact.plan')}</span>
-          {row.owner ? (
-            <Button size="sm" variant="ghost" className="worktree-link" icon={<Icon name="listTree" size={14} />} onClick={() => openPlan(row.owner!.jobId)}>
-              {row.owner.plan}
-            </Button>
-          ) : (
-            <span className="worktree-fact__value">{t('worktrees.fact.none')}</span>
-          )}
-        </Card>
-        {row.owner && row.owner.taskTitles.length > 0 && (
-          <Card tone="plain" className="worktree-fact">
-            <span className="worktree-fact__label">{t('worktrees.fact.task')}</span>
-            {row.owner.taskTitles.map((title, i) => (
-              <Button key={row.owner!.taskIds[i] ?? title} size="sm" variant="ghost" className="worktree-link" onClick={() => openPlan(row.owner!.jobId)}>
-                {title}
-              </Button>
-            ))}
-          </Card>
-        )}
-        <Fact label={t('worktrees.fact.tree')} value={row.dirty === null ? unknown : row.dirty === 0 ? t('worktrees.fact.treeClean') : t('worktrees.fact.treeDirty', { count: row.dirty })} tone={row.dirty ? 'warn' : undefined} />
-        <Fact label={t('worktrees.fact.unpushed')} value={row.unpushed === null ? unknown : String(row.unpushed)} tone={row.unpushed ? 'warn' : undefined} />
-        <Fact label={t('worktrees.fact.session')} value={row.live ? t('worktrees.fact.sessionLive') : t('worktrees.fact.sessionNone')} />
-      </div>
+      {awaiting && (
+        <section className="wt-review" role="status">
+          <div className="wt-review__text">
+            <strong>{t('worktrees.review.title')}</strong>
+            <span>{t('worktrees.review.body')}</span>
+          </div>
+          <div className="wt-review__actions">
+            <div className="wt-actions__inline">{actions}</div>
+            {more.length > 0 && <Menu label={t('worktrees.act.more')} align="end" items={more} trigger={{ size: 'sm', className: 'wt-actions__more', icon: <Icon name="more" size={14} />, 'aria-label': t('worktrees.act.more') }} />}
+          </div>
+        </section>
+      )}
 
       <section className="worktree-detail__section">
         <h3>{t('worktrees.changes')}</h3>
@@ -202,6 +330,8 @@ function Body({ row, wt, onStartSession, onOpenFiles }: { row: WorktreeRow; wt: 
         )}
       </section>
 
+      <ReviewSlot worktree={w} />
+
       <section className="worktree-detail__section">
         <h3>{t('worktrees.commits')}</h3>
         {detail === undefined ? (
@@ -224,15 +354,21 @@ function Body({ row, wt, onStartSession, onOpenFiles }: { row: WorktreeRow; wt: 
           </ul>
         )}
       </section>
-    </article>
-  )
-}
 
-function Fact({ label, value, tone }: { label: string; value: string; tone?: 'warn' }): React.JSX.Element {
-  return (
-    <Card tone={tone === 'warn' ? 'need' : 'plain'} className="worktree-fact">
-      <span className="worktree-fact__label">{label}</span>
-      <span className="worktree-fact__value">{value}</span>
-    </Card>
+      {creating && (
+        <CreatePrDialog
+          worktree={w}
+          base={w.baseRef}
+          // A `gone` upstream — configured once, then deleted on the remote — is not on the remote
+          needsPush={!wt.push?.hasUpstream || wt.push.upstreamGone}
+          onCancel={() => setCreating(false)}
+          onDone={() => {
+            setCreating(false)
+            void window.api.github.refresh({ force: true })
+            void wt.refresh()
+          }}
+        />
+      )}
+    </article>
   )
 }
