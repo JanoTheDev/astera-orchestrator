@@ -1,6 +1,7 @@
 /* The ui primitives (components/ui, DESIGN §10). Tokens only: no colour literals (a test checks). */
 
-/* Button (and IconButton): one height per size, --line-strong edge on secondary so it survives Day, no glow. */
+/* Button (and IconButton), DESIGN-W13 §11: --h-sm 24 / --h-md 30 / --h-lg 36, 4px radius, regular weight.
+   Primary is the accent fill, secondary VSCode's secondary (an --elevated fill), ghost a toolbar action. */
 .ui-btn {
   display: inline-flex;
   align-items: center;
@@ -14,7 +15,7 @@
   color: var(--text);
   font: inherit;
   font-size: var(--fs-13);
-  font-weight: var(--fw-medium);
+  font-weight: var(--fw-regular);
   line-height: 1;
   white-space: nowrap;
   cursor: pointer;
@@ -29,13 +30,14 @@
 .ui-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .ui-btn:disabled { opacity: 0.5; cursor: default; }
 .ui-btn[aria-busy='true'] { opacity: 0.8; cursor: progress; }
-.ui-btn--secondary { border-color: var(--line-strong); }
+.ui-btn--secondary { border-color: transparent; }
+:root[data-theme='day'] .ui-btn--secondary { border-color: var(--line-strong); }
 .ui-btn--secondary:hover:not(:disabled) { background: var(--elevated-hover); }
-.ui-btn--secondary:focus-visible { border-color: var(--line-strong); }
+.ui-btn--secondary:focus-visible { border-color: transparent; }
 .ui-btn--primary { background: var(--accent); color: var(--accent-ink); }
 .ui-btn--primary:hover:not(:disabled) { background: var(--accent-hover); }
 .ui-btn--ghost { background: transparent; color: var(--text-dim); }
-.ui-btn--ghost:hover:not(:disabled), .ui-btn--ghost.is-active { background: var(--hover); color: var(--text); }
+.ui-btn--ghost:hover:not(:disabled), .ui-btn--ghost.is-active { background: var(--wash-strong); color: var(--text); }
 .ui-btn--secondary.is-active { background: var(--elevated-hover); }
 .ui-btn--danger { background: var(--danger-soft); color: var(--danger); }
 .ui-btn--danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger-soft), var(--danger) 18%); }
@@ -54,7 +56,7 @@
   padding: 0 10px;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
-  background: var(--panel);
+  background: var(--elevated);
   color: var(--text);
   font: inherit;
   font-size: var(--fs-13);
@@ -65,8 +67,9 @@
 .ui-input:hover:not(:disabled), .ui-select:hover:not(:disabled), .ui-textarea:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--line-strong), var(--text) 18%);
 }
-.ui-input:focus-visible, .ui-select:focus-visible, .ui-textarea:focus-visible { outline: none; border-color: var(--line-strong); box-shadow: var(--focus-ring); }
-.ui-input:focus, .ui-select:focus, .ui-textarea:focus { outline: none; }
+/* VSCode's focus mark on a field: the border turns --focus-border, no ring. A text field shows it on any focus. */
+.ui-input:focus, .ui-textarea:focus, .ui-select:focus-visible { outline: none; border-color: var(--focus-border); box-shadow: none; }
+.ui-select:focus { outline: none; }
 .ui-input[aria-invalid='true'], .ui-select[aria-invalid='true'], .ui-textarea[aria-invalid='true'] { border-color: var(--danger); }
 .ui-input:disabled, .ui-select:disabled, .ui-textarea:disabled { opacity: 0.5; cursor: default; }
 .ui-textarea { height: auto; min-height: 72px; padding: 6px 10px; line-height: var(--lh); resize: vertical; }
@@ -80,7 +83,7 @@
   background-size: 4px 4px;
   background-repeat: no-repeat;
 }
-.ui-select option { background: var(--panel); color: var(--text); }
+.ui-select option { background: var(--elevated); color: var(--text); }
 
 /* Chip and Badge: same tones. A chip labels or filters; a badge counts. */
 .ui-chip {
@@ -89,14 +92,14 @@
   gap: 4px;
   max-width: 100%;
   min-width: 0;
-  height: 20px;
-  padding: 0 8px;
+  height: 18px;
+  padding: 0 6px;
   overflow: hidden;
   border-radius: var(--radius-sm);
   background: var(--elevated);
   color: var(--text-dim);
-  font-size: var(--fs-11);
-  font-weight: var(--fw-medium);
+  font-size: var(--fs-12);
+  font-weight: var(--fw-regular);
   line-height: 1;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -106,14 +109,14 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 6px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
   border-radius: var(--radius-pill);
   background: var(--elevated);
-  color: var(--text-dim);
+  color: var(--text);
   font-size: var(--fs-11);
-  font-weight: var(--fw-medium);
+  font-weight: var(--fw-semi);
   font-variant-numeric: tabular-nums;
   line-height: 1;
   white-space: nowrap;
@@ -227,7 +230,8 @@
 .ui-nav__item:not(.ui-nav__item--active):focus-visible { border-bottom-color: transparent; }
 .ui-nav__count, .ui-tabs__count { color: var(--text-faint); font-size: var(--fs-11); font-variant-numeric: tabular-nums; }
 
-/* Tabs: underline (text + accent underline) or segmented (a scope choice) */
+/* Tabs: underline (VSCode's panel tabs, DESIGN-W13 §6: uppercase 11/600 labels, a 1px accent line under the active
+   one) or segmented (a scope choice) */
 .ui-tabs { display: flex; align-items: center; }
 .ui-tabs__tab {
   display: inline-flex;
@@ -248,8 +252,16 @@
 .ui-tabs__tab:hover:not(:disabled) { background: transparent; color: var(--text); }
 .ui-tabs__tab:disabled { opacity: 0.5; cursor: default; }
 .ui-tabs__tab:focus-visible { outline: none; box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 60%, transparent); }
-.ui-tabs--underline { gap: 2px; border-bottom: 1px solid var(--line); }
-.ui-tabs--underline .ui-tabs__tab { border-bottom: 2px solid transparent; }
+.ui-tabs--underline { gap: 4px; border-bottom: 1px solid var(--line); }
+.ui-tabs--underline .ui-tabs__tab {
+  height: var(--h-md);
+  padding: 0 8px;
+  border-bottom: 1px solid transparent;
+  font-size: var(--fs-11);
+  font-weight: var(--fw-semi);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
 /* #106: labels keep one line and the strip scrolls (.wall-strip overflow-x) instead of shrinking */
 .ui-tabs--underline .ui-tabs__tab { flex: none; white-space: nowrap; }
 .ui-tabs--underline .ui-tabs__tab--active { color: var(--text); border-bottom-color: var(--accent); }
@@ -281,7 +293,7 @@
   align-items: center;
   gap: 8px;
   width: 100%;
-  height: var(--h-md);
+  height: var(--list-row-h);
   padding: 0 8px;
   border: 0;
   border-radius: var(--radius);
@@ -294,12 +306,13 @@
   cursor: pointer;
 }
 .ui-menu__item > svg { flex: none; color: var(--text-dim); }
-.ui-menu__item:hover:not(:disabled), .ui-menu__item:focus-visible { outline: none; border-color: transparent; box-shadow: none; background: var(--elevated-hover); }
+.ui-menu__item:hover:not(:disabled), .ui-menu__item:focus-visible { outline: none; border-color: transparent; box-shadow: none; background: var(--list-active); }
 .ui-menu__item:disabled { opacity: 0.5; cursor: default; }
 .ui-menu__item--danger, .ui-menu__item--danger > svg { color: var(--danger); }
 .ui-menu__label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .ui-menu__check { flex: none; display: inline-grid; place-items: center; width: 14px; color: var(--accent); }
-.ui-menu__kbd { flex: none; margin-left: 16px; }
+.ui-menu__kbd { flex: none; margin-left: auto; padding-left: 24px; color: var(--text-faint); }
+.ui-menu__kbd kbd { min-width: 0; height: auto; padding: 0; border: 0; background: none; }
 .ui-menu__sep { height: 1px; margin: 4px -4px; background: var(--line); }
 
 /* Context mode: fixed at the pointer (or under the focused element for Shift+F10), above modals (1000). */
@@ -325,9 +338,9 @@
   align-items: center;
   gap: 8px;
   padding: 0 10px;
-  background: var(--bg);
+  background: var(--elevated);
   color: var(--text);
-  border: 1px solid var(--line-soft);
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius);
   font-family: var(--sans);
   font-size: inherit; /* beats the global button rule's 12px, and follows .sel.dense */
@@ -335,10 +348,10 @@
   cursor: pointer;
   transition: border-color var(--ease), background var(--ease), box-shadow var(--ease);
 }
-.sel-trigger:hover { border-color: var(--text-faint); background: var(--surface-hover); }
+.sel-trigger:hover { border-color: color-mix(in srgb, var(--line-strong), var(--text) 18%); }
 /* A ring rather than an outline: outline cannot follow border-radius consistently across engines, and a
    2px ring plus a brightened border reads as focus without the harsh hairline. */
-.sel-trigger:focus-visible { outline: none; border-color: var(--accent); box-shadow: var(--focus-ring); }
+.sel-trigger:focus-visible { outline: none; border-color: var(--focus-border); box-shadow: none; }
 .sel-value { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sel-value.empty { color: var(--text-faint); }
 /* Fixed width so labels line up even when a row has no icon (the 'All accounts' row) */
@@ -361,14 +374,13 @@
   max-width: min(420px, 70vw);
   max-height: 240px;
   overflow-y: auto;
-  background: var(--panel);
-  border: 1px solid var(--line-soft);
+  background: var(--elevated);
+  border: 0;
   border-radius: var(--radius-lg);
   padding: 4px;
   margin: 0;
   list-style: none;
-  /* Two layers: a tight one that separates the panel edge from the surface, a wide one for the lift */
-  box-shadow: var(--shadow-sm), var(--shadow-lg);
+  box-shadow: var(--shadow-pop);
   animation: sel-in var(--ease);
 }
 /* Opens upward instead, when the space below the trigger cannot hold the menu — menuPlacement() in
@@ -383,9 +395,9 @@
 .sel-menu.right { left: auto; right: 0; }
 @keyframes sel-in { from { opacity: 0; transform: translateY(-2px); } }
 .sel-group { padding: 7px 8px 3px; font-size: var(--fs-11); font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-faint); }
-.sel-option { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: var(--radius); cursor: pointer; transition: background var(--ease); }
-.sel-option.cursor { background: var(--surface-hover); }
-.sel-option[aria-selected='true'] .sel-value { color: var(--accent); }
+.sel-option { display: flex; align-items: center; gap: 8px; min-height: var(--row-h); padding: 2px 8px; border-radius: var(--radius); cursor: pointer; transition: background var(--ease); }
+.sel-option.cursor { background: var(--list-active); }
+.sel-option[aria-selected='true'] .sel-value { color: var(--text); font-weight: var(--fw-medium); }
 .sel-check { flex: none; width: 14px; height: 14px; display: grid; place-items: center; color: var(--accent); opacity: 0; }
 .sel-option[aria-selected='true'] .sel-check { opacity: 1; }
 .sel-meta { flex: none; color: var(--text-faint); font-size: var(--fs-11); font-variant-numeric: tabular-nums; }
@@ -396,7 +408,7 @@
 .sel-trigger:disabled { opacity: .5; cursor: default; }
 /* A row the list shows but cannot pick (aria-disabled); the cursor passes over it. */
 .sel-option.disabled { opacity: .5; cursor: default; }
-.sel.dense .sel-option { padding: 4px 8px; }
+.sel.dense .sel-option { padding: 2px 8px; }
 
 /* Toast: bottom-right above the status bar, in front of modals so a failure raised inside one is not hidden.
    The left edge carries the kind's colour, the icon its second cue. */
@@ -541,9 +553,204 @@
 .ui-tip--top > .ui-tip__body { bottom: calc(100% + 6px); }
 .ui-tip:hover > .ui-tip__body, .ui-tip:focus-within > .ui-tip__body { opacity: 1; transition-delay: 400ms; }
 
+/* ---- Workbench primitives (DESIGN-W13 §2–§7, §12) ---- */
+
+/* Tree and TreeRow: 22px rows, 8px indent per level plus a 16px twistie; guides show while the tree is hovered.
+   Selection is --list-active while the tree has focus, --list-inactive-selection otherwise. */
+.ui-tree { min-height: 0; overflow: auto; outline: none; font-size: var(--fs-13); line-height: var(--lh-tight); }
+.ui-tree__row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: var(--row-h);
+  padding: 0 8px;
+  color: var(--text);
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+.ui-tree__row:hover { background: var(--list-hover); }
+.ui-tree__row.is-selected { background: var(--list-inactive-selection); }
+.ui-tree:focus .ui-tree__row.is-selected { background: var(--list-active); }
+.ui-tree:focus .ui-tree__row.is-focused { box-shadow: var(--focus-ring-inset); }
+/* one 1px guide under each ancestor's twistie: at the right edge of every 8px indent step */
+.ui-tree__indent {
+  flex: none;
+  align-self: stretch;
+  background-image: repeating-linear-gradient(to right, transparent 0 7px, var(--line-strong) 7px 8px);
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+.ui-tree:hover .ui-tree__indent, .ui-tree:focus .ui-tree__indent { opacity: 1; }
+.ui-tree__twistie { flex: none; display: grid; place-items: center; width: 16px; height: 16px; color: var(--text-dim); }
+.ui-tree__twistie > svg { transition: transform var(--dur) var(--ease-out); }
+.ui-tree__twistie.is-open > svg { transform: rotate(90deg); }
+.ui-tree__icon { flex: none; display: grid; place-items: center; width: 16px; margin-right: 6px; color: var(--text-dim); }
+.ui-tree__label { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ui-tree__desc { flex: 0 1 auto; min-width: 0; margin-left: 6px; overflow: hidden; color: var(--text-dim); font-size: var(--fs-12); text-overflow: ellipsis; }
+.ui-tree__meta, .ui-tree__actions { flex: none; display: flex; align-items: center; gap: 4px; margin-left: auto; padding-left: 8px; }
+.ui-tree__meta { color: var(--text-dim); font-size: var(--fs-12); font-variant-numeric: tabular-nums; }
+.ui-tree__deco { display: inline-flex; align-items: center; gap: 4px; }
+.ui-tree__deco--info { color: var(--info); }
+.ui-tree__deco--ok { color: var(--ok); }
+.ui-tree__deco--warn { color: var(--warn); }
+.ui-tree__deco--danger { color: var(--danger); }
+.ui-tree__actions { display: none; gap: 2px; }
+.ui-tree__row:hover .ui-tree__actions, .ui-tree:focus .ui-tree__row.is-focused .ui-tree__actions { display: flex; }
+.ui-tree__row:hover .ui-tree__meta.has-actions, .ui-tree:focus .ui-tree__row.is-focused .ui-tree__meta.has-actions { display: none; }
+.ui-tree__actions .ui-btn--icon { width: 20px; height: 20px; }
+
+/* ViewContainer and ViewPane: open panes share the height, a closed one keeps its 22px header. */
+.ui-viewcontainer { display: flex; flex-direction: column; height: 100%; min-height: 0; overflow: hidden; }
+.ui-viewpane { flex: none; display: flex; flex-direction: column; min-height: 0; }
+.ui-viewpane.is-open { flex: 1 1 0; }
+.ui-viewpane + .ui-viewpane { border-top: 1px solid var(--line); }
+.ui-viewpane__head { flex: none; display: flex; align-items: center; height: var(--row-h); padding-right: 8px; }
+.ui-viewpane__toggle {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  height: 100%;
+  padding: 0 0 0 2px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: var(--fs-11);
+  font-weight: var(--fw-semi);
+  letter-spacing: 0.04em;
+  text-align: left;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.ui-viewpane__toggle:hover { background: transparent; color: var(--text); }
+.ui-viewpane__toggle:focus-visible { outline: none; box-shadow: var(--focus-ring-inset); }
+.ui-viewpane__twistie { flex: none; transition: transform var(--dur) var(--ease-out); }
+.ui-viewpane.is-open .ui-viewpane__twistie { transform: rotate(90deg); }
+.ui-viewpane__title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ui-viewpane__count { margin-left: 6px; letter-spacing: 0; text-transform: none; }
+.ui-viewpane__actions { flex: none; display: flex; align-items: center; gap: 2px; opacity: 0; transition: opacity var(--dur-fast) var(--ease-out); }
+.ui-viewpane__head:hover .ui-viewpane__actions, .ui-viewpane__head:focus-within .ui-viewpane__actions { opacity: 1; }
+.ui-viewpane__body { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: auto; }
+.ui-viewpane__body > .ui-tree { flex: 1; }
+
+/* Sash: a 4px hit area over the 1px region border; --focus-border shows on hover (after a beat), drag and focus. */
+.ui-sash { position: relative; z-index: 5; flex: none; outline: none; touch-action: none; }
+.ui-sash--vertical { align-self: stretch; width: 4px; margin: 0 -2px; cursor: col-resize; }
+.ui-sash--horizontal { height: 4px; margin: -2px 0; cursor: row-resize; }
+.ui-sash::after { content: ''; position: absolute; background: transparent; transition: background-color var(--dur-fast) var(--ease-out); }
+.ui-sash--vertical::after { top: 0; bottom: 0; left: 1px; width: 2px; }
+.ui-sash--horizontal::after { left: 0; right: 0; top: 1px; height: 2px; }
+.ui-sash:hover::after { background: var(--focus-border); transition-delay: 300ms; }
+.ui-sash.is-dragging::after, .ui-sash:focus-visible::after { background: var(--focus-border); transition-delay: 0ms; }
+body.resizing-col { cursor: col-resize; user-select: none; }
+body.resizing-row { cursor: row-resize; user-select: none; }
+
+/* Toolbar: 22px icon buttons */
+.ui-toolbar { display: inline-flex; align-items: center; gap: 2px; }
+.ui-toolbar .ui-btn--icon { width: 22px; height: 22px; }
+
+/* ActivityBarItem: 48x48, dim icon; hover and active full colour; active adds a 2px accent bar on the left edge. */
+.ui-activity {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: var(--activitybar-w);
+  height: var(--activitybar-w);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--activitybar-fg-dim);
+  cursor: pointer;
+  transition: color var(--dur-fast) var(--ease-out);
+}
+.ui-activity:hover, .ui-activity.is-active { background: transparent; color: var(--activitybar-fg); }
+.ui-activity.is-active::before { content: ''; position: absolute; top: 0; bottom: 0; left: 0; width: 2px; background: var(--accent); }
+.ui-activity:focus-visible { outline: none; border-color: transparent; box-shadow: var(--focus-ring-inset); }
+.ui-activity > svg { stroke-width: 1.5; }
+.ui-activity__badge {
+  position: absolute;
+  right: 6px;
+  bottom: 7px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: var(--radius-pill);
+  background: var(--badge-bg);
+  color: var(--badge-fg);
+  font-size: var(--fs-11);
+  font-weight: var(--fw-semi);
+  font-variant-numeric: tabular-nums;
+  line-height: 16px;
+  text-align: center;
+}
+
+/* EditorTab: 35px; inactive dim on the strip colour, active joins the editor with a top accent border
+   (2px in the focused group, none in another group). The close button shows on hover and on the active tab;
+   a dirty tab shows a dot in its place until hover. */
+.ui-etab {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 80px;
+  max-width: 240px;
+  height: var(--tab-h);
+  padding: 0 4px 0 10px;
+  border-right: 1px solid var(--line);
+  background: var(--tab-inactive-bg);
+  color: var(--text-dim);
+  font-size: var(--fs-13);
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+.ui-etab:hover { color: var(--text); }
+.ui-etab.is-active { background: var(--tab-active-bg); color: var(--text); }
+.ui-etab.is-active::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px; background: var(--tab-border-active); }
+.ui-etab.is-focused-group::before { height: 2px; }
+.ui-etab.is-blurred-group::before { content: none; }
+.ui-etab:focus-visible { outline: none; box-shadow: var(--focus-ring-inset); }
+.ui-etab__icon { flex: none; display: grid; place-items: center; }
+.ui-etab__label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ui-etab__desc { min-width: 0; overflow: hidden; color: var(--text-faint); font-size: var(--fs-12); text-overflow: ellipsis; }
+.ui-etab__end { flex: none; display: grid; place-items: center; width: 20px; height: 20px; margin-left: auto; }
+.ui-etab__end > * { grid-area: 1 / 1; }
+.ui-etab__dot { width: 8px; height: 8px; border-radius: var(--radius-pill); background: var(--text); pointer-events: none; }
+.ui-etab__close.ui-btn--icon { width: 20px; height: 20px; visibility: hidden; }
+.ui-etab:hover .ui-etab__close, .ui-etab.is-active:not(.is-dirty) .ui-etab__close { visibility: visible; }
+.ui-etab:hover .ui-etab__dot { display: none; }
+
+/* StatusBarItem: 22px, 8px sides, a --wash hover when it is a button */
+.ui-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: var(--statusbar-h);
+  padding: 0 8px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: var(--fs-12);
+  white-space: nowrap;
+}
+.ui-status.is-action { cursor: pointer; }
+.ui-status.is-action:hover { background: var(--wash); }
+.ui-status:focus-visible { outline: none; border-color: transparent; box-shadow: var(--focus-ring-inset); }
+.ui-status--warn { color: var(--warn); }
+.ui-status--danger { color: var(--danger); }
+
 @media (prefers-reduced-motion: reduce) {
   .ui-btn, .ui-card, .ui-section__toggle, .ui-section__chevron, .ui-nav__item, .ui-tabs__tab, .ui-input, .ui-select, .ui-textarea,
-  .ui-toggle, .ui-toggle::after, .ui-meter__fill, .ui-tip__body {
+  .ui-toggle, .ui-toggle::after, .ui-meter__fill, .ui-tip__body, .ui-tree__indent, .ui-tree__twistie > svg, .ui-viewpane__twistie,
+  .ui-viewpane__actions, .ui-sash::after, .ui-activity {
     transition: none;
   }
   .ui-modal-backdrop, .ui-modal, .ui-menu__list, .sel-menu, .ui-toast, .ui-skeleton { animation: none; }

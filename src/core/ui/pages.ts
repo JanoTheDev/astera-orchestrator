@@ -1,3 +1,5 @@
+import type { ViewName } from '../panes/tabId'
+
 // The pages of the Wave 9 shell (DESIGN.md §2, PLAN.md "Wave 9 contracts") and how saved state from the
 // sidebar shell maps onto them. W9-A only defines the ids and the mapping; the pages themselves arrive
 // in 9.2, and navigation goes through components/shell/navigation.ts.
@@ -68,4 +70,49 @@ export function togglePage(current: PageId, target: PageId): PageId {
  *  It Works poll only while they are on), set from the page that shows that view now. */
 export function viewFlagsOf(page: PageId): { explorer: boolean; jobs: boolean; understanding: boolean } {
   return { explorer: page === 'files', jobs: page === 'plans' || page === 'tasks', understanding: page === 'more:hiw' }
+}
+
+// ---- The VSCode-style workbench: activity bar views, side bar and bottom panel state ----
+
+export const ACTIVITY_IDS = ['agents', 'plans', 'explorer', 'scm', 'history', 'run'] as const
+export type ActivityId = (typeof ACTIVITY_IDS)[number]
+export const DEFAULT_ACTIVITY: ActivityId = 'agents'
+export const ACTIVITY_STORAGE_KEY = 'cm.activity'
+
+export const SIDEBAR_WIDTH_KEY = 'cm.sidebar.width'
+export const SIDEBAR_VISIBLE_KEY = 'cm.sidebar.visible'
+export const PANEL_VISIBLE_KEY = 'cm.panel.visible'
+export const PANEL_TAB_KEY = 'cm.panel.tab'
+
+export const PANEL_TABS = ['needs', 'activity', 'output', 'terminal'] as const
+export type PanelTab = (typeof PANEL_TABS)[number]
+
+export const SIDEBAR_MIN_WIDTH = 170
+export const SIDEBAR_MAX_WIDTH = 600
+export const SIDEBAR_DEFAULT_WIDTH = 260
+export function clampSidebarWidth(n: number): number {
+  if (Number.isNaN(n)) return SIDEBAR_DEFAULT_WIDTH
+  return Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, n))
+}
+
+/** What an old saved `cm.page` opens in the workbench. Unknown values open Agents. */
+export function activityOfSaved(saved: unknown): { activity: ActivityId; openView?: ViewName; panelTab?: PanelTab } {
+  switch (saved) {
+    case 'plans':
+    case 'tasks':
+      return { activity: 'plans' }
+    case 'files':
+      return { activity: 'explorer' }
+    case 'worktrees':
+      return { activity: 'scm' }
+    case 'more:history':
+    case 'more:hiw':
+      return { activity: 'history' }
+    case 'more:runs':
+      return { activity: 'run' }
+    case 'inbox':
+      return { activity: 'agents', panelTab: 'needs' }
+    default: // agents, settings (not reopened on launch), more:browser, anything unknown
+      return { activity: DEFAULT_ACTIVITY }
+  }
 }

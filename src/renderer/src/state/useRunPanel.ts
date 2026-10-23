@@ -1,6 +1,8 @@
 // Moved out of App.tsx unchanged (W9-A): App calls this hook and passes its result on.
 import { useRef, useState } from 'react'
 import type { RunConfig, RunContext, RunStatus } from '../../../core/types'
+import { PANEL_TAB_KEY, PANEL_VISIBLE_KEY, type PanelTab } from '../../../core/ui/pages'
+import { readWorkbenchLayout, storageRead, storageWrite } from '../components/shell/shellView'
 
 export function useRunPanel() {
 
@@ -38,7 +40,31 @@ export function useRunPanel() {
   /** The run whose console the Run tab shows. Starting a run selects it. */
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
   const [activeRuns, setActiveRuns] = useState<RunStatus[]>([])
-  const [runPanelOpen, setRunPanelOpen] = useState(false)
+  // DESIGN-W13: the bottom panel. runPanelOpen is whether it shows (remembered); every older caller that opened the
+  // run drawer still calls setRunPanelOpen(true), which lands on Output or Terminal (shellView shownPanelTab).
+  const [launch] = useState(() => readWorkbenchLayout(storageRead))
+  const [runPanelOpen, setPanelOpenState] = useState(launch.panelVisible)
+  const [panelTab, setPanelTabState] = useState<PanelTab>(launch.panelTab)
+  const setPanelTab = (tab: PanelTab): void => {
+    setPanelTabState(tab)
+    storageWrite(PANEL_TAB_KEY, tab)
+  }
+  const setRunPanelOpen = (open: boolean): void => {
+    setPanelOpenState(open)
+    storageWrite(PANEL_VISIBLE_KEY, String(open))
+    if (open) setPanelTabState((cur) => (cur === 'needs' || cur === 'activity' ? 'output' : cur))
+  }
+  /** Ctrl+J and the panel's close button: shows or hides it on the tab it had. */
+  const setPanelVisible = (open: boolean): void => {
+    setPanelOpenState(open)
+    storageWrite(PANEL_VISIBLE_KEY, String(open))
+  }
+  /** Shows the panel on `tab` (the panel's own tab strip, the status bar, openPanel). */
+  const openPanelTab = (tab: PanelTab): void => {
+    setPanelOpenState(true)
+    storageWrite(PANEL_VISIBLE_KEY, 'true')
+    setPanelTab(tab)
+  }
   const [runPanelHeight, setRunPanelHeight] = useState<number>(() => {
     const v = Number(localStorage.getItem('cm.runPanelHeight'))
     return v >= 120 && v <= 800 ? v : 220
@@ -75,7 +101,7 @@ export function useRunPanel() {
   return {
     runConfigs, setRunConfigs, previewOfferedRef, runConfigsRef, runSelectedId, runSelectedByProject,
     applyRunSelection, runs, setRuns, selectedRunId, setSelectedRunId, activeRuns, setActiveRuns, runPanelOpen,
-    setRunPanelOpen, runPanelHeight, setRunPanelHeight, runIsSpringBoot, setRunIsSpringBoot, runIsPythonProject,
+    setRunPanelOpen, panelTab, setPanelTab, openPanelTab, setPanelVisible, runPanelHeight, setRunPanelHeight, runIsSpringBoot, setRunIsSpringBoot, runIsPythonProject,
     setRunIsPythonProject, runHasDockerfile, setRunHasDockerfile, runContext, setRunContext, managerFor,
     setManagerFor, managerInitialSelectedId, setManagerInitialSelectedId
   }

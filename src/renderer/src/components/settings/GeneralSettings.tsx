@@ -16,6 +16,7 @@ import { toast } from '../../lib/toast'
 import { deleteKey, isMac as isMacPlatform, modKey } from '../../lib/platformKeys'
 import { useAdvancedMode } from '../../state/useAdvancedMode'
 import { SettingRow, type GroupProps } from './SettingRow'
+import { SettingItem } from './SettingItem'
 
 // The shortcut list for the settings modal. When a binding changes (the TerminalView key handler or
 // the global listener in App), update this list along with it.
@@ -115,31 +116,27 @@ export function GeneralSettings(p: GroupProps): React.JSX.Element | null {
           배치다. 일반·에이전트·How It Works 세 탭이 같이 쓴다 — 셋 다 토글과 설명이
           번갈아 오는 모양이라서다. 제목과 설명은 .settings-group 으로 붙인다. */}
       <div className="settings-stack">
-        <SettingRow a="language" only={only}>
-          <div className="settings-row">
-            <span>{t('settings.general.language')}</span>
-            {/* Each language is written in its own language, so it can be found without knowing the current one.
-                Not a translation target. */}
-            <Select
-              className="settings-lang-select"
-              value={storedLang ?? SYSTEM_LANG}
-              onChange={(v) => setLang(v === SYSTEM_LANG ? null : (v as Lang))}
-              ariaLabel={t('settings.general.language')}
-              items={[
-                { value: SYSTEM_LANG, label: t('settings.general.language.system', { lang: CATALOGS[systemLang].nativeName }) },
-                ...LANGS.map((l) => ({ value: l, label: CATALOGS[l].nativeName }))
-              ]}
-            />
-          </div>
+        <SettingRow a="language" only={only} modified={storedLang !== null}>
+          {/* Each language is written in its own language, so it can be found without knowing the current one.
+              Not a translation target. */}
+          <SettingItem
+            title={t('settings.general.language')}
+            control={
+              <Select
+                            className="settings-lang-select"
+                            value={storedLang ?? SYSTEM_LANG}
+                            onChange={(v) => setLang(v === SYSTEM_LANG ? null : (v as Lang))}
+                            ariaLabel={t('settings.general.language')}
+                            items={[
+                              { value: SYSTEM_LANG, label: t('settings.general.language.system', { lang: CATALOGS[systemLang].nativeName }) },
+                              ...LANGS.map((l) => ({ value: l, label: CATALOGS[l].nativeName }))
+                            ]}
+                          />
+            }
+          />
         </SettingRow>
-        <SettingRow a="advancedMode" only={only}>
-          <div className="settings-group">
-            <label className="settings-row">
-              <span>{t('settings.basic.advancedMode.label')}</span>
-              <Switch checked={advanced} onChange={setAdvanced} />
-            </label>
-            <span className="settings-hint">{t('settings.basic.advancedMode.hint')}</span>
-          </div>
+        <SettingRow a="advancedMode" only={only} modified={advanced}>
+          <SettingItem title={t('settings.basic.advancedMode.label')} hint={t('settings.basic.advancedMode.hint')} control={<Switch aria-label={t('settings.basic.advancedMode.label')} checked={advanced} onChange={setAdvanced} />} />
         </SettingRow>
         {/* Which kind the two session dialogs open on. A plain enum with nothing coupled
             to it, so — unlike the resume-strategy pair below, which earns its own
@@ -147,10 +144,11 @@ export function GeneralSettings(p: GroupProps): React.JSX.Element | null {
             beside the language row is all this needs. It seeds each dialog's own
             selection and nothing else: picking the other kind inside the dialog belongs
             to that session and is not written back here. */}
-        <SettingRow a="defaultKind" only={only}>
-          <div className="settings-group">
-            <div className="settings-row">
-              <span>{t('settings.defaultKind.title')}</span>
+        <SettingRow a="defaultKind" only={only} modified={defaultSessionKind !== 'terminal'}>
+          <SettingItem
+            title={t('settings.defaultKind.title')}
+            hint={t('settings.defaultKind.hint')}
+            control={
               <Select
                 value={defaultSessionKind}
                 ariaLabel={t('settings.defaultKind.title')}
@@ -173,20 +171,17 @@ export function GeneralSettings(p: GroupProps): React.JSX.Element | null {
                   })
                 }}
               />
-            </div>
-            <p className="settings-hint">{t('settings.defaultKind.hint')}</p>
-          </div>
+            }
+          />
         </SettingRow>
         {/* W7-F (#84): an ended plan's tabs close on their own */}
-        <SettingRow a="autoCloseTabs" only={only}>
+        <SettingRow a="autoCloseTabs" only={only} modified={!autoCloseEndedPlanTabs}>
           <AutoCloseTabsSetting on={autoCloseEndedPlanTabs} onChange={setAutoCloseEndedPlanTabs} />
         </SettingRow>
         {/* The first-run onboarding again, from Welcome. It only walks through setup; no setting is reset. */}
         <SettingRow a="onboarding" only={only}>
-          <div className="settings-group">
-            <div className="settings-row">
-              <span>{t('onboarding.settings.replay')}</span>
-              <Button
+          <SettingItem title={t('onboarding.settings.replay')} hint={t('onboarding.settings.replayHint')} control={
+            <Button
                 size="sm"
                 onClick={() => {
                   setOnboardingReplay(true)
@@ -195,9 +190,7 @@ export function GeneralSettings(p: GroupProps): React.JSX.Element | null {
               >
                 {t('onboarding.settings.replayButton')}
               </Button>
-            </div>
-            <p className="settings-hint">{t('onboarding.settings.replayHint')}</p>
-          </div>
+          } />
         </SettingRow>
       </div>
       <SettingRow a="theme" only={only}>

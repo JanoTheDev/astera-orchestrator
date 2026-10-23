@@ -1,12 +1,17 @@
-// The window's title bar (W9-A moved it out of App.tsx). W9-B: it is the 44px top bar now (DESIGN-W11 §8): the 18px
-// mark (the project switcher beside it carries the name that matters), then whatever App puts inside (TopBar), the update notice, and the window buttons.
+// The window's title bar (W9-A moved it out of App.tsx). DESIGN-W13 §8: 35px, the 18px mark, the command center in the
+// middle (whatever App puts inside), the update notice, and the window buttons.
 import type { UpdateStatus } from '../../../../core/types'
 import logoUrl from '../../assets/mark.svg'
 import { confirmModalWithChoices } from '../../lib/confirm'
 import { quitConfirmBody } from '../../lib/quitConfirm'
 import { useI18n } from '../../i18n/I18nProvider'
 import { titlebarView } from '../../../../core/update/sourceView'
-import { Button, Icon, IconButton } from '../ui'
+import { Button, Icon, IconButton, Kbd } from '../ui'
+import { formatChord } from '../../../../core/keys/binding'
+import { requestBox } from '../command/boxStore'
+import { ProjectSwitcher } from './ProjectSwitcher'
+import type { AppState } from '../../state/appState'
+import type { ShellState } from './useShell'
 
 function UpdateIndicator({
   update,
@@ -112,5 +117,48 @@ export function Titlebar({
         </div>
       )}
     </div>
+  )
+}
+
+export type CommandCenterProps = Pick<
+  AppState,
+  | 'bindingsRef' | 'openWorkspaceProject' | 'projectAnchor' | 'sessions' | 'setProjectDialog' | 'setCommandOpen' | 't'
+  | 'workspaceIds' | 'workspaceProjectId' | 'workspaceTree'
+> &
+  Pick<ShellState, 'attention'>
+
+/** DESIGN-W13 §8: the title bar's middle, one field: the project part (its dot and name open the switcher), then
+ *  "Search or run a command" and its chord, which opens the command box. The bar around it still drags the window. */
+export function CommandCenter(p: CommandCenterProps): React.JSX.Element {
+  const { t } = p
+  const chord = p.bindingsRef.current['palette.open']?.[0]
+  return (
+    <>
+      <span className="tb-spacer" />
+      <div className="wb-cc" onDoubleClick={(e) => e.stopPropagation()}>
+        <ProjectSwitcher
+          tree={p.workspaceTree}
+          byWorkspace={p.workspaceIds}
+          sessions={p.sessions}
+          attention={p.attention}
+          selectedId={p.workspaceProjectId}
+          onSelect={p.openWorkspaceProject}
+          onNew={() => p.setProjectDialog('new')}
+          onAdd={() => p.setProjectDialog('add')}
+          onSettings={(id) => p.setProjectDialog({ settings: id })}
+          onOpenWindow={(id) => window.api.win.openNew(id)} // W9-K
+          toolsDisabledReason={p.projectAnchor ? undefined : t('settings.projects.noAnchor')}
+          t={t}
+        />
+        <Button variant="ghost" size="sm" className="wb-cc__search" icon={<Icon name="search" size={14} />} onClick={() => {
+            requestBox('>')
+            p.setCommandOpen(true)
+          }}>
+          <span className="wb-cc__hint">{t('shell.commandCenter')}</span>
+          {chord && <Kbd>{formatChord(chord)}</Kbd>}
+        </Button>
+      </div>
+      <span className="tb-spacer" />
+    </>
   )
 }

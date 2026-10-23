@@ -1,11 +1,13 @@
 // W6-E progress view: the board by wave and the files tab, drawn to markup (the suite runs in node, so no clicks: the
-// click targets are checked by what they carry).
+// click targets are checked by what they carry). T8: the steps are a vertical list of Task rows; a row's detail shows
+// when it is expanded (`selected`), and the open questions are Needs you's.
 import { describe, expect, it, vi } from 'vitest'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { ActivityEvent } from '../../../../core/orchestration/activity'
 import type { JobTask } from '../../../../core/types'
-import { TaskBoard } from './TaskBoard'
+import { NeedsYou, TaskBoard } from './TaskBoard'
+import { needsYouOf } from './planBoard'
 import { PlanFiles } from './PlanFiles'
 
 vi.mock('../../i18n/I18nProvider', () => ({
@@ -54,26 +56,33 @@ describe('TaskBoard by wave', () => {
     // W12: a finished step folds behind a ui Button that says it is folded
     expect(html).toMatch(/class="ui-btn[^"]*plan-wave-fold"[^>]*aria-expanded="false"/)
   })
-  it("W12: a card's branch says what a worktree is", () => {
-    expect(board({ tasks: [task('w', { branch: 'feat/x' })], layers: [['w']] })).toContain('plan.steps.worktreeHint')
+  it("W12: a card's branch says what a worktree is, in its expanded detail", () => {
+    expect(board({ tasks: [task('w', { branch: 'feat/x' })], layers: [['w']], selected: 'w' })).toContain('plan.steps.worktreeHint')
+    expect(board({ tasks: [task('w', { branch: 'feat/x' })], layers: [['w']] })).not.toContain('plan.steps.worktreeHint')
+  })
+  it('T8: each step is a vertical list of rows, each with its anchor; a folded step opens for its expanded Task', () => {
+    const html = board({ selected: 'a' })
+    expect(html.match(/<ul class="plan-wave-cards">/g)).toHaveLength(3)
+    expect(html).toContain('id="plan-task-a"')
+    expect(html).toMatch(/aria-expanded="true"[^>]*aria-label="plan.row.collapse\(task=T-a\)"/)
+    expect(board()).not.toContain('id="plan-task-a"') // step 1 is done, so folded
   })
   it('shows a replan in progress as a banner on the current wave', () => {
     expect(board({ replanning: true })).toContain('plan.steps.replanning(n=2)')
   })
   it("lists a card's files, three and then +N more", () => {
-    const html = board()
+    const html = board({ selected: 'b' })
     expect(html).toContain('src/c.ts')
     expect(html).not.toContain('src/d.ts')
     expect(html).toContain('plan.card.moreFiles(n=2)')
   })
   it("says what a running worker is doing, and how many questions the coordinator answered", () => {
-    const html = board()
-    expect(html).toContain('plan.now.permission')
-    expect(html).toContain('plan.card.answers(n=2)')
+    expect(board()).toContain('plan.now.permission')
+    expect(board({ selected: 'b' })).toContain('plan.card.answers(n=2)')
   })
-  it('a running card whose tab is open goes to that tab; without one it selects', () => {
-    expect(board()).toContain('title="plan.card.focus"')
-    expect(board({ canOpenSession: () => false })).not.toContain('plan.card.focus')
+  it('a running row whose tab is open links to its console', () => {
+    expect(board()).toContain('plan.row.openConsole')
+    expect(board({ canOpenSession: () => false })).not.toContain('plan.row.openConsole')
   })
 })
 
@@ -87,27 +96,30 @@ describe('PlanFiles', () => {
   })
 })
 
-describe('TaskBoard coordinator Gates (W8-F, #97)', () => {
+describe('Needs you: coordinator Gates (W8-F, #97)', () => {
   const gated = task('g', {
     status: 'blocked',
     openGates: 1,
     gate: { id: 'gat_1', question: 'Out of tries: Task g', options: ['retry-once', 'mark-failed'], kind: 'convergence-exhausted' }
   })
-  it("a Task's open Gate gets the answer box: its options as buttons and a text box", () => {
-    const html = board({ tasks: [gated], layers: [['g']], onAnswer: async () => null })
+  const needs = (tk: JobTask): string =>
+    renderToStaticMarkup(React.createElement(NeedsYou, { items: needsYouOf([tk], []), onAnswer: async () => null, onShowTask: () => {} }))
+  it("a Task's open Gate gets the answer box under its name: its options as buttons and a text box", () => {
+    const html = needs(gated)
     expect(html).toContain('plan-question')
+    expect(html).toContain('T-g')
     expect(html).toContain('Out of tries: Task g')
     expect(html).toMatch(/<(?:button)[^>]*>(<span[^>]*>)?retry-once(<\/span>)?<\/button>/)
     expect(html).toMatch(/<(?:button)[^>]*>(<span[^>]*>)?mark-failed(<\/span>)?<\/button>/)
     expect(html).toContain('<textarea')
   })
   it('a check that could not be made has its buttons and no text box', () => {
-    const t = task('g', { status: 'blocked', openGates: 1, gate: { id: 'gat_2', question: 'q', options: ['retry', 'skip-check'], kind: 'check-unavailable' } })
-    const html = board({ tasks: [t], layers: [['g']], onAnswer: async () => null })
+    const html = needs(task('g', { status: 'blocked', openGates: 1, gate: { id: 'gat_2', question: 'q', options: ['retry', 'skip-check'], kind: 'check-unavailable' } }))
     expect(html).toMatch(/<(?:button)[^>]*>(<span[^>]*>)?skip-check(<\/span>)?<\/button>/)
     expect(html).not.toContain('<textarea')
   })
-  it('no box without an answer route (a remote Runtime)', () => {
+  it('nothing when nothing is open, and the board itself has no answer box', () => {
+    expect(needs(task('x'))).toBe('')
     expect(board({ tasks: [gated], layers: [['g']] })).not.toContain('plan-question')
   })
 })

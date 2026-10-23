@@ -1,163 +1,86 @@
-// W3-A activity feed: every plan's lines (global), or the open plan's workspace only, with the last 15 minutes'
-// summary on top. Drawing and polling only: the lines are the Host's (core/orchestration/activity.ts), the words
-// activityView.ts's, a blocked Task's reason planBoard.ts's.
-import { useEffect, useState } from 'react'
-import type { ActivityEvent, ActivitySummary } from '../../../../core/orchestration/activity'
-import type { Account, TaskBlockedReason } from '../../../../core/types'
+// DESIGN-W13 §6: the panel's Activity tab, "Handled for you": the coordinator's event log as a dense list grouped by day
+// (time · what happened · plan), each row leading to its plan or Task (its console when it names no plan), with a text
+// filter. Drawing only: the lines are the Host's (core/orchestration/activity.ts), the words activityView.ts's.
+import { useEffect, useMemo, useState } from 'react'
+import type { Account } from '../../../../core/types'
 import { useI18n } from '../../i18n/I18nProvider'
-import type { MessageKey } from '../../../../core/i18n'
-import { Button, Icon } from '../ui'
-import { reasonText } from '../plan/planBoard'
-import { feedOf, lineOf, mergePage, summaryOf, whoOf } from './activityView'
+import { Button, Icon, Input, type IconName } from '../ui'
+import { goTo } from '../inbox/InboxPage'
+import { lineTargetOf } from '../inbox/inboxNav'
+import { byDay, handledOf } from '../inbox/inboxView'
+import { useActivityFeed } from './useActivityFeed'
+import { filterLines, type Tone } from './activityView'
 import './activity.css'
-import { usePanelOpen } from '../../hooks/usePanelOpen'
 
-/** How often the feed reads what is new, and the summary is read again. */
-const POLL_MS = 5000
-const SUMMARY_MS = 30_000
-const SUMMARY_WINDOW_MS = 15 * 60_000
-
-const BUCKET_KEY: Record<string, MessageKey> = {
-  completed: 'activity.bucket.completed',
-  failed: 'activity.bucket.failed',
-  cancelled: 'activity.bucket.cancelled',
-  'awaiting review': 'activity.bucket.awaitingReview',
-  blocked: 'activity.bucket.blocked'
-}
+/** Status needs a second cue (DESIGN-W13 §11): each line leads with its tone's icon. */
+const TONE_ICON: Record<Tone, IconName> = { ok: 'done', bad: 'error', warn: 'warning', info: 'pending' }
+const MAX_LINES = 500
 
 const timeOf = (iso: string): string => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 
 export function ActivityPanel({
   planId,
-  accounts,
-  onOpenSession
+  accounts
 }: {
   /** The plan whose workspace is open, or null: the feed then shows every plan. */
   planId: string | null
   accounts: Account[] | null
+  /** Kept for the panel host's call; a row opens its console through the inbox's shared navigation. */
   onOpenSession?: (sessionId: string, jobId: string) => void
 }): React.JSX.Element {
   const { t, lang } = useI18n()
-  const [open, setOpen] = usePanelOpen('activity') // W7-F (#83): remembered, like History
+  const events = useActivityFeed(true)
   const [all, setAll] = useState(false)
-  const [events, setEvents] = useState<ActivityEvent[]>([])
-  const [summary, setSummary] = useState<ActivitySummary | null>(null)
+  const [query, setQuery] = useState('')
   const [nowMs, setNowMs] = useState(() => Date.now())
-
   useEffect(() => {
-    if (!open) return
-    let alive = true
-    let cursor: string | undefined
-    let running = false
-    const tick = async (): Promise<void> => {
-      if (running) return
-      running = true
-      try {
-        // Read on until a page comes back short: the first read starts at the oldest line the Host holds
-        for (;;) {
-          const r = await window.api.orch.activity(cursor)
-          if (!alive || r.status !== 200) return
-          const page = r.body as { events: ActivityEvent[]; cursor: string }
-          cursor = page.cursor
-          if (page.events.length > 0) setEvents((held) => mergePage(held, page.events))
-          if (page.events.length < 500) return
-        }
-      } catch {
-        /* no Host yet: the next tick tries again */
-      } finally {
-        running = false
-      }
-    }
-    const readSummary = async (): Promise<void> => {
-      setNowMs(Date.now())
-      try {
-        const r = await window.api.orch.activitySummary(new Date(Date.now() - SUMMARY_WINDOW_MS).toISOString())
-        if (alive && r.status === 200) setSummary(r.body as ActivitySummary)
-      } catch {
-        /* as above */
-      }
-    }
-    void tick()
-    void readSummary()
-    const a = setInterval(() => void tick(), POLL_MS)
-    const b = setInterval(() => void readSummary(), SUMMARY_MS)
-    return () => {
-      alive = false
-      clearInterval(a)
-      clearInterval(b)
-    }
-  }, [open])
+    const timer = setInterval(() => setNowMs(Date.now()), 30_000)
+    return () => clearInterval(timer)
+  }, [])
 
   const label = (id: string): string => accounts?.find((a) => a.id === id)?.label ?? id
-  const reasonLine = (reason: TaskBlockedReason): string => {
-    const r = reasonText(reason, nowMs, label)
-    return t(r.key, r.params)
-  }
-  const scope = planId !== null && !all ? planId : null
-  const lines = feedOf(events, scope).reverse()
-  const buckets = summary ? summaryOf(summary, scope) : []
+  const scope = planId !== null && !all ? planId : undefined
+  const handled = useMemo(() => filterLines(handledOf(events, { group: 'all', ...(scope !== undefined ? { planId: scope } : {}) }, label, MAX_LINES, lang), query), [events, scope, query, accounts, lang]) // eslint-disable-line react-hooks/exhaustive-deps
+  const days = useMemo(() => byDay(handled, nowMs, t), [handled, nowMs, t])
 
   return (
-    <section className="worktree-panel activity-panel">
-      <header className="panel-header">
-        <Button variant="ghost" size="sm" className="panel-toggle" aria-expanded={open} icon={<Icon name={open ? 'chevronDown' : 'chevronRight'} size={14} />} onClick={() => setOpen((v) => !v)}>
-          {t('activity.panel.title')}
-        </Button>
+    <section className="act" aria-label={t('inbox.handled')}>
+      <div className="act__bar">
+        <Input className="act__filter" type="search" value={query} placeholder={t('activity.filter')} aria-label={t('activity.filter')} onChange={(e) => setQuery(e.target.value)} />
         {planId !== null && (
-          <div className="panel-actions">
-            <Button variant="ghost" size="sm" className="ws-link" onClick={() => setAll((v) => !v)} title={all ? t('activity.panel.onlyOpen') : t('activity.panel.everyPlan')}>
-              {all ? t('activity.panel.thisPlan') : t('activity.panel.allPlans')}
-            </Button>
-          </div>
+          <Button variant="ghost" size="sm" aria-pressed={all} title={all ? t('activity.panel.onlyOpen') : t('activity.panel.everyPlan')} onClick={() => setAll((v) => !v)}>
+            {all ? t('activity.panel.thisPlan') : t('activity.panel.allPlans')}
+          </Button>
         )}
-      </header>
-      {open && (
-        <>
-          <div className="act-summary" aria-label={t('activity.panel.last15')}>
-            <span className="act-summary-head">{t('activity.panel.last15')}</span>
-            {buckets.length === 0 && <span className="act-faint">{t('activity.panel.nothingNew')}</span>}
-            {buckets.map((b) => (
-              <details key={b.label} className={`act-bucket act-${b.tone}`}>
-                <summary>
-                  {b.items.length} {BUCKET_KEY[b.label] ? t(BUCKET_KEY[b.label]) : b.label}
-                </summary>
-                <ul>
-                  {b.items.map((x) => (
-                    <li key={`${x.taskId ?? x.jobId}-${x.at}`}>
-                      {x.title}
-                      {x.reason && <span className="act-faint"> — {reasonLine(x.reason)}</span>}
-                    </li>
-                  ))}
-                </ul>
-              </details>
-            ))}
-          </div>
-          <ul className="act-feed">
-            {lines.length === 0 && <li className="ws-empty">{t('activity.panel.empty')}</li>}
-            {lines.map((e) => {
-              const { text, tone } = lineOf(e, label, lang)
-              const who = whoOf(e, label, lang)
-              const openable = e.sessionId !== undefined && e.jobId !== undefined && onOpenSession !== undefined
+      </div>
+      {handled.length === 0 && <p className="act__none">{query.trim() === '' ? t('inbox.handledEmpty') : t('activity.noMatch')}</p>}
+      {days.map((d) => (
+        <div key={d.day} className="act__day">
+          <h3 className="act__day-h">{d.label}</h3>
+          <ul className="act__feed">
+            {d.lines.map((l) => {
+              const target = lineTargetOf(l)
               return (
-                <li key={e.id} className={`act-line act-${tone}`}>
+                <li key={l.id} className={`act__line act__line--${l.tone}`}>
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="act-row"
-                    disabled={!openable}
-                    title={openable ? t('activity.panel.openSession') : undefined}
-                    onClick={() => openable && onOpenSession!(e.sessionId!, e.jobId!)}
+                    className="act__row"
+                    disabled={target === null}
+                    title={[l.text, l.who].filter(Boolean).join('\n')}
+                    icon={<Icon name={TONE_ICON[l.tone]} size={14} className="act__tone" />}
+                    onClick={() => target && goTo(target)}
                   >
-                    <span className="act-time">{timeOf(e.occurredAt)}</span>
-                    <span className="act-text">{text}</span>
+                    <span className="act__time">{timeOf(l.at)}</span>
+                    <span className="act__text">{l.text}</span>
+                    {l.plan && <span className="act__plan">{l.plan}</span>}
                   </Button>
-                  {who && <div className="act-who">{who}</div>}
                 </li>
               )
             })}
           </ul>
-        </>
-      )}
+        </div>
+      ))}
     </section>
   )
 }

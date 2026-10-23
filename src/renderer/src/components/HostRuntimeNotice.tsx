@@ -1,3 +1,4 @@
+import { Icon } from './ui'
 import { useI18n } from '../i18n/I18nProvider'
 import type { MessageKey } from '../../../core/i18n'
 import type { HostRuntimeInstallState, HostStatus } from '../../../core/types'
@@ -48,8 +49,12 @@ export function HostRuntimeNotice({
     return (
       <span
         className="status-host-runtime failed"
-        title={t('status.hostPrepareFailedTitle', { reason: t(REASON_TEXT[state.reason]), detail: state.detail })}
+        title={t('status.hostPrepareFailedTitle', {
+          reason: t(REASON_TEXT[state.reason]),
+          detail: state.detail
+        })}
       >
+        <Icon name="warning" size={14} />
         {t('status.hostPrepareFailed')}
       </span>
     )
@@ -80,9 +85,11 @@ export function HostStartingNotice({ status }: { status: HostStatus | null }): R
   const phase = hostStartingPhase(status)
   if (!phase) return null
   return (
-    <div className="status-host-runtime" role="status" style={{ padding: '6px 12px' }}>
+    <div className="notice-strip notice-strip--info" role="status">
       <span className="loading-spinner small" aria-hidden="true" />
-      {t(phase === 'waitingForPrevious' ? 'status.hostWaitingForPrevious' : 'status.hostStarting')}
+      <span className="notice-strip__text">
+        {t(phase === 'waitingForPrevious' ? 'status.hostWaitingForPrevious' : 'status.hostStarting')}
+      </span>
     </div>
   )
 }

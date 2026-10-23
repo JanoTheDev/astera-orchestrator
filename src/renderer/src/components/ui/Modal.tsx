@@ -8,7 +8,8 @@ export type ModalSize = 'sm' | 'md' | 'lg'
 
 export type ModalProps = {
   title: React.ReactNode
-  onClose: () => void
+  /** Omitted for a dialog with no way out (the update gate): no Close button, Esc and the backdrop do nothing. */
+  onClose?: () => void
   size?: ModalSize
   footer?: React.ReactNode
   /** aria-label of the close button (the caller's i18n). */
@@ -38,18 +39,18 @@ export function Modal({ title, onClose, size = 'md', footer, closeLabel = 'Close
     if (action === null) return
     e.preventDefault()
     e.stopPropagation()
-    if (action === 'close') close.current()
+    if (action === 'close') close.current?.()
     else (items[action.focus] ?? ref.current)?.focus()
   }
 
   return (
-    <div className="ui-modal-backdrop" {...backdropProps(onClose)}>
+    <div className="ui-modal-backdrop" {...backdropProps(() => onClose?.())}>
       <div ref={ref} className={`ui-modal ui-modal--${size}`} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onKeyDown={onKeyDown}>
         <header className="ui-modal__head">
           <h2 id={titleId} className="ui-modal__title">
             {title}
           </h2>
-          <Button icon={<X size={16} aria-hidden="true" />} aria-label={closeLabel} onClick={onClose} />
+          {onClose && <Button icon={<X size={16} aria-hidden="true" />} aria-label={closeLabel} onClick={onClose} />}
         </header>
         <div className="ui-modal__body">{children}</div>
         {footer && <footer className="ui-modal__foot">{footer}</footer>}

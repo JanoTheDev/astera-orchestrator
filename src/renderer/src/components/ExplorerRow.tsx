@@ -3,6 +3,7 @@ import { resolveFileIcon, resolveFolderIcon } from '../../../core/files/icons'
 import type { GitState } from '../../../core/git/status'
 import { FileIcon } from './FileIcon'
 import { Icon } from './ui'
+import { changeLetter } from './explorerChanged'
 import { RowLoading } from './ExplorerLoading'
 import { ROW_H } from './explorerRows'
 import { useI18n } from '../i18n/I18nProvider'
@@ -24,10 +25,15 @@ export interface RowActions {
 
 // git status → display letter and tooltip key. The letters are language-neutral, so they are not translated.
 export const GIT_MARK: Record<GitState, string> = {
-  new: 'U',
-  modified: 'M',
-  deleted: 'D',
-  conflict: 'C'
+  new: changeLetter('new'),
+  modified: changeLetter('modified'),
+  deleted: changeLetter('deleted'),
+  conflict: changeLetter('conflict')
+}
+
+/** The indent guides of a row `depth` levels down: 8px a level, the same as the Tree primitive's. */
+export function Indent({ depth }: { depth: number }): React.JSX.Element | null {
+  return depth > 0 ? <span className="ui-tree__indent" style={{ width: depth * 8 }} aria-hidden="true" /> : null
 }
 export const GIT_LABEL: Record<
   GitState,
@@ -82,7 +88,7 @@ export const ExplorerRow = memo(function ExplorerRow({
 }: ExplorerRowProps): React.JSX.Element {
   const { t } = useI18n()
   const common = {
-    style: { position: 'absolute', left: 0, right: 0, top, height: ROW_H, paddingLeft: depth * 14 + 8 } as const,
+    style: { position: 'absolute', left: 0, right: 0, top, height: ROW_H } as const,
     onClick: (ev: React.MouseEvent<HTMLDivElement>) => actions.click(entry, ev),
     onContextMenu: (ev: React.MouseEvent<HTMLDivElement>) => actions.contextMenu(entry, ev),
     draggable: true,
@@ -98,7 +104,7 @@ export const ExplorerRow = memo(function ExplorerRow({
         // No drop-into here — dropping on a file targets its parent, and highlighting the parent folder
         // row is what reads correctly as "where this is going". Highlighting the file row itself would
         // look like dropping inside that file.
-        className={`fx-row file${selected ? ' selected' : ''}${cut ? ' cut' : ''}${dragging ? ' dragging' : ''}`}
+        className={`fx-row ui-tree__row file${selected ? ' is-selected' : ''}${cut ? ' cut' : ''}${dragging ? ' dragging' : ''}`}
         title={entry.path}
         // Opening is the double click's job, so that a single click leaves focus on the tree. Opening a
         // file hands the cursor to the editor (FileEditor's focused effect), and with the cursor in
@@ -108,7 +114,8 @@ export const ExplorerRow = memo(function ExplorerRow({
         onDoubleClick={(ev) => actions.doubleClick(entry, ev)}
         {...common}
       >
-        <span className="fx-caret" />
+        <Indent depth={depth} />
+        <span className="ui-tree__twistie" />
         <FileIcon {...resolveFileIcon(entry.name)} />
         <span className={`fx-name${gitState ? ` git-${gitState}` : ''}`}>{entry.name}</span>
         {/* a delete or copy working on this file, past ROW_SPINNER_DELAY_MS */}
@@ -123,10 +130,11 @@ export const ExplorerRow = memo(function ExplorerRow({
   }
   return (
     <div
-      className={`fx-row${selected ? ' selected' : ''}${cut ? ' cut' : ''}${dragging ? ' dragging' : ''}${dropInto ? ' drop-into' : ''}`}
+      className={`fx-row ui-tree__row${selected ? ' is-selected' : ''}${cut ? ' cut' : ''}${dragging ? ' dragging' : ''}${dropInto ? ' drop-into' : ''}`}
       {...common}
     >
-      <span className="fx-caret"><Icon name={open ? 'chevronDown' : 'chevronRight'} size={14} /></span>
+      <Indent depth={depth} />
+      <span className={`ui-tree__twistie${open ? ' is-open' : ''}`}><Icon name="chevronRight" size={16} /></span>
       <FileIcon {...resolveFolderIcon(entry.name, open)} />
       <span className="fx-name">{entry.name}</span>
       {/* A first read already shows 'Loading…' under the row — the spinner is for re-reads only */}

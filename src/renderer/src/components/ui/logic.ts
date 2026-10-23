@@ -166,3 +166,24 @@ export function contextMenuPoint(
   const keyboard = e.pointerType === '' || (e.clientX === 0 && e.clientY === 0)
   return keyboard ? { x: target.left, y: target.bottom } : { x: e.clientX, y: e.clientY }
 }
+
+// ---- Workbench primitives (DESIGN-W13 §3, §12) ----
+
+/** A Sash's new size: `start` moved by the pointer's `delta`, clamped to [min, max]. `reverse` for a handle on the
+ *  pane's leading edge (a bottom panel grows when dragged up, a right side bar when dragged left). */
+export function sashSize(start: number, delta: number, min: number, max: number, reverse = false): number {
+  return Math.min(max, Math.max(min, Math.round(start + (reverse ? -delta : delta))))
+}
+
+/** The arrow-key step of a Sash (8px), signed like a pointer delta; 0 for other keys and the cross axis.
+ *  A vertical sash (between left and right) moves with Left/Right, a horizontal one with Up/Down. */
+export function sashKeyDelta(key: string, orientation: 'vertical' | 'horizontal'): number {
+  const [less, more] = orientation === 'vertical' ? ['ArrowLeft', 'ArrowRight'] : ['ArrowUp', 'ArrowDown']
+  return key === more ? 8 : key === less ? -8 : 0
+}
+
+/** An activity-bar badge: hidden at 0 (empty string), the count up to 9, "9+" above. */
+export function badgeText(count: number | undefined): string {
+  if (!count || count <= 0 || !Number.isFinite(count)) return ''
+  return count > 9 ? '9+' : String(Math.floor(count))
+}

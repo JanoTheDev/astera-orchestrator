@@ -18,13 +18,12 @@ import { toast } from '../../lib/toast'
 import { NewProjectDialog } from '../projects/NewProjectDialog'
 import { AddProjectDialog } from '../projects/AddProjectDialog'
 import { ProjectSettings } from '../projects/ProjectSettings'
-import { StartPage, useDropToStart, useStartLanding } from '../pages/StartPage'
+import { useDropToStart, useStartLanding } from '../pages/StartPage'
 import { NewModal } from '../NewModal'
 import { MAX_PANES, countLeaves, groupOfTab, splitAndMove, type PaneDir } from '../../../../core/panes/tree'
 import { parseTab, sessionTab } from '../../../../core/panes/tabId'
 import { Menu, ToastViewport, type MenuItem } from '../ui'
 import type { AppState } from '../../state/appState'
-import { SettingsDialog } from './SettingsDialog'
 import { HelpPanel } from '../help/HelpPanel'
 import { setHelpOpen, useHelpOpen } from '../help/helpStore'
 
@@ -34,7 +33,7 @@ export type OverlaysProps = Pick<
   'autoCloseEndedPlanTabs' | 'browserTabsRef' | 'cli' | 'cliInstallStatus' | 'cliInstalled' | 'closeWorkbenchTab' | 'commandOpen' |
   'currentProject' | 'defaultSessionKind' | 'firstPlan' | 'firstRunAsked' | 'homeDir' |
   'hostHolding' | 'hostRestarting' | 'hostStatus' | 'installUpdate' | 'jobsRuntime' | 'keyOverrides' | 'layout' |
-  'layoutRef' | 'managerFor' | 'managerInitialSelectedId' | 'newSessionCwd' | 'openLinkedFolder' |
+  'layoutRef' | 'managerFor' | 'managerInitialSelectedId' | 'newSessionCwd' | 'openLinkedFolder' | 'openLinkedPath' |
   'openRemoteSession' | 'openWorkspacePlan' | 'openWorkspaceProject' | 'orchSnapshot' | 'pairedRuntimes' |
   'pendingSplitRef' | 'projectAnchor' | 'projectDialog' | 'remoteAccounts' | 'remoteDialog' |
   'remoteProject' | 'remoteProjects' | 'remoteReadOnly' | 'remoteSessions' | 'remoteSnapshot' | 'remoteViewDoor' |
@@ -59,7 +58,7 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
     autoCloseEndedPlanTabs, browserTabsRef, cli, cliInstallStatus, cliInstalled, closeWorkbenchTab, commandOpen, currentProject,
     defaultSessionKind, firstPlan, firstRunAsked, homeDir, hostHolding, hostRestarting,
     hostStatus, installUpdate, jobsRuntime, keyOverrides, layout, layoutRef, managerFor, managerInitialSelectedId,
-    newSessionCwd, openLinkedFolder, openRemoteSession, openWorkspacePlan, openWorkspaceProject,
+    newSessionCwd, openLinkedFolder, openLinkedPath, openRemoteSession, openWorkspacePlan, openWorkspaceProject,
     orchSnapshot, pairedRuntimes, pendingSplitRef, projectAnchor, projectDialog, remoteAccounts, remoteDialog,
     remoteProject, remoteProjects, remoteReadOnly, remoteSessions, remoteSnapshot, remoteViewDoor,
     restartHost, runManagerApply, runningCount, selectWorkbenchTab, setActivePaneId, setAgentAppEnabled,
@@ -78,7 +77,6 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
   // W9-E: an empty project lands on Start; files dropped on the window open it
   useStartLanding(currentProject, sessions, openStart)
   useDropToStart(openStart)
-  const startShown = firstPlan ? { req: { text: firstPlan.objective }, cwd: firstPlan.path, project: firstPlan.path as string | undefined } : start ? { req: start, cwd: start.cwd ?? currentProject ?? homeDir ?? '', project: start.cwd ?? currentProject ?? undefined } : null
   return (
     <>
       {showNew && (
@@ -124,7 +122,7 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
           onCancel={() => setRemoteDialog(null)}
         />
       )}
-      <SettingsDialog {...p} />
+      {/* DESIGN-W13: Settings and Start are view tabs now (viewTabs.tsx); setShowSettings and openStart open them */}
       {/* The pane tab context menu — the entry point for split and unsplit. It serves every kind of tab:
           the id goes to the tree unread, and Close takes the same path the tab's × does (a dirty file
           still asks for confirmation, a session is still ended). What gets split is the group the
@@ -248,7 +246,7 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
             setProjectsRefresh((n) => n + 1)
             openWorkspaceProject(id)
           }}
-          onStartPlan={(path, objective) => setFirstPlan({ path, objective })}
+          onStartPlan={(path, objective) => openStart({ text: objective, cwd: path })}
         />
       )}
       {projectAnchor && projectDialog === 'add' && (
@@ -263,22 +261,6 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
       )}
       {projectAnchor && projectDialog !== null && typeof projectDialog === 'object' && (
         <ProjectSettings anchor={projectAnchor} projectId={projectDialog.settings} accounts={accounts} onClose={() => setProjectDialog(null)} />
-      )}
-      {/* W9-E: a new project's first plan, New's plan modes, the Plans page's + New job (T2) and a window drop all open the Start page */}
-      {startShown && (
-        <StartPage
-          key={startShown.cwd}
-          req={startShown.req}
-          cwd={startShown.cwd}
-          defaultProject={startShown.project}
-          accounts={accounts}
-          onClose={() => {
-            setFirstPlan(null)
-            openStart(null)
-          }}
-          onOpenConsole={() => setShowNew(true)}
-          onOtherSources={() => setSourceJobOpen(startShown.cwd)}
-        />
       )}
       {newOpen && (
         <NewModal
@@ -303,6 +285,11 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
         currentPlanId={workspacePlanId}
         ui={actionUi}
         talkSignal={talkSignal}
+        keyOverrides={keyOverrides}
+        layout={layout}
+        orchSnapshot={orchSnapshot}
+        onSelectTab={selectWorkbenchTab}
+        onOpenFile={(path) => openLinkedPath(path)}
         onOpenSession={(sessionId, jobId) => {
           if (jobId) setWorkspaceScope(null, jobId)
           selectWorkbenchTab(sessionTab(sessionId))

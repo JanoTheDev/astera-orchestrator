@@ -1,18 +1,17 @@
-// T9 (DESIGN-W11 §8 "Bell"): the Inbox as a bell in the top bar. The badge counts the unread "needs you" cards of the
-// open project; the popover lists the newest of them, each with its one action, then the latest handled lines, and
-// "View all" opens the full Inbox (InboxPage, the `inbox` page, not a tab). The status bar's "needs you" opens it too.
+// T9 / DESIGN-W13 §7: the bell in the status bar. The badge counts the unread "needs you" cards of the open project; the
+// popover (menu-like, 22px rows) lists the newest of them, each with its one action, then the latest handled lines, and
+// "View all" opens the panel's Needs you tab. The status bar's "needs you" opens it too.
 import { useMemo, useSyncExternalStore } from 'react'
-import type { MessageKey } from '../../../../core/i18n'
 import type { AppState } from '../../state/appState'
 import { useI18n } from '../../i18n/I18nProvider'
 import { approvePlan, type ActionUi } from '../../lib/jobActions'
 import { localDoor } from '../../lib/orchDoor'
-import { Button, Chip, Icon, IconButton } from '../ui'
+import { Button, Icon, IconButton } from '../ui'
 import { Popover } from '../ui/Popover'
 import { markRead, setRead, toggleAllProjects } from '../inbox/bellStore'
 import { useNeedsYou } from '../inbox/useNeedsYou'
 import { NEED_WORD, ageOf, handledOf, whereOf, type HandledLine, type NeedCard } from '../inbox/inboxView'
-import { BELL_RECENT_MAX, badgeOf, bellActionOf, bellItems, markAllRead, type BellAction } from '../inbox/bellView'
+import { BELL_ACTION_LABEL, BELL_RECENT_MAX, badgeOf, bellActionOf, bellItems, markAllRead } from '../inbox/bellView'
 import { openConsole, openInbox, openPlan } from './navigation'
 import '../inbox/inbox.css'
 
@@ -25,7 +24,7 @@ export const setBellOpen = (open: boolean): void => {
 }
 export const openBell = (): void => setBellOpen(true)
 export const bellOpen = (): boolean => opened
-/** "View all": the full Inbox (Pages shows InboxPage on the `inbox` page), the popover shut. */
+/** "View all": the panel's Needs you tab, the popover shut. */
 export const viewAllInbox = (): void => {
   setBellOpen(false)
   openInbox()
@@ -38,8 +37,6 @@ const useBellOpen = (): boolean =>
     },
     () => opened
   )
-
-const ACTION_LABEL: Record<BellAction, MessageKey> = { answer: 'bell.answer', approve: 'bell.approve', open: 'bell.open' }
 
 export type NotificationBellProps = Pick<AppState, 'accounts' | 'actionUi' | 'scopedData' | 'scopedTree' | 't' | 'workspaceData' | 'workspaceTree'>
 
@@ -169,13 +166,13 @@ export function BellPanel({
               const action = bellActionOf(c)
               return (
                 <li key={c.key} className={read.has(c.key) ? 'bell__item' : 'bell__item bell__item--unread'}>
-                  <Chip tone={tone}>{t(word)}</Chip>
+                  <span className={`bell__kind bell__kind--${tone}`}>{t(word)}</span>
                   <span className="bell__where" title={whereOf(c.projectName, c.planName, c.taskTitle)}>
                     {whereOf(c.projectName, c.planName, c.taskTitle)}
                   </span>
                   <span className="bell__age">{ageOf(c.at, nowMs, t)}</span>
                   <Button size="sm" variant={action === 'approve' ? 'primary' : 'secondary'} data-roving="" onClick={() => onAct(c)}>
-                    {t(ACTION_LABEL[action])}
+                    {t(BELL_ACTION_LABEL[action])}
                   </Button>
                 </li>
               )

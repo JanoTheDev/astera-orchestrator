@@ -1,5 +1,5 @@
-// W11 Plans page (DESIGN-W11 §9 "Plans"): a plan row's status word, last activity and its running workers' lines. Pure, so
-// the node-only test suite reaches it; the rows themselves are PlanRow.tsx.
+// A plan's status word, last activity and its running workers' lines (the Plans tree, the Main plan, JobsView). Pure, so
+// the node-only test suite reaches it.
 import type { MessageKey, MessageParams } from '../../../../core/i18n'
 import type { JobRow, JobTask, Provider } from '../../../../core/types'
 import { formatElapsed, formatRemaining } from '../../../../core/orchestration/elapsed'

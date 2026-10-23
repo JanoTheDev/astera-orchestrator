@@ -1,6 +1,5 @@
-// W9-H, W11: the Agents page's wall (DESIGN-W11 §7, §9): the filters of the page header, the plan groups with their
-// tiles and Done cards, the empty state, and the console strip of the full-size view. What goes where is
-// wallModel.ts's; this file only draws it.
+// W9-H, W11, W13: the wall tab (DESIGN-W13 §5): the filters of its toolbar, the plan groups with their tiles and Done
+// cards, the empty state. What goes where is wallModel.ts's; this file only draws it.
 import { useEffect, useRef, useState } from 'react'
 import type { MessageKey } from '../../../../core/i18n'
 import { useI18n } from '../../i18n/I18nProvider'
@@ -8,7 +7,7 @@ import { useChatState } from '../../hooks/useChatState'
 import { Button, Card, Chip, Tabs, EmptyState, ICONS, Icon, Menu, Select, cx, type ChipTone, type IconName } from '../ui'
 import { claimTerminal } from './consoleDock'
 import {
-  ALL_PLANS, NO_PLAN, pillCount, previewOf, progressSegments, stripLabel, tileMenuOf,
+  ALL_PLANS, NO_PLAN, consoleTitle, pillCount, previewOf, progressSegments, tileMenuOf,
   type PlanFilter, type PlanPill, type StateFilter, type TileState, type WallConsole, type WallSectionRole
 } from './wallModel'
 import type { PlanProgress } from '../plan/planBoard'
@@ -16,59 +15,23 @@ import type { PlanProgress } from '../plan/planBoard'
 /** More plans than this and the plan chips become one select (DESIGN-W11 §7: one control per kind). */
 const PILLS_MAX = 6
 
-const stateTone = (c: WallConsole): ChipTone =>
+/** The state's word ("Permission", "Working", "Finished") and its icon: the second cue beside the colour (DESIGN-W11 §2). */
+export const stateWord = (c: WallConsole): MessageKey =>
+  c.state === 'needs'
+    ? c.needs === 'permission' ? 'wall.state.permission' : c.needs === 'gate' ? 'wall.state.gate' : 'wall.state.question'
+    : c.state === 'working' ? 'wall.state.working' : c.state === 'finished' ? 'wall.state.finished' : 'wall.state.idle'
+export const stateGlyph = (c: WallConsole): IconName =>
+  c.state === 'needs' ? (c.needs === 'permission' ? 'lock' : 'warning') : c.state === 'working' ? 'activity' : c.state === 'finished' ? 'done' : 'pending'
+export const stateTone = (c: WallConsole): ChipTone =>
   c.state === 'needs' ? (c.tone ?? 'warn') : c.state === 'working' ? 'info' : c.state === 'finished' ? 'neutral' : 'ok'
 
 export function StateChip({ c }: { c: WallConsole }): React.JSX.Element {
   const { t } = useI18n()
-  const word =
-    c.state === 'needs'
-      ? t(c.needs === 'permission' ? 'wall.state.permission' : c.needs === 'gate' ? 'wall.state.gate' : 'wall.state.question')
-      : t(c.state === 'working' ? 'wall.state.working' : c.state === 'finished' ? 'wall.state.finished' : 'wall.state.idle')
-  // the second cue beside the colour (DESIGN-W11 §2): an icon per state
-  const glyph: IconName = c.state === 'needs' ? (c.needs === 'permission' ? 'lock' : 'warning') : c.state === 'working' ? 'activity' : c.state === 'finished' ? 'done' : 'pending'
   return (
     <Chip tone={stateTone(c)}>
-      <Icon name={glyph} size={14} />
-      {word}
+      <Icon name={stateGlyph(c)} size={14} />
+      {t(stateWord(c))}
     </Chip>
-  )
-}
-
-/** The full-size view's switcher: every live console of the scope, the open one selected. */
-export function ConsoleStrip({
-  consoles,
-  mainId,
-  selected,
-  onAll,
-  onOpen
-}: {
-  consoles: readonly WallConsole[]
-  mainId: string | null
-  /** The open console, or null for "All consoles" (another page's tab has the pane grid). */
-  selected: string | null
-  onAll: () => void
-  onOpen: (sessionId: string) => void
-}): React.JSX.Element {
-  const { t } = useI18n()
-  const live = consoles.filter((c) => c.state !== 'finished')
-  const items = [
-    // With a console open the header's back button is the way out; the strip offers it only when nothing is open.
-    ...(selected === null ? [{ id: '', label: t('wall.strip.all') }] : []),
-    ...live.map((c) => ({
-      id: c.sessionId,
-      label: (
-        <>
-          <span className={cx('wall-dot', `wall-dot--${c.state}`, c.tone && `wall-dot--${c.tone}`)} aria-hidden="true" />
-          {stripLabel(c, mainId)}
-        </>
-      )
-    }))
-  ]
-  return (
-    <div className="wall-strip">
-      <Tabs items={items} value={selected ?? ''} onChange={(id) => (id === '' ? onAll() : onOpen(id))} label={t('wall.strip.label')} />
-    </div>
   )
 }
 
@@ -292,7 +255,7 @@ export function ConsoleTile({
     if (c.chat || !anchor.current) return
     return claimTerminal(c.sessionId, anchor.current)
   }, [c.sessionId, c.chat])
-  const title = c.taskTitle ?? c.label
+  const title = consoleTitle(c)
   // A chat tile has no xterm: its preview is the session's last reply, read again each time a turn ends (the
   // status leaves 'working'). A terminal tile subscribes to nothing here (enabled=false).
   const chatStatus = useChatState(c.sessionId, c.chat)?.status ?? null

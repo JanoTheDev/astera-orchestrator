@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
 import { Switch } from './ui'
+import { SettingItem } from './settings/SettingItem'
 
 /** T21: "Answer questions automatically" (orchestration/exec/autoAnswer.ts), on by default: StallWatchSetting's toggle. */
 export function AutoAnswerSetting(): React.JSX.Element {
@@ -21,12 +22,6 @@ export function AutoAnswerSetting(): React.JSX.Element {
   }
 
   return (
-    <div className="settings-group">
-      <label className="settings-row">
-        <span>{t('settings.autoAnswer.label')}</span>
-        <Switch checked={on ?? true} disabled={on === null} onChange={toggle} />
-      </label>
-      <span className="settings-hint">{t('settings.autoAnswer.hint')}</span>
-    </div>
+    <SettingItem title={t('settings.autoAnswer.label')} hint={t('settings.autoAnswer.hint')} control={<Switch aria-label={t('settings.autoAnswer.label')} checked={on ?? true} disabled={on === null} onChange={toggle} />} />
   )
 }

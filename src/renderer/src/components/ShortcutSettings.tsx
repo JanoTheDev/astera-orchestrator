@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import {
   chordFromEvent,
-  findConflicts,
   formatChord,
   resolveBindings,
   riskyReasonKey,
@@ -10,9 +9,10 @@ import {
 import { ACTIONS } from '../lib/actions'
 import { useI18n } from '../i18n/I18nProvider'
 import { confirmModal } from '../lib/confirm'
-import { toast } from '../lib/toast'
 import type { MessageKey } from '../../../core/i18n'
-import { Icon, IconButton, Kbd } from './ui'
+import { conflictsOf, shortcutMatches, sourceOf, takenBy } from './command/shortcutModel'
+import { Icon, IconButton, Input, Kbd } from './ui'
+import './command/keys.css'
 
 /** The editable shortcuts as the table shows them: the action, its name and its chords. */
 export function shortcutRows(
@@ -39,17 +39,23 @@ export function shortcutRows(
 export function ShortcutSettings({
   overrides,
   onChanged,
-  matches
+  matches,
+  showSource = false
 }: {
   overrides: Record<string, string[]>
   onChanged: (next: Record<string, string[]>) => void
   /** The table's search (W11): whether a row with this name and these chords stays. */
   matches: (name: string, keys: string[]) => boolean
+  /** The Keyboard Shortcuts tab adds a Source column (Default or User). */
+  showSource?: boolean
 }): React.JSX.Element | null {
   const { t } = useI18n()
   const [capturing, setCapturing] = useState<ActionId | null>(null)
+  // A pressed chord another command holds is not taken; the row says so until the next try
+  const [blocked, setBlocked] = useState<{ id: ActionId; key: string; action: string } | null>(null)
   const bindings = resolveBindings(overrides, ACTIONS)
-  const conflicts = findConflicts(bindings, ACTIONS)
+  const conflicts = conflictsOf(bindings, ACTIONS)
+  const nameOf = (a: (typeof ACTIONS)[number]): string => t(a.descKey as MessageKey, a.descParams)
 
   useEffect(() => {
     if (!capturing) return
@@ -63,17 +69,13 @@ export function ShortcutSettings({
       const chord = chordFromEvent(e)
       if (!chord) return // only modifiers are down — wait for an actual key
       const key = formatChord(chord)
-      const taken = ACTIONS.find((a) => a.id !== capturing && bindings[a.id].some((c) => formatChord(c) === key))
+      const taken = takenBy(bindings, ACTIONS, capturing, key)
       setCapturing(null)
       if (taken) {
-        toast.error(
-          t('shortcut.conflictWith', {
-            key,
-            action: t(taken.descKey as MessageKey, taken.descParams)
-          })
-        )
+        setBlocked({ id: capturing, key, action: nameOf(taken) })
         return
       }
+      setBlocked(null)
       const riskKey = riskyReasonKey(chord)
       void (async () => {
         if (riskKey) {
@@ -93,6 +95,7 @@ export function ShortcutSettings({
   }, [capturing, bindings, t, onChanged])
 
   const reset = async (id: ActionId): Promise<void> => {
+    setBlocked(null)
     await window.api.keys.reset(id)
     onChanged(await window.api.keys.get())
   }
@@ -104,15 +107,25 @@ export function ShortcutSettings({
   return (
     <tbody>
       <tr className="shortcut-table__group">
-        <th colSpan={3} scope="colgroup">
+        <th colSpan={showSource ? 4 : 3} scope="colgroup">
           {t('shortcut.group.editable')}
         </th>
       </tr>
       {rows.map(({ action, name, keys }) => {
-        const conflicted = conflicts.some((c) => c.actions.includes(action.id))
+        const clash = conflicts.get(action.id)?.[0]
+        const clashWith = clash ? ACTIONS.find((a) => a.id === clash.others[0]) : undefined
+        const conflicted = clash !== undefined
+        const warn = blocked?.id === action.id ? t('shortcut.conflictWith', { key: blocked.key, action: blocked.action }) : clash && clashWith ? t('shortcut.conflictWith', { key: clash.key, action: nameOf(clashWith) }) : null
         return (
           <tr key={action.id}>
-            <td>{name}</td>
+            <td>
+              {name}
+              {warn && (
+                <span className="shortcut-table__warn" role="alert">
+                  <Icon name="warning" size={14} /> {warn}
+                </span>
+              )}
+            </td>
             <td>
               <span className="shortcut-table__keys">
                 {capturing === action.id ? (
@@ -129,6 +142,7 @@ export function ShortcutSettings({
                 )}
               </span>
             </td>
+            {showSource && <td className="shortcut-table__source">{t(sourceOf(overrides, action.id) === 'user' ? 'keys.source.user' : 'keys.source.default')}</td>}
             <td>
               <span className="shortcut-table__actions">
                 <IconButton
@@ -151,5 +165,50 @@ export function ShortcutSettings({
         )
       })}
     </tbody>
+  )
+}
+
+/** DESIGN-W13 §5: the Keyboard Shortcuts editor tab (`view:settings:keys`): a search over command names and chords, then
+ *  Command | Keybinding | Source. Pressing Change and then a chord records it; Default puts the app's own back. */
+export function KeyboardShortcuts({
+  keyOverrides,
+  setKeyOverrides
+}: {
+  keyOverrides: Record<string, string[]>
+  setKeyOverrides: (next: Record<string, string[]>) => void
+}): React.JSX.Element {
+  const { t } = useI18n()
+  const [query, setQuery] = useState('')
+  const matches = (name: string, keys: string[]): boolean => shortcutMatches(query, name, keys)
+  const any = shortcutRows(resolveBindings(keyOverrides, ACTIONS), t).some((r) => matches(r.name, r.keys))
+  return (
+    <div className="keys-view" role="region" aria-label={t('keys.title')}>
+      <div className="keys-view__head">
+        <h2 className="keys-view__title">{t('keys.title')}</h2>
+        <label className="settings-page__search keys-view__search">
+          <Icon name="search" size={14} />
+          <Input
+            type="search"
+            autoFocus
+            value={query}
+            placeholder={t('keys.search')}
+            aria-label={t('keys.search')}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </label>
+      </div>
+      <table className="shortcut-table keys-view__table">
+        <thead>
+          <tr>
+            <th scope="col">{t('keys.command')}</th>
+            <th scope="col">{t('keys.keybinding')}</th>
+            <th scope="col">{t('keys.source')}</th>
+            <th scope="col" aria-hidden="true" />
+          </tr>
+        </thead>
+        <ShortcutSettings overrides={keyOverrides} onChanged={setKeyOverrides} matches={matches} showSource />
+      </table>
+      {!any && <p className="settings-hint">{t('settings.shortcuts.empty', { query: query.trim() })}</p>}
+    </div>
   )
 }

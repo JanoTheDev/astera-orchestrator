@@ -238,3 +238,109 @@ body.resizing-row { cursor: row-resize; user-select: none; }
 .page-browser-form { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 0 16px 16px; }
 .page-browser-form .ui-field { align-self: stretch; }
 .page-actions { display: flex; gap: 8px; }
+
+/* ---------- DESIGN-W13 §2: the workbench ---------- */
+.app > .titlebar { height: var(--titlebar-h); }
+.app > .titlebar .tb-btn.ui-btn { height: var(--titlebar-h); }
+.wb-row { position: relative; flex-direction: row; }
+.wb-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.wb-editor { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--editor-bg); }
+/* Welcome fills the empty grid, not the window */
+.wb-editor .session-view { position: relative; }
+
+/* §8 command center: one field in the middle of the title bar; the spacers either side still drag the window */
+.wb-cc {
+  flex: 0 1 38%; min-width: 240px; max-width: 600px; height: 24px; display: flex; align-items: center;
+  border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--elevated); -webkit-app-region: no-drag;
+}
+.wb-cc .tb-sw { flex: none; }
+.wb-cc .tb-switcher.ui-btn { height: 22px; max-width: 200px; border-radius: var(--radius) 0 0 var(--radius); }
+.wb-cc .tb-sw-pop { top: calc(100% + 4px); }
+.wb-cc__search.ui-btn {
+  flex: 1; min-width: 0; height: 22px; justify-content: flex-start; gap: 8px; padding: 0 8px; color: var(--text-dim);
+  border-left: 1px solid var(--line); border-radius: 0 var(--radius) var(--radius) 0; font-weight: var(--fw-regular);
+}
+.wb-cc__search .ui-btn__label { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
+.wb-cc__hint { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+
+/* §3 activity bar */
+.wb-activitybar {
+  flex: none; width: var(--activitybar-w); display: flex; flex-direction: column; justify-content: space-between;
+  background: var(--activitybar-bg); border-right: 1px solid var(--line);
+}
+.wb-activitybar__top, .wb-activitybar__bottom { display: flex; flex-direction: column; }
+.wb-activitybar .ui-activity > svg { width: 24px; height: 24px; }
+.wb-accounts { position: relative; display: flex; }
+.wb-accounts__pop.tb-popover { top: auto; right: auto; bottom: 0; left: calc(100% + 4px); }
+
+/* §4 side bar */
+.wb-sidebar {
+  position: relative; flex: none; min-width: 0; display: flex; flex-direction: column;
+  background: var(--sidebar-bg); border-right: 1px solid var(--line);
+}
+.wb-sidebar__head { flex: none; display: flex; align-items: center; height: var(--tab-h); padding: 0 8px 0 20px; }
+.wb-sidebar__title {
+  flex: 1; min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--fs-11); font-weight: var(--fw-semi); letter-spacing: .04em; text-transform: uppercase; color: var(--text-dim);
+}
+.wb-sidebar__actions { flex: none; display: flex; }
+.wb-sidebar__body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.wb-sidebar__sash { position: absolute; top: 0; bottom: 0; right: -2px; z-index: 5; }
+.wb-view { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.wb-view--scroll { overflow: auto; }
+.wb-view .page-views { padding: 0 8px 8px 20px; }
+.wb-view-empty { margin: 0; padding: 4px 20px; color: var(--text-dim); font-size: var(--fs-13); }
+.wb-view-pad { padding: 8px 8px 8px 20px; display: flex; flex-direction: column; gap: 8px; }
+.wb-view-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+/* the old full-width pages, narrowed into the side bar: their own width rules give way to the bar's */
+.wb-sidebar .plan-pages, .wb-sidebar .worktrees-page, .wb-sidebar .history-page { min-width: 0; width: 100%; }
+/* Under 1100px the side bar opens over the editor instead of pushing it (§2) */
+@media (max-width: 1100px) {
+  .wb-sidebar { position: absolute; top: 0; bottom: 0; left: var(--activitybar-w); z-index: 40; box-shadow: var(--shadow-pop); }
+}
+
+/* §5 view tabs: the pages that were full-window layers fill their slot instead */
+.view-slot { flex-direction: column; overflow: auto; background: var(--editor-bg); }
+/* static: their own top (Start measures the title bar) and inset no longer apply */
+.view-slot > .start-page, .view-slot > .settings-page { position: static; flex: 1; min-height: 0; z-index: auto; }
+.view-slot > .plan-pages, .view-slot > .worktrees-page, .view-slot > .view-doc { flex: 1; min-height: 0; }
+.view-doc { padding: 16px 24px; overflow: auto; }
+
+/* Welcome (§5): the empty editor area */
+.welcome { position: absolute; inset: 0; overflow: auto; background: var(--editor-bg); }
+.view-slot > .welcome { position: relative; inset: auto; flex: 1; }
+.welcome__inner { max-width: 560px; margin: 0 auto; padding: 64px 24px; display: flex; flex-direction: column; gap: 24px; }
+.welcome__head { margin: 0; font-size: var(--fs-22); font-weight: var(--fw-semi); color: var(--text); }
+.welcome__section { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.welcome__label { margin: 0 0 4px; font-size: var(--fs-11); font-weight: var(--fw-semi); letter-spacing: .04em; text-transform: uppercase; color: var(--text-dim); }
+.welcome__link.ui-btn { color: var(--link); font-weight: var(--fw-regular); padding: 0 4px; }
+.welcome__none { margin: 0; color: var(--text-dim); font-size: var(--fs-13); }
+.welcome__keys { margin: 0; display: grid; grid-template-columns: max-content max-content; gap: 4px 24px; }
+.welcome__key { display: contents; }
+.welcome__key dt { color: var(--text-dim); font-size: var(--fs-13); }
+.welcome__key dd { margin: 0; }
+
+/* §6 bottom panel */
+.wb-panel { position: relative; flex: none; min-height: 0; display: flex; flex-direction: column; background: var(--panel-bg); border-top: 1px solid var(--panel-border); }
+.wb-panel__sash { position: absolute; left: 0; right: 0; top: -2px; z-index: 5; }
+.wb-panel__head { flex: none; display: flex; align-items: center; height: var(--panel-header-h); padding: 0 8px 0 12px; }
+.wb-panel__head .ui-tabs { border-bottom: 0; }
+.wb-panel__head .ui-tabs__tab { font-size: var(--fs-11); font-weight: var(--fw-semi); letter-spacing: .04em; text-transform: uppercase; }
+.wb-panel__spacer { flex: 1; }
+.wb-panel__body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.wb-panel__scroll { flex: 1; min-height: 0; overflow: auto; }
+.wb-panel__consoles { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.wb-panel__consoles > .run-panel { flex: 1; min-height: 0; }
+
+/* §7 status bar: 22px, accent-tinted only when the background service is offline */
+.statusbar.wb-status {
+  height: var(--statusbar-h); margin-top: 0; gap: 0; padding: 0 4px; font-family: inherit;
+  background: var(--statusbar-bg); color: var(--statusbar-fg); border-top: 1px solid var(--line);
+}
+.statusbar.wb-status--alert { background: var(--accent); color: var(--accent-ink); }
+.wb-status__project { font-weight: var(--fw-medium); }
+.wb-status__branch { font-family: var(--mono); color: inherit; }
+.wb-status__bell { display: flex; }
+.wb-status__bell .tb-bell-btn.ui-btn { width: 28px; height: var(--statusbar-h); border-radius: 0; color: inherit; }
+.wb-status__bell .tb-bell-btn svg { width: 14px; height: 14px; }
+.wb-status__bell .tb-popover { top: auto; bottom: calc(100% + 4px); right: 0; }

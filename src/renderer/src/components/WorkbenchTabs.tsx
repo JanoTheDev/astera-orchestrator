@@ -3,7 +3,7 @@ import type { SessionKind } from '../../../core/types'
 import { resolveFileIcon } from '../../../core/files/icons'
 import { useI18n } from '../i18n/I18nProvider'
 import { FileIcon } from './FileIcon'
-import { Icon, IconButton, Menu, menuPointOf, nextFocusIndex, type MenuItem } from './ui'
+import { EditorTab, Icon, IconButton, Menu, cx, menuPointOf, nextFocusIndex, type IconName, type MenuItem } from './ui'
 import { endRenameOnce } from '../lib/renameOnce'
 import { recentlyClosed, reopenClosed, subscribeRecentlyClosed } from '../lib/recentlyClosed'
 
@@ -112,6 +112,13 @@ export type WorkbenchTab =
       path: string
       title: string
       video: boolean
+    }
+  | {
+      tabId: string
+      /** DESIGN-W13 §5: a page as a document (shell/viewTabs.tsx) — Plan, Settings, Start, Welcome… */
+      kind: 'view'
+      title: string
+      icon: IconName
     }
   | {
       tabId: string
@@ -278,6 +285,38 @@ export function WorkbenchTabs({
       ]
     : []
 
+  /** The 16px mark before a tab's title: a file's type icon, a session's account dot (a ring while it works), a status
+   *  glyph or the kind's icon. */
+  const tabIcon = (tab: WorkbenchTab): React.ReactNode => {
+    if (tab.kind === 'file') return <FileIcon {...resolveFileIcon(tab.title)} />
+    if (tab.kind === 'view') return <Icon name={tab.icon} />
+    if (tab.kind === 'browser')
+      return tab.loading ? <span className="tab-dot busy bp-tab-busy" title={tab.agentRunning ? t('preview.agent.running') : undefined} /> : <Icon name="web" />
+    if (tab.kind === 'app') return tab.running ? <span className="tab-dot busy bp-tab-busy" title={t('workspace.tab.running')} /> : <Icon name="screen" />
+    if (tab.kind === 'media') return <Icon name={tab.video ? 'video' : 'image'} />
+    if (tab.kind === 'record')
+      // Same glyph as the sidebar row's .hiw-g — the same record must not wear two different labels in two places.
+      // When the status is unknown, nothing is drawn (better than the wrong status).
+      return tab.glyph === null ? undefined : (
+        <span className="tab-glyph" style={{ color: tab.glyphColor ?? undefined }} aria-hidden="true">
+          {tab.glyphSpins ? <span className="hiw-spin">{tab.glyph}</span> : tab.glyph}
+        </span>
+      )
+    if (tab.busy && !tab.exited)
+      // 작업 중: 계정 색의 회전하는 링. .tab-dot.busy는 background가 투명이고 테두리로 그려지므로 색을 borderColor로 줘야 한다
+      return (
+        <span
+          className="tab-dot busy"
+          style={{
+            borderColor: `${tab.color}33`, // faint track
+            borderTopColor: tab.color, // a bright arc (180°) makes the rotation obvious
+            borderRightColor: tab.color
+          }}
+        />
+      )
+    return <span className="tab-dot" style={{ background: tab.color }} />
+  }
+
   return (
     <>
     <div
@@ -299,36 +338,38 @@ export function WorkbenchTabs({
         setDropAt(null) // 탭 줄을 벗어났다 — 페인의 드롭 미리보기가 이어받는다
       }}
     >
-      {tabs.map((tab, index) => (
-        <div
+      {tabs.map((tab, index) => {
+        const active = tab.tabId === activeTabId
+        return (
+        <EditorTab
           key={tab.tabId}
-          role="tab"
-          aria-selected={tab.tabId === activeTabId}
           tabIndex={tab.tabId === rovingId ? 0 : -1}
           data-roving=""
           data-tab-id={tab.tabId}
-          className={
-            `tab ${tab.kind === 'file' ? 'file-tab' : ''}` +
-            `${focused && tab.tabId === activeTabId ? ' marked' : ''}` +
-            `${tab.tabId === activeTabId ? ' active' : ''}` +
-            `${tab.kind === 'session' && tab.exited ? ' exited' : ''}` +
-            `${tab.tabId === dragId ? ' dragging' : ''}` +
-            `${dropAt === index ? ' drop-before' : ''}` +
-            `${dropAt === index + 1 ? ' drop-after' : ''}`
-          }
+          active={active}
+          groupFocused={focused}
+          dirty={tab.kind === 'file' && tab.dirty}
+          className={cx(
+            'wb-tab',
+            `wb-tab--${tab.kind}`,
+            focused && active && 'marked',
+            tab.kind === 'session' && tab.exited && 'exited',
+            tab.tabId === dragId && 'dragging',
+            dropAt === index && 'drop-before',
+            dropAt === index + 1 && 'drop-after'
+          )}
           style={
-            focused && tab.tabId === activeTabId
-              ? ({
-                  // 파일 탭에는 계정 색이 없으므로 강조색을 쓴다
-                  // (the underline itself is drawn by .tab.marked in tabs.css, so the focus ring can stack on it)
-                  '--tab-mark': tab.kind === 'session' ? tab.color : 'var(--accent)'
-                } as React.CSSProperties)
+            focused && active && tab.kind === 'session'
+              ? // a session's own account colour marks the tab the keys go to (DESIGN-W13 §5 keeps the accent for the rest)
+                ({ '--tab-border-active': tab.color } as React.CSSProperties)
               : undefined
           }
           title={tab.kind === 'file' || tab.kind === 'media' ? tab.path : tab.kind === 'browser' ? tab.url : tab.title}
           // 이름을 고치는 동안은 끌 수 없다 — 입력칸 안에서 글자를 끄는 것이 탭 이동이 되어 버린다
           draggable={renamingTabId !== tab.tabId}
-          onClick={() => onSelect(tab.tabId)}
+          onSelect={() => onSelect(tab.tabId)}
+          onClose={() => onClose(tab.tabId)}
+          closeLabel={t('common.close')}
           // 세션 탭에만. 파일 탭의 라벨은 파일 이름이라 여기서 바꿀 것이 아니다
           onDoubleClick={
             tab.kind === 'session' && !tab.remote ? () => onRenameStart(tab.tabId) : undefined
@@ -350,111 +391,53 @@ export function WorkbenchTabs({
           onDragOver={(e) => overTab(e, index)}
           onDrop={commitDrop}
           onDragEnd={endDrag}
-        >
-          {tab.kind === 'file' ? (
-            <FileIcon {...resolveFileIcon(tab.title)} />
-          ) : tab.kind === 'browser' ? (
-            tab.loading ? (
-              <span className="tab-dot busy bp-tab-busy" title={tab.agentRunning ? t('preview.agent.running') : undefined} />
+          icon={tabIcon(tab)}
+          description={tab.kind === 'file' && tab.hint ? tab.hint : undefined}
+          label={
+            renamingTabId === tab.tabId ? (
+              <input
+                className="tab-title-edit"
+                autoFocus
+                defaultValue={tab.title}
+                // 탭의 onClick(선택)과 드래그로 새어 올라가지 않게 막는다
+                onClick={(ev) => ev.stopPropagation()}
+                onMouseDown={(ev) => ev.stopPropagation()}
+                onDoubleClick={(ev) => ev.stopPropagation()}
+                onFocus={(ev) => {
+                  renameEnd.current.ended = null
+                  ev.currentTarget.select()
+                }}
+                onKeyDown={(ev) => {
+                  // 전역 단축키와 탭 순환에서 격리한다 — 파일 탐색기의 이름 고치기와 같은 규칙
+                  ev.stopPropagation()
+                  const value = ev.currentTarget.value
+                  // Once per rename (audit UI-2): the blur as the input unmounts would end it again with the typed text.
+                  if (ev.key === 'Enter') endRenameOnce(renameEnd.current, tab.tabId, () => onRenameEnd(tab.tabId, value))
+                  else if (ev.key === 'Escape') endRenameOnce(renameEnd.current, tab.tabId, () => onRenameEnd(tab.tabId, null))
+                }}
+                onBlur={(ev) => {
+                  const value = ev.currentTarget.value
+                  endRenameOnce(renameEnd.current, tab.tabId, () => onRenameEnd(tab.tabId, value))
+                }}
+              />
             ) : (
-              <span className="tab-glyph" aria-hidden="true">
-                <Icon name="web" size={14} />
-              </span>
+              <>
+                <span className="tab-title">{tab.title}</span>
+                {tab.kind === 'browser' && tab.agentSessionId !== undefined && (
+                  <span className="run-tag" title={t('preview.agent.tab')}>{t('preview.agent.tab')}</span>
+                )}
+                {tab.kind === 'app' && <span className="run-tag" title={t('workspace.tab.tag')}>{t('workspace.tab.tag')}</span>}
+                {tab.kind === 'session' && tab.rollTooltip && (
+                  <span className="tab-roll" title={tab.rollTooltip}>
+                    <Icon name="repeat" size={14} />
+                  </span>
+                )}
+              </>
             )
-          ) : tab.kind === 'app' ? (
-            tab.running ? (
-              <span className="tab-dot busy bp-tab-busy" title={t('workspace.tab.running')} />
-            ) : (
-              <span className="tab-glyph" aria-hidden="true">
-                <Icon name="screen" size={14} />
-              </span>
-            )
-          ) : tab.kind === 'media' ? (
-            <span className="tab-glyph" aria-hidden="true">
-              {tab.video ? <Icon name="video" size={14} /> : <Icon name="image" size={14} />}
-            </span>
-          ) : tab.kind === 'record' ? (
-            // Same glyph as the sidebar row's .hiw-g — the same record must not wear two different
-            // labels in two places. When the status is unknown, no span is left either — an empty
-            // one would leave a gap that pushes the title over.
-            tab.glyph !== null && (
-              <span
-                className="tab-glyph"
-                style={{ color: tab.glyphColor ?? undefined }}
-                aria-hidden="true"
-              >
-                {tab.glyphSpins ? <span className="hiw-spin">{tab.glyph}</span> : tab.glyph}
-              </span>
-            )
-          ) : tab.busy && !tab.exited ? (
-            // 작업 중: 계정 색의 회전하는 링. .tab-dot.busy는 background가 투명이고 테두리로 그려지므로
-            // 색을 borderColor로 줘야 한다
-            <span
-              className="tab-dot busy"
-              style={{
-                borderColor: `${tab.color}33`, // faint track
-                borderTopColor: tab.color, // a bright arc (180°) makes the rotation obvious
-                borderRightColor: tab.color
-              }}
-            />
-          ) : (
-            <span className="tab-dot" style={{ background: tab.color }} />
-          )}
-          {renamingTabId === tab.tabId ? (
-            <input
-              className="tab-title-edit"
-              autoFocus
-              defaultValue={tab.title}
-              // 탭의 onClick(선택)과 드래그로 새어 올라가지 않게 막는다
-              onClick={(ev) => ev.stopPropagation()}
-              onMouseDown={(ev) => ev.stopPropagation()}
-              onDoubleClick={(ev) => ev.stopPropagation()}
-              onFocus={(ev) => {
-                renameEnd.current.ended = null
-                ev.currentTarget.select()
-              }}
-              onKeyDown={(ev) => {
-                // 전역 단축키와 탭 순환에서 격리한다 — 파일 탐색기의 이름 고치기와 같은 규칙
-                ev.stopPropagation()
-                const value = ev.currentTarget.value
-                // Once per rename (audit UI-2): the blur as the input unmounts would end it again with the typed text.
-                if (ev.key === 'Enter') endRenameOnce(renameEnd.current, tab.tabId, () => onRenameEnd(tab.tabId, value))
-                else if (ev.key === 'Escape') endRenameOnce(renameEnd.current, tab.tabId, () => onRenameEnd(tab.tabId, null))
-              }}
-              onBlur={(ev) => {
-                const value = ev.currentTarget.value
-                endRenameOnce(renameEnd.current, tab.tabId, () => onRenameEnd(tab.tabId, value))
-              }}
-            />
-          ) : (
-            <span className="tab-title">{tab.title}</span>
-          )}
-          {tab.kind === 'browser' && tab.agentSessionId !== undefined && (
-            <span className="run-tag" title={t('preview.agent.tab')}>{t('preview.agent.tab')}</span>
-          )}
-          {tab.kind === 'app' && <span className="run-tag" title={t('workspace.tab.tag')}>{t('workspace.tab.tag')}</span>}
-          {tab.kind === 'file' && tab.hint && <span className="tab-hint">{tab.hint}</span>}
-          {tab.kind === 'file' && tab.dirty && (
-            <span className="tab-dirty" role="img" title={t('explorer.tab.unsaved')} aria-label={t('explorer.tab.unsaved')} />
-          )}
-          {tab.kind === 'session' && tab.rollTooltip && (
-            <span className="tab-roll" title={tab.rollTooltip}>
-              <Icon name="repeat" size={14} />
-            </span>
-          )}
-          <IconButton
-            className="tab-close"
-            size="sm"
-            icon={<Icon name="close" size={14} />}
-            label={t('common.close')}
-            draggable={false}
-            onClick={(e) => {
-              e.stopPropagation()
-              onClose(tab.tabId)
-            }}
-          />
-        </div>
-      ))}
+          }
+        />
+        )
+      })}
       <IconButton
         className="new-tab"
         icon={<Icon name="add" />}

@@ -32,6 +32,7 @@ import { BranchGlyph } from './BranchGlyph'
 import { ScheduleFields } from './ScheduleFields'
 import { StartingOverlay } from './WorktreeCreateStatus'
 import { Button, Icon, IconButton, Modal, Select, Tabs, type SelectOption, Checkbox } from './ui'
+import './overlays.css'
 
 const SOFT_LIMIT = 12
 const MAX_ROLL_ACCOUNTS = 3

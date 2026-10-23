@@ -13,8 +13,6 @@ import { RunToolbar } from '../RunToolbar'
 import { controlReason, isRemoteRuntime, offlineNote } from '../../lib/remoteJobs'
 import { deleteRun, pauseRun, restartCoordinator as restartRunCoordinator, resumeRun } from '../../lib/jobActions'
 import { PlansPage, type PlansPageProps } from '../pages/PlansPage' // W9-C
-import { TasksPage, type TasksPageProps } from '../pages/TasksPage' // W9-C
-import { InboxPage } from '../inbox/InboxPage' // W9-D
 import { WorktreesPage } from '../pages/WorktreesPage' // W9-J
 import { openPage } from './navigation'
 import { AgentsPage, type AgentsPageProps } from '../pages/AgentsPage' // W9-H
@@ -32,7 +30,6 @@ export const showsConsoles = (page: PageId): boolean =>
 export type PagesProps = ContentProps &
   Omit<AgentsPageProps, 'children' | 'hidden'> &
   PlansPageProps &
-  TasksPageProps &
   Pick<
     AppState,
     'accounts' | 'actionUi' | 'activeRecordId' | 'activeRuns' | 'applyRunSelection' | 'approve' | 'cancelOpenTask' |
@@ -194,9 +191,6 @@ export function Pages(p: PagesProps): React.JSX.Element {
         )}
             </div>
           )}
-          {page === 'tasks' && <TasksPage {...p} />}
-          {/* W9-D: the Inbox page; T9: not a tab, the bell's "View all" opens it */}
-          {page === 'inbox' && <InboxPage tree={scopedTree} data={scopedData} accounts={accounts} ui={actionUi} />}
           {page === 'worktrees' && (
             <WorktreesPage
               onStartSession={(path) => {
@@ -283,7 +277,7 @@ export function Pages(p: PagesProps): React.JSX.Element {
       )}
       {/* W9-H: the Agents page wraps the pane grid, which stays mounted for every session's life (AgentsPage) */}
       <AgentsPage {...p} hidden={wide}>
-        <Content {...p} hidden={wide} />
+        <Content {...p} />
       </AgentsPage>
     </div>
   )

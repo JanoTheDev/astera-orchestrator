@@ -1,5 +1,5 @@
-// The Changes section of the plan page (moved out of pages/PlanPage.tsx): Merge and the plan's pull request, then what
-// the whole plan changed. The Merge row is shared with the Overview.
+// The Changes tab of the plan's Activity (moved out of pages/PlanPage.tsx): what the whole plan changed; and the Merge
+// button and the plan's pull request, which the header shows.
 import type { JobRow } from '../../../../core/types'
 import { useI18n } from '../../i18n/I18nProvider'
 import type { OrchDoor } from '../../lib/orchDoor'
@@ -9,7 +9,7 @@ import { Button, Icon } from '../ui'
 import { RUN_MERGE } from './planPage'
 import type { PlanPageState } from './usePlanPage'
 
-/** Merge and the PR chip, for the row above a section's content. */
+/** Merge and the PR chip, for the plan's header. */
 export function PlanMergeActions({ p, run }: { p: PlanPageState; run: JobRow | undefined }): React.JSX.Element {
   const { t } = useI18n()
   return (
@@ -34,16 +34,7 @@ export function PlanMergeActions({ p, run }: { p: PlanPageState; run: JobRow | u
   )
 }
 
-export function PlanChanges({ p, run, door, runId }: { p: PlanPageState; run: JobRow | undefined; door: OrchDoor; runId: string }): React.JSX.Element {
-  return (
-    <>
-      {!p.authoringOpen && (
-        <div className="detail-graph-head">
-          <PlanMergeActions p={p} run={run} />
-        </div>
-      )}
-      {/* W9-C Changes: what the whole plan changed, from git where it runs (Phase 10) */}
-      <ChangedFilesBlock door={door} runId={runId} />
-    </>
-  )
+/** What the whole plan changed, from git where it runs (Phase 10). Merge and the PR stand in the plan's header (T8). */
+export function PlanChanges({ door, runId }: { door: OrchDoor; runId: string }): React.JSX.Element {
+  return <ChangedFilesBlock door={door} runId={runId} />
 }

@@ -1,17 +1,20 @@
-/* T30: the help panel inside the ui Modal. Tokens only. */
-.help { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: var(--sp-4); min-height: 360px; }
-.help-topics { display: flex; flex-direction: column; gap: var(--sp-1); }
+/* T30 help panel, DESIGN-W13: a topic list like a side bar (flat rows, --list-active selection) beside the topic as a
+   reading column, inside the ui Modal. Tokens only. */
+.help { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 0; min-height: 360px; margin: 0 calc(var(--sp-5) * -1); }
+.help-topics { display: flex; flex-direction: column; gap: 1px; padding: 0 var(--sp-2) 0 var(--sp-3); border-right: 1px solid var(--line); background: var(--panel); }
 .help-topics .ui-input { margin-bottom: var(--sp-2); }
-.ui-btn.help-topic { justify-content: flex-start; text-align: left; }
-.ui-btn.help-topic[aria-current='true'] { background: var(--accent-soft); color: var(--accent); }
-.help-body { min-width: 0; line-height: var(--lh); }
-.help-body h3 { margin: 0 0 var(--sp-2); font-size: var(--fs-15); }
-.help-body p { margin: 0 0 var(--sp-3); }
-.help-empty { color: var(--text-dim); }
+.ui-btn.help-topic { justify-content: flex-start; width: 100%; height: var(--list-row-h); padding: 0 var(--sp-2); border-radius: var(--radius-sm); text-align: left; font-size: var(--fs-13); font-weight: var(--fw-regular); color: var(--text-dim); }
+.ui-btn.help-topic:hover:not(:disabled) { background: var(--list-hover); color: var(--text); }
+.ui-btn.help-topic[aria-current='true'] { background: var(--list-active); color: var(--text); }
+.ui-btn.help-topic:focus-visible { box-shadow: var(--focus-ring-inset); }
+.help-body { min-width: 0; padding: 0 var(--sp-5); line-height: var(--lh); font-size: var(--fs-13); }
+.help-body h3 { margin: 0 0 var(--sp-3); font-size: var(--fs-18); font-weight: var(--fw-semi); }
+.help-body p { margin: 0 0 var(--sp-3); max-width: 64ch; color: var(--text-dim); }
+.help-empty { color: var(--text-faint); }
 .help-body dl { margin: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
-.help-term dt { font-weight: 600; }
+.help-term dt { font-weight: var(--fw-semi); }
 .help-term dd { margin: 0; color: var(--text-dim); }
 .help-keys { list-style: none; margin: 0; padding: 0; }
-.help-keys li { display: flex; justify-content: space-between; gap: var(--sp-3); padding: var(--sp-1) 0; border-bottom: 1px solid var(--line); }
+.help-keys li { display: flex; justify-content: space-between; gap: var(--sp-3); align-items: center; min-height: var(--row-h); border-bottom: 1px solid var(--line); }
 .help-chords { display: inline-flex; gap: var(--sp-2); flex-wrap: wrap; justify-content: flex-end; color: var(--text-dim); }
-@media (max-width: 640px) { .help { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 640px) { .help { grid-template-columns: minmax(0, 1fr); margin: 0; } .help-topics { border-right: 0; padding: 0; } .help-body { padding: 0; } }

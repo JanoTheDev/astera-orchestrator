@@ -20,6 +20,7 @@ const TERMS = ['plan', 'step', 'task', 'attempt', 'lead', 'question', 'worktree'
 
 export const TOPICS: readonly Topic[] = [
   { id: 'start', title: 'help.start.title', blocks: text('help.start.1', 'help.start.2', 'help.start.3', 'help.start.4') },
+  { id: 'workbench', title: 'help.workbench.title', blocks: text('help.workbench.1', 'help.workbench.2', 'help.workbench.3', 'help.workbench.4') },
   { id: 'plans', title: 'help.plans.title', blocks: text('help.plans.1', 'help.plans.2', 'help.plans.3', 'help.plans.4') },
   { id: 'agents', title: 'help.agents.title', blocks: text('help.agents.1', 'help.agents.2', 'help.agents.3') },
   { id: 'accounts', title: 'help.accounts.title', blocks: text('help.accounts.1', 'help.accounts.2', 'help.accounts.3') },

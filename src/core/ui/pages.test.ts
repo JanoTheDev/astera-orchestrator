@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { PAGE_IDS, MORE_PAGE_IDS, DEFAULT_PAGE, KEYED_PAGES, MORE_MENU_PAGES, TAB_PAGES, initialPage, tabOf, isPageId, pageOf, pageOfSidebarPane, togglePage, viewFlagsOf } from './pages'
+import { PAGE_IDS, MORE_PAGE_IDS, DEFAULT_PAGE, KEYED_PAGES, MORE_MENU_PAGES, TAB_PAGES, initialPage, tabOf, isPageId, pageOf, pageOfSidebarPane, togglePage, viewFlagsOf, ACTIVITY_IDS, DEFAULT_ACTIVITY, activityOfSaved, clampSidebarWidth } from './pages'
 
 describe('pages', () => {
   it('the contract ids (PLAN.md "Wave 9 contracts")', () => {
@@ -74,5 +74,35 @@ describe('the shell’s pages', () => {
     expect(tabOf('inbox')).toBeNull()
     expect(tabOf('settings')).toBeNull()
     expect(tabOf('worktrees')).toBeNull()
+  })
+})
+
+describe('workbench ids', () => {
+  it('lists the activities in key order', () => {
+    expect(ACTIVITY_IDS).toEqual(['agents', 'plans', 'explorer', 'scm', 'history', 'run'])
+    expect(DEFAULT_ACTIVITY).toBe('agents')
+  })
+  it.each([
+    ['agents', { activity: 'agents' }],
+    ['plans', { activity: 'plans' }],
+    ['tasks', { activity: 'plans' }],
+    ['files', { activity: 'explorer' }],
+    ['worktrees', { activity: 'scm' }],
+    ['more:history', { activity: 'history' }],
+    ['more:hiw', { activity: 'history' }],
+    ['more:runs', { activity: 'run' }],
+    ['inbox', { activity: 'agents', panelTab: 'needs' }],
+    ['settings', { activity: 'agents' }],
+    ['more:browser', { activity: 'agents' }],
+    ['nonsense', { activity: 'agents' }],
+    [null, { activity: 'agents' }]
+  ])('activityOfSaved(%s)', (saved, want) => {
+    expect(activityOfSaved(saved)).toEqual(want)
+  })
+  it('clamps the side bar width', () => {
+    expect(clampSidebarWidth(100)).toBe(170)
+    expect(clampSidebarWidth(900)).toBe(600)
+    expect(clampSidebarWidth(300)).toBe(300)
+    expect(clampSidebarWidth(NaN)).toBe(260)
   })
 })

@@ -1,93 +1,19 @@
-// W9-J, W11 §9: the Worktrees page: the header and the list on the left (WorktreePanel), one worktree's detail on the right.
-import { useCallback, useEffect, useRef, useState } from 'react'
-import type { WorktreeRow } from '../../../../core/worktrees/cleanup'
-import { useI18n } from '../../i18n/I18nProvider'
-import { toast } from '../../lib/toast'
-import { WorktreePanel, type WorktreeListHandle } from '../WorktreePanel'
-import { EmptyState, ICONS, Icon, IconButton, Menu } from '../ui'
+// The worktree detail for the shell's `worktree` view tab and the legacy `worktrees` page slot: no page chrome of its
+// own any more. The list lives in the Source Control view; this shows the worktree it selected.
 import { WorktreeDetail } from '../worktrees/WorktreeDetail'
-import { selectWorktree, useWorktreeView } from '../worktrees/worktreeView'
+import { useWorktreeView } from '../worktrees/worktreeView'
 
 export function WorktreesPage({
   onStartSession,
   onOpenFiles,
-  onClose,
   repoFilter
 }: {
   onStartSession: (path: string) => void
   onOpenFiles: (path: string) => void
-  /** The page is a layer until the shell has a page tab for it (W9-B); the layer closes here. */
+  /** The legacy page slot passes it; the page it closed is a tab now. */
   onClose?: () => void
-  /** Only the open project's worktrees, unless "All projects" is on. */
   repoFilter?: (repoPath: string) => boolean
 }): React.JSX.Element {
-  const { t } = useI18n()
   const { selected } = useWorktreeView()
-  const list = useRef<WorktreeListHandle>(null)
-  const [rows, setRows] = useState<WorktreeRow[]>([])
-  const [autoClean, setAutoClean] = useState(true)
-  const onRows = useCallback((r: WorktreeRow[]) => setRows(r), [])
-  const row = rows.find((r) => r.item.path === selected)
-
-  useEffect(() => {
-    void window.api.settings.getAutoCleanWorktrees().then(setAutoClean, () => setAutoClean(true))
-  }, [])
-  const toggleAutoClean = (next: boolean): void => {
-    setAutoClean(next)
-    void window.api.settings.setAutoCleanWorktrees(next).catch((err) => {
-      setAutoClean(!next)
-      toast.error(t('worktrees.autoCleanFailed', { detail: err instanceof Error ? err.message : String(err) }))
-    })
-  }
-
-  // Auto-clean is a setting, not a way of browsing, so it sits behind View options (DESIGN-W11 §7).
-  const viewOptions = (
-    <Menu
-      label={t('worktrees.viewOptions')}
-      align="end"
-      trigger={{ icon: <Icon name="filter" />, title: t('worktrees.viewOptions') }}
-      items={[
-        {
-          id: 'auto-clean',
-          checked: autoClean,
-          label: (
-            <span className="worktrees-option">
-              {t('worktrees.autoClean')}
-              <span className="worktrees-option__hint">{t('worktrees.autoCleanHint')}</span>
-            </span>
-          ),
-          onSelect: () => toggleAutoClean(!autoClean)
-        }
-      ]}
-    />
-  )
-
-  return (
-    <div className="worktrees-page">
-      <WorktreePanel
-        ref={list}
-        selected={selected}
-        onSelect={selectWorktree}
-        onStartSession={onStartSession}
-        onRows={onRows}
-        repoFilter={repoFilter}
-        actions={
-          <>
-            {viewOptions}
-            {onClose && <IconButton icon={<Icon name="close" />} label={t('worktrees.close')} onClick={onClose} />}
-          </>
-        }
-      >
-        <section className="worktrees-page__detail">
-          {row ? (
-            <WorktreeDetail row={row} list={list} onStartSession={onStartSession} onOpenFiles={onOpenFiles} />
-          ) : (
-            <EmptyState icon={ICONS.repo} title={t('worktrees.pickTitle')}>
-              {t('worktrees.pick')}
-            </EmptyState>
-          )}
-        </section>
-      </WorktreePanel>
-    </div>
-  )
+  return <WorktreeDetail path={selected} onStartSession={onStartSession} onOpenFiles={onOpenFiles} repoFilter={repoFilter} />
 }
