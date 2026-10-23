@@ -8,9 +8,9 @@ describe('Agents is the default page', () => {
     expect(DEFAULT_PAGE).toBe('agents')
     expect(getWallView()).toEqual({ kind: 'wall' })
   })
-  it('a console opens full size, Back to all returns to the wall', () => {
-    setWallView({ kind: 'console', sessionId: 's1' })
-    expect(getWallView()).toEqual({ kind: 'console', sessionId: 's1' })
+  it('any other tab takes the window from the wall, and the wall tab gives it back', () => {
+    setWallView({ kind: 'away' })
+    expect(getWallView()).toEqual({ kind: 'away' })
     setWallView({ kind: 'wall' })
     expect(getWallView()).toEqual({ kind: 'wall' })
   })

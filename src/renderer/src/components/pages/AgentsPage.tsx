@@ -1,15 +1,13 @@
-// W9-H, W11: the Agents page (DESIGN.md §2, DESIGN-W11 §9), the app's default page. Every console of the project at once, each tile the
-// session's own xterm; a click opens it full size, where the owner types straight into the PTY while the coordinator's
-// messages to it wait in the Host (the owner hold, core/sessions/ownerHold.ts).
+// W9-H, W11, W13: the wall tab's host (DESIGN-W13 §5) and the app's one owner of the console data. The wall is drawn over
+// the pane grid while `view:wall` is the active tab; a console is its own tab (PaneGrid), never a mode of the wall.
+// It publishes the consoles for the Agents view and the console headers (wall/consoleStore.ts).
 //
-// The consoles themselves stay in the pane grid (`children`, App's Content), mounted for each session's life: the
-// full-size console *is* that pane, and a tile borrows the pane's xterm (wall/consoleDock.ts). So `children` is always
-// rendered, in the same place, and only hidden while the wall shows: unmounting it would end every terminal's
-// scrollback.
+// The consoles themselves stay in the pane grid (`children`, App's Content), mounted for each session's life: a wall
+// card borrows the pane's xterm (wall/consoleDock.ts). So `children` is always rendered, in the same place, and only
+// hidden while the wall shows: unmounting it would end every terminal's scrollback.
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useI18n } from '../../i18n/I18nProvider'
 import { parseTab, sessionTab } from '../../../../core/panes/tabId'
-import { confirmModal } from '../../lib/confirm'
 import { buildWorkspaceTree } from '../../state/workspaceTree'
 import { useWorkspaceData } from '../../state/useWorkspaceData'
 import { useAttention } from '../../state/useAttention'
@@ -18,15 +16,15 @@ import { ageOf } from '../plan/planBoard'
 import { localDoor } from '../../lib/orchDoor'
 import { openConsole, openPlan } from '../shell/navigation'
 import { setWallView, useWallView } from '../wall/wallView'
-import { focusTerminal } from '../wall/consoleDock'
 import { useJobRows } from '../wall/useJobRows'
 import {
-  ALL_PLANS, NO_PLAN, activityOf, consolesOf, detailsOf, filterConsoles, gridColumns, groupWall, orderWall, planPills, sectionWall,
+  ALL_PLANS, NO_PLAN, activityOf, consoleDescription, consolesOf, filterConsoles, gridColumns, groupWall, orderWall, planPills, sectionWall,
   type PlanFilter, type StateFilter, type TileState, type WallConsole
 } from '../wall/wallModel'
-import { ConsoleStrip, ConsoleTile, PlanGroup, SectionHead, WallEmpty, WallFilters } from '../wall/Wall'
-import { Button, Icon, PageHeader } from '../ui'
-import { ConsoleHeader, DetailsPanel } from '../wall/FullConsole'
+import { ConsoleTile, PlanGroup, SectionHead, WallEmpty, WallFilters } from '../wall/Wall'
+import { stopConsole } from '../wall/stopConsole'
+import { setConsoleSnapshot } from '../wall/consoleStore'
+import { Button, Icon } from '../ui'
 import { FinishedCard } from '../wall/FinishedCard'
 import { SummaryCard } from '../wall/SummaryCard' // W9-I
 import { useSummaries } from '../../state/useSummaries'
@@ -56,15 +54,14 @@ const readPlan = (): PlanFilter => {
 export function AgentsPage({ sessions, accounts, currentProject, scopeId, allProjects, setAllProjects, homeDir, activeTabId, closeWorkbenchTab, setShowNew, children, hidden }: AgentsPageProps): React.JSX.Element {
   const { t } = useI18n()
   const view = useWallView()
-  const showing = view.kind !== 'away'
   const anchor = currentProject ?? sessions[0]?.cwd ?? homeDir ?? null
-  const data = useWorkspaceData(anchor, showing)
+  const data = useWorkspaceData(anchor, true)
   const tree = useMemo(() => (data ? buildWorkspaceTree(data, { showArchived: false }) : []), [data])
-  const rows = useJobRows(anchor, useMemo(() => tree.map((p) => p.id), [tree]), showing)
+  const rows = useJobRows(anchor, useMemo(() => tree.map((p) => p.id), [tree]), true)
   const attention = useAttention(useMemo(() => sessions.map((s) => s.id), [sessions]))
   const door = useMemo(() => localDoor(window.api, anchor ?? ''), [anchor])
-  const live = usePlanLive(door, showing && anchor !== null)
-  const summaries = useSummaries(showing && anchor !== null ? door : null) // W9-I: the Finished row's cards
+  const live = usePlanLive(door, anchor !== null)
+  const summaries = useSummaries(anchor !== null ? door : null) // W9-I: the Finished row's cards
 
   const [plan, setPlanState] = useState<PlanFilter>(readPlan)
   const setPlan = (p: PlanFilter): void => {
@@ -82,13 +79,12 @@ export function AgentsPage({ sessions, accounts, currentProject, scopeId, allPro
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once per request (each one is a new view)
   }, [view])
   const [filter, setFilter] = useState<StateFilter>('all')
-  const [detailsOpen, setDetailsOpen] = useState(true)
   const [nowMs, setNowMs] = useState(() => Date.now())
   useEffect(() => {
-    if (!showing) return
+    if (view.kind !== 'wall') return
     const timer = setInterval(() => setNowMs(Date.now()), 5000)
     return () => clearInterval(timer)
-  }, [showing])
+  }, [view.kind])
 
   const consoles = useMemo(
     () => consolesOf({ sessions, tree, data, attention, live: live.sessions, rows }),
@@ -96,10 +92,9 @@ export function AgentsPage({ sessions, accounts, currentProject, scopeId, allPro
   )
   // T13: an agent's tab hides on close without asking (lib/recentlyClosed.ts); the tree says which sessions those are
   useEffect(() => setAgentSessions(consoles.filter((c) => c.role !== 'console').map((c) => c.sessionId)), [consoles])
+  useEffect(() => setConsoleSnapshot({ consoles, summaries: summaries.bySession }), [consoles, summaries.bySession])
   // the window's own project (App's scopeId: switcher or bound project, else the tab's folder resolved to its project)
   const projectId = scopeId === null || scopeId === UNKNOWN_PROJECT ? null : scopeId
-  // a project made a moment ago has no tab yet, so the tree lacks it: name it by its folder
-  const projectName = tree.find((p) => p.id === projectId)?.name ?? currentProject?.split(/[\\/]/).filter(Boolean).pop() ?? null
   // A plan that is gone (archived, another project) falls back to every plan.
   const planShown = plan === ALL_PLANS || plan === NO_PLAN || scopeTree(tree, allProjects ? null : projectId ?? UNKNOWN_PROJECT).some((p) => p.plans.some((x) => x.jobId === plan)) ? plan : ALL_PLANS
   const planPicked = planShown !== ALL_PLANS && planShown !== NO_PLAN
@@ -112,42 +107,31 @@ export function AgentsPage({ sessions, accounts, currentProject, scopeId, allPro
   const shown = filterConsoles(consoles, { plan: planShown, state: filter, scope, projectId })
   const wall = orderWall(shown, planShown)
 
-  // Escalations per plan (open ones in the Inbox) and the coordinator's answers (the activity feed), for the details.
-  const runOfJob = (jobId: string): string => tree.flatMap((p) => p.plans).find((x) => x.jobId === jobId)?.runId ?? jobId
-  const answeredOf = (jobId: string): number =>
-    live.activity.filter((e) => (e.type as string) === 'question.auto-answered' && (e.jobId === jobId || e.runId === runOfJob(jobId))).length
-  const escalatedOf = (jobId: string): number => (data?.escalations ?? []).filter((m) => m.runId === runOfJob(jobId)).length
-  const detailsFor = (c: WallConsole) =>
-    detailsOf({ console: c, consoles, rows, tree, tasks: data?.tasks ?? [], answeredOf, escalatedOf })
   const accountOf = (id: string | undefined): string | undefined => (id ? (accounts.find((a) => a.id === id)?.label ?? id) : undefined)
-  /** T13: the card's meta line (DESIGN-W11 §9): project · account · role · last activity. */
+  /** The card's description line: the same "plan › task · account" as the Agents view's row, then the last activity. */
   const metaOf = (c: WallConsole): string[] => {
     const at = live.sessions[c.sessionId]?.lastAction?.at
     return [
-      tree.find((p) => p.id === c.projectId)?.name,
-      accountOf(c.accountId),
-      t(`wall.role.${c.role}` as const),
+      consoleDescription(c, accountOf(c.accountId)),
       at !== undefined ? t('wall.tile.ago', { age: ageOf(new Date(at).toISOString(), nowMs) }) : undefined
     ].filter((x): x is string => !!x)
   }
 
-  // Any other way to a tab (the sidebar tree, a notice, a file opened from the explorer) leaves the wall for it: a
-  // session tab opens that console full size, anything else gives the window to that page. The first tab (the saved
-  // layout restored at start) is not such a move: the app opens on the wall.
+  // Any tab but the wall's leaves the wall for it. The first tab (the saved layout restored at start) is not such a
+  // move: the app opens on the wall.
   const lastTab = useRef(activeTabId)
   useEffect(() => {
     if (lastTab.current === activeTabId) return
     const first = lastTab.current === null
     lastTab.current = activeTabId
     if (first) return
-    const ref = activeTabId ? parseTab(activeTabId) : null
-    if (ref?.kind === 'session') setWallView({ kind: 'console', sessionId: ref.id })
-    else if (activeTabId) setWallView({ kind: 'away' })
+    if (activeTabId) setWallView({ kind: 'away' })
   }, [activeTabId])
 
-  // The owner hold (DESIGN §2): a console open full size holds the coordinator's messages to it in the Host until
-  // "Back to all". Typing holds it too, for 60 s, which the Host stamps on its own.
-  const heldId = view.kind === 'console' ? view.sessionId : null
+  // The owner hold (DESIGN §2): a console tab in view holds the coordinator's messages to it in the Host until the
+  // owner leaves it. Typing holds it too, for 60 s, which the Host stamps on its own.
+  const activeRef = activeTabId ? parseTab(activeTabId) : null
+  const heldId = view.kind === 'away' && activeRef?.kind === 'session' ? activeRef.id : null
   const heldCwd = heldId ? sessions.find((s) => s.id === heldId)?.cwd : undefined
   useEffect(() => {
     const path = heldCwd ?? anchor
@@ -159,35 +143,14 @@ export function AgentsPage({ sessions, accounts, currentProject, scopeId, allPro
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the hold follows the open console, not the anchor
   }, [heldId])
 
-  // The keyboard follows the view: the full-size console takes it (keys go to that PTY only), and the wall takes it
-  // away from the hidden pane grid, so nothing typed on the wall reaches a console behind it.
+  // The wall takes the keyboard away from the hidden pane grid, so nothing typed on the wall reaches a console behind it.
   const consoleRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    if (heldId) {
-      const frame = requestAnimationFrame(() => focusTerminal(heldId))
-      return () => cancelAnimationFrame(frame)
-    }
     const el = document.activeElement
     if (view.kind === 'wall' && el instanceof HTMLElement && consoleRef.current?.contains(el)) el.blur()
-    return undefined
-  }, [heldId, view.kind])
-
-  // Ctrl+. folds the details panel of the open console.
-  useEffect(() => {
-    if (view.kind !== 'console') return
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey && e.key === '.') {
-        e.preventDefault()
-        setDetailsOpen((o) => !o)
-      }
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
   }, [view.kind])
 
-  const back = (): void => setWallView({ kind: 'wall' })
   const open = (sessionId: string): void => openConsole(sessionId)
-  const opened = heldId ? consoles.find((c) => c.sessionId === heldId) : undefined
   const exitOf = (id: string): number | undefined => sessions.find((s) => s.id === id)?.exitCode
   const newConsole = setShowNew ? () => setShowNew(true) : undefined
 
@@ -198,12 +161,8 @@ export function AgentsPage({ sessions, accounts, currentProject, scopeId, allPro
   const sections = sectionWall(liveTiles, wall.finished)
   // As many columns as the biggest group fills, up to the auto grid's count; CSS drops to fewer under 360px a tile.
   const cols = Math.min(gridColumns(liveTiles.length), Math.max(1, ...groups.map((g) => g.live.length)))
-  const endSession = async (c: WallConsole): Promise<void> => {
-    const running = sessions.find((s) => s.id === c.sessionId)?.status !== 'exited'
-    const name = c.taskTitle ?? c.label
-    if (running && !(await confirmModal({ title: t('wall.end.title', { name }), body: t('wall.end.body'), confirmLabel: t('wall.end.confirm') }))) return
-    closeWorkbenchTab(sessionTab(c.sessionId), 'end')
-  }
+  const endSession = (c: WallConsole): void =>
+    void stopConsole(c, sessions.find((s) => s.id === c.sessionId)?.status !== 'exited', t, () => closeWorkbenchTab(sessionTab(c.sessionId), 'end'))
   const tile = (c: WallConsole): React.JSX.Element => {
     const a = activityOf(c, live.sessions[c.sessionId]?.lastAction)
     return (
@@ -215,7 +174,7 @@ export function AgentsPage({ sessions, accounts, currentProject, scopeId, allPro
         activity={t(a.key, a.params)}
         onOpen={() => open(c.sessionId)}
         onHide={() => closeWorkbenchTab(sessionTab(c.sessionId), 'hide')}
-        onEnd={() => void endSession(c)}
+        onEnd={() => endSession(c)}
       />
     )
   }
@@ -237,33 +196,25 @@ export function AgentsPage({ sessions, accounts, currentProject, scopeId, allPro
     <div className="agents-page" style={hidden ? { display: 'none' } : undefined}>
       {view.kind === 'wall' && (
         <div className="wall">
-          <PageHeader
-            className="wall-header"
-            title={t('wall.title')}
-            subtitle={inScope.length > 0 ? t('wall.count', { n: inScope.length }) : undefined}
-            actions={
-              newConsole &&
-              consoles.length > 0 && (
-                <Button variant="primary" icon={<Icon name="add" />} onClick={newConsole}>
+          {consoles.length > 0 && (
+            <div className="wall-toolbar">
+              <WallFilters
+                filter={filter}
+                onFilter={setFilter}
+                counts={counts}
+                pills={pills}
+                plan={planShown}
+                onPlan={setPlan}
+                allProjects={allProjects}
+                onAllProjects={setAllProjects}
+              />
+              {newConsole && (
+                <Button size="sm" variant="ghost" icon={<Icon name="add" size={14} />} onClick={newConsole}>
                   {t('wall.new')}
                 </Button>
-              )
-            }
-            filters={
-              consoles.length > 0 && (
-                <WallFilters
-                  filter={filter}
-                  onFilter={setFilter}
-                  counts={counts}
-                  pills={pills}
-                  plan={planShown}
-                  onPlan={setPlan}
-                  allProjects={allProjects}
-                  onAllProjects={setAllProjects}
-                />
-              )
-            }
-          />
+              )}
+            </div>
+          )}
           {groups.length === 0 ? (
             <WallEmpty filtered={consoles.length > 0} onNew={newConsole} onReset={resetFilters} />
           ) : (
@@ -294,19 +245,10 @@ export function AgentsPage({ sessions, accounts, currentProject, scopeId, allPro
           )}
         </div>
       )}
-      {view.kind === 'console' && opened && (
-        <ConsoleHeader c={opened} projectName={projectName} detailsOpen={detailsOpen} onToggleDetails={() => setDetailsOpen((o) => !o)} onBack={back} />
-      )}
-      {view.kind !== 'wall' && (
-        <ConsoleStrip consoles={inScope} mainId={wall.mainId} selected={heldId} onAll={back} onOpen={open} />
-      )}
-      <div className="agents-page__body" style={view.kind === 'wall' ? { display: 'none' } : undefined}>
+      <div className="agents-page__body">
         <div className="agents-page__console" ref={consoleRef}>
           {children}
         </div>
-        {view.kind === 'console' && opened && detailsOpen && (
-          <DetailsPanel d={detailsFor(opened)} accounts={accounts} nowMs={nowMs} onOpenConsole={open} onOpenPlan={(jobId) => openPlan(jobId, 'waves')} />
-        )}
       </div>
     </div>
   )
