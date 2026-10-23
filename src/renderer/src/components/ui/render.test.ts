@@ -5,7 +5,8 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { Inbox } from 'lucide-react'
 import {
   Badge, Button, Card, Checkbox, Chip, ConfirmDialog, EmptyState, Field, Icon, ICONS, Input, itemsOfOptions, Kbd, kbdKeys, Menu, Meter, Nav, PageHeader, Popover,
-  Section, Select, Skeleton, Switch, Tabs, Textarea, Toast, ToastViewport
+  Section, Select, Skeleton, Switch, Tabs, Textarea, Toast, ToastViewport,
+  ActivityBarItem, EditorTab, Sash, StatusBarItem, Toolbar, Tree, TreeRow, ViewContainer, ViewPane
 } from './index'
 import type { NativeSelectProps } from './index'
 
@@ -262,5 +263,100 @@ describe('primitives.css', () => {
     const css = readFileSync(new URL('../../styles/primitives.css', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
     expect(css).not.toMatch(/font-size:\s*[\d.]+px/)
     expect(css).not.toMatch(/box-shadow:[^;]*\d+px\s+[\d.]+px/)
+  })
+})
+
+describe('workbench primitives (DESIGN-W13)', () => {
+  const rows = [
+    { id: 'src', depth: 0, label: 'src', hasChildren: true, expanded: true },
+    { id: 'a', depth: 1, label: 'a.ts', description: 'lib', decoration: { text: 'M', tone: 'warn' as const }, actions: React.createElement('i', { id: 'act' }) }
+  ]
+
+  it('Tree is an ARIA tree of treeitems with level, expanded and selected', () => {
+    const out = html(React.createElement(Tree, { rows, selectedId: 'a', label: 'Files' }))
+    expect(out).toContain('role="tree"')
+    expect(out).toContain('aria-label="Files"')
+    expect(out.match(/role="treeitem"/g)).toHaveLength(2)
+    expect(out).toMatch(/aria-level="1"[^>]*aria-selected="false"[^>]*aria-expanded="true"/)
+    expect(out).toMatch(/aria-level="2"[^>]*aria-selected="true"/)
+    expect(out).toContain('ui-tree__indent')
+    expect(out).toContain('ui-tree__deco--warn')
+    expect(out).toContain('ui-tree__meta has-actions')
+    expect(out).toContain('aria-activedescendant')
+  })
+
+  it('Tree draws only the viewport past 200 rows', () => {
+    const many = Array.from({ length: 5000 }, (_, i) => ({ id: `r${i}`, depth: 0, label: `row ${i}` }))
+    const out = html(React.createElement(Tree, { rows: many, label: 'Big' }))
+    const drawn = out.match(/role="treeitem"/g)?.length ?? 0
+    expect(drawn).toBeGreaterThan(10)
+    expect(drawn).toBeLessThan(60)
+    expect(out).toContain(`height:${5000 * 22}px`)
+    expect(out).not.toContain('row 4000')
+  })
+
+  it('a TreeRow without children has no aria-expanded and no chevron', () => {
+    const out = html(React.createElement(TreeRow, { row: { id: 'x', depth: 0, label: 'x' } }))
+    expect(out).not.toContain('aria-expanded')
+    expect(out).not.toContain('<svg')
+  })
+
+  it('ViewPane: a toggle with aria-expanded, uppercase title, count; body only when open', () => {
+    const open = html(React.createElement(ViewContainer, null, React.createElement(ViewPane, { title: 'Open editors', count: 3, children: 'body' })))
+    expect(open).toContain('ui-viewcontainer')
+    expect(open).toContain('aria-expanded="true"')
+    expect(open).toContain('ui-badge')
+    expect(open).toContain('body')
+    const closed = html(React.createElement(ViewPane, { title: 'T', defaultExpanded: false, storageKey: 'x', children: 'body' }))
+    expect(closed).toContain('aria-expanded="false"')
+    expect(closed).not.toContain('body<')
+  })
+
+  it('Sash is a focusable separator with its value and range', () => {
+    const out = html(React.createElement(Sash, { orientation: 'vertical', size: 260.4, min: 170, max: 600, onResize: () => {}, label: 'Resize' }))
+    expect(out).toContain('role="separator"')
+    expect(out).toContain('aria-orientation="vertical"')
+    expect(out).toContain('aria-valuenow="260"')
+    expect(out).toContain('aria-valuemin="170"')
+    expect(out).toContain('tabindex="0"')
+  })
+
+  it('Toolbar: one Tab stop (the first enabled button), an overflow trigger when asked', () => {
+    const items = [
+      { id: 'a', icon: 'a', label: 'A', onClick: () => {}, disabled: true },
+      { id: 'b', icon: 'b', label: 'B', onClick: () => {} }
+    ]
+    const out = html(React.createElement(Toolbar, { items, label: 'Actions', overflow: [{ label: 'More', onSelect: () => {} }], overflowLabel: 'More actions' }))
+    expect(out).toContain('role="toolbar"')
+    expect(out.match(/tabindex="0"/g)).toHaveLength(1)
+    expect(out).toMatch(/aria-label="B"[^>]*tabindex="0"|tabindex="0"[^>]*aria-label="B"/)
+    expect(out).toContain('aria-label="More actions"')
+  })
+
+  it('ActivityBarItem: pressed when active, badge text and the count in its name', () => {
+    const out = html(React.createElement(ActivityBarItem, { icon: 'i', label: 'Agents', active: true, badge: 12 }))
+    expect(out).toContain('aria-pressed="true"')
+    expect(out).toContain('aria-label="Agents (12)"')
+    expect(out).toContain('>9+<')
+    expect(out).toContain('is-active')
+    const plain = html(React.createElement(ActivityBarItem, { icon: 'i', label: 'Plans', badge: 0 }))
+    expect(plain).toContain('aria-label="Plans"')
+    expect(plain).not.toContain('ui-activity__badge')
+  })
+
+  it('EditorTab: a tab with a named close button; dirty draws the dot; group focus picks the border', () => {
+    const out = html(React.createElement(EditorTab, { label: 'Wall', description: 'T4', active: true, dirty: true, onClose: () => {}, closeLabel: 'Close' }))
+    expect(out).toContain('role="tab"')
+    expect(out).toContain('aria-selected="true"')
+    expect(out).toContain('aria-label="Close"')
+    expect(out).toContain('ui-etab__dot')
+    expect(out).toContain('is-focused-group')
+    expect(html(React.createElement(EditorTab, { label: 'x', active: true, groupFocused: false }))).toContain('is-blurred-group')
+    expect(html(React.createElement(EditorTab, { label: 'x' }))).not.toContain('ui-etab__end')
+  })
+
+  it('StatusBarItem is a button with onClick, plain text without', () => {
+    expect(html(React.createElement(StatusBarItem, { onClick: () => {}, children: 'Host ok' }))).toMatch(/^<button type="button" class="ui-status is-action"/)
+    expect(html(React.createElement(StatusBarItem, { tone: 'danger', children: 'Host offline' }))).toMatch(/^<span class="ui-status ui-status--danger"/)
   })
 })
