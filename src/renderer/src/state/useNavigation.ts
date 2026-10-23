@@ -1,11 +1,11 @@
 // App's handlers behind components/shell/navigation.ts. DESIGN-W13: the side bar's views (activities), the `view`
-// editor tabs and the bottom panel; the old page ids land on one of the three (navigation.ts pageTargetOf).
+// editor tabs and the bottom panel; 
 // Re-registered after every render so a handler always reads the latest state.
 import { useEffect } from 'react'
 import { sessionTab, viewTab, type ViewName } from '../../../core/panes/tabId'
 import { placeViewTab } from '../../../core/panes/place'
 import type { ActivityId } from '../../../core/ui/pages'
-import { pageTargetOf, registerNavigation, type SettingsGroup } from '../components/shell/navigation'
+import { registerNavigation, type SettingsGroup } from '../components/shell/navigation'
 import { requestInbox } from '../components/inbox/inboxNav'
 import { settingsTarget } from '../components/settings/settingsIndex'
 import { setWallView } from '../components/wall/wallView' // W9-H
@@ -16,7 +16,7 @@ import { ownerOf, scopeFor } from './projectScope'
 
 type NavigationDeps = Pick<
   AppState,
-  | 'goPage' | 'setSettingsTab' | 'setSettingsAnchor' | 'setRunPanelOpen'
+  | 'setSettingsTab' | 'setSettingsAnchor'
   | 'canOpenSessionTab' | 'setWorkspaceScope' | 'workspaceIds' | 'workspaceProjectId' | 'selectWorkbenchTab' | 'workspaceTree' | 'enterWorkspace' | 'setPendingRun'
   | 'setPlanPage' | 'showActivity' | 'setSidebarOpen' | 'openPanelTab' | 'setPanelVisible' | 'runPanelOpen' | 'layoutRef'
   | 'activePaneIdRef' | 'setLayout' | 'setActivePaneId' | 'openStart' | 'terminals' | 'setBottomTab' | 'openTerminal'
@@ -25,7 +25,7 @@ type NavigationDeps = Pick<
 export function useNavigation(app: NavigationDeps): void {
   useEffect(() => {
     const {
-      goPage, setSettingsTab, setSettingsAnchor, setRunPanelOpen, canOpenSessionTab, setWorkspaceScope,
+      setSettingsTab, setSettingsAnchor, canOpenSessionTab, setWorkspaceScope,
       selectWorkbenchTab, workspaceTree, enterWorkspace, setPendingRun, setPlanPage, workspaceIds, workspaceProjectId,
       showActivity, setSidebarOpen, openPanelTab, setPanelVisible, runPanelOpen, layoutRef, activePaneIdRef, setLayout,
       setActivePaneId, openStart, terminals, setBottomTab, openTerminal
@@ -78,22 +78,6 @@ export function useNavigation(app: NavigationDeps): void {
       },
       toggleSideBar: () => setSidebarOpen((v) => !v),
       togglePanel: () => setPanelVisible(!runPanelOpen),
-      openPage: (id, plan) => {
-        // a plan page's "Its consoles": the wall, filtered to that plan
-        if (id === 'agents' && plan !== undefined) {
-          placeView('wall')
-          setWallView({ kind: 'wall', plan })
-          return
-        }
-        // Run configs come with their output (DESIGN.md §1)
-        if (id === 'more:runs') setRunPanelOpen(true)
-        if (id === 'worktrees') showWorktrees() // W9-J
-        const target = pageTargetOf(id)
-        if ('view' in target) return openView(target.view)
-        if ('panel' in target) return openPanelTab(target.panel) // the Inbox: Needs you, never a console tab
-        goPage(id)
-        setSidebarOpen(true)
-      },
       // a console's own tab; the side bar stays on what it shows
       openConsole: (sessionId) => {
         if (!canOpenSessionTab(sessionId)) return

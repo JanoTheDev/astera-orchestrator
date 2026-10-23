@@ -8,7 +8,7 @@ import { groupOfTab } from '../../../../core/panes/tree'
 import { sessionTab } from '../../../../core/panes/tabId'
 import { parentDir, resolveRelative } from '../../../../core/files/paths'
 import type { AppState } from '../../state/appState'
-import { openPage } from '../shell/navigation'
+import { openPlanConsoles } from '../shell/navigation'
 import { planSectionOf, type PlanSection } from '../plan/planBoard'
 import { PlanPage } from './PlanPage'
 import '../plan/plan.css'
@@ -116,7 +116,7 @@ export function PlansPage(p: PlansPageProps): React.JSX.Element | null {
           }}
           plans={snap?.runs ?? []}
           snapshot={snap}
-          onOpenConsoles={() => openPage('agents', openRun.runId)}
+          onOpenConsoles={() => openPlanConsoles(openRun.runId)}
         />
       </div>
     )

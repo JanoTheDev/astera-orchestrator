@@ -1,7 +1,6 @@
 import { useRef, useState } from 'react'
 import { MoreHorizontal } from 'lucide-react'
-import { cx } from './logic'
-import { rovingKeyDown } from './Nav'
+import { cx, rovingKeyDown } from './logic'
 import { IconButton } from './IconButton'
 import { Menu, type MenuItem } from './Menu'
 import type { ButtonProps } from './UiButton'

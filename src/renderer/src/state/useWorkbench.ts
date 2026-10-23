@@ -22,9 +22,9 @@ import { dismiss, toast } from '../lib/toast'
 import { spawnNotice } from '../lib/spawnNotice'
 import { announceSettingsRecovery } from '../lib/settingsRecoveryNotice'
 import { confirmModal, confirmModalWithChoices, isConfirmOpen } from '../lib/confirm'
-import { ACTIVITY_STORAGE_KEY, togglePage, type ActivityId, type PageId } from '../../../core/ui/pages'
+import { ACTIVITY_STORAGE_KEY, activityOfSaved, togglePage, type ActivityId, type PageId } from '../../../core/ui/pages'
 import { requestBox } from '../components/command/boxStore'
-import { openActivity, openPage, openView, pageTargetOf, togglePanel, toggleSideBar } from '../components/shell/navigation'
+import { openActivity, openView, togglePanel, toggleSideBar } from '../components/shell/navigation'
 import { storageWrite } from '../components/shell/shellView'
 import { terminalsWithCreated } from '../lib/terminalTabs'
 import { isCancelled as isWorktreeCancelled } from '../lib/worktreeErrors'
@@ -523,13 +523,6 @@ export function useWorkbench(deps: WorkbenchDeps) {
         if (action === 'sidebar.home') toggleSessions()
         else if (action === 'sidebar.jobs') toggleJobs()
         else toggleHiw()
-        return
-      }
-      // W9-B: an old page key someone rebound still opens its page (no default chord any more).
-      if (action.startsWith('page.')) {
-        e.preventDefault()
-        e.stopPropagation()
-        if (!e.repeat) openPage(action.slice('page.'.length) as PageId)
         return
       }
       // DESIGN-W13 §9: the workbench chords. They go through navigation.ts, whose handlers hold the panel's state too.
@@ -1487,8 +1480,8 @@ export function useWorkbench(deps: WorkbenchDeps) {
     pageRef.current = id
     setPage(id)
     // DESIGN-W13: a page is a side bar view now. Settings and the Inbox have none (a view tab, the panel): they leave it.
-    const target = pageTargetOf(id)
-    if ('activity' in target) showActivity(target.activity)
+    const to = activityOfSaved(id)
+    if (id !== 'settings' && !to.panelTab) showActivity(to.activity)
   }
   /** The side bar's view; the flags the app's effects read (explorerOpen, jobsOpen, hiwOpen) follow it, and it is kept
    *  for the next launch. Whether the side bar shows is the caller's (openActivity shows it, goPage leaves it). */

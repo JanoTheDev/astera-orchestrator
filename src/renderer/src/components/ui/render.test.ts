@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { Inbox } from 'lucide-react'
 import {
-  Badge, Button, Card, Checkbox, Chip, ConfirmDialog, EmptyState, Field, Icon, ICONS, Input, itemsOfOptions, Kbd, kbdKeys, Menu, Meter, Nav, PageHeader, Popover,
+  Badge, Button, Card, Checkbox, Chip, ConfirmDialog, EmptyState, Field, Icon, ICONS, Input, itemsOfOptions, Kbd, kbdKeys, Menu, Meter, PageHeader, Popover,
   Section, Select, Skeleton, Switch, Tabs, Textarea, Toast, ToastViewport,
   ActivityBarItem, EditorTab, Sash, StatusBarItem, Toolbar, Tree, TreeRow, ViewContainer, ViewPane
 } from './index'
@@ -49,9 +49,8 @@ describe('ui primitives render', () => {
     expect(html(React.createElement(Meter, { value: 130 }))).toContain('aria-valuenow="100"')
   })
 
-  it('Nav marks the current page, Tabs the selected tab', () => {
+  it('Tabs mark the selected tab', () => {
     const items = [{ id: 'a', label: 'A' }, { id: 'b', label: 'B', count: 2 }]
-    expect(html(React.createElement(Nav, { items, current: 'b', onSelect: () => {} }))).toMatch(/aria-current="page"[^>]*>B/)
     const tabs = html(React.createElement(Tabs, { items, value: 'a', onChange: () => {} }))
     expect(tabs).toContain('role="tablist"')
     expect(tabs).toMatch(/role="tab"[^>]*aria-selected="true"[^>]*>A/)

@@ -89,7 +89,6 @@ export const plan: Partial<Record<keyof typeof ko, string>> = {
   'jobs.changes.reportedNone': 'Los workers no informaron archivos.',
   'jobs.changes.unsupported': "Ese equipo aún no ofrece los archivos cambiados. Actualiza Astera en él.",
   'jobs.changes.listCut': 'Demasiados archivos: se muestran {shown} de {total}.',
-  'plan.wave.coordinatorRefreshed': 'Agente principal renovado ({reason})',
   'plan.simple.approvedFromChat': 'Aprobado desde el chat del planificador: «{words}»',
   'plan.pick.title': 'Elegidas para este plan',
   'plan.pick.picked': '#{n} {title}: {why}',
@@ -161,11 +160,6 @@ export const plan: Partial<Record<keyof typeof ko, string>> = {
   'plan.question.title': 'Pregunta para ti',
   'plan.question.answer': 'Responder',
   // W12 repair: the plan page's section tabs
-  'pages.plan.section.overview': 'Resumen',
-  'pages.plan.section.waves': 'Pasos',
-  'pages.plan.section.files': 'Archivos',
-  'pages.plan.section.changes': 'Cambios',
-  'pages.plan.section.journal': 'Registro',
   // T8 plan tab and Plan settings
   'plan.doc.needsYou': 'Te necesita',
   'plan.doc.goal': 'Objetivo',

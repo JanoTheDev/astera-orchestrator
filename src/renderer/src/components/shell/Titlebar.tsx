@@ -53,7 +53,7 @@ export function Titlebar({
   runningCount: number
   /** Passed straight through to UpdateIndicator's restart button — see the prop there. */
   onInstall: () => void
-  /** What shares the bar — the TopBar. A slot, so the title bar does not know what it holds. */
+  /** What shares the bar. A slot, so the title bar does not know what it holds. */
   children?: React.ReactNode
 }): React.JSX.Element {
   const { t } = useI18n()

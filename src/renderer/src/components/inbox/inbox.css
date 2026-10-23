@@ -43,8 +43,5 @@
 .bell .bell__kind { flex: none; min-width: 64px; color: var(--text-dim); font-size: var(--fs-12); }
 .bell .bell__kind--warn { color: var(--warn); }
 .bell .bell__kind--danger { color: var(--danger); }
-/* The bell sits in the status bar, whose overflow:hidden (statusBar.css) clipped the popover that opens upward from it */
-.statusbar.wb-status { overflow: visible; }
-.app { overflow: clip; } /* the items' half pixel below the bar must not make the page scroll */
 .wb-status__bell .tb-popover.bell { width: 360px; }
 .bell .bell__line:disabled { opacity: 1; color: var(--text-dim); }

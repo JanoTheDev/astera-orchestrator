@@ -15,7 +15,7 @@ import { localDoor, replyNote } from '../../lib/orchDoor'
 import { jobName } from '../../lib/jobName'
 import { toast } from '../../lib/toast'
 import { archiveJob, deleteRun, holdJob, pauseRun, restartCoordinator as restartRunCoordinator, resumeRun, unarchiveJob } from '../../lib/jobActions'
-import { openConsole, openPage, openView } from '../shell/navigation'
+import { openConsole, openPlanConsoles, openView } from '../shell/navigation'
 import { ViewToolbar, type SideBarViewProps } from '../shell/SideBar'
 import { planStatusOf } from '../plan/planList'
 import { approveSlot } from '../plan/planTalk'
@@ -240,7 +240,7 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
     })
     return [
       item('open', t('pages.plans.tree.menu.open'), 'open', () => openPlanTab(row.id)),
-      item('consoles', t('pages.plans.tree.menu.consoles'), 'terminal', () => openPage('agents', row.id)),
+      item('consoles', t('pages.plans.tree.menu.consoles'), 'terminal', () => openPlanConsoles(row.id)),
       item('settings', t('pages.plans.tree.menu.settings'), 'settings', () => openPlanTab(row.id, 'settings')),
       'separator',
       ...(approveSlot(row) === 'approve' && local ? [item('approve', t('jobs.run.approve'), 'check', () => p.approve(local, orchSnapshot, row.id, actionUi))] : []),

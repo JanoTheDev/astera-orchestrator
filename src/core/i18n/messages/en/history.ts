@@ -15,7 +15,6 @@ export const history: Record<keyof typeof ko, string> = {
   'history.resume.folderMissingBody':
     'The original project folder does not exist:\n{cwd}\n\nChoose a new folder to resume in?',
   'history.resume.pickFolder': 'Choose folder',
-  'history.panel.count': '{n} projects',
   'history.panel.emptyHint': 'Past agent sessions are listed here, grouped by project.',
   'history.menu.label': 'Project actions',
   'history.entry.unread': 'Waiting for your reply',

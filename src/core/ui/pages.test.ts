@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { PAGE_IDS, MORE_PAGE_IDS, DEFAULT_PAGE, KEYED_PAGES, MORE_MENU_PAGES, TAB_PAGES, initialPage, tabOf, isPageId, pageOf, pageOfSidebarPane, togglePage, viewFlagsOf, ACTIVITY_IDS, DEFAULT_ACTIVITY, activityOfSaved, clampSidebarWidth } from './pages'
+import { PAGE_IDS, MORE_PAGE_IDS, DEFAULT_PAGE, initialPage, isPageId, pageOf, pageOfSidebarPane, togglePage, ACTIVITY_IDS, DEFAULT_ACTIVITY, activityOfSaved, clampSidebarWidth } from './pages'
 
 describe('pages', () => {
   it('the contract ids (PLAN.md "Wave 9 contracts")', () => {
@@ -28,10 +28,6 @@ describe('pages', () => {
 
 // W9-B
 describe('the shell’s pages', () => {
-  it('Ctrl+1…6 open the top bar’s pages in its order', () => {
-    expect(KEYED_PAGES).toEqual(['agents', 'tasks', 'plans', 'inbox', 'worktrees', 'files'])
-  })
-
   it('launch reopens the saved page, maps an old sidebar pane, and never reopens Settings or a More page', () => {
     expect(initialPage(null)).toBe('agents')
     expect(initialPage('plans')).toBe('plans')
@@ -50,31 +46,6 @@ describe('the shell’s pages', () => {
     expect(togglePage(togglePage('agents', 'more:hiw'), 'more:hiw')).toBe('agents')
   })
 
-  // moved from core/ui/sidebar.test.ts: one view at a time
-  it('one view flag at a time, from the page that shows it', () => {
-    expect(viewFlagsOf('files')).toEqual({ explorer: true, jobs: false, understanding: false })
-    expect(viewFlagsOf('plans')).toEqual({ explorer: false, jobs: true, understanding: false })
-    expect(viewFlagsOf('tasks')).toEqual({ explorer: false, jobs: true, understanding: false })
-    expect(viewFlagsOf('more:hiw')).toEqual({ explorer: false, jobs: false, understanding: true })
-    expect(viewFlagsOf('agents')).toEqual({ explorer: false, jobs: false, understanding: false })
-  })
-
-  // T9: a clean shell
-  it('the top bar has Home, Plans and Files; More holds Worktrees, History, Runs, How it works and Browser', () => {
-    expect(TAB_PAGES).toEqual(['agents', 'plans', 'files'])
-    expect(MORE_MENU_PAGES).toEqual(['worktrees', 'more:history', 'more:runs', 'more:hiw', 'more:browser'])
-    expect([...TAB_PAGES, ...MORE_MENU_PAGES]).not.toContain('inbox')
-  })
-
-  it('the tasks id is Plans › All tasks; Inbox and Settings light no tab', () => {
-    expect(isPageId('tasks')).toBe(true)
-    expect(tabOf('tasks')).toBe('plans')
-    expect(tabOf('plans')).toBe('plans')
-    expect(tabOf('agents')).toBe('agents')
-    expect(tabOf('inbox')).toBeNull()
-    expect(tabOf('settings')).toBeNull()
-    expect(tabOf('worktrees')).toBeNull()
-  })
 })
 
 describe('workbench ids', () => {

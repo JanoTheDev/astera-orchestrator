@@ -8,7 +8,7 @@ import { foldsPathCase } from '../../../../core/files/paths'
 import { useI18n } from '../../i18n/I18nProvider'
 import { formFailure, localDoor } from '../../lib/orchDoor'
 import { useAdvancedMode } from '../../state/useAdvancedMode'
-import { openConsole, openPage } from '../shell/navigation'
+import { openActivity, openConsole } from '../shell/navigation'
 import { Button, Card, Chip, Field, Icon, IconButton, Input, PageHeader, Tabs, Textarea } from '../ui'
 import { useIntake } from '../intake/useIntake'
 import { ScheduleRuleFields } from '../ScheduleRuleFields'
@@ -69,7 +69,7 @@ export function StartPage({
       onClose()
       const next = afterCreate(sessionId)
       if ('openConsole' in next) openConsole(next.openConsole)
-      else openPage(next.openPage)
+      else openActivity(next.openActivity)
     }
   })
   const { project, files, text, setPlanning } = intake
@@ -102,7 +102,7 @@ export function StartPage({
       if (r.status >= 400) setSchedError(formFailure(r, t as never, 'jobs.new.failed').message)
       else {
         onClose()
-        openPage('agents')
+        openActivity('agents')
       }
     } catch {
       setSchedError(t('jobs.new.failed'))

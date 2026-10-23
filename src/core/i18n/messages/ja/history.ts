@@ -15,7 +15,6 @@ export const history: Partial<Record<keyof typeof ko, string>> = {
   'history.resume.folderMissingBody':
     '元のプロジェクトフォルダがありません:\n{cwd}\n\n再開するフォルダを選び直しますか？',
   'history.resume.pickFolder': 'フォルダを選択',
-  'history.panel.count': '{n} 件のプロジェクト',
   'history.panel.emptyHint': 'これまでのエージェントとのセッションがプロジェクトごとにここに並びます。',
   'history.menu.label': 'プロジェクトの操作',
   'history.entry.unread': 'あなたの返信を待っています',

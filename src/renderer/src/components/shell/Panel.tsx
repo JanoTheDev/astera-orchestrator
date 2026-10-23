@@ -33,7 +33,7 @@ export type PanelProps = Pick<
   Pick<ShellState, 'needsYouUnread'>
 
 export function Panel(p: PanelProps): React.JSX.Element | null {
-  const { bottomTabShown, panelTab, runPanelOpen, runPanelHeight, t, terminals } = p
+  const { bottomTabShown, openLinkedFolder, panelTab, runPanelOpen, runPanelHeight, t, terminals } = p
   const shown = shownPanelTab(panelTab, bottomTabShown)
   if (!runPanelOpen) return null
   const consoles = shown === 'output' || shown === 'terminal'
@@ -90,7 +90,7 @@ export function Panel(p: PanelProps): React.JSX.Element | null {
               onRerun={(configId) => p.runStart(configId)}
               onDismissRun={p.runDismiss}
               onOpenFile={p.openLinkedPath}
-              onOpenFolder={p.openLinkedFolder}
+              onOpenFolder={openLinkedFolder}
               onOpenUrl={p.openUrl}
               onOpenPreview={(url) => p.openBrowserTab(previewTargetOf(url))}
               terminals={terminals}

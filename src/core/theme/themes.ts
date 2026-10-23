@@ -1,7 +1,6 @@
 /** 한글 담당을 스택에 직접 적는다 — 스펙 §4.3, 그리고 themes.test.ts 가 이것을 검사한다. */
 const HANGUL = "'Malgun Gothic', 'Apple SD Gothic Neo', 'Noto Sans CJK KR', sans-serif"
-/** The UI face (DESIGN-W13.md §11): the platform's own UI font, as VSCode does. The bundled IBM Plex Sans
- *  files stay on disk but no stack names them. */
+/** The UI face (DESIGN-W13.md §11): the platform's own UI font, as VSCode does. */
 export const SANS = `system-ui, -apple-system, 'Segoe UI', Ubuntu, Cantarell, ${HANGUL}`
 /** The app UI's code face. The terminal's mono chain (core/terminal/font.ts) is separate — that one the
  *  person picks in settings. */

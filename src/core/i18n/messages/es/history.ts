@@ -15,7 +15,6 @@ export const history: Partial<Record<keyof typeof ko, string>> = {
   'history.resume.folderMissingBody':
     'La carpeta original del proyecto no existe:\n{cwd}\n\n¿Elegir otra carpeta para reanudar?',
   'history.resume.pickFolder': 'Elegir carpeta',
-  'history.panel.count': '{n} proyectos',
   'history.panel.emptyHint': 'Las sesiones anteriores con agentes aparecen aquí, agrupadas por proyecto.',
   'history.menu.label': 'Acciones del proyecto',
   'history.entry.unread': 'Esperando tu respuesta',

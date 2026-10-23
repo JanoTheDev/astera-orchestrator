@@ -37,7 +37,7 @@ export type AgentsPageProps = Pick<AppState, 'sessions' | 'accounts' | 'currentP
   /** W11: the header's and the empty state's "New console" (the New dialog's Console choice). */
   setShowNew?: AppState['setShowNew']
   children: React.ReactNode
-  /** W9-B: off the console pages (Pages.tsx `showsConsoles`) the whole page is hidden, its pane grid with it. */
+  /** W9-B: when the wall tab is not shown the whole page is hidden, its pane grid with it. */
   hidden?: boolean
 }
 

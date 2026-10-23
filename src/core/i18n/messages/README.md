@@ -12,13 +12,13 @@ A key's area is the screen whose files use it. Paths are under `src/renderer/src
 |---|---|
 | common | keys used by two or more areas, or by `ui/`, Select, ContextMenu, ToastHost, ConfirmHost, `lib/`, `state/`, `hooks/`, `App.tsx`, `i18n/I18nProvider` |
 | core | keys used only outside `src/renderer` (`src/core`, `src/main`, `src/host`, `src/cli`, `src/pluginHost`, `packages/`) |
-| shell | shell/Titlebar, TopBar, ProjectSwitcher, StatusBar, shellView, useShell, navigation, Pages; usage/UsageStrip, usageView, runOut |
+| shell | shell/Titlebar, ActivityBar, SideBar, Panel, ProjectSwitcher, StatusBar, shellView, useShell, navigation, viewTabs; `views/`; usage/UsageStrip, usageView, runOut |
 | start | pages/StartPage, startLogic; NewModal; ScheduleRuleFields; ScheduleFields; `intake/` |
 | plans | pages/PlansPage; plan/MainPlan, mainPlanView, PlanList, PlanRow, planList, Coordinator, coordinator; SourceChip |
-| plan | pages/PlanPage, TasksPage, tasksPlanning; plan/PlanHeader, PlanOverview, PlanOverviewSection, PlanWaves, TaskBoard, PlanGraph, PlanFiles, PlanChanges, PlanJournal, PlanTalk, planTalk, QuestionAnswer, AutoApproveToggle, planBoard, planCommands, planPage, usePlanLive, usePlanPage; GateAnswer; TaskLinkChips; ChangedFilesBlock |
+| plan | pages/PlanPage; plan/PlanHeader, PlanOverview, PlanOverviewSection, PlanWaves, TaskBoard, PlanGraph, PlanFiles, PlanChanges, PlanJournal, PlanTalk, planTalk, QuestionAnswer, AutoApproveToggle, planBoard, planCommands, planPage, usePlanLive, usePlanPage; GateAnswer; TaskLinkChips; ChangedFilesBlock |
 | agents | pages/AgentsPage; `wall/`; shell/Content; PaneGrid; TerminalView; TerminalBody; WorkbenchTabs; RunTabStrip; `conversation/`; SessionStateBanners; RemoteTerminalView; ProviderBadge; ResumeGlyph; agentOverlay |
 | files | FileExplorer, ChangedList, ExplorerRow, explorerRows, explorerChanged, ExplorerLoading, FileEditor, FileFindBar, fileFind, FileIcon, FolderGlyph, MediaViewer, MarkdownPreview, MarkdownSplit, DiffView, `attribution/`, LocalHistoryDialog |
-| worktrees | pages/WorktreesPage; WorktreePanel; WorktreeCreateStatus; `worktrees/`; BranchGlyph |
+| worktrees | views/ScmView; WorktreeCreateStatus; `worktrees/`; BranchGlyph |
 | accounts | AccountPanel, AccountSettings, AccountRow, AccountSignIn, AccountSelect, accountSelectItems, AccountUsageMeter, settings/AccountsUsageSettings, usage/UsageGuardSettings |
 | settings | settings/SettingsPage, SettingRow, settingsIndex, GeneralSettings, AgentsSettings, NotificationsSettings, AdvancedSettings; shell/SettingsDialog; ThemeSettings, TerminalFontSettings, ShortcutSettings, AutoCloseTabsSetting, AutoAnswerSetting, FreshCoordinatorSetting, MaxWorkersSetting, OrchestratorModelsSettings, ResumeStrategySettings, StallWatchSetting, StartAtLoginSetting, TabSummariesSetting, NotificationSettings, GeneratorSettings, HistorySettings, command/VoiceSettings, activity/ActivityDigestSetting, activity/AlertSoundSetting |
 | integrations | settings/ProjectsSettings, IntegrationsSettings; projects/ProjectSettings, projectAnchor; `delivery/`; GithubSettings, SlackSettings, TelegramSettings, CliSettings, McpSettings, PluginsSettings, pluginsList, pluginsText, RemoteRuntimesSettings, remoteRuntimesText, CreativeHubSettings, creativeHub, HiggsfieldSettings |

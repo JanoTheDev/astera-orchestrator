@@ -13,12 +13,12 @@ import { archiveJob, deleteRun, holdJob, renameJob, resolveFailed, unarchiveJob 
 import { Button, EmptyState, ICONS, type IconName } from '../ui'
 import { PlansPage } from '../pages/PlansPage'
 import { StartPage } from '../pages/StartPage'
-import { WorktreesPage } from '../pages/WorktreesPage'
+import { WorktreeDetail } from '../worktrees/WorktreeDetail'
 import { SettingsPage } from '../settings/SettingsPage'
 import { KeyboardShortcuts } from '../ShortcutSettings'
 import { MainPlan } from '../plan/MainPlan'
 import type { PlanActs } from '../plan/PlanRow'
-import { selectWorktree } from '../worktrees/worktreeView'
+import { selectWorktree, useWorktreeView } from '../worktrees/worktreeView'
 import { repoInScope } from '../../state/projectView'
 import { Welcome } from './Welcome'
 import { openPlan } from './navigation'
@@ -75,13 +75,15 @@ function planActs(p: ViewTabProps): PlanActs {
   }
 }
 
-/** A worktree tab: the Worktrees page on that worktree, selected while the tab shows. */
+/** A worktree tab: the worktree detail, selected while the tab shows. */
 function WorktreeTab({ p, path, active }: { p: ViewTabProps; path?: string; active: boolean }): React.JSX.Element {
+  const { selected } = useWorktreeView()
   useEffect(() => {
     if (active && path !== undefined) selectWorktree(path)
   }, [active, path])
   return (
-    <WorktreesPage
+    <WorktreeDetail
+      path={selected}
       onStartSession={(cwd) => {
         p.setNewSessionCwd(cwd)
         p.setShowNew(true)
