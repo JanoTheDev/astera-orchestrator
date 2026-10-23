@@ -95,7 +95,7 @@ against the real core functions.
 | Worktrees | More › Worktrees: one row, `shots/settings-page ↑1`. |
 | Create PR dialog | Worktrees, click the row, then the detail's **More** › **Create PR**. The dialog reads "shots/settings-page → main … 1 commits will be in this pull request". Cancel it: submitting needs a remote and gh. |
 
-## Open defects (for the after-shots Task)
+## Open defects (T33 status: the Files read failure is fixed at the message, not at the stale project)
 
 - **Files "Read failed: Error invoking remote method 'files.list'" on `~/.config/astera-dev`.** This is not an
   allow-list problem.
@@ -111,6 +111,7 @@ against the real core functions.
     - Drop or skip a scope project whose folder is missing, as `stickyRoot` already does.
     - Have `files.list` report "project folder missing".
     - Prune dead projects from that profile.
+- **Status (T33).** The Files note no longer shows "Error invoking remote method 'files.list'" (`useFileTree.ts` strips the IPC prefix with `errText`; `FileExplorer.tsx` says "This folder no longer exists." for ENOENT; test: `hooks/useFileOps.test.ts`). The stale project is still selectable: `scopeRoot` in `useJobs.ts` is not dropped when its folder is gone. That change is in a state file outside this Task's paths.
 - **`--user-data-dir` gets a `-dev` suffix** in the unpackaged app, so seeding the folder you pass opens an empty
   profile. Seed `<dir>-dev`, as shown above.
 - **Tools panel needs Advanced mode.** More › Run configs is hidden in simple mode (`SIMPLE_MORE_PAGES`). The seed

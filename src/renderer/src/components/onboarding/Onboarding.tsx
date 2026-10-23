@@ -21,6 +21,7 @@ import {
 } from './onboardingModel'
 import { onboardingReplayStart } from './replay'
 import './onboarding.css'
+import { FOCUSABLE, modalKeyAction } from '../ui/logic'
 
 const UPDATE_MODES: readonly UpdateMode[] = ['off', 'notify', 'build', 'install-when-idle']
 /** Same convention as GeneralSettings: Select keys rows by string, so "System" is the empty string. */
@@ -308,6 +309,17 @@ export function Onboarding(p: OnboardingProps): React.JSX.Element | null {
       role="region"
       aria-label={t('onboarding.label')}
       onKeyDown={(e) => {
+        // Tab wraps inside the page (the same rule as a Modal's trap): focus used to leave for the title bar and the
+        // app hidden under this page.
+        if (e.key === 'Tab' && !e.defaultPrevented) {
+          const items = Array.from(e.currentTarget.querySelectorAll<HTMLElement>(FOCUSABLE))
+          const action = modalKeyAction('Tab', e.shiftKey, items.indexOf(document.activeElement as HTMLElement), items.length)
+          if (action !== null && action !== 'close') {
+            e.preventDefault()
+            items[action.focus]?.focus()
+          }
+          return
+        }
         // Esc skips, no confirm. A dialog opened from a step stops its own Esc before it gets here.
         if (e.key !== 'Escape' || e.defaultPrevented) return
         e.preventDefault()
