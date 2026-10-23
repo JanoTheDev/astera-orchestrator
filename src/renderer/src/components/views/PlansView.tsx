@@ -1,95 +1,482 @@
-// The Plans side bar view (DESIGN-W13 §4). Adapter until its own Task: the Plans page's list (and its All tasks view);
-// a plan opens in its own `view:plan` tab, so the list here never turns into the plan page. A paired Runtime's plans keep
-// their selector and list, as on the old Plans page.
-import { useState } from 'react'
-import { Icon, Tabs } from '../ui'
+// T7 Plans side bar view (DESIGN-W13 §4 "Plans"): one tree Plan › Step › Task (plan/planTree.ts builds the rows), grouped
+// by plan, Task status or area, with a pinned Main plan pane above it. Every plan action is on its row's context menu
+// (lib/jobActions, as the old list rows wired them). A paired Runtime's plans keep their selector and list (JobsView).
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { JobRow } from '../../../../core/types'
+import { jobsStall, jobsViewScreen } from '../../../../core/orchestration/jobsView'
+import { groupOfTab } from '../../../../core/panes/tree'
+import { sessionTab } from '../../../../core/panes/tabId'
+import { Badge, Button, Icon, Input, Menu, Tree, ViewContainer, ViewPane, menuPointOf, type ChipTone, type IconName, type MenuItem, type TreeItem, type TreeProps } from '../ui'
 import { RuntimeSelector } from '../RuntimeSelector'
 import { JobsView } from '../JobsView'
-import { PlansPage } from '../pages/PlansPage'
-import { TasksPage } from '../pages/TasksPage'
+import { TaskGlyph } from '../JobIcons'
 import { controlReason, isRemoteRuntime, offlineNote } from '../../lib/remoteJobs'
-import { deleteRun, pauseRun, restartCoordinator as restartRunCoordinator, resumeRun } from '../../lib/jobActions'
-import { openView } from '../shell/navigation'
+import { localDoor, replyNote } from '../../lib/orchDoor'
+import { jobName } from '../../lib/jobName'
+import { toast } from '../../lib/toast'
+import { archiveJob, deleteRun, holdJob, pauseRun, restartCoordinator as restartRunCoordinator, resumeRun, unarchiveJob } from '../../lib/jobActions'
+import { openConsole, openPage, openView } from '../shell/navigation'
 import { ViewToolbar, type SideBarViewProps } from '../shell/SideBar'
+import { planStatusOf } from '../plan/planList'
+import { approveSlot } from '../plan/planTalk'
+import { deliveryActionsOf } from '../plan/planPage'
+import { mainPlanViewOf } from '../plan/mainPlanView'
+import {
+  GROUP_BYS,
+  groupByOf,
+  groupCount,
+  needsYouOf,
+  openByDefault,
+  overlapOf,
+  pauseActionOf,
+  planDescription,
+  planTreeRows,
+  setPlanAnchor,
+  taskAnchor,
+  taskDescription,
+  type GroupBy,
+  type PlanAnchor,
+  type PlanNode,
+  type PlanTreeRow,
+  type StatusGroup
+} from '../plan/planTree'
+import '../plan/plans.css'
+
+const GROUP_KEY = 'cm.plansGroupBy'
+
+function storedGroupBy(): GroupBy {
+  try {
+    return groupByOf(localStorage.getItem(GROUP_KEY))
+  } catch {
+    return 'plans'
+  }
+}
+
+const TONE_ICON: Record<ChipTone, IconName> = { ok: 'done', danger: 'error', warn: 'circleAlert', info: 'active', neutral: 'pending' }
+const GROUP_ICON: Record<StatusGroup, { icon: IconName; tone: ChipTone }> = {
+  needs: { icon: 'circleAlert', tone: 'warn' },
+  running: { icon: 'loading', tone: 'info' },
+  waiting: { icon: 'waiting', tone: 'neutral' },
+  done: { icon: 'done', tone: 'ok' },
+  failed: { icon: 'error', tone: 'danger' }
+}
+const toned = (name: IconName, tone: ChipTone): React.ReactNode => <Icon name={name} className={`plans-tone--${tone}`} />
 
 export function PlansView(p: SideBarViewProps): React.JSX.Element {
   const { t, pairedRuntimes, jobsRuntime, remoteSnapshot, remoteProject, remoteViewPermission, remoteViewDoor, remoteActionUi } = p
-  const [view, setView] = useState<'plans' | 'tasks'>('plans')
   const runtimeName = pairedRuntimes.find((r) => r.runtimeId === jobsRuntime)?.name ?? jobsRuntime
+  const remote = isRemoteRuntime(jobsRuntime)
   return (
-    <div className="wb-view wb-view--scroll">
+    <ViewContainer label={t('shell.activity.plans')} className="plans-view">
+      {pairedRuntimes.length > 0 && (
+        <div className="plans-view__runtime">
+          <RuntimeSelector
+            readOnlyReason={controlReason(remoteViewPermission, t as never)}
+            paired={pairedRuntimes}
+            runtimeId={jobsRuntime}
+            onRuntime={p.setJobsRuntime}
+            projects={p.remoteProjects}
+            project={remoteProject}
+            onProject={p.setRemoteProject}
+            offline={offlineNote(
+              remoteSnapshot?.runtime,
+              runtimeName,
+              // The last answer this app had (review I4); the pairing time only before any answer.
+              remoteSnapshot?.runtime?.lastSeenAt ?? pairedRuntimes.find((r) => r.runtimeId === jobsRuntime)?.lastSeenAt ?? null,
+              t as never,
+              (iso) => new Date(iso).toLocaleString()
+            )}
+          />
+        </div>
+      )}
+      {remote ? (
+        // A paired Runtime's Jobs, acted on there through its door (Phase 7), disabled with the reason for a
+        // read-only pairing.
+        <div className="wb-view wb-view--scroll">
+          <JobsView
+            snapshot={remoteSnapshot}
+            hostGate={null}
+            stall={null}
+            hasProject={remoteProject !== null}
+            remote
+            disabledReason={controlReason(remoteViewPermission, t as never) ?? undefined}
+            newDisabledReason={t('jobs.new.localOnly')}
+            canOpenSession={() => false}
+            onOpenSession={() => {}}
+            onOpenRun={(runId) => {
+              p.setDetail(null)
+              if (remoteProject) p.setOpenRun({ projectPath: remoteProject, runId, runtimeId: jobsRuntime })
+            }}
+            onNewRun={() => {}}
+            onPauseRun={(runId) => remoteViewDoor && void pauseRun(remoteViewDoor, runId, remoteActionUi)}
+            onResumeRun={(runId) => remoteViewDoor && void resumeRun(remoteViewDoor, runId, remoteActionUi)}
+            onDeleteRun={(runId) => remoteViewDoor && void deleteRun(remoteViewDoor, remoteSnapshot, runId, remoteActionUi)}
+            onRestartCoordinator={(runId) => remoteViewDoor && void restartRunCoordinator(remoteViewDoor, runId, remoteActionUi)}
+            onApprove={(runId) => remoteViewDoor && p.approve(remoteViewDoor, remoteSnapshot, runId, remoteActionUi)}
+          />
+        </div>
+      ) : (
+        <LocalPlans {...p} />
+      )}
+    </ViewContainer>
+  )
+}
+
+/** A Tree whose rows open on a click or Enter (DESIGN-W13 §4); the arrow keys only move the selection. */
+function ClickTree({ onActivate, onSelect, ...rest }: TreeProps & { onActivate: (id: string) => void }): React.JSX.Element {
+  const clicked = useRef(false)
+  return (
+    <div className="plans-tree__wrap" onClickCapture={() => (clicked.current = true)} onKeyDownCapture={() => (clicked.current = false)}>
+      <Tree
+        {...rest}
+        onSelect={(id) => {
+          onSelect?.(id)
+          if (clicked.current) onActivate(id)
+          clicked.current = false
+        }}
+        onOpen={onActivate}
+      />
+    </div>
+  )
+}
+
+type Ctx = { id: string; at: { x: number; y: number } }
+
+function LocalPlans(p: SideBarViewProps): React.JSX.Element {
+  const { t, orchSnapshot, currentProject, accounts, layout, actionUi } = p
+  const [groupBy, setGroupBy] = useState<GroupBy>(storedGroupBy)
+  const [filter, setFilter] = useState('')
+  // Archived plans are hidden until asked for. Not remembered: the tree opens on the plans that work.
+  const [showArchived, setShowArchived] = useState(false)
+  // the rows whose open state is not their default (openByDefault)
+  const [toggled, setToggled] = useState<ReadonlySet<string>>(new Set())
+  const [selected, setSelected] = useState<string | null>(null)
+  const [ctx, setCtx] = useState<Ctx | null>(null)
+  // "3h ago" to the minute
+  const [nowMs, setNowMs] = useState(() => Date.now())
+  useEffect(() => {
+    const id = setInterval(() => setNowMs(Date.now()), 60_000)
+    return () => clearInterval(id)
+  }, [])
+
+  const runs = useMemo(() => orchSnapshot?.runs ?? [], [orchSnapshot])
+  const rows = useMemo(
+    () => planTreeRows({ rows: runs, groupBy, filter, showArchived, isOpen: (id, node) => toggled.has(id) !== openByDefault(node) }),
+    [runs, groupBy, filter, showArchived, toggled]
+  )
+  const byId = useMemo(() => new Map(rows.map((r) => [r.id, r])), [rows])
+  const local = currentProject ? localDoor(window.api, currentProject) : null
+  const canOpenSession = (id: string): boolean => !!layout && !!groupOfTab(layout, sessionTab(id))
+  const accountLabel = (id: string): string => accounts.find((a) => a.id === id)?.label ?? id
+
+  const chooseGroupBy = (g: GroupBy): void => {
+    setGroupBy(g)
+    try {
+      localStorage.setItem(GROUP_KEY, g)
+    } catch {
+      /* no storage: the tree opens grouped by plan next time */
+    }
+  }
+  const setOpen = (row: PlanTreeRow, open: boolean): void =>
+    setToggled((prev) => {
+      const next = new Set(prev)
+      if (open === openByDefault(row.node)) next.delete(row.id)
+      else next.add(row.id)
+      return next
+    })
+  // every group and step shown closes; the plans opened go back to closed
+  const collapseAll = (): void => setToggled(new Set(rows.filter((r) => openByDefault(r.node)).map((r) => r.id)))
+
+  const openPlanTab = (jobId: string, anchor?: PlanAnchor): void => {
+    if (!currentProject) return
+    if (anchor) setPlanAnchor(jobId, anchor)
+    p.setDetail(null) // the previous plan's detail never shows for a frame
+    p.setOpenRun({ projectPath: currentProject, runId: jobId })
+  }
+  /** DESIGN-W13 §10: a Task opens its console when one runs for it, else its plan tab scrolled to it. */
+  const openTask = (row: JobRow, taskId: string, sessionId?: string): void => {
+    if (sessionId && canOpenSession(sessionId)) openConsole(sessionId)
+    else openPlanTab(row.id, taskAnchor(taskId))
+  }
+  const activate = (id: string): void => {
+    const row = byId.get(id)
+    if (!row) return
+    const n = row.node
+    if (n.kind === 'plan') openPlanTab(n.row.id)
+    else if (n.kind === 'task') openTask(n.row, n.task.id, n.task.sessionId)
+    else setOpen(row, !row.expanded)
+  }
+
+  const retryDelivery = async (row: JobRow): Promise<void> => {
+    if (!local || !row.delivery) return
+    try {
+      const reply = await local.command('run-deliver', { run: row.delivery.runId, force: true })
+      if (reply.status >= 400) toast.error(t('plan.delivery.retryFailed', { reason: replyNote(reply, t as never, t('jobs.node.failed')) }))
+      else toast.success(t('plan.delivery.delivered'))
+    } catch {
+      toast.error(t('jobs.node.failed'))
+    }
+  }
+
+  const planMenu = (row: JobRow): Array<MenuItem | 'separator'> => {
+    const archived = row.archivedAt !== undefined
+    const pause = pauseActionOf(row)
+    const delivery = row.delivery?.state === 'pending' ? undefined : row.delivery
+    const item = (id: string, label: string, icon: IconName, onSelect: () => void, danger?: boolean): MenuItem => ({
+      id,
+      label,
+      icon: <Icon name={icon} />,
+      onSelect,
+      ...(danger ? { danger } : {})
+    })
+    return [
+      item('open', t('pages.plans.tree.menu.open'), 'open', () => openPlanTab(row.id)),
+      item('consoles', t('pages.plans.tree.menu.consoles'), 'terminal', () => openPage('agents', row.id)),
+      item('settings', t('pages.plans.tree.menu.settings'), 'settings', () => openPlanTab(row.id, '#settings')),
+      'separator',
+      ...(approveSlot(row) === 'approve' && local ? [item('approve', t('jobs.run.approve'), 'check', () => p.approve(local, orchSnapshot, row.id, actionUi))] : []),
+      ...(pause === 'pause-schedule' ? [item('pause', t('jobs.run.pause'), 'pause', () => p.pauseScheduleRun(row.id))] : []),
+      ...(pause === 'resume-schedule' ? [item('resume', t('jobs.run.resume'), 'run', () => p.resumeScheduleRun(row.id))] : []),
+      ...(pause === 'hold' && local ? [item('pause', t('jobs.run.pause'), 'pause', () => void holdJob(local, row.id, true, actionUi))] : []),
+      ...(pause === 'release' && local ? [item('resume', t('jobs.run.resume'), 'run', () => void holdJob(local, row.id, false, actionUi))] : []),
+      ...(row.coordinatorMissing ? [item('coord', t('pages.plans.restartLead'), 'reset', () => p.restartCoordinator(row.id))] : []),
+      ...(delivery && deliveryActionsOf({ delivery }).retry && delivery.state !== 'delivering'
+        ? [item('deliver', t('plan.delivery.retry'), 'rerun', () => void retryDelivery(row))]
+        : []),
+      ...(local && archived ? [item('unarchive', t('jobs.lifecycle.unarchive'), 'restore', () => void unarchiveJob(local, row.id, actionUi))] : []),
+      ...(local && !archived ? [item('archive', t('jobs.lifecycle.archive'), 'archive', () => void archiveJob(local, orchSnapshot, row.id, actionUi))] : []),
+      // lib/jobActions asks before it deletes
+      ...(local ? ['separator' as const, item('delete', t('jobs.run.delete'), 'delete', () => void deleteRun(local, orchSnapshot, row.id, actionUi), true)] : [])
+    ]
+  }
+  const taskMenu = (row: JobRow, taskId: string, sessionId?: string): Array<MenuItem | 'separator'> => [
+    {
+      id: 'console',
+      label: t('pages.plans.tree.menu.openConsole'),
+      icon: <Icon name="terminal" />,
+      disabled: !(sessionId && canOpenSession(sessionId)),
+      onSelect: () => sessionId && openConsole(sessionId)
+    },
+    { id: 'plan', label: t('pages.plans.tree.menu.openInPlan'), icon: <Icon name="listTree" />, onSelect: () => openPlanTab(row.id, taskAnchor(taskId)) },
+    { id: 'copy', label: t('pages.plans.tree.menu.copyId'), icon: <Icon name="copy" />, onSelect: () => window.api.clipboard.writeText(taskId) }
+  ]
+  const menuOf = (node: PlanNode): Array<MenuItem | 'separator'> | null =>
+    node.kind === 'plan' ? planMenu(node.row) : node.kind === 'task' ? taskMenu(node.row, node.task.id, node.task.sessionId) : null
+
+  const overlapMark = (names: string[] | null): React.ReactNode => {
+    if (!names) return null
+    const tip = t('pages.plans.tree.overlap', { plans: names.join(', ') })
+    return (
+      <span className="plans-tree__overlap" title={tip}>
+        <Icon name="warning" size={14} label={tip} />
+      </span>
+    )
+  }
+
+  const itemOf = (r: PlanTreeRow): TreeItem => {
+    const base = { id: r.id, depth: r.depth, hasChildren: r.hasChildren, expanded: r.expanded }
+    const n = r.node
+    if (n.kind === 'group') {
+      const status = groupBy === 'status' ? GROUP_ICON[n.key as StatusGroup] : undefined
+      return {
+        ...base,
+        label: status ? t(`pages.plans.tree.status.${n.key as StatusGroup}`) : n.key || t('pages.plans.noArea'),
+        icon: status ? toned(status.icon, status.tone) : <Icon name="layers" />,
+        badge: <Badge>{groupCount(runs, groupBy, n.key, showArchived)}</Badge>
+      }
+    }
+    if (n.kind === 'step') {
+      const tasks = n.row.tasks.filter((x) => x.wave === n.step)
+      return {
+        ...base,
+        label: t('pages.plans.tree.step', { n: n.step + 1 }),
+        icon: <Icon name="ordered" />,
+        description: t('pages.plans.main.count', { done: tasks.filter((x) => x.status === 'completed').length, total: tasks.length })
+      }
+    }
+    if (n.kind === 'task') {
+      const live = n.task.provider !== undefined && !!n.task.sessionId && canOpenSession(n.task.sessionId)
+      return {
+        ...base,
+        label: n.task.title,
+        icon: <TaskGlyph task={n.task} size={16} />,
+        // grouped by status, the plan says where the Task belongs; elsewhere its parent row does
+        description: groupBy === 'status' ? jobName(n.row) : taskDescription(n.task, accountLabel, t),
+        badge: (
+          <>
+            {overlapMark(overlapOf(n, runs))}
+            {live && <Icon name="terminal" size={14} label={t('pages.plans.tree.console')} />}
+          </>
+        )
+      }
+    }
+    const status = planStatusOf(n.row)
+    const needs = needsYouOf(n.row)
+    return {
+      ...base,
+      label: jobName(n.row),
+      icon: toned(TONE_ICON[status.tone], status.tone),
+      description: planDescription(n.row, nowMs, t),
+      decoration: { text: t(status.key, status.params), tone: status.tone },
+      badge: (
+        <>
+          {overlapMark(overlapOf(n, runs))}
+          {needs > 0 && (
+            <span title={t('pages.plans.tree.needsYou', { n: needs })}>
+              <Badge tone="warn">{needs}</Badge>
+            </span>
+          )}
+        </>
+      )
+    }
+  }
+
+  const screen = jobsViewScreen({ hostGate: p.orchHostGate, snapshot: orchSnapshot })
+  const stall = jobsStall({ hostStatus: p.hostStatus, driver: p.hostDriver, parkedSinceMs: p.parkedSinceMs, nowMs: Date.now() })
+  const groupLabel = (g: GroupBy): string => t(`pages.plans.tree.group.${g}`)
+
+  let body: React.ReactNode
+  if (screen === 'host' && p.orchHostGate) {
+    // The Host is why there is nothing: saying so is the whole point (with no Host there is no state to read)
+    const waiting = p.orchHostGate.state === 'waiting'
+    body = (
+      <div className="wb-view-pad plans-view__note">
+        <p className="wb-view-empty">{t(waiting ? 'pages.plans.host.waiting' : 'pages.plans.host.unreachable')}</p>
+        <p className="plans-view__dim">{t('pages.plans.host.features')}</p>
+        {!waiting && p.orchHostGate.reason && <p className="plans-view__dim">{t('jobs.host.reason', { reason: p.orchHostGate.reason })}</p>}
+      </div>
+    )
+  } else if (screen === 'blank') {
+    // before the first answer: nothing, not an empty state that flashes on every project switch
+    body = null
+  } else if (!currentProject) {
+    body = (
+      <div className="wb-view-pad">
+        <p className="wb-view-empty">{t('jobs.noProject.hint')}</p>
+        <Button variant="primary" size="sm" onClick={() => p.setShowNew(true)}>
+          {t('wall.new')}
+        </Button>
+      </div>
+    )
+  } else if (runs.length === 0) {
+    // DESIGN-W13 §12 empty view: one sentence, one full-width primary button
+    body = (
+      <div className="wb-view-pad">
+        <p className="wb-view-empty">{t('pages.plans.empty.body')}</p>
+        <Button variant="primary" size="sm" onClick={() => openView('start')}>
+          {t('shell.plans.new')}
+        </Button>
+      </div>
+    )
+  } else {
+    body = (
+      <>
+        <div className="plans-tree__bar">
+          <Input
+            className="plans-tree__filter"
+            value={filter}
+            placeholder={t('pages.plans.tree.filter')}
+            aria-label={t('pages.plans.tree.filter')}
+            onChange={(e) => setFilter(e.target.value)}
+            onKeyDown={(e) => e.key === 'Escape' && setFilter('')}
+          />
+          <Menu
+            label={t('pages.plans.tree.groupBy')}
+            align="end"
+            trigger={{ icon: <Icon name="listTree" />, size: 'sm', title: `${t('pages.plans.tree.groupBy')}: ${groupLabel(groupBy)}` }}
+            items={GROUP_BYS.map((g) => ({ id: g, label: groupLabel(g), checked: g === groupBy, onSelect: () => chooseGroupBy(g) }))}
+          />
+          <Menu
+            label={t('pages.plans.tree.filterMenu')}
+            align="end"
+            trigger={{ icon: <Icon name="filter" />, size: 'sm', title: t('pages.plans.tree.filterMenu') }}
+            items={[{ id: 'archived', label: t('pages.plans.tree.showArchived'), checked: showArchived, onSelect: () => setShowArchived((v) => !v) }]}
+          />
+        </div>
+        {rows.length === 0 ? (
+          <p className="wb-view-empty">{t('pages.plans.tree.noMatch')}</p>
+        ) : (
+          <ClickTree
+            className="plans-tree"
+            label={t('pages.plans.tree.label')}
+            rows={rows.map(itemOf)}
+            selectedId={selected}
+            onSelect={setSelected}
+            onActivate={activate}
+            onToggle={(id, open) => {
+              const row = byId.get(id)
+              if (row) setOpen(row, open)
+            }}
+            onContextMenu={(id, e) => {
+              e.preventDefault()
+              const row = byId.get(id)
+              if (row && menuOf(row.node)) setCtx({ id, at: menuPointOf(e) })
+            }}
+          />
+        )}
+      </>
+    )
+  }
+
+  const ctxRow = ctx ? byId.get(ctx.id) : undefined
+  const ctxItems = ctxRow ? menuOf(ctxRow.node) : null
+  const main = mainPlanViewOf(runs)
+
+  return (
+    <>
       <ViewToolbar
         label={t('shell.activity.plans')}
         items={[
-          { id: 'new', icon: <Icon name="add" />, label: t('shell.plans.new'), disabled: !p.currentProject, onClick: () => openView('start') },
-          { id: 'main', icon: <Icon name="target" />, label: t('shell.view.mainplan'), onClick: () => openView('mainplan') }
+          { id: 'new', icon: <Icon name="add" />, label: t('shell.plans.new'), disabled: !currentProject, onClick: () => openView('start') },
+          {
+            id: 'issues',
+            icon: <Icon name="issue" />,
+            label: t('pages.plans.tree.fromIssues'),
+            disabled: !currentProject,
+            onClick: () => currentProject && p.setSourceJobOpen(currentProject)
+          },
+          { id: 'collapse', icon: <Icon name="collapseAll" />, label: t('pages.plans.tree.collapseAll'), onClick: collapseAll }
         ]}
       />
-      <div className="page-views">
-        <Tabs
-          variant="segmented"
-          label={t('shell.plans.views')}
-          items={[
-            { id: 'plans', label: t('shell.plans.viewPlans') },
-            { id: 'tasks', label: t('shell.plans.viewTasks') }
-          ]}
-          value={view}
-          onChange={setView}
-        />
-      </div>
-      {view === 'tasks' ? (
-        <TasksPage {...p} />
-      ) : (
-        <>
-          {pairedRuntimes.length > 0 && (
-            <RuntimeSelector
-              readOnlyReason={controlReason(remoteViewPermission, t as never)}
-              paired={pairedRuntimes}
-              runtimeId={jobsRuntime}
-              onRuntime={p.setJobsRuntime}
-              projects={p.remoteProjects}
-              project={remoteProject}
-              onProject={p.setRemoteProject}
-              offline={offlineNote(
-                remoteSnapshot?.runtime,
-                runtimeName,
-                // The last answer this app had (review I4); the pairing time only before any answer.
-                remoteSnapshot?.runtime?.lastSeenAt ?? pairedRuntimes.find((r) => r.runtimeId === jobsRuntime)?.lastSeenAt ?? null,
-                t as never,
-                (iso) => new Date(iso).toLocaleString()
-              )}
-            />
-          )}
-          {isRemoteRuntime(jobsRuntime) ? (
-            // A paired Runtime's Jobs, acted on there through its door (Phase 7), disabled with the reason for a
-            // read-only pairing.
-            <JobsView
-              snapshot={remoteSnapshot}
-              hostGate={null}
-              stall={null}
-              hasProject={remoteProject !== null}
-              remote
-              disabledReason={controlReason(remoteViewPermission, t as never) ?? undefined}
-              newDisabledReason={t('jobs.new.localOnly')}
-              canOpenSession={() => false}
-              onOpenSession={() => {}}
-              onOpenRun={(runId) => {
-                p.setDetail(null)
-                if (remoteProject) p.setOpenRun({ projectPath: remoteProject, runId, runtimeId: jobsRuntime })
-              }}
-              onNewRun={() => {}}
-              onPauseRun={(runId) => remoteViewDoor && void pauseRun(remoteViewDoor, runId, remoteActionUi)}
-              onResumeRun={(runId) => remoteViewDoor && void resumeRun(remoteViewDoor, runId, remoteActionUi)}
-              onDeleteRun={(runId) => remoteViewDoor && void deleteRun(remoteViewDoor, remoteSnapshot, runId, remoteActionUi)}
-              onRestartCoordinator={(runId) => remoteViewDoor && void restartRunCoordinator(remoteViewDoor, runId, remoteActionUi)}
-              onApprove={(runId) => remoteViewDoor && p.approve(remoteViewDoor, remoteSnapshot, runId, remoteActionUi)}
-            />
-          ) : (
-            // the list, never the plan page: the plan is its tab's (shell/viewTabs.tsx)
-            <PlansPage {...p} openRun={null} />
-          )}
-        </>
+      {screen === 'runs' && main.plans.length > 0 && (
+        <ViewPane title={t('pages.plans.main')} storageKey="plans.main" className="plans-mainpane">
+          <p className="plans-mainpane__head">{t('pages.plans.main.head', { plans: main.plans.length, done: main.done, total: main.total })}</p>
+          <ClickTree
+            label={t('pages.plans.main')}
+            rows={main.plans.map(({ row, name }) => {
+              const status = planStatusOf(row)
+              return {
+                id: row.id,
+                depth: 0,
+                label: name,
+                icon: toned(TONE_ICON[status.tone], status.tone),
+                description: t('pages.plans.main.count', { done: row.done, total: row.total })
+              }
+            })}
+            selectedId={null}
+            onActivate={(id) => openPlanTab(id)}
+          />
+          <div className="plans-mainpane__open">
+            <Button size="sm" variant="secondary" icon={<Icon name="target" size={14} />} onClick={() => openView('mainplan')}>
+              {t('pages.plans.tree.openMain')}
+            </Button>
+          </div>
+        </ViewPane>
       )}
-    </div>
+      <ViewPane title={t('pages.plans.title')} count={screen === 'runs' ? runs.filter((r) => showArchived || r.archivedAt === undefined).length : undefined} storageKey="plans.tree">
+        {stall && (
+          <p className="plans-stall" role="status">
+            <Icon name="warning" size={14} />
+            {stall.kind === 'unresponsive'
+              ? t('pages.plans.stall.unresponsive')
+              : stall.kind === 'reading'
+                ? t('pages.plans.stall.reading')
+                : t('pages.plans.stall.parked', { reason: t(stall.gate === 'unreadable' ? 'jobs.stall.gate.unreadable' : 'jobs.stall.gate.notMigrated') })}
+          </p>
+        )}
+        {body}
+      </ViewPane>
+      {ctx && ctxItems && <Menu at={ctx.at} onClose={() => setCtx(null)} label={t('pages.plans.tree.menu.label')} items={ctxItems} />}
+    </>
   )
 }
