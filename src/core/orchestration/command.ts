@@ -238,6 +238,7 @@ import {
   ownerMaySettle,
   withoutDeliveryError
 } from './delivery'
+import { settingRefusalOf } from './planSettings'
 import type { DeliveryProgress } from './types'
 import type { PushDelivery, PushResult } from './exec/integrateGit'
 
@@ -3423,6 +3424,50 @@ export async function handleCommand(
         if (!moved.ok) return moved.missing ? notFound(moved.error) : conflict(moved.error)
         await deps.setState(moved.state)
         return okBody(jobView(deps.getState(), moved.value, latestRunOf(deps.getState(), moved.value)))
+      }
+      // Change a running or queued plan: any mix of the flags below, every one checked before the single write, so a
+      // refused call changes nothing. Each is read from the Job when its work starts (slotsToFill, policyOfJob, replan,
+      // handsOffOf, deliveryOf), so it takes effect for work that has not started. `--after` keeps its own path below.
+      const EDIT_KEYS = ['reviewRounds', 'replan', 'autoApprove', 'handsOff', 'delivery'] as const
+      const editsRunning = EDIT_KEYS.some((k) => args[k] !== undefined) || (args.concurrency !== undefined && args.priority !== undefined)
+      if (editsRunning && args.after === undefined) {
+        if (args.planning !== undefined) return bad('--planning is set without the plan-settings flags')
+        const rounds = args.reviewRounds === undefined ? undefined : posInt(args.reviewRounds)
+        if (rounds === null) return bad('--review-rounds must be an integer >= 1')
+        if (args.replan !== undefined && args.replan !== 'waves' && args.replan !== 'off') return bad('--replan must be waves|off')
+        const handsOff = handsOffArg(args.handsOff, fromAgentSession, caller.role)
+        if (typeof handsOff === 'object') return handsOff
+        const auto = args.autoApprove === undefined ? undefined : onOff(args.autoApprove)
+        if (auto === null) return bad('--auto-approve must be on or off')
+        const delivery = parseDelivery(args.delivery)
+        if (delivery === null) return bad('--delivery must be pr or push')
+        const concurrency = args.concurrency === undefined ? undefined : concurrencyArg(args.concurrency)
+        if (concurrency === null) return bad('--concurrency must be an integer >= 1')
+        const priority = args.priority === undefined ? undefined : typeof args.priority === 'string' ? Number(args.priority) : args.priority
+        if (priority !== undefined && (typeof priority !== 'number' || !Number.isInteger(priority))) return bad('--priority must be an integer')
+        const named = s.runs.find((r) => r.id === id)
+        const job = s.jobs.find((j) => j.id === id) ?? (named && jobOf(s, named))
+        if (!job) return notFound(`unknown job or run: ${id}`)
+        const given = (['concurrency', 'priority', ...EDIT_KEYS] as const).filter((k) => args[k] !== undefined)
+        for (const k of given) {
+          const why = settingRefusalOf(s, job, k)
+          if (why === 'finished') return conflict(`job ${job.id} has finished: its settings no longer change`)
+          if (why === 'deliveryStarted') return conflict(`job ${job.id}: delivery has started, so --delivery can no longer change`)
+        }
+        const { priority: _p, ...rest } = job
+        const conv = rounds === undefined ? job.convergence : { ...job.convergence, maxReviewRounds: rounds }
+        const next: Job = {
+          ...rest,
+          ...(priority === undefined ? (job.priority !== undefined ? { priority: job.priority } : {}) : priority !== 0 ? { priority } : {}),
+          ...(concurrency !== undefined ? { concurrency } : {}),
+          ...(conv !== undefined ? { convergence: conv } : {}),
+          ...(args.replan !== undefined ? { replan: args.replan as 'waves' | 'off' } : {}),
+          ...(handsOff !== undefined ? { handsOff } : {}),
+          ...(auto !== undefined ? { autoApprove: auto } : {}),
+          ...(delivery !== undefined ? { delivery } : {})
+        }
+        await deps.setState({ ...s, jobs: s.jobs.map((j) => (j.id === job.id ? next : j)) })
+        return okBody({ ...jobView(deps.getState(), next, latestRunOf(deps.getState(), next)), takesEffect: 'for work that has not started yet' })
       }
       // T1 chat-first planning: `--planning chat|auto` and `--priority <int>`, on their own or together
       if (args.planning !== undefined || args.priority !== undefined) {
