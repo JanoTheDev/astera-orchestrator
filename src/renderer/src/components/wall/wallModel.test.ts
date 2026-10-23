@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Attention, JobRow, JobTask, SessionInfo } from '../../../../core/types'
 import type { WorkspaceProject, WorkspaceSession } from '../../state/workspaceTree'
 import {
-  ALL_PLANS, NO_PLAN, activityOf, consolesOf, detailLineOf, detailsOf, filterConsoles, gridColumns, groupWall, indexJobRows, orderWall, pillCount, planPills,
+  ALL_PLANS, NO_PLAN, activityOf, agentPanes, consoleDescription, consoleHeaderOf, consoleTitle, plansOf, consolesOf, detailLineOf, detailsOf, filterConsoles, gridColumns, groupWall, indexJobRows, orderWall, pillCount, planPills,
   PREVIEW_LINES, previewOf, progressSegments, sectionWall, stripLabel, tileMenuOf, type WallConsole, type WallInput
 } from './wallModel'
 
@@ -340,5 +340,44 @@ describe('a chat tile', () => {
     expect(items.map((i) => i.label)).toEqual(['Open in new window'])
     items[0].onSelect()
     expect(opened).toEqual([c.projectId])
+  })
+})
+
+describe('the Agents view rows', () => {
+  const mk = (sessionId: string, over: Partial<WallConsole> = {}): WallConsole => ({
+    sessionId, label: sessionId, role: 'console', state: 'idle', projectId: 'p1', planOrder: Number.MAX_SAFE_INTEGER, cwd: '/repo', chat: false, ...over
+  })
+  const worker = mk('w1', { role: 'worker', label: 'Worker 2', taskTitle: 'Fix login', planName: 'Auth', jobId: 'job_1', planOrder: 0, state: 'working' })
+  const plain = mk('x1', { label: 'Shell', cwd: '/repo/sub' })
+
+  it('groups consoles into the four panes, plan consoles before plain ones, coordinator first', () => {
+    const coord = mk('c1', { role: 'coordinator', label: 'Coordinator', planName: 'Auth', jobId: 'job_1', planOrder: 0, state: 'working' })
+    const done = mk('d1', { state: 'finished' })
+    const ask = mk('a1', { state: 'needs', needs: 'question' })
+    const panes = agentPanes([plain, worker, done, ask, coord])
+    expect(panes.working.map((c) => c.sessionId)).toEqual(['c1', 'w1'])
+    expect(panes.idle.map((c) => c.sessionId)).toEqual(['x1'])
+    expect(panes.needs.map((c) => c.sessionId)).toEqual(['a1'])
+    expect(panes.finished.map((c) => c.sessionId)).toEqual(['d1'])
+  })
+
+  it('titles a console by its Task, else its name; describes it as plan › agent · account', () => {
+    expect(consoleTitle(worker)).toBe('Fix login')
+    expect(consoleTitle(plain)).toBe('Shell')
+    expect(consoleDescription(worker, 'Work')).toBe('Auth › Worker 2 · Work')
+    expect(consoleDescription({ ...worker, taskTitle: undefined, label: 'Coordinator' }, 'Work')).toBe('Auth · Work')
+    expect(consoleDescription(plain, 'Work')).toBe('Work')
+    expect(consoleDescription(plain)).toBe('')
+  })
+
+  it('lists the plans of the consoles once, in plan order', () => {
+    const b = mk('w2', { planName: 'Billing', jobId: 'job_2', planOrder: 1 })
+    expect(plansOf([b, worker, plain, { ...worker, sessionId: 'w3' }])).toEqual([{ jobId: 'job_1', name: 'Auth' }, { jobId: 'job_2', name: 'Billing' }])
+  })
+
+  it('the header of a planned console names its plan and Task; an unplanned one only its folder and account', () => {
+    expect(consoleHeaderOf(worker, 'Work')).toEqual({ plan: { jobId: 'job_1', name: 'Auth' }, task: 'Fix login', account: 'Work' })
+    expect(consoleHeaderOf(plain, 'Work')).toEqual({ cwd: '/repo/sub', account: 'Work' })
+    expect(consoleHeaderOf(plain)).toEqual({ cwd: '/repo/sub' })
   })
 })

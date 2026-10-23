@@ -38,9 +38,9 @@ button.summary-card__title:hover .summary-card__title-text { text-decoration: un
 
 /* The wall: the page header, then the plan groups. The header stays put while the groups scroll under it. */
 .wall { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.wall-header { flex: none; border-bottom: 1px solid var(--line); }
+.wall-toolbar { flex: none; display: flex; align-items: center; gap: var(--sp-2); height: 32px; padding: 0 var(--sp-3); border-bottom: 1px solid var(--line); background: var(--panel); overflow-x: auto; }
 .wall > .ui-empty { flex: 1; }
-.wall-body { flex: 1; min-height: 0; overflow: auto; padding: var(--sp-4) var(--page-pad) var(--sp-8); display: flex; flex-direction: column; gap: var(--sp-6); }
+.wall-body { flex: 1; min-height: 0; overflow: auto; padding: var(--sp-3) var(--sp-3) var(--sp-6); display: flex; flex-direction: column; gap: var(--sp-4); }
 
 /* The filters row: state (segmented), plans (chips or one select), "All projects" at the end */
 .wall-filters__sep { width: 1px; height: 18px; background: var(--line); }
@@ -121,46 +121,14 @@ button.summary-card__title:hover .summary-card__title-text { text-decoration: un
 .wall-done { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: var(--sp-2); }
 
 /* The full-size view: the console strip under the header */
-.wall-strip { flex: none; padding: 0 var(--sp-4); border-bottom: 1px solid var(--line); overflow-x: auto; background: var(--panel); }
-.wall-strip .ui-tabs--underline { border-bottom: 0; }
 
 /* One console full size: the slim header, the console, the details panel */
-.wall-console-head {
   flex: none; display: flex; align-items: center; gap: var(--sp-3); min-width: 0; height: 44px; padding: 0 var(--sp-3);
   border-bottom: 1px solid var(--line); background: var(--panel); font-size: var(--fs-12); color: var(--text-dim);
 }
-.wall-console-head__sep { flex: none; width: 1px; height: 18px; background: var(--line); }
-.wall-console-head__titles { flex: 0 1 auto; min-width: 0; display: flex; align-items: baseline; gap: var(--sp-2); overflow: hidden; white-space: nowrap; }
-.wall-console-head__crumbs { flex: 0 1 auto; min-width: 40px; overflow: hidden; color: var(--text); font-size: var(--fs-13); font-weight: var(--fw-semi); text-overflow: ellipsis; }
-.wall-console-head__task { min-width: 0; overflow: hidden; color: var(--text-dim); font-size: var(--fs-13); text-overflow: ellipsis; }
-.wall-console-head .ui-chip { flex: none; }
-.wall-console-head__meta { flex: 0 20 auto; min-width: 0; overflow: hidden; color: var(--text-faint); font-size: var(--fs-11); text-overflow: ellipsis; white-space: nowrap; }
-.wall-console-head__cwd { min-width: 60px; font-family: var(--mono); }
-.wall-console-head__hold { flex: 0 100 auto; display: inline-flex; align-items: center; gap: var(--sp-1); min-width: 16px; margin-left: auto; overflow: hidden; color: var(--text-faint); font-size: var(--fs-11); white-space: nowrap; }
-.wall-console-head__hold > svg { flex: none; color: var(--accent); }
-.wall-console-head__hold-text { overflow: hidden; text-overflow: ellipsis; }
-.wall-console-head > .ui-btn--icon { flex: none; }
-.wall-details { flex: none; width: 330px; overflow: auto; border-left: 1px solid var(--line); background: var(--panel); padding: var(--sp-4); font-size: var(--fs-12); }
-.wall-details__section { padding-bottom: var(--sp-3); margin-bottom: var(--sp-3); border-bottom: 1px solid var(--line); }
-.wall-details__section:last-child { border-bottom: none; }
-.wall-details__title { margin: 0 0 var(--sp-2); color: var(--text); font-size: var(--fs-14); font-weight: var(--fw-semi); line-height: var(--lh-tight); }
-.wall-details__head { display: flex; justify-content: space-between; margin: 0 0 var(--sp-2); color: var(--text-dim); font-size: var(--fs-11); font-weight: var(--fw-medium); letter-spacing: 0.04em; text-transform: uppercase; }
-.wall-details__progress { color: var(--text-faint); font-variant-numeric: tabular-nums; letter-spacing: 0; text-transform: none; }
-.wall-details__brief { margin: 0 0 var(--sp-2); color: var(--text-dim); line-height: var(--lh); }
-.wall-details__row { display: flex; gap: var(--sp-2); padding: 3px 0; }
-.wall-details__label { flex: none; width: 84px; color: var(--text-faint); }
-.wall-details__value { min-width: 0; color: var(--text); overflow-wrap: anywhere; }
-.wall-details__criteria, .wall-details__tasks { list-style: none; margin: 0; padding: 0; }
-.wall-details__criteria li { display: flex; gap: var(--sp-2); align-items: flex-start; padding: 2px 0; color: var(--text-dim); line-height: var(--lh); }
-.wall-details__criteria li > svg { flex: none; margin-top: 2px; }
-.wall-details__criterion--met, .wall-details__criteria li.wall-details__criterion--met > svg { color: var(--ok); }
-.wall-details__task {
   display: flex; align-items: center; gap: var(--sp-1); width: 100%; height: 28px; padding: 0 var(--sp-2); border: none; border-radius: var(--radius);
   background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer;
 }
-.wall-details__task:hover { background: var(--hover); }
-.wall-details__task-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.wall-details__task-who { flex: none; color: var(--text-faint); font-size: var(--fs-11); }
 
 @media (prefers-reduced-motion: reduce) { .wall-tile__more { transition: none; } }
 
@@ -174,4 +142,17 @@ button.summary-card__title:hover .summary-card__title-text { text-decoration: un
 .ui-btn.summary-card__link { height: auto; padding: 0; border: 0; background: none; color: var(--accent); font-weight: inherit; }
 .ui-btn.summary-card__link:hover { background: none; text-decoration: underline; }
 .ui-btn.wall-details__task { width: 100%; height: 28px; padding: 0 var(--sp-2); justify-content: flex-start; color: var(--text); font-weight: inherit; }
-.wall-details__task .ui-btn__label { display: flex; flex: 1; min-width: 0; align-items: center; gap: var(--sp-1); }
+
+/* W13: the console tab's header (ConsoleHeader.tsx): plan › Task as links, then account, state and Stop / Restart. */
+.console-head { flex: none; display: flex; align-items: center; gap: var(--sp-2); height: 26px; padding: 0 var(--sp-2); border-bottom: 1px solid var(--line); background: var(--panel); font-size: var(--fs-12); }
+.console-head__crumbs { min-width: 0; display: inline-flex; align-items: center; gap: var(--sp-1); overflow: hidden; color: var(--text-faint); }
+.console-head__link { color: var(--link); max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.console-head__cwd { min-width: 0; overflow: hidden; color: var(--text-dim); font-family: var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+.console-head__end { margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: var(--sp-2); }
+.console-head__account { color: var(--text-faint); }
+
+/* W13: the Agents view's filter row and welcome state (shell.css .wb-view-empty is the per-pane empty line) */
+.agents-filter { flex: none; padding: 2px var(--sp-2); }
+.agents-welcome { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-2) 20px; color: var(--text-dim); font-size: var(--fs-13); }
+.agents-welcome > p { margin: 0; }
+.agents-welcome > .ui-btn { width: 100%; }

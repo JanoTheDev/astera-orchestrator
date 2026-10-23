@@ -99,7 +99,6 @@ export function useNavigation(app: NavigationDeps): void {
         // the selected project stays; a console of another project switches to that project, never to All
         setWorkspaceScope(scopeFor(workspaceProjectId, ownerOf(workspaceIds, sessionId)), null)
         selectWorkbenchTab(sessionTab(sessionId))
-        setWallView({ kind: 'console', sessionId })
       },
       openPlan,
       // W9-D: the Inbox is the panel's Needs you tab, with the filter the caller names (inbox/inboxView.ts parseFilter)

@@ -27,6 +27,7 @@ import { displayHostOf } from '../../../core/preview/url'
 import { browserSlotDraw } from './browserSlot'
 import { useI18n } from '../i18n/I18nProvider'
 import { TerminalView } from './TerminalView'
+import { ConsoleHeader } from './wall/ConsoleHeader'
 import { ConversationPane } from './conversation/ConversationPane'
 import { RemoteTerminalView } from './RemoteTerminalView'
 import { RemoteConversationPane } from './conversation/RemoteConversationPane'
@@ -165,7 +166,7 @@ export function PaneGrid({
   mediaNonces: Record<string, number>
   /** A tab was clicked — of any kind. App activates it in the tree, which also moves the focus there */
   onSelectTab: (tabId: string) => void
-  onCloseTab: (tabId: string) => void
+  onCloseTab: (tabId: string, how?: 'end') => void
   onNewInGroup: (paneId: string) => void
   /** Right-click on a tab — the screen coordinates are passed through as-is. App is what shows the menu */
   onTabContextMenu: (tabId: string, x: number, y: number) => void
@@ -448,6 +449,7 @@ export function PaneGrid({
             }
             onMouseDown={() => pane && onFocusPane(pane.id)}
           >
+            {visible && <ConsoleHeader session={s} accounts={accounts} onRestart={onRestart} onEnd={(tabId) => onCloseTab(tabId, 'end')} />}
             {chat ? (
               <div className="session-slot-view" style={{ display: 'flex' }}>
                 <ConversationPane
