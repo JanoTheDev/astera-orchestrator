@@ -245,7 +245,7 @@ export function AgentsPage({ sessions, accounts, currentProject, scopeId, allPro
           )}
         </div>
       )}
-      <div className="agents-page__body" style={view.kind === 'wall' ? { display: 'none' } : undefined}>
+      <div className="agents-page__body">
         <div className="agents-page__console" ref={consoleRef}>
           {children}
         </div>
