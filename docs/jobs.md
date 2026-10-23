@@ -88,6 +88,12 @@ The Job's concurrency decides it: **Run at once** in "Create a job", **Consoles 
 `--concurrency` on the CLI. **The default is 3.** It can be changed later with `astera jobs set --id <job>
 --concurrency <n>`.
 
+**Change a running plan.** `astera jobs set --id <job>` also takes `--priority`, `--review-rounds`, `--replan waves|off`,
+`--auto-approve on|off`, `--hands-off on|off` and `--delivery pr|push`, in any mix, on a running or queued plan. They
+are checked together and written once; one bad value changes nothing. A change applies to work that has not started
+yet (running workers and reviews carry on). `--delivery` is refused once delivery has started, every flag is refused
+once the plan has finished, and `--hands-off` is refused from an agent session.
+
 **Concurrency 2 or more (default 3).** Each Task gets its own worktree. Before a Task that depends on earlier Tasks
 starts, their results are merged into the run's worktree, and the dependent Task forks from there.
 
