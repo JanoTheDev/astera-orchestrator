@@ -115,7 +115,7 @@ export function GeneralSettings(p: GroupProps): React.JSX.Element | null {
           배치다. 일반·에이전트·How It Works 세 탭이 같이 쓴다 — 셋 다 토글과 설명이
           번갈아 오는 모양이라서다. 제목과 설명은 .settings-group 으로 붙인다. */}
       <div className="settings-stack">
-        <SettingRow a="language" only={only}>
+        <SettingRow a="language" only={only} modified={storedLang !== null}>
           <div className="settings-row">
             <span>{t('settings.general.language')}</span>
             {/* Each language is written in its own language, so it can be found without knowing the current one.
@@ -132,7 +132,7 @@ export function GeneralSettings(p: GroupProps): React.JSX.Element | null {
             />
           </div>
         </SettingRow>
-        <SettingRow a="advancedMode" only={only}>
+        <SettingRow a="advancedMode" only={only} modified={advanced}>
           <div className="settings-group">
             <label className="settings-row">
               <span>{t('settings.basic.advancedMode.label')}</span>

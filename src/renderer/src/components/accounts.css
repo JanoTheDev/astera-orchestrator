@@ -22,7 +22,7 @@
    than the window; the header is an overline with labelled icon buttons. */
 .tb-popover:has(> .account-panel) { width: 400px; max-width: calc(100vw - 2 * var(--sp-4)); border: 1px solid var(--line-strong); }
 .account-panel > .panel-header { flex-direction: row; align-items: center; justify-content: space-between; padding: var(--sp-2) var(--sp-2) var(--sp-1) var(--sp-3); }
-.account-panel > .panel-header h2 { margin: 0; font-size: var(--fs-11); font-weight: var(--fw-semi); letter-spacing: .04em; }
+.account-panel > .panel-header h2 { margin: 0; text-transform: uppercase; color: var(--text-dim); font-size: var(--fs-11); font-weight: var(--fw-semi); letter-spacing: .04em; }
 .account-panel > ul { margin: 0; padding: 0 0 var(--sp-2); }
 .account-default { flex: none; }
 .account-signin-url { display: block; color: var(--accent); margin: 8px 0; font-family: var(--mono); font-size: var(--fs-11); word-break: break-all; max-height: 4.5em; overflow: auto; }
@@ -81,3 +81,10 @@
 .empty { color: var(--text-faint); font-size: var(--fs-11); padding: 6px 12px; }
 
 .account-signin .row button { white-space: nowrap; } /* W7-F (#82) */
+
+/* DESIGN-W13 §3: the Accounts popover is one compact list: dot, label, provider, Default, the 5h / week meters, a "⋯" menu on hover; Add, Import and Detect in the footer. */
+.account-panel .account-row { flex-wrap: wrap; padding: var(--sp-1) var(--sp-3); border-left-width: 2px; min-height: var(--list-row-h); }
+.account-panel .account-row .ui-menu { opacity: 0; }
+.account-panel .account-row:hover .ui-menu, .account-panel .account-row:focus-within .ui-menu, .account-panel .account-row .ui-menu:has([aria-expanded='true']) { opacity: 1; }
+.account-panel .acct-meter { width: 148px; }
+.account-panel__foot { display: flex; gap: var(--sp-1); padding: var(--sp-1) var(--sp-2); border-top: 1px solid var(--line); }

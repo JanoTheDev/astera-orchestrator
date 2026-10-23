@@ -32,6 +32,7 @@ export function SettingRow({
   only,
   keep = false,
   hidden = false,
+  modified = false,
   children
 }: {
   a: string
@@ -39,13 +40,15 @@ export function SettingRow({
   /** Stays mounted (hidden) when filtered out, for a row whose component must keep what was typed. */
   keep?: boolean
   hidden?: boolean
+  /** The value differs from its default: a 2px accent marker on the row's left. */
+  modified?: boolean
   children: React.ReactNode
 }): React.JSX.Element | null {
   const showAdvanced = useContext(ShowAdvancedContext)
   const out = hidden || !rowVisible(a, showAdvanced, only)
   if (out && !keep) return null
   return (
-    <div className="settings-anchor" id={`settings-row-${a}`} data-anchor={a} hidden={out}>
+    <div className={modified ? 'settings-anchor settings-anchor--modified' : 'settings-anchor'} id={`settings-row-${a}`} data-anchor={a} hidden={out}>
       {children}
     </div>
   )
