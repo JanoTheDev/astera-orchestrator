@@ -74,7 +74,7 @@ const oneLine = (t: string): string => t.replace(/\s+/g, ' ').trim()
 const howToRevise = (jobId: string): string =>
   `Revise the plan for it: change Tasks with \`astera task-update --id <taskId>\`, add with \`astera task-create --run ${jobId}\`, ` +
   `remove with \`astera task-cancel --id <taskId> --reason "<why>"\`. A Task you add carries what the first plan's Tasks carry: ` +
-  `\`--prompt -\`, \`--criteria\`, \`--affected-paths\`, \`--kind bugfix|feature|refactor|ui|audit|docs|test|ops\`, and \`--basis missing|partial|broken\` with its \`--evidence "<file:line, #issue, PR or Job id>"\`; ` +
+  `\`--prompt -\`, \`--criteria\`, \`--affected-paths\`, \`--kind bugfix|feature|refactor|ui|audit|docs|test|ops\`, \`--worktree new|reuse\` (reuse only for a direct continuation of its one dep on the same files), and \`--basis missing|partial|broken\` with its \`--evidence "<file:line, #issue, PR or Job id>"\`; ` +
   `\`astera tasks-list --job ${jobId}\` must show no Task without a basis. Then run \`astera jobs-feedback-done --id ${jobId} --changes '["<one short line per change>"]'\` ` +
   `(an empty list when nothing needed to change) and end your turn. Do not start any work.`
 
@@ -84,7 +84,7 @@ export const feedbackLine = (jobId: string, text: string): string => `Owner feed
 /** T1: the line typed into a live replan planner: the replan it runs takes this feedback too. */
 export const replanFeedbackLine = (jobId: string, text: string): string =>
   `More owner feedback on the plan: «${oneLine(text)}». Apply it the way your brief's OWNER FEEDBACK says, with the same rules ` +
-  `(a Task you add carries --kind bugfix|feature|refactor|ui|audit|docs|test|ops), before you run \`astera jobs-replan-done --id ${jobId}\`; its summary covers this too.`
+  `(a Task you add carries --kind bugfix|feature|refactor|ui|audit|docs|test|ops, and --worktree reuse only for a direct continuation of its one dep), before you run \`astera jobs-replan-done --id ${jobId}\`; its summary covers this too.`
 
 /** The brief for a resumed planner: its own conversation goes on, so the feedback is all it needs. */
 export const resumeBrief = (jobId: string, text: string): string =>

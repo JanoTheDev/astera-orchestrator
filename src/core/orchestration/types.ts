@@ -707,6 +707,11 @@ export interface Task {
   /** What sort of work this Task is; picks the skills its worker is told to use (`--kind`). Absent: `kindOf` reads it
    *  from the title and spec. */
   kind?: TaskKind
+  // T3 worktree per Task (planner.ts worktreeRefusal)
+  /** Where its worker starts (`--worktree`): `new` a worktree of its own, forked from the plan branch; `reuse` the
+   *  worktree and branch of its one dep, kept for it, with the plan branch merged in. Absent: as `new`, placed by the
+   *  Run's concurrency. */
+  worktree?: 'new' | 'reuse'
 }
 
 /** T9: the kinds of work a Task can be. */

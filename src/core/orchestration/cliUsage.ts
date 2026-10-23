@@ -743,7 +743,9 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       // T7 objective coverage
       { name: 'covers', value: '<n,…>', about: "the numbers of the Job objective's items this task covers (a planned Job's every item needs one, or `jobs set --left-out`)" },
       // T9
-      { name: 'kind', value: '<bugfix|feature|refactor|ui|audit|docs|test|ops>', about: "the sort of work; picks the skills the worker is told to use (default: read from the title and spec)" }
+      { name: 'kind', value: '<bugfix|feature|refactor|ui|audit|docs|test|ops>', about: "the sort of work; picks the skills the worker is told to use (default: read from the title and spec)" },
+      // T3
+      { name: 'worktree', value: '<new|reuse>', about: "where its worker starts: new (default) a worktree of its own; reuse the worktree of its one dep, for a direct continuation on the same files" }
     ]
   },
 

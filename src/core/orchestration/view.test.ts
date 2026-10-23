@@ -250,12 +250,20 @@ describe('snapshotFor', () => {
         createdAt: '2026-08-18T00:00:00.000Z',
         tasks: [
           // T7 Plans tree: each Task carries its step (waveOf); neither has deps, so both are step 0
-          { id: 't1', title: 'task t1', status: 'completed', sessionId: undefined, gateQuestion: undefined, openGates: 0, board: { category: 'done' }, wave: 0 },
+          { id: 't1', title: 'task t1', status: 'completed', sessionId: undefined, gateQuestion: undefined, openGates: 0, board: { category: 'done' }, wave: 0, kind: 'feature' },
           // W2-C: a legacy Task has no account, so the board says that is why it waits
-          { id: 't2', title: 'task t2', status: 'ready', sessionId: undefined, gateQuestion: undefined, openGates: 0, board: { category: 'queued', reason: { kind: 'no-account' } }, wave: 0 }
+          { id: 't2', title: 'task t2', status: 'ready', sessionId: undefined, gateQuestion: undefined, openGates: 0, board: { category: 'queued', reason: { kind: 'no-account' } }, wave: 0, kind: 'feature' }
         ]
       }
     ])
+  })
+
+  it('T3: a Task row carries its kind, its worktree choice and whether it is a merge Task', () => {
+    const s = withRuns([run('r1', absPath('p'))], [
+      { ...task('t1', 'r1', 'completed'), kind: 'bugfix' }, { ...task('t2', 'r1', 'ready'), deps: ['t1'], worktree: 'reuse' }, { ...task('t3', 'r1', 'ready'), parentId: 't1' }
+    ])
+    const rows = snapshotFor(s, absPath('p'), anySession, noWorktrees, noFires, allExist).runs[0].tasks
+    expect(rows.map((t) => [t.kind, t.worktree, t.isMerge])).toEqual([['bugfix', undefined, undefined], ['feature', 'reuse', undefined], ['feature', undefined, true]])
   })
 
   it('#116: planReady only once the planner marked a plan that holds; autoApprove while the plan waits to start', () => {

@@ -10,7 +10,7 @@ import { PROMPTS_MODE_FILL_IN } from '../handover'
 import { otherPlansBrief } from '../overlap'
 import { collectChanges, rangesFor } from '../changedFiles'
 import type { OrchServerDeps } from '../command'
-import { PLANNER_COMMANDS, planFieldsFromArgs, validatePlan } from '../planner'
+import { PLANNER_COMMANDS, planFieldsFromArgs, validatePlan, worktreeRefusal } from '../planner'
 import { REPLAN_FOLLOW_UPS_MAX, affectedLeft, cancelRemainingTask, deviatingTasks, editRemainingTask, notStarted, replanAccountOf, replanJobOf, replanOn, resolveFailedWait, runTasks, waveOpen, type ReplanEnded, type ReplanRecord } from '../replan'
 import { isIntegrationTask } from '../integrate'
 import { jobNameOf } from '../jobName'
@@ -233,8 +233,10 @@ export function buildReplanBrief(a: {
     `  \`astera runs-changed-files --id ${a.runId} --task <taskId> --json\`, and the files themselves.`,
     '',
     'WHAT YOU MAY DO',
-    `- Change a Task that has not started: \`astera task-update --id <taskId>\` with --prompt -, --criteria, --affected-paths, --deps, --difficulty, --title, --spec.`,
-    `- Add a Task: \`astera task-create --run ${a.runId} --account ${a.accountId}\` with the planner flags (--prompt -, --criteria, --affected-paths, --deps, --kind bugfix|feature|refactor|ui|audit|docs|test|ops, --difficulty, --model-reason) and, on every Task, --basis missing|partial|broken and --evidence "<file:line, #issue, PR or Job id>".`,
+    `- Change a Task that has not started: \`astera task-update --id <taskId>\` with --prompt -, --criteria, --affected-paths, --deps, --worktree, --difficulty, --title, --spec.`,
+    `- Add a Task: \`astera task-create --run ${a.runId} --account ${a.accountId}\` with the planner flags (--prompt -, --criteria, --affected-paths, --deps, --kind bugfix|feature|refactor|ui|audit|docs|test|ops, --worktree new|reuse, --difficulty, --model-reason) and, on every Task, --basis missing|partial|broken and --evidence "<file:line, #issue, PR or Job id>".`,
+    // T3 worktree per Task
+    '  `--worktree reuse` continues in the worktree of the Task\'s one dep: only for a direct continuation of it on the same files (the next step, a fix-up, tests for it); `new` (the default) for anything that can run in parallel or works elsewhere.',
     '  A follow-up for a review\'s leftovers uses `--basis partial` with evidence naming the parent Task id and its review (for example "tsk_x review round 2: <issue>").',
     '- Cancel a Task that has not started and is no longer needed: `astera task-cancel --id <taskId> --reason "<why>"`.',
     ...(a.failed?.length
@@ -335,6 +337,9 @@ export async function replanCommand(deps: OrchServerDeps, caller: Caller, cmd: s
       now
     )
     if (!r.ok) return r.missing ? notFound(r.error) : bad(r.error)
+    // T3: a deps or --worktree change keeps `reuse` valid
+    const worktreeNo = worktreeRefusal(r.state, r.value)
+    if (worktreeNo !== undefined) return bad(worktreeNo)
     await deps.setState(r.state)
     return ok(r.value)
   }

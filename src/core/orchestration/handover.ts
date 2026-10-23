@@ -342,6 +342,10 @@ export function buildPlannerBrief(a: {
     // W8-F (#94): a plan with a Task that has no basis is refused at approval
     '- `--basis missing|partial|broken` and `--evidence "<file:line, #issue, PR or Job id>"`: what you found of it; a Task without them is refused.',
     '- `--deps \'["<taskId>", ...]\'`: the Tasks it must wait for. Create Tasks in dependency order.',
+    // T3 worktree per Task
+    '- `--worktree new|reuse`: where its worker starts. `new` (the default) is a worktree of its own. `reuse` continues in',
+    '  the worktree of its one dep, keeping that build state: only for a direct continuation of that dep on the same files',
+    '  (the next step, a fix-up, tests for what it built). Never reuse to save time on a Task that could run in parallel.',
     // T7 objective coverage: approval refuses an objective item neither covered nor left out
     "- `--covers 1,3`: the numbers of the objective's items this Task covers (its numbered lines, else its bullets).",
     '  Every item needs a Task with --covers, or is left out on purpose with the reason:',

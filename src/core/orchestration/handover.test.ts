@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
+import { promises as fs } from 'node:fs'
+import path from 'node:path'
 import { buildHandoverPrompt, buildPlannerBrief, coordinatorLaunchPrompt } from './handover'
+import { buildReplanBrief } from './exec/replanStart'
+import { feedbackLine, replanFeedbackLine, resumeBrief } from './exec/plannerFeedback'
 
 const prompt = (over: Partial<Parameters<typeof buildHandoverPrompt>[0]> = {}): string =>
   buildHandoverPrompt({
@@ -293,5 +297,23 @@ describe('#117 hands-off coordinator brief', () => {
     expect(p).toContain('Never ask the owner')
     expect(p).toContain('no force-push')
     expect(buildHandoverPrompt(a)).not.toContain('HANDS-OFF')
+  })
+})
+
+// T3: the planner picks a new worktree or its dep's, and every brief that writes Tasks says when
+describe('--worktree in the planner guide and briefs (T3)', () => {
+  it('the first-plan, replan and feedback briefs teach --worktree new|reuse and when to reuse', async () => {
+    const first = buildPlannerBrief({ jobId: 'job_x', objective: 'o', repoRoot: '/repo', accountId: 'acc1', concurrency: 2 })
+    expect(first).toContain('--worktree new|reuse')
+    expect(first).toContain('direct continuation of that dep on the same files')
+    expect(first).toContain('Never reuse to save time on a Task that could run in parallel')
+    const replan = buildReplanBrief({ job: { id: 'job_1', objective: 'o', cwd: '/r' }, runId: 'run_1', mode: 'wave', wave: 1, accountId: 'acc1', followUps: 0, done: [], running: [], left: [] })
+    expect(replan).toContain('--worktree new|reuse')
+    expect(replan).toContain('`--worktree reuse` continues in the worktree of the Task\'s one dep')
+    for (const line of [feedbackLine('job_1', 'x'), resumeBrief('job_1', 'x')]) expect(line).toContain('`--worktree new|reuse` (reuse only for a direct continuation of its one dep')
+    expect(replanFeedbackLine('job_1', 'x')).toContain('--worktree reuse only for a direct continuation of its one dep')
+    const guide = await fs.readFile(path.join(__dirname, '../../../resources/skills/planner-guide.md'), 'utf8')
+    expect(guide).toContain('**New worktree or reuse (`--worktree new|reuse`).**')
+    expect(guide).toContain('never reuse only to save time on a Task that could run in parallel')
   })
 })

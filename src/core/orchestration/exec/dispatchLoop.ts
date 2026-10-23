@@ -46,7 +46,9 @@ import { jobActive, slotsToFill, type Slot } from '../schedule'
 import { coordinatorStarting, jobOf, type OrchState } from '../state'
 import { isJobActive } from '../lifecycle'
 import { DEFAULT_CONCURRENCY, FAILURE_LIMIT, type Decision, type Job, type JobRun, type Task } from '../types'
-import { outcomeOfTasks, tasksOwnedBy } from '../running'
+import { isTerminal, outcomeOfTasks, tasksOwnedBy } from '../running'
+import { worktreeRefusal } from '../planner'
+import { isSamePath } from '../../files/tree'
 import { outcomeOf } from '../view'
 import { completionSettled, failedWaitAsked, failedWaitChoice, replansDue, stallOf } from '../replan'
 import { REPLAN_LIFT_HOLD } from './replanStart'
@@ -85,6 +87,20 @@ export const ORCH_FIRE_TICK_MS = 15_000
 export const COORDINATOR_NUDGE_MS = 90_000
 /** How often a worktree the reap gave up on is tried again, quietly (final review I2). */
 export const REAP_QUIET_RETRY_MS = 60 * 60_000
+
+/** T3: the folder a `--worktree reuse` Task continues in: its one dep's last implementer worktree, when the reuse holds
+ *  (worktreeRefusal) and the dep did not work in the Run root. Undefined: it is placed as any other Task. */
+function reuseFolderOf(s: OrchState, task: Task, runRoot: string): string | undefined {
+  if (task.worktree !== 'reuse' || worktreeRefusal(s, task) !== undefined) return undefined
+  const last = [...s.dispatches].reverse().find((d) => d.taskId === task.deps[0] && !d.review && (d.outcome || d.endedAt))
+  return last && !isSamePath(last.cwd, runRoot) ? last.cwd : undefined
+}
+
+/** T3: whether a Task not finished yet will continue in `taskId`'s worktree, so its merge keeps the folder.
+ *  shortcut: a reuser that ends up in a new worktree (folder gone, merge refused) leaves the kept folder to the Run's
+ *  clean-up; reap it here if such folders pile up. */
+const reusedLater = (s: OrchState, taskId: string): boolean =>
+  s.tasks.some((t) => t.worktree === 'reuse' && t.deps.length === 1 && t.deps[0] === taskId && !isTerminal(t))
 
 /** The idle workers of finished Runs (audit OR-1): each Dispatch closed, not retained, the latest of its session, and of
  *  a Task the finished Run owns. One sweep with its indexes built once; it walked every Dispatch per finished Run and
@@ -157,7 +173,8 @@ export interface DispatchLoopContext {
   loginStatus(accountId: string): Promise<boolean>
   lang(): Lang
   forkRunWorktree(a: { repoPath: string; name: string }): Promise<string>
-  integrate(runRoot: string, merges: string[], heads?: Record<string, string>): Promise<Integration>
+  /** T3: `reap: false` keeps the merged worktrees (one a Task will continue in, or the plan branch merged into one). */
+  integrate(runRoot: string, merges: string[], heads?: Record<string, string>, opts?: { reap?: boolean }): Promise<Integration>
   /** T11: merges another plan's delivered commit into a running plan's Run worktree (integrateGit.ts refreshOnto).
    *  Optional: defaults to that function over the real git. */
   refreshOnto?(worktree: string, base: string, message: string, fetchBranch?: string, projectDir?: string): Promise<Refresh>
@@ -1385,7 +1402,8 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       // **여기서부터 git 이 돈다.** 위까지는 상태만 본다 — runScheduler 는 모든 저장마다
       // 불리고 그 대부분은 합칠 것이 없는 저장이므로, 그 바퀴에 git 프로세스를 띄우지 않는다
       // (슬롯이 없을 때 계정 조회 앞에서 빠지는 것과 같은 성격이다).
-      const integration = await c.integrate(runRoot, merges, pendingMergeHeads(state, slot.taskId))
+      // T3: a reuse Task's dep folder is kept, it starts there
+      const integration = await c.integrate(runRoot, merges, pendingMergeHeads(state, slot.taskId), task.worktree === 'reuse' ? { reap: false } : undefined)
       if (integration.kind === 'human') {
         const reason = integration.message ? t(c.lang(), integration.message.key, integration.message.params) : integration.reason
         return { kind: 'gate', reason, why: integration.reason }
@@ -1472,8 +1490,31 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     // `--worktree current` 를 직접 쓸 수 있다. 상세 창의 수동 띄우기 버튼은 셋째였는데
     // 이제 아무 배치도 보내지 않는다 — 그 결정은 worker-start 의 기본값이 Run 에게 묻는다
     // (server.ts).
+    // T3: a `--worktree reuse` Task continues in its dep's worktree (kept for it when the dep merged), with the plan
+    // branch merged in first: other finished Tasks' work, a fast-forward as the dep's commits are in it. A refusal
+    // (worktreeRefusal), a folder gone or a merge that does not go clean places it as `new`: that fork has the dep's
+    // work too, only not its build state.
+    let reuse = isIntegrationTask(task) || limit <= 1 ? undefined : reuseFolderOf(state, task, runRoot)
+    if (reuse !== undefined && !c.isRegisteredWorktree(reuse)) {
+      log(`scheduler: task=${slot.taskId} cannot reuse ${reuse}: the folder is gone; it gets a new worktree`)
+      reuse = undefined
+    } else if (reuse !== undefined) {
+      let caught: Integration
+      try {
+        caught = await c.integrate(reuse, [runRoot], undefined, { reap: false })
+      } catch (e) {
+        caught = { kind: 'human', reason: String(e) }
+      }
+      if (caught.kind !== 'merged') {
+        log(`scheduler: task=${slot.taskId} cannot reuse ${reuse}: the plan branch did not merge into it (${caught.reason}); it gets a new worktree`)
+        reuse = undefined
+      }
+    } else if (task.worktree === 'reuse' && !isIntegrationTask(task) && limit > 1)
+      log(`scheduler: task=${slot.taskId} cannot reuse its dep's worktree (${worktreeRefusal(state, task) ?? 'its dep has no worktree of its own'}); it gets a new worktree`)
     const placement =
-      isIntegrationTask(task) || limit <= 1
+      reuse !== undefined
+        ? { worktree: reuse }
+        : isIntegrationTask(task) || limit <= 1
         ? { worktree: runRoot }
         : {
             // nameForTask 는 이미 slugify 를 거친 값(또는 그것이 던질 때의 Task id)을 낸다 —
@@ -2110,7 +2151,8 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
   const mergeIntoPlan = async (w: { runId: string; taskId: string; runRoot: string; worktree: string }): Promise<Integration> => {
     let result: Integration
     try {
-      result = await c.integrate(w.runRoot, [w.worktree])
+      // T3: kept while a Task not finished will continue in it; that Task's own merge reaps it
+      result = await c.integrate(w.runRoot, [w.worktree], undefined, reusedLater(c.getState(), w.taskId) ? { reap: false } : undefined)
     } catch (e) {
       result = { kind: 'human', reason: String(e) }
     }

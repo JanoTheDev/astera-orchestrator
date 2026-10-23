@@ -112,7 +112,7 @@ import { isPathWithin } from '../files/tree'
 import { buildHandoverPrompt, buildPlannerBrief } from './handover'
 import { noRemoteNote, unmergedPlanBranches } from './unmergedBranches' // W8-G (#101)
 // W2-A planner stage
-import { editPlanTask, kindOf, leftOutArg, orchestrationRoleOf, planFieldsFromArgs, plannerJobOf, plannerRefusal, validatePlan, workerSpecOf } from './planner'
+import { editPlanTask, kindOf, leftOutArg, orchestrationRoleOf, planFieldsFromArgs, plannerJobOf, plannerRefusal, validatePlan, workerSpecOf, worktreeRefusal } from './planner'
 import { parseReviewFile, type ReviewIssueInput } from './review'
 import { nameForRun } from '../worktrees/naming'
 import type { Provider } from '../providers/meta'
@@ -4493,6 +4493,9 @@ export async function handleCommand(
           },
           now
         )
+      // T3: `--worktree reuse` holds against the plan it lands in
+      const worktreeNo = made.ok ? worktreeRefusal(made.state, made.value) : undefined
+      if (worktreeNo !== undefined) return bad(worktreeNo)
       // T11: a Task that looks like another plan's: the answer carries warning lines, nothing is refused
       const warnings = made.ok ? taskCreateWarnings(made.state, made.value) : []
       const reply = await commit(made)
@@ -4652,7 +4655,7 @@ export async function handleCommand(
         return okBody({ id, mergedIntoPlanAt: now })
       }
       // W2-A: editing a plan's Task (its title, spec, deps and plan fields) instead of moving its status.
-      const PLAN_EDIT = ['title', 'spec', 'deps', 'prompt', 'criteria', 'affectedPaths', 'difficulty', 'provider', 'model', 'modelReason', /* W6-A */ 'basis', 'evidence', /* T7 */ 'covers', /* T9 */ 'kind']
+      const PLAN_EDIT = ['title', 'spec', 'deps', 'prompt', 'criteria', 'affectedPaths', 'difficulty', 'provider', 'model', 'modelReason', /* W6-A */ 'basis', 'evidence', /* T7 */ 'covers', /* T9 */ 'kind', /* T3 */ 'worktree']
       if (args.status === undefined && PLAN_EDIT.some((k) => args[k] !== undefined)) {
         const plan = planFieldsFromArgs(args)
         if (!plan.ok) return bad(plan.error)
@@ -4672,20 +4675,21 @@ export async function handleCommand(
               : runOutcome !== 'running'
                 ? `its run is ${runOutcome ?? 'gone'}, not running`
                 : true
-        return commit(
-          editPlanTask(
-            s,
-            id,
-            {
-              ...plan.fields,
-              ...(str(args.title) ? { title: str(args.title)! } : {}),
-              ...(str(args.spec) ? { spec: str(args.spec)! } : {}),
-              ...(args.deps !== undefined ? { deps: args.deps as string[] } : {})
-            },
-            now,
-            owner
-          )
+        const edited = editPlanTask(
+          s,
+          id,
+          {
+            ...plan.fields,
+            ...(str(args.title) ? { title: str(args.title)! } : {}),
+            ...(str(args.spec) ? { spec: str(args.spec)! } : {}),
+            ...(args.deps !== undefined ? { deps: args.deps as string[] } : {})
+          },
+          now,
+          owner
         )
+        // T3: a deps or --worktree change keeps `reuse` valid
+        const worktreeNo = edited.ok ? worktreeRefusal(edited.state, edited.value) : undefined
+        return worktreeNo !== undefined ? bad(worktreeNo) : commit(edited)
       }
       const asked = str(args.status)
       if (!asked) return bad('--status is required')
@@ -5024,6 +5028,17 @@ export async function handleCommand(
       // 그래서 이 가드는 cwd 풀이를 한 곳으로 모으는 작업과 함께 와야 한다. 그때까지 병렬 Run 에
       // 잘못된 배치를 부를 수 있는 유일한 호출자는 코디네이터이고, 그에게는 규칙과 **이유**가
       // 프롬프트로 간다.
+      // T3: a placement given as a path (the Run's worktree, a reused dep's) is checked now: one live implementer per
+      // folder. Reviews, repairs and crash recovery open through their own doors and are not refused here.
+      if (worktree !== 'new' && worktree !== 'current' && !terminal) {
+        const there = s.dispatches.find((d) => !d.review && !d.outcome && !d.endedAt && d.taskId !== taskId && isSamePath(d.cwd, worktree))
+        if (there) {
+          release()
+          return conflict(
+            `${worktree} already has a live worker of task ${there.taskId} (dispatch ${there.id}), and a folder holds one implementer: wait for it to end, or pass --worktree new --name <name>`
+          )
+        }
+      }
 
       // For a --terminal reuse the server looks up in advance which dispatch actually owned that
       // session (its cwd, provider and accountId) and passes them to the coordinator as arguments —

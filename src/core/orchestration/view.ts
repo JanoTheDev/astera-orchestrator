@@ -13,7 +13,7 @@
 import { overlapLines, planOverlapWarnings } from './overlap'
 import { isSamePath } from '../files/tree'
 import { findProjectByPath, jobInProject } from './projects'
-import { runsWorkingIn, runWorktreesFrom } from './integrate'
+import { isIntegrationTask, runsWorkingIn, runWorktreesFrom } from './integrate'
 import type { JobRow, JobTask, OrchSnapshot, TaskBoard, WorktreeInfo, UsagePause } from '../types'
 import { repoPathOf } from '../worktrees/repo'
 import { coordinatorStarting, type OrchState } from './state'
@@ -22,7 +22,7 @@ import { deliveryErrorOf, isTerminal, outcomeOf, outcomeOfRun, outcomeOfTasks, r
 import { policyOfJob, repairCountIn, reviewRoundIn } from './convergence'
 import type { Dispatch, Gate, Job, JobRun, Task } from './types'
 import { taskBoardsOf } from './blocked'
-import { validatePlan } from './planner'
+import { kindOf, validatePlan } from './planner'
 // T7 objective coverage
 import { objectiveItemsOf } from './objectiveItems'
 import { stallOf, waveOf } from './replan'
@@ -270,7 +270,11 @@ function jobTaskOf(
     ...(branch !== undefined ? { branch } : {}),
     ...(attempts > 0 ? { attempts } : {}),
     // W6-E progress view
-    ...(task.affectedPaths?.length ? { affectedPaths: task.affectedPaths } : {})
+    ...(task.affectedPaths?.length ? { affectedPaths: task.affectedPaths } : {}),
+    // T3
+    kind: kindOf(task),
+    ...(task.worktree ? { worktree: task.worktree } : {}),
+    ...(isIntegrationTask(task) ? { isMerge: true as const } : {})
   }
 }
 
