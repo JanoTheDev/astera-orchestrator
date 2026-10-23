@@ -67,7 +67,7 @@ export function helpItems(t: AppState['t']): Array<MenuItem | 'separator'> {
 
 export type TopBarProps = Pick<
   AppState,
-  'accounts' | 'actionUi' | 'bindingsRef' | 'currentProject' | 'droppedRoot' | 'openWorkspaceProject' | 'page' | 'projectAnchor' | 'sessions' | 'setProjectDialog' | 'scopedData' | 'scopedTree' | 't' |
+  'accounts' | 'actionUi' | 'bindingsRef' | 'openWorkspaceProject' | 'page' | 'projectAnchor' | 'sessions' | 'setProjectDialog' | 'scopedData' | 'scopedTree' | 't' |
   'workspaceData' | 'workspaceIds' | 'workspaceProjectId' | 'workspaceTree'
 > &
   Pick<ShellState, 'attention' | 'shellAccount' | 'shellUsage'> & {
@@ -97,8 +97,6 @@ export function TopBar(p: TopBarProps): React.JSX.Element {
         sessions={p.sessions}
         attention={p.attention}
         selectedId={p.workspaceProjectId}
-        droppedRoot={p.droppedRoot}
-        fallbackRoot={p.currentProject}
         onSelect={p.openWorkspaceProject}
         onNew={() => p.setProjectDialog('new')}
         onAdd={() => p.setProjectDialog('add')}

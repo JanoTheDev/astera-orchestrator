@@ -37,6 +37,16 @@ const DETAIL_BUSY_RETRY_MS = 2_000
 export const scopeAfterProbe = (current: string | null, probed: string, err: unknown): string | null =>
   current === probed && errText(err).includes('ENOENT') ? null : current
 
+/** The top bar's selection once the folder `droppedRoot` is gone: a selection on that folder moves to the project the
+ *  app falls back to (`fallbackRoot`, currentProject), or to All projects (null) when that is no project. Others stay. */
+export function selectionAfterDrop(
+  selectedId: string | null, tree: ReadonlyArray<{ id: string; path: string }>, droppedRoot: string | null, fallbackRoot: string | null
+): string | null {
+  if (!droppedRoot || tree.find((r) => r.id === selectedId)?.path !== droppedRoot) return selectedId
+  if (!fallbackRoot || fallbackRoot === droppedRoot) return null
+  return tree.find((r) => r.path === fallbackRoot)?.id ?? null
+}
+
 export type JobsDeps = Pick<ReturnType<typeof useLayout>,
     'activeTab' | 'activeTabId' | 'remoteSessions' | 'sessions' | 'setLayout' | 'setRemoteSessions' |
     'setRemoteStatus' | 't'> &

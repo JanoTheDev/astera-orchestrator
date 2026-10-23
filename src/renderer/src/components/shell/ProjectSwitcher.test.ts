@@ -75,22 +75,3 @@ describe('ProjectSwitcher search', () => {
     expect(matchesProject('Astera Web', 'gameful')).toBe(false)
   })
 })
-
-// A selected project whose folder is gone (useJobs drops its root): the switcher shows the project the app falls back to.
-describe('ProjectSwitcher: a dropped folder', () => {
-  it('shows the fallback project, not the vanished one, as selected', () => {
-    const out = renderToStaticMarkup(React.createElement(ProjectSwitcher, props({ selectedId: 'g', droppedRoot: '/repos/gameful', fallbackRoot: '/repos/astera' })))
-    expect(out).toContain('Astera')
-    expect(out).not.toContain('gameful')
-  })
-
-  it('shows All projects when the fallback is no project in the tree', () => {
-    const out = renderToStaticMarkup(React.createElement(ProjectSwitcher, props({ selectedId: 'g', droppedRoot: '/repos/gameful', fallbackRoot: null })))
-    expect(out).toContain('All projects')
-  })
-
-  it('keeps the selection when the dropped folder is another project’s', () => {
-    const out = renderToStaticMarkup(React.createElement(ProjectSwitcher, props({ selectedId: 'g', droppedRoot: '/repos/astera', fallbackRoot: null })))
-    expect(out).toContain('gameful')
-  })
-})
