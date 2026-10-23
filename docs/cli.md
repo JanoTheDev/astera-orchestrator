@@ -738,7 +738,7 @@ astera runs    checks --id <runId>
 astera runs    doctor [--run <runId> | --job <jobId> | --all] [--fix]
 
 astera tasks   list   [--run <runId|jobId>] [--status <s>] [--ready] [--brief] [--fields <a,b,…>] [--limit <n>] [--offset <n>]
-astera tasks   add    [--job <jobId> | --run <runId>] --spec <text|-> --account <id,…> [--title <text>] [--prompt <text|->] [--criteria <json array>] [--deps <json array>] [--affected-paths <json array>] [--parent <taskId>] [--validate <configId,…>] [--review] [--no-review] [--difficulty <light|standard|hard>] [--model <id>] [--basis <missing|partial|broken>] [--evidence <text>] [--covers <n,…>] [--kind <bugfix|feature|refactor|ui|audit|docs|test|ops>]
+astera tasks   add    [--job <jobId> | --run <runId>] --spec <text|-> --account <id,…> [--title <text>] [--prompt <text|->] [--criteria <json array>] [--deps <json array>] [--affected-paths <json array>] [--parent <taskId>] [--validate <configId,…>] [--review] [--no-review] [--difficulty <light|standard|hard>] [--model <id>] [--basis <missing|partial|broken>] [--evidence <text>] [--covers <n,…>] [--kind <bugfix|feature|refactor|ui|audit|docs|test|ops>] [--worktree <new|reuse>]
 astera tasks   dispatch --id <taskId>
 astera tasks   restore --from <file> [--job <jobId> | --run <runId>] [--dry-run]
 

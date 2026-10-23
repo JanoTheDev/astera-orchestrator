@@ -138,6 +138,8 @@ const TASK_HIDDEN = [
   'covers',
   // T9: the Task's kind, held back with the planner's other fields
   'kind',
+  // T3: where the Task's worker starts, held back with the planner's other fields
+  'worktree',
   // T36: what a succeeded worker could not reach, not in the SDK's contract yet
   'gaps'
 ] as const

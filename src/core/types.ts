@@ -56,7 +56,7 @@ export type { ConvTurn } from './history/convTypes'
 // (the server owns OrchState), so importing it from here would make that reliance direct rather than
 // incidental. Either way the wrong fix for a genuinely missing import is "types": ["node"] — it hands
 // the renderer typecheck every Node global, which is the guard this note stands to protect.
-import type { CheckResult, GateKind, JobSourceRef, MessageType, Outcome, RepairReason, TaskStatus } from './orchestration/types'
+import type { CheckResult, GateKind, JobSourceRef, MessageType, Outcome, RepairReason, TaskKind, TaskStatus } from './orchestration/types'
 import type { RunPr, TaskLinks } from './orchestration/types'
 import type { CompletionDetail } from './orchestration/completion'
 import type { McpHttpState, WorkspaceEvent, WorkspaceSummary } from './host/protocol'
@@ -580,6 +580,13 @@ export interface JobTask {
   attempts?: number
   // W6-E progress view: the files the plan says the Task touches (Task.affectedPaths). Absent when none.
   affectedPaths?: string[]
+  // T3 worktree per Task: what the board shows of the Task's sort and placement
+  /** Its kind (planner.ts kindOf: its own `--kind`, else read from its title and spec). Absent from an older snapshot. */
+  kind?: TaskKind
+  /** Where its worker starts (Task.worktree). Absent: placed by its Run's concurrency. */
+  worktree?: 'new' | 'reuse'
+  /** An app-made merge Task (it has a parentId, integrate.ts isIntegrationTask). */
+  isMerge?: true
 }
 
 // W2-C plan board: declared here, as RunOutcome is, because the renderer reads them and blocked.ts is not in its build.
