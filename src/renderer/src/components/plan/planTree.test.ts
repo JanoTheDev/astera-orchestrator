@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { JobRow, JobTask } from '../../../../core/types'
-import { planAnchorOf } from './planPage'
+import { nextPlanOpen, planAnchorOf } from './planPage'
 import { planSectionOf } from './planBoard'
 import {
   groupByOf,
@@ -156,6 +156,13 @@ describe('Plans view sections for the plan tab', () => {
   it('a Task click and "Edit plan settings…" send the sections the plan tab scrolls to', () => {
     expect(planAnchorOf(planSectionOf(taskSection('tsk_9')))).toEqual({ kind: 'task', taskId: 'tsk_9' })
     expect(planAnchorOf(planSectionOf('settings'))).toEqual({ kind: 'settings' })
+  })
+
+  it('a second click on the same Task is a new open: the section is equal but the seq moves, so the tab scrolls again', () => {
+    const first = nextPlanOpen({ seq: 0 }, taskSection('tsk_9'))
+    const again = nextPlanOpen(first, taskSection('tsk_9'))
+    expect(again.section).toBe(first.section)
+    expect(again.seq).not.toBe(first.seq)
   })
 
   it('the Plans view opens the plan from orchSnapshot (archived plans too) and sets the section on the page state', () => {
