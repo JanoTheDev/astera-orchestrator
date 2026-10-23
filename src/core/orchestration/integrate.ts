@@ -112,11 +112,14 @@ export function latestAttempts(dispatches: readonly Dispatch[]): Dispatch[] {
   return dispatches.filter((d) => latest.get(d.taskId) === d)
 }
 
-/** The worktrees a plan's delivery merges: runWorktrees over each Task's latest attempt only (latestAttempts). */
+/** The worktrees a plan's delivery merges: runWorktrees over each Task's latest attempt only (latestAttempts), and
+ *  without the Tasks already merged into the plan branch (`mergedIntoPlanAt`): the plan's folder, merged last, brings
+ *  their work. Merging such a Task's own branch first conflicts with a default branch that moved on since. */
 export function deliveryWorktrees(s: OrchState, runId: string, taskIds?: ReadonlySet<string>): string[] {
   const run = s.runs.find((r) => r.id === runId)
   if (!run) return []
-  const own = taskIds ?? new Set(s.tasks.filter((t) => t.runId === runId).map((t) => t.id))
+  const folded = (t: Task): boolean => run.worktree !== undefined && t.mergedIntoPlanAt !== undefined
+  const own = new Set(s.tasks.filter((t) => t.runId === runId && (taskIds === undefined || taskIds.has(t.id)) && !folded(t)).map((t) => t.id))
   return runWorktreesFrom(run, jobOf(s, run)?.cwd, latestAttempts(s.dispatches.filter((d) => own.has(d.taskId))))
 }
 
