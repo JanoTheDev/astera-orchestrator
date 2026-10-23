@@ -30,6 +30,7 @@ describe('worktreeView', () => {
       openInbox: () => {},
       openSettings: () => {},
       openFile: () => {},
+      startSession: async () => null,
       openActivity: () => {},
       openView: () => {},
       openPanel: () => {},

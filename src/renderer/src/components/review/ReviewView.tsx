@@ -13,7 +13,7 @@ import { replyNote, type OrchDoor } from '../../lib/orchDoor'
 import * as sessionBus from '../../lib/sessionBus'
 import { toast } from '../../lib/toast'
 import { DiffView } from '../DiffView'
-import { openConsole, openFile } from '../shell/navigation'
+import { openConsole, openFile, startSession } from '../shell/navigation'
 import { Button, Checkbox, Chip, Icon, IconButton, Kbd, Popover, Textarea } from '../ui'
 import { ChangeMapView, SymbolMark } from './ChangeMapView'
 import { changeRequestText, fixPrompt, type CodeRef } from './fixPrompt'
@@ -156,20 +156,30 @@ function ReviewBody({ map, cwd, owner, door, head }: { map: ChangeMap; cwd: stri
         openConsole(worker)
         return true
       }
-      // A chat session: its first prompt goes over stdio, so the quoted diff (quotes, pipes, newlines) arrives whole.
-      // A terminal's first prompt is a command-line argument and refuses those characters (commands.ts LAUNCH_FORBIDDEN).
+      // A new chat session on the Auto account, its tab opened by the workbench's own spawn. Chat, because its turns go
+      // over stdio: the quoted diff (quotes, pipes, newlines) arrives whole, where a terminal's first prompt is a
+      // command-line argument that refuses them (commands.ts LAUNCH_FORBIDDEN). The prompt goes in once the session
+      // says it is ready: a turn written before its handshake settles is refused (Codex) or misordered (Claude).
+      const ready = new Set<string>()
       let made: string | null = null
-      const off = window.api.on('session:created', (info) => {
-        if (info.id === made) (off(), openConsole(info.id))
-      })
-      window.setTimeout(off, 10_000)
-      const r = await door.command('sessions-create', { cwd, kind: 'chat', title: `${t('review.hunk.ask')}: ${h.path.slice(h.path.lastIndexOf('/') + 1)}`, prompt: text })
-      if (r.status >= 400) return (off(), fail(replyNote(r, ui.t, String(r.status))))
-      const id = (r.body as { id?: unknown } | null)?.id
-      if (typeof id === 'string') {
-        made = id
-        openConsole(id)
+      let sent = false
+      const deliver = (id: string): void => {
+        if (sent) return
+        sent = true
+        off()
+        void window.api.chat.send(id, text).catch((err: unknown) => fail(err instanceof Error ? err.message : String(err)))
       }
+      const off = window.api.on('chat:event', ({ sessionId, event }) => {
+        if (event.type !== 'ready') return
+        if (sessionId === made) deliver(sessionId)
+        else ready.add(sessionId)
+      })
+      window.setTimeout(() => {
+        if (!sent) (off(), made !== null && fail(t('review.ask.notReady')))
+      }, 60_000)
+      made = await startSession(cwd, 'chat')
+      if (made === null) return (off(), false)
+      if (ready.has(made)) deliver(made)
       toast.success(t('review.ask.started'))
       return true
     } catch (err) {

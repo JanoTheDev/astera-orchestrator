@@ -56,6 +56,7 @@ export const review: Record<keyof typeof ko, string> = {
   'review.ask.failed': 'Could not send: {reason}',
   'review.ask.noProject': 'Open the project to ask an agent.',
   'review.ask.waiting': 'the session is waiting for an answer to a question; answer it first',
+  'review.ask.notReady': 'the new session was not ready within a minute, so the request was not typed in',
   'review.request.title': 'Request changes · {range}',
   'review.request.hint': 'Sent to the plan as feedback on "{task}". Only Tasks that have not started are replanned.',
   'review.request.sent': 'Change request sent',

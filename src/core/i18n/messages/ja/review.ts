@@ -56,6 +56,7 @@ export const review: Partial<Record<keyof typeof ko, string>> = {
   'review.ask.failed': '送信できませんでした: {reason}',
   'review.ask.noProject': 'エージェントに依頼するにはプロジェクトを開いてください。',
   'review.ask.waiting': 'セッションが質問への回答を待っています。先に回答してください',
+  'review.ask.notReady': '新しいセッションが 1 分以内に準備できなかったため、依頼を入力しませんでした',
   'review.request.title': '変更を依頼 · {range}',
   'review.request.hint': '「{task}」へのフィードバックとしてプランに送ります。まだ始まっていない Task だけが再計画されます。',
   'review.request.sent': '変更の依頼を送りました',

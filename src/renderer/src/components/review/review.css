@@ -42,6 +42,9 @@
 .rv-node.is-linked { border-color: var(--link); }
 .rv-node.is-dim { opacity: .45; }
 .rv-node .ui-btn, .rv-list .ui-btn { justify-content: flex-start; width: 100%; min-width: 0; border-radius: 0; font-weight: var(--fw-regular); }
+/* Button wraps its children in one label span: make that the row, so the letter, name and counts sit apart. */
+.rv-node .ui-btn__label, .rv-list .ui-btn__label, .rv-file__toggle .ui-btn__label { display: flex; align-items: center; gap: var(--sp-2); flex: 1; min-width: 0; }
+.rv-node__sym .ui-btn__label, .rv-list__sym .ui-btn__label { gap: var(--sp-1); }
 .rv-node__head { height: 28px; gap: var(--sp-1); padding: 0 var(--sp-2); border-bottom: 1px solid var(--line); }
 .rv-node__name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; font-family: var(--mono); font-size: var(--fs-12); color: var(--text); }
 .rv-node__sym { height: 20px; gap: var(--sp-1); padding: 0 var(--sp-2); font-size: var(--fs-12); }
@@ -77,7 +80,7 @@
 
 /* ── The code ───────────────────────────────────────────────────────────── */
 .rv-code { display: flex; flex-direction: column; gap: var(--sp-3); min-width: 0; }
-.rv-file { border: 1px solid var(--line); border-radius: var(--radius); scroll-margin-top: var(--sp-2); }
+.rv-file { border: 1px solid var(--line); border-radius: var(--radius); scroll-margin-top: var(--sp-6); }
 .rv-file__head { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: var(--sp-2); min-height: 32px; padding: 0 var(--sp-2) 0 0; background: var(--panel); border-bottom: 1px solid var(--line); border-radius: var(--radius) var(--radius) 0 0; }
 .rv-file__toggle { flex: 1; min-width: 0; justify-content: flex-start; font-weight: var(--fw-regular); }
 .rv-file__path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: var(--fs-12); color: var(--text); }
@@ -89,7 +92,7 @@
 .rv-sym__head { display: flex; align-items: center; gap: var(--sp-2); margin: 0 0 var(--sp-2); font-size: var(--fs-13); font-weight: var(--fw-regular); }
 .rv-sym__kind { font-size: var(--fs-12); color: var(--text-faint); }
 
-.rv-hunk { position: relative; scroll-margin-top: 40px; border-radius: var(--radius); }
+.rv-hunk { position: relative; scroll-margin-top: 64px; border-radius: var(--radius); }
 .rv-hunk + .rv-hunk { margin-top: var(--sp-2); }
 .rv-hunk:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .rv-hunk.is-current .diff-view { border-color: var(--accent); }

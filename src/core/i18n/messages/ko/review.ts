@@ -54,6 +54,7 @@ export const review = {
   'review.ask.failed': '보내지 못했습니다: {reason}',
   'review.ask.noProject': '에이전트에게 요청하려면 프로젝트를 여세요.',
   'review.ask.waiting': '세션이 질문에 답을 기다리고 있습니다. 먼저 답해 주세요',
+  'review.ask.notReady': '새 세션이 1분 안에 준비되지 않아 요청을 넣지 못했습니다',
   'review.request.title': '변경 요청 · {range}',
   'review.request.hint': '"{task}"에 대한 피드백으로 계획에 보냅니다. 아직 시작하지 않은 Task만 다시 계획됩니다.',
   'review.request.sent': '변경 요청을 보냈습니다',
