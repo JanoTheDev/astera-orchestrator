@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { applyEnvPaste, envRecordOf, envRowIssues, envRowsOf, type EnvRow } from '../../../core/run/envTable'
 import { useI18n } from '../i18n/I18nProvider'
-import { Button, Icon, IconButton } from './ui'
+import { Button, Icon, IconButton, Input } from './ui'
 
 /** A configuration's environment variables as a Key · Value table. The rows are this component's
  *  state — while typing, an empty key or a duplicate has to be allowed to exist — and every change is
@@ -58,7 +58,7 @@ export function EnvTable({
         const issue = issues.get(i)
         return (
           <div className={`env-row${issue ? ' issue' : ''}`} key={i}>
-            <input
+            <Input
               className="env-key"
               type="text"
               value={r.key}
@@ -71,7 +71,7 @@ export function EnvTable({
                 commit(next)
               }}
             />
-            <input
+            <Input
               className="env-value"
               type="text"
               value={r.value}

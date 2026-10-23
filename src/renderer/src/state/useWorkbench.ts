@@ -24,7 +24,7 @@ import { announceSettingsRecovery } from '../lib/settingsRecoveryNotice'
 import { confirmModal, confirmModalWithChoices, isConfirmOpen } from '../lib/confirm'
 import { ACTIVITY_STORAGE_KEY, activityOfSaved, togglePage, type ActivityId, type PageId } from '../../../core/ui/pages'
 import { requestBox } from '../components/command/boxStore'
-import { openActivity, openView, togglePanel, toggleSideBar } from '../components/shell/navigation'
+import { openActivity, openView, revealRunConfigs, togglePanel, toggleSideBar } from '../components/shell/navigation'
 import { storageWrite } from '../components/shell/shellView'
 import { terminalsWithCreated } from '../lib/terminalTabs'
 import { isCancelled as isWorktreeCancelled } from '../lib/worktreeErrors'
@@ -592,11 +592,10 @@ export function useWorkbench(deps: WorkbenchDeps) {
         e.stopPropagation()
         if (e.repeat) return
         if (action === 'run.selectConfig') {
-          // The toolbar (and its menu) is only rendered for an open project. Forcing the menu open
-          // with none open would arm it to spring open by itself the next time a project is opened,
-          // since RunConfigMenu is controlled and mounts already open.
+          // Without a project the Run view has no list to focus, and the flag would stay raised until
+          // the next project is opened and the list sprang into focus by itself.
           if (!currentProjectRef.current) return
-          setRunMenuOpen((v) => !v)
+          revealRunConfigs(() => setRunMenuOpen(true))
         } else if (action === 'run.run') runStartRef.current()
         else if (action === 'run.stop') runStopSelectionRef.current()
         else runRerunSelectedRef.current()

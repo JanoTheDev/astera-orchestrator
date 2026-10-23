@@ -48,6 +48,12 @@ function forward<K extends keyof NavigationHandlers>(name: K, ...args: Parameter
 }
 
 export const openActivity = (id: ActivityId): void => forward('openActivity', id)
+/** run.selectConfig: reveals the Run view in the side bar, then raises the flag RunView reads on mount (or at once, when
+ *  it is already showing) to put the keyboard on its configuration list. */
+export const revealRunConfigs = (raise: () => void): void => {
+  openActivity('run')
+  raise()
+}
 export const openView = (name: ViewName, arg?: string): void => (arg === undefined ? forward('openView', name) : forward('openView', name, arg))
 export const openPanel = (tab: PanelTab): void => forward('openPanel', tab)
 export const toggleSideBar = (): void => forward('toggleSideBar')
