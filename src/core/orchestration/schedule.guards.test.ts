@@ -3,12 +3,12 @@ import { describe, expect, it } from 'vitest'
 import { LEASE_WAIT_OPTIONS, pathsOverlap, slotsToFill, workerCapOf } from './schedule'
 import { taskBoardsOf } from './blocked'
 import { emptyState, type OrchState } from './state'
-import { MAX_CONCURRENT_WORKERS, type Dispatch, type Job, type JobRun, type Task } from './types'
+import { MAX_CONCURRENT_WORKERS, type Dispatch, type Job, type JobRun, type Project, type Task } from './types'
 import { maxConcurrentWorkersOf } from '../settings/maxConcurrentWorkers'
 
 const T0 = '2026-10-18T00:00:00.000Z'
 
-const job = (id: string, over: Partial<Job> = {}): Job => ({ id, objective: id, cwd: '/p', createdAt: T0, autoDispatch: true, concurrency: 100, ...over })
+const job = (id: string, over: Partial<Job> = {}): Job => ({ id, objective: id, cwd: '/p', projectId: 'prj', createdAt: T0, autoDispatch: true, concurrency: 100, ...over })
 const run = (id: string, jobId: string): JobRun => ({ id, jobId, ordinal: 1, createdAt: T0 })
 const task = (id: string, runId: string, over: Partial<Task> = {}): Task => ({
   id,
@@ -26,9 +26,16 @@ const task = (id: string, runId: string, over: Partial<Task> = {}): Task => ({
 const dispatch = (id: string, taskId: string): Dispatch =>
   ({ id, taskId, provider: 'claude', accountId: 'acc_1', sessionId: `ses_${id}`, cwd: '/p', specPath: '/spec', startedAt: T0, workerState: 'ready', retained: false })
 
+/** T7: these rules hold on a project with serial files on (schedule.serial.test.ts has the default). */
+const projects: Project[] = [
+  { id: 'prj', path: '/p', name: 'p', addedAt: T0, serialFiles: true },
+  { id: 'prj2', path: '/q', name: 'q', addedAt: T0, serialFiles: true }
+]
+
 /** Job j1 with Run r1 holding `tasks`; a second Job j2 with Run r2 when `other` is given. */
 const state = (tasks: Task[], dispatches: Dispatch[] = [], other: Task[] = []): OrchState => ({
   ...emptyState(),
+  projects,
   jobs: [job('j1'), ...(other.length ? [job('j2')] : [])],
   runs: [run('r1', 'j1'), ...(other.length ? [run('r2', 'j2')] : [])],
   tasks: [...tasks, ...other],
@@ -82,7 +89,7 @@ describe('slotsToFill — same files', () => {
   // W8-D: another plan of the same repository is held back too (overlap.test.ts); one of another repository is not
   it('another Job of another project on the same paths is not held back', () => {
     const s = state([task('run', 'r1', { status: 'dispatched', affectedPaths: ['src/a'] })], [dispatch('d1', 'run')], [task('elsewhere', 'r2', { affectedPaths: ['src/a'] })])
-    const other: OrchState = { ...s, jobs: s.jobs.map((j) => (j.id === 'j2' ? { ...j, cwd: '/q' } : j)) }
+    const other: OrchState = { ...s, jobs: s.jobs.map((j) => (j.id === 'j2' ? { ...j, projectId: 'prj2', cwd: '/q' } : j)) }
     expect(placed(other)).toEqual(['elsewhere'])
     expect(placed(s)).toEqual([])
   })
@@ -177,6 +184,7 @@ describe('path leases across plans (T9)', () => {
   /** j1 (older) has a done t1 on src/a.ts; j2 a ready t2 on src/. */
   const leased = (over: { r1?: Partial<JobRun>; j1?: Partial<Job> } = {}): OrchState => ({
     ...emptyState(),
+    projects,
     jobs: [job('j1', { title: 'Plan A', ...over.j1 }), job('j2', { title: 'Plan B', createdAt: '2026-10-18T01:00:00.000Z' })],
     runs: [{ ...run('r1', 'j1'), ...over.r1 }, run('r2', 'j2')],
     tasks: [
@@ -230,6 +238,7 @@ describe('path leases across plans (T9)', () => {
   it('two plans waiting on each other never deadlock: the older proceeds, the younger waits', () => {
     const s: OrchState = {
       ...emptyState(),
+      projects,
       jobs: [job('j1', { title: 'Plan A' }), job('j2', { title: 'Plan B', createdAt: '2026-10-18T01:00:00.000Z' })],
       runs: [run('r1', 'j1'), run('r2', 'j2')],
       tasks: [

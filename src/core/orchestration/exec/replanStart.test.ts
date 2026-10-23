@@ -588,6 +588,32 @@ describe('T36: the replan brief and gaps', () => {
   })
 })
 
+describe('the replan reviews deps', () => {
+  it('brief asks for the dep review', () => {
+    const brief = buildReplanBrief({ job: { id: 'job_1', objective: 'o', cwd: '/r' }, runId: 'run_1', mode: 'wave', wave: 1, accountId: 'acc1', followUps: 0, done: [], running: [], left: [] })
+    expect(brief).toContain('REVIEW THE DEPS')
+    expect(brief).toContain('"Same area", "same files", "nicer order" and "review after" are not reasons')
+  })
+
+  it('a dropped dep needs a reason, is applied, and is listed with it in the summary', async () => {
+    const r = rig()
+    const { jobId, runId, id } = await approved(r)
+    await r.person('jobs-replan', { id: jobId, run: runId })
+    r.tick()
+    const replanner = r.as('ses-planner-2')
+    // C waits on B; B's work is not something C uses
+    expect((await replanner('task-update', { id: id('C'), deps: [] })).status).toBe(400)
+    expect(r.state().tasks.find((t) => t.id === id('C'))!.deps).toEqual([id('B')])
+    expect((await replanner('task-update', { id: id('C'), deps: [], reason: 'C uses nothing B builds' })).status).toBe(200)
+    expect(r.state().tasks.find((t) => t.id === id('C'))!.deps).toEqual([])
+    // keeping the deps needs no reason
+    expect((await replanner('task-update', { id: id('B'), deps: [id('A')] })).status).toBe(200)
+    const done = await replanner('jobs-replan-done', { id: jobId, summary: 'C runs beside B' })
+    expect(done.status).toBe(200)
+    expect(job(r).lastReplan?.summary).toBe('2 changed: C runs beside B; deps dropped: C: B (C uses nothing B builds)')
+  })
+})
+
 describe('T36: a replan for a failed Task', () => {
   /** A completed as planned; B failed with its tries used up; C waits on B. */
   const failedB = async (r: Rig) => {

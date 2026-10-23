@@ -126,6 +126,7 @@ export function projectSettingsFlags(p: Record<string, unknown>): Record<string,
   put('delivery-branch', typeof p.deliveryBranch === 'string' ? p.deliveryBranch : undefined)
   put('auto-approve', onOff(p.autoApprove))
   put('hands-off', onOff(p.handsOff))
+  put('serial-files', onOff(p.serialFiles))
   put('concurrency', typeof p.concurrency === 'number' ? String(p.concurrency) : undefined)
   put('review-rounds', typeof p.reviewRounds === 'number' ? String(p.reviewRounds) : undefined)
   put('replan', typeof p.replan === 'string' ? p.replan : undefined)

@@ -4,6 +4,7 @@ import { OrchestratorModelsSettings } from '../OrchestratorModelsSettings'
 import { VoiceSettings } from '../command/VoiceSettings'
 import { ResumeStrategySettings } from '../ResumeStrategySettings'
 import { MaxWorkersSetting } from '../MaxWorkersSetting'
+import { HeavyJobsSetting } from '../HeavyJobsSetting'
 import { FreshCoordinatorSetting } from '../FreshCoordinatorSetting'
 import { StallWatchSetting } from '../StallWatchSetting'
 import { StartAtLoginSetting } from '../StartAtLoginSetting'
@@ -46,6 +47,9 @@ export function AgentsSettings(p: GroupProps): React.JSX.Element | null {
       {/* W1-B: the app-wide Job worker cap. */}
       <SettingRow a="maxWorkers" only={only}>
         <MaxWorkersSetting />
+      </SettingRow>
+      <SettingRow a="heavyJobs" only={only}>
+        <HeavyJobsSetting />
       </SettingRow>
       <SettingRow a="freshCoordinator" only={only}>
         <FreshCoordinatorSetting />

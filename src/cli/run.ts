@@ -15,6 +15,7 @@ import { spelledCommand, unknownFlagError, usageFor } from '../core/orchestratio
 // W8-C heavy
 import { HEAVY_USAGE } from '../core/orchestration/cliUsage'
 import { runHeavy } from '../core/orchestration/heavyLock'
+import { readHeavyJobsAtOnce } from '../core/settings/heavyJobs'
 // W8-A commit attribution
 import { ATTRIBUTION_COMMANDS, runAttribution } from '../core/attribution/cli'
 import { humanFor, jsonSafe, quietFor, terminalSafe } from '../core/orchestration/cliHuman'
@@ -1123,7 +1124,9 @@ export async function main(): Promise<void> {
   // W8-C heavy: `astera heavy -- <cmd…>` answers before usage and the parser, like hf-proxy: the tokens after `--`
   // are the command's. Local, no Host: the command's stdio is the caller's terminal (core/orchestration/heavyLock.ts).
   if (argv[0] === 'heavy') {
-    const code = await runHeavy({ argv: argv.slice(1), env: process.env, cwd: process.cwd(), sessionId: process.env.ASTERA_SESSION, usage: HEAVY_USAGE })
+    const profileDir = process.env.ASTERA_PROFILE_DIR
+    const slots = profileDir ? await readHeavyJobsAtOnce(path.join(profileDir, 'app-settings.json')) : 1
+    const code = await runHeavy({ argv: argv.slice(1), env: process.env, cwd: process.cwd(), sessionId: process.env.ASTERA_SESSION, usage: HEAVY_USAGE, slots })
     process.exit(code)
   }
   // W8-A: `astera blame|stats|why` answer before usage and the parser, like heavy: read-only git in this folder, no Host

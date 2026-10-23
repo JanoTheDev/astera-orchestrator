@@ -25,6 +25,7 @@ import type { SkillSettings } from '../core/orchestration/skills'
 import { settingsObjectOf } from '../core/settings/settingsObject'
 import { agentPermissionModeOf } from '../core/settings/agentPermissionMode'
 import { maxConcurrentWorkersOf } from '../core/settings/maxConcurrentWorkers'
+import { HEAVY_JOBS_DEFAULT, heavyJobsAtOnceOf } from '../core/settings/heavyJobs'
 import { machineSpecs } from '../core/settings/machineSpecs'
 // W6-G usage guards
 import { maxSubagentsPerSessionOf, SUBAGENT_CAP_DEFAULT } from '../core/sessions/subagentCap'
@@ -132,6 +133,7 @@ export class AppSettingsStore {
   /** W1-B: how many Job workers may be open at once across every plan. null: no cap (the default, and
    *  the behaviour from before the setting). Written only when set. */
   private maxConcurrentWorkers: number | null = null
+  private heavyJobsAtOnce = HEAVY_JOBS_DEFAULT
   /** W6-G: subagents at once per Claude tab (1–10), and the usage percent at which no new worker starts on an
    *  account. The subagent hook and the Host read the file themselves, narrowed by the same functions. Written only
    *  when not the default. */
@@ -248,6 +250,8 @@ export class AppSettingsStore {
       this.maxConcurrentWorkers = maxConcurrentWorkersOf(
         (parsed as { maxConcurrentWorkers?: unknown }).maxConcurrentWorkers
       )
+      // The same function the CLI's and Host's read uses (readHeavyJobsAtOnce)
+      this.heavyJobsAtOnce = heavyJobsAtOnceOf((parsed as { heavyJobsAtOnce?: unknown }).heavyJobsAtOnce) ?? HEAVY_JOBS_DEFAULT
       this.maxSubagentsPerSession = maxSubagentsPerSessionOf((parsed as { maxSubagentsPerSession?: unknown }).maxSubagentsPerSession)
       this.usagePauseAt = usagePauseAtOf((parsed as { usagePauseAt?: unknown }).usagePauseAt)
       this.accountMaxSessions = accountMaxSessionsOf((parsed as { accountMaxSessions?: unknown }).accountMaxSessions)
@@ -339,6 +343,7 @@ export class AppSettingsStore {
         this.jobContinuityEnabled = false
         this.githubPolling = true
         this.maxConcurrentWorkers = null
+        this.heavyJobsAtOnce = HEAVY_JOBS_DEFAULT
         this.maxSubagentsPerSession = SUBAGENT_CAP_DEFAULT
         this.usagePauseAt = USAGE_PAUSE_AT_DEFAULT
         this.accountMaxSessions = {}
@@ -389,6 +394,7 @@ export class AppSettingsStore {
       this.jobContinuityEnabled = false
       this.githubPolling = true
       this.maxConcurrentWorkers = null
+      this.heavyJobsAtOnce = HEAVY_JOBS_DEFAULT
       this.maxSubagentsPerSession = SUBAGENT_CAP_DEFAULT
       this.usagePauseAt = USAGE_PAUSE_AT_DEFAULT
       this.accountMaxSessions = {}
@@ -607,6 +613,17 @@ export class AppSettingsStore {
   /** Narrowed like the file: the value arrives from the renderer. */
   async setMaxConcurrentWorkers(n: number | null): Promise<void> {
     this.maxConcurrentWorkers = maxConcurrentWorkersOf(n)
+    await this.persist()
+  }
+
+  /** How many heavy jobs (`astera heavy`, a Task's heavy check) the machine runs at once. */
+  getHeavyJobsAtOnce(): number {
+    return this.heavyJobsAtOnce
+  }
+
+  /** Narrowed like the file: the value arrives from the renderer. Anything but a whole number >= 1 is the default. */
+  async setHeavyJobsAtOnce(n: number): Promise<void> {
+    this.heavyJobsAtOnce = heavyJobsAtOnceOf(n) ?? HEAVY_JOBS_DEFAULT
     await this.persist()
   }
 
@@ -910,6 +927,7 @@ export class AppSettingsStore {
       jobContinuityEnabled?: boolean
       githubPolling?: boolean
       maxConcurrentWorkers?: number
+      heavyJobsAtOnce?: number
       maxSubagentsPerSession?: number
       usagePauseAt?: number
       accountMaxSessions?: Record<string, number>
@@ -963,6 +981,7 @@ export class AppSettingsStore {
     if (this.jobContinuityEnabled) data.jobContinuityEnabled = true
     if (this.githubPolling === false) data.githubPolling = false
     if (this.maxConcurrentWorkers !== null) data.maxConcurrentWorkers = this.maxConcurrentWorkers
+    if (this.heavyJobsAtOnce !== HEAVY_JOBS_DEFAULT) data.heavyJobsAtOnce = this.heavyJobsAtOnce
     if (this.maxSubagentsPerSession !== SUBAGENT_CAP_DEFAULT) data.maxSubagentsPerSession = this.maxSubagentsPerSession
     if (this.usagePauseAt !== USAGE_PAUSE_AT_DEFAULT) data.usagePauseAt = this.usagePauseAt
     if (Object.keys(this.accountMaxSessions).length > 0) data.accountMaxSessions = this.accountMaxSessions

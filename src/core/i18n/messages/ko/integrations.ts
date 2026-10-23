@@ -313,6 +313,8 @@ export const integrations = {
   'settings.projects.empty': '아직 프로젝트가 없습니다',
   'project.handsOff': '손 떼기 플랜 (Astera가 대신 결정)',
   'project.handsOff.hint': '플랜이 스스로 시작하고, 질문도 스스로 결정하며, 콘솔을 권한 우회로 시작합니다.',
+  'project.serialFiles': '같은 파일은 한 번에 한 Task만',
+  'project.serialFiles.hint': '같은 파일을 고치는 Task들이 서로를 기다리고, 끝난 Task는 플랜이 전달될 때까지 그 파일을 잡아 둡니다. 끄면 각자의 워크트리에서 나란히 돌고 충돌은 병합 워커가 해결합니다.',
   'project.originSync': '실행 중인 플랜을 origin과 동기화',
   'project.originSync.on': '켜짐 (10분마다, 그리고 각 단계마다)',
   'project.originSync.off': '꺼짐 (네트워크 사용 안 함)',

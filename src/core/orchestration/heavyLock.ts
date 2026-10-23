@@ -1,16 +1,18 @@
-// W8-C heavy: `astera heavy -- <cmd…>` — one heavy job (full test suite, Electron, dist build) at a time on
-// this machine. The owner's laptop crashed from parallel full suites, so this is a hard limit, not a hint.
+// W8-C heavy: `astera heavy -- <cmd…>` — at most N heavy jobs (full test suite, Electron, dist build) at once on
+// this machine, N the app setting heavyJobsAtOnce (core/settings/heavyJobs.ts, default 1). The owner's old laptop
+// crashed from parallel full suites, so this is a hard limit, not a hint.
 //
 // Two parts:
-// - The OS lock is `/tmp/astera-fullsuite.lock`, the same file hand-opened tabs take with
-//   `flock /tmp/astera-fullsuite.lock …`, so both kinds share one slot. The command runs under util-linux
-//   `flock`, and the kernel drops the lock when the holder dies, so a crash releases it.
+// - N OS locks, one per slot (`heavySlotLock`). Slot 0 is `/tmp/astera-fullsuite.lock`, the same file hand-opened
+//   tabs take with `flock /tmp/astera-fullsuite.lock …`, so both kinds share it. The command runs under util-linux
+//   `flock` on its slot, and the kernel drops the lock when the holder dies, so a crash releases it.
 // - FIFO order among `astera heavy` callers: one ticket file per caller in a queue dir beside the lock, named
-//   so that the names sort by arrival. A caller waits until its ticket is first, then takes the OS lock. A ticket
-//   whose pid is dead is dropped, so a crashed waiter never blocks the queue.
+//   so that the names sort by arrival. A caller waits until its ticket is among the first N, then takes the first
+//   free slot (`takeHeavySlot`); none free (a hand-opened tab holds one) and it keeps waiting. A ticket whose pid is
+//   dead is dropped, so a crashed waiter never blocks the queue.
 //
 // It runs in the CLI process (cli/run.ts), not through the Host: the command's stdio is the caller's terminal.
-import { spawn, type StdioOptions } from 'node:child_process'
+import { spawn, type ChildProcess, type StdioOptions } from 'node:child_process'
 import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { constants } from 'node:os'
 import { join } from 'node:path'
@@ -61,18 +63,63 @@ export function heavyQueue(dir: string = HEAVY_QUEUE_DIR, alive: (pid: number) =
   return names.map((n) => readTicket(dir, n)).filter((t): t is HeavyTicket => t !== null && alive(t.pid))
 }
 
-/** Each waiting session's place in line, 1-based. The first ticket is the one running (or about to take the
- *  lock), so it is not waiting; the second is 1st in line. */
-export function heavyWaits(dir: string = HEAVY_QUEUE_DIR, alive?: (pid: number) => boolean): Map<string, number> {
+/** Each waiting session's place in line, 1-based. The first `slots` tickets are the ones running (or about to take
+ *  a slot), so they are not waiting; the next is 1st in line. */
+export function heavyWaits(dir: string = HEAVY_QUEUE_DIR, alive?: (pid: number) => boolean, slots = 1): Map<string, number> {
   const out = new Map<string, number>()
   heavyQueue(dir, alive).forEach((t, i) => {
-    if (i >= 1 && t.sessionId && !out.has(t.sessionId)) out.set(t.sessionId, i)
+    if (i >= slots && t.sessionId && !out.has(t.sessionId)) out.set(t.sessionId, i - slots + 1)
   })
   return out
 }
 
-/** One session's place among the waiters, 1-based, or undefined when it is not waiting. */
-export const positionOf = (sessionId: string, dir: string = HEAVY_QUEUE_DIR): number | undefined => heavyWaits(dir).get(sessionId)
+/** Slot k's OS lock: slot 0 is the lock itself (hand-opened tabs share it), slot k > 0 `<lock without .lock>.<k>.lock`. */
+export const heavySlotLock = (lock: string, k: number): string => (k === 0 ? lock : `${lock.replace(/\.lock$/, '')}.${k}.lock`)
+
+/** flock's exit code when the slot is taken (`-E`); told apart from the command's own exit by the fd 3 marker. */
+const SLOT_TAKEN = 75
+
+/** Takes the first free one of `slots` slots: `flock -n <slotLock> <cmd…>`, which writes a marker on fd 3 once it
+ *  holds the lock (fd 3 is closed before the command runs). Answers the holding child with its exit code (a signal is
+ *  128+n), or 'busy' when every slot is held. Rejects when flock cannot run, with `exitCode` (127 for a missing flock,
+ *  else flock's own exit). */
+export async function takeHeavySlot(a: {
+  lock: string
+  slots: number
+  cmd: string[]
+  stdio: StdioOptions
+  env?: NodeJS.ProcessEnv
+  cwd?: string
+}): Promise<{ child: ChildProcess; exited: Promise<number> } | 'busy'> {
+  const io = typeof a.stdio === 'string' ? [a.stdio, a.stdio, a.stdio] : [...a.stdio].slice(0, 3)
+  for (let k = 0; k < Math.max(1, a.slots); k++) {
+    const slotLock = heavySlotLock(a.lock, k)
+    const child = spawn('flock', ['-n', '-E', String(SLOT_TAKEN), slotLock, 'sh', '-c', 'echo held >&3; exec 3>&-; exec "$@"', 'sh', ...a.cmd], {
+      stdio: [...io, 'pipe'],
+      env: a.env,
+      cwd: a.cwd
+    })
+    const marker = child.stdio[3]!
+    // The marker's data, or its close without data (flock never held the lock). Its close comes after its data, so
+    // this is settled right even when the exit is seen first
+    const heldOrNot = new Promise<boolean>((r) => {
+      marker.once('data', () => r(true))
+      marker.once('close', () => r(false))
+    })
+    const exited = new Promise<number>((resolve, reject) => {
+      child.once('error', (e) => reject(Object.assign(new Error(`could not run flock (util-linux): ${e.message}`), { exitCode: 127 })))
+      child.once('exit', (code, signal) => resolve(code ?? 128 + (signal ? (constants.signals[signal] ?? 0) : 0)))
+    })
+    exited.catch(() => {}) // awaited below; a flock that cannot spawn must not read as an unhandled rejection meanwhile
+    if (await heldOrNot) {
+      marker.destroy()
+      return { child, exited }
+    }
+    const code = await exited
+    if (code !== SLOT_TAKEN) throw Object.assign(new Error(`flock ${slotLock} ended (${String(code)}) before it held the lock`), { exitCode: code })
+  }
+  return 'busy'
+}
 
 let seq = 0
 
@@ -85,6 +132,8 @@ export interface RunHeavyArgs {
   lock?: string
   queueDir?: string
   pollMs?: number
+  /** How many heavy jobs run at once (the heavyJobsAtOnce setting, read by the caller); 1 when left out. */
+  slots?: number
   /** Tests pass 'ignore'; the CLI gives the command the caller's terminal; the source updater passes a log file's fds. */
   stdio?: StdioOptions
   /** Where the usage text and errors go. */
@@ -92,7 +141,7 @@ export interface RunHeavyArgs {
   usage?: string
 }
 
-/** Waits for the slot, runs the command under the lock, and resolves with its exit code (a signal is 128+n). */
+/** Waits for a slot, runs the command under its lock, and resolves with its exit code (a signal is 128+n). */
 export async function runHeavy(a: RunHeavyArgs): Promise<number> {
   const err = a.err ?? ((t: string) => process.stderr.write(t.endsWith('\n') ? t : `${t}\n`))
   const sep = a.argv.indexOf('--')
@@ -110,6 +159,7 @@ export async function runHeavy(a: RunHeavyArgs): Promise<number> {
   const lock = a.lock ?? HEAVY_LOCK
   const dir = a.queueDir ?? HEAVY_QUEUE_DIR
   const pollMs = a.pollMs ?? 300
+  const slots = a.slots ?? 1
   // Owner-only: one user on this machine, and Ubuntu's umask 002 would otherwise make it group-writable (CONTEXT rule 7).
   mkdirSync(dir, { recursive: true, mode: 0o700 })
   const name = `${process.hrtime.bigint().toString().padStart(20, '0')}-${String(process.pid).padStart(8, '0')}-${String(seq++).padStart(4, '0')}.json`
@@ -143,9 +193,9 @@ export async function runHeavy(a: RunHeavyArgs): Promise<number> {
   }
 
   try {
-    const waited = await new Promise<number | null>((resolve) => {
+    const waited = await new Promise<{ child: ChildProcess; exited: Promise<number> } | number>((resolve) => {
       stopped = resolve
-      const tick = (): void => {
+      const tick = async (): Promise<void> => {
         if (stopped === null) return
         // A crashed waiter's ticket is dropped here, so it never blocks the line.
         try {
@@ -157,25 +207,31 @@ export async function runHeavy(a: RunHeavyArgs): Promise<number> {
           /* dir gone: recreated below */
         }
         const q = heavyQueue(dir)
-        if (!q.some((t) => t.file === name)) {
+        const at = q.findIndex((t) => t.file === name)
+        if (at === -1) {
           mkdirSync(dir, { recursive: true, mode: 0o700 })
           writeTicket()
-        } else if (q[0].file === name) return resolve(null)
-        setTimeout(tick, pollMs)
+        } else if (at < slots) {
+          try {
+            const took = await takeHeavySlot({ lock, slots, cmd: cmdline, stdio: a.stdio ?? 'inherit', env: a.env, cwd: a.cwd })
+            if (took !== 'busy') {
+              // A signal while flock was being asked: the ticket is gone and the caller answered, so let it go too
+              if (stopped === null) took.child.kill('SIGTERM')
+              return resolve(took)
+            }
+          } catch (e) {
+            err(`astera heavy: ${(e as Error).message}`)
+            return resolve((e as { exitCode?: number }).exitCode ?? 1)
+          }
+        }
+        setTimeout(() => void tick(), pollMs)
       }
-      tick()
+      void tick()
     })
     stopped = null
-    if (waited !== null) return waited
-    return await new Promise<number>((resolve) => {
-      const c = spawn('flock', [lock, ...cmdline], { stdio: a.stdio ?? 'inherit', env: a.env, cwd: a.cwd })
-      child = c
-      c.on('error', (e) => {
-        err(`astera heavy: could not run flock (util-linux): ${e.message}`)
-        resolve(127)
-      })
-      c.on('exit', (code, signal) => resolve(code ?? 128 + (signal ? (constants.signals[signal] ?? 0) : 0)))
-    })
+    if (typeof waited === 'number') return waited
+    child = waited.child
+    return await waited.exited
   } finally {
     cleanup()
   }

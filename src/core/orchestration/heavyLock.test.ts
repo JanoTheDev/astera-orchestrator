@@ -5,7 +5,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { heavyQueue, heavyWaits, runHeavy } from './heavyLock'
+import { HEAVY_LOCK, heavyQueue, heavySlotLock, heavyWaits, runHeavy } from './heavyLock'
 
 let dir: string
 let lock: string
@@ -17,8 +17,8 @@ beforeEach(() => {
 })
 afterEach(() => rmSync(dir, { recursive: true, force: true }))
 
-const run = (argv: string[], sessionId?: string): Promise<number> =>
-  runHeavy({ argv, env: process.env, cwd: dir, lock, queueDir, pollMs: 50, stdio: 'ignore', sessionId, err: () => {} })
+const run = (argv: string[], sessionId?: string, slots?: number): Promise<number> =>
+  runHeavy({ argv, env: process.env, cwd: dir, lock, queueDir, pollMs: 50, stdio: 'ignore', sessionId, slots, err: () => {} })
 
 /** A `node -e` that logs its start and end to `out`, holding the slot for `ms`. */
 const step = (out: string, name: string, ms = 150): string[] => [
@@ -76,6 +76,38 @@ describe('runHeavy', () => {
     expect(readFileSync(out, 'utf8').trim().split('\n')).toEqual(['start hand', 'end hand', 'start heavy', 'end heavy'])
   })
 
+  it('with two slots runs two callers at once, and a third waits for one of them, in arrival order', async () => {
+    const out = path.join(dir, 'log')
+    const a = run(step(out, 'A', 400), undefined, 2)
+    await until(() => existsSync(out))
+    const b = run(step(out, 'B', 400), undefined, 2)
+    await until(() => readFileSync(out, 'utf8').includes('start B'))
+    const c = run(step(out, 'C', 10), undefined, 2)
+    expect(await Promise.all([a, b, c])).toEqual([0, 0, 0])
+    const lines = readFileSync(out, 'utf8').trim().split('\n')
+    expect(lines.slice(0, 2)).toEqual(['start A', 'start B'])
+    expect(lines.indexOf('start C')).toBeGreaterThan(lines.indexOf('end A'))
+    expect(heavyQueue(queueDir)).toEqual([])
+  })
+
+  it('takes slot 1 when a hand-opened tab holds slot 0', async () => {
+    const out = path.join(dir, 'log')
+    const hand = spawn('flock', [lock, process.execPath, '-e', `const fs=require('fs');fs.appendFileSync(${JSON.stringify(out)},'start hand\\n');setTimeout(()=>fs.appendFileSync(${JSON.stringify(out)},'end hand\\n'),600)`])
+    const handDone = new Promise((r) => hand.on('exit', r))
+    await until(() => existsSync(out))
+    const slot1 = heavySlotLock(lock, 1)
+    // The command checks that it runs under slot 1: a second flock -n on it fails
+    expect(await run(['--', 'sh', '-c', `flock -n ${slot1} true && exit 3; echo heavy >> ${out}`], undefined, 2)).toBe(0)
+    await handDone
+    expect(readFileSync(out, 'utf8').trim().split('\n')).toEqual(['start hand', 'heavy', 'end hand'])
+  })
+
+  it('names slot 0 as the shared lock itself and slot k beside it', () => {
+    expect(heavySlotLock(HEAVY_LOCK, 0)).toBe('/tmp/astera-fullsuite.lock')
+    expect(heavySlotLock(HEAVY_LOCK, 1)).toBe('/tmp/astera-fullsuite.1.lock')
+    expect(heavySlotLock(HEAVY_LOCK, 7)).toBe('/tmp/astera-fullsuite.7.lock')
+  })
+
   it('refuses a call without a command', async () => {
     expect(await run(['--'])).toBe(2)
     expect(await run([])).toBe(2)
@@ -99,6 +131,8 @@ describe('heavyWaits', () => {
       ['s-b', 3]
     ])
     expect(heavyWaits(path.join(dir, 'missing')).size).toBe(0)
+    // Two slots: the first two live tickets (s-run, s-a) run; the session-less one is 1st in line, s-b 2nd
+    expect([...heavyWaits(queueDir, undefined, 2)]).toEqual([['s-b', 2]])
   })
 })
 

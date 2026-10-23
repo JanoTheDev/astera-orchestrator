@@ -10047,10 +10047,19 @@ describe('the external coordinator: run-create and check record the driving sess
 
 // W8-E (#92, #95): the coordinator's worker-start keeps the rules the Host's own placing keeps
 describe('worker-start — the coordinator path (W8-E)', () => {
-  const planWith = async (paths: string[][]): Promise<{ deps: OrchServerDeps & { state: OrchState }; ids: string[]; runId: string }> => {
+  /** T7: `serial` turns the project's serial files on through `projects-set`, as the owner does. */
+  const planWith = async (paths: string[][], serial = true): Promise<{ deps: OrchServerDeps & { state: OrchState }; ids: string[]; runId: string }> => {
     const deps = makeDeps()
     const run = await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p', concurrency: 5 })
     const runId = (run.body as { id: string }).id
+    // T7: the plan's project, its serial files set through `projects-set` as the owner does
+    const s = deps.getState()
+    await deps.setState({
+      ...s,
+      projects: [...s.projects, { id: 'prj_t7', path: 'D:/p', name: 'p', addedAt: NOW }],
+      jobs: s.jobs.map((j) => ({ ...j, projectId: 'prj_t7' }))
+    })
+    if (serial) expect((await call(deps, 'projects-set', { id: 'prj_t7', serialFiles: 'on' }, '')).status).toBe(200)
     const ids: string[] = []
     for (const [i, affectedPaths] of paths.entries()) {
       const t = await call(deps, 'task-create', { account: 'acc1', runId, title: `P${i + 1}`, spec: 's', affectedPaths })
@@ -10084,6 +10093,21 @@ describe('worker-start — the coordinator path (W8-E)', () => {
     // Not app-placed: as a coordinator's Run is (no autoDispatch)
     const st: OrchState = { ...s, jobs: s.jobs.map((j) => ({ ...j, autoDispatch: false })) }
     expect(taskBoardsOf(st).get(ids[1])?.reason).toMatchObject({ kind: 'same-files', waitingOn: { id: ids[0], title: 'P1' }, path: 'src/a.ts' })
+  })
+
+  it('T7: with serial files off (the default) two workers start on the same files at once', async () => {
+    const { deps, ids } = await planWith([['src/strings.ts'], ['src/strings.ts']], false)
+    expect((await start(deps, ids[0])).status).toBe(200)
+    expect((await start(deps, ids[1])).status).toBe(200)
+  })
+
+  it('T7: projects-set --serial-files off clears it back to the default; a bad value is refused', async () => {
+    const { deps } = await planWith([], true)
+    const id = 'prj_t7'
+    expect(deps.getState().projects.find((p) => p.id === id)?.serialFiles).toBe(true)
+    expect((await call(deps, 'projects-set', { id, serialFiles: 'maybe' }, '')).body).toMatchObject({ error: '--serial-files must be on or off' })
+    expect((await call(deps, 'projects-set', { id, serialFiles: 'off' }, '')).status).toBe(200)
+    expect(deps.getState().projects.find((p) => p.id === id)?.serialFiles).toBeUndefined()
   })
 
   it('#95: a replan under way answers that it lifts by itself, not `jobs-unhold`', async () => {

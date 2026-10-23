@@ -65,9 +65,10 @@ const dispatch = (id: string, taskId: string): Dispatch => ({
 })
 
 /** Plan A ("Auth rework", r1) has T6 at src/api/routes.ts with a worker on it; plan B (r2) has a ready T3 on the same
- *  file. `bOver` moves plan B (another project, say). */
-const twoPlans = (bOver: Partial<Job> = {}): OrchState => ({
+ *  file. `bOver` moves plan B (another project, say). T7: on a project with serial files on, where the guard holds. */
+const twoPlans = (bOver: Partial<Job> = {}, serialFiles = true): OrchState => ({
   ...emptyState(),
+  projects: [{ id: 'prj_1', path: '/repo', name: 'repo', addedAt: T0, serialFiles }],
   jobs: [job('jA', { title: 'Auth rework' }), job('jB', { title: 'Api cleanup', ...bOver })],
   runs: [run('r1', 'jA'), run('r2', 'jB')],
   tasks: [
@@ -342,6 +343,16 @@ describe('the project coordinator (T9)', () => {
     expect(coordinatorMail(after, 'r2')).toEqual(['Another plan of this project goes first: T3 · Auth rework · T6 (same files: src/api/)'])
     expect(coordinatorMail(after, 'r1')).toEqual([])
     expect(refreshOverlaps(after, { ...after, tasks: [...after.tasks] }, T0).messages).toHaveLength(after.messages.length)
+  })
+
+  it('T7: without serial files the overlap message says both run and the merge worker settles a conflict', () => {
+    const after = refreshOverlaps(emptyState(), twoPlans({}, false), T0)
+    expect(slotsToFill(twoPlans({}, false)).map((x) => x.taskId)).toEqual(['t3'])
+    const mail = after.messages.filter((m) => m.runId === 'r2')
+    expect(mail.map((m) => m.subject)).toEqual([
+      'Another plan of this project edits the same files and goes first; the merge may need the merge worker: T3 · Auth rework · T6 (same files: src/api/)'
+    ])
+    expect(mail[0].body).toContain('the merge worker settles a conflict')
   })
 
   it('a lease that starts to hold a Task back posts one message to its plan’s coordinator', () => {

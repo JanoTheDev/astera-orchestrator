@@ -67,6 +67,8 @@ describe('mainPlanOf', () => {
     const base = waiting()
     const s: OrchState = {
       ...base,
+      // T7: a lease only with serial files on
+      projects: [{ id: 'prj_1', path: '/repo', name: 'repo', addedAt: T0, serialFiles: true }],
       jobs: base.jobs.map((j) =>
         j.id === 'jB' ? { ...j, overlaps: [{ taskId: 'tB', jobId: 'jA', otherTaskId: 'tA', by: 'path' as const, path: 'src/a.ts' }] } : j
       ),

@@ -58,6 +58,17 @@ describe('projects-set project settings (W7-B)', () => {
     expect(h.project()).toEqual({ id: 'p1', path: REPO, name: 'shop', addedAt: NOW })
   })
 
+  it('sets, turns off and clears the worktree setup command', async () => {
+    const h = setup()
+    expect((await h.call({ setupCommand: 'pnpm i --offline' })).status).toBe(200)
+    expect(h.project().setupCommand).toBe('pnpm i --offline')
+    expect((await h.call({ setupCommand: 'off' })).status).toBe(200)
+    expect(h.project().setupCommand).toBe('off')
+    expect((await h.call({ setupCommand: '' })).status).toBe(200)
+    expect(h.project()).not.toHaveProperty('setupCommand')
+    for (const bad of ['a\nb', 'x'.repeat(501)]) expect((await h.call({ setupCommand: bad })).status).toBe(400)
+  })
+
   it('refuses bad values and changes nothing', async () => {
     const h = setup()
     for (const args of [{ concurrency: '0' }, { concurrency: '101' }, { reviewRounds: '0' }, { replan: 'later' }, { autoApprove: 'maybe' }, { testConfig: 'x', testCommand: 'npm test' }, {}])
