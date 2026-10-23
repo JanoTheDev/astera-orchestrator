@@ -237,8 +237,12 @@ export function useJobs(deps: JobsDeps) {
   /** 사이드바와 실행 구성이 '어느 프로젝트인가'로 읽는 값 — 활성 탭이 이기고, 없으면 마지막 기억. */
   /** The project the top bar's switcher has selected (useWorkspace); "All projects" leaves the last one in place. */
   const [scopeRoot, setScopeRoot] = useState<string | null>(null)
+  /** The folder the last drop removed from scopeRoot. The top bar's switcher reads it: its selection still names that
+   *  project, and it shows the fallback instead. Cleared when a root is picked again. */
+  const [droppedRoot, setDroppedRoot] = useState<string | null>(null)
   useEffect(() => {
     if (scopeRoot) sticky.write(scopeRoot)
+    if (scopeRoot) setDroppedRoot(null)
   }, [scopeRoot])
   // A selected project whose folder is gone is dropped (back to "All projects"): checked when it is picked and when
   // the window regains focus, the moment a folder deleted outside the app is noticed. Only ENOENT drops it.
@@ -247,7 +251,13 @@ export function useJobs(deps: JobsDeps) {
     const probe = (): void => {
       void window.api.files.list(scopeRoot).then(
         () => {},
-        (err: unknown) => setScopeRoot((prev) => scopeAfterProbe(prev, scopeRoot, err))
+        (err: unknown) => {
+          if (scopeAfterProbe(scopeRoot, scopeRoot, err) !== null) return
+          // the remembered folder is the gone one: forget it too, or the next launch restores it
+          if (sticky.read() === scopeRoot) sticky.clear()
+          setDroppedRoot(scopeRoot)
+          setScopeRoot((prev) => scopeAfterProbe(prev, scopeRoot, err))
+        }
       )
     }
     probe()
@@ -478,7 +488,7 @@ export function useJobs(deps: JobsDeps) {
     setRemoteSnapshot, replyGate, jobsRuntimeRef, orchHostGate, setOrchHostGate, hostDriver, setHostDriver,
     parkedSinceMs, setParkedSinceMs, setStallTick, openRun, setOpenRun, detail, setDetail, setJournalPagesFor,
     homeDir, runHostRef, actionUi, remoteActionUi, pauseScheduleRun, resumeScheduleRun, restartCoordinator, approve,
-    setStickyRoot, setScopeRoot, currentProject, newRunOpen, setNewRunOpen, sourceJobOpen, setSourceJobOpen, runtimeName,
+    setStickyRoot, setScopeRoot, droppedRoot, currentProject, newRunOpen, setNewRunOpen, sourceJobOpen, setSourceJobOpen, runtimeName,
     remoteReadOnly, stopRemoteSession, remoteRefresh, detailDoor, remoteViewPermission, remoteViewDoor,
     remoteNewRunOpen, setRemoteNewRunOpen, remoteAccounts, setPendingRun, explorerReveal, setExplorerReveal,
     openLinkedFolder

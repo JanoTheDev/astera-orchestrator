@@ -26,7 +26,19 @@ export interface SwitcherProps {
   onOpenWindow?: (id: string) => void
   /** Why the project tools are off (no tab open to anchor the commands), or undefined. */
   toolsDisabledReason?: string
+  /** The folder useJobs dropped because it is gone, and the root the app falls back to (currentProject). */
+  droppedRoot?: string | null
+  fallbackRoot?: string | null
   t: Translate
+}
+
+/** The selection the switcher shows: a project whose folder was dropped is not shown; the fallback project is, or
+ *  All projects when the fallback is no project in the tree. */
+export function shownSelection(p: SwitcherProps): string | null {
+  const picked = p.tree.find((r) => r.id === p.selectedId)
+  if (!picked || !p.droppedRoot || picked.path !== p.droppedRoot) return p.selectedId
+  if (!p.fallbackRoot || p.fallbackRoot === p.droppedRoot) return null
+  return p.tree.find((r) => r.path === p.fallbackRoot)?.id ?? null
 }
 
 /** The menu's rows: All projects, each project (its key on the first nine), then the project tools. */
@@ -75,7 +87,8 @@ export function matchesProject(name: string, query: string): boolean {
 /** The button and its searchable panel. On the house Popover: outside click and Esc close (Esc refocuses the button),
  *  ArrowUp/Down/Home/End move over the `data-roving` controls (the search field first, then each row and its actions).
  *  In the field Home/End keep the caret and Enter opens the first match; Tab closes the panel. */
-export function ProjectSwitcher(p: SwitcherProps): React.JSX.Element {
+export function ProjectSwitcher(given: SwitcherProps): React.JSX.Element {
+  const p = { ...given, selectedId: shownSelection(given) }
   const { t } = p
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
