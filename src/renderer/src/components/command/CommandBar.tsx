@@ -150,7 +150,8 @@ export function CommandBar({
   }, [open, stage, qm.mode, qm.query, currentProject])
   const mode = stage === null && qm.mode === 'open' ? boxModeOf(qm.query, hits.length + files.length) : 'search'
   const [sel, setSel] = useState(0)
-  useEffect(() => setSel(0), [input, stage])
+  // A stage opens on the row that is current (the theme in use), so previewing starts from what is on screen
+  useEffect(() => setSel(stage && input === '' ? Math.max(0, stage.rows.findIndex((r) => r.current)) : 0), [input, stage])
 
   // Opens with what Ctrl+P / Ctrl+Shift+P / the command center asked for (boxStore.ts); closing drops a theme preview.
   useEffect(() => {
@@ -528,14 +529,17 @@ export function CommandBar({
               }
               if (e.key !== 'Enter') return
               e.preventDefault()
+              // Enter on an empty line runs an `act` preview; a `confirm` still opens its dialog first
+              if (input.trim() === '' && pending?.res.ok && stage === null) {
+                void evaluate(pending.intent, pending.pins, 'submit')
+                return
+              }
               // A list opens the highlighted row; a sentence falls through to the command below
               if (inList) {
                 items[sel]?.pick()
                 return
               }
-              // Enter on an empty line runs an `act` preview; a `confirm` still opens its dialog first
-              if (input.trim() === '' && pending?.res.ok) void evaluate(pending.intent, pending.pins, 'submit')
-              else void submit(input)
+              void submit(input)
             }}
           />
           <IconButton
