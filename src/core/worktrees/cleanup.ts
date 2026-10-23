@@ -36,7 +36,8 @@ export interface WorktreeOwner {
   sessionId?: string
   /** The plan reached its destination: delivered (pushed, pull request out of draft, or merged on GitHub). */
   delivered?: boolean
-  /** The plan's pull request was merged on GitHub (`pr.attributed`): its commits are in the base, whatever the squash did to them. */
+  /** The plan's pull request was merged on GitHub (`pr.attributed`), or a push delivery landed it (`delivery.sha`): its
+   *  commits are in the base, whatever a squash did to them. */
   landed?: boolean
   /** The plan is archived: it starts nothing new (lifecycle.ts), and what still runs is held by the live and dirty checks. A failed Run the owner put away. */
   archived?: boolean
@@ -44,6 +45,9 @@ export interface WorktreeOwner {
   pushed?: boolean
   /** The folder was not in the plan's Dispatches: it is the folder of a Task the state no longer holds, found by its base. */
   inferred?: true
+  /** The plan's own folder (its Run worktree), on the plan branch: removing it deletes that branch on origin too
+   *  (remove.ts deleteRemoteBranch), so "pushed" is no copy elsewhere for it. */
+  planFolder?: true
 }
 
 /** Whether the plan was delivered: a pushed commit, its delivery recorded as done, its pull request out of draft, or
@@ -70,12 +74,13 @@ export function worktreeOwners(s: OrchState): Map<string, WorktreeOwner> {
       plan: jobNameOf(job),
       running,
       delivered,
-      landed: run.pr?.attributed !== undefined,
+      // A merged pull request, or a push delivery (its sha): either way the plan's commits are in the base
+      landed: run.pr?.attributed !== undefined || (run.delivery?.sha !== undefined && run.delivery.error === undefined),
       archived: job.archivedAt !== undefined,
       pushed: run.branchPush !== undefined || run.delivery !== undefined || run.pr?.url !== undefined
     }
     if (run.worktree !== undefined && !same(run.worktree, job.cwd))
-      out.set(norm(run.worktree), { ...base, merged: delivered, taskIds: [], taskTitles: [], ...(run.coordinatorSessionId ? { sessionId: run.coordinatorSessionId } : {}) })
+      out.set(norm(run.worktree), { ...base, merged: delivered, planFolder: true, taskIds: [], taskTitles: [], ...(run.coordinatorSessionId ? { sessionId: run.coordinatorSessionId } : {}) })
     const byPath = new Map<string, { ids: string[]; sessionId: string }>()
     for (const d of s.dispatches) {
       if (!tasks.some((t) => t.id === d.taskId) || same(d.cwd, job.cwd)) continue
@@ -132,6 +137,9 @@ export interface CleanFacts {
 export function isReadyToClean(f: CleanFacts): boolean {
   const o = f.owner
   if (o === undefined || f.live || f.dirty !== 0) return false
+  // A plan's own folder goes only once its work is in the base: a pull request out of draft is not merged, and the
+  // removal deletes the plan branch on origin, the one copy "pushed" counted on (GitHub then closes the PR unmerged)
+  if (o.planFolder) return f.inBase === true || o.landed === true
   if (o.merged) return f.unpushed === 0 || o.landed === true
   if (!o.delivered && !o.archived) return false
   return f.unpushed === 0 || f.inBase === true
