@@ -1,11 +1,9 @@
 // Moved out of App.tsx (W9-A): the JSX is App's, the values come from App's state hooks. DESIGN-W13: the editor area,
 // always the pane grid, mounted for the window's life so no xterm remounts when the side bar switches views. Its tabs
 // include the `view` tabs (viewTabs.tsx); an empty layout shows Welcome.
-import { useEffect } from 'react'
 import { setRatio } from '../../../../core/panes/tree'
 import { viewTab } from '../../../../core/panes/tabId'
 import { AgentsPage } from '../pages/AgentsPage'
-import { setWallView } from '../wall/wallView'
 import { PaneGrid } from '../PaneGrid'
 import { Welcome } from './Welcome'
 import { renderViewTab, viewTabInfo, type ViewTabProps } from './viewTabs'
@@ -95,17 +93,9 @@ export function Content(p: ContentProps): React.JSX.Element {
   )
 }
 
-/** The editor area: the Agents page around the pane grid, both mounted for the window's life. The Agents page draws
- *  the wall over the grid while `view:wall` is the active tab (its tiles borrow the grid's terminals), and a console's
- *  header above it; any other tab gives the grid the whole area. */
+/** The editor area: the Agents page around the pane grid, both mounted for the window's life. The Agents page owns the
+ *  console data and the owner hold; the grid gets the whole area. */
 export function EditorArea(p: ContentProps): React.JSX.Element {
-  const { activeTabId } = p
-  // The app opens on what the grid holds (Welcome when empty); the wall is one click away (DESIGN-W13 §15).
-  useEffect(() => setWallView({ kind: 'away' }), [])
-  // After AgentsPage's own effect (a child's runs first), which reads any non-session tab as "away"
-  useEffect(() => {
-    if (activeTabId === viewTab('wall')) setWallView({ kind: 'wall' })
-  }, [activeTabId])
   return (
     <div className="wb-editor">
       <AgentsPage {...p}>

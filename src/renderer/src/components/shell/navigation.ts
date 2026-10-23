@@ -2,8 +2,8 @@
 // (state/useNavigation.ts); the exported functions forward to them. W9-A ships stubs that call
 // today's paths (the sidebar views, RunDetail, the settings modal); the 9.2 pages replace the handlers,
 // not the callers.
+import { setAgentsPlan } from '../views/agentsPlan'
 import type { ActivityId, PanelTab } from '../../../../core/ui/pages'
-import { setWallView } from '../wall/wallView'
 import type { ViewName } from '../../../../core/panes/tabId'
 import type { useSettings } from '../../state/useSettings'
 import type { OldSettingsTab } from '../settings/settingsIndex'
@@ -58,10 +58,10 @@ export const openView = (name: ViewName, arg?: string): void => (arg === undefin
 export const openPanel = (tab: PanelTab): void => forward('openPanel', tab)
 export const toggleSideBar = (): void => forward('toggleSideBar')
 export const togglePanel = (): void => forward('togglePanel')
-/** A plan's "Its consoles": the wall, filtered to that plan (by Job or Run id). */
+/** A plan's "Its consoles": the Agents side bar, filtered to that plan (a Run id is its Job id). */
 export const openPlanConsoles = (plan: string): void => {
-  openView('wall')
-  setWallView({ kind: 'wall', plan })
+  openActivity('agents')
+  setAgentsPlan(plan)
 }
 export const openConsole = (sessionId: string): void => forward('openConsole', sessionId)
 export const openPlan = (jobId: string, section?: string): void => forward('openPlan', jobId, section)

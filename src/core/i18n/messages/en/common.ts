@@ -9,8 +9,6 @@ export const common: Record<keyof typeof ko, string> = {
   'higgsfield.remove': 'Remove',
   'higgsfield.cancelLogin': 'Cancel',
   'wall.scope.all': 'All projects',
-  'wall.filter.all': 'All',
-  'wall.filter.needs': 'Needs you',
   'wall.new': 'New console',
   'settings.general.language': 'Language',
   'settings.general.language.system': 'System ({lang})',

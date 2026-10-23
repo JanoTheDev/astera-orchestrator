@@ -25,7 +25,6 @@ describe('PALETTE_COMMANDS', () => {
       'plan.pause': 'plan',
       'plan.resume': 'plan',
       'console.open': 'console',
-      'console.wall': 'console',
       'preferences.settings': 'preferences',
       'preferences.keys': 'preferences',
       'preferences.theme': 'preferences',

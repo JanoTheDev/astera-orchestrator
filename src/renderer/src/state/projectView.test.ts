@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Project } from '../../../core/orchestration/types'
-import { consolesOf, filterConsoles, planPills, ALL_PLANS, type WallInput } from '../components/wall/wallModel'
+import type { WallInput } from '../components/wall/wallModel'
 import { repoInScope, scopeData, scopeIdOf, scopeSessions, scopeTree, UNKNOWN_PROJECT } from './projectView'
 import { OTHER_WORKSPACE, projectOfCwd, workspaceSessionIds, type WorkspaceData, type WorkspaceProject, type WorktreeRef } from './workspaceTree'
 
@@ -45,29 +45,6 @@ describe('scopeIdOf: the window\'s project, never an exact path match', () => {
     expect(scopeIdOf(tree, worktrees, null, '/tmp/x', false)).toBe(UNKNOWN_PROJECT)
     expect(scopeIdOf(tree, worktrees, null, null, false)).toBe(UNKNOWN_PROJECT)
     expect(scopeIdOf(tree, worktrees, 'pA', A, true)).toBeNull()
-  })
-})
-
-describe('the wall: window of A with an active tab in a worktree of A lists none of B', () => {
-  const input: WallInput = { sessions, tree, data: { worktrees } as WorkspaceData, attention: {}, live: {}, rows: {} }
-  const cs = consolesOf(input)
-  const scope = scopeIdOf(tree, worktrees, null, '/home/jonx/astera-worktrees/Astera/first', false)
-  const f = { plan: ALL_PLANS, state: 'all' as const, scope: 'project' as const, projectId: scope === UNKNOWN_PROJECT ? null : scope }
-  it('filterConsoles keeps A\'s console only', () => {
-    expect(filterConsoles(cs, f).map((c) => c.sessionId)).toEqual(['sA'])
-  })
-  it('a null projectId shows only the consoles of no project, not all of them', () => {
-    expect(filterConsoles(cs, { ...f, projectId: null })).toEqual([])
-    const lone = cs.map((c) => (c.sessionId === 'sA' ? { ...c, projectId: null } : c))
-    expect(filterConsoles(lone, { ...f, projectId: null }).map((c) => c.sessionId)).toEqual(['sA'])
-  })
-  it('All projects shows both', () => {
-    expect(filterConsoles(cs, { ...f, scope: 'all' }).map((c) => c.sessionId).sort()).toEqual(['sA', 'sB'])
-  })
-  it('planPills lists the open project\'s plans only; a null project lists none', () => {
-    expect(planPills(tree, {}, cs, 'pA', 'project').map((p) => p.jobId)).toEqual(['jA'])
-    expect(planPills(tree, {}, cs, null, 'project')).toEqual([])
-    expect(planPills(tree, {}, cs, 'pA', 'all').map((p) => p.jobId)).toEqual(['jA', 'jB'])
   })
 })
 

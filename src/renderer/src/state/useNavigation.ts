@@ -8,7 +8,6 @@ import type { ActivityId } from '../../../core/ui/pages'
 import { registerNavigation, type SettingsGroup } from '../components/shell/navigation'
 import { requestInbox } from '../components/inbox/inboxNav'
 import { settingsTarget } from '../components/settings/settingsIndex'
-import { setWallView } from '../components/wall/wallView' // W9-H
 import { showWorktrees } from '../components/worktrees/worktreeView'
 import type { AppState } from './appState'
 import { planSectionOf } from '../components/plan/planBoard'
@@ -61,7 +60,6 @@ export function useNavigation(app: NavigationDeps): void {
       // Start's tab follows its request (useViewTabSync), so New/Start keeps one way in
       if (name === 'start') return openStart((cur) => cur ?? {})
       if (name === 'worktree' && arg !== undefined) showWorktrees(arg)
-      if (name === 'wall') setWallView({ kind: 'wall' })
       placeView(name, arg)
     }
     return registerNavigation({

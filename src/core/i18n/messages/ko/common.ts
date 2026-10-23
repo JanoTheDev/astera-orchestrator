@@ -7,8 +7,6 @@ export const common = {
   'higgsfield.remove': '삭제',
   'higgsfield.cancelLogin': '취소',
   'wall.scope.all': '모든 프로젝트',
-  'wall.filter.all': '전체',
-  'wall.filter.needs': '나를 기다림',
   'wall.new': '새 콘솔',
   'settings.general.language': '언어',
   // {lang} is the language the OS locale resolves to, shown so the effect of picking System is
