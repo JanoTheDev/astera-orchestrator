@@ -14,7 +14,8 @@ import {
   ROW_H,
   EDIT_H,
   EDIT_REASON_H,
-  OVERSCAN
+  OVERSCAN,
+  clickOpensFile
 } from './explorerRows'
 import type { DirState } from '../hooks/useFileTree'
 
@@ -283,5 +284,24 @@ describe('cursorOrigin — 키보드 이동이 시작하는 행', () => {
   it('앵커도 사라졌으면 트리 순서로 마지막에 선택된 행에서', () => {
     expect(cursorOrigin(paths, new Set(['/p3', '/p1']), '/gone', null)).toBe('/p3')
     expect(cursorOrigin(paths, new Set(), null, null)).toBe(null)
+  })
+})
+
+describe('clickOpensFile — a plain click on a file opens it', () => {
+  const none = { ctrlKey: false, metaKey: false, shiftKey: false }
+
+  it('opens a file on a plain click', () => {
+    expect(clickOpensFile({ isDir: false }, none)).toBe(true)
+  })
+
+  it('never opens a folder; a folder toggles instead', () => {
+    expect(clickOpensFile({ isDir: true }, none)).toBe(false)
+  })
+
+  it('a Ctrl, Meta or Shift click only selects', () => {
+    const file = { isDir: false }
+    expect(clickOpensFile(file, { ...none, ctrlKey: true })).toBe(false)
+    expect(clickOpensFile(file, { ...none, metaKey: true })).toBe(false)
+    expect(clickOpensFile(file, { ...none, shiftKey: true })).toBe(false)
   })
 })
