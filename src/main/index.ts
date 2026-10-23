@@ -32,6 +32,7 @@ import { startUp, startingPageUrl, loadInto, storedTheme, quitOnSignals } from '
 import type { Theme } from '../core/theme/themes'
 import { pickInitialLang } from '../core/i18n/locale'
 import { shouldForceWaylandOzone } from './ozone'
+import { registerReviewIpc } from './reviewIpc'
 import { registerIpc, parseAllowedExternalUrl, type AppWindows, type OrchHandle } from './ipc'
 // W9-K: one window per project
 import { isValidState } from '../core/orchestration/store'
@@ -1456,6 +1457,12 @@ app.whenReady().then(async () => {
   // narrows whatever the renderer sends (accountMaxSessionsOf).
   ipcMain.handle('settings.getAccountMaxSessions', () => core!.appSettings.getAccountMaxSessions())
   ipcMain.handle('settings.setAccountMaxSessions', (_e, v: unknown) => core!.appSettings.setAccountMaxSessions(v))
+
+  // Change map and PR merge for a worktree outside a plan (reviewIpc.ts).
+  registerReviewIpc(ipcMain, {
+    worktrees: () => core!.worktrees.list(),
+    projectPaths: () => core!.history.knownProjectPaths()
+  })
 
   // W9-K: a renderer asks which project its window is bound to, reports what it shows, and opens a new window
   // (the switcher's "Open in new window", Ctrl+Shift+N).
