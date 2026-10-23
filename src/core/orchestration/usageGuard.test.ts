@@ -5,6 +5,7 @@ import os from 'node:os'
 import type { UsagePause } from '../types'
 import {
   createUsageGuard,
+  startPauseOf,
   usageChoice,
   usagePauseAtOf,
   usagePauseOf,
@@ -55,6 +56,32 @@ describe('usagePauseOf', () => {
     expect(usagePauseOf('a', reading(10, 100, null), 90, NOW)).toEqual({ accountId: 'a', window: 'seven_day', percent: 100, resetsAt: null })
     expect(usagePauseOf('a', reading(95, 10, 'soon'), 90, NOW)?.resetsAt).toBeNull()
     expect(usagePauseOf('a', reading(50, 10, null), 90, NOW)).toBeNull()
+  })
+})
+
+// T1: with "Pick accounts automatically" on, a paused account is no hold while its provider has a logged-in account with room
+describe('startPauseOf', () => {
+  const pause = (id: string): UsagePause => ({ accountId: id, window: 'seven_day', percent: 99, resetsAt: LATER })
+  const accounts = [{ id: 'c1' }, { id: 'c2', provider: 'claude' as const }, { id: 'x1', provider: 'codex' as const }]
+  const pausedOf = (ids: string[]) => (id: string): UsagePause | null => (ids.includes(id) ? pause(id) : null)
+
+  it('auto on: null while another logged-in account of the provider has room, the pause once every one is full', () => {
+    const of = startPauseOf(pausedOf(['c1', 'x1']), { auto: true, accounts, loggedInIds: new Set(['c1', 'c2', 'x1']) })
+    expect(of('c1')).toBeNull()
+    expect(of.auto).toBe(true)
+    // codex has no other account
+    expect(of('x1')).toEqual(pause('x1'))
+    // the one with room is logged out: no room
+    expect(startPauseOf(pausedOf(['c1']), { auto: true, accounts, loggedInIds: new Set(['c1']) })('c1')).toEqual(pause('c1'))
+    expect(startPauseOf(pausedOf(['c1', 'c2']), { auto: true, accounts, loggedInIds: new Set(['c1', 'c2']) })('c1')).toEqual(pause('c1'))
+    // an account Astera does not hold keeps its own answer
+    expect(startPauseOf(pausedOf(['zz']), { auto: true, accounts, loggedInIds: new Set(['c2']) })('zz')).toEqual(pause('zz'))
+  })
+
+  it('auto off: the pause as it is', () => {
+    const of = startPauseOf(pausedOf(['c1']), { auto: false, accounts, loggedInIds: new Set(['c1', 'c2']) })
+    expect(of('c1')).toEqual(pause('c1'))
+    expect(of.auto).toBeUndefined()
   })
 })
 
