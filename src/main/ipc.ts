@@ -171,7 +171,7 @@ import { isPermissionMode, isUnattendedPermission } from '../core/chat/types'
 import { performRepair, repairOnce, repairTargetFor, type RepairDeps } from '../core/orchestration/exec/repair'
 import { snapshotFor, jobsForProject, outcomeOf } from '../core/orchestration/view'
 import { createOrchPush } from './orchPush'
-import { dropNonGitProjects, ensureGitProject } from '../core/orchestration/projects'
+import { dropNonGitProjects, ensureGitProject, findProjectContaining } from '../core/orchestration/projects'
 import { mainRepoRoot } from '../core/projects/detect'
 import { emptyState, resolveRunId } from '../core/orchestration/state'
 import { runRecordInputOf } from '../core/orchestration/runRecord'
@@ -3118,7 +3118,7 @@ export function registerIpc(
       // exactly like any other. 갈라질 자리를 고르는 판단은 forkWorktree(integrateGit.ts)에 있다 —
       // Run 워크트리를 만드는 스케줄러도 같은 것을 쓴다.
       createWorktree: async (a) => ({
-        path: await forkWorktree(a, { registry: core.worktrees, log: orchLog })
+        path: await forkWorktree(a, { registry: core.worktrees, log: orchLog, setupCommand: findProjectContaining(store.get(), a.repoPath)?.setupCommand })
       }),
       // W5-A (#50): a dependent Task's fork gets its deps merged in (integrateGit.ts).
       mergeIntoWorktree: (worktree, from) => mergeDepsInto(worktree, from, { log: orchLog }),
@@ -3249,7 +3249,7 @@ export function registerIpc(
       loginStatus: (accountId) => core.accounts.loginStatus(accountId),
       lang: () => core.lang,
       forkRunWorktree: (a) =>
-        forkWorktree({ repoPath: a.repoPath, name: a.name }, { registry: core.worktrees, log: orchLog }),
+        forkWorktree({ repoPath: a.repoPath, name: a.name }, { registry: core.worktrees, log: orchLog, setupCommand: findProjectContaining(store.get(), a.repoPath)?.setupCommand }),
       integrate: (runRoot, merges, heads) => integrateWorktrees(runRoot, merges, { heads }, gitCtx),
       reap: (p) => reapWorktree(p),
       isRegisteredWorktree: (p) => core.worktrees.list().some((w) => isSamePath(w.path, p)),
@@ -3365,7 +3365,7 @@ export function registerIpc(
        *  끌고 온다 — 스케줄러의 게으른 생성이 같은 함수를 쓰는 이유와 같다. 그 판단은 한 곳에만
        *  있어야 한다. */
       makeRunWorktree: (a) =>
-        forkWorktree({ repoPath: a.repoPath, name: a.name }, { registry: core.worktrees, log: orchLog }),
+        forkWorktree({ repoPath: a.repoPath, name: a.name }, { registry: core.worktrees, log: orchLog, setupCommand: findProjectContaining(store.get(), a.repoPath)?.setupCommand }),
       /** 이 Run 을 관리할 코디네이터 세션을 띄운다 — the body, and the reasoning for its brief file,
        *  its one-account chain and its permission mode, is startCoordinatorSession in
        *  core/orchestration/exec/workerStart.ts. What stays here is the app's spawn adapter. */

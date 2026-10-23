@@ -710,7 +710,7 @@ astera projects find  --path <path>
 astera projects add   [--path <path>] [--initial-commit] [--parent <projectId>] [--name <name>] [--focus <a,b>] [--clone <git url>]
 astera projects remove --id <projectId>
 astera projects create --name <name> --parent <path> [--describe <text>] [--github <private|public>]
-astera projects set   --id <projectId> [--delivery <pr|push>] [--delivery-branch <branch>] [--auto-approve <on|off>] [--hands-off <on|off>] [--test-command <cmd>] [--test-config <id>] [--concurrency <1-100>] [--review-rounds <n>] [--replan <waves|off>] [--account <id>] [--prompts-dir <path|none>] [--auto-projects <on|off>] [--grants <kind,...|none>] [--coordinator-model <id|none>]
+astera projects set   --id <projectId> [--delivery <pr|push>] [--delivery-branch <branch>] [--auto-approve <on|off>] [--hands-off <on|off>] [--test-command <cmd>] [--test-config <id>] [--concurrency <1-100>] [--review-rounds <n>] [--replan <waves|off>] [--account <id>] [--setup-command <cmd|off>] [--prompts-dir <path|none>] [--auto-projects <on|off>] [--grants <kind,...|none>] [--coordinator-model <id|none>]
 
 astera jobs    list   [--status <pending|paused|scheduled|waiting|running|completed|failed>] [--project <path>] [--archived] [--area <word>]
 astera jobs    get    --id <jobId | runId>

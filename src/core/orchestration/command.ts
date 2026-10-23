@@ -1346,6 +1346,11 @@ function projectSettingsArgs(
     if (on === null) return { error: '--origin-sync must be on or off' }
     patch.originSync = on ? null : 'off'
   }
+  // the command run in each new worktree to install dependencies: off runs none, empty detects from the lockfile again
+  if (args.setupCommand !== undefined) {
+    if (typeof args.setupCommand !== 'string') return { error: '--setup-command needs a command, or off' }
+    patch.setupCommand = args.setupCommand.trim() || null
+  }
   if (args.testConfig !== undefined) {
     if (typeof args.testConfig !== 'string') return { error: '--test-config needs a run configuration id' }
     patch.testConfigId = args.testConfig.trim() || null

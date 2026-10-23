@@ -412,7 +412,7 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
   },
   // W6-H delivery (delivery.ts)
   'projects-set': {
-    summary: "set a project's delivery, auto-approve, hands-off, test command, concurrency, review rounds, replan, prompts folder, standing grants, coordinator model and account",
+    summary: "set a project's delivery, auto-approve, hands-off, test command, concurrency, review rounds, replan, setup command, prompts folder, standing grants, coordinator model and account",
     detail:
       'pr (the default) opens one pull request per plan and never merges it. push merges a finished plan into the delivery branch (the default branch unless --delivery-branch) and pushes it, with no review by a person, after the reviews, the final check and the validation pass; it stops and escalates when the folder is not on that branch, has uncommitted changes, cannot fast-forward, conflicts, fails validation or is rejected, and never force-pushes. A Job may override it (`jobs create --delivery`). Defaults: delivery pr, auto-approve off, concurrency 3, review rounds 5, replan waves. --auto-approve on starts a plan without waiting for approval; --hands-off on also lets its coordinator answer its own escalations and bypasses permissions for its sessions. --test-command is saved as a run configuration and validates every new Task that has no --validate (--test-config picks an existing one). A new Job copies the concurrency, replan and review rounds when it sets none. An empty value clears a setting back to its default. Refused from an agent session and an MCP client.',
     flags: [
@@ -430,6 +430,7 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       { name: 'replan', value: '<waves|off>', about: 'replan between waves (default: waves)' },
       { name: 'account', value: '<id>', about: 'the account the project uses' },
       // W10-A
+      { name: 'setup-command', value: '<cmd|off>', about: 'the command run in every new plan and Task worktree to install dependencies (default: detected from the lockfile: bun, pnpm, yarn or npm); off runs none; empty detects again' },
       { name: 'prompts-dir', value: '<path|none>', about: 'the folder (in the repository) whose <id>-*.md files Run as written finds by name; none clears it' },
       // T3 workspaces
       { name: 'auto-projects', value: '<on|off>', about: 'file each plan under a sub-project named after its first area, created when missing (off for a project added from now on)' },

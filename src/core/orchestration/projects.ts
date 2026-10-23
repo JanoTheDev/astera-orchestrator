@@ -165,7 +165,11 @@ export type ProjectSettingsPatch = {
   coordinatorModel?: string | null
   // T4: off stops keeping running plans in sync with origin
   originSync?: 'off' | null
+  // a one-line shell command, `off`, or null for auto-detect
+  setupCommand?: string | null
 }
+
+const MAX_SETUP_COMMAND_LENGTH = 500
 
 /** T5: a standing grant's kind: a short kebab-case word (`protected-paths`, `migrations`). */
 export const GRANT_KIND = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
@@ -186,6 +190,9 @@ export function setProjectSettings(s: OrchState, id: string, patch: ProjectSetti
   else if (patch.grants) patch = { ...patch, grants: [...new Set(patch.grants)] }
   if (patch.coordinatorModel != null && !MODEL_ID.test(patch.coordinatorModel))
     return { ok: false, error: `coordinator model ${JSON.stringify(patch.coordinatorModel)} is not a model id` }
+  const setup = patch.setupCommand
+  if (setup != null && (setup.trim() === '' || /[\r\n]/.test(setup) || setup.length > MAX_SETUP_COMMAND_LENGTH))
+    return { ok: false, error: `setup command must be one line of at most ${MAX_SETUP_COMMAND_LENGTH} characters, or off` }
   const next: Record<string, unknown> = { ...found }
   for (const [k, v] of Object.entries(patch)) {
     if (v === undefined) continue

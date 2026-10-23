@@ -96,7 +96,7 @@ const RUN_HIDDEN = [
 ] as const
 
 /** W6-H: how a project's plans land, set by `projects-set`; not in the SDK's contract yet. */
-const PROJECT_HIDDEN = ['delivery', 'deliveryBranch', /* W7-B: project settings, not in the SDK's contract yet */ 'autoApprove', /* #117 */ 'handsOff', 'testConfigId', 'concurrency', 'reviewRounds', 'replan', 'defaultBranch', /* W10-A: the prompts folder, not in the SDK's contract yet */ 'promptsDir', /* T3 workspaces: a sub-project's folders and a root's auto-create switch */ 'focus', 'autoProjects', /* T5: standing grants and the coordinator model; shown by projects list/get, not in the SDK's contract yet */ 'grants', 'coordinatorModel', /* T4 origin sync */ 'originSync'] as const
+const PROJECT_HIDDEN = ['delivery', 'deliveryBranch', /* W7-B: project settings, not in the SDK's contract yet */ 'autoApprove', /* #117 */ 'handsOff', 'testConfigId', 'concurrency', 'reviewRounds', 'replan', 'defaultBranch', /* W10-A: the prompts folder, not in the SDK's contract yet */ 'promptsDir', /* T3 workspaces: a sub-project's folders and a root's auto-create switch */ 'focus', 'autoProjects', /* T5: standing grants and the coordinator model; shown by projects list/get, not in the SDK's contract yet */ 'grants', 'coordinatorModel', /* T4 origin sync */ 'originSync', /* worktree setup command */ 'setupCommand'] as const
 
 /**
  * A Task's fields kept back on purpose: all of them **the ledger the app keeps to drive convergence**. The guide

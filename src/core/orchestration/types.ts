@@ -188,6 +188,9 @@ export interface Project {
   // ── T4 origin sync (exec/originSync.ts) ──
   /** `off`: running plans of this project are not kept in sync with origin (a repository with no network). Absent: on. */
   originSync?: 'off'
+  /** The command run in every new plan and Task worktree to install dependencies. Absent: detected from the lockfile
+   *  (core/worktrees/setup.ts); `off`: none; anything else runs as given. */
+  setupCommand?: string
 }
 
 /** W7-B: what a project nobody set up reads as. */
