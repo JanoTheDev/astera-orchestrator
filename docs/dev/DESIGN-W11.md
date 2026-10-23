@@ -1,3 +1,5 @@
+Superseded by DESIGN-W13.md (VSCode workbench), 2026-10
+
 # DESIGN-W11: the visual direction
 
 Replaces the look of `DESIGN.md` (Wave 9), which the owner rejected. `DESIGN.md §0` (owner rules) still holds:

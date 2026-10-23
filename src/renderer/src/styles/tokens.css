@@ -58,57 +58,78 @@
    stored theme before the first paint, and from then on the provider owns them. Contrast is measured
    per theme in core/theme/contrast.test.ts, not in comments here. */
 :root {
-  /* ---- theme (DESIGN.md §9) — the provider rewrites these ---- */
-  --bg: #0e0f12;
-  --rail: #0e0f12;
-  --panel: #15161a;
-  --elevated: #202227;
-  --surface-hover: #1a1b20;
-  --term-bg: #0b0c0e;
-  --line: #26282e;
-  --line-soft: #26282e;
-  --text: #eceef2;
-  --text-dim: #a2a6b0;
-  --text-faint: #7c818c;
-  --rail-icon: #a2a6b0;
-  --accent: #8b93ff;
-  --accent-ink: #0c0e33;
-  --ring: rgba(139, 147, 255, 0.6);
-  --status-bg: #15161a;
-  --status-ink: #a2a6b0;
-  --md-bg: #0e0f12;
-  --md-text: #eceef2;
-  --md-code-bg: #202227;
-  --md-line: #26282e;
-  --md-link: #8b93ff;
-  --btn-bg: #8b93ff;
-  --btn-ink: #0c0e33;
+  /* ---- theme (docs/dev/DESIGN-W13.md §11) — the provider rewrites these ---- */
+  --bg: #1f1f1f;
+  --rail: #1f1f1f;
+  --panel: #181818;
+  --elevated: #2b2b2b;
+  --surface-hover: #2a2d2e;
+  --term-bg: #181818;
+  --line: #2b2b2b;
+  --line-soft: #2b2b2b;
+  --text: #cccccc;
+  --text-dim: #9d9d9d;
+  --text-faint: #8b8b8b;
+  --rail-icon: #9d9d9d;
+  --accent: #0078d4;
+  --accent-ink: #ffffff;
+  --ring: rgba(0, 120, 212, 0.6);
+  --status-bg: #181818;
+  --status-ink: #9d9d9d;
+  --md-bg: #1f1f1f;
+  --md-text: #cccccc;
+  --md-code-bg: #2b2b2b;
+  --md-line: #2b2b2b;
+  --md-link: #4daafc;
+  --btn-bg: #0078d4;
+  --btn-ink: #ffffff;
   --btn-border: transparent;
-  --hover: #1a1b20;
-  --accent-soft: #1d2042;
-  --ok: #4cc38a;
-  --ok-soft: #0f2a1e;
-  --ok-bg: #0f2a1e;
-  --warn: #f0b35a;
-  --warn-soft: #2e2310;
-  --warn-bg: #2e2310;
-  --warn-ink: #f0b35a;
-  --danger: #f2696b;
-  --danger-soft: #341819;
-  --danger-bg: #341819;
-  --radius: 6px;
-  --radius-lg: 10px;
-  --radius-sm: 4px;
+  --hover: #2a2d2e;
+  --accent-soft: #0f2b46;
+  --ok: #6cc77a;
+  --ok-soft: #13291a;
+  --ok-bg: #13291a;
+  --warn: #d7ac2c;
+  --warn-soft: #2e2810;
+  --warn-bg: #2e2810;
+  --warn-ink: #d7ac2c;
+  --danger: #f47070;
+  --danger-soft: #3a1c1c;
+  --danger-bg: #3a1c1c;
+  --radius: 4px;
+  --radius-lg: 6px;
+  --radius-sm: 3px;
   --marker-w: 2px;
   --shadow-sm: 0 1px 2px rgba(0,0,0,.35);
   --shadow-lg: 0 10px 28px rgba(0,0,0,.55);
   --row-pad-y: 4px;
-  --pane-tabbar-h: 34px;
+  --pane-tabbar-h: 35px;
   --sel-h: 30px;
   --modal-pad: 20px;
-  --sans: 'IBM Plex Sans', 'Malgun Gothic', 'Apple SD Gothic Neo', 'Noto Sans CJK KR', sans-serif;
+  --sans: system-ui, -apple-system, 'Segoe UI', Ubuntu, Cantarell, 'Malgun Gothic', 'Apple SD Gothic Neo', 'Noto Sans CJK KR', sans-serif;
   --mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', Consolas, monospace;
   --tracking: 0;
+  --link: #4daafc;
+  /* the workbench surfaces (docs/dev/DESIGN-W13.md §2, §11) */
+  --activitybar-bg: #181818;
+  --activitybar-fg: #d7d7d7;
+  --activitybar-fg-dim: #868686;
+  --sidebar-bg: #181818;
+  --editor-bg: #1f1f1f;
+  --tab-bar-bg: #181818;
+  --tab-active-bg: #1f1f1f;
+  --tab-inactive-bg: #181818;
+  --tab-border-active: #0078d4;
+  --panel-bg: #181818;
+  --panel-border: #2b2b2b;
+  --statusbar-bg: #181818;
+  --statusbar-fg: #cccccc;
+  --focus-border: #0078d4;
+  --list-hover: #2a2d2e;
+  --list-active: #0f2b46;
+  --list-inactive-selection: #37373d;
+  --badge-bg: #0078d4;
+  --badge-fg: #ffffff;
 
   /* ---- derived from the theme: they follow night, dusk and day without a literal of their own ---- */
   /* One step above --elevated: a button's and a scrollbar thumb's hover. Mixed toward --text, so on day
@@ -154,8 +175,8 @@
   /* 채워진 확정 액션 버튼(흰 글자 위) */
   --confirm: #217a56;
   --confirm-hover: #1a6b49;
-  --info: #6eb6ff;
-  --info-soft: #0f2238;
+  --info: #4daafc;
+  --info-soft: #122436;
   /* 브랜드·역할색은 테마가 바꾸지 않는다 — Claude 의 색이고 발화자 구분이다 */
   --brand-claude: #d97757;
   --brand-codex: #fff;
@@ -221,15 +242,23 @@
   --fw-semi: 600;
   --sp-10: 40px;
   --sp-12: 48px;
-  --radius-xl: 14px;
+  --radius-xl: 8px;
   --radius-pill: 999px;
   --h-sm: 24px;
   --h-md: 30px;
   --h-lg: 36px;
   --topbar-h: 44px;
-  --statusbar-h: 26px;
+  --statusbar-h: 22px;
   --page-max: 1180px;
   --page-pad: 24px;
+  /* ---- workbench sizes (docs/dev/DESIGN-W13.md §2). Fixed; the theme provider never writes them. ---- */
+  --titlebar-h: 35px;
+  --activitybar-w: 48px;
+  --sidebar-w: 260px;
+  --tab-h: 35px;
+  --row-h: 22px;
+  --list-row-h: 24px;
+  --panel-header-h: 35px;
   --dur-fast: 90ms;
   --dur: var(--motion);
   --ease-out: cubic-bezier(0.2, 0.6, 0.3, 1);
@@ -237,8 +266,10 @@
   --line-strong: color-mix(in srgb, var(--line), var(--text) 12%);
   /* The fill of a primary button on hover; mixed toward --text so it lightens on dark and darkens on Day. */
   --accent-hover: color-mix(in srgb, var(--accent), var(--text) 12%);
-  /* One focus ring for every theme, the accent's own hue (Day had two greens). */
-  --focus-ring: 0 0 0 1px var(--bg), 0 0 0 3px var(--ring);
+  /* One focus ring for every theme: VSCode's 1px focusBorder, a 1px gap out so it reads on a filled accent
+     button. Tree and list rows, which a scroller clips, draw the inset form instead. */
+  --focus-ring: 0 0 0 1px var(--bg), 0 0 0 2px var(--focus-border);
+  --focus-ring-inset: inset 0 0 0 1px var(--focus-border);
   /* Elevation: 0 flat (pages), 1 raised (cards on hover), 2 popover (menus, tooltips), 3 modal. */
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
   --shadow-pop: 0 0 0 1px var(--line-strong), var(--shadow-md);
