@@ -3,6 +3,7 @@ import type { Account, Attention, JobRow } from '../../../../core/types'
 import type { Job, JobRun, Task } from '../../../../core/orchestration/types'
 import { afterNameOf, afterQueued, afterStandOf } from '../../../../core/orchestration/after'
 import { jobNameOf } from '../../../../core/orchestration/jobName'
+import { agentPanes, type WallConsole } from '../wall/wallModel'
 import type { Translate } from '../checkText'
 import {
   ACTIVITY_IDS, ACTIVITY_STORAGE_KEY, PAGE_STORAGE_KEY, PANEL_TABS, PANEL_TAB_KEY, PANEL_VISIBLE_KEY, SIDEBAR_DEFAULT_WIDTH,
@@ -16,15 +17,24 @@ export interface ShellCounts {
   working: number
   /** What waits on the owner: the Inbox's "needs you" items (core/orchestration/sessionIndex.ts needsInput). */
   waiting: number
+  /** The Agents badge: the Needs you pane's rows (agentPanes over the same consoles), of the same scope. */
+  agents: number
 }
 
 export function shellCounts(
   sessions: readonly { id: string; status: string }[],
   attention: Readonly<Record<string, Attention>>,
-  needsYou: readonly unknown[]
+  needsYou: readonly unknown[],
+  consoles: readonly WallConsole[]
 ): ShellCounts {
   const live = sessions.filter((s) => s.status === 'running')
-  return { consoles: live.length, working: live.filter((s) => attention[s.id] === 'working').length, waiting: needsYou.length }
+  const inScope = new Set(sessions.map((s) => s.id))
+  return {
+    consoles: live.length,
+    working: live.filter((s) => attention[s.id] === 'working').length,
+    waiting: needsYou.length,
+    agents: agentPanes(consoles.filter((c) => inScope.has(c.sessionId))).needs.length
+  }
 }
 
 /** "Next: X starts after Y delivers" (W8-C `Job.after`): the oldest still-queued plan, "+N" for the rest, or null when
@@ -104,21 +114,6 @@ export function activityClick(cur: { activity: ActivityId; sidebarVisible: boole
 export function shownPanelTab(panelTab: PanelTab, bottomTab: string): PanelTab {
   if (panelTab === 'needs' || panelTab === 'activity') return panelTab
   return bottomTab === 'run' ? 'output' : 'terminal'
-}
-
-/** The Agents view's three panes: running consoles that wait on the owner, the other running ones, and the last
- *  `finishedMax` ended ones (the list's own order, newest last). */
-export function consoleGroups<S extends { id: string; status: string }>(
-  sessions: readonly S[],
-  attention: Readonly<Record<string, Attention>>,
-  finishedMax = 20
-): { needs: S[]; working: S[]; finished: S[] } {
-  const live = sessions.filter((s) => s.status === 'running')
-  return {
-    needs: live.filter((s) => attention[s.id] === 'waiting'),
-    working: live.filter((s) => attention[s.id] !== 'waiting'),
-    finished: sessions.filter((s) => s.status !== 'running').slice(-finishedMax)
-  }
 }
 
 /** The Plans activity badge: plans running now (not archived, not paused, outcome running). */

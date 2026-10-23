@@ -108,7 +108,7 @@ export default function App(): React.JSX.Element {
       <div className="workbench wb-row">
         <ActivityBar
           {...props}
-          badges={{ agents: shell.counts.waiting, plans: runningPlans(app.orchSnapshot?.runs ?? []) }}
+          badges={{ agents: shell.counts.agents, plans: runningPlans(app.orchSnapshot?.runs ?? []) }}
           onActivity={(id) => {
             const next = activityClick({ activity, sidebarVisible: sidebarOpen }, id)
             app.showActivity(next.activity)
