@@ -303,7 +303,7 @@ export function buildPlannerBrief(a: {
     `- objective: ${a.objective}`,
     `- repository root: ${a.repoRoot} (your session runs here)`,
     `- workers that may run at once: ${a.concurrency}`,
-    '  Cut the plan so up to that many Tasks can run at once: independent Tasks, small, deps only where one needs another\'s code (planner-guide.md section 2).',
+    '  Cut the plan so up to that many Tasks can run at once: independent Tasks, small, deps only where one uses code, an API, a file\'s content or a decision another produces; same area or same files is never a reason (planner-guide.md section 2).',
     '',
     // W8-D
     ...(a.otherPlans ? [a.otherPlans, ''] : []),

@@ -226,7 +226,7 @@ describe('buildPlannerBrief wider plans', () => {
   it('asks for up to the worker limit of Tasks at once, right after the limit line', () => {
     const b = buildPlannerBrief({ jobId: 'job_x', objective: 'o', repoRoot: '/repo', accountId: 'acc1', concurrency: 7 })
     expect(b).toContain('- workers that may run at once: 7\n  Cut the plan so up to that many Tasks can run at once')
-    expect(b).toContain('deps only where one needs another\'s code (planner-guide.md section 2)')
+    expect(b).toContain('same area or same files is never a reason (planner-guide.md section 2)')
   })
 })
 

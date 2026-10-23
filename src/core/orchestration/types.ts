@@ -325,6 +325,8 @@ export interface Job {
     heldBefore?: true
     /** The Tasks it cancelled, as "title: reason". */
     cancelled?: string[]
+    /** The deps it dropped from not-started Tasks, as "title: dropped dep titles: reason". */
+    droppedDeps?: string[]
     /** The Run's Tasks when it began, id to `updatedAt`: what it added and changed is read against this. */
     before?: Record<string, string>
     /** W7-A: the owner's feedback this replan was started for (`PlanFeedback.at`); its summary is that feedback's change. */

@@ -63,8 +63,11 @@ shows it: each plan with its open Tasks, and the links between plans.
 - **Maximise safe parallelism.** Tasks with no dependency between them run at the same time, each in its own
   git worktree, and are merged afterwards. Parallel is safe only when their `--affected-paths` do not
   overlap. Two Tasks that must change the same file are either one Task or a chain (`--deps`).
-- **Dependencies are real orderings only**: B depends on A when B needs A's code or A's answer. Do not add deps "to
-  be careful": they are the only thing that orders Tasks, and every needless link makes the plan slower.
+- **Dependencies are real orderings only**: B depends on A only when B uses code, an API, a file's content or a decision
+  A produces. Same area, same files, nicer order and "review after" are never reasons: each Task has its own worktree and
+  the merge worker resolves conflicts. Do not add deps "to be careful": they are the only thing that orders Tasks, and
+  every needless link makes the plan slower. A replan drops such deps from Tasks that have not started
+  (`task-update --deps ... --reason "<why>"`).
 - **Keep scope tight, Tasks sized for parallel work.** Plan what the objective asks for and nothing more; do not plan
   "polish" or "docs" Tasks nobody asked for. Size each Task to one folder or feature slice that one worker finishes in
   about an hour: split a Task that spans unrelated folders. When the objective has that many independent parts, aim
