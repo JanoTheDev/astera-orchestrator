@@ -49,6 +49,7 @@ export const files: Partial<Record<keyof typeof ko, string>> = {
   'explorer.git.modified': 'Modificado',
   'explorer.git.deleted': 'Eliminado',
   'explorer.git.conflict': 'Conflicto',
+  'explorer.git.renamed': 'Renombrado',
   'explorer.git.folderCount': '{count} cambios',
   'explorer.git.unavailable': 'Estado de git no disponible: se muestra el último resultado',
   'explorer.view.all': 'Todos',
