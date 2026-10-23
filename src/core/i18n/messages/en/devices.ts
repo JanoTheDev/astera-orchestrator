@@ -8,6 +8,8 @@ export const devices: Record<keyof typeof ko, string> = {
   'devices.pane.found': 'Found on your network',
   'devices.this.accepts': 'Accepts work from other devices',
   'devices.this.off': 'Does not accept work from other devices',
+  'devices.this.acceptsShort': 'Takes work',
+  'devices.this.offShort': 'Takes no work',
   'devices.this.unknown': 'Could not tell whether it accepts work',
   'devices.this.settings': 'Open Remote Runtimes settings',
   'devices.empty.yours': 'No devices yet. Add a computer that runs Claude and Codex for you.',

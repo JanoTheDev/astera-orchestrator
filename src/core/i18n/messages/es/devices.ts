@@ -8,6 +8,8 @@ export const devices: Partial<Record<keyof typeof ko, string>> = {
   'devices.pane.found': 'Encontrados en tu red',
   'devices.this.accepts': 'Acepta trabajo de otros dispositivos',
   'devices.this.off': 'No acepta trabajo de otros dispositivos',
+  'devices.this.acceptsShort': 'Acepta trabajo',
+  'devices.this.offShort': 'No acepta trabajo',
   'devices.this.unknown': 'No se pudo saber si acepta trabajo',
   'devices.this.settings': 'Abrir los ajustes de Remote Runtimes',
   'devices.empty.yours': 'Aún no hay dispositivos. Añade un equipo que ejecute Claude y Codex por ti.',

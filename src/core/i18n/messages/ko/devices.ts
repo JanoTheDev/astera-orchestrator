@@ -6,6 +6,8 @@ export const devices = {
   'devices.pane.found': '네트워크에서 찾음',
   'devices.this.accepts': '다른 기기의 작업을 받습니다',
   'devices.this.off': '다른 기기의 작업을 받지 않습니다',
+  'devices.this.acceptsShort': '작업 받음',
+  'devices.this.offShort': '작업 안 받음',
   'devices.this.unknown': '작업을 받는지 알 수 없습니다',
   'devices.this.settings': 'Remote Runtimes 설정 열기',
   'devices.empty.yours': '아직 기기가 없습니다. Claude 와 Codex 를 대신 실행할 컴퓨터를 추가하세요.',

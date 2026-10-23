@@ -8,6 +8,8 @@ export const devices: Partial<Record<keyof typeof ko, string>> = {
   'devices.pane.found': 'ネットワークで見つかったもの',
   'devices.this.accepts': 'ほかのデバイスからの作業を受け付けます',
   'devices.this.off': 'ほかのデバイスからの作業は受け付けません',
+  'devices.this.acceptsShort': '作業を受け付け中',
+  'devices.this.offShort': '作業を受け付けない',
   'devices.this.unknown': '作業を受け付けるか分かりません',
   'devices.this.settings': 'Remote Runtimes の設定を開く',
   'devices.empty.yours': 'まだデバイスがありません。Claude と Codex を代わりに実行するコンピューターを追加してください。',

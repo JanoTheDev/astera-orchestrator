@@ -57,6 +57,8 @@ export function DeviceDetail({
     )
 
   const state = deviceState(r)
+  // `unregistered` (Jobs in folders that are no project) has no path: it is no project to list
+  const listed = projects?.filter((x) => x.path) ?? projects
   const accounts = accountsOf[runtimeId]
   const check = async (): Promise<void> => {
     setPinging(true)
@@ -163,7 +165,7 @@ export function DeviceDetail({
               ? t('devices.loading')
               : projects === null
                 ? t('devices.detail.projectsUnknown')
-                : projects.length === 0
+                : listed?.length === 0
                   ? t('devices.detail.noProjects')
                   : undefined
         }
@@ -173,16 +175,14 @@ export function DeviceDetail({
           </Button>
         }
       >
-        {projects && projects.some((x) => x.path) && (
+        {listed && listed.length > 0 && (
           <ul className="devices-list">
-            {projects
-              .filter((x) => x.path)
-              .map((x) => (
-                <li key={x.id}>
-                  <span>{x.name ?? x.path}</span>
-                  <span className="devices-dim devices-mono">{x.path}</span>
-                </li>
-              ))}
+            {listed.map((x) => (
+              <li key={x.id}>
+                <span>{x.name ?? x.path}</span>
+                <span className="devices-dim devices-mono">{x.path}</span>
+              </li>
+            ))}
           </ul>
         )}
         {adding && (

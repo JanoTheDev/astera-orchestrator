@@ -33,8 +33,9 @@ export function DevicesView(p: SideBarViewProps): React.JSX.Element {
       id: THIS,
       depth: 0,
       label: t('devices.thisComputer'),
+      title: mine ? `${t('devices.thisComputer')}\n${t(accepts ? 'devices.this.accepts' : 'devices.this.off')}` : undefined,
       icon: <Icon name="laptop" size={16} />,
-      description: mine === undefined ? '' : mine === null ? t('devices.this.unknown') : t(accepts ? 'devices.this.accepts' : 'devices.this.off'),
+      description: mine === undefined ? '' : mine === null ? t('devices.this.unknown') : t(accepts ? 'devices.this.acceptsShort' : 'devices.this.offShort'),
       actions: <IconButton size="sm" icon={<Icon name="settings" size={14} />} label={t('devices.this.settings')} onClick={remoteSettings} />
     }
   ]
@@ -51,7 +52,7 @@ export function DevicesView(p: SideBarViewProps): React.JSX.Element {
       description: osName(os),
       decoration: needsAttention(r, accounts)
         ? { icon: <Icon name="warning" size={14} />, text: t(state === 'offline' ? 'devices.state.offline' : 'devices.account.needsSignIn'), tone: 'warn' }
-        : accounts
+        : accounts && accounts.length > 0
           ? { text: t('devices.accountCount', { count: accounts.length }) }
           : undefined
     }
@@ -80,7 +81,7 @@ export function DevicesView(p: SideBarViewProps): React.JSX.Element {
           { id: 'refresh', icon: <Icon name="refresh" />, label: t('devices.refresh'), onClick: refreshDevices }
         ]}
       />
-      <ViewPane title={t('devices.pane.this')} storageKey="devices.this">
+      <ViewPane title={t('devices.pane.this')} storageKey="devices.this" className="devices-this">
         <div className="devices-tree" {...thisClick.handlers}>
           <Tree label={t('devices.pane.this')} rows={thisRows} onSelect={thisClick.onSelect} onOpen={remoteSettings} />
         </div>

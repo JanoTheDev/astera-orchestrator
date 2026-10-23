@@ -151,7 +151,7 @@ export function AddDeviceModal({
             </Button>
           ) : (
             <Button variant="primary" loading={busy} disabled={busy} onClick={() => void connect()}>
-              {t('devices.add.retry')}
+              {t(busy ? 'devices.add.connect' : 'devices.add.retry')}
             </Button>
           )}
         </>
