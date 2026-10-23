@@ -2,9 +2,11 @@ import { useState } from 'react'
 import type { Account, JobTask } from '../../../core/types'
 import { providerOf } from '../../../core/providers/meta'
 import { useI18n } from '../i18n/I18nProvider'
-import { formFailure, type OrchDoor } from '../lib/orchDoor'
+import { formFailure, isOutcomeUnknown, replyNote, type OrchDoor } from '../lib/orchDoor'
 import { AccountDisclosure, AccountSelect } from './AccountSelect'
-import { Button, Field, Icon, IconButton, Modal, Select, type SelectOption, Checkbox } from './ui'
+import { Button, Field, Icon, IconButton, Modal, Checkbox } from './ui'
+import { DepsPicker, PlanFields } from './plan/TaskEditModal'
+import { addTaskRequestOf, createArgsOf } from './plan/taskEdit'
 
 /** 계정 슬롯 최대 개수. 새 세션 대화상자의 MAX_ROLL_ACCOUNTS 와 같은 값이지만 **상수를 공유하지
  *  않는다** — 저쪽은 탭 세션의 롤링이고 이쪽은 Task 의 체인이다. 한쪽을 늘릴 때 다른 쪽이 따라
@@ -31,6 +33,7 @@ export function NewTaskModal({
   tasks,
   accounts,
   runConfigs,
+  initialDeps,
   onClose,
   onCreated
 }: {
@@ -48,6 +51,8 @@ export function NewTaskModal({
   /** 검증 구성 목록. null 은 아직 안 온 것. The checks a Task can name: the run configurations, then this computer's
    *  check plugins as `plugin:<id>` (plugin Phase 5 C6, RunDetail's checkChoicesOf) */
   runConfigs: { id: string; name: string }[] | null
+  /** The Tasks the form starts with as dependencies ("Add task to this step": the previous step's Tasks). Still editable. */
+  initialDeps?: readonly string[]
   onClose: () => void
   onCreated: () => void
 }): React.JSX.Element {
@@ -56,7 +61,11 @@ export function NewTaskModal({
   const [spec, setSpec] = useState('')
   /** 고른 의존. **이 폼이 소유한다** — 예전에는 그래프가 들고 있었다(고르는 자리가 그래프였다).
    *  셀렉트로 옮기면서 값과 그 값을 고치는 화면이 같은 자리에 있게 됐다. */
-  const [deps, setDeps] = useState<string[]>([])
+  const [deps, setDeps] = useState<string[]>(() => [...(initialDeps ?? [])])
+  /** T2: the planner's fields, optional: sent only when filled (createArgsOf) */
+  const [plan, setPlan] = useState({ prompt: '', criteria: '', kind: '' })
+  /** T2: the description went to the planner instead (`jobs-feedback`): the planner adds the Task, this form makes none */
+  const [asked, setAsked] = useState(false)
   /** 이 Task 를 띄울 계정들, 순서대로. **빈 배열이 Auto 다**(Auto, most room) — task-create 가 `account` 없이도
    *  받고, 그때는 앱이 provider 의 계정을 여유 순으로 골라 띄운다. 계정을 고르는 것은 다른 계정에서
    *  일을 떼어 놓고 싶을 때뿐이라 칸은 접혀 있다.
@@ -87,15 +96,6 @@ export function NewTaskModal({
       ;[ys[i], ys[i + dir]] = [ys[i + dir], ys[i]]
       return ys
     })
-
-  /** 아직 안 고른 Task 만 항목으로 낸다 — 고른 것을 다시 고르면 deps 에 같은 id 가 둘 들어가고
-   *  그래프가 같은 선을 두 번 긋는다. 이 셀렉트는 값을 들고 있지 않고(value 는 늘 '') 고르는 순간
-   *  목록에 더하는 **더하기 손잡이**다: 의존은 여럿일 수 있는데 Select 의 값은 하나이므로, 고른
-   *  것들은 아래 칩으로 서고 그 자리에서 지운다. */
-  const depItems: SelectOption[] = tasks
-    .filter((tk) => !deps.includes(tk.id))
-    .map((tk) => ({ value: tk.id, label: tk.title }))
-  const titleOf = (id: string): string => tasks.find((tk) => tk.id === id)?.title ?? id
 
   /** 뒤에 빈 칸을 하나 더 세울지 — **그 칸에서 고를 것이 남았을 때만 세운다.** 이미 고른 계정은 다른
    *  칸의 항목에서 빠지므로(아래 filter), 계정이 하나뿐인 사람이 그것을 고르면 둘째 칸의 목록이 비고
@@ -147,7 +147,8 @@ export function NewTaskModal({
         // 쉼표 목록 — task-create 의 문법이다(server.ts, `--account` 와 같은 규약). 고른 순서가 실행 순서다.
         // 하나도 안 골랐으면 키를 보내지 않는다: 빈 문자열은 서버가 400 으로 거절한다.
         ...(checks.length > 0 ? { validate: checks.join(',') } : {}),
-        ...(review ? { review: true } : {})
+        ...(review ? { review: true } : {}),
+        ...createArgsOf(plan.prompt, plan.criteria, plan.kind)
         // parent 는 보내지 않는다 — parentId 는 통합(integration) Task 의 표식이라, 이 폼에서 보내면
         // 스케줄러가 이 Task 를 병합 단계 없이 프로젝트 폴더에서 돌리는 통합 Task 로 취급하게 된다.
       })
@@ -165,6 +166,29 @@ export function NewTaskModal({
       // Uncaught (in promise) 가 뜬다. status>=400 과 같은 문구로 접는다: 사용자에게는 둘 다
       // "만들지 못했다"이지 원인을 구분해 보여줄 이유가 없다.
       setError(t('jobs.task.failed'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** T2: hands the typed description to the planner (`jobs-feedback` on this plan), which fits the Task into the plan */
+  const askPlanner = async (): Promise<void> => {
+    if (!spec.trim() || busy || locked) return
+    setBusy(true)
+    setError(null)
+    try {
+      const reply = await door.command('jobs-feedback', { job: runId, text: addTaskRequestOf(title, spec) })
+      if (reply.status >= 400) {
+        // the Host's own reason ("was not planned: there is no planner…"), else the generic line
+        const said = (reply.body as { error?: unknown } | null)?.error
+        setError(replyNote(reply, t as never, typeof said === 'string' ? said : t('jobs.task.askFailed')))
+        if (isOutcomeUnknown(reply)) setLocked(true)
+        return
+      }
+      setAsked(true)
+      setLocked(true)
+    } catch {
+      setError(t('jobs.task.askFailed'))
     } finally {
       setBusy(false)
     }
@@ -196,40 +220,23 @@ export function NewTaskModal({
       <div className="detail-task-fields">
         <Field label={t('jobs.task.title')} value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />
         <Field kind="textarea" label={t('jobs.task.spec')} rows={4} value={spec} onChange={(e) => setSpec(e.target.value)} />
+        <div className="new-task-ask">
+          <Button variant="ghost" size="sm" className="plan-link" icon={<Icon name="message" size={14} />} disabled={busy || locked || !spec.trim()} onClick={() => void askPlanner()}>
+            {t('jobs.task.askPlanner')}
+          </Button>
+          <span className="modal-hint">{t('jobs.task.askPlannerHint')}</span>
+        </div>
+        {asked && (
+          <p className="modal-hint" role="status">
+            {t('jobs.task.askedPlanner')}
+          </p>
+        )}
+        <PlanFields draft={plan} set={(field, value) => setPlan((cur) => ({ ...cur, [field]: value }))} />
         {/* 고를 것도 고른 것도 없으면 이 칸을 아예 그리지 않는다 — Run 의 첫 Task 를 만들 때가
             그렇다(가리킬 Task 가 존재하지 않는다). 라벨과 안내문만 남기면 무엇을 해야 하는지 알 수
-            없는 죽은 칸이 된다. 셀렉트만 감추는 것으로 부족한 이유가 그것이다 */}
-        {(depItems.length > 0 || deps.length > 0) && (
-          <div className="field">
-            <label>{t('jobs.task.deps')}</label>
-            {/* 다 골랐으면 셀렉트가 빠진다 — 빈 셀렉트는 눌러도 아무것도 없는 자리가 된다 */}
-            {depItems.length > 0 && (
-              <Select
-                items={depItems}
-                value=""
-                placeholder={t('jobs.task.depsAdd')}
-                onChange={(id) => setDeps((cur) => [...cur, id])}
-                ariaLabel={t('jobs.task.deps')}
-              />
-            )}
-            {deps.length > 0 && (
-              <div className="detail-dep-list">
-                {deps.map((id) => (
-                  <span key={id} className="detail-chip detail-dep">
-                    <span>{titleOf(id)}</span>
-                    <IconButton
-                      size="sm"
-                      icon={<Icon name="close" size={14} />}
-                      label={`${titleOf(id)} — ${t('common.cancel')}`}
-                      onClick={() => setDeps((cur) => cur.filter((x) => x !== id))}
-                    />
-                  </span>
-                ))}
-              </div>
-            )}
-            <p className="modal-hint">{t('jobs.task.depsHint')}</p>
-          </div>
-        )}
+            없는 죽은 칸이 된다. 셀렉트만 감추는 것으로 부족한 이유가 그것이다.
+            T2: the picker is shared with the edit form (plan/TaskEditModal DepsPicker) */}
+        <DepsPicker label={t('jobs.task.deps')} addLabel={t('jobs.task.depsAdd')} hint={t('jobs.task.depsHint')} tasks={tasks} deps={deps} onChange={setDeps} />
         {/* **계정이 하나도 없을 때만 접는다** — 위 선행 Task 칸과 같은 규칙이다: 고를 것이 없는
             컨트롤만 감춘다. 한때 "둘 이상일 때만" 이었는데 둘이 어긋났다. (1) 계정이 하나여도
             "지정 안 함"과 "이 계정으로 못박음"은 뜻이 다르다 — 그 계정이 로그아웃되고 둘째가

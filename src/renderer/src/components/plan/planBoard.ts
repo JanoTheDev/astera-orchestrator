@@ -174,6 +174,26 @@ export function wavesOf(tasks: readonly JobTask[], layers: readonly string[][]):
 /** The wave being worked on: the first one not all done. -1 when every wave is done. */
 export const currentWaveOf = (waves: readonly PlanWave[]): number => waves.find((w) => w.done < w.tasks.length)?.index ?? -1
 
+/** Where one step stands. `waiting` names the earlier step (1-based) it waits on and how many of its Tasks are left. */
+export type StepState =
+  | { state: 'done' | 'running' | 'ready' | 'blocked' | 'failed' | 'replanning' }
+  | { state: 'waiting'; on: number; left: number }
+
+/** A step's state word. Order matters: a finished step is done whatever else is said; a replan only marks the step being
+ *  worked on; a failure shows when nothing else in the step still runs; a Task that needs the owner (a gate) beats running
+ *  so the step does not look healthy; a step that is not running waits while any earlier step is open, else it is ready. */
+export function stepStateOf(wave: PlanWave, waves: readonly PlanWave[], replanning: boolean): StepState {
+  if (wave.done === wave.tasks.length) return { state: 'done' }
+  if (replanning && wave.index === currentWaveOf(waves)) return { state: 'replanning' }
+  const cats = wave.tasks.map(categoryOf)
+  const running = cats.some((c) => c === 'running')
+  if (cats.includes('failed') && !running) return { state: 'failed' }
+  if (wave.tasks.some((t) => t.openGates > 0 || t.board?.reason?.kind === 'gate')) return { state: 'blocked' }
+  if (running) return { state: 'running' }
+  const before = waves.find((w) => w.index < wave.index && w.done < w.tasks.length)
+  return before ? { state: 'waiting', on: before.index + 1, left: before.tasks.length - before.done } : { state: 'ready' }
+}
+
 /** T4: the waves that fold to one line — every finished wave (all its Tasks done). The current wave and later ones stay
  *  open, so old done Tasks are out of the way when more are added to the plan. */
 export const collapsedWavesOf = (waves: readonly PlanWave[]): ReadonlySet<number> =>

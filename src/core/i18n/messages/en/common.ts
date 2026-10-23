@@ -323,6 +323,11 @@ export const common: Record<keyof typeof ko, string> = {
   // picked) — that is why this catalog only has the hint text pointing at the graph, not the deps
   // values themselves.
   'jobs.task.new': 'Add task',
+  // T2: the new-Task form hands its description to the planner
+  "jobs.task.askPlanner": "Ask the planner instead",
+  "jobs.task.askPlannerHint": "Sends the description to the planner, who fits the task into the plan",
+  "jobs.task.askedPlanner": "Sent to the planner.",
+  "jobs.task.askFailed": "Could not reach the planner",
   'jobs.task.accountHint':
     'The accounts this Task runs its worker on. Auto picks the account with the most room; pin accounts only to keep the work off others. With more than one pinned, a usage limit moves the worker to the next in the order you list them',
   // How It Works — project understanding

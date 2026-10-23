@@ -1,6 +1,7 @@
 // The Steps section of the plan page (moved out of pages/PlanPage.tsx): "Step n of m" and what opens the next one,
 // the board/graph switch, adding a Task, and the board (by wave) or the dependency graph. W12: a wave is shown as a "step".
 // T8: the board is a vertical list of steps; an expanded Task row shows its completion checks and changes.
+import { useState } from 'react'
 import type { RunDetail as RunDetailData } from '../../../../core/types'
 import { useI18n } from '../../i18n/I18nProvider'
 import { replyNote, type OrchDoor } from '../../lib/orchDoor'
@@ -10,9 +11,10 @@ import { ChangedFilesBlock } from '../ChangedFilesBlock'
 import { CompletionBlock } from '../CompletionBlock'
 import { Button, Icon, Tabs } from '../ui'
 import { coordinatorRefreshOf, replanningOf } from './planBoard'
-import type { WaveStatus } from './planPage'
+import { taskAnchorId, type WaveStatus } from './planPage'
 import { Graph } from './PlanGraph'
 import { TaskBoard } from './TaskBoard'
+import { TaskDetail } from './TaskDetail'
 import type { PlanPageState } from './usePlanPage'
 import './planPage.css'
 
@@ -60,7 +62,8 @@ export function PlanTaskBoard({
   detail,
   canOpenSession,
   onOpenSession,
-  compact = false
+  compact = false,
+  onAddTask
 }: {
   p: PlanPageState
   door: OrchDoor
@@ -71,6 +74,7 @@ export function PlanTaskBoard({
   canOpenSession: (sessionId: string) => boolean
   onOpenSession: (sessionId: string) => void
   compact?: boolean
+  onAddTask?: (deps: string[]) => void
 }): React.JSX.Element {
   const { tasks, accounts, selectedTask, onNodeClick, events, live, summaries } = p
   return (
@@ -92,6 +96,23 @@ export function PlanTaskBoard({
       summaries={summaries.byTask}
       nowMs={live.nowMs}
       compact={compact}
+      onAddTask={onAddTask}
+      renderAbout={(tk) => (
+        // T2: everything about the Task, its Edit and its Request changes; a dep's title opens that Task's row
+        <TaskDetail
+          door={door}
+          jobId={runId}
+          task={tk}
+          tasks={tasks}
+          ui={p.ui}
+          compact={compact}
+          accountLabel={(id) => accounts?.find((a) => a.id === id)?.label ?? id}
+          onShowTask={(id) => {
+            p.setSelected(id)
+            requestAnimationFrame(() => document.getElementById(taskAnchorId(id))?.scrollIntoView({ block: 'center' }))
+          }}
+        />
+      )}
       renderDetail={(tk) => (
         <>
           {/* 고른 Task 의 완료 상세 — 왜 못 넘었는가(설계 §2) — and what it changed (Phase 10) */}
@@ -128,10 +149,13 @@ export function PlanWaves({
   const { t } = useI18n()
   const { tasks, accounts, selectedTask, onNodeClick, view, setView, waveStatus, lockedReason, busy } = p
   const graph = !simple && view === 'graph'
+  // "Add task to this step" presets the form's deps; the bar's button opens it empty
+  const [initialDeps, setInitialDeps] = useState<string[]>([])
+  const canAdd = lockedReason === undefined && busy === null && !p.authoringOpen
   return (
     <>
       <div className="plan-steps-bar">
-        <WaveLine status={waveStatus} />
+        <WaveLine status={waveStatus} brief />
         {!simple && (
           <Tabs
             variant="segmented"
@@ -148,7 +172,10 @@ export function PlanWaves({
           icon={<Icon name="add" size={14} />}
           disabled={lockedReason !== undefined || busy !== null || p.authoringOpen}
           title={lockedReason}
-          onClick={() => p.setAuthoring(true)}
+          onClick={() => {
+            setInitialDeps([])
+            p.setAuthoring(true)
+          }}
         >
           {t('jobs.task.new')}
         </Button>
@@ -161,6 +188,7 @@ export function PlanWaves({
           runId={runId}
           tasks={p.tasks}
           accounts={p.accounts}
+          initialDeps={initialDeps}
           runConfigs={p.runConfigs === null ? null : checkChoicesOf(p.runConfigs, p.checkPlugins, t)}
           onClose={() => p.setAuthoring(false)}
           onCreated={() => p.setAuthoring(false)}
@@ -177,6 +205,14 @@ export function PlanWaves({
           canOpenSession={canOpenSession}
           onOpenSession={onOpenSession}
           compact={simple}
+          onAddTask={
+            canAdd
+              ? (deps) => {
+                  setInitialDeps(deps)
+                  p.setAuthoring(true)
+                }
+              : undefined
+          }
         />
       ) : (
         <Graph
