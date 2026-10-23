@@ -21,6 +21,7 @@ export interface PrCreateRequest {
  *  "we classified it and threw the answer away". */
 export type PrCreateFailureKind =
   | 'rejected'
+  | 'origin-conflict'
   | 'exists'
   | 'rate-limit'
   | 'auth'
@@ -43,6 +44,8 @@ export type PrCreateResult =
       /** The gh spawn error of a create-stage failure, when there was one (ENOENT: gh is not installed).
        *  stderr is empty then, so without it the failure reads as unclassified. */
       spawnError?: string
+      /** origin-conflict: origin's commit the branch clashes with */
+      conflictWith?: string
     }
 
 /** `git push` is the one git call this function makes, and git()'s 30s default is far too short for
@@ -56,15 +59,32 @@ export interface PrCreateDeps {
   normalizeBase?: (repo: string, base: string) => Promise<string>
 }
 
-export type BranchPushResult = { ok: true } | { ok: false; kind: 'rejected' | 'no-remote'; detail: string }
+export type BranchPushResult =
+  | { ok: true }
+  | { ok: false; kind: 'rejected' | 'no-remote'; detail: string }
+  /** Origin's copy of the branch moved on (a teammate pushed) and does not merge cleanly: nothing was pushed, the
+   *  worktree is as it was, and `conflictWith` is origin's commit for an integration Task to merge. */
+  | { ok: false; kind: 'origin-conflict'; detail: string; conflictWith: string }
 
-/** `git push -u origin <branch>`, never forced. W8-C: also the draft PR's push after each wave. */
+/** `git push -u origin <branch>`, never forced. W8-C: also the draft PR's push after each wave. First catches up with
+ *  origin's copy of the branch, as a push delivery does (deliverByPush): fetched and, when it moved on, merged in;
+ *  never rebased. No copy on origin yet (or no origin) leaves it to the push. */
 export async function pushBranch(
   worktreePath: string,
   branch: string,
   deps: Pick<PrCreateDeps, 'runGit'> = {}
 ): Promise<BranchPushResult> {
   const runGit = deps.runGit ?? ((a: string[], cwd: string) => git(a, { cwd, timeoutMs: PUSH_TIMEOUT_MS }))
+  if ((await runGit(['fetch', 'origin', branch], worktreePath)).ok) {
+    const theirs = await runGit(['rev-parse', '--verify', '--quiet', 'FETCH_HEAD^{commit}'], worktreePath)
+    if (theirs.ok && theirs.stdout !== '' && !(await runGit(['merge-base', '--is-ancestor', theirs.stdout, 'HEAD'], worktreePath)).ok) {
+      const merged = await runGit(['merge', '--no-edit', theirs.stdout], worktreePath)
+      if (!merged.ok) {
+        await runGit(['merge', '--abort'], worktreePath)
+        return { ok: false, kind: 'origin-conflict', detail: `origin/${branch} moved on to ${theirs.stdout} and does not merge cleanly: ${(merged.stderr || merged.stdout).trim()}`, conflictWith: theirs.stdout }
+      }
+    }
+  }
   const pushed = await runGit(['push', '-u', 'origin', branch], worktreePath)
   if (pushed.ok) return { ok: true }
   // W7-E (#80): a repository with no `origin` has nowhere to push, which is no rejection. Asked of git rather than
@@ -86,7 +106,8 @@ export async function createPullRequest(
 
   if (req.needsPush) {
     const pushed = await pushBranch(req.worktreePath, req.branch, { runGit })
-    if (!pushed.ok) return { ok: false, stage: 'push', kind: pushed.kind, detail: pushed.detail, pushed: false }
+    if (!pushed.ok)
+      return { ok: false, stage: 'push', kind: pushed.kind, detail: pushed.detail, pushed: false, ...('conflictWith' in pushed ? { conflictWith: pushed.conflictWith } : {}) }
   }
 
   const base = await normalize(req.repoPath, req.base)

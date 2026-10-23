@@ -224,6 +224,13 @@ const SESSION = {
       { name: 'owner-pushed', about: 'the work is already on the delivery branch: delivered once git sees it on origin' }
     ]
   },
+  // Merge everything and fix conflicts
+  'run-integrate-all': {
+    summary: "merge every task worktree of a run into its plan branch, hand conflicts to an AI merge task, then deliver",
+    detail:
+      "Merges the run's remaining task worktrees into its plan worktree; a conflict starts the AI merge task (state fixing-conflicts with its taskId), and the driving loop delivers the run once that task completes. When everything merged cleanly it delivers at once, as run-deliver --force does (a pull request or a push, per the project). The owner's action: refused from an agent session and an MCP client. Delivering is answered by the Host.",
+    flags: [RUN_ARG('<runId>', 'the run to merge and deliver')]
+  },
   // T1: delivery state machine
   'run-delivery-dismiss': {
     summary: "dismiss a run's failed delivery: it no longer reads failed and is not tried again",

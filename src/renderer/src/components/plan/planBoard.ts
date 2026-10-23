@@ -6,6 +6,8 @@ import type { JobEvent, JobRow, JobTask, SessionInfo, TaskBlockedReason, TaskCat
 import { formatElapsed, formatRemaining } from '../../../../core/orchestration/elapsed'
 import { pickTaskProvider, resolveWorkerModel, type RoleModelSettings } from '../../../../core/orchestration/roleModels'
 import type { Account } from '../../../../core/types'
+import { TASK_KINDS, type TaskKind } from '../../../../core/orchestration/types'
+import type { IconName } from '../ui'
 import { resetClock } from '../../../../core/orchestration/activity'
 
 /** The overview's buckets, in the order it lists them. */
@@ -439,4 +441,39 @@ export function ageOf(fromIso: string, nowMs: number): string {
   if (min < 60) return `${min}m`
   const h = Math.floor(min / 60)
   return h < 24 ? `${h}h` : `${Math.floor(h / 24)}d`
+}
+
+// T4 task types: the kind badge of a card, the board's kind filter and the worktree a Task continues in.
+
+/** One registry icon per kind; the label is `plan.kind.<kind>` and the colour `.plan-kind--<kind>` (planBoard.css). */
+export const KIND_ICON: Record<TaskKind, IconName> = {
+  bugfix: 'warning',
+  feature: 'add',
+  refactor: 'repeat',
+  ui: 'screen',
+  audit: 'search',
+  docs: 'file',
+  test: 'check',
+  ops: 'settings'
+}
+
+/** The board's kind filter: every Task, or one kind. */
+export type KindFilter = 'all' | TaskKind
+
+/** The kinds the Tasks carry, in the catalog's order with their counts: what the filter offers. A Task without a kind
+ *  (an older Runtime's snapshot) counts for none. */
+export function kindsOf(tasks: readonly JobTask[]): { kind: TaskKind; count: number }[] {
+  return TASK_KINDS.map((kind) => ({ kind, count: tasks.filter((t) => t.kind === kind).length })).filter((k) => k.count > 0)
+}
+
+/** The Tasks the filter lets through. `all` is the Tasks as they are (a Task with no kind shows only there). */
+export const filterByKind = (tasks: readonly JobTask[], kind: KindFilter): readonly JobTask[] =>
+  kind === 'all' ? tasks : tasks.filter((t) => t.kind === kind)
+
+/** The Task whose worktree this one continues in (`worktree: 'reuse'`: its one dep's), named by its title. `null`: it
+ *  starts in a worktree of its own. `title` is absent when the dep is not on the board (a runtime without `deps`). */
+export function reuseOf(task: JobTask, tasks: readonly JobTask[], deps: Readonly<Record<string, readonly string[]>> | undefined): { title?: string } | null {
+  if (task.worktree !== 'reuse') return null
+  const dep = deps?.[task.id]?.length === 1 ? tasks.find((t) => t.id === deps[task.id][0]) : undefined
+  return dep ? { title: dep.title } : {}
 }

@@ -1,12 +1,19 @@
-// W7-A "Talk to the planner": the owner's feedback on a plan, before approval or while it runs, with what the planner
-// changed for each message; reject while it waits; and the notice of a plan that started on its own.
+// W7-A "Talk to the planner": the owner's feedback on a plan, before approval, while it runs or once it has finished, with
+// what the planner changed for each message; reject while it waits; and the notice of a plan that started on its own.
+// T4: what a message did is said after it is sent (typed, queued behind a replan, reopened the plan), a queued entry
+// carries a mark until the planner answers it, and a planner that waits on a question offers a way to its tab.
 import { useState, type JSX } from 'react'
 import type { JobRow } from '../../../../core/types'
 import { useI18n } from '../../i18n/I18nProvider'
 import type { OrchDoor } from '../../lib/orchDoor'
-import { rejectPlan, sendPlanFeedback, stopRun, type ActionUi } from '../../lib/jobActions'
-import { Button, Icon, Input, Textarea } from '../ui'
-import { planTalkView } from './planTalk'
+import { replyNote } from '../../lib/orchDoor'
+import { postPlanFeedback, rejectPlan, stopRun, type ActionUi } from '../../lib/jobActions'
+import { openConsole } from '../shell/navigation'
+import { Button, Chip, Icon, Input, Textarea } from '../ui'
+import { feedbackMark, feedbackOutcomeOf, planTalkView, plannerWaitingIn, type FeedbackOutcome } from './planTalk'
+
+/** The sentence under the box for what the message did. */
+const OUTCOME_KEY = { sent: 'plan.talk.sent', queued: 'plan.talk.queuedNotice', reopened: 'plan.talk.reopened' } as const satisfies Record<FeedbackOutcome, string>
 
 export function PlanTalk({ row, door, ui, name }: { row: JobRow; door: OrchDoor; ui: ActionUi; name: string }): JSX.Element | null {
   const { t } = useI18n()
@@ -14,14 +21,23 @@ export function PlanTalk({ row, door, ui, name }: { row: JobRow; door: OrchDoor;
   const [sending, setSending] = useState(false)
   const [rejecting, setRejecting] = useState(false)
   const [reason, setReason] = useState('')
+  // T4: what the last message did, or that the planner is waiting on a question (its tab answers it)
+  const [result, setResult] = useState<FeedbackOutcome | 'waiting' | null>(null)
   const view = planTalkView(row)
   if (!view.show) return null
 
   const send = async (): Promise<void> => {
     if (sending || !text.trim()) return
     setSending(true)
+    setResult(null)
     try {
-      if (await sendPlanFeedback(door, row.id, text.trim(), ui)) setText('')
+      const reply = await postPlanFeedback(door, row.id, text.trim(), ui)
+      if (reply === null) return
+      if (reply.status < 400) {
+        setText('')
+        setResult(feedbackOutcomeOf(reply.body, row))
+      } else if (plannerWaitingIn(reply)) setResult('waiting')
+      else ui.error(replyNote(reply, ui.t, ui.t('plan.talk.failed')))
     } finally {
       setSending(false)
     }
@@ -54,21 +70,30 @@ export function PlanTalk({ row, door, ui, name }: { row: JobRow; door: OrchDoor;
       )}
       {row.feedback && row.feedback.length > 0 && (
         <ul className="plan-talk-history">
-          {row.feedback.map((f) => (
-            <li key={f.at}>
-              <span className="plan-talk-msg">{f.text}</span>
-              {f.phase === 'run' && <span className="plan-talk-phase">{t('plan.talk.duringRun')}</span>}
-              {f.changes === undefined ? (
-                <p className="plan-talk-wait">{t('plan.talk.waiting')}</p>
-              ) : (
-                <ul className="plan-talk-changes">
-                  {f.changes.map((c, i) => (
-                    <li key={i}>{c}</li>
-                  ))}
-                </ul>
-              )}
-            </li>
-          ))}
+          {row.feedback.map((f) => {
+            const mark = feedbackMark(f)
+            return (
+              <li key={f.at}>
+                <span className="plan-talk-msg">{f.text}</span>
+                {mark === 'queued' && (
+                  <Chip tone="info" className="plan-talk-queued">
+                    <Icon name="queued" size={14} />
+                    {t('plan.talk.queued')}
+                  </Chip>
+                )}
+                {mark === 'duringRun' && <span className="plan-talk-phase">{t('plan.talk.duringRun')}</span>}
+                {f.changes === undefined ? (
+                  <p className="plan-talk-wait">{t('plan.talk.waiting')}</p>
+                ) : (
+                  <ul className="plan-talk-changes">
+                    {f.changes.map((c, i) => (
+                      <li key={i}>{c}</li>
+                    ))}
+                  </ul>
+                )}
+              </li>
+            )
+          })}
         </ul>
       )}
       <div className="plan-talk-form">
@@ -77,7 +102,10 @@ export function PlanTalk({ row, door, ui, name }: { row: JobRow; door: OrchDoor;
           placeholder={t('plan.talk.placeholder')}
           value={text}
           disabled={sending}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => {
+            setText(e.target.value)
+            setResult(null)
+          }}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
               e.preventDefault()
@@ -90,6 +118,22 @@ export function PlanTalk({ row, door, ui, name }: { row: JobRow; door: OrchDoor;
           {t('plan.talk.send')}
         </Button>
       </div>
+      {result === 'waiting' ? (
+        <div className="plan-talk-waiting" role="alert">
+          <span>{t('plan.talk.plannerWaiting')}</span>
+          {row.plannerSessionId !== undefined && door.runtimeId === undefined && (
+            <Button size="sm" variant="ghost" icon={<Icon name="open" size={14} />} onClick={() => openConsole(row.plannerSessionId!)}>
+              {t('plan.talk.openPlanner')}
+            </Button>
+          )}
+        </div>
+      ) : (
+        result !== null && (
+          <p className="plan-talk-result" role="status">
+            {t(OUTCOME_KEY[result])}
+          </p>
+        )
+      )}
       {view.canReject &&
         (rejecting ? (
           <div className="plan-talk-reject">

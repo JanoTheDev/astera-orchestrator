@@ -34,6 +34,7 @@ describe('cliKeepalive — 기다리는 명령만', () => {
     expect(waitingCommand({ cmd: 'run-merge', args: { run: 'r' } })).toBe(true)
     expect(waitingCommand({ cmd: 'run-delete', args: { id: 'r', merge: true } })).toBe(true)
     expect(waitingCommand({ cmd: 'run-delete', args: { id: 'r' } })).toBe(false)
+    expect(waitingCommand({ cmd: 'run-integrate-all', args: { run: 'r' } })).toBe(true)
   })
 
   it('목록과 조회와 브라우저 스크립트는 기다리는 것이 아니다', () => {

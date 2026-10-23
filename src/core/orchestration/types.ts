@@ -436,6 +436,8 @@ export interface PlanFeedback {
   text: string
   phase: 'plan' | 'run'
   changes?: string[]
+  /** T1: sent while a replan ran and its planner could not take it: the next replan starts with it when that one ends. */
+  queued?: true
 }
 
 /** W6-D: which boundary a replan is for. `wave` is the wave about to start; a completion pass stands after the last. */
@@ -716,6 +718,11 @@ export interface Task {
   /** What sort of work this Task is; picks the skills its worker is told to use (`--kind`). Absent: `kindOf` reads it
    *  from the title and spec. */
   kind?: TaskKind
+  // T3 worktree per Task (planner.ts worktreeRefusal)
+  /** Where its worker starts (`--worktree`): `new` a worktree of its own, forked from the plan branch; `reuse` the
+   *  worktree and branch of its one dep, kept for it, with the plan branch merged in. Absent: as `new`, placed by the
+   *  Run's concurrency. */
+  worktree?: 'new' | 'reuse'
 }
 
 /** T9: the kinds of work a Task can be. */

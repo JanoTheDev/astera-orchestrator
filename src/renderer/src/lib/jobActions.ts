@@ -246,12 +246,17 @@ export async function unarchiveJob(door: OrchDoor, jobId: string, ui: ActionUi):
 // both come here.
 
 /** Sends the owner's feedback on a plan (`jobs-feedback`): to its planner before approval, through a replan while it
- *  runs. Asks nothing: it starts no worker, and a replan changes only Tasks that have not started. */
+ *  runs (typed into a live one, or queued behind it), and through a final-check replan once it has finished. Asks nothing: it starts no worker, and a replan changes only Tasks that have not started. */
 export async function sendPlanFeedback(door: OrchDoor, jobId: string, text: string, ui: ActionUi): Promise<boolean> {
-  const reply = await send(door, 'jobs-feedback', { job: jobId, text }, ui, ui.t('plan.talk.failed'))
+  const reply = await postPlanFeedback(door, jobId, text, ui)
   if (reply && reply.status >= 400) failure(reply, ui, ui.t('plan.talk.failed'))
   return reply !== null && reply.status < 400
 }
+
+/** `jobs-feedback` and its raw reply, a refusal not yet said: the talk box reads what the planner did with the message
+ *  (typed, queued, reopened the plan) and answers a planner that waits on a question with a way to its tab. */
+export const postPlanFeedback = (door: OrchDoor, jobId: string, text: string, ui: ActionUi): Promise<CommandReply | null> =>
+  send(door, 'jobs-feedback', { job: jobId, text }, ui, ui.t('plan.talk.failed'))
 
 /** Rejects a plan waiting for approval (`jobs-reject`) after asking: it is archived with the reason, and its planner
  *  ends. Unarchive takes it back. */

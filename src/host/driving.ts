@@ -415,7 +415,7 @@ export function createHostDriving(d: {
     loginStatus: (id) => d.checks.loginStatus(id),
     lang: () => d.checks.langNow(),
     forkRunWorktree: (a) => d.worktrees.fork(a),
-    integrate: (runRoot, merges, heads) => d.worktrees.integrate(runRoot, merges, heads),
+    integrate: (runRoot, merges, heads, opts) => d.worktrees.integrate(runRoot, merges, heads, opts),
     reap: reapWhileDriving,
     isRegisteredWorktree: (p) => d.worktrees.isRegistered(p),
     sessionAlive: (id) => hostSessionAlive(d.registry, d.procs, id),

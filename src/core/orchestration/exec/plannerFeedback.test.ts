@@ -364,3 +364,92 @@ describe('W8-F (#94) a plan the feedback left without a basis', () => {
     expect(snapshotFor(r.state(), '/repo', () => true, [], () => null, () => true).runs.find((x) => x.id === jobId)?.planProblems).toBeUndefined()
   })
 })
+
+describe('T1 feedback is never dropped', () => {
+  /** A running plan with a feedback replan in flight on ses-planner-2. */
+  const replanning = async (r: Rig) => {
+    const { jobId } = await planned(r)
+    expect((await r.person('run-start', { run: jobId })).status).toBe(200)
+    expect((await r.person('jobs-feedback', { job: jobId, text: 'first' })).status).toBe(200)
+    expect(r.state().jobs[0].replanning?.sessionId).toBe('ses-planner-2')
+    return jobId
+  }
+
+  it('types feedback sent during a replan into its live planner, and records the replan summary as its change', async () => {
+    const r = rig()
+    const jobId = await replanning(r)
+    const reply = await r.person('jobs-feedback', { job: jobId, text: 'also the tablet view' })
+    expect(reply).toMatchObject({ status: 200, body: { sessionId: 'ses-planner-2', via: 'typed' } })
+    expect(r.typed.at(-1)!.id).toBe('ses-planner-2')
+    expect(r.typed.at(-1)!.text).toContain('also the tablet view')
+    expect(r.typed.at(-1)!.text).toContain(`jobs-replan-done --id ${jobId}`)
+    expect((await r.as('ses-planner-2')('jobs-replan-done', { id: jobId, summary: 'both views' })).status).toBe(200)
+    expect(r.state().jobs[0].feedback!.map((f) => f.changes)).toEqual([['no change: both views'], ['no change: both views']])
+  })
+
+  it('queues feedback while the replan planner is not there, and replays it when the replan ends or its planner is gone', async () => {
+    for (const end of [{ summary: 'done' }, { gone: true }]) {
+      const r = rig({ alive: false })
+      const jobId = await replanning(r)
+      expect(await r.person('jobs-feedback', { job: jobId, text: 'second' })).toMatchObject({ status: 200, body: { via: 'queued' } })
+      expect(await r.person('jobs-feedback', { job: jobId, text: 'third' })).toMatchObject({ status: 200, body: { via: 'queued' } })
+      expect(r.state().jobs[0].feedback!.filter((f) => f.queued)).toHaveLength(2)
+      const as = 'gone' in end ? r.person : r.as('ses-planner-2')
+      expect((await as('jobs-replan-done', { id: jobId, ...end })).status).toBe(200)
+      const job = r.state().jobs[0]
+      expect(job.replanning?.sessionId).toBe('ses-planner-3')
+      expect(job.feedback!.some((f) => f.queued)).toBe(false)
+      expect(job.feedback![0].changes).toBeDefined()
+      const brief = r.starts.at(-1)!.brief as string
+      expect(brief).toContain('second')
+      expect(brief).toContain('third')
+      expect((await r.as('ses-planner-3')('jobs-replan-done', { id: jobId, summary: 'both' })).status).toBe(200)
+      expect(r.state().jobs[0].feedback!.slice(1).map((f) => f.changes)).toEqual([['no change: both'], ['no change: both']])
+    }
+  })
+
+  it('reopens a finished plan with a final-check replan for the feedback; its follow-ups run, past the follow-up cap', async () => {
+    const r = rig()
+    const { jobId } = await planned(r)
+    expect((await r.person('run-start', { run: jobId })).status).toBe(200)
+    const s = r.state()
+    const runId = s.runs[0].id
+    r.set({
+      ...s,
+      jobs: s.jobs.map((j) => ({ ...j, replanFollowUps: 3 })),
+      runs: s.runs.map(({ coordinatorSessionId: _c, ...run }) => run),
+      tasks: s.tasks.map((t) => (t.runId === runId ? { ...t, status: 'completed' as const } : t))
+    })
+    const reply = await r.person('jobs-feedback', { job: jobId, text: 'add a dark mode' })
+    expect(reply.status).toBe(200)
+    expect(r.state().jobs[0].replanning).toMatchObject({ mode: 'completion', feedbackAt: NOW })
+    const brief = r.starts.at(-1)!.brief as string
+    expect(brief).toContain('add a dark mode')
+    expect(brief).toContain('finished')
+    const sid = (reply.body as { sessionId: string }).sessionId
+    expect((await r.as(sid)('task-create', { run: runId, ...plan('dark', { kind: 'feature' }) })).status).toBe(200)
+    const coordinators = r.starts.filter((x) => x.role !== 'planner').length
+    expect((await r.as(sid)('jobs-replan-done', { id: jobId, summary: 'dark mode Task' })).status).toBe(200)
+    const job = r.state().jobs[0]
+    expect(job.lastReplan?.escalated).toBeUndefined()
+    expect(job.dispatchHold).toBeUndefined()
+    expect(job.replanFollowUps).toBe(3)
+    // The run is running again, and gets a coordinator so its new Task is placed
+    expect(r.starts.filter((x) => x.role !== 'planner').length).toBe(coordinators + 1)
+    expect(r.state().runs[0].coordinatorSessionId).toBe('ses-coordinator')
+  })
+
+  it('still refuses an archived plan', async () => {
+    const r = rig()
+    const { jobId } = await planned(r)
+    expect((await r.person('run-start', { run: jobId })).status).toBe(200)
+    const s = r.state()
+    r.set({ ...s, jobs: s.jobs.map((j) => ({ ...j, archivedAt: NOW })) })
+    expect((await r.person('jobs-feedback', { job: jobId, text: 'x' })).status).toBe(409)
+  })
+
+  it('every way the feedback reaches a planner teaches --kind', () => {
+    expect(feedbackLine('job_1', 'x')).toContain('--kind bugfix|feature|refactor|ui|audit|docs|test|ops')
+    expect(resumeBrief('job_1', 'x')).toContain('--kind bugfix|feature|refactor|ui|audit|docs|test|ops')
+  })
+})
