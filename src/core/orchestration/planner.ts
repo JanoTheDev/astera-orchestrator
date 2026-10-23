@@ -190,6 +190,11 @@ export function planFieldsFromArgs(args: Record<string, unknown>): { ok: true; f
     if (!(TASK_KINDS as readonly unknown[]).includes(args.kind)) return { ok: false, error: `--kind must be one of ${TASK_KINDS.join('|')}` }
     fields.kind = args.kind as TaskKind
   }
+  // T3: where its worker starts; whether `reuse` holds is worktreeRefusal's, against the plan
+  if (args.worktree !== undefined) {
+    if (args.worktree !== 'new' && args.worktree !== 'reuse') return { ok: false, error: '--worktree must be new|reuse' }
+    fields.worktree = args.worktree
+  }
   // T7: the objective items it covers, `--covers 1,3`
   if (args.covers !== undefined) {
     const covers = coversArg(args.covers)
@@ -197,6 +202,20 @@ export function planFieldsFromArgs(args: Record<string, unknown>): { ok: true; f
     fields.covers = covers
   }
   return { ok: true, fields }
+}
+
+/** T3: why `t`'s `--worktree reuse` cannot hold, or undefined. It continues in its dep's worktree, so it needs exactly
+ *  one dep, of its own plan (a definition's Job or an instance's Run), and no other Task of that plan reusing it: one
+ *  folder, one Task continuing in it. Asked at task-create and task-update, and again at dispatch. */
+export function worktreeRefusal(s: OrchState, t: Task): string | undefined {
+  if (t.worktree !== 'reuse') return undefined
+  const samePlan = (x: Task): boolean => (t.runId !== undefined ? x.runId === t.runId : x.runId === undefined && x.jobId === t.jobId)
+  const dep = t.deps.length === 1 ? s.tasks.find((x) => x.id === t.deps[0]) : undefined
+  if (!dep || !samePlan(dep))
+    return `--worktree reuse continues in the worktree of the Task's one dependency: ${t.id} needs exactly one dep, of its own plan (it has ${t.deps.length}${dep ? ', of another plan' : ''}); use --worktree new`
+  const other = s.tasks.find((x) => x.id !== t.id && samePlan(x) && x.worktree === 'reuse' && x.deps.includes(dep.id))
+  if (other) return `${other.id} already reuses ${dep.id}'s worktree, and only one Task continues in a folder: use --worktree new for ${t.id}`
+  return undefined
 }
 
 /** `--covers`: "1,3", a number, or an array of them; null when any is not a whole number of 1 or more. */
@@ -489,11 +508,11 @@ export function renderPlanMd(s: OrchState, job: Job, decisions?: string): string
   lines.push('', '## Waves', '')
   if (rows.length === 0) lines.push('_No Task yet._')
   else {
-    lines.push('| Wave | Task | Kind | Difficulty | Status | Account | Waits for |', '| --- | --- | --- | --- | --- | --- | --- |')
+    lines.push('| Wave | Task | Kind | Difficulty | Worktree | Status | Account | Waits for |', '| --- | --- | --- | --- | --- | --- | --- | --- |')
     const num = new Map(rows.map((r, i) => [r.task.id, String(i + 1).padStart(2, '0')]))
     for (const { task: t, wave, file } of rows)
       lines.push(
-        `| ${wave} | [${cell(t.title)}](${file}) | ${kindOf(t)} | ${t.difficulty ?? '-'} | ${t.status} | ${cell(accountOf(t))} | ${t.deps.map((d) => num.get(d) ?? d).join(', ') || '-'} |`
+        `| ${wave} | [${cell(t.title)}](${file}) | ${kindOf(t)} | ${t.difficulty ?? '-'} | ${t.worktree ?? '-'} | ${t.status} | ${cell(accountOf(t))} | ${t.deps.map((d) => num.get(d) ?? d).join(', ') || '-'} |`
       )
   }
   if (cyclic.length) lines.push('', `## Cannot be ordered (dependency cycle)`, '', ...cyclic.map((id) => `- \`${id}\``))
@@ -531,6 +550,7 @@ export function renderTaskMd(s: OrchState, task: Task, n: number): string {
     `- Status: ${task.status}`,
     `- Kind: ${kindOf(task)}`,
     `- Difficulty: ${task.difficulty ?? '-'}${task.modelReason ? ` (${task.modelReason})` : ''}`,
+    `- Worktree: ${task.worktree ?? '-'}`,
     `- Waits for: ${task.deps.map((d) => byId.get(d)?.title ?? d).join(', ') || '-'}`,
     `- Affected paths: ${task.affectedPaths?.map((p) => `\`${p}\``).join(', ') || '-'}`,
     '',

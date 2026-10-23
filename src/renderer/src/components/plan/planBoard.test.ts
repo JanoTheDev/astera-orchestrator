@@ -4,7 +4,7 @@ import { ko } from '../../../../core/i18n/messages/ko'
 import { t } from '../../../../core/i18n'
 import type { ActivityEvent } from '../../../../core/orchestration/activity'
 import type { JobEvent } from '../../../../core/types'
-import { answersKey, autoAnswersOf, cardModelOf, categoryOf, collapsedWavesOf, currentWaveOf, filesOf, nowOf, ordinal, planProgressOf, reasonText, replanningOf, wavesOf } from './planBoard'
+import { filterByKind, kindsOf, reuseOf, answersKey, autoAnswersOf, cardModelOf, categoryOf, collapsedWavesOf, currentWaveOf, filesOf, nowOf, ordinal, planProgressOf, reasonText, replanningOf, wavesOf } from './planBoard'
 // W8-C plan after plan
 import { reasonTone } from './planBoard'
 
@@ -428,5 +428,29 @@ describe('collapsedWavesOf', () => {
   it('folds a plan whose waves are all done, and nothing while the first is open', () => {
     expect([...collapsedWavesOf(wavesOf([done('a')], [['a']]))]).toEqual([0])
     expect(collapsedWavesOf(wavesOf([task('a')], [['a']])).size).toBe(0)
+  })
+})
+
+describe('task kinds (T4)', () => {
+  const tasks = [task('a', { kind: 'bugfix' }), task('b', { kind: 'ui' }), task('c', { kind: 'bugfix' }), task('d')]
+  it('lists the kinds present with counts, in the catalog order', () => {
+    expect(kindsOf(tasks)).toEqual([
+      { kind: 'bugfix', count: 2 },
+      { kind: 'ui', count: 1 }
+    ])
+    expect(kindsOf([])).toEqual([])
+  })
+  it('filters by one kind; all lets every Task through, kindless ones included', () => {
+    expect(filterByKind(tasks, 'bugfix').map((t) => t.id)).toEqual(['a', 'c'])
+    expect(filterByKind(tasks, 'docs')).toEqual([])
+    expect(filterByKind(tasks, 'all')).toBe(tasks)
+  })
+  it('a reuse Task names the one dep it continues in; others and unknown deps say nothing or no title', () => {
+    const all = [task('a', { title: 'Schema' }), task('b', { worktree: 'reuse' }), task('c', { worktree: 'new' })]
+    expect(reuseOf(all[1], all, { b: ['a'] })).toEqual({ title: 'Schema' })
+    expect(reuseOf(all[1], all, undefined)).toEqual({})
+    expect(reuseOf(all[1], all, { b: ['a', 'x'] })).toEqual({})
+    expect(reuseOf(all[2], all, { c: ['a'] })).toBeNull()
+    expect(reuseOf(all[0], all, {})).toBeNull()
   })
 })

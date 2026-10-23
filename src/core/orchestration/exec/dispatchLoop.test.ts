@@ -3036,3 +3036,92 @@ describe('a held planner start (T25)', () => {
     expect(job).not.toHaveProperty('startWait')
   })
 })
+
+// T3: the planner's --worktree reuse, the one-implementer-per-folder guard, and the safe-merge hand-off of a dirty worktree
+describe('a Task that reuses its dep worktree (T3)', () => {
+  const ended = (id: string, taskId: string, cwd: string): Dispatch =>
+    ({ id, taskId, provider: 'claude', accountId: 'accA', sessionId: `w-${id}`, cwd, specPath: '', startedAt: NOW, endedAt: NOW, outcome: 'succeeded' }) as Dispatch
+  /** An app-driven Run of width 2 on /wt1: A finished in /wt-a and waits for its merge, B (reuse) and C wait for A. */
+  const reuseRig = (b: Partial<Task> = {}) => {
+    const h = rig({ concurrency: 2 })
+    h.setState({
+      ...h.state(),
+      tasks: [
+        task({ id: 'tsk_A', status: 'merging' }),
+        task({ id: 'tsk_B', status: 'pending', deps: ['tsk_A'], worktree: 'reuse', ...b }),
+        task({ id: 'tsk_C', status: 'pending', deps: ['tsk_A'] })
+      ],
+      dispatches: [ended('dsp_a', 'tsk_A', '/wt-a')]
+    })
+    const merges: { root: string; paths: string[]; reap?: boolean }[] = []
+    h.ctx.integrate = async (root, paths, _heads, opts) => (merges.push({ root, paths, reap: opts?.reap }), { kind: 'merged', uncommitted: 0 })
+    h.ctx.isRegisteredWorktree = (p) => p === '/wt-a'
+    return { h, merges }
+  }
+  const startOf = (h: ReturnType<typeof rig>, taskId: string) => h.startWorker.mock.calls.map((c) => c[0]).find((a) => a.taskId === taskId)
+
+  it('keeps the dep worktree at its merge, merges the plan branch into it and starts the reuser there', async () => {
+    const { h, merges } = reuseRig()
+    await h.loop.nudge()
+    await h.settle()
+    expect(h.state().tasks.find((t) => t.id === 'tsk_A')!.status).toBe('completed')
+    // the dep is merged into the plan branch, its folder kept (reap false); then the plan branch into that folder
+    expect(merges[0]).toEqual({ root: '/wt1', paths: ['/wt-a'], reap: false })
+    expect(merges).toContainEqual({ root: '/wt-a', paths: ['/wt1'], reap: false })
+    expect(startOf(h, 'tsk_B')?.worktree).toBe('/wt-a')
+    expect(startOf(h, 'tsk_C')?.worktree).toBe('new')
+    expect(h.reaped).toEqual([])
+  })
+
+  it('a dep nobody reuses is merged and reaped as before', async () => {
+    const { h, merges } = reuseRig({ worktree: 'new' })
+    await h.loop.nudge()
+    await h.settle()
+    expect(merges[0]).toEqual({ root: '/wt1', paths: ['/wt-a'], reap: undefined })
+    expect(startOf(h, 'tsk_B')?.worktree).toBe('new')
+  })
+
+  it('falls back to a new worktree, with a log line, when the dep folder is gone', async () => {
+    const { h, merges } = reuseRig()
+    h.ctx.isRegisteredWorktree = () => false
+    await h.loop.nudge()
+    await h.settle()
+    expect(startOf(h, 'tsk_B')?.worktree).toBe('new')
+    expect(merges.some((m) => m.root === '/wt-a')).toBe(false)
+    expect(h.logs.some((l) => l.includes('task=tsk_B cannot reuse /wt-a: the folder is gone'))).toBe(true)
+  })
+
+  it('worker-start refuses a second live implementer in a folder, but not a reviewer there', async () => {
+    const h = rig({ concurrency: 3 })
+    const live = (id: string, taskId: string, review?: true): Dispatch =>
+      ({ id, taskId, provider: 'claude', accountId: 'accA', sessionId: `w-${id}`, cwd: '/wt-x', specPath: '', startedAt: NOW, ...(review ? { review } : {}) }) as Dispatch
+    h.setState({ ...h.state(), tasks: [task({ id: 'tsk_1', status: 'reviewing' }), task({ id: 'tsk_2' })], dispatches: [live('dsp_r', 'tsk_1', true)] })
+    h.ctx.handle = async () => ({ status: 409, body: {} }) // the loop does not place; the test calls worker-start itself
+    const start = () => h.real('worker-start', { task: 'tsk_2', agent: 'claude', account: 'accA', worktree: '/wt-x' })
+    expect((await start()).status).toBe(200)
+    h.setState({
+      ...h.state(),
+      tasks: [task({ id: 'tsk_1', status: 'dispatched' }), task({ id: 'tsk_2' })],
+      dispatches: [live('dsp_1', 'tsk_1')]
+    })
+    const refused = await start()
+    expect(refused.status).toBe(409)
+    expect(JSON.stringify(refused.body)).toContain('/wt-x already has a live worker of task tsk_1')
+  })
+
+  // tsk_07e68847dd9f6c07's safe merges: uncommitted work in a finished Task's worktree is never reaped; a merge worker takes it
+  it('a dirty Task worktree at its merge is not reaped and goes to the merge worker', async () => {
+    const h = rig({ concurrency: 2 })
+    h.setState({ ...h.state(), tasks: [task({ id: 'tsk_A', status: 'merging' })], dispatches: [ended('dsp_a', 'tsk_A', '/wt-a')] })
+    h.ctx.integrate = async () => ({ kind: 'merged', uncommitted: 2, dirty: ['/wt-a'] })
+    await h.loop.nudge()
+    await h.settle()
+    const s = h.state()
+    expect(s.tasks.find((t) => t.id === 'tsk_A')!.status).toBe('merging')
+    const merge = s.tasks.find((t) => t.parentId === 'tsk_A')!
+    expect(merge.spec).toContain('/wt-a')
+    expect(merge.spec).toContain('still holds uncommitted changes')
+    expect(startOf(h, merge.id)).toBeDefined()
+    expect(h.reaped).toEqual([])
+  })
+})

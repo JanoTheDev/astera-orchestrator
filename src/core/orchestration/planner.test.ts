@@ -539,7 +539,7 @@ describe('plan folder', () => {
     expect(md).toContain('## Decisions\n\nUse the existing store.')
     expect(md).toContain('[inputs/](inputs/)')
     expect(md).toContain('| 1 | [a](tasks/01-a.md) | bugfix | standard |')
-    expect(md).toContain('| 2 | [c](tasks/03-c.md) | feature | standard | pending | acc1 | 01 |')
+    expect(md).toContain('| 2 | [c](tasks/03-c.md) | feature | standard | - | pending | acc1 | 01 |')
   })
 
   it('renders plan.md and one file per Task', async () => {
@@ -625,6 +625,43 @@ describe('--kind', () => {
     expect(r.deps.getState().tasks.find((t) => t.id === id)?.kind).toBe('ui')
     const bad = await planner(r)('task-update', { id, kind: 'magic' })
     expect(JSON.stringify(bad)).toContain('--kind must be one of')
+  })
+})
+
+// T3: worktree per Task
+describe('--worktree', () => {
+  it('takes new|reuse on task-create and task-update, shown in plan.md and the task file', async () => {
+    const r = rig()
+    const jobId = await plannedJob(r)
+    const a = (await planner(r)('task-create', goodTask(jobId, { title: 'a', worktree: 'new' }))).body as Task
+    expect(a.worktree).toBe('new')
+    const b = (await planner(r)('task-create', goodTask(jobId, { title: 'b', deps: [a.id], worktree: 'reuse' }))).body as Task
+    expect(b.worktree).toBe('reuse')
+    expect(JSON.stringify(await planner(r)('task-update', { id: b.id, worktree: 'shared' }))).toContain('--worktree must be new|reuse')
+    const s = r.deps.getState()
+    expect(renderPlanMd(s, s.jobs.find((j) => j.id === jobId)!)).toContain('| standard | reuse | pending |')
+    expect(renderTaskMd(s, s.tasks.find((t) => t.id === b.id)!, 2)).toContain('- Worktree: reuse')
+  })
+
+  it('refuses reuse without exactly one dep of its plan, or for a dep another Task reuses', async () => {
+    const r = rig()
+    const jobId = await plannedJob(r)
+    const a = (await planner(r)('task-create', goodTask(jobId, { title: 'a' }))).body as Task
+    const b = (await planner(r)('task-create', goodTask(jobId, { title: 'b' }))).body as Task
+    const none = await planner(r)('task-create', goodTask(jobId, { title: 'c', worktree: 'reuse' }))
+    expect(none.status).toBe(400)
+    expect(JSON.stringify(none.body)).toContain('needs exactly one dep')
+    expect((await planner(r)('task-create', goodTask(jobId, { title: 'c', deps: [a.id, b.id], worktree: 'reuse' }))).status).toBe(400)
+    const c = (await planner(r)('task-create', goodTask(jobId, { title: 'c', deps: [a.id], worktree: 'reuse' }))).body as Task
+    const second = await planner(r)('task-create', goodTask(jobId, { title: 'd', deps: [a.id], worktree: 'reuse' }))
+    expect(second.status).toBe(400)
+    expect(JSON.stringify(second.body)).toContain(`${c.id} already reuses ${a.id}'s worktree`)
+    // a refused create leaves no Task behind, and an edit that breaks the rule is refused too
+    expect(r.deps.getState().tasks.filter((t) => t.jobId === jobId)).toHaveLength(3)
+    const d = (await planner(r)('task-create', goodTask(jobId, { title: 'd', deps: [b.id] }))).body as Task
+    expect((await planner(r)('task-update', { id: d.id, deps: [a.id], worktree: 'reuse' })).status).toBe(400)
+    expect((await planner(r)('task-update', { id: c.id, deps: [a.id, b.id] })).status).toBe(400)
+    expect((await planner(r)('task-update', { id: d.id, worktree: 'reuse' })).status).toBe(200)
   })
 })
 

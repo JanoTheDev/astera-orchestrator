@@ -686,3 +686,26 @@ describe('T36: task-failed-resolve and run-failed-ask', () => {
     expect(r.state().messages.find((m) => m.taskId === b && m.type === 'escalation')).toMatchObject({ answered: true, answerBody: 'Cancel what waits on it' })
   })
 })
+
+describe('T1: the replan brief', () => {
+  it('teaches --kind with the task-create flags, and briefs owner feedback on a finished plan as more work', () => {
+    const brief = (mode: 'wave' | 'completion', feedback?: string): string =>
+      buildReplanBrief({
+        job: { id: 'job_1', objective: 'o', cwd: '/r' },
+        runId: 'run_1',
+        mode,
+        wave: 1,
+        accountId: 'acc1',
+        followUps: 0,
+        done: [],
+        running: [],
+        left: [],
+        ...(feedback !== undefined ? { feedback } : {})
+      })
+    expect(brief('wave')).toContain('--kind bugfix|feature|refactor|ui|audit|docs|test|ops')
+    const reopened = brief('completion', 'add a dark mode')
+    expect(reopened).toContain('add a dark mode')
+    expect(reopened).toContain('finished')
+    expect(reopened).not.toContain('THE FINAL CHECK')
+  })
+})

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { createPullRequest, readCommits, type PrCreateRequest } from './prCreate'
+import { createPullRequest, pushBranch, readCommits, type PrCreateRequest } from './prCreate'
 
 const req = (over: Partial<PrCreateRequest> = {}): PrCreateRequest => ({
   worktreePath: 'C:/wt/opal',
@@ -45,8 +45,9 @@ describe('createPullRequest', () => {
       normalizeBase: async (_r, b) => b
     })
     expect(r.ok).toBe(true)
-    expect(order[0]).toBe('git push -u origin parsingk/opal')
-    expect(order[1]).toContain('gh pr create')
+    expect(order[0]).toBe('git fetch origin parsingk/opal')
+    expect(order.at(-2)).toBe('git push -u origin parsingk/opal')
+    expect(order.at(-1)).toContain('gh pr create')
   })
 
   // A force fallback here would rewrite someone's remote branch to make a button work.
@@ -212,5 +213,46 @@ describe('readCommits', () => {
       stderr: ''
     }))
     expect(got).toEqual([{ subject: 'chore: bump', body: '' }])
+  })
+})
+
+describe('pushBranch catches up with origin first (a teammate pushed to the plan branch)', () => {
+  const forced = (calls: string[][]): boolean => calls.some((a) => a.some((x) => x === '--force' || x.startsWith('--force-with-lease') || x === '-f' || x.startsWith('+')))
+  const fake = (merge: 'ok' | 'conflict') => {
+    const calls: string[][] = []
+    const runGit = async (a: string[]) => {
+      calls.push(a)
+      const key = a.join(' ')
+      if (key === 'rev-parse --verify --quiet FETCH_HEAD^{commit}') return { ok: true, stdout: 'theirs1', stderr: '' }
+      if (key === 'merge-base --is-ancestor theirs1 HEAD') return { ok: false, stdout: '', stderr: '' }
+      if (key === 'merge --no-edit theirs1') return merge === 'ok' ? okGit : { ok: false, stdout: 'CONFLICT (content): a.ts', stderr: '' }
+      return okGit
+    }
+    return { calls, runGit }
+  }
+
+  it('fetches origin\'s branch and merges it in before the push, never rebasing or forcing', async () => {
+    const h = fake('ok')
+    expect(await pushBranch('/wt', 'plan/x', { runGit: h.runGit })).toEqual({ ok: true })
+    const order = h.calls.map((a) => a.join(' '))
+    expect(order[0]).toBe('fetch origin plan/x')
+    expect(order.indexOf('merge --no-edit theirs1')).toBeLessThan(order.indexOf('push -u origin plan/x'))
+    expect(h.calls.some((a) => a[0] === 'rebase' || a[0] === 'reset')).toBe(false)
+    expect(forced(h.calls)).toBe(false)
+  })
+
+  it('a conflict with origin aborts the merge, pushes nothing and names origin\'s commit', async () => {
+    const h = fake('conflict')
+    const r = await pushBranch('/wt', 'plan/x', { runGit: h.runGit })
+    expect(r).toMatchObject({ ok: false, kind: 'origin-conflict', conflictWith: 'theirs1' })
+    expect(h.calls.map((a) => a.join(' '))).toContain('merge --abort')
+    expect(h.calls.some((a) => a[0] === 'push')).toBe(false)
+  })
+
+  it('origin already in HEAD: no merge, just the push', async () => {
+    const calls: string[][] = []
+    const r = await pushBranch('/wt', 'plan/x', { runGit: async (a) => { calls.push(a); return a[0] === 'rev-parse' ? { ok: true, stdout: 'theirs1', stderr: '' } : okGit } })
+    expect(r).toEqual({ ok: true })
+    expect(calls.some((a) => a[0] === 'merge')).toBe(false)
   })
 })

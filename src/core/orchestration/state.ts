@@ -651,7 +651,7 @@ export function setRunWorktree(s: OrchState, id: string, worktree: string): Res<
 
 /** W2-A planner stage: the Task fields a planner writes (task-create, task-update), with W1-A's model choice. */
 export type PlanFields = Partial<
-  Pick<Task, 'difficulty' | 'model' | 'provider' | 'prompt' | 'acceptanceCriteria' | 'affectedPaths' | 'modelReason' | /* W6-A */ 'basis' | /* T7 */ 'covers' | /* T9 */ 'kind'>
+  Pick<Task, 'difficulty' | 'model' | 'provider' | 'prompt' | 'acceptanceCriteria' | 'affectedPaths' | 'modelReason' | /* W6-A */ 'basis' | /* T7 */ 'covers' | /* T9 */ 'kind' | /* T3 */ 'worktree'>
 >
 
 /** The plan fields `t` carries, copied; an absent or empty one is left out, as every optional field here is. */
@@ -669,7 +669,9 @@ export function planFieldsOf(t: PlanFields): PlanFields {
     // T7
     ...(t.covers?.length ? { covers: [...t.covers] } : {}),
     // T9
-    ...(t.kind !== undefined ? { kind: t.kind } : {})
+    ...(t.kind !== undefined ? { kind: t.kind } : {}),
+    // T3
+    ...(t.worktree !== undefined ? { worktree: t.worktree } : {})
   }
 }
 

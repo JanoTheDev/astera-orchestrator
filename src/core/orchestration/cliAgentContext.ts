@@ -231,6 +231,13 @@ const SESSION = {
       "Merges the pull request recorded on the run, then records the run as delivered and merged. For a manual plan the owner has reviewed, or any plan whose PR is open. The person's: refused from an agent session and an MCP client. Answered by the Host.",
     flags: [RUN_ARG('<runId>', 'the run whose pull request is merged'), { name: 'method', value: '<merge|squash|rebase>', about: 'how GitHub merges it (default merge)' }]
   },
+  // Merge everything and fix conflicts
+  'run-integrate-all': {
+    summary: "merge every task worktree of a run into its plan branch, hand conflicts to an AI merge task, then deliver",
+    detail:
+      "Merges the run's remaining task worktrees into its plan worktree; a conflict starts the AI merge task (state fixing-conflicts with its taskId), and the driving loop delivers the run once that task completes. When everything merged cleanly it delivers at once, as run-deliver --force does (a pull request or a push, per the project). The owner's action: refused from an agent session and an MCP client. Delivering is answered by the Host.",
+    flags: [RUN_ARG('<runId>', 'the run to merge and deliver')]
+  },
   // T1: delivery state machine
   'run-delivery-dismiss': {
     summary: "dismiss a run's failed delivery: it no longer reads failed and is not tried again",
