@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { Account, McpInput } from '../../../../core/types'
 import {
-  accountsByProvider, byAccount, canInstall, defaultPick, filledValues, initialValues, installedIn, mcpOrigin, mcpRemovable, missingInputs,
-  normaliseRepo, providerPick, repoProblem, skillRemovable, splitResults, toggleProvider
+  accountsByProvider, byAccount, canInstall, defaultPick, filledValues, initialValues, installedIn, mcpOrigin, missingInputs, prunedOwned, readOwned, removable, withInstalled, withoutInstalled, writeOwned,
+  normaliseRepo, providerPick, repoProblem, splitResults, toggleProvider
 } from './finderLogic'
 
 const acc = (id: string, provider?: 'claude' | 'codex'): Account => ({ id, label: id.toUpperCase(), configDir: `/c/${id}`, color: '', createdAt: '', provider })
@@ -45,15 +45,31 @@ describe('MCP inputs', () => {
 })
 
 describe('installed lists', () => {
-  it('the astera server is Astera’s and not removable; another MCP server is; only a finder skill is', () => {
-    expect(mcpOrigin({ accountId: 'a', name: 'Astera', transport: 'stdio' })).toBe('astera')
-    expect(mcpRemovable({ accountId: 'a', name: 'astera', transport: 'stdio' })).toBe(false)
-    expect(mcpOrigin({ accountId: 'a', name: 'github', transport: 'http' })).toBeNull()
-    expect(mcpRemovable({ accountId: 'a', name: 'github', transport: 'http' })).toBe(true)
-    const skill = { accountId: 'a', name: 's', description: '' }
-    expect(skillRemovable({ ...skill, origin: 'finder' })).toBe(true)
-    expect(skillRemovable({ ...skill, origin: 'user' })).toBe(false)
-    expect(skillRemovable({ ...skill, origin: 'astera' })).toBe(false)
+  it('an MCP server is Astera’s, the finder’s only when it recorded the install, else the person’s', () => {
+    const owned = withInstalled(new Set(), ['a', 'b'], 'github')
+    expect(mcpOrigin({ accountId: 'a', name: 'Astera', transport: 'stdio' }, owned)).toBe('astera')
+    expect(mcpOrigin({ accountId: 'a', name: 'github', transport: 'http' }, owned)).toBe('finder')
+    expect(mcpOrigin({ accountId: 'c', name: 'github', transport: 'http' }, owned)).toBe('user')
+    expect(mcpOrigin({ accountId: 'a', name: 'mine', transport: 'stdio' }, owned)).toBe('user')
+    expect(removable('finder')).toBe(true)
+    expect(removable('user')).toBe(false)
+    expect(removable('astera')).toBe(false)
+    const after = withoutInstalled(owned, 'a', 'github')
+    expect(mcpOrigin({ accountId: 'a', name: 'github', transport: 'http' }, after)).toBe('user')
+  })
+  it('the record survives storage, ignores bad values, and drops servers no longer installed', () => {
+    const store = new Map<string, string>()
+    const storage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) }
+    const owned = withInstalled(new Set(), ['a'], 'github')
+    writeOwned(storage, owned)
+    expect(readOwned(storage)).toEqual(owned)
+    store.set('astera.finder.mcpInstalls', '{bad')
+    expect(readOwned(storage).size).toBe(0)
+    expect(readOwned(undefined).size).toBe(0)
+    expect(prunedOwned(withInstalled(new Set(), ['a', 'b'], 'x'), [{ accountId: 'b', name: 'x', transport: 'stdio' }])).toEqual(withInstalled(new Set(), ['b'], 'x'))
+  })
+  it('only a finder skill is removable', () => {
+    for (const o of ['astera', 'finder', 'user'] as const) expect(removable(o)).toBe(o === 'finder')
   })
   it('groups by account in account order, sorted by name, empty accounts kept', () => {
     const items = [{ accountId: 'b', name: 'z' }, { accountId: 'a', name: 'y' }, { accountId: 'a', name: 'x' }]

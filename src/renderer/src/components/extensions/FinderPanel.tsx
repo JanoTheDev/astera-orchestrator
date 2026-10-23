@@ -8,7 +8,10 @@ import { useI18n } from '../../i18n/I18nProvider'
 import { toast } from '../../lib/toast'
 import { confirmModal } from '../../lib/confirm'
 import { Button, Chip, Icon, Input, Tabs } from '../ui'
-import { byAccount, inputsOf, installedIn, mcpOrigin, mcpRemovable, SEARCH_DEBOUNCE_MS, skillRemovable, splitResults, filledValues } from './finderLogic'
+import {
+  byAccount, filledValues, inputsOf, installedIn, mcpOrigin, prunedOwned, readOwned, removable, SEARCH_DEBOUNCE_MS, splitResults, withInstalled,
+  withoutInstalled, writeOwned
+} from './finderLogic'
 import { InstallDialog } from './InstallDialog'
 import { SkillReposEditor } from './SkillReposEditor'
 import './finder.css'
@@ -20,6 +23,14 @@ type SkillPage = { skills: SkillCatalogEntry[]; repoErrors: string[] }
 type Target = { kind: 'mcp'; entry: McpCatalogEntry } | { kind: 'skills'; entry: SkillCatalogEntry }
 
 const detailOf = (err: unknown): string => (err instanceof Error ? err.message : String(err))
+
+function storage(): Storage | undefined {
+  try {
+    return typeof localStorage === 'undefined' ? undefined : localStorage
+  } catch {
+    return undefined
+  }
+}
 
 /** The search box's value, settled for SEARCH_DEBOUNCE_MS. */
 function useDebounced(value: string): string {
@@ -67,6 +78,14 @@ export function FinderPanel({ accounts }: { accounts: readonly Account[] }): Rea
   const [target, setTarget] = useState<Target | null>(null)
   const [installing, setInstalling] = useState(false)
   const [removing, setRemoving] = useState<string | null>(null)
+  /** The MCP servers the finder installed (finderLogic FINDER_MCP_KEY): the only MCP rows with Remove. */
+  const [owned, setOwnedState] = useState<Set<string>>(() => readOwned(storage()))
+  const setOwned = (update: (prev: Set<string>) => Set<string>): void =>
+    setOwnedState((prev) => {
+      const next = update(prev)
+      writeOwned(storage(), next)
+      return next
+    })
   /** Only the latest search may land: an older, slower answer is dropped. */
   const seq = useRef(0)
   const labelOf = useMemo(() => {
@@ -112,7 +131,10 @@ export function FinderPanel({ accounts }: { accounts: readonly Account[] }): Rea
     if (which === 'mcp') {
       setMcpInstalled({ state: 'loading' })
       window.api.extensions.mcpInstalled().then(
-        (v) => setMcpInstalled({ state: 'ok', value: v }),
+        (v) => {
+          setMcpInstalled({ state: 'ok', value: v })
+          setOwned((prev) => prunedOwned(prev, v))
+        },
         (err) => setMcpInstalled({ state: 'error', message: detailOf(err) })
       )
     } else {
@@ -137,6 +159,10 @@ export function FinderPanel({ accounts }: { accounts: readonly Account[] }): Rea
           ? await window.api.extensions.mcpInstall({ accountIds, name: target.entry.name, recipe: target.entry.recipe, values: filledValues(values) })
           : await window.api.extensions.skillsInstall({ accountIds, repo: (target.entry as SkillCatalogEntry).repo, path: (target.entry as SkillCatalogEntry).path })
       const { ok, failed } = splitResults(r, labelOf)
+      if (target.kind === 'mcp') {
+        const done = r.results.filter((x) => x.ok).map((x) => x.accountId)
+        setOwned((prev) => withInstalled(prev, done, target.entry.name))
+      }
       if (ok.length > 0) toast.success(t('finder.installed.ok', { name: target.entry.name, accounts: ok.join(', '), note: r.note }))
       for (const f of failed) toast.error(t('finder.installed.failed', { account: f.label, detail: f.message }))
       setTarget(null)
@@ -154,7 +180,10 @@ export function FinderPanel({ accounts }: { accounts: readonly Account[] }): Rea
     setRemoving(`${accountId}/${name}`)
     try {
       const r = kind === 'mcp' ? await window.api.extensions.mcpRemove(accountId, name) : await window.api.extensions.skillsRemove(accountId, name)
-      if (r.ok) toast.success(t('finder.remove.done', { name, account }))
+      if (r.ok) {
+        if (kind === 'mcp') setOwned((prev) => withoutInstalled(prev, accountId, name))
+        toast.success(t('finder.remove.done', { name, account }))
+      }
       else toast.error(t('finder.remove.failed', { name, detail: r.message }))
     } catch (err) {
       toast.error(t('finder.remove.failed', { name, detail: detailOf(err) }))
@@ -260,8 +289,8 @@ export function FinderPanel({ accounts }: { accounts: readonly Account[] }): Rea
               <ul className="finder__list">
                 {items.map((i) => {
                   const isMcp = kind === 'mcp'
-                  const origin = isMcp ? mcpOrigin(i as McpInstalled) : (i as SkillInstalled).origin
-                  const canRemove = isMcp ? mcpRemovable(i as McpInstalled) : skillRemovable(i as SkillInstalled)
+                  const origin = isMcp ? mcpOrigin(i as McpInstalled, owned) : (i as SkillInstalled).origin
+                  const canRemove = removable(origin)
                   const detail = isMcp ? ((i as McpInstalled).url ?? (i as McpInstalled).command ?? (i as McpInstalled).transport) : (i as SkillInstalled).description
                   return (
                     <li key={i.name} className="finder__item">

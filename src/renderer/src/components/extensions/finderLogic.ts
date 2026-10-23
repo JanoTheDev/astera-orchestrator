@@ -10,14 +10,54 @@ export const SEARCH_DEBOUNCE_MS = 350
 /** Astera's own MCP entry: managed in Settings › CLI, never removable here (core/extensions/mcpConfig.ts). */
 export const ASTERA_MCP = 'astera'
 
-/** Where an installed skill came from (SkillOrigin): only `finder` ones are removable here. MCP configs carry
- *  no finder marker, so an MCP server is either Astera's own (never removable) or of unknown origin, which the
- *  backend lets the finder remove and the row asks about first. */
+/** Where an installed entry came from: Astera's own, installed by the finder (the only ones removable here), or the
+ *  person's own. Skills carry it on disk (SkillOrigin). MCP configs carry no marker, so the finder remembers its own
+ *  MCP installs in this renderer's storage (FINDER_MCP_KEY); a server it did not record is the person's. */
 export type Origin = 'astera' | 'finder' | 'user'
 
-export const mcpOrigin = (s: McpInstalled): 'astera' | null => (s.name.toLowerCase() === ASTERA_MCP ? 'astera' : null)
-export const mcpRemovable = (s: McpInstalled): boolean => mcpOrigin(s) === null
-export const skillRemovable = (s: SkillInstalled): boolean => s.origin === 'finder'
+/** localStorage key of the MCP servers the finder installed, as `accountId` + NUL + `name` entries. */
+export const FINDER_MCP_KEY = 'astera.finder.mcpInstalls'
+const entry = (accountId: string, name: string): string => `${accountId}\0${name}`
+
+export const mcpOrigin = (s: McpInstalled, owned: ReadonlySet<string>): Origin =>
+  s.name.toLowerCase() === ASTERA_MCP ? 'astera' : owned.has(entry(s.accountId, s.name)) ? 'finder' : 'user'
+export const removable = (o: Origin): boolean => o === 'finder'
+
+/** The finder's MCP record read from storage; an unreadable or malformed value is an empty record. */
+export function readOwned(storage: Pick<Storage, 'getItem'> | undefined): Set<string> {
+  try {
+    const v: unknown = JSON.parse(storage?.getItem(FINDER_MCP_KEY) ?? '[]')
+    return new Set(Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [])
+  } catch {
+    return new Set()
+  }
+}
+
+export function writeOwned(storage: Pick<Storage, 'setItem'> | undefined, owned: ReadonlySet<string>): void {
+  try {
+    storage?.setItem(FINDER_MCP_KEY, JSON.stringify([...owned]))
+  } catch {
+    /* storage unavailable: the install is not remembered, so its row reads as the person's and is not removable */
+  }
+}
+
+/** `owned` plus the accounts `name` was just installed in. */
+export const withInstalled = (owned: ReadonlySet<string>, accountIds: readonly string[], name: string): Set<string> =>
+  new Set([...owned, ...accountIds.map((id) => entry(id, name))])
+
+/** `owned` without one server (it was removed). */
+export function withoutInstalled(owned: ReadonlySet<string>, accountId: string, name: string): Set<string> {
+  const next = new Set(owned)
+  next.delete(entry(accountId, name))
+  return next
+}
+
+/** `owned` keeping only servers still installed: one removed outside Astera and later set up again by hand is the
+ *  person's, not the finder's. */
+export const prunedOwned = (owned: ReadonlySet<string>, installed: readonly McpInstalled[]): Set<string> => {
+  const present = new Set(installed.map((s) => entry(s.accountId, s.name)))
+  return new Set([...owned].filter((e) => present.has(e)))
+}
 
 /** The accounts of each provider, in the order the person keeps them. */
 export function accountsByProvider(accounts: readonly Account[]): Record<Provider, Account[]> {
