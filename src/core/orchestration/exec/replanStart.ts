@@ -129,7 +129,10 @@ export function replanSummary(s: OrchState, job: Job, note?: string): { line: st
   ]
   const what = parts.length ? parts.join(', ') : r.mode === 'completion' ? 'done, nothing to add' : 'no change'
   const clean = note?.replace(/\s+/g, ' ').trim()
-  return { line: clean ? `${what}: ${clean}`.slice(0, 300) : what, added }
+  const base = clean ? `${what}: ${clean}`.slice(0, 300) : what
+  // Every dropped dep keeps its reason: listed after the capped part, never cut
+  const dropped = r.droppedDeps?.length ? `; deps dropped: ${r.droppedDeps.join('; ')}` : ''
+  return { line: base + dropped, added }
 }
 
 /** One completed Task, as the replan brief shows it. */
@@ -227,6 +230,12 @@ export function buildReplanBrief(a: {
           ''
         ]
       : []),
+    'REVIEW THE DEPS',
+    '- For every Task that has not started, check each dep: it is real only when the Task uses code, an API, a file\'s content or a decision',
+    '  that the other Task produces. "Same area", "same files", "nicer order" and "review after" are not reasons: each Task has its own',
+    '  worktree and the merge worker resolves conflicts. Drop the rest: `astera task-update --id <taskId> --deps \'[...the real ones]\' --reason "<why it needs none of the dropped>"`.',
+    '  Each drop is listed with its reason in the replan summary; a drop without --reason is refused.',
+    '',
     'BEFORE YOU DECIDE',
     '- Read `$ASTERA_SKILLS/planner-guide.md`, section "Replanning". Read the code the done Tasks changed:',
     ...(a.focused ? ['  Read only the Tasks listed here, not the whole plan; the rest is unchanged.'] : []),
@@ -325,6 +334,11 @@ export async function replanCommand(deps: OrchServerDeps, caller: Caller, cmd: s
       await deps.setState(r.state)
       return ok(r.value)
     }
+    // A dep is dropped only with its reason: the summary and the feed list each one
+    const before = s.tasks.find((t) => t.id === id)
+    const dropped = args.deps !== undefined && before ? before.deps.filter((d) => !(args.deps as string[]).includes(d)) : []
+    const dropReason = str(args.reason)?.replace(/\s+/g, ' ').trim()
+    if (dropped.length && !dropReason) return bad(`--reason is required when --deps drops ${dropped.join(', ')}: why ${id} does not need it (it uses no code, API, file content or decision from it)`)
     const r = editRemainingTask(
       s,
       id,
@@ -340,7 +354,15 @@ export async function replanCommand(deps: OrchServerDeps, caller: Caller, cmd: s
     // T3: a deps or --worktree change keeps `reuse` valid
     const worktreeNo = worktreeRefusal(r.state, r.value)
     if (worktreeNo !== undefined) return bad(worktreeNo)
-    await deps.setState(r.state)
+    const rj = replanJobOf(s, caller.sessionId)
+    if (dropped.length && rj) {
+      const title = (d: string): string => s.tasks.find((t) => t.id === d)?.title ?? d
+      const line = `${r.value.title}: ${dropped.map(title).join(', ')} (${dropReason})`
+      await deps.setState({
+        ...r.state,
+        jobs: r.state.jobs.map((j) => (j.id === rj.id && j.replanning ? { ...j, replanning: { ...j.replanning, droppedDeps: [...(j.replanning.droppedDeps ?? []), line] } } : j))
+      })
+    } else await deps.setState(r.state)
     return ok(r.value)
   }
 
@@ -479,7 +501,7 @@ export async function replanCommand(deps: OrchServerDeps, caller: Caller, cmd: s
     : followUps > REPLAN_FOLLOW_UPS_MAX
       ? `the final check wants a follow-up wave beyond ${REPLAN_FOLLOW_UPS_MAX}: ${line}`
       : undefined
-  const { startedAt, sessionId, heldBefore, cancelled: _c, before: _b, feedbackAt: _f, scoped, ...mark } = r as ReplanRecord
+  const { startedAt, sessionId, heldBefore, cancelled: _c, droppedDeps: _d, before: _b, feedbackAt: _f, scoped, ...mark } = r as ReplanRecord
   const ended: ReplanEnded = { ...mark, startedAt, at: now, summary: line, ...(escalated ? { escalated } : {}) }
   // A scoped replan set no hold, so it leaves the Job's hold as it finds it (a person's jobs-hold meanwhile stays)
   await setJob(jobId, ({ replanning: _r, dispatchHold: hold, ...j }) => ({

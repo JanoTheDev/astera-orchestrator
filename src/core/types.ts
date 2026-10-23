@@ -1657,6 +1657,8 @@ export interface CoreApi {
     /** W1-B: the app-wide Job worker cap; null is no cap. */
     getMaxConcurrentWorkers(): Promise<number | null>
     setMaxConcurrentWorkers(n: number | null): Promise<void>
+    getHeavyJobsAtOnce(): Promise<number>
+    setHeavyJobsAtOnce(n: number): Promise<void>
     /** This machine's memory and CPUs and the worker cap they support (what an unset limit schedules at). */
     getMachineSpecs(): Promise<MachineSpecs>
     /** W6-G: subagents at once per Claude tab (1–10), and the usage percent at which no new worker starts. */

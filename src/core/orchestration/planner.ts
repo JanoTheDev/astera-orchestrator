@@ -9,7 +9,7 @@ import { BASIS_STATES, TASK_KINDS, recomputeReady, type Job, type LeftOutItem, t
 import type { OrchState, PlanFields, Res } from './state'
 import { chainOf, layersOf } from './graph'
 import { isIntegrationTask } from './integrate'
-import { pathsOverlap } from './schedule'
+import { pathsOverlap, projectKeyOf, serialFilesOf } from './schedule'
 import { jobNameOf } from './jobName'
 import { DIFFICULTIES, MODEL_ID } from './roleModels'
 // W8-C prompts mode
@@ -291,9 +291,12 @@ export function validatePlan(s: OrchState, jobId: string): string[] {
     // the file guard only sees declared paths; a Task without any overlaps nothing and conflicts at merge
     if (!t.affectedPaths?.length && !isIntegrationTask(t)) problems.push(`Task ${name} names no files (--affected-paths)`)
   }
-  // Tasks neither waiting on the other (directly or through others) may run at once, so their files must differ
+  // Tasks neither waiting on the other (directly or through others) may run at once, so their files must differ.
+  // T7: only on a project that keeps same-file Tasks apart (schedule.ts `serialFilesOf`); otherwise they run side by side
+  // and the merge worker settles a conflict
+  const job = s.jobs.find((j) => j.id === jobId)
   const deps = Object.fromEntries(tasks.map((t) => [t.id, t.deps]))
-  tasks.forEach((a, i) => {
+  if (job && serialFilesOf(s, projectKeyOf(s, job))) tasks.forEach((a, i) => {
     const chain = chainOf(deps, a.id)
     for (const b of tasks.slice(i + 1)) {
       if (chain.has(b.id)) continue
@@ -323,7 +326,6 @@ export function validatePlan(s: OrchState, jobId: string): string[] {
   // T7: every item the objective lists is covered by a Task or left out with a reason. Only for a Job's own plan: a
   // replan's key (replanProblems) names no Job, and its finished Tasks, which covered items too, are not in `tasks`.
   // Run as written is checked above, prompt by prompt.
-  const job = s.jobs.find((j) => j.id === jobId)
   if (job !== undefined && verbatim === undefined) {
     const covered = new Set([...tasks.flatMap((t) => t.covers ?? []), ...(job.leftOut ?? []).map((l) => l.item)])
     for (const item of objectiveItemsOf(job.objective))

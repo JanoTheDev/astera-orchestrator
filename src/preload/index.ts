@@ -223,6 +223,7 @@ const api = {
     getGithubPolling: invoke('settings.getGithubPolling'),
     setGithubPolling: invoke('settings.setGithubPolling'),
     getMaxConcurrentWorkers: invoke('settings.getMaxConcurrentWorkers'),
+    getHeavyJobsAtOnce: invoke('settings.getHeavyJobsAtOnce'),
     getMachineSpecs: invoke('settings.getMachineSpecs'),
     // W3-A
     getActivityDigestMinutes: invoke('settings.getActivityDigestMinutes'),
@@ -246,6 +247,7 @@ const api = {
     getTabSummaries: invoke('settings.getTabSummaries'), // W9-I
     setTabSummaries: invoke('settings.setTabSummaries'),
     setMaxConcurrentWorkers: invoke('settings.setMaxConcurrentWorkers'),
+    setHeavyJobsAtOnce: invoke('settings.setHeavyJobsAtOnce'),
     // W6-G
     getMaxSubagentsPerSession: invoke('settings.getMaxSubagentsPerSession'),
     setMaxSubagentsPerSession: invoke('settings.setMaxSubagentsPerSession'),

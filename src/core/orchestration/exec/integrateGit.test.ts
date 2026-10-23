@@ -57,6 +57,18 @@ describe('forkWorktree', () => {
     await expect(fs.stat(path.join(wt, 'only-on-feature.txt'))).resolves.toBeTruthy()
     expect(registry.list().map((w) => w.path)).toEqual([wt])
   })
+  it('runs the project setup command in the new worktree, and not when it is off', async () => {
+    await fs.writeFile(path.join(repo, 'package-lock.json'), '{}'); gitSync(repo, ['add', '.']); gitSync(repo, ['commit', '-m', 'lock'])
+    const ran = await forkWorktree({ repoPath: repo, name: 'on' }, { registry, log: () => {}, setupCommand: 'touch ran.txt' })
+    await expect(fs.stat(path.join(ran, 'ran.txt'))).resolves.toBeTruthy()
+    const off = await forkWorktree({ repoPath: repo, name: 'off' }, { registry, log: () => {}, setupCommand: 'off' })
+    await expect(fs.stat(path.join(off, 'ran.txt'))).rejects.toThrow()
+  })
+  it('logs a failing setup and still forks', async () => {
+    const wt = await forkWorktree({ repoPath: repo, name: 'bad' }, { registry, log: logTo(), setupCommand: 'echo nope; exit 2' })
+    await expect(fs.stat(wt)).resolves.toBeTruthy()
+    expect(logs.join('\n')).toMatch(/setup: .*failed.*exit 2.*nope/s)
+  })
   it('says NO_REPO for a folder that is not a repository', async () => {
     const plain = await tempDir('astera-integrate-plain-')
     await expect(forkWorktree({ repoPath: plain, name: 'a' }, { registry, log: () => {} })).rejects.toThrow(/NO_REPO/)

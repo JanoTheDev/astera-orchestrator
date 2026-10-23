@@ -412,7 +412,7 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
   },
   // W6-H delivery (delivery.ts)
   'projects-set': {
-    summary: "set a project's delivery, auto-approve, hands-off, test command, concurrency, review rounds, replan, prompts folder, standing grants, coordinator model and account",
+    summary: "set a project's delivery, auto-approve, hands-off, serial files, test command, concurrency, review rounds, replan, setup command, prompts folder, standing grants, coordinator model and account",
     detail:
       'pr (the default) opens one pull request per plan and never merges it. push merges a finished plan into the delivery branch (the default branch unless --delivery-branch) and pushes it, with no review by a person, after the reviews, the final check and the validation pass; it stops and escalates when the folder is not on that branch, has uncommitted changes, cannot fast-forward, conflicts, fails validation or is rejected, and never force-pushes. A Job may override it (`jobs create --delivery`). Defaults: delivery pr, auto-approve off, concurrency 3, review rounds 5, replan waves. --auto-approve on starts a plan without waiting for approval; --hands-off on also lets its coordinator answer its own escalations and bypasses permissions for its sessions. --test-command is saved as a run configuration and validates every new Task that has no --validate (--test-config picks an existing one). A new Job copies the concurrency, replan and review rounds when it sets none. An empty value clears a setting back to its default. Refused from an agent session and an MCP client.',
     flags: [
@@ -423,6 +423,8 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       { name: 'auto-approve', value: '<on|off>', about: 'approve this project\'s plans as soon as their planner finishes, with no one asked (default off)' },
       // #117
       { name: 'hands-off', value: '<on|off>', about: "run this project's plans hands-off (default off): nothing waits on the owner: the plan starts by itself once it holds, its coordinator answers its own escalations, and its planner, coordinator and workers run with permissions bypassed" },
+      // T7
+      { name: 'serial-files', value: '<on|off>', about: "never run two Tasks on the same files at once, and keep a done Task's files leased until its plan delivers (default off: they run side by side in their own worktrees and the merge worker settles a conflict)" },
       { name: 'test-command', value: '<cmd>', about: 'the command that validates a Task (saved as a run configuration)' },
       { name: 'test-config', value: '<id>', about: 'an existing run configuration to validate with' },
       { name: 'concurrency', value: '<1-100>', about: 'workers at once for a new Job (default: 3)' },
@@ -430,6 +432,7 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       { name: 'replan', value: '<waves|off>', about: 'replan between waves (default: waves)' },
       { name: 'account', value: '<id>', about: 'the account the project uses' },
       // W10-A
+      { name: 'setup-command', value: '<cmd|off>', about: 'the command run in every new plan and Task worktree to install dependencies (default: detected from the lockfile: bun, pnpm, yarn or npm); off runs none; empty detects again' },
       { name: 'prompts-dir', value: '<path|none>', about: 'the folder (in the repository) whose <id>-*.md files Run as written finds by name; none clears it' },
       // T3 workspaces
       { name: 'auto-projects', value: '<on|off>', about: 'file each plan under a sub-project named after its first area, created when missing (off for a project added from now on)' },
@@ -546,7 +549,7 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
   'jobs-overlaps': {
     summary: "where a Job's Tasks meet another active or queued plan's of the same project",
     detail:
-      'One entry per pair of Tasks that touch overlapping affected paths or link the same issue, each with a line such as "T3 · Auth rework · T6 (same files: src/api/routes.ts)". Refreshed whenever either plan\'s Tasks change. An overlap never blocks approval: two workers of one project never run on the same files at once, so the later one waits.',
+      'One entry per pair of Tasks that touch overlapping affected paths or link the same issue, each with a line such as "T3 · Auth rework · T6 (same files: src/api/routes.ts)". Refreshed whenever either plan\'s Tasks change. An overlap never blocks approval: the two run side by side and the merge worker settles a conflict when their branches meet (with serial files on for the project, the later one waits).',
     flags: [ID('<jobId>', 'the Job to check')]
   },
   // T3 the main plan (mainPlan.ts)
@@ -698,7 +701,7 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
   'tasks-add': {
     summary: 'add a task to a Job, or to one run of it',
     detail:
-      'Exactly one of --job or --run. A task added to a Job is copied into every run `jobs run` starts from then on; a task added to a run belongs to that run only. An id of the other kind is not found (4), never quietly the other thing. Returns the task. A spec with quotes or several lines goes on stdin: `--spec -` with a heredoc (`<<\'EOF\'`), so the shell changes nothing in it. --affected-paths lets the scheduler keep two tasks on the same files from running at once.',
+      'Exactly one of --job or --run. A task added to a Job is copied into every run `jobs run` starts from then on; a task added to a run belongs to that run only. An id of the other kind is not found (4), never quietly the other thing. Returns the task. A spec with quotes or several lines goes on stdin: `--spec -` with a heredoc (`<<\'EOF\'`), so the shell changes nothing in it. --affected-paths tells where tasks meet (overlaps); with serial files on for the project, the scheduler keeps two tasks on the same files from running at once.',
     flags: [
       { name: 'job', value: '<jobId>', about: 'the Job to add it to (exactly one of --job or --run)' },
       { name: 'run', value: '<runId>', about: 'the run to add it to (exactly one of --job or --run)' },
@@ -1289,8 +1292,9 @@ export const HEAVY_USAGE = [
   'usage: astera heavy -- <command> [args…]',
   '',
   '  Runs a heavy job (the full test suite, `npm run dev` / Electron, `npm run dist:linux`) under the',
-  '  machine-wide lock /tmp/astera-fullsuite.lock: one at a time, first come first served. Hand-opened',
-  '  tabs that run `flock /tmp/astera-fullsuite.lock <command>` share the same slot. The lock is released',
+  '  machine-wide lock /tmp/astera-fullsuite.lock: up to the Settings value "Heavy jobs at once" (default 1)',
+  '  at a time, first come first served. Hand-opened tabs that run `flock /tmp/astera-fullsuite.lock <command>`',
+  '  share slot 1. The lock is released',
   '  when the command exits or crashes. Exits with the command\'s exit code (a signal is 128+n).',
   '',
   '  example: astera heavy -- nice -n 10 npx vitest run --maxWorkers=2'

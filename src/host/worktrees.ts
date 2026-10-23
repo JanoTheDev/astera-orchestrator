@@ -22,6 +22,7 @@ import { liveAppPid } from '../core/host/pidFile'
 import { HOST_ACT_PATH_IN_USE, type HostMessage, type PtyMeta, type WorktreesSnapshot } from '../core/host/protocol'
 import type { OrchServerDeps } from '../core/orchestration/command'
 import type { OrchState } from '../core/orchestration/state'
+import { findProjectContaining } from '../core/orchestration/projects'
 import {
   forkWorktree,
   integrateWorktrees,
@@ -343,7 +344,7 @@ export function createHostWorktrees(d: HostWorktreesDeps): HostWorktrees {
 
   const fork = async (a: { repoPath: string; name?: string; baseOf?: string }): Promise<string> => {
     await fresh()
-    return forkWorktree(a, { registry, log: d.log })
+    return forkWorktree(a, { registry, log: d.log, setupCommand: findProjectContaining(d.getState(), a.repoPath)?.setupCommand })
   }
 
   // ---- the app's writes (R1) ----

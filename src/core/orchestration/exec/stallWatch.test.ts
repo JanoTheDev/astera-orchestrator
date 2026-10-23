@@ -32,11 +32,12 @@ const task = (over: Partial<Task> & Pick<Task, 'id'>): Task => ({
 const ended = (taskId: string, cwd: string): Dispatch =>
   ({ id: `dsp_${taskId}`, taskId, provider: 'claude', accountId: 'accA', sessionId: `w-${taskId}`, cwd, specPath: '', startedAt: NOW, endedAt: NOW, outcome: 'succeeded' }) as Dispatch
 
-/** A running plan its coordinator places, with two slots. */
+/** A running plan its coordinator places, with two slots. T7: its project keeps same-file Tasks apart (serial files). */
 function plan(over: Partial<OrchState> = {}, job: Partial<Job> = {}): OrchState {
   return {
     ...emptyState(),
-    jobs: [{ id: 'job_1', objective: 'Plan A', cwd: '/p', createdAt: NOW, concurrency: 2, autoDispatch: false, ...job }],
+    projects: [{ id: 'prj', path: '/p', name: 'p', addedAt: NOW, serialFiles: true }],
+    jobs: [{ id: 'job_1', objective: 'Plan A', cwd: '/p', projectId: 'prj', createdAt: NOW, concurrency: 2, autoDispatch: false, ...job }],
     runs: [{ id: 'run_1', jobId: 'job_1', ordinal: 1, createdAt: NOW, worktree: '/wt1', coordinatorSessionId: 'coord-1' }],
     tasks: [task({ id: 'tsk_1' })],
     ...over
@@ -596,6 +597,13 @@ describe('no silent stalls (T11)', () => {
     // asked already ("Let it wait"): never again
     const gate = { id: 'g', runId: 'run_1', taskId: 'tsk_1', question: 'q', options: ['Let it wait', 'Run it now anyway', 'Cancel this Task'], status: 'resolved' as const, resolution: 'Let it wait', createdAt: NOW }
     expect(timeline(leased({ gates: [gate] }), 4 * 60 * MIN).filter(([k]) => k.startsWith('ask'))).toEqual([])
+  })
+
+  it('T7: without serial files nothing waits on a lease: no lease line, no owner question, the Task is started', () => {
+    const off = leased({ projects: [{ id: 'prj', path: '/p', name: 'p', addedAt: NOW }] })
+    const got = timeline(off, 4 * 60 * MIN)
+    expect(got.filter(([k]) => k.startsWith('tell-lease') || k.startsWith('ask'))).toEqual([])
+    expect(got.map(([k]) => k)).toContain('place:tsk_1')
   })
 
   it('a Task the watchdog cannot start: a feed line at once, one owner question at 15 min, nothing more', () => {

@@ -8,11 +8,12 @@ import type { Dispatch, Job, JobRun, Project, Task } from './types'
 
 const T0 = '2026-10-18T00:00:00.000Z'
 
+// T7: the guard and leases hold on a workspace with serial files on
 const projects: Project[] = [
-  { id: 'prj_root', path: '/repo', name: 'Astera', addedAt: T0 },
+  { id: 'prj_root', path: '/repo', name: 'Astera', addedAt: T0, serialFiles: true },
   { id: 'prj_ui', path: '/repo', name: 'ui', addedAt: T0, parentId: 'prj_root' },
   { id: 'prj_core', path: '/repo', name: 'core', addedAt: T0, parentId: 'prj_root' },
-  { id: 'prj_other', path: '/other', name: 'other', addedAt: T0 }
+  { id: 'prj_other', path: '/other', name: 'other', addedAt: T0, serialFiles: true }
 ]
 const job = (id: string, projectId: string): Job => ({ id, objective: id, cwd: '/repo', projectId, createdAt: T0, autoDispatch: true, concurrency: 3 })
 const run = (id: string, jobId: string): JobRun => ({ id, jobId, ordinal: 1, createdAt: T0 })
@@ -73,6 +74,16 @@ describe('sibling sub-projects share one coordinator', () => {
     expect(placed(siblings(['src/renderer/'], ['src/core/']))).toEqual(['ta', 'tb'])
     const running = siblings(['src/renderer/'], ['src/core/'], 'dispatched')
     expect(placed({ ...running, dispatches: [dispatch('d1', 'ta')] })).toEqual(['tb'])
+  })
+
+  it("T7: the workspace's serial files hold for its sub-projects; a sub-project's own does not", () => {
+    const s = siblings(['src/api/routes.ts'], ['src/api/'], 'completed')
+    const flip = (root: boolean, ui: boolean): OrchState => ({
+      ...s,
+      projects: s.projects.map((p) => (p.id === 'prj_root' ? { ...p, serialFiles: root } : p.id === 'prj_ui' ? { ...p, serialFiles: ui } : p))
+    })
+    expect(placed(flip(false, true))).toEqual(['tb'])
+    expect(placed(flip(true, false))).toEqual([])
   })
 
   it('never holds across workspaces', () => {

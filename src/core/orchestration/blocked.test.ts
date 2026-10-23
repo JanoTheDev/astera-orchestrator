@@ -309,9 +309,11 @@ describe('taskBoardsOf — usage pause', () => {
 })
 
 describe('taskBoardsOf — a plan not yet delivered (T9)', () => {
+  // T7: leases hold only on a project with serial files on
   const two = (r1: Partial<JobRun> = {}): OrchState => ({
     ...emptyState(),
-    jobs: [job('j1', { title: 'Plan A' }), job('j2', { title: 'Plan B', createdAt: '2026-10-17T01:00:00.000Z' })],
+    projects: [{ id: 'prj', path: '/p', name: 'p', addedAt: T0, serialFiles: true }],
+    jobs: [job('j1', { title: 'Plan A', projectId: 'prj' }), job('j2', { title: 'Plan B', projectId: 'prj', createdAt: '2026-10-17T01:00:00.000Z' })],
     runs: [run('r1', 'j1', r1), run('r2', 'j2')],
     tasks: [task('t1', 'r1', { status: 'completed', affectedPaths: ['src/a.ts'] }), task('t2', 'r2', { affectedPaths: ['./src/a.ts'] })]
   })

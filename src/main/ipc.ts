@@ -57,6 +57,7 @@ import { createHostDriverView, type HostDriverView } from './host/hostDriver'
 import { createHostWorkspaceView, type HostWorkspaceView } from './host/hostWorkspace'
 import { clampAppSize } from '../core/workspace/size'
 import { createHostMcpHttpView, type HostMcpHttpView } from './host/hostMcpHttp'
+import { heavyJobsAtOnceOf } from '../core/settings/heavyJobs'
 import { machineSpecs } from '../core/settings/machineSpecs'
 import { mcpHttpHostsProblem, mcpHttpOf, type McpHttpSettings } from '../core/settings/mcpHttp'
 import { createTokenReader, newToken, tokenPath } from '../core/mcp/httpToken'
@@ -172,7 +173,7 @@ import { isPermissionMode, isUnattendedPermission } from '../core/chat/types'
 import { performRepair, repairOnce, repairTargetFor, type RepairDeps } from '../core/orchestration/exec/repair'
 import { snapshotFor, jobsForProject, outcomeOf } from '../core/orchestration/view'
 import { createOrchPush } from './orchPush'
-import { dropNonGitProjects, ensureGitProject } from '../core/orchestration/projects'
+import { dropNonGitProjects, ensureGitProject, findProjectContaining } from '../core/orchestration/projects'
 import { mainRepoRoot } from '../core/projects/detect'
 import { emptyState, resolveRunId } from '../core/orchestration/state'
 import { runRecordInputOf } from '../core/orchestration/runRecord'
@@ -3157,7 +3158,7 @@ export function registerIpc(
       // exactly like any other. 갈라질 자리를 고르는 판단은 forkWorktree(integrateGit.ts)에 있다 —
       // Run 워크트리를 만드는 스케줄러도 같은 것을 쓴다.
       createWorktree: async (a) => ({
-        path: await forkWorktree(a, { registry: core.worktrees, log: orchLog })
+        path: await forkWorktree(a, { registry: core.worktrees, log: orchLog, setupCommand: findProjectContaining(store.get(), a.repoPath)?.setupCommand })
       }),
       // W5-A (#50): a dependent Task's fork gets its deps merged in (integrateGit.ts).
       mergeIntoWorktree: (worktree, from) => mergeDepsInto(worktree, from, { log: orchLog }),
@@ -3220,7 +3221,8 @@ export function registerIpc(
       },
       // Plugins run in the Host: the app asks it (plugin Phase 5 C8). `deps` is defined below and read at the call.
       pluginCheck: (plugin, input) =>
-        deps.completionChecks?.run(plugin, input) ?? Promise.resolve({ name: plugin, ...unavailable('plugin checks cannot run here') })
+        deps.completionChecks?.run(plugin, input) ?? Promise.resolve({ name: plugin, ...unavailable('plugin checks cannot run here') }),
+      heavyJobsAtOnce: async () => core.appSettings.getHeavyJobsAtOnce()
     })
     orchValidator = validation.validator
 
@@ -3288,7 +3290,7 @@ export function registerIpc(
       loginStatus: (accountId) => core.accounts.loginStatus(accountId),
       lang: () => core.lang,
       forkRunWorktree: (a) =>
-        forkWorktree({ repoPath: a.repoPath, name: a.name }, { registry: core.worktrees, log: orchLog }),
+        forkWorktree({ repoPath: a.repoPath, name: a.name }, { registry: core.worktrees, log: orchLog, setupCommand: findProjectContaining(store.get(), a.repoPath)?.setupCommand }),
       integrate: (runRoot, merges, heads, opts) => integrateWorktrees(runRoot, merges, { heads, ...opts }, gitCtx),
       reap: (p) => reapWorktree(p),
       isRegisteredWorktree: (p) => core.worktrees.list().some((w) => isSamePath(w.path, p)),
@@ -3404,7 +3406,7 @@ export function registerIpc(
        *  끌고 온다 — 스케줄러의 게으른 생성이 같은 함수를 쓰는 이유와 같다. 그 판단은 한 곳에만
        *  있어야 한다. */
       makeRunWorktree: (a) =>
-        forkWorktree({ repoPath: a.repoPath, name: a.name }, { registry: core.worktrees, log: orchLog }),
+        forkWorktree({ repoPath: a.repoPath, name: a.name }, { registry: core.worktrees, log: orchLog, setupCommand: findProjectContaining(store.get(), a.repoPath)?.setupCommand }),
       /** 이 Run 을 관리할 코디네이터 세션을 띄운다 — the body, and the reasoning for its brief file,
        *  its one-account chain and its permission mode, is startCoordinatorSession in
        *  core/orchestration/exec/workerStart.ts. What stays here is the app's spawn adapter. */
@@ -4544,6 +4546,12 @@ export function registerIpc(
     if (n !== null && (typeof n !== 'number' || !Number.isInteger(n) || n < 1))
       throw new Error(`INVALID_MAX_CONCURRENT_WORKERS: ${String(n)}`)
     await core.appSettings.setMaxConcurrentWorkers(n)
+  })
+  ipcMain.handle('settings.getHeavyJobsAtOnce', () => core.appSettings.getHeavyJobsAtOnce())
+  ipcMain.handle('settings.setHeavyJobsAtOnce', async (_e, n: unknown) => {
+    const slots = heavyJobsAtOnceOf(n)
+    if (slots === null) throw new Error(`INVALID_HEAVY_JOBS_AT_ONCE: ${String(n)}`)
+    await core.appSettings.setHeavyJobsAtOnce(slots)
   })
 
   // The renderer pushes the session on screen; main cannot work it out (§7). Narrowed on arrival, and
