@@ -13,6 +13,9 @@ import { refusedAnswer } from '../../host/gatewayLink'
 import { createLaneWriter, type LaneWriter } from '../../core/remote/lanes'
 import { CHUNK_THRESHOLD, chunksOf, createReassembler } from '../../core/remote/chunks'
 import { FRAME_CAP, parseControllerFrame, parseLinkFrame, type HostLinkFrame } from '../../core/remote/frames'
+import { beaconOs, startBeacon } from './beacon'
+
+const GATEWAY_VERSION = typeof __ASTERA_VERSION__ === 'string' ? __ASTERA_VERSION__ : '0.0.0'
 
 export interface GatewayLimits {
   /** Connections signed in at once. */
@@ -515,6 +518,11 @@ export async function runRuntimeGateway(o: {
     }
   })
   if ('error' in gw) return 1
+  // Found on your network (docs/remote-runtime.md): who this Runtime is, on its listen address's network, while it serves.
+  const beacon = startBeacon({
+    listen,
+    beacon: { v: 1, runtimeId: identity.runtimeId, name: identity.displayName, port: gw.port, fingerprint: identity.spkiSha256, os: beaconOs(process.platform), version: GATEWAY_VERSION }
+  })
   // The Host may already be gone by now: its end of stdin closed while this was still binding.
   if (o.stdin.readableEnded || o.stdin.destroyed) stop()
   o.stdin.once('end', stop)
@@ -522,6 +530,7 @@ export async function runRuntimeGateway(o: {
   o.onStop?.(stop)
   o.stdin.resume()
   await stopped
+  beacon?.stop()
   await gw.close()
   return broken ? 1 : 0
 }

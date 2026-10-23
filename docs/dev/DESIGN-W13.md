@@ -64,7 +64,7 @@ count opens what it counts. No page exists only to hold a list: lists live in th
   the side bar.
 - Badge: a count bottom-right of the icon, `--badge-bg` / `--badge-fg`, `--fs-11`/600, min 16px, `--radius-pill`,
   "9+" above 9, hidden at 0. The item's `aria-label` includes the count.
-- Order, top to bottom (D3); `Ctrl+1…6` open the six top views:
+- Order, top to bottom (D3); `Ctrl+1…6` open the first six views (Devices, the seventh, has no digit key):
 
 | # | View | Icon (lucide) | Badge |
 |---|---|---|---|
@@ -74,6 +74,7 @@ count opens what it counts. No page exists only to hold a list: lists live in th
 | 4 | Source Control | `GitBranch` | changed files of the current worktree |
 | 5 | History | `History` | — |
 | 6 | Run | `Play` | running configs |
+| 7 | Devices | `Laptop` | paired devices that are offline or have an account to sign in |
 | bottom | Accounts | `CircleUser` | warn dot when an account is near its limit |
 | bottom | Manage | `Settings` | dot when an update is ready |
 
@@ -128,6 +129,21 @@ One pane **Configurations**: one row per run config with inline Run (`Play`) / S
 while running (then a spinner in the state slot). Output streams to the panel's Output tab. Toolbar: Add
 configuration, Refresh.
 
+### Devices
+Panes **This computer** (one row: whether it accepts work from other devices; click or its gear opens
+`view:settings` at the `remote` anchor), **Your devices** (paired Runtimes: state icon online `CircleCheck` /
+offline `ServerOff` / not asked yet `Circle`, name, OS dim, account count on the right, a warn decoration when it is
+offline or an account needs a sign-in; click opens `view:device:<runtimeId>`) and **Found on your network** (devices
+found by LAN beacon or Tailscale and not paired: name, address and source dim, inline Add on hover; Enter adds).
+Toolbar: Add device (+), Refresh. Empty panes use the empty view pattern (§12) with the Add button.
+- **Add device** is one `Modal` with a numbered step strip and one primary button per step: **Choose** (a found
+  device prefills `user@host` with this computer's user name, or type an address, or the Pairing string tab; full
+  control on by default with one hint line; "Linux (Ubuntu or Debian) and Windows" said once), **Connect & set up**
+  (`MachineSteps` live), **Bring my setup** (what moves, each kind pre-checked, one Copy button), **Done** ("Open a
+  console on <name>"). When the add fails because sudo needs a password or the SSH key is not on the device, the
+  step shows the exact command and its primary is **Run in a terminal**, which opens a panel terminal running it.
+- Settings › Remote Runtimes keeps only This computer as a Runtime and links here ("Your devices · Open Devices").
+
 ## 5. Editor tabs and the `view` tab kinds
 
 - Tab: 35px, padding 0 10px, icon 16px, label `--fs-13`, max 240px with ellipsis, min 80px.
@@ -149,6 +165,7 @@ configuration, Refresh.
 | `start` | New plan | `Plus` | the Start flow (content owned by other plans, unchanged) |
 | `settings[:anchor]` | Settings | `Settings` | the settings editor (§12), scrolled to `anchor` |
 | `worktree:<path>` | branch name | `GitBranch` | worktree detail: branch, path, changes, keep/delete |
+| `device:<runtimeId>` | device name | `Laptop` | settings-row detail: status (Check now), address, permission, accounts (Sign in), projects (Add project); New console, Copy my setup again, Unpair (confirm) |
 
 ## 6. Bottom panel
 

@@ -148,3 +148,55 @@ describe('a client replaced or removed is announced', () => {
     expect(o.opened.map((t) => t.token)).toEqual(['tok-a'])
   })
 })
+
+// Found on your network: a paired Runtime heard at a new address moves there only after its pin and hello there.
+describe('follow', () => {
+  const connector = (o: { fail?: boolean; helloId?: string } = {}) => {
+    const tried: Array<{ host: string; port: number; pin: string }> = []
+    let closed = 0
+    const connect = (async (to: { host: string; port: number; pin: string }) => {
+      tried.push(to)
+      if (o.fail) throw Object.assign(new Error('pin mismatch'), { code: 'RUNTIME_IDENTITY_CHANGED' })
+      return { auth: async () => ({ runtimeId: o.helloId ?? 'rt_a' }), close: () => void closed++ }
+    }) as unknown as NonNullable<Parameters<typeof createRemoteRuntimes>[0]['connect']>
+    return { connect, tried, closed: () => closed }
+  }
+  const stored = async () => (await (await controllerRegistry(dir)).list())[0]
+
+  it('signs in at the new address under the pin, then moves the address and the client there', async () => {
+    const o = opener()
+    const c = connector()
+    const r = createRemoteRuntimes({ profileDir: dir, version: '1.4.8', open: o.open, connect: c.connect })
+    await r.client('rt_a')
+    expect(await r.follow('rt_a', FP, '10.0.0.7', 47831)).toBe(true)
+    expect(c.tried).toEqual([{ host: '10.0.0.7', port: 47831, pin: FP }])
+    expect(c.closed()).toBe(1)
+    expect(await stored()).toMatchObject({ address: '10.0.0.7', port: 47831, fingerprint: FP })
+    await r.client('rt_a')
+    expect(o.opened.map((t) => t.address)).toEqual(['10.0.0.2', '10.0.0.7'])
+    expect(o.closed).toEqual(['tok-a'])
+  })
+  it('a wrong pin is never tried, and a failed sign-in or another id changes nothing', async () => {
+    for (const [fp, c] of [
+      ['B'.repeat(43), connector()],
+      [FP, connector({ fail: true })],
+      [FP, connector({ helloId: 'rt_other' })]
+    ] as const) {
+      const r = createRemoteRuntimes({ profileDir: dir, version: '1.4.8', open: opener().open, connect: c.connect })
+      expect(await r.follow('rt_a', fp, '10.0.0.7', 47831)).toBe(false)
+      expect((await stored()).address).toBe('10.0.0.2')
+      if (fp !== FP) expect(c.tried).toEqual([])
+    }
+  })
+  it('the same address, or an id nobody paired, is not followed', async () => {
+    const c = connector()
+    const r = createRemoteRuntimes({ profileDir: dir, version: '1.4.8', open: opener().open, connect: c.connect })
+    expect(await r.follow('rt_a', FP, '10.0.0.2', 47831)).toBe(false)
+    expect(await r.follow('rt_zz', FP, '10.0.0.7', 47831)).toBe(false)
+    expect(c.tried).toEqual([])
+  })
+  it('pins lists address and pin, never a token', async () => {
+    const r = createRemoteRuntimes({ profileDir: dir, version: '1.4.8', open: opener().open })
+    expect(await r.pins()).toEqual([{ runtimeId: 'rt_a', address: '10.0.0.2', port: 47831, fingerprint: FP }])
+  })
+})

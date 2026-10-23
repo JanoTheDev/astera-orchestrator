@@ -3,6 +3,7 @@ import type {
   RendererApi,
   CoreEventChannel,
   CoreEvents,
+  FoundDevice,
   HostStatus,
   HostRuntimeInstallState,
   MachineProgress,
@@ -480,6 +481,15 @@ const api = {
       ipcRenderer.on('remote:migrateProgress', l)
       return (): void => {
         ipcRenderer.removeListener('remote:migrateProgress', l)
+      }
+    },
+    // Found on your network
+    discover: () => ipcRenderer.invoke('remote.discover'),
+    onFound: (cb: (found: FoundDevice[]) => void) => {
+      const l = (_e: unknown, found: FoundDevice[]): void => cb(found)
+      ipcRenderer.on('remote:found', l)
+      return (): void => {
+        ipcRenderer.removeListener('remote:found', l)
       }
     }
   },

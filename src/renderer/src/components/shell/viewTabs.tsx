@@ -21,6 +21,8 @@ import type { PlanActs } from '../plan/PlanRow'
 import { selectWorktree, useWorktreeView } from '../worktrees/worktreeView'
 import { repoInScope } from '../../state/projectView'
 import { Welcome } from './Welcome'
+import { DeviceDetail } from '../devices/DeviceDetail'
+import { devicesSnapshot } from '../devices/useDevices'
 import { openPlan } from './navigation'
 import type { AppState } from '../../state/appState'
 import type { ShellState } from './useShell'
@@ -34,10 +36,11 @@ const VIEW_META: Record<ViewName, { icon: IconName; title: MessageKey }> = {
   mainplan: { icon: 'target', title: 'shell.view.mainplan' },
   start: { icon: 'add', title: 'shell.view.start' },
   settings: { icon: 'settings', title: 'settings.title' },
-  worktree: { icon: 'branch', title: 'worktrees.title' }
+  worktree: { icon: 'branch', title: 'worktrees.title' },
+  device: { icon: 'laptop', title: 'shell.activity.devices' }
 }
 
-/** A view tab's title and icon: a plan's own name, a worktree's folder, else the view's name. */
+/** A view tab's title and icon: a plan's own name, a worktree's folder, a device's name, else the view's name. */
 export function viewTabInfo(p: Pick<ViewTabProps, 't' | 'orchSnapshot'>, name: ViewName, arg?: string): { title: string; icon: IconName } {
   const meta = VIEW_META[name]
   if (name === 'plan' && arg !== undefined) {
@@ -46,6 +49,7 @@ export function viewTabInfo(p: Pick<ViewTabProps, 't' | 'orchSnapshot'>, name: V
   }
   if (name === 'settings' && arg === 'keys') return { icon: 'keyboard', title: p.t('keys.title') }
   if (name === 'worktree' && arg !== undefined) return { icon: meta.icon, title: arg.split(/[\\/]/).filter(Boolean).pop() ?? arg }
+  if (name === 'device' && arg !== undefined) return { icon: meta.icon, title: devicesSnapshot().paired?.find((r) => r.runtimeId === arg)?.name ?? p.t(meta.title) }
   return { icon: meta.icon, title: p.t(meta.title) }
 }
 
@@ -156,6 +160,16 @@ export function renderViewTab(p: ViewTabProps, name: ViewName, arg: string | und
       return arg === 'keys' ? <KeyboardShortcuts keyOverrides={p.keyOverrides} setKeyOverrides={p.setKeyOverrides} /> : <SettingsPage {...p} onClose={close} />
     case 'worktree':
       return <WorktreeTab p={p} path={arg} active={active} />
+    case 'device':
+      return arg === undefined ? null : (
+        <DeviceDetail
+          runtimeId={arg}
+          onNewConsole={p.setRemoteDialog}
+          onOpenSession={p.openRemoteSession}
+          onChanged={() => p.setPairedChanged((n) => n + 1)}
+          onClose={close}
+        />
+      )
   }
 }
 

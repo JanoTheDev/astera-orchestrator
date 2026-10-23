@@ -1,13 +1,15 @@
-// DESIGN-W13 §3: the activity bar. The six side bar views in ACTIVITY_IDS order (Ctrl+1…6), then Accounts (the
+// DESIGN-W13 §3: the activity bar. The side bar views in ACTIVITY_IDS order (the first six on Ctrl+1…6), then Accounts (the
 // account and usage popover) and Manage (Settings, Keyboard shortcuts, Help, Check for updates) at the bottom.
 // Clicking the active view collapses the side bar, as VSCode does (shellView.ts activityClick).
 import { useState, useSyncExternalStore } from 'react'
-import { ACTIVITY_IDS, type ActivityId } from '../../../../core/ui/pages'
+import { ACTIVITY_IDS, KEYED_ACTIVITY_COUNT, type ActivityId } from '../../../../core/ui/pages'
 import type { MessageKey } from '../../../../core/i18n'
 import { ActivityBarItem, Icon, Menu, Popover, nextFocusIndex, type IconName, type MenuItem } from '../ui'
 import { AccountPanel } from '../AccountPanel'
 import { setHelpOpen } from '../help/helpStore'
 import { openView } from './navigation'
+import { devicesBadge } from '../devices/devicesView'
+import { useDevices } from '../devices/useDevices'
 import type { AppState } from '../../state/appState'
 
 export const ACTIVITY_META: Record<ActivityId, { icon: IconName; label: MessageKey }> = {
@@ -16,7 +18,8 @@ export const ACTIVITY_META: Record<ActivityId, { icon: IconName; label: MessageK
   explorer: { icon: 'files', label: 'shell.activity.explorer' },
   scm: { icon: 'branch', label: 'shell.activity.scm' },
   history: { icon: 'history', label: 'shell.activity.history' },
-  run: { icon: 'run', label: 'shell.activity.run' }
+  run: { icon: 'run', label: 'shell.activity.run' },
+  devices: { icon: 'laptop', label: 'shell.activity.devices' }
 }
 
 // The accounts popover opens from here and from the status bar's usage item: one open state for both.
@@ -53,6 +56,9 @@ export type ActivityBarProps = Pick<AppState, 't' | 'accounts' | 'activity' | 's
 
 export function ActivityBar({ t, accounts, activity, sidebarOpen, badges, onActivity }: ActivityBarProps): React.JSX.Element {
   const open = useAccountsOpen()
+  // Devices counts its own: the paired devices that are offline or have an account to sign in
+  const devices = useDevices()
+  const badgeOf = (id: ActivityId): number | undefined => (id === 'devices' ? devicesBadge(devices.paired ?? [], devices.accountsOf) : badges[id])
   const [manageAt, setManageAt] = useState<{ x: number; y: number } | null>(null)
   // vertical tablist: arrows move between the items, Enter/Space activate (native buttons)
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
@@ -71,9 +77,9 @@ export function ActivityBar({ t, accounts, activity, sidebarOpen, badges, onActi
             role="tab"
             aria-selected={sidebarOpen && activity === id}
             icon={<Icon name={ACTIVITY_META[id].icon} size={20} />}
-            label={`${t(ACTIVITY_META[id].label)} (Ctrl+${i + 1})`}
+            label={i < KEYED_ACTIVITY_COUNT ? `${t(ACTIVITY_META[id].label)} (Ctrl+${i + 1})` : t(ACTIVITY_META[id].label)}
             active={sidebarOpen && activity === id}
-            badge={badges[id]}
+            badge={badgeOf(id)}
             onClick={() => onActivity(id)}
           />
         ))}

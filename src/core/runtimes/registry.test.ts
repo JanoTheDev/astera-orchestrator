@@ -93,4 +93,16 @@ describe('runtime ids and case (Phase 2 review)', () => {
     await r.touch('rt_b', 'x')
     expect((await r.list()).map((x) => x.runtimeId)).toEqual(['rt_a'])
   })
+
+  // Found on your network: a paired Runtime reached at a new address under its pin.
+  it('setAddress moves only a profile with that id and pin, and keeps its token', async () => {
+    const r = await openRuntimeRegistry(store())
+    await r.add(p('rt_a'), 'tok-a')
+    expect(await r.setAddress('rt_a', 'other', '10.0.0.9', 47831)).toBe(false)
+    expect(await r.setAddress('rt_b', 'f', '10.0.0.9', 47831)).toBe(false)
+    expect((await r.list())[0]).toMatchObject({ address: '10.0.0.2', port: 47831 })
+    expect(await r.setAddress('rt_a', 'f', '10.0.0.9', 47900)).toBe(true)
+    expect((await r.list())[0]).toMatchObject({ address: '10.0.0.9', port: 47900, fingerprint: 'f' })
+    expect(await r.token('rt_a')).toBe('tok-a')
+  })
 })
