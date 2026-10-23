@@ -10,6 +10,8 @@ export type TreeItem = {
   depth: number
   /** Plain text: type-ahead matches it. */
   label: string
+  /** The row's tooltip (a full path, the word behind a status letter). */
+  title?: string
   /** A 16px lucide element. */
   icon?: React.ReactNode
   /** Dim text after the label (a path, a branch). */
@@ -48,6 +50,7 @@ export function TreeRow({ row, selected, focused, domId, onClick, onDoubleClick,
       aria-level={row.depth + 1}
       aria-selected={!!selected}
       aria-expanded={row.hasChildren ? !!row.expanded : undefined}
+      title={row.title}
       className={cx('ui-tree__row', selected && 'is-selected', focused && 'is-focused')}
       onClick={onClick}
       onDoubleClick={onDoubleClick}

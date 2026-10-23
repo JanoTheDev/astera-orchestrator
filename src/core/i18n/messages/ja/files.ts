@@ -21,6 +21,7 @@ export const files: Partial<Record<keyof typeof ko, string>> = {
   'files.op.busy': '処理中…',
   // FileExplorer.tsx — panel header, context menu
   'explorer.title': 'エクスプローラー',
+  'explorer.files': 'ファイル',
   'explorer.noActiveSession': 'アクティブなセッションがありません',
   // Folder state shown inside the tree (the .fx-note row)
   'explorer.dir.loading': '読み込み中…',

@@ -25,6 +25,7 @@ export const files: Record<keyof typeof ko, string> = {
   'files.op.copyingNoCount': 'Copying…',
   'files.op.busy': 'Working…',
   'explorer.title': 'Explorer',
+  'explorer.files': 'Files',
   'explorer.noActiveSession': 'No active session',
   'explorer.dir.loading': 'Loading…',
   'explorer.dir.reading': 'Reading folder…',

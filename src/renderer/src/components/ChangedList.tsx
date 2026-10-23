@@ -1,4 +1,4 @@
-// The Files page's Changed view (a flat list of the changed files). A plan's worktree lists the files changed against its
+// The Explorer's Changed pane (a flat list of the changed files, a status letter on each). A plan's worktree lists the files changed against its
 // base branch as well as the uncommitted ones. A click shows the file's diff read by readFileDiff (git.fileDiff:
 // against the working tree, so uncommitted edits and deleted files are in it); a file with no diff opens in the editor.
 import { useEffect, useMemo, useState } from 'react'
@@ -8,11 +8,10 @@ import type { GitState } from '../../../core/git/status'
 import type { GitStatusMap } from '../hooks/useGitStatus'
 import { useI18n } from '../i18n/I18nProvider'
 import { DiffView } from './DiffView'
-import { GIT_LABEL, GIT_MARK } from './ExplorerRow'
+import { GIT_LABEL } from './ExplorerRow'
 import { FileIcon } from './FileIcon'
 import { Button, EmptyState, ICONS } from './ui'
-import { changedRows } from './explorerChanged'
-import { ROW_H } from './explorerRows'
+import { changedRows, changeLetter } from './explorerChanged'
 
 type Diff = { path: string } & ({ state: 'loading' } | { state: 'shown'; diff: string; truncated: boolean })
 
@@ -71,13 +70,12 @@ export function ChangedList({ root, gitStatus, onOpenFile }: { root: string; git
     btns[next].focus()
   }
   return (
-    <div className={`fx-tree${gitStatus.stale ? ' git-stale' : ''}`} onKeyDown={moveFocus}>
+    <div className={`fx-tree ui-tree${gitStatus.stale ? ' git-stale' : ''}`} onKeyDown={moveFocus}>
       {rows.map((r) => (
         <div key={r.path}>
           <Button
             variant="ghost"
-            className="fx-row fx-changed-row file"
-            style={{ height: ROW_H }}
+            className="fx-changed-row"
             title={r.path}
             aria-expanded={diff?.path === r.path && diff.state === 'shown'}
             onClick={() => click(r.path, r.state)}
@@ -86,7 +84,7 @@ export function ChangedList({ root, gitStatus, onOpenFile }: { root: string; git
             <span className={`fx-name git-${r.state}`}>{r.name}</span>
             {r.dir && <span className="fx-note">{r.dir}</span>}
             <span className={`fx-git-mark git-${r.state}`} title={t(GIT_LABEL[r.state])} aria-label={t(GIT_LABEL[r.state])}>
-              {GIT_MARK[r.state]}
+              {changeLetter(r.state)}
             </span>
           </Button>
           {diff?.path === r.path && diff.state === 'shown' && <DiffView diff={diff.diff} truncated={diff.truncated} binary={r.binary === true} />}

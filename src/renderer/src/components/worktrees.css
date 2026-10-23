@@ -3,39 +3,9 @@
 /* 캐럿이 아이콘이 된 뒤로 정렬이 필요하다 — 인라인 svg 는 baseline 에 앉아 대문자 글자보다 내려간다. */
 .panel-toggle { background: none; border: none; padding: 0; font-size: var(--fs-11); letter-spacing: .11em; text-transform: uppercase; color: var(--text-dim); font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
 .panel-toggle:hover { color: var(--text); }
-/* 36px rows: branch (mono 13/500) and its Task faint after it, state chips, meta faint on the right. */
-.worktree-group { padding-bottom: var(--sp-2); }
-.worktree-repo { display: flex; align-items: baseline; gap: 6px; padding: var(--sp-3) var(--sp-4) var(--sp-1); font-size: var(--fs-11); font-weight: var(--fw-medium); color: var(--text-dim); text-transform: uppercase; letter-spacing: .04em; }
-.worktree-repo__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.worktree-list { display: flex; flex-direction: column; }
-.worktree-row { display: flex; align-items: center; gap: var(--sp-2); height: var(--h-lg); padding: 0 var(--sp-2) 0 var(--sp-4); box-shadow: inset 2px 0 0 transparent; transition: background var(--dur-fast) var(--ease-out); }
-.worktree-row:hover { background: var(--hover); }
-.worktree-row.is-selected { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
-/* The select button fills the row; Button wraps its children in a label span, which carries the row's flex layout. */
-.worktree-main { flex: 1; min-width: 0; height: 100%; justify-content: flex-start; padding: 0; border-radius: 0; font-weight: var(--fw-regular); color: inherit; }
-.worktree-main:hover:not(:disabled) { background: transparent; color: inherit; }
-.worktree-main .ui-btn__label { display: flex; align-items: center; gap: var(--sp-2); flex: 1; min-width: 0; overflow: hidden; }
-.worktree-name { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: var(--sp-2); overflow: hidden; white-space: nowrap; }
-.worktree-branch { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-family: var(--mono); font-size: var(--fs-13); font-weight: var(--fw-medium); color: var(--text); }
-.worktree-task { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: var(--fs-11); color: var(--text-faint); }
-.worktree-row .ui-chip { flex: none; }
 .changed-file-row.ui-btn { height: auto; justify-content: flex-start; }
 .changed-file-row .ui-btn__label { display: flex; align-items: baseline; gap: var(--sp-2); flex: 1; min-width: 0; overflow: visible; text-overflow: clip; }
 .worktree-aheadbehind { display: inline-flex; align-items: center; gap: 2px; flex: none; font-size: var(--fs-11); color: var(--text-faint); font-variant-numeric: tabular-nums; }
-.worktree-count { color: var(--text-faint); font-weight: var(--fw-regular); font-variant-numeric: tabular-nums; }
-.worktree-empty { margin: 0; padding: var(--sp-4); font-size: var(--fs-13); color: var(--text-faint); }
-/* Row actions on hover, focus or selection only; the spinner of a running removal stays. */
-.worktree-actions { display: flex; gap: 2px; flex: none; opacity: 0; }
-.worktree-row:hover .worktree-actions, .worktree-row:focus-within .worktree-actions,
-.worktree-row.is-selected .worktree-actions, .worktree-actions.is-busy { opacity: 1; }
-.worktree-delete:hover:not(:disabled) { color: var(--danger); }
-/* The rows git could not vouch for: one warning per status group, at the bottom of the list. */
-.worktree-group--trouble { border-top: 1px solid var(--line); }
-.worktree-warning { display: flex; align-items: flex-start; gap: var(--sp-2); margin: var(--sp-3) var(--sp-4) var(--sp-2); padding: var(--sp-2) var(--sp-3); border-radius: var(--radius); background: var(--warn-soft); color: var(--warn); font-size: var(--fs-12); }
-.worktree-warning .ui-icon, .worktree-warning svg { flex: none; margin-top: 1px; }
-.worktree-warning strong { font-weight: var(--fw-semi); }
-.worktree-warning__hint { display: block; margin-top: 2px; color: var(--text-dim); }
-.worktree-group--trouble .worktree-branch { color: var(--text-dim); }
 
 /* PR badge on a worktree row — read-only GitHub state (design doc §6). Colors reuse existing
    tokens on purpose, no new palette: open=--ok, merged=--accent, closed=--danger,
@@ -98,13 +68,6 @@ button.source-chip:hover { color: var(--accent); border-color: var(--accent); }
 .pr-create-detail { margin: 0; max-height: 120px; overflow: auto; font-family: var(--mono); font-size: var(--fs-11); color: var(--text-dim); white-space: pre-wrap; }
 
 /* ---------- W9-J, W11 §9: the Worktrees page: header across, then the list and the detail side by side ---------- */
-.worktrees-page { display: flex; flex-direction: column; flex: 1; min-height: 0; width: 100%; }
-.worktrees-page__split { display: grid; grid-template-columns: minmax(300px, 400px) 1fr; flex: 1; min-height: 0; border-top: 1px solid var(--line); }
-.worktrees-page__list { border-right: 1px solid var(--line); overflow-y: auto; background: var(--panel); }
-.worktrees-page__detail { overflow-y: auto; padding: var(--sp-5) var(--page-pad); min-width: 0; }
-.worktrees-search { width: 240px; }
-.worktrees-chip { font-size: var(--fs-12); box-shadow: inset 0 0 0 1px var(--line); }
-.worktrees-chip.is-active { box-shadow: inset 0 0 0 1px var(--line-strong); background: var(--hover); color: var(--text); }
 .worktrees-option { display: flex; flex-direction: column; gap: 2px; max-width: 320px; white-space: normal; }
 .worktrees-option__hint { font-size: var(--fs-11); color: var(--text-faint); }
 .worktree-detail { display: flex; flex-direction: column; gap: 20px; max-width: 920px; }
@@ -118,10 +81,18 @@ button.source-chip:hover { color: var(--accent); border-color: var(--accent); }
 .worktree-fact { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; }
 .worktree-fact__label { font-size: var(--fs-11); color: var(--text-faint); text-transform: uppercase; letter-spacing: .06em; }
 .worktree-fact__value { font-size: var(--fs-13); color: var(--text); overflow-wrap: anywhere; }
-.worktree-fact--path { grid-column: 1 / -1; }
-.worktree-fact--path .worktree-fact__label { text-transform: none; letter-spacing: 0; font-family: var(--mono); font-size: var(--fs-12); color: var(--text-dim); user-select: text; overflow-wrap: anywhere; }
 .worktree-detail__section h3 { margin: 0 0 8px; font-size: var(--fs-12); font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: .06em; }
 .worktree-commits { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .worktree-commits li { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--line-soft); font-size: var(--fs-13); }
 .worktree-commits code { color: var(--text-faint); font-family: var(--mono); font-size: var(--fs-12); }
 .worktree-commits__subject { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+
+/* Source Control view (DESIGN-W13 §4) and the worktree tab */
+.scm-filter { flex: none; padding: 4px 8px; }
+.scm-tree { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.scm-tree > .ui-tree { flex: 1; }
+.scm-badges { display: inline-flex; align-items: center; gap: 4px; }
+.worktree-tab { flex: 1; min-height: 0; overflow-y: auto; padding: var(--sp-5) var(--page-pad); }
+.worktree-detail__path { display: flex; align-items: center; gap: var(--sp-1); min-width: 0; }
+.worktree-detail__path code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: var(--fs-12); color: var(--text-dim); }
+.worktree-link { justify-content: flex-start; align-self: flex-start; max-width: 100%; }

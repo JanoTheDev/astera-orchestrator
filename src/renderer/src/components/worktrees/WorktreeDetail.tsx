@@ -1,13 +1,16 @@
-// W9-J: the right side of the Worktrees page: what one worktree is, what it changed against its base, and its commits.
-import { useEffect, useState } from 'react'
+// A worktree's tab (DESIGN-W13 §5, `view:worktree:<path>`): what the worktree is, which plan and task made it, what it
+// changed against its base, its commits, and the actions on it (Open console here, Create pull request, Delete).
+import { useCallback, useRef, useState } from 'react'
 import type { ChangedFile } from '../../../../core/git/changedFile'
-import type { WorktreeDetail as Detail, WorktreeRow } from '../../../../core/worktrees/cleanup'
+import type { WorktreeRow } from '../../../../core/worktrees/cleanup'
 import { useI18n } from '../../i18n/I18nProvider'
 import { toast } from '../../lib/toast'
 import { DiffView } from '../DiffView'
-import { Button, Card, Chip, Icon, Menu, type ChipTone } from '../ui'
-import { openConsole } from '../shell/navigation'
-import type { WorktreeListHandle } from '../WorktreePanel'
+import { Button, Card, Chip, EmptyState, ICONS, Icon, IconButton, type ChipTone } from '../ui'
+import { changeLetter } from '../explorerChanged'
+import { openConsole, openPlan } from '../shell/navigation'
+import { useWorktreeDetail } from './useWorktreeDetail'
+import { useWorktrees, type Worktrees } from './useWorktrees'
 
 type Diff = { fileId: string } & ({ state: 'loading' } | { state: 'shown'; diff: string; truncated: boolean } | { state: 'failed' })
 
@@ -35,35 +38,45 @@ export function AheadBehind({ ahead, behind, className }: { ahead: number | null
   )
 }
 
+/** The tab's body for the worktree at `path`: it reads the list itself (the Source Control view has its own copy). */
 export function WorktreeDetail({
-  row,
-  list,
+  path,
   onStartSession,
-  onOpenFiles
+  onOpenFiles,
+  repoFilter
 }: {
-  row: WorktreeRow
-  list: React.RefObject<WorktreeListHandle | null>
+  path: string | null
   onStartSession: (path: string) => void
   onOpenFiles: (path: string) => void
-}): React.JSX.Element {
+  /** Only the open project's worktrees. The latest one is used; a new function each render does not re-read the list. */
+  repoFilter?: (repoPath: string) => boolean
+}): React.JSX.Element | null {
+  const { t } = useI18n()
+  const latest = useRef(repoFilter)
+  latest.current = repoFilter
+  const stable = useCallback((repo: string) => latest.current?.(repo) ?? true, [])
+  const wt = useWorktrees(stable)
+  const row = path === null ? undefined : wt.rows?.find((r) => r.item.path === path)
+  if (wt.rows === null && wt.failed === null) return null
+  return (
+    <div className="worktree-tab">
+      {row ? (
+        <Body row={row} wt={wt} onStartSession={onStartSession} onOpenFiles={onOpenFiles} />
+      ) : (
+        <EmptyState icon={wt.failed !== null ? ICONS.warning : ICONS.repo} title={t('worktrees.pickTitle')}>
+          {wt.failed ?? t('worktrees.gone')}
+        </EmptyState>
+      )}
+      {wt.overlays}
+    </div>
+  )
+}
+
+function Body({ row, wt, onStartSession, onOpenFiles }: { row: WorktreeRow; wt: Worktrees; onStartSession: (path: string) => void; onOpenFiles: (path: string) => void }): React.JSX.Element {
   const { t } = useI18n()
   const w = row.item
-  const [detail, setDetail] = useState<Detail | null | undefined>(undefined)
+  const detail = useWorktreeDetail(row)
   const [diff, setDiff] = useState<Diff | null>(null)
-
-  // Read again for each worktree, and whenever the list read the folder anew (a commit or an edit moved it)
-  useEffect(() => {
-    let alive = true
-    setDiff(null)
-    if (w.status !== 'ok') return setDetail(null)
-    void window.api.worktrees.detail(w.id).then(
-      (d) => alive && setDetail(d),
-      () => alive && setDetail(null)
-    )
-    return () => {
-      alive = false
-    }
-  }, [w.id, w.status, row.ahead, row.dirty, row.unpushed])
 
   const showDiff = (f: ChangedFile): void => {
     if (diff?.fileId === f.id) return setDiff(null)
@@ -75,9 +88,10 @@ export function WorktreeDetail({
   }
 
   const st = stateOf(row)
-  const push = list.current?.pushStateOf(w)
+  const push = wt.pushStateOf(w)
   const unknown = t('worktrees.fact.unknown')
   const files = detail?.files ?? null
+  const ok = w.status === 'ok'
 
   return (
     <article className="worktree-detail">
@@ -90,53 +104,70 @@ export function WorktreeDetail({
           <span className="worktree-detail__base">{t('worktrees.detail.base', { base: w.baseRef })}</span>
           <AheadBehind ahead={row.ahead} behind={row.behind} />
         </div>
+        <div className="worktree-detail__path">
+          <code title={w.path}>{w.path}</code>
+          <IconButton
+            size="sm"
+            icon={<Icon name="copy" size={14} />}
+            label={t('worktrees.detail.copyPath')}
+            onClick={() => {
+              window.api.clipboard.writeText(w.path)
+              toast.success(t('worktrees.detail.pathCopied'))
+            }}
+          />
+        </div>
         <div className="worktree-detail__actions">
+          <Button size="sm" icon={<Icon name="run" size={14} />} disabled={!ok} onClick={() => onStartSession(w.path)}>
+            {t('worktrees.detail.openHere')}
+          </Button>
           {row.owner?.sessionId && (
             <Button size="sm" icon={<Icon name="terminal" size={14} />} onClick={() => openConsole(row.owner!.sessionId!)}>
               {t('worktrees.detail.console')}
             </Button>
           )}
-          <Button size="sm" icon={<Icon name="run" size={14} />} disabled={w.status !== 'ok'} onClick={() => onStartSession(w.path)}>
-            {t('worktrees.detail.openHere')}
-          </Button>
-          <Button size="sm" icon={<Icon name="folder" size={14} />} disabled={w.status !== 'ok'} onClick={() => onOpenFiles(w.path)}>
+          <Button size="sm" icon={<Icon name="folder" size={14} />} disabled={!ok} onClick={() => onOpenFiles(w.path)}>
             {t('worktrees.detail.openFiles')}
           </Button>
-          <Menu
-            label={t('worktrees.detail.more')}
-            align="end"
-            trigger={{ icon: <Icon name="more" />, size: 'sm' }}
-            items={[
-              {
-                id: 'pr',
-                label: push?.ahead === 0 ? t('worktree.push.noCommits') : t('worktree.push.createPr'),
-                disabled: push?.ahead === 0,
-                onSelect: () => list.current?.createPr(w)
-              },
-              {
-                id: 'copy',
-                label: t('worktrees.detail.copyPath'),
-                onSelect: () => {
-                  window.api.clipboard.writeText(w.path)
-                  toast.success(t('worktrees.detail.pathCopied'))
-                }
-              }
-            ]}
-          />
+          <Button
+            size="sm"
+            icon={<Icon name="pullRequest" size={14} />}
+            disabled={!ok || push?.ahead === 0 || !wt.ghConnected || wt.busy}
+            title={push?.ahead === 0 ? t('worktree.push.noCommits') : !wt.ghConnected ? t('worktree.push.ghDisconnected') : undefined}
+            onClick={() => wt.createPr(w)}
+          >
+            {t('worktree.push.createPr')}
+          </Button>
           {/* remove() confirms first (and a second time before a forced removal). */}
-          <Button size="sm" variant="danger" icon={<Icon name="delete" size={14} />} className="worktree-detail__delete" onClick={() => void list.current?.remove(w)}>
+          <Button size="sm" variant="danger" icon={<Icon name="delete" size={14} />} className="worktree-detail__delete" disabled={wt.busy} onClick={() => void wt.remove(w)}>
             {t('files.action.delete')}
           </Button>
         </div>
       </header>
 
       <div className="worktree-facts">
-        <Fact label={t('worktrees.fact.plan')} value={row.owner?.plan ?? t('worktrees.fact.none')} />
-        {row.owner && row.owner.taskTitles.length > 0 && <Fact label={t('worktrees.fact.task')} value={row.owner.taskTitles.join(', ')} />}
+        <Card tone="plain" className="worktree-fact">
+          <span className="worktree-fact__label">{t('worktrees.fact.plan')}</span>
+          {row.owner ? (
+            <Button size="sm" variant="ghost" className="worktree-link" icon={<Icon name="listTree" size={14} />} onClick={() => openPlan(row.owner!.jobId)}>
+              {row.owner.plan}
+            </Button>
+          ) : (
+            <span className="worktree-fact__value">{t('worktrees.fact.none')}</span>
+          )}
+        </Card>
+        {row.owner && row.owner.taskTitles.length > 0 && (
+          <Card tone="plain" className="worktree-fact">
+            <span className="worktree-fact__label">{t('worktrees.fact.task')}</span>
+            {row.owner.taskTitles.map((title, i) => (
+              <Button key={row.owner!.taskIds[i] ?? title} size="sm" variant="ghost" className="worktree-link" onClick={() => openPlan(row.owner!.jobId)}>
+                {title}
+              </Button>
+            ))}
+          </Card>
+        )}
         <Fact label={t('worktrees.fact.tree')} value={row.dirty === null ? unknown : row.dirty === 0 ? t('worktrees.fact.treeClean') : t('worktrees.fact.treeDirty', { count: row.dirty })} tone={row.dirty ? 'warn' : undefined} />
         <Fact label={t('worktrees.fact.unpushed')} value={row.unpushed === null ? unknown : String(row.unpushed)} tone={row.unpushed ? 'warn' : undefined} />
         <Fact label={t('worktrees.fact.session')} value={row.live ? t('worktrees.fact.sessionLive') : t('worktrees.fact.sessionNone')} />
-        <Fact label={w.path} value="" path />
       </div>
 
       <section className="worktree-detail__section">
@@ -152,7 +183,9 @@ export function WorktreeDetail({
             {files.map((f) => (
               <li key={f.id}>
                 <Button variant="ghost" className={`changed-file-row${diff?.fileId === f.id ? ' is-open' : ''}`} aria-expanded={diff?.fileId === f.id} onClick={() => showDiff(f)}>
-                  <span className={`changed-file-status is-${f.status}`}>{t(`jobs.changes.status.${f.status}` as never)}</span>
+                  <span className={`changed-file-status is-${f.status}`} title={t(`jobs.changes.status.${f.status}` as never)}>
+                    {changeLetter(f.status)}
+                  </span>
                   <span className="changed-file-path">{f.path}</span>
                   <span className="changed-file-counts">{f.binary ? t('jobs.changes.binary') : `+${f.additions ?? 0} −${f.deletions ?? 0}`}</span>
                 </Button>
@@ -195,11 +228,11 @@ export function WorktreeDetail({
   )
 }
 
-function Fact({ label, value, tone, path }: { label: string; value: string; tone?: 'warn'; path?: boolean }): React.JSX.Element {
+function Fact({ label, value, tone }: { label: string; value: string; tone?: 'warn' }): React.JSX.Element {
   return (
-    <Card tone={tone === 'warn' ? 'need' : 'plain'} className={path ? 'worktree-fact worktree-fact--path' : 'worktree-fact'}>
+    <Card tone={tone === 'warn' ? 'need' : 'plain'} className="worktree-fact">
       <span className="worktree-fact__label">{label}</span>
-      {value !== '' && <span className="worktree-fact__value">{value}</span>}
+      <span className="worktree-fact__value">{value}</span>
     </Card>
   )
 }
