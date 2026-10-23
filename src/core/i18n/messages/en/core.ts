@@ -292,4 +292,15 @@ export const core: Record<keyof typeof ko, string> = {
   'shortcut.new.open': 'Open New',
   'plan.doctor.failedGate': 'This Task failed {failures} of {limit} times and nothing retries it (no coordinator). Resolve this Gate to run it again.',
   'shortcut.window.new': 'Open a new window', // W9-K
+  'shortcut.activity.agents': 'Open the Agents view',
+  'shortcut.activity.plans': 'Open the Plans view',
+  'shortcut.activity.explorer': 'Open the Explorer view',
+  'shortcut.activity.scm': 'Open the Source Control view',
+  'shortcut.activity.history': 'Open the History view',
+  'shortcut.activity.run': 'Open the Run view',
+  'shortcut.sidebar.toggle': 'Show or hide the side bar',
+  'shortcut.panel.toggle': 'Show or hide the bottom panel',
+  'shortcut.palette.open': 'Open the command palette',
+  'shortcut.quickOpen': 'Go to a tab, plan or file',
+  'shortcut.settings.open': 'Open Settings',
 }
