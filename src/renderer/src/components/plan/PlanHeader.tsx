@@ -49,7 +49,7 @@ export function PlanHeader({
   door: OrchDoor
   plans: readonly JobRow[]
   snapshot: OrchSnapshot | null
-  /** The plan's consoles: the wall, filtered to this plan. */
+  /** The plan's consoles: the Agents side bar, filtered to this plan. */
   onOpenConsoles: () => void
   /** T19: simple mode: no per-status counts and no model chip */
   simple?: boolean
