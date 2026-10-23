@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  openActivity, openConsole, openInbox, openPanel, openPlan, openSettings, openView, openWorktree,
+  openActivity, openConsole, openFile, openInbox, openPanel, openPlan, openSettings, openView, openWorktree,
   registerNavigation, revealRunConfigs, togglePanel, toggleSideBar, type NavigationHandlers
 } from './navigation'
 import { placeViewTab } from '../../../../core/panes/place'
@@ -17,7 +17,8 @@ const handlers = (): NavigationHandlers => ({
   openPlan: vi.fn(),
   openInbox: vi.fn(),
   openWorktree: vi.fn(),
-  openSettings: vi.fn()
+  openSettings: vi.fn(),
+  openFile: vi.fn()
 })
 
 describe('navigation registry', () => {
@@ -37,6 +38,8 @@ describe('navigation registry', () => {
     openPanel('terminal')
     toggleSideBar()
     togglePanel()
+    openFile('/wt/a/src/x.ts', { line: 12 })
+    expect(h.openFile).toHaveBeenCalledWith('/wt/a/src/x.ts', { line: 12 })
     expect(h.openConsole).toHaveBeenCalledWith('s1')
     expect(h.openPlan).toHaveBeenCalledWith('j1', 'tasks')
     expect(h.openInbox).toHaveBeenCalledWith('waiting')

@@ -29,6 +29,7 @@ describe('worktreeView', () => {
       openPlan: () => {},
       openInbox: () => {},
       openSettings: () => {},
+      openFile: () => {},
       openActivity: () => {},
       openView: () => {},
       openPanel: () => {},

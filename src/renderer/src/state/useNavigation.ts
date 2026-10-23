@@ -19,6 +19,7 @@ type NavigationDeps = Pick<
   | 'canOpenSessionTab' | 'setWorkspaceScope' | 'workspaceIds' | 'workspaceProjectId' | 'selectWorkbenchTab' | 'workspaceTree' | 'enterWorkspace' | 'setPendingRun'
   | 'setPlanPage' | 'showActivity' | 'setSidebarOpen' | 'openPanelTab' | 'setPanelVisible' | 'runPanelOpen' | 'layoutRef'
   | 'activePaneIdRef' | 'setLayout' | 'setActivePaneId' | 'openStart' | 'terminals' | 'setBottomTab' | 'openTerminal'
+  | 'openLinkedPath'
 >
 
 export function useNavigation(app: NavigationDeps): void {
@@ -27,7 +28,7 @@ export function useNavigation(app: NavigationDeps): void {
       setSettingsTab, setSettingsAnchor, canOpenSessionTab, setWorkspaceScope,
       selectWorkbenchTab, workspaceTree, enterWorkspace, setPendingRun, setPlanPage, workspaceIds, workspaceProjectId,
       showActivity, setSidebarOpen, openPanelTab, setPanelVisible, runPanelOpen, layoutRef, activePaneIdRef, setLayout,
-      setActivePaneId, openStart, terminals, setBottomTab, openTerminal
+      setActivePaneId, openStart, terminals, setBottomTab, openTerminal, openLinkedPath
     } = app
     /** Opens the view tab, or focuses the one already open, in whichever group it sits. */
     const placeView = (name: ViewName, arg?: string): void => {
@@ -91,7 +92,9 @@ export function useNavigation(app: NavigationDeps): void {
       },
       openWorktree: (path) => openView('worktree', path),
       // W9-E: the Settings tab scrolls to the anchor's row and clears it
-      openSettings
+      openSettings,
+      // T7 review: Edit on a hunk
+      openFile: (path, at) => openLinkedPath(path, at)
     })
   })
 }

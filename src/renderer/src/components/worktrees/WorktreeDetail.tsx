@@ -330,7 +330,7 @@ function Body({
         )}
       </section>
 
-      <ReviewSlot worktree={w} />
+      <ReviewSlot worktree={w} plan={plan} task={planFolder ? undefined : plan?.tasks.find((x) => x.branch === w.branch)} door={door} />
 
       <section className="worktree-detail__section">
         <h3>{t('worktrees.commits')}</h3>

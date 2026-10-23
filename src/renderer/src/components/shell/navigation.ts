@@ -27,6 +27,8 @@ export interface NavigationHandlers {
   openWorktree: (path: string) => void
   /** An old tab name still lands right: it maps to its group and row (settingsTarget). */
   openSettings: (group: SettingsGroup | OldSettingsTab, anchor?: string) => void
+  /** T7 review: a file in an editor tab at a line, as a terminal link opens it. */
+  openFile: (path: string, at?: { line: number }) => void
 }
 
 let current: NavigationHandlers | null = null
@@ -67,4 +69,5 @@ export const openConsole = (sessionId: string): void => forward('openConsole', s
 export const openPlan = (jobId: string, section?: string): void => forward('openPlan', jobId, section)
 export const openInbox = (filter?: string): void => forward('openInbox', filter)
 export const openWorktree = (path: string): void => forward('openWorktree', path)
+export const openFile = (path: string, at?: { line: number }): void => forward('openFile', path, at)
 export const openSettings = (group: SettingsGroup | OldSettingsTab, anchor?: string): void => forward('openSettings', group, anchor)
