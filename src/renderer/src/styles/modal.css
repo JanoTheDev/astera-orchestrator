@@ -1,15 +1,10 @@
 /* ---------- modals ---------- */
-/* z-index: raises modals rendered inside the sidebar (AccountPanel) to group 7 so they are not covered by
-   .terminal-wrap (position:relative, group 6), which comes later in the DOM. Common to every modal. */
-.modal-backdrop { position: fixed; inset: 0; z-index: 100; background: var(--scrim); display: flex; align-items: center; justify-content: center; }
 /* In a modal wrapped in a form (add and import account) the form is the only child, so the modal gap does
    not reach inside — the same vertical spacing is given to the form as well, keeping the input fields off
    the button row */
 .dlg form { display: flex; flex-direction: column; gap: 12px; }
 /* The content column inside a ui/Modal body: what the old .modal's flex gap gave the old hand-rolled dialogs. */
 .dlg { display: flex; flex-direction: column; gap: 12px; position: relative; }
-/* modal help text — small and muted, below the input */
-.modal-hint { color: var(--text-faint); font-size: 11.5px; }
 /* The wait overlay for starting a new session — it reuses the spinner and text of the resume terminal
    loading state (.loading-overlay) and only swaps the background for a modal tone. Unlike the terminal it
    does not let clicks through (pointer-events): while the start is in progress it has to cover the form so
@@ -32,52 +27,11 @@
 .field select:hover, .jobs-delivery select:hover { border-color: var(--text-faint); }
 .field select:focus-visible, .jobs-delivery select:focus-visible { outline: none; border-color: var(--accent); box-shadow: var(--focus-ring); }
 .field select:disabled, .jobs-delivery select:disabled { opacity: 0.6; cursor: default; }
-/* The session-kind toggle (터미널/대화, Task 7) — two labelled buttons, not the icon pair
-   WorkbenchTabs's .session-view-toggle uses (that one flips which half of an already-open tab shows;
-   this one decides how the session is spawned at all, before anything exists to switch between). */
-/* Its own section at the head of the form, ruled off from the folder and account fields beneath it:
-   the same 12px gap the other fields keep between them made the three read as one run of fields. The
-   two buttons share the width, so the row reads as a mode switch rather than two small options. */
-.kind-field { padding-bottom: 12px; border-bottom: 1px solid var(--line-soft); }
-.kind-segmented { display: flex; gap: 6px; }
-.kind-segmented .segmented {
-  flex: 1; padding: 6px 12px; font-size: 12px; color: var(--text-dim); background: none;
-  border: 1px solid var(--line); border-radius: var(--radius-sm); cursor: pointer;
-}
-.kind-segmented .segmented.active { color: var(--text); border-color: var(--accent); background: var(--elevated); }
-.kind-segmented .segmented:disabled { opacity: 0.5; cursor: not-allowed; }
-.kind-segmented .ui-btn { flex: 1; }
 /* The kind toggle's own hint and disabled-reason note. Scoped to its own class rather than written as
    `.field > .check-note`: that shape also matched spans this branch never touched (ResumeDialog's
    "로그인 상태 확인 중", RunConfigForm's four loading notes), restyling them as a side effect of adding
    this one. */
 .kind-note { display: block; margin-top: 4px; font-size: 11px; color: var(--text-dim); opacity: 0.85; }
-/* NewRunModal's concurrency box. The palette rule above matches input[type="text"] only, so this one
-   field fell through to the browser default — a white box with a light-grey native spinner — next to a
-   text input and a Select that both follow the theme. The resting look is taken from .sel-trigger, the
-   control standard it sits directly under, rather than from .field input[type="text"]: the trigger is
-   what the eye compares it with in this modal. Width is not 100% because the value is one or two digits.
-   The native spin button goes because it cannot be themed: it takes no colour of its own, and Chromium
-   draws it from the light scheme no matter what — measured with color-scheme: dark set on the input and
-   then on the root, and it stayed a light-grey widget both times. Left in, it would have been the one
-   piece of this field still not following the theme, on the hover where it appears. The cost is
-   click-to-step; the arrow keys still step the value and the box is a digit or two wide to type in. */
-.jobs-concurrency {
-  width: 80px;
-  height: var(--sel-h);
-  padding: 0 8px;
-  background: var(--bg);
-  color: var(--text);
-  border: 1px solid var(--line-soft);
-  border-radius: var(--radius);
-  font-family: var(--sans);
-  font-size: 12px;
-  transition: border-color var(--ease), box-shadow var(--ease);
-}
-.jobs-concurrency::-webkit-inner-spin-button { appearance: none; }
-/* Same ring-plus-brightened-border as .sel-trigger:focus-visible, on :focus rather than :focus-visible —
-   a text box is focused to be typed in, so there is no pointer-versus-keyboard distinction to make. */
-.jobs-concurrency:focus { outline: none; border-color: var(--accent); box-shadow: var(--focus-ring); }
 /* 예약 규칙 줄의 입력칸 셋. 위의 팔레트 규칙이 잡는 것은 `1,15`(일자) 하나뿐이다 — 이 줄에서 type 이
    text 인 유일한 칸이라서다. 나머지 둘, 분 입력(number)과 시각 입력(time)은 브라우저 기본값으로
    남아 흰 상자로 그려졌다. 셋 다 같은 줄에서 .sel-trigger 옆에 서므로 그 트리거의 값으로 맞춘다 —
@@ -116,11 +70,6 @@
    위젯마다 다르다는 뜻이고, 그래서 스피너는 없애고 이쪽은 이 선언을 쓴다. */
 .field input.sched-time { color-scheme: dark; }
 .field input.sched-time::-webkit-calendar-picker-indicator { cursor: pointer; }
-/* 예약 실행이 켜졌을 때 규칙 칸들이 들어가는 자리. ScheduleRuleFields 는 .row 둘을 내놓을 뿐이라
-   묶어 줄 상자가 필요하다 — .sched-field 를 빌리지 않는 이유는 그것이 명령 칸까지 있는 세션 쪽
-   폼의 간격이라서다. */
-.jobs-sched { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
-.field .modal-hint { margin-top: 4px; display: block; }
 .row { display: flex; align-items: center; gap: 8px; }
 .row.right { justify-content: flex-end; }
 /* Truncates a path or conversation summary to one line. display:block is essential — left inline, a
