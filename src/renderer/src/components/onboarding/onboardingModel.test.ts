@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { UpdateStatus } from '../../../../core/types'
 import {
-  ONBOARDING_STEPS, canNext, canSkipStep, cliBannerShown, donePrimary, doneNotes, exitEffects, isOnboardingShown, nextStep, prevStep, replayStart,
+  ONBOARDING_STEPS, PROJECT_CHOICES, projectDialogOf, canNext, canSkipStep, cliBannerShown, donePrimary, doneNotes, exitEffects, isOnboardingShown, nextStep, prevStep, replayStart,
   resumeStep, showUpdateChoice, type OnboardingStep
 } from './onboardingModel'
 
@@ -94,5 +94,10 @@ describe('onboardingModel', () => {
   it('a replay opened from the banner starts at Tools, from Settings at Welcome', () => {
     expect(replayStart(undefined)).toBe('welcome')
     expect(replayStart('tools')).toBe('tools')
+  })
+
+  it('offers open, clone and new, each opening its own project dialog', () => {
+    expect(PROJECT_CHOICES).toEqual(['open', 'clone', 'new'])
+    expect(PROJECT_CHOICES.map(projectDialogOf)).toEqual(['add', 'clone', 'new'])
   })
 })

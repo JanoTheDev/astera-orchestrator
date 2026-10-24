@@ -42,7 +42,7 @@ export function useWorkspace(deps: WorkspaceDeps) {
   const [workspaceProjectId, setWorkspaceProjectId] = useState<string | null>(start.projectId)
   const [scopeKnown, setScopeKnown] = useState(start.known)
   // W7-B: the new / add / settings dialogs of the project switcher, and a bump that makes the switcher read again
-  const [projectDialog, setProjectDialog] = useState<'new' | 'add' | { settings: string } | null>(null)
+  const [projectDialog, setProjectDialog] = useState<'new' | 'add' | 'clone' | { settings: string } | null>(null)
   const [projectsRefresh, setProjectsRefresh] = useState(0)
   const [firstPlan, setFirstPlan] = useState<{ path: string; objective: string } | null>(null)
   // W7-F (#84): the tab auto-close setting (default on) and the quick tab switcher (`tabs.switcher`). The plan data is

@@ -11,12 +11,13 @@ import { openActivity, openPlan } from './navigation'
 import { ConfirmHost } from '../ui/ConfirmHost'
 import { CrashReportHost } from '../CrashReportPrompt'
 import { Onboarding } from '../onboarding/Onboarding'
-import { exitEffects, isOnboardingShown } from '../onboarding/onboardingModel'
+import { exitEffects, isOnboardingShown, projectDialogOf } from '../onboarding/onboardingModel'
 import { setOnboardingReplay, useOnboardingReplay } from '../onboarding/replay'
 import { findRun } from '../../../../core/orchestration/snapshot'
 import { toast } from '../../lib/toast'
 import { NewProjectDialog } from '../projects/NewProjectDialog'
 import { AddProjectDialog } from '../projects/AddProjectDialog'
+import { CloneProjectDialog } from '../projects/CloneProjectDialog'
 import { ProjectSettings } from '../projects/ProjectSettings'
 import { useDropToStart, useStartLanding } from '../pages/StartPage'
 import { NewModal } from '../NewModal'
@@ -259,6 +260,16 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
           }}
         />
       )}
+      {projectAnchor && projectDialog === 'clone' && (
+        <CloneProjectDialog
+          anchor={projectAnchor}
+          onClose={() => setProjectDialog(null)}
+          onAdded={(id) => {
+            setProjectsRefresh((n) => n + 1)
+            openWorkspaceProject(id)
+          }}
+        />
+      )}
       {projectAnchor && projectDialog !== null && typeof projectDialog === 'object' && (
         <ProjectSettings anchor={projectAnchor} projectId={projectDialog.settings} accounts={accounts} onClose={() => setProjectDialog(null)} />
       )}
@@ -351,7 +362,7 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
           }}
           accounts={accounts}
           currentProject={currentProject}
-          onAddProject={projectAnchor ? () => setProjectDialog('add') : undefined}
+          onChooseProject={projectAnchor ? (c) => setProjectDialog(projectDialogOf(c)) : undefined}
           defaultSessionKind={defaultSessionKind}
           setDefaultSessionKind={setDefaultSessionKind}
           update={update}

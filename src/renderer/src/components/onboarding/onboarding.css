@@ -67,3 +67,8 @@
 .onb__spacer { flex: 1; }
 /* CliInstallRows draws Settings rows; inside the card they keep their layout. */
 .onb__rows .settings-cli-log { max-height: 180px; }
+.get-started { display: flex; flex-direction: column; gap: var(--sp-2); width: 100%; max-width: 480px; }
+.get-started__card { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-1); padding: var(--sp-3) var(--sp-4); text-align: left; }
+.get-started__card:disabled { opacity: 0.5; }
+.get-started__name { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-14); font-weight: var(--fw-medium); }
+.get-started__hint { font-size: var(--fs-12); color: var(--text-dim); }
