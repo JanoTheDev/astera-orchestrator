@@ -107,36 +107,7 @@ export function rowOffsets(rows: readonly TreeRow[], editTall: boolean): number[
   return out
 }
 
-/** First index i in [0, n] with offsets[i] > y (offsets ascending) */
-function firstAbove(offsets: readonly number[], y: number, n: number): number {
-  let lo = 0
-  let hi = n
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1
-    if (offsets[mid] > y) hi = mid
-    else lo = mid + 1
-  }
-  return lo
-}
-
-/** The rows to draw, [start, end): those overlapping [scrollTop, scrollTop + viewportH), widened by
- *  overscan rows on each side */
-export function visibleRange(
-  offsets: readonly number[],
-  scrollTop: number,
-  viewportH: number,
-  overscan: number
-): { start: number; end: number } {
-  const n = offsets.length - 1
-  if (n <= 0) return { start: 0, end: 0 }
-  // the first row whose bottom is below scrollTop: bottoms are offsets[1..n]
-  const first = Math.min(n, firstAbove(offsets, scrollTop, n + 1) - 1)
-  // the first row whose top is at or past the viewport's bottom
-  const bottom = scrollTop + viewportH
-  let past = firstAbove(offsets, bottom - 1e-9, n + 1)
-  past = Math.min(n, Math.max(first + 1, past))
-  return { start: Math.max(0, first - overscan), end: Math.min(n, past + overscan) }
-}
+export { visibleRange } from './ui/virtualRows'
 
 /** The scrollTop that brings row index into view with the least movement: unchanged if it is already
  *  wholly visible, its top at the viewport's top if it is above, its bottom at the viewport's bottom if

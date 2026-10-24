@@ -3,6 +3,7 @@
 // console when it has one, else its plan, as the plan rows do.
 // T13: a header with the overall progress and what runs, waits or needs the owner; finished plans folded to one row.
 import { memo, useState } from 'react'
+import { useVirtualRows, VIRTUAL_AFTER_ROWS } from '../ui/virtualRows'
 import { useI18n } from '../../i18n/I18nProvider'
 import { STATE_KEY, TaskGlyph } from '../JobIcons'
 import { Button, Chip, EmptyState, ICONS, Icon, IconButton, Meter, Switch, cx, type ChipTone } from '../ui'
@@ -30,6 +31,8 @@ function storedHideDone(): boolean {
 }
 
 const anchorOf = (id: string): string => `mainplan-${id}`
+/** A plan block's height until it has been drawn once: its header plus a row per Task (mainPlan.css 26px) */
+const blockEstimate = (p: MainPlanBlock, open: boolean): number => 44 + (open ? Math.max(1, p.tasks.length) * 26 : 0)
 
 export const MainPlan = memo(function MainPlan({ rows, acts, accounts = [] }: { rows: readonly JobRow[]; acts: PlanActs; accounts?: readonly Account[] }): React.JSX.Element {
   const { t, lang } = useI18n()
@@ -37,12 +40,16 @@ export const MainPlan = memo(function MainPlan({ rows, acts, accounts = [] }: { 
   const [, setOpenTick] = useState(0)
   const view = mainPlanMemo(rows)
   const say = (l: Line): string => t(l.key, l.params)
+  const plans = shownPlans(view, hideDone)
+  // a long page draws only the plan blocks on screen (the blocks are as tall as their open Tasks)
+  const openOf = (p: MainPlanBlock): boolean => openByPlan.get(p.row.id) ?? p.open
+  const virtual = plans.reduce((n, p) => n + 1 + (openOf(p) ? p.tasks.length : 0), 0) > VIRTUAL_AFTER_ROWS
+  const vr = useVirtualRows<HTMLDivElement>(plans.map((p) => p.row.id), (i) => blockEstimate(plans[i], openOf(plans[i])), virtual)
   if (view.plans.length === 0) return <EmptyState icon={ICONS.tasks} title={t('pages.plans.main.empty')} />
 
-  const plans = shownPlans(view, hideDone)
   const nowMs = Date.now()
   const accountLabel = (id: string): string => accounts.find((a) => a.id === id)?.label ?? id
-  const isOpen = (p: MainPlanBlock): boolean => openByPlan.get(p.row.id) ?? p.open
+  const isOpen = openOf
   const setOpen = (id: string, open: boolean): void => {
     openByPlan.set(id, open)
     setOpenTick((n) => n + 1)
@@ -57,7 +64,9 @@ export const MainPlan = memo(function MainPlan({ rows, acts, accounts = [] }: { 
   }
   const jumpTo = (phase: MainPhase): void => {
     const first = view.plans.find((p) => p.phase === phase)
-    if (first) document.getElementById(anchorOf(first.row.id))?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+    if (!first) return
+    vr.revealKey(first.row.id) // a block outside the window has no element yet
+    requestAnimationFrame(() => document.getElementById(anchorOf(first.row.id))?.scrollIntoView({ block: 'start', behavior: 'smooth' }))
   }
 
   const taskRow = (task: JobTask, row: JobRow): React.JSX.Element => {
@@ -107,12 +116,13 @@ export const MainPlan = memo(function MainPlan({ rows, acts, accounts = [] }: { 
         </div>
       </header>
       {plans.length === 0 && <p className="plans-row__facts plans-main__none">{t('pages.plans.main.allDone')}</p>}
-      {plans.map((p) => {
+      <div ref={vr.listRef} style={virtual ? { paddingTop: vr.before, paddingBottom: vr.after } : undefined}>
+      {plans.slice(vr.start, vr.end).map((p) => {
         const { row, name, tasks, checks, finished } = p
         const open = isOpen(p)
         const status = planStatusOf(row)
         return (
-          <section key={row.id} id={anchorOf(row.id)} className={cx('plans-main__plan', finished && 'is-finished')}>
+          <section key={row.id} ref={vr.measure(row.id)} id={anchorOf(row.id)} className={cx('plans-main__plan', finished && 'is-finished')}>
             <div className="plans-row__main">
               <IconButton
                 size="sm"
@@ -164,6 +174,7 @@ export const MainPlan = memo(function MainPlan({ rows, acts, accounts = [] }: { 
           </section>
         )
       })}
+      </div>
     </div>
   )
 })
