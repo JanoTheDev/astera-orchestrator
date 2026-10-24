@@ -25,7 +25,12 @@ export const IDS = {
   jobDone: id('job', 1),
   jobLive: id('job', 2),
   runDone: id('run', 1),
-  runLive: id('run', 2)
+  runLive: id('run', 2),
+  projectApi: id('proj', 2),
+  projectAcme: id('proj', 3),
+  projectWeb: id('proj', 4), // sub-project of the acme workspace (same path, parentId)
+  jobShipped: id('job', 3),
+  runShipped: id('run', 3)
 }
 const isSeed = (x) => typeof x?.id === 'string' && x.id.includes(`_${SEED_TAG}`)
 const ORCH_LISTS = ['jobs', 'runs', 'tasks', 'dispatches', 'messages', 'deliveries', 'gates', 'projects']
@@ -34,7 +39,7 @@ const CONFIG_ID = 'shots-seed:bash'
 const FEED_BOOT = `${SEED_TAG}00000000` // 12 hex: the event id's boot part (core/events/eventRing.ts)
 
 /** The orchestration state with the seed in place of any earlier one; `repo` is the scratch repo, `nowMs` the clock. */
-export function seedState(prev, repo, nowMs) {
+export function seedState(prev, repo, nowMs, extra = { api: repo, acme: repo }) {
   const at = (minAgo) => new Date(nowMs - minAgo * 60_000).toISOString()
   const base = Object.fromEntries(ORCH_LISTS.map((k) => [k, (Array.isArray(prev?.[k]) ? prev[k] : []).filter((x) => !isSeed(x))]))
   const t = (n, runId, title, status, extra = {}) => ({
@@ -86,12 +91,21 @@ export function seedState(prev, repo, nowMs) {
       spec: 'Pick the default theme. Ask me before choosing: this is the owner\'s call.',
       deps: [id('tsk', 4)]
     }),
-    t(7, IDS.runLive, 'Document the toggle', 'pending', { deps: [id('tsk', 5), id('tsk', 6)] })
+    t(7, IDS.runLive, 'Document the toggle', 'pending', { deps: [id('tsk', 5), id('tsk', 6)] }),
+    // plan C: in the acme workspace's web sub-project, finished and delivered
+    t(8, IDS.runShipped, 'Add the search box', 'completed', done),
+    t(9, IDS.runShipped, 'Debounce the search input', 'completed', { ...done, deps: [id('tsk', 8)] })
   ]
   const deliveryError = 'main moved on: origin/main has 2 commits this plan does not, and the push was refused'
   return {
     ...base,
-    projects: [...base.projects, { id: IDS.project, path: repo, name: path.basename(repo), addedAt: at(240), autoProjects: false }],
+    projects: [
+      ...base.projects,
+      { id: IDS.project, path: repo, name: path.basename(repo), addedAt: at(240), autoProjects: false },
+      { id: IDS.projectApi, path: extra.api, name: 'api-server', addedAt: at(230), autoProjects: false },
+      { id: IDS.projectAcme, path: extra.acme, name: 'acme', addedAt: at(220) },
+      { id: IDS.projectWeb, path: extra.acme, name: 'web', parentId: IDS.projectAcme, focus: ['web/'], addedAt: at(215) }
+    ],
     jobs: [
       ...base.jobs,
       { id: IDS.jobDone, title: 'Settings page', objective: 'Add a settings page that saves to disk', cwd: repo, projectId: IDS.project, createdAt: at(180), concurrency: 2, replan: 'off' },
@@ -106,7 +120,8 @@ export function seedState(prev, repo, nowMs) {
         replan: 'off',
         paused: true,
         dispatchHold: true
-      }
+      },
+      { id: IDS.jobShipped, title: 'Search box', objective: 'Add a debounced search box to the web app', cwd: extra.acme, projectId: IDS.projectWeb, createdAt: at(200), concurrency: 2, replan: 'off' }
     ],
     runs: [
       ...base.runs,
@@ -118,7 +133,8 @@ export function seedState(prev, repo, nowMs) {
         delivery: { at: at(20), branch: 'main', error: deliveryError },
         deliveryState: { state: 'failed', attempts: 5, lastError: deliveryError, lastAttemptAt: at(20), lastCode: 'main-diverged' }
       },
-      { id: IDS.runLive, jobId: IDS.jobLive, ordinal: 1, createdAt: at(140), paused: true, deliveryState: { state: 'pending', attempts: 0 } }
+      { id: IDS.runLive, jobId: IDS.jobLive, ordinal: 1, createdAt: at(140), paused: true, deliveryState: { state: 'pending', attempts: 0 } },
+      { id: IDS.runShipped, jobId: IDS.jobShipped, ordinal: 1, createdAt: at(195), deliveryState: { state: 'delivered', attempts: 1, lastAttemptAt: at(50) } }
     ],
     tasks: [...base.tasks, ...tasks],
     dispatches: [
@@ -128,7 +144,9 @@ export function seedState(prev, repo, nowMs) {
       closed(3, id('tsk', 3), 'failed', 40),
       closed(4, id('tsk', 4), 'succeeded', 90),
       // ended by the pause: neither an open nor a lost worker, so the load and recovery leave it alone
-      closed(5, id('tsk', 5), undefined, 25, { closedBy: 'pause' })
+      closed(5, id('tsk', 5), undefined, 25, { closedBy: 'pause' }),
+      closed(6, id('tsk', 8), 'succeeded', 70),
+      closed(7, id('tsk', 9), 'succeeded', 55)
     ],
     messages: [
       ...base.messages,
@@ -224,7 +242,36 @@ export function buildRepo(root) {
   writeFileSync(path.join(wt, 'src', 'settings.js'), 'export const defaults = { theme: \'night\' }\n')
   git(wt, 'add', '-A')
   git(wt, 'commit', '-q', '-m', 'Add settings defaults')
-  return { repo, wt, branch: 'shots/settings-page' }
+  // two more projects for the switcher: a plain one, and a workspace (its sub-project shares its path)
+  const plain = (name, file) => {
+    const dir = path.join(root, name)
+    mkdirSync(path.join(dir, path.dirname(file)), { recursive: true })
+    git(dir, 'init', '-q', '-b', 'main')
+    writeFileSync(path.join(dir, file), `// ${name}\n`)
+    git(dir, 'add', '-A')
+    git(dir, 'commit', '-q', '-m', 'Initial commit')
+    return dir
+  }
+  return { repo, wt, branch: 'shots/settings-page', api: plain('api-server', 'src/server.js'), acme: plain('acme', 'web/index.js') }
+}
+
+/** Finished sessions for History: an account (`shots-seed`, never signed in) whose config folder holds Claude transcripts
+ *  of the seeded projects, `projects/<cwd with / and . as ->/<session id>.jsonl`. Rebuilt each run with the repos. */
+export function buildTranscripts(configDir, nowMs, repos) {
+  const sessions = [
+    [repos.repo, 'Add a settings page that saves to disk', 'I added the form and wired the save button.', 300],
+    [repos.repo, 'Fix the failing save test in settings.test.ts', 'The test expected "saved"; the handler returned undefined. Fixed.', 200],
+    [repos.repo, 'Why does the theme list start with night?', 'themes[0] is the default; see src/theme.js.', 95],
+    [repos.api, 'Add a /health endpoint to the API server that reports the build version', 'Added GET /health returning { ok: true, version }.', 150],
+    [repos.acme, 'Debounce the search input in the web app by 200 ms', 'Wrapped the handler in a 200 ms debounce.', 60]
+  ]
+  sessions.forEach(([cwd, ask, answer, minAgo], i) => {
+    const dir = path.join(configDir, 'projects', cwd.replace(/[/\\.]/g, '-'))
+    mkdirSync(dir, { recursive: true })
+    const sessionId = `00000000-5eed-4000-9000-${String(i + 1).padStart(12, '0')}`
+    const line = (type, uuid, parentUuid, text, ago) => JSON.stringify({ type, uuid, parentUuid, sessionId, cwd, isSidechain: false, timestamp: new Date(nowMs - ago * 60_000).toISOString(), message: { role: type, content: text } })
+    writeFileSync(path.join(dir, `${sessionId}.jsonl`), [line('user', `u-${i}`, null, ask, minAgo), line('assistant', `a-${i}`, `u-${i}`, answer, minAgo - 3)].join('\n') + '\n')
+  })
 }
 
 const hostAlive = (profile) => {
@@ -247,10 +294,10 @@ export function seed(profile, nowMs = Date.now()) {
   // The Host keeps orchestration.json in memory and writes it back: a seed under a live Host is lost or fights it
   if (pid) throw new Error(`a Host (pid ${pid}) serves ${profile}: quit the app and \`astera host stop\` first`)
 
-  const { repo, wt, branch } = buildRepo(path.join(profile, SEED_DIR))
+  const { repo, wt, branch, api, acme } = buildRepo(path.join(profile, SEED_DIR))
 
   const orchFile = path.join(profile, 'orchestration.json')
-  const state = seedState(readJson(orchFile, {}), repo, nowMs)
+  const state = seedState(readJson(orchFile, {}), repo, nowMs, { api, acme })
   writeJson(orchFile, state)
   // The store falls back to last-good when the main file is unreadable: keep it from resurrecting an older seed
   writeJson(`${orchFile}.last-good`, state)
@@ -260,6 +307,12 @@ export function seed(profile, nowMs = Date.now()) {
   const items = (reg.items ?? []).filter((w) => !w.path?.startsWith(path.join(profile, SEED_DIR) + path.sep))
   items.push({ id: `${SEED_TAG}0000-0000-4000-8000-000000000001`, repoPath: repo, path: wt, name: path.basename(wt), branch, baseRef: 'main', createdAt: new Date(nowMs).toISOString() })
   writeJson(wtFile, { ...reg, items })
+
+  const configDir = path.join(profile, SEED_DIR, 'claude-home')
+  buildTranscripts(configDir, nowMs, { repo, api, acme })
+  const acctFile = path.join(profile, 'accounts.json')
+  const accts = readJson(acctFile, { accounts: [] })
+  writeJson(acctFile, { ...accts, accounts: [...(accts.accounts ?? []).filter((a) => a.id !== 'shots-seed'), { id: 'shots-seed', label: 'shots-seed', configDir, color: '#6aa3ff', createdAt: new Date(nowMs).toISOString() }] })
 
   const winFile = path.join(profile, 'windows.json')
   const win = readJson(winFile, { open: [], places: {} })

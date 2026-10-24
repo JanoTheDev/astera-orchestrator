@@ -55,6 +55,22 @@ run-config entries, and its feed lines (`ev_5eed00000000_*`). Everything else in
 - 1 Task `blocked` on an open Gate. This is the owner question "Which theme should new users see first?" with options Night, Day and Follow the system.
 - 1 Task `pending`, waiting on the two above.
 
+## Plan shots
+
+Before/after shots of the New plan page, Sessions (Agents) view, History sessions tree, project switcher and Main plan
+page live in `docs/shots/before/` and `docs/shots/after/` (un-ignored in `.gitignore`). The seed gives them 3 projects
+(`demo-app`, `api-server`, and the workspace `acme` with sub-project `web`), 3 plans (failed delivery, paused with an
+open question, delivered) and 5 finished sessions for History (account `shots-seed`, Claude transcripts under
+`shots-seed/claude-home`). Start the app as under "Command", then:
+
+```bash
+npm run shots -- --port 9351 --out docs/shots/after --sizes 1920x1080,1000x800 --pages start,sessions,history,switcher,mainplan
+```
+
+Files are `<page>-<WxH>-<theme>.png` (`--themes night,day`, default both). `--pages` takes any of: sessions, plans,
+start, mainplan, history, explorer, scm, run, devices, switcher, accounts, settings (default: all); `--sizes` defaults
+to `1440x900,1024x640`. The Sessions shot shows the empty state: a live agent session needs a signed-in account.
+
 ## How the Host is kept idle
 
 No orchestration flag parks a Job outright. Pause and archive do not stop the auto-answerer or the stall watchdog.
