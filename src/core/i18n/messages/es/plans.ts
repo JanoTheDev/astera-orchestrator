@@ -88,4 +88,14 @@ export const plans: Partial<Record<keyof typeof ko, string>> = {
   'pages.plans.clearFinished.failed': 'No se pudieron archivar {n} planes',
   'pages.plans.clearFinished.none': 'No hay planes terminados que limpiar',
   'pages.plans.finished.empty': 'Aún no hay planes terminados.',
+  // Completed task: what was done, and Ask about this task
+  'plan.done.showAll': 'Mostrar todo',
+  'plan.done.showLess': 'Mostrar menos',
+  'plan.done.verdict.passed': 'Revisión superada',
+  'plan.done.verdict.issues': '{n} problemas de revisión',
+  'plan.done.verdict.issues.one': '{n} problema de revisión',
+  'plan.done.verdict.failed': 'Falló una comprobación',
+  'plan.done.ask': 'Preguntar sobre esta tarea',
+  'plan.done.askHint': 'Abre una consola que parte del informe y los cambios de esta tarea',
+  'plan.done.askFailed': 'No se pudo abrir la consola: {detail}',
 }

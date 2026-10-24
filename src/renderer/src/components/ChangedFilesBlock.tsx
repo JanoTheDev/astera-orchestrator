@@ -14,9 +14,10 @@ const errorOf = (r: { status: number; body: unknown }): string => String((r.body
 
 type Diff = { fileId: string; state: 'loading' } | { fileId: string; state: 'shown'; diff: string; truncated: boolean } | { fileId: string; state: 'failed'; message: string }
 
-export function ChangedFilesBlock({ door, runId, taskId }: { door: OrchDoor; runId: string; taskId?: string }): React.JSX.Element {
+/** `defaultOpen`: a completed Task's row starts with its files showing; the read still waits for the block to open. */
+export function ChangedFilesBlock({ door, runId, taskId, defaultOpen = false }: { door: OrchDoor; runId: string; taskId?: string; defaultOpen?: boolean }): React.JSX.Element {
   const { t } = useI18n()
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(defaultOpen)
   /** undefined: not read yet. */
   const [view, setView] = useState<ChangesView | undefined>(undefined)
   const [diff, setDiff] = useState<Diff | null>(null)
@@ -30,9 +31,10 @@ export function ChangedFilesBlock({ door, runId, taskId }: { door: OrchDoor; run
 
   // Another Task, or the Run: closed and forgotten, so one Task's files never show under another.
   useEffect(() => {
-    setOpen(false)
+    setOpen(defaultOpen)
     setView(undefined)
     setDiff(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only another Run or Task resets the fold
   }, [runId, taskId])
 
   // Read each time it opens: the work may have moved since.

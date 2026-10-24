@@ -2,7 +2,7 @@
 // by plan, Task status or area, in two panes: Running on top, Finished below (newest finished first, Clear finished, Show archived). Every plan action is on its row's context menu
 // (lib/jobActions, as the old list rows wired them). A paired Runtime's plans keep their selector and list (JobsView).
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { JobRow } from '../../../../core/types'
+import type { JobRow, JobTask } from '../../../../core/types'
 import { jobsStall, jobsViewScreen } from '../../../../core/orchestration/jobsView'
 import { groupOfTab } from '../../../../core/panes/tree'
 import { sessionTab } from '../../../../core/panes/tabId'
@@ -19,6 +19,8 @@ import { openConsole, openPlanConsoles, openView } from '../shell/navigation'
 import { ViewToolbar, type SideBarViewProps } from '../shell/SideBar'
 import { OLD_FINISHED_DAYS, clearableOf, isStalledPlan, planStatusOf, resumeActionOf, splitPlans } from '../plan/planList'
 import { approveSlot } from '../plan/planTalk'
+import { askAboutTaskWithToast } from '../plan/planCommands'
+import { doneViewOf } from '../plan/taskDoneView'
 import { deliveryActionsOf } from '../plan/planPage'
 import { type PlanSection } from '../plan/planBoard'
 import {
@@ -308,7 +310,7 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
       ...(local ? ['separator' as const, item('delete', t('jobs.run.delete'), 'delete', () => void deleteRun(local, orchSnapshot, row.id, actionUi), true)] : [])
     ]
   }
-  const taskMenu = (row: JobRow, taskId: string, sessionId?: string): Array<MenuItem | 'separator'> => [
+  const taskMenu = (row: JobRow, taskId: string, sessionId?: string, status?: JobTask['status']): Array<MenuItem | 'separator'> => [
     {
       id: 'console',
       label: t('pages.plans.tree.menu.openConsole'),
@@ -316,12 +318,15 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
       disabled: !(sessionId && canOpenSession(sessionId)),
       onSelect: () => sessionId && openConsole(sessionId)
     },
+    ...(status !== undefined && doneViewOf({ status }).ask
+      ? [{ id: 'ask', label: t('plan.done.ask'), icon: <Icon name="terminal" />, disabled: !local, onSelect: () => local && void askAboutTaskWithToast(local, row.id, taskId, t) }]
+      : []),
     { id: 'plan', label: t('pages.plans.tree.menu.openInPlan'), icon: <Icon name="listTree" />, onSelect: () => openPlanTab(row.id, taskSection(taskId)) },
     { id: 'copy', label: t('pages.plans.tree.menu.copyId'), icon: <Icon name="copy" />, onSelect: () => window.api.clipboard.writeText(taskId) }
   ]
   // Finished plans keep this same menu; actions that only suit a finished plan are added to planMenu for `archived || done` rows.
   const menuOf = (node: PlanNode): Array<MenuItem | 'separator'> | null =>
-    node.kind === 'plan' ? planMenu(node.row) : node.kind === 'task' ? taskMenu(node.row, node.task.id, node.task.sessionId) : null
+    node.kind === 'plan' ? planMenu(node.row) : node.kind === 'task' ? taskMenu(node.row, node.task.id, node.task.sessionId, node.task.status) : null
 
   const overlapMark = (names: string[] | null): React.ReactNode => {
     if (!names) return null

@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import type { CompletionDetail } from '../../../core/types'
 import { useI18n } from '../i18n/I18nProvider'
 import { CompletionChecks } from './CompletionChecks'
-import { Button, Icon } from './ui'
+import { verdictOf } from './plan/taskDoneView'
+import { Button, Chip, Icon } from './ui'
 
 /**
  * 고른 Task 가 **왜** 완료 정책을 못 넘었는가 — 칩이 말하지 않는 나머지.
@@ -19,7 +20,8 @@ export function CompletionBlock({
   projectPath,
   runId,
   taskId,
-  runtimeId
+  runtimeId,
+  defaultOpen = false
 }: {
   projectPath: string
   runId: string
@@ -27,9 +29,11 @@ export function CompletionBlock({
   taskId: string
   /** A paired Runtime's Task (remote runtime design Phase 6); absent for this computer's own. */
   runtimeId?: string
+  /** A finished Task's row starts with the checks and the review verdict showing (plan/taskDoneView). */
+  defaultOpen?: boolean
 }): React.JSX.Element | null {
   const { t } = useI18n()
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(defaultOpen)
   /** undefined = 아직 안 가져왔다, null = 가져왔는데 보여 줄 것이 없다 */
   const [detail, setDetail] = useState<CompletionDetail | null | undefined>(undefined)
   /** 꼬리를 펼친 검사들 */
@@ -37,9 +41,10 @@ export function CompletionBlock({
 
   // 노드를 바꾸면 접고 비운다 — 안 그러면 새 Task 를 열었는데 이전 Task 의 꼬리가 펼쳐진 채 남는다.
   useEffect(() => {
-    setOpen(false)
+    setOpen(defaultOpen)
     setDetail(undefined)
     setTails(new Set())
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only another Task resets the fold
   }, [taskId])
 
   // 펼칠 때 한 번. 닫았다 다시 열면 다시 가져온다 — 그 사이 라운드가 한 번 더 돌았을 수 있고,
@@ -84,6 +89,7 @@ export function CompletionBlock({
       {open && detail === null && <p className="ui-note">{t('jobs.completion.empty')}</p>}
       {open && detail !== null && detail !== undefined && (
         <>
+          <Verdict detail={detail} />
           <CompletionChecks
             checks={detail.checks}
             tails={tails}
@@ -137,5 +143,19 @@ export function CompletionBlock({
         </>
       )}
     </div>
+  )
+}
+
+/** The review verdict in one line; a second cue (icon and words) besides the colour. */
+function Verdict({ detail }: { detail: CompletionDetail }): React.JSX.Element | null {
+  const { t } = useI18n()
+  const v = verdictOf(detail)
+  if (v === null) return null
+  const text = v.state === 'passed' ? t('plan.done.verdict.passed') : v.state === 'failed' ? t('plan.done.verdict.failed') : t(v.issues === 1 ? 'plan.done.verdict.issues.one' : 'plan.done.verdict.issues', { n: v.issues })
+  return (
+    <Chip tone={v.state === 'passed' ? 'ok' : v.state === 'failed' ? 'danger' : 'warn'} className="detail-completion-verdict">
+      <Icon name={v.state === 'passed' ? 'done' : v.state === 'failed' ? 'error' : 'circleAlert'} size={14} />
+      {text}
+    </Chip>
   )
 }

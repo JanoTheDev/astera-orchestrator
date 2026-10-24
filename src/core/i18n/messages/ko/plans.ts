@@ -121,4 +121,14 @@ export const plans = {
   'pages.plans.clearFinished.failed': '계획 {n}개를 보관하지 못했습니다',
   'pages.plans.clearFinished.none': '정리할 끝난 계획이 없습니다',
   'pages.plans.finished.empty': '아직 끝난 계획이 없습니다.',
+  // Completed task: what was done, and Ask about this task
+  'plan.done.showAll': '모두 보기',
+  'plan.done.showLess': '접기',
+  'plan.done.verdict.passed': '리뷰 통과',
+  'plan.done.verdict.issues': '리뷰 이슈 {n}건',
+  'plan.done.verdict.issues.one': '리뷰 이슈 {n}건',
+  'plan.done.verdict.failed': '검사 실패',
+  'plan.done.ask': '이 Task 에 대해 묻기',
+  'plan.done.askHint': '이 Task 의 보고와 변경 내용을 담은 콘솔을 엽니다',
+  'plan.done.askFailed': '콘솔을 열지 못했습니다: {detail}',
 } as const
