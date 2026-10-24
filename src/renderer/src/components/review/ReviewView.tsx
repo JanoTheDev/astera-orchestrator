@@ -14,7 +14,7 @@ import * as sessionBus from '../../lib/sessionBus'
 import { toast } from '../../lib/toast'
 import { DiffView } from '../DiffView'
 import { openConsole, openFile, startSession } from '../shell/navigation'
-import { Button, Checkbox, Chip, Icon, IconButton, Kbd, Popover, Textarea } from '../ui'
+import { Button, Checkbox, Chip, Icon, IconButton, Kbd, Popover, Tabs, Textarea } from '../ui'
 import { ChangeMapView, SymbolMark } from './ChangeMapView'
 import { askInNewSession } from './askSession'
 import { changeRequestText, fixPrompt, type CodeRef } from './fixPrompt'
@@ -49,7 +49,7 @@ export function ReviewView({ cwd, base, owner, door }: { cwd: string; base?: str
     return (
       <section className="rv" aria-label={t('review.title')}>
         {head}
-        <p className="rv-note">{map === undefined ? t('review.loading') : map === null ? t('review.unavailable') : t('review.empty', { base: base ?? 'base' })}</p>
+        <p className="ui-note">{map === undefined ? t('review.loading') : map === null ? t('review.unavailable') : t('review.empty', { base: base ?? 'base' })}</p>
       </section>
     )
   return <ReviewBody key={cwd} map={map} cwd={cwd} owner={owner} door={door} head={head} />
@@ -226,13 +226,10 @@ function ReviewBody({ map, cwd, owner, door, head }: { map: ChangeMap; cwd: stri
         <Chip tone={viewedCount === files.length ? 'ok' : 'neutral'} dot>
           {t('review.summary.viewed', { viewed: viewedCount, count: files.length })}
         </Chip>
-        {map.total > map.files.length && <span className="rv-note">{t('review.summary.partial', { shown: map.files.length, total: map.total })}</span>}
-        <span className="rv-mode" role="group" aria-label={t('review.mode.label')}>
-          {(['map', 'list'] as const).map((m) => (
-            <Button key={m} size="sm" variant="ghost" className={mode === m ? 'is-on' : ''} aria-pressed={mode === m} icon={<Icon name={m === 'map' ? 'layoutGrid' : 'ordered'} size={14} />} onClick={() => setMode(m)}>
-              {t(`review.mode.${m}`)}
-            </Button>
-          ))}
+        {map.total > map.files.length && <span className="ui-note">{t('review.summary.partial', { shown: map.files.length, total: map.total })}</span>}
+        <span className="rv-view">
+          <Tabs variant="segmented" label={t('review.mode.label')} value={mode} onChange={setMode}
+            items={(['map', 'list'] as const).map((m) => ({ id: m, label: <><Icon name={m === 'map' ? 'layoutGrid' : 'ordered'} size={14} />{t(`review.mode.${m}`)}</> }))} />
         </span>
       </div>
       {report && (
@@ -285,7 +282,7 @@ function ReviewBody({ map, cwd, owner, door, head }: { map: ChangeMap; cwd: stri
                   <Checkbox className="rv-file__viewed" checked={isV} onChange={() => toggleViewed(f.file)} label={t('review.file.viewed')} />
                   <IconButton size="sm" icon={<Icon name="edit" size={14} />} label={t('review.hunk.edit')} onClick={() => openFile(joinPath(cwd, f.file.path))} disabled={f.file.status === 'deleted'} />
                 </header>
-                {!shut && f.file.skipped && <p className="rv-note rv-file__note">{t(`review.skipped.${f.file.skipped}`)}</p>}
+                {!shut && f.file.skipped && <p className="ui-note rv-file__note">{t(`review.skipped.${f.file.skipped}`)}</p>}
                 {!shut &&
                   f.groups.map((g) => (
                     <div key={g.symbol ? `${g.symbol.kind}:${g.symbol.name}:${g.symbol.change}` : '-'} className="rv-sym">
@@ -505,7 +502,7 @@ function NotePopover({
             }
           }}
         />
-        <p className="rv-note">{hint}</p>
+        <p className="ui-note">{hint}</p>
         <div className="rv-pop__actions">
           <Button size="sm" variant="ghost" onClick={() => onOpenChange(false)}>
             {t('common.cancel')}

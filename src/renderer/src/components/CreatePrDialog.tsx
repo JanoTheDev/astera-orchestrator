@@ -153,7 +153,7 @@ export function CreatePrDialog({
             ariaLabel={t('pr.create.base')}
           />
         </div>
-        {branchesUnavailable && <span className="wt-note">{t('pr.create.branchesUnavailable')}</span>}
+        {branchesUnavailable && <span className="ui-note">{t('pr.create.branchesUnavailable')}</span>}
         <Field
           label={t('pr.create.prTitle')}
           value={title}
@@ -173,15 +173,15 @@ export function CreatePrDialog({
           }}
         />
         <Checkbox label={t('pr.create.draft')} checked={draft} onChange={setDraft} />
-        {willPush && <span className="wt-note">{t('pr.create.willPush')}</span>}
+        {willPush && <span className="ui-note">{t('pr.create.willPush')}</span>}
         {dirtyCount > 0 && (
-          <span className="wt-note">{t('pr.create.dirty', { count: dirtyCount })}</span>
+          <span className="ui-note">{t('pr.create.dirty', { count: dirtyCount })}</span>
         )}
         {commitCount > 0 && (
-          <span className="wt-note">{t(commitCount === 1 ? 'pr.create.commits.one' : 'pr.create.commits', { count: commitCount })}</span>
+          <span className="ui-note">{t(commitCount === 1 ? 'pr.create.commits.one' : 'pr.create.commits', { count: commitCount })}</span>
         )}
         {behindCount !== null && behindCount > 0 && (
-          <span className="wt-note">{t('pr.create.behind', { count: behindCount })}</span>
+          <span className="ui-note">{t('pr.create.behind', { count: behindCount })}</span>
         )}
         {failure && (
           <div className="pr-create-failure">

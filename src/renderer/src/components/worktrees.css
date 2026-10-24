@@ -119,7 +119,3 @@ button.source-chip:hover { color: var(--accent); border-color: var(--accent); }
   .wt-actions__inline { display: none; }
   .wt-actions__more { display: inline-flex; }
 }
-
-/* A quiet line under a heading or field (hint, loading, empty); --warn adds the problem tone. */
-.wt-note { color: var(--text-faint); font-size: var(--fs-12); }
-.wt-note--warn { color: var(--warn); }
