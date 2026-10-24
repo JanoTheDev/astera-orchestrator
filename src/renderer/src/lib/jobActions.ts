@@ -149,6 +149,17 @@ export async function resolveFailed(door: OrchDoor, taskId: string, action: 'ret
   return reply !== null && reply.status < 400
 }
 
+/** Rolls back a Job just made when the step after jobs-create failed (its planner did not start): no draft is left
+ *  behind. Asks nothing: a just-made Job has no work to lose. A failed delete keeps the caller's own error. */
+export async function discardMadeJob(door: OrchDoor, id: string): Promise<void> {
+  try {
+    const reply = await door.command('run-delete', { id })
+    if (reply.status >= 400) console.warn(`run-delete of the half-made Job ${id} failed`, reply.body)
+  } catch (e) {
+    console.warn(`run-delete of the half-made Job ${id} failed`, e)
+  }
+}
+
 /** Deletes a Run after a confirmation that counts what goes with it (a schedule's rounds too) and offers to merge
  *  and to remove the worktrees it used. Irreversible, so the counts never understate. */
 export async function deleteRun(door: OrchDoor, snapshot: OrchSnapshot | null, runId: string, ui: ActionUi): Promise<void> {

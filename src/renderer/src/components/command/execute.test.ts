@@ -148,6 +148,24 @@ describe('intent → command', () => {
     expect(h.asked).toEqual([])
   })
 
+  it('plan whose planner fails deletes the made Job and its line carries no jobId', async () => {
+    const h = harness(true)
+    const door = h.deps.door
+    h.deps.door = (path) => {
+      const d = door(path)
+      return { ...d, command: async (cmd, args) => (cmd === 'jobs-plan' ? { status: 409, body: { error: 'no room' } } : d.command(cmd, args)) }
+    }
+    const lines = await execute(ready({ kind: 'plan', objective: 'x' }), h.deps)
+    expect(lines).toEqual([{ text: 'jobs.new.plannerFailed: no room' }])
+    expect(h.sent.at(-1)).toEqual({ path: '/p/g', cmd: 'run-delete', args: { id: 'j-new' } })
+  })
+
+  it('plan that starts deletes nothing', async () => {
+    const h = harness(true)
+    await execute(ready({ kind: 'plan', objective: 'x' }), h.deps)
+    expect(h.sent.map((s) => s.cmd)).not.toContain('run-delete')
+  })
+
   it('plan on Auto sends no account (the Host picks the one with most room); none signed in is refused', async () => {
     const h = harness(true)
     h.deps.coordinatorAccount = async () => ''
