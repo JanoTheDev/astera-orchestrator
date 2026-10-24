@@ -3,6 +3,7 @@
 // release build), crash reports, the license row, and the open source licenses. The info card and the update row
 // moved here from Advanced (W9-E) with their anchors, so the settings search finds them as before.
 import { useEffect, useState } from 'react'
+import { useSetting } from '../../hooks/useSetting'
 import { CliInstallRows } from '../CliInstallRows'
 import { formatCheckedAt } from '../../../../core/update/checkFeedback'
 import { AUTO_UPDATE } from '../../../../core/update/autoUpdate'
@@ -27,11 +28,8 @@ const UPDATE_MODES: readonly UpdateMode[] = ['off', 'notify', 'build', 'install-
 function SourceUpdateCard({
   update, updateChecking, installUpdate, setCheckClickedAt, t
 }: Pick<GroupProps, 'update' | 'updateChecking' | 'installUpdate' | 'setCheckClickedAt' | 't'>): React.JSX.Element | null {
-  const [mode, setMode] = useState<UpdateMode>('build')
+  const [mode, setMode] = useSetting<UpdateMode>('updateMode', () => window.api.settings.getUpdateMode(), 'build')
   const [open, setOpen] = useState(false)
-  useEffect(() => {
-    void window.api.settings.getUpdateMode().then(setMode).catch(() => {})
-  }, [])
   if (!update) return null
   const card = sourceCard(update)
   const changeMode = (next: UpdateMode): void => {
@@ -132,14 +130,10 @@ export function AboutSettings(p: GroupProps): React.JSX.Element | null {
     shown, only, accounts, appVersion, cli, hostHolding, hostRestarting, hostStatus, installUpdate, restartHost,
     setCheckClickedAt, setCli, setCliInstalled, t, update, updateChecking
   } = p
-  const [channel, setChannel] = useState<UpdateChannel>('stable')
-  const [crash, setCrash] = useState<CrashReportsSetting>('ask')
+  const [channel, setChannel] = useSetting<UpdateChannel>('updateChannel', () => window.api.settings.getUpdateChannel(), 'stable')
+  const [crash, setCrash] = useSetting<CrashReportsSetting>('crashReports', () => window.api.settings.getCrashReports(), 'ask')
   const [copied, setCopied] = useState(false)
   const [licensesOpen, setLicensesOpen] = useState(false)
-  useEffect(() => {
-    void window.api.settings.getUpdateChannel().then(setChannel).catch(() => {})
-    void window.api.settings.getCrashReports().then(setCrash).catch(() => {})
-  }, [])
   // The Copied word goes back to Copy after a moment, so a second copy is visible too.
   useEffect(() => {
     if (!copied) return

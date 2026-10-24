@@ -3,6 +3,7 @@ import type { Account, Provider } from '../../../core/types'
 import { PROVIDERS } from '../../../core/providers/meta'
 import { defaultAccountIdOf } from '../../../core/accounts/defaultAccount'
 import { createLatest, settledPairs } from '../lib/latest'
+import { useCachedRead } from '../lib/readCache'
 
 /** Queries the login state and email per account. Shared by the sidebar and the settings Accounts tab.
  *  Re-queries on window focus — this picks up a login or logout done in another window. */
@@ -52,4 +53,11 @@ export function useAccountStatus(accounts: Account[]): {
   }, [accounts, loginMap])
 
   return { loginMap, emailMap, defaultIdByProvider }
+}
+
+/** The account list, shared by every reader in the window: shown at once from the cache, refreshed when main pushes
+ *  a change. `ready` is true once a fetch has answered since the last change. */
+export function useAccountsList(): { accounts: Account[] | undefined; ready: boolean } {
+  const { data, stale } = useCachedRead('accounts:list', () => window.api.accounts.list(), { invalidateOn: ['accounts:changed'] })
+  return { accounts: data, ready: data !== undefined && !stale }
 }

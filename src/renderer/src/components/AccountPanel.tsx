@@ -3,7 +3,7 @@ import type { Account, Provider } from '../../../core/types'
 import { PROVIDERS, PROVIDER_META, providerOf } from '../../../core/providers/meta'
 import { toast } from '../lib/toast'
 import { useI18n } from '../i18n/I18nProvider'
-import { useAccountStatus } from '../hooks/useAccountStatus'
+import { useAccountStatus, useAccountsList } from '../hooks/useAccountStatus'
 import { useAccountUsage } from '../hooks/useAccountUsage'
 import { useActiveSession } from '../lib/activeSession'
 import { ProviderBadge } from './ProviderBadge'
@@ -113,21 +113,14 @@ export function AccountPanel({ accounts }: { accounts: Account[] }): React.JSX.E
     return items
   }
 
+  const { accounts: listed, ready } = useAccountsList()
   useEffect(() => {
-    // "Loading finished" is not inferred from how many times the accounts prop's effect has run — under
-    // React.StrictMode (main.tsx) the effect runs twice right after mount, which can produce a false
-    // positive, so this queries directly to decide whether loading has finished.
-    if (autoDetectDone.current) return
-    autoDetectDone.current = true // set before the async query starts (guard against StrictMode double invocation)
-    void window.api.accounts
-      .list()
-      .then((list) => {
-        if (list.length === 0) void runDetect(true)
-      })
-      .catch(() => {
-        /* Do not auto-open if the query fails */
-      })
-  }, [])
+    // Only an answer fetched this open counts: a cached empty list may be out of date, and the guard keeps
+    // StrictMode's second effect run (main.tsx) from opening the detect dialog twice.
+    if (!ready || autoDetectDone.current) return
+    autoDetectDone.current = true
+    if (listed?.length === 0) void runDetect(true)
+  }, [ready, listed])
 
   const runDetect = async (isAuto: boolean): Promise<void> => {
     try {
