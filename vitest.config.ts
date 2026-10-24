@@ -22,6 +22,7 @@ export default defineConfig({
       'src/host/**/*.test.ts',
       'src/main/**/*.test.ts',
       'src/renderer/**/*.test.ts',
+      'src/renderer/src/components/pages/StartPage.test.tsx',
       'src/cli/**/*.test.ts',
       'src/pluginHost/**/*.test.ts',
       'packages/*/src/**/*.test.ts',
