@@ -57,10 +57,7 @@ export function diagnoseRuns(s: OrchState, runIds: readonly string[], sessions?:
       out.push({
         kind: 'lost-tasks',
         runId: run.id,
-        detail:
-          run.pr !== undefined || run.delivery !== undefined || run.branchPush !== undefined
-            ? `has no Task but a delivery record: its Tasks were lost from the store; it reads ${lostReads}`
-            : `has no Task and nothing can add one (no coordinator, replan or start); it reads ${lostReads}`
+        detail: `has no Task but a delivery record: its Tasks were lost from the store; it reads ${lostReads}`
       })
     const stall = stallOf(s, run)
     if (stall) out.push({ kind: 'stalled', runId: run.id, taskId: stall.blocks[0].task.id, detail: `stalled: ${stall.reason}` })
@@ -72,7 +69,9 @@ export function diagnoseRuns(s: OrchState, runIds: readonly string[], sessions?:
         stuck,
         detail:
           stuck === 'needs-you'
-            ? 'reads running, but every unfinished Task waits on the owner'
+            ? tasks.length === 0
+              ? 'reads running, but it has no Tasks and its coordinator waits on the owner to start it'
+              : 'reads running, but every unfinished Task waits on the owner'
             : tasks.length === 0
               ? 'reads running, but it has no Tasks and no coordinator or planner to make any'
               : 'reads running, but its failed Tasks have no coordinator and nothing retries them'

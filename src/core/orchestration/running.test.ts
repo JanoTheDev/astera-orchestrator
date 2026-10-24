@@ -278,23 +278,28 @@ describe('a Run whose Tasks are gone', () => {
     expect(outcomeOf(gone({ pr }, { replanning: { runId: 'run_1', mode: 'completion', wave: 1, done: 0, startedAt: NOW } }), 'run_1')).toBe('running')
   })
 
-  it('reads an empty Run with no record failed once nothing can add Tasks, running while something can', () => {
+  it('reads an empty Run with no record running, flagged stalled once nothing can add Tasks', () => {
     const idle = gone({ deliveryState: { state: 'pending', attempts: 0 } })
-    expect(outcomeOf(gone({}), 'run_1')).toBe('failed')
-    expect(outcomeOf(idle, 'run_1')).toBe('failed')
-    expect(snapshotFor(idle, PROJ, () => true, [], () => null, () => true).runs[0].outcome).toBe('failed')
+    expect(outcomeOf(gone({}), 'run_1')).toBe('running')
+    expect(outcomeOf(idle, 'run_1')).toBe('running')
+    expect(stuckOf(idle, idle.runs[0])).toBe('stalled')
+    expect(snapshotFor(idle, PROJ, () => true, [], () => null, () => true).runs[0].stuck).toBe('stalled')
     // something can still add Tasks: a coordinator, a coordinator start, a replan, a pending start (approval), a held
     // start; or the owner paused it
     for (const [r, j] of [
       [{ coordinatorSessionId: 'ses_c' }, {}],
       [{ externalCoordinatorSessionId: 'ses_x' }, {}],
-      [{ coordinatorStartingAt: NOW }, {}],
+      // a start in flight now, not one from long ago that never came (state.ts coordinatorStarting)
+      [{ coordinatorStartingAt: new Date().toISOString() }, {}],
       [{}, { replanning: { runId: 'run_1', mode: 'completion', wave: 1, done: 0, startedAt: NOW } }],
       [{}, { pendingStart: true }],
       [{}, { startWait: 'no account has room' }],
       [{ paused: true }, {}]
-    ] as [Partial<JobRun>, Partial<Job>][])
-      expect(outcomeOf(gone(r, j), 'run_1')).toBe('running')
+    ] as [Partial<JobRun>, Partial<Job>][]) {
+      const s = gone(r, j)
+      expect(outcomeOf(s, 'run_1')).toBe('running')
+      expect(stuckOf(s, s.runs[0])).toBeUndefined()
+    }
   })
 
   it('stops counting as running in the Jobs list projection', () => {
@@ -403,6 +408,10 @@ describe('stuckOf', () => {
     expect(stuck({ ...s, runs: [{ ...s.runs[0], coordinatorStartingAt: new Date().toISOString() }] })).toBeUndefined()
     expect(stuck({ ...s, jobs: [{ ...s.jobs[0], replanning: { runId: 'run_1', mode: 'completion', wave: 1, done: 0, startedAt: NOW } }] })).toBeUndefined()
     expect(stuck({ ...s, jobs: [{ ...s.jobs[0], archivedAt: NOW }] })).toBeUndefined()
+    // a coordinator the owner's ▶ can start waits on the owner, still running
+    const waiting = { ...s, jobs: [{ ...s.jobs[0], coordinatorAccountId: 'acc' }] }
+    expect(outcomeOf(waiting, 'run_1')).toBe('running')
+    expect(stuck(waiting)).toBe('needs-you')
   })
 
   it('a worker waiting on its own unanswered question, with no coordinator to answer it, needs you', () => {
