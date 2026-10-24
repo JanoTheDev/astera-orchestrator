@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useSetting } from '../hooks/useSetting'
 import type { DesktopNotifySettings } from '../../../core/notify/settings'
 import type { MessageKey } from '../../../core/i18n'
 import { useI18n } from '../i18n/I18nProvider'
@@ -41,11 +42,8 @@ const EVENTS = [
  *  what each event means. */
 export function NotificationSettings(): React.JSX.Element {
   const { t } = useI18n()
-  const [flags, setFlags] = useState<DesktopNotifySettings | null>(null) // null = first read in flight
-
-  useEffect(() => {
-    void window.api.settings.getDesktopNotify().then(setFlags)
-  }, [])
+  const [read, setFlags] = useSetting('desktopNotify', () => window.api.settings.getDesktopNotify())
+  const flags = read ?? null // null = first read in flight
 
   const toggle = (key: keyof DesktopNotifySettings, next: boolean): void => {
     if (!flags) return

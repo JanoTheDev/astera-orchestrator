@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import type { RemoteApi } from '../../../core/types'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
+import { useSetting } from '../hooks/useSetting'
 import { confirmModal } from '../lib/confirm'
 import { Button, Input, Select } from './ui'
 import { openActivity } from './shell/navigation'
@@ -12,15 +13,17 @@ type Choice = Awaited<ReturnType<RemoteApi['addresses']>>[number]
 /** A pairing string this screen made: shown while its code is live, then what became of it (pairingState). */
 type Made = { pairing: string; expiresAt: string; permission: string; pairingId?: string }
 
+const NO_CHOICES: Choice[] = []
+
 /** Settings › Remote Runtimes (remote runtime design Phase 6): this computer as a Runtime (turned on on one of its
  *  addresses and off, a pairing string made for a controller, a paired controller revoked: the CLI's own runtime
  *  commands, run in main). The devices this computer is paired with, and adding one, are the Devices view's. The
  *  token stays in main. */
 export function RemoteRuntimesSettings(): React.JSX.Element {
   const { t } = useI18n()
-  const [mine, setMine] = useState<ThisMachine | undefined>(undefined)
+  const [mine, setMine] = useSetting<ThisMachine | null>('remoteThisMachine', () => window.api.remote.thisMachine().catch(() => null))
   /** This computer's controls: the addresses it offers, the one chosen, a pairing being made and the one made. */
-  const [choices, setChoices] = useState<Choice[]>([])
+  const [choices, setChoices] = useSetting<Choice[]>('remoteAddresses', () => window.api.remote.addresses().catch(() => []), NO_CHOICES)
   const [listen, setListen] = useState('')
   const [switching, setSwitching] = useState(false)
   const [fullControl, setFullControl] = useState(false)
@@ -38,7 +41,9 @@ export function RemoteRuntimesSettings(): React.JSX.Element {
       () => setChoices([])
     )
   }, [])
-  useEffect(reload, [reload])
+  useEffect(() => {
+    setListen((cur) => (choices.some((x) => x.address === cur) ? cur : (choices[0]?.address ?? '')))
+  }, [choices])
 
   // A pairing string's clock, and every few seconds the Host's word on its code (used, dropped by a stop from the CLI,
   // or gone with a Host restart), only while a live one is on screen. With Remote off it goes.

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useSetting } from '../hooks/useSetting'
 import type { Account } from '../../../core/types'
 import { PROVIDERS, PROVIDER_META, providerOf, type Provider } from '../../../core/providers/meta'
 import {
@@ -19,6 +20,8 @@ import { toast } from '../lib/toast'
 import { Input, Select } from './ui'
 
 const EFFORT_ROLES: readonly EffortRole[] = ['planner', 'reviewer', 'coordinator']
+const NO_MODELS: RoleModelSettings = {}
+
 /** The select's value for "no entry saved, use the built-in default". */
 const BUILTIN = 'builtin'
 
@@ -45,11 +48,7 @@ export function withEffort(
  *  `''`, which masks the built-in one); free text, because the CLI takes an alias or a full model id. */
 export function OrchestratorModelsSettings({ accounts }: { accounts: Account[] }): React.JSX.Element {
   const { t } = useI18n()
-  const [value, setValue] = useState<RoleModelSettings>({})
-
-  useEffect(() => {
-    void window.api.settings.getRoleModels().then(setValue)
-  }, [])
+  const [value, setValue] = useSetting<RoleModelSettings>('roleModels', () => window.api.settings.getRoleModels(), NO_MODELS)
 
   const providers = PROVIDERS.filter((p) => accounts.some((a) => providerOf(a) === p))
 

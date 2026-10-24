@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useSetting } from '../hooks/useSetting'
 import type { CliInstallStatus } from '../../../core/types'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
@@ -19,13 +20,10 @@ import { Button, Icon, Checkbox } from './ui'
  *  the MCP lines below it (McpSettings), which need to know whether the command is installed and where. */
 export function CliSettings({ onStatus }: { onStatus?: (s: CliInstallStatus) => void } = {}): React.JSX.Element {
   const { t } = useI18n()
-  const [status, setStatus] = useState<CliInstallStatus | null>(null)
+  const [read, setStatus] = useSetting('cliStatus', () => window.api.cli.status())
+  const status = read ?? null
   const [busy, setBusy] = useState(false)
   const [addToPath, setAddToPath] = useState(true)
-
-  useEffect(() => {
-    void window.api.cli.status().then(setStatus)
-  }, [])
 
   useEffect(() => {
     if (status) onStatus?.(status)

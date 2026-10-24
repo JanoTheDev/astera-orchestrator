@@ -7,6 +7,11 @@ import { toast } from '../lib/toast'
 import { AccountSelect } from './AccountSelect'
 import { Button, Icon, Input, Select } from './ui'
 import { createLatest } from '../lib/latest'
+import { useSetting } from '../hooks/useSetting'
+import { useAccountsList } from '../hooks/useAccountStatus'
+
+const NO_GENERATOR: GeneratorSettingsValue = {}
+const NO_ACCOUNTS: Account[] = []
 
 /** 설명을 누가·무엇으로 만드는가 (설계 D2·D4).
  *
@@ -19,16 +24,11 @@ import { createLatest } from '../lib/latest'
  *  보여 주고 사유를 함께 적는다 — 목록이 없다고 기능까지 못 쓰게 만들 이유가 없다. */
 export function GeneratorSettings(): React.JSX.Element {
   const { t } = useI18n()
-  const [value, setValue] = useState<GeneratorSettingsValue>({})
-  const [accounts, setAccounts] = useState<Account[]>([])
+  const [value, setValue] = useSetting<GeneratorSettingsValue>('generator', () => window.api.settings.getGenerator(), NO_GENERATOR)
+  const accounts = useAccountsList().accounts ?? NO_ACCOUNTS
   const [models, setModels] = useState<ModelDescriptor[]>([])
   const [listError, setListError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
-
-  useEffect(() => {
-    void window.api.settings.getGenerator().then(setValue)
-    void window.api.accounts.list().then(setAccounts)
-  }, [])
 
   /** The newest listing asked (audit UI-6): an older account's answer landing late must not show its models. */
   const latestList = useRef(createLatest())
