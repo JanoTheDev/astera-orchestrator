@@ -31,7 +31,7 @@ export const accounts: Partial<Record<keyof typeof ko, string>> = {
     'ログアウトするとこのアカウントの認証情報が削除され、再度ログインが必要になります。ホームディレクトリ (~/.claude, ~/.codex) を使うアカウントの場合、このアプリの外で使っていたログインも一緒に解除されます。',
   'account.remove.processing': '処理中…',
   'account.remove.confirmWithLogout': '解除 + ログアウト',
-  'account.logout.failed': 'ログアウトに失敗しました: {detail}\n\n登録解除はこのまま続行します。',
+  'account.logout.failed': 'アカウントは削除されましたが、ログアウトに失敗しました: {detail}',
   'account.remove.inUse': '実行中のセッションがこのアカウントを使用しているため、登録を解除できません: {titles}\n\nセッションを閉じるか、そのセッションのローテーション順からこのアカウントを外してください。',
   'account.remove.willClose': '終了済みのワーカーセッション {count} 件が閉じられます: {titles}',
   'account.remove.releaseFailed': '終了済みのワーカーセッションを閉じられなかったため、アカウントの登録は解除されませんでした: {detail}',

@@ -56,7 +56,7 @@ export const accounts = {
     '로그아웃하면 이 계정의 인증이 제거되어 다시 로그인해야 합니다. 홈 디렉토리(~/.claude, ~/.codex)를 쓰는 계정이면 이 앱 밖에서 쓰던 로그인도 함께 해제됩니다.',
   'account.remove.processing': '처리 중…',
   'account.remove.confirmWithLogout': '해제 + 로그아웃',
-  'account.logout.failed': '로그아웃 실패: {detail}\n\n등록 해제는 계속 진행합니다.',
+  'account.logout.failed': '계정은 제거되었지만 로그아웃에 실패했습니다: {detail}',
   'account.remove.inUse': '돌아가는 세션이 이 계정을 쓰고 있어 등록을 해제할 수 없습니다: {titles}\n\n세션을 닫거나, 그 세션의 롤링 순서에서 이 계정을 빼 주세요.',
   'account.remove.willClose': '끝난 워커 세션 {count}개가 닫힙니다: {titles}',
   'account.remove.releaseFailed': '끝난 워커 세션을 닫지 못해 계정 등록을 해제하지 않았습니다: {detail}',
