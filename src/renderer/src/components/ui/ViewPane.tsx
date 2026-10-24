@@ -5,7 +5,6 @@ import {
   useId,
   useLayoutEffect,
   useMemo,
-  useReducer,
   useRef,
   useState,
 } from "react";
@@ -84,7 +83,8 @@ export function ViewPane({
   const [weight, setWeight] = useState<number | null>(() =>
     storageKey ? (readPaneSize(storage(), storageKey) ?? null) : null,
   );
-  const [, rejoin] = useReducer((n: number) => n + 1, 0);
+  // the share a pane without a saved size got when the user opened it; frozen, so later drags elsewhere never move it
+  const [joined, setJoined] = useState<number | undefined>(undefined);
   const [height, setHeight] = useState(0);
   const set = useCallback(
     (w: number, persist: boolean) => {
@@ -96,8 +96,6 @@ export function ViewPane({
   useLayoutEffect(() => {
     const panes = container?.panes.current;
     panes?.set(id, { weight, open, set });
-    // siblings that registered after this render's mean() was taken: look again so a pane without a saved size joins them
-    if (open && weight === null && container?.mean() !== undefined) rejoin();
     return () => void panes?.delete(id);
   }, [container, id, weight, open, set]);
   useLayoutEffect(() => {
@@ -115,8 +113,9 @@ export function ViewPane({
     PANE_MIN_H,
     height + (prevOpen?.offsetHeight ?? 0) - PANE_MIN_H,
   );
-  const grow = open ? (weight ?? container?.mean()) : undefined;
+  const grow = open ? (weight ?? joined) : undefined;
   const toggle = (): void => {
+    if (!open && weight === null) setJoined(container?.mean());
     setOpen(!open);
     if (storageKey) writeSectionOpen(storage(), storageKey, !open);
   };

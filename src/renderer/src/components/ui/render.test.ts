@@ -301,6 +301,19 @@ describe('workbench primitives (DESIGN-W13)', () => {
     expect(out).not.toContain('<svg')
   })
 
+  it('ViewPane: a pane without a saved size keeps its CSS sizing while its siblings have saved sizes', () => {
+    const saved = new Map([['cm.section.b.size', '300'], ['cm.section.c.size', '200']])
+    vi.stubGlobal('localStorage', { getItem: (k: string) => saved.get(k) ?? null, setItem: () => undefined })
+    try {
+      const pane = (k: string): React.ReactElement => React.createElement(ViewPane, { key: k, title: k, storageKey: k, children: 'x' })
+      const out = html(React.createElement(ViewContainer, null, ['a', 'b', 'c'].map(pane)))
+      expect(out).toContain('style="flex:300 1 0;max-height:none"')
+      expect(out.match(/<section[^>]*data-pane="a"[^>]*>/)?.[0]).not.toContain('style=')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('ViewPane: a toggle with aria-expanded, uppercase title, count; body only when open', () => {
     const open = html(React.createElement(ViewContainer, null, React.createElement(ViewPane, { title: 'Open editors', count: 3, children: 'body' })))
     expect(open).toContain('ui-viewcontainer')
