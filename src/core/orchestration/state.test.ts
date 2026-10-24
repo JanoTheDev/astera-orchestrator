@@ -3422,6 +3422,31 @@ describe('applyReviewResult — convergence', () => {
     expect(r.state.messages.at(-1)?.subject).toBe('claude review found 1 blocking issue')
   })
 
+  it('a blocking issue that needs an environment opens a review-needs-decision Gate: no repair, no attempt burned', () => {
+    const { s, taskId, reviewId } = reviewing({ consecutiveFailures: 1 })
+    const env = { severity: 'high' as const, title: 'next dev never run', needs: 'environment' as const }
+    const r = unwrap(applyReviewResult(s, { taskId, dispatchId: reviewId, outcome: 'failed', subject: 'env', body: 'b', issues: [env, high], repair: SAME }, LATER) as never)
+    const task = r.state.tasks.find((x) => x.id === taskId)!
+    expect(task.status).toBe('blocked')
+    expect(task.consecutiveFailures).toBe(1)
+    expect(task.reviewIssues?.map((i) => i.needs)).toEqual(['environment', undefined])
+    expect(r.state.dispatches.filter((d) => d.repair)).toHaveLength(0)
+    const gate = r.state.gates.at(-1)!
+    expect(gate).toMatchObject({ kind: 'review-needs-decision', status: 'open', taskId })
+    expect(gate.options).toBeUndefined()
+    expect(gate.question).toContain('next dev never run')
+    expect(gate.question).toContain('environment')
+    expect(gate.question).not.toContain('Session race')
+  })
+
+  it('a review whose blocking issues all need code still repairs', () => {
+    const { s, taskId, reviewId } = reviewing()
+    const r = unwrap(applyReviewResult(s, { taskId, dispatchId: reviewId, outcome: 'failed', subject: 'race', body: 'b', issues: [{ ...high, needs: 'code' as const }, { severity: 'low' as const, title: 'later', needs: 'person' as const }], repair: SAME }, LATER) as never)
+    expect(r.state.tasks.find((x) => x.id === taskId)!.status).toBe('dispatched')
+    expect(r.state.dispatches.filter((d) => d.repair)).toHaveLength(1)
+    expect(r.state.gates).toHaveLength(0)
+  })
+
   // repair 메시지 본문은 repair 하는 워커에게 전해지는 유일한 기록이다 — 그 모양을 아무도
   // 확인하지 않고 있었다. 하나는 file:line 이 있는 경우, 하나는 없는 경우다.
   it('repair 메시지 본문에 blocking 이슈를 번호를 매겨 나열한다', () => {

@@ -137,7 +137,7 @@ export const CHECK_FIELDS = Object.freeze([
   'externalUrl',
   'skipped'
 ] as const)
-export const REVIEW_ISSUE_FIELDS = Object.freeze(['id', 'severity', 'blocking', 'title', 'description', 'file', 'line', 'suggestedFix'] as const)
+export const REVIEW_ISSUE_FIELDS = Object.freeze(['id', 'severity', 'blocking', 'title', 'description', 'file', 'line', 'suggestedFix', 'needs'] as const)
 
 /** One timeline event as `runs follow` prints it. A message's whole body (a worker's report can be pages long) and
  *  the app's link from an event to a tab are not public. */

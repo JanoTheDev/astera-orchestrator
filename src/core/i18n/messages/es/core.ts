@@ -242,6 +242,8 @@ export const core: Partial<Record<keyof typeof ko, string>> = {
   'jobs.convergence.gate.stopped': 'La corrección automática está detenida para esta tarea y sus comprobaciones siguen fallando: {failures}',
   'jobs.convergence.gate.paused': 'Esta ejecución se pausó mientras corrían sus comprobaciones, y siguen fallando: {failures}',
   'jobs.convergence.gate.repairFailed': 'La aplicación no pudo iniciar un worker de reparación: {reason}',
+  'jobs.convergence.gate.needsDecision':
+    'La revisión encontró problemas que ningún cambio de código resuelve: {issues}\nResponde qué hacer. Luego una reparación, fuera del presupuesto, actúa según tu respuesta.',
   'jobs.checks.gate.unavailable': 'No se pudo realizar la comprobación: {check}: {reason}',
   'jobs.gate.noAccount': 'Ninguna cuenta de {provider} tiene la sesión iniciada, así que esta Task no puede empezar',
   'jobs.gate.noAccountAnyProvider': 'Ninguna cuenta de ningún proveedor tiene la sesión iniciada, así que esta Task no puede empezar',

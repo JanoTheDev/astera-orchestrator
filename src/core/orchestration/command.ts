@@ -718,8 +718,10 @@ export interface OrchServerDeps {
    *  **결과를 돌려준다(전체 브랜치 리뷰, Finding 5).** 사람의 "한 번 더" 가 실제로 아무것도 열지
    *  못했을 때(예: 이 Task 를 막는 다른 Gate 가 이미 열려 있다) gate-resolve 의 200 응답이 그 사실을
    *  담을 수 있게 한다 — repairOnce 자신은 실패를 이미 로그하므로(그 함수의 주석) 이 반환값은 응답에
-   *  싣는 용도이지, 여기서 또 로그할 것이 있어서가 아니다. */
-  repairOnce?(a: { taskId: string }): Promise<{ ok: true } | { ok: false; error: string }>
+   *  싣는 용도이지, 여기서 또 로그할 것이 있어서가 아니다.
+   *
+   *  `decision` (T3): a `review-needs-decision` Gate's answer — the one repair it opens carries it. */
+  repairOnce?(a: { taskId: string; decision?: string }): Promise<{ ok: true } | { ok: false; error: string }>
   /** Gate 문구의 언어. 배선이 앱 언어를 넘긴다(applyValidationResult/applyReviewResult 의 `lang`
    *  으로 그대로 간다); 주입되지 않으면 영어다.
    *
@@ -6064,7 +6066,14 @@ export async function handleCommand(
       // 열려 있으면(openDispatch 의 "task is blocked by an open gate") repairOnce 는 아무것도 열지
       // 못한 채 그 사실을 로그만 하고 돌아온다 — 이 Gate 자체는 정상적으로 풀렸으니 200 이 맞지만,
       // 사람의 "한 번 더" 가 조용히 무효가 된 사실까지 감추면 안 된다.
-      const retried = exhaustedOpen && resolution === 'retry-once' ? await deps.repairOnce?.({ taskId: gate!.taskId }) : undefined
+      // T3: a review blocked by something no code change fixes — its free-text answer is the decision one repair acts on
+      const decisionOpen = gate?.kind === 'review-needs-decision' && gate.status === 'open' && !taskEnded
+      const retried =
+        exhaustedOpen && resolution === 'retry-once'
+          ? await deps.repairOnce?.({ taskId: gate!.taskId })
+          : decisionOpen
+            ? await deps.repairOnce?.({ taskId: gate!.taskId, decision: resolution })
+            : undefined
       if (retried && !retried.ok)
         return okBody({ ...r.value, retryOnceFailed: retried.error } satisfies AnsweredQuestion)
       return okBody(r.value satisfies AnsweredQuestion)

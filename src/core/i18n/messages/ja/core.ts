@@ -234,6 +234,8 @@ export const core: Partial<Record<keyof typeof ko, string>> = {
   'jobs.convergence.gate.stopped': 'このTaskの自動修正は停止しており、チェックはまだ失敗しています: {failures}',
   'jobs.convergence.gate.paused': '完了チェックの実行中にこのRunが一時停止され、チェックはまだ失敗しています: {failures}',
   'jobs.convergence.gate.repairFailed': '修正ワーカーを起動できませんでした: {reason}',
+  'jobs.convergence.gate.needsDecision':
+    'レビューがコードの修正では解決しない問題を見つけました: {issues}\nどうするか回答してください。その回答を載せた修正が 1 回、予算の外で開かれます。',
   'jobs.checks.gate.unavailable': 'チェックを実行できませんでした: {check}: {reason}',
   'jobs.gate.noAccount': '{provider} アカウントにログインしていないため、この Task を開始できません',
   'jobs.gate.noAccountAnyProvider': 'どの提供元のアカウントにもログインしていないため、この Task を開始できません',

@@ -763,6 +763,8 @@ export function openDispatch(
     /** 소진 Gate 의 retry-once 만 쓴다 — 사람이 "한 번 더" 라고 말한 자리이고, 그 한 번은
      *  예산 밖이다(설계 §5.2). 그 밖의 모든 호출은 회로를 그대로 본다. */
     ignoreCircuit?: boolean
+    /** A `review-needs-decision` Gate's answer (T3): the repair acts on it and is not one of the budget's */
+    decision?: string
   },
   now: string
 ): Res<Dispatch> {
@@ -828,7 +830,8 @@ export function openDispatch(
     ...(a.repair ? { repair: a.repair } : {}),
     // 열 때 한 번만 적는다 — 나중에 카운트로 되짚지 않는다(Dispatch.grantedExtra 의 주석, 전체 브랜치
     // 리뷰 Finding 3).
-    ...(a.ignoreCircuit ? { grantedExtra: true } : {})
+    // A decision's repair is outside the budget for another reason than a granted extra attempt: nothing was spent on it
+    ...(a.decision !== undefined ? { decision: a.decision } : a.ignoreCircuit ? { grantedExtra: true } : {})
   }
   return ok(
     { ...s, tasks: replace(s.tasks, moved), dispatches: [...s.dispatches, dispatch] },
@@ -1658,6 +1661,22 @@ export function applyReviewResult(
       now
     ).state
     return ok(state, 'accepted')
+  }
+  // T3: a blocking issue no code change fixes stops the loop here, above the attempt count: another repair would fail
+  // on it the same way. A person (or a hands-off plan's decider) answers, and that answer opens one repair (gate-resolve).
+  const nonCode = blocking.filter((i) => i.needs !== undefined && i.needs !== 'code')
+  if (nonCode.length > 0) {
+    const g = createGate(
+      { ...closed, tasks: replace(closed.tasks, { ...recorded, result: a.body }) },
+      {
+        taskId: task.id,
+        question: t(lang, 'jobs.convergence.gate.needsDecision', { issues: nonCode.map((i) => `${i.title} (needs ${i.needs})`).join('; ') }),
+        kind: 'review-needs-decision'
+      },
+      now
+    )
+    if (!g.ok) return err(g.error)
+    return ok(g.state, 'accepted')
   }
   const failed = stepRepairLadder(s, { ...recorded, consecutiveFailures: task.consecutiveFailures + 1, result: a.body }, 'a failed review')
   // 라운드 상한(설계 §8.4). 지금 닫은 검토가 이미 outcome 을 가지므로 reviewRoundOf 가 그것을 센다.

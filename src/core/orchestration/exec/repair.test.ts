@@ -5,6 +5,7 @@ import {
   startJobRun, createTask, emptyState, openDispatch, resolveGate, type OrchState
 } from '../state'
 import type { CheckResult, Dispatch, Task } from '../types'
+import { repairCountOf } from '../convergence'
 
 /** 예전의 createRun 한 번 — 이제 계획을 만들고 그 1회차를 시작하는 두 걸음이다. */
 const seedRun = (over: Parameters<typeof createJob>[1], now: string) => {
@@ -281,6 +282,28 @@ describe('repairOnce', () => {
     expect(deps.started[0].specFileContent).toContain(
       'This is an extra repair, granted by a person after the budget of 3 was already spent.'
     )
+  })
+  it('a decision opens one repair outside the budget whose spec carries it, and repairCountOf does not count it', async () => {
+    const { s, taskId, implId } = validating()
+    const issues: Task['reviewIssues'] = [
+      { id: 'rvw_1', severity: 'high', blocking: true, title: 'next dev never run', description: '', needs: 'environment' },
+      { id: 'rvw_2', severity: 'high', blocking: true, title: 'Null check missing', description: '' }
+    ]
+    const withIssues: OrchState = { ...s, tasks: s.tasks.map((t) => (t.id === taskId ? { ...t, reviewIssues: issues } : t)) }
+    const gated = unwrap<{ id: string }>(createGate(withIssues, { taskId, question: 'q', kind: 'review-needs-decision' }, NOW) as never)
+    const resolved = unwrap(resolveGate(gated.state, { gateId: gated.value.id, resolution: 'Skip the next dev step.' }, NOW) as never)
+    const deps = makeDeps(resolved.state)
+    expect(await repairOnce(deps, { taskId, decision: 'Skip the next dev step.' })).toEqual({ ok: true })
+    const repair = deps.box.state.dispatches.find((d) => d.repair)!
+    expect(repair).toMatchObject({ repair: 'review-failure', retryOf: implId, decision: 'Skip the next dev step.' })
+    expect(repair.grantedExtra).toBeUndefined()
+    expect(repairCountOf(deps.box.state, taskId)).toBe(0)
+    await vi.waitFor(() => expect(deps.started).toHaveLength(1))
+    const spec = deps.started[0].specFileContent!
+    expect(spec).toContain('## Decision')
+    expect(spec).toContain('decided: Skip the next dev step. Act on it.')
+    expect(spec).toContain('Null check missing')
+    expect(spec).not.toContain('1. HIGH — next dev never run')
   })
   it('이미 열린 Dispatch 가 있으면 새 Dispatch 를 열지 않는다', async () => {
     const { s, taskId } = validating()
