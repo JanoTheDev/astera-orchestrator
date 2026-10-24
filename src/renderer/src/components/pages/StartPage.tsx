@@ -1,7 +1,8 @@
-// T14 Start (DESIGN-W11 §9 "Start"): where a plan begins, one clear page. Project first (required), one box with starter
-// chips, three plain ways to plan, the rest folded under "More options", one sticky primary button. The W6-A intake keeps
-// its own state and calls (intake/useIntake.ts).
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+// T14 Start (DESIGN-W11 §9 "Start", T4 DESIGN-W13 look): where a plan begins, one clear page. One composer card holds
+// the project (first, required), the box, its attachments and the three plain ways to plan; starter chips below, the
+// rest folded under "More options", one sticky primary button. The W6-A intake keeps its own state and calls
+// (intake/useIntake.ts).
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Account, OrchSnapshot, ScheduleRule } from '../../../../core/types'
 import { MAX_CONCURRENT_WORKERS, PROJECT_DEFAULTS, type DeliveryMode } from '../../../../core/orchestration/types'
 import { foldsPathCase } from '../../../../core/files/paths'
@@ -9,12 +10,12 @@ import { useI18n } from '../../i18n/I18nProvider'
 import { formFailure, localDoor } from '../../lib/orchDoor'
 import { useAdvancedMode } from '../../state/useAdvancedMode'
 import { openActivity, openConsole } from '../shell/navigation'
-import { Button, Card, Chip, Field, Icon, IconButton, Input, PageHeader, Tabs, Textarea } from '../ui'
+import { Button, Card, Chip, Field, Icon, IconButton, Input, PageHeader, Select, Tabs, Textarea } from '../ui'
 import { useIntake } from '../intake/useIntake'
 import { ScheduleRuleFields } from '../ScheduleRuleFields'
 import { useAccountUsage } from '../../hooks/useAccountUsage'
 import {
-  AUTO_ACCOUNT, STARTERS, STARTER_MODE, accountPickOptions, afterCreate, blockedReason, consolesIn, dropOpensStart, filesFromDrop, handsOffSaveArgs, intakeTab, isSubmitKey, lastMode, lookupArgs,
+  AUTO_ACCOUNT, STARTERS, attachableOf, STARTER_MODE, accountPickOptions, afterCreate, blockedReason, consolesIn, dropOpensStart, filesFromDrop, handsOffSaveArgs, intakeTab, isSubmitKey, lastMode, lookupArgs,
   planningOf, primaryLabel, projectOptions, saveMode, scheduledArgs, shouldLandOnStart, withStarter, type NameLookup, type StarterId, type StartMode, type StartRequest
 } from './startLogic'
 import './start.css'
@@ -22,6 +23,7 @@ import './start.css'
 type OpenStart = React.Dispatch<React.SetStateAction<StartRequest | null>>
 
 const baseName = (p: string): string => p.split(/[\\/]/).pop() ?? p
+const IMAGE = /\.(png|jpe?g|gif|webp|svg|bmp)$/i
 
 export function StartPage({
   req,
@@ -138,15 +140,6 @@ export function StartPage({
   }, [door, accounts])
   const usage = useAccountUsage()
 
-  // Full width below the title bar (W9-B owns its height)
-  const [top, setTop] = useState(0)
-  useLayoutEffect(() => {
-    const measure = (): void => setTop(document.querySelector('.titlebar')?.getBoundingClientRect().bottom ?? 0)
-    measure()
-    window.addEventListener('resize', measure)
-    return () => window.removeEventListener('resize', measure)
-  }, [])
-
   // W10-A Run as written by name: the typed prompt names, looked up on the Host a moment after the last key
   const [lookup, setLookup] = useState<NameLookup | null>(null)
   const [dirEdit, setDirEdit] = useState<string | null>(null)
@@ -188,6 +181,26 @@ export function StartPage({
   }
 
   const fileInput = useRef<HTMLInputElement>(null)
+  // T4: an image attached here (pasted or chosen) shows its own picture on the chip; object URLs, freed when it goes
+  const [thumbs, setThumbs] = useState<Record<string, string>>({})
+  const thumbsRef = useRef(thumbs)
+  thumbsRef.current = thumbs
+  useEffect(() => () => Object.values(thumbsRef.current).forEach((u) => URL.revokeObjectURL(u)), [])
+  const [attachError, setAttachError] = useState<string | null>(null)
+  const attach = async (list: File[]): Promise<void> => {
+    const { attached, failed } = await attachableOf(list, window.api.files.pathForFile, window.api.files.savePasted)
+    const fresh = attached.filter((a) => a.file.type.startsWith('image/') && !thumbsRef.current[a.path])
+    if (fresh.length > 0) setThumbs((cur) => ({ ...cur, ...Object.fromEntries(fresh.map((a) => [a.path, URL.createObjectURL(a.file)])) }))
+    intake.addPaths(attached.map((a) => a.path))
+    setAttachError(failed.length > 0 ? t('start.paste.failed', { name: failed.join(', ') }) : null)
+  }
+  const removeFile = (f: string): void => {
+    intake.setFiles((cur) => cur.filter((x) => x !== f))
+    const url = thumbs[f]
+    if (url === undefined) return
+    URL.revokeObjectURL(url)
+    setThumbs((cur) => Object.fromEntries(Object.entries(cur).filter(([k]) => k !== f)))
+  }
   const afterName = intake.plans.find((p) => p.id === intake.after)?.name
   const go = primaryLabel({ mode, files, text, after: afterName, named: names && !namesRefused ? names.picked?.length : undefined }, t as never)
   const blocked = blockedReason({ project: project !== null, text: text.trim() !== '' || files.length > 0, request: intake.request !== null }, t as never)
@@ -213,11 +226,16 @@ export function StartPage({
   return (
     <div
       className="start-page"
-      style={{ top }}
       onDragOver={(e) => e.preventDefault()}
       onDrop={(e) => {
         e.preventDefault()
         intake.addPaths(filesFromDrop(e.dataTransfer.files, window.api.files.pathForFile))
+      }}
+      // T4: Ctrl+V of an image or copied files attaches them, anywhere on the page; a text paste has no files and goes through
+      onPaste={(e) => {
+        if (intake.busy || e.clipboardData.files.length === 0) return
+        e.preventDefault()
+        void attach(Array.from(e.clipboardData.files))
       }}
     >
       <div className="start-scroll">
@@ -226,30 +244,30 @@ export function StartPage({
             className="start-head"
             title={t('start.q.title')}
             leading={
-              <Button variant="ghost" icon={<Icon name="back" />} onClick={onClose} disabled={intake.busy}>
+              <Button variant="ghost" size="sm" icon={<Icon name="back" size={14} />} onClick={onClose} disabled={intake.busy}>
                 {t('start.back')}
               </Button>
             }
           />
 
-          {/* 1. Project: first, required, never "All projects" */}
-          <Field
-            kind="select"
-            className="start-project"
-            label={t('start.project')}
-            value={project?.path ?? ''}
-            onChange={(e) => setCwd(e.target.value)}
-            disabled={intake.busy}
-            required
-            error={project === null && text.trim() !== '' ? t('start.project.required') : undefined}
-            options={projectOptions(intake.projects, project?.path ?? '', t('start.project.choose'))}
-          />
-
-          {/* 2. One box, then the starter chips */}
+          {/* One composer: the project, the box, its attachments, and how to plan */}
           <Card className="start-composer">
+            <div className="start-composer-head">
+              <Icon name="folder" size={16} />
+              {/* Project: first, required, never "All projects" */}
+              <Select
+                className="start-project"
+                ariaLabel={t('start.project')}
+                value={project?.path ?? ''}
+                onChange={setCwd}
+                disabled={intake.busy}
+                aria-invalid={project === null && text.trim() !== ''}
+                items={projectOptions(intake.projects, project?.path ?? '', t('start.project.choose'))}
+              />
+            </div>
             <Textarea
               className="start-text"
-              rows={5}
+              rows={6}
               value={text}
               onChange={(e) => intake.setText(e.target.value)}
               // Enter is a newline; Ctrl+Enter starts
@@ -263,37 +281,20 @@ export function StartPage({
               autoFocus
             />
             {files.length > 0 && (
-              <div className="start-chips">
+              <ul className="start-files" aria-label={t('start.attach')}>
                 {files.map((f) => (
-                  <Chip key={f} className="start-chip">
-                    <span title={f}>{baseName(f)}</span>
-                    {removeChip(baseName(f), () => intake.setFiles((cur) => cur.filter((x) => x !== f)))}
-                  </Chip>
+                  <li key={f}>
+                    <Chip className="start-file">
+                      {thumbs[f] ? <img className="start-thumb" src={thumbs[f]} alt="" /> : <Icon name={IMAGE.test(f) ? 'image' : 'file'} size={14} />}
+                      <span className="start-file-name" title={f}>
+                        {baseName(f)}
+                      </span>
+                      {removeChip(baseName(f), () => removeFile(f))}
+                    </Chip>
+                  </li>
                 ))}
-              </div>
+              </ul>
             )}
-            {mode === 'prompts' && (
-              <div className="start-attach">
-                <Button size="sm" variant="ghost" icon={<Icon name="file" size={14} />} onClick={() => fileInput.current?.click()}>
-                  {t('start.attach')}
-                </Button>
-                {hasPromptsDir && (
-                  <Button size="sm" variant="ghost" icon={<Icon name="tasks" size={14} />} onClick={() => intake.setText('next waves')}>
-                    {t('start.names.next')}
-                  </Button>
-                )}
-              </div>
-            )}
-            <input
-              ref={fileInput}
-              type="file"
-              multiple
-              hidden
-              onChange={(e) => {
-                intake.addFiles(e.target.files)
-                e.target.value = ''
-              }}
-            />
             {mode === 'prompts' && lookup !== null && files.length > 0 && (
               <p className="start-names-note">{t('start.names.ignored', { n: files.filter((f) => /\.md$/i.test(f)).length })}</p>
             )}
@@ -333,7 +334,40 @@ export function StartPage({
                 {names.problems?.map((p) => <p key={p} className="warn">{p}</p>)}
               </div>
             )}
+            <div className="start-composer-bar">
+              <IconButton icon={<Icon name="fileAdd" size={16} />} label={t('start.attach')} onClick={() => fileInput.current?.click()} disabled={intake.busy} />
+              {mode === 'prompts' && hasPromptsDir && (
+                <Button size="sm" variant="ghost" icon={<Icon name="tasks" size={14} />} onClick={() => intake.setText('next waves')}>
+                  {t('start.names.next')}
+                </Button>
+              )}
+              {/* How to plan: three plain choices */}
+              <span className="start-composer-hint">{files.length === 0 ? t('start.attach.hint') : null}</span>
+              <Tabs
+                variant="segmented"
+                label={t('start.how.label')}
+                value={mode}
+                onChange={(m: StartMode) => pickMode(m)}
+                items={[
+                  { id: 'chat', label: t('start.how.chat') },
+                  { id: 'auto', label: t('start.how.auto') },
+                  { id: 'prompts', label: t('start.how.prompts') }
+                ]}
+              />
+            </div>
+            <input
+              ref={fileInput}
+              type="file"
+              multiple
+              hidden
+              onChange={(e) => {
+                void attach(Array.from(e.target.files ?? []))
+                e.target.value = ''
+              }}
+            />
           </Card>
+          <p className="start-mode-hint">{t(`start.how.${mode}Hint` as never)}</p>
+
           <div className="start-starters" role="group" aria-label={t('start.starters.label')}>
             {STARTERS.map((s) => (
               <Button key={s.id} size="sm" variant="secondary" disabled={intake.busy} onClick={() => startWith(s.id)}>
@@ -342,23 +376,7 @@ export function StartPage({
             ))}
           </div>
 
-          {/* 3. How to plan: three plain choices, one line each */}
-          <section className="start-mode">
-            <Tabs
-              variant="segmented"
-              label={t('start.how.label')}
-              value={mode}
-              onChange={(m: StartMode) => pickMode(m)}
-              items={[
-                { id: 'chat', label: t('start.how.chat') },
-                { id: 'auto', label: t('start.how.auto') },
-                { id: 'prompts', label: t('start.how.prompts') }
-              ]}
-            />
-            <p className="start-mode-hint">{t(`start.how.${mode}Hint` as never)}</p>
-          </section>
-
-          {/* 4. Advanced: folded; nothing in it is needed to start */}
+          {/* Options: folded; nothing in it is needed to start */}
           <section className="start-opts">
             <div className="start-more">
               <Button
@@ -461,11 +479,11 @@ export function StartPage({
         </div>
       </div>
 
-      {/* 5. One primary button, always in view, with the reason when it is off */}
+      {/* One primary button, always in view, with the reason when it is off */}
       <footer className="start-foot">
         <div className="start-foot-inner">
           <div className="start-foot-notes" aria-live="polite">
-            {intake.error || schedError ? <p className="warn">{intake.error ?? schedError}</p> : blocked ? <span>{blocked}</span> : <span>{go.note ?? t('start.hint.submit')}</span>}
+            {intake.error || schedError || attachError ? <p className="warn">{intake.error ?? schedError ?? attachError}</p> : blocked ? <span>{blocked}</span> : <span>{go.note ?? t('start.hint.submit')}</span>}
           </div>
           <Button variant="primary" size="lg" loading={intake.busy || schedBusy} disabled={!canSubmit} onClick={submit}>
             {go.label}

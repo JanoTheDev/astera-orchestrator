@@ -1976,6 +1976,10 @@ export interface CoreApi {
     /** Where a File handed over by a paste lives on disk. Empty for a File that is not a file on disk
      *  (an image copied from a web page). Synchronous — Electron's webUtils, not an IPC call. */
     pathForFile(file: File): string
+    /** T4: write a file pasted into Start that has no path (a clipboard image) under `<userData>/intake-paste/<uuid>/`
+     *  and answer its absolute path, for the intake to attach. Rejects a bad name type or mime, an empty payload and one
+     *  over the attachment cap (main/intakePaste.ts). */
+    savePasted(name: string, mime: string, base64: string): Promise<string>
     reveal(path: string): Promise<void> // show in the OS file manager
     countEntries(path: string): Promise<number> // child count for the delete confirmation (stops at 9999)
     /** A session terminal's path link (or a SendUserFile row's path): `target` as it is when absolute,

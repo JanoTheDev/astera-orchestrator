@@ -90,4 +90,7 @@ export const start: Record<keyof typeof ko, string> = {
   'start.adv.replanHint': 'Lets the planner adjust the next step after seeing what the last one did.',
   'start.adv.replan.waves': 'Plan again after each step',
   'start.adv.replan.off': 'Keep the first plan as it is',
+  // T4: paste to attach
+  'start.paste.failed': 'Could not attach {name}',
+  'start.attach.hint': 'Paste or drop files to attach them',
 }
