@@ -1,5 +1,5 @@
 // Moved out of App.tsx unchanged (W9-A): App calls this hook and passes its result on.
-import { useEffect } from 'react'
+import { useEffect, useLayoutEffect } from 'react'
 import { mirrorsFromList } from '../lib/workspaceMirror'
 import { mirrorFrames, takeWorkspaceEvent } from '../lib/mirrorFrames'
 import { jobsStallRecheckInMs } from '../../../core/orchestration/jobsView'
@@ -13,6 +13,7 @@ import { sameOrNext } from '../lib/remoteSessions'
 import { displayHostOf, previewTargetOf } from '../../../core/preview/url'
 import { onFileChanges } from '../lib/fileChanges'
 import { needsUnderstanding } from '../lib/understandingRead'
+import { liveCache, orchSnapshotFor, readThrough, startOrchFeed, useOrchConsumed } from './orchFeed'
 import type { useLayout } from './useLayout'
 import type { useRunPanel } from './useRunPanel'
 import type { useWorkspace } from './useWorkspace'
@@ -73,13 +74,21 @@ export function useLiveData(deps: LiveDataDeps) {
   useEffect(() => {
     // 여기는 currentProject 그대로다 — 실행 구성은 프로젝트 단위이므로 홈에서는 읽을 것이 없다.
     if (!currentProject) return
-    let cancelled = false
+    const project = currentProject
     // 거부를 삼키지 않고 상태를 비운다. 이 호출은 예전에 탐색기가 열려 있을 때만 돌았고 지금은
     // 프로젝트가 있으면 항상 돈다 — 그래서 가드가 거부하는 루트(사라진 워크트리의 파일 탭 등)가
     // 처리되지 않은 거부로 콘솔에 튀어나왔다. 실패하면 이전 프로젝트의 구성이 남는 것이 더 나쁘므로
     // 비운다: 남겨 두면 그 목록의 ▶ 가 다른 프로젝트를 실행한다.
-    void window.api.run.list(currentProject).then((r) => {
-      if (cancelled) return
+    // The project's last answer shows at once and the read refreshes it; a failure clears this project's entry only.
+    return readThrough(liveCache, `run:${project}`, () => window.api.run.list(project), (r, fresh) => {
+      if (r === null) {
+        setRunConfigs([])
+        setRuns([])
+        setSelectedRunId(null)
+        applyRunSelection(project, null)
+        setRunContext(null)
+        return
+      }
       setRunConfigs(r.configs)
       setRuns(r.runs)
       // Follow a live run if there is one, else the first row, else nothing
@@ -92,23 +101,16 @@ export function useLiveData(deps: LiveDataDeps) {
       // 물어본다 — 씨앗 id 는 프로젝트를 담지 않아서, 직전 선택을 들고 오면 이름이 같은
       // 스크립트가 있는 프로젝트마다 그 선택이 따라다닌다(runSelectedByProject 주석).
       applyRunSelection(
-        currentProject,
+        project,
         pickRunSelection(
           r.configs,
-          runSelectedByProject.current[currentProject],
+          runSelectedByProject.current[project],
           r.runs.find((x) => x.status !== 'exited')?.configId
         )
       )
-      if (r.runs.some((x) => x.status === 'running')) setRunPanelOpen(true)
-    }, () => {
-      if (cancelled) return
-      setRunConfigs([])
-      setRuns([])
-      setSelectedRunId(null)
-      applyRunSelection(currentProject, null)
-      setRunContext(null)
+      // Only a fresh answer opens the panel: the cached one may still list a run that has since exited.
+      if (fresh && r.runs.some((x) => x.status === 'running')) setRunPanelOpen(true)
     })
-    return () => { cancelled = true }
   }, [currentProject])
 
   // Loads that project's How It Works understanding whenever the project changes — same shape as
@@ -130,18 +132,10 @@ export function useLiveData(deps: LiveDataDeps) {
     if (!currentProject) return setUnderstanding(null)
     if (!wantUnderstanding) return
     const root = currentProject
-    let alive = true
-    void window.api.understanding.get(root).then(
-      (u) => {
-        if (alive) setUnderstanding({ root, data: u })
-      },
-      () => {
-        if (alive) setUnderstanding({ root, data: null })
-      }
+    // Cached per project like run.list, so History opens with the last read while it is read again.
+    return readThrough(liveCache, `understanding:${root}`, () => window.api.understanding.get(root), (u) =>
+      setUnderstanding({ root, data: u })
     )
-    return () => {
-      alive = false
-    }
   }, [currentProject, understandingSeq, wantUnderstanding])
 
   // The open-task section's own load — same shape as the understanding effect just above, including
@@ -220,48 +214,34 @@ export function useLiveData(deps: LiveDataDeps) {
     }
   }, [])
 
-  // Loads the Jobs sidebar snapshot and subscribes to further changes, the same shape as the run.list
-  // effect above. orch.list doubles as the subscription (OrchApi's doc comment): its return value is
-  // the initial payload and must be rendered here, because 'orch:state' only carries changes after it —
-  // a caller that only awaits list to arm the subscription and discards the result never sees that first
-  // state. orch.unwatch on cleanup is the way out, the same pair as files.watch/unwatch and
-  // git.watch/unwatch — without it main keeps folding and pushing a snapshot after this view is gone.
+  // Loads the orchestration snapshot and subscribes to further changes. orch.list doubles as the subscription (OrchApi's
+  // doc comment): its return value is the initial payload and must be rendered, because 'orch:state' only carries
+  // changes after it. orch.unwatch on stop is the way out, the same pair as files.watch/unwatch and git.watch/unwatch.
+  //
+  // A project switch shows that project's last snapshot from the cache before the paint (layout effect), never the
+  // previous project's: null when it was never read ("not known yet", which the views draw nothing for), an empty
+  // snapshot with no project (no answer is coming, so the empty state). Leaving a view keeps the snapshot, so coming
+  // back draws it at once while the re-armed watch reads it again.
+  useLayoutEffect(() => {
+    setOrchSnapshot(orchSnapshotFor(liveCache, currentProject))
+  }, [currentProject])
+  // The watch stays armed while anything draws the snapshot: the Plans view (a collapsed sidebar hides every view), a
+  // plan page, or a view counted by useOrchConsumer (the Main plan tab). With none, unwatch: main otherwise folds and
+  // pushes for nobody. Its folds are coalesced per tick and versioned (main/orchPush.ts), so watching while a consumer
+  // is mounted, not only while the Plans view shows, costs the CLI nothing.
+  const orchTabConsumed = useOrchConsumed()
+  const orchConsumed = (jobsOpen && sidebarOpen) || !!planPage || orchTabConsumed
   useEffect(() => {
-    // Clearing before arming, the shape useGitStatus already uses (hooks/useGitStatus.ts: it clears on
-    // a null root and clears again on every root change). Without it orchSnapshot is only ever written
-    // and never reset, which shows up twice: on a project switch the previous project's Runs stay on
-    // screen for the whole round trip — the flash JobsView's own comment says it avoids is a flash of
-    // another project's objectives, which is worse than the "no jobs" frame it was avoiding — and with
-    // no active tab nothing ever arrives at all.
-    //
-    // The two cases want different values. A root change means "not known yet", so null, which is what
-    // JobsView's null guard draws nothing for while the request is in flight. A null root means there
-    // is no project to ask about and no response is coming, so an empty snapshot goes in instead —
-    // that reaches the empty state, where null would leave an unexplained blank sidebar for as long as
-    // the view stays open.
-    setOrchSnapshot(currentProject === null ? { runs: [], projectFolderBusy: false } : null)
-    // sidebarOpen belongs in this guard as much as jobsOpen does: collapsing the sidebar unmounts the
-    // whole <aside> and JobsView with it, but jobsOpen stays true, so without this no unwatch is sent
-    // and main goes on folding a snapshot on every orchestration write — inside the awaited setState,
-    // i.e. in the CLI request's critical path — and pushing it to a component that is not mounted.
-    // The third teardown trigger, after unmount and orch.unwatch.
-    // W9-C: or a Tasks/Plans page shows it
-    if (!((jobsOpen && sidebarOpen) || planPage) || !currentProject) return
-    let cancelled = false
-    void window.api.orch.list(currentProject).then((snapshot) => {
-      if (cancelled) return
-      setOrchSnapshot(snapshot)
+    if (!orchConsumed || !currentProject) return
+    return startOrchFeed({
+      project: currentProject,
+      cache: liveCache,
+      list: (project) => window.api.orch.list(project),
+      onState: (cb) => window.api.on('orch:state', cb),
+      unwatch: () => void window.api.orch.unwatch(),
+      show: setOrchSnapshot
     })
-    // An unchanged snapshot keeps the one held (audit UI-1): each push drew the whole app though nothing in it changed.
-    const off = window.api.on('orch:state', (snapshot) => {
-      if (!cancelled) setOrchSnapshot((prev) => sameOrNext(prev, snapshot))
-    })
-    return () => {
-      cancelled = true
-      off()
-      void window.api.orch.unwatch()
-    }
-  }, [jobsOpen, sidebarOpen, currentProject, !!planPage])
+  }, [orchConsumed, currentProject])
 
   // **The paired Runtimes, read each time the Jobs view opens** (Phase 6): Settings may have paired or removed one.
   useEffect(() => {
