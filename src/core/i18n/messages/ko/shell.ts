@@ -78,6 +78,7 @@ export const shell = {
   'shell.manage.keys': '단축키',
   'shell.manage.checkUpdates': '업데이트 확인',
   'shell.sidebar.resize': '사이드바 크기 조절',
+  'shell.viewpane.resize': '섹션 크기 조절',
   'shell.commandCenter': '검색하거나 명령 실행',
   'shell.panel.label': '패널',
   'shell.panel.needs': '확인 필요',
