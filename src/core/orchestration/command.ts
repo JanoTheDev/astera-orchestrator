@@ -34,6 +34,8 @@ import {
   nextDelivery,
   openDispatch,
   resolveGate,
+  closeGatesOf,
+  closeGatesOfCompleted,
   answerCheckUnavailable,
   isCheckUnavailableAnswer,
   CHECK_UNAVAILABLE_OPTIONS,
@@ -4787,7 +4789,7 @@ export async function handleCommand(
         if (!target) return notFound(`unknown task: ${id}`)
         if (target.status === 'merging') {
           const landed: Task = { ...target, status: 'completed', updatedAt: now, mergedIntoPlanAt: now }
-          await deps.setState({ ...s, tasks: recomputeReady(s.tasks.map((t) => (t.id === id ? landed : t))) })
+          await deps.setState(closeGatesOf({ ...s, tasks: recomputeReady(s.tasks.map((t) => (t.id === id ? landed : t))) }, id, 'closed: task completed', now))
           return okBody({ id, mergedIntoPlanAt: now })
         }
         if (target.status !== 'completed') return bad(`task ${id} is ${target.status}, not completed`)
@@ -4891,7 +4893,7 @@ export async function handleCommand(
       // createTask and applyWorkerDone already use. recomputeReady only promotes pending to ready
       // and never touches blocked — that property is unchanged.
       const tasks = recomputeReady(s.tasks.map((t) => (t.id === id ? nextTask : t)))
-      await deps.setState({ ...s, tasks })
+      await deps.setState(closeGatesOfCompleted({ ...s, tasks }, id, now))
       return okBody(tasks.find((t) => t.id === id)!)
     }
     case 'session-task-start': {
