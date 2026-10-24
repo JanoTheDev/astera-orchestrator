@@ -7,8 +7,10 @@
 import type { MessageKey, MessageParams } from '../../../../core/i18n'
 import type { JobRow, JobTask } from '../../../../core/types'
 import { isDuplicateGate } from '../../../../core/orchestration/overlap'
-import { jobName } from '../../lib/jobName'
+import { jobDisplayName as jobName } from '../../../../core/orchestration/jobName'
 import { categoryOf } from './planBoard'
+import { lastActivityOf, planStatusOf } from './planList'
+import { needsYouOf } from './planTree'
 
 export interface Line {
   key: MessageKey
@@ -21,9 +23,24 @@ export interface MainTask {
   wait?: Line
 }
 
+/** Where a plan stands for the page's header and folding: a person's part first, then what moves, what waits, what ended. */
+export type MainPhase = 'needs' | 'running' | 'waiting' | 'done'
+
+/** A finished plan's one row: how many Tasks, the commit it landed as (short) and when. */
+export interface FinishedSummary {
+  tasks: number
+  commit?: string
+  /** epoch ms */
+  at?: number
+}
+
 export interface MainPlanBlock {
   row: JobRow
   name: string
+  phase: MainPhase
+  /** Drawn open until the person folds it: every plan but a finished one. */
+  open: boolean
+  finished?: FinishedSummary
   tasks: MainTask[]
   /** Where its delivery check stands, if it has one to tell. */
   checks?: Line
@@ -33,6 +50,8 @@ export interface MainPlanView {
   plans: MainPlanBlock[]
   done: number
   total: number
+  /** How many plans stand in each phase. */
+  counts: Record<MainPhase, number>
 }
 
 /** Oldest first, and a plan queued after another right behind the latest of it (core mainPlan.ts `runOrder`, without the
@@ -89,14 +108,37 @@ function checksOf(row: JobRow, rows: readonly JobRow[]): Line | undefined {
   return undefined
 }
 
+/** The phase from the plan's status word (planList.ts planStatusOf) by its tone: ok is done (a dismissed delivery ended too),
+ *  warn and danger need the owner, info moves, neutral waits. A Task waiting on the owner counts even in a paused plan. */
+function phaseOf(row: JobRow): MainPhase {
+  const status = planStatusOf(row)
+  if (status.tone === 'ok' || status.key === 'pages.plans.status.deliveryDismissed') return 'done'
+  if (needsYouOf(row) > 0 || status.tone === 'warn' || status.tone === 'danger') return 'needs'
+  return status.tone === 'info' ? 'running' : 'waiting'
+}
+
+function finishedOf(row: JobRow): FinishedSummary {
+  // the squash merge's commit once seen on the base, else the last commit a Task added
+  const commit = row.pr?.attributed ?? row.tasks.flatMap((t) => t.links?.commits ?? []).at(-1)
+  const at = row.pr?.attributedAt !== undefined ? Date.parse(row.pr.attributedAt) : lastActivityOf(row)
+  return { tasks: row.total, ...(commit ? { commit: commit.slice(0, 7) } : {}), ...(at !== undefined && !Number.isNaN(at) ? { at } : {}) }
+}
+
+/** The plans the page draws: all, or without the done ones. */
+export const shownPlans = (view: MainPlanView, hideDone: boolean): MainPlanBlock[] => (hideDone ? view.plans.filter((p) => p.phase !== 'done') : view.plans)
+
 /** `rows` (the open project's plans) as the main plan: archived plans and schedule templates left out. */
 export function mainPlanViewOf(rows: readonly JobRow[]): MainPlanView {
   const live = rows.filter((r) => r.archivedAt === undefined && !r.schedule)
   const plans = runOrder(live).map((row): MainPlanBlock => {
     const checks = checksOf(row, live)
+    const phase = phaseOf(row)
     return {
       row,
       name: jobName(row),
+      phase,
+      open: phase !== 'done',
+      ...(phase === 'done' ? { finished: finishedOf(row) } : {}),
       tasks: row.tasks.map((task) => {
         const wait = waitOf(task, row, live)
         return wait ? { task, wait } : { task }
@@ -105,5 +147,7 @@ export function mainPlanViewOf(rows: readonly JobRow[]): MainPlanView {
     }
   })
   const all = plans.flatMap((p) => p.tasks)
-  return { plans, done: all.filter((m) => categoryOf(m.task) === 'done').length, total: all.length }
+  const counts: Record<MainPhase, number> = { needs: 0, running: 0, waiting: 0, done: 0 }
+  for (const p of plans) counts[p.phase]++
+  return { plans, done: all.filter((m) => categoryOf(m.task) === 'done').length, total: all.length, counts }
 }

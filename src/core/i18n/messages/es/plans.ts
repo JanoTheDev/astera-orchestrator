@@ -59,4 +59,12 @@ export const plans: Partial<Record<keyof typeof ko, string>> = {
   'pages.plans.tree.menu.copyId': 'Copiar id',
   'pages.plans.tree.menu.label': 'Acciones del plan',
   'pages.plans.status.stalled': 'Detenido',
+  // T13 Main plan page redesign (plan/MainPlan.tsx)
+  'pages.plans.main.running': '{n} en curso',
+  'pages.plans.main.waiting': '{n} en espera',
+  'pages.plans.main.needs': '{n} te necesitan',
+  'pages.plans.main.hideDone': 'Ocultar planes terminados',
+  'pages.plans.main.tasks': '{n} Tasks',
+  'pages.plans.main.toggle': 'Mostrar u ocultar las Tasks de {plan}',
+  'pages.plans.main.allDone': 'Todos los planes están terminados.',
 }

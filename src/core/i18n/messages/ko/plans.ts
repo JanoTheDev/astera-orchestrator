@@ -34,6 +34,14 @@ export const plans = {
   'pages.plans.main.checksRunning': '검사 중입니다',
   'pages.plans.main.checksFailed': '검사가 실패했습니다',
   'pages.plans.main.checksNeedYou': '검사에 당신이 필요합니다',
+  // T13 Main plan page redesign: the header chips, the Hide done toggle, a finished plan's row
+  'pages.plans.main.running': '{n}개 진행 중',
+  'pages.plans.main.waiting': '{n}개 대기 중',
+  'pages.plans.main.needs': '{n}개가 당신을 기다림',
+  'pages.plans.main.hideDone': '끝난 계획 숨기기',
+  'pages.plans.main.tasks': 'Task {n}개',
+  'pages.plans.main.toggle': '{plan} 의 Task 보이기/숨기기',
+  'pages.plans.main.allDone': '모든 계획이 끝났습니다.',
   // W11 계획 페이지: 목록과 코디네이터 띠 (plan/PlanList.tsx, plan/PlanRow.tsx, plan/Coordinator.tsx)
   'pages.plans.status.approve': '승인 필요',
   'pages.plans.status.queued': '대기 중',
