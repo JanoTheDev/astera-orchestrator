@@ -1402,3 +1402,36 @@ describe('a Run whose delivery failed', () => {
     })
   })
 })
+
+describe('finishedAt', () => {
+  const at = (rowsState: OrchState, job = rowsState.jobs[0]) => snapshotFor(rowsState, absPath('p'), anySession, noWorktrees, noFires, allExist).runs.find((r) => r.id === job.id)
+  const withDispatches = (s: OrchState, ds: Dispatch[]): OrchState => ({ ...s, dispatches: ds })
+
+  it('a running plan has no finishedAt', () => {
+    const s = withRuns([run('r1', absPath('p'))], [{ ...task('t1', 'r1', 'completed'), updatedAt: '2026-10-20T10:00:00.000Z' }, task('t2', 'r1', 'ready')])
+    expect(at(s)).not.toHaveProperty('finishedAt')
+  })
+
+  it('a completed plan gets the latest of its task and dispatch times', () => {
+    const s = withRuns([run('r1', absPath('p'))], [
+      { ...task('t1', 'r1', 'completed'), updatedAt: '2026-10-20T10:00:00.000Z' },
+      { ...task('t2', 'r1', 'completed'), updatedAt: '2026-10-21T10:00:00.000Z' }
+    ])
+    const ended = withDispatches(s, [{ ...dispatch('d1', 't1', 'sess', '2026-10-20T09:00:00.000Z'), endedAt: '2026-10-22T08:00:00.000Z' }])
+    expect(at(ended)).toMatchObject({ finishedAt: '2026-10-22T08:00:00.000Z' })
+  })
+
+  it('a completed plan takes its pull request time when that is the latest', () => {
+    const base = withRuns([run('r1', absPath('p'))], [{ ...task('t1', 'r1', 'completed'), updatedAt: '2026-10-20T10:00:00.000Z' }])
+    const pr = { at: '2026-10-19T00:00:00.000Z', url: 'https://x/1', attributedAt: '2026-10-25T00:00:00.000Z' }
+    const s = { ...base, runs: base.runs.map((r) => ({ ...r, pr })) }
+    expect(at(s)).toMatchObject({ finishedAt: '2026-10-25T00:00:00.000Z' })
+  })
+
+  it('a nothing-to-do plan gets nothingToDo.at', () => {
+    const base = withRuns([run('r1', absPath('p'))])
+    const job = { ...base.jobs[0], nothingToDo: { at: '2026-10-23T12:00:00.000Z', summary: 'built' }, archivedAt: '2026-10-23T12:00:00.000Z' }
+    const s = { ...base, runs: [], jobs: [job], tasks: [] }
+    expect(snapshotFor(s, absPath('p'), anySession, noWorktrees, noFires, allExist).runs[0]).toMatchObject({ finishedAt: '2026-10-23T12:00:00.000Z' })
+  })
+})
