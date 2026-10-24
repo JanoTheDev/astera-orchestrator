@@ -2,11 +2,11 @@
 // Task or plan that waits for another plan, one plain line. Clicking a plan opens its page; a Task opens its worker's
 // console when it has one, else its plan, as the plan rows do.
 // T13: a header with the overall progress and what runs, waits or needs the owner; finished plans folded to one row.
-import { memo, useState, useMemo } from 'react'
+import { memo, useState } from 'react'
 import { useI18n } from '../../i18n/I18nProvider'
 import { STATE_KEY, TaskGlyph } from '../JobIcons'
 import { Button, Chip, EmptyState, ICONS, Icon, IconButton, Meter, Switch, cx, type ChipTone } from '../ui'
-import { finishedDateOf, mainPlanViewOf, shownPlans, type Line, type MainPhase, type MainPlanBlock } from './mainPlanView'
+import { finishedDateOf, mainPlanMemo, shownPlans, type Line, type MainPhase, type MainPlanBlock } from './mainPlanView'
 import { planStatusOf } from './planList'
 import type { PlanActs } from './PlanRow'
 import { statusGroupOf, type StatusGroup } from './planTree'
@@ -35,11 +35,11 @@ export const MainPlan = memo(function MainPlan({ rows, acts, accounts = [] }: { 
   const { t, lang } = useI18n()
   const [hideDone, setHideDone] = useState(storedHideDone)
   const [, setOpenTick] = useState(0)
-  const view = useMemo(() => mainPlanViewOf(rows), [rows])
+  const view = mainPlanMemo(rows)
   const say = (l: Line): string => t(l.key, l.params)
   if (view.plans.length === 0) return <EmptyState icon={ICONS.tasks} title={t('pages.plans.main.empty')} />
 
-  const plans = useMemo(() => shownPlans(view, hideDone), [view, hideDone])
+  const plans = shownPlans(view, hideDone)
   const nowMs = Date.now()
   const accountLabel = (id: string): string => accounts.find((a) => a.id === id)?.label ?? id
   const isOpen = (p: MainPlanBlock): boolean => openByPlan.get(p.row.id) ?? p.open
