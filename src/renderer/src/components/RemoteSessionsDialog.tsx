@@ -6,8 +6,9 @@ import { useEffect, useRef, useState } from 'react'
 import { createSessionArgs, refOf, remoteCall, type RemoteSessionRef, type RemoteSessionRow } from '../lib/remoteSessions'
 import { useI18n } from '../i18n/I18nProvider'
 import { AccountDisclosure, AccountSelect } from './AccountSelect'
-import { Button, Card, Modal, Select, Tabs, nextFocusIndex } from './ui'
+import { Button, Card, Field, Modal, Tabs, nextFocusIndex } from './ui'
 import './overlays.css'
+import './sessionDialog.css'
 
 interface RemoteAccount {
   id: string
@@ -138,28 +139,27 @@ export function RemoteSessionsDialog({
         </>
       }
     >
-      <div className="dlg remote-sessions">
-        <div className="field">
-          <label>{t('remote.sessions.runtime')}</label>
-          <Select
-            items={[
-              { value: 'local', label: t('remote.sessions.thisComputer') },
-              ...runtimes.map((r) => ({ value: r.runtimeId, label: r.name }))
-            ]}
-            value={runtimeId}
-            disabled={starting}
-            onChange={(v) => (v === 'local' ? onLocal() : onRuntime(v))}
-          />
-        </div>
+      <div className="sd-body">
+        <Field
+          kind="select"
+          label={t('remote.sessions.runtime')}
+          options={[
+            { value: 'local', label: t('remote.sessions.thisComputer') },
+            ...runtimes.map((r) => ({ value: r.runtimeId, label: r.name }))
+          ]}
+          value={runtimeId}
+          disabled={starting}
+          onChange={(e) => (e.target.value === 'local' ? onLocal() : onRuntime(e.target.value))}
+        />
 
-        <div className="field">
-          <label>{t('remote.sessions.running')}</label>
+        <div className="sd-group">
+          <span className="sd-label">{t('remote.sessions.running')}</span>
           {listError !== null ? (
-            <p className="warn">{t('remote.session.failed', { message: listError })}</p>
+            <p className="sd-warn">{t('remote.session.failed', { message: listError })}</p>
           ) : rows === null ? (
-            <p className="modal-hint">{t('remote.sessions.loading')}</p>
+            <p className="sd-hint">{t('remote.sessions.loading')}</p>
           ) : live.length === 0 ? (
-            <p className="modal-hint">{t('remote.sessions.none')}</p>
+            <p className="sd-hint">{t('remote.sessions.none')}</p>
           ) : (
             <ul ref={listRef} className="ov-remote-list" onKeyDown={rovingRows}>
               {live.map((r) => (
@@ -179,9 +179,9 @@ export function RemoteSessionsDialog({
         </div>
 
         <h3 className="remote-sessions-new">{t('remote.sessions.new')}</h3>
-        {readOnly && <p className="modal-hint">{t('remote.sessions.readOnly')}</p>}
-        <div className="field kind-field">
-          <label>{t('session.new.kindLabel')}</label>
+        {readOnly && <p className="sd-hint">{t('remote.sessions.readOnly')}</p>}
+        <div className="sd-group sd-group--ruled">
+          <span className="sd-label">{t('session.new.kindLabel')}</span>
           <Tabs
             variant="segmented"
             label={t('session.new.kindLabel')}
@@ -194,8 +194,8 @@ export function RemoteSessionsDialog({
             }))}
           />
         </div>
-        <div className="field">
-          <label>{t('remote.sessions.account')}</label>
+        <div className="sd-group">
+          <span className="sd-label">{t('remote.sessions.account')}</span>
           {(() => {
             const picker = (
               <AccountSelect
@@ -219,33 +219,29 @@ export function RemoteSessionsDialog({
             ) : (
               <>
                 {picker}
-                {accounts.length > 0 && <p className="warn-text">{t('session.new.blocked.noAccount')}</p>}
+                {accounts.length > 0 && <p className="sd-warn">{t('session.new.blocked.noAccount')}</p>}
               </>
             )
           })()}
         </div>
-        <div className="field">
-          <label>{t('remote.sessions.folder')}</label>
-          {projects.length === 0 ? (
-            <p className="modal-hint">{t('remote.sessions.noProjects')}</p>
-          ) : (
-            <Select
-              items={projects.map((p) => ({ value: p.path, label: p.name ?? p.path, meta: p.name ? p.path : undefined }))}
-              value={cwd}
-              disabled={readOnly || starting}
-              onChange={setCwd}
-            />
-          )}
-        </div>
-        <div className="field">
-          <label>{t('remote.sessions.sessionTitle')}</label>
-          <input type="text" value={title} disabled={readOnly} onChange={(e) => setTitle(e.target.value)} />
-        </div>
-        <div className="field">
-          <label>{t('remote.sessions.prompt')}</label>
-          <textarea value={prompt} disabled={readOnly} rows={3} onChange={(e) => setPrompt(e.target.value)} />
-        </div>
-        {startError !== null && <p className="warn">{t('remote.session.failed', { message: startError })}</p>}
+        {projects.length === 0 ? (
+          <div className="sd-group">
+            <span className="sd-label">{t('remote.sessions.folder')}</span>
+            <p className="sd-hint">{t('remote.sessions.noProjects')}</p>
+          </div>
+        ) : (
+          <Field
+            kind="select"
+            label={t('remote.sessions.folder')}
+            options={projects.map((p) => ({ value: p.path, label: p.name ?? p.path, meta: p.name ? p.path : undefined }))}
+            value={cwd}
+            disabled={readOnly || starting}
+            onChange={(e) => setCwd(e.target.value)}
+          />
+        )}
+        <Field label={t('remote.sessions.sessionTitle')} value={title} disabled={readOnly} onChange={(e) => setTitle(e.target.value)} />
+        <Field kind="textarea" label={t('remote.sessions.prompt')} value={prompt} disabled={readOnly} rows={3} onChange={(e) => setPrompt(e.target.value)} />
+        {startError !== null && <p className="sd-warn">{t('remote.session.failed', { message: startError })}</p>}
       </div>
     </Modal>
   )

@@ -31,8 +31,9 @@ import { AccountDisclosure, AccountSelect } from './AccountSelect'
 import { BranchGlyph } from './BranchGlyph'
 import { ScheduleFields } from './ScheduleFields'
 import { StartingOverlay } from './WorktreeCreateStatus'
-import { Button, Icon, IconButton, Modal, Select, Tabs, type SelectOption, Checkbox } from './ui'
+import { Button, Checkbox, Field, Icon, IconButton, Input, Modal, Select, Tabs, type SelectOption } from './ui'
 import './overlays.css'
+import './sessionDialog.css'
 
 const SOFT_LIMIT = 12
 const MAX_ROLL_ACCOUNTS = 3
@@ -518,7 +519,7 @@ export function NewSessionDialog({
         </>
       }
     >
-      <div className="dlg new-session">
+      <div className="sd-body">
         {starting && (
           <StartingOverlay
             withWorktree={withWorktree}
@@ -529,24 +530,24 @@ export function NewSessionDialog({
           />
         )}
         {runtimes.length > 0 && onRemote && (
-          <div className="field">
-            <label>{t('remote.sessions.runtime')}</label>
-            <Select
-              items={[
-                { value: 'local', label: t('remote.sessions.thisComputer') },
-                ...runtimes.map((r) => ({ value: r.runtimeId, label: r.name }))
-              ]}
-              value="local"
-              onChange={(v) => {
-                if (v === 'local') return
-                rememberMachine(initialCwd, v)
-                onRemote(v)
-              }}
-            />
-          </div>
+          <Field
+            kind="select"
+            label={t('remote.sessions.runtime')}
+            options={[
+              { value: 'local', label: t('remote.sessions.thisComputer') },
+              ...runtimes.map((r) => ({ value: r.runtimeId, label: r.name }))
+            ]}
+            value="local"
+            onChange={(e) => {
+              const v = e.target.value
+              if (v === 'local') return
+              rememberMachine(initialCwd, v)
+              onRemote(v)
+            }}
+          />
         )}
         {runningCount >= SOFT_LIMIT && (
-          <p className="warn">{t('session.new.runningWarning', { count: runningCount })}</p>
+          <p className="sd-warn">{t('session.new.runningWarning', { count: runningCount })}</p>
         )}
         {/* Gated on the dedicated existence probe (cliInstalled), not on whether the per-folder check
             said anything — round 1 tried inferring "not installed" from an absent stderr line, but a
@@ -555,7 +556,7 @@ export function NewSessionDialog({
             missing CLI take the "does not run in this folder" branch below instead of this one,
             hiding the install prompt for the one case that most needs it (design D3). */}
         {!primaryInstalled && (
-          <p className="warn">
+          <p className="sd-warn">
             {t(
               primaryProvider === 'codex'
                 ? 'session.new.codexMissingPre'
@@ -569,37 +570,32 @@ export function NewSessionDialog({
             {t('session.new.cliMissingPost')}
           </p>
         )}
-        <div className="field">
-          <label>{t('session.field.projectFolder')}</label>
-          <div className="row">
+        <div className="sd-group">
+          <span className="sd-label">{t('session.field.projectFolder')}</span>
+          <div className="sd-row">
             <span className="path">{cwd ?? t('session.new.folderNotSelected')}</span>
             <Button size="sm" variant="ghost" onClick={() => void pick()}>{t('session.new.pickFolder')}</Button>
           </div>
         </div>
         {wtOption === 'unknown' && (
           <>
-            <label className="row check-small" title={t('overlays.worktree.explain')}>
-              <Checkbox checked={false} disabled />
-              {t('session.new.useWorktree')}
-            </label>
-            <span className="modal-hint">
+            <Checkbox checked={false} disabled title={t('overlays.worktree.explain')} label={t('session.new.useWorktree')} />
+            <span className="sd-hint">
               {t(repoUnknownHint(repoProbe?.kind === 'unknown' ? repoProbe.reason : 'error'))}
             </span>
           </>
         )}
         {wtOption === 'available' && (
           <>
-            <label className="row check-small" title={t('overlays.worktree.explain')}>
-              <Checkbox
-                checked={useWorktree}
-                onChange={(v) => setUseWorktree(v)}
-              />
-              {t('session.new.useWorktree')}
-            </label>
+            <Checkbox
+              checked={useWorktree}
+              onChange={(v) => setUseWorktree(v)}
+              title={t('overlays.worktree.explain')}
+              label={t('session.new.useWorktree')}
+            />
             {useWorktree && (
-              <div className="field">
-                <input
-                  type="text"
+              <div className="sd-group">
+                <Input
                   value={wtName}
                   maxLength={80}
                   placeholder={t('session.new.worktreeNamePlaceholder')}
@@ -621,14 +617,14 @@ export function NewSessionDialog({
                   </div>
                 )}
                 {branchesUnavailable && (
-                  <span className="modal-hint">{t('session.new.worktreeBranchesUnavailable')}</span>
+                  <span className="sd-hint">{t('session.new.worktreeBranchesUnavailable')}</span>
                 )}
               </div>
             )}
           </>
         )}
-        <div className="field">
-          <label>{t('session.field.account')}</label>
+        <div className="sd-group">
+          <span className="sd-label">{t('session.field.account')}</span>
           <AccountDisclosure
             id="new-session-accounts"
             open={acctOpen}
@@ -696,22 +692,23 @@ export function NewSessionDialog({
             the next account exactly as 터미널's does, so the same chain mechanism can hook into it.
             Unguarded by kind, with the schedule and Slack rows kept in the same order after it
             (spec §5.6). */}
-        <label className="row check-small">
-          <Checkbox
-            checked={rollChecked}
-            disabled={multi}
-            onChange={(v) => setRollMode(v)}
-          />
-          {t('session.new.rollLabel')}
-          {multi && <span className="check-note">{t('session.new.multiAccountAuto')}</span>}
-        </label>
+        <Checkbox
+          checked={rollChecked}
+          disabled={multi}
+          onChange={(v) => setRollMode(v)}
+          label={
+            <>
+              {t('session.new.rollLabel')}
+              {multi && <span className="check-note">{t('session.new.multiAccountAuto')}</span>}
+            </>
+          }
+        />
         {rollChecked && (
-          <div className="field roll-prompt-field">
+          <div className="roll-prompt-field">
             {/* Keep the placeholder in sync with the actual default claudeCoordinator.ts and codexCoordinator.ts send
                 (the rolling.continuePrompt key) — that key follows the app language too, so in both ko
                 and en, session.new.rollPromptPlaceholder and rolling.continuePrompt must hold the same value. */}
-            <input
-              type="text"
+            <Input
               className="roll-prompt-input"
               value={rollPrompt}
               maxLength={500}
@@ -723,10 +720,11 @@ export function NewSessionDialog({
         )}
         {/* The label follows the field below it: a 대화 gets a prompt sent as a new turn, a 터미널 gets a
             command run in its shell. */}
-        <label className="row check-small">
-          <Checkbox checked={schedOn} onChange={(v) => setSchedOn(v)} />
-          {t(kind === 'chat' ? 'session.new.schedLabelChat' : 'session.new.schedLabel')}
-        </label>
+        <Checkbox
+          checked={schedOn}
+          onChange={(v) => setSchedOn(v)}
+          label={t(kind === 'chat' ? 'session.new.schedLabelChat' : 'session.new.schedLabel')}
+        />
         {/* initial={schedule} restores the previous input when this is toggled off and back on —
             ScheduleFields loses its internal state on unmount, so the parent holds the last value that
             was valid (schedule) and feeds it back in. An intermediate input state with an empty command
@@ -735,31 +733,33 @@ export function NewSessionDialog({
         {schedOn && <ScheduleFields initial={schedule} onChange={setSchedule} chat={kind === 'chat'} />}
         {/* Slack notifications work for every provider — claude detects turn completion through the
             statusLine hook, codex through rollout's task_complete */}
-        <label className="row check-small">
-          <Checkbox
-            checked={slackReady && slackNotify}
-            disabled={!slackReady}
-            onChange={(v) => setSlackNotify(v)}
-          />
-          {t('session.new.slackNotify')}
-          {!slackReady && <span className="check-note">{t('session.new.slackNeedsWebhook')}</span>}
-        </label>
-        <label className="row check-small">
-          <Checkbox checked={saveDefault && accountIds.length > 0} disabled={accountIds.length === 0} onChange={(v) => setSaveDefault(v)} />
-          {t('session.new.saveDefaultAccount')}
-        </label>
-        <label className="row check-small">
-          <Checkbox
-            checked={bypassPermissions}
-            onChange={(v) => setBypassPermissions(v)}
-          />
-          {t('session.new.bypassPermissions')}
-        </label>
+        <Checkbox
+          checked={slackReady && slackNotify}
+          disabled={!slackReady}
+          onChange={(v) => setSlackNotify(v)}
+          label={
+            <>
+              {t('session.new.slackNotify')}
+              {!slackReady && <span className="check-note">{t('session.new.slackNeedsWebhook')}</span>}
+            </>
+          }
+        />
+        <Checkbox
+          checked={saveDefault && accountIds.length > 0}
+          disabled={accountIds.length === 0}
+          onChange={(v) => setSaveDefault(v)}
+          label={t('session.new.saveDefaultAccount')}
+        />
+        <Checkbox
+          checked={bypassPermissions}
+          onChange={(v) => setBypassPermissions(v)}
+          label={t('session.new.bypassPermissions')}
+        />
         {/* chat takeover P8: only meaningful for a chat session that is not already bypassing every
             prompt — a bypassed one never holds a prompt for this policy to apply to. */}
         {kind === 'chat' && !bypassPermissions && (
-          <div className="field">
-            <label>{t('chat.unattended.heading')}</label>
+          <div className="sd-group">
+            <span className="sd-label">{t('chat.unattended.heading')}</span>
             <Tabs
               variant="segmented"
               label={t('chat.unattended.heading')}
@@ -781,7 +781,7 @@ export function NewSessionDialog({
             shim), there is no reason to quote — cliFailsHereUnknown reads sensibly without one instead
             of interpolating "undefined" into the sentence. */}
         {primaryInstalled && !primaryRunsHere && (
-          <p className="warn-text">
+          <p className="sd-warn">
             {cliError[primaryProvider] !== undefined
               ? t('session.new.cliFailsHere', {
                   cli: CLI_LABEL[primaryProvider],
@@ -795,7 +795,7 @@ export function NewSessionDialog({
         {blocked !== null && (
           // 기다리면 풀리는 사유에만 스피너가 붙는다. 글씨만으로는 "내가 뭘 안 했나" 와 "앱이 일하는
           // 중" 이 똑같이 읽히고, 회색 버튼 앞에서 사람이 찾는 답이 바로 그 둘 중 어느 쪽이냐다.
-          <p className="modal-hint start-blocked">
+          <p className="sd-hint sd-hint--wait">
             {isWaitingReason(blocked) && <span className="loading-spinner small" aria-hidden="true" />}
             {t(BLOCKED_KEY[blocked])}
           </p>
@@ -803,7 +803,7 @@ export function NewSessionDialog({
         {/* The per-folder CLI check does not hold Start, but on a slow share it can run for its full
             10 s — say it is running rather than leave the warning above to appear out of nowhere. */}
         {checkingCli && !starting && (
-          <p className="modal-hint start-blocked">
+          <p className="sd-hint sd-hint--wait">
             <span className="loading-spinner small" aria-hidden="true" />
             {t('session.new.checkingCli')}
           </p>
