@@ -128,6 +128,8 @@ export const inbox = {
   'activity.line.onRequest': '요청에 따라',
   'activity.line.leadRefreshed': '{title}: 리드 에이전트 새로 고침 ({reason})',
   'activity.line.watchdog': '{title}: 멈춘 플랜 점검: {reason}',
+  'activity.line.fellToMerge': '{title}: 이 컴퓨터에서 {branch}에 병합했습니다. {why}',
+  'activity.line.fellToReview': '{title}: {why}',
   'activity.line.titled': '{title}: {reason}',
   'activity.line.onRuntime': '{runtime}에서',
 } as const

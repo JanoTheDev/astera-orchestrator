@@ -57,14 +57,22 @@ export async function readLandingOf(s: OrchState, job: Job, read?: (cwd: string)
   return deliveryLandingOf(s, job)
 }
 
+/** How the plan's delivery fell back (merge on this computer, else review), why, and the branch a merge lands on when
+ *  known; null when it did not fall back. The plan's log line carries it, so the app words it in the owner's language. */
+export function deliveryFallbackOf(s: OrchState, job: Job): { mode: DeliveryMode; reason: DeliveryOffReason; branch?: string } | null {
+  const { mode, reason } = deliveryLandingOf(s, job)
+  if (reason === undefined) return null
+  const branch = projectOfJob(s, job)?.deliveryBranch ?? setups.get(job.cwd)?.branch ?? undefined
+  return branch === undefined ? { mode, reason } : { mode, reason, branch }
+}
+
 /** One plain line for the plan's log when its delivery fell back, e.g. "Merged into main on this computer: no GitHub
  *  remote"; null when it did not. */
 export function deliveryFallbackLine(s: OrchState, job: Job): string | null {
-  const { mode, reason } = deliveryLandingOf(s, job)
-  if (reason === undefined) return null
-  const why = { notGit: 'not a git repository', noRemote: 'no remote', notGitHub: 'no GitHub remote', ghSignedOut: 'gh is not signed in' }[reason]
-  const branch = projectOfJob(s, job)?.deliveryBranch ?? setups.get(job.cwd)?.branch ?? 'its branch'
-  return mode === 'merge' ? `Merged into ${branch} on this computer: ${why}` : `Left for your review: ${why}`
+  const fell = deliveryFallbackOf(s, job)
+  if (fell === null) return null
+  const why = { notGit: 'not a git repository', noRemote: 'no remote', notGitHub: 'no GitHub remote', ghSignedOut: 'gh is not signed in' }[fell.reason]
+  return fell.mode === 'merge' ? `Merged into ${fell.branch ?? 'its branch'} on this computer: ${why}` : `Left for your review: ${why}`
 }
 
 /** The issues the plan came from, which a push closes (`Fixes #n`): the GitHub issue the Job was made from, and every

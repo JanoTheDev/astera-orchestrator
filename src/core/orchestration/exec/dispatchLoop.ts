@@ -66,6 +66,7 @@ import {
   deliveryFixesOf,
   deliveryFixOf,
   deliveryFallbackLine,
+  deliveryFallbackOf,
   handsOffOf,
   readLandingOf,
   ownerCheckDue,
@@ -609,6 +610,15 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
   const refreshedTo = new Map<string, Set<string>>()
   // A feed line of the existing `watchdog` kind (payload.reason): a kind of its own would need the feed's renderer too
   const planActivity = (runId: string, reason: string): void => c.activity?.(watchdogActivity(c.getState(), runId, reason))
+  /** T32: the line saying how a plan whose saved delivery cannot work on its folder lands instead; it carries the
+   *  fallback, so the app words it in the owner's language (delivery.off.*). Nothing when it did not fall back. */
+  const planFallback = (runId: string, job: Job): void => {
+    const s = c.getState()
+    const fell = deliveryFallbackOf(s, job)
+    if (fell === null) return
+    const draft = watchdogActivity(s, runId, `Plan ${jobNameOf(job)}: ${deliveryFallbackLine(s, job)}`)
+    c.activity?.({ ...draft, payload: { ...draft.payload, deliveryFallback: fell } })
+  }
   /** The Task a refresh's integration Task hangs off: the Run's last Task that is not one itself. */
   const anchorOf = (s: OrchState, runId: string): Task | undefined => {
     const own = s.tasks.filter((t) => t.runId === runId)
@@ -737,10 +747,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
           try {
             const r = await c.handle('run-deliver', { run: run.id, awaitReview: true })
             if (r.status >= 400) log(`run=${run.id}: its wait for the owner was not recorded: ${JSON.stringify(r.body)}`)
-            else {
-              const fell = deliveryFallbackLine(s, job)
-              if (fell !== null) planActivity(run.id, `Plan ${jobNameOf(job)}: ${fell}`)
-            }
+            else planFallback(run.id, job)
           } catch (e) {
             log(`run=${run.id}: recording its wait for the owner failed: ${String(e)}`)
           }
@@ -803,8 +810,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     const job = jobOf(c.getState(), run)
     const plan = job ? jobNameOf(job) : run.id
     // T32: said once per attempt, so the log shows which delivery was used and why
-    const fell = job ? deliveryFallbackLine(c.getState(), job) : null
-    if (fell !== null && action !== 'self') planActivity(run.id, `Plan ${plan}: ${fell}`)
+    if (job && action !== 'self') planFallback(run.id, job)
     if (action === 'self') {
       try {
         const r = await c.handle('run-deliver', { run: run.id, ownerPushed: true })

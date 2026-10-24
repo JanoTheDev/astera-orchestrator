@@ -33,10 +33,10 @@ describe('deliveryChoicesOf', () => {
     expect(c.every((x) => x.reason === undefined)).toBe(true)
   })
 
-  it('not a git repository: only review', () => {
+  it('not a git repository: only review, and every other choice says the folder is not a git repository', () => {
     const c = deliveryChoicesOf({ ...base, isGitRepo: false, branch: null })
     expect(offered(c)).toEqual(['manual'])
-    expect(c.find((x) => x.mode === 'merge')?.reason).toBe('notGit')
+    expect(c.filter((x) => !x.available).map((x) => x.reason)).toEqual(['notGit', 'notGit', 'notGit'])
   })
 })
 
@@ -64,6 +64,6 @@ describe('effectiveDelivery', () => {
   })
 
   it('falls back to review when nothing can be merged', () => {
-    expect(effectiveDelivery('pr', deliveryChoicesOf({ ...base, isGitRepo: false }))).toEqual({ mode: 'manual', reason: 'notGitHub' })
+    expect(effectiveDelivery('pr', deliveryChoicesOf({ ...base, isGitRepo: false }))).toEqual({ mode: 'manual', reason: 'notGit' })
   })
 })

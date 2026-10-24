@@ -128,6 +128,8 @@ export const inbox: Partial<Record<keyof typeof ko, string>> = {
   'activity.line.onRequest': 'a petición',
   'activity.line.leadRefreshed': '{title}: agente principal renovado ({reason})',
   'activity.line.watchdog': '{title}: comprobación de plan atascado: {reason}',
+  'activity.line.fellToMerge': '{title}: fusionado en {branch} en este equipo. {why}',
+  'activity.line.fellToReview': '{title}: {why}',
   'activity.line.titled': '{title}: {reason}',
   'activity.line.onRuntime': 'en {runtime}',
 }

@@ -16,7 +16,7 @@ import { outcomeOf } from './running'
 import { deriveActivity, noticeOf, type ActivityEvent } from './activity'
 import type { PushDelivery, PushResult } from './exec/integrateGit'
 import type { DeliverySetup } from './deliveryChoices'
-import { deliveryFallbackLine, deliveryLandingOf, forgetDeliverySetups } from './delivery'
+import { deliveryFallbackLine, deliveryFallbackOf, deliveryLandingOf, forgetDeliverySetups } from './delivery'
 
 const NOW = '2026-10-18T00:00:00.000Z'
 const REPO = '/repo'
@@ -992,6 +992,7 @@ describe('run-deliver on a folder where the delivery cannot work (T32)', () => {
     expect(h.pushes).toHaveLength(1)
     expect(h.pushes[0]).toMatchObject({ local: true })
     expect(deliveryFallbackLine(h.state(), h.state().jobs[0])).toBe('Merged into main on this computer: no GitHub remote')
+    expect(deliveryFallbackOf(h.state(), h.state().jobs[0])).toEqual({ mode: 'merge', reason: 'notGitHub', branch: 'main' })
   })
 
   it('merges locally when gh is signed out', async () => {
@@ -1006,8 +1007,9 @@ describe('run-deliver on a folder where the delivery cannot work (T32)', () => {
     const r = await h.call('run-deliver', { run: 'r1' })
     expect(r.status).toBe(409)
     expect(h.pushes).toEqual([])
-    expect(deliveryLandingOf(h.state(), h.state().jobs[0])).toEqual({ mode: 'manual', reason: 'notGitHub' })
-    expect(deliveryFallbackLine(h.state(), h.state().jobs[0])).toBe('Left for your review: no GitHub remote')
+    expect(deliveryLandingOf(h.state(), h.state().jobs[0])).toEqual({ mode: 'manual', reason: 'notGit' })
+    expect(deliveryFallbackLine(h.state(), h.state().jobs[0])).toBe('Left for your review: not a git repository')
+    expect(deliveryFallbackOf(h.state(), h.state().jobs[0])).toEqual({ mode: 'manual', reason: 'notGit' })
   })
 
   it('leaves an explicit push that works as it is', async () => {

@@ -45,8 +45,8 @@ export function deliveryChoicesOf(setup: DeliverySetup): DeliveryChoice[] {
     reason === null ? { mode, available: true, ...extra } : { mode, available: false, reason, ...extra }
   return [
     off('merge', setup.isGitRepo ? null : 'notGit'),
-    remote === null ? off('push', 'noRemote') : off('push', null, { host, github }),
-    off('pr', !github ? 'notGitHub' : setup.ghSignedIn ? null : 'ghSignedOut'),
+    !setup.isGitRepo ? off('push', 'notGit') : remote === null ? off('push', 'noRemote') : off('push', null, { host, github }),
+    off('pr', !setup.isGitRepo ? 'notGit' : !github ? 'notGitHub' : setup.ghSignedIn ? null : 'ghSignedOut'),
     off('manual', null)
   ]
 }

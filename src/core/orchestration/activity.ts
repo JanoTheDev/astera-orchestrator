@@ -28,11 +28,13 @@ import { completionSettled, replanOn } from './replan'
 import { afterStoppedText } from './after'
 // W8-D several plans in one repo
 import { overlapLines } from './overlap'
+import type { DeliveryOffReason } from './deliveryChoices'
 import type { ScheduleLimits } from './schedule'
 import { emptyState, OWNER_ANSWER_SUBJECT, type OrchState } from './state'
 import {
   isPlaceholderSessionId,
   type Decision,
+  type DeliveryMode,
   type Dispatch,
   type Gate,
   type GateKind,
@@ -177,6 +179,8 @@ export interface ActivityPayload {
   // task.edited (T7)
   /** What the owner changed, in this order: deps, spec, basis, evidence. */
   edited?: EditedField[]
+  /** T32 watchdog line of a plan whose saved delivery cannot work on its folder: how it lands instead and why. */
+  deliveryFallback?: { mode: DeliveryMode; reason: DeliveryOffReason; branch?: string }
 }
 
 /** T7: the run Task fields whose change is a task.edited line. */

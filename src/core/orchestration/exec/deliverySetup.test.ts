@@ -22,7 +22,7 @@ describe('readFolderSetup', () => {
   it('reads a folder that is not a git repository', async () => {
     const s = await readFolderSetup(tmp(), true)
     expect(s).toEqual({ isGitRepo: false, remoteUrl: null, ghSignedIn: true, branch: null })
-    expect(effectiveDelivery('pr', deliveryChoicesOf(s))).toEqual({ mode: 'manual', reason: 'notGitHub' })
+    expect(effectiveDelivery('pr', deliveryChoicesOf(s))).toEqual({ mode: 'manual', reason: 'notGit' })
   })
 
   it('reads a repository with no remote: a pull request falls back to merge', async () => {
