@@ -1,11 +1,12 @@
 // Moved out of App.tsx unchanged (W9-A): App calls this hook and passes its result on.
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceData } from './useWorkspaceData'
-import { buildWorkspaceTree, findPlan, planSessions, scopeLayout } from './workspaceTree'
+import { buildWorkspaceTree, findPlan, planSessions, projectOfCwd, scopeLayout } from './workspaceTree'
 // W6-F: one workspace per project
 import { entryTab, OTHER_WORKSPACE, scopeIds as workspaceScopeOf, workspaceFolderOf, workspaceSessionIds } from './workspaceTree'
 import { initialScope, ownerOf } from './projectScope'
-import { scopeData, scopeIdOf, scopeTree } from './projectView'
+import { projectScopeOf, scopeData, scopeTree, selectionAfterFocus } from './projectView'
+import type { ProjectScope } from './useProjectScope'
 import * as sticky from '../lib/stickyProject'
 import { projectAnchorOf } from '../components/projects/projectAnchor' // W8-G
 // W7-F (#84): ended plan tabs close on their own; the quick tab switcher
@@ -25,11 +26,11 @@ export type WorkspaceDeps = Pick<ReturnType<typeof useWorkbench>,
   Pick<ReturnType<typeof useWorkbenchState>,
     'closeWorkbenchTabRef'> &
   Pick<ReturnType<typeof useJobs>,
-    'currentProject' | 'droppedRoot' | 'homeDir' | 'setScopeRoot'>
+    'activeTabRoot' | 'currentProject' | 'droppedRoot' | 'homeDir' | 'setScopeRoot'>
 
 export function useWorkspace(deps: WorkspaceDeps) {
   const {
-    activeSessionId, activeTabId, bottomRootRef, bottomTab, closeWorkbenchTabRef,
+    activeSessionId, activeTabId, activeTabRoot, bottomRootRef, bottomTab, closeWorkbenchTabRef,
     currentProject, droppedRoot, homeDir, setScopeRoot, layout, layoutRef, openWorkspaceSlotRef, remoteSessions, selectWorkbenchTab, sessions, terminals
   } = deps
   // W2-B workspace: the selected plan, and the pane tree as its workspace shows it (scopeLayout). Read while the
@@ -63,11 +64,11 @@ export function useWorkspace(deps: WorkspaceDeps) {
     () => (workspaceData ? buildWorkspaceTree(workspaceData, { showArchived: workspaceArchived }) : []),
     [workspaceData, workspaceArchived]
   )
-  // The "All projects" chip: the one way a view shows another project's items. Off again when the window moves to
-  // another project, so a project is never opened onto everyone else's work.
-  const [allProjects, setAllProjects] = useState(false)
-  useEffect(() => setAllProjects(false), [currentProject])
-  const scopeId = scopeIdOf(workspaceTree, workspaceData?.worktrees ?? [], workspaceProjectId, currentProject, allProjects)
+  // T12: the title bar's selection is the window's one current project; every view reads what is derived from it.
+  // Until the project list is read, a selected project's folder is the one last stored (stickyProject).
+  const [rememberedRoot] = useState(() => sticky.read())
+  const scopeView = projectScopeOf(workspaceData?.projects ?? null, workspaceProjectId, rememberedRoot)
+  const scopeId = scopeView.scopeId
   const scopedTree = useMemo(() => scopeTree(workspaceTree, scopeId), [workspaceTree, scopeId])
   const scopedData = useMemo(() => (workspaceData ? scopeData(workspaceData, scopeId) : null), [workspaceData, scopeId])
   // W6-F: every workspace's sessions, and the ones the open project's (or plan's) workspace shows. Paired Runtimes'
@@ -100,6 +101,18 @@ export function useWorkspace(deps: WorkspaceDeps) {
     setWorkspaceProjectId(owner)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only a focus change decides this, not a refresh
   }, [activeSessionId])
+  // T12: likewise a file, record or browser tab of another project moves the title bar to that project, so the views
+  // never drift from it. Session tabs are the effect above's.
+  useEffect(() => {
+    if (!workspaceData || !activeTabRoot || !activeTabId) return
+    const kind = parseTab(activeTabId)?.kind
+    if (kind === 'session' || kind === 'app') return
+    const next = selectionAfterFocus(workspaceProjectId, projectOfCwd(activeTabRoot, workspaceTree, workspaceData.worktrees ?? []))
+    if (next === workspaceProjectId) return
+    setWorkspacePlanId(null)
+    setWorkspaceProjectId(next)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a focus change decides this, not a refresh
+  }, [activeTabId, activeTabRoot])
   const canOpenSessionTab = (sessionId: string): boolean => !!layout && !!groupOfTab(layout, sessionTab(sessionId))
   // W7-F (#84): an ended plan's ended tabs, and a replan's stale planner tab, close on their own (tabsToAutoClose),
   // through the tab strip's own close as a hide (T13): the tab leaves the tree, nothing is killed, and Recently closed
@@ -188,20 +201,23 @@ export function useWorkspace(deps: WorkspaceDeps) {
   const workspaceName = workspaceTree.find((p) => p.id === workspaceProjectId)?.name
   // The switcher's selection is the project jobs are made in; its name is kept so a reload labels it before the tree is in.
   const selectedProject = workspaceTree.find((p) => p.id === workspaceProjectId)
-  // The folder of the selected project is gone (useJobs dropped it): the selection moves to the project the app falls
-  // back to, so the switcher, the tabs' scope and the window agree. Read once per drop: a pick of the same folder
+  // The folder of the selected project is gone (useJobs dropped it): the selection moves to the active tab's project,
+  // else All, so the switcher, the tabs' scope and the window agree. Read once per drop: a pick of the same folder
   // again must not be undone by a render that still has the old drop.
   useEffect(() => {
     if (!droppedRoot) return
-    const next = selectionAfterDrop(workspaceProjectId, workspaceTree, droppedRoot, currentProject)
+    const next = selectionAfterDrop(workspaceProjectId, workspaceTree, droppedRoot, activeTabRoot)
     if (next !== workspaceProjectId) setWorkspaceProjectId(next)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only a new drop decides this, not a pick or a refresh
   }, [droppedRoot])
+  // T12: currentProject (useJobs) is the selection's folder, null for All and Other: every view reads it from there
+  useEffect(() => setScopeRoot(scopeView.path), [scopeView.path])
   useEffect(() => {
-    if (!workspaceProjectId || !selectedProject) return
-    setScopeRoot(selectedProject.path)
-    sticky.writeName(workspaceProjectId, selectedProject.name)
-  }, [workspaceProjectId, selectedProject?.path, selectedProject?.name])
+    if (workspaceProjectId && selectedProject) sticky.writeName(workspaceProjectId, selectedProject.name)
+  }, [workspaceProjectId, selectedProject?.name])
+  const projectScope: ProjectScope = {
+    projectId: scopeView.projectId, project: scopeView.project, path: scopeView.path, isAll: scopeView.isAll, select: openWorkspaceProject
+  }
   useEffect(() => {
     if (boundProject === undefined) return
     window.api.win.setScope({
@@ -231,7 +247,7 @@ export function useWorkspace(deps: WorkspaceDeps) {
   return {
     workspacePlanId, workspaceArchived, setWorkspaceArchived, workspaceProjectId, projectDialog, setProjectDialog,
     setProjectsRefresh, firstPlan, setFirstPlan, autoCloseEndedPlanTabs, setAutoCloseEndedPlanTabs, workspaceData,
-    projectAnchor, workspaceTree, workspaceIds, allProjects, setAllProjects, scopeId, scopedTree, scopedData, shownLayout, canOpenSessionTab, switcherMeta,
+    projectAnchor, workspaceTree, workspaceIds, scopeId, projectScope, scopedTree, scopedData, shownLayout, canOpenSessionTab, switcherMeta,
     setWorkspaceScope, enterWorkspace, openWorkspacePlan, openWorkspaceProject, workspaceCwd, bottomRoot,
     runAvailable, bottomTabShown
   }

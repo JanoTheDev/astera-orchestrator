@@ -1,5 +1,7 @@
 // T19: what the bell remembers (the items marked read, "All projects"), in one store so the bell and the status bar count
 // the same cards. Read state is set only by "Mark all read" and by opening an item from the bell.
+// T12: the bell follows the title bar's scope (scopedData); `allProjects` deliberately widens it to every project's
+// cards without changing the window's project, so it stays the bell's own.
 import { useSyncExternalStore } from 'react'
 import { loadRead, saveRead } from './bellView'
 
