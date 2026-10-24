@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { JobRow, JobTask } from '../../../../core/types'
-import { mainPlanViewOf, shownPlans } from './mainPlanView'
+import { finishedDateOf, mainPlanViewOf, shownPlans } from './mainPlanView'
 
 const task = (id: string, over: Partial<JobTask> = {}): JobTask => ({ id, title: id, status: 'pending', openGates: 0, ...over })
 const done = (id: string): JobTask => task(id, { status: 'completed', board: { category: 'done' } })
@@ -141,6 +141,19 @@ describe('mainPlanViewOf', () => {
     ])
     expect(shownPlans(v, false).map((p) => p.row.id)).toEqual(['a', 'b', 'c'])
     expect(shownPlans(v, true).map((p) => p.row.id)).toEqual(['b'])
+  })
+})
+
+describe('finishedDateOf', () => {
+  // local-time constructors, so the date does not shift with the machine's zone
+  const now = new Date(2026, 9, 24).getTime()
+
+  it('shows month and day for a finish in the current year', () => {
+    expect(finishedDateOf(new Date(2026, 9, 3, 10).getTime(), now, 'en-US')).toBe('Oct 3')
+  })
+
+  it('adds the year for a finish in another year', () => {
+    expect(finishedDateOf(new Date(2025, 2, 4, 9).getTime(), now, 'en-US')).toBe('Mar 4, 2025')
   })
 })
 

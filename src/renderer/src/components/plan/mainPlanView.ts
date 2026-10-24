@@ -124,6 +124,13 @@ function finishedOf(row: JobRow): FinishedSummary {
   return { tasks: row.total, ...(commit ? { commit: commit.slice(0, 7) } : {}), ...(at !== undefined && !Number.isNaN(at) ? { at } : {}) }
 }
 
+/** A finished plan's date in `locale`: month and day, with the year only when it is not `nowMs`'s year. */
+export const finishedDateOf = (at: number, nowMs: number, locale: string): string => {
+  const d = new Date(at)
+  const sameYear = d.getFullYear() === new Date(nowMs).getFullYear()
+  return d.toLocaleDateString(locale, { ...(sameYear ? {} : { year: 'numeric' }), month: 'short', day: 'numeric' })
+}
+
 /** The plans the page draws: all, or without the done ones. */
 export const shownPlans = (view: MainPlanView, hideDone: boolean): MainPlanBlock[] => (hideDone ? view.plans.filter((p) => p.phase !== 'done') : view.plans)
 

@@ -6,8 +6,7 @@ import { useState } from 'react'
 import { useI18n } from '../../i18n/I18nProvider'
 import { STATE_KEY, TaskGlyph } from '../JobIcons'
 import { Button, Chip, EmptyState, ICONS, Icon, IconButton, Meter, Switch, cx, type ChipTone } from '../ui'
-import { mainPlanViewOf, shownPlans, type Line, type MainPhase, type MainPlanBlock } from './mainPlanView'
-import { ageOf } from './planBoard'
+import { finishedDateOf, mainPlanViewOf, shownPlans, type Line, type MainPhase, type MainPlanBlock } from './mainPlanView'
 import { planStatusOf } from './planList'
 import type { PlanActs } from './PlanRow'
 import { statusGroupOf, type StatusGroup } from './planTree'
@@ -33,7 +32,7 @@ function storedHideDone(): boolean {
 const anchorOf = (id: string): string => `mainplan-${id}`
 
 export function MainPlan({ rows, acts, accounts = [] }: { rows: readonly JobRow[]; acts: PlanActs; accounts?: readonly Account[] }): React.JSX.Element {
-  const { t } = useI18n()
+  const { t, lang } = useI18n()
   const [hideDone, setHideDone] = useState(storedHideDone)
   const [, setOpenTick] = useState(0)
   const view = mainPlanViewOf(rows)
@@ -133,7 +132,7 @@ export function MainPlan({ rows, acts, accounts = [] }: { rows: readonly JobRow[
                   ? [
                       t('pages.plans.main.tasks', { n: finished.tasks }),
                       finished.commit,
-                      finished.at !== undefined ? t('pages.plans.age', { age: ageOf(new Date(finished.at).toISOString(), nowMs) }) : undefined
+                      finished.at !== undefined ? finishedDateOf(finished.at, nowMs, lang) : undefined
                     ]
                       .filter(Boolean)
                       .join(' · ')
