@@ -82,7 +82,7 @@ export const start = {
   'start.adv.accountHint': '어느 계정으로 계획할지. 자동은 여유가 가장 많은 계정을 고릅니다.',
   'start.adv.afterHint': '다른 계획이 끝나기를 기다리거나 바로 시작합니다.',
   'start.adv.workersHint': '동시에 실행할 수 있는 작업 수.',
-  'start.adv.deliveryHint': '끝난 작업이 프로젝트에 닿는 방식: 풀 리퀘스트 또는 브랜치로 push.',
+  'start.adv.deliveryHint': '끝난 작업이 가는 곳. 이 프로젝트에 설정된 방식만 보여 줍니다.',
   'start.adv.replan': '단계 사이에 다시 계획',
   'start.adv.replanHint': '이전 단계의 결과를 보고 플래너가 다음 단계를 조정할 수 있습니다.',
   'start.adv.replan.waves': '각 단계마다 다시 계획',

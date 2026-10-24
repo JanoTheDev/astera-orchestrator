@@ -1,6 +1,7 @@
 import type { ApprovalMode } from './settings/approvalDefault'
 import type { CrashOffer, CrashReportsSetting, RENDERER_KINDS } from './crash/report' // T27
 import type { Decision, IssuePick, PlanFeedback } from './orchestration/types'
+import type { DeliverySetup } from './orchestration/deliveryChoices'
 import type { WorktreeDetail, WorktreeRow } from './worktrees/cleanup'
 import type { ChangeMap } from './review/changeMap'
 import type { SlashCommand } from './commands/slashCommands'
@@ -1545,6 +1546,8 @@ export interface CoreApi {
     getDefaultAccount(projectPath: string): Promise<string | null>
     setDefaultAccount(projectPath: string, accountId: string | null): Promise<void>
     hasOrigin(projectPath: string): Promise<boolean> // the folder is a git repository with an origin remote
+    /** T6: what the folder is set up for (git, origin's URL, gh signed in, its branch): deliveryChoicesOf's input. */
+    deliverySetup(projectPath: string): Promise<DeliverySetup>
   }
   worktrees: {
     // Splitting a session off into a git worktree.

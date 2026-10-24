@@ -85,7 +85,7 @@ export const start: Record<keyof typeof ko, string> = {
   'start.adv.accountHint': 'Which account should plan. Auto picks the one with the most room left.',
   'start.adv.afterHint': 'Wait for another plan to finish first, or start right away.',
   'start.adv.workersHint': 'How many tasks may run at the same time.',
-  'start.adv.deliveryHint': 'How the finished work reaches your project: a pull request, or a push to the branch.',
+  'start.adv.deliveryHint': 'Where the finished work goes. Only what this project is set up for is offered.',
   'start.adv.replan': 'Plan again between steps',
   'start.adv.replanHint': 'Lets the planner adjust the next step after seeing what the last one did.',
   'start.adv.replan.waves': 'Plan again after each step',

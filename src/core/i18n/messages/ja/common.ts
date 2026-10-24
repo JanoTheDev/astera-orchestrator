@@ -280,10 +280,16 @@ export const common: Partial<Record<keyof typeof ko, string>> = {
   'jobs.source.open': 'ソースから',
   // W6-H delivery
   'delivery.label': 'プランが終わったら:',
-  'delivery.pr': 'プルリクエストを1つ開く (Astera はマージしない)',
-  'delivery.push': 'プランが終わったら {branch} にプッシュする (人によるレビューなし)',
-  'delivery.manual': '手動: 自分でレビューしてから PR を作成またはマージする',
+  'delivery.pr': 'GitHub でプルリクエストを開く',
+  'delivery.push': 'GitHub の {branch} にプッシュする',
+  'delivery.manual': '自分でレビューするために残しておく',
   'delivery.defaultBranch': 'デフォルトブランチ',
+  'delivery.pushTo': '{remote} の {branch} にプッシュする',
+  'delivery.merge': 'このコンピューターで {branch} にマージする',
+  'delivery.off.notGit': 'このフォルダーは git リポジトリではないため、作業はレビュー用に残されます',
+  'delivery.off.noRemote': 'リモートがないため、プッシュはオフです',
+  'delivery.off.notGitHub': 'GitHub のリモートがないため、プルリクエストはオフです',
+  'delivery.off.ghSignedOut': 'gh にサインインしていないため、プルリクエストはオフです',
   // NewTaskModal.tsx — Task を組み立てている間、詳細ウィンドウの下段(.detail-events)が変わるフォーム。
   // deps はこのフォームではなくグラフが持つ(選ぶ場所がグラフだから) — このカタログには deps の値
   // 自体ではなく、グラフを指すヒント文言(depsHint)だけがある。

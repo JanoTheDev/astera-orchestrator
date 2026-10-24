@@ -63,7 +63,7 @@ export const start: Partial<Record<keyof typeof ko, string>> = {
   'start.adv.accountHint': 'どのアカウントで計画するか。「自動」は余裕が最も大きいものを選びます。',
   'start.adv.afterHint': '別の計画の完了を待つか、すぐに開始します。',
   'start.adv.workersHint': '同時に実行できるタスクの数。',
-  'start.adv.deliveryHint': '完成した作業をプロジェクトに届ける方法：プルリクエスト、またはブランチへの push。',
+  'start.adv.deliveryHint': '完了した作業の行き先。このプロジェクトで使える方法だけが表示されます。',
   'start.adv.replan': 'ステップごとに再計画',
   'start.adv.replanHint': '前のステップの結果を見て、次のステップをプランナーが調整できます。',
   'start.adv.replan.waves': '各ステップのあとに再計画',

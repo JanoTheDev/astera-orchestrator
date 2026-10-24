@@ -63,7 +63,7 @@ export const start: Partial<Record<keyof typeof ko, string>> = {
   'start.adv.accountHint': 'Qué cuenta planifica. Auto elige la que tiene más margen.',
   'start.adv.afterHint': 'Espera a que termine otro plan, o empieza ya.',
   'start.adv.workersHint': 'Cuántas tareas pueden ejecutarse a la vez.',
-  'start.adv.deliveryHint': 'Cómo llega el trabajo terminado a tu proyecto: una pull request o un push a la rama.',
+  'start.adv.deliveryHint': 'Adónde va el trabajo terminado. Solo se ofrece lo que este proyecto tiene configurado.',
   'start.adv.replan': 'Replanificar entre pasos',
   'start.adv.replanHint': 'Deja que el planificador ajuste el siguiente paso tras ver lo que hizo el anterior.',
   'start.adv.replan.waves': 'Replanificar tras cada paso',

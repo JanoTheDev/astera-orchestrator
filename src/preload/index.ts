@@ -120,7 +120,8 @@ const api = {
   projects: {
     getDefaultAccount: invoke('projects.getDefaultAccount'),
     setDefaultAccount: invoke('projects.setDefaultAccount'),
-    hasOrigin: invoke('projects.hasOrigin')
+    hasOrigin: invoke('projects.hasOrigin'),
+    deliverySetup: invoke('projects.deliverySetup')
   },
   worktrees: {
     list: invoke('worktrees.list'),

@@ -17,7 +17,7 @@ export const DELIVERY_WAIT_ESCALATE_MS = 30 * 60_000
 
 /** Landing: a push plan whose latest Run's Tasks all completed and whose delivery has neither landed nor stopped. */
 function landing(s: OrchState, job: Job): boolean {
-  if (deliveryOf(s, job) !== 'push' || afterStandOf(s, job.id) !== 'waiting') return false
+  if ((deliveryOf(s, job) !== 'push' && deliveryOf(s, job) !== 'merge') || afterStandOf(s, job.id) !== 'waiting') return false
   const run = s.runs.filter((r) => r.jobId === job.id).sort((a, b) => a.ordinal - b.ordinal).at(-1)
   return run !== undefined && outcomeOfTasks(s.tasks.filter((t) => t.runId === run.id)) === 'completed'
 }
