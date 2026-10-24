@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   contextMenuPoint, FOCUSABLE, isTypeaheadKey, listboxKeyAction, menuKeyAction, moveIndex, nextFocusIndex, readSectionOpen, sectionStorageKey,
-  TYPEAHEAD_PAUSE_MS, typeaheadBuffer, typeaheadIndex, writeSectionOpen, readPaneSize, writePaneSize, paneResize, sashSize, sashKeyDelta, badgeText
+  TYPEAHEAD_PAUSE_MS, typeaheadBuffer, typeaheadIndex, writeSectionOpen, readPaneSize, writePaneSize, resizePair, sashSize, sashKeyDelta, badgeText
 } from './logic'
 
 describe('nextFocusIndex', () => {
@@ -196,11 +196,21 @@ describe('Sash and ActivityBarItem helpers', () => {
     expect(badgeText(250)).toBe('9+')
   })
 
-  it('paneResize trades height between the pair above the sash and clamps to the minimum', () => {
-    expect(paneResize([200, 300, 100], 1, 350, 40)).toEqual([150, 350, 100])
-    expect(paneResize([200, 300, 100], 1, 10, 40)).toEqual([460, 40, 100])
-    expect(paneResize([200, 300, 100], 2, 999, 40)).toEqual([200, 40, 360])
-    expect(paneResize([200, 300], 0, 50, 40)).toEqual([200, 300])
+  it('resizePair trades height only between the divider neighbours and clamps to the minimum', () => {
+    const o = [true, true, true]
+    expect(resizePair([200, 300, 100], o, 1, 350, 40)).toEqual([150, 350, 100])
+    expect(resizePair([200, 300, 100], o, 1, 10, 40)).toEqual([460, 40, 100])
+    expect(resizePair([200, 300, 100], o, 2, 999, 40)).toEqual([200, 40, 360])
+    expect(resizePair([200, 300], [true, true], 0, 50, 40)).toEqual([200, 300])
+  })
+
+  it('resizePair skips collapsed panes, leaves them and every third pane untouched, and keeps the sum', () => {
+    const h = [200, 22, 300, 100]
+    const out = resizePair(h, [true, false, true, true], 2, 250, 40)
+    expect(out).toEqual([250, 22, 250, 100])
+    expect(out.reduce((a, b) => a + b)).toBe(h.reduce((a, b) => a + b))
+    expect(resizePair(h, [false, false, true, true], 2, 250, 40)).toEqual(h) // nothing open above
+    expect(resizePair(h, [true, false, false, true], 2, 250, 40)).toEqual(h) // a collapsed pane has no sash
   })
 
   it('pane sizes round-trip through storage and ignore junk', () => {

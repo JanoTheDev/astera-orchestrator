@@ -87,15 +87,18 @@ export function writePaneSize(storage: Pick<Storage, 'setItem'> | undefined, id:
   }
 }
 
-/** The heights of a column of open panes after the sash above pane `i` moves pane `i` to `px`: the pair `i-1`/`i`
- *  trades height (their sum is kept), each stays at least `min`, the others are untouched. */
-export function paneResize(heights: number[], i: number, px: number, min: number): number[] {
-  if (i < 1 || i >= heights.length) return heights
-  const pair = heights[i - 1] + heights[i]
+/** The heights of a column of panes after the sash above pane `i` moves pane `i` to `px`. The sash trades height with
+ *  the nearest open pane above it (collapsed panes between keep their header and are skipped, never resized): the pair's
+ *  sum is kept, each stays at least `min`, every other height is untouched. A collapsed `i`, or no open pane above, is a no-op. */
+export function resizePair(heights: number[], open: boolean[], i: number, px: number, min: number): number[] {
+  let j = i - 1
+  while (j >= 0 && !open[j]) j--
+  if (j < 0 || !open[i]) return heights
+  const pair = heights[j] + heights[i]
   const next = Math.min(Math.max(min, pair - min), Math.max(min, Math.round(px)))
   const out = heights.slice()
   out[i] = next
-  out[i - 1] = pair - next
+  out[j] = pair - next
   return out
 }
 

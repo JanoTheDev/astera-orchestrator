@@ -5,6 +5,7 @@ import {
   useId,
   useLayoutEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
 } from "react";
@@ -12,9 +13,9 @@ import { ChevronRight } from "lucide-react";
 import { useI18n } from "../../i18n/I18nProvider";
 import {
   cx,
-  paneResize,
   readPaneSize,
   readSectionOpen,
+  resizePair,
   writePaneSize,
   writeSectionOpen,
 } from "./logic";
@@ -27,6 +28,7 @@ const PANE_MIN_H = 44;
 
 type PaneEntry = {
   weight: number | null;
+  open: boolean;
   set: (weight: number, persist: boolean) => void;
 };
 type Container = {
@@ -82,6 +84,7 @@ export function ViewPane({
   const [weight, setWeight] = useState<number | null>(() =>
     storageKey ? (readPaneSize(storage(), storageKey) ?? null) : null,
   );
+  const [, rejoin] = useReducer((n: number) => n + 1, 0);
   const [height, setHeight] = useState(0);
   const set = useCallback(
     (w: number, persist: boolean) => {
@@ -92,9 +95,11 @@ export function ViewPane({
   );
   useLayoutEffect(() => {
     const panes = container?.panes.current;
-    panes?.set(id, { weight, set });
+    panes?.set(id, { weight, open, set });
+    // siblings that registered after this render's mean() was taken: look again so a pane without a saved size joins them
+    if (open && weight === null && container?.mean() !== undefined) rejoin();
     return () => void panes?.delete(id);
-  }, [container, id, weight, set]);
+  }, [container, id, weight, open, set]);
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el || !open) return;
@@ -202,28 +207,40 @@ export function ViewContainer({
   const value = useMemo<Container>(
     () => ({
       panes,
-      // the sash above pane `id` moved it to `px`: every open pane takes its pixel height as weight, the pair trades
+      // the sash above pane `id` moved it to `px`: it trades height with the nearest open pane above and only those two
+      // panes change. Their weights keep their combined share (so no third pane shifts) and only they are persisted.
       resize: (id, px, persist) => {
         const els = [
           ...(ref.current?.querySelectorAll<HTMLElement>(
-            ":scope > .ui-viewpane.is-open",
+            ":scope > .ui-viewpane",
           ) ?? []),
         ];
         const i = els.findIndex((el) => el.dataset.pane === id);
-        const next = paneResize(
-          els.map((el) => el.offsetHeight),
+        const heights = els.map((el) => el.offsetHeight);
+        const next = resizePair(
+          heights,
+          els.map((el) => el.classList.contains("is-open")),
           i,
           px,
           PANE_MIN_H,
         );
-        els.forEach((el, j) =>
-          panes.current.get(el.dataset.pane ?? "")?.set(next[j], persist),
+        const changed = next.flatMap((h, j) => (h === heights[j] ? [] : [j]));
+        const entries = changed.map((j) =>
+          panes.current.get(els[j].dataset.pane ?? ""),
+        );
+        if (changed.length !== 2 || entries.some((e) => !e)) return;
+        // a pane without a saved weight stands in at its current height
+        const w = changed.map((j, k) => entries[k]?.weight ?? heights[j]);
+        const total = w[0] + w[1];
+        const sum = next[changed[0]] + next[changed[1]];
+        entries.forEach((e, k) =>
+          e?.set((total * next[changed[k]]) / sum, persist),
         );
       },
-      // a pane without a saved size (just opened) joins at the average of the others
+      // a pane without a saved size (just opened) joins at the average of the other open panes
       mean: () => {
         const w = [...panes.current.values()].flatMap((p) =>
-          p.weight === null ? [] : [p.weight],
+          p.open && p.weight !== null ? [p.weight] : [],
         );
         return w.length ? w.reduce((a, b) => a + b, 0) / w.length : undefined;
       },
