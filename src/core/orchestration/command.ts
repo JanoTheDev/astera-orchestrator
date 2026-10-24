@@ -166,6 +166,7 @@ import {
 } from '../github/taskLinks'
 import { jobNameOf } from './jobName'
 import { deliveryWaitStep } from './exec/deliveryWait'
+import type { DeliverySetup } from './deliveryChoices'
 // W8-D several plans in one repo
 import { areasArg, mainPlanText, otherPlansBrief, overlapLines, planOverlapWarnings, planTasksOf, taskCreateWarnings } from './overlap'
 import { isSamePath } from '../files/tree'
@@ -232,7 +233,9 @@ import {
   deliveryChecksOf,
   deliveryIssuesOf,
   deliveryMessage,
-  deliveryOf,
+  deliveryFallbackLine,
+  deliveryLandingOf,
+  readLandingOf,
   parseDelivery,
   projectOfJob,
   cleanAfterDelivery,
@@ -836,6 +839,9 @@ export interface OrchServerDeps {
     /** `git push -u origin <branch>` from the worktree, never forced (prCreate.ts pushBranch): the draft PR's push after
      *  each wave and before it is marked ready. Absent, `run-draft-pr` answers 409. */
     push?(worktree: string, branch: string): Promise<BranchPushResult>
+    /** T32: what the plan's folder is set up for (exec/deliverySetup.ts), so a delivery that cannot work there falls back
+     *  (merge on this computer, else review). Absent: every plan delivers as saved. */
+    deliverySetup?(cwd: string): Promise<DeliverySetup>
   }
   /** How It Works records (MCP P2-C): understanding.json as it is on disk now, read on every call and
    *  never written (`readUnderstandingFile`). **Only the Host injects it**, over its profile's file: the
@@ -6839,7 +6845,7 @@ export async function handleCommand(
       if (!run) return notFound(`unknown run: ${id}`)
       const job = jobOf(s, run)
       if (!job) return notFound(`no plan for run ${id}`)
-      const mode = deliveryOf(s, job)
+      const mode = (await readLandingOf(s, job, deps.github?.deliverySetup)).mode // T32: what can work on the folder
       // A manual plan is delivered by the owner, by the route they pick for this one delivery (--as); default a PR
       const route = args.as === undefined ? (mode === 'manual' ? 'pr' : mode) : args.as
       if (route !== 'pr' && route !== 'push' && route !== 'merge') return bad('--as must be pr, push or merge')
@@ -7044,6 +7050,7 @@ export async function handleCommand(
         return okBody({ branchPush: mine })
       }
       // T4: `synced`: an origin sync merged into the plan branch, which is pushed with no new Task
+      await readLandingOf(s, job, deps.github?.deliverySetup) // T32: draftPrDue reads what this read
       const tasksDone = draftPrDue(s, run, undefined, { synced: args.synced === true })
       if (tasksDone === null) return conflict("No plan-branch push is due: the plan's branch is pushed once per Task merged into it")
       const reply = await (async (): Promise<Reply> => {
@@ -7061,7 +7068,7 @@ export async function handleCommand(
         }
         // T3: a push plan's branch is pushed for safekeeping; main receives the plan once, validated, at the end. T4: so is
         // a `pr` plan's synced before its first Task: its draft opens with that Task
-        if (deliveryOf(s, job) !== 'pr' || (run.pr?.url === undefined && tasksDone < 1)) {
+        if (deliveryLandingOf(s, job).mode !== 'pr' || (run.pr?.url === undefined && tasksDone < 1)) {
           const pushed = await g.push(t.cwd, t.branch)
           if (!pushed.ok)
             return pushed.kind === 'no-remote'

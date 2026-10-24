@@ -185,6 +185,7 @@ import { createOrchPush } from './orchPush'
 import { dropNonGitProjects, ensureGitProject, findProjectContaining } from '../core/orchestration/projects'
 import { mainRepoRoot } from '../core/projects/detect'
 import { hasOriginRemote } from '../core/projects/create'
+import { readFolderSetup } from '../core/orchestration/exec/deliverySetup'
 import type { DeliverySetup } from '../core/orchestration/deliveryChoices'
 import { emptyState, resolveRunId } from '../core/orchestration/state'
 import { runRecordInputOf } from '../core/orchestration/runRecord'
@@ -4578,14 +4579,7 @@ export function registerIpc(
   ipcMain.handle('github.status', () => githubPrs.status())
   // T6: what the project folder is set up for, so the Delivery choice offers only what works (core deliveryChoices.ts).
   // gh's sign-in is the cached probe above, never a fresh gh run
-  ipcMain.handle('projects.deliverySetup', async (_e, p: string): Promise<DeliverySetup> => {
-    const isGitRepo = typeof p === 'string' && path.isAbsolute(p) && (await gitDir(p)) !== null
-    const url = isGitRepo && (await hasOriginRemote(p)) ? await git(['remote', 'get-url', 'origin'], { cwd: p }) : null
-    const originHead = isGitRepo ? await git(['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'], { cwd: p }) : null
-    const own = isGitRepo && !originHead?.ok ? await git(['symbolic-ref', '--quiet', '--short', 'HEAD'], { cwd: p }) : null
-    const branch = originHead?.ok && originHead.stdout.startsWith('origin/') ? originHead.stdout.slice('origin/'.length) : own?.ok ? own.stdout : null
-    return { isGitRepo, remoteUrl: url?.ok && url.stdout !== '' ? url.stdout : null, ghSignedIn: githubPrs.status().kind === 'connected', branch }
-  })
+  ipcMain.handle('projects.deliverySetup', (_e, p: string): Promise<DeliverySetup> => readFolderSetup(p, githubPrs.status().kind === 'connected'))
   ipcMain.handle('github.recheck', () => githubPrs.recheck())
   ipcMain.handle('github.prs', () => githubPrs.prs())
   ipcMain.handle('github.refresh', (_e, opts?: { force?: boolean }) =>

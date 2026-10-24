@@ -1,7 +1,7 @@
 // W6-H: how a finished plan lands. `run-deliver` (pr: run-open-pr; push: deliverPush, its record, its escalation and its
 // worktrees), `projects-set`, `--delivery` on jobs-create and jobs-plan, the pure helpers of delivery.ts and the
 // `plan.delivered` feed line. The push itself is exec/integrateGit.push.test.ts's.
-import { describe, it, expect } from 'vitest'
+import { afterEach, describe, it, expect } from 'vitest'
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
@@ -15,6 +15,8 @@ import { cleanAfterDelivery, DELIVERY_FIX_MARK, deliveryChecksOf, deliveryIssues
 import { outcomeOf } from './running'
 import { deriveActivity, noticeOf, type ActivityEvent } from './activity'
 import type { PushDelivery, PushResult } from './exec/integrateGit'
+import type { DeliverySetup } from './deliveryChoices'
+import { deliveryFallbackLine, deliveryLandingOf, forgetDeliverySetups } from './delivery'
 
 const NOW = '2026-10-18T00:00:00.000Z'
 const REPO = '/repo'
@@ -23,7 +25,7 @@ const task = (over: Partial<Task> = {}): Task =>
   ({ id: 't1', runId: 'r1', title: 'Fix login', spec: 's', deps: [], status: 'completed', consecutiveFailures: 0, createdAt: NOW, updatedAt: NOW, ...over }) as Task
 const project = (over: Partial<Project> = {}): Project => ({ id: 'p1', path: REPO, name: 'gameful', addedAt: NOW, ...over })
 
-const setup = (o: { project?: Partial<Project>; tasks?: Task[]; run?: Partial<JobRun>; push?: PushResult; noPush?: boolean; cleanThrows?: boolean; mergeFails?: string; merge?: OrchServerDeps['mergeWorktrees'] } = {}) => {
+const setup = (o: { project?: Partial<Project>; tasks?: Task[]; run?: Partial<JobRun>; push?: PushResult; noPush?: boolean; cleanThrows?: boolean; mergeFails?: string; merge?: OrchServerDeps['mergeWorktrees']; folder?: DeliverySetup } = {}) => {
   const box: { state: OrchState } = {
     state: {
       ...emptyState(),
@@ -65,7 +67,7 @@ const setup = (o: { project?: Partial<Project>; tasks?: Task[]; run?: Partial<Jo
     ...(o.mergeFails ? { mergeWorktrees: async () => ({ ok: false as const, reason: o.mergeFails }) } : {}),
     ...(o.merge ? { mergeWorktrees: o.merge } : {}),
     // run-open-pr's own refusal when there is no GitHub: enough to see that `pr` went there
-    github: o.mergeFails ? {} : undefined
+    github: o.folder ? { deliverySetup: async () => o.folder } : o.mergeFails ? {} : undefined
   } as unknown as OrchServerDeps
   const call = (cmd: string, args: Record<string, unknown>, sessionId = HOST_CALLER, role?: 'mcp') =>
     handleCommand(deps, { sessionId, ...(role ? { role } : {}) }, cmd, args)
@@ -975,5 +977,52 @@ describe('run-merge hands a conflict to the AI merge Task', () => {
     const r = await h.call('run-merge', { run: 'r1' })
     expect(r.status).toBe(409)
     expect(h.state().tasks).toHaveLength(1)
+  })
+})
+
+// T32: a delivery that cannot work on the folder falls back at delivery time
+describe('run-deliver on a folder where the delivery cannot work (T32)', () => {
+  afterEach(() => forgetDeliverySetups())
+  const github: DeliverySetup = { isGitRepo: true, remoteUrl: 'https://github.com/o/r.git', ghSignedIn: true, branch: 'main' }
+
+  it('merges locally when a plan with no delivery is on a folder with no GitHub remote', async () => {
+    const h = setup({ folder: { ...github, remoteUrl: null } })
+    const r = await h.call('run-deliver', { run: 'r1' })
+    expect(r.body).toMatchObject({ delivery: 'merge', pushed: false })
+    expect(h.pushes).toHaveLength(1)
+    expect(h.pushes[0]).toMatchObject({ local: true })
+    expect(deliveryFallbackLine(h.state(), h.state().jobs[0])).toBe('Merged into main on this computer: no GitHub remote')
+  })
+
+  it('merges locally when gh is signed out', async () => {
+    const h = setup({ folder: { ...github, ghSignedIn: false } })
+    expect((await h.call('run-deliver', { run: 'r1' })).body).toMatchObject({ delivery: 'merge', pushed: false })
+    expect(h.pushes[0]).toMatchObject({ local: true })
+    expect(deliveryFallbackLine(h.state(), h.state().jobs[0])).toBe('Merged into main on this computer: gh is not signed in')
+  })
+
+  it('leaves a folder that is not a git repository for review', async () => {
+    const h = setup({ folder: { isGitRepo: false, remoteUrl: null, ghSignedIn: true, branch: null } })
+    const r = await h.call('run-deliver', { run: 'r1' })
+    expect(r.status).toBe(409)
+    expect(h.pushes).toEqual([])
+    expect(deliveryLandingOf(h.state(), h.state().jobs[0])).toEqual({ mode: 'manual', reason: 'notGitHub' })
+    expect(deliveryFallbackLine(h.state(), h.state().jobs[0])).toBe('Left for your review: no GitHub remote')
+  })
+
+  it('leaves an explicit push that works as it is', async () => {
+    const h = setup({ project: { delivery: 'push', deliveryBranch: 'main' }, folder: github })
+    const r = await h.call('run-deliver', { run: 'r1' })
+    expect(r.body).toMatchObject({ delivery: 'push', pushed: true })
+    expect(h.pushes[0]).not.toHaveProperty('local')
+    expect(deliveryFallbackLine(h.state(), h.state().jobs[0])).toBeNull()
+  })
+
+  it('still opens the pull request on a GitHub remote with gh signed in', async () => {
+    const h = setup({ folder: github })
+    const r = await h.call('run-deliver', { run: 'r1' })
+    expect(h.pushes).toEqual([])
+    expect(JSON.stringify(r.body)).toContain('no integration branch') // run-open-pr's own answer
+    expect(deliveryLandingOf(h.state(), h.state().jobs[0])).toEqual({ mode: 'pr' })
   })
 })

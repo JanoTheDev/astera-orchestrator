@@ -121,6 +121,7 @@ import { workspaceSupported } from '../core/workspace/platform'
 import { connectCdp } from './workspace/cdp'
 import { freePort, killTree, processStartTimes } from './workspace/native'
 import { defaultGhRunner } from '../core/github/gh'
+import { readDeliverySetup } from '../core/orchestration/exec/deliverySetup'
 import { readUnderstandingFile } from '../core/understanding/read'
 import { copyIntakeFiles, readTextIfAny, writeIntakeText } from '../core/orchestration/intakeFiles'
 import { createPullRequest, pushBranch, readCommits } from '../core/github/prCreate'
@@ -1053,7 +1054,9 @@ async function main(): Promise<void> {
       readCommits: (wt, base) => readCommits(wt, base),
       isClean: (wt) => isCleanWorktree(wt),
       // W8-C draft PR: the push after each wave
-      push: (wt, branch) => pushBranch(wt, branch)
+      push: (wt, branch) => pushBranch(wt, branch),
+      // T32: a delivery that cannot work on the folder falls back
+      deliverySetup: (cwd) => readDeliverySetup(cwd)
     },
     // How It Works records (MCP P2-C): the app's understanding.json in this profile, read on every
     // call and never written, so a record the app wrote is there while the app is closed.
