@@ -5257,6 +5257,27 @@ describe('handleCommand — convergence', () => {
     expect((await call(deps, 'task-update', { id: b, mergedIntoPlan: true }, HOST_CALLER)).status).toBe(200)
     expect(deps.getState().gates.find((g) => g.id === gb)).toMatchObject({ status: 'resolved', resolution: 'closed: task completed' })
   })
+  it('an exhausted gate left open on a completed Task is a no-op: mark-failed and retry-once leave it completed', async () => {
+    for (const answer of ['mark-failed', 'retry-once']) {
+      const deps = convDeps()
+      await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p', convergence: true })
+      await call(deps, 'task-create', { spec: 's', account: 'accA', validate: 'c1' })
+      const taskId = deps.getState().tasks[0].id
+      const s = deps.getState()
+      const g = createGate(
+        { ...s, tasks: s.tasks.map((t) => ({ ...t, status: 'validating' as const })) },
+        { taskId, question: 'q', kind: 'convergence-exhausted', options: ['retry-once', 'mark-failed'] },
+        NOW
+      )
+      if (!g.ok) throw new Error(g.error)
+      await deps.setState({ ...g.state, tasks: g.state.tasks.map((t) => ({ ...t, status: 'completed' as const })) })
+      const r = await call(deps, 'questions-answer', { id: g.value.id, answer })
+      expect(r.status).toBe(200)
+      expect(deps.getState().tasks[0].status).toBe('completed')
+      expect(deps.getState().tasks[0].consecutiveFailures).toBe(0)
+      expect(deps.onces).toEqual([])
+    }
+  })
   it('gate-resolve on an open gate of a completed Task answers ok instead of a status error', async () => {
     const deps = convDeps()
     await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p' })
