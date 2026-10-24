@@ -117,7 +117,7 @@ export function activityClick(cur: { activity: ActivityId; sidebarVisible: boole
 /** The panel tab shown: Needs you and Activity are their own; Output and Terminal follow the console strip's tab
  *  (`run`, or a terminal id), so a run start or a new terminal lands on the right one. */
 export function shownPanelTab(panelTab: PanelTab, bottomTab: string): PanelTab {
-  if (panelTab === 'needs' || panelTab === 'activity') return panelTab
+  if (panelTab === 'needs' || panelTab === 'activity' || panelTab === 'console') return panelTab
   return bottomTab === 'run' ? 'output' : 'terminal'
 }
 

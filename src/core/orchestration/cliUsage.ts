@@ -904,6 +904,13 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       { name: 'unattended', value: '<hold|deny-after-60s>', about: 'chat: a permission prompt nobody answers' }
     ]
   },
+  // T10
+  'console-ensure': {
+    summary: 'the Astera console: one chat session for every project, started when none is alive',
+    detail:
+      "The Host starts it as a chat session titled \"Astera console\" in Astera's profile folder, with a first prompt that teaches it the astera CLI, and keeps its id in that folder, so a Host restart answers the same session. One that ended is started again; one that moved to another account at a usage limit is followed to its new session. Answers the session as `sessions list` shows it. A worker session is refused with 5, and a caller that is not the Host 6.",
+    flags: []
+  },
   // T8
   'sessions-close': {
     summary: 'end a session, as closing its tab does, with Astera open or closed',

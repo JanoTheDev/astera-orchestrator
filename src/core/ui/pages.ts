@@ -64,7 +64,8 @@ export const SIDEBAR_VISIBLE_KEY = 'cm.sidebar.visible'
 export const PANEL_VISIBLE_KEY = 'cm.panel.visible'
 export const PANEL_TAB_KEY = 'cm.panel.tab'
 
-export const PANEL_TABS = ['needs', 'activity', 'output', 'terminal'] as const
+// T10: `console` is the Astera console (components/console/ConsolePane.tsx)
+export const PANEL_TABS = ['needs', 'activity', 'output', 'terminal', 'console'] as const
 export type PanelTab = (typeof PANEL_TABS)[number]
 
 export const SIDEBAR_MIN_WIDTH = 170

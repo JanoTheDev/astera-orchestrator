@@ -88,4 +88,10 @@ export const shell: Partial<Record<keyof typeof ko, string>> = {
   'shell.welcome.keyPanel': 'Mostrar u ocultar el panel',
   'shell.welcome.keySettings': 'Ajustes',
   'shell.welcome.keyAgents': 'Vista de agentes',
+  // T10 Astera console (bottom panel)
+  'shell.panel.console': 'Consola',
+  'shell.console.starting': 'Abriendo la consola de Astera…',
+  'shell.console.ended': 'La consola de Astera terminó',
+  'shell.console.failed': 'No se pudo abrir la consola de Astera',
+  'shell.console.start': 'Volver a iniciar',
 }

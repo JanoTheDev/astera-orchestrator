@@ -765,6 +765,8 @@ astera sessions send   --id <sessionId> --text <text|-> [--no-enter] [--wait [--
 astera sessions create [--account <accountId> | --provider <claude|codex>] --cwd <path> [--kind <terminal|chat>] [--title <text>] [--prompt <text|->] [--roll-accounts <id,…>] [--unattended <hold|deny-after-60s>]
 astera sessions close  --id <sessionId> [--reason <text>]
 
+astera console ensure
+
 astera worktrees list   [--project <id|path>] [--stale]
 astera worktrees remove [--path <path> | --run <runId> | --stale] [--project <id|path>] [--force] [--dry-run]
 
@@ -1433,6 +1435,14 @@ A folder that does not exist is a 2, an account that is not in `accounts list` a
 without the agent CLI paths (it answers no `spawn` feature) a 6. Nothing is started in any of those
 cases. With `--request-id`, a retried `sessions create` is answered from the receipt rather than
 starting a second session; a refusal leaves no receipt.
+
+**`console ensure` answers the Astera console**: one chat session for every project, the one the app's
+bottom panel shows in its Console tab. The Host starts it titled "Astera console" in Astera's profile
+folder, with a first prompt that teaches it `main-plan`, `jobs list`, `jobs create --cwd` and
+`tasks list`, and that only a person starts a Job. Its id is kept in `console.json` in that folder, so
+a Host restart answers the same session. A console that ended is started again; one that moved to
+another account at a usage limit is followed to its new session. It answers the session as
+`sessions list` shows it. A worker session is refused with 5, and a caller that is not the Host 6.
 
 **`runs stop` is reversible, which is why it is not called cancel.** It closes the run's open worker
 dispatches, stops the run's coordinator session when it has one, and pauses the run. A run that has

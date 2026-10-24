@@ -111,6 +111,7 @@ import { mainPlanOf } from './mainPlan'
 import { isPathWithin } from '../files/tree'
 import { buildHandoverPrompt, buildPlannerBrief } from './handover'
 import { read as readOwner } from '../prompts/ownerInstructions'
+import { consoleIdStore, ensureConsole } from '../console/console'
 import { noRemoteNote, unmergedPlanBranches } from './unmergedBranches' // W8-G (#101)
 // W2-A planner stage
 import { editPlanTask, kindOf, leftOutArg, orchestrationRoleOf, planFieldsFromArgs, plannerJobOf, plannerRefusal, validatePlan, workerSpecOf, worktreeRefusal } from './planner'
@@ -6330,6 +6331,29 @@ export async function handleCommand(
         )
       } catch (e) {
         return bad(`could not start the session: ${e instanceof Error ? e.message : String(e)}`)
+      }
+    }
+    /**
+     * T10: the Astera console, one chat session for every project (core/console/console.ts). The Host answers it: it
+     * holds the sessions, starts the chat in its profile dir through `createSession`, and keeps the id there.
+     */
+    case 'console-ensure': {
+      // The same ruling as sessions-create: a worker starts no session of its own
+      if (myDispatch !== undefined) return denied('a worker session cannot start the console; run it from a shell or the app')
+      const { createSession, listSessions, profileDir } = deps
+      if (!createSession || !listSessions || !profileDir)
+        return conflict('the console is started by the Astera Host, and this caller is not one')
+      try {
+        return okBody(
+          await ensureConsole({
+            cwd: profileDir,
+            list: () => listSessions.call(deps),
+            create: (o) => createSession.call(deps, o),
+            store: consoleIdStore(profileDir)
+          })
+        )
+      } catch (e) {
+        return bad(`could not start the console: ${e instanceof Error ? e.message : String(e)}`)
       }
     }
     /**
