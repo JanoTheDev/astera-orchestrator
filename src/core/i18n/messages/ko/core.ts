@@ -270,6 +270,7 @@ export const core = {
   'jobs.convergence.gate.repairFailed': '수정할 워커를 띄울 수 없었습니다: {reason}',
   'jobs.checks.gate.unavailable': '검사를 할 수 없었습니다: {check}: {reason}',
   'jobs.gate.noAccount': '{provider} 계정에 로그인되어 있지 않아 이 Task 를 시작할 수 없습니다',
+  'jobs.gate.noAccountAnyProvider': '어떤 공급자의 계정에도 로그인되어 있지 않아 이 Task 를 시작할 수 없습니다',
   'jobs.gate.workerLostNoApp': '이 Task 의 워커가 복구해 줄 Astera 가 열려 있지 않은 동안 사라졌습니다(dispatch {dispatch}). 이 Gate 를 해결하면 다시 시작합니다.',
   'jobs.gate.assignedAccountUnusable':
     '이 Task 에 지정된 첫 계정을 쓸 수 없고, 그 뒤의 계정들은 나중에 갈아탈 순서일 뿐입니다 — 그 계정에 다시 로그인하거나 이 Task 의 계정 목록을 고치세요',

@@ -234,6 +234,7 @@ export const core: Record<keyof typeof ko, string> = {
   'jobs.convergence.gate.repairFailed': 'The app could not start a repair worker: {reason}',
   'jobs.checks.gate.unavailable': 'The check could not be made: {check}: {reason}',
   'jobs.gate.noAccount': 'No {provider} account is logged in, so this Task cannot start',
+  'jobs.gate.noAccountAnyProvider': 'No account of any provider is signed in, so this Task cannot start',
   // The Host's lost-worker Gate (R16): a worker that ended unreported while no app was attached, in a Run
   // with no coordinator. Nobody else will look after that Task, so a person is asked.
   'jobs.gate.workerLostNoApp': 'The worker for this Task was lost (dispatch {dispatch}) while no Astera was open to recover it. Resolve this Gate to start it again.',

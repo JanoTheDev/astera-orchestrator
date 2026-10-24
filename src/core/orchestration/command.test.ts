@@ -10499,3 +10499,51 @@ describe('T3 workspaces', () => {
     expect(deps.getState().projects).toEqual([])
   })
 })
+
+describe('worker-start — 재시도 워커는 이전 시도가 왜 실패했는지 spec 에서 읽는다', () => {
+  const seedTask = async (deps: OrchServerDeps): Promise<string> => {
+    const run = await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p' })
+    const runId = (run.body as { id: string }).id
+    const task = await call(deps, 'task-create', { account: 'acc1', runId, title: 't', spec: 'do the thing' })
+    return (task.body as { id: string }).id
+  }
+  /** startWorker 가 받은 spec 을 시작마다 모은다 — 회차 n 의 세션은 sess<n> 이다 */
+  const recordSpecs = (deps: OrchServerDeps): string[] => {
+    const specs: string[] = []
+    deps.startWorker = async (a) => {
+      specs.push(a.spec)
+      return { sessionId: `sess${specs.length}`, cwd: 'D:/p', specPath: 'D:/p/orch/specs/a.md' }
+    }
+    return specs
+  }
+  const start = (deps: OrchServerDeps, taskId: string, extra: Record<string, unknown> = {}) =>
+    call(deps, 'worker-start', { taskId, agent: 'codex', account: 'acc1', worktree: 'current', ...extra })
+
+  it('첫 시도의 spec 에는 Previous attempt 가 없다', async () => {
+    const deps = makeDeps()
+    const taskId = await seedTask(deps)
+    const specs = recordSpecs(deps)
+    await start(deps, taskId)
+    expect(specs).toEqual(['do the thing'])
+  })
+
+  it('실패로 보고된 이전 시도의 사유를 Previous attempt 로 싣는다', async () => {
+    const deps = makeDeps()
+    const taskId = await seedTask(deps)
+    const specs = recordSpecs(deps)
+    const first = (await start(deps, taskId)).body as { dispatchId: string }
+    await call(deps, 'send', { type: 'worker_done', taskId, dispatchId: first.dispatchId, outcome: 'failed', subject: 'tests fail', body: 'auth.test.ts:12 expected 401' }, 'sess1')
+    await start(deps, taskId, { retryOf: first.dispatchId })
+    expect(specs[1]).toBe('do the thing\n\n## Previous attempt\n\nThe last attempt at this Task failed: tests fail\n\nauth.test.ts:12 expected 401')
+  })
+
+  it('사유가 2000자를 넘으면 2000자에서 자른다', async () => {
+    const deps = makeDeps()
+    const taskId = await seedTask(deps)
+    const specs = recordSpecs(deps)
+    const first = (await start(deps, taskId)).body as { dispatchId: string }
+    await call(deps, 'send', { type: 'worker_done', taskId, dispatchId: first.dispatchId, outcome: 'failed', subject: 'x', body: 'y'.repeat(3000) }, 'sess1')
+    await start(deps, taskId, { retryOf: first.dispatchId })
+    expect(specs[1].endsWith(`${'y'.repeat(2000)}…`)).toBe(true)
+  })
+})

@@ -679,7 +679,8 @@ describe('createDispatchLoop', () => {
     const gate = h.state().gates.find((g) => g.taskId === mergeTaskOf(h).id)!
     expect(gate.status).toBe('open')
     expect(gate.question).not.toMatch(/first account/i)
-    expect(gate.question).toMatch(/account is logged in/)
+    expect(gate.question).toMatch(/no account of any provider is signed in/i)
+    expect(gate.question).not.toMatch(/claude/i)
   })
 
   it('T1: a hands-off plan retries a failed merge worker twice and asks the owner at the third failure', async () => {
@@ -698,6 +699,23 @@ describe('createDispatchLoop', () => {
     const gates = h.state().gates.filter((g) => g.taskId === mergeTaskOf(h).id)
     expect(gates).toHaveLength(1)
     expect(gates[0].question).toContain('the merge worker failed too')
+  })
+
+  it('T1: a hands-off plan retries a failed merge worker with the reason its last attempt reported in its spec', async () => {
+    const { h, starts } = mergingRig(conflict, { accountIds: [] }, true)
+    await h.loop.nudge()
+    await h.settle()
+    expect(starts).toHaveLength(1)
+    const merge = mergeTaskOf(h)
+    const d = h.state().dispatches.find((x) => x.taskId === merge.id && !x.endedAt)!
+    await h.as(d.sessionId, 'send', { type: 'worker_done', taskId: merge.id, dispatchId: d.id, outcome: 'failed', subject: 'conflict in plan.md', body: 'plan.md:40 both sides edited the same line' })
+    await h.loop.nudge()
+    await h.settle()
+    expect(starts).toHaveLength(2)
+    const retrySpec = h.startWorker.mock.calls[1][0].spec
+    expect(retrySpec).toContain('## Previous attempt')
+    expect(retrySpec).toContain('conflict in plan.md')
+    expect(retrySpec).toContain('plan.md:40 both sides edited the same line')
   })
 
   it("T1: a hands-off plan sends a merging Task's git problem (kind human) to the merge worker, not the owner", async () => {

@@ -236,6 +236,7 @@ export const core: Partial<Record<keyof typeof ko, string>> = {
   'jobs.convergence.gate.repairFailed': '修正ワーカーを起動できませんでした: {reason}',
   'jobs.checks.gate.unavailable': 'チェックを実行できませんでした: {check}: {reason}',
   'jobs.gate.noAccount': '{provider} アカウントにログインしていないため、この Task を開始できません',
+  'jobs.gate.noAccountAnyProvider': 'どの提供元のアカウントにもログインしていないため、この Task を開始できません',
   'jobs.gate.workerLostNoApp': 'この Task のワーカーは、復旧できる Astera が開いていない間に失われました（dispatch {dispatch}）。この Gate を解決すると、もう一度開始します。',
   'jobs.gate.assignedAccountUnusable':
     'この Task に指定された最初のアカウントが使用できず、その後ろのアカウントは後で切り替えるための順番にすぎません — そのアカウントに再ログインするか、この Task のアカウント一覧を変更してください',
