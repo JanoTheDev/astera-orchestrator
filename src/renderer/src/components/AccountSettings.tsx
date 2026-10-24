@@ -6,7 +6,7 @@ import { useAccountUsage } from '../hooks/useAccountUsage'
 import { AccountRow } from './AccountRow'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
-import { Button, EmptyState, ICONS, Icon, IconButton, Modal, Checkbox } from './ui'
+import { Button, Card, Checkbox, EmptyState, ICONS, Icon, IconButton, Modal } from './ui'
 
 /** The Accounts tab of the settings modal. It holds the delete and import-settings flows moved over from
  *  the sidebar. The sidebar (AccountPanel) is left with only listing and adding accounts. */
@@ -37,9 +37,11 @@ export function AccountSettings({ accounts }: { accounts: Account[] }): React.JS
   }
 
   return (
-    <div className="settings-accounts">
+    <div className="acct-settings">
       <span className="settings-hint">{t('settings.accounts.hint')}</span>
-      <ul>
+      {accounts.length > 0 && (
+      <Card className="acct-card">
+      <ul className="acct-list">
         {accounts.map((a) => {
           const defaultId = defaultIdByProvider[providerOf(a)]
           return (
@@ -63,7 +65,6 @@ export function AccountSettings({ accounts }: { accounts: Account[] }): React.JS
             )}
             <IconButton
               size="sm"
-              className="account-remove-btn"
               icon={<Icon name="delete" size={14} />}
               label={t('account.remove.button')}
               onClick={() => openRemove(a)}
@@ -72,6 +73,8 @@ export function AccountSettings({ accounts }: { accounts: Account[] }): React.JS
           )
         })}
       </ul>
+      </Card>
+      )}
       {accounts.length === 0 && (
         <EmptyState icon={ICONS.users} title={t('account.panel.empty')}>
           {t('account.empty.bodySettings')}
@@ -95,8 +98,8 @@ export function AccountSettings({ accounts }: { accounts: Account[] }): React.JS
             </>
           }
         >
-          <div className="dlg">
-            <p className="confirm-text">
+          <div className="acct-form">
+            <p className="acct-note">
               {t('account.sync.confirmBody', {
                 source:
                   accounts.find((a) => a.id === defaultIdByProvider[providerOf(syncTarget)])?.label ??
@@ -107,11 +110,11 @@ export function AccountSettings({ accounts }: { accounts: Account[] }): React.JS
             {/* The two CLIs differ in kind, not degree: claude merges, codex overwrites the file. The
                 codex case can lose settings, so it gets the warning style. */}
             {providerOf(syncTarget) === 'codex' ? (
-              <p className="warn-text">{t('account.sync.replaceNote')}</p>
+              <p className="acct-note acct-note--warn">{t('account.sync.replaceNote')}</p>
             ) : (
-              <p className="confirm-text">{t('account.sync.mergeNote')}</p>
+              <p className="acct-note">{t('account.sync.mergeNote')}</p>
             )}
-            <p className="warn-text">{t('account.sync.appliesNextSession')}</p>
+            <p className="acct-note acct-note--warn">{t('account.sync.appliesNextSession')}</p>
           </div>
         </Modal>
       )}
@@ -171,18 +174,12 @@ export function RemoveAccountDialog({ account, onClose }: { account: Account; on
         </>
       }
     >
-      <div className="dlg">
-        <p className="confirm-text">
+      <div className="acct-form">
+        <p className="acct-note">
           {t('account.remove.confirm', { label: account.label })}
         </p>
-        <label className="toggle-row">
-          <Checkbox
-            checked={logoutToo}
-            onChange={(v) => setLogoutToo(v)}
-          />
-          <span>{t('account.remove.logoutToo')}</span>
-        </label>
-        {logoutToo && <p className="warn-text">{t('account.remove.logoutWarning')}</p>}
+        <Checkbox checked={logoutToo} onChange={(v) => setLogoutToo(v)} label={t('account.remove.logoutToo')} />
+        {logoutToo && <p className="acct-note acct-note--warn">{t('account.remove.logoutWarning')}</p>}
       </div>
     </Modal>
   )

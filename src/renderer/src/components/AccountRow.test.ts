@@ -88,9 +88,9 @@ describe('AccountRow', () => {
   })
 
   it('marks the expanded row so the open one is visible in the list', () => {
-    expect(render({ usage: usage(), expanded: true })).toContain('class="account-row expanded"')
-    expect(render({ usage: usage() })).toContain('class="account-row"')
-    expect(render({ usage: usage() })).not.toContain('expanded"')
+    expect(render({ usage: usage(), expanded: true })).toContain('class="acct-row acct-row--open"')
+    expect(render({ usage: usage() })).toContain('class="acct-row"')
+    expect(render({ usage: usage() })).not.toContain('acct-row--open')
   })
 
   // The action buttons live inside the row, so a click on one would otherwise bubble up and toggle
@@ -100,8 +100,8 @@ describe('AccountRow', () => {
       usage: usage(),
       children: React.createElement('button', { className: 'row-action' }, 'x')
     })
-    expect(html).toContain('account-row-actions')
-    expect(html.indexOf('account-row-actions')).toBeLessThan(html.indexOf('row-action'))
+    expect(html).toContain('acct-row__actions')
+    expect(html.indexOf('acct-row__actions')).toBeLessThan(html.indexOf('row-action'))
   })
 
   // The only place the account email is shown — a deliberate ruling (spec §5.1) that the detail

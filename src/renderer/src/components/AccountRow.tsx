@@ -63,7 +63,7 @@ export function AccountRow({
 
   return (
     <li
-      className={expanded && openable ? 'account-row expanded' : 'account-row'}
+      className={expanded && openable ? 'acct-row acct-row--open' : 'acct-row'}
       title={email ? `${account.label} · ${email}` : account.configDir}
       onClick={toggle}
       // A click needs a keyboard equivalent or the figures are reachable by mouse alone. No
@@ -81,68 +81,73 @@ export function AccountRow({
           : undefined
       }
     >
-      <span className="color-dot" style={{ background: account.color }} />
-      {/* Double-click the name to rename the account (Enter saves, Escape cancels). */}
-      {renaming ? (
-        <Input
-          className="account-label-edit"
-          autoFocus
-          defaultValue={account.label}
-          aria-label={t('account.rename.label')}
-          onClick={(e) => e.stopPropagation()}
-          onFocus={(e) => {
-            renameEnd.current.ended = null
-            e.currentTarget.select()
-          }}
-          onKeyDown={(e) => {
-            e.stopPropagation()
-            const v = e.currentTarget.value
-            if (e.key === 'Enter') endRenameOnce(renameEnd.current, account.id, () => void saveName(v))
-            else if (e.key === 'Escape') endRenameOnce(renameEnd.current, account.id, () => setRenaming(false))
-          }}
-          onBlur={(e) => {
-            const v = e.currentTarget.value
-            endRenameOnce(renameEnd.current, account.id, () => void saveName(v))
-          }}
-        />
-      ) : (
-        <span
-          className="account-label"
-          title={t('account.rename.hint')}
-          onDoubleClick={(e) => {
-            e.stopPropagation()
-            setRenaming(true)
-          }}
-        >
-          {account.label}
-        </span>
-      )}
-      <ProviderBadge provider={account.provider} />
-      {isDefault && <Chip className="account-default">{t('accounts.default')}</Chip>}
-      {/* Gated on loggedIn as well as on having a reading: §5 draws nothing for an account that is
-          not logged in, and `undefined` (the state before useAccountStatus has answered) draws
-          nothing either, so no meter flashes in and out on mount. */}
-      {loggedIn && <AccountUsageMeter usage={usage} />}
-      {/* W11: said in words, and only when it is a problem; undefined (not asked yet) draws nothing. */}
-      {loggedIn === false && <Chip tone="warn" dot>{t('account.status.notLoggedIn')}</Chip>}
+      <span className="acct-mark" style={{ background: account.color }} aria-hidden="true" />
+      <div className="acct-id">
+        <div className="acct-id__line">
+          {/* Double-click the name to rename the account (Enter saves, Escape cancels). */}
+          {renaming ? (
+            <Input
+              className="acct-id__edit"
+              autoFocus
+              defaultValue={account.label}
+              aria-label={t('account.rename.label')}
+              onClick={(e) => e.stopPropagation()}
+              onFocus={(e) => {
+                renameEnd.current.ended = null
+                e.currentTarget.select()
+              }}
+              onKeyDown={(e) => {
+                e.stopPropagation()
+                const v = e.currentTarget.value
+                if (e.key === 'Enter') endRenameOnce(renameEnd.current, account.id, () => void saveName(v))
+                else if (e.key === 'Escape') endRenameOnce(renameEnd.current, account.id, () => setRenaming(false))
+              }}
+              onBlur={(e) => {
+                const v = e.currentTarget.value
+                endRenameOnce(renameEnd.current, account.id, () => void saveName(v))
+              }}
+            />
+          ) : (
+            <span
+              className="acct-id__name"
+              title={t('account.rename.hint')}
+              onDoubleClick={(e) => {
+                e.stopPropagation()
+                setRenaming(true)
+              }}
+            >
+              {account.label}
+            </span>
+          )}
+          <ProviderBadge provider={account.provider} />
+          {isDefault && <Chip>{t('accounts.default')}</Chip>}
+          {/* W11: said in words, and only when it is a problem; undefined (not asked yet) draws nothing. */}
+          {loggedIn === false && <Chip tone="warn" dot>{t('account.status.notLoggedIn')}</Chip>}
+        </div>
+        {email && <span className="acct-id__email">{email}</span>}
+      </div>
       {/* The actions sit inside the row, so their clicks would bubble into the row's toggle —
           pressing "remove account" would also open the usage detail. Stopped here rather than on
           each button so a caller cannot forget. */}
-      <span className="account-row-actions" onClick={(e) => e.stopPropagation()}>
+      <span className="acct-row__actions" onClick={(e) => e.stopPropagation()}>
+        {children}
         {!renaming && menu && (
           <Menu
             label={t('account.menu.label', { label: account.label })}
             align="end"
-            trigger={{ icon: <Icon name="more" size={14} />, variant: 'ghost', size: 'sm', className: 'account-menu-btn' }}
+            trigger={{ icon: <Icon name="more" size={14} />, variant: 'ghost', size: 'sm' }}
             items={[{ id: 'rename', label: t('account.rename.button'), icon: <Icon name="edit" size={14} />, onSelect: () => setRenaming(true) }, ...menu]}
           />
         )}
         {/* Renaming had only a double-click; this is its keyboard and pointer-visible way in. */}
         {!renaming && !menu && (
-          <IconButton size="sm" className="account-rename-btn" icon={<Icon name="edit" size={14} />} label={t('account.rename.button')} onClick={() => setRenaming(true)} />
+          <IconButton size="sm" icon={<Icon name="edit" size={14} />} label={t('account.rename.button')} onClick={() => setRenaming(true)} />
         )}
-        {children}
       </span>
+      {/* Gated on loggedIn as well as on having a reading: §5 draws nothing for an account that is
+          not logged in, and `undefined` (the state before useAccountStatus has answered) draws
+          nothing either, so no meter flashes in and out on mount. */}
+      {loggedIn && <AccountUsageMeter usage={usage} />}
       {/* In flow, after the row's own content, so opening it grows the row downward instead of
           covering the rows beneath (design doc §5.1). */}
       {expanded && openable && <AccountUsageDetail usage={usage} />}
