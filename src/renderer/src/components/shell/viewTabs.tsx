@@ -1,12 +1,13 @@
 // DESIGN-W13 §5: the `view` editor tabs (view:<name>[:<arg>]). One registry for their titles, icons and bodies, which
 // PaneGrid draws through `renderView`; useViewTabSync keeps the tabs and the state their pages still read (Start's
 // request, the open plan, the Settings flag) in step, so every old way into those pages opens their tab.
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { parseViewTab, sessionTab, viewTab, type ViewName } from '../../../../core/panes/tabId'
 import { groupOfTab } from '../../../../core/panes/tree'
 import { placeViewTab } from '../../../../core/panes/place'
 import { findRun } from '../../../../core/orchestration/snapshot'
 import type { MessageKey } from '../../../../core/i18n'
+import type { JobRow } from '../../../../core/types'
 import { jobName } from '../../lib/jobName'
 import { localDoor } from '../../lib/orchDoor'
 import { archiveJob, deleteRun, holdJob, renameJob, resolveFailed, unarchiveJob } from '../../lib/jobActions'
@@ -27,6 +28,8 @@ import type { AppState } from '../../state/appState'
 import type { ShellState } from './useShell'
 
 export type ViewTabProps = AppState & ShellState
+
+const NO_ROWS: JobRow[] = []
 
 const VIEW_META: Record<ViewName, { icon: IconName; title: MessageKey }> = {
   welcome: { icon: 'sparkles', title: 'shell.view.welcome' },
@@ -75,6 +78,31 @@ function planActs(p: ViewTabProps): PlanActs {
     onHold: (jobId, hold) => local && void holdJob(local, jobId, hold, actionUi),
     onResolveFailed: (taskId, action) => local && void resolveFailed(local, taskId, action, actionUi)
   }
+}
+
+/** The Main plan tab. `p` is a new object every App render, so the handlers go through a ref and MainPlan's memo holds. */
+function MainPlanTab({ p }: { p: ViewTabProps }): React.JSX.Element {
+  const pRef = useRef(p)
+  pRef.current = p
+  const acts = useMemo<PlanActs>(() => {
+    const now = (): PlanActs => planActs(pRef.current)
+    return {
+      onOpen: (id) => now().onOpen(id),
+      canOpenSession: (id) => now().canOpenSession(id),
+      onOpenSession: (id) => now().onOpenSession?.(id),
+      onPause: (id) => now().onPause?.(id),
+      onResume: (id) => now().onResume?.(id),
+      onRestartCoordinator: (id) => now().onRestartCoordinator?.(id),
+      onApprove: (id) => now().onApprove?.(id),
+      onDelete: (id) => now().onDelete?.(id),
+      onRename: (id, title) => now().onRename?.(id, title),
+      onArchive: (id) => now().onArchive?.(id),
+      onUnarchive: (id) => now().onUnarchive?.(id),
+      onHold: (id, hold) => now().onHold?.(id, hold),
+      onResolveFailed: (id, action) => now().onResolveFailed?.(id, action)
+    }
+  }, [])
+  return <MainPlan rows={p.orchSnapshot?.runs ?? NO_ROWS} acts={acts} accounts={p.accounts} />
 }
 
 /** A worktree tab: the one worktree at its own path, never the side bar's selection. */
@@ -126,7 +154,7 @@ export function renderViewTab(p: ViewTabProps, name: ViewName, arg: string | und
     case 'mainplan':
       return (
         <div className="view-doc">
-          <MainPlan rows={p.orchSnapshot?.runs ?? []} acts={planActs(p)} accounts={p.accounts} />
+          <MainPlanTab p={p} />
         </div>
       )
     case 'start': {

@@ -1,8 +1,8 @@
 // The Steps section of the plan page (moved out of pages/PlanPage.tsx): "Step n of m" and what opens the next one,
 // the board/graph switch, adding a Task, and the board (by wave) or the dependency graph. W12: a wave is shown as a "step".
 // T8: the board is a vertical list of steps; an expanded Task row shows its completion checks and changes.
-import { useState } from 'react'
-import type { RunDetail as RunDetailData } from '../../../../core/types'
+import { useCallback, useRef, useState } from 'react'
+import type { JobEvent, JobTask, RunDetail as RunDetailData } from '../../../../core/types'
 import { useI18n } from '../../i18n/I18nProvider'
 import { replyNote, type OrchDoor } from '../../lib/orchDoor'
 import { checkChoicesOf } from '../checkText'
@@ -51,6 +51,10 @@ export const answerVia =
     return r.status === 200 ? null : replyNote(r, t as never, (r.body as { error?: string } | null)?.error ?? t('plan.question.failed'))
   }
 
+// fallbacks with one identity, so an absent detail or timeline does not hand TaskBoard a new array every render
+const NO_LAYERS: string[][] = []
+const NO_EVENTS: JobEvent[] = []
+
 /** The Task board of a plan with its sessions wired in, and an expanded row's completion checks and changes.
  *  `compact`: no model, account, branch or files in a row's detail (simple mode). */
 export function PlanTaskBoard({
@@ -77,15 +81,49 @@ export function PlanTaskBoard({
   onAddTask?: (deps: string[]) => void
 }): React.JSX.Element {
   const { tasks, accounts, selectedTask, onNodeClick, events, live, summaries } = p
+  // p is a new object every render; the callbacks below read it through a ref so TaskBoard's memo can hold
+  const pRef = useRef(p)
+  pRef.current = p
+  const onRestart = useCallback((id: string) => void pRef.current.restartTask(id), [])
+  const renderAbout = useCallback(
+    (tk: JobTask) => (
+      // T2: everything about the Task, its Edit and its Request changes; a dep's title opens that Task's row
+      <TaskDetail
+        door={door}
+        jobId={runId}
+        task={tk}
+        tasks={tasks}
+        ui={pRef.current.ui}
+        compact={compact}
+        accountLabel={(id) => accounts?.find((a) => a.id === id)?.label ?? id}
+        onRestart={onRestart}
+        onShowTask={(id) => {
+          pRef.current.setSelected(id)
+          requestAnimationFrame(() => document.getElementById(taskAnchorId(id))?.scrollIntoView({ block: 'center' }))
+        }}
+      />
+    ),
+    [door, runId, tasks, compact, accounts, onRestart]
+  )
+  const renderDetail = useCallback(
+    (tk: JobTask) => (
+      <>
+        {/* 고른 Task 의 완료 상세 — 왜 못 넘었는가(설계 §2) — and what it changed (Phase 10) */}
+        <CompletionBlock projectPath={projectPath} runId={runId} taskId={tk.id} runtimeId={runtimeId} />
+        <ChangedFilesBlock door={door} runId={runId} taskId={tk.id} />
+      </>
+    ),
+    [projectPath, runId, runtimeId, door]
+  )
   return (
     <TaskBoard
       tasks={tasks}
       accounts={accounts}
       selected={selectedTask?.id}
       onSelect={onNodeClick}
-      layers={detail?.layers ?? []}
+      layers={detail?.layers ?? NO_LAYERS}
       deps={detail?.deps}
-      events={events ?? []}
+      events={events ?? NO_EVENTS}
       activity={live.activity}
       sessions={live.sessions}
       replanning={replanningOf(live.activity, runId)}
@@ -97,32 +135,10 @@ export function PlanTaskBoard({
       nowMs={live.nowMs}
       compact={compact}
       onAddTask={onAddTask}
-      onRestart={(id) => void p.restartTask(id)}
+      onRestart={onRestart}
       lockedReason={p.lockedReason}
-      renderAbout={(tk) => (
-        // T2: everything about the Task, its Edit and its Request changes; a dep's title opens that Task's row
-        <TaskDetail
-          door={door}
-          jobId={runId}
-          task={tk}
-          tasks={tasks}
-          ui={p.ui}
-          compact={compact}
-          accountLabel={(id) => accounts?.find((a) => a.id === id)?.label ?? id}
-          onRestart={(id) => void p.restartTask(id)}
-          onShowTask={(id) => {
-            p.setSelected(id)
-            requestAnimationFrame(() => document.getElementById(taskAnchorId(id))?.scrollIntoView({ block: 'center' }))
-          }}
-        />
-      )}
-      renderDetail={(tk) => (
-        <>
-          {/* 고른 Task 의 완료 상세 — 왜 못 넘었는가(설계 §2) — and what it changed (Phase 10) */}
-          <CompletionBlock projectPath={projectPath} runId={runId} taskId={tk.id} runtimeId={runtimeId} />
-          <ChangedFilesBlock door={door} runId={runId} taskId={tk.id} />
-        </>
-      )}
+      renderAbout={renderAbout}
+      renderDetail={renderDetail}
     />
   )
 }
@@ -220,7 +236,7 @@ export function PlanWaves({
       ) : (
         <Graph
           tasks={tasks}
-          layers={detail?.layers ?? []}
+          layers={detail?.layers ?? NO_LAYERS}
           deps={detail?.deps ?? {}}
           cyclic={detail?.cyclic ?? []}
           selected={selectedTask?.id}
