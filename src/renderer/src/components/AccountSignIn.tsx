@@ -89,14 +89,14 @@ export function AccountSignInDialog({ account, onClose }: { account: Account; on
       closeLabel={t('common.close')}
       footer={<Button onClick={close}>{t('common.cancel')}</Button>}
     >
-      <div className="dlg account-signin">
+      <div className="acct-form">
         {state.url === null ? (
-          <p className="modal-hint">{t('account.signIn.starting')}</p>
+          <p className="acct-note acct-note--faint">{t('account.signIn.starting')}</p>
         ) : (
           <>
-            <p className="modal-hint">{t('account.signIn.body')}</p>
+            <p className="acct-note acct-note--faint">{t('account.signIn.body')}</p>
             <a
-              className="account-signin-url"
+              className="acct-signin-url"
               href={state.url}
               onClick={(e) => {
                 e.preventDefault()
@@ -105,7 +105,7 @@ export function AccountSignInDialog({ account, onClose }: { account: Account; on
             >
               {state.url}
             </a>
-            <div className="row">
+            <div className="acct-actions">
               <Button variant="primary" icon={<Icon name="external" />} onClick={() => void window.api.system.openExternal(state.url!)}>
                 {t('account.signIn.open')}
               </Button>
@@ -117,7 +117,7 @@ export function AccountSignInDialog({ account, onClose }: { account: Account; on
         )}
         {state.asksCode && (
           <form
-            className="account-signin-code"
+            className="acct-signin-code"
             onSubmit={(e) => {
               e.preventDefault()
               void sendCode()

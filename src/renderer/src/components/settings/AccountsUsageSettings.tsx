@@ -6,7 +6,7 @@ import { useI18n } from '../../i18n/I18nProvider'
 import { toast } from '../../lib/toast'
 import { AccountSettings } from '../AccountSettings'
 import { UsageGuardSettings } from '../usage/UsageGuardSettings'
-import { Field } from '../ui'
+import { Card, Field } from '../ui'
 import { SettingRow, type GroupProps } from './SettingRow'
 
 /** T5b (decision 21): live Astera sessions per account at most; empty is no cap. Saved on blur, like the usage guard. */
@@ -39,8 +39,9 @@ function AccountMaxSessionsSetting({ accounts }: { accounts: Account[] }): React
   }
 
   return (
-    <div className="settings-group">
-      <span className="settings-row">{t('settings.accountMaxSessions.label')}</span>
+    <Card className="acct-card acct-limits">
+      <span className="acct-card__title">{t('settings.accountMaxSessions.label')}</span>
+      <span className="settings-hint">{t('settings.accountMaxSessions.hint')}</span>
       {accounts.map((a) => (
         <Field
           key={a.id}
@@ -52,8 +53,7 @@ function AccountMaxSessionsSetting({ accounts }: { accounts: Account[] }): React
           onBlur={() => commit(a.id)}
         />
       ))}
-      <span className="settings-hint">{t('settings.accountMaxSessions.hint')}</span>
-    </div>
+    </Card>
   )
 }
 
