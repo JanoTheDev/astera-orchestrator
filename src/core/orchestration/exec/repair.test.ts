@@ -5,6 +5,7 @@ import {
   startJobRun, createTask, emptyState, openDispatch, resolveGate, type OrchState
 } from '../state'
 import type { CheckResult, Dispatch, Task } from '../types'
+import { repairCountOf } from '../convergence'
 
 /** 예전의 createRun 한 번 — 이제 계획을 만들고 그 1회차를 시작하는 두 걸음이다. */
 const seedRun = (over: Parameters<typeof createJob>[1], now: string) => {
@@ -64,6 +65,15 @@ describe('repairTargetFor', () => {
   it('구현 Dispatch 가 없으면 null 이다', () => {
     expect(repairTargetFor(emptyState(), 'tsk_x', () => true)).toBeNull()
   })
+  it('a live session that runs another model or effort than the Task wants gives a fresh start in the same worktree', () => {
+    const { s, taskId } = validating()
+    const ran: OrchState = { ...s, dispatches: s.dispatches.map((d) => ({ ...d, model: 'sonnet', effort: 'medium' })) }
+    const wants = (over: Partial<Task>): OrchState => ({ ...ran, tasks: ran.tasks.map((t) => (t.id === taskId ? { ...t, ...over } : t)) })
+    const fresh = { kind: 'fresh', cwd: 'D:/wt', provider: 'claude', accountId: 'accA' }
+    expect(repairTargetFor(wants({ model: 'sonnet', effort: 'high' }), taskId, () => true)).toEqual(fresh)
+    expect(repairTargetFor(wants({ model: 'opus', effort: 'medium' }), taskId, () => true)).toEqual(fresh)
+    expect(repairTargetFor(wants({ model: 'sonnet', effort: 'medium' }), taskId, () => true)).toMatchObject({ kind: 'same-session', sessionId: 'sess1' })
+  })
 })
 
 describe('performRepair', () => {
@@ -94,6 +104,20 @@ describe('performRepair', () => {
     expect(a.terminal).toBeUndefined()
     expect(a.worktree).toBe('D:/wt')
     expect(a.launchPhrase).toBeUndefined()
+    expect(deps.box.state.dispatches.find((d) => d.id === repair.id)?.sessionId).toBe('sess-new')
+  })
+  it('a live session that no longer runs what the Task wants is not reused: fresh in the same worktree', async () => {
+    const { s, taskId } = validating()
+    const judged = unwrap<Task>(applyValidationResult(s, { taskId, results: failing, repair: repairTargetFor(s, taskId, () => true)! }, NOW) as never)
+    const repair = judged.state.dispatches.find((d) => d.repair)!
+    expect(repair.sessionId).toBe('sess1')
+    const raised: OrchState = { ...judged.state, tasks: judged.state.tasks.map((t) => (t.id === taskId ? { ...t, model: 'opus', effort: 'high' } : t)) }
+    const deps = makeDeps(raised)
+    await performRepair(deps, { dispatchId: repair.id })
+    const a = deps.started[0]
+    expect(a.terminal).toBeUndefined()
+    expect(a.launchPhrase).toBeUndefined()
+    expect(a.worktree).toBe('D:/wt')
     expect(deps.box.state.dispatches.find((d) => d.id === repair.id)?.sessionId).toBe('sess-new')
   })
   it('워커를 못 띄우면 Dispatch 를 지우고 Gate 다', async () => {
@@ -258,6 +282,28 @@ describe('repairOnce', () => {
     expect(deps.started[0].specFileContent).toContain(
       'This is an extra repair, granted by a person after the budget of 3 was already spent.'
     )
+  })
+  it('a decision opens one repair outside the budget whose spec carries it, and repairCountOf does not count it', async () => {
+    const { s, taskId, implId } = validating()
+    const issues: Task['reviewIssues'] = [
+      { id: 'rvw_1', severity: 'high', blocking: true, title: 'next dev never run', description: '', needs: 'environment' },
+      { id: 'rvw_2', severity: 'high', blocking: true, title: 'Null check missing', description: '' }
+    ]
+    const withIssues: OrchState = { ...s, tasks: s.tasks.map((t) => (t.id === taskId ? { ...t, reviewIssues: issues } : t)) }
+    const gated = unwrap<{ id: string }>(createGate(withIssues, { taskId, question: 'q', kind: 'review-needs-decision' }, NOW) as never)
+    const resolved = unwrap(resolveGate(gated.state, { gateId: gated.value.id, resolution: 'Skip the next dev step.' }, NOW) as never)
+    const deps = makeDeps(resolved.state)
+    expect(await repairOnce(deps, { taskId, decision: 'Skip the next dev step.' })).toEqual({ ok: true })
+    const repair = deps.box.state.dispatches.find((d) => d.repair)!
+    expect(repair).toMatchObject({ repair: 'review-failure', retryOf: implId, decision: 'Skip the next dev step.' })
+    expect(repair.grantedExtra).toBeUndefined()
+    expect(repairCountOf(deps.box.state, taskId)).toBe(0)
+    await vi.waitFor(() => expect(deps.started).toHaveLength(1))
+    const spec = deps.started[0].specFileContent!
+    expect(spec).toContain('## Decision')
+    expect(spec).toContain('decided: Skip the next dev step. Act on it.')
+    expect(spec).toContain('Null check missing')
+    expect(spec).not.toContain('1. HIGH — next dev never run')
   })
   it('이미 열린 Dispatch 가 있으면 새 Dispatch 를 열지 않는다', async () => {
     const { s, taskId } = validating()

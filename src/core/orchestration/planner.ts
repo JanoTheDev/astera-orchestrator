@@ -274,6 +274,9 @@ export function orchestrationRoleOf(s: OrchState, sessionId: string): 'worker' |
 const notStartedYet = (s: OrchState, t: Task): boolean =>
   (t.status === 'pending' || t.status === 'ready' || t.status === 'blocked') && !s.dispatches.some((d) => d.taskId === t.id)
 
+/** The plan fields the owner may change on a run Task that has started and not finished; they apply to its next dispatch. */
+const STARTED_EDITABLE = ['model', 'effort', 'difficulty', 'modelReason', 'acceptanceCriteria']
+
 /** The kinds of Task that may change no repository file (`--no-files`): archiving plans, a CLI cleanup, an audit. */
 const NO_FILES_KINDS: readonly TaskKind[] = ['ops', 'audit', 'docs']
 
@@ -385,9 +388,16 @@ export function editPlanTask(
   const task = s.tasks.find((t) => t.id === taskId)
   if (!task) return { ok: false, error: `unknown task: ${taskId}`, missing: true }
   const criteriaOnly = patch.acceptanceCriteria !== undefined && Object.keys(patch).every((k) => k === 'acceptanceCriteria')
+  if (owner === true && task.runId !== undefined && !criteriaOnly && !notStartedYet(s, task)) {
+    if (isTerminal(task)) return { ok: false, error: `${taskId} has finished (${task.status}): it is not edited` }
+    if (!Object.keys(patch).every((k) => STARTED_EDITABLE.includes(k)))
+      return { ok: false, error: `${taskId} has started already (${task.status}): only a Task that has not started is re-planned; it takes new --criteria, --model, --effort, --difficulty and --model-reason only` }
+    // a new difficulty alone makes the next dispatch pick model and effort again; given together, the values win
+    const reset = patch.difficulty !== undefined && patch.model === undefined && patch.effort === undefined
+    const next: Task = { ...task, ...patch, ...(reset ? { model: undefined, effort: undefined } : {}), updatedAt: now }
+    return { ok: true, state: { ...s, tasks: s.tasks.map((t) => (t.id === taskId ? next : t)) }, value: next }
+  }
   if (owner === true && task.runId !== undefined && !criteriaOnly) {
-    if (!notStartedYet(s, task))
-      return { ok: false, error: `${taskId} has started already (${task.status}): only a Task that has not started is re-planned; it takes new --criteria only` }
     if (patch.deps) {
       const refused = depsRefusal(s, task, patch.deps, new Set(s.tasks.filter((t) => t.runId === task.runId).map((t) => t.id)))
       if (refused !== undefined) return { ok: false, error: refused }

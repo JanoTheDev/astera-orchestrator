@@ -26,6 +26,15 @@ describe('parseReviewFile', () => {
     const r = parseReviewFile('{"issues":[{"severity":"low","title":"t","line":"12","extra":1}]}')
     expect(r).toEqual({ ok: true, issues: [{ severity: 'low', title: 't' }] })
   })
+  it('keeps what fixing an issue needs, and refuses a value it does not know', () => {
+    const r = parseReviewFile('{"issues":[{"severity":"high","title":"next dev never run","needs":"environment"},{"severity":"high","title":"t","needs":"code"}]}')
+    expect(r).toEqual({ ok: true, issues: [{ severity: 'high', title: 'next dev never run', needs: 'environment' }, { severity: 'high', title: 't', needs: 'code' }] })
+    expect(parseReviewFile('{"issues":[{"severity":"high","title":"t","needs":"luck"}]}').ok).toBe(false)
+  })
+  it('normalizeIssues carries needs over to the recorded issue', () => {
+    const [i] = normalizeIssues({ outcome: 'failed', subject: 's', body: 'b', issues: [{ severity: 'high', title: 't', needs: 'person' }], policy, newId })
+    expect(i.needs).toBe('person')
+  })
 })
 
 describe('normalizeIssues', () => {

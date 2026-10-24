@@ -2,7 +2,7 @@
 // questions-answer with one feed line; the owner's kinds of question stay open; the setting turns it all off.
 import { describe, expect, it } from 'vitest'
 import { STOPPED_DEP_OPTIONS } from '../overlap'
-import { ASK_GRACE_MS, autoAnswersDue, autoAnswerOf, autoAnswerOnOf, grantedAnswer, grantOf, handsOffStepsDue, REFUSED_ANSWER, type OpenQuestion } from './autoAnswer'
+import { ASK_GRACE_MS, autoAnswersDue, autoAnswerOf, autoAnswerOnOf, coordinatorDecideBody, grantedAnswer, grantOf, handsOffStepsDue, REFUSED_ANSWER, type OpenQuestion } from './autoAnswer'
 import { createDispatchLoop, ORCH_FIRE_TICK_MS, type DispatchLoopContext } from './dispatchLoop'
 import { handleCommand, type OrchServerDeps } from '../command'
 import { addDecision, createGate, emptyState, type OrchState } from '../state'
@@ -334,5 +334,48 @@ describe('standing grants on a hands-off plan', () => {
     ])
     const drop = q('Grant dropping the legacy table in the migration?', { source: 'escalation', createdAt: esc.createdAt })
     expect(handsOffStepsDue(planned(['migrations']), [drop], T0)).toEqual([expect.objectContaining({ hold: expect.objectContaining({ taskId: 'tsk_x' }) })])
+  })
+})
+
+describe('a review-needs-decision Gate on a hands-off plan', () => {
+  const planned = (grants?: string[]): OrchState => ({
+    ...base([task({ id: 'tsk_x', title: 'T1 · Login', status: 'dispatched' })]),
+    projects: [{ id: 'prj_1', path: 'D:/p', name: 'p', addedAt: NOW, ...(grants ? { grants } : {}) }],
+    jobs: [{ id: 'job_1', objective: 'o', cwd: 'D:/p', projectId: 'prj_1', createdAt: NOW } as OrchState['jobs'][number]],
+    runs: [{ id: 'run_1', jobId: 'job_1' } as OrchState['runs'][number]]
+  })
+  const gate = (text: string): OpenQuestion => q(text, { kind: 'review-needs-decision' })
+
+  it('goes to the coordinator, whose message asks to extend scope, grant or pick an option', () => {
+    const g = gate('The review needs a running dev server to check the settings page.')
+    expect(handsOffStepsDue(planned(), [g], T0)).toEqual([{ kind: 'coordinator', question: g }])
+    const body = coordinatorDecideBody(g)
+    expect(body).toContain('no code change fixes')
+    expect(body).toMatch(/extend the Task's scope/)
+    expect(body).toMatch(/grant the standing permission/)
+    expect(body).toMatch(/pick an option/)
+    expect(body).toContain('verbatim')
+    expect(body).toContain('astera questions answer --id gat_1')
+  })
+
+  it('is answered with the grant when a project grant covers its text', () => {
+    const g = gate('The review needs a running dev server to check the settings page.')
+    expect(handsOffStepsDue(planned(['dev-server']), [g], T0)).toEqual([
+      { kind: 'answer', answer: { id: 'gat_1', answer: grantedAnswer('dev-server'), why: 'Host state' }, decision: expect.objectContaining({ kind: 'gate', why: 'the owner granted dev-server in advance' }) }
+    ])
+  })
+
+  it('holds its Task for the owner when the text hits a guardrail, a grant or not', () => {
+    const g = gate('The review needs the production credentials and a dev-server.')
+    for (const s of [planned(), planned(['dev-server'])]) {
+      expect(handsOffStepsDue(s, [g], T0)).toEqual([
+        expect.objectContaining({ kind: 'hold', id: 'gat_1', decision: expect.objectContaining({ kind: 'refused', taskId: 'tsk_x' }), hold: expect.objectContaining({ taskId: 'tsk_x' }) })
+      ])
+    }
+  })
+
+  it('has no safe default for the global auto-answer', () => {
+    expect(autoAnswerOf(planned(), gate('The review needs a running dev server.'))).toBeNull()
+    expect(autoAnswerOf(planned(), gate('The review needs a decision. Options are open.'))).toBeNull()
   })
 })

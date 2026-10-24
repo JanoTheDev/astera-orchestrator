@@ -41,6 +41,7 @@ import {
   type ResolvedPolicy
 } from './convergence'
 import { normalizeIssues, type ReviewIssueInput } from './review'
+import { nextRung } from './roleModels'
 import { failedChecksSummary } from './completion'
 import { oneLine, pluginCheckText, skippedResult } from './pluginChecks'
 import { isJobActive } from './lifecycle'
@@ -762,6 +763,8 @@ export function openDispatch(
     /** 소진 Gate 의 retry-once 만 쓴다 — 사람이 "한 번 더" 라고 말한 자리이고, 그 한 번은
      *  예산 밖이다(설계 §5.2). 그 밖의 모든 호출은 회로를 그대로 본다. */
     ignoreCircuit?: boolean
+    /** A `review-needs-decision` Gate's answer (T3): the repair acts on it and is not one of the budget's */
+    decision?: string
   },
   now: string
 ): Res<Dispatch> {
@@ -827,7 +830,8 @@ export function openDispatch(
     ...(a.repair ? { repair: a.repair } : {}),
     // 열 때 한 번만 적는다 — 나중에 카운트로 되짚지 않는다(Dispatch.grantedExtra 의 주석, 전체 브랜치
     // 리뷰 Finding 3).
-    ...(a.ignoreCircuit ? { grantedExtra: true } : {})
+    // A decision's repair is outside the budget for another reason than a granted extra attempt: nothing was spent on it
+    ...(a.decision !== undefined ? { decision: a.decision } : a.ignoreCircuit ? { grantedExtra: true } : {})
   }
   return ok(
     { ...s, tasks: replace(s.tasks, moved), dispatches: [...s.dispatches, dispatch] },
@@ -928,7 +932,7 @@ export function applyWorkerDone(
         : 'failed'
   const moved = moveTask(task, to, now)
   if (!moved) return err(`cannot move task ${task.status} -> ${to}`)
-  const nextTask: Task = {
+  const reported: Task = {
     // 처음 validating 이 되는 순간이 시간 예산의 시작이다(설계 G2). 여기와 beginValidation 둘이
     // validating 으로 가는 전부다.
     ...(validating ? withConvergenceClock(moved, now) : moved),
@@ -946,6 +950,7 @@ export function applyWorkerDone(
           ? 0
           : task.consecutiveFailures + 1
   }
+  const nextTask = a.outcome === 'failed' ? stepRepairLadder(s, reported, 'a failed worker report') : reported
   const nextDispatch: Dispatch = {
     ...dispatch,
     outcome: a.outcome,
@@ -1087,11 +1092,12 @@ export function applyValidationResult(
     const to = reviewing ? 'reviewing' : passed ? doneStatusOf(s, task) : 'failed'
     const moved = moveTask(recorded, to, now)
     if (!moved) return err(`cannot move task ${task.status} -> ${to}`)
-    const next: Task = {
+    const judged: Task = {
       ...moved,
       consecutiveFailures: reviewing ? task.consecutiveFailures : passed ? 0 : task.consecutiveFailures + 1,
       ...(passed ? {} : { result: `validation failed (exit ${exitCode})\n${output}` })
     }
+    const next = passed ? judged : stepRepairLadder(s, judged, 'failed checks')
     let state: OrchState = { ...s, tasks: readyIn(s, replace(s.tasks, next)) }
     state = closeGatesOfCompleted(state, task.id, now)
     state = pushMessage(
@@ -1137,11 +1143,11 @@ export function applyValidationResult(
   }
   // repair 후보로 넘길 Task — 절대 'failed' 상태를 거치지 않는다(그것이 이 브랜치의 계약이다), 그래서
   // 이름도 그 상태를 닮지 않게 짓는다.
-  const pendingRepair: Task = {
-    ...recorded,
-    consecutiveFailures: task.consecutiveFailures + 1,
-    result: `validation failed (exit ${exitCode})\n${output}`
-  }
+  const pendingRepair = stepRepairLadder(
+    s,
+    { ...recorded, consecutiveFailures: task.consecutiveFailures + 1, result: `validation failed (exit ${exitCode})\n${output}` },
+    'failed checks'
+  )
   return routeFailure(
     s,
     {
@@ -1314,6 +1320,27 @@ function gateOnFailure(
   return ok(g.state, g.state.tasks.find((x) => x.id === a.task.id)!)
 }
 
+/** The repair ladder (roleModels nextRung): a recorded failure makes the Task's next attempt one rung stronger than
+ *  the implementation attempt that failed, as that attempt's Dispatch recorded it. Written on the Task (model, effort,
+ *  modelReason), so every start path that resolves Task.model/effort first picks it up. An attempt that recorded
+ *  neither a model nor an effort leaves nothing to step from. `after` names the failure for modelReason. */
+function stepRepairLadder(s: OrchState, task: Task, after: string): Task {
+  const last = latestImplDispatch(s, task.id)
+  if (!last || (!last.model && !last.effort)) return task
+  const rung = nextRung({ model: last.model, effort: last.effort }, last.provider)
+  return {
+    ...task,
+    ...(rung.model ? { model: rung.model } : {}),
+    ...(rung.effort ? { effort: rung.effort } : {}),
+    modelReason: `repair ${task.consecutiveFailures} after ${after}: ${rung.reason}`
+  }
+}
+
+/** Does a session started as `d` run what the Task now asks for? A running session keeps its launch flags, so a
+ *  raised Task.model or Task.effort needs a fresh start. An unset field asks for nothing. */
+export const sessionFitsTask = (task: Pick<Task, 'model' | 'effort'>, d: Pick<Dispatch, 'model' | 'effort'>): boolean =>
+  (!task.model || task.model === d.model) && (!task.effort || task.effort === d.effort)
+
 /** 실패한 판정이 갈 길(설계 §5.1의 표). 위에서부터 첫 행이 이긴다. 통과가 아닌 결과를 받았을 때만 부른다.
  *  `task` 는 checks·history·consecutiveFailures(+1) 가 이미 반영된 것이다.
  *
@@ -1367,7 +1394,13 @@ function routeFailure(
       now
     )
   const withTask: OrchState = { ...s, tasks: replace(s.tasks, a.task) }
-  const opened = openRepairDispatch(withTask, { taskId: a.task.id, reason: a.reason, target: a.repair }, now)
+  // A raised rung cannot reach a running session (it keeps its launch flags): start fresh in the same worktree
+  const prior = latestImplDispatch(s, a.task.id)
+  const target: RepairTarget =
+    a.repair.kind === 'same-session' && prior && !sessionFitsTask(a.task, prior)
+      ? { kind: 'fresh', cwd: a.repair.cwd, provider: a.repair.provider, accountId: a.repair.accountId }
+      : a.repair
+  const opened = openRepairDispatch(withTask, { taskId: a.task.id, reason: a.reason, target }, now)
   if (!opened.ok)
     return gateOnFailure(
       s,
@@ -1562,13 +1595,14 @@ export function applyReviewResult(
     const to = passed ? doneStatusOf(s, task) : 'failed'
     const moved = moveTask(task, to, now)
     if (!moved) return err(`cannot move task ${task.status} -> ${to}`)
-    const next: Task = {
+    const judged: Task = {
       ...moved,
       // 무엇이 부족했는지를 Task 에 남긴다. 재시도 워커가 이것을 읽지는 못한다 — buildSpecFile 은
       // spec 파일에 title 과 spec 만 싣는다 — 그래서 전달은 아래 메시지를 읽은 코디네이터의 일이다.
       ...(passed ? {} : { result: a.body }),
       consecutiveFailures: passed ? 0 : task.consecutiveFailures + 1
     }
+    const next = passed ? judged : stepRepairLadder(s, judged, 'a failed review')
     let state: OrchState = { ...closed, tasks: readyIn(closed, replace(closed.tasks, next)) }
     state = closeGatesOfCompleted(state, task.id, now)
     state = pushMessage(
@@ -1628,7 +1662,23 @@ export function applyReviewResult(
     ).state
     return ok(state, 'accepted')
   }
-  const failed: Task = { ...recorded, consecutiveFailures: task.consecutiveFailures + 1, result: a.body }
+  // T3: a blocking issue no code change fixes stops the loop here, above the attempt count: another repair would fail
+  // on it the same way. A person (or a hands-off plan's decider) answers, and that answer opens one repair (gate-resolve).
+  const nonCode = blocking.filter((i) => i.needs !== undefined && i.needs !== 'code')
+  if (nonCode.length > 0) {
+    const g = createGate(
+      { ...closed, tasks: replace(closed.tasks, { ...recorded, result: a.body }) },
+      {
+        taskId: task.id,
+        question: t(lang, 'jobs.convergence.gate.needsDecision', { issues: nonCode.map((i) => `${i.title} (needs ${i.needs})`).join('; ') }),
+        kind: 'review-needs-decision'
+      },
+      now
+    )
+    if (!g.ok) return err(g.error)
+    return ok(g.state, 'accepted')
+  }
+  const failed = stepRepairLadder(s, { ...recorded, consecutiveFailures: task.consecutiveFailures + 1, result: a.body }, 'a failed review')
   // 라운드 상한(설계 §8.4). 지금 닫은 검토가 이미 outcome 을 가지므로 reviewRoundOf 가 그것을 센다.
   // repairs 는 실제로 연 repair 수다(repairCountOf) — maxFixAttempts 는 다른 예산(§5.1)이고, 라운드
   // 상한에 닿았다고 그 값과 같지 않다.

@@ -185,6 +185,21 @@ Failure is never silent. It shows as a Gate with a reason a person can read, and
 | No account the Task can use | Gate |
 | Merge conflict | An integration Task, or a Gate when there is nothing left to hand it to |
 | Attempts or review rounds ran out | Gate ("Needs your decision" in the Inbox) |
+| A review is blocked by something no code change fixes | Gate, and no repair attempt is spent. See below |
+
+**A review that no repair can satisfy asks for a decision.** In `review.json` the reviewer marks what fixing each issue
+`needs`: `code` (the default), or `environment` (a running dev server, a device, a service slot), `scope`, `permission`
+or `person`. When a blocking issue needs anything but `code`, the app does not open a repair: a worker that cannot run
+`next dev` fails on it every round. It opens a `review-needs-decision` Gate instead, answered in free text by you or,
+on a hands-off plan, by its coordinator. The answer opens one repair outside the repair budget, with the decision in
+its spec.
+
+**Each failure makes the next attempt stronger.** A failed review, failed checks or a failed worker report raise the
+Task one rung above what the failed attempt ran on: the effort first, then the model (haiku, sonnet, opus), up to opus
+at max effort. Example: sonnet/medium, sonnet/high, opus/high, opus/xhigh, opus/max. A model with no tier (a codex or
+vendor id) only climbs the effort. The Task's model, effort and the reason for the step are saved on the Task. A raise
+starts a fresh worker in the same worktree, since a running session keeps the model and effort it started on. A session
+that was lost or killed is not a step.
 
 ## 7. Scheduled Jobs
 

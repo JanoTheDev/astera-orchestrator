@@ -38,7 +38,6 @@ import {
   resolveWorkerEffort,
   resolveRoleEffort,
   clampEffort,
-  escalateEffort,
   type RoleModelSettings
 } from '../roleModels'
 
@@ -126,10 +125,10 @@ export async function clampedEffort(
   return level ? clampEffort(level, await levelsFor(ctx, accountId, model), provider) : {}
 }
 
-/** The effort this start runs on and why it differs from the ask. A reviewer takes its role's; a worker, its
- *  Task's (resolveWorkerEffort), raised one level above the previous attempt's when that attempt failed or this
- *  Dispatch is a convergence repair. A `--terminal` reuse cannot change the launch flag: it keeps the reused
- *  session's effort and says when the raise waits for the next fresh start. */
+/** The effort this start runs on and why it differs from the ask. A reviewer takes its role's; a worker, its Task's
+ *  (resolveWorkerEffort) — a failed attempt has already raised Task.effort (state.ts, the repair ladder), so a start
+ *  never raises on its own. A `--terminal` reuse cannot change the launch flag: it keeps the reused session's effort
+ *  and says when the Task's wanted effort waits for the next fresh start. */
 async function effortForStart(
   ctx: WorkerStartContext,
   a: StartWorkerArgs,
@@ -139,26 +138,18 @@ async function effortForStart(
 ): Promise<{ effort?: string; note?: string }> {
   const self = s.dispatches.find((d) => d.id === a.dispatchId)
   if (self?.review) return clampedEffort(ctx, a.accountId, model, resolveRoleEffort(settings, 'reviewer', a.provider), a.provider)
-  const prevAttempt = s.dispatches
-    .filter((d) => d.taskId === a.taskId && !d.review && d.id !== a.dispatchId)
-    .sort((x, y) => x.startedAt.localeCompare(y.startedAt))
-    .at(-1)
-  const raise = self?.repair !== undefined || prevAttempt?.outcome === 'failed'
+  const task = s.tasks.find((t) => t.id === a.taskId)
+  const resolved = resolveWorkerEffort({ settings, task, job: task?.runId ? jobOfRunId(s, task.runId) : undefined, provider: a.provider })
   if (a.terminal) {
     const prev = s.dispatches.filter((d) => d.sessionId === a.terminal && d.id !== a.dispatchId).at(-1)
     return {
       ...(prev?.effort ? { effort: prev.effort } : {}),
-      ...(raise ? { note: `effort stays ${prev?.effort ?? 'CLI default'}: the live session keeps its launch flag, the raise applies at the next fresh start` } : {})
+      ...(resolved && resolved !== prev?.effort
+        ? { note: `effort stays ${prev?.effort ?? 'CLI default'}: the live session keeps its launch flag, ${resolved} applies at the next fresh start` }
+        : {})
     }
   }
-  const task = s.tasks.find((t) => t.id === a.taskId)
-  const resolved = resolveWorkerEffort({ settings, task, job: task?.runId ? jobOfRunId(s, task.runId) : undefined, provider: a.provider })
-  if (!raise) return clampedEffort(ctx, a.accountId, model, resolved, a.provider)
-  const levels = await levelsFor(ctx, a.accountId, model)
-  const up = escalateEffort(prevAttempt?.effort ?? resolved, levels, a.provider)
-  const clamped = up.effort ? clampEffort(up.effort, levels, a.provider) : {}
-  const note = [up.note, clamped.note].filter(Boolean).join('; ')
-  return { ...(clamped.effort ? { effort: clamped.effort } : {}), ...(note ? { note } : {}) }
+  return clampedEffort(ctx, a.accountId, model, resolved, a.provider)
 }
 
 /** The body of the app's old `startWorker` wrapper, unchanged: the rolling chain from Task.accountIds

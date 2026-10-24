@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   MODEL_ID,
   clampEffort,
-  escalateEffort,
+  nextRung,
   resolveRoleEffort,
   resolveWorkerEffort,
   dispatchModelFields,
@@ -230,19 +230,41 @@ describe('clampEffort', () => {
   })
 })
 
-describe('escalateEffort', () => {
-  const all = ['low', 'medium', 'high', 'xhigh', 'max']
-  it('one listed level up, with a note', () => {
-    expect(escalateEffort('medium', all, 'claude')).toMatchObject({ effort: 'high', note: expect.stringContaining('medium') })
-    expect(escalateEffort('low', ['low', 'high'], 'claude').effort).toBe('high')
+describe('nextRung', () => {
+  const step = (model: string | undefined, effort: string | undefined, provider: 'claude' | 'codex' = 'claude') => {
+    const r = nextRung({ model, effort }, provider)
+    return `${r.model ?? '-'}/${r.effort ?? '-'}`
+  }
+  it('climbs effort first, then the model: sonnet/medium → sonnet/high → opus/high → opus/xhigh → opus/max', () => {
+    expect(step('sonnet', 'medium')).toBe('sonnet/high')
+    expect(step('sonnet', 'high')).toBe('opus/high')
+    expect(step('opus', 'high')).toBe('opus/xhigh')
+    expect(step('opus', 'xhigh')).toBe('opus/max')
   })
-  it('at the max it stays, and says so', () => {
-    expect(escalateEffort('max', all, 'claude')).toMatchObject({ effort: 'max', note: expect.any(String) })
-    expect(escalateEffort('xhigh', all, 'codex')).toMatchObject({ effort: 'xhigh', note: expect.any(String) })
+  it('effort below high climbs one level on the same model', () => {
+    expect(step('haiku', 'low')).toBe('haiku/medium')
+    expect(step('opus', 'low')).toBe('opus/medium')
   })
-  it('nothing before, nothing to raise; unknown levels explain', () => {
-    expect(escalateEffort(undefined, all, 'claude')).toEqual({})
-    expect(escalateEffort('low', undefined, 'claude').effort).toBeUndefined()
+  it('effort high or above on a lower tier moves one tier up at high', () => {
+    expect(step('haiku', 'high')).toBe('sonnet/high')
+    expect(step('sonnet', 'xhigh')).toBe('opus/high')
+    expect(step('claude-sonnet-5-5', 'max')).toBe('opus/high')
+  })
+  it('a model that took no effort moves one tier up at high', () => {
+    expect(step('haiku', undefined)).toBe('sonnet/high')
+  })
+  it('opus/max stays, and the reason says so', () => {
+    const r = nextRung({ model: 'opus', effort: 'max' }, 'claude')
+    expect(r).toMatchObject({ model: 'opus', effort: 'max', reason: expect.stringMatching(/already the best model at max effort/) })
+  })
+  it('a model with no tier climbs effort only, up to max', () => {
+    expect(step('gpt-5.5', 'medium', 'codex')).toBe('gpt-5.5/high')
+    expect(step('gpt-5.5', 'max', 'codex')).toBe('gpt-5.5/max')
+    expect(step(undefined, 'high')).toBe('-/xhigh')
+    expect(step(undefined, undefined)).toBe('-/-')
+  })
+  it('the reason names both rungs', () => {
+    expect(nextRung({ model: 'sonnet', effort: 'high' }, 'claude').reason).toBe('sonnet/high → opus/high')
   })
 })
 
