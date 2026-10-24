@@ -72,4 +72,69 @@ describe('createSharedPoll', () => {
       vi.useRealTimers()
     }
   })
+
+  it('a reload during a pending read runs one follow-up read after it, and that value reaches the listener', async () => {
+    vi.useFakeTimers()
+    try {
+      const poll = createSharedPoll<number>(1_000, fakeDoc())
+      const releases: Array<(v: number) => void> = []
+      const read = vi.fn(() => new Promise<number>((r) => releases.push(r)))
+      const listener = vi.fn()
+      const off = poll.subscribe('k', { read }, listener)
+      await vi.advanceTimersByTimeAsync(0)
+      poll.reload('k')
+      expect(read).toHaveBeenCalledTimes(1)
+      releases[0](1)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(read).toHaveBeenCalledTimes(2)
+      releases[1](2)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(listener).toHaveBeenLastCalledWith(2)
+      off()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('three reloads during one read cause exactly one follow-up read', async () => {
+    vi.useFakeTimers()
+    try {
+      const poll = createSharedPoll<number>(1_000, fakeDoc())
+      const releases: Array<(v: number) => void> = []
+      const read = vi.fn(() => new Promise<number>((r) => releases.push(r)))
+      const off = poll.subscribe('k', { read }, () => {})
+      await vi.advanceTimersByTimeAsync(0)
+      poll.reload('k')
+      poll.reload('k')
+      poll.reload('k')
+      releases[0](1)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(read).toHaveBeenCalledTimes(2)
+      releases[1](2)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(read).toHaveBeenCalledTimes(2)
+      off()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('no read runs after the last unsubscribe, even one a reload asked for mid-read', async () => {
+    vi.useFakeTimers()
+    try {
+      const poll = createSharedPoll<number>(1_000, fakeDoc())
+      let release: (v: number) => void = () => {}
+      const read = vi.fn(() => new Promise<number>((r) => (release = r)))
+      const off = poll.subscribe('k', { read }, () => {})
+      await vi.advanceTimersByTimeAsync(0)
+      poll.reload('k')
+      off()
+      release(1)
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(read).toHaveBeenCalledTimes(1)
+      expect(poll.size()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

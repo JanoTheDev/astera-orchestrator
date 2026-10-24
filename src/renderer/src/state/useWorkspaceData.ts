@@ -17,16 +17,6 @@ const read = async <T>(projectPath: string, cmd: string, args: Record<string, un
   }
 }
 
-/**
- * Every project's plans, runs, tasks, dispatches and open Gates, through the same door the CLI uses (`orch.command`)
- * — read only. `anchor` is any path the app may name (a session's cwd or the open project), which these unscoped
- * reads need as their door argument.
- *
- * W3-C: Dispatches come from one unscoped `dispatches-list`, so every project's sessions refresh on every tick. (W2-B
- * read them per Task with `dispatch-show`, which is owner checked against the project the Jobs view watches, so other
- * projects' sessions went stale.) An account roll rekeys a Dispatch to its new session without moving the Task, and
- * this read sees that too.
- */
 /** The new read with every part that did not change replaced by the one already held, and `prev` itself when none
  *  changed: a tick that finds nothing new renders nothing, and the memos derived from one list keep their inputs. */
 export function keepUnchanged(prev: WorkspaceData | undefined, next: WorkspaceData): WorkspaceData {
