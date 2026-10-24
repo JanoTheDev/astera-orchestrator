@@ -22,7 +22,8 @@ import { dismiss, toast } from '../lib/toast'
 import { spawnNotice } from '../lib/spawnNotice'
 import { announceSettingsRecovery } from '../lib/settingsRecoveryNotice'
 import { confirmModal, confirmModalWithChoices, isConfirmOpen } from '../lib/confirm'
-import { ACTIVITY_STORAGE_KEY, activityOfSaved, togglePage, type ActivityId, type PageId } from '../../../core/ui/pages'
+import { ACTIVITY_STORAGE_KEY, type ActivityId } from '../../../core/ui/pages'
+import { nextActivity } from './sidebarView'
 import { requestBox } from '../components/command/boxStore'
 import { openActivity, openView, revealRunConfigs, togglePanel, toggleSideBar } from '../components/shell/navigation'
 import { storageWrite } from '../components/shell/shellView'
@@ -67,7 +68,7 @@ export type WorkbenchDeps = Pick<ReturnType<typeof useWorkbenchState>,
     'setSessions' | 't'> &
   Pick<ReturnType<typeof useSidebar>,
     'bindingsRef' | 'explorerOpenRef' | 'setExplorerOpen' | 'setKeyOverrides' | 'setSidebarOpen' | 'sidebarOpenRef' |
-    'setPage' | 'pageRef' | 'setActivity'> &
+    'activityRef' | 'setActivity'> &
   Pick<ReturnType<typeof useHost>,
     'campaignRef' | 'checkClickedAt' | 'cliInstalled' | 'notifiedUpdateRef' | 'readyToastRef' | 'setAppVersion' |
     'setCampaign' | 'setCheckClickedAt' | 'setCli' | 'setCliInstalled' | 'setHostHolding' | 'setHostStatus' |
@@ -106,7 +107,7 @@ export function useWorkbench(deps: WorkbenchDeps) {
     setKeyOverrides, setLayout, setMdMode, setMdModes, setMediaNonces, setNewSessionCwd, setPendingReveal,
     setRecordTabs, setRemoteSessions, setRemoteStatus, setRollStates, setRunMenuOpen, setSchedStates, setScopedNode,
     setSessions, setShowNew, setSidebarOpen, setSwitcherOpen, setTalkSignal, setUpdate, setWorkUnitTrackingEnabled,
-    setWtRoot, settingsTouched, showSettings, sidebarOpenRef, t, tRef, update, setPage, pageRef, setNewOpen, setActivity
+    setWtRoot, settingsTouched, showSettings, sidebarOpenRef, t, tRef, update, activityRef, setNewOpen, setActivity
   } = deps
   // W9-A: declared here, ahead of where App's body had them, because effects and handlers in this hook
   // (or an earlier one) read them; they are state and refs, so moving them up changes nothing that runs.
@@ -1479,7 +1480,7 @@ export function useWorkbench(deps: WorkbenchDeps) {
       }))
     )
       return
-    goPage('agents') // W9-B: the Files page closes back to Agents
+    showActivity('agents') // W9-B: the Files page closes back to Agents
     // 트리에 들어 있는 파일 탭도 함께 뺀다 — 남겨 두면 파일이 없는데 탭만 남는다. 하나씩 빼는 것은
     // removeTab이 빈 그룹 정리와 다음 활성 탭 선택까지 맡고 있기 때문이다
     let nextLayout = layoutRef.current
@@ -1512,29 +1513,22 @@ export function useWorkbench(deps: WorkbenchDeps) {
    *
    *  사이드바의 표시 여부는 sidebarOpen 하나가 정한다. 예전에는 sidebarOpen || explorerOpen 이라
    *  탐색기가 켜져 있는 동안 사이드바 토글이 아무 반응도 없었다 — OR 가 언제나 참이었기 때문이다. */
-  /** W9-B: shows a page (core/ui/pages.ts). The rail and its sidebar are gone; the flags the app's effects read
-   *  (explorerOpen, jobsOpen, hiwOpen) follow the page that shows their view, and the page is kept for the next
-   *  launch. Runs from the keydown listener too, which closes over the first render: hence pageRef. */
-  const goPage = (id: PageId): void => {
-    pageRef.current = id
-    setPage(id)
-    // DESIGN-W13: a page is a side bar view now. Settings and the Inbox have none (a view tab, the panel): they leave it.
-    const to = activityOfSaved(id)
-    if (id !== 'settings' && !to.panelTab) showActivity(to.activity)
-  }
   /** The side bar's view; the flags the app's effects read (explorerOpen, jobsOpen, hiwOpen) follow it, and it is kept
-   *  for the next launch. Whether the side bar shows is the caller's (openActivity shows it, goPage leaves it). */
+   *  for the next launch. Whether the side bar shows is the caller's (openActivity shows it, a toggle leaves it). Only owner
+   *  actions call it (state/sidebarView.ts): a push or a plan change never moves the view. */
   const showActivity = (id: ActivityId): void => {
+    activityRef.current = id
     setActivity(id)
     setExplorerOpen(id === 'explorer')
     setJobsOpen(id === 'plans')
     setHiwOpen(id === 'history')
     storageWrite(ACTIVITY_STORAGE_KEY, id)
   }
-  /** The old sidebar views' keys: open the view's page, or go back to Agents from it (togglePage). */
+  /** The old sidebar views' keys: open the view, or go back to Agents from it. Runs from the keydown listener, which
+   *  closes over the first render: hence activityRef. */
   const toggleSidebar = (view: 'explorer' | 'jobs' | 'understanding' | 'sessions'): void => {
-    const target: PageId = view === 'explorer' ? 'files' : view === 'jobs' ? 'plans' : view === 'understanding' ? 'more:hiw' : 'agents'
-    goPage(togglePage(pageRef.current, target))
+    const target: ActivityId = view === 'explorer' ? 'explorer' : view === 'jobs' ? 'plans' : view === 'understanding' ? 'history' : 'agents'
+    showActivity(nextActivity(activityRef.current, { kind: 'toggle', activity: target }))
   }
   /** Shows the explorer whatever was showing: a folder link's reveal needs it open, never toggled shut. */
   const showExplorer = (): void => openActivity('explorer')
@@ -1753,7 +1747,7 @@ export function useWorkbench(deps: WorkbenchDeps) {
     isMarkdownPath, openWorkspaceSlotRef, closeAgentTabRef, currentProjectRef, spawn, openFile, openLinkedPath,
     openProjectFile, retireEditorState, setBufferContent, saveFile, reloadBufferFromDisk, dropTabFromTree,
     openRemoteSession, selectWorkbenchTab, closeWorkbenchTab, handlePathRenamed, handlePathDeleted, closeExplorer,
-    goPage, showActivity, toggleSidebar, showExplorer, toggleSessions, toggleExplorer, toggleJobs, toggleHiw, dropOnPane, canStart,
+    showActivity, toggleSidebar, showExplorer, toggleSessions, toggleExplorer, toggleJobs, toggleHiw, dropOnPane, canStart,
     newInGroup, dropTabInGroup, unsplitPane, restart, resumeFromHistory, active, runningCount, updateChecking,
     dirtyIds
   }

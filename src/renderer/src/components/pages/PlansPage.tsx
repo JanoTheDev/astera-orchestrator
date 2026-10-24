@@ -2,7 +2,6 @@
 // (shell/viewTabs.tsx), and usePlanPages, App's page state for it. T7: the plans list, the All tasks board and the By
 // area / Overlap / Main plan tabs are gone; the Plans side bar tree (views/PlansView.tsx) is the one list.
 import { useEffect, useState } from 'react'
-import type { PageId } from '../../../../core/ui/pages'
 import { findRun } from '../../../../core/orchestration/snapshot'
 import { groupOfTab } from '../../../../core/panes/tree'
 import { sessionTab } from '../../../../core/panes/tabId'
@@ -14,31 +13,30 @@ import { nextPlanOpen, type PlanOpen } from '../plan/planPage'
 import { PlanPage } from './PlanPage'
 import '../plan/plan.css'
 
-/** Which of W9-C's pages shows: W9-B's page (state/useSidebar.ts `page`) when it is one of them. `section` is the
- *  plan section asked for by `openPlan(jobId, section)`; absent, the one last used for that plan. */
+/** Which of W9-C's pages shows. `section` is the plan section asked for by `openPlan(jobId, section)`; absent, the one
+ *  last used for that plan. */
 export type PlanPages = { page: 'tasks' | 'plans'; section?: PlanSection } | null
 
-/** The page state over W9-B's page switch, and the plans page coming up whenever a plan is opened from anywhere
- *  (`openRun`). Setting null leaves for Agents (the consoles the plan page's tab links go to). */
-export function usePlanPages({ openRun, page, goPage }: {
+/** The plan page state, and the plans page coming up whenever a plan is opened from anywhere (`openRun`). It is its
+ *  own state, not the side bar's view: opening or closing a plan page never moves the view (state/sidebarView.ts). */
+export function usePlanPages({ openRun }: {
   openRun: { runId: string; runtimeId?: string } | null
-  page: PageId
-  goPage: (id: PageId) => void
 }): {
   planPage: (PlanPages & { seq: number }) | null
   setPlanPage: (next: PlanPages) => void
 } {
   const [open, setOpen] = useState<PlanOpen>({ seq: 0 })
+  const [shown, setShown] = useState<'tasks' | 'plans' | null>(null)
   const planPage: (PlanPages & { seq: number }) | null =
-    page === 'plans' || page === 'tasks' ? { page, ...(open.section !== undefined ? { section: open.section } : {}), seq: open.seq } : null
+    shown ? { page: shown, ...(open.section !== undefined ? { section: open.section } : {}), seq: open.seq } : null
   const setPlanPage = (next: PlanPages): void => {
     setOpen((prev) => nextPlanOpen(prev, next?.section))
-    goPage(next ? next.page : 'agents')
+    setShown(next ? next.page : null)
   }
   const opened = openRun ? `${openRun.runtimeId ?? ''}:${openRun.runId}` : null
   useEffect(() => {
-    if (opened) goPage('plans')
-  }, [opened]) // eslint-disable-line react-hooks/exhaustive-deps
+    if (opened) setShown('plans')
+  }, [opened])
   return { planPage, setPlanPage }
 }
 

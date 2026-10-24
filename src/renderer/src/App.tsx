@@ -70,7 +70,7 @@ export default function App(): React.JSX.Element {
     ...fromWorkbench, ...fromRunPanel, ...fromJobs, ...fromViews, ...fromWorkspace, ...fromLiveData,
     ...fromRunActions, ...fromPlanPages
   }
-  const { activity, campaign, cliInstalled, firstRunAsked, hostStatus, installUpdate, isMax, runningCount, sidebarOpen, update } = app
+  const { campaign, cliInstalled, firstRunAsked, hostStatus, installUpdate, isMax, runningCount, sidebarOpen, update } = app
   useNavigation(app)
   useViewTabSync(app) // DESIGN-W13: the view tabs follow Start's request, the open plan and the Settings flag
   const shell = useShell(app) // W9-B
@@ -113,7 +113,7 @@ export default function App(): React.JSX.Element {
             {...props}
             badges={{ agents: shell.counts.agents, plans: runningPlans(app.orchSnapshot?.runs ?? []) }}
             onActivity={(id) => {
-              const next = activityClick({ activity, sidebarVisible: sidebarOpen }, id)
+              const next = activityClick({ activity: app.activityRef.current, sidebarVisible: sidebarOpen }, id) // the ref: a second quick click reads the first
               app.showActivity(next.activity)
               app.setSidebarOpen(next.sidebarVisible)
             }}
