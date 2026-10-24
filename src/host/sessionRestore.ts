@@ -25,6 +25,12 @@
 // the id find them again), a worker done with its Dispatch with them; the ptys are reopened under their own note, so
 // the app adopts each into the tab or run row it had; then the file goes (`restoreHandover`).
 //
+// **Chats ride it too** (`HandoverChat`): each live chat proc's note — its id, account, folder, thread, title, model,
+// unattended policy, chain and startedAt — is written down, and the next Host respawns it on the same thread under the
+// same id (`respawnChat`: HostChats.spawn, then the `proc-opened` the app takes a Host-started chat back by), so its tab
+// finds it again with its history. Only an idle chat is handed over by the automatic swap: the app waits out a turn
+// (main/ipc.ts hostReplaceDue), since the respawn resumes the thread and a turn cut short is not carried.
+//
 // Imports only core modules: this bundles into the Host.
 import { mkdirSync, promises as fs, renameSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
@@ -35,6 +41,8 @@ import { claudeHistoryStrategy, findClaudeTranscript } from '../core/history/str
 import { copyTranscript } from '../core/rolling/transcript'
 import { renameRetrying, readFileRetrying } from '../core/renameRetry'
 import type { Account } from '../core/types'
+import { isUnattendedPermission, type UnattendedPermission } from '../core/chat/types'
+import type { ChatRollSpawn } from '../core/chat/respawn'
 import type { PtyRegistry } from './registry'
 
 export interface SavedSession {
@@ -70,9 +78,30 @@ export interface HandoverPty {
   env: Record<string, string>
 }
 
+/** A chat session, as its proc's note had it: what the next Host respawns it from (core/chat/respawn.ts ChatRollSpawn). */
+export interface HandoverChat {
+  sessionId: string
+  accountId: string
+  cwd: string
+  /** The thread it resumes; absent for a chat that never had one (it starts fresh, under its own id). */
+  threadId?: string
+  title?: string
+  model?: string
+  unattendedPermission?: UnattendedPermission
+  startedAt?: number
+  rollAccountIds?: string[]
+  rollPrompt?: string
+  slackNotify?: boolean
+  bypassPermissions?: boolean
+  /** The toolchain bypass the chain was granted (`bypassedToolchain`), which a respawn keeps. */
+  startWithBypass?: boolean
+}
+
 export interface Handover {
   sessions: HandoverSession[]
   ptys: HandoverPty[]
+  /** Absent in a handover an older Host wrote. */
+  chats?: HandoverChat[]
 }
 
 /** A `pty-spawn` as the Host received it, with the size it was last given. */
@@ -110,6 +139,42 @@ export function savedOf(meta: PtyMeta | null): SavedSession | null {
 const isSaved = (x: unknown): x is SavedSession => {
   const r = x as Partial<SavedSession> | null
   return typeof r === 'object' && r !== null && !!str(r.sessionId) && !!str(r.accountId) && !!str(r.cwd)
+}
+/** A handover row from a chat proc's note; null for anything that is not a chat with an account and a folder. */
+export function handoverChatOf(meta: PtyMeta | null): HandoverChat | null {
+  if (meta?.kind !== 'chat') return null
+  const r = meta.restore
+  const accountId = str(r.accountId)
+  const cwd = str(r.cwd)
+  if (!accountId || !cwd) return null
+  const rolls = Array.isArray(r.rollAccountIds) ? r.rollAccountIds.filter((x): x is string => typeof x === 'string') : undefined
+  return {
+    sessionId: meta.id,
+    accountId,
+    cwd,
+    ...(str(r.threadId) ? { threadId: str(r.threadId) } : {}),
+    ...(str(r.title) ? { title: str(r.title) } : {}),
+    ...(str(r.chosenModel) ? { model: str(r.chosenModel) } : {}),
+    ...(isUnattendedPermission(r.unattendedPermission) ? { unattendedPermission: r.unattendedPermission } : {}),
+    ...(typeof r.startedAt === 'number' ? { startedAt: r.startedAt } : {}),
+    ...(rolls ? { rollAccountIds: rolls } : {}),
+    ...(typeof r.rollPrompt === 'string' ? { rollPrompt: r.rollPrompt } : {}),
+    ...(typeof r.slackNotify === 'boolean' ? { slackNotify: r.slackNotify } : {}),
+    ...(typeof r.bypassPermissions === 'boolean' ? { bypassPermissions: r.bypassPermissions } : {}),
+    ...(r.bypassedToolchain === true ? { startWithBypass: true } : {})
+  }
+}
+
+/** What HostChats.spawn takes to bring a handed-over chat back: on its thread, under its own id, with its title, model,
+ *  policy, chain and startedAt. */
+export function chatRespawnOf(c: HandoverChat, account: Account): ChatRollSpawn {
+  const { threadId, model, accountId: _, ...rest } = c
+  return { ...rest, account, ...(threadId ? { resumeSessionId: threadId } : {}), ...(model ? { model } : {}) }
+}
+
+const isHandoverChat = (x: unknown): x is HandoverChat => {
+  const c = x as Partial<HandoverChat> | null
+  return typeof c === 'object' && c !== null && !!str(c.sessionId) && !!str(c.accountId) && !!str(c.cwd)
 }
 const isHandoverPty = (x: unknown): x is HandoverPty => {
   const p = x as Partial<HandoverPty> | null
@@ -159,7 +224,7 @@ async function readHandover(profileDir: string): Promise<Handover | null> {
   try {
     const v = JSON.parse(await readFileRetrying(handoverFileIn(profileDir))) as Partial<Handover> | null
     if (!v || !Array.isArray(v.sessions) || !Array.isArray(v.ptys)) return null
-    return { sessions: v.sessions.filter(isSaved), ptys: v.ptys.filter(isHandoverPty) }
+    return { sessions: v.sessions.filter(isSaved), ptys: v.ptys.filter(isHandoverPty), chats: Array.isArray(v.chats) ? v.chats.filter(isHandoverChat) : [] }
   } catch {
     return null
   }
@@ -174,10 +239,12 @@ export async function leftBehind(profileDir: string): Promise<{ handover: Handov
   return { handover, saved: [] }
 }
 
-/** The handover of a Host leaving on a resume retire: its saved sessions, each worker's last Dispatch, and the shell
- *  terminals and run processes among `ptys` (the live `pty-spawn`s; an agent session's own is the session list's). */
-export function handoverOf(a: { sessions: SavedSession[]; ptys: PtySpawn[]; state: OrchState | null; baseEnv: NodeJS.ProcessEnv }): Handover {
+/** The handover of a Host leaving on a resume retire: its saved sessions, each worker's last Dispatch, the shell
+ *  terminals and run processes among `ptys` (the live `pty-spawn`s; an agent session's own is the session list's), and
+ *  the chats among `procs` (the live line processes' notes). */
+export function handoverOf(a: { sessions: SavedSession[]; ptys: PtySpawn[]; procs: Array<PtyMeta | null>; state: OrchState | null; baseEnv: NodeJS.ProcessEnv }): Handover {
   return {
+    chats: a.procs.flatMap((m) => handoverChatOf(m) ?? []),
     sessions: a.sessions.map((row) => {
       const dispatchId = a.state?.dispatches.filter((x) => x.sessionId === row.sessionId).at(-1)?.id
       return dispatchId ? { ...row, dispatchId } : row
@@ -370,8 +437,9 @@ export async function restoreSessions(d: RestoreDeps): Promise<{ tabs: number; p
   return { tabs, planners }
 }
 
-/** Brings back what a handover left: its sessions (`restoreSessions`, under their own ids) and its shell terminals and
- *  run processes, each reopened under its own note through `openPty`; then removes the file. Never rejects. */
+/** Brings back what a handover left: its sessions (`restoreSessions`, under their own ids), its shell terminals and
+ *  run processes, each reopened under its own note through `openPty`, and its chats, each respawned on its thread under
+ *  its own id through `respawnChat`; then removes the file. Never rejects. */
 export async function restoreHandover(
   d: Omit<RestoreDeps, 'saved' | 'handover'> & {
     file: string
@@ -380,8 +448,10 @@ export async function restoreHandover(
     baseEnv: NodeJS.ProcessEnv
     /** Opens one pty in the registry and tells the apps (`pty-opened`), so the one that had it takes it back. */
     openPty(o: PtySpawn & { meta: PtyMeta }): void
+    /** Respawns one chat under its id on its thread and tells the apps once its start settled. Rejects on a failure. */
+    respawnChat(c: HandoverChat): Promise<void>
   }
-): Promise<{ tabs: number; planners: number; ptys: number }> {
+): Promise<{ tabs: number; planners: number; ptys: number; chats: number }> {
   const r = await restoreSessions({ ...d, saved: d.handover.sessions, handover: true })
   let ptys = 0
   for (const p of d.handover.ptys) {
@@ -392,8 +462,17 @@ export async function restoreHandover(
       d.log(`session restore: the ${p.meta.kind} ${p.meta.id} in ${p.cwd} could not be reopened: ${String(err)}`)
     }
   }
+  let chats = 0
+  for (const c of d.handover.chats ?? []) {
+    try {
+      await d.respawnChat(c)
+      chats++
+    } catch (err) {
+      d.log(`session restore: the chat ${c.sessionId} in ${c.cwd} could not be respawned: ${String(err)}`)
+    }
+  }
   await fs.rm(d.file, { force: true }).catch((err) => d.log(`session restore: ${d.file} could not be removed: ${String(err)}`))
-  return { ...r, ptys }
+  return { ...r, ptys, chats }
 }
 
 /** A claude conversation resumed on `account` while its transcript is under another claude account's folder (the

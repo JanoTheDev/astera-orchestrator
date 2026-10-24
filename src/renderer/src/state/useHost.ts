@@ -111,6 +111,8 @@ export function useHost(deps: HostDeps) {
     // A Host that hands over (HOST_FEATURE_HANDOVER, core/host/protocol.ts, which the renderer does not compile) brings
     // its sessions, terminals and runs back in the next one; an older one ends them, this one time.
     const handover = hostStatus?.features.includes('handover') === true
+    // HOST_FEATURE_HANDOVER_CHATS: its chats come back too, respawned on their threads; the first handover build ends them.
+    const handoverChats = hostStatus?.features.includes('handover-chats') === true
     const counts = h && { sessions: h.sessions, chats: h.chats, terminals: h.terminals, runs: h.runs }
     const body = unresponsive
       ? kept > 0
@@ -118,7 +120,7 @@ export function useHost(deps: HostDeps) {
         : t('settings.info.hostRestartUnresponsiveConfirmBodyNone')
       : handover
         ? counts
-          ? t('status.hostHandoverConfirmBody', counts)
+          ? t(handoverChats ? 'status.hostHandoverChatsConfirmBody' : 'status.hostHandoverConfirmBody', counts)
           : t('status.hostHandoverConfirmBodyNone')
         : counts
           ? t('status.hostLegacyConfirmBody', counts)

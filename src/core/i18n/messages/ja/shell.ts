@@ -48,6 +48,7 @@ export const shell: Partial<Record<keyof typeof ko, string>> = {
   'status.hostUpdating': 'バックグラウンドサービスを更新中…',
   'status.hostHandoverConfirmBody': 'バックグラウンドサービスを新しいバージョンで再起動します。保持しているセッション {sessions} 件、ターミナル {terminals} 件、実行 {runs} 件は新しいサービスで再び開きます。チャット {chats} 件は終了し、再開できます。作業中の Task があれば、その Task が終わるまで待ちます。続けますか?',
   'status.hostHandoverConfirmBodyNone': 'バックグラウンドサービスを新しいバージョンで再起動します。保持しているものは新しいサービスで再び開きます。続けますか?',
+  'status.hostHandoverChatsConfirmBody': 'バックグラウンドサービスを新しいバージョンで再起動します。保持しているセッション {sessions} 件、チャット {chats} 件、ターミナル {terminals} 件、実行 {runs} 件は新しいサービスで再び開きます。まだ応答中のチャットは、その応答を失います。作業中の Task があれば、その Task が終わるまで待ちます。続けますか?',
   'status.hostLegacyConfirmBody': 'このバックグラウンドサービスは古いため作業を引き継げません。今回だけは、保持しているセッション {sessions} 件、チャット {chats} 件、ターミナル {terminals} 件、実行 {runs} 件が一緒に終了し、戻りません。続けますか?',
   'status.hostLegacyConfirmBodyNone': 'このバックグラウンドサービスは古いため作業を引き継げません。今回だけは、保持しているものが一緒に終了し、戻りません。続けますか?',
   'status.hostSwapWaits': '作業中の Task があります。バックグラウンドサービスはその Task が終わると更新されます。',

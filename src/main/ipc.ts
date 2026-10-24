@@ -76,7 +76,7 @@ import { createSourcesRoute } from './host/sourcesRoute'
 import { createAppCompletionChecks } from './host/pluginChecksRoute'
 import { createHostGitOps } from '../core/workUnit/hostGitOps'
 import { appPathInUse } from './host/localPathInUse'
-import { HOST_PROTOCOL, HOST_ACT_PATH_IN_USE, HOST_ACT_SLACK_ANSWER, HOST_FEATURE_HANDOVER, type ClientMessage, type HostMessage, type PtyEntry } from '../core/host/protocol'
+import { HOST_PROTOCOL, HOST_ACT_PATH_IN_USE, HOST_ACT_SLACK_ANSWER, HOST_FEATURE_HANDOVER, HOST_FEATURE_HANDOVER_CHATS, type ClientMessage, type HostMessage, type PtyEntry } from '../core/host/protocol'
 import { hostRollConfigPath, readRollConfigKey } from '../core/rolling/config'
 import { DataBatcher } from '../core/sessions/batcher'
 import { BusyScanner } from '../core/terminal/busy'
@@ -699,6 +699,12 @@ export function hostHoldings(entries: PtyEntry[], procEntries: PtyEntry[]): Host
   return { sessions, terminals, runs, chats }
 }
 
+/** The Host's live chats a swap would cut mid-turn: every one the app does not see idle (`idle`), since a chat whose
+ *  state it cannot read is not known to be between turns. Hoisted beside `hostHoldings` for the same reason. */
+export function busyChatCount(procEntries: PtyEntry[], idle: (sessionId: string) => boolean): number {
+  return procEntries.filter((e) => e.alive && e.meta?.kind === 'chat' && !idle(e.meta.id)).length
+}
+
 /** How long the automatic swap waits for its moment before the status bar offers the button instead (T16). */
 export const HOST_SWAP_MANUAL_AFTER_MS = 30 * 60_000
 /** How often a swap that is due is asked again without a trigger (`maybeReplace`). */
@@ -712,13 +718,16 @@ const HOST_SWAP_CHECK_MS = 15_000
  *  - not `inFlight` — one replacement at a time; a Run tearing down its tree sends a burst of `pty-exit`s, and each of
  *    them asks this question. Not `quitting` — `will-quit` decides what happens to the Host's ptys then.
  *  - **A Host that hands over** (`handover`, HOST_FEATURE_HANDOVER) is swapped with a resume retire the first moment no
- *    Task is working (`activeTasks`, the Tasks dispatched, validating, reviewing or merging): its sessions, terminals
- *    and runs come back in the next Host, so they no longer hold it. A chat process does: the handover does not carry
- *    procs, so the swap would end it (exit -1, "Failed") and it would need a Restart under a new id. Past
+ *    Task is working (`activeTasks`, the Tasks dispatched, validating, reviewing or merging) and no chat is mid-turn
+ *    (`busyChats`): its sessions, terminals, runs and idle chats come back in the next Host, a chat respawned on its
+ *    thread under its own id, so they no longer hold it. A turn under way does: the respawn resumes the thread, and the
+ *    turn would be cut short. A Host whose handover carries no chats (`handoverChats` false, the first handover build)
+ *    waits for every chat, busy or idle, since its swap would end them (exit -1, "Failed"). Past
  *    HOST_SWAP_MANUAL_AFTER_MS of waiting the button is offered as well.
  *  - **A Host without it** (every Host older than the handover) keeps today's rule: replaced plainly only when it holds
- *    nothing and no Task works, since a retire ends all it holds. Otherwise the button at once: waiting would not
- *    make its sessions come back.
+ *    nothing and no Task works, since a retire ends all it holds. Otherwise the button at once, waiting would not
+ *    make its sessions come back; but not while the idle workers released for it are still ending (`releasePending`),
+ *    which may yet leave it empty and swapped plainly.
  *
  *  **Unknown is not zero**: `holdings` null is the Host not answering its lists in time and `activeTasks` null is an
  *  orchestration state not loaded yet; neither is replaced on a guess.
@@ -733,6 +742,12 @@ export function hostReplaceDue(a: {
   handover: boolean
   activeTasks: number | null
   holdings: HostHoldings | null
+  /** The handover carries chats (HOST_FEATURE_HANDOVER_CHATS). */
+  handoverChats: boolean
+  /** The Host's live chats that are mid-turn (or not known to be idle); null when its list did not answer. */
+  busyChats: number | null
+  /** Workers released for the swap whose sessions are still ending. */
+  releasePending: boolean
   /** When the app began waiting for the swap's moment; null before it has. */
   waitingSinceMs: number | null
   nowMs: number
@@ -742,9 +757,10 @@ export function hostReplaceDue(a: {
   if (!a.handover) {
     const h = a.holdings
     const empty = h !== null && h.sessions === 0 && h.terminals === 0 && h.runs === 0 && h.chats === 0
-    return idle && empty ? { due: 'plain', manual: false } : { due: null, manual: true }
+    return idle && empty ? { due: 'plain', manual: false } : { due: null, manual: !a.releasePending }
   }
-  if (idle && a.holdings?.chats === 0) return { due: 'handover', manual: false }
+  const cutChats = a.handoverChats ? a.busyChats : (a.holdings?.chats ?? null)
+  if (idle && cutChats === 0) return { due: 'handover', manual: false }
   return { due: null, manual: a.waitingSinceMs !== null && a.nowMs - a.waitingSinceMs >= HOST_SWAP_MANUAL_AFTER_MS }
 }
 
@@ -7323,7 +7339,9 @@ export function registerIpc(
       replacing = true
       const was = client.status()
       hostLog(`host: replacing the Host (${was.hostVersion ?? '?'}, pid ${was.pid ?? '?'}) ${why}${how === 'handover' ? ', handing its sessions over' : ''}`)
-      setReplacement('swapping')
+      const resume = how === 'handover' && !was.unresponsive
+      // A handover can be refused (a Task started working since the last look): "Updating" shows once it was taken.
+      if (!resume) setReplacement('swapping')
       try {
         // A Host that answers is asked to leave; one that does not is ended. Both paths then go
         // through `restart()` below, which is what puts a new Host at the address either way.
@@ -7350,7 +7368,7 @@ export function registerIpc(
         // its ptys left behind.
         // A refused handover (a Task started working since the last look) left the connection as it was: nothing is
         // restarted, and the swap waits for its next moment.
-        const outcome = await client.retire({ announce: true, resume: how === 'handover' && !was.unresponsive })
+        const outcome = await client.retire({ announce: true, resume, onLeaving: () => setReplacement('swapping') })
         if (outcome.outcome === 'refused') {
           hostLog(`host: the Host refused the handover — ${outcome.tasks ?? 0} Task(s) still working; waiting`)
           return client.status()
@@ -7403,14 +7421,18 @@ export function registerIpc(
         // Unknown is not zero, for either list: a Host that should have answered and did not is not
         // replaced on a guess (hostReplaceDue's own rule).
         const holdings = entries !== null && procEntries !== null ? hostHoldings(entries, procEntries) : null
+        const busyChats = procEntries !== null ? busyChatCount(procEntries, (id) => core.chat.state(id)?.status === 'idle') : null
         const state = orchMirror.loaded() ? orchMirror.getState() : null
         const activeTasks = state ? workingTaskCount(state) : null
         const handover = speaksHandover()
+        const handoverChats = client.status().features.includes(HOST_FEATURE_HANDOVER_CHATS)
         const nowMs = Date.now()
         waitingSince ??= nowMs
         const s = client.status()
-        const d = hostReplaceDue({ outdated: s.outdated, runtimeIncomplete: s.runtimeIncomplete, inFlight: replacing, quitting: quittingForHost, handover, activeTasks, holdings, waitingSinceMs: waitingSince, nowMs })
-        setReplacement(d.manual ? 'manual' : null)
+        const due = (releasePending: boolean): ReturnType<typeof hostReplaceDue> =>
+          hostReplaceDue({ outdated: s.outdated, runtimeIncomplete: s.runtimeIncomplete, inFlight: replacing, quitting: quittingForHost, handover, activeTasks, holdings, handoverChats, busyChats, releasePending, waitingSinceMs: waitingSince, nowMs })
+        let d = due(false)
+        let releasePending = false
         // The release comes before the swap, and for a Host without the handover before the decision too: what it
         // releases is what keeps that Host from holding nothing.
         if (orch && state && activeTasks === 0 && (d.due !== null || !handover)) {
@@ -7428,10 +7450,13 @@ export function registerIpc(
             }
           }
           if (fresh.length > 0) hostLog(`host: released ${fresh.length} idle worker(s) before the swap (${why})`)
-          // Their sessions are still ending: the exits ask again, and a handover written now would bring them back.
-          if (ids.some((id) => releasedForSwap.get(id) === true)) return
+          releasePending = ids.some((id) => releasedForSwap.get(id) === true)
+          if (releasePending) d = due(true)
         }
-        if (d.due === null) return
+        // After the release: a Host without the handover offers the button only for what the release left behind.
+        setReplacement(d.manual ? 'manual' : null)
+        // Their sessions are still ending: the exits ask again, and a handover written now would bring them back.
+        if (releasePending || d.due === null) return
         await replaceHost(`${why}, ${d.due === 'handover' ? 'and no Task is working' : 'and it holds nothing'}`, d.due)
       } catch (e) {
         hostLog(`host: the replacement check failed: ${String(e)}`)

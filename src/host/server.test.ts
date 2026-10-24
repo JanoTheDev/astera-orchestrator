@@ -217,7 +217,7 @@ describe('startHostServer', () => {
   it('answers a hello on the same protocol with its own version and pid', async () => {
     const h = await server()
     const [reply] = await talk(h.address, [{ t: 'hello', protocol: HOST_PROTOCOL, app: '1.0.0' }])
-    expect(reply).toMatchObject({ t: 'hello', protocol: HOST_PROTOCOL, host: '9.9.9', pid: process.pid, features: ['proc', 'ping', 'handover', 'pty-seq', 'orch', 'requests', 'mcp'] })
+    expect(reply).toMatchObject({ t: 'hello', protocol: HOST_PROTOCOL, host: '9.9.9', pid: process.pid, features: ['proc', 'ping', 'handover', 'handover-chats', 'pty-seq', 'orch', 'requests', 'mcp'] })
     expect((reply as { startedAt: string }).startedAt).toMatch(/^\d{4}-/)
   })
 
@@ -896,7 +896,7 @@ describe('startHostServer', () => {
   it('announces the extra features it was given, after the built-in ones', async () => {
     const h = await server({ features: ['spawn'] })
     const [reply] = await talk(h.address, [{ t: 'hello', protocol: HOST_PROTOCOL, app: '1.0.0' }])
-    expect((reply as { features: string[] }).features).toEqual(['proc', 'ping', 'handover', 'pty-seq', 'orch', 'requests', 'mcp', 'spawn'])
+    expect((reply as { features: string[] }).features).toEqual(['proc', 'ping', 'handover', 'handover-chats', 'pty-seq', 'orch', 'requests', 'mcp', 'spawn'])
   })
   // MCP HTTP §3 (Ruling 2): the hello of a Host built as index.ts builds it tells the app it answers mcp-http-*.
   // One Host per test (one address); features.test.ts covers the spawner half.

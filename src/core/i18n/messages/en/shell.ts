@@ -15,6 +15,7 @@ export const shell: Record<keyof typeof ko, string> = {
   'status.hostUpdating': 'Updating background service…',
   'status.hostHandoverConfirmBody': 'The background service restarts on the new version. The {sessions} session(s), {terminals} terminal(s) and {runs} run(s) it holds come back in the new one. The {chats} chat(s) end and can be restarted. If a Task is working, it waits until that Task finishes. Continue?',
   'status.hostHandoverConfirmBodyNone': 'The background service restarts on the new version, and what it holds comes back in the new one. Continue?',
+  'status.hostHandoverChatsConfirmBody': 'The background service restarts on the new version. The {sessions} session(s), {chats} chat(s), {terminals} terminal(s) and {runs} run(s) it holds come back in the new one. A chat that is still answering loses that answer. If a Task is working, it waits until that Task finishes. Continue?',
   'status.hostLegacyConfirmBody': 'This background service is too old to hand its work over. This one time, the {sessions} session(s), {chats} chat(s), {terminals} terminal(s) and {runs} run(s) it holds end with it and do not come back. Continue?',
   'status.hostLegacyConfirmBodyNone': 'This background service is too old to hand its work over. This one time, what it holds ends with it and does not come back. Continue?',
   'status.hostSwapWaits': 'A Task is still working. The background service updates once it finishes.',

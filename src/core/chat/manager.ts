@@ -246,11 +246,13 @@ export class ChatSessionManager {
     hostStarting?: boolean
     /** Epoch ms the chain was first started (SessionInfo.startedAt); a roll passes its chain's, a new session takes now. */
     startedAt?: number
+    /** The id the session had: a Host handover brings a chat back under it, so its tab finds it again. A new id when absent. */
+    sessionId?: string
   }): SessionInfo {
     const provider = providerOf(opts.account)
     const descriptor = descriptorOf(this.deps.descriptors, opts.account)
 
-    const id = randomUUID()
+    const id = opts.sessionId ?? randomUUID()
     const title = opts.title ?? path.basename(opts.cwd)
     const bypassPermissions = opts.bypassPermissions
     const bypass = !!bypassPermissions

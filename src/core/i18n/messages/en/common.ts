@@ -110,9 +110,6 @@ export const common: Record<keyof typeof ko, string> = {
   'settings.info.hostRestartNow': 'Restart now',
   'settings.info.hostRestarting': 'Restarting…',
   'settings.info.hostRestartConfirmTitle': 'Restart the Host',
-  'settings.info.hostRestartConfirmBody':
-    'The Host is ended now and started again on the new version. The {sessions} session(s), {chats} chat(s), {terminals} terminal(s) and {runs} run(s) it is holding end with it. Continue?',
-  'settings.info.hostRestartConfirmBodyNone': 'The Host is ended now and started again on the new version. It is holding nothing. Continue?',
   'settings.info.hostRestartUnresponsiveConfirmTitle': 'End the Host and start another',
   'settings.info.hostRestartUnresponsiveConfirmBody':
     'The Host that is not answering is ended and another is started. The {kept} session(s) it was holding end with it. Continue?',

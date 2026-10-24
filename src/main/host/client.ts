@@ -437,9 +437,10 @@ export class HostClient {
    *
    * **A `resume` retire can be refused** (a Task is working, host/server.ts): that resolves `refused` with the Host's
    * counts, and the connection stays as it was — nothing stopped, nothing announced. A plain retire from the app is
-   * never refused (only `reason: 'user'` is), so it does not wait for an answer.
+   * never refused (only `reason: 'user'` is), so it does not wait for an answer. `onLeaving` runs once the Host is
+   * taken as leaving, never for a refusal.
    */
-  async retire(a: { announce?: boolean; resume?: boolean } = {}): Promise<RetireOutcome> {
+  async retire(a: { announce?: boolean; resume?: boolean; onLeaving?: () => void } = {}): Promise<RetireOutcome> {
     if (a.resume) {
       // `resume`: a handover, so the next Host brings the sessions back (protocol.ts); an older Host ignores it.
       const refused = await this.askRetire({ t: 'retire', resume: true })
@@ -451,6 +452,7 @@ export class HostClient {
         /* nothing listening is the state this asks for */
       }
     }
+    a.onLeaving?.()
     try {
       await this.stop()
     } catch {
