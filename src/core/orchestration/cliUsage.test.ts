@@ -577,6 +577,8 @@ describe('문서가 보여 주는 명령 줄은 전부 파서와 플래그 검�
         expect(usageFor(argv, sessionUsage), `${file}: astera ${line}`).not.toHaveProperty('error')
         continue
       }
+      // run.ts answers `astera help <N>` and `astera help --brief` before the parser too (helpGuideRequest checks them).
+      if (argv[0] === 'help' && argv.length > 1) continue
       const parsed = parseArgs(argv)
       if ('error' in parsed) {
         // `astera jobs` 는 문서가 일부러 보여 주는 것이다: 그 명사의 동사 목록으로 거절된다.
