@@ -235,8 +235,16 @@ export const handsFreeOf = (s: OrchState, job: Job): boolean =>
  *  and the Run's own Tasks are counted by these words, not by a stored counter. */
 export const DELIVERY_FIX_MARK = 'make the delivery checks pass on the merged result'
 
-export const deliveryFixesOf = (s: OrchState, runId: string): Task[] =>
-  s.tasks.filter((t) => t.runId === runId && t.parentId !== undefined && t.spec.includes(DELIVERY_FIX_MARK))
+const isDeliveryFix = (t: Task): boolean => t.parentId !== undefined && t.spec.includes(DELIVERY_FIX_MARK)
+
+export const deliveryFixesOf = (s: OrchState, runId: string): Task[] => s.tasks.filter((t) => t.runId === runId && isDeliveryFix(t))
+
+/** A fix Task that itself failed (retries spent) is a fix attempt run out: true when the Run has failed Tasks and every
+ *  one of them is a delivery fix Task, so the owner is asked as after FAILURE_LIMIT fixes, not told "not completed". */
+export const onlyDeliveryFixesFailed = (s: OrchState, runId: string): boolean => {
+  const failed = s.tasks.filter((t) => t.runId === runId && t.status === 'failed')
+  return failed.length > 0 && failed.every(isDeliveryFix)
+}
 
 /** What a failed delivery validation of this Run leads to: `fix` a fix Task (no owner question meanwhile), `owner`
  *  FAILURE_LIMIT fix Tasks did not make it pass, so the owner is asked now; null: not a hands-free plan with a plan
