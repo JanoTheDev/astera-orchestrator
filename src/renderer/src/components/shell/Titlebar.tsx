@@ -29,7 +29,7 @@ function UpdateIndicator({
   const text = t(view.message.key, view.message.params)
   if (view.kind === 'button')
     return (
-      <Button variant="secondary" size="sm" className="tb-update-btn" icon={<Icon name="refresh" size={14} />} onClick={onInstall}>
+      <Button variant="secondary" size="sm" className="tb-update" icon={<Icon name="refresh" size={14} />} onClick={onInstall}>
         {text}
       </Button>
     )
@@ -105,15 +105,15 @@ export function Titlebar({
       <UpdateIndicator update={update} onInstall={onInstall} />
       {!isMac && (
         <div className="tb-controls" onDoubleClick={(e) => e.stopPropagation()}>
-          {/* square, flush with the window edge like the OS's own chrome (shell.css .tb-btn) */}
-          <IconButton className="tb-btn" icon={<Icon name="remove" />} label={t('common.minimize')} onClick={() => window.api.win.minimize()} />
+          {/* square, flush with the window edge like the OS's own chrome (shell.css .tb-win) */}
+          <IconButton className="tb-win" icon={<Icon name="remove" />} label={t('common.minimize')} onClick={() => window.api.win.minimize()} />
           <IconButton
-            className="tb-btn"
+            className="tb-win"
             icon={<Icon name={isMax ? 'copy' : 'stop'} />}
             label={isMax ? t('common.restore') : t('common.maximize')}
             onClick={() => window.api.win.maximizeToggle()}
           />
-          <IconButton className="tb-btn close" icon={<Icon name="close" />} label={t('common.close')} onClick={() => void closeWindow()} />
+          <IconButton className="tb-win close" icon={<Icon name="close" />} label={t('common.close')} onClick={() => void closeWindow()} />
         </div>
       )}
     </div>

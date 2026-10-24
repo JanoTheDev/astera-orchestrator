@@ -100,7 +100,7 @@ export function RunToolbar({
         </span>
       )}
       <IconButton
-        className="run-btn play"
+        className="run-action play"
         icon={<Icon name="run" size={16} />}
         label={t(restarts ? 'run.action.restart' : 'run.action.run')}
         disabled={!state.canRun}
@@ -108,7 +108,7 @@ export function RunToolbar({
       />
       {state.stopTargets.length > 0 && (
         <IconButton
-          className="run-btn stop"
+          className="run-action stop"
           icon={<Icon name="stop" size={16} />}
           label={t('run.action.stop')}
           onClick={() => state.stopTargets.forEach((id) => onStop(id))}

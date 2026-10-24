@@ -37,8 +37,8 @@
 .tb-update { margin-left: auto; padding: 0 12px; font-size: var(--fs-12); color: var(--text-dim); white-space: nowrap; align-self: center; -webkit-app-region: no-drag; }
 .tb-update-err { color: var(--danger); cursor: default; }
 /* the restart-to-update Button: secondary (New keeps the bar's one filled button), its edge and glyph in accent so it is found */
-.tb-update-btn.ui-btn { margin-left: auto; margin-right: 8px; align-self: center; flex: none; border-color: var(--accent); color: var(--text); -webkit-app-region: no-drag; }
-.tb-update-btn.ui-btn > svg { color: var(--accent); }
+.tb-update.ui-btn { margin-left: auto; margin-right: 8px; align-self: center; flex: none; border-color: var(--accent); color: var(--text); -webkit-app-region: no-drag; }
+.tb-update.ui-btn > svg { color: var(--accent); }
 /* When the install and check buttons appear together, a narrow modal (600px) cannot fit both on one
    line. The cell wraps rather than the label — the label stays on one line even as the version digits grow. */
 .update-cell { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
@@ -47,7 +47,7 @@
 .settings-row .update-label { white-space: nowrap; }
 .update-note { font-size: var(--fs-12); color: var(--text-dim); }
 .update-note.update-err { color: var(--danger); }
-.tb-btn.ui-btn {
+.tb-win.ui-btn {
   width: 46px;
   height: var(--topbar-h);
   border: 0;
@@ -59,10 +59,10 @@
      leave a gap at the window corner. */
   border-radius: 0;
 }
-.tb-btn.ui-btn:hover:not(:disabled) { background: var(--hover); color: var(--text); }
-.tb-btn.close.ui-btn:hover:not(:disabled) { background: var(--danger); color: var(--ink-white); }
+.tb-win.ui-btn:hover:not(:disabled) { background: var(--hover); color: var(--text); }
+.tb-win.close.ui-btn:hover:not(:disabled) { background: var(--danger); color: var(--ink-white); }
 /* the ring sits inside: the buttons are flush with the window edge, where an outer ring would be cut off */
-.tb-btn.ui-btn:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+.tb-win.ui-btn:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
 
 body.resizing-row { cursor: row-resize; user-select: none; }
 .content { flex: 1; display: flex; flex-direction: column; min-width: 0; }
@@ -127,7 +127,7 @@ body.resizing-row { cursor: row-resize; user-select: none; }
 
 /* T9 (DESIGN-W11 §8): the More menu's rows carry a one-line description; the bell sits left of the usage meter */
 .tb-bell { position: relative; display: flex; }
-.tb-bell-btn { position: relative; }
+.tb-bell { position: relative; }
 .tb-bell-badge {
   position: absolute; top: 2px; right: 2px; min-width: 14px; height: 14px; padding: 0 3px; border-radius: var(--radius-pill);
   background: var(--warn); color: var(--bg); font-size: var(--fs-11); font-weight: var(--fw-semi); line-height: 14px; text-align: center;
@@ -173,7 +173,7 @@ body.resizing-row { cursor: row-resize; user-select: none; }
 
 /* ---------- DESIGN-W13 §2: the workbench ---------- */
 .app > .titlebar { height: var(--titlebar-h); }
-.app > .titlebar .tb-btn.ui-btn { height: var(--titlebar-h); }
+.app > .titlebar .tb-win.ui-btn { height: var(--titlebar-h); }
 .wb-row { position: relative; flex-direction: row; }
 .wb-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .wb-editor { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--editor-bg); }
@@ -273,6 +273,6 @@ body.resizing-row { cursor: row-resize; user-select: none; }
 .wb-status__project { font-weight: var(--fw-medium); }
 .wb-status__branch { font-family: var(--mono); color: inherit; }
 .wb-status__bell { display: flex; }
-.wb-status__bell .tb-bell-btn.ui-btn { width: 28px; height: var(--statusbar-h); border-radius: 0; color: inherit; }
-.wb-status__bell .tb-bell-btn svg { width: 14px; height: 14px; }
+.wb-status__bell .tb-bell.ui-btn { width: 28px; height: var(--statusbar-h); border-radius: 0; color: inherit; }
+.wb-status__bell .tb-bell svg { width: 14px; height: 14px; }
 .wb-status__bell .tb-popover { top: auto; bottom: calc(100% + 4px); right: 0; }

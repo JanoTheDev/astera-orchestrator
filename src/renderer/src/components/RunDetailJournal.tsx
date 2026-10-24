@@ -17,7 +17,7 @@ export function JournalOlder({
   const { t } = useI18n()
   if (!journal?.older) return null
   // At the most pages one read may ask for, a press would read nothing more: say so instead.
-  if (journal.capped) return <p className="modal-hint">{t('jobs.detail.journalCapped')}</p>
+  if (journal.capped) return <p className="detail-journal-note">{t('jobs.detail.journalCapped')}</p>
   return (
     <Button variant="ghost" size="sm" className="detail-journal-older" onClick={onShowOlder}>
       {t('jobs.detail.journalOlder')}
@@ -29,5 +29,5 @@ export function JournalOlder({
 export function JournalBusy({ journal }: { journal: RunDetailJournal | undefined }): React.JSX.Element | null {
   const { t } = useI18n()
   if (!journal?.busy) return null
-  return <p className="modal-hint">{t('jobs.detail.journalBusy')}</p>
+  return <p className="detail-journal-note">{t('jobs.detail.journalBusy')}</p>
 }
