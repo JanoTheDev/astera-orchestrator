@@ -11,6 +11,7 @@ import {
   hostHandshakeMeans,
   hostHoldings,
   hostReplaceDue,
+  busyChatCount,
   HOST_SWAP_MANUAL_AFTER_MS,
   idleWorkersBeforeSwap,
   keepsChatTranscriptOnReady,
@@ -857,11 +858,21 @@ describe('conversationAttentionOf — the pane\'s one-shot read on mount', () =>
   })
 })
 
+describe('busyChatCount — the chats a swap would cut mid-turn', () => {
+  const chat = (id: string, alive = true): PtyEntry => ({ id: `p-${id}`, pid: 1, alive, meta: { kind: 'chat', id, restore: {} } })
+  it('counts every live chat the app does not see idle, and nothing else', () => {
+    const idle = (id: string): boolean => id === 'idle'
+    const procs = [chat('idle'), chat('working'), chat('unknown'), chat('gone', false), { ...chat('x'), meta: { kind: 'session' as const, id: 'x', restore: {} } }]
+    expect(busyChatCount(procs, idle)).toBe(2)
+    expect(busyChatCount([chat('idle')], idle)).toBe(0)
+  })
+})
+
 describe('hostReplaceDue - when an outdated Host is replaced', () => {
   const empty = { sessions: 0, terminals: 0, runs: 0, chats: 0 }
   const now = 10 * 60 * 60_000
-  // A Host that hands its sessions over (HOST_FEATURE_HANDOVER), with nothing at work and nothing waited for yet.
-  const base = { outdated: true, runtimeIncomplete: false, inFlight: false, quitting: false, handover: true, activeTasks: 0, holdings: empty, waitingSinceMs: null, nowMs: now }
+  // A Host that hands its sessions and chats over (HOST_FEATURE_HANDOVER, _CHATS), with nothing at work and nothing waited for yet.
+  const base = { outdated: true, runtimeIncomplete: false, inFlight: false, quitting: false, handover: true, handoverChats: true, activeTasks: 0, holdings: empty, busyChats: 0, releasePending: false, waitingSinceMs: null, nowMs: now }
   const swap = { due: 'handover', manual: false }
   const waits = (manual: boolean) => ({ due: null, manual })
 
@@ -882,14 +893,28 @@ describe('hostReplaceDue - when an outdated Host is replaced', () => {
     expect(hostReplaceDue({ ...working, waitingSinceMs: now - HOST_SWAP_MANUAL_AFTER_MS })).toEqual(waits(true))
   })
 
-  // A chat process is not handed over: the swap would end it (exit -1) and it would need a Restart under a new id.
-  it('waits while the Host holds a chat process, busy or idle', () => {
-    expect(hostReplaceDue({ ...base, holdings: { ...empty, chats: 1 } })).toEqual(waits(false))
+  // An idle chat is handed over and respawned on its thread under its own id: it no longer holds the swap.
+  it('swaps a Host holding an idle chat at once when no Task works', () => {
+    expect(hostReplaceDue({ ...base, holdings: { ...empty, sessions: 1, chats: 2 }, busyChats: 0 })).toEqual(swap)
+  })
+
+  // The respawn resumes the thread, so a turn under way would be cut short: the swap waits for it to end.
+  it('waits while a chat is mid-turn, and swaps once its turn ended', () => {
+    const holdings = { ...empty, chats: 2 }
+    expect(hostReplaceDue({ ...base, holdings, busyChats: 1, waitingSinceMs: now - 60_000 })).toEqual(waits(false))
+    expect(hostReplaceDue({ ...base, holdings, busyChats: 0, waitingSinceMs: now - 60_000 })).toEqual(swap)
+  })
+
+  // The first handover build writes no chats down: its swap would end them (exit -1, "Failed"), busy or idle.
+  it('waits for every chat on a Host whose handover carries none', () => {
+    expect(hostReplaceDue({ ...base, handoverChats: false, holdings: { ...empty, chats: 1 }, busyChats: 0 })).toEqual(waits(false))
+    expect(hostReplaceDue({ ...base, handoverChats: false, holdings: { ...empty, sessions: 1 }, busyChats: 0 })).toEqual(swap)
   })
 
   it('does not swap on what it does not know: an unanswered list or an orchestration state not loaded yet', () => {
     expect(hostReplaceDue({ ...base, holdings: null })).toEqual(waits(false))
     expect(hostReplaceDue({ ...base, activeTasks: null })).toEqual(waits(false))
+    expect(hostReplaceDue({ ...base, busyChats: null })).toEqual(waits(false))
   })
 
   // Every Host older than this build ignores `resume` and refuses nothing: replacing it ends what it holds.
@@ -904,6 +929,15 @@ describe('hostReplaceDue - when an outdated Host is replaced', () => {
       expect(hostReplaceDue({ ...legacy, holdings: { ...empty, chats: 1 } })).toEqual(waits(true))
       expect(hostReplaceDue({ ...legacy, activeTasks: 1 })).toEqual(waits(true))
       expect(hostReplaceDue({ ...legacy, holdings: null })).toEqual(waits(true))
+    })
+    // The idle workers released for it may yet leave it empty and swapped plainly: no button flashes meanwhile.
+    it('does not offer the button while the workers released for it are still ending', () => {
+      const releasing = { ...legacy, holdings: { ...empty, sessions: 2 }, releasePending: true }
+      expect(hostReplaceDue(releasing)).toEqual(waits(false))
+      // The release left one behind (a worker typed into lately): the button is the way.
+      expect(hostReplaceDue({ ...releasing, holdings: { ...empty, sessions: 1 }, releasePending: false })).toEqual(waits(true))
+      // It left nothing: swapped plainly, the button never shown.
+      expect(hostReplaceDue({ ...releasing, holdings: empty, releasePending: false })).toEqual({ due: 'plain', manual: false })
     })
   })
 

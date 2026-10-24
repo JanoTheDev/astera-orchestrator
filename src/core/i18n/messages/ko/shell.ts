@@ -25,6 +25,7 @@ export const shell = {
   'status.hostUpdating': '백그라운드 서비스 업데이트 중…',
   'status.hostHandoverConfirmBody': '백그라운드 서비스를 새 버전으로 다시 시작합니다. 세션 {sessions}개, 터미널 {terminals}개, 실행 {runs}개는 새 서비스에서 다시 열립니다. 대화 {chats}개는 종료되며 다시 시작할 수 있습니다. 작업 중인 Task 가 있으면 그 Task 가 끝날 때까지 기다립니다. 계속할까요?',
   'status.hostHandoverConfirmBodyNone': '백그라운드 서비스를 새 버전으로 다시 시작합니다. 맡고 있던 것은 새 서비스에서 다시 열립니다. 계속할까요?',
+  'status.hostHandoverChatsConfirmBody': '백그라운드 서비스를 새 버전으로 다시 시작합니다. 세션 {sessions}개, 대화 {chats}개, 터미널 {terminals}개, 실행 {runs}개는 새 서비스에서 다시 열립니다. 아직 답하고 있는 대화는 그 답을 잃습니다. 작업 중인 Task 가 있으면 그 Task 가 끝날 때까지 기다립니다. 계속할까요?',
   'status.hostLegacyConfirmBody': '이 백그라운드 서비스는 이전 버전이라 작업을 넘겨줄 수 없습니다. 이번 한 번은 세션 {sessions}개, 대화 {chats}개, 터미널 {terminals}개, 실행 {runs}개가 함께 종료되고 다시 열리지 않습니다. 계속할까요?',
   'status.hostLegacyConfirmBodyNone': '이 백그라운드 서비스는 이전 버전이라 작업을 넘겨줄 수 없습니다. 이번 한 번은 맡고 있던 것이 함께 종료되고 다시 열리지 않습니다. 계속할까요?',
   'status.hostSwapWaits': '작업 중인 Task 가 있습니다. 백그라운드 서비스는 그 Task 가 끝나면 업데이트됩니다.',

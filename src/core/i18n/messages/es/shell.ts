@@ -48,6 +48,7 @@ export const shell: Partial<Record<keyof typeof ko, string>> = {
   'status.hostUpdating': 'Actualizando el servicio en segundo plano…',
   'status.hostHandoverConfirmBody': 'El servicio en segundo plano se reinicia con la nueva versión. Las {sessions} sesión(es), {terminals} terminal(es) y {runs} ejecución(es) que mantiene vuelven en el nuevo. Los {chats} chat(s) terminan y se pueden reiniciar. Si una tarea está trabajando, espera a que termine. ¿Continuar?',
   'status.hostHandoverConfirmBodyNone': 'El servicio en segundo plano se reinicia con la nueva versión, y lo que mantiene vuelve en el nuevo. ¿Continuar?',
+  'status.hostHandoverChatsConfirmBody': 'El servicio en segundo plano se reinicia con la nueva versión. Las {sessions} sesión(es), {chats} chat(s), {terminals} terminal(es) y {runs} ejecución(es) que mantiene vuelven en el nuevo. Un chat que todavía está respondiendo pierde esa respuesta. Si una tarea está trabajando, espera a que termine. ¿Continuar?',
   'status.hostLegacyConfirmBody': 'Este servicio en segundo plano es demasiado antiguo para traspasar su trabajo. Solo esta vez, las {sessions} sesión(es), {chats} chat(s), {terminals} terminal(es) y {runs} ejecución(es) que mantiene terminan con él y no vuelven. ¿Continuar?',
   'status.hostLegacyConfirmBodyNone': 'Este servicio en segundo plano es demasiado antiguo para traspasar su trabajo. Solo esta vez, lo que mantiene termina con él y no vuelve. ¿Continuar?',
   'status.hostSwapWaits': 'Una tarea sigue trabajando. El servicio en segundo plano se actualiza cuando termine.',

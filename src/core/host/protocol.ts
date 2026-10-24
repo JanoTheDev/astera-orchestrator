@@ -45,6 +45,11 @@ export const HOST_FEATURE_PING = 'ping'
  *  HOST_PROTOCOL stays as it is. */
 export const HOST_FEATURE_HANDOVER = 'handover'
 
+/** The handover carries chats too: this Host writes each chat proc's note down and the next one respawns it on its
+ *  thread under its own id (host/sessionRestore.ts HandoverChat). A Host with only HOST_FEATURE_HANDOVER ends its chats
+ *  on the way out, so the app swaps that one only while it holds none. Additive, like the handover itself. */
+export const HOST_FEATURE_HANDOVER_CHATS = 'handover-chats'
+
 /** What `HostClient.retire` came to: the Host left (or was not there to ask), or it answered `retire-refused`, with
  *  that message's counts. */
 export type RetireOutcome = { outcome: 'left' } | { outcome: 'refused'; sessions: number; runs: number; tasks?: number }

@@ -70,6 +70,7 @@ import { resumeAfterCrash } from '../core/orchestration/exec/crashResume'
 import {
   handoverFileIn,
   handoverOf,
+  chatRespawnOf,
   leftBehind,
   readSavedSessions,
   restoreHandover,
@@ -79,6 +80,7 @@ import {
   workingTaskCount,
   writeCleanExit,
   writeHandover,
+  type HandoverChat,
   type PtySpawn,
   type SessionTracker
 } from './sessionRestore'
@@ -269,7 +271,7 @@ async function main(): Promise<void> {
    *  handover reopened, by pty id while they live: what a handover writes down for them (sessionRestore.ts). */
   const ptySpawns = new Map<string, PtySpawn>()
   registry.onExit((ptyId) => ptySpawns.delete(ptyId))
-  /** A handover's resume retire: the sessions, terminals and runs this Host holds, written down for the next Host
+  /** A handover's resume retire: the sessions, terminals, runs and chats this Host holds, written down for the next Host
    *  before the `killAll`; then `clean-exit`. A handover that could not be written leaves no marker, so the next Host
    *  restores the sessions as after a crash. Never rejects. */
   const handOver = async (): Promise<void> => {
@@ -279,11 +281,12 @@ async function main(): Promise<void> {
       const h = handoverOf({
         sessions: sessionTracker ? await readSavedSessions(sessionRestoreFileIn(profileDir)) : [],
         ptys: [...ptySpawns].filter(([id]) => live.has(id)).map(([, p]) => p),
+        procs: procs.list().filter((e) => e.alive).map((e) => e.meta),
         state: orch.loaded() ? orch.state() : null,
         baseEnv: hostWorkerBaseEnv(process.env)
       })
       writeHandover(profileDir, h)
-      log.write(`handover: ${h.sessions.length} session(s) and ${h.ptys.length} terminal(s) or run(s) written for the next Host`)
+      log.write(`handover: ${h.sessions.length} session(s), ${h.ptys.length} terminal(s) or run(s) and ${h.chats?.length ?? 0} chat(s) written for the next Host`)
       writeCleanExit(profileDir)
     } catch (err) {
       log.write(`the handover could not be written: ${String(err)} — the next Host restores the sessions as after a crash`)
@@ -1340,7 +1343,7 @@ async function main(): Promise<void> {
     sessionTracker = tracker
     if (left.handover) {
       const handover = left.handover
-      log.write(`session restore: handed over by the last Host; bringing back ${handover.sessions.length} session(s) and ${handover.ptys.length} terminal(s) or run(s)`)
+      log.write(`session restore: handed over by the last Host; bringing back ${handover.sessions.length} session(s), ${handover.ptys.length} terminal(s) or run(s) and ${handover.chats?.length ?? 0} chat(s)`)
       // A pty reopened under its own note, kept for the next handover like an app's spawn, and told to the apps.
       const openPty = (o: PtySpawn & { meta: PtyMeta }): void => {
         const id = randomUUID()
@@ -1349,6 +1352,19 @@ async function main(): Promise<void> {
         ptySpawns.set(id, o)
         const entry = registry.list().find((e) => e.id === id)
         if (entry) server.broadcast({ t: 'pty-opened', entry })
+      }
+      // A chat respawned on its thread under its own id, the way `sessions create --kind chat` starts one
+      // (sessionCreate.ts): its start settles before the apps are told, so none takes it over mid-handshake.
+      const respawnChat = async (c: HandoverChat): Promise<void> => {
+        const chats = rollingWiring?.chats
+        if (!chats) throw new Error('this Host has no chat manager')
+        const account = (await readAccountEntries(path.join(profileDir, 'accounts.json'))).find((a) => a.id === c.accountId)
+        if (!account) throw new Error(`unknown account: ${c.accountId}`)
+        const info = chats.spawn(chatRespawnOf(c, account))
+        if (!(await chats.started(info.id))) throw new Error('its start did not settle, so it was ended')
+        if ((c.rollAccountIds?.length ?? 0) > 0) rollingWiring.rolling.adoptSpawned(info, account)
+        const procId = chats.procOf(info.id)
+        if (procId !== null) announceChatProc(server, procId, (m) => log.write(m))
       }
       void Promise.race([firstApp, new Promise((resolve) => setTimeout(resolve, HANDOVER_APP_WAIT_MS).unref())])
         .then(() =>
@@ -1362,10 +1378,11 @@ async function main(): Promise<void> {
             settle: (sid) => tracker.settle(sid),
             baseEnv: hostWorkerBaseEnv(process.env),
             openPty,
+            respawnChat,
             log: (m) => log.write(m)
           })
         )
-        .then((r) => log.write(`session restore: resumed ${r.tabs} tab(s), ${r.planners} planner(s); reopened ${r.ptys} terminal(s) or run(s)`))
+        .then((r) => log.write(`session restore: resumed ${r.tabs} tab(s), ${r.planners} planner(s); reopened ${r.ptys} terminal(s) or run(s); respawned ${r.chats} chat(s)`))
     } else if (savedSessions.length > 0) {
       log.write(`session restore: the last Host did not leave cleanly; bringing back ${savedSessions.length} session(s)`)
       void restoreSessions({

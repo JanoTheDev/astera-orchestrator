@@ -116,9 +116,6 @@ export const common = {
   'settings.info.hostRestartNow': '지금 재시작',
   'settings.info.hostRestarting': '재시작 중…',
   'settings.info.hostRestartConfirmTitle': 'Host 재시작',
-  'settings.info.hostRestartConfirmBody':
-    'Host 를 지금 종료하고 새 버전으로 다시 시작합니다. 유지 중인 세션 {sessions}개, 대화 {chats}개, 터미널 {terminals}개, 실행 {runs}개가 함께 종료됩니다. 계속할까요?',
-  'settings.info.hostRestartConfirmBodyNone': 'Host 를 지금 종료하고 새 버전으로 다시 시작합니다. 유지 중인 것은 없습니다. 계속할까요?',
   'settings.info.hostRestartUnresponsiveConfirmTitle': 'Host 끝내고 다시 시작',
   // 몇 개가 끝나는지는 앱이 자기 기록으로 센다. 답하지 않는 Host 에게 물어볼 수는 없다.
   'settings.info.hostRestartUnresponsiveConfirmBody':

@@ -31,6 +31,8 @@ export interface ChatRollSpawn {
   /** The session's own policy, when the request names one: a fresh session (`sessions create --kind
    *  chat --unattended`) has no old session to ask. Absent, the policy is asked of the old session. */
   unattendedPermission?: UnattendedPermission
+  /** A handover's respawn: the id the session had (host/sessionRestore.ts). */
+  sessionId?: string
 }
 
 /** The manager's spawn options for a roll respawn. The policy is asked of the session the roll came
@@ -55,6 +57,7 @@ export function chatSpawnOptsOf(
     ...(o.startWithBypass !== undefined ? { startWithBypass: o.startWithBypass } : {}),
     ...(o.startedAt !== undefined ? { startedAt: o.startedAt } : {}),
     ...(o.restoreExtra !== undefined ? { restoreExtra: o.restoreExtra } : {}),
+    ...(o.sessionId !== undefined ? { sessionId: o.sessionId } : {}),
     bypassSignal: d.bypassSignal,
     unattendedPermission: o.unattendedPermission ?? d.unattendedOf(o.restoreExtra?.rolledFrom),
     ...(d.hostStarting ? { hostStarting: true } : {})

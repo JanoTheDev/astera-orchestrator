@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import {
   carryTranscript,
+  chatRespawnOf,
   handoverFileIn,
   handoverOf,
   leftBehind,
@@ -17,6 +18,7 @@ import {
   workingTaskCount,
   writeCleanExit,
   writeHandover,
+  type HandoverChat,
   type RestoreDeps,
   type SavedSession
 } from './sessionRestore'
@@ -319,6 +321,18 @@ describe('the handover (a resume retire)', () => {
         },
         { file: 'claude', args: [], opts: { cwd: '/w/a', cols: 80, rows: 24, env: BASE }, meta: meta('tab-1', { accountId: 'acc_1', cwd: '/w/a' }) }
       ],
+      // The live line processes' notes: a claude chat and a codex chat, as ChatSessionManager.spawn wrote them, and two
+      // that are not chats it could bring back.
+      procs: [
+        {
+          kind: 'chat',
+          id: 'chat-cl',
+          restore: { accountId: 'acc_1', cwd: '/w/a', title: 'Ask', provider: 'claude', bypassPermissions: false, threadId: 'th-cl', unattendedPermission: 'deny-after-60s', chosenModel: 'opus', startedAt: 1_000, rollAccountIds: ['acc_1', 'acc_2'], bypassedToolchain: true, answered: ['r1'] }
+        },
+        { kind: 'chat', id: 'chat-cx', restore: { accountId: 'acc_cx', cwd: '/w/b', title: 'B', provider: 'codex', threadId: 'th-cx', unattendedPermission: 'hold', startedAt: 2_000, slackNotify: true } },
+        { kind: 'chat', id: 'chat-broken', restore: { cwd: '/w/a' } },
+        null
+      ],
       state,
       baseEnv: BASE
     })
@@ -344,14 +358,54 @@ describe('the handover (a resume retire)', () => {
     ])
   })
 
+  it('lists each chat with its thread, title, account, model, policy, chain and startedAt, and skips a note it cannot read', () => {
+    expect(leaving().chats).toEqual([
+      { sessionId: 'chat-cl', accountId: 'acc_1', cwd: '/w/a', threadId: 'th-cl', title: 'Ask', model: 'opus', unattendedPermission: 'deny-after-60s', startedAt: 1_000, rollAccountIds: ['acc_1', 'acc_2'], bypassPermissions: false, startWithBypass: true },
+      { sessionId: 'chat-cx', accountId: 'acc_cx', cwd: '/w/b', threadId: 'th-cx', title: 'B', unattendedPermission: 'hold', startedAt: 2_000, slackNotify: true }
+    ])
+  })
+
+  it('respawns a chat on its thread under its own id, keeping what it had', () => {
+    const account = { id: 'acc_1', label: 'a', configDir: '/cfg/acc_1', provider: 'claude' } as Account
+    const [cl] = leaving().chats!
+    expect(chatRespawnOf(cl, account)).toEqual({
+      sessionId: 'chat-cl',
+      account,
+      cwd: '/w/a',
+      resumeSessionId: 'th-cl',
+      title: 'Ask',
+      model: 'opus',
+      unattendedPermission: 'deny-after-60s',
+      startedAt: 1_000,
+      rollAccountIds: ['acc_1', 'acc_2'],
+      bypassPermissions: false,
+      startWithBypass: true
+    })
+    // A chat that never had a thread starts fresh, still under its own id.
+    expect(chatRespawnOf({ sessionId: 'c', accountId: 'acc_1', cwd: '/w' }, account)).toEqual({ sessionId: 'c', account, cwd: '/w' })
+  })
+
   it('brings the handover back in the next Host under the same ids, in the same folders, and then removes the file', async () => {
     writeHandover(dir, leaving())
     const left = await leftBehind(dir)
     expect(left.saved).toEqual([]) // the handover is the list: the crash list is not brought back beside it
     const opened: unknown[] = []
+    const respawned: HandoverChat[] = []
     const { deps, created } = restoreDeps({})
-    const r = await restoreHandover({ ...deps, file: handoverFileIn(dir), handover: left.handover!, baseEnv: { PATH: '/bin' }, openPty: (o) => void opened.push(o) })
-    expect(r).toEqual({ tabs: 2, planners: 0, ptys: 2 })
+    const r = await restoreHandover({
+      ...deps,
+      file: handoverFileIn(dir),
+      handover: left.handover!,
+      baseEnv: { PATH: '/bin' },
+      openPty: (o) => void opened.push(o),
+      respawnChat: async (c) => {
+        if (c.sessionId === 'chat-cx') throw new Error('unknown account: acc_cx')
+        respawned.push(c)
+      }
+    })
+    // A chat that cannot be respawned is logged and passed; the others still come back.
+    expect(r).toEqual({ tabs: 2, planners: 0, ptys: 2, chats: 1 })
+    expect(respawned.map((c) => [c.sessionId, c.threadId])).toEqual([['chat-cl', 'th-cl']])
     expect(created).toEqual([
       { accountId: 'acc_1', cwd: '/w/a', title: 'A', rollAccountIds: [], resumeSessionId: 'n-1', autoAccounts: true, sessionId: 'tab-1' },
       { accountId: 'acc_1', cwd: '/w/wt', rollAccountIds: [], resumeSessionId: 'n-w', autoAccounts: true, sessionId: 'worker-done' }
@@ -373,7 +427,7 @@ describe('the handover (a resume retire)', () => {
   it('leaves a worker still holding an open Dispatch to the recovery and a coordinator to its Run, as a crash does', async () => {
     const { deps, created } = restoreDeps({})
     const handover = { sessions: ['worker-1', 'coord-1'].map((sessionId) => ({ sessionId, accountId: 'acc_1', cwd: '/w', nativeSessionId: `n-${sessionId}` })), ptys: [] }
-    expect(await restoreHandover({ ...deps, file: handoverFileIn(dir), handover, baseEnv: {}, openPty: () => {} })).toEqual({ tabs: 0, planners: 0, ptys: 0 })
+    expect(await restoreHandover({ ...deps, file: handoverFileIn(dir), handover, baseEnv: {}, openPty: () => {}, respawnChat: async () => {} })).toEqual({ tabs: 0, planners: 0, ptys: 0, chats: 0 })
     expect(created).toEqual([])
   })
 
@@ -387,7 +441,8 @@ describe('the handover (a resume retire)', () => {
       baseEnv: {},
       openPty: (o) => {
         if (o.opts.cwd === '/gone') throw new Error('no such folder')
-      }
+      },
+      respawnChat: async () => {}
     })
     expect(r.ptys).toBe(1)
   })
@@ -402,7 +457,8 @@ describe('the handover (a resume retire)', () => {
     expect(await leftBehind(dir)).toEqual({ handover: null, saved: [] })
     // A handover beside an unclean marker-less exit wins: the same sessions are not brought back twice
     writeHandover(dir, { sessions: saved, ptys: [] })
-    expect(await leftBehind(dir)).toEqual({ handover: { sessions: saved, ptys: [] }, saved: [] })
+    // An older Host's handover has no chats: read as none
+    expect(await leftBehind(dir)).toEqual({ handover: { sessions: saved, ptys: [], chats: [] }, saved: [] })
   })
 })
 
