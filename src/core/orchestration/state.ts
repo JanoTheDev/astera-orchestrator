@@ -2184,6 +2184,18 @@ export function createQuestion(
  *  "answered by you" (activity.ts). */
 export const OWNER_ANSWER_SUBJECT = 'the owner answered'
 
+/** A Task held for its owner (running.ts `heldForOwner`: blocked, no open Gate) whose questions the owner has now all
+ *  answered goes on: pending, then ready once its deps allow (`resolveGate`'s path). Nothing else moves it: a hands-off
+ *  plan holds it with the owner's question left open. A Task with an open Gate is resolveGate's. */
+function releaseHeld(s: OrchState, taskId: string | undefined, now: string): OrchState {
+  const task = s.tasks.find((t) => t.id === taskId)
+  if (!task || task.status !== 'blocked') return s
+  if (s.gates.some((g) => g.taskId === task.id && g.status === 'open')) return s
+  if (s.messages.some((m) => m.taskId === task.id && !m.answered && (m.type === 'question' || m.type === 'escalation'))) return s
+  const moved = moveTask(task, 'pending', now)
+  return moved ? { ...s, tasks: readyIn(s, replace(s.tasks, moved)) } : s
+}
+
 export function applyReply(
   s: OrchState,
   a: { messageId: string; body: string; by?: 'owner' },
@@ -2211,7 +2223,7 @@ export function applyReply(
     },
     now
   ).state
-  return ok(state, 'accepted')
+  return ok(a.by === 'owner' ? releaseHeld(state, q.taskId, now) : state, 'accepted')
 }
 
 /**
@@ -2222,7 +2234,7 @@ export function applyReply(
  */
 export function answerEscalation(
   s: OrchState,
-  a: { messageId: string; body: string },
+  a: { messageId: string; body: string; by?: 'owner' },
   now: string
 ): Res<{ answered: 'accepted' | 'alreadyAnswered'; questionId?: string }> {
   const e = s.messages.find((m) => m.id === a.messageId)
@@ -2237,7 +2249,7 @@ export function answerEscalation(
   if (q) {
     const r = applyReply(state, { messageId: q.id, body: a.body, by: 'owner' }, now)
     if (!r.ok) return r
-    return ok(r.state, { answered: 'accepted', questionId: q.id })
+    return ok(a.by === 'owner' ? releaseHeld(r.state, e.taskId, now) : r.state, { answered: 'accepted', questionId: q.id })
   }
   state = pushMessage(
     state,
@@ -2253,7 +2265,7 @@ export function answerEscalation(
     },
     now
   ).state
-  return ok(state, { answered: 'accepted' })
+  return ok(a.by === 'owner' ? releaseHeld(state, e.taskId, now) : state, { answered: 'accepted' })
 }
 
 export function createGate(

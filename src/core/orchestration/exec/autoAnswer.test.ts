@@ -81,7 +81,7 @@ describe('autoAnswerOf', () => {
 })
 
 /** The loop's tick over the real command layer, with one Gate open. */
-async function rig(question: string, options: string[] | undefined, on = true, o: { handsOff?: boolean; kind?: 'convergence-exhausted' } = {}) {
+async function rig(question: string, options: string[] | undefined, on = true, o: { handsOff?: boolean; kind?: 'convergence-exhausted'; escalation?: boolean } = {}) {
   let state: OrchState = emptyState()
   let clock = T0
   // Every commit, so the feed can be derived the way the Host does: one commit at a time
@@ -100,7 +100,10 @@ async function rig(question: string, options: string[] | undefined, on = true, o
   await handle('task-create', { spec: 's', account: 'acc1', title: 'W9-B · Inbox' })
   await handle('task-create', { spec: 's', account: 'acc1', title: 'W9-A · Coordinator answers' })
   if (o.handsOff) state = { ...state, jobs: state.jobs.map((j) => ({ ...j, handsOff: true })) }
-  const made = createGate(state, { taskId: state.tasks[0].id, question, ...(options ? { options } : {}), ...(o.kind ? { kind: o.kind } : {}) }, NOW)
+  // `escalation`: a worker's escalation on the first Task, past its grace, instead of the Gate
+  const made = o.escalation
+    ? { ok: true as const, state: { ...state, messages: [...state.messages, { id: 'msg_esc', runId: state.runs[0].id, type: 'escalation' as const, taskId: state.tasks[0].id, subject: question, body: question, ...(options ? { options } : {}), answered: false, createdAt: new Date(T0 - ASK_GRACE_MS).toISOString() }] }, value: { id: 'msg_esc' } }
+    : createGate(state, { taskId: state.tasks[0].id, question, ...(options ? { options } : {}), ...(o.kind ? { kind: o.kind } : {}) }, NOW)
   if (!made.ok) throw new Error(made.error)
   state = made.state
   const lines: ActivityDraft[] = []
@@ -130,6 +133,7 @@ async function rig(question: string, options: string[] | undefined, on = true, o
     gate: made.value,
     lines,
     gateNow: () => state.gates.find((g) => g.id === made.value.id),
+    handle,
     state: () => state,
     before,
     /** The feed lines of every commit since the rig was built, each derived from the commit before it. */
@@ -219,9 +223,13 @@ describe('hands-off plans decide for the owner (#117)', () => {
       }
     ])
     const esc = q('Force-push the branch over the rewrite?', { source: 'escalation', createdAt: new Date(T0 - ASK_GRACE_MS).toISOString() })
-    expect(handsOffStepsDue(s, [esc], T0)).toEqual([
-      { kind: 'answer', answer: expect.objectContaining({ answer: REFUSED_ANSWER }), decision: expect.objectContaining({ kind: 'refused' }), hold: expect.objectContaining({ taskId: 'tsk_x' }) }
+    // An escalation is the owner's question: left open, not answered with the refusal
+    const live = base([task({ id: 'tsk_x', title: 'T1 · Login', status: 'dispatched' })])
+    expect(handsOffStepsDue(live, [esc], T0)).toEqual([
+      { kind: 'hold', id: 'gat_1', decision: expect.objectContaining({ kind: 'refused', choice: REFUSED_ANSWER.slice(0, 197) + '...' }), hold: expect.objectContaining({ taskId: 'tsk_x' }) }
     ])
+    // Once its Task is held (blocked, no Gate), it is the owner's alone: not refused again
+    expect(handsOffStepsDue(s, [esc], T0)).toEqual([])
   })
 
   it('an escalation with no safe answer waits out the grace, then goes to the coordinator', () => {
@@ -269,12 +277,27 @@ describe('a hands-off refusal holds its Task', () => {
     await r.tick()
     expect(r.feed().map((l, i) => noticeOf({ ...l, id: `ev_${i}`, sequence: i, occurredAt: NOW })).filter((n) => n !== null)).toHaveLength(1)
   })
+
+  it("an escalation refused for the owner stays open, and the owner's answer moves the held Task to ready", async () => {
+    const r = await rig('Run jobs-archive and delete the old runs?', undefined, true, { handsOff: true, escalation: true })
+    const held = r.state().tasks[0]
+    await r.tick()
+    await r.tick()
+    expect(r.state().messages.find((m) => m.id === 'msg_esc')).toMatchObject({ answered: false })
+    expect(r.state().tasks[0]).toMatchObject({ status: 'blocked', result: "Waiting on the owner's decision: Run jobs-archive and delete the old runs?" })
+    expect(r.state().jobs[0].decisions).toEqual([expect.objectContaining({ kind: 'refused', taskId: held.id })])
+    const answered = await r.handle('questions-answer', { id: 'msg_esc', answer: 'yes, run it' })
+    expect(answered.status).toBe(200)
+    expect(r.state().tasks[0].status).toBe('ready')
+    // The answer is the status line the next Dispatch's briefing carries
+    expect(r.state().messages.filter((m) => m.taskId === held.id && m.type === 'status').at(-1)?.body).toContain('Answer: yes, run it')
+  })
 })
 
 // T5: a standing grant (`projects set --grants`) lets the coordinator write a covered grant itself
 describe('standing grants on a hands-off plan', () => {
   const planned = (grants?: string[]): OrchState => ({
-    ...base([task({ id: 'tsk_x', title: 'T1 · Schema' })]),
+    ...base([task({ id: 'tsk_x', title: 'T1 · Schema', status: 'dispatched' })]),
     projects: [{ id: 'prj_1', path: 'D:/p', name: 'p', addedAt: NOW, ...(grants ? { grants } : {}) }],
     jobs: [{ id: 'job_1', objective: 'o', cwd: 'D:/p', projectId: 'prj_1', createdAt: NOW } as OrchState['jobs'][number]],
     runs: [{ id: 'run_1', jobId: 'job_1' } as OrchState['runs'][number]]
