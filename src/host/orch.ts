@@ -20,7 +20,7 @@ import { OrchestrationStore, isValidState, type OrchLoadResult } from '../core/o
 import { applyPendingReports, readPendingReports, type QueuedReport } from '../core/orchestration/pendingDrain'
 import { dispatchesHeldOnlyByReport, pendingReportsDirIn, reportedDispatchIdsOf } from '../core/orchestration/pendingReports'
 import { jobOfRunId, writeOffDispatch, type OrchState } from '../core/orchestration/state'
-import { deliveredByLaterPlan, deliveredJobIds, newlyDelivered } from '../core/orchestration/deliveredBy'
+import { deliveredByLaterPlan, deliveredJobIds, keepEarliestDelivery, newlyDelivered } from '../core/orchestration/deliveredBy'
 import { isSamePath } from '../core/files/tree'
 import { runningRunCount } from '../core/orchestration/running'
 import { isPlaceholderSessionId, type Dispatch } from '../core/orchestration/types'
@@ -731,7 +731,7 @@ export function createHostOrch(a: {
       const marks = (await Promise.all(jobIds.map((id) => deliveredByLaterPlan(store.get(), id, isAncestorRun, at)))).flat()
       // The state as it is now, not as the git calls found it: a plan marked meanwhile keeps the first mark
       const s = store.get()
-      const fresh = new Map(marks.filter((m) => s.jobs.find((j) => j.id === m.jobId)?.deliveredBy === undefined).map((m) => [m.jobId, m.deliveredBy]))
+      const fresh = new Map(keepEarliestDelivery(s, marks).filter((m) => s.jobs.find((j) => j.id === m.jobId)?.deliveredBy === undefined).map((m) => [m.jobId, m.deliveredBy]))
       if (fresh.size === 0) return
       await depsFor(throwaway(), HOST_ACTOR).setState({ ...s, jobs: s.jobs.map((j) => (fresh.has(j.id) ? { ...j, deliveredBy: fresh.get(j.id) } : j)) })
       a.log(`delivered by a later plan — ${[...fresh].map(([id, by]) => `${id} by ${by.jobId}`).join(', ')}`)

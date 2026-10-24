@@ -33,6 +33,20 @@ export function newlyDelivered(prev: OrchState, next: OrchState): string[] {
 }
 
 /**
+ * One mark per earlier plan. Several later deliveries can each carry the same branch (it is an ancestor of all of them);
+ * the one whose delivering plan was created first is the delivery that carried it, so that one wins.
+ */
+export function keepEarliestDelivery(s: OrchState, marks: Marks): Marks {
+  const createdAt = (jobId: string): string => s.jobs.find((j) => j.id === jobId)?.createdAt ?? ''
+  const best = new Map<string, Marks[number]>()
+  for (const m of marks) {
+    const kept = best.get(m.jobId)
+    if (kept === undefined || createdAt(m.deliveredBy.jobId) < createdAt(kept.deliveredBy.jobId)) best.set(m.jobId, m)
+  }
+  return [...best.values()]
+}
+
+/**
  * The earlier plans `deliveredJobId`'s delivery carried to the base: plans of its project, made before it and within 30
  * days, that did not land themselves (failed, finished undelivered, or delivery dismissed), whose Run branch `isAncestor`
  * says is inside the delivering Run's commit. `isAncestor` may throw: that plan is simply not marked. Each mark is the

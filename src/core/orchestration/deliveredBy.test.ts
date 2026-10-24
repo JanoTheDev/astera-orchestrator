@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { deliveredByLaterPlan, deliveredJobIds, newlyDelivered } from './deliveredBy'
+import { deliveredByLaterPlan, deliveredJobIds, keepEarliestDelivery, newlyDelivered } from './deliveredBy'
 import { emptyState, type OrchState } from './state'
 import { FAILURE_LIMIT, type Job, type JobRun, type Task } from './types'
 
@@ -144,5 +144,25 @@ describe('deliveredJobIds', () => {
   it('lists the plans delivered in the last 30 days (the Host-start sweep)', () => {
     expect(deliveredJobIds(state(), NOW)).toEqual(['late'])
     expect(deliveredJobIds(state({ jobs: [job('early'), job('late', { createdAt: day(40) })] }), NOW)).toEqual([])
+  })
+})
+
+describe('keepEarliestDelivery', () => {
+  it('names the earlier of two delivering plans that both contain the failed plan branch, whatever the sweep order', async () => {
+    const s = state({
+      jobs: [job('early', { createdAt: day(6) }), job('first', { createdAt: day(4) }), job('second', { createdAt: day(2) })],
+      runs: [
+        run('r-early', 'early'),
+        run('r-first', 'first', { delivery: { at: day(3), branch: 'main', sha: '111' }, deliveryState: { state: 'delivered', attempts: 1 } }),
+        run('r-second', 'second', { delivery: { at: day(1), branch: 'main', sha: '222' }, deliveryState: { state: 'delivered', attempts: 1 } })
+      ],
+      tasks: [task('e1', 'r-early', 'completed'), task('e2', 'r-early', 'failed'), task('f1', 'r-first', 'completed'), task('s1', 'r-second', 'completed')]
+    })
+    const always = async (): Promise<boolean> => true
+    const byFirst = await deliveredByLaterPlan(s, 'first', always, NOW)
+    const bySecond = await deliveredByLaterPlan(s, 'second', always, NOW)
+    const expected = [{ jobId: 'early', deliveredBy: { jobId: 'first', at: NOW, commit: '111' } }]
+    expect(keepEarliestDelivery(s, [...byFirst, ...bySecond])).toEqual(expected)
+    expect(keepEarliestDelivery(s, [...bySecond, ...byFirst])).toEqual(expected)
   })
 })
