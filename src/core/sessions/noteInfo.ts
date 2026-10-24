@@ -34,7 +34,8 @@ export function sessionInfoFromNote(a: { kind: string; id: string; restore: Reco
     ...(str('rollPrompt') ? { rollPrompt: str('rollPrompt') } : {}),
     ...(typeof r.slackNotify === 'boolean' ? { slackNotify: r.slackNotify } : {}),
     ...(typeof r.bypassPermissions === 'boolean' ? { bypassPermissions: r.bypassPermissions } : {}),
-    ...(str('model') ? { model: str('model') } : {})
+    ...(str('model') ? { model: str('model') } : {}),
+    ...(str('effort') ? { effort: str('effort') } : {})
   }
 }
 

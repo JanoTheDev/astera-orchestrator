@@ -53,6 +53,8 @@ export interface RollSpawnOpts {
   /** The model the chain carries: a chat chain's pick (claudeCoordinator's chosenModelOf), or the model a
    *  terminal session was started with (SessionInfo.model, orchestrator W1-A). */
   model?: string | null
+  /** The effort the terminal session was started with, carried by a roll like `model`. */
+  effort?: string | null
   /** The toolchain bypass the chain was granted (design F5). */
   startWithBypass?: boolean
 }
@@ -346,6 +348,7 @@ export function createHostRolling(d: HostRollingDeps): HostRolling {
         bypassPermissions: o.bypassPermissions ?? false,
         ...(o.title !== undefined ? { title: o.title } : {}),
         ...(o.model !== undefined ? { model: o.model } : {}),
+        ...(o.effort !== undefined ? { effort: o.effort } : {}),
         ...(o.startWithBypass !== undefined ? { startWithBypass: o.startWithBypass } : {}),
         ...restoreExtra
       })

@@ -25,6 +25,32 @@ describe('disallowedTools', () => {
   })
 })
 
+describe('effort', () => {
+  it('claude takes --effort for each of its levels, ahead of the prompt fence', () => {
+    for (const level of ['low', 'medium', 'high', 'xhigh', 'max'])
+      expect(buildClaudeCommand('linux')({ effort: level, initialPrompt: 'go' }).args).toEqual(['--effort', level, '--', 'go'])
+  })
+  it('codex takes -c model_reasoning_effort ahead of resume, so a roll resume keeps it', () => {
+    expect(buildCodexCommand('linux')({ effort: 'xhigh', resumeSessionId: 'r1', resumePrompt: 'go' }).args).toEqual([
+      ...NO_UPDATE, '-c', 'model_reasoning_effort=xhigh', 'resume', 'r1', 'go'
+    ])
+  })
+  it('codex does not reach max, claude does', () => {
+    expect(buildCodexCommand('linux')({ effort: 'max' }).args).toEqual(NO_UPDATE)
+    expect(buildClaudeCommand('linux')({ effort: 'max' }).args).toEqual(['--effort', 'max'])
+  })
+  it('never puts a value that is not a level on the command line (a flag, cmd.exe syntax, an inherited key)', () => {
+    for (const bad of ['--dangerously-skip-permissions', 'high&calc', 'HIGH', '', 'constructor']) {
+      expect(buildClaudeCommand('linux')({ effort: bad }).args).toEqual([])
+      expect(buildCodexCommand('linux')({ effort: bad }).args).toEqual(NO_UPDATE)
+    }
+  })
+  it('adds nothing without an effort', () => {
+    expect(buildClaudeCommand('linux')({ effort: null }).args).toEqual([])
+    expect(buildCodexCommand('linux')({ effort: null }).args).toEqual(NO_UPDATE)
+  })
+})
+
 describe('model', () => {
   it('claude takes --model, ahead of the prompt fence', () => {
     const { args } = buildClaudeCommand('linux')({ model: 'opus', initialPrompt: 'go' })

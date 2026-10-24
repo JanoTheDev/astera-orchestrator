@@ -545,6 +545,7 @@ export function createHostSpawner(d: HostSpawnerDeps): HostSpawner | null {
       resumeSessionId: o.resumeSessionId,
       resumePrompt: o.resumePrompt,
       model: o.model, // the role model (orchestrator W1-A, roleModels.ts)
+      effort: o.effort,
       ...(o.disallowedTools ? { disallowedTools: o.disallowedTools } : {}), // W6-B: a claude worker's
       rollProviders,
       orchEnv: { cliPath, skillsPath: cli.skills, profileDir },
@@ -607,7 +608,8 @@ export function createHostSpawner(d: HostSpawnerDeps): HostSpawner | null {
       slackNotify: o.slackNotify,
       orchEnv: { cliPath: preparedShuttle, skillsPath: cli.skills, profileDir },
       restoreExtra: o.restoreExtra,
-      model: o.model // the chain's model (orchestrator W1-A), so the roll does not fall back to the CLI default
+      model: o.model, // the chain's model (orchestrator W1-A), so the roll does not fall back to the CLI default
+      effort: o.effort
     })
   }
 

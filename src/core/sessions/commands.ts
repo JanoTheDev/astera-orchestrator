@@ -1,6 +1,10 @@
 import { claudeLaunchArgs } from '../chat/claudeProtocol'
 import { resolveWindowsExecutable, windowsSpawn } from './windowsExecutable'
 import { MODEL_ID } from '../orchestration/roleModels'
+import { CODEX_EFFORT_ROWS } from '../models/cliModels'
+
+/** The levels `claude --effort` takes (`claude --help`). Codex reaches only CODEX_EFFORT_ROWS' keys. */
+const CLAUDE_EFFORTS: readonly string[] = ['low', 'medium', 'high', 'xhigh', 'max']
 
 /** Where a CLI is on win32, by PATH alone — injected so a test can say where `claude` lives. The
  *  default asks this process's PATH (windowsExecutable.ts says why the working directory never takes
@@ -30,16 +34,20 @@ export type CommandBuilder = (opts: {
   /** The model to start on (orchestrator W1-A, roleModels.ts): claude `--model <id>`, codex `-m <id>`.
    *  Absent or null: no flag, the CLI's own default. */
   model?: string | null
+  /** The reasoning effort to start on: claude `--effort <level>`, codex `-c model_reasoning_effort=<level>`.
+   *  Each CLI is checked against its own fixed list; absent, null or anything else: no flag. */
+  effort?: string | null
   /** claude only (W6-B): tools the session may not use, `--disallowedTools`. Job workers lose `AskUserQuestion`, so
    *  their questions go through `astera ask`, which the coordinator answers. */
   disallowedTools?: string[]
 }) => SpawnCommand
 
 export function buildClaudeCommand(platform: NodeJS.Platform, resolve: ResolveExecutable = resolveWindowsExecutable): CommandBuilder {
-  return ({ resumeSessionId, settingsFile, bypassPermissions, addDirs, initialPrompt, model, disallowedTools }) => {
+  return ({ resumeSessionId, settingsFile, bypassPermissions, addDirs, initialPrompt, model, effort, disallowedTools }) => {
     const args: string[] = []
     // Checked here too, for every source (a renderer spawn, a roll's note): see MODEL_ID.
     if (model && MODEL_ID.test(model)) args.push('--model', model)
+    if (effort && CLAUDE_EFFORTS.includes(effort)) args.push('--effort', effort)
     // W6-B. Variadic, so one comma-joined value, and ahead of --add-dir so that list still runs up to the `--` fence
     if (disallowedTools && disallowedTools.length > 0) args.push('--disallowedTools', disallowedTools.join(','))
     // Injects a session-scoped statusLine via --settings (the global settings.json is left alone) — goes before resume
@@ -114,7 +122,7 @@ export function buildCodexCommand(
   resolve: ResolveExecutable = resolveWindowsExecutable,
   noDaemon: () => boolean = () => false
 ): CommandBuilder {
-  return ({ resumeSessionId, bypassPermissions, resumePrompt, initialPrompt, developerInstructions, model }) => {
+  return ({ resumeSessionId, bypassPermissions, resumePrompt, initialPrompt, developerInstructions, model, effort }) => {
     // **No update check, ever.** With an update out, codex opens on "Update available … 1. Update now
     // 2. Skip" (measured 2026-10-07, 0.160.0 with 0.160.1 out), and a worker, a coordinator or a roll's
     // respawn has nobody in front of it to answer: the Job just stops. Settled for every session Astera
@@ -128,6 +136,8 @@ export function buildCodexCommand(
       args.push('-c', `developer_instructions=${developerInstructions}`)
     // A root option, ahead of `resume` like the two above, so a roll's resume keeps the model.
     if (model && MODEL_ID.test(model)) args.push('-m', model)
+    // Same place and reason as -m; hasOwn so a key like `constructor` is not a level.
+    if (effort && Object.hasOwn(CODEX_EFFORT_ROWS, effort)) args.push('-c', `model_reasoning_effort=${effort}`)
     if (resumeSessionId) {
       args.push('resume', resumeSessionId)
       const safe = resumePrompt ? sanitizeResumePrompt(resumePrompt) : ''

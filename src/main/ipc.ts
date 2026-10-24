@@ -3113,6 +3113,7 @@ export function registerIpc(
           resumeSessionId: o.resumeSessionId,
           resumePrompt: o.resumePrompt,
           model: o.model, // W1-A role model, kept across rolls by the session (SessionInfo.model)
+          effort: o.effort,
           disallowedTools: o.disallowedTools // W6-B: a claude worker's (WORKER_DISALLOWED_TOOLS)
         } satisfies typeof o)
         try {

@@ -91,6 +91,8 @@ export interface CoordinatorDeps {
     /** The role model to start on (orchestrator W1-A, roleModels.ts) — `--model` / `-m`. Absent: the
      *  CLI's default. The wiring hands it to the session spawn, which keeps it across rolls. */
     model?: string
+    /** The reasoning effort to start on, handed to the session spawn untouched. */
+    effort?: string
     /** claude only (W6-B): tools the session may not use (WORKER_DISALLOWED_TOOLS). */
     disallowedTools?: string[]
   }): Promise<{ id: string }>

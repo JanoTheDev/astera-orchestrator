@@ -107,6 +107,8 @@ export interface CodexRollingDeps {
     restoreExtra?: RollRespawnExtra
     /** The `-m` the session was started with (`SessionInfo.model`, orchestrator W1-A), kept per chain. */
     model?: string | null
+    /** The effort the session was started with (`SessionInfo.effort`), kept per chain. */
+    effort?: string | null
   }): SessionInfo
   /** Everything a respawn needs that can wait or refuse, done while the old session still lives (S6 R5).
    *  A rejection aborts the roll before the kill and reschedules it. Absent: nothing to prepare. */
@@ -1862,6 +1864,7 @@ export class CodexRollingCoordinator {
         startWithBypass: wasBypassed,
         // Kept per chain like bypass: a Job worker started on a model stays on it (orchestrator W1-A).
         ...(chain.liveInfo.model ? { model: chain.liveInfo.model } : {}),
+        ...(chain.liveInfo.effort ? { effort: chain.liveInfo.effort } : {}),
         // S6 R6: the new pty is born with what a takeover needs if this process dies before the rekey
         // commits — the claude side's field, same contract. awaitingPrompt is false: the carry-on
         // prompt rides this spawn (argv or first chat turn), so nothing is left to type. The tail starts
