@@ -4991,13 +4991,17 @@ export function registerIpc(
         return state === cur ? null : state
       })
     }
-    const snapshot: OrchSnapshot = orch
+    const content: OrchSnapshot = orch
       ? orchSnapshotOf(orch.deps.getState(), project)
       : { runs: [], projectFolderBusy: false }
+    // A peek is not the renderer's live snapshot: unstamped, so it does not move the version the push compares against
+    if (!watch) return content
+    // Tagged with the path as sent, which is what the renderer compares with its own project (acceptSnapshot)
+    const snapshot = orchPushes.stamp(projectPath, content)
     // Superseded while awaiting — by an unwatch, or by a later list for another project. The caller
     // still gets the project it asked for; what it does not get is the subscription, because
     // something more recent already decided what that should be.
-    if (!watch || request !== orchRequest) return snapshot
+    if (request !== orchRequest) return snapshot
     // Recorded as what the renderer now holds — the return value is exactly that, so the dedupe stays
     // correct across a project switch instead of comparing against the previous project's fold.
     orchPushes.watch(project, snapshot)

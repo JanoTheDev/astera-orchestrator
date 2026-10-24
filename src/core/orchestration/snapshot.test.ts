@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { findRun, runDetailKey, runIdToMerge } from './snapshot'
+import { acceptSnapshot, findRun, runDetailKey, runIdToMerge } from './snapshot'
 import type { JobRow, OrchSnapshot } from '../types'
 
 const jobRun = (id: string, over: Partial<JobRow> = {}): JobRow => ({
@@ -77,5 +77,35 @@ describe('runDetailKey', () => {
     const a = { runs: [row('r1', 1)], projectFolderBusy: false }
     expect(runDetailKey(a, 'r1', ['s1', 's2'])).toBe(runDetailKey(a, 'r1', ['s2', 's1']))
     expect(runDetailKey(a, 'r1', ['s1'])).not.toBe(runDetailKey(a, 'r1', ['s1', 's2']))
+  })
+})
+
+describe('acceptSnapshot', () => {
+  const tagged = (project: string, version: number, runs: JobRow[] = []): OrchSnapshot => ({ ...snap(runs), project, version })
+
+  it('drops a snapshot of another project', () => {
+    const prev = tagged('/b', 3)
+    expect(acceptSnapshot(prev, tagged('/a', 4, [jobRun('r1')]), '/b')).toBe(prev)
+    expect(acceptSnapshot(null, tagged('/a', 4), '/b')).toBeNull()
+  })
+
+  it('keeps the held object on the same version', () => {
+    const prev = tagged('/b', 3, [jobRun('r1')])
+    expect(acceptSnapshot(prev, tagged('/b', 3, [jobRun('r1')]), '/b')).toBe(prev)
+  })
+
+  it('takes a new version', () => {
+    const prev = tagged('/b', 3)
+    const next = tagged('/b', 4, [jobRun('r1')])
+    expect(acceptSnapshot(prev, next, '/b')).toBe(next)
+    expect(acceptSnapshot(null, next, '/b')).toBe(next)
+  })
+
+  it('compares the content when a side has no version', () => {
+    const prev = snap([jobRun('r1')])
+    expect(acceptSnapshot(prev, snap([jobRun('r1')]), '/b')).toBe(prev)
+    const changed = snap([jobRun('r2')])
+    expect(acceptSnapshot(prev, changed, '/b')).toBe(changed)
+    expect(acceptSnapshot(tagged('/b', 3), changed, '/b')).toBe(changed)
   })
 })
