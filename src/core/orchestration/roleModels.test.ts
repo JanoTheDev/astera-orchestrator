@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import {
   MODEL_ID,
+  clampEffort,
+  escalateEffort,
+  resolveRoleEffort,
+  resolveWorkerEffort,
   dispatchModelFields,
   modelFitsProvider,
   pickTaskProvider,
@@ -164,5 +168,80 @@ describe('modelFitsProvider / dispatchModelFields', () => {
   it('carries only what is set', () => {
     expect(dispatchModelFields({})).toEqual({})
     expect(dispatchModelFields({ model: 'opus', modelNote: 'n' })).toEqual({ model: 'opus', modelNote: 'n' })
+  })
+})
+
+describe('effort resolution', () => {
+  const task = (effort?: 'low' | 'max', difficulty?: 'light' | 'standard' | 'hard') => ({ effort, difficulty })
+  it('Task > setting > built-in > none', () => {
+    const settings = { claude: { effort: { difficulty: { hard: 'xhigh' } } } }
+    expect(resolveWorkerEffort({ settings, task: task('low', 'hard'), provider: 'claude' })).toBe('low')
+    expect(resolveWorkerEffort({ settings, task: task(undefined, 'hard'), provider: 'claude' })).toBe('xhigh')
+    expect(resolveWorkerEffort({ settings, task: task(undefined, 'light'), provider: 'claude' })).toBe('low')
+    expect(resolveWorkerEffort({ settings: {}, task: task(undefined, 'standard'), provider: 'claude' })).toBe('medium')
+    expect(resolveWorkerEffort({ settings: {}, task: task(), provider: 'claude' })).toBeUndefined()
+    expect(resolveWorkerEffort({ settings: {}, task: task(undefined, 'hard'), provider: 'codex' })).toBeUndefined()
+  })
+  it("'' masks the built-in", () => {
+    expect(resolveWorkerEffort({ settings: { claude: { effort: { difficulty: { hard: '' } } } }, task: task(undefined, 'hard'), provider: 'claude' })).toBeUndefined()
+    expect(resolveRoleEffort({ claude: { effort: { roles: { planner: '' } } } }, 'planner', 'claude')).toBeUndefined()
+  })
+  it('roles: setting > built-in', () => {
+    expect(resolveRoleEffort({}, 'planner', 'claude')).toBe('high')
+    expect(resolveRoleEffort({}, 'coordinator', 'claude')).toBe('low')
+    expect(resolveRoleEffort({ claude: { effort: { roles: { reviewer: 'max' } } } }, 'reviewer', 'claude')).toBe('max')
+    expect(resolveRoleEffort({}, 'planner', 'codex')).toBeUndefined()
+  })
+  it('the reader keeps known levels and "", drops the rest, leaves models alone', () => {
+    expect(
+      readRoleModelSettings({
+        claude: { roles: { planner: 'opus' }, effort: { roles: { planner: ' high ', reviewer: 'turbo', coordinator: '' }, difficulty: { hard: 3, light: 'low' } } },
+        codex: { effort: { roles: { planner: 'bogus' } } }
+      })
+    ).toEqual({ claude: { roles: { planner: 'opus' }, effort: { roles: { planner: 'high', coordinator: '' }, difficulty: { light: 'low' } } } })
+  })
+})
+
+describe('clampEffort', () => {
+  const all = ['low', 'medium', 'high', 'xhigh', 'max']
+  it('keeps a listed level', () => expect(clampEffort('high', all, 'claude')).toEqual({ effort: 'high' }))
+  it('moves to the nearest listed level, a tie going down', () => {
+    expect(clampEffort('xhigh', ['low', 'medium', 'high'], 'claude')).toMatchObject({ effort: 'high', note: expect.any(String) })
+    expect(clampEffort('medium', ['low', 'high'], 'claude').effort).toBe('low')
+    expect(clampEffort('low', ['medium', 'high'], 'claude').effort).toBe('medium')
+  })
+  it('above the max: the max', () => expect(clampEffort('max', ['low', 'high'], 'claude').effort).toBe('high'))
+  it('no levels: no effort, no note; unknown levels: no effort plus a note', () => {
+    expect(clampEffort('high', [], 'claude')).toEqual({})
+    const r = clampEffort('high', undefined, 'claude')
+    expect(r.effort).toBeUndefined()
+    expect(r.note).toMatch(/unknown/)
+  })
+  it('codex is limited to CODEX_EFFORT_ROWS', () => {
+    expect(clampEffort('max', all, 'codex').effort).toBe('xhigh')
+    expect(clampEffort('max', ['max'], 'codex')).toEqual({})
+  })
+})
+
+describe('escalateEffort', () => {
+  const all = ['low', 'medium', 'high', 'xhigh', 'max']
+  it('one listed level up, with a note', () => {
+    expect(escalateEffort('medium', all, 'claude')).toMatchObject({ effort: 'high', note: expect.stringContaining('medium') })
+    expect(escalateEffort('low', ['low', 'high'], 'claude').effort).toBe('high')
+  })
+  it('at the max it stays, and says so', () => {
+    expect(escalateEffort('max', all, 'claude')).toMatchObject({ effort: 'max', note: expect.any(String) })
+    expect(escalateEffort('xhigh', all, 'codex')).toMatchObject({ effort: 'xhigh', note: expect.any(String) })
+  })
+  it('nothing before, nothing to raise; unknown levels explain', () => {
+    expect(escalateEffort(undefined, all, 'claude')).toEqual({})
+    expect(escalateEffort('low', undefined, 'claude').effort).toBeUndefined()
+  })
+})
+
+describe('dispatchModelFields effort', () => {
+  it('copies effort and effortNote, omitting empties', () => {
+    expect(dispatchModelFields({ effort: 'high', effortNote: 'n' })).toEqual({ effort: 'high', effortNote: 'n' })
+    expect(dispatchModelFields({ effort: '' })).toEqual({})
   })
 })

@@ -572,6 +572,8 @@ export interface JobTask {
   /** The planner's difficulty for the Task and the Job's role-model overrides: what the board needs to say, before dispatch,
    *  which model resolveWorkerModel will pick. */
   difficulty?: 'light' | 'standard' | 'hard'
+  /** The Task's own reasoning effort (Task.effort); the difficulty map's applies when absent. */
+  effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
   jobModels?: Partial<Record<'coordinator' | 'planner' | 'worker' | 'reviewer', string>>
   /** The account its latest attempt ran on. Absent until it is dispatched; `accountIds` says what it will use. */
   accountId?: string
