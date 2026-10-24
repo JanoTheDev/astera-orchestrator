@@ -26,6 +26,7 @@ import { devicesSnapshot } from '../devices/useDevices'
 import { openPlan } from './navigation'
 import type { AppState } from '../../state/appState'
 import type { ShellState } from './useShell'
+import { useOrchConsumer } from '../../state/orchFeed'
 
 export type ViewTabProps = AppState & ShellState
 
@@ -124,6 +125,12 @@ function WorktreeTab({ p, path, close }: { p: ViewTabProps; path?: string; close
 }
 
 /** A view tab's body. Each stays mounted for its tab's life (PaneGrid's view slots), so Start keeps its draft. */
+/** Counts itself as a reader of the snapshot, so the watch stays armed while Plans is not the sidebar view. */
+function MainPlanTab({ p }: { p: ViewTabProps }): React.JSX.Element {
+  useOrchConsumer()
+  return <MainPlan rows={p.orchSnapshot?.runs ?? []} acts={planActs(p)} accounts={p.accounts} />
+}
+
 export function renderViewTab(p: ViewTabProps, name: ViewName, arg: string | undefined, active: boolean): React.ReactNode {
   const close = (): void => p.closeWorkbenchTab(viewTab(name, arg))
   switch (name) {
