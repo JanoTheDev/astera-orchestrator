@@ -4,6 +4,7 @@ import { useEffect, useRef, type ReactNode } from "react";
 import { useI18n } from "../../i18n/I18nProvider";
 import type { MessageKey } from "../../../../core/i18n";
 import { Button, Modal } from '../ui'
+import '../sessionDialog.css'
 
 /** design §4 F5's confirmation — the one deliberate exception to this branch's one-or-two-line rule
  *  (S1). Pressing the exit banner's button never retries anything by itself; it opens this, because
@@ -52,7 +53,7 @@ export function BypassRetryDialog({
   useEffect(() => confirmRef.current?.focus(), []);
 
   const section = (labelKey: MessageKey, bodyKey: MessageKey, suffix?: string): ReactNode => (
-    <p className="confirm-text">
+    <p className="sd-text">
       <strong>{t(labelKey)}</strong>
       {/* 라벨과 본문 사이는 굵기만으로 가른다. 대시를 쓰지 않는다 — 사용자 요청. */}
       {" "}
@@ -84,7 +85,7 @@ export function BypassRetryDialog({
     >
       {/* Modal announces itself as role="dialog" aria-modal and labels itself by the title, so a screen reader hears
           the question first. This one is a consent prompt: the person must read what they give up before pressing. */}
-      <div className="dlg bypass-retry">
+      <div className="sd-body">
         {section("conversation.exited.bypassConfirm.whatBlockedLabel", whatBlockedKey, lineSuffix)}
         {section("conversation.exited.bypassConfirm.ifSkippedLabel", "conversation.exited.bypassConfirm.ifSkipped")}
         {section("conversation.exited.bypassConfirm.givesUpLabel", "conversation.exited.bypassConfirm.givesUp")}
