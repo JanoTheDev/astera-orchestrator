@@ -4,7 +4,7 @@ import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { SessionInfo } from '../../../../core/types'
 import { OTHER_WORKSPACE, type WorkspaceProject } from '../../state/workspaceTree'
-import { ProjectSwitcher, matchesProject, switcherItems, type SwitcherProps } from './ProjectSwitcher'
+import { ProjectSwitcher, countsText, matchesProject, switcherItems, type SwitcherProps } from './ProjectSwitcher'
 import { t } from '../../../../core/i18n'
 
 const tree: WorkspaceProject[] = [
@@ -42,29 +42,51 @@ describe('ProjectSwitcher', () => {
     expect(renderToStaticMarkup(React.createElement(ProjectSwitcher, props({ selectedId: null, attention: {} })))).toContain('All projects')
   })
 
-  it('lists All tabs, each project with its running tabs and its key, a dot on the one waiting, then Other', () => {
+  it('lists All projects, each project with its dot, counts and key, then Other, then the actions', () => {
     const items = switcherItems(props())
-    expect(items.map((i) => i.id).slice(0, 4)).toEqual(['all', 'g', 'a', OTHER_WORKSPACE])
-    expect(html(items[1].label)).toMatch(/tb-sw-waiting[^>]*><\/span><span class="tb-sw-name">gameful<\/span><span class="tb-sw-count"[^>]*>2<\/span><span class="ui-kbd tb-sw-key"><kbd>Ctrl<\/kbd><kbd>Alt<\/kbd><kbd>1<\/kbd>/)
-    expect(html(items[2].label)).toMatch(/<span class="tb-sw-dot"><\/span><span class="tb-sw-name">Astera<\/span><span class="tb-sw-count"[^>]*>0</)
-    expect(html(items[3].label)).toMatch(/Other<\/span><span class="tb-sw-count"[^>]*>1<\/span><span class="ui-kbd tb-sw-key"><kbd>Ctrl<\/kbd><kbd>Alt<\/kbd><kbd>3<\/kbd>/)
+    expect(items.map((i) => i.id)).toEqual(['all', 'g', 'a', OTHER_WORKSPACE, 'new', 'add', 'settings'])
+    expect(html(items[1].label)).toMatch(/tb-psw-dot--needsYou" role="img" aria-label="needs you"><\/span><span class="tb-psw-text"><span class="tb-psw-name">gameful<\/span><\/span><span class="ui-kbd tb-sw-key"><kbd>Ctrl<\/kbd><kbd>Alt<\/kbd><kbd>1<\/kbd>/)
+    expect(html(items[2].label)).toContain('tb-psw-dot--idle')
+    // Ctrl+Alt+N counts the tree only: "Other" has no key
+    expect(html(items[3].label)).not.toContain('ui-kbd')
   })
 
-  it('offers each real project’s settings and the project tools, off with their reason when nothing anchors them', () => {
-    const ids = switcherItems(props()).map((i) => i.id)
-    expect(ids).toContain('settings:g')
-    expect(ids).not.toContain(`settings:${OTHER_WORKSPACE}`)
-    expect(switcherItems(props({ toolsDisabledReason: 'Open a tab first' })).filter((i) => i.disabled).map((i) => i.id)).toEqual(['settings:g', 'settings:a', 'new', 'add'])
+  it('shows the branch, plan and question counts, and a changes badge that opens Source Control (T11)', () => {
+    const plan = { jobId: 'j', projectId: 'g', name: 'j', archived: false, paused: false, planner: [], coordinator: [], workers: [] }
+    const busy: WorkspaceProject[] = [{ ...tree[0], plans: [{ ...plan, live: true, questions: 1 }, { ...plan, jobId: 'k', live: true }] }, tree[1]]
+    const items = switcherItems(props({ tree: busy }), { git: { '/repos/gameful': { branch: 'main', dirty: 2, unpushed: 0, behind: 3 } } })
+    const out = html(items[1].label)
+    expect(out).toContain('main')
+    expect(out).toContain('2 plans · 1 question')
+    expect(out).toContain('title="3 commits behind upstream"')
+    expect(items.map((i) => i.id)).toContain('changes:g')
+    expect(items.map((i) => i.id)).not.toContain('changes:a')
+    expect(countsText({ plans: 1, questions: 0 }, (k, p) => t('en', k, p))).toBe('1 plan')
+    expect(countsText({ plans: 0, questions: 0 }, (k, p) => t('en', k, p))).toBe('')
+  })
+
+  it('nests a sub-project under its workspace; picking it opens that workspace (T11)', () => {
+    const picked: (string | null)[] = []
+    const items = switcherItems(props({ onSelect: (id) => picked.push(id) }), { subProjects: [{ id: 'gs', name: 'values', parentId: 'g' }] })
+    expect(items.map((i) => i.id).slice(0, 4)).toEqual(['all', 'g', 'gs', 'a'])
+    expect(html(items[2].label)).not.toContain('ui-kbd')
+    items[2].onSelect()
+    expect(picked).toEqual(['g'])
+  })
+
+  it('offers the open project’s settings and the project tools, off with their reason when nothing anchors them', () => {
+    expect(switcherItems(props({ selectedId: null })).map((i) => i.id)).not.toContain('settings')
+    expect(switcherItems(props({ selectedId: OTHER_WORKSPACE })).map((i) => i.id)).not.toContain('settings')
+    expect(switcherItems(props({ toolsDisabledReason: 'Open a tab first' })).filter((i) => i.disabled).map((i) => i.id)).toEqual(['new', 'add', 'settings'])
   })
 })
 
-// W9-K: each project opens in a window of its own; "Other" is no project and gets none.
+// W9-K: the open project opens in a window of its own; "Other" is no project and gets none.
 describe('ProjectSwitcher: Open in new window', () => {
-  it('offers the item on every project row but Other', () => {
+  it('offers the item for the open project only', () => {
     const items = switcherItems(props({ onOpenWindow: () => {} }))
-    expect(items.find((i) => i.id === 'window:g')?.label).toBe('Open gameful in new window')
-    expect(items.find((i) => i.id === 'window:a')?.label).toBe('Open Astera in new window')
-    expect(items.map((i) => i.id)).not.toContain(`window:${OTHER_WORKSPACE}`)
+    expect(items.find((i) => i.id === 'window')?.label).toBe('Open gameful in new window')
+    expect(switcherItems(props({ onOpenWindow: () => {}, selectedId: OTHER_WORKSPACE })).map((i) => i.id)).not.toContain('window')
   })
 })
 
