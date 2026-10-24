@@ -957,6 +957,7 @@ export function applyWorkerDone(
     tasks: readyIn(s, replace(s.tasks, nextTask)),
     dispatches: replace(s.dispatches, nextDispatch)
   }
+  state = closeGatesOfCompleted(state, task.id, now)
   state = pushMessage(
     state,
     {
@@ -1092,6 +1093,7 @@ export function applyValidationResult(
       ...(passed ? {} : { result: `validation failed (exit ${exitCode})\n${output}` })
     }
     let state: OrchState = { ...s, tasks: readyIn(s, replace(s.tasks, next)) }
+    state = closeGatesOfCompleted(state, task.id, now)
     state = pushMessage(
       state,
       {
@@ -1115,6 +1117,7 @@ export function applyValidationResult(
     if (!moved) return err(`cannot move task ${task.status} -> ${to}`)
     const next: Task = { ...moved, consecutiveFailures: reviewing ? task.consecutiveFailures : 0 }
     let state: OrchState = { ...s, tasks: readyIn(s, replace(s.tasks, next)) }
+    state = closeGatesOfCompleted(state, task.id, now)
     state = pushMessage(
       state,
       {
@@ -1567,6 +1570,7 @@ export function applyReviewResult(
       consecutiveFailures: passed ? 0 : task.consecutiveFailures + 1
     }
     let state: OrchState = { ...closed, tasks: readyIn(closed, replace(closed.tasks, next)) }
+    state = closeGatesOfCompleted(state, task.id, now)
     state = pushMessage(
       state,
       {
@@ -1608,6 +1612,7 @@ export function applyReviewResult(
     if (!moved) return err(`cannot move task ${task.status} -> ${to}`)
     const next: Task = { ...moved, consecutiveFailures: 0 }
     let state: OrchState = { ...closed, tasks: readyIn(closed, replace(closed.tasks, next)) }
+    state = closeGatesOfCompleted(state, task.id, now)
     const notes = issues.length
     state = pushMessage(
       state,
@@ -2345,6 +2350,20 @@ export function createGate(
   return ok(state, gate)
 }
 
+/** Closes a Task's open gates when the Task ends: nobody is left to answer them, and an answer would have no Task to
+ *  unblock. The one place that rule lives; every move to `completed` and every removal of a Task goes through it. */
+export function closeGatesOf(s: OrchState, taskId: string, why: string, now: string): OrchState {
+  if (!s.gates.some((g) => g.taskId === taskId && g.status === 'open')) return s
+  return {
+    ...s,
+    gates: s.gates.map((g) => (g.taskId === taskId && g.status === 'open' ? { ...g, status: 'resolved' as const, resolution: why, resolvedAt: now } : g))
+  }
+}
+
+/** closeGatesOf for a Task that has just moved to `completed` (a no-op for any other status) */
+export const closeGatesOfCompleted = (s: OrchState, taskId: string, now: string): OrchState =>
+  s.tasks.find((t) => t.id === taskId)?.status === 'completed' ? closeGatesOf(s, taskId, 'closed: task completed', now) : s
+
 export function resolveGate(
   s: OrchState,
   a: { gateId: string; resolution: string },
@@ -2353,9 +2372,14 @@ export function resolveGate(
   const gate = s.gates.find((g) => g.id === a.gateId)
   if (!gate) return gone(`unknown gate: ${a.gateId}`)
   if (gate.status === 'resolved') return ok(s, gate)
-  const next: Gate = { ...gate, status: 'resolved', resolution: a.resolution, resolvedAt: now }
   const task = s.tasks.find((t) => t.id === gate.taskId)
-  if (!task) return err(`unknown task for gate: ${a.gateId}`)
+  // A gate left open over a Task that has ended (completed, or cancelled and gone) is closed, not answered: there is
+  // nothing to unblock. The resolution says why.
+  if (!task || task.status === 'completed') {
+    const closed = closeGatesOf(s, gate.taskId, task ? 'closed: task completed' : 'closed: task cancelled', now)
+    return ok(closed, closed.gates.find((g) => g.id === gate.id)!)
+  }
+  const next: Gate = { ...gate, status: 'resolved', resolution: a.resolution, resolvedAt: now }
   const stillBlocked = s.gates.some(
     (g) => g.taskId === gate.taskId && g.status === 'open' && g.id !== gate.id
   )

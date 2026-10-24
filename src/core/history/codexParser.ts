@@ -1,5 +1,6 @@
 import type { TranscriptMessage } from '../types'
-import { lastTurns, PREVIEW_TURNS, READ_BUFFER_MAX, toTitle, type TranscriptResumeMaterial } from './parser'
+import { lastTurns, PREVIEW_TURNS, READ_BUFFER_MAX, toTitle, type TranscriptResumeMaterial, type TranscriptTail } from './parser'
+import { extractCodexModel } from './codexConversation'
 import {
   openTranscriptSource,
   parseTranscriptLine,
@@ -233,8 +234,8 @@ export async function parseCodexTail(
   filePath: string,
   tailBytes = 256 * 1024,
   opts?: { open?: OpenTranscriptSource }
-): Promise<{ lastUserTitle: string | null; awaitingReply: boolean }> {
-  const empty = { lastUserTitle: null, awaitingReply: false }
+): Promise<TranscriptTail> {
+  const empty: TranscriptTail = { lastUserTitle: null, awaitingReply: false, model: null, effort: null }
   try {
     const src = await (opts?.open ?? openTranscriptSource)(filePath)
     let lines: string[] = []
@@ -284,7 +285,7 @@ export async function parseCodexTail(
       if (lastUserTitle !== null && roleResolved) break // early exit
     }
 
-    return { lastUserTitle: lastUserTitle ?? goalTitle, awaitingReply }
+    return { lastUserTitle: lastUserTitle ?? goalTitle, awaitingReply, ...extractCodexModel(lines) }
   } catch {
     return empty
   }

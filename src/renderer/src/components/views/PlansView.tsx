@@ -398,11 +398,12 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
     // before the first answer: nothing, not an empty state that flashes on every project switch
     body = null
   } else if (!currentProject) {
+    // All projects (or a folder no project holds): plans are read one project at a time; New plan asks which one
     body = (
       <div className="wb-view-pad">
-        <p className="wb-view-empty">{t('jobs.noProject.hint')}</p>
-        <Button variant="primary" size="sm" onClick={() => p.setShowNew(true)}>
-          {t('wall.new')}
+        <p className="wb-view-empty">{t('pages.plans.allProjects')}</p>
+        <Button variant="primary" size="sm" onClick={() => openView('start')}>
+          {t('shell.plans.new')}
         </Button>
       </div>
     )
@@ -479,7 +480,8 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
       <ViewToolbar
         label={t('shell.activity.plans')}
         items={[
-          { id: 'new', icon: <Icon name="add" />, label: t('shell.plans.new'), disabled: !currentProject, onClick: () => openView('start') },
+          // With no project picked the New plan page asks for one (startLogic projectChoice)
+          { id: 'new', icon: <Icon name="add" />, label: t('shell.plans.new'), onClick: () => openView('start') },
           {
             id: 'issues',
             icon: <Icon name="issue" />,
@@ -494,7 +496,7 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
         <ViewPane title={t('pages.plans.main')} storageKey="plans.main" className="plans-mainpane">
           <p className="plans-mainpane__head">{t('pages.plans.main.head', { plans: main.plans.length, done: main.done, total: main.total })}</p>
           <ClickTree
-            className="plans-tree"
+            className="plans-tree plans-maintree"
             label={t('pages.plans.main')}
             rows={main.plans.map(({ row, name }) => {
               const status = planStatusOf(row)

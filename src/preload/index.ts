@@ -85,6 +85,7 @@ const api = {
     create: invoke('accounts.create'),
     import: invoke('accounts.import'),
     remove: invoke('accounts.remove'),
+    merge: invoke('accounts.merge'),
     loginStatus: invoke('accounts.loginStatus'),
     detect: invoke('accounts.detect'),
     ghosts: invoke('accounts.ghosts'),
@@ -120,7 +121,9 @@ const api = {
   projects: {
     getDefaultAccount: invoke('projects.getDefaultAccount'),
     setDefaultAccount: invoke('projects.setDefaultAccount'),
-    hasOrigin: invoke('projects.hasOrigin')
+    hasOrigin: invoke('projects.hasOrigin'),
+    status: invoke('projects.status'), // T11
+    deliverySetup: invoke('projects.deliverySetup')
   },
   worktrees: {
     list: invoke('worktrees.list'),

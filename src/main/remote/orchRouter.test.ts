@@ -152,6 +152,20 @@ describe('createOrchRouter (remote runtime design §2.7, D1.1, D1.6, D1.7)', () 
     expect(host).toEqual([['/p', 'sessions-list', { status: 'waiting' }]])
     expect(l.calls).toEqual([])
   })
+
+  it('the tab summaries go to the Host, the only one that reads them (the sidebar\'s failed dot)', async () => {
+    const l = recordingLocal()
+    const host: string[] = []
+    const r = createOrchRouter({
+      local: l.local,
+      host: async (_p, c) => (host.push(c), { status: 200, body: [] }),
+      remote: { client: async () => fakeClient() }
+    })
+    expect(await r.command('/p', 'summaries', {})).toEqual({ status: 200, body: [] })
+    expect(await r.command('/p', 'sessions-summary', { id: 's1' })).toEqual({ status: 200, body: [] })
+    expect(host).toEqual(['summaries', 'sessions-summary'])
+    expect(l.calls).toEqual([])
+  })
 })
 
 describe('merged reads across Runtimes (W5-D, #44)', () => {

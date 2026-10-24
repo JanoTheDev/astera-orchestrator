@@ -131,6 +131,14 @@ describe('plain words (no worker, coordinator, wave, watchdog)', () => {
     expect(lineOf(ev(1, { type: 'coordinator.refreshed', payload: { title: 'P' } }), label).text).toBe('P: lead agent refreshed (on request)')
     expect(lineOf(ev(1, { type: 'watchdog', payload: { title: 'P', reason: 'no progress' } }), label).text).toBe('P: stuck-plan check: no progress')
   })
+  it('a delivery that fell back says how it landed and why, in the owner\'s language, not as a stuck-plan check', () => {
+    const merged = ev(1, { type: 'watchdog', payload: { title: 'P', reason: 'Plan P: Merged into main on this computer: no GitHub remote', deliveryFallback: { mode: 'merge', reason: 'notGitHub', branch: 'main' } } })
+    expect(lineOf(merged, label)).toEqual({ text: 'P: merged into main on this computer. No GitHub remote, so pull requests are off', tone: 'info' })
+    expect(lineOf(merged, label, 'ko').text).toBe('P: 이 컴퓨터에서 main에 병합했습니다. GitHub 원격 저장소가 없어서 풀 리퀘스트는 꺼져 있습니다')
+    const review = ev(1, { type: 'watchdog', payload: { title: 'P', reason: 'Plan P: Left for your review: not a git repository', deliveryFallback: { mode: 'manual', reason: 'notGit' } } })
+    expect(lineOf(review, label).text).toBe('P: This folder is not a git repository, so the work is left for you to review')
+    expect(lineOf(ev(1, { type: 'watchdog', payload: { title: 'P', deliveryFallback: { mode: 'merge', reason: 'noRemote' } } }), label).text).toBe('P: merged into its branch on this computer. No remote, so pushing is off')
+  })
   it('reads in es, ja and ko', () => {
     const e = ev(1, { type: 'dispatch.started', payload: { title: 'T' } })
     expect(lineOf(e, label, 'es').text).toBe('T: agente iniciado')

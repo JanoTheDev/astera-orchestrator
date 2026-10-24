@@ -1,11 +1,13 @@
-// W6-H: the open project's delivery, one line above its plans: one pull request per plan (the default), or a push to a
-// branch with no review by a person. Read with `projects-find`, written with `projects-set` (core/orchestration/
-// delivery.ts); a push is outward-facing, so choosing it asks first.
+// W6-H: the open project's delivery, one line above its plans: one pull request per plan (the default), a push to a
+// branch with no review by a person, a merge on this computer (T6) or the owner's review. Read with `projects-find`,
+// written with `projects-set` (core/orchestration/delivery.ts); a push is outward-facing, so choosing it asks first. T6:
+// only what the folder is set up for is offered (useDeliveryChoices).
 import { useCallback, useEffect, useState } from 'react'
 import type { DeliveryMode, Project } from '../../../../core/orchestration/types'
 import { useI18n } from '../../i18n/I18nProvider'
 import { confirmModal } from '../../lib/confirm'
 import { Input, Select } from '../ui'
+import { useDeliveryChoices } from './useDeliveryChoices'
 
 /** The project's delivery, read and written: shared by the inline control below and the Plans page's View options menu. */
 export function useProjectDelivery(projectPath: string): {
@@ -69,7 +71,8 @@ export function useProjectDelivery(projectPath: string): {
 
 export function ProjectDelivery({ projectPath, disabledReason }: { projectPath: string; disabledReason?: string }): React.JSX.Element | null {
   const { t } = useI18n()
-  const { project, mode, target, error, choose, save } = useProjectDelivery(projectPath)
+  const { project, mode, error, choose, save } = useProjectDelivery(projectPath)
+  const offered = useDeliveryChoices(projectPath, mode, project?.deliveryBranch)
   const [branch, setBranch] = useState('')
   useEffect(() => setBranch(project?.deliveryBranch ?? ''), [project])
 
@@ -82,17 +85,13 @@ export function ProjectDelivery({ projectPath, disabledReason }: { projectPath: 
         <Select
           className="dense"
           ariaLabel={t('delivery.label')}
-          value={mode}
+          value={offered.mode}
           disabled={disabledReason !== undefined}
           onChange={(v) => choose(v as DeliveryMode)}
-          items={[
-            { value: 'pr', label: t('delivery.pr') },
-            { value: 'push', label: t('delivery.push', { branch: target }) },
-            { value: 'manual', label: t('delivery.manual') }
-          ]}
+          items={offered.options}
         />
       </label>
-      {mode === 'push' && (
+      {(offered.mode === 'push' || offered.mode === 'merge') && (
         <label>
           {t('delivery.branch')}{' '}
           <Input
@@ -106,6 +105,7 @@ export function ProjectDelivery({ projectPath, disabledReason }: { projectPath: 
           />
         </label>
       )}
+      {offered.reason && <p className="jobs-empty-hint">{offered.reason}</p>}
       {error && <p className="jobs-empty-hint">{error}</p>}
     </div>
   )

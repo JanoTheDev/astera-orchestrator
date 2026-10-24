@@ -1,0 +1,31 @@
+/* T13 Main plan page (plan/MainPlan.tsx): header with progress and chips, plans folded per phase, one-line Task rows.
+   Tokens only. The page is a container so the Task columns drop the model at narrow widths. */
+.plans-main { container-type: inline-size; gap: 0; }
+
+.plans-main__header { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-2) var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--line-soft); }
+.plans-main__header .plans-main__head { margin: 0; color: var(--text); font-size: var(--fs-13); }
+/* progress, not usage: the bar keeps the accent at 100% instead of the usage thresholds' danger */
+.plans-main__meter.ui-meter { --ui-meter-fill: var(--accent); }
+.plans-main__bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1); min-width: 0; }
+.plans-main__jump.ui-btn { height: auto; padding: 0; border-radius: var(--radius-pill); }
+.plans-main__hide { display: inline-flex; flex: none; align-items: center; gap: var(--sp-2); color: var(--text-dim); font-size: var(--fs-12); white-space: nowrap; cursor: pointer; }
+
+/* A plan's head row: twistie, name (cut first), status chip, its count or finished summary (never cut) */
+.plans-main .plans-row__main > .ui-chip, .plans-main .plans-row__main > .plans-row__meta { flex: none; white-space: nowrap; }
+.plans-main .plans-row__name > .ui-btn__label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plans-main__areas { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plans-main__plan.is-finished .plans-row__name.ui-btn { color: var(--text-dim); font-weight: var(--fw-regular); }
+
+/* A Task row: one line in aligned columns (icon, title, status, account, model · effort). A ui Button wraps its children
+   in .ui-btn__label, so the grid is that span (pattern: runConfig.css .rcm-item). */
+.plans-main__trow.ui-btn { display: flex; width: 100%; height: 26px; padding: 0 var(--sp-2); justify-content: flex-start; color: var(--text-dim); font-weight: var(--fw-regular); text-align: left; }
+.plans-main__trow > .ui-btn__label { flex: 1; min-width: 0; display: grid; grid-template-columns: 14px minmax(0, 1fr) 7rem 9rem 11rem; align-items: center; gap: var(--sp-2); }
+.plans-main__ttitle, .plans-main__tcell { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plans-main__ttitle { color: var(--text); }
+.plans-main__tstatus { display: flex; min-width: 0; }
+.plans-main__tstatus > .ui-chip { white-space: nowrap; }
+.plans-main__tcell { color: var(--text-faint); font-size: var(--fs-11); }
+@container (max-width: 720px) {
+  .plans-main__trow > .ui-btn__label { grid-template-columns: 14px minmax(0, 1fr) 7rem 8rem; }
+  .plans-main__tmodel { display: none; }
+}

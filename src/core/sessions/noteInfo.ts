@@ -35,7 +35,8 @@ export function sessionInfoFromNote(a: { kind: string; id: string; restore: Reco
     ...(typeof r.slackNotify === 'boolean' ? { slackNotify: r.slackNotify } : {}),
     ...(typeof r.bypassPermissions === 'boolean' ? { bypassPermissions: r.bypassPermissions } : {}),
     ...(str('model') ? { model: str('model') } : {}),
-    ...(str('effort') ? { effort: str('effort') } : {})
+    ...(str('effort') ? { effort: str('effort') } : {}),
+    ...(typeof r.startedAt === 'number' ? { startedAt: r.startedAt } : {})
   }
 }
 
@@ -72,6 +73,7 @@ export function chatInfoFromNote(a: { kind: string; id: string; restore: Record<
     ...(Array.isArray(r.rollAccountIds) && r.rollAccountIds.every((x) => typeof x === 'string')
       ? { rollAccountIds: [...(r.rollAccountIds as string[])] }
       : {}),
-    ...(typeof r.rollPrompt === 'string' ? { rollPrompt: r.rollPrompt } : {})
+    ...(typeof r.rollPrompt === 'string' ? { rollPrompt: r.rollPrompt } : {}),
+    ...(typeof r.startedAt === 'number' ? { startedAt: r.startedAt } : {})
   }
 }

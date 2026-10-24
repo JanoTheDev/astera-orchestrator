@@ -2,11 +2,12 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CliStatus, HostHoldings, HostStatus, HostRuntimeInstallState, UpdateStatus, UpdateCampaignInfo } from '../../../core/types'
 import { confirmModal } from '../lib/confirm'
+import { toast } from '../lib/toast'
 import { sameOrNext } from '../lib/remoteSessions'
 import type { useLayout } from './useLayout'
 
 /** How often the Host's status is re-read. Slow on purpose: the only thing that changes without anyone
- *  asking is the Host replacing itself, which happens the first moment it holds nothing, and a notice
+ *  asking is the Host replacing itself, which happens the first moment no Task works, and a notice
  *  that clears within half a minute of that is prompt enough for something nobody is waiting on. */
 const HOST_STATUS_POLL_MS = 30_000
 
@@ -39,7 +40,7 @@ export function useHost(deps: HostDeps) {
   // — true until the status bar started drawing the "Host update" notice, which is on screen the whole
   // time and would otherwise have stayed hidden until someone visited the very tab it exists to save
   // them a trip to. Polled rather than pushed because the fact changes without anyone asking: the Host
-  // replaces itself the first moment it holds nothing (host-replacement design §4), and the notice has
+  // swaps itself the first moment no Task works (main/ipc.ts hostReplaceDue), and the notice has
   // to go away when it does. The call answers from inside this app — no round trip to the Host — so
   // the interval is cheap; the Host's own holdings, which are a round trip, stay where they were.
   useEffect(() => {
@@ -96,22 +97,34 @@ export function useHost(deps: HostDeps) {
     return () => clearInterval(timer)
   }, [hostRuntimeSlow])
   const [hostRestarting, setHostRestarting] = useState(false)
-  /** The Info tab's *Restart now*: confirm with what ends, replace, then re-read the row. */
+  /** The Info tab's *Restart now* and the status bar's fallback button: confirm with what is handed over or what ends,
+   *  replace, then re-read the row. */
   const restartHost = async (): Promise<void> => {
-    const h = hostHolding
     // **A Host that is not answering cannot be asked what it holds**, so `hostHolding` is null there
     // and staying silent about it would be the wrong kind of quiet — something does end. The app's own
     // count of sessions that outlive it is the honest answer: it is this app's record of what it
     // handed to that Host, which is exactly what goes away with it.
     const unresponsive = hostStatus?.unresponsive === true
+    // Asked now: the status bar's button is pressed without the Info row ever having read it.
+    const h = unresponsive ? null : await window.api.host.holdings().catch(() => hostHolding)
     const kept = unresponsive ? await window.api.host.sessionsOutlivingApp().catch(() => 0) : 0
+    // A Host that hands over (HOST_FEATURE_HANDOVER, core/host/protocol.ts, which the renderer does not compile) brings
+    // its sessions, terminals and runs back in the next one; an older one ends them, this one time.
+    const handover = hostStatus?.features.includes('handover') === true
+    // HOST_FEATURE_HANDOVER_CHATS: its chats come back too, respawned on their threads; the first handover build ends them.
+    const handoverChats = hostStatus?.features.includes('handover-chats') === true
+    const counts = h && { sessions: h.sessions, chats: h.chats, terminals: h.terminals, runs: h.runs }
     const body = unresponsive
       ? kept > 0
         ? t('settings.info.hostRestartUnresponsiveConfirmBody', { kept })
         : t('settings.info.hostRestartUnresponsiveConfirmBodyNone')
-      : h
-        ? t('settings.info.hostRestartConfirmBody', { sessions: h.sessions, chats: h.chats, terminals: h.terminals, runs: h.runs })
-        : t('settings.info.hostRestartConfirmBodyNone')
+      : handover
+        ? counts
+          ? t(handoverChats ? 'status.hostHandoverChatsConfirmBody' : 'status.hostHandoverConfirmBody', counts)
+          : t('status.hostHandoverConfirmBodyNone')
+        : counts
+          ? t('status.hostLegacyConfirmBody', counts)
+          : t('status.hostLegacyConfirmBodyNone')
     const ok = await confirmModal({
       title: t(unresponsive ? 'settings.info.hostRestartUnresponsiveConfirmTitle' : 'settings.info.hostRestartConfirmTitle'),
       body,
@@ -120,7 +133,10 @@ export function useHost(deps: HostDeps) {
     if (!ok) return
     setHostRestarting(true)
     try {
+      const was = hostStatus?.pid ?? null
       const status = await window.api.host.replace()
+      // The same Host still there and still outdated: it refused the handover because a Task is working (main waits).
+      if (!unresponsive && handover && status.connected && status.outdated && status.pid === was) toast.info(t('status.hostSwapWaits'))
       setHostStatus(status)
       setHostHolding(status.connected ? await window.api.host.holdings().catch(() => null) : null)
     } finally {

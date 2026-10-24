@@ -12,9 +12,10 @@ import { ChevronRight } from "lucide-react";
 import { useI18n } from "../../i18n/I18nProvider";
 import {
   cx,
-  paneResize,
   readPaneSize,
+  pairWeights,
   readSectionOpen,
+  resizePair,
   writePaneSize,
   writeSectionOpen,
 } from "./logic";
@@ -27,6 +28,7 @@ const PANE_MIN_H = 44;
 
 type PaneEntry = {
   weight: number | null;
+  open: boolean;
   set: (weight: number, persist: boolean) => void;
 };
 type Container = {
@@ -82,6 +84,8 @@ export function ViewPane({
   const [weight, setWeight] = useState<number | null>(() =>
     storageKey ? (readPaneSize(storage(), storageKey) ?? null) : null,
   );
+  // the share a pane without a saved size got when the user opened it; frozen, so later drags elsewhere never move it
+  const [joined, setJoined] = useState<number | undefined>(undefined);
   const [height, setHeight] = useState(0);
   const set = useCallback(
     (w: number, persist: boolean) => {
@@ -92,9 +96,9 @@ export function ViewPane({
   );
   useLayoutEffect(() => {
     const panes = container?.panes.current;
-    panes?.set(id, { weight, set });
+    panes?.set(id, { weight, open, set });
     return () => void panes?.delete(id);
-  }, [container, id, weight, set]);
+  }, [container, id, weight, open, set]);
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el || !open) return;
@@ -110,8 +114,9 @@ export function ViewPane({
     PANE_MIN_H,
     height + (prevOpen?.offsetHeight ?? 0) - PANE_MIN_H,
   );
-  const grow = open ? (weight ?? container?.mean()) : undefined;
+  const grow = open ? (weight ?? joined) : undefined;
   const toggle = (): void => {
+    if (!open && weight === null) setJoined(container?.mean());
     setOpen(!open);
     if (storageKey) writeSectionOpen(storage(), storageKey, !open);
   };
@@ -202,28 +207,52 @@ export function ViewContainer({
   const value = useMemo<Container>(
     () => ({
       panes,
-      // the sash above pane `id` moved it to `px`: every open pane takes its pixel height as weight, the pair trades
+      // the sash above pane `id` moved it to `px`: it trades height with the nearest open pane above and only those two
+      // panes change. Their weights keep their combined weight (so no third pane shifts) and only they are persisted.
       resize: (id, px, persist) => {
         const els = [
           ...(ref.current?.querySelectorAll<HTMLElement>(
-            ":scope > .ui-viewpane.is-open",
+            ":scope > .ui-viewpane",
           ) ?? []),
         ];
         const i = els.findIndex((el) => el.dataset.pane === id);
-        const next = paneResize(
-          els.map((el) => el.offsetHeight),
-          i,
-          px,
-          PANE_MIN_H,
+        const heights = els.map((el) => el.offsetHeight);
+        const open = els.map((el) => el.classList.contains("is-open"));
+        const next = resizePair(heights, open, i, px, PANE_MIN_H);
+        // the pair is fixed by the divider, not by a height change: the drag end repeats the last height and must still persist
+        let above = i - 1;
+        while (above >= 0 && !open[above]) above--;
+        const changed = i >= 0 && open[i] && above >= 0 ? [above, i] : [];
+        const entries = changed.map((j) =>
+          panes.current.get(els[j].dataset.pane ?? ""),
         );
-        els.forEach((el, j) =>
-          panes.current.get(el.dataset.pane ?? "")?.set(next[j], persist),
+        if (changed.length !== 2 || entries.some((e) => !e)) return;
+        // a pane renders with its saved weight, else its CSS flex-grow: keep that scale so third panes do not move
+        const grows = changed.map(
+          (j, k) =>
+            entries[k]?.weight ?? (parseFloat(getComputedStyle(els[j]).flexGrow) || 0),
+        ) as [number, number];
+        // Both on the flex scale already: they keep their combined weight, which holds every other pane exactly (a
+        // height / px weight carries the pane's 1px border and pixel rounding, and a third pane moved a few px).
+        const onScale = changed.every((j) => getComputedStyle(els[j]).flexBasis === "0px");
+        // pixels per unit of weight among the panes that render from flex-basis 0 (the content-sized ones are not on it)
+        const perWeight = onScale ? undefined : els.flatMap((el) => {
+          const e = panes.current.get(el.dataset.pane ?? "");
+          if (!e?.open || getComputedStyle(el).flexBasis !== "0px") return [];
+          const g = e.weight ?? (parseFloat(getComputedStyle(el).flexGrow) || 0);
+          return g > 0 ? [el.offsetHeight / g] : [];
+        })[0];
+        const out = pairWeights(
+          grows,
+          [next[changed[0]], next[changed[1]]],
+          perWeight,
         );
+        entries.forEach((e, k) => e?.set(out[k], persist));
       },
-      // a pane without a saved size (just opened) joins at the average of the others
+      // a pane without a saved size (just opened) joins at the average of the other open panes
       mean: () => {
         const w = [...panes.current.values()].flatMap((p) =>
-          p.weight === null ? [] : [p.weight],
+          p.open && p.weight !== null ? [p.weight] : [],
         );
         return w.length ? w.reduce((a, b) => a + b, 0) / w.length : undefined;
       },

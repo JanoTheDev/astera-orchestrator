@@ -30,10 +30,11 @@ const server = async (
   over: {
     idleMs?: number
     helloMs?: number
-    onIdle?: () => void
+    onIdle?: HostServerDeps['onIdle']
     profile?: string
     onMessage?: HostServerDeps['onMessage']
     liveCounts?: HostServerDeps['liveCounts']
+    workingTasks?: HostServerDeps['workingTasks']
     orch?: HostServerDeps['orch']
     features?: HostServerDeps['features']
     onClientGone?: HostServerDeps['onClientGone']
@@ -70,6 +71,7 @@ const server = async (
     onIdle: over.onIdle ?? ((): void => {}),
     onMessage: over.onMessage,
     liveCounts: over.liveCounts,
+    workingTasks: over.workingTasks,
     orch: over.orch ?? versionOnlyOrchCall({ version }),
     features: over.features,
     onClientGone: over.onClientGone,
@@ -160,10 +162,13 @@ const start = async (
     onMessage?: HostServerDeps['onMessage']
     onClientGone?: HostServerDeps['onClientGone']
     onAppsChanged?: HostServerDeps['onAppsChanged']
+    workingTasks?: HostServerDeps['workingTasks']
   } = {}
 ): Promise<{
   address: string
   stopped: boolean
+  /** The way out `onIdle` was asked for: true for a retire that hands the sessions over to the next Host. */
+  resume: boolean
   /** The server itself — `act` and `hasApp` are asked of it directly, the way `host/index.ts` does. */
   s: HostServer
   /** The version this Host was started with — the same one its `orch-call version` answers with. */
@@ -179,8 +184,8 @@ const start = async (
   /** Connects and says nothing — the peer the next task's tests need, that never says hello. */
   connectSilent(): Promise<net.Socket>
 }> => {
-  const state = { stopped: false }
-  const h = await server({ ...over, onIdle: () => { state.stopped = true } })
+  const state = { stopped: false, resume: false }
+  const h = await server({ ...over, onIdle: (o) => { state.stopped = true; state.resume = o?.resume === true } })
   const rawConnect = (): Promise<net.Socket> =>
     new Promise((resolve, reject) => {
       const sock = net.connect(h.address)
@@ -193,6 +198,9 @@ const start = async (
     s: h.s,
     get stopped() {
       return state.stopped
+    },
+    get resume() {
+      return state.resume
     },
     connect: async (role) => {
       const sock = await rawConnect()
@@ -209,7 +217,7 @@ describe('startHostServer', () => {
   it('answers a hello on the same protocol with its own version and pid', async () => {
     const h = await server()
     const [reply] = await talk(h.address, [{ t: 'hello', protocol: HOST_PROTOCOL, app: '1.0.0' }])
-    expect(reply).toMatchObject({ t: 'hello', protocol: HOST_PROTOCOL, host: '9.9.9', pid: process.pid, features: ['proc', 'ping', 'pty-seq', 'orch', 'requests', 'mcp'] })
+    expect(reply).toMatchObject({ t: 'hello', protocol: HOST_PROTOCOL, host: '9.9.9', pid: process.pid, features: ['proc', 'ping', 'handover', 'handover-chats', 'pty-seq', 'orch', 'requests', 'mcp'] })
     expect((reply as { startedAt: string }).startedAt).toMatch(/^\d{4}-/)
   })
 
@@ -320,6 +328,33 @@ describe('startHostServer', () => {
     client.send({ t: 'retire' })
     await new Promise((r) => setTimeout(r, 100))
     expect(h.stopped).toBe(true)
+  })
+
+  // The handover retire (`resume: true`): the app sends it only while no Task works, and the Host checks again.
+  it('refuses a resume retire while a Task is actively working, and says how many', async () => {
+    const h = await start({ liveCounts: () => ({ sessions: 3, runs: 1 }), workingTasks: () => 2 })
+    const client = await h.connect()
+    client.send({ t: 'retire', resume: true })
+    expect(await client.next()).toEqual({ t: 'retire-refused', sessions: 3, runs: 1, tasks: 2 })
+    expect(h.stopped).toBe(false)
+  })
+
+  it('leaves on a resume retire with no Task working, asking for the handover', async () => {
+    const h = await start({ liveCounts: () => ({ sessions: 3, runs: 1 }), workingTasks: () => 0 })
+    const client = await h.connect()
+    client.send({ t: 'retire', resume: true })
+    await new Promise((r) => setTimeout(r, 100))
+    expect(h.stopped).toBe(true)
+    expect(h.resume).toBe(true)
+  })
+
+  it('leaves on a retire without resume as before: a working Task does not refuse it, and nothing is handed over', async () => {
+    const h = await start({ workingTasks: () => 2 })
+    const client = await h.connect()
+    client.send({ t: 'retire' })
+    await new Promise((r) => setTimeout(r, 100))
+    expect(h.stopped).toBe(true)
+    expect(h.resume).toBe(false)
   })
 
   // `close()` destroys the sockets it still holds, and each one's 'close' event arrives after
@@ -861,7 +896,7 @@ describe('startHostServer', () => {
   it('announces the extra features it was given, after the built-in ones', async () => {
     const h = await server({ features: ['spawn'] })
     const [reply] = await talk(h.address, [{ t: 'hello', protocol: HOST_PROTOCOL, app: '1.0.0' }])
-    expect((reply as { features: string[] }).features).toEqual(['proc', 'ping', 'pty-seq', 'orch', 'requests', 'mcp', 'spawn'])
+    expect((reply as { features: string[] }).features).toEqual(['proc', 'ping', 'handover', 'handover-chats', 'pty-seq', 'orch', 'requests', 'mcp', 'spawn'])
   })
   // MCP HTTP §3 (Ruling 2): the hello of a Host built as index.ts builds it tells the app it answers mcp-http-*.
   // One Host per test (one address); features.test.ts covers the spawner half.

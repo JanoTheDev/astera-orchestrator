@@ -1,6 +1,7 @@
 import type { ApprovalMode } from './settings/approvalDefault'
 import type { CrashOffer, CrashReportsSetting, RENDERER_KINDS } from './crash/report' // T27
 import type { Decision, IssuePick, PlanFeedback } from './orchestration/types'
+import type { DeliverySetup } from './orchestration/deliveryChoices'
 import type { WorktreeDetail, WorktreeRow } from './worktrees/cleanup'
 import type { ChangeMap } from './review/changeMap'
 import type { SlashCommand } from './commands/slashCommands'
@@ -152,6 +153,8 @@ export interface SessionInfo {
   // W6-E progress view: the last tool call the session started, from its last `PreToolUse` hook
   // (core/hooks/sessionState.ts `lastActionOf`): the tool, its file / command (first 80 chars) / pattern, epoch ms.
   lastAction?: { tool: string; target?: string; at: number }
+  /** Epoch ms the session was first started. Set at spawn; a roll or a takeover keeps it. The sidebar counts elapsed time from it when there is no Dispatch. */
+  startedAt?: number
 }
 
 /** The stored settings the resume modal reads to seed its checkboxes.
@@ -264,6 +267,10 @@ export interface HistoryEntry {
   filePath: string
   awaitingReply: boolean // true when the last meaningful message was the assistant's — drives the unread-reply marker (green dot)
   rootUuid: string | null // the key that identifies a resume fork (the same conversation)
+  /** The model and reasoning effort of the session's latest turn, when the transcript's tail records them (claude's
+   *  assistant and api-request records, codex's turn_context). Absent on transcripts that predate those records. */
+  model?: string
+  effort?: string
   /** A file of the project's history that is not a row of the list: a codex child thread (a sub-agent's
    *  rollout, which repeats its parent's session id). page() leaves it out; deletionTargets() keeps it. */
   hidden?: true
@@ -449,6 +456,15 @@ export interface SchedStateEvent {
  *  re-exports it rather than carrying a copy that would have to be kept in step by hand. */
 export type Attention = 'idle' | 'working' | 'waiting'
 
+/** T11: one repository's line in the project switcher (`projects.status`). `dirty` counts changed and untracked paths;
+ *  `unpushed` and `behind` are commits ahead of and behind the upstream. null: git could not say (no upstream, no repo). */
+export interface ProjectGitStatus {
+  branch: string | null
+  dirty: number | null
+  unpushed: number | null
+  behind: number | null
+}
+
 /** The tool call a session's Claude Code is waiting on, captured by the PreToolUse hook **before** the
  *  CLI draws its dialog (core/sessions/pendingPrompt.ts). `input` is the model's own tool input, untouched — for
  *  `AskUserQuestion` the questions the conversation view draws as a card. Gone once the matching
@@ -580,6 +596,8 @@ export interface JobTask {
   /** Why the latest attempt's effort differs from the ask (Dispatch.effortNote). */
   effortNote?: string
   jobModels?: Partial<Record<'coordinator' | 'planner' | 'worker' | 'reviewer', string>>
+  /** The Job's effort (Job.effort), what a Task without its own effort runs on. */
+  jobEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
   /** The account its latest attempt ran on. Absent until it is dispatched; `accountIds` says what it will use. */
   accountId?: string
   /** The branch of the worktree its latest attempt worked in, when the worktree registry knows it. */
@@ -867,6 +885,8 @@ export interface JobRow {
   deliveryError?: string
   /** T34: the owner dismissed a failed delivery, so the work never landed. Not in `delivery`: that row is for actions to take. */
   deliveryDismissed?: true
+  /** A later plan's delivery carried this plan's work to the base (Job.deliveredBy): that plan and its title. */
+  deliveredBy?: { jobId: string; title: string }
   /** A `manual` plan finished and waits for its owner to review it and create the PR or merge (Run.deliveryState `awaiting-review`). */
   awaitingReview?: true
   /** T3: a delivery that is being retried, failed, waits on the owner or runs now: the Run it is of (for `run-deliver`),
@@ -1374,8 +1394,9 @@ export interface HostStatus {
   /** One clause saying why there is no connection, or null when there is one. */
   problem: string | null
   /** The Host is running an older build than this app — it outlived an update and still runs the
-   *  previous host.js. The app replaces it on its own the first moment it holds nothing, and the Info
-   *  tab offers to do it now (docs/2026-09-22-host-unresponsive-recovery-design.md F5 — the original
+   *  previous host.js. The app swaps it on its own, handing its sessions over, the first moment no Task works
+   *  (main/ipc.ts hostReplaceDue; one too old to hand over only once it holds nothing), and the Info tab offers to do
+   *  it now (docs/2026-09-22-host-unresponsive-recovery-design.md F5 — the original
    *  host-replacement design is not in this repository). False whenever the version cannot be
    *  compared, and false for a Host *newer* than the app. */
   outdated: boolean
@@ -1401,6 +1422,10 @@ export interface HostStatus {
   /** A Host at the address is leaving (it hangs up before its hello) and the app is waiting for it to
    *  finish before starting its own (main/host/client.ts RETIRING_WAIT_MS). Absent means false. */
   waitingForPreviousHost?: boolean
+  /** The automatic swap of an outdated Host (main/ipc.ts `maybeReplace`), as the status bar shows it: `swapping` while
+   *  it runs, `manual` once the button is the way (a Host without the handover, or a wait past 30 minutes). Absent:
+   *  neither. Set by main on what it gives the window, never by HostClient. */
+  replacement?: 'swapping' | 'manual'
 }
 
 /** Putting the Host's own runtime in place (win32), as the window shows it (stage 3 task 2).
@@ -1474,7 +1499,11 @@ export interface CoreApi {
      *  막고 있는 세션 제목들을 돌린다**(main 의 accountRemovalBlockers): 현재 계정인 세션뿐 아니라
      *  그 계정을 롤링 대기 순서에 담고 있는 세션도 막는다 — 대기 계정이 사라지면 한도에 걸리는 순간
      *  갈아탈 곳이 없어 롤이 중단된다. */
-    remove(id: string): Promise<{ ok: boolean; titles: string[] }>
+    /* closed: finished worker sessions removal releases; dryRun only reports. logout: the result of the logout asked
+       with `opts.logout`, run after the removal; absent when none was asked or the removal was refused. */
+    remove(id: string, opts?: { dryRun?: boolean; logout?: boolean }): Promise<{ ok: boolean; titles: string[]; closed: string[]; logout?: { ok: boolean; message?: Message } }>
+    /** Folds `dropId` into `keepId` (the same login): their Task/Job references and project defaults move, then `dropId` is removed. `inUse` lists the running sessions that block it. */
+    merge(keepId: string, dropId: string): Promise<{ ok: boolean; reason?: 'notSameLogin' | 'inUse' | 'unavailable'; titles: string[] }>
     loginStatus(id: string): Promise<boolean> // the verdict from accounts/loginStatus.ts (claude also checks Keychain on macOS)
     detect(): Promise<DetectCandidate[]> // detection candidates, excluding registered and unregistered-by-the-user config dirs
     /** Unregistered config dirs as account-shaped history sources — this one keeps the ones the user
@@ -1545,6 +1574,11 @@ export interface CoreApi {
     getDefaultAccount(projectPath: string): Promise<string | null>
     setDefaultAccount(projectPath: string, accountId: string | null): Promise<void>
     hasOrigin(projectPath: string): Promise<boolean> // the folder is a git repository with an origin remote
+    /** T11: each path's branch and changes for the project switcher (core/git/branchStatus.ts), keyed by the path as
+     *  given. A path git could not read (not a repository, not allowed, timed out) has every field null. */
+    status(paths: string[]): Promise<Record<string, ProjectGitStatus>>
+    /** T6: what the folder is set up for (git, origin's URL, gh signed in, its branch): deliveryChoicesOf's input. */
+    deliverySetup(projectPath: string): Promise<DeliverySetup>
   }
   worktrees: {
     // Splitting a session off into a git worktree.

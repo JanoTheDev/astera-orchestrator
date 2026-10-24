@@ -126,18 +126,17 @@ export function renderViewTab(p: ViewTabProps, name: ViewName, arg: string | und
     case 'mainplan':
       return (
         <div className="view-doc">
-          <MainPlan rows={p.orchSnapshot?.runs ?? []} acts={planActs(p)} />
+          <MainPlan rows={p.orchSnapshot?.runs ?? []} acts={planActs(p)} accounts={p.accounts} />
         </div>
       )
     case 'start': {
       const req = p.start ?? {}
       const cwd = req.cwd ?? p.currentProject ?? p.homeDir ?? ''
       return (
+        // T17: not keyed by the folder: picking a project on All projects switches the title bar, and what was typed stays
         <StartPage
-          key={cwd}
           req={req}
           cwd={cwd}
-          defaultProject={req.cwd ?? p.currentProject ?? undefined}
           accounts={p.accounts}
           onClose={() => {
             p.openStart(null)

@@ -57,6 +57,8 @@ export interface RollSpawnOpts {
   effort?: string | null
   /** The toolchain bypass the chain was granted (design F5). */
   startWithBypass?: boolean
+  /** When the chain was first started (SessionInfo.startedAt), kept across the roll. */
+  startedAt?: number
 }
 
 /** What the rolling asks of the Host's chat sessions (chat takeover Task 6). `info` answers the session's
@@ -350,6 +352,7 @@ export function createHostRolling(d: HostRollingDeps): HostRolling {
         ...(o.model !== undefined ? { model: o.model } : {}),
         ...(o.effort !== undefined ? { effort: o.effort } : {}),
         ...(o.startWithBypass !== undefined ? { startWithBypass: o.startWithBypass } : {}),
+        ...(o.startedAt !== undefined ? { startedAt: o.startedAt } : {}),
         ...restoreExtra
       })
     }

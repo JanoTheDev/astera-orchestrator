@@ -78,14 +78,16 @@ export function useCurrentBranch(path: string | null): string | null {
 export function StatusBar(p: StatusBarProps): React.JSX.Element {
   const { appVersion, counts, needsYouUnread, hostRestarting, hostRuntime, hostRuntimeNow, hostStatus, nextQueued, restartHost, shellAccount, shellUsage, t } = p
   const { branch } = p
-  const hostOk = !!hostStatus?.connected && !hostStatus.outdated && !hostStatus.unresponsive
+  // An outdated Host waiting for its swap is still connected and still working; only the button replaces that word.
+  const swapping = hostStatus?.replacement === 'swapping'
+  const hostOk = !!hostStatus?.connected && !hostStatus.unresponsive && !(hostStatus.outdated && hostStatus.replacement === 'manual')
   const project = p.workspaceTree.find((x) => x.id === p.workspaceProjectId)?.name ?? p.currentProject?.split(/[\\/]/).filter(Boolean).pop()
   const five = shellUsage?.session?.usedPercent
   const week = shellUsage?.weekly?.usedPercent
   return (
     <>
       {/* DESIGN-W13 §7: accent-tinted only when the background service is offline */}
-      <footer className={hostStatus && !hostStatus.connected ? 'statusbar sb wb-status wb-status--alert' : 'statusbar sb wb-status'}>
+      <footer className={hostStatus && !hostStatus.connected && !swapping ? 'statusbar sb wb-status wb-status--alert' : 'statusbar sb wb-status'}>
         {project && (
           <StatusBarItem icon={<Icon name="branch" size={14} />} title={t('shell.status.projectTitle')} onClick={openProjectSwitcher}>
             <span className="wb-status__project">{project}</span>
@@ -111,7 +113,10 @@ export function StatusBar(p: StatusBarProps): React.JSX.Element {
             <UsageWindow t={t} text="shell.status.usageWeek" percent={week} resetsAt={shellUsage?.weekly?.resetsAt} title={t('session.usage.weekly')} />
           </StatusBarItem>
         )}
-        {hostOk ? (
+        {/* The automatic swap (T16) drops the connection on purpose for a few seconds: one short word, not "offline". */}
+        {swapping ? (
+          <StatusBarItem icon={<Icon name="loading" size={14} />}>{t('status.hostUpdating')}</StatusBarItem>
+        ) : hostOk ? (
           <StatusBarItem title={hostStatus?.hostVersion ? t('shell.status.hostTitle', { version: hostStatus.hostVersion }) : t('shell.status.hostAbout')}>
             {t('shell.status.connected')}
           </StatusBarItem>
@@ -122,11 +127,10 @@ export function StatusBar(p: StatusBarProps): React.JSX.Element {
             </StatusBarItem>
           )
         )}
-        {/* The Host outlived an update and still runs the previous build. It replaces itself the first
-            moment it holds nothing (host-replacement design §4), which for someone who keeps sessions
-            open never comes — and until then 대화 sessions cannot be started at all, because the old
-            Host does not speak proc-*. That was only ever said in Settings > Info, a place nobody
-            visits to find out why a feature they were not told about is missing.
+        {/* The Host outlived an update and still runs the previous build. It swaps itself, handing its sessions
+            over, the first moment no Task is working (T16), so the button is only the fallback: main offers it
+            (`replacement: 'manual'`) once that wait has run past 30 minutes, or at once for a Host too old to hand
+            over.
 
             Outside the `active` branches above on purpose: the Host's state is the same fact whether or
             not a session is showing, and the two branches would otherwise each need their own copy. */}
@@ -134,7 +138,7 @@ export function StatusBar(p: StatusBarProps): React.JSX.Element {
             freeze the window with nothing on screen. Beside the other Host notices, for the same reason
             they are outside the session branches. */}
         <HostRuntimeNotice state={hostRuntime} nowMs={hostRuntimeNow} />
-        {hostStatus?.connected && hostStatus.outdated && (
+        {hostStatus?.connected && hostStatus.outdated && hostStatus.replacement === 'manual' && (
           <Button
             variant="secondary"
             size="sm"

@@ -334,7 +334,7 @@ export function cardModelOf(tk: JobTask, settings: RoleModelSettings, accounts: 
 export function cardEffortOf(tk: JobTask, settings: RoleModelSettings, accounts: readonly Account[]): Effort | undefined {
   if (tk.attempts !== undefined || tk.accountId !== undefined) return tk.effort
   const { provider } = pickTaskProvider({ accountIds: tk.accountIds }, accounts)
-  return resolveWorkerEffort({ settings, task: { difficulty: tk.difficulty, effort: tk.effort }, provider })
+  return resolveWorkerEffort({ settings, task: { difficulty: tk.difficulty, effort: tk.effort }, job: { effort: tk.jobEffort }, provider })
 }
 
 /** The i18n key for "N questions answered": singular for 1. */

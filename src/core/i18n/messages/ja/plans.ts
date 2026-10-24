@@ -3,6 +3,9 @@ import type { plans as ko } from '../ko/plans'
 
 export const plans: Partial<Record<keyof typeof ko, string>> = {
   'pages.plans.status.deliveryDismissed': '配信を見送り',
+  'pages.plans.main.checksFailedWhy': 'チェック失敗: {reason}',
+  'pages.plans.allProjects': 'プランはプロジェクトごとに表示されます。タイトルバーでプロジェクトを選ぶか、新しいプランを始めてプロジェクトを選んでください。',
+  'pages.plans.status.deliveredBy': '{plan} で配信済み',
   'jobs.convergence.chip.repairing': '修正 {repairs}/{max}',
   'jobs.convergence.chip.reviewing': 'レビュー {round}/{max}',
   'jobs.convergence.chip.exhausted': '上限到達',
@@ -58,4 +61,12 @@ export const plans: Partial<Record<keyof typeof ko, string>> = {
   'pages.plans.tree.menu.copyId': 'id をコピー',
   'pages.plans.tree.menu.label': 'プランの操作',
   'pages.plans.status.stalled': '停止中',
+  // T13 Main plan page redesign (plan/MainPlan.tsx)
+  'pages.plans.main.running': '{n} 件実行中',
+  'pages.plans.main.waiting': '{n} 件待機中',
+  'pages.plans.main.needs': '{n} 件があなた待ち',
+  'pages.plans.main.hideDone': '完了した計画を隠す',
+  'pages.plans.main.tasks': 'Task {n} 件',
+  'pages.plans.main.toggle': '{plan} の Task を表示/非表示',
+  'pages.plans.main.allDone': 'すべての計画が完了しました。',
 }

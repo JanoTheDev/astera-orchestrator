@@ -243,6 +243,21 @@ describe('SessionCwdCache — rollout index', () => {
     expect(second.getRow(neu, 100, 20)).toEqual({ cwd: CWD_A, ...ROW })
   })
 
+  it('keeps a row\'s model and effort through flush and load, and drops a version-4 row (it has none)', async () => {
+    const p = sessionPath('s', 'm.jsonl')
+    const v4 = sessionPath('s', 'v4.jsonl')
+    await fs.writeFile(filePath(), JSON.stringify({ [keyOf(v4)]: [1, 2, CWD_B, 4, 's-0', 't', 0, 0] }), 'utf8')
+    const first = new SessionCwdCache(filePath())
+    await first.load()
+    first.setRow(p, 100, 20, CWD_A, { ...ROW, model: 'gpt-5.5-codex', effort: 'high' })
+    await first.flush()
+    const second = new SessionCwdCache(filePath())
+    await second.load()
+    expect(second.getRow(p, 100, 20)).toEqual({ cwd: CWD_A, ...ROW, model: 'gpt-5.5-codex', effort: 'high' })
+    expect(second.getRow(v4, 1, 2)).toBeUndefined()
+    expect(second.get(v4, 1, 2)).toBe(CWD_B)
+  })
+
   it('다른 판(버전)의 행 모양은 cwd 는 살리고 행은 버린다', async () => {
     const p = sessionPath('s', 'r1.jsonl')
     await fs.writeFile(filePath(), JSON.stringify({ [keyOf(p)]: [100, 20, CWD_A, 999, 's-1', 't', 1] }), 'utf8')

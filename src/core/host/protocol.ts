@@ -39,6 +39,21 @@ export const HOST_FEATURE_PROC = 'proc'
  *  stopped answering — and end a Host that is running perfectly well. */
 export const HOST_FEATURE_PING = 'ping'
 
+/** The handover (`retire` with `resume: true`, host/sessionRestore.ts): this Host writes its sessions, terminals and runs
+ *  down for the next Host to bring back, and refuses that retire while a Task is working. A Host without it ignores
+ *  `resume`, ends everything and refuses nothing, so the app hands over only to a Host that names it. Additive, so
+ *  HOST_PROTOCOL stays as it is. */
+export const HOST_FEATURE_HANDOVER = 'handover'
+
+/** The handover carries chats too: this Host writes each chat proc's note down and the next one respawns it on its
+ *  thread under its own id (host/sessionRestore.ts HandoverChat). A Host with only HOST_FEATURE_HANDOVER ends its chats
+ *  on the way out, so the app swaps that one only while it holds none. Additive, like the handover itself. */
+export const HOST_FEATURE_HANDOVER_CHATS = 'handover-chats'
+
+/** What `HostClient.retire` came to: the Host left (or was not there to ask), or it answered `retire-refused`, with
+ *  that message's counts. */
+export type RetireOutcome = { outcome: 'left' } | { outcome: 'refused'; sessions: number; runs: number; tasks?: number }
+
 /** `pty-data` with the event's `seq` (remote runtime design §3.7, N1), for a client whose hello lists it in `features`.
  *  A client that does not see `pty-data` frames as today, so an older app is unchanged. */
 export const HOST_FEATURE_PTY_SEQ = 'pty-seq'
@@ -358,8 +373,12 @@ export type ClientMessage =
    *  The default, `'protocol'`, is what the app already sends on finding a Host it cannot talk to
    *  (`main/host/client.ts`'s protocol-mismatch handling, and `retireOlderHosts`) — that Host's
    *  sessions are already unreachable to the app that is asking, so refusing would strand it there
-   *  forever instead of letting a Host it can talk to take the address. */
-  | { t: 'retire'; reason?: 'user' | 'protocol' }
+   *  forever instead of letting a Host it can talk to take the address.
+   *
+   *  **`resume: true` is a handover** (the self-updating background service): the Host writes down its agent sessions,
+   *  shell terminals and run processes before it ends them, and the next Host brings them back (host/sessionRestore.ts).
+   *  Refused while a Task is actively working. An older Host ignores the flag and leaves as for a plain retire. */
+  | { t: 'retire'; reason?: 'user' | 'protocol'; resume?: boolean }
   /** The heartbeat. Sent only to a Host whose `hello` named HOST_FEATURE_PING, and answered with a
    *  `pong` carrying the same `seq`. What it asks is not "are you there" — the socket answers that —
    *  but "is your event loop still turning", which is the one thing a stuck pty spawn takes away. */
@@ -426,6 +445,8 @@ export type HostMessage =
        *  reported 2 — and `astera host status` has a `jobs` of its own meaning a third thing (how
        *  many Jobs the file holds). One unit, one word. */
       runs: number
+      /** A `resume` retire's refusal: the Tasks actively working (a worker, a check, a review or a merge). */
+      tasks?: number
     }
   | { t: 'pong'; seq: number }
   | OrchResultMessage

@@ -18,12 +18,13 @@
 // DispatchLoopContext 로 주입받고, 모듈은 `c.*` 를 **부를 때마다** 읽는다 — 짓는 순간의 사본을 쥐지
 // 않는다(C5): 앱과 테스트가 지은 뒤에 칸을 갈아 끼운다.
 import { ENTER_DELAY_MS } from '../../sessions/sessionDriver'
-import type { Lang } from '../../i18n'
+import type { Lang, MessageKey } from '../../i18n'
 import { t } from '../../i18n'
 import { accountToDispatchOn } from '../../accounts/dispatchAccount'
 import { autoOrderOf, withAutoOrder, type AutoAccountsGuard } from '../../accounts/autoAccountOrder'
 import { providerOf } from '../../providers/meta'
 import type { Account } from '../../types'
+import type { DeliverySetup } from '../deliveryChoices'
 import { nameForRun, nameForTask } from '../../worktrees/naming'
 import { jobNameOf } from '../jobName'
 import { firesDue } from '../fire'
@@ -64,8 +65,10 @@ import {
   deliveryDue,
   deliveryFixesOf,
   deliveryFixOf,
-  deliveryOf,
+  deliveryFallbackLine,
+  deliveryFallbackOf,
   handsOffOf,
+  readLandingOf,
   ownerCheckDue,
   projectOfJob
 } from '../delivery'
@@ -112,6 +115,16 @@ function reuseFolderOf(s: OrchState, task: Task, runRoot: string): string | unde
  *  clean-up; reap it here if such folders pile up. */
 const reusedLater = (s: OrchState, taskId: string): boolean =>
   s.tasks.some((t) => t.worktree === 'reuse' && t.deps.length === 1 && t.deps[0] === taskId && !isTerminal(t))
+
+/** T1: the integrations git refused (integrateGit.ts) that a merge worker can mend in the plan branch: uncommitted
+ *  changes, a merge or rebase left in progress, a detached HEAD, a merge that failed. Not a missing git or git dir. */
+const MENDABLE_INTEGRATION: ReadonlySet<MessageKey> = new Set<MessageKey>([
+  'jobs.integration.uncommitted',
+  'jobs.integration.inProgress',
+  'jobs.integration.detachedHead',
+  'jobs.integration.mergeFailedRestored',
+  'jobs.integration.mergeFailedLeft'
+])
 
 /** The idle workers of finished Runs (audit OR-1): each Dispatch closed, not retained, the latest of its session, and of
  *  a Task the finished Run owns. One sweep with its indexes built once; it walked every Dispatch per finished Run and
@@ -222,6 +235,8 @@ export interface DispatchLoopContext {
   recordDecision?(jobId: string, d: Decision): Promise<void>
   /** A feed line no commit makes (the watchdog's), recorded by the Host's activity log. Optional: without it a log line. */
   activity?(d: ActivityDraft): void
+  /** T32: what a plan's folder is set up for (exec/deliverySetup.ts). Optional: without it every plan delivers as saved. */
+  deliverySetup?(cwd: string): Promise<DeliverySetup>
   /** Asked on entry and again before each slot (§4.3). */
   mayStart(): boolean
   /** W6-G: the usage guard (usageGuard.ts), refreshed before each slot. Optional: without it no usage pause. */
@@ -595,6 +610,15 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
   const refreshedTo = new Map<string, Set<string>>()
   // A feed line of the existing `watchdog` kind (payload.reason): a kind of its own would need the feed's renderer too
   const planActivity = (runId: string, reason: string): void => c.activity?.(watchdogActivity(c.getState(), runId, reason))
+  /** T32: the line saying how a plan whose saved delivery cannot work on its folder lands instead; it carries the
+   *  fallback, so the app words it in the owner's language (delivery.off.*). Nothing when it did not fall back. */
+  const planFallback = (runId: string, job: Job): void => {
+    const s = c.getState()
+    const fell = deliveryFallbackOf(s, job)
+    if (fell === null) return
+    const draft = watchdogActivity(s, runId, `Plan ${jobNameOf(job)}: ${deliveryFallbackLine(s, job)}`)
+    c.activity?.({ ...draft, payload: { ...draft.payload, deliveryFallback: fell } })
+  }
   /** The Task a refresh's integration Task hangs off: the Run's last Task that is not one itself. */
   const anchorOf = (s: OrchState, runId: string): Task | undefined => {
     const own = s.tasks.filter((t) => t.runId === runId)
@@ -716,11 +740,14 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       const p = run.deliveryState
       const outcome = outcomeOfTasks(owned.get(run.id) ?? [], s.gates)
       // A manual plan is never delivered here: once its tasks are done and its final check settled it waits for the owner
-      if (deliveryOf(s, job) === 'manual') {
+      // T32: a delivery that cannot work on the folder is the fallback's (merge here, else review)
+      const mode = (await readLandingOf(s, job, c.deliverySetup)).mode
+      if (mode === 'manual') {
         if (outcome === 'completed' && completionSettled(s, job, run.id) && (p === undefined || p.state === 'pending') && c.mayStart()) {
           try {
             const r = await c.handle('run-deliver', { run: run.id, awaitReview: true })
             if (r.status >= 400) log(`run=${run.id}: its wait for the owner was not recorded: ${JSON.stringify(r.body)}`)
+            else planFallback(run.id, job)
           } catch (e) {
             log(`run=${run.id}: recording its wait for the owner failed: ${String(e)}`)
           }
@@ -741,7 +768,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
         continue
       }
       if (p === undefined) continue
-      const push = deliveryOf(s, job) === 'push'
+      const push = mode === 'push' || mode === 'merge' // T6: a local merge lands the same way
       const answer = deliveryAnswerOf(s, p)
       const action: DeliveryStep['action'] | null =
         answer === 'self' || ownerCheckDue(p, nowMs) ? 'self' : answer === 'retry' ? 'retry' : deliveryDue(p, nowMs) ? 'auto' : null
@@ -782,6 +809,8 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     if (!c.mayStart()) return
     const job = jobOf(c.getState(), run)
     const plan = job ? jobNameOf(job) : run.id
+    // T32: said once per attempt, so the log shows which delivery was used and why
+    if (job && action !== 'self') planFallback(run.id, job)
     if (action === 'self') {
       try {
         const r = await c.handle('run-deliver', { run: run.id, ownerPushed: true })
@@ -1063,6 +1092,8 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
    */
   const updateDraftPrs = async (): Promise<void> => {
     for (const run of c.getState().runs) {
+      const job = jobOf(c.getState(), run)
+      if (job) await readLandingOf(c.getState(), job, c.deliverySetup) // T32: draftPrDue below reads what this read
       // T4: the owner's answer to the plan-branch push question: "Retry now" pushes at once and counts afresh, "I'll push
       // it myself" stops Astera pushing the plan branch
       const answer = deliveryAnswerOf(c.getState(), run.branchPush)
@@ -2181,7 +2212,8 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       }
       if ((run.coordinatorSessionId === undefined && parent.status !== 'merging') || (m.status !== 'ready' && m.status !== 'failed')) continue
       if (!c.mayStart()) return
-      if (m.status === 'ready' && workingInRunRoot(c.getState(), run.id)) continue
+      // T1: a hands-off plan's failed merge Task starts again (startMergeWorker), so it waits for the plan branch too
+      if ((m.status === 'ready' || handsOffJobOf(c.getState(), run.id)) && workingInRunRoot(c.getState(), run.id)) continue
       await startMergeWorker({ runId: run.id, taskId: parent.id, reason: 'the merge worker failed', worktrees: [] })
     }
     for (const w of wavesToMerge(c.getState(), (p) => c.isRegisteredWorktree(p))) {
@@ -2234,7 +2266,9 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
         worktrees: [{ path: w.worktree, branch: null }]
       }
     log(`run=${w.runId}: task=${w.taskId} did not merge into ${w.runRoot}: ${result.reason}`)
-    if (result.kind === 'human' && c.getState().tasks.find((t) => t.id === w.taskId)?.status === 'merging') {
+    // T1: a hands-off plan gives a git problem the merge worker can mend to it (uncommitted changes, a merge left half done)
+    const mendable = result.kind === 'human' && result.message !== undefined && MENDABLE_INTEGRATION.has(result.message.key) && handsOffJobOf(c.getState(), w.runId) !== undefined
+    if (result.kind === 'human' && !mendable && c.getState().tasks.find((t) => t.id === w.taskId)?.status === 'merging') {
       await gateSlot(w.taskId, `${w.taskId}'s branch (${w.worktree}) could not be merged into the plan branch (${w.runRoot}): ${result.reason}`)
       return result
     }
@@ -2252,7 +2286,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
   }
 
   // DispatchLoop.startMergeWorker. The merge Task is told to the coordinator as it starts and as it fails; it is a
-  // normal worker (worker-start), in the Run's worktree, on the merged Task's first account.
+  // normal worker (worker-start), in the Run's worktree, on the merged Task's first account, else the one with most room.
   const startMergeWorker = async (a: {
     runId: string
     taskId: string
@@ -2269,13 +2303,15 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     const mergeOf = (st: OrchState): Task | undefined =>
       a.key === undefined ? integrationTaskFor(st, a.taskId) : st.tasks.find((t) => t.parentId === a.taskId && t.spec.includes(a.key!))
     let merge = mergeOf(s)
-    if (merge?.status === 'failed') {
+    // T1: a hands-off plan starts its failed merge worker again (failed -> dispatched), FAILURE_LIMIT attempts in all
+    const failures = merge ? s.dispatches.filter((d) => d.taskId === merge!.id && d.outcome === 'failed').length : 0
+    if (merge?.status === 'failed' && (handsOffJobOf(s, a.runId) === undefined || failures >= FAILURE_LIMIT)) {
       // The merge worker could not do it: now it is the owner's. The Gate goes on the failed merge Task (failed ->
       // blocked), so it is opened once; the owner's answer readies the Task and the next tick starts it again.
       await gateSlot(merge.id, t(c.lang(), 'jobs.integration.mergeWorkerFailed', { task: a.taskId, root: runRoot, reason: a.reason }))
       return
     }
-    if (merge && merge.status !== 'ready') return
+    if (merge && merge.status !== 'ready' && merge.status !== 'failed') return
     if (!merge) {
       const created = await c.handle('task-create', {
         runId: a.runId,
@@ -2295,15 +2331,20 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       if (!merge) return
     }
     if (s.dispatches.some((d) => d.taskId === merge!.id && !d.outcome && !d.endedAt)) return
-    const account = (await c.accounts()).find((x) => x.id === merge!.accountIds?.[0])
-    if (!account) {
-      await gateSlot(merge.id, t(c.lang(), 'jobs.gate.assignedAccountUnusable'))
+    // T1: its first account when that one is logged in; else (an auto Task, or that account cannot be used) worker-start
+    // picks the account with most room, on the provider placeSlot gives an auto Task. Only no account at all is a Gate.
+    const accounts = await c.accounts()
+    const loggedIn = (await Promise.all(accounts.map(async (x) => ((await c.loginStatus(x.id)) ? x : null)))).filter((x): x is Account => x !== null)
+    const named = loggedIn.find((x) => x.id === merge!.accountIds?.[0])
+    const on = named ?? loggedIn.find((x) => providerOf(x) === 'claude') ?? loggedIn[0]
+    if (!on) {
+      await gateSlot(merge.id, t(c.lang(), 'jobs.gate.noAccountAnyProvider'))
       return
     }
-    const start = (on?: string) => c.handle('worker-start', { task: merge!.id, agent: providerOf(account), ...(on ? { account: on } : {}), worktree: runRoot })
-    let reply = await start(account.id)
+    const start = (id?: string) => c.handle('worker-start', { task: merge!.id, agent: providerOf(on), ...(id ? { account: id } : {}), worktree: runRoot })
+    let reply = await start(named?.id)
     // That account is out of usage (paused until its window resets): any other with room, as worker-start picks
-    if (reply.status === 409 && (reply.body as { usagePaused?: unknown })?.usagePaused !== undefined) reply = await start()
+    if (named && reply.status === 409 && (reply.body as { usagePaused?: unknown })?.usagePaused !== undefined) reply = await start()
     // Refused (the Run's cap, a pause): the merge Task stays ready and the next tick starts it again.
     if (reply.status >= 400) {
       log(`run=${a.runId}: the merge worker for task=${a.taskId} did not start: ${JSON.stringify(reply.body)}`)

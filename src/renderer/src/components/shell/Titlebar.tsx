@@ -156,7 +156,7 @@ export function CommandCenter(p: CommandCenterProps): React.JSX.Element {
           toolsDisabledReason={p.projectAnchor ? undefined : t('settings.projects.noAnchor')}
           t={t}
         />
-        <Button variant="ghost" size="sm" className="wb-cc__search" icon={<Icon name="search" size={14} />} onClick={() => {
+        <Button variant="ghost" size="sm" className="wb-cc__search" icon={<Icon name="search" size={14} />} title={chord ? `${t('shell.commandCenter')} (${formatChord(chord)})` : undefined} onClick={() => {
             requestBox('>')
             p.setCommandOpen(true)
           }}>

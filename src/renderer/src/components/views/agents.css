@@ -1,0 +1,36 @@
+/* T9 Agents side bar view (views/AgentsView.tsx): one line per session, as the Plans tree (plan/plans.css). Tokens only. */
+
+.agents-filter { flex: none; padding: 2px var(--sp-2) 2px 20px; }
+
+/* Two lines (T19): title, then account, model · effort and time on the first; "project › plan" under the title on its
+   own line, wrapping rather than cut. Only the title ends in an ellipsis; the facts are never cut. A row with no
+   place stays one line. (One line cut the place to "ap…" and the account to "jip.cl…" at the side bar's width.) */
+.agents-tree .ui-tree__row {
+  display: grid;
+  grid-template-columns: auto auto auto minmax(0, 1fr) auto;
+  grid-template-rows: var(--row-h);
+  grid-auto-rows: auto;
+  height: auto;
+  min-height: var(--row-h);
+}
+.agents-tree .ui-tree__indent { grid-row: 1; grid-column: 1; }
+.agents-tree .ui-tree__twistie { grid-row: 1; grid-column: 2; }
+.agents-tree .ui-tree__icon { grid-row: 1; grid-column: 3; }
+.agents-tree .ui-tree__label { grid-row: 1; grid-column: 4; }
+.agents-tree .ui-tree__meta, .agents-tree .ui-tree__actions { grid-row: 1; grid-column: 5; }
+.agents-tree .ui-tree__desc { grid-row: 2; grid-column: 4 / -1; margin: 0 0 var(--sp-1); line-height: var(--lh-tight); white-space: normal; overflow-wrap: anywhere; }
+.agents-row__facts { display: inline-flex; align-items: center; gap: var(--sp-2); color: var(--text-faint); font-size: var(--fs-11); white-space: nowrap; }
+.agents-row__facts > * { flex: none; }
+.agents-row__account.ui-chip { height: 16px; padding: 0 var(--sp-1); font-size: var(--fs-11); }
+/* At the side bar's default width title, account, model · effort and time do not all fit on the first line: model ·
+   effort steps back (it stays in the row's tooltip) and shows again once the side bar is dragged wider */
+.agents-tree { container-type: inline-size; }
+@container (max-width: 300px) { .agents-row__model { display: none; } }
+.agents-row__facts > time { min-width: 3ch; text-align: right; font-variant-numeric: tabular-nums; }
+
+/* The status dot; its aria-label and tooltip say the state in words */
+.agents-dot { display: block; width: 8px; height: 8px; border-radius: 50%; background: var(--text-faint); }
+.agents-dot--working { background: var(--accent); }
+.agents-dot--needs { background: var(--warn); }
+.agents-dot--failed { background: var(--danger); }
+.agents-dot--finished { border: 1.5px solid var(--text-faint); background: transparent; }

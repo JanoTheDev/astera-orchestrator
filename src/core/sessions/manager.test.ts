@@ -868,6 +868,13 @@ describe('SessionManager', () => {
       expect(spawned[1].opts.env.ASTERA_CLI).toBe(spawned[0].opts.env.ASTERA_CLI)
     })
 
+    // A Host handover resumes a session in the next Host under the id its tab and Dispatch are keyed by.
+    it('keeps the id it is given, as its info and its ASTERA_SESSION', () => {
+      const { manager, spawned } = setup()
+      expect(manager.spawn({ account, cwd: process.cwd(), orchEnv, id: 'sess-handed-over' }).id).toBe('sess-handed-over')
+      expect(spawned[0].opts.env.ASTERA_SESSION).toBe('sess-handed-over')
+    })
+
     /* 상속 환경을 세우지 않으면 이 아래 "지운다" 단정이 양방향으로 무의미해진다 —
      *  main/core.test.ts 상단이 같은 함정을 이미 문서화했다. spawn은 `{ ...process.env }`로
      *  시작하므로:
@@ -1007,9 +1014,18 @@ describe('SessionManager', () => {
         accountId: account.id,
         cwd: process.cwd(),
         title: 'Auth refactor',
-        rollAccountIds: ['acc_1', 'acc_2']
+        rollAccountIds: ['acc_1', 'acc_2'],
+        startedAt: expect.any(Number)
       }
     })
+  })
+
+  // A roll passes the chain's first start, so the elapsed time on the sidebar row does not restart.
+  it('keeps the startedAt a roll passes, in the info and the note', () => {
+    const { manager, spawned } = setup()
+    const info = manager.spawn({ account, cwd: process.cwd(), startedAt: 1_700_000_000_000 })
+    expect(info.startedAt).toBe(1_700_000_000_000)
+    expect((spawned[0].opts.meta as unknown as { restore: { startedAt: number } }).restore.startedAt).toBe(1_700_000_000_000)
   })
 
   // A rolling respawn is born with where it came from and its chain's snapshot (S6 R6). The manager's

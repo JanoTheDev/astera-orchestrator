@@ -18,8 +18,6 @@ export const UNTRANSLATED: readonly MessageKey[] = [
   'settings.info.hostRestartNow',
   'settings.info.hostRestarting',
   'settings.info.hostRestartConfirmTitle',
-  'settings.info.hostRestartConfirmBody',
-  'settings.info.hostRestartConfirmBodyNone',
   'settings.info.hostRestartUnresponsiveConfirmTitle',
   'settings.info.hostRestartUnresponsiveConfirmBody',
   'settings.info.hostRestartUnresponsiveConfirmBodyNone',

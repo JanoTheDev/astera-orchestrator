@@ -220,6 +220,8 @@ function rig(o: RigOpts = {}) {
     stopCoordinator,
     releaseWorker,
     listAccounts: async () => [{ id: 'accA', label: 'accA', provider: 'claude' as const }],
+    // T5b: worker-start with no --account starts on the account with most room; here the one account
+    startAccount: async () => ({ ok: true as const, accountId: 'accA', release: () => {} }),
     log: () => {},
     runningSessions: () => 0,
     appVersion: () => '1.0.0',
@@ -613,6 +615,134 @@ describe('createDispatchLoop', () => {
     expect(gate.question).toMatch(/^tsk_1's branch could not be merged into the plan branch \(.+\), and the merge worker failed too: the merge worker failed$/)
     expect(`${merge.title}\n${gate.question}`).not.toMatch(/[가-힣]/)
   })
+  // T1: the merge worker never stops on accounts; a hands-off plan's conflicts are the merge worker's until it failed 3 times
+  /** An app-driven Run whose tsk_A finished in /wt-child and waits for its merge, which `integrate` answers. */
+  const mergingRig = (result: Awaited<ReturnType<DispatchLoopContext['integrate']>>, over: Partial<Task> = {}, handsOff = false) => {
+    const h = rig()
+    const s0 = h.state()
+    h.setState({
+      ...s0,
+      jobs: s0.jobs.map((j) => ({ ...j, handsOff })),
+      tasks: [task({ id: 'tsk_A', status: 'merging', ...over })],
+      dispatches: [{ id: 'dsp_a', taskId: 'tsk_A', provider: 'claude', accountId: 'accA', sessionId: 'w-a', cwd: '/wt-child', specPath: '', startedAt: NOW, endedAt: NOW, outcome: 'succeeded' } as Dispatch]
+    })
+    h.ctx.integrate = async () => result
+    const starts: Record<string, unknown>[] = []
+    h.ctx.handle = async (cmd, args) => {
+      if (cmd === 'worker-start') starts.push(args)
+      return h.real(cmd, args)
+    }
+    return { h, starts }
+  }
+  const conflict = { kind: 'agent' as const, reason: 'a does not merge cleanly', worktrees: [{ path: '/wt-child', branch: 'a' }] }
+  const mergeTaskOf = (h: ReturnType<typeof rig>) => h.state().tasks.find((t) => t.parentId === 'tsk_A')!
+  const failMerge = async (h: ReturnType<typeof rig>): Promise<void> => {
+    const merge = mergeTaskOf(h)
+    const d = h.state().dispatches.find((x) => x.taskId === merge.id && !x.endedAt)!
+    const failed = await h.as(d.sessionId, 'send', { type: 'worker_done', taskId: merge.id, dispatchId: d.id, outcome: 'failed', subject: 'x', body: 'y' })
+    expect(failed.status).toBe(200)
+    await h.loop.nudge()
+    await h.settle()
+  }
+
+  it('T1: a merge Task of a Task with no accounts starts on the account with most room and opens no Gate', async () => {
+    const { h, starts } = mergingRig(conflict, { accountIds: [] })
+    await h.loop.nudge()
+    await h.settle()
+    const merge = mergeTaskOf(h)
+    expect(merge.accountIds ?? []).toEqual([])
+    expect(starts).toHaveLength(1)
+    expect(starts[0]).toMatchObject({ task: merge.id, agent: 'claude' })
+    expect(starts[0]).not.toHaveProperty('account')
+    expect(h.startWorker).toHaveBeenCalledTimes(1)
+    expect(h.handled()).not.toContain('gate-create')
+  })
+
+  it('T1: a merge Task whose named account cannot be used starts on another account, with no Gate', async () => {
+    const { h, starts } = mergingRig(conflict, { accountIds: ['accA'] })
+    h.ctx.accounts = () => [claudeAccount('accA'), claudeAccount('accB')]
+    h.ctx.loginStatus = async (id) => id !== 'accA'
+    await h.loop.nudge()
+    await h.settle()
+    expect(starts).toHaveLength(1)
+    expect(starts[0]).not.toHaveProperty('account')
+    expect(h.startWorker).toHaveBeenCalledTimes(1)
+    expect(h.handled()).not.toContain('gate-create')
+  })
+
+  it('T1: a merge Task gates only when no account of any provider is logged in, and never names a first assigned account', async () => {
+    const { h, starts } = mergingRig(conflict, { accountIds: [] })
+    h.ctx.loginStatus = async () => false
+    await h.loop.nudge()
+    await h.settle()
+    expect(starts).toEqual([])
+    const gate = h.state().gates.find((g) => g.taskId === mergeTaskOf(h).id)!
+    expect(gate.status).toBe('open')
+    expect(gate.question).not.toMatch(/first account/i)
+    expect(gate.question).toMatch(/no account of any provider is signed in/i)
+    expect(gate.question).not.toMatch(/claude/i)
+  })
+
+  it('T1: a hands-off plan retries a failed merge worker twice and asks the owner at the third failure', async () => {
+    const { h, starts } = mergingRig(conflict, { accountIds: [] }, true)
+    await h.loop.nudge()
+    await h.settle()
+    expect(starts).toHaveLength(1)
+    for (const n of [2, 3]) {
+      await failMerge(h)
+      expect(starts).toHaveLength(n) // a fresh attempt, no owner Gate
+      expect(h.state().gates).toEqual([])
+      expect(mergeTaskOf(h).status).toBe('dispatched')
+    }
+    await failMerge(h)
+    expect(starts).toHaveLength(3)
+    const gates = h.state().gates.filter((g) => g.taskId === mergeTaskOf(h).id)
+    expect(gates).toHaveLength(1)
+    expect(gates[0].question).toContain('the merge worker failed too')
+  })
+
+  it('T1: a hands-off plan retries a failed merge worker with the reason its last attempt reported in its spec', async () => {
+    const { h, starts } = mergingRig(conflict, { accountIds: [] }, true)
+    await h.loop.nudge()
+    await h.settle()
+    expect(starts).toHaveLength(1)
+    const merge = mergeTaskOf(h)
+    const d = h.state().dispatches.find((x) => x.taskId === merge.id && !x.endedAt)!
+    await h.as(d.sessionId, 'send', { type: 'worker_done', taskId: merge.id, dispatchId: d.id, outcome: 'failed', subject: 'conflict in plan.md', body: 'plan.md:40 both sides edited the same line' })
+    await h.loop.nudge()
+    await h.settle()
+    expect(starts).toHaveLength(2)
+    const retrySpec = h.startWorker.mock.calls[1][0].spec
+    expect(retrySpec).toContain('## Previous attempt')
+    expect(retrySpec).toContain('conflict in plan.md')
+    expect(retrySpec).toContain('plan.md:40 both sides edited the same line')
+  })
+
+  it("T1: a hands-off plan sends a merging Task's git problem (kind human) to the merge worker, not the owner", async () => {
+    const human = { kind: 'human' as const, reason: 'the plan branch has 2 uncommitted changes', message: { key: 'jobs.integration.uncommitted' as const, params: { count: 2 } } }
+    const { h, starts } = mergingRig(human, {}, true)
+    await h.loop.nudge()
+    await h.settle()
+    const merge = mergeTaskOf(h)
+    expect(merge.spec).toContain('uncommitted changes')
+    expect(starts).toHaveLength(1)
+    expect(h.state().gates).toEqual([])
+  })
+
+  it('T1: a plan that is not hands-off asks the owner at the first merge-worker failure, and at a kind human result', async () => {
+    const { h, starts } = mergingRig(conflict)
+    await h.loop.nudge()
+    await h.settle()
+    await failMerge(h)
+    expect(starts).toHaveLength(1)
+    expect(h.state().gates.filter((g) => g.taskId === mergeTaskOf(h).id && g.status === 'open')).toHaveLength(1)
+    const human = mergingRig({ kind: 'human', reason: 'the plan branch has 2 uncommitted changes', message: { key: 'jobs.integration.uncommitted', params: { count: 2 } } })
+    await human.h.loop.nudge()
+    await human.h.settle()
+    expect(human.starts).toEqual([])
+    expect(human.h.state().gates.filter((g) => g.taskId === 'tsk_A')).toHaveLength(1)
+  })
+
   it("a clean wave merge tells the coordinator, once, and the next ready Task", async () => {
     const h = rig()
     driven(h, {
@@ -2423,6 +2553,19 @@ describe('a delivery that finishes by itself (T3)', () => {
     expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'delivered' })
     expect(fixes(h)).toHaveLength(1)
     expect(questions(h)).toEqual([])
+  })
+
+  it('T1: a fix Task of a plan whose Tasks name no account starts on the account with most room, with no Gate', async () => {
+    const h = pushPlan(checksFailed)
+    handsOff(h)
+    const s = h.state()
+    h.setState({ ...s, tasks: s.tasks.map((t) => ({ ...t, accountIds: [] })) })
+    await pass(h)
+    finishAll(h)
+    await pass(h)
+    expect(fixes(h)).toHaveLength(1)
+    expect(fixes(h)[0].status).toBe('dispatched')
+    expect(h.state().gates).toEqual([])
   })
 
   it('T5: after FAILURE_LIMIT fix Tasks a failed validation asks the owner, and opens no more', async () => {

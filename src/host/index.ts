@@ -29,7 +29,7 @@ import { startHostServer } from './server'
 import { HOST_EXIT, listenExitCode } from './exitCodes'
 import { controllerRecordsFile, createControllerRegistry } from './controllers'
 import { openSecretStore } from '../core/secrets/secretStore'
-import { randomBytes } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import { ensureHostKey } from '../core/host/hostKey'
 import { completeWindowsPath } from '../core/sessions/windowsPath'
 import { PtyRegistry } from './registry'
@@ -40,7 +40,7 @@ import { attachProcHost } from './procHost'
 import { ProcRegistry } from './procRegistry'
 import { createProcHolders, procHeldBy } from './procHolders'
 import { nodeProcSpawn } from './nodeProc'
-import { HOST_FEATURE_ORCH, HOST_FEATURE_REQUESTS, HOST_PROTOCOL, HOST_YIELD_JOURNAL, HOST_YIELD_UNDERSTANDING, HOST_YIELD_WORK_UNITS, HOST_YIELD_WORKSPACE, HOST_YIELD_WORKTREES } from '../core/host/protocol'
+import { HOST_FEATURE_ORCH, HOST_FEATURE_REQUESTS, HOST_PROTOCOL, HOST_YIELD_JOURNAL, HOST_YIELD_UNDERSTANDING, HOST_YIELD_WORK_UNITS, HOST_YIELD_WORKSPACE, HOST_YIELD_WORKTREES, type PtyMeta } from '../core/host/protocol'
 import { createHostJournal } from './hostJournal'
 import { createHostEventLog } from './eventLog'
 import { activityOf, followActivity, hostSessionActivity, readApprovalDefault } from './activity'
@@ -67,7 +67,24 @@ import { readAccountMaxSessions } from '../core/settings/accountMaxSessions'
 import { usageActivity } from '../core/orchestration/activity'
 import { resumeAfterCrash } from '../core/orchestration/exec/crashResume'
 // T5 crash restore
-import { restoreSessions, sessionRestoreFileIn, sessionsLeftBehind, trackLiveSessions, writeCleanExit, type SessionTracker } from './sessionRestore'
+import {
+  handoverFileIn,
+  handoverOf,
+  chatRespawnOf,
+  leftBehind,
+  readSavedSessions,
+  restoreHandover,
+  conversationOnDisk,
+  restoreSessions,
+  sessionRestoreFileIn,
+  trackLiveSessions,
+  workingTaskCount,
+  writeCleanExit,
+  writeHandover,
+  type HandoverChat,
+  type PtySpawn,
+  type SessionTracker
+} from './sessionRestore'
 import { plansMissingReady } from '../core/orchestration/exec/plannerFeedback'
 import { readStateFile } from '../core/orchestration/stateFile'
 import { readAccountReadings, withFetchedReadings } from '../core/usage/accountReadings'
@@ -105,6 +122,7 @@ import { workspaceSupported } from '../core/workspace/platform'
 import { connectCdp } from './workspace/cdp'
 import { freePort, killTree, processStartTimes } from './workspace/native'
 import { defaultGhRunner } from '../core/github/gh'
+import { readDeliverySetup } from '../core/orchestration/exec/deliverySetup'
 import { readUnderstandingFile } from '../core/understanding/read'
 import { copyIntakeFiles, readTextIfAny, writeIntakeText } from '../core/orchestration/intakeFiles'
 import { createPullRequest, pushBranch, readCommits } from '../core/github/prCreate'
@@ -140,6 +158,8 @@ const EXIT_HAMMER_MS = 1_500
 /** How long `leave` waits for the log appends already in flight before its final sync flush (stage 3,
  *  task 3, review I1). Short: a disk that stalls this long gets the sync flush anyway. */
 const LEAVE_LOG_FLUSH_CAP_MS = 1_000
+/** How long a handover's restore waits for the app that replaced the last Host to greet this one (`firstApp`). */
+const HANDOVER_APP_WAIT_MS = 15_000
 
 async function main(): Promise<void> {
   // Before anything can create a child: node-pty forks a helper on every ConPTY kill, and from 1.3.20
@@ -236,6 +256,15 @@ async function main(): Promise<void> {
   procs.onExit((id) => procHolders.ended(id))
 
   let server: Awaited<ReturnType<typeof startHostServer>>
+  /** The first app's greeting: a handover's ptys and sessions reach the app only as `pty-opened`, which goes to greeted
+   *  sockets, so their restore waits for it (or HANDOVER_APP_WAIT_MS: an app that comes later takes them back at boot). */
+  let appGreeted!: () => void
+  const firstApp = new Promise<void>((resolve) => (appGreeted = resolve))
+  /** The sessions a handover or a crash left are back (or there were none): the worktree sweep at start waits for it. A
+   *  retained worker of a delivered plan is dead between the two Hosts, so a sweep before its respawn took its folder and
+   *  the respawn then failed CWD_MISSING. */
+  let restoreDone!: () => void
+  const restored = new Promise<void>((resolve) => (restoreDone = resolve))
   /** Declared here and assigned below `createHostOrch` (S6 final review M3): the rolling wiring's
    *  `exits` getter reads it, and a `const` below that getter would throw in its temporal dead zone if a
    *  chain ever decided before the assignment. Null until then, and null for good without a spawner. */
@@ -245,6 +274,31 @@ async function main(): Promise<void> {
   let remoteSessions: RemoteSessions | null = null
   /** T5: the live agent sessions kept for a crash restore (sessionRestore.ts); set once the Host serves. */
   let sessionTracker: SessionTracker | null = null
+  /** The shell terminals and run processes an app opened (its `pty-spawn`, at the size last given), and the ones a
+   *  handover reopened, by pty id while they live: what a handover writes down for them (sessionRestore.ts). */
+  const ptySpawns = new Map<string, PtySpawn>()
+  registry.onExit((ptyId) => ptySpawns.delete(ptyId))
+  /** A handover's resume retire: the sessions, terminals, runs and chats this Host holds, written down for the next Host
+   *  before the `killAll`; then `clean-exit`. A handover that could not be written leaves no marker, so the next Host
+   *  restores the sessions as after a crash. Never rejects. */
+  const handOver = async (): Promise<void> => {
+    try {
+      await sessionTracker?.flushed()
+      const live = new Set(registry.list().filter((e) => e.alive).map((e) => e.id))
+      const h = handoverOf({
+        sessions: sessionTracker ? await readSavedSessions(sessionRestoreFileIn(profileDir)) : [],
+        ptys: [...ptySpawns].filter(([id]) => live.has(id)).map(([, p]) => p),
+        procs: procs.list().filter((e) => e.alive).map((e) => e.meta),
+        state: orch.loaded() ? orch.state() : null,
+        baseEnv: hostWorkerBaseEnv(process.env)
+      })
+      writeHandover(profileDir, h)
+      log.write(`handover: ${h.sessions.length} session(s), ${h.ptys.length} terminal(s) or run(s) and ${h.chats?.length ?? 0} chat(s) written for the next Host`)
+      writeCleanExit(profileDir)
+    } catch (err) {
+      log.write(`the handover could not be written: ${String(err)} — the next Host restores the sessions as after a crash`)
+    }
+  }
   /** Every way out goes through here, and it ends the process whatever happened on the way. An earlier
    *  version put `process.exit(0)` after `killAll()` inside a `.then()` that nothing caught, and on
    *  win32 that was not theoretical: node-pty's ConPTY kill runs a helper process to enumerate the
@@ -252,14 +306,15 @@ async function main(): Promise<void> {
    *  reached the promise. The Host then sat there with its pipe closed and its sessions still running,
    *  and the rejection went nowhere because the promise was only `void`ed. The registry guards each
    *  kill now, and this guards the rest of the path. */
-  const leave = (why?: string): void => {
+  const leave = (why?: string, resume = false): void => {
     // The idle and retire paths have already said why in the server's own log line; a signal has not.
     if (why) log.write(`${why} — leaving`)
     // T5: the saved sessions stay as they are through the `killAll` below. Only a deliberate way out (idle, `host
     // stop`, a retire) is clean; a signal is a reboot or a kill, and its sessions come back at the next start.
+    // A handover (`resume`) writes its marker only after the handover itself, before the `killAll` (`handOver`).
     sessionTracker?.freeze()
     sessionTracker?.dispose()
-    if (!why) writeCleanExit(profileDir)
+    if (!why && !resume) writeCleanExit(profileDir)
     // **The driver stops first** (S4+S5, the review of Task 12): no tick from here on, no commit, load
     // or app coming or going starts a pass, and a pass already under way stops at its next `mayStart`
     // (drivingWiring.ts) — before the spawner's own retiring flag is set below. From here on this Host
@@ -327,6 +382,9 @@ async function main(): Promise<void> {
       if (spawner) await spawner.closeAndSettle(SPAWN_DEADLINE_MS).catch((err) => log.write(`the spawns in flight could not be waited for: ${String(err)}`))
       // The plugins, awaited before the server closes (started at the top of this tail).
       await pluginsStopped
+      // The handover, while every pty still lives and the address is still this Host's: the next Host can only start
+      // once this one has let it go, and it reads the file first thing.
+      if (resume) await handOver()
       await server
         .close()
         .catch((err) => log.write(`the server did not close cleanly: ${String(err)}`))
@@ -1002,7 +1060,9 @@ async function main(): Promise<void> {
       readCommits: (wt, base) => readCommits(wt, base),
       isClean: (wt) => isCleanWorktree(wt),
       // W8-C draft PR: the push after each wave
-      push: (wt, branch) => pushBranch(wt, branch)
+      push: (wt, branch) => pushBranch(wt, branch),
+      // T32: a delivery that cannot work on the folder falls back
+      deliverySetup: (cwd) => readDeliverySetup(cwd)
     },
     // How It Works records (MCP P2-C): the app's understanding.json in this profile, read on every
     // call and never written, so a record the app wrote is there while the app is closed.
@@ -1060,7 +1120,8 @@ async function main(): Promise<void> {
       runGit?.onState(orch.state())
       // T5: the sweep — worktrees a crash or an older version left behind for plans that are finished (delivered, or archived)
       if (spawner)
-        void readAutoCleanWorktrees(path.join(profileDir, 'app-settings.json'))
+        void restored
+          .then(() => readAutoCleanWorktrees(path.join(profileDir, 'app-settings.json')))
           .then((on) => (on ? worktrees.cleanFinished() : undefined))
           .then((r) => (r && r.removed.length > 0 ? log.write(`worktree sweep at start: removed ${r.removed.length}, kept ${r.kept.length}`) : undefined))
           .catch((err: unknown) => log.write(`worktree sweep at start failed: ${String(err)}`))
@@ -1159,8 +1220,13 @@ async function main(): Promise<void> {
       dirToPrepare: addr.dirToPrepare,
       version: hostVersion,
       idleMs: IDLE_MS,
-      onIdle: () => leave(),
+      onIdle: (o) => leave(undefined, o?.resume === true),
       onMessage: (m, send, from) => {
+        // A shell terminal's or a run's spawn, and its later sizes, kept for a handover (`handOver`).
+        if (m.t === 'pty-spawn' && (m.meta?.kind === 'terminal' || m.meta?.kind === 'run'))
+          ptySpawns.set(m.id, { file: m.file, args: m.args, opts: m.opts, meta: m.meta })
+        const spawned = m.t === 'pty-resize' ? ptySpawns.get(m.id) : undefined
+        if (spawned && m.t === 'pty-resize') spawned.opts = { ...spawned.opts, cols: m.cols, rows: m.rows }
         // Before the pty handler, so the mark is in place before a spawn can exit. Any role: see
         // `ptyHeldBy` for the apps that declare none. Only a greeted socket, which close releases.
         const held = ptyHeldBy(m, from)
@@ -1213,6 +1279,9 @@ async function main(): Promise<void> {
         // Remote on: the Host waits for controllers instead of leaving idle (remote runtime N3).
         remote: remoteEnabled
       }),
+      // A handover is refused while a Task works (sessionRestore.ts). Read from the file when no command loaded it yet.
+      workingTasks: () =>
+        workingTaskCount(orch.loaded() ? orch.state() : readStateFile(path.join(profileDir, 'orchestration.json')), (id) => registry.sessionPty(id) !== null),
       orch,
       // Announced only when there is a spawner, so an app can tell a Host that starts sessions itself,
       // that it also owns worktrees.json (R5: the one decision is `spawner !== null`), that it drives
@@ -1236,6 +1305,7 @@ async function main(): Promise<void> {
       // Final review I1: and the journal reads app-settings.json again, since a journal-reload the app sent
       // while its socket was down never arrived. Never a load: before one, the state is null.
       onAppGreeted: (send) => {
+        appGreeted()
         rollingWiring?.appGreeted(send)
         wiring?.appGreeted(send)
         void hostJournal.appGreeted(() => (orch.loaded() ? orch.state() : null))
@@ -1273,26 +1343,77 @@ async function main(): Promise<void> {
   // Read first and synchronously: a load (an app's first command) empties dead coordinator slots, and roles are read here.
   const crashState = readStateFile(path.join(profileDir, 'orchestration.json'))
   const restoreFile = sessionRestoreFileIn(profileDir)
-  const savedSessions = wiring && spawner ? await sessionsLeftBehind(profileDir) : []
+  // A handover the last Host wrote on its way out comes first; its sessions are the saved ones then (sessionRestore.ts).
+  const left = wiring && spawner ? await leftBehind(profileDir) : { handover: null, saved: [] }
+  const savedSessions = left.handover?.sessions ?? left.saved
   const nativeIdOf = async (sid: string): Promise<string | null> =>
     (await hostSessions.agentSessionOf(sid).catch(() => null)) ?? savedSessions.find((x) => x.sessionId === sid)?.nativeSessionId ?? null
+  const hasConversation = async (accountId: string, nativeId: string): Promise<boolean> =>
+    conversationOnDisk(await readAccountEntries(path.join(profileDir, 'accounts.json')), accountId, nativeId)
   if (wiring && spawner) {
     const starter = spawner
     const tracker = trackLiveSessions({ registry, file: restoreFile, pending: savedSessions, nativeIdOf: (sid) => hostSessions.agentSessionOf(sid), log: (m) => log.write(m) })
     sessionTracker = tracker
-    if (savedSessions.length > 0) {
+    if (left.handover) {
+      const handover = left.handover
+      log.write(`session restore: handed over by the last Host; bringing back ${handover.sessions.length} session(s), ${handover.ptys.length} terminal(s) or run(s) and ${handover.chats?.length ?? 0} chat(s)`)
+      // A pty reopened under its own note, kept for the next handover like an app's spawn, and told to the apps.
+      const openPty = (o: PtySpawn & { meta: PtyMeta }): void => {
+        const id = randomUUID()
+        const r = registry.open({ id, ...o })
+        if (!r.ok) throw new Error(r.error)
+        ptySpawns.set(id, o)
+        const entry = registry.list().find((e) => e.id === id)
+        if (entry) server.broadcast({ t: 'pty-opened', entry })
+      }
+      // A chat respawned on its thread under its own id, the way `sessions create --kind chat` starts one
+      // (sessionCreate.ts): its start settles before the apps are told, so none takes it over mid-handshake.
+      const respawnChat = async (c: HandoverChat): Promise<void> => {
+        const chats = rollingWiring?.chats
+        if (!chats) throw new Error('this Host has no chat manager')
+        const account = (await readAccountEntries(path.join(profileDir, 'accounts.json'))).find((a) => a.id === c.accountId)
+        if (!account) throw new Error(`unknown account: ${c.accountId}`)
+        const info = chats.spawn(chatRespawnOf(c, account))
+        if (!(await chats.started(info.id))) throw new Error('its start did not settle, so it was ended')
+        if ((c.rollAccountIds?.length ?? 0) > 0) rollingWiring.rolling.adoptSpawned(info, account)
+        const procId = chats.procOf(info.id)
+        if (procId !== null) announceChatProc(server, procId, (m) => log.write(m))
+      }
+      void Promise.race([firstApp, new Promise((resolve) => setTimeout(resolve, HANDOVER_APP_WAIT_MS).unref())])
+        .then(() =>
+          restoreHandover({
+            file: handoverFileIn(profileDir),
+            handover,
+            state: crashState,
+            nativeIdOf,
+            createSession: (o) => starter.createSession(o),
+            hasConversation,
+            handle: (cmd, args) => orch.handle(cmd, args),
+            settle: (sid) => tracker.settle(sid),
+            baseEnv: hostWorkerBaseEnv(process.env),
+            openPty,
+            respawnChat,
+            log: (m) => log.write(m)
+          })
+        )
+        .then((r) => log.write(`session restore: resumed ${r.tabs} tab(s), ${r.planners} planner(s); reopened ${r.ptys} terminal(s) or run(s); respawned ${r.chats} chat(s)`))
+        .finally(() => restoreDone())
+    } else if (savedSessions.length > 0) {
       log.write(`session restore: the last Host did not leave cleanly; bringing back ${savedSessions.length} session(s)`)
       void restoreSessions({
         saved: savedSessions,
         state: crashState,
         nativeIdOf,
         createSession: (o) => starter.createSession(o),
+        hasConversation,
         handle: (cmd, args) => orch.handle(cmd, args),
         settle: (sid) => tracker.settle(sid),
         log: (m) => log.write(m)
-      }).then((r) => log.write(`session restore: resumed ${r.tabs} tab(s), ${r.planners} planner(s)`))
-    }
-  }
+      })
+        .then((r) => log.write(`session restore: resumed ${r.tabs} tab(s), ${r.planners} planner(s)`))
+        .finally(() => restoreDone())
+    } else restoreDone()
+  } else restoreDone()
   if (wiring) {
     const recovery = wiring.orchHooks.recovery
     void resumeAfterCrash({

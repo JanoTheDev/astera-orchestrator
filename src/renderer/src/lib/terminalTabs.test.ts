@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { terminalsWithCreated } from './terminalTabs'
+import { LOST_SIGHT_EXIT_CODE, terminalsWithCreated, terminalsWithExit } from './terminalTabs'
 
 const tab = (id: string, buffer = ''): { id: string; buffer: string } => ({ id, buffer })
 
@@ -30,5 +30,20 @@ describe('terminalsWithCreated', () => {
   it('shows nothing when the panel has no root of its own', () => {
     const prev = [tab('a')]
     expect(terminalsWithCreated(prev, { id: 'b', projectPath: 'C:\p' }, null)).toBe(prev)
+  })
+})
+
+describe('terminalsWithExit', () => {
+  it('drops the tab of a shell that ended by itself', () => {
+    expect(terminalsWithExit([tab('a'), tab('b')], { id: 'a', exitCode: 0 })).toEqual([tab('b')])
+  })
+
+  // A Host handover (or a dropped socket) ends every handle in main with the lost-sight code while the next Host
+  // opens the same shell again under the same id: the tab stays where it was, output and all, and comes back there.
+  it('keeps the tab of a shell the app lost sight of, so the same id coming back lands in place', () => {
+    const prev = [tab('a', 'before the handover'), tab('b')]
+    const kept = terminalsWithExit(prev, { id: 'a', exitCode: LOST_SIGHT_EXIT_CODE })
+    expect(kept).toBe(prev)
+    expect(terminalsWithCreated(kept, { id: 'a', projectPath: 'C:\\p' }, 'C:\\p')).toBe(prev)
   })
 })

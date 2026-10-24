@@ -451,6 +451,17 @@ export function workerSpecOf(task: Pick<Task, 'spec' | 'prompt' | 'acceptanceCri
   ].join('\n')
 }
 
+/** Longest failure report a retried worker reads back; a longer one is cut here. */
+const PREVIOUS_ATTEMPT_MAX = 2000
+
+/** A retried worker's spec: the Task's spec, plus why its previous attempt failed, so it does not repeat that.
+ *  `failure` is that attempt's own worker_done report; absent means there is no previous failed attempt. */
+export function withPreviousAttempt(spec: string, failure: { subject: string; body: string } | undefined): string {
+  if (!failure) return spec
+  const body = failure.body.length > PREVIOUS_ATTEMPT_MAX ? `${failure.body.slice(0, PREVIOUS_ATTEMPT_MAX)}…` : failure.body
+  return [spec, '', '## Previous attempt', '', `The last attempt at this Task failed: ${failure.subject}`, '', body].join('\n')
+}
+
 /** Where a Job's plan.md lives: beside orchestration.json in the profile, one folder per Job. */
 export const planFileOf = (profileDir: string, jobId: string): string => path.join(profileDir, 'plans', jobId, 'plan.md')
 

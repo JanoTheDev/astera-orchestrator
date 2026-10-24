@@ -1,4 +1,7 @@
-/** 탭이 하나도 없을 때의 현재 프로젝트. App.tsx 의 currentProject 가 활성 탭의 루트 다음으로
+/** T12: the folder of the title bar's last selected project, which useWorkspace uses as the selection's folder until
+ *  the project list is read (projectScopeOf). It no longer stands in for a missing active tab.
+ *
+ *  탭이 하나도 없을 때의 현재 프로젝트. App.tsx 의 currentProject 가 활성 탭의 루트 다음으로
  *  읽는 값이고, 여기에 있는 이유는 하나다 — 렌더러에는 테스트가 없어서(vitest 는
  *  environment: 'node' 로 돈다) App.tsx 안에 두면 영속 규칙을 확인할 방법이 없다.
  *

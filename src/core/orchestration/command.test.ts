@@ -5237,6 +5237,61 @@ describe('handleCommand — convergence', () => {
     expect((await call(deps, 'task-update', { id, mergedIntoPlan: true }, HOST_CALLER)).body).toMatchObject({ mergedIntoPlanAt: at })
   })
 
+  it('a Task that completes closes its open gates, and answering one afterwards is ok', async () => {
+    const deps = convDeps()
+    await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p' })
+    await call(deps, 'task-create', { spec: 's', account: 'accA' })
+    await call(deps, 'task-create', { spec: 's2', account: 'accA' })
+    const [a, b] = deps.getState().tasks.map((t) => t.id)
+    const ga = ((await call(deps, 'gate-create', { task: a, question: 'q?' })).body as { id: string }).id
+    // --status completed
+    await call(deps, 'task-update', { id: a, status: 'completed' }, HOST_CALLER)
+    expect(deps.getState().gates.find((g) => g.id === ga)).toMatchObject({ status: 'resolved', resolution: 'closed: task completed' })
+    const r = await call(deps, 'questions-answer', { id: ga, answer: 'yes' })
+    expect(r.status).toBe(200)
+    expect(deps.getState().tasks.find((t) => t.id === a)!.status).toBe('completed')
+    // --merged-into-plan on a merging Task
+    const gb = ((await call(deps, 'gate-create', { task: b, question: 'q?' })).body as { id: string }).id
+    const s = deps.getState()
+    await deps.setState({ ...s, tasks: s.tasks.map((t) => (t.id === b ? { ...t, status: 'merging' as const } : t)) })
+    expect((await call(deps, 'task-update', { id: b, mergedIntoPlan: true }, HOST_CALLER)).status).toBe(200)
+    expect(deps.getState().gates.find((g) => g.id === gb)).toMatchObject({ status: 'resolved', resolution: 'closed: task completed' })
+  })
+  it('an exhausted gate left open on a completed Task is a no-op: mark-failed and retry-once leave it completed', async () => {
+    for (const answer of ['mark-failed', 'retry-once']) {
+      const deps = convDeps()
+      await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p', convergence: true })
+      await call(deps, 'task-create', { spec: 's', account: 'accA', validate: 'c1' })
+      const taskId = deps.getState().tasks[0].id
+      const s = deps.getState()
+      const g = createGate(
+        { ...s, tasks: s.tasks.map((t) => ({ ...t, status: 'validating' as const })) },
+        { taskId, question: 'q', kind: 'convergence-exhausted', options: ['retry-once', 'mark-failed'] },
+        NOW
+      )
+      if (!g.ok) throw new Error(g.error)
+      await deps.setState({ ...g.state, tasks: g.state.tasks.map((t) => ({ ...t, status: 'completed' as const })) })
+      const r = await call(deps, 'questions-answer', { id: g.value.id, answer })
+      expect(r.status).toBe(200)
+      expect(deps.getState().tasks[0].status).toBe('completed')
+      expect(deps.getState().tasks[0].consecutiveFailures).toBe(0)
+      expect(deps.onces).toEqual([])
+    }
+  })
+  it('gate-resolve on an open gate of a completed Task answers ok instead of a status error', async () => {
+    const deps = convDeps()
+    await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p' })
+    await call(deps, 'task-create', { spec: 's', account: 'accA' })
+    const id = deps.getState().tasks[0].id
+    const g = ((await call(deps, 'gate-create', { task: id, question: 'q?' })).body as { id: string }).id
+    const s = deps.getState()
+    await deps.setState({ ...s, tasks: s.tasks.map((t) => ({ ...t, status: 'completed' as const })) })
+    const r = await call(deps, 'gate-resolve', { id: g, resolution: 'yes' })
+    expect(r.status).toBe(200)
+    expect(deps.getState().tasks[0].status).toBe('completed')
+    expect(deps.getState().gates[0].status).toBe('resolved')
+  })
+
   it('task-update --status completed of a Task that worked outside its Run root moves it to merging; its merge completes it', async () => {
     const deps = convDeps()
     await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p' })
@@ -7345,7 +7400,7 @@ describe('없는 id 는 404 — 순수 층의 거절을 내보내던 자리들',
   })
 
   // Gate 는 있고 그것이 가리키는 Task 가 없다 — 적은 id 가 없는 것이 아니다
-  it('있는 Gate 의 Task 가 사라진 것은 400 그대로다', async () => {
+  it('a gate whose Task is gone is closed as cancelled, answered ok', async () => {
     const deps = makeDeps()
     await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p' })
     const t = await call(deps, 'task-create', { run: deps.getState().runs[0].id, spec: 's', account: 'acc1' })
@@ -7355,7 +7410,8 @@ describe('없는 id 는 404 — 순수 층의 거절을 내보내던 자리들',
     await dropTask(deps, taskId)
     const gateId = (g.body as { id: string }).id
     const r = await call(deps, 'gate-resolve', { id: gateId, resolution: 'x' })
-    expect(r).toEqual({ status: 400, body: { error: `unknown task for gate: ${gateId}` } })
+    expect(r.status).toBe(200)
+    expect(r.body).toMatchObject({ id: gateId, status: 'resolved', resolution: 'closed: task cancelled' })
   })
 
   it('없는 배치를 ack 하면 404 이고 아무것도 쓰지 않는다', async () => {
@@ -10293,6 +10349,24 @@ describe('#117 hands-off', () => {
     expect(deps.getState().jobs.find((j) => j.id === id)?.handsOff).toBe(false)
   })
 
+  it('jobs-create --effort and jobs-set --effort set the Job effort; none clears; a bad level is refused with the list', async () => {
+    const deps = rig()
+    const bad = await person(deps, 'jobs-create', { objective: 'o', cwd: 'D:/p', coordinatorAccount: 'acc1', effort: 'turbo' })
+    expect(bad.status).toBe(400)
+    expect(JSON.stringify(bad.body)).toContain('low|medium|high|xhigh|max')
+    const made = await person(deps, 'jobs-create', { objective: 'o', cwd: 'D:/p', coordinatorAccount: 'acc1', effort: 'high' })
+    expect(made.status).toBe(200)
+    const id = (made.body as { id: string }).id
+    expect(deps.getState().jobs.find((j) => j.id === id)?.effort).toBe('high')
+    const refused = await person(deps, 'jobs-set', { id, effort: 'turbo' })
+    expect(refused.status).toBe(400)
+    expect(JSON.stringify(refused.body)).toContain('low|medium|high|xhigh|max')
+    expect((await person(deps, 'jobs-set', { id, effort: 'max' })).status).toBe(200)
+    expect(deps.getState().jobs.find((j) => j.id === id)?.effort).toBe('max')
+    expect((await person(deps, 'jobs-set', { id, effort: 'none' })).status).toBe(200)
+    expect(deps.getState().jobs.find((j) => j.id === id)).not.toHaveProperty('effort')
+  })
+
   it('T5: projects-set --grants and --coordinator-model set, none clears, projects-list shows them, an agent is refused', async () => {
     const deps = makeDeps()
     await deps.setState({ ...deps.getState(), projects: [{ id: 'prj_1', path: 'D:/p', name: 'p', addedAt: NOW }] })
@@ -10423,5 +10497,53 @@ describe('T3 workspaces', () => {
     expect((await call(deps, 'projects-remove', { id: ui.id }, '')).status).toBe(200)
     expect((await call(deps, 'projects-remove', { id: rootId }, '')).status).toBe(200)
     expect(deps.getState().projects).toEqual([])
+  })
+})
+
+describe('worker-start — 재시도 워커는 이전 시도가 왜 실패했는지 spec 에서 읽는다', () => {
+  const seedTask = async (deps: OrchServerDeps): Promise<string> => {
+    const run = await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p' })
+    const runId = (run.body as { id: string }).id
+    const task = await call(deps, 'task-create', { account: 'acc1', runId, title: 't', spec: 'do the thing' })
+    return (task.body as { id: string }).id
+  }
+  /** startWorker 가 받은 spec 을 시작마다 모은다 — 회차 n 의 세션은 sess<n> 이다 */
+  const recordSpecs = (deps: OrchServerDeps): string[] => {
+    const specs: string[] = []
+    deps.startWorker = async (a) => {
+      specs.push(a.spec)
+      return { sessionId: `sess${specs.length}`, cwd: 'D:/p', specPath: 'D:/p/orch/specs/a.md' }
+    }
+    return specs
+  }
+  const start = (deps: OrchServerDeps, taskId: string, extra: Record<string, unknown> = {}) =>
+    call(deps, 'worker-start', { taskId, agent: 'codex', account: 'acc1', worktree: 'current', ...extra })
+
+  it('첫 시도의 spec 에는 Previous attempt 가 없다', async () => {
+    const deps = makeDeps()
+    const taskId = await seedTask(deps)
+    const specs = recordSpecs(deps)
+    await start(deps, taskId)
+    expect(specs).toEqual(['do the thing'])
+  })
+
+  it('실패로 보고된 이전 시도의 사유를 Previous attempt 로 싣는다', async () => {
+    const deps = makeDeps()
+    const taskId = await seedTask(deps)
+    const specs = recordSpecs(deps)
+    const first = (await start(deps, taskId)).body as { dispatchId: string }
+    await call(deps, 'send', { type: 'worker_done', taskId, dispatchId: first.dispatchId, outcome: 'failed', subject: 'tests fail', body: 'auth.test.ts:12 expected 401' }, 'sess1')
+    await start(deps, taskId, { retryOf: first.dispatchId })
+    expect(specs[1]).toBe('do the thing\n\n## Previous attempt\n\nThe last attempt at this Task failed: tests fail\n\nauth.test.ts:12 expected 401')
+  })
+
+  it('사유가 2000자를 넘으면 2000자에서 자른다', async () => {
+    const deps = makeDeps()
+    const taskId = await seedTask(deps)
+    const specs = recordSpecs(deps)
+    const first = (await start(deps, taskId)).body as { dispatchId: string }
+    await call(deps, 'send', { type: 'worker_done', taskId, dispatchId: first.dispatchId, outcome: 'failed', subject: 'x', body: 'y'.repeat(3000) }, 'sess1')
+    await start(deps, taskId, { retryOf: first.dispatchId })
+    expect(specs[1].endsWith(`${'y'.repeat(2000)}…`)).toBe(true)
   })
 })

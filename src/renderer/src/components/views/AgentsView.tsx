@@ -1,10 +1,11 @@
 // The Agents side bar view (DESIGN-W13 §4): the open project's consoles in four panes (Needs you, Working, Idle,
-// Finished), one row each. A click opens the console's own tab; the context menu has the rest. The consoles come from
-// AgentsPage's snapshot (wall/consoleStore.ts), so this view never polls the Host itself.
-import { useMemo, useState } from 'react'
+// Finished, the last closed until opened), one row each: status dot, title, project › plan, then account, model ·
+// effort and time on the right. A click opens the console's own tab; hover actions and the context menu have the rest.
+// The consoles come from AgentsPage's snapshot (wall/consoleStore.ts), so this view never polls the Host itself.
+import { useEffect, useMemo, useState } from 'react'
 import { sessionTab } from '../../../../core/panes/tabId'
 import { groupOfTab } from '../../../../core/panes/tree'
-import { Button, Icon, IconButton, Menu, Tree, ViewContainer, ViewPane, menuPointOf, type MenuItem, type TreeItem } from '../ui'
+import { Button, Chip, EmptyState, ICONS, Icon, IconButton, Menu, Tree, ViewContainer, ViewPane, menuPointOf, type MenuItem, type TreeItem } from '../ui'
 import { scopeSessions } from '../../state/projectView'
 import { openConsole, openPlan } from '../shell/navigation'
 import { consolesOfSessions } from '../shell/shellView'
@@ -12,10 +13,12 @@ import { ViewToolbar, type SideBarViewProps } from '../shell/SideBar'
 import { useConsoleSnapshot } from '../wall/consoleStore'
 import { setAgentsPlan, useAgentsPlan, useAgentsPlanRefs } from './agentsPlan'
 import { stopConsole } from '../wall/stopConsole'
-import { stateGlyph, stateTone, stateWord } from '../wall/Wall'
-import { outcomeText, outcomeTone } from '../wall/summaryText'
+import { stateWord } from '../wall/Wall'
+import { outcomeText } from '../wall/summaryText'
+import { elapsedLabel, modelEffortLabel, rowTimeOf } from '../wall/sessionRow'
 import { ALL_PLANS, NO_PLAN, agentPanes, consoleDescription, consoleTitle, plansOf, type TileState, type WallConsole } from '../wall/wallModel'
 import '../wall/wall.css'
+import './agents.css'
 
 const PANES: { state: TileState; title: 'shell.agents.needs' | 'shell.agents.working' | 'agents.view.idle' | 'shell.agents.finished' }[] = [
   { state: 'needs', title: 'shell.agents.needs' },
@@ -24,6 +27,9 @@ const PANES: { state: TileState; title: 'shell.agents.needs' | 'shell.agents.wor
   { state: 'finished', title: 'shell.agents.finished' }
 ]
 
+/** The status dot's colour: a finished console that gave up reads failed. */
+type Dot = 'needs' | 'working' | 'idle' | 'finished' | 'failed'
+
 export function AgentsView(p: SideBarViewProps): React.JSX.Element {
   const { t, sessions, workspaceIds, scopeId, accounts, closeWorkbenchTab } = p
   const { consoles, summaries } = useConsoleSnapshot()
@@ -31,6 +37,12 @@ export function AgentsView(p: SideBarViewProps): React.JSX.Element {
   const refs = useAgentsPlanRefs()
   const [menu, setMenu] = useState<{ id: string; at: { x: number; y: number } } | null>(null)
   const setPlan = setAgentsPlan
+  // "12m" to the minute
+  const [nowMs, setNowMs] = useState(() => Date.now())
+  useEffect(() => {
+    const id = setInterval(() => setNowMs(Date.now()), 60_000)
+    return () => clearInterval(id)
+  }, [])
 
   const scoped = useMemo(() => consolesOfSessions(consoles, scopeSessions(sessions, workspaceIds, scopeId)), [consoles, sessions, workspaceIds, scopeId])
   const plans = useMemo(() => plansOf(scoped), [scoped])
@@ -61,16 +73,40 @@ export function AgentsView(p: SideBarViewProps): React.JSX.Element {
   const rowOf = (c: WallConsole): TreeItem => {
     const summary = summaries.get(c.sessionId)
     const done = c.state === 'finished'
+    const dot: Dot = done && summary?.outcome === 'gave-up' ? 'failed' : c.state
+    const word = done && summary ? outcomeText(summary, t) : t(stateWord(c))
+    const title = done && summary ? summary.facts.title : consoleTitle(c)
+    // scoped to one project, every row is in it: the plan alone says where
+    const where = scopeId === null ? consoleDescription(c) : (c.planName ?? '')
+    const account = accountOf(c)
+    const model = modelEffortLabel(c.model, c.effort)
+    // a live console counts from its start, a finished one from its last sign of life (else its start)
+    const time = rowTimeOf(c, done)
     return {
       id: c.sessionId,
       depth: 0,
-      label: done && summary ? summary.facts.title : consoleTitle(c),
-      icon: <Icon name={stateGlyph(c)} size={16} />,
-      description: consoleDescription(c, accountOf(c)),
-      decoration: done && summary ? { text: outcomeText(summary, t), tone: outcomeTone(summary.outcome) } : { text: t(stateWord(c)), tone: stateTone(c) },
-      ...(done
-        ? {}
-        : { actions: <IconButton size="sm" label={t('agents.row.stop')} icon={<Icon name="stop" size={14} />} onClick={() => stop(c)} /> })
+      label: title,
+      title: [title, where, account, model].filter(Boolean).join(' — '),
+      icon: <span className={`agents-dot agents-dot--${dot}`} role="img" aria-label={word} title={word} />,
+      description: where,
+      badge: (
+        <span className="agents-row__facts">
+          {account && <Chip className="agents-row__account">{account}</Chip>}
+          {model && <span className="agents-row__model">{model}</span>}
+          {time && (
+            <time dateTime={new Date(time.at).toISOString()} title={t(time.started ? 'agents.row.started' : 'agents.row.lastActive', { when: new Date(time.at).toLocaleString() })}>
+              {elapsedLabel(time.at, nowMs)}
+            </time>
+          )}
+        </span>
+      ),
+      actions: (
+        <>
+          <IconButton size="sm" label={t('agents.row.side')} icon={<Icon name="splitView" size={14} />} onClick={() => openSide(c)} />
+          {c.jobId && <IconButton size="sm" label={t('agents.row.plan')} icon={<Icon name="listTree" size={14} />} onClick={() => openPlan(c.jobId!)} />}
+          {!done && <IconButton size="sm" label={t('agents.row.stop')} icon={<Icon name="stop" size={14} />} onClick={() => stop(c)} />}
+        </>
+      )
     }
   }
 
@@ -99,32 +135,40 @@ export function AgentsView(p: SideBarViewProps): React.JSX.Element {
         ]}
       />
       {scoped.length === 0 ? (
-        <div className="agents-welcome">
-          <p>{t('agents.view.empty')}</p>
-          <Button variant="primary" disabled={!p.canStart()} onClick={() => p.setShowNew(true)}>
-            {t('agents.view.open')}
-          </Button>
-        </div>
+        <EmptyState
+          icon={ICONS.terminal}
+          action={
+            <Button variant="primary" disabled={!p.canStart()} onClick={() => p.setShowNew(true)}>
+              {t('agents.view.open')}
+            </Button>
+          }
+        >
+          {t('agents.view.empty')}
+        </EmptyState>
       ) : (
         <>
-          <div className="agents-filter">
-            <Menu
-              label={t('agents.view.filter')}
-              align="start"
-              items={filterItems}
-              trigger={{ variant: 'ghost', size: 'sm', icon: <Icon name="filter" size={14} />, children: picked === ALL_PLANS ? t('wall.plans.all') : picked === NO_PLAN ? t('wall.plans.none') : pickedName }}
-            />
-          </div>
+          {/* only worth a row when there is a plan to pick, or a pick to undo */}
+          {(plans.length > 0 || picked !== ALL_PLANS) && (
+            <div className="agents-filter">
+              <Menu
+                label={t('agents.view.filter')}
+                align="start"
+                items={filterItems}
+                trigger={{ variant: 'ghost', size: 'sm', icon: <Icon name="filter" size={14} />, children: picked === ALL_PLANS ? t('wall.plans.all') : picked === NO_PLAN ? t('wall.plans.none') : pickedName }}
+              />
+            </div>
+          )}
           {planEmpty ? (
             <p className="wb-view-empty">{t('agents.view.planEmpty', { name: pickedName })}</p>
           ) : (
             PANES.map(({ state, title: key }) => (
-              <ViewPane key={state} title={t(key)} count={panes[state].length} storageKey={`agents.${state}`}>
+              <ViewPane key={state} title={t(key)} count={panes[state].length} storageKey={`agents.${state}`} defaultExpanded={state !== 'finished'}>
                 {panes[state].length === 0 ? (
                   <p className="wb-view-empty">{t('shell.agents.none')}</p>
                 ) : (
                   <Tree
                     label={t(key)}
+                    className="agents-tree"
                     rows={panes[state].map(rowOf)}
                     selectedId={null}
                     onSelect={openConsole}

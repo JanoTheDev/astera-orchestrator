@@ -944,6 +944,9 @@ export interface PushDelivery {
    *  worktree's HEAD is on `branch` (local or origin's, `git branch -a --contains`). T1: or its changes are on
    *  origin's branch by other commits (a rebase or cherry-pick landing: `git cherry` marks every commit `-`). */
   ownerPushed?: boolean
+  /** T6 `merge` delivery: the same merge and validation on this computer, with no remote: nothing is fetched or pushed,
+   *  and with no branch set the folder's own branch is the target when origin names none. */
+  local?: boolean
 }
 
 export interface PushContext {
@@ -990,6 +993,7 @@ export type PushResult =
  *    failed fetch, a push still rejected, a failed second validation) undoes the merges as 5 does, so no half
  *    delivery sits unpushed on the owner's branch.
  * The undo resets only while the folder is still on `branch` with no tracked change Astera did not make.
+ * T6 `local` (a `merge` delivery) skips 3 and 6: it ends after the validation, the merges left on the folder's branch.
  */
 export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<PushResult> {
   const run = ctx.git ?? realGit
@@ -1003,7 +1007,11 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
     const head = await run(['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'], { cwd })
     if (head.ok && head.stdout.startsWith('origin/')) branch = head.stdout.slice('origin/'.length)
     else if (a.defaultBranch) branch = a.defaultBranch
-    else return { ok: false, reason: `could not tell the repository's default branch (origin/HEAD is not set): set the project's delivery branch` }
+    else if (a.local) {
+      const own = await run(['symbolic-ref', '--quiet', '--short', 'HEAD'], { cwd })
+      if (!own.ok) return { ok: false, reason: `your folder ${cwd} is not on a branch (detached HEAD); set the project's delivery branch` }
+      branch = own.stdout
+    } else return { ok: false, reason: `could not tell the repository's default branch (origin/HEAD is not set): set the project's delivery branch` }
   }
   const fail = (reason: string, code?: PushStop, conflictWith?: string): PushResult => ({
     ok: false,
@@ -1013,9 +1021,11 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
     ...(conflictWith ? { conflictWith } : {})
   })
 
-  // T3: the owner pushed it: is every worktree's HEAD on the branch, here or on origin? Nothing is written
+  // T3: the owner pushed it: is every worktree's HEAD on the branch, here or on origin? Nothing is written. T6: a local
+  // delivery asks the local branch only
+  const landed = a.local ? branch : `origin/${branch}`
   if (a.ownerPushed) {
-    await run(['fetch', 'origin', branch], w)
+    if (!a.local) await run(['fetch', 'origin', branch], w)
     for (const wt of a.worktrees) {
       const head = await run(['rev-parse', 'HEAD'], { cwd: wt })
       if (!head.ok) continue // a folder already gone holds nothing that is not somewhere else
@@ -1023,16 +1033,16 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
       const names = holders.ok ? holders.stdout.split('\n').map((x) => x.trim()) : []
       if (names.includes(branch) || names.includes(`origin/${branch}`)) continue
       // T1: patch-equivalent commits on origin (no `+`: none of the plan's changes is missing there)
-      const cherry = await run(['cherry', `origin/${branch}`, head.stdout], { cwd })
+      const cherry = await run(['cherry', landed, head.stdout], { cwd })
       if (cherry.ok && !cherry.stdout.split('\n').some((l) => l.startsWith('+'))) continue
       // A squash merge of several commits has `+` lines for every one: if merging the worktree into origin changes nothing,
       // everything from it is already there
-      const merged = await run(['merge-tree', '--write-tree', `origin/${branch}`, head.stdout], { cwd })
-      const tree = await run(['rev-parse', `origin/${branch}^{tree}`], { cwd })
+      const merged = await run(['merge-tree', '--write-tree', landed, head.stdout], { cwd })
+      const tree = await run(['rev-parse', `${landed}^{tree}`], { cwd })
       if (merged.ok && tree.ok && merged.stdout.split('\n')[0] === tree.stdout) continue
       return fail(`${wt}'s commit ${head.stdout.slice(0, 7)} is not on ${branch} yet`)
     }
-    const tip = await run(['rev-parse', `origin/${branch}`], { cwd })
+    const tip = await run(['rev-parse', landed], { cwd })
     return { ok: true, branch, sha: tip.ok ? tip.stdout : '', merged: [], validated: 0 }
   }
 
@@ -1044,12 +1054,14 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
   if (!status.ok) return fail(`could not read git status in ${cwd}: ${why(status)}`)
   if (status.stdout !== '') return fail(`your folder ${cwd} has ${status.stdout.split('\n').length} uncommitted change(s)`)
 
-  // 3.
-  const fetched = await run(['fetch', 'origin', branch], w)
-  if (!fetched.ok) return fail(`git fetch origin ${branch} failed: ${why(fetched)}`, 'fetch-failed')
-  const ff = await run(['merge', '--ff-only', `origin/${branch}`], w)
-  // T1: coded, so a retry tells it apart: it delivers by itself once the owner fixed their branch
-  if (!ff.ok) return fail(`your ${branch} cannot fast-forward to origin/${branch} (it has commits origin does not): ${why(ff)}`, 'main-diverged')
+  // 3. T6: a local delivery has no origin to catch up with
+  if (!a.local) {
+    const fetched = await run(['fetch', 'origin', branch], w)
+    if (!fetched.ok) return fail(`git fetch origin ${branch} failed: ${why(fetched)}`, 'fetch-failed')
+    const ff = await run(['merge', '--ff-only', `origin/${branch}`], w)
+    // T1: coded, so a retry tells it apart: it delivers by itself once the owner fixed their branch
+    if (!ff.ok) return fail(`your ${branch} cannot fast-forward to origin/${branch} (it has commits origin does not): ${why(ff)}`, 'main-diverged')
+  }
 
   // 4.
   const before = await run(['rev-parse', 'HEAD'], { cwd })
@@ -1125,6 +1137,10 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
   }
   const checked = await validateMerged()
   if (!checked.ok) return undo(`the validation failed on the merged ${branch}: ${checked.reason}`, 'validation-failed')
+  if (a.local) {
+    const sha = await run(['rev-parse', 'HEAD'], { cwd })
+    return { ok: true, branch, sha: sha.ok ? sha.stdout : '', merged: merged.merged, validated: checked.ran }
+  }
 
   // 6. Origin can move on while the validation runs (another plan's delivery, a teammate's push). Its commits are merged
   // in, the result validated again (a clean merge can still clash, e.g. two migrations taking one number), then pushed;

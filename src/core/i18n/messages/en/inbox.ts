@@ -130,6 +130,8 @@ export const inbox: Record<keyof typeof ko, string> = {
   'activity.line.onRequest': 'on request',
   'activity.line.leadRefreshed': '{title}: lead agent refreshed ({reason})',
   'activity.line.watchdog': '{title}: stuck-plan check: {reason}',
+  'activity.line.fellToMerge': '{title}: merged into {branch} on this computer. {why}',
+  'activity.line.fellToReview': '{title}: {why}',
   'activity.line.titled': '{title}: {reason}',
   'activity.line.onRuntime': 'on {runtime}',
 }

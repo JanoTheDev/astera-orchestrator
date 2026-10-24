@@ -52,6 +52,3 @@ button.summary-card__title:hover .summary-card__title-text { text-decoration: un
 
 /* W13: the Agents view's filter row and welcome state (shell.css .wb-view-empty is the per-pane empty line) */
 .agents-filter { flex: none; padding: 2px var(--sp-2); }
-.agents-welcome { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-2) 20px; color: var(--text-dim); font-size: var(--fs-13); }
-.agents-welcome > p { margin: 0; }
-.agents-welcome > .ui-btn { width: 100%; }

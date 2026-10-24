@@ -100,6 +100,36 @@ describe('consolesOf', () => {
   it('places a plain console in its project by cwd', () => {
     expect(by('s9').projectId).toBe('p1')
     expect(by('e1').projectId).toBe('p2')
+    expect(by('s9').projectName).toBe('Repo')
+    expect(by('e1').projectName).toBe('Other')
+  })
+  it('carries the effort, the Dispatch start and the last sign of life', () => {
+    const at = Date.UTC(2026, 9, 24, 10, 0, 0)
+    const timed = consolesOf(input({
+      sessions: [session('w1', { effort: 'high', lastAction: { tool: 'Edit', at: at + 5_000 } }), session('w2'), session('s9')],
+      data: {
+        dispatches: [
+          { sessionId: 'w1', startedAt: '2026-10-24T09:00:00Z' } as never,
+          { sessionId: 'w1', startedAt: '2026-10-24T09:30:00Z' } as never,
+          { sessionId: 'w2', startedAt: '2026-10-24T08:00:00Z', endedAt: '2026-10-24T08:40:00Z' } as never
+        ],
+        worktrees: []
+      },
+      live: { w1: { lastAction: { tool: 'Read', at: at + 9_000 } } }
+    }))
+    const of = (id: string) => timed.find((c) => c.sessionId === id)!
+    expect(of('w1')).toMatchObject({ effort: 'high', startedAt: Date.parse('2026-10-24T09:30:00Z'), lastActiveAt: at + 9_000 })
+    expect(of('w2')).toMatchObject({ startedAt: Date.parse('2026-10-24T08:00:00Z'), lastActiveAt: Date.parse('2026-10-24T08:40:00Z') })
+    expect(of('w2').effort).toBeUndefined()
+    expect(of('s9').startedAt).toBeUndefined()
+    expect(of('s9').lastActiveAt).toBeUndefined()
+  })
+  it('a plain console with no Dispatch takes its session start', () => {
+    const plain = consolesOf(input({
+      sessions: [session('s9', { startedAt: Date.UTC(2026, 9, 24, 10, 0, 0) })],
+      data: { dispatches: [], worktrees: [] }
+    }))
+    expect(plain[0].startedAt).toBe(Date.UTC(2026, 9, 24, 10, 0, 0))
   })
 })
 
@@ -121,12 +151,12 @@ describe('the Agents view rows', () => {
     expect(panes.finished.map((c) => c.sessionId)).toEqual(['d1'])
   })
 
-  it('titles a console by its Task, else its name; describes it as plan › agent · account', () => {
+  it('titles a console by its Task, else its name; describes it as project › plan', () => {
     expect(consoleTitle(worker)).toBe('Fix login')
     expect(consoleTitle(plain)).toBe('Shell')
-    expect(consoleDescription(worker, 'Work')).toBe('Auth › Worker 2 · Work')
-    expect(consoleDescription({ ...worker, taskTitle: undefined, label: 'Coordinator' }, 'Work')).toBe('Auth · Work')
-    expect(consoleDescription(plain, 'Work')).toBe('Work')
+    expect(consoleDescription({ ...worker, projectName: 'Repo' })).toBe('Repo › Auth')
+    expect(consoleDescription(worker)).toBe('Auth')
+    expect(consoleDescription({ ...plain, projectName: 'Repo' })).toBe('Repo')
     expect(consoleDescription(plain)).toBe('')
   })
 

@@ -148,12 +148,18 @@ describe('parseCodexTail', () => {
       agent('최종 답'),
       noise
     ])
-    expect(await parseCodexTail(p)).toEqual({ lastUserTitle: '두번째 질문', awaitingReply: true })
+    expect(await parseCodexTail(p)).toEqual({ lastUserTitle: '두번째 질문', awaitingReply: true, model: null, effort: null })
   })
 
   it('마지막이 user면 awaitingReply=false', async () => {
     const p = await write('e.jsonl', [metaLine, agent('a'), user('마지막 질문')])
-    expect(await parseCodexTail(p)).toEqual({ lastUserTitle: '마지막 질문', awaitingReply: false })
+    expect(await parseCodexTail(p)).toEqual({ lastUserTitle: '마지막 질문', awaitingReply: false, model: null, effort: null })
+  })
+
+  it("reads the last turn_context's model and effort", async () => {
+    const ctx = (model: string, effort?: string): string => JSON.stringify({ timestamp: '2026-07-09T04:32:00.000Z', type: 'turn_context', payload: { cwd: 'D:\\proj\\demo', model, ...(effort ? { effort } : {}) } })
+    const p = await write('ctx.jsonl', [metaLine, ctx('gpt-5.4', 'low'), user('q'), agent('a'), ctx('gpt-5.5-codex', 'high'), user('q2'), agent('a2')])
+    expect(await parseCodexTail(p)).toMatchObject({ model: 'gpt-5.5-codex', effort: 'high' })
   })
 
   // codex 0.160 writes this as a user message each time it resumes work on a `/goal` (measured

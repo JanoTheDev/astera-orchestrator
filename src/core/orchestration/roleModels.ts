@@ -20,7 +20,7 @@ export const DIFFICULTIES = ['light', 'standard', 'hard'] as const satisfies rea
 /** Reasoning effort, weakest to strongest — the claude CLI's `--effort` list. Codex reaches only CODEX_EFFORT_ROWS' keys. */
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const satisfies readonly Effort[]
-const isEffort = (v: unknown): v is Effort => (EFFORTS as readonly unknown[]).includes(v)
+export const isEffort = (v: unknown): v is Effort => (EFFORTS as readonly unknown[]).includes(v)
 
 /** One provider's choices. **A key holding `''` is a choice too**: "no model here", which masks the
  *  built-in default below and lets resolution fall through to the next layer (for a role, the CLI's
@@ -236,13 +236,15 @@ function configuredEffort(settings: RoleModelSettings, provider: Provider, kind:
   return isEffort(v) ? v : undefined
 }
 
-/** A worker's effort: Task.effort > the setting for its difficulty > the built-in one > undefined (no flag). */
+/** A worker's effort: Task.effort > Job.effort > the setting for its difficulty > the built-in one > undefined (no flag). */
 export function resolveWorkerEffort(a: {
   settings: RoleModelSettings
   task: Pick<Task, 'effort' | 'difficulty'> | undefined
+  job?: Pick<Job, 'effort'>
   provider: Provider
 }): Effort | undefined {
   if (isEffort(a.task?.effort)) return a.task.effort
+  if (isEffort(a.job?.effort)) return a.job.effort
   return a.task?.difficulty ? configuredEffort(a.settings, a.provider, 'difficulty', a.task.difficulty) : undefined
 }
 

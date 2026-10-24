@@ -9,6 +9,8 @@ import {
   HOST_PROTOCOL,
   HOST_FEATURE_PROC,
   HOST_FEATURE_PING,
+  HOST_FEATURE_HANDOVER,
+  HOST_FEATURE_HANDOVER_CHATS,
   HOST_FEATURE_PTY_SEQ,
   HOST_FEATURE_ORCH,
   HOST_FEATURE_REQUESTS,
@@ -56,8 +58,9 @@ export interface HostServerDeps {
   idleMs: number
   /** How long a connection has to say `hello` before it is dropped. Defaults to HANDSHAKE_MS. */
   helloMs?: number
-  /** What to do when the last client has been gone for `idleMs`, or when a client says `retire`. */
-  onIdle(): void
+  /** What to do when the last client has been gone for `idleMs`, or when a client says `retire`. `resume`: the retire
+   *  asked for a handover, so the sessions are written down for the next Host before they end (sessionRestore.ts). */
+  onIdle(o?: { resume: true }): void
   log: HostLog
   /** A handler for messages the server does not own. Returns true when it handled one; false lets
    *  the server treat it as unknown. Slice 2's pty-* messages arrive here. `from` is the sender: the
@@ -100,6 +103,8 @@ export interface HostServerDeps {
    *  (conformance audit #100). A Host holding nothing still leaves. */
   /** `remote`: Remote is on, so the Host waits for controllers rather than leave idle (remote runtime N3). */
   liveCounts?(): { sessions: number; runs: number; remote?: boolean }
+  /** The Tasks actively working (sessionRestore.ts `workingTaskCount`): a `resume` retire is refused while any is. */
+  workingTasks?(): number
   /** Answers `orch-call` (design §5). Optional here only so a caller that never sends `orch-call`
    *  does not have to supply one; `host/index.ts` always does, because it always advertises
    *  HOST_FEATURE_ORCH below. */
@@ -598,6 +603,10 @@ export async function startHostServer(deps: HostServerDeps): Promise<HostServer>
             features: [
               HOST_FEATURE_PROC,
               HOST_FEATURE_PING,
+              // A `resume` retire is handed over and refused under a working Task (below), so the app may ask for one.
+              HOST_FEATURE_HANDOVER,
+              // Its chats are written down with it and respawned on their threads (sessionRestore.ts HandoverChat).
+              HOST_FEATURE_HANDOVER_CHATS,
               HOST_FEATURE_PTY_SEQ,
               ...(deps.orch ? [HOST_FEATURE_ORCH, HOST_FEATURE_REQUESTS, HOST_FEATURE_MCP] : []),
               ...(deps.features ?? [])
@@ -648,6 +657,20 @@ export async function startHostServer(deps: HostServerDeps): Promise<HostServer>
               send({ t: 'retire-refused', sessions: counts.sessions, runs: counts.runs })
               return
             }
+          }
+          // A handover ends every session to bring it back in the next Host: never under a Task that is working. The app
+          // asks only when none is; this is the second look, at the state this Host owns.
+          if (m.resume === true) {
+            const tasks = deps.workingTasks?.() ?? 0
+            if (tasks > 0) {
+              const counts = deps.liveCounts?.() ?? { sessions: 0, runs: 0 }
+              deps.log.write(`asked to hand over but ${tasks} Task(s) are still working — refusing`)
+              send({ t: 'retire-refused', sessions: counts.sessions, runs: counts.runs, tasks })
+              return
+            }
+            deps.log.write('asked to retire with a handover — leaving')
+            deps.onIdle({ resume: true })
+            return
           }
           deps.log.write('asked to retire — leaving')
           deps.onIdle()

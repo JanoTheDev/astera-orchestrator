@@ -128,6 +128,8 @@ export const inbox: Partial<Record<keyof typeof ko, string>> = {
   'activity.line.onRequest': 'リクエストにより',
   'activity.line.leadRefreshed': '{title}: リードエージェントを更新（{reason}）',
   'activity.line.watchdog': '{title}: 停止中プランの確認: {reason}',
+  'activity.line.fellToMerge': '{title}: このコンピューターで{branch}にマージしました。{why}',
+  'activity.line.fellToReview': '{title}: {why}',
   'activity.line.titled': '{title}: {reason}',
   'activity.line.onRuntime': '{runtime}上',
 }

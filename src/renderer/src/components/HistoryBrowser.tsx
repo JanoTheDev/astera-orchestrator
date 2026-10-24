@@ -3,8 +3,9 @@ import type { SessionSummary } from '../../../core/sessions/summary'
 import type { Account, HistoryEntry, ProjectSummary, ScheduleConfig, SessionKind, TranscriptPreview } from '../../../core/types'
 import { ResumeDialog } from './ResumeDialog'
 import { TranscriptPreviewModal } from './TranscriptPreviewModal'
-import { ProviderBadge } from './ProviderBadge'
-import { scopeProjects, sessionDescription, sessionTreeRows, type SessionPage } from './historyTree'
+import { accountChipText, scopeProjects, sessionTreeRows, shortModel, type SessionFacts, type SessionPage } from './historyTree'
+import { elapsedLabel, modelEffortLabel } from './wall/sessionRow'
+import { openPlan } from './shell/navigation'
 import { localDoor } from '../lib/orchDoor'
 import { useSummaries } from '../state/useSummaries'
 import { summaryOneLine } from './wall/summaryText'
@@ -12,8 +13,9 @@ import { ViewToolbar } from './shell/SideBar'
 import { isGhostAccountId } from '../../../core/accounts/ghostId'
 import { confirmModal } from '../lib/confirm'
 import { useI18n } from '../i18n/I18nProvider'
-import { EmptyState, ICONS, Icon, IconButton, Menu, Skeleton, Tree, menuPointOf, type MenuItem, type TreeItem } from './ui'
+import { Badge, Chip, EmptyState, ICONS, Icon, IconButton, Menu, Skeleton, Tree, menuPointOf, type MenuItem, type TreeItem } from './ui'
 import * as hiddenProjects from '../lib/hiddenProjects'
+import './views/history.css'
 
 const PAGE = 50
 /** The project window when scoped: the history API cannot filter by project, so the picked project must be inside
@@ -28,6 +30,18 @@ function loadAccountFilter(): string {
     return ''
   }
 }
+/** The projects whose older finished sessions are unfolded (historyTree's "older" row). */
+const OLDER_KEY = 'cm.historyOlder'
+
+function loadOlder(): Set<string> {
+  try {
+    const raw = JSON.parse(localStorage.getItem(OLDER_KEY) ?? '[]')
+    return new Set(Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string') : [])
+  } catch {
+    return new Set()
+  }
+}
+const FINISHED: SessionFacts = { status: 'finished' }
 const SEEN_KEY = 'cm.historySeen'
 const SEEN_PRUNE_LIMIT = 500
 
@@ -85,6 +99,8 @@ export function HistoryBrowser({
   defaultSessionKind,
   scopeId = null,
   ownerOf = () => null,
+  factsOf = () => FINISHED,
+  liveIn = () => 0,
   onResume
 }: {
   accounts: Account[]
@@ -97,6 +113,10 @@ export function HistoryBrowser({
   scopeId?: string | null
   /** The project id a history folder belongs to (projectOfCwd over the workspace tree); needed when `scopeId` is set. */
   ownerOf?: (projectPath: string) => string | null
+  /** What the app knows of a transcript's session (historyTree's sessionFactsOf): live state, plan. */
+  factsOf?: (transcriptId: string) => SessionFacts
+  /** How many sessions run in a project folder now; such projects list first. */
+  liveIn?: (projectPath: string) => number
   onResume: (
     entry: HistoryEntry,
     cwd: string,
@@ -138,6 +158,13 @@ export function HistoryBrowser({
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null)
   const [hidden, setHidden] = useState<string[]>(() => hiddenProjects.list())
   const [scan, setScan] = useState<ScanState | null>(null)
+  const [showOlder, setShowOlder] = useState<Set<string>>(loadOlder)
+  // "12m" to the minute
+  const [nowMs, setNowMs] = useState(() => Date.now())
+  useEffect(() => {
+    const id = setInterval(() => setNowMs(Date.now()), 60_000)
+    return () => clearInterval(id)
+  }, [])
   const previewReq = useRef<string | null>(null)
   const viaPointer = useRef(false)
   const reqToken = useRef(0)
@@ -351,11 +378,35 @@ export function HistoryBrowser({
     }
   }
 
-  const treeRows = sessionTreeRows(shownProjects, expanded, (path) => pages[path], scopeId === null && projects.length < total)
+  const toggleOlder = (projectPath: string): void =>
+    setShowOlder((prev) => {
+      const next = new Set(prev)
+      if (!next.delete(projectPath)) next.add(projectPath)
+      try {
+        localStorage.setItem(OLDER_KEY, JSON.stringify([...next]))
+      } catch {
+        /* the fold just does not persist */
+      }
+      return next
+    })
+
+  const treeRows = sessionTreeRows(shownProjects, expanded, (path) => pages[path], scopeId === null && projects.length < total, {
+    liveIn,
+    statusOf: (e) => factsOf(e.sessionId).status,
+    showOlder
+  })
   const byId = new Map(treeRows.map((r) => [r.id, r]))
 
   const summaryLines = new Map<string, string>()
   for (const m of Object.values(summaries)) for (const [id, sum] of m) summaryLines.set(id, summaryOneLine(sum, t))
+
+  // one account picked, or only one there: every row would carry the same chip
+  const showAccount = !accountFilter && accounts.length + ghostAccounts.length > 1
+  const timeOf = (iso: string, key: 'history.session.lastActive' | null): React.ReactNode => (
+    <time dateTime={iso} title={key ? t(key, { when: new Date(iso).toLocaleString() }) : new Date(iso).toLocaleString()}>
+      {elapsedLabel(Date.parse(iso), nowMs)}
+    </time>
+  )
 
   const items: TreeItem[] = treeRows.map((r): TreeItem => {
     switch (r.kind) {
@@ -368,37 +419,56 @@ export function HistoryBrowser({
           icon: <Icon name="folder" size={16} />,
           hasChildren: true,
           expanded: r.expanded,
-          description: new Date(r.project.updatedAt).toLocaleDateString([], {
-            month: '2-digit',
-            day: '2-digit'
-          })
+          badge: (
+            <span className="history-row__facts">
+              {r.live > 0 && (
+                <span title={t('history.project.live', { n: r.live })}>
+                  <Badge tone="info">{r.live}</Badge>
+                </span>
+              )}
+              {timeOf(r.project.updatedAt, null)}
+            </span>
+          )
         }
       case 'session': {
         const e = r.entry
+        const facts = factsOf(e.sessionId)
         const account = accountOf(e.accountId)
+        const accountLabel = account ? account.label + (isGhostAccountId(e.accountId) ? t('history.filter.deletedSuffix') : '') : ''
+        const word = t(`history.status.${r.status}`)
+        const model = modelEffortLabel(shortModel(e.model), e.effort)
+        const summary = summaryLines.get(e.sessionId)
         return {
           id: r.id,
           depth: 1,
           label: e.title,
-          title: `${e.title} · ${account?.label ?? ''} · ${new Date(e.updatedAt).toLocaleString()}`,
-          // A ghost gets a hollow dot: its colour is a single grey, so colour alone would not separate it from a registered grey account
-          icon: (
-            <span className={isGhostAccountId(e.accountId) ? 'color-dot ghost' : 'color-dot'} style={{ background: account?.color ?? 'var(--text-faint)' }} />
-          ),
-          // the account is the dot's colour, the provider badge and the tooltip: a long account label would squeeze the title out of a side bar row
-          description: sessionDescription(
-            new Date(e.updatedAt).toLocaleString([], { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }),
-            summaryLines.get(e.sessionId)
-          ),
+          // the summary one-liner and the account's full name live here, so the row itself stays one quiet line
+          title: [e.title, facts.planName, summary, accountLabel, e.model].filter(Boolean).join(' — '),
+          icon: <span className={`history-dot history-dot--${r.status}`} role="img" aria-label={word} title={word} />,
+          description: facts.planName ?? '',
           badge: (
-            <>
+            <span className="history-row__facts">
               {e.awaitingReply && !isSeen(e) && <span className="unread-dot" role="img" aria-label={t('history.entry.unread')} title={t('history.entry.unread')} />}
-              <ProviderBadge provider={account?.provider} />
-            </>
+              {showAccount && accountLabel && (
+                <span title={accountLabel}>
+                  <Chip className="history-row__account">{accountChipText(accountLabel)}</Chip>
+                </span>
+              )}
+              {model && <span className="history-row__model">{model}</span>}
+              {timeOf(e.updatedAt, 'history.session.lastActive')}
+            </span>
           ),
-          actions: <IconButton size="sm" icon={<Icon name="run" size={14} />} label={t('history.entry.resume')} onClick={() => void resume(e)} />
+          actions: (
+            <>
+              <IconButton size="sm" icon={<Icon name="run" size={14} />} label={t('history.entry.resume')} onClick={() => void resume(e)} />
+              <IconButton size="sm" icon={<Icon name="show" size={14} />} label={t('history.entry.preview')} onClick={() => openPreview(e)} />
+              {facts.jobId && <IconButton size="sm" icon={<Icon name="listTree" size={14} />} label={t('agents.row.plan')} onClick={() => openPlan(facts.jobId!)} />}
+            </>
+          )
         }
       }
+      case 'older':
+        return { id: r.id, depth: 1, label: r.open ? t('history.session.fewer') : t('history.session.older', { n: r.count }), icon: <Icon name="more" size={16} /> }
       case 'loading':
         return {
           id: r.id,
@@ -409,10 +479,11 @@ export function HistoryBrowser({
       case 'empty':
         return { id: r.id, depth: 1, label: t('history.project.noSessions') }
       case 'more':
+        // a button that loads the next page when chosen: it said "Loading…" while nothing loaded
         return {
           id: r.id,
           depth: r.projectPath ? 1 : 0,
-          label: t('history.loading'),
+          label: t('history.more'),
           icon: <Icon name="more" size={16} />
         }
     }
@@ -423,6 +494,7 @@ export function HistoryBrowser({
     if (!r) return
     if (r.kind === 'session') openPreview(r.entry)
     else if (r.kind === 'project') toggle(r.project.projectPath, !r.expanded)
+    else if (r.kind === 'older') toggleOlder(r.projectPath)
     else if (r.kind === 'more') {
       if (r.projectPath) loadSessions(r.projectPath, true)
       else loadMoreProjects()
@@ -442,6 +514,7 @@ export function HistoryBrowser({
       ]
     if (menuRow?.kind !== 'session') return []
     const e = menuRow.entry
+    const jobId = factsOf(e.sessionId).jobId
     return [
       {
         id: 'resume',
@@ -460,7 +533,8 @@ export function HistoryBrowser({
         label: t('history.entry.copyId'),
         icon: <Icon name="copy" size={14} />,
         onSelect: () => void navigator.clipboard.writeText(e.id)
-      }
+      },
+      ...(jobId ? [{ id: 'plan', label: t('agents.row.plan'), icon: <Icon name="listTree" size={14} />, onSelect: () => openPlan(jobId) }] : [])
     ]
   }
 
@@ -545,6 +619,7 @@ export function HistoryBrowser({
         <div className="history-tree" onPointerDownCapture={() => (viaPointer.current = true)} onKeyDownCapture={() => (viaPointer.current = false)}>
           <Tree
             label={t('shell.history.sessions')}
+            className="history-sessions"
             rows={items}
             selectedId={selectedId}
             onSelect={(id) => {

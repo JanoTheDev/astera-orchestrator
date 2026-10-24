@@ -1,25 +1,41 @@
-// What a view shows of the other projects: nothing, unless "All projects" is on. The window's open project is the
-// one `currentProject` names; the tree lists workspaces only, so a sub-project's plans are already its root's.
-import { OTHER_WORKSPACE, projectOfCwd, type WorkspaceData, type WorkspaceProject, type WorktreeRef } from './workspaceTree'
+// What a view shows of the other projects: nothing, unless the title bar's switcher is on "All projects". The title
+// bar's selection (`workspaceProjectId`) is the window's one current project; every view reads what is derived from it
+// here. The tree lists workspaces only, so a sub-project's plans are already its root's.
+import type { Project } from '../../../core/orchestration/types'
+import { OTHER_WORKSPACE, projectOfCwd, type WorkspaceData, type WorkspaceProject } from './workspaceTree'
 
 /** The scope of a window whose project is not known (none open, or a folder no project holds): it matches no
  *  project. Never null, which means every project. */
 export const UNKNOWN_PROJECT = ''
 
-/** The project id a view is limited to, null only for "All projects". The window's own project (the switcher's
- *  pick, or the one bound to the window) wins; else the active tab's folder resolves to its project through
- *  `projectOfCwd` (a worktree or subfolder of a project is that project's). Never an exact path match. */
-export function scopeIdOf(
-  tree: readonly WorkspaceProject[],
-  worktrees: readonly WorktreeRef[],
-  windowProjectId: string | null,
-  currentProject: string | null,
-  allProjects: boolean
-): string | null {
-  if (allProjects) return null
-  if (windowProjectId !== null && tree.some((p) => p.id === windowProjectId)) return windowProjectId
-  return (currentProject === null ? null : projectOfCwd(currentProject, tree, worktrees)) ?? UNKNOWN_PROJECT
+/** What the title bar's selection means for every view. */
+export interface ProjectScopeView {
+  /** The selected id: a project or sub-project id, OTHER_WORKSPACE, or null for All projects. */
+  projectId: string | null
+  /** The selected project once the project list is read; undefined for All, Other, or an id no project has. */
+  project: Project | undefined
+  /** The folder views work in: the selected project's root (a sub-project's is its workspace's). Null for All and Other. */
+  path: string | null
+  isAll: boolean
+  /** The workspace id a view is limited to (scopeData, scopeTree, scopeSessions): a sub-project's workspace, null for
+   *  All, UNKNOWN_PROJECT for an id no project has. */
+  scopeId: string | null
 }
+
+/** The scope derived from the title bar's selection. `projects` is null until the project list is read; until then a
+ *  selected project's folder is `remembered` (its last path, stickyProject), so the first frame is not empty. */
+export function projectScopeOf(projects: readonly Project[] | null, selectedId: string | null, remembered: string | null): ProjectScopeView {
+  if (selectedId === null) return { projectId: null, project: undefined, path: null, isAll: true, scopeId: null }
+  if (selectedId === OTHER_WORKSPACE) return { projectId: selectedId, project: undefined, path: null, isAll: false, scopeId: UNKNOWN_PROJECT }
+  if (projects === null) return { projectId: selectedId, project: undefined, path: remembered, isAll: false, scopeId: selectedId }
+  const project = projects.find((p) => p.id === selectedId)
+  return { projectId: selectedId, project, path: project?.path ?? null, isAll: false, scopeId: project ? (project.parentId ?? project.id) : UNKNOWN_PROJECT }
+}
+
+/** The selection once the active tab names its project (`owner`, null when it names none): the title bar follows a tab
+ *  of another project rather than the views drifting from it. All projects stays All. */
+export const selectionAfterFocus = (selected: string | null, owner: string | null): string | null =>
+  selected === null || owner === null ? selected : owner
 
 export const scopeTree = (tree: readonly WorkspaceProject[], scopeId: string | null): WorkspaceProject[] =>
   scopeId === null ? [...tree] : tree.filter((p) => p.id === scopeId)

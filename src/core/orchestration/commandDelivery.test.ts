@@ -1,7 +1,7 @@
 // W6-H: how a finished plan lands. `run-deliver` (pr: run-open-pr; push: deliverPush, its record, its escalation and its
 // worktrees), `projects-set`, `--delivery` on jobs-create and jobs-plan, the pure helpers of delivery.ts and the
 // `plan.delivered` feed line. The push itself is exec/integrateGit.push.test.ts's.
-import { describe, it, expect } from 'vitest'
+import { afterEach, describe, it, expect } from 'vitest'
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
@@ -15,6 +15,8 @@ import { cleanAfterDelivery, DELIVERY_FIX_MARK, deliveryChecksOf, deliveryIssues
 import { outcomeOf } from './running'
 import { deriveActivity, noticeOf, type ActivityEvent } from './activity'
 import type { PushDelivery, PushResult } from './exec/integrateGit'
+import type { DeliverySetup } from './deliveryChoices'
+import { deliveryFallbackLine, deliveryFallbackOf, deliveryLandingOf, forgetDeliverySetups } from './delivery'
 
 const NOW = '2026-10-18T00:00:00.000Z'
 const REPO = '/repo'
@@ -23,7 +25,7 @@ const task = (over: Partial<Task> = {}): Task =>
   ({ id: 't1', runId: 'r1', title: 'Fix login', spec: 's', deps: [], status: 'completed', consecutiveFailures: 0, createdAt: NOW, updatedAt: NOW, ...over }) as Task
 const project = (over: Partial<Project> = {}): Project => ({ id: 'p1', path: REPO, name: 'gameful', addedAt: NOW, ...over })
 
-const setup = (o: { project?: Partial<Project>; tasks?: Task[]; run?: Partial<JobRun>; push?: PushResult; noPush?: boolean; cleanThrows?: boolean; mergeFails?: string; merge?: OrchServerDeps['mergeWorktrees'] } = {}) => {
+const setup = (o: { project?: Partial<Project>; tasks?: Task[]; run?: Partial<JobRun>; push?: PushResult; noPush?: boolean; cleanThrows?: boolean; mergeFails?: string; merge?: OrchServerDeps['mergeWorktrees']; folder?: DeliverySetup } = {}) => {
   const box: { state: OrchState } = {
     state: {
       ...emptyState(),
@@ -65,7 +67,7 @@ const setup = (o: { project?: Partial<Project>; tasks?: Task[]; run?: Partial<Jo
     ...(o.mergeFails ? { mergeWorktrees: async () => ({ ok: false as const, reason: o.mergeFails }) } : {}),
     ...(o.merge ? { mergeWorktrees: o.merge } : {}),
     // run-open-pr's own refusal when there is no GitHub: enough to see that `pr` went there
-    github: o.mergeFails ? {} : undefined
+    github: o.folder ? { deliverySetup: async () => o.folder } : o.mergeFails ? {} : undefined
   } as unknown as OrchServerDeps
   const call = (cmd: string, args: Record<string, unknown>, sessionId = HOST_CALLER, role?: 'mcp') =>
     handleCommand(deps, { sessionId, ...(role ? { role } : {}) }, cmd, args)
@@ -139,6 +141,48 @@ describe('run-deliver (W6-H)', () => {
   })
 
   // T3: the driving loop's steps, over the real command
+  it("T6: merges a merge project's Run into its branch on this computer, validated, and pushes nothing", async () => {
+    const h = setup({ project: { delivery: 'merge', defaultBranch: 'main' } })
+    const r = await h.call('run-deliver', { run: 'r1' })
+    expect(r).toEqual({
+      status: 200,
+      body: { delivery: 'merge', branch: 'main', sha: 'abc1234def', pushed: false, validated: 2, deliveryState: { state: 'delivered', attempts: 1, lastAttemptAt: NOW } }
+    })
+    expect(h.pushes).toEqual([
+      { cwd: REPO, defaultBranch: 'main', worktrees: ['/wt/t1', '/wt/t2'], message: 'Deliver plan: Fix auth', checks: ['test', 'lint'], local: true }
+    ])
+    expect(h.state().runs[0].delivery).toEqual({ at: NOW, branch: 'main', sha: 'abc1234def' })
+    // A manual plan may be merged on this computer by its owner, and an agent may not merge one
+    const m = setup({ project: { delivery: 'manual' } })
+    expect((await m.call('run-deliver', { run: 'r1', as: 'merge' }, 'worker-session')).status).toBe(403)
+    expect((await m.call('run-deliver', { run: 'r1', as: 'merge' })).body).toMatchObject({ delivery: 'merge', pushed: false })
+    expect(m.pushes[0].local).toBe(true)
+  })
+
+  it('T6: a merge that the dirty project folder refuses is a stop with the reason', async () => {
+    const reason = 'your folder /repo has 2 uncommitted change(s)'
+    const h = setup({ project: { delivery: 'merge' }, push: { ok: false, reason, branch: 'main' } })
+    const r = await h.call('run-deliver', { run: 'r1' })
+    expect(r.status).toBe(409)
+    expect(r.body).toMatchObject({ error: reason, branch: 'main' })
+    expect(h.removed).toEqual([])
+  })
+
+  it('T6: the plan branch of a merge plan is never pushed after a Task', async () => {
+    const h = setup({ project: { delivery: 'merge' }, run: { worktree: '/wt/plan' } })
+    expect(await h.call('run-draft-pr', { run: 'r1' })).toMatchObject({ status: 409, body: { error: expect.stringContaining('No plan-branch push is due') } })
+    const p = setup({ project: { delivery: 'push' }, run: { worktree: '/wt/plan' } })
+    expect((await p.call('run-draft-pr', { run: 'r1' })).body).not.toMatchObject({ error: expect.stringContaining('No plan-branch push is due') })
+  })
+
+  it('jobs-create --delivery merge and projects-set --delivery merge are accepted', async () => {
+    const h = setup()
+    expect((await h.call('projects-set', { id: 'p1', delivery: 'merge' })).status).toBe(200)
+    expect(h.state().projects[0].delivery).toBe('merge')
+    const r = await h.call('jobs-create', { objective: 'Ship it', cwd: REPO, delivery: 'merge' })
+    expect(h.state().jobs.find((j) => j.id === (r.body as { id: string }).id)?.delivery).toBe('merge')
+  })
+
   it('T3: the pending mark, an auto attempt only when due, and the fifth failure asks the owner exactly once', async () => {
     const h = setup({ project: { delivery: 'push' }, push: { ok: false, branch: 'main', reason: 'git fetch origin main failed: offline', code: 'fetch-failed' } })
     expect((await h.call('run-deliver', { run: 'r1', auto: true })).status).toBe(409) // nothing pending yet
@@ -219,7 +263,7 @@ describe('projects-set and --delivery (W6-H)', () => {
 
   it('refuses a bad value, an unknown project, an agent and an MCP client', async () => {
     const h = setup()
-    expect((await h.call('projects-set', { id: 'p1', delivery: 'merge' })).status).toBe(400)
+    expect((await h.call('projects-set', { id: 'p1', delivery: 'squash' })).status).toBe(400)
     expect((await h.call('projects-set', { id: 'p1', deliveryBranch: '--force' })).status).toBe(400)
     expect((await h.call('projects-set', { id: 'nope', delivery: 'push' })).status).toBe(404)
     expect((await h.call('projects-set', { id: 'p1', delivery: 'push' }, 'worker-session')).status).toBe(403)
@@ -736,7 +780,7 @@ describe('manual delivery', () => {
     const h = setup({ project: { delivery: 'manual' } })
     expect((await h.call('run-deliver', { run: 'r1', as: 'push' }, 'sess_agent')).status).toBe(403)
     expect((await h.call('run-deliver', { run: 'r1', as: 'push' }, '', 'mcp')).status).toBe(403)
-    expect((await h.call('run-deliver', { run: 'r1', as: 'merge' })).status).toBe(400)
+    expect((await h.call('run-deliver', { run: 'r1', as: 'squash' })).status).toBe(400)
     expect(h.pushes).toEqual([])
   })
 
@@ -933,5 +977,54 @@ describe('run-merge hands a conflict to the AI merge Task', () => {
     const r = await h.call('run-merge', { run: 'r1' })
     expect(r.status).toBe(409)
     expect(h.state().tasks).toHaveLength(1)
+  })
+})
+
+// T32: a delivery that cannot work on the folder falls back at delivery time
+describe('run-deliver on a folder where the delivery cannot work (T32)', () => {
+  afterEach(() => forgetDeliverySetups())
+  const github: DeliverySetup = { isGitRepo: true, remoteUrl: 'https://github.com/o/r.git', ghSignedIn: true, branch: 'main' }
+
+  it('merges locally when a plan with no delivery is on a folder with no GitHub remote', async () => {
+    const h = setup({ folder: { ...github, remoteUrl: null } })
+    const r = await h.call('run-deliver', { run: 'r1' })
+    expect(r.body).toMatchObject({ delivery: 'merge', pushed: false })
+    expect(h.pushes).toHaveLength(1)
+    expect(h.pushes[0]).toMatchObject({ local: true })
+    expect(deliveryFallbackLine(h.state(), h.state().jobs[0])).toBe('Merged into main on this computer: no GitHub remote')
+    expect(deliveryFallbackOf(h.state(), h.state().jobs[0])).toEqual({ mode: 'merge', reason: 'notGitHub', branch: 'main' })
+  })
+
+  it('merges locally when gh is signed out', async () => {
+    const h = setup({ folder: { ...github, ghSignedIn: false } })
+    expect((await h.call('run-deliver', { run: 'r1' })).body).toMatchObject({ delivery: 'merge', pushed: false })
+    expect(h.pushes[0]).toMatchObject({ local: true })
+    expect(deliveryFallbackLine(h.state(), h.state().jobs[0])).toBe('Merged into main on this computer: gh is not signed in')
+  })
+
+  it('leaves a folder that is not a git repository for review', async () => {
+    const h = setup({ folder: { isGitRepo: false, remoteUrl: null, ghSignedIn: true, branch: null } })
+    const r = await h.call('run-deliver', { run: 'r1' })
+    expect(r.status).toBe(409)
+    expect(h.pushes).toEqual([])
+    expect(deliveryLandingOf(h.state(), h.state().jobs[0])).toEqual({ mode: 'manual', reason: 'notGit' })
+    expect(deliveryFallbackLine(h.state(), h.state().jobs[0])).toBe('Left for your review: not a git repository')
+    expect(deliveryFallbackOf(h.state(), h.state().jobs[0])).toEqual({ mode: 'manual', reason: 'notGit' })
+  })
+
+  it('leaves an explicit push that works as it is', async () => {
+    const h = setup({ project: { delivery: 'push', deliveryBranch: 'main' }, folder: github })
+    const r = await h.call('run-deliver', { run: 'r1' })
+    expect(r.body).toMatchObject({ delivery: 'push', pushed: true })
+    expect(h.pushes[0]).not.toHaveProperty('local')
+    expect(deliveryFallbackLine(h.state(), h.state().jobs[0])).toBeNull()
+  })
+
+  it('still opens the pull request on a GitHub remote with gh signed in', async () => {
+    const h = setup({ folder: github })
+    const r = await h.call('run-deliver', { run: 'r1' })
+    expect(h.pushes).toEqual([])
+    expect(JSON.stringify(r.body)).toContain('no integration branch') // run-open-pr's own answer
+    expect(deliveryLandingOf(h.state(), h.state().jobs[0])).toEqual({ mode: 'pr' })
   })
 })

@@ -138,8 +138,17 @@ export function lineOf(e: ActivityEvent, accountLabel: (id: string) => string, l
     case 'coordinator.refreshed':
       return { text: m('activity.line.leadRefreshed', { reason: p.reason ?? m('activity.line.onRequest') }), tone: 'info' }
     // Stall watchdog
-    case 'watchdog':
+    case 'watchdog': {
+      // T32: a delivery that fell back is no stuck plan: say how it landed and why, in the owner's words
+      const fell = p.deliveryFallback
+      if (fell) {
+        const why = t(lang, `delivery.off.${fell.reason}`)
+        return fell.mode === 'merge'
+          ? { text: m('activity.line.fellToMerge', { branch: fell.branch ?? m('activity.line.itsBranch'), why }), tone: 'info' }
+          : { text: m('activity.line.fellToReview', { why }), tone: 'info' }
+      }
       return { text: m('activity.line.watchdog', { reason: p.reason ?? '' }), tone: 'warn' }
+    }
     case 'plan.deliveryDismissed':
       return { text: t(lang, 'activity.deliveryDismissed', { title: p.title }), tone: 'warn' }
     // T23 (exec/crashResume.ts)

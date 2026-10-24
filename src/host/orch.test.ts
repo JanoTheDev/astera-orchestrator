@@ -5189,3 +5189,91 @@ describe('projects-github-create', () => {
     expect(gh.calls).toEqual([])
   })
 })
+
+describe('a plan delivered by a later plan (T14)', () => {
+  const day = (n: number): string => new Date(Date.parse(NOW) - n * 86_400_000).toISOString()
+  const g = async (cwd: string, ...args: string[]): Promise<string> => {
+    const r = await git(['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd })
+    if (!r.ok) throw new Error(`git ${args.join(' ')}: ${r.stderr}`)
+    return r.stdout.trim()
+  }
+  /** A repository where `early` holds a commit that `late` (the delivered branch) merged, and `other` holds one it did not. */
+  const repo = async (): Promise<{ repoPath: string; sha: string }> => {
+    const repoPath = path.join(dir, 'repo')
+    await fs.mkdir(repoPath)
+    await g(repoPath, 'init', '-b', 'main')
+    await g(repoPath, 'commit', '--allow-empty', '-m', 'base')
+    for (const b of ['early', 'other']) {
+      await g(repoPath, 'checkout', '-b', b, 'main')
+      await g(repoPath, 'commit', '--allow-empty', '-m', b)
+    }
+    await g(repoPath, 'checkout', '-b', 'late', 'main')
+    await g(repoPath, 'merge', '--no-ff', '-m', 'merge early', 'early')
+    return { repoPath, sha: await g(repoPath, 'rev-parse', 'HEAD') }
+  }
+  /** `early` and `other` failed, `late` was delivered at `sha` (or still delivering). */
+  const seedPlans = async (repoPath: string, sha: string | undefined): Promise<void> => {
+    const plan = (id: string, age: number, tasks: ('completed' | 'failed')[]): Partial<OrchState> => ({
+      jobs: [{ id: `job_${id}`, objective: id, cwd: repoPath, createdAt: day(age) }],
+      runs: [
+        {
+          id: `run_${id}`,
+          jobId: `job_${id}`,
+          ordinal: 1,
+          createdAt: day(age),
+          worktree: `/wt/${id}`,
+          ...(id === 'late' ? (sha ? { delivery: { at: day(0), branch: 'main', sha }, deliveryState: { state: 'delivered' as const, attempts: 1 } } : { deliveryState: { state: 'delivering' as const, attempts: 1 } }) : {})
+        }
+      ],
+      tasks: tasks.map((status, i) => ({
+        id: `tsk_${id}${i}`,
+        runId: `run_${id}`,
+        title: id,
+        spec: '',
+        deps: [],
+        status,
+        consecutiveFailures: status === 'failed' ? 9 : 0,
+        createdAt: day(age),
+        updatedAt: day(age)
+      }))
+    })
+    const parts = [plan('early', 3, ['completed', 'failed']), plan('other', 3, ['completed', 'failed']), plan('late', 1, ['completed'])]
+    const state: OrchState = {
+      ...emptyState(),
+      jobs: parts.flatMap((p) => p.jobs ?? []),
+      runs: parts.flatMap((p) => p.runs ?? []),
+      tasks: parts.flatMap((p) => p.tasks ?? [])
+    }
+    await fs.writeFile(path.join(dir, 'orchestration.json'), JSON.stringify(state, null, 2), 'utf8')
+  }
+  const worktrees = (repoPath: string): NonNullable<Parameters<typeof createHostOrch>[0]['worktrees']> => ({
+    call: async () => ({ status: 501, body: {} }),
+    list: () => ['early', 'other', 'late'].map((b) => ({ id: b, repoPath, path: `/wt/${b}`, name: b, branch: b, baseRef: 'main', createdAt: NOW }))
+  })
+  const marked = (orch: ReturnType<typeof createHostOrch>, id: string): unknown => orch.internalDeps().getState().jobs.find((j) => j.id === id)?.deliveredBy
+
+  it('the Host-start sweep marks the failed plan whose branch the delivered commit contains, and only that one', async () => {
+    const { repoPath, sha } = await repo()
+    await seedPlans(repoPath, sha)
+    const orch = orchOver({ worktrees: worktrees(repoPath) })
+    await orch.ready()
+    await vi.waitFor(() => expect(marked(orch, 'job_early')).toEqual({ jobId: 'job_late', at: NOW, commit: sha }))
+    expect(marked(orch, 'job_other')).toBeUndefined()
+    expect(marked(orch, 'job_late')).toBeUndefined()
+  })
+
+  it('a commit that delivers a plan marks the earlier plan then', async () => {
+    const { repoPath, sha } = await repo()
+    await seedPlans(repoPath, undefined)
+    const orch = orchOver({ worktrees: worktrees(repoPath) })
+    await orch.ready()
+    expect(marked(orch, 'job_early')).toBeUndefined()
+    const s = orch.internalDeps().getState()
+    await orch.internalDeps().setState({
+      ...s,
+      runs: s.runs.map((r) => (r.id === 'run_late' ? { ...r, delivery: { at: NOW, branch: 'main', sha }, deliveryState: { state: 'delivered' as const, attempts: 1 } } : r))
+    })
+    await vi.waitFor(() => expect(marked(orch, 'job_early')).toMatchObject({ jobId: 'job_late', commit: sha }))
+    expect(marked(orch, 'job_other')).toBeUndefined()
+  })
+})

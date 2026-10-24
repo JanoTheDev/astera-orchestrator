@@ -167,6 +167,30 @@ describe('parseTranscriptMeta', () => {
     expect((await parseTranscriptMeta(file)).title).toBe('배열형 메시지')
   })
 
+  it('reads the latest main-thread model and effort, skipping sidechain, synthetic and other-thread records', async () => {
+    const file = await write('tail-model.jsonl', [
+      line({ type: 'user', message: { role: 'user', content: 'q' } }),
+      line({ type: 'api-request', querySource: 'repl_main_thread', params: { model: 'claude-sonnet-5-5', output_config: { effort: 'low' } } }),
+      line({ type: 'assistant', message: { model: 'claude-sonnet-5-5', role: 'assistant', content: [{ type: 'text', text: 'a' }] } }),
+      line({ type: 'api-request', querySource: 'repl_main_thread', params: { model: 'claude-opus-5-5', output_config: { effort: 'high' } } }),
+      line({ type: 'assistant', message: { model: 'claude-opus-5-5', role: 'assistant', content: [{ type: 'text', text: 'b' }] } }),
+      line({ type: 'api-request', querySource: 'compact', params: { model: 'claude-haiku-5-5', output_config: { effort: 'max' } } }),
+      line({ type: 'assistant', isSidechain: true, message: { model: 'claude-haiku-5-5', role: 'assistant', content: [{ type: 'text', text: 'c' }] } }),
+      line({ type: 'assistant', message: { model: '<synthetic>', role: 'assistant', content: [{ type: 'text', text: 'd' }] } })
+    ])
+    const tail = await parseTranscriptTail(file)
+    expect(tail.model).toBe('claude-opus-5-5')
+    expect(tail.effort).toBe('high')
+  })
+
+  it('leaves model and effort null on a transcript that records neither', async () => {
+    const file = await write('tail-nomodel.jsonl', [
+      line({ type: 'user', message: { role: 'user', content: 'q' } }),
+      line({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'a' }] } })
+    ])
+    expect(await parseTranscriptTail(file)).toMatchObject({ model: null, effort: null, awaitingReply: true })
+  })
+
   it('깨진 줄은 건너뛰고 크래시하지 않는다', async () => {
     const file = await write('c.jsonl', [
       '{{{{not json',
@@ -368,9 +392,9 @@ describe('parseTranscriptTail', () => {
 
   it('빈 파일/존재하지 않는 파일은 크래시 없이 기본값을 돌려준다', async () => {
     const missing = path.join(tmp, 'does-not-exist.jsonl')
-    expect(await parseTranscriptTail(missing)).toEqual({ lastUserTitle: null, awaitingReply: false })
+    expect(await parseTranscriptTail(missing)).toEqual({ lastUserTitle: null, awaitingReply: false, model: null, effort: null })
     const empty = await write('empty.jsonl', [])
-    expect(await parseTranscriptTail(empty)).toEqual({ lastUserTitle: null, awaitingReply: false })
+    expect(await parseTranscriptTail(empty)).toEqual({ lastUserTitle: null, awaitingReply: false, model: null, effort: null })
   })
 
   it('깨진 줄은 건너뛰고 크래시하지 않는다', async () => {

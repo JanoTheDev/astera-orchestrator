@@ -21,6 +21,7 @@ import {
 import { toast } from '../../lib/toast'
 import { jobName } from '../../lib/jobName'
 import { RunIcon, STATE_KEY, TaskIcon } from '../JobIcons'
+import { openPlan } from '../shell/navigation'
 import { SourceChip } from '../SourceChip'
 import { Button, Chip, Icon, Input, Menu, Meter, PageHeader, Toolbar, type MenuItem } from '../ui'
 import { planProgressOf } from './planBoard'
@@ -219,6 +220,12 @@ export function PlanHeader({
             <Chip tone={status.tone} dot>
               {t(status.key, status.params)}
             </Chip>
+          )}
+          {/* a failed plan whose work landed through a later plan: one click to that plan */}
+          {status?.deliveredBy !== undefined && (
+            <Button size="sm" variant="ghost" icon={<Icon name="listTree" size={14} />} onClick={() => openPlan(status.deliveredBy!)}>
+              {t('pages.plans.tree.menu.open')}
+            </Button>
           )}
           {progressText !== '' && <span className="plan-page-wave">{progressText}</span>}
           {prog.total > 0 && <Meter className="plan-meter plan-page-meter" value={prog.percent} />}

@@ -17,6 +17,7 @@ import { useWorkspace } from './state/useWorkspace'
 import { useLiveData } from './state/useLiveData'
 import { useRunActions } from './state/useRunActions'
 import { useNavigation } from './state/useNavigation'
+import { ProjectScopeContext } from './state/useProjectScope'
 import { EditorArea } from './components/shell/Content'
 import { useShell } from './components/shell/useShell'
 import { StatusBar, useCurrentBranch } from './components/shell/StatusBar'
@@ -87,42 +88,45 @@ export default function App(): React.JSX.Element {
   const branch = useCurrentBranch(app.currentProject)
   const props = { ...app, ...shell }
   return (
-    <div className="app">
-      {/* DESIGN-W13 §2: title bar (command center) / activity bar | side bar | editor area over the panel / status bar */}
-      <Titlebar isMax={isMax} update={update} runningCount={runningCount} onInstall={() => void installUpdate()} onBuild={() => void window.api.update.download()}>
-        {!onboarding && <CommandCenter {...props} />}
-      </Titlebar>
-      {/* Only a block-mode campaign covers the workbench. notify is announced with a toast */}
-      {campaign?.mode === 'block' && (
-        <UpdateGate
-          update={update}
-          onDownload={() => void window.api.update.download()}
-          onInstall={() => void installUpdate()}
-          onRetry={() => void window.api.update.check()}
-        />
-      )}
-      <HostStartingNotice status={hostStatus} />
-      {showCliBanner && (
-        <CliMissingBanner onInstall={() => setOnboardingReplay(true, 'tools')} onDismiss={() => setCliBannerDismissed(true)} />
-      )}
-      <div className="workbench wb-row">
-        <ActivityBar
-          {...props}
-          badges={{ agents: shell.counts.agents, plans: runningPlans(app.orchSnapshot?.runs ?? []) }}
-          onActivity={(id) => {
-            const next = activityClick({ activity, sidebarVisible: sidebarOpen }, id)
-            app.showActivity(next.activity)
-            app.setSidebarOpen(next.sidebarVisible)
-          }}
-        />
-        <SideBar {...props} />
-        <div className="wb-main">
-          <EditorArea {...props} />
-          <Panel {...props} />
+    // T12: the title bar's project, for any component that reads it with useProjectScope()
+    <ProjectScopeContext.Provider value={app.projectScope}>
+      <div className="app">
+        {/* DESIGN-W13 §2: title bar (command center) / activity bar | side bar | editor area over the panel / status bar */}
+        <Titlebar isMax={isMax} update={update} runningCount={runningCount} onInstall={() => void installUpdate()} onBuild={() => void window.api.update.download()}>
+          {!onboarding && <CommandCenter {...props} />}
+        </Titlebar>
+        {/* Only a block-mode campaign covers the workbench. notify is announced with a toast */}
+        {campaign?.mode === 'block' && (
+          <UpdateGate
+            update={update}
+            onDownload={() => void window.api.update.download()}
+            onInstall={() => void installUpdate()}
+            onRetry={() => void window.api.update.check()}
+          />
+        )}
+        <HostStartingNotice status={hostStatus} />
+        {showCliBanner && (
+          <CliMissingBanner onInstall={() => setOnboardingReplay(true, 'tools')} onDismiss={() => setCliBannerDismissed(true)} />
+        )}
+        <div className="workbench wb-row">
+          <ActivityBar
+            {...props}
+            badges={{ agents: shell.counts.agents, plans: runningPlans(app.orchSnapshot?.runs ?? []) }}
+            onActivity={(id) => {
+              const next = activityClick({ activity, sidebarVisible: sidebarOpen }, id)
+              app.showActivity(next.activity)
+              app.setSidebarOpen(next.sidebarVisible)
+            }}
+          />
+          <SideBar {...props} />
+          <div className="wb-main">
+            <EditorArea {...props} />
+            <Panel {...props} />
+          </div>
         </div>
+        <StatusBar {...props} branch={branch} />
+        <Overlays {...app} />
       </div>
-      <StatusBar {...props} branch={branch} />
-      <Overlays {...app} />
-    </div>
+    </ProjectScopeContext.Provider>
   )
 }

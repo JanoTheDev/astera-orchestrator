@@ -26,3 +26,18 @@ export function terminalsWithCreated(
   if (prev.some((x) => x.id === info.id)) return prev
   return [...prev, { id: info.id, buffer: '' }]
 }
+
+/** The exit code main gives every Host-backed handle when it loses sight of the Host (PTY_LOST_SIGHT_EXIT_CODE in
+ *  core/sessions/pty.ts, which the renderer cannot import): a handover to the next Host, or a dropped socket. */
+export const LOST_SIGHT_EXIT_CODE = -1
+/** How long a lost shell's tab waits for its Host to give it back (`terminal:created`, same id) before it goes. */
+export const LOST_TERMINAL_GRACE_MS = 30_000
+
+/** What the list becomes on `terminal:exit`. A shell that ended by itself loses its tab — a dead shell tab is noise.
+ *  One the app only lost sight of keeps it: the next Host (a handover) or the same one (a reconnect) opens it again
+ *  under the same id, and `terminalsWithCreated` then finds it in place. The caller drops it after
+ *  LOST_TERMINAL_GRACE_MS if nothing gives it back. */
+export function terminalsWithExit(prev: TerminalBuffer[], e: { id: string; exitCode: number }): TerminalBuffer[] {
+  if (e.exitCode === LOST_SIGHT_EXIT_CODE) return prev
+  return prev.filter((x) => x.id !== e.id)
+}

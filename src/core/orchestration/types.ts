@@ -144,7 +144,8 @@ export interface Project {
   addedAt: string
   // ── W6-H delivery (delivery.ts) ──
   /** How a finished plan lands: `pr` opens one pull request (`run-open-pr`), `push` merges it into `deliveryBranch` and
-   *  pushes with no review by a person (`deliverByPush`). Absent reads as `'pr'`. A Job may override it. */
+   *  pushes with no review by a person (`deliverByPush`), T6 `merge` merges it there on this computer and pushes nothing.
+   *  Absent reads as `'pr'`. A Job may override it. */
   delivery?: DeliveryMode
   /** The branch a `push` delivery lands on. Absent: the repository's default branch. */
   deliveryBranch?: string
@@ -216,9 +217,10 @@ export type Decision = { at: string; kind: 'approval' | 'escalation' | 'gate' | 
 export type IssuePick = { number: number; title: string; why: string }
 
 /** W6-H: how a finished plan lands (`deliveryOf`). */
-/** `manual`: nothing is delivered by itself. The plan's integration branch is pushed for safekeeping and the finished plan
+/** T6 `merge`: the plan merges into the delivery branch in the project folder on this computer, validated, never pushed.
+ *  `manual`: nothing is delivered by itself. The plan's integration branch is pushed for safekeeping and the finished plan
  *  waits for the owner (`awaiting-review`), who creates the PR or merges from the app (`run-deliver --as pr|push`). */
-export type DeliveryMode = 'pr' | 'push' | 'manual'
+export type DeliveryMode = 'pr' | 'push' | 'merge' | 'manual'
 
 /** 계획. **무엇을 시킬 것인가이고, 그것이 실제로 돈 기록은 JobRun 이다**
  *  (docs/2026-09-21-job-run-split-and-projects-design.md §4).
@@ -305,6 +307,10 @@ export interface Job {
   /** When the plan was archived (`jobs archive`). **Present: it starts no new work** (isJobActive) and default lists
    *  hide it; its running sessions are left alone unless the archive asked to close them. */
   archivedAt?: string
+  /** A later plan's delivery carried this plan's branch to the base (deliveredBy.ts), so its work landed though its own
+   *  delivery did not. The plan's outcome stays as recorded; it reads Delivered. On the Job, not a Run's `deliveryState`:
+   *  the fact is about the plan (a Run's own delivery says nothing of another plan's), and the row reads one place. */
+  deliveredBy?: { jobId: string; at: string; commit?: string }
   // W6-A: the planner found everything asked for already built (`plan-nothing-to-do`). The Job is archived with it.
   /** When, and the planner's summary (its inputs/existing.md). */
   nothingToDo?: { at: string; summary: string }
@@ -349,6 +355,8 @@ export interface Job {
   // W6-H delivery (delivery.ts)
   /** This plan's own delivery, ahead of its project's (`deliveryOf`). Absent: the project's. */
   delivery?: DeliveryMode
+  /** The reasoning effort its Task workers use when a Task has none of its own (resolveWorkerEffort). */
+  effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
   // W7-E planner review and final check
   /** Whether this plan's Tasks are reviewed by a fresh reviewer before they count as done. `jobs plan` sets it to
    *  true unless `--no-review` (there or at `jobs create`) set false; `task-create` then marks each new Task of the

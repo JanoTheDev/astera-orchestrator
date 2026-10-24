@@ -4,13 +4,22 @@ import os from 'node:os'
 import path from 'node:path'
 import {
   carryTranscript,
+  chatRespawnOf,
+  handoverFileIn,
+  handoverOf,
+  leftBehind,
   readSavedSessions,
+  restoreHandover,
   restoreSessions,
   roleOf,
   sessionRestoreFileIn,
   sessionsLeftBehind,
   trackLiveSessions,
+  workingTaskCount,
+  conversationOnDisk,
   writeCleanExit,
+  writeHandover,
+  type HandoverChat,
   type RestoreDeps,
   type SavedSession
 } from './sessionRestore'
@@ -63,13 +72,13 @@ describe('trackLiveSessions', () => {
     const reg = fakeRegistry()
     reg.open('pty-0', meta('sess-old', { accountId: 'acc_1', cwd: '/w/old' })) // live before the tracker starts
     const t = trackLiveSessions({ registry: reg, file, nativeIdOf: async () => null, log: () => {}, pollMs: 60_000 })
-    reg.open('pty-1', meta('sess-1', { accountId: 'acc_1', cwd: '/w/a', title: 'A' }))
+    reg.open('pty-1', meta('sess-1', { accountId: 'acc_1', cwd: '/w/a', title: 'A', startedAt: 7_000 }))
     reg.open('pty-2', { kind: 'terminal', id: 'shell', restore: { cwd: '/w' } }) // a plain shell tab: not kept
     reg.note('pty-1', { codexSessionId: 'native-1' })
     await t.flushed()
     expect(await readSavedSessions(file)).toEqual([
       { sessionId: 'sess-old', accountId: 'acc_1', cwd: '/w/old' },
-      { sessionId: 'sess-1', accountId: 'acc_1', cwd: '/w/a', title: 'A', nativeSessionId: 'native-1' }
+      { sessionId: 'sess-1', accountId: 'acc_1', cwd: '/w/a', title: 'A', nativeSessionId: 'native-1', startedAt: 7_000 }
     ])
     reg.exit('pty-1')
     await t.flushed()
@@ -247,6 +256,34 @@ describe('restoreSessions', () => {
     ])
   })
 
+  it('starts a console fresh, in its folder, when its conversation was never written (no transcript to resume)', async () => {
+    const { deps, created } = restoreDeps({
+      saved: [
+        { sessionId: 'typed', accountId: 'acc_1', cwd: '/w/a', nativeSessionId: 'n-typed' },
+        { sessionId: 'untyped', accountId: 'acc_1', cwd: '/w/b', nativeSessionId: 'n-empty', startedAt: 9_000 }
+      ],
+      hasConversation: async (_acc, id) => id === 'n-typed',
+      handover: true
+    })
+    expect(await restoreSessions(deps)).toEqual({ tabs: 2, planners: 0 })
+    expect(created).toEqual([
+      { accountId: 'acc_1', cwd: '/w/a', rollAccountIds: [], resumeSessionId: 'n-typed', autoAccounts: true, sessionId: 'typed' },
+      { accountId: 'acc_1', cwd: '/w/b', rollAccountIds: [], autoAccounts: true, sessionId: 'untyped', startedAt: 9_000 }
+    ])
+  })
+
+  it('finds a claude conversation under any claude account; a codex one is always resumable', async () => {
+    const accounts = [
+      { id: 'acc_1', label: 'a', configDir: '/cfg/1', provider: 'claude' },
+      { id: 'acc_2', label: 'b', configDir: '/cfg/2', provider: 'claude' },
+      { id: 'acc_cx', label: 'c', configDir: '/cfg/cx', provider: 'codex' }
+    ] as Account[]
+    const find = async (dir: string, id: string) => (dir === '/cfg/2' && id === 'n-1' ? '/cfg/2/projects/x/n-1.jsonl' : null)
+    expect(await conversationOnDisk(accounts, 'acc_1', 'n-1', find)).toBe(true)
+    expect(await conversationOnDisk(accounts, 'acc_1', 'n-none', find)).toBe(false)
+    expect(await conversationOnDisk(accounts, 'acc_cx', 'th-1', find)).toBe(true)
+  })
+
   it('goes on past a tab that cannot be resumed', async () => {
     const { deps } = restoreDeps({
       saved: [
@@ -283,5 +320,207 @@ describe('carryTranscript', () => {
     expect(copies).toEqual([['/cfg/acc_1/projects/-w-a/n-1.jsonl', path.join('/cfg/acc_2', 'projects', '-w-a', 'n-1.jsonl')]])
     await carryTranscript(acc('acc_1'), [acc('acc_1'), acc('acc_2')], 'n-1', io) // already there
     expect(copies).toHaveLength(1)
+  })
+})
+
+describe('the handover (a resume retire)', () => {
+  const BASE = { PATH: '/usr/bin', HOME: '/home/me' }
+  /** What the leaving Host holds: a person's tab, a worker done with its Task, a shell, a run, and an agent session's own
+   *  pty spawn (kept by the session list, not here). */
+  const leaving = () => {
+    const state = crashed()
+    state.dispatches.push({ ...state.dispatches[0], id: 'dsp_done', sessionId: 'worker-done', endedAt: NOW, outcome: 'succeeded' } as never)
+    return handoverOf({
+      sessions: [
+        { sessionId: 'tab-1', accountId: 'acc_1', cwd: '/w/a', title: 'A', nativeSessionId: 'n-1', startedAt: 5_000 },
+        { sessionId: 'worker-done', accountId: 'acc_1', cwd: '/w/wt', nativeSessionId: 'n-w' }
+      ],
+      ptys: [
+        {
+          file: '/bin/zsh',
+          args: ['-l'],
+          opts: { cwd: '/w/a', cols: 100, rows: 40, env: { ...BASE, TERM_PROGRAM: 'astera' } },
+          meta: { kind: 'terminal', id: 'term-1', restore: { projectPath: '/w/a' } }
+        },
+        {
+          file: '/bin/sh',
+          args: ['-c', 'npm run dev'],
+          opts: { cwd: '/w/r/web', cols: 120, rows: 30, env: { ...BASE, PORT: '3000' } },
+          meta: { kind: 'run', id: 'run-1', restore: { projectPath: '/w/r', configId: 'cfg-dev', cwd: '/w/r/web', command: 'npm run dev' } }
+        },
+        { file: 'claude', args: [], opts: { cwd: '/w/a', cols: 80, rows: 24, env: BASE }, meta: meta('tab-1', { accountId: 'acc_1', cwd: '/w/a' }) }
+      ],
+      // The live line processes' notes: a claude chat and a codex chat, as ChatSessionManager.spawn wrote them, and two
+      // that are not chats it could bring back.
+      procs: [
+        {
+          kind: 'chat',
+          id: 'chat-cl',
+          restore: { accountId: 'acc_1', cwd: '/w/a', title: 'Ask', provider: 'claude', bypassPermissions: false, threadId: 'th-cl', unattendedPermission: 'deny-after-60s', chosenModel: 'opus', startedAt: 1_000, rollAccountIds: ['acc_1', 'acc_2'], bypassedToolchain: true, answered: ['r1'] }
+        },
+        { kind: 'chat', id: 'chat-cx', restore: { accountId: 'acc_cx', cwd: '/w/b', title: 'B', provider: 'codex', threadId: 'th-cx', unattendedPermission: 'hold', startedAt: 2_000, slackNotify: true } },
+        { kind: 'chat', id: 'chat-broken', restore: { cwd: '/w/a' } },
+        null
+      ],
+      state,
+      baseEnv: BASE
+    })
+  }
+
+  it('lists the agent sessions with their Dispatch, the shell terminals and the run configurations, each with only the env that differs', () => {
+    const h = leaving()
+    expect(h.sessions).toEqual([
+      { sessionId: 'tab-1', accountId: 'acc_1', cwd: '/w/a', title: 'A', nativeSessionId: 'n-1', startedAt: 5_000 },
+      { sessionId: 'worker-done', accountId: 'acc_1', cwd: '/w/wt', nativeSessionId: 'n-w', dispatchId: 'dsp_done' }
+    ])
+    expect(h.ptys).toEqual([
+      { meta: { kind: 'terminal', id: 'term-1', restore: { projectPath: '/w/a' } }, file: '/bin/zsh', args: ['-l'], cwd: '/w/a', cols: 100, rows: 40, env: { TERM_PROGRAM: 'astera' } },
+      {
+        meta: { kind: 'run', id: 'run-1', restore: { projectPath: '/w/r', configId: 'cfg-dev', cwd: '/w/r/web', command: 'npm run dev' } },
+        file: '/bin/sh',
+        args: ['-c', 'npm run dev'],
+        cwd: '/w/r/web',
+        cols: 120,
+        rows: 30,
+        env: { PORT: '3000' }
+      }
+    ])
+  })
+
+  it('lists each chat with its thread, title, account, model, policy, chain and startedAt, and skips a note it cannot read', () => {
+    expect(leaving().chats).toEqual([
+      { sessionId: 'chat-cl', accountId: 'acc_1', cwd: '/w/a', threadId: 'th-cl', title: 'Ask', model: 'opus', unattendedPermission: 'deny-after-60s', startedAt: 1_000, rollAccountIds: ['acc_1', 'acc_2'], bypassPermissions: false, startWithBypass: true },
+      { sessionId: 'chat-cx', accountId: 'acc_cx', cwd: '/w/b', threadId: 'th-cx', title: 'B', unattendedPermission: 'hold', startedAt: 2_000, slackNotify: true }
+    ])
+  })
+
+  it('respawns a chat on its thread under its own id, keeping what it had', () => {
+    const account = { id: 'acc_1', label: 'a', configDir: '/cfg/acc_1', provider: 'claude' } as Account
+    const [cl] = leaving().chats!
+    expect(chatRespawnOf(cl, account)).toEqual({
+      sessionId: 'chat-cl',
+      account,
+      cwd: '/w/a',
+      resumeSessionId: 'th-cl',
+      title: 'Ask',
+      model: 'opus',
+      unattendedPermission: 'deny-after-60s',
+      startedAt: 1_000,
+      rollAccountIds: ['acc_1', 'acc_2'],
+      bypassPermissions: false,
+      startWithBypass: true
+    })
+    // A chat that never had a thread starts fresh, still under its own id.
+    expect(chatRespawnOf({ sessionId: 'c', accountId: 'acc_1', cwd: '/w' }, account)).toEqual({ sessionId: 'c', account, cwd: '/w' })
+  })
+
+  it('brings the handover back in the next Host under the same ids, in the same folders, and then removes the file', async () => {
+    writeHandover(dir, leaving())
+    const left = await leftBehind(dir)
+    expect(left.saved).toEqual([]) // the handover is the list: the crash list is not brought back beside it
+    const opened: unknown[] = []
+    const respawned: HandoverChat[] = []
+    const { deps, created } = restoreDeps({})
+    const r = await restoreHandover({
+      ...deps,
+      file: handoverFileIn(dir),
+      handover: left.handover!,
+      baseEnv: { PATH: '/bin' },
+      openPty: (o) => void opened.push(o),
+      respawnChat: async (c) => {
+        if (c.sessionId === 'chat-cx') throw new Error('unknown account: acc_cx')
+        respawned.push(c)
+      }
+    })
+    // A chat that cannot be respawned is logged and passed; the others still come back.
+    expect(r).toEqual({ tabs: 2, planners: 0, ptys: 2, chats: 1 })
+    expect(respawned.map((c) => [c.sessionId, c.threadId])).toEqual([['chat-cl', 'th-cl']])
+    expect(created).toEqual([
+      { accountId: 'acc_1', cwd: '/w/a', title: 'A', rollAccountIds: [], resumeSessionId: 'n-1', autoAccounts: true, sessionId: 'tab-1', startedAt: 5_000 },
+      { accountId: 'acc_1', cwd: '/w/wt', rollAccountIds: [], resumeSessionId: 'n-w', autoAccounts: true, sessionId: 'worker-done' }
+    ])
+    expect(buildClaudeCommand('linux', () => null)({ resumeSessionId: created[0].resumeSessionId }).args).toEqual(expect.arrayContaining(['--resume', 'n-1']))
+    expect(opened).toEqual([
+      { file: '/bin/zsh', args: ['-l'], opts: { cwd: '/w/a', cols: 100, rows: 40, env: { PATH: '/bin', TERM_PROGRAM: 'astera' } }, meta: { kind: 'terminal', id: 'term-1', restore: { projectPath: '/w/a' } } },
+      {
+        file: '/bin/sh',
+        args: ['-c', 'npm run dev'],
+        opts: { cwd: '/w/r/web', cols: 120, rows: 30, env: { PATH: '/bin', PORT: '3000' } },
+        meta: { kind: 'run', id: 'run-1', restore: { projectPath: '/w/r', configId: 'cfg-dev', cwd: '/w/r/web', command: 'npm run dev' } }
+      }
+    ])
+    await expect(fs.access(handoverFileIn(dir))).rejects.toThrow()
+    expect((await leftBehind(dir)).handover).toBeNull()
+  })
+
+  it('leaves a worker still holding an open Dispatch to the recovery and a coordinator to its Run, as a crash does', async () => {
+    const { deps, created } = restoreDeps({})
+    const handover = { sessions: ['worker-1', 'coord-1'].map((sessionId) => ({ sessionId, accountId: 'acc_1', cwd: '/w', nativeSessionId: `n-${sessionId}` })), ptys: [] }
+    expect(await restoreHandover({ ...deps, file: handoverFileIn(dir), handover, baseEnv: {}, openPty: () => {}, respawnChat: async () => {} })).toEqual({ tabs: 0, planners: 0, ptys: 0, chats: 0 })
+    expect(created).toEqual([])
+  })
+
+  it('goes on past a pty that cannot be reopened', async () => {
+    const { deps } = restoreDeps({})
+    const pty = leaving().ptys[0]
+    const r = await restoreHandover({
+      ...deps,
+      file: handoverFileIn(dir),
+      handover: { sessions: [], ptys: [{ ...pty, cwd: '/gone' }, pty] },
+      baseEnv: {},
+      openPty: (o) => {
+        if (o.opts.cwd === '/gone') throw new Error('no such folder')
+      },
+      respawnChat: async () => {}
+    })
+    expect(r.ptys).toBe(1)
+  })
+
+  it('keeps the crash restore as it was when no handover was left', async () => {
+    const file = sessionRestoreFileIn(dir)
+    await fs.mkdir(path.dirname(file), { recursive: true })
+    const saved: SavedSession[] = [{ sessionId: 'sess-1', accountId: 'acc_1', cwd: '/w/a', nativeSessionId: 'n-1' }]
+    await fs.writeFile(file, JSON.stringify(saved))
+    expect(await leftBehind(dir)).toEqual({ handover: null, saved })
+    writeCleanExit(dir)
+    expect(await leftBehind(dir)).toEqual({ handover: null, saved: [] })
+    // A handover beside an unclean marker-less exit wins: the same sessions are not brought back twice
+    writeHandover(dir, { sessions: saved, ptys: [] })
+    // An older Host's handover has no chats: read as none
+    expect(await leftBehind(dir)).toEqual({ handover: { sessions: saved, ptys: [], chats: [] }, saved: [] })
+  })
+})
+
+describe('workingTaskCount', () => {
+  it('counts the Tasks a handover would cut short: a worker, a check, a review or a merge', () => {
+    const task = (id: string, status: string) => ({ id, status }) as OrchState['tasks'][number]
+    const base = crashed()
+    const s = {
+      ...base,
+      tasks: ['pending', 'ready', 'dispatched', 'validating', 'reviewing', 'merging', 'completed', 'failed', 'blocked'].map((st, i) => task(`t${i}`, st)),
+      dispatches: [{ ...base.dispatches[0], id: 'dsp_t2', taskId: 't2' }]
+    }
+    expect(workingTaskCount(s)).toBe(4)
+    expect(workingTaskCount(null)).toBe(0)
+  })
+
+  it('does not count a paused plan\'s dispatched Task, whose Dispatch the pause closed', () => {
+    const base = crashed()
+    const paused = {
+      ...base,
+      tasks: [{ id: 't1', status: 'dispatched' } as OrchState['tasks'][number]],
+      dispatches: [{ ...base.dispatches[0], id: 'dsp_p', taskId: 't1', workerState: 'stopped', endedAt: NOW, closedBy: 'pause' } as OrchState['dispatches'][number]]
+    }
+    expect(workingTaskCount(paused)).toBe(0)
+  })
+
+  it('counts a plan\'s replan in flight: its planner session would not come back', () => {
+    const base = crashed()
+    const job = { ...base.jobs[0], replanning: { runId: 'run_1', mode: 'completion', wave: 1, done: 1, startedAt: NOW, sessionId: 'replan-1' } } as OrchState['jobs'][number]
+    expect(workingTaskCount({ ...base, tasks: [], dispatches: [], jobs: [job] })).toBe(1)
+    expect(workingTaskCount({ ...base, tasks: [], dispatches: [], jobs: [job] }, (id) => id === 'replan-1')).toBe(1)
+    expect(workingTaskCount({ ...base, tasks: [], dispatches: [], jobs: [{ ...job, archivedAt: NOW }] })).toBe(0)
+    // a replan whose planner already died (a crash, an older swap) holds nothing back
+    expect(workingTaskCount({ ...base, tasks: [], dispatches: [], jobs: [job] }, () => false)).toBe(0)
   })
 })

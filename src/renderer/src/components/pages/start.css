@@ -1,20 +1,25 @@
 /* Start page and New modal (T4: DESIGN-W13 §11-12, a view tab). Tokens only; spacing in steps of 4. */
 
-/* The view tab's content: the form scrolls, the footer with the one primary button stays in view (DESIGN-W11 §9). */
+/* The view tab's content: one column that scrolls; the primary button sits in the composer (T17). */
 .start-page { display: flex; flex-direction: column; flex: 1; min-height: 0; background: var(--bg); color: var(--text); }
 .start-scroll { flex: 1; min-height: 0; overflow-y: auto; }
-.start-inner { max-width: 720px; margin: 0 auto; padding: var(--sp-6) var(--sp-5) var(--sp-8); display: grid; gap: var(--sp-3); }
+.start-inner { max-width: 760px; margin: 0 auto; padding: var(--sp-6) var(--sp-5) var(--sp-8); display: grid; gap: var(--sp-3); }
 .start-head { padding-inline: 0; }
 .start-head .ui-page-header__title { font-size: var(--fs-18); }
+/* Header row: the title, then who the plan is for (read-only, or the one picker it needs). Wraps rather than squeeze. */
+.start-head .ui-page-header__row { flex-wrap: wrap; row-gap: var(--sp-2); }
+.start-head .ui-page-header__actions { flex: 0 1 auto; min-width: 0; }
+.start-for { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; color: var(--text-dim); font-size: var(--fs-12); }
+.start-for-label { display: inline-flex; align-items: center; gap: var(--sp-1); min-width: 0; }
+.start-for-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.start-for-pick { min-width: 160px; max-width: 280px; }
 
 /* The composer: one flat card, the box borderless inside it; the card takes the focus ring */
-.start-composer { display: grid; gap: 0; padding: 0; overflow: hidden; }
+.start-composer { display: grid; gap: 0; padding: 0; }
 .start-composer:focus-within { border-color: var(--focus-border); }
-.start-composer-head { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--line); color: var(--text-dim); }
-.start-project { min-width: 0; max-width: 320px; }
 .start-composer .start-text {
   width: 100%;
-  min-height: 144px;
+  min-height: 112px;
   padding: var(--sp-3);
   border: 0;
   border-radius: 0;
@@ -27,36 +32,51 @@
 }
 .start-composer .start-text::placeholder { color: var(--text-faint); }
 .start-composer .start-text:focus-visible { outline: none; box-shadow: none; }
-.start-composer-bar { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-1) var(--sp-2); border-top: 1px solid var(--line); background: var(--panel); }
-.start-composer-hint { flex: 1; min-width: 0; color: var(--text-faint); font-size: var(--fs-12); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Footer: tools on the left, mode + primary + menu on the right; on a narrow pane the right group drops below */
+.start-composer-bar {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--sp-2);
+  padding: var(--sp-2); border-top: 1px solid var(--line); background: var(--panel);
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+}
+.start-bar-tools { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; }
+.start-bar-note { color: var(--text-dim); font-size: var(--fs-12); white-space: nowrap; }
+.start-bar-go { display: flex; align-items: center; gap: var(--sp-2); margin-left: auto; }
+.start-bar-go .ui-tip__body { white-space: normal; width: max-content; max-width: 320px; }
+/* The primary button's tooltip opens leftwards: it sits at the card's right edge */
+.start-go > .ui-tip__body { left: auto; right: 0; translate: none; }
 
-/* Attachments: chips with the image itself when there is one */
+/* Attachments: chips inside the box, with the image itself when there is one */
 .start-files { display: flex; flex-wrap: wrap; gap: var(--sp-1); margin: 0; padding: 0 var(--sp-3) var(--sp-2); list-style: none; }
 .start-file { gap: var(--sp-1); max-width: 240px; padding-right: 2px; }
 .start-file-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .start-thumb { width: 20px; height: 20px; border-radius: var(--radius-sm); object-fit: cover; flex: none; }
 
-.start-mode-hint { margin: 0; color: var(--text-dim); font-size: var(--fs-12); }
-.start-starters { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
-.start-console { justify-self: start; margin-left: calc(-1 * var(--sp-2)); }
+/* "Start from…": a labelled row of quiet starters */
+.start-starters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1); }
+.start-starters-label { margin-right: var(--sp-1); color: var(--text-faint); font-size: var(--fs-12); }
 
-/* Options: the disclosure, then flat rows of fields */
-.start-opts { display: grid; gap: var(--sp-2); margin-top: var(--sp-2); }
-.start-more { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; margin-left: calc(-1 * var(--sp-2)); }
-.start-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--sp-4); align-items: end; padding: var(--sp-3) 0; border-top: 1px solid var(--line); }
-/* a long option label (Delivery) must not spill into the next cell */
-.start-options > * { min-width: 0; }
-.start-options select, .start-options input:not([type='checkbox']) { width: 100%; min-width: 0; text-overflow: ellipsis; }
-.start-options .start-handsoff { grid-column: 1 / -1; }
-/* #119: the toggles sit inline with their label here, not in .ui-field--toggle's far-right column */
-.start-options .ui-field--toggle { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2); }
-.start-options .ui-field--toggle .ui-field__label { order: 2; }
-.start-options .ui-field--toggle .ui-field__hint { order: 3; flex-basis: 100%; }
-
-.start-foot { flex: none; border-top: 1px solid var(--line); background: var(--panel); }
-.start-foot-inner { max-width: 720px; margin: 0 auto; padding: var(--sp-2) var(--sp-5); display: flex; align-items: center; justify-content: flex-end; gap: var(--sp-4); }
-.start-foot-notes { flex: 1; min-width: 0; color: var(--text-dim); font-size: var(--fs-12); }
-.start-foot-notes p { margin: 0; }
+/* The settings: a summary row, then the groups it opens */
+.start-settings { display: grid; gap: var(--sp-2); margin-top: var(--sp-2); }
+.start-summary.ui-btn { justify-self: start; max-width: 100%; height: auto; min-height: var(--h-md); padding-block: var(--sp-1); text-align: left; }
+.start-summary > .ui-btn__label { display: flex; flex-wrap: wrap; align-items: center; min-width: 0; flex: 1; column-gap: var(--sp-2); row-gap: 2px; }
+.start-summary-part { color: var(--text-dim); white-space: nowrap; }
+.start-summary-part + .start-summary-part::before { content: '·'; margin-right: var(--sp-2); color: var(--text-faint); }
+.start-summary:hover .start-summary-part { color: var(--text); }
+.start-summary-chevron { color: var(--text-faint); }
+/* Who / When / How stacked; each group's fields side by side as room allows (never so narrow a value is cut) */
+.start-options {
+  display: grid; gap: var(--sp-4);
+  padding: var(--sp-3) var(--sp-4); border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel);
+}
+.start-group { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); align-items: end; gap: var(--sp-3) var(--sp-4); min-width: 0; margin: 0; padding: 0; border: 0; }
+.start-group legend { padding: 0; margin-bottom: var(--sp-2); color: var(--text-faint); font-size: var(--fs-11); font-weight: var(--fw-semi); text-transform: uppercase; letter-spacing: 0.04em; }
+.start-group > * { min-width: 0; }
+.start-group .start-sched { grid-column: 1 / -1; }
+.start-group .sel, .start-group input:not([type='checkbox']) { width: 100%; min-width: 0; }
+/* the toggle sits inline with its label */
+.start-group .ui-field--toggle { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
+/* One line under the groups: the hint of the setting under the pointer or the focus */
+.start-hint { grid-column: 1 / -1; min-height: calc(var(--fs-12) * var(--lh)); margin: 0; color: var(--text-dim); font-size: var(--fs-12); line-height: var(--lh); }
 
 /* W10-A Run as written by name: the typed names, the folder they come from, and what they resolved to. */
 .start-names { display: grid; gap: var(--sp-1); padding: var(--sp-2) var(--sp-3); border-top: 1px solid var(--line); font-size: var(--fs-12); }
@@ -78,7 +98,7 @@
 .new-console { justify-self: start; margin-top: var(--sp-1); }
 .new-choice-go { color: var(--text-faint); }
 
-/* Scheduling under the Options toggle, and the warnings the footer and the folder rows show (was jobs-sched / warn / warn-text in modal.css, accounts.css) */
+/* Scheduling under When, and the warnings the footer and the folder rows show (was jobs-sched / warn / warn-text in modal.css, accounts.css) */
 .start-sched { display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-1); }
 .start-warn { color: var(--warn); font-size: var(--fs-13); }
 .start-warn-text { color: var(--warn); font-size: var(--fs-12); line-height: var(--lh); margin: var(--sp-2) 0 0; }

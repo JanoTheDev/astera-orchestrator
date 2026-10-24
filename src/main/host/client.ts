@@ -2,7 +2,7 @@
 // `status()`: nothing else in slice 1 depends on the Host being there, and every failure ends here,
 // as a sentence somebody can read, rather than reaching a caller.
 import net from 'node:net'
-import { HOST_PROTOCOL, HOST_YIELD_WORKTREES, HOST_YIELD_DISPATCH, HOST_YIELD_ROLLING, HOST_YIELD_CHAT_TAKEOVER, HOST_YIELD_JOURNAL, HOST_YIELD_UNDERSTANDING, HOST_YIELD_WORKSPACE, HOST_YIELD_ORCH_STATE_LATEST, HOST_YIELD_WORK_UNITS, HOST_YIELD_SLACK, HOST_YIELD_RECOVERY, type ClientMessage, type HostMessage } from '../../core/host/protocol'
+import { HOST_PROTOCOL, HOST_YIELD_WORKTREES, HOST_YIELD_DISPATCH, HOST_YIELD_ROLLING, HOST_YIELD_CHAT_TAKEOVER, HOST_YIELD_JOURNAL, HOST_YIELD_UNDERSTANDING, HOST_YIELD_WORKSPACE, HOST_YIELD_ORCH_STATE_LATEST, HOST_YIELD_WORK_UNITS, HOST_YIELD_SLACK, HOST_YIELD_RECOVERY, type ClientMessage, type HostMessage, type RetireOutcome } from '../../core/host/protocol'
 import { HOST_UNRESPONSIVE_MS, PING_MS } from '../../core/host/unresponsive'
 import { hostIsOutdated, hostSpeaksPing } from './outdated'
 import { encodeLine, createLineReader } from '../../host/framing'
@@ -110,6 +110,11 @@ export const PING_MISSES = HOST_UNRESPONSIVE_MS / PING_MS
  *  (host/index.ts), which is the point by which it has stopped being polite about leaving. */
 export const RETIRE_SETTLE_MS = 2_000
 
+/** How long a `resume` retire waits for a `retire-refused` before it takes the Host as leaving. The Host refuses in the
+ *  same message handler that reads the retire, so a refusal arrives within one round trip; a retire it takes only ends
+ *  the connection, seconds later (host/index.ts `leave`). */
+export const RETIRE_ANSWER_MS = 1_000
+
 /** Which Host answered, as the `hello` reports it. Two `hello`s with the same pair came from the same
  *  process, and one whose registry therefore still holds the ptys this app spawned before the drop. */
 export interface HostIdentity {
@@ -149,6 +154,8 @@ const connectOnce = async (address: string, log: (m: string) => void): Promise<n
 export class HostClient {
   private socket: net.Socket | null = null
   private stopped = false
+  /** A `resume` retire is waiting for the Host's answer (`askRetire`): the connection ending then is the Host leaving. */
+  private retireAsked = false
   /** Which `cycle()` is the current one. A cycle still waiting on an asynchronous spawnHost when a
    *  restart begins another is superseded, and its spawn is no longer wanted. */
   private cycleGen = 0
@@ -427,13 +434,25 @@ export class HostClient {
    * Waits out the Host's own way out (300ms to settle, 1.5s before it stops being polite — EXIT_*_MS
    * in host/index.ts) and returns. It never throws: a Host that was not there, or does not answer, is
    * the outcome this was asking for.
+   *
+   * **A `resume` retire can be refused** (a Task is working, host/server.ts): that resolves `refused` with the Host's
+   * counts, and the connection stays as it was — nothing stopped, nothing announced. A plain retire from the app is
+   * never refused (only `reason: 'user'` is), so it does not wait for an answer. `onLeaving` runs once the Host is
+   * taken as leaving, never for a refusal.
    */
-  async retire(a: { announce?: boolean } = {}): Promise<void> {
-    try {
-      this.send({ t: 'retire' })
-    } catch {
-      /* nothing listening is the state this asks for */
+  async retire(a: { announce?: boolean; resume?: boolean; onLeaving?: () => void } = {}): Promise<RetireOutcome> {
+    if (a.resume) {
+      // `resume`: a handover, so the next Host brings the sessions back (protocol.ts); an older Host ignores it.
+      const refused = await this.askRetire({ t: 'retire', resume: true })
+      if (refused) return refused
+    } else {
+      try {
+        this.send({ t: 'retire' })
+      } catch {
+        /* nothing listening is the state this asks for */
+      }
     }
+    a.onLeaving?.()
     try {
       await this.stop()
     } catch {
@@ -456,6 +475,38 @@ export class HostClient {
       }
     }
     await sleep(RETIRE_SETTLE_MS)
+    return { outcome: 'left' }
+  }
+
+  /** Sends `m` and resolves the Host's `retire-refused`, or null once RETIRE_ANSWER_MS passed or the connection ended
+   *  without one (the Host is leaving). While it waits, a connection the Host ends is not a drop to reconnect from:
+   *  `retire` is about to stop this client anyway. */
+  private askRetire(m: ClientMessage): Promise<RetireOutcome | null> {
+    const socket = this.socket
+    if (!socket || socket.destroyed) return Promise.resolve(null)
+    return new Promise((resolve) => {
+      const settle = (r: RetireOutcome | null): void => {
+        clearTimeout(timer)
+        off()
+        socket.off('close', onClose)
+        this.retireAsked = false
+        resolve(r)
+      }
+      const onClose = (): void => settle(null)
+      const off = this.onMessage((h) => {
+        if (h.t === 'retire-refused')
+          settle({ outcome: 'refused', sessions: h.sessions, runs: h.runs, ...(h.tasks !== undefined ? { tasks: h.tasks } : {}) })
+      })
+      const timer = setTimeout(() => settle(null), RETIRE_ANSWER_MS)
+      timer.unref?.()
+      socket.once('close', onClose)
+      this.retireAsked = true
+      try {
+        if (!this.send(m)) settle(null)
+      } catch {
+        settle(null)
+      }
+    })
   }
 
   /**
@@ -583,7 +634,7 @@ export class HostClient {
       this.clearHandshake()
       this.stopHeartbeat()
       this.socket = null
-      if (this.stopped) return
+      if (this.stopped || this.retireAsked) return
       const retiringWaitMs = this.deps.retiringWaitMs ?? RETIRING_WAIT_MS
       if (hungUpEarly) {
         this.retiringSince ??= Date.now()

@@ -82,9 +82,9 @@ function setup(over: Record<string, Reply | Reply[]> = {}, o: { merge?: 'ok' | '
       return o.validate === 'fail' || (o.validate === 'fail-second' && validated.length === 2) ? { ok: false, reason: 'npm test exited 1' } : { ok: true, ran: 1 }
     }
   }
-  const go = (branch?: string, defaultBranch?: string) =>
+  const go = (branch?: string, defaultBranch?: string, local?: boolean) =>
     deliverByPush(
-      { cwd: '/repo', worktrees: ['/wt-a', '/wt-b'], message: 'Deliver plan: P\n\nFixes #7', ...(branch ? { branch } : {}), ...(defaultBranch ? { defaultBranch } : {}) },
+      { cwd: '/repo', worktrees: ['/wt-a', '/wt-b'], message: 'Deliver plan: P\n\nFixes #7', ...(branch ? { branch } : {}), ...(defaultBranch ? { defaultBranch } : {}), ...(local ? { local } : {}) },
       ctx
     )
   return { ...g, merges, validated, events, logs, go }
@@ -593,5 +593,38 @@ describe('T2: a delivery that waited for another plan validates once', () => {
     expect(h.validated).toEqual(['/repo'])
     expect(h.calls.filter((c) => c[0] === 'fetch')).toHaveLength(1)
     expect(h.calls.filter((c) => c[0] === 'push' && c[2] === 'main')).toHaveLength(1)
+  })
+})
+
+describe('T6: a local merge delivery', () => {
+  const noOrigin = { 'symbolic-ref --quiet --short refs/remotes/origin/HEAD': { ok: false } }
+
+  it('merges and validates into the folder\'s own branch, and never fetches or pushes', async () => {
+    const h = setup(noOrigin)
+    const r = await h.go(undefined, undefined, true)
+    expect(r).toEqual({ ok: true, branch: 'main', sha: 'merged', merged: ['/wt-a', '/wt-b'], validated: 1 })
+    expect(h.merges).toHaveLength(1)
+    expect(h.validated).toEqual(['/repo'])
+    expect(h.calls.some((c) => c[0] === 'fetch' || c[0] === 'push')).toBe(false)
+  })
+
+  it('refuses a folder with uncommitted changes on that branch', async () => {
+    const h = setup({ ...noOrigin, 'status --porcelain --untracked-files=no': { stdout: ' M a.ts' } })
+    const r = await h.go('main', undefined, true)
+    expect(r).toMatchObject({ ok: false, reason: 'your folder /repo has 1 uncommitted change(s)' })
+    expect(h.merges).toEqual([])
+  })
+
+  it('refuses a folder on another branch than the delivery branch', async () => {
+    const h = setup({ ...noOrigin, 'symbolic-ref --quiet --short HEAD': { stdout: 'feature' } })
+    const r = await h.go('main', undefined, true)
+    expect(r).toMatchObject({ ok: false, reason: 'your folder /repo is on branch feature, not main' })
+  })
+
+  it('undoes its merges when the validation fails', async () => {
+    const h = setup(noOrigin, { validate: 'fail' })
+    const r = await h.go('main', undefined, true)
+    expect(r).toMatchObject({ ok: false, code: 'validation-failed' })
+    expect(h.head()).toBe('base')
   })
 })

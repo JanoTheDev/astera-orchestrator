@@ -244,11 +244,15 @@ export class ChatSessionManager {
     /** plan ruling P5: the Host spawned this proc and is its writer until its handshake and carry-on
      *  settle. Written into the note as `hostStarting: true`; the Host clears it. */
     hostStarting?: boolean
+    /** Epoch ms the chain was first started (SessionInfo.startedAt); a roll passes its chain's, a new session takes now. */
+    startedAt?: number
+    /** The id the session had: a Host handover brings a chat back under it, so its tab finds it again. A new id when absent. */
+    sessionId?: string
   }): SessionInfo {
     const provider = providerOf(opts.account)
     const descriptor = descriptorOf(this.deps.descriptors, opts.account)
 
-    const id = randomUUID()
+    const id = opts.sessionId ?? randomUUID()
     const title = opts.title ?? path.basename(opts.cwd)
     const bypassPermissions = opts.bypassPermissions
     const bypass = !!bypassPermissions
@@ -256,6 +260,7 @@ export class ChatSessionManager {
     const { schedule, slackNotify, rollAccountIds, rollPrompt } = opts
     const initialPrompt = opts.initialPrompt
     const unattended: UnattendedPermission = opts.unattendedPermission ?? 'hold'
+    const startedAt = opts.startedAt ?? Date.now()
 
     // design F5 fix round 1: BYPASS_ENV rides here, not just on a manual retry's respawn — a rolling
     // respawn whose chain was already granted the bypass has to keep it (opts.startWithBypass, set by
@@ -320,7 +325,8 @@ export class ChatSessionManager {
         ...(initialPrompt !== undefined && initialPrompt.length <= MAX_SNAPSHOT_PROMPT_CHARS
           ? { carryOn: initialPrompt, carrySent: false }
           : {}),
-        ...(opts.hostStarting ? { hostStarting: true } : {})
+        ...(opts.hostStarting ? { hostStarting: true } : {}),
+        startedAt
       }
     }
     // Wrapped before the adapter ever sees it (design F5 / Task 7): `onLine` takes one subscriber, so
@@ -344,7 +350,8 @@ export class ChatSessionManager {
       ...(schedule === undefined ? {} : { schedule }),
       ...(slackNotify === undefined ? {} : { slackNotify }),
       ...(rollAccountIds === undefined ? {} : { rollAccountIds }),
-      ...(rollPrompt === undefined ? {} : { rollPrompt })
+      ...(rollPrompt === undefined ? {} : { rollPrompt }),
+      startedAt
     }
 
     const adapter = this.makeAdapter(proc, { mode: 'fresh' }, provider)

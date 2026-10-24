@@ -12,6 +12,9 @@ export interface IndexedRow {
   sessionId: string
   title: string
   awaitingReply: boolean
+  /** HistoryEntry.model / effort, when the rollout's turn_context names them. */
+  model?: string
+  effort?: string
   /** HistoryEntry.hidden: kept for the delete, left out of the list. */
   hidden?: boolean
 }

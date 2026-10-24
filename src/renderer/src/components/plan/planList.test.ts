@@ -23,6 +23,17 @@ describe('planStatusOf', () => {
     expect(planStatusOf(row({ outcome: 'completed' }))).toEqual({ key: 'pages.plans.status.done', tone: 'ok' })
   })
 
+  it('reads Delivered, with the plan that delivered it, for a failed plan whose work landed through a later plan', () => {
+    const deliveredBy = { jobId: 'later', title: 'Deliver redesign' }
+    const status = planStatusOf(row({ outcome: 'failed', deliveryError: 'merge conflict', deliveredBy }))
+    expect(status).toEqual({ key: 'pages.plans.status.deliveredBy', tone: 'ok', params: { plan: 'Deliver redesign' }, deliveredBy: 'later' })
+    expect(planStatusOf(row({ outcome: 'completed', deliveredBy })).key).toBe('pages.plans.status.deliveredBy')
+    // archived still wins; a plan running again is running, not delivered
+    expect(planStatusOf(row({ outcome: 'failed', archivedAt: 'x', deliveredBy })).key).toBe('jobs.lifecycle.archived')
+    expect(planStatusOf(row({ outcome: 'running', deliveredBy })).key).toBe('pages.plans.status.working')
+    expect(isStalledPlan(row({ outcome: 'failed', deliveredBy }))).toBe(false)
+  })
+
   // T8: a running plan with nothing that can move never reads Working
   it('says Needs you or Stalled for a running plan nothing can move', () => {
     expect(planStatusOf(row({ stuck: 'needs-you', tasks: [task('a', { status: 'blocked' })] }))).toEqual({ key: 'plan.outcome.needsYou', tone: 'warn' })

@@ -28,6 +28,8 @@ docs/*
 !docs/jobs.md
 !docs/how-it-works.md
 !docs/usage-guide.md
+# Before/after screenshots of the Deliver redesign plan (scripts/shoot.mjs, docs/dev/shots/SEED.md): reviewed as images.
+!docs/shots/
 # Published deliberately: `astera` is a public interface, and the README links to this reference.
 !docs/cli.md
 # Published deliberately: `astera mcp serve` is a public interface, and the README links to it.

@@ -69,10 +69,11 @@ export function writeSectionOpen(storage: Pick<Storage, 'setItem'> | undefined, 
   }
 }
 
-/** A ViewPane's saved size (a flex-grow weight, in px at the time it was saved); undefined when absent or not a positive number. */
+/** A ViewPane's saved flex-grow weight (about 1 = an equal share of the column; a pane's height is weight / sum of weights).
+ *  Stored under `.weight`: the old px-scale `.size` values are never read, so those panes fall back to their default split. */
 export function readPaneSize(storage: Pick<Storage, 'getItem'> | undefined, id: string): number | undefined {
   try {
-    const n = Number(storage?.getItem(`${sectionStorageKey(id)}.size`))
+    const n = Number(storage?.getItem(`${sectionStorageKey(id)}.weight`))
     return n > 0 && Number.isFinite(n) ? n : undefined
   } catch {
     return undefined
@@ -81,22 +82,37 @@ export function readPaneSize(storage: Pick<Storage, 'getItem'> | undefined, id: 
 
 export function writePaneSize(storage: Pick<Storage, 'setItem'> | undefined, id: string, size: number): void {
   try {
-    storage?.setItem(`${sectionStorageKey(id)}.size`, String(Math.round(size)))
+    storage?.setItem(`${sectionStorageKey(id)}.weight`, String(Math.round(size * 1000) / 1000))
   } catch {
     /* storage unavailable: the size just isn't remembered */
   }
 }
 
-/** The heights of a column of open panes after the sash above pane `i` moves pane `i` to `px`: the pair `i-1`/`i`
- *  trades height (their sum is kept), each stays at least `min`, the others are untouched. */
-export function paneResize(heights: number[], i: number, px: number, min: number): number[] {
-  if (i < 1 || i >= heights.length) return heights
-  const pair = heights[i - 1] + heights[i]
+/** The heights of a column of panes after the sash above pane `i` moves pane `i` to `px`. The sash trades height with
+ *  the nearest open pane above it (collapsed panes between keep their header and are skipped, never resized): the pair's
+ *  sum is kept, each stays at least `min`, every other height is untouched. A collapsed `i`, or no open pane above, is a no-op. */
+export function resizePair(heights: number[], open: boolean[], i: number, px: number, min: number): number[] {
+  let j = i - 1
+  while (j >= 0 && !open[j]) j--
+  if (j < 0 || !open[i]) return heights
+  const pair = heights[j] + heights[i]
   const next = Math.min(Math.max(min, pair - min), Math.max(min, Math.round(px)))
   const out = heights.slice()
   out[i] = next
-  out[i - 1] = pair - next
+  out[j] = pair - next
   return out
+}
+
+/** The flex-grow weights for the two panes of a resized pair, given the weights they actually render with (`grows`: the
+ *  saved weight, else the CSS flex-grow) and their new heights. `px` is the height one unit of weight takes among the
+ *  flex-basis-0 panes of the column (height / weight of any of them), when there is one: weights are then `height / px`,
+ *  which holds every other pane at its height even when a pair member was content-sized (`flex: none`) until now.
+ *  Without such a reference the pair splits its combined weight. */
+export function pairWeights(grows: [number, number], heights: [number, number], px?: number): [number, number] {
+  if (px && px > 0) return [heights[0] / px, heights[1] / px]
+  const total = grows[0] + grows[1] || 1
+  const sum = heights[0] + heights[1] || 1
+  return [(total * heights[0]) / sum, (total * heights[1]) / sum]
 }
 
 /** Join class names, skipping falsy ones. */

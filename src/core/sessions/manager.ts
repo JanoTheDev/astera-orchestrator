@@ -240,6 +240,10 @@ export class SessionManager {
     effort?: string | null
     /** claude only (W6-B): `--disallowedTools` (commands.ts). */
     disallowedTools?: string[]
+    /** The session's id, for a Host handover resuming it under the id its tab and Dispatch know. A new one otherwise. */
+    id?: string
+    /** Epoch ms the chain was first started (SessionInfo.startedAt): a roll passes its chain's, a new session takes now. */
+    startedAt?: number
   }): SessionInfo {
     // The folder `prepare` just confirmed is not looked at again. The sync check is left only for a
     // caller that did not prepare (tests, and anything added later without it): it is the one that can
@@ -260,7 +264,8 @@ export class SessionManager {
       const mixed = rollProviders.some((p) => p !== rollProviders[0])
       if (mixed) throw new Error('ROLL_MIXED_PROVIDER: cannot roll a mix of Claude and Codex accounts')
     }
-    const id = randomUUID()
+    const id = opts.id ?? randomUUID()
+    const startedAt = opts.startedAt ?? Date.now()
     // statusLine injection: --settings installs a session-scoped statusLine, and the capture script
     // records context_window and rate_limits into outPath. When ASTERA_STATUSLINE_ORIGINAL is set the
     // existing HUD is chained. statusLine is only injected for providers that use that mechanism.
@@ -382,7 +387,8 @@ export class SessionManager {
           ...(opts.slackNotify !== undefined ? { slackNotify: opts.slackNotify } : {}),
           ...(opts.bypassPermissions !== undefined ? { bypassPermissions: opts.bypassPermissions } : {}),
           ...(opts.model ? { model: opts.model } : {}),
-          ...(opts.effort ? { effort: opts.effort } : {})
+          ...(opts.effort ? { effort: opts.effort } : {}),
+          startedAt
         }
       }
     })
@@ -402,7 +408,8 @@ export class SessionManager {
       bypassPermissions: opts.bypassPermissions,
       schedule: opts.schedule,
       ...(opts.model ? { model: opts.model } : {}),
-      ...(opts.effort ? { effort: opts.effort } : {})
+      ...(opts.effort ? { effort: opts.effort } : {}),
+      startedAt
     }
     return this.track(info, pty)
   }

@@ -133,7 +133,7 @@ const JOB_MAKING_FLAGS: readonly UsageFlag[] = [
     about: 'repair failing tasks instead of failing them'
   },
   // W6-H delivery
-  { name: 'delivery', value: '<pr|push|manual>', about: "how this Job's finished plan lands, ahead of its project's: one pull request, pushed to the delivery branch with no review by a person, or left for you to review and deliver (manual)" },
+  { name: 'delivery', value: '<pr|push|merge|manual>', about: "how this Job's finished plan lands, ahead of its project's: one pull request, pushed to the delivery branch with no review by a person, merged into the delivery branch on this computer and not pushed (merge), or left for you to review and deliver (manual)" },
   { name: 'max-fix-attempts', value: '<n>', about: 'repairs per task; needs --convergence' },
   { name: 'max-review-rounds', value: '<n>', about: 'review rounds per task; needs --convergence' },
   {
@@ -425,11 +425,11 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
   'projects-set': {
     summary: "set a project's delivery, auto-approve, hands-off, serial files, test command, concurrency, review rounds, replan, setup command, prompts folder, standing grants, coordinator model and account",
     detail:
-      'pr (the default) opens one pull request per plan and never merges it. push merges a finished plan into the delivery branch (the default branch unless --delivery-branch) and pushes it, with no review by a person, after the reviews, the final check and the validation pass; it stops and escalates when the folder is not on that branch, has uncommitted changes, cannot fast-forward, conflicts, fails validation or is rejected, and never force-pushes. A Job may override it (`jobs create --delivery`). Defaults: delivery pr, auto-approve off, concurrency 3, review rounds 5, replan waves. --auto-approve on starts a plan without waiting for approval; --hands-off on also lets its coordinator answer its own escalations and bypasses permissions for its sessions. --test-command is saved as a run configuration and validates every new Task that has no --validate (--test-config picks an existing one). A new Job copies the concurrency, replan and review rounds when it sets none. An empty value clears a setting back to its default. Refused from an agent session and an MCP client.',
+      'pr (the default) opens one pull request per plan and never merges it. push merges a finished plan into the delivery branch (the default branch unless --delivery-branch) and pushes it, with no review by a person, after the reviews, the final check and the validation pass; it stops and escalates when the folder is not on that branch, has uncommitted changes, cannot fast-forward, conflicts, fails validation or is rejected, and never force-pushes. merge does the same merge and validation in the project folder on this computer and pushes nothing. manual waits for you to review the plan. No delivery waits on GitHub Actions: the validation is the local checks. A Job may override it (`jobs create --delivery`). Defaults: delivery pr, auto-approve off, concurrency 3, review rounds 5, replan waves. --auto-approve on starts a plan without waiting for approval; --hands-off on also lets its coordinator answer its own escalations and bypasses permissions for its sessions. --test-command is saved as a run configuration and validates every new Task that has no --validate (--test-config picks an existing one). A new Job copies the concurrency, replan and review rounds when it sets none. An empty value clears a setting back to its default. Refused from an agent session and an MCP client.',
     flags: [
       ID('<projectId>', 'the project to set'),
-      { name: 'delivery', value: '<pr|push|manual>', about: 'how its finished plans land' },
-      { name: 'delivery-branch', value: '<branch>', about: 'the branch a push lands on (default: the repository default branch)' },
+      { name: 'delivery', value: '<pr|push|merge|manual>', about: 'how its finished plans land' },
+      { name: 'delivery-branch', value: '<branch>', about: 'the branch a push or merge lands on (default: the repository default branch)' },
       // W7-A, W7-B
       { name: 'auto-approve', value: '<on|off>', about: 'approve this project\'s plans as soon as their planner finishes, with no one asked (default off)' },
       // #117
@@ -503,7 +503,8 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       // W8-C plan after plan
       { name: 'after', value: '<jobId>', about: 'queue it after that Job (needs --coordinator-account): its planner starts by itself once that Job is delivered' },
       // #117
-      { name: 'hands-off', about: "run this plan hands-off, ahead of its project's setting: nothing waits on the owner: the plan starts by itself once it holds, its coordinator answers its own escalations, and its planner, coordinator and workers run with permissions bypassed. Refused from an agent session and an MCP client" }
+      { name: 'hands-off', about: "run this plan hands-off, ahead of its project's setting: nothing waits on the owner: the plan starts by itself once it holds, its coordinator answers its own escalations, and its planner, coordinator and workers run with permissions bypassed. Refused from an agent session and an MCP client" },
+      { name: 'effort', value: '<low|medium|high|xhigh|max>', about: 'reasoning effort for the plan\'s workers whose Task sets none (a Task\'s own --effort wins)' }
     ]
   },
   'jobs-create-from-source': {
@@ -521,11 +522,11 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
   },
   // W7-D (#67)
   'jobs-set': {
-    summary: "change a running or queued plan's workers at once, priority, review rounds, replan, auto-approve, hands-off or delivery, or its queue, areas or planning mode",
+    summary: "change a running or queued plan's workers at once, priority, review rounds, replan, auto-approve, hands-off, delivery or effort, or its queue, areas or planning mode",
     detail:
       'Until the Job finishes; a finished one is refused (CONFLICT, exit 6). A lower number only holds back new starts: running workers carry on. At most 10. Refused from an agent session and an MCP client. ' +
       // Change a running plan
-      "--concurrency, --priority, --review-rounds, --replan, --auto-approve, --hands-off and --delivery change a running or queued plan in any mix, in one write; a bad value changes nothing. They take effect for work that has not started yet. --delivery is refused (CONFLICT, exit 6) once the plan's delivery has started; --hands-off is refused from an agent session. " +
+      "--concurrency, --priority, --review-rounds, --replan, --auto-approve, --hands-off, --delivery and --effort change a running or queued plan in any mix, in one write; a bad value changes nothing. They take effect for work that has not started yet. --delivery is refused (CONFLICT, exit 6) once the plan's delivery has started; --hands-off is refused from an agent session. " +
       // W8-C plan after plan
       '--after queues a Job that has not started planning after another (none clears it): its planner starts by itself once that Job is delivered (pushed, its pull request opened and not a draft, or ended with nothing to do). If that Job gives up or is archived, the queued one waits and escalates once. A chain that would wait on itself is refused (exit 2); a Job already planning is refused (CONFLICT, exit 6). ' +
       // W8-D plan areas
@@ -552,7 +553,8 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       { name: 'replan', value: '<waves|off>', about: 'replan between steps, from the next step' },
       { name: 'auto-approve', value: '<on|off>', about: 'start the plan once planned without waiting for approval' },
       { name: 'hands-off', value: '<on|off>', about: 'run without asking; from a person only' },
-      { name: 'delivery', value: '<pr|push|manual>', about: 'how the plan lands; refused once delivery has started' },
+      { name: 'delivery', value: '<pr|push|merge|manual>', about: 'how the plan lands; refused once delivery has started' },
+      { name: 'effort', value: '<low|medium|high|xhigh|max|none>', about: "reasoning effort for the plan's workers whose Task sets none; none clears it" },
       // T3 workspaces
       { name: 'project', value: '<projectId>', about: 'file a plan not started yet under another project of its workspace; alone' }
     ]
@@ -598,7 +600,7 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       // T1 chat-first planning
       { name: 'planning', value: '<chat|auto>', about: "how the planner works: chat brainstorms with you in its terminal, auto decides alone (default: the Job's own)" },
       // W6-H delivery
-      { name: 'delivery', value: '<pr|push|manual>', about: "how this Job's finished plan lands, ahead of its project's: one pull request, pushed to the delivery branch with no review by a person, or left for you to review and deliver (manual)" },
+      { name: 'delivery', value: '<pr|push|merge|manual>', about: "how this Job's finished plan lands, ahead of its project's: one pull request, pushed to the delivery branch with no review by a person, merged into the delivery branch on this computer and not pushed (merge), or left for you to review and deliver (manual)" },
       // W6-D wave replanning
       { name: 'replan', value: '<waves|off>', about: 'replan the rest of the plan between waves and check it once more at the end (default waves)' },
       // W7-E: a planned Job's Tasks are reviewed by a fresh reviewer, up to 5 rounds, then escalated

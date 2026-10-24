@@ -31,8 +31,21 @@ export const accounts: Partial<Record<keyof typeof ko, string>> = {
     'Al cerrar sesión se elimina la autenticación de esta cuenta y tendrá que volver a iniciar sesión. Si la cuenta usa un directorio de inicio (~/.claude, ~/.codex), también se cerrará la sesión que utilizaba fuera de esta aplicación.',
   'account.remove.processing': 'Procesando…',
   'account.remove.confirmWithLogout': 'Anular y cerrar sesión',
-  'account.logout.failed': 'Error al cerrar sesión: {detail}\n\nLa anulación del registro continúa igualmente.',
+  'account.logout.failed': 'La cuenta se eliminó, pero no se pudo cerrar sesión: {detail}',
   'account.remove.inUse': 'Una sesión en curso está usando esta cuenta, así que no se puede anular su registro: {titles}\n\nCierra la sesión o quita la cuenta de su orden de rotación.',
+  'account.remove.willClose': 'Se cerrarán {count} sesión(es) de worker terminada(s): {titles}',
+  'account.remove.releaseFailed': 'No se pudo cerrar una sesión de worker terminada, así que la cuenta no se dio de baja: {detail}',
+  // Merging two accounts of one login (Settings › Accounts)
+  'account.merge.sameLogin': 'Mismo inicio de sesión que {label}',
+  'account.merge.button': 'Fusionar',
+  'account.merge.title': 'Fusionar cuentas',
+  'account.merge.confirm': '¿Fusionar «{drop}» en «{keep}»? La cuenta «{keep}» se queda.',
+  'account.merge.note': 'Las tareas, los planes y las cuentas predeterminadas de proyecto que usan «{drop}» pasan a «{keep}», y después se anula el registro de «{drop}». Es el mismo inicio de sesión, así que no se elimina ninguna autenticación.',
+  'account.merge.confirmButton': 'Fusionar en {keep}',
+  'account.merge.processing': 'Fusionando…',
+  'account.merge.done': 'Fusionada en {keep}.',
+  'account.merge.inUse': 'Una sesión en curso está usando «{drop}», así que no se puede fusionar: {titles}\n\nCierra la sesión primero o quita la cuenta de su orden de rotación.',
+  'account.merge.failed': 'No se pudieron fusionar las cuentas. Puede que ya no sean el mismo inicio de sesión o que la orquestación aún no esté lista.',
   // AccountPanel.tsx — default-account settings sync. A destructive action that overwrites the target account's settings.
   'account.sync.title': 'Importar la configuración de la cuenta predeterminada',
   'account.sync.confirmBody':

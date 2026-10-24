@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   contextMenuPoint, FOCUSABLE, isTypeaheadKey, listboxKeyAction, menuKeyAction, moveIndex, nextFocusIndex, readSectionOpen, sectionStorageKey,
-  TYPEAHEAD_PAUSE_MS, typeaheadBuffer, typeaheadIndex, writeSectionOpen, readPaneSize, writePaneSize, paneResize, sashSize, sashKeyDelta, badgeText
+  TYPEAHEAD_PAUSE_MS, typeaheadBuffer, typeaheadIndex, writeSectionOpen, readPaneSize, writePaneSize, resizePair, pairWeights, sashSize, sashKeyDelta, badgeText
 } from './logic'
 
 describe('nextFocusIndex', () => {
@@ -196,21 +196,62 @@ describe('Sash and ActivityBarItem helpers', () => {
     expect(badgeText(250)).toBe('9+')
   })
 
-  it('paneResize trades height between the pair above the sash and clamps to the minimum', () => {
-    expect(paneResize([200, 300, 100], 1, 350, 40)).toEqual([150, 350, 100])
-    expect(paneResize([200, 300, 100], 1, 10, 40)).toEqual([460, 40, 100])
-    expect(paneResize([200, 300, 100], 2, 999, 40)).toEqual([200, 40, 360])
-    expect(paneResize([200, 300], 0, 50, 40)).toEqual([200, 300])
+  it('resizePair trades height only between the divider neighbours and clamps to the minimum', () => {
+    const o = [true, true, true]
+    expect(resizePair([200, 300, 100], o, 1, 350, 40)).toEqual([150, 350, 100])
+    expect(resizePair([200, 300, 100], o, 1, 10, 40)).toEqual([460, 40, 100])
+    expect(resizePair([200, 300, 100], o, 2, 999, 40)).toEqual([200, 40, 360])
+    expect(resizePair([200, 300], [true, true], 0, 50, 40)).toEqual([200, 300])
   })
 
-  it('pane sizes round-trip through storage and ignore junk', () => {
+  it('resizePair skips collapsed panes, leaves them and every third pane untouched, and keeps the sum', () => {
+    const h = [200, 22, 300, 100]
+    const out = resizePair(h, [true, false, true, true], 2, 250, 40)
+    expect(out).toEqual([250, 22, 250, 100])
+    expect(out.reduce((a, b) => a + b)).toBe(h.reduce((a, b) => a + b))
+    expect(resizePair(h, [false, false, true, true], 2, 250, 40)).toEqual(h) // nothing open above
+    expect(resizePair(h, [true, false, false, true], 2, 250, 40)).toEqual(h) // a collapsed pane has no sash
+  })
+
+  it('pairWeights keeps the pair\'s combined weight so a default-flex third pane keeps its height', () => {
+    // three unsaved panes at flex-grow 1 over 600px; the divider between 0 and 1 moves 50px
+    const [a, b] = pairWeights([1, 1], [250, 150])
+    expect(a + b).toBeCloseTo(2)
+    const free = 600
+    const third = (1 / (a + b + 1)) * free
+    expect(third).toBeCloseTo(200)
+    expect((a / (a + b + 1)) * free).toBeCloseTo(250)
+    // one saved weight (300) next to an unsaved one (grow 1): the total stays 301
+    expect(pairWeights([300, 1], [100, 100])).toEqual([150.5, 150.5])
+  })
+
+  it('pairWeights puts a content-sized pane on the flex scale without moving a third pane', () => {
+    // a 600px column: THIS content-sized (flex: none, 100px), YOURS and FOUND at grow 1 over the remaining 500px
+    const px = 250
+    const [a, b] = pairWeights([0, 1], [70, 280], px) // the divider moves 30px up
+    const found = 1
+    const free = 600 // THIS is flex-basis 0 now, so the flex panes share the whole column
+    const share = (w: number): number => (w / (a + b + found)) * free
+    expect(share(a)).toBeCloseTo(70)
+    expect(share(b)).toBeCloseTo(280)
+    expect(share(found)).toBeCloseTo(250)
+  })
+
+  it('pane weights round-trip through storage and ignore junk', () => {
     const m = new Map<string, string>()
     const s = { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v) }
     expect(readPaneSize(s, 'a')).toBeUndefined()
-    writePaneSize(s, 'a', 123.4)
-    expect(readPaneSize(s, 'a')).toBe(123)
-    m.set('cm.section.a.size', 'x')
+    writePaneSize(s, 'a', 1.23456)
+    expect(m.get('cm.section.a.weight')).toBe('1.235')
+    expect(readPaneSize(s, 'a')).toBe(1.235) // weights are fractions of a flex-grow unit
+    m.set('cm.section.a.weight', 'x')
     expect(readPaneSize(s, 'a')).toBeUndefined()
     expect(readPaneSize(undefined, 'a')).toBeUndefined()
+  })
+
+  it('ignores the px-scale .size value the old code saved', () => {
+    const m = new Map<string, string>([['cm.section.a.size', '300']])
+    const s = { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v) }
+    expect(readPaneSize(s, 'a')).toBeUndefined() // a 300 flex-grow sibling would squash its neighbour to ~0
   })
 })

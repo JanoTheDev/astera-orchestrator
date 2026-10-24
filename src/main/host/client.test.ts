@@ -10,6 +10,14 @@ import { HOST_PROTOCOL, HOST_YIELD_WORKTREES, HOST_YIELD_DISPATCH, HOST_YIELD_RO
 import { HostClient } from './client'
 import { hostSpeaksDispatch } from './outdated'
 import { hostProof } from '../../core/host/hostKey'
+import { chatRespawnOf, handoverOf, leftBehind, writeHandover } from '../../host/sessionRestore'
+import { PTY_LOST_SIGHT_EXIT_CODE } from '../../core/sessions/pty'
+import { ChatSessionManager, type ChatManagerDeps } from '../../core/chat/manager'
+import { chatSpawnOptsOf } from '../../core/chat/respawn'
+import type { ChatAdapter, ChatState } from '../../core/chat/types'
+import { makeDescriptors } from '../../core/providers/descriptor'
+import type { ProcLike } from '../../core/sessions/proc'
+import type { Account } from '../../core/types'
 
 /** The profile's Host key every test Host holds (protocol 4, core/host/hostKey.ts), and the read the
  *  client makes of it. */
@@ -48,7 +56,12 @@ const addressFor = (name: string): ReturnType<typeof hostAddress> =>
 
 const serveAt = async (
   addr: ReturnType<typeof hostAddress>,
-  over: { version?: string; onIdle?: () => void } = {}
+  over: {
+    version?: string
+    onIdle?: (o?: { resume?: boolean }) => void
+    workingTasks?: () => number
+    onAppGreeted?: Parameters<typeof startHostServer>[0]['onAppGreeted']
+  } = {}
 ): Promise<HostServer> => {
   const s = await startHostServer({
     address: addr.address,
@@ -56,6 +69,8 @@ const serveAt = async (
     version: over.version ?? '9.9.9',
     idleMs: 60_000,
     onIdle: over.onIdle ?? ((): void => {}),
+    workingTasks: over.workingTasks,
+    onAppGreeted: over.onAppGreeted,
     hostKey: KEY,
     log: { write: () => {}, close: () => {} }
   })
@@ -267,7 +282,7 @@ describe('HostClient', () => {
     const c = new HostClient({ hostKey, address: addr.address, appVersion: '9.0.0', spawnHost: () => {}, log: () => {} })
     c.start()
     await settled(c, (s) => s.connected)
-    expect(c.status().features).toEqual(['proc', 'ping', 'pty-seq'])
+    expect(c.status().features).toEqual(['proc', 'ping', 'handover', 'handover-chats', 'pty-seq'])
     await c.stop()
   })
 
@@ -1220,5 +1235,232 @@ describe('HostClient.retire announce', () => {
     await settled(b, (s) => s.connected)
     await b.retire()
     expect(quiet).toBe(0)
+  })
+
+  it('asks the Host for a handover with resume, and for a plain retire without it', async () => {
+    const asked: ({ resume?: boolean } | undefined)[] = []
+    const addrA = addressFor('retire-resume')
+    await serveAt(addrA, { onIdle: (o) => void asked.push(o) })
+    const a = new HostClient({ hostKey, address: addrA.address, appVersion: '1.0.0', log: () => {}, spawnHost: () => {} })
+    a.start()
+    await settled(a, (s) => s.connected)
+    await a.retire({ announce: true, resume: true })
+    await waitFor(() => asked.length === 1)
+    expect(asked).toEqual([{ resume: true }])
+
+    const addrB = addressFor('retire-plain')
+    await serveAt(addrB, { onIdle: (o) => void asked.push(o) })
+    const b = new HostClient({ hostKey, address: addrB.address, appVersion: '1.0.0', log: () => {}, spawnHost: () => {} })
+    b.start()
+    await settled(b, (s) => s.connected)
+    await b.retire({ announce: true })
+    await waitFor(() => asked.length === 2)
+    expect(asked[1]).toBeUndefined()
+  })
+
+  // The automatic swap must not take a refusal for a Host that left: it would restart onto the very same Host and
+  // log a replacement that never happened.
+  it('resolves to refused, with the counts, and keeps the connection when the Host refuses a resume retire', async () => {
+    const addr = addressFor('retire-refused')
+    let left = false
+    await serveAt(addr, { workingTasks: () => 2, onIdle: () => void (left = true) })
+    let gone = 0
+    const c = new HostClient({ hostKey, address: addr.address, appVersion: '1.0.0', log: () => {}, spawnHost: () => {} })
+    c.onDisconnect(() => gone++)
+    c.start()
+    await settled(c, (s) => s.connected)
+    // onLeaving is what puts "Updating background service…" in the status bar (main/ipc.ts replaceHost): never for this.
+    let leaving = 0
+    expect(await c.retire({ announce: true, resume: true, onLeaving: () => leaving++ })).toEqual({ outcome: 'refused', sessions: 0, runs: 0, tasks: 2 })
+    expect(leaving).toBe(0)
+    expect(left).toBe(false)
+    expect(gone).toBe(0)
+    expect(c.status().connected).toBe(true)
+    expect(c.send({ t: 'ping', seq: 1 })).toBe(true)
+  })
+
+  it('resolves to left when the Host takes the retire, resume or not', async () => {
+    const addrA = addressFor('retire-left-resume')
+    await serveAt(addrA, { workingTasks: () => 0 })
+    const a = new HostClient({ hostKey, address: addrA.address, appVersion: '1.0.0', log: () => {}, spawnHost: () => {} })
+    a.start()
+    await settled(a, (s) => s.connected)
+    let leaving = 0
+    expect(await a.retire({ announce: true, resume: true, onLeaving: () => leaving++ })).toEqual({ outcome: 'left' })
+    expect(leaving).toBe(1)
+
+    const addrB = addressFor('retire-left-plain')
+    await serveAt(addrB, { workingTasks: () => 2 })
+    const b = new HostClient({ hostKey, address: addrB.address, appVersion: '1.0.0', log: () => {}, spawnHost: () => {} })
+    b.start()
+    await settled(b, (s) => s.connected)
+    expect(await b.retire({ announce: true, onLeaving: () => leaving++ })).toEqual({ outcome: 'left' })
+    expect(leaving).toBe(2)
+  })
+})
+
+// T16: what the automatic swap (main/ipc.ts replaceHost) does — a resume retire, then restart() onto the new build's
+// Host — brings the sessions back into the tabs they had. The Hosts are real servers; the handover file is the one
+// host/sessionRestore.ts writes and reads; what the next Host does with it on the app's greeting (host/index.ts
+// restoreHandover) is reduced to the `pty-opened` it sends for each, under the same ids. What main makes of the two
+// events this asserts — every handle ended with the lost-sight code, then the same ids opened again — is the tab
+// staying in place (renderer/src/lib/terminalTabs.test.ts) and the session adopted under its note's id (reattach.ts).
+describe('session resume after a swap', () => {
+  it('ends the handles with the lost-sight code, then the next Host gives the terminal and agent session back under their own ids', async () => {
+    const addr = addressFor('swap-handover')
+    const profileDir = path.join(dir, 'swap-profile')
+    const terminalMeta = { kind: 'terminal' as const, id: 't1', restore: {} }
+    const old: { s: HostServer | null } = { s: null }
+    old.s = await serveAt(addr, {
+      version: '1.0.0',
+      workingTasks: () => 0,
+      onIdle: (o) => {
+        if (!o?.resume) return
+        writeHandover(
+          profileDir,
+          handoverOf({
+            sessions: [{ sessionId: 's1', accountId: 'a1', cwd: '/p' }],
+            ptys: [{ file: 'bash', args: [], opts: { cwd: '/p', cols: 80, rows: 24, env: {} }, meta: terminalMeta }],
+            procs: [],
+            state: null,
+            baseEnv: {}
+          })
+        )
+        void old.s?.close()
+      }
+    })
+    // The new build's Host: started when nothing answers the address, and on the app's greeting it reopens what the
+    // last Host handed over.
+    const spawnHost = (): void =>
+      void (async () => {
+        const { handover } = await leftBehind(profileDir)
+        await serveAt(addr, {
+          version: '2.0.0',
+          onAppGreeted: (send) => {
+            for (const p of handover?.ptys ?? []) send({ t: 'pty-opened', entry: { id: 'pty-t1', pid: 1, meta: p.meta, alive: true } })
+            for (const row of handover?.sessions ?? [])
+              send({ t: 'pty-opened', entry: { id: 'pty-s1', pid: 2, meta: { kind: 'session', id: row.sessionId, restore: {} }, alive: true } })
+          }
+        })
+      })()
+    const c = new HostClient({ hostKey, address: addr.address, appVersion: '2.0.0', log: () => {}, spawnHost })
+    // What main hears: the announce is what ends every Host-backed handle with the lost-sight code (ptyFactory's
+    // onHostGone), and each `pty-opened` is taken back under its note's id.
+    const events: string[] = []
+    c.onDisconnect(() => events.push(`handles end with ${PTY_LOST_SIGHT_EXIT_CODE}`))
+    c.onMessage((m) => {
+      if (m.t === 'pty-opened' && m.entry.meta) events.push(`${m.entry.meta.kind} ${m.entry.meta.id} opened`)
+    })
+    c.start()
+    await settled(c, (st) => st.connected && st.hostVersion === '1.0.0')
+    expect(c.status().features).toContain('handover')
+
+    expect(await c.retire({ announce: true, resume: true })).toEqual({ outcome: 'left' })
+    c.restart()
+    await settled(c, (st) => st.connected && st.hostVersion === '2.0.0')
+    await waitFor(() => events.length === 3)
+
+    expect(events).toEqual([`handles end with ${PTY_LOST_SIGHT_EXIT_CODE}`, 'terminal t1 opened', 'session s1 opened'])
+    expect(c.status().outdated).toBe(false)
+    await c.stop()
+  })
+
+  // T30: an idle chat rides the handover. The old Host writes each chat proc's note down (handoverOf's `procs`); the new
+  // Host respawns it through the chat manager the Host's HostChats.spawn wraps (chatRespawnOf, chatSpawnOptsOf, with
+  // `hostStarting` as the Host sets it) and tells the app `proc-opened` once its start settled. What the app makes of
+  // that push — the proc adopted under its note's id into the tab it had — is reattach.ts's (reattach.test.ts); what a
+  // resume id does to the CLI — `claude --resume`, codex's `thread/resume` — is the adapters' (claudeAdapter.test.ts,
+  // codexAdapter.test.ts). Asserted here: the same ids and threads reach the CLIs the new Host starts, and the app.
+  it('respawns an idle claude chat and an idle codex chat in the next Host on the same thread under the same id', async () => {
+    const addr = addressFor('swap-chats')
+    const profileDir = path.join(dir, 'swap-chats-profile')
+    const accounts: Account[] = [
+      { id: 'acc-cl', label: 'cl', configDir: path.join(dir, 'cl'), provider: 'claude' } as Account,
+      { id: 'acc-cx', label: 'cx', configDir: path.join(dir, 'cx'), provider: 'codex' } as Account
+    ]
+    // The two chat procs' notes, as ChatSessionManager.spawn wrote them and the adapters' `remember` patched the thread in.
+    const notes = [
+      { kind: 'chat' as const, id: 'chat-cl', restore: { accountId: 'acc-cl', cwd: dir, title: 'Claude tab', provider: 'claude', threadId: 'th-cl', chosenModel: 'opus', unattendedPermission: 'deny-after-60s', startedAt: 111 } },
+      { kind: 'chat' as const, id: 'chat-cx', restore: { accountId: 'acc-cx', cwd: dir, title: 'Codex tab', provider: 'codex', threadId: 'th-cx', unattendedPermission: 'hold', startedAt: 222 } }
+    ]
+    const old: { s: HostServer | null } = { s: null }
+    old.s = await serveAt(addr, {
+      version: '1.0.0',
+      workingTasks: () => 0,
+      onIdle: (o) => {
+        if (!o?.resume) return
+        writeHandover(profileDir, handoverOf({ sessions: [], ptys: [], procs: [...notes, null], state: null, baseEnv: {} }))
+        void old.s?.close()
+      }
+    })
+    // The new Host's chat manager: the CLI each respawn launches, and the thread each adapter is started on.
+    const launched: Array<{ file: string; args: string[]; id: string; restore: Record<string, unknown> }> = []
+    const startedOn: Record<string, string | undefined> = {}
+    const proc = (): ProcLike => ({ pid: 1, onLine: () => {}, onExit: () => {}, write: () => {}, kill: () => {} })
+    const createAdapter: NonNullable<ChatManagerDeps['createAdapter']> = (a) =>
+      ({
+        start: (o: { resumeThreadId?: string }) => {
+          startedOn[a.provider] = o.resumeThreadId
+          return Promise.resolve()
+        },
+        state: () => ({ status: 'idle' }) as ChatState,
+        on: () => () => {},
+        kill: () => {}
+      }) as unknown as ChatAdapter
+    const manager = new ChatSessionManager({
+      factory: (file, args, opts) => {
+        if (opts.meta) launched.push({ file, args, id: opts.meta.id, restore: opts.meta.restore })
+        return proc()
+      },
+      descriptors: makeDescriptors(process.platform),
+      homeDir: dir,
+      platform: process.platform,
+      version: '2.0.0',
+      log: () => {},
+      createAdapter
+    })
+    const procOf = new Map<string, string>()
+    const spawnHost = (): void =>
+      void (async () => {
+        const { handover } = await leftBehind(profileDir)
+        await serveAt(addr, {
+          version: '2.0.0',
+          onAppGreeted: (send) =>
+            void (async () => {
+              for (const ch of handover?.chats ?? []) {
+                const account = accounts.find((x) => x.id === ch.accountId)!
+                const info = manager.spawn(chatSpawnOptsOf(chatRespawnOf(ch, account), { unattendedOf: () => 'hold', bypassSignal: null, hostStarting: true }))
+                await manager.started(info.id)
+                procOf.set(`proc-${info.id}`, info.id)
+                send({ t: 'proc-opened', procId: `proc-${info.id}` })
+              }
+            })()
+        })
+      })()
+    const c = new HostClient({ hostKey, address: addr.address, appVersion: '2.0.0', log: () => {}, spawnHost })
+    const reopened: string[] = []
+    c.onMessage((m) => {
+      if (m.t === 'proc-opened') reopened.push(procOf.get(m.procId) ?? '?')
+    })
+    c.start()
+    await settled(c, (st) => st.connected && st.hostVersion === '1.0.0')
+    expect(c.status().features).toEqual(expect.arrayContaining(['handover', 'handover-chats']))
+
+    expect(await c.retire({ announce: true, resume: true })).toEqual({ outcome: 'left' })
+    c.restart()
+    await settled(c, (st) => st.connected && st.hostVersion === '2.0.0')
+    await waitFor(() => reopened.length === 2)
+
+    // The app is told about each under the id its tab is keyed by.
+    expect(reopened).toEqual(['chat-cl', 'chat-cx'])
+    // Each comes back on its own thread: claude through `--resume`, codex through the adapter's thread/resume.
+    expect(launched.map((l) => l.id)).toEqual(['chat-cl', 'chat-cx'])
+    expect(launched[0].args.join(' ')).toContain('th-cl')
+    expect(startedOn).toEqual({ claude: 'th-cl', codex: 'th-cx' })
+    // And keeps its title, model, policy and startedAt, so the reattached tab reads as it did.
+    expect(launched[0].restore).toMatchObject({ accountId: 'acc-cl', title: 'Claude tab', threadId: 'th-cl', chosenModel: 'opus', unattendedPermission: 'deny-after-60s', startedAt: 111 })
+    expect(launched[1].restore).toMatchObject({ accountId: 'acc-cx', title: 'Codex tab', threadId: 'th-cx', unattendedPermission: 'hold', startedAt: 222 })
+    expect(await leftBehind(profileDir)).toMatchObject({ handover: { chats: [{ sessionId: 'chat-cl' }, { sessionId: 'chat-cx' }] } })
+    await c.stop()
   })
 })

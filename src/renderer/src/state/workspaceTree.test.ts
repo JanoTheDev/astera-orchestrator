@@ -4,7 +4,7 @@ import { addTab, createGroup, leaves, splitAndMove, type PaneNode } from '../../
 import { appTab, fileTab, sessionTab } from '../../../core/panes/tabId'
 import { buildWorkspaceTree, findPlan, planSessions, scopeLayout, type WorkspaceData } from './workspaceTree'
 import {
-  entryTab, OTHER_WORKSPACE, projectOfCwd, workspacesOf, scopeIds, workspaceFolderOf, workspaceSessionIds, workspaceSummaries, type WorkspaceProject
+  entryTab, OTHER_WORKSPACE, projectOfCwd, projectStatusDot, workspacesOf, scopeIds, workspaceFolderOf, workspaceSessionIds, workspaceSummaries, type WorkspaceProject
 } from './workspaceTree'
 
 const project = (id: string, name: string): Project => ({ id, name, path: `/repos/${name}`, addedAt: '2026-10-01T00:00:00Z' })
@@ -47,6 +47,24 @@ describe('buildWorkspaceTree', () => {
       { showArchived: false }
     )
     expect(tree.map((p) => [p.name, p.plans.map((j) => j.name)])).toEqual([['Gameful', ['Values']]])
+    expect(tree[0].plans[0].subProjectId).toBe('p1s')
+  })
+
+  it('a plan is live while its latest Run has a Task not finished, and counts the open questions of its Runs (T11)', () => {
+    const d = data({
+      projects: [project('p1', 'Gameful')],
+      jobsByProject: { p1: [job('j1'), job('j2'), job('j3', { paused: true })] },
+      runs: [run('r1', 'j1', 1), run('r2', 'j1', 2), run('r3', 'j2', 1), run('r4', 'j3', 1)],
+      tasks: [task('t1', 'r2'), task('t2', 'r3', { status: 'completed' }), task('t3', 'r4')],
+      gates: [
+        { id: 'g1', runId: 'r1', taskId: 't0', question: 'old run?', status: 'open', createdAt: '' },
+        { id: 'g2', runId: 'r2', taskId: 't1', question: 'which?', status: 'open', createdAt: '' },
+        { id: 'g3', runId: 'r2', taskId: 't1', question: 'done', status: 'resolved', createdAt: '' }
+      ]
+    })
+    const plans = buildWorkspaceTree(d, { showArchived: false })[0].plans
+    expect(plans.map((p) => [p.jobId, p.live, p.questions])).toEqual([['j1', true, 2], ['j2', false, 0], ['j3', false, 0]])
+    expect(plans[0].subProjectId).toBeUndefined()
   })
 
   it('lists registered projects that have no plans at all (#78)', () => {
@@ -250,16 +268,45 @@ describe('project workspaces', () => {
   })
 
   it('the switcher counts each workspace’s running tabs and marks one waiting for input', () => {
+    const zero = { plans: 0, questions: 0, dirty: 0, unpushed: 0, behind: 0 }
     expect(workspaceSummaries(tree, ids, sessions, { own: 'waiting', ast: 'working', sibling: 'waiting' })).toEqual([
-      { id: 'g', name: 'gameful', running: 3, waiting: true }, // w1, own, wt: the rest have no open session
-      { id: 'a', name: 'Astera', running: 1, waiting: false },
-      { id: 'n', name: 'nested', running: 1, waiting: false },
+      { id: 'g', name: 'gameful', running: 3, working: 0, waiting: true, ...zero }, // w1, own, wt: the rest have no open session
+      { id: 'a', name: 'Astera', running: 1, working: 1, waiting: false, ...zero },
+      { id: 'n', name: 'nested', running: 1, working: 0, waiting: false, ...zero },
       // an exited tab is not running, and its stale wait is no dot
-      { id: OTHER_WORKSPACE, name: 'Other', running: 1, waiting: false }
+      { id: OTHER_WORKSPACE, name: 'Other', running: 1, working: 0, waiting: false, ...zero }
     ])
     // "Other" is left out while it holds no tab
     const none = workspaceSessionIds(tree, [], [])
     expect(workspaceSummaries(tree, none, [], {}).map((r) => r.id)).toEqual(['g', 'a', 'n'])
+  })
+
+  it('nests each sub-project under its workspace with only its own plans, and gives the workspace its git line (T11)', () => {
+    const withSub: WorkspaceProject[] = [
+      { ...tree[0], plans: [{ ...tree[0].plans[0], live: true, questions: 1 }, { ...tree[0].plans[1], live: true, subProjectId: 'gs' }] },
+      tree[1]
+    ]
+    const rows = workspaceSummaries(withSub, workspaceSessionIds(withSub, sessions, worktrees), sessions, { w2: 'working' }, {
+      subProjects: [{ id: 'gs', name: 'redis-sub', parentId: 'g' }, { id: 'orphan', name: 'gone', parentId: 'nowhere' }],
+      git: { '/repos/gameful': { branch: 'main', dirty: 3, unpushed: 1, behind: null } }
+    })
+    expect(rows.map((r) => [r.id, r.parentId, r.branch, r.plans, r.questions, r.dirty, r.unpushed, r.behind])).toEqual([
+      ['g', undefined, 'main', 2, 1, 3, 1, 0],
+      ['gs', 'g', undefined, 1, 0, 0, 0, 0],
+      ['a', undefined, undefined, 0, 0, 0, 0, 0],
+      [OTHER_WORKSPACE, undefined, undefined, 0, 0, 0, 0, 0]
+    ])
+    // the sub-project's sessions are its plans' (w2 has no open tab, so nothing runs there)
+    expect(rows[1].running).toBe(0)
+  })
+
+  it('the dot: needs you over working over idle (T11)', () => {
+    const s = { waiting: false, questions: 0, working: 0, plans: 0 }
+    expect(projectStatusDot(s)).toBe('idle')
+    expect(projectStatusDot({ ...s, working: 2 })).toBe('working')
+    expect(projectStatusDot({ ...s, plans: 1 })).toBe('working')
+    expect(projectStatusDot({ ...s, working: 2, questions: 1 })).toBe('needsYou')
+    expect(projectStatusDot({ ...s, plans: 1, waiting: true })).toBe('needsYou')
   })
 })
 

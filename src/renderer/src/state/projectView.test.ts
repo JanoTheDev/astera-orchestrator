@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Project } from '../../../core/orchestration/types'
 import type { WallInput } from '../components/wall/wallModel'
-import { repoInScope, scopeData, scopeIdOf, scopeSessions, scopeTree, UNKNOWN_PROJECT } from './projectView'
+import { projectScopeOf, repoInScope, scopeData, scopeSessions, scopeTree, selectionAfterFocus, UNKNOWN_PROJECT } from './projectView'
 import { OTHER_WORKSPACE, projectOfCwd, workspaceSessionIds, type WorkspaceData, type WorkspaceProject, type WorktreeRef } from './workspaceTree'
 
 // Two projects, one worktree session of each. B's worktree is registered; A's is not (a fresh or forgotten one).
@@ -34,17 +34,44 @@ describe('projectOfCwd: a session in a worktree folder', () => {
   })
 })
 
-describe('scopeIdOf: the window\'s project, never an exact path match', () => {
-  it('uses the window project when it is known', () => {
-    expect(scopeIdOf(tree, worktrees, 'pA', B, false)).toBe('pA')
+describe('projectScopeOf: every view follows the title bar\'s selection', () => {
+  const projects = [
+    { id: 'pA', path: A, name: 'Astera' },
+    { id: 'pB', path: B, name: 'Gameful' },
+    { id: 'sub', path: A, name: 'Sub', parentId: 'pA' }
+  ] as unknown as Project[]
+  it('a selected project gives its folder and its own scope', () => {
+    expect(projectScopeOf(projects, 'pB', null)).toMatchObject({ projectId: 'pB', path: B, isAll: false, scopeId: 'pB' })
   })
-  it('an active tab in a worktree of A scopes to A', () => {
-    expect(scopeIdOf(tree, worktrees, null, '/home/jonx/astera-worktrees/Astera/first/src', false)).toBe('pA')
+  it('a selected sub-project gives its workspace\'s folder and scope, and keeps its own id', () => {
+    const s = projectScopeOf(projects, 'sub', null)
+    expect(s).toMatchObject({ projectId: 'sub', path: A, isAll: false, scopeId: 'pA' })
+    expect(s.project?.name).toBe('Sub')
   })
-  it('a folder no project holds, or no folder, matches no project; All projects is the only null', () => {
-    expect(scopeIdOf(tree, worktrees, null, '/tmp/x', false)).toBe(UNKNOWN_PROJECT)
-    expect(scopeIdOf(tree, worktrees, null, null, false)).toBe(UNKNOWN_PROJECT)
-    expect(scopeIdOf(tree, worktrees, 'pA', A, true)).toBeNull()
+  it('All projects has no folder and no scope', () => {
+    expect(projectScopeOf(projects, null, A)).toEqual({ projectId: null, project: undefined, path: null, isAll: true, scopeId: null })
+  })
+  it('Other, or an id no project has, has no folder and matches no project', () => {
+    expect(projectScopeOf(projects, OTHER_WORKSPACE, A)).toMatchObject({ path: null, isAll: false, scopeId: UNKNOWN_PROJECT })
+    expect(projectScopeOf(projects, 'gone', A)).toMatchObject({ path: null, isAll: false, scopeId: UNKNOWN_PROJECT })
+  })
+  it('before the project list is read, a selected project\'s folder is the remembered one', () => {
+    expect(projectScopeOf(null, 'pA', A)).toMatchObject({ projectId: 'pA', path: A, scopeId: 'pA' })
+    expect(projectScopeOf(null, null, A).path).toBeNull()
+  })
+  it('the active tab never stands in: the derivation reads the selection only', () => {
+    expect(projectScopeOf(projects, 'pA', B).path).toBe(A)
+  })
+})
+
+describe('selectionAfterFocus: a tab of another project switches the title bar', () => {
+  it('moves to the active tab\'s project', () => {
+    expect(selectionAfterFocus('pA', 'pB')).toBe('pB')
+    expect(selectionAfterFocus(OTHER_WORKSPACE, 'pB')).toBe('pB')
+  })
+  it('stays on a tab of no project, and on All projects', () => {
+    expect(selectionAfterFocus('pA', null)).toBe('pA')
+    expect(selectionAfterFocus(null, 'pB')).toBeNull()
   })
 })
 

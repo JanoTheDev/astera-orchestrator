@@ -9,6 +9,7 @@ import {
   parseCodexTail,
   ROLLOUT_UUID_RE
 } from '../codexParser'
+import { modelFields } from '../parser'
 import type { HistoryIo, HistoryStrategy, MemoFile } from './types'
 
 /** Scan root for codex session files — this file is the only place that knows about `sessions` */
@@ -109,7 +110,7 @@ export const codexHistoryStrategy: HistoryStrategy = {
     })
     const rows = await io.rowMemo(mine, async (f) => {
       const e = await codexHistoryStrategy.buildEntry(account, f.path, f.mtimeMs, io)
-      if (e) return { cwd: e.projectPath, sessionId: e.sessionId, title: e.title, awaitingReply: e.awaitingReply }
+      if (e) return { cwd: e.projectPath, sessionId: e.sessionId, title: e.title, awaitingReply: e.awaitingReply, ...modelFields(e) }
       // buildEntry turns a child thread down (it is no row); it is still this project's file, so it is
       // kept as a hidden row, memoized like any other, for deletionTargets. Only a file buildEntry
       // refused is read again here, and only its head.
@@ -132,6 +133,7 @@ export const codexHistoryStrategy: HistoryStrategy = {
         filePath: mine[i].path,
         awaitingReply: row.awaitingReply,
         rootUuid: null,
+        ...modelFields(row),
         ...(row.hidden ? { hidden: true as const } : {})
       })
     })
@@ -173,7 +175,8 @@ export const codexHistoryStrategy: HistoryStrategy = {
       updatedAt: new Date(mtime).toISOString(),
       filePath,
       awaitingReply: tail.awaitingReply,
-      rootUuid: null // codex has no resume-fork concept, so it is not a groupForks candidate
+      rootUuid: null, // codex has no resume-fork concept, so it is not a groupForks candidate
+      ...modelFields(tail)
     }
   },
   /** On an entryById miss — walks the codex date folders looking for the <sessionId>.jsonl suffix and

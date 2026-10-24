@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import path from 'node:path'
 import {
   accountRemovalBlockers,
+  accountRemovalPlan,
   closeConversationOnExit,
   codexRolloutFromNote,
   conversationAttentionOf,
@@ -10,6 +11,9 @@ import {
   hostHandshakeMeans,
   hostHoldings,
   hostReplaceDue,
+  busyChatCount,
+  HOST_SWAP_MANUAL_AFTER_MS,
+  idleWorkersBeforeSwap,
   keepsChatTranscriptOnReady,
   replacementLogLine,
   liveChatOnThread,
@@ -18,11 +22,13 @@ import {
   liveWorkersFor,
   liveSessionIn,
   rollCoordinatorForSession,
+  releaseThenRemoveAccount,
   retryRegistrationsFor,
   scheduleForAdoptedSession,
   sessionsTakenBackOnFailure,
   staleSpecFiles
 } from './ipc'
+import type { OrchState } from '../core/orchestration/state'
 import { createAttentionState } from '../core/sessions/attention'
 import { sanitizeResumePrompt } from '../core/sessions/commands'
 import { PTY_LOST_SIGHT_EXIT_CODE } from '../core/sessions/pty'
@@ -198,6 +204,7 @@ describe('parseAllowedExternalUrl — 외부 URL 스킴 화이트리스트', () 
 // 지우게 하는 쪽이다.
 describe('accountRemovalBlockers', () => {
   const s = (o: Partial<{ accountId: string; rollAccountIds: string[]; status: 'running' | 'exited'; title: string }>) => ({
+    id: o.title ?? 'tab',
     accountId: o.accountId ?? 'a1',
     rollAccountIds: o.rollAccountIds,
     status: o.status ?? ('running' as const),
@@ -231,6 +238,132 @@ describe('accountRemovalBlockers', () => {
       s({ accountId: 'a2', rollAccountIds: ['a2', 'a1'], title: '둘째' })
     ]
     expect(accountRemovalBlockers('a1', rows)).toEqual(['첫째', '둘째'])
+  })
+})
+
+describe('accountRemovalPlan — finished workers are released, live work blocks', () => {
+  const sess = (id: string, o: Partial<{ accountId: string; rollAccountIds: string[]; status: 'running' | 'exited' }> = {}) => ({
+    id,
+    accountId: o.accountId ?? 'a1',
+    rollAccountIds: o.rollAccountIds,
+    status: o.status ?? ('running' as const),
+    title: `title-${id}`
+  })
+  const orchOf = (taskStatus: string, d: { retained?: boolean; sessionId?: string }[] = [{ retained: true }]) =>
+    ({
+      tasks: [{ id: 't1', status: taskStatus }],
+      dispatches: d.map((x, i) => ({ id: `d${i + 1}`, taskId: 't1', sessionId: x.sessionId ?? 's1', retained: x.retained ?? false }))
+    }) as unknown as Parameters<typeof accountRemovalPlan>[2]
+
+  it('a retained worker of a completed Task is released, not a blocker', () => {
+    const plan = accountRemovalPlan('a1', [sess('s1')], orchOf('completed'))
+    expect(plan.blockers).toEqual([])
+    expect(plan.releasable).toEqual([{ dispatchId: 'd1', title: 'title-s1' }])
+  })
+
+  it('a worker of a failed Task is released too', () => {
+    expect(accountRemovalPlan('a1', [sess('s1')], orchOf('failed', [{}])).releasable).toHaveLength(1)
+  })
+
+  it.each(['dispatched', 'validating', 'reviewing', 'merging', 'blocked'])('a worker of a %s Task still blocks', (status) => {
+    const plan = accountRemovalPlan('a1', [sess('s1')], orchOf(status))
+    expect(plan.blockers).toEqual(['title-s1'])
+    expect(plan.releasable).toEqual([])
+  })
+
+  it('a session no Dispatch owns (a user tab, a chat) still blocks', () => {
+    const plan = accountRemovalPlan('a1', [sess('tab')], orchOf('completed'))
+    expect(plan.blockers).toEqual(['title-tab'])
+    expect(plan.releasable).toEqual([])
+  })
+
+  it('a reused session is judged by its latest Dispatch', () => {
+    const state = {
+      tasks: [
+        { id: 't1', status: 'completed' },
+        { id: 't2', status: 'dispatched' }
+      ],
+      dispatches: [
+        { id: 'd1', taskId: 't1', sessionId: 's1', retained: true },
+        { id: 'd2', taskId: 't2', sessionId: 's1', retained: false }
+      ]
+    } as unknown as Parameters<typeof accountRemovalPlan>[2]
+    expect(accountRemovalPlan('a1', [sess('s1')], state).blockers).toEqual(['title-s1'])
+  })
+
+  it('without orchestration state every session blocks', () => {
+    expect(accountRemovalPlan('a1', [sess('s1')]).blockers).toEqual(['title-s1'])
+  })
+
+  it('exited sessions and other accounts are ignored; the rolling chain counts', () => {
+    const rows = [sess('s1', { status: 'exited' }), sess('s2', { accountId: 'a2' }), sess('s3', { accountId: 'a2', rollAccountIds: ['a2', 'a1'] })]
+    const state = { tasks: [{ id: 't1', status: 'completed' }], dispatches: [{ id: 'd3', taskId: 't1', sessionId: 's3', retained: false }] } as unknown as Parameters<typeof accountRemovalPlan>[2]
+    expect(accountRemovalPlan('a1', rows, state)).toEqual({ blockers: [], releasable: [{ dispatchId: 'd3', title: 'title-s3' }] })
+  })
+})
+
+describe('releaseThenRemoveAccount — the handler releases finished workers, then removes the account', () => {
+  const stateWith = (retained: boolean) => ({
+    tasks: [{ id: 't1', status: 'completed' }],
+    dispatches: [
+      { id: 'd1', taskId: 't1', sessionId: 's1', retained },
+      { id: 'd2', taskId: 't1', sessionId: 's2', retained: false }
+    ]
+  })
+  const harness = (retained = true) => {
+    const calls: string[] = []
+    let st = stateWith(retained) as ReturnType<typeof stateWith>
+    const deps = {
+      getState: () => st as unknown as OrchState,
+      setState: vi.fn(async (next: OrchState) => {
+        calls.push('setState')
+        st = next as unknown as typeof st
+      }),
+      releaseWorker: vi.fn(async ({ dispatchId }: { dispatchId: string }) => {
+        calls.push(`release:${dispatchId}`)
+      }),
+      removeAccount: vi.fn(async (id: string) => {
+        calls.push(`remove:${id}`)
+      })
+    }
+    return { calls, deps, state: () => st }
+  }
+  const releasable = [{ dispatchId: 'd1' }, { dispatchId: 'd2' }]
+
+  it('un-retains a retained dispatch, releases each releasable worker, and removes the account last', async () => {
+    const h = harness(true)
+    await releaseThenRemoveAccount('a1', releasable, h.deps)
+    expect(h.state().dispatches.find((d) => d.id === 'd1')?.retained).toBe(false)
+    expect(h.calls).toEqual(['setState', 'release:d1', 'release:d2', 'remove:a1'])
+    expect(h.deps.releaseWorker).toHaveBeenCalledWith({ dispatchId: 'd1', closeReason: 'released' })
+    expect(h.deps.releaseWorker).toHaveBeenCalledWith({ dispatchId: 'd2', closeReason: 'released' })
+  })
+
+  it('does not write state for a dispatch that is not retained', async () => {
+    const h = harness(false)
+    await releaseThenRemoveAccount('a1', releasable, h.deps)
+    expect(h.deps.setState).not.toHaveBeenCalled()
+    expect(h.calls).toEqual(['release:d1', 'release:d2', 'remove:a1'])
+  })
+
+  it('a releaseWorker that throws leaves the account in place and does not log out', async () => {
+    const h = harness(false)
+    const logout = vi.fn(async () => ({ ok: true }))
+    h.deps.releaseWorker.mockRejectedValueOnce(new Error('pty busy'))
+    await expect(releaseThenRemoveAccount('a1', releasable, h.deps, logout)).rejects.toThrow('pty busy')
+    expect(h.deps.removeAccount).not.toHaveBeenCalled()
+    expect(logout).not.toHaveBeenCalled()
+  })
+
+  it('a logout requested with the removal runs after core.accounts.remove and returns its result', async () => {
+    const h = harness(false)
+    const logout = vi.fn(async () => {
+      h.calls.push('logout')
+      return { ok: false, message: 'boom' }
+    })
+    const r = await releaseThenRemoveAccount('a1', releasable, h.deps, logout)
+    expect(h.calls).toEqual(['release:d1', 'release:d2', 'remove:a1', 'logout'])
+    expect(r).toEqual({ ok: false, message: 'boom' })
   })
 })
 
@@ -725,43 +858,141 @@ describe('conversationAttentionOf — the pane\'s one-shot read on mount', () =>
   })
 })
 
+describe('busyChatCount — the chats a swap would cut mid-turn', () => {
+  const chat = (id: string, alive = true): PtyEntry => ({ id: `p-${id}`, pid: 1, alive, meta: { kind: 'chat', id, restore: {} } })
+  it('counts every live chat the app does not see idle, and nothing else', () => {
+    const idle = (id: string): boolean => id === 'idle'
+    const procs = [chat('idle'), chat('working'), chat('unknown'), chat('gone', false), { ...chat('x'), meta: { kind: 'session' as const, id: 'x', restore: {} } }]
+    expect(busyChatCount(procs, idle)).toBe(2)
+    expect(busyChatCount([chat('idle')], idle)).toBe(0)
+  })
+})
+
 describe('hostReplaceDue - when an outdated Host is replaced', () => {
   const empty = { sessions: 0, terminals: 0, runs: 0, chats: 0 }
-  const base = { outdated: true, runtimeIncomplete: false, holdings: empty, inFlight: false, quitting: false }
+  const now = 10 * 60 * 60_000
+  // A Host that hands its sessions and chats over (HOST_FEATURE_HANDOVER, _CHATS), with nothing at work and nothing waited for yet.
+  const base = { outdated: true, runtimeIncomplete: false, inFlight: false, quitting: false, handover: true, handoverChats: true, activeTasks: 0, holdings: empty, busyChats: 0, releasePending: false, waitingSinceMs: null, nowMs: now }
+  const swap = { due: 'handover', manual: false }
+  const waits = (manual: boolean) => ({ due: null, manual })
 
-  it('is due only when every gate is open: outdated, holding nothing, nothing in flight, not quitting', () => {
-    expect(hostReplaceDue(base)).toBe(true)
+  // The everyday case after an update: finished workers still open, a terminal tab, agent tabs. All of it is handed over.
+  it('swaps a Host holding idle workers, terminals and agent tabs at once when no Task works', () => {
+    expect(hostReplaceDue({ ...base, holdings: { sessions: 4, terminals: 2, runs: 1, chats: 0 } })).toEqual(swap)
+  })
+
+  it('waits while a Task works, and swaps at once when it ends between steps', () => {
+    const holdings = { sessions: 3, terminals: 1, runs: 0, chats: 0 }
+    expect(hostReplaceDue({ ...base, holdings, activeTasks: 1, waitingSinceMs: now - 60_000 })).toEqual(waits(false))
+    expect(hostReplaceDue({ ...base, holdings, activeTasks: 0, waitingSinceMs: now - 60_000 })).toEqual(swap)
+  })
+
+  it('offers the button only once the wait has run past 30 minutes', () => {
+    const working = { ...base, activeTasks: 2 }
+    expect(hostReplaceDue({ ...working, waitingSinceMs: now - HOST_SWAP_MANUAL_AFTER_MS + 1 })).toEqual(waits(false))
+    expect(hostReplaceDue({ ...working, waitingSinceMs: now - HOST_SWAP_MANUAL_AFTER_MS })).toEqual(waits(true))
+  })
+
+  // An idle chat is handed over and respawned on its thread under its own id: it no longer holds the swap.
+  it('swaps a Host holding an idle chat at once when no Task works', () => {
+    expect(hostReplaceDue({ ...base, holdings: { ...empty, sessions: 1, chats: 2 }, busyChats: 0 })).toEqual(swap)
+  })
+
+  // The respawn resumes the thread, so a turn under way would be cut short: the swap waits for it to end.
+  it('waits while a chat is mid-turn, and swaps once its turn ended', () => {
+    const holdings = { ...empty, chats: 2 }
+    expect(hostReplaceDue({ ...base, holdings, busyChats: 1, waitingSinceMs: now - 60_000 })).toEqual(waits(false))
+    expect(hostReplaceDue({ ...base, holdings, busyChats: 0, waitingSinceMs: now - 60_000 })).toEqual(swap)
+  })
+
+  // The first handover build writes no chats down: its swap would end them (exit -1, "Failed"), busy or idle.
+  it('waits for every chat on a Host whose handover carries none', () => {
+    expect(hostReplaceDue({ ...base, handoverChats: false, holdings: { ...empty, chats: 1 }, busyChats: 0 })).toEqual(waits(false))
+    expect(hostReplaceDue({ ...base, handoverChats: false, holdings: { ...empty, sessions: 1 }, busyChats: 0 })).toEqual(swap)
+  })
+
+  it('does not swap on what it does not know: an unanswered list or an orchestration state not loaded yet', () => {
+    expect(hostReplaceDue({ ...base, holdings: null })).toEqual(waits(false))
+    expect(hostReplaceDue({ ...base, activeTasks: null })).toEqual(waits(false))
+    expect(hostReplaceDue({ ...base, busyChats: null })).toEqual(waits(false))
+  })
+
+  // Every Host older than this build ignores `resume` and refuses nothing: replacing it ends what it holds.
+  describe('a Host without the handover', () => {
+    const legacy = { ...base, handover: false }
+    it('is replaced plainly only when it holds nothing and no Task works', () => {
+      expect(hostReplaceDue(legacy)).toEqual({ due: 'plain', manual: false })
+    })
+    it('offers the button at once otherwise, without the 30-minute wait', () => {
+      expect(hostReplaceDue({ ...legacy, holdings: { ...empty, sessions: 1 } })).toEqual(waits(true))
+      expect(hostReplaceDue({ ...legacy, holdings: { ...empty, terminals: 1 } })).toEqual(waits(true))
+      expect(hostReplaceDue({ ...legacy, holdings: { ...empty, chats: 1 } })).toEqual(waits(true))
+      expect(hostReplaceDue({ ...legacy, activeTasks: 1 })).toEqual(waits(true))
+      expect(hostReplaceDue({ ...legacy, holdings: null })).toEqual(waits(true))
+    })
+    // The idle workers released for it may yet leave it empty and swapped plainly: no button flashes meanwhile.
+    it('does not offer the button while the workers released for it are still ending', () => {
+      const releasing = { ...legacy, holdings: { ...empty, sessions: 2 }, releasePending: true }
+      expect(hostReplaceDue(releasing)).toEqual(waits(false))
+      // The release left one behind (a worker typed into lately): the button is the way.
+      expect(hostReplaceDue({ ...releasing, holdings: { ...empty, sessions: 1 }, releasePending: false })).toEqual(waits(true))
+      // It left nothing: swapped plainly, the button never shown.
+      expect(hostReplaceDue({ ...releasing, holdings: empty, releasePending: false })).toEqual({ due: 'plain', manual: false })
+    })
   })
 
   it('never replaces a Host that is not outdated', () => {
-    expect(hostReplaceDue({ ...base, outdated: false })).toBe(false)
+    expect(hostReplaceDue({ ...base, outdated: false })).toEqual(waits(false))
   })
 
   // A Host running out of a runtime that is missing files is one spawn away from stalling for good
-  // (2026-09-22), so it earns the same treatment as an outdated one: replaced the first moment doing
-  // so costs nobody their work. The repair itself happens in the spawn that follows.
+  // (2026-09-22), so it earns the same treatment as an outdated one.
   it('replaces a Host whose runtime is missing files, for the same reason', () => {
-    expect(hostReplaceDue({ ...base, outdated: false, runtimeIncomplete: true })).toBe(true)
-    expect(hostReplaceDue({ ...base, outdated: false, runtimeIncomplete: true, holdings: { ...empty, runs: 1 } })).toBe(false)
+    expect(hostReplaceDue({ ...base, outdated: false, runtimeIncomplete: true })).toEqual(swap)
+    expect(hostReplaceDue({ ...base, outdated: false, runtimeIncomplete: true, activeTasks: 1 })).toEqual(waits(false))
   })
 
-  it('waits while the Host holds anything at all, of any kind', () => {
-    expect(hostReplaceDue({ ...base, holdings: { sessions: 1, terminals: 0, runs: 0, chats: 0 } })).toBe(false)
-    expect(hostReplaceDue({ ...base, holdings: { sessions: 0, terminals: 1, runs: 0, chats: 0 } })).toBe(false)
-    expect(hostReplaceDue({ ...base, holdings: { sessions: 0, terminals: 0, runs: 1, chats: 0 } })).toBe(false)
-    expect(hostReplaceDue({ ...base, holdings: { sessions: 0, terminals: 0, runs: 0, chats: 1 } })).toBe(false)
+  it('runs one replacement at a time, and stands aside while the app is quitting', () => {
+    expect(hostReplaceDue({ ...base, inFlight: true })).toEqual(waits(false))
+    expect(hostReplaceDue({ ...base, quitting: true })).toEqual(waits(false))
+  })
+})
+
+describe('idleWorkersBeforeSwap — what the swap releases through orchestration first', () => {
+  const now = 5 * 60 * 60_000
+  const state = (over: { runOutcome?: 'running' | 'done'; taskStatus?: string; retained?: boolean; ended?: boolean } = {}) =>
+    ({
+      jobs: [{ id: 'j1', cwd: '/p' }],
+      runs: [{ id: 'r1', jobId: 'j1', status: over.runOutcome === 'done' ? 'completed' : 'running', outcome: over.runOutcome === 'done' ? 'completed' : undefined }],
+      tasks: [{ id: 't1', runId: 'r1', status: over.taskStatus ?? 'completed', deps: [] }],
+      dispatches: [
+        {
+          id: 'd1',
+          taskId: 't1',
+          sessionId: 's1',
+          retained: over.retained ?? false,
+          ...(over.ended === false ? {} : { outcome: 'succeeded', endedAt: '2026-10-24T10:00:00.000Z' })
+        }
+      ],
+      gates: [],
+      messages: [],
+      deliveries: [],
+      projects: []
+    }) as unknown as OrchState
+  const env = { alive: (id: string) => id === 's1', typedAt: (): number | null => null, nowMs: now }
+
+  it('releases the worker of a completed Task whose session is still open', () => {
+    expect(idleWorkersBeforeSwap(state(), env)).toEqual(['d1'])
   })
 
-  it('does not read an unanswered list as an empty one', () => {
-    expect(hostReplaceDue({ ...base, holdings: null })).toBe(false)
+  it('leaves a retained worker alone: a person asked to keep it, and the handover brings it back', () => {
+    expect(idleWorkersBeforeSwap(state({ retained: true }), env)).toEqual([])
   })
 
-  it('runs one replacement at a time', () => {
-    expect(hostReplaceDue({ ...base, inFlight: true })).toBe(false)
-  })
-
-  it('stands aside while the app is quitting', () => {
-    expect(hostReplaceDue({ ...base, quitting: true })).toBe(false)
+  it('leaves a worker whose Dispatch is still open, a session already gone, and one a person typed into lately', () => {
+    expect(idleWorkersBeforeSwap(state({ ended: false, taskStatus: 'dispatched' }), env)).toEqual([])
+    expect(idleWorkersBeforeSwap(state(), { ...env, alive: () => false })).toEqual([])
+    expect(idleWorkersBeforeSwap(state(), { ...env, typedAt: () => now - 60_000 })).toEqual([])
   })
 })
 
