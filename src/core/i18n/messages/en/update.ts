@@ -5,6 +5,8 @@ export const update: Record<keyof typeof ko, string> = {
   'update.manual.title': 'Install by hand',
   'update.manual.quit': 'Quit and move it',
   'update.toast.available': 'Version v{version} is available',
+  'update.toast.updatedTo': 'Updated to {sha}',
+  'update.toast.updatedMore': 'and {count} more',
   'update.toast.download': 'Download',
   'update.confirm.title': 'Install and restart now',
   'update.confirm.body': '{count} running session(s) will be terminated. Continue?',

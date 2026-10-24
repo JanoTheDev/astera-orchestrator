@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  previousBuildOf,
   appImagesToDelete,
   BUILD_RETRY_MS,
   BUILT_COMMIT,
@@ -93,5 +94,14 @@ describe('lastUsefulLine', () => {
     expect(lastUsefulLine('building\nnpm ERR! code ELIFECYCLE\nnpm ERR! exit 1\n  \n')).toBe('npm ERR! exit 1')
     expect(lastUsefulLine('a\nb\n')).toBe('b')
     expect(lastUsefulLine('')).toBe('')
+  })
+})
+
+describe('previousBuildOf', () => {
+  it('names the previous commit only when this boot runs a different build', () => {
+    expect(previousBuildOf('aaa', 'bbb')).toBe('aaa')
+    expect(previousBuildOf('bbb', 'bbb')).toBeNull()
+    expect(previousBuildOf(undefined, 'bbb')).toBeNull()
+    expect(previousBuildOf('aaa', '')).toBeNull()
   })
 })

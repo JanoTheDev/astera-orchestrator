@@ -6,6 +6,8 @@ export const update: Partial<Record<keyof typeof ko, string>> = {
   'update.manual.quit': 'Salir y moverla',
   // App.tsx — the toast for a downloaded new version, and the session-kill confirmation when installing now
   'update.toast.available': 'Ya está disponible la versión v{version}',
+  'update.toast.updatedTo': 'Actualizado a {sha}',
+  'update.toast.updatedMore': 'y {count} más',
   'update.toast.download': 'Descargar',
   'update.confirm.title': 'Instalar y reiniciar ahora',
   'update.confirm.body': 'Se finalizarán {count} sesiones en curso. ¿Continuar?',

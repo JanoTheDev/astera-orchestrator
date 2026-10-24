@@ -41,5 +41,6 @@ export const UPDATE_IPC_CHANNELS = [
   'update:check',
   'update:download',
   'update:install',
+  'update:justUpdated',
   'update:dismissCampaign'
 ] as const

@@ -126,6 +126,7 @@ export const common: Record<keyof typeof ko, string> = {
   'settings.defaultKind.chat': 'Conversation',
   'settings.defaultKind.saveFailed': 'Could not save what new sessions start as: {detail}',
   'update.info.downloading': 'Downloading {percent}%…',
+  'update.tb.sourceUpdate': 'Update · {count} changes',
   'update.tb.building': 'Building update… {step}',
   'update.tb.buildWaiting': 'Update build queued behind another heavy job…',
   'update.ui.restart': 'Restart to update',

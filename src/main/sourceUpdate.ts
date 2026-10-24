@@ -23,9 +23,11 @@ import {
   modeActions,
   needsInstall,
   parseCommitLog,
+  previousBuildOf,
   SOURCE_CHECK_INTERVAL_MS,
   SOURCE_FIRST_CHECK_DELAY_MS,
   stagedName,
+  type JustUpdated,
   type SourceCommit
 } from '../core/update/sourceUpdate'
 import { afterCheckTimeout, checkWithTimeout, createUpdateStateTracker, UPDATE_CHECK_TIMEOUT_MS } from '../core/update/checkTimeout'
@@ -71,6 +73,8 @@ interface SavedState {
   lockHash?: string
   failedAt: Record<string, number>
   staged?: { file: string; sha: string; version: string }
+  /** The commit the last run was on: a different one at boot means the app restarted onto a new build. */
+  lastRunCommit?: string
 }
 
 export interface SourceUpdaterDeps {
@@ -101,6 +105,8 @@ export function createSourceUpdater(d: SourceUpdaterDeps): {
   check(userInitiated: boolean): Promise<void>
   build(): Promise<void>
   install(): Promise<InstallOutcome>
+  /** The "Updated to" record for a boot onto a new build; handed out once. */
+  justUpdated(): Promise<JustUpdated | null>
 } {
   const now = d.now ?? Date.now
   const root = path.join(d.userData, 'self-update')
@@ -123,6 +129,7 @@ export function createSourceUpdater(d: SourceUpdaterDeps): {
   let installing = false
   let timer: NodeJS.Timeout | null = null
   let ready: Promise<boolean> | null = null
+  let pendingUpdated: JustUpdated | null = null
 
   const saveState = (): Promise<void> =>
     fs
@@ -144,6 +151,13 @@ export function createSourceUpdater(d: SourceUpdaterDeps): {
       /* first run, or unreadable: start clean */
     }
     if (saved.staged?.sha === d.builtCommit) saved.staged = undefined // installed: this is it
+    const previous = previousBuildOf(saved.lastRunCommit, d.builtCommit)
+    if (previous) {
+      // A git failure (the old commit gone, no checkout) still announces the sha, with nothing listed.
+      const log = await git(d.sourceDir, ['log', `-n${MAX_LISTED_COMMITS}`, '--format=%H%x09%s', `${previous}..${d.builtCommit}`]).catch(() => '')
+      pendingUpdated = { sha: d.builtCommit.slice(0, 7), commits: parseCommitLog(log) }
+    }
+    if (d.builtCommit) saved.lastRunCommit = d.builtCommit
     try {
       const running = d.appImage && path.dirname(d.appImage) === appsDir ? path.basename(d.appImage) : undefined
       for (const f of appImagesToDelete(await fs.readdir(appsDir), [running, saved.staged?.file])) {
@@ -359,6 +373,12 @@ export function createSourceUpdater(d: SourceUpdaterDeps): {
     },
     check,
     build,
-    install
+    install,
+    async justUpdated() {
+      await ready
+      const j = pendingUpdated
+      pendingUpdated = null
+      return j
+    }
   }
 }

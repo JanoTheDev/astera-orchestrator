@@ -108,6 +108,7 @@ export const common: Partial<Record<keyof typeof ko, string>> = {
   'settings.slack.hint':
     'Si activa «Notificaciones de progreso en Slack» en una sesión nueva, se envía el progreso.',
   'update.info.downloading': 'Descargando {percent}%…',
+  'update.tb.sourceUpdate': 'Actualizar · {count} cambios',
   'update.tb.building': 'Compilando la actualización… {step}',
   'update.tb.buildWaiting': 'Compilación en cola tras otra tarea pesada…',
   'update.ui.restart': 'Reiniciar para actualizar',

@@ -15,21 +15,24 @@ import type { ShellState } from './useShell'
 
 function UpdateIndicator({
   update,
-  onInstall
+  onInstall,
+  onBuild
 }: {
   update: UpdateStatus | null
   /** Installing quits the app, so this goes through App's installUpdate rather than calling
    *  window.api.update.install directly: that is where the person is told what quitting costs their
    *  running sessions, and every install path has to ask the same question. */
   onInstall: () => void
+  /** Starts the source build for new commits; the restart that follows still goes through onInstall. */
+  onBuild: () => void
 }): React.JSX.Element | null {
   const { t } = useI18n()
   const view = titlebarView(update)
   if (view.kind === 'none') return null
   const text = t(view.message.key, view.message.params)
-  if (view.kind === 'button')
+  if (view.kind === 'button' || view.kind === 'build')
     return (
-      <Button variant="secondary" size="sm" className="tb-update-btn" icon={<Icon name="refresh" size={14} />} onClick={onInstall}>
+      <Button variant="secondary" size="sm" className="tb-update-btn" icon={<Icon name="refresh" size={14} />} onClick={view.kind === 'build' ? onBuild : onInstall}>
         {text}
       </Button>
     )
@@ -45,6 +48,7 @@ export function Titlebar({
   update,
   runningCount,
   onInstall,
+  onBuild,
   children
 }: {
   isMax: boolean
@@ -53,6 +57,8 @@ export function Titlebar({
   runningCount: number
   /** Passed straight through to UpdateIndicator's restart button — see the prop there. */
   onInstall: () => void
+  /** Passed straight through to UpdateIndicator's build button. */
+  onBuild: () => void
   /** What shares the bar. A slot, so the title bar does not know what it holds. */
   children?: React.ReactNode
 }): React.JSX.Element {
@@ -102,7 +108,7 @@ export function Titlebar({
         <img className="tb-logo" src={logoUrl} alt="" />
       </div>
       {children ?? <span className="tb-spacer" />}
-      <UpdateIndicator update={update} onInstall={onInstall} />
+      <UpdateIndicator update={update} onInstall={onInstall} onBuild={onBuild} />
       {!isMac && (
         <div className="tb-controls" onDoubleClick={(e) => e.stopPropagation()}>
           {/* square, flush with the window edge like the OS's own chrome (shell.css .tb-btn) */}

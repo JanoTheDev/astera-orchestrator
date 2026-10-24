@@ -102,6 +102,45 @@ describe('createSourceUpdater', () => {
     }
   })
 
+  it('announces the commits that came in once, when the app boots on a different build than last run', async () => {
+    const { checkout, pusher } = repoPair()
+    const first = git(checkout, 'rev-parse', 'HEAD')
+    const boot = async (built: string): Promise<unknown> => {
+      const u = updater(checkout, built, [])
+      u.start()
+      try {
+        return await u.justUpdated()
+      } finally {
+        u.stop()
+      }
+    }
+    expect(await boot(first)).toBeNull() // first run: nothing to compare with
+    git(pusher, 'commit', '--quiet', '--allow-empty', '-m', 'fix: second')
+    git(pusher, 'commit', '--quiet', '--allow-empty', '-m', 'feat: third')
+    git(pusher, 'push', '--quiet', 'origin', 'main')
+    git(checkout, 'pull', '--quiet', 'origin', 'main')
+    const next = git(checkout, 'rev-parse', 'HEAD')
+    expect(await boot(next)).toEqual({ sha: next.slice(0, 7), commits: [
+      { sha: next, subject: 'feat: third' },
+      { sha: expect.any(String), subject: 'fix: second' }
+    ] })
+    expect(await boot(next)).toBeNull() // shown once
+  })
+
+  it('still announces the sha when the previous commit is unknown to git', async () => {
+    const { checkout } = repoPair()
+    const built = git(checkout, 'rev-parse', 'HEAD')
+    await fs.mkdir(path.join(dir, 'userData', 'self-update'), { recursive: true })
+    await fs.writeFile(path.join(dir, 'userData', 'self-update', 'state.json'), JSON.stringify({ lastRunCommit: 'f'.repeat(40) }))
+    const u = updater(checkout, built, [])
+    u.start()
+    try {
+      expect(await u.justUpdated()).toEqual({ sha: built.slice(0, 7), commits: [] })
+    } finally {
+      u.stop()
+    }
+  })
+
   it('install refuses where it cannot self-install, and a missing checkout is an error only when asked', async () => {
     const pushed: UpdateStatus[] = []
     const u = updater(path.join(dir, 'missing'), 'abc', pushed)

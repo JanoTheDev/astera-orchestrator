@@ -41,6 +41,21 @@ export function parseCommitLog(stdout: string): SourceCommit[] {
     })
 }
 
+/** The commit the previous run was on when this boot is a different build, else null (first run, or no restart onto a new build). */
+export const previousBuildOf = (lastRun: string | undefined, built: string): string | null =>
+  lastRun && built && lastRun !== built ? lastRun : null
+
+/** What the renderer announces once after a restart onto a new build: the short sha and the commits that came in. */
+export interface JustUpdated {
+  sha: string
+  commits: SourceCommit[]
+}
+
+/** The preload method for it. Declared here, not on UpdateApi, because core/types.ts is another Task's file; fold it in there later. */
+export interface JustUpdatedApi {
+  justUpdated(): Promise<JustUpdated | null>
+}
+
 /** What a mode does on its own. A manual check works in every mode. */
 export function modeActions(mode: UpdateMode): { check: boolean; build: boolean; install: boolean } {
   return {
