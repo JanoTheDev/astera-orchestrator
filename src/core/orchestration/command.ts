@@ -136,7 +136,8 @@ import { ISSUE_JOB_ASSOCIATIONS, ISSUES_PER_CALL_MAX, assignIssueToMe, issueNumb
 import { GITHUB_SOURCE_ID, issuesContext, issuesTitleOf } from '../github/issueSource'
 // W6-A intake
 import { SOURCED_OBJECTIVE_MAX } from '../sources/objective'
-import { intakeChanges, intakeObjective, intakeOf, intakeTitle, needsInputs, planningArg, shortTitle } from './intake'
+import { intakeChanges, intakeObjective, intakeOf, intakeTitle, needsInputs, planningArg } from './intake'
+import { shortTitleOf } from './title'
 // W8-C prompts mode
 import path from 'node:path'
 import { SAVE_REASON_TEXT } from '../run/validateConfigs'
@@ -2598,7 +2599,7 @@ export async function handleCommand(
       )
       if (!made.ok) return commit(made)
       // T7: every plan has a short name from the start (the planner renames it); a source's title already names one
-      const titled = made.value.source?.title !== undefined ? made : (renameJob(made.state, made.value.id, shortTitle(objective)) as typeof made)
+      const titled = made.value.source?.title !== undefined ? made : (renameJob(made.state, made.value.id, shortTitleOf(objective)) as typeof made)
       const created =
         delivery === undefined
           ? titled
