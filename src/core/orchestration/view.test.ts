@@ -161,11 +161,11 @@ describe('outcomeOf', () => {
 
   // Run 만 만들고 Task 를 아직 만들지 않은 상태가 정상적인 시작 지점이다. every 는 빈 배열에
   // 참이므로 이 가드가 없으면 새로 만든 Run 이 completed 로 보인다
-  // T15: only while something can add Tasks; an empty Run nothing can add Tasks to has finished (running.ts lostTasksOutcome)
+  // T15: an empty Run with no delivery record runs; stuckOf flags it when nothing can add Tasks (running.ts lostTasksOutcome)
   it('Task 가 없으면 running 이다', () => {
     const starting = withRuns([{ ...run('r1', absPath('p')), coordinatorSessionId: 'sess1' }])
     expect(outcomeOf(starting, 'r1')).toBe('running')
-    expect(outcomeOf(only([]), 'r1')).toBe('failed')
+    expect(outcomeOf(only([]), 'r1')).toBe('running')
   })
 
   it('모두 completed 면 completed 다', () => {

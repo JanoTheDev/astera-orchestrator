@@ -76,30 +76,18 @@ export function runDelivered(run: JobRun): boolean {
  *  - **A delivery record** (a pushed branch, a pull request draft or not, an end delivery) comes only after a Task ran,
  *    so its Tasks were lost from the store (the 2026-10-22 `reset --tasks` wipe left 30 such Runs). Delivered reads
  *    completed, anything else failed, which puts it before the owner. Only an open replan can add Tasks to it.
- *  - **No record**: it reads running only while something can add Tasks (`emptyRunIdle`), else failed: nothing will.
+ *  - **No record**: running, like a Run just made. `stuckOf` says when nothing can add Tasks to it: needs-you while the
+ *    owner's ▶ can start its coordinator (`awaitsCoordinator`), stalled once nobody can.
  *
  *  `deliveryState` alone is no evidence: it is pending once a Run is seen running. Every reader of a Run's outcome goes
  *  through this: `outcomeOfRun` (`astera jobs list`, the Jobs view), mainPlan `planOutcomeOf`, after.ts `jobFinished`. */
 export function lostTasksOutcome(s: Pick<OrchState, 'jobs'>, run: JobRun | undefined, tasks: readonly Task[]): RunOutcome | undefined {
-  if (run === undefined || tasks.length > 0) return undefined
-  const job = s.jobs.find((j) => j.id === run.jobId)
-  if (!hasDeliveryRecord(run)) return emptyRunIdle(run, job) ? 'failed' : undefined
-  if (job?.replanning !== undefined) return undefined
+  if (run === undefined || tasks.length > 0 || !hasDeliveryRecord(run)) return undefined
+  if (s.jobs.find((j) => j.id === run.jobId)?.replanning !== undefined) return undefined
   return runDelivered(run) || (run.deliveryState !== undefined && SETTLED.has(run.deliveryState.state)) ? 'completed' : 'failed'
 }
 
 const hasDeliveryRecord = (run: JobRun): boolean => run.pr !== undefined || run.delivery !== undefined || run.branchPush !== undefined
-
-/** An empty Run with no delivery record that nothing can add Tasks to: no coordinator (attached, external or starting:
- *  a coordinator plans a Task-less Run, handover.ts), none the owner's ▶ can start (`awaitsCoordinator`), no replan, no
- *  start pending (approval) or held (`startWait`), and not paused (the owner's own stop, which reads paused). Planner
- *  sessions write a Job's definition Tasks, which `startJobRun` copies into the Run it makes, so a planner never adds
- *  to an existing Run but through a replan. */
-function emptyRunIdle(run: JobRun, job: Job | undefined): boolean {
-  if (run.paused === true || awaitsCoordinator(run, job)) return false
-  if (run.coordinatorSessionId !== undefined || run.externalCoordinatorSessionId !== undefined || run.coordinatorStartingAt !== undefined) return false
-  return job?.replanning === undefined && job?.pendingStart !== true && job?.startWait === undefined
-}
 
 /** A Run of an open plan with a coordinator account and no coordinator attached or starting: the owner's ▶
  *  (`coordinatorMissing`, run-start) or `runs resume` starts one, which can still add Tasks. `stuckOf` flags an empty one
@@ -170,12 +158,16 @@ export function stuckOf(
   ix?: StuckIndex,
   job = jobOf(s, run)
 ): RunStuck | undefined {
-  if (tasks.length === 0 && run.paused !== true && outcomeOfRun(tasks, run, s) === 'running' && awaitsCoordinator(run, job)) return 'needs-you'
   if (outcomeOfRun(tasks, run, s) !== 'running') return undefined
   if (job?.replanning !== undefined) return undefined
   const coordinator = run.coordinatorSessionId !== undefined || run.externalCoordinatorSessionId !== undefined
-  // A Run with no Tasks is how a start reads before its planner or coordinator makes any: dead only once none works on it
-  if (tasks.length === 0) return !coordinator && !coordinatorStarting(run, Date.now()) && job !== undefined && !job.pendingStart && jobActive(job) ? 'stalled' : undefined
+  // A Run with no Tasks is how a start reads before its planner or coordinator makes any: it waits on the owner's ▶ while
+  // one can be started, and is dead once none works on it, no start is pending (approval) or held, and the owner did not pause it
+  if (tasks.length === 0) {
+    if (run.paused === true) return undefined
+    if (awaitsCoordinator(run, job)) return 'needs-you'
+    return !coordinator && !coordinatorStarting(run, Date.now()) && job !== undefined && !job.pendingStart && job.startWait === undefined && jobActive(job) ? 'stalled' : undefined
+  }
   // Work the app or a coordinator takes up as it is: no list read needed to say the Run can move
   if (tasks.some((t) => t.status === 'ready' || t.status === 'validating' || t.status === 'reviewing' || t.status === 'merging')) return undefined
   const { open, asked: askedIds } = ix ?? stuckIndexOf(s)

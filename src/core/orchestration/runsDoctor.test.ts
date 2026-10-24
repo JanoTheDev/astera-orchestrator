@@ -137,9 +137,9 @@ describe('runs doctor — a Run whose Tasks are gone', () => {
 
   it('finds the lost Tasks of a Run with a delivery record, and an empty Run nothing can add Tasks to', () => {
     const found = diagnoseRuns(lostState(), ['r_pr', 'r_idle'])
-    expect(kinds(found)).toEqual(['lost-tasks:r_idle', 'lost-tasks:r_pr'])
+    expect(kinds(found)).toEqual(['lost-tasks:r_pr', 'stuck:r_idle'])
     expect(found.find((f) => f.runId === 'r_pr')!.detail).toMatch(/lost from the store; it reads completed/)
-    expect(found.find((f) => f.runId === 'r_idle')!.detail).toMatch(/nothing can add one.*reads failed/)
+    expect(found.find((f) => f.runId === 'r_idle')).toMatchObject({ stuck: 'stalled', detail: expect.stringContaining('no Tasks') })
   })
 
   it('flags the lost Tasks to the owner once, keeping every record', async () => {
