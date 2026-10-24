@@ -117,7 +117,7 @@ import { read as readOwner } from '../prompts/ownerInstructions'
 import { consoleIdStore, ensureConsole } from '../console/console'
 import { noRemoteNote, unmergedPlanBranches } from './unmergedBranches' // W8-G (#101)
 // W2-A planner stage
-import { editPlanTask, kindOf, leftOutArg, orchestrationRoleOf, planFieldsFromArgs, plannerJobOf, plannerRefusal, taskProblems, validatePlan, workerSpecOf, worktreeRefusal } from './planner'
+import { editPlanTask, kindOf, leftOutArg, orchestrationRoleOf, planFieldsFromArgs, plannerJobOf, plannerRefusal, taskProblems, validatePlan, withPreviousAttempt, workerSpecOf, worktreeRefusal } from './planner'
 import { parseReviewFile, type ReviewIssueInput } from './review'
 import { nameForRun } from '../worktrees/naming'
 import type { Provider } from '../providers/meta'
@@ -5244,6 +5244,18 @@ export async function handleCommand(
       const dispatchId = opened.value.id
       const previousStatus = task.status // value to restore on rollback — the status before openDispatch moved it
 
+      // A retried worker reads why its previous attempt failed: its spec is fixed once started (task-update refuses it)
+      const previous = s.dispatches
+        .filter((d) => d.taskId === taskId && !d.review)
+        .sort((x, y) => x.startedAt.localeCompare(y.startedAt))
+        .at(-1)
+      const report = previous?.outcome === 'failed'
+        ? s.messages.filter((m) => m.dispatchId === previous.id && m.type === 'worker_done').at(-1)
+        : undefined
+      const previousFailure = previous?.outcome === 'failed'
+        ? { subject: report?.subject ?? 'it failed', body: report?.body ?? 'No failure report was recorded.' }
+        : undefined
+
       let started: { sessionId: string; cwd: string; specPath: string; model?: string; modelNote?: string }
       try {
         // T5b: the session now counts itself on its account (a live session), so the start's own count goes
@@ -5252,7 +5264,7 @@ export async function handleCommand(
           taskId,
           title: task.title,
           // W2-A: a planned Task's prompt, criteria and paths go into the worker's spec file.
-          spec: workerSpecOf(task),
+          spec: withPreviousAttempt(workerSpecOf(task), previousFailure),
           kind: kindOf(task),
           provider: agent,
           accountId: account,

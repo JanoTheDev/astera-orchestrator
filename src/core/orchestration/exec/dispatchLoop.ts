@@ -2317,7 +2317,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     const named = loggedIn.find((x) => x.id === merge!.accountIds?.[0])
     const on = named ?? loggedIn.find((x) => providerOf(x) === 'claude') ?? loggedIn[0]
     if (!on) {
-      await gateSlot(merge.id, t(c.lang(), 'jobs.gate.noAccount', { provider: 'claude' }))
+      await gateSlot(merge.id, t(c.lang(), 'jobs.gate.noAccountAnyProvider'))
       return
     }
     const start = (id?: string) => c.handle('worker-start', { task: merge!.id, agent: providerOf(on), ...(id ? { account: id } : {}), worktree: runRoot })

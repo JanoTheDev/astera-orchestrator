@@ -244,6 +244,7 @@ export const core: Partial<Record<keyof typeof ko, string>> = {
   'jobs.convergence.gate.repairFailed': 'La aplicación no pudo iniciar un worker de reparación: {reason}',
   'jobs.checks.gate.unavailable': 'No se pudo realizar la comprobación: {check}: {reason}',
   'jobs.gate.noAccount': 'Ninguna cuenta de {provider} tiene la sesión iniciada, así que esta Task no puede empezar',
+  'jobs.gate.noAccountAnyProvider': 'Ninguna cuenta de ningún proveedor tiene la sesión iniciada, así que esta Task no puede empezar',
   'jobs.gate.workerLostNoApp': 'El worker de esta Task se perdió (dispatch {dispatch}) mientras ningún Astera estaba abierto para recuperarlo. Resuelve esta Gate para volver a iniciarlo.',
   'jobs.gate.assignedAccountUnusable':
     'No se puede usar la primera cuenta asignada a esta Task, y las siguientes solo están ahí para pasar a ellas más tarde — vuelve a iniciar sesión en esa cuenta o cambia la lista de cuentas de esta Task',
