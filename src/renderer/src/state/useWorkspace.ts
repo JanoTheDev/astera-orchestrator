@@ -5,14 +5,15 @@ import { buildWorkspaceTree, findPlan, planSessions, projectOfCwd, scopeLayout }
 // W6-F: one workspace per project
 import { entryTab, OTHER_WORKSPACE, scopeIds as workspaceScopeOf, workspaceFolderOf, workspaceSessionIds } from './workspaceTree'
 import { initialScope, ownerOf } from './projectScope'
-import { projectScopeOf, scopeData, scopeTree, selectionAfterFocus } from './projectView'
+import { projectScopeOf, scopeData, scopeTree } from './projectView'
+import { boundEntry, focusInScope, followTarget, selectionAfterBound } from './selection'
 import type { ProjectScope } from './useProjectScope'
 import * as sticky from '../lib/stickyProject'
 import { projectAnchorOf } from '../components/projects/projectAnchor' // W8-G
 // W7-F (#84): ended plan tabs close on their own; the quick tab switcher
 import { tabsToAutoClose } from '../lib/tabAutoClose'
 import type { SwitcherTab } from '../lib/tabSwitcher'
-import { groupOfTab, leaves } from '../../../core/panes/tree'
+import { activateTab, groupOfTab, leafOf, leaves, type PaneNode } from '../../../core/panes/tree'
 import { parseTab, sessionTab } from '../../../core/panes/tabId'
 import type { useWorkbench } from './useWorkbench'
 import type { useLayout } from './useLayout'
@@ -20,9 +21,9 @@ import type { useWorkbenchState } from './useWorkbenchState'
 import { selectionAfterDrop, type useJobs } from './useJobs'
 
 export type WorkspaceDeps = Pick<ReturnType<typeof useWorkbench>,
-    'bottomRootRef' | 'bottomTab' | 'openWorkspaceSlotRef' | 'selectWorkbenchTab' | 'terminals'> &
+    'bottomRootRef' | 'bottomTab' | 'openWorkspaceSlotRef' | 'ownerPickRef' | 'selectWorkbenchTab' | 'shownLayoutRef' | 'terminals'> &
   Pick<ReturnType<typeof useLayout>,
-    'activeSessionId' | 'activeTabId' | 'layout' | 'layoutRef' | 'remoteSessions' | 'sessions'> &
+    'activePaneIdRef' | 'activeTabId' | 'layout' | 'layoutRef' | 'remoteSessions' | 'sessions' | 'setActivePaneId' | 'setLayout'> &
   Pick<ReturnType<typeof useWorkbenchState>,
     'closeWorkbenchTabRef'> &
   Pick<ReturnType<typeof useJobs>,
@@ -30,8 +31,9 @@ export type WorkspaceDeps = Pick<ReturnType<typeof useWorkbench>,
 
 export function useWorkspace(deps: WorkspaceDeps) {
   const {
-    activeSessionId, activeTabId, activeTabRoot, bottomRootRef, bottomTab, closeWorkbenchTabRef,
-    currentProject, droppedRoot, homeDir, setScopeRoot, layout, layoutRef, openWorkspaceSlotRef, remoteSessions, selectWorkbenchTab, sessions, terminals
+    activePaneIdRef, activeTabId, activeTabRoot, bottomRootRef, bottomTab, closeWorkbenchTabRef,
+    currentProject, droppedRoot, homeDir, setScopeRoot, layout, layoutRef, openWorkspaceSlotRef, ownerPickRef, remoteSessions,
+    selectWorkbenchTab, sessions, setActivePaneId, setLayout, shownLayoutRef, terminals
   } = deps
   // W2-B workspace: the selected plan, and the pane tree as its workspace shows it (scopeLayout). Read while the
   // tree is on screen or a plan is open; the anchor is only the path the reads are sent through.
@@ -82,37 +84,10 @@ export function useWorkspace(deps: WorkspaceDeps) {
     workspaceScopeOf(workspaceTree, workspaceIds, projectId, planId)
   const workspaceScope = scopeOf(workspaceProjectId, workspacePlanId)
   const workspaceKey = workspaceScope ? [...workspaceScope].join('\n') : null
-  const shownLayout = useMemo(
-    () => (!scopeKnown ? null : workspaceScope ? scopeLayout(layout, workspaceScope) : layout),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- workspaceKey stands for the scope's session ids
-    [layout, workspaceKey, scopeKnown]
-  )
-  // A session outside the open workspace focused from elsewhere (a notification, the Jobs view) leaves it for that
-  // session's own project workspace: the scoped view would hide the very tab the person just asked for.
-  useEffect(() => {
-    // W9-K: not before the tree is in: until then every session reads as Other's, and a window bound to a project
-    // would leave it for Other at mount.
-    if (!workspaceData) return
-    if (!workspaceScope || !activeSessionId || workspaceScope.has(activeSessionId)) return
-    // a session not yet in the tree (owner unknown) never resets the selection
-    const owner = ownerOf(workspaceIds, activeSessionId)
-    if (!owner) return
-    setWorkspacePlanId(null)
-    setWorkspaceProjectId(owner)
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a focus change decides this, not a refresh
-  }, [activeSessionId])
-  // T12: likewise a file, record or browser tab of another project moves the title bar to that project, so the views
-  // never drift from it. Session tabs are the effect above's.
-  useEffect(() => {
-    if (!workspaceData || !activeTabRoot || !activeTabId) return
-    const kind = parseTab(activeTabId)?.kind
-    if (kind === 'session' || kind === 'app') return
-    const next = selectionAfterFocus(workspaceProjectId, projectOfCwd(activeTabRoot, workspaceTree, workspaceData.worktrees ?? []))
-    if (next === workspaceProjectId) return
-    setWorkspacePlanId(null)
-    setWorkspaceProjectId(next)
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a focus change decides this, not a refresh
-  }, [activeTabId, activeTabRoot])
+  const showOf = (l: PaneNode | null): PaneNode | null => (!scopeKnown ? null : workspaceScope ? scopeLayout(l, workspaceScope) : l)
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- workspaceKey stands for the scope's session ids
+  const shownLayout = useMemo(() => showOf(layout), [layout, workspaceKey, scopeKnown])
+  shownLayoutRef.current = showOf // the tab cycling keys walk what is shown
   const canOpenSessionTab = (sessionId: string): boolean => !!layout && !!groupOfTab(layout, sessionTab(sessionId))
   // W7-F (#84): an ended plan's ended tabs, and a replan's stale planner tab, close on their own (tabsToAutoClose),
   // through the tab strip's own close as a hide (T13): the tab leaves the tree, nothing is killed, and Recently closed
@@ -149,13 +124,18 @@ export function useWorkspace(deps: WorkspaceDeps) {
   // W6-F: each workspace's focused tab while it is away, keyed by plan id, project id, or '' for every tab. Renderer
   // memory only: the pane tree it points into is not stored either.
   const workspaceFocusRef = useRef(new Map<string, string>())
-  /** Opens a workspace without moving focus: the caller focuses a session of it. A plan opens inside its project. */
-  const setWorkspaceScope = (projectId: string | null, planId: string | null): void => {
+  /** Opens a workspace; a restore's, so it is not the owner's pick. */
+  const scopeTo = (projectId: string | null, planId: string | null): void => {
     if (activeTabId) workspaceFocusRef.current.set(workspacePlanId ?? workspaceProjectId ?? '', activeTabId)
     const plan = planId ? findPlan(workspaceTree, planId) : undefined
     setWorkspacePlanId(planId)
     // a plan the tree does not know yet keeps the current project instead of falling back to All
     setWorkspaceProjectId(planId ? (plan?.projectId ?? projectId ?? workspaceProjectId) : projectId)
+  }
+  /** Opens a workspace without moving focus: the caller focuses a session of it. A plan opens inside its project. */
+  const setWorkspaceScope = (projectId: string | null, planId: string | null): void => {
+    ownerPickRef.current = { tabId: null }
+    scopeTo(projectId, planId)
   }
   /** Opens a workspace and focuses the tab it had when it was left, else its first. */
   const enterWorkspace = (projectId: string | null, planId: string | null): void => {
@@ -170,6 +150,38 @@ export function useWorkspace(deps: WorkspaceDeps) {
     const p = workspaceTree[slot - 1]
     if (p) openWorkspaceProject(p.id)
   }
+  // After every focus or tree change (selection.ts): a tab the owner picked carries the selection to its own project
+  // (a session focused from a notice or the Jobs view, a file tab of another project), and otherwise the focus stays on
+  // a tab the open workspace shows. So a hidden tab of another project becoming active (a tab closing, a pane clicked,
+  // a restore) never moves the project back, and the pane tree never keeps it as the active tab.
+  useEffect(() => {
+    // W9-K: not before the tree is in: until then every session reads as Other's, and a window bound to a project
+    // would leave it for Other at mount.
+    if (!workspaceData || !scopeKnown) return
+    const pick = ownerPickRef.current?.tabId ?? null
+    const picked = pick !== null && pick === activeTabId
+    const tab = activeTabId ? parseTab(activeTabId) : null
+    const owner = tab?.kind === 'session'
+      ? ownerOf(workspaceIds, tab.id)
+      : activeTabRoot ? projectOfCwd(activeTabRoot, workspaceTree, workspaceData.worktrees ?? []) : null
+    const next = followTarget({ picked, tab, keep: workspaceScope, selected: workspaceProjectId, owner })
+    if (next === 'wait') return
+    if (picked) ownerPickRef.current = { tabId: null }
+    if (next) {
+      setWorkspacePlanId(null)
+      setWorkspaceProjectId(next.projectId)
+      return
+    }
+    const root = layoutRef.current
+    const paneId = activePaneIdRef.current
+    // the tree already moved on to a pick this render does not show yet: that render decides it
+    if (!picked && pick !== null && root && paneId && leafOf(root, paneId)?.activeTabId === pick) return
+    const fixed = focusInScope(root, paneId, workspaceScope, workspaceFocusRef.current.get(workspacePlanId ?? workspaceProjectId ?? ''))
+    if (!fixed) return
+    setLayout(fixed.root)
+    setActivePaneId(fixed.paneId)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- workspaceKey stands for the scope's session ids
+  }, [activeTabId, activeTabRoot, layout, workspaceKey, workspaceProjectId, workspacePlanId, workspaceData, scopeKnown])
   // W9-K: this window's project (main binds it, src/main/windows.ts), read once at mount and entered once the tree is
   // in, so the window focuses one of its own tabs. From then on what the window shows is reported back: that retitles
   // the window, and it is how a notice and `--project` find it.
@@ -177,7 +189,9 @@ export function useWorkspace(deps: WorkspaceDeps) {
   useEffect(() => {
     void window.api.win.boundProject().then(
       (id) => {
-        if (id) setWorkspaceProjectId(id)
+        // the owner may have picked a project or a tab while main was answering: that pick stays
+        const pick = ownerPickRef.current
+        setWorkspaceProjectId((cur) => selectionAfterBound(pick, cur, id))
         setBoundProject(id)
         setScopeKnown(true)
       },
@@ -195,7 +209,14 @@ export function useWorkspace(deps: WorkspaceDeps) {
   useEffect(() => {
     if (!boundProject || !workspaceData || boundEnteredRef.current) return
     boundEnteredRef.current = true
-    openWorkspaceProject(boundProject)
+    // a restore: none of it once the owner has picked a project or a tab, and it is no pick itself
+    const entry = boundEntry(ownerPickRef.current, boundProject, layoutRef.current, scopeOf(boundProject, null), workspaceFocusRef.current.get(boundProject))
+    if (!entry) return
+    scopeTo(entry.projectId, null)
+    const act = entry.tab && layoutRef.current ? activateTab(layoutRef.current, entry.tab) : null
+    if (!act) return
+    setLayout(act.root)
+    setActivePaneId(act.paneId)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when the tree first arrives
   }, [boundProject, workspaceData])
   const workspaceName = workspaceTree.find((p) => p.id === workspaceProjectId)?.name
