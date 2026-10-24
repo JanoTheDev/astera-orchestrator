@@ -84,6 +84,7 @@ import { isOnlyTerminalReports } from '../core/terminal/reports'
 import type { Account, CoreEvents, HistoryPageRequest, HistoryProjectsPageRequest, HostHoldings, HostStatus, OrchHostGate, OrchSnapshot, RunDetail, CompletionDetail, Provider, RateLimitWindow, ResumeStrategy, RollStateEvent, RollSwitchResult, RunConfig, RunStatus, ScheduleConfig, SessionInfo } from '../core/types'
 import { providerOf } from '../core/providers/meta'
 import { orchAccountsFor } from '../core/accounts/accountsFile'
+import { sameLogin } from '../core/accounts/duplicateLogins'
 import { descriptorOf } from '../core/providers/descriptor'
 import { readGeneratorSettings } from '../core/understanding/generatorSettings'
 import { readRoleModelSettings } from '../core/orchestration/roleModels'
@@ -2150,6 +2151,31 @@ export function registerIpc(
       account && (() => core.accountLogoutOf(account))
     )
     return { ok: true as const, titles: [] as string[], closed, logout }
+  })
+  // Folds `dropId` into `keepId` when both are the same login (Settings > Accounts). The checks come first and nothing
+  // moves until they pass: same login (the renderer's pairing is a hint, this is the boundary), no running session on
+  // the dropped account (accountRemovalBlockers, as accounts.remove). Then the Task/Job/Dispatch references move
+  // through the orchestration command, the projects' default accounts follow, and the account is removed.
+  ipcMain.handle('accounts.merge', async (_e, keepId: unknown, dropId: unknown) => {
+    if (typeof keepId !== 'string' || typeof dropId !== 'string' || keepId === dropId)
+      return { ok: false as const, reason: 'notSameLogin' as const, titles: [] as string[] }
+    const keep = core.accounts.get(keepId)
+    const drop = core.accounts.get(dropId)
+    const [keepEmail, dropEmail] = await Promise.all([core.accountEmail(keepId), core.accountEmail(dropId)])
+    if (!sameLogin(keep, keepEmail, drop, dropEmail)) return { ok: false as const, reason: 'notSameLogin' as const, titles: [] as string[] }
+    const blockers = accountRemovalBlockers(dropId, allSessions())
+    if (blockers.length > 0) return { ok: false as const, reason: 'inUse' as const, titles: blockers }
+    if (!orch) return { ok: false as const, reason: 'unavailable' as const, titles: [] as string[] }
+    try {
+      const r = await orchHandleCommand(orch.deps, { sessionId: UI_CALLER }, 'accounts-merge', { keep: keepId, drop: dropId })
+      if (r.status !== 200) return { ok: false as const, reason: 'unavailable' as const, titles: [] as string[] }
+    } catch (err) {
+      orchLog(`accounts.merge: the references were not moved — ${err instanceof Error ? err.message : String(err)}`)
+      return { ok: false as const, reason: 'unavailable' as const, titles: [] as string[] }
+    }
+    await core.projects.reassignDefaultAccount(dropId, keepId)
+    await core.accounts.remove(dropId)
+    return { ok: true as const, titles: [] as string[] }
   })
   ipcMain.handle('accounts.loginStatus', (_e, id) => core.accounts.loginStatus(id))
   ipcMain.handle('accounts.rename', (_e, id, label) => core.accounts.rename(id, label)) // W7-F

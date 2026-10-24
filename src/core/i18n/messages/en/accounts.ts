@@ -58,6 +58,17 @@ export const accounts: Record<keyof typeof ko, string> = {
   'account.remove.inUse': 'This account is in use by a running session and cannot be unregistered: {titles}\n\nClose the session first, or remove the account from its rolling order.',
   'account.remove.willClose': '{count} finished worker session(s) will be closed: {titles}',
   'account.remove.releaseFailed': 'A finished worker session could not be closed, so the account was not unregistered: {detail}',
+  // Merging two accounts of one login (Settings › Accounts)
+  'account.merge.sameLogin': 'Same login as {label}',
+  'account.merge.button': 'Merge',
+  'account.merge.title': 'Merge accounts',
+  'account.merge.confirm': 'Merge “{drop}” into “{keep}”? The “{keep}” account stays.',
+  'account.merge.note': 'Tasks, plans and project defaults that use “{drop}” move to “{keep}”, then “{drop}” is unregistered. It is the same login, so no sign-in is removed.',
+  'account.merge.confirmButton': 'Merge into {keep}',
+  'account.merge.processing': 'Merging…',
+  'account.merge.done': 'Merged into {keep}.',
+  'account.merge.inUse': 'A running session is using “{drop}”, so it cannot be merged: {titles}\n\nClose the session first, or remove the account from its rolling order.',
+  'account.merge.failed': 'Could not merge these accounts. They may no longer be the same login, or orchestration is not ready yet.',
   'account.sync.title': 'Import default account settings',
   'account.sync.confirmBody':
     'Imports settings from the “{source}” account into the “{label}” account.',

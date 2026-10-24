@@ -66,6 +66,7 @@ import { CLI_PROTOCOL } from './cliOutput'
 import { collectChanges, rangesFor } from './changedFiles'
 import type { ChangedFile } from '../git/changes'
 import type { SwitchedCommand } from './cliAgentContext'
+import { rewriteAccountRefs } from '../accounts/duplicateLogins'
 import { isValidState, migrateLoadedState } from './store'
 import { planTasksRestore } from './tasksRestore'
 import { findProject, findProjectByPath, findProjectContaining, jobInProject, setProjectSettings, type ProjectSettingsPatch } from './projects'
@@ -2140,6 +2141,19 @@ export async function handleCommand(
   // session with an id, a shell and the app are not. The 2026-10-22 wipe was a coordinator's `reset --tasks`.
   if ((cmd === 'reset' || cmd === 'tasks-restore') && fromAgentSession)
     return denied(`${cmd === 'reset' ? 'reset' : 'tasks restore'} is for the person at a terminal or in the app, not for an agent session`)
+
+  // Settings > Accounts merges two accounts of one login (ipc.ts `accounts.merge`): every Task, Job and Dispatch
+  // reference to --drop moves to --keep through the state's own write. The app's call only, and not in the public
+  // command schema: the account registry is the app's, an agent session has no business folding accounts.
+  if (cmd === 'accounts-merge') {
+    if (caller.sessionId !== APP_CALLER) return denied('accounts-merge is sent by the app, not from a session')
+    const keep = str(args.keep)
+    const drop = str(args.drop)
+    if (!keep || !drop || keep === drop) return bad('--keep and --drop are required and must differ')
+    const { state: next, changed } = rewriteAccountRefs(s, keep, drop)
+    if (changed > 0) await deps.setState(next)
+    return okBody({ keep, drop, changed })
+  }
 
   const commit = async <T>(r: Res<T>): Promise<Reply> => {
     // **404 is what state.ts marked `missing`, nothing else** (R4). This used to read the words: any

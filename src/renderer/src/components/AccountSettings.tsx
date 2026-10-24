@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { Account } from '../../../core/types'
 import { providerOf } from '../../../core/providers/meta'
+import { duplicateLoginGroups } from '../../../core/accounts/duplicateLogins'
 import { useAccountStatus } from '../hooks/useAccountStatus'
 import { useAccountUsage } from '../hooks/useAccountUsage'
 import { AccountRow } from './AccountRow'
@@ -19,6 +20,22 @@ export function AccountSettings({ accounts }: { accounts: Account[] }): React.JS
   const [removeTarget, setRemoveTarget] = useState<Account | null>(null)
   const [syncTarget, setSyncTarget] = useState<Account | null>(null)
   const [syncing, setSyncing] = useState(false)
+  const [mergeTarget, setMergeTarget] = useState<{ keep: Account; drop: Account } | null>(null)
+
+  // Accounts signed in as the same email: the kept one of each group, found for every account in it.
+  const sameLoginAs = useMemo(() => {
+    const loggedIn = new Set(Object.entries(loginMap).filter(([, on]) => on).map(([id]) => id))
+    const byId = new Map(accounts.map((a) => [a.id, a]))
+    const out = new Map<string, { keep: Account; drop: Account }>()
+    for (const g of duplicateLoginGroups(accounts, (id) => emailMap[id], loggedIn)) {
+      const keep = byId.get(g.keepId)
+      for (const id of g.dropIds) {
+        const drop = byId.get(id)
+        if (keep && drop) out.set(id, { keep, drop })
+      }
+    }
+    return out
+  }, [accounts, loginMap, emailMap])
 
   const openRemove = (account: Account): void => setRemoveTarget(account)
 
@@ -44,6 +61,7 @@ export function AccountSettings({ accounts }: { accounts: Account[] }): React.JS
       <ul className="acct-list">
         {accounts.map((a) => {
           const defaultId = defaultIdByProvider[providerOf(a)]
+          const dup = sameLoginAs.get(a.id)
           return (
           <AccountRow
             key={a.id}
@@ -52,12 +70,18 @@ export function AccountSettings({ accounts }: { accounts: Account[] }): React.JS
             email={emailMap[a.id]}
             isDefault={defaultId === a.id}
             usage={usage[a.configDir]}
+            note={dup ? t('account.merge.sameLogin', { label: dup.keep.label }) : undefined}
             expanded={expandedId === a.id}
             onToggle={() => setExpandedId((cur) => (cur === a.id ? null : a.id))}
           >
             {/* Importing needs a source, and that source is this provider's default account. Hidden on the default
                 itself (it would be copying onto itself) and when the provider has no default yet, which
                 means nothing of that CLI is logged in. */}
+            {dup && (
+              <Button size="sm" variant="ghost" onClick={() => setMergeTarget(dup)}>
+                {t('account.merge.button')}
+              </Button>
+            )}
             {defaultId !== null && defaultId !== a.id && (
               <Button size="sm" variant="ghost" title={t('account.sync.title')} onClick={() => setSyncTarget(a)}>
                 {t('account.sync.button')}
@@ -80,6 +104,7 @@ export function AccountSettings({ accounts }: { accounts: Account[] }): React.JS
           {t('account.empty.bodySettings')}
         </EmptyState>
       )}
+      {mergeTarget && <MergeAccountsDialog keep={mergeTarget.keep} drop={mergeTarget.drop} onClose={() => setMergeTarget(null)} />}
       {removeTarget && <RemoveAccountDialog account={removeTarget} onClose={() => setRemoveTarget(null)} />}
       {syncTarget && (
         <Modal
@@ -119,6 +144,53 @@ export function AccountSettings({ accounts }: { accounts: Account[] }): React.JS
         </Modal>
       )}
     </div>
+  )
+}
+
+/** Confirms folding `drop` into `keep` (two accounts of one login). main re-checks that it is the same login and that no
+ *  running session uses `drop` (ipc.ts accounts.merge); a refusal is said here, with the sessions that block it. */
+function MergeAccountsDialog({ keep, drop, onClose }: { keep: Account; drop: Account; onClose: () => void }): React.JSX.Element {
+  const { t } = useI18n()
+  const [merging, setMerging] = useState(false)
+
+  const confirmMerge = async (): Promise<void> => {
+    if (merging) return
+    setMerging(true)
+    try {
+      const r = await window.api.accounts.merge(keep.id, drop.id)
+      if (r.ok) toast.success(t('account.merge.done', { keep: keep.label }))
+      else if (r.reason === 'inUse') toast.error(t('account.merge.inUse', { drop: drop.label, titles: r.titles.join(', ') }))
+      else toast.error(t('account.merge.failed'))
+    } catch {
+      toast.error(t('account.merge.failed'))
+    } finally {
+      setMerging(false)
+      onClose()
+    }
+  }
+
+  return (
+    <Modal
+      title={t('account.merge.title')}
+      onClose={() => !merging && onClose()}
+      size="sm"
+      closeLabel={t('common.close')}
+      footer={
+        <>
+          <Button disabled={merging} onClick={onClose}>
+            {t('common.cancel')}
+          </Button>
+          <Button variant="primary" disabled={merging} onClick={() => void confirmMerge()}>
+            {merging ? t('account.merge.processing') : t('account.merge.confirmButton', { keep: keep.label })}
+          </Button>
+        </>
+      }
+    >
+      <div className="acct-form">
+        <p className="acct-note">{t('account.merge.confirm', { keep: keep.label, drop: drop.label })}</p>
+        <p className="acct-note">{t('account.merge.note', { keep: keep.label, drop: drop.label })}</p>
+      </div>
+    </Modal>
   )
 }
 

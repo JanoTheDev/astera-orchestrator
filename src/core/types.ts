@@ -1499,6 +1499,8 @@ export interface CoreApi {
     /* closed: finished worker sessions removal releases; dryRun only reports. logout: the result of the logout asked
        with `opts.logout`, run after the removal; absent when none was asked or the removal was refused. */
     remove(id: string, opts?: { dryRun?: boolean; logout?: boolean }): Promise<{ ok: boolean; titles: string[]; closed: string[]; logout?: { ok: boolean; message?: Message } }>
+    /** Folds `dropId` into `keepId` (the same login): their Task/Job references and project defaults move, then `dropId` is removed. `inUse` lists the running sessions that block it. */
+    merge(keepId: string, dropId: string): Promise<{ ok: boolean; reason?: 'notSameLogin' | 'inUse' | 'unavailable'; titles: string[] }>
     loginStatus(id: string): Promise<boolean> // the verdict from accounts/loginStatus.ts (claude also checks Keychain on macOS)
     detect(): Promise<DetectCandidate[]> // detection candidates, excluding registered and unregistered-by-the-user config dirs
     /** Unregistered config dirs as account-shaped history sources — this one keeps the ones the user
