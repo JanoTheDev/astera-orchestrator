@@ -720,7 +720,8 @@ export interface Task {
   affectedPaths?: string[]
   /** `--no-files`: this ops, audit or docs Task changes no repository file, so it names none (validatePlan accepts the empty list). */
   noFiles?: true
-  /** Why the planner picked this Task's `difficulty`, `provider` or `model`: one line. */
+  /** Why the planner picked this Task's `difficulty`, `provider` or `model`: one line. The repair ladder also writes
+   *  here when it steps up ("repair N after a failed review: sonnet/medium → sonnet/high", stepRepairLadder). */
   modelReason?: string
   // ── W2-D GitHub links (core/github/taskLinks.ts) ──
   /** This Task's issue, branch, commits and pull requests. GitHub is the tracker; this only points at it. */

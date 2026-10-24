@@ -130,6 +130,22 @@ describe('executeRecovery', () => {
     expect(spec).toContain('This is an extra repair, granted by a person after the budget of 3 was already spent.')
   })
 
+  // decision repair 는 예산 밖이다. 유실되어 재시작해도 spec 은 결정을 싣고, 새 Dispatch 도 decision 을
+  // 지녀야 repairCountOf 가 세지 않는다.
+  it('유실된 decision repair 는 재시작해도 spec 에 decision 을 싣고 새 Dispatch 가 decision 을 기록한다', async () => {
+    const t = task({ checks: [{ configId: 'c1', name: 'Tests', status: 'failed', exitCode: 1 }] })
+    const h = deps({}, t)
+    const r = await executeRecovery(
+      { attempt: attempt({ repair: 'review-failure', decision: 'Skip the next dev step.' }), decision: decision(), state: h.state, now: NOW },
+      h.d as never
+    )
+    expect(r.ok).toBe(true)
+    expect((h.started[0] as { specFileContent: string }).specFileContent).toContain('## Decision')
+    expect((h.started[0] as { specFileContent: string }).specFileContent).toContain('Skip the next dev step.')
+    const opened = h.d.getState().dispatches.find((d: Dispatch) => d.id === (r as { newDispatchId: string }).newDispatchId)
+    expect(opened?.decision).toBe('Skip the next dev step.')
+  })
+
   // 이 테스트가 지키는 바로 그 회귀 — recovery 자신이 재시작하며 새 Dispatch 를 하나 더 커밋하면
   // repairCountOf 가 예산을 넘는 값을 낼 수 있지만(잃은 것과 새로 연 것을 둘 다 세므로), 그것은
   // "사람이 허락했다" 는 뜻이 아니다. grantedExtra 가 없으면, 세는 값이 우연히 예산을 넘어도
