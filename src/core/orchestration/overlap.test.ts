@@ -462,6 +462,16 @@ describe('plans that know about each other (T11)', () => {
     expect((reply.body as { overlaps?: string[] }).overlaps).toEqual(['Rework routes · Api cleanup · Clean handlers (same files: src/api/routes.ts)'])
   })
 
+  it('reads the other plan running by its shared run outcome: an empty Run nothing can add Tasks to is no overlap', () => {
+    const s = twoPlans()
+    // jB's Run lost its only Task and nothing can add one: it reads failed, not running
+    expect(planOverlapWarnings({ ...s, tasks: s.tasks.filter((t) => t.id !== 't3') }, 'jA')).toEqual([])
+    // a plan with a running Task still warns
+    expect(planOverlapWarnings(s, 'jA')).toEqual(['T6 · Api cleanup · T3 (same files: src/api/routes.ts)'])
+    // its only Task held for the owner (blocked, no open Gate) reads blocked, not running
+    expect(planOverlapWarnings({ ...s, tasks: s.tasks.map((t) => (t.id === 't3' ? { ...t, status: 'blocked' as const } : t)) }, 'jA')).toEqual([])
+  })
+
   it('jobs-plan-ready, before approval, answers with the open overlaps and still marks the plan ready', async () => {
     const ready = (t: Task): Task => ({ ...t, prompt: 'p', acceptanceCriteria: ['c'], basis: { state: 'missing', evidence: 'e' } })
     let st: OrchState = { ...planning(), tasks: planning().tasks.map(ready) }
