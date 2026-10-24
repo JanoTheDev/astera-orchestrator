@@ -2,7 +2,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Account, HostDriverReport } from '../../../core/types'
 import { createReplyGate } from '../lib/replyGate'
-import { LOCAL, detailRunGone, isRemoteRuntime, remoteDetailKey } from '../lib/remoteJobs'
+import { LOCAL, isRemoteRuntime, remoteDetailKey } from '../lib/remoteJobs'
+import { openRunCheck, pendingAfterOpen, pendingRunStep } from './planSelection'
 import { localDoor, remoteDoor, type OrchDoor } from '../lib/orchDoor'
 import { pauseRun, restartCoordinator as restartRunCoordinator, resumeRun, type ActionUi } from '../lib/jobActions'
 // W3-B command bar and voice
@@ -393,12 +394,17 @@ export function useJobs(deps: JobsDeps) {
   // 아니다 — 아직 첫 조회가 오지 않았을 뿐이면 닫지 않는다.
   // W7-C (#72): a Run asked to open from the needs-input list, opened once its project is the current one. After the
   // close-on-project-change effect above, so the switch that brings the project does not close it again.
+  // Dropped on a switch elsewhere or another plan opened (pendingRunStep, pendingAfterOpen): otherwise a later switch to
+  // its project turned it into openRun and stole focus to that old plan's tab.
   const [pendingRun, setPendingRun] = useState<{ projectPath: string; runId: string } | null>(null)
+  const pendingProjectRef = useRef(currentProject)
   useEffect(() => {
-    if (!pendingRun || currentProject !== pendingRun.projectPath) return
-    setOpenRun(pendingRun)
-    setPendingRun(null)
+    const step = pendingRunStep(pendingRun, currentProject, pendingProjectRef.current)
+    pendingProjectRef.current = currentProject
+    if (step === 'open') setOpenRun(pendingRun)
+    if (step !== 'wait') setPendingRun(null)
   }, [pendingRun, currentProject])
+  useEffect(() => setPendingRun((p) => pendingAfterOpen(p, openRun)), [openRun])
   // Whether the open detail's Run has been in its list since it opened (detailRunGone).
   const openRunSeen = useRef(false)
   useEffect(() => {
@@ -406,19 +412,10 @@ export function useJobs(deps: JobsDeps) {
   }, [openRun?.runId, openRun?.runtimeId])
   useEffect(() => {
     if (!openRun) return
-    const snap = openRun.runtimeId ? remoteSnapshot : orchSnapshot
-    // #76: a local detail opened for another project than the current one has no Run in this snapshot and its detail is
-    // never fetched (guard above): it sat open as an empty "No Tasks yet" window. Close it.
-    if (!openRun.runtimeId && openRun.projectPath !== currentProject) {
-      setOpenRun(null)
-      return
-    }
-    if (snap === null) return
-    // 위와 같은 이유로 findRun 이다 — `runs.some` 이면 회차의 상세 창이 열린 다음 프레임에 닫힌다.
-    const found = findRun(snap, openRun.runId) !== undefined
-    if (found) openRunSeen.current = true
-    // A paired Runtime's Run just made there is not in the list until the next read: not closed for that.
-    if (detailRunGone({ remote: !!openRun.runtimeId, found, seen: openRunSeen.current })) setOpenRun(null)
+    // A paired Runtime's Run just made there is not in the list until the next read: not closed for that (openRunCheck).
+    const check = openRunCheck({ openRun, currentProject, snap: openRun.runtimeId ? remoteSnapshot : orchSnapshot, seen: openRunSeen.current })
+    if (check.found) openRunSeen.current = true
+    if (check.close) setOpenRun(null)
   }, [openRun, currentProject, orchSnapshot, remoteSnapshot])
 
   // Whether RunConfigManager is actually on screen — gates both its render below and the shortcut

@@ -33,7 +33,7 @@ const rig = () => {
 describe('createOrchPush', () => {
   it('folds once for a burst of commits, with the newest state', () => {
     const r = rig()
-    r.p.watch('P', r.snap(emptyState()))
+    r.p.watch('P', r.p.stamp('P', r.snap(emptyState())))
     const a = emptyState()
     const b = r.busy()
     r.p.push(a)
@@ -42,12 +42,12 @@ describe('createOrchPush', () => {
     expect(r.folds).toHaveLength(0)
     r.flush()
     expect(r.folds).toEqual([{ state: b, project: 'P' }])
-    expect(r.sent).toEqual([r.snap(b)])
+    expect(r.sent).toEqual([{ ...r.snap(b), project: 'P', version: 2 }])
   })
 
   it('does not send a fold the renderer already holds', () => {
     const r = rig()
-    r.p.watch('P', r.snap(emptyState()))
+    r.p.watch('P', r.p.stamp('P', r.snap(emptyState())))
     r.p.push(emptyState())
     r.flush()
     expect(r.sent).toHaveLength(0)
@@ -65,7 +65,7 @@ describe('createOrchPush', () => {
     r.flush()
     expect(r.folds).toHaveLength(0)
     expect(r.p.lastPushed()).toBe(s)
-    r.p.watch('P', r.snap(emptyState()))
+    r.p.watch('P', r.p.stamp('P', r.snap(emptyState())))
     r.p.unwatch()
     r.p.push(s)
     r.flush()
@@ -75,7 +75,7 @@ describe('createOrchPush', () => {
 
   it('a push queued before an unwatch sends nothing', () => {
     const r = rig()
-    r.p.watch('P', r.snap(emptyState()))
+    r.p.watch('P', r.p.stamp('P', r.snap(emptyState())))
     r.p.push(r.busy())
     r.p.unwatch()
     r.flush()
@@ -84,7 +84,7 @@ describe('createOrchPush', () => {
 
   it('logs a fold that throws, and the next commit still pushes', () => {
     const r = rig()
-    r.p.watch('P', r.snap(emptyState()))
+    r.p.watch('P', r.p.stamp('P', r.snap(emptyState())))
     r.throwing(true)
     r.p.push(r.busy())
     r.flush()
@@ -93,5 +93,32 @@ describe('createOrchPush', () => {
     r.p.push(r.busy())
     r.flush()
     expect(r.sent).toHaveLength(1)
+  })
+
+  it('stamps the project and a version that moves only with the content', () => {
+    const r = rig()
+    const held = r.p.stamp('/p', r.snap(emptyState()))
+    expect(held).toMatchObject({ project: '/p', version: 1 })
+    expect(r.p.stamp('/p', r.snap(emptyState())).version).toBe(1)
+    r.p.watch('P', held)
+    r.p.push(emptyState())
+    r.flush()
+    r.p.push(emptyState())
+    r.flush()
+    expect(r.sent).toHaveLength(0)
+    r.p.push(r.busy())
+    r.flush()
+    r.p.push(r.busy())
+    r.flush()
+    // folded for the repository path, tagged with the path the renderer sent
+    expect(r.folds.at(-1)?.project).toBe('P')
+    expect(r.sent).toEqual([{ ...r.snap(r.busy()), project: '/p', version: 2 }])
+  })
+
+  it('gives another project a version of its own', () => {
+    const r = rig()
+    const a = r.p.stamp('/a', r.snap(emptyState()))
+    const b = r.p.stamp('/b', r.snap(emptyState()))
+    expect(b.version).not.toBe(a.version)
   })
 })
