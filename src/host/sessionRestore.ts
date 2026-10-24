@@ -16,10 +16,19 @@
 // Coordinators are crashResume's (core/orchestration/exec/crashResume.ts), workers the recovery's (host/recovery.ts);
 // a replan session is its Job's. Which is which is read from orchestration.json as the crash left it.
 //
+// **A handover** (a `retire` with `resume: true`: the app replacing an outdated Host) is the deliberate way out that
+// brings everything back. Before its `killAll` the leaving Host writes `<profile>/host/handover.json` (`handoverOf`):
+// the saved sessions with the Dispatch each worker held, and the shell terminals and run processes the app opened,
+// each as its `pty-spawn` was (the shell, the folder, the size, the env that differs from the Host's own). Only then
+// `clean-exit`, so a Host that dies before the file is written is read as a crash. The next Host takes the handover
+// first (`leftBehind`): the sessions come back as after a crash but under their own ids (a tab and a Dispatch keyed by
+// the id find them again), a worker done with its Dispatch with them; the ptys are reopened under their own note, so
+// the app adopts each into the tab or run row it had; then the file goes (`restoreHandover`).
+//
 // Imports only core modules: this bundles into the Host.
-import { mkdirSync, promises as fs, writeFileSync } from 'node:fs'
+import { mkdirSync, promises as fs, renameSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import type { PtyMeta } from '../core/host/protocol'
+import type { PtyMeta, PtyOpenOptions } from '../core/host/protocol'
 import type { OrchState } from '../core/orchestration/state'
 import { providerOf } from '../core/providers/meta'
 import { claudeHistoryStrategy, findClaudeTranscript } from '../core/history/strategies/claude'
@@ -43,6 +52,37 @@ export type SessionRole = 'user' | 'planner' | 'coordinator' | 'worker' | 'repla
 
 export const sessionRestoreFileIn = (profileDir: string): string => path.join(profileDir, 'host', 'live-sessions.json')
 export const cleanExitFileIn = (profileDir: string): string => path.join(profileDir, 'host', 'clean-exit')
+export const handoverFileIn = (profileDir: string): string => path.join(profileDir, 'host', 'handover.json')
+
+/** A saved session in a handover, with the Dispatch it held last when it is a worker. */
+export type HandoverSession = SavedSession & { dispatchId?: string }
+
+/** A shell terminal or a run process, as the app's `pty-spawn` opened it. */
+export interface HandoverPty {
+  /** Its note: the kind, and the app's own id the tab or the run row is keyed by. */
+  meta: PtyMeta
+  file: string
+  args: string[] | string
+  cwd: string
+  cols: number
+  rows: number
+  /** Only what differs from the Host's own worker env (a run configuration's env, what the app adds). */
+  env: Record<string, string>
+}
+
+export interface Handover {
+  sessions: HandoverSession[]
+  ptys: HandoverPty[]
+}
+
+/** A `pty-spawn` as the Host received it, with the size it was last given. */
+export interface PtySpawn {
+  file: string
+  args: string[] | string
+  opts: PtyOpenOptions
+  meta?: PtyMeta
+}
+
 /** How often a live session's conversation id is read again from its hook events (it changes on a `/clear`). */
 export const NATIVE_POLL_MS = 30_000
 
@@ -67,14 +107,23 @@ export function savedOf(meta: PtyMeta | null): SavedSession | null {
   }
 }
 
+const isSaved = (x: unknown): x is SavedSession => {
+  const r = x as Partial<SavedSession> | null
+  return typeof r === 'object' && r !== null && !!str(r.sessionId) && !!str(r.accountId) && !!str(r.cwd)
+}
+const isHandoverPty = (x: unknown): x is HandoverPty => {
+  const p = x as Partial<HandoverPty> | null
+  return (
+    typeof p === 'object' && p !== null && (p.meta?.kind === 'terminal' || p.meta?.kind === 'run') && !!str(p.meta.id) &&
+    !!str(p.file) && !!str(p.cwd) && typeof p.env === 'object' && p.env !== null
+  )
+}
+
 /** The saved list; [] for none, and for a file a torn write or a hand edit left unreadable. Never rejects. */
 export async function readSavedSessions(file: string): Promise<SavedSession[]> {
   try {
     const v = JSON.parse(await readFileRetrying(file)) as unknown
-    if (!Array.isArray(v)) return []
-    return v.filter(
-      (x): x is SavedSession => typeof x === 'object' && x !== null && !!str(x.sessionId) && !!str(x.accountId) && !!str(x.cwd)
-    )
+    return Array.isArray(v) ? v.filter(isSaved) : []
   } catch {
     return []
   }
@@ -103,6 +152,59 @@ export function writeCleanExit(profileDir: string): void {
 /** What the start brings back: nothing after a clean exit (the marker is taken), else the saved list. Never rejects. */
 export async function sessionsLeftBehind(profileDir: string): Promise<SavedSession[]> {
   return (await takeCleanExit(profileDir)) ? [] : readSavedSessions(sessionRestoreFileIn(profileDir))
+}
+
+/** What the last Host wrote on a handover; null for none, and for a file a torn write left unreadable. Never rejects. */
+async function readHandover(profileDir: string): Promise<Handover | null> {
+  try {
+    const v = JSON.parse(await readFileRetrying(handoverFileIn(profileDir))) as Partial<Handover> | null
+    if (!v || !Array.isArray(v.sessions) || !Array.isArray(v.ptys)) return null
+    return { sessions: v.sessions.filter(isSaved), ptys: v.ptys.filter(isHandoverPty) }
+  } catch {
+    return null
+  }
+}
+
+/** What the start brings back: a handover when the last Host left one (and then not the crash list too, which would
+ *  bring the same sessions back twice), else what `sessionsLeftBehind` says. The marker is taken either way. */
+export async function leftBehind(profileDir: string): Promise<{ handover: Handover | null; saved: SavedSession[] }> {
+  const handover = await readHandover(profileDir)
+  if (!handover) return { handover, saved: await sessionsLeftBehind(profileDir) }
+  await takeCleanExit(profileDir)
+  return { handover, saved: [] }
+}
+
+/** The handover of a Host leaving on a resume retire: its saved sessions, each worker's last Dispatch, and the shell
+ *  terminals and run processes among `ptys` (the live `pty-spawn`s; an agent session's own is the session list's). */
+export function handoverOf(a: { sessions: SavedSession[]; ptys: PtySpawn[]; state: OrchState | null; baseEnv: NodeJS.ProcessEnv }): Handover {
+  return {
+    sessions: a.sessions.map((row) => {
+      const dispatchId = a.state?.dispatches.filter((x) => x.sessionId === row.sessionId).at(-1)?.id
+      return dispatchId ? { ...row, dispatchId } : row
+    }),
+    ptys: a.ptys.flatMap((p) => {
+      if (p.meta?.kind !== 'terminal' && p.meta?.kind !== 'run') return []
+      // shortcut: a key the Host has and the pty had not is not carried; upgrade if a shell ever needs one removed
+      const env: Record<string, string> = {}
+      for (const [k, v] of Object.entries(p.opts.env)) if (v !== undefined && a.baseEnv[k] !== v) env[k] = v
+      return [{ meta: p.meta, file: p.file, args: p.args, cwd: p.opts.cwd, cols: p.opts.cols, rows: p.opts.rows, env }]
+    })
+  }
+}
+
+/** Synchronous, like `writeCleanExit`, and owner-only: the env a run was given is in it. Throws, so the way out writes
+ *  no `clean-exit` behind a handover that is not on disk and the sessions come back as after a crash. */
+export function writeHandover(profileDir: string, h: Handover): void {
+  const file = handoverFileIn(profileDir)
+  mkdirSync(path.dirname(file), { recursive: true })
+  const tmp = `${file}.${process.pid}.tmp`
+  writeFileSync(tmp, JSON.stringify(h), { encoding: 'utf8', mode: 0o600 })
+  renameSync(tmp, file)
+}
+
+/** The Tasks a handover must not cut short: a worker, a check, a review or a merge in flight. */
+export function workingTaskCount(s: OrchState | null): number {
+  return s?.tasks.filter((t) => ['dispatched', 'validating', 'reviewing', 'merging'].includes(t.status)).length ?? 0
 }
 
 export interface SessionTracker {
@@ -203,7 +305,7 @@ export interface RestoreDeps {
   state: OrchState | null
   /** The conversation id the dead session's hook events last named, if they are still there. */
   nativeIdOf(sessionId: string): Promise<string | null>
-  /** The Host spawner's `createSession`. */
+  /** The Host spawner's `createSession`. `sessionId`: a handover's, the id the session had. */
   createSession(o: {
     accountId: string
     cwd: string
@@ -211,15 +313,18 @@ export interface RestoreDeps {
     rollAccountIds: string[]
     resumeSessionId: string
     autoAccounts: boolean
+    sessionId?: string
   }): Promise<{ id: string }>
   /** A command under the Host's own caller. */
   handle(cmd: string, args: Record<string, unknown>): Promise<{ status: number; body: unknown }>
   /** The tracker's `settle`: called once per saved session, when its respawn succeeded or failed for good. */
   settle(sessionId: string): void
   log(m: string): void
+  /** A handover's sessions: each tab comes back under its own id, and so does a worker no open Dispatch waits on. */
+  handover?: true
 }
 
-/** Brings back the sessions an unclean exit left: tabs and pending plans' planners. Never rejects. */
+/** Brings back the sessions an unclean exit (or a handover) left: tabs and pending plans' planners. Never rejects. */
 export async function restoreSessions(d: RestoreDeps): Promise<{ tabs: number; planners: number }> {
   let tabs = 0
   let planners = 0
@@ -238,7 +343,9 @@ export async function restoreSessions(d: RestoreDeps): Promise<{ tabs: number; p
         else d.log(`session restore: planner of ${job.id} could not be restarted (${r.status} ${JSON.stringify(r.body)})`)
         continue
       }
-      if (role !== 'user') continue
+      // A worker whose Dispatch is still open is the recovery's, as after a crash; one done with it is a tab.
+      const idle = (): boolean => !d.state?.dispatches.some((x) => x.sessionId === row.sessionId && !x.endedAt && !x.outcome)
+      if (role !== 'user' && !(d.handover && role === 'worker' && idle())) continue
       if (!native) {
         d.log(`session restore: ${row.sessionId} in ${row.cwd} has no conversation id to resume; left closed`)
         continue
@@ -249,7 +356,8 @@ export async function restoreSessions(d: RestoreDeps): Promise<{ tabs: number; p
         ...(row.title !== undefined ? { title: row.title } : {}),
         rollAccountIds: row.rollAccountIds ?? [],
         resumeSessionId: native,
-        autoAccounts: true
+        autoAccounts: true,
+        ...(d.handover ? { sessionId: row.sessionId } : {})
       })
       d.log(`session restore: ${row.sessionId} resumed as ${info.id} (conversation ${native}) in ${row.cwd}`)
       tabs++
@@ -260,6 +368,32 @@ export async function restoreSessions(d: RestoreDeps): Promise<{ tabs: number; p
     }
   }
   return { tabs, planners }
+}
+
+/** Brings back what a handover left: its sessions (`restoreSessions`, under their own ids) and its shell terminals and
+ *  run processes, each reopened under its own note through `openPty`; then removes the file. Never rejects. */
+export async function restoreHandover(
+  d: Omit<RestoreDeps, 'saved' | 'handover'> & {
+    file: string
+    handover: Handover
+    /** The Host's own worker env, which each pty's own differences go over. */
+    baseEnv: NodeJS.ProcessEnv
+    /** Opens one pty in the registry and tells the apps (`pty-opened`), so the one that had it takes it back. */
+    openPty(o: PtySpawn & { meta: PtyMeta }): void
+  }
+): Promise<{ tabs: number; planners: number; ptys: number }> {
+  const r = await restoreSessions({ ...d, saved: d.handover.sessions, handover: true })
+  let ptys = 0
+  for (const p of d.handover.ptys) {
+    try {
+      d.openPty({ file: p.file, args: p.args, opts: { cwd: p.cwd, cols: p.cols, rows: p.rows, env: { ...d.baseEnv, ...p.env } }, meta: p.meta })
+      ptys++
+    } catch (err) {
+      d.log(`session restore: the ${p.meta.kind} ${p.meta.id} in ${p.cwd} could not be reopened: ${String(err)}`)
+    }
+  }
+  await fs.rm(d.file, { force: true }).catch((err) => d.log(`session restore: ${d.file} could not be removed: ${String(err)}`))
+  return { ...r, ptys }
 }
 
 /** A claude conversation resumed on `account` while its transcript is under another claude account's folder (the

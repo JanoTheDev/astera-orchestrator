@@ -48,7 +48,7 @@ const addressFor = (name: string): ReturnType<typeof hostAddress> =>
 
 const serveAt = async (
   addr: ReturnType<typeof hostAddress>,
-  over: { version?: string; onIdle?: () => void } = {}
+  over: { version?: string; onIdle?: (o?: { resume?: boolean }) => void } = {}
 ): Promise<HostServer> => {
   const s = await startHostServer({
     address: addr.address,
@@ -1220,5 +1220,26 @@ describe('HostClient.retire announce', () => {
     await settled(b, (s) => s.connected)
     await b.retire()
     expect(quiet).toBe(0)
+  })
+
+  it('asks the Host for a handover with resume, and for a plain retire without it', async () => {
+    const asked: ({ resume?: boolean } | undefined)[] = []
+    const addrA = addressFor('retire-resume')
+    await serveAt(addrA, { onIdle: (o) => void asked.push(o) })
+    const a = new HostClient({ hostKey, address: addrA.address, appVersion: '1.0.0', log: () => {}, spawnHost: () => {} })
+    a.start()
+    await settled(a, (s) => s.connected)
+    await a.retire({ announce: true, resume: true })
+    await waitFor(() => asked.length === 1)
+    expect(asked).toEqual([{ resume: true }])
+
+    const addrB = addressFor('retire-plain')
+    await serveAt(addrB, { onIdle: (o) => void asked.push(o) })
+    const b = new HostClient({ hostKey, address: addrB.address, appVersion: '1.0.0', log: () => {}, spawnHost: () => {} })
+    b.start()
+    await settled(b, (s) => s.connected)
+    await b.retire({ announce: true })
+    await waitFor(() => asked.length === 2)
+    expect(asked[1]).toBeUndefined()
   })
 })

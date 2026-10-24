@@ -172,13 +172,15 @@ export interface HostSpawner extends HostLocal, HostRollSpawner {
     resumeSessionId?: string
     /** T5: the account picked by usage when "Pick accounts automatically" is on (startAccount), as a planner's is. */
     autoAccounts?: boolean
+    /** A handover's (sessionRestore.ts): the id the session had in the last Host, kept so its tab finds it again. */
+    sessionId?: string
   }): Promise<SessionInfo>
   /** T1: the account a person's session starts on and the chain it rolls on (chooseSessionStart over the Host's usage
    *  guard and logins): none named is auto, a named one a preference. `release` once the session runs. */
   startAccount?(o: SessionStartAsk): Promise<{ accountId: string; rollAccountIds: string[]; release(): void }>
 }
 
-type SpawnOpts = Parameters<CoordinatorDeps['spawnSession']>[0]
+type SpawnOpts = Parameters<CoordinatorDeps['spawnSession']>[0] & { sessionId?: string }
 
 /** T1: what a person's session asks of startAccount: an account (absent: auto), the provider for auto, its chain. */
 type SessionStartAsk = { accountId?: string; provider?: Provider; rollAccountIds: string[] }
@@ -550,7 +552,8 @@ export function createHostSpawner(d: HostSpawnerDeps): HostSpawner | null {
       rollProviders,
       orchEnv: { cliPath, skillsPath: cli.skills, profileDir },
       // R6: a session this Host started is the Host's own, whichever process later holds its tab.
-      restoreExtra: { rolledBy: 'host' }
+      restoreExtra: { rolledBy: 'host' },
+      ...(o.sessionId !== undefined ? { id: o.sessionId } : {})
       })
     } finally {
       // Whether it returned or threw, a moved count means a process is running (A36). A throw before
@@ -807,7 +810,8 @@ export function createHostSpawner(d: HostSpawnerDeps): HostSpawner | null {
             title: o.title ?? defaultSessionTitle(o.cwd),
             ...(o.initialPrompt !== undefined ? { initialPrompt: o.initialPrompt } : {}),
             rollAccountIds: picked?.rollAccountIds ?? o.rollAccountIds,
-            ...(o.resumeSessionId !== undefined ? { resumeSessionId: o.resumeSessionId } : {})
+            ...(o.resumeSessionId !== undefined ? { resumeSessionId: o.resumeSessionId } : {}),
+            ...(o.sessionId !== undefined ? { sessionId: o.sessionId } : {})
           },
           accounts,
           trace

@@ -4,13 +4,19 @@ import os from 'node:os'
 import path from 'node:path'
 import {
   carryTranscript,
+  handoverFileIn,
+  handoverOf,
+  leftBehind,
   readSavedSessions,
+  restoreHandover,
   restoreSessions,
   roleOf,
   sessionRestoreFileIn,
   sessionsLeftBehind,
   trackLiveSessions,
+  workingTaskCount,
   writeCleanExit,
+  writeHandover,
   type RestoreDeps,
   type SavedSession
 } from './sessionRestore'
@@ -283,5 +289,128 @@ describe('carryTranscript', () => {
     expect(copies).toEqual([['/cfg/acc_1/projects/-w-a/n-1.jsonl', path.join('/cfg/acc_2', 'projects', '-w-a', 'n-1.jsonl')]])
     await carryTranscript(acc('acc_1'), [acc('acc_1'), acc('acc_2')], 'n-1', io) // already there
     expect(copies).toHaveLength(1)
+  })
+})
+
+describe('the handover (a resume retire)', () => {
+  const BASE = { PATH: '/usr/bin', HOME: '/home/me' }
+  /** What the leaving Host holds: a person's tab, a worker done with its Task, a shell, a run, and an agent session's own
+   *  pty spawn (kept by the session list, not here). */
+  const leaving = () => {
+    const state = crashed()
+    state.dispatches.push({ ...state.dispatches[0], id: 'dsp_done', sessionId: 'worker-done', endedAt: NOW, outcome: 'succeeded' } as never)
+    return handoverOf({
+      sessions: [
+        { sessionId: 'tab-1', accountId: 'acc_1', cwd: '/w/a', title: 'A', nativeSessionId: 'n-1' },
+        { sessionId: 'worker-done', accountId: 'acc_1', cwd: '/w/wt', nativeSessionId: 'n-w' }
+      ],
+      ptys: [
+        {
+          file: '/bin/zsh',
+          args: ['-l'],
+          opts: { cwd: '/w/a', cols: 100, rows: 40, env: { ...BASE, TERM_PROGRAM: 'astera' } },
+          meta: { kind: 'terminal', id: 'term-1', restore: { projectPath: '/w/a' } }
+        },
+        {
+          file: '/bin/sh',
+          args: ['-c', 'npm run dev'],
+          opts: { cwd: '/w/r/web', cols: 120, rows: 30, env: { ...BASE, PORT: '3000' } },
+          meta: { kind: 'run', id: 'run-1', restore: { projectPath: '/w/r', configId: 'cfg-dev', cwd: '/w/r/web', command: 'npm run dev' } }
+        },
+        { file: 'claude', args: [], opts: { cwd: '/w/a', cols: 80, rows: 24, env: BASE }, meta: meta('tab-1', { accountId: 'acc_1', cwd: '/w/a' }) }
+      ],
+      state,
+      baseEnv: BASE
+    })
+  }
+
+  it('lists the agent sessions with their Dispatch, the shell terminals and the run configurations, each with only the env that differs', () => {
+    const h = leaving()
+    expect(h.sessions).toEqual([
+      { sessionId: 'tab-1', accountId: 'acc_1', cwd: '/w/a', title: 'A', nativeSessionId: 'n-1' },
+      { sessionId: 'worker-done', accountId: 'acc_1', cwd: '/w/wt', nativeSessionId: 'n-w', dispatchId: 'dsp_done' }
+    ])
+    expect(h.ptys).toEqual([
+      { meta: { kind: 'terminal', id: 'term-1', restore: { projectPath: '/w/a' } }, file: '/bin/zsh', args: ['-l'], cwd: '/w/a', cols: 100, rows: 40, env: { TERM_PROGRAM: 'astera' } },
+      {
+        meta: { kind: 'run', id: 'run-1', restore: { projectPath: '/w/r', configId: 'cfg-dev', cwd: '/w/r/web', command: 'npm run dev' } },
+        file: '/bin/sh',
+        args: ['-c', 'npm run dev'],
+        cwd: '/w/r/web',
+        cols: 120,
+        rows: 30,
+        env: { PORT: '3000' }
+      }
+    ])
+  })
+
+  it('brings the handover back in the next Host under the same ids, in the same folders, and then removes the file', async () => {
+    writeHandover(dir, leaving())
+    const left = await leftBehind(dir)
+    expect(left.saved).toEqual([]) // the handover is the list: the crash list is not brought back beside it
+    const opened: unknown[] = []
+    const { deps, created } = restoreDeps({})
+    const r = await restoreHandover({ ...deps, file: handoverFileIn(dir), handover: left.handover!, baseEnv: { PATH: '/bin' }, openPty: (o) => void opened.push(o) })
+    expect(r).toEqual({ tabs: 2, planners: 0, ptys: 2 })
+    expect(created).toEqual([
+      { accountId: 'acc_1', cwd: '/w/a', title: 'A', rollAccountIds: [], resumeSessionId: 'n-1', autoAccounts: true, sessionId: 'tab-1' },
+      { accountId: 'acc_1', cwd: '/w/wt', rollAccountIds: [], resumeSessionId: 'n-w', autoAccounts: true, sessionId: 'worker-done' }
+    ])
+    expect(buildClaudeCommand('linux', () => null)({ resumeSessionId: created[0].resumeSessionId }).args).toEqual(expect.arrayContaining(['--resume', 'n-1']))
+    expect(opened).toEqual([
+      { file: '/bin/zsh', args: ['-l'], opts: { cwd: '/w/a', cols: 100, rows: 40, env: { PATH: '/bin', TERM_PROGRAM: 'astera' } }, meta: { kind: 'terminal', id: 'term-1', restore: { projectPath: '/w/a' } } },
+      {
+        file: '/bin/sh',
+        args: ['-c', 'npm run dev'],
+        opts: { cwd: '/w/r/web', cols: 120, rows: 30, env: { PATH: '/bin', PORT: '3000' } },
+        meta: { kind: 'run', id: 'run-1', restore: { projectPath: '/w/r', configId: 'cfg-dev', cwd: '/w/r/web', command: 'npm run dev' } }
+      }
+    ])
+    await expect(fs.access(handoverFileIn(dir))).rejects.toThrow()
+    expect((await leftBehind(dir)).handover).toBeNull()
+  })
+
+  it('leaves a worker still holding an open Dispatch to the recovery and a coordinator to its Run, as a crash does', async () => {
+    const { deps, created } = restoreDeps({})
+    const handover = { sessions: ['worker-1', 'coord-1'].map((sessionId) => ({ sessionId, accountId: 'acc_1', cwd: '/w', nativeSessionId: `n-${sessionId}` })), ptys: [] }
+    expect(await restoreHandover({ ...deps, file: handoverFileIn(dir), handover, baseEnv: {}, openPty: () => {} })).toEqual({ tabs: 0, planners: 0, ptys: 0 })
+    expect(created).toEqual([])
+  })
+
+  it('goes on past a pty that cannot be reopened', async () => {
+    const { deps } = restoreDeps({})
+    const pty = leaving().ptys[0]
+    const r = await restoreHandover({
+      ...deps,
+      file: handoverFileIn(dir),
+      handover: { sessions: [], ptys: [{ ...pty, cwd: '/gone' }, pty] },
+      baseEnv: {},
+      openPty: (o) => {
+        if (o.opts.cwd === '/gone') throw new Error('no such folder')
+      }
+    })
+    expect(r.ptys).toBe(1)
+  })
+
+  it('keeps the crash restore as it was when no handover was left', async () => {
+    const file = sessionRestoreFileIn(dir)
+    await fs.mkdir(path.dirname(file), { recursive: true })
+    const saved: SavedSession[] = [{ sessionId: 'sess-1', accountId: 'acc_1', cwd: '/w/a', nativeSessionId: 'n-1' }]
+    await fs.writeFile(file, JSON.stringify(saved))
+    expect(await leftBehind(dir)).toEqual({ handover: null, saved })
+    writeCleanExit(dir)
+    expect(await leftBehind(dir)).toEqual({ handover: null, saved: [] })
+    // A handover beside an unclean marker-less exit wins: the same sessions are not brought back twice
+    writeHandover(dir, { sessions: saved, ptys: [] })
+    expect(await leftBehind(dir)).toEqual({ handover: { sessions: saved, ptys: [] }, saved: [] })
+  })
+})
+
+describe('workingTaskCount', () => {
+  it('counts the Tasks a handover would cut short: a worker, a check, a review or a merge', () => {
+    const task = (id: string, status: string) => ({ id, status }) as OrchState['tasks'][number]
+    const s = { ...crashed(), tasks: ['pending', 'ready', 'dispatched', 'validating', 'reviewing', 'merging', 'completed', 'failed', 'blocked'].map((st, i) => task(`t${i}`, st)) }
+    expect(workingTaskCount(s)).toBe(4)
+    expect(workingTaskCount(null)).toBe(0)
   })
 })
