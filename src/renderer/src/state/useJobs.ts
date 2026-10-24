@@ -258,8 +258,12 @@ export function useJobs(deps: JobsDeps) {
   const remoteSnapshotRef = useRef(remoteSnapshot)
   remoteSnapshotRef.current = remoteSnapshot
   const remoteRowKey = openRun?.runtimeId ? remoteDetailKey(remoteSnapshot, openRun.runId) : ''
-  const localRowKey =
-    openRun && !openRun.runtimeId ? runDetailKey(orchSnapshot, openRun.runId, sessions.map((s) => s.id)) : ''
+  const openLocalRunId = openRun && !openRun.runtimeId ? openRun.runId : null
+  // the stringify runs only when the snapshot, the open Run or the session list changed identity
+  const localRowKey = useMemo(
+    () => (openLocalRunId ? runDetailKey(orchSnapshot, openLocalRunId, sessions.map((s) => s.id)) : ''),
+    [orchSnapshot, openLocalRunId, sessions]
+  )
   /** A paired Runtime's permission as this app was told at pairing; an unknown one is read only (controllerGate). */
   const permissionOf = (runtimeId: string): string => pairedRuntimes.find((r) => r.runtimeId === runtimeId)?.permission ?? 'read-only'
   const readOnlyReason = t('jobs.runtime.readOnlyReason')

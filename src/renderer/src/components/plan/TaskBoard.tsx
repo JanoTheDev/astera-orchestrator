@@ -6,7 +6,7 @@
 // waves, reasons, counts and "now" lines are planBoard.ts's. T4: a card carries its kind (and a merge Task its badge, a
 // reusing Task the worktree it continues in), and a kind filter sits above the steps.
 // T2: an expanded row opens with everything about its Task (renderAbout: TaskDetail), above what it showed before.
-import { useEffect, useMemo, useState } from 'react'
+import { memo, useEffect, useMemo, useState } from 'react'
 import type { ActivityEvent } from '../../../../core/orchestration/activity'
 import type { Account, JobEvent, JobTask } from '../../../../core/types'
 import { type RoleModelSettings } from '../../../../core/orchestration/roleModels'
@@ -49,7 +49,7 @@ import './plan.css'
 /** Files a card lists before "+N more". */
 const FILES_SHOWN = 3
 
-export function TaskBoard({
+export const TaskBoard = memo(function TaskBoard({
   tasks,
   accounts,
   selected,
@@ -122,7 +122,7 @@ export function TaskBoard({
     void window.api?.settings?.getRoleModels?.().then(setRoleModels).catch(() => {})
   }, [])
   const label = (id: string): string => accounts?.find((a) => a.id === id)?.label ?? id
-  const waves = wavesOf(tasks, layers)
+  const waves = useMemo(() => wavesOf(tasks, layers), [tasks, layers])
   const current = currentWaveOf(waves)
   // T4: finished waves fold to one line; a click flips a wave from its default. T8: the wave of the expanded Task opens.
   const folded = collapsedWavesOf(waves)
@@ -235,7 +235,7 @@ export function TaskBoard({
       })}
     </div>
   )
-}
+})
 
 const STEP_CHIP: Record<StepState['state'], { tone: ChipTone; icon: IconName }> = {
   done: { tone: 'ok', icon: 'done' },

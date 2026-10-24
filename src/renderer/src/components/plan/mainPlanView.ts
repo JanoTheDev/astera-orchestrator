@@ -9,6 +9,7 @@ import type { JobRow, JobTask } from '../../../../core/types'
 import { isDuplicateGate } from '../../../../core/orchestration/overlap'
 import { jobDisplayName as jobName } from '../../../../core/orchestration/jobName'
 import { categoryOf } from './planBoard'
+import { memoByIdentity } from './memoByIdentity'
 import { lastActivityOf, planStatusOf } from './planList'
 import { needsYouOf } from './planTree'
 
@@ -161,3 +162,6 @@ export function mainPlanViewOf(rows: readonly JobRow[]): MainPlanView {
   for (const p of plans) counts[p.phase]++
   return { plans, done: all.filter((m) => categoryOf(m.task) === 'done').length, total: all.length, counts }
 }
+
+/** `mainPlanViewOf` for the last `rows`: the page and the plans view share one view per snapshot. */
+export const mainPlanMemo = memoByIdentity(mainPlanViewOf)

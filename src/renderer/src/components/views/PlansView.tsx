@@ -21,7 +21,7 @@ import { PLAN_FILTERS, filterPlans, isStalledPlan, planFilterOf, planStatusOf, r
 import { approveSlot } from '../plan/planTalk'
 import { deliveryActionsOf } from '../plan/planPage'
 import { type PlanSection } from '../plan/planBoard'
-import { mainPlanViewOf } from '../plan/mainPlanView'
+import { mainPlanMemo } from '../plan/mainPlanView'
 import {
   GROUP_BYS,
   groupByOf,
@@ -473,7 +473,7 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
   useEffect(() => {
     if (ctx && !ctxRow) setCtx(null)
   }, [ctx, ctxRow])
-  const main = mainPlanViewOf(runs)
+  const main = mainPlanMemo(runs)
 
   return (
     <>
