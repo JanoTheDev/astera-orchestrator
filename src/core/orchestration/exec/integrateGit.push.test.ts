@@ -118,6 +118,12 @@ describe('deliverByPush (W6-H)', () => {
     expect(h.events).toEqual(['install', 'validate'])
   })
 
+  it('installs when the diff itself fails: unknown counts as changed', async () => {
+    const h = setup({ 'diff --name-only base HEAD': { ok: false, stderr: 'fatal: bad revision' } })
+    await h.go()
+    expect(h.events).toEqual(['install', 'validate'])
+  })
+
   it('runs no install when neither package.json nor a lockfile changed', async () => {
     const h = setup({ 'diff --name-only base HEAD': { stdout: 'src/a.ts\nREADME.md' } })
     await h.go()

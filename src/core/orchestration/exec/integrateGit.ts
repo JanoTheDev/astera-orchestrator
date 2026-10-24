@@ -1111,8 +1111,13 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
   const validateMerged = async (): Promise<{ ok: true; ran: number } | { ok: false; reason: string }> => {
     const changed = await run(['diff', '--name-only', base, 'HEAD'], { cwd })
     const manifests = new Set(['package.json', ...LOCKFILES.flatMap(([files]) => files)])
-    if (changed.ok && changed.stdout.split('\n').some((f) => manifests.has(path.posix.basename(f)))) {
-      ctx.log(`delivery: package.json or a lockfile changed since ${base}, installing dependencies in ${cwd}`)
+    // An unknown diff counts as changed: skipping the install here is how the merged validation ran without its dependencies
+    if (!changed.ok || changed.stdout.split('\n').some((f) => manifests.has(path.posix.basename(f)))) {
+      ctx.log(
+        changed.ok
+          ? `delivery: package.json or a lockfile changed since ${base}, installing dependencies in ${cwd}`
+          : `delivery: could not list the changes since ${base} (${why(changed)}), installing dependencies in ${cwd} to be safe`
+      )
       const installed = await ctx.install(cwd)
       if (!installed.ok) return { ok: false, reason: `installing the dependencies failed: ${installed.reason}` }
     }
