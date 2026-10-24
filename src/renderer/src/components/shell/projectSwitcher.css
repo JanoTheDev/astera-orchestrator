@@ -1,0 +1,45 @@
+/* T11 project switcher redesign. The trigger, search field and base row (.tb-sw-*) stay in shell.css; this file lays out
+   the redesigned panel. Selectors start at .tb-sw so they outrank shell.css whatever order the two load in. */
+.tb-sw .tb-psw-pop { width: 400px; max-width: calc(100vw - var(--sp-8)); }
+
+/* section headers: "Projects", "Actions" */
+.tb-sw .tb-psw-section {
+  padding: var(--sp-2) var(--sp-2) var(--sp-1); color: var(--text-faint); font-size: var(--fs-11);
+  font-weight: var(--fw-semi); text-transform: uppercase; letter-spacing: var(--tracking);
+}
+
+/* rows grow to two lines: name, then branch and counts */
+.tb-sw .tb-sw-main.ui-btn { height: auto; min-height: var(--h-md); padding-top: var(--sp-1); padding-bottom: var(--sp-1); }
+.tb-sw .tb-sw-main > .ui-btn__label { display: flex; align-items: center; min-width: 0; flex: 1; gap: var(--sp-2); }
+.tb-sw .tb-sw-main > svg { flex: none; color: var(--text-dim); }
+.tb-sw .tb-sw-selected .tb-psw-name { font-weight: var(--fw-semi); }
+
+.tb-psw-row { flex: 1; min-width: 0; display: flex; align-items: center; gap: var(--sp-2); }
+.tb-psw-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.tb-psw-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tb-psw-meta { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; color: var(--text-dim); font-size: var(--fs-11); }
+/* the branch is a name and may ellipsize; counts and the behind number never do */
+.tb-psw-branch { display: inline-flex; align-items: center; gap: var(--sp-1); min-width: 0; flex: 0 1 auto; color: var(--text-faint); }
+.tb-psw-branch > svg { flex: none; }
+.tb-psw-branch-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tb-psw-behind { display: inline-flex; align-items: center; flex: none; color: var(--warn); font-variant-numeric: tabular-nums; }
+.tb-psw-counts { flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* status dot: working green, needs you amber, idle grey; the word is its aria-label */
+.tb-psw-dot { flex: none; width: 8px; height: 8px; border-radius: var(--radius-pill); background: var(--text-faint); }
+.tb-psw-dot--working { background: var(--ok); }
+.tb-psw-dot--needsYou { background: var(--warn); }
+
+/* the changes badge, beside the row: opens Source Control */
+.tb-sw .tb-psw-changes.ui-btn { flex: none; height: auto; padding: 2px var(--sp-1); margin-right: var(--sp-1); }
+.tb-sw .tb-psw-changes > .ui-btn__label { display: flex; align-items: center; gap: var(--sp-1); }
+.tb-psw-changes .ui-badge { white-space: nowrap; }
+
+/* sub-projects sit under their workspace */
+.tb-sw .tb-psw-sub .tb-sw-main.ui-btn { padding-left: calc(var(--sp-2) + var(--sp-4)); }
+
+/* All projects and the actions: one line, an icon instead of a dot */
+.tb-sw .tb-psw-all .tb-sw-main.ui-btn, .tb-sw .tb-psw-action .tb-sw-main.ui-btn { gap: var(--sp-2); }
+.tb-sw .tb-psw-all .tb-sw-main.ui-btn { font-weight: var(--fw-medium); }
+.tb-sw .tb-psw-all { margin-bottom: var(--sp-1); border-bottom: 1px solid var(--line); border-radius: 0; }
+.tb-psw-meta svg { width: 12px; height: 12px; }

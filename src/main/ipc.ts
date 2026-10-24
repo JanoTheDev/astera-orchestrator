@@ -182,7 +182,8 @@ import { mainRepoRoot } from '../core/projects/detect'
 import { hasOriginRemote } from '../core/projects/create'
 import { emptyState, resolveRunId } from '../core/orchestration/state'
 import { runRecordInputOf } from '../core/orchestration/runRecord'
-import type { CliInstallStatus, WorktreeInfo } from '../core/types'
+import type { CliInstallStatus, ProjectGitStatus, WorktreeInfo } from '../core/types'
+import { parseBranchStatus, UNKNOWN_GIT_STATUS } from '../core/git/branchStatus'
 
 /** 이 프로젝트의 것인 id 전부 — Job 과 그 회차. **한 집합으로 묻는 이유**는 명령이 둘 중 무엇이든
  *  지목할 수 있기 때문이다: 사이드바의 Job 줄은 Job 의 id 를, 펼친 회차 줄은 회차의 id 를 보낸다. */
@@ -5834,6 +5835,32 @@ export function registerIpc(
       out[path.join(root, path.relative(root, abs))] = e.state
     }
     return out
+  })
+
+  // T11: the project switcher's branch and changes per project. One `status --porcelain=v2 --branch` per repository, all
+  // at once, each answer kept a few seconds so opening the menu again (or a status bar and a menu asking together) runs
+  // git once. A path that fails (not allowed, not a repository, timed out) answers every field null, never the batch.
+  const PROJECT_STATUS_TTL_MS = 3_000
+  const projectStatusCache = new Map<string, { at: number; value: Promise<ProjectGitStatus> }>()
+  const projectStatusOf = (root: string): Promise<ProjectGitStatus> => {
+    const hit = projectStatusCache.get(root)
+    if (hit && Date.now() - hit.at < PROJECT_STATUS_TTL_MS) return hit.value
+    const value = (async (): Promise<ProjectGitStatus> => {
+      try {
+        await assertAllowedPath(root)
+        const r = await git(['--no-optional-locks', 'status', '--porcelain=v2', '--branch'], { cwd: root, timeoutMs: GIT_STATUS_TIMEOUT_MS, trim: false })
+        return r.ok ? parseBranchStatus(r.stdout) : UNKNOWN_GIT_STATUS
+      } catch {
+        return UNKNOWN_GIT_STATUS
+      }
+    })()
+    projectStatusCache.set(root, { at: Date.now(), value })
+    return value
+  }
+  ipcMain.handle('projects.status', async (_e, paths: unknown): Promise<Record<string, ProjectGitStatus>> => {
+    const list = Array.isArray(paths) ? [...new Set(paths.filter((p): p is string => typeof p === 'string' && p !== ''))] : []
+    const values = await Promise.all(list.map(projectStatusOf))
+    return Object.fromEntries(list.map((p, i) => [p, values[i]]))
   })
 
   // Watches only the git dir's index and HEAD, narrowly, so a commit made from a session terminal still refreshes the explorer.

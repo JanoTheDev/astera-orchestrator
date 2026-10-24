@@ -449,6 +449,15 @@ export interface SchedStateEvent {
  *  re-exports it rather than carrying a copy that would have to be kept in step by hand. */
 export type Attention = 'idle' | 'working' | 'waiting'
 
+/** T11: one repository's line in the project switcher (`projects.status`). `dirty` counts changed and untracked paths;
+ *  `unpushed` and `behind` are commits ahead of and behind the upstream. null: git could not say (no upstream, no repo). */
+export interface ProjectGitStatus {
+  branch: string | null
+  dirty: number | null
+  unpushed: number | null
+  behind: number | null
+}
+
 /** The tool call a session's Claude Code is waiting on, captured by the PreToolUse hook **before** the
  *  CLI draws its dialog (core/sessions/pendingPrompt.ts). `input` is the model's own tool input, untouched — for
  *  `AskUserQuestion` the questions the conversation view draws as a card. Gone once the matching
@@ -1545,6 +1554,9 @@ export interface CoreApi {
     getDefaultAccount(projectPath: string): Promise<string | null>
     setDefaultAccount(projectPath: string, accountId: string | null): Promise<void>
     hasOrigin(projectPath: string): Promise<boolean> // the folder is a git repository with an origin remote
+    /** T11: each path's branch and changes for the project switcher (core/git/branchStatus.ts), keyed by the path as
+     *  given. A path git could not read (not a repository, not allowed, timed out) has every field null. */
+    status(paths: string[]): Promise<Record<string, ProjectGitStatus>>
   }
   worktrees: {
     // Splitting a session off into a git worktree.

@@ -6,6 +6,8 @@
 import type { Dispatch, Gate, Job, JobRun, Message, Project, Task } from '../../../core/orchestration/types'
 import { jobNameOf } from '../../../core/orchestration/jobName'
 import { isJobActive } from '../../../core/orchestration/lifecycle'
+import { isTerminal } from '../../../core/orchestration/running'
+import type { ProjectGitStatus } from '../../../core/types'
 // W8-C plan after plan
 import { afterNameOf, afterQueued, afterStandOf } from '../../../core/orchestration/after'
 import { leaves, removeTab, type PaneNode } from '../../../core/panes/tree'
@@ -63,6 +65,13 @@ export interface WorkspacePlan {
   // W8-C plan after plan
   /** "Queued after <plan>": it waits for that plan to be delivered (after.ts); `stopped` when that plan stopped. */
   queuedAfter?: { name: string; stopped: boolean }
+  // T11 project switcher
+  /** The sub-project the plan is filed under (its Job's projectId), when that is not the workspace itself. */
+  subProjectId?: string
+  /** Its latest Run still has work: an active, unpaused plan with a Task not finished. */
+  live?: boolean
+  /** The open Gates (questions to the owner) of its Runs. */
+  questions?: number
 }
 
 export interface WorkspaceProject {
@@ -121,17 +130,22 @@ function planOf(d: WorkspaceData, project: Project, job: Job): WorkspacePlan {
     planName: name,
     cwd: job.cwd
   }))
+  const paused = job.paused === true || run?.paused === true
+  const runIds = new Set(d.runs.filter((r) => r.jobId === job.id).map((r) => r.id))
   return {
     jobId: job.id,
     projectId: project.id,
     name,
     archived: !isJobActive(job),
-    paused: job.paused === true || run?.paused === true,
+    paused,
     ...(run ? { runId: run.id } : {}),
     planner,
     coordinator,
     workers: run ? workersOf(run, d.tasks, d.dispatches, project.name, name) : [],
-    ...queuedAfterOf(d, job)
+    ...queuedAfterOf(d, job),
+    ...(job.projectId !== undefined && job.projectId !== project.id ? { subProjectId: job.projectId } : {}),
+    live: run !== undefined && isJobActive(job) && !paused && d.tasks.some((t) => t.runId === run.id && !isTerminal(t)),
+    questions: d.gates.filter((g) => g.status === 'open' && runIds.has(g.runId)).length
   }
 }
 
@@ -282,24 +296,70 @@ export interface WorkspaceSummary {
   /** A project id or OTHER_WORKSPACE. */
   id: string
   name: string
+  /** T11: a sub-project's workspace (root) id; the row is listed under that workspace's. */
+  parentId?: string
+  /** T11: the workspace's checked-out branch (projects.status); absent for a sub-project, "Other", or before git answers. */
+  branch?: string
   /** Its sessions whose process is running. */
   running: number
+  /** T11: of them, the agents at work right now (attention 'working'). */
+  working: number
   /** One of them waits for the owner (attention 'waiting'). */
   waiting: boolean
+  /** T11: its plans still running (WorkspacePlan.live) and their open questions. */
+  plans: number
+  questions: number
+  /** T11: changed paths, commits not pushed and commits behind the upstream; 0 when git could not say. */
+  dirty: number
+  unpushed: number
+  behind: number
 }
 
-/** The project switcher's rows: every project in tree order, then "Other" while it holds a tab. */
+/** A sub-project as projects-list names it: the tree lists workspaces only. */
+export type SubProjectRef = { id: string; name: string; parentId: string }
+
+/** The project switcher's rows: every project in tree order, each followed by its sub-projects, then "Other" while it
+ *  holds a tab. A workspace counts all of its plans and sessions, its sub-projects' too (opening it shows them all); a
+ *  sub-project counts only the plans filed under it, and has no git line of its own (it shares its workspace's folder). */
 export function workspaceSummaries(
   tree: readonly WorkspaceProject[],
   byWorkspace: ReadonlyMap<string, ReadonlySet<string>>,
   sessions: readonly { id: string; status: string }[],
-  attention: Readonly<Record<string, string>>
+  attention: Readonly<Record<string, string>>,
+  extra: { subProjects?: readonly SubProjectRef[]; git?: Readonly<Record<string, ProjectGitStatus>> } = {}
 ): WorkspaceSummary[] {
   const running = new Set(sessions.filter((s) => s.status === 'running').map((s) => s.id))
-  const row = (id: string, name: string): WorkspaceSummary => {
-    const ids = [...(byWorkspace.get(id) ?? [])].filter((s) => running.has(s))
-    return { id, name, running: ids.length, waiting: ids.some((s) => attention[s] === 'waiting') }
+  const row = (id: string, name: string, ids: Iterable<string>, plans: readonly WorkspacePlan[], git?: ProjectGitStatus): WorkspaceSummary => {
+    const live = [...ids].filter((s) => running.has(s))
+    return {
+      id,
+      name,
+      ...(git?.branch ? { branch: git.branch } : {}),
+      running: live.length,
+      working: live.filter((s) => attention[s] === 'working').length,
+      waiting: live.some((s) => attention[s] === 'waiting'),
+      plans: plans.filter((p) => p.live).length,
+      questions: plans.reduce((n, p) => n + (p.questions ?? 0), 0),
+      dirty: git?.dirty ?? 0,
+      unpushed: git?.unpushed ?? 0,
+      behind: git?.behind ?? 0
+    }
   }
-  const rows = tree.map((p) => row(p.id, p.name))
-  return (byWorkspace.get(OTHER_WORKSPACE)?.size ?? 0) > 0 ? [...rows, row(OTHER_WORKSPACE, 'Other')] : rows
+  const rows = tree.flatMap((p) => [
+    row(p.id, p.name, byWorkspace.get(p.id) ?? [], p.plans, extra.git?.[p.path]),
+    ...(extra.subProjects ?? [])
+      .filter((s) => s.parentId === p.id)
+      .map((s) => {
+        const plans = p.plans.filter((plan) => plan.subProjectId === s.id)
+        return { ...row(s.id, s.name, plans.flatMap((plan) => planSessions(plan).map((x) => x.sessionId)), plans), parentId: p.id }
+      })
+  ])
+  return (byWorkspace.get(OTHER_WORKSPACE)?.size ?? 0) > 0 ? [...rows, row(OTHER_WORKSPACE, 'Other', byWorkspace.get(OTHER_WORKSPACE)!, [])] : rows
 }
+
+export type ProjectDot = 'working' | 'needsYou' | 'idle'
+
+/** T11: the switcher row's dot. Needs you (amber) while a session waits for the owner or a plan asks a question; else
+ *  working (green) while an agent works or a plan runs; else idle (grey). */
+export const projectStatusDot = (s: Pick<WorkspaceSummary, 'waiting' | 'questions' | 'working' | 'plans'>): ProjectDot =>
+  s.waiting || s.questions > 0 ? 'needsYou' : s.working > 0 || s.plans > 0 ? 'working' : 'idle'
