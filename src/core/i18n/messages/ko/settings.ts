@@ -64,6 +64,10 @@ export const settings = {
   'settings.roleModels.difficulty.light': '가벼운 Task',
   'settings.roleModels.difficulty.standard': '보통 Task',
   'settings.roleModels.difficulty.hard': '어려운 Task',
+  'settings.roleModels.effort': '추론 강도',
+  'settings.roleModels.effortDefault': '기본값 ({level})',
+  'settings.roleModels.effortCliDefault': 'CLI 기본값',
+  'settings.roleModels.effortHint': '아래는 추론 강도입니다. Task 자신의 강도가 먼저이고, 시작할 때 모델이 지원하는 단계에 맞춰 조정됩니다.',
   // ---- notifications ----
   'settings.notifications.hint':
     '데스크톱 알림입니다. 다른 세션을 보고 있거나 다른 화면을 보고 있을 때 알림을 보냅니다.',

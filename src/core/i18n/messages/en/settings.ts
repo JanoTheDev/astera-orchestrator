@@ -63,6 +63,10 @@ export const settings: Record<keyof typeof ko, string> = {
   'settings.roleModels.difficulty.light': 'Light task',
   'settings.roleModels.difficulty.standard': 'Standard task',
   'settings.roleModels.difficulty.hard': 'Hard task',
+  'settings.roleModels.effort': 'effort',
+  'settings.roleModels.effortDefault': 'Default ({level})',
+  'settings.roleModels.effortCliDefault': 'CLI default',
+  'settings.roleModels.effortHint': 'Reasoning effort below. A Task\'s own effort wins, and the start clamps it to the levels the model offers.',
   // ---- notifications ----
   'settings.notifications.hint':
     'Desktop notifications. Sent when you are looking at another session, or at another window.',
