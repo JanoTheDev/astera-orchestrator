@@ -1387,8 +1387,9 @@ export interface HostStatus {
   /** One clause saying why there is no connection, or null when there is one. */
   problem: string | null
   /** The Host is running an older build than this app — it outlived an update and still runs the
-   *  previous host.js. The app replaces it on its own the first moment it holds nothing, and the Info
-   *  tab offers to do it now (docs/2026-09-22-host-unresponsive-recovery-design.md F5 — the original
+   *  previous host.js. The app swaps it on its own, handing its sessions over, the first moment no Task works
+   *  (main/ipc.ts hostReplaceDue; one too old to hand over only once it holds nothing), and the Info tab offers to do
+   *  it now (docs/2026-09-22-host-unresponsive-recovery-design.md F5 — the original
    *  host-replacement design is not in this repository). False whenever the version cannot be
    *  compared, and false for a Host *newer* than the app. */
   outdated: boolean
@@ -1414,6 +1415,10 @@ export interface HostStatus {
   /** A Host at the address is leaving (it hangs up before its hello) and the app is waiting for it to
    *  finish before starting its own (main/host/client.ts RETIRING_WAIT_MS). Absent means false. */
   waitingForPreviousHost?: boolean
+  /** The automatic swap of an outdated Host (main/ipc.ts `maybeReplace`), as the status bar shows it: `swapping` while
+   *  it runs, `manual` once the button is the way (a Host without the handover, or a wait past 30 minutes). Absent:
+   *  neither. Set by main on what it gives the window, never by HostClient. */
+  replacement?: 'swapping' | 'manual'
 }
 
 /** Putting the Host's own runtime in place (win32), as the window shows it (stage 3 task 2).

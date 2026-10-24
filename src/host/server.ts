@@ -9,6 +9,7 @@ import {
   HOST_PROTOCOL,
   HOST_FEATURE_PROC,
   HOST_FEATURE_PING,
+  HOST_FEATURE_HANDOVER,
   HOST_FEATURE_PTY_SEQ,
   HOST_FEATURE_ORCH,
   HOST_FEATURE_REQUESTS,
@@ -601,6 +602,8 @@ export async function startHostServer(deps: HostServerDeps): Promise<HostServer>
             features: [
               HOST_FEATURE_PROC,
               HOST_FEATURE_PING,
+              // A `resume` retire is handed over and refused under a working Task (below), so the app may ask for one.
+              HOST_FEATURE_HANDOVER,
               HOST_FEATURE_PTY_SEQ,
               ...(deps.orch ? [HOST_FEATURE_ORCH, HOST_FEATURE_REQUESTS, HOST_FEATURE_MCP] : []),
               ...(deps.features ?? [])
