@@ -73,6 +73,8 @@ export interface Core {
   accountEmail: (id: string) => Promise<string | null>
   accountEmailOfDir: (configDir: string, provider?: Provider) => Promise<string | null>
   accountLogout: (id: string) => Promise<{ ok: boolean; message?: Message }>
+  /** Logout for an account the caller already holds — still works after the account left the registry. */
+  accountLogoutOf: (account: Account) => Promise<{ ok: boolean; message?: Message }>
   // No isDefaultAccountDir here any more. Which account is the default is derived per provider from the
   // account list plus login state, and the renderer computes it itself (core/accounts/defaultAccount.ts is
   // pure and node-free), so nothing has to be decorated onto each account at serialisation time.
@@ -386,11 +388,9 @@ export async function createCore(userDataDir: string, osLocale: string): Promise
   // Runs the logout. The default (home) account gets no isolation env (ambient), isolated accounts do —
   // same rule as SessionManager.spawn. This is destructive: it removes the auth files. The wiring itself
   // lives in runAccountLogout (above) — this closure only looks the account up and hands it over.
-  const accountLogout = (id: string): Promise<{ ok: boolean; message?: Message }> => {
-    const account = accounts.get(id)
-    const d = descriptorOf(descriptors, account)
-    return runAccountLogout(d, os.homedir(), account.configDir)
-  }
+  const accountLogoutOf = (account: Account): Promise<{ ok: boolean; message?: Message }> =>
+    runAccountLogout(descriptorOf(descriptors, account), os.homedir(), account.configDir)
+  const accountLogout = (id: string): Promise<{ ok: boolean; message?: Message }> => accountLogoutOf(accounts.get(id))
   /** That provider's default account. Deriving it needs the login state of every account of that provider,
    *  which is a file check each, so this fans out rather than reading a stored field. */
   const defaultAccountIdFor = async (provider: Provider): Promise<string | null> => {
@@ -464,6 +464,7 @@ export async function createCore(userDataDir: string, osLocale: string): Promise
     accountEmail,
     accountEmailOfDir,
     accountLogout,
+    accountLogoutOf,
     accountSyncSettings,
     usageSession,
     statusLinePayload: (sessionId: string) => statusLine.read(sessionId),

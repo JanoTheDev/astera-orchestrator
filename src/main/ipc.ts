@@ -509,6 +509,25 @@ export const accountRemovalBlockers = (
   orch?: Parameters<typeof accountRemovalPlan>[2]
 ): string[] => accountRemovalPlan(accountId, sessions, orch).blockers
 
+/** The write half of accounts.remove: un-retain and release each releasable worker, remove the account, then
+ *  run the logout the owner asked for (its result is returned). A release that throws stops here, before the
+ *  removal, so the account stays. Exported so the order is tested. */
+export async function releaseThenRemoveAccount<T>(
+  accountId: string,
+  releasable: readonly { dispatchId: string }[],
+  deps: Pick<OrchServerDeps, 'getState' | 'setState' | 'releaseWorker'> & { removeAccount: (id: string) => Promise<unknown> },
+  logout?: () => Promise<T>
+): Promise<T | undefined> {
+  for (const { dispatchId } of releasable) {
+    const st = deps.getState()
+    if (st.dispatches.find((d) => d.id === dispatchId)?.retained)
+      await deps.setState({ ...st, dispatches: st.dispatches.map((d) => (d.id === dispatchId ? { ...d, retained: false } : d)) })
+    await deps.releaseWorker({ dispatchId, closeReason: 'released' })
+  }
+  await deps.removeAccount(accountId)
+  return logout?.()
+}
+
 export function providerOfSession(
   sessionId: string,
   sessions: readonly Pick<SessionInfo, 'id' | 'accountId'>[],
@@ -2053,21 +2072,22 @@ export function registerIpc(
   // 돌아가는 세션이 쓰는 계정은 지우지 않는다 — 판단은 accountRemovalBlockers(위)에 있고, 여기는
   // 세션 목록을 건네고 결과를 렌더러가 읽을 모양으로 바꾸는 일만 한다. 렌더러에도 같은 검사를 두면
   // 두 곳이 어긋날 수 있으므로 두지 않는다: 여기가 경계다.
-  ipcMain.handle('accounts.remove', async (_e, id, opts?: { dryRun?: boolean }) => {
+  // With `logout`, the account is captured before it leaves the registry: after the removal the id no longer resolves.
+  // The logout result comes back so the renderer can toast a failure while the account stays removed.
+  ipcMain.handle('accounts.remove', async (_e, id, opts?: { dryRun?: boolean; logout?: boolean }) => {
     const plan = accountRemovalPlan(id, allSessions(), orch?.deps.getState())
     const closed = plan.releasable.map((r) => r.title)
     if (plan.blockers.length > 0) return { ok: false as const, titles: plan.blockers, closed }
     if (opts?.dryRun) return { ok: true as const, titles: [] as string[], closed }
-    // Finished workers go through the orchestration release (never a bare pty kill); a retained one is
-    // un-retained first, since worker-release leaves those alive. One failure stops here: the account stays.
-    for (const { dispatchId } of plan.releasable) {
-      const st = orch!.deps.getState()
-      if (st.dispatches.find((d) => d.id === dispatchId)?.retained)
-        await orch!.deps.setState({ ...st, dispatches: st.dispatches.map((d) => (d.id === dispatchId ? { ...d, retained: false } : d)) })
-      await orch!.deps.releaseWorker({ dispatchId, closeReason: 'released' })
-    }
-    await core.accounts.remove(id)
-    return { ok: true as const, titles: [] as string[], closed }
+    const account = opts?.logout ? core.accounts.get(id) : undefined
+    // Finished workers go through the orchestration release (never a bare pty kill); one failure stops here.
+    const logout = await releaseThenRemoveAccount(
+      id,
+      plan.releasable,
+      { ...orch!.deps, removeAccount: (aid) => core.accounts.remove(aid) },
+      account && (() => core.accountLogoutOf(account))
+    )
+    return { ok: true as const, titles: [] as string[], closed, logout }
   })
   ipcMain.handle('accounts.loginStatus', (_e, id) => core.accounts.loginStatus(id))
   ipcMain.handle('accounts.rename', (_e, id, label) => core.accounts.rename(id, label)) // W7-F

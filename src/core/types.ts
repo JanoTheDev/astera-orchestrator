@@ -1476,7 +1476,9 @@ export interface CoreApi {
      *  막고 있는 세션 제목들을 돌린다**(main 의 accountRemovalBlockers): 현재 계정인 세션뿐 아니라
      *  그 계정을 롤링 대기 순서에 담고 있는 세션도 막는다 — 대기 계정이 사라지면 한도에 걸리는 순간
      *  갈아탈 곳이 없어 롤이 중단된다. */
-    remove(id: string, opts?: { dryRun?: boolean }): Promise<{ ok: boolean; titles: string[]; closed: string[] }> /* closed: finished worker sessions removal releases; dryRun only reports */
+    /* closed: finished worker sessions removal releases; dryRun only reports. logout: the result of the logout asked
+       with `opts.logout`, run after the removal; absent when none was asked or the removal was refused. */
+    remove(id: string, opts?: { dryRun?: boolean; logout?: boolean }): Promise<{ ok: boolean; titles: string[]; closed: string[]; logout?: { ok: boolean; message?: Message } }>
     loginStatus(id: string): Promise<boolean> // the verdict from accounts/loginStatus.ts (claude also checks Keychain on macOS)
     detect(): Promise<DetectCandidate[]> // detection candidates, excluding registered and unregistered-by-the-user config dirs
     /** Unregistered config dirs as account-shaped history sources — this one keeps the ones the user
