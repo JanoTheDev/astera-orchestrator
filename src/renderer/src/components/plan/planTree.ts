@@ -68,7 +68,7 @@ export interface TreeQuery {
   /** Text the plan name or a Task title must hold (any case); empty: everything. */
   filter: string
   showArchived: boolean
-  /** Group by plan only: list the rows in the order given (the Finished pane's newest-first), not by planListOrder. */
+  /** List the rows in the order given (the Finished pane's newest-first) inside every group-by, not by planListOrder. */
   keepOrder?: boolean
   /** Whether the row with this id is open; ignored while a filter forces the matches open. */
   isOpen: (id: string, node: PlanNode) => boolean
@@ -120,19 +120,22 @@ export function planTreeRows({ rows, groupBy, filter, showArchived, keepOrder = 
     return out
   }
   if (groupBy === 'area') {
+    const pos = new Map(plans.map((r, i) => [r, i]))
     for (const g of areaGroupsOf(plans)) {
       const id = `area:${g.area}`
       const at = out.length
       const open = push(id, 0, { kind: 'group', key: g.area }, true, q !== '')
       const before = out.length
-      if (open) for (const row of g.rows) plan(row, `${id}/`, 1)
+      // areaGroupsOf keeps the list order inside a group; keepOrder puts back the order given
+      const rs = keepOrder ? [...g.rows].sort((a, b) => pos.get(a)! - pos.get(b)!) : g.rows
+      if (open) for (const row of rs) plan(row, `${id}/`, 1)
       // a group the filter emptied goes
       if (open && q !== '' && out.length === before) out.splice(at, 1)
     }
     return out
   }
   // status: every Task of the live plans (a schedule's own rounds are listed under it in the other groupings)
-  const live = planListOrder(plans).flatMap((row) => (row.children?.length ? row.children : [row]))
+  const live = (keepOrder ? plans : planListOrder(plans)).flatMap((row) => (row.children?.length ? row.children : [row]))
   for (const key of STATUS_GROUPS) {
     const tasks = live.flatMap((row) => row.tasks.filter((t) => statusGroupOf(t) === key && (q === '' || has(t.title) || has(jobName(row)))).map((task) => ({ row, task })))
     if (tasks.length === 0) continue
