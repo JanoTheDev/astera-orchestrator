@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useI18n } from '../../i18n/I18nProvider'
 import { toast } from '../../lib/toast'
-import { Field } from '../ui'
+import { Card, Field } from '../ui'
 
 function NumberSetting(p: {
   label: string
@@ -65,7 +65,7 @@ const setPauseAt = (n: number): Promise<void> => window.api.settings.setUsagePau
 export function UsageGuardSettings(): React.JSX.Element {
   const { t } = useI18n()
   return (
-    <>
+    <Card className="acct-card acct-limits">
       <NumberSetting
         label={t('settings.usageGuard.subagentsLabel')}
         hint={t('settings.usageGuard.subagentsHint')}
@@ -82,6 +82,6 @@ export function UsageGuardSettings(): React.JSX.Element {
         get={getPauseAt}
         set={setPauseAt}
       />
-    </>
+    </Card>
   )
 }

@@ -29,7 +29,7 @@ function UpdateIndicator({
   const text = t(view.message.key, view.message.params)
   if (view.kind === 'button')
     return (
-      <Button variant="secondary" size="sm" className="tb-update" icon={<Icon name="refresh" size={14} />} onClick={onInstall}>
+      <Button variant="secondary" size="sm" className="tb-update-install" icon={<Icon name="refresh" size={14} />} onClick={onInstall}>
         {text}
       </Button>
     )
