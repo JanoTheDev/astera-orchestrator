@@ -22,6 +22,7 @@ import {
   applyReply,
   createGate,
   resolveGate,
+  closeGatesOf,
   deleteRuns,
   pauseSchedule,
   resumeSchedule,
@@ -652,6 +653,54 @@ describe('Gate', () => {
       NOW
     )
     expect(retry.ok).toBe(true)
+  })
+
+  describe('gates close with their Task', () => {
+    const openGateOn = (s: OrchState, taskId: string): { s: OrchState; gateId: string } => {
+      const gate: Gate = { id: 'gat_x', runId: s.runs[0].id, taskId, question: 'q', status: 'open', createdAt: NOW }
+      return { s: { ...s, gates: [...s.gates, gate] }, gateId: gate.id }
+    }
+    const gateOf = (s: OrchState, id: string): Gate => s.gates.find((g) => g.id === id)!
+
+    it('worker_done that completes a Task closes its open gate', () => {
+      const seeded = seed()
+      const { s, gateId } = openGateOn(seeded.s, seeded.taskId)
+      const done = unwrap<'accepted'>(
+        applyWorkerDone(s, { taskId: seeded.taskId, dispatchId: seeded.dispatchId, outcome: 'succeeded', subject: 'a', body: 'b' }, NOW) as never
+      )
+      expect(done.state.tasks.find((x) => x.id === seeded.taskId)!.status).toBe('completed')
+      expect(gateOf(done.state, gateId)).toMatchObject({ status: 'resolved', resolution: 'closed: task completed', resolvedAt: NOW })
+    })
+    it('a failed Task keeps its open gate: a person still decides retry or give up', () => {
+      const seeded = seed()
+      const { s, gateId } = openGateOn(seeded.s, seeded.taskId)
+      const done = unwrap<'accepted'>(
+        applyWorkerDone(s, { taskId: seeded.taskId, dispatchId: seeded.dispatchId, outcome: 'failed', subject: 'a', body: 'b' }, NOW) as never
+      )
+      expect(gateOf(done.state, gateId).status).toBe('open')
+    })
+    it('closeGatesOf closes only that Task\'s open gates', () => {
+      const seeded = seed()
+      const a = openGateOn(seeded.s, seeded.taskId)
+      const other: Gate = { id: 'gat_y', runId: seeded.runId, taskId: 'tsk_other', question: 'q', status: 'open', createdAt: NOW }
+      const closed = closeGatesOf({ ...a.s, gates: [...a.s.gates, other] }, seeded.taskId, 'closed: task cancelled', NOW)
+      expect(gateOf(closed, a.gateId)).toMatchObject({ status: 'resolved', resolution: 'closed: task cancelled' })
+      expect(gateOf(closed, 'gat_y').status).toBe('open')
+    })
+    it('answering a gate left open on a completed Task succeeds and leaves the Task completed', () => {
+      const seeded = seed()
+      const { s, gateId } = openGateOn(seeded.s, seeded.taskId)
+      const completed = { ...s, tasks: s.tasks.map((x) => ({ ...x, status: 'completed' as const })) }
+      const r = unwrap<Gate>(resolveGate(completed, { gateId, resolution: 'yes' }, NOW) as never)
+      expect(r.state.tasks[0].status).toBe('completed')
+      expect(r.value).toMatchObject({ status: 'resolved', resolution: 'closed: task completed' })
+    })
+    it('answering a gate whose Task is gone succeeds', () => {
+      const seeded = seed()
+      const { s, gateId } = openGateOn(seeded.s, seeded.taskId)
+      const r = unwrap<Gate>(resolveGate({ ...s, tasks: [] }, { gateId, resolution: 'yes' }, NOW) as never)
+      expect(r.value).toMatchObject({ status: 'resolved', resolution: 'closed: task cancelled' })
+    })
   })
 
   describe('gate-resolve가 deps를 뛰어넘지 않는다', () => {

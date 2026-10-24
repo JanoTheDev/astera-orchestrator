@@ -5237,6 +5237,61 @@ describe('handleCommand — convergence', () => {
     expect((await call(deps, 'task-update', { id, mergedIntoPlan: true }, HOST_CALLER)).body).toMatchObject({ mergedIntoPlanAt: at })
   })
 
+  it('a Task that completes closes its open gates, and answering one afterwards is ok', async () => {
+    const deps = convDeps()
+    await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p' })
+    await call(deps, 'task-create', { spec: 's', account: 'accA' })
+    await call(deps, 'task-create', { spec: 's2', account: 'accA' })
+    const [a, b] = deps.getState().tasks.map((t) => t.id)
+    const ga = ((await call(deps, 'gate-create', { task: a, question: 'q?' })).body as { id: string }).id
+    // --status completed
+    await call(deps, 'task-update', { id: a, status: 'completed' }, HOST_CALLER)
+    expect(deps.getState().gates.find((g) => g.id === ga)).toMatchObject({ status: 'resolved', resolution: 'closed: task completed' })
+    const r = await call(deps, 'questions-answer', { id: ga, answer: 'yes' })
+    expect(r.status).toBe(200)
+    expect(deps.getState().tasks.find((t) => t.id === a)!.status).toBe('completed')
+    // --merged-into-plan on a merging Task
+    const gb = ((await call(deps, 'gate-create', { task: b, question: 'q?' })).body as { id: string }).id
+    const s = deps.getState()
+    await deps.setState({ ...s, tasks: s.tasks.map((t) => (t.id === b ? { ...t, status: 'merging' as const } : t)) })
+    expect((await call(deps, 'task-update', { id: b, mergedIntoPlan: true }, HOST_CALLER)).status).toBe(200)
+    expect(deps.getState().gates.find((g) => g.id === gb)).toMatchObject({ status: 'resolved', resolution: 'closed: task completed' })
+  })
+  it('an exhausted gate left open on a completed Task is a no-op: mark-failed and retry-once leave it completed', async () => {
+    for (const answer of ['mark-failed', 'retry-once']) {
+      const deps = convDeps()
+      await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p', convergence: true })
+      await call(deps, 'task-create', { spec: 's', account: 'accA', validate: 'c1' })
+      const taskId = deps.getState().tasks[0].id
+      const s = deps.getState()
+      const g = createGate(
+        { ...s, tasks: s.tasks.map((t) => ({ ...t, status: 'validating' as const })) },
+        { taskId, question: 'q', kind: 'convergence-exhausted', options: ['retry-once', 'mark-failed'] },
+        NOW
+      )
+      if (!g.ok) throw new Error(g.error)
+      await deps.setState({ ...g.state, tasks: g.state.tasks.map((t) => ({ ...t, status: 'completed' as const })) })
+      const r = await call(deps, 'questions-answer', { id: g.value.id, answer })
+      expect(r.status).toBe(200)
+      expect(deps.getState().tasks[0].status).toBe('completed')
+      expect(deps.getState().tasks[0].consecutiveFailures).toBe(0)
+      expect(deps.onces).toEqual([])
+    }
+  })
+  it('gate-resolve on an open gate of a completed Task answers ok instead of a status error', async () => {
+    const deps = convDeps()
+    await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p' })
+    await call(deps, 'task-create', { spec: 's', account: 'accA' })
+    const id = deps.getState().tasks[0].id
+    const g = ((await call(deps, 'gate-create', { task: id, question: 'q?' })).body as { id: string }).id
+    const s = deps.getState()
+    await deps.setState({ ...s, tasks: s.tasks.map((t) => ({ ...t, status: 'completed' as const })) })
+    const r = await call(deps, 'gate-resolve', { id: g, resolution: 'yes' })
+    expect(r.status).toBe(200)
+    expect(deps.getState().tasks[0].status).toBe('completed')
+    expect(deps.getState().gates[0].status).toBe('resolved')
+  })
+
   it('task-update --status completed of a Task that worked outside its Run root moves it to merging; its merge completes it', async () => {
     const deps = convDeps()
     await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p' })
@@ -7345,7 +7400,7 @@ describe('없는 id 는 404 — 순수 층의 거절을 내보내던 자리들',
   })
 
   // Gate 는 있고 그것이 가리키는 Task 가 없다 — 적은 id 가 없는 것이 아니다
-  it('있는 Gate 의 Task 가 사라진 것은 400 그대로다', async () => {
+  it('a gate whose Task is gone is closed as cancelled, answered ok', async () => {
     const deps = makeDeps()
     await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p' })
     const t = await call(deps, 'task-create', { run: deps.getState().runs[0].id, spec: 's', account: 'acc1' })
@@ -7355,7 +7410,8 @@ describe('없는 id 는 404 — 순수 층의 거절을 내보내던 자리들',
     await dropTask(deps, taskId)
     const gateId = (g.body as { id: string }).id
     const r = await call(deps, 'gate-resolve', { id: gateId, resolution: 'x' })
-    expect(r).toEqual({ status: 400, body: { error: `unknown task for gate: ${gateId}` } })
+    expect(r.status).toBe(200)
+    expect(r.body).toMatchObject({ id: gateId, status: 'resolved', resolution: 'closed: task cancelled' })
   })
 
   it('없는 배치를 ack 하면 404 이고 아무것도 쓰지 않는다', async () => {

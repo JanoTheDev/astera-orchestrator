@@ -34,6 +34,8 @@ import {
   nextDelivery,
   openDispatch,
   resolveGate,
+  closeGatesOf,
+  closeGatesOfCompleted,
   answerCheckUnavailable,
   isCheckUnavailableAnswer,
   CHECK_UNAVAILABLE_OPTIONS,
@@ -4795,7 +4797,7 @@ export async function handleCommand(
         if (!target) return notFound(`unknown task: ${id}`)
         if (target.status === 'merging') {
           const landed: Task = { ...target, status: 'completed', updatedAt: now, mergedIntoPlanAt: now }
-          await deps.setState({ ...s, tasks: recomputeReady(s.tasks.map((t) => (t.id === id ? landed : t))) })
+          await deps.setState(closeGatesOf({ ...s, tasks: recomputeReady(s.tasks.map((t) => (t.id === id ? landed : t))) }, id, 'closed: task completed', now))
           return okBody({ id, mergedIntoPlanAt: now })
         }
         if (target.status !== 'completed') return bad(`task ${id} is ${target.status}, not completed`)
@@ -4899,7 +4901,7 @@ export async function handleCommand(
       // createTask and applyWorkerDone already use. recomputeReady only promotes pending to ready
       // and never touches blocked — that property is unchanged.
       const tasks = recomputeReady(s.tasks.map((t) => (t.id === id ? nextTask : t)))
-      await deps.setState({ ...s, tasks })
+      await deps.setState(closeGatesOfCompleted({ ...s, tasks }, id, now))
       return okBody(tasks.find((t) => t.id === id)!)
     }
     case 'session-task-start': {
@@ -5994,7 +5996,9 @@ export async function handleCommand(
       // 탄다(위 snapshot 의 `gate.status === 'open'`; resolveGate 는 이미 resolved 인 Gate 를 다시
       // 부르면 no-op 이다). gate 가 있으면 r.ok 이므로(resolveGate 도 같은 gateId 로 같은 s 를
       // 찾는다) 아래 `gate!` 는 안전하다.
-      const exhaustedOpen = gate?.kind === 'convergence-exhausted' && gate.status === 'open'
+      // Not when resolveGate only closed the gate over a Task that already ended: that answer is a no-op
+      const taskEnded = !s.tasks.some((t) => t.id === gate?.taskId && t.status !== 'completed')
+      const exhaustedOpen = gate?.kind === 'convergence-exhausted' && gate.status === 'open' && !taskEnded
       // mark-failed 는 task-update 와 같은 전이표 우회다(회로 카운터는 그대로 둔다 — 이것은 구제가
       // 아니라 포기다) — **resolveGate 의 커밋과 한 번에 묶는다.** resolveGate 는 이미 blocked ->
       // pending(그리고 recomputeReady 가 deps 없는 Task 를 ready 로) 을 정했다; 그 상태를 먼저
