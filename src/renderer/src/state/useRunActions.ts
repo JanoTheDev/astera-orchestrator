@@ -5,7 +5,6 @@ import type { RunConfig, RunStatus, SaveConfigsResult } from '../../../core/type
 import { pickRunSelection, pickRunToShow } from '../../../core/run/selection'
 import { toolbarState, upsertRun } from '../../../core/run/instances'
 import { foldPathCase } from '../../../core/files/paths'
-import * as sticky from '../lib/stickyProject'
 import { toast } from '../lib/toast'
 import { sessionTab } from '../../../core/panes/tabId'
 import { sameOrNext } from '../lib/remoteSessions'
@@ -26,9 +25,9 @@ export type RunActionsDeps = Pick<ReturnType<typeof useWorkbench>,
     'setManagerInitialSelectedId' | 'setRunConfigs' | 'setRunContext' | 'setRunPanelOpen' | 'setRuns' |
     'setSelectedRunId'> &
   Pick<ReturnType<typeof useWorkspace>,
-    'bottomRoot'> &
+    'bottomRoot' | 'openWorkspaceProject' | 'workspaceTree'> &
   Pick<ReturnType<typeof useJobs>,
-    'currentProject' | 'setStickyRoot'> &
+    'currentProject'> &
   Pick<ReturnType<typeof useWorkbenchState>,
     'fileTabsRef' | 'runRerunSelectedRef' | 'runStartRef' | 'runStopSelectionRef' | 'selectWorkbenchTabRef' |
     'setUsage'>
@@ -39,8 +38,8 @@ export function useRunActions(deps: RunActionsDeps) {
     fileTabsRef, remoteSessions, runConfigs, runContext, runHasDockerfile, runIsPythonProject, runIsSpringBoot,
     runRerunSelectedRef, runSelectedByProject, runSelectedId, runStartRef, runStopSelectionRef, runs,
     selectWorkbenchTabRef, selectedRunId, sessionsRef, setBottomTab, setManagerFor, setManagerInitialSelectedId,
-    setRunConfigs, setRunContext, setRunPanelOpen, setRuns, setSelectedRunId, setStickyRoot, setTerminals, setUsage,
-    t, terminals
+    setRunConfigs, setRunContext, setRunPanelOpen, setRuns, setSelectedRunId, setTerminals, setUsage,
+    t, terminals, openWorkspaceProject, workspaceTree
   } = deps
 
   /** What a freshly started run does to the screen: merged into the list, selected, its project's
@@ -186,6 +185,8 @@ export function useRunActions(deps: RunActionsDeps) {
    *  활성으로 만드는 것이 곧 '그리로 간다'는 뜻이다. 세션을 먼저 찾고 없으면 그 프로젝트의 파일 탭을
    *  쓴다.
    *
+   *  (T12: the fallback below now selects the project in the title bar; the sticky root it describes is gone.)
+   *
    *  **둘 다 없으면 sticky 루트를 그 프로젝트로 옮긴다.** 이 폴백은 탭이 하나도 없는 상태에서만
    *  무언가를 한다 — runSlot 이 explorerRoot 에서 currentProject 로 옮겨 오면서 처음 생긴 상태이고,
    *  그 상태에서는 이 툴바가 그려지는데도(전역 실행 목록이 거기 있다) 활성화할 탭이 없어 점프 버튼이
@@ -209,20 +210,11 @@ export function useRunActions(deps: RunActionsDeps) {
       selectWorkbenchTabRef.current(file.id)
       return
     }
-    // 탭이 하나도 없다 — 기억을 옮기면 화면이 실제로 움직인다. 다만 **복원과 같은 확인을 거친다.**
-    // 검증 없이 채택하면 경로 가드가 허용하지 않는 프로젝트가 currentProject 가 되고, 그것을 읽는
-    // 네 소비자(탐색기·실행 구성·Jobs·터미널)가 전부 거부를 받는다 — 그리고 그 값이 localStorage 에
-    // 남아 다음 실행까지 간다. files.list 를 쓰는 이유도 복원과 같다: 탐색기가 이 루트로 어차피 부르는
-    // 호출이라 존재와 허용을 한 번에 답한다.
-    void window.api.files.list(projectPath).then(
-      () => {
-        setStickyRoot(projectPath)
-        sticky.write(projectPath)
-      },
-      // 조용히 아무 일도 하지 않으면 이 버튼이 다시 '눌리는데 안 되는' 컨트롤이 된다 — 그것을 없애려고
-      // 이 폴백을 만들었으므로, 갈 수 없는 이유를 말한다
-      () => toast.error(t('run.jump.notAllowed'))
-    )
+    // T12: no tab of it is open: the title bar moves to that project, and every view with it. A folder no project
+    // holds cannot be the window's project.
+    const project = workspaceTree.find((p) => norm(p.path) === target)
+    if (project) openWorkspaceProject(project.id)
+    else toast.error(t('run.jump.notAllowed'))
   }
 
   // openTerminal calls newTerminal below, so it is declared first to match reading order — an arrow
