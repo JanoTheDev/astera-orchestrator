@@ -1271,6 +1271,14 @@ describe('snapshotFor — plan board fields', () => {
     expect(t).toMatchObject({ model: 'opus', accountId: 'acc_2', branch: 'u/feature', attempts: 2, board: { category: 'awaiting-review' } })
   })
 
+  it("carries the latest attempt's effort and note, else the Task's own effort", () => {
+    const s = withRuns([run('r1', absPath('p'))], [{ ...task('t1', 'r1', 'dispatched'), effort: 'low' }, { ...task('t2', 'r1', 'pending'), effort: 'high' }])
+    s.dispatches = [{ ...dispatch('d1', 't1', 's1', '2026-08-18T01:00:00.000Z'), effort: 'medium', effortNote: 'clamped' }]
+    const [a, b] = snapshotFor(s, absPath('p'), anySession, noWorktrees, noFires, allExist).runs[0].tasks
+    expect(a).toMatchObject({ effort: 'medium', effortNote: 'clamped' })
+    expect(b.effort).toBe('high')
+  })
+
   it("falls back to the Task's own model, and carries nothing for a Task never dispatched", () => {
     const s = withRuns([run('r1', absPath('p'))], [{ ...task('t1', 'r1', 'pending'), model: 'sonnet' }, task('t2', 'r1', 'pending')])
     const [a, b] = snapshotFor(s, absPath('p'), anySession, noWorktrees, noFires, allExist).runs[0].tasks

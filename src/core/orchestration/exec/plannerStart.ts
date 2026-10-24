@@ -7,10 +7,10 @@ import path from 'node:path'
 import { providerOf } from '../../providers/meta'
 import { coordinatorLaunchPrompt } from '../handover'
 import { jobNameOf } from '../jobName'
-import { resolveRoleModel, type RoleModelSettings } from '../roleModels'
+import { resolveRoleEffort, resolveRoleModel, type RoleModelSettings } from '../roleModels'
 import { plannerBriefName } from './specFiles'
 import { handsOffOf } from './plannerFeedback'
-import { startChainHolding, type CoordinatorStartContext, type StartCoordinatorArgs } from './workerStart'
+import { clampedEffort, startChainHolding, type CoordinatorStartContext, type StartCoordinatorArgs } from './workerStart'
 
 /** The planner's brief lives in the spec directory (`plannerBriefName`). The sweep (`staleSpecFiles`) keeps
  *  it while its Job is unarchived: a resumed or reused planner is told to read it again. */
@@ -46,6 +46,7 @@ export async function startPlannerSession(ctx: CoordinatorStartContext, a: Start
     }
     // The premium planning model (W1-A, SPEC §4): opus unless the Job or the app says otherwise.
     const model = account ? resolveRoleModel(settings, job, 'planner', providerOf(account)) : undefined
+    const effort = account ? await clampedEffort(ctx, accountId, model, resolveRoleEffort(settings, 'planner', providerOf(account)), providerOf(account)) : {}
     const info = await ctx.spawn({
       accountId,
       cwd: a.cwd,
@@ -57,10 +58,11 @@ export async function startPlannerSession(ctx: CoordinatorStartContext, a: Start
       // accounts automatically" on, the whole order, so a limit rolls the same session on instead of waiting.
       rollAccountIds: chain,
       ...(model ? { model } : {}),
+      ...(effort.effort ? { effort: effort.effort } : {}),
       // W7-A: the owner's feedback goes on in the same conversation, which keeps everything the planner read
       ...(a.resume ? { resumeSessionId: a.resume } : {})
     })
-    ctx.log(`planner started job=${a.runId} session=${info.id} account=${accountId} model=${model ?? 'CLI default'}`)
+    ctx.log(`planner started job=${a.runId} session=${info.id} account=${accountId} model=${model ?? 'CLI default'} effort=${effort.effort ?? 'CLI default'}${effort.note ? ` (${effort.note})` : ''}`)
     return { sessionId: info.id, accountId }
   } finally {
     release()

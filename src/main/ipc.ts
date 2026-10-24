@@ -95,7 +95,8 @@ import { addToProfile, findAfterInstall, locateCli, runInstallCommand } from './
 import { mcpClientsStatus, registerMcpClientNow } from './mcpClients'
 import { mcpServerFor, shimPathFor } from '../core/install/mcpRegistration'
 import { prependToPath } from '../core/sessions/manager'
-import { listClaudeModels, listCodexModels } from './models/discover'
+import { listClaudeModels, listCodexModels } from '../core/models/discover'
+import { effortLevelsOf } from '../core/models/effortLevels'
 import { UnderstandingPipeline } from '../core/understanding/pipeline'
 import { copyTranscript, samePath } from '../core/rolling/transcript'
 import { sanitizeResumePrompt } from '../core/sessions/commands'
@@ -3112,6 +3113,7 @@ export function registerIpc(
           resumeSessionId: o.resumeSessionId,
           resumePrompt: o.resumePrompt,
           model: o.model, // W1-A role model, kept across rolls by the session (SessionInfo.model)
+          effort: o.effort,
           disallowedTools: o.disallowedTools // W6-B: a claude worker's (WORKER_DISALLOWED_TOOLS)
         } satisfies typeof o)
         try {
@@ -3439,7 +3441,8 @@ export function registerIpc(
             log: orchLog,
             // T5b: the account by usage, as the Host's start picks it (chooseStartAccount)
             usageGuard,
-            loginStatus: (id) => core.accounts.loginStatus(id)
+            loginStatus: (id) => core.accounts.loginStatus(id),
+            effortLevels: effortLevelsFor
           },
           a
         ),
@@ -3466,7 +3469,8 @@ export function registerIpc(
             log: orchLog,
             roleModels: async () => core.appSettings.getRoleModels(),
             // T5b: the chain by usage, as the Host's (startWorkerWithChain)
-            usageGuard
+            usageGuard,
+            effortLevels: effortLevelsFor
           },
           a
         ),
@@ -6438,6 +6442,11 @@ export function registerIpc(
     // 실패는 캐시하지 않는다 — 로그인하고 다시 열면 바로 보여야 한다
     if (!result.error) modelCache.set(accountId, result)
     return result
+  }
+  /** The effort levels a start's model accepts, over the same cache (WorkerStartContext.effortLevels). */
+  const effortLevelsFor = async (accountId: string, model: string | undefined): Promise<string[] | undefined> => {
+    const r = await modelsForAccount(accountId, false)
+    return r.error ? undefined : effortLevelsOf(r.models, model)
   }
 
   ipcMain.handle('settings.listModels', async (_e, accountId: unknown, refresh: unknown) => {

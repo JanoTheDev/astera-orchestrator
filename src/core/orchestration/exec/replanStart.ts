@@ -242,8 +242,8 @@ export function buildReplanBrief(a: {
     `  \`astera runs-changed-files --id ${a.runId} --task <taskId> --json\`, and the files themselves.`,
     '',
     'WHAT YOU MAY DO',
-    `- Change a Task that has not started: \`astera task-update --id <taskId>\` with --prompt -, --criteria, --affected-paths, --deps, --worktree, --difficulty, --title, --spec.`,
-    `- Add a Task: \`astera task-create --run ${a.runId} --account ${a.accountId}\` with the planner flags (--prompt -, --criteria, --affected-paths, --deps, --kind bugfix|feature|refactor|ui|audit|docs|test|ops, --worktree new|reuse, --difficulty, --model-reason) and, on every Task, --basis missing|partial|broken and --evidence "<file:line, #issue, PR or Job id>".`,
+    `- Change a Task that has not started: \`astera task-update --id <taskId>\` with --prompt -, --criteria, --affected-paths, --deps, --worktree, --difficulty, --effort, --title, --spec.`,
+    `- Add a Task: \`astera task-create --run ${a.runId} --account ${a.accountId}\` with the planner flags (--prompt -, --criteria, --affected-paths, --deps, --kind bugfix|feature|refactor|ui|audit|docs|test|ops, --worktree new|reuse, --difficulty, --effort, --model-reason) and, on every Task, --basis missing|partial|broken and --evidence "<file:line, #issue, PR or Job id>".`,
     // T3 worktree per Task
     '  `--worktree reuse` continues in the worktree of the Task\'s one dep: only for a direct continuation of it on the same files (the next step, a fix-up, tests for it); `new` (the default) for anything that can run in parallel or works elsewhere.',
     '  A follow-up for a review\'s leftovers uses `--basis partial` with evidence naming the parent Task id and its review (for example "tsk_x review round 2: <issue>").',

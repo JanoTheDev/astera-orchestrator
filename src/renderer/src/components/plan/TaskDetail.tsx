@@ -118,7 +118,7 @@ export function TaskDetail({
               ))}
             </div>
           )}
-          {(full.kind !== undefined || full.difficulty !== undefined || full.modelReason !== undefined || full.basis !== undefined) && (
+          {(full.kind !== undefined || full.difficulty !== undefined || full.effort !== undefined || full.modelReason !== undefined || full.basis !== undefined) && (
             <dl className="plan-card-meta">
               {full.kind !== undefined && (
                 <>
@@ -130,6 +130,12 @@ export function TaskDetail({
                 <>
                   <dt>{t('plan.task.difficulty')}</dt>
                   <dd>{t(`plan.task.difficulty.${full.difficulty}`)}</dd>
+                </>
+              )}
+              {full.effort !== undefined && (
+                <>
+                  <dt>{t('plan.task.effort')}</dt>
+                  <dd>{full.effort}</dd>
                 </>
               )}
               {full.modelReason !== undefined && (

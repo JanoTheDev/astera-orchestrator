@@ -739,6 +739,7 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
         value: '<light|standard|hard>',
         about: "picks the worker's model from Settings → Orchestration models (light → haiku, standard → sonnet, hard → opus by default)"
       },
+      { name: 'effort', value: '<low|medium|high|xhigh|max>', about: "the worker's reasoning effort, ahead of the difficulty's default" },
       { name: 'model', value: '<id>', about: 'the worker model itself, ahead of --difficulty (e.g. sonnet)' },
       // W6-A: a planned Job's Task needs one to be approved
       { name: 'basis', value: '<missing|partial|broken>', about: "what exists of the item, checked before planning (with --evidence); a planned Job's Task needs it" },

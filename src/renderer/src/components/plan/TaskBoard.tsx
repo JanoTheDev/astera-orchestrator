@@ -17,6 +17,7 @@ import {
   CATEGORIES,
   answersKey,
   autoAnswersOf,
+  cardEffortOf,
   cardModelOf,
   categoryOf,
   collapsedWavesOf,
@@ -204,6 +205,7 @@ export function TaskBoard({
                       nowMs={nowMs}
                       label={label}
                       model={cardModelOf(tk, roleModels, accounts ?? [])}
+                      effort={cardEffortOf(tk, roleModels, accounts ?? [])}
                       now={nowOf(tk, tk.sessionId ? sessions[tk.sessionId] : undefined, eventsOf.get(tk.id) ?? NONE, nowMs)}
                       answers={autoAnswersOf(activityOf.get(tk.id) ?? NONE, tk.id)}
                       onSelect={onSelect}
@@ -300,6 +302,7 @@ function TaskRow({
   nowMs,
   label,
   model,
+  effort,
   now,
   answers,
   onSelect,
@@ -319,6 +322,7 @@ function TaskRow({
   nowMs: number
   label: (id: string) => string
   model: string | undefined
+  effort: string | undefined
   now: ReturnType<typeof nowOf>
   answers: ReturnType<typeof autoAnswersOf>
   onSelect: (taskId: string) => void
@@ -372,6 +376,11 @@ function TaskRow({
         {line !== undefined && <span className={reason && !now ? `plan-row-line plan-row-line--${reasonTone(reason)}` : 'plan-row-line plan-now'}>{line}</span>}
         <span className="plan-row-meta">
           {account !== undefined && <span className="plan-row-account">{label(account)}</span>}
+          {!compact && (
+            <span className="plan-row-account" title={tk.effortNote}>
+              {[model ?? t('plan.card.cliDefault'), effort].filter(Boolean).join(' · ')}
+            </span>
+          )}
           {tk.attempts !== undefined && <span className="plan-card-attempts">{t(tk.attempts === 1 ? 'plan.card.attempts.one' : 'plan.card.attempts', { n: tk.attempts })}</span>}
         </span>
         {action !== undefined && onRestart && (
@@ -400,6 +409,12 @@ function TaskRow({
             <dl className="plan-card-meta">
               <dt>{t('plan.card.model')}</dt>
               <dd>{model ?? t('plan.card.cliDefault')}</dd>
+              {effort !== undefined && (
+                <>
+                  <dt>{t('plan.task.effort')}</dt>
+                  <dd title={tk.effortNote}>{effort}</dd>
+                </>
+              )}
               {tk.branch !== undefined && (
                 <>
                   <dt>{t('plan.card.branch')}</dt>

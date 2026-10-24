@@ -7511,6 +7511,9 @@ describe('없는 id 는 404 — 순수 층의 거절을 내보내던 자리들',
       model: 'sonnet'
     })
     expect((await add('--difficulty extreme')).body).toEqual({ error: '--difficulty must be one of light|standard|hard' })
+    const withEffort = await add('--effort xhigh')
+    expect(deps.getState().tasks.find((t) => t.id === (withEffort.body as { id: string }).id)).toMatchObject({ effort: 'xhigh' })
+    expect((await add('--effort ultra')).body).toEqual({ error: '--effort must be one of low|medium|high|xhigh|max' })
     expect((await add('--model x;y')).status).toBe(400)
   })
 

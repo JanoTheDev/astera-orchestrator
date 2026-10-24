@@ -129,6 +129,8 @@ export interface RollingDeps {
     /** Start the next process on this model. A chat chain: the person's pick (`chosenModelOf` below). A
      *  terminal chain: the model it was started with (`SessionInfo.model`, orchestrator W1-A). */
     model?: string | null
+    /** The effort the terminal session was started with (`SessionInfo.effort`), kept across the roll. */
+    effort?: string | null
     /** design F5 fix round 1 (Important 3, the roll-inheritance fix): start the respawned process
      *  with the toolchain bypass already applied, because the chain being rolled had already been
      *  granted it. See `bypassedOf` below for the read and why it has to happen before the kill.
@@ -1905,6 +1907,7 @@ export class RollingCoordinator {
         // A terminal chain has no such choice; it keeps the model it was started with instead
         // (orchestrator W1-A: a Job worker's `--model`), so a roll does not drop it to the CLI default.
         model: chosenModel ?? chain.liveInfo.model ?? null,
+        ...(chain.liveInfo.effort ? { effort: chain.liveInfo.effort } : {}),
         startWithBypass: wasBypassed,
         // S6 R6: the new pty is born with what a takeover needs if this process dies before the
         // rekey commits: where it came from, and the chain on its new account awaiting its prompt.

@@ -236,6 +236,8 @@ export class SessionManager {
     /** The model to start on (orchestrator W1-A). Kept on the info and the note, so a roll's respawn
      *  and an adopted session start on it again. Absent or null: the CLI's default. */
     model?: string | null
+    /** The reasoning effort to start on, kept like `model` (commands.ts checks it against the CLI's list). */
+    effort?: string | null
     /** claude only (W6-B): `--disallowedTools` (commands.ts). */
     disallowedTools?: string[]
   }): SessionInfo {
@@ -296,6 +298,7 @@ export class SessionManager {
       initialPrompt: opts.initialPrompt,
       developerInstructions,
       model: opts.model,
+      effort: opts.effort,
       ...(opts.disallowedTools ? { disallowedTools: opts.disallowedTools } : {})
     })
     // Windows only: CLAUDE_CODE_GIT_BASH_PATH exists for Git for Windows, and on other platforms the
@@ -378,7 +381,8 @@ export class SessionManager {
           ...(opts.rollPrompt ? { rollPrompt: opts.rollPrompt } : {}),
           ...(opts.slackNotify !== undefined ? { slackNotify: opts.slackNotify } : {}),
           ...(opts.bypassPermissions !== undefined ? { bypassPermissions: opts.bypassPermissions } : {}),
-          ...(opts.model ? { model: opts.model } : {})
+          ...(opts.model ? { model: opts.model } : {}),
+          ...(opts.effort ? { effort: opts.effort } : {})
         }
       }
     })
@@ -397,7 +401,8 @@ export class SessionManager {
       slackNotify: opts.slackNotify,
       bypassPermissions: opts.bypassPermissions,
       schedule: opts.schedule,
-      ...(opts.model ? { model: opts.model } : {})
+      ...(opts.model ? { model: opts.model } : {}),
+      ...(opts.effort ? { effort: opts.effort } : {})
     }
     return this.track(info, pty)
   }

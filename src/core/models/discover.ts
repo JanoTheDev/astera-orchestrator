@@ -9,10 +9,10 @@
 // app-server 가 (experimental 이라) 프로토콜을 바꿨을 수도 있다. 그때 설정 화면은 드롭다운
 // 대신 자유 입력칸을 보여 주면서 사유를 말한다. 던지면 그 사유가 사라진다.
 import { spawn } from 'node:child_process'
-import type { ModelListResult } from '../../core/models/types'
-import { parseClaudeModels, parseCodexModels } from '../../core/models/parse'
-import { warmWindowsExecutable, windowsSpawn } from '../../core/sessions/windowsExecutable'
-import { killProcessTree } from '../../core/run/kill'
+import type { ModelListResult } from './types'
+import { parseClaudeModels, parseCodexModels } from './parse'
+import { warmWindowsExecutable, windowsSpawn } from '../sessions/windowsExecutable'
+import { killProcessTree } from '../run/kill'
 
 /** 이 왕복은 사용자가 설정 화면에서 기다리는 시간이다. 실측이 2초 안쪽이라 넉넉히 잡되,
  *  응답이 없는 CLI 에 무한히 매달리지 않는다. */

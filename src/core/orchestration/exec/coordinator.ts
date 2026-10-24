@@ -91,6 +91,8 @@ export interface CoordinatorDeps {
     /** The role model to start on (orchestrator W1-A, roleModels.ts) — `--model` / `-m`. Absent: the
      *  CLI's default. The wiring hands it to the session spawn, which keeps it across rolls. */
     model?: string
+    /** The reasoning effort to start on, handed to the session spawn untouched. */
+    effort?: string
     /** claude only (W6-B): tools the session may not use (WORKER_DISALLOWED_TOOLS). */
     disallowedTools?: string[]
   }): Promise<{ id: string }>
@@ -814,6 +816,8 @@ export class OrchCoordinator {
     /** The model to start the session on (W1-A; resolved by startWorkerWithChain). Unused on a
      *  `--terminal` reuse, which types into a session already running on its own model. */
     model?: string
+    /** The reasoning effort to start on (resolved and clamped by startWorkerWithChain). Unused on a `--terminal` reuse. */
+    effort?: string
     /** Run.cwd — the base cwd when worktree is 'current', and the base a new worktree forks from.
      *  The commit obligation below derives from `cwd !== runCwd`, which is what makes a worker in a
      *  worktree commit and a worker standing on runCwd not.
@@ -1046,6 +1050,7 @@ export class OrchCoordinator {
         // 다시 띄워야 했다.
         rollAccountIds: a.rollAccountIds,
         ...(a.model ? { model: a.model } : {}),
+        ...(a.effort ? { effort: a.effort } : {}),
         // #117: a hands-off plan's own choice wins over the app-wide setting the wiring fills in
         ...(a.bypassPermissions ? { bypassPermissions: true } : {}),
         // W6-B: a claude worker asks with `astera ask`, which the coordinator answers, never Claude's own question tool,

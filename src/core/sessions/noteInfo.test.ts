@@ -7,6 +7,11 @@ describe('sessionInfoFromNote', () => {
       sessionInfoFromNote({ kind: 'session', id: 's1', restore: { accountId: 'a1', cwd: 'D:/p', title: 't', rollAccountIds: ['a1', 'a2'], rollPrompt: 'go', bypassPermissions: true, slackNotify: 'x' } })
     ).toEqual({ id: 's1', accountId: 'a1', cwd: 'D:/p', status: 'running', title: 't', rollAccountIds: ['a1', 'a2'], rollPrompt: 'go', bypassPermissions: true })
   })
+  it('keeps the effort a session was started with, so an adopted chain rolls on it', () => {
+    const base = { accountId: 'a1', cwd: 'D:/p', title: 't' }
+    expect(sessionInfoFromNote({ kind: 'session', id: 's1', restore: { ...base, effort: 'high' } })?.effort).toBe('high')
+    expect(sessionInfoFromNote({ kind: 'session', id: 's1', restore: { ...base, effort: 4 } })).not.toHaveProperty('effort')
+  })
   it('keeps the model a session was started with (orchestrator W1-A), so an adopted chain rolls on it', () => {
     expect(sessionInfoFromNote({ kind: 'session', id: 's1', restore: { accountId: 'a1', cwd: 'D:/p', title: 't', model: 'opus' } })?.model).toBe('opus')
     expect(sessionInfoFromNote({ kind: 'session', id: 's1', restore: { accountId: 'a1', cwd: 'D:/p', title: 't', model: 4 } })).not.toHaveProperty('model')

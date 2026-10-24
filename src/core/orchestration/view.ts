@@ -183,6 +183,7 @@ function jobTaskOf(
   // W2-C plan board: what the board card says beside the reason. The model and account are the latest attempt's
   // (a review runs on another model and account, so it is not the attempt)
   const model = latestAttempt?.model ?? task.model
+  const effort = (latestAttempt ? latestAttempt.effort : task.effort) as Task['effort']
   const branch = latestAttempt ? branchOf(latestAttempt.cwd) : undefined
   const attempts = dispatches.filter((d) => !d.review).length
   return {
@@ -265,6 +266,8 @@ function jobTaskOf(
     ...(board ? { board } : {}),
     ...(model !== undefined ? { model } : {}),
     ...(task.difficulty ? { difficulty: task.difficulty } : {}),
+    ...(effort ? { effort } : {}),
+    ...(latestAttempt?.effortNote ? { effortNote: latestAttempt.effortNote } : {}),
     ...(jobOfTask?.models ? { jobModels: jobOfTask.models } : {}),
     ...(latestAttempt ? { accountId: latestAttempt.accountId } : {}),
     ...(branch !== undefined ? { branch } : {}),
