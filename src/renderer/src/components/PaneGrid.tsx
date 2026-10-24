@@ -1,4 +1,4 @@
-import { useRef, useState, type CSSProperties } from 'react'
+import { Activity, useRef, useState, type CSSProperties } from 'react'
 import type { Account, RollStateEvent, SchedStateEvent, SessionInfo } from '../../../core/types'
 import {
   MAX_PANES,
@@ -696,7 +696,8 @@ export function PaneGrid({
             }
             onMouseDown={() => onFocusPane(pane.id)}
           >
-            {renderView(view.name, view.arg, visible)}
+            {/* hidden view tabs stop rendering and polling but keep their state and DOM */}
+            <Activity mode={visible ? 'visible' : 'hidden'}>{renderView(view.name, view.arg, visible)}</Activity>
           </div>
         )
       })}
