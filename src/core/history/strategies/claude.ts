@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { Account, HistoryEntry, ProjectSummary } from '../../types'
-import { parseTranscriptMeta, parseTranscriptPreview, parseTranscriptTail } from '../parser'
+import { modelFields, parseTranscriptMeta, parseTranscriptPreview, parseTranscriptTail } from '../parser'
 import type { HistoryIo, HistoryStrategy } from './types'
 
 /** Scan root for claude session files — this file is the only place that knows about `projects` */
@@ -159,7 +159,8 @@ export const claudeHistoryStrategy: HistoryStrategy = {
       updatedAt: new Date(mtime).toISOString(),
       filePath,
       awaitingReply: tail.awaitingReply,
-      rootUuid: meta.rootUuid
+      rootUuid: meta.rootUuid,
+      ...modelFields(tail)
     }
   },
   /** On an entryById miss — looks for <sessionId>.jsonl in each slug folder of the account's

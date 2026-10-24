@@ -227,7 +227,9 @@ export class MemoryCwdStore implements CwdStore {
         sessionId: row.sessionId,
         title: row.title,
         awaitingReply: row.awaitingReply,
-        ...(row.hidden ? { hidden: true } : {})
+        ...(row.hidden ? { hidden: true } : {}),
+        ...(row.model ? { model: row.model } : {}),
+        ...(row.effort ? { effort: row.effort } : {})
       }
     })
   }
