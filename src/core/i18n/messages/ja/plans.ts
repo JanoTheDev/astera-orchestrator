@@ -54,4 +54,5 @@ export const plans: Partial<Record<keyof typeof ko, string>> = {
   'pages.plans.tree.menu.openInPlan': 'プランで開く',
   'pages.plans.tree.menu.copyId': 'id をコピー',
   'pages.plans.tree.menu.label': 'プランの操作',
+  'pages.plans.status.stalled': '停止中',
 }
