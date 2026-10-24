@@ -319,7 +319,7 @@ export function StartPage({
                     )}
                   </div>
                 )}
-                {dirError && <p className="warn">{dirError}</p>}
+                {dirError && <p className="start-warn">{dirError}</p>}
                 {names.why?.map((w) => <p key={w} className="start-names-why">{w}</p>)}
                 {(names.picked?.length ?? 0) > 0 && (
                   <ul className="start-names-list">
@@ -331,7 +331,7 @@ export function StartPage({
                   </ul>
                 )}
                 {names.skipped?.map((x) => <p key={x.id} className="start-names-why">{t('start.names.skipped', { id: x.id, why: x.why })}</p>)}
-                {names.problems?.map((p) => <p key={p} className="warn">{p}</p>)}
+                {names.problems?.map((p) => <p key={p} className="start-warn">{p}</p>)}
               </div>
             )}
             <div className="start-composer-bar">
@@ -464,9 +464,9 @@ export function StartPage({
                 />
                 <Field kind="toggle" label={t('start.more.schedule')} hint={t('jobs.new.scheduleHint')} checked={scheduling} disabled={mode === 'chat'} onChange={setScheduled} />
                 {scheduling && (
-                  <div className="jobs-sched">
+                  <div className="start-sched">
                     <ScheduleRuleFields onChange={setSchedule} />
-                    <p className="warn-text">{t('jobs.new.scheduleOverlapHint')}</p>
+                    <p className="start-warn-text">{t('jobs.new.scheduleOverlapHint')}</p>
                   </div>
                 )}
               </div>
@@ -483,7 +483,7 @@ export function StartPage({
       <footer className="start-foot">
         <div className="start-foot-inner">
           <div className="start-foot-notes" aria-live="polite">
-            {intake.error || schedError || attachError ? <p className="warn">{intake.error ?? schedError ?? attachError}</p> : blocked ? <span>{blocked}</span> : <span>{go.note ?? t('start.hint.submit')}</span>}
+            {intake.error || schedError || attachError ? <p className="start-warn">{intake.error ?? schedError ?? attachError}</p> : blocked ? <span>{blocked}</span> : <span>{go.note ?? t('start.hint.submit')}</span>}
           </div>
           <Button variant="primary" size="lg" loading={intake.busy || schedBusy} disabled={!canSubmit} onClick={submit}>
             {go.label}

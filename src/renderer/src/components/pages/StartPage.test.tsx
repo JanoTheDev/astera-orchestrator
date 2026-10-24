@@ -67,6 +67,11 @@ describe('Start page', () => {
     }
   })
 
+  it('uses no legacy jobs-sched, warn or warn-text class: its own start-* rules carry the look', () => {
+    const html = render({ mode: 'auto' })
+    expect(html).not.toMatch(/class="(jobs-sched|warn|warn-text)"/)
+  })
+
   it('holds the project, the box, the attachments and the mode tabs in one composer card', () => {
     const html = render({ files: ['/u/intake-paste/id/image-1.png', '/w/spec.md'] })
     const card = html.slice(html.indexOf('start-composer'), html.indexOf('start-mode-hint'))
