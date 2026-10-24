@@ -503,7 +503,8 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       // W8-C plan after plan
       { name: 'after', value: '<jobId>', about: 'queue it after that Job (needs --coordinator-account): its planner starts by itself once that Job is delivered' },
       // #117
-      { name: 'hands-off', about: "run this plan hands-off, ahead of its project's setting: nothing waits on the owner: the plan starts by itself once it holds, its coordinator answers its own escalations, and its planner, coordinator and workers run with permissions bypassed. Refused from an agent session and an MCP client" }
+      { name: 'hands-off', about: "run this plan hands-off, ahead of its project's setting: nothing waits on the owner: the plan starts by itself once it holds, its coordinator answers its own escalations, and its planner, coordinator and workers run with permissions bypassed. Refused from an agent session and an MCP client" },
+      { name: 'effort', value: '<low|medium|high|xhigh|max>', about: 'reasoning effort for the plan\'s workers whose Task sets none (a Task\'s own --effort wins)' }
     ]
   },
   'jobs-create-from-source': {
@@ -521,11 +522,11 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
   },
   // W7-D (#67)
   'jobs-set': {
-    summary: "change a running or queued plan's workers at once, priority, review rounds, replan, auto-approve, hands-off or delivery, or its queue, areas or planning mode",
+    summary: "change a running or queued plan's workers at once, priority, review rounds, replan, auto-approve, hands-off, delivery or effort, or its queue, areas or planning mode",
     detail:
       'Until the Job finishes; a finished one is refused (CONFLICT, exit 6). A lower number only holds back new starts: running workers carry on. At most 10. Refused from an agent session and an MCP client. ' +
       // Change a running plan
-      "--concurrency, --priority, --review-rounds, --replan, --auto-approve, --hands-off and --delivery change a running or queued plan in any mix, in one write; a bad value changes nothing. They take effect for work that has not started yet. --delivery is refused (CONFLICT, exit 6) once the plan's delivery has started; --hands-off is refused from an agent session. " +
+      "--concurrency, --priority, --review-rounds, --replan, --auto-approve, --hands-off, --delivery and --effort change a running or queued plan in any mix, in one write; a bad value changes nothing. They take effect for work that has not started yet. --delivery is refused (CONFLICT, exit 6) once the plan's delivery has started; --hands-off is refused from an agent session. " +
       // W8-C plan after plan
       '--after queues a Job that has not started planning after another (none clears it): its planner starts by itself once that Job is delivered (pushed, its pull request opened and not a draft, or ended with nothing to do). If that Job gives up or is archived, the queued one waits and escalates once. A chain that would wait on itself is refused (exit 2); a Job already planning is refused (CONFLICT, exit 6). ' +
       // W8-D plan areas
@@ -553,6 +554,7 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       { name: 'auto-approve', value: '<on|off>', about: 'start the plan once planned without waiting for approval' },
       { name: 'hands-off', value: '<on|off>', about: 'run without asking; from a person only' },
       { name: 'delivery', value: '<pr|push|manual>', about: 'how the plan lands; refused once delivery has started' },
+      { name: 'effort', value: '<low|medium|high|xhigh|max|none>', about: "reasoning effort for the plan's workers whose Task sets none; none clears it" },
       // T3 workspaces
       { name: 'project', value: '<projectId>', about: 'file a plan not started yet under another project of its workspace; alone' }
     ]

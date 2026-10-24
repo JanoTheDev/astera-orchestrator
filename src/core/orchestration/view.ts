@@ -270,6 +270,7 @@ function jobTaskOf(
     ...(effort ? { effort } : {}),
     ...(latestAttempt?.effortNote ? { effortNote: latestAttempt.effortNote } : {}),
     ...(jobOfTask?.models ? { jobModels: jobOfTask.models } : {}),
+    ...(jobOfTask?.effort ? { jobEffort: jobOfTask.effort } : {}),
     ...(latestAttempt ? { accountId: latestAttempt.accountId } : {}),
     ...(branch !== undefined ? { branch } : {}),
     ...(attempts > 0 ? { attempts } : {}),

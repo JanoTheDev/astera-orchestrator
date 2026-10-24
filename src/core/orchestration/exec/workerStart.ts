@@ -152,7 +152,7 @@ async function effortForStart(
     }
   }
   const task = s.tasks.find((t) => t.id === a.taskId)
-  const resolved = resolveWorkerEffort({ settings, task, provider: a.provider })
+  const resolved = resolveWorkerEffort({ settings, task, job: task?.runId ? jobOfRunId(s, task.runId) : undefined, provider: a.provider })
   if (!raise) return clampedEffort(ctx, a.accountId, model, resolved, a.provider)
   const levels = await levelsFor(ctx, a.accountId, model)
   const up = escalateEffort(prevAttempt?.effort ?? resolved, levels, a.provider)

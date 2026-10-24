@@ -182,6 +182,13 @@ describe('effort resolution', () => {
     expect(resolveWorkerEffort({ settings: {}, task: task(), provider: 'claude' })).toBeUndefined()
     expect(resolveWorkerEffort({ settings: {}, task: task(undefined, 'hard'), provider: 'codex' })).toBeUndefined()
   })
+  it('Task > Job > setting > built-in', () => {
+    const settings = { claude: { effort: { difficulty: { hard: 'xhigh' } } } }
+    expect(resolveWorkerEffort({ settings, task: task('low', 'hard'), job: { effort: 'max' }, provider: 'claude' })).toBe('low')
+    expect(resolveWorkerEffort({ settings, task: task(undefined, 'hard'), job: { effort: 'max' }, provider: 'claude' })).toBe('max')
+    expect(resolveWorkerEffort({ settings, task: task(), job: { effort: 'medium' }, provider: 'claude' })).toBe('medium')
+    expect(resolveWorkerEffort({ settings, task: task(undefined, 'hard'), job: {}, provider: 'claude' })).toBe('xhigh')
+  })
   it("'' masks the built-in", () => {
     expect(resolveWorkerEffort({ settings: { claude: { effort: { difficulty: { hard: '' } } } }, task: task(undefined, 'hard'), provider: 'claude' })).toBeUndefined()
     expect(resolveRoleEffort({ claude: { effort: { roles: { planner: '' } } } }, 'planner', 'claude')).toBeUndefined()

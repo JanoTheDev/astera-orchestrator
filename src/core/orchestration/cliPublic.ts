@@ -181,7 +181,8 @@ const JOB_HIDDEN = [
   /* T5b: the account the owner named, a preference only, not in the SDK's contract yet */ 'preferredAccountId',
   /* T25: why a planner or coordinator start waits for an account with room, not in the SDK's contract yet */ 'startWait',
   /* T20: the owner's words that started a plan from its planner chat, and when its Tasks last lost one; not in the SDK's contract yet */ 'approvedFromChat',
-  'planCancelledAt'
+  'planCancelledAt',
+  /* The plan's reasoning effort for its Task workers; not in the SDK's contract yet */ 'effort'
 ] as const
 
 /** A followed event's message body (pages long) and the app's link from an event to a tab. */
