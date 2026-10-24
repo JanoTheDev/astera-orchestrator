@@ -4,7 +4,7 @@ import type { Account, HistoryEntry, ProjectSummary, ScheduleConfig, SessionKind
 import { ResumeDialog } from './ResumeDialog'
 import { TranscriptPreviewModal } from './TranscriptPreviewModal'
 import { ProviderBadge } from './ProviderBadge'
-import { sessionDescription, sessionTreeRows, type SessionPage } from './historyTree'
+import { scopeProjects, sessionDescription, sessionTreeRows, type SessionPage } from './historyTree'
 import { localDoor } from '../lib/orchDoor'
 import { useSummaries } from '../state/useSummaries'
 import { summaryOneLine } from './wall/summaryText'
@@ -16,6 +16,18 @@ import { EmptyState, ICONS, Icon, IconButton, Menu, Skeleton, Tree, menuPointOf,
 import * as hiddenProjects from '../lib/hiddenProjects'
 
 const PAGE = 50
+/** The project window when scoped: the history API cannot filter by project, so the picked project must be inside
+ *  the page. shortcut: a project older than this many is missed, page it server-side if that ever happens. */
+const SCOPED_LIMIT = 1000
+const ACCOUNT_KEY = 'cm.historyAccount'
+
+function loadAccountFilter(): string {
+  try {
+    return localStorage.getItem(ACCOUNT_KEY) ?? ''
+  } catch {
+    return ''
+  }
+}
 const SEEN_KEY = 'cm.historySeen'
 const SEEN_PRUNE_LIMIT = 500
 
@@ -71,6 +83,8 @@ export function HistoryBrowser({
   accounts,
   ghostAccounts,
   defaultSessionKind,
+  scopeId = null,
+  ownerOf = () => null,
   onResume
 }: {
   accounts: Account[]
@@ -79,6 +93,10 @@ export function HistoryBrowser({
   ghostAccounts: Account[]
   /** Passed straight to ResumeDialog — the Settings default the kind picker opens on. */
   defaultSessionKind: SessionKind
+  /** The top switcher's pick: only that project's folders show, expanded. null is "All projects". */
+  scopeId?: string | null
+  /** The project id a history folder belongs to (projectOfCwd over the workspace tree); needed when `scopeId` is set. */
+  ownerOf?: (projectPath: string) => string | null
   onResume: (
     entry: HistoryEntry,
     cwd: string,
@@ -101,7 +119,7 @@ export function HistoryBrowser({
   // things — still loading, or genuinely nothing. It never goes back to false: on an account-filter change or
   // history:updated the previous list stays on screen until the new one lands.
   const [loaded, setLoaded] = useState(false)
-  const [accountFilter, setAccountFilter] = useState<string>('')
+  const [accountFilter, setAccountFilter] = useState<string>(loadAccountFilter)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [summaries, setSummaries] = useState<Record<string, Map<string, SessionSummary>>>({})
   const setProjectSummaries = useCallback((path: string, m: Map<string, SessionSummary>) => setSummaries((p) => ({ ...p, [path]: m })), [])
@@ -125,9 +143,10 @@ export function HistoryBrowser({
   const reqToken = useRef(0)
   const fetchingRef = useRef(false)
   const sessionTokens = useRef<Record<string, number>>({})
+  const autoExpanded = useRef(new Set<string>())
   const projectsLenRef = useRef(0)
   projectsLenRef.current = projects.length
-  const accountFilterRef = useRef('')
+  const accountFilterRef = useRef(accountFilter)
   accountFilterRef.current = accountFilter
   const hiddenRef = useRef<string[]>(hidden)
   hiddenRef.current = hidden
@@ -218,8 +237,29 @@ export function HistoryBrowser({
       })
   }
 
+  // the window and the scope change together: a pick (or "All projects") refetches at the size the scope needs,
+  // and the auto-expansion starts over
   useEffect(() => {
-    loadFirstProjects('')
+    autoExpanded.current = new Set()
+    loadFirstProjects(accountFilterRef.current, scopeId === null ? PAGE : SCOPED_LIMIT)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopeId])
+
+  // a picked project's folders open by themselves, once each, so a collapse by hand sticks
+  const shownProjects = scopeProjects(projects, scopeId, ownerOf)
+  const scopedKey = scopeId === null ? '' : shownProjects.map((p) => p.projectPath).join('\n')
+  useEffect(() => {
+    if (!scopedKey) return
+    for (const path of scopedKey.split('\n')) {
+      if (autoExpanded.current.has(path)) continue
+      autoExpanded.current.add(path)
+      setExpanded((prev) => new Set(prev).add(path))
+      loadSessions(path, false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopedKey])
+
+  useEffect(() => {
     return window.api.on('history:updated', () => {
       // Re-query the project window at its current size, and the expanded projects' sessions with it
       const token = ++reqToken.current
@@ -311,7 +351,7 @@ export function HistoryBrowser({
     }
   }
 
-  const treeRows = sessionTreeRows(projects, expanded, (path) => pages[path], projects.length < total)
+  const treeRows = sessionTreeRows(shownProjects, expanded, (path) => pages[path], scopeId === null && projects.length < total)
   const byId = new Map(treeRows.map((r) => [r.id, r]))
 
   const summaryLines = new Map<string, string>()
@@ -444,9 +484,15 @@ export function HistoryBrowser({
   function pickAccount(id: string): void {
     setAccountFilter(id)
     accountFilterRef.current = id
+    try {
+      localStorage.setItem(ACCOUNT_KEY, id)
+    } catch {
+      /* the filter just does not persist */
+    }
     setExpanded(new Set()) // reset the expansion when the filter changes
     setPages({})
-    loadFirstProjects(id)
+    autoExpanded.current = new Set() // a scoped project opens again once its list arrives
+    loadFirstProjects(id, scopeId === null ? PAGE : SCOPED_LIMIT)
   }
 
   return (
@@ -486,14 +532,14 @@ export function HistoryBrowser({
           <LoadingRows rows={5} />
         </div>
       )}
-      {loaded && projects.length === 0 && (
+      {loaded && shownProjects.length === 0 && (
         <div className="history-empty">
           <EmptyState icon={ICONS.history} title={t('history.panel.empty')}>
             {t('history.panel.emptyHint')}
           </EmptyState>
         </div>
       )}
-      {projects.length > 0 && (
+      {shownProjects.length > 0 && (
         // The tree's selection follows the keyboard cursor, so only a pointer press may open a preview;
         // Enter opens through onOpen below.
         <div className="history-tree" onPointerDownCapture={() => (viaPointer.current = true)} onKeyDownCapture={() => (viaPointer.current = false)}>
