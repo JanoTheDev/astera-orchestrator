@@ -772,6 +772,7 @@ const NOT_SWITCHED = [
   // answer in the CLI process (src/cli/runtime/commands.ts).
   'projects-add',
   'projects-create', // W7-B
+  'projects-github-create',
   'runtime-start',
   'runtime-stop',
   'runtime-status',

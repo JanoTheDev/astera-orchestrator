@@ -130,6 +130,7 @@ const NOT_SWITCHED = [
   'handoff',
   'requests-show',
   'projects-create',
+  'projects-github-create',
   'skills-list',
   'skills-install',
   'accounts-login',

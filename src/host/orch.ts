@@ -68,7 +68,8 @@ import { NOT_WRITER, type HostUnderstanding } from './hostUnderstanding'
 import type { HostWorkUnits } from './hostWorkUnits'
 import { addSubProject, ensureProject, findProject, setProjectSettings } from '../core/orchestration/projects'
 import type { Project } from '../core/orchestration/types'
-import { cloneDestination, cloneRepository, cloneUrlRefusal, createProjectFolder, githubCreate, initialCommit, type GithubVisibility } from '../core/projects/create'
+import { cloneDestination, cloneRepository, cloneUrlRefusal, createProjectFolder, githubCreate, initGitFolder, initialCommit, type GithubVisibility } from '../core/projects/create'
+import { git } from '../core/worktrees/git'
 import { inspectFolder } from '../core/projects/detect'
 import type { SessionWorkUnit } from '../core/workUnit/types'
 import { justFinished, runRecordInputOf } from '../core/orchestration/runRecord'
@@ -2298,10 +2299,22 @@ export function createHostOrch(a: {
           // W7-B: a git repository, registered by its top level. One with no commit yet is not committed for the person
           // unless they asked (`--initial-commit`): it is their files. Answered with what was found, and a test command
           // to propose, which the person confirms with `projects-set --test-command`.
-          const folder = await inspectFolder(p as string)
+          let folder = await inspectFolder(p as string)
+          // `--init-git`: a folder with no repository becomes one (git init -b main, a .gitignore where there is none, the
+          // first commit), on the person's say-so; without it the refusal says `needsGitInit` so the app can offer it
+          if (folder === null && args.initGit === true) {
+            marks.effects += 1
+            try {
+              await initGitFolder(p as string)
+            } catch (e) {
+              const failed = { status: 500, body: { error: e instanceof Error ? e.message : String(e) } }
+              return claimed === null ? failed : settleRequest(claimed, cmd, marks, failed)
+            }
+            folder = await inspectFolder(p as string)
+          }
           const repoRefusal =
             folder === null
-              ? { status: 400, body: { error: `not a git repository: ${p}; run \`git init\` there first, or create a new project` } }
+              ? { status: 400, body: { error: `not a git repository: ${p}; run \`git init\` there first (--init-git), or create a new project`, needsGitInit: true } }
               : !folder.hasCommit && args.initialCommit !== true
                 ? { status: 409, body: { error: `${folder.root} has no commit yet, so worktrees cannot fork from it; add it with --initial-commit to commit what is there`, needsInitialCommit: true } }
                 : null
@@ -2370,6 +2383,37 @@ export function createHostOrch(a: {
             )
           const body = { status: 200, body: { ...created, ...(github ? { github } : {}) } }
           return claimed === null ? body : settleRequest(claimed, cmd, marks, body)
+        }
+        // A GitHub repository for a project that has none: the same `gh repo create` as `projects-create --github`, for a
+        // folder that is already a repository with no `origin`. Outward-facing, so for the same callers as `projects-create`.
+        if (cmd === 'projects-github-create') {
+          const refusal =
+            from?.role !== 'app' && from?.role !== 'cli'
+              ? { status: 403, body: { error: 'projects-github-create is for this machine’s app and CLI only' } }
+              : agentShell(from, sessionId)
+                ? { status: 403, body: { error: AGENT_REFUSAL(cmd) } }
+                : typeof args.project !== 'string' || !path.isAbsolute(args.project)
+                  ? { status: 400, body: { error: 'projects-github-create needs an absolute --project' } }
+                  : args.private === true && args.public === true
+                    ? { status: 400, body: { error: 'give --private or --public, not both' } }
+                    : !a.github
+                      ? { status: 409, body: { error: 'GitHub repositories are made through the Astera Host’s gh, and this Host has none' } }
+                      : null
+          if (refusal !== null) return claimed === null ? refusal : settleRequest(claimed, cmd, marks, refusal)
+          const folder = await inspectFolder(args.project as string)
+          const early =
+            folder === null
+              ? { status: 400, body: { error: `not a git repository: ${args.project}` } }
+              : (await git(['remote', 'get-url', 'origin'], { cwd: folder.root })).ok
+                ? { status: 409, body: { error: `${folder.root} already has an origin remote` } }
+                : null
+          if (early !== null) return claimed === null ? early : settleRequest(claimed, cmd, marks, early)
+          marks.effects += 1
+          const done = await githubCreate(a.github!.run, folder!.root, path.basename(folder!.root), args.public === true ? 'public' : 'private').then(
+            (url) => ({ status: 200, body: { url } }),
+            (e: unknown) => ({ status: 502, body: { error: e instanceof Error ? e.message : String(e) } })
+          )
+          return claimed === null ? done : settleRequest(claimed, cmd, marks, done)
         }
         // **Plugins, for this machine's app and CLI** (plugin runtime design P5): the Host's plugin manager answers them,
         // beside `projects-add` and for its reason: below the receipt line, so a lost answer to an install is retried with

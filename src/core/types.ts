@@ -1897,6 +1897,9 @@ export interface CoreApi {
     // Whether an MCP client may act on GitHub (off by default; needs access Read and control).
     getMcpGithubWrite(): Promise<boolean>
     setMcpGithubWrite(v: boolean): Promise<void>
+    // What a new project does about GitHub (core/settings/githubDefaults.ts).
+    getGithubDefaults(): Promise<{ createGithubRepo: boolean; visibility: 'private' | 'public' }>
+    setGithubDefaults(v: { createGithubRepo: boolean; visibility: 'private' | 'public' }): Promise<void>
     // MCP over HTTP (off by default). Saving also asks the Host to apply it (mcp-http-reload).
     getMcpHttp(): Promise<McpHttpSettings>
     setMcpHttp(v: McpHttpSettings): Promise<void>

@@ -59,6 +59,7 @@ import { clampAppSize } from '../core/workspace/size'
 import { createHostMcpHttpView, type HostMcpHttpView } from './host/hostMcpHttp'
 import { heavyJobsAtOnceOf } from '../core/settings/heavyJobs'
 import { machineSpecs } from '../core/settings/machineSpecs'
+import { githubDefaultsOf, githubDefaultsRefusal } from '../core/settings/githubDefaults'
 import { mcpHttpHostsProblem, mcpHttpOf, type McpHttpSettings } from '../core/settings/mcpHttp'
 import { createTokenReader, newToken, tokenPath } from '../core/mcp/httpToken'
 import { createOfflineRolls } from './host/offlineRolls'
@@ -6490,6 +6491,14 @@ export function registerIpc(
   ipcMain.handle('settings.setMcpGithubWrite', async (_e, v: unknown) => {
     if (typeof v !== 'boolean') throw new Error(`INVALID_MCP_GITHUB_WRITE: ${String(v)}`)
     await core.appSettings.setMcpGithubWrite(v)
+  })
+
+  // What a new project does about GitHub (core/settings/githubDefaults.ts); read by the new-project dialog.
+  ipcMain.handle('settings.getGithubDefaults', () => core.appSettings.getGithubDefaults())
+  ipcMain.handle('settings.setGithubDefaults', async (_e, v: unknown) => {
+    const refusal = githubDefaultsRefusal(v)
+    if (refusal !== null) throw new Error(`INVALID_GITHUB_DEFAULTS: ${refusal}`)
+    await core.appSettings.setGithubDefaults(githubDefaultsOf(v))
   })
 
   // MCP over HTTP (MCP HTTP design §4). Saving is followed by `mcp-http-reload`, which makes the Host

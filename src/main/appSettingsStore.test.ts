@@ -1249,6 +1249,29 @@ describe('mcpSessions', () => {
   })
 })
 
+describe('githubDefaults', () => {
+  it('defaults to no repository, private, and is not written while it is', async () => {
+    const store = new AppSettingsStore(file())
+    await store.load()
+    expect(store.getGithubDefaults()).toEqual({ createGithubRepo: false, visibility: 'private' })
+    await store.setGithubDefaults({ createGithubRepo: false, visibility: 'private' })
+    expect(JSON.parse(await fs.readFile(file(), 'utf8'))).not.toHaveProperty('githubDefaults')
+  })
+
+  it('keeps a change across a reload and narrows a bad file to the default', async () => {
+    const a = new AppSettingsStore(file())
+    await a.load()
+    await a.setGithubDefaults({ createGithubRepo: true, visibility: 'public' })
+    const b = new AppSettingsStore(file())
+    await b.load()
+    expect(b.getGithubDefaults()).toEqual({ createGithubRepo: true, visibility: 'public' })
+    await fs.writeFile(file(), JSON.stringify({ githubDefaults: { createGithubRepo: 'yes', visibility: 'internal' } }), 'utf8')
+    const c = new AppSettingsStore(file())
+    await c.load()
+    expect(c.getGithubDefaults()).toEqual({ createGithubRepo: false, visibility: 'private' })
+  })
+})
+
 describe('mcpGithubWrite', () => {
   it('defaults to false and is not written while it is', async () => {
     const store = new AppSettingsStore(file())

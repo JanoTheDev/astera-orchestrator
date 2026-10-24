@@ -42,6 +42,7 @@ import { autoCleanWorktreesOf } from '../core/settings/autoCleanWorktrees'
 import { mcpAccessOf } from '../core/settings/mcpAccess'
 import { mcpSessionsOf } from '../core/settings/mcpSessions'
 import { mcpGithubWriteOf } from '../core/settings/mcpGithubWrite'
+import { GITHUB_DEFAULTS, githubDefaultsOf, type GithubDefaults } from '../core/settings/githubDefaults'
 import { MCP_HTTP_DEFAULT_PORT, mcpHttpOf, type McpHttpSettings } from '../core/settings/mcpHttp'
 import { RepairNeeded } from '../core/settings/repairNeeded'
 import { skillReposOf } from '../core/extensions/skillsCatalog'
@@ -181,6 +182,8 @@ export class AppSettingsStore {
   /** Whether an MCP client may act on GitHub: push, open pull requests, rerun CI, make Jobs from
    *  issues (MCP P2-B design). Off by default; only true is written. */
   private mcpGithubWrite = false
+  /** What a new project does about GitHub (core/settings/githubDefaults.ts). */
+  private githubDefaults: GithubDefaults = { ...GITHUB_DEFAULTS }
   /** MCP over HTTP (MCP HTTP design §2). Off by default; written only while a field differs from its default. */
   private mcpHttp: McpHttpSettings = mcpHttpOf(undefined)
   /** GitHub repos (`owner/repo`) the skills finder searches besides its default one. Written only when non-empty. */
@@ -295,6 +298,7 @@ export class AppSettingsStore {
       this.mcpSessions = mcpSessionsOf((parsed as { mcpSessions?: unknown }).mcpSessions)
       // Likewise the Host's readMcpGithubWrite: only an explicit true turns it on.
       this.mcpGithubWrite = mcpGithubWriteOf((parsed as { mcpGithubWrite?: unknown }).mcpGithubWrite)
+      this.githubDefaults = githubDefaultsOf((parsed as { githubDefaults?: unknown }).githubDefaults)
       // The same function the Host's readMcpHttp uses, so the two cannot differ.
       this.mcpHttp = mcpHttpOf((parsed as { mcpHttp?: unknown }).mcpHttp)
       this.skillRepos = skillReposOf((parsed as { skillRepos?: unknown }).skillRepos)
@@ -370,6 +374,7 @@ export class AppSettingsStore {
         this.mcpAccess = 'control'
         this.mcpSessions = false
         this.mcpGithubWrite = false
+        this.githubDefaults = { ...GITHUB_DEFAULTS }
         this.mcpHttp = mcpHttpOf(undefined)
         this.skillRepos = []
         this.terminalFont = { latin: null, hangul: null }
@@ -427,6 +432,7 @@ export class AppSettingsStore {
       this.mcpAccess = 'off'
       this.mcpSessions = false
       this.mcpGithubWrite = false
+      this.githubDefaults = { ...GITHUB_DEFAULTS }
       this.mcpHttp = mcpHttpOf(undefined)
       this.skillRepos = []
       this.terminalFont = { latin: null, hangul: null }
@@ -585,6 +591,15 @@ export class AppSettingsStore {
   /** The Host reads the file on every MCP call (readMcpGithubWrite), so saving it is the whole effect. */
   async setMcpGithubWrite(v: boolean): Promise<void> {
     this.mcpGithubWrite = v
+    await this.persist()
+  }
+
+  getGithubDefaults(): GithubDefaults {
+    return { ...this.githubDefaults }
+  }
+
+  async setGithubDefaults(v: GithubDefaults): Promise<void> {
+    this.githubDefaults = githubDefaultsOf(v)
     await this.persist()
   }
 
@@ -966,6 +981,7 @@ export class AppSettingsStore {
       mcpAccess?: McpAccess
       mcpSessions?: true
       mcpGithubWrite?: true
+      githubDefaults?: GithubDefaults
       mcpHttp?: McpHttpSettings
       skillRepos?: string[]
       terminalFont?: TerminalFont
@@ -1024,6 +1040,8 @@ export class AppSettingsStore {
     if (this.mcpAccess !== 'control') data.mcpAccess = this.mcpAccess
     if (this.mcpSessions) data.mcpSessions = true
     if (this.mcpGithubWrite) data.mcpGithubWrite = true
+    // Written only when it differs from the default, as mcpGithubWrite is.
+    if (this.githubDefaults.createGithubRepo || this.githubDefaults.visibility !== GITHUB_DEFAULTS.visibility) data.githubDefaults = this.githubDefaults
     const h = this.mcpHttp
     if (h.enabled || h.lan || h.port !== MCP_HTTP_DEFAULT_PORT || h.hosts.length > 0) data.mcpHttp = h
     if (this.skillRepos.length > 0) data.skillRepos = this.skillRepos

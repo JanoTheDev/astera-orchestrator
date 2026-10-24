@@ -373,12 +373,13 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
   'projects-add': {
     summary: 'register a folder of this machine as a project, or add a sub-project to a workspace',
     detail:
-      'For the person at this machine, a script on it, or a full-control controller through `astera --runtime <id> projects add` (T12b); never an agent session (ASTERA_SESSION is set; refused with 5). The path is an existing git repository folder that is not a worktree (a relative path is taken from the shell folder); a subfolder or a linked worktree registers the repository itself. A repository with no commit is refused (409 needsInitialCommit) unless --initial-commit makes one. The answer carries the proposed test command and records the default branch. Adding a folder already registered answers that project. ' +
+      'For the person at this machine, a script on it, or a full-control controller through `astera --runtime <id> projects add` (T12b); never an agent session (ASTERA_SESSION is set; refused with 5). The path is an existing git repository folder that is not a worktree (a relative path is taken from the shell folder); a subfolder or a linked worktree registers the repository itself. A folder that is not a repository is refused (400 needsGitInit) unless --init-git runs `git init -b main` there, adds a .gitignore where there is none and makes the first commit; a repository with no commit is refused (409 needsInitialCommit) unless --initial-commit makes one. The answer carries the proposed test command and records the default branch. Adding a folder already registered answers that project. ' +
       // T3 workspaces
       'With --parent <projectId> --name <name> (and no --path) it adds a sub-project to that workspace instead: the same repository under its own name, whose plans share the workspace\'s file guard, leases and overlap checks; a name the workspace already has answers that sub-project. A sub-project reads every setting it leaves unset from its workspace.',
     flags: [
       { name: 'path', value: '<path>', about: 'the folder to register (required without --parent)' },
       { name: 'initial-commit', about: 'make the first commit when the repository has none' },
+      { name: 'init-git', about: 'make the folder a git repository first when it is not one (git init -b main, a .gitignore if missing, the first commit)' },
       // T3 workspaces
       { name: 'parent', value: '<projectId>', about: 'add a sub-project to this workspace (a root project) instead of a folder' },
       { name: 'name', value: '<name>', about: 'the sub-project name (with --parent)' },
@@ -404,6 +405,16 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       { name: 'parent', value: '<path>', required: true, about: 'the folder to create it in (relative: from the shell folder)' },
       { name: 'describe', value: '<text>', about: 'a one-line description' },
       { name: 'github', value: '<private|public>', about: 'also create a GitHub repository' }
+    ]
+  },
+  'projects-github-create': {
+    summary: 'create a GitHub repository for a project that has none, and push it',
+    detail:
+      'For the person at this machine, or a script on it: a remote controller cannot, nor an agent session (refused with 5). Runs `gh repo create <folder name> --source . --push` in the project (needs the gh CLI signed in) and answers the repository URL. Refused (409) when the project already has an origin remote. Private unless --public.',
+    flags: [
+      { name: 'project', value: '<path>', required: true, about: 'the project folder (relative: from the shell folder)' },
+      { name: 'private', about: 'a private repository (the default)' },
+      { name: 'public', about: 'a public repository' }
     ]
   },
   'projects-get': {

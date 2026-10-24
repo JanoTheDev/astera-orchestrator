@@ -297,6 +297,8 @@ const api = {
     setMcpSessions: invoke('settings.setMcpSessions'),
     getMcpGithubWrite: invoke('settings.getMcpGithubWrite'),
     setMcpGithubWrite: invoke('settings.setMcpGithubWrite'),
+    getGithubDefaults: invoke('settings.getGithubDefaults'),
+    setGithubDefaults: invoke('settings.setGithubDefaults'),
     getMcpHttp: invoke('settings.getMcpHttp'),
     setMcpHttp: invoke('settings.setMcpHttp'),
     getJobContinuityEnabled: invoke('settings.getJobContinuityEnabled'),
