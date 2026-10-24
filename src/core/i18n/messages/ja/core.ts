@@ -269,6 +269,7 @@ export const core: Partial<Record<keyof typeof ko, string>> = {
   'pluginNotify.runCompleted': 'Run {ordinal} が終わりました。',
   'pluginNotify.accountSwitched': '{label} アカウントで続けます。',
   'telegram.inbox.replyHint': 'セッションに入力を送るには、そのセッションのメッセージに返信してください',
+  'telegram.console.cut': "…（Telegram の文字数上限のためここで切りました）",
   // W9-E start page and New
   'shortcut.new.open': '新規を開く',
   'shortcut.tabs.reopenClosed': '最後に閉じたタブを開き直す',
