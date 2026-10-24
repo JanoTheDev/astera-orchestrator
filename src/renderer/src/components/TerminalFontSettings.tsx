@@ -4,6 +4,7 @@ import { useI18n } from '../i18n/I18nProvider'
 import { useTerminalFont } from '../lib/terminalFont'
 import { familyCoversHangul, listHangulFamilies, listLocalFontFamilies } from '../lib/fontProbe'
 import { toast } from '../lib/toast'
+import { useSetting } from '../hooks/useSetting'
 import type { TerminalFont } from '../../../core/terminal/font'
 
 /** The value the "System default" row carries. Empty string, because Select keys rows by string and
@@ -13,11 +14,19 @@ const SYSTEM = ''
 export function TerminalFontSettings(): React.JSX.Element {
   const { t } = useI18n()
   const { font, setFont } = useTerminalFont()
-  const [families, setFamilies] = useState<string[] | null>(null)
+  // A failed read leaves the list unset (not []) so the next open retries it, instead of caching an empty list.
+  const listed = (list: () => Promise<string[]>) => (): Promise<string[]> =>
+    list().catch((err) => {
+      toast.error(t('settings.font.listFailed', { detail: err instanceof Error ? err.message : String(err) }))
+      throw err
+    })
+  const [readFamilies, setFamilies] = useSetting('terminalFontFamilies', listed(listLocalFontFamilies))
+  const families = readFamilies ?? null
   // null: not loaded yet: the Hangul dropdown shows a "checking installed fonts…" row instead of
   // pretending the list is empty while listHangulFamilies() (a few seconds — it reads every
   // installed font file's cmap table) is still running.
-  const [hangulFamilies, setHangulFamilies] = useState<string[] | null>(null)
+  const [readHangul, setHangulFamilies] = useSetting('terminalFontHangulFamilies', listed(listHangulFamilies))
+  const hangulFamilies = readHangul ?? null
 
   const loadFamilies = (): void => {
     if (families) return
@@ -54,18 +63,6 @@ export function TerminalFontSettings(): React.JSX.Element {
     loadFamilies()
     loadHangulFamilies()
   }
-
-  // Both lists start loading as soon as the General tab is on screen, rather than waiting for a
-  // dropdown to be opened. Neither is instant — enumerating the installed families takes a moment,
-  // and the Hangul scan reads a cmap table per family — and doing it here spends that time while
-  // the user is still looking at the panel instead of after they have clicked and are waiting on it.
-  // The open handlers still call these: the loaders are idempotent (fontProbe memoises the in-flight
-  // promise), so a click that lands before this finishes joins the same work rather than starting more.
-  useEffect(() => {
-    loadFamilies()
-    loadHangulFamilies()
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per mount; the loaders' own guards handle repeats
-  }, [])
 
   const save = (next: TerminalFont): void => {
     const prev = font

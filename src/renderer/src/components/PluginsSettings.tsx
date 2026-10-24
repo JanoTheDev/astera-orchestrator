@@ -7,6 +7,7 @@ import { confirmModal, confirmModalWithChoices } from '../lib/confirm'
 import { Button, Checkbox, Input, Select } from './ui'
 import { configureChanges, configureDoneLine, failureLine, installFailureLine, installPrompt, npmNotice, permissionLabel, reasonLine, statusLabel } from './pluginsText'
 import { createPluginsPoller, installBlocked, installHolds, keepOnly } from './pluginsList'
+import { useSetting } from '../hooks/useSetting'
 
 type Plugin = Record<string, unknown>
 type Shown = { fields: SettingField[]; values: Record<string, unknown>; secrets: Record<string, unknown> }
@@ -39,7 +40,13 @@ const without = <V,>(o: Record<string, V>, key: string): Record<string, V> => {
  *  folder after the trust warning. Every check is the Host's: this shows what it answers. */
 export function PluginsSettings(): React.JSX.Element {
   const { t } = useI18n()
-  const [plugins, setPlugins] = useState<Plugin[] | null>(null)
+  // The cache holds the last list, so a reopened tab draws it before the poller's first answer.
+  const [readPlugins, setPlugins] = useSetting('pluginsList', async (): Promise<Plugin[]> => {
+    const r = await window.api.plugins.list()
+    if (!r.ok) throw new Error(r.message) // the poller below says why
+    return (Array.isArray(r.body.plugins) ? r.body.plugins : []).filter((p): p is Plugin => typeof p === 'object' && p !== null && !Array.isArray(p))
+  })
+  const plugins = readPlugins ?? null
   /** Why the last list could not be read; the list before it stays (review focus 1). */
   const [listFailure, setListFailure] = useState<Failure | null>(null)
   /** The install button's state: a folder being read and shown, or the install itself. */

@@ -1,6 +1,7 @@
 // T28: Settings › About › Open source licenses. Every third-party notice scripts/gen-licenses.mjs collected, a search
 // over name and license, and the full text of the one picked. Without the generated file (a dev run) it says how to make it.
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
+import { useSetting } from '../../hooks/useSetting'
 import type { LicenseEntry } from '../../../../core/types'
 import type { MessageKey } from '../../../../core/i18n'
 import { Button, EmptyState, ICONS, Input, Modal } from '../ui'
@@ -16,12 +17,9 @@ export function filterLicenses(entries: readonly LicenseEntry[], query: string):
 
 export function LicensesView({ t, onClose }: { t: T; onClose: () => void }): React.JSX.Element {
   // undefined = still reading, null = no generated file
-  const [entries, setEntries] = useState<LicenseEntry[] | null | undefined>(undefined)
+  const [entries] = useSetting<LicenseEntry[] | null>('licenses', () => window.api.app.licenses().catch(() => null))
   const [query, setQuery] = useState('')
   const [picked, setPicked] = useState<LicenseEntry | null>(null)
-  useEffect(() => {
-    void window.api.app.licenses().then(setEntries).catch(() => setEntries(null))
-  }, [])
   const shown = useMemo(() => filterLicenses(entries ?? [], query), [entries, query])
   const key = (e: LicenseEntry): string => `${e.kind}:${e.name}@${e.version}`
 

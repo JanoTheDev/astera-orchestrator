@@ -5,6 +5,7 @@ import { slackMode } from '../../../core/slack/ready'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
 import { createTouched } from '../lib/touched'
+import { useSetting } from '../hooks/useSetting'
 import { Button, Card, Chip, Field, type ChipTone } from './ui'
 
 export function SlackSettings(): React.JSX.Element {
@@ -26,25 +27,22 @@ export function SlackSettings(): React.JSX.Element {
    *  for all five left the other four empty, and Save then sent them as null over the stored ones. */
   const touched = useRef(createTouched())
 
+  // Said, and Save stays off (audit UI-7): saving the empty fields would erase the configuration it could not read.
+  const [cfg, setCfg] = useSetting('slackConfig', () =>
+    window.api.slack.getConfig().catch((err) => {
+      toast.error(err instanceof Error ? err.message : String(err))
+      throw err
+    })
+  )
   useEffect(() => {
-    let cancelled = false
-    void window.api.slack.getConfig().then(
-      (c) => {
-        if (cancelled) return
-        touched.current.unless('url', () => setSlackUrl(c.webhookUrl ?? ''))
-        touched.current.unless('bot', () => setSlackBotToken(c.botToken ?? ''))
-        touched.current.unless('channel', () => setSlackChannelId(c.channelId ?? ''))
-        touched.current.unless('app', () => setSlackAppToken(c.appToken ?? ''))
-        touched.current.unless('member', () => setSlackMemberId(c.memberId ?? ''))
-        setSlackLoaded(true)
-      },
-      // Said, and Save stays off (audit UI-7): saving the empty fields would erase the configuration it could not read.
-      (err) => toast.error(err instanceof Error ? err.message : String(err))
-    )
-    return () => {
-      cancelled = true
-    }
-  }, [])
+    if (!cfg) return
+    touched.current.unless('url', () => setSlackUrl(cfg.webhookUrl ?? ''))
+    touched.current.unless('bot', () => setSlackBotToken(cfg.botToken ?? ''))
+    touched.current.unless('channel', () => setSlackChannelId(cfg.channelId ?? ''))
+    touched.current.unless('app', () => setSlackAppToken(cfg.appToken ?? ''))
+    touched.current.unless('member', () => setSlackMemberId(cfg.memberId ?? ''))
+    setSlackLoaded(true)
+  }, [cfg])
 
   // Which transport the current input adds up to. The verdict is slackMode() from core: it has to be the same function
   // that applyConfig (in main) and the notification checkbox gating use, so one side cannot drift from the other.
@@ -139,16 +137,20 @@ export function SlackSettings(): React.JSX.Element {
       <div className="settings-integration-actions">
         <Button
           disabled={!slackLoaded}
-          onClick={() =>
+          onClick={() => {
+            const next = {
+              webhookUrl: slackUrl.trim() || null,
+              botToken: slackBotToken.trim() || null,
+              channelId: slackChannelId.trim() || null,
+              appToken: slackAppToken.trim() || null,
+              memberId: slackMemberId.trim() || null
+            }
             void window.api.slack
-              .setConfig({
-                webhookUrl: slackUrl.trim() || null,
-                botToken: slackBotToken.trim() || null,
-                channelId: slackChannelId.trim() || null,
-                appToken: slackAppToken.trim() || null,
-                memberId: slackMemberId.trim() || null
+              .setConfig(next)
+              .then(() => {
+                setCfg(next)
+                setSlackSaved(true)
               })
-              .then(() => setSlackSaved(true))
               // A rejection means the store refused to overwrite values it could not read — the settings on disk
               // survived. Saying so beats a silently dead button, since "Saved" never appears either way.
               .catch((err) =>
@@ -158,7 +160,7 @@ export function SlackSettings(): React.JSX.Element {
                   })
                 )
               )
-          }
+          }}
         >
           {t('settings.slack.save')}
         </Button>

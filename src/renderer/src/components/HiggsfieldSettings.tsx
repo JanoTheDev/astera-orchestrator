@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
+import { useSetting } from '../hooks/useSetting'
 import { hfAccountTitle, hfWorkspaceLabel } from '../../../core/higgsfield/display'
 import { Button, ConfirmDialog, Input, Select } from './ui'
 
@@ -14,10 +15,17 @@ type HfLoginState = Awaited<ReturnType<typeof window.api.higgsfield.loginState>>
  *  other buttons: its row offers the login link to copy (for a private window) and a cancel. */
 export function HiggsfieldSettings(): React.JSX.Element {
   const { t } = useI18n()
-  const [data, setData] = useState<HfList | null>(null)
+  const [readData, setData] = useSetting('higgsfieldList', () =>
+    window.api.higgsfield.list().catch((err) => {
+      toast.error(String(err))
+      throw err
+    })
+  )
+  const data = readData ?? null
   const [label, setLabel] = useState('')
   const [busy, setBusy] = useState(false)
-  const [login, setLogin] = useState<HfLoginState>(null)
+  const [readLogin, setLogin] = useSetting<HfLoginState>('higgsfieldLogin', () => window.api.higgsfield.loginState(), null)
+  const login = readLogin
   // true while this pane awaits login(): its answer reloads the list. A login found running when the
   // pane opened is followed by polling alone.
   const awaitingLogin = useRef(false)
@@ -32,11 +40,6 @@ export function HiggsfieldSettings(): React.JSX.Element {
       toast.error(String(err))
     }
   }, [])
-
-  useEffect(() => {
-    void reload()
-    window.api.higgsfield.loginState().then((s) => { if (s) setLogin(s) }, () => {})
-  }, [reload])
 
   const loginId = login?.id ?? null
   useEffect(() => {
