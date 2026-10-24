@@ -254,7 +254,8 @@ describe('ChatSessionManager.spawn', () => {
         title: 'proj',
         provider: 'codex',
         bypassPermissions: false,
-        unattendedPermission: 'hold'
+        unattendedPermission: 'hold',
+        startedAt: expect.any(Number)
       }
     })
 
@@ -287,7 +288,8 @@ describe('ChatSessionManager.spawn', () => {
         title: 'proj',
         provider: 'claude',
         bypassPermissions: false,
-        unattendedPermission: 'hold'
+        unattendedPermission: 'hold',
+        startedAt: expect.any(Number)
       }
     })
 

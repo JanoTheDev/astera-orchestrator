@@ -124,6 +124,13 @@ describe('consolesOf', () => {
     expect(of('s9').startedAt).toBeUndefined()
     expect(of('s9').lastActiveAt).toBeUndefined()
   })
+  it('a plain console with no Dispatch takes its session start', () => {
+    const plain = consolesOf(input({
+      sessions: [session('s9', { startedAt: Date.UTC(2026, 9, 24, 10, 0, 0) })],
+      data: { dispatches: [], worktrees: [] }
+    }))
+    expect(plain[0].startedAt).toBe(Date.UTC(2026, 9, 24, 10, 0, 0))
+  })
 })
 
 describe('the Agents view rows', () => {

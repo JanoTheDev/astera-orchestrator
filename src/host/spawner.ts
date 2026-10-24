@@ -612,7 +612,8 @@ export function createHostSpawner(d: HostSpawnerDeps): HostSpawner | null {
       orchEnv: { cliPath: preparedShuttle, skillsPath: cli.skills, profileDir },
       restoreExtra: o.restoreExtra,
       model: o.model, // the chain's model (orchestrator W1-A), so the roll does not fall back to the CLI default
-      effort: o.effort
+      effort: o.effort,
+      startedAt: o.startedAt
     })
   }
 

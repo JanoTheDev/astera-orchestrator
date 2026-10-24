@@ -283,6 +283,7 @@ describe('createHostSpawner', () => {
     const initialPrompt = (h.spawned[0].args as string[]).at(-1)
     const info = m.spawn({ account, cwd: repo, bypassPermissions: false, initialPrompt, title: 'T1 · Write hello', rollAccountIds: ['acc1'], disallowedTools: ['AskUserQuestion'],
       rollPrompt: (h.registry.list()[0].meta!.restore as { rollPrompt: string }).rollPrompt, rollProviders: ['claude'],
+      startedAt: (h.registry.list()[0].meta!.restore as { startedAt: number }).startedAt,
       orchEnv: { cliPath: path.join(profile, 'orch', process.platform === 'win32' ? 'astera.cmd' : 'astera'), skillsPath: path.join(dir, 'skills'), profileDir: profile },
       // S6 R6: the one key the Host's note adds, that the Host started it; everything else stays equal.
       restoreExtra: { rolledBy: 'host' } })

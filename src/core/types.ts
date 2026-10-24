@@ -152,6 +152,8 @@ export interface SessionInfo {
   // W6-E progress view: the last tool call the session started, from its last `PreToolUse` hook
   // (core/hooks/sessionState.ts `lastActionOf`): the tool, its file / command (first 80 chars) / pattern, epoch ms.
   lastAction?: { tool: string; target?: string; at: number }
+  /** Epoch ms the session was first started. Set at spawn; a roll or a takeover keeps it. The sidebar counts elapsed time from it when there is no Dispatch. */
+  startedAt?: number
 }
 
 /** The stored settings the resume modal reads to seed its checkboxes.
