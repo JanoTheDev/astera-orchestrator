@@ -458,13 +458,11 @@ export function RunConfigForm({
         </div>
       )}
       {draft.type === 'cargo' && visible('release') && (
-        <label className="row check-small">
-          <Checkbox
-            checked={!!draft.release}
-            onChange={(v) => update({ ...draft, release: v })}
-          />
-          {t('run.field.release')}
-        </label>
+        <Checkbox
+          checked={!!draft.release}
+          onChange={(v) => update({ ...draft, release: v })}
+          label={t('run.field.release')}
+        />
       )}
       {draft.type === 'cargo' && visible('features') && (
         <div className="ui-field">
@@ -653,13 +651,11 @@ export function RunConfigForm({
         </div>
       )}
       {visible('allowMultipleInstances') && (
-        <label className="row check-small">
-          <Checkbox
-            checked={!!draft.allowMultipleInstances}
-            onChange={(v) => update({ ...draft, allowMultipleInstances: v })}
-          />
-          {t('run.field.allowMultipleInstances')}
-        </label>
+        <Checkbox
+          checked={!!draft.allowMultipleInstances}
+          onChange={(v) => update({ ...draft, allowMultipleInstances: v })}
+          label={t('run.field.allowMultipleInstances')}
+        />
       )}
       {draft.type !== 'compound' && visible('previewUrl') && (
         <div className="ui-field">
