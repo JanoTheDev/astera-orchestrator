@@ -11,6 +11,8 @@ import { ChangedFilesBlock } from '../ChangedFilesBlock'
 import { CompletionBlock } from '../CompletionBlock'
 import { Button, Icon, Tabs } from '../ui'
 import { coordinatorRefreshOf, replanningOf } from './planBoard'
+import { askAboutTaskWithToast } from './planCommands'
+import { doneViewOf } from './taskDoneView'
 import { taskAnchorId, type WaveStatus } from './planPage'
 import { Graph } from './PlanGraph'
 import { TaskBoard } from './TaskBoard'
@@ -80,6 +82,7 @@ export function PlanTaskBoard({
   compact?: boolean
   onAddTask?: (deps: string[]) => void
 }): React.JSX.Element {
+  const { t } = useI18n()
   const { tasks, accounts, selectedTask, onNodeClick, events, live, summaries } = p
   // p is a new object every render; the callbacks below read it through a ref so TaskBoard's memo can hold
   const pRef = useRef(p)
@@ -90,6 +93,7 @@ export function PlanTaskBoard({
   const onSelect = useCallback((id: string) => pRef.current.onNodeClick(id), [])
   const canOpen = useCallback((id: string) => openRef.current.canOpenSession(id), [])
   const openSession = useCallback((id: string) => openRef.current.onOpenSession(id), [])
+  const onAsk = useCallback((id: string) => askAboutTaskWithToast(door, runId, id, t), [door, runId, t])
   const renderAbout = useCallback(
     (tk: JobTask) => (
       // T2: everything about the Task, its Edit and its Request changes; a dep's title opens that Task's row
@@ -102,20 +106,21 @@ export function PlanTaskBoard({
         compact={compact}
         accountLabel={(id) => accounts?.find((a) => a.id === id)?.label ?? id}
         onRestart={onRestart}
+        onAsk={onAsk}
         onShowTask={(id) => {
           pRef.current.setSelected(id)
           requestAnimationFrame(() => document.getElementById(taskAnchorId(id))?.scrollIntoView({ block: 'center' }))
         }}
       />
     ),
-    [door, runId, tasks, compact, accounts, onRestart]
+    [door, runId, tasks, compact, accounts, onRestart, onAsk]
   )
   const renderDetail = useCallback(
     (tk: JobTask) => (
       <>
         {/* 고른 Task 의 완료 상세 — 왜 못 넘었는가(설계 §2) — and what it changed (Phase 10) */}
-        <CompletionBlock projectPath={projectPath} runId={runId} taskId={tk.id} runtimeId={runtimeId} />
-        <ChangedFilesBlock door={door} runId={runId} taskId={tk.id} />
+        <CompletionBlock projectPath={projectPath} runId={runId} taskId={tk.id} runtimeId={runtimeId} defaultOpen={doneViewOf(tk).verdict === 'open'} />
+        <ChangedFilesBlock door={door} runId={runId} taskId={tk.id} defaultOpen={doneViewOf(tk).changes === 'open'} />
       </>
     ),
     [projectPath, runId, runtimeId, door]

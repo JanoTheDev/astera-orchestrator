@@ -103,4 +103,14 @@ export const plans: Record<keyof typeof ko, string> = {
   'pages.plans.tree.menu.openInPlan': 'Open in plan',
   'pages.plans.tree.menu.copyId': 'Copy id',
   'pages.plans.tree.menu.label': 'Plan actions',
+  // Completed task: what was done, and Ask about this task
+  'plan.done.showAll': 'Show all',
+  'plan.done.showLess': 'Show less',
+  'plan.done.verdict.passed': 'Review passed',
+  'plan.done.verdict.issues': '{n} review issues',
+  'plan.done.verdict.issues.one': '{n} review issue',
+  'plan.done.verdict.failed': 'A check failed',
+  'plan.done.ask': 'Ask about this task',
+  'plan.done.askHint': 'Opens a console that starts from this task\'s report and changes',
+  'plan.done.askFailed': 'Could not open the console: {detail}',
 }

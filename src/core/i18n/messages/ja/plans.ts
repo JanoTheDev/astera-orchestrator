@@ -69,4 +69,14 @@ export const plans: Partial<Record<keyof typeof ko, string>> = {
   'pages.plans.main.tasks': 'Task {n} 件',
   'pages.plans.main.toggle': '{plan} の Task を表示/非表示',
   'pages.plans.main.allDone': 'すべての計画が完了しました。',
+  // Completed task: what was done, and Ask about this task
+  'plan.done.showAll': 'すべて表示',
+  'plan.done.showLess': '折りたたむ',
+  'plan.done.verdict.passed': 'レビュー合格',
+  'plan.done.verdict.issues': 'レビューの指摘 {n} 件',
+  'plan.done.verdict.issues.one': 'レビューの指摘 {n} 件',
+  'plan.done.verdict.failed': 'チェックに失敗',
+  'plan.done.ask': 'このタスクについて質問',
+  'plan.done.askHint': 'このタスクの報告と変更内容から始まるコンソールを開きます',
+  'plan.done.askFailed': 'コンソールを開けませんでした: {detail}',
 }

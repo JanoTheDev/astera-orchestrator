@@ -2,7 +2,7 @@
 // spec, acceptance criteria, deps by title, kind, difficulty and model reason, what the planner found, the worker
 // prompt (folded), its result and gaps, and its attempts. Then the owner's two actions: Edit (TaskEditModal, under
 // taskEditOf's rules) and Request changes (`jobs-feedback` naming this Task). Simple mode shows the spec and criteria,
-// and the two actions.
+// and the two actions; a finished Task adds its result and gaps (taskDoneView) and "Ask about this task".
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { JobTask } from '../../../../core/types'
@@ -12,6 +12,7 @@ import { replyNote, type OrchDoor } from '../../lib/orchDoor'
 import { Button, Field, Icon, IconButton } from '../ui'
 import { TaskEditModal } from './TaskEditModal'
 import { taskActionOf } from './planCommands'
+import { doneViewOf, foldReport } from './taskDoneView'
 import { attemptStateOf, feedbackTextOf, loadTaskInfo, taskEditOf, type TaskInfo } from './taskEdit'
 
 export function TaskDetail({
@@ -23,7 +24,8 @@ export function TaskDetail({
   compact = false,
   accountLabel,
   onShowTask,
-  onRestart
+  onRestart,
+  onAsk
 }: {
   door: OrchDoor
   /** The plan's Job: where a change request goes. */
@@ -38,12 +40,16 @@ export function TaskDetail({
   onShowTask: (taskId: string) => void
   /** Present: Continue / Retry for a Task taskActionOf names. */
   onRestart?: (taskId: string) => void
+  /** Present: "Ask about this task" on a finished Task (planCommands askAboutTaskWithToast). */
+  onAsk?: (taskId: string) => Promise<void>
 }): React.JSX.Element {
   const { t } = useI18n()
   const [info, setInfo] = useState<TaskInfo | null | 'loading'>('loading')
   const [reload, setReload] = useState(0)
   const [showPrompt, setShowPrompt] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [wholeReport, setWholeReport] = useState(false)
+  const [starting, setStarting] = useState(false)
   const [editing, setEditing] = useState(false)
   const [asking, setAsking] = useState(false)
   const [request, setRequest] = useState('')
@@ -69,6 +75,30 @@ export function TaskDetail({
   const full = info.task
   const criteria = full.acceptanceCriteria ?? []
   const done = full.status === 'completed'
+  const view = doneViewOf(full)
+  const report = full.result === undefined ? null : foldReport(full.result)
+  // The worker's report and its gaps: a finished Task shows them in simple mode too; advanced mode lists them after the prompt
+  const reportBlock = (
+    <>
+      {report !== null && (
+        <section className="plan-task-part" aria-label={t('plan.task.result')}>
+          <h4 className="plan-task-head">{t('plan.task.result')}</h4>
+          <p className="plan-task-spec plan-task-report">{wholeReport || !report.folded ? full.result : `${report.head}…`}</p>
+          {report.folded && (
+            <Button variant="ghost" size="sm" className="plan-link" aria-expanded={wholeReport} onClick={() => setWholeReport((v) => !v)}>
+              {t(wholeReport ? 'plan.done.showLess' : 'plan.done.showAll')}
+            </Button>
+          )}
+        </section>
+      )}
+      {full.gaps !== undefined && (
+        <section className="plan-task-part" aria-label={t('plan.task.gaps')}>
+          <h4 className="plan-task-head">{t('plan.task.gaps')}</h4>
+          <p className="plan-task-spec plan-task-gaps">{full.gaps}</p>
+        </section>
+      )}
+    </>
+  )
   const action = taskActionOf(task)
   const titleOf = (id: string): string => tasks.find((tk) => tk.id === id)?.title ?? id
   const edit = taskEditOf({ ...full, dispatches: info.attempts.length }, { outcome: info.outcome })
@@ -106,6 +136,7 @@ export function TaskDetail({
           </ul>
         </section>
       )}
+      {compact && view.finished && reportBlock}
       {!compact && (
         <>
           {full.deps.length > 0 && (
@@ -186,18 +217,7 @@ export function TaskDetail({
               )}
             </div>
           )}
-          {full.result !== undefined && (
-            <section className="plan-task-part" aria-label={t('plan.task.result')}>
-              <h4 className="plan-task-head">{t('plan.task.result')}</h4>
-              <p className="plan-task-spec">{full.result}</p>
-            </section>
-          )}
-          {full.gaps !== undefined && (
-            <section className="plan-task-part" aria-label={t('plan.task.gaps')}>
-              <h4 className="plan-task-head">{t('plan.task.gaps')}</h4>
-              <p className="plan-task-spec plan-task-gaps">{full.gaps}</p>
-            </section>
-          )}
+          {reportBlock}
           {info.attempts.length > 0 && (
             <section className="plan-task-part" aria-label={t('plan.task.attempts')}>
               <h4 className="plan-task-head">{t('plan.task.attempts')}</h4>
@@ -228,6 +248,21 @@ export function TaskDetail({
             {/* The hold reason; non-compact already shows the result section above */}
             {action === 'continue' && compact && full.result !== undefined && <span className="plan-task-spec">{full.result}</span>}
           </>
+        )}
+        {view.ask && onAsk && (
+          <Button
+            size="sm"
+            icon={<Icon name="terminal" size={14} />}
+            loading={starting}
+            disabled={starting || door.readOnlyReason !== null}
+            title={door.readOnlyReason ?? t('plan.done.askHint')}
+            onClick={() => {
+              setStarting(true)
+              void onAsk(task.id).finally(() => setStarting(false))
+            }}
+          >
+            {t('plan.done.ask')}
+          </Button>
         )}
         <Button
           size="sm"
