@@ -3014,8 +3014,18 @@ export async function handleCommand(
                   ...j,
                   objective,
                   ...(title !== undefined && j.source?.title === undefined ? { title } : {}),
-                  // W8-C prompts mode: the owner wrote the plan, so it starts on its own unless `--approve ask`
-                  ...(verbatim !== undefined ? { verbatim: verbatim.entries, autoApprove: intake.approve !== 'ask' } : {}),
+                  // W8-C prompts mode: the owner wrote the plan, so it starts on its own unless `--approve ask`. `--approve`
+                  // is the plan's own setting; without it the project's decides, and a project that set none starts it
+                  ...(verbatim !== undefined
+                    ? {
+                        verbatim: verbatim.entries,
+                        ...(args.approve !== undefined
+                          ? { autoApprove: args.approve !== 'ask' }
+                          : projectOfJob(cur, j)?.autoApprove === undefined
+                            ? { autoApprove: true }
+                            : {})
+                      }
+                    : {}),
                   // W10-A: what the names resolved to, for the approval
                   ...(byName?.dir !== undefined
                     ? { byName: { dir: byName.dir, picked: byName.resolution.picked, skipped: byName.resolution.skipped, why: byName.resolution.why } }

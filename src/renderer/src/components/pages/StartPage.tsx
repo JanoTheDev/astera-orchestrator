@@ -112,25 +112,19 @@ export function StartPage({
       setSchedBusy(false)
     }
   }
-  const projectAuto = project?.autoApprove ?? PROJECT_DEFAULTS.autoApprove
   const projectHandsOff = project?.handsOff ?? PROJECT_DEFAULTS.handsOff
   const projectDelivery: DeliveryMode = project?.delivery ?? PROJECT_DEFAULTS.delivery
   const projectReplan = project?.replan ?? PROJECT_DEFAULTS.replan
-  // #117: hands-off decides for the owner, so it approves itself. Plan on its own and Run prompts approve by themselves
-  // (the owner wrote it or chose it); Plan with me follows the project
+  // #117: hands-off decides for the owner, so it approves itself. Start has no approval choice of its own: the plan's
+  // approval is read from the project (and the app default) when it is decided, so nothing is sent for it
   const handsOff = handsOffChoice ?? projectHandsOff
-  const approval = handsOff || mode !== 'chat' || projectAuto ? 'auto' : 'ask'
   const delivery = deliveryChoice ?? projectDelivery
   const replan = replanChoice ?? projectReplan
   const planArgs = {
     ...(handsOff !== projectHandsOff ? { handsOff: handsOff ? 'on' : 'off' } : {}),
-    ...(mode !== 'prompts' && !handsOff && (approval === 'auto') !== projectAuto ? { autoApprove: approval === 'auto' ? 'on' : 'off' } : {}),
     ...(delivery !== projectDelivery ? { delivery } : {}),
     ...(mode !== 'prompts' && replan !== projectReplan ? { replan } : {})
   }
-  // Run prompts asks for approval only when the owner says so (`--approve ask`): never from Start
-  const { setApproveAsk } = intake
-  useEffect(() => setApproveAsk(approval === 'ask'), [approval, setApproveAsk])
 
   // T5b: the planner's account. Auto (intake.account '') sends none, so the Host picks the one with most room by usage;
   // a picked account is only a preference

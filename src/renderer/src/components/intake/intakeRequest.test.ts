@@ -50,13 +50,15 @@ describe('intakeRequest', () => {
     expect(intakeRequest(form({ tab: 'prompts', files: ['/a.md'], priority: -1 }))?.args).toMatchObject({ priority: -1 })
   })
   // W8-C prompts mode
-  it('Run as written sends --mode prompts with the .md files, else the pasted document; ask only when ticked; no planning', () => {
+  it('Run as written sends --mode prompts with the .md files, else the pasted document; no planning, and no approval (the project decides)', () => {
     expect(intakeRequest(form({ tab: 'prompts', files: ['/d/W9-A.md'], text: 'ignored' }))).toEqual({
       cmd: 'jobs-create',
       args: { cwd: '/repo', coordinatorAccount: 'acc1', concurrency: 3, mode: 'prompts', attach: ['/d/W9-A.md'] }
     })
-    const doc = intakeRequest(form({ tab: 'prompts', text: '## a\nx\n## b\ny', approveAsk: true }))?.args
-    expect(doc).toMatchObject({ mode: 'prompts', objective: '## a\nx\n## b\ny', approve: 'ask' })
+    const doc = intakeRequest(form({ tab: 'prompts', text: '## a\nx\n## b\ny' }))?.args
+    expect(doc).toMatchObject({ mode: 'prompts', objective: '## a\nx\n## b\ny' })
+    expect(doc).not.toHaveProperty('approve')
+    expect(doc).not.toHaveProperty('autoApprove')
     expect(doc).not.toHaveProperty('planning')
     expect(intakeRequest(form({ tab: 'prompts' }))).toBeNull()
   })

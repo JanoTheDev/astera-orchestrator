@@ -30,7 +30,6 @@ export function useIntake(o: IntakeOptions) {
   const [projects, setProjects] = useState<Project[]>([])
   const [text, setText] = useState(o.initialText ?? '')
   const [fixlist, setFixlist] = useState(false)
-  const [approveAsk, setApproveAsk] = useState(false)
   const [files, setFiles] = useState<string[]>(o.initialFiles ?? [])
   const [priority, setPriority] = useState(0)
   // T4: who plans, the person with the planner (chat) or the planner alone (auto)
@@ -79,8 +78,7 @@ export function useIntake(o: IntakeOptions) {
     instructions,
     project: project && { id: project.id, path: project.path },
     coordinatorAccount: account,
-    concurrency,
-    approveAsk
+    concurrency
   })
 
   const addPaths = (paths: string[]): void => setFiles((cur) => [...cur, ...paths.filter((p) => p !== '' && !cur.includes(p))])
@@ -130,7 +128,7 @@ export function useIntake(o: IntakeOptions) {
   }
 
   return {
-    tab, setTab, projects, setProjects, projectId, project, text, setText, fixlist, setFixlist, approveAsk, setApproveAsk,
+    tab, setTab, projects, setProjects, projectId, project, text, setText, fixlist, setFixlist,
     files, setFiles, addFiles, addPaths, priority, setPriority, planning, setPlanning,
     instructions, setInstructions, account, setAccount, concurrency, setConcurrency, after,
     setAfter, plans, busy, error, request, create

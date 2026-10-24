@@ -40,6 +40,18 @@ describe('MAX_REVIEW_ROUNDS', () => {
     expect(MAX_REVIEW_ROUNDS).toBe(5)
     expect(policyOf(state({ runs: [run({ convergence: {} })] }), task())?.maxReviewRounds).toBe(5)
   })
+  // A planned Job (jobs-plan adds `convergence: {}` after creation) reads its project's rounds, as the Plan settings tab shows
+  it('a Job that sets no rounds uses its project\'s; its own wins', () => {
+    const base = state({ runs: [run({ convergence: {} })] })
+    const project = { id: 'prj_1', path: 'D:/p', name: 'p', addedAt: T, reviewRounds: 2 }
+    const s = (own?: number): OrchState => ({
+      ...base,
+      projects: [project],
+      jobs: base.jobs.map((j) => ({ ...j, projectId: 'prj_1', convergence: { ...(own !== undefined ? { maxReviewRounds: own } : {}) } }))
+    })
+    expect(policyOf(s(), task())?.maxReviewRounds).toBe(2)
+    expect(policyOf(s(4), task())?.maxReviewRounds).toBe(4)
+  })
 })
 
 describe('checkConfigIdsOf', () => {

@@ -326,10 +326,7 @@ export function createJob(
     a = {
       ...a,
       concurrency: a.concurrency ?? project.concurrency,
-      replan: a.replan ?? project.replan,
-      ...(a.convergence && a.convergence.maxReviewRounds === undefined && project.reviewRounds !== undefined
-        ? { convergence: { ...a.convergence, maxReviewRounds: project.reviewRounds } }
-        : {})
+      replan: a.replan ?? project.replan
     }
   }
   const job: Job = {

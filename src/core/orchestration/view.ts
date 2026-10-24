@@ -12,7 +12,7 @@
 // W8-D several plans in one repo
 import { overlapLines, planOverlapWarnings } from './overlap'
 import { isSamePath } from '../files/tree'
-import { findProjectByPath, jobInProject } from './projects'
+import { findProjectByPath, jobInProject, projectOfJob } from './projects'
 import { isIntegrationTask, runsWorkingIn, runWorktreesFrom } from './integrate'
 import type { JobRow, JobTask, OrchSnapshot, TaskBoard, WorktreeInfo, UsagePause } from '../types'
 import { repoPathOf } from '../worktrees/repo'
@@ -20,7 +20,8 @@ import { coordinatorStarting, type OrchState } from './state'
 import { eventCountsOf } from './timeline'
 import { deliveryErrorOf, isTerminal, lostTasksOutcome, outcomeOf, outcomeOfRun, outcomeOfTasks, reviewerEnded, stuckIndexOf, stuckOf, tasksOwnedBy, type StuckIndex } from './running'
 import { policyOfJob, repairCountIn, reviewRoundIn } from './convergence'
-import type { Dispatch, Gate, Job, JobRun, Task } from './types'
+import type { Dispatch, Gate, Job, JobRun, Project, Task } from './types'
+import type { ApprovalMode } from '../settings/approvalDefault'
 import { taskBoardsOf } from './blocked'
 import { kindOf, validatePlan } from './planner'
 // T7 objective coverage
@@ -179,7 +180,7 @@ function jobTaskOf(
   // 수렴 판정은 policyOf 다 — `convergence !== undefined` 가 아니다(Plan 1 설계 §18): 손으로 null 을 적어 둔 Run 이
   // "켜진 것" 으로 읽히면 안 된다. 기본값이 채워진 정책이라 화면이 3/2 를 지어내지 않는다.
   const jobOfTask = task.runId === undefined ? undefined : ix.jobOfRun(task.runId)
-  const policy = policyOfJob(jobOfTask)
+  const policy = policyOfJob(jobOfTask, jobOfTask && ix.projectOf(jobOfTask))
   // W2-C plan board: what the board card says beside the reason. The model and account are the latest attempt's
   // (a review runs on another model and account, so it is not the attempt)
   const model = latestAttempt?.model ?? task.model
@@ -304,6 +305,8 @@ interface FoldIndex {
   /** jobOfRunId: the first Run under that id, then its Job */
   jobOfRun: (runId: string) => Job | undefined
   eventCounts: Map<string, number>
+  /** projectOfJob: the project a Job's unset settings fall back to */
+  projectOf: (job: Job) => Project | undefined
 }
 
 function foldIndex(state: OrchState): FoldIndex {
@@ -343,6 +346,7 @@ function foldIndex(state: OrchState): FoldIndex {
     push(runsByJob, r.jobId, r)
     if (!runById.has(r.id)) runById.set(r.id, r)
   }
+  const projectByKey = new Map<string, Project | undefined>()
   const jobById = new Map<string, Job>()
   for (const j of state.jobs) if (!jobById.has(j.id)) jobById.set(j.id, j)
   return {
@@ -358,7 +362,12 @@ function foldIndex(state: OrchState): FoldIndex {
       const run = runById.get(runId)
       return run ? jobById.get(run.jobId) : undefined
     },
-    eventCounts: eventCountsOf(state)
+    eventCounts: eventCountsOf(state),
+    projectOf: (job) => {
+      const key = job.projectId ?? job.cwd
+      if (!projectByKey.has(key)) projectByKey.set(key, projectOfJob(state, job))
+      return projectByKey.get(key)
+    }
   }
 }
 
@@ -396,7 +405,9 @@ export function snapshotFor(
   /** W2-C plan board: the app-wide worker cap, for the "why is it waiting" reasons (taskBoardsOf). Absent: no cap. */
   limits: ScheduleLimits = {},
   /** W6-G: an account no new worker starts on (usageGuard.ts), for the "paused: account at 93%" reason. */
-  usagePauseOf?: (accountId: string) => UsagePause | null
+  usagePauseOf?: (accountId: string) => UsagePause | null,
+  /** The app's global approval default (Settings > Agents), so a row's autoApprove reads as the Plan settings tab does. */
+  approvalDefault?: ApprovalMode
 ): OrchSnapshot {
   // 폴더 사실을 **한 번만** 센다 — Run 마다 다시 세면 같은 순회가 Run 수만큼 돌고, 그보다 나쁜
   // 것은 두 값(폴더 수준과 Run 수준)이 다른 순간의 상태를 볼 수 있다는 것이다.
@@ -541,7 +552,7 @@ export function snapshotFor(
       ...(job.leftOut?.length ? { leftOut: leftOutRows(job) } : {}),
       // #116: Approve only once the planner is done; an auto-approve plan says it starts by itself instead
       ...(planApprovable(state, job) ? { planReady: true as const } : {}),
-      ...(job.pendingStart && autoApproveOf(projectsOnce, job) ? { autoApprove: true as const } : {}),
+      ...(job.pendingStart && autoApproveOf(projectsOnce, job, approvalDefault) ? { autoApprove: true as const } : {}),
       // #117: hands-off, what it decided for the owner, and #119's picks
       ...(handsOffOf(projectsOnce, job) ? { handsOff: true as const } : {}),
       ...(job.decisions?.length ? { decisions: job.decisions } : {}),

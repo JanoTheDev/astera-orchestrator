@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { jobsForProject, progressOf, outcomeOf, snapshotFor, sameSnapshot, waveProgressOf } from './view'
 import { emptyState } from './state'
 import { addSubProject, ensureProject } from './projects'
+import { editableSettingsOf } from './planSettings'
+import type { ApprovalMode } from '../settings/approvalDefault'
 import type { OrchState } from './state'
 import type { CheckResult, Dispatch, Gate, Message, ResumeEntry, Task } from './types'
 import { stateFromLegacy } from './legacyState'
@@ -284,6 +286,21 @@ describe('snapshotFor', () => {
     expect(rowOf({ ...job, planReadyAt: 't' }, [])).not.toHaveProperty('planReady')
     expect(rowOf({ ...job, autoApprove: true })).toMatchObject({ autoApprove: true })
     expect(rowOf(job)).not.toHaveProperty('autoApprove')
+  })
+
+  it('the plan list autoApprove reads the project and the global default, as the Plan settings tab does', () => {
+    const reg = ensureProject(emptyState(), { path: absPath('p'), now: 'T0' })
+    const base = { ...withRuns([run('r1', absPath('p'))]), projects: reg.state.projects }
+    const job = { ...base.jobs[0], projectId: reg.project.id, pendingStart: true, plannerSessionIds: ['pl'] }
+    const rowOf = (projects: typeof base.projects, global?: ApprovalMode) =>
+      snapshotFor({ ...base, runs: [], jobs: [job], projects }, absPath('p'), anySession, noWorktrees, noFires, allExist, undefined, {}, undefined, global).runs[0]
+    const project = (autoApprove?: boolean) => [{ ...reg.project, ...(autoApprove !== undefined ? { autoApprove } : {}) }]
+    const tab = (projects: typeof base.projects, global?: ApprovalMode) =>
+      editableSettingsOf({ ...base, projects, jobs: [job] }, job.id, global)?.autoApprove.value
+    for (const [projects, global] of [[project(), 'start'], [project(), 'ask'], [project(false), 'start'], [project(true), 'ask']] as const) {
+      expect(rowOf(projects, global).autoApprove === true).toBe(tab(projects, global))
+    }
+    expect(rowOf(project(), 'start')).toMatchObject({ autoApprove: true })
   })
 
   it('T11: a plan awaiting approval lists its open overlaps with a plan planning too, beside its problems, never one of them', () => {

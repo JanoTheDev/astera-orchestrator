@@ -2,7 +2,7 @@
 // for `jobs-set` to refuse the same. Renderer-safe on purpose: no `node:` import, and every import is in tsconfig.web.json.
 import { isJobActive } from './lifecycle'
 import { outcomeOf } from './running'
-import type { OrchState } from './state'
+import { projectWithWorkspace, type OrchState } from './state'
 import { approvalFallbackOf, type ApprovalMode } from '../settings/approvalDefault'
 import { MAX_REVIEW_ROUNDS, type DeliveryMode, type Job, type JobRun } from './types'
 
@@ -45,7 +45,7 @@ export function settingRefusalOf(s: OrchState, job: Job, key: PlanSettingKey): P
 export function editableSettingsOf(s: OrchState, jobId: string, globalDefault?: ApprovalMode): PlanSettings | undefined {
   const job = s.jobs.find((j) => j.id === jobId)
   if (!job) return undefined
-  const project = job.projectId === undefined ? undefined : s.projects.find((p) => p.id === job.projectId)
+  const project = job.projectId === undefined ? undefined : projectWithWorkspace(s, job.projectId)
   const field = <T>(key: PlanSettingKey, value: T): PlanSetting<T> => {
     const reason = settingRefusalOf(s, job, key)
     return reason === undefined ? { value, editable: true } : { value, editable: false, reason }
