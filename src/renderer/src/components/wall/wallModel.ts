@@ -122,7 +122,7 @@ export function consolesOf(input: WallInput): WallConsole[] {
     } else if (att === 'working') state = 'working'
     const projectId = hit?.plan.projectId ?? projectOfCwd(session.cwd, input.tree, input.data?.worktrees ?? [])
     const dispatch = dispatchOf.get(session.id)
-    const startedAt = msOf(dispatch?.startedAt)
+    const startedAt = msOf(dispatch?.startedAt) ?? session.startedAt
     const acts = [session.lastAction?.at, input.live[session.id]?.lastAction?.at].filter((x): x is number => x !== undefined)
     const lastActiveAt = acts.length > 0 ? Math.max(...acts) : msOf(dispatch?.endedAt)
     return {

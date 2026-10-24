@@ -1007,9 +1007,18 @@ describe('SessionManager', () => {
         accountId: account.id,
         cwd: process.cwd(),
         title: 'Auth refactor',
-        rollAccountIds: ['acc_1', 'acc_2']
+        rollAccountIds: ['acc_1', 'acc_2'],
+        startedAt: expect.any(Number)
       }
     })
+  })
+
+  // A roll passes the chain's first start, so the elapsed time on the sidebar row does not restart.
+  it('keeps the startedAt a roll passes, in the info and the note', () => {
+    const { manager, spawned } = setup()
+    const info = manager.spawn({ account, cwd: process.cwd(), startedAt: 1_700_000_000_000 })
+    expect(info.startedAt).toBe(1_700_000_000_000)
+    expect((spawned[0].opts.meta as unknown as { restore: { startedAt: number } }).restore.startedAt).toBe(1_700_000_000_000)
   })
 
   // A rolling respawn is born with where it came from and its chain's snapshot (S6 R6). The manager's
