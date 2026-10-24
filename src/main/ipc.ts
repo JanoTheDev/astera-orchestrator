@@ -105,7 +105,8 @@ import { UnderstandingPipeline } from '../core/understanding/pipeline'
 import { copyTranscript, samePath } from '../core/rolling/transcript'
 import { sanitizeResumePrompt } from '../core/sessions/commands'
 import type { OrchLoadResult } from '../core/orchestration/store'
-import { createMirrorStore, OrchStateConflict } from './orchestration/mirrorStore'
+import { createMirrorStore } from './orchestration/mirrorStore'
+import { handleWithRetry } from './orchestration/commandRetry'
 import { createResumeSweep, type ResumeSweep } from '../core/orchestration/exec/resumeSweep'
 import { createOrchCommitHook } from './orchestration/commitHook'
 import { createReviewStarter } from '../core/orchestration/exec/review'
@@ -2169,7 +2170,7 @@ export function registerIpc(
     if (blockers.length > 0) return { ok: false as const, reason: 'inUse' as const, titles: blockers }
     if (!orch) return { ok: false as const, reason: 'unavailable' as const, titles: [] as string[] }
     try {
-      const r = await orchHandleCommand(orch.deps, { sessionId: UI_CALLER }, 'accounts-merge', { keep: keepId, drop: dropId })
+      const r = await handleWithRetry(orchHandleCommand, orch.deps, { sessionId: UI_CALLER }, 'accounts-merge', { keep: keepId, drop: dropId }, { log: orchLog })
       if (r.status !== 200) return { ok: false as const, reason: 'unavailable' as const, titles: [] as string[] }
     } catch (err) {
       orchLog(`accounts.merge: the references were not moved — ${err instanceof Error ? err.message : String(err)}`)
@@ -3424,7 +3425,8 @@ export function registerIpc(
     // 생긴다. `deps` 는 아래에서 정의되지만 이 화살표들은 부를 때 읽으므로 순서 문제는 없다
     // (startReview 의 `(w) => deps.startWorker(w)` 와 같은 모양).
     const loop = createDispatchLoop({
-      handle: (cmd, args) => orchHandleCommand(deps, { sessionId: UI_CALLER }, cmd, args),
+      // A spent conflict is thrown, as before: the loop reads a 409 as a refusal and opens a Gate on it.
+      handle: (cmd, args) => handleWithRetry(orchHandleCommand, deps, { sessionId: UI_CALLER }, cmd, args, { log: orchLog, throwConflict: true }),
       getState: () => deps.getState(),
       maxConcurrentWorkers: () => core.appSettings.getEffectiveMaxConcurrentWorkers(),
       accounts: () => core.accounts.list(),
@@ -4087,7 +4089,8 @@ export function registerIpc(
         const drained = await applyPendingReports({
           queued: pendingReports,
           apply: async (r) => {
-            const reply = await orchHandleCommand(deps, { sessionId: r.sessionId }, r.cmd, r.args)
+            // A spent conflict is thrown, not answered: a 409 here would delete the report's file, and a throw keeps it for the next start.
+            const reply = await handleWithRetry(orchHandleCommand, deps, { sessionId: r.sessionId }, r.cmd, r.args, { log: orchLog, throwConflict: true })
             return {
               ok: reply.status >= 200 && reply.status < 300,
               detail: `${reply.status} ${JSON.stringify(reply.body)}`
@@ -5190,23 +5193,13 @@ export function registerIpc(
         orchLog(`orch.command: rejected ${cmd} — ${mismatch}`)
         return { status: 403, body: { error: mismatch } }
       }
-      try {
-        return await orchHandleCommand(orch.deps, { sessionId: UI_CALLER }, cmd, args ?? {})
-      } catch (err) {
-        // **A write the Host refused because the state had moved on** (ruling F56). It must not
-        // vanish: this is a button the person pressed, the thing they pressed it for did not happen,
-        // and the screen they decided from was already stale. Answered as a 409 so every caller's
-        // existing failure branch says so out loud — the renderer's Jobs handlers all toast on
-        // `status >= 400` — and logged with the versions, which is the half a toast cannot carry.
-        //
-        // The mirror has already been put onto the Host's current state by the time this is caught
-        // (see `OrchStateConflict`), so the next thing the person does is decided from the truth.
-        if (err instanceof OrchStateConflict) {
-          orchLog(`orch.command: ${cmd} was refused — ${err.message}`)
-          return { status: 409, body: { error: err.message, conflict: 'state-moved-on' } }
-        }
-        throw err
-      }
+      // **A write the Host refused because the state had moved on** (ruling F56) never reaches the person
+      // as such: the mirror is already on the Host's state when it is thrown (see `OrchStateConflict`), so
+      // the command is re-run on the truth while it has not acted outside the state (commandRetry.ts). An
+      // action the new state no longer allows answers with its own refusal. Only a conflict that outlasts
+      // the attempts comes back, as a 409 in plain words — every caller's failure branch says it out
+      // loud (the renderer's Jobs handlers toast on `status >= 400`) — with the versions in the log.
+      return await handleWithRetry(orchHandleCommand, orch.deps, { sessionId: UI_CALLER }, cmd, args ?? {}, { log: orchLog })
   }
   // **Which Host each orchestration call goes to** (remote runtime design §2.7, D1.1): no runtimeId, or 'local', runs
   // the four bodies above exactly as before; a paired Runtime's id goes to its client in main/remote, so none of the
@@ -7472,7 +7465,7 @@ export function registerIpc(
           const fresh = ids.filter((id) => !releasedForSwap.has(id))
           for (const id of fresh) {
             try {
-              const r = await orchHandleCommand(deps, { sessionId: UI_CALLER }, 'worker-release', { dispatch: id })
+              const r = await handleWithRetry(orchHandleCommand, deps, { sessionId: UI_CALLER }, 'worker-release', { dispatch: id }, { log: hostLog })
               releasedForSwap.set(id, r.status < 400)
               if (r.status >= 400) hostLog(`host: dispatch ${id} was not released before the swap: ${JSON.stringify(r.body)}`)
             } catch (e) {
