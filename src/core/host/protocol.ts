@@ -39,6 +39,16 @@ export const HOST_FEATURE_PROC = 'proc'
  *  stopped answering — and end a Host that is running perfectly well. */
 export const HOST_FEATURE_PING = 'ping'
 
+/** The handover (`retire` with `resume: true`, host/sessionRestore.ts): this Host writes its sessions, terminals and runs
+ *  down for the next Host to bring back, and refuses that retire while a Task is working. A Host without it ignores
+ *  `resume`, ends everything and refuses nothing, so the app hands over only to a Host that names it. Additive, so
+ *  HOST_PROTOCOL stays as it is. */
+export const HOST_FEATURE_HANDOVER = 'handover'
+
+/** What `HostClient.retire` came to: the Host left (or was not there to ask), or it answered `retire-refused`, with
+ *  that message's counts. */
+export type RetireOutcome = { outcome: 'left' } | { outcome: 'refused'; sessions: number; runs: number; tasks?: number }
+
 /** `pty-data` with the event's `seq` (remote runtime design §3.7, N1), for a client whose hello lists it in `features`.
  *  A client that does not see `pty-data` frames as today, so an older app is unchanged. */
 export const HOST_FEATURE_PTY_SEQ = 'pty-seq'

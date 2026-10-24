@@ -11,6 +11,8 @@ import {
   hostHandshakeMeans,
   hostHoldings,
   hostReplaceDue,
+  HOST_SWAP_MANUAL_AFTER_MS,
+  idleWorkersBeforeSwap,
   keepsChatTranscriptOnReady,
   replacementLogLine,
   liveChatOnThread,
@@ -857,41 +859,106 @@ describe('conversationAttentionOf — the pane\'s one-shot read on mount', () =>
 
 describe('hostReplaceDue - when an outdated Host is replaced', () => {
   const empty = { sessions: 0, terminals: 0, runs: 0, chats: 0 }
-  const base = { outdated: true, runtimeIncomplete: false, holdings: empty, inFlight: false, quitting: false }
+  const now = 10 * 60 * 60_000
+  // A Host that hands its sessions over (HOST_FEATURE_HANDOVER), with nothing at work and nothing waited for yet.
+  const base = { outdated: true, runtimeIncomplete: false, inFlight: false, quitting: false, handover: true, activeTasks: 0, holdings: empty, waitingSinceMs: null, nowMs: now }
+  const swap = { due: 'handover', manual: false }
+  const waits = (manual: boolean) => ({ due: null, manual })
 
-  it('is due only when every gate is open: outdated, holding nothing, nothing in flight, not quitting', () => {
-    expect(hostReplaceDue(base)).toBe(true)
+  // The everyday case after an update: finished workers still open, a terminal tab, agent tabs. All of it is handed over.
+  it('swaps a Host holding idle workers, terminals and agent tabs at once when no Task works', () => {
+    expect(hostReplaceDue({ ...base, holdings: { sessions: 4, terminals: 2, runs: 1, chats: 0 } })).toEqual(swap)
+  })
+
+  it('waits while a Task works, and swaps at once when it ends between steps', () => {
+    const holdings = { sessions: 3, terminals: 1, runs: 0, chats: 0 }
+    expect(hostReplaceDue({ ...base, holdings, activeTasks: 1, waitingSinceMs: now - 60_000 })).toEqual(waits(false))
+    expect(hostReplaceDue({ ...base, holdings, activeTasks: 0, waitingSinceMs: now - 60_000 })).toEqual(swap)
+  })
+
+  it('offers the button only once the wait has run past 30 minutes', () => {
+    const working = { ...base, activeTasks: 2 }
+    expect(hostReplaceDue({ ...working, waitingSinceMs: now - HOST_SWAP_MANUAL_AFTER_MS + 1 })).toEqual(waits(false))
+    expect(hostReplaceDue({ ...working, waitingSinceMs: now - HOST_SWAP_MANUAL_AFTER_MS })).toEqual(waits(true))
+  })
+
+  // A chat process is not handed over: the swap would end it (exit -1) and it would need a Restart under a new id.
+  it('waits while the Host holds a chat process, busy or idle', () => {
+    expect(hostReplaceDue({ ...base, holdings: { ...empty, chats: 1 } })).toEqual(waits(false))
+  })
+
+  it('does not swap on what it does not know: an unanswered list or an orchestration state not loaded yet', () => {
+    expect(hostReplaceDue({ ...base, holdings: null })).toEqual(waits(false))
+    expect(hostReplaceDue({ ...base, activeTasks: null })).toEqual(waits(false))
+  })
+
+  // Every Host older than this build ignores `resume` and refuses nothing: replacing it ends what it holds.
+  describe('a Host without the handover', () => {
+    const legacy = { ...base, handover: false }
+    it('is replaced plainly only when it holds nothing and no Task works', () => {
+      expect(hostReplaceDue(legacy)).toEqual({ due: 'plain', manual: false })
+    })
+    it('offers the button at once otherwise, without the 30-minute wait', () => {
+      expect(hostReplaceDue({ ...legacy, holdings: { ...empty, sessions: 1 } })).toEqual(waits(true))
+      expect(hostReplaceDue({ ...legacy, holdings: { ...empty, terminals: 1 } })).toEqual(waits(true))
+      expect(hostReplaceDue({ ...legacy, holdings: { ...empty, chats: 1 } })).toEqual(waits(true))
+      expect(hostReplaceDue({ ...legacy, activeTasks: 1 })).toEqual(waits(true))
+      expect(hostReplaceDue({ ...legacy, holdings: null })).toEqual(waits(true))
+    })
   })
 
   it('never replaces a Host that is not outdated', () => {
-    expect(hostReplaceDue({ ...base, outdated: false })).toBe(false)
+    expect(hostReplaceDue({ ...base, outdated: false })).toEqual(waits(false))
   })
 
   // A Host running out of a runtime that is missing files is one spawn away from stalling for good
-  // (2026-09-22), so it earns the same treatment as an outdated one: replaced the first moment doing
-  // so costs nobody their work. The repair itself happens in the spawn that follows.
+  // (2026-09-22), so it earns the same treatment as an outdated one.
   it('replaces a Host whose runtime is missing files, for the same reason', () => {
-    expect(hostReplaceDue({ ...base, outdated: false, runtimeIncomplete: true })).toBe(true)
-    expect(hostReplaceDue({ ...base, outdated: false, runtimeIncomplete: true, holdings: { ...empty, runs: 1 } })).toBe(false)
+    expect(hostReplaceDue({ ...base, outdated: false, runtimeIncomplete: true })).toEqual(swap)
+    expect(hostReplaceDue({ ...base, outdated: false, runtimeIncomplete: true, activeTasks: 1 })).toEqual(waits(false))
   })
 
-  it('waits while the Host holds anything at all, of any kind', () => {
-    expect(hostReplaceDue({ ...base, holdings: { sessions: 1, terminals: 0, runs: 0, chats: 0 } })).toBe(false)
-    expect(hostReplaceDue({ ...base, holdings: { sessions: 0, terminals: 1, runs: 0, chats: 0 } })).toBe(false)
-    expect(hostReplaceDue({ ...base, holdings: { sessions: 0, terminals: 0, runs: 1, chats: 0 } })).toBe(false)
-    expect(hostReplaceDue({ ...base, holdings: { sessions: 0, terminals: 0, runs: 0, chats: 1 } })).toBe(false)
+  it('runs one replacement at a time, and stands aside while the app is quitting', () => {
+    expect(hostReplaceDue({ ...base, inFlight: true })).toEqual(waits(false))
+    expect(hostReplaceDue({ ...base, quitting: true })).toEqual(waits(false))
+  })
+})
+
+describe('idleWorkersBeforeSwap — what the swap releases through orchestration first', () => {
+  const now = 5 * 60 * 60_000
+  const state = (over: { runOutcome?: 'running' | 'done'; taskStatus?: string; retained?: boolean; ended?: boolean } = {}) =>
+    ({
+      jobs: [{ id: 'j1', cwd: '/p' }],
+      runs: [{ id: 'r1', jobId: 'j1', status: over.runOutcome === 'done' ? 'completed' : 'running', outcome: over.runOutcome === 'done' ? 'completed' : undefined }],
+      tasks: [{ id: 't1', runId: 'r1', status: over.taskStatus ?? 'completed', deps: [] }],
+      dispatches: [
+        {
+          id: 'd1',
+          taskId: 't1',
+          sessionId: 's1',
+          retained: over.retained ?? false,
+          ...(over.ended === false ? {} : { outcome: 'succeeded', endedAt: '2026-10-24T10:00:00.000Z' })
+        }
+      ],
+      gates: [],
+      messages: [],
+      deliveries: [],
+      projects: []
+    }) as unknown as OrchState
+  const env = { alive: (id: string) => id === 's1', typedAt: (): number | null => null, nowMs: now }
+
+  it('releases the worker of a completed Task whose session is still open', () => {
+    expect(idleWorkersBeforeSwap(state(), env)).toEqual(['d1'])
   })
 
-  it('does not read an unanswered list as an empty one', () => {
-    expect(hostReplaceDue({ ...base, holdings: null })).toBe(false)
+  it('leaves a retained worker alone: a person asked to keep it, and the handover brings it back', () => {
+    expect(idleWorkersBeforeSwap(state({ retained: true }), env)).toEqual([])
   })
 
-  it('runs one replacement at a time', () => {
-    expect(hostReplaceDue({ ...base, inFlight: true })).toBe(false)
-  })
-
-  it('stands aside while the app is quitting', () => {
-    expect(hostReplaceDue({ ...base, quitting: true })).toBe(false)
+  it('leaves a worker whose Dispatch is still open, a session already gone, and one a person typed into lately', () => {
+    expect(idleWorkersBeforeSwap(state({ ended: false, taskStatus: 'dispatched' }), env)).toEqual([])
+    expect(idleWorkersBeforeSwap(state(), { ...env, alive: () => false })).toEqual([])
+    expect(idleWorkersBeforeSwap(state(), { ...env, typedAt: () => now - 60_000 })).toEqual([])
   })
 })
 

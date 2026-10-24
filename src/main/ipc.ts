@@ -76,7 +76,7 @@ import { createSourcesRoute } from './host/sourcesRoute'
 import { createAppCompletionChecks } from './host/pluginChecksRoute'
 import { createHostGitOps } from '../core/workUnit/hostGitOps'
 import { appPathInUse } from './host/localPathInUse'
-import { HOST_PROTOCOL, HOST_ACT_PATH_IN_USE, HOST_ACT_SLACK_ANSWER, type ClientMessage, type HostMessage, type PtyEntry } from '../core/host/protocol'
+import { HOST_PROTOCOL, HOST_ACT_PATH_IN_USE, HOST_ACT_SLACK_ANSWER, HOST_FEATURE_HANDOVER, type ClientMessage, type HostMessage, type PtyEntry } from '../core/host/protocol'
 import { hostRollConfigPath, readRollConfigKey } from '../core/rolling/config'
 import { DataBatcher } from '../core/sessions/batcher'
 import { BusyScanner } from '../core/terminal/busy'
@@ -110,9 +110,13 @@ import { createOrchCommitHook } from './orchestration/commitHook'
 import { createReviewStarter } from '../core/orchestration/exec/review'
 import {
   createDispatchLoop,
+  idleWorkersOf,
   ORCH_FIRE_TICK_MS,
   type DispatchLoop
 } from '../core/orchestration/exec/dispatchLoop'
+import { sessionsDoneWith } from '../core/orchestration/finishedSessions'
+import { PERSON_INPUT_KEEPS_MS } from '../core/orchestration/exec/coordinatorRotate'
+import { workingTaskCount } from '../host/sessionRestore'
 import { answerOrchAct } from './orchestration/answerAct'
 import { appDiscardRunWorktree, appTimerTick, stopRunFromPanel } from './orchestration/yieldDispatch'
 import { HOST_UNRESPONSIVE_MS } from '../core/host/unresponsive'
@@ -694,34 +698,71 @@ export function hostHoldings(entries: PtyEntry[], procEntries: PtyEntry[]): Host
   return { sessions, terminals, runs, chats }
 }
 
-/** Whether the Host should be replaced *now*. Four gates, and every one has to open:
+/** How long the automatic swap waits for its moment before the status bar offers the button instead (T16). */
+export const HOST_SWAP_MANUAL_AFTER_MS = 30 * 60_000
+/** How often a swap that is due is asked again without a trigger (`maybeReplace`). */
+const HOST_SWAP_CHECK_MS = 15_000
+
+/** Whether the Host should be replaced *now*, and how; and whether the status bar offers the button meanwhile.
  *
- *  - a reason: `outdated`, there is a newer build to run (`HostStatus.outdated`), or
- *    `runtimeIncomplete`, the runtime it runs from is missing files and could not be repaired while
- *    it holds them (docs/2026-09-22-host-unresponsive-recovery-design.md F6). The second is the more
- *    urgent of the two — that Host is one spawn away from stalling for good — but it earns the same
- *    treatment, because replacing it early still costs somebody their sessions.
- *  - `holdings` all zero — replacing costs nobody anything. **`null` is not zero**: it is the Host not
- *    answering the list in time, and a Host too slow to enumerate twelve terminals is not one to
- *    retire on the assumption it had none. The same distinction `host.holdings` and the restart
- *    cleanup already draw.
- *  - not `inFlight` — one replacement at a time; a Run tearing down its tree sends a burst of
- *    `pty-exit`s, and each of them asks this question.
- *  - not `quitting` — the app is on its way out, and `will-quit` is the one that decides what
- *    happens to the Host's ptys then.
+ *  - a reason: `outdated`, there is a newer build to run (`HostStatus.outdated`), or `runtimeIncomplete`, the runtime
+ *    it runs from is missing files and could not be repaired while it holds them
+ *    (docs/2026-09-22-host-unresponsive-recovery-design.md F6). Both earn the same treatment.
+ *  - not `inFlight` — one replacement at a time; a Run tearing down its tree sends a burst of `pty-exit`s, and each of
+ *    them asks this question. Not `quitting` — `will-quit` decides what happens to the Host's ptys then.
+ *  - **A Host that hands over** (`handover`, HOST_FEATURE_HANDOVER) is swapped with a resume retire the first moment no
+ *    Task is working (`activeTasks`, the Tasks dispatched, validating, reviewing or merging): its sessions, terminals
+ *    and runs come back in the next Host, so they no longer hold it. A chat process does: the handover does not carry
+ *    procs, so the swap would end it (exit -1, "Failed") and it would need a Restart under a new id. Past
+ *    HOST_SWAP_MANUAL_AFTER_MS of waiting the button is offered as well.
+ *  - **A Host without it** (every Host older than the handover) keeps today's rule: replaced plainly only when it holds
+ *    nothing and no Task works, since a retire ends all it holds. Otherwise the button at once: waiting would not
+ *    make its sessions come back.
  *
- *  Hoisted out of the wiring for the usual reason in this file: the wiring is an electron-only
- *  closure no test can reach, and this is the rule that ends a process. */
+ *  **Unknown is not zero**: `holdings` null is the Host not answering its lists in time and `activeTasks` null is an
+ *  orchestration state not loaded yet; neither is replaced on a guess.
+ *
+ *  Hoisted out of the wiring for the usual reason in this file: the wiring is an electron-only closure no test can
+ *  reach, and this is the rule that ends a process. */
 export function hostReplaceDue(a: {
   outdated: boolean
   runtimeIncomplete: boolean
-  holdings: HostHoldings | null
   inFlight: boolean
   quitting: boolean
-}): boolean {
-  if ((!a.outdated && !a.runtimeIncomplete) || a.inFlight || a.quitting) return false
-  if (a.holdings === null) return false
-  return a.holdings.sessions === 0 && a.holdings.terminals === 0 && a.holdings.runs === 0 && a.holdings.chats === 0
+  handover: boolean
+  activeTasks: number | null
+  holdings: HostHoldings | null
+  /** When the app began waiting for the swap's moment; null before it has. */
+  waitingSinceMs: number | null
+  nowMs: number
+}): { due: 'handover' | 'plain' | null; manual: boolean } {
+  if ((!a.outdated && !a.runtimeIncomplete) || a.inFlight || a.quitting) return { due: null, manual: false }
+  const idle = a.activeTasks === 0 && a.holdings !== null
+  if (!a.handover) {
+    const h = a.holdings
+    const empty = h !== null && h.sessions === 0 && h.terminals === 0 && h.runs === 0 && h.chats === 0
+    return idle && empty ? { due: 'plain', manual: false } : { due: null, manual: true }
+  }
+  if (idle && a.holdings?.chats === 0) return { due: 'handover', manual: false }
+  return { due: null, manual: a.waitingSinceMs !== null && a.nowMs - a.waitingSinceMs >= HOST_SWAP_MANUAL_AFTER_MS }
+}
+
+/** The Dispatches a swap releases first (T16), through orchestration's own `worker-release`: the sessions the plan is
+ *  done with (`sessionsDoneWith`) and a finished Run's idle workers (`idleWorkersOf`), still open and not typed into
+ *  within PERSON_INPUT_KEEPS_MS. Never a `retained` one: a person asked to keep it, and the handover brings it back.
+ *  Ids, each once. */
+export function idleWorkersBeforeSwap(
+  s: OrchState,
+  a: { alive(sessionId: string): boolean; typedAt(sessionId: string): number | null; nowMs: number }
+): string[] {
+  const out = new Set<string>()
+  for (const d of [...sessionsDoneWith(s), ...idleWorkersOf(s).map((x) => x.dispatch)]) {
+    if (!a.alive(d.sessionId)) continue
+    const typed = a.typedAt(d.sessionId)
+    if (typed !== null && a.nowMs - typed < PERSON_INPUT_KEEPS_MS) continue
+    out.add(d.id)
+  }
+  return [...out]
 }
 
 /**
@@ -1405,6 +1446,10 @@ export function registerIpc(
    *  automatic replacement in `startHostClient` both go through it, so there is one place that knows
    *  the order (docs/superpowers/specs/2026-09-14-host-replacement-design.md §5). */
   let hostReplace: (() => Promise<HostStatus>) | null = null
+  /** The automatic swap as the window shows it (T16): `swapping` while it runs, `manual` once the button is the way.
+   *  Null: neither. Carried on every status the window is given (`windowHostStatus`). */
+  let hostReplacement: HostStatus['replacement'] | null = null
+  const windowHostStatus = (s: HostStatus): HostStatus => (hostReplacement ? { ...s, replacement: hostReplacement } : s)
   /** Whether the connected Host announced the proc-* family in its hello — asked of a Host that
    *  cannot answer proc-list only runs the proc-list timer out, and an outdated Host is exactly the
    *  one the automatic replacement must still be able to reach (outdated.ts's own doc on
@@ -7232,11 +7277,26 @@ export function registerIpc(
      *  what keeps a click during an automatic replacement from retiring the Host that was just
      *  started. */
     let replacing = false
-    const replaceHost = async (why: string): Promise<HostStatus> => {
+    /** When the wait for the swap's moment began (`maybeReplace`); null while there is nothing to wait for. */
+    let waitingSince: number | null = null
+    /** What the window is told of the swap; pushed on a change, since the status itself may not change with it. */
+    const setReplacement = (r: HostStatus['replacement'] | null): void => {
+      if (hostReplacement === r) return
+      hostReplacement = r
+      try {
+        send('host:status', windowHostStatus(client.status()))
+      } catch (err) {
+        hostLog(`host: could not tell the window about the swap: ${String(err)}`)
+      }
+    }
+    /** `how`: `handover` is a resume retire (HOST_FEATURE_HANDOVER), whose sessions, terminals and runs the next Host
+     *  brings back, and which that Host refuses while a Task works; `plain` ends what it holds. */
+    const replaceHost = async (why: string, how: 'handover' | 'plain'): Promise<HostStatus> => {
       if (replacing) return client.status()
       replacing = true
       const was = client.status()
-      hostLog(`host: replacing the Host (${was.hostVersion ?? '?'}, pid ${was.pid ?? '?'}) ${why}`)
+      hostLog(`host: replacing the Host (${was.hostVersion ?? '?'}, pid ${was.pid ?? '?'}) ${why}${how === 'handover' ? ', handing its sessions over' : ''}`)
+      setReplacement('swapping')
       try {
         // A Host that answers is asked to leave; one that does not is ended. Both paths then go
         // through `restart()` below, which is what puts a new Host at the address either way.
@@ -7261,7 +7321,14 @@ export function registerIpc(
         // though it is the one that asked (see retire's own comment). Harmless against a Host that
         // has just been killed: the message goes nowhere and the announce is what ends the handles
         // its ptys left behind.
-        await client.retire({ announce: true })
+        // A refused handover (a Task started working since the last look) left the connection as it was: nothing is
+        // restarted, and the swap waits for its next moment.
+        const outcome = await client.retire({ announce: true, resume: how === 'handover' && !was.unresponsive })
+        if (outcome.outcome === 'refused') {
+          hostLog(`host: the Host refused the handover — ${outcome.tasks ?? 0} Task(s) still working; waiting`)
+          return client.status()
+        }
+        waitingSince = null
         client.restart()
         await client.ready(READY_TIMEOUT_MS)
         const now = client.status()
@@ -7279,36 +7346,82 @@ export function registerIpc(
         return now
       } finally {
         replacing = false
+        setReplacement(null)
       }
     }
-    hostReplace = () => replaceHost('on request')
+    const speaksHandover = (): boolean => client.status().features.includes(HOST_FEATURE_HANDOVER)
+    hostReplace = () => replaceHost('on request', speaksHandover() ? 'handover' : 'plain')
 
-    /** The automatic rule: a Host that should not go on running is replaced the first moment it holds
-     *  nothing. Two reasons qualify — it is older than this app, or the runtime under it is missing
-     *  files (design F6). Asked after every `pty-exit` the Host reports and once after the startup
-     *  sweep; each ask is one `pty-list` round trip, plus one `proc-list` when the Host speaks procs,
-     *  and they do not overlap. */
+    /** The automatic rule (hostReplaceDue): a Host that should not go on running — older than this app, or its runtime
+     *  missing files (design F6) — is swapped the first moment no Task works, its sessions handed to the next Host; a
+     *  Host without the handover only once it holds nothing. Before a swap, the workers the plan is done with are
+     *  released through orchestration (idleWorkersBeforeSwap), and the swap waits for their sessions to end. Asked after
+     *  every `pty-exit` and `proc-exit`, every orchestration state the Host pushes, once after the startup sweep, and
+     *  every HOST_SWAP_CHECK_MS while it is due; each ask is one `pty-list` round trip, plus one `proc-list` when the
+     *  Host speaks procs, and they do not overlap. */
     let checking = false
+    /** The Dispatches released for a swap: true for a release orchestration took, whose session the swap waits on. */
+    const releasedForSwap = new Map<string, boolean>()
     const replaceWorthy = (): boolean => client.status().outdated || client.status().runtimeIncomplete
     const maybeReplace = async (why: string): Promise<void> => {
-      if (checking || replacing || quittingForHost || !replaceWorthy()) return
+      if (checking || replacing || quittingForHost) return
+      if (!replaceWorthy()) {
+        waitingSince = null
+        setReplacement(null)
+        return
+      }
       checking = true
       try {
         const [entries, procEntries] = await Promise.all([listPtys(transport), speaksProcs() ? listProcs(transport) : Promise.resolve<PtyEntry[]>([])])
         // Unknown is not zero, for either list: a Host that should have answered and did not is not
         // replaced on a guess (hostReplaceDue's own rule).
         const holdings = entries !== null && procEntries !== null ? hostHoldings(entries, procEntries) : null
+        const state = orchMirror.loaded() ? orchMirror.getState() : null
+        const activeTasks = state ? workingTaskCount(state) : null
+        const handover = speaksHandover()
+        const nowMs = Date.now()
+        waitingSince ??= nowMs
         const s = client.status()
-        if (!hostReplaceDue({ outdated: s.outdated, runtimeIncomplete: s.runtimeIncomplete, holdings, inFlight: replacing, quitting: quittingForHost })) return
-        await replaceHost(`${why}, and it holds nothing`)
+        const d = hostReplaceDue({ outdated: s.outdated, runtimeIncomplete: s.runtimeIncomplete, inFlight: replacing, quitting: quittingForHost, handover, activeTasks, holdings, waitingSinceMs: waitingSince, nowMs })
+        setReplacement(d.manual ? 'manual' : null)
+        // The release comes before the swap, and for a Host without the handover before the decision too: what it
+        // releases is what keeps that Host from holding nothing.
+        if (orch && state && activeTasks === 0 && (d.due !== null || !handover)) {
+          const deps = orch.deps
+          const ids = idleWorkersBeforeSwap(state, { alive: (id) => liveSessionIn(allSessions(), id), typedAt: (id) => personInputAt.get(id) ?? null, nowMs })
+          const fresh = ids.filter((id) => !releasedForSwap.has(id))
+          for (const id of fresh) {
+            try {
+              const r = await orchHandleCommand(deps, { sessionId: UI_CALLER }, 'worker-release', { dispatch: id })
+              releasedForSwap.set(id, r.status < 400)
+              if (r.status >= 400) hostLog(`host: dispatch ${id} was not released before the swap: ${JSON.stringify(r.body)}`)
+            } catch (e) {
+              releasedForSwap.set(id, false)
+              hostLog(`host: dispatch ${id} could not be released before the swap: ${String(e)}`)
+            }
+          }
+          if (fresh.length > 0) hostLog(`host: released ${fresh.length} idle worker(s) before the swap (${why})`)
+          // Their sessions are still ending: the exits ask again, and a handover written now would bring them back.
+          if (ids.some((id) => releasedForSwap.get(id) === true)) return
+        }
+        if (d.due === null) return
+        await replaceHost(`${why}, ${d.due === 'handover' ? 'and no Task is working' : 'and it holds nothing'}`, d.due)
       } catch (e) {
         hostLog(`host: the replacement check failed: ${String(e)}`)
       } finally {
         checking = false
       }
     }
+    // The floor under the triggers below: a Task that ends while the app writes the state itself, or a release that
+    // never sends its exit, is caught here. Asks nothing of a Host that is not due.
+    setInterval(() => {
+      if (replaceWorthy()) void maybeReplace('on the periodic check')
+    }, HOST_SWAP_CHECK_MS).unref?.()
     client.onMessage((m) => {
       if (m.t === 'pty-exit') void maybeReplace('after a pty exited')
+      if (m.t === 'proc-exit') void maybeReplace('after a line process exited')
+      // A Task leaving `dispatched`, `validating`, `reviewing` or `merging` is the swap's moment (between steps).
+      if (m.t === 'orch-state' && replaceWorthy()) void maybeReplace('after an orchestration change')
       // A session the Host started for a CLI call (Host S2 design §2.3), taken back the way a restart
       // takes sessions back: its tab, rolling, attention and Slack all hang off the same adopter.
       // Through the queue, so it cannot race a sweep already walking the same entry, and through a
@@ -7830,7 +7943,7 @@ export function registerIpc(
       // half a minute of a stale "연결됨" is the silence this whole change is about (measured in the
       // dev app, 2026-09-22).
       try {
-        send('host:status', s)
+        send('host:status', windowHostStatus(s))
       } catch (err) {
         hostLog(`host: could not tell the window about a status change: ${String(err)}`)
       }
@@ -7957,7 +8070,9 @@ export function registerIpc(
 
     hostWiring?.onHostClientReady({
       stop: () => client.stop(),
-      retire: () => client.retire(),
+      retire: async () => {
+        await client.retire()
+      },
       survivesUpdate: () => hostSurvivesUpdate
     })
   }
@@ -7997,7 +8112,7 @@ export function registerIpc(
     runtimeIncomplete: false,
     features: []
   }
-  ipcMain.handle('host.status', () => hostClient?.status() ?? noHostStatus)
+  ipcMain.handle('host.status', () => windowHostStatus(hostClient?.status() ?? noHostStatus))
   // Limits L3: the window reads it once at mount; changes arrive on 'host:driver'.
   ipcMain.handle('host.driver', () => hostDriverView?.current() ?? null)
   // The mirror tab reads the live workspaces once at mount; changes arrive on 'workspace:event'. Stop and
@@ -8064,7 +8179,7 @@ export function registerIpc(
   // (design §6). Answers the status the new connection settled at, or the current status when the
   // Host wiring never ran.
   ipcMain.handle('host.replace', async (): Promise<HostStatus> => {
-    if (hostReplace) return hostReplace()
+    if (hostReplace) return windowHostStatus(await hostReplace())
     return hostClient?.status() ?? noHostStatus
   })
 
