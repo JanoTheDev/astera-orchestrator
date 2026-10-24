@@ -82,6 +82,10 @@ export const tools = {
   // The name a new folder starts with; the tree appends a number when it is taken
   'run.manager.folderNameDefault': '새 폴더',
   'run.manager.renameFolder': '폴더 이름 바꾸기',
+  // Generate with AI: an agent session that reads the project and saves run configurations
+  'run.manager.generate': 'AI로 생성',
+  'run.manager.generateEmpty': '실행 구성이 아직 없습니다. 에이전트가 프로젝트를 읽고 만들어 드립니다.',
+  'run.manager.generateFailed': 'AI 세션을 시작하지 못했습니다: {detail}',
   'run.type.shell': 'Shell',
   'run.type.npm': 'npm',
   'run.type.node': 'Node.js',
