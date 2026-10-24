@@ -1025,7 +1025,7 @@ export const PENDING_START_WINDOW_MS = 2 * 60_000
  *  is a start that died, and refusing it forever would leave a Dispatch nothing can close short of
  *  `worker-abandon` or a Host restart. Such a one goes ahead, with no release (`releases`).
  *  Null when no Dispatch among `open` is still starting. */
-const stillStarting = (open: readonly Dispatch[], now: string): Reply | null => {
+export const stillStarting = (open: readonly Dispatch[], now: string): Reply | null => {
   const d = open.find(
     (x) => isPlaceholderSessionId(x.sessionId) && Date.parse(now) - Date.parse(x.startedAt) < PENDING_START_WINDOW_MS
   )
@@ -1033,7 +1033,7 @@ const stillStarting = (open: readonly Dispatch[], now: string): Reply | null => 
 }
 /** Whether stopping this Dispatch has a session to kill. A placeholder that got past `stillStarting`
  *  is a start that died: no pty was ever opened for it, so there is nothing to release. */
-const releases = (d: Dispatch): boolean => !isPlaceholderSessionId(d.sessionId)
+export const releases = (d: Dispatch): boolean => !isPlaceholderSessionId(d.sessionId)
 
 /** The Job's latest Run **while it still runs**, else undefined. `jobs run` refuses on it, and a fire
  *  skips on it (`run-spawn --unless-running`; the user's ruling of 2026-09-25 on U1): the same test in

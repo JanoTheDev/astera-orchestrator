@@ -557,8 +557,11 @@ const SESSION = {
     ]
   },
   'task-cancel': {
-    summary: 'drop a Task that has not started (planner or replan session)',
-    detail: 'Refused while an unfinished Task still depends on it.',
+    summary: 'drop a Task: one that has not started (planner or replan session), or any Task not completed (the owner)',
+    detail:
+      'Refused while an unfinished Task still depends on it. The owner (a person, not an agent session or MCP client) may also ' +
+      'cancel a Task that has started: its open Dispatches are closed and their sessions released, its Gates closed, and the ' +
+      'Run gets a "cancelled by the owner" line. Refused for a merging or completed Task, and while a worker is still starting.',
     flags: [req('id', '<taskId>', 'the Task to drop'), req('reason', '<text>', 'why')]
   },
   // T36: a plan stalled on a failed Task
