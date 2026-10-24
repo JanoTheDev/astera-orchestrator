@@ -67,6 +67,7 @@ export const worktrees = {
   'worktrees.rowMenu': '워크트리 동작',
   'worktrees.prMenu': '풀 리퀘스트 동작',
   'worktrees.noMatch': '맞는 워크트리가 없습니다.',
+  'worktrees.refreshing': '새로 고치는 중…',
   'worktrees.emptyTitle': '아직 워크트리가 없습니다',
   'worktrees.pickTitle': '고른 워크트리가 없습니다',
   'worktrees.state.active': '작업 중',

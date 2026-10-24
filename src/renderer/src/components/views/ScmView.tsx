@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { WorktreeStatus } from '../../../../core/types'
 import { resolveFileIcon } from '../../../../core/files/icons'
 import { toast } from '../../lib/toast'
+import { setCached, useCachedRead } from '../../lib/readCache'
 import { repoInScope } from '../../state/projectView'
 import { FileIcon } from '../FileIcon'
 import { PrBadge } from '../PrBadge'
@@ -54,13 +55,12 @@ export function ScmView(p: SideBarViewProps): React.JSX.Element {
   const [query, setQuery] = useState('')
   const [reachableOnly, setReachableOnly] = useState(false)
   const [menu, setMenu] = useState<{ x: number; y: number; path: string } | null>(null)
-  const [autoClean, setAutoClean] = useState(true)
-  useEffect(() => {
-    void window.api.settings.getAutoCleanWorktrees().then(setAutoClean, () => setAutoClean(true))
-  }, [])
+  const cachedAutoClean = useCachedRead('scm:autoClean', () => window.api.settings.getAutoCleanWorktrees()).data
+  const [autoCleanEdit, setAutoClean] = useState<boolean | null>(null)
+  const autoClean = autoCleanEdit ?? cachedAutoClean ?? true
   const toggleAutoClean = (next: boolean): void => {
     setAutoClean(next)
-    void window.api.settings.setAutoCleanWorktrees(next).catch((err) => {
+    void window.api.settings.setAutoCleanWorktrees(next).then(() => setCached('scm:autoClean', next)).catch((err) => {
       setAutoClean(!next)
       toast.error(t('worktrees.autoCleanFailed', { detail: err instanceof Error ? err.message : String(err) }))
     })
@@ -197,6 +197,7 @@ export function ScmView(p: SideBarViewProps): React.JSX.Element {
       )
     return (
       <>
+        {wt.refreshing && <p className="wb-view-empty" role="status">{t('worktrees.refreshing')}</p>}
         <div className="scm-filter">
           <Input type="search" placeholder={t('worktrees.search')} aria-label={t('worktrees.search')} value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>
