@@ -1,0 +1,18 @@
+/* Body of the session and system dialogs (New session, Resume, Remote sessions, Local history, Crash report, Bypass
+   retry, Update gate): one compact column inside the ui/Modal body (DESIGN-W13). Tokens only. */
+.sd-body { position: relative; display: flex; flex-direction: column; gap: var(--sp-3); font-size: var(--fs-13); }
+/* The wait overlay of a starting session covers the body and takes the clicks, so the form cannot be submitted again. */
+.sd-body .loading-overlay { background: var(--panel); border-radius: var(--radius-lg); pointer-events: auto; z-index: 1; }
+/* A labelled value or control that is not a single input (a path, a picker, a tab list). Inputs use ui/Field. */
+.sd-group { display: flex; flex-direction: column; gap: var(--sp-1); }
+.sd-group--ruled { padding-bottom: var(--sp-3); border-bottom: 1px solid var(--line-soft); }
+.sd-label { font-size: var(--fs-12); color: var(--text-dim); }
+.sd-row { display: flex; align-items: center; gap: var(--sp-2); }
+.sd-text { margin: 0; font-size: var(--fs-13); color: var(--text); line-height: 1.5; }
+.sd-hint { margin: 0; font-size: var(--fs-11); color: var(--text-faint); }
+.sd-hint--wait { display: flex; align-items: center; gap: var(--sp-2); }
+.sd-warn { margin: 0; padding: var(--sp-1) var(--sp-2); border-radius: var(--radius); background: var(--warn-soft); color: var(--warn); font-size: var(--fs-12); }
+/* Checkbox rows: the note after the label is quieter, and clearer than the dimmed row when the box is disabled. */
+.sd-body .check-small .check-note { margin-left: var(--sp-1); opacity: 0.6; }
+.sd-body .check-small:has(input:disabled) .check-note { opacity: 1; color: var(--text-dim); }
+.sd-body .ui-input, .sd-body .roll-prompt-input { width: 100%; box-sizing: border-box; }

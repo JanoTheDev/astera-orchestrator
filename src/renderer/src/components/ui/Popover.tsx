@@ -3,6 +3,7 @@
 // `[data-roving]` rows. The panel's look is the caller's (`panelClassName`).
 import { useEffect, useRef } from 'react'
 import { cx, nextFocusIndex } from './logic'
+import { useOpenClose } from './motion'
 
 type Focusable = { focus: () => void }
 
@@ -77,10 +78,19 @@ export function Popover({
     <div ref={root} className={cx('ui-popover', className)}>
       {trigger({ ref: button, 'aria-haspopup': 'dialog', 'aria-expanded': open, onClick: () => onOpenChange(!open) })}
       {open && (
-        <div ref={panel} role="dialog" aria-label={label} className={panelClassName} onKeyDown={onKeyDown}>
+        <PopoverPanel panel={panel} label={label} className={panelClassName} onKeyDown={onKeyDown}>
           {children}
-        </div>
+        </PopoverPanel>
       )}
+    </div>
+  )
+}
+
+function PopoverPanel({ panel, label, className, onKeyDown, children }: { panel: React.RefObject<HTMLDivElement | null>; label: string; className?: string; onKeyDown: (e: React.KeyboardEvent) => void; children: React.ReactNode }): React.JSX.Element {
+  useOpenClose(panel, 'rise')
+  return (
+    <div ref={panel} role="dialog" aria-label={label} className={className} onKeyDown={onKeyDown}>
+      {children}
     </div>
   )
 }

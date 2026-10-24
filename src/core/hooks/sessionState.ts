@@ -28,15 +28,17 @@
 //   session's turn → no verdict. The app's notifiers err toward notifying on an unknown type; a
 //   state errs toward `unknown`, the answer that cannot be wrong.
 //
-// **Where this differs from core/sessions/attention.ts, and why.** Attention answers "does this session need
-// you": after a tool call returns it reads `idle`, and a bare `idle_prompt` leaves it alone, because
-// neither is a reason to raise a banner. This answers "is a turn running": a returned tool call is
-// still inside the turn, and `idle_prompt` ("Claude is waiting for your input") is emitted only when
-// no turn is running. Replaying attention here would report a turn in progress as idle.
+// **Where this differs from core/sessions/attention.ts, and why.** Both read a turn as running from its
+// prompt to its Stop, by the one rule `isWorking`. Attention keeps state across events (outstanding
+// calls, the latest prompt); this reads the last event alone. A bare `idle_prompt` leaves attention's
+// value alone, because it is no reason to raise a banner; here it is `idle`, since it is emitted only
+// when no turn is running.
 //
-// **Input after the event voids it.** Anything typed after the last event — an answer to a
-// permission prompt, an Esc that interrupts a turn (which fires no Stop), a prompt whose
-// UserPromptSubmit has not landed yet — makes the answer `unknown` until the next event lands. The
+// **Input after the event voids it**, unless the pty is still drawing. Anything typed after the last
+// event — an answer to a permission prompt, an Esc that interrupts a turn (which fires no Stop), a
+// prompt whose UserPromptSubmit has not landed yet — makes the answer `unknown` until the next event
+// lands. The one exception is a turn whose pty output is still fresh (`isWorking`, INPUT_QUIET_MS): a
+// message typed while the agent works leaves its spinner running, which an Esc would have stopped. The
 // Host keeps when each pty was last typed into (host/registry.ts); the reports the app's terminal
 // writes by itself (focus changes, replies to the TUI's queries) do not count (core/terminal/reports.ts).
 import path from 'node:path'
@@ -151,7 +153,9 @@ export function sessionStateOf(a: {
   lastOutputAt?: number | null
 }): SessionState {
   if (a.lastLine === null || a.eventAt === null) return 'unknown'
-  if (a.lastInputAt !== null && a.lastInputAt >= a.eventAt) return 'unknown'
+  const inputAfter = a.lastInputAt !== null && a.lastInputAt >= a.eventAt
+  // Only real pty output can outweigh the input: without it there is nothing to tell an Esc by
+  if (inputAfter && (a.lastOutputAt == null || a.now === undefined)) return 'unknown'
   let payload: unknown
   try {
     payload = JSON.parse(a.lastLine)
@@ -159,21 +163,19 @@ export function sessionStateOf(a: {
     return 'unknown'
   }
   const state = hookEventState(payload)
-  if (state !== 'working') return state ?? 'unknown'
+  if (state !== 'working') return inputAfter ? 'unknown' : (state ?? 'unknown')
   // The last sign of life: the pty's output when the Host knows it (a long noisy tool fires no hook for minutes), else
-  // the last event; input after the event was already answered `unknown` above.
-  const p = payload as { hook_event_name?: unknown }
-  return isWorking({
+  // the turn or tool call the event started.
+  const working = isWorking({
     open: true,
     exited: false,
     eventAt: a.eventAt,
     personInputAt: a.lastInputAt,
-    lastOutputAt: Math.max(a.eventAt, a.lastOutputAt ?? a.eventAt),
-    toolStartedAt: p.hook_event_name === 'PreToolUse' ? a.eventAt : null,
+    lastOutputAt: a.lastOutputAt ?? null,
+    startedAt: a.eventAt,
     now: a.now ?? null
   })
-    ? 'working'
-    : 'idle'
+  return working ? 'working' : inputAfter ? 'unknown' : 'idle'
 }
 
 /** W6-E: how much of a Bash command `lastActionOf` keeps. */

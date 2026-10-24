@@ -1,4 +1,4 @@
-import { useId, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { useI18n } from '../../i18n/I18nProvider'
 import { Button, Field, Icon, Input, Modal } from '../ui'
 import '../overlays.css'
@@ -31,6 +31,17 @@ export function NewProjectDialog({
   const [describe, setDescribe] = useState('')
   const [github, setGithub] = useState(false)
   const [visibility, setVisibility] = useState<'private' | 'public'>('private')
+  // pre-filled from Settings > GitHub; the owner can still change both here
+  const [touched, setTouched] = useState(false)
+  useEffect(() => {
+    void window.api.settings.getGithubDefaults().then((d) => {
+      if (touched) return
+      setGithub(d.createGithubRepo)
+      setVisibility(d.visibility)
+    }, () => undefined)
+    // read once on open: a later edit of the toggles must not be overwritten
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [made, setMade] = useState<Created | null>(null)
@@ -114,13 +125,13 @@ export function NewProjectDialog({
               onChange={(e) => setDescribe(e.target.value)}
               placeholder={t('overlays.project.descriptionPlaceholder')}
             />
-            <Field kind="toggle" label={t('overlays.project.github')} checked={github} onChange={setGithub} />
+            <Field kind="toggle" label={t('overlays.project.github')} checked={github} onChange={(on) => { setTouched(true); setGithub(on) }} />
             {github && (
               <Field
                 kind="select"
                 label={t('overlays.project.visibility')}
                 value={visibility}
-                onChange={(e) => setVisibility(e.target.value as 'private' | 'public')}
+                onChange={(e) => { setTouched(true); setVisibility(e.target.value as 'private' | 'public') }}
                 options={[
                   { value: 'private', label: t('overlays.project.private') },
                   { value: 'public', label: t('overlays.project.public') }

@@ -145,7 +145,7 @@
 .ui-card--clickable:hover { background: var(--hover); box-shadow: var(--shadow-sm); }
 .ui-card--clickable:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 
-/* Modal: fade + 4px rise over the scrim */
+/* Modal: fade + 4px rise over the scrim (ui/motion.ts plays it, in and out) */
 .ui-modal-backdrop {
   position: fixed;
   inset: 0;
@@ -155,7 +155,6 @@
   justify-content: center;
   padding: 16px;
   background: var(--scrim);
-  animation: ui-fade var(--dur) var(--ease-out);
 }
 .ui-modal {
   display: flex;
@@ -166,7 +165,6 @@
   background: var(--panel);
   color: var(--text);
   box-shadow: var(--shadow-modal);
-  animation: ui-rise var(--dur) var(--ease-out);
 }
 .ui-modal:focus { outline: none; }
 .ui-modal--sm { max-width: 440px; }
@@ -176,7 +174,6 @@
 .ui-modal__title { flex: 1; margin: 0; font-size: var(--fs-15); font-weight: var(--fw-semi); line-height: var(--lh-tight); }
 .ui-modal__body { flex: 1; min-height: 0; overflow: auto; padding: 4px 20px 20px; }
 .ui-modal__foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 20px; border-top: 1px solid var(--line); }
-@keyframes ui-fade { from { opacity: 0; } }
 @keyframes ui-rise { from { opacity: 0; transform: translateY(4px); } }
 
 /* Section */
@@ -261,7 +258,6 @@
   border-radius: var(--radius-lg);
   background: var(--elevated);
   box-shadow: var(--shadow-pop);
-  animation: ui-rise var(--dur) var(--ease-out);
 }
 .ui-menu__list--start { left: 0; }
 .ui-menu__list--end { right: 0; }
@@ -411,7 +407,6 @@
   background: var(--elevated);
   color: var(--text);
   box-shadow: var(--shadow-pop);
-  animation: ui-rise var(--dur) var(--ease-out);
 }
 .ui-toast--info { border-left-color: var(--accent); }
 .ui-toast--success { border-left-color: var(--ok); }
@@ -478,6 +473,10 @@
 .ui-meter__label { color: var(--text-dim); font-size: var(--fs-11); font-variant-numeric: tabular-nums; }
 .ui-meter__track { height: 4px; border-radius: var(--radius-pill); background: var(--elevated); overflow: hidden; }
 .ui-meter__fill { height: 100%; background: var(--ui-meter-fill); transition: width var(--dur) var(--ease-out); }
+
+/* Note: a quiet line under a heading or field (hint, loading, empty); --warn adds the problem tone. */
+.ui-note { margin: 0; color: var(--text-faint); font-size: var(--fs-12); }
+.ui-note--warn { color: var(--warn); }
 
 /* EmptyState */
 .ui-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: var(--sp-12) var(--sp-4); color: var(--text-dim); text-align: center; }
@@ -581,6 +580,10 @@
 .ui-viewcontainer { display: flex; flex-direction: column; height: 100%; min-height: 0; overflow: hidden; }
 .ui-viewpane { flex: none; display: flex; flex-direction: column; min-height: 0; }
 .ui-viewpane.is-open { flex: 1 1 0; }
+.ui-viewpane { position: relative; }
+/* the sash sits on the top border and only shows when an open pane lies above */
+.ui-viewpane__sash { position: absolute; top: 0; left: 0; right: 0; margin: 0; transform: translateY(-50%); }
+.ui-viewpane.is-open:not(.ui-viewpane.is-open ~ .ui-viewpane) > .ui-viewpane__sash { display: none; }
 .ui-viewpane + .ui-viewpane { border-top: 1px solid var(--line); }
 .ui-viewpane__head { flex: none; display: flex; align-items: center; height: var(--row-h); padding-right: 8px; }
 .ui-viewpane__toggle {

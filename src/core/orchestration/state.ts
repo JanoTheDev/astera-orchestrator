@@ -651,7 +651,7 @@ export function setRunWorktree(s: OrchState, id: string, worktree: string): Res<
 
 /** W2-A planner stage: the Task fields a planner writes (task-create, task-update), with W1-A's model choice. */
 export type PlanFields = Partial<
-  Pick<Task, 'difficulty' | 'model' | 'provider' | 'prompt' | 'acceptanceCriteria' | 'affectedPaths' | 'modelReason' | /* W6-A */ 'basis' | /* T7 */ 'covers' | /* T9 */ 'kind' | /* T3 */ 'worktree'>
+  Pick<Task, 'difficulty' | 'model' | 'provider' | 'prompt' | 'acceptanceCriteria' | 'affectedPaths' | 'noFiles' | 'modelReason' | /* W6-A */ 'basis' | /* T7 */ 'covers' | /* T9 */ 'kind' | /* T3 */ 'worktree'>
 >
 
 /** The plan fields `t` carries, copied; an absent or empty one is left out, as every optional field here is. */
@@ -663,6 +663,7 @@ export function planFieldsOf(t: PlanFields): PlanFields {
     ...(t.prompt ? { prompt: t.prompt } : {}),
     ...(t.acceptanceCriteria?.length ? { acceptanceCriteria: [...t.acceptanceCriteria] } : {}),
     ...(t.affectedPaths?.length ? { affectedPaths: [...t.affectedPaths] } : {}),
+    ...(t.noFiles ? { noFiles: true as const } : {}),
     ...(t.modelReason ? { modelReason: t.modelReason } : {}),
     // W6-A
     ...(t.basis ? { basis: { ...t.basis } } : {}),

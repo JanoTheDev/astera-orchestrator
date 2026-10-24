@@ -33,6 +33,7 @@ import { usagePauseAtOf, USAGE_PAUSE_AT_DEFAULT } from '../core/orchestration/us
 import { accountMaxSessionsOf } from '../core/settings/accountMaxSessions'
 import { ACTIVITY_DIGEST_DEFAULT_MINUTES, activityDigestMinutesOf } from '../core/settings/activityDigest'
 import { tabSummariesOf } from '../core/settings/tabSummaries'
+import { approvalDefaultOf, type ApprovalMode } from '../core/settings/approvalDefault'
 import { FRESH_COORDINATOR_DEFAULT_PCT, freshCoordinatorPctOf } from '../core/settings/freshCoordinator'
 import { stallWatchOnOf } from '../core/settings/stallWatch'
 import { crashReportsOf, type CrashReportsSetting } from '../core/crash/report' // T27
@@ -42,6 +43,7 @@ import { autoCleanWorktreesOf } from '../core/settings/autoCleanWorktrees'
 import { mcpAccessOf } from '../core/settings/mcpAccess'
 import { mcpSessionsOf } from '../core/settings/mcpSessions'
 import { mcpGithubWriteOf } from '../core/settings/mcpGithubWrite'
+import { GITHUB_DEFAULTS, githubDefaultsOf, type GithubDefaults } from '../core/settings/githubDefaults'
 import { MCP_HTTP_DEFAULT_PORT, mcpHttpOf, type McpHttpSettings } from '../core/settings/mcpHttp'
 import { RepairNeeded } from '../core/settings/repairNeeded'
 import { skillReposOf } from '../core/extensions/skillsCatalog'
@@ -145,6 +147,7 @@ export class AppSettingsStore {
   /** W3-A: minutes between activity digests, 0 for none. Written only when it is not the default. */
   private activityDigestMinutes = ACTIVITY_DIGEST_DEFAULT_MINUTES
   private freshCoordinatorContextPct = FRESH_COORDINATOR_DEFAULT_PCT
+  private approvalDefault: ApprovalMode | undefined = undefined
   /** Stall watchdog (orchestration/exec/stallWatch.ts): on by default; only an explicit false turns it off. */
   private stallWatch = true
   /** T27 crash reports (core/crash): 'ask' by default; only an explicit 'never' turns the prompt off. */
@@ -181,6 +184,8 @@ export class AppSettingsStore {
   /** Whether an MCP client may act on GitHub: push, open pull requests, rerun CI, make Jobs from
    *  issues (MCP P2-B design). Off by default; only true is written. */
   private mcpGithubWrite = false
+  /** What a new project does about GitHub (core/settings/githubDefaults.ts). */
+  private githubDefaults: GithubDefaults = { ...GITHUB_DEFAULTS }
   /** MCP over HTTP (MCP HTTP design §2). Off by default; written only while a field differs from its default. */
   private mcpHttp: McpHttpSettings = mcpHttpOf(undefined)
   /** GitHub repos (`owner/repo`) the skills finder searches besides its default one. Written only when non-empty. */
@@ -265,6 +270,7 @@ export class AppSettingsStore {
       this.freshCoordinatorContextPct = freshCoordinatorPctOf(
         (parsed as { freshCoordinatorContextPct?: unknown }).freshCoordinatorContextPct
       )
+      this.approvalDefault = approvalDefaultOf((parsed as { approvalDefault?: unknown }).approvalDefault)
       this.stallWatch = stallWatchOnOf((parsed as { stallWatch?: unknown }).stallWatch)
       this.crashReports = crashReportsOf((parsed as { crashReports?: unknown }).crashReports) // T27
       this.startAtLogin = startAtLoginOf((parsed as { startAtLogin?: unknown }).startAtLogin)
@@ -295,6 +301,7 @@ export class AppSettingsStore {
       this.mcpSessions = mcpSessionsOf((parsed as { mcpSessions?: unknown }).mcpSessions)
       // Likewise the Host's readMcpGithubWrite: only an explicit true turns it on.
       this.mcpGithubWrite = mcpGithubWriteOf((parsed as { mcpGithubWrite?: unknown }).mcpGithubWrite)
+      this.githubDefaults = githubDefaultsOf((parsed as { githubDefaults?: unknown }).githubDefaults)
       // The same function the Host's readMcpHttp uses, so the two cannot differ.
       this.mcpHttp = mcpHttpOf((parsed as { mcpHttp?: unknown }).mcpHttp)
       this.skillRepos = skillReposOf((parsed as { skillRepos?: unknown }).skillRepos)
@@ -353,6 +360,7 @@ export class AppSettingsStore {
         this.accountMaxSessions = {}
         this.activityDigestMinutes = ACTIVITY_DIGEST_DEFAULT_MINUTES
         this.freshCoordinatorContextPct = FRESH_COORDINATOR_DEFAULT_PCT
+        this.approvalDefault = undefined
         this.stallWatch = true
         this.crashReports = 'ask'
         this.startAtLogin = true
@@ -370,6 +378,7 @@ export class AppSettingsStore {
         this.mcpAccess = 'control'
         this.mcpSessions = false
         this.mcpGithubWrite = false
+        this.githubDefaults = { ...GITHUB_DEFAULTS }
         this.mcpHttp = mcpHttpOf(undefined)
         this.skillRepos = []
         this.terminalFont = { latin: null, hangul: null }
@@ -405,6 +414,7 @@ export class AppSettingsStore {
       this.accountMaxSessions = {}
       this.activityDigestMinutes = ACTIVITY_DIGEST_DEFAULT_MINUTES
       this.freshCoordinatorContextPct = FRESH_COORDINATOR_DEFAULT_PCT
+      this.approvalDefault = undefined
       this.stallWatch = true
       this.crashReports = 'ask'
       this.startAtLogin = true
@@ -427,6 +437,7 @@ export class AppSettingsStore {
       this.mcpAccess = 'off'
       this.mcpSessions = false
       this.mcpGithubWrite = false
+      this.githubDefaults = { ...GITHUB_DEFAULTS }
       this.mcpHttp = mcpHttpOf(undefined)
       this.skillRepos = []
       this.terminalFont = { latin: null, hangul: null }
@@ -588,6 +599,15 @@ export class AppSettingsStore {
     await this.persist()
   }
 
+  getGithubDefaults(): GithubDefaults {
+    return { ...this.githubDefaults }
+  }
+
+  async setGithubDefaults(v: GithubDefaults): Promise<void> {
+    this.githubDefaults = githubDefaultsOf(v)
+    await this.persist()
+  }
+
   getMcpHttp(): McpHttpSettings {
     return { ...this.mcpHttp, hosts: [...this.mcpHttp.hosts] }
   }
@@ -690,6 +710,16 @@ export class AppSettingsStore {
   /** Narrowed like the file: the value arrives from the renderer. */
   async setFreshCoordinatorContextPct(n: number): Promise<void> {
     this.freshCoordinatorContextPct = freshCoordinatorPctOf(n)
+    await this.persist()
+  }
+
+  getApprovalDefault(): ApprovalMode | undefined {
+    return this.approvalDefault
+  }
+
+  /** Narrowed like the file: the value arrives from the renderer; anything but a mode clears the default. */
+  async setApprovalDefault(mode: unknown): Promise<void> {
+    this.approvalDefault = approvalDefaultOf(mode)
     await this.persist()
   }
 
@@ -949,6 +979,7 @@ export class AppSettingsStore {
       accountMaxSessions?: Record<string, number>
       activityDigestMinutes?: number
       freshCoordinatorContextPct?: number
+      approvalDefault?: ApprovalMode
       stallWatch?: false
       crashReports?: 'never' // T27
       startAtLogin?: false
@@ -966,6 +997,7 @@ export class AppSettingsStore {
       mcpAccess?: McpAccess
       mcpSessions?: true
       mcpGithubWrite?: true
+      githubDefaults?: GithubDefaults
       mcpHttp?: McpHttpSettings
       skillRepos?: string[]
       terminalFont?: TerminalFont
@@ -1004,6 +1036,7 @@ export class AppSettingsStore {
     if (Object.keys(this.accountMaxSessions).length > 0) data.accountMaxSessions = this.accountMaxSessions
     if (this.activityDigestMinutes !== ACTIVITY_DIGEST_DEFAULT_MINUTES) data.activityDigestMinutes = this.activityDigestMinutes
     if (this.freshCoordinatorContextPct !== FRESH_COORDINATOR_DEFAULT_PCT) data.freshCoordinatorContextPct = this.freshCoordinatorContextPct
+    if (this.approvalDefault !== undefined) data.approvalDefault = this.approvalDefault
     if (!this.stallWatch) data.stallWatch = false
     if (this.crashReports === 'never') data.crashReports = 'never' // T27
     if (!this.startAtLogin) data.startAtLogin = false
@@ -1024,6 +1057,8 @@ export class AppSettingsStore {
     if (this.mcpAccess !== 'control') data.mcpAccess = this.mcpAccess
     if (this.mcpSessions) data.mcpSessions = true
     if (this.mcpGithubWrite) data.mcpGithubWrite = true
+    // Written only when it differs from the default, as mcpGithubWrite is.
+    if (this.githubDefaults.createGithubRepo || this.githubDefaults.visibility !== GITHUB_DEFAULTS.visibility) data.githubDefaults = this.githubDefaults
     const h = this.mcpHttp
     if (h.enabled || h.lan || h.port !== MCP_HTTP_DEFAULT_PORT || h.hosts.length > 0) data.mcpHttp = h
     if (this.skillRepos.length > 0) data.skillRepos = this.skillRepos

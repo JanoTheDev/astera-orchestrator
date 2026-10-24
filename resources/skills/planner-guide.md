@@ -116,6 +116,7 @@ Create Tasks in dependency order (a Task can only depend on one that exists). Ea
 | `--prompt -` | the worker's whole prompt, on stdin. It must stand alone: the goal, the files, the repo rules that apply, what not to touch, how to check the result |
 | `--criteria '[...]'` | one or more acceptance criteria, each checkable by reading code or running a command ("`npm test -- foo` passes", not "works well") |
 | `--affected-paths '[...]'` | exactly the files it will change |
+| `--no-files` | instead of `--affected-paths`, for a Task of `--kind ops`, `audit` or `docs` that changes no repository file (archive plans, run a CLI cleanup, a read-only audit). Never invent a path for it |
 | `--deps '[...]'` | the Task ids it waits for |
 | `--worktree` | `new` (default) or `reuse`: continue in the one dep's worktree, for a direct continuation on the same files (section 2) |
 | `--kind` | `bugfix`, `feature`, `refactor`, `ui`, `audit`, `docs`, `test` or `ops`. It picks the skills the worker is told to use (systematic debugging and a failing test first for `bugfix`, test-first for `feature`, the design rules for `ui`, read-only findings first for `audit`). Pass it on every Task; without it Astera guesses from the title |
@@ -143,6 +144,12 @@ name of 3 to 6 words: `astera jobs rename --id <jobId> --title "<3-6 words>"`. A
 
 `--provider` and `--model` only when a Task needs a specific one. Fix a Task with `astera task-update --id
 <taskId>` and the same flags; deps are Tasks of the plan or of another plan of the project (section 0) and may not form a cycle.
+
+**When a Task changes no file.** Every Task names its files or says `--no-files`; approval refuses one that does neither.
+Use `--no-files` only with `--kind ops`, `audit` or `docs`, and never together with `--affected-paths`. A Task that
+changes any repository file lists those files instead. `task-create` and `task-update` answer with `warnings` naming
+what approval would refuse in that Task: fix them at once. When you end a turn on a plan that is not ready, Astera types
+the remaining problems into your session; fix them and end your turn again.
 
 **Path rules for `--affected-paths`:**
 

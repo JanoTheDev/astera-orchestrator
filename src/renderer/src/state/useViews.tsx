@@ -5,6 +5,7 @@ import { BrowserPane, type BrowserStatePatch } from '../components/BrowserPane'
 import { AppMirrorPane } from '../components/AppMirrorPane'
 import { FileEditor } from '../components/FileEditor'
 import { MarkdownSplit } from '../components/MarkdownSplit'
+import { EditorBreadcrumb } from '../components/EditorBreadcrumb'
 import { newlyOpened, placeAppTabs, type Mirrors } from '../lib/workspaceMirror'
 import { RecordDetailHost } from '../components/RecordDetail'
 // core/types.ts imports this for UnderstandingApi but does not re-export it (unlike the block above),
@@ -25,7 +26,7 @@ import type { useSidebar } from './useSidebar'
 import type { useSettings } from './useSettings'
 import type { useRunPanel } from './useRunPanel'
 import { scopeKey } from './appConstants'
-import { Button } from '../components/ui'
+import { Button, Icon } from '../components/ui'
 
 export type ViewsDeps = Pick<ReturnType<typeof useLayout>,
     'activePaneId' | 'activePaneIdRef' | 'layout' | 'layoutRef' | 'sessions' | 'setActivePaneId' | 'setLayout' | 't'> &
@@ -114,11 +115,15 @@ export function useViews(deps: ViewsDeps) {
       <div className="workbench-body">
         <div className="file-editor-wrap">
           {buf.readOnly && !buf.loading && !buf.error && (
-            <div className="file-truncated">{t('files.editor.readOnlyReason')}</div>
+            <div className="notice-strip notice-strip--info file-truncated" role="status">
+              <Icon name="lock" size={14} />
+              <span className="notice-strip__text">{t('files.editor.readOnlyReason')}</span>
+            </div>
           )}
           {buf.conflict && (
-            <div className="file-conflict">
-              {t('files.editor.conflictChanged')}
+            <div className="notice-strip notice-strip--warn file-conflict" role="alert">
+              <Icon name="warning" size={14} />
+              <span className="notice-strip__text">{t('files.editor.conflictChanged')}</span>
               <Button size="sm" onClick={() => reloadBufferFromDisk(f.id)}>{t('files.editor.reload')}</Button>
               <Button size="sm" onClick={() => setFileBuffers((prev) => (prev[f.id] ? { ...prev, [f.id]: { ...prev[f.id], conflict: false } } : prev))}>{t('files.editor.keepMine')}</Button>
             </div>
@@ -139,6 +144,7 @@ export function useViews(deps: ViewsDeps) {
             onSave={() => saveFile(f.id)}
             editor={editor}
             editorView={mdViews[paneId] ?? null}
+            breadcrumb={<EditorBreadcrumb path={f.path} root={currentProject ?? undefined} />}
           />
           {buf.loading && <div className="file-overlay">{t('files.editor.loading')}</div>}
           {!buf.loading && buf.error && <div className="file-overlay">{buf.error}</div>}

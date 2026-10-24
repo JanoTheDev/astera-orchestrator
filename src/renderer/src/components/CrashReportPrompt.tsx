@@ -8,6 +8,7 @@ import { Button, Modal } from './ui'
 import { ErrorDetails } from './ErrorScreen'
 import { useI18n } from '../i18n/I18nProvider'
 import './search/errorScreen.css'
+import './sessionDialog.css'
 
 /** What the renderer sends about its own error: name and stack, never the message (it can carry a token). */
 export function errorShapeOf(
@@ -62,10 +63,10 @@ export function CrashReportPrompt({
         </>
       }
     >
-      <div className="dlg">
-        <p className="confirm-text">{t('crash.prompt.intro')}</p>
+      <div className="sd-body">
+        <p className="sd-text">{t('crash.prompt.intro')}</p>
         <ErrorDetails label={t('crash.prompt.reportLabel')} text={`${offer.title}\n\n${offer.body}`} defaultOpen />
-        <p className="modal-hint">{t('crash.prompt.kept')}</p>
+        <p className="sd-hint">{t('crash.prompt.kept')}</p>
       </div>
     </Modal>
   )

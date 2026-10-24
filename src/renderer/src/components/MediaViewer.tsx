@@ -7,6 +7,8 @@ import { mediaKindOf, mediaUrl, mediaVersion, reloadStep, resumeAt, type MediaSt
 import { parentDir } from '../../../core/files/paths'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
+import { resolveFileIcon } from '../../../core/files/icons'
+import { FileIcon } from './FileIcon'
 import { Button, Icon } from './ui'
 
 /** How often a viewer on screen re-reads the file's stat. An agent rewriting a clip while the person
@@ -99,14 +101,15 @@ export function MediaViewer({ path, active, nonce }: { path: string; active: boo
 
   return (
     <div className="media-viewer">
-      <div className="media-viewer-bar">
+      <div className="editor-header media-viewer-bar">
         <span className="media-viewer-title" title={path}>
+          <FileIcon {...resolveFileIcon(name)} />
           {name}
         </span>
         <span className="media-viewer-folder" title={folder}>
           {folder}
         </span>
-        <Button size="sm" icon={<Icon name="external" size={14} />} onClick={() => window.api.media.openExternal(path).catch(fail)}>
+        <Button size="sm" variant="ghost" icon={<Icon name="external" size={14} />} onClick={() => window.api.media.openExternal(path).catch(fail)}>
           {t('media.action.openExternal')}
         </Button>
         <Button size="sm" variant="ghost" icon={<Icon name="folder" size={14} />} onClick={() => window.api.media.reveal(path).catch(fail)}>

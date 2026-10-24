@@ -137,7 +137,26 @@ describe('TelegramInbox', () => {
     }
   })
 
-  it('answers a message that is not a reply with the injected hint, under the user message', async () => {
+  it('sends a message that is not a reply to the console, and never one from another chat', async () => {
+    vi.useFakeTimers({ now: NOW_MS })
+    try {
+      const toConsole = vi.fn(async () => {})
+      const h = setup(
+        [() => updates(upd(100, { reply_to_message: undefined, text: 'status?' }), upd(101, { reply_to_message: undefined, chat: { id: 43 } })), idle],
+        { console: toConsole }
+      )
+      h.inbox.start()
+      await flush()
+      expect(toConsole.mock.calls).toEqual([['status?', '100']])
+      expect(h.written).toEqual([])
+      expect(h.notes).toEqual([])
+      await h.inbox.stop()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('answers a message that is not a reply with the injected hint, under the user message, when no console is wired', async () => {
     vi.useFakeTimers({ now: NOW_MS })
     try {
       const h = setup([() => updates(upd(100, { reply_to_message: undefined })), idle])

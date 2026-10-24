@@ -64,6 +64,10 @@ export const tools: Partial<Record<keyof typeof ko, string>> = {
   'run.manager.moveDown': '下へ',
   'run.manager.folderNameDefault': '新しいフォルダー',
   'run.manager.renameFolder': 'フォルダー名を変更',
+  // Generate with AI: an agent session that reads the project and saves run configurations
+  'run.manager.generate': 'AI で生成',
+  'run.manager.generateEmpty': '実行構成がまだありません。エージェントがプロジェクトを読んで作成します。',
+  'run.manager.generateFailed': 'AI セッションを開始できませんでした: {detail}',
   'run.type.shell': 'Shell',
   'run.type.npm': 'npm',
   'run.type.node': 'Node.js',

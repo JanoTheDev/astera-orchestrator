@@ -981,6 +981,21 @@ describe('projects-add (remote runtime N5)', () => {
     expect(JSON.stringify(r.body)).toContain('not a git repository')
     expect(orch.state().projects).toEqual([])
   })
+  it('flags needsGitInit on the refusal, and --init-git makes the folder a repository and registers it', async () => {
+    const folder = path.join(dir, 'plain')
+    await fs.mkdir(folder)
+    await fs.writeFile(path.join(folder, 'a.txt'), 'mine')
+    const orch = orchOver()
+    const refused = await orch.call({ cmd: 'projects-add', args: { path: folder }, sessionId: '', from: cli })
+    expect(refused.status).toBe(400)
+    expect(refused.body).toMatchObject({ needsGitInit: true })
+    expect((await git(['rev-parse', '--git-dir'], { cwd: folder })).ok).toBe(false)
+    const r = await orch.call({ cmd: 'projects-add', args: { path: folder, initGit: true }, sessionId: '', from: cli })
+    expect(r.status).toBe(200)
+    expect(r.body).toMatchObject({ defaultBranch: 'main' })
+    expect((await git(['ls-files'], { cwd: folder })).stdout.split('\n').sort()).toEqual(['.gitignore', 'a.txt'])
+    expect(orch.state().projects).toHaveLength(1)
+  })
   it('answers 409 needsInitialCommit for a repository with no commit, committing and registering nothing', async () => {
     const folder = path.join(dir, 'fresh')
     await fs.mkdir(folder)
@@ -5116,5 +5131,61 @@ describe('orchestration marks on sessions (item 9)', () => {
     expect((await create('ses_coord')).status).toBe(200)
     expect((await create('')).status).toBe(200)
     expect(marks).toEqual([['ses_coord', runId], ['ses_new1', runId]])
+  })
+})
+
+describe('projects-github-create', () => {
+  const cli = { role: 'cli' as const, toOthers: () => {} }
+  const ghSpy = (ok = true) => {
+    const calls: { args: string[]; cwd: string }[] = []
+    return {
+      calls,
+      dep: { run: async (args: string[], cwd: string) => (calls.push({ args, cwd }), ok ? { ok: true, stdout: 'https://github.com/me/repo\n', stderr: '' } : { ok: false, stdout: '', stderr: 'not signed in' }) } as never
+    }
+  }
+  const run = (orch: ReturnType<typeof orchOver>, args: Record<string, unknown>, sessionId = '') =>
+    orch.call({ cmd: 'projects-github-create', args, sessionId, from: cli })
+
+  it('creates and pushes a private repository by default, and answers its URL', async () => {
+    const folder = await committedRepo()
+    const gh = ghSpy()
+    const r = await run(orchOver({ github: gh.dep }), { project: folder })
+    expect(r.status).toBe(200)
+    expect(r.body).toEqual({ url: 'https://github.com/me/repo' })
+    expect(gh.calls).toEqual([{ args: ['repo', 'create', 'repo', '--private', '--source', '.', '--push'], cwd: folder }])
+  })
+  it('--public asks for a public repository', async () => {
+    const folder = await committedRepo()
+    const gh = ghSpy()
+    await run(orchOver({ github: gh.dep }), { project: folder, public: true })
+    expect(gh.calls[0]!.args).toContain('--public')
+  })
+  it('refuses when origin exists, without calling gh', async () => {
+    const folder = await committedRepo()
+    await gitIn(folder, ['remote', 'add', 'origin', 'https://example.com/r.git'])
+    const gh = ghSpy()
+    const r = await run(orchOver({ github: gh.dep }), { project: folder })
+    expect(r.status).toBe(409)
+    expect(gh.calls).toEqual([])
+  })
+  it('reports a gh failure', async () => {
+    const folder = await committedRepo()
+    const r = await run(orchOver({ github: ghSpy(false).dep }), { project: folder })
+    expect(r.status).toBe(502)
+    expect(JSON.stringify(r.body)).toContain('not signed in')
+  })
+  it('refuses a bad project, both visibilities, a Host with no gh, and an agent session', async () => {
+    const folder = await committedRepo()
+    const plain = path.join(dir, 'plain')
+    await fs.mkdir(plain)
+    const gh = ghSpy()
+    const orch = orchOver({ github: gh.dep })
+    expect((await run(orch, {})).status).toBe(400)
+    expect((await run(orch, { project: 'relative' })).status).toBe(400)
+    expect((await run(orch, { project: plain })).status).toBe(400)
+    expect((await run(orch, { project: folder, private: true, public: true })).status).toBe(400)
+    expect((await run(orchOver(), { project: folder })).status).toBe(409)
+    expect((await run(orch, { project: folder }, 'sess-agent')).status).toBe(403)
+    expect(gh.calls).toEqual([])
   })
 })

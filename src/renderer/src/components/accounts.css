@@ -1,90 +1,98 @@
-/* ---------- account panel ---------- */
-.account-panel ul { list-style: none; padding: 0; }
-/* As the first element of .settings-content, the default top margin of a <ul> reads as padding above the tab area, so it is removed */
-.settings-accounts ul { list-style: none; padding: 0; margin: 0; }
-/* Wraps the hint together with the list — the gap of .settings-content applies only between direct
-   items, and the ul has margin:0, so without making this container a flex the hint sticks to the first
-   account row */
-.settings-accounts { display: flex; flex-direction: column; gap: 10px; }
-/* --row-pad-y 보다 일부러 1px 더 넉넉하다 — 밀도 토큰에 넣지 않았다. "고쳐" 5px→4px 로 맞추면 2px 만큼 눈에 보이게 좁아진다 */
-.account-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 5px 12px; border-left: 2px solid transparent; cursor: default; transition: background var(--ease), border-color var(--ease); }
+/* ---------- accounts: the activity-bar popover and Settings > Accounts ----------
+   One row shape (AccountRow) in two places: a flat list in the popover, a Card in Settings. Tokens only. */
+
+/* The popover: right of the activity bar, never wider than the window. */
+.tb-popover:has(> .account-panel) { width: calc(var(--sp-8) * 12.5); max-width: calc(100vw - 2 * var(--sp-4)); border: 1px solid var(--line-strong); }
+.account-panel { display: flex; flex-direction: column; }
+.acct-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--line); }
+.acct-head__title { display: flex; align-items: center; gap: var(--sp-2); margin: 0; font-size: var(--fs-13); font-weight: var(--fw-semi); color: var(--text); }
+.account-panel > .ui-empty { padding: var(--sp-6) var(--sp-4); }
+
+/* The list: rows separated by a hairline. */
+.acct-list { list-style: none; margin: 0; padding: 0; }
+.acct-row {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; column-gap: var(--sp-2); row-gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3); border-left: 2px solid transparent; cursor: default;
+  transition: background var(--ease), border-color var(--ease);
+}
+.acct-row + .acct-row { border-top: 1px solid var(--line-soft); }
+.acct-row:hover { background: var(--hover); }
 /* Only a row with a reading opens, and only that row is given tabindex — so the pointer follows
    the same rule rather than promising a click that does nothing */
-.account-row[tabindex] { cursor: pointer; }
-.account-row.expanded { background: var(--elevated); border-left-color: var(--accent); }
-.account-row-actions { display: inline-flex; align-items: center; gap: 8px; }
-/* W7-F (#82): the popover row's Sign in and Remove. Remove shows on hover or focus, so the list stays quiet. */
-.account-panel .account-row-actions { gap: 2px; }
-.account-panel .account-remove-btn, .account-panel .account-rename-btn { opacity: 0; }
-.account-panel .account-row:hover .account-remove-btn, .account-panel .account-row:focus-within .account-remove-btn, .account-panel .account-row:hover .account-rename-btn, .account-panel .account-row:focus-within .account-rename-btn { opacity: 1; }
-.account-panel .account-remove-btn:hover:not(:disabled) { color: var(--danger); }
-/* W11 (DESIGN-W11 §8, NOTES 12-accounts): the top bar's popover. Right-aligned under the meter (shell.css), never wider
-   than the window; the header is an overline with labelled icon buttons. */
-.tb-popover:has(> .account-panel) { width: 400px; max-width: calc(100vw - 2 * var(--sp-4)); border: 1px solid var(--line-strong); }
-.account-panel > .panel-header { flex-direction: row; align-items: center; justify-content: space-between; padding: var(--sp-2) var(--sp-2) var(--sp-1) var(--sp-3); }
-.account-panel > .panel-header h2 { margin: 0; text-transform: uppercase; color: var(--text-dim); font-size: var(--fs-11); font-weight: var(--fw-semi); letter-spacing: .04em; }
-.account-panel > ul { margin: 0; padding: 0 0 var(--sp-2); }
-.account-default { flex: none; }
-.account-signin-url { display: block; color: var(--accent); margin: 8px 0; font-family: var(--mono); font-size: var(--fs-11); word-break: break-all; max-height: 4.5em; overflow: auto; }
-/* A line under an account row (the Higgsfield login hint): the row wraps, so it takes a line of its own. */
-.account-row-hint { flex-basis: 100%; }
-/* A problem with the whole tab (the Higgsfield CLI program is missing), above everything else in it. */
-.settings-warn-box { padding: 8px 12px; font-size: var(--fs-12); color: var(--warn-ink); background: var(--warn-bg); border: 1px solid var(--warn-line); border-radius: var(--radius); }
-.account-row:hover { background: var(--elevated); border-left-color: var(--accent); }
-.account-label { flex: 1; min-width: 0; font-size: var(--fs-12); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.account-label-edit { flex: 1; min-width: 0; font-size: var(--fs-12); padding: 0 4px; } /* W7-F: renaming an account */
-.color-dot { width: 8px; height: 8px; border-radius: var(--radius-sm); flex-shrink: 0; }
-.account-row .color-dot { width: 9px; height: 9px; }
-.account-signin-code { display: flex; align-items: flex-end; gap: var(--sp-2); }
-.account-signin-code .ui-field { flex: 1; }
-.badge { font-size: var(--fs-11); font-family: var(--mono); color: var(--text-dim); background: var(--elevated); border-radius: var(--radius-sm); padding: 0 4px; flex-shrink: 0; }
-.badge.ok { color: var(--ok); background: var(--ok-bg); }
-/* The account row's usage meter (design doc §5). W9-B: each track is the house Meter (components/ui), on its usage-guard
-   thresholds. W11: each line is labelled — "5h ▬ 12%" over "Weekly ▬ 41%". */
-.acct-meter { width: 132px; flex: none; display: flex; flex-direction: column; gap: 2px; }
-.acct-meter__line { display: grid; grid-template-columns: 6ch 1fr 6ch; align-items: center; gap: 6px; font-size: var(--fs-11); line-height: var(--lh-tight); font-variant-numeric: tabular-nums; }
+.acct-row[tabindex] { cursor: pointer; }
+.acct-row[tabindex]:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.acct-row--open { background: var(--elevated); border-left-color: var(--accent); }
+
+/* The account's colour, as a mark; the name beside it says which account it is, so colour carries no meaning alone. */
+.acct-mark { width: var(--sp-3); height: var(--sp-3); border-radius: var(--radius-pill); flex: none; }
+.acct-id { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.acct-id__line { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; }
+.acct-id__name { min-width: 0; font-size: var(--fs-13); font-weight: var(--fw-medium); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct-id__edit { flex: 1; min-width: 0; }
+.acct-id__email { font-size: var(--fs-11); color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct-row__actions { display: inline-flex; align-items: center; gap: var(--sp-1); }
+
+/* Usage: two labelled meters under the name (design doc §5). Each track is the house Meter on its usage-guard thresholds. */
+.acct-meter { grid-column: 2 / -1; display: flex; flex-direction: column; gap: var(--sp-1); }
+.acct-meter__line { display: grid; grid-template-columns: 6ch 1fr 6ch; align-items: center; gap: var(--sp-2); font-size: var(--fs-11); line-height: var(--lh-tight); font-variant-numeric: tabular-nums; }
 .acct-meter__k { color: var(--text-faint); }
 .acct-meter__v { color: var(--text); display: inline-flex; align-items: center; justify-content: flex-end; gap: 2px; }
 .acct-near--warn { color: var(--warn); }
 .acct-near--danger { color: var(--danger); }
-.acct-meter .ui-meter__track, .acct-detail .t .ui-meter__track { height: 3px; }
-/* A remembered reading — the same convention .pr-badge.stale uses for a stale snapshot */
-.acct-meter.stale { opacity: .45; }
-/* The click detail (design doc §5.1). `flex-basis: 100%` puts it on its own line inside the row's
-   own flex box, so the row grows downward and the rows beneath simply move — no overlay, no
-   z-index, and nothing to flip near the bottom of the panel. Hover never opens it: a row that
-   expanded under a travelling pointer would push the row you were aiming at out from under it,
-   which is why the pointer opens nothing and a click opens exactly one. */
-.acct-detail {
-  flex: 0 0 100%;
-  display: flex; flex-direction: column; gap: 4px;
-  margin-top: 5px; padding-top: 6px;
-  border-top: 1px solid var(--line-soft);
-}
-.acct-detail .dline { display: flex; align-items: center; gap: 7px; font-size: var(--fs-11); font-variant-numeric: tabular-nums; }
-.acct-detail .k { color: var(--text-faint); width: 4.6ch; flex: none; }
+/* A remembered reading — dimmed by colour, not opacity, and the detail says when it was read */
+.acct-meter.stale { --ui-meter-fill: var(--text-faint); color: var(--text-faint); }
+.acct-meter.stale .acct-meter__v { color: var(--text-faint); }
+
+/* The click detail (design doc §5.1): a section under the row, in flow, so opening it moves the rows beneath instead
+   of covering them. Hover never opens it: a row that grew under a travelling pointer would push the row you were
+   aiming at out from under it. */
+.acct-detail { grid-column: 1 / -1; display: flex; flex-direction: column; gap: var(--sp-1); padding-top: var(--sp-2); border-top: 1px solid var(--line-soft); }
+.acct-detail .dline { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-11); font-variant-numeric: tabular-nums; }
+.acct-detail .dline--faint { color: var(--text-faint); }
+.acct-detail .k { color: var(--text-faint); width: 6ch; flex: none; }
 .acct-detail .v { color: var(--text); width: 6ch; flex: none; display: inline-flex; align-items: center; justify-content: flex-end; gap: 2px; font-weight: var(--fw-semi); }
 .acct-detail .t { flex: 1; }
-.acct-detail .r { color: var(--text-faint); width: 6.4ch; flex: none; text-align: right; }
-.acct-detail-stale { margin-top: 1px; padding-top: 5px; border-top: 1px solid var(--line-soft); font-size: var(--fs-11); color: var(--text-faint); }
-/* provider badge — shared by account rows, the detection list, and history entries */
-.provider-badge { flex: none; display: inline-flex; align-items: center; line-height: 1; opacity: 0.85; }
+.acct-detail .r { color: var(--text-faint); width: 8ch; flex: none; text-align: right; }
+.acct-detail-stale { padding-top: var(--sp-1); border-top: 1px solid var(--line-soft); font-size: var(--fs-11); color: var(--text-faint); }
+
+/* Settings > Accounts: the list in a Card, the per-account caps in another. */
+.acct-settings { display: flex; flex-direction: column; gap: var(--sp-3); }
+.acct-card { padding: 0; overflow: hidden; }
+.acct-limits { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-3); }
+.acct-card__title { font-size: var(--fs-13); font-weight: var(--fw-medium); color: var(--text); }
+
+/* Dialog bodies: add, import, sign in, sync, remove. */
+.acct-form { display: flex; flex-direction: column; gap: var(--sp-3); }
+.acct-note { margin: 0; font-size: var(--fs-13); line-height: var(--lh); color: var(--text); }
+.acct-note--faint { font-size: var(--fs-12); color: var(--text-faint); }
+.acct-note--warn { font-size: var(--fs-12); color: var(--warn); }
+.acct-actions { display: flex; align-items: center; gap: var(--sp-2); }
+.acct-actions .ui-btn { white-space: nowrap; }
+.acct-signin-url { display: block; color: var(--accent); font-family: var(--mono); font-size: var(--fs-11); word-break: break-all; max-height: 4.5em; overflow: auto; }
+.acct-signin-code { display: flex; align-items: flex-end; gap: var(--sp-2); }
+.acct-signin-code .ui-field { flex: 1; }
+.acct-detect { list-style: none; margin: 0; padding: 0; max-height: calc(var(--sp-10) * 8); overflow-y: auto; display: flex; flex-direction: column; }
+.acct-detect__row { display: flex; align-items: flex-start; gap: var(--sp-2); padding: var(--sp-2) var(--sp-1); border-bottom: 1px solid var(--line-soft); }
+.acct-detect__main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
+.acct-detect__path { font-size: var(--fs-11); color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- shared with other screens ----------
+   Defined here for ConfirmHost, History, Higgsfield, the new-session dialogs and ProviderBadge. Not used by the
+   accounts views above. */
+.provider-badge { flex: none; display: inline-flex; align-items: center; line-height: 1; }
 .provider-badge.claude { color: var(--brand-claude); font-size: var(--fs-11); }
 .provider-badge.codex { color: var(--brand-codex); } /* the OpenAI mark — its size is set by the svg attributes */
-/* 확인 창 안의 곁가지 선택들. 본문과 버튼 줄 사이에 서므로 위아래 여백을 스스로 갖는다 */
-.confirm-choices { display: flex; flex-direction: column; gap: 8px; margin: 2px 0; }
-/* 그 선택이 무엇을 잃게 하는지 — 라벨 아래 줄로 내려 붙는다(경고가 아니라 사실이라 톤은 흐리게) */
+.color-dot { width: var(--sp-2); height: var(--sp-2); border-radius: var(--radius-sm); flex-shrink: 0; }
+.confirm-choices { display: flex; flex-direction: column; gap: var(--sp-2); margin: 2px 0; }
 .confirm-choice-hint { display: block; margin-top: 2px; font-size: var(--fs-11); color: var(--text-faint); }
-.confirm-text { font-size: var(--fs-13); color: var(--text); line-height: 1.5; margin: 0 0 12px; }
-.toggle-row { display: flex; align-items: center; gap: 8px; font-size: var(--fs-12); color: var(--text-dim); cursor: pointer; user-select: none; }
-.warn-text { font-size: var(--fs-12); color: var(--warn); line-height: 1.5; margin: 8px 0 0; }
-.empty { color: var(--text-faint); font-size: var(--fs-11); padding: 6px 12px; }
-
-.account-signin .row button { white-space: nowrap; } /* W7-F (#82) */
-
-/* DESIGN-W13 §3: the Accounts popover is one compact list: dot, label, provider, Default, the 5h / week meters, a "⋯" menu on hover; Add, Import and Detect in the footer. */
-.account-panel .account-row { flex-wrap: wrap; padding: var(--sp-1) var(--sp-3); border-left-width: 2px; min-height: var(--list-row-h); }
-.account-panel .account-row .ui-menu { opacity: 0; }
-.account-panel .account-row:hover .ui-menu, .account-panel .account-row:focus-within .ui-menu, .account-panel .account-row .ui-menu:has([aria-expanded='true']) { opacity: 1; }
-.account-panel .acct-meter { width: 148px; }
-.account-panel__foot { display: flex; flex-wrap: wrap; gap: var(--sp-1); padding: var(--sp-1) var(--sp-2); border-top: 1px solid var(--line); }
+.confirm-text { font-size: var(--fs-13); color: var(--text); line-height: var(--lh); margin: 0 0 var(--sp-3); }
+.badge { font-size: var(--fs-11); font-family: var(--mono); color: var(--text-dim); background: var(--elevated); border-radius: var(--radius-sm); padding: 0 var(--sp-1); flex-shrink: 0; }
+.badge.ok { color: var(--ok); background: var(--ok-bg); }
+.empty { color: var(--text-faint); font-size: var(--fs-11); padding: var(--sp-2) var(--sp-3); }
+.settings-warn-box { padding: var(--sp-2) var(--sp-3); font-size: var(--fs-12); color: var(--warn-ink); background: var(--warn-bg); border: 1px solid var(--warn-line); border-radius: var(--radius); }
+/* Higgsfield's account list (HiggsfieldSettings) */
+.account-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); padding: var(--sp-1) var(--sp-3); }
+.account-row:hover { background: var(--hover); }
+.account-row-actions { display: inline-flex; align-items: center; gap: var(--sp-2); }
+.account-row-hint { flex-basis: 100%; }
+.account-label { flex: 1; min-width: 0; font-size: var(--fs-12); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

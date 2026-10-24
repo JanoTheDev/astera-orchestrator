@@ -27,6 +27,7 @@ const base = (over: Partial<Parameters<typeof hostOrchDeps>[0]> = {}): Parameter
   onAppRequired: () => {},
   readAccounts: vi.fn().mockResolvedValue([]),
   readRunConfigs: vi.fn().mockResolvedValue([]),
+  writeRunConfig: vi.fn(),
   sessions: { listSessions: async () => [], readSession: async () => ({ cols: 80, rows: 24, screen: [], scrollback: [] }), sendSession: async () => {}, readChat: async () => [], sendChat: async () => {}, serial: (_id, run) => run() },
   ...over
 })

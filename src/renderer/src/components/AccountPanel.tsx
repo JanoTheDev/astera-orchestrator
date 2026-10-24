@@ -10,7 +10,7 @@ import { ProviderBadge } from './ProviderBadge'
 import { AccountRow } from './AccountRow'
 import { AccountSignInDialog } from './AccountSignIn'
 import { RemoveAccountDialog } from './AccountSettings'
-import { Button, Chip, EmptyState, Field, ICONS, Icon, Input, Modal, Tabs, Checkbox, type MenuItem } from './ui'
+import { Badge, Button, Chip, EmptyState, Field, ICONS, Icon, Input, Modal, Tabs, Checkbox, Toolbar, type MenuItem } from './ui'
 
 interface DetectItem {
   configDir: string
@@ -243,12 +243,20 @@ export function AccountPanel({ accounts }: { accounts: Account[] }): React.JSX.E
 
   return (
     <section className="account-panel">
-      <header className="panel-header">
-        <h2>
-          {t('account.panel.title')} <span className="count">{accounts.length}</span>
+      <header className="acct-head">
+        <h2 className="acct-head__title">
+          {t('account.panel.title')} <Badge>{accounts.length}</Badge>
         </h2>
+        <Toolbar
+          label={t('account.panel.title')}
+          items={[
+            { id: 'add', icon: <Icon name="add" size={14} />, label: t('accounts.add'), onClick: openAdd },
+            { id: 'import', icon: <Icon name="folderAdd" size={14} />, label: t('accounts.import'), onClick: () => void startImport() },
+            { id: 'detect', icon: <Icon name="search" size={14} />, label: t('accounts.detect'), onClick: () => void runDetect(false) }
+          ]}
+        />
       </header>
-      <ul>
+      <ul className="acct-list">
         {accounts.map((a) => (
           <AccountRow
             key={a.id}
@@ -263,20 +271,13 @@ export function AccountPanel({ accounts }: { accounts: Account[] }): React.JSX.E
           >
             {/* W7-F (#82): sign in from the row itself. `false`, not undefined: no button before the login check has answered. */}
             {loginMap[a.id] === false && (
-              <Button size="sm" variant="ghost" className="account-signin-btn" icon={<Icon name="login" size={14} />} onClick={() => setSignInTarget(a)}>
+              <Button size="sm" variant="ghost" icon={<Icon name="login" size={14} />} onClick={() => setSignInTarget(a)}>
                 {t('account.signIn.button')}
               </Button>
             )}
           </AccountRow>
         ))}
       </ul>
-      {(
-        <footer className="account-panel__foot">
-          <Button size="sm" variant="ghost" icon={<Icon name="add" size={14} />} onClick={openAdd}>{t('accounts.add')}</Button>
-          <Button size="sm" variant="ghost" icon={<Icon name="folderAdd" size={14} />} onClick={() => void startImport()}>{t('accounts.import')}</Button>
-          <Button size="sm" variant="ghost" icon={<Icon name="search" size={14} />} onClick={() => void runDetect(false)}>{t('accounts.detect')}</Button>
-        </footer>
-      )}
       {accounts.length === 0 && (
         <EmptyState
           icon={ICONS.users}
@@ -307,7 +308,7 @@ export function AccountPanel({ accounts }: { accounts: Account[] }): React.JSX.E
         >
             <form
               id="add-account-form"
-              className="dlg"
+              className="acct-form"
               onSubmit={(e) => {
                 e.preventDefault()
                 void submitAdd()
@@ -322,16 +323,10 @@ export function AccountPanel({ accounts }: { accounts: Account[] }): React.JSX.E
                 onChange={(e) => setAddLabel(e.target.value)}
               />
               {/* Shown for both providers — claude and codex each import from their own default account */}
-              <label className="toggle-row">
-                <Checkbox
-                  checked={addCopySettings}
-                  onChange={(v) => setAddCopySettings(v)}
-                />
-                <span>{t('account.add.copySettingsLabel')}</span>
-              </label>
+              <Checkbox checked={addCopySettings} onChange={(v) => setAddCopySettings(v)} label={t('account.add.copySettingsLabel')} />
               {/* The login-procedure hint is per-CLI prose, so it is not folded behind a capability flag.
                   Same category as ProviderBadge's icon choice — adding a provider means writing new text. */}
-              <p className="modal-hint">
+              <p className="acct-note acct-note--faint">
                 {addProvider === 'claude'
                   ? t('account.add.loginHintClaude')
                   : t('account.add.loginHintCodex')}
@@ -358,7 +353,7 @@ export function AccountPanel({ accounts }: { accounts: Account[] }): React.JSX.E
         >
             <form
               id="import-account-form"
-              className="dlg"
+              className="acct-form"
               onSubmit={(e) => {
                 e.preventDefault()
                 void submitImport()
@@ -401,26 +396,26 @@ export function AccountPanel({ accounts }: { accounts: Account[] }): React.JSX.E
             </>
           }
         >
-          <div className="dlg detect">
+          <div className="acct-form">
             {detectItems.length === 0 ? (
               <EmptyState icon={ICONS.search} title={t('account.detect.empty')} />
             ) : (
-              <ul className="detect-list">
+              <ul className="acct-detect">
                 {detectItems.map((item, idx) => (
-                  <li key={item.configDir} className="detect-row">
+                  <li key={item.configDir} className="acct-detect__row">
                     <Checkbox
                       checked={item.selected}
                       aria-label={item.label}
                       onChange={() => toggleDetectItem(idx)}
                     />
                     <ProviderBadge provider={item.provider} />
-                    <div className="detect-main">
+                    <div className="acct-detect__main">
                       <Input
                         aria-label={t('account.field.label')}
                         value={item.label}
                         onChange={(e) => setDetectLabel(idx, e.target.value)}
                       />
-                      <span className="detect-path">{item.configDir}</span>
+                      <span className="acct-detect__path">{item.configDir}</span>
                     </div>
                     <Chip tone={item.loggedIn ? 'ok' : 'warn'} dot>
                       {item.loggedIn ? t('account.status.loggedIn') : t('account.status.notLoggedIn')}

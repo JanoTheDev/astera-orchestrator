@@ -52,6 +52,7 @@ export const shell: Partial<Record<keyof typeof ko, string>> = {
   'shell.manage.keys': 'キーボードショートカット',
   'shell.manage.checkUpdates': 'アップデートを確認',
   'shell.sidebar.resize': 'サイドバーのサイズを変更',
+  'shell.viewpane.resize': 'セクションのサイズを変更',
   'shell.commandCenter': '検索またはコマンドを実行',
   'shell.panel.label': 'パネル',
   'shell.panel.needs': '要対応',
@@ -88,4 +89,10 @@ export const shell: Partial<Record<keyof typeof ko, string>> = {
   'shell.welcome.keyPanel': 'パネルの表示/非表示',
   'shell.welcome.keySettings': '設定',
   'shell.welcome.keyAgents': 'エージェントビュー',
+  // T10 Astera console (bottom panel)
+  'shell.panel.console': 'コンソール',
+  'shell.console.starting': 'Astera コンソールを開いています…',
+  'shell.console.ended': 'Astera コンソールは終了しました',
+  'shell.console.failed': 'Astera コンソールを開けませんでした',
+  'shell.console.start': 'もう一度開始',
 }

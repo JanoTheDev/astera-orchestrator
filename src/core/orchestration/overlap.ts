@@ -12,7 +12,7 @@
 // decision out.
 import { jobNameOf } from './jobName'
 import { isJobActive } from './lifecycle'
-import { outcomeOfTasks } from './running'
+import { outcomeOfRun } from './running'
 // T1 the main plan
 import { activeOrQueued, externalDepsOf, holdExternalDeps, mainPlanOf, otherPlansOf, planIdOf, planTasksOf } from './mainPlan'
 import { isLeaseWaitGate, LEASE_WAIT_OPTIONS, leasesByProject, pathsOverlap, planOutranks, projectKeyOf, sameFilesAs, serialFilesOf } from './schedule'
@@ -384,7 +384,9 @@ export function planOverlapWarnings(s: OrchState, jobId: string): string[] {
   const plan = new Map(s.jobs.map((j) => [j.id, j]))
   const open = overlapsOf(job, s).filter((o) => {
     const other = plan.get(o.jobId)
-    return other !== undefined && (other.pendingStart === true || outcomeOfTasks(planTasksOf(s, other)) === 'running')
+    if (other === undefined) return false
+    const run = s.runs.filter((r) => r.jobId === other.id).sort((a, b) => a.ordinal - b.ordinal).at(-1)
+    return other.pendingStart === true || outcomeOfRun(planTasksOf(s, other), run, s) === 'running'
   })
   return overlapLines(s, { ...job, overlaps: open })
 }

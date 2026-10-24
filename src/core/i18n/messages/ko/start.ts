@@ -87,4 +87,7 @@ export const start = {
   'start.adv.replanHint': '이전 단계의 결과를 보고 플래너가 다음 단계를 조정할 수 있습니다.',
   'start.adv.replan.waves': '각 단계마다 다시 계획',
   'start.adv.replan.off': '처음 계획을 그대로 유지',
+  // T4: paste to attach
+  'start.paste.failed': '{name} 첨부 실패',
+  'start.attach.hint': '파일을 붙여넣거나 끌어다 놓으면 첨부됩니다',
 } as const

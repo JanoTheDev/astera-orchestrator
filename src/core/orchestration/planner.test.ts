@@ -6,7 +6,7 @@ import path from 'node:path'
 import { handleCommand, type OrchServerDeps } from './command'
 import { emptyState, startJobRun, type OrchState } from './state'
 import type { Task } from './types'
-import { cancelPlanTask, editPlanTask, kindOf, planFileOf, renderPlanFolder, renderPlanMd, renderTaskMd, validatePlan, workerSpecOf } from './planner'
+import { cancelPlanTask, editPlanTask, kindOf, planFileOf, planWarnings, renderPlanFolder, renderPlanMd, renderTaskMd, validatePlan, workerSpecOf } from './planner'
 import { OrchestrationStore } from './store'
 import { replanProblems } from './exec/replanStart'
 import { deriveActivity } from './activity'
@@ -397,10 +397,57 @@ describe('validatePlan', () => {
   it('names a Task without affected paths, but not one the app made for a merge', async () => {
     const { r, jobId } = await planWith()
     const t = (await planner(r)('task-create', goodTask(jobId, { affectedPaths: undefined }))).body as { id: string }
-    expect(validatePlan(r.deps.getState(), jobId)).toEqual([`Task ${t.id} (form) names no files (--affected-paths)`])
+    expect(validatePlan(r.deps.getState(), jobId)).toEqual([expect.stringContaining(`Task ${t.id} (form) names no files (--affected-paths`)])
     const s = r.deps.getState()
     const merge = { ...s, tasks: s.tasks.map((x) => (x.id === t.id ? { ...x, parentId: 'tsk_other' } : x)) }
     expect(validatePlan(merge, jobId)).toEqual([])
+  })
+
+  it('accepts an ops, audit or docs Task that says --no-files, and still refuses one with no paths and no flag', async () => {
+    const { r, jobId } = await planWith()
+    const t = (await planner(r)('task-create', goodTask(jobId, { affectedPaths: undefined, kind: 'ops', noFiles: true }))).body as { id: string }
+    expect(validatePlan(r.deps.getState(), jobId)).toEqual([])
+    expect(r.deps.getState().tasks.find((x) => x.id === t.id)?.noFiles).toBe(true)
+    const bare = (await planner(r)('task-create', goodTask(jobId, { title: 'bare', affectedPaths: undefined, kind: 'ops' }))).body as { id: string }
+    expect(validatePlan(r.deps.getState(), jobId)).toEqual([expect.stringContaining(`Task ${bare.id} (bare) names no files`)])
+  })
+
+  it('refuses --no-files on a feature Task, and next to --affected-paths', async () => {
+    const { r, jobId } = await planWith()
+    const feature = (await planner(r)('task-create', goodTask(jobId, { affectedPaths: undefined, kind: 'feature', noFiles: true }))).body as { id: string }
+    expect(validatePlan(r.deps.getState(), jobId)).toEqual([expect.stringContaining(`Task ${feature.id} (form) says --no-files but is not --kind ops|audit|docs`)])
+    const both = await planner(r)('task-create', goodTask(jobId, { kind: 'ops', noFiles: true }))
+    expect(both.status).toBe(400)
+  })
+
+  it('a --no-files Task overlaps no other Task', async () => {
+    const { r, jobId } = await planWith()
+    await serialFiles(r, jobId)
+    await planner(r)('task-create', goodTask(jobId, { title: 'a', affectedPaths: ['src/ui'] }))
+    await planner(r)('task-create', goodTask(jobId, { title: 'b', affectedPaths: undefined, kind: 'audit', noFiles: true }))
+    expect(validatePlan(r.deps.getState(), jobId)).toEqual([])
+  })
+
+  it('task-create and task-update answer with the problems approval would find in that Task', async () => {
+    const { r, jobId } = await planWith()
+    const made = await planner(r)('task-create', goodTask(jobId, { affectedPaths: undefined, kind: 'ops' }))
+    const id = (made.body as { id: string }).id
+    expect((made.body as { warnings: string[] }).warnings).toEqual([expect.stringContaining('names no files')])
+    const fixed = await planner(r)('task-update', { id, noFiles: true })
+    expect((fixed.body as { warnings?: string[] }).warnings).toBeUndefined()
+    const wrong = await planner(r)('task-update', { id, kind: 'feature' })
+    expect((wrong.body as { warnings: string[] }).warnings).toEqual([expect.stringContaining('says --no-files but is not --kind')])
+  })
+
+  it('warns the planner, never the owner, when the plan has no real name', async () => {
+    const { r, jobId } = await planWith()
+    expect(planWarnings(r.deps.getState(), jobId)).toEqual([expect.stringContaining(`astera jobs rename --id ${jobId}`)])
+    const s = r.deps.getState()
+    const job = s.jobs.find((j) => j.id === jobId)!
+    const titled = (title: string) => ({ ...s, jobs: s.jobs.map((j) => (j.id === jobId ? { ...j, title } : j)) })
+    expect(planWarnings(titled(job.objective), jobId)).toHaveLength(1)
+    expect(planWarnings(titled('Login form'), jobId)).toEqual([])
+    expect(validatePlan(s, jobId).join()).not.toContain('real name')
   })
 
   it('names two parallel Tasks whose paths overlap (folder vs file), and accepts a dep chain', async () => {

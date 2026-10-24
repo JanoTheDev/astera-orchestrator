@@ -209,7 +209,7 @@ describe('공개 표면 — 두 낱말 명령', () => {
   })
 
   it('동사가 없으면 무엇을 칠 수 있는지 말한다', () => {
-    expect(parseArgs(['projects'])).toEqual({ error: 'projects needs one of: list, get, find, add, set, create, remove' })
+    expect(parseArgs(['projects'])).toEqual({ error: 'projects needs one of: list, get, find, add, set, create, remove, github-create' })
     expect(parseArgs(['jobs'])).toEqual({ error: 'jobs needs one of: list, get, wait, run, create, create-from-source, rename, archive, unarchive, plan, set, feedback, reject, overlaps' })
   })
 
@@ -264,7 +264,7 @@ describe('공개 표면 — 두 낱말 명령', () => {
     expect(parseArgs(['run-configs'])).toMatchObject({ cmd: 'run-configs' })
     expect(parseArgs(['run-configs', '--json'])).toMatchObject({ cmd: 'run-configs', json: true })
     expect(parseArgs(['run-configs', 'fly'])).toEqual({
-      error: 'unknown run-configs subcommand: fly (expected list)'
+      error: 'unknown run-configs subcommand: fly (expected list, add)'
     })
   })
 

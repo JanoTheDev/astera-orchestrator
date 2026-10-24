@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   contextMenuPoint, FOCUSABLE, isTypeaheadKey, listboxKeyAction, menuKeyAction, moveIndex, nextFocusIndex, readSectionOpen, sectionStorageKey,
-  TYPEAHEAD_PAUSE_MS, typeaheadBuffer, typeaheadIndex, writeSectionOpen, sashSize, sashKeyDelta, badgeText
+  TYPEAHEAD_PAUSE_MS, typeaheadBuffer, typeaheadIndex, writeSectionOpen, readPaneSize, writePaneSize, paneResize, sashSize, sashKeyDelta, badgeText
 } from './logic'
 
 describe('nextFocusIndex', () => {
@@ -194,5 +194,23 @@ describe('Sash and ActivityBarItem helpers', () => {
     expect(badgeText(9)).toBe('9')
     expect(badgeText(10)).toBe('9+')
     expect(badgeText(250)).toBe('9+')
+  })
+
+  it('paneResize trades height between the pair above the sash and clamps to the minimum', () => {
+    expect(paneResize([200, 300, 100], 1, 350, 40)).toEqual([150, 350, 100])
+    expect(paneResize([200, 300, 100], 1, 10, 40)).toEqual([460, 40, 100])
+    expect(paneResize([200, 300, 100], 2, 999, 40)).toEqual([200, 40, 360])
+    expect(paneResize([200, 300], 0, 50, 40)).toEqual([200, 300])
+  })
+
+  it('pane sizes round-trip through storage and ignore junk', () => {
+    const m = new Map<string, string>()
+    const s = { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v) }
+    expect(readPaneSize(s, 'a')).toBeUndefined()
+    writePaneSize(s, 'a', 123.4)
+    expect(readPaneSize(s, 'a')).toBe(123)
+    m.set('cm.section.a.size', 'x')
+    expect(readPaneSize(s, 'a')).toBeUndefined()
+    expect(readPaneSize(undefined, 'a')).toBeUndefined()
   })
 })

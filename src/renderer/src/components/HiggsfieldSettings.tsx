@@ -229,7 +229,7 @@ export function HiggsfieldSettings(): React.JSX.Element {
           onConfirm={() => void confirmRemove()}
           onCancel={() => setRemoveTarget(null)}
         >
-          <p className="confirm-text">{t('higgsfield.removeConfirm', { label: removeTarget.label })}</p>
+          <p>{t('higgsfield.removeConfirm', { label: removeTarget.label })}</p>
         </ConfirmDialog>
       )}
     </div>

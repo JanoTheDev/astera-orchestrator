@@ -27,6 +27,7 @@ import type { TelegramConfig } from '../core/telegram/config'
 import { codexRolloutFromNote, type CodexRolloutWatcher } from '../core/sessions/codexRolloutWatcher'
 import type { DesktopNotifier } from './desktopNotifier'
 import { startActivityNotices } from './activityNotices'
+import { approvalDefaultOf } from '../core/settings/approvalDefault'
 import { ACTIVITY_DIGEST_MAX_MINUTES } from '../core/settings/activityDigest'
 import type { SessionSignalForwarder } from './sessionSignals'
 import type { DesktopNotifySettings } from '../core/notify/settings'
@@ -59,6 +60,7 @@ import { clampAppSize } from '../core/workspace/size'
 import { createHostMcpHttpView, type HostMcpHttpView } from './host/hostMcpHttp'
 import { heavyJobsAtOnceOf } from '../core/settings/heavyJobs'
 import { machineSpecs } from '../core/settings/machineSpecs'
+import { githubDefaultsOf, githubDefaultsRefusal } from '../core/settings/githubDefaults'
 import { mcpHttpHostsProblem, mcpHttpOf, type McpHttpSettings } from '../core/settings/mcpHttp'
 import { createTokenReader, newToken, tokenPath } from '../core/mcp/httpToken'
 import { createOfflineRolls } from './host/offlineRolls'
@@ -90,6 +92,7 @@ import { transcribe } from '../core/intents/transcribe'
 import { parseWithCoordinator } from '../core/intents/parseRun'
 import type { ModelListResult } from '../core/models/types'
 import { attachmentNameOf } from '../core/files/attachmentName'
+import { MAX_ATTACHMENT_BYTES, saveClipboardFile } from './intakePaste'
 import { devInstallOverride, installCommandFor } from '../core/install/cliInstall'
 import { addToProfile, findAfterInstall, locateCli, runInstallCommand } from './cliLocate'
 import { mcpClientsStatus, registerMcpClientNow } from './mcpClients'
@@ -175,6 +178,7 @@ import { snapshotFor, jobsForProject, outcomeOf } from '../core/orchestration/vi
 import { createOrchPush } from './orchPush'
 import { dropNonGitProjects, ensureGitProject, findProjectContaining } from '../core/orchestration/projects'
 import { mainRepoRoot } from '../core/projects/detect'
+import { hasOriginRemote } from '../core/projects/create'
 import { emptyState, resolveRunId } from '../core/orchestration/state'
 import { runRecordInputOf } from '../core/orchestration/runRecord'
 import type { CliInstallStatus, WorktreeInfo } from '../core/types'
@@ -287,7 +291,7 @@ import { listComposeServices } from './composeScanner'
 import { listDotnetProjects } from './dotnetScanner'
 import { loadRunConfigs, prepareLaunch } from '../core/run/prepare'
 import { withTestCommand } from '../core/projects/detect' // W7-B
-import { allowingJobCwds, orchRunConfigOf } from '../core/run/runConfigsFile'
+import { addRunConfig, allowingJobCwds, orchRunConfigOf } from '../core/run/runConfigsFile'
 import { executeLaunch } from './run/launch'
 import { agentDirOf, folderToOpen, resolveConsolePath, resolveExistingPath } from './run/resolveLink'
 import { mediaAllowlist } from './media/allowlist'
@@ -429,9 +433,6 @@ export interface HostWiring {
  *  handleCommand 는 caller.sessionId 가 Dispatch 를 가진 적이 있으면 워커로 보고 COORDINATOR_ONLY
  *  명령을 막는다. 겹치면 앱이 워커로 오인되어 Task 를 만들 수 없게 된다. 세션 id 는 randomUUID
  *  (core/sessions/manager.ts)이므로 콜론이 들어갈 자리가 없다. */
-/** The most this will write for one dropped or pasted file. A prompt attachment is a screenshot or a
- *  document, not a disk image, and the cap is what keeps a stray drop from filling a disk. */
-const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
 
 // The same string core's handleCommand lets send the driving loop's own calls (APP_CALLER).
 const UI_CALLER = APP_CALLER
@@ -3524,6 +3525,13 @@ export function registerIpc(
         await core.runConfig.save(projectPath, next.configs)
         return next.id
       },
+      // T12: `run-configs add` while the app is up — through the app's store, so its copy stays the file's
+      addRunConfig: async (projectPath, config) => {
+        await assertAllowedPath(projectPath)
+        const added = await addRunConfig({ projectPath, stored: core.runConfig.get(projectPath), input: config })
+        if (added.ok) await core.runConfig.save(projectPath, added.configs!)
+        return added
+      },
       setProjectAccount: (projectPath, accountId) => core.projects.setDefaultAccount(projectPath, accountId),
       handoffs: {
         save: async (sessionId, body) => {
@@ -4305,6 +4313,7 @@ export function registerIpc(
   // projects
   ipcMain.handle('projects.getDefaultAccount', (_e, p) => core.projects.getDefaultAccount(p))
   ipcMain.handle('projects.setDefaultAccount', (_e, p, id) => core.projects.setDefaultAccount(p, id))
+  ipcMain.handle('projects.hasOrigin', (_e, p) => hasOriginRemote(p))
 
   // The in-use verdict before a delete — settled from the sessions and run processes the app owns.
   // Used for worktrees and, in the history tab, for the project whose transcripts are being removed.
@@ -4467,6 +4476,12 @@ export function registerIpc(
     if (typeof n !== 'number' || !Number.isInteger(n) || n < 0 || n > 100)
       throw new Error(`INVALID_FRESH_COORDINATOR_CONTEXT_PCT: ${String(n)}`)
     await core.appSettings.setFreshCoordinatorContextPct(n)
+  })
+  // The approval setting's global default (core/settings/approvalDefault.ts): a mode, or null for none
+  ipcMain.handle('settings.getApprovalDefault', () => core.appSettings.getApprovalDefault() ?? null)
+  ipcMain.handle('settings.setApprovalDefault', async (_e, mode: unknown) => {
+    if (mode !== null && approvalDefaultOf(mode) === undefined) throw new Error(`INVALID_APPROVAL_DEFAULT: ${String(mode)}`)
+    await core.appSettings.setApprovalDefault(mode)
   })
   // Stall watchdog (orchestration/exec/stallWatch.ts), on by default
   ipcMain.handle('settings.getStallWatch', () => core.appSettings.getStallWatch())
@@ -6494,6 +6509,14 @@ export function registerIpc(
     await core.appSettings.setMcpGithubWrite(v)
   })
 
+  // What a new project does about GitHub (core/settings/githubDefaults.ts); read by the new-project dialog.
+  ipcMain.handle('settings.getGithubDefaults', () => core.appSettings.getGithubDefaults())
+  ipcMain.handle('settings.setGithubDefaults', async (_e, v: unknown) => {
+    const refusal = githubDefaultsRefusal(v)
+    if (refusal !== null) throw new Error(`INVALID_GITHUB_DEFAULTS: ${refusal}`)
+    await core.appSettings.setGithubDefaults(githubDefaultsOf(v))
+  })
+
   // MCP over HTTP (MCP HTTP design §4). Saving is followed by `mcp-http-reload`, which makes the Host
   // read the file again and apply it; the answer and the later pushes reach the window on
   // 'mcpHttp:state'. A Host that is not there (or too old) reads the file at its next app greeting.
@@ -8066,6 +8089,11 @@ export function registerIpc(
       // Forward slashes: this is typed into a prompt, where a Windows backslash reads as an escape.
       return file.replaceAll('\\', '/')
     }
+  )
+
+  // T4: a file pasted into Start with no path of its own; Start attaches the answered path through the intake
+  ipcMain.handle('files.savePasted', (_e, name: unknown, mime: unknown, base64: unknown) =>
+    saveClipboardFile(app.getPath('userData'), name, mime, base64)
   )
 
   // What the model menu offers. The same list settings shows and the same per-account cache — the

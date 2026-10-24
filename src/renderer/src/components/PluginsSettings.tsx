@@ -435,13 +435,11 @@ export function PluginSettingsForm({
         return (
           <div key={f.key} className="plugin-field">
             {f.type === 'boolean' ? (
-              <label className="check-small">
-                <Checkbox
-                  checked={typeof draft[f.key] === 'boolean' ? (draft[f.key] as boolean) : values[f.key] === true}
-                  onChange={(v) => onDraft(f.key, v)}
-                />
-                {label}
-              </label>
+              <Checkbox
+                checked={typeof draft[f.key] === 'boolean' ? (draft[f.key] as boolean) : values[f.key] === true}
+                onChange={(v) => onDraft(f.key, v)}
+                label={label}
+              />
             ) : (
               label
             )}
@@ -461,10 +459,7 @@ export function PluginSettingsForm({
                 />
                 <span className="settings-hint">{set ? t('settings.plugins.form.secretSet') : t('settings.plugins.form.secretUnset')}</span>
                 {set && (
-                  <label className="check-small">
-                    <Checkbox checked={clear.has(f.key)} onChange={(v) => onClear(f.key, v)} />
-                    <span>{t('settings.plugins.form.clear')}</span>
-                  </label>
+                  <Checkbox checked={clear.has(f.key)} onChange={(v) => onClear(f.key, v)} label={t('settings.plugins.form.clear')} />
                 )}
               </div>
             ) : f.enum ? (

@@ -112,9 +112,10 @@ import { mainPlanOf } from './mainPlan'
 import { isPathWithin } from '../files/tree'
 import { buildHandoverPrompt, buildPlannerBrief } from './handover'
 import { read as readOwner } from '../prompts/ownerInstructions'
+import { consoleIdStore, ensureConsole } from '../console/console'
 import { noRemoteNote, unmergedPlanBranches } from './unmergedBranches' // W8-G (#101)
 // W2-A planner stage
-import { editPlanTask, kindOf, leftOutArg, orchestrationRoleOf, planFieldsFromArgs, plannerJobOf, plannerRefusal, validatePlan, workerSpecOf, worktreeRefusal } from './planner'
+import { editPlanTask, kindOf, leftOutArg, orchestrationRoleOf, planFieldsFromArgs, plannerJobOf, plannerRefusal, taskProblems, validatePlan, workerSpecOf, worktreeRefusal } from './planner'
 import { parseReviewFile, type ReviewIssueInput } from './review'
 import { nameForRun } from '../worktrees/naming'
 import type { Provider } from '../providers/meta'
@@ -136,9 +137,12 @@ import { ISSUE_JOB_ASSOCIATIONS, ISSUES_PER_CALL_MAX, assignIssueToMe, issueNumb
 import { GITHUB_SOURCE_ID, issuesContext, issuesTitleOf } from '../github/issueSource'
 // W6-A intake
 import { SOURCED_OBJECTIVE_MAX } from '../sources/objective'
-import { intakeChanges, intakeObjective, intakeOf, intakeTitle, needsInputs, planningArg, shortTitle } from './intake'
+import { intakeChanges, intakeObjective, intakeOf, intakeTitle, needsInputs, planningArg } from './intake'
+import { shortTitleOf } from './title'
 // W8-C prompts mode
 import path from 'node:path'
+import { SAVE_REASON_TEXT } from '../run/validateConfigs'
+import type { AddRunConfigResult } from '../run/runConfigsFile'
 import { access, readFile } from 'node:fs/promises'
 import { promptPlanOf, sha256Of } from './promptWaves'
 // W10-A Run as written by name
@@ -209,6 +213,7 @@ import { coordinatorHandoff, refreshCoordinator } from './exec/coordinatorRotate
 import { crashResumedBrief } from './exec/crashResume'
 import { adoptLiveWorkers, specIdsOf, type LiveWorker } from './exec/adopt'
 import { specsDirOf } from './exec/specFiles'
+import { approvalDefaultOf } from '../settings/approvalDefault'
 import { feedbackCommand, handsOffOf, isFeedbackCommand } from './exec/plannerFeedback'
 export { JOB_SOURCE } from './commandSources'
 import { pluginIdOfCheck, type CompletionCheckInput, type PluginCheckAnswer } from './pluginChecks'
@@ -875,6 +880,9 @@ export interface OrchServerDeps {
    *  and answers null. **Only the app injects it** (it is that file's one writer); the Host forwards it to an attached
    *  app, and without one `projects-set --test-command` answers 409. */
   saveTestCommand?(projectPath: string, command: string | null): Promise<string | null>
+  /** `run-configs add`: puts one configuration into the project's saved list in run-configs.json, after the app's own
+   *  checks (core/run/validateConfigs.ts). **Only the Host injects it** (host/orch.ts); absent, the command answers 409. */
+  addRunConfig?(projectPath: string, config: unknown): Promise<AddRunConfigResult>
   /** Sets the folder's default account (core/projects/settings.ts, the New Session dialog's preselection); null clears
    *  it. Only the app injects it, like saveTestCommand. */
   setProjectAccount?(projectPath: string, accountId: string | null): Promise<void>
@@ -1388,6 +1396,14 @@ function projectSettingsArgs(
   const handsOff = flag(args.handsOff)
   if (handsOff === null) return { error: '--hands-off must be on or off' }
   if (handsOff !== undefined) patch.handsOff = handsOff ? true : null
+  // `--approval` says it in one word and, unlike `--auto-approve off`, can keep a project on ask when the app's global
+  // default would start plans: ask stores auto-approve off, start on, hands-off both
+  if (args.approval !== undefined) {
+    const mode = approvalDefaultOf(args.approval)
+    if (mode === undefined) return { error: '--approval must be ask, start or hands-off' }
+    patch.autoApprove = mode !== 'ask'
+    patch.handsOff = mode === 'hands-off' ? true : null
+  }
   // T7: like auto-approve, off clears it back to the default
   const serialFiles = flag(args.serialFiles)
   if (serialFiles === null) return { error: '--serial-files must be on or off' }
@@ -2667,7 +2683,7 @@ export async function handleCommand(
       )
       if (!made.ok) return commit(made)
       // T7: every plan has a short name from the start (the planner renames it); a source's title already names one
-      const titled = made.value.source?.title !== undefined ? made : (renameJob(made.state, made.value.id, shortTitle(objective)) as typeof made)
+      const titled = made.value.source?.title !== undefined ? made : (renameJob(made.state, made.value.id, shortTitleOf(objective)) as typeof made)
       const created =
         delivery === undefined
           ? titled
@@ -3426,6 +3442,25 @@ export async function handleCommand(
       const job = run && jobOf(s, run)
       if (!job) return bad(`no run exists`)
       return okBody(await deps.listRunConfigs(job.cwd))
+    }
+    // An agent saves a run configuration for a project (the "Generate with AI" path). Validated by the rules the
+    // app's Apply uses, so a bad one is refused with the reason and nothing is written.
+    case 'run-configs-add': {
+      const project = str(args.project)
+      if (!project || !path.isAbsolute(project)) return bad('--project needs an absolute folder path')
+      const raw = str(args.config)
+      if (!raw) return bad('--config is required: one configuration as JSON, or - to read it from standard input')
+      let config: unknown
+      try {
+        config = JSON.parse(raw)
+      } catch {
+        return bad('--config is not valid JSON')
+      }
+      if (!deps.addRunConfig) return conflict('run configurations cannot be saved here')
+      const saved = await deps.addRunConfig(project, config)
+      if (!saved.ok)
+        return bad(`configuration refused: ${saved.errors.map((e) => `${e.id || '(no id)'}: ${SAVE_REASON_TEXT[e.reason]}`).join('; ')}`)
+      return okBody({ config: saved.config, replaced: saved.replaced })
     }
     // **공개 이름은 계획을 지목한다**(phase D). 위의 `run-configs` 는 "가장 최근 회차" 의 것이라, 셸에서
     // 치는 사람에게는 남의 계획의 목록일 수 있다 — task-create 의 기본값을 tasks add 가 내주지 않은
@@ -4589,7 +4624,8 @@ export async function handleCommand(
       const worktreeNo = made.ok ? worktreeRefusal(made.state, made.value) : undefined
       if (worktreeNo !== undefined) return bad(worktreeNo)
       // T11: a Task that looks like another plan's: the answer carries warning lines, nothing is refused
-      const warnings = made.ok ? taskCreateWarnings(made.state, made.value) : []
+      // and the problems approval would find in it, so its planner fixes them on the spot
+      const warnings = made.ok ? [...taskCreateWarnings(made.state, made.value), ...taskProblems(made.state, made.value)] : []
       const reply = await commit(made)
       return warnings.length > 0 && reply.status < 300 ? { ...reply, body: { ...(reply.body as object), warnings } } : reply
     }
@@ -4747,7 +4783,7 @@ export async function handleCommand(
         return okBody({ id, mergedIntoPlanAt: now })
       }
       // W2-A: editing a plan's Task (its title, spec, deps and plan fields) instead of moving its status.
-      const PLAN_EDIT = ['title', 'spec', 'deps', 'prompt', 'criteria', 'affectedPaths', 'difficulty', 'provider', 'model', 'modelReason', /* W6-A */ 'basis', 'evidence', /* T7 */ 'covers', /* T9 */ 'kind', /* T3 */ 'worktree']
+      const PLAN_EDIT = ['title', 'spec', 'deps', 'prompt', 'criteria', 'affectedPaths', 'noFiles', 'difficulty', 'provider', 'model', 'modelReason', /* W6-A */ 'basis', 'evidence', /* T7 */ 'covers', /* T9 */ 'kind', /* T3 */ 'worktree']
       if (args.status === undefined && PLAN_EDIT.some((k) => args[k] !== undefined)) {
         const plan = planFieldsFromArgs(args)
         if (!plan.ok) return bad(plan.error)
@@ -4781,7 +4817,10 @@ export async function handleCommand(
         )
         // T3: a deps or --worktree change keeps `reuse` valid
         const worktreeNo = edited.ok ? worktreeRefusal(edited.state, edited.value) : undefined
-        return worktreeNo !== undefined ? bad(worktreeNo) : commit(edited)
+        if (worktreeNo !== undefined) return bad(worktreeNo)
+        const warnings = edited.ok ? taskProblems(edited.state, edited.value) : []
+        const reply = await commit(edited)
+        return warnings.length > 0 && reply.status < 300 ? { ...reply, body: { ...(reply.body as object), warnings } } : reply
       }
       const asked = str(args.status)
       if (!asked) return bad('--status is required')
@@ -6410,6 +6449,29 @@ export async function handleCommand(
         )
       } catch (e) {
         return bad(`could not start the session: ${e instanceof Error ? e.message : String(e)}`)
+      }
+    }
+    /**
+     * T10: the Astera console, one chat session for every project (core/console/console.ts). The Host answers it: it
+     * holds the sessions, starts the chat in its profile dir through `createSession`, and keeps the id there.
+     */
+    case 'console-ensure': {
+      // The same ruling as sessions-create: a worker starts no session of its own
+      if (myDispatch !== undefined) return denied('a worker session cannot start the console; run it from a shell or the app')
+      const { createSession, listSessions, profileDir } = deps
+      if (!createSession || !listSessions || !profileDir)
+        return conflict('the console is started by the Astera Host, and this caller is not one')
+      try {
+        return okBody(
+          await ensureConsole({
+            cwd: profileDir,
+            list: () => listSessions.call(deps),
+            create: (o) => createSession.call(deps, o),
+            store: consoleIdStore(profileDir)
+          })
+        )
+      } catch (e) {
+        return bad(`could not start the console: ${e instanceof Error ? e.message : String(e)}`)
       }
     }
     /**

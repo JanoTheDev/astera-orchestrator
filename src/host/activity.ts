@@ -16,7 +16,10 @@ import {
 import type { EventDraft } from '../core/orchestration/publicEvents'
 import { jobNameOf } from '../core/orchestration/jobName'
 import { validatePlan } from '../core/orchestration/planner'
-import { autoApproveOf } from '../core/orchestration/exec/plannerFeedback'
+import { autoApproveOf, plannerProblemsNotice } from '../core/orchestration/exec/plannerFeedback'
+import { approvalDefaultOf, type ApprovalMode } from '../core/settings/approvalDefault'
+import { settingsObjectOf } from '../core/settings/settingsObject'
+import { readFileSync } from 'node:fs'
 import type { ScheduleLimits } from '../core/orchestration/schedule'
 import type { OrchState } from '../core/orchestration/state'
 import type { HostEventLog } from './eventLog'
@@ -90,8 +93,12 @@ export function hostSessionActivity(a: {
   report(message: string): void
   /** W7-A: starts a plan that holds with no approval step (`jobs-auto-start`); resolves whether it started. */
   autoStart?(jobId: string): Promise<boolean>
+  /** The app's global approval default (Settings > Agents), read at each planner turn end. */
+  approvalDefault?(): ApprovalMode | undefined
   /** #116: records on the Job that its plan waits on the owner (`jobs-plan-ready`, Job.planReadyAt). */
   markReady?(jobId: string): Promise<void>
+  /** Types a line into a planner session (`sessions-send`): the problems its plan still has, once per distinct list. */
+  tellPlanner?(sessionId: string, text: string): Promise<void>
 }): { onHookEvent(sessionId: string, payload: unknown): void; onSessionEvents(drafts: readonly EventDraft[]): void } {
   const record = (draft: ActivityDraft | null): void => {
     if (draft) a.log.recorded([draft])
@@ -101,6 +108,14 @@ export function hostSessionActivity(a: {
   const ready = (draft: ActivityDraft & { jobId: string }): void => {
     record(draft)
     void a.markReady?.(draft.jobId).catch((why: unknown) => a.report(`activity: plan ${draft.jobId} could not be marked ready: ${String(why)}`))
+  }
+  // shortcut: the lists told are in memory, so a Host restart tells a planner still planning once more
+  const toldProblems = new Map<string, string>()
+  const tellProblems = (sessionId: string): void => {
+    const n = a.tellPlanner ? plannerProblemsNotice(a.state(), sessionId) : null
+    if (!n || toldProblems.get(n.jobId) === n.key) return
+    toldProblems.set(n.jobId, n.key)
+    void a.tellPlanner!(sessionId, n.text).catch((why: unknown) => a.report(`activity: planner ${sessionId} could not be told its plan's problems: ${String(why)}`))
   }
   const guard = (fn: () => void): void => {
     try {
@@ -113,15 +128,19 @@ export function hostSessionActivity(a: {
     onHookEvent: (sessionId, payload) =>
       guard(() => {
         if ((payload as { hook_event_name?: unknown } | null)?.hook_event_name !== 'Stop') return
+        // the planner is told what keeps its plan from approval, so the owner never has to relay it
+        tellProblems(sessionId)
         // `held` is read only for a planner's turn end, not every session's
         const line = planReadyActivity(a.state(), sessionId, () => activityOf(a.log))
         const job = line?.jobId === undefined ? undefined : a.state().jobs.find((j) => j.id === line.jobId)
         // W7-A: auto-approve replaces the approval step; a start that does not go through asks for approval after all
         // (#116: only then is the plan marked ready, so an auto-approve plan never shows Approve while it starts)
-        if (line && job && a.autoStart && autoApproveOf(a.state(), job)) {
+        if (line && job && a.autoStart && autoApproveOf(a.state(), job, a.approvalDefault?.())) {
           const fallBack = (why?: unknown): void =>
             guard(() => {
               if (why !== undefined) a.report(`activity: plan ${job.id} could not start on its own: ${String(why)}`)
+              // a plan that stopped holding meanwhile is no Approve: its planner fixes it, and its next turn end starts it
+              if (validatePlan(a.state(), job.id).length > 0) return tellProblems(sessionId)
               ready({ ...line, jobId: job.id })
             })
           void a.autoStart(job.id).then((started) => (started ? undefined : fallBack()), fallBack)
@@ -136,6 +155,16 @@ export function hostSessionActivity(a: {
           record(waitingActivity(a.state(), d.sessionId, prompt))
         }
       })
+  }
+}
+
+/** The app's global approval default, read per call: the app is app-settings.json's only writer. A missing or damaged
+ *  file is no default (the planning mode decides). */
+export function readApprovalDefault(filePath: string): ApprovalMode | undefined {
+  try {
+    return approvalDefaultOf(settingsObjectOf(readFileSync(filePath, 'utf8')).approvalDefault)
+  } catch {
+    return undefined
   }
 }
 

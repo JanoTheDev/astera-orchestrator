@@ -45,11 +45,11 @@
 .rcmenu-sep { flex: none; height: 1px; background: var(--line-soft); margin: 4px 0; }
 .rcmenu-foot { flex: none; display: flex; align-items: center; gap: 12px; width: 100%; box-sizing: border-box; background: transparent; border: 0; border-radius: var(--radius); padding: 4px 8px; font-size: var(--fs-12); color: var(--text); text-align: left; cursor: pointer; }
 .rcmenu-foot:hover { background: var(--elevated); }
-.run-btn.play { color: var(--run); }
-.run-btn.play:disabled { color: var(--text-faint); }
-.run-btn.stop { color: var(--danger); }
+.run-action.play { color: var(--run); }
+.run-action.play:disabled { color: var(--text-faint); }
+.run-action.stop { color: var(--danger); }
 /* The play and stop glyphs are drawn solid, as the old fill="currentColor" icons were. */
-.run-btn.play svg, .run-btn.stop svg, .run-global-badge .tri, .run-global-stop svg { fill: currentColor; stroke-width: 0; }
+.run-action.play svg, .run-action.stop svg, .run-global-badge .tri, .run-global-stop svg { fill: currentColor; stroke-width: 0; }
 .run-global { position: relative; }
 .run-global-badge { font-variant-numeric: tabular-nums; }
 .run-global-badge .tri { color: var(--run); }

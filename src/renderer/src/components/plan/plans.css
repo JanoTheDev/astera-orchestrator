@@ -25,8 +25,8 @@
 .plans-tone--danger { color: var(--danger); }
 .plans-tone--neutral { color: var(--text-dim); }
 
-/* The pinned Main plan pane: as tall as its plans, never more than a third of the view */
-.ui-viewpane.plans-mainpane.is-open { flex: 0 1 auto; max-height: 33%; }
+/* The pinned Main plan pane: as tall as its plans; the sash between the panes resizes it */
+.ui-viewpane.plans-mainpane.is-open { flex: 0 1 auto; }
 .plans-mainpane__head { margin: 0; padding: var(--sp-1) var(--sp-2) var(--sp-1) 20px; color: var(--text-dim); font-size: var(--fs-12); }
 .plans-mainpane__open { padding: var(--sp-1) var(--sp-2) var(--sp-2) 20px; }
 
@@ -60,3 +60,7 @@
 .plans-main__task { display: flex; flex-direction: column; min-width: 0; padding-left: var(--sp-4); }
 .plans-main__none { margin: 0; padding-left: var(--sp-4); }
 .plans-main__wait { display: flex; align-items: center; gap: var(--sp-1); margin: 0 0 var(--sp-1) var(--sp-2); color: var(--warn); font-size: var(--fs-11); }
+
+/* The plan header: why Approve & execute is not ready, beside the button (plan/PlanHeader.tsx) */
+.plan-page-problems { min-width: 0; max-width: 40ch; color: var(--warn); font-size: var(--fs-12); }
+.plan-page-problems ul { margin: 0; padding-left: var(--sp-4); }

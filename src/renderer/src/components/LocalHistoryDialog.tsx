@@ -4,6 +4,7 @@ import { errText } from '../hooks/useFileOps'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
 import { Button, EmptyState, ICONS, Modal, Skeleton } from './ui'
+import './sessionDialog.css'
 
 /** Byte size in human-readable units. This repo has no shared size formatter (checked by grep), so it
  *  stays a local helper used only in this file — extracting it into a pure module and registering that
@@ -105,7 +106,7 @@ export function LocalHistoryDialog({
         </>
       }
     >
-      <div className="dlg local-history">
+      <div className="sd-body">
         {entries === null ? (
           <div aria-busy="true" aria-label={t('localHistory.loading')}>
             <Skeleton width="70%" />

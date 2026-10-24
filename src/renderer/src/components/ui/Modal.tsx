@@ -3,6 +3,7 @@ import { X } from 'lucide-react'
 import { backdropProps } from '../../lib/backdrop'
 import { Button } from './UiButton'
 import { FOCUSABLE, modalKeyAction } from './logic'
+import { useOpenClose } from './motion'
 
 export type ModalSize = 'sm' | 'md' | 'lg'
 
@@ -21,6 +22,8 @@ export type ModalProps = {
   children: React.ReactNode
 }
 
+const MODAL_BOX = { selector: '.ui-modal', preset: 'rise' } as const
+
 /** A modal dialog: drag-safe backdrop close, Esc closes, Tab is trapped inside, focus goes back to the opener on close. */
 export function Modal({
   title,
@@ -33,6 +36,8 @@ export function Modal({
   children
 }: ModalProps): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
+  const backdrop = useRef<HTMLDivElement>(null)
+  useOpenClose(backdrop, 'fade', MODAL_BOX)
   const titleId = useId()
   const close = useRef(onClose)
   close.current = onClose
@@ -57,7 +62,7 @@ export function Modal({
   }
 
   return (
-    <div className="ui-modal-backdrop" {...backdropProps(() => onClose?.())}>
+    <div ref={backdrop} className="ui-modal-backdrop" {...backdropProps(() => onClose?.())}>
       <div ref={ref} className={`ui-modal ui-modal--${size}`} role={role} aria-modal="true" aria-labelledby={titleId} aria-describedby={describedBy} tabIndex={-1} onKeyDown={onKeyDown}>
         <header className="ui-modal__head">
           <h2 id={titleId} className="ui-modal__title">

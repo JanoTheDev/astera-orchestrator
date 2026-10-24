@@ -707,10 +707,11 @@ astera sources show  --source <sourceId> --item <itemId> [--project <projectId>]
 astera projects list
 astera projects get   --id <projectId>
 astera projects find  --path <path>
-astera projects add   [--path <path>] [--initial-commit] [--parent <projectId>] [--name <name>] [--focus <a,b>] [--clone <git url>]
+astera projects add   [--path <path>] [--initial-commit] [--init-git] [--parent <projectId>] [--name <name>] [--focus <a,b>] [--clone <git url>]
 astera projects remove --id <projectId>
 astera projects create --name <name> --parent <path> [--describe <text>] [--github <private|public>]
-astera projects set   --id <projectId> [--delivery <pr|push|manual>] [--delivery-branch <branch>] [--auto-approve <on|off>] [--hands-off <on|off>] [--serial-files <on|off>] [--test-command <cmd>] [--test-config <id>] [--concurrency <1-100>] [--review-rounds <n>] [--replan <waves|off>] [--account <id>] [--setup-command <cmd|off>] [--prompts-dir <path|none>] [--auto-projects <on|off>] [--grants <kind,...|none>] [--coordinator-model <id|none>]
+astera projects github-create --project <path> [--private|--public]
+astera projects set   --id <projectId> [--delivery <pr|push|manual>] [--delivery-branch <branch>] [--auto-approve <on|off>] [--approval <ask|start|hands-off>] [--hands-off <on|off>] [--serial-files <on|off>] [--test-command <cmd>] [--test-config <id>] [--concurrency <1-100>] [--review-rounds <n>] [--replan <waves|off>] [--account <id>] [--setup-command <cmd|off>] [--prompts-dir <path|none>] [--auto-projects <on|off>] [--grants <kind,...|none>] [--coordinator-model <id|none>]
 
 astera jobs    list   [--status <pending|paused|scheduled|waiting|running|completed|failed>] [--project <path>] [--archived] [--area <word>]
 astera jobs    get    --id <jobId | runId>
@@ -738,7 +739,7 @@ astera runs    checks --id <runId>
 astera runs    doctor [--run <runId> | --job <jobId> | --all] [--fix]
 
 astera tasks   list   [--run <runId|jobId>] [--status <s>] [--ready] [--brief] [--fields <a,b,…>] [--limit <n>] [--offset <n>]
-astera tasks   add    [--job <jobId> | --run <runId>] --spec <text|-> [--account <id,…>] [--title <text>] [--prompt <text|->] [--criteria <json array>] [--deps <json array>] [--affected-paths <json array>] [--parent <taskId>] [--validate <configId,…>] [--review] [--no-review] [--difficulty <light|standard|hard>] [--model <id>] [--basis <missing|partial|broken>] [--evidence <text>] [--covers <n,…>] [--kind <bugfix|feature|refactor|ui|audit|docs|test|ops>] [--worktree <new|reuse>]
+astera tasks   add    [--job <jobId> | --run <runId>] --spec <text|-> [--account <id,…>] [--title <text>] [--prompt <text|->] [--criteria <json array>] [--deps <json array>] [--affected-paths <json array> | --no-files] [--parent <taskId>] [--validate <configId,…>] [--review] [--no-review] [--difficulty <light|standard|hard>] [--model <id>] [--basis <missing|partial|broken>] [--evidence <text>] [--covers <n,…>] [--kind <bugfix|feature|refactor|ui|audit|docs|test|ops>] [--worktree <new|reuse>]
 astera tasks   dispatch --id <taskId>
 astera tasks   restore --from <file> [--job <jobId> | --run <runId>] [--dry-run]
 
@@ -749,6 +750,7 @@ astera accounts login --new [--label <name>]
 astera accounts import --label <name> --agent <claude|codex> [--color <colour>] [--login <->]
 
 astera run-configs list --job <jobId>
+astera run-configs add  --project <path> --config <json|->
 
 astera skills  list    [--account <accountId>]
 astera skills  install [--account <accountId>]
@@ -764,6 +766,8 @@ astera sessions read   --id <sessionId> [--lines <n>] [--turns <n>]
 astera sessions send   --id <sessionId> --text <text|-> [--no-enter] [--wait [--timeout-ms <n>]]
 astera sessions create [--account <accountId> | --provider <claude|codex>] --cwd <path> [--kind <terminal|chat>] [--title <text>] [--prompt <text|->] [--roll-accounts <id,…>] [--unattended <hold|deny-after-60s>]
 astera sessions close  --id <sessionId> [--reason <text>]
+
+astera console ensure
 
 astera worktrees list   [--project <id|path>] [--stale]
 astera worktrees remove [--path <path> | --run <runId> | --stale] [--project <id|path>] [--force] [--dry-run]
@@ -1096,6 +1100,18 @@ Retry with the same `--request-id` (the one the 7 hands back) and the retry answ
 rather than placing a second worker. With `--request-id` a
 retry does not place a second worker; a refusal leaves no receipt, so the same id works once the cause
 is fixed.
+
+**`run-configs add --project <path> --config <json|->` saves one run configuration** in that project's
+list, for an agent that works out a project's test, build and dev commands. `--config` is one JSON
+object (`{"name":"Test","type":"shell","command":"npm test"}`), or `-` to read it from standard input.
+A configuration with the same name is replaced, keeping its id and place; otherwise it is appended with
+a new id (leave `id` out). It is held to the rules the app's Run Configurations dialog applies when it
+saves: a known type with its fields, an id that is unique and not a detected one (`seed:`), a `cwd`
+inside the project, an http(s) `previewUrl`, and on Windows no cmd.exe special characters in a value
+that reaches the command. A refusal is a 4 that names the reason, and nothing is written. Other projects'
+configurations are never touched. The saved configuration is printed as `config`, with `replaced`.
+With Astera running the app saves it; with Astera closed the Host writes the profile's `run-configs.json`
+itself, and a damaged file is a 6 with the "open Astera" message.
 
 **`run-configs list --job <jobId>` prints `id`, `name` and `type`** for each run configuration of the
 Job's folder: the ones the app's Run menu shows there, saved and detected. Nothing else about a
@@ -1433,6 +1449,14 @@ A folder that does not exist is a 2, an account that is not in `accounts list` a
 without the agent CLI paths (it answers no `spawn` feature) a 6. Nothing is started in any of those
 cases. With `--request-id`, a retried `sessions create` is answered from the receipt rather than
 starting a second session; a refusal leaves no receipt.
+
+**`console ensure` answers the Astera console**: one chat session for every project, the one the app's
+bottom panel shows in its Console tab. The Host starts it titled "Astera console" in Astera's profile
+folder, with a first prompt that teaches it `main-plan`, `jobs list`, `jobs create --cwd` and
+`tasks list`, and that only a person starts a Job. Its id is kept in `console.json` in that folder, so
+a Host restart answers the same session. A console that ended is started again; one that moved to
+another account at a usage limit is followed to its new session. It answers the session as
+`sessions list` shows it. A worker session is refused with 5, and a caller that is not the Host 6.
 
 **`runs stop` is reversible, which is why it is not called cancel.** It closes the run's open worker
 dispatches, stops the run's coordinator session when it has one, and pauses the run. A run that has

@@ -43,7 +43,7 @@ import { nodeProcSpawn } from './nodeProc'
 import { HOST_FEATURE_ORCH, HOST_FEATURE_REQUESTS, HOST_PROTOCOL, HOST_YIELD_JOURNAL, HOST_YIELD_UNDERSTANDING, HOST_YIELD_WORK_UNITS, HOST_YIELD_WORKSPACE, HOST_YIELD_WORKTREES } from '../core/host/protocol'
 import { createHostJournal } from './hostJournal'
 import { createHostEventLog } from './eventLog'
-import { activityOf, followActivity, hostSessionActivity } from './activity'
+import { activityOf, followActivity, hostSessionActivity, readApprovalDefault } from './activity'
 import { watchdogActivity } from '../core/orchestration/exec/stallWatch'
 import { ACTIVITY_KINDS, deriveActivity } from '../core/orchestration/activity'
 import { readActivityDigestMinutes } from '../core/settings/activityDigest'
@@ -427,9 +427,12 @@ async function main(): Promise<void> {
     state: () => orch.state(),
     report: (m) => log.write(m),
     // W7-A: auto-approve, as the Host itself (an agent can never approve)
-    autoStart: async (jobId) => (await orch.handle('jobs-auto-start', { id: jobId })).status < 300,
+    autoStart: async (jobId) => (await orch.handle('jobs-auto-start', { id: jobId, approval: readApprovalDefault(path.join(profileDir, 'app-settings.json')) })).status < 300,
+    approvalDefault: () => readApprovalDefault(path.join(profileDir, 'app-settings.json')),
     // #116: the plan waits on the owner; a refusal (the plan moved on meanwhile) leaves nothing to mark
-    markReady: async (jobId) => void (await orch.handle('jobs-plan-ready', { id: jobId }))
+    markReady: async (jobId) => void (await orch.handle('jobs-plan-ready', { id: jobId })),
+    // a plan that is not ready: its planner is told what is wrong, once per distinct list
+    tellPlanner: async (sessionId, text) => void (await orch.handle('sessions-send', { id: sessionId, text }))
   })
   // W6-G: the usage guard over this Host's own sessions' statusLine readings. `worker-start` and the dispatch loop
   // ask it before a start; the timer below lets a pause end on its own. Its changes are feed lines (and notices).
@@ -641,7 +644,14 @@ async function main(): Promise<void> {
           chats: rollingWiring.chats,
           rolling: rollingWiring.rolling,
           server: () => server,
-          lang: () => wiring.checks.langNow()
+          lang: () => wiring.checks.langNow(),
+          // Telegram's non-reply messages go to the console, started the way `console-ensure` starts it.
+          ensureConsole: async () => {
+            const r = await orch.handle('console-ensure', {})
+            const id = (r.body as { id?: unknown } | null)?.id
+            if (r.status >= 300 || typeof id !== 'string') throw new Error('the console could not be started')
+            return { id }
+          }
         })
       : null
 

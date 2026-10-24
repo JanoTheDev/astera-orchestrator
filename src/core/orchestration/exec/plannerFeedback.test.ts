@@ -7,8 +7,8 @@ import { deriveActivity, noticeOf, type ActivityEvent } from '../activity'
 import { planIncompleteActivity, planReadyActivity } from '../../../host/activity'
 import { snapshotFor } from '../view'
 import { buildPlannerBrief } from '../handover'
-import type { Task } from '../types'
-import { autoApproveOf, feedbackLine, freshFeedbackBrief, handsOffOf, plansMissingReady, resumeBrief } from './plannerFeedback'
+import type { Job, Project, Task } from '../types'
+import { approvalOf, autoApproveOf, plannerProblemsNotice, feedbackLine, freshFeedbackBrief, handsOffOf, plansMissingReady, resumeBrief } from './plannerFeedback'
 
 const NOW = '2026-10-18T00:00:00.000Z'
 
@@ -294,6 +294,51 @@ describe('#117 hands-off', () => {
   })
 })
 
+describe('approval setting: plan, then project, then global default, then planning mode', () => {
+  const job = (over: Partial<Job> = {}): Job => ({ id: 'j', objective: 'o', title: 't', cwd: '/p', createdAt: NOW, projectId: 'prj', ...over })
+  const state = (project: Partial<Project> = {}): OrchState => ({ ...emptyState(), projects: [{ id: 'prj', name: 'p', path: '/p', createdAt: NOW, ...project } as Project] })
+
+  it('chat mode asks, auto mode starts when the plan holds', () => {
+    expect(approvalOf(state(), job())).toBe('ask')
+    expect(approvalOf(state(), job({ planning: 'chat' }))).toBe('ask')
+    expect(approvalOf(state(), job({ planning: 'auto' }))).toBe('start')
+    expect(autoApproveOf(state(), job({ planning: 'auto' }))).toBe(true)
+  })
+
+  it('the plan beats its project, the project beats the global default, the global default beats the planning mode', () => {
+    expect(approvalOf(state({ autoApprove: true }), job({ autoApprove: false }))).toBe('ask')
+    expect(approvalOf(state({ autoApprove: false }), job({ planning: 'auto' }), 'start')).toBe('ask')
+    expect(approvalOf(state({ autoApprove: true }), job(), 'ask')).toBe('start')
+    expect(approvalOf(state(), job({ planning: 'auto' }), 'ask')).toBe('ask')
+    expect(approvalOf(state(), job(), 'start')).toBe('start')
+    expect(approvalOf(state(), job(), 'hands-off')).toBe('hands-off')
+  })
+
+  it('hands-off of the plan or its project keeps winning', () => {
+    expect(approvalOf(state({ handsOff: true }), job({ autoApprove: false }), 'ask')).toBe('hands-off')
+    expect(approvalOf(state(), job({ handsOff: true }))).toBe('hands-off')
+  })
+
+  it('jobs-auto-start takes the Host\'s global default (--approval) and refuses without one', async () => {
+    const r = rig()
+    const { jobId } = await planned(r)
+    expect((await r.person('jobs-auto-start', { id: jobId })).status).toBe(409)
+    expect((await r.person('jobs-auto-start', { id: jobId, approval: 'start' })).status).toBe(200)
+  })
+
+  it('projects-set --approval keeps ask apart from unset', async () => {
+    const r = rig()
+    await planned(r)
+    const id = r.state().projects[0]?.id
+    if (!id) return
+    for (const [approval, autoApprove, handsOff] of [['ask', false, undefined], ['start', true, undefined], ['hands-off', true, true]] as const) {
+      expect((await r.person('projects-set', { id, approval })).status).toBe(200)
+      expect(r.state().projects[0]).toMatchObject({ autoApprove, ...(handsOff ? { handsOff } : {}) })
+    }
+    expect((await r.person('projects-set', { id, approval: 'maybe' })).status).toBeGreaterThanOrEqual(400)
+  })
+})
+
 describe('#116 fold-in: plans waiting from before planReadyAt', () => {
   it('lists a waiting plan that holds and whose planner is gone; never one whose planner runs, or that does not hold', async () => {
     const r = rig()
@@ -451,5 +496,27 @@ describe('T1 feedback is never dropped', () => {
   it('every way the feedback reaches a planner teaches --kind', () => {
     expect(feedbackLine('job_1', 'x')).toContain('--kind bugfix|feature|refactor|ui|audit|docs|test|ops')
     expect(resumeBrief('job_1', 'x')).toContain('--kind bugfix|feature|refactor|ui|audit|docs|test|ops')
+  })
+})
+
+describe('plannerProblemsNotice', () => {
+  const job = { id: 'job_1', objective: 'Archive the stale plans of the project', cwd: '/repo', pendingStart: true, plannerSessionIds: ['ses-p1'], createdAt: NOW } as unknown as OrchState['jobs'][number]
+  const task = { id: 'tsk_1', title: 'Archive', jobId: 'job_1', deps: [], status: 'pending', prompt: 'p', acceptanceCriteria: ['c'], basis: { state: 'missing', evidence: 'e' } } as unknown as Task
+  const state = (t: Partial<Task>, j: Partial<typeof job> = {}): OrchState => ({ ...emptyState(), jobs: [{ ...job, ...j }], tasks: [{ ...task, ...t }] })
+
+  it('lists what keeps the plan from approval, the same list under the same key', () => {
+    const n = plannerProblemsNotice(state({}), 'ses-p1')!
+    expect(n.text).toContain('tsk_1 (Archive) names no files')
+    expect(n.text).toContain('the plan has no real name')
+    expect(plannerProblemsNotice(state({}), 'ses-p1')!.key).toBe(n.key)
+  })
+
+  it('has nothing to say once the Task says --no-files and the plan has its name', () => {
+    expect(plannerProblemsNotice(state({ kind: 'ops', noFiles: true }, { title: 'Archive plans' }), 'ses-p1')).toBeNull()
+  })
+
+  it('says nothing to a session that is not the latest planner of a plan awaiting approval', () => {
+    expect(plannerProblemsNotice(state({}), 'ses-other')).toBeNull()
+    expect(plannerProblemsNotice(state({}, { pendingStart: false }), 'ses-p1')).toBeNull()
   })
 })

@@ -310,6 +310,7 @@ const SESSION = {
       { name: 'prompt', value: '<text|->', about: "the worker's prompt, in full (required from a planner)" },
       { name: 'criteria', value: '<json array>', about: 'acceptance criteria, one or more (required from a planner)' },
       { name: 'affected-paths', value: '<json array>', about: 'the files or folders the Task will change' },
+      { name: 'no-files', about: 'an ops, audit or docs Task (--kind) that changes no repository file: names none, and plan approval accepts that' },
       { name: 'difficulty', value: '<light|standard|hard>', about: "picks the worker's model" },
       { name: 'provider', value: '<claude|codex>', about: 'the provider the Task asks for' },
       { name: 'model', value: '<id>', about: "the worker's model, ahead of --difficulty" },
@@ -338,6 +339,7 @@ const SESSION = {
       { name: 'prompt', value: '<text|->', about: 'without --status: as task-create' },
       { name: 'criteria', value: '<json array>', about: 'without --status: as task-create' },
       { name: 'affected-paths', value: '<json array>', about: 'without --status: as task-create' },
+      { name: 'no-files', about: 'without --status: as task-create' },
       { name: 'difficulty', value: '<light|standard|hard>', about: 'without --status: as task-create' },
       { name: 'provider', value: '<claude|codex>', about: 'without --status: as task-create' },
       { name: 'model', value: '<id>', about: 'without --status: as task-create' },
@@ -772,6 +774,7 @@ const NOT_SWITCHED = [
   // answer in the CLI process (src/cli/runtime/commands.ts).
   'projects-add',
   'projects-create', // W7-B
+  'projects-github-create',
   'runtime-start',
   'runtime-stop',
   'runtime-status',

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { BranchRef, WorktreeListItem } from '../../../core/types'
 import { useI18n } from '../i18n/I18nProvider'
-import { Button, Icon, Modal, Select, Checkbox } from './ui'
+import { Button, Icon, Modal, Select, Checkbox, Field } from './ui'
 
 type Failure = { kind: string; detail: string; pushed: boolean; stage: 'push' | 'create' }
 
@@ -134,7 +134,7 @@ export function CreatePrDialog({
         </>
       }
     >
-      <div className="dlg create-pr">
+      <div className="create-pr">
         {busy && (
           <div className="loading-overlay">
             <span className="loading-spinner" aria-hidden="true" />
@@ -153,42 +153,35 @@ export function CreatePrDialog({
             ariaLabel={t('pr.create.base')}
           />
         </div>
-        {branchesUnavailable && <span className="modal-hint">{t('pr.create.branchesUnavailable')}</span>}
-        <div className="field">
-          <label>{t('pr.create.prTitle')}</label>
-          <input
-            type="text"
-            value={title}
-            onChange={(e) => {
-              touched.current = true
-              setTitle(e.target.value)
-            }}
-          />
-        </div>
-        <div className="field">
-          <label>{t('pr.create.body')}</label>
-          <textarea
-            rows={6}
-            value={body}
-            onChange={(e) => {
-              touched.current = true
-              setBody(e.target.value)
-            }}
-          />
-        </div>
-        <label className="row check-small">
-          <Checkbox checked={draft} onChange={(v) => setDraft(v)} />
-          {t('pr.create.draft')}
-        </label>
-        {willPush && <span className="modal-hint">{t('pr.create.willPush')}</span>}
+        {branchesUnavailable && <span className="ui-note">{t('pr.create.branchesUnavailable')}</span>}
+        <Field
+          label={t('pr.create.prTitle')}
+          value={title}
+          onChange={(e) => {
+            touched.current = true
+            setTitle(e.target.value)
+          }}
+        />
+        <Field
+          kind="textarea"
+          label={t('pr.create.body')}
+          rows={6}
+          value={body}
+          onChange={(e) => {
+            touched.current = true
+            setBody(e.target.value)
+          }}
+        />
+        <Checkbox label={t('pr.create.draft')} checked={draft} onChange={setDraft} />
+        {willPush && <span className="ui-note">{t('pr.create.willPush')}</span>}
         {dirtyCount > 0 && (
-          <span className="modal-hint">{t('pr.create.dirty', { count: dirtyCount })}</span>
+          <span className="ui-note">{t('pr.create.dirty', { count: dirtyCount })}</span>
         )}
         {commitCount > 0 && (
-          <span className="modal-hint">{t(commitCount === 1 ? 'pr.create.commits.one' : 'pr.create.commits', { count: commitCount })}</span>
+          <span className="ui-note">{t(commitCount === 1 ? 'pr.create.commits.one' : 'pr.create.commits', { count: commitCount })}</span>
         )}
         {behindCount !== null && behindCount > 0 && (
-          <span className="modal-hint">{t('pr.create.behind', { count: behindCount })}</span>
+          <span className="ui-note">{t('pr.create.behind', { count: behindCount })}</span>
         )}
         {failure && (
           <div className="pr-create-failure">

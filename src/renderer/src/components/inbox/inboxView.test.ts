@@ -120,7 +120,7 @@ describe('needsOf', () => {
     expect(needsOf(input({ questions: [q('q1', { runId: 'gone' })] }))).toEqual([])
   })
 
-  it('#116: no approval card while the planner plans or for an auto-approve plan; one once it is ready', () => {
+  it('an approval card for a waiting plan with a Task, ready mark or not', () => {
     const job = { id: 'j1', objective: 'o', cwd: '/g', createdAt: '2026-10-18T07:00:00.000Z', pendingStart: true, plannerSessionIds: ['pl1'] } as Job
     const planTask = { id: 't1', jobId: 'j1', title: 'T1', spec: '', deps: [], status: 'ready', consecutiveFailures: 0, createdAt: job.createdAt, updatedAt: job.createdAt } as Task
     const tree = [{ id: 'p1', name: 'gameful', path: '/g', plans: [{ jobId: 'j1', projectId: 'p1', name: 'L4', planner: [], coordinator: [], workers: [] }] }]
@@ -128,8 +128,7 @@ describe('needsOf', () => {
       const items = needsInput({ tree, jobs: [j], runs: [], tasks: [planTask], gates: [], attention: {} })
       return needsOf(input({ jobs: [j], items })).map((c) => c.kind)
     }
-    expect(kinds(job)).toEqual([])
-    expect(kinds({ ...job, autoApprove: true })).toEqual([])
+    expect(kinds(job)).toEqual(['approval'])
     expect(kinds({ ...job, planReadyAt: '2026-10-18T08:00:00.000Z' })).toEqual(['approval'])
   })
 

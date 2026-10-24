@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Account } from '../../../../core/types'
 import { MAX_CONCURRENT_WORKERS, PROJECT_DEFAULTS, type Project } from '../../../../core/orchestration/types'
 import { useI18n } from '../../i18n/I18nProvider'
-import { Button, Field, Icon, Input, Modal } from '../ui'
+import { Button, Field, Icon, Input, Modal, Select } from '../ui'
 import { AccountSelect } from '../AccountSelect'
 import { ProjectDelivery } from '../delivery/ProjectDelivery'
 import { ProjectAttribution } from '../attribution/ProjectAttribution' // W8-B
@@ -68,6 +68,12 @@ export function ProjectSettingsBody({
   const [confirmRemove, setConfirmRemove] = useState(false)
   const [removeError, setRemoveError] = useState<string | null>(null)
   // W10-A: the prompts folder Run as written finds typed prompt names in
+  // "Create GitHub repository": asked up front whether the folder has an origin (null until the answer comes back);
+  // the 409 of projects-github-create still sets it when the answer was stale
+  const [ghVisibility, setGhVisibility] = useState<'private' | 'public'>('private')
+  const [ghBusy, setGhBusy] = useState(false)
+  const [ghNote, setGhNote] = useState<{ ok: boolean; text: string } | null>(null)
+  const [hasOrigin, setHasOrigin] = useState<boolean | null>(null)
   const [prompts, setPrompts] = useState('')
   const [initial, setInitial] = useState({ test: '', concurrency: '', rounds: '', prompts: '' })
 
@@ -97,6 +103,22 @@ export function ProjectSettingsBody({
   useEffect(() => {
     void load(true)
   }, [load])
+  const projectPath = project?.path
+  useEffect(() => {
+    if (!projectPath) return
+    let live = true
+    setHasOrigin(null)
+    void window.api.projects.hasOrigin(projectPath).then(
+      (v) => live && setHasOrigin(v),
+      () => live && setHasOrigin(false)
+    )
+    return () => {
+      live = false
+    }
+  }, [projectPath])
+  useEffect(() => {
+    void window.api.settings.getGithubDefaults().then((d) => setGhVisibility(d.visibility), () => {})
+  }, [])
   const [saved, setSaved] = useState<Record<string, string>>({})
   // Saves a text field on blur, only when it differs from what was last read or saved
   const saveText = (key: string, value: string, initial: string, args: Record<string, unknown>): void => {
@@ -136,6 +158,25 @@ export function ProjectSettingsBody({
       onRemoved?.()
     } else setRemoveError((r?.body as { error?: string } | null)?.error ?? t('project.error.remove'))
   }
+  const createGithub = async (path: string): Promise<void> => {
+    setGhBusy(true)
+    setGhNote(null)
+    try {
+      const r = await window.api.orch.command(anchor, 'projects-github-create', { project: path, [ghVisibility]: true })
+      const body = r.body as { url?: string; error?: string } | null
+      if (r.status === 200 && body?.url) {
+        setHasOrigin(true)
+        setGhNote({ ok: true, text: t('github.project.done', { url: body.url }) })
+      } else if (r.status === 409 && body?.error?.includes('origin')) {
+        setHasOrigin(true)
+        setGhNote({ ok: true, text: t('github.project.hasOrigin') })
+      } else setGhNote({ ok: false, text: body?.error ?? t('github.project.failed') })
+    } catch {
+      setGhNote({ ok: false, text: t('github.project.failed') })
+    } finally {
+      setGhBusy(false)
+    }
+  }
   // '' clears; a number outside the range is the backend's 400, shown as the error
   const num = (s: string): number | '' => (s.trim() === '' ? '' : Number(s))
 
@@ -147,6 +188,29 @@ export function ProjectSettingsBody({
             <h3 className="proj-group__title" id={`proj-${projectId}-delivery`}>{t('project.group.delivery')}</h3>
             <ProjectDelivery projectPath={project.path} />
             <ProjectAttribution anchor={anchor} projectId={projectId} />
+            {!project.parentId && (hasOrigin === false || (hasOrigin && ghNote)) && (
+              <div className="ui-field">
+                <span className="ui-field__label">{t('github.project.create')}</span>
+                {!hasOrigin && (
+                  <div className="proj-sub-add">
+                    <Select
+                      ariaLabel={t('github.defaults.visibility')}
+                      value={ghVisibility}
+                      onChange={(v) => setGhVisibility(v as 'private' | 'public')}
+                      items={[
+                        { value: 'private', label: t('github.defaults.private') },
+                        { value: 'public', label: t('github.defaults.public') }
+                      ]}
+                    />
+                    <Button icon={<Icon name="branch" size={14} />} loading={ghBusy} onClick={() => void createGithub(project.path)}>
+                      {t('github.project.create')}
+                    </Button>
+                  </div>
+                )}
+                {!hasOrigin && !ghNote && <span className="ui-field__hint">{t('github.project.hint')}</span>}
+                {ghNote && <p className={ghNote.ok ? 'proj-ok' : 'warn'}>{ghNote.text}</p>}
+              </div>
+            )}
           </section>
           <section className="proj-group" aria-labelledby={`proj-${projectId}-plans`}>
             <h3 className="proj-group__title" id={`proj-${projectId}-plans`}>{t('project.group.plans')}</h3>

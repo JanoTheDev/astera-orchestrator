@@ -53,7 +53,11 @@ import { createHostConnectionSessions } from './connectionsSessions'
 import { createHostConnectionSources } from './connectionsSources'
 import { hostInboxRoutes } from './connectionsRoutes'
 import { hostSlackConnection, hostSlackLog } from './slackConnection'
-import { telegramConnection, telegramLog } from './telegramConnection'
+import { telegramConnection, telegramLog, type ConsoleRoute } from './telegramConnection'
+import { readFileTail } from '../core/connections/notifier'
+import { extractLastTurnAssistantText } from '../core/connections/transcript'
+import { extractLastAgentMessage } from '../core/connections/codexTranscript'
+import { providerOf } from '../core/providers/meta'
 
 export { hostSlackLog }
 
@@ -123,6 +127,8 @@ export function composeHostConnections(a: {
   /** Test seams. `log` is the composition's and Slack's (slack.log); Telegram's is `telegram.log`. */
   log?(m: string): void
   readConfig?(): Promise<SlackConfig>
+  /** Starts or finds the Astera console (console-ensure); without it Telegram's non-reply messages get the reply hint. */
+  ensureConsole?(): Promise<{ id: string }>
   telegram?: { log?(m: string): void; readConfig?(): Promise<TelegramConfig>; fetchFn?: typeof fetch }
   every?(ms: number, fn: () => void): () => void
   /** The start grace's timer (HOST_SLACK_START_GRACE_MS); returns its cancel. */
@@ -180,11 +186,61 @@ export function composeHostConnections(a: {
       hostInboxRoutes({ registry: a.registry, procs: a.procs, chats: a.chats, notifier, server: a.server }),
     isQuitting: () => disposed
   }
+  // Telegram's console: a message sent to it, and the text its turn ends with, read from the same transcript the
+  // turn summary reads. The listener is on before the send, so a fast turn cannot be missed.
+  const TURN_CAP_MS = 30 * 60_000
+  const consoleRoute: ConsoleRoute | undefined =
+    a.ensureConsole && a.chats
+      ? {
+          ensure: a.ensureConsole,
+          ask: async (id, send, answered) => {
+            const chats = a.chats!
+            let working = false
+            let rollout: string | null = null
+            let off = (): void => {}
+            const timer = setTimeout(() => off(), TURN_CAP_MS)
+            timer.unref?.()
+            const read = async (): Promise<string | null> => {
+              const info = chats.info(id)
+              const acc = info ? a.rolling?.account(info.accountId) : null
+              if (!info || !acc) return null
+              const codex = providerOf(acc) === 'codex'
+              for (let attempt = 0; attempt < 4; attempt++) {
+                const file = codex ? rollout : info.threadId ? await (a.findTranscript ?? findClaudeTranscript)(acc.configDir, info.threadId) : null
+                const tail = file ? await readFileTail(file, 256 * 1024) : null
+                const text = tail ? (codex ? extractLastAgentMessage(tail) : extractLastTurnAssistantText(tail)) : null
+                if (text) return text
+                await new Promise((r) => setTimeout(r, 500))
+              }
+              return null
+            }
+            off = chats.subscribe((sid, e) => {
+              if (sid !== id) return
+              if (e.type === 'ready') rollout = e.rolloutPath
+              if (e.type !== 'status') return
+              if (e.status === 'working') working = true
+              else if (e.status === 'idle' && working) {
+                off()
+                clearTimeout(timer)
+                void read().then(answered, () => answered(null))
+              }
+            })
+            try {
+              await send()
+            } catch (err) {
+              off()
+              clearTimeout(timer)
+              throw err
+            }
+          }
+        }
+      : undefined
   /** The list: one entry per connection (see the header). */
   const connections: Connection[] = [
     hostSlackConnection({ ...shared, log, sdk: a.sdk, ...(a.readConfig ? { load: a.readConfig } : {}) }),
     telegramConnection({
       ...shared,
+      ...(consoleRoute ? { console: consoleRoute } : {}),
       log: safeLog(a.telegram?.log ?? telegramLog(a.profileDir, true)),
       ...(a.telegram?.readConfig ? { load: a.telegram.readConfig } : {}),
       ...(a.telegram?.fetchFn ? { fetchFn: a.telegram.fetchFn } : {})

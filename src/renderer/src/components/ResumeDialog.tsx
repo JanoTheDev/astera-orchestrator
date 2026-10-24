@@ -9,7 +9,8 @@ import { useChatAvailability } from '../hooks/useChatAvailability'
 import { isGhostAccountId } from '../../../core/accounts/ghostId'
 import { AccountDisclosure, AccountSelect } from './AccountSelect'
 import { ScheduleFields } from './ScheduleFields'
-import { Button, Modal, Tabs, Checkbox } from './ui'
+import { Button, Checkbox, Input, Modal, Tabs } from './ui'
+import './sessionDialog.css'
 
 /** Modal for resuming a session from history. Only logged-in accounts appear as candidates; a claude
  *  conversation opens on Auto (most room) with the picker folded, so a full original account is never the
@@ -192,11 +193,11 @@ export function ResumeDialog({
         </>
       }
     >
-      <div className="dlg resume">
+      <div className="sd-body">
         {/* Heads the form as its own ruled-off section, as in NewSessionDialog: the way the resumed
             session runs is decided before the conversation, folder and account it applies to. */}
-        <div className="field kind-field">
-          <label>{t('session.new.kindLabel')}</label>
+        <div className="sd-group sd-group--ruled">
+          <span className="sd-label">{t('session.new.kindLabel')}</span>
           <Tabs
             variant="segmented"
             label={t('session.new.kindLabel')}
@@ -211,31 +212,31 @@ export function ResumeDialog({
             <span className="kind-note">{t('overlays.session.kindServiceOld')}</span>
           )}
         </div>
-        <div className="field">
-          <label>{t('session.resume.conversationLabel')}</label>
+        <div className="sd-group">
+          <span className="sd-label">{t('session.resume.conversationLabel')}</span>
           <span className="path">{entry.title}</span>
         </div>
-        <div className="field">
-          <label>{t('session.field.projectFolder')}</label>
+        <div className="sd-group">
+          <span className="sd-label">{t('session.field.projectFolder')}</span>
           <span className="path">{cwd}</span>
         </div>
         {/* Only when the owning account is gone. With it alive the picker lists it with the
             '(original account)' suffix, so a second row would just repeat that. */}
         {ownerGone && (
-          <div className="field">
-            <label>{t('session.resume.originAccount')}</label>
+          <div className="sd-group">
+            <span className="sd-label">{t('session.resume.originAccount')}</span>
             <span className="path">
               {owner?.label ?? entry.accountId}
               <em className="origin-deleted">{t('session.resume.originDeleted')}</em>
             </span>
           </div>
         )}
-        <div className="field">
-          <label>{t('session.field.account')}</label>
+        <div className="sd-group">
+          <span className="sd-label">{t('session.field.account')}</span>
           {options === null ? (
             <span className="check-note">{t('session.resume.checkingLogin')}</span>
           ) : options.length === 0 ? (
-            <span className="warn">{t('session.resume.noLoggedInAccounts')}</span>
+            <span className="sd-warn">{t('session.resume.noLoggedInAccounts')}</span>
           ) : autoOk ? (
             <AccountDisclosure
               id="resume-accounts"
@@ -253,14 +254,10 @@ export function ResumeDialog({
           )}
         </div>
         {/* Rolling now applies to 대화 too (slice 4c) — see NewSessionDialog's own note. */}
-        <label className="row check-small">
-          <Checkbox checked={rollOn} onChange={(v) => setRollOn(v)} />
-          {t('session.new.rollLabel')}
-        </label>
+        <Checkbox checked={rollOn} onChange={(v) => setRollOn(v)} label={t('session.new.rollLabel')} />
         {rollOn && (
-          <div className="field roll-prompt-field">
-            <input
-              type="text"
+          <div className="roll-prompt-field">
+            <Input
               className="roll-prompt-input"
               value={rollPrompt}
               maxLength={500}
@@ -276,10 +273,11 @@ export function ResumeDialog({
           </div>
         )}
         {/* The label follows the field below it — see NewSessionDialog's own note. */}
-        <label className="row check-small">
-          <Checkbox checked={schedOn} onChange={(v) => setSchedOn(v)} />
-          {t(kind === 'chat' ? 'session.new.schedLabelChat' : 'session.new.schedLabel')}
-        </label>
+        <Checkbox
+          checked={schedOn}
+          onChange={(v) => setSchedOn(v)}
+          label={t(kind === 'chat' ? 'session.new.schedLabelChat' : 'session.new.schedLabel')}
+        />
         {/* Mounted only after the saved-value lookup finishes — ScheduleFields reads initial exactly
             once, at mount. schedule ?? savedSchedule: on a toggle off and back on, a value the user
             already edited (schedule) is restored first, and before any edit it is filled from the saved
@@ -289,22 +287,22 @@ export function ResumeDialog({
         {schedOn && loadedDefaults && (
           <ScheduleFields initial={schedule ?? savedSchedule} onChange={setSchedule} chat={kind === 'chat'} />
         )}
-        <label className="row check-small">
-          <Checkbox
-            checked={slackReady && slackNotify}
-            disabled={!slackReady}
-            onChange={(v) => setSlackNotify(v)}
-          />
-          {t('session.new.slackNotify')}
-          {!slackReady && <span className="check-note">{t('session.new.slackNeedsWebhook')}</span>}
-        </label>
-        <label className="row check-small">
-          <Checkbox
-            checked={bypassPermissions}
-            onChange={(v) => setBypassPermissions(v)}
-          />
-          {t('session.new.bypassPermissions')}
-        </label>
+        <Checkbox
+          checked={slackReady && slackNotify}
+          disabled={!slackReady}
+          onChange={(v) => setSlackNotify(v)}
+          label={
+            <>
+              {t('session.new.slackNotify')}
+              {!slackReady && <span className="check-note">{t('session.new.slackNeedsWebhook')}</span>}
+            </>
+          }
+        />
+        <Checkbox
+          checked={bypassPermissions}
+          onChange={(v) => setBypassPermissions(v)}
+          label={t('session.new.bypassPermissions')}
+        />
       </div>
     </Modal>
   )

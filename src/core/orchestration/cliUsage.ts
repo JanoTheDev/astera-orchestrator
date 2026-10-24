@@ -373,12 +373,13 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
   'projects-add': {
     summary: 'register a folder of this machine as a project, or add a sub-project to a workspace',
     detail:
-      'For the person at this machine, a script on it, or a full-control controller through `astera --runtime <id> projects add` (T12b); never an agent session (ASTERA_SESSION is set; refused with 5). The path is an existing git repository folder that is not a worktree (a relative path is taken from the shell folder); a subfolder or a linked worktree registers the repository itself. A repository with no commit is refused (409 needsInitialCommit) unless --initial-commit makes one. The answer carries the proposed test command and records the default branch. Adding a folder already registered answers that project. ' +
+      'For the person at this machine, a script on it, or a full-control controller through `astera --runtime <id> projects add` (T12b); never an agent session (ASTERA_SESSION is set; refused with 5). The path is an existing git repository folder that is not a worktree (a relative path is taken from the shell folder); a subfolder or a linked worktree registers the repository itself. A folder that is not a repository is refused (400 needsGitInit) unless --init-git runs `git init -b main` there, adds a .gitignore where there is none and makes the first commit; a repository with no commit is refused (409 needsInitialCommit) unless --initial-commit makes one. The answer carries the proposed test command and records the default branch. Adding a folder already registered answers that project. ' +
       // T3 workspaces
       'With --parent <projectId> --name <name> (and no --path) it adds a sub-project to that workspace instead: the same repository under its own name, whose plans share the workspace\'s file guard, leases and overlap checks; a name the workspace already has answers that sub-project. A sub-project reads every setting it leaves unset from its workspace.',
     flags: [
       { name: 'path', value: '<path>', about: 'the folder to register (required without --parent)' },
       { name: 'initial-commit', about: 'make the first commit when the repository has none' },
+      { name: 'init-git', about: 'make the folder a git repository first when it is not one (git init -b main, a .gitignore if missing, the first commit)' },
       // T3 workspaces
       { name: 'parent', value: '<projectId>', about: 'add a sub-project to this workspace (a root project) instead of a folder' },
       { name: 'name', value: '<name>', about: 'the sub-project name (with --parent)' },
@@ -406,6 +407,16 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       { name: 'github', value: '<private|public>', about: 'also create a GitHub repository' }
     ]
   },
+  'projects-github-create': {
+    summary: 'create a GitHub repository for a project that has none, and push it',
+    detail:
+      'For the person at this machine, or a script on it: a remote controller cannot, nor an agent session (refused with 5). Runs `gh repo create <folder name> --source . --push` in the project (needs the gh CLI signed in) and answers the repository URL. Refused (409) when the project already has an origin remote. Private unless --public.',
+    flags: [
+      { name: 'project', value: '<path>', required: true, about: 'the project folder (relative: from the shell folder)' },
+      { name: 'private', about: 'a private repository (the default)' },
+      { name: 'public', about: 'a public repository' }
+    ]
+  },
   'projects-get': {
     summary: 'one registered project',
     flags: [ID('<projectId>', 'the project to read')]
@@ -422,6 +433,7 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       // W7-A, W7-B
       { name: 'auto-approve', value: '<on|off>', about: 'approve this project\'s plans as soon as their planner finishes, with no one asked (default off)' },
       // #117
+      { name: 'approval', value: '<ask|start|hands-off>', about: "the plan approval in one word: ask (approve by hand, even where the app's default starts plans), start (start once the plan holds) or hands-off; sets --auto-approve and --hands-off together" },
       { name: 'hands-off', value: '<on|off>', about: "run this project's plans hands-off (default off): nothing waits on the owner: the plan starts by itself once it holds, its coordinator answers its own escalations, and its planner, coordinator and workers run with permissions bypassed" },
       // T7
       { name: 'serial-files', value: '<on|off>', about: "never run two Tasks on the same files at once, and keep a done Task's files leased until its plan delivers (default off: they run side by side in their own worktrees and the merge worker settles a conflict)" },
@@ -723,6 +735,7 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       { name: 'deps', value: '<json array>', about: 'the task ids this one waits for' },
       // W7-D (#81): the planner's flag, so a task added here is kept off its files' other tasks (W6-C)
       { name: 'affected-paths', value: '<json array>', about: 'the files or folders it will change, e.g. \'["src/a.ts","src/b/"]\'' },
+      { name: 'no-files', about: 'an ops, audit or docs Task (--kind) that changes no repository file: it names none, and a planned Job accepts that' },
       { name: 'parent', value: '<taskId>', about: 'the task this one was split out of' },
       {
         name: 'validate',
@@ -833,6 +846,17 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
     flags: [{ name: 'job', value: '<jobId>', required: true, about: 'the Job whose project to list (from `jobs list`)' }]
   },
 
+  // Saved through the app when it is attached, else by the Host into the profile's run-configs.json (host/orchDeps.ts).
+  'run-configs-add': {
+    summary: "save one run configuration in a project's list",
+    detail:
+      "Adds the configuration, or replaces the one with the same name (it keeps that one's id and place). It is checked by the rules the app's Run Configurations dialog applies when it saves: a known type with its fields, a unique id that is not a detected one (`seed:`), a cwd inside the project, an http(s) previewUrl, and no cmd.exe special characters on Windows. A configuration that fails is refused with the reason and nothing is written; other projects' configurations are never touched. Leave `id` out to get a new one. The saved configuration comes back as `config`, with `replaced` true when it took a name's place.",
+    flags: [
+      { name: 'project', value: '<path>', required: true, about: "the project's folder, as an absolute path" },
+      { name: 'config', value: '<json|->', required: true, about: 'one configuration as a JSON object (`{"name":"Test","type":"shell","command":"npm test"}`), or - to read it from standard input' }
+    ]
+  },
+
   'skills-list': {
     summary: "which of Astera's agent skills each account has, and whether they are current",
     detail:
@@ -903,6 +927,13 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       { name: 'roll-accounts', value: '<id,…>', about: 'the accounts to roll onto at a usage limit, in order' },
       { name: 'unattended', value: '<hold|deny-after-60s>', about: 'chat: a permission prompt nobody answers' }
     ]
+  },
+  // T10
+  'console-ensure': {
+    summary: 'the Astera console: one chat session for every project, started when none is alive',
+    detail:
+      "The Host starts it as a chat session titled \"Astera console\" in Astera's profile folder, with a first prompt that teaches it the astera CLI, and keeps its id in that folder, so a Host restart answers the same session. One that ended is started again; one that moved to another account at a usage limit is followed to its new session. Answers the session as `sessions list` shows it. A worker session is refused with 5, and a caller that is not the Host 6.",
+    flags: []
   },
   // T8
   'sessions-close': {

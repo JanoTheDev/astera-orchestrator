@@ -80,8 +80,8 @@ export function CompletionBlock({
       >
         {open ? t('jobs.completion.hide') : t('jobs.completion.show')}
       </Button>
-      {open && detail === undefined && <p className="modal-hint">{t('files.editor.loading')}</p>}
-      {open && detail === null && <p className="modal-hint">{t('jobs.completion.empty')}</p>}
+      {open && detail === undefined && <p className="ui-note">{t('files.editor.loading')}</p>}
+      {open && detail === null && <p className="ui-note">{t('jobs.completion.empty')}</p>}
       {open && detail !== null && detail !== undefined && (
         <>
           <CompletionChecks
@@ -114,7 +114,7 @@ export function CompletionBlock({
           )}
           {/* 막지 않는 이슈는 개수만 — 있다는 사실은 말한다. 리뷰어가 아무 말도 안 한 것과 다르다 */}
           {detail.otherIssueCount > 0 && (
-            <p className="modal-hint">{t('jobs.completion.other', { n: detail.otherIssueCount })}</p>
+            <p className="ui-note">{t('jobs.completion.other', { n: detail.otherIssueCount })}</p>
           )}
 
           {/* 설계 G3(명세 §36·§37) — 이 Task 가 도는 동안 완료 정책 자체가 달라졌다. 막지 않고

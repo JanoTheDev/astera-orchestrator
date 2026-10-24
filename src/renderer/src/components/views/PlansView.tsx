@@ -9,7 +9,7 @@ import { sessionTab } from '../../../../core/panes/tabId'
 import { Badge, Button, Icon, IconButton, Input, Menu, Tree, ViewContainer, ViewPane, menuPointOf, type ChipTone, type IconName, type MenuItem, type TreeItem, type TreeProps } from '../ui'
 import { RuntimeSelector } from '../RuntimeSelector'
 import { JobsView } from '../JobsView'
-import { TaskGlyph } from '../JobIcons'
+import { STATE_KEY, TaskGlyph } from '../JobIcons'
 import { controlReason, isRemoteRuntime, offlineNote } from '../../lib/remoteJobs'
 import { localDoor, replyNote } from '../../lib/orchDoor'
 import { jobName } from '../../lib/jobName'
@@ -17,7 +17,7 @@ import { toast } from '../../lib/toast'
 import { archiveJob, deleteRun, holdJob, pauseRun, restartCoordinator as restartRunCoordinator, resolveFailed, resumeRun, unarchiveJob } from '../../lib/jobActions'
 import { openConsole, openPlanConsoles, openView } from '../shell/navigation'
 import { ViewToolbar, type SideBarViewProps } from '../shell/SideBar'
-import { isStalledPlan, planStatusOf, resumeActionOf } from '../plan/planList'
+import { PLAN_FILTERS, filterPlans, isStalledPlan, planFilterOf, planStatusOf, resumeActionOf, type PlanFilter } from '../plan/planList'
 import { approveSlot } from '../plan/planTalk'
 import { deliveryActionsOf } from '../plan/planPage'
 import { type PlanSection } from '../plan/planBoard'
@@ -42,6 +42,15 @@ import {
 import '../plan/plans.css'
 
 const GROUP_KEY = 'cm.plansGroupBy'
+const FILTER_KEY = 'cm.plansFilter'
+
+function storedFilter(): PlanFilter {
+  try {
+    return planFilterOf(localStorage.getItem(FILTER_KEY))
+  } catch {
+    return 'active'
+  }
+}
 
 function storedGroupBy(): GroupBy {
   try {
@@ -153,8 +162,8 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
   const { t, orchSnapshot, currentProject, accounts, layout, actionUi } = p
   const [groupBy, setGroupBy] = useState<GroupBy>(storedGroupBy)
   const [filter, setFilter] = useState('')
-  // Archived plans are hidden until asked for. Not remembered: the tree opens on the plans that work.
-  const [showArchived, setShowArchived] = useState(false)
+  // Done and archived plans are hidden until asked for (Active is the default; the choice is remembered)
+  const [planFilter, setPlanFilter] = useState<PlanFilter>(storedFilter)
   // the rows whose open state is not their default (openByDefault)
   const [toggled, setToggled] = useState<ReadonlySet<string>>(new Set())
   const [selected, setSelected] = useState<string | null>(null)
@@ -167,9 +176,10 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
   }, [])
 
   const runs = useMemo(() => orchSnapshot?.runs ?? [], [orchSnapshot])
+  const shown = useMemo(() => filterPlans(runs, planFilter), [runs, planFilter])
   const rows = useMemo(
-    () => planTreeRows({ rows: runs, groupBy, filter, showArchived, isOpen: (id, node) => toggled.has(id) !== openByDefault(node) }),
-    [runs, groupBy, filter, showArchived, toggled]
+    () => planTreeRows({ rows: shown, groupBy, filter, showArchived: true, isOpen: (id, node) => toggled.has(id) !== openByDefault(node) }),
+    [shown, groupBy, filter, toggled]
   )
   const byId = useMemo(() => new Map(rows.map((r) => [r.id, r])), [rows])
   const local = currentProject ? localDoor(window.api, currentProject) : null
@@ -182,6 +192,14 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
       localStorage.setItem(GROUP_KEY, g)
     } catch {
       /* no storage: the tree opens grouped by plan next time */
+    }
+  }
+  const choosePlanFilter = (f: PlanFilter): void => {
+    setPlanFilter(f)
+    try {
+      localStorage.setItem(FILTER_KEY, f)
+    } catch {
+      /* no storage: the tree opens on the active plans next time */
     }
   }
   const setOpen = (row: PlanTreeRow, open: boolean): void =>
@@ -291,7 +309,7 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
         ...base,
         label: status ? t(`pages.plans.tree.status.${n.key as StatusGroup}`) : n.key || t('pages.plans.noArea'),
         icon: status ? toned(status.icon, status.tone) : <Icon name="layers" />,
-        badge: <Badge>{groupCount(runs, groupBy, n.key, showArchived)}</Badge>
+        badge: <Badge>{groupCount(shown, groupBy, n.key, true)}</Badge>
       }
     }
     if (n.kind === 'step') {
@@ -311,6 +329,8 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
         icon: <TaskGlyph task={n.task} size={16} />,
         // grouped by status, the plan says where the Task belongs; elsewhere its parent row does
         description: groupBy === 'status' ? jobName(n.row) : taskDescription(n.task, accountLabel, t),
+        // the status as a word beside its icon (colour never stands alone)
+        decoration: { text: t(STATE_KEY[n.task.status]), tone: 'neutral' },
         badge: (
           <>
             {overlapMark(overlapOf(n, runs))}
@@ -417,8 +437,8 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
           <Menu
             label={t('pages.plans.tree.filterMenu')}
             align="end"
-            trigger={{ icon: <Icon name="filter" />, size: 'sm', title: t('pages.plans.tree.filterMenu') }}
-            items={[{ id: 'archived', label: t('pages.plans.tree.showArchived'), checked: showArchived, onSelect: () => setShowArchived((v) => !v) }]}
+            trigger={{ icon: <Icon name="filter" />, size: 'sm', title: `${t('pages.plans.tree.filterMenu')}: ${t(`pages.plans.tree.show.${planFilter}`)}` }}
+            items={PLAN_FILTERS.map((f) => ({ id: f, label: t(`pages.plans.tree.show.${f}`), checked: f === planFilter, onSelect: () => choosePlanFilter(f) }))}
           />
         </div>
         {rows.length === 0 ? (
@@ -496,7 +516,7 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
           </div>
         </ViewPane>
       )}
-      <ViewPane title={t('pages.plans.title')} count={screen === 'runs' ? runs.filter((r) => showArchived || r.archivedAt === undefined).length : undefined} storageKey="plans.tree">
+      <ViewPane title={t('pages.plans.title')} count={screen === 'runs' ? shown.length : undefined} storageKey="plans.tree">
         {stall && (
           <p className="plans-stall" role="status">
             <Icon name="warning" size={14} />

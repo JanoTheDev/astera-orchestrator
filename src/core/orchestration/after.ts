@@ -6,7 +6,7 @@
 import type { Job, JobRun } from './types'
 import type { OrchState } from './state'
 import { isJobActive } from './lifecycle'
-import { outcomeOfTasks } from './running'
+import { lostTasksOutcome, outcomeOfTasks, runDelivered } from './running'
 import { jobNameOf } from './jobName'
 
 type AfterState = Pick<OrchState, 'jobs' | 'runs' | 'tasks'>
@@ -29,8 +29,7 @@ export function afterStandOf(s: AfterState, jobId: string): AfterStand {
   const pr = run?.pr
   // W8-E (#99) delivers a failed Run's completed work in a PR too: that plan still gave up, so what waits on it stops
   if (run && outcomeOfTasks(s.tasks.filter((t) => t.runId === run.id)) === 'failed') return 'stopped'
-  if (run?.delivery?.sha !== undefined && run.delivery.error === undefined) return 'delivered'
-  if (pr && pr.error === undefined && pr.draft === undefined && (pr.url !== undefined || pr.note !== undefined)) return 'delivered'
+  if (run && runDelivered(run)) return 'delivered'
   if (!isJobActive(job)) return 'stopped'
   // An error while Astera still retries the delivery is not a stop: what waits on it comes once that try lands
   const retrying = run?.deliveryState?.state === 'retrying' || run?.deliveryState?.state === 'delivering' || run?.deliveryState?.state === 'pending'
@@ -55,7 +54,9 @@ export const afterNameOf = (s: Pick<OrchState, 'jobs'>, id: string): string => {
 export const jobFinished = (s: AfterState, jobId: string): boolean => {
   if (afterStandOf(s, jobId) !== 'waiting') return true
   const run = latestRunOf(s, jobId)
-  return run !== undefined && outcomeOfTasks(s.tasks.filter((t) => t.runId === run.id)) !== 'running'
+  if (run === undefined) return false
+  const tasks = s.tasks.filter((t) => t.runId === run.id)
+  return (lostTasksOutcome(s, run, tasks) ?? outcomeOfTasks(tasks)) !== 'running'
 }
 
 /** Why `jobId` may not wait on `target`, or null: unknown (`missing`), itself, finished already, or a chain that comes back. */

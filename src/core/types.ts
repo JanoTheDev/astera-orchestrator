@@ -1,3 +1,4 @@
+import type { ApprovalMode } from './settings/approvalDefault'
 import type { CrashOffer, CrashReportsSetting, RENDERER_KINDS } from './crash/report' // T27
 import type { Decision, IssuePick, PlanFeedback } from './orchestration/types'
 import type { WorktreeDetail, WorktreeRow } from './worktrees/cleanup'
@@ -1537,6 +1538,7 @@ export interface CoreApi {
   projects: {
     getDefaultAccount(projectPath: string): Promise<string | null>
     setDefaultAccount(projectPath: string, accountId: string | null): Promise<void>
+    hasOrigin(projectPath: string): Promise<boolean> // the folder is a git repository with an origin remote
   }
   worktrees: {
     // Splitting a session off into a git worktree.
@@ -1834,6 +1836,9 @@ export interface CoreApi {
     /** W3-A: minutes between activity digests; 0 is none. */
     getActivityDigestMinutes(): Promise<number>
     setActivityDigestMinutes(n: number): Promise<void>
+    /** The approval setting's global default (core/settings/approvalDefault.ts); null: the planning mode decides. */
+    getApprovalDefault(): Promise<ApprovalMode | null>
+    setApprovalDefault(mode: ApprovalMode | null): Promise<void>
     /** Context use (%) at which a plan's coordinator is replaced by a fresh session; 0 turns the check off. */
     getFreshCoordinatorContextPct(): Promise<number>
     setFreshCoordinatorContextPct(n: number): Promise<void>
@@ -1897,6 +1902,9 @@ export interface CoreApi {
     // Whether an MCP client may act on GitHub (off by default; needs access Read and control).
     getMcpGithubWrite(): Promise<boolean>
     setMcpGithubWrite(v: boolean): Promise<void>
+    // What a new project does about GitHub (core/settings/githubDefaults.ts).
+    getGithubDefaults(): Promise<{ createGithubRepo: boolean; visibility: 'private' | 'public' }>
+    setGithubDefaults(v: { createGithubRepo: boolean; visibility: 'private' | 'public' }): Promise<void>
     // MCP over HTTP (off by default). Saving also asks the Host to apply it (mcp-http-reload).
     getMcpHttp(): Promise<McpHttpSettings>
     setMcpHttp(v: McpHttpSettings): Promise<void>
@@ -1976,6 +1984,10 @@ export interface CoreApi {
     /** Where a File handed over by a paste lives on disk. Empty for a File that is not a file on disk
      *  (an image copied from a web page). Synchronous — Electron's webUtils, not an IPC call. */
     pathForFile(file: File): string
+    /** T4: write a file pasted into Start that has no path (a clipboard image) under `<userData>/intake-paste/<uuid>/`
+     *  and answer its absolute path, for the intake to attach. Rejects a bad name type or mime, an empty payload and one
+     *  over the attachment cap (main/intakePaste.ts). */
+    savePasted(name: string, mime: string, base64: string): Promise<string>
     reveal(path: string): Promise<void> // show in the OS file manager
     countEntries(path: string): Promise<number> // child count for the delete confirmation (stops at 9999)
     /** A session terminal's path link (or a SendUserFile row's path): `target` as it is when absolute,

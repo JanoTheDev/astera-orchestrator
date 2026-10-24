@@ -112,7 +112,7 @@ export function AccountUsageDetail({
         <span className="r">{resets}</span>
         </span>
         {runOut && (
-          <span className="dline" style={{ color: 'var(--text-faint)' }}>
+          <span className="dline dline--faint">
             {runOut}
           </span>
         )}

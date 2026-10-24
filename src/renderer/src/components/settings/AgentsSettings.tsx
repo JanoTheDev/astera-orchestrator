@@ -11,9 +11,44 @@ import { StartAtLoginSetting } from '../StartAtLoginSetting'
 import { AutoAnswerSetting } from '../AutoAnswerSetting'
 import { toast } from '../../lib/toast'
 import { SettingRow, type GroupProps } from './SettingRow'
-import { Switch } from '../ui'
+import { useEffect, useState } from 'react'
+import { useI18n } from '../../i18n/I18nProvider'
+import { APPROVAL_MODES, type ApprovalMode } from '../../../../core/settings/approvalDefault'
+import { APPROVAL_LABEL } from '../plan/planSettingsForm'
+import { Select, Switch } from '../ui'
 import { SettingItem } from './SettingItem'
 import { PromptInstructionsEditor } from '../extensions/PromptInstructionsEditor'
+
+/** The global default of the approval setting (core/settings/approvalDefault.ts), behind a plan's and its project's own. */
+function ApprovalDefaultSetting(): React.JSX.Element {
+  const { t } = useI18n()
+  const [saved, setSaved] = useState<ApprovalMode | null | undefined>(undefined)
+  useEffect(() => void window.api.settings.getApprovalDefault().then(setSaved), [])
+  const change = (v: string): void => {
+    const was = saved
+    const next = APPROVAL_MODES.find((m) => m === v) ?? null
+    setSaved(next)
+    void window.api.settings.setApprovalDefault(next).catch((err) => {
+      setSaved(was)
+      toast.error(t('settings.approvalDefault.saveFailed', { detail: err instanceof Error ? err.message : String(err) }))
+    })
+  }
+  return (
+    <SettingItem
+      title={t('settings.approvalDefault.label')}
+      hint={t('settings.approvalDefault.hint')}
+      control={
+        <Select
+          aria-label={t('settings.approvalDefault.label')}
+          disabled={saved === undefined}
+          value={saved ?? 'mode'}
+          items={[{ value: 'mode', label: t('plan.approval.mode') }, ...APPROVAL_MODES.map((m) => ({ value: m, label: t(APPROVAL_LABEL[m]) }))]}
+          onChange={change}
+        />
+      }
+    />
+  )
+}
 
 export function AgentsSettings(p: GroupProps): React.JSX.Element | null {
   const {
@@ -51,6 +86,9 @@ export function AgentsSettings(p: GroupProps): React.JSX.Element | null {
       </SettingRow>
       <SettingRow a="heavyJobs" only={only}>
         <HeavyJobsSetting />
+      </SettingRow>
+      <SettingRow a="approvalDefault" only={only}>
+        <ApprovalDefaultSetting />
       </SettingRow>
       <SettingRow a="freshCoordinator" only={only}>
         <FreshCoordinatorSetting />

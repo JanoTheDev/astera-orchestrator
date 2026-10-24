@@ -3,6 +3,7 @@
 import { isJobActive } from './lifecycle'
 import { outcomeOf } from './running'
 import type { OrchState } from './state'
+import { approvalFallbackOf, type ApprovalMode } from '../settings/approvalDefault'
 import { MAX_REVIEW_ROUNDS, type DeliveryMode, type Job, type JobRun } from './types'
 
 export type PlanSettingKey = 'concurrency' | 'priority' | 'reviewRounds' | 'replan' | 'autoApprove' | 'handsOff' | 'delivery'
@@ -39,8 +40,9 @@ export function settingRefusalOf(s: OrchState, job: Job, key: PlanSettingKey): P
 }
 
 /** The current value of each editable setting of a plan and whether it can change now. The value is the plan's own,
- *  else its project's, else the default. Undefined for an unknown plan. */
-export function editableSettingsOf(s: OrchState, jobId: string): PlanSettings | undefined {
+ *  else its project's, else the default (for auto-approve: the app's global default, else the planning mode's). Undefined
+ *  for an unknown plan. */
+export function editableSettingsOf(s: OrchState, jobId: string, globalDefault?: ApprovalMode): PlanSettings | undefined {
   const job = s.jobs.find((j) => j.id === jobId)
   if (!job) return undefined
   const project = job.projectId === undefined ? undefined : s.projects.find((p) => p.id === job.projectId)
@@ -53,7 +55,7 @@ export function editableSettingsOf(s: OrchState, jobId: string): PlanSettings | 
     priority: field('priority', job.priority ?? 0),
     reviewRounds: field('reviewRounds', job.convergence?.maxReviewRounds ?? project?.reviewRounds ?? MAX_REVIEW_ROUNDS),
     replan: field('replan', job.replan ?? project?.replan ?? 'waves'),
-    autoApprove: field('autoApprove', job.autoApprove ?? project?.autoApprove ?? false),
+    autoApprove: field('autoApprove', job.autoApprove ?? project?.autoApprove ?? approvalFallbackOf(job, globalDefault) !== 'ask'),
     handsOff: field('handsOff', job.handsOff ?? project?.handsOff ?? false),
     delivery: field('delivery', job.delivery ?? project?.delivery ?? 'pr')
   }

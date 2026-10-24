@@ -3,7 +3,6 @@ import { EditorState, Prec, type Extension, type StateEffect } from '@codemirror
 import { EditorView, keymap } from '@codemirror/view'
 import { closeSearchPanel, search } from '@codemirror/search'
 import { basicSetup } from 'codemirror'
-import { oneDark } from '@codemirror/theme-one-dark'
 import { indentWithTab } from '@codemirror/commands'
 import { javascript } from '@codemirror/lang-javascript'
 import { python } from '@codemirror/lang-python'
@@ -24,6 +23,7 @@ import type { EditorStateCache } from '../lib/editorStateCache'
 import { FileFindBar } from './FileFindBar'
 import { createEchoLedger, createEditCoalescer } from '../lib/editCoalescer'
 import { BlameToggle } from './attribution/BlameToggle' // W8-B
+import { editorTheme } from './editorTheme'
 
 function langExt(key: LangKey | null): Extension {
   switch (key) {
@@ -75,7 +75,8 @@ const owners = new WeakMap<EditorView, EditorOwner>()
 /** 어느 인스턴스도 붙잡지 않는 공통 확장. 그래서 이것이 든 상태는 어느 뷰에서든 안전하다 */
 const sharedBase: Extension[] = [
   basicSetup,
-  oneDark,
+  /** Reads CSS variables only, so a theme switch repaints it without the extensions being rebuilt */
+  editorTheme,
   /** Search state — the query, and the decorations that highlight it — lives in the EditorState, so it
    *  is per file and travels with the cached state between panes, exactly like the undo history.
    *

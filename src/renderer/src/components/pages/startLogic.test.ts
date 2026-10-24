@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import {
-  accountPickOptions, afterCreate, blockedReason, consolesIn, dropOpensStart, filesFromDrop, handsOffSaveArgs, intakeTab, isSubmitKey, lastMode, lookupArgs, planningOf, primaryLabel,
+  accountPickOptions, attachableOf, afterCreate, blockedReason, consolesIn, dropOpensStart, filesFromDrop, handsOffSaveArgs, intakeTab, isSubmitKey, lastMode, lookupArgs, planningOf, primaryLabel,
   projectOptions, promptCount, saveMode, scheduledArgs, STARTERS, STARTER_MODE, livePlans, shouldLandOnStart, withStarter, type PlanRow
 } from './startLogic'
 import type { Account } from '../../../../core/types'
@@ -200,5 +200,34 @@ describe('scheduledArgs', () => {
   })
   it('is null for a request that is not jobs-create', () => {
     expect(scheduledArgs({ cmd: 'jobs-create-from-issue', args: {} }, rule)).toBeNull()
+  })
+})
+
+describe('attachableOf (T4 paste to attach)', () => {
+  it('saves a pathless clipboard image through the IPC and attaches the answered path', async () => {
+    const image = new File([new Uint8Array([137, 80, 78, 71])], 'image.png', { type: 'image/png' })
+    const save = vi.fn(async () => '/u/intake-paste/id/image-1.png')
+    const r = await attachableOf([image], () => '', save)
+    expect(save).toHaveBeenCalledWith('image.png', 'image/png', btoa(String.fromCharCode(137, 80, 78, 71)))
+    expect(r).toEqual({ attached: [{ file: image, path: '/u/intake-paste/id/image-1.png' }], failed: [] })
+  })
+
+  it('attaches a copied OS file by its own path without saving it', async () => {
+    const doc = new File(['x'], 'spec.md')
+    const save = vi.fn()
+    const r = await attachableOf([doc], () => '/w/spec.md', save)
+    expect(save).not.toHaveBeenCalled()
+    expect(r.attached.map((a) => a.path)).toEqual(['/w/spec.md'])
+  })
+
+  it('names a file the save refused and still attaches the rest', async () => {
+    const big = new File(['x'], 'big.png', { type: 'image/png' })
+    const ok = new File(['y'], 'ok.md')
+    const r = await attachableOf([big, ok], (f) => (f === ok ? '/w/ok.md' : ''), async () => Promise.reject(new Error('ATTACHMENT_TOO_LARGE')))
+    expect(r).toEqual({ attached: [{ file: ok, path: '/w/ok.md' }], failed: ['big.png'] })
+  })
+
+  it('attaches nothing for a paste with no files (text pastes through)', async () => {
+    expect(await attachableOf([], () => '', vi.fn())).toEqual({ attached: [], failed: [] })
   })
 })

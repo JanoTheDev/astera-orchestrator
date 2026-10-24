@@ -8,13 +8,14 @@
 // (host/activity.ts `planReadyActivity`, once per feedback round). **While the plan runs** the feedback starts a W6-D
 // replan at once (`jobs-replan --feedback`), with W6-D's rules: only Tasks that have not started change. T1: feedback
 // during a replan is typed into its planner or queued for the next one, and a finished plan reopens with a final check.
+import { approvalDefaultOf, approvalFallbackOf, type ApprovalMode } from '../../settings/approvalDefault'
 import type { OrchServerDeps } from '../command'
 import { handsOffOf, projectOfJob } from '../delivery'
 import { buildPlannerBrief } from '../handover'
 // W8-D several plans in one repo
 import { otherPlansBrief, planOverlapWarnings } from '../overlap'
 import { archiveJob, isJobActive } from '../lifecycle'
-import { cancelPlanTask, plannerJobOf, validatePlan } from '../planner'
+import { cancelPlanTask, planWarnings, plannerJobOf, validatePlan } from '../planner'
 import { replanJobOf } from '../replan'
 import { outcomeOfTasks } from '../running'
 import type { OrchState } from '../state'
@@ -42,10 +43,19 @@ const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() !=
 // #117: beside deliveryOf, so the pure delivery and state code reads it too
 export { handsOffOf }
 
-/** Whether a plan starts on its own once it holds: the Job's own setting, else its project's, else no. A hands-off
- *  plan always does (#117). */
-export const autoApproveOf = (s: OrchState, job: Job): boolean =>
-  handsOffOf(s, job) || (job.autoApprove ?? projectOfJob(s, job)?.autoApprove ?? false)
+/** The approval setting of a plan, the first that is set: hands-off (the plan's or its project's, #117), then the plan's
+ *  own auto-approve, its project's, the app's global default (Settings > Agents), and last the planning mode: `auto`
+ *  starts when the plan holds, `chat` asks. A global hands-off starts the plan like `start`; the coordinator's
+ *  hands-off decisions stay with the plan's and project's own `handsOff`. */
+export const approvalOf = (s: OrchState, job: Job, globalDefault?: ApprovalMode): ApprovalMode => {
+  if (handsOffOf(s, job)) return 'hands-off'
+  const own = job.autoApprove ?? projectOfJob(s, job)?.autoApprove
+  if (own !== undefined) return own ? 'start' : 'ask'
+  return approvalFallbackOf(job, globalDefault)
+}
+
+/** Whether a plan starts on its own once it holds (`approvalOf` is anything but `ask`). */
+export const autoApproveOf = (s: OrchState, job: Job, globalDefault?: ApprovalMode): boolean => approvalOf(s, job, globalDefault) !== 'ask'
 
 /** A plan waiting for its approval (W2-A): not started, and planned. */
 const awaitsApproval = (job: Job): boolean => job.pendingStart === true && job.plannerSessionIds !== undefined
@@ -67,6 +77,26 @@ export const plansMissingReady = (s: OrchState, alive: ReadonlySet<string>): str
         validatePlan(s, j.id).length === 0
     )
     .map((j) => j.id)
+
+/** What a planner that ended its turn is told when its plan is not ready to approve: the problems approval would find
+ *  (`validatePlan`) and the warnings only it hears (`planWarnings`), one line. `key` is the list itself, so the same list
+ *  is told once. null when the plan awaits no approval, the session is not its latest planner, or nothing is wrong. */
+export function plannerProblemsNotice(s: OrchState, sessionId: string): { jobId: string; key: string; text: string } | null {
+  const job = s.jobs.find((j) => j.plannerSessionIds?.at(-1) === sessionId)
+  if (!job || !awaitsApproval(job) || !isJobActive(job)) return null
+  const problems = [...validatePlan(s, job.id), ...planWarnings(s, job.id)]
+  if (problems.length === 0) return null
+  const shown = problems.slice(0, 8).map((p, i) => `${i + 1}. ${p}`)
+  if (problems.length > shown.length) shown.push(`(${problems.length - shown.length} more after these)`)
+  return {
+    jobId: job.id,
+    key: problems.join('\n'),
+    text:
+      `Astera: your plan is not ready for the owner to approve. ${shown.join(' ')} Fix them with \`astera task-update --id <taskId>\`, ` +
+      `\`astera task-create --run ${job.id}\` or \`astera task-cancel\`, then end your turn. A Task that changes no repository file ` +
+      'says `--kind ops|audit|docs --no-files`.'
+  }
+}
 
 const oneLine = (t: string): string => t.replace(/\s+/g, ' ').trim()
 
@@ -197,7 +227,9 @@ export async function feedbackCommand(deps: OrchServerDeps, caller: Caller, cmd:
 
   if (cmd === 'jobs-auto-start') {
     if (!awaitsApproval(job) || !isJobActive(job)) return conflict(`job ${jobId} is not a plan waiting for approval`)
-    if (!autoApproveOf(s, job)) return conflict(`job ${jobId} is not set to auto-approve`)
+    // the Host passes the app's global default (`--approval`): the command cannot read app-settings.json itself
+    const globalDefault = approvalDefaultOf(args.approval)
+    if (!autoApproveOf(s, job, globalDefault)) return conflict(`job ${jobId} is not set to auto-approve`)
     const problems = validatePlan(s, jobId)
     if (problems.length) return { status: 400, body: { error: `the plan does not hold: ${problems.join('; ')}`, problems } }
     const tasks = s.tasks.filter((t) => t.jobId === jobId && t.runId === undefined).length

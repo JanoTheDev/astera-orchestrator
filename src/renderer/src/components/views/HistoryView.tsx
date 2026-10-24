@@ -1,6 +1,7 @@
 // The History side bar view (DESIGN-W13 §4). Adapter until its own Task: past sessions (HistoryBrowser) and the work
 // records ("How it works", UnderstandingView), each in a pane.
 import { HistoryBrowser } from '../HistoryBrowser'
+import { projectOfCwd } from '../../state/workspaceTree'
 import { UnderstandingView } from '../UnderstandingView'
 import { ViewContainer, ViewPane } from '../ui'
 import type { SideBarViewProps } from '../shell/SideBar'
@@ -10,7 +11,10 @@ export function HistoryView(p: SideBarViewProps): React.JSX.Element {
   return (
     <ViewContainer label={t('shell.activity.history')}>
       <ViewPane title={t('shell.history.sessions')} storageKey="history.sessions">
-        <HistoryBrowser asPage accounts={p.accounts} ghostAccounts={p.ghostAccounts} defaultSessionKind={p.defaultSessionKind} onResume={p.resumeFromHistory} />
+        <HistoryBrowser asPage accounts={p.accounts} ghostAccounts={p.ghostAccounts} defaultSessionKind={p.defaultSessionKind}
+          scopeId={p.scopeId}
+          ownerOf={(path) => projectOfCwd(path, p.workspaceTree, p.workspaceData?.worktrees ?? [])}
+          onResume={p.resumeFromHistory} />
       </ViewPane>
       <ViewPane title={t('shell.history.records')} storageKey="history.records">
         <UnderstandingView

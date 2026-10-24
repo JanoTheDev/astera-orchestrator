@@ -6,6 +6,7 @@ import { useI18n } from '../i18n/I18nProvider'
 import { accountSelectItems } from './accountSelectItems'
 import { ProviderBadge } from './ProviderBadge'
 import { Button, Icon, Select, type SelectOption } from './ui'
+import './sessionDialog.css'
 
 const NO_ACCOUNTS: Account[] = [] // stable identity: useAccountStatus re-queries when its argument changes
 
@@ -98,7 +99,7 @@ export function AccountDisclosure({
         >
           {t('overlays.account.choose')}
         </Button>
-        {!open && summary && <span className="modal-hint">{summary}</span>}
+        {!open && summary && <span className="sd-hint">{summary}</span>}
       </div>
       {open && <div id={id}>{children}</div>}
     </>

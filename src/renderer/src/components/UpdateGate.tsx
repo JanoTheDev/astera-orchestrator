@@ -1,6 +1,7 @@
 import { useId } from 'react'
 import { Button, Modal } from './ui'
 import './overlays.css'
+import './sessionDialog.css'
 import { useI18n } from '../i18n/I18nProvider'
 import type { UpdateStatus } from '../../../core/types'
 
@@ -67,11 +68,11 @@ export function UpdateGate({
           </>
         }
       >
-        <div className="dlg" role="status">
+        <div className="sd-body" role="status">
           <p id={bodyId} className="update-gate-body">
             {version ? t('update.gate.body', { version }) : t('update.gate.bodyNoVersion')}
           </p>
-          <p className="modal-hint">
+          <p className="sd-hint">
             {downloading
               ? t('update.info.downloading', { percent: update?.percent ?? 0 })
               : ready

@@ -117,7 +117,7 @@ const APP_SUBCOMMANDS = new Set<string>(APP_VERBS)
 export const NOUNS = {
   host: ['start', 'status', 'stop'],
   // `add` registers a folder of this machine (remote runtime N5): the Host answers it for local callers only.
-  projects: ['list', 'get', 'find', 'add', /* W6-H */ 'set', /* W7-B */ 'create', /* T3 workspaces */ 'remove'],
+  projects: ['list', 'get', 'find', 'add', /* W6-H */ 'set', /* W7-B */ 'create', /* T3 workspaces */ 'remove', /* T8 */ 'github-create'],
   // `jobs create` 와 `tasks add` 는 phase C 다 — 앞의 것은 run-create 를 `--auto` 로, 뒤의 것은
   // task-create 를 부른다(command.ts). 코디네이터가 쓰는 두 이름은 그대로 남는다.
   // `create-from-source` (plugin Phase 4 J21) is answered before handleCommand's switch, with the `sources` commands.
@@ -142,7 +142,7 @@ export const NOUNS = {
   accounts: ['list', 'login', /* T12c */ 'import'],
   // `tasks add --validate` 에 넣을 id 가 여기서 나온다(phase D). 동사 없는 `run-configs` 는 가이드가
   // 가르치는 세션 명령 그대로다(BARE_NOUNS) — 그쪽은 가장 최근 회차의 것이고 이쪽은 --job 의 것이다.
-  'run-configs': ['list'],
+  'run-configs': ['list', /* T12 */ 'add'],
   // **CLI 프로세스 안에서 답한다 — Host 도 앱도 없이**(run.ts, `help` 와 같은 자리). 프로필의
   // accounts.json 과 app-settings.json 을 읽고 계정의 설정 폴더에 스킬 파일을 심는다(cli/skills.ts).
   skills: ['list', 'install'],
@@ -156,6 +156,8 @@ export const NOUNS = {
   // **Host 가 답한다 — 앱이 닫혀 있어도**(chat takeover §3.5). 대화 세션이 기다리는 권한 질문을 보고
   // 답한다. 답은 그 세션의 쓰는 쪽(Host 또는 앱)이 한다(host/orchDeps.ts 의 HOST_CHATS).
   chats: ['pending', 'answer'],
+  // T10: the Astera console, one chat session for every project, started and kept by the Host (core/console/console.ts)
+  console: ['ensure'],
   // **요청 영수증**(request receipts design §8). 여기 있는 것은 공개 표면이어서가 아니라 —
   // 답하는 것은 명령 층이 아니라 Host 다(host/orch.ts) — 이 모양이 그것을 `USAGE` 와
   // `docs/cli.md` 에 함께 적히게 만들기 때문이다. `--request-id` 는 반대로 여기 없다: 그것은

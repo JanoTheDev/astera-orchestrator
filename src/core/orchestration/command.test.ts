@@ -6523,8 +6523,11 @@ describe('jobs create / tasks add / accounts list', () => {
       const { deps } = withInputs()
       await shell(deps, 'run-create', { objective: 'Rework the inventory screen so items stack, sort and filter by rarity', cwd: 'D:/p', auto: true })
       const title = deps.getState().jobs[0].title!
-      expect(title).toBe('Rework the inventory screen so items…')
+      expect(title).toBe('Rework the inventory screen so items stack, sort and filter')
       expect(title.length).toBeLessThanOrEqual(60)
+      expect(deps.getState().jobs[0].objective).toBe('Rework the inventory screen so items stack, sort and filter by rarity')
+      await shell(deps, 'run-create', { objective: 'Resolve GitHub issue #113 in o/r: Short title on Start\n\nbody', cwd: 'D:/p', auto: true })
+      expect(deps.getState().jobs[1].title).toBe('#113 Short title on Start')
     })
 
     // W7-D (#68): a plan from a source is named by it, so two fixlists never both read "The source below is…"
@@ -9409,7 +9412,8 @@ describe('handleCommand — github-pr, github-ci and github-issue', () => {
     // are not.
     it("github-pr-create refuses a Run runs-get does not call finished (409), and touches nothing", async () => {
       const working: [string, Task[], Partial<JobRun>][] = [
-        ['no Tasks yet', [], { worktree: WT }],
+        // T15: an empty Run is working while something can add its Tasks (a coordinator), else it has finished
+        ['no Tasks yet', [], { worktree: WT, coordinatorSessionId: 'ses_c' }],
         ['a Task still dispatched', [task('completed'), task('dispatched')], { worktree: WT }],
         ['a failed Task with retries left', [task('failed', { consecutiveFailures: 1 })], { worktree: WT }]
       ]

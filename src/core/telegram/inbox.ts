@@ -29,8 +29,11 @@ export interface TelegramInboxDeps extends ReplyRouterDeps {
   userId: () => string | null
   /** Is this message id one we posted (ConnectionNotifier.isOwnMessage) — second line of loop defence. */
   isOwnMessage(id: string): boolean
-  /** The text for a message that is not a reply; the wiring passes t('telegram.inbox.replyHint'). */
+  /** The text for a message that is not a reply when no console is wired; the wiring passes t('telegram.inbox.replyHint'). */
   replyHint(): string
+  /** The owner's message that is not a reply: sent to the Astera console, whose answer the wiring posts back.
+   *  Absent, the owner gets the reply hint instead. */
+  console?(text: string, noteTo: string | undefined): Promise<void>
   fetchFn?: typeof fetch
   now?: () => number
 }
@@ -160,10 +163,14 @@ export class TelegramInbox {
     if (d.kind === 'ignore') {
       // The bot's own echoes would flood the log; stale ones are history, not news.
       if (d.reason !== 'bot-message' && d.reason !== 'stale') this.log(`telegram inbound ignored(${d.reason})`)
-      if (d.noteTo && d.reason === 'not-reply') await this.deps.postNote(d.noteTo, this.deps.replyHint())
       if (d.noteTo && d.reason === 'too-long') {
         await this.deps.postNote(d.noteTo, t(this.deps.lang(), 'slack.inbox.tooLong', { max: MAX_INJECT_CHARS }))
       }
+      return
+    }
+    if (d.kind === 'console') {
+      if (this.deps.console) await this.deps.console(d.text, d.noteTo)
+      else if (d.noteTo) await this.deps.postNote(d.noteTo, this.deps.replyHint())
       return
     }
     await this.router.route({ target: d.replyTo, text: d.text, noteTo: d.replyTo })

@@ -277,6 +277,7 @@ export const core: Partial<Record<keyof typeof ko, string>> = {
   'pluginNotify.runCompleted': 'El Run {ordinal} terminó.',
   'pluginNotify.accountSwitched': 'Continuando con la cuenta {label}.',
   'telegram.inbox.replyHint': 'Responde a un mensaje de la sesión para enviarle una entrada',
+  'telegram.console.cut': "… (cortado aquí: supera el límite de Telegram)",
   // W9-E start page and New
   'shortcut.new.open': 'Abrir Nuevo',
   'shortcut.tabs.reopenClosed': 'Reabrir la última pestaña cerrada',

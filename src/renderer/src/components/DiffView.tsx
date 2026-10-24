@@ -26,8 +26,8 @@ export function DiffView({
   const [shown, setShown] = useState(DIFF_ROWS_STEP)
   return (
     <div className="diff-view">
-      {binary && <p className="modal-hint">{t('jobs.changes.binaryDiff')}</p>}
-      {truncated && <p className="modal-hint">{t('jobs.changes.truncated')}</p>}
+      {binary && <p className="ui-note">{t('jobs.changes.binaryDiff')}</p>}
+      {truncated && <p className="ui-note">{t('jobs.changes.truncated')}</p>}
       <table className="diff-table">
         <tbody>
           {rows.slice(0, shown).map((r, i) => (

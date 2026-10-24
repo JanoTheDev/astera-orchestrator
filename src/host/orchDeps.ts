@@ -4,6 +4,7 @@
 // control plane design §5) — S2 made startWorker local (HOST_LOCAL), and this file changed while
 // `handleCommand` did not.
 import type { CheckWaits } from '../core/orchestration/checkWaits'
+import type { AddRunConfigResult } from '../core/run/runConfigsFile'
 import { keptBecause, keptPhrase, type OrchAccount, type OrchRunConfig, type OrchServerDeps } from '../core/orchestration/command'
 import type { CloseReason, JobEvent, Provider } from '../core/types'
 import type { OrchState } from '../core/orchestration/state'
@@ -258,7 +259,7 @@ const HOST_DRIVES_FALLBACK: Record<HostDrivesName, 'forgetful' | ((why: string) 
  *
  * The local read is injected (`readAccounts`), so this file stays free of the filesystem.
  */
-const LOCAL_WHEN_ABSENT = ['listAccounts', 'listRunConfigs'] as const
+const LOCAL_WHEN_ABSENT = ['listAccounts', 'listRunConfigs', /* T12 */ 'addRunConfig'] as const
 
 /** Which file each LOCAL_WHEN_ABSENT member reads, for the log line that says it answered from one.
  *
@@ -274,7 +275,10 @@ const LOCAL_WHEN_ABSENT = ['listAccounts', 'listRunConfigs'] as const
  *  is true of that. */
 const LOCAL_FILE: Record<(typeof LOCAL_WHEN_ABSENT)[number], string> = {
   listAccounts: 'accounts.json',
-  listRunConfigs: 'run-configs.json'
+  listRunConfigs: 'run-configs.json',
+  // The one write in this group, and idempotent: a retry replaces the same name with the same id, so the
+  // app route's fall-back to the file after a lost answer cannot add a second copy.
+  addRunConfig: 'run-configs.json'
 }
 
 /**
@@ -581,6 +585,7 @@ const EFFECTFUL: Record<Classified, boolean> = {
   // LOCAL_WHEN_ABSENT — a read either way, from the app or from its file.
   listAccounts: false,
   listRunConfigs: false,
+  addRunConfig: true,
   // HOST_SESSIONS. Reading a screen twice leaves it as it was; typing twice types twice.
   listSessions: false,
   readSession: false,
@@ -732,6 +737,8 @@ export function hostOrchDeps(a: {
   /** `listRunConfigs` answered from the profile's run-configs.json and the project folder
    *  (LOCAL_WHEN_ABSENT). Rejects when the file cannot be read, with a message that says how to repair it. */
   readRunConfigs(projectPath: string): Promise<OrchRunConfig[]>
+  /** `addRunConfig` written to the profile's run-configs.json (LOCAL_WHEN_ABSENT), for when no app owns the file. */
+  writeRunConfig(projectPath: string, config: unknown): Promise<AddRunConfigResult>
   /** The Host's own sessions (HOST_SESSIONS), out of its two registries (`host/sessions.ts`), and
    *  the local half and the per-session order of `chatSend` (HOST_WHEN_ABSENT). */
   sessions: HostSessions
@@ -1349,6 +1356,7 @@ export function hostOrchDeps(a: {
       if (name === 'chatAnswer') return [name, chatAnswer]
       if (name === 'listAccounts') return [name, localWhenAbsent(name, a.readAccounts)]
       if (name === 'listRunConfigs') return [name, localWhenAbsent(name, a.readRunConfigs)]
+      if (name === 'addRunConfig') return [name, localWhenAbsent(name, a.writeRunConfig)]
       if ((HOST_WHEN_ABSENT as readonly string[]).includes(name))
         return [name, hostWhenAbsent(name as (typeof HOST_WHEN_ABSENT)[number])]
       return [name, forward(name, (PROPAGATES as readonly string[]).includes(name))]

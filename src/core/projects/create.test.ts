@@ -5,7 +5,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { claudeMdFor, createProjectFolder, githubCreate, gitignoreFor } from './create'
+import { claudeMdFor, createProjectFolder, githubCreate, gitignoreFor, hasOriginRemote, initGitFolder } from './create'
 import { git } from '../worktrees/git'
 import type { GhRunner } from '../github/gh'
 
@@ -84,6 +84,25 @@ describe('createProjectFolder', () => {
   })
 })
 
+describe('initGitFolder', () => {
+  it('makes a plain folder a repository on main and commits what is there, adding a .gitignore', async () => {
+    const root = path.join(dir, 'plain')
+    await fs.mkdir(root)
+    await fs.writeFile(path.join(root, 'a.txt'), 'mine')
+    await initGitFolder(root)
+    expect((await git(['symbolic-ref', '--short', 'HEAD'], { cwd: root })).stdout).toBe('main')
+    expect((await git(['ls-files'], { cwd: root })).stdout.split('\n').sort()).toEqual(['.gitignore', 'a.txt'])
+  })
+
+  it('keeps a .gitignore that is already there', async () => {
+    const root = path.join(dir, 'ignored')
+    await fs.mkdir(root)
+    await fs.writeFile(path.join(root, '.gitignore'), 'secret\n')
+    await initGitFolder(root)
+    expect(await fs.readFile(path.join(root, '.gitignore'), 'utf8')).toBe('secret\n')
+  })
+})
+
 describe('gitignoreFor', () => {
   it('always leaves out .env and logs, and adds each named stack once', () => {
     const plain = gitignoreFor('')
@@ -131,5 +150,24 @@ describe('githubCreate', () => {
   it("throws gh's error", async () => {
     const gh: GhRunner = async () => ({ ok: false, stdout: '', stderr: 'name already exists' }) as never
     await expect(githubCreate(gh, '/tmp/shop', 'shop', 'private')).rejects.toThrow('gh repo create failed: name already exists')
+  })
+})
+
+describe('hasOriginRemote', () => {
+  it('is true for a repository with an origin remote, false for one without', async () => {
+    const root = await createProjectFolder({ name: 'shop', parent: dir })
+    expect(await hasOriginRemote(root)).toBe(false)
+    await gitOut(root, ['remote', 'add', 'origin', 'https://github.com/me/shop.git'])
+    expect(await hasOriginRemote(root)).toBe(true)
+    await gitOut(root, ['remote', 'add', 'upstream', 'https://github.com/other/shop.git'])
+    await gitOut(root, ['remote', 'remove', 'origin'])
+    expect(await hasOriginRemote(root)).toBe(false)
+  })
+
+  it('is false for a folder that is not a git repository', async () => {
+    const plain = path.join(dir, 'plain')
+    await fs.mkdir(plain)
+    expect(await hasOriginRemote(plain)).toBe(false)
+    expect(await hasOriginRemote(path.join(dir, 'missing'))).toBe(false)
   })
 })

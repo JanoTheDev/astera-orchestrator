@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { createAttentionState, isWorking, type Attention } from './attention'
+import { createAttentionState, isWorking, INPUT_QUIET_MS, type Attention } from './attention'
 import { sessionStateOf } from '../hooks/sessionState'
 
 const pre = (toolUseId: string): unknown => ({ hook_event_name: 'PreToolUse', tool_use_id: toolUseId })
@@ -25,11 +25,14 @@ describe('createAttentionState — reading', () => {
 })
 
 describe('createAttentionState — PreToolUse / PostToolUse', () => {
-  it('PreToolUse moves a session to working; the matching PostToolUse returns it to idle', () => {
+  // The turn goes on after its call returns (the model reads the result and thinks); only Stop ends it.
+  it('PreToolUse moves a session to working; it stays working past the PostToolUse until Stop', () => {
     const state = createAttentionState()
     state.onHookEvent('s1', pre('call-1'))
     expect(state.get('s1')).toBe('working')
     state.onHookEvent('s1', post('call-1'))
+    expect(state.get('s1')).toBe('working')
+    state.onHookEvent('s1', stop())
     expect(state.get('s1')).toBe('idle')
   })
 
@@ -41,7 +44,32 @@ describe('createAttentionState — PreToolUse / PostToolUse', () => {
     state.onHookEvent('s1', pre('call-2'))
     state.onHookEvent('s1', post('call-1'))
     expect(state.get('s1')).toBe('working')
+    state.onHookEvent('s1', notify('idle_prompt'))
+    // call-2 still outstanding: an idle notice now is a prompt on screen
+    expect(state.get('s1')).toBe('waiting')
     state.onHookEvent('s1', post('call-2'))
+    expect(state.get('s1')).toBe('working')
+  })
+})
+
+describe('createAttentionState — a turn with no tool call', () => {
+  // Most sessions hook tool calls only for AskUserQuestion (statusline.ts everySessionHooks), so a turn
+  // that thinks, reads files or runs Bash fires UserPromptSubmit and then nothing until Stop.
+  it('UserPromptSubmit opens the turn: working while it thinks, idle at Stop', () => {
+    const state = createAttentionState(() => 2_000)
+    state.onHookEvent('s1', { hook_event_name: 'UserPromptSubmit', prompt: 'go', astera_at: 1_000 })
+    expect(state.get('s1')).toBe('working')
+    state.recheck()
+    expect(state.get('s1')).toBe('working')
+    state.onHookEvent('s1', { hook_event_name: 'Stop', astera_at: 9_000 })
+    expect(state.get('s1')).toBe('idle')
+  })
+
+  it('a prompt that lands after its own turn already ended does not reopen it', () => {
+    const state = createAttentionState()
+    state.onHookEvent('s1', { hook_event_name: 'PreToolUse', tool_use_id: 'call-1', astera_at: 900 })
+    state.onHookEvent('s1', { hook_event_name: 'Stop', astera_at: 1_005 })
+    state.onHookEvent('s1', { hook_event_name: 'UserPromptSubmit', prompt: 'go', astera_at: 1_000 })
     expect(state.get('s1')).toBe('idle')
   })
 })
@@ -97,24 +125,32 @@ describe('createAttentionState — Notification', () => {
     expect(state.get('s1')).toBe('idle')
   })
 
-  it('idle_prompt with a call outstanding goes to waiting, then back to idle once the call finishes', () => {
+  it('idle_prompt with a call outstanding goes to waiting, then back to working once the call finishes', () => {
     const state = createAttentionState()
     state.onHookEvent('s1', pre('call-1'))
     state.onHookEvent('s1', notify('idle_prompt'))
     expect(state.get('s1')).toBe('waiting')
     state.onHookEvent('s1', post('call-1'))
-    expect(state.get('s1')).toBe('idle')
+    expect(state.get('s1')).toBe('working')
   })
 })
 
 describe('createAttentionState — leaving waiting', () => {
-  it('a waiting session returns to idle once its only outstanding call finishes', () => {
+  it('a waiting session returns to working once its only outstanding call finishes: the turn goes on', () => {
     const state = createAttentionState()
     state.onHookEvent('s1', pre('call-1'))
     state.onHookEvent('s1', notify('permission_prompt'))
     expect(state.get('s1')).toBe('waiting')
     state.onHookEvent('s1', post('call-1'))
-    expect(state.get('s1')).toBe('idle')
+    expect(state.get('s1')).toBe('working')
+  })
+
+  it('a prompt submitted under a waiting screen leaves it waiting', () => {
+    const state = createAttentionState()
+    state.onHookEvent('s1', pre('call-1'))
+    state.onHookEvent('s1', notify('permission_prompt'))
+    state.onHookEvent('s1', { hook_event_name: 'UserPromptSubmit', prompt: 'go' })
+    expect(state.get('s1')).toBe('waiting')
   })
 
   it('a waiting session returns to working when another call is still outstanding', () => {
@@ -126,7 +162,7 @@ describe('createAttentionState — leaving waiting', () => {
     state.onHookEvent('s1', post('call-1'))
     expect(state.get('s1')).toBe('working')
     state.onHookEvent('s1', post('call-2'))
-    expect(state.get('s1')).toBe('idle')
+    expect(state.get('s1')).toBe('working')
   })
 })
 
@@ -243,8 +279,10 @@ describe('createAttentionState — StopFailure', () => {
     state.onHookEvent('w', { hook_event_name: 'PreToolUse', tool_use_id: 'call-1', astera_at: 1_500 })
     state.onHookEvent('w', { ...(stopFailure() as object), hook_event_name: name, astera_at: 1_000 })
     expect(state.get('w')).toBe('working')
-    // and the call it left outstanding is still the one that ends the value
+    // the call returning does not end the new turn either; its own Stop does
     state.onHookEvent('w', { hook_event_name: 'PostToolUse', tool_use_id: 'call-1', astera_at: 1_600 })
+    expect(state.get('w')).toBe('working')
+    state.onHookEvent('w', { hook_event_name: 'Stop', astera_at: 2_000 })
     expect(state.get('w')).toBe('idle')
   })
 
@@ -284,10 +322,8 @@ describe('createAttentionState — StopFailure', () => {
   })
 })
 
-// The capture also records UserPromptSubmit, for `astera sessions list` (core/hooks/sessionState.ts).
-// It is not this state's business: a turn starting is no reason to raise a banner.
-describe('createAttentionState — the events it does not read', () => {
-  it('UserPromptSubmit changes no value and notifies nobody', () => {
+describe('createAttentionState — UserPromptSubmit', () => {
+  it('turns only an idle session to working, and notifies once for it', () => {
     const state = createAttentionState()
     const seen: Array<[string, Attention]> = []
     state.subscribe((id, value) => seen.push([id, value]))
@@ -298,8 +334,8 @@ describe('createAttentionState — the events it does not read', () => {
     for (const id of ['w', 'q', 'fresh']) state.onHookEvent(id, { hook_event_name: 'UserPromptSubmit', prompt: 'go' })
     expect(state.get('w')).toBe('working')
     expect(state.get('q')).toBe('waiting')
-    expect(state.get('fresh')).toBe('idle')
-    expect(seen).toEqual([])
+    expect(state.get('fresh')).toBe('working')
+    expect(seen).toEqual([['fresh', 'working']])
   })
 })
 
@@ -346,6 +382,37 @@ describe('createAttentionState — working only while it really works', () => {
     const state = createAttentionState()
     state.onHookEvent('s1', pre('a'))
     state.onHookEvent('s1', { hook_event_name: 'PostToolUseFailure', tool_use_id: 'a' })
+    state.onHookEvent('s1', notify('idle_prompt'))
+    // nothing outstanding any more, so the idle notice is no prompt on screen
+    expect(state.get('s1')).toBe('working')
+  })
+
+  it('a thinking turn with no output for 11 minutes reads idle; one whose spinner draws stays working', () => {
+    const c = clock(0)
+    const state = createAttentionState(c.now)
+    state.onHookEvent('s1', at({ hook_event_name: 'UserPromptSubmit', prompt: 'go' }, 0))
+    state.onHookEvent('s2', at({ hook_event_name: 'UserPromptSubmit', prompt: 'go' }, 0))
+    state.noteOutput('s2', 11 * MIN - 100)
+    c.set(11 * MIN)
+    state.recheck()
+    expect(state.get('s1')).toBe('idle')
+    expect(state.get('s2')).toBe('working')
+  })
+
+  it('typing the next message mid-turn keeps it working while the spinner draws; Esc then silence ends it', () => {
+    const c = clock(1000)
+    const state = createAttentionState(c.now)
+    state.onHookEvent('s1', at({ hook_event_name: 'UserPromptSubmit', prompt: 'go' }, 1000))
+    state.noteOutput('s1', 1900)
+    c.set(2000)
+    state.noteInput('s1', 2000)
+    expect(state.get('s1')).toBe('working')
+    state.noteOutput('s1', 2050) // the echo, or Claude Code drawing "Interrupted"
+    c.set(2050 + INPUT_QUIET_MS - 1)
+    state.recheck()
+    expect(state.get('s1')).toBe('working')
+    c.set(2050 + INPUT_QUIET_MS)
+    state.recheck()
     expect(state.get('s1')).toBe('idle')
   })
 
@@ -354,23 +421,29 @@ describe('createAttentionState — working only while it really works', () => {
     state.onHookEvent('s1', pre('a'))
     state.recheck((id) => id === 's1')
     expect(state.get('s1')).toBe('idle')
-    expect(isWorking({ open: true, exited: true, eventAt: 1, personInputAt: null, lastOutputAt: 1, toolStartedAt: 1, now: 2 })).toBe(false)
+    expect(isWorking({ open: true, exited: true, eventAt: 1, personInputAt: null, lastOutputAt: 1, startedAt: 1, now: 2 })).toBe(false)
   })
 
   it('app and Host agree on a shared event table', () => {
     const pre0 = at({ hook_event_name: 'PreToolUse', tool_use_id: 'a' }, 1000)
-    const table: { name: string; event: unknown; eventAt: number; input: number | null; now: number; want: 'working' | 'idle' }[] = [
+    const prompt0 = at({ hook_event_name: 'UserPromptSubmit', prompt: 'go' }, 1000)
+    const table: { name: string; event: unknown; eventAt: number; input: number | null; output?: number; now: number; want: 'working' | 'idle' }[] = [
       { name: 'fresh tool', event: pre0, eventAt: 1000, input: null, now: 2000, want: 'working' },
       { name: 'input after', event: pre0, eventAt: 1000, input: 1500, now: 2000, want: 'idle' },
       { name: 'input before', event: pre0, eventAt: 1000, input: 500, now: 2000, want: 'working' },
-      { name: 'decayed', event: pre0, eventAt: 1000, input: null, now: 1000 + 11 * MIN, want: 'idle' }
+      { name: 'decayed', event: pre0, eventAt: 1000, input: null, now: 1000 + 11 * MIN, want: 'idle' },
+      { name: 'thinking', event: prompt0, eventAt: 1000, input: null, now: 1000 + 9 * MIN, want: 'working' },
+      { name: 'thinking decayed', event: prompt0, eventAt: 1000, input: null, now: 1000 + 11 * MIN, want: 'idle' },
+      { name: 'typed under a drawing spinner', event: prompt0, eventAt: 1000, input: 1500, output: 1990, now: 2000, want: 'working' },
+      { name: 'typed, then silence', event: prompt0, eventAt: 1000, input: 1500, output: 1600, now: 1600 + INPUT_QUIET_MS, want: 'idle' }
     ]
     for (const row of table) {
       const state = createAttentionState(() => row.now)
       state.onHookEvent('s', row.event)
+      if (row.output !== undefined) state.noteOutput('s', row.output)
       if (row.input !== null) state.noteInput('s', row.input)
       state.recheck()
-      const host = sessionStateOf({ lastLine: JSON.stringify(row.event), eventAt: row.eventAt, lastInputAt: row.input, now: row.now })
+      const host = sessionStateOf({ lastLine: JSON.stringify(row.event), eventAt: row.eventAt, lastInputAt: row.input, lastOutputAt: row.output ?? null, now: row.now })
       // The Host answers unknown for input after the event where the app says idle: neither is working
       const norm = host === 'unknown' ? 'idle' : host
       expect(state.get('s'), row.name).toBe(row.want)

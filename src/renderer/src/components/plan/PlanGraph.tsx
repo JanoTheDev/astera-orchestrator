@@ -254,7 +254,7 @@ export function Graph({
             {sessionId && (
               <IconButton
                 size="sm"
-                className="detail-node-jump"
+                className="detail-node-act detail-node-jump"
                 label={t('plan.card.focus')}
                 icon={<Icon name="open" size={14} />}
                 onClick={(ev) => {
@@ -266,7 +266,7 @@ export function Graph({
             {showStart && (
               <IconButton
                 size="sm"
-                className="detail-node-btn"
+                className="detail-node-act"
                 label={t('jobs.node.start')}
                 disabled={lockedReason !== undefined}
                 title={lockedReason ?? t('jobs.node.start')}
@@ -280,7 +280,7 @@ export function Graph({
             {showGate && (
               <IconButton
                 size="sm"
-                className="detail-node-btn"
+                className="detail-node-act"
                 label={t('plan.graph.gate')}
                 disabled={lockedReason !== undefined}
                 title={lockedReason ?? t('plan.graph.gate')}
@@ -296,7 +296,7 @@ export function Graph({
             {showAnswer && (
               <IconButton
                 size="sm"
-                className="detail-node-btn"
+                className="detail-node-act"
                 label={t('plan.graph.answer')}
                 disabled={lockedReason !== undefined}
                 title={lockedReason ?? t('plan.graph.answer')}
@@ -310,7 +310,7 @@ export function Graph({
             {showStop && (
               <IconButton
                 size="sm"
-                className="detail-node-btn"
+                className="detail-node-act"
                 label={t('jobs.node.stop')}
                 disabled={lockedReason !== undefined}
                 title={lockedReason ?? t('jobs.node.stop')}
@@ -324,7 +324,7 @@ export function Graph({
             {showRestart && (
               <IconButton
                 size="sm"
-                className="detail-node-btn"
+                className="detail-node-act"
                 label={t(showContinue ? 'plan.task.continue' : 'jobs.node.restart')}
                 disabled={lockedReason !== undefined}
                 title={lockedReason ?? t(showContinue ? 'plan.task.continue' : 'jobs.node.restart')}
@@ -341,7 +341,7 @@ export function Graph({
             {canStopConvergence(task) && (
               <IconButton
                 size="sm"
-                className="detail-node-btn"
+                className="detail-node-act"
                 label={t('jobs.convergence.stop')}
                 disabled={lockedReason !== undefined}
                 title={lockedReason ?? t('jobs.convergence.stop')}

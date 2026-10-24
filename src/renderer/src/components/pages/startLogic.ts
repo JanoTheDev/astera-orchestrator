@@ -233,3 +233,31 @@ export function accountPickOptions(
 export function scheduledArgs(req: { cmd: string; args: Record<string, unknown> } | null, schedule: ScheduleRule | null): Record<string, unknown> | null {
   return req?.cmd === 'jobs-create' && schedule ? { ...req.args, schedule } : null
 }
+
+/** T4: a copied OS file attaches by its own path; anything without one (a clipboard image) is saved by `save` first
+ *  (files.savePasted) and attaches by the path that answers. In order, one at a time; a file that fails is named in
+ *  `failed` and the rest still attach. */
+export async function attachableOf(
+  files: readonly File[],
+  pathFor: (f: File) => string,
+  save: (name: string, mime: string, base64: string) => Promise<string>
+): Promise<{ attached: { file: File; path: string }[]; failed: string[] }> {
+  const attached: { file: File; path: string }[] = []
+  const failed: string[] = []
+  for (const file of files) {
+    try {
+      const path = pathFor(file) || (await save(file.name, file.type, base64Of(new Uint8Array(await file.arrayBuffer()))))
+      attached.push({ file, path })
+    } catch {
+      failed.push(file.name)
+    }
+  }
+  return { attached, failed }
+}
+
+function base64Of(bytes: Uint8Array): string {
+  let bin = ''
+  // in chunks: spreading a whole screenshot into fromCharCode overflows the call stack
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+  return btoa(bin)
+}

@@ -167,6 +167,69 @@ describe('hostSessionActivity (W5-D)', () => {
     expect(lines(log)).toMatchObject([{ type: 'plan.awaiting-approval', jobId: 'j1' }])
   })
 
+  it('the app\'s global approval default starts a plan with no setting of its own', async () => {
+    const log = open(BOOT_A)
+    await log.load()
+    const s: OrchState = { ...emptyState(), jobs: [{ ...job, pendingStart: true, plannerSessionIds: ['ses_plan'] }], tasks: [planned()] }
+    const asked: string[] = []
+    let fallback: 'ask' | 'start' | undefined = 'start'
+    const acts = hostSessionActivity({ log, state: () => s, report: () => {}, autoStart: async (id) => (asked.push(id), true), approvalDefault: () => fallback })
+    acts.onHookEvent('ses_plan', stop)
+    await new Promise((r) => setTimeout(r, 0))
+    expect(asked).toEqual(['j1'])
+    fallback = 'ask'
+    acts.onHookEvent('ses_plan', stop)
+    expect(asked).toEqual(['j1'])
+  })
+
+  it('a refused auto-start on a plan that no longer holds goes to its planner, not to Approve, and runs again on its next turn end', async () => {
+    const log = open(BOOT_A)
+    await log.load()
+    let s: OrchState = { ...emptyState(), jobs: [{ ...job, pendingStart: true, plannerSessionIds: ['ses_plan'], autoApprove: true }], tasks: [planned()] }
+    const told: string[] = []
+    const marked: string[] = []
+    let started = 0
+    const acts = hostSessionActivity({
+      log,
+      state: () => s,
+      report: () => {},
+      // the start is refused, and the plan stops holding before the fall-back looks
+      autoStart: async () => {
+        started++
+        s = { ...s, tasks: [planned({ affectedPaths: undefined })] }
+        return false
+      },
+      markReady: async (id) => void marked.push(id),
+      tellPlanner: async (_id, text) => void told.push(text)
+    })
+    acts.onHookEvent('ses_plan', stop)
+    await new Promise((r) => setTimeout(r, 0))
+    expect(told).toEqual([expect.stringContaining('names no files')])
+    expect(marked).toEqual([])
+    // the planner fixes the plan and ends its turn: the start is tried again
+    s = { ...s, tasks: [planned()] }
+    acts.onHookEvent('ses_plan', stop)
+    await new Promise((r) => setTimeout(r, 0))
+    expect(started).toBe(2)
+  })
+
+  it('a planner ending its turn on a plan that is not ready is told the problems, once per distinct list', async () => {
+    const log = open(BOOT_A)
+    await log.load()
+    let s: OrchState = { ...emptyState(), jobs: [{ ...job, pendingStart: true, plannerSessionIds: ['ses_plan'] }], tasks: [planned({ affectedPaths: undefined })] }
+    const told: Array<{ id: string; text: string }> = []
+    const acts = hostSessionActivity({ log, state: () => s, report: () => {}, tellPlanner: async (id, text) => void told.push({ id, text }) })
+    acts.onHookEvent('ses_plan', stop)
+    acts.onHookEvent('ses_plan', stop)
+    expect(told).toHaveLength(1)
+    expect(told[0]).toMatchObject({ id: 'ses_plan', text: expect.stringContaining('names no files') })
+    // a different list is told again; a worker's turn end tells nothing
+    s = { ...s, tasks: [planned({ affectedPaths: undefined, acceptanceCriteria: [] })] }
+    acts.onHookEvent('ses_plan', stop)
+    acts.onHookEvent('ses_worker', stop)
+    expect(told).toHaveLength(2)
+  })
+
   it('#116: the plan is marked ready (Job.planReadyAt) where its ready line is recorded; a plan that starts by itself is not', async () => {
     const log = open(BOOT_A)
     await log.load()

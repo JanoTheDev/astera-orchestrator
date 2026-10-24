@@ -75,7 +75,7 @@ export function NotificationBell({ accounts, actionUi, scopedData, scopedTree, t
       trigger={(tp) => (
         <IconButton
           {...tp}
-          className="tb-bell-btn"
+          className="tb-bell__btn"
           active={open}
           label={items.unread > 0 ? t('bell.labelCount', { n: items.unread }) : t('bell.title')}
           icon={

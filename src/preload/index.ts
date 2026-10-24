@@ -119,7 +119,8 @@ const api = {
   },
   projects: {
     getDefaultAccount: invoke('projects.getDefaultAccount'),
-    setDefaultAccount: invoke('projects.setDefaultAccount')
+    setDefaultAccount: invoke('projects.setDefaultAccount'),
+    hasOrigin: invoke('projects.hasOrigin')
   },
   worktrees: {
     list: invoke('worktrees.list'),
@@ -253,6 +254,8 @@ const api = {
     // W3-A
     getActivityDigestMinutes: invoke('settings.getActivityDigestMinutes'),
     setActivityDigestMinutes: invoke('settings.setActivityDigestMinutes'),
+    getApprovalDefault: invoke('settings.getApprovalDefault'),
+    setApprovalDefault: invoke('settings.setApprovalDefault'),
     getFreshCoordinatorContextPct: invoke('settings.getFreshCoordinatorContextPct'),
     setFreshCoordinatorContextPct: invoke('settings.setFreshCoordinatorContextPct'),
     getStallWatch: invoke('settings.getStallWatch'),
@@ -299,6 +302,8 @@ const api = {
     setMcpSessions: invoke('settings.setMcpSessions'),
     getMcpGithubWrite: invoke('settings.getMcpGithubWrite'),
     setMcpGithubWrite: invoke('settings.setMcpGithubWrite'),
+    getGithubDefaults: invoke('settings.getGithubDefaults'),
+    setGithubDefaults: invoke('settings.setGithubDefaults'),
     getMcpHttp: invoke('settings.getMcpHttp'),
     setMcpHttp: invoke('settings.setMcpHttp'),
     getJobContinuityEnabled: invoke('settings.getJobContinuityEnabled'),
@@ -333,6 +338,7 @@ const api = {
     copy: invoke('files.copy'),
     importExternal: invoke('files.importExternal'),
     pathForFile: (file: File) => webUtils.getPathForFile(file),
+    savePasted: invoke('files.savePasted'),
     reveal: invoke('files.reveal'),
     countEntries: invoke('files.countEntries'),
     resolveLink: invoke('files.resolveLink'),
