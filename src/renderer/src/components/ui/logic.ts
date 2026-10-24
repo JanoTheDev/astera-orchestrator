@@ -69,10 +69,11 @@ export function writeSectionOpen(storage: Pick<Storage, 'setItem'> | undefined, 
   }
 }
 
-/** A ViewPane's saved size (a flex-grow weight, in px at the time it was saved); undefined when absent or not a positive number. */
+/** A ViewPane's saved flex-grow weight (about 1 = an equal share of the column; a pane's height is weight / sum of weights).
+ *  Stored under `.weight`: the old px-scale `.size` values are never read, so those panes fall back to their default split. */
 export function readPaneSize(storage: Pick<Storage, 'getItem'> | undefined, id: string): number | undefined {
   try {
-    const n = Number(storage?.getItem(`${sectionStorageKey(id)}.size`))
+    const n = Number(storage?.getItem(`${sectionStorageKey(id)}.weight`))
     return n > 0 && Number.isFinite(n) ? n : undefined
   } catch {
     return undefined
@@ -81,7 +82,7 @@ export function readPaneSize(storage: Pick<Storage, 'getItem'> | undefined, id: 
 
 export function writePaneSize(storage: Pick<Storage, 'setItem'> | undefined, id: string, size: number): void {
   try {
-    storage?.setItem(`${sectionStorageKey(id)}.size`, String(Math.round(size * 1000) / 1000))
+    storage?.setItem(`${sectionStorageKey(id)}.weight`, String(Math.round(size * 1000) / 1000))
   } catch {
     /* storage unavailable: the size just isn't remembered */
   }

@@ -237,14 +237,21 @@ describe('Sash and ActivityBarItem helpers', () => {
     expect(share(found)).toBeCloseTo(250)
   })
 
-  it('pane sizes round-trip through storage and ignore junk', () => {
+  it('pane weights round-trip through storage and ignore junk', () => {
     const m = new Map<string, string>()
     const s = { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v) }
     expect(readPaneSize(s, 'a')).toBeUndefined()
-    writePaneSize(s, 'a', 123.4567)
-    expect(readPaneSize(s, 'a')).toBe(123.457) // weights can be fractions of a flex-grow unit
-    m.set('cm.section.a.size', 'x')
+    writePaneSize(s, 'a', 1.23456)
+    expect(m.get('cm.section.a.weight')).toBe('1.235')
+    expect(readPaneSize(s, 'a')).toBe(1.235) // weights are fractions of a flex-grow unit
+    m.set('cm.section.a.weight', 'x')
     expect(readPaneSize(s, 'a')).toBeUndefined()
     expect(readPaneSize(undefined, 'a')).toBeUndefined()
+  })
+
+  it('ignores the px-scale .size value the old code saved', () => {
+    const m = new Map<string, string>([['cm.section.a.size', '300']])
+    const s = { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v) }
+    expect(readPaneSize(s, 'a')).toBeUndefined() // a 300 flex-grow sibling would squash its neighbour to ~0
   })
 })
