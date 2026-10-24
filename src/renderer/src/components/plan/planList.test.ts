@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { JobRow, JobTask } from '../../../../core/types'
 import { ageOf } from './planBoard'
-import { filterPlans, isStalledPlan, lastActivityOf, planFilterOf, planStatusOf, resumeActionOf } from './planList'
+import { clearableOf, finishedAtMs, isStalledPlan, lastActivityOf, planStatusOf, resumeActionOf, splitPlans } from './planList'
 
 const task = (id: string, over: Partial<JobTask> = {}): JobTask => ({ id, title: id, status: 'pending', openGates: 0, ...over })
 const row = (over: Partial<JobRow> = {}): JobRow => ({
@@ -97,17 +97,34 @@ describe('planStatusOf for the final check and a plan finished with blocked Task
   })
 })
 
-describe('filterPlans', () => {
-  const plans = [row({ id: 'run', outcome: 'running' }), row({ id: 'done', outcome: 'completed' }), row({ id: 'old', archivedAt: 'x', outcome: 'running' })]
-  const idsOf = (f: Parameters<typeof filterPlans>[1]): string[] => filterPlans(plans, f).map((r) => r.id)
-  it('active (default) hides done and archived plans; done keeps only those; all keeps everything', () => {
-    expect(idsOf('active')).toEqual(['run'])
-    expect(idsOf('done')).toEqual(['done', 'old'])
-    expect(idsOf('all')).toEqual(['run', 'done', 'old'])
+describe('splitPlans', () => {
+  const day = 86_400_000
+  const now = Date.parse('2026-10-24T12:00:00Z')
+  const iso = (daysAgo: number): string => new Date(now - daysAgo * day).toISOString()
+  const plans = [
+    row({ id: 'run', outcome: 'running' }),
+    row({ id: 'old', outcome: 'completed', finishedAt: iso(10) }),
+    row({ id: 'new', outcome: 'completed', finishedAt: iso(1) }),
+    row({ id: 'arch', outcome: 'completed', archivedAt: iso(0), finishedAt: iso(3) }),
+    row({ id: 'nodate', outcome: 'completed' }),
+    row({ id: 'run2', outcome: 'checking' })
+  ]
+  it('puts the plans at work on top in the snapshot order and the ended ones newest finished first', () => {
+    const { running, finished } = splitPlans(plans, false)
+    expect(running.map((r) => r.id)).toEqual(['run', 'run2'])
+    expect(finished.map((r) => r.id)).toEqual(['new', 'old', 'nodate'])
   })
-  it('an unknown stored value reads as active', () => {
-    expect(planFilterOf(null)).toBe('active')
-    expect(planFilterOf('x')).toBe('active')
-    expect(planFilterOf('done')).toBe('done')
+  it('keeps archived plans only with showArchived, sorted among the others by when they finished', () => {
+    expect(splitPlans(plans, true).finished.map((r) => r.id)).toEqual(['new', 'arch', 'old', 'nodate'])
+  })
+  it('reads the last activity when finishedAt is absent or unreadable', () => {
+    expect(finishedAtMs(row({ finishedAt: iso(2) }))).toBe(now - 2 * day)
+    expect(finishedAtMs(row({ createdAt: iso(5) }))).toBe(now - 5 * day)
+    expect(finishedAtMs(row({ finishedAt: 'x', createdAt: iso(5) }))).toBe(now - 5 * day)
+    expect(finishedAtMs(row())).toBeUndefined()
+  })
+  it('clearableOf: older than 7 days, or all; never an archived plan, a running plan or one with no finish time (older only)', () => {
+    expect(clearableOf(plans, false, now).map((r) => r.id)).toEqual(['old'])
+    expect(clearableOf(plans, true, now).map((r) => r.id)).toEqual(['old', 'new', 'nodate'])
   })
 })

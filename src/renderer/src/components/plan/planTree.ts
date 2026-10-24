@@ -6,7 +6,7 @@ import type { MessageKey, MessageParams } from '../../../../core/i18n'
 import type { JobRow, JobTask } from '../../../../core/types'
 import { jobName } from '../../lib/jobName'
 import { ageOf, areaGroupsOf, categoryOf, planListOrder, type PlanSection } from './planBoard'
-import { lastActivityOf } from './planList'
+import { finishedAtMs, lastActivityOf } from './planList'
 
 type T = (key: MessageKey, params?: MessageParams) => string
 
@@ -68,12 +68,14 @@ export interface TreeQuery {
   /** Text the plan name or a Task title must hold (any case); empty: everything. */
   filter: string
   showArchived: boolean
+  /** Group by plan only: list the rows in the order given (the Finished pane's newest-first), not by planListOrder. */
+  keepOrder?: boolean
   /** Whether the row with this id is open; ignored while a filter forces the matches open. */
   isOpen: (id: string, node: PlanNode) => boolean
 }
 
 /** The visible rows, flattened for `Tree`: parents first, closed subtrees left out. */
-export function planTreeRows({ rows, groupBy, filter, showArchived, isOpen }: TreeQuery): PlanTreeRow[] {
+export function planTreeRows({ rows, groupBy, filter, showArchived, keepOrder = false, isOpen }: TreeQuery): PlanTreeRow[] {
   const q = filter.trim().toLowerCase()
   const has = (text: string): boolean => text.toLowerCase().includes(q)
   const plans = rows.filter((r) => showArchived || r.archivedAt === undefined)
@@ -114,7 +116,7 @@ export function planTreeRows({ rows, groupBy, filter, showArchived, isOpen }: Tr
   }
 
   if (groupBy === 'plans') {
-    for (const row of planListOrder(plans)) plan(row, '', 0)
+    for (const row of keepOrder ? plans : planListOrder(plans)) plan(row, '', 0)
     return out
   }
   if (groupBy === 'area') {
@@ -158,6 +160,17 @@ export function planDescription(row: JobRow, nowMs: number, t: T): string {
     row.wave && row.wave.of > 1 ? t('pages.plans.tree.stepOf', { at: row.wave.at, of: row.wave.of }) : null,
     row.total > 0 ? t('pages.plans.progress', { done: row.done, total: row.total }) : null,
     last !== undefined ? t('pages.plans.age', { age: ageOf(new Date(last).toISOString(), nowMs) }) : null
+  ]
+    .filter((s): s is string => s !== null)
+    .join(' · ')
+}
+
+/** A finished plan row's dim line: "4/7 done · finished 2h ago"; the finish time replaces the last-activity age. */
+export function finishedDescription(row: JobRow, nowMs: number, t: T): string {
+  const at = finishedAtMs(row)
+  return [
+    row.total > 0 ? t('pages.plans.progress', { done: row.done, total: row.total }) : null,
+    at !== undefined ? t('pages.plans.finishedAge', { age: ageOf(new Date(at).toISOString(), nowMs) }) : null
   ]
     .filter((s): s is string => s !== null)
     .join(' · ')

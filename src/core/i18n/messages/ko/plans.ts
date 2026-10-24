@@ -103,4 +103,16 @@ export const plans = {
   'pages.plans.tree.menu.openInPlan': '계획에서 열기',
   'pages.plans.tree.menu.copyId': 'id 복사',
   'pages.plans.tree.menu.label': '계획 동작',
+  // Plans side bar: Running above Finished, Clear finished
+  'pages.plans.running': '진행 중',
+  'pages.plans.finished': '끝난 계획',
+  'pages.plans.finishedAge': '{age} 전에 끝남',
+  'pages.plans.clearFinished': '끝난 계획 정리…',
+  'pages.plans.clearFinished.body': '끝난 계획 {all}개 중 {old}개가 {days}일보다 전에 끝났습니다. 보관만 하며 삭제하지 않습니다. 보관 해제로 되돌릴 수 있습니다.',
+  'pages.plans.clearFinished.all': '최근 {days}일 안에 끝난 계획도 모두 보관',
+  'pages.plans.clearFinished.kill': '도는 세션도 닫기',
+  'pages.plans.clearFinished.done': '계획 {n}개를 보관했습니다',
+  'pages.plans.clearFinished.failed': '계획 {n}개를 보관하지 못했습니다',
+  'pages.plans.clearFinished.none': '정리할 끝난 계획이 없습니다',
+  'pages.plans.finished.empty': '아직 끝난 계획이 없습니다.',
 } as const

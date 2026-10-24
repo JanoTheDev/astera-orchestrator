@@ -70,4 +70,16 @@ export const plans: Partial<Record<keyof typeof ko, string>> = {
   'pages.plans.main.tasks': '{n} Tasks',
   'pages.plans.main.toggle': 'Mostrar u ocultar las Tasks de {plan}',
   'pages.plans.main.allDone': 'Todos los planes están terminados.',
+  // Plans side bar: Running above Finished, Clear finished
+  'pages.plans.running': 'En curso',
+  'pages.plans.finished': 'Terminados',
+  'pages.plans.finishedAge': 'terminado hace {age}',
+  'pages.plans.clearFinished': 'Limpiar terminados…',
+  'pages.plans.clearFinished.body': '{old} de {all} planes terminados acabaron hace más de {days} días. Se archivan, no se borran; Desarchivar devuelve uno.',
+  'pages.plans.clearFinished.all': 'Archivar también los planes terminados en los últimos {days} días',
+  'pages.plans.clearFinished.kill': 'Cerrar también sus sesiones en curso',
+  'pages.plans.clearFinished.done': '{n} planes archivados',
+  'pages.plans.clearFinished.failed': 'No se pudieron archivar {n} planes',
+  'pages.plans.clearFinished.none': 'No hay planes terminados que limpiar',
+  'pages.plans.finished.empty': 'Aún no hay planes terminados.',
 }

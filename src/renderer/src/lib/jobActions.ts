@@ -248,6 +248,21 @@ export async function archiveJob(door: OrchDoor, snapshot: OrchSnapshot | null, 
   if (reply && reply.status >= 400) failure(reply, ui, ui.t('jobs.lifecycle.archiveFailed'))
 }
 
+/** Archives many Jobs with one `jobs-archive` each (the caller asked once). A refusal or a lost answer counts as failed and
+ *  the rest go on; archived and failed are the counts for the caller's one toast. Archive, never delete. */
+export async function archiveJobs(door: OrchDoor, jobIds: readonly string[], killSessions: boolean): Promise<{ archived: number; failed: number }> {
+  let archived = 0
+  for (const id of jobIds) {
+    try {
+      const reply = await door.command('jobs-archive', { id, ...(killSessions ? { killSessions: true } : {}) })
+      if (reply.status < 400) archived++
+    } catch {
+      /* counted as failed below */
+    }
+  }
+  return { archived, failed: jobIds.length - archived }
+}
+
 export async function unarchiveJob(door: OrchDoor, jobId: string, ui: ActionUi): Promise<void> {
   const reply = await send(door, 'jobs-unarchive', { id: jobId }, ui, ui.t('jobs.lifecycle.unarchiveFailed'))
   if (reply && reply.status >= 400) failure(reply, ui, ui.t('jobs.lifecycle.unarchiveFailed'))

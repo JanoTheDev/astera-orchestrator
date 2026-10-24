@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { archiveJob, deleteRun, pauseRun, renameJob, restartCoordinator, resumeRun, unarchiveJob, type ActionUi } from './jobActions'
+import { archiveJob, archiveJobs, deleteRun, pauseRun, renameJob, restartCoordinator, resumeRun, unarchiveJob, type ActionUi } from './jobActions'
 import type { OrchDoor } from './orchDoor'
 import type { OrchSnapshot } from '../../../core/types'
 
@@ -175,5 +175,24 @@ describe('approvePlan: W8-F (#94) the refusal toast', () => {
     expect(calls).toHaveLength(1)
     expect(calls[0].m).toContain('tsk_1 (P7) has no basis')
     expect(calls[0].o).toEqual({ ttlMs: PLAN_INVALID_TOAST_MS })
+  })
+})
+
+describe('archiveJobs', () => {
+  it('sends one jobs-archive per Job, with killSessions only when asked, and counts the answers', async () => {
+    const d = door()
+    expect(await archiveJobs(d, ['a', 'b'], false)).toEqual({ archived: 2, failed: 0 })
+    expect(await archiveJobs(d, ['c'], true)).toEqual({ archived: 1, failed: 0 })
+    expect(d.sent).toEqual([['jobs-archive', { id: 'a' }], ['jobs-archive', { id: 'b' }], ['jobs-archive', { id: 'c', killSessions: true }]])
+  })
+  it('counts a refusal or a thrown send as failed and goes on to the next Job', async () => {
+    const d = door({ status: 409, body: {} })
+    expect(await archiveJobs(d, ['a', 'b'], false)).toEqual({ archived: 0, failed: 2 })
+    const t = door()
+    t.command = async (_c, args) => {
+      if (args.id === 'a') throw new Error('ipc')
+      return { status: 200, body: {} }
+    }
+    expect(await archiveJobs(t, ['a', 'b'], false)).toEqual({ archived: 1, failed: 1 })
   })
 })
