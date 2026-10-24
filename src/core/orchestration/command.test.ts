@@ -6754,6 +6754,25 @@ describe('jobs create / tasks add / accounts list', () => {
     expect(deps.getState().tasks.find((x) => x.id === t.id)?.prompt).toBe('new')
   })
 
+  it('task-update --model/--effort on a started Task: the owner may, an agent session may not, --prompt stays refused', async () => {
+    const deps = makeDeps()
+    await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p' })
+    const run = deps.getState().runs[0]
+    const t = (await shell(deps, 'tasks-add', { run: run.id, spec: 's', account: 'acc1' })).body as { id: string }
+    await deps.setState({
+      ...deps.getState(),
+      runs: deps.getState().runs.map((r) => ({ ...r, coordinatorSessionId: 'sess_coord' })),
+      tasks: deps.getState().tasks.map((x) => (x.id === t.id ? { ...x, status: 'dispatched' as const } : x))
+    })
+    const agent = await call(deps, 'task-update', { id: t.id, model: 'opus' }, 'sess_coord')
+    expect(agent.status).toBeGreaterThanOrEqual(400)
+    expect(deps.getState().tasks.find((x) => x.id === t.id)?.model).toBeUndefined()
+    const ok = await shell(deps, 'task-update', { id: t.id, model: 'opus', effort: 'high', modelReason: 'retry needs more' })
+    expect(ok.status).toBe(200)
+    expect(deps.getState().tasks.find((x) => x.id === t.id)).toMatchObject({ model: 'opus', effort: 'high', modelReason: 'retry needs more', status: 'dispatched' })
+    expect((await shell(deps, 'task-update', { id: t.id, prompt: 'late' })).status).toBe(400)
+  })
+
   // T7 (item 3): every session Astera spawns has an id, the owner's own tabs too, so the owner is any caller that is no
   // orchestration session
   it('task-update --deps: the owner in an Astera tab re-plans a not-started Task; worker, coordinator and planner sessions are refused by name', async () => {

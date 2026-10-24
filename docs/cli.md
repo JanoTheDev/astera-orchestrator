@@ -839,7 +839,10 @@ blocked with no worker ever started. Deps stay inside the run and may not form a
 the activity feed gets one "edited by you" line. The owner is any caller that is not an MCP client and not one of
 orchestration's own sessions (a worker, a reviewer, a coordinator, a planner), so a terminal or Claude tab the owner
 opened in Astera counts. The refusal names the rule that failed: an agent session, a Task already started, or a run
-not running. A Task that has started takes new `--criteria` only.
+not running. A Task that has started and not finished takes `--model`, `--effort`, `--difficulty`, `--model-reason` and
+`--criteria` from the owner, and nothing else; the change applies to its next dispatch (a retry or a repair), and
+nothing running is touched. `--difficulty` alone clears the Task's `model` and `effort`, so the new difficulty picks both
+again; given together, the values win. A finished Task takes nothing.
 
 **`--effort <low|medium|high|xhigh|max>` sets a Task's reasoning effort** on `tasks add`, `task-create` and
 `task-update` (any other value is refused). The worker starts with the Task's effort, else the setting for its

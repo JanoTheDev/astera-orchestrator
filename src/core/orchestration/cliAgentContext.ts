@@ -325,7 +325,7 @@ const SESSION = {
   'task-update': {
     summary: "set a Task's status by hand",
     detail:
-      'It bypasses the transition table. --convergence off and --status cannot be sent together.',
+      'It bypasses the transition table. --convergence off and --status cannot be sent together. Without --status, a Task of a running plan that has started and not finished takes only --model, --effort, --difficulty, --model-reason and --criteria from its owner, applied at its next dispatch; --difficulty alone clears its model and effort.',
     flags: [
       req('id', '<taskId>', 'the Task to change'),
       { name: 'status', value: '<s>', about: 'the status to set' },

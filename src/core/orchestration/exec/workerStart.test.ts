@@ -5,6 +5,7 @@ import path from 'node:path'
 import { startWorkerWithChain, startCoordinatorSession, preTrustWorkspace, chooseStartAccount, chooseSessionStart, chooseResumeStart, autoStartChain, START_READ_WAIT_MS, type AutoStartGuard, type WorkerStartContext } from './workerStart'
 import { createUsageGuard, type UsageChange } from '../usageGuard'
 import { WorkerTails, TAIL_EMPTY } from './tail'
+import { editPlanTask } from '../planner'
 import { createJob, createTask, emptyState, startJobRun, type OrchState } from '../state'
 import { makeDescriptors } from '../../providers/descriptor'
 import type { Account } from '../../types'
@@ -247,6 +248,18 @@ describe('startWorkerWithChain — effort', () => {
     const s2 = { ...s, dispatches: [dispatch(taskId, { sessionId: 'ses_old', effort: 'medium', endedAt: NOW }), dispatch(taskId, { id: 'dsp_1', startedAt: NOW, sessionId: 'ses_old', repair: 'review-failure' })] }
     const { r } = await start(s2, taskId, () => ALL, { terminal: 'ses_old' })
     expect(r).toMatchObject({ effort: 'medium', effortNote: expect.stringMatching(/next fresh start/) })
+  })
+
+  it('a Task updated after its first attempt starts its next fresh dispatch on the new model and effort', async () => {
+    const { s, taskId } = stateWithTask()
+    const first = dispatch(taskId, { outcome: 'succeeded', endedAt: NOW, effort: 'low', model: 'sonnet' })
+    const started1 = { ...withTask(s, taskId, { status: 'dispatched', model: 'sonnet', effort: 'low' }), dispatches: [first] }
+    const edited = editPlanTask(started1, taskId, { model: 'opus', effort: 'high' }, NOW, true)
+    if (!edited.ok) throw new Error(edited.error)
+    const s2 = { ...edited.state, dispatches: [first, dispatch(taskId, { id: 'dsp_1', startedAt: NOW, sessionId: 'pending:x' })] }
+    const { passed, r } = await start(s2, taskId, () => ALL)
+    expect(passed).toMatchObject({ model: 'opus', effort: 'high' })
+    expect(r).toMatchObject({ model: 'opus', effort: 'high' })
   })
 
   it('a reviewer gets the reviewer role effort, never raised', async () => {
