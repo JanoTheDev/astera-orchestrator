@@ -5,7 +5,6 @@
 import { useEffect, useMemo } from 'react'
 import { parseTab } from '../../../../core/panes/tabId'
 import { buildWorkspaceTree } from '../../state/workspaceTree'
-import { useWorkspaceData } from '../../state/useWorkspaceData'
 import { useAttention } from '../../state/useAttention'
 import { usePlanLive } from '../plan/usePlanLive'
 import { localDoor } from '../../lib/orchDoor'
@@ -18,21 +17,22 @@ import type { AppState } from '../../state/appState'
 import { setAgentSessions } from '../../lib/recentlyClosed'
 import '../wall/wall.css'
 
-export type AgentsPageProps = Pick<AppState, 'sessions' | 'currentProject' | 'homeDir' | 'activeTabId'> & {
+export type AgentsPageProps = Pick<AppState, 'sessions' | 'currentProject' | 'homeDir' | 'activeTabId' | 'workspaceData'> & {
   children: React.ReactNode
   /** W9-B: when the page is not shown the whole page is hidden, its pane grid with it. */
   hidden?: boolean
 }
 
-export function AgentsPage({ sessions, currentProject, homeDir, activeTabId, children, hidden }: AgentsPageProps): React.JSX.Element {
+export function AgentsPage({ sessions, currentProject, homeDir, activeTabId, workspaceData: data, children, hidden }: AgentsPageProps): React.JSX.Element {
   const anchor = currentProject ?? sessions[0]?.cwd ?? homeDir ?? null
-  const data = useWorkspaceData(anchor, true)
+  // the window's one workspace poll (useWorkspace), not a second one; the polls below ask only while the page is shown
+  const shown = !hidden
   const tree = useMemo(() => (data ? buildWorkspaceTree(data, { showArchived: false }) : []), [data])
-  const rows = useJobRows(anchor, useMemo(() => tree.map((p) => p.id), [tree]), true)
+  const rows = useJobRows(anchor, useMemo(() => tree.map((p) => p.id), [tree]), shown)
   const attention = useAttention(useMemo(() => sessions.map((s) => s.id), [sessions]))
   const door = useMemo(() => localDoor(window.api, anchor ?? ''), [anchor])
-  const live = usePlanLive(door, anchor !== null)
-  const summaries = useSummaries(anchor !== null ? door : null) // W9-I: the Finished row's cards
+  const live = usePlanLive(door, anchor !== null && shown)
+  const summaries = useSummaries(anchor !== null && shown ? door : null) // W9-I: the Finished row's cards
 
   const consoles = useMemo(
     () => consolesOf({ sessions, tree, data, attention, live: live.sessions, rows }),

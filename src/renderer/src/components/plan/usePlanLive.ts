@@ -7,6 +7,7 @@
 import { useEffect, useState } from 'react'
 import type { ActivityEvent } from '../../../../core/orchestration/activity'
 import type { OrchDoor } from '../../lib/orchDoor'
+import { pollWhileVisible } from '../../lib/visiblePoll'
 import { mergePage } from '../activity/activityView'
 import type { LiveSession, OpenQuestion } from './planBoard'
 
@@ -85,11 +86,10 @@ export function usePlanLive(door: OrchDoor, enabled: boolean, runId?: string): P
         return { sessions: rows === undefined ? p.sessions : liveSessionsOf(rows, p.sessions), activity, questions, nowMs: Date.now() }
       })
     }
-    void tick()
-    const timer = setInterval(() => void tick(), POLL_MS)
+    const stop = pollWhileVisible(() => void tick(), POLL_MS)
     return () => {
       alive = false
-      clearInterval(timer)
+      stop()
     }
   }, [door, enabled, runId])
   return live
