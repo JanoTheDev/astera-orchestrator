@@ -5,8 +5,9 @@ import type { Project } from '../../../../core/orchestration/types'
 import type { ScheduleRule } from '../../../../core/types'
 import { livePlans, scheduledArgs, type PlanRow, type StartSettings } from '../pages/startLogic'
 import { useI18n } from '../../i18n/I18nProvider'
-import { formFailure, type OrchDoor } from '../../lib/orchDoor'
-import { fileUnderArgs, intakeRequest, type IntakeTab, type PlanningMode } from './intakeRequest'
+import type { OrchDoor } from '../../lib/orchDoor'
+import { createPlan } from './createPlan'
+import { intakeRequest, type IntakeTab, type PlanningMode } from './intakeRequest'
 
 export interface IntakeOptions {
   door: OrchDoor
@@ -78,53 +79,19 @@ export function useIntake(o: IntakeOptions) {
     if (list) addPaths(Array.from(list, (f) => window.api.files.pathForFile(f)))
   }
 
-  /** Plans a made Job: its planner starts, or it queues after another plan (`jobs set --after`: the Host starts its
-   *  planner once that one is delivered). The settings were made with the Job (jobs-create), so a queued plan keeps them
-   *  too. Returns the planner's session (none when queued), or null after it set the error. */
-  const planJob = async (id: string): Promise<{ sessionId?: string } | null> => {
-    // Every intake ends with its planner started; a planner that does not start leaves the Job as a draft.
-    const planned = await door.command(after ? 'jobs-set' : 'jobs-plan', after ? { id, after } : { id })
-    if (planned.status < 400) {
-      const sessionId = (planned.body as { sessionId?: unknown } | null)?.sessionId
-      return typeof sessionId === 'string' ? { sessionId } : {}
-    }
-    const why = (planned.body as { error?: unknown } | null)?.error
-    setError(`${t('jobs.new.plannerFailed')}${typeof why === 'string' ? `: ${why}` : ''}`)
-    return null
-  }
-
-  /** T4: jobs-create → jobs-plan; `onCreated` gets the planner's session so Start can open its terminal. T14: with a
-   *  `schedule` the Job is made by jobs-create alone, with its rule; no planner opens for it. T17: every setting rides on
-   *  jobs-create, and a Job the Host filed under the workspace moves to the sub-project picked (`jobs-set --project`,
-   *  on its own, before its planner starts). */
+  /** T4: jobs-create → jobs-plan (createPlan); `onCreated` gets the planner's session so Start can open its terminal. T14:
+   *  with a `schedule` the Job is made by jobs-create alone, with its rule; no planner opens for it. T17: every setting
+   *  rides on jobs-create, and a Job the Host filed under the workspace moves to the sub-project picked (`jobs-set
+   *  --project`, on its own, before its planner starts). A queued plan (`after`) keeps the settings made with the Job. */
   const create = async (schedule?: ScheduleRule | null): Promise<void> => {
     const args = schedule === undefined ? request?.args : scheduledArgs(request, schedule)
     if (request === null || !args || busy) return
     setBusy(true)
     setError(null)
     try {
-      const reply = await door.command(request.cmd, args)
-      if (reply.status >= 400) {
-        setError(formFailure(reply, t as never, 'jobs.new.failed').message)
-        return
-      }
-      const made = reply.body as { id?: string; projectId?: string }
-      const id = made.id
-      if (id === undefined) {
-        setError(t('jobs.new.failed'))
-        return
-      }
-      const fileUnder = fileUnderArgs({ id, projectId: made.projectId }, projectId)
-      if (fileUnder) {
-        const moved = await door.command('jobs-set', fileUnder)
-        if (moved.status >= 400) {
-          setError(formFailure(moved, t as never, 'jobs.new.failed').message)
-          return
-        }
-      }
-      if (schedule !== undefined) return o.onCreated(id)
-      const planned = await planJob(id)
-      if (planned) o.onCreated(id, planned.sessionId)
+      const made = await createPlan(door, { cmd: request.cmd, args, projectId, after, scheduled: schedule !== undefined, t: t as never })
+      if (made.ok) o.onCreated(made.id, made.sessionId)
+      else setError(made.error)
     } catch {
       setError(t('jobs.new.failed'))
     } finally {

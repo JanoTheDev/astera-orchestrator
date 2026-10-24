@@ -105,7 +105,8 @@ import { UnderstandingPipeline } from '../core/understanding/pipeline'
 import { copyTranscript, samePath } from '../core/rolling/transcript'
 import { sanitizeResumePrompt } from '../core/sessions/commands'
 import type { OrchLoadResult } from '../core/orchestration/store'
-import { createMirrorStore, OrchStateConflict } from './orchestration/mirrorStore'
+import { createMirrorStore } from './orchestration/mirrorStore'
+import { handleWithRetry } from './orchestration/commandRetry'
 import { createResumeSweep, type ResumeSweep } from '../core/orchestration/exec/resumeSweep'
 import { createOrchCommitHook } from './orchestration/commitHook'
 import { createReviewStarter } from '../core/orchestration/exec/review'
@@ -182,7 +183,8 @@ import { isPermissionMode, isUnattendedPermission } from '../core/chat/types'
 import { performRepair, repairOnce, repairTargetFor, type RepairDeps } from '../core/orchestration/exec/repair'
 import { snapshotFor, jobsForProject, outcomeOf } from '../core/orchestration/view'
 import { createOrchPush } from './orchPush'
-import { dropNonGitProjects, ensureGitProject, findProjectContaining } from '../core/orchestration/projects'
+import { dropNonGitProjects, ensureProject, findProjectContaining } from '../core/orchestration/projects'
+import { commitFresh } from '../core/orchestration/stateConflict'
 import { mainRepoRoot } from '../core/projects/detect'
 import { hasOriginRemote } from '../core/projects/create'
 import { readFolderSetup } from '../core/orchestration/exec/deliverySetup'
@@ -527,9 +529,12 @@ export async function releaseThenRemoveAccount<T>(
   logout?: () => Promise<T>
 ): Promise<T | undefined> {
   for (const { dispatchId } of releasable) {
-    const st = deps.getState()
-    if (st.dispatches.find((d) => d.id === dispatchId)?.retained)
-      await deps.setState({ ...st, dispatches: st.dispatches.map((d) => (d.id === dispatchId ? { ...d, retained: false } : d)) })
+    // A state conflict re-reads and re-applies the un-retain (commitFresh); nothing to write when it is not retained
+    await commitFresh(deps, (cur) =>
+      cur.dispatches.find((d) => d.id === dispatchId)?.retained
+        ? { ...cur, dispatches: cur.dispatches.map((d) => (d.id === dispatchId ? { ...d, retained: false } : d)) }
+        : null
+    )
     await deps.releaseWorker({ dispatchId, closeReason: 'released' })
   }
   await deps.removeAccount(accountId)
@@ -2169,7 +2174,7 @@ export function registerIpc(
     if (blockers.length > 0) return { ok: false as const, reason: 'inUse' as const, titles: blockers }
     if (!orch) return { ok: false as const, reason: 'unavailable' as const, titles: [] as string[] }
     try {
-      const r = await orchHandleCommand(orch.deps, { sessionId: UI_CALLER }, 'accounts-merge', { keep: keepId, drop: dropId })
+      const r = await handleWithRetry(orchHandleCommand, orch.deps, { sessionId: UI_CALLER }, 'accounts-merge', { keep: keepId, drop: dropId }, { log: orchLog })
       if (r.status !== 200) return { ok: false as const, reason: 'unavailable' as const, titles: [] as string[] }
     } catch (err) {
       orchLog(`accounts.merge: the references were not moved — ${err instanceof Error ? err.message : String(err)}`)
@@ -3424,7 +3429,8 @@ export function registerIpc(
     // 생긴다. `deps` 는 아래에서 정의되지만 이 화살표들은 부를 때 읽으므로 순서 문제는 없다
     // (startReview 의 `(w) => deps.startWorker(w)` 와 같은 모양).
     const loop = createDispatchLoop({
-      handle: (cmd, args) => orchHandleCommand(deps, { sessionId: UI_CALLER }, cmd, args),
+      // A spent conflict is thrown, as before: the loop reads a 409 as a refusal and opens a Gate on it.
+      handle: (cmd, args) => handleWithRetry(orchHandleCommand, deps, { sessionId: UI_CALLER }, cmd, args, { log: orchLog, throwConflict: true }),
       getState: () => deps.getState(),
       maxConcurrentWorkers: () => core.appSettings.getEffectiveMaxConcurrentWorkers(),
       accounts: () => core.accounts.list(),
@@ -4087,7 +4093,8 @@ export function registerIpc(
         const drained = await applyPendingReports({
           queued: pendingReports,
           apply: async (r) => {
-            const reply = await orchHandleCommand(deps, { sessionId: r.sessionId }, r.cmd, r.args)
+            // A spent conflict is thrown, not answered: a 409 here would delete the report's file, and a throw keeps it for the next start.
+            const reply = await handleWithRetry(orchHandleCommand, deps, { sessionId: r.sessionId }, r.cmd, r.args, { log: orchLog, throwConflict: true })
             return {
               ok: reply.status >= 200 && reply.status < 300,
               detail: `${reply.status} ${JSON.stringify(reply.body)}`
@@ -4971,9 +4978,18 @@ export function registerIpc(
       // W8-G (#103): a tab in a non-git folder is not a project; entries an older build made from one go on first load.
       // T3: registered by its repository's main top level, never a subfolder or a linked worktree (ensureGitProject)
       const isGit = async (dir: string): Promise<boolean> => (await mainRepoRoot(dir)) !== null
-      const state = await ensureGitProject(strayProjectsDropped ? before : await dropNonGitProjects(before, isGit), { path: project, now: new Date().toISOString() }, (dir) => mainRepoRoot(dir))
+      // The git probes are async and commitFresh's step is not, so they run once, here, on the state read above. A re-run
+      // after a conflict applies the same answers to the fresh state: the strays by id, the project's repository root as found.
+      const dropped = strayProjectsDropped ? before : await dropNonGitProjects(before, isGit)
+      const strays = new Set(before.projects.filter((p) => !dropped.projects.includes(p)).map((p) => p.id))
+      const root = findProjectContaining(dropped, project) ? null : await mainRepoRoot(project)
       strayProjectsDropped = true
-      if (state !== before) await orch.deps.setState(state)
+      await commitFresh(orch.deps, (cur) => {
+        const kept = strays.size === 0 ? cur : { ...cur, projects: cur.projects.filter((p) => !strays.has(p.id)) }
+        // ensureGitProject's registration, synchronous now: its repository root is already known
+        const state = root === null || findProjectContaining(kept, project) ? kept : ensureProject(kept, { path: root, now: new Date().toISOString() }).state
+        return state === cur ? null : state
+      })
     }
     const snapshot: OrchSnapshot = orch
       ? orchSnapshotOf(orch.deps.getState(), project)
@@ -5190,23 +5206,13 @@ export function registerIpc(
         orchLog(`orch.command: rejected ${cmd} — ${mismatch}`)
         return { status: 403, body: { error: mismatch } }
       }
-      try {
-        return await orchHandleCommand(orch.deps, { sessionId: UI_CALLER }, cmd, args ?? {})
-      } catch (err) {
-        // **A write the Host refused because the state had moved on** (ruling F56). It must not
-        // vanish: this is a button the person pressed, the thing they pressed it for did not happen,
-        // and the screen they decided from was already stale. Answered as a 409 so every caller's
-        // existing failure branch says so out loud — the renderer's Jobs handlers all toast on
-        // `status >= 400` — and logged with the versions, which is the half a toast cannot carry.
-        //
-        // The mirror has already been put onto the Host's current state by the time this is caught
-        // (see `OrchStateConflict`), so the next thing the person does is decided from the truth.
-        if (err instanceof OrchStateConflict) {
-          orchLog(`orch.command: ${cmd} was refused — ${err.message}`)
-          return { status: 409, body: { error: err.message, conflict: 'state-moved-on' } }
-        }
-        throw err
-      }
+      // **A write the Host refused because the state had moved on** (ruling F56) never reaches the person
+      // as such: the mirror is already on the Host's state when it is thrown (see `OrchStateConflict`), so
+      // the command is re-run on the truth while it has not acted outside the state (commandRetry.ts). An
+      // action the new state no longer allows answers with its own refusal. Only a conflict that outlasts
+      // the attempts comes back, as a 409 in plain words — every caller's failure branch says it out
+      // loud (the renderer's Jobs handlers toast on `status >= 400`) — with the versions in the log.
+      return await handleWithRetry(orchHandleCommand, orch.deps, { sessionId: UI_CALLER }, cmd, args ?? {}, { log: orchLog })
   }
   // **Which Host each orchestration call goes to** (remote runtime design §2.7, D1.1): no runtimeId, or 'local', runs
   // the four bodies above exactly as before; a paired Runtime's id goes to its client in main/remote, so none of the
@@ -7472,7 +7478,7 @@ export function registerIpc(
           const fresh = ids.filter((id) => !releasedForSwap.has(id))
           for (const id of fresh) {
             try {
-              const r = await orchHandleCommand(deps, { sessionId: UI_CALLER }, 'worker-release', { dispatch: id })
+              const r = await handleWithRetry(orchHandleCommand, deps, { sessionId: UI_CALLER }, 'worker-release', { dispatch: id }, { log: hostLog })
               releasedForSwap.set(id, r.status < 400)
               if (r.status >= 400) hostLog(`host: dispatch ${id} was not released before the swap: ${JSON.stringify(r.body)}`)
             } catch (e) {
