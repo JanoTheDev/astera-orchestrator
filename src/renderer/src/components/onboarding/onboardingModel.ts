@@ -71,3 +71,10 @@ export const replayStart = (step: OnboardingStep | undefined): OnboardingStep =>
 
 /** The Done step's primary action. With no CLI, Start cannot run a plan, so it sends the person back to install one. */
 export const donePrimary = (ctx: Pick<NextContext, 'cliFound'>): 'start' | 'tools' => (ctx.cliFound ? 'start' : 'tools')
+
+/** The ways to get a first project, in the order they are offered; each opens the project dialog of the same meaning. */
+export const PROJECT_CHOICES = ['open', 'clone', 'new'] as const
+export type ProjectChoice = (typeof PROJECT_CHOICES)[number]
+
+/** Which project dialog a choice opens (`open` is the Add dialog: a folder that need not have a repository yet). */
+export const projectDialogOf = (choice: ProjectChoice): 'add' | 'clone' | 'new' => (choice === 'open' ? 'add' : choice)

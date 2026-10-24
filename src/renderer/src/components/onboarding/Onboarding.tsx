@@ -35,8 +35,10 @@ import {
   showUpdateChoice,
   stepIndex,
   type OnboardingExit,
-  type OnboardingStep
+  type OnboardingStep,
+  type ProjectChoice
 } from './onboardingModel'
+import { GetStarted } from './GetStarted'
 import { onboardingReplayStart } from './replay'
 import './onboarding.css'
 import { FOCUSABLE, modalKeyAction } from '../ui/logic'
@@ -58,7 +60,7 @@ export interface OnboardingProps {
   accounts: Account[]
   currentProject: string | null
   /** Opens the add-project dialog; undefined when there is no Host to ask yet. */
-  onAddProject?: () => void
+  onChooseProject?: (choice: ProjectChoice) => void
   defaultSessionKind: SessionKind
   setDefaultSessionKind: (kind: SessionKind) => void
   update: UpdateStatus | null
@@ -238,23 +240,12 @@ export function Onboarding(p: OnboardingProps): React.JSX.Element | null {
       <>
         {title('onboarding.project.title')}
         <p className="onb__lead">{t('onboarding.project.body')}</p>
-        <Card className="onb__card onb__row">
-          <span className="onb__row-main">
-            {p.currentProject ? (
-              <Status
-                ok
-                text={t('onboarding.project.current', {
-                  name: baseName(p.currentProject)
-                })}
-              />
-            ) : (
-              <span className="onb__dim">{t('onboarding.project.none')}</span>
-            )}
-          </span>
-          <Button icon={<Icon name="folder" />} disabled={!p.onAddProject} onClick={p.onAddProject}>
-            {t('onboarding.project.pick')}
-          </Button>
-        </Card>
+        {p.currentProject && (
+          <Card className="onb__card">
+            <Status ok text={t('onboarding.project.current', { name: baseName(p.currentProject) })} />
+          </Card>
+        )}
+        <GetStarted onChoose={p.onChooseProject} />
       </>
     )
     actions = nextButton

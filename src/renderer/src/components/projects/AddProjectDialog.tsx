@@ -21,26 +21,34 @@ export function AddProjectDialog({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [needsCommit, setNeedsCommit] = useState(false)
+  const [needsGit, setNeedsGit] = useState(false)
   const [added, setAdded] = useState<{ id: string } | null>(null)
   const [test, setTest] = useState('')
 
-  const add = async (initialCommit: boolean): Promise<void> => {
+  const add = async (initialCommit: boolean, initGit = false): Promise<void> => {
     setBusy(true)
     setError(null)
     try {
       const r = await window.api.orch.command(anchor, 'projects-add', {
         path: path.trim(),
-        ...(initialCommit ? { initialCommit: true } : {})
+        ...(initialCommit ? { initialCommit: true } : {}),
+        ...(initGit ? { initGit: true } : {})
       })
       const body = r.body as {
         error?: string
         needsInitialCommit?: boolean
+        needsGitInit?: boolean
         id?: string
         proposedTest?: string | null
       } | null
+      setNeedsGit(false)
       if (r.status === 409 && body?.needsInitialCommit) {
         setNeedsCommit(true)
         setError(body.error ?? t('overlays.project.noCommit'))
+      } else if (body?.needsGitInit) {
+        setNeedsCommit(false)
+        setNeedsGit(true)
+        setError(null)
       } else if (r.status !== 200 || !body?.id) setError(body?.error ?? t('overlays.project.addFailed'))
       else {
         setNeedsCommit(false)
@@ -94,6 +102,11 @@ export function AddProjectDialog({
           {t('overlays.project.initialCommit')}
         </Button>
       )}
+      {needsGit && (
+        <Button disabled={busy} onClick={() => void add(false, true)}>
+          {t('onboarding.initGit.button')}
+        </Button>
+      )}
       <Button variant="primary" disabled={busy || !path.trim()} onClick={() => void add(false)}>
         {t('overlays.project.add')}
       </Button>
@@ -122,12 +135,13 @@ export function AddProjectDialog({
                 {t('overlays.project.folder')}
               </label>
               <div className="ov-proj-row">
-                <Input id={pathId} value={path} onChange={(e) => setPath(e.target.value)} autoFocus />
+                <Input id={pathId} value={path} onChange={(e) => { setPath(e.target.value); setNeedsGit(false) }} autoFocus />
                 <Button icon={<Icon name="folder" />} onClick={() => void window.api.system.pickFolder().then((p) => p && setPath(p))}>
                   {t('overlays.project.browse')}
                 </Button>
               </div>
             </div>
+            {needsGit && <p className="warn">{t('onboarding.initGit.hint')}</p>}
             {error && <p className="warn">{error}</p>}
           </>
         )}

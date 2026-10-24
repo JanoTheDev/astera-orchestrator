@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { GhProbe } from '../../../core/github/types'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
-import { Button, Icon, Switch } from './ui'
+import { Button, Icon, Select, Switch } from './ui'
 
 /** The GitHub pane of the settings modal (design doc §5). Reads state and instructs — there is
  *  deliberately no login button: auth belongs to `gh auth login` in a terminal. */
@@ -11,6 +11,7 @@ export function GithubSettings(): React.JSX.Element {
   const [probe, setProbe] = useState<GhProbe | null>(null) // null = first read in flight
   const [polling, setPolling] = useState(true)
   const [checking, setChecking] = useState(false)
+  const [defaults, setDefaults] = useState<{ createGithubRepo: boolean; visibility: 'private' | 'public' } | null>(null)
 
   useEffect(() => {
     // recheck(), not status(): main's cached probe can be stale by the time this tab opens (a
@@ -19,6 +20,7 @@ export function GithubSettings(): React.JSX.Element {
     // stays in step with whatever this tab just found (design doc §5).
     void window.api.github.recheck().then(setProbe)
     void window.api.settings.getGithubPolling().then(setPolling)
+    void window.api.settings.getGithubDefaults().then(setDefaults)
     // Keeps tracking state changes while the tab stays open — a later auth loss, or a recheck
     // triggered elsewhere, must not leave this pane reporting a stale "Connected".
     const offStatus = window.api.on('github:status', setProbe)
@@ -32,6 +34,15 @@ export function GithubSettings(): React.JSX.Element {
     } finally {
       setChecking(false)
     }
+  }
+
+  const saveDefaults = (next: NonNullable<typeof defaults>): void => {
+    const prev = defaults
+    setDefaults(next) // optimistic, reverted on failure like the polling switch
+    void window.api.settings.setGithubDefaults(next).catch((err) => {
+      setDefaults(prev)
+      toast.error(t('github.settings.saveFailed', { detail: err instanceof Error ? err.message : String(err) }))
+    })
   }
 
   return (
@@ -100,6 +111,28 @@ export function GithubSettings(): React.JSX.Element {
         />
       </label>
       <span className="settings-hint">{t('github.settings.pollingHint')}</span>
+      {defaults && (
+        <>
+          <h3 className="settings-card-title">{t('github.defaults.title')}</h3>
+          <label className="settings-row">
+            <span>{t('github.defaults.create')}</span>
+            <Switch checked={defaults.createGithubRepo} onChange={(on) => saveDefaults({ ...defaults, createGithubRepo: on })} />
+          </label>
+          <span className="settings-hint">{t('github.defaults.createHint')}</span>
+          <div className="settings-row">
+            <span>{t('github.defaults.visibility')}</span>
+            <Select
+              aria-label={t('github.defaults.visibility')}
+              value={defaults.visibility}
+              onChange={(v) => saveDefaults({ ...defaults, visibility: v as 'private' | 'public' })}
+              items={[
+                { value: 'private', label: t('github.defaults.private') },
+                { value: 'public', label: t('github.defaults.public') }
+              ]}
+            />
+          </div>
+        </>
+      )}
     </>
   )
 }

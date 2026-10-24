@@ -5,10 +5,12 @@ import type { JobRow } from '../../../../core/types'
 import type { MessageKey } from '../../../../core/i18n'
 import { jobName } from '../../lib/jobName'
 import { Button, Icon, Kbd } from '../ui'
+import { GetStarted } from '../onboarding/GetStarted'
+import { projectDialogOf } from '../onboarding/onboardingModel'
 import { openView } from './navigation'
 import type { AppState } from '../../state/appState'
 
-export type WelcomeProps = Pick<AppState, 't' | 'orchSnapshot' | 'bindingsRef' | 'canStart' | 'setShowNew' | 'currentProject' | 'setOpenRun' | 'setDetail'>
+export type WelcomeProps = Pick<AppState, 't' | 'orchSnapshot' | 'bindingsRef' | 'canStart' | 'setShowNew' | 'currentProject' | 'setOpenRun' | 'setDetail' | 'projectAnchor' | 'setProjectDialog'>
 
 const KEYS: Array<[ActionId, MessageKey]> = [
   ['palette.open', 'shell.welcome.keyPalette'],
@@ -28,7 +30,7 @@ export function recentPlans(rows: readonly JobRow[], n = 5): JobRow[] {
     .slice(0, n)
 }
 
-export function Welcome({ t, orchSnapshot, bindingsRef, canStart, setShowNew, currentProject, setOpenRun, setDetail }: WelcomeProps): React.JSX.Element {
+export function Welcome({ t, orchSnapshot, bindingsRef, canStart, setShowNew, currentProject, setOpenRun, setDetail, projectAnchor, setProjectDialog }: WelcomeProps): React.JSX.Element {
   // the plan list rows' own way in (PlansPage acts.onOpen); its tab follows openRun
   const open = (runId: string): void => {
     setDetail(null)
@@ -39,6 +41,12 @@ export function Welcome({ t, orchSnapshot, bindingsRef, canStart, setShowNew, cu
     <div className="welcome">
       <div className="welcome__inner">
         <h1 className="welcome__head">{t('shell.welcome.title')}</h1>
+        {!currentProject && (
+          <section className="welcome__section">
+            <h2 className="welcome__label">{t('onboarding.start.title')}</h2>
+            <GetStarted onChoose={projectAnchor ? (c) => setProjectDialog(projectDialogOf(c)) : undefined} />
+          </section>
+        )}
         <section className="welcome__section">
           <h2 className="welcome__label">{t('shell.welcome.start')}</h2>
           <Button variant="ghost" size="sm" className="welcome__link" icon={<Icon name="add" />} disabled={!canStart()} onClick={() => openView('start')}>
