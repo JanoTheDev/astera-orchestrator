@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { modalKeyAction } from './logic'
+import { readFileSync } from 'node:fs'
 
 describe('modalKeyAction', () => {
   it('Esc closes, wherever focus is', () => {
@@ -31,5 +32,14 @@ describe('modalKeyAction', () => {
 
   it('ignores other keys', () => {
     for (const k of ['Enter', ' ', 'ArrowDown', 'a', 'Home']) expect(modalKeyAction(k, false, 0, 3)).toBeNull()
+  })
+})
+
+describe('Modal close', () => {
+  it('still closes on Esc and puts focus back through the mount effect, with the exit played on a clone', () => {
+    const src = readFileSync('src/renderer/src/components/ui/Modal.tsx', 'utf8')
+    expect(src).toContain('return () => opener?.focus()')
+    expect(src).toContain("modalKeyAction(e.key")
+    expect(src).toContain("useOpenClose(backdrop, 'fade', MODAL_BOX)")
   })
 })

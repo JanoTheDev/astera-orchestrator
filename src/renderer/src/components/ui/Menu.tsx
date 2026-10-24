@@ -3,6 +3,7 @@ import { Check } from 'lucide-react'
 import { Button, type ButtonProps } from './UiButton'
 import { contextMenuPoint, cx, isTypeaheadKey, menuKeyAction, moveIndex, typeaheadBuffer, typeaheadIndex } from './logic'
 import { Kbd } from './Kbd'
+import { useOpenClose } from './motion'
 
 export type MenuItem = {
   /** The row's React key; the index is used when it is missing (the old ContextMenu items have none). */
@@ -49,6 +50,7 @@ function MenuList({
   onKey: (key: 'close' | 'tab') => void
 }): React.JSX.Element {
   const typed = useRef({ text: '', at: 0 })
+  useOpenClose(listRef, 'scale')
 
   useEffect(() => {
     listRef.current?.querySelector<HTMLElement>('[data-roving]:not([disabled])')?.focus()
