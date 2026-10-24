@@ -96,3 +96,43 @@ describe('W8-F (#100) the owner narrows a Task', () => {
     expect(buildReviewSpecFile({ title: 'T', spec: 's', taskId: task.id, dispatchId: 'dsp_1', validated: false })).not.toContain("owner's answers")
   })
 })
+
+// A Task held for its owner (blocked, no Gate) moves on once the owner answers the last question left open on it
+describe('the owner answering a held Task’s last question releases it', () => {
+  const held = async (open: Array<Pick<Message, 'id' | 'type'>>) => {
+    const r = rig()
+    await r.call('run-create', { objective: 'o', cwd: '/p' })
+    await r.call('task-create', { spec: 's', account: 'acc1' })
+    const s = r.state()
+    const task = s.tasks[0]
+    const ask = (m: Pick<Message, 'id' | 'type'>): Message => ({ ...m, runId: task.runId!, taskId: task.id, subject: 'Delete the old runs?', body: 'Delete the old runs?', answered: false, createdAt: NOW })
+    r.set({ ...s, tasks: [{ ...task, status: 'blocked' }], messages: [...s.messages, ...open.map(ask)] })
+    return { r, task }
+  }
+
+  it('an escalation: the Task goes to ready, and stays blocked while another question of it is open', async () => {
+    const { r, task } = await held([{ id: 'msg_e1', type: 'escalation' }, { id: 'msg_e2', type: 'escalation' }])
+    expect((await r.call('questions-answer', { id: 'msg_e1', answer: 'yes' })).status).toBe(200)
+    expect(r.state().tasks.find((t) => t.id === task.id)?.status).toBe('blocked')
+    expect((await r.call('questions-answer', { id: 'msg_e2', answer: 'yes' })).status).toBe(200)
+    expect(r.state().tasks.find((t) => t.id === task.id)?.status).toBe('ready')
+  })
+
+  it("a worker's question the owner answers releases it too; a coordinator's answer does not", async () => {
+    const { r, task } = await held([{ id: 'msg_q1', type: 'question' }])
+    await handleCommand(r.deps, { sessionId: 'coord_1' }, 'questions-answer', { id: 'msg_q1', answer: 'yes' })
+    expect(r.state().tasks.find((t) => t.id === task.id)?.status).toBe('blocked')
+    const again = await held([{ id: 'msg_q1', type: 'question' }])
+    await again.r.call('questions-answer', { id: 'msg_q1', answer: 'yes' })
+    expect(again.r.state().tasks.find((t) => t.id === again.task.id)?.status).toBe('ready')
+  })
+
+  it('a Task blocked on an open Gate stays blocked: only resolveGate moves it', async () => {
+    const { r, task } = await held([{ id: 'msg_e1', type: 'escalation' }])
+    const made = createGate({ ...r.state(), tasks: r.state().tasks.map((t) => ({ ...t, status: 'ready' as const })) }, { taskId: task.id, question: 'Base on main?' }, NOW)
+    if (!made.ok) throw new Error(made.error)
+    r.set(made.state)
+    await r.call('questions-answer', { id: 'msg_e1', answer: 'yes' })
+    expect(r.state().tasks.find((t) => t.id === task.id)?.status).toBe('blocked')
+  })
+})

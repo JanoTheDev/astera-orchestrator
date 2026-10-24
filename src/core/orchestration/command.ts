@@ -5918,7 +5918,7 @@ export async function handleCommand(
           if (!r.ok) return refused(r)
           await deps.setState(r.state)
         } else {
-          const r = answerEscalation(s, { messageId: msg.id, body: answer }, now)
+          const r = answerEscalation(s, { messageId: msg.id, body: answer, ...(fromAgent ? {} : { by: 'owner' as const }) }, now)
           if (!r.ok) return refused(r)
           await deps.setState(r.state)
         }
