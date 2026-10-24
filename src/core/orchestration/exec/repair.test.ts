@@ -64,6 +64,15 @@ describe('repairTargetFor', () => {
   it('구현 Dispatch 가 없으면 null 이다', () => {
     expect(repairTargetFor(emptyState(), 'tsk_x', () => true)).toBeNull()
   })
+  it('a live session that runs another model or effort than the Task wants gives a fresh start in the same worktree', () => {
+    const { s, taskId } = validating()
+    const ran: OrchState = { ...s, dispatches: s.dispatches.map((d) => ({ ...d, model: 'sonnet', effort: 'medium' })) }
+    const wants = (over: Partial<Task>): OrchState => ({ ...ran, tasks: ran.tasks.map((t) => (t.id === taskId ? { ...t, ...over } : t)) })
+    const fresh = { kind: 'fresh', cwd: 'D:/wt', provider: 'claude', accountId: 'accA' }
+    expect(repairTargetFor(wants({ model: 'sonnet', effort: 'high' }), taskId, () => true)).toEqual(fresh)
+    expect(repairTargetFor(wants({ model: 'opus', effort: 'medium' }), taskId, () => true)).toEqual(fresh)
+    expect(repairTargetFor(wants({ model: 'sonnet', effort: 'medium' }), taskId, () => true)).toMatchObject({ kind: 'same-session', sessionId: 'sess1' })
+  })
 })
 
 describe('performRepair', () => {
@@ -94,6 +103,20 @@ describe('performRepair', () => {
     expect(a.terminal).toBeUndefined()
     expect(a.worktree).toBe('D:/wt')
     expect(a.launchPhrase).toBeUndefined()
+    expect(deps.box.state.dispatches.find((d) => d.id === repair.id)?.sessionId).toBe('sess-new')
+  })
+  it('a live session that no longer runs what the Task wants is not reused: fresh in the same worktree', async () => {
+    const { s, taskId } = validating()
+    const judged = unwrap<Task>(applyValidationResult(s, { taskId, results: failing, repair: repairTargetFor(s, taskId, () => true)! }, NOW) as never)
+    const repair = judged.state.dispatches.find((d) => d.repair)!
+    expect(repair.sessionId).toBe('sess1')
+    const raised: OrchState = { ...judged.state, tasks: judged.state.tasks.map((t) => (t.id === taskId ? { ...t, model: 'opus', effort: 'high' } : t)) }
+    const deps = makeDeps(raised)
+    await performRepair(deps, { dispatchId: repair.id })
+    const a = deps.started[0]
+    expect(a.terminal).toBeUndefined()
+    expect(a.launchPhrase).toBeUndefined()
+    expect(a.worktree).toBe('D:/wt')
     expect(deps.box.state.dispatches.find((d) => d.id === repair.id)?.sessionId).toBe('sess-new')
   })
   it('워커를 못 띄우면 Dispatch 를 지우고 Gate 다', async () => {

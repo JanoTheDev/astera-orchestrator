@@ -3914,3 +3914,72 @@ describe('merging: a Task completes only once its work is on the plan branch', (
     for (const from of ['dispatched', 'validating', 'reviewing'] as const) expect(canTransition(from, 'merging')).toBe(true)
   })
 })
+
+describe('repair ladder: a recorded failure raises the next attempt one rung', () => {
+  /** seed()'s Task, its implementation attempt recorded as a claude sonnet/medium run */
+  const ranOn = (over: Partial<Task> = {}, convergence = false) => {
+    const { s, taskId, dispatchId } = seed()
+    const on: OrchState = {
+      ...s,
+      jobs: convergence ? s.jobs.map((j) => ({ ...j, convergence: {} })) : s.jobs,
+      tasks: s.tasks.map((t) => (t.id === taskId ? { ...t, ...over } : t)),
+      dispatches: s.dispatches.map((d) => ({ ...d, provider: 'claude' as const, model: 'sonnet', effort: 'medium' }))
+    }
+    return { s: on, taskId, dispatchId }
+  }
+  /** Through a succeeded report to an open review Dispatch that runs on opus/high */
+  const underReview = (convergence: boolean) => {
+    const { s, taskId, dispatchId } = ranOn({ reviewRequested: true }, convergence)
+    const done = unwrap(applyWorkerDone(s, { taskId, dispatchId, outcome: 'succeeded', subject: 's', body: 'b' }, NOW) as never)
+    const opened = unwrap<Dispatch>(
+      openReviewDispatch(done.state, { taskId, provider: 'claude', accountId: 'accC', sessionId: 'rev1', cwd: 'D:/p', specPath: '' }, NOW) as never
+    )
+    const withModel: OrchState = { ...opened.state, dispatches: opened.state.dispatches.map((d) => (d.id === opened.value.id ? { ...d, model: 'opus', effort: 'high' } : d)) }
+    return { s: withModel, taskId, implId: dispatchId, reviewId: opened.value.id }
+  }
+  const taskOf = (s: OrchState, id: string) => s.tasks.find((t) => t.id === id)!
+
+  it('a failed worker report steps the Task from the attempt it ran on', () => {
+    const { s, taskId, dispatchId } = ranOn()
+    const r = unwrap(applyWorkerDone(s, { taskId, dispatchId, outcome: 'failed', subject: 'x', body: 'y' }, NOW) as never)
+    expect(taskOf(r.state, taskId)).toMatchObject({ model: 'sonnet', effort: 'high', modelReason: 'repair 1 after a failed worker report: sonnet/medium → sonnet/high' })
+  })
+
+  it('a succeeded worker report does not step', () => {
+    const { s, taskId, dispatchId } = ranOn()
+    const r = unwrap(applyWorkerDone(s, { taskId, dispatchId, outcome: 'succeeded', subject: 'x', body: 'y' }, NOW) as never)
+    expect(taskOf(r.state, taskId).effort).toBeUndefined()
+  })
+
+  it('a failed review (no convergence) steps from the implementation attempt, not the review', () => {
+    const { s, taskId, reviewId } = underReview(false)
+    const r = unwrap(applyReviewResult(s, { taskId, dispatchId: reviewId, outcome: 'failed', subject: 's', body: 'no' }, LATER) as never)
+    expect(taskOf(r.state, taskId)).toMatchObject({ status: 'failed', model: 'sonnet', effort: 'high', modelReason: 'repair 1 after a failed review: sonnet/medium → sonnet/high' })
+  })
+
+  it('a failed review (convergence) steps the Task and opens the repair fresh in the same worktree', () => {
+    const { s, taskId, reviewId } = underReview(true)
+    const high = { severity: 'high' as const, title: 'Session race' }
+    const r = unwrap(applyReviewResult(s, { taskId, dispatchId: reviewId, outcome: 'failed', subject: 's', body: 'b', issues: [high], repair: SAME }, LATER) as never)
+    expect(taskOf(r.state, taskId)).toMatchObject({ status: 'dispatched', model: 'sonnet', effort: 'high', modelReason: expect.stringContaining('sonnet/medium → sonnet/high') })
+    const repair = r.state.dispatches.find((d) => d.repair)!
+    expect(repair.sessionId).not.toBe('sess1')
+    expect(repair.cwd).toBe('D:/p')
+  })
+
+  it('failed checks (convergence) step the Task too', () => {
+    const { s, taskId, dispatchId } = ranOn({ validateConfigId: 'cfg1' }, true)
+    const done = unwrap(applyWorkerDone(s, { taskId, dispatchId, outcome: 'succeeded', subject: 's', body: 'b' }, NOW) as never)
+    const r = unwrap(applyValidationResult(done.state, { taskId, results: one(1), repair: SAME }, LATER) as never)
+    expect(taskOf(r.state, taskId)).toMatchObject({ model: 'sonnet', effort: 'high', modelReason: expect.stringContaining('failed checks') })
+  })
+
+  it('closeDispatch (a lost session) is not a step', () => {
+    const { s, taskId } = ranOn()
+    const r = unwrap(closeDispatch(s, { sessionId: 'sess1', exitCode: 1 }, NOW) as never)
+    const task = taskOf(r.state, taskId)
+    expect(task.model).toBeUndefined()
+    expect(task.effort).toBeUndefined()
+    expect(task.modelReason).toBeUndefined()
+  })
+})

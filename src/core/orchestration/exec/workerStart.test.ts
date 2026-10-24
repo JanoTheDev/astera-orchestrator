@@ -219,12 +219,14 @@ describe('startWorkerWithChain — effort', () => {
     expect(unknown.r.effortNote).toMatch(/unknown/)
   })
 
-  it("a retry after a failed attempt starts one level above that attempt's effort and records it", async () => {
+  it('a retry after a failed attempt does not raise on its own: it runs the effort its Task carries', async () => {
     const { s, taskId } = stateWithTask()
-    const s2 = { ...withTask(s, taskId, { difficulty: 'standard' }), dispatches: [dispatch(taskId, { effort: 'high', outcome: 'failed', endedAt: NOW }), dispatch(taskId, { id: 'dsp_1', startedAt: NOW, sessionId: 'pending:x' })] }
-    const { passed, r } = await start(s2, taskId, () => ALL)
-    expect(passed.effort).toBe('xhigh')
-    expect(r).toMatchObject({ effort: 'xhigh', effortNote: expect.stringMatching(/raised from high to xhigh/) })
+    const failedBefore = [dispatch(taskId, { effort: 'high', outcome: 'failed', endedAt: NOW }), dispatch(taskId, { id: 'dsp_1', startedAt: NOW, sessionId: 'pending:x' })]
+    const plain = await start({ ...withTask(s, taskId, { difficulty: 'standard' }), dispatches: failedBefore }, taskId, () => ALL)
+    expect(plain.passed.effort).toBe('medium')
+    expect(plain.r).not.toHaveProperty('effortNote')
+    const raised = await start({ ...withTask(s, taskId, { difficulty: 'standard', effort: 'xhigh' }), dispatches: failedBefore }, taskId, () => ALL)
+    expect(raised.passed.effort).toBe('xhigh')
   })
 
   it('a retry after a succeeded attempt keeps the resolved effort', async () => {
@@ -233,21 +235,22 @@ describe('startWorkerWithChain — effort', () => {
     expect((await start(s2, taskId, () => ALL)).passed.effort).toBe('medium')
   })
 
-  it('a fresh repair escalates, up to the model max', async () => {
+  it("a fresh repair runs its Task's effort, clamped to the model's max", async () => {
     const { s, taskId } = stateWithTask()
     const s2 = { ...withTask(s, taskId, { difficulty: 'light' }), dispatches: [dispatch(taskId, { outcome: 'succeeded', endedAt: NOW }), dispatch(taskId, { id: 'dsp_1', startedAt: NOW, sessionId: 'pending:x', repair: 'check-failure' })] }
-    expect((await start(s2, taskId, () => ALL)).passed.effort).toBe('medium')
-    const top = { ...s2, dispatches: [dispatch(taskId, { effort: 'high', outcome: 'succeeded', endedAt: NOW }), s2.dispatches[1]] }
-    const r = await start(top, taskId, () => ['low', 'medium', 'high'])
+    expect((await start(s2, taskId, () => ALL)).passed.effort).toBe('low')
+    const r = await start(withTask(s2, taskId, { effort: 'max' }), taskId, () => ['low', 'medium', 'high'])
     expect(r.passed.effort).toBe('high')
-    expect(r.r.effortNote).toMatch(/already the model's highest/)
+    expect(r.r.effortNote).toMatch(/not listed/)
   })
 
-  it('a repair typed into the live session keeps its effort and notes the pending raise', async () => {
+  it('a repair typed into the live session keeps its effort and notes a raise it cannot take', async () => {
     const { s, taskId } = stateWithTask()
-    const s2 = { ...s, dispatches: [dispatch(taskId, { sessionId: 'ses_old', effort: 'medium', endedAt: NOW }), dispatch(taskId, { id: 'dsp_1', startedAt: NOW, sessionId: 'ses_old', repair: 'review-failure' })] }
+    const s2 = { ...withTask(s, taskId, { effort: 'high' }), dispatches: [dispatch(taskId, { sessionId: 'ses_old', effort: 'medium', endedAt: NOW }), dispatch(taskId, { id: 'dsp_1', startedAt: NOW, sessionId: 'ses_old', repair: 'review-failure' })] }
     const { r } = await start(s2, taskId, () => ALL, { terminal: 'ses_old' })
     expect(r).toMatchObject({ effort: 'medium', effortNote: expect.stringMatching(/next fresh start/) })
+    const same = await start(withTask(s2, taskId, { effort: 'medium' }), taskId, () => ALL, { terminal: 'ses_old' })
+    expect(same.r).not.toHaveProperty('effortNote')
   })
 
   it('a Task updated after its first attempt starts its next fresh dispatch on the new model and effort', async () => {

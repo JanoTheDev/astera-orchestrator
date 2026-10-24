@@ -186,6 +186,13 @@ Failure is never silent. It shows as a Gate with a reason a person can read, and
 | Merge conflict | An integration Task, or a Gate when there is nothing left to hand it to |
 | Attempts or review rounds ran out | Gate ("Needs your decision" in the Inbox) |
 
+**Each failure makes the next attempt stronger.** A failed review, failed checks or a failed worker report raise the
+Task one rung above what the failed attempt ran on: the effort first, then the model (haiku, sonnet, opus), up to opus
+at max effort. Example: sonnet/medium, sonnet/high, opus/high, opus/xhigh, opus/max. A model with no tier (a codex or
+vendor id) only climbs the effort. The Task's model, effort and the reason for the step are saved on the Task. A raise
+starts a fresh worker in the same worktree, since a running session keeps the model and effort it started on. A session
+that was lost or killed is not a step.
+
 ## 7. Scheduled Jobs
 
 With a schedule on, **the Job itself never runs.** It becomes a template that holds the definition. At each fire time
