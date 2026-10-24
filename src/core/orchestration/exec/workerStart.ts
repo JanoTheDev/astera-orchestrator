@@ -53,6 +53,10 @@ export interface WorkerStartContext {
   /** T2: the usage guard, for "Pick accounts automatically" (settings/autoAccounts.ts). Absent, or the setting off:
    *  the chain is the Task's own, as before. */
   usageGuard?: AutoStartGuard
+  /** The effort levels `model` (undefined: the CLI default) accepts on that account, so a start can clamp to
+   *  one it lists: `undefined` when the account's model list cannot tell, `[]` for a model that takes none.
+   *  Absent: levels unknown. */
+  effortLevels?(accountId: string, model: string | undefined): Promise<string[] | undefined>
 }
 
 /** T2: what a start asks of the usage guard for the automatic account order. */
@@ -266,6 +270,10 @@ export interface CoordinatorStartContext {
    *  the setting off: the session starts on the named account alone, as before. */
   usageGuard?: AutoStartGuard
   loginStatus?(accountId: string): Promise<boolean>
+  /** The effort levels `model` (undefined: the CLI default) accepts on that account, so a start can clamp to
+   *  one it lists: `undefined` when the account's model list cannot tell, `[]` for a model that takes none.
+   *  Absent: levels unknown. */
+  effortLevels?(accountId: string, model: string | undefined): Promise<string[] | undefined>
 }
 
 /** T5b: how long a start waits for the usage guard's read (its first one fetches every idle account) before it ranks
