@@ -1,11 +1,11 @@
 /* ---------- file viewer ---------- */
-.file-truncated { padding: 4px 12px; font-size: var(--fs-12); color: var(--warn); background: var(--warn-bg); flex: none; }
+/* The read-only and conflict banners are .notice-strip (cliMissing.css); this only keeps them out of the flex grow. */
+.file-truncated, .file-conflict { flex: none; }
 .file-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--text-dim); font-size: var(--fs-13); background: var(--panel); z-index: 2; }
 /* 저장되지 않은 파일 표시. .tab-dot 과 같은 방식의 CSS 원이다 — ● 글리프였을 때는 크기가 테마
    서체를 탔고, 그 자리에 lucide Circle 을 넣으면 6px 에서 외곽선이 뭉개진다. */
 .tab-dirty { flex: none; width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: 0.8; }
 .file-editor-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; }
-.file-conflict { flex: none; padding: 4px 12px; font-size: var(--fs-12); background: var(--warn-bg); color: var(--warn); display: flex; gap: 8px; align-items: center; }
 
 /* ---------- file explorer ---------- */
 /* Only where the keys and the paste are caught: the ViewPane inside it stays the ViewContainer's own child. */

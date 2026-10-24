@@ -15,6 +15,8 @@ export const files = {
   'files.markdown.mode.short.preview': '프리뷰',
   'files.editor.save': '파일 저장',
   'files.markdown.resizeSplit': '분할 크기 조절',
+  // EditorBreadcrumb.tsx — the path header above an open file
+  'files.editor.breadcrumb': '파일 경로',
   // explorer busy status (delete / copy progress)
   'files.op.deleting': '삭제하는 중… {count}개 항목',
   'files.op.snapshotting': 'Local History에 남기는 중… {count}개 항목',
