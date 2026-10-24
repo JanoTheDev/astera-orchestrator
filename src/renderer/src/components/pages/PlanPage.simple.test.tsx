@@ -1,12 +1,14 @@
-// T8: the plan tab is one document: header, Needs you, Goal, Steps, Plan settings and Activity, top to bottom. Plan
-// settings shows in simple mode too; Advanced mode adds the graph switch (PlanWaves' `simple`) and "So far". The children
-// are stubs: this is the page's wiring.
+// T8: the plan tab is one document under its header. T3: two columns, Needs you, Steps and Plan settings on the left, the
+// summary card, Goal and Activity in the rail on the right; a narrow tab stacks them by CSS `order` (planPage.css), so the
+// markup keeps the two columns' order. Plan settings shows in simple mode too; Advanced mode adds the graph switch
+// (PlanWaves' `simple`) and "So far". The children are stubs: this is the page's wiring.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { resetAdvancedMode, setAdvancedMode } from '../../state/useAdvancedMode'
 
-const stub = (name: string) => () => React.createElement('i', { 'data-part': name })
+// hoisted: the vi.mock factories below run before the module body
+const { stub } = vi.hoisted(() => ({ stub: (name: string) => () => React.createElement('i', { 'data-part': name }) }))
 const gated = { id: 'g', title: 'G', status: 'blocked', openGates: 1, gate: { id: 'gat_1', question: 'Go?' } }
 let tasks: unknown[] = []
 vi.mock('../../i18n/I18nProvider', () => ({ useI18n: () => ({ t: (k: string) => k }) }))
@@ -14,7 +16,7 @@ vi.mock('../plan/usePlanPage', () => ({
   usePlanPage: () => ({ lockedReason: undefined, tasks, live: { questions: [] }, asking: null, answering: null, ui: { confirm: async () => true }, setSelected: () => {} })
 }))
 vi.mock('../plan/PlanHeader', () => ({ PlanHeader: (p: { simple?: boolean }) => React.createElement('i', { 'data-part': 'header', 'data-simple': String(p.simple) }) }))
-vi.mock('../plan/PlanOverviewSection', () => ({ PlanGoal: stub('goal'), PlanSoFar: stub('sofar') }))
+vi.mock('../plan/PlanOverviewSection', () => ({ PlanGoal: stub('goal'), PlanSoFar: stub('sofar'), PlanSummaryCard: stub('summary') }))
 vi.mock('../plan/PlanWaves', () => ({
   PlanWaves: (p: { simple?: boolean }) => React.createElement('i', { 'data-part': 'steps', 'data-simple': String(p.simple) }),
   answerVia: () => async () => null
@@ -49,7 +51,7 @@ describe('plan tab', () => {
     resetAdvancedMode()
   })
 
-  it('simple mode: the sections in order, Plan settings among them, the steps simple, the log open', () => {
+  it('simple mode: the columns in order, Plan settings among them, the steps simple, the log open', () => {
     for (const section of ['overview', 'waves', 'journal'] as const) {
       const html = render(section)
       expect(html, section).toContain('data-part="header" data-simple="true"')
@@ -57,17 +59,27 @@ describe('plan tab', () => {
       expect(html, section).toContain('data-part="settings"')
       expect(html, section).toContain('data-part="journal"')
       expect(html, section).not.toContain('plan.doc.tab.sofar')
-      const at = order(html, ['data-part="header"', 'id="plan-goal"', 'id="plan-steps"', 'id="plan-settings"', 'id="plan-activity"'])
+      const at = order(html, [
+        'data-part="header"',
+        'class="plan-doc-main"',
+        'id="plan-steps"',
+        'id="plan-settings"',
+        'class="plan-doc-rail"',
+        'data-part="summary"',
+        'id="plan-goal"',
+        'id="plan-activity"'
+      ])
       expect(at.every((n, i) => n >= 0 && (i === 0 || n > at[i - 1]))).toBe(true)
     }
   })
 
-  it('Needs you is hidden when nothing is open, and comes first when something is', () => {
+  it('Needs you is hidden when nothing is open, and heads the left column when something is', () => {
     expect(render()).not.toContain('id="plan-needs"')
     tasks = [gated]
     const html = render()
     expect(html).toContain('data-part="needs"')
-    expect(html.indexOf('id="plan-needs"')).toBeLessThan(html.indexOf('id="plan-goal"'))
+    expect(html.indexOf('class="plan-doc-main"')).toBeLessThan(html.indexOf('id="plan-needs"'))
+    expect(html.indexOf('id="plan-needs"')).toBeLessThan(html.indexOf('id="plan-steps"'))
   })
 
   it('advanced mode: the steps get their graph switch, Activity gets So far; settings stay', () => {

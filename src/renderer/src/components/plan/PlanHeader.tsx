@@ -1,6 +1,8 @@
 // The plan tab's header (moved out of pages/PlanPage.tsx; T8 restyled to DESIGN-W13): the plan's name (renamed inline),
 // its status as an icon and a word, "Step 2 of 3 · 4/7 done" with a progress Meter, and its actions: Approve when it
 // applies, Merge, Pause/Resume, Open consoles and the ⋯ menu (delivery, lifecycle). Workers at once moved to Plan settings.
+// T3: the per-state counts moved to the summary card; a finished plan shows Open PR, Archive and Copy plan ID instead of
+// Open consoles (planHeaderActions.ts decides which stand visible).
 import { useState } from 'react'
 import type { JobRow, OrchSnapshot } from '../../../../core/types'
 import { useI18n } from '../../i18n/I18nProvider'
@@ -20,7 +22,6 @@ import {
 } from '../../lib/jobActions'
 import { toast } from '../../lib/toast'
 import { jobName } from '../../lib/jobName'
-import { RunIcon, STATE_KEY, TaskIcon } from '../JobIcons'
 import { openPlan } from '../shell/navigation'
 import { SourceChip } from '../SourceChip'
 import { Button, Chip, Icon, Input, Menu, Meter, PageHeader, Toolbar, type MenuItem } from '../ui'
@@ -33,6 +34,7 @@ import { PlanMergeActions } from './PlanChanges'
 import { deliveryActionsOf, RUN_START, taskAnchorId } from './planPage'
 import type { PlanPageState } from './usePlanPage'
 import { FailedWaitButtons } from './FailedWaitButtons'
+import { headerActionsOf } from './planHeaderActions'
 
 export function PlanHeader({
   p,
@@ -54,11 +56,11 @@ export function PlanHeader({
   snapshot: OrchSnapshot | null
   /** The plan's consoles: the Agents side bar, filtered to this plan. */
   onOpenConsoles: () => void
-  /** T19: simple mode: no per-status counts and no model chip */
+  /** T19: simple mode: no model chip */
   simple?: boolean
 }): React.JSX.Element {
   const { t } = useI18n()
-  const { lockedReason, ui, running, counts, waveStatus, tasks, busy } = p
+  const { lockedReason, ui, running, waveStatus, tasks, busy } = p
   const [renaming, setRenaming] = useState(false)
   // T8: the Stalled chip's Fix in flight
   const [fixing, setFixing] = useState(false)
@@ -118,6 +120,19 @@ export function PlanHeader({
   // W1-C/W5-C lifecycle (rename, start after, hold, archive) is this computer's Jobs only, as the Jobs list offers it
   const local = runtimeId === undefined
   const otherPlans = plans.filter((pl) => pl.id !== runId && pl.archivedAt === undefined)
+  const acts = headerActionsOf(run, local)
+  const copy = (text: string, done: string): void => {
+    window.api.clipboard.writeText(text)
+    toast.success(done)
+  }
+  const openPr = (): void => {
+    if (acts.openPr?.kind === 'pr') void window.api.system.openExternal(acts.openPr.url)
+    else if (acts.openPr?.kind === 'branch') copy(acts.openPr.branch, t('plan.header.branchCopied'))
+  }
+  const archive = (): void =>
+    void (acts.archive === 'unarchive' ? unarchiveJob(door, runId, ui) : archiveJob(door, snapshot, runId, ui))
+  const openPrLabel = acts.openPr?.kind === 'branch' ? acts.openPr.branch : t('plan.header.openPr')
+  const archiveLabel = t(acts.archive === 'unarchive' ? 'jobs.lifecycle.unarchive' : 'jobs.lifecycle.archive')
   /** "Start after…": the plans this one can wait for, one to tick; none ticked starts it right away. */
   const pickAfter = async (): Promise<void> => {
     if (!run) return
@@ -131,6 +146,8 @@ export function PlanHeader({
   }
   const menu: MenuItem[] = run
     ? [
+        // T3: a finished plan's Open consoles is a rare action
+        ...(!acts.consoles ? [{ id: 'consoles', label: t('plan.doc.openConsoles'), icon: <Icon name="layoutGrid" size={14} />, onSelect: onOpenConsoles }] : []),
         ...(local ? [{ id: 'rename', label: t('jobs.lifecycle.rename'), icon: <Icon name="edit" size={14} />, disabled: off, onSelect: () => setRenaming(true) }] : []),
         // W8-C: a plan not planned yet can wait for another to deliver
         ...(local && run.pendingStart && !run.planned
@@ -154,7 +171,8 @@ export function PlanHeader({
           ? [{ id: 'integrate', label: integrating ? t('plan.integrate.working') : t('plan.integrate.menu'), icon: <Icon name="merge" size={14} />, disabled: off || integrating, onSelect: () => void mergeEverything() }]
           : []),
         { id: 'kill', label: t('pages.plan.kill'), icon: <Icon name="stop" size={14} />, danger: true, disabled: off || running === 0, onSelect: () => void stopRun(door, run.foldedRunId ?? runId, jobName(run), ui) },
-        ...(!local ? [] : run.archivedAt !== undefined
+        // T3: Archive stands in the header of a finished plan; the menu keeps it otherwise
+        ...(!local || acts.archive !== undefined ? [] : run.archivedAt !== undefined
           ? [{ id: 'unarchive', label: t('jobs.lifecycle.unarchive'), icon: <Icon name="restore" size={14} />, disabled: off, onSelect: () => void unarchiveJob(door, runId, ui) }]
           : [{ id: 'archive', label: t('jobs.lifecycle.archive'), icon: <Icon name="archive" size={14} />, disabled: off, onSelect: () => void archiveJob(door, snapshot, runId, ui) }]),
         { id: 'delete', label: t('jobs.run.delete'), icon: <Icon name="delete" size={14} />, danger: true, disabled: off, onSelect: () => void deleteRun(door, snapshot, runId, ui) }
@@ -174,7 +192,10 @@ export function PlanHeader({
   // W17: a narrow tab folds Pause, Open consoles and the ⋯ menu into one ⋯ toolbar (planPage.css shows one set)
   const narrowMenu: Array<MenuItem | 'separator'> = [
     ...(pause ? [{ id: 'pause', label: pause.label, disabled: off, onSelect: pause.onSelect }] : []),
-    { id: 'consoles', label: t('plan.doc.openConsoles'), icon: <Icon name="layoutGrid" size={14} />, onSelect: onOpenConsoles },
+    ...(acts.openPr ? [{ id: 'openPr', label: acts.openPr.kind === 'pr' ? openPrLabel : t('plan.header.copyBranch'), icon: <Icon name={acts.openPr.kind === 'pr' ? 'pullRequest' : 'branch'} size={14} />, onSelect: openPr }] : []),
+    ...(acts.archive ? [{ id: 'archiveNow', label: archiveLabel, icon: <Icon name={acts.archive === 'unarchive' ? 'restore' : 'archive'} size={14} />, disabled: off, onSelect: archive }] : []),
+    ...(acts.copyId ? [{ id: 'copyId', label: t('plan.header.copyId'), icon: <Icon name="copy" size={14} />, onSelect: () => copy(runId, t('plan.header.idCopied')) }] : []),
+    ...(acts.consoles ? [{ id: 'consoles', label: t('plan.doc.openConsoles'), icon: <Icon name="layoutGrid" size={14} />, onSelect: onOpenConsoles }] : []),
     ...(menu.length > 0 ? ['separator' as const, ...menu] : [])
   ]
 
@@ -284,19 +305,6 @@ export function PlanHeader({
             </>
           )}
           <SourceChip source={run?.source} />
-          {!simple && running > 0 && (
-            <span className="jobs-count">
-              <RunIcon kind="running" label={t('jobs.run.running')} />
-              <span>{running}</span>
-            </span>
-          )}
-          {!simple &&
-            counts.map(([s, n]) => (
-              <span key={s} className="jobs-count">
-                <TaskIcon status={s} label={t(STATE_KEY[s])} />
-                <span>{n}</span>
-              </span>
-            ))}
         </span>
       }
       actions={
@@ -332,16 +340,52 @@ export function PlanHeader({
               </Button>
             </>
           )}
-          {!p.authoringOpen && <PlanMergeActions p={p} run={run} />}
+          {/* the finished group's Open PR stands for the PR chip, so the merge actions leave it out */}
+          {!p.authoringOpen && <PlanMergeActions p={p} run={acts.openPr && run ? { ...run, pr: undefined } : run} />}
           <span className="plan-header-wide">
             {pause && (
               <Button size="sm" variant="ghost" disabled={off} title={pause.title} onClick={pause.onSelect}>
                 {pause.label}
               </Button>
             )}
-            <Button size="sm" variant="ghost" icon={<Icon name="layoutGrid" size={14} />} onClick={onOpenConsoles}>
-              {t('plan.doc.openConsoles')}
-            </Button>
+            {acts.finished && (
+              <>
+                {/* ask-and-plan-more button goes here */}
+                {acts.openPr && (
+                  <Button
+                    size="sm"
+                    variant={acts.primary === 'openPr' ? 'primary' : 'ghost'}
+                    icon={<Icon name={acts.openPr.kind === 'pr' ? 'pullRequest' : 'branch'} size={14} />}
+                    title={acts.openPr.kind === 'pr' ? acts.openPr.url : t('plan.header.copyBranch')}
+                    onClick={openPr}
+                  >
+                    {openPrLabel}
+                  </Button>
+                )}
+                {acts.archive && (
+                  <Button
+                    size="sm"
+                    variant={acts.primary === 'archive' ? 'primary' : 'ghost'}
+                    icon={<Icon name={acts.archive === 'unarchive' ? 'restore' : 'archive'} size={14} />}
+                    disabled={off}
+                    title={lockedReason}
+                    onClick={archive}
+                  >
+                    {archiveLabel}
+                  </Button>
+                )}
+                {acts.copyId && (
+                  <Button size="sm" variant="ghost" icon={<Icon name="copy" size={14} />} onClick={() => copy(runId, t('plan.header.idCopied'))}>
+                    {t('plan.header.copyId')}
+                  </Button>
+                )}
+              </>
+            )}
+            {acts.consoles && (
+              <Button size="sm" variant="ghost" icon={<Icon name="layoutGrid" size={14} />} onClick={onOpenConsoles}>
+                {t('plan.doc.openConsoles')}
+              </Button>
+            )}
             {menu.length > 0 && (
               <Menu label={t('plan.header.more')} align="end" items={menu} trigger={{ variant: 'ghost', size: 'sm', icon: <Icon name="more" size={14} />, title: t('plan.header.more') }} />
             )}
