@@ -1,11 +1,16 @@
 /* ---------- markdown split (toolbar + editor/preview split) ---------- */
 .md-split-host { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.md-toolbar { flex: 0 0 auto; display: flex; align-items: center; gap: var(--sp-2); height: 32px;
-  padding: 0 var(--sp-2) 0 var(--sp-3); border-bottom: 1px solid var(--line); background: var(--panel); }
-/* the path: the folder shrinks first (ellipsis), the file name stays whole */
-.md-path { flex: 1; min-width: 0; display: flex; font-family: var(--mono); font-size: var(--fs-12); white-space: nowrap; }
-.md-path-dir { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--text-faint); }
-.md-path-name { flex: none; color: var(--text); }
+/* The header row above every open file (EditorBreadcrumb, the markdown mode, Save), and the media viewer's bar:
+   one line on the editor ground with a hairline under it, so it reads as part of the editor, not a toolbar. */
+.editor-header { flex: 0 0 auto; display: flex; align-items: center; gap: var(--sp-2); box-sizing: border-box;
+  height: var(--h-md); padding: 0 var(--sp-1) 0 var(--sp-3); border-bottom: 1px solid var(--line);
+  background: var(--editor-bg); color: var(--text-dim); font-size: var(--fs-12); }
+/* the path: folders shrink first (ellipsis), the file name stays whole */
+.editor-crumbs { flex: 1; min-width: 0; display: flex; align-items: center; gap: 2px; white-space: nowrap; overflow: hidden; }
+.editor-crumb { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.editor-crumb-sep { flex: none; color: var(--text-faint); }
+.editor-crumb-file { flex: none; display: inline-flex; align-items: center; gap: var(--sp-1); color: var(--text); }
+.editor-crumb-file .fi { width: 16px; height: 16px; }
 .md-mode { display: inline-flex; align-items: center; gap: var(--sp-1); }
 
 .md-split { flex: 1; min-height: 0; display: flex; }

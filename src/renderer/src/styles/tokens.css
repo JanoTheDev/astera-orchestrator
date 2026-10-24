@@ -118,6 +118,9 @@
   --warn-line: color-mix(in srgb, var(--warn) 30%, var(--warn-soft));
   --info-bg: color-mix(in srgb, var(--info) 14%, var(--bg));
   --info-line: color-mix(in srgb, var(--info) 30%, var(--bg));
+  /* The file editor's selection and its other search matches (components/editorTheme.ts), from the accent. */
+  --cm-selection: color-mix(in srgb, var(--accent) 32%, transparent);
+  --cm-match: color-mix(in srgb, var(--accent) 22%, transparent);
 
   /* ---- fixed: the themes never repaint these ---- */
   /* Pure ink for overlays and for text on fills that are not theme colours (--confirm, --agent-accent,
@@ -171,10 +174,10 @@
   --git-modified: #d7b45a; /* = --fi-yellow */
   --git-deleted: #d3706b;
   --git-conflict: #d68b4f; /* = --fi-orange */
-  /* CodeMirror's search match you are on (oneDark paints the others) — see components/fileEditor.css. */
+  /* CodeMirror's search match you are on — components/editorTheme.ts. */
   --cm-match-current: #72a1ff80;
   --cm-match-current-outline: #8ab4ff;
-  /* Code colours in the Markdown preview — oneDark's, on the stable classHighlighter classes. */
+  /* Code colours: the file editor (components/editorTheme.ts) and the Markdown preview (classHighlighter classes). */
   --syn-comment: #7d8799;
   --syn-keyword: #c678dd;
   --syn-string: #98c379;
@@ -184,6 +187,9 @@
   --syn-property: #61afef;
   --syn-type: #e5c07b;
   --syn-operator: #abb2bf;
+  --syn-function: #61afef;
+  --syn-tag: #e06c75;
+  --syn-attr: #d19a66;
   --syn-invalid-ink: #ffffff;
   --syn-invalid-bg: #e06c75;
 
@@ -261,6 +267,7 @@
   --git-new: #2e7d46; --git-modified: #8a6a10; --git-deleted: #b23b35; --git-conflict: #a65a14;
   --syn-comment: #5c6678; --syn-keyword: #8e24aa; --syn-string: #3d7a1e; --syn-number: #a1560f; --syn-variable: #c4373f;
   --syn-variable2: #8a6a10; --syn-property: #1f6fb8; --syn-type: #8a6a10; --syn-operator: #4b5160;
+  --syn-function: #1f6fb8; --syn-tag: #c4373f; --syn-attr: #a1560f;
   --pr-open: #1a7f37; --pr-merged: #8250df; --pr-closed: #cf222e; --pr-draft: #6a737d;
   --brand-claude: #b5502f; --brand-codex: #111111; --role-user: #1f6fb8; --role-assistant: #c2580a;
   --info: #1d5fa8; --info-soft: #dfeaf7; --run: #1a7f37;

@@ -17,6 +17,8 @@ export const files: Record<keyof typeof ko, string> = {
   'files.markdown.mode.short.preview': 'Preview',
   'files.editor.save': 'Save file',
   'files.markdown.resizeSplit': 'Resize split',
+  // EditorBreadcrumb.tsx — the path header above an open file
+  'files.editor.breadcrumb': 'File path',
   // explorer busy status (delete / copy progress)
   'files.op.deleting': 'Deleting… {count} items',
   'files.op.snapshotting': 'Keeping a Local History copy… {count} items',

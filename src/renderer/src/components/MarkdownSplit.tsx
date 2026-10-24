@@ -52,7 +52,8 @@ export function MarkdownSplit({
   onOpenFile,
   onSave,
   editor,
-  editorView
+  editorView,
+  breadcrumb
 }: {
   /** 이 탭이 실제로 `.md`/`.markdown` 인가. 거짓이면 툴바·리사이저·프리뷰를 그리지 않고 `editor` 만
    *  그린다 — App 의 isMarkdownPath 결과를 그대로 받는다. 아래 모든 mode 기반 effect·렌더 분기는
@@ -72,6 +73,8 @@ export function MarkdownSplit({
    *  불투명한 ReactNode 라 이 프롭 없이는 둘 다 할 수 없다 — App 이 FileEditor 의 onViewChange 로
    *  받은 뷰를 그대로 내려준다. 마운트 전/언마운트 후에는 null. */
   editorView: EditorView | null
+  /** The file's path header (EditorBreadcrumb), drawn at the start of the bar */
+  breadcrumb: React.ReactNode
 }): React.JSX.Element {
   const { t } = useI18n()
   const splitRef = useRef<HTMLDivElement>(null)
@@ -289,20 +292,15 @@ export function MarkdownSplit({
     window.addEventListener('pointercancel', up)
   }
 
-  const nameAt = docPath.search(/[^\\/]*$/) // where the file name starts
   return (
     <div className="md-split-host">
       {/* markdown 이 거짓인 파일에는 툴바가 없다 — 안 그려지는 것이지, css 로 숨겨지는 게 아니다.
           이 div 는 .md-split-editor 의 형제일 뿐이라 있고 없고가 아래 .md-pane-editor 의 자리·타입에는
           영향을 주지 않는다 — FileEditor 는 그대로 마운트 상태를 유지한다. */}
-      {/* The editor's slim bar: the file's path (folder dim, name bright), the markdown view mode (markdown
-          files only) and Save. Drawn for every file; it is a sibling of .md-split, so drawing it never moves
-          the editor's slot. */}
-      <div className="md-toolbar">
-        <span className="md-path" title={docPath}>
-          <span className="md-path-dir">{docPath.slice(0, nameAt)}</span>
-          <span className="md-path-name">{docPath.slice(nameAt)}</span>
-        </span>
+      {/* The editor's header row: the breadcrumb, the markdown view mode (markdown files only) and Save.
+          Drawn for every file; it is a sibling of .md-split, so drawing it never moves the editor's slot. */}
+      <div className="editor-header">
+        {breadcrumb}
         {markdown && (
           <Tabs
             variant="segmented"

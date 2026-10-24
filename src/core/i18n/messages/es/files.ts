@@ -12,6 +12,8 @@ export const files: Partial<Record<keyof typeof ko, string>> = {
   'files.markdown.mode.split': 'Editor y vista previa',
   'files.markdown.mode.preview': 'Solo vista previa',
   'files.markdown.resizeSplit': 'Ajustar el tamaño de la división',
+  // EditorBreadcrumb.tsx — the path header above an open file
+  'files.editor.breadcrumb': 'Ruta del archivo',
   // explorer busy status (delete / copy progress)
   'files.op.deleting': 'Eliminando… {count} elementos',
   'files.op.snapshotting': 'Guardando una copia en Local History… {count} elementos',
