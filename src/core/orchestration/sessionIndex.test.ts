@@ -133,16 +133,13 @@ describe('needsInput', () => {
     expect(items).toEqual([{ kind: 'approval', jobId: 'j1', projectName: 'Gameful', planName: 'Trading', sessionId: 'pl' }])
   })
 
-  it('#116: no approval while the planner plans, for a plan with no Task, or for an auto-approve plan that starts by itself', () => {
+  it('an approval card for a plan awaiting approval that has a Task, ready mark or not; none without a Task', () => {
     const planning = job('j1', { pendingStart: true, plannerSessionIds: ['pl'] })
     const approvals = (over: Partial<SessionIndexInput>): string[] => needsInput(input({ attention: {}, ...over })).map((i) => i.kind)
-    // Planning: marked planned at once, before the planner exists or ends a turn
-    expect(approvals({ jobs: [planning], tasks: [planTask('j1')] })).toEqual([])
-    // An auto-approve plan is never marked ready when its own start goes through
-    expect(approvals({ jobs: [{ ...planning, autoApprove: true }], tasks: [planTask('j1')] })).toEqual([])
-    // Ready, but its Tasks went (only a run's copies are left)
-    expect(approvals({ jobs: [{ ...planning, planReadyAt: at }], tasks: [task('t1')] })).toEqual([])
+    expect(approvals({ jobs: [planning], tasks: [planTask('j1')] })).toEqual(['approval'])
     expect(approvals({ jobs: [{ ...planning, planReadyAt: at }], tasks: [planTask('j1')] })).toEqual(['approval'])
+    // No Task of its own (only a run's copies are left)
+    expect(approvals({ jobs: [planning], tasks: [task('t1')] })).toEqual([])
   })
 
   it('leaves out what belongs to a plan the tree does not show (an archived one)', () => {

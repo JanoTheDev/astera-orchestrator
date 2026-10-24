@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { JobRow, JobTask } from '../../../../core/types'
 import { ageOf } from './planBoard'
-import { lastActivityOf, planStatusOf } from './planList'
+import { filterPlans, lastActivityOf, planFilterOf, planStatusOf } from './planList'
 
 const task = (id: string, over: Partial<JobTask> = {}): JobTask => ({ id, title: id, status: 'pending', openGates: 0, ...over })
 const row = (over: Partial<JobRow> = {}): JobRow => ({
@@ -66,5 +66,20 @@ describe('planStatusOf for the final check and a plan finished with blocked Task
   it('reads checking, never done, until the final check settles; and finished-with-blocked, never working or done', () => {
     expect(planStatusOf(row({ outcome: 'checking' }))).toEqual({ key: 'pages.plans.status.checking', tone: 'info' })
     expect(planStatusOf(row({ outcome: 'blocked', tasks: [task('a', { status: 'blocked' })] }))).toEqual({ key: 'pages.plans.status.blocked', tone: 'warn' })
+  })
+})
+
+describe('filterPlans', () => {
+  const plans = [row({ id: 'run', outcome: 'running' }), row({ id: 'done', outcome: 'completed' }), row({ id: 'old', archivedAt: 'x', outcome: 'running' })]
+  const idsOf = (f: Parameters<typeof filterPlans>[1]): string[] => filterPlans(plans, f).map((r) => r.id)
+  it('active (default) hides done and archived plans; done keeps only those; all keeps everything', () => {
+    expect(idsOf('active')).toEqual(['run'])
+    expect(idsOf('done')).toEqual(['done', 'old'])
+    expect(idsOf('all')).toEqual(['run', 'done', 'old'])
+  })
+  it('an unknown stored value reads as active', () => {
+    expect(planFilterOf(null)).toBe('active')
+    expect(planFilterOf('x')).toBe('active')
+    expect(planFilterOf('done')).toBe('done')
   })
 })

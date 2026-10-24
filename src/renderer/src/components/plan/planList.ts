@@ -83,3 +83,14 @@ export function convergenceText(chip: ConvergenceChip, t: T): string {
       return t('jobs.convergence.chip.exhausted')
   }
 }
+
+/** The Plans view's filter: the plans at work (default), every plan, or the ones that ended. */
+export const PLAN_FILTERS = ['active', 'all', 'done'] as const
+export type PlanFilter = (typeof PLAN_FILTERS)[number]
+export const planFilterOf = (v: string | null): PlanFilter => (PLAN_FILTERS as readonly string[]).includes(v ?? '') ? (v as PlanFilter) : 'active'
+
+/** A plan that ended: done, or archived. */
+export const isEndedPlan = (row: JobRow): boolean => row.archivedAt !== undefined || planStatusOf(row).key === 'pages.plans.status.done'
+
+export const filterPlans = (rows: readonly JobRow[], filter: PlanFilter): JobRow[] =>
+  filter === 'all' ? [...rows] : rows.filter((r) => isEndedPlan(r) === (filter === 'done'))
