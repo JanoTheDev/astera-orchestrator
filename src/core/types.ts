@@ -1538,6 +1538,7 @@ export interface CoreApi {
   projects: {
     getDefaultAccount(projectPath: string): Promise<string | null>
     setDefaultAccount(projectPath: string, accountId: string | null): Promise<void>
+    hasOrigin(projectPath: string): Promise<boolean> // the folder is a git repository with an origin remote
   }
   worktrees: {
     // Splitting a session off into a git worktree.

@@ -7,7 +7,7 @@ import path from 'node:path'
 import type { GhRunner } from '../github/gh'
 import { mergeIdentityArgs } from '../orchestration/exec/integrateGit'
 import { validateName } from '../files/ops'
-import { git, GIT_WRITE_TIMEOUT_MS } from '../worktrees/git'
+import { git, GIT_WRITE_TIMEOUT_MS, remoteExists } from '../worktrees/git'
 
 export type GithubVisibility = 'private' | 'public'
 
@@ -106,6 +106,11 @@ export async function createProjectFolder(
   await fs.writeFile(path.join(root, 'CLAUDE.md'), claudeMdFor(name, describe), 'utf8')
   await initialCommit(root, run)
   return root
+}
+
+/** Whether the folder is a git repository with an `origin` remote. A folder that is not a repository has none. */
+export async function hasOriginRemote(root: string): Promise<boolean> {
+  return path.isAbsolute(root) && (await remoteExists(root, 'origin'))
 }
 
 /** `gh repo create <name> --private|--public --source . --push` in the new folder. Answers the repository's URL. */

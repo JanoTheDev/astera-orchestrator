@@ -68,11 +68,12 @@ export function ProjectSettingsBody({
   const [confirmRemove, setConfirmRemove] = useState(false)
   const [removeError, setRemoveError] = useState<string | null>(null)
   // W10-A: the prompts folder Run as written finds typed prompt names in
-  // "Create GitHub repository": shown until the Host says the project has an origin (the 409 of projects-github-create)
+  // "Create GitHub repository": asked up front whether the folder has an origin (null until the answer comes back);
+  // the 409 of projects-github-create still sets it when the answer was stale
   const [ghVisibility, setGhVisibility] = useState<'private' | 'public'>('private')
   const [ghBusy, setGhBusy] = useState(false)
   const [ghNote, setGhNote] = useState<{ ok: boolean; text: string } | null>(null)
-  const [hasOrigin, setHasOrigin] = useState(false)
+  const [hasOrigin, setHasOrigin] = useState<boolean | null>(null)
   const [prompts, setPrompts] = useState('')
   const [initial, setInitial] = useState({ test: '', concurrency: '', rounds: '', prompts: '' })
 
@@ -102,6 +103,22 @@ export function ProjectSettingsBody({
   useEffect(() => {
     void load(true)
   }, [load])
+  const projectPath = project?.path
+  useEffect(() => {
+    if (!projectPath) return
+    let live = true
+    setHasOrigin(null)
+    void window.api.projects.hasOrigin(projectPath).then(
+      (v) => live && setHasOrigin(v),
+      () => live && setHasOrigin(false)
+    )
+    return () => {
+      live = false
+    }
+  }, [projectPath])
+  useEffect(() => {
+    void window.api.settings.getGithubDefaults().then((d) => setGhVisibility(d.visibility), () => {})
+  }, [])
   const [saved, setSaved] = useState<Record<string, string>>({})
   // Saves a text field on blur, only when it differs from what was last read or saved
   const saveText = (key: string, value: string, initial: string, args: Record<string, unknown>): void => {
@@ -171,7 +188,7 @@ export function ProjectSettingsBody({
             <h3 className="proj-group__title" id={`proj-${projectId}-delivery`}>{t('project.group.delivery')}</h3>
             <ProjectDelivery projectPath={project.path} />
             <ProjectAttribution anchor={anchor} projectId={projectId} />
-            {!project.parentId && (
+            {!project.parentId && (hasOrigin === false || (hasOrigin && ghNote)) && (
               <div className="ui-field">
                 <span className="ui-field__label">{t('github.project.create')}</span>
                 {!hasOrigin && (

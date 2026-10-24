@@ -178,6 +178,7 @@ import { snapshotFor, jobsForProject, outcomeOf } from '../core/orchestration/vi
 import { createOrchPush } from './orchPush'
 import { dropNonGitProjects, ensureGitProject, findProjectContaining } from '../core/orchestration/projects'
 import { mainRepoRoot } from '../core/projects/detect'
+import { hasOriginRemote } from '../core/projects/create'
 import { emptyState, resolveRunId } from '../core/orchestration/state'
 import { runRecordInputOf } from '../core/orchestration/runRecord'
 import type { CliInstallStatus, WorktreeInfo } from '../core/types'
@@ -4312,6 +4313,7 @@ export function registerIpc(
   // projects
   ipcMain.handle('projects.getDefaultAccount', (_e, p) => core.projects.getDefaultAccount(p))
   ipcMain.handle('projects.setDefaultAccount', (_e, p, id) => core.projects.setDefaultAccount(p, id))
+  ipcMain.handle('projects.hasOrigin', (_e, p) => hasOriginRemote(p))
 
   // The in-use verdict before a delete — settled from the sessions and run processes the app owns.
   // Used for worktrees and, in the history tab, for the project whose transcripts are being removed.

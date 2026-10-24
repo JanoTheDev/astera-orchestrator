@@ -5,7 +5,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { claudeMdFor, createProjectFolder, githubCreate, gitignoreFor, initGitFolder } from './create'
+import { claudeMdFor, createProjectFolder, githubCreate, gitignoreFor, hasOriginRemote, initGitFolder } from './create'
 import { git } from '../worktrees/git'
 import type { GhRunner } from '../github/gh'
 
@@ -150,5 +150,24 @@ describe('githubCreate', () => {
   it("throws gh's error", async () => {
     const gh: GhRunner = async () => ({ ok: false, stdout: '', stderr: 'name already exists' }) as never
     await expect(githubCreate(gh, '/tmp/shop', 'shop', 'private')).rejects.toThrow('gh repo create failed: name already exists')
+  })
+})
+
+describe('hasOriginRemote', () => {
+  it('is true for a repository with an origin remote, false for one without', async () => {
+    const root = await createProjectFolder({ name: 'shop', parent: dir })
+    expect(await hasOriginRemote(root)).toBe(false)
+    await gitOut(root, ['remote', 'add', 'origin', 'https://github.com/me/shop.git'])
+    expect(await hasOriginRemote(root)).toBe(true)
+    await gitOut(root, ['remote', 'add', 'upstream', 'https://github.com/other/shop.git'])
+    await gitOut(root, ['remote', 'remove', 'origin'])
+    expect(await hasOriginRemote(root)).toBe(false)
+  })
+
+  it('is false for a folder that is not a git repository', async () => {
+    const plain = path.join(dir, 'plain')
+    await fs.mkdir(plain)
+    expect(await hasOriginRemote(plain)).toBe(false)
+    expect(await hasOriginRemote(path.join(dir, 'missing'))).toBe(false)
   })
 })
