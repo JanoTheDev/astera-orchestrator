@@ -473,7 +473,7 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
   useEffect(() => {
     if (ctx && !ctxRow) setCtx(null)
   }, [ctx, ctxRow])
-  const main = mainPlanViewOf(runs)
+  const main = useMemo(() => mainPlanViewOf(runs), [runs])
 
   return (
     <>
