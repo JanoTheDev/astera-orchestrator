@@ -158,6 +158,14 @@ describe('runs doctor — repairFindings', () => {
     expect(stopSession).toHaveBeenCalledWith('ses_coord_done', expect.stringContaining('run_done'))
   })
 
+  it('flags a Run with no Tasks and no coordinator, and has nothing to repair there', async () => {
+    const s: OrchState = { ...emptyState(), jobs: [job('j')], runs: [run('r', 'j')] }
+    const found = diagnoseRuns(s, ['r'])
+    expect(found).toMatchObject([{ kind: 'stuck', stuck: 'stalled', detail: expect.stringContaining('no Tasks') }])
+    const [repair] = await repairFindings(found, { getState: () => s, setState: async () => {}, now: () => NOW, lang: 'en', sessionExited: async () => {} })
+    expect(repair.fixed).toBe(false)
+  })
+
   it('leaves a needs-you Run to the owner', async () => {
     const s: OrchState = {
       ...emptyState(),

@@ -1,5 +1,5 @@
 import type { JobTask, RunOutcome, RunStuck } from '../types'
-import { jobOf, type OrchState } from './state'
+import { coordinatorStarting, jobOf, type OrchState } from './state'
 import { FAILURE_LIMIT, type Dispatch, type Gate, type JobRun, type Task } from './types'
 import { completionSettled, replanOn } from './replan'
 import { jobActive } from './schedule'
@@ -119,11 +119,13 @@ export function stuckOf(
   ix?: StuckIndex,
   job = jobOf(s, run)
 ): RunStuck | undefined {
-  if (tasks.length === 0 || outcomeOfRun(tasks, run, s) !== 'running') return undefined
+  if (outcomeOfRun(tasks, run, s) !== 'running') return undefined
   if (job?.replanning !== undefined) return undefined
+  const coordinator = run.coordinatorSessionId !== undefined || run.externalCoordinatorSessionId !== undefined
+  // A Run with no Tasks is how a start reads before its planner or coordinator makes any: dead only once none works on it
+  if (tasks.length === 0) return !coordinator && !coordinatorStarting(run, Date.now()) && job !== undefined && !job.pendingStart && jobActive(job) ? 'stalled' : undefined
   // Work the app or a coordinator takes up as it is: no list read needed to say the Run can move
   if (tasks.some((t) => t.status === 'ready' || t.status === 'validating' || t.status === 'reviewing' || t.status === 'merging')) return undefined
-  const coordinator = run.coordinatorSessionId !== undefined || run.externalCoordinatorSessionId !== undefined
   const { open, asked: askedIds } = ix ?? stuckIndexOf(s)
   const asked = (t: Task): boolean => {
     const d = open.get(t.id)

@@ -39,6 +39,7 @@ export const plans: Record<keyof typeof ko, string> = {
   'pages.plans.status.queued': 'Queued',
   'pages.plans.status.needsYou': 'Needs you',
   'pages.plans.status.working': 'Working',
+  'pages.plans.status.stalled': 'Stalled',
   'pages.plans.status.failed': 'Failed',
   'pages.plans.status.done': 'Done',
   'pages.plans.status.deliveryDismissed': 'Dismissed',

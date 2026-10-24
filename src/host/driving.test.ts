@@ -105,6 +105,8 @@ interface RigOpts {
   guard?: LostGateGuard
   /** T36: tsk_f failed (its worker reported failed) and tsk_w waits on it; nothing else runs, no coordinator. */
   failedBlock?: boolean
+  /** Every call of this command fails (rejects), as a broken sweep would. */
+  failingCommand?: string
 }
 
 /** Under the test's own folder (review m7): never a literal path, should the fake ever resolve one. */
@@ -252,6 +254,7 @@ async function rig(o: RigOpts = {}) {
   const handled: string[] = []
   const handle = vi.fn((cmd: string, args: Record<string, unknown>) => {
     handled.push(cmd)
+    if (cmd === o.failingCommand) return Promise.reject(new Error('boom'))
     return orch.handle(cmd, args)
   })
   const resumeSweep = vi.fn()
@@ -794,6 +797,31 @@ describe('createHostDriving', () => {
     h.driving.appsChanged()
     await h.tickNow() // the arming it held is gone: this tick only arms again
     expect(h.handled()).not.toContain('run-spawn')
+  })
+  // T6: the Host runs `runs doctor --fix` by itself, first a few minutes in, then every ten
+  it('runs the doctor fix on a slow timer, and a failed sweep leaves the tick whole', async () => {
+    const h = await rig({ failedBlock: true, staleSpec: true })
+    await h.load()
+    await h.tickNow()
+    expect(h.handled()).not.toContain('runs-doctor')
+    h.clock = NOW_MS + 4 * 60_000
+    await h.tickNow()
+    expect(h.handled().filter((c) => c === 'runs-doctor')).toHaveLength(1)
+    expect(h.logs.join('\n')).toMatch(/runs doctor — stalled run_1: /)
+    await h.tickNow()
+    expect(h.handled().filter((c) => c === 'runs-doctor')).toHaveLength(1)
+    h.clock = NOW_MS + 15 * 60_000
+    await h.tickNow()
+    expect(h.handled().filter((c) => c === 'runs-doctor')).toHaveLength(2)
+  })
+  it('a doctor sweep that throws does not break the tick', async () => {
+    const h = await rig({ staleSpec: true, failingCommand: 'runs-doctor' })
+    await h.load()
+    h.clock = NOW_MS + 4 * 60_000
+    await h.tickNow()
+    expect(h.logs.join('\n')).toMatch(/runs doctor — the sweep failed: Error: boom/)
+    expect(h.logs.join('\n')).not.toMatch(/tick failed/)
+    expect(await h.specExists()).toBe(false) // a later step of the same tick still ran
   })
   it('sweeps stale spec files on a tick only with no app attached and no spawn in flight (R22)', async () => {
     const h = await rig({ staleSpec: true })

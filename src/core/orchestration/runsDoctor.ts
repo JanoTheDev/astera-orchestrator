@@ -62,7 +62,9 @@ export function diagnoseRuns(s: OrchState, runIds: readonly string[], sessions?:
         detail:
           stuck === 'needs-you'
             ? 'reads running, but every unfinished Task waits on the owner'
-            : 'reads running, but its failed Tasks have no coordinator and nothing retries them'
+            : tasks.length === 0
+              ? 'reads running, but it has no Tasks and no coordinator or planner to make any'
+              : 'reads running, but its failed Tasks have no coordinator and nothing retries them'
       })
     for (const task of tasks) {
       if (task.status === 'reviewing' && reviewerEnded(s.dispatches, task.id))

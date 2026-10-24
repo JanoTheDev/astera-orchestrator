@@ -6,7 +6,7 @@ import type { JobRow } from '../../../../core/types'
 import { jobsStall, jobsViewScreen } from '../../../../core/orchestration/jobsView'
 import { groupOfTab } from '../../../../core/panes/tree'
 import { sessionTab } from '../../../../core/panes/tabId'
-import { Badge, Button, Icon, Input, Menu, Tree, ViewContainer, ViewPane, menuPointOf, type ChipTone, type IconName, type MenuItem, type TreeItem, type TreeProps } from '../ui'
+import { Badge, Button, Icon, IconButton, Input, Menu, Tree, ViewContainer, ViewPane, menuPointOf, type ChipTone, type IconName, type MenuItem, type TreeItem, type TreeProps } from '../ui'
 import { RuntimeSelector } from '../RuntimeSelector'
 import { JobsView } from '../JobsView'
 import { TaskGlyph } from '../JobIcons'
@@ -17,7 +17,7 @@ import { toast } from '../../lib/toast'
 import { archiveJob, deleteRun, holdJob, pauseRun, restartCoordinator as restartRunCoordinator, resumeRun, unarchiveJob } from '../../lib/jobActions'
 import { openConsole, openPlanConsoles, openView } from '../shell/navigation'
 import { ViewToolbar, type SideBarViewProps } from '../shell/SideBar'
-import { planStatusOf } from '../plan/planList'
+import { isStalledPlan, planStatusOf } from '../plan/planList'
 import { approveSlot } from '../plan/planTalk'
 import { deliveryActionsOf } from '../plan/planPage'
 import { type PlanSection } from '../plan/planBoard'
@@ -327,6 +327,22 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
       icon: toned(TONE_ICON[status.tone], status.tone),
       description: planDescription(n.row, nowMs, t),
       decoration: { text: t(status.key, status.params), tone: status.tone },
+      // A dead plan is one click from archived or running again (Resume puts a lead back on it, else lifts a stop)
+      ...(local && isStalledPlan(n.row)
+        ? {
+            actions: (
+              <>
+                <IconButton
+                  size="sm"
+                  label={t('jobs.run.resume')}
+                  icon={<Icon name="run" size={14} />}
+                  onClick={() => (n.row.coordinatorMissing ? p.restartCoordinator(n.row.id) : void resumeRun(local, n.row.id, actionUi))}
+                />
+                <IconButton size="sm" label={t('jobs.lifecycle.archive')} icon={<Icon name="archive" size={14} />} onClick={() => void archiveJob(local, orchSnapshot, n.row.id, actionUi)} />
+              </>
+            )
+          }
+        : {}),
       badge: (
         <>
           {overlapMark(overlapOf(n, runs))}

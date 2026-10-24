@@ -18,6 +18,13 @@ export interface PlanStatus {
   params?: MessageParams
 }
 
+/** A plan nothing works on and nothing will move (JobRow.stuck): its row offers Archive and Resume. */
+const STALLED_KEY = 'pages.plans.status.stalled'
+export const isStalledPlan = (row: JobRow): boolean => {
+  const key = planStatusOf(row).key
+  return key === STALLED_KEY || key === 'plan.outcome.stalledOnFailed'
+}
+
 /** The one word a plan row's status chip says. A person's part first (approve, a gate), then what holds it, then how it runs. */
 export function planStatusOf(row: JobRow): PlanStatus {
   if (row.archivedAt !== undefined) return { key: 'jobs.lifecycle.archived', tone: 'neutral' }
@@ -38,7 +45,7 @@ export function planStatusOf(row: JobRow): PlanStatus {
   if (row.tasks.some((t) => t.status === 'blocked')) return { key: 'pages.plans.status.needsYou', tone: 'warn' }
   if (row.dispatchHold) return { key: 'jobs.hold.held', tone: 'warn' }
   // T8: reads running, and nothing works on it or retries it (`runs doctor`)
-  if (row.stuck === 'stalled') return { key: 'plan.outcome.stalled', tone: 'danger' }
+  if (row.stuck === 'stalled') return { key: STALLED_KEY, tone: 'danger' }
   if (row.outcome === 'running') return { key: 'pages.plans.status.working', tone: 'info' }
   // Item 8: every Task completed, the final check has not settled: not done yet
   if (row.outcome === 'checking') return { key: 'pages.plans.status.checking', tone: 'info' }

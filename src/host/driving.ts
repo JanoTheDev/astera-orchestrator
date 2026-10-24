@@ -122,6 +122,10 @@ export function hostSessionAlive(
   return procs?.list().some((e) => e.alive && e.meta?.kind === 'chat' && e.meta.id === id) ?? false
 }
 
+/** The Host's own `runs doctor --fix` sweep: the first one this long after it starts, then this often. */
+const DOCTOR_FIRST_MS = 3 * 60_000
+const DOCTOR_EVERY_MS = 10 * 60_000
+
 export function createHostDriving(d: {
   profileDir: string
   orch: Pick<HostOrch, 'handle' | 'internalDeps' | 'loaded' | 'drainOnce' | 'state'> & Partial<Pick<HostOrch, 'adoptWorkers'>>
@@ -593,6 +597,23 @@ export function createHostDriving(d: {
     return ids
   }
 
+  /** When the next doctor sweep is due: the first a few minutes after the Host starts, then every `DOCTOR_EVERY_MS`. */
+  let doctorDueAt = d.nowMs() + DOCTOR_FIRST_MS
+  /** `runs doctor --fix` over every Run, on a slow timer: a plan that stalls with nobody looking is found and repaired
+   *  the way the owner's own `--fix` would. Its own catch: a failed sweep never costs the tick its other steps. */
+  const doctorSweep = async (): Promise<void> => {
+    if (d.nowMs() < doctorDueAt) return
+    doctorDueAt = d.nowMs() + DOCTOR_EVERY_MS
+    try {
+      const r = await d.orch.handle('runs-doctor', { all: true, fix: true })
+      const body = r.body as { findings?: unknown[]; repairs?: Array<{ finding: { runId: string; kind: string }; fixed: boolean; did: string }> }
+      if (r.status >= 400) return log(`runs doctor — the sweep was refused: ${r.status} ${JSON.stringify(r.body)}`)
+      for (const x of body.repairs ?? []) log(`runs doctor — ${x.finding.kind} ${x.finding.runId}: ${x.fixed ? 'fixed' : 'left'}, ${x.did}`)
+    } catch (err) {
+      log(`runs doctor — the sweep failed: ${String(err)}`)
+    }
+  }
+
   /** Whether a tick runs (audit OR-5): one that takes longer than the interval is not overlapped by the next. */
   let ticking = false
   /** Ticks in a row that found one still running: said once it is TICKS_SKIPPED_BEFORE_SAYING (final review M7). */
@@ -637,6 +658,7 @@ export function createHostDriving(d: {
       // tick, `STALL_CONFIRM_MS` on at the least, as before.
       await gateStalled()
       if (mayStart()) armStalled('a tick')
+      if (mayStart()) await doctorSweep()
       // Last round (a): steps a same-pid app kept, once app.pid shows it gone.
       if (mayStart()) grace.tick()
       // R22: the spec pile-up, narrowly — no app attached (an app writes specs too) and no spawn of
