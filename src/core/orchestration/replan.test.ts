@@ -4,6 +4,7 @@ import { emptyState, type OrchState } from './state'
 import type { Dispatch, Job, JobRun, Task } from './types'
 import {
   cancelRemainingTask,
+  cancelTaskByOwner,
   completionSettled,
   deviatingTasks,
   editRemainingTask,
@@ -477,5 +478,62 @@ describe('a Task blocked by a Gate before it ran', () => {
   it('a replan cancels it, and its open Gate goes with it', () => {
     const r = cancelRemainingTask(withGates, 'p6')
     expect(r.ok && r.state.gates.map((g) => g.id)).toEqual(['g2'])
+  })
+})
+
+// T5: the owner cancels any Task of a Run that has not completed, started or not
+describe('cancelTaskByOwner', () => {
+  const base = (): OrchState => ({
+    ...state(
+      [task('a', { status: 'completed' }), task('r', { status: 'dispatched', deps: ['a'] }), task('m', { status: 'merging' }), task('c', { status: 'pending', deps: ['r'] })],
+      {},
+      [open('r')]
+    ),
+    gates: [{ id: 'g1', runId: 'run_1', taskId: 'r', question: 'Retry?', status: 'open', createdAt: NOW }],
+    messages: [
+      { id: 'q1', runId: 'run_1', type: 'question', taskId: 'r', dispatchId: 'dsp_r', subject: 'which?', body: '?', answered: false, createdAt: NOW },
+      { id: 'q2', runId: 'run_1', type: 'question', taskId: 'a', dispatchId: 'dsp_a', subject: 'other', body: '?', answered: false, createdAt: NOW }
+    ]
+  })
+  const lastLeft = (s: OrchState): OrchState => ({ ...s, tasks: s.tasks.filter((t) => t.id !== 'c') })
+
+  it('closes the open Dispatch, settles its questions, drops its Gates and the Task, and says so in the Run', () => {
+    const r = cancelTaskByOwner(lastLeft(base()), 'r', 'replaced by r2', NOW)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.state.tasks.map((t) => t.id)).toEqual(['a', 'm'])
+    expect(r.state.gates).toEqual([])
+    expect(r.state.dispatches).toEqual([expect.objectContaining({ id: 'dsp_r', workerState: 'stopped', endedAt: NOW, closedBy: 'stop' })])
+    expect(r.state.messages.find((m) => m.id === 'q1')).toMatchObject({ answered: true, answerBody: '' })
+    expect(r.state.messages.find((m) => m.id === 'q2')?.answered).toBe(false)
+    expect(r.state.messages.at(-1)).toMatchObject({ runId: 'run_1', type: 'status', subject: 'r cancelled by the owner: replaced by r2' })
+    expect(r.value.closed.map((d) => d.id)).toEqual(['dsp_r'])
+  })
+
+  it('cancels a Task that has not started, and a failed one, with nothing to close', () => {
+    const s = state([task('f', { status: 'failed' }), task('p', { status: 'pending' })])
+    for (const id of ['f', 'p']) {
+      const r = cancelTaskByOwner(s, id, 'no longer needed', NOW)
+      expect(r.ok && r.value.closed).toEqual([])
+    }
+  })
+
+  it('refuses a completed or merging Task', () => {
+    for (const id of ['a', 'm']) {
+      const r = cancelTaskByOwner(lastLeft(base()), id, 'x', NOW)
+      expect(!r.ok && r.error).toMatch(/completed|merging/)
+    }
+  })
+
+  it('refuses while an unfinished Task depends on it, but not a completed one', () => {
+    const r = cancelTaskByOwner(base(), 'r', 'x', NOW)
+    expect(!r.ok && r.error).toBe('c depend on r: change their --deps first')
+    const done = { ...base(), tasks: base().tasks.map((t) => (t.id === 'c' ? { ...t, status: 'completed' as const } : t)) }
+    expect(cancelTaskByOwner(done, 'r', 'x', NOW).ok).toBe(true)
+  })
+
+  it('refuses an unknown Task', () => {
+    const r = cancelTaskByOwner(base(), 'nope', 'x', NOW)
+    expect(!r.ok && r.missing).toBe(true)
   })
 })

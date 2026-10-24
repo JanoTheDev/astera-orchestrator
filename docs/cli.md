@@ -841,6 +841,16 @@ orchestration's own sessions (a worker, a reviewer, a coordinator, a planner), s
 opened in Astera counts. The refusal names the rule that failed: an agent session, a Task already started, or a run
 not running. A Task that has started takes new `--criteria` only.
 
+**The owner may cancel a Task of their plan, started or not.** `task-cancel --id <taskId> --reason "<why>"` drops any
+Task of a run that has not completed (pending, ready, blocked, dispatched, validating, reviewing, failed); a `merging`
+or `completed` Task is refused, its work is landing or landed. A started Task's open Dispatches are closed (they stay
+in the history) and their sessions released, its Gates are closed and its open questions settled, and the run's feed
+gets one "cancelled by the owner: <reason>" line. It is refused while an unfinished Task depends on it (change those
+Tasks' `--deps` first), and with "try again in a moment" while a worker is still starting. To replace a Task: cancel
+it, `task-create` the new one, then `task-update --deps` on the Tasks that waited. Only the owner (not an agent
+session, not an MCP client) cancels a started Task; the planner and a replan session cancel only a Task that has not
+started, as before.
+
 **`--effort <low|medium|high|xhigh|max>` sets a Task's reasoning effort** on `tasks add`, `task-create` and
 `task-update` (any other value is refused). The worker starts with the Task's effort, else the setting for its
 difficulty in Settings → Orchestration models, else the built-in default, else the CLI's own default. The start
