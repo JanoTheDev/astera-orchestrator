@@ -10,6 +10,7 @@ import { OrchestrationStore } from '../src/core/orchestration/store'
 import { deliveryDue } from '../src/core/orchestration/delivery'
 import { outcomeOfTasks } from '../src/core/orchestration/running'
 import { appDriven, jobActive } from '../src/core/orchestration/schedule'
+import { runEndSessions } from '../src/core/orchestration/exec/runEnd'
 import { runGatedForTask } from '../src/core/orchestration/state'
 import { candidates } from '../src/core/recovery/candidates'
 import { autoAnswerOf } from '../src/core/orchestration/exec/autoAnswer'
@@ -62,6 +63,14 @@ describe('shots seed', () => {
     expect(candidates(s)).toEqual([])
     const g = s.gates.find((x) => x.status === 'open')
     expect(autoAnswerOf(s, g)).toBeNull()
+  })
+
+  it('leaves a new plan\'s planner in a seeded project alone: no finished seeded Run claims another project\'s folder', () => {
+    seed(profile, NOW)
+    const s = json('orchestration.json')
+    // A planner of a plan not run yet, marked with its Job, at each seeded project's root
+    const live = s.projects.map((p, i) => ({ id: `planner-${i}`, cwd: p.path, mark: 'job_new' }))
+    expect(runEndSessions(s, live).flatMap((p) => p.close)).toEqual([])
   })
 
   it('shows Retry, It\'s already pushed and Dismiss for the finished plan (a failed delivery)', () => {

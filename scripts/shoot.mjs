@@ -4,12 +4,33 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 
+// Declared before USAGE, which lists the names; the steps only call helpers defined further down.
+// Each page: how to reach it from a clean state (no editor tab, no popup). A step that returns false skips the page.
+// Hooks are aria-labels, roles and class names the app has today (activity bar tabs, the side bar toolbar, the title bar
+// project button, .ui-etab__close on editor tabs); a screen with no such hook gets a one-line data-shot attribute.
+const PAGES = [
+  ['sessions', () => activity('Agents')],
+  ['plans', () => activity('Plans')],
+  ['start', async () => (await activity('Plans'), await sleep(300), sleepClick('.wb-sidebar button', '^\\s*New plan\\s*$'))],
+  ['mainplan', async () => (await activity('Plans'), await sleep(300), sleepClick('.wb-sidebar button', 'Open main plan'))],
+  // ready: the scan is done and the tree holds a session row under its project row, not only the project and "Loading…"
+  ['history', () => activity('History'), "document.querySelectorAll('.history-tree [role=treeitem]').length > 1 && !/Loading|Scanning/.test(document.body.innerText)"],
+  ['explorer', () => activity('Explorer')],
+  ['scm', () => activity('Source Control')],
+  ['run', () => activity('Run')],
+  ['devices', () => activity('Devices')],
+  ['switcher', async () => (await activity('Agents'), await sleep(300), sleepClick('.tb-switcher'))],
+  ['accounts', () => sleepClick('.wb-activitybar button[aria-label="Accounts"]')],
+  ['settings', async () => (await sleepClick('.wb-activitybar button[aria-label="Manage"]')) && sleepClick('[role=menuitem]', '^\\s*Settings\\s*$')]
+]
+const PAGE_NAMES = PAGES.map(([n]) => n)
+
 const USAGE = `Usage: node scripts/shoot.mjs --port <cdp port> --out <dir> [--sizes 1440x900,1024x640] [--themes night,day] [--pages <names>]
 
 Connects to a dev app started with
   ASTERA_PROFILE_DIR=~/.config/astera-dev npx electron-vite dev --remoteDebuggingPort <port>
 and writes <dir>/<page>-<WxH>-<theme>.png for every page. Also: npm run shots -- --port <p> --out <dir>
-Pages (default: all): \${'PAGE_NAMES'}. Plan shots: --sizes 1920x1080,1000x800 --pages start,sessions,history,switcher,mainplan
+Pages (default: all): ${PAGE_NAMES.join(', ')}. Plan shots: --sizes 1920x1080,1000x800 --pages start,sessions,history,switcher,mainplan
 (docs/dev/shots/SEED.md, "Plan shots").`
 
 const args = process.argv.slice(2)
@@ -76,6 +97,7 @@ async function click(selector, text, deepest = false) {
     const hits = [...document.querySelectorAll(${JSON.stringify(selector)})].filter((e) => e.getClientRects().length && (!re || re.test((e.textContent || '') + ' ' + (e.getAttribute('aria-label') || ''))))
     const el = ${deepest ? 'hits.at(-1)' : 'hits[0]'}
     if (!el) return null
+    el.scrollIntoView({ block: 'nearest' }) // a page reopened scrolled away (Settings) keeps the target off screen
     const r = el.getBoundingClientRect()
     return { x: r.x + r.width / 2, y: r.y + r.height / 2 }
   })()`)
@@ -96,25 +118,6 @@ async function activity(label) {
   return click(sel)
 }
 const sleepClick = async (...a) => ((await click(...a)) ? (await sleep(500), true) : false)
-// Each page: how to reach it from a clean state (no editor tab, no popup). A step that returns false skips the page.
-// Hooks are aria-labels, roles and class names the app has today (activity bar tabs, the side bar toolbar, the title bar
-// project button, .ui-etab__close on editor tabs); a screen with no such hook gets a one-line data-shot attribute.
-const PAGES = [
-  ['sessions', () => activity('Agents')],
-  ['plans', () => activity('Plans')],
-  ['start', async () => (await activity('Plans'), await sleep(300), sleepClick('.wb-sidebar button', '^\\s*New plan\\s*$'))],
-  ['mainplan', async () => (await activity('Plans'), await sleep(300), sleepClick('.wb-sidebar button', 'Open main plan'))],
-  // ready: the scan is done and the tree holds a session row under its project row, not only the project and "Loading…"
-  ['history', () => activity('History'), "document.querySelectorAll('.history-tree [role=treeitem]').length > 1 && !/Loading|Scanning/.test(document.body.innerText)"],
-  ['explorer', () => activity('Explorer')],
-  ['scm', () => activity('Source Control')],
-  ['run', () => activity('Run')],
-  ['devices', () => activity('Devices')],
-  ['switcher', async () => (await activity('Agents'), await sleep(300), sleepClick('.tb-switcher'))],
-  ['accounts', () => sleepClick('.wb-activitybar button[aria-label="Accounts"]')],
-  ['settings', async () => (await sleepClick('.wb-activitybar button[aria-label="Manage"]')) && sleepClick('[role=menuitem]', '^\\s*Settings\\s*$')]
-]
-const PAGE_NAMES = PAGES.map(([n]) => n)
 const only = opt('pages', '').split(',').filter(Boolean)
 const unknown = only.filter((n) => !PAGE_NAMES.includes(n))
 if (unknown.length) {
@@ -123,11 +126,14 @@ if (unknown.length) {
 }
 const pages = PAGES.filter(([n]) => only.length === 0 || only.includes(n))
 
-/** Back to a clean state: popups and menus closed, every editor tab closed (they pile up: Start, Main plan, Settings). */
+/** Back to a clean state: popups and menus closed, every editor tab closed (they pile up: Start, Main plan, Settings),
+ *  except session tabs: closing one ends its agent session, and a profile with live sessions is shot as it runs. */
 async function reset() {
+  // Escape typed into a focused agent terminal interrupts that agent: let go of focus first (menus close on the page)
+  await evaluate('document.activeElement?.blur()')
   await escape()
   await escape()
-  for (let i = 0; i < 12 && (await click('.wb-editor .ui-etab__close')); i++) await sleep(150)
+  for (let i = 0; i < 12 && (await click('.wb-editor .ui-etab:not([data-tab-id^="session:"]) .ui-etab__close')); i++) await sleep(150)
   await evaluate('document.activeElement?.blur()') // no stale focus ring from the previous step
   await sleep(200)
 }

@@ -145,8 +145,10 @@ export function seedState(prev, repo, nowMs, extra = { api: repo, acme: repo }) 
       closed(4, id('tsk', 4), 'succeeded', 90),
       // ended by the pause: neither an open nor a lost worker, so the load and recovery leave it alone
       closed(5, id('tsk', 5), undefined, 25, { closedBy: 'pause' }),
-      closed(6, id('tsk', 8), 'succeeded', 70),
-      closed(7, id('tsk', 9), 'succeeded', 55)
+      // the acme plan's workers ran in acme: a Dispatch in another project's folder makes that folder its finished Run's,
+      // and the Run-end sweep then closed live sessions there (a demo-app planner)
+      closed(6, id('tsk', 8), 'succeeded', 70, { cwd: extra.acme }),
+      closed(7, id('tsk', 9), 'succeeded', 55, { cwd: extra.acme })
     ],
     messages: [
       ...base.messages,
