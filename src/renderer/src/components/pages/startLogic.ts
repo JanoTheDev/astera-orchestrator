@@ -1,7 +1,8 @@
 // W9-E Start page rules (DESIGN §2 "Start"). Pure, so the node tests cover them; StartPage.tsx keeps the state.
 import type { IntakeTab } from '../intake/intakeRequest'
 import type { ScheduleRule } from '../../../../core/types'
-import type { Job } from '../../../../core/orchestration/types'
+import { MAX_CONCURRENT_WORKERS, PROJECT_DEFAULTS, type DeliveryMode, type Job, type Project } from '../../../../core/orchestration/types'
+import { isEffort, type Effort } from '../../../../core/orchestration/roleModels'
 import { jobNameOf } from '../../../../core/orchestration/jobName'
 import type { Account, AccountUsage } from '../../../../core/types'
 import { providerOf } from '../../../../core/providers/meta'
@@ -108,9 +109,7 @@ export function lookupArgs({ mode, files, text, cwd }: { mode: StartMode; files:
   return { cwd, mode: 'prompts', objective: text, dryRun: true, ...(md.length > 0 ? { attach: md } : {}) }
 }
 
-// T2 sticky hands-off
-/** Switching Hands-off on Start saves it as the project's default (`projects-set --hands-off`), so it sticks. */
-export const handsOffSaveArgs = (projectId: string, on: boolean): Record<string, unknown> => ({ id: projectId, handsOff: on ? 'on' : 'off' })
+const DELIVERY_MODES: readonly DeliveryMode[] = ['merge', 'push', 'pr', 'manual']
 
 /** Why the primary button is off, as the one line beside it: no project, nothing written yet. Null when it can go. */
 export function blockedReason({ project, text, request }: { project: boolean; text: boolean; request: boolean }, t: T): string | null {
@@ -167,10 +166,114 @@ export function withStarter(current: string, template: string, templates: readon
 /** Ctrl+Enter (Cmd+Enter on a Mac) submits; plain Enter stays a newline. */
 export const isSubmitKey = (e: { key: string; ctrlKey: boolean; metaKey: boolean }): boolean => e.key === 'Enter' && (e.ctrlKey || e.metaKey)
 
-/** The project picker lists projects only: never "All projects". A placeholder shows while none is chosen. */
-export function projectOptions(projects: readonly { name: string; path: string }[], chosen: string, placeholder: string): { value: string; label: string }[] {
-  const list = projects.map((p) => ({ value: p.path, label: p.name }))
-  return chosen === '' ? [{ value: '', label: placeholder }, ...list] : list
+// T17 who the plan is for: the title bar's project, never a picker of Start's own that could disagree with it
+export interface ProjectChoice {
+  /** All projects (or a selection no project has): the composer asks, and its pick switches the title bar. */
+  ask: boolean
+  /** The workspace the title bar names (a selected sub-project's root), shown read-only as "for <name>". */
+  root?: Project
+  /** The workspace and its sub-projects when it has any, the sub-project picker's rows (picked by id: they share the
+   *  workspace's folder). Empty otherwise. */
+  members: Project[]
+  /** The project the Job is filed under. */
+  project?: Project
+}
+
+/** `scopeId`: the title bar's selection (null = All projects); `picked`: the sub-project picked here, by id. */
+export function projectChoice(projects: readonly Project[], scopeId: string | null, picked?: string): ProjectChoice {
+  const selected = scopeId === null ? undefined : projects.find((p) => p.id === scopeId)
+  // while the list loads, a selected project is not asked for again
+  if (!selected) return { ask: scopeId === null || projects.length > 0, members: [] }
+  const root = projects.find((p) => p.id === selected.parentId) ?? selected
+  const subs = projects.filter((p) => p.parentId === root.id)
+  const members = subs.length > 0 ? [root, ...subs] : []
+  return { ask: false, root, members, project: members.find((p) => p.id === picked) ?? selected }
+}
+
+/** The All-projects picker: workspaces and plain projects; a sub-project is picked once its workspace is. */
+export const askOptions = (projects: readonly Project[]): { value: string; label: string }[] =>
+  projects.filter((p) => p.parentId === undefined).map((p) => ({ value: p.id, label: p.name }))
+
+// T17 the plan's settings: the project's defaults, then the last choice made here for that project
+export type StartWhen = 'now' | 'after' | 'schedule'
+
+export interface StartSettings {
+  /** The planner's account; '' is Auto (the Host picks the one with most room). */
+  account: string
+  /** The workers' reasoning effort; '' is Auto (none sent: each model's default). */
+  effort: Effort | ''
+  concurrency: number
+  /** The saved delivery; what is sent is useDeliveryChoices' effective mode over it. */
+  delivery: DeliveryMode
+  replan: 'waves' | 'off'
+  handsOff: boolean
+}
+
+/** A sub-project's unset settings read as its workspace's (projects.ts), then PROJECT_DEFAULTS. */
+export function projectDefaults(project: Project | undefined, root: Project | undefined): StartSettings {
+  const of = <K extends 'delivery' | 'replan' | 'handsOff' | 'concurrency'>(k: K): Project[K] => project?.[k] ?? root?.[k]
+  return {
+    account: '',
+    effort: '',
+    concurrency: Math.min(of('concurrency') ?? PROJECT_DEFAULTS.concurrency, MAX_CONCURRENT_WORKERS),
+    delivery: of('delivery') ?? PROJECT_DEFAULTS.delivery,
+    replan: of('replan') ?? PROJECT_DEFAULTS.replan,
+    handsOff: of('handsOff') ?? PROJECT_DEFAULTS.handsOff
+  }
+}
+
+export const settingsKey = (projectId: string): string => `astera.start.settings.${projectId}`
+
+/** The fields of a stored choice that still make sense; anything else is dropped. */
+function validSettings(raw: unknown): Partial<StartSettings> {
+  if (typeof raw !== 'object' || raw === null) return {}
+  const r = raw as Record<string, unknown>
+  const out: Partial<StartSettings> = {}
+  if (typeof r.account === 'string') out.account = r.account
+  if (r.effort === '' || isEffort(r.effort)) out.effort = r.effort
+  if (typeof r.concurrency === 'number' && Number.isInteger(r.concurrency) && r.concurrency >= 1) out.concurrency = Math.min(r.concurrency, MAX_CONCURRENT_WORKERS)
+  if (DELIVERY_MODES.includes(r.delivery as DeliveryMode)) out.delivery = r.delivery as DeliveryMode
+  if (r.replan === 'waves' || r.replan === 'off') out.replan = r.replan
+  if (typeof r.handsOff === 'boolean') out.handsOff = r.handsOff
+  return out
+}
+
+function readSettings(projectId: string): Partial<StartSettings> {
+  try {
+    return validSettings(JSON.parse(window.localStorage.getItem(settingsKey(projectId)) ?? 'null'))
+  } catch {
+    return {}
+  }
+}
+
+/** What Start opens with for a project: its defaults, with the choices last made here on top. */
+export const startSettings = (projectId: string, defaults: StartSettings): StartSettings => ({ ...defaults, ...readSettings(projectId) })
+
+/** Remembers one choice for the project; the fields never changed here keep following the project's defaults. */
+export function rememberSetting(projectId: string, change: Partial<StartSettings>): void {
+  try {
+    window.localStorage.setItem(settingsKey(projectId), JSON.stringify({ ...readSettings(projectId), ...change }))
+  } catch {
+    // a per-viewer convenience: Start works without it
+  }
+}
+
+/** The settings row, one short part per setting: "Auto account · Right away · 10 agents · Merge into main · Hands-off ·
+ *  Effort: auto". Hands-off and a plan kept as first written show only when on. */
+export function settingsSummary(
+  s: { account?: string; when: StartWhen; after?: string; concurrency: number; delivery: string; replan?: 'waves' | 'off'; handsOff: boolean; effort: Effort | '' },
+  t: T
+): string[] {
+  const when = s.when === 'schedule' ? t('start.when.schedule') : s.when === 'after' && s.after ? t('start.opt.after', { plan: s.after }) : t('start.opt.now')
+  return [
+    s.account ?? t('start.sum.auto'),
+    when,
+    t('start.sum.agents', { n: s.concurrency }),
+    s.delivery,
+    ...(s.replan === 'off' ? [t('start.adv.replan.off')] : []),
+    ...(s.handsOff ? [t('start.opt.handsOff')] : []),
+    t('start.sum.effort', { level: s.effort === '' ? t('start.effort.auto') : s.effort })
+  ]
 }
 
 /** After Start made the Job: the planner's terminal opens when it started now; a plan queued after another goes to the

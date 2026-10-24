@@ -1,6 +1,9 @@
 // W6-A intake: what the Start page sends, from what the person filled in. Pure, so the node tests cover it; the
 // page (pages/StartPage.tsx, through useIntake.ts) only keeps the state and makes the calls.
 
+import type { DeliveryMode } from '../../../../core/orchestration/types'
+import type { Effort } from '../../../../core/orchestration/roleModels'
+
 // T4: the audit and GitHub tabs, the issue picker and "Let Astera pick" are gone — the planner does those by talking.
 export type IntakeTab = 'describe' | 'files' | /* W8-C prompts mode */ 'prompts'
 
@@ -25,6 +28,15 @@ export interface IntakeForm {
   coordinatorAccount: string
   /** W7-D (#67): how many workers the plan runs at once, 1–10 (the Host clamps to MAX_CONCURRENT_WORKERS). */
   concurrency: number
+  /** T17: the workers' reasoning effort; '' sends none (each model's default). */
+  effort: Effort | ''
+  /** T17: the delivery shown (useDeliveryChoices' effective mode), always sent so a saved one this folder cannot do is
+   *  never used. */
+  delivery: DeliveryMode
+  /** T17: replanning between steps; not sent for Run as written, which has no planner. */
+  replan: 'waves' | 'off'
+  /** T17: hands-off, always sent: the plan's own, ahead of its project's. */
+  handsOff: boolean
 }
 
 /** The one command that makes the Job, or null while the form cannot make one. */
@@ -34,11 +46,14 @@ export function intakeRequest(f: IntakeForm): { cmd: string; args: Record<string
   const common = {
     ...(f.coordinatorAccount !== '' ? { coordinatorAccount: f.coordinatorAccount } : {}),
     concurrency: f.concurrency,
-    ...(f.instructions.trim() !== '' ? { instructions: f.instructions.trim() } : {})
+    ...(f.instructions.trim() !== '' ? { instructions: f.instructions.trim() } : {}),
+    ...(f.effort !== '' ? { effort: f.effort } : {}),
+    delivery: f.delivery,
+    handsOff: f.handsOff ? 'on' : 'off'
   }
   const priority = f.priority ? { priority: f.priority } : {}
   const objective = text !== '' ? { objective: text } : {}
-  const planned = { cwd: f.project.path, ...common, ...priority, ...objective, planning: f.planning }
+  const planned = { cwd: f.project.path, ...common, ...priority, ...objective, replan: f.replan, planning: f.planning }
   switch (f.tab) {
     // The text may stay empty for chat: the planner asks what to work on. Planning alone needs something to plan.
     case 'describe':
@@ -51,4 +66,11 @@ export function intakeRequest(f: IntakeForm): { cmd: string; args: Record<string
       return text === '' ? null : { cmd: 'jobs-create', args: { cwd: f.project.path, ...common, ...priority, ...objective, mode: 'prompts' } }
     }
   }
+}
+
+/** T17: the `jobs-set` that files a just-made Job under the project picked by id. jobs-create files it by folder, under
+ *  the workspace (sub-projects share its folder), so a picked sub-project needs this move, on its own and before the
+ *  planner starts. Null when the Job is already there, or the Host filed it under no project (nothing to move from). */
+export function fileUnderArgs(made: { id: string; projectId?: string }, projectId: string): { id: string; project: string } | null {
+  return made.projectId !== undefined && projectId !== '' && made.projectId !== projectId ? { id: made.id, project: projectId } : null
 }
