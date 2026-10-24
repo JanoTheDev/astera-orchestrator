@@ -24,10 +24,15 @@ export function createSharedPoll<V>(ms: number, doc?: EventTarget & { hidden: bo
 
   const open = (source: SharedPollSource<V>): Entry<V> => {
     let running = false // a slow Host must not stack reads up behind each other
+    let again = false // a load asked while a read ran: one follow-up read covers all of them
     let closed = false
     const entry: Entry<V> = { listeners: new Set(), last: undefined, reload: () => void load(), stop: () => {} }
     const load = async (): Promise<void> => {
-      if (running || closed) return
+      if (closed) return
+      if (running) {
+        again = true
+        return
+      }
       running = true
       try {
         const next = await source.read()
@@ -40,6 +45,10 @@ export function createSharedPoll<V>(ms: number, doc?: EventTarget & { hidden: bo
         /* the next tick tries again */
       } finally {
         running = false
+        if (again && !closed) {
+          again = false
+          void load()
+        }
       }
     }
     const stopPoll = pollWhileVisible(() => void load(), ms, doc)
