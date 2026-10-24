@@ -157,4 +157,10 @@ export const plans = {
   'plan.header.branchCopied': '브랜치 이름을 복사했습니다',
   'plan.header.copyId': '계획 ID 복사',
   'plan.header.idCopied': '계획 ID 를 복사했습니다',
+  // T7 Ask & plan more on finished plans
+  'plan.chat.askMore': '계획 더 물어보기·추가하기',
+  'plan.chat.askMoreHint': '끝난 계획의 플래너와 탭에서 대화합니다. 한 일을 묻거나 후속 Task 를 더할 수 있습니다',
+  'plan.chat.openTab': '탭에서 열기',
+  'plan.chat.failed': '플래너 탭을 열지 못했습니다',
+  'plan.chat.remote': '다른 컴퓨터의 계획은 이 컴퓨터에서 플래너 탭을 열 수 없습니다',
 } as const

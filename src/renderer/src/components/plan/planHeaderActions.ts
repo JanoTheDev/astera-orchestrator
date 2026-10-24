@@ -4,6 +4,7 @@
 import type { JobRow } from '../../../../core/types'
 import { approveViewOf } from './planPage'
 import { isFinishedOutcome } from './planSummary'
+import { canAskPlanMore } from './planTalk'
 
 export type HeaderRow = Pick<
   JobRow,
@@ -16,22 +17,24 @@ export interface HeaderActions {
   approve: boolean
   /** Open consoles as a visible button; otherwise it is a ⋯ item. */
   consoles: boolean
+  /** Ask & plan more (`jobs-chat`): a planned, unarchived, finished plan of this computer. The finished state's primary. */
+  askMore: boolean
   /** The PR opens in the browser; a branch (a project with no remote) copies its name. */
   openPr?: { kind: 'pr'; url: string } | { kind: 'branch'; branch: string }
   /** Archive or Unarchive as a visible button (this computer's plans only); otherwise it stays in ⋯. */
   archive?: 'archive' | 'unarchive'
   copyId: boolean
   /** The one filled primary button. */
-  primary: 'approve' | 'openPr' | 'archive' | null
+  primary: 'approve' | 'askMore' | 'openPr' | 'archive' | null
 }
 
 /** `local`: a plan of this computer, not a paired Runtime's (lifecycle actions are this computer's only). */
 export function headerActionsOf(row: HeaderRow | undefined, local: boolean): HeaderActions {
-  if (!row) return { finished: false, approve: false, consoles: true, copyId: false, primary: null }
+  if (!row) return { finished: false, approve: false, consoles: true, askMore: false, copyId: false, primary: null }
   const approve = approveViewOf(row).show
   // a schedule template never finishes, and a plan not started yet waits, whatever its outcome reads
   const finished = row.schedule === undefined && !row.pendingStart && (row.archivedAt !== undefined || isFinishedOutcome(row.outcome))
-  if (!finished) return { finished: false, approve, consoles: true, copyId: false, primary: approve ? 'approve' : null }
+  if (!finished) return { finished: false, approve, consoles: true, askMore: false, copyId: false, primary: approve ? 'approve' : null }
   const pr = row.pr
   const openPr: HeaderActions['openPr'] = pr?.url
     ? { kind: 'pr', url: pr.url }
@@ -39,13 +42,15 @@ export function headerActionsOf(row: HeaderRow | undefined, local: boolean): Hea
       ? { kind: 'branch', branch: pr.branch }
       : undefined
   const archive: HeaderActions['archive'] = !local ? undefined : row.archivedAt !== undefined ? 'unarchive' : 'archive'
+  const askMore = local && canAskPlanMore(row)
   return {
     finished: true,
     approve: false,
     consoles: false,
+    askMore,
     ...(openPr ? { openPr } : {}),
     ...(archive ? { archive } : {}),
     copyId: true,
-    primary: openPr?.kind === 'pr' ? 'openPr' : archive ? 'archive' : null
+    primary: askMore ? 'askMore' : openPr?.kind === 'pr' ? 'openPr' : archive ? 'archive' : null
   }
 }

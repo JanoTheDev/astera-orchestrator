@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { archiveJob, archiveJobs, deleteRun, pauseRun, renameJob, restartCoordinator, resumeRun, unarchiveJob, type ActionUi } from './jobActions'
+import { openPlanChat, archiveJob, archiveJobs, deleteRun, pauseRun, renameJob, restartCoordinator, resumeRun, unarchiveJob, type ActionUi } from './jobActions'
 import type { OrchDoor } from './orchDoor'
 import type { OrchSnapshot } from '../../../core/types'
 
@@ -194,5 +194,36 @@ describe('archiveJobs', () => {
       return { status: 200, body: {} }
     }
     expect(await archiveJobs(t, ['a', 'b'], false)).toEqual({ archived: 1, failed: 1 })
+  })
+})
+
+describe('openPlanChat', () => {
+  it('sends jobs-chat and opens the answered session', async () => {
+    const d = door({ status: 200, body: { jobId: 'j1', runId: 'r1', sessionId: 'ses-1' } })
+    const u = ui()
+    const opened: string[] = []
+    expect(await openPlanChat(d, 'j1', u, (id) => void opened.push(id))).toBe(true)
+    expect(d.sent).toEqual([['jobs-chat', { id: 'j1' }]])
+    expect(opened).toEqual(['ses-1'])
+    expect(u.errors).toEqual([])
+  })
+
+  it('toasts a refusal and opens nothing', async () => {
+    const d = door({ status: 409, body: { error: 'plan is not finished' } })
+    const u = ui()
+    const opened: string[] = []
+    expect(await openPlanChat(d, 'j1', u, (id) => void opened.push(id))).toBe(false)
+    expect(opened).toEqual([])
+    expect(u.errors).toHaveLength(1)
+  })
+
+  it('toasts a door that throws', async () => {
+    const d = door()
+    d.command = async () => {
+      throw new Error('ipc')
+    }
+    const u = ui()
+    expect(await openPlanChat(d, 'j1', u, () => {})).toBe(false)
+    expect(u.errors).toEqual(['plan.chat.failed'])
   })
 })

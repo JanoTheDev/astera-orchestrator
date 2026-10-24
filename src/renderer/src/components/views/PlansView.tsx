@@ -14,11 +14,11 @@ import { controlReason, isRemoteRuntime, offlineNote } from '../../lib/remoteJob
 import { localDoor, replyNote } from '../../lib/orchDoor'
 import { jobName } from '../../lib/jobName'
 import { toast } from '../../lib/toast'
-import { archiveJob, archiveJobs, deleteRun, holdJob, pauseRun, restartCoordinator as restartRunCoordinator, resolveFailed, resumeRun, unarchiveJob } from '../../lib/jobActions'
+import { archiveJob, archiveJobs, deleteRun, holdJob, openPlanChat, pauseRun, restartCoordinator as restartRunCoordinator, resolveFailed, resumeRun, unarchiveJob } from '../../lib/jobActions'
 import { openConsole, openPlanConsoles, openView } from '../shell/navigation'
 import { ViewToolbar, type SideBarViewProps } from '../shell/SideBar'
 import { OLD_FINISHED_DAYS, clearableOf, isStalledPlan, planStatusOf, resumeActionOf, splitPlans } from '../plan/planList'
-import { approveSlot } from '../plan/planTalk'
+import { approveSlot, canAskPlanMore } from '../plan/planTalk'
 import { askAboutTaskWithToast } from '../plan/planCommands'
 import { doneViewOf } from '../plan/taskDoneView'
 import { deliveryActionsOf } from '../plan/planPage'
@@ -304,6 +304,7 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
       ...(delivery && deliveryActionsOf({ delivery }).retry && delivery.state !== 'delivering'
         ? [item('deliver', t('plan.delivery.retry'), 'rerun', () => void retryDelivery(row))]
         : []),
+      ...(local && canAskPlanMore(row) ? [item('askMore', t('plan.chat.askMore'), 'sparkles', () => void openPlanChat(local, row.id, actionUi))] : []),
       ...(local && archived ? [item('unarchive', t('jobs.lifecycle.unarchive'), 'restore', () => void unarchiveJob(local, row.id, actionUi))] : []),
       ...(local && !archived ? [item('archive', t('jobs.lifecycle.archive'), 'archive', () => void archiveJob(local, orchSnapshot, row.id, actionUi))] : []),
       // lib/jobActions asks before it deletes
@@ -386,6 +387,10 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
       icon: toned(TONE_ICON[status.tone], status.tone),
       description: pane === 'finished' ? finishedDescription(n.row, nowMs, t) : planDescription(n.row, nowMs, t),
       decoration: { text: t(status.key, status.params), tone: status.tone },
+      // A finished plan is one click from a planner tab to ask what was done and add more (T7)
+      ...(local && pane === 'finished' && canAskPlanMore(n.row)
+        ? { actions: <IconButton size="sm" label={t('plan.chat.askMore')} icon={<Icon name="sparkles" size={14} />} onClick={() => void openPlanChat(local, n.row.id, actionUi)} /> }
+        : {}),
       // A dead plan is one click from archived, or from running again where something can resume it (resumeActionOf)
       ...(local && isStalledPlan(n.row)
         ? {

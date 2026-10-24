@@ -11,6 +11,7 @@ import {
   archiveJob,
   deleteRun,
   holdJob,
+  openPlanChat,
   pauseRun,
   renameJob,
   resolveFailed,
@@ -131,6 +132,7 @@ export function PlanHeader({
   }
   const archive = (): void =>
     void (acts.archive === 'unarchive' ? unarchiveJob(door, runId, ui) : archiveJob(door, snapshot, runId, ui))
+  const askMore = (): void => void openPlanChat(door, runId, ui)
   const openPrLabel = acts.openPr?.kind === 'branch' ? acts.openPr.branch : t('plan.header.openPr')
   const archiveLabel = t(acts.archive === 'unarchive' ? 'jobs.lifecycle.unarchive' : 'jobs.lifecycle.archive')
   /** "Start after…": the plans this one can wait for, one to tick; none ticked starts it right away. */
@@ -192,6 +194,7 @@ export function PlanHeader({
   // W17: a narrow tab folds Pause, Open consoles and the ⋯ menu into one ⋯ toolbar (planPage.css shows one set)
   const narrowMenu: Array<MenuItem | 'separator'> = [
     ...(pause ? [{ id: 'pause', label: pause.label, disabled: off, onSelect: pause.onSelect }] : []),
+    ...(acts.askMore ? [{ id: 'askMore', label: t('plan.chat.askMore'), icon: <Icon name="sparkles" size={14} />, disabled: off, onSelect: askMore }] : []),
     ...(acts.openPr ? [{ id: 'openPr', label: acts.openPr.kind === 'pr' ? openPrLabel : t('plan.header.copyBranch'), icon: <Icon name={acts.openPr.kind === 'pr' ? 'pullRequest' : 'branch'} size={14} />, onSelect: openPr }] : []),
     ...(acts.archive ? [{ id: 'archiveNow', label: archiveLabel, icon: <Icon name={acts.archive === 'unarchive' ? 'restore' : 'archive'} size={14} />, disabled: off, onSelect: archive }] : []),
     ...(acts.copyId ? [{ id: 'copyId', label: t('plan.header.copyId'), icon: <Icon name="copy" size={14} />, onSelect: () => copy(runId, t('plan.header.idCopied')) }] : []),
@@ -350,7 +353,11 @@ export function PlanHeader({
             )}
             {acts.finished && (
               <>
-                {/* ask-and-plan-more button goes here */}
+                {acts.askMore && (
+                  <Button size="sm" variant="primary" icon={<Icon name="sparkles" size={14} />} disabled={off} title={lockedReason ?? t('plan.chat.askMoreHint')} onClick={askMore}>
+                    {t('plan.chat.askMore')}
+                  </Button>
+                )}
                 {acts.openPr && (
                   <Button
                     size="sm"

@@ -20,7 +20,7 @@ describe('headerActionsOf', () => {
 
   it('a finished plan with a PR: Open PR is the primary, Archive and Copy ID beside it, consoles in the menu', () => {
     const a = headerActionsOf(row({ outcome: 'completed', pr: { at: 'x', url: 'https://gh/pr/1', number: 1 } }), true)
-    expect(a).toEqual({ finished: true, approve: false, consoles: false, openPr: { kind: 'pr', url: 'https://gh/pr/1' }, archive: 'archive', copyId: true, primary: 'openPr' })
+    expect(a).toEqual({ finished: true, approve: false, consoles: false, askMore: false, openPr: { kind: 'pr', url: 'https://gh/pr/1' }, archive: 'archive', copyId: true, primary: 'openPr' })
   })
 
   it('a finished plan without a remote shows its branch, and Archive is the primary', () => {
@@ -50,7 +50,20 @@ describe('headerActionsOf', () => {
   })
 
   it('no row: consoles only', () => {
-    expect(headerActionsOf(undefined, true)).toEqual({ finished: false, approve: false, consoles: true, copyId: false, primary: null })
+    expect(headerActionsOf(undefined, true)).toEqual({ finished: false, approve: false, consoles: true, askMore: false, copyId: false, primary: null })
+  })
+
+  it('a planned, unarchived, finished plan of this computer makes Ask & plan more the primary', () => {
+    const a = headerActionsOf(row({ outcome: 'completed', planned: true, pr: { at: 'x', url: 'u' } }), true)
+    expect(a).toMatchObject({ askMore: true, primary: 'askMore', archive: 'archive' })
+    expect(headerActionsOf(row({ outcome: 'failed', planned: true }), true).primary).toBe('askMore')
+  })
+
+  it('no Ask & plan more on a running, archived, unplanned or paired-Runtime plan', () => {
+    expect(headerActionsOf(row({ outcome: 'running', planned: true }), true).askMore).toBe(false)
+    expect(headerActionsOf(row({ outcome: 'completed', planned: true, archivedAt: 'x' }), true).askMore).toBe(false)
+    expect(headerActionsOf(row({ outcome: 'completed' }), true).askMore).toBe(false)
+    expect(headerActionsOf(row({ outcome: 'completed', planned: true }), false).askMore).toBe(false)
   })
 
   it('never more than one primary', () => {
