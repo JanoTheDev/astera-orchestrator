@@ -121,6 +121,7 @@ Create Tasks in dependency order (a Task can only depend on one that exists). Ea
 | `--kind` | `bugfix`, `feature`, `refactor`, `ui`, `audit`, `docs`, `test` or `ops`. It picks the skills the worker is told to use (systematic debugging and a failing test first for `bugfix`, test-first for `feature`, the design rules for `ui`, read-only findings first for `audit`). Pass it on every Task; without it Astera guesses from the title |
 | `--difficulty` | `light` (mechanical, small), `standard` (ordinary feature or fix), `hard` (design, subtle bug, wide change). It picks the worker's model |
 | `--model-reason` | one line: why that difficulty (and provider or model, if you set one) |
+| `--effort` | `low`, `medium`, `high`, `xhigh` or `max`, optional. Left out, `--difficulty` sets it (light low, standard medium, hard high). Raise it (high or xhigh; max only for the hardest) for a tricky bug, concurrency, security, a cross-file refactor or debugging with no clear cause. Lower it to `low` for docs, renames, copy changes and mechanical edits. Its reason goes in `--model-reason` with the difficulty's |
 | `--basis` + `--evidence` | what you found of the item before planning (section 0): `missing`, `partial` or `broken`, and the file:line, issue, PR or Job id that shows it |
 | `--validate` | run configurations that test the work, when the project has any |
 | `--covers` | the numbers of the objective items the Task covers, e.g. `1,3` (see below) |
@@ -246,7 +247,7 @@ text, unchanged. Section 0 still applies (write `existing.md`), but here it only
   - `--affected-paths` from the prompt's "Ownership" / "Owns" lines and the "File ownership per wave" table in
     `docs/dev/PLAN.md`;
   - `--criteria` from the prompt's "Done means";
-  - `--difficulty` from how hard the prompt is (the model follows it), with `--model-reason`;
+  - `--difficulty` from how hard the prompt is (the model follows it), with `--model-reason`; `--effort` beside it (section 3);
   - `--basis` and `--evidence`, as in section 0.
 - **Keep the deps Astera computed.** They come from PLAN.md's wave table (each row waits for the rows before it; a
   prompt that says "run alone" is a wave of its own) and the prompts' "after X merges" sentences. Each Task's spec says
