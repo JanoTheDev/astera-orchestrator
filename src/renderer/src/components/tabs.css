@@ -1,5 +1,7 @@
 /* ---------- tabs ---------- */
-.tabs { display: flex; align-items: center; overflow-x: auto; }
+/* overflow-y is set explicitly: with overflow-x auto it would compute to auto, and any child taller than the
+   bar would then raise a vertical scrollbar at the bar's right edge. Tabs scroll sideways only. */
+.tabs { display: flex; align-items: center; overflow-x: auto; overflow-y: hidden; }
 /* 이 padding 은 죽은 값이다 — WorkbenchTabs 는 .pane-tabbar 안에서만 렌더링되고, 거기서는
    .pane-tabbar .tab 이 padding: 0 12px 로 덮어쓴다. 앱이 실제로 그리는 모든 탭이 그 규칙을 타므로,
    여기 다시 토큰을 걸지 않는다 */
