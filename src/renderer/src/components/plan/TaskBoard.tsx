@@ -135,6 +135,7 @@ export function TaskBoard({
   const kind = kinds.some((k) => k.kind === kindFilter) ? kindFilter : 'all'
   const rank = (tk: JobTask): number => CATEGORIES.indexOf(categoryOf(tk))
   // a long board draws only the Task rows on screen (each step's list windows itself)
+  let estimatedTop = 0 // where the next step's list starts, for the first render's window
   const virtual = waves.reduce((n, w) => n + filterByKind(w.tasks, kind).length, 0) > VIRTUAL_AFTER_ROWS
   return (
     <div className="plan-board plan-waves">
@@ -155,9 +156,11 @@ export function TaskBoard({
       {waves.map((w, wi) => {
         const shown = filterByKind(w.tasks, kind)
         if (shown.length === 0) return null
+        const listTop = estimatedTop
         const isCurrent = w.index === current
         const percent = Math.floor((w.done * 100) / w.tasks.length)
         const hidden = folded.has(w.index) !== flipped.has(w.index) && !w.tasks.some((tk) => tk.id === selected)
+        estimatedTop += WAVE_HEAD_ESTIMATE + (hidden ? 0 : shown.length * ROW_ESTIMATE)
         const progress = t('plan.wave.progress', { done: w.done, total: w.tasks.length })
         const step = stepStateOf(w, waves, replanning)
         return (
@@ -199,6 +202,7 @@ export function TaskBoard({
               <WaveCards
                 tasks={[...shown].sort((x, y) => rank(x) - rank(y))}
                 virtual={virtual}
+                top={listTop + WAVE_HEAD_ESTIMATE}
                 reveal={selected}
                 renderRow={(tk, rowRef) => (
                   <TaskRow
@@ -244,21 +248,26 @@ export function TaskBoard({
 
 /** Height of a collapsed Task row until it has been drawn once (--list-row-h) */
 const ROW_ESTIMATE = 24
+/** A step's heading line, and the gap under it, until laid out */
+const WAVE_HEAD_ESTIMATE = 40
 
 /** One step's Task rows. `virtual`: only the rows on screen are drawn, the rest is the list's padding. A selected row
  *  that is out of the window is scrolled in (the callers that jump to a Task look it up by its anchor afterwards). */
 function WaveCards({
   tasks,
   virtual,
+  top,
   reveal,
   renderRow
 }: {
   tasks: readonly JobTask[]
   virtual: boolean
+  /** Estimated distance from the board's top to this list (the steps above it) */
+  top: number
   reveal: string | undefined
   renderRow: (task: JobTask, rowRef: (el: HTMLElement | null) => void) => React.ReactNode
 }): React.JSX.Element {
-  const vr = useVirtualRows<HTMLUListElement>(tasks.map((tk) => tk.id), () => ROW_ESTIMATE, virtual)
+  const vr = useVirtualRows<HTMLUListElement>(tasks.map((tk) => tk.id), () => ROW_ESTIMATE, virtual, top)
   useLayoutEffect(() => {
     if (reveal !== undefined) vr.revealKey(reveal)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only a new selection scrolls

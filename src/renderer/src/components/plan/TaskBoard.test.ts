@@ -152,6 +152,13 @@ describe('TaskBoard windowing', () => {
     expect(rows).toBeGreaterThan(0)
     expect(rows).toBeLessThan(60)
   })
+  it('draws far fewer than 600 rows when the Tasks are split into 20 steps of 30', () => {
+    const all = many(600)
+    const layers = Array.from({ length: 20 }, (_, i) => all.slice(i * 30, i * 30 + 30).map((x) => x.id))
+    const rows = rowsOf(board({ tasks: all, layers }))
+    expect(rows).toBeGreaterThan(0)
+    expect(rows).toBeLessThan(80)
+  })
   it('draws every row of a small board', () => {
     expect(rowsOf(board({ tasks: many(10), layers: [many(10).map((x) => x.id)] }))).toBe(10)
   })

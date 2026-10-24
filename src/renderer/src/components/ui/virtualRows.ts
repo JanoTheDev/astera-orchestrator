@@ -98,12 +98,19 @@ export type VirtualRows<E extends HTMLElement> = {
 }
 
 /** The window of `keys` (one per row) for the list in `listRef`, inside its scrolling ancestor. `estimate` is a row's
- *  height until it has been drawn once. Not `enabled`: every row is drawn and nothing is observed. */
-export function useVirtualRows<E extends HTMLElement>(keys: readonly string[], estimate: (index: number) => number, enabled: boolean): VirtualRows<E> {
+ *  height until it has been drawn once. `listTop` is where the list starts below the scroller's top at scroll 0, as far
+ *  as the caller can tell before layout: the first render draws only the rows that estimate puts on screen, so several
+ *  lists in one scroller do not each draw their head. Not `enabled`: every row is drawn and nothing is observed. */
+export function useVirtualRows<E extends HTMLElement>(
+  keys: readonly string[],
+  estimate: (index: number) => number,
+  enabled: boolean,
+  listTop = 0
+): VirtualRows<E> {
   const listRef = useRef<E>(null)
   const heights = useRef(new Map<string, number>())
   const [, setTick] = useState(0)
-  const [view, setView] = useState({ y: 0, h: VIRTUAL_DEFAULT_VIEWPORT_H })
+  const [view, setView] = useState({ y: -listTop, h: VIRTUAL_DEFAULT_VIEWPORT_H })
   const on = useRef(enabled)
   const observer = useRef<ResizeObserver | null>(null)
   const keyOf = useRef(new WeakMap<Element, string>())
