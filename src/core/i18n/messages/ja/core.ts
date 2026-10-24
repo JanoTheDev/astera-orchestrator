@@ -241,6 +241,8 @@ export const core: Partial<Record<keyof typeof ko, string>> = {
     'この Task に指定された最初のアカウントが使用できず、その後ろのアカウントは後で切り替えるための順番にすぎません — そのアカウントに再ログインするか、この Task のアカウント一覧を変更してください',
   // exec/dispatchLoop.ts, exec/integrateGit.ts — the integration merge's Task titles and Gate reasons
   'jobs.integration.title': "ワークツリーの統合: {title}",
+  // exec/dispatchLoop.ts — T5: the fix Task a hands-free plan opens when its delivery checks fail
+  'jobs.deliveryFix.title': "デリバリーのチェックを修正 ({n}/{limit})",
   'jobs.integration.runWorktreeNotRecorded': "Run のワークツリーを記録できませんでした: {error}",
   'jobs.integration.runWorktreeNotMade': "Run のワークツリーを作成できませんでした: {error}",
   'jobs.integration.taskFailed': "統合 Task({task})が失敗したため、ワークツリーを統合できませんでした。",

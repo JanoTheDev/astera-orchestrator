@@ -249,6 +249,8 @@ export const core: Partial<Record<keyof typeof ko, string>> = {
     'No se puede usar la primera cuenta asignada a esta Task, y las siguientes solo están ahí para pasar a ellas más tarde — vuelve a iniciar sesión en esa cuenta o cambia la lista de cuentas de esta Task',
   // exec/dispatchLoop.ts, exec/integrateGit.ts — the integration merge's Task titles and Gate reasons
   'jobs.integration.title': "Fusionar worktrees: {title}",
+  // exec/dispatchLoop.ts — T5: the fix Task a hands-free plan opens when its delivery checks fail
+  'jobs.deliveryFix.title': "Arreglar las comprobaciones de entrega ({n} de {limit})",
   'jobs.integration.runWorktreeNotRecorded': "No se pudo registrar el worktree de la Run: {error}",
   'jobs.integration.runWorktreeNotMade': "No se pudo crear el worktree de la Run: {error}",
   'jobs.integration.taskFailed': "La Task de integración ({task}) falló, así que los worktrees no se fusionaron.",

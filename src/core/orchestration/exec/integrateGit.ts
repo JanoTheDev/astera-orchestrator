@@ -965,8 +965,9 @@ export interface PushContext {
 /** T3: why a push delivery stopped part-way, for the caller to tell a retry from an integration Task: `fetch-failed`
  *  origin could not be read, `rejected` origin kept refusing the push, `origin-conflict` origin moved on and does not
  *  merge with the plan, `merge-failed` the plan's worktrees did not merge into the branch, T1: `main-diverged` the
- *  folder's branch has commits origin does not, so it cannot fast-forward (the owner's to fix; retried by itself). */
-export type PushStop = 'fetch-failed' | 'rejected' | 'origin-conflict' | 'merge-failed' | 'main-diverged'
+ *  folder's branch has commits origin does not, so it cannot fast-forward (the owner's to fix; retried by itself), T5:
+ *  `validation-failed` the checks failed on the merged result (a hands-free plan opens a fix Task for it). */
+export type PushStop = 'fetch-failed' | 'rejected' | 'origin-conflict' | 'merge-failed' | 'main-diverged' | 'validation-failed'
 
 export type PushResult =
   | { ok: true; branch: string; sha: string; merged: string[]; validated: number }
@@ -1118,7 +1119,7 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
     return ctx.validate(cwd)
   }
   const checked = await validateMerged()
-  if (!checked.ok) return undo(`the validation failed on the merged ${branch}: ${checked.reason}`)
+  if (!checked.ok) return undo(`the validation failed on the merged ${branch}: ${checked.reason}`, 'validation-failed')
 
   // 6. Origin can move on while the validation runs (another plan's delivery, a teammate's push). Its commits are merged
   // in, the result validated again (a clean merge can still clash, e.g. two migrations taking one number), then pushed;
@@ -1150,7 +1151,7 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
         )
       }
       const rechecked = await validateMerged()
-      if (!rechecked.ok) return undo(`the validation failed after merging origin/${branch}, which moved on during the delivery: ${rechecked.reason}`)
+      if (!rechecked.ok) return undo(`the validation failed after merging origin/${branch}, which moved on during the delivery: ${rechecked.reason}`, 'validation-failed')
       validated = rechecked.ran
     }
     pushed = await run(['push', 'origin', branch], w)

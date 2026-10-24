@@ -11,7 +11,7 @@ import { handleCommand, type OrchServerDeps } from './command'
 import { emptyState, type OrchState } from './state'
 import type { JobRun, Project, Task } from './types'
 import { HOST_CALLER } from '../host/driver'
-import { cleanAfterDelivery, deliveryChecksOf, deliveryIssuesOf, deliveryMessage, deliveryOf, recordDelivery, setProjectDelivery } from './delivery'
+import { cleanAfterDelivery, DELIVERY_FIX_MARK, deliveryChecksOf, deliveryIssuesOf, deliveryMessage, deliveryOf, recordDelivery, setProjectDelivery } from './delivery'
 import { outcomeOf } from './running'
 import { deriveActivity, noticeOf, type ActivityEvent } from './activity'
 import type { PushDelivery, PushResult } from './exec/integrateGit'
@@ -573,6 +573,55 @@ describe('T1: main that cannot fast-forward is retried by itself and clears once
     expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'delivered', attempts: 6 })
     expect(h.state().runs[0].deliveryState?.lastCode).toBeUndefined()
     expect(outcomeOf(h.state(), 'r1')).toBe('completed')
+  })
+})
+
+describe('T5: a hands-free plan mends a failed delivery validation with fix Tasks', () => {
+  const failed: PushResult = { ok: false, branch: 'main', reason: 'the validation failed on the merged main: npm test exited 1', code: 'validation-failed' }
+  const fixTask = (n: number): Task => task({ id: `fx${n}`, parentId: 't2', spec: `${DELIVERY_FIX_MARK} (fix ${n} of 3)` })
+  const questions = (h: ReturnType<typeof setup>) => h.state().messages.filter((m) => m.type === 'escalation' && m.runId === 'r1')
+  const due = (h: ReturnType<typeof setup>): void => {
+    const run = h.state().runs[0]
+    h.state().runs[0] = { ...run, deliveryState: { ...run.deliveryState!, nextRetryAt: NOW } }
+  }
+
+  it.each([
+    ['hands-off', { handsOff: true }],
+    ['auto-approve', { autoApprove: true }]
+  ])('a %s plan never reads needs-owner nor asks the owner while fix Tasks are left', async (_name, flags) => {
+    const h = setup({ project: { delivery: 'push', ...flags }, run: { worktree: '/wt-run' }, push: failed })
+    await h.call('run-deliver', { run: 'r1', pending: true })
+    for (let i = 1; i <= 6; i++) {
+      due(h)
+      expect((await h.call('run-deliver', { run: 'r1', auto: true })).body).toMatchObject({ code: 'validation-failed', deliveryState: { state: 'retrying' } })
+    }
+    expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'retrying', attempts: 6, lastCode: 'validation-failed' })
+    expect(questions(h)).toEqual([])
+  })
+
+  it('after FAILURE_LIMIT fix Tasks the next failed validation asks the owner at once, with its reason', async () => {
+    const h = setup({
+      project: { delivery: 'push', handsOff: true },
+      run: { worktree: '/wt-run' },
+      push: failed,
+      tasks: [task(), task({ id: 't2' }), fixTask(1), fixTask(2), fixTask(3)]
+    })
+    await h.call('run-deliver', { run: 'r1', pending: true })
+    const r = await h.call('run-deliver', { run: 'r1', auto: true })
+    expect(r.body).toMatchObject({ code: 'validation-failed', deliveryState: { state: 'needs-owner', attempts: 1 } })
+    expect(questions(h)).toHaveLength(1)
+    expect(questions(h)[0].body).toContain('npm test exited 1')
+  })
+
+  it('a plan that is neither hands-off nor auto-approve keeps the backoff and asks at the fifth attempt', async () => {
+    const h = setup({ project: { delivery: 'push' }, run: { worktree: '/wt-run' }, push: failed })
+    await h.call('run-deliver', { run: 'r1', pending: true })
+    for (let i = 1; i <= 5; i++) {
+      due(h)
+      await h.call('run-deliver', { run: 'r1', auto: true })
+      expect(questions(h)).toHaveLength(i < 5 ? 0 : 1)
+    }
+    expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'needs-owner', attempts: 5, lastCode: 'validation-failed' })
   })
 })
 

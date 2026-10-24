@@ -9,7 +9,7 @@ import { GITHUB_SOURCE_ID } from '../github/issueSource'
 import { checkConfigIdsOf } from './convergence'
 import { jobNameOf } from './jobName'
 import { addDecision, jobOf, type OrchState, type Res } from './state'
-import { newId, type DeliveryMode, type DeliveryProgress, type Job, type JobRun, type Project, type RunDelivery } from './types'
+import { FAILURE_LIMIT, newId, type DeliveryMode, type DeliveryProgress, type Job, type JobRun, type Project, type RunDelivery, type Task } from './types'
 import { findProject, projectOfJob } from './projects'
 
 export const DELIVERIES = ['pr', 'push', 'manual'] as const satisfies readonly DeliveryMode[]
@@ -223,6 +223,52 @@ export function deliveryAnswerOf(s: OrchState, p: DeliveryProgress | undefined):
   if (choice === DELIVERY_RETRY_NOW.toLowerCase()) return 'retry'
   if (choice === DELIVERY_OWNER_PUSHES.toLowerCase()) return 'self'
   return null
+}
+
+// ── T5: a hands-free plan mends a failed delivery validation itself ──
+
+/** Whether a plan runs with no person approving: hands-off, or auto-approve (the plan's own, else its project's). */
+export const handsFreeOf = (s: OrchState, job: Job): boolean =>
+  handsOffOf(s, job) || (job.autoApprove ?? projectOfJob(s, job)?.autoApprove) === true
+
+/** The words every delivery fix Task's spec holds. A fix Task hangs off the Run's last Task, as an integration Task does,
+ *  and the Run's own Tasks are counted by these words, not by a stored counter. */
+export const DELIVERY_FIX_MARK = 'make the delivery checks pass on the merged result'
+
+export const deliveryFixesOf = (s: OrchState, runId: string): Task[] =>
+  s.tasks.filter((t) => t.runId === runId && t.parentId !== undefined && t.spec.includes(DELIVERY_FIX_MARK))
+
+/** What a failed delivery validation of this Run leads to: `fix` a fix Task (no owner question meanwhile), `owner`
+ *  FAILURE_LIMIT fix Tasks did not make it pass, so the owner is asked now; null: not a hands-free plan with a plan
+ *  branch (the Run's worktree, where a fix Task works), so the retries and the owner question go as for any stop. */
+export function deliveryFixOf(s: OrchState, run: JobRun): 'fix' | 'owner' | null {
+  const job = jobOf(s, run)
+  if (!job || run.worktree === undefined || !handsFreeOf(s, job)) return null
+  return deliveryFixesOf(s, run.id).length < FAILURE_LIMIT ? 'fix' : 'owner'
+}
+
+/** The spec of the `n`th fix Task: it works in the plan branch (`runRoot`), merges origin's branch in first so it stands
+ *  on the merged result the delivery validated, and holds the failing checks' output (`reason`, its tail). */
+export function buildDeliveryFixSpec(a: { runRoot: string; branch?: string; reason: string; n: number }): string {
+  const origin = a.branch === undefined ? 'origin/HEAD' : `origin/${a.branch}`
+  const fetch = a.branch === undefined ? 'git fetch origin' : `git fetch origin ${a.branch}`
+  return `This plan's delivery stopped: its checks failed on the merged result (this plan branch with ${origin} merged
+in), so nothing was pushed. Your task: ${DELIVERY_FIX_MARK} (fix ${a.n} of ${FAILURE_LIMIT}).
+
+The repository is at ${a.runRoot}, on the plan branch, and that is your working directory. Do not switch branches
+and do not create a new one.
+
+1. ${fetch} && git merge --no-edit ${origin}
+   A conflict is resolved so both sides' work survives; never \`git merge --abort\` or \`git reset --hard\`.
+2. Make the failing checks below pass. Fix the cause; never skip, delete or weaken a test or a check.
+3. Run the checks that failed (heavy jobs through \`astera heavy -- <cmd>\`), then commit everything:
+   \`git status --porcelain\` must print nothing when you are done.
+
+Once you report, Astera validates the merged result again and delivers it.
+
+What failed:
+${a.reason.slice(-4000)}
+`
 }
 
 // ── T1: delivery state machine ──

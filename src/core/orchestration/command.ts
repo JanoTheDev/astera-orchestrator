@@ -245,7 +245,9 @@ import {
   dismissDelivery,
   landedOnGitHub,
   ownerMaySettle,
-  withoutDeliveryError
+  withoutDeliveryError,
+  // T5: a hands-free plan mends a failed delivery validation itself
+  deliveryFixOf
 } from './delivery'
 import { settingRefusalOf } from './planSettings'
 import type { DeliveryProgress } from './types'
@@ -6871,9 +6873,19 @@ export async function handleCommand(
         return conflict('No delivery attempt is due for this Run yet')
       /** One attempt's end, recorded: delivered, or one more failure with its retry time; the fifth asks the owner once.
        *  A person's --force starts the count again. */
-      const settle = async (error: string | undefined, st: OrchState = deps.getState(), code?: string): Promise<DeliveryProgress> => {
+      const settle = async (
+        error: string | undefined,
+        st: OrchState = deps.getState(),
+        code?: string,
+        /** T5: `fix` never reads needs-owner (a fix Task runs), `owner` asks the owner at this attempt */
+        fix?: 'fix' | 'owner' | null
+      ): Promise<DeliveryProgress> => {
         const at = deps.now?.() ?? now
-        let next = afterAttempt(force ? undefined : progressOf(s), at, error, code !== undefined ? { code } : undefined)
+        let next = afterAttempt(force ? undefined : progressOf(s), at, error, {
+          ...(code !== undefined ? { code } : {}),
+          ...(fix === 'fix' ? { ask: false } : {})
+        })
+        if (fix === 'owner' && next.state === 'retrying') next = { ...next, state: 'needs-owner' }
         let out = withProgress(st, next)
         if (next.state === 'needs-owner' && next.questionId === undefined) {
           out = raiseDeliveryQuestion(out, id, at)
@@ -6938,7 +6950,9 @@ export async function handleCommand(
         r.ok ? { at, branch: r.branch, sha: r.sha } : { at, ...(r.branch ? { branch: r.branch } : {}), error: r.reason },
         { quiet: true }
       )
-      const p = await settle(r.ok ? undefined : r.reason, recorded, r.ok ? undefined : r.code)
+      // T5: a hands-free plan's failed validation becomes a fix Task (the loop opens it), until FAILURE_LIMIT of them ran
+      const fix = !r.ok && r.code === 'validation-failed' ? deliveryFixOf(deps.getState(), run) : null
+      const p = await settle(r.ok ? undefined : r.reason, recorded, r.ok ? undefined : r.code, fix)
       if (!r.ok)
         return { status: 409, body: { error: r.reason, ...(r.branch ? { branch: r.branch } : {}), ...(r.code ? { code: r.code } : {}), ...(r.conflictWith ? { conflictWith: r.conflictWith } : {}), deliveryState: p } }
       const removed = deps.removeWorktrees && r.merged.length > 0 ? await deps.removeWorktrees(r.merged) : null

@@ -57,7 +57,18 @@ import { draftPrDue } from '../draftPr'
 import { refreshOnto, type Integration, type Refresh } from './integrateGit'
 import { createOriginSync, originSyncHold } from './originSync'
 import { usageChoice, usagePauseWhy, type UsageGuard } from '../usageGuard'
-import { deliveryAnswerOf, deliveryDue, deliveryOf, handsOffOf, ownerCheckDue, projectOfJob } from '../delivery'
+import {
+  buildDeliveryFixSpec,
+  DELIVERY_FIX_MARK,
+  deliveryAnswerOf,
+  deliveryDue,
+  deliveryFixesOf,
+  deliveryFixOf,
+  deliveryOf,
+  handsOffOf,
+  ownerCheckDue,
+  projectOfJob
+} from '../delivery'
 // W8-C plan after plan
 import { afterStartsDue, afterSweep } from '../after'
 // Coordinator rotation and finished tabs
@@ -839,6 +850,9 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
           })
           planActivity(run.id, `Integration Task created in plan ${plan} for its conflict with ${where} (${sha.slice(0, 7)})`)
         }
+        // T5: a hands-free plan's checks failed on the merged result: a fix Task in the plan branch makes them pass, and
+        // once it completes the Run is delivered (validated) again; FAILURE_LIMIT of them, then run-deliver asks the owner
+        if (body?.code === 'validation-failed' && anchor) await startDeliveryFix(run.id, anchor, why, typeof body.branch === 'string' ? body.branch : undefined)
         return
       }
       log(
@@ -850,6 +864,35 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       )
     } catch (e) {
       log(`run=${run.id} completed, and delivering it failed: ${String(e)}`)
+    }
+  }
+
+  /** T5: the next delivery fix Task of a Run whose validation failed (`deliveryFixOf`), hung off `anchor` and started
+   *  in the plan branch as a merge Task is (`startMergeWorker` finds it by its numbered mark). Never throws. */
+  const startDeliveryFix = async (runId: string, anchor: Task, reason: string, branch: string | undefined): Promise<void> => {
+    const s = c.getState()
+    const run = s.runs.find((r) => r.id === runId)
+    if (!run || deliveryFixOf(s, run) !== 'fix') return
+    const n = deliveryFixesOf(s, runId).length + 1
+    const job = jobOf(s, run)
+    try {
+      const made = await c.handle('task-create', {
+        runId,
+        parent: anchor.id,
+        deps: [],
+        account: (anchor.accountIds ?? []).join(','),
+        noReview: true,
+        title: t(c.lang(), 'jobs.deliveryFix.title', { n, limit: FAILURE_LIMIT }).slice(0, 80),
+        spec: buildDeliveryFixSpec({ runRoot: runRootOf(run, job), ...(branch !== undefined ? { branch } : {}), reason, n })
+      })
+      if (made.status >= 400) {
+        log(`run=${runId}: the delivery fix task could not be made: ${JSON.stringify(made.body)}`)
+        return
+      }
+      await startMergeWorker({ runId, taskId: anchor.id, key: `${DELIVERY_FIX_MARK} (fix ${n} of ${FAILURE_LIMIT})`, reason, worktrees: [] })
+      planActivity(runId, `Fix Task ${n} of ${FAILURE_LIMIT} created in plan ${job ? jobNameOf(job) : runId} for its failed delivery checks`)
+    } catch (e) {
+      log(`run=${runId}: the delivery fix task failed to start: ${String(e)}`)
     }
   }
 
