@@ -825,6 +825,15 @@ describe('createHostSpawner — createSession', () => {
     expect(spawnedCb).toEqual([info.id])
   })
 
+  // A handover (sessionRestore.ts) resumes the session under its own id: its tab and its Dispatch find it again.
+  it('starts the session under the id it is given', async () => {
+    const h = rig()
+    const info = await h.spawner!.createSession({ accountId: 'acc1', cwd: repo, rollAccountIds: [], resumeSessionId: 'native-1', sessionId: 'sess-old' })
+    expect(info.id).toBe('sess-old')
+    expect(h.registry.list()[0].meta).toMatchObject({ kind: 'session', id: 'sess-old' })
+    expect(h.spawned[0].opts.env.ASTERA_SESSION).toBe('sess-old')
+  })
+
   it('reads the permission setting as a worker start does: manual means prompts on', async () => {
     await fs.writeFile(path.join(profile, 'app-settings.json'), JSON.stringify({ agentPermissionMode: 'manual' }))
     const h = rig()

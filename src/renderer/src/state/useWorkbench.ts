@@ -26,7 +26,7 @@ import { ACTIVITY_STORAGE_KEY, activityOfSaved, togglePage, type ActivityId, typ
 import { requestBox } from '../components/command/boxStore'
 import { openActivity, openView, revealRunConfigs, togglePanel, toggleSideBar } from '../components/shell/navigation'
 import { storageWrite } from '../components/shell/shellView'
-import { terminalsWithCreated } from '../lib/terminalTabs'
+import { LOST_SIGHT_EXIT_CODE, LOST_TERMINAL_GRACE_MS, terminalsWithCreated, terminalsWithExit } from '../lib/terminalTabs'
 import { isCancelled as isWorktreeCancelled } from '../lib/worktreeErrors'
 import { spawnErrorMessage } from '../lib/spawnErrors'
 import { notifyCreated as notifyWorktreeCreated } from '../lib/worktreeBus'
@@ -776,17 +776,30 @@ export function useWorkbench(deps: WorkbenchDeps) {
   // background=true: nobody asked for it just now, so it must not take the keys someone is typing.
   // The root is read through the ref because this is registered once at mount (bottomRootRef, not
   // currentProjectRef — with no project those two differ, and the panel shows the home root).
+  // A shell the app only lost sight of (a Host handover, a dropped socket) keeps its tab for the Host to give back
+  // under the same id; it goes only if nothing does within the grace (terminalsWithExit).
   useEffect(() => {
-    const off = window.api.on('terminal:exit', ({ id }) => {
+    const lost = new Map<string, ReturnType<typeof setTimeout>>()
+    const drop = (id: string): void => {
       setTerminals((prev) => prev.filter((x) => x.id !== id))
       setBottomTab((cur) => (cur === id ? 'run' : cur))
+    }
+    const off = window.api.on('terminal:exit', (e) => {
+      clearTimeout(lost.get(e.id))
+      lost.delete(e.id)
+      setTerminals((prev) => terminalsWithExit(prev, e))
+      if (e.exitCode === LOST_SIGHT_EXIT_CODE) lost.set(e.id, setTimeout(() => (lost.delete(e.id), drop(e.id)), LOST_TERMINAL_GRACE_MS))
+      else setBottomTab((cur) => (cur === e.id ? 'run' : cur))
     })
     const offCreated = window.api.on('terminal:created', (info) => {
+      clearTimeout(lost.get(info.id))
+      lost.delete(info.id)
       setTerminals((prev) => terminalsWithCreated(prev, info, bottomRootRef.current))
     })
     return () => {
       off()
       offCreated()
+      for (const t of lost.values()) clearTimeout(t)
     }
   }, [])
 

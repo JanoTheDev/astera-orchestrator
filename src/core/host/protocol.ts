@@ -358,8 +358,12 @@ export type ClientMessage =
    *  The default, `'protocol'`, is what the app already sends on finding a Host it cannot talk to
    *  (`main/host/client.ts`'s protocol-mismatch handling, and `retireOlderHosts`) — that Host's
    *  sessions are already unreachable to the app that is asking, so refusing would strand it there
-   *  forever instead of letting a Host it can talk to take the address. */
-  | { t: 'retire'; reason?: 'user' | 'protocol' }
+   *  forever instead of letting a Host it can talk to take the address.
+   *
+   *  **`resume: true` is a handover** (the self-updating background service): the Host writes down its agent sessions,
+   *  shell terminals and run processes before it ends them, and the next Host brings them back (host/sessionRestore.ts).
+   *  Refused while a Task is actively working. An older Host ignores the flag and leaves as for a plain retire. */
+  | { t: 'retire'; reason?: 'user' | 'protocol'; resume?: boolean }
   /** The heartbeat. Sent only to a Host whose `hello` named HOST_FEATURE_PING, and answered with a
    *  `pong` carrying the same `seq`. What it asks is not "are you there" — the socket answers that —
    *  but "is your event loop still turning", which is the one thing a stuck pty spawn takes away. */
@@ -426,6 +430,8 @@ export type HostMessage =
        *  reported 2 — and `astera host status` has a `jobs` of its own meaning a third thing (how
        *  many Jobs the file holds). One unit, one word. */
       runs: number
+      /** A `resume` retire's refusal: the Tasks actively working (a worker, a check, a review or a merge). */
+      tasks?: number
     }
   | { t: 'pong'; seq: number }
   | OrchResultMessage

@@ -428,9 +428,10 @@ export class HostClient {
    * in host/index.ts) and returns. It never throws: a Host that was not there, or does not answer, is
    * the outcome this was asking for.
    */
-  async retire(a: { announce?: boolean } = {}): Promise<void> {
+  async retire(a: { announce?: boolean; resume?: boolean } = {}): Promise<void> {
     try {
-      this.send({ t: 'retire' })
+      // `resume`: a handover, so the next Host brings the sessions back (protocol.ts); an older Host ignores it.
+      this.send({ t: 'retire', ...(a.resume ? { resume: true } : {}) })
     } catch {
       /* nothing listening is the state this asks for */
     }
