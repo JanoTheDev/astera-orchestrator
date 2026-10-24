@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import path from 'node:path'
 import {
   accountRemovalBlockers,
+  accountRemovalPlan,
   closeConversationOnExit,
   codexRolloutFromNote,
   conversationAttentionOf,
@@ -198,6 +199,7 @@ describe('parseAllowedExternalUrl — 외부 URL 스킴 화이트리스트', () 
 // 지우게 하는 쪽이다.
 describe('accountRemovalBlockers', () => {
   const s = (o: Partial<{ accountId: string; rollAccountIds: string[]; status: 'running' | 'exited'; title: string }>) => ({
+    id: o.title ?? 'tab',
     accountId: o.accountId ?? 'a1',
     rollAccountIds: o.rollAccountIds,
     status: o.status ?? ('running' as const),
@@ -231,6 +233,67 @@ describe('accountRemovalBlockers', () => {
       s({ accountId: 'a2', rollAccountIds: ['a2', 'a1'], title: '둘째' })
     ]
     expect(accountRemovalBlockers('a1', rows)).toEqual(['첫째', '둘째'])
+  })
+})
+
+describe('accountRemovalPlan — finished workers are released, live work blocks', () => {
+  const sess = (id: string, o: Partial<{ accountId: string; rollAccountIds: string[]; status: 'running' | 'exited' }> = {}) => ({
+    id,
+    accountId: o.accountId ?? 'a1',
+    rollAccountIds: o.rollAccountIds,
+    status: o.status ?? ('running' as const),
+    title: `title-${id}`
+  })
+  const orchOf = (taskStatus: string, d: { retained?: boolean; sessionId?: string }[] = [{ retained: true }]) =>
+    ({
+      tasks: [{ id: 't1', status: taskStatus }],
+      dispatches: d.map((x, i) => ({ id: `d${i + 1}`, taskId: 't1', sessionId: x.sessionId ?? 's1', retained: x.retained ?? false }))
+    }) as unknown as Parameters<typeof accountRemovalPlan>[2]
+
+  it('a retained worker of a completed Task is released, not a blocker', () => {
+    const plan = accountRemovalPlan('a1', [sess('s1')], orchOf('completed'))
+    expect(plan.blockers).toEqual([])
+    expect(plan.releasable).toEqual([{ dispatchId: 'd1', title: 'title-s1' }])
+  })
+
+  it('a worker of a failed Task is released too', () => {
+    expect(accountRemovalPlan('a1', [sess('s1')], orchOf('failed', [{}])).releasable).toHaveLength(1)
+  })
+
+  it.each(['dispatched', 'validating', 'reviewing', 'merging', 'blocked'])('a worker of a %s Task still blocks', (status) => {
+    const plan = accountRemovalPlan('a1', [sess('s1')], orchOf(status))
+    expect(plan.blockers).toEqual(['title-s1'])
+    expect(plan.releasable).toEqual([])
+  })
+
+  it('a session no Dispatch owns (a user tab, a chat) still blocks', () => {
+    const plan = accountRemovalPlan('a1', [sess('tab')], orchOf('completed'))
+    expect(plan.blockers).toEqual(['title-tab'])
+    expect(plan.releasable).toEqual([])
+  })
+
+  it('a reused session is judged by its latest Dispatch', () => {
+    const state = {
+      tasks: [
+        { id: 't1', status: 'completed' },
+        { id: 't2', status: 'dispatched' }
+      ],
+      dispatches: [
+        { id: 'd1', taskId: 't1', sessionId: 's1', retained: true },
+        { id: 'd2', taskId: 't2', sessionId: 's1', retained: false }
+      ]
+    } as unknown as Parameters<typeof accountRemovalPlan>[2]
+    expect(accountRemovalPlan('a1', [sess('s1')], state).blockers).toEqual(['title-s1'])
+  })
+
+  it('without orchestration state every session blocks', () => {
+    expect(accountRemovalPlan('a1', [sess('s1')]).blockers).toEqual(['title-s1'])
+  })
+
+  it('exited sessions and other accounts are ignored; the rolling chain counts', () => {
+    const rows = [sess('s1', { status: 'exited' }), sess('s2', { accountId: 'a2' }), sess('s3', { accountId: 'a2', rollAccountIds: ['a2', 'a1'] })]
+    const state = { tasks: [{ id: 't1', status: 'completed' }], dispatches: [{ id: 'd3', taskId: 't1', sessionId: 's3', retained: false }] } as unknown as Parameters<typeof accountRemovalPlan>[2]
+    expect(accountRemovalPlan('a1', rows, state)).toEqual({ blockers: [], releasable: [{ dispatchId: 'd3', title: 'title-s3' }] })
   })
 })
 

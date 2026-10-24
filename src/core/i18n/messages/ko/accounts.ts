@@ -58,6 +58,8 @@ export const accounts = {
   'account.remove.confirmWithLogout': '해제 + 로그아웃',
   'account.logout.failed': '로그아웃 실패: {detail}\n\n등록 해제는 계속 진행합니다.',
   'account.remove.inUse': '돌아가는 세션이 이 계정을 쓰고 있어 등록을 해제할 수 없습니다: {titles}\n\n세션을 닫거나, 그 세션의 롤링 순서에서 이 계정을 빼 주세요.',
+  'account.remove.willClose': '끝난 워커 세션 {count}개가 닫힙니다: {titles}',
+  'account.remove.releaseFailed': '끝난 워커 세션을 닫지 못해 계정 등록을 해제하지 않았습니다: {detail}',
   // AccountPanel.tsx — default-account settings sync. A destructive action that overwrites the target account's settings.
   'account.sync.title': '기본 계정 설정 가져오기',
   'account.sync.confirmBody': '‘{source}’ 계정의 설정을 ‘{label}’ 계정으로 가져옵니다.',

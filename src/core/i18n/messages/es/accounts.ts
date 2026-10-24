@@ -33,6 +33,8 @@ export const accounts: Partial<Record<keyof typeof ko, string>> = {
   'account.remove.confirmWithLogout': 'Anular y cerrar sesión',
   'account.logout.failed': 'Error al cerrar sesión: {detail}\n\nLa anulación del registro continúa igualmente.',
   'account.remove.inUse': 'Una sesión en curso está usando esta cuenta, así que no se puede anular su registro: {titles}\n\nCierra la sesión o quita la cuenta de su orden de rotación.',
+  'account.remove.willClose': 'Se cerrarán {count} sesión(es) de worker terminada(s): {titles}',
+  'account.remove.releaseFailed': 'No se pudo cerrar una sesión de worker terminada, así que la cuenta no se dio de baja: {detail}',
   // AccountPanel.tsx — default-account settings sync. A destructive action that overwrites the target account's settings.
   'account.sync.title': 'Importar la configuración de la cuenta predeterminada',
   'account.sync.confirmBody':

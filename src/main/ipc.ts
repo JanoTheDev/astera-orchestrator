@@ -477,20 +477,37 @@ export function parseAllowedExternalUrl(url: string): URL | null {
  *
  *  종료된 세션은 세지 않는다 — 그 계정을 붙잡고 있지 않다.
  *
+ *  끝난 Task(completed/failed)의 워커 세션은 막지 않고 `releasable` 로 따로 돌린다: 사용자가 붙잡은
+ *  것이 아니라 오케스트레이션이 남겨 둔(retained 포함) 세션이므로, 지우기 전에 놓아 주면 된다.
+ *
  *  핸들러가 아니라 여기 순수 함수로 두는 이유는 `providerOfSession` 과 같다: 핸들러는 electron
  *  하네스 없이는 닿을 수 없으므로, 판단은 테스트가 부를 수 있는 자리에 둔다. */
-export function accountRemovalBlockers(
+export function accountRemovalPlan(
   accountId: string,
-  sessions: readonly Pick<SessionInfo, 'accountId' | 'rollAccountIds' | 'status' | 'title'>[]
-): string[] {
-  return sessions
-    .filter(
-      (s) =>
-        s.status !== 'exited' &&
-        (s.accountId === accountId || (s.rollAccountIds ?? []).includes(accountId))
-    )
-    .map((s) => s.title)
+  sessions: readonly Pick<SessionInfo, 'id' | 'accountId' | 'rollAccountIds' | 'status' | 'title'>[],
+  orch?: Pick<OrchState, 'tasks' | 'dispatches'>
+): { blockers: string[]; releasable: { dispatchId: string; title: string }[] } {
+  const blockers: string[] = []
+  const releasable: { dispatchId: string; title: string }[] = []
+  for (const s of sessions) {
+    if (s.status === 'exited') continue
+    if (s.accountId !== accountId && !(s.rollAccountIds ?? []).includes(accountId)) continue
+    // A worker session is only finished when the latest Dispatch that owns it belongs to a Task that is over;
+    // a user's tab or a chat has no Dispatch and always blocks.
+    const owner = orch?.dispatches.filter((d) => d.sessionId === s.id).at(-1)
+    const task = owner && orch?.tasks.find((t) => t.id === owner.taskId)
+    if (owner && task && (task.status === 'completed' || task.status === 'failed')) {
+      releasable.push({ dispatchId: owner.id, title: s.title })
+    } else blockers.push(s.title)
+  }
+  return { blockers, releasable }
 }
+
+export const accountRemovalBlockers = (
+  accountId: string,
+  sessions: Parameters<typeof accountRemovalPlan>[1],
+  orch?: Parameters<typeof accountRemovalPlan>[2]
+): string[] => accountRemovalPlan(accountId, sessions, orch).blockers
 
 export function providerOfSession(
   sessionId: string,
@@ -2036,11 +2053,21 @@ export function registerIpc(
   // 돌아가는 세션이 쓰는 계정은 지우지 않는다 — 판단은 accountRemovalBlockers(위)에 있고, 여기는
   // 세션 목록을 건네고 결과를 렌더러가 읽을 모양으로 바꾸는 일만 한다. 렌더러에도 같은 검사를 두면
   // 두 곳이 어긋날 수 있으므로 두지 않는다: 여기가 경계다.
-  ipcMain.handle('accounts.remove', async (_e, id) => {
-    const blockers = accountRemovalBlockers(id, allSessions())
-    if (blockers.length > 0) return { ok: false as const, titles: blockers }
+  ipcMain.handle('accounts.remove', async (_e, id, opts?: { dryRun?: boolean }) => {
+    const plan = accountRemovalPlan(id, allSessions(), orch?.deps.getState())
+    const closed = plan.releasable.map((r) => r.title)
+    if (plan.blockers.length > 0) return { ok: false as const, titles: plan.blockers, closed }
+    if (opts?.dryRun) return { ok: true as const, titles: [] as string[], closed }
+    // Finished workers go through the orchestration release (never a bare pty kill); a retained one is
+    // un-retained first, since worker-release leaves those alive. One failure stops here: the account stays.
+    for (const { dispatchId } of plan.releasable) {
+      const st = orch!.deps.getState()
+      if (st.dispatches.find((d) => d.id === dispatchId)?.retained)
+        await orch!.deps.setState({ ...st, dispatches: st.dispatches.map((d) => (d.id === dispatchId ? { ...d, retained: false } : d)) })
+      await orch!.deps.releaseWorker({ dispatchId, closeReason: 'released' })
+    }
     await core.accounts.remove(id)
-    return { ok: true as const, titles: [] as string[] }
+    return { ok: true as const, titles: [] as string[], closed }
   })
   ipcMain.handle('accounts.loginStatus', (_e, id) => core.accounts.loginStatus(id))
   ipcMain.handle('accounts.rename', (_e, id, label) => core.accounts.rename(id, label)) // W7-F

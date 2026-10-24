@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { Account } from '../../../core/types'
 import { providerOf } from '../../../core/providers/meta'
 import { useAccountStatus } from '../hooks/useAccountStatus'
@@ -128,6 +128,11 @@ export function RemoveAccountDialog({ account, onClose }: { account: Account; on
   const { t, tm } = useI18n()
   const [logoutToo, setLogoutToo] = useState(false)
   const [removing, setRemoving] = useState(false)
+  // Finished worker sessions removal will close, named before the owner confirms (a dry run changes nothing).
+  const [closing, setClosing] = useState<string[]>([])
+  useEffect(() => {
+    void window.api.accounts.remove(account.id, { dryRun: true }).then((r) => setClosing(r?.closed ?? []), () => {})
+  }, [account.id])
 
   const confirmRemove = async (): Promise<void> => {
     if (removing) return
@@ -147,6 +152,8 @@ export function RemoveAccountDialog({ account, onClose }: { account: Account; on
         toast.error(t('account.remove.inUse', { titles: r.titles.join(', ') }))
         return
       }
+    } catch (e) {
+      toast.error(t('account.remove.releaseFailed', { detail: e instanceof Error ? e.message : String(e) }))
     } finally {
       setRemoving(false)
       onClose()
@@ -178,6 +185,9 @@ export function RemoveAccountDialog({ account, onClose }: { account: Account; on
         <p className="acct-note">
           {t('account.remove.confirm', { label: account.label })}
         </p>
+        {closing.length > 0 && (
+          <p className="acct-note">{t('account.remove.willClose', { count: closing.length, titles: closing.join(', ') })}</p>
+        )}
         <Checkbox checked={logoutToo} onChange={(v) => setLogoutToo(v)} label={t('account.remove.logoutToo')} />
         {logoutToo && <p className="acct-note acct-note--warn">{t('account.remove.logoutWarning')}</p>}
       </div>

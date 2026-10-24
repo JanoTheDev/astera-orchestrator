@@ -33,6 +33,8 @@ export const accounts: Partial<Record<keyof typeof ko, string>> = {
   'account.remove.confirmWithLogout': '解除 + ログアウト',
   'account.logout.failed': 'ログアウトに失敗しました: {detail}\n\n登録解除はこのまま続行します。',
   'account.remove.inUse': '実行中のセッションがこのアカウントを使用しているため、登録を解除できません: {titles}\n\nセッションを閉じるか、そのセッションのローテーション順からこのアカウントを外してください。',
+  'account.remove.willClose': '終了済みのワーカーセッション {count} 件が閉じられます: {titles}',
+  'account.remove.releaseFailed': '終了済みのワーカーセッションを閉じられなかったため、アカウントの登録は解除されませんでした: {detail}',
   // AccountPanel.tsx — default-account settings sync. A destructive action that overwrites the target account's settings.
   'account.sync.title': '既定アカウントの設定を取り込む',
   'account.sync.confirmBody':

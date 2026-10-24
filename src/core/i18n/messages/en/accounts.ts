@@ -56,6 +56,8 @@ export const accounts: Record<keyof typeof ko, string> = {
   'account.remove.confirmWithLogout': 'Unregister + log out',
   'account.logout.failed': 'Logout failed: {detail}\n\nUnregistering will continue anyway.',
   'account.remove.inUse': 'This account is in use by a running session and cannot be unregistered: {titles}\n\nClose the session first, or remove the account from its rolling order.',
+  'account.remove.willClose': '{count} finished worker session(s) will be closed: {titles}',
+  'account.remove.releaseFailed': 'A finished worker session could not be closed, so the account was not unregistered: {detail}',
   'account.sync.title': 'Import default account settings',
   'account.sync.confirmBody':
     'Imports settings from the “{source}” account into the “{label}” account.',
