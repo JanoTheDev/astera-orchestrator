@@ -192,6 +192,15 @@ describe('hands-off plans decide for the owner (#117)', () => {
     expect(handsOffStepsDue(s, [failedWait], T0)).toEqual([])
     expect(autoAnswersDue(s, [failedWait], T0)).toEqual([])
   })
+
+  it("T4: a worker's request to run an owner-only command is never answered, held, nor handed to a coordinator", () => {
+    const old = new Date(T0 - 10 * ASK_GRACE_MS).toISOString()
+    // Words a guardrail refuses (`jobs archive`, delete) and options a safe default would pick
+    const approval = q('The worker asks to run `astera jobs archive --id job_1` and delete the old runs. Approve or deny.', { source: 'approval', options: ['approve', 'deny'], createdAt: old })
+    const plain = q('The worker asks to run `astera inbox`. Approve or deny.', { source: 'approval', options: ['approve', 'deny'], createdAt: old })
+    expect(handsOffStepsDue(s, [approval, plain], T0)).toEqual([])
+    expect(autoAnswersDue(s, [approval, plain], T0)).toEqual([])
+  })
   const exhausted = q('Checks failed 3 times', { kind: 'convergence-exhausted', options: ['retry-once', 'mark-failed'] })
 
   it('an exhausted Gate is answered retry-once, then mark-failed once its Task was retried', () => {

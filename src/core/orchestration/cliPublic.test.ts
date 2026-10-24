@@ -31,3 +31,10 @@ describe('cliPublic 의 가져오기', () => {
     expect(src).not.toMatch(/from '\.\.\/\.\.\/(cli|main)\//)
   })
 })
+
+describe("T4: a worker's approval request", () => {
+  it('passes whole, not shaped as the command it stands in for', () => {
+    const body = { approvalRequested: true, questionId: 'msg_1', command: 'astera jobs archive --id job_1', wait: 'astera ask --resume msg_1 --json', message: 'm' }
+    expect(publicFor('jobs-archive', body)).toEqual(body)
+  })
+})

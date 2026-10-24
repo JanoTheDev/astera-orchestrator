@@ -881,6 +881,9 @@ export interface Message {
   createdAt: string
   deliveryId?: string
   ackedAt?: string
+  /** T4: a `question` that asks the owner to run this owner-only command for its worker (state.ts `createApproval`).
+   *  Stored verbatim when asked: approving replays exactly this, as the app. */
+  approval?: { cmd: string; args: Record<string, unknown> }
 }
 
 /** The batch check returns. The same batch replays until --ack (section 5 of the orchestration guide) */

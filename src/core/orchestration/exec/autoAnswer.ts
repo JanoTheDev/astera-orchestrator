@@ -17,7 +17,8 @@ export interface OpenQuestion {
   question: string
   options?: string[]
   kind?: string
-  source?: 'ask' | 'escalation'
+  /** `approval`: a worker asks the owner to run an owner-only command for it (command.ts answerApproval) */
+  source?: 'ask' | 'escalation' | 'approval'
   createdAt: string
 }
 
@@ -147,8 +148,10 @@ function safeDefault(q: OpenQuestion, choices: string[], retried: boolean): Auto
 }
 
 /** T36: the owner's question over a failed Task that holds back its plan (replan.ts `failedWaitQuestion`): never
- *  answered by Astera, nor handed to a hands-off coordinator. Nothing else can move that plan. */
-const ownersOnly = (q: OpenQuestion): boolean => q.source === 'escalation' && isFailedWait({ type: 'escalation', options: q.options })
+ *  answered by Astera, nor handed to a hands-off coordinator. Nothing else can move that plan. T4: nor a worker's
+ *  request to run an owner-only command: approving it is the owner's call, and so is refusing it. */
+const ownersOnly = (q: OpenQuestion): boolean =>
+  q.source === 'approval' || (q.source === 'escalation' && isFailedWait({ type: 'escalation', options: q.options }))
 
 /** Whether an earlier Gate on the question's Task was already answered with a retry. */
 const retriedOf = (s: OrchState, q: OpenQuestion): boolean =>

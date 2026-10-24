@@ -74,6 +74,8 @@ export function unattendedQuestions(s: OrchState, isAlive: (sessionId: string) =
     .filter(
       (m) =>
         m.type === 'question' &&
+        // T4: a request to run an owner-only command waits for the owner, coordinator or not
+        m.approval === undefined &&
         // 위 JSDoc — `ask` 의 probe 와 같은 규칙이다
         (m.answerBody ?? '') === '' &&
         unattendedRuns.has(m.runId) &&

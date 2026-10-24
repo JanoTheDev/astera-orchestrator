@@ -16,7 +16,7 @@ import { NEED_WORD, ageOf, filterNeeds, whereOf, type NeedCard, type NeedKind } 
 import { useNeedsYou, type NeedsYouScope } from './useNeedsYou'
 import './inbox.css'
 
-const KIND_ICON: Record<NeedKind, IconName> = { approval: 'listTree', question: 'message', gate: 'message', escalation: 'warning', permission: 'terminal', waiting: 'waiting' }
+const KIND_ICON: Record<NeedKind, IconName> = { approval: 'listTree', command: 'terminal', question: 'message', gate: 'message', escalation: 'warning', permission: 'terminal', waiting: 'waiting' }
 
 /** Goes where an Open leads. A Task opens the plan at its section (`task-<id>`): the Task's step opens and its row
  *  expands (PlanPage's anchor), then revealTask centres the card (a card in a folded step is not drawn until then). */
@@ -111,6 +111,13 @@ export function NeedCardView({
     door.command('jobs-set', { id: c.jobId, after: otherJobId }).then((r) => {
       if (r.status >= 400) ui.error(replyNote(r, ui.t, t('inbox.queueFailed')))
     })
+  // T4: the owner's answer to a worker's request runs the command (or not); a command that failed says why
+  const answerCommand = (answer: 'approve' | 'deny'): Promise<unknown> =>
+    door.command('questions-answer', { id: c.q!.id, answer }).then((r) => {
+      const ran = (r.body as { result?: { status: number; body: unknown } } | null)?.result
+      if (r.status >= 400) ui.error(replyNote(r, ui.t, t('inbox.commandFailed')))
+      else if (ran && ran.status >= 400) ui.error(t('inbox.commandRanFailed', { error: (ran.body as { error?: string } | null)?.error ?? String(ran.status) }))
+    })
   // Overlapping plans, once each, for "Start after"
   const others = [...new Map((c.overlaps ?? []).map((o) => [o.otherJobId, o.otherPlanName])).entries()]
 
@@ -133,10 +140,30 @@ export function NeedCardView({
         </Button>
       </div>
       {open && <div className="needs-row__body">
-      {c.q && (
+      {c.kind === 'command' && c.q && (
+        <>
+          <p className="inbox__body">{t('inbox.body.command', { task: c.taskTitle ?? c.q.taskId })}</p>
+          <pre className="inbox__command">
+            <code>{c.q.command ?? c.q.question}</code>
+          </pre>
+          <div className="inbox__actions">
+            <Button size="sm" variant="ghost" onClick={() => goTo(openTargetOf(c))}>
+              {t('inbox.openPlan')}
+            </Button>
+            <Button size="sm" disabled={busy} onClick={() => void run(() => answerCommand('deny'))}>
+              {t('inbox.deny')}
+            </Button>
+            <Button size="sm" variant="primary" disabled={busy} onClick={() => void run(() => answerCommand('approve'))}>
+              {t('inbox.approve')}
+            </Button>
+          </div>
+        </>
+      )}
+
+      {c.q && c.kind !== 'command' && (
         <>
           <QuestionAnswer
-            q={{ id: c.q.id, source: c.q.source ?? 'ask', taskId: c.q.taskId, question: c.q.question, ...(c.q.options ? { options: c.q.options } : {}), ...(c.q.freeText === false ? { freeText: false as const } : {}) }}
+            q={{ id: c.q.id, source: c.q.source === 'escalation' ? 'escalation' : 'ask', taskId: c.q.taskId, question: c.q.question, ...(c.q.options ? { options: c.q.options } : {}), ...(c.q.freeText === false ? { freeText: false as const } : {}) }}
             onAnswer={async (id, answer) => {
               const r = await door.command('questions-answer', { id, answer })
               return r.status === 200 ? null : replyNote(r, t as never, (r.body as { error?: string } | null)?.error ?? t('plan.question.failed'))
