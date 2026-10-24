@@ -47,7 +47,7 @@ import { jobActive, slotsToFill, type Slot } from '../schedule'
 import { coordinatorStarting, jobOf, type OrchState } from '../state'
 import { isJobActive } from '../lifecycle'
 import { DEFAULT_CONCURRENCY, FAILURE_LIMIT, type Decision, type Job, type JobRun, type Task } from '../types'
-import { isTerminal, outcomeOfTasks, tasksOwnedBy } from '../running'
+import { deliveryEnded, isTerminal, outcomeOfTasks, tasksOwnedBy } from '../running'
 import { worktreeRefusal } from '../planner'
 import { isSamePath } from '../../files/tree'
 import { outcomeOf } from '../view'
@@ -734,7 +734,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     for (const run of s.runs) {
       // W6-H: a pushed delivery is done; W8-C: a draft opened between waves is finished here (`run-open-pr` marks it
       // ready); any other opened PR (or a no-remote note) is the end. T1: so is a PR merged or closed on GitHub
-      if (run.delivery?.sha !== undefined || run.pr?.note !== undefined || run.pr?.landed !== undefined || (run.pr?.url !== undefined && run.pr.draft !== true)) continue
+      if (deliveryEnded(run)) continue
       const job = jobOf(s, run)
       if (!job || !isJobActive(job) || job.schedule !== undefined) continue
       const p = run.deliveryState

@@ -771,4 +771,27 @@ describe('T1: the replan brief', () => {
     expect(reopened).toContain('finished')
     expect(reopened).not.toContain('THE FINAL CHECK')
   })
+
+  it('T2: briefs an owner chat to answer, change no files, and add Tasks only when asked', () => {
+    const brief = buildReplanBrief({
+      job: { id: 'job_1', objective: 'o', cwd: '/r' },
+      runId: 'run_1',
+      mode: 'completion',
+      wave: 1,
+      accountId: 'acc1',
+      followUps: 0,
+      done: [],
+      running: [],
+      left: [],
+      chat: true
+    })
+    expect(brief).toContain('OWNER CHAT')
+    expect(brief).toContain('Answer their questions')
+    expect(brief).toContain('Do not change files')
+    expect(brief).toContain('Only when they ask for more work')
+    expect(brief).toContain('jobs-replan-done --id job_1')
+    expect(brief).toContain('PLANNING')
+    expect(brief).not.toContain('THE FINAL CHECK')
+    expect(brief).not.toContain('OWNER FEEDBACK')
+  })
 })

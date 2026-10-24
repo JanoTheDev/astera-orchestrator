@@ -87,6 +87,12 @@ export function lostTasksOutcome(s: Pick<OrchState, 'jobs'>, run: JobRun | undef
   return runDelivered(run) || (run.deliveryState !== undefined && SETTLED.has(run.deliveryState.state)) ? 'completed' : 'failed'
 }
 
+/** Whether a Run's end delivery is over, so the driving loop delivers it no more (dispatchLoop.ts
+ *  openCompletedRunPrs): pushed, a pull request opened ready (or merged or closed on GitHub), or its work left on a
+ *  branch with no remote. A draft opened between waves is not: it is finished at the end. */
+export const deliveryEnded = (run: JobRun): boolean =>
+  run.delivery?.sha !== undefined || run.pr?.note !== undefined || run.pr?.landed !== undefined || (run.pr?.url !== undefined && run.pr.draft !== true)
+
 const hasDeliveryRecord = (run: JobRun): boolean => run.pr !== undefined || run.delivery !== undefined || run.branchPush !== undefined
 
 /** A Run of an open plan with a coordinator account and no coordinator attached or starting: the owner's ▶

@@ -356,6 +356,9 @@ export interface Job {
     before?: Record<string, string>
     /** W7-A: the owner's feedback this replan was started for (`PlanFeedback.at`); its summary is that feedback's change. */
     feedbackAt?: string
+    /** T2: the owner opened a chat with the planner on the finished plan (`jobs-chat`): it answers questions and adds
+     *  follow-up Tasks only when asked. Like feedback, its follow-ups never count toward REPLAN_FOLLOW_UPS_MAX. */
+    chat?: true
   }
   /** The last replan that ended, for this boundary (`replansDue` reads it so a boundary replans once). `escalated`:
    *  why it was handed to the person instead (the plan did not hold, or a 4th follow-up wave); the hold stays then. */

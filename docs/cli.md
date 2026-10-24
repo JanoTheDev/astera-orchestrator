@@ -725,6 +725,7 @@ astera jobs    archive --id <jobId> [--kill-sessions]
 astera jobs    unarchive --id <jobId>
 astera jobs    plan --id <jobId> [--account <id>] [--replan <waves|off>] [--concurrency <n>] [--delivery <pr|push|manual>] [--no-review] [--auto-approve <on|off>] [--hands-off <on|off>] [--planning <chat|auto>]
 astera jobs    feedback --job <jobId> --text <text|->
+astera jobs    chat --id <jobId>
 astera jobs    reject --job <jobId> [--reason <text>]
 astera jobs    create --objective <text> [--cwd <path>] [--concurrency <n>] [--priority <n>] [--replan <waves|off>] [--coordinator-account <accountId>] [--coordinator-provider <claude|codex>] [--convergence [--max-fix-attempts <n>] [--max-review-rounds <n>] [--blocking-severity <high|medium>] [--max-total-minutes <n>]] [--mode <plan|audit|fixlist|prompts>] [--scope <path[,path…]|all>] [--focus <list>] [--instructions <text>] [--attach <path>] [--approve <auto|ask>] [--delivery <pr|push|manual>] [--no-review] [--after <jobId>] [--hands-off] [--planning <chat|auto>] [--effort <low|medium|high|xhigh|max>]
 astera jobs    create-from-source --source <sourceId> --item <itemId> --project <projectId> [--concurrency <n>] [--priority <n>] [--replan <waves|off>] [--coordinator-account <accountId>] [--coordinator-provider <claude|codex>] [--convergence [--max-fix-attempts <n>] [--max-review-rounds <n>] [--blocking-severity <high|medium>] [--max-total-minutes <n>]] [--delivery <pr|push|manual>] [--planning <chat|auto>]

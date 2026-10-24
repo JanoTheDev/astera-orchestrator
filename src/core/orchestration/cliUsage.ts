@@ -621,6 +621,13 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       { name: 'text', value: '<text|->', required: true, about: 'what to change; - reads stdin' }
     ]
   },
+  // T2 planner chat on a finished plan (exec/plannerFeedback.ts)
+  'jobs-chat': {
+    summary: 'open a planner chat on a finished plan: ask what was done, add follow-up Tasks',
+    detail:
+      'Starts a planner on the finished plan that answers your questions from its Tasks\' reports and changed files, changes no files, and adds follow-up Tasks only when you ask; they run like the plan\'s own. Answers its session id; while a replan of the plan runs, answers that planner instead. Refused from an agent session.',
+    flags: [{ name: 'id', value: '<jobId>', required: true, about: 'the finished Job to talk about' }]
+  },
   'jobs-reject': {
     summary: 'reject a plan waiting for approval',
     detail:

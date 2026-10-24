@@ -269,7 +269,7 @@ export const PROMPTS_MODE_FILL_IN = [
 ]
 
 /** T1 chat-first planning: the brief's PLANNING section (also in resources/skills/planner-guide.md, section 7). */
-const plannerPlanningSection = (planning: 'chat' | 'auto'): string[] => [
+export const plannerPlanningSection = (planning: 'chat' | 'auto'): string[] => [
   'PLANNING',
   planning === 'chat'
     ? 'Use the superpowers:brainstorming skill if your session lists it (Skill tool); otherwise follow its method: ask the person one question at a time in this terminal, propose 2-3 approaches with a recommendation, confirm the design in short sections, then write the Tasks.'

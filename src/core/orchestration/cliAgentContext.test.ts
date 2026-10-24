@@ -171,6 +171,7 @@ const NOT_SWITCHED = [
   'jobs-create-from-source',
   // W7-A
   'jobs-feedback',
+  'jobs-chat',
   'jobs-feedback-done',
   'jobs-reject',
   'task-cancel'
