@@ -37,8 +37,8 @@
 .tb-update { margin-left: auto; padding: 0 12px; font-size: var(--fs-12); color: var(--text-dim); white-space: nowrap; align-self: center; -webkit-app-region: no-drag; }
 .tb-update-err { color: var(--danger); cursor: default; }
 /* the restart-to-update Button: secondary (New keeps the bar's one filled button), its edge and glyph in accent so it is found */
-.tb-update.ui-btn { margin-left: auto; margin-right: 8px; align-self: center; flex: none; border-color: var(--accent); color: var(--text); -webkit-app-region: no-drag; }
-.tb-update.ui-btn > svg { color: var(--accent); }
+.tb-update-install.ui-btn { margin-left: auto; margin-right: 8px; align-self: center; flex: none; border-color: var(--accent); color: var(--text); -webkit-app-region: no-drag; }
+.tb-update-install.ui-btn > svg { color: var(--accent); }
 /* When the install and check buttons appear together, a narrow modal (600px) cannot fit both on one
    line. The cell wraps rather than the label — the label stays on one line even as the version digits grow. */
 .update-cell { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
@@ -273,6 +273,6 @@ body.resizing-row { cursor: row-resize; user-select: none; }
 .wb-status__project { font-weight: var(--fw-medium); }
 .wb-status__branch { font-family: var(--mono); color: inherit; }
 .wb-status__bell { display: flex; }
-.wb-status__bell .tb-bell.ui-btn { width: 28px; height: var(--statusbar-h); border-radius: 0; color: inherit; }
+.wb-status__bell .tb-bell__btn.ui-btn { width: 28px; height: var(--statusbar-h); border-radius: 0; color: inherit; }
 .wb-status__bell .tb-bell svg { width: 14px; height: 14px; }
 .wb-status__bell .tb-popover { top: auto; bottom: calc(100% + 4px); right: 0; }
