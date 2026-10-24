@@ -54,7 +54,7 @@ export const accounts: Record<keyof typeof ko, string> = {
     "Logging out removes this account's authentication, so you'll need to log in again. If this account uses a home directory (~/.claude, ~/.codex), the login you use outside this app is logged out with it.",
   'account.remove.processing': 'Working…',
   'account.remove.confirmWithLogout': 'Unregister + log out',
-  'account.logout.failed': 'Logout failed: {detail}\n\nUnregistering will continue anyway.',
+  'account.logout.failed': 'The account was removed, but logging out failed: {detail}',
   'account.remove.inUse': 'This account is in use by a running session and cannot be unregistered: {titles}\n\nClose the session first, or remove the account from its rolling order.',
   'account.remove.willClose': '{count} finished worker session(s) will be closed: {titles}',
   'account.remove.releaseFailed': 'A finished worker session could not be closed, so the account was not unregistered: {detail}',

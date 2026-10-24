@@ -31,7 +31,7 @@ export const accounts: Partial<Record<keyof typeof ko, string>> = {
     'Al cerrar sesión se elimina la autenticación de esta cuenta y tendrá que volver a iniciar sesión. Si la cuenta usa un directorio de inicio (~/.claude, ~/.codex), también se cerrará la sesión que utilizaba fuera de esta aplicación.',
   'account.remove.processing': 'Procesando…',
   'account.remove.confirmWithLogout': 'Anular y cerrar sesión',
-  'account.logout.failed': 'Error al cerrar sesión: {detail}\n\nLa anulación del registro continúa igualmente.',
+  'account.logout.failed': 'La cuenta se eliminó, pero no se pudo cerrar sesión: {detail}',
   'account.remove.inUse': 'Una sesión en curso está usando esta cuenta, así que no se puede anular su registro: {titles}\n\nCierra la sesión o quita la cuenta de su orden de rotación.',
   'account.remove.willClose': 'Se cerrarán {count} sesión(es) de worker terminada(s): {titles}',
   'account.remove.releaseFailed': 'No se pudo cerrar una sesión de worker terminada, así que la cuenta no se dio de baja: {detail}',
