@@ -15,7 +15,7 @@ import { createWorktree } from '../../worktrees/create'
 import { workerBaseFailure } from '../../worktrees/base'
 import { git as realGit, gitDir, gitVersionAtLeast, listGitWorktrees, fetchOrigin, GIT_WRITE_TIMEOUT_MS } from '../../worktrees/git'
 import { backupRef, removeWorktree } from '../../worktrees/remove'
-import { runWorktreeSetup } from '../../worktrees/setup'
+import { LOCKFILES, runWorktreeSetup } from '../../worktrees/setup'
 import { askUntilAnswered, defaultActionPresenceCheck, type CheckResult, type PresenceCheck } from '../../worktrees/presence'
 import type { WorktreeStore } from '../../worktrees/registry'
 import { defaultGateProbe, type Probe } from '../../sessions/pathProbe'
@@ -951,6 +951,8 @@ export interface PushContext {
   mergeWorktrees: NonNullable<OrchServerDeps['mergeWorktrees']>
   /** The project's validation, once, in the merged folder. `ran`: how many checks ran (0: none configured). */
   validate(cwd: string): Promise<{ ok: true; ran: number } | { ok: false; reason: string }>
+  /** Installs the dependencies in the merged folder, even when node_modules exists (the project's setup command). */
+  install(cwd: string): Promise<{ ok: true } | { ok: false; reason: string }>
   log(m: string): void
   /** Test seam; defaults to the real git. */
   git?: typeof realGit
@@ -980,7 +982,7 @@ export type PushResult =
  * 4. the Run's worktrees merge (`mergeWorktrees`). T11: when that fails (another plan landed on the branch first), the
  *    folder goes back to the commit recorded before it, the plan's worktrees are refreshed onto that commit
  *    (`refreshOnto`) and merged once more; T3: a second failure undoes the merges as 5 does;
- * 5. the validation runs on the merged folder; a failure resets to the commit recorded before 4, which undoes only
+ * 5. the validation runs on the merged folder, after an install when the merges changed package.json or a lockfile; a failure resets to the commit recorded before 4, which undoes only
  *    Astera's merges (the folder was clean at 2);
  * 6. `push origin <branch>`, **never forced**; a rejected push fetches, and when origin moved on merges it in and runs
  *    the validation again, then pushes; up to `PUSH_ROUNDS` times. T3: every stop here (a conflict with origin, a
@@ -1104,8 +1106,18 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
   const left = [...(merged.dirty ?? []), ...(merged.unchecked ?? []), ...(merged.notMerged ?? [])]
   if (left.length > 0) return undo(`these worktrees hold work that was not merged (uncommitted, or not reachable): ${left.join(', ')}.`)
 
-  // 5.
-  const checked = await ctx.validate(cwd)
+  // 5. The merges may add a dependency: validating against the old node_modules fails on a module that is not there
+  const validateMerged = async (): Promise<{ ok: true; ran: number } | { ok: false; reason: string }> => {
+    const changed = await run(['diff', '--name-only', base, 'HEAD'], { cwd })
+    const manifests = new Set(['package.json', ...LOCKFILES.flatMap(([files]) => files)])
+    if (changed.ok && changed.stdout.split('\n').some((f) => manifests.has(path.posix.basename(f)))) {
+      ctx.log(`delivery: package.json or a lockfile changed since ${base}, installing dependencies in ${cwd}`)
+      const installed = await ctx.install(cwd)
+      if (!installed.ok) return { ok: false, reason: `installing the dependencies failed: ${installed.reason}` }
+    }
+    return ctx.validate(cwd)
+  }
+  const checked = await validateMerged()
   if (!checked.ok) return undo(`the validation failed on the merged ${branch}: ${checked.reason}`)
 
   // 6. Origin can move on while the validation runs (another plan's delivery, a teammate's push). Its commits are merged
@@ -1137,7 +1149,7 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
           tip.ok ? tip.stdout : undefined
         )
       }
-      const rechecked = await ctx.validate(cwd)
+      const rechecked = await validateMerged()
       if (!rechecked.ok) return undo(`the validation failed after merging origin/${branch}, which moved on during the delivery: ${rechecked.reason}`)
       validated = rechecked.ran
     }

@@ -8,7 +8,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { killProcessTree } from '../run/kill'
 
-const LOCKFILES: [files: string[], command: string][] = [
+export const LOCKFILES: [files: string[], command: string][] = [
   [['bun.lock', 'bun.lockb'], 'bun install --frozen-lockfile'],
   [['pnpm-lock.yaml'], 'pnpm install --frozen-lockfile'],
   [['yarn.lock'], 'yarn install --frozen-lockfile'],
@@ -36,18 +36,20 @@ export interface SetupResult {
 }
 
 /** Runs the project's setup command in `dir`. `setting` is the project's `setupCommand`: absent detects from the
- *  lockfile, `off` runs nothing, anything else runs as given. Skipped when `dir/node_modules` is already there.
+ *  lockfile, `off` runs nothing, anything else runs as given. Skipped when `dir/node_modules` is already there, unless
+ *  `force`: a delivery whose merges changed the manifest or lockfile installs over the old tree.
  *  Never throws: a failure, a missing tool or a timeout is logged and returned, and the worker starts anyway. */
 export async function runWorktreeSetup(o: {
   dir: string
   setting?: string
   log(m: string): void
   timeoutMs?: number
+  force?: boolean
 }): Promise<SetupResult> {
   const skipped: SetupResult = { ran: false, ok: true, command: null, tail: '' }
   if (o.setting === 'off') return skipped
   const command = o.setting ?? (await detectSetupCommand(o.dir))
-  if (command === null || (await exists(path.join(o.dir, 'node_modules')))) return skipped
+  if (command === null || (!o.force && (await exists(path.join(o.dir, 'node_modules'))))) return skipped
   const result = await run(command, o.dir, o.timeoutMs ?? SETUP_TIMEOUT_MS)
   o.log(
     result.ok

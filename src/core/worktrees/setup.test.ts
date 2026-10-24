@@ -52,6 +52,17 @@ describe('runWorktreeSetup', () => {
     await expect(fs.access(path.join(dir, 'ran.txt'))).rejects.toThrow()
   })
 
+  it('force runs even when node_modules is already there', async () => {
+    const dir = await withFiles()
+    await fs.mkdir(path.join(dir, 'node_modules'))
+    expect(await runWorktreeSetup({ dir, setting: 'touch ran.txt', log, force: true })).toMatchObject({ ran: true, ok: true })
+    await expect(fs.access(path.join(dir, 'ran.txt'))).resolves.toBeUndefined()
+  })
+
+  it('force still honours off', async () => {
+    expect(await runWorktreeSetup({ dir: await withFiles('package-lock.json'), setting: 'off', log, force: true })).toMatchObject({ ran: false })
+  })
+
   it('reports a failing command with its output, never throws', async () => {
     logs.length = 0
     const r = await runWorktreeSetup({ dir: await withFiles(), setting: 'echo boom; exit 3', log })
