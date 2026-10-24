@@ -75,7 +75,8 @@ describe('derivePublicEvents', () => {
 
   it('run.started for a new Run, with its Job and project', () => {
     const before = state({ runs: [] })
-    const after = state()
+    // T15: a Run just made reads running while something can add its Tasks: here its coordinator starting
+    const after = state({ runs: [{ ...run, coordinatorStartingAt: NOW }] })
     const [e, ...rest] = derivePublicEvents(before, after)
     expect(rest).toEqual([])
     expect(e).toMatchObject({ type: 'run.started', runId: 'run_1', jobId: 'job_1', projectId: 'proj_1' })

@@ -1,6 +1,6 @@
 import type { JobTask, RunOutcome, RunStuck } from '../types'
 import { jobOf, type OrchState } from './state'
-import { FAILURE_LIMIT, type Dispatch, type Gate, type JobRun, type Task } from './types'
+import { FAILURE_LIMIT, type Dispatch, type Gate, type Job, type JobRun, type Task } from './types'
 import { completionSettled, replanOn } from './replan'
 import { jobActive } from './schedule'
 
@@ -55,11 +55,62 @@ const SETTLED = new Set<string>(['delivered', 'delivered-by-owner', 'dismissed']
  *  reopened the plan). Only `outcomeOfTasks` says whether the Tasks are done, which is what the delivery itself asks (it
  *  must still see them completed to retry, and a failed outcome would take the failed-plan branches). */
 export function outcomeOfRun(tasks: readonly Task[], run: JobRun | undefined, s: OrchState): RunOutcome {
+  const lost = lostTasksOutcome(s, run, tasks)
+  if (lost !== undefined) return lost
   const outcome = outcomeOfTasks(tasks, s.gates)
   if (outcome !== 'completed') return outcome
   if (deliveryErrorOf(run) !== undefined) return 'failed'
   return run !== undefined && checkPending(s, run) ? 'checking' : outcome
 }
+
+/** Delivered: the Run pushed its work (a sha, no error), or opened its pull request (a url, not a draft, no error) or
+ *  left its work on a branch with no remote (`pr.note`, W7-E). after.ts `afterStandOf` reads the same. */
+export function runDelivered(run: JobRun): boolean {
+  if (run.delivery?.sha !== undefined && run.delivery.error === undefined) return true
+  const pr = run.pr
+  return pr !== undefined && pr.error === undefined && pr.draft === undefined && (pr.url !== undefined || pr.note !== undefined)
+}
+
+/** T15: what a Run with no Task reads, or undefined while `outcomeOfTasks` answers (running: Tasks can still come).
+ *
+ *  - **A delivery record** (a pushed branch, a pull request draft or not, an end delivery) comes only after a Task ran,
+ *    so its Tasks were lost from the store (the 2026-10-22 `reset --tasks` wipe left 30 such Runs). Delivered reads
+ *    completed, anything else failed, which puts it before the owner. Only an open replan can add Tasks to it.
+ *  - **No record**: it reads running only while something can add Tasks (`emptyRunIdle`), else failed: nothing will.
+ *
+ *  `deliveryState` alone is no evidence: it is pending once a Run is seen running. Every reader of a Run's outcome goes
+ *  through this: `outcomeOfRun` (`astera jobs list`, the Jobs view), mainPlan `planOutcomeOf`, after.ts `jobFinished`. */
+export function lostTasksOutcome(s: Pick<OrchState, 'jobs'>, run: JobRun | undefined, tasks: readonly Task[]): RunOutcome | undefined {
+  if (run === undefined || tasks.length > 0) return undefined
+  const job = s.jobs.find((j) => j.id === run.jobId)
+  if (!hasDeliveryRecord(run)) return emptyRunIdle(run, job) ? 'failed' : undefined
+  if (job?.replanning !== undefined) return undefined
+  return runDelivered(run) || (run.deliveryState !== undefined && SETTLED.has(run.deliveryState.state)) ? 'completed' : 'failed'
+}
+
+const hasDeliveryRecord = (run: JobRun): boolean => run.pr !== undefined || run.delivery !== undefined || run.branchPush !== undefined
+
+/** An empty Run with no delivery record that nothing can add Tasks to: no coordinator (attached, external or starting:
+ *  a coordinator plans a Task-less Run, handover.ts), none the owner's ▶ can start (`awaitsCoordinator`), no replan, no
+ *  start pending (approval) or held (`startWait`), and not paused (the owner's own stop, which reads paused). Planner
+ *  sessions write a Job's definition Tasks, which `startJobRun` copies into the Run it makes, so a planner never adds
+ *  to an existing Run but through a replan. */
+function emptyRunIdle(run: JobRun, job: Job | undefined): boolean {
+  if (run.paused === true || awaitsCoordinator(run, job)) return false
+  if (run.coordinatorSessionId !== undefined || run.externalCoordinatorSessionId !== undefined || run.coordinatorStartingAt !== undefined) return false
+  return job?.replanning === undefined && job?.pendingStart !== true && job?.startWait === undefined
+}
+
+/** A Run of an open plan with a coordinator account and no coordinator attached or starting: the owner's ▶
+ *  (`coordinatorMissing`, run-start) or `runs resume` starts one, which can still add Tasks. `stuckOf` flags an empty one
+ *  needs-you, since nothing else moves it. */
+const awaitsCoordinator = (run: JobRun, job: Job | undefined): boolean =>
+  job !== undefined &&
+  job.archivedAt === undefined &&
+  job.coordinatorAccountId !== undefined &&
+  run.coordinatorSessionId === undefined &&
+  run.externalCoordinatorSessionId === undefined &&
+  run.coordinatorStartingAt === undefined
 
 /** Whether a Run whose Tasks all completed still waits on its final check (replan.ts `completionSettled`): only for a
  *  plan that replans and could run one now (`replansDue`'s own conditions), and not once the plan was delivered, so
@@ -119,7 +170,8 @@ export function stuckOf(
   ix?: StuckIndex,
   job = jobOf(s, run)
 ): RunStuck | undefined {
-  if (tasks.length === 0 || outcomeOfRun(tasks, run, s) !== 'running') return undefined
+  if (tasks.length === 0) return run.paused !== true && outcomeOfRun(tasks, run, s) === 'running' && awaitsCoordinator(run, job) ? 'needs-you' : undefined
+  if (outcomeOfRun(tasks, run, s) !== 'running') return undefined
   if (job?.replanning !== undefined) return undefined
   // Work the app or a coordinator takes up as it is: no list read needed to say the Run can move
   if (tasks.some((t) => t.status === 'ready' || t.status === 'validating' || t.status === 'reviewing' || t.status === 'merging')) return undefined

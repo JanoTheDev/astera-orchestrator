@@ -18,7 +18,7 @@ import type { JobRow, JobTask, OrchSnapshot, TaskBoard, WorktreeInfo, UsagePause
 import { repoPathOf } from '../worktrees/repo'
 import { coordinatorStarting, type OrchState } from './state'
 import { eventCountsOf } from './timeline'
-import { deliveryErrorOf, isTerminal, outcomeOf, outcomeOfRun, outcomeOfTasks, reviewerEnded, stuckIndexOf, stuckOf, tasksOwnedBy, type StuckIndex } from './running'
+import { deliveryErrorOf, isTerminal, lostTasksOutcome, outcomeOf, outcomeOfRun, outcomeOfTasks, reviewerEnded, stuckIndexOf, stuckOf, tasksOwnedBy, type StuckIndex } from './running'
 import { policyOfJob, repairCountIn, reviewRoundIn } from './convergence'
 import type { Dispatch, Gate, Job, JobRun, Task } from './types'
 import { taskBoardsOf } from './blocked'
@@ -452,7 +452,7 @@ export function snapshotFor(
       run.coordinatorSessionId === undefined &&
       run.paused !== true &&
       !coordinatorStarting(run, nowMs) &&
-      outcomeOfTasks(ix.owned.get(run.id) ?? []) === 'running'
+      (lostTasksOutcome(state, run, ownedTasks) ?? outcomeOfTasks(ownedTasks)) === 'running'
         ? { coordinatorMissing: true }
         : {}),
       ...(run?.coordinatorModel !== undefined ? { coordinatorModel: run.coordinatorModel } : {}),
