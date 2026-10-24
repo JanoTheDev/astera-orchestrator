@@ -46,6 +46,7 @@ import path from 'node:path'
 import { t } from '../core/i18n'
 import { HOST_YIELD_DISPATCH, HOST_YIELD_RECOVERY, ORCH_MARK_KEY } from '../core/host/protocol'
 import { driverOf, readDispatchGate, type DispatchGate, type Driver } from '../core/host/driver'
+import { readDeliverySetup } from '../core/orchestration/exec/deliverySetup'
 import { createDispatchLoop, ORCH_FIRE_TICK_MS, type DispatchLoopContext } from '../core/orchestration/exec/dispatchLoop'
 import { sweepStaleSpecFiles } from '../core/orchestration/exec/specFiles'
 import { createStallWatch } from '../core/orchestration/exec/stallWatch'
@@ -413,6 +414,7 @@ export function createHostDriving(d: {
   const loop = createDispatchLoop({
     handle: (cmd, args) => d.orch.handle(cmd, args),
     getState: () => d.orch.state(),
+    deliverySetup: (cwd) => readDeliverySetup(cwd), // T32
     // W1-B. A damaged file reads as no cap: the spawn refuses on that file anyway (orch.ts, the same line).
     maxConcurrentWorkers: () => readMaxConcurrentWorkers(settingsPath).catch(() => machineSpecs().recommended),
     accounts: () => d.checks.accounts(),

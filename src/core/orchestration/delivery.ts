@@ -12,6 +12,7 @@ import { jobNameOf } from './jobName'
 import { addDecision, jobOf, type OrchState, type Res } from './state'
 import { FAILURE_LIMIT, newId, type DeliveryMode, type DeliveryProgress, type Job, type JobRun, type Project, type RunDelivery, type Task } from './types'
 import { findProject, projectOfJob } from './projects'
+import { deliveryChoicesOf, effectiveDelivery, type DeliveryOffReason, type DeliverySetup } from './deliveryChoices'
 
 export const DELIVERIES = ['pr', 'push', 'merge', 'manual'] as const satisfies readonly DeliveryMode[]
 
@@ -29,6 +30,42 @@ export const handsOffOf = (s: OrchState, job: Job): boolean => job.handsOff ?? p
 
 /** How this Job's plan lands: its own setting, else its project's, else `pr`. */
 export const deliveryOf = (s: OrchState, job: Job): DeliveryMode => job.delivery ?? projectOfJob(s, job)?.delivery ?? 'pr'
+
+// T32: the folder setups last read, by folder, so the sync callers (draftPrDue, the stall watch, deliveryWait) see what the
+// async ones (`run-deliver`, the dispatch loop) read. Empty (nothing read, e.g. the app, tests): the saved delivery stands.
+const setups = new Map<string, DeliverySetup>()
+export const forgetDeliverySetups = (): void => setups.clear()
+
+/** How the plan really lands: its saved delivery (`deliveryOf`) when it can work on its folder, else merge on this
+ *  computer, else review (`effectiveDelivery`), with why. A folder not read yet keeps the saved one. */
+export function deliveryLandingOf(s: OrchState, job: Job): { mode: DeliveryMode; reason?: DeliveryOffReason } {
+  const saved = deliveryOf(s, job)
+  const setup = setups.get(job.cwd)
+  return setup === undefined ? { mode: saved } : effectiveDelivery(saved, deliveryChoicesOf(setup))
+}
+
+/** `deliveryLandingOf` after reading the plan's folder with `read` (absent: not read, the last answer stands). A folder
+ *  that cannot be read keeps the last answer, else the saved delivery. */
+export async function readLandingOf(s: OrchState, job: Job, read?: (cwd: string) => Promise<DeliverySetup>): Promise<{ mode: DeliveryMode; reason?: DeliveryOffReason }> {
+  if (read) {
+    try {
+      setups.set(job.cwd, await read(job.cwd))
+    } catch {
+      // the last answer, else the saved delivery
+    }
+  }
+  return deliveryLandingOf(s, job)
+}
+
+/** One plain line for the plan's log when its delivery fell back, e.g. "Merged into main on this computer: no GitHub
+ *  remote"; null when it did not. */
+export function deliveryFallbackLine(s: OrchState, job: Job): string | null {
+  const { mode, reason } = deliveryLandingOf(s, job)
+  if (reason === undefined) return null
+  const why = { notGit: 'not a git repository', noRemote: 'no remote', notGitHub: 'no GitHub remote', ghSignedOut: 'gh is not signed in' }[reason]
+  const branch = projectOfJob(s, job)?.deliveryBranch ?? setups.get(job.cwd)?.branch ?? 'its branch'
+  return mode === 'merge' ? `Merged into ${branch} on this computer: ${why}` : `Left for your review: ${why}`
+}
 
 /** The issues the plan came from, which a push closes (`Fixes #n`): the GitHub issue the Job was made from, and every
  *  issue the repository's workflow created for this plan (`links.issue.closes`, the ones the PR says "Closes" for). */

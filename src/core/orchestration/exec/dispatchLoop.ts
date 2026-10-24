@@ -24,6 +24,7 @@ import { accountToDispatchOn } from '../../accounts/dispatchAccount'
 import { autoOrderOf, withAutoOrder, type AutoAccountsGuard } from '../../accounts/autoAccountOrder'
 import { providerOf } from '../../providers/meta'
 import type { Account } from '../../types'
+import type { DeliverySetup } from '../deliveryChoices'
 import { nameForRun, nameForTask } from '../../worktrees/naming'
 import { jobNameOf } from '../jobName'
 import { firesDue } from '../fire'
@@ -64,8 +65,9 @@ import {
   deliveryDue,
   deliveryFixesOf,
   deliveryFixOf,
-  deliveryOf,
+  deliveryFallbackLine,
   handsOffOf,
+  readLandingOf,
   ownerCheckDue,
   projectOfJob
 } from '../delivery'
@@ -232,6 +234,8 @@ export interface DispatchLoopContext {
   recordDecision?(jobId: string, d: Decision): Promise<void>
   /** A feed line no commit makes (the watchdog's), recorded by the Host's activity log. Optional: without it a log line. */
   activity?(d: ActivityDraft): void
+  /** T32: what a plan's folder is set up for (exec/deliverySetup.ts). Optional: without it every plan delivers as saved. */
+  deliverySetup?(cwd: string): Promise<DeliverySetup>
   /** Asked on entry and again before each slot (§4.3). */
   mayStart(): boolean
   /** W6-G: the usage guard (usageGuard.ts), refreshed before each slot. Optional: without it no usage pause. */
@@ -726,11 +730,17 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       const p = run.deliveryState
       const outcome = outcomeOfTasks(owned.get(run.id) ?? [], s.gates)
       // A manual plan is never delivered here: once its tasks are done and its final check settled it waits for the owner
-      if (deliveryOf(s, job) === 'manual') {
+      // T32: a delivery that cannot work on the folder is the fallback's (merge here, else review)
+      const mode = (await readLandingOf(s, job, c.deliverySetup)).mode
+      if (mode === 'manual') {
         if (outcome === 'completed' && completionSettled(s, job, run.id) && (p === undefined || p.state === 'pending') && c.mayStart()) {
           try {
             const r = await c.handle('run-deliver', { run: run.id, awaitReview: true })
             if (r.status >= 400) log(`run=${run.id}: its wait for the owner was not recorded: ${JSON.stringify(r.body)}`)
+            else {
+              const fell = deliveryFallbackLine(s, job)
+              if (fell !== null) planActivity(run.id, `Plan ${jobNameOf(job)}: ${fell}`)
+            }
           } catch (e) {
             log(`run=${run.id}: recording its wait for the owner failed: ${String(e)}`)
           }
@@ -751,7 +761,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
         continue
       }
       if (p === undefined) continue
-      const push = deliveryOf(s, job) === 'push' || deliveryOf(s, job) === 'merge' // T6: a local merge lands the same way
+      const push = mode === 'push' || mode === 'merge' // T6: a local merge lands the same way
       const answer = deliveryAnswerOf(s, p)
       const action: DeliveryStep['action'] | null =
         answer === 'self' || ownerCheckDue(p, nowMs) ? 'self' : answer === 'retry' ? 'retry' : deliveryDue(p, nowMs) ? 'auto' : null
@@ -792,6 +802,9 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     if (!c.mayStart()) return
     const job = jobOf(c.getState(), run)
     const plan = job ? jobNameOf(job) : run.id
+    // T32: said once per attempt, so the log shows which delivery was used and why
+    const fell = job ? deliveryFallbackLine(c.getState(), job) : null
+    if (fell !== null && action !== 'self') planActivity(run.id, `Plan ${plan}: ${fell}`)
     if (action === 'self') {
       try {
         const r = await c.handle('run-deliver', { run: run.id, ownerPushed: true })
@@ -1073,6 +1086,8 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
    */
   const updateDraftPrs = async (): Promise<void> => {
     for (const run of c.getState().runs) {
+      const job = jobOf(c.getState(), run)
+      if (job) await readLandingOf(c.getState(), job, c.deliverySetup) // T32: draftPrDue below reads what this read
       // T4: the owner's answer to the plan-branch push question: "Retry now" pushes at once and counts afresh, "I'll push
       // it myself" stops Astera pushing the plan branch
       const answer = deliveryAnswerOf(c.getState(), run.branchPush)
