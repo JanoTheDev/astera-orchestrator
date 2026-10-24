@@ -703,6 +703,7 @@ describe('T1: the replan brief', () => {
         ...(feedback !== undefined ? { feedback } : {})
       })
     expect(brief('wave')).toContain('--kind bugfix|feature|refactor|ui|audit|docs|test|ops')
+    expect(brief('wave')).toContain('--effort')
     const reopened = brief('completion', 'add a dark mode')
     expect(reopened).toContain('add a dark mode')
     expect(reopened).toContain('finished')
