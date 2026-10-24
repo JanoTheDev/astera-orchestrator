@@ -576,6 +576,10 @@
 .ui-viewcontainer { display: flex; flex-direction: column; height: 100%; min-height: 0; overflow: hidden; }
 .ui-viewpane { flex: none; display: flex; flex-direction: column; min-height: 0; }
 .ui-viewpane.is-open { flex: 1 1 0; }
+.ui-viewpane { position: relative; }
+/* the sash sits on the top border and only shows when an open pane lies above */
+.ui-viewpane__sash { position: absolute; top: 0; left: 0; right: 0; margin: 0; transform: translateY(-50%); }
+.ui-viewpane.is-open:not(.ui-viewpane.is-open ~ .ui-viewpane) > .ui-viewpane__sash { display: none; }
 .ui-viewpane + .ui-viewpane { border-top: 1px solid var(--line); }
 .ui-viewpane__head { flex: none; display: flex; align-items: center; height: var(--row-h); padding-right: 8px; }
 .ui-viewpane__toggle {

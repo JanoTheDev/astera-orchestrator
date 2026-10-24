@@ -68,6 +68,7 @@ export const shell: Record<keyof typeof ko, string> = {
   'shell.manage.keys': 'Keyboard shortcuts',
   'shell.manage.checkUpdates': 'Check for updates',
   'shell.sidebar.resize': 'Resize the side bar',
+  'shell.viewpane.resize': 'Resize the section',
   'shell.commandCenter': 'Search or run a command',
   'shell.panel.label': 'Panel',
   'shell.panel.needs': 'Needs you',

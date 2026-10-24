@@ -52,6 +52,7 @@ export const shell: Partial<Record<keyof typeof ko, string>> = {
   'shell.manage.keys': 'キーボードショートカット',
   'shell.manage.checkUpdates': 'アップデートを確認',
   'shell.sidebar.resize': 'サイドバーのサイズを変更',
+  'shell.viewpane.resize': 'セクションのサイズを変更',
   'shell.commandCenter': '検索またはコマンドを実行',
   'shell.panel.label': 'パネル',
   'shell.panel.needs': '要対応',

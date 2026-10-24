@@ -69,6 +69,36 @@ export function writeSectionOpen(storage: Pick<Storage, 'setItem'> | undefined, 
   }
 }
 
+/** A ViewPane's saved size (a flex-grow weight, in px at the time it was saved); undefined when absent or not a positive number. */
+export function readPaneSize(storage: Pick<Storage, 'getItem'> | undefined, id: string): number | undefined {
+  try {
+    const n = Number(storage?.getItem(`${sectionStorageKey(id)}.size`))
+    return n > 0 && Number.isFinite(n) ? n : undefined
+  } catch {
+    return undefined
+  }
+}
+
+export function writePaneSize(storage: Pick<Storage, 'setItem'> | undefined, id: string, size: number): void {
+  try {
+    storage?.setItem(`${sectionStorageKey(id)}.size`, String(Math.round(size)))
+  } catch {
+    /* storage unavailable: the size just isn't remembered */
+  }
+}
+
+/** The heights of a column of open panes after the sash above pane `i` moves pane `i` to `px`: the pair `i-1`/`i`
+ *  trades height (their sum is kept), each stays at least `min`, the others are untouched. */
+export function paneResize(heights: number[], i: number, px: number, min: number): number[] {
+  if (i < 1 || i >= heights.length) return heights
+  const pair = heights[i - 1] + heights[i]
+  const next = Math.min(Math.max(min, pair - min), Math.max(min, Math.round(px)))
+  const out = heights.slice()
+  out[i] = next
+  out[i - 1] = pair - next
+  return out
+}
+
 /** Join class names, skipping falsy ones. */
 export function cx(...names: Array<string | false | null | undefined>): string {
   return names.filter(Boolean).join(' ')
