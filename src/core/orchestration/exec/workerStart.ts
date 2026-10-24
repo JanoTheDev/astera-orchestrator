@@ -35,11 +35,16 @@ import {
   resolveCoordinatorModel,
   resolveRoleModel,
   resolveWorkerModel,
+  resolveWorkerEffort,
+  resolveRoleEffort,
+  clampEffort,
+  escalateEffort,
   type RoleModelSettings
 } from '../roleModels'
 
 export type StartWorkerArgs = Parameters<OrchServerDeps['startWorker']>[0]
-export type StartWorkerResult = Awaited<ReturnType<OrchServerDeps['startWorker']>>
+/** Plus the effort the session started on and why it differs from the ask, for dispatchModelFields. */
+export type StartWorkerResult = Awaited<ReturnType<OrchServerDeps['startWorker']>> & { effort?: string; effortNote?: string }
 export interface WorkerStartContext {
   getState(): OrchState
   accounts(): Promise<Account[]>
@@ -81,7 +86,8 @@ async function settingsFor(ctx: { roleModels(): Promise<RoleModelSettings>; log(
 async function modelForStart(
   ctx: WorkerStartContext,
   a: StartWorkerArgs,
-  s: OrchState
+  s: OrchState,
+  settings: RoleModelSettings
 ): Promise<{ model?: string; note?: string }> {
   if (a.terminal) {
     const prev = s.dispatches.filter((d) => d.sessionId === a.terminal && d.id !== a.dispatchId).at(-1)
@@ -90,7 +96,6 @@ async function modelForStart(
   const task = s.tasks.find((t) => t.id === a.taskId)
   const run = task?.runId ? s.runs.find((r) => r.id === task.runId) : undefined
   const job = run ? jobOf(s, run) : undefined
-  const settings = await settingsFor(ctx)
   if (s.dispatches.find((d) => d.id === a.dispatchId)?.review) {
     const impl = s.dispatches
       .filter((d) => d.taskId === a.taskId && !d.review)
@@ -101,6 +106,59 @@ async function modelForStart(
     return model ? { model } : {}
   }
   return resolveWorkerModel({ settings, job, task, provider: a.provider, accounts: await ctx.accounts() })
+}
+
+/** The levels `model` takes on that account; a context without the lookup, or one that throws, cannot tell. */
+const levelsFor = (
+  ctx: { effortLevels?(accountId: string, model: string | undefined): Promise<string[] | undefined> },
+  accountId: string,
+  model: string | undefined
+): Promise<string[] | undefined> => ctx.effortLevels?.(accountId, model).catch(() => undefined) ?? Promise.resolve(undefined)
+
+/** A resolved level clamped to what the model lists (clampEffort); undefined resolves to no flag and no note. */
+export async function clampedEffort(
+  ctx: { effortLevels?(accountId: string, model: string | undefined): Promise<string[] | undefined> },
+  accountId: string,
+  model: string | undefined,
+  level: string | undefined,
+  provider: Provider
+): Promise<{ effort?: string; note?: string }> {
+  return level ? clampEffort(level, await levelsFor(ctx, accountId, model), provider) : {}
+}
+
+/** The effort this start runs on and why it differs from the ask. A reviewer takes its role's; a worker, its
+ *  Task's (resolveWorkerEffort), raised one level above the previous attempt's when that attempt failed or this
+ *  Dispatch is a convergence repair. A `--terminal` reuse cannot change the launch flag: it keeps the reused
+ *  session's effort and says when the raise waits for the next fresh start. */
+async function effortForStart(
+  ctx: WorkerStartContext,
+  a: StartWorkerArgs,
+  s: OrchState,
+  settings: RoleModelSettings,
+  model: string | undefined
+): Promise<{ effort?: string; note?: string }> {
+  const self = s.dispatches.find((d) => d.id === a.dispatchId)
+  if (self?.review) return clampedEffort(ctx, a.accountId, model, resolveRoleEffort(settings, 'reviewer', a.provider), a.provider)
+  const prevAttempt = s.dispatches
+    .filter((d) => d.taskId === a.taskId && !d.review && d.id !== a.dispatchId)
+    .sort((x, y) => x.startedAt.localeCompare(y.startedAt))
+    .at(-1)
+  const raise = self?.repair !== undefined || prevAttempt?.outcome === 'failed'
+  if (a.terminal) {
+    const prev = s.dispatches.filter((d) => d.sessionId === a.terminal && d.id !== a.dispatchId).at(-1)
+    return {
+      ...(prev?.effort ? { effort: prev.effort } : {}),
+      ...(raise ? { note: `effort stays ${prev?.effort ?? 'CLI default'}: the live session keeps its launch flag, the raise applies at the next fresh start` } : {})
+    }
+  }
+  const task = s.tasks.find((t) => t.id === a.taskId)
+  const resolved = resolveWorkerEffort({ settings, task, provider: a.provider })
+  if (!raise) return clampedEffort(ctx, a.accountId, model, resolved, a.provider)
+  const levels = await levelsFor(ctx, a.accountId, model)
+  const up = escalateEffort(prevAttempt?.effort ?? resolved, levels, a.provider)
+  const clamped = up.effort ? clampEffort(up.effort, levels, a.provider) : {}
+  const note = [up.note, clamped.note].filter(Boolean).join('; ')
+  return { ...(clamped.effort ? { effort: clamped.effort } : {}), ...(note ? { note } : {}) }
 }
 
 /** The body of the app's old `startWorker` wrapper, unchanged: the rolling chain from Task.accountIds
@@ -190,8 +248,11 @@ export async function startWorkerWithChain(
       )
     }
   }
-  const chosen = await modelForStart(ctx, a, ctx.getState())
+  const settings = await settingsFor(ctx)
+  const chosen = await modelForStart(ctx, a, ctx.getState(), settings)
   if (chosen.note) ctx.log(`worker-start: dispatch ${a.dispatchId}: ${chosen.note}`)
+  const effort = await effortForStart(ctx, a, ctx.getState(), settings, chosen.model)
+  ctx.log(`worker-start: dispatch ${a.dispatchId} model=${chosen.model ?? 'CLI default'} effort=${effort.effort ?? 'CLI default'}${effort.note ? ` (${effort.note})` : ''}`)
   const fork = forkForDeps(ctx.getState(), a)
   const started = await ctx.coordinator.startWorker({
     ...a,
@@ -199,6 +260,7 @@ export async function startWorkerWithChain(
     title: workerTabTitle(stateHere, a.taskId, a.title),
     rollAccountIds,
     ...(chosen.model ? { model: chosen.model } : {}),
+    ...(effort.effort ? { effort: effort.effort } : {}),
     ...(fork ? { fork } : {}),
     // #117: a hands-off plan's workers run with permissions bypassed: nobody is there to answer a prompt
     ...(handsOffOfTask(stateHere, a.taskId) ? { bypassPermissions: true as const } : {})
@@ -217,7 +279,13 @@ export async function startWorkerWithChain(
     // Asked for every output chunk: through the index, not a scan of every attempt (audit H6).
     (id) => dispatchById(id)?.endedAt !== undefined
   )
-  return { ...started, ...(chosen.model ? { model: chosen.model } : {}), ...(chosen.note ? { modelNote: chosen.note } : {}) }
+  return {
+    ...started,
+    ...(chosen.model ? { model: chosen.model } : {}),
+    ...(chosen.note ? { modelNote: chosen.note } : {}),
+    ...(effort.effort ? { effort: effort.effort } : {}),
+    ...(effort.note ? { effortNote: effort.note } : {})
+  }
 }
 
 /** W5-A (#50): a `--worktree new` worker forks from its Run's worktree (the plan branch), never from the
@@ -257,6 +325,8 @@ export interface CoordinatorStartContext {
     rollAccountIds: string[]
     /** The coordinator role's model (W1-A). Absent: the CLI's default. */
     model?: string
+    /** The role's reasoning effort, clamped to the model's levels. Absent: the CLI's default. */
+    effort?: string
     /** W7-A: a planner resumed in its own conversation (`StartCoordinatorArgs.resume`); T5: a coordinator too. */
     resumeSessionId?: string
   }): Promise<{ id: string }>
@@ -547,15 +617,19 @@ export async function startCoordinatorSession(
     const s = ctx.getState()
     const job = jobOfRunId(s, a.runId)
     const runTasks = s.tasks.filter((t) => t.runId === a.runId)
+    const settings = await settingsFor(ctx)
     const model = coordinatorAccount
       ? resolveCoordinatorModel({
-          settings: await settingsFor(ctx),
+          settings,
           job,
           project: job && projectOfJob(s, job),
           tasks: runTasks.length > 0 ? runTasks : s.tasks.filter((t) => job !== undefined && t.jobId === job.id),
           provider: providerOf(coordinatorAccount)
         })
       : undefined
+    const effort = coordinatorAccount
+      ? await clampedEffort(ctx, accountId, model, resolveRoleEffort(settings, 'coordinator', providerOf(coordinatorAccount)), providerOf(coordinatorAccount))
+      : {}
     // **워커와 같은 래퍼를 쓴다**(the caller's worker spawnSession) — 그 래퍼가 계정 객체를 찾고,
     // 롤링 코디네이터에 등록하고, orchEnv 를 실어 준다. core.sessions.spawn 을 직접 부르면 그 셋을
     // 여기서 다시 하게 되고, 그중 하나를 빠뜨리면 코디네이터는 한도에 걸린 채 멈춰 선다.
@@ -574,10 +648,11 @@ export async function startCoordinatorSession(
       // same session on to another account (rolling carries the conversation over) instead of waiting.
       rollAccountIds: chain,
       ...(model ? { model } : {}),
+      ...(effort.effort ? { effort: effort.effort } : {}),
       // T5: a coordinator resumed in its own conversation after a crash (crashResume.ts)
       ...(a.resume ? { resumeSessionId: a.resume } : {})
     })
-    ctx.log(`coordinator started run=${a.runId} session=${info.id} account=${accountId} model=${model ?? 'CLI default'}`)
+    ctx.log(`coordinator started run=${a.runId} session=${info.id} account=${accountId} model=${model ?? 'CLI default'} effort=${effort.effort ?? 'CLI default'}${effort.note ? ` (${effort.note})` : ''}`)
     return { sessionId: info.id, accountId, ...(model ? { model } : {}) }
   } finally {
     release()

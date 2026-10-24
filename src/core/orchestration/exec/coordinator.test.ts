@@ -499,6 +499,15 @@ describe('OrchCoordinator.startWorker', () => {
     expect((deps.spawned[0] as { model?: string }).model).toBe('sonnet')
     expect(deps.spawned[1]).not.toHaveProperty('model')
   })
+  // The effort startWorkerWithChain resolved reaches the session spawn, and only when set.
+  it('forwards the effort to spawnSession, and carries none when unset', async () => {
+    const deps = makeDeps()
+    const co = new OrchCoordinator(deps)
+    await co.startWorker({ ...baseArgs(), effort: 'high', runCwd: dir })
+    await co.startWorker({ ...baseArgs(), dispatchId: 'dsp_2', runCwd: dir })
+    expect((deps.spawned[0] as { effort?: string }).effort).toBe('high')
+    expect(deps.spawned[1]).not.toHaveProperty('effort')
+  })
   // #117: a hands-off plan's worker starts with permissions bypassed, whatever the app-wide setting; others carry none
   it("a hands-off worker's bypassPermissions reaches spawnSession, and only when set", async () => {
     const deps = makeDeps()

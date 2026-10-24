@@ -165,6 +165,97 @@ describe('startWorkerWithChain — role models (W1-A)', () => {
   })
 })
 
+describe('startWorkerWithChain — effort', () => {
+  const started = { sessionId: 'ses_1', cwd: 'D:/p', specPath: 'D:/s.md' }
+  const ALL = ['low', 'medium', 'high', 'xhigh', 'max']
+  const withTask = (s: OrchState, taskId: string, patch: object): OrchState =>
+    ({ ...s, tasks: s.tasks.map((t) => (t.id === taskId ? { ...t, ...patch } : t)) })
+  const dispatch = (taskId: string, over: Partial<Dispatch>): Dispatch => ({ ...({
+    id: 'dsp_prev', taskId, provider: 'claude', accountId: 'a1', sessionId: 'ses_prev', cwd: 'D:/p', specPath: '',
+    startedAt: '2026-09-23T00:00:00.000Z', workerState: 'ready' } as Dispatch), ...over
+  })
+  const ctxFor = (s: OrchState, startWorker: ReturnType<typeof vi.fn>, levels?: (model: string | undefined) => string[] | undefined, accounts = [acct('a1')]): WorkerStartContext => ({
+    getState: () => s, accounts: async () => accounts, loginStatus: async () => true,
+    coordinator: { startWorker } as unknown as WorkerStartContext['coordinator'], tails: new WorkerTails(),
+    log: () => {}, roleModels: async () => ({}),
+    ...(levels ? { effortLevels: async (_a: string, m: string | undefined) => levels(m) } : {})
+  })
+  const start = async (s: OrchState, taskId: string, levels?: (m: string | undefined) => string[] | undefined, over: object = {}, accounts?: Account[]) => {
+    const startWorker = vi.fn().mockResolvedValue(started)
+    const r = await startWorkerWithChain(ctxFor(s, startWorker, levels, accounts), { ...args(taskId), ...over })
+    return { passed: startWorker.mock.calls[0][0] as { effort?: string }, r }
+  }
+
+  it("a claude worker's difficulty effort reaches the spawn and the Dispatch", async () => {
+    const { s, taskId } = stateWithTask()
+    const { passed, r } = await start(withTask(s, taskId, { difficulty: 'hard' }), taskId, () => ALL)
+    expect(passed.effort).toBe('high')
+    expect(r).toMatchObject({ effort: 'high' })
+    expect(r).not.toHaveProperty('effortNote')
+  })
+
+  it("a codex worker's Task effort reaches the spawn", async () => {
+    const { s, taskId } = stateWithTask()
+    const { passed } = await start(withTask(s, taskId, { effort: 'medium' }), taskId, () => ['low', 'medium', 'high', 'xhigh'], { provider: 'codex', accountId: 'x1' }, [acct('x1', 'codex')])
+    expect(passed.effort).toBe('medium')
+  })
+
+  it("a Task effort above the model's max is clamped and noted", async () => {
+    const { s, taskId } = stateWithTask()
+    const { passed, r } = await start(withTask(s, taskId, { effort: 'max' }), taskId, () => ['low', 'medium', 'high'])
+    expect(passed.effort).toBe('high')
+    expect(r.effortNote).toMatch(/not listed/)
+  })
+
+  it('a model with no levels gets no flag; unknown levels get no flag and a note', async () => {
+    const { s, taskId } = stateWithTask()
+    const s2 = withTask(s, taskId, { effort: 'high' })
+    const none = await start(s2, taskId, () => [])
+    expect(none.passed).not.toHaveProperty('effort')
+    expect(none.r).not.toHaveProperty('effortNote')
+    const unknown = await start(s2, taskId)
+    expect(unknown.passed).not.toHaveProperty('effort')
+    expect(unknown.r.effortNote).toMatch(/unknown/)
+  })
+
+  it("a retry after a failed attempt starts one level above that attempt's effort and records it", async () => {
+    const { s, taskId } = stateWithTask()
+    const s2 = { ...withTask(s, taskId, { difficulty: 'standard' }), dispatches: [dispatch(taskId, { effort: 'high', outcome: 'failed', endedAt: NOW }), dispatch(taskId, { id: 'dsp_1', startedAt: NOW, sessionId: 'pending:x' })] }
+    const { passed, r } = await start(s2, taskId, () => ALL)
+    expect(passed.effort).toBe('xhigh')
+    expect(r).toMatchObject({ effort: 'xhigh', effortNote: expect.stringMatching(/raised from high to xhigh/) })
+  })
+
+  it('a retry after a succeeded attempt keeps the resolved effort', async () => {
+    const { s, taskId } = stateWithTask()
+    const s2 = { ...withTask(s, taskId, { difficulty: 'standard' }), dispatches: [dispatch(taskId, { effort: 'high', outcome: 'succeeded', endedAt: NOW }), dispatch(taskId, { id: 'dsp_1', startedAt: NOW, sessionId: 'pending:x' })] }
+    expect((await start(s2, taskId, () => ALL)).passed.effort).toBe('medium')
+  })
+
+  it('a fresh repair escalates, up to the model max', async () => {
+    const { s, taskId } = stateWithTask()
+    const s2 = { ...withTask(s, taskId, { difficulty: 'light' }), dispatches: [dispatch(taskId, { outcome: 'succeeded', endedAt: NOW }), dispatch(taskId, { id: 'dsp_1', startedAt: NOW, sessionId: 'pending:x', repair: 'check-failure' })] }
+    expect((await start(s2, taskId, () => ALL)).passed.effort).toBe('medium')
+    const top = { ...s2, dispatches: [dispatch(taskId, { effort: 'high', outcome: 'succeeded', endedAt: NOW }), s2.dispatches[1]] }
+    const r = await start(top, taskId, () => ['low', 'medium', 'high'])
+    expect(r.passed.effort).toBe('high')
+    expect(r.r.effortNote).toMatch(/already the model's highest/)
+  })
+
+  it('a repair typed into the live session keeps its effort and notes the pending raise', async () => {
+    const { s, taskId } = stateWithTask()
+    const s2 = { ...s, dispatches: [dispatch(taskId, { sessionId: 'ses_old', effort: 'medium', endedAt: NOW }), dispatch(taskId, { id: 'dsp_1', startedAt: NOW, sessionId: 'ses_old', repair: 'review-failure' })] }
+    const { r } = await start(s2, taskId, () => ALL, { terminal: 'ses_old' })
+    expect(r).toMatchObject({ effort: 'medium', effortNote: expect.stringMatching(/next fresh start/) })
+  })
+
+  it('a reviewer gets the reviewer role effort, never raised', async () => {
+    const { s, taskId } = stateWithTask()
+    const s2 = { ...s, dispatches: [dispatch(taskId, { provider: 'codex', accountId: 'x1', outcome: 'failed', effort: 'low' }), dispatch(taskId, { id: 'dsp_1', startedAt: NOW, review: true, sessionId: 'pending:x' })] }
+    expect((await start(s2, taskId, () => ALL, {}, [acct('a1'), acct('x1', 'codex')])).passed.effort).toBe('high')
+  })
+})
+
 describe('startCoordinatorSession', () => {
   let dir: string
   beforeEach(async () => { dir = await fs.mkdtemp(path.join(os.tmpdir(), 'astera-coord-')) })
@@ -189,6 +280,14 @@ describe('startCoordinatorSession', () => {
     const s2 = { ...s, jobs: s.jobs.map((j) => ({ ...j, models: { coordinator: 'sonnet' } })) }
     await startCoordinatorSession({ ...base, getState: () => s2 }, { runId, cwd: 'D:/p', accountId: 'a1', brief: 'B' })
     expect(spawn.mock.calls[1][0].model).toBe('sonnet')
+  })
+  it('starts the coordinator on its role effort, clamped to the model levels', async () => {
+    const spawn = vi.fn().mockResolvedValue({ id: 'ses_c' })
+    const ctx = { specsDir: dir, preTrust: vi.fn().mockResolvedValue(undefined), bypassPermissions: async () => false, spawn, log: () => {}, accounts: async () => [acct('a1')], roleModels: async () => ({}), getState: emptyState }
+    await startCoordinatorSession({ ...ctx, effortLevels: async () => ['low', 'medium', 'high'] }, { runId: 'run_x', cwd: 'D:/p', accountId: 'a1', brief: 'B' })
+    expect(spawn.mock.calls[0][0].effort).toBe('low')
+    await startCoordinatorSession({ ...ctx, effortLevels: async () => [] }, { runId: 'run_x', cwd: 'D:/p', accountId: 'a1', brief: 'B' })
+    expect(spawn.mock.calls[1][0]).not.toHaveProperty('effort')
   })
   it('T5: a plan of more than 5 Tasks or a hard one gets the strong model, the project override first, and returns it', async () => {
     const spawn = vi.fn().mockResolvedValue({ id: 'ses_c' })
