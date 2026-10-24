@@ -54,12 +54,17 @@ describe('classifyInbound', () => {
     expect(classifyInbound(msg({ date: START }), CHAT, ME, START).kind).toBe('inject')
   })
 
-  it('answers a message that is not a reply with a note to that message', () => {
-    expect(classifyInbound(msg({ reply_to_message: undefined }), CHAT, ME, START)).toEqual({ kind: 'ignore', reason: 'not-reply', noteTo: '500' })
+  it('sends a message that is not a reply to the console', () => {
+    expect(classifyInbound(msg({ reply_to_message: undefined }), CHAT, ME, START)).toEqual({ kind: 'console', text: 'go on', noteTo: '500' })
   })
 
   it('rejects over-long text instead of truncating it', () => {
     expect(classifyInbound(msg({ text: 'x'.repeat(MAX_INJECT_CHARS + 1) }), CHAT, ME, START)).toEqual({ kind: 'ignore', reason: 'too-long', noteTo: '500' })
+  })
+
+  it('rejects over-long text that is not a reply too', () => {
+    const long = msg({ reply_to_message: undefined, text: 'x'.repeat(MAX_INJECT_CHARS + 1) })
+    expect(classifyInbound(long, CHAT, ME, START)).toEqual({ kind: 'ignore', reason: 'too-long', noteTo: '500' })
   })
 
   it('never offers a note to a stranger', () => {

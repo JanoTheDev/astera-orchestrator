@@ -1,4 +1,4 @@
-// The pure decision of whether a Telegram message is a command for a session. What an accepted reply turns
+// The pure decision of whether a Telegram message is a command for a session (a reply) or for the Astera console (anything else). What an accepted reply turns
 // into is core/connections/input.ts and replies.ts; the polling is inbox.ts. Kept pure so the checks that
 // carry the risk (the wrong chat, the wrong person, the bot's own echo, an old message) are all tested.
 import { MAX_INJECT_CHARS } from '../connections/input'
@@ -20,11 +20,12 @@ export type IgnoreReason =
   | 'not-allowed-user'
   | 'stale' // sent before the inbox started: an old command must not run now
   | 'empty-text'
-  | 'not-reply' // which session it belongs to cannot be told (the owner is told how to reply)
   | 'too-long' // over MAX_INJECT_CHARS — rejected rather than truncated and sent
 
 export type InboundDecision =
   | { kind: 'inject'; replyTo: string; text: string }
+  /** Not a reply: the owner talking to the Astera console, which answers in the chat. */
+  | { kind: 'console'; text: string; /** the user's message id, when a note may answer it */ noteTo?: string }
   | { kind: 'ignore'; reason: IgnoreReason; /** the user's message id, when a note may answer it */ noteTo?: string }
 
 const idOf = (v: unknown): string | null => (typeof v === 'number' || typeof v === 'string') && `${v}` !== '' ? `${v}` : null
@@ -34,7 +35,7 @@ const idOf = (v: unknown): string | null => (typeof v === 'number' || typeof v =
  * allowing the whole chat (a required parameter, so a caller cannot forget it). `startedAtSec` is when the
  * inbox started, in Unix seconds like Telegram's `date`.
  *
- * The sender checks come before the checks that post a note back (not-reply, too-long), so a stranger can
+ * The sender checks come before the check that posts a note back (too-long), so a stranger can
  * never make the bot answer them.
  */
 export function classifyInbound(
@@ -52,8 +53,8 @@ export function classifyInbound(
   const text = typeof msg.text === 'string' ? msg.text.trim() : ''
   if (text === '') return { kind: 'ignore', reason: 'empty-text' }
   const noteTo = idOf(msg.message_id) ?? undefined
-  const replyTo = idOf(msg.reply_to_message?.message_id)
-  if (!replyTo) return { kind: 'ignore', reason: 'not-reply', noteTo }
   if (text.length > MAX_INJECT_CHARS) return { kind: 'ignore', reason: 'too-long', noteTo }
+  const replyTo = idOf(msg.reply_to_message?.message_id)
+  if (!replyTo) return { kind: 'console', text, noteTo }
   return { kind: 'inject', replyTo, text }
 }

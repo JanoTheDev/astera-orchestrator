@@ -641,7 +641,14 @@ async function main(): Promise<void> {
           chats: rollingWiring.chats,
           rolling: rollingWiring.rolling,
           server: () => server,
-          lang: () => wiring.checks.langNow()
+          lang: () => wiring.checks.langNow(),
+          // Telegram's non-reply messages go to the console, started the way `console-ensure` starts it.
+          ensureConsole: async () => {
+            const r = await orch.handle('console-ensure', {})
+            const id = (r.body as { id?: unknown } | null)?.id
+            if (r.status >= 300 || typeof id !== 'string') throw new Error('the console could not be started')
+            return { id }
+          }
         })
       : null
 
