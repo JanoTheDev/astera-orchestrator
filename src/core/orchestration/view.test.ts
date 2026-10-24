@@ -161,8 +161,11 @@ describe('outcomeOf', () => {
 
   // Run 만 만들고 Task 를 아직 만들지 않은 상태가 정상적인 시작 지점이다. every 는 빈 배열에
   // 참이므로 이 가드가 없으면 새로 만든 Run 이 completed 로 보인다
+  // T15: only while something can add Tasks; an empty Run nothing can add Tasks to has finished (running.ts lostTasksOutcome)
   it('Task 가 없으면 running 이다', () => {
-    expect(outcomeOf(only([]), 'r1')).toBe('running')
+    const starting = withRuns([{ ...run('r1', absPath('p')), coordinatorSessionId: 'sess1' }])
+    expect(outcomeOf(starting, 'r1')).toBe('running')
+    expect(outcomeOf(only([]), 'r1')).toBe('failed')
   })
 
   it('모두 completed 면 completed 다', () => {
@@ -341,8 +344,9 @@ describe('snapshotFor', () => {
   // 끝난 Run 이 아래로 간다 — 예전에는 저장된 status 로 판정했고, 이제는 Task 에서 파생한다.
   // 목록의 맨 위는 지금 도는 작업의 자리다
   it('도는 Run 이 먼저, 그 안에서 최신순', () => {
-    const older = { ...run('a', absPath('p')), createdAt: '2026-08-01T00:00:00.000Z' }
-    const newer = { ...run('b', absPath('p')), createdAt: '2026-08-18T00:00:00.000Z' }
+    // T15: an empty Run runs while its coordinator can add Tasks
+    const older = { ...run('a', absPath('p')), createdAt: '2026-08-01T00:00:00.000Z', coordinatorSessionId: 'sess_a' }
+    const newer = { ...run('b', absPath('p')), createdAt: '2026-08-18T00:00:00.000Z', coordinatorSessionId: 'sess_b' }
     const done = { ...run('c', absPath('p')), createdAt: '2026-08-19T00:00:00.000Z' }
     const s = withRuns([older, done, newer], [task('t1', 'c', 'completed')])
     expect(snapshotFor(s, absPath('p'), anySession, noWorktrees, noFires, allExist).runs.map((r) => r.id)).toEqual(['job_b', 'job_a', 'job_c'])
@@ -540,7 +544,8 @@ describe('snapshotFor', () => {
   // 관리자가 있어야 하는데 없다는 사실이 사이드바의 버튼 근거다 — 이 칸이 없으면 사람이
   // 코디네이터를 되돌릴 자리가 사라진다
   it('코디네이터 계정이 있는데 세션이 없으면 coordinatorMissing 이다', () => {
-    const s = withRuns([{ ...run('r1', absPath('p')), coordinatorAccountId: 'acc1' }])
+    // T15: with work left; an empty Run nothing can add Tasks to has finished, and `jobs run` makes the next Run
+    const s = withRuns([{ ...run('r1', absPath('p')), coordinatorAccountId: 'acc1' }], [task('t1', 'r1', 'ready')])
     const [r] = snapshotFor(s, absPath('p'), anySession, noWorktrees, noFires, allExist).runs
     expect(r.coordinatorMissing).toBe(true)
   })

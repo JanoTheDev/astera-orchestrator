@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest'
 import { activeOrQueued, externalDepsOf, holdExternalDeps, mainPlanOf } from './mainPlan'
 import { refreshOverlaps, STOPPED_DEP_OPTIONS } from './overlap'
+import { outcomeOf } from './running'
 import { createTask, emptyState, resolveGate, startJobRun, type OrchState } from './state'
 import type { Job, JobRun, Task } from './types'
 
@@ -48,18 +49,20 @@ describe('a plan whose Run lost its Tasks', () => {
   it('reads by its delivery in the main plan and drops out of the active plans', () => {
     const s: OrchState = {
       ...emptyState(),
-      jobs: [job('jDone'), job('jStuck'), job('jNew')],
+      jobs: [job('jDone'), job('jStuck'), job('jNew'), job('jIdle')],
       runs: [
         run('rDone', 'jDone', { pr: { at: T0, url: 'https://github.com/o/r/pull/1' } }),
         run('rStuck', 'jStuck', { delivery: { at: T0, branch: 'main', error: 'merge failed' } }),
-        run('rNew', 'jNew')
+        run('rNew', 'jNew', { coordinatorStartingAt: T0 }),
+        // no record and nothing that can add Tasks
+        run('rIdle', 'jIdle')
       ]
     }
     const states = Object.fromEntries(mainPlanOf(s, 'prj_1').plans.map((p) => [p.job.id, p.state]))
-    expect(states).toEqual({ jDone: 'completed', jStuck: 'failed', jNew: 'running' })
-    expect(activeOrQueued(s, s.jobs[0])).toBe(false)
-    expect(activeOrQueued(s, s.jobs[1])).toBe(false)
-    expect(activeOrQueued(s, s.jobs[2])).toBe(true)
+    expect(states).toEqual({ jDone: 'completed', jStuck: 'failed', jNew: 'running', jIdle: 'failed' })
+    expect(s.jobs.map((j) => activeOrQueued(s, j))).toEqual([false, false, true, false])
+    // the one rule: the main plan reads what the Jobs list reads
+    for (const r of s.runs) expect(states[r.jobId]).toBe(outcomeOf(s, r.id))
   })
 })
 

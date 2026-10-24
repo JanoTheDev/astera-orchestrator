@@ -9405,7 +9405,8 @@ describe('handleCommand — github-pr, github-ci and github-issue', () => {
     // are not.
     it("github-pr-create refuses a Run runs-get does not call finished (409), and touches nothing", async () => {
       const working: [string, Task[], Partial<JobRun>][] = [
-        ['no Tasks yet', [], { worktree: WT }],
+        // T15: an empty Run is working while something can add its Tasks (a coordinator), else it has finished
+        ['no Tasks yet', [], { worktree: WT, coordinatorSessionId: 'ses_c' }],
         ['a Task still dispatched', [task('completed'), task('dispatched')], { worktree: WT }],
         ['a failed Task with retries left', [task('failed', { consecutiveFailures: 1 })], { worktree: WT }]
       ]

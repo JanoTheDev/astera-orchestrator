@@ -54,7 +54,14 @@ export function diagnoseRuns(s: OrchState, runIds: readonly string[], sessions?:
     // T15: a delivery record says the Run once had Tasks; none left means they were lost from the store
     const lostReads = lostTasksOutcome(s, run, tasks)
     if (lostReads !== undefined)
-      out.push({ kind: 'lost-tasks', runId: run.id, detail: `has no Task but a delivery record: its Tasks were lost from the store; it reads ${lostReads}` })
+      out.push({
+        kind: 'lost-tasks',
+        runId: run.id,
+        detail:
+          run.pr !== undefined || run.delivery !== undefined || run.branchPush !== undefined
+            ? `has no Task but a delivery record: its Tasks were lost from the store; it reads ${lostReads}`
+            : `has no Task and nothing can add one (no coordinator, replan or start); it reads ${lostReads}`
+      })
     const stall = stallOf(s, run)
     if (stall) out.push({ kind: 'stalled', runId: run.id, taskId: stall.blocks[0].task.id, detail: `stalled: ${stall.reason}` })
     const stuck = run.paused === true || stall ? undefined : stuckOf(s, run, tasks)
@@ -64,9 +71,7 @@ export function diagnoseRuns(s: OrchState, runIds: readonly string[], sessions?:
         runId: run.id,
         stuck,
         detail:
-          tasks.length === 0
-            ? 'reads running, but it has no Task and nothing can add one (no coordinator, replan or start)'
-            : stuck === 'needs-you'
+          stuck === 'needs-you'
             ? 'reads running, but every unfinished Task waits on the owner'
             : 'reads running, but its failed Tasks have no coordinator and nothing retries them'
       })
@@ -145,18 +150,13 @@ export async function repairFindings(findings: readonly DoctorFinding[], c: Doct
   return out
 }
 
-const LOST_TASKS_SUBJECT = "This plan's Tasks were lost from the store"
+const LOST_TASKS_SUBJECT = "This plan's Run has no Task left"
 
 async function repairOne(f: DoctorFinding, c: DoctorFixContext): Promise<{ fixed: boolean; did: string }> {
   switch (f.kind) {
     case 'stuck': {
       if (f.stuck === 'needs-you')
-        return {
-          fixed: false,
-          did: tasksOwnedBy(c.getState(), f.runId).length === 0
-            ? 'left to the owner: start its coordinator (▶) or archive the plan'
-            : 'left to the owner: answer its open question (inbox)'
-        }
+        return { fixed: false, did: 'left to the owner: answer its open question (inbox)' }
       // Stalled: each failed Task nobody retries gets a Gate, so the owner's answer runs it again (resolveGate)
       const s = c.getState()
       const run = s.runs.find((r) => r.id === f.runId)
@@ -208,7 +208,7 @@ async function repairOne(f: DoctorFinding, c: DoctorFixContext): Promise<{ fixed
       // Flags it in the owner's inbox once (an escalation, open until answered); nothing is deleted or rewritten
       const s = c.getState()
       const run = s.runs.find((r) => r.id === f.runId)
-      if (!run || lostTasksOutcome(s, run, tasksOwnedBy(s, run.id)) === undefined) return { fixed: false, did: 'no longer without Tasks' }
+      if (!run || lostTasksOutcome(s, run, tasksOwnedBy(s, run.id)) === undefined) return { fixed: false, did: 'no longer without Tasks, or Tasks can still come' }
       if (s.messages.some((m) => m.runId === run.id && m.type === 'escalation' && m.subject === LOST_TASKS_SUBJECT))
         return { fixed: false, did: 'already flagged to the owner' }
       const flag = {
@@ -216,12 +216,12 @@ async function repairOne(f: DoctorFinding, c: DoctorFixContext): Promise<{ fixed
         runId: run.id,
         type: 'escalation' as const,
         subject: LOST_TASKS_SUBJECT,
-        body: `${f.detail}. \`astera tasks restore\` brings them back if a backup still holds them.`,
+        body: `${f.detail}. \`astera tasks restore\` brings lost Tasks back if a backup still holds them; \`jobs run\` starts the plan again.`,
         answered: false,
         createdAt: c.now()
       }
       await c.setState({ ...s, messages: [...s.messages, flag] })
-      return { fixed: true, did: 'flagged the lost Tasks to the owner (inbox)' }
+      return { fixed: true, did: 'flagged the Run with no Task to the owner (inbox)' }
     }
     case 'stray-session':
       if (!c.stopSession) return { fixed: false, did: 'nothing here holds sessions' }

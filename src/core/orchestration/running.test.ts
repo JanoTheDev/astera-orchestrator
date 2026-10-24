@@ -274,17 +274,17 @@ describe('a Run whose Tasks are gone', () => {
     expect(outcomeOf(gone({ branchPush: { state: 'delivered', attempts: 1 } }), 'run_1')).toBe('failed')
   })
 
-  it('reads running while a replan can still add Tasks, or when it never had any (a Run just made)', () => {
+  it('reads running while a replan can still add Tasks to a Run with a record', () => {
     expect(outcomeOf(gone({ pr }, { replanning: { runId: 'run_1', mode: 'completion', wave: 1, done: 0, startedAt: NOW } }), 'run_1')).toBe('running')
-    expect(outcomeOf(gone({}), 'run_1')).toBe('running')
-    expect(outcomeOf(gone({ deliveryState: { state: 'pending', attempts: 0 } }), 'run_1')).toBe('running')
   })
 
-  it('flags an empty Run with no record that nothing can add Tasks to as needs-you, beside outcome running', () => {
-    const idle = gone({})
-    expect(stuckOf(idle, idle.runs[0])).toBe('needs-you')
-    expect(snapshotFor(idle, PROJ, () => true, [], () => null, () => true).runs[0].stuck).toBe('needs-you')
-    // something can still add Tasks: a coordinator, a coordinator start, a replan, a pending start, a held start; or paused
+  it('reads an empty Run with no record failed once nothing can add Tasks, running while something can', () => {
+    const idle = gone({ deliveryState: { state: 'pending', attempts: 0 } })
+    expect(outcomeOf(gone({}), 'run_1')).toBe('failed')
+    expect(outcomeOf(idle, 'run_1')).toBe('failed')
+    expect(snapshotFor(idle, PROJ, () => true, [], () => null, () => true).runs[0].outcome).toBe('failed')
+    // something can still add Tasks: a coordinator, a coordinator start, a replan, a pending start (approval), a held
+    // start; or the owner paused it
     for (const [r, j] of [
       [{ coordinatorSessionId: 'ses_c' }, {}],
       [{ externalCoordinatorSessionId: 'ses_x' }, {}],
@@ -293,10 +293,8 @@ describe('a Run whose Tasks are gone', () => {
       [{}, { pendingStart: true }],
       [{}, { startWait: 'no account has room' }],
       [{ paused: true }, {}]
-    ] as [Partial<JobRun>, Partial<Job>][]) {
-      const s = gone(r, j)
-      expect(stuckOf(s, s.runs[0])).toBeUndefined()
-    }
+    ] as [Partial<JobRun>, Partial<Job>][])
+      expect(outcomeOf(gone(r, j), 'run_1')).toBe('running')
   })
 
   it('stops counting as running in the Jobs list projection', () => {
