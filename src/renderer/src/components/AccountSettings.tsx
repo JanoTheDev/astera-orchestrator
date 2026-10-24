@@ -130,27 +130,35 @@ export function RemoveAccountDialog({ account, onClose }: { account: Account; on
   const [removing, setRemoving] = useState(false)
   // Finished worker sessions removal will close, named before the owner confirms (a dry run changes nothing).
   const [closing, setClosing] = useState<string[]>([])
+  // Sessions still using the account. When any, removal is refused, so the dialog names them instead of the close line.
+  const [blockers, setBlockers] = useState<string[]>([])
   useEffect(() => {
-    void window.api.accounts.remove(account.id, { dryRun: true }).then((r) => setClosing(r?.closed ?? []), () => {})
+    void window.api.accounts.remove(account.id, { dryRun: true }).then(
+      (r) => {
+        if (!r) return
+        if (r.ok) setClosing(r.closed ?? [])
+        else setBlockers(r.titles)
+      },
+      () => {}
+    )
   }, [account.id])
 
   const confirmRemove = async (): Promise<void> => {
     if (removing) return
     setRemoving(true)
     try {
-      if (logoutToo) {
-        const r = await window.api.accounts.logout(account.id)
-        if (!r.ok) {
-          toast.error(t('account.logout.failed', { detail: tm(r.message ?? null) ?? '' }))
-        }
-      }
       // 돌아가는 세션이 그 계정을 쓰고 있으면 main 이 거부한다(ipc.ts 의 accountRemovalBlockers).
       // 거부는 실패가 아니라 사용자가 몰랐던 사실을 알리는 것이므로, 어느 세션이 막고 있는지 이름을
       // 말한다 — 이름 없이 "쓰이는 중"만 말하면 사용자가 무엇을 닫아야 할지 알 수 없다.
+      // 로그아웃은 제거가 성공한 뒤에만 한다: 거부된 제거가 살아 있는 세션의 로그인을 먼저 끊으면 안 된다.
       const r = await window.api.accounts.remove(account.id)
       if (r && !r.ok) {
         toast.error(t('account.remove.inUse', { titles: r.titles.join(', ') }))
         return
+      }
+      if (logoutToo) {
+        const lo = await window.api.accounts.logout(account.id)
+        if (!lo.ok) toast.error(t('account.logout.failed', { detail: tm(lo.message ?? null) ?? '' }))
       }
     } catch (e) {
       toast.error(t('account.remove.releaseFailed', { detail: e instanceof Error ? e.message : String(e) }))
@@ -185,7 +193,10 @@ export function RemoveAccountDialog({ account, onClose }: { account: Account; on
         <p className="acct-note">
           {t('account.remove.confirm', { label: account.label })}
         </p>
-        {closing.length > 0 && (
+        {blockers.length > 0 && (
+          <p className="acct-note acct-note--warn">{t('account.remove.inUse', { titles: blockers.join(', ') })}</p>
+        )}
+        {blockers.length === 0 && closing.length > 0 && (
           <p className="acct-note">{t('account.remove.willClose', { count: closing.length, titles: closing.join(', ') })}</p>
         )}
         <Checkbox checked={logoutToo} onChange={(v) => setLogoutToo(v)} label={t('account.remove.logoutToo')} />

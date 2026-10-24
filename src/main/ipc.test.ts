@@ -19,11 +19,13 @@ import {
   liveWorkersFor,
   liveSessionIn,
   rollCoordinatorForSession,
+  releaseThenRemoveAccount,
   retryRegistrationsFor,
   scheduleForAdoptedSession,
   sessionsTakenBackOnFailure,
   staleSpecFiles
 } from './ipc'
+import type { OrchState } from '../core/orchestration/state'
 import { createAttentionState } from '../core/sessions/attention'
 import { sanitizeResumePrompt } from '../core/sessions/commands'
 import { PTY_LOST_SIGHT_EXIT_CODE } from '../core/sessions/pty'
@@ -294,6 +296,58 @@ describe('accountRemovalPlan — finished workers are released, live work blocks
     const rows = [sess('s1', { status: 'exited' }), sess('s2', { accountId: 'a2' }), sess('s3', { accountId: 'a2', rollAccountIds: ['a2', 'a1'] })]
     const state = { tasks: [{ id: 't1', status: 'completed' }], dispatches: [{ id: 'd3', taskId: 't1', sessionId: 's3', retained: false }] } as unknown as Parameters<typeof accountRemovalPlan>[2]
     expect(accountRemovalPlan('a1', rows, state)).toEqual({ blockers: [], releasable: [{ dispatchId: 'd3', title: 'title-s3' }] })
+  })
+})
+
+describe('releaseThenRemoveAccount — the handler releases finished workers, then removes the account', () => {
+  const stateWith = (retained: boolean) => ({
+    tasks: [{ id: 't1', status: 'completed' }],
+    dispatches: [
+      { id: 'd1', taskId: 't1', sessionId: 's1', retained },
+      { id: 'd2', taskId: 't1', sessionId: 's2', retained: false }
+    ]
+  })
+  const harness = (retained = true) => {
+    const calls: string[] = []
+    let st = stateWith(retained) as ReturnType<typeof stateWith>
+    const deps = {
+      getState: () => st as unknown as OrchState,
+      setState: vi.fn(async (next: OrchState) => {
+        calls.push('setState')
+        st = next as unknown as typeof st
+      }),
+      releaseWorker: vi.fn(async ({ dispatchId }: { dispatchId: string }) => {
+        calls.push(`release:${dispatchId}`)
+      }),
+      removeAccount: vi.fn(async (id: string) => {
+        calls.push(`remove:${id}`)
+      })
+    }
+    return { calls, deps, state: () => st }
+  }
+  const releasable = [{ dispatchId: 'd1' }, { dispatchId: 'd2' }]
+
+  it('un-retains a retained dispatch, releases each releasable worker, and removes the account last', async () => {
+    const h = harness(true)
+    await releaseThenRemoveAccount('a1', releasable, h.deps)
+    expect(h.state().dispatches.find((d) => d.id === 'd1')?.retained).toBe(false)
+    expect(h.calls).toEqual(['setState', 'release:d1', 'release:d2', 'remove:a1'])
+    expect(h.deps.releaseWorker).toHaveBeenCalledWith({ dispatchId: 'd1', closeReason: 'released' })
+    expect(h.deps.releaseWorker).toHaveBeenCalledWith({ dispatchId: 'd2', closeReason: 'released' })
+  })
+
+  it('does not write state for a dispatch that is not retained', async () => {
+    const h = harness(false)
+    await releaseThenRemoveAccount('a1', releasable, h.deps)
+    expect(h.deps.setState).not.toHaveBeenCalled()
+    expect(h.calls).toEqual(['release:d1', 'release:d2', 'remove:a1'])
+  })
+
+  it('a releaseWorker that throws leaves the account in place', async () => {
+    const h = harness(false)
+    h.deps.releaseWorker.mockRejectedValueOnce(new Error('pty busy'))
+    await expect(releaseThenRemoveAccount('a1', releasable, h.deps)).rejects.toThrow('pty busy')
+    expect(h.deps.removeAccount).not.toHaveBeenCalled()
   })
 })
 

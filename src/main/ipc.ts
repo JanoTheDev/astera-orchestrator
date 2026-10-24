@@ -509,6 +509,22 @@ export const accountRemovalBlockers = (
   orch?: Parameters<typeof accountRemovalPlan>[2]
 ): string[] => accountRemovalPlan(accountId, sessions, orch).blockers
 
+/** The write half of accounts.remove: un-retain and release each releasable worker, then remove the account.
+ *  A release that throws stops here, before the removal, so the account stays. Exported so the order is tested. */
+export async function releaseThenRemoveAccount(
+  accountId: string,
+  releasable: readonly { dispatchId: string }[],
+  deps: Pick<OrchServerDeps, 'getState' | 'setState' | 'releaseWorker'> & { removeAccount: (id: string) => Promise<unknown> }
+): Promise<void> {
+  for (const { dispatchId } of releasable) {
+    const st = deps.getState()
+    if (st.dispatches.find((d) => d.id === dispatchId)?.retained)
+      await deps.setState({ ...st, dispatches: st.dispatches.map((d) => (d.id === dispatchId ? { ...d, retained: false } : d)) })
+    await deps.releaseWorker({ dispatchId, closeReason: 'released' })
+  }
+  await deps.removeAccount(accountId)
+}
+
 export function providerOfSession(
   sessionId: string,
   sessions: readonly Pick<SessionInfo, 'id' | 'accountId'>[],
@@ -2058,15 +2074,8 @@ export function registerIpc(
     const closed = plan.releasable.map((r) => r.title)
     if (plan.blockers.length > 0) return { ok: false as const, titles: plan.blockers, closed }
     if (opts?.dryRun) return { ok: true as const, titles: [] as string[], closed }
-    // Finished workers go through the orchestration release (never a bare pty kill); a retained one is
-    // un-retained first, since worker-release leaves those alive. One failure stops here: the account stays.
-    for (const { dispatchId } of plan.releasable) {
-      const st = orch!.deps.getState()
-      if (st.dispatches.find((d) => d.id === dispatchId)?.retained)
-        await orch!.deps.setState({ ...st, dispatches: st.dispatches.map((d) => (d.id === dispatchId ? { ...d, retained: false } : d)) })
-      await orch!.deps.releaseWorker({ dispatchId, closeReason: 'released' })
-    }
-    await core.accounts.remove(id)
+    // Finished workers go through the orchestration release (never a bare pty kill); one failure stops here.
+    await releaseThenRemoveAccount(id, plan.releasable, { ...orch!.deps, removeAccount: (aid) => core.accounts.remove(aid) })
     return { ok: true as const, titles: [] as string[], closed }
   })
   ipcMain.handle('accounts.loginStatus', (_e, id) => core.accounts.loginStatus(id))
