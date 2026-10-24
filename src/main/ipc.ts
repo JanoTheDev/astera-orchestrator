@@ -1602,7 +1602,8 @@ export function registerIpc(
       // W2-C plan board: the app-wide cap, so a Task held by it says so
       { maxConcurrentWorkers: core.appSettings.getEffectiveMaxConcurrentWorkers() },
       // W6-G. T1: with "Pick accounts automatically" on, held only while the provider has no account with room
-      startPauseOf((id) => usageGuard.pauseOf(id), { auto: usageGuard.autoAccounts(), accounts: core.accounts.list(), loggedInIds })
+      startPauseOf((id) => usageGuard.pauseOf(id), { auto: usageGuard.autoAccounts(), accounts: core.accounts.list(), loggedInIds }),
+      core.appSettings.getApprovalDefault()
     )
   }
   // The push is a notification hung off the awaited setState (below). It folds later in the tick, so a fold that

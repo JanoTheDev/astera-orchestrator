@@ -3,6 +3,7 @@
 import { describe, it, expect } from 'vitest'
 import { handleCommand, type OrchServerDeps } from './command'
 import { emptyState, type OrchState } from './state'
+import { autoApproveOf } from './exec/plannerFeedback'
 import { renderPlanMd, validatePlan } from './planner'
 import { sha256Of } from './promptWaves'
 
@@ -104,6 +105,16 @@ describe('jobs-create --mode prompts', () => {
     expect(r.state().jobs[0].title).toBe('Fix login, Fix search')
   })
 
+  // The project's auto-approve decides a prompts plan unless --approve is given; a project that set none keeps the old start
+  it('without --approve a project with auto-approve off keeps the approval step; --approve auto still overrides it', async () => {
+    const r = rig(FILES)
+    await r.deps.setState({ ...r.state(), projects: [{ id: 'prj_1', path: '/p', name: 'p', addedAt: NOW, autoApprove: false }] })
+    await r.person('jobs-create', { cwd: '/p', mode: 'prompts', attach: ['/d/W9-C-plan-tab.md'] })
+    expect(r.state().jobs[0].autoApprove).toBeUndefined()
+    expect(autoApproveOf(r.state(), r.state().jobs[0])).toBe(false)
+    await r.person('jobs-create', { cwd: '/p', mode: 'prompts', attach: ['/d/W9-C-plan-tab.md'], approve: 'auto' })
+    expect(r.state().jobs[1].autoApprove).toBe(true)
+  })
   it('--approve ask keeps the approval step; --approve without --mode prompts and a non-.md file are refused', async () => {
     const r = rig(FILES)
     await r.person('jobs-create', { cwd: '/p', mode: 'prompts', attach: ['/d/W9-C-plan-tab.md'], approve: 'ask' })

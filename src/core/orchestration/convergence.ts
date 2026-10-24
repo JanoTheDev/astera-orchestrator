@@ -1,7 +1,7 @@
 // 완료 수렴의 순수 판별들. state.ts 의 판정 함수와 main 의 배선이 함께 쓴다 — 규칙을 한 곳에 두어
 // "몇 번째 repair 인가" 를 두 곳에서 다르게 세는 일이 없게 한다. 저장하지 않고 센다: Dispatch 가
 // durable 하므로 카운트도 durable 하다(명세 §55-5).
-import { jobOfRunId } from './state'
+import { jobOfRunId, projectWithWorkspace } from './state'
 import type { OrchState } from './state'
 import {
   FAILURE_LIMIT,
@@ -10,6 +10,7 @@ import {
   type CheckResult,
   type Dispatch,
   type Job,
+  type Project,
   type ReviewSeverity,
   type Task
 } from './types'
@@ -40,15 +41,17 @@ export function checkConfigIdsOf(task: Pick<Task, 'validateConfigIds' | 'validat
  *  정책은 계획의 것이라 회차가 아니라 Job 에서 읽는다 — 같은 Job 의 두 회차가 다른 수렴 정책으로
  *  도는 일은 없다. */
 export function policyOf(s: OrchState, task: Pick<Task, 'runId'>): ResolvedPolicy | null {
-  return policyOfJob(task.runId === undefined ? undefined : jobOfRunId(s, task.runId))
+  const job = task.runId === undefined ? undefined : jobOfRunId(s, task.runId)
+  return policyOfJob(job, job?.projectId === undefined ? undefined : projectWithWorkspace(s, job.projectId))
 }
 
-/** policyOf for a Job already found (the Jobs sidebar fold indexes Runs and Jobs once, performance audit M1) */
-export function policyOfJob(job: Job | undefined): ResolvedPolicy | null {
+/** policyOf for a Job already found (the Jobs sidebar fold indexes Runs and Jobs once, performance audit M1). The review
+ *  rounds the plan sets none of are its project's, the same fallback the Plan settings tab shows. */
+export function policyOfJob(job: Job | undefined, project?: Pick<Project, 'reviewRounds'>): ResolvedPolicy | null {
   if (!job?.convergence) return null
   return {
     maxFixAttempts: job.convergence.maxFixAttempts ?? FAILURE_LIMIT,
-    maxReviewRounds: job.convergence.maxReviewRounds ?? MAX_REVIEW_ROUNDS,
+    maxReviewRounds: job.convergence.maxReviewRounds ?? project?.reviewRounds ?? MAX_REVIEW_ROUNDS,
     blockingSeverity: job.convergence.blockingSeverity ?? DEFAULT_BLOCKING_SEVERITY,
     ...(job.convergence.maxTotalMinutes !== undefined ? { maxTotalMinutes: job.convergence.maxTotalMinutes } : {})
   }
