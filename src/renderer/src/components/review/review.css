@@ -120,5 +120,6 @@
 .rv-pop__form { display: flex; flex-direction: column; gap: var(--sp-2); }
 .rv-pop__title { font-size: var(--fs-13); font-weight: var(--fw-semi); color: var(--text); }
 .rv-pop__form label { font-size: var(--fs-12); color: var(--text-dim); }
-.rv-pop__form .modal-hint { margin: 0; }
+.rv-pop__form .rv-note { margin: 0; }
 .rv-pop__actions { display: flex; justify-content: flex-end; gap: var(--sp-2); }
+.rv-note { color: var(--text-faint); font-size: var(--fs-12); }

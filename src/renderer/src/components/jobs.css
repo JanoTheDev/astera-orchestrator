@@ -244,3 +244,7 @@
 .jobs-tmpl-more { align-self: flex-start; margin: 0 10px 8px 26px; }
 .jobs-tmpl-kids .jobs-run { border-bottom: none; }
 .jobs-tmpl-kids .jobs-run:not(:last-child) { border-bottom: 1px solid var(--line-soft); }
+
+/* A quiet line in the changes and completion blocks (hint, loading, empty); --warn adds the problem tone. */
+.jobs-note { margin: 0; color: var(--text-faint); font-size: var(--fs-12); }
+.jobs-note--warn { color: var(--warn); }
