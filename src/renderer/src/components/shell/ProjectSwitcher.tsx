@@ -176,7 +176,8 @@ export function ProjectSwitcher(p: SwitcherProps): React.JSX.Element {
   const label = switcherName(p.selectedId, p.tree, p.selectedId ? sticky.readName(p.selectedId) : null)
   const name = label.kind === 'all' ? t('wall.scope.all') : label.kind === 'other' ? t('shell.switcher.other') : label.kind === 'name' ? label.name : t('shell.switcher.label')
   const rows = workspaceSummaries(p.tree, p.byWorkspace, p.sessions, p.attention, facts)
-  const waiting = rows.some((r) => r.waiting)
+  // the trigger's dot goes amber with any row's: a waiting session or an open question
+  const waiting = rows.some((r) => projectStatusDot(r) === 'needsYou')
 
   const setShown = (next: boolean): void => {
     setOpen(next)
