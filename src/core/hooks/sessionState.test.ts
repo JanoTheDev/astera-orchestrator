@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import path from 'node:path'
+import { INPUT_QUIET_MS } from '../sessions/attention'
 import { hookEventState, sessionStateOf, hookEventsDirIn, hookEventsFileIn, latestEventLine, hookEventPrompt, lastActionOf } from './sessionState'
 
 describe('hookEventState', () => {
@@ -243,5 +244,16 @@ describe('sessionStateOf — decay', () => {
     expect(sessionStateOf({ lastLine: pre, eventAt: 0, lastInputAt: null, lastOutputAt: 30_000, now: 11 * 60_000 })).toBe('idle')
     // a Stop is idle whatever the output says
     expect(sessionStateOf({ lastLine: '{"hook_event_name":"Stop"}', eventAt: 0, lastInputAt: null, lastOutputAt: 60_000, now: 61_000 })).toBe('idle')
+  })
+  const prompt = '{"hook_event_name":"UserPromptSubmit","prompt":"go"}'
+  it('a turn thinking with no tool call reads working while its spinner draws, idle once 10 minutes quiet', () => {
+    expect(sessionStateOf({ lastLine: prompt, eventAt: 0, lastInputAt: null, lastOutputAt: 11 * 60_000 - 100, now: 11 * 60_000 })).toBe('working')
+    expect(sessionStateOf({ lastLine: prompt, eventAt: 0, lastInputAt: null, lastOutputAt: 30_000, now: 11 * 60_000 })).toBe('idle')
+  })
+  it('input mid-turn under a drawing spinner stays working; once the pty goes quiet it is unknown', () => {
+    expect(sessionStateOf({ lastLine: prompt, eventAt: 1000, lastInputAt: 2000, lastOutputAt: 2900, now: 3000 })).toBe('working')
+    expect(sessionStateOf({ lastLine: prompt, eventAt: 1000, lastInputAt: 2000, lastOutputAt: 2050, now: 2050 + INPUT_QUIET_MS })).toBe('unknown')
+    // a turn end is not reopened by output after input
+    expect(sessionStateOf({ lastLine: '{"hook_event_name":"Stop"}', eventAt: 1000, lastInputAt: 2000, lastOutputAt: 2900, now: 3000 })).toBe('unknown')
   })
 })

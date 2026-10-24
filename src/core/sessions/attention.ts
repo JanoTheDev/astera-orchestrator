@@ -19,29 +19,36 @@ import type { Attention } from '../types'
  *  rule in both processes. */
 export type { Attention }
 
-/** How long a session reads `working` with no sign of life: no output from its pty and no tool call
- *  started inside the window. Past it, a turn nobody ended (Esc fires no Stop) reads `idle`. */
+/** How long a session reads `working` with no sign of life: no output from its pty and no turn or
+ *  tool call started inside the window. Past it, a turn nobody ended (Esc fires no Stop) reads `idle`. */
 export const WORKING_DECAY_MS = 10 * 60_000
+
+/** After person input, how long a turn keeps reading `working` without new pty output. Claude Code
+ *  redraws its spinner many times a second while it thinks or runs a tool, so typing the next message
+ *  mid-turn keeps it `working`; Esc stops the spinner, and the turn reads `idle` once this has passed. */
+export const INPUT_QUIET_MS = 5_000
 
 /** The one rule for "is this session really working", shared by the app (`createAttentionState`) and
  *  the Host (`sessionStateOf`, core/hooks/sessionState.ts) so `astera sessions list` and the tiles
- *  agree. Working only if a turn or tool call is open, the process lives, no person input came after
- *  the last hook event (a tie counts as after: the two cannot be ordered), and something happened
- *  within the decay window. `now` null skips the decay (a caller with no clock). */
+ *  agree. Working only if a turn or tool call is open, the process lives, and something happened within
+ *  the decay window. Person input after the last hook event (a tie counts as after: the two cannot be
+ *  ordered) may have been an Esc that ended the turn, so from then on only fresh pty output
+ *  (INPUT_QUIET_MS) keeps it working. `now` null skips the clock: then input after the event ends it. */
 export function isWorking(a: {
   open: boolean
   exited: boolean
   eventAt: number | null
   personInputAt: number | null
   lastOutputAt: number | null
-  toolStartedAt: number | null
+  startedAt: number | null
   now: number | null
 }): boolean {
   if (a.exited || !a.open) return false
-  if (a.personInputAt !== null && (a.eventAt === null || a.personInputAt >= a.eventAt)) return false
-  if (a.now === null) return true
-  const fresh = (t: number | null): boolean => t !== null && a.now! - t < WORKING_DECAY_MS
-  return fresh(a.lastOutputAt) || fresh(a.toolStartedAt)
+  const inputAfter = a.personInputAt !== null && (a.eventAt === null || a.personInputAt >= a.eventAt)
+  if (a.now === null) return !inputAfter
+  const fresh = (t: number | null, window: number): boolean => t !== null && a.now! - t < window
+  if (inputAfter) return fresh(a.lastOutputAt, INPUT_QUIET_MS)
+  return fresh(a.lastOutputAt, WORKING_DECAY_MS) || fresh(a.startedAt, WORKING_DECAY_MS)
 }
 
 export interface AttentionState {
@@ -80,15 +87,22 @@ export interface AttentionState {
 interface SessionAttention {
   value: Attention
   outstanding: Set<string>
+  /** A turn is running: from its UserPromptSubmit (or a tool call, for a turn whose prompt was not
+   *  seen) until its Stop. Most sessions hook tool calls only for AskUserQuestion, so a turn that thinks
+   *  or runs Bash has no outstanding call to show it (statusline.ts `everySessionHooks`). */
+  turnOpen: boolean
   /** When the latest UserPromptSubmit seen for this session happened (its capture's stamp), or null
    *  before one with a stamp. A turn end older than this belongs to the turn before it. */
   promptAt: number | null
+  /** When the latest turn end (Stop, StopFailure) happened, or null. A prompt older than this is
+   *  the turn that already ended, landing late. */
+  endedAt: number | null
   /** When the last hook event happened (its stamp, else when it landed), what person input is ordered against. */
   eventAt: number | null
   personInputAt: number | null
   lastOutputAt: number | null
-  /** When the latest PreToolUse started. */
-  toolStartedAt: number | null
+  /** When the latest turn or tool call started. */
+  startedAt: number | null
 }
 
 export function createAttentionState(now: () => number = Date.now): AttentionState {
@@ -98,7 +112,7 @@ export function createAttentionState(now: () => number = Date.now): AttentionSta
   function recordFor(sessionId: string): SessionAttention {
     let record = sessions.get(sessionId)
     if (!record) {
-      record = { value: 'idle', outstanding: new Set(), promptAt: null, eventAt: null, personInputAt: null, lastOutputAt: null, toolStartedAt: null }
+      record = { value: 'idle', outstanding: new Set(), turnOpen: false, promptAt: null, endedAt: null, eventAt: null, personInputAt: null, lastOutputAt: null, startedAt: null }
       sessions.set(sessionId, record)
     }
     return record
@@ -113,8 +127,9 @@ export function createAttentionState(now: () => number = Date.now): AttentionSta
   /** A `working` that the shared rule no longer holds up reads idle, and its stale calls are dropped. */
   function revalidate(sessionId: string, record: SessionAttention, exited = false): void {
     if (record.value !== 'working') return
-    const working = isWorking({ open: record.outstanding.size > 0, exited, ...record, now: now() })
+    const working = isWorking({ open: record.turnOpen || record.outstanding.size > 0, exited, ...record, now: now() })
     if (working) return
+    record.turnOpen = false
     record.outstanding.clear()
     setValue(sessionId, record, 'idle')
   }
@@ -127,16 +142,23 @@ export function createAttentionState(now: () => number = Date.now): AttentionSta
       if (sessions.has(sessionId)) sessions.get(sessionId)!.eventAt = eventAt
 
       if (p.hook_event_name === 'UserPromptSubmit') {
-        // A turn starting is no reason to change the value. What is kept is when it happened, so a
-        // turn end that lands after it but happened before it is known for the previous turn's.
+        // A turn starts: `working` until its Stop, thinking or not. When it happened is kept too, so a
+        // turn end that lands after it but happened before it is known for the previous turn's. A
+        // prompt that happened before the latest turn end is that ended turn landing late (async).
         const at = hookEventAt(p)
-        if (at === null) return
         const record = recordFor(sessionId)
-        if (!happenedBefore(at, record.promptAt)) record.promptAt = at
+        record.eventAt = eventAt
+        if (at !== null && !happenedBefore(at, record.promptAt)) record.promptAt = at
+        if (happenedBefore(at, record.endedAt)) return
+        record.turnOpen = true
+        record.startedAt = eventAt
+        // A waiting screen stays up until its call returns or the turn ends.
+        if (record.value === 'idle') setValue(sessionId, record, 'working')
       } else if (p.hook_event_name === 'PreToolUse') {
         const record = recordFor(sessionId)
         record.eventAt = eventAt
-        record.toolStartedAt = eventAt
+        record.startedAt = eventAt
+        record.turnOpen = true
         if (typeof p.tool_use_id === 'string') record.outstanding.add(p.tool_use_id)
         setValue(sessionId, record, 'working')
       } else if (p.hook_event_name === 'PostToolUse' || p.hook_event_name === 'PostToolUseFailure') {
@@ -147,8 +169,8 @@ export function createAttentionState(now: () => number = Date.now): AttentionSta
         if (typeof p.tool_use_id === 'string') record.outstanding.delete(p.tool_use_id)
         // This is also how a `waiting` session leaves that value: answering the prompt is what lets
         // the call proceed, and this is the first evidence that happened, so the same branch that
-        // resolves an ordinary call also resolves a waiting one.
-        setValue(sessionId, record, record.outstanding.size === 0 ? 'idle' : 'working')
+        // resolves an ordinary call also resolves a waiting one. The turn goes on after its call.
+        setValue(sessionId, record, record.turnOpen || record.outstanding.size > 0 ? 'working' : 'idle')
       } else if (p.hook_event_name === 'Notification') {
         // A report of something that already happened is never a waiting screen, regardless of
         // anything else about the session.
@@ -193,7 +215,10 @@ export function createAttentionState(now: () => number = Date.now): AttentionSta
         // record, for the same reason as PostToolUse above.
         const record = sessions.get(sessionId)
         if (!record) return
-        if (happenedBefore(hookEventAt(p), record.promptAt)) return
+        const at = hookEventAt(p)
+        if (happenedBefore(at, record.promptAt)) return
+        if (at !== null) record.endedAt = at
+        record.turnOpen = false
         record.outstanding.clear()
         setValue(sessionId, record, 'idle')
       }
