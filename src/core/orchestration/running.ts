@@ -1,6 +1,6 @@
 import type { JobTask, RunOutcome, RunStuck } from '../types'
 import { jobOf, type OrchState } from './state'
-import { FAILURE_LIMIT, type Dispatch, type Gate, type JobRun, type Task } from './types'
+import { FAILURE_LIMIT, type Dispatch, type Gate, type Job, type JobRun, type Task } from './types'
 import { completionSettled, replanOn } from './replan'
 import { jobActive } from './schedule'
 
@@ -142,7 +142,8 @@ export function stuckOf(
   ix?: StuckIndex,
   job = jobOf(s, run)
 ): RunStuck | undefined {
-  if (tasks.length === 0 || outcomeOfRun(tasks, run, s) !== 'running') return undefined
+  if (tasks.length === 0) return emptyRunIdle(run, job) ? 'needs-you' : undefined
+  if (outcomeOfRun(tasks, run, s) !== 'running') return undefined
   if (job?.replanning !== undefined) return undefined
   // Work the app or a coordinator takes up as it is: no list read needed to say the Run can move
   if (tasks.some((t) => t.status === 'ready' || t.status === 'validating' || t.status === 'reviewing' || t.status === 'merging')) return undefined
@@ -170,6 +171,16 @@ export function stuckOf(
   }
   if (stuck.size === 0 || !tasks.every((t) => isTerminal(t) || stuck.has(t.id))) return undefined
   return owner.size > 0 ? 'needs-you' : 'stalled'
+}
+
+/** T15: an empty Run with no delivery record (one with a record reads by it, `lostTasksOutcome`) that nothing can add
+ *  Tasks to: no coordinator (attached, external or starting), no replan, no start pending or held, and not paused. Its
+ *  outcome stays running, so the owner's ▶ (`coordinatorMissing`) and `jobs run` still take it up; `stuckOf` flags it
+ *  needs-you so it does not read as work in flight. Planner sessions write a Job's definition Tasks, not a Run's. */
+function emptyRunIdle(run: JobRun, job: Job | undefined): boolean {
+  if (run.pr !== undefined || run.delivery !== undefined || run.branchPush !== undefined || run.paused === true) return false
+  if (run.coordinatorSessionId !== undefined || run.externalCoordinatorSessionId !== undefined || run.coordinatorStartingAt !== undefined) return false
+  return job?.replanning === undefined && job?.pendingStart !== true && job?.startWait === undefined
 }
 
 /** What `stuckOf` reads off the lists: each Task's open Dispatch, and the Dispatches with an unanswered question. */

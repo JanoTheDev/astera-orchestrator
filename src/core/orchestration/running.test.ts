@@ -280,6 +280,25 @@ describe('a Run whose Tasks are gone', () => {
     expect(outcomeOf(gone({ deliveryState: { state: 'pending', attempts: 0 } }), 'run_1')).toBe('running')
   })
 
+  it('flags an empty Run with no record that nothing can add Tasks to as needs-you, beside outcome running', () => {
+    const idle = gone({})
+    expect(stuckOf(idle, idle.runs[0])).toBe('needs-you')
+    expect(snapshotFor(idle, PROJ, () => true, [], () => null, () => true).runs[0].stuck).toBe('needs-you')
+    // something can still add Tasks: a coordinator, a coordinator start, a replan, a pending start, a held start; or paused
+    for (const [r, j] of [
+      [{ coordinatorSessionId: 'ses_c' }, {}],
+      [{ externalCoordinatorSessionId: 'ses_x' }, {}],
+      [{ coordinatorStartingAt: NOW }, {}],
+      [{}, { replanning: { runId: 'run_1', mode: 'completion', wave: 1, done: 0, startedAt: NOW } }],
+      [{}, { pendingStart: true }],
+      [{}, { startWait: 'no account has room' }],
+      [{ paused: true }, {}]
+    ] as [Partial<JobRun>, Partial<Job>][]) {
+      const s = gone(r, j)
+      expect(stuckOf(s, s.runs[0])).toBeUndefined()
+    }
+  })
+
   it('stops counting as running in the Jobs list projection', () => {
     const s = gone({ pr })
     expect(snapshotFor(s, PROJ, () => true, [], () => null, () => true).runs[0].outcome).toBe('completed')

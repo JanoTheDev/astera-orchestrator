@@ -127,6 +127,44 @@ describe('runs doctor — T36: a Run stalled on a failed Task', () => {
   })
 })
 
+// T15: Runs whose Tasks the 2026-10-22 `reset --tasks` wipe removed
+describe('runs doctor — a Run whose Tasks are gone', () => {
+  const lostState = (): OrchState => ({
+    ...emptyState(),
+    jobs: [job('j_pr'), job('j_idle')],
+    runs: [run('r_pr', 'j_pr', { pr: { at: NOW, url: 'https://github.com/o/r/pull/1' } }), run('r_idle', 'j_idle')]
+  })
+
+  it('finds the lost Tasks of a Run with a delivery record, and an empty Run nothing can add Tasks to', () => {
+    const found = diagnoseRuns(lostState(), ['r_pr', 'r_idle'])
+    expect(kinds(found)).toEqual(['lost-tasks:r_pr', 'stuck:r_idle'])
+    expect(found.find((f) => f.kind === 'lost-tasks')!.detail).toMatch(/reads completed/)
+  })
+
+  it('flags the lost Tasks to the owner once, keeping every record', async () => {
+    const box = { s: lostState() }
+    const fix = async () =>
+      repairFindings(diagnoseRuns(box.s, ['r_pr']), {
+        getState: () => box.s,
+        setState: async (next) => {
+          box.s = next
+        },
+        now: () => LATER,
+        lang: 'en',
+        sessionExited: async () => {}
+      })
+    const [first] = await fix()
+    expect(first).toMatchObject({ fixed: true })
+    const flagged = box.s.messages.filter((m) => m.runId === 'r_pr' && m.type === 'escalation')
+    expect(flagged).toHaveLength(1)
+    expect(box.s.runs).toHaveLength(2)
+    // idempotent: a second --fix adds nothing
+    const [second] = await fix()
+    expect(second).toMatchObject({ fixed: false })
+    expect(box.s.messages.filter((m) => m.runId === 'r_pr' && m.type === 'escalation')).toHaveLength(1)
+  })
+})
+
 describe('runs doctor — repairFindings', () => {
   it('repairs each kind with the repair it already has', async () => {
     const box = { s: fixture() }
