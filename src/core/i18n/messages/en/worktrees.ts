@@ -69,6 +69,7 @@ export const worktrees: Record<keyof typeof ko, string> = {
   'worktrees.rowMenu': 'Worktree actions',
   'worktrees.prMenu': 'Pull request actions',
   'worktrees.noMatch': 'No worktree matches.',
+  'worktrees.refreshing': 'Refreshing…',
   'worktrees.emptyTitle': 'No worktrees yet',
   'worktrees.pickTitle': 'No worktree selected',
   'worktrees.state.active': 'Active',

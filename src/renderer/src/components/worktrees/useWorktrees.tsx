@@ -1,7 +1,7 @@
 // The worktree list's data and actions, shared by the Source Control view (the list) and a worktree's tab (its detail):
 // what the registry holds with its state, the PR / push badges' data, and the remove, clean-up and create-PR flows with
 // their confirmations. Each caller reads on its own; GitHub's subscription is counted in main.
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { BranchPushState, WorktreeListItem } from '../../../../core/types'
 import { groupWorktrees, type WorktreeRow } from '../../../../core/worktrees/cleanup'
 import type { RepoPrSnapshot } from '../../../../core/github/types'
@@ -9,6 +9,8 @@ import { confirmModal } from '../../lib/confirm'
 import { toast } from '../../lib/toast'
 import { dirtyCount, isOrphanUnverifiable, worktreeErrorMessage } from '../../lib/worktreeErrors'
 import { subscribeCreated } from '../../lib/worktreeBus'
+import { invalidate, readCached, useCachedRead } from '../../lib/readCache'
+import { cachedPushStates, queryPushStates, SCM_OVERVIEW_KEY } from './scmCache'
 import { useI18n } from '../../i18n/I18nProvider'
 import { CreatePrDialog } from '../CreatePrDialog'
 import { Menu } from '../ui'
@@ -18,6 +20,8 @@ export interface Worktrees {
   rows: WorktreeRow[] | null
   /** Why the last refresh failed, until one succeeds. */
   failed: string | null
+  /** The rows on screen are the last answer; a newer one is on its way. */
+  refreshing: boolean
   /** A removal is running: every action locks (concurrent git commands on one repo contend on the ref lock). */
   busy: boolean
   /** The worktree whose removal is in progress. */
@@ -38,19 +42,33 @@ export interface Worktrees {
   overlays: React.ReactNode
 }
 
+const fetchOverview = (): Promise<WorktreeRow[]> => window.api.worktrees.overview()
+
 export function useWorktrees(repoFilter?: (repoPath: string) => boolean): Worktrees {
   const { t } = useI18n()
-  // Null until the first list arrives: before it (or when it failed) nothing is known, and "No worktrees yet" would be a lie
-  const [read, setRows] = useState<WorktreeRow[] | null>(null)
+  // Undefined until the first list arrives ever: before it (or when it failed) nothing is known, and "No worktrees yet"
+  // would be a lie. Later mounts draw the last list at once and the read below revalidates it.
+  const { data: all, stale, error } = useCachedRead(SCM_OVERVIEW_KEY, fetchOverview)
+  const read = useMemo(
+    () => (all === undefined ? null : repoFilter ? all.filter((r) => repoFilter(r.item.repoPath)) : all),
+    [all, repoFilter]
+  )
   // Why the last refresh failed, shown in place of the list until one succeeds: a toast alone leaves an empty page
-  const [failed, setFailed] = useState<string | null>(null)
+  const failed = useMemo(() => {
+    if (!error) return null
+    const raw = error instanceof Error ? error.message : String(error)
+    console.error('worktrees.overview failed:', raw)
+    return worktreeErrorMessage(raw)
+  }, [error])
+  const failedText = failed ? t(failed.key, failed.params) : null
+  useEffect(() => {
+    if (failedText !== null) toast.error(failedText)
+  }, [failed]) // eslint-disable-line react-hooks/exhaustive-deps -- a language switch must not toast again
   const [cleaning, setCleaning] = useState(false)
   const [prs, setPrs] = useState<Record<string, RepoPrSnapshot>>({})
   // PR link menu — one at a time, held here rather than per row (the FileExplorer/HistoryBrowser shape)
   const [prMenu, setPrMenu] = useState<{ x: number; y: number; url: string } | null>(null)
-  const [pushState, setPushState] = useState<
-    Record<string, Record<string, Record<string, BranchPushState>>>
-  >({})
+  const [pushState, setPushState] = useState(cachedPushStates)
   // The row whose create dialog is open, if any
   const [creating, setCreating] = useState<WorktreeListItem | null>(null)
   const [removingId, setRemovingId] = useState<string | null>(null) // the worktree whose removal is in progress
@@ -62,7 +80,11 @@ export function useWorktrees(repoFilter?: (repoPath: string) => boolean): Worktr
   // mounted AND expanded — the zero-subscriber signal is what lets main stop polling (§4).
   useEffect(() => {
     window.api.github.subscribe()
-    void window.api.github.prs().then(setPrs)
+    // The pushes keep the snapshots fresh; only when there are none yet (first mount, or gh was off) is a fetch asked for
+    void window.api.github.prs().then((p) => {
+      setPrs(p)
+      if (Object.keys(p).length === 0) void window.api.github.refresh({ force: true })
+    })
     // status() answers from the cached probe and never runs gh, so asking here costs nothing
     void window.api.github.status().then((p) => setGhConnected(p.kind === 'connected'))
     const offPrs = window.api.on('github:prs-updated', (p) =>
@@ -80,37 +102,37 @@ export function useWorktrees(repoFilter?: (repoPath: string) => boolean): Worktr
     }
   }, [])
 
-  const refresh = useCallback(async (): Promise<void> => {
-    try {
-      const all = await window.api.worktrees.overview()
-      const overview = repoFilter ? all.filter((r) => repoFilter(r.item.repoPath)) : all
-      setRows(overview)
-      setFailed(null)
-      const list = overview.map((r) => r.item)
-      // The same triggers that re-query worktrees re-query their PRs: mount, expand, manual ⟳,
-      // and the created event. This is the whole manual path when polling is off.
-      void window.api.github.refresh({ force: true })
-      // Push state is local git, so it rides the same triggers as the list itself rather than a
-      // timer: mount, expand, manual refresh, and the worktree-created event.
-      const byRepo = new Map<string, Set<string>>()
-      for (const w of list) byRepo.set(w.repoPath, (byRepo.get(w.repoPath) ?? new Set()).add(w.baseRef))
-      const next: Record<string, Record<string, Record<string, BranchPushState>>> = {}
-      for (const [repo, bases] of byRepo)
-        next[repo] = await window.api.worktrees.pushState(repo, [...bases])
-      setPushState(next)
-    } catch (err) {
-      // Swallowing the failure quietly makes the stale list on screen look current — a refresh failure is reported
-      const raw = err instanceof Error ? err.message : String(err)
-      console.error('worktrees.overview failed:', raw)
-      const m = worktreeErrorMessage(raw)
-      toast.error(t(m.key, m.params))
-      setFailed(t(m.key, m.params))
-    }
-  }, [t, repoFilter])
+  // Push state is local git, so it rides the list's triggers rather than a timer. Repos are asked in parallel and each
+  // shows as it answers; `pushedFor` keeps the list-changed effect from asking again for a list refresh() just asked for.
+  const pushedFor = useRef<WorktreeRow[] | undefined>(undefined)
+  const loadPush = useCallback((rows: WorktreeRow[]): void => {
+    pushedFor.current = rows
+    void queryPushStates(
+      rows.map((r) => r.item),
+      (repo, bases) => window.api.worktrees.pushState(repo, bases),
+      setPushState
+    )
+  }, [])
 
+  const refresh = useCallback(async (): Promise<void> => {
+    // Manual ⟳ and the created event: the PRs are re-read too. A mount does not (invalidate below), the pushes keep them fresh.
+    void window.api.github.refresh({ force: true })
+    invalidate(SCM_OVERVIEW_KEY)
+    try {
+      loadPush(await readCached(SCM_OVERVIEW_KEY, fetchOverview))
+    } catch {
+      // reported once through the cache's `error` above
+    }
+  }, [loadPush])
+
+  // A mount shows the cached list and asks again; the very first read is already on its way from useCachedRead.
+  const firstStale = useRef(stale)
   useEffect(() => {
-    void refresh()
-  }, [refresh])
+    if (!firstStale.current) invalidate(SCM_OVERVIEW_KEY)
+  }, [])
+  useEffect(() => {
+    if (all !== undefined && pushedFor.current !== all) loadPush(all)
+  }, [all, loadPush])
 
   // Notified when spawn() in App.tsx creates a worktree through NewSessionDialog's "split into a
   // worktree" option — this panel only re-queries once at mount, on a manual ⟳ click and on expand, so
@@ -262,7 +284,8 @@ export function useWorktrees(repoFilter?: (repoPath: string) => boolean): Worktr
 
   return {
     rows: read,
-    failed,
+    failed: failedText,
+    refreshing: stale && all !== undefined,
     busy,
     removingId,
     cleaning,
