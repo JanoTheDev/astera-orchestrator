@@ -27,6 +27,9 @@ afterEach(() => {
 })
 
 const line = (obj: unknown): string => JSON.stringify(obj)
+/** The tail's fields the reference reader knows. model/effort came later (turn_context, codexParser.test.ts covers
+ *  them); the oracle stays as it was, so they are left out of the comparison. */
+const oldTail = ({ lastUserTitle, awaitingReply }: { lastUserTitle: string | null; awaitingReply: boolean }) => ({ lastUserTitle, awaitingReply })
 
 async function write(name: string, content: string): Promise<string> {
   const file = path.join(tmp, name)
@@ -158,7 +161,7 @@ describe('windowed codex parse — identical to the old readers', () => {
       const file = await write(`fit-${slug}.jsonl`, content())
       expect(await parseCodexMeta(file)).toEqual(await referenceParseCodexMeta(file))
       expect(await parseCodexMeta(file, 5)).toEqual(await referenceParseCodexMeta(file, 5))
-      expect(await parseCodexTail(file)).toEqual(await referenceParseCodexTail(file))
+      expect(oldTail(await parseCodexTail(file))).toEqual(await referenceParseCodexTail(file))
       expect(await parseCodexForResume(file)).toEqual(await referenceParseCodexForResume(file))
       for (const maxTurns of [10, 3, 1]) {
         expect(await parseCodexPreview(file, maxTurns)).toEqual(await referenceParseCodexPreview(file, maxTurns))
@@ -175,7 +178,7 @@ describe('windowed codex parse — identical to the old readers', () => {
       for (const tailBytes of TAILS) {
         expect(await parseCodexForResume(file, { tailBytes })).toEqual(wantResume)
         // The tail is one fixed window, as before: the same cut must give the same answer
-        expect(await parseCodexTail(file, tailBytes)).toEqual(await referenceParseCodexTail(file, tailBytes))
+        expect(oldTail(await parseCodexTail(file, tailBytes))).toEqual(await referenceParseCodexTail(file, tailBytes))
       }
       for (const maxTurns of [10, 3, 1]) {
         const want = await referenceParseCodexPreview(file, maxTurns)
@@ -209,7 +212,7 @@ describe('windowed codex parse — identical to the old readers', () => {
     await expect(parseCodexMeta(gone)).rejects.toThrow()
     await expect(parseCodexPreview(gone)).rejects.toThrow()
     await expect(parseCodexForResume(gone)).rejects.toThrow()
-    expect(await parseCodexTail(gone)).toEqual(await referenceParseCodexTail(gone))
+    expect(oldTail(await parseCodexTail(gone))).toEqual(await referenceParseCodexTail(gone))
   })
 })
 
@@ -248,7 +251,7 @@ describe('windowed codex parse — a big rollout is read only as far as it must 
     const counter = countingOpen()
     const got = await parseCodexTail(big, undefined, { open: counter.open })
     expect(counter.bytes()).toBe(256 * 1024)
-    expect(got).toEqual(await referenceParseCodexTail(big))
+    expect(oldTail(got)).toEqual(await referenceParseCodexTail(big))
   })
 
   it('resume reads a tail window, not the file, and answers as the old reader does', async () => {

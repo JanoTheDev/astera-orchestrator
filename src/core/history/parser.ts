@@ -1,7 +1,7 @@
 import { createReadStream } from 'node:fs'
 import { open } from 'node:fs/promises'
 import { createInterface } from 'node:readline'
-import type { LastCommand, TranscriptMessage } from '../types'
+import type { HistoryEntry, LastCommand, TranscriptMessage } from '../types'
 import {
   TRANSCRIPT_HEAD_BYTES,
   TRANSCRIPT_HEAD_BYTES_MAX,
@@ -199,14 +199,29 @@ export async function parseTranscriptMeta(filePath: string, maxLines = 50): Prom
   return meta
 }
 
+const isRecord = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v)
+/** A model id, or null; `<synthetic>` is the CLI's stand-in for a reply no model wrote (as lastClaudeModelOf skips it). */
+const modelName = (v: unknown): string | null => (typeof v === 'string' && v !== '' && v !== '<synthetic>' ? v : null)
+
+/** What the list row reads off a transcript's tail. `model`/`effort` are the latest main-thread turn's: the model from
+ *  its assistant record (or api-request), the effort from the api-request record Claude Code writes per request
+ *  (`params.output_config.effort`). Null when the window holds none — older Claude Code wrote no api-request. */
+export type TranscriptTail = { lastUserTitle: string | null; awaitingReply: boolean; model: string | null; effort: string | null }
+
+/** A tail's model and effort as HistoryEntry's optional fields: a null leaves the field out. */
+export const modelFields = (t: { model?: string | null; effort?: string | null }): Pick<HistoryEntry, 'model' | 'effort'> => ({
+  ...(t.model ? { model: t.model } : {}),
+  ...(t.effort ? { effort: t.effort } : {})
+})
+
 /** Reads only the last tailBytes of the file to pull out the last user message title and whether a
  *  reply is unread. It is called on every list refresh, so it reads one fixed window and never widens
  *  it, unlike the preview (parseTranscriptPreview), which widens until it has enough turns. */
 export async function parseTranscriptTail(
   filePath: string,
   tailBytes = 256 * 1024
-): Promise<{ lastUserTitle: string | null; awaitingReply: boolean }> {
-  const empty = { lastUserTitle: null, awaitingReply: false }
+): Promise<TranscriptTail> {
+  const empty: TranscriptTail = { lastUserTitle: null, awaitingReply: false, model: null, effort: null }
   let handle: Awaited<ReturnType<typeof open>> | undefined
   try {
     handle = await open(filePath, 'r')
@@ -229,6 +244,8 @@ export async function parseTranscriptTail(
     let lastUserTitle: string | null = null
     let awaitingReply = false
     let roleResolved = false
+    let model: string | null = null
+    let effort: string | null = null
 
     for (let i = lines.length - 1; i >= 0; i--) {
       let obj: Record<string, unknown>
@@ -238,6 +255,15 @@ export async function parseTranscriptTail(
         continue // defensive parsing — ignore a broken line
       }
       if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) continue
+
+      if (obj.isSidechain !== true) {
+        if (model === null && obj.type === 'assistant') model = modelName(isRecord(obj.message) ? obj.message.model : undefined)
+        if (obj.type === 'api-request' && (obj.querySource === undefined || obj.querySource === 'repl_main_thread') && isRecord(obj.params)) {
+          if (model === null) model = modelName(obj.params.model)
+          const config = obj.params.output_config
+          if (effort === null && isRecord(config) && typeof config.effort === 'string' && config.effort) effort = config.effort
+        }
+      }
 
       if (!roleResolved) {
         if (obj.type === 'assistant') {
@@ -259,10 +285,10 @@ export async function parseTranscriptTail(
         if (text2 !== null) lastUserTitle = titleOfUserText(text2)
       }
 
-      if (lastUserTitle !== null && roleResolved) break // early exit
+      if (lastUserTitle !== null && roleResolved && model !== null && effort !== null) break // early exit
     }
 
-    return { lastUserTitle, awaitingReply }
+    return { lastUserTitle, awaitingReply, model, effort }
   } catch {
     return empty
   } finally {

@@ -1,0 +1,16 @@
+/* T10 History Sessions tree (HistoryBrowser.tsx): one line per session, as the Agents view (agents.css) and the Plans
+   tree (plan/plans.css). Tokens only. */
+
+/* The title is cut before the facts on the right; the plan goes first, the title keeps a few letters */
+.history-sessions .ui-tree__label { min-width: 6ch; }
+.history-sessions .ui-tree__desc { flex-shrink: 1000; }
+.history-row__facts { display: inline-flex; align-items: center; gap: var(--sp-2); color: var(--text-faint); font-size: var(--fs-11); white-space: nowrap; }
+.history-row__account.ui-chip { height: 16px; padding: 0 var(--sp-1); font-size: var(--fs-11); }
+.history-row__facts > time { min-width: 3ch; text-align: right; font-variant-numeric: tabular-nums; }
+
+/* The status dot; its aria-label and tooltip say the state in words */
+.history-dot { display: block; width: 8px; height: 8px; border-radius: 50%; background: var(--text-faint); }
+.history-dot--working { background: var(--accent); }
+.history-dot--needs { background: var(--warn); }
+.history-dot--failed { background: var(--danger); }
+.history-dot--finished { border: 1.5px solid var(--text-faint); background: transparent; }

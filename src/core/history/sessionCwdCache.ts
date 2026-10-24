@@ -34,17 +34,18 @@ import { foldPathCase, legacyFoldedKey } from '../files/paths'
 // in time. Nothing changes on win32 or darwin.
 
 /** [mtimeMs, size, cwd], or with the expansion row appended: [..., ROW_VERSION, sessionId, title,
- *  awaitingReply 0|1, hidden 0|1]. A null cwd is stored too, on purpose — a non-conversation record never
+ *  awaitingReply 0|1, hidden 0|1, model, effort] (model and effort "" when unknown). A null cwd is stored too, on purpose — a non-conversation record never
  *  gains one, and leaving it out would mean re-reading exactly those files on every pass. A row of
  *  another length is from an older build: its cwd part is kept and the row is built again. */
 type CwdEntry = [number, number, string | null]
-type RowEntry = [number, number, string, number, string, string, 0 | 1, 0 | 1]
+type RowEntry = [number, number, string, number, string, string, 0 | 1, 0 | 1, string, string]
 type Entry = CwdEntry | RowEntry
 
 /** Bumped whenever what buildEntry derives from a rollout changes, so rows of an older build are
  *  rebuilt rather than trusted. 3: a codex child thread rollout is a hidden row (the `hidden` slot).
- *  4: codex's goal continuation note is no title, and a goal-only session takes its objective. */
-export const ROW_VERSION = 4
+ *  4: codex's goal continuation note is no title, and a goal-only session takes its objective.
+ *  5: the row carries the turn_context's model and effort. */
+export const ROW_VERSION = 5
 
 /** What a codex project expansion shows for one rollout, besides its path and mtime. */
 export interface RolloutRow {
@@ -53,6 +54,8 @@ export interface RolloutRow {
   awaitingReply: boolean
   /** A codex child thread: not a row of the list, but a file of the project's history. */
   hidden?: boolean
+  model?: string
+  effort?: string
 }
 
 // Bound on the **file**, not on memory. A history larger than this writes only its newest mtimes — the
@@ -79,17 +82,19 @@ function isValidCwdPart(v: unknown[]): boolean {
 /** A stored value as this build reads it: a valid row, its cwd part alone when the row is from
  *  another version or malformed, or null when not even the cwd part is usable. */
 function readEntry(v: unknown): Entry | null {
-  if (!Array.isArray(v) || (v.length !== 3 && v.length !== 7 && v.length !== 8) || !isValidCwdPart(v)) return null
+  if (!Array.isArray(v) || (v.length !== 3 && v.length !== 7 && v.length !== 8 && v.length !== 10) || !isValidCwdPart(v)) return null
   const cwdPart: CwdEntry = [v[0] as number, v[1] as number, v[2] as string | null]
   if (v.length === 3) return cwdPart
   const rowOk =
-    v.length === 8 &&
+    v.length === 10 &&
     v[3] === ROW_VERSION &&
     typeof v[2] === 'string' &&
     typeof v[4] === 'string' &&
     typeof v[5] === 'string' &&
     (v[6] === 0 || v[6] === 1) &&
-    (v[7] === 0 || v[7] === 1)
+    (v[7] === 0 || v[7] === 1) &&
+    typeof v[8] === 'string' &&
+    typeof v[9] === 'string'
   return rowOk ? (v as RowEntry) : cwdPart
 }
 
@@ -164,13 +169,15 @@ export class SessionCwdCache {
   /** The expansion row, or undefined when the file changed or only its cwd is known. */
   getRow(filePath: string, mtimeMs: number, size: number): (RolloutRow & { cwd: string }) | undefined {
     const hit = this.hit(filePath, mtimeMs, size)
-    if (!hit || hit.length !== 8) return undefined
+    if (!hit || hit.length !== 10) return undefined
     return {
       cwd: hit[2],
       sessionId: hit[4],
       title: hit[5],
       awaitingReply: hit[6] === 1,
-      ...(hit[7] === 1 ? { hidden: true } : {})
+      ...(hit[7] === 1 ? { hidden: true } : {}),
+      ...(hit[8] ? { model: hit[8] } : {}),
+      ...(hit[9] ? { effort: hit[9] } : {})
     }
   }
 
@@ -183,7 +190,9 @@ export class SessionCwdCache {
       row.sessionId,
       row.title,
       row.awaitingReply ? 1 : 0,
-      row.hidden ? 1 : 0
+      row.hidden ? 1 : 0,
+      row.model ?? '',
+      row.effort ?? ''
     ])
     this.dirty = true
   }
