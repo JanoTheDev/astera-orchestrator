@@ -65,6 +65,10 @@ export const tools: Partial<Record<keyof typeof ko, string>> = {
   'run.manager.moveDown': 'Bajar',
   'run.manager.folderNameDefault': 'Carpeta nueva',
   'run.manager.renameFolder': 'Cambiar el nombre de la carpeta',
+  // Generate with AI: an agent session that reads the project and saves run configurations
+  'run.manager.generate': 'Generar con IA',
+  'run.manager.generateEmpty': 'Aún no hay configuraciones de ejecución. Un agente puede leer el proyecto y crearlas.',
+  'run.manager.generateFailed': 'No se pudo iniciar la sesión de IA: {detail}',
   'run.type.shell': 'Shell',
   'run.type.npm': 'npm',
   'run.type.node': 'Node.js',

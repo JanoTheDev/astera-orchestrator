@@ -7,6 +7,7 @@ import { runTypeIcon } from '../../../core/run/typeIcon'
 import { referencedIds } from '../../../core/run/launch'
 import { defaultConfigFor } from '../../../core/run/config'
 import { missingRequiredFields } from '../../../core/run/migrate'
+import { buildGeneratePrompt } from '../../../core/run/generatePrompt'
 import { groupConfigs } from '../../../core/run/grouping'
 import {
   addItem,
@@ -26,10 +27,12 @@ import {
 } from '../../../core/run/draft'
 import { useI18n } from '../i18n/I18nProvider'
 import { confirmModal } from '../lib/confirm'
+import { toast } from '../lib/toast'
+import { openConsole } from './shell/navigation'
 import { FileIcon } from './FileIcon'
 import { RunConfigForm } from './RunConfigForm'
 import { RunTypePicker } from './RunTypePicker'
-import { Button, Icon, IconButton, Input, Modal } from './ui'
+import { Button, EmptyState, Icon, IconButton, Input, Modal } from './ui'
 
 /** The error element of a refused Apply — SaveConfigsResult's own shape, not restated, so a reason
  *  added to SaveReason without a `run.manager.reason.*` catalogue entry fails typecheck here instead
@@ -105,6 +108,11 @@ export function RunConfigManager({
    *  (renameFolder), so each of them is then marked ● — they did all change. */
   const [renamingFolder, setRenamingFolder] = useState<string | null>(null)
 
+  /** "Generate with AI": the session is started (genBusy) and, once it is, the saved list is polled for
+   *  configurations the agent adds through `astera run-configs add` — nothing else announces them. */
+  const [genBusy, setGenBusy] = useState(false)
+  const [generating, setGenerating] = useState(false)
+
   const selected = draft.items.find((c) => c.id === selectedId) ?? null
   const isSeed = !!selected && isSeedId(selected.id)
   const { dirty, ids: dirtyIds } = useMemo(() => dirtyOf(draft, baseline), [draft, baseline])
@@ -166,6 +174,59 @@ export function RunConfigManager({
       if (applied) onClose()
     })
   }
+
+  const generate = async (): Promise<void> => {
+    setGenBusy(true)
+    try {
+      const r = await window.api.orch.command(projectPath, 'sessions-create', {
+        kind: 'chat',
+        cwd: projectPath,
+        title: t('run.manager.generate'),
+        prompt: buildGeneratePrompt({ projectPath, existingNames: draft.items.map((c) => c.name) })
+      })
+      const id = (r.body as { id?: unknown } | null)?.id
+      if (r.status !== 200 || typeof id !== 'string') {
+        const detail = (r.body as { error?: unknown } | null)?.error
+        throw new Error(typeof detail === 'string' ? detail : `status ${r.status}`)
+      }
+      setGenerating(true)
+      // shortcut: the tab arrives through session:created, which can land after this reply; openConsole
+      // ignores a tab it does not have yet, so it is tried twice, not awaited.
+      setTimeout(() => openConsole(id), 300)
+      setTimeout(() => openConsole(id), 1500)
+    } catch (e) {
+      toast.error(t('run.manager.generateFailed', { detail: e instanceof Error ? e.message : String(e) }))
+    } finally {
+      setGenBusy(false)
+    }
+  }
+
+  // While a generate session is alive, adopt what it saves. Only configurations the dialog has not seen
+  // are added (to the draft and the baseline alike, so they are not marked unsaved); edits in progress
+  // are never touched. shortcut: a configuration the agent replaces under the same name keeps its old
+  // values here until the dialog is reopened.
+  useEffect(() => {
+    if (!generating) return
+    let cancelled = false
+    const timer = setInterval(() => {
+      window.api.run
+        .list(projectPath)
+        .then((r) => {
+          if (cancelled) return
+          const known = new Set([...baseline, ...draft.items].map((c) => c.id))
+          const fresh = r.configs.filter((c) => !isSeedId(c.id) && !known.has(c.id))
+          if (fresh.length === 0) return
+          setBaseline((b) => [...b, ...fresh])
+          setDraft((d) => fresh.reduce(addItem, d))
+          setSelectedId((cur) => cur ?? fresh[0].id)
+        })
+        .catch(() => {})
+    }, 3000)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [generating, projectPath, baseline, draft.items])
 
   const commitFolderName = (from: string, raw: string): void => {
     setRenamingFolder(null)
@@ -340,6 +401,9 @@ export function RunConfigManager({
                   setSelectedId(id)
                 }}
               />
+              <Button size="sm" disabled={genBusy} onClick={() => void generate()}>
+                {t('run.manager.generate')}
+              </Button>
               <IconButton
                 size="sm"
                 icon={<Icon name="remove" size={14} />}
@@ -483,6 +547,17 @@ export function RunConfigManager({
             </div>
           </div>
           <div className="rcm-form">
+            {draft.items.length === 0 && (
+              <EmptyState
+                action={
+                  <Button variant="primary" disabled={genBusy} onClick={() => void generate()}>
+                    {t('run.manager.generate')}
+                  </Button>
+                }
+              >
+                {t('run.manager.generateEmpty')}
+              </EmptyState>
+            )}
             {selected && (
               <RunConfigForm
                 config={selected}

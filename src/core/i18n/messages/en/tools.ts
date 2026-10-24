@@ -71,6 +71,10 @@ export const tools: Record<keyof typeof ko, string> = {
   'run.manager.moveDown': 'Move down',
   'run.manager.folderNameDefault': 'New folder',
   'run.manager.renameFolder': 'Rename folder',
+  // Generate with AI: an agent session that reads the project and saves run configurations
+  'run.manager.generate': 'Generate with AI',
+  'run.manager.generateEmpty': 'No run configurations yet. An agent can read the project and set them up.',
+  'run.manager.generateFailed': 'Could not start the AI session: {detail}',
   'run.type.shell': 'Shell',
   'run.type.npm': 'npm',
   'run.type.node': 'Node.js',
