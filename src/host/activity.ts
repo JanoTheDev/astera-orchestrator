@@ -16,7 +16,7 @@ import {
 import type { EventDraft } from '../core/orchestration/publicEvents'
 import { jobNameOf } from '../core/orchestration/jobName'
 import { validatePlan } from '../core/orchestration/planner'
-import { autoApproveOf } from '../core/orchestration/exec/plannerFeedback'
+import { autoApproveOf, plannerProblemsNotice } from '../core/orchestration/exec/plannerFeedback'
 import type { ScheduleLimits } from '../core/orchestration/schedule'
 import type { OrchState } from '../core/orchestration/state'
 import type { HostEventLog } from './eventLog'
@@ -92,6 +92,8 @@ export function hostSessionActivity(a: {
   autoStart?(jobId: string): Promise<boolean>
   /** #116: records on the Job that its plan waits on the owner (`jobs-plan-ready`, Job.planReadyAt). */
   markReady?(jobId: string): Promise<void>
+  /** Types a line into a planner session (`sessions-send`): the problems its plan still has, once per distinct list. */
+  tellPlanner?(sessionId: string, text: string): Promise<void>
 }): { onHookEvent(sessionId: string, payload: unknown): void; onSessionEvents(drafts: readonly EventDraft[]): void } {
   const record = (draft: ActivityDraft | null): void => {
     if (draft) a.log.recorded([draft])
@@ -101,6 +103,14 @@ export function hostSessionActivity(a: {
   const ready = (draft: ActivityDraft & { jobId: string }): void => {
     record(draft)
     void a.markReady?.(draft.jobId).catch((why: unknown) => a.report(`activity: plan ${draft.jobId} could not be marked ready: ${String(why)}`))
+  }
+  // shortcut: the lists told are in memory, so a Host restart tells a planner still planning once more
+  const toldProblems = new Map<string, string>()
+  const tellProblems = (sessionId: string): void => {
+    const n = a.tellPlanner ? plannerProblemsNotice(a.state(), sessionId) : null
+    if (!n || toldProblems.get(n.jobId) === n.key) return
+    toldProblems.set(n.jobId, n.key)
+    void a.tellPlanner!(sessionId, n.text).catch((why: unknown) => a.report(`activity: planner ${sessionId} could not be told its plan's problems: ${String(why)}`))
   }
   const guard = (fn: () => void): void => {
     try {
@@ -113,6 +123,8 @@ export function hostSessionActivity(a: {
     onHookEvent: (sessionId, payload) =>
       guard(() => {
         if ((payload as { hook_event_name?: unknown } | null)?.hook_event_name !== 'Stop') return
+        // the planner is told what keeps its plan from approval, so the owner never has to relay it
+        tellProblems(sessionId)
         // `held` is read only for a planner's turn end, not every session's
         const line = planReadyActivity(a.state(), sessionId, () => activityOf(a.log))
         const job = line?.jobId === undefined ? undefined : a.state().jobs.find((j) => j.id === line.jobId)

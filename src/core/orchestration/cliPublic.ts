@@ -125,6 +125,7 @@ const TASK_HIDDEN = [
   'prompt',
   'acceptanceCriteria',
   'affectedPaths',
+  /* T24: an ops, audit or docs Task that changes no repository file, not in the SDK's contract yet */ 'noFiles',
   'modelReason',
   // W2-D GitHub links: read by the app's view; `task-link-issue` answers them. Not in the SDK's contract yet
   'links',

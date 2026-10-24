@@ -8,7 +8,7 @@ import { planIncompleteActivity, planReadyActivity } from '../../../host/activit
 import { snapshotFor } from '../view'
 import { buildPlannerBrief } from '../handover'
 import type { Task } from '../types'
-import { autoApproveOf, feedbackLine, freshFeedbackBrief, handsOffOf, plansMissingReady, resumeBrief } from './plannerFeedback'
+import { autoApproveOf, plannerProblemsNotice, feedbackLine, freshFeedbackBrief, handsOffOf, plansMissingReady, resumeBrief } from './plannerFeedback'
 
 const NOW = '2026-10-18T00:00:00.000Z'
 
@@ -451,5 +451,27 @@ describe('T1 feedback is never dropped', () => {
   it('every way the feedback reaches a planner teaches --kind', () => {
     expect(feedbackLine('job_1', 'x')).toContain('--kind bugfix|feature|refactor|ui|audit|docs|test|ops')
     expect(resumeBrief('job_1', 'x')).toContain('--kind bugfix|feature|refactor|ui|audit|docs|test|ops')
+  })
+})
+
+describe('plannerProblemsNotice', () => {
+  const job = { id: 'job_1', objective: 'Archive the stale plans of the project', cwd: '/repo', pendingStart: true, plannerSessionIds: ['ses-p1'], createdAt: NOW } as unknown as OrchState['jobs'][number]
+  const task = { id: 'tsk_1', title: 'Archive', jobId: 'job_1', deps: [], status: 'pending', prompt: 'p', acceptanceCriteria: ['c'], basis: { state: 'missing', evidence: 'e' } } as unknown as Task
+  const state = (t: Partial<Task>, j: Partial<typeof job> = {}): OrchState => ({ ...emptyState(), jobs: [{ ...job, ...j }], tasks: [{ ...task, ...t }] })
+
+  it('lists what keeps the plan from approval, the same list under the same key', () => {
+    const n = plannerProblemsNotice(state({}), 'ses-p1')!
+    expect(n.text).toContain('tsk_1 (Archive) names no files')
+    expect(n.text).toContain('the plan has no real name')
+    expect(plannerProblemsNotice(state({}), 'ses-p1')!.key).toBe(n.key)
+  })
+
+  it('has nothing to say once the Task says --no-files and the plan has its name', () => {
+    expect(plannerProblemsNotice(state({ kind: 'ops', noFiles: true }, { title: 'Archive plans' }), 'ses-p1')).toBeNull()
+  })
+
+  it('says nothing to a session that is not the latest planner of a plan awaiting approval', () => {
+    expect(plannerProblemsNotice(state({}), 'ses-other')).toBeNull()
+    expect(plannerProblemsNotice(state({}, { pendingStart: false }), 'ses-p1')).toBeNull()
   })
 })

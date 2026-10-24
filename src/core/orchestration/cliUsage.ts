@@ -734,6 +734,7 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       { name: 'deps', value: '<json array>', about: 'the task ids this one waits for' },
       // W7-D (#81): the planner's flag, so a task added here is kept off its files' other tasks (W6-C)
       { name: 'affected-paths', value: '<json array>', about: 'the files or folders it will change, e.g. \'["src/a.ts","src/b/"]\'' },
+      { name: 'no-files', about: 'an ops, audit or docs Task (--kind) that changes no repository file: it names none, and a planned Job accepts that' },
       { name: 'parent', value: '<taskId>', about: 'the task this one was split out of' },
       {
         name: 'validate',

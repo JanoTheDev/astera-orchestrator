@@ -160,6 +160,11 @@ export function planFieldsFromArgs(args: Record<string, unknown>): { ok: true; f
     if (!isStrings(args.affectedPaths)) return { ok: false, error: '--affected-paths must be a JSON array of paths' }
     fields.affectedPaths = args.affectedPaths
   }
+  if (args.noFiles !== undefined) {
+    if (args.noFiles !== true) return { ok: false, error: '--no-files takes no value' }
+    if (fields.affectedPaths?.length) return { ok: false, error: '--no-files and --affected-paths exclude each other' }
+    fields.noFiles = true
+  }
   if (args.difficulty !== undefined) {
     if (!(DIFFICULTIES as readonly unknown[]).includes(args.difficulty))
       return { ok: false, error: `--difficulty must be one of ${DIFFICULTIES.join('|')}` }
@@ -265,6 +270,9 @@ export function orchestrationRoleOf(s: OrchState, sessionId: string): 'worker' |
 const notStartedYet = (s: OrchState, t: Task): boolean =>
   (t.status === 'pending' || t.status === 'ready' || t.status === 'blocked') && !s.dispatches.some((d) => d.taskId === t.id)
 
+/** The kinds of Task that may change no repository file (`--no-files`): archiving plans, a CLI cleanup, an audit. */
+const NO_FILES_KINDS: readonly TaskKind[] = ['ops', 'audit', 'docs']
+
 /** What is wrong with a Job's plan, one sentence each; empty when it may be approved. Every Task needs a
  *  prompt and at least one acceptance criterion, its deps must be Tasks of the same plan (T1: or of another active or
  *  queued plan of the project), and the deps must not form a cycle (graph.ts's `layersOf`, which already finds what it
@@ -289,7 +297,11 @@ export function validatePlan(s: OrchState, jobId: string): string[] {
     if (t.deps.some((d) => !own.has(d)) && waitsOnItself(s.tasks, t.id))
       problems.push(`${name} waits on itself through another plan's Tasks: these plans wait on each other in a cycle`)
     // the file guard only sees declared paths; a Task without any overlaps nothing and conflicts at merge
-    if (!t.affectedPaths?.length && !isIntegrationTask(t)) problems.push(`Task ${name} names no files (--affected-paths)`)
+    if (t.noFiles) {
+      if (!t.kind || !NO_FILES_KINDS.includes(t.kind)) problems.push(`Task ${name} says --no-files but is not --kind ${NO_FILES_KINDS.join('|')}`)
+      if (t.affectedPaths?.length) problems.push(`Task ${name} names files and says --no-files: drop one`)
+    } else if (!t.affectedPaths?.length && !isIntegrationTask(t))
+      problems.push(`Task ${name} names no files (--affected-paths; an ops, audit or docs Task that changes no repository file says --kind ops|audit|docs --no-files)`)
   }
   // Tasks neither waiting on the other (directly or through others) may run at once, so their files must differ.
   // T7: only on a project that keeps same-file Tasks apart (schedule.ts `serialFilesOf`); otherwise they run side by side
@@ -335,6 +347,21 @@ export function validatePlan(s: OrchState, jobId: string): string[] {
         )
   }
   return problems
+}
+
+/** What `validatePlan` says of one plan Task: the lines naming it, for the planner that has just written it. */
+export function taskProblems(s: OrchState, task: Task): string[] {
+  if (task.jobId === undefined || task.runId !== undefined) return []
+  return validatePlan(s, task.jobId).filter((p) => p.includes(task.id))
+}
+
+/** Said to the planner, never a block on the owner's approval: the plan has no real name (no title, or the title is
+ *  the start of the objective). */
+export function planWarnings(s: OrchState, jobId: string): string[] {
+  const job = s.jobs.find((j) => j.id === jobId)
+  const title = job?.title?.trim()
+  if (!job || (title && !(job.objective.trim().startsWith(title) && title.length >= Math.min(job.objective.trim().length, 40)))) return []
+  return [`the plan has no real name: run \`astera jobs rename --id ${jobId} --title "<short name>"\``]
 }
 
 const clip = (t: string): string => (t.length > 40 ? `${t.slice(0, 39).trimEnd()}…` : t)

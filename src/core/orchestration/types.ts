@@ -700,6 +700,8 @@ export interface Task {
   acceptanceCriteria?: string[]
   /** The files or modules this Task expects to touch, so parallel Tasks can be kept apart. */
   affectedPaths?: string[]
+  /** `--no-files`: this ops, audit or docs Task changes no repository file, so it names none (validatePlan accepts the empty list). */
+  noFiles?: true
   /** Why the planner picked this Task's `difficulty`, `provider` or `model`: one line. */
   modelReason?: string
   // ── W2-D GitHub links (core/github/taskLinks.ts) ──
