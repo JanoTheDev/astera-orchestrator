@@ -22,7 +22,8 @@ The problems below show in both themes unless noted. Input for the after-check: 
   ("10/24,…") are cut, and the status dots (green, red asterisk) have no label.
 - The project row reads "demo-app 10/24": a bare date with no word for what it counts.
 - Work records is a second pane that is empty ("Nothing recorded yet") and takes half the height of the side bar.
-- 1000x800: the empty editor area behind the side bar says "No plans in this project yet." with no way to the sessions.
+- At both sizes the editor behind the tree is the Welcome page ("No plans in this project yet."), with nothing that opens a listed session;
+  at 1000x800 the side bar covers its left half.
 
 ## switcher-*: project switcher (open menu)
 - The title bar's search field truncates at 1000px ("Search or run a comm…").

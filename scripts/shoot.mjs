@@ -104,7 +104,8 @@ const PAGES = [
   ['plans', () => activity('Plans')],
   ['start', async () => (await activity('Plans'), await sleep(300), sleepClick('.wb-sidebar button', '^\\s*New plan\\s*$'))],
   ['mainplan', async () => (await activity('Plans'), await sleep(300), sleepClick('.wb-sidebar button', 'Open main plan'))],
-  ['history', () => activity('History')],
+  // ready: the scan is done and the tree holds a session row under its project row, not only the project and "Loading…"
+  ['history', () => activity('History'), "document.querySelectorAll('.history-tree [role=treeitem]').length > 1 && !/Loading|Scanning/.test(document.body.innerText)"],
   ['explorer', () => activity('Explorer')],
   ['scm', () => activity('Source Control')],
   ['run', () => activity('Run')],
@@ -150,16 +151,23 @@ for (const theme of themes) {
   for (const [w, h] of sizes) {
     await cdp('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 1, mobile: false })
     await sleep(400)
-    for (const [name, go] of pages) {
+    for (const [name, go, ready] of pages) {
       await reset()
       const ok = await go()
       await sleep(1100) // overlays fade in; a shot taken mid-fade is washed out
-      for (let i = 0; i < 20 && /Loading|Scanning/.test(await evaluate('document.body.innerText')); i++) await sleep(500) // History scans on open
-      await sleep(300)
       if (ok === false) {
         console.warn(`skip ${name} (${w}x${h} ${theme}): not reachable`)
         continue
       }
+      // History scans on open and can take seconds: never save a shot taken mid-load
+      const until = ready ?? '!/Loading|Scanning/.test(document.body.innerText)'
+      let loaded = false
+      for (let i = 0; i < 60 && !(loaded = await evaluate(until)); i++) await sleep(500)
+      if (!loaded) {
+        console.warn(`skip ${name} (${w}x${h} ${theme}): still loading after 30 s`)
+        continue
+      }
+      await sleep(300)
       const { data } = await cdp('Page.captureScreenshot', { format: 'png' })
       const file = `${name}-${w}x${h}-${theme}.png`
       writeFileSync(join(out, file), Buffer.from(data, 'base64'))
