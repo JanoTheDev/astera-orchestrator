@@ -40,6 +40,8 @@ export const HOST_ANSWERED: ReadonlySet<string> = new Set([
   // W8-F (#93): the planner's session is the Host's. Main has no listSessions / sendSession / agentSessionOf, so the box
   // always fell through to a fresh planner
   'jobs-feedback',
+  // T2: its planner is the Host's too
+  'jobs-chat',
   // W9-H: the app tells the Host which console the owner views full size, so agents' sends into it wait (orch.ts)
   'owner-hold',
   // W9-H: the Agents page reads each project's JobRow snapshot; main's copy of the command layer has no such command

@@ -130,6 +130,8 @@ export const NOUNS = {
     'set',
     // W7-A talk to the planner (exec/plannerFeedback.ts)
     'feedback', 'reject',
+    // T2 planner chat on a finished plan (exec/plannerFeedback.ts)
+    'chat',
     // W8-D several plans in one repo (overlap.ts)
     'overlaps'],
   runs: ['list', 'get', 'wait', 'follow', 'stop', 'resume', 'checks', /* T8 */ 'doctor'],

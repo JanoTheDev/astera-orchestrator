@@ -210,12 +210,12 @@ describe('공개 표면 — 두 낱말 명령', () => {
 
   it('동사가 없으면 무엇을 칠 수 있는지 말한다', () => {
     expect(parseArgs(['projects'])).toEqual({ error: 'projects needs one of: list, get, find, add, set, create, remove, github-create' })
-    expect(parseArgs(['jobs'])).toEqual({ error: 'jobs needs one of: list, get, wait, run, create, create-from-source, rename, archive, unarchive, plan, set, feedback, reject, overlaps' })
+    expect(parseArgs(['jobs'])).toEqual({ error: 'jobs needs one of: list, get, wait, run, create, create-from-source, rename, archive, unarchive, plan, set, feedback, reject, chat, overlaps' })
   })
 
   it('모르는 동사는 거절하고 목록을 보여 준다', () => {
     expect(parseArgs(['jobs', 'fly'])).toEqual({
-      error: 'unknown jobs subcommand: fly (expected list, get, wait, run, create, create-from-source, rename, archive, unarchive, plan, set, feedback, reject, overlaps)'
+      error: 'unknown jobs subcommand: fly (expected list, get, wait, run, create, create-from-source, rename, archive, unarchive, plan, set, feedback, reject, chat, overlaps)'
     })
   })
 
