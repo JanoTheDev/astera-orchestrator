@@ -55,10 +55,33 @@ const SETTLED = new Set<string>(['delivered', 'delivered-by-owner', 'dismissed']
  *  reopened the plan). Only `outcomeOfTasks` says whether the Tasks are done, which is what the delivery itself asks (it
  *  must still see them completed to retry, and a failed outcome would take the failed-plan branches). */
 export function outcomeOfRun(tasks: readonly Task[], run: JobRun | undefined, s: OrchState): RunOutcome {
+  const lost = lostTasksOutcome(s, run, tasks)
+  if (lost !== undefined) return lost
   const outcome = outcomeOfTasks(tasks, s.gates)
   if (outcome !== 'completed') return outcome
   if (deliveryErrorOf(run) !== undefined) return 'failed'
   return run !== undefined && checkPending(s, run) ? 'checking' : outcome
+}
+
+/** Delivered: the Run pushed its work (a sha, no error), or opened its pull request (a url, not a draft, no error) or
+ *  left its work on a branch with no remote (`pr.note`, W7-E). after.ts `afterStandOf` reads the same. */
+export function runDelivered(run: JobRun): boolean {
+  if (run.delivery?.sha !== undefined && run.delivery.error === undefined) return true
+  const pr = run.pr
+  return pr !== undefined && pr.error === undefined && pr.draft === undefined && (pr.url !== undefined || pr.note !== undefined)
+}
+
+/** T15: what a Run reads once its Tasks are gone, or undefined while `outcomeOfTasks` answers. A Run with no Task but a
+ *  delivery record (a pushed branch, a pull request draft or not, an end delivery) once had Tasks: those records come
+ *  only after a Task ran. Its Tasks were lost from the store (the 2026-10-22 `reset --tasks` wipe left 30 such Runs),
+ *  and only a replan can add more, so it does not read running for ever: delivered reads completed, anything else
+ *  failed, which puts it before the owner. `deliveryState` alone is no evidence: it is pending once a Run is seen running.
+ *  A Run with no Task and no record is one just made, which reads running (`outcomeOfTasks`). */
+export function lostTasksOutcome(s: Pick<OrchState, 'jobs'>, run: JobRun | undefined, tasks: readonly Task[]): RunOutcome | undefined {
+  if (run === undefined || tasks.length > 0) return undefined
+  if (run.pr === undefined && run.delivery === undefined && run.branchPush === undefined) return undefined
+  if (s.jobs.find((j) => j.id === run.jobId)?.replanning !== undefined) return undefined
+  return runDelivered(run) || (run.deliveryState !== undefined && SETTLED.has(run.deliveryState.state)) ? 'completed' : 'failed'
 }
 
 /** Whether a Run whose Tasks all completed still waits on its final check (replan.ts `completionSettled`): only for a

@@ -15,7 +15,7 @@ import type { RunOutcome } from '../types'
 import type { OrchState } from './state'
 import { afterStandOf } from './after'
 import { isJobActive } from './lifecycle'
-import { outcomeOfTasks } from './running'
+import { lostTasksOutcome, outcomeOfTasks } from './running'
 import { leasesByProject, planOutranks, projectKeyOf, sameFilesAs } from './schedule'
 import { isDuplicateGate } from './overlap'
 
@@ -25,9 +25,17 @@ export function planTasksOf(s: OrchState, job: Job): Task[] {
   return s.tasks.filter((t) => (run ? t.runId === run.id : t.jobId === job.id))
 }
 
+/** Where a plan's Tasks stand: `outcomeOfTasks`, except that a Run whose Tasks are gone reads by its delivery
+ *  (running.ts `lostTasksOutcome`, T15), so a delivered plan whose Tasks were lost does not read running for ever. */
+export function planOutcomeOf(s: OrchState, job: Job): RunOutcome {
+  const run = s.runs.filter((r) => r.jobId === job.id).sort((a, b) => a.ordinal - b.ordinal).at(-1)
+  const tasks = planTasksOf(s, job)
+  return lostTasksOutcome(s, run, tasks) ?? outcomeOfTasks(tasks)
+}
+
 /** A plan that may still do work: not archived, and either not started (queued, awaiting approval) or still running. */
 export const activeOrQueued = (s: OrchState, job: Job): boolean =>
-  isJobActive(job) && (job.pendingStart === true || outcomeOfTasks(planTasksOf(s, job)) === 'running')
+  isJobActive(job) && (job.pendingStart === true || planOutcomeOf(s, job) === 'running')
 
 /** The other plans of `job`'s project (`projectKeyOf`) that are not archived. `finished` too: the briefs read what they
  *  built; the overlap check only the active and queued ones. */
@@ -187,7 +195,7 @@ export function mainPlanOf(s: OrchState, projectKey: string): MainPlan {
   const jobs = runOrder(s.jobs.filter((j) => isJobActive(j) && projectKeyOf(s, j) === projectKey))
   const plans = jobs.map((job): SubPlan => {
     const tasks = planTasksOf(s, job)
-    return { job, state: job.pendingStart === true ? 'not started' : outcomeOfTasks(tasks), tasks }
+    return { job, state: job.pendingStart === true ? 'not started' : planOutcomeOf(s, job), tasks }
   })
   const links: MainPlanLink[] = []
   const leases = leasesByProject(s).get(projectKey) ?? []

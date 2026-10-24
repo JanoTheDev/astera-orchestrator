@@ -1,6 +1,6 @@
 // T1 the main plan: sub-plans in run order with their links, and Tasks that wait on another plan's Task.
 import { describe, expect, it } from 'vitest'
-import { externalDepsOf, holdExternalDeps, mainPlanOf } from './mainPlan'
+import { activeOrQueued, externalDepsOf, holdExternalDeps, mainPlanOf } from './mainPlan'
 import { refreshOverlaps, STOPPED_DEP_OPTIONS } from './overlap'
 import { createTask, emptyState, resolveGate, startJobRun, type OrchState } from './state'
 import type { Job, JobRun, Task } from './types'
@@ -42,6 +42,26 @@ const waiting = (aRun: Partial<JobRun> = {}, aJob: Partial<Job> = {}): OrchState
 })
 
 const statusOf = (s: OrchState, id: string): string | undefined => s.tasks.find((t) => t.id === id)?.status
+
+// T15: a plan whose Run lost its Tasks (the 2026-10-22 wipe) but was delivered is finished, not active
+describe('a plan whose Run lost its Tasks', () => {
+  it('reads by its delivery in the main plan and drops out of the active plans', () => {
+    const s: OrchState = {
+      ...emptyState(),
+      jobs: [job('jDone'), job('jStuck'), job('jNew')],
+      runs: [
+        run('rDone', 'jDone', { pr: { at: T0, url: 'https://github.com/o/r/pull/1' } }),
+        run('rStuck', 'jStuck', { delivery: { at: T0, branch: 'main', error: 'merge failed' } }),
+        run('rNew', 'jNew')
+      ]
+    }
+    const states = Object.fromEntries(mainPlanOf(s, 'prj_1').plans.map((p) => [p.job.id, p.state]))
+    expect(states).toEqual({ jDone: 'completed', jStuck: 'failed', jNew: 'running' })
+    expect(activeOrQueued(s, s.jobs[0])).toBe(false)
+    expect(activeOrQueued(s, s.jobs[1])).toBe(false)
+    expect(activeOrQueued(s, s.jobs[2])).toBe(true)
+  })
+})
 
 describe('mainPlanOf', () => {
   it('lists the project’s not-archived plans in run order: priority, then age, a queued plan after the one it waits on', () => {

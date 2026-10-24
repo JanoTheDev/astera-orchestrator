@@ -251,6 +251,41 @@ describe('a failed delivery', () => {
   })
 })
 
+// T15: the 2026-10-22 `reset --tasks` wipe left delivered Runs with no Task; they read running for ever
+describe('a Run whose Tasks are gone', () => {
+  const NOW = '2026-10-19T00:00:00.000Z'
+  const gone = (run: Partial<JobRun>, job: Partial<Job> = {}): OrchState => ({
+    ...emptyState(),
+    jobs: [{ id: 'job_1', objective: 'o', cwd: PROJ, createdAt: NOW, autoDispatch: true, plannerSessionIds: ['ses_p'], ...job }],
+    runs: [{ id: 'run_1', jobId: 'job_1', ordinal: 1, createdAt: NOW, ...run }]
+  })
+  const pr = { at: NOW, url: 'https://github.com/o/r/pull/1', number: 1 }
+
+  it('reads completed once delivered: a pushed sha or an opened pull request', () => {
+    expect(outcomeOf(gone({ delivery: { at: NOW, branch: 'main', sha: 'abc' } }), 'run_1')).toBe('completed')
+    expect(outcomeOf(gone({ pr }), 'run_1')).toBe('completed')
+    expect(outcomeOf(gone({ pr, deliveryState: { state: 'pending', attempts: 0 } }), 'run_1')).toBe('completed')
+  })
+
+  it('reads failed when its delivery stopped or never finished: the owner has to look', () => {
+    expect(outcomeOf(gone({ delivery: { at: NOW, branch: 'main', error: 'merge failed' } }), 'run_1')).toBe('failed')
+    expect(outcomeOf(gone({ pr: { ...pr, draft: true, error: 'gh failed' }, deliveryState: { state: 'pending', attempts: 0 } }), 'run_1')).toBe('failed')
+    expect(outcomeOf(gone({ pr: { ...pr, draft: true } }), 'run_1')).toBe('failed')
+    expect(outcomeOf(gone({ branchPush: { state: 'delivered', attempts: 1 } }), 'run_1')).toBe('failed')
+  })
+
+  it('reads running while a replan can still add Tasks, or when it never had any (a Run just made)', () => {
+    expect(outcomeOf(gone({ pr }, { replanning: { runId: 'run_1', mode: 'completion', wave: 1, done: 0, startedAt: NOW } }), 'run_1')).toBe('running')
+    expect(outcomeOf(gone({}), 'run_1')).toBe('running')
+    expect(outcomeOf(gone({ deliveryState: { state: 'pending', attempts: 0 } }), 'run_1')).toBe('running')
+  })
+
+  it('stops counting as running in the Jobs list projection', () => {
+    const s = gone({ pr })
+    expect(snapshotFor(s, PROJ, () => true, [], () => null, () => true).runs[0].outcome).toBe('completed')
+  })
+})
+
 describe('a Run that finished with blocked Tasks, and one in its final check', () => {
   const NOW = '2026-10-18T00:00:00.000Z'
   const at = (id: string, over: Partial<Task> = {}): Task => ({ ...task(id, 'completed'), runId: 'run_1', ...over })
