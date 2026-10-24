@@ -241,8 +241,8 @@ describe('Sash and ActivityBarItem helpers', () => {
     const m = new Map<string, string>()
     const s = { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v) }
     expect(readPaneSize(s, 'a')).toBeUndefined()
-    writePaneSize(s, 'a', 123.4)
-    expect(readPaneSize(s, 'a')).toBe(123)
+    writePaneSize(s, 'a', 123.4567)
+    expect(readPaneSize(s, 'a')).toBe(123.457) // weights can be fractions of a flex-grow unit
     m.set('cm.section.a.size', 'x')
     expect(readPaneSize(s, 'a')).toBeUndefined()
     expect(readPaneSize(undefined, 'a')).toBeUndefined()

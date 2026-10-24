@@ -81,7 +81,7 @@ export function readPaneSize(storage: Pick<Storage, 'getItem'> | undefined, id: 
 
 export function writePaneSize(storage: Pick<Storage, 'setItem'> | undefined, id: string, size: number): void {
   try {
-    storage?.setItem(`${sectionStorageKey(id)}.size`, String(Math.round(size)))
+    storage?.setItem(`${sectionStorageKey(id)}.size`, String(Math.round(size * 1000) / 1000))
   } catch {
     /* storage unavailable: the size just isn't remembered */
   }

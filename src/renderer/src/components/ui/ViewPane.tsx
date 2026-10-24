@@ -217,14 +217,12 @@ export function ViewContainer({
         ];
         const i = els.findIndex((el) => el.dataset.pane === id);
         const heights = els.map((el) => el.offsetHeight);
-        const next = resizePair(
-          heights,
-          els.map((el) => el.classList.contains("is-open")),
-          i,
-          px,
-          PANE_MIN_H,
-        );
-        const changed = next.flatMap((h, j) => (h === heights[j] ? [] : [j]));
+        const open = els.map((el) => el.classList.contains("is-open"));
+        const next = resizePair(heights, open, i, px, PANE_MIN_H);
+        // the pair is fixed by the divider, not by a height change: the drag end repeats the last height and must still persist
+        let above = i - 1;
+        while (above >= 0 && !open[above]) above--;
+        const changed = i >= 0 && open[i] && above >= 0 ? [above, i] : [];
         const entries = changed.map((j) =>
           panes.current.get(els[j].dataset.pane ?? ""),
         );
