@@ -247,7 +247,8 @@ import {
   ownerMaySettle,
   withoutDeliveryError,
   // T5: a hands-free plan mends a failed delivery validation itself
-  deliveryFixOf
+  deliveryFixOf,
+  onlyDeliveryFixesFailed
 } from './delivery'
 import { settingRefusalOf } from './planSettings'
 import type { DeliveryProgress } from './types'
@@ -6913,6 +6914,13 @@ export async function handleCommand(
       if (done?.error !== undefined && !force && args.auto !== true)
         return conflict(`Pushing this Run stopped before: ${done.error}. --force tries again`)
       if (taskOutcomeOf(s, run) !== 'completed') {
+        // T5: the only failed Tasks are delivery fix Tasks: the fix attempts ran out, so the owner is asked as after FAILURE_LIMIT of them
+        if (args.auto === true && taskOutcomeOf(s, run) === 'failed' && deliveryFixOf(s, run) !== null && onlyDeliveryFixesFailed(s, id)) {
+          const reason = run.deliveryState?.lastError ?? run.delivery?.error ?? 'a delivery fix Task failed'
+          const code = run.deliveryState?.lastCode
+          const p = await settle(reason, undefined, code, 'owner')
+          return { status: 409, body: { error: reason, ...(code ? { code } : {}), deliveryState: p } }
+        }
         // T3: a push plan delivers only when every Task completed; the loop's Run that ended failed says so once
         if (args.auto === true && taskOutcomeOf(s, run) === 'failed') {
           const failed: DeliveryProgress = {
