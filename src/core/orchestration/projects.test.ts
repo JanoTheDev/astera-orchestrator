@@ -127,9 +127,10 @@ describe('a new Job and Task take their project settings (W7-B)', () => {
     return r
   }
 
-  it("fills the Job's concurrency, replan and review rounds from the project", () => {
+  it("fills the Job's concurrency and replan from the project; review rounds stay unwritten (read from the project, policyOf)", () => {
     const s = withSettings({ concurrency: 7, replan: 'off', reviewRounds: 2 })
-    expect(job(s, { convergence: { maxFixAttempts: 3 } }).value).toMatchObject({ concurrency: 7, replan: 'off', convergence: { maxFixAttempts: 3, maxReviewRounds: 2 } })
+    expect(job(s, { convergence: { maxFixAttempts: 3 } }).value).toMatchObject({ concurrency: 7, replan: 'off', convergence: { maxFixAttempts: 3 } })
+    expect(job(s, { convergence: { maxFixAttempts: 3 } }).value.convergence).not.toHaveProperty('maxReviewRounds')
   })
 
   it('keeps what the Job gives itself, and adds no convergence the Job did not ask for', () => {
