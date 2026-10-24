@@ -191,7 +191,8 @@ describe('deliverByPush (W6-H)', () => {
   it('undoes only its own merges when the validation fails: back to the commit before them, nothing pushed', async () => {
     const h = setup({}, { validate: 'fail' })
     const r = await h.go()
-    expect(r).toMatchObject({ ok: false, reason: expect.stringContaining('npm test exited 1') })
+    // T5: coded, so a hands-free plan opens a fix Task for it
+    expect(r).toMatchObject({ ok: false, reason: expect.stringContaining('npm test exited 1'), code: 'validation-failed' })
     expect(h.calls.filter((a) => a[0] === 'reset')).toEqual([['reset', '--hard', 'base']])
     expect(h.head()).toBe('base')
     expect(h.calls.some((a) => a[0] === 'push')).toBe(false)
@@ -277,7 +278,7 @@ describe('deliverByPush (W6-H)', () => {
   it('undoes its merges when the validation fails after merging the moved origin', async () => {
     const h = setup(movedOn(), { validate: 'fail-second' })
     const r = await h.go()
-    expect(r).toMatchObject({ ok: false, reason: expect.stringContaining('after merging origin/main') })
+    expect(r).toMatchObject({ ok: false, reason: expect.stringContaining('after merging origin/main'), code: 'validation-failed' })
     expect(h.calls.filter((a) => a[0] === 'push')).toHaveLength(1)
     expect(h.head()).toBe('base')
   })

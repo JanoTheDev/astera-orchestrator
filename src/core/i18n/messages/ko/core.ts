@@ -275,6 +275,8 @@ export const core = {
     '이 Task 에 지정된 첫 계정을 쓸 수 없고, 그 뒤의 계정들은 나중에 갈아탈 순서일 뿐입니다 — 그 계정에 다시 로그인하거나 이 Task 의 계정 목록을 고치세요',
   // exec/dispatchLoop.ts, exec/integrateGit.ts — 통합 병합의 Task 제목과 Gate 문장
   'jobs.integration.title': "워크트리 병합: {title}",
+  // exec/dispatchLoop.ts — T5: the fix Task a hands-free plan opens when its delivery checks fail
+  'jobs.deliveryFix.title': "배포 검사 고치기 ({n}/{limit})",
   'jobs.integration.runWorktreeNotRecorded': "Run 워크트리를 기록하지 못했습니다: {error}",
   'jobs.integration.runWorktreeNotMade': "Run 워크트리를 만들지 못했습니다: {error}",
   'jobs.integration.taskFailed': "통합 Task({task})가 실패해 워크트리를 합치지 못했습니다.",

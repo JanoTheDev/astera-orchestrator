@@ -21,7 +21,7 @@ import { coordinatorReleaseOf } from './releaseDefer'
 import { REPLAN_LIFT_HOLD } from './replanStart'
 import { handleCommand, type OrchServerDeps } from '../command'
 import { createDispatchLoop as freshLoop } from './dispatchLoop'
-import { DELIVERY_OWNER_PUSHES, DELIVERY_RETRY_NOW } from '../delivery'
+import { DELIVERY_FIX_MARK, DELIVERY_OWNER_PUSHES, DELIVERY_RETRY_NOW } from '../delivery'
 import { APP_CALLER } from '../../host/driver'
 import { addDecision, COORDINATOR_START_WINDOW_MS, emptyState, type OrchState } from '../state'
 import { needsInput } from '../sessionIndex'
@@ -2392,6 +2392,60 @@ describe('a delivery that finishes by itself (T3)', () => {
     const merge = h.state().tasks.find((t) => t.spec.includes('f00dfeed'))
     expect(merge).toBeDefined()
     expect(merge!.runId).toBe('run_1')
+  })
+
+  // T5: a hands-free plan mends a failed delivery validation itself
+  const checksFailed: Push = async () => ({ ok: false, reason: 'the validation failed on the merged main: npm test exited 1', branch: 'main', code: 'validation-failed' })
+  const handsOff = (h: ReturnType<typeof rig>): void => {
+    const s = h.state()
+    h.setState({ ...s, jobs: s.jobs.map((j) => ({ ...j, handsOff: true })) })
+  }
+  const fixes = (h: ReturnType<typeof rig>) => h.state().tasks.filter((t) => t.spec.includes(DELIVERY_FIX_MARK))
+  const questions = (h: ReturnType<typeof rig>) => h.state().messages.filter((m) => m.type === 'escalation' && m.runId === 'run_1')
+
+  it('T5: a hands-off plan whose checks fail gets a fix Task, no owner question, and is validated and delivered once it completes', async () => {
+    let calls = 0
+    const h = pushPlan(async (a) => (++calls === 1 ? checksFailed(a) : ok(a)))
+    handsOff(h)
+    await pass(h)
+    finishAll(h)
+    await pass(h)
+    expect(fixes(h)).toHaveLength(1)
+    expect(fixes(h)[0]).toMatchObject({ runId: 'run_1', spec: expect.stringContaining('npm test exited 1') })
+    expect(fixes(h)[0].spec).toContain('git merge --no-edit origin/main')
+    expect(h.state().runs[0].deliveryState?.state).not.toBe('needs-owner')
+    expect(questions(h)).toEqual([])
+    // the fix Task runs, then completes: the delivery is due at once, not after its backoff
+    await pass(h)
+    finishAll(h)
+    await pass(h)
+    expect(calls).toBe(2)
+    expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'delivered' })
+    expect(fixes(h)).toHaveLength(1)
+    expect(questions(h)).toEqual([])
+  })
+
+  it('T5: after FAILURE_LIMIT fix Tasks a failed validation asks the owner, and opens no more', async () => {
+    const h = pushPlan(checksFailed)
+    handsOff(h)
+    await pass(h)
+    const s = h.state()
+    const fix = (n: number): Task => task({ id: `tsk_fix${n}`, parentId: 'tsk_1', spec: `${DELIVERY_FIX_MARK} (fix ${n} of 3)` })
+    h.setState({ ...s, tasks: [...s.tasks, fix(1), fix(2), fix(3)] })
+    finishAll(h)
+    await pass(h)
+    expect(fixes(h)).toHaveLength(3)
+    expect(questions(h)).toHaveLength(1)
+    expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'needs-owner', lastCode: 'validation-failed' })
+  })
+
+  it('T5: a plan that is not hands-free opens no fix Task for failed checks', async () => {
+    const h = pushPlan(checksFailed)
+    await pass(h)
+    finishAll(h)
+    await pass(h)
+    expect(fixes(h)).toEqual([])
+    expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'retrying', attempts: 1 })
   })
 })
 

@@ -247,6 +247,8 @@ export const core: Record<keyof typeof ko, string> = {
     "The first account assigned to this Task cannot be used, and the accounts after it are only there to move onto later — log that account back in, or change this Task's account list",
   // exec/dispatchLoop.ts, exec/integrateGit.ts — the integration merge's Task titles and Gate reasons
   'jobs.integration.title': "Merge worktrees: {title}",
+  // exec/dispatchLoop.ts — T5: the fix Task a hands-free plan opens when its delivery checks fail
+  'jobs.deliveryFix.title': "Fix the delivery checks ({n} of {limit})",
   'jobs.integration.runWorktreeNotRecorded': "Could not record the Run's worktree: {error}",
   'jobs.integration.runWorktreeNotMade': "Could not make the Run's worktree: {error}",
   'jobs.integration.taskFailed': "The integration Task ({task}) failed, so the worktrees were not merged.",
