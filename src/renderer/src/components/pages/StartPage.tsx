@@ -11,6 +11,7 @@ import { EFFORTS, type Effort } from '../../../../core/orchestration/roleModels'
 import { foldsPathCase } from '../../../../core/files/paths'
 import { useI18n } from '../../i18n/I18nProvider'
 import { localDoor } from '../../lib/orchDoor'
+import { invalidate, readCached, useCachedRead } from '../../lib/readCache'
 import { useProjectScope } from '../../state/useProjectScope'
 import { openActivity, openConsole } from '../shell/navigation'
 import { Button, Card, Chip, Field, Icon, IconButton, Input, Menu, PageHeader, Select, Tabs, Textarea, Tooltip } from '../ui'
@@ -52,12 +53,20 @@ export function StartPage({
   const scope = useProjectScope()
   const door = useMemo(() => localDoor(window.api, scope.path || baseCwd), [scope.path, baseCwd])
   // the title bar's project until the list is read, so the first frame already says who the plan is for
-  const [projects, setProjects] = useState<Project[]>(scope.project ? [scope.project] : [])
+  const projectsKey = `start:projects:${door.projectKey}`
+  const projectsRead = useCachedRead(projectsKey, async () => {
+    const r = await door.command('projects-list', {})
+    if (r.status !== 200 || !Array.isArray(r.body)) throw new Error('projects-list')
+    return r.body as Project[]
+  })
+  const fallbackProjects = useMemo(() => (scope.project ? [scope.project] : []), [scope.project])
+  const projects = projectsRead.data ?? fallbackProjects
+  // No push says the project list changed: a form opened with a list in the cache asks again once (a first read is
+  // already under way and needs no second one).
+  const hadProjects = useRef(projectsRead.data !== undefined)
   useEffect(() => {
-    void door.command('projects-list', {}).then((r) => {
-      if (r.status === 200 && Array.isArray(r.body)) setProjects(r.body as Project[])
-    })
-  }, [door])
+    if (hadProjects.current) invalidate(projectsKey)
+  }, [projectsKey])
   // The sub-project picked here, by id; the title bar's selection otherwise. A new title-bar pick drops it.
   const [picked, setPicked] = useState<string>()
   useEffect(() => setPicked(undefined), [scope.projectId])
@@ -125,10 +134,8 @@ export function StartPage({
 
   // T5b: the planner's account. Auto sends none, so the Host picks the one with most room by usage; a picked account
   // is only a preference
-  const [signedIn, setSignedIn] = useState<ReadonlySet<string>>(new Set())
-  useEffect(() => {
-    void door.signedInIds(accounts).then(setSignedIn)
-  }, [door, accounts])
+  const signedInRead = useCachedRead(`start:signedIn:${door.projectKey}:${accounts.map((a) => a.id).join(',')}`, async () => [...(await door.signedInIds(accounts))])
+  const signedIn = useMemo<ReadonlySet<string>>(() => new Set(signedInRead.data), [signedInRead.data])
   const usage = useAccountUsage()
 
   // W10-A Run as written by name: the typed prompt names, looked up on the Host a moment after the last key
@@ -557,7 +564,7 @@ export function useStartLanding(project: string | null, sessions: { cwd: string 
   useEffect(() => {
     if (!project || landed.has(project)) return
     landed.add(project)
-    void (window.api.orch.peek(project) as Promise<OrchSnapshot | null>).then((snap) => {
+    void readCached(`start:peek:${project}`, () => window.api.orch.peek(project) as Promise<OrchSnapshot | null>).then((snap) => {
       // read when the answer comes: the consoles taken back from the Host may have arrived meanwhile
       const now = live.current
       if (!snap || now.project !== project) return
