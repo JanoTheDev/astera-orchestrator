@@ -139,6 +139,8 @@ import { SOURCED_OBJECTIVE_MAX } from '../sources/objective'
 import { intakeChanges, intakeObjective, intakeOf, intakeTitle, needsInputs, planningArg, shortTitle } from './intake'
 // W8-C prompts mode
 import path from 'node:path'
+import { SAVE_REASON_TEXT } from '../run/validateConfigs'
+import type { AddRunConfigResult } from '../run/runConfigsFile'
 import { access, readFile } from 'node:fs/promises'
 import { promptPlanOf, sha256Of } from './promptWaves'
 // W10-A Run as written by name
@@ -874,6 +876,9 @@ export interface OrchServerDeps {
    *  and answers null. **Only the app injects it** (it is that file's one writer); the Host forwards it to an attached
    *  app, and without one `projects-set --test-command` answers 409. */
   saveTestCommand?(projectPath: string, command: string | null): Promise<string | null>
+  /** `run-configs add`: puts one configuration into the project's saved list in run-configs.json, after the app's own
+   *  checks (core/run/validateConfigs.ts). **Only the Host injects it** (host/orch.ts); absent, the command answers 409. */
+  addRunConfig?(projectPath: string, config: unknown): Promise<AddRunConfigResult>
   /** Sets the folder's default account (core/projects/settings.ts, the New Session dialog's preselection); null clears
    *  it. Only the app injects it, like saveTestCommand. */
   setProjectAccount?(projectPath: string, accountId: string | null): Promise<void>
@@ -3352,6 +3357,25 @@ export async function handleCommand(
       const job = run && jobOf(s, run)
       if (!job) return bad(`no run exists`)
       return okBody(await deps.listRunConfigs(job.cwd))
+    }
+    // An agent saves a run configuration for a project (the "Generate with AI" path). Validated by the rules the
+    // app's Apply uses, so a bad one is refused with the reason and nothing is written.
+    case 'run-configs-add': {
+      const project = str(args.project)
+      if (!project || !path.isAbsolute(project)) return bad('--project needs an absolute folder path')
+      const raw = str(args.config)
+      if (!raw) return bad('--config is required: one configuration as JSON, or - to read it from standard input')
+      let config: unknown
+      try {
+        config = JSON.parse(raw)
+      } catch {
+        return bad('--config is not valid JSON')
+      }
+      if (!deps.addRunConfig) return conflict('run configurations cannot be saved here')
+      const saved = await deps.addRunConfig(project, config)
+      if (!saved.ok)
+        return bad(`configuration refused: ${saved.errors.map((e) => `${e.id || '(no id)'}: ${SAVE_REASON_TEXT[e.reason]}`).join('; ')}`)
+      return okBody({ config: saved.config, replaced: saved.replaced })
     }
     // **공개 이름은 계획을 지목한다**(phase D). 위의 `run-configs` 는 "가장 최근 회차" 의 것이라, 셸에서
     // 치는 사람에게는 남의 계획의 목록일 수 있다 — task-create 의 기본값을 tasks add 가 내주지 않은

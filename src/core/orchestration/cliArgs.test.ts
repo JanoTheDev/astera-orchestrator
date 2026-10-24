@@ -264,7 +264,7 @@ describe('공개 표면 — 두 낱말 명령', () => {
     expect(parseArgs(['run-configs'])).toMatchObject({ cmd: 'run-configs' })
     expect(parseArgs(['run-configs', '--json'])).toMatchObject({ cmd: 'run-configs', json: true })
     expect(parseArgs(['run-configs', 'fly'])).toEqual({
-      error: 'unknown run-configs subcommand: fly (expected list)'
+      error: 'unknown run-configs subcommand: fly (expected list, add)'
     })
   })
 
