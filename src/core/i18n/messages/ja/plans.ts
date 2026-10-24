@@ -75,4 +75,16 @@ export const plans: Partial<Record<keyof typeof ko, string>> = {
   'pages.plans.main.phase.waiting': '待機中',
   'pages.plans.main.phase.done': '完了',
   'pages.plans.main.finishedAgo': '{age}前に完了',
+  // Plans side bar: Running above Finished, Clear finished
+  'pages.plans.running': '実行中',
+  'pages.plans.finished': '完了',
+  'pages.plans.finishedAge': '{age}前に完了',
+  'pages.plans.clearFinished': '完了したプランを整理…',
+  'pages.plans.clearFinished.body': '完了した {all} 件のうち {old} 件は {days} 日より前に終わっています。削除ではなくアーカイブされ、アーカイブ解除で戻せます。',
+  'pages.plans.clearFinished.all': '直近 {days} 日以内に完了したプランもアーカイブ',
+  'pages.plans.clearFinished.kill': '実行中のセッションも閉じる',
+  'pages.plans.clearFinished.done': '{n} 件のプランをアーカイブしました',
+  'pages.plans.clearFinished.failed': '{n} 件のプランをアーカイブできませんでした',
+  'pages.plans.clearFinished.none': '整理できる完了プランはありません',
+  'pages.plans.finished.empty': '完了したプランはまだありません。',
 }

@@ -15,6 +15,7 @@ import {
   overlapOf,
   pauseActionOf,
   planDescription,
+  finishedDescription,
   planTreeRows,
   statusGroupOf,
   stepsOf,
@@ -187,5 +188,25 @@ describe('plan name truncation priority (plans.css)', () => {
     expect(shrink('.ui-tree__label')).toBeGreaterThan(0)
     expect(shrink('.ui-tree__meta')).toBe(0)
     expect(css).not.toMatch(/\.plans-tree \.ui-tree__deco \{[^}]*text-overflow/)
+  })
+})
+
+describe('planTreeRows keepOrder', () => {
+  it('lists the plans as given instead of by rank (the Finished pane sorts by finishedAt)', () => {
+    const rows = [row('a', { outcome: 'completed', archivedAt: 'x' }), row('b', { outcome: 'completed' })]
+    const ids = (keepOrder: boolean): string[] =>
+      planTreeRows({ rows, groupBy: 'plans', filter: '', showArchived: true, keepOrder, isOpen: () => false }).map((r) => r.id)
+    expect(ids(false)).toEqual(['plan:b', 'plan:a'])
+    expect(ids(true)).toEqual(['plan:a', 'plan:b'])
+  })
+})
+
+describe('finishedDescription', () => {
+  it('says the progress and how long ago the plan finished', () => {
+    const t = ((k: string, p?: Record<string, unknown>) => `${k}${p ? JSON.stringify(p) : ''}`) as never
+    const now = Date.parse('2026-10-24T12:00:00Z')
+    const done = row('d', { outcome: 'completed', done: 3, total: 3, finishedAt: '2026-10-24T10:00:00Z' })
+    expect(finishedDescription(done, now, t)).toBe('pages.plans.progress{"done":3,"total":3} · pages.plans.finishedAge{"age":"2h"}')
+    expect(finishedDescription(row('e', { outcome: 'completed' }), now, t)).toBe('')
   })
 })

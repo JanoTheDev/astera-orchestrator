@@ -109,4 +109,16 @@ export const plans: Record<keyof typeof ko, string> = {
   'pages.plans.main.phase.waiting': 'Waiting',
   'pages.plans.main.phase.done': 'Done',
   'pages.plans.main.finishedAgo': 'finished {age} ago',
+  // Plans side bar: Running above Finished, Clear finished
+  'pages.plans.running': 'Running',
+  'pages.plans.finished': 'Finished',
+  'pages.plans.finishedAge': 'finished {age} ago',
+  'pages.plans.clearFinished': 'Clear finished…',
+  'pages.plans.clearFinished.body': '{old} of {all} finished plans ended more than {days} days ago. They are archived, not deleted; Unarchive brings one back.',
+  'pages.plans.clearFinished.all': 'Also archive plans finished in the last {days} days',
+  'pages.plans.clearFinished.kill': 'Also close their running sessions',
+  'pages.plans.clearFinished.done': 'Archived {n} plans',
+  'pages.plans.clearFinished.failed': 'Could not archive {n} plans',
+  'pages.plans.clearFinished.none': 'No finished plans to clear',
+  'pages.plans.finished.empty': 'No finished plans yet.',
 }
