@@ -61,6 +61,12 @@ describe('editArgsOf sends only what changed', () => {
     const after = { ...before, title: 'B', spec: 'S2', prompt: '', deps: [], kind: '', difficulty: 'hard', affectedPaths: 'a.ts\nb.ts' }
     expect(editArgsOf(before, after)).toEqual({ title: 'B', spec: 'S2', deps: [], difficulty: 'hard', affectedPaths: ['a.ts', 'b.ts'] })
   })
+
+  it('effort is sent when chosen and left out when emptied', () => {
+    const had = { ...before, effort: 'low' }
+    expect(editArgsOf(before, { ...before, effort: 'high' })).toEqual({ effort: 'high' })
+    expect(editArgsOf(had, { ...had, effort: '' })).toEqual({})
+  })
 })
 
 describe('createArgsOf and feedbackTextOf', () => {

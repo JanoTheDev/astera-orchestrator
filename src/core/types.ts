@@ -576,6 +576,8 @@ export interface JobTask {
   difficulty?: 'light' | 'standard' | 'hard'
   /** The Task's own reasoning effort (Task.effort); the difficulty map's applies when absent. */
   effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+  /** Why the latest attempt's effort differs from the ask (Dispatch.effortNote). */
+  effortNote?: string
   jobModels?: Partial<Record<'coordinator' | 'planner' | 'worker' | 'reviewer', string>>
   /** The account its latest attempt ran on. Absent until it is dispatched; `accountIds` says what it will use. */
   accountId?: string

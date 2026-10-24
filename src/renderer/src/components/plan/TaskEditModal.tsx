@@ -6,7 +6,7 @@ import { useState } from 'react'
 import type { JobTask } from '../../../../core/types'
 import type { Task } from '../../../../core/orchestration/types'
 import { TASK_KINDS } from '../../../../core/orchestration/types'
-import { DIFFICULTIES } from '../../../../core/orchestration/roleModels'
+import { DIFFICULTIES, EFFORTS } from '../../../../core/orchestration/roleModels'
 import { useI18n } from '../../i18n/I18nProvider'
 import { isOutcomeUnknown, replyNote, type OrchDoor } from '../../lib/orchDoor'
 import { Button, Field, Icon, IconButton, Modal, Select, type SelectOption } from '../ui'
@@ -77,8 +77,8 @@ export function PlanFields({
   full = false,
   locked = () => false
 }: {
-  draft: Pick<TaskDraft, 'prompt' | 'criteria' | 'kind'> & Partial<Pick<TaskDraft, 'difficulty' | 'affectedPaths'>>
-  set: (field: 'prompt' | 'criteria' | 'kind' | 'difficulty' | 'affectedPaths', value: string) => void
+  draft: Pick<TaskDraft, 'prompt' | 'criteria' | 'kind'> & Partial<Pick<TaskDraft, 'difficulty' | 'effort' | 'affectedPaths'>>
+  set: (field: 'prompt' | 'criteria' | 'kind' | 'difficulty' | 'effort' | 'affectedPaths', value: string) => void
   full?: boolean
   locked?: (field: EditField) => boolean
 }): React.JSX.Element {
@@ -104,6 +104,14 @@ export function PlanFields({
             disabled={locked('difficulty')}
             options={[{ value: '', label: t('plan.edit.field.difficultyNone') }, ...DIFFICULTIES.map((d) => ({ value: d, label: t(`plan.task.difficulty.${d}`) }))]}
             onChange={(e) => set('difficulty', e.target.value)}
+          />
+          <Field
+            kind="select"
+            label={t('plan.edit.field.effort')}
+            value={draft.effort ?? ''}
+            disabled={locked('effort')}
+            options={[{ value: '', label: t('plan.edit.field.effortNone') }, ...EFFORTS.map((e) => ({ value: e, label: e }))]}
+            onChange={(e) => set('effort', e.target.value)}
           />
           <Field
             kind="textarea"
