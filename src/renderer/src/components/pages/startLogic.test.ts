@@ -1,9 +1,11 @@
 import { describe, it, expect, vi } from 'vitest'
 import {
-  accountPickOptions, attachableOf, afterCreate, blockedReason, consolesIn, dropOpensStart, filesFromDrop, handsOffSaveArgs, intakeTab, isSubmitKey, lastMode, lookupArgs, planningOf, primaryLabel,
-  projectOptions, promptCount, saveMode, scheduledArgs, STARTERS, STARTER_MODE, livePlans, shouldLandOnStart, withStarter, type PlanRow
+  accountPickOptions, askOptions, attachableOf, afterCreate, blockedReason, consolesIn, dropOpensStart, filesFromDrop, intakeTab, isSubmitKey, lastMode, lookupArgs, planningOf, primaryLabel,
+  projectChoice, projectDefaults, promptCount, rememberSetting, saveMode, scheduledArgs, settingsKey, settingsSummary, startSettings, STARTERS, STARTER_MODE, livePlans, shouldLandOnStart,
+  withStarter, type PlanRow
 } from './startLogic'
 import type { Account } from '../../../../core/types'
+import type { Project } from '../../../../core/orchestration/types'
 
 const t = (key: string, params?: Record<string, string | number>): string => (params ? `${key}:${JSON.stringify(params)}` : key)
 
@@ -82,13 +84,6 @@ describe('Run as written by name', () => {
 })
 
 // T2
-describe('sticky hands-off', () => {
-  it('saves Hands-off as the project default', () => {
-    expect(handsOffSaveArgs('p1', true)).toEqual({ id: 'p1', handsOff: 'on' })
-    expect(handsOffSaveArgs('p1', false)).toEqual({ id: 'p1', handsOff: 'off' })
-  })
-})
-
 // T14
 describe('the primary button', () => {
   it('is off with a reason until a project and text exist', () => {
@@ -106,12 +101,83 @@ describe('the primary button', () => {
   })
 })
 
-describe('the project picker', () => {
-  const projects = [{ name: 'App', path: '/w/app' }, { name: 'Api', path: '/w/api' }]
-  it('lists projects only, never "All projects"; a placeholder shows while none is chosen', () => {
-    expect(projectOptions(projects, '', 'Choose')).toEqual([{ value: '', label: 'Choose' }, { value: '/w/app', label: 'App' }, { value: '/w/api', label: 'Api' }])
-    expect(projectOptions(projects, '/w/app', 'Choose').map((o) => o.value)).toEqual(['/w/app', '/w/api'])
-    for (const chosen of ['', '/w/app']) expect(projectOptions(projects, chosen, 'Choose').some((o) => /all/i.test(o.value))).toBe(false)
+// T17
+describe('who the plan is for', () => {
+  const proj = (id: string, o: Partial<Project> = {}): Project => ({ id, name: id.toUpperCase(), path: `/w/${id}`, addedAt: '', ...o })
+  const app = proj('app')
+  const ws = proj('ws')
+  const api = proj('ws-api', { path: '/w/ws', parentId: 'ws' })
+  const web = proj('ws-web', { path: '/w/ws', parentId: 'ws' })
+  const all = [app, ws, api, web]
+  it('is the title bar project, with no picker, when it has no sub-projects', () => {
+    expect(projectChoice(all, 'app')).toEqual({ ask: false, root: app, members: [], project: app })
+  })
+  it('offers the workspace and its sub-projects by id; a pick files the plan there', () => {
+    const c = projectChoice(all, 'ws', 'ws-web')
+    expect(c.members.map((p) => p.id)).toEqual(['ws', 'ws-api', 'ws-web'])
+    expect(c.project).toBe(web)
+    expect(c.root).toBe(ws)
+    // sub-projects share the folder: the pick is by id, never by path
+    expect(projectChoice(all, 'ws', 'ws-api').project).toBe(api)
+    expect(projectChoice(all, 'ws').project).toBe(ws)
+  })
+  it('a sub-project picked in the title bar is the default, under its workspace', () => {
+    const c = projectChoice(all, 'ws-api')
+    expect(c.root).toBe(ws)
+    expect(c.project).toBe(api)
+    expect(c.members).toHaveLength(3)
+  })
+  it('a pick that is not a member of the workspace falls back to the title bar project', () => {
+    expect(projectChoice(all, 'app', 'ws-api').project).toBe(app)
+  })
+  it('asks only on All projects (or for a selection no project has), listing workspaces and plain projects', () => {
+    expect(projectChoice(all, null)).toEqual({ ask: true, members: [] })
+    expect(projectChoice(all, 'gone').ask).toBe(true)
+    // still loading: a selected project is not asked for again
+    expect(projectChoice([], 'app').ask).toBe(false)
+    expect(askOptions(all)).toEqual([{ value: 'app', label: 'APP' }, { value: 'ws', label: 'WS' }])
+  })
+})
+
+describe('the settings', () => {
+  const proj = (o: Partial<Project> = {}): Project => ({ id: 'p1', name: 'P', path: '/p', addedAt: '', ...o })
+  it("start from the project's defaults, a sub-project's unset ones from its workspace", () => {
+    expect(projectDefaults(undefined, undefined)).toEqual({ account: '', effort: '', concurrency: 3, delivery: 'pr', replan: 'waves', handsOff: false })
+    expect(projectDefaults(proj({ delivery: 'merge', concurrency: 10, replan: 'off', handsOff: true }), undefined)).toMatchObject({ delivery: 'merge', concurrency: 10, replan: 'off', handsOff: true })
+    const root = proj({ id: 'ws', delivery: 'push', concurrency: 5 })
+    expect(projectDefaults(proj({ id: 'sub', parentId: 'ws', concurrency: 2 }), root)).toMatchObject({ delivery: 'push', concurrency: 2 })
+  })
+  it('remember the last choice per project; untouched fields keep following the project', () => {
+    const store = new Map<string, string>()
+    vi.stubGlobal('window', { localStorage: { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) } })
+    const base = projectDefaults(proj({ delivery: 'merge' }), undefined)
+    expect(startSettings('p1', base)).toEqual(base)
+    rememberSetting('p1', { effort: 'high' })
+    rememberSetting('p1', { account: 'acc2', concurrency: 7, replan: 'off', handsOff: true })
+    expect(startSettings('p1', base)).toEqual({ ...base, effort: 'high', account: 'acc2', concurrency: 7, replan: 'off', handsOff: true })
+    expect(startSettings('p2', base)).toEqual(base)
+    rememberSetting('p1', { delivery: 'manual' })
+    expect(startSettings('p1', base).delivery).toBe('manual')
+    vi.unstubAllGlobals()
+  })
+  it('drop stored nonsense, and work when storage fails', () => {
+    const store = new Map([[settingsKey('p1'), JSON.stringify({ effort: 'huge', delivery: 'fax', concurrency: 0, replan: 1, handsOff: 'yes', account: 4 })]])
+    vi.stubGlobal('window', { localStorage: { getItem: (k: string) => store.get(k) ?? null, setItem: () => {} } })
+    const base = projectDefaults(undefined, undefined)
+    expect(startSettings('p1', base)).toEqual(base)
+    store.set(settingsKey('p1'), '{not json')
+    expect(startSettings('p1', base)).toEqual(base)
+    vi.stubGlobal('window', { localStorage: { getItem: () => { throw new Error('blocked') }, setItem: () => { throw new Error('blocked') } } })
+    expect(startSettings('p1', base)).toEqual(base)
+    expect(() => rememberSetting('p1', { effort: 'low' })).not.toThrow()
+    vi.unstubAllGlobals()
+  })
+  it('read as one summary row', () => {
+    const s = { when: 'now' as const, concurrency: 10, delivery: 'Merge into main', replan: 'waves' as const, handsOff: true, effort: '' as const }
+    expect(settingsSummary(s, t)).toEqual(['start.sum.auto', 'start.opt.now', 'start.sum.agents:{"n":10}', 'Merge into main', 'start.opt.handsOff', 'start.sum.effort:{"level":"start.effort.auto"}'])
+    const other = settingsSummary({ ...s, account: 'Work', when: 'after', after: 'Login fix', handsOff: false, replan: 'off', effort: 'high' }, t)
+    expect(other).toEqual(['Work', 'start.opt.after:{"plan":"Login fix"}', 'start.sum.agents:{"n":10}', 'Merge into main', 'start.adv.replan.off', 'start.sum.effort:{"level":"high"}'])
+    expect(settingsSummary({ ...s, when: 'schedule' }, t)[1]).toBe('start.when.schedule')
   })
 })
 

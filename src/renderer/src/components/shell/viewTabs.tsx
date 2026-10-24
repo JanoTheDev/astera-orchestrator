@@ -133,11 +133,10 @@ export function renderViewTab(p: ViewTabProps, name: ViewName, arg: string | und
       const req = p.start ?? {}
       const cwd = req.cwd ?? p.currentProject ?? p.homeDir ?? ''
       return (
+        // T17: not keyed by the folder: picking a project on All projects switches the title bar, and what was typed stays
         <StartPage
-          key={cwd}
           req={req}
           cwd={cwd}
-          defaultProject={req.cwd ?? p.currentProject ?? undefined}
           accounts={p.accounts}
           onClose={() => {
             p.openStart(null)
