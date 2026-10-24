@@ -81,8 +81,13 @@ function planActs(p: ViewTabProps): PlanActs {
   }
 }
 
-/** The Main plan tab. `p` is a new object every App render, so the handlers go through a ref and MainPlan's memo holds. */
+/**
+ * The Main plan tab. `p` is a new object every App render, so the handlers go through a ref and MainPlan's memo holds.
+ * Counts itself as a reader of the snapshot, so the watch stays armed while Plans is not the sidebar view.
+ * A view tab's body: each stays mounted for its tab's life (PaneGrid's view slots), so Start keeps its draft.
+ */
 function MainPlanTab({ p }: { p: ViewTabProps }): React.JSX.Element {
+  useOrchConsumer()
   const pRef = useRef(p)
   pRef.current = p
   const acts = useMemo<PlanActs>(() => {
@@ -122,13 +127,6 @@ function WorktreeTab({ p, path, close }: { p: ViewTabProps; path?: string; close
       onOpenFiles={(cwd) => p.openLinkedFolder(cwd)}
     />
   )
-}
-
-/** A view tab's body. Each stays mounted for its tab's life (PaneGrid's view slots), so Start keeps its draft. */
-/** Counts itself as a reader of the snapshot, so the watch stays armed while Plans is not the sidebar view. */
-function MainPlanTab({ p }: { p: ViewTabProps }): React.JSX.Element {
-  useOrchConsumer()
-  return <MainPlan rows={p.orchSnapshot?.runs ?? []} acts={planActs(p)} accounts={p.accounts} />
 }
 
 export function renderViewTab(p: ViewTabProps, name: ViewName, arg: string | undefined, active: boolean): React.ReactNode {
