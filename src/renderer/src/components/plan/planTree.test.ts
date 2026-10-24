@@ -22,7 +22,8 @@ import {
   taskDescription,
   taskSection,
   type GroupBy,
-  type PlanNode
+  type PlanNode,
+  type PlanTreeRow
 } from './planTree'
 
 const task = (id: string, over: Partial<JobTask> = {}): JobTask => ({ id, title: `title ${id}`, status: 'pending', openGates: 0, ...over })
@@ -198,6 +199,28 @@ describe('planTreeRows keepOrder', () => {
       planTreeRows({ rows, groupBy: 'plans', filter: '', showArchived: true, keepOrder, isOpen: () => false }).map((r) => r.id)
     expect(ids(false)).toEqual(['plan:b', 'plan:a'])
     expect(ids(true)).toEqual(['plan:a', 'plan:b'])
+  })
+
+  // The done plan comes first in the input; planListOrder would put the running one first, so a re-sort shows.
+  const finished = row('done', { outcome: 'completed', tasks: [task('t1', { status: 'completed' })] })
+  const live = row('live', { outcome: 'running', tasks: [task('t2', { status: 'completed' })] })
+  const plansOf = (r: JobRow[], groupBy: GroupBy, keepOrder: boolean): PlanTreeRow[] =>
+    planTreeRows({ rows: r, groupBy, filter: '', showArchived: false, keepOrder, isOpen: () => true })
+
+  it('Group by status: keepOrder keeps the input order inside each group; without it the group is re-sorted', () => {
+    const doneTasks = (keepOrder: boolean): string[] =>
+      plansOf([finished, live], 'status', keepOrder).map((r) => r.id).filter((id) => id.startsWith('status:done/task:'))
+    expect(doneTasks(true)).toEqual(['status:done/task:done:t1', 'status:done/task:live:t2'])
+    expect(doneTasks(false)).toEqual(['status:done/task:live:t2', 'status:done/task:done:t1'])
+  })
+
+  it('Group by area: keepOrder keeps the input order inside each area group; without it the group is re-sorted', () => {
+    const plansIn = (keepOrder: boolean): string[] =>
+      plansOf([{ ...finished, areas: ['auth'] }, { ...live, areas: ['auth'] }], 'area', keepOrder)
+        .filter((r) => r.node.kind === 'plan')
+        .map((r) => r.id)
+    expect(plansIn(true)).toEqual(['area:auth/plan:done', 'area:auth/plan:live'])
+    expect(plansIn(false)).toEqual(['area:auth/plan:live', 'area:auth/plan:done'])
   })
 })
 
