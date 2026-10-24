@@ -32,6 +32,16 @@ ASTERA_PROFILE_DIR="$P-dev" ELECTRON_RUN_AS_NODE=1 node_modules/electron/dist/el
 
 Then check `pgrep -af "astera-perf"` is empty.
 
+## Sessions (`--sessions N`)
+
+`node scripts/perf-switch.mjs ... --sessions 30 --only "Sessions,Tab switch"` opens N sessions with `window.api.sessions.spawn`
+(account `shots-seed`, kind `terminal`) in the shown project and kills them at the end. This spawns whatever `claude` the Host's
+PATH finds first, and the seeded account must look logged in (an empty `<seed>/claude-home/.credentials.json`, throwaway
+profile only). Put a stub `claude` (`exec sleep 100000`) ahead of the real one on the Host's PATH first; see after.md for why
+that was not possible on the AFTER run. The script also calls `Page.bringToFront` before each measurement: a covered window
+stops `requestAnimationFrame` and the run would hang. The `content ready` table (Sessions, Run, Source Control, Devices) is
+printed after the main table.
+
 ## Mode
 
 **Built app run directly with Electron** (`electron . --remote-debugging-port`), i.e. the production renderer (no

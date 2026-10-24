@@ -8,7 +8,7 @@ import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 
 const USAGE = `Usage: node scripts/perf-switch.mjs --port <cdp port> [--runs 5] [--warmup 1] [--tabs 8] [--out file.json]
-                               [--only <targets>] [--profile <dir>] [--md file.md]
+                               [--only <targets>] [--profile <dir>] [--md file.md] [--sessions N]
 
 Connects to an app started on a profile seeded with \`node scripts/shots-seed.mjs --scale\` and a CDP port
 (docs/perf/README.md has the exact commands). For every target it does --warmup unrecorded runs, then --runs runs from a
@@ -20,6 +20,10 @@ settled other view, and records, measured in the page with performance.now():
            Run plain, and with a state push (an orch command renamed a plan, fired right after A).
 Targets (default: all): ${'${TARGETS}'}
 --profile is the seeded profile folder (default ~/.config/astera-perf-dev), used for the state push's project path.
+--sessions N opens N sessions (window.api.sessions.spawn on the seeded account, kind terminal) in the shown project before
+measuring and closes them afterwards. The Host starts whatever \`claude\` its PATH finds first: see docs/perf/README.md.
+content  (Sessions, Run, Source Control, Devices only) click until the visible sidebar view has drawn its rows or empty state
+         and no "Loading"/"Scanning" is left. A separate column: "settled" for those four stays the unchanged predicate.
 --out writes the raw JSON; a markdown table is printed to stdout (--md also saves it).`
 
 const args = process.argv.slice(2)
@@ -32,6 +36,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 // ---- targets ----------------------------------------------------------------------------------------------------
 // A target: `setup(i)` leaves the app settled on the start state, `act(i)` is the timed real click, `ready(i)` is the page
 // predicate for "settled", `lcw` is the last-click-wins variant (`a` the first click, `check` true when B is what shows).
+// the visible child of the sidebar body is the active view (the others stay mounted, display: none)
+const sideView = `[...document.querySelectorAll('.wb-sidebar__body > *')].find((c) => c.getClientRects().length)`
+const contentDrawn = (rows = 0) => `(() => { const v = ${sideView}; return !!v && v.textContent.trim().length > 0 && !/Loading|Scanning/.test(v.textContent) && v.querySelectorAll('.ui-tree__row').length >= ${rows} })()`
 const VIEWS = [
   ['Plans', 'Plans', 'document.querySelectorAll(".wb-sidebar .ui-tree__row").length > 0'],
   ['Sessions', 'Agents', 'true'],
@@ -52,6 +59,7 @@ if (!port) {
 }
 const runs = Number(opt('runs', 5))
 const warmup = Number(opt('warmup', 1))
+const sessionCount = Number(opt('sessions', 0))
 const tabCount = Math.max(3, Number(opt('tabs', 8)))
 const profile = resolve(opt('profile', join(homedir(), '.config', 'astera-perf-dev')))
 const only = opt('only', '').split(',').filter(Boolean)
@@ -127,15 +135,22 @@ const HARNESS = `(() => {
   }
   window.__perf = {
     longType,
-    arm(readySrc) {
+    arm(readySrc, contentSrc) {
       disarm()
-      const s = (st = { t0: null, tPaint: null, lastMut: performance.now(), readyAt: null, long: [], mutatedByPaint: false })
+      const s = (st = { t0: null, tPaint: null, lastMut: performance.now(), readyAt: null, contentAt: null, long: [], downs: [], mutatedByPaint: false })
       s.ready = new Function('return (' + readySrc + ')')
+      s.content = contentSrc ? new Function('return (' + contentSrc + ')') : null
       const check = () => {
         let ok = false
         try { ok = !!s.ready() } catch {}
         if (!ok) s.readyAt = null
         else if (s.readyAt == null) s.readyAt = performance.now()
+        if (s.content) {
+          let c = false
+          try { c = !!s.content() } catch {}
+          if (!c) s.contentAt = null
+          else if (s.contentAt == null) s.contentAt = performance.now()
+        }
       }
       s.mo = new MutationObserver(() => {
         s.lastMut = performance.now()
@@ -146,6 +161,9 @@ const HARNESS = `(() => {
       s.po = new PerformanceObserver((l) => { for (const e of l.getEntries()) s.long.push({ start: e.startTime, dur: e.duration }) })
       s.po.observe({ type: longType })
       s.down = (e) => {
+        // every pointerdown: where it landed and what the title bar and switcher showed at that moment
+        const el = e.target instanceof Element ? e.target : null
+        s.downs.push({ at: Math.round(e.timeStamp), target: el ? (el.closest('[class]')?.className ?? el.tagName).toString().slice(0, 60) + ' | ' + (el.textContent || '').trim().slice(0, 30) : null, title: document.querySelector('.tb-switcher-name')?.textContent ?? null, popup: !!document.querySelector('.tb-sw-pop') })
         if (s.t0 != null) return
         s.t0 = e.timeStamp
         requestAnimationFrame(() => requestAnimationFrame(() => { s.tPaint = performance.now() }))
@@ -177,7 +195,9 @@ const HARNESS = `(() => {
           longCount: long.length,
           longMax: long.length ? Math.max(...long) : 0,
           long,
-          timedOut: settledAt == null
+          timedOut: settledAt == null,
+          content: s.content ? (s.contentAt == null ? null : Math.max(0, s.contentAt - s.t0, s.tPaint == null ? 0 : s.tPaint - s.t0)) : undefined,
+          downs: s.downs
         }
         disarm()
         return out
@@ -198,7 +218,8 @@ const HARNESS = `(() => {
     }
   }
 })()`
-const settle = () => evaluate('__perf.quiet(400, 10000)')
+// a covered or minimised window stops requestAnimationFrame, so the first-paint clock would never end
+const settle = async () => (await cdp('Page.bringToFront'), evaluate('__perf.quiet(400, 10000)'))
 
 // ---- navigating the app -----------------------------------------------------------------------------------------
 const ACT = (label) => `.wb-activitybar [role=tab][aria-label^="${label}"]`
@@ -237,6 +258,7 @@ const pushState = () => {
 
 const other = (...used) => ['Source Control', 'Devices', 'Run', 'History'].find((v) => !used.includes(v))
 const defs = []
+const CONTENT_VIEWS = ['Sessions', 'Run', 'Source Control', 'Devices']
 for (const [name, label, extra] of VIEWS) {
   const from = label === 'Agents' ? 'Plans' : 'Agents'
   const a = other(label, from)
@@ -245,6 +267,7 @@ for (const [name, label, extra] of VIEWS) {
     setup: async () => (await reset(), await activity(from)),
     act: () => must(ACT(label)),
     ready: () => `${activeView(label)} && (${extra})`,
+    content: CONTENT_VIEWS.includes(name) ? () => `${activeView(label)} && ${contentDrawn(name === 'Sessions' ? sessionCount : 0)}` : undefined,
     lcw: { a: () => must(ACT(a)), check: () => `${activeView(label)}`, setup: async () => (await reset(), await activity(from)) }
   })
 }
@@ -336,7 +359,7 @@ const r1 = (x) => (x == null ? 'n/a' : (Math.round(x * 10) / 10).toString())
 async function timed(def, i) {
   await def.setup(i)
   await settle()
-  await evaluate(`__perf.arm(${JSON.stringify(def.ready(i))})`)
+  await evaluate(`__perf.arm(${JSON.stringify(def.ready(i))}, ${JSON.stringify(def.content?.(i) ?? null)})`)
   await def.act(i)
   const r = await evaluate('__perf.finish(300, 15000, 0)')
   if (r.error) throw new Error(`${def.name}: ${r.error}`)
@@ -368,7 +391,7 @@ async function lastClick(def, i, withPush) {
     if (res && res.ok !== false) push.ok++
     else push.failed++
   }
-  return { pass: !!pass, settled: r.settled, project: await evaluate(`document.querySelector('.tb-switcher-name')?.textContent`) }
+  return { pass: !!pass, settled: r.settled, downs: r.downs, project: await evaluate(`document.querySelector('.tb-switcher-name')?.textContent`) }
 }
 
 await evaluate(HARNESS)
@@ -376,6 +399,13 @@ const shown = await evaluate(`document.querySelector('.tb-switcher-name')?.textC
 if (!['demo-app', 'api-server', 'acme', 'web', 'mobile-app'].includes(shown)) {
   console.error(`refusing: the app shows project "${shown}", not a profile seeded by shots-seed.mjs --scale`)
   process.exit(1)
+}
+const sessionIds = []
+if (sessionCount) {
+  // the sessions go to the shown project, so the Agents view lists them
+  const cwd = join(profile, 'shots-seed', shown)
+  for (let i = 0; i < sessionCount; i++) sessionIds.push(await evaluate(`window.api.sessions.spawn({ accountId: 'shots-seed', cwd: ${JSON.stringify(cwd)}, kind: 'terminal' }).then((s) => s.id)`))
+  await sleep(2000)
 }
 await reset()
 const results = {}
@@ -391,6 +421,7 @@ for (const def of todo) {
   for (let i = 0; i < runs; i++) rec.lcwPush.push(await lastClick(def, i, true))
   results[def.name] = rec
 }
+for (const id of sessionIds) await evaluate(`window.api.sessions.kill(${JSON.stringify(id)})`).catch(() => {})
 await reset()
 await pushState().catch(() => {}) // leave the seeded title as it was (an odd count of pushes renamed it)
 if (push.n % 2) await pushState().catch(() => {})
@@ -419,6 +450,7 @@ const summary = Object.fromEntries(
       settled: stat(rec.runs.map((r) => r.settled)),
       longMax: Math.max(0, ...rec.runs.map((r) => r.longMax)),
       longFrames: rec.runs.reduce((n, r) => n + r.longCount, 0),
+      content: rec.runs.some((r) => r.content !== undefined) ? stat(rec.runs.map((r) => r.content)) : undefined,
       timedOut: rec.runs.filter((r) => r.timedOut).length,
       lcw: rate(rec.lcw),
       lcwPush: rate(rec.lcwPush)
@@ -436,6 +468,7 @@ const meta = {
   runs,
   warmup,
   tabs: openTabIds.length,
+  sessions: sessionCount,
   statePush: { fired: push.n, answered: push.ok, failed: push.failed }
 }
 const rows = Object.entries(summary).map(
@@ -446,7 +479,11 @@ const md = [
   '|---|---|---|---|---|---|---|---|',
   ...rows
 ].join('\n')
+const withContent = Object.entries(summary).filter(([, s]) => s.content)
+const contentMd = withContent.length
+  ? ['', '| Target (content ready) | Median (ms) | p95 |', '|---|---|---|', ...withContent.map(([n, s]) => `| ${n} | ${r1(s.content.median)} | ${r1(s.content.p95)} |`)].join('\n')
+  : ''
 if (opt('out')) writeFileSync(resolve(opt('out')), JSON.stringify({ meta, summary, results }, null, 2) + '\n')
-if (opt('md')) writeFileSync(resolve(opt('md')), md + '\n')
-console.log(md)
+if (opt('md')) writeFileSync(resolve(opt('md')), md + contentMd + '\n')
+console.log(md + contentMd)
 ws.close()
