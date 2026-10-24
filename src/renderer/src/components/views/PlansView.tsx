@@ -14,10 +14,10 @@ import { controlReason, isRemoteRuntime, offlineNote } from '../../lib/remoteJob
 import { localDoor, replyNote } from '../../lib/orchDoor'
 import { jobName } from '../../lib/jobName'
 import { toast } from '../../lib/toast'
-import { archiveJob, deleteRun, holdJob, pauseRun, restartCoordinator as restartRunCoordinator, resumeRun, unarchiveJob } from '../../lib/jobActions'
+import { archiveJob, deleteRun, holdJob, pauseRun, restartCoordinator as restartRunCoordinator, resolveFailed, resumeRun, unarchiveJob } from '../../lib/jobActions'
 import { openConsole, openPlanConsoles, openView } from '../shell/navigation'
 import { ViewToolbar, type SideBarViewProps } from '../shell/SideBar'
-import { isStalledPlan, planStatusOf } from '../plan/planList'
+import { isStalledPlan, planStatusOf, resumeActionOf } from '../plan/planList'
 import { approveSlot } from '../plan/planTalk'
 import { deliveryActionsOf } from '../plan/planPage'
 import { type PlanSection } from '../plan/planBoard'
@@ -321,23 +321,26 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
     }
     const status = planStatusOf(n.row)
     const needs = needsYouOf(n.row)
+    const resume = resumeActionOf(n.row)
     return {
       ...base,
       label: jobName(n.row),
       icon: toned(TONE_ICON[status.tone], status.tone),
       description: planDescription(n.row, nowMs, t),
       decoration: { text: t(status.key, status.params), tone: status.tone },
-      // A dead plan is one click from archived or running again (Resume puts a lead back on it, else lifts a stop)
+      // A dead plan is one click from archived, or from running again where something can resume it (resumeActionOf)
       ...(local && isStalledPlan(n.row)
         ? {
             actions: (
               <>
-                <IconButton
-                  size="sm"
-                  label={t('jobs.run.resume')}
-                  icon={<Icon name="run" size={14} />}
-                  onClick={() => (n.row.coordinatorMissing ? p.restartCoordinator(n.row.id) : void resumeRun(local, n.row.id, actionUi))}
-                />
+                {resume && (
+                  <IconButton
+                    size="sm"
+                    label={t('jobs.run.resume')}
+                    icon={<Icon name="run" size={14} />}
+                    onClick={() => (resume.kind === 'restart-lead' ? p.restartCoordinator(n.row.id) : void resolveFailed(local, resume.taskId, 'retry', actionUi))}
+                  />
+                )}
                 <IconButton size="sm" label={t('jobs.lifecycle.archive')} icon={<Icon name="archive" size={14} />} onClick={() => void archiveJob(local, orchSnapshot, n.row.id, actionUi)} />
               </>
             )
