@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   contextMenuPoint, FOCUSABLE, isTypeaheadKey, listboxKeyAction, menuKeyAction, moveIndex, nextFocusIndex, readSectionOpen, sectionStorageKey,
-  TYPEAHEAD_PAUSE_MS, typeaheadBuffer, typeaheadIndex, writeSectionOpen, readPaneSize, writePaneSize, resizePair, sashSize, sashKeyDelta, badgeText
+  TYPEAHEAD_PAUSE_MS, typeaheadBuffer, typeaheadIndex, writeSectionOpen, readPaneSize, writePaneSize, resizePair, pairWeights, sashSize, sashKeyDelta, badgeText
 } from './logic'
 
 describe('nextFocusIndex', () => {
@@ -211,6 +211,18 @@ describe('Sash and ActivityBarItem helpers', () => {
     expect(out.reduce((a, b) => a + b)).toBe(h.reduce((a, b) => a + b))
     expect(resizePair(h, [false, false, true, true], 2, 250, 40)).toEqual(h) // nothing open above
     expect(resizePair(h, [true, false, false, true], 2, 250, 40)).toEqual(h) // a collapsed pane has no sash
+  })
+
+  it('pairWeights keeps the pair\'s combined weight so a default-flex third pane keeps its height', () => {
+    // three unsaved panes at flex-grow 1 over 600px; the divider between 0 and 1 moves 50px
+    const [a, b] = pairWeights([1, 1], [250, 150])
+    expect(a + b).toBeCloseTo(2)
+    const free = 600
+    const third = (1 / (a + b + 1)) * free
+    expect(third).toBeCloseTo(200)
+    expect((a / (a + b + 1)) * free).toBeCloseTo(250)
+    // one saved weight (300) next to an unsaved one (grow 1): the total stays 301
+    expect(pairWeights([300, 1], [100, 100])).toEqual([150.5, 150.5])
   })
 
   it('pane sizes round-trip through storage and ignore junk', () => {

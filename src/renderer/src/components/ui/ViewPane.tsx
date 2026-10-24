@@ -13,6 +13,7 @@ import { useI18n } from "../../i18n/I18nProvider";
 import {
   cx,
   readPaneSize,
+  pairWeights,
   readSectionOpen,
   resizePair,
   writePaneSize,
@@ -207,7 +208,7 @@ export function ViewContainer({
     () => ({
       panes,
       // the sash above pane `id` moved it to `px`: it trades height with the nearest open pane above and only those two
-      // panes change. Their weights keep their combined share (so no third pane shifts) and only they are persisted.
+      // panes change. Their weights keep their combined weight (so no third pane shifts) and only they are persisted.
       resize: (id, px, persist) => {
         const els = [
           ...(ref.current?.querySelectorAll<HTMLElement>(
@@ -228,13 +229,13 @@ export function ViewContainer({
           panes.current.get(els[j].dataset.pane ?? ""),
         );
         if (changed.length !== 2 || entries.some((e) => !e)) return;
-        // a pane without a saved weight stands in at its current height
-        const w = changed.map((j, k) => entries[k]?.weight ?? heights[j]);
-        const total = w[0] + w[1];
-        const sum = next[changed[0]] + next[changed[1]];
-        entries.forEach((e, k) =>
-          e?.set((total * next[changed[k]]) / sum, persist),
-        );
+        // a pane renders with its saved weight, else its CSS flex-grow: keep that scale so third panes do not move
+        const grows = changed.map(
+          (j, k) =>
+            entries[k]?.weight ?? (parseFloat(getComputedStyle(els[j]).flexGrow) || 0),
+        ) as [number, number];
+        const out = pairWeights(grows, [next[changed[0]], next[changed[1]]]);
+        entries.forEach((e, k) => e?.set(out[k], persist));
       },
       // a pane without a saved size (just opened) joins at the average of the other open panes
       mean: () => {
