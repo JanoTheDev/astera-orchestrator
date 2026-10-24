@@ -304,6 +304,8 @@ export const plan = {
   'plan.doc.tab.sofar': '지금까지',
   'plan.doc.tabs': '활동 보기',
   'plan.doc.openConsoles': '콘솔 열기',
+  'plan.task.continue': '계속하기',
+  'plan.task.retry': '다시 시도',
   'plan.row.openConsole': '콘솔 열기',
   'plan.row.expand': '{task} 자세히 보기',
   'plan.row.collapse': '{task} 자세히 접기',

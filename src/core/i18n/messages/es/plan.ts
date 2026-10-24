@@ -185,6 +185,8 @@ export const plan: Partial<Record<keyof typeof ko, string>> = {
   'plan.doc.tab.sofar': 'Hasta ahora',
   'plan.doc.tabs': 'Vistas de actividad',
   'plan.doc.openConsoles': 'Abrir consolas',
+  'plan.task.continue': 'Continuar',
+  'plan.task.retry': 'Reintentar',
   'plan.row.openConsole': 'Abrir consola',
   'plan.row.expand': 'Ver detalles de {task}',
   'plan.row.collapse': 'Ocultar detalles de {task}',

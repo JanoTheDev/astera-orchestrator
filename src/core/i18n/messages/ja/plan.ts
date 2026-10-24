@@ -185,6 +185,8 @@ export const plan: Partial<Record<keyof typeof ko, string>> = {
   'plan.doc.tab.sofar': 'これまで',
   'plan.doc.tabs': 'アクティビティの表示',
   'plan.doc.openConsoles': 'コンソールを開く',
+  'plan.task.continue': '続ける',
+  'plan.task.retry': '再試行',
   'plan.row.openConsole': 'コンソールを開く',
   'plan.row.expand': '{task} の詳細を表示',
   'plan.row.collapse': '{task} の詳細を隠す',
