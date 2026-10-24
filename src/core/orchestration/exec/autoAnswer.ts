@@ -201,6 +201,9 @@ export function grantOf(grants: readonly string[] | undefined, text: string): st
   })
 }
 
+/** The Gate kind of a convergence review that found a blocker no code change fixes (a dev server, a scope decision, a permission). */
+const REVIEW_NEEDS_DECISION = 'review-needs-decision'
+
 /** The standing grants of the project of the question's plan. */
 const grantsOf = (s: OrchState, q: OpenQuestion): string[] | undefined => {
   const run = s.runs.find((r) => r.id === q.runId)
@@ -236,6 +239,18 @@ export function handsOffStepsDue(s: OrchState, open: OpenQuestion[], nowMs: numb
     ]
     const options = q.options ?? []
     const option = (re: RegExp): string | undefined => options.find((o) => re.test(o.trim()))
+    if (q.kind === REVIEW_NEEDS_DECISION) {
+      // A guardrail other than a permission ask stays the owner's whatever is granted; its Task is held, the plan goes on
+      if (OWNER_ONLY.some((re) => re !== PERMISSION && re.test(q.question))) {
+        if (!q.taskId) return [{ kind: 'coordinator', question: q }]
+        const hold = { taskId: q.taskId, reason: `Waiting on the owner's decision: ${asked}` }
+        const why = 'a guardrail: only the owner decides this, and the plan runs hands-off'
+        return [{ kind: 'hold', id: q.id, decision: { kind: 'refused', taskId: q.taskId, question: asked, choice: firstLine(REFUSED_ANSWER, 200), why }, hold }]
+      }
+      const granted = grantOf(grantsOf(s, q), q.question)
+      if (granted) return answer({ id: q.id, answer: grantedAnswer(granted), why: 'Host state' }, 'gate', `the owner granted ${granted} in advance`)
+      return [{ kind: 'coordinator', question: q }]
+    }
     // A Gate the Host wrote itself, its tries spent: one more, then given up, so the plan reaches its end
     if (q.kind) {
       const retry = retried ? undefined : option(/^retry-once$/i)
@@ -267,11 +282,23 @@ export function handsOffStepsDue(s: OrchState, open: OpenQuestion[], nowMs: numb
 
 /** #117: the message that hands a hands-off plan's open question to its coordinator. */
 export function coordinatorDecideBody(q: OpenQuestion): string {
+  const head = `Question ${q.id}${q.taskId ? ` (task ${q.taskId})` : ''}: ${q.question.slice(0, 1500)}\n`
+  const tail = `\nAnswer with \`astera questions answer --id ${q.id} --answer "<your decision and why>"\`.`
+  if (q.kind === REVIEW_NEEDS_DECISION) {
+    return (
+      `This plan runs hands-off. A review found something no code change fixes. Decide in the owner's place, within the guardrails: ` +
+      `extend the Task's scope (say what the worker may now do, e.g. start the dev server itself), grant the standing permission, ` +
+      `or pick an option (e.g. accept the proof another way, or drop that criterion). ` +
+      `Your answer is put verbatim into the repair worker's prompt, so write it as an instruction to that worker.\n\n` +
+      head +
+      tail
+    )
+  }
   return (
     `This plan runs hands-off: decide this question in the owner's place, within the guardrails.\n\n` +
-    `Question ${q.id}${q.taskId ? ` (task ${q.taskId})` : ''}: ${q.question.slice(0, 1500)}\n` +
+    head +
     (q.options?.length ? `Options: ${q.options.join(', ')}\n` : '') +
-    `\nAnswer with \`astera questions answer --id ${q.id} --answer "<your decision and why>"\`.`
+    tail
   )
 }
 
