@@ -254,6 +254,68 @@ describe('a replan session', () => {
   })
 })
 
+describe('T5: the owner cancels a Task', () => {
+  /** B is dispatched with an open worker, C (the one waiting on it) is not in the way once cancelled first. */
+  const started = async (r: Rig) => {
+    const run = await approved(r)
+    const s = r.state()
+    r.set({
+      ...s,
+      tasks: s.tasks.map((t) => (t.id === run.id('B') ? { ...t, status: 'dispatched' as const } : t)),
+      dispatches: [{ id: 'dsp_b', taskId: run.id('B'), provider: 'claude', accountId: 'acc1', sessionId: 'ses-w', cwd: '/wt', specPath: '/s.md', startedAt: NOW, workerState: 'ready', retained: false } as Dispatch]
+    })
+    return run
+  }
+  const releasing = (r: Rig) => {
+    const released: unknown[] = []
+    r.deps.releaseWorker = async (a) => {
+      released.push(a)
+    }
+    return released
+  }
+
+  it('cancels a started Task: its worker is released, its Dispatch closed, and the Run says so', async () => {
+    const r = rig()
+    const { id } = await started(r)
+    const b = id('B')
+    const released = releasing(r)
+    expect((await r.person('task-cancel', { id: b, reason: 'x' })).status).toBe(400)
+    expect((await r.person('task-cancel', { id: id('C'), reason: 'drop C first' })).status).toBe(200)
+    expect((await r.person('task-cancel', { id: id('B') })).status).toBe(400)
+    const done = await r.person('task-cancel', { id: id('B'), reason: 'replaced by B2' })
+    expect(done.status).toBe(200)
+    expect(released).toEqual([{ dispatchId: 'dsp_b', closeReason: 'stopped' }])
+    expect(r.state().tasks.some((t) => t.id === b)).toBe(false)
+    expect(r.state().dispatches.find((d) => d.id === 'dsp_b')).toMatchObject({ workerState: 'stopped', closedBy: 'stop' })
+    expect(r.state().messages.at(-1)?.subject).toBe('B cancelled by the owner: replaced by B2')
+  })
+
+  it('is refused while the worker is still starting, and writes nothing', async () => {
+    const r = rig()
+    const { id } = await started(r)
+    await r.person('task-cancel', { id: id('C'), reason: 'drop C first' })
+    r.set({ ...r.state(), dispatches: r.state().dispatches.map((d) => ({ ...d, sessionId: 'pending:1', startedAt: NOW })) })
+    const released = releasing(r)
+    const before = r.state()
+    const res = await r.person('task-cancel', { id: id('B'), reason: 'x' })
+    expect(res.status).toBe(409)
+    expect(released).toEqual([])
+    expect(r.state()).toEqual(before)
+  })
+
+  it('is refused for an agent session, an MCP client and a coordinator', async () => {
+    const r = rig()
+    const { id } = await started(r)
+    const released = releasing(r)
+    await r.person('task-cancel', { id: id('C'), reason: 'drop C first' })
+    expect((await r.as('ses-coordinator')('task-cancel', { id: id('B'), reason: 'x' })).status).toBe(403)
+    expect((await r.as('ses-w')('task-cancel', { id: id('B'), reason: 'x' })).status).toBe(403)
+    expect((await handleCommand(r.deps, { sessionId: '', role: 'mcp' }, 'task-cancel', { id: id('B'), reason: 'x' })).status).toBe(403)
+    expect(released).toEqual([])
+    expect(r.state().tasks.some((t) => t.id === id('B'))).toBe(true)
+  })
+})
+
 describe('jobs-replan-done', () => {
   it('keeps the hold and escalates when the remaining plan does not hold and its planner is gone', async () => {
     const r = rig()

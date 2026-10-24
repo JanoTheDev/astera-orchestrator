@@ -9,9 +9,9 @@
 import { PROMPTS_MODE_FILL_IN } from '../handover'
 import { otherPlansBrief } from '../overlap'
 import { collectChanges, rangesFor } from '../changedFiles'
-import type { OrchServerDeps } from '../command'
+import { releases, stillStarting, type OrchServerDeps } from '../command'
 import { PLANNER_COMMANDS, planFieldsFromArgs, validatePlan, worktreeRefusal } from '../planner'
-import { REPLAN_FOLLOW_UPS_MAX, affectedLeft, cancelRemainingTask, deviatingTasks, editRemainingTask, notStarted, replanAccountOf, replanJobOf, replanOn, resolveFailedWait, runTasks, waveOpen, type ReplanEnded, type ReplanRecord } from '../replan'
+import { REPLAN_FOLLOW_UPS_MAX, affectedLeft, cancelRemainingTask, cancelTaskByOwner, deviatingTasks, editRemainingTask, notStarted, replanAccountOf, replanJobOf, replanOn, resolveFailedWait, runTasks, waveOpen, type ReplanEnded, type ReplanRecord } from '../replan'
 import { isIntegrationTask } from '../integrate'
 import { jobNameOf } from '../jobName'
 import { outcomeOfTasks } from '../running'
@@ -372,7 +372,18 @@ export async function replanCommand(deps: OrchServerDeps, caller: Caller, cmd: s
     if (!id) return bad('--id is required')
     if (!reason) return bad('--reason is required: why this Task is no longer needed')
     const job = replanJobOf(s, caller.sessionId)
-    if (!job) return denied('a Task is cancelled by its Job\'s replan only')
+    if (!job) {
+      // T5: the owner (a person, in Astera or at their own shell) cancels a Task of their plan, started or not
+      if (fromAgent || caller.role === 'mcp') return denied('a Task is cancelled by the owner, or by its Job\'s replan')
+      const r = cancelTaskByOwner(s, id, reason, now)
+      if (!r.ok) return r.missing ? notFound(r.error) : bad(r.error)
+      // A worker still starting has no session to release yet: nothing is written, try again in a moment (as worker-stop)
+      const starting = stillStarting(r.value.closed, now)
+      if (starting) return starting
+      await deps.setState(r.state)
+      for (const d of r.value.closed.filter(releases)) await deps.releaseWorker({ dispatchId: d.id, closeReason: 'stopped' })
+      return ok({ id, cancelled: true, reason, stopped: r.value.closed.length })
+    }
     const r = cancelRemainingTask(s, id)
     if (!r.ok) return r.missing ? notFound(r.error) : bad(r.error)
     const line = `${r.value.title}: ${reason.replace(/\s+/g, ' ').trim()}`

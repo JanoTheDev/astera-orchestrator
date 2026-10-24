@@ -3422,6 +3422,31 @@ describe('applyReviewResult — convergence', () => {
     expect(r.state.messages.at(-1)?.subject).toBe('claude review found 1 blocking issue')
   })
 
+  it('a blocking issue that needs an environment opens a review-needs-decision Gate: no repair, no attempt burned', () => {
+    const { s, taskId, reviewId } = reviewing({ consecutiveFailures: 1 })
+    const env = { severity: 'high' as const, title: 'next dev never run', needs: 'environment' as const }
+    const r = unwrap(applyReviewResult(s, { taskId, dispatchId: reviewId, outcome: 'failed', subject: 'env', body: 'b', issues: [env, high], repair: SAME }, LATER) as never)
+    const task = r.state.tasks.find((x) => x.id === taskId)!
+    expect(task.status).toBe('blocked')
+    expect(task.consecutiveFailures).toBe(1)
+    expect(task.reviewIssues?.map((i) => i.needs)).toEqual(['environment', undefined])
+    expect(r.state.dispatches.filter((d) => d.repair)).toHaveLength(0)
+    const gate = r.state.gates.at(-1)!
+    expect(gate).toMatchObject({ kind: 'review-needs-decision', status: 'open', taskId })
+    expect(gate.options).toBeUndefined()
+    expect(gate.question).toContain('next dev never run')
+    expect(gate.question).toContain('environment')
+    expect(gate.question).not.toContain('Session race')
+  })
+
+  it('a review whose blocking issues all need code still repairs', () => {
+    const { s, taskId, reviewId } = reviewing()
+    const r = unwrap(applyReviewResult(s, { taskId, dispatchId: reviewId, outcome: 'failed', subject: 'race', body: 'b', issues: [{ ...high, needs: 'code' as const }, { severity: 'low' as const, title: 'later', needs: 'person' as const }], repair: SAME }, LATER) as never)
+    expect(r.state.tasks.find((x) => x.id === taskId)!.status).toBe('dispatched')
+    expect(r.state.dispatches.filter((d) => d.repair)).toHaveLength(1)
+    expect(r.state.gates).toHaveLength(0)
+  })
+
   // repair 메시지 본문은 repair 하는 워커에게 전해지는 유일한 기록이다 — 그 모양을 아무도
   // 확인하지 않고 있었다. 하나는 file:line 이 있는 경우, 하나는 없는 경우다.
   it('repair 메시지 본문에 blocking 이슈를 번호를 매겨 나열한다', () => {
@@ -3912,5 +3937,74 @@ describe('merging: a Task completes only once its work is on the plan branch', (
     for (const to of ['completed', 'blocked', 'failed', 'ready'] as const) expect(canTransition('merging', to)).toBe(true)
     expect(canTransition('merging', 'dispatched')).toBe(false)
     for (const from of ['dispatched', 'validating', 'reviewing'] as const) expect(canTransition(from, 'merging')).toBe(true)
+  })
+})
+
+describe('repair ladder: a recorded failure raises the next attempt one rung', () => {
+  /** seed()'s Task, its implementation attempt recorded as a claude sonnet/medium run */
+  const ranOn = (over: Partial<Task> = {}, convergence = false) => {
+    const { s, taskId, dispatchId } = seed()
+    const on: OrchState = {
+      ...s,
+      jobs: convergence ? s.jobs.map((j) => ({ ...j, convergence: {} })) : s.jobs,
+      tasks: s.tasks.map((t) => (t.id === taskId ? { ...t, ...over } : t)),
+      dispatches: s.dispatches.map((d) => ({ ...d, provider: 'claude' as const, model: 'sonnet', effort: 'medium' }))
+    }
+    return { s: on, taskId, dispatchId }
+  }
+  /** Through a succeeded report to an open review Dispatch that runs on opus/high */
+  const underReview = (convergence: boolean) => {
+    const { s, taskId, dispatchId } = ranOn({ reviewRequested: true }, convergence)
+    const done = unwrap(applyWorkerDone(s, { taskId, dispatchId, outcome: 'succeeded', subject: 's', body: 'b' }, NOW) as never)
+    const opened = unwrap<Dispatch>(
+      openReviewDispatch(done.state, { taskId, provider: 'claude', accountId: 'accC', sessionId: 'rev1', cwd: 'D:/p', specPath: '' }, NOW) as never
+    )
+    const withModel: OrchState = { ...opened.state, dispatches: opened.state.dispatches.map((d) => (d.id === opened.value.id ? { ...d, model: 'opus', effort: 'high' } : d)) }
+    return { s: withModel, taskId, implId: dispatchId, reviewId: opened.value.id }
+  }
+  const taskOf = (s: OrchState, id: string) => s.tasks.find((t) => t.id === id)!
+
+  it('a failed worker report steps the Task from the attempt it ran on', () => {
+    const { s, taskId, dispatchId } = ranOn()
+    const r = unwrap(applyWorkerDone(s, { taskId, dispatchId, outcome: 'failed', subject: 'x', body: 'y' }, NOW) as never)
+    expect(taskOf(r.state, taskId)).toMatchObject({ model: 'sonnet', effort: 'high', modelReason: 'repair 1 after a failed worker report: sonnet/medium → sonnet/high' })
+  })
+
+  it('a succeeded worker report does not step', () => {
+    const { s, taskId, dispatchId } = ranOn()
+    const r = unwrap(applyWorkerDone(s, { taskId, dispatchId, outcome: 'succeeded', subject: 'x', body: 'y' }, NOW) as never)
+    expect(taskOf(r.state, taskId).effort).toBeUndefined()
+  })
+
+  it('a failed review (no convergence) steps from the implementation attempt, not the review', () => {
+    const { s, taskId, reviewId } = underReview(false)
+    const r = unwrap(applyReviewResult(s, { taskId, dispatchId: reviewId, outcome: 'failed', subject: 's', body: 'no' }, LATER) as never)
+    expect(taskOf(r.state, taskId)).toMatchObject({ status: 'failed', model: 'sonnet', effort: 'high', modelReason: 'repair 1 after a failed review: sonnet/medium → sonnet/high' })
+  })
+
+  it('a failed review (convergence) steps the Task and opens the repair fresh in the same worktree', () => {
+    const { s, taskId, reviewId } = underReview(true)
+    const high = { severity: 'high' as const, title: 'Session race' }
+    const r = unwrap(applyReviewResult(s, { taskId, dispatchId: reviewId, outcome: 'failed', subject: 's', body: 'b', issues: [high], repair: SAME }, LATER) as never)
+    expect(taskOf(r.state, taskId)).toMatchObject({ status: 'dispatched', model: 'sonnet', effort: 'high', modelReason: expect.stringContaining('sonnet/medium → sonnet/high') })
+    const repair = r.state.dispatches.find((d) => d.repair)!
+    expect(repair.sessionId).not.toBe('sess1')
+    expect(repair.cwd).toBe('D:/p')
+  })
+
+  it('failed checks (convergence) step the Task too', () => {
+    const { s, taskId, dispatchId } = ranOn({ validateConfigId: 'cfg1' }, true)
+    const done = unwrap(applyWorkerDone(s, { taskId, dispatchId, outcome: 'succeeded', subject: 's', body: 'b' }, NOW) as never)
+    const r = unwrap(applyValidationResult(done.state, { taskId, results: one(1), repair: SAME }, LATER) as never)
+    expect(taskOf(r.state, taskId)).toMatchObject({ model: 'sonnet', effort: 'high', modelReason: expect.stringContaining('failed checks') })
+  })
+
+  it('closeDispatch (a lost session) is not a step', () => {
+    const { s, taskId } = ranOn()
+    const r = unwrap(closeDispatch(s, { sessionId: 'sess1', exitCode: 1 }, NOW) as never)
+    const task = taskOf(r.state, taskId)
+    expect(task.model).toBeUndefined()
+    expect(task.effort).toBeUndefined()
+    expect(task.modelReason).toBeUndefined()
   })
 })

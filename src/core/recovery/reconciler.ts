@@ -257,7 +257,8 @@ export class RecoveryReconciler {
       // attempt there stays the coordinator's to retry.
       appDriven: drivenByAppAlone(jobOf(state, run), run) || (policyOf(state, task) !== null && dispatch.repair !== undefined),
       ...(dispatch.repair ? { repair: dispatch.repair } : {}),
-      ...(dispatch.grantedExtra ? { grantedExtra: true } : {})
+      ...(dispatch.grantedExtra ? { grantedExtra: true } : {}),
+      ...(dispatch.decision !== undefined ? { decision: dispatch.decision } : {})
     }
 
     const git = await this.deps.readGitFacts(dispatch.cwd)

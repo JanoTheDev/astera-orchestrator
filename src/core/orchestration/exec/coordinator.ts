@@ -199,6 +199,8 @@ export interface RepairSection {
    *  그것을 오류로 읽는다. true 면 그 대신 "사람이 예산이 다 쓰인 뒤 하나 더 허락했다" 로 적는다 —
    *  숫자를 지우는 것이 아니라 그 숫자가 뜻하는 것을 바꾸는 것이다. */
   extra?: true
+  /** A `review-needs-decision` Gate's answer (T3, `Dispatch.decision`). The issues it answered are not listed again */
+  decision?: string
 }
 
 /** spec 파일의 "## Repair request" 절(설계 §6.1, 명세 §9·§16·§35·§39). 보고 의무 앞에 선다 — 무엇이 틀렸는지
@@ -240,7 +242,7 @@ function repairSection(a: RepairSection): string {
       }
     }
   }
-  const blocking = (a.issues ?? []).filter((i) => i.blocking)
+  const blocking = (a.issues ?? []).filter((i) => i.blocking && (a.decision === undefined || (i.needs ?? 'code') === 'code'))
   if (blocking.length) {
     lines.push(`- Review found ${blocking.length} blocking issue${blocking.length === 1 ? '' : 's'}:`)
     blocking.forEach((i, n) => {
@@ -249,22 +251,31 @@ function repairSection(a: RepairSection): string {
       if (i.suggestedFix) lines.push(`     Suggested fix: ${i.suggestedFix}`)
     })
   }
-  if (!lines.length) return ''
+  if (!lines.length && a.decision === undefined) return ''
   const reasonText = a.reason === 'review-failure' ? 'review found blocking issues' : 'a completion check failed'
   // extra 는 소진된 뒤 사람이 하나 더 허락한 repair 다 — repairCountOf 는 이미 maxFixAttempts 를
   // 넘은 값을 낸다("4 of 3"), 그래서 분수 대신 "예산이 다 쓰인 뒤 허락됐다" 로 적는다.
-  const roundText = a.extra
-    ? `This is an extra repair, granted by a person after the budget of ${a.maxFixAttempts} was already spent.`
-    : `This is repair ${a.repair} of ${a.maxFixAttempts}.`
+  // A decision's repair (T3) is outside the budget too, but nobody granted an extra attempt: no round was spent on it
+  const roundText =
+    a.decision !== undefined
+      ? 'The review found issues no code change fixes, and a decision was asked for. This repair acts on it, outside the repair budget.'
+      : a.extra
+        ? `This is an extra repair, granted by a person after the budget of ${a.maxFixAttempts} was already spent.`
+        : `This is repair ${a.repair} of ${a.maxFixAttempts}.`
+  const decisionText =
+    a.decision === undefined
+      ? ''
+      : `
+## Decision
+
+The owner (or, on a hands-off plan, its coordinator in the owner's place) decided: ${a.decision} Act on it.
+`
   return `
 ---
 ## Repair request (assembled by the app — do not delete)
 
 Your previous report for this task did not satisfy the completion checks — ${reasonText}. ${roundText}
-
-### What failed
-${lines.join('\n')}
-
+${decisionText}${lines.length ? `\n### What failed\n${lines.join('\n')}\n` : ''}
 ### Rules
 Do not redefine the objective. Do not remove, skip or weaken failing tests unless the objective
 explicitly requires it. Do not disable lint rules, bypass the build, or change how the checks run.
@@ -683,11 +694,17 @@ to a human, so anything you put around the JSON breaks it.
   ${a.resultPath.replace(/\\/g, '/')}
 
   { "issues": [ { "severity": "critical|high|medium|low|info", "title": "…", "description": "…",
-                  "file": "src/x.ts", "line": 42, "suggestedFix": "…" } ] }
+                  "file": "src/x.ts", "line": 42, "suggestedFix": "…",
+                  "needs": "code|environment|scope|permission|person" } ] }
 
 Every finding goes in, at the severity you judge. \`title\` is required; \`description\`, \`file\`,
-\`line\` and \`suggestedFix\` are optional. An empty list means you found nothing. The app decides
+\`line\`, \`suggestedFix\` and \`needs\` are optional. An empty list means you found nothing. The app decides
 which severities block; you decide the severity.
+\`needs\` says what fixing the issue takes: \`code\` (the default) when a code change fixes it. When it
+takes something no code change gives — a running dev server, a device or a service slot (\`environment\`),
+work outside the Task as written (\`scope\`), a standing permission (\`permission\`), or a person's call
+(\`person\`) — say so: a spec step skipped because \`next dev\` could not be run is \`environment\`, and
+the app asks for a decision instead of sending a repair that cannot run it either.
 Then report as below — \`--outcome failed\` when the requirement is not satisfied.
 `
     : ''

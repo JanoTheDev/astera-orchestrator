@@ -6,7 +6,7 @@ import { workerSpecOf } from '../planner'
 import { isSamePath } from '../../files/tree'
 import { t, type Lang } from '../../i18n'
 import { latestImplDispatch, policyOf, repairCountOf } from '../convergence'
-import { createGate, jobOf, openDispatch, type OrchState, type RepairTarget } from '../state'
+import { createGate, jobOf, openDispatch, sessionFitsTask, type OrchState, type RepairTarget } from '../state'
 import {
   canTransition,
   FAILURE_LIMIT,
@@ -33,12 +33,15 @@ export interface RepairDeps {
   now(): string
 }
 
-/** 판정 직전에 배선이 부른다: 마지막 구현·수리 세션이 살아 있으면 그 세션, 아니면 새 워커(설계 D3). */
+/** 판정 직전에 배선이 부른다: 마지막 구현·수리 세션이 살아 있으면 그 세션, 아니면 새 워커(설계 D3).
+ *  The live session only while it runs the model and effort the Task wants (sessionFitsTask): a raised rung
+ *  starts fresh in the same worktree. */
 export function repairTargetFor(s: OrchState, taskId: string, isAlive: (id: string) => boolean): RepairTarget | null {
   const prior = latestImplDispatch(s, taskId)
   if (!prior) return null
   const base = { cwd: prior.cwd, provider: prior.provider, accountId: prior.accountId }
-  return !isPlaceholderSessionId(prior.sessionId) && isAlive(prior.sessionId)
+  const task = s.tasks.find((t) => t.id === taskId)
+  return !isPlaceholderSessionId(prior.sessionId) && isAlive(prior.sessionId) && (!task || sessionFitsTask(task, prior))
     ? { kind: 'same-session', sessionId: prior.sessionId, ...base }
     : { kind: 'fresh', ...base }
 }
@@ -73,7 +76,8 @@ function repairSpec(s: OrchState, task: Task, d: Dispatch, run: { cwd: string },
       // 않았는데 "사람이 허락했다" 고 말하게 된다(execute.ts 에서 고친 것과 같은 거짓말). 대신 이
       // Dispatch 자신이 열릴 때 이미 적어 둔 사실(Dispatch.grantedExtra — repairOnce 가 ignoreCircuit
       // 으로 열 때만 참이다)을 읽는다.
-      ...(d.grantedExtra ? { extra: true } : {})
+      ...(d.grantedExtra ? { extra: true } : {}),
+      ...(d.decision !== undefined ? { decision: d.decision } : {})
     }
   })
 }
@@ -117,7 +121,9 @@ export async function performRepair(deps: RepairDeps, a: { dispatchId: string })
   // 부수 효과 사이에 재시도·재시작·복구 스윕처럼 시간이 벌어질 수 있고, 그 사이 세션이 죽었으면
   // --terminal 주입이 코디네이터의 "terminal session is not alive" 로 실패해 Gate 로 가버린다.
   // 설계가 말하는 낙방(fresh 로 내려가는 것)은 여기서, 이 시점의 값으로 정해야 한다.
-  const same = !isPlaceholderSessionId(d.sessionId) && deps.isAlive(d.sessionId)
+  // The session's own attempt says what it was launched on; a Task raised since then needs a fresh start
+  const ranOn = s.dispatches.filter((x) => x.sessionId === d.sessionId && x.id !== d.id).at(-1)
+  const same = !isPlaceholderSessionId(d.sessionId) && deps.isAlive(d.sessionId) && (!ranOn || sessionFitsTask(task, ranOn))
   try {
     const started = await deps.startWorker({
       dispatchId: d.id,
@@ -193,7 +199,8 @@ export async function performRepair(deps: RepairDeps, a: { dispatchId: string })
  *  바로 그 실패 종류다. */
 export async function repairOnce(
   deps: RepairDeps,
-  a: { taskId: string }
+  /** `decision`: a `review-needs-decision` Gate's answer (T3), carried on the Dispatch into the repair's spec */
+  a: { taskId: string; decision?: string }
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const s = deps.getState()
   const task = s.tasks.find((x) => x.id === a.taskId)
@@ -219,7 +226,8 @@ export async function repairOnce(
       specPath: '',
       retryOf: prior!.id,
       repair: reason,
-      ignoreCircuit: true
+      ignoreCircuit: true,
+      ...(a.decision !== undefined ? { decision: a.decision } : {})
     },
     deps.now()
   )

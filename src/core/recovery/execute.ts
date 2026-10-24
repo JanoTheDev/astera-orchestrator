@@ -126,7 +126,8 @@ async function startAttempt(a: ExecuteInput, deps: ExecuteDeps): Promise<Execute
       retryOf: attempt.dispatchId,
       // 유실된 attempt 가 repair 였다면 새 attempt 도 repair 다 — 그 Task 는 아직 수렴 중이고, 세션을
       // 잃은 워커에게도 무엇이 실패했는지 다시 말해야 한다(아래 specFileContent).
-      ...(attempt.repair ? { repair: attempt.repair } : {})
+      ...(attempt.repair ? { repair: attempt.repair } : {}),
+      ...(attempt.decision !== undefined ? { decision: attempt.decision } : {})
     },
     now
   )
@@ -176,7 +177,8 @@ async function startAttempt(a: ExecuteInput, deps: ExecuteDeps): Promise<Execute
         // (Dispatch.grantedExtra, reconciler.ts 가 LostAttempt 로 그대로 옮긴다) 을 읽는다 — 사람이
         // 실제로 retry-once 를 눌렀을 때만 참이고, recovery 가 다시 세는 것과 무관하게 크래시를
         // 넘어 살아남는다.
-        ...(attempt.grantedExtra ? { extra: true } : {})
+        ...(attempt.grantedExtra ? { extra: true } : {}),
+        ...(attempt.decision !== undefined ? { decision: attempt.decision } : {})
       }
     })
   }

@@ -70,9 +70,10 @@ export function policyOfJob(job: Job | undefined, project?: Pick<Project, 'revie
 export const repairCountOf = (s: OrchState, taskId: string): number =>
   repairCountIn(s.dispatches.filter((d) => d.taskId === taskId))
 
-/** repairCountOf over one Task's Dispatches already gathered (performance audit M1) */
+/** repairCountOf over one Task's Dispatches already gathered (performance audit M1). A repair acting on a decision
+ *  (`Dispatch.decision`, T3) is outside the budget and not counted. */
 export const repairCountIn = (ds: readonly Dispatch[]): number =>
-  ds.filter((d) => d.repair !== undefined && (d.outcome !== undefined || d.endedAt === undefined)).length
+  ds.filter((d) => d.repair !== undefined && d.decision === undefined && (d.outcome !== undefined || d.endedAt === undefined)).length
 
 /** 보고를 낸(outcome 있는) 검토 Dispatch 수. 유실된 검토는 라운드를 먹지 않는다 */
 export const reviewRoundOf = (s: OrchState, taskId: string): number =>

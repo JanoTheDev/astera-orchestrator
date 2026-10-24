@@ -37,6 +37,9 @@ export interface LostAttempt {
    *  새로 연 것을 둘 다 세는 repairCountOf 로 이 사실을 다시 계산하면(전체 브랜치 리뷰, Finding 3)
    *  예산을 실제로 넘지 않은 재시작에도 "사람이 허락했다" 는 말이 우연히 붙는다. */
   grantedExtra?: true
+  /** The answer a lost decision repair acts on (`Dispatch.decision`). Recovery puts it back in the spec and on the
+   *  replacement Dispatch, which keeps that Dispatch outside the repair budget (repairCountOf skips it). */
+  decision?: string
 }
 
 export interface GitFacts {

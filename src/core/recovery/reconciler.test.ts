@@ -459,6 +459,17 @@ describe('reconciler — repair Dispatch 는 앱의 것', () => {
     return { r, seen }
   }
 
+  it('유실된 decision repair 의 decision 을 LostAttempt 로 그대로 옮긴다', async () => {
+    const current = state({
+      runs: [run({ autoDispatch: undefined, convergence: {} })],
+      tasks: [task()],
+      dispatches: [dispatch({ repair: 'review-failure', decision: 'Skip the next dev step.' })]
+    })
+    const { r, seen } = harnessWith(current)
+    await r.reconcileAll()
+    expect(seen[0].decision).toBe('Skip the next dev step.')
+  })
+
   it('convergence Run 의 유실된 repair 는 appDriven 이고 hasValidateConfig 는 목록을 읽는다', async () => {
     const current = state({
       runs: [run({ autoDispatch: undefined, convergence: {} })],

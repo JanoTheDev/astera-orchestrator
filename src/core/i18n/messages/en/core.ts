@@ -232,6 +232,8 @@ export const core: Record<keyof typeof ko, string> = {
   'jobs.convergence.gate.stopped': 'Auto-fix is stopped for this Task and its checks still fail: {failures}',
   'jobs.convergence.gate.paused': 'This Run was paused while its completion checks ran, and they still fail: {failures}',
   'jobs.convergence.gate.repairFailed': 'The app could not start a repair worker: {reason}',
+  'jobs.convergence.gate.needsDecision':
+    'The review found issues no code change fixes: {issues}\nAnswer with what to do. One repair, outside the budget, then acts on your answer.',
   'jobs.checks.gate.unavailable': 'The check could not be made: {check}: {reason}',
   'jobs.gate.noAccount': 'No {provider} account is logged in, so this Task cannot start',
   'jobs.gate.noAccountAnyProvider': 'No account of any provider is signed in, so this Task cannot start',

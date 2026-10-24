@@ -58,7 +58,7 @@ export interface HostChecks {
   startReview(a: { taskId: string }): void
   startRepair(a: { dispatchId: string }): void
   repairTargetFor(taskId: string): RepairTarget | null
-  repairOnce(a: { taskId: string }): Promise<{ ok: true } | { ok: false; error: string }>
+  repairOnce(a: { taskId: string; decision?: string }): Promise<{ ok: true } | { ok: false; error: string }>
   /** Reads app-settings.json now, and refreshes langNow's value (R13). */
   lang(): Promise<Lang>
   /** The value lang() last read, synchronously, for the moved bodies that take a sync lang (B3).

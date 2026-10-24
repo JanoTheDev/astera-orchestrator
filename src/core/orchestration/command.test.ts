@@ -5520,6 +5520,27 @@ describe('handleCommand — convergence', () => {
     expect(msg!.body).not.toContain('--retry-of')
     expect(msg!.body).toContain('The app is repairing this Task')
   })
+  it('gate-resolve on a review-needs-decision Gate opens one repair carrying the answer', async () => {
+    const deps = convDeps()
+    const decisions: { taskId: string; decision?: string }[] = []
+    deps.repairOnce = async (a: { taskId: string; decision?: string }) => {
+      decisions.push(a)
+      return { ok: true }
+    }
+    await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p', convergence: true })
+    await call(deps, 'task-create', { spec: 's', account: 'accA', validate: 'c1' })
+    const taskId = deps.getState().tasks[0].id
+    const s = deps.getState()
+    const g = createGate({ ...s, tasks: s.tasks.map((t) => ({ ...t, status: 'reviewing' as const })) }, { taskId, question: 'q', kind: 'review-needs-decision' }, NOW)
+    if (!g.ok) throw new Error(g.error)
+    await deps.setState(g.state)
+    const r = await call(deps, 'gate-resolve', { id: g.value.id, resolution: 'Drop the next dev step' })
+    expect(r.status).toBe(200)
+    expect(decisions).toEqual([{ taskId, decision: 'Drop the next dev step' }])
+    // Answering again is a no-op: the Gate is already resolved
+    await call(deps, 'gate-resolve', { id: g.value.id, resolution: 'again' })
+    expect(decisions).toHaveLength(1)
+  })
   it('gate-resolve retry-once 는 repairOnce 를 부르고 mark-failed 는 failed 로 보낸다', async () => {
     const deps = convDeps()
     await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p', convergence: true })
@@ -6752,6 +6773,25 @@ describe('jobs create / tasks add / accounts list', () => {
     const locked = await shell(deps, 'task-update', { id: t.id, prompt: 'late' })
     expect(locked.status).toBe(400)
     expect(deps.getState().tasks.find((x) => x.id === t.id)?.prompt).toBe('new')
+  })
+
+  it('task-update --model/--effort on a started Task: the owner may, an agent session may not, --prompt stays refused', async () => {
+    const deps = makeDeps()
+    await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p' })
+    const run = deps.getState().runs[0]
+    const t = (await shell(deps, 'tasks-add', { run: run.id, spec: 's', account: 'acc1' })).body as { id: string }
+    await deps.setState({
+      ...deps.getState(),
+      runs: deps.getState().runs.map((r) => ({ ...r, coordinatorSessionId: 'sess_coord' })),
+      tasks: deps.getState().tasks.map((x) => (x.id === t.id ? { ...x, status: 'dispatched' as const } : x))
+    })
+    const agent = await call(deps, 'task-update', { id: t.id, model: 'opus' }, 'sess_coord')
+    expect(agent.status).toBeGreaterThanOrEqual(400)
+    expect(deps.getState().tasks.find((x) => x.id === t.id)?.model).toBeUndefined()
+    const ok = await shell(deps, 'task-update', { id: t.id, model: 'opus', effort: 'high', modelReason: 'retry needs more' })
+    expect(ok.status).toBe(200)
+    expect(deps.getState().tasks.find((x) => x.id === t.id)).toMatchObject({ model: 'opus', effort: 'high', modelReason: 'retry needs more', status: 'dispatched' })
+    expect((await shell(deps, 'task-update', { id: t.id, prompt: 'late' })).status).toBe(400)
   })
 
   // T7 (item 3): every session Astera spawns has an id, the owner's own tabs too, so the owner is any caller that is no

@@ -909,6 +909,48 @@ describe('T7 editPlanTask from the owner', () => {
   })
 })
 
+describe('T2 editPlanTask on a started Task', () => {
+  const started = async (status: 'dispatched' | 'completed' = 'dispatched'): Promise<{ s: OrchState; a: string }> => {
+    const r = rig()
+    const made = await person(r)('run-create', { objective: 'o', cwd: 'D:/p' })
+    const runId = (made.body as { id: string }).id
+    const a = ((await person(r)('task-create', { run: runId, account: 'acc1', spec: 'a' })).body as { id: string }).id
+    const s = r.deps.getState()
+    return { s: { ...s, tasks: s.tasks.map((t) => (t.id === a ? { ...t, status, model: 'sonnet', effort: 'low' as const } : t)) }, a }
+  }
+
+  it('lets the owner change model, effort, difficulty and model reason', async () => {
+    const { s, a } = await started()
+    const res = editPlanTask(s, a, { model: 'opus', effort: 'high', difficulty: 'hard', modelReason: 'retry needs more' }, NOW, true)
+    expect(res.ok && res.value).toMatchObject({ model: 'opus', effort: 'high', difficulty: 'hard', modelReason: 'retry needs more', status: 'dispatched' })
+  })
+
+  it('clears model and effort when --difficulty comes alone', async () => {
+    const { s, a } = await started()
+    const res = editPlanTask(s, a, { difficulty: 'hard' }, NOW, true)
+    expect(res.ok && res.value.difficulty).toBe('hard')
+    expect(res.ok && res.value.model).toBeUndefined()
+    expect(res.ok && res.value.effort).toBeUndefined()
+  })
+
+  it('still refuses --spec and --prompt on a started Task', async () => {
+    const { s, a } = await started()
+    for (const patch of [{ spec: 'x' }, { prompt: 'x' }, { model: 'opus', spec: 'x' }])
+      expect(editPlanTask(s, a, patch, NOW, true)).toMatchObject({ ok: false, error: expect.stringContaining('has started already') })
+  })
+
+  it('refuses everything on a finished Task', async () => {
+    const { s, a } = await started('completed')
+    for (const patch of [{ model: 'opus' }, { difficulty: 'hard' as const }, { spec: 'x' }])
+      expect(editPlanTask(s, a, patch, NOW, true)).toMatchObject({ ok: false, error: expect.stringContaining('has finished') })
+  })
+
+  it('refuses a non-owner', async () => {
+    const { s, a } = await started()
+    expect(editPlanTask(s, a, { model: 'opus' }, NOW, 'this is a worker session')).toMatchObject({ ok: false, error: expect.stringContaining('this is a worker session') })
+  })
+})
+
 describe('T20 run it from the planner chat', () => {
   const T0 = Date.parse(NOW)
   const MIN = 60_000

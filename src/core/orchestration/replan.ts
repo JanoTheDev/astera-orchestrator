@@ -25,7 +25,7 @@ import { crossPlanDepRefusal, externalDepsOf, waitsOnItself } from './mainPlan'
 import { jobActive, pathsOverlap } from './schedule'
 import { doneStatusOf, jobOf, type OrchState, type PlanFields, type Res } from './state'
 import { jobNameOf } from './jobName'
-import { FAILURE_LIMIT, newId, recomputeReady, type Job, type JobRun, type Message, type ReplanMark, type Task } from './types'
+import { FAILURE_LIMIT, newId, recomputeReady, type Dispatch, type Job, type JobRun, type Message, type ReplanMark, type Task } from './types'
 
 /** The replan under way, with `scoped`: started for deviations, so it holds only the Tasks they can affect (no
  *  `dispatchHold`). Absent (also in an older file): it holds the whole Job. */
@@ -462,4 +462,42 @@ export function cancelRemainingTask(s: OrchState, taskId: string): Res<Task> {
   if (waiting.length) return { ok: false, error: `${waiting.map((t) => t.id).join(', ')} depend on ${taskId}: change their --deps first` }
   // A blocked Task's open Gate goes with it (W8-E): nobody is left to answer it for
   return { ok: true, state: { ...s, tasks: s.tasks.filter((t) => t.id !== taskId), gates: s.gates.filter((g) => g.taskId !== taskId) }, value: task }
+}
+
+/** T5: the owner's `task-cancel`: any Task of a Run that has not completed, started or not, leaves the Run. Its open
+ *  Dispatches are closed (kept as history; the caller releases their sessions after the commit), its Gates are dropped, its
+ *  open questions settled, and the Run's feed says who cancelled it and why. `merging` and `completed` Tasks are refused
+ *  (their work is landing or landed), and so is a Task an unfinished Task still depends on, as for a replan. */
+export function cancelTaskByOwner(s: OrchState, taskId: string, reason: string, now: string): Res<{ task: Task; closed: Dispatch[] }> {
+  const task = s.tasks.find((t) => t.id === taskId)
+  if (!task) return { ok: false, error: `unknown task: ${taskId}`, missing: true }
+  if (task.runId === undefined) return { ok: false, error: `${taskId} is not a Task of a Run` }
+  if (task.status === 'completed' || task.status === 'merging')
+    return { ok: false, error: `${taskId} is ${task.status}: its work is ${task.status === 'merging' ? 'landing' : 'done'}, so it is not cancelled` }
+  const waiting = runTasks(s, task.runId).filter((t) => t.status !== 'completed' && t.deps.includes(taskId))
+  if (waiting.length) return { ok: false, error: `${waiting.map((t) => t.id).join(', ')} depend on ${taskId}: change their --deps first` }
+  const closed = s.dispatches.filter((d) => d.taskId === taskId && !d.outcome && !d.endedAt)
+  const closing = new Set(closed.map((d) => d.id))
+  const state: OrchState = {
+    ...s,
+    tasks: s.tasks.filter((t) => t.id !== taskId),
+    gates: s.gates.filter((g) => g.taskId !== taskId),
+    // closedBy 'stop': a person ended it, so no Gate asks about a lost attempt (state.ts lostAttemptOf)
+    dispatches: s.dispatches.map((d) => (closing.has(d.id) ? { ...d, workerState: 'stopped' as const, endedAt: now, closedBy: 'stop' as const } : d)),
+    // Nobody is left to answer: settled with an empty answer, never deleted (state.ts settlePendingQuestions)
+    messages: [
+      ...s.messages.map((m) => (m.type === 'question' && !m.answered && (m.taskId === taskId || (m.dispatchId !== undefined && closing.has(m.dispatchId))) ? { ...m, answered: true, answerBody: '' } : m)),
+      {
+        id: newId('msg'),
+        runId: task.runId,
+        type: 'status',
+        taskId,
+        subject: `${task.title} cancelled by the owner: ${reason.replace(/\s+/g, ' ').trim()}`.slice(0, 300),
+        body: `The owner cancelled ${taskId} (${task.title}); it has left the Run.`,
+        answered: false,
+        createdAt: now
+      }
+    ]
+  }
+  return { ok: true, state, value: { task, closed } }
 }
