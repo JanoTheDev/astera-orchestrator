@@ -268,6 +268,8 @@ export const core = {
   'jobs.convergence.gate.stopped': '이 Task 의 자동 수정이 멈춰 있고 검사는 아직 실패합니다: {failures}',
   'jobs.convergence.gate.paused': '완료 검사가 도는 동안 이 Run 이 멈췄고, 검사는 아직 실패합니다: {failures}',
   'jobs.convergence.gate.repairFailed': '수정할 워커를 띄울 수 없었습니다: {reason}',
+  'jobs.convergence.gate.needsDecision':
+    '검토가 코드 수정으로는 풀리지 않는 문제를 찾았습니다: {issues}\n어떻게 할지 답하세요. 그 답을 담은 수정 하나가 예산 밖에서 열립니다.',
   'jobs.checks.gate.unavailable': '검사를 할 수 없었습니다: {check}: {reason}',
   'jobs.gate.noAccount': '{provider} 계정에 로그인되어 있지 않아 이 Task 를 시작할 수 없습니다',
   'jobs.gate.noAccountAnyProvider': '어떤 공급자의 계정에도 로그인되어 있지 않아 이 Task 를 시작할 수 없습니다',

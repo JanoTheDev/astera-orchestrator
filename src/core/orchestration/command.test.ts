@@ -5520,6 +5520,27 @@ describe('handleCommand — convergence', () => {
     expect(msg!.body).not.toContain('--retry-of')
     expect(msg!.body).toContain('The app is repairing this Task')
   })
+  it('gate-resolve on a review-needs-decision Gate opens one repair carrying the answer', async () => {
+    const deps = convDeps()
+    const decisions: { taskId: string; decision?: string }[] = []
+    deps.repairOnce = async (a: { taskId: string; decision?: string }) => {
+      decisions.push(a)
+      return { ok: true }
+    }
+    await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p', convergence: true })
+    await call(deps, 'task-create', { spec: 's', account: 'accA', validate: 'c1' })
+    const taskId = deps.getState().tasks[0].id
+    const s = deps.getState()
+    const g = createGate({ ...s, tasks: s.tasks.map((t) => ({ ...t, status: 'reviewing' as const })) }, { taskId, question: 'q', kind: 'review-needs-decision' }, NOW)
+    if (!g.ok) throw new Error(g.error)
+    await deps.setState(g.state)
+    const r = await call(deps, 'gate-resolve', { id: g.value.id, resolution: 'Drop the next dev step' })
+    expect(r.status).toBe(200)
+    expect(decisions).toEqual([{ taskId, decision: 'Drop the next dev step' }])
+    // Answering again is a no-op: the Gate is already resolved
+    await call(deps, 'gate-resolve', { id: g.value.id, resolution: 'again' })
+    expect(decisions).toHaveLength(1)
+  })
   it('gate-resolve retry-once 는 repairOnce 를 부르고 mark-failed 는 failed 로 보낸다', async () => {
     const deps = convDeps()
     await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p', convergence: true })

@@ -99,6 +99,10 @@ export interface CheckResult {
 }
 
 export type ReviewSeverity = 'critical' | 'high' | 'medium' | 'low' | 'info'
+/** What fixing a review issue needs, as the reviewer says (T3). Only `code` is a repair's work; the others are a
+ *  running dev server, device, browser or service slot (`environment`), work outside the Task as written (`scope`), a
+ *  standing permission (`permission`), or a call only a person makes (`person`). */
+export type ReviewNeeds = 'code' | 'environment' | 'scope' | 'permission' | 'person'
 export interface ReviewIssue {
   id: string
   severity: ReviewSeverity
@@ -109,13 +113,17 @@ export interface ReviewIssue {
   file?: string
   line?: number
   suggestedFix?: string
+  /** Absent means `code` */
+  needs?: ReviewNeeds
 }
 
 /** 왜 이 Dispatch 가 열렸는가 — check 가 실패했거나 검토가 blocking 이슈를 냈다 */
 export type RepairReason = 'check-failure' | 'review-failure'
 /** 앱이 특별히 다루는 Gate. exhausted 의 해소는 retry-once / mark-failed 로 갈라지고(server.ts 의
  *  gate-resolve), blocked 는 보통 Gate 처럼 풀린다 — 질문이 왜 막혔는지 말한다 */
-export type GateKind = 'convergence-exhausted' | 'convergence-blocked' | 'check-unavailable'
+// `review-needs-decision` (T3): the review's blocking issue needs something no code change gives (ReviewNeeds). Its
+// free-text answer opens one repair outside the budget that carries it (`Dispatch.decision`).
+export type GateKind = 'convergence-exhausted' | 'convergence-blocked' | 'check-unavailable' | 'review-needs-decision'
 // W6-C: why a Gate opened, when that is something the notices act on. `review-rounds-exhausted`: the reviewer rejected
 // the work `maxReviewRounds` times (W6-B escalates it with a sound).
 export type GateReason = 'review-rounds-exhausted'
@@ -862,6 +870,9 @@ export interface Dispatch {
    *  적을 수 있어(`LostAttempt.grantedExtra`), "사람이 허락했다" 는 문구가 재시작을 거쳐도 참으로
    *  남는다. */
   grantedExtra?: true
+  /** The answer to a `review-needs-decision` Gate this repair acts on (T3). Such a repair is outside the budget and
+   *  `repairCountOf` does not count it: the rounds before it failed on something no code change fixed. */
+  decision?: string
   // ── W1-A role models ──
   /** The model this attempt's session was started with (`--model` / `-m`), resolved by
    *  `resolveWorkerModel` / `resolveReviewerModel` (roleModels.ts). Absent: the CLI's own default. */

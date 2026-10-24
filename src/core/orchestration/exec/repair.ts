@@ -73,7 +73,8 @@ function repairSpec(s: OrchState, task: Task, d: Dispatch, run: { cwd: string },
       // 않았는데 "사람이 허락했다" 고 말하게 된다(execute.ts 에서 고친 것과 같은 거짓말). 대신 이
       // Dispatch 자신이 열릴 때 이미 적어 둔 사실(Dispatch.grantedExtra — repairOnce 가 ignoreCircuit
       // 으로 열 때만 참이다)을 읽는다.
-      ...(d.grantedExtra ? { extra: true } : {})
+      ...(d.grantedExtra ? { extra: true } : {}),
+      ...(d.decision !== undefined ? { decision: d.decision } : {})
     }
   })
 }
@@ -193,7 +194,8 @@ export async function performRepair(deps: RepairDeps, a: { dispatchId: string })
  *  바로 그 실패 종류다. */
 export async function repairOnce(
   deps: RepairDeps,
-  a: { taskId: string }
+  /** `decision`: a `review-needs-decision` Gate's answer (T3), carried on the Dispatch into the repair's spec */
+  a: { taskId: string; decision?: string }
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const s = deps.getState()
   const task = s.tasks.find((x) => x.id === a.taskId)
@@ -219,7 +221,8 @@ export async function repairOnce(
       specPath: '',
       retryOf: prior!.id,
       repair: reason,
-      ignoreCircuit: true
+      ignoreCircuit: true,
+      ...(a.decision !== undefined ? { decision: a.decision } : {})
     },
     deps.now()
   )

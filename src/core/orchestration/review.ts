@@ -1,7 +1,7 @@
 // 리뷰어의 구조화된 판정(설계 §8). 파일은 리뷰어가 쓰고 서버가 읽어 여기로 넘긴다 — 이 층은 문자열을
 // 받는다(fs 없음). blocking 은 리뷰어의 말이 아니라 정책으로 계산한다.
 import { isBlocking, type ResolvedPolicy } from './convergence'
-import type { Outcome, ReviewIssue, ReviewSeverity } from './types'
+import type { Outcome, ReviewIssue, ReviewNeeds, ReviewSeverity } from './types'
 
 export interface ReviewIssueInput {
   severity: ReviewSeverity
@@ -10,10 +10,12 @@ export interface ReviewIssueInput {
   file?: string
   line?: number
   suggestedFix?: string
+  needs?: ReviewNeeds
 }
 
 const SEVERITIES: readonly ReviewSeverity[] = ['critical', 'high', 'medium', 'low', 'info']
 const isSeverity = (v: unknown): v is ReviewSeverity => typeof v === 'string' && (SEVERITIES as string[]).includes(v)
+const NEEDS: readonly ReviewNeeds[] = ['code', 'environment', 'scope', 'permission', 'person']
 const optStr = (v: unknown): string | undefined => (typeof v === 'string' && v.length > 0 ? v : undefined)
 
 /** `<specPath>.review.json` 의 본문. 모양이 어긋나면 ok:false — 조용히 빈 목록으로 접지 않는다: 깨진
@@ -42,6 +44,11 @@ export function parseReviewFile(text: string): { ok: true; issues: ReviewIssueIn
     if (typeof o.line === 'number' && Number.isInteger(o.line)) issue.line = o.line
     const fix = optStr(o.suggestedFix)
     if (fix) issue.suggestedFix = fix
+    // An unknown value is a malformed file, as a bad severity is: guessing `code` would repair what no code fixes
+    if (o.needs !== undefined) {
+      if (!(NEEDS as unknown[]).includes(o.needs)) return { ok: false, error: `issues[${i}].needs must be one of ${NEEDS.join('|')}` }
+      issue.needs = o.needs as ReviewNeeds
+    }
     issues.push(issue)
   }
   return { ok: true, issues }
@@ -67,7 +74,8 @@ export function normalizeIssues(a: {
     description: i.description ?? '',
     ...(i.file ? { file: i.file } : {}),
     ...(i.line !== undefined ? { line: i.line } : {}),
-    ...(i.suggestedFix ? { suggestedFix: i.suggestedFix } : {})
+    ...(i.suggestedFix ? { suggestedFix: i.suggestedFix } : {}),
+    ...(i.needs ? { needs: i.needs } : {})
   }))
   if (a.outcome === 'failed' && !out.some((i) => i.blocking))
     out.push({

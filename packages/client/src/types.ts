@@ -8,8 +8,10 @@ export type TaskStatus = 'pending' | 'ready' | 'dispatched' | 'validating' | 're
 export type Outcome = 'succeeded' | 'failed'
 export type MessageType = 'status' | 'worker_done' | 'question' | 'escalation' | 'heartbeat' | 'decision_gate'
 export type RepairReason = 'check-failure' | 'review-failure'
-export type GateKind = 'convergence-exhausted' | 'convergence-blocked' | 'check-unavailable'
+export type GateKind = 'convergence-exhausted' | 'convergence-blocked' | 'check-unavailable' | 'review-needs-decision'
 export type ReviewSeverity = 'critical' | 'high' | 'medium' | 'low' | 'info'
+/** What fixing a review issue needs; absent means `code`. */
+export type ReviewNeeds = 'code' | 'environment' | 'scope' | 'permission' | 'person'
 
 /** When a scheduled Job fires again. */
 export type ScheduleRule =
@@ -153,6 +155,7 @@ export interface ReviewIssue {
   readonly file?: string
   readonly line?: number
   readonly suggestedFix?: string
+  readonly needs?: ReviewNeeds
 }
 
 export interface Task {
