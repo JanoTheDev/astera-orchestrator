@@ -46,7 +46,7 @@ import { chooseStartAccount, type AutoStartGuard } from '../core/orchestration/e
 import { isLoggedIn } from '../core/accounts/loginCheck'
 import { makeDescriptors } from '../core/providers/descriptor'
 import type { Account } from '../core/types'
-import { readRunConfigsFile } from '../core/run/runConfigsFile'
+import { addRunConfigToFile, readRunConfigsFile } from '../core/run/runConfigsFile'
 // W10-A Run as written by name
 import { listMdFiles } from '../core/orchestration/intakeFiles'
 import type { HostChecks } from './checks'
@@ -978,6 +978,7 @@ export function createHostOrch(a: {
         readAccountsFile(path.join(a.profileDir, 'accounts.json'), provider, opts?.withDefault ? loggedIn : undefined),
       // 실행 구성도 같다 — 앱이 쓴 run-configs.json 과 계획의 폴더를 읽기만 한다(CLI phase D).
       readRunConfigs: (projectPath) => readRunConfigsFile(path.join(a.profileDir, 'run-configs.json'), projectPath),
+      writeRunConfig: (projectPath, config) => addRunConfigToFile(path.join(a.profileDir, 'run-configs.json'), projectPath, config),
       sessions: a.sessions,
       local: a.local ?? null,
       drive: a.drive ?? null,

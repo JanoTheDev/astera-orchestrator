@@ -289,7 +289,7 @@ import { listComposeServices } from './composeScanner'
 import { listDotnetProjects } from './dotnetScanner'
 import { loadRunConfigs, prepareLaunch } from '../core/run/prepare'
 import { withTestCommand } from '../core/projects/detect' // W7-B
-import { allowingJobCwds, orchRunConfigOf } from '../core/run/runConfigsFile'
+import { addRunConfig, allowingJobCwds, orchRunConfigOf } from '../core/run/runConfigsFile'
 import { executeLaunch } from './run/launch'
 import { agentDirOf, folderToOpen, resolveConsolePath, resolveExistingPath } from './run/resolveLink'
 import { mediaAllowlist } from './media/allowlist'
@@ -3522,6 +3522,13 @@ export function registerIpc(
         const next = withTestCommand(core.runConfig.get(projectPath), command)
         await core.runConfig.save(projectPath, next.configs)
         return next.id
+      },
+      // T12: `run-configs add` while the app is up — through the app's store, so its copy stays the file's
+      addRunConfig: async (projectPath, config) => {
+        await assertAllowedPath(projectPath)
+        const added = await addRunConfig({ projectPath, stored: core.runConfig.get(projectPath), input: config })
+        if (added.ok) await core.runConfig.save(projectPath, added.configs!)
+        return added
       },
       setProjectAccount: (projectPath, accountId) => core.projects.setDefaultAccount(projectPath, accountId),
       handoffs: {

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { allowingJobCwds, readRunConfigsFile, readStoredRunConfigs } from './runConfigsFile'
+import { addRunConfigToFile, allowingJobCwds, readRunConfigsFile, readStoredRunConfigs } from './runConfigsFile'
 import { RepairNeeded } from '../settings/repairNeeded'
 
 let dir: string
@@ -129,5 +129,54 @@ describe('a corrupt run-configs.json', () => {
       expect(err).toBeInstanceOf(RepairNeeded)
       expect((err as RepairNeeded).file).toBe('run-configs.json')
     }
+  })
+})
+
+describe('addRunConfigToFile', () => {
+  const shell = { name: 'Test', type: 'shell', command: 'npm test' }
+  const read = async (): Promise<Record<string, { id: string; name: string }[]>> => JSON.parse(await fs.readFile(file, 'utf8'))
+
+  it('adds a valid configuration with a new id and creates the file', async () => {
+    const out = await addRunConfigToFile(file, project, shell)
+    expect(out).toMatchObject({ ok: true, replaced: false, config: { name: 'Test', command: 'npm test' } })
+    expect((await read())[project]).toEqual([(out as { config: unknown }).config])
+    expect((out as { config: { id: string } }).config.id).toMatch(/^user:/)
+  })
+
+  it('replaces the one with the same name, keeping its id and place', async () => {
+    await fs.writeFile(file, JSON.stringify({ [project]: [stored('user:a', 'Test'), stored('user:b', 'Other')] }), 'utf8')
+    const out = await addRunConfigToFile(file, project, { ...shell, id: 'user:ignored' })
+    expect(out).toMatchObject({ ok: true, replaced: true, config: { id: 'user:a', command: 'npm test' } })
+    expect((await read())[project].map((c) => [c.id, c.name])).toEqual([['user:a', 'Test'], ['user:b', 'Other']])
+  })
+
+  it("leaves other projects' entries exactly as they were", async () => {
+    const other = { '/elsewhere': [{ id: 'user:x', name: 'kept', type: 'nope' }] }
+    await fs.writeFile(file, JSON.stringify(other), 'utf8')
+    await addRunConfigToFile(file, project, shell)
+    expect((await read())['/elsewhere']).toEqual(other['/elsewhere'])
+  })
+
+  it.each([
+    ['a seed id', { ...shell, id: 'seed:npm:test' }, 'INVALID_CONFIG'],
+    ['an unknown type', { name: 'x', type: 'nope' }, 'INVALID_CONFIG'],
+    ['a cwd outside the project', { ...shell, cwd: '../out' }, 'INVALID_CWD'],
+    ['a bad preview URL', { ...shell, previewUrl: 'localhost:5173' }, 'INVALID_PREVIEW_URL'],
+    ['an id another name holds', { ...shell, name: 'New', id: 'user:b' }, 'INVALID_CONFIG']
+  ])('refuses %s and writes nothing', async (_n, input, reason) => {
+    const before = JSON.stringify({ [project]: [stored('user:b', 'Other')] })
+    await fs.writeFile(file, before, 'utf8')
+    const out = await addRunConfigToFile(file, project, input)
+    expect(out).toMatchObject({ ok: false, errors: expect.arrayContaining([expect.objectContaining({ reason })]) })
+    expect(await fs.readFile(file, 'utf8')).toBe(before)
+  })
+
+  it('refuses a non-object', async () => {
+    expect(await addRunConfigToFile(file, project, [shell])).toMatchObject({ ok: false })
+  })
+
+  it('refuses a damaged file by throwing RepairNeeded', async () => {
+    await fs.writeFile(file, '{nope', 'utf8')
+    await expect(addRunConfigToFile(file, project, shell)).rejects.toBeInstanceOf(RepairNeeded)
   })
 })

@@ -750,6 +750,7 @@ astera accounts login --new [--label <name>]
 astera accounts import --label <name> --agent <claude|codex> [--color <colour>] [--login <->]
 
 astera run-configs list --job <jobId>
+astera run-configs add  --project <path> --config <json|->
 
 astera skills  list    [--account <accountId>]
 astera skills  install [--account <accountId>]
@@ -1099,6 +1100,18 @@ Retry with the same `--request-id` (the one the 7 hands back) and the retry answ
 rather than placing a second worker. With `--request-id` a
 retry does not place a second worker; a refusal leaves no receipt, so the same id works once the cause
 is fixed.
+
+**`run-configs add --project <path> --config <json|->` saves one run configuration** in that project's
+list, for an agent that works out a project's test, build and dev commands. `--config` is one JSON
+object (`{"name":"Test","type":"shell","command":"npm test"}`), or `-` to read it from standard input.
+A configuration with the same name is replaced, keeping its id and place; otherwise it is appended with
+a new id (leave `id` out). It is held to the rules the app's Run Configurations dialog applies when it
+saves: a known type with its fields, an id that is unique and not a detected one (`seed:`), a `cwd`
+inside the project, an http(s) `previewUrl`, and on Windows no cmd.exe special characters in a value
+that reaches the command. A refusal is a 4 that names the reason, and nothing is written. Other projects'
+configurations are never touched. The saved configuration is printed as `config`, with `replaced`.
+With Astera running the app saves it; with Astera closed the Host writes the profile's `run-configs.json`
+itself, and a damaged file is a 6 with the "open Astera" message.
 
 **`run-configs list --job <jobId>` prints `id`, `name` and `type`** for each run configuration of the
 Job's folder: the ones the app's Run menu shows there, saved and detected. Nothing else about a

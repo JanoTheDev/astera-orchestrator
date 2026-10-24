@@ -844,6 +844,17 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
     flags: [{ name: 'job', value: '<jobId>', required: true, about: 'the Job whose project to list (from `jobs list`)' }]
   },
 
+  // Saved through the app when it is attached, else by the Host into the profile's run-configs.json (host/orchDeps.ts).
+  'run-configs-add': {
+    summary: "save one run configuration in a project's list",
+    detail:
+      "Adds the configuration, or replaces the one with the same name (it keeps that one's id and place). It is checked by the rules the app's Run Configurations dialog applies when it saves: a known type with its fields, a unique id that is not a detected one (`seed:`), a cwd inside the project, an http(s) previewUrl, and no cmd.exe special characters on Windows. A configuration that fails is refused with the reason and nothing is written; other projects' configurations are never touched. Leave `id` out to get a new one. The saved configuration comes back as `config`, with `replaced` true when it took a name's place.",
+    flags: [
+      { name: 'project', value: '<path>', required: true, about: "the project's folder, as an absolute path" },
+      { name: 'config', value: '<json|->', required: true, about: 'one configuration as a JSON object (`{"name":"Test","type":"shell","command":"npm test"}`), or - to read it from standard input' }
+    ]
+  },
+
   'skills-list': {
     summary: "which of Astera's agent skills each account has, and whether they are current",
     detail:

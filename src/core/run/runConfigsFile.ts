@@ -11,7 +11,13 @@
 // of those registries. It is only ever handed a Job's `cwd` out of the orchestration state, and what
 // comes back is the folder's top-level names and three build files, reduced to `{id, name, type}`.
 import { promises as fs } from 'node:fs'
+import path from 'node:path'
+import { randomUUID } from 'node:crypto'
 import type { RunConfig } from './config'
+import { validateConfigs, type ConfigError } from './validateConfigs'
+import { withFileLock } from '../fileLock'
+import { renameRetrying } from '../renameRetry'
+import { isPathWithin } from '../files/tree'
 import { migrateRunConfigs } from './migrate'
 import { loadRunConfigs } from './load'
 import type { OrchRunConfig } from '../orchestration/command'
@@ -82,4 +88,57 @@ async function readMap(filePath: string): Promise<Record<string, unknown>> {
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed))
     throw new RepairNeeded('run-configs.json is not a map of projects; open Astera to repair it', 'run-configs.json')
   return parsed as Record<string, unknown>
+}
+
+export type AddRunConfigResult = { ok: true; config: RunConfig; replaced: boolean } | { ok: false; errors: ConfigError[] }
+
+/** `run-configs add`, as a pure step over the project's stored list: `input` replaces the one with
+ *  the same name (keeping its id and place) or is appended with a fresh id. The new list is checked by
+ *  `validateConfigs`, the app's own rules, and only the errors of the new item refuse it: a hand-edited
+ *  neighbour must not block an agent's save. `configs` is the whole list to store. */
+export async function addRunConfig(a: {
+  projectPath: string
+  stored: RunConfig[]
+  input: unknown
+  platform?: NodeJS.Platform
+}): Promise<AddRunConfigResult & { configs?: RunConfig[] }> {
+  if (a.input === null || typeof a.input !== 'object' || Array.isArray(a.input)) return { ok: false, errors: [{ id: '', reason: 'INVALID_CONFIG' }] }
+  const given = a.input as Record<string, unknown>
+  const at = a.stored.findIndex((c) => c.name === given.name)
+  const id = at >= 0 ? a.stored[at].id : typeof given.id === 'string' && given.id !== '' ? given.id : `user:${randomUUID()}`
+  const config = { ...given, id } as unknown as RunConfig
+  const configs = at >= 0 ? a.stored.map((c, i) => (i === at ? config : c)) : [...a.stored, config]
+  const errors = (
+    await validateConfigs({ projectPath: a.projectPath, configs, platform: a.platform ?? process.platform, assertConfigCwd: assertCwdInside })
+  ).filter((e) => e.id === id)
+  return errors.length > 0 ? { ok: false, errors } : { ok: true, config, replaced: at >= 0, configs }
+}
+
+/** `addRunConfig` against the profile's run-configs.json, for when no app is there to own the file.
+ *  The one write of it outside the app, so it holds the lock and renames a temp file over it; every
+ *  other project's entry is written back as read, never re-migrated. A damaged file throws
+ *  RepairNeeded, as the readers do. */
+export async function addRunConfigToFile(filePath: string, projectPath: string, input: unknown): Promise<AddRunConfigResult> {
+  return withFileLock(`${filePath}.lock`, async () => {
+    const map = await readMap(filePath)
+    const stored = migrateRunConfigs(map[projectPath], { allowIncomplete: true })
+    const added = await addRunConfig({ projectPath, stored, input })
+    if (!added.ok) return added
+    await fs.mkdir(path.dirname(filePath), { recursive: true })
+    const tmp = `${filePath}.${randomUUID()}.tmp`
+    try {
+      await fs.writeFile(tmp, JSON.stringify({ ...map, [projectPath]: added.configs }, null, 2), 'utf8')
+      await renameRetrying(tmp, filePath)
+    } catch (err) {
+      await fs.rm(tmp, { force: true })
+      throw err
+    }
+    return { ok: true, config: added.config, replaced: added.replaced }
+  })
+}
+
+/** The app's cwd rule (a string, inside the project) without its folder allow-list. */
+async function assertCwdInside(projectPath: string, cwd: unknown): Promise<void> {
+  if (cwd === undefined || cwd === null || cwd === '') return
+  if (typeof cwd !== 'string' || !isPathWithin(projectPath, path.resolve(projectPath, cwd))) throw new Error('cwd is outside the project')
 }

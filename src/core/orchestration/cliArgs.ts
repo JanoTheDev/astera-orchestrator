@@ -142,7 +142,7 @@ export const NOUNS = {
   accounts: ['list', 'login', /* T12c */ 'import'],
   // `tasks add --validate` 에 넣을 id 가 여기서 나온다(phase D). 동사 없는 `run-configs` 는 가이드가
   // 가르치는 세션 명령 그대로다(BARE_NOUNS) — 그쪽은 가장 최근 회차의 것이고 이쪽은 --job 의 것이다.
-  'run-configs': ['list'],
+  'run-configs': ['list', /* T12 */ 'add'],
   // **CLI 프로세스 안에서 답한다 — Host 도 앱도 없이**(run.ts, `help` 와 같은 자리). 프로필의
   // accounts.json 과 app-settings.json 을 읽고 계정의 설정 폴더에 스킬 파일을 심는다(cli/skills.ts).
   skills: ['list', 'install'],
