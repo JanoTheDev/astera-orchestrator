@@ -8,7 +8,7 @@ import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 
 const USAGE = `Usage: node scripts/perf-switch.mjs --port <cdp port> [--runs 5] [--warmup 1] [--tabs 8] [--out file.json]
-                               [--only <targets>] [--profile <dir>] [--md file.md] [--sessions N]
+                               [--only <targets>] [--profile <dir>] [--md file.md] [--sessions N] [--cpu]
 
 Connects to an app started on a profile seeded with \`node scripts/shots-seed.mjs --scale\` and a CDP port
 (docs/perf/README.md has the exact commands). For every target it does --warmup unrecorded runs, then --runs runs from a
@@ -24,6 +24,8 @@ Targets (default: all): ${'${TARGETS}'}
 measuring and closes them afterwards. The Host starts whatever \`claude\` its PATH finds first: see docs/perf/README.md.
 content  (Sessions, Run, Source Control, Devices only) click until the visible sidebar view has drawn its rows or empty state
          and no "Loading"/"Scanning" is left. A separate column: "settled" for those four stays the unchanged predicate.
+--cpu records a V8 CPU profile around each timed run and keeps, for every run with a long frame, the top self-time
+functions (name, bundle url:line:col) plus the long frames' script attribution; diagnosis only, the profiler slows the page.
 --out writes the raw JSON; a markdown table is printed to stdout (--md also saves it).`
 
 const args = process.argv.slice(2)
@@ -59,6 +61,7 @@ if (!port) {
 }
 const runs = Number(opt('runs', 5))
 const warmup = Number(opt('warmup', 1))
+const cpuProfile = args.includes('--cpu')
 const sessionCount = Number(opt('sessions', 0))
 const tabCount = Math.max(3, Number(opt('tabs', 8)))
 const profile = resolve(opt('profile', join(homedir(), '.config', 'astera-perf-dev')))
@@ -126,6 +129,13 @@ const must = async (...a) => {
 const HARNESS = `(() => {
   const longType = PerformanceObserver.supportedEntryTypes.includes('long-animation-frame') ? 'long-animation-frame' : 'longtask'
   let st = null
+  const loaf = (e) => ({
+    start: e.startTime,
+    dur: e.duration,
+    blocking: Math.round(e.blockingDuration),
+    render: e.renderStart ? Math.round(e.startTime + e.duration - e.renderStart) : null,
+    scripts: (e.scripts || []).map((x) => ({ invoker: x.invoker, type: x.invokerType, fn: x.sourceFunctionName, url: (x.sourceURL || '').split('/').pop(), pos: x.sourceCharPosition, dur: Math.round(x.duration), layout: Math.round(x.forcedStyleAndLayoutDuration) }))
+  })
   const disarm = () => {
     if (!st) return
     st.mo.disconnect()
@@ -158,7 +168,7 @@ const HARNESS = `(() => {
         if (s.t0 != null) check()
       })
       s.mo.observe(document.documentElement, { subtree: true, childList: true, attributes: true, characterData: true })
-      s.po = new PerformanceObserver((l) => { for (const e of l.getEntries()) s.long.push({ start: e.startTime, dur: e.duration }) })
+      s.po = new PerformanceObserver((l) => { for (const e of l.getEntries()) s.long.push(loaf(e)) })
       s.po.observe({ type: longType })
       s.down = (e) => {
         // every pointerdown: where it landed and what the title bar and switcher showed at that moment
@@ -184,10 +194,11 @@ const HARNESS = `(() => {
         const timedOut = now - s.t0 > timeoutMs
         if (!quiet && !timedOut) continue
         await new Promise((r) => setTimeout(r, 120)) // long-animation-frame entries arrive after their frame
-        for (const e of s.po.takeRecords()) s.long.push({ start: e.startTime, dur: e.duration })
+        for (const e of s.po.takeRecords()) s.long.push(loaf(e))
         const settledAt = timedOut && !quiet ? null : Math.max(s.lastMut, s.readyAt ?? 0)
         const end = settledAt ?? s.t0 + timeoutMs
-        const long = s.long.filter((e) => e.start + e.dur >= s.t0 && e.start <= end).map((e) => Math.round(e.dur * 10) / 10)
+        const frames = s.long.filter((e) => e.start + e.dur >= s.t0 && e.start <= end)
+        const long = frames.map((e) => Math.round(e.dur * 10) / 10)
         const out = {
           ttfp: s.tPaint == null ? null : Math.max(0, s.tPaint - s.t0),
           settled: settledAt == null ? null : Math.max(0, settledAt - s.t0, s.tPaint == null ? 0 : s.tPaint - s.t0), // never before the first paint
@@ -195,6 +206,7 @@ const HARNESS = `(() => {
           longCount: long.length,
           longMax: long.length ? Math.max(...long) : 0,
           long,
+          frames,
           timedOut: settledAt == null,
           content: s.content ? (s.contentAt == null ? null : Math.max(0, s.contentAt - s.t0, s.tPaint == null ? 0 : s.tPaint - s.t0)) : undefined,
           downs: s.downs
@@ -356,12 +368,25 @@ const stat = (xs) => {
 }
 const r1 = (x) => (x == null ? 'n/a' : (Math.round(x * 10) / 10).toString())
 
+/** Self time per function from a V8 profile, biggest first: where the main thread spent the switch. */
+function topSelf(profile, n = 12) {
+  const byId = new Map(profile.nodes.map((nd) => [nd.id, nd]))
+  const self = new Map()
+  profile.samples.forEach((id, k) => {
+    const cf = byId.get(id).callFrame
+    const key = `${cf.functionName || '(anonymous)'} ${cf.url.split('/').pop()}:${cf.lineNumber + 1}:${cf.columnNumber + 1}`
+    self.set(key, (self.get(key) ?? 0) + (profile.timeDeltas[k] ?? 0))
+  })
+  return [...self].sort((a, b) => b[1] - a[1]).slice(0, n).map(([fn, us]) => ({ fn, ms: Math.round(us / 100) / 10 }))
+}
 async function timed(def, i) {
   await def.setup(i)
   await settle()
   await evaluate(`__perf.arm(${JSON.stringify(def.ready(i))}, ${JSON.stringify(def.content?.(i) ?? null)})`)
+  if (cpuProfile) await cdp('Profiler.start')
   await def.act(i)
   const r = await evaluate('__perf.finish(300, 15000, 0)')
+  if (cpuProfile) r.cpu = topSelf((await cdp('Profiler.stop')).profile)
   if (r.error) throw new Error(`${def.name}: ${r.error}`)
   return r
 }
@@ -395,6 +420,10 @@ async function lastClick(def, i, withPush) {
 }
 
 await evaluate(HARNESS)
+if (cpuProfile) {
+  await cdp('Profiler.enable')
+  await cdp('Profiler.setSamplingInterval', { interval: 200 })
+}
 const shown = await evaluate(`document.querySelector('.tb-switcher-name')?.textContent`)
 if (!['demo-app', 'api-server', 'acme', 'web', 'mobile-app'].includes(shown)) {
   console.error(`refusing: the app shows project "${shown}", not a profile seeded by shots-seed.mjs --scale`)

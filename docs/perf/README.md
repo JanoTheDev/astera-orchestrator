@@ -42,6 +42,13 @@ that was not possible on the AFTER run. The script also calls `Page.bringToFront
 stops `requestAnimationFrame` and the run would hang. The `content ready` table (Sessions, Run, Source Control, Devices) is
 printed after the main table.
 
+## Finding what a long frame did (`--cpu`)
+
+`--cpu` records a V8 CPU profile around every timed run and, for each run, stores the long frames' script attribution
+(`frames[].scripts`, `render` = style/layout/paint part of the frame) and the top self-time functions (`cpu`, minified
+bundle `file:line:col`) in the `--out` JSON. Use it with `--only`; it slows the page, so it is a diagnosis, not the table.
+The app must be showing a seeded project with plans (reload the window if Plans is empty).
+
 ## Mode
 
 **Built app run directly with Electron** (`electron . --remote-debugging-port`), i.e. the production renderer (no
