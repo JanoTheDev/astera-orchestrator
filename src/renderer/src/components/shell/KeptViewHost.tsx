@@ -15,7 +15,7 @@ export function ViewToolbar({ items, label }: { items: ToolbarItem[]; label: str
  *  portals no actions into the header (it would draw them over the active view's). */
 export function KeptViews({ ids, active, slot, render }: {
   ids: readonly ActivityId[]
-  active: ActivityId
+  active: ActivityId | null
   slot: HTMLElement | null
   render: (id: ActivityId) => React.ReactNode
 }): React.JSX.Element {

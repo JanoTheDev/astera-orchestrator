@@ -34,7 +34,7 @@ export function SideBar(p: SideBarViewProps): React.JSX.Element {
   if (keptNow !== kept) setKept(keptNow)
   const ids = useMemo(() => ACTIVITY_IDS.filter((id) => keptNow.includes(id)), [keptNow])
   const { title } = SIDE_BAR_VIEWS[activity]
-  // collapsed: hidden, not unmounted, so reopening is instant
+  // collapsed: every kept view goes hidden (no renders, polls or header actions) but stays mounted, so reopening is instant
   return (
     <aside className="wb-sidebar" style={{ width: sidebarWidth, ...(sidebarOpen ? null : { display: 'none' }) }} aria-label={t(title)}>
       <div className="wb-sidebar__head">
@@ -44,7 +44,7 @@ export function SideBar(p: SideBarViewProps): React.JSX.Element {
       <div className="wb-sidebar__body">
         <KeptViews
           ids={ids}
-          active={activity}
+          active={sidebarOpen ? activity : null}
           slot={slot}
           render={(id) => {
             const { View } = SIDE_BAR_VIEWS[id]

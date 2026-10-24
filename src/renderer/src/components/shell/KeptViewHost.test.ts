@@ -6,7 +6,7 @@ import { ActionsSlot, KeptViews } from './KeptViewHost'
 const Probe = ({ id }: { id: string }): React.JSX.Element =>
   React.createElement('b', { id }, useContext(ActionsSlot) ? 'actions' : 'no-actions')
 
-const render = (active: 'agents' | 'plans'): string =>
+const render = (active: 'agents' | 'plans' | null): string =>
   renderToStaticMarkup(
     React.createElement(KeptViews, {
       ids: ['agents', 'plans'],
@@ -21,5 +21,9 @@ describe('KeptViews', () => {
   it('renders only the visible view, with the header actions slot', () => {
     expect(render('plans')).toBe('<b id="plans">actions</b>')
     expect(render('agents')).toBe('<b id="agents">actions</b>')
+  })
+
+  it('hides every view when none is active (collapsed side bar)', () => {
+    expect(render(null)).toBe('')
   })
 })
