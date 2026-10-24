@@ -23,6 +23,7 @@ import {
   approvePlan,
   archiveJob,
   deleteRun,
+  discardMadeJob,
   holdJob,
   holdWorker,
   rejectPlan,
@@ -146,8 +147,10 @@ export async function execute(r: Ready, d: ExecDeps): Promise<Line[]> {
       if (made.status >= 400) return [{ text: `${t('jobs.new.failed')}${errorOf(made.body) ? `: ${errorOf(made.body)}` : ''}` }]
       const id = (made.body as { id: string }).id
       const planned = await pd.command('jobs-plan', { id })
-      if (planned.status >= 400)
-        return [{ text: `${t('jobs.new.plannerFailed')}${errorOf(planned.body) ? `: ${errorOf(planned.body)}` : ''}`, jobId: id }]
+      if (planned.status >= 400) {
+        await discardMadeJob(pd, id)
+        return [{ text: `${t('jobs.new.plannerFailed')}${errorOf(planned.body) ? `: ${errorOf(planned.body)}` : ''}` }]
+      }
       d.openPlan(id)
       return [{ text: t('command.done.planned', { project: project.name }), jobId: id }]
     }
