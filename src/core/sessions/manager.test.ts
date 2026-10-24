@@ -242,6 +242,21 @@ describe('SessionManager', () => {
     expect(spawned[0].opts.meta?.restore).toMatchObject({ model: 'opus' })
   })
 
+  it('effort 를 주면 --effort 로 띄우고 info 와 note 에 남긴다 (롤의 재기동이 읽는다)', () => {
+    const { manager, spawned } = setup()
+    const info = manager.spawn({ account, cwd: process.cwd(), effort: 'high' })
+    expect(argsText(spawned[0].args)).toContain('--effort high')
+    expect(info.effort).toBe('high')
+    expect(spawned[0].opts.meta?.restore).toMatchObject({ effort: 'high' })
+  })
+
+  it('effort 가 없으면 --effort 를 붙이지 않는다', () => {
+    const { manager, spawned } = setup()
+    const info = manager.spawn({ account, cwd: process.cwd() })
+    expect(argsText(spawned[0].args)).not.toContain('--effort')
+    expect(info).not.toHaveProperty('effort')
+  })
+
   // W6-B: a Job worker's --disallowedTools reaches the argv
   it('disallowedTools 를 주면 --disallowedTools 로 띄운다', () => {
     const { manager, spawned } = setup()

@@ -146,6 +146,8 @@ export interface SessionInfo {
   /** Terminal only (orchestrator W1-A): the `--model` / `-m` the session was started with. Rides
    *  every roll's respawn and the note, like bypassPermissions. Absent: the CLI's default. */
   model?: string
+  /** Terminal only: the reasoning effort the session was started with; rides rolls like `model`. */
+  effort?: string
   // W6-E progress view: the last tool call the session started, from its last `PreToolUse` hook
   // (core/hooks/sessionState.ts `lastActionOf`): the tool, its file / command (first 80 chars) / pattern, epoch ms.
   lastAction?: { tool: string; target?: string; at: number }
