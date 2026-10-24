@@ -41,5 +41,5 @@ const subscribe = (l: () => void): (() => void) => {
 
 /** `[advanced, setAdvanced]`: whether Advanced mode is on, and the setter. */
 export function useAdvancedMode(): readonly [boolean, (on: boolean) => void] {
-  return [useSyncExternalStore(subscribe, getAdvancedMode), setAdvancedMode]
+  return [useSyncExternalStore(subscribe, getAdvancedMode, getAdvancedMode), setAdvancedMode]
 }
