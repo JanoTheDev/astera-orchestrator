@@ -183,7 +183,8 @@ import { isPermissionMode, isUnattendedPermission } from '../core/chat/types'
 import { performRepair, repairOnce, repairTargetFor, type RepairDeps } from '../core/orchestration/exec/repair'
 import { snapshotFor, jobsForProject, outcomeOf } from '../core/orchestration/view'
 import { createOrchPush } from './orchPush'
-import { dropNonGitProjects, ensureGitProject, findProjectContaining } from '../core/orchestration/projects'
+import { dropNonGitProjects, ensureProject, findProjectContaining } from '../core/orchestration/projects'
+import { commitFresh } from '../core/orchestration/stateConflict'
 import { mainRepoRoot } from '../core/projects/detect'
 import { hasOriginRemote } from '../core/projects/create'
 import { readFolderSetup } from '../core/orchestration/exec/deliverySetup'
@@ -528,9 +529,12 @@ export async function releaseThenRemoveAccount<T>(
   logout?: () => Promise<T>
 ): Promise<T | undefined> {
   for (const { dispatchId } of releasable) {
-    const st = deps.getState()
-    if (st.dispatches.find((d) => d.id === dispatchId)?.retained)
-      await deps.setState({ ...st, dispatches: st.dispatches.map((d) => (d.id === dispatchId ? { ...d, retained: false } : d)) })
+    // A state conflict re-reads and re-applies the un-retain (commitFresh); nothing to write when it is not retained
+    await commitFresh(deps, (cur) =>
+      cur.dispatches.find((d) => d.id === dispatchId)?.retained
+        ? { ...cur, dispatches: cur.dispatches.map((d) => (d.id === dispatchId ? { ...d, retained: false } : d)) }
+        : null
+    )
     await deps.releaseWorker({ dispatchId, closeReason: 'released' })
   }
   await deps.removeAccount(accountId)
@@ -4974,9 +4978,18 @@ export function registerIpc(
       // W8-G (#103): a tab in a non-git folder is not a project; entries an older build made from one go on first load.
       // T3: registered by its repository's main top level, never a subfolder or a linked worktree (ensureGitProject)
       const isGit = async (dir: string): Promise<boolean> => (await mainRepoRoot(dir)) !== null
-      const state = await ensureGitProject(strayProjectsDropped ? before : await dropNonGitProjects(before, isGit), { path: project, now: new Date().toISOString() }, (dir) => mainRepoRoot(dir))
+      // The git probes are async and commitFresh's step is not, so they run once, here, on the state read above. A re-run
+      // after a conflict applies the same answers to the fresh state: the strays by id, the project's repository root as found.
+      const dropped = strayProjectsDropped ? before : await dropNonGitProjects(before, isGit)
+      const strays = new Set(before.projects.filter((p) => !dropped.projects.includes(p)).map((p) => p.id))
+      const root = findProjectContaining(dropped, project) ? null : await mainRepoRoot(project)
       strayProjectsDropped = true
-      if (state !== before) await orch.deps.setState(state)
+      await commitFresh(orch.deps, (cur) => {
+        const kept = strays.size === 0 ? cur : { ...cur, projects: cur.projects.filter((p) => !strays.has(p.id)) }
+        // ensureGitProject's registration, synchronous now: its repository root is already known
+        const state = root === null || findProjectContaining(kept, project) ? kept : ensureProject(kept, { path: root, now: new Date().toISOString() }).state
+        return state === cur ? null : state
+      })
     }
     const snapshot: OrchSnapshot = orch
       ? orchSnapshotOf(orch.deps.getState(), project)

@@ -88,17 +88,47 @@ describe('handleWithRetry', () => {
     expect(r.sleeps).toEqual([50])
   })
 
-  it('does not re-run a command that conflicts after it acted', async () => {
+  it('a jobs-plan whose post-start write conflicts once answers 200 with exactly one planner start', async () => {
     const r = await rig((_put, host) => {
       if (r.starts.length === 0 || host.state.jobs.some((j) => j.objective === 'changed by the other plan')) return false
       host.state = renamed(host.state, r.b)
       return true
     })
     const reply = await r.plan()
-    expect(reply).toEqual({ status: 409, body: { error: BUSY_ERROR, conflict: 'state-moved-on' } })
+    expect(reply).toEqual({ status: 200, body: { jobId: r.a, sessionId: 's1' } })
     expect(r.starts).toHaveLength(1)
-    expect(r.sleeps).toEqual([])
-    expect(r.logs[0]).toMatch(/jobs-plan was refused after 1 attempt\(s\), after it had acted outside the state — .*Host at/)
+    expect(r.host.state.jobs.find((j) => j.id === r.a)?.plannerSessionIds).toEqual(['s1'])
+    expect(r.host.state.jobs.find((j) => j.id === r.b)?.objective).toBe('changed by the other plan')
+    expect(r.logs).toEqual([])
+  })
+
+  it('does not re-run a command that conflicts after it acted outside the state', async () => {
+    // A stub whose write after its effect is a plain setState, which the Host refuses: handleWithRetry must not re-run it
+    let starts = 0
+    const stub = async (d: { startCoordinator: (a: object) => Promise<unknown>; setState: (s: OrchState) => Promise<void> }) => {
+      await d.startCoordinator({})
+      await d.setState(emptyState())
+      return { status: 200, body: {} }
+    }
+    const deps = {
+      startCoordinator: async () => {
+        starts++
+        return { sessionId: 's1' }
+      },
+      setState: async () => {
+        throw new OrchStateConflict(2, 1)
+      }
+    } as unknown as OrchServerDeps
+    const logs: string[] = []
+    const reply = await handleWithRetry(stub as unknown as typeof handleCommand, deps, { sessionId: '' }, 'stub', {}, {
+      log: (l) => logs.push(l),
+      sleep: async () => {
+        throw new Error('no sleeps: the command must not be re-run')
+      }
+    })
+    expect(reply).toEqual({ status: 409, body: { error: BUSY_ERROR, conflict: 'state-moved-on' } })
+    expect(starts).toBe(1)
+    expect(logs[0]).toMatch(/stub was refused after 1 attempt\(s\), after it had acted outside the state — .*Host at 2, write built on 1/)
   })
 
   it('answers in plain words after five conflicts, and logs the versions', async () => {
