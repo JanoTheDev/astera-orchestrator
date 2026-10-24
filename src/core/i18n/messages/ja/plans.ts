@@ -69,4 +69,10 @@ export const plans: Partial<Record<keyof typeof ko, string>> = {
   'pages.plans.main.tasks': 'Task {n} 件',
   'pages.plans.main.toggle': '{plan} の Task を表示/非表示',
   'pages.plans.main.allDone': 'すべての計画が完了しました。',
+  // Main plan tab: running first, finished newest first
+  'pages.plans.main.phase.needs': '対応が必要',
+  'pages.plans.main.phase.running': '実行中',
+  'pages.plans.main.phase.waiting': '待機中',
+  'pages.plans.main.phase.done': '完了',
+  'pages.plans.main.finishedAgo': '{age}前に完了',
 }

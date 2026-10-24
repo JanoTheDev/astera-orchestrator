@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { JobRow, JobTask } from '../../../../core/types'
-import { finishedDateOf, mainPlanViewOf, shownPlans } from './mainPlanView'
+import { finishedAgeOf, finishedDateOf, mainPlanViewOf, shownPlans } from './mainPlanView'
 
 const task = (id: string, over: Partial<JobTask> = {}): JobTask => ({ id, title: id, status: 'pending', openGates: 0, ...over })
 const done = (id: string): JobTask => task(id, { status: 'completed', board: { category: 'done' } })
@@ -9,7 +9,7 @@ const row = (id: string, over: Partial<JobRow> = {}): JobRow => ({
 })
 
 describe('mainPlanViewOf', () => {
-  it('lists plans oldest first, a queued plan right behind its predecessor, and leaves out archived ones', () => {
+  it('lists running plans oldest first, a queued plan right behind its predecessor, and leaves out archived ones', () => {
     const v = mainPlanViewOf([
       row('c', { createdAt: '2026-01-03' }),
       row('b', { createdAt: '2026-01-02', after: 'c' }),
@@ -17,6 +17,19 @@ describe('mainPlanViewOf', () => {
       row('old', { createdAt: '2025-01-01', archivedAt: '2025-02-01' })
     ])
     expect(v.plans.map((p) => p.row.id)).toEqual(['a', 'c', 'b'])
+  })
+
+  it('orders needs-you, running, waiting, then done plans by finishedAt newest first, a queued plan behind its predecessor', () => {
+    const fin = (id: string, finishedAt?: string): JobRow => row(id, { outcome: 'completed', done: 1, total: 1, createdAt: '2026-01-01', ...(finishedAt ? { finishedAt } : {}) })
+    const v = mainPlanViewOf([
+      fin('old', '2026-02-01T00:00:00Z'),
+      fin('new', '2026-03-01T00:00:00Z'),
+      row('q', { createdAt: '2026-01-03', after: 'w', paused: true }),
+      row('w', { createdAt: '2026-01-02', paused: true }),
+      row('run', { createdAt: '2026-01-04' }),
+      row('need', { createdAt: '2026-01-05', tasks: [task('b', { status: 'blocked' })] })
+    ])
+    expect(v.plans.map((p) => p.row.id)).toEqual(['need', 'run', 'w', 'q', 'new', 'old'])
   })
 
   it('counts done Tasks over all Tasks of all plans', () => {
@@ -41,7 +54,7 @@ describe('mainPlanViewOf', () => {
         task('own', { board: { category: 'queued', reason: { kind: 'deps', waitingOn: [{ id: 'own2', title: 'Mine', status: 'pending' }] } } })
       ]
     })
-    const lines = mainPlanViewOf([auth, ui]).plans[1].tasks.map((m) => m.wait)
+    const lines = mainPlanViewOf([auth, ui]).plans.find((p) => p.row.id === 'ui')!.tasks.map((m) => m.wait)
     expect(lines).toEqual([
       { key: 'pages.plans.main.waits', params: { plan: 'Auth rework', task: 'Login API' } },
       { key: 'pages.plans.main.sameFiles', params: { plan: 'Auth rework', task: 'Top bar' } },
@@ -129,10 +142,13 @@ describe('mainPlanViewOf', () => {
       row('run', { createdAt: '2026-10-05T08:00:00.000Z', tasks: [task('r1')] })
     ])
     expect(v.plans.map((p) => p.finished)).toEqual([
-      { tasks: 2, commit: 'caaea2c', at: Date.parse('2026-10-03T10:00:00.000Z') },
+      undefined,
       { tasks: 1, commit: 'bbbbbbb', at: Date.parse('2026-10-04T08:00:00.000Z') },
-      undefined
+      { tasks: 2, commit: 'caaea2c', at: Date.parse('2026-10-03T10:00:00.000Z') }
     ])
+    // the row's own finishedAt wins over the PR proxy
+    const w = mainPlanViewOf([row('x', { outcome: 'completed', finishedAt: '2026-10-09T00:00:00.000Z', pr: { at: '1', attributed: 'abc1234', attributedAt: '2026-10-03T10:00:00.000Z' }, tasks: [done('x1')] })])
+    expect(w.plans[0].finished?.at).toBe(Date.parse('2026-10-09T00:00:00.000Z'))
   })
 
   it('hides the done plans when asked, keeping the order', () => {
@@ -141,7 +157,7 @@ describe('mainPlanViewOf', () => {
       row('b', { createdAt: '2', tasks: [task('b1')] }),
       row('c', { createdAt: '3', outcome: 'completed', tasks: [done('c1')] })
     ])
-    expect(shownPlans(v, false).map((p) => p.row.id)).toEqual(['a', 'b', 'c'])
+    expect(shownPlans(v, false).map((p) => p.row.id)).toEqual(['b', 'c', 'a'])
     expect(shownPlans(v, true).map((p) => p.row.id)).toEqual(['b'])
   })
 })
@@ -159,3 +175,10 @@ describe('finishedDateOf', () => {
   })
 })
 
+
+describe('finishedAgeOf', () => {
+  it('is short: minutes, hours, days', () => {
+    const now = Date.parse('2026-10-24T12:00:00Z')
+    expect(['2026-10-24T11:59:50Z', '2026-10-24T11:55:00Z', '2026-10-24T09:00:00Z', '2026-10-21T12:00:00Z'].map((t) => finishedAgeOf(Date.parse(t), now))).toEqual(['<1m', '5m', '3h', '3d'])
+  })
+})

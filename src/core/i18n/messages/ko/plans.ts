@@ -103,4 +103,10 @@ export const plans = {
   'pages.plans.tree.menu.openInPlan': '계획에서 열기',
   'pages.plans.tree.menu.copyId': 'id 복사',
   'pages.plans.tree.menu.label': '계획 동작',
+  // Main plan tab: running first, finished newest first
+  'pages.plans.main.phase.needs': '필요한 조치',
+  'pages.plans.main.phase.running': '실행 중',
+  'pages.plans.main.phase.waiting': '대기 중',
+  'pages.plans.main.phase.done': '완료',
+  'pages.plans.main.finishedAgo': '{age} 전 완료',
 } as const

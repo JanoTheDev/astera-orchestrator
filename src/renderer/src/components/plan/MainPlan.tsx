@@ -7,7 +7,7 @@ import { useVirtualRows, VIRTUAL_AFTER_ROWS } from '../ui/virtualRows'
 import { useI18n } from '../../i18n/I18nProvider'
 import { STATE_KEY, TaskGlyph } from '../JobIcons'
 import { Button, Chip, EmptyState, ICONS, Icon, IconButton, Meter, Switch, cx, type ChipTone } from '../ui'
-import { finishedDateOf, mainPlanMemo, shownPlans, type Line, type MainPhase, type MainPlanBlock } from './mainPlanView'
+import { finishedAgeOf, finishedDateOf, mainPlanMemo, shownPlans, type Line, type MainPhase, type MainPlanBlock } from './mainPlanView'
 import { planStatusOf } from './planList'
 import type { PlanActs } from './PlanRow'
 import { statusGroupOf, type StatusGroup } from './planTree'
@@ -20,6 +20,7 @@ const HIDE_DONE_KEY = 'cm.mainPlanHideDone'
 const openByPlan = new Map<string, boolean>()
 
 const PHASE_TONE: Record<Exclude<MainPhase, 'done'>, ChipTone> = { running: 'info', waiting: 'neutral', needs: 'warn' }
+const PHASE_ICON: Record<MainPhase, 'circleAlert' | 'repeat' | 'waiting' | 'done'> = { needs: 'circleAlert', running: 'repeat', waiting: 'waiting', done: 'done' }
 const GROUP_TONE: Record<StatusGroup, ChipTone> = { needs: 'warn', running: 'info', waiting: 'neutral', done: 'ok', failed: 'danger' }
 
 function storedHideDone(): boolean {
@@ -117,12 +118,21 @@ export const MainPlan = memo(function MainPlan({ rows, acts, accounts = [] }: { 
       </header>
       {plans.length === 0 && <p className="plans-row__facts plans-main__none">{t('pages.plans.main.allDone')}</p>}
       <div ref={vr.listRef} style={virtual ? { paddingTop: vr.before, paddingBottom: vr.after } : undefined}>
-      {plans.slice(vr.start, vr.end).map((p) => {
+      {plans.slice(vr.start, vr.end).map((p, k) => {
         const { row, name, tasks, checks, finished } = p
+        // the header of a phase sits in the block that opens it, so it is measured and windowed with it
+        const first = plans[vr.start + k - 1]?.phase !== p.phase
         const open = isOpen(p)
         const status = planStatusOf(row)
         return (
           <section key={row.id} ref={vr.measure(row.id)} id={anchorOf(row.id)} className={cx('plans-main__plan', finished && 'is-finished')}>
+            {first && (
+              <h3 className={cx('plans-main__phase', `plans-main__phase--${p.phase}`)}>
+                <Icon name={PHASE_ICON[p.phase]} size={14} />
+                {t(`pages.plans.main.phase.${p.phase}`)}
+                <span className="plans-main__phasecount">{view.counts[p.phase]}</span>
+              </h3>
+            )}
             <div className="plans-row__main">
               <IconButton
                 size="sm"
@@ -134,20 +144,26 @@ export const MainPlan = memo(function MainPlan({ rows, acts, accounts = [] }: { 
               <Button variant="ghost" className="plans-row__name" title={name} onClick={() => acts.onOpen(row.id)}>
                 {name}
               </Button>
-              <Chip tone={status.tone}>{t(status.key, status.params)}</Chip>
+              <Chip tone={status.tone}>
+                <Icon name={PHASE_ICON[p.phase]} size={14} />
+                {t(status.key, status.params)}
+              </Chip>
               {!finished && row.areas?.length ? <span className="plans-row__facts plans-main__areas">{row.areas.join(' · ')}</span> : null}
               <span className="plans-row__spacer" />
-              <span className="plans-row__meta">
-                {finished
-                  ? [
-                      t('pages.plans.main.tasks', { n: finished.tasks }),
-                      finished.commit,
-                      finished.at !== undefined ? finishedDateOf(finished.at, nowMs, lang) : undefined
-                    ]
-                      .filter(Boolean)
-                      .join(' · ')
-                  : t('pages.plans.main.count', { done: row.done, total: row.total })}
-              </span>
+              {finished ? (
+                <span className="plans-row__meta">
+                  {[
+                    t('pages.plans.main.tasks', { n: finished.tasks }),
+                    finished.commit,
+                    finished.at !== undefined ? finishedDateOf(finished.at, nowMs, lang) : undefined,
+                    finished.at !== undefined ? t('pages.plans.main.finishedAgo', { age: finishedAgeOf(finished.at, nowMs) }) : undefined
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </span>
+              ) : (
+                <Meter className="plans-main__rowmeter" value={row.total > 0 ? (row.done / row.total) * 100 : 0} label={t('pages.plans.main.count', { done: row.done, total: row.total })} />
+              )}
             </div>
             {open && (
               <>

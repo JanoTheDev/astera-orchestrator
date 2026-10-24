@@ -29,3 +29,10 @@
   .plans-main__trow > .ui-btn__label { grid-template-columns: 14px minmax(0, 1fr) 7rem 8rem; }
   .plans-main__tmodel { display: none; }
 }
+
+/* Phase section headers (needs you, running, waiting, done) with their counts; the plan rows use the whole tab width */
+.plans-main__phase { display: flex; align-items: center; gap: var(--sp-2); margin: 0; padding: var(--sp-3) var(--sp-2) var(--sp-1); color: var(--text-dim); font-size: var(--fs-12); font-weight: var(--fw-semi); }
+.plans-main__phase--needs { color: var(--warn); }
+.plans-main__phasecount { color: var(--text-faint); font-weight: var(--fw-regular); }
+.plans-main__plan { width: 100%; }
+.plans-main__rowmeter.ui-meter { --ui-meter-fill: var(--accent); flex: none; width: 10rem; }

@@ -103,4 +103,10 @@ export const plans: Record<keyof typeof ko, string> = {
   'pages.plans.tree.menu.openInPlan': 'Open in plan',
   'pages.plans.tree.menu.copyId': 'Copy id',
   'pages.plans.tree.menu.label': 'Plan actions',
+  // Main plan tab: running first, finished newest first
+  'pages.plans.main.phase.needs': 'Needs you',
+  'pages.plans.main.phase.running': 'Running',
+  'pages.plans.main.phase.waiting': 'Waiting',
+  'pages.plans.main.phase.done': 'Done',
+  'pages.plans.main.finishedAgo': 'finished {age} ago',
 }
