@@ -7,22 +7,9 @@
 // site. The mirror keeps it synchronous by holding the last state the Host pushed.
 import { isValidState } from '../../core/orchestration/store'
 import type { OrchState } from '../../core/orchestration/state'
+import { OrchStateConflict } from '../../core/orchestration/stateConflict'
 
-/** A write the Host refused because the state had moved on under it (ruling F56). Named so the
- *  callers that can say something useful about it can tell it from a disk failure — this one means
- *  "your action did not happen and the screen you decided from was stale", which is a sentence for a
- *  person, not for a log. */
-export class OrchStateConflict extends Error {
-  constructor(
-    readonly hostVersion: number | undefined,
-    readonly sentVersion: number | undefined
-  ) {
-    super(
-      `the orchestration state moved on before this write landed (Host at ${String(hostVersion)}, write built on ${String(sentVersion)})`
-    )
-    this.name = 'OrchStateConflict'
-  }
-}
+export { OrchStateConflict }
 
 export interface MirrorStore {
   getState(): OrchState
