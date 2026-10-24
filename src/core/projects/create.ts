@@ -68,6 +68,21 @@ export async function initialCommit(root: string, run: typeof git = git): Promis
   if (!commit.ok) throw new Error(`git commit failed: ${commit.stderr || commit.errorCode || 'no answer'}`)
 }
 
+async function gitInit(root: string, run: typeof git): Promise<void> {
+  const init = await run(['init', '-b', 'main'], { cwd: root })
+  if (!init.ok) throw new Error(`git init failed: ${init.stderr || init.errorCode || 'no answer'}`)
+}
+
+/** Makes an existing folder with no repository one: `git init -b main`, a `.gitignore` only where there is none, and
+ *  the initial commit of what is there. Nothing existing is overwritten. Throws git's own words. */
+export async function initGitFolder(root: string, run: typeof git = git): Promise<void> {
+  await gitInit(root, run)
+  await fs.writeFile(path.join(root, '.gitignore'), gitignoreFor(''), { encoding: 'utf8', flag: 'wx' }).catch((e: NodeJS.ErrnoException) => {
+    if (e.code !== 'EEXIST') throw e
+  })
+  await initialCommit(root, run)
+}
+
 /** Makes the folder `parent/name` (it must not exist yet), `git init -b main`, writes `.gitignore` and `CLAUDE.md` from
  *  `describe`, and makes the initial commit. Throws the refusal's sentence. Answers the new folder. */
 export async function createProjectFolder(
@@ -85,8 +100,7 @@ export async function createProjectFolder(
     if ((e as NodeJS.ErrnoException).code === 'EEXIST') throw new Error(`${root} already exists; add it as an existing project instead`)
     throw e
   }
-  const init = await run(['init', '-b', 'main'], { cwd: root })
-  if (!init.ok) throw new Error(`git init failed: ${init.stderr || init.errorCode || 'no answer'}`)
+  await gitInit(root, run)
   const describe = req.describe ?? ''
   await fs.writeFile(path.join(root, '.gitignore'), gitignoreFor(describe), 'utf8')
   await fs.writeFile(path.join(root, 'CLAUDE.md'), claudeMdFor(name, describe), 'utf8')

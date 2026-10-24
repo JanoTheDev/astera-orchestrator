@@ -36,6 +36,7 @@ export const HOST_ANSWERED: ReadonlySet<string> = new Set([
   // W7-B: the project dialogs' git and gh work is the Host's (src/host/orch.ts)
   'projects-add',
   'projects-create',
+  'projects-github-create',
   // W8-F (#93): the planner's session is the Host's. Main has no listSessions / sendSession / agentSessionOf, so the box
   // always fell through to a fresh planner
   'jobs-feedback',

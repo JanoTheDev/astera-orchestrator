@@ -5,7 +5,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { claudeMdFor, createProjectFolder, githubCreate, gitignoreFor } from './create'
+import { claudeMdFor, createProjectFolder, githubCreate, gitignoreFor, initGitFolder } from './create'
 import { git } from '../worktrees/git'
 import type { GhRunner } from '../github/gh'
 
@@ -81,6 +81,25 @@ describe('createProjectFolder', () => {
     await expect(createProjectFolder({ name: 'ok', parent: 'relative/dir' })).rejects.toThrow(/absolute/)
     await expect(createProjectFolder({ name: 'ok', parent: path.join(dir, 'nope') })).rejects.toThrow(/not a folder/)
     expect(await fs.readdir(dir)).toEqual([])
+  })
+})
+
+describe('initGitFolder', () => {
+  it('makes a plain folder a repository on main and commits what is there, adding a .gitignore', async () => {
+    const root = path.join(dir, 'plain')
+    await fs.mkdir(root)
+    await fs.writeFile(path.join(root, 'a.txt'), 'mine')
+    await initGitFolder(root)
+    expect((await git(['symbolic-ref', '--short', 'HEAD'], { cwd: root })).stdout).toBe('main')
+    expect((await git(['ls-files'], { cwd: root })).stdout.split('\n').sort()).toEqual(['.gitignore', 'a.txt'])
+  })
+
+  it('keeps a .gitignore that is already there', async () => {
+    const root = path.join(dir, 'ignored')
+    await fs.mkdir(root)
+    await fs.writeFile(path.join(root, '.gitignore'), 'secret\n')
+    await initGitFolder(root)
+    expect(await fs.readFile(path.join(root, '.gitignore'), 'utf8')).toBe('secret\n')
   })
 })
 
