@@ -884,6 +884,8 @@ export interface JobRow {
   deliveryError?: string
   /** T34: the owner dismissed a failed delivery, so the work never landed. Not in `delivery`: that row is for actions to take. */
   deliveryDismissed?: true
+  /** A later plan's delivery carried this plan's work to the base (Job.deliveredBy): that plan and its title. */
+  deliveredBy?: { jobId: string; title: string }
   /** A `manual` plan finished and waits for its owner to review it and create the PR or merge (Run.deliveryState `awaiting-review`). */
   awaitingReview?: true
   /** T3: a delivery that is being retried, failed, waits on the owner or runs now: the Run it is of (for `run-deliver`),

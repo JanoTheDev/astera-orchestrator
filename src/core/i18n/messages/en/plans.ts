@@ -51,6 +51,7 @@ export const plans: Record<keyof typeof ko, string> = {
   'pages.plans.status.failed': 'Failed',
   'pages.plans.status.done': 'Done',
   'pages.plans.status.deliveryDismissed': 'Dismissed',
+  'pages.plans.status.deliveredBy': 'Delivered by {plan}',
   'pages.plans.wave': 'Step {at} of {of}',
   'pages.plans.progress': '{done} of {total} done',
   'pages.plans.empty.body': 'A plan splits a goal into Tasks that agents work on. Start one with New job.',

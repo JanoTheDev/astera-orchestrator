@@ -3,6 +3,7 @@ import type { plans as ko } from '../ko/plans'
 
 export const plans: Partial<Record<keyof typeof ko, string>> = {
   'pages.plans.status.deliveryDismissed': 'Descartada',
+  'pages.plans.status.deliveredBy': 'Entregado por {plan}',
   'jobs.convergence.chip.repairing': 'Corrección {repairs}/{max}',
   'jobs.convergence.chip.reviewing': 'Revisión {round}/{max}',
   'jobs.convergence.chip.exhausted': 'Agotado',

@@ -19,7 +19,9 @@ import type { CompletionCheckInput } from '../core/orchestration/pluginChecks'
 import { OrchestrationStore, isValidState, type OrchLoadResult } from '../core/orchestration/store'
 import { applyPendingReports, readPendingReports, type QueuedReport } from '../core/orchestration/pendingDrain'
 import { dispatchesHeldOnlyByReport, pendingReportsDirIn, reportedDispatchIdsOf } from '../core/orchestration/pendingReports'
-import { writeOffDispatch, type OrchState } from '../core/orchestration/state'
+import { jobOfRunId, writeOffDispatch, type OrchState } from '../core/orchestration/state'
+import { deliveredByLaterPlan, deliveredJobIds, newlyDelivered } from '../core/orchestration/deliveredBy'
+import { isSamePath } from '../core/files/tree'
 import { runningRunCount } from '../core/orchestration/running'
 import { isPlaceholderSessionId, type Dispatch } from '../core/orchestration/types'
 import { specsDirOf, sweepStaleSpecFiles } from '../core/orchestration/exec/specFiles'
@@ -67,7 +69,7 @@ import type { HostSummaries } from './hostSummaries'
 import { NOT_WRITER, type HostUnderstanding } from './hostUnderstanding'
 import type { HostWorkUnits } from './hostWorkUnits'
 import { addSubProject, ensureProject, findProject, setProjectSettings } from '../core/orchestration/projects'
-import type { Project } from '../core/orchestration/types'
+import type { JobRun, Project } from '../core/orchestration/types'
 import { cloneDestination, cloneRepository, cloneUrlRefusal, createProjectFolder, githubCreate, initGitFolder, initialCommit, type GithubVisibility } from '../core/projects/create'
 import { git } from '../core/worktrees/git'
 import { inspectFolder } from '../core/projects/detect'
@@ -706,6 +708,36 @@ export function createHostOrch(a: {
     }
   }
 
+  /** Whether the earlier Run's branch is inside what the later Run delivered: its pushed commit, else its own branch. The
+   *  branches are the worktree registry's (a Run carries only its folder); a branch git no longer has answers no. */
+  const isAncestorRun = async (earlier: JobRun, later: JobRun): Promise<boolean> => {
+    const branchOf = (r: JobRun): string | undefined =>
+      r.worktree === undefined ? undefined : a.worktrees?.list?.().find((w) => isSamePath(w.path, r.worktree!))?.branch
+    const early = branchOf(earlier)
+    const cwd = jobOfRunId(store.get(), earlier.id)?.cwd
+    const laterBranch = branchOf(later)
+    const target = later.delivery?.sha ?? (laterBranch !== undefined ? `refs/heads/${laterBranch}` : undefined)
+    if (early === undefined || cwd === undefined || target === undefined) return false
+    return (await git(['merge-base', '--is-ancestor', `refs/heads/${early}`, target], { cwd })).ok
+  }
+
+  /** T14: marks the earlier plans that the delivery of each of these plans carried to the base (`Job.deliveredBy`). Called
+   *  after a commit delivered a plan, and once at the load for the plans already delivered. **Fire and forget** like
+   *  `recordFinishedRuns`: the commit has landed, and a git failure costs only the mark. */
+  const recordDeliveredBy = (jobIds: string[]): void => {
+    if (jobIds.length === 0) return
+    void (async () => {
+      const at = a.now()
+      const marks = (await Promise.all(jobIds.map((id) => deliveredByLaterPlan(store.get(), id, isAncestorRun, at)))).flat()
+      // The state as it is now, not as the git calls found it: a plan marked meanwhile keeps the first mark
+      const s = store.get()
+      const fresh = new Map(marks.filter((m) => s.jobs.find((j) => j.id === m.jobId)?.deliveredBy === undefined).map((m) => [m.jobId, m.deliveredBy]))
+      if (fresh.size === 0) return
+      await depsFor(throwaway(), HOST_ACTOR).setState({ ...s, jobs: s.jobs.map((j) => (fresh.has(j.id) ? { ...j, deliveredBy: fresh.get(j.id) } : j)) })
+      a.log(`delivered by a later plan — ${[...fresh].map(([id, by]) => `${id} by ${by.jobId}`).join(', ')}`)
+    })().catch((err) => a.log(`delivered by a later plan — could not record it: ${String(err)}`))
+  }
+
   /** **Nothing is read at construction, and `host/index.ts` never calls `ready()`.**
    *
    *  The load happens at the first call that needs the state — and, once the app has pushed its state
@@ -779,6 +811,8 @@ export function createHostOrch(a: {
         await drain(queued).catch((err) => a.log(`pending reports — the drain at the Host's load failed: ${String(err)}`))
       }
       loaded = true
+      // T14: plans delivered before this Host started may have carried an earlier plan's branch with them
+      recordDeliveredBy(deliveredJobIds(store.get(), a.now()))
       // After `loaded`, so the pass it starts sees a loaded Host (B2). Once: this promise is memoized.
       try {
         a.onLoaded?.()
@@ -935,6 +969,7 @@ export function createHostOrch(a: {
         // P5) and its version under this Host's life as the key (J6, P1).
         journalSafely('recording a commit', () => a.journal?.committed({ prev, next, version: committed, actor }))
         recordFinishedRuns(prev, next)
+        recordDeliveredBy(newlyDelivered(prev, next))
         markOrchSessions(prev, next)
         kickDriver()
       },

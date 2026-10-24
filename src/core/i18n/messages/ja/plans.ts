@@ -3,6 +3,7 @@ import type { plans as ko } from '../ko/plans'
 
 export const plans: Partial<Record<keyof typeof ko, string>> = {
   'pages.plans.status.deliveryDismissed': '配信を見送り',
+  'pages.plans.status.deliveredBy': '{plan} で配信済み',
   'jobs.convergence.chip.repairing': '修正 {repairs}/{max}',
   'jobs.convergence.chip.reviewing': 'レビュー {round}/{max}',
   'jobs.convergence.chip.exhausted': '上限到達',

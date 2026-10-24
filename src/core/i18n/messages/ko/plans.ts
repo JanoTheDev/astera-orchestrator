@@ -51,6 +51,7 @@ export const plans = {
   'pages.plans.status.failed': '실패',
   'pages.plans.status.done': '완료',
   'pages.plans.status.deliveryDismissed': '전달 취소됨',
+  'pages.plans.status.deliveredBy': '{plan}에서 전달됨',
   'pages.plans.wave': '단계 {at}/{of}',
   'pages.plans.progress': '{total}개 중 {done}개 완료',
   'pages.plans.empty.body': '계획은 목표를 에이전트가 일할 Task 로 나눕니다. 새 작업으로 시작하세요.',

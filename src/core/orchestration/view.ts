@@ -24,6 +24,7 @@ import type { Dispatch, Gate, Job, JobRun, Project, Task } from './types'
 import type { ApprovalMode } from '../settings/approvalDefault'
 import { taskBoardsOf } from './blocked'
 import { kindOf, validatePlan } from './planner'
+import { jobNameOf } from './jobName'
 // T7 objective coverage
 import { objectiveItemsOf } from './objectiveItems'
 import { stallOf, waveOf } from './replan'
@@ -489,6 +490,9 @@ export function snapshotFor(
       // A Run whose delivery failed reads failed; the reason rides with it
       ...(deliveryErrorOf(run) !== undefined ? { deliveryError: deliveryErrorOf(run) } : {}),
       ...(run?.deliveryState?.state === 'dismissed' ? { deliveryDismissed: true as const } : {}),
+      ...(job.deliveredBy !== undefined
+        ? { deliveredBy: { jobId: job.deliveredBy.jobId, title: jobNameOf(state.jobs.find((j) => j.id === job.deliveredBy!.jobId) ?? { objective: job.deliveredBy.jobId }) } }
+        : {}),
       ...(run?.deliveryState?.state === 'awaiting-review' ? { awaitingReview: true as const } : {}),
       // T3: the plan page's "Retry delivery" (PlanHeader) reads it
       ...(run?.deliveryState &&

@@ -16,6 +16,8 @@ export interface PlanStatus {
   reason?: string
   /** The key's placeholders (T36: the failed Task's title) */
   params?: MessageParams
+  /** Delivered through another plan (JobRow.deliveredBy): that plan, for the chip's link */
+  deliveredBy?: string
 }
 
 /** A plan nothing works on and nothing will move (JobRow.stuck): its row offers Archive and Resume. */
@@ -40,6 +42,9 @@ export function planStatusOf(row: JobRow): PlanStatus {
   if (row.archivedAt !== undefined) return { key: 'jobs.lifecycle.archived', tone: 'neutral' }
   // A schedule template never runs itself (outcomeOf calls it running for ever): it is scheduled or paused
   if (row.schedule) return row.paused ? { key: 'jobs.run.paused', tone: 'warn' } : { key: 'jobs.run.scheduled', tone: 'info' }
+  // A later plan's delivery carried this plan's work to main: it reads Delivered whatever its own outcome recorded
+  if (row.deliveredBy && (row.outcome === 'failed' || row.outcome === 'completed'))
+    return { key: 'pages.plans.status.deliveredBy', tone: 'ok', params: { plan: row.deliveredBy.title }, deliveredBy: row.deliveredBy.jobId }
   const slot = approveSlot(row)
   if (slot === 'approve') return { key: 'pages.plans.status.approve', tone: 'warn' }
   if (slot === 'planning') return { key: 'jobs.run.planning', tone: 'info' }
