@@ -103,9 +103,12 @@ export function resizePair(heights: number[], open: boolean[], i: number, px: nu
 }
 
 /** The flex-grow weights for the two panes of a resized pair, given the weights they actually render with (`grows`: the
- *  saved weight, else the CSS flex-grow) and their new heights. The pair keeps its combined weight, so every other pane,
- *  whatever scale its weight is in, keeps its share and its height. */
-export function pairWeights(grows: [number, number], heights: [number, number]): [number, number] {
+ *  saved weight, else the CSS flex-grow) and their new heights. `px` is the height one unit of weight takes among the
+ *  flex-basis-0 panes of the column (height / weight of any of them), when there is one: weights are then `height / px`,
+ *  which holds every other pane at its height even when a pair member was content-sized (`flex: none`) until now.
+ *  Without such a reference the pair splits its combined weight. */
+export function pairWeights(grows: [number, number], heights: [number, number], px?: number): [number, number] {
+  if (px && px > 0) return [heights[0] / px, heights[1] / px]
   const total = grows[0] + grows[1] || 1
   const sum = heights[0] + heights[1] || 1
   return [(total * heights[0]) / sum, (total * heights[1]) / sum]

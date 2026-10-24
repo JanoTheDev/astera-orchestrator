@@ -225,6 +225,18 @@ describe('Sash and ActivityBarItem helpers', () => {
     expect(pairWeights([300, 1], [100, 100])).toEqual([150.5, 150.5])
   })
 
+  it('pairWeights puts a content-sized pane on the flex scale without moving a third pane', () => {
+    // a 600px column: THIS content-sized (flex: none, 100px), YOURS and FOUND at grow 1 over the remaining 500px
+    const px = 250
+    const [a, b] = pairWeights([0, 1], [70, 280], px) // the divider moves 30px up
+    const found = 1
+    const free = 600 // THIS is flex-basis 0 now, so the flex panes share the whole column
+    const share = (w: number): number => (w / (a + b + found)) * free
+    expect(share(a)).toBeCloseTo(70)
+    expect(share(b)).toBeCloseTo(280)
+    expect(share(found)).toBeCloseTo(250)
+  })
+
   it('pane sizes round-trip through storage and ignore junk', () => {
     const m = new Map<string, string>()
     const s = { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v) }

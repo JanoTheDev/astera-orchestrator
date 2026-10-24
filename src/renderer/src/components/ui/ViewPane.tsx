@@ -234,7 +234,18 @@ export function ViewContainer({
           (j, k) =>
             entries[k]?.weight ?? (parseFloat(getComputedStyle(els[j]).flexGrow) || 0),
         ) as [number, number];
-        const out = pairWeights(grows, [next[changed[0]], next[changed[1]]]);
+        // pixels per unit of weight among the panes that render from flex-basis 0 (the content-sized ones are not on it)
+        const perWeight = els.flatMap((el) => {
+          const e = panes.current.get(el.dataset.pane ?? "");
+          if (!e?.open || getComputedStyle(el).flexBasis !== "0px") return [];
+          const g = e.weight ?? (parseFloat(getComputedStyle(el).flexGrow) || 0);
+          return g > 0 ? [el.offsetHeight / g] : [];
+        })[0];
+        const out = pairWeights(
+          grows,
+          [next[changed[0]], next[changed[1]]],
+          perWeight,
+        );
         entries.forEach((e, k) => e?.set(out[k], persist));
       },
       // a pane without a saved size (just opened) joins at the average of the other open panes
