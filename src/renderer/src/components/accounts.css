@@ -86,7 +86,6 @@
 .confirm-choices { display: flex; flex-direction: column; gap: var(--sp-2); margin: 2px 0; }
 .confirm-choice-hint { display: block; margin-top: 2px; font-size: var(--fs-11); color: var(--text-faint); }
 .confirm-text { font-size: var(--fs-13); color: var(--text); line-height: var(--lh); margin: 0 0 var(--sp-3); }
-.warn-text { font-size: var(--fs-12); color: var(--warn); line-height: var(--lh); margin: var(--sp-2) 0 0; }
 .badge { font-size: var(--fs-11); font-family: var(--mono); color: var(--text-dim); background: var(--elevated); border-radius: var(--radius-sm); padding: 0 var(--sp-1); flex-shrink: 0; }
 .badge.ok { color: var(--ok); background: var(--ok-bg); }
 .empty { color: var(--text-faint); font-size: var(--fs-11); padding: var(--sp-2) var(--sp-3); }

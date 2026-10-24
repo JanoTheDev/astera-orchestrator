@@ -10,6 +10,7 @@ docs/dev/DESIGN-W13.md §11–§12. Props below come from the source files.
 - An icon-only button needs a name: `IconButton` requires `label`; `Button` without children needs `aria-label`.
 - One filled primary (`variant="primary"`) per view. Secondaries are `ghost` or `secondary` (DESIGN-W11 §2, §7).
 - Tokens only in CSS: no colour literals, no raw px font sizes, no raw shadows in `primitives.css` (`var(--accent)`, `var(--text-dim)`, ...). `styles/noColourLiterals.test.ts` and `render.test.ts` fail on them.
+- Legacy class names whose CSS was deleted (`modal-hint`, `panel-header`, `icon-btn`, ...) never come back in a component: `styles/legacyClasses.test.ts` fails on them.
 - Icons through the registry: `<Icon name="settings" />` (`ICONS` in `Icon.tsx`). Lucide only; 16px in controls and rows, 14px in dense bars and chips. No emoji, no glyph characters.
 - Status needs a second cue (icon, word or dot + label). Colour alone never carries meaning.
 - Page skeleton: `PageHeader` (title, actions, filters) then content, with one `EmptyState` when empty.

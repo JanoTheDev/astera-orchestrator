@@ -4,10 +4,6 @@
   .sel-caret, .sel-trigger, button, .tab, .bottom-tab, .fx-row, .sel-option, .context-menu-item,
   .run-global-row, .account-row, .worktree-row, .session-row, .project-row, .lh-row { transition: none; }
 }
-/* the schedule-mode picker sits in a row with number inputs, so it does not stretch */
-.sched-kind { flex: 0 0 150px; }
-/* the history account filter — a panel header is denser than a form */
-.history-account-filter { flex: 1; min-width: 0; }
 .account-slot .slot-remove {
   flex: 0 0 auto;
   padding: 2px 7px;
