@@ -1,21 +1,27 @@
 /* T10 History Sessions tree (HistoryBrowser.tsx): one line per session, as the Agents view (agents.css) and the Plans
    tree (plan/plans.css). Tokens only. */
 
-/* The title is cut before the facts on the right; the plan goes first, the title keeps a few letters */
-.history-sessions .ui-tree__label { min-width: 6ch; }
-.history-sessions .ui-tree__desc { flex-shrink: 1000; min-width: 4ch; }
+/* Two lines, as in agents.css (T19): title and facts on the first, the plan under the title, wrapping rather than cut.
+   Only the title ends in an ellipsis; the account chip (an email's name part) and the time are never cut. */
+.history-sessions .ui-tree__row {
+  display: grid;
+  grid-template-columns: auto auto auto minmax(0, 1fr) auto;
+  grid-template-rows: var(--row-h);
+  grid-auto-rows: auto;
+  height: auto;
+  min-height: var(--row-h);
+}
+.history-sessions .ui-tree__indent { grid-row: 1; grid-column: 1; }
+.history-sessions .ui-tree__twistie { grid-row: 1; grid-column: 2; }
+.history-sessions .ui-tree__icon { grid-row: 1; grid-column: 3; }
+.history-sessions .ui-tree__label { grid-row: 1; grid-column: 4; }
+.history-sessions .ui-tree__meta, .history-sessions .ui-tree__actions { grid-row: 1; grid-column: 5; }
+.history-sessions .ui-tree__desc { grid-row: 2; grid-column: 4 / -1; margin: 0 0 var(--sp-1); line-height: var(--lh-tight); white-space: normal; overflow-wrap: anywhere; }
 .history-row__facts { display: inline-flex; align-items: center; gap: var(--sp-2); color: var(--text-faint); font-size: var(--fs-11); white-space: nowrap; }
+.history-row__facts > * { flex: none; }
 .history-row__account.ui-chip { height: 16px; padding: 0 var(--sp-1); font-size: var(--fs-11); }
 .history-row__facts > time { min-width: 3ch; text-align: right; font-variant-numeric: tabular-nums; }
-/* As in agents.css: the facts never push the row past the side bar (titles cut to "Writ…", the time to "28" and a
-   sideways scroll); the account chip gives way first, model · effort and the time are never cut */
-/* shrinks only to what it needs (the chip's 4ch, never the time): with no floor the title kept its width and the time
-   was pushed out of the row */
-.history-sessions .ui-tree__meta { flex: 0 1 auto; }
-.history-row__facts > * { flex: none; }
-.history-row__facts > span:has(> .history-row__account) { flex: 0 1 auto; min-width: 4ch; overflow: hidden; }
-.history-row__account.ui-chip { display: block; line-height: 16px; }
-/* As in agents.css: at the side bar's default width model · effort steps back (it stays in the row's tooltip) */
+/* At the side bar's default width model · effort steps back (it stays in the row's tooltip) */
 .history-sessions { container-type: inline-size; }
 @container (max-width: 300px) { .history-row__model { display: none; } }
 

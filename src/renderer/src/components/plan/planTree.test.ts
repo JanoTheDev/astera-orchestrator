@@ -180,12 +180,12 @@ describe('plan name truncation priority (plans.css)', () => {
     const m = new RegExp(`\\.plans-tree ${sel.replace(/[.]/g, '\\.')} \\{[^}]*flex(?:-shrink)?: ([^;]+);`).exec(css)
     if (!m) throw new Error(`no rule for ${sel}`)
     const parts = m[1].trim().split(/\s+/)
-    return Number(parts.length === 1 ? parts[0] : parts[1])
+    return parts[0] === 'none' ? 0 : Number(parts.length === 1 ? parts[0] : parts[1])
   }
-  it('cuts the description first, then the status word, and the name last (only past 70% of the row)', () => {
-    expect(shrink('.ui-tree__desc')).toBeGreaterThan(shrink('.ui-tree__meta'))
-    expect(shrink('.ui-tree__meta')).toBeGreaterThan(shrink('.ui-tree__label'))
-    expect(css).toMatch(/\.plans-tree \.ui-tree__meta \{[^}]*min-width: 0;[^}]*overflow: hidden;/)
-    expect(css).toMatch(/\.plans-tree \.ui-tree__label \{[^}]*max-width: 70%;/)
+  it('cuts the description first, then the plan name; the status word is never cut', () => {
+    expect(shrink('.ui-tree__desc')).toBeGreaterThan(shrink('.ui-tree__label'))
+    expect(shrink('.ui-tree__label')).toBeGreaterThan(0)
+    expect(shrink('.ui-tree__meta')).toBe(0)
+    expect(css).not.toMatch(/\.plans-tree \.ui-tree__deco \{[^}]*text-overflow/)
   })
 })

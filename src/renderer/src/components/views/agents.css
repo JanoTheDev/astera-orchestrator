@@ -2,20 +2,28 @@
 
 .agents-filter { flex: none; padding: 2px var(--sp-2) 2px 20px; }
 
-/* The title is cut before the facts on the right; "project › plan" goes first, the title keeps a few letters */
-.agents-tree .ui-tree__label { min-width: 6ch; }
-.agents-tree .ui-tree__desc { flex-shrink: 1000; min-width: 4ch; } /* a few letters and an ellipsis, never one stray letter */
+/* Two lines (T19): title, then account, model · effort and time on the first; "project › plan" under the title on its
+   own line, wrapping rather than cut. Only the title ends in an ellipsis; the facts are never cut. A row with no
+   place stays one line. (One line cut the place to "ap…" and the account to "jip.cl…" at the side bar's width.) */
+.agents-tree .ui-tree__row {
+  display: grid;
+  grid-template-columns: auto auto auto minmax(0, 1fr) auto;
+  grid-template-rows: var(--row-h);
+  grid-auto-rows: auto;
+  height: auto;
+  min-height: var(--row-h);
+}
+.agents-tree .ui-tree__indent { grid-row: 1; grid-column: 1; }
+.agents-tree .ui-tree__twistie { grid-row: 1; grid-column: 2; }
+.agents-tree .ui-tree__icon { grid-row: 1; grid-column: 3; }
+.agents-tree .ui-tree__label { grid-row: 1; grid-column: 4; }
+.agents-tree .ui-tree__meta, .agents-tree .ui-tree__actions { grid-row: 1; grid-column: 5; }
+.agents-tree .ui-tree__desc { grid-row: 2; grid-column: 4 / -1; margin: 0 0 var(--sp-1); line-height: var(--lh-tight); white-space: normal; overflow-wrap: anywhere; }
 .agents-row__facts { display: inline-flex; align-items: center; gap: var(--sp-2); color: var(--text-faint); font-size: var(--fs-11); white-space: nowrap; }
-.agents-row__account.ui-chip { height: 16px; padding: 0 var(--sp-1); font-size: var(--fs-11); }
-/* The facts never push the row past the side bar (a long account name squeezed the title to "Add …" and scrolled the
-   pane sideways): the account chip gives way first, cut with an ellipsis (its full name is in the row's tooltip);
-   model · effort and the time are never cut */
-/* shrinks only to what it needs (the chip's 4ch, never the time), so the title gives way before the facts */
-.agents-tree .ui-tree__meta { flex: 0 1 auto; }
 .agents-row__facts > * { flex: none; }
-.agents-row__facts > .agents-row__account.ui-chip { display: block; flex: 0 1 auto; min-width: 4ch; line-height: 16px; }
-/* At the side bar's default width title, place, account, model · effort and time do not all fit: model · effort steps
-   back (it stays in the row's tooltip) and shows again once the side bar is dragged wider */
+.agents-row__account.ui-chip { height: 16px; padding: 0 var(--sp-1); font-size: var(--fs-11); }
+/* At the side bar's default width title, account, model · effort and time do not all fit on the first line: model ·
+   effort steps back (it stays in the row's tooltip) and shows again once the side bar is dragged wider */
 .agents-tree { container-type: inline-size; }
 @container (max-width: 300px) { .agents-row__model { display: none; } }
 .agents-row__facts > time { min-width: 3ch; text-align: right; font-variant-numeric: tabular-nums; }

@@ -10,12 +10,28 @@
 .plans-tree__wrap { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .plans-tree__wrap > .ui-tree { flex: 1; }
 
-/* A plan's name is cut last: the dim description goes first, then the status word; the name only past 70% of the row
-   (planTree.test.ts) */
-.plans-tree .ui-tree__label { flex-shrink: 0; max-width: 70%; }
+/* The status word is never cut (T19: "Fail…", "Stop…" broke the rule that status words stay whole): the dim
+   description goes first, then the plan's name, which ends in an ellipsis (planTree.test.ts) */
+.plans-tree .ui-tree__label { flex-shrink: 1; }
 .plans-tree .ui-tree__desc { flex-shrink: 1000; }
-.plans-tree .ui-tree__meta { flex: 0 100 auto; min-width: 0; overflow: hidden; }
-.plans-tree .ui-tree__deco { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plans-tree .ui-tree__meta { flex: none; }
+.plans-tree .ui-tree__deco { display: block; white-space: nowrap; }
+/* The description (step, counts, age) goes under the name on its own line in the PLANS list, wrapping rather than cut:
+   counts are never cut. The MAIN PLAN list keeps one line (its count is short and shown whole). */
+.plans-tree:not(.plans-maintree) .ui-tree__row {
+  display: grid;
+  grid-template-columns: auto auto auto minmax(0, 1fr) auto;
+  grid-template-rows: var(--row-h);
+  grid-auto-rows: auto;
+  height: auto;
+  min-height: var(--row-h);
+}
+.plans-tree:not(.plans-maintree) .ui-tree__indent { grid-row: 1; grid-column: 1; }
+.plans-tree:not(.plans-maintree) .ui-tree__twistie { grid-row: 1; grid-column: 2; }
+.plans-tree:not(.plans-maintree) .ui-tree__icon { grid-row: 1; grid-column: 3; }
+.plans-tree:not(.plans-maintree) .ui-tree__label { grid-row: 1; grid-column: 4; }
+.plans-tree:not(.plans-maintree) .ui-tree__meta, .plans-tree:not(.plans-maintree) .ui-tree__actions { grid-row: 1; grid-column: 5; }
+.plans-tree:not(.plans-maintree) .ui-tree__desc { grid-row: 2; grid-column: 4 / -1; margin: 0 0 var(--sp-1); line-height: var(--lh-tight); white-space: normal; overflow-wrap: anywhere; }
 .plans-tree__overlap { display: inline-flex; flex: none; color: var(--warn); }
 /* The MAIN PLAN list keeps the other order: its "4 of 50" count is shown whole and the plan's name is cut instead */
 .plans-tree.plans-maintree .ui-tree__label { flex-shrink: 1; max-width: none; }
