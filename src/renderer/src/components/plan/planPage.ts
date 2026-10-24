@@ -3,6 +3,7 @@
 import type { MessageKey } from '../../../../core/i18n'
 import type { JobEvent, JobRow, JobTask, MessageType, TaskStatus } from '../../../../core/types'
 import { DEFAULT_CONCURRENCY } from '../../../../core/orchestration/types'
+import { approveSlot } from './planTalk'
 import { currentWaveOf, type PlanSection, type PlanWave } from './planBoard'
 
 /** 종류 배지의 문구. message 는 messageType 이 정한다.
@@ -182,3 +183,22 @@ export const nextPlanOpen = (prev: PlanOpen, section?: PlanSection): PlanOpen =>
 /** The element id an anchor scrolls to; each section and Task row of the plan tab carries its own. */
 export const planAnchorId = (a: PlanAnchor): string => (a.kind === 'task' ? taskAnchorId(a.taskId) : `plan-${a.kind}`)
 export const taskAnchorId = (taskId: string): string => `plan-task-${taskId}`
+
+/** What the plan header shows where Approve & execute stands. The button shows for a plan that waits for approval and
+ *  has Tasks, even when it is not ready (its planner is not done, or `planProblems` hold it): then it is disabled and
+ *  the problems stand beside it. A plan with no Tasks, or still planning with nothing wrong, keeps its words. */
+export interface ApproveView {
+  show: boolean
+  /** Approve can be pressed now. */
+  ready: boolean
+  /** Why it cannot (JobRow.planProblems), shown next to the button without opening the talk. */
+  problems: readonly string[]
+}
+
+export function approveViewOf(row: Pick<JobRow, 'pendingStart' | 'planned' | 'planReady' | 'autoApprove' | 'handsOff' | 'planProblems' | 'archivedAt' | 'tasks'>): ApproveView {
+  const slot = approveSlot(row)
+  const problems = row.planProblems ?? []
+  if (slot === 'approve') return { show: true, ready: row.tasks.length > 0 && problems.length === 0, problems }
+  const held = slot !== null && row.tasks.length > 0 && problems.length > 0
+  return { show: held, ready: false, problems: held ? problems : [] }
+}

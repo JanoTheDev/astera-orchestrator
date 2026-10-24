@@ -26,7 +26,8 @@ import { Button, Chip, Icon, Input, Menu, Meter, PageHeader, Toolbar, type MenuI
 import { planProgressOf } from './planBoard'
 import { integrateAllOutcomeOf, type IntegrateAllOutcome } from './planCommands'
 import { planStatusOf } from './planList'
-import { approveSlot } from './planTalk'
+import { approveViewOf } from './planPage'
+import './plans.css'
 import { PlanMergeActions } from './PlanChanges'
 import { deliveryActionsOf, RUN_START, taskAnchorId } from './planPage'
 import type { PlanPageState } from './usePlanPage'
@@ -178,7 +179,7 @@ export function PlanHeader({
 
   const status = run ? planStatusOf(run) : null
   const prog = planProgressOf(tasks)
-  const slot = run ? approveSlot(run) : null
+  const approve = run ? approveViewOf(run) : null
   const progressText = [waveStatus ? t('plan.steps.of', { at: waveStatus.at, of: waveStatus.of }) : null, prog.total > 0 ? t('plan.wave.progress', { done: prog.counts.done, total: prog.total }) : null]
     .filter((x) => x !== null)
     .join(' · ')
@@ -297,18 +298,30 @@ export function PlanHeader({
               from the overview (T8); the logic is planTalk.ts'. */}
           {/* Task 를 다 짜고 누르는 버튼. **Task 가 없으면 잠근다** — 빈 Run 을 시작하면 pendingStart 만 걷히고
               아무 일도 일어나지 않는다. 누르면 게이트가 걷히고 이 버튼도 사라진다. 도는 동안은 회전과 문구로 바뀐다. */}
-          {run && slot === 'approve' && (
-            <Button
-              size="sm"
-              variant="primary"
-              icon={<Icon name="run" size={14} />}
-              loading={busy === RUN_START}
-              disabled={off || busy === RUN_START || tasks.length === 0}
-              title={lockedReason ?? t('plan.header.startHint')}
-              onClick={() => void p.startRunNow()}
-            >
-              {busy === RUN_START ? t('jobs.run.starting') : t('plan.header.start')}
-            </Button>
+          {run && approve?.show && (
+            <>
+              {approve.problems.length > 0 && (
+                <div className="plan-page-problems" role="alert">
+                  <strong>{t('plan.talk.problems')}</strong>
+                  <ul>
+                    {approve.problems.map((x) => (
+                      <li key={x}>{x}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              <Button
+                size="sm"
+                variant="primary"
+                icon={<Icon name="run" size={14} />}
+                loading={busy === RUN_START}
+                disabled={off || busy === RUN_START || !approve.ready}
+                title={lockedReason ?? t('plan.header.startHint')}
+                onClick={() => void p.startRunNow()}
+              >
+                {busy === RUN_START ? t('jobs.run.starting') : t('jobs.run.approve')}
+              </Button>
+            </>
           )}
           {!p.authoringOpen && <PlanMergeActions p={p} run={run} />}
           <span className="plan-header-wide">

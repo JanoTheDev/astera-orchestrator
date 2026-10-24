@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { JobRow, JobTask } from '../../../../core/types'
 import { planSectionOf, wavesOf } from './planBoard'
-import { canManualStartOf, deliveryActionsOf, headCountsOf, planAnchorId, planAnchorOf, waveStatusOf } from './planPage'
+import { approveViewOf, canManualStartOf, deliveryActionsOf, headCountsOf, planAnchorId, planAnchorOf, waveStatusOf } from './planPage'
 
 const task = (id: string, status: JobTask['status']): JobTask => ({ id, title: id, status }) as unknown as JobTask
 const tasks = [task('a', 'completed'), task('b', 'dispatched'), task('c', 'ready'), task('d', 'pending')]
@@ -71,5 +71,22 @@ describe('plan tab anchors (T8)', () => {
     expect(planAnchorOf('journal')).toEqual({ kind: 'activity' })
     expect(planAnchorOf('overview')).toBeNull()
     expect(planAnchorOf(planSectionOf('task-'))).toBeNull()
+  })
+})
+
+describe('approveViewOf', () => {
+  const plan = (o: Partial<JobRow>): JobRow => ({ id: 'j', tasks: [{}, {}], pendingStart: true, planned: true, ...o }) as unknown as JobRow
+  it('shows an enabled Approve for a ready plan with Tasks', () => {
+    expect(approveViewOf(plan({ planReady: true }))).toEqual({ show: true, ready: true, problems: [] })
+  })
+  it('keeps Approve visible but disabled, with the problems, when a plan with Tasks does not hold', () => {
+    expect(approveViewOf(plan({ planProblems: ['T1 has no files'] }))).toEqual({ show: true, ready: false, problems: ['T1 has no files'] })
+    expect(approveViewOf(plan({ planReady: true, planProblems: ['cycle'] }))).toMatchObject({ show: true, ready: false, problems: ['cycle'] })
+  })
+  it('a plan with no Tasks, one still planning without problems, or not waiting shows no button', () => {
+    expect(approveViewOf(plan({ tasks: [], planProblems: ['no tasks'] })).show).toBe(false)
+    expect(approveViewOf(plan({})).show).toBe(false)
+    expect(approveViewOf(plan({ pendingStart: false, planProblems: ['x'] })).show).toBe(false)
+    expect(approveViewOf(plan({ archivedAt: 'x', planProblems: ['x'] })).show).toBe(false)
   })
 })
