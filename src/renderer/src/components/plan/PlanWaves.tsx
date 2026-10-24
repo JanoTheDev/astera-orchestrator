@@ -85,6 +85,11 @@ export function PlanTaskBoard({
   const pRef = useRef(p)
   pRef.current = p
   const onRestart = useCallback((id: string) => void pRef.current.restartTask(id), [])
+  const openRef = useRef({ canOpenSession, onOpenSession })
+  openRef.current = { canOpenSession, onOpenSession }
+  const onSelect = useCallback((id: string) => pRef.current.onNodeClick(id), [])
+  const canOpen = useCallback((id: string) => openRef.current.canOpenSession(id), [])
+  const openSession = useCallback((id: string) => openRef.current.onOpenSession(id), [])
   const renderAbout = useCallback(
     (tk: JobTask) => (
       // T2: everything about the Task, its Edit and its Request changes; a dep's title opens that Task's row
@@ -120,7 +125,7 @@ export function PlanTaskBoard({
       tasks={tasks}
       accounts={accounts}
       selected={selectedTask?.id}
-      onSelect={onNodeClick}
+      onSelect={onSelect}
       layers={detail?.layers ?? NO_LAYERS}
       deps={detail?.deps}
       events={events ?? NO_EVENTS}
@@ -128,8 +133,8 @@ export function PlanTaskBoard({
       sessions={live.sessions}
       replanning={replanningOf(live.activity, runId)}
       refreshed={coordinatorRefreshOf(live.activity, runId)}
-      canOpenSession={canOpenSession}
-      onOpenSession={onOpenSession}
+      canOpenSession={canOpen}
+      onOpenSession={openSession}
       projectPath={projectPath}
       summaries={summaries.byTask}
       nowMs={live.nowMs}
@@ -171,6 +176,12 @@ export function PlanWaves({
   // "Add task to this step" presets the form's deps; the bar's button opens it empty
   const [initialDeps, setInitialDeps] = useState<string[]>([])
   const canAdd = lockedReason === undefined && busy === null && !p.authoringOpen
+  const pRef = useRef(p)
+  pRef.current = p
+  const addTask = useCallback((deps: string[]) => {
+    setInitialDeps(deps)
+    pRef.current.setAuthoring(true)
+  }, [])
   return (
     <>
       <div className="plan-steps-bar">
@@ -224,14 +235,7 @@ export function PlanWaves({
           canOpenSession={canOpenSession}
           onOpenSession={onOpenSession}
           compact={simple}
-          onAddTask={
-            canAdd
-              ? (deps) => {
-                  setInitialDeps(deps)
-                  p.setAuthoring(true)
-                }
-              : undefined
-          }
+          onAddTask={canAdd ? addTask : undefined}
         />
       ) : (
         <Graph
