@@ -27,6 +27,7 @@ import type { TelegramConfig } from '../core/telegram/config'
 import { codexRolloutFromNote, type CodexRolloutWatcher } from '../core/sessions/codexRolloutWatcher'
 import type { DesktopNotifier } from './desktopNotifier'
 import { startActivityNotices } from './activityNotices'
+import { approvalDefaultOf } from '../core/settings/approvalDefault'
 import { ACTIVITY_DIGEST_MAX_MINUTES } from '../core/settings/activityDigest'
 import type { SessionSignalForwarder } from './sessionSignals'
 import type { DesktopNotifySettings } from '../core/notify/settings'
@@ -4473,6 +4474,12 @@ export function registerIpc(
     if (typeof n !== 'number' || !Number.isInteger(n) || n < 0 || n > 100)
       throw new Error(`INVALID_FRESH_COORDINATOR_CONTEXT_PCT: ${String(n)}`)
     await core.appSettings.setFreshCoordinatorContextPct(n)
+  })
+  // The approval setting's global default (core/settings/approvalDefault.ts): a mode, or null for none
+  ipcMain.handle('settings.getApprovalDefault', () => core.appSettings.getApprovalDefault() ?? null)
+  ipcMain.handle('settings.setApprovalDefault', async (_e, mode: unknown) => {
+    if (mode !== null && approvalDefaultOf(mode) === undefined) throw new Error(`INVALID_APPROVAL_DEFAULT: ${String(mode)}`)
+    await core.appSettings.setApprovalDefault(mode)
   })
   // Stall watchdog (orchestration/exec/stallWatch.ts), on by default
   ipcMain.handle('settings.getStallWatch', () => core.appSettings.getStallWatch())

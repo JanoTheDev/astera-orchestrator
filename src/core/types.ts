@@ -1,3 +1,4 @@
+import type { ApprovalMode } from './settings/approvalDefault'
 import type { CrashOffer, CrashReportsSetting, RENDERER_KINDS } from './crash/report' // T27
 import type { Decision, IssuePick, PlanFeedback } from './orchestration/types'
 import type { WorktreeDetail, WorktreeRow } from './worktrees/cleanup'
@@ -1834,6 +1835,9 @@ export interface CoreApi {
     /** W3-A: minutes between activity digests; 0 is none. */
     getActivityDigestMinutes(): Promise<number>
     setActivityDigestMinutes(n: number): Promise<void>
+    /** The approval setting's global default (core/settings/approvalDefault.ts); null: the planning mode decides. */
+    getApprovalDefault(): Promise<ApprovalMode | null>
+    setApprovalDefault(mode: ApprovalMode | null): Promise<void>
     /** Context use (%) at which a plan's coordinator is replaced by a fresh session; 0 turns the check off. */
     getFreshCoordinatorContextPct(): Promise<number>
     setFreshCoordinatorContextPct(n: number): Promise<void>

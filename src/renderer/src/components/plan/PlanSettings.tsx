@@ -9,8 +9,11 @@ import { useI18n } from '../../i18n/I18nProvider'
 import { replyNote, type OrchDoor } from '../../lib/orchDoor'
 import type { ActionUi } from '../../lib/jobActions'
 import { toast } from '../../lib/toast'
+import { APPROVAL_MODES, type ApprovalMode } from '../../../../core/settings/approvalDefault'
 import { Input, Select, Switch } from '../ui'
 import {
+  APPROVAL_LABEL,
+  approvalOf,
   clampReviewRounds,
   clampWorkers,
   planSettingsFormOf,
@@ -38,9 +41,10 @@ export function PlanSettings({ door, jobId, row, confirm }: { door: OrchDoor; jo
       if (got.status >= 400) return
       const { run, ...job } = got.body as Job & { run?: JobRun }
       const proj = job.projectId === undefined ? undefined : await door.command('projects-get', { id: job.projectId })
+      const globalDefault = (await window.api.settings.getApprovalDefault().catch(() => null)) ?? undefined
       if (cancelled) return
       setId(job.id)
-      setForm(planSettingsFormOf(job, run, proj && proj.status < 400 ? (proj.body as Project) : undefined, outcome))
+      setForm(planSettingsFormOf(job, run, proj && proj.status < 400 ? (proj.body as Project) : undefined, outcome, globalDefault))
     })().catch(() => {})
     return () => {
       cancelled = true
@@ -70,6 +74,7 @@ export function PlanSettings({ door, jobId, row, confirm }: { door: OrchDoor; jo
     if (ok) toast.success(t('plan.settings.saved'))
     setForm((cur) => (cur === null ? cur : { ...cur, values: settledValues(values, next, ok) }))
   }
+  const set2 = (mode: ApprovalMode): void => void save({ ...values, autoApprove: mode !== 'ask', handsOff: mode === 'hands-off' })
   const set = <K extends keyof PlanSettingsValues>(key: K, value: PlanSettingsValues[K]): void => void save({ ...values, [key]: value })
 
   /** One settings-editor row; `key` names its field's editability and the ids its label and help hang on. */
@@ -115,7 +120,7 @@ export function PlanSettings({ door, jobId, row, confirm }: { door: OrchDoor; jo
         }}
       />
     ))
-  const toggle = (key: 'replan' | 'autoApprove' | 'handsOff', onChange: (on: boolean) => void) =>
+  const toggle = (key: 'replan', onChange: (on: boolean) => void) =>
     row_(key, (props) => <Switch {...props} checked={values[key]} aria-readonly={!fields[key].editable || undefined} onChange={onChange} />)
 
   return (
@@ -132,14 +137,22 @@ export function PlanSettings({ door, jobId, row, confirm }: { door: OrchDoor; jo
       ))}
       {stepper('reviewRounds', MAX_REVIEW_ROUNDS, clampReviewRounds)}
       {toggle('replan', (on) => set('replan', on))}
-      {toggle('autoApprove', (on) => set('autoApprove', on))}
-      {/* Hands-off bypasses permissions: turning it on asks first; turning it off does not */}
-      {toggle('handsOff', (on) => {
-        if (!on) return set('handsOff', false)
-        void confirm({ title: t('plan.settings.handsOffConfirmTitle'), body: t('plan.settings.handsOffConfirmBody'), confirmLabel: t('plan.settings.handsOffConfirm') }).then(
-          (yes) => yes && set('handsOff', true)
-        )
-      })}
+      {/* One approval setting over the two stored flags. Hands-off bypasses permissions: choosing it asks first */}
+      {row_('autoApprove', (props) => (
+        <Select
+          {...props}
+          aria-label={t('plan.settings.autoApprove')}
+          value={approvalOf(values)}
+          items={APPROVAL_MODES.map((m) => ({ value: m, label: t(APPROVAL_LABEL[m]) }))}
+          onChange={(v) => {
+            const mode = APPROVAL_MODES.find((m) => m === v)
+            if (mode === undefined || mode === approvalOf(values)) return
+            const apply = (): void => set2(mode)
+            if (mode !== 'hands-off') return apply()
+            void confirm({ title: t('plan.settings.handsOffConfirmTitle'), body: t('plan.settings.handsOffConfirmBody'), confirmLabel: t('plan.settings.handsOffConfirm') }).then((yes) => yes && apply())
+          }}
+        />
+      ))}
       {row_('delivery', (props) => (
         <Select
           {...props}

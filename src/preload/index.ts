@@ -251,6 +251,8 @@ const api = {
     // W3-A
     getActivityDigestMinutes: invoke('settings.getActivityDigestMinutes'),
     setActivityDigestMinutes: invoke('settings.setActivityDigestMinutes'),
+    getApprovalDefault: invoke('settings.getApprovalDefault'),
+    setApprovalDefault: invoke('settings.setApprovalDefault'),
     getFreshCoordinatorContextPct: invoke('settings.getFreshCoordinatorContextPct'),
     setFreshCoordinatorContextPct: invoke('settings.setFreshCoordinatorContextPct'),
     getStallWatch: invoke('settings.getStallWatch'),
