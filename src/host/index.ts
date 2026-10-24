@@ -117,6 +117,8 @@ import { attachGatewayLink } from './gatewayLink'
 import { readRemoteSettings } from '../core/remote/settings'
 import { loadIdentity, type RuntimeIdentity } from '../core/remote/identity'
 import { readMcpHttp } from '../core/settings/mcpHttp'
+import { runWorktreeSetup } from '../core/worktrees/setup'
+import { findProjectContaining } from '../core/orchestration/projects'
 import { deliverByPush } from '../core/orchestration/exec/integrateGit'
 
 /** With no client for this long, there is nothing for the Host to be. Slice 2 adds "and no session is
@@ -902,6 +904,10 @@ async function main(): Promise<void> {
             deliverByPush(push, {
               mergeWorktrees: (into, paths, o) => worktrees.mergeWorktrees(into, paths, o),
               validate: (cwd) => wiring.checks.validateTree(cwd, checks),
+              install: async (cwd) => {
+                const r = await runWorktreeSetup({ dir: cwd, setting: findProjectContaining(orch.state(), cwd)?.setupCommand, log: (m) => log.write(m), force: true })
+                return r.ok ? { ok: true } : { ok: false, reason: r.tail }
+              },
               log: (m) => log.write(m),
               gitOp: worktrees.gitOp // T3: the catch-up merge with origin is Astera's, not an external change
             }),

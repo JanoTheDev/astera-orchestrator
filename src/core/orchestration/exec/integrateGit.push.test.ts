@@ -53,10 +53,11 @@ const happy = (): Record<string, Reply | Reply[]> => ({
   'merge-base --is-ancestor origin/main HEAD': {}
 })
 
-function setup(over: Record<string, Reply | Reply[]> = {}, o: { merge?: 'ok' | 'conflict' | 'conflict-once' | 'dirty'; validate?: 'ok' | 'fail' | 'fail-second' } = {}) {
+function setup(over: Record<string, Reply | Reply[]> = {}, o: { merge?: 'ok' | 'conflict' | 'conflict-once' | 'dirty'; validate?: 'ok' | 'fail' | 'fail-second'; install?: 'ok' | 'fail' } = {}) {
   const g = fakeGit({ ...happy(), ...over })
   const merges: { into: string; paths: string[]; message?: string }[] = []
   const validated: string[] = []
+  const events: string[] = []
   const logs: string[] = []
   const ctx: PushContext = {
     git: g.git,
@@ -71,7 +72,12 @@ function setup(over: Record<string, Reply | Reply[]> = {}, o: { merge?: 'ok' | '
       g.setHead('merged')
       return o.merge === 'dirty' ? { ok: true, merged: paths, uncommitted: 2, dirty: ['/wt-a'] } : { ok: true, merged: paths, uncommitted: 0 }
     },
+    install: async () => {
+      events.push('install')
+      return o.install === 'fail' ? { ok: false, reason: 'npm ERR! 404 motion' } : { ok: true }
+    },
     validate: async (cwd) => {
+      events.push('validate')
       validated.push(cwd)
       return o.validate === 'fail' || (o.validate === 'fail-second' && validated.length === 2) ? { ok: false, reason: 'npm test exited 1' } : { ok: true, ran: 1 }
     }
@@ -81,7 +87,7 @@ function setup(over: Record<string, Reply | Reply[]> = {}, o: { merge?: 'ok' | '
       { cwd: '/repo', worktrees: ['/wt-a', '/wt-b'], message: 'Deliver plan: P\n\nFixes #7', ...(branch ? { branch } : {}), ...(defaultBranch ? { defaultBranch } : {}) },
       ctx
     )
-  return { ...g, merges, validated, logs, go }
+  return { ...g, merges, validated, events, logs, go }
 }
 
 const forced = (calls: string[][]): boolean => calls.some((a) => a.some((x) => x === '--force' || x.startsWith('--force-with-lease') || x === '-f' || x.startsWith('+')))
@@ -97,6 +103,34 @@ describe('deliverByPush (W6-H)', () => {
     expect(order.indexOf('fetch origin main')).toBeLessThan(order.indexOf('merge --ff-only origin/main'))
     expect(order).toContain('push origin main')
     expect(forced(h.calls)).toBe(false)
+  })
+
+  it('installs before the validation when the merges changed a lockfile', async () => {
+    const h = setup({ 'diff --name-only base HEAD': { stdout: 'src/a.ts\npackage-lock.json' } })
+    const r = await h.go()
+    expect(r.ok).toBe(true)
+    expect(h.events).toEqual(['install', 'validate'])
+  })
+
+  it('installs when only package.json changed, in a subfolder too', async () => {
+    const h = setup({ 'diff --name-only base HEAD': { stdout: 'packages/ui/package.json' } })
+    await h.go()
+    expect(h.events).toEqual(['install', 'validate'])
+  })
+
+  it('runs no install when neither package.json nor a lockfile changed', async () => {
+    const h = setup({ 'diff --name-only base HEAD': { stdout: 'src/a.ts\nREADME.md' } })
+    await h.go()
+    expect(h.events).toEqual(['validate'])
+  })
+
+  it('a failed install is a validation failure: no validation, merges undone, nothing pushed', async () => {
+    const h = setup({ 'diff --name-only base HEAD': { stdout: 'package.json' } }, { install: 'fail' })
+    const r = await h.go()
+    expect(r).toMatchObject({ ok: false, reason: expect.stringContaining('installing the dependencies failed: npm ERR! 404 motion') })
+    expect(h.events).toEqual(['install'])
+    expect(h.head()).toBe('base')
+    expect(h.calls.some((a) => a[0] === 'push')).toBe(false)
   })
 
   it('lands on the project branch when one is set, not origin/HEAD', async () => {
@@ -311,7 +345,7 @@ describe('deliverByPush with a real bare origin that has no HEAD ref (W8-G #102)
     expect(() => sh(work, 'symbolic-ref', 'refs/remotes/origin/HEAD')).toThrow() // the case: origin/HEAD is not set
     const r = await deliverByPush(
       { cwd: work, defaultBranch: 'main', worktrees: [], message: 'm' },
-      { mergeWorktrees: async (_into, paths) => ({ ok: true, merged: paths, uncommitted: 0 }), validate: async () => ({ ok: true, ran: 0 }), log: () => {} }
+      { mergeWorktrees: async (_into, paths) => ({ ok: true, merged: paths, uncommitted: 0 }), validate: async () => ({ ok: true, ran: 0 }), install: async () => ({ ok: true }), log: () => {} }
     )
     expect(r).toMatchObject({ ok: true, branch: 'main' })
     expect(sh(origin, 'rev-parse', 'main')).toBe(sh(work, 'rev-parse', 'HEAD'))
@@ -405,7 +439,8 @@ describe('deliverByPush over a real bare origin (T3)', () => {
         r.commit(into, o.file, o.text)
         return { ok: true, merged: paths, uncommitted: 0 }
       },
-      validate: async () => ({ ok: true, ran: 0 })
+      validate: async () => ({ ok: true, ran: 0 }),
+      install: async () => ({ ok: true })
     }
   }
 
