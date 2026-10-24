@@ -161,7 +161,7 @@ describe('tasks dispatch — who may place one ready Task now', () => {
     const { deps, runId, taskId, dispatchTask } = await seeded()
     const other = await call(deps, 'task-create', { run: runId, title: 'u', spec: 's', account: 'acc_c' })
     await call(deps, 'worker-start', { task: (other.body as { id: string }).id, agent: 'claude', account: 'acc_c', worktree: 'current' })
-    expect((await call(deps, 'tasks-dispatch', { id: taskId }, 'sess_w')).status).toBe(403)
+    expect((await call(deps, 'tasks-dispatch', { id: taskId }, 'sess_w')).status).toBe(202) // T4: asks the owner instead of running it
     expect(dispatchTask).not.toHaveBeenCalled()
   })
 

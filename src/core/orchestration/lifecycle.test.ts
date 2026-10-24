@@ -185,7 +185,7 @@ describe('archiving a Job', () => {
     const { deps, jobId } = await withWorker()
     // sess1 is the session the worker was started in
     for (const cmd of ['jobs-archive', 'jobs-unarchive', 'jobs-rename'])
-      expect((await handleCommand(deps, { sessionId: 'sess1' }, cmd, { id: jobId, title: 'x' })).status).toBe(403)
+      expect((await handleCommand(deps, { sessionId: 'sess1' }, cmd, { id: jobId, title: 'x' })).status).toBe(202) // T4: asks the owner instead of running it
     expect(isJobActive(deps.getState().jobs[0])).toBe(true)
   })
 

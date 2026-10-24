@@ -156,7 +156,7 @@ describe('task-link-issue', () => {
     const { deps } = setup()
     const d = { id: 'd1', taskId: 't1', sessionId: 'worker1', cwd: '/wt/t1' } as Dispatch
     deps.setState({ ...deps.getState(), dispatches: [d] })
-    expect((await handleCommand(deps, { sessionId: 'worker1' }, 'task-link-issue', { id: 't1', find: true })).status).toBe(403)
+    expect((await handleCommand(deps, { sessionId: 'worker1' }, 'task-link-issue', { id: 't1', find: true })).status).toBe(202) // T4: asks the owner instead of running it
   })
 })
 
