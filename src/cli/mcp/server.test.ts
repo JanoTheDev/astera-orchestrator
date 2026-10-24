@@ -663,6 +663,11 @@ describe('the MCP server', () => {
     expect(r.structuredContent).toMatchObject({ id: 'tsk_2' })
     await client.callTool({ name: 'create_task', arguments: { jobId: 'job_1', spec: 's', accountId: 'acc_1' } })
     expect(calls.at(-1)?.args).toEqual({ job: 'job_1', spec: 's', account: 'acc_1' })
+    await client.callTool({
+      name: 'create_task',
+      arguments: { jobId: 'job_1', spec: 's', accountId: 'acc_1', difficulty: 'hard', effort: 'high' }
+    })
+    expect(calls.at(-1)?.args).toEqual({ job: 'job_1', spec: 's', account: 'acc_1', difficulty: 'hard', effort: 'high' })
   })
 
   it("create_task without an accountId uses the Job's coordinator account", async () => {

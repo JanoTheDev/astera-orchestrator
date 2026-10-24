@@ -414,6 +414,11 @@ const LISTED_TOOLS: ToolDef[] = [
         .optional()
         .describe('Run configuration ids from list_run_configs, or plugin:<pluginId> for a completion check plugin a person installed, that must pass.'),
       review: z.boolean().optional().describe('Have the result reviewed before the Task counts as done.'),
+      difficulty: z.enum(['light', 'standard', 'hard']).optional().describe("Picks the worker's model (Settings → Orchestration models)."),
+      effort: z
+        .enum(['low', 'medium', 'high', 'xhigh', 'max'])
+        .optional()
+        .describe("The worker's reasoning effort, ahead of the difficulty's default; the start clamps it to the model's levels."),
       requestId
     },
     // The CLI parser's shapes, which tasks-add reads: `--deps` a JSON array (cliArgs.ts JSON_ARRAY),
@@ -426,7 +431,9 @@ const LISTED_TOOLS: ToolDef[] = [
       ...(Array.isArray(i.deps) && i.deps.length > 0 ? { deps: i.deps } : {}),
       account: i.accountId,
       ...(Array.isArray(i.validate) ? { validate: i.validate.join(',') } : {}),
-      ...(i.review === true ? { review: true } : {})
+      ...(i.review === true ? { review: true } : {}),
+      ...(i.difficulty !== undefined ? { difficulty: i.difficulty } : {}),
+      ...(i.effort !== undefined ? { effort: i.effort } : {})
     })
   },
   {

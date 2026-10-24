@@ -283,6 +283,19 @@ describe('a planner writes Tasks', () => {
     expect((await planner(r)('task-create', goodTask(jobId, { difficulty: 'easy' }))).status).toBe(400)
   })
 
+  it('takes each --effort level, refuses another, and task-update changes it', async () => {
+    const r = rig()
+    const jobId = await plannedJob(r)
+    for (const effort of ['low', 'medium', 'high', 'xhigh', 'max'])
+      expect((await planner(r)('task-create', goodTask(jobId, { effort }))).body).toMatchObject({ effort })
+    const bad = await planner(r)('task-create', goodTask(jobId, { effort: 'ultra' }))
+    expect(bad).toMatchObject({ status: 400, body: { error: '--effort must be one of low|medium|high|xhigh|max' } })
+    const made = await planner(r)('task-create', goodTask(jobId, { effort: 'low' }))
+    const edited = await planner(r)('task-update', { id: (made.body as { id: string }).id, effort: 'max' })
+    expect(edited.body).toMatchObject({ effort: 'max' })
+    expect((await planner(r)('task-update', { id: (made.body as { id: string }).id, effort: 'x' })).status).toBe(400)
+  })
+
   it('writes only into its own Job', async () => {
     const r = rig()
     await plannedJob(r)
