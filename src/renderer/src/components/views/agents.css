@@ -1,0 +1,17 @@
+/* T9 Agents side bar view (views/AgentsView.tsx): one line per session, as the Plans tree (plan/plans.css). Tokens only. */
+
+.agents-filter { flex: none; padding: 2px var(--sp-2) 2px 20px; }
+
+/* The title is cut before the facts on the right; "project › plan" goes first, the title keeps a few letters */
+.agents-tree .ui-tree__label { min-width: 6ch; }
+.agents-tree .ui-tree__desc { flex-shrink: 1000; }
+.agents-row__facts { display: inline-flex; align-items: center; gap: var(--sp-2); color: var(--text-faint); font-size: var(--fs-11); white-space: nowrap; }
+.agents-row__account.ui-chip { height: 16px; padding: 0 var(--sp-1); font-size: var(--fs-11); }
+.agents-row__facts > time { min-width: 3ch; text-align: right; font-variant-numeric: tabular-nums; }
+
+/* The status dot; its aria-label and tooltip say the state in words */
+.agents-dot { display: block; width: 8px; height: 8px; border-radius: 50%; background: var(--text-faint); }
+.agents-dot--working { background: var(--accent); }
+.agents-dot--needs { background: var(--warn); }
+.agents-dot--failed { background: var(--danger); }
+.agents-dot--finished { border: 1.5px solid var(--text-faint); background: transparent; }
