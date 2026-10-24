@@ -16,6 +16,11 @@ export const projectRowId = (projectPath: string): string => `project:${projectP
 
 const newestFirst = <T>(items: readonly T[], at: (x: T) => string): T[] => [...items].sort((a, b) => at(b).localeCompare(at(a)))
 
+/** The projects the top switcher's pick shows: those whose folder `ownerOf` resolves to the scope id; null scope is
+ *  "All projects" and keeps every one. */
+export const scopeProjects = (projects: readonly ProjectSummary[], scopeId: string | null, ownerOf: (projectPath: string) => string | null): ProjectSummary[] =>
+  scopeId === null ? [...projects] : projects.filter((p) => ownerOf(p.projectPath) === scopeId)
+
 export type SessionPage = { entries: readonly HistoryEntry[]; total: number }
 
 /** Projects newest first, each followed by its sessions (newest first) when expanded. `sessionsOf` returns undefined
