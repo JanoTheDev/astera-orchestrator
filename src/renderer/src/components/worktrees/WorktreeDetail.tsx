@@ -301,11 +301,11 @@ function Body({
       <section className="worktree-detail__section">
         <h3>{t('worktrees.changes')}</h3>
         {detail === undefined ? (
-          <p className="modal-hint">{t('files.editor.loading')}</p>
+          <p className="wt-note">{t('files.editor.loading')}</p>
         ) : files === null ? (
-          <p className="modal-hint">{t('worktrees.changes.unavailable')}</p>
+          <p className="wt-note">{t('worktrees.changes.unavailable')}</p>
         ) : files.length === 0 ? (
-          <p className="modal-hint">{t('worktrees.changes.none')}</p>
+          <p className="wt-note">{t('worktrees.changes.none')}</p>
         ) : (
           <ul className="changed-files-list">
             {files.map((f) => (
@@ -319,8 +319,8 @@ function Body({
                 </Button>
                 {diff?.fileId === f.id && (
                   <div className="changed-file-diff">
-                    {diff.state === 'loading' && <p className="modal-hint">{t('files.editor.loading')}</p>}
-                    {diff.state === 'failed' && <p className="warn">{t('worktrees.changes.unavailable')}</p>}
+                    {diff.state === 'loading' && <p className="wt-note">{t('files.editor.loading')}</p>}
+                    {diff.state === 'failed' && <p className="wt-note wt-note--warn">{t('worktrees.changes.unavailable')}</p>}
                     {diff.state === 'shown' && <DiffView diff={diff.diff} truncated={diff.truncated} binary={f.binary === true} />}
                   </div>
                 )}
@@ -335,11 +335,11 @@ function Body({
       <section className="worktree-detail__section">
         <h3>{t('worktrees.commits')}</h3>
         {detail === undefined ? (
-          <p className="modal-hint">{t('files.editor.loading')}</p>
+          <p className="wt-note">{t('files.editor.loading')}</p>
         ) : detail === null || detail.commits === null ? (
-          <p className="modal-hint">{t('worktrees.commits.unavailable')}</p>
+          <p className="wt-note">{t('worktrees.commits.unavailable')}</p>
         ) : detail.commits.length === 0 ? (
-          <p className="modal-hint">{t('worktrees.commits.none')}</p>
+          <p className="wt-note">{t('worktrees.commits.none')}</p>
         ) : (
           <ul className="worktree-commits">
             {detail.commits.map((c) => (

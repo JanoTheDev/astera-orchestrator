@@ -70,7 +70,7 @@ export function ChangeMapView({
   return (
     <div className={`rv-map${graph ? ' has-graph' : ''}`}>
       {graph && <MapGraph areas={areas} edges={edges} activePath={activePath} pick={pick} />}
-      {mode === 'map' && !graph && <p className="modal-hint">{t('review.map.tooBig', { count })}</p>}
+      {mode === 'map' && !graph && <p className="rv-note">{t('review.map.tooBig', { count })}</p>}
       <MapList areas={areas} edges={edges} activePath={activePath} pick={pick} />
     </div>
   )

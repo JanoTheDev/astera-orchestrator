@@ -84,23 +84,23 @@ export function ChangedFilesBlock({ door, runId, taskId }: { door: OrchDoor; run
       >
         {open ? t('jobs.changes.hide') : t('jobs.changes.show')}
       </Button>
-      {open && view === undefined && <p className="modal-hint">{t('files.editor.loading')}</p>}
-      {open && view?.kind === 'unsupported' && <p className="modal-hint">{t('jobs.changes.unsupported')}</p>}
-      {open && view?.kind === 'failed' && <p className="warn">{t('jobs.changes.failed', { message: view.message })}</p>}
+      {open && view === undefined && <p className="jobs-note">{t('files.editor.loading')}</p>}
+      {open && view?.kind === 'unsupported' && <p className="jobs-note">{t('jobs.changes.unsupported')}</p>}
+      {open && view?.kind === 'failed' && <p className="jobs-note jobs-note--warn">{t('jobs.changes.failed', { message: view.message })}</p>}
       {open && reply !== null && (
         <>
           {reply.git === null ? (
-            <p className="modal-hint">{t(reply.unavailable === 'not-recorded' ? 'jobs.changes.notRecorded' : 'jobs.changes.gitFailed')}</p>
+            <p className="jobs-note">{t(reply.unavailable === 'not-recorded' ? 'jobs.changes.notRecorded' : 'jobs.changes.gitFailed')}</p>
           ) : files!.length === 0 ? (
-            <p className="modal-hint">{t('jobs.changes.empty')}</p>
+            <p className="jobs-note">{t('jobs.changes.empty')}</p>
           ) : (
             <>
-              <p className="modal-hint">
+              <p className="jobs-note">
                 {t('jobs.changes.summary', { count: reply.git.total, added, removed })}
                 {reply.git.live && ` · ${t('jobs.changes.live')}`}
               </p>
               {reply.git.total > files!.length && (
-                <p className="modal-hint">{t('jobs.changes.listCut', { shown: files!.length, total: reply.git.total })}</p>
+                <p className="jobs-note">{t('jobs.changes.listCut', { shown: files!.length, total: reply.git.total })}</p>
               )}
               <ul className="changed-files-list">
                 {files!.map((f) => (
@@ -117,8 +117,8 @@ export function ChangedFilesBlock({ door, runId, taskId }: { door: OrchDoor; run
                     </Button>
                     {diff?.fileId === f.id && (
                       <div className="changed-file-diff">
-                        {diff.state === 'loading' && <p className="modal-hint">{t('files.editor.loading')}</p>}
-                        {diff.state === 'failed' && <p className="warn">{t('jobs.changes.diffFailed', { message: diff.message })}</p>}
+                        {diff.state === 'loading' && <p className="jobs-note">{t('files.editor.loading')}</p>}
+                        {diff.state === 'failed' && <p className="jobs-note jobs-note--warn">{t('jobs.changes.diffFailed', { message: diff.message })}</p>}
                         {diff.state === 'shown' && <DiffView diff={diff.diff} truncated={diff.truncated} binary={f.binary === true} />}
                       </div>
                     )}
@@ -129,7 +129,7 @@ export function ChangedFilesBlock({ door, runId, taskId }: { door: OrchDoor; run
           )}
           <p className="changed-files-reported-head">{t('jobs.changes.reported')}</p>
           {reply.reported.length === 0 ? (
-            <p className="modal-hint">{t('jobs.changes.reportedNone')}</p>
+            <p className="jobs-note">{t('jobs.changes.reportedNone')}</p>
           ) : (
             <ul className="changed-files-reported">
               {reply.reported.map((p) => (
