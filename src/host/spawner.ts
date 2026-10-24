@@ -43,6 +43,8 @@ import { refusedBeforeActing, undoneBeforeFailing } from '../core/host/orchProto
 import { findRollout as findRolloutOnDisk } from '../core/rolling/codexLocate'
 import { descriptorOf, makeDescriptors } from '../core/providers/descriptor'
 import { providerOf } from '../core/providers/meta'
+import { listClaudeModels, listCodexModels } from '../core/models/discover'
+import { createEffortLevelsLookup } from '../core/models/effortLevels'
 import { ensureOnWindowsPath } from '../core/sessions/windowsPath'
 import { ensureInstallDirOnPath } from '../core/sessions/installDirPath'
 import { SessionManager, defaultSpawnChecks } from '../core/sessions/manager'
@@ -303,6 +305,13 @@ export function createHostSpawner(d: HostSpawnerDeps): HostSpawner | null {
   const specsDir = specsDirOf(profileDir)
   const settingsPath = path.join(profileDir, 'app-settings.json')
   const accountsPath = path.join(profileDir, 'accounts.json')
+  // Each account's model list, asked once per Host life, so a start can clamp effort to its model's levels.
+  const effortLevels = createEffortLevelsLookup(async (accountId) => {
+    const account = (await readAccounts(accountsPath)).find((x) => x.id === accountId)
+    if (!account) return { models: [], error: `unknown account: ${accountId}` }
+    const { cliFile } = descriptorOf(descriptors, account)
+    return providerOf(account) === 'codex' ? listCodexModels(cliFile, account.configDir) : listClaudeModels(cliFile, account.configDir)
+  })
   const tails = new WorkerTails()
   const dispatchById = dispatchLookup(() => d.getState())
   /** dispatchId → the session this Host started it on. The Host's tail follows that session only: an
@@ -692,7 +701,8 @@ export function createHostSpawner(d: HostSpawnerDeps): HostSpawner | null {
         tails,
         log,
         roleModels: () => readRoleModelsSetting(settingsPath),
-        ...(d.usageGuard ? { usageGuard: d.usageGuard } : {})
+        ...(d.usageGuard ? { usageGuard: d.usageGuard } : {}),
+        effortLevels
       },
       a
     )
@@ -830,7 +840,8 @@ export function createHostSpawner(d: HostSpawnerDeps): HostSpawner | null {
             loginStatus: async (id) => {
               const x = accounts.find((y) => y.id === id)
               return x ? isLoggedIn(x, descriptors) : false
-            }
+            },
+            effortLevels
           },
           a
         )
