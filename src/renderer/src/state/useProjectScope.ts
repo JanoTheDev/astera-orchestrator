@@ -4,7 +4,7 @@ import { createContext, useContext } from 'react'
 import type { ProjectScopeView } from './projectView'
 
 export interface ProjectScope extends Omit<ProjectScopeView, 'scopeId'> {
-  /** Selects a project in the title bar (null = All projects): useWorkspace's openWorkspaceProject. */
+  /** Selects a project in the title bar (null = All projects), keeping the active tab in front (useWorkspace). */
   select: (projectId: string | null) => void
 }
 

@@ -142,8 +142,8 @@ export function MainPlan({ rows, acts, accounts = [] }: { rows: readonly JobRow[
             {open && (
               <>
                 {checks && (
-                  <p className="plans-main__wait">
-                    <Icon name="waiting" size={14} />
+                  <p className={cx('plans-main__wait', checks.failed && 'plans-main__wait--failed')}>
+                    <Icon name={checks.failed ? 'error' : 'waiting'} size={14} />
                     {say(checks)}
                   </p>
                 )}

@@ -63,6 +63,7 @@
 .plans-main__task { display: flex; flex-direction: column; min-width: 0; padding-left: var(--sp-4); }
 .plans-main__none { margin: 0; padding-left: var(--sp-4); }
 .plans-main__wait { display: flex; align-items: center; gap: var(--sp-1); margin: 0 0 var(--sp-1) var(--sp-2); color: var(--warn); font-size: var(--fs-11); }
+.plans-main__wait--failed { color: var(--danger); }
 
 /* The plan header: why Approve & execute is not ready, beside the button (plan/PlanHeader.tsx) */
 .plan-page-problems { min-width: 0; max-width: 40ch; color: var(--warn); font-size: var(--fs-12); }

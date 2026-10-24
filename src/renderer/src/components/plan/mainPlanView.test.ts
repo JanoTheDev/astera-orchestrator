@@ -58,13 +58,15 @@ describe('mainPlanViewOf', () => {
       row('b', { createdAt: '2', delivery: { runId: 'b', state: 'delivering', waitingFor: { jobId: 'a', escalated: 'x' } } }),
       row('f', { createdAt: '6', delivery: { runId: 'f', state: 'pending', waitingFor: { jobId: 'a' } } }),
       row('c', { createdAt: '3', delivery: { runId: 'c', state: 'failed' } }),
+      row('c2', { createdAt: '3.5', delivery: { runId: 'c2', state: 'failed', reason: 'main moved on' } }),
       row('d', { createdAt: '4', outcome: 'checking' }),
       row('e', { createdAt: '5' })
     ])
     expect(v.plans.map((p) => p.checks)).toEqual([
       undefined,
       { key: 'pages.plans.main.checksWaitTold', params: { plan: 'Auth rework' } },
-      { key: 'pages.plans.main.checksFailed' },
+      { key: 'pages.plans.main.checksFailed', failed: true },
+      { key: 'pages.plans.main.checksFailedWhy', params: { reason: 'main moved on' }, failed: true },
       { key: 'pages.plans.main.checksRunning' },
       undefined,
       { key: 'pages.plans.main.checksWait', params: { plan: 'Auth rework' } }

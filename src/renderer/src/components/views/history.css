@@ -3,10 +3,21 @@
 
 /* The title is cut before the facts on the right; the plan goes first, the title keeps a few letters */
 .history-sessions .ui-tree__label { min-width: 6ch; }
-.history-sessions .ui-tree__desc { flex-shrink: 1000; }
+.history-sessions .ui-tree__desc { flex-shrink: 1000; min-width: 4ch; }
 .history-row__facts { display: inline-flex; align-items: center; gap: var(--sp-2); color: var(--text-faint); font-size: var(--fs-11); white-space: nowrap; }
 .history-row__account.ui-chip { height: 16px; padding: 0 var(--sp-1); font-size: var(--fs-11); }
 .history-row__facts > time { min-width: 3ch; text-align: right; font-variant-numeric: tabular-nums; }
+/* As in agents.css: the facts never push the row past the side bar (titles cut to "Writ…", the time to "28" and a
+   sideways scroll); the account chip gives way first, model · effort and the time are never cut */
+/* shrinks only to what it needs (the chip's 4ch, never the time): with no floor the title kept its width and the time
+   was pushed out of the row */
+.history-sessions .ui-tree__meta { flex: 0 1 auto; }
+.history-row__facts > * { flex: none; }
+.history-row__facts > span:has(> .history-row__account) { flex: 0 1 auto; min-width: 4ch; overflow: hidden; }
+.history-row__account.ui-chip { display: block; line-height: 16px; }
+/* As in agents.css: at the side bar's default width model · effort steps back (it stays in the row's tooltip) */
+.history-sessions { container-type: inline-size; }
+@container (max-width: 300px) { .history-row__model { display: none; } }
 
 /* The status dot; its aria-label and tooltip say the state in words */
 .history-dot { display: block; width: 8px; height: 8px; border-radius: 50%; background: var(--text-faint); }

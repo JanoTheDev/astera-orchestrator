@@ -15,7 +15,7 @@ import { setAgentsPlan, useAgentsPlan, useAgentsPlanRefs } from './agentsPlan'
 import { stopConsole } from '../wall/stopConsole'
 import { stateWord } from '../wall/Wall'
 import { outcomeText } from '../wall/summaryText'
-import { elapsedLabel, modelEffortLabel } from '../wall/sessionRow'
+import { elapsedLabel, modelEffortLabel, rowTimeOf } from '../wall/sessionRow'
 import { ALL_PLANS, NO_PLAN, agentPanes, consoleDescription, consoleTitle, plansOf, type TileState, type WallConsole } from '../wall/wallModel'
 import '../wall/wall.css'
 import './agents.css'
@@ -80,23 +80,22 @@ export function AgentsView(p: SideBarViewProps): React.JSX.Element {
     const where = scopeId === null ? consoleDescription(c) : (c.planName ?? '')
     const account = accountOf(c)
     const model = modelEffortLabel(c.model, c.effort)
-    // a live console counts from its start, a finished one from its last sign of life
-    const started = !done && c.startedAt !== undefined
-    const at = started ? c.startedAt : c.lastActiveAt
+    // a live console counts from its start, a finished one from its last sign of life (else its start)
+    const time = rowTimeOf(c, done)
     return {
       id: c.sessionId,
       depth: 0,
       label: title,
-      title: [title, where].filter(Boolean).join(' — '),
+      title: [title, where, account, model].filter(Boolean).join(' — '),
       icon: <span className={`agents-dot agents-dot--${dot}`} role="img" aria-label={word} title={word} />,
       description: where,
       badge: (
         <span className="agents-row__facts">
           {account && <Chip className="agents-row__account">{account}</Chip>}
-          {model && <span>{model}</span>}
-          {at !== undefined && (
-            <time dateTime={new Date(at).toISOString()} title={t(started ? 'agents.row.started' : 'agents.row.lastActive', { when: new Date(at).toLocaleString() })}>
-              {elapsedLabel(at, nowMs)}
+          {model && <span className="agents-row__model">{model}</span>}
+          {time && (
+            <time dateTime={new Date(time.at).toISOString()} title={t(time.started ? 'agents.row.started' : 'agents.row.lastActive', { when: new Date(time.at).toLocaleString() })}>
+              {elapsedLabel(time.at, nowMs)}
             </time>
           )}
         </span>

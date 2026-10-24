@@ -232,8 +232,11 @@ export function ViewContainer({
           (j, k) =>
             entries[k]?.weight ?? (parseFloat(getComputedStyle(els[j]).flexGrow) || 0),
         ) as [number, number];
+        // Both on the flex scale already: they keep their combined weight, which holds every other pane exactly (a
+        // height / px weight carries the pane's 1px border and pixel rounding, and a third pane moved a few px).
+        const onScale = changed.every((j) => getComputedStyle(els[j]).flexBasis === "0px");
         // pixels per unit of weight among the panes that render from flex-basis 0 (the content-sized ones are not on it)
-        const perWeight = els.flatMap((el) => {
+        const perWeight = onScale ? undefined : els.flatMap((el) => {
           const e = panes.current.get(el.dataset.pane ?? "");
           if (!e?.open || getComputedStyle(el).flexBasis !== "0px") return [];
           const g = e.weight ?? (parseFloat(getComputedStyle(el).flexGrow) || 0);

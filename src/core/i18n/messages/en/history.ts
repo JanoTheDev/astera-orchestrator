@@ -4,6 +4,7 @@ import type { history as ko } from '../ko/history'
 export const history: Record<keyof typeof ko, string> = {
   'history.panel.empty': 'No history',
   'history.loading': 'Loading…',
+  'history.more': 'Show more',
   'history.scan.codex': 'Scanning Codex history… {done}/{total}',
   'history.filter.deletedSuffix': ' (deleted)',
   'history.filter.allAccounts': 'All accounts',

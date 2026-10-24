@@ -18,3 +18,10 @@ export function elapsedLabel(fromMs: number, nowMs: number): string {
 export function modelEffortLabel(model?: string, effort?: string): string {
   return [model, effort].filter(Boolean).join(' · ')
 }
+
+/** The time a row counts from: a live session's start; a finished one's last sign of life, else its start (a planner
+ *  has no Dispatch and may have made no tool call, and its row showed no time at all). `started` says which. */
+export function rowTimeOf(s: { startedAt?: number; lastActiveAt?: number }, finished: boolean): { at: number; started: boolean } | null {
+  if (finished && s.lastActiveAt !== undefined) return { at: s.lastActiveAt, started: false }
+  return s.startedAt !== undefined ? { at: s.startedAt, started: true } : null
+}

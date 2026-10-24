@@ -3,6 +3,8 @@ import type { plans as ko } from '../ko/plans'
 
 export const plans: Partial<Record<keyof typeof ko, string>> = {
   'pages.plans.status.deliveryDismissed': 'Descartada',
+  'pages.plans.main.checksFailedWhy': 'Las comprobaciones fallaron: {reason}',
+  'pages.plans.allProjects': 'Los planes se muestran por proyecto: elige uno en la barra de título o empieza un plan y elige su proyecto.',
   'pages.plans.status.deliveredBy': 'Entregado por {plan}',
   'jobs.convergence.chip.repairing': 'Corrección {repairs}/{max}',
   'jobs.convergence.chip.reviewing': 'Revisión {round}/{max}',

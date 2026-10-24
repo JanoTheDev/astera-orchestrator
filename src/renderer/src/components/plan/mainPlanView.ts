@@ -15,6 +15,8 @@ import { needsYouOf } from './planTree'
 export interface Line {
   key: MessageKey
   params?: MessageParams
+  /** A line that reports a failure (drawn with the error icon in the danger colour); absent: a wait. */
+  failed?: true
 }
 
 export interface MainTask {
@@ -102,7 +104,8 @@ function checksOf(row: JobRow, rows: readonly JobRow[]): Line | undefined {
       params: { plan: other ? jobName(other) : d.waitingFor.jobId }
     }
   }
-  if (d?.state === 'failed') return { key: 'pages.plans.main.checksFailed' }
+  // a failure, not a wait: its own icon, and why when the delivery says
+  if (d?.state === 'failed') return d.reason ? { key: 'pages.plans.main.checksFailedWhy', params: { reason: d.reason }, failed: true } : { key: 'pages.plans.main.checksFailed', failed: true }
   if (d?.state === 'needs-owner') return { key: 'pages.plans.main.checksNeedYou' }
   if (d || row.outcome === 'checking') return { key: 'pages.plans.main.checksRunning' }
   return undefined

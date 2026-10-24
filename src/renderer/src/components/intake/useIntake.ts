@@ -42,17 +42,19 @@ export function useIntake(o: IntakeOptions) {
 
   const project = o.project
   const projectId = project?.id ?? ''
+  const projectPath = project?.path ?? ''
   // W8-C plan after plan: "Start after", among the project's plans that have not finished
   const [after, setAfter] = useState('')
   const [plans, setPlans] = useState<ReturnType<typeof livePlans>>([])
   useEffect(() => {
     setAfter('')
     setPlans([])
-    if (!projectId) return
-    void door.command('jobs-list', { project: projectId }).then((r) => {
+    if (!projectPath) return
+    // jobs-list takes the project's folder (projectFilter), not its id: an id answers 404 and leaves "After a plan" off
+    void door.command('jobs-list', { project: projectPath }).then((r) => {
       if (r.status === 200 && Array.isArray(r.body)) setPlans(livePlans(r.body as PlanRow[]))
     })
-  }, [door, projectId])
+  }, [door, projectPath])
 
   const request = intakeRequest({
     tab,

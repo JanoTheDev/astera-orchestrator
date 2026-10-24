@@ -13,6 +13,7 @@ export const plans: Record<keyof typeof ko, string> = {
   'jobs.task.waitingNoTime': 'Waiting for reset',
   'jobs.task.resumedCount': 'resumed {n}×',
   'pages.plans.overlap': 'Overlap',
+  'pages.plans.allProjects': 'Plans are listed one project at a time: pick a project in the title bar, or start a plan and choose its project.',
   'pages.plans.noArea': 'No area',
   'pages.plans.overlaps': 'overlaps {plan}',
   'pages.plans.startsAfter': 'starts after {plan} delivers',
@@ -33,6 +34,7 @@ export const plans: Record<keyof typeof ko, string> = {
   'pages.plans.main.checksWaitTold': "Checks wait for '{plan}' to land · owner told",
   'pages.plans.main.checksRunning': 'Checks are running',
   'pages.plans.main.checksFailed': 'Checks failed',
+  'pages.plans.main.checksFailedWhy': 'Checks failed: {reason}',
   'pages.plans.main.checksNeedYou': 'Checks need you',
   // T13 Main plan page redesign: the header chips, the Hide done toggle, a finished plan's row
   'pages.plans.main.running': '{n} running',

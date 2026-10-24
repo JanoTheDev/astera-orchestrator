@@ -45,7 +45,11 @@ export const HOST_ANSWERED: ReadonlySet<string> = new Set([
   // W9-H: the Agents page reads each project's JobRow snapshot; main's copy of the command layer has no such command
   'jobs-view',
   // T10: the Astera console is the Host's chat session; main's copy of the command layer has no createSession
-  'console-ensure'
+  'console-ensure',
+  // W9-I: the tab summaries (a finished session's outcome, the sidebar's failed dot) are read by the Host only; main's
+  // copy answered 409 and the sidebar never showed a session that gave up
+  'summaries',
+  'sessions-summary'
 ])
 
 /** W5-D (#44): the reads that are one list across every Host. A call with no `runtimeId` asks the local Host and every

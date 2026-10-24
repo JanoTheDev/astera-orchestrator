@@ -1,7 +1,8 @@
 // DESIGN-W13 §5: the Welcome view, shown when the editor area holds nothing (and as `view:welcome`): New plan, Open a
 // console, the open project's five newest plans, and the workbench keys.
 import { formatChord, type ActionId } from '../../../../core/keys/binding'
-import type { JobRow } from '../../../../core/types'
+import { useEffect, useState } from 'react'
+import type { JobRow, OrchSnapshot } from '../../../../core/types'
 import type { MessageKey } from '../../../../core/i18n'
 import { jobName } from '../../lib/jobName'
 import { Button, Icon, Kbd } from '../ui'
@@ -36,7 +37,23 @@ export function Welcome({ t, orchSnapshot, bindingsRef, canStart, setShowNew, cu
     setDetail(null)
     if (currentProject) setOpenRun({ projectPath: currentProject, runId })
   }
-  const recent = recentPlans(orchSnapshot?.runs ?? [])
+  // The live snapshot is only kept while the Plans view or a plan page shows (useLiveData): with the Agents view open it
+  // is empty and this said "No plans in this project yet." beside a project with plans. Then one read of its own.
+  const [peeked, setPeeked] = useState<OrchSnapshot | null>(null)
+  const held = orchSnapshot?.runs ?? []
+  useEffect(() => {
+    setPeeked(null)
+    if (!currentProject || held.length > 0) return
+    let alive = true
+    void (window.api.orch.peek(currentProject) as Promise<OrchSnapshot | null>).then(
+      (snap) => alive && setPeeked(snap),
+      () => {}
+    )
+    return () => {
+      alive = false
+    }
+  }, [currentProject, held.length])
+  const recent = recentPlans(held.length > 0 ? held : (peeked?.runs ?? []))
   return (
     <div className="welcome">
       <div className="welcome__inner">

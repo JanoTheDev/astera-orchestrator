@@ -4,6 +4,7 @@ import type { history as ko } from '../ko/history'
 export const history: Partial<Record<keyof typeof ko, string>> = {
   'history.panel.empty': '記録なし',
   'history.loading': '読み込み中…',
+  'history.more': 'さらに表示',
   'history.scan.codex': 'Codex の履歴をスキャンしています… {done}/{total}',
   'history.filter.deletedSuffix': ' (削除済み)',
   'history.filter.allAccounts': 'すべてのアカウント',

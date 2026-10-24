@@ -2,6 +2,7 @@
 export const history = {
   'history.panel.empty': '기록 없음',
   'history.loading': '불러오는 중…',
+  'history.more': '더 보기',
   'history.scan.codex': 'Codex 기록을 훑는 중… {done}/{total}',
   'history.filter.deletedSuffix': ' (삭제됨)',
   'history.filter.allAccounts': '모든 계정',

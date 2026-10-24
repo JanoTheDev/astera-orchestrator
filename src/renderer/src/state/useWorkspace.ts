@@ -216,7 +216,9 @@ export function useWorkspace(deps: WorkspaceDeps) {
     if (workspaceProjectId && selectedProject) sticky.writeName(workspaceProjectId, selectedProject.name)
   }, [workspaceProjectId, selectedProject?.name])
   const projectScope: ProjectScope = {
-    projectId: scopeView.projectId, project: scopeView.project, path: scopeView.path, isAll: scopeView.isAll, select: openWorkspaceProject
+    projectId: scopeView.projectId, project: scopeView.project, path: scopeView.path, isAll: scopeView.isAll,
+    // The page that asks (New plan from All projects) stays in front: entering the workspace would focus its own tab
+    select: (projectId) => setWorkspaceScope(projectId, null)
   }
   useEffect(() => {
     if (boundProject === undefined) return

@@ -13,6 +13,7 @@ export const plans = {
   'jobs.task.waitingNoTime': '리셋 대기',
   'jobs.task.resumedCount': '{n}번 이어짐',
   'pages.plans.overlap': '겹침',
+  'pages.plans.allProjects': '플랜은 프로젝트별로 보입니다. 제목 표시줄에서 프로젝트를 고르거나, 새 플랜을 시작하며 프로젝트를 정하세요.',
   'pages.plans.noArea': '영역 없음',
   'pages.plans.overlaps': '{plan} 과 겹침',
   'pages.plans.startsAfter': '{plan} 전달 뒤 시작',
@@ -33,6 +34,7 @@ export const plans = {
   'pages.plans.main.checksWaitTold': "검사가 '{plan}' 의 반영을 기다립니다 · 주인에게 알림",
   'pages.plans.main.checksRunning': '검사 중입니다',
   'pages.plans.main.checksFailed': '검사가 실패했습니다',
+  'pages.plans.main.checksFailedWhy': '검사 실패: {reason}',
   'pages.plans.main.checksNeedYou': '검사에 당신이 필요합니다',
   // T13 Main plan page redesign: the header chips, the Hide done toggle, a finished plan's row
   'pages.plans.main.running': '{n}개 진행 중',

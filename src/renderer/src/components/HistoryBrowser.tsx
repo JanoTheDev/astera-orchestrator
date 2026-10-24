@@ -454,7 +454,7 @@ export function HistoryBrowser({
                   <Chip className="history-row__account">{accountChipText(accountLabel)}</Chip>
                 </span>
               )}
-              {model && <span>{model}</span>}
+              {model && <span className="history-row__model">{model}</span>}
               {timeOf(e.updatedAt, 'history.session.lastActive')}
             </span>
           ),
@@ -479,10 +479,11 @@ export function HistoryBrowser({
       case 'empty':
         return { id: r.id, depth: 1, label: t('history.project.noSessions') }
       case 'more':
+        // a button that loads the next page when chosen: it said "Loading…" while nothing loaded
         return {
           id: r.id,
           depth: r.projectPath ? 1 : 0,
-          label: t('history.loading'),
+          label: t('history.more'),
           icon: <Icon name="more" size={16} />
         }
     }
