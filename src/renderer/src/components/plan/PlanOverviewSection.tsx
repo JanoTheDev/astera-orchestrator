@@ -24,7 +24,7 @@ export function PlanGoal({ run }: { run: JobRow | undefined }): React.JSX.Elemen
           {t(open ? 'plan.doc.goalLess' : 'plan.doc.goalMore')}
         </Button>
       )}
-      {run.approvedFromChat && <p className="modal-hint">{t('plan.simple.approvedFromChat', { words: run.approvedFromChat.words })}</p>}
+      {run.approvedFromChat && <p className="ui-field__hint">{t('plan.simple.approvedFromChat', { words: run.approvedFromChat.words })}</p>}
       <PlanDecided pick={run.pick} decisions={run.decisions} leftOut={run.leftOut} />
     </>
   )
@@ -49,7 +49,7 @@ export function PlanSoFar({
       {workers ? (
         <PlanSummaryRollup summaries={summaries.summaries} canOpenSession={canOpenSession} onOpenSession={onOpenSession} />
       ) : (
-        <p className="modal-hint">{t('pages.plan.soFarEmpty')}</p>
+        <p className="ui-field__hint">{t('pages.plan.soFarEmpty')}</p>
       )}
     </>
   )

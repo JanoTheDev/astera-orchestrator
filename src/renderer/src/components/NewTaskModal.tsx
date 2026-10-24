@@ -5,6 +5,7 @@ import { useI18n } from '../i18n/I18nProvider'
 import { formFailure, isOutcomeUnknown, replyNote, type OrchDoor } from '../lib/orchDoor'
 import { AccountDisclosure, AccountSelect } from './AccountSelect'
 import { Button, Field, Icon, IconButton, Modal, Checkbox } from './ui'
+import './formDialogs.css'
 import { DepsPicker, PlanFields } from './plan/TaskEditModal'
 import { addTaskRequestOf, createArgsOf } from './plan/taskEdit'
 
@@ -217,17 +218,17 @@ export function NewTaskModal({
         </>
       }
     >
-      <div className="detail-task-fields">
+      <div className="form-stack">
         <Field label={t('jobs.task.title')} value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />
         <Field kind="textarea" label={t('jobs.task.spec')} rows={4} value={spec} onChange={(e) => setSpec(e.target.value)} />
         <div className="new-task-ask">
           <Button variant="ghost" size="sm" className="plan-link" icon={<Icon name="message" size={14} />} disabled={busy || locked || !spec.trim()} onClick={() => void askPlanner()}>
             {t('jobs.task.askPlanner')}
           </Button>
-          <span className="modal-hint">{t('jobs.task.askPlannerHint')}</span>
+          <span className="ui-field__hint">{t('jobs.task.askPlannerHint')}</span>
         </div>
         {asked && (
-          <p className="modal-hint" role="status">
+          <p className="ui-field__hint" role="status">
             {t('jobs.task.askedPlanner')}
           </p>
         )}
@@ -244,9 +245,9 @@ export function NewTaskModal({
             (2) 칸이 없는 이유를 화면이 말하지 않아, 계정이 하나인 사람은 기능이 빠진 줄 안다.
             null 은 아직 안 온 것이라 같이 접힌다 */}
         {accounts !== null && (
-          <div className="field">
-            <label>{t('jobs.task.account')}</label>
-            <p className="modal-hint">{t('jobs.task.accountHint')}</p>
+          <div className="ui-field">
+            <span className="ui-field__label">{t('jobs.task.account')}</span>
+            <p className="ui-field__hint">{t('jobs.task.accountHint')}</p>
             {accounts.length > 0 && (
               <AccountDisclosure
                 id="task-accounts"
@@ -282,9 +283,17 @@ export function NewTaskModal({
             {/* 계정이 하나도 등록되지 않았으면 고를 것이 없어 이 Task 를 만들 수 없다 — 칸을
                 감추면 왜 만들기 버튼이 죽어 있는지 화면이 말하지 않는다. */}
             {accounts.length === 0 && (
-              <p className="warn-text">{door.runtimeId ? t('jobs.runtime.noAccounts') : t('jobs.task.accountEmpty')}</p>
+              <p className="form-warn">
+                <Icon name="warning" size={14} />
+                {door.runtimeId ? t('jobs.runtime.noAccounts') : t('jobs.task.accountEmpty')}
+              </p>
             )}
-            {accountIds.length > 0 && <p className="warn-text">{t('jobs.task.accountTrust')}</p>}
+            {accountIds.length > 0 && (
+              <p className="form-warn">
+                <Icon name="warning" size={14} />
+                {t('jobs.task.accountTrust')}
+              </p>
+            )}
           </div>
         )}
         {/* 완료 검사. 고른 순서가 실행 순서라 번호를 세우고 ↑↓ 로 바꾼다 — 첫 실패에서 멈추므로 순서가 비용을
@@ -292,8 +301,8 @@ export function NewTaskModal({
             있는 버튼이라 aria-label 을 단다; 첫 항목의 ↑ 와 마지막의 ↓ 는 갈 곳이 없어 disabled. null 은 아직 안 온
             것이라 계정 칸과 같은 규칙으로 접는다. */}
         {runConfigs !== null && (
-          <div className="field">
-            <label>{t('jobs.task.validate')}</label>
+          <div className="ui-field">
+            <span className="ui-field__label">{t('jobs.task.validate')}</span>
             {checks.length > 0 && (
               <ol className="detail-check-list">
                 {checks.map((id, i) => (
@@ -326,17 +335,17 @@ export function NewTaskModal({
             )}
             {/* A Runtime's plugins are its own and a controller cannot list them (C14): say where its plugin checks are added */}
             {door.runtimeId !== undefined && (
-              <p className="modal-hint">{t('jobs.task.checksRuntimePlugins', { runtime: door.runtimeId, run: runId })}</p>
+              <p className="ui-field__hint">{t('jobs.task.checksRuntimePlugins', { runtime: door.runtimeId, run: runId })}</p>
             )}
             {configs.length === 0 ? (
-              <p className="modal-hint">{t('jobs.task.checksNone')}</p>
+              <p className="ui-field__hint">{t('jobs.task.checksNone')}</p>
             ) : (
               <>
-                <p className="modal-hint">{t('overlays.newTask.checksHint')}</p>
+                <p className="ui-field__hint">{t('overlays.newTask.checksHint')}</p>
                 {/* 다 골랐으면 이 줄이 빠진다 — 빈 "고르지 않은 것" 은 죽은 칸이다(의존 셀렉트와 같은 판단) */}
                 {unpicked.length > 0 && (
                   <div className="detail-check-pick">
-                    <span className="modal-hint">{t('jobs.task.checksUnpicked')}</span>
+                    <span className="ui-field__hint">{t('jobs.task.checksUnpicked')}</span>
                     {unpicked.map((c) => (
                       <Button
                         key={c.id}
@@ -355,11 +364,12 @@ export function NewTaskModal({
             )}
           </div>
         )}
-        <label className="row check-small">
-          <Checkbox checked={review} onChange={(v) => setReview(v)} />
-          {t('jobs.task.review')}
-        </label>
-        {error && <p className="warn">{error}</p>}
+        <Checkbox label={t('jobs.task.review')} checked={review} onChange={(v) => setReview(v)} />
+        {error && (
+          <p className="ui-field__error" role="alert">
+            {error}
+          </p>
+        )}
       </div>
     </Modal>
   )

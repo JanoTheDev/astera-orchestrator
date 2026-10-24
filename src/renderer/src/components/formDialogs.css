@@ -1,0 +1,8 @@
+/* Layout helpers of the Job/plan dialogs (SourceJobModal, NewTaskModal, plan/TaskEditModal, plan/PlanJournal) on the
+   house primitives: notes use .ui-field__hint / .ui-field__error from styles/primitives.css, these add the stack,
+   the action row and the warning line. */
+.form-stack { display: flex; flex-direction: column; gap: var(--sp-3); }
+.form-actions { display: flex; align-items: center; justify-content: flex-end; gap: var(--sp-2); }
+.form-warn { display: flex; align-items: center; gap: var(--sp-1); margin: 0; color: var(--warn); font-size: var(--fs-12); }
+.form-warn > svg { flex: none; }
+.form-inline { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }

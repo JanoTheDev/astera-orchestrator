@@ -6,7 +6,8 @@ import { TaskLinkChips } from '../TaskLinkChips'
 import { GateAnswer } from '../GateAnswer'
 import { STATE_KEY, TaskGlyph, TaskIcon } from '../JobIcons'
 import { JournalBusy, JournalOlder } from '../RunDetailJournal'
-import { Button, Icon, IconButton, Textarea } from '../ui'
+import { Button, Field, Icon, IconButton } from '../ui'
+import '../formDialogs.css'
 import { CALLS_FOR_A_PERSON, KIND_LABEL, MSG_LABEL, RECOVERY_LABEL, timeOf } from './planPage'
 import type { PlanPageState } from './usePlanPage'
 
@@ -83,20 +84,22 @@ export function PlanJournal({
             />
           </div>
           <div className="detail-task-fields">
-            <div className="field">
-              <label htmlFor="plan-journal-ask">{t('jobs.node.gateQuestion')}</label>
-              <Textarea
-                id="plan-journal-ask"
-                rows={4}
-                value={question}
-                onChange={(e) => setQuestion(e.target.value)}
-                autoFocus
-              />
-            </div>
+            <Field
+              kind="textarea"
+              label={t('jobs.node.gateQuestion')}
+              rows={4}
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              autoFocus
+            />
             {/* NewTaskModal 과 같은 자리 — 이 폼에만 있는 실패는 이 폼 안에서 죽는다 */}
-            {gateError && <p className="warn">{gateError}</p>}
+            {gateError && (
+              <p className="ui-field__error" role="alert">
+                {gateError}
+              </p>
+            )}
           </div>
-          <div className="row right">
+          <div className="form-actions">
             <Button variant="ghost" onClick={cancelAsk} disabled={busy !== null}>
               {t('common.cancel')}
             </Button>
@@ -149,7 +152,7 @@ export function PlanJournal({
             {/* 목록은 오래된 것이 위다 — 더 오래된 저널 줄을 부르는 자리도 맨 위다 */}
             <JournalOlder journal={detail?.journal} onShowOlder={onShowOlderJournal} />
             {events !== null && shown.length === 0 && (
-              <p className="modal-hint">{t('jobs.timeline.empty')}</p>
+              <p className="ui-field__hint">{t('jobs.timeline.empty')}</p>
             )}
             {shown.map((e) => {
               const key = keyOf(e)

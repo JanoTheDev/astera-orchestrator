@@ -1,0 +1,3 @@
+.sched-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+.sched-weekdays { gap: var(--sp-1); }
+.sched-unit { color: var(--text-faint); font-size: var(--fs-12); }
