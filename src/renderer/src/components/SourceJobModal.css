@@ -1,0 +1,19 @@
+/* The GitHub source picker (SourceJobModal): source + search on top, the items beside the picked item's detail. */
+.source-pick { display: grid; gap: var(--sp-2); }
+.source-error { display: flex; align-items: center; gap: var(--sp-2); }
+.source-columns { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: var(--sp-3); min-height: 200px; }
+.source-items, .source-detail { min-width: 0; max-height: 340px; overflow: auto; border: 1px solid var(--line-soft); border-radius: var(--radius); padding: var(--sp-2); display: flex; flex-direction: column; gap: var(--sp-2); }
+.source-items ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.source-item { display: flex; align-items: center; gap: var(--sp-2); padding: 4px var(--sp-2); border-radius: var(--radius-sm); font-size: var(--fs-12); cursor: pointer; }
+.source-item:hover { background: var(--wash); }
+.source-item:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.source-item.picked { background: var(--wash-strong); }
+.source-item.disabled { opacity: 0.6; cursor: default; }
+.source-id { flex: none; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.source-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.source-status, .source-reason { flex: none; color: var(--text-dim); font-size: var(--fs-11); }
+.source-detail h3 { margin: 0; font-size: var(--fs-13); font-weight: var(--fw-semi); overflow-wrap: anywhere; }
+.source-fields { border-collapse: collapse; font-size: var(--fs-12); }
+.source-fields th { text-align: left; padding: 1px var(--sp-2) 1px 0; color: var(--text-faint); font-weight: var(--fw-medium); white-space: nowrap; }
+.source-fields td { color: var(--text-dim); overflow-wrap: anywhere; }
+.source-body { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--mono); font-size: var(--fs-11); color: var(--text-dim); }

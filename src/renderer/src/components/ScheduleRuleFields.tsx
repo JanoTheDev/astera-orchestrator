@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import type { ScheduleRule } from '../../../core/types'
 import { buildScheduleRule } from '../../../core/scheduler/rule'
 import { useI18n } from '../i18n/I18nProvider'
-import { Button, Input, Select } from './ui'
+import { Button, Input, Tabs } from './ui'
+import './ScheduleRuleFields.css'
 
 type SchedKind = ScheduleRule['kind']
 
@@ -53,18 +54,18 @@ export function ScheduleRuleFields({
 
   return (
     <>
-      <div className="row">
-        <Select
-          className="sched-kind"
-          ariaLabel={t('session.new.schedMode.interval')}
+      <div className="sched-row">
+        <Tabs
+          variant="segmented"
+          label={t('session.new.schedMode.interval')}
           items={[
-            { value: 'interval', label: t('session.new.schedMode.interval') },
-            { value: 'daily', label: t('session.new.schedMode.daily') },
-            { value: 'weekly', label: t('session.new.schedMode.weekly') },
-            { value: 'monthly', label: t('session.new.schedMode.monthly') }
+            { id: 'interval', label: t('session.new.schedMode.interval') },
+            { id: 'daily', label: t('session.new.schedMode.daily') },
+            { id: 'weekly', label: t('session.new.schedMode.weekly') },
+            { id: 'monthly', label: t('session.new.schedMode.monthly') }
           ]}
           value={kind}
-          onChange={(v) => setKind(v as SchedKind)}
+          onChange={setKind}
         />
         {kind === 'interval' && (
           <>
@@ -77,7 +78,7 @@ export function ScheduleRuleFields({
               value={minutes}
               onChange={(e) => setMinutes(e.target.value)}
             />
-            <span className="check-note">{t('session.new.schedMinutesUnit')}</span>
+            <span className="sched-unit">{t('session.new.schedMinutesUnit')}</span>
           </>
         )}
         {kind === 'monthly' && (
@@ -90,7 +91,7 @@ export function ScheduleRuleFields({
               value={days}
               onChange={(e) => setDays(e.target.value)}
             />
-            <span className="check-note">{t('session.new.schedDaysUnit')}</span>
+            <span className="sched-unit">{t('session.new.schedDaysUnit')}</span>
           </>
         )}
         {kind !== 'interval' && (
@@ -104,7 +105,7 @@ export function ScheduleRuleFields({
         )}
       </div>
       {kind === 'weekly' && (
-        <div className="row sched-weekdays">
+        <div className="sched-row sched-weekdays">
           {weekdayLabels.map((label, d) => (
             <Button
               key={d}

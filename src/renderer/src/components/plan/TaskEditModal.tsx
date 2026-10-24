@@ -10,6 +10,7 @@ import { DIFFICULTIES } from '../../../../core/orchestration/roleModels'
 import { useI18n } from '../../i18n/I18nProvider'
 import { isOutcomeUnknown, replyNote, type OrchDoor } from '../../lib/orchDoor'
 import { Button, Field, Icon, IconButton, Modal, Select, type SelectOption } from '../ui'
+import '../formDialogs.css'
 import { canEdit, draftOf, editArgsOf, type EditField, type TaskDraft, type TaskEdit } from './taskEdit'
 
 /** The Tasks a Task may wait on, picked by title: a Select that adds one, and the picked ones as removable chips.
@@ -42,8 +43,8 @@ export function DepsPicker({
   // Nothing to pick and nothing picked (a plan's first Task): no dead field
   if (items.length === 0 && deps.length === 0) return null
   return (
-    <div className="field">
-      <label>{label}</label>
+    <div className="ui-field">
+      <span className="ui-field__label">{label}</span>
       {/* 다 골랐으면 셀렉트가 빠진다 — 빈 셀렉트는 눌러도 아무것도 없는 자리가 된다 */}
       {items.length > 0 && (
         <Select items={items} value="" placeholder={addLabel} disabled={disabled} onChange={(id) => onChange([...deps, id])} ariaLabel={label} />
@@ -64,7 +65,7 @@ export function DepsPicker({
           ))}
         </div>
       )}
-      {hint !== undefined && <p className="modal-hint">{hint}</p>}
+      {hint !== undefined && <p className="ui-field__hint">{hint}</p>}
     </div>
   )
 }
@@ -188,9 +189,9 @@ export function TaskEditModal({
         </>
       }
     >
-      <div className="detail-task-fields plan-edit">
+      <div className="form-stack plan-edit">
         {reason !== null && (
-          <p className="modal-hint plan-edit-why" role="note">
+          <p className="ui-field__hint plan-edit-why" role="note">
             <Icon name="lock" size={14} />
             {reason}
           </p>
@@ -207,7 +208,7 @@ export function TaskEditModal({
           onChange={(deps) => set('deps', deps)}
         />
         {error && (
-          <p className="warn" role="alert">
+          <p className="ui-field__error" role="alert">
             {error}
           </p>
         )}

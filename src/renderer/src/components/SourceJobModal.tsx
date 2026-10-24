@@ -6,8 +6,10 @@ import { FAILURE_LIMIT, MAX_REVIEW_ROUNDS } from '../../../core/orchestration/ty
 import { useI18n } from '../i18n/I18nProvider'
 import { AccountDisclosure, AccountSelect } from './AccountSelect'
 import { failureLine } from './pluginsText'
-import { Button, Input, Modal, Select, Checkbox } from './ui'
+import { Button, Checkbox, Icon, Input, Modal, Select } from './ui'
 import './overlays.css'
+import './formDialogs.css'
+import './SourceJobModal.css'
 import { createPause } from '../lib/pausedSearch'
 
 // The Jobs view's "+ 소스에서" (plugin Phase 4 J20, §3): pick a source, find a ticket, read it, and make a Job from it
@@ -187,19 +189,19 @@ export function SourceJobView(p: SourceJobViewProps): React.JSX.Element {
         </>
       }
     >
-      <div className="dlg">
-        <p className="modal-hint">{t('jobs.new.gitRequired')}</p>
+      <div className="form-stack">
+        <p className="ui-field__hint">{t('jobs.new.gitRequired')}</p>
         {/* The app's Select in its list form: a source that is not ready is a greyed, unpickable row with its reason
-            (§3.1). `field` gives the search the app's input look. */}
-        <div className="field source-pick">
+            (§3.1). */}
+        <div className="source-pick">
           {p.sources === null ? (
             p.sourcesError !== undefined ? (
               <div className="source-error">
-                <p className="warn-text">{p.sourcesError}</p>
+                <p className="ui-field__error" role="alert">{p.sourcesError}</p>
                 <Button size="sm" variant="ghost" onClick={p.onRetrySources}>{t('jobs.source.retry')}</Button>
               </div>
             ) : (
-              <p className="modal-hint">{t('jobs.source.sourcesLoading')}</p>
+              <p className="ui-field__hint">{t('jobs.source.sourcesLoading')}</p>
             )
           ) : (
             <Select
@@ -227,11 +229,11 @@ export function SourceJobView(p: SourceJobViewProps): React.JSX.Element {
               {p.list.error !== undefined ? (
                 // A source's error takes the list's place, with a way to ask again (§3)
                 <div className="source-error">
-                  <p className="warn-text">{p.list.error}</p>
+                  <p className="ui-field__error" role="alert">{p.list.error}</p>
                   <Button size="sm" variant="ghost" onClick={p.onRetry}>{t('jobs.source.retry')}</Button>
                 </div>
               ) : p.list.items.length === 0 ? (
-                <p className="modal-hint">{p.list.loading ? t('jobs.source.loading') : t('jobs.source.empty')}</p>
+                <p className="ui-field__hint">{p.list.loading ? t('jobs.source.loading') : t('jobs.source.empty')}</p>
               ) : (
                 <ul>
                   {p.list.items.map((i) => {
@@ -275,7 +277,7 @@ export function SourceJobView(p: SourceJobViewProps): React.JSX.Element {
                   })}
                 </ul>
               )}
-              {p.list.cut === true && <p className="modal-hint">{t('jobs.source.cut')}</p>}
+              {p.list.cut === true && <p className="ui-field__hint">{t('jobs.source.cut')}</p>}
               {p.list.nextCursor !== undefined && p.list.error === undefined && (
                 <Button size="sm" variant="ghost" disabled={p.list.loading} onClick={p.onMore}>
                   {t('jobs.source.more')}
@@ -290,8 +292,13 @@ export function SourceJobView(p: SourceJobViewProps): React.JSX.Element {
                   </h3>
                   {/* Why it cannot be picked, a cut and the way to the ticket come before a body of up to 20,000
                       characters, so they are in view (4c final review M7, M8) */}
-                  {p.detail.selectable === false && <p className="warn-text">{t('jobs.source.cannotPick', { reason: p.detail.reason ?? '' })}</p>}
-                  {p.detail.cut === true && <p className="modal-hint">{t('jobs.source.cut')}</p>}
+                  {p.detail.selectable === false && (
+                    <p className="form-warn">
+                      <Icon name="warning" size={14} />
+                      {t('jobs.source.cannotPick', { reason: p.detail.reason ?? '' })}
+                    </p>
+                  )}
+                  {p.detail.cut === true && <p className="ui-field__hint">{t('jobs.source.cut')}</p>}
                   {p.detail.fields !== undefined && Object.keys(p.detail.fields).length > 0 && (
                     <table className="source-fields">
                       <tbody>
@@ -309,20 +316,20 @@ export function SourceJobView(p: SourceJobViewProps): React.JSX.Element {
                       {t('jobs.source.openLink')}
                     </Button>
                   )}
-                  <p className="modal-hint">{t('jobs.source.dataHint')}</p>
+                  <p className="ui-field__hint">{t('jobs.source.dataHint')}</p>
                   {/* Someone else wrote it: shown as the text it is, never as Markdown or HTML (§3.3) */}
                   <pre className="source-body">{p.detail.body ?? ''}</pre>
                 </>
               ) : (
-                <p className="modal-hint">{p.detailError ?? (p.detailLoading ? t('jobs.source.loading') : t('jobs.source.pickItem'))}</p>
+                <p className="ui-field__hint">{p.detailError ?? (p.detailLoading ? t('jobs.source.loading') : t('jobs.source.pickItem'))}</p>
               )}
             </div>
           </div>
         )}
         {p.accounts !== null && (
-          <div className="field">
-            <label>{t('overlays.sourceJob.leadAccount')}</label>
-            <p className="modal-hint">{t('overlays.sourceJob.leadAccountHint')}</p>
+          <div className="ui-field">
+            <span className="ui-field__label">{t('overlays.sourceJob.leadAccount')}</span>
+            <p className="ui-field__hint">{t('overlays.sourceJob.leadAccountHint')}</p>
             {p.accounts.length > 0 && (
               <AccountDisclosure
                 id="source-job-accounts"
@@ -333,23 +340,29 @@ export function SourceJobView(p: SourceJobViewProps): React.JSX.Element {
                 <AccountSelect accounts={p.accounts} value={p.account} onChange={p.onAccount} allLabel={t('accounts.auto')} />
               </AccountDisclosure>
             )}
-            {p.accounts.length === 0 && <p className="warn-text">{t('jobs.task.accountEmpty')}</p>}
+            {p.accounts.length === 0 && (
+              <p className="form-warn">
+                <Icon name="warning" size={14} />
+                {t('jobs.task.accountEmpty')}
+              </p>
+            )}
           </div>
         )}
         {/* As the new-Job window has them (plan P4, 4c final review M16) */}
-        <div className="field">
-          <label className="check-small">
-            <Checkbox checked={p.convergence} onChange={(v) => p.onConvergence(v)} />
-            {t('overlays.sourceJob.fixUntilPass')}
-          </label>
-          <p className="modal-hint">{t('overlays.sourceJob.fixUntilPassHint')}</p>
-          <p className="modal-hint">
+        <div className="ui-field">
+          <Checkbox label={t('overlays.sourceJob.fixUntilPass')} checked={p.convergence} onChange={(v) => p.onConvergence(v)} />
+          <p className="ui-field__hint">{t('overlays.sourceJob.fixUntilPassHint')}</p>
+          <p className="ui-field__hint">
             {t('jobs.new.convergenceDefaults', { fix: FAILURE_LIMIT, review: MAX_REVIEW_ROUNDS, severity: DEFAULT_BLOCKING_SEVERITY })}
             {' — '}
             {t('jobs.new.convergenceCliOnly')}
           </p>
         </div>
-        {p.error !== undefined && <p className="warn">{p.error}</p>}
+        {p.error !== undefined && (
+          <p className="ui-field__error" role="alert">
+            {p.error}
+          </p>
+        )}
       </div>
     </Modal>
   )
