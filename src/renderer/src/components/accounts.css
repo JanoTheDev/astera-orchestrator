@@ -30,6 +30,7 @@
 .acct-id__name { min-width: 0; font-size: var(--fs-13); font-weight: var(--fw-medium); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acct-id__edit { flex: 1; min-width: 0; }
 .acct-id__email { font-size: var(--fs-11); color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct-id__note { color: var(--warn); }
 .acct-row__actions { display: inline-flex; align-items: center; gap: var(--sp-1); }
 
 /* Usage: two labelled meters under the name (design doc §5). Each track is the house Meter on its usage-guard thresholds. */

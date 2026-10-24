@@ -20,6 +20,14 @@ beforeEach(async () => {
 })
 
 describe('ProjectSettings', () => {
+  it('reassignDefaultAccount moves only the projects that used the dropped account', async () => {
+    await settings.setDefaultAccount(absPath('home', 'u', 'A'), 'drop')
+    await settings.setDefaultAccount(absPath('home', 'u', 'B'), 'other')
+    await settings.reassignDefaultAccount('drop', 'keep')
+    expect(settings.getDefaultAccount(absPath('home', 'u', 'A'))).toBe('keep')
+    expect(settings.getDefaultAccount(absPath('home', 'u', 'B'))).toBe('other')
+  })
+
   it('설정 없는 프로젝트는 null', () => {
     expect(settings.getDefaultAccount('D:\\some\\proj')).toBeNull()
   })

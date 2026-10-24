@@ -33,6 +33,17 @@ export const accounts: Partial<Record<keyof typeof ko, string>> = {
   'account.remove.confirmWithLogout': '解除 + ログアウト',
   'account.logout.failed': 'ログアウトに失敗しました: {detail}\n\n登録解除はこのまま続行します。',
   'account.remove.inUse': '実行中のセッションがこのアカウントを使用しているため、登録を解除できません: {titles}\n\nセッションを閉じるか、そのセッションのローテーション順からこのアカウントを外してください。',
+  // Merging two accounts of one login (Settings › Accounts)
+  'account.merge.sameLogin': '「{label}」と同じログイン',
+  'account.merge.button': '統合',
+  'account.merge.title': 'アカウントの統合',
+  'account.merge.confirm': '「{drop}」を「{keep}」に統合しますか？「{keep}」アカウントが残ります。',
+  'account.merge.note': '「{drop}」を使っていたタスク、プラン、プロジェクトの既定アカウントを「{keep}」に移し、「{drop}」の登録を解除します。同じログインなので、サインイン情報は削除されません。',
+  'account.merge.confirmButton': '「{keep}」に統合',
+  'account.merge.processing': '統合中…',
+  'account.merge.done': '「{keep}」に統合しました。',
+  'account.merge.inUse': '実行中のセッションが「{drop}」を使用しているため、統合できません: {titles}\n\nセッションを先に閉じるか、そのセッションのローテーション順からこのアカウントを外してください。',
+  'account.merge.failed': 'アカウントを統合できませんでした。すでに同じログインではないか、オーケストレーションの準備がまだできていない可能性があります。',
   // AccountPanel.tsx — default-account settings sync. A destructive action that overwrites the target account's settings.
   'account.sync.title': '既定アカウントの設定を取り込む',
   'account.sync.confirmBody':

@@ -59,6 +59,15 @@ export class ProjectSettings {
     return this.map[this.key(projectPath)] ?? null
   }
 
+  /** Every project whose default account is `from` takes `to` instead (merging two accounts of one login). */
+  async reassignDefaultAccount(from: string, to: string): Promise<void> {
+    const keys = Object.keys(this.map).filter((k) => this.map[k] === from)
+    if (keys.length === 0) return
+    for (const k of keys) this.map[k] = to
+    await fs.mkdir(path.dirname(this.filePath), { recursive: true })
+    await fs.writeFile(this.filePath, JSON.stringify(this.map, null, 2), 'utf8')
+  }
+
   async setDefaultAccount(projectPath: string, accountId: string | null): Promise<void> {
     const key = this.key(projectPath)
     if (accountId === null) delete this.map[key]

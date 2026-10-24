@@ -85,6 +85,7 @@ const api = {
     create: invoke('accounts.create'),
     import: invoke('accounts.import'),
     remove: invoke('accounts.remove'),
+    merge: invoke('accounts.merge'),
     loginStatus: invoke('accounts.loginStatus'),
     detect: invoke('accounts.detect'),
     ghosts: invoke('accounts.ghosts'),

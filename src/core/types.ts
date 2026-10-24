@@ -1475,6 +1475,8 @@ export interface CoreApi {
      *  그 계정을 롤링 대기 순서에 담고 있는 세션도 막는다 — 대기 계정이 사라지면 한도에 걸리는 순간
      *  갈아탈 곳이 없어 롤이 중단된다. */
     remove(id: string): Promise<{ ok: boolean; titles: string[] }>
+    /** Folds `dropId` into `keepId` (the same login): their Task/Job references and project defaults move, then `dropId` is removed. `inUse` lists the running sessions that block it. */
+    merge(keepId: string, dropId: string): Promise<{ ok: boolean; reason?: 'notSameLogin' | 'inUse' | 'unavailable'; titles: string[] }>
     loginStatus(id: string): Promise<boolean> // the verdict from accounts/loginStatus.ts (claude also checks Keychain on macOS)
     detect(): Promise<DetectCandidate[]> // detection candidates, excluding registered and unregistered-by-the-user config dirs
     /** Unregistered config dirs as account-shaped history sources — this one keeps the ones the user

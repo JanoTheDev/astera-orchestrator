@@ -20,6 +20,7 @@ export function AccountRow({
   expanded,
   onToggle,
   menu,
+  note,
   children
 }: {
   account: Account
@@ -38,6 +39,8 @@ export function AccountRow({
   onToggle?: () => void
   /** Extra items of the row's "⋯" menu, after Rename. Given, the menu replaces the separate rename button. */
   menu?: MenuItem[]
+  /** A line under the email, e.g. that this account is the same login as another. */
+  note?: string
   children?: React.ReactNode
 }): React.JSX.Element {
   const { t } = useI18n()
@@ -125,6 +128,7 @@ export function AccountRow({
           {loggedIn === false && <Chip tone="warn" dot>{t('account.status.notLoggedIn')}</Chip>}
         </div>
         {email && <span className="acct-id__email">{email}</span>}
+        {note && <span className="acct-id__email acct-id__note" title={note}>{note}</span>}
       </div>
       {/* The actions sit inside the row, so their clicks would bubble into the row's toggle —
           pressing "remove account" would also open the usage detail. Stopped here rather than on
