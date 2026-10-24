@@ -144,7 +144,8 @@ export interface Project {
   addedAt: string
   // ── W6-H delivery (delivery.ts) ──
   /** How a finished plan lands: `pr` opens one pull request (`run-open-pr`), `push` merges it into `deliveryBranch` and
-   *  pushes with no review by a person (`deliverByPush`). Absent reads as `'pr'`. A Job may override it. */
+   *  pushes with no review by a person (`deliverByPush`), T6 `merge` merges it there on this computer and pushes nothing.
+   *  Absent reads as `'pr'`. A Job may override it. */
   delivery?: DeliveryMode
   /** The branch a `push` delivery lands on. Absent: the repository's default branch. */
   deliveryBranch?: string
@@ -216,9 +217,10 @@ export type Decision = { at: string; kind: 'approval' | 'escalation' | 'gate' | 
 export type IssuePick = { number: number; title: string; why: string }
 
 /** W6-H: how a finished plan lands (`deliveryOf`). */
-/** `manual`: nothing is delivered by itself. The plan's integration branch is pushed for safekeeping and the finished plan
+/** T6 `merge`: the plan merges into the delivery branch in the project folder on this computer, validated, never pushed.
+ *  `manual`: nothing is delivered by itself. The plan's integration branch is pushed for safekeeping and the finished plan
  *  waits for the owner (`awaiting-review`), who creates the PR or merges from the app (`run-deliver --as pr|push`). */
-export type DeliveryMode = 'pr' | 'push' | 'manual'
+export type DeliveryMode = 'pr' | 'push' | 'merge' | 'manual'
 
 /** 계획. **무엇을 시킬 것인가이고, 그것이 실제로 돈 기록은 JobRun 이다**
  *  (docs/2026-09-21-job-run-split-and-projects-design.md §4).

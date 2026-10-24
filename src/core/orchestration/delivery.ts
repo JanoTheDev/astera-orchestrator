@@ -1,6 +1,7 @@
 // W6-H: how a finished plan lands (orchestrator SPEC §7, PLAN "Wave 6"). Per project: `pr` opens the plan's one pull
 // request (`run-open-pr`, never merged by Astera); `push` merges the plan into a branch and pushes it with no review by
-// a person (`deliverByPush`, exec/integrateGit.ts). A Job may override its project. Missing everywhere means `pr`, the
+// a person (`deliverByPush`, exec/integrateGit.ts); T6 `merge` does the same merge and validation on this computer and
+// pushes nothing (`deliverByPush` with `local`). A Job may override its project. Missing everywhere means `pr`, the
 // owner's decision of 2026-10-17, so nothing changes for a project nobody set. `manual` delivers nothing by itself: the
 // owner reviews the plan's worktree and then opens the PR or pushes (`run-deliver --as`).
 //
@@ -12,7 +13,7 @@ import { addDecision, jobOf, type OrchState, type Res } from './state'
 import { FAILURE_LIMIT, newId, type DeliveryMode, type DeliveryProgress, type Job, type JobRun, type Project, type RunDelivery, type Task } from './types'
 import { findProject, projectOfJob } from './projects'
 
-export const DELIVERIES = ['pr', 'push', 'manual'] as const satisfies readonly DeliveryMode[]
+export const DELIVERIES = ['pr', 'push', 'merge', 'manual'] as const satisfies readonly DeliveryMode[]
 
 /** A `--delivery` value: the mode, `undefined` when not given, null when it is neither. */
 export function parseDelivery(v: unknown): DeliveryMode | null | undefined {

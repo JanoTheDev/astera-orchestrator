@@ -348,10 +348,16 @@ export const common = {
   'jobs.source.open': '소스에서',
   // W6-H delivery
   'delivery.label': '계획이 끝나면:',
-  'delivery.pr': '풀 리퀘스트 하나를 연다 (Astera 는 병합하지 않는다)',
-  'delivery.push': '계획이 끝나면 {branch} 에 푸시한다 (사람의 검토 없음)',
-  'delivery.manual': '수동: 내가 검토한 뒤 PR 을 만들거나 병합한다',
+  'delivery.pr': 'GitHub 에 풀 리퀘스트를 연다',
+  'delivery.push': 'GitHub 의 {branch} 에 푸시한다',
+  'delivery.manual': '내가 검토하도록 남겨 둔다',
   'delivery.defaultBranch': '기본 브랜치',
+  'delivery.pushTo': '{remote} 의 {branch} 에 푸시한다',
+  'delivery.merge': '이 컴퓨터에서 {branch} 에 병합한다',
+  'delivery.off.notGit': '이 폴더는 git 저장소가 아니라서 작업은 검토하도록 남겨 둡니다',
+  'delivery.off.noRemote': '원격 저장소가 없어서 푸시는 꺼져 있습니다',
+  'delivery.off.notGitHub': 'GitHub 원격 저장소가 없어서 풀 리퀘스트는 꺼져 있습니다',
+  'delivery.off.ghSignedOut': 'gh 에 로그인되어 있지 않아서 풀 리퀘스트는 꺼져 있습니다',
   // NewTaskModal.tsx — Task 를 짜는 동안 상세 창의 아래 칸(.detail-events)이 바뀌는 폼. deps 는
   // 이 폼이 아니라 그래프가 쥐고 있다(고르는 자리가 그래프이므로) — 그래서 이 카탈로그에는 deps
   // 자체의 값이 아니라 그것을 고르라고 안내하는 문구(depsHint)만 있다.

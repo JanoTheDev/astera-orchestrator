@@ -1,6 +1,7 @@
 import type { ApprovalMode } from './settings/approvalDefault'
 import type { CrashOffer, CrashReportsSetting, RENDERER_KINDS } from './crash/report' // T27
 import type { Decision, IssuePick, PlanFeedback } from './orchestration/types'
+import type { DeliverySetup } from './orchestration/deliveryChoices'
 import type { WorktreeDetail, WorktreeRow } from './worktrees/cleanup'
 import type { ChangeMap } from './review/changeMap'
 import type { SlashCommand } from './commands/slashCommands'
@@ -1576,6 +1577,8 @@ export interface CoreApi {
     /** T11: each path's branch and changes for the project switcher (core/git/branchStatus.ts), keyed by the path as
      *  given. A path git could not read (not a repository, not allowed, timed out) has every field null. */
     status(paths: string[]): Promise<Record<string, ProjectGitStatus>>
+    /** T6: what the folder is set up for (git, origin's URL, gh signed in, its branch): deliveryChoicesOf's input. */
+    deliverySetup(projectPath: string): Promise<DeliverySetup>
   }
   worktrees: {
     // Splitting a session off into a git worktree.

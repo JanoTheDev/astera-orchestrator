@@ -5,6 +5,7 @@
 //
 // Pure: no clock, no files.
 import { isSamePath } from '../files/tree'
+import { deliveryOf } from './delivery'
 import { latestAttempts } from './integrate'
 import { waveOf, runTasks } from './replan'
 import { jobActive } from './schedule'
@@ -48,6 +49,8 @@ export const wavesDoneOf = (waves: readonly RunWave[]): number => {
 export function draftPrDue(s: OrchState, run: JobRun, nowMs?: number, opts?: { synced?: boolean }): number | null {
   const job = jobOf(s, run)
   if (!job || !jobActive(job) || job.schedule !== undefined) return null
+  // T6: a plan merged on this computer is never pushed, its plan branch neither
+  if (deliveryOf(s, job) === 'merge') return null
   if (run.worktree === undefined || run.delivery !== undefined) return null
   const pr = run.pr
   if (pr !== undefined && (pr.draft !== true || pr.error !== undefined || pr.note !== undefined)) return null

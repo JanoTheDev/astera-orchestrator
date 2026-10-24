@@ -284,10 +284,16 @@ export const common: Partial<Record<keyof typeof ko, string>> = {
   'jobs.source.open': 'Desde una fuente',
   // W6-H delivery
   'delivery.label': 'Cuando un plan termina:',
-  'delivery.pr': 'Abrir una pull request (Astera nunca la fusiona)',
-  'delivery.push': 'Hacer push a {branch} cuando el plan termine (sin revisión de una persona)',
-  'delivery.manual': 'Manual: reviso yo, luego creo un PR o fusiono',
+  'delivery.pr': 'Abrir una pull request en GitHub',
+  'delivery.push': 'Hacer push a {branch} en GitHub',
+  'delivery.manual': 'Dejarlo para que yo lo revise',
   'delivery.defaultBranch': 'la rama por defecto',
+  'delivery.pushTo': 'Hacer push a {branch} en {remote}',
+  'delivery.merge': 'Fusionar en {branch} en este equipo',
+  'delivery.off.notGit': 'Esta carpeta no es un repositorio git, así que el trabajo queda para que lo revises',
+  'delivery.off.noRemote': 'No hay remoto, así que el push está desactivado',
+  'delivery.off.notGitHub': 'No hay remoto de GitHub, así que las pull requests están desactivadas',
+  'delivery.off.ghSignedOut': 'gh no tiene la sesión iniciada, así que las pull requests están desactivadas',
   // NewTaskModal.tsx — el formulario en el que se convierte el panel inferior de RunDetail
   // (.detail-events) mientras se está creando una Task. deps pertenece al grafo, no a este formulario
   // (el grafo es donde se eligen las dependencias) — por eso este catálogo solo tiene el texto que

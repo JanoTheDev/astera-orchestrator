@@ -11,6 +11,7 @@ import type { ActionUi } from '../../lib/jobActions'
 import { toast } from '../../lib/toast'
 import { APPROVAL_MODES, type ApprovalMode } from '../../../../core/settings/approvalDefault'
 import { Input, Select, Switch } from '../ui'
+import { useDeliveryChoices } from '../delivery/useDeliveryChoices'
 import {
   APPROVAL_LABEL,
   approvalOf,
@@ -31,6 +32,8 @@ export function PlanSettings({ door, jobId, row, confirm }: { door: OrchDoor; jo
   /** The Job's own id: `jobs-set --priority` takes a Job's, never a Run's. */
   const [id, setId] = useState(jobId)
   const [saving, setSaving] = useState(false)
+  /** T6: the plan's project, for the deliveries its folder is set up for (none read for a plan on another machine). */
+  const [project, setProject] = useState<Project | undefined>(undefined)
   // Read again when the plan's state moves on (it finishes, its delivery starts): what can change follows it
   const outcome = row?.outcome
   const moved = `${outcome}:${row?.archivedAt ?? ''}:${row?.delivery?.state ?? ''}`
@@ -44,6 +47,7 @@ export function PlanSettings({ door, jobId, row, confirm }: { door: OrchDoor; jo
       const globalDefault = (await window.api.settings.getApprovalDefault().catch(() => null)) ?? undefined
       if (cancelled) return
       setId(job.id)
+      setProject(proj && proj.status < 400 ? (proj.body as Project) : undefined)
       setForm(planSettingsFormOf(job, run, proj && proj.status < 400 ? (proj.body as Project) : undefined, outcome, globalDefault))
     })().catch(() => {})
     return () => {
@@ -52,6 +56,7 @@ export function PlanSettings({ door, jobId, row, confirm }: { door: OrchDoor; jo
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `moved` names what the read depends on
   }, [door, jobId, moved])
 
+  const offered = useDeliveryChoices(door.runtimeId === undefined ? project?.path : undefined, form?.values.delivery ?? 'pr', project?.deliveryBranch)
   if (form === null) return <p className="plan-settings-loading">{t('plan.settings.loading')}</p>
   const { values, fields } = form
   const locked = door.readOnlyReason ?? undefined
@@ -78,7 +83,12 @@ export function PlanSettings({ door, jobId, row, confirm }: { door: OrchDoor; jo
   const set = <K extends keyof PlanSettingsValues>(key: K, value: PlanSettingsValues[K]): void => void save({ ...values, [key]: value })
 
   /** One settings-editor row; `key` names its field's editability and the ids its label and help hang on. */
-  const row_ = (key: PlanSettingKey, control: (props: { id: string; disabled: boolean; 'aria-describedby': string }) => React.ReactNode): React.JSX.Element => {
+  const row_ = (
+    key: PlanSettingKey,
+    control: (props: { id: string; disabled: boolean; 'aria-describedby': string }) => React.ReactNode,
+    /** T6: one more line under the help, e.g. why the saved delivery is not offered */
+    note?: string | null
+  ): React.JSX.Element => {
     const f = fields[key]
     const domId = `plan-setting-${key}`
     const disabled = !f.editable || locked !== undefined || saving
@@ -91,6 +101,7 @@ export function PlanSettings({ door, jobId, row, confirm }: { door: OrchDoor; jo
           <span className="plan-setting-help" id={`${domId}-help`}>
             {t(`plan.settings.${key}Help`)}
             {f.reason !== undefined && <span className="plan-setting-why"> {t(SETTING_REASON_KEY[f.reason])}</span>}
+            {note && <span className="plan-setting-why"> {note}</span>}
           </span>
         </div>
         <div className="plan-setting-control" title={locked}>
@@ -153,15 +164,22 @@ export function PlanSettings({ door, jobId, row, confirm }: { door: OrchDoor; jo
           }}
         />
       ))}
-      {row_('delivery', (props) => (
-        <Select
-          {...props}
-          aria-label={t('plan.settings.delivery')}
-          value={values.delivery}
-          items={(['pr', 'push', 'manual'] as const).map((d) => ({ value: d, label: t(`plan.settings.delivery.${d}`) }))}
-          onChange={(v) => set('delivery', v === 'push' || v === 'manual' ? v : 'pr')}
-        />
-      ))}
+      {row_(
+        'delivery',
+        (props) => (
+          <Select
+            {...props}
+            aria-label={t('plan.settings.delivery')}
+            value={offered.mode}
+            items={offered.options}
+            onChange={(v) => {
+              const d = offered.options.find((o) => o.value === v)?.value
+              if (d !== undefined) set('delivery', d)
+            }}
+          />
+        ),
+        offered.reason
+      )}
     </div>
   )
 }

@@ -312,10 +312,16 @@ export const common: Record<keyof typeof ko, string> = {
   'jobs.source.open': 'From a source',
   // W6-H delivery
   'delivery.label': 'When a plan is done:',
-  'delivery.pr': 'Open one pull request (never merged by Astera)',
-  'delivery.push': 'Push to {branch} when the plan is done (no review by a person)',
-  'delivery.manual': 'Manual: I review, then create a PR or merge',
+  'delivery.pr': 'Open a pull request on GitHub',
+  'delivery.push': 'Push to {branch} on GitHub',
+  'delivery.manual': 'Leave it for me to review',
   'delivery.defaultBranch': 'the default branch',
+  'delivery.pushTo': 'Push to {branch} on {remote}',
+  'delivery.merge': 'Merge into {branch} on this computer',
+  'delivery.off.notGit': 'This folder is not a git repository, so the work is left for you to review',
+  'delivery.off.noRemote': 'No remote, so pushing is off',
+  'delivery.off.notGitHub': 'No GitHub remote, so pull requests are off',
+  'delivery.off.ghSignedOut': 'gh is not signed in, so pull requests are off',
   // NewTaskModal.tsx — the form RunDetail's bottom pane (.detail-events) turns into while a Task is
   // being authored. deps belongs to the graph, not this form (the graph is where dependencies get
   // picked) — that is why this catalog only has the hint text pointing at the graph, not the deps

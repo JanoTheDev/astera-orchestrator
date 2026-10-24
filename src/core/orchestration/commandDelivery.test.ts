@@ -139,6 +139,48 @@ describe('run-deliver (W6-H)', () => {
   })
 
   // T3: the driving loop's steps, over the real command
+  it("T6: merges a merge project's Run into its branch on this computer, validated, and pushes nothing", async () => {
+    const h = setup({ project: { delivery: 'merge', defaultBranch: 'main' } })
+    const r = await h.call('run-deliver', { run: 'r1' })
+    expect(r).toEqual({
+      status: 200,
+      body: { delivery: 'merge', branch: 'main', sha: 'abc1234def', pushed: false, validated: 2, deliveryState: { state: 'delivered', attempts: 1, lastAttemptAt: NOW } }
+    })
+    expect(h.pushes).toEqual([
+      { cwd: REPO, defaultBranch: 'main', worktrees: ['/wt/t1', '/wt/t2'], message: 'Deliver plan: Fix auth', checks: ['test', 'lint'], local: true }
+    ])
+    expect(h.state().runs[0].delivery).toEqual({ at: NOW, branch: 'main', sha: 'abc1234def' })
+    // A manual plan may be merged on this computer by its owner, and an agent may not merge one
+    const m = setup({ project: { delivery: 'manual' } })
+    expect((await m.call('run-deliver', { run: 'r1', as: 'merge' }, 'worker-session')).status).toBe(403)
+    expect((await m.call('run-deliver', { run: 'r1', as: 'merge' })).body).toMatchObject({ delivery: 'merge', pushed: false })
+    expect(m.pushes[0].local).toBe(true)
+  })
+
+  it('T6: a merge that the dirty project folder refuses is a stop with the reason', async () => {
+    const reason = 'your folder /repo has 2 uncommitted change(s)'
+    const h = setup({ project: { delivery: 'merge' }, push: { ok: false, reason, branch: 'main' } })
+    const r = await h.call('run-deliver', { run: 'r1' })
+    expect(r.status).toBe(409)
+    expect(r.body).toMatchObject({ error: reason, branch: 'main' })
+    expect(h.removed).toEqual([])
+  })
+
+  it('T6: the plan branch of a merge plan is never pushed after a Task', async () => {
+    const h = setup({ project: { delivery: 'merge' }, run: { worktree: '/wt/plan' } })
+    expect(await h.call('run-draft-pr', { run: 'r1' })).toMatchObject({ status: 409, body: { error: expect.stringContaining('No plan-branch push is due') } })
+    const p = setup({ project: { delivery: 'push' }, run: { worktree: '/wt/plan' } })
+    expect((await p.call('run-draft-pr', { run: 'r1' })).body).not.toMatchObject({ error: expect.stringContaining('No plan-branch push is due') })
+  })
+
+  it('jobs-create --delivery merge and projects-set --delivery merge are accepted', async () => {
+    const h = setup()
+    expect((await h.call('projects-set', { id: 'p1', delivery: 'merge' })).status).toBe(200)
+    expect(h.state().projects[0].delivery).toBe('merge')
+    const r = await h.call('jobs-create', { objective: 'Ship it', cwd: REPO, delivery: 'merge' })
+    expect(h.state().jobs.find((j) => j.id === (r.body as { id: string }).id)?.delivery).toBe('merge')
+  })
+
   it('T3: the pending mark, an auto attempt only when due, and the fifth failure asks the owner exactly once', async () => {
     const h = setup({ project: { delivery: 'push' }, push: { ok: false, branch: 'main', reason: 'git fetch origin main failed: offline', code: 'fetch-failed' } })
     expect((await h.call('run-deliver', { run: 'r1', auto: true })).status).toBe(409) // nothing pending yet
@@ -219,7 +261,7 @@ describe('projects-set and --delivery (W6-H)', () => {
 
   it('refuses a bad value, an unknown project, an agent and an MCP client', async () => {
     const h = setup()
-    expect((await h.call('projects-set', { id: 'p1', delivery: 'merge' })).status).toBe(400)
+    expect((await h.call('projects-set', { id: 'p1', delivery: 'squash' })).status).toBe(400)
     expect((await h.call('projects-set', { id: 'p1', deliveryBranch: '--force' })).status).toBe(400)
     expect((await h.call('projects-set', { id: 'nope', delivery: 'push' })).status).toBe(404)
     expect((await h.call('projects-set', { id: 'p1', delivery: 'push' }, 'worker-session')).status).toBe(403)
@@ -736,7 +778,7 @@ describe('manual delivery', () => {
     const h = setup({ project: { delivery: 'manual' } })
     expect((await h.call('run-deliver', { run: 'r1', as: 'push' }, 'sess_agent')).status).toBe(403)
     expect((await h.call('run-deliver', { run: 'r1', as: 'push' }, '', 'mcp')).status).toBe(403)
-    expect((await h.call('run-deliver', { run: 'r1', as: 'merge' })).status).toBe(400)
+    expect((await h.call('run-deliver', { run: 'r1', as: 'squash' })).status).toBe(400)
     expect(h.pushes).toEqual([])
   })
 

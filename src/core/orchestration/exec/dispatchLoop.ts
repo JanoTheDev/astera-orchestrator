@@ -751,7 +751,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
         continue
       }
       if (p === undefined) continue
-      const push = deliveryOf(s, job) === 'push'
+      const push = deliveryOf(s, job) === 'push' || deliveryOf(s, job) === 'merge' // T6: a local merge lands the same way
       const answer = deliveryAnswerOf(s, p)
       const action: DeliveryStep['action'] | null =
         answer === 'self' || ownerCheckDue(p, nowMs) ? 'self' : answer === 'retry' ? 'retry' : deliveryDue(p, nowMs) ? 'auto' : null

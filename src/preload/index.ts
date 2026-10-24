@@ -122,7 +122,8 @@ const api = {
     getDefaultAccount: invoke('projects.getDefaultAccount'),
     setDefaultAccount: invoke('projects.setDefaultAccount'),
     hasOrigin: invoke('projects.hasOrigin'),
-    status: invoke('projects.status') // T11
+    status: invoke('projects.status'), // T11
+    deliverySetup: invoke('projects.deliverySetup')
   },
   worktrees: {
     list: invoke('worktrees.list'),

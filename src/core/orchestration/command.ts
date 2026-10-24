@@ -6830,7 +6830,8 @@ export async function handleCommand(
     // W6-H: the last step of a finished plan, asked by the driving loop once per Run. `pr` is `run-open-pr`; `push`
     // merges into the delivery branch and pushes, behind every guard of `deliverByPush`. A stop is recorded on the Run
     // and escalated (recordDelivery); after a push the merged worktrees go as `run-delete --remove-worktrees` takes
-    // them, and on any stop they stay.
+    // them, and on any stop they stay. T6: `merge` is the same guarded merge and validation on this computer, never
+    // pushed (`deliverByPush` with `local`); nothing here waits on a remote CI, the validation is the local checks.
     case 'run-deliver': {
       const id = str(args.run)
       if (!id) return bad('--run is required')
@@ -6841,8 +6842,10 @@ export async function handleCommand(
       const mode = deliveryOf(s, job)
       // A manual plan is delivered by the owner, by the route they pick for this one delivery (--as); default a PR
       const route = args.as === undefined ? (mode === 'manual' ? 'pr' : mode) : args.as
-      if (route !== 'pr' && route !== 'push') return bad('--as must be pr or push')
-      const push = route === 'push'
+      if (route !== 'pr' && route !== 'push' && route !== 'merge') return bad('--as must be pr, push or merge')
+      // `push` names the guarded merge into the delivery branch, which a local merge shares; only `local` skips origin
+      const local = route === 'merge'
+      const push = route === 'push' || local
       // T3: the driving loop's own steps (persisted delivery state, retries, the owner's answer) are Astera's
       const loopStep =
         args.pending === true || args.auto === true || args.awaitReview === true || args.ownerPushed === true || typeof args.stopped === 'string'
@@ -6873,7 +6876,8 @@ export async function handleCommand(
         cwd: job.cwd,
         ...(branch !== undefined ? { branch } : {}),
         ...(proj?.defaultBranch ? { defaultBranch: proj.defaultBranch } : {}), // W8-G
-        worktrees: deliveryWorktrees(s, id)
+        worktrees: deliveryWorktrees(s, id),
+        ...(local ? { local: true } : {})
       }
       // T3: the owner answered they push it themselves: delivered once git sees every worktree's commit on the branch
       // T1: also from a failed or retrying delivery, and a Run from before `deliveryState` that has only an error
@@ -6904,7 +6908,7 @@ export async function handleCommand(
         }
         await deps.setState(withProgress(cleared(recordDelivery(deps.getState(), id, { at, branch: r.branch, sha: r.sha })), mine))
         await cleanAfterDelivery(deps, id) // W9-J
-        return okBody({ delivery: 'push', branch: r.branch, sha: r.sha, pushed: false, deliveryState: mine })
+        return okBody({ delivery: route, branch: r.branch, sha: r.sha, pushed: false, deliveryState: mine })
       }
       const force = args.force === true
       // T3: the loop's attempt is made only when it is due (pending, or a failure's retry time came)
@@ -6948,7 +6952,7 @@ export async function handleCommand(
         return { ...opened, body: { ...((opened.body ?? {}) as object), deliveryState: p } }
       }
       const done = run.delivery
-      if (done?.sha !== undefined) return okBody({ delivery: 'push', branch: done.branch ?? null, sha: done.sha, pushed: false })
+      if (done?.sha !== undefined) return okBody({ delivery: route, branch: done.branch ?? null, sha: done.sha, pushed: false })
       if (done?.error !== undefined && !force && args.auto !== true)
         return conflict(`Pushing this Run stopped before: ${done.error}. --force tries again`)
       if (taskOutcomeOf(s, run) !== 'completed') {
@@ -7004,10 +7008,10 @@ export async function handleCommand(
       const removed = deps.removeWorktrees && r.merged.length > 0 ? await deps.removeWorktrees(r.merged) : null
       await cleanAfterDelivery(deps, id) // W9-J: what the push left (the Run's own folder)
       return okBody({
-        delivery: 'push',
+        delivery: route,
         branch: r.branch,
         sha: r.sha,
-        pushed: true,
+        pushed: !local,
         validated: r.validated,
         deliveryState: p,
         ...(removed && removed.failed.length > 0 ? { worktreesKept: removed.failed } : {})
