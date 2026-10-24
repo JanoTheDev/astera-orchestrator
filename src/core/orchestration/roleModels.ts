@@ -8,6 +8,7 @@
 // `-m <id>` — the same pair understanding/agentArgs.ts measured for its one-shot runs.
 import type { Account } from '../types'
 import { PROVIDERS, providerOf, type Provider } from '../providers/meta'
+import { CODEX_EFFORT_ROWS } from '../models/cliModels'
 import type { Job, Project, Task } from './types'
 
 export type Role = 'coordinator' | 'planner' | 'worker' | 'reviewer'
@@ -16,13 +17,26 @@ export const ROLES = ['coordinator', 'planner', 'worker', 'reviewer'] as const s
 export type Difficulty = 'light' | 'standard' | 'hard'
 export const DIFFICULTIES = ['light', 'standard', 'hard'] as const satisfies readonly Difficulty[]
 
+/** Reasoning effort, weakest to strongest — the claude CLI's `--effort` list. Codex reaches only CODEX_EFFORT_ROWS' keys. */
+export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const satisfies readonly Effort[]
+const isEffort = (v: unknown): v is Effort => (EFFORTS as readonly unknown[]).includes(v)
+
 /** One provider's choices. **A key holding `''` is a choice too**: "no model here", which masks the
  *  built-in default below and lets resolution fall through to the next layer (for a role, the CLI's
  *  default). A missing key means "the built-in default". */
 export interface ProviderModels {
   roles?: Partial<Record<Role, string>>
   difficulty?: Partial<Record<Difficulty, string>>
+  /** Reasoning effort, same layering as the models: `''` means "no flag" and masks the built-in. */
+  effort?: {
+    roles?: Partial<Record<EffortRole, string>>
+    difficulty?: Partial<Record<Difficulty, string>>
+  }
 }
+/** The roles that run on a configured effort; a worker's comes from its Task's difficulty. */
+export type EffortRole = 'planner' | 'reviewer' | 'coordinator'
+const EFFORT_ROLES = ['planner', 'reviewer', 'coordinator'] as const satisfies readonly EffortRole[]
 /** `app-settings.json`'s `roleModels`. Per provider, because a model id belongs to one CLI. */
 export type RoleModelSettings = Partial<Record<Provider, ProviderModels>>
 
@@ -37,12 +51,30 @@ export const BUILTIN_ROLE_MODELS: Record<Provider, { roles: Partial<Record<Role,
   codex: { roles: {}, difficulty: {} }
 }
 
+/** Built-in efforts. Codex has none: its CLI default stands until an account measures better. */
+export const BUILTIN_EFFORTS: Record<Provider, { roles: Partial<Record<EffortRole, Effort>>; difficulty: Partial<Record<Difficulty, Effort>> }> = {
+  claude: {
+    roles: { planner: 'high', reviewer: 'high', coordinator: 'low' },
+    difficulty: { light: 'low', standard: 'medium', hard: 'high' }
+  },
+  codex: { roles: {}, difficulty: {} }
+}
+
 const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v)
 
 function readKeys<K extends string>(v: unknown, keys: readonly K[]): Partial<Record<K, string>> | undefined {
   if (!isObject(v)) return undefined
   const out: Partial<Record<K, string>> = {}
   for (const k of keys) if (typeof v[k] === 'string') out[k] = (v[k] as string).trim()
+  return Object.keys(out).length > 0 ? out : undefined
+}
+
+/** Like readKeys, but a value that is neither `''` nor a known level is dropped. */
+function readEffortKeys<K extends string>(v: unknown, keys: readonly K[]): Partial<Record<K, string>> | undefined {
+  const raw = readKeys(v, keys)
+  if (!raw) return undefined
+  const out: Partial<Record<K, string>> = {}
+  for (const k of keys) if (raw[k] === '' || isEffort(raw[k])) out[k] = raw[k]
   return Object.keys(out).length > 0 ? out : undefined
 }
 
@@ -53,7 +85,12 @@ export function readRoleModelSettings(v: unknown): RoleModelSettings {
   for (const p of PROVIDERS) {
     const roles = readKeys(isObject(v[p]) ? v[p].roles : undefined, ROLES)
     const difficulty = readKeys(isObject(v[p]) ? v[p].difficulty : undefined, DIFFICULTIES)
-    if (roles || difficulty) out[p] = { ...(roles ? { roles } : {}), ...(difficulty ? { difficulty } : {}) }
+    const e = isObject(v[p]) && isObject(v[p].effort) ? v[p].effort : undefined
+    const effortRoles = readEffortKeys(e?.roles, EFFORT_ROLES)
+    const effortDifficulty = readEffortKeys(e?.difficulty, DIFFICULTIES)
+    const effort = effortRoles || effortDifficulty ? { ...(effortRoles ? { roles: effortRoles } : {}), ...(effortDifficulty ? { difficulty: effortDifficulty } : {}) } : undefined
+    if (roles || difficulty || effort)
+      out[p] = { ...(roles ? { roles } : {}), ...(difficulty ? { difficulty } : {}), ...(effort ? { effort } : {}) }
   }
   return out
 }
@@ -190,9 +227,70 @@ export function resolveReviewerModel(a: {
   return { model: moved, note: `same-provider review: reviewer model ${model} is the implementer's — moved to ${moved}` }
 }
 
-/** What a worker start hands back about its model, as the Dispatch fields that record it. Every
+/** The configured effort: the setting when it has the key (`''` → undefined), else the built-in one. */
+function configuredEffort(settings: RoleModelSettings, provider: Provider, kind: 'roles', key: EffortRole): Effort | undefined
+function configuredEffort(settings: RoleModelSettings, provider: Provider, kind: 'difficulty', key: Difficulty): Effort | undefined
+function configuredEffort(settings: RoleModelSettings, provider: Provider, kind: 'roles' | 'difficulty', key: string): Effort | undefined {
+  const own = (settings[provider]?.effort?.[kind] as Record<string, string> | undefined)?.[key]
+  const v = own !== undefined ? own : (BUILTIN_EFFORTS[provider][kind] as Record<string, string>)[key]
+  return isEffort(v) ? v : undefined
+}
+
+/** A worker's effort: Task.effort > the setting for its difficulty > the built-in one > undefined (no flag). */
+export function resolveWorkerEffort(a: {
+  settings: RoleModelSettings
+  task: Pick<Task, 'effort' | 'difficulty'> | undefined
+  provider: Provider
+}): Effort | undefined {
+  if (isEffort(a.task?.effort)) return a.task.effort
+  return a.task?.difficulty ? configuredEffort(a.settings, a.provider, 'difficulty', a.task.difficulty) : undefined
+}
+
+/** A planner's, reviewer's or coordinator's effort: the setting, then the built-in one, then undefined. */
+export function resolveRoleEffort(settings: RoleModelSettings, role: EffortRole, provider: Provider): Effort | undefined {
+  return configuredEffort(settings, provider, 'roles', role)
+}
+
+/** The model's listed levels the CLI can take, in EFFORTS order; undefined when the list is unknown. */
+function reachableLevels(levels: readonly string[] | undefined, provider: Provider): Effort[] | undefined {
+  if (!levels) return undefined
+  return EFFORTS.filter((e) => levels.includes(e) && (provider !== 'codex' || e in CODEX_EFFORT_ROWS))
+}
+
+/** Never hands the CLI a level its model does not list: the nearest listed one by EFFORTS index (a tie goes
+ *  to the lower), none when the model lists none, none plus a note when the levels are unknown. */
+export function clampEffort(level: string, levels: readonly string[] | undefined, provider: Provider): { effort?: string; note?: string } {
+  const reach = reachableLevels(levels, provider)
+  if (!reach) return { note: `effort ${level} not passed: the model's levels are unknown` }
+  if (reach.length === 0) return {}
+  if (reach.includes(level as Effort)) return { effort: level }
+  const at = (EFFORTS as readonly string[]).indexOf(level)
+  if (at < 0) return {}
+  let best = reach[0]
+  for (const r of reach) if (Math.abs(EFFORTS.indexOf(r) - at) < Math.abs(EFFORTS.indexOf(best) - at)) best = r
+  return { effort: best, note: `effort ${level} is not listed for the model — used ${best}` }
+}
+
+/** The next attempt's effort: one listed level above `prev`, or `prev` itself at the model's max (with a note). */
+export function escalateEffort(prev: string | undefined, levels: readonly string[] | undefined, provider: Provider): { effort?: string; note?: string } {
+  if (!prev) return {}
+  const reach = reachableLevels(levels, provider)
+  if (!reach) return { note: `effort not raised from ${prev}: the model's levels are unknown` }
+  const at = (EFFORTS as readonly string[]).indexOf(prev)
+  const up = reach.find((r) => EFFORTS.indexOf(r) > at)
+  return up ? { effort: up, note: `effort raised from ${prev} to ${up} after the previous attempt` } : { effort: prev, note: `effort stays ${prev}: already the model's highest` }
+}
+
+/** What a worker start hands back about its model and effort, as the Dispatch fields that record them. Every
  *  place that patches a started Dispatch (worker-start, review, repair, recovery) spreads this. */
-export const dispatchModelFields = (s: { model?: string; modelNote?: string }): { model?: string; modelNote?: string } => ({
+export const dispatchModelFields = (s: {
+  model?: string
+  modelNote?: string
+  effort?: string
+  effortNote?: string
+}): { model?: string; modelNote?: string; effort?: string; effortNote?: string } => ({
   ...(s.model ? { model: s.model } : {}),
-  ...(s.modelNote ? { modelNote: s.modelNote } : {})
+  ...(s.modelNote ? { modelNote: s.modelNote } : {}),
+  ...(s.effort ? { effort: s.effort } : {}),
+  ...(s.effortNote ? { effortNote: s.effortNote } : {})
 })

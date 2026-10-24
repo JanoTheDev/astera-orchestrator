@@ -4,7 +4,7 @@ import type { MessageKey, MessageParams } from '../../../../core/i18n'
 import type { ActivityEvent } from '../../../../core/orchestration/activity'
 import type { JobEvent, JobRow, JobTask, SessionInfo, TaskBlockedReason, TaskCategory } from '../../../../core/types'
 import { formatElapsed, formatRemaining } from '../../../../core/orchestration/elapsed'
-import { pickTaskProvider, resolveWorkerModel, type RoleModelSettings } from '../../../../core/orchestration/roleModels'
+import { pickTaskProvider, resolveWorkerEffort, resolveWorkerModel, type Effort, type RoleModelSettings } from '../../../../core/orchestration/roleModels'
 import type { Account } from '../../../../core/types'
 import { TASK_KINDS, type TaskKind } from '../../../../core/orchestration/types'
 import type { IconName } from '../ui'
@@ -327,6 +327,14 @@ export function cardModelOf(tk: JobTask, settings: RoleModelSettings, accounts: 
     provider,
     accounts
   }).model
+}
+
+/** The effort a card shows, like cardModelOf: a dispatched Task shows what its attempt was started with (undefined: no flag),
+ *  one not yet dispatched shows what resolveWorkerEffort will pick. */
+export function cardEffortOf(tk: JobTask, settings: RoleModelSettings, accounts: readonly Account[]): Effort | undefined {
+  if (tk.attempts !== undefined || tk.accountId !== undefined) return tk.effort
+  const { provider } = pickTaskProvider({ accountIds: tk.accountIds }, accounts)
+  return resolveWorkerEffort({ settings, task: { difficulty: tk.difficulty, effort: tk.effort }, provider })
 }
 
 /** The i18n key for "N questions answered": singular for 1. */

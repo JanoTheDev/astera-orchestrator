@@ -147,6 +147,8 @@ export interface SessionInfo {
   /** Terminal only (orchestrator W1-A): the `--model` / `-m` the session was started with. Rides
    *  every roll's respawn and the note, like bypassPermissions. Absent: the CLI's default. */
   model?: string
+  /** Terminal only: the reasoning effort the session was started with; rides rolls like `model`. */
+  effort?: string
   // W6-E progress view: the last tool call the session started, from its last `PreToolUse` hook
   // (core/hooks/sessionState.ts `lastActionOf`): the tool, its file / command (first 80 chars) / pattern, epoch ms.
   lastAction?: { tool: string; target?: string; at: number }
@@ -573,6 +575,10 @@ export interface JobTask {
   /** The planner's difficulty for the Task and the Job's role-model overrides: what the board needs to say, before dispatch,
    *  which model resolveWorkerModel will pick. */
   difficulty?: 'light' | 'standard' | 'hard'
+  /** The Task's own reasoning effort (Task.effort); the difficulty map's applies when absent. */
+  effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+  /** Why the latest attempt's effort differs from the ask (Dispatch.effortNote). */
+  effortNote?: string
   jobModels?: Partial<Record<'coordinator' | 'planner' | 'worker' | 'reviewer', string>>
   /** The account its latest attempt ran on. Absent until it is dispatched; `accountIds` says what it will use. */
   accountId?: string

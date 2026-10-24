@@ -689,6 +689,8 @@ export interface Task {
   difficulty?: 'light' | 'standard' | 'hard'
   /** This Task's own model, ahead of everything else for its worker (resolveWorkerModel). */
   model?: string
+  /** This Task's own reasoning effort, ahead of the difficulty map's for its worker (resolveWorkerEffort). */
+  effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
   /** The provider this Task asks for. Honoured only when that provider has an account; otherwise the
    *  worker runs on claude and the Dispatch says why (pickTaskProvider). The account list
    *  (`accountIds`) still decides what actually starts. */
@@ -859,6 +861,10 @@ export interface Dispatch {
   /** Why the model or provider is not what the Task asked for (a provider with no account, a
    *  same-provider review moved off the implementer's model). Absent when nothing was overridden. */
   modelNote?: string
+  /** The reasoning effort this attempt's session was started with. Absent: the CLI's own default. */
+  effort?: string
+  /** Why the effort is not what was asked (clamped to the model's levels, raised on retry, levels unknown). */
+  effortNote?: string
   // W5-C holds (command.ts worker-hold)
   /** A person paused this worker (`worker-hold`). The session stays open and the Dispatch stays open, so its slot
    *  stays taken (`slotsToFill` counts every open Dispatch); nothing is typed into it from an agent session

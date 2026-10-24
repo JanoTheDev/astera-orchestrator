@@ -7,7 +7,7 @@ import { isTerminal } from '../../../../core/orchestration/running'
 import type { OrchDoor } from '../../lib/orchDoor'
 
 /** The fields the edit form offers, by their `task-update` argument name. */
-export const EDIT_FIELDS = ['title', 'spec', 'prompt', 'criteria', 'deps', 'kind', 'difficulty', 'affectedPaths'] as const
+export const EDIT_FIELDS = ['title', 'spec', 'prompt', 'criteria', 'deps', 'kind', 'difficulty', 'effort', 'affectedPaths'] as const
 export type EditField = (typeof EDIT_FIELDS)[number]
 
 /** What can be edited now: everything, the criteria only (and why), or nothing (and why). */
@@ -34,7 +34,7 @@ export function taskEditOf(task: EditableTask, plan: { outcome?: string }): Task
 export const canEdit = (edit: TaskEdit, field: EditField): boolean =>
   edit.fields === 'all' || (edit.fields === 'criteria' && field === 'criteria')
 
-/** The edit form's values: the list fields as text, one entry per line. Empty kind and difficulty are "not set". */
+/** The edit form's values: the list fields as text, one entry per line. Empty kind, difficulty and effort are "not set". */
 export interface TaskDraft {
   title: string
   spec: string
@@ -43,6 +43,7 @@ export interface TaskDraft {
   deps: string[]
   kind: string
   difficulty: string
+  effort: string
   affectedPaths: string
 }
 
@@ -57,6 +58,7 @@ export function draftOf(t: Partial<Task> & Pick<Task, 'title' | 'spec' | 'deps'>
     deps: [...t.deps],
     kind: t.kind ?? '',
     difficulty: t.difficulty ?? '',
+    effort: t.effort ?? '',
     affectedPaths: (t.affectedPaths ?? []).join('\n')
   }
 }
@@ -64,11 +66,11 @@ export function draftOf(t: Partial<Task> & Pick<Task, 'title' | 'spec' | 'deps'>
 const sameList = (a: readonly string[], b: readonly string[]): boolean => a.length === b.length && a.every((x, i) => x === b[i])
 
 /** The `task-update` arguments for what the owner changed, and only that: a field sent unchanged to a started Task
- *  would be refused. A field the Host cannot clear (an emptied prompt, kind or difficulty) is left out; the Host
+ *  would be refused. A field the Host cannot clear (an emptied prompt, kind, difficulty or effort) is left out; the Host
  *  refuses empty criteria itself. Empty when nothing changed. */
 export function editArgsOf(before: TaskDraft, after: TaskDraft): Record<string, unknown> {
   const out: Record<string, unknown> = {}
-  const text = (k: 'title' | 'spec' | 'prompt' | 'kind' | 'difficulty'): void => {
+  const text = (k: 'title' | 'spec' | 'prompt' | 'kind' | 'difficulty' | 'effort'): void => {
     const v = after[k].trim()
     if (v !== before[k].trim() && v !== '') out[k] = v
   }
@@ -79,6 +81,7 @@ export function editArgsOf(before: TaskDraft, after: TaskDraft): Record<string, 
   if (!sameList(after.deps, before.deps)) out.deps = after.deps
   text('kind')
   text('difficulty')
+  text('effort')
   if (!sameList(lines(after.affectedPaths), lines(before.affectedPaths))) out.affectedPaths = lines(after.affectedPaths)
   return out
 }

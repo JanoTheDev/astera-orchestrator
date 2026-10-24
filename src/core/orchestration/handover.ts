@@ -264,7 +264,7 @@ const ACCOUNT_RULE = '- Account: omit `--account` unless the objective names one
 export const PROMPTS_MODE_FILL_IN = [
   'RUN AS WRITTEN (planner-guide.md section 6)',
   "The owner's prompts are this plan's Tasks, one per prompt, already created with their text unchanged.",
-  'Never rewrite, merge, split, add or cancel a Task. Fill in each one: --affected-paths, --criteria, --difficulty, ' +
+  'Never rewrite, merge, split, add or cancel a Task. Fill in each one: --affected-paths, --criteria, --difficulty, --effort, ' +
     '--basis/--evidence, and keep the deps Astera computed from docs/dev/PLAN.md unless a prompt itself says otherwise.'
 ]
 
@@ -365,6 +365,9 @@ export function buildPlannerBrief(a: {
     '- `--kind bugfix|feature|refactor|ui|audit|docs|test|ops`: on every Task. It picks the skills the worker is told to use.',
     '- `--difficulty light|standard|hard`: picks the worker\'s model (light is a small, mechanical change;',
     '  hard is design or a subtle bug). Add `--model-reason "<one line>"` saying why.',
+    '- `--effort low|medium|high|xhigh|max`: the worker\'s reasoning effort, optional. Left out, the difficulty sets it (light low, standard medium, hard high).',
+    '  Raise it (high or xhigh; max only for the hardest) for a tricky bug, concurrency, security, a cross-file refactor, or debugging with no clear cause.',
+    '  Lower it to low for docs, renames, copy changes and mechanical edits. Its reason goes in `--model-reason` with the difficulty\'s.',
     '  `--provider claude|codex` and `--model <id>` only when the Task needs a specific one.',
     `${ACCOUNT_RULE}; \`astera accounts list --json\` lists them.`,
     '- Checks: `astera run-configs list --job ' + a.jobId + ' --json`; pass quick ones that test the work (never the full suite: it runs once at delivery) as `--validate <id,...>`.',

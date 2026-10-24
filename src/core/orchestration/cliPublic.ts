@@ -129,6 +129,8 @@ const TASK_HIDDEN = [
   'affectedPaths',
   /* T24: an ops, audit or docs Task that changes no repository file, not in the SDK's contract yet */ 'noFiles',
   'modelReason',
+  // Effort: held back with the model fields until the SDK takes them on
+  'effort',
   // W2-D GitHub links: read by the app's view; `task-link-issue` answers them. Not in the SDK's contract yet
   'links',
   // W6-A: the planner's basis, held back with its other fields

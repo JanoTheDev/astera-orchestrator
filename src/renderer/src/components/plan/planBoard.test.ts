@@ -4,7 +4,7 @@ import { ko } from '../../../../core/i18n/messages/ko'
 import { t } from '../../../../core/i18n'
 import type { ActivityEvent } from '../../../../core/orchestration/activity'
 import type { JobEvent } from '../../../../core/types'
-import { filterByKind, kindsOf, reuseOf, answersKey, autoAnswersOf, cardModelOf, categoryOf, collapsedWavesOf, currentWaveOf, filesOf, nowOf, ordinal, planProgressOf, reasonText, replanningOf, stepStateOf, wavesOf } from './planBoard'
+import { filterByKind, kindsOf, reuseOf, answersKey, autoAnswersOf, cardEffortOf, cardModelOf, categoryOf, collapsedWavesOf, currentWaveOf, filesOf, nowOf, ordinal, planProgressOf, reasonText, replanningOf, stepStateOf, wavesOf } from './planBoard'
 // W8-C plan after plan
 import { reasonTone } from './planBoard'
 
@@ -241,6 +241,12 @@ describe('cardModelOf / answersKey (#76)', () => {
   it('a dispatched Task keeps its attempt model', () => {
     expect(cardModelOf(task({ difficulty: 'light', attempts: 1 }), {}, [])).toBeUndefined()
     expect(cardModelOf(task({ difficulty: 'light', model: 'opus', attempts: 1 }), {}, [])).toBe('opus')
+  })
+  it('cardEffortOf: undispatched resolves (Task effort, then difficulty), dispatched keeps the recorded one', () => {
+    expect(cardEffortOf(task({ difficulty: 'hard' }), {}, [])).toBe('high')
+    expect(cardEffortOf(task({ difficulty: 'hard', effort: 'max' }), {}, [])).toBe('max')
+    expect(cardEffortOf(task({ difficulty: 'hard', attempts: 1 }), {}, [])).toBeUndefined()
+    expect(cardEffortOf(task({ difficulty: 'hard', attempts: 1, effort: 'low' }), {}, [])).toBe('low')
   })
   it('singular for one answer', () => {
     expect(answersKey(1)).toBe('plan.card.answers.one')

@@ -42,6 +42,28 @@ describe('startCoordinatorSession with role planner', () => {
     }
   })
 
+  it('starts the planner on its role effort when the model lists it, and on none when the levels are unknown', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'astera-planner-'))
+    try {
+      const job = createJob(emptyState(), { objective: 'o', cwd: '/repo', pendingStart: true }, '2026-10-17T00:00:00.000Z')
+      if (!job.ok) throw new Error(job.error)
+      const spawned: Array<Record<string, unknown>> = []
+      const logs: string[] = []
+      const ctx: CoordinatorStartContext = {
+        specsDir: dir, preTrust: async () => {}, bypassPermissions: async () => false,
+        spawn: async (o) => { spawned.push(o); return { id: 'ses-planner' } },
+        log: (m) => void logs.push(m), getState: () => job.state, accounts: async () => [account], roleModels: async () => ({})
+      }
+      const a = { runId: job.value.id, cwd: '/repo', accountId: 'acc1', brief: 'B', role: 'planner' as const }
+      await startCoordinatorSession({ ...ctx, effortLevels: async () => ['low', 'medium', 'high', 'xhigh', 'max'] }, a)
+      expect(spawned[0].effort).toBe('high')
+      await startCoordinatorSession(ctx, a)
+      expect(spawned[1]).not.toHaveProperty('effort')
+      expect(logs.at(-1)).toMatch(/effort=CLI default \(effort high not passed/)
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true })
+    }
+  })
   it("#117: a hands-off Job's planner starts with the bypass, by the owner's choice", async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'astera-planner-'))
     try {

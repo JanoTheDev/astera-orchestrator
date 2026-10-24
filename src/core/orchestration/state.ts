@@ -447,6 +447,7 @@ export function startJobRun(s: OrchState, jobId: string, now: string): Res<JobRu
     ...(t.reviewRequested ? { reviewRequested: true } : {}),
     // W1-A role models: a run's Task runs on the model its definition asked for.
     ...(t.difficulty !== undefined ? { difficulty: t.difficulty } : {}),
+    ...(t.effort !== undefined ? { effort: t.effort } : {}),
     ...(t.model !== undefined ? { model: t.model } : {}),
     ...(t.provider !== undefined ? { provider: t.provider } : {}),
     // W2-A planner stage: the planner's prompt, criteria and paths go with the Task into every run.
@@ -648,13 +649,14 @@ export function setRunWorktree(s: OrchState, id: string, worktree: string): Res<
 
 /** W2-A planner stage: the Task fields a planner writes (task-create, task-update), with W1-A's model choice. */
 export type PlanFields = Partial<
-  Pick<Task, 'difficulty' | 'model' | 'provider' | 'prompt' | 'acceptanceCriteria' | 'affectedPaths' | 'noFiles' | 'modelReason' | /* W6-A */ 'basis' | /* T7 */ 'covers' | /* T9 */ 'kind' | /* T3 */ 'worktree'>
+  Pick<Task, 'difficulty' | 'effort' | 'model' | 'provider' | 'prompt' | 'acceptanceCriteria' | 'affectedPaths' | 'noFiles' | 'modelReason' | /* W6-A */ 'basis' | /* T7 */ 'covers' | /* T9 */ 'kind' | /* T3 */ 'worktree'>
 >
 
 /** The plan fields `t` carries, copied; an absent or empty one is left out, as every optional field here is. */
 export function planFieldsOf(t: PlanFields): PlanFields {
   return {
     ...(t.difficulty !== undefined ? { difficulty: t.difficulty } : {}),
+    ...(t.effort !== undefined ? { effort: t.effort } : {}),
     ...(t.model !== undefined ? { model: t.model } : {}),
     ...(t.provider !== undefined ? { provider: t.provider } : {}),
     ...(t.prompt ? { prompt: t.prompt } : {}),

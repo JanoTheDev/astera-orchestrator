@@ -238,6 +238,13 @@ describe('buildPlannerBrief wider plans', () => {
 
 describe('buildPlannerBrief objective coverage and the plan name (T7)', () => {
   const base = { jobId: 'job_x', objective: '1. a\n2. b', repoRoot: '/repo', accountId: 'acc1', concurrency: 2 }
+  it('tells the planner to set --effort beside --difficulty, with the reason in --model-reason', () => {
+    const b = buildPlannerBrief(base)
+    expect(b).toContain('--effort low|medium|high|xhigh|max')
+    expect(b).toContain('Raise it (high or xhigh; max only for the hardest)')
+    expect(b).toContain('Lower it to low for docs, renames, copy changes and mechanical edits')
+    expect(b).toContain('Its reason goes in `--model-reason`')
+  })
   it('tells the planner to give every Task --covers, list skipped items with --left-out, and rename the Job', () => {
     const b = buildPlannerBrief(base)
     expect(b).toContain('--covers 1,3')

@@ -11,7 +11,7 @@ import { chainOf, layersOf } from './graph'
 import { isIntegrationTask } from './integrate'
 import { pathsOverlap, projectKeyOf, serialFilesOf } from './schedule'
 import { jobNameOf } from './jobName'
-import { DIFFICULTIES, MODEL_ID } from './roleModels'
+import { DIFFICULTIES, EFFORTS, MODEL_ID, type Effort } from './roleModels'
 // W8-C prompts mode
 import { sha256Of } from './promptWaves'
 import { isTerminal } from './running'
@@ -144,7 +144,7 @@ const isStrings = (v: unknown): v is string[] => Array.isArray(v) && v.every((x)
 const text = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() !== '' ? v : undefined)
 
 /** The plan fields in a command's arguments (`--prompt`, `--criteria`, `--affected-paths`, `--difficulty`,
- *  `--provider`, `--model`, `--model-reason`). **A trust boundary**: they come from an agent. */
+ *  `--effort`, `--provider`, `--model`, `--model-reason`). **A trust boundary**: they come from an agent. */
 export function planFieldsFromArgs(args: Record<string, unknown>): { ok: true; fields: PlanFields } | { ok: false; error: string } {
   const fields: PlanFields = {}
   if (args.prompt !== undefined) {
@@ -169,6 +169,10 @@ export function planFieldsFromArgs(args: Record<string, unknown>): { ok: true; f
     if (!(DIFFICULTIES as readonly unknown[]).includes(args.difficulty))
       return { ok: false, error: `--difficulty must be one of ${DIFFICULTIES.join('|')}` }
     fields.difficulty = args.difficulty as Task['difficulty']
+  }
+  if (args.effort !== undefined) {
+    if (!(EFFORTS as readonly unknown[]).includes(args.effort)) return { ok: false, error: `--effort must be one of ${EFFORTS.join('|')}` }
+    fields.effort = args.effort as Effort
   }
   if (args.provider !== undefined) {
     if (args.provider !== 'claude' && args.provider !== 'codex') return { ok: false, error: '--provider must be claude|codex' }
@@ -539,7 +543,7 @@ export function renderPlanMd(s: OrchState, job: Job, decisions?: string): string
     const num = new Map(rows.map((r, i) => [r.task.id, String(i + 1).padStart(2, '0')]))
     for (const { task: t, wave, file } of rows)
       lines.push(
-        `| ${wave} | [${cell(t.title)}](${file}) | ${kindOf(t)} | ${t.difficulty ?? '-'} | ${t.worktree ?? '-'} | ${t.status} | ${cell(accountOf(t))} | ${t.deps.map((d) => num.get(d) ?? d).join(', ') || '-'} |`
+        `| ${wave} | [${cell(t.title)}](${file}) | ${kindOf(t)} | ${t.difficulty ?? '-'}${t.effort ? `, ${t.effort}` : ''} | ${t.worktree ?? '-'} | ${t.status} | ${cell(accountOf(t))} | ${t.deps.map((d) => num.get(d) ?? d).join(', ') || '-'} |`
       )
   }
   if (cyclic.length) lines.push('', `## Cannot be ordered (dependency cycle)`, '', ...cyclic.map((id) => `- \`${id}\``))
@@ -576,7 +580,7 @@ export function renderTaskMd(s: OrchState, task: Task, n: number): string {
     `- Task: \`${task.id}\``,
     `- Status: ${task.status}`,
     `- Kind: ${kindOf(task)}`,
-    `- Difficulty: ${task.difficulty ?? '-'}${task.modelReason ? ` (${task.modelReason})` : ''}`,
+    `- Difficulty: ${task.difficulty ?? '-'}${task.effort ? `, effort ${task.effort}` : ''}${task.modelReason ? ` (${task.modelReason})` : ''}`,
     `- Worktree: ${task.worktree ?? '-'}`,
     `- Waits for: ${task.deps.map((d) => byId.get(d)?.title ?? d).join(', ') || '-'}`,
     `- Affected paths: ${task.affectedPaths?.map((p) => `\`${p}\``).join(', ') || '-'}`,

@@ -739,7 +739,7 @@ astera runs    checks --id <runId>
 astera runs    doctor [--run <runId> | --job <jobId> | --all] [--fix]
 
 astera tasks   list   [--run <runId|jobId>] [--status <s>] [--ready] [--brief] [--fields <a,b,…>] [--limit <n>] [--offset <n>]
-astera tasks   add    [--job <jobId> | --run <runId>] --spec <text|-> [--account <id,…>] [--title <text>] [--prompt <text|->] [--criteria <json array>] [--deps <json array>] [--affected-paths <json array> | --no-files] [--parent <taskId>] [--validate <configId,…>] [--review] [--no-review] [--difficulty <light|standard|hard>] [--model <id>] [--basis <missing|partial|broken>] [--evidence <text>] [--covers <n,…>] [--kind <bugfix|feature|refactor|ui|audit|docs|test|ops>] [--worktree <new|reuse>]
+astera tasks   add    [--job <jobId> | --run <runId>] --spec <text|-> [--account <id,…>] [--title <text>] [--prompt <text|->] [--criteria <json array>] [--deps <json array>] [--affected-paths <json array> | --no-files] [--parent <taskId>] [--validate <configId,…>] [--review] [--no-review] [--difficulty <light|standard|hard>] [--effort <low|medium|high|xhigh|max>] [--model <id>] [--basis <missing|partial|broken>] [--evidence <text>] [--covers <n,…>] [--kind <bugfix|feature|refactor|ui|audit|docs|test|ops>] [--worktree <new|reuse>]
 astera tasks   dispatch --id <taskId>
 astera tasks   restore --from <file> [--job <jobId> | --run <runId>] [--dry-run]
 
@@ -840,6 +840,11 @@ the activity feed gets one "edited by you" line. The owner is any caller that is
 orchestration's own sessions (a worker, a reviewer, a coordinator, a planner), so a terminal or Claude tab the owner
 opened in Astera counts. The refusal names the rule that failed: an agent session, a Task already started, or a run
 not running. A Task that has started takes new `--criteria` only.
+
+**`--effort <low|medium|high|xhigh|max>` sets a Task's reasoning effort** on `tasks add`, `task-create` and
+`task-update` (any other value is refused). The worker starts with the Task's effort, else the setting for its
+difficulty in Settings → Orchestration models, else the built-in default, else the CLI's own default. The start
+clamps it to the levels the chosen model lists (the nearest one, the lower on a tie).
 
 `astera help` is the reference agents read.
 
