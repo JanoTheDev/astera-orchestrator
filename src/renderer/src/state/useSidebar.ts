@@ -2,7 +2,7 @@
 import { useRef, useState } from 'react'
 import { formatChord, resolveBindings, type Bindings } from '../../../core/keys/binding'
 import { ACTIONS } from '../lib/actions'
-import { initialPage, PAGE_STORAGE_KEY, type ActivityId, type PageId } from '../../../core/ui/pages'
+import type { ActivityId } from '../../../core/ui/pages'
 import { readWorkbenchLayout, storageRead } from '../components/shell/shellView'
 import type { useLayout } from './useLayout'
 
@@ -22,7 +22,9 @@ export function useSidebar(_deps: SidebarDeps) {
    *  so a rebind shows up here too. Undefined when the user cleared every binding for it. */
   const runSelectConfigChord = bindingsRef.current['run.selectConfig']?.[0]
   const runSelectConfigShortcut = runSelectConfigChord ? formatChord(runSelectConfigChord) : undefined
-  // DESIGN-W13: the side bar's view (activity), whether it shows and its width, as last left (shell/shellView.ts)
+  // DESIGN-W13: the side bar's view (activity), whether it shows and its width, as last left (shell/shellView.ts).
+  // activity is the one source of truth for the view; activityRef is set on every change so the keydown listener and
+  // a second quick click read the view the first one left (state/sidebarView.ts).
   const [launch] = useState(() => readWorkbenchLayout(storageRead))
   const [activity, setActivity] = useState<ActivityId>(launch.activity)
   const activityRef = useRef(activity)
@@ -39,18 +41,7 @@ export function useSidebar(_deps: SidebarDeps) {
   // collapses it.
   const sidebarOpenRef = useRef(sidebarOpen)
   sidebarOpenRef.current = sidebarOpen
-  // W9-B: the page on screen (core/ui/pages.ts). Read through pageRef by the keydown listener, like the flags above.
-  const [page, setPage] = useState<PageId>(() => {
-    try {
-      return initialPage(localStorage.getItem(PAGE_STORAGE_KEY))
-    } catch {
-      return initialPage(null)
-    }
-  })
-  const pageRef = useRef(page)
-  pageRef.current = page
   return {
-    page, setPage, pageRef,
     keyOverrides, setKeyOverrides, bindingsRef, runSelectConfigShortcut,
     activity, setActivity, activityRef, sidebarWidth, setSidebarWidth,
     sidebarOpen, setSidebarOpen, explorerOpen, setExplorerOpen, explorerOpenRef, sidebarOpenRef

@@ -1,0 +1,1439 @@
+{
+  "meta": {
+    "date": "2026-10-24T18:38:28.364Z",
+    "commit": "600f7cf5",
+    "cpu": "AMD Ryzen 7 5800H with Radeon Graphics",
+    "cpus": 16,
+    "chrome": "Chrome/146.0.7680.216",
+    "viewport": "1920x1047",
+    "longFrameEntry": "long-animation-frame",
+    "runs": 5,
+    "warmup": 1,
+    "tabs": 8,
+    "statePush": {
+      "fired": 62,
+      "answered": 60,
+      "failed": 0
+    }
+  },
+  "summary": {
+    "Plans": {
+      "ttfp": {
+        "median": 17.599999994039536,
+        "p95": 17.900000005960464
+      },
+      "settled": {
+        "median": 181.90000000596046,
+        "p95": 267.20000000298023
+      },
+      "longMax": 0,
+      "longFrames": 0,
+      "timedOut": 0,
+      "lcw": "5/5",
+      "lcwPush": "5/5"
+    },
+    "Sessions": {
+      "ttfp": {
+        "median": 19.200000002980232,
+        "p95": 21.099999994039536
+      },
+      "settled": {
+        "median": 24.5,
+        "p95": 28.200000002980232
+      },
+      "longMax": 0,
+      "longFrames": 0,
+      "timedOut": 0,
+      "lcw": "5/5",
+      "lcwPush": "5/5"
+    },
+    "History": {
+      "ttfp": {
+        "median": 10,
+        "p95": 11.199999988079071
+      },
+      "settled": {
+        "median": 665.5999999940395,
+        "p95": 693
+      },
+      "longMax": 0,
+      "longFrames": 0,
+      "timedOut": 0,
+      "lcw": "5/5",
+      "lcwPush": "5/5"
+    },
+    "Run": {
+      "ttfp": {
+        "median": 10.400000005960464,
+        "p95": 12.5
+      },
+      "settled": {
+        "median": 156.1000000089407,
+        "p95": 162.1000000089407
+      },
+      "longMax": 0,
+      "longFrames": 0,
+      "timedOut": 0,
+      "lcw": "5/5",
+      "lcwPush": "5/5"
+    },
+    "Source Control": {
+      "ttfp": {
+        "median": 10.099999994039536,
+        "p95": 11.599999994039536
+      },
+      "settled": {
+        "median": 155.79999999701977,
+        "p95": 160.79999999701977
+      },
+      "longMax": 0,
+      "longFrames": 0,
+      "timedOut": 0,
+      "lcw": "5/5",
+      "lcwPush": "5/5"
+    },
+    "Devices": {
+      "ttfp": {
+        "median": 9.299999997019768,
+        "p95": 10.599999994039536
+      },
+      "settled": {
+        "median": 160.1000000089407,
+        "p95": 160.5
+      },
+      "longMax": 0,
+      "longFrames": 0,
+      "timedOut": 0,
+      "lcw": "5/5",
+      "lcwPush": "5/5"
+    },
+    "Settings": {
+      "ttfp": {
+        "median": 18.100000008940697,
+        "p95": 21
+      },
+      "settled": {
+        "median": 162.30000001192093,
+        "p95": 165.40000000596046
+      },
+      "longMax": 0,
+      "longFrames": 0,
+      "timedOut": 0,
+      "lcw": "5/5",
+      "lcwPush": "5/5"
+    },
+    "Tab switch": {
+      "ttfp": {
+        "median": 16.80000001192093,
+        "p95": 18.099999994039536
+      },
+      "settled": {
+        "median": 86.3999999910593,
+        "p95": 95
+      },
+      "longMax": 0,
+      "longFrames": 0,
+      "timedOut": 0,
+      "lcw": "5/5",
+      "lcwPush": "5/5"
+    },
+    "Project switch": {
+      "ttfp": {
+        "median": 14.700000002980232,
+        "p95": 15.200000002980232
+      },
+      "settled": {
+        "median": 190.79999999701977,
+        "p95": 192.79999999701977
+      },
+      "longMax": 0,
+      "longFrames": 0,
+      "timedOut": 0,
+      "lcw": "0/5",
+      "lcwPush": "0/5"
+    },
+    "Open plan": {
+      "ttfp": {
+        "median": 14.199999988079071,
+        "p95": 15.5
+      },
+      "settled": {
+        "median": 89.80000001192093,
+        "p95": 182.5
+      },
+      "longMax": 0,
+      "longFrames": 0,
+      "timedOut": 0,
+      "lcw": "5/5",
+      "lcwPush": "5/5"
+    },
+    "Main plan": {
+      "ttfp": {
+        "median": 37,
+        "p95": 40
+      },
+      "settled": {
+        "median": 37,
+        "p95": 397.79999999701977
+      },
+      "longMax": 0,
+      "longFrames": 0,
+      "timedOut": 0,
+      "lcw": "5/5",
+      "lcwPush": "5/5"
+    },
+    "New plan": {
+      "ttfp": {
+        "median": 12.900000005960464,
+        "p95": 13.700000002980232
+      },
+      "settled": {
+        "median": 51.70000000298023,
+        "p95": 54.30000001192093
+      },
+      "longMax": 0,
+      "longFrames": 0,
+      "timedOut": 0,
+      "lcw": "5/5",
+      "lcwPush": "5/5"
+    }
+  },
+  "results": {
+    "Plans": {
+      "runs": [
+        {
+          "ttfp": 16.299999997019768,
+          "settled": 181.90000000596046,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        },
+        {
+          "ttfp": 17.900000005960464,
+          "settled": 183.70000000298023,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        },
+        {
+          "ttfp": 17.599999994039536,
+          "settled": 267.20000000298023,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        },
+        {
+          "ttfp": 17.600000008940697,
+          "settled": 181.40000000596046,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        },
+        {
+          "ttfp": 12.900000005960464,
+          "settled": 178.20000000298023,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        }
+      ],
+      "lcw": [
+        {
+          "pass": true,
+          "settled": 239.3999999910593,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 656.0999999940395,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 246.90000000596046,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 240.70000000298023,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 243.40000000596046,
+          "project": "acme"
+        }
+      ],
+      "lcwPush": [
+        {
+          "pass": true,
+          "settled": 247.8999999910593,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 243.69999998807907,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 250.1000000089407,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 242.70000000298023,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 240,
+          "project": "acme"
+        }
+      ]
+    },
+    "Sessions": {
+      "runs": [
+        {
+          "ttfp": 19.200000002980232,
+          "settled": 25.599999994039536,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        },
+        {
+          "ttfp": 14.200000002980232,
+          "settled": 21.200000002980232,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        },
+        {
+          "ttfp": 21.099999994039536,
+          "settled": 28.200000002980232,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        },
+        {
+          "ttfp": 16.900000005960464,
+          "settled": 23.30000001192093,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        },
+        {
+          "ttfp": 19.399999991059303,
+          "settled": 24.5,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        }
+      ],
+      "lcw": [
+        {
+          "pass": true,
+          "settled": 79.8999999910593,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 87.19999998807907,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 77,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 81.8999999910593,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 79.59999999403954,
+          "project": "acme"
+        }
+      ],
+      "lcwPush": [
+        {
+          "pass": true,
+          "settled": 99.1000000089407,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 94.59999999403954,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 99.70000000298023,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 94.90000000596046,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 94.1000000089407,
+          "project": "acme"
+        }
+      ]
+    },
+    "History": {
+      "runs": [
+        {
+          "ttfp": 11.199999988079071,
+          "settled": 693,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        },
+        {
+          "ttfp": 9.599999994039536,
+          "settled": 687.0999999940395,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        },
+        {
+          "ttfp": 10.599999994039536,
+          "settled": 656.3999999910593,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        },
+        {
+          "ttfp": 10,
+          "settled": 612.7000000029802,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        },
+        {
+          "ttfp": 8.299999997019768,
+          "settled": 665.5999999940395,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        }
+      ],
+      "lcw": [
+        {
+          "pass": true,
+          "settled": 771.5,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 692.8000000119209,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 771.8999999910593,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 750.1000000089407,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 730.8999999910593,
+          "project": "acme"
+        }
+      ],
+      "lcwPush": [
+        {
+          "pass": true,
+          "settled": 797.8999999910593,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 764.8000000119209,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 765.4000000059605,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 728.7000000029802,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 700.2999999970198,
+          "project": "acme"
+        }
+      ]
+    },
+    "Run": {
+      "runs": [
+        {
+          "ttfp": 9.700000002980232,
+          "settled": 156.1000000089407,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        },
+        {
+          "ttfp": 10.400000005960464,
+          "settled": 162.1000000089407,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        },
+        {
+          "ttfp": 9.700000002980232,
+          "settled": 155.29999999701977,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        },
+        {
+          "ttfp": 11.099999994039536,
+          "settled": 156,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        },
+        {
+          "ttfp": 12.5,
+          "settled": 158.40000000596046,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        }
+      ],
+      "lcw": [
+        {
+          "pass": true,
+          "settled": 224.09999999403954,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 222.79999999701977,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 228.5,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 210.20000000298023,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 222.70000000298023,
+          "project": "acme"
+        }
+      ],
+      "lcwPush": [
+        {
+          "pass": true,
+          "settled": 230.6000000089407,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 232,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 236.70000000298023,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 225.79999999701977,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 216.5,
+          "project": "acme"
+        }
+      ]
+    },
+    "Source Control": {
+      "runs": [
+        {
+          "ttfp": 9.599999994039536,
+          "settled": 160.79999999701977,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        },
+        {
+          "ttfp": 10,
+          "settled": 155.79999999701977,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        },
+        {
+          "ttfp": 10.100000008940697,
+          "settled": 155.1000000089407,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        },
+        {
+          "ttfp": 11.599999994039536,
+          "settled": 156.8999999910593,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        },
+        {
+          "ttfp": 10.099999994039536,
+          "settled": 155.59999999403954,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        }
+      ],
+      "lcw": [
+        {
+          "pass": true,
+          "settled": 209.40000000596046,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 208.20000000298023,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 209.59999999403954,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 203.20000000298023,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 203,
+          "project": "acme"
+        }
+      ],
+      "lcwPush": [
+        {
+          "pass": true,
+          "settled": 203.09999999403954,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 208.79999999701977,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 202.70000000298023,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 204,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 203.29999999701977,
+          "project": "acme"
+        }
+      ]
+    },
+    "Devices": {
+      "runs": [
+        {
+          "ttfp": 10.599999994039536,
+          "settled": 156.5,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        },
+        {
+          "ttfp": 9,
+          "settled": 160.09999999403954,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        },
+        {
+          "ttfp": 9.299999997019768,
+          "settled": 160.5,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        },
+        {
+          "ttfp": 9.299999997019768,
+          "settled": 160.40000000596046,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        },
+        {
+          "ttfp": 9.300000011920929,
+          "settled": 160.1000000089407,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        }
+      ],
+      "lcw": [
+        {
+          "pass": true,
+          "settled": 219.6000000089407,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 223.6000000089407,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 231.8999999910593,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 217.59999999403954,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 223,
+          "project": "acme"
+        }
+      ],
+      "lcwPush": [
+        {
+          "pass": true,
+          "settled": 223,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 220.6000000089407,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 227.09999999403954,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 228.8999999910593,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 221.59999999403954,
+          "project": "acme"
+        }
+      ]
+    },
+    "Settings": {
+      "runs": [
+        {
+          "ttfp": 15.799999997019768,
+          "settled": 160.29999999701977,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        },
+        {
+          "ttfp": 18.100000008940697,
+          "settled": 162.30000001192093,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        },
+        {
+          "ttfp": 19.700000002980232,
+          "settled": 165.40000000596046,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        },
+        {
+          "ttfp": 21,
+          "settled": 161.6000000089407,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        },
+        {
+          "ttfp": 18,
+          "settled": 162.59999999403954,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        }
+      ],
+      "lcw": [
+        {
+          "pass": true,
+          "settled": 345.5,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 281.90000000596046,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 442.29999999701977,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 294.20000000298023,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 729.2999999970198,
+          "project": "acme"
+        }
+      ],
+      "lcwPush": [
+        {
+          "pass": true,
+          "settled": 276.90000000596046,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 403.79999999701977,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 287.80000001192093,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 313.70000000298023,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 279.79999999701977,
+          "project": "acme"
+        }
+      ]
+    },
+    "Tab switch": {
+      "runs": [
+        {
+          "ttfp": 18.099999994039536,
+          "settled": 86.3999999910593,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        },
+        {
+          "ttfp": 12.399999991059303,
+          "settled": 94.3999999910593,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        },
+        {
+          "ttfp": 16.80000001192093,
+          "settled": 63.5,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        },
+        {
+          "ttfp": 15.5,
+          "settled": 62.3999999910593,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        },
+        {
+          "ttfp": 17.899999991059303,
+          "settled": 95,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        }
+      ],
+      "lcw": [
+        {
+          "pass": true,
+          "settled": 194.6000000089407,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 148.70000000298023,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 165,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 155.6000000089407,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 132.70000000298023,
+          "project": "acme"
+        }
+      ],
+      "lcwPush": [
+        {
+          "pass": true,
+          "settled": 593.2999999970198,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 168,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 182.20000000298023,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 165.20000000298023,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 135.29999999701977,
+          "project": "acme"
+        }
+      ]
+    },
+    "Project switch": {
+      "runs": [
+        {
+          "ttfp": 14.799999997019768,
+          "settled": 190.79999999701977,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        },
+        {
+          "ttfp": 15.200000002980232,
+          "settled": 192.79999999701977,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        },
+        {
+          "ttfp": 12,
+          "settled": 188.1000000089407,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        },
+        {
+          "ttfp": 14.700000002980232,
+          "settled": 192.5,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        },
+        {
+          "ttfp": 11.799999997019768,
+          "settled": 188.09999999403954,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        }
+      ],
+      "lcw": [
+        {
+          "pass": false,
+          "settled": 202.8999999910593,
+          "project": "acme"
+        },
+        {
+          "pass": false,
+          "settled": 155.5,
+          "project": "acme"
+        },
+        {
+          "pass": false,
+          "settled": 542.5999999940395,
+          "project": "acme"
+        },
+        {
+          "pass": false,
+          "settled": 156.70000000298023,
+          "project": "acme"
+        },
+        {
+          "pass": false,
+          "settled": 868.2000000029802,
+          "project": "acme"
+        }
+      ],
+      "lcwPush": [
+        {
+          "pass": false,
+          "settled": 160.20000000298023,
+          "project": "acme"
+        },
+        {
+          "pass": false,
+          "settled": 226.29999999701977,
+          "project": "acme"
+        },
+        {
+          "pass": false,
+          "settled": 155.69999998807907,
+          "project": "acme"
+        },
+        {
+          "pass": false,
+          "settled": 891.5999999940395,
+          "project": "acme"
+        },
+        {
+          "pass": false,
+          "settled": 157.70000000298023,
+          "project": "acme"
+        }
+      ]
+    },
+    "Open plan": {
+      "runs": [
+        {
+          "ttfp": 14.200000002980232,
+          "settled": 89.80000001192093,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        },
+        {
+          "ttfp": 15.5,
+          "settled": 94.09999999403954,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        },
+        {
+          "ttfp": 14.199999988079071,
+          "settled": 74,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        },
+        {
+          "ttfp": 12,
+          "settled": 182.5,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        },
+        {
+          "ttfp": 8,
+          "settled": 80.70000000298023,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        }
+      ],
+      "lcw": [
+        {
+          "pass": true,
+          "settled": 174.79999999701977,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 240.5,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 136.59999999403954,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 148,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 162.6000000089407,
+          "project": "acme"
+        }
+      ],
+      "lcwPush": [
+        {
+          "pass": true,
+          "settled": 367.70000000298023,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 194.30000001192093,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 130.80000001192093,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 144,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 135.80000001192093,
+          "project": "acme"
+        }
+      ]
+    },
+    "Main plan": {
+      "runs": [
+        {
+          "ttfp": 37,
+          "settled": 37,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        },
+        {
+          "ttfp": 35.80000001192093,
+          "settled": 35.80000001192093,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        },
+        {
+          "ttfp": 39,
+          "settled": 397.79999999701977,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        },
+        {
+          "ttfp": 34.099999994039536,
+          "settled": 34.099999994039536,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        },
+        {
+          "ttfp": 40,
+          "settled": 40,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        }
+      ],
+      "lcw": [
+        {
+          "pass": true,
+          "settled": 63.80000001192093,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 62.19999998807907,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 91.6000000089407,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 185,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 71.40000000596046,
+          "project": "acme"
+        }
+      ],
+      "lcwPush": [
+        {
+          "pass": true,
+          "settled": 286.1000000089407,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 68.09999999403954,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 75.20000000298023,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 66.1000000089407,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 67.5,
+          "project": "acme"
+        }
+      ]
+    },
+    "New plan": {
+      "runs": [
+        {
+          "ttfp": 13.299999997019768,
+          "settled": 48.20000000298023,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        },
+        {
+          "ttfp": 13.700000002980232,
+          "settled": 51.6000000089407,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        },
+        {
+          "ttfp": 6.700000002980232,
+          "settled": 51.70000000298023,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        },
+        {
+          "ttfp": 12.900000005960464,
+          "settled": 52.70000000298023,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        },
+        {
+          "ttfp": 8.400000005960464,
+          "settled": 54.30000001192093,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false
+        }
+      ],
+      "lcw": [
+        {
+          "pass": true,
+          "settled": 313.79999999701977,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 139.30000001192093,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 137,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 134.90000000596046,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 137.79999999701977,
+          "project": "acme"
+        }
+      ],
+      "lcwPush": [
+        {
+          "pass": true,
+          "settled": 195.59999999403954,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 149.1000000089407,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 517.7000000029802,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 145.20000000298023,
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 772.7000000029802,
+          "project": "acme"
+        }
+      ]
+    }
+  }
+}

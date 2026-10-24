@@ -11,7 +11,7 @@ import { shellSource } from './state/shellSource'
 // W9-A: spawn() moved with App's body into state/useWorkbench.ts; this reads App.tsx and every file it was cut into.
 const src = shellSource()
 const start = src.indexOf('const spawn = async (opts:')
-const signatureEnd = src.indexOf('}): Promise<void> => {', start)
+const signatureEnd = src.indexOf('}): Promise<string | null> => {', start)
 const call = src.indexOf('window.api.sessions.spawn({', start)
 const callEnd = src.indexOf('})', call)
 

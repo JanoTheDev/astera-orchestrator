@@ -22,7 +22,8 @@ import { dismiss, toast } from '../lib/toast'
 import { spawnNotice } from '../lib/spawnNotice'
 import { announceSettingsRecovery } from '../lib/settingsRecoveryNotice'
 import { confirmModal, confirmModalWithChoices, isConfirmOpen } from '../lib/confirm'
-import { ACTIVITY_STORAGE_KEY, activityOfSaved, togglePage, type ActivityId, type PageId } from '../../../core/ui/pages'
+import { ACTIVITY_STORAGE_KEY, type ActivityId } from '../../../core/ui/pages'
+import { nextActivity } from './sidebarView'
 import { requestBox } from '../components/command/boxStore'
 import { openActivity, openView, revealRunConfigs, togglePanel, toggleSideBar } from '../components/shell/navigation'
 import { storageWrite } from '../components/shell/shellView'
@@ -30,7 +31,7 @@ import { LOST_SIGHT_EXIT_CODE, LOST_TERMINAL_GRACE_MS, terminalsWithCreated, ter
 import { isCancelled as isWorktreeCancelled } from '../lib/worktreeErrors'
 import { spawnErrorMessage } from '../lib/spawnErrors'
 import { notifyCreated as notifyWorktreeCreated } from '../lib/worktreeBus'
-import { MAX_PANES, activateTab, addTab, countLeaves, createGroup, findNeighbor, firstLeaf, groupOfTab, leafOf, moveTab, removeTab, replaceTabId, splitAndMove, unsplit, type DropZone, type MoveDir, type PaneDir, type PaneNode } from '../../../core/panes/tree'
+import { MAX_PANES, activateTab, countLeaves, createGroup, findNeighbor, firstLeaf, groupOfTab, leafOf, moveTab, removeTab, replaceTabId, splitAndMove, unsplit, type DropZone, type MoveDir, type PaneDir, type PaneNode } from '../../../core/panes/tree'
 import { fileTab, isRemoteSessionKey, mediaTab, parseTab, sessionTab } from '../../../core/panes/tabId'
 import { canStartSession, type RemoteSessionRef } from '../lib/remoteSessions'
 import { mediaTabsUnder, placeMediaTab, placeTab } from '../../../core/panes/place'
@@ -47,6 +48,7 @@ import type { useHost } from './useHost'
 import type { useSettings } from './useSettings'
 import type { useDialogs } from './useDialogs'
 import { scopeKey } from './appConstants'
+import { adoptSessions, cycledTab, type OwnerPick } from './selection'
 import { openInbox } from '../components/shell/navigation'
 import { setHelpOpen } from '../components/help/helpStore'
 import { closeSessionTab, dropClosed, isAgentSession, ownConsolePref, recentlyClosed, recordClosed, reopenClosed, reopenWayOf, setOwnConsolePref, setReopenHandler, type ClosedTab, type CloseHow } from '../lib/recentlyClosed'
@@ -67,7 +69,7 @@ export type WorkbenchDeps = Pick<ReturnType<typeof useWorkbenchState>,
     'setSessions' | 't'> &
   Pick<ReturnType<typeof useSidebar>,
     'bindingsRef' | 'explorerOpenRef' | 'setExplorerOpen' | 'setKeyOverrides' | 'setSidebarOpen' | 'sidebarOpenRef' |
-    'setPage' | 'pageRef' | 'setActivity'> &
+    'activityRef' | 'setActivity'> &
   Pick<ReturnType<typeof useHost>,
     'campaignRef' | 'checkClickedAt' | 'cliInstalled' | 'notifiedUpdateRef' | 'readyToastRef' | 'setAppVersion' |
     'setCampaign' | 'setCheckClickedAt' | 'setCli' | 'setCliInstalled' | 'setHostHolding' | 'setHostStatus' |
@@ -106,7 +108,7 @@ export function useWorkbench(deps: WorkbenchDeps) {
     setKeyOverrides, setLayout, setMdMode, setMdModes, setMediaNonces, setNewSessionCwd, setPendingReveal,
     setRecordTabs, setRemoteSessions, setRemoteStatus, setRollStates, setRunMenuOpen, setSchedStates, setScopedNode,
     setSessions, setShowNew, setSidebarOpen, setSwitcherOpen, setTalkSignal, setUpdate, setWorkUnitTrackingEnabled,
-    setWtRoot, settingsTouched, showSettings, sidebarOpenRef, t, tRef, update, setPage, pageRef, setNewOpen, setActivity
+    setWtRoot, settingsTouched, showSettings, sidebarOpenRef, t, tRef, update, activityRef, setNewOpen, setActivity
   } = deps
   // W9-A: declared here, ahead of where App's body had them, because effects and handlers in this hook
   // (or an earlier one) read them; they are state and refs, so moving them up changes nothing that runs.
@@ -122,6 +124,11 @@ export function useWorkbench(deps: WorkbenchDeps) {
   const isMarkdownPath = (p: string): boolean => /\.(md|markdown)$/i.test(p)
   // The workspace keys are handled by a listener that holds its first closure, so it reads this ref
   const openWorkspaceSlotRef = useRef<(slot: number) => void>(() => {})
+  // The owner's last pick of a project or a tab since mount (selection.ts): restores yield to it, and only a picked tab
+  // moves the project. Tab picks are marked here, project picks in useWorkspace.
+  const ownerPickRef = useRef<OwnerPick | null>(null)
+  // The pane tree as the open workspace shows it (scopeLayout), for the key listener below; useWorkspace sets it
+  const shownLayoutRef = useRef<(layout: PaneNode) => PaneNode | null>((l) => l)
   // W9-A: starts empty, not at closeAgentTab (declared later, in useViews); useViews sets it every render
   // before any effect or handler reads it.
   const closeAgentTabRef = useRef<(sessionId: string) => void>(() => {})
@@ -179,23 +186,22 @@ export function useWorkbench(deps: WorkbenchDeps) {
     }
     // Re-adopts sessions that are still running after a renderer reload as tabs (scrollback is lost, by design)
     void window.api.sessions.list().then((list) => {
-      setSessions(list)
+      // a session spawned before the list answered keeps its row: a tab with no row is not drawn
+      setSessions((prev) => [...list, ...prev.filter((s) => !list.some((x) => x.id === s.id))])
       for (const s of list) if (s.status === 'running') { seedSchedState(s.id); seedRollState(s.id) }
       // T13: a tab the owner hid or closed stays out of the tree (its session stays in the list, so its tile stays)
       const closed = new Set(recentlyClosed().map((x) => x.sessionId))
       const tabbed = list.filter((s) => !closed.has(s.id))
       if (tabbed.length === 0) return
       // Every session belongs to exactly one group (invariant 1) — all re-adopted sessions go into the
-      // first group, and a running session (or the first one, if none) becomes the active tab
-      const g = createGroup(sessionTab(tabbed[0].id))
-      let root: PaneNode = g
-      for (const s of tabbed.slice(1)) root = addTab(root, g.id, sessionTab(s.id))
+      // first group, merged into the tabs already there, and a running session (or the first one, if none)
+      // becomes the active tab unless the owner picked one before the list answered
       const wanted = (tabbed.find((s) => s.status === 'running') ?? tabbed[0]).id
-      const act = activateTab(root, sessionTab(wanted))
+      const act = adoptSessions(layoutRef.current, activePaneIdRef.current, tabbed.map((s) => s.id), wanted, ownerPickRef.current)
       if (!act) return
-      // This tree is built from scratch, so the mirror tabs a workspace.list that answered first has
-      // already placed go back in (fix round 1: they were wiped). setLayout moves the ref at once, so a
-      // list that answers after this, before the render, builds on this tree.
+      // The mirror tabs a workspace.list that answered first has placed are kept by the merge; any not placed yet go
+      // in (fix round 1: they were wiped). setLayout moves the ref at once, so a list that answers after this, before
+      // the render, builds on this tree.
       const withMirrors = placeAppTabs(act.root, openSessionIds(mirrorsRef.current), act.paneId)
       setLayout(withMirrors)
       setActivePaneId(act.paneId)
@@ -669,7 +675,8 @@ export function useWorkbench(deps: WorkbenchDeps) {
       // no such thing as a "global order". To reach a session in another group, move groups with
       // Ctrl+Shift+arrow and pick the tab with Ctrl+PageUp/Down (the same division of labour as
       // IntelliJ's Goto Next Splitter plus Select Next Tab).
-      const cur = layoutRef.current
+      // Only what the open workspace shows: a group or tab hidden in another project's is never reached
+      const cur = layoutRef.current && shownLayoutRef.current(layoutRef.current)
       const curPane = activePaneIdRef.current
       if (focusMove && cur && curPane && countLeaves(cur) >= 2) {
         const dir: MoveDir = vertical ? (delta < 0 ? 'up' : 'down') : delta < 0 ? 'left' : 'right'
@@ -686,17 +693,14 @@ export function useWorkbench(deps: WorkbenchDeps) {
       }
       if (vertical) return // unsplit, there is no cycling up or down
       // Unsplit, there is only one group, so this effectively cycles every session — the same as it always felt
-      const group = cur && ((curPane && leafOf(cur, curPane)) || firstLeaf(cur))
-      if (!group || group.tabIds.length < 2) return
-      const i = group.tabIds.indexOf(group.activeTabId)
-      if (i < 0) return
+      const tab = cycledTab(cur, curPane, delta)
+      if (!tab) return
       e.preventDefault()
       e.stopPropagation()
       if (e.repeat) return
-      const n = group.tabIds.length
       // 종류를 가리지 않고 그 페인의 탭 줄에 그려진 순서대로 돈다 — 파일 탭과 세션 탭 사이에 경계가
       // 없다. 클릭과 같은 경로(selectWorkbenchTab)를 타야 세션 탭을 지날 때 활성 세션도 함께 맞춰진다
-      selectWorkbenchTabRef.current(group.tabIds[(i + delta + n) % n])
+      selectWorkbenchTabRef.current(tab)
     }
     window.addEventListener('keydown', onKey, true) // capture
     return () => window.removeEventListener('keydown', onKey, true)
@@ -820,6 +824,7 @@ export function useWorkbench(deps: WorkbenchDeps) {
     })
     setLayout(res.root)
     if (res.paneId) setActivePaneId(res.paneId)
+    if (res.paneId && !background) ownerPickRef.current = { tabId: sessionTab(sessionId) } // a session the owner opened
     // Only reported when a split was requested but hit the cap and landed in the active group — the
     // case where the target group's only tab makes splitting a no-op is not a failure, so it stays quiet
     if (res.splitFellBack && cur && countLeaves(cur) >= MAX_PANES)
@@ -1165,6 +1170,7 @@ export function useWorkbench(deps: WorkbenchDeps) {
     if (!cur) return
     const act = activateTab(cur, tabId)
     if (!act) return
+    ownerPickRef.current = { tabId }
     setLayout(act.root)
     setActivePaneId(act.paneId)
   }
@@ -1479,7 +1485,7 @@ export function useWorkbench(deps: WorkbenchDeps) {
       }))
     )
       return
-    goPage('agents') // W9-B: the Files page closes back to Agents
+    showActivity('agents') // W9-B: the Files page closes back to Agents
     // 트리에 들어 있는 파일 탭도 함께 뺀다 — 남겨 두면 파일이 없는데 탭만 남는다. 하나씩 빼는 것은
     // removeTab이 빈 그룹 정리와 다음 활성 탭 선택까지 맡고 있기 때문이다
     let nextLayout = layoutRef.current
@@ -1512,29 +1518,22 @@ export function useWorkbench(deps: WorkbenchDeps) {
    *
    *  사이드바의 표시 여부는 sidebarOpen 하나가 정한다. 예전에는 sidebarOpen || explorerOpen 이라
    *  탐색기가 켜져 있는 동안 사이드바 토글이 아무 반응도 없었다 — OR 가 언제나 참이었기 때문이다. */
-  /** W9-B: shows a page (core/ui/pages.ts). The rail and its sidebar are gone; the flags the app's effects read
-   *  (explorerOpen, jobsOpen, hiwOpen) follow the page that shows their view, and the page is kept for the next
-   *  launch. Runs from the keydown listener too, which closes over the first render: hence pageRef. */
-  const goPage = (id: PageId): void => {
-    pageRef.current = id
-    setPage(id)
-    // DESIGN-W13: a page is a side bar view now. Settings and the Inbox have none (a view tab, the panel): they leave it.
-    const to = activityOfSaved(id)
-    if (id !== 'settings' && !to.panelTab) showActivity(to.activity)
-  }
   /** The side bar's view; the flags the app's effects read (explorerOpen, jobsOpen, hiwOpen) follow it, and it is kept
-   *  for the next launch. Whether the side bar shows is the caller's (openActivity shows it, goPage leaves it). */
+   *  for the next launch. Whether the side bar shows is the caller's (openActivity shows it, a toggle leaves it). Only owner
+   *  actions call it (state/sidebarView.ts): a push or a plan change never moves the view. */
   const showActivity = (id: ActivityId): void => {
+    activityRef.current = id
     setActivity(id)
     setExplorerOpen(id === 'explorer')
     setJobsOpen(id === 'plans')
     setHiwOpen(id === 'history')
     storageWrite(ACTIVITY_STORAGE_KEY, id)
   }
-  /** The old sidebar views' keys: open the view's page, or go back to Agents from it (togglePage). */
+  /** The old sidebar views' keys: open the view, or go back to Agents from it. Runs from the keydown listener, which
+   *  closes over the first render: hence activityRef. */
   const toggleSidebar = (view: 'explorer' | 'jobs' | 'understanding' | 'sessions'): void => {
-    const target: PageId = view === 'explorer' ? 'files' : view === 'jobs' ? 'plans' : view === 'understanding' ? 'more:hiw' : 'agents'
-    goPage(togglePage(pageRef.current, target))
+    const target: ActivityId = view === 'explorer' ? 'explorer' : view === 'jobs' ? 'plans' : view === 'understanding' ? 'history' : 'agents'
+    showActivity(nextActivity(activityRef.current, { kind: 'toggle', activity: target }))
   }
   /** Shows the explorer whatever was showing: a folder link's reveal needs it open, never toggled shut. */
   const showExplorer = (): void => openActivity('explorer')
@@ -1750,10 +1749,10 @@ export function useWorkbench(deps: WorkbenchDeps) {
   )
   return {
     terminals, setTerminals, bottomTab, setBottomTab, pairedRuntimes, setPairedRuntimes, bottomRootRef,
-    isMarkdownPath, openWorkspaceSlotRef, closeAgentTabRef, currentProjectRef, spawn, openFile, openLinkedPath,
+    isMarkdownPath, openWorkspaceSlotRef, ownerPickRef, shownLayoutRef, closeAgentTabRef, currentProjectRef, spawn, openFile, openLinkedPath,
     openProjectFile, retireEditorState, setBufferContent, saveFile, reloadBufferFromDisk, dropTabFromTree,
     openRemoteSession, selectWorkbenchTab, closeWorkbenchTab, handlePathRenamed, handlePathDeleted, closeExplorer,
-    goPage, showActivity, toggleSidebar, showExplorer, toggleSessions, toggleExplorer, toggleJobs, toggleHiw, dropOnPane, canStart,
+    showActivity, toggleSidebar, showExplorer, toggleSessions, toggleExplorer, toggleJobs, toggleHiw, dropOnPane, canStart,
     newInGroup, dropTabInGroup, unsplitPane, restart, resumeFromHistory, active, runningCount, updateChecking,
     dirtyIds
   }

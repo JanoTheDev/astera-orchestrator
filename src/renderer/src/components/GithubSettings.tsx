@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useSetting } from '../hooks/useSetting'
 import type { GhProbe } from '../../../core/github/types'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
@@ -8,19 +9,17 @@ import { Button, Icon, Select, Switch } from './ui'
  *  deliberately no login button: auth belongs to `gh auth login` in a terminal. */
 export function GithubSettings(): React.JSX.Element {
   const { t } = useI18n()
-  const [probe, setProbe] = useState<GhProbe | null>(null) // null = first read in flight
-  const [polling, setPolling] = useState(true)
+  // recheck(), not status(): main's cached probe can be stale by the time this tab opens (a background auth loss, or
+  // a `gh auth login` run in a terminal since app start), and this is a local process call — about half a second —
+  // that also broadcasts, so the worktree panel stays in step with whatever this tab just found (design doc §5).
+  const [readProbe, setProbe] = useSetting<GhProbe>('githubProbe', () => window.api.github.recheck())
+  const probe = readProbe ?? null // null = first read in flight
+  const [polling, setPolling] = useSetting('githubPolling', () => window.api.settings.getGithubPolling(), true)
   const [checking, setChecking] = useState(false)
-  const [defaults, setDefaults] = useState<{ createGithubRepo: boolean; visibility: 'private' | 'public' } | null>(null)
+  const [readDefaults, setDefaults] = useSetting('githubDefaults', () => window.api.settings.getGithubDefaults())
+  const defaults = readDefaults ?? null // null = first read in flight
 
   useEffect(() => {
-    // recheck(), not status(): main's cached probe can be stale by the time this tab opens (a
-    // background auth loss, or a `gh auth login` run in a terminal since app start), and this is
-    // a local process call — about half a second — that also broadcasts, so the worktree panel
-    // stays in step with whatever this tab just found (design doc §5).
-    void window.api.github.recheck().then(setProbe)
-    void window.api.settings.getGithubPolling().then(setPolling)
-    void window.api.settings.getGithubDefaults().then(setDefaults)
     // Keeps tracking state changes while the tab stays open — a later auth loss, or a recheck
     // triggered elsewhere, must not leave this pane reporting a stale "Connected".
     const offStatus = window.api.on('github:status', setProbe)
@@ -37,7 +36,7 @@ export function GithubSettings(): React.JSX.Element {
   }
 
   const saveDefaults = (next: NonNullable<typeof defaults>): void => {
-    const prev = defaults
+    const prev = readDefaults
     setDefaults(next) // optimistic, reverted on failure like the polling switch
     void window.api.settings.setGithubDefaults(next).catch((err) => {
       setDefaults(prev)

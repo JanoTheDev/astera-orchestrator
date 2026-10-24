@@ -1005,6 +1005,12 @@ export interface OrchSnapshot {
   /** Which paired Runtime this snapshot is from, on a remote one only (remote runtime design §2.7): its view marks a
    *  stale or offline state. Absent for the local Host, whose snapshot is unchanged. */
   runtime?: RuntimeView
+  /** The project path the renderer asked orch.list for, as it sent it: a push for another project (a second window's,
+   *  or one that lands after a switch) is dropped by acceptSnapshot. Absent on a paired Runtime's snapshot. */
+  project?: string
+  /** Changes only when the content does (main/orchPush.ts), unique across the main process: an equal version is the
+   *  same snapshot, so the renderer keeps the object it holds without comparing. Absent where `project` is. */
+  version?: number
 }
 
 /** A paired Runtime as Settings › Remote Runtimes lists it (remote runtime design Phase 6): never its token. */

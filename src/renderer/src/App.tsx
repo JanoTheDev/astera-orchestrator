@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { UpdateGate } from './components/UpdateGate'
 import { CliMissingBanner } from './components/CliMissingBanner'
 import { HostStartingNotice } from './components/HostRuntimeNotice'
@@ -70,7 +70,7 @@ export default function App(): React.JSX.Element {
     ...fromWorkbench, ...fromRunPanel, ...fromJobs, ...fromViews, ...fromWorkspace, ...fromLiveData,
     ...fromRunActions, ...fromPlanPages
   }
-  const { activity, campaign, cliInstalled, firstRunAsked, hostStatus, installUpdate, isMax, runningCount, sidebarOpen, update } = app
+  const { campaign, cliInstalled, firstRunAsked, hostStatus, installUpdate, isMax, runningCount, sidebarOpen, update } = app
   useNavigation(app)
   useViewTabSync(app) // DESIGN-W13: the view tabs follow Start's request, the open plan and the Settings flag
   const shell = useShell(app) // W9-B
@@ -83,6 +83,7 @@ export default function App(): React.JSX.Element {
   // CLI says why it cannot start (guardStart). "Present" is installed, not runnable: `cliInstalled`, not `cli` (a
   // CLI a toolchain manager refuses to run in the app's cwd is installed; calling it missing would be wrong).
   const [cliBannerDismissed, setCliBannerDismissed] = useState(false)
+  const planBadge = useMemo(() => runningPlans(app.orchSnapshot?.runs ?? []), [app.orchSnapshot])
   const showCliBanner = cliBannerShown({ cliInstalled, onboarding, dismissed: cliBannerDismissed })
 
   const branch = useCurrentBranch(app.currentProject)
@@ -111,9 +112,9 @@ export default function App(): React.JSX.Element {
         <div className="workbench wb-row">
           <ActivityBar
             {...props}
-            badges={{ agents: shell.counts.agents, plans: runningPlans(app.orchSnapshot?.runs ?? []) }}
+            badges={{ agents: shell.counts.agents, plans: planBadge }}
             onActivity={(id) => {
-              const next = activityClick({ activity, sidebarVisible: sidebarOpen }, id)
+              const next = activityClick({ activity: app.activityRef.current, sidebarVisible: sidebarOpen }, id) // the ref: a second quick click reads the first
               app.showActivity(next.activity)
               app.setSidebarOpen(next.sidebarVisible)
             }}

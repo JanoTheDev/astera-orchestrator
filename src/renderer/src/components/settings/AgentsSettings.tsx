@@ -12,6 +12,7 @@ import { AutoAnswerSetting } from '../AutoAnswerSetting'
 import { toast } from '../../lib/toast'
 import { SettingRow, type GroupProps } from './SettingRow'
 import { useEffect, useState } from 'react'
+import { useSetting } from '../../hooks/useSetting'
 import { useI18n } from '../../i18n/I18nProvider'
 import { APPROVAL_MODES, type ApprovalMode } from '../../../../core/settings/approvalDefault'
 import { APPROVAL_LABEL } from '../plan/planSettingsForm'
@@ -22,8 +23,7 @@ import { PromptInstructionsEditor } from '../extensions/PromptInstructionsEditor
 /** The global default of the approval setting (core/settings/approvalDefault.ts), behind a plan's and its project's own. */
 function ApprovalDefaultSetting(): React.JSX.Element {
   const { t } = useI18n()
-  const [saved, setSaved] = useState<ApprovalMode | null | undefined>(undefined)
-  useEffect(() => void window.api.settings.getApprovalDefault().then(setSaved), [])
+  const [saved, setSaved] = useSetting('approvalDefault', () => window.api.settings.getApprovalDefault()) // undefined = first read in flight
   const change = (v: string): void => {
     const was = saved
     const next = APPROVAL_MODES.find((m) => m === v) ?? null

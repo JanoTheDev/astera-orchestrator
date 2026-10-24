@@ -1,0 +1,3653 @@
+{
+  "meta": {
+    "date": "2026-10-24T19:54:47.160Z",
+    "commit": "4316df8f",
+    "cpu": "AMD Ryzen 7 5800H with Radeon Graphics",
+    "cpus": 16,
+    "chrome": "Chrome/146.0.7680.216",
+    "viewport": "1920x1047",
+    "longFrameEntry": "long-animation-frame",
+    "runs": 5,
+    "warmup": 1,
+    "tabs": 8,
+    "sessions": 0,
+    "statePush": {
+      "fired": 62,
+      "answered": 60,
+      "failed": 0
+    }
+  },
+  "summary": {
+    "Plans": {
+      "ttfp": {
+        "median": 18.200000002980232,
+        "p95": 18.599999994039536
+      },
+      "settled": {
+        "median": 28.19999998807907,
+        "p95": 35.69999998807907
+      },
+      "longMax": 0,
+      "longFrames": 0,
+      "timedOut": 0,
+      "lcw": "5/5",
+      "lcwPush": "5/5"
+    },
+    "Sessions": {
+      "ttfp": {
+        "median": 20.5,
+        "p95": 22.100000008940697
+      },
+      "settled": {
+        "median": 166.1000000089407,
+        "p95": 166.40000000596046
+      },
+      "longMax": 0,
+      "longFrames": 0,
+      "content": {
+        "median": 20.5,
+        "p95": 22.100000008940697
+      },
+      "timedOut": 0,
+      "lcw": "5/5",
+      "lcwPush": "5/5"
+    },
+    "History": {
+      "ttfp": {
+        "median": 12.300000011920929,
+        "p95": 14.299999997019768
+      },
+      "settled": {
+        "median": 24.799999997019768,
+        "p95": 29.799999997019768
+      },
+      "longMax": 0,
+      "longFrames": 0,
+      "timedOut": 0,
+      "lcw": "5/5",
+      "lcwPush": "5/5"
+    },
+    "Run": {
+      "ttfp": {
+        "median": 10,
+        "p95": 27.100000008940697
+      },
+      "settled": {
+        "median": 11,
+        "p95": 35.900000005960464
+      },
+      "longMax": 0,
+      "longFrames": 0,
+      "content": {
+        "median": 10,
+        "p95": 27.100000008940697
+      },
+      "timedOut": 0,
+      "lcw": "5/5",
+      "lcwPush": "5/5"
+    },
+    "Source Control": {
+      "ttfp": {
+        "median": 12.400000005960464,
+        "p95": 16.299999997019768
+      },
+      "settled": {
+        "median": 12.800000011920929,
+        "p95": 23
+      },
+      "longMax": 0,
+      "longFrames": 0,
+      "content": {
+        "median": 12.400000005960464,
+        "p95": 16.299999997019768
+      },
+      "timedOut": 0,
+      "lcw": "5/5",
+      "lcwPush": "5/5"
+    },
+    "Devices": {
+      "ttfp": {
+        "median": 15.299999997019768,
+        "p95": 23.400000005960464
+      },
+      "settled": {
+        "median": 21.100000008940697,
+        "p95": 50
+      },
+      "longMax": 0,
+      "longFrames": 0,
+      "content": {
+        "median": 15.700000002980232,
+        "p95": 36.69999998807907
+      },
+      "timedOut": 0,
+      "lcw": "5/5",
+      "lcwPush": "5/5"
+    },
+    "Settings": {
+      "ttfp": {
+        "median": 26.100000008940697,
+        "p95": 29.399999991059303
+      },
+      "settled": {
+        "median": 161.8999999910593,
+        "p95": 165.70000000298023
+      },
+      "longMax": 0,
+      "longFrames": 0,
+      "timedOut": 0,
+      "lcw": "5/5",
+      "lcwPush": "5/5"
+    },
+    "Tab switch": {
+      "ttfp": {
+        "median": 82.59999999403954,
+        "p95": 97.79999999701977
+      },
+      "settled": {
+        "median": 369.8999999910593,
+        "p95": 505.90000000596046
+      },
+      "longMax": 148.9,
+      "longFrames": 6,
+      "timedOut": 0,
+      "lcw": "5/5",
+      "lcwPush": "5/5"
+    },
+    "Project switch": {
+      "ttfp": {
+        "median": 15.800000011920929,
+        "p95": 28
+      },
+      "settled": {
+        "median": 164.90000000596046,
+        "p95": 233.30000001192093
+      },
+      "longMax": 0,
+      "longFrames": 0,
+      "timedOut": 0,
+      "lcw": "0/5",
+      "lcwPush": "0/5"
+    },
+    "Open plan": {
+      "ttfp": {
+        "median": 13.299999997019768,
+        "p95": 17.900000005960464
+      },
+      "settled": {
+        "median": 104.59999999403954,
+        "p95": 237.29999999701977
+      },
+      "longMax": 80,
+      "longFrames": 1,
+      "timedOut": 0,
+      "lcw": "5/5",
+      "lcwPush": "5/5"
+    },
+    "Main plan": {
+      "ttfp": {
+        "median": 137.80000001192093,
+        "p95": 180.20000000298023
+      },
+      "settled": {
+        "median": 171.6000000089407,
+        "p95": 206.59999999403954
+      },
+      "longMax": 164.1,
+      "longFrames": 3,
+      "timedOut": 0,
+      "lcw": "5/5",
+      "lcwPush": "5/5"
+    },
+    "New plan": {
+      "ttfp": {
+        "median": 14.299999997019768,
+        "p95": 15.899999991059303
+      },
+      "settled": {
+        "median": 63,
+        "p95": 84.3999999910593
+      },
+      "longMax": 0,
+      "longFrames": 0,
+      "timedOut": 0,
+      "lcw": "5/5",
+      "lcwPush": "5/5"
+    }
+  },
+  "results": {
+    "Plans": {
+      "runs": [
+        {
+          "ttfp": 18.599999994039536,
+          "settled": 28.19999998807907,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "downs": [
+            {
+              "at": 2458842,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        },
+        {
+          "ttfp": 18.299999997019768,
+          "settled": 35.69999998807907,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "downs": [
+            {
+              "at": 2459874,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        },
+        {
+          "ttfp": 12.899999991059303,
+          "settled": 25.5,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "downs": [
+            {
+              "at": 2460937,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        },
+        {
+          "ttfp": 16.799999997019768,
+          "settled": 24.799999997019768,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "downs": [
+            {
+              "at": 2461971,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        },
+        {
+          "ttfp": 18.200000002980232,
+          "settled": 29.900000005960464,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "downs": [
+            {
+              "at": 2463023,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        }
+      ],
+      "lcw": [
+        {
+          "pass": true,
+          "settled": 209.70000000298023,
+          "downs": [
+            {
+              "at": 2464062,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2464104,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 215.30000001192093,
+          "downs": [
+            {
+              "at": 2465572,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2465619,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 206.70000000298023,
+          "downs": [
+            {
+              "at": 2467096,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2467140,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 207.40000000596046,
+          "downs": [
+            {
+              "at": 2468610,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2468655,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 212.19999998807907,
+          "downs": [
+            {
+              "at": 2470126,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2470172,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        }
+      ],
+      "lcwPush": [
+        {
+          "pass": true,
+          "settled": 229.29999999701977,
+          "downs": [
+            {
+              "at": 2471643,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2471704,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 230.3999999910593,
+          "downs": [
+            {
+              "at": 2473466,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2473529,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 261.30000001192093,
+          "downs": [
+            {
+              "at": 2475270,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2475334,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 232.20000000298023,
+          "downs": [
+            {
+              "at": 2477095,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2477158,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 261,
+          "downs": [
+            {
+              "at": 2478908,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2478990,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        }
+      ]
+    },
+    "Sessions": {
+      "runs": [
+        {
+          "ttfp": 19.799999997019768,
+          "settled": 165.5,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "content": 19.799999997019768,
+          "downs": [
+            {
+              "at": 2481598,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        },
+        {
+          "ttfp": 20.5,
+          "settled": 166.1000000089407,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "content": 20.5,
+          "downs": [
+            {
+              "at": 2482645,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        },
+        {
+          "ttfp": 18.19999998807907,
+          "settled": 166.3999999910593,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "content": 18.19999998807907,
+          "downs": [
+            {
+              "at": 2483688,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        },
+        {
+          "ttfp": 22,
+          "settled": 165.09999999403954,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "content": 22,
+          "downs": [
+            {
+              "at": 2484743,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        },
+        {
+          "ttfp": 22.100000008940697,
+          "settled": 166.40000000596046,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "content": 22.100000008940697,
+          "downs": [
+            {
+              "at": 2485767,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        }
+      ],
+      "lcw": [
+        {
+          "pass": true,
+          "settled": 214.40000000596046,
+          "downs": [
+            {
+              "at": 2486797,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2486849,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 219.5,
+          "downs": [
+            {
+              "at": 2488186,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2488243,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 211.70000000298023,
+          "downs": [
+            {
+              "at": 2489551,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2489606,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 219.5,
+          "downs": [
+            {
+              "at": 2490949,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2491007,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 208.5,
+          "downs": [
+            {
+              "at": 2492318,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2492370,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        }
+      ],
+      "lcwPush": [
+        {
+          "pass": true,
+          "settled": 232.5,
+          "downs": [
+            {
+              "at": 2493699,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2493770,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 237,
+          "downs": [
+            {
+              "at": 2495386,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2495462,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 255.6000000089407,
+          "downs": [
+            {
+              "at": 2497070,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2497164,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 245.1000000089407,
+          "downs": [
+            {
+              "at": 2498754,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2498838,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 260.80000001192093,
+          "downs": [
+            {
+              "at": 2500441,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2500534,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        }
+      ]
+    },
+    "History": {
+      "runs": [
+        {
+          "ttfp": 14.299999997019768,
+          "settled": 29.299999997019768,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "downs": [
+            {
+              "at": 2503261,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        },
+        {
+          "ttfp": 12.300000011920929,
+          "settled": 24.200000002980232,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "downs": [
+            {
+              "at": 2504308,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        },
+        {
+          "ttfp": 9.900000005960464,
+          "settled": 22.100000008940697,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "downs": [
+            {
+              "at": 2505347,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        },
+        {
+          "ttfp": 12.799999997019768,
+          "settled": 29.799999997019768,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "downs": [
+            {
+              "at": 2506395,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        },
+        {
+          "ttfp": 10.099999994039536,
+          "settled": 24.799999997019768,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "downs": [
+            {
+              "at": 2507446,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        }
+      ],
+      "lcw": [
+        {
+          "pass": true,
+          "settled": 206.70000000298023,
+          "downs": [
+            {
+              "at": 2508489,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2508533,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 206.20000000298023,
+          "downs": [
+            {
+              "at": 2509999,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2510043,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 207.70000000298023,
+          "downs": [
+            {
+              "at": 2511518,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2511564,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 203.29999999701977,
+          "downs": [
+            {
+              "at": 2513032,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2513073,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 209.79999999701977,
+          "downs": [
+            {
+              "at": 2514547,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2514594,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        }
+      ],
+      "lcwPush": [
+        {
+          "pass": true,
+          "settled": 231.59999999403954,
+          "downs": [
+            {
+              "at": 2516083,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2516153,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 222.09999999403954,
+          "downs": [
+            {
+              "at": 2517897,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2517958,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 807.5999999940395,
+          "downs": [
+            {
+              "at": 2519711,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2519789,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 228.19999998807907,
+          "downs": [
+            {
+              "at": 2521523,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2521589,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 239.1000000089407,
+          "downs": [
+            {
+              "at": 2523354,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2523427,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        }
+      ]
+    },
+    "Run": {
+      "runs": [
+        {
+          "ttfp": 9.899999991059303,
+          "settled": 9.899999991059303,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "content": 9.899999991059303,
+          "downs": [
+            {
+              "at": 2526347,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        },
+        {
+          "ttfp": 10,
+          "settled": 10,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "content": 10,
+          "downs": [
+            {
+              "at": 2527360,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        },
+        {
+          "ttfp": 7.100000008940697,
+          "settled": 11,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "content": 7.100000008940697,
+          "downs": [
+            {
+              "at": 2528373,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        },
+        {
+          "ttfp": 11.800000011920929,
+          "settled": 15.5,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "content": 11.800000011920929,
+          "downs": [
+            {
+              "at": 2529400,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        },
+        {
+          "ttfp": 27.100000008940697,
+          "settled": 35.900000005960464,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "content": 27.100000008940697,
+          "downs": [
+            {
+              "at": 2530453,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        }
+      ],
+      "lcw": [
+        {
+          "pass": true,
+          "settled": 248,
+          "downs": [
+            {
+              "at": 2531534,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2531613,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 223.70000000298023,
+          "downs": [
+            {
+              "at": 2533141,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2533198,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 204.20000000298023,
+          "downs": [
+            {
+              "at": 2534740,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2534782,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 209.30000001192093,
+          "downs": [
+            {
+              "at": 2536251,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2536297,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 205.40000000596046,
+          "downs": [
+            {
+              "at": 2537763,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2537807,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        }
+      ],
+      "lcwPush": [
+        {
+          "pass": true,
+          "settled": 222.3999999910593,
+          "downs": [
+            {
+              "at": 2539273,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2539333,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 220.59999999403954,
+          "downs": [
+            {
+              "at": 2541099,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2541157,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 236.8999999910593,
+          "downs": [
+            {
+              "at": 2542913,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2542989,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 225.6000000089407,
+          "downs": [
+            {
+              "at": 2544724,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2544789,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 224.6000000089407,
+          "downs": [
+            {
+              "at": 2546543,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2546606,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        }
+      ]
+    },
+    "Source Control": {
+      "runs": [
+        {
+          "ttfp": 12.400000005960464,
+          "settled": 12.400000005960464,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "content": 12.400000005960464,
+          "downs": [
+            {
+              "at": 2549381,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        },
+        {
+          "ttfp": 12.800000011920929,
+          "settled": 12.800000011920929,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "content": 12.800000011920929,
+          "downs": [
+            {
+              "at": 2550398,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        },
+        {
+          "ttfp": 9.399999991059303,
+          "settled": 9.399999991059303,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "content": 9.399999991059303,
+          "downs": [
+            {
+              "at": 2551420,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        },
+        {
+          "ttfp": 10.5,
+          "settled": 17,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "content": 10.5,
+          "downs": [
+            {
+              "at": 2552445,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        },
+        {
+          "ttfp": 16.299999997019768,
+          "settled": 23,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "content": 16.299999997019768,
+          "downs": [
+            {
+              "at": 2553478,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        }
+      ],
+      "lcw": [
+        {
+          "pass": true,
+          "settled": 291.1000000089407,
+          "downs": [
+            {
+              "at": 2554553,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2554664,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 214.3999999910593,
+          "downs": [
+            {
+              "at": 2556204,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2556254,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 204.29999999701977,
+          "downs": [
+            {
+              "at": 2557715,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2557758,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 262.79999999701977,
+          "downs": [
+            {
+              "at": 2559235,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2559318,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 274.1000000089407,
+          "downs": [
+            {
+              "at": 2560842,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2560943,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        }
+      ],
+      "lcwPush": [
+        {
+          "pass": true,
+          "settled": 300,
+          "downs": [
+            {
+              "at": 2562421,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2562554,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 245.1000000089407,
+          "downs": [
+            {
+              "at": 2564256,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2564335,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 232.09999999403954,
+          "downs": [
+            {
+              "at": 2566094,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2566164,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 384.6000000089407,
+          "downs": [
+            {
+              "at": 2567947,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2568150,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 374.70000000298023,
+          "downs": [
+            {
+              "at": 2569843,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2570044,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        }
+      ]
+    },
+    "Devices": {
+      "runs": [
+        {
+          "ttfp": 10.099999994039536,
+          "settled": 12,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "content": 10.099999994039536,
+          "downs": [
+            {
+              "at": 2572723,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        },
+        {
+          "ttfp": 15.299999997019768,
+          "settled": 18.200000002980232,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "content": 15.299999997019768,
+          "downs": [
+            {
+              "at": 2573758,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        },
+        {
+          "ttfp": 23.400000005960464,
+          "settled": 28.400000005960464,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "content": 23.400000005960464,
+          "downs": [
+            {
+              "at": 2574903,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        },
+        {
+          "ttfp": 10,
+          "settled": 50,
+          "changedByPaint": false,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "content": 36.69999998807907,
+          "downs": [
+            {
+              "at": 2576033,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        },
+        {
+          "ttfp": 15.700000002980232,
+          "settled": 21.100000008940697,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "content": 15.700000002980232,
+          "downs": [
+            {
+              "at": 2577171,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        }
+      ],
+      "lcw": [
+        {
+          "pass": true,
+          "settled": 230.20000000298023,
+          "downs": [
+            {
+              "at": 2578295,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2578354,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 203.1000000089407,
+          "downs": [
+            {
+              "at": 2579813,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2579854,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 206.5,
+          "downs": [
+            {
+              "at": 2581373,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2581418,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 201.69999998807907,
+          "downs": [
+            {
+              "at": 2582881,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2582926,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 202.70000000298023,
+          "downs": [
+            {
+              "at": 2584395,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2584435,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        }
+      ],
+      "lcwPush": [
+        {
+          "pass": true,
+          "settled": 220.90000000596046,
+          "downs": [
+            {
+              "at": 2585922,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2585982,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 262.29999999701977,
+          "downs": [
+            {
+              "at": 2587749,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2587846,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 958.7000000029802,
+          "downs": [
+            {
+              "at": 2589560,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2589631,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 219.40000000596046,
+          "downs": [
+            {
+              "at": 2591409,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2591466,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 219.19999998807907,
+          "downs": [
+            {
+              "at": 2593221,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2593278,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        }
+      ]
+    },
+    "Settings": {
+      "runs": [
+        {
+          "ttfp": 23.5,
+          "settled": 159,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "downs": [
+            {
+              "at": 2597869,
+              "target": "ui-menu__label | Settings",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        },
+        {
+          "ttfp": 26.100000008940697,
+          "settled": 161.5,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "downs": [
+            {
+              "at": 2599812,
+              "target": "ui-menu__label | Settings",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        },
+        {
+          "ttfp": 26,
+          "settled": 163.20000000298023,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "downs": [
+            {
+              "at": 2601757,
+              "target": "ui-menu__label | Settings",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        },
+        {
+          "ttfp": 26.200000002980232,
+          "settled": 165.70000000298023,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "downs": [
+            {
+              "at": 2603699,
+              "target": "ui-menu__label | Settings",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        },
+        {
+          "ttfp": 29.399999991059303,
+          "settled": 161.8999999910593,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "downs": [
+            {
+              "at": 2605648,
+              "target": "ui-menu__label | Settings",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        }
+      ],
+      "lcw": [
+        {
+          "pass": true,
+          "settled": 280.70000000298023,
+          "downs": [
+            {
+              "at": 2607590,
+              "target": "ui-menu__label | Settings",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2607690,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 181,
+          "downs": [
+            {
+              "at": 2610053,
+              "target": "ui-menu__label | Settings",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2610168,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 162.90000000596046,
+          "downs": [
+            {
+              "at": 2612520,
+              "target": "ui-menu__label | Settings",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2612615,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 200.8999999910593,
+          "downs": [
+            {
+              "at": 2614991,
+              "target": "ui-menu__label | Settings",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2615115,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 178,
+          "downs": [
+            {
+              "at": 2617479,
+              "target": "ui-menu__label | Settings",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2617584,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        }
+      ],
+      "lcwPush": [
+        {
+          "pass": true,
+          "settled": 670.7000000029802,
+          "downs": [
+            {
+              "at": 2619969,
+              "target": "ui-menu__label | Settings",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2620312,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 654.3999999910593,
+          "downs": [
+            {
+              "at": 2623067,
+              "target": "ui-menu__label | Settings",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2623552,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 603.5999999940395,
+          "downs": [
+            {
+              "at": 2626664,
+              "target": "ui-menu__label | Settings",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2627098,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 186.8999999910593,
+          "downs": [
+            {
+              "at": 2629676,
+              "target": "ui-menu__label | Settings",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2629802,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 780.3999999910593,
+          "downs": [
+            {
+              "at": 2632491,
+              "target": "ui-menu__label | Settings",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2633007,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        }
+      ]
+    },
+    "Tab switch": {
+      "runs": [
+        {
+          "ttfp": 82.59999999403954,
+          "settled": 369.8999999910593,
+          "changedByPaint": true,
+          "longCount": 2,
+          "longMax": 99.5,
+          "long": [
+            66.3,
+            99.5
+          ],
+          "timedOut": false,
+          "downs": [
+            {
+              "at": 2641091,
+              "target": "tab-title | Plan 04: Migrate settings",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        },
+        {
+          "ttfp": 18,
+          "settled": 136,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "downs": [
+            {
+              "at": 2642723,
+              "target": "tab-title | Plan 03: Fix auth",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        },
+        {
+          "ttfp": 16.599999994039536,
+          "settled": 117.8999999910593,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "downs": [
+            {
+              "at": 2644101,
+              "target": "tab-title | Plan 04: Migrate settings",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        },
+        {
+          "ttfp": 83.79999999701977,
+          "settled": 505.90000000596046,
+          "changedByPaint": true,
+          "longCount": 2,
+          "longMax": 148.9,
+          "long": [
+            67.9,
+            148.9
+          ],
+          "timedOut": false,
+          "downs": [
+            {
+              "at": 2645690,
+              "target": "tab-title | Plan 03: Fix auth",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        },
+        {
+          "ttfp": 97.79999999701977,
+          "settled": 380.8999999910593,
+          "changedByPaint": true,
+          "longCount": 2,
+          "longMax": 124.4,
+          "long": [
+            53.7,
+            124.4
+          ],
+          "timedOut": false,
+          "downs": [
+            {
+              "at": 2647496,
+              "target": "tab-title | Plan 04: Migrate settings",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        }
+      ],
+      "lcw": [
+        {
+          "pass": true,
+          "settled": 204.59999999403954,
+          "downs": [
+            {
+              "at": 2649135,
+              "target": "tab-title | Plan 08: Add inbox",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2649207,
+              "target": "tab-title | Plan 03: Fix auth",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 194.6000000089407,
+          "downs": [
+            {
+              "at": 2650878,
+              "target": "tab-title | Plan 08: Add inbox",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2650948,
+              "target": "tab-title | Plan 04: Migrate settings",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 201.5,
+          "downs": [
+            {
+              "at": 2652612,
+              "target": "tab-title | Plan 08: Add inbox",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2652717,
+              "target": "tab-title | Plan 03: Fix auth",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 194.29999999701977,
+          "downs": [
+            {
+              "at": 2654349,
+              "target": "tab-title | Plan 08: Add inbox",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2654433,
+              "target": "tab-title | Plan 04: Migrate settings",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 237.59999999403954,
+          "downs": [
+            {
+              "at": 2656082,
+              "target": "tab-title | Plan 08: Add inbox",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2656175,
+              "target": "tab-title | Plan 03: Fix auth",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        }
+      ],
+      "lcwPush": [
+        {
+          "pass": true,
+          "settled": 178.6000000089407,
+          "downs": [
+            {
+              "at": 2657938,
+              "target": "tab-title | Plan 08: Add inbox",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2658012,
+              "target": "tab-title | Plan 03: Fix auth",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 328.59999999403954,
+          "downs": [
+            {
+              "at": 2659978,
+              "target": "tab-title | Plan 08: Add inbox",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2660113,
+              "target": "tab-title | Plan 04: Migrate settings",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 338.70000000298023,
+          "downs": [
+            {
+              "at": 2662033,
+              "target": "tab-title | Plan 08: Add inbox",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2662154,
+              "target": "tab-title | Plan 03: Fix auth",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 495.09999999403954,
+          "downs": [
+            {
+              "at": 2664124,
+              "target": "tab-title | Plan 08: Add inbox",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2664335,
+              "target": "tab-title | Plan 04: Migrate settings",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 269.29999999701977,
+          "downs": [
+            {
+              "at": 2666265,
+              "target": "tab-title | Plan 08: Add inbox",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2666405,
+              "target": "tab-title | Plan 03: Fix auth",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        }
+      ]
+    },
+    "Project switch": {
+      "runs": [
+        {
+          "ttfp": 13.600000008940697,
+          "settled": 233.30000001192093,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "downs": [
+            {
+              "at": 2671983,
+              "target": "tb-psw-text | api-servermain7 questions",
+              "title": "demo-app",
+              "popup": true
+            }
+          ]
+        },
+        {
+          "ttfp": 28,
+          "settled": 162.1000000089407,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "downs": [
+            {
+              "at": 2673993,
+              "target": "tb-psw-text | demo-appmain8 questions",
+              "title": "api-server",
+              "popup": true
+            }
+          ]
+        },
+        {
+          "ttfp": 13.599999994039536,
+          "settled": 159.3999999910593,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "downs": [
+            {
+              "at": 2675917,
+              "target": "tb-psw-text | api-servermain7 questions",
+              "title": "demo-app",
+              "popup": true
+            }
+          ]
+        },
+        {
+          "ttfp": 18,
+          "settled": 166.6000000089407,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "downs": [
+            {
+              "at": 2677867,
+              "target": "tb-psw-text | demo-appmain8 questions",
+              "title": "api-server",
+              "popup": true
+            }
+          ]
+        },
+        {
+          "ttfp": 15.800000011920929,
+          "settled": 164.90000000596046,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "downs": [
+            {
+              "at": 2679785,
+              "target": "tb-psw-text | api-servermain7 questions",
+              "title": "demo-app",
+              "popup": true
+            }
+          ]
+        }
+      ],
+      "lcw": [
+        {
+          "pass": false,
+          "settled": 163.70000000298023,
+          "downs": [
+            {
+              "at": 2681743,
+              "target": "tb-psw-text | acmemain12 questions",
+              "title": "api-server",
+              "popup": true
+            },
+            {
+              "at": 2681862,
+              "target": "welcome | AsteraStartNew plan…Open a con",
+              "title": "acme",
+              "popup": true
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": false,
+          "settled": 160.79999999701977,
+          "downs": [
+            {
+              "at": 2683994,
+              "target": "tb-psw-text | acmemain12 questions",
+              "title": "acme",
+              "popup": true
+            },
+            {
+              "at": 2684040,
+              "target": "welcome | AsteraStartNew plan…Open a con",
+              "title": "acme",
+              "popup": true
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": false,
+          "settled": 159.6000000089407,
+          "downs": [
+            {
+              "at": 2686293,
+              "target": "tb-psw-text | acmemain12 questions",
+              "title": "acme",
+              "popup": true
+            },
+            {
+              "at": 2686338,
+              "target": "welcome | AsteraStartNew plan…Open a con",
+              "title": "acme",
+              "popup": true
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": false,
+          "settled": 161.5,
+          "downs": [
+            {
+              "at": 2688551,
+              "target": "tb-psw-text | acmemain12 questions",
+              "title": "acme",
+              "popup": true
+            },
+            {
+              "at": 2688598,
+              "target": "welcome | AsteraStartNew plan…Open a con",
+              "title": "acme",
+              "popup": true
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": false,
+          "settled": 157.59999999403954,
+          "downs": [
+            {
+              "at": 2690840,
+              "target": "tb-psw-text | acmemain12 questions",
+              "title": "acme",
+              "popup": true
+            },
+            {
+              "at": 2690882,
+              "target": "welcome | AsteraStartNew plan…Open a con",
+              "title": "acme",
+              "popup": true
+            }
+          ],
+          "project": "acme"
+        }
+      ],
+      "lcwPush": [
+        {
+          "pass": false,
+          "settled": 155.90000000596046,
+          "downs": [
+            {
+              "at": 2693126,
+              "target": "tb-psw-text | acmemain12 questions",
+              "title": "acme",
+              "popup": true
+            },
+            {
+              "at": 2693173,
+              "target": "welcome | AsteraStartNew plan…Open a con",
+              "title": "acme",
+              "popup": true
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": false,
+          "settled": 155.5,
+          "downs": [
+            {
+              "at": 2695714,
+              "target": "tb-psw-text | acmemain12 questions",
+              "title": "acme",
+              "popup": true
+            },
+            {
+              "at": 2695760,
+              "target": "welcome | AsteraStartNew plan…Open a con",
+              "title": "acme",
+              "popup": true
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": false,
+          "settled": 159.6000000089407,
+          "downs": [
+            {
+              "at": 2698262,
+              "target": "tb-psw-text | acmemain12 questions",
+              "title": "acme",
+              "popup": true
+            },
+            {
+              "at": 2698307,
+              "target": "welcome | AsteraStartNew plan…Open a con",
+              "title": "acme",
+              "popup": true
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": false,
+          "settled": 157.90000000596046,
+          "downs": [
+            {
+              "at": 2700949,
+              "target": "tb-psw-text | acmemain12 questions",
+              "title": "acme",
+              "popup": true
+            },
+            {
+              "at": 2700998,
+              "target": "welcome | AsteraStartNew plan…Open a con",
+              "title": "acme",
+              "popup": true
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": false,
+          "settled": 162.69999998807907,
+          "downs": [
+            {
+              "at": 2703509,
+              "target": "tb-psw-text | acmemain12 questions",
+              "title": "acme",
+              "popup": true
+            },
+            {
+              "at": 2703565,
+              "target": "welcome | AsteraStartNew plan…Open a con",
+              "title": "acme",
+              "popup": true
+            }
+          ],
+          "project": "acme"
+        }
+      ]
+    },
+    "Open plan": {
+      "runs": [
+        {
+          "ttfp": 13.099999994039536,
+          "settled": 237.29999999701977,
+          "changedByPaint": true,
+          "longCount": 1,
+          "longMax": 80,
+          "long": [
+            80
+          ],
+          "timedOut": false,
+          "downs": [
+            {
+              "at": 2707306,
+              "target": "ui-tree__label | Plan 04: Migrate settings",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        },
+        {
+          "ttfp": 17.900000005960464,
+          "settled": 104.59999999403954,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "downs": [
+            {
+              "at": 2708933,
+              "target": "ui-tree__label | Plan 08: Add inbox",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        },
+        {
+          "ttfp": 7.9000000059604645,
+          "settled": 76.20000000298023,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "downs": [
+            {
+              "at": 2710419,
+              "target": "ui-tree__label | Plan 09: Fix billing",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        },
+        {
+          "ttfp": 13.299999997019768,
+          "settled": 108.69999998807907,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "downs": [
+            {
+              "at": 2711873,
+              "target": "ui-tree__label | Plan 13: Refactor exports",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        },
+        {
+          "ttfp": 13.600000008940697,
+          "settled": 103.1000000089407,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "downs": [
+            {
+              "at": 2713357,
+              "target": "ui-tree__label | Plan 14: Add onboarding",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        }
+      ],
+      "lcw": [
+        {
+          "pass": true,
+          "settled": 204,
+          "downs": [
+            {
+              "at": 2714843,
+              "target": "ui-tree__label | Plan 03: Fix auth",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2714908,
+              "target": "ui-tree__label | Plan 04: Migrate settings",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 187.40000000596046,
+          "downs": [
+            {
+              "at": 2716865,
+              "target": "ui-tree__label | Plan 03: Fix auth",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2716918,
+              "target": "ui-tree__label | Plan 08: Add inbox",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 161.5,
+          "downs": [
+            {
+              "at": 2718884,
+              "target": "ui-tree__label | Plan 03: Fix auth",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2718939,
+              "target": "ui-tree__label | Plan 09: Fix billing",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 175.09999999403954,
+          "downs": [
+            {
+              "at": 2720896,
+              "target": "ui-tree__label | Plan 03: Fix auth",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2720970,
+              "target": "ui-tree__label | Plan 13: Refactor exports",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 179.40000000596046,
+          "downs": [
+            {
+              "at": 2722915,
+              "target": "ui-tree__label | Plan 03: Fix auth",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2722968,
+              "target": "ui-tree__label | Plan 14: Add onboarding",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        }
+      ],
+      "lcwPush": [
+        {
+          "pass": true,
+          "settled": 194.20000000298023,
+          "downs": [
+            {
+              "at": 2724939,
+              "target": "ui-tree__label | Plan 03: Fix auth",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2724999,
+              "target": "ui-tree__label | Plan 04: Migrate settings",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 183.29999999701977,
+          "downs": [
+            {
+              "at": 2727273,
+              "target": "ui-tree__label | Plan 03: Fix auth",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2727323,
+              "target": "ui-tree__label | Plan 08: Add inbox",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 176.59999999403954,
+          "downs": [
+            {
+              "at": 2729596,
+              "target": "ui-tree__label | Plan 03: Fix auth",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2729679,
+              "target": "ui-tree__label | Plan 09: Fix billing",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 193.29999999701977,
+          "downs": [
+            {
+              "at": 2731915,
+              "target": "ui-tree__label | Plan 03: Fix auth",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2732001,
+              "target": "ui-tree__label | Plan 13: Refactor exports",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 164.09999999403954,
+          "downs": [
+            {
+              "at": 2734237,
+              "target": "ui-tree__label | Plan 03: Fix auth",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2734296,
+              "target": "ui-tree__label | Plan 14: Add onboarding",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        }
+      ]
+    },
+    "Main plan": {
+      "runs": [
+        {
+          "ttfp": 27.299999997019768,
+          "settled": 33.599999994039536,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "downs": [
+            {
+              "at": 2737989,
+              "target": "ui-btn__label | Open main plan",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        },
+        {
+          "ttfp": 159,
+          "settled": 185.29999999701977,
+          "changedByPaint": true,
+          "longCount": 1,
+          "longMax": 145.9,
+          "long": [
+            145.9
+          ],
+          "timedOut": false,
+          "downs": [
+            {
+              "at": 2739424,
+              "target": "ui-btn__label | Open main plan",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        },
+        {
+          "ttfp": 180.20000000298023,
+          "settled": 206.59999999403954,
+          "changedByPaint": true,
+          "longCount": 1,
+          "longMax": 164.1,
+          "long": [
+            164.1
+          ],
+          "timedOut": false,
+          "downs": [
+            {
+              "at": 2741134,
+              "target": "ui-btn__label | Open main plan",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        },
+        {
+          "ttfp": 137.80000001192093,
+          "settled": 171.6000000089407,
+          "changedByPaint": true,
+          "longCount": 1,
+          "longMax": 123.6,
+          "long": [
+            123.6
+          ],
+          "timedOut": false,
+          "downs": [
+            {
+              "at": 2742947,
+              "target": "ui-btn__label | Open main plan",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        },
+        {
+          "ttfp": 26.299999997019768,
+          "settled": 33.3999999910593,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "downs": [
+            {
+              "at": 2744491,
+              "target": "ui-btn__label | Open main plan",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        }
+      ],
+      "lcw": [
+        {
+          "pass": true,
+          "settled": 103,
+          "downs": [
+            {
+              "at": 2745900,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2745951,
+              "target": "ui-btn__label | Open main plan",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 103.09999999403954,
+          "downs": [
+            {
+              "at": 2747921,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2747975,
+              "target": "ui-btn__label | Open main plan",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 132.90000000596046,
+          "downs": [
+            {
+              "at": 2749934,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2750003,
+              "target": "ui-btn__label | Open main plan",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 383.29999999701977,
+          "downs": [
+            {
+              "at": 2752138,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2752338,
+              "target": "ui-btn__label | Open main plan",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 368.5,
+          "downs": [
+            {
+              "at": 2754280,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2754460,
+              "target": "ui-btn__label | Open main plan",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        }
+      ],
+      "lcwPush": [
+        {
+          "pass": true,
+          "settled": 105.90000000596046,
+          "downs": [
+            {
+              "at": 2756295,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2756356,
+              "target": "ui-btn__label | Open main plan",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 227.09999999403954,
+          "downs": [
+            {
+              "at": 2758616,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2758764,
+              "target": "ui-btn__label | Open main plan",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 131.40000000596046,
+          "downs": [
+            {
+              "at": 2760945,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2761024,
+              "target": "ui-btn__label | Open main plan",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 411.20000000298023,
+          "downs": [
+            {
+              "at": 2763505,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2763727,
+              "target": "ui-btn__label | Open main plan",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 193.09999999403954,
+          "downs": [
+            {
+              "at": 2766009,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2766124,
+              "target": "ui-btn__label | Open main plan",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        }
+      ]
+    },
+    "New plan": {
+      "runs": [
+        {
+          "ttfp": 8.199999988079071,
+          "settled": 84.3999999910593,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "downs": [
+            {
+              "at": 2769964,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        },
+        {
+          "ttfp": 14.299999997019768,
+          "settled": 60.20000000298023,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "downs": [
+            {
+              "at": 2771429,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        },
+        {
+          "ttfp": 7.5999999940395355,
+          "settled": 63.20000000298023,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "downs": [
+            {
+              "at": 2772874,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        },
+        {
+          "ttfp": 14.5,
+          "settled": 58.8999999910593,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "downs": [
+            {
+              "at": 2774312,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        },
+        {
+          "ttfp": 15.899999991059303,
+          "settled": 63,
+          "changedByPaint": true,
+          "longCount": 0,
+          "longMax": 0,
+          "long": [],
+          "timedOut": false,
+          "downs": [
+            {
+              "at": 2775748,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ]
+        }
+      ],
+      "lcw": [
+        {
+          "pass": true,
+          "settled": 125.8999999910593,
+          "downs": [
+            {
+              "at": 2777212,
+              "target": "ui-btn__label | Open main plan",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2777277,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 127.29999999701977,
+          "downs": [
+            {
+              "at": 2779223,
+              "target": "ui-btn__label | Open main plan",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2779289,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 139,
+          "downs": [
+            {
+              "at": 2781248,
+              "target": "ui-btn__label | Open main plan",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2781319,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 137.69999998807907,
+          "downs": [
+            {
+              "at": 2783256,
+              "target": "ui-btn__label | Open main plan",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2783331,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 132.5,
+          "downs": [
+            {
+              "at": 2785266,
+              "target": "ui-btn__label | Open main plan",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2785331,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        }
+      ],
+      "lcwPush": [
+        {
+          "pass": true,
+          "settled": 155.70000000298023,
+          "downs": [
+            {
+              "at": 2787274,
+              "target": "ui-btn__label | Open main plan",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2787356,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 145.5,
+          "downs": [
+            {
+              "at": 2789584,
+              "target": "ui-btn__label | Open main plan",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2789659,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 210.79999999701977,
+          "downs": [
+            {
+              "at": 2791905,
+              "target": "ui-btn__label | Open main plan",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2792009,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 157.79999999701977,
+          "downs": [
+            {
+              "at": 2794235,
+              "target": "ui-btn__label | Open main plan",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2794319,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        },
+        {
+          "pass": true,
+          "settled": 135.6000000089407,
+          "downs": [
+            {
+              "at": 2796548,
+              "target": "ui-btn__label | Open main plan",
+              "title": "acme",
+              "popup": false
+            },
+            {
+              "at": 2796622,
+              "target": "[object SVGAnimatedString] | ",
+              "title": "acme",
+              "popup": false
+            }
+          ],
+          "project": "acme"
+        }
+      ]
+    }
+  }
+}

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { JobRow, JobTask } from '../../../../core/types'
 import { planSectionOf, wavesOf } from './planBoard'
+import { planAccountsKey, planCheckPluginsKey, planRunConfigsKey } from './planReadKeys'
 import { approveViewOf, canManualStartOf, deliveryActionsOf, headCountsOf, planAnchorId, planAnchorOf, waveStatusOf } from './planPage'
 
 const task = (id: string, status: JobTask['status']): JobTask => ({ id, title: id, status }) as unknown as JobTask
@@ -91,5 +92,18 @@ describe('approveViewOf', () => {
     expect(approveViewOf(plan({ tasks: [], planProblems: ['no tasks'] })).show).toBe(false)
     expect(approveViewOf(plan({ pendingStart: false, planProblems: ['x'] })).show).toBe(false)
     expect(approveViewOf(plan({ archivedAt: 'x', planProblems: ['x'] })).show).toBe(false)
+  })
+})
+
+describe('plan read cache keys', () => {
+  const local = { projectKey: '/p' }
+  const remote = { runtimeId: 'rt-1', projectKey: '/p' }
+  it('a Runtime door and this computer never share a key', () => {
+    expect(planAccountsKey(local)).not.toBe(planAccountsKey(remote))
+    expect(planRunConfigsKey(local, 'r1')).not.toBe(planRunConfigsKey(remote, 'r1'))
+    expect(planCheckPluginsKey(local)).not.toBe(planCheckPluginsKey(remote))
+  })
+  it('run configs are kept per run', () => {
+    expect(planRunConfigsKey(local, 'r1')).not.toBe(planRunConfigsKey(local, 'r2'))
   })
 })

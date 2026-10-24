@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { MessageKey, MessageParams } from '../../../core/i18n'
 import type { CliInstallStatus, McpAccess, McpClient, McpClientStatus, McpHttpSettings, McpHttpView } from '../../../core/types'
 import {
@@ -10,16 +10,26 @@ import {
 import type { McpHttpUrl } from '../../../core/mcp/httpUrls'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
+import { useSetting } from '../hooks/useSetting'
+import { invalidate } from '../lib/readCache'
 import { Button, Checkbox, Input, Select } from './ui'
+
+type Tr = (key: MessageKey, params?: MessageParams) => string
+
+/** `read` with a toast when it fails; the rejection goes on, so a cached reader keeps the value it holds. */
+function toastIfUnread<T>(read: Promise<T>, key: MessageKey, t: Tr): Promise<T> {
+  return read.catch((err) => {
+    toast.error(t(key, { detail: err instanceof Error ? err.message : String(err) }))
+    throw err
+  })
+}
 
 /** The saved value into `set`, or a toast when it cannot be read; the control then keeps its default. */
 export function loadMcpAccess(
   set: (a: McpAccess) => void,
   t: (key: MessageKey, params?: MessageParams) => string
 ): Promise<void> {
-  return window.api.settings.getMcpAccess().then(set, (err) => {
-    toast.error(t('settings.mcp.loadFailed', { detail: err instanceof Error ? err.message : String(err) }))
-  })
+  return toastIfUnread(window.api.settings.getMcpAccess(), 'settings.mcp.loadFailed', t).then(set, () => {})
 }
 
 /** The saved sessions value into `set`, or a toast when it cannot be read; the box then stays at its
@@ -28,9 +38,7 @@ export function loadMcpSessions(
   set: (v: boolean) => void,
   t: (key: MessageKey, params?: MessageParams) => string
 ): Promise<void> {
-  return window.api.settings.getMcpSessions().then(set, (err) => {
-    toast.error(t('settings.mcp.sessions.loadFailed', { detail: err instanceof Error ? err.message : String(err) }))
-  })
+  return toastIfUnread(window.api.settings.getMcpSessions(), 'settings.mcp.sessions.loadFailed', t).then(set, () => {})
 }
 
 /** The sessions checkbox does nothing while access is off (the Host refuses every call then). */
@@ -58,9 +66,7 @@ export function loadMcpGithubWrite(
   set: (v: boolean) => void,
   t: (key: MessageKey, params?: MessageParams) => string
 ): Promise<void> {
-  return window.api.settings.getMcpGithubWrite().then(set, (err) => {
-    toast.error(t('settings.mcp.githubWrite.loadFailed', { detail: err instanceof Error ? err.message : String(err) }))
-  })
+  return toastIfUnread(window.api.settings.getMcpGithubWrite(), 'settings.mcp.githubWrite.loadFailed', t).then(set, () => {})
 }
 
 /** GitHub writes change things outside this machine, so the box is live only at Read and control. */
@@ -121,9 +127,7 @@ export function loadMcpClients(
   set: (s: Record<McpClient, McpClientStatus>) => void,
   t: (key: MessageKey, params?: MessageParams) => string
 ): Promise<void> {
-  return window.api.mcpClients.status().then(set, (err) => {
-    toast.error(t('settings.mcp.client.loadFailed', { detail: err instanceof Error ? err.message : String(err) }))
-  })
+  return toastIfUnread(window.api.mcpClients.status(), 'settings.mcp.client.loadFailed', t).then(set, () => {})
 }
 
 /** Registers Astera with `client` through its CLI (main/mcpClients.ts), says how it went, and reads
@@ -160,9 +164,7 @@ export function loadMcpHttp(
   set: (v: McpHttpSettings) => void,
   t: (key: MessageKey, params?: MessageParams) => string
 ): Promise<void> {
-  return window.api.settings.getMcpHttp().then(set, (err) => {
-    toast.error(t('settings.mcpHttp.loadFailed', { detail: err instanceof Error ? err.message : String(err) }))
-  })
+  return toastIfUnread(window.api.settings.getMcpHttp(), 'settings.mcpHttp.loadFailed', t).then(set, () => {})
 }
 
 /** Shows `next` at once, saves it (main then sends `mcp-http-reload`), and puts `prev` back with a toast
@@ -303,27 +305,20 @@ export function makeNewMcpHttpToken(t: (key: MessageKey, params?: MessageParams)
 export function McpSettings({ cliStatus }: { cliStatus: CliInstallStatus | null }): React.JSX.Element {
   const { t } = useI18n()
   const registration = registrationFor(cliStatus, window.api.platform)
-  const [access, setAccess] = useState<McpAccess>('control')
-  const [sessions, setSessions] = useState(false)
-  const [githubWrite, setGithubWrite] = useState(false)
-
-  useEffect(() => {
-    void loadMcpAccess(setAccess, t)
-    void loadMcpSessions(setSessions, t)
-    void loadMcpGithubWrite(setGithubWrite, t)
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- read once on mount, as before; a language change must not re-read over a choice in flight
-  }, [])
+  const [access, setAccess] = useSetting<McpAccess>('mcpAccess', () => toastIfUnread(window.api.settings.getMcpAccess(), 'settings.mcp.loadFailed', t), 'control')
+  const [sessions, setSessions] = useSetting('mcpSessions', () => toastIfUnread(window.api.settings.getMcpSessions(), 'settings.mcp.sessions.loadFailed', t), false)
+  const [githubWrite, setGithubWrite] = useSetting('mcpGithubWrite', () => toastIfUnread(window.api.settings.getMcpGithubWrite(), 'settings.mcp.githubWrite.loadFailed', t), false)
 
   // Which clients already have Astera, read once the lines show (the CLI is installed) and again
   // after Install moves them; reading never runs the server (core/install/mcpClients.ts).
-  const [clients, setClients] = useState<Record<McpClient, McpClientStatus> | null>(null)
   const [registering, setRegistering] = useState<McpClient | null>(null)
   const linesShown = Array.isArray(registration)
+  const [readClients, setClients] = useSetting(
+    linesShown ? `mcpClients:${cliStatus?.dir}` : null,
+    () => toastIfUnread(window.api.mcpClients.status(), 'settings.mcp.client.loadFailed', t)
+  )
+  const clients = readClients ?? null
   const refreshClients = (): Promise<void> => loadMcpClients(setClients, t)
-  useEffect(() => {
-    if (linesShown) void refreshClients()
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- follows the lines, not the language
-  }, [linesShown, cliStatus?.dir])
 
   // Groups as direct children of the tab's .settings-stack, so the stack's gap separates the
   // access setting, the sessions and GitHub settings and the registration lines like neighbouring features.
@@ -427,49 +422,37 @@ export function McpSettings({ cliStatus }: { cliStatus: CliInstallStatus | null 
  *  token itself is read for a Show (and dropped on Hide) or for one Copy. */
 function McpHttpSection(): React.JSX.Element | null {
   const { t } = useI18n()
-  const [http, setHttpOnly] = useState<McpHttpSettings | null>(null)
-  const [view, setView] = useState<McpHttpView | null>(null)
-  const [hint, setHint] = useState<string | null>(null)
+  const [readHttp, setHttp] = useSetting('mcpHttp', () => toastIfUnread(window.api.settings.getMcpHttp(), 'settings.mcpHttp.loadFailed', t))
+  const http = readHttp ?? null
+  // A failed read of the status is a Host that does not run the entrance, not a missing answer.
+  const [readView, setView] = useSetting<McpHttpView>('mcpHttpView', () => window.api.mcpHttp.status().catch(() => ({ host: false, reason: 'none' }) as McpHttpView))
+  const view = readView ?? null
+  const [readHint, setHint] = useSetting('mcpHttpTokenHint', () => readMcpHttpTokenHint(t))
+  const hint = readHint ?? null
   const [shownToken, setShownToken] = useState<string | null>(null)
-  const [portText, setPortText] = useState('')
-  const [hostsText, setHostsText] = useState('')
+  const [portText, setPortText] = useState(() => (http ? mcpHttpFieldsOf(http).port : ''))
+  const [hostsText, setHostsText] = useState(() => (http ? mcpHttpFieldsOf(http).hosts : ''))
   /** The URL picked for the client lines, kept while this screen is open (no setting). */
   const [chosenUrl, setChosenUrl] = useState<string | null>(null)
-  /** The setting and the two text fields together, so a failed save that puts the previous setting back
+  /** The two text fields follow the setting, so a failed save that puts the previous setting back
    *  puts its port and names back in the fields too. */
-  const setHttp = (v: McpHttpSettings): void => {
-    setHttpOnly(v)
-    const f = mcpHttpFieldsOf(v)
+  useEffect(() => {
+    if (!readHttp) return
+    const f = mcpHttpFieldsOf(readHttp)
     setPortText(f.port)
     setHostsText(f.hosts)
-  }
+  }, [readHttp])
 
-  useEffect(() => {
-    void loadMcpHttp(setHttp, t)
-    // A push is newer than the status asked at mount (audit UI-14): the answer that lands after one is dropped.
-    let pushed = false
-    const off = window.api.on('mcpHttp:state', (v) => {
-      pushed = true
-      setView(v)
-    })
-    void window.api.mcpHttp.status().then(
-      (v) => {
-        if (!pushed) setView(v)
-      },
-      () => {
-        if (!pushed) setView({ host: false, reason: 'none' })
-      }
-    )
-    return off
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- read once on mount, as the settings above
-  }, [])
+  // A push is newer than the status asked at mount (audit UI-14): setting the cache drops the read still in flight.
+  useEffect(() => window.api.on('mcpHttp:state', setView), [])
 
   // The Host makes the token before it first starts the entrance (Ruling 3), so the hint is read again
   // whenever the state changes; a file left from before shows its hint while the entrance is off.
   const stateName = view?.host === true ? (view.state?.state ?? null) : null
+  const hintRead = useRef(false)
   useEffect(() => {
-    void readMcpHttpTokenHint(t).then(setHint)
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- follows the state, not the language
+    if (!hintRead.current) hintRead.current = true // the mount's own read is the cache's
+    else invalidate('setting:mcpHttpTokenHint')
   }, [stateName])
 
   if (!http) return null

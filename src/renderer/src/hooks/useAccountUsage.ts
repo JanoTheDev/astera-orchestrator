@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useSyncExternalStore } from 'react'
 import type { AccountUsage } from '../../../core/types'
 
 /**
@@ -40,23 +40,52 @@ export function followAccountUsage(o: {
   }
 }
 
-export function useAccountUsage(): Record<string, AccountUsage> {
-  const [usage, setUsage] = useState<Record<string, AccountUsage>>({})
+type UsageMap = Record<string, AccountUsage>
 
-  useEffect(() => {
-    // The map main already holds, so a remount draws immediately rather than waiting for the tick
-    // this subscribe is about to start.
-    const stop = followAccountUsage({
-      ask: () => window.api.usage.accounts(),
-      on: (cb) => window.api.on('usage:accounts-updated', cb),
-      set: setUsage
-    })
-    window.api.usage.subscribe()
-    return () => {
-      stop()
-      window.api.usage.unsubscribe()
+/** One window-wide copy of the usage map. The first listener starts the single main-side subscription, the last one
+ *  stops it; the map outlives that, so a panel that opens later paints the last figures before its own read answers. */
+export function createUsageStore(io: {
+  ask: () => Promise<UsageMap>
+  on: (cb: (m: UsageMap) => void) => () => void
+  subscribe: () => void
+  unsubscribe: () => void
+}) {
+  let map: UsageMap = {}
+  let stop: (() => void) | null = null
+  const listeners = new Set<() => void>()
+  return {
+    get: (): UsageMap => map,
+    subscribe(l: () => void): () => void {
+      listeners.add(l)
+      if (listeners.size === 1) {
+        stop = followAccountUsage({
+          ask: io.ask,
+          on: io.on,
+          set: (m) => {
+            map = m
+            listeners.forEach((f) => f())
+          }
+        })
+        io.subscribe()
+      }
+      return () => {
+        listeners.delete(l)
+        if (listeners.size > 0) return
+        stop?.()
+        stop = null
+        io.unsubscribe()
+      }
     }
-  }, [])
+  }
+}
 
-  return usage
+const store = createUsageStore({
+  ask: () => window.api.usage.accounts(),
+  on: (cb) => window.api.on('usage:accounts-updated', cb),
+  subscribe: () => void window.api.usage.subscribe(),
+  unsubscribe: () => void window.api.usage.unsubscribe()
+})
+
+export function useAccountUsage(): UsageMap {
+  return useSyncExternalStore(store.subscribe, store.get, store.get)
 }

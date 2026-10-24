@@ -5,6 +5,7 @@
 import { useEffect, useSyncExternalStore } from 'react'
 import type { FoundDevice, RemoteApi, RemoteRuntimeInfo } from '../../../../core/types'
 import { remoteCall } from '../../lib/remoteSessions'
+import { createRefreshGate } from './refreshGate'
 import type { AccountsOf, DeviceAccount } from './devicesView'
 
 export type ThisMachine = Awaited<ReturnType<RemoteApi['thisMachine']>>
@@ -33,26 +34,32 @@ const subscribe = (l: () => void): (() => void) => {
   return () => listeners.delete(l)
 }
 
-let loaded = false
+const gate = createRefreshGate()
 /** Reads the paired list, each device's accounts and this computer again. Asking for accounts is what tells whether a
- *  device answers, so the list is read once more after those answers to pick up its online state. */
-export function refreshDevices(): void {
-  loaded = true
-  void window.api.remote.list().then(
-    (list) => {
-      set({ paired: list })
-      const asks = list.map((r) =>
+ *  device answers, so the list is read once more after those answers to pick up its online state. The accounts of the
+ *  devices are asked in parallel. `force` is false for the refresh a view makes on show: that one is skipped while a
+ *  refresh is in flight or just finished (the store already holds what it read). */
+export function refreshDevices(force = true): void {
+  if (!gate.begin(force)) return
+  const list = window.api.remote.list().then(
+    async (paired) => {
+      set({ paired })
+      const asks = paired.map((r) =>
         remoteCall(r.runtimeId, 'accounts-list', {}).then(
           (a) => set({ accountsOf: { ...snap.accountsOf, [r.runtimeId]: a.status === 200 && Array.isArray(a.body) ? (a.body as DeviceAccount[]) : null } }),
           () => set({ accountsOf: { ...snap.accountsOf, [r.runtimeId]: null } })
         )
       )
-      if (asks.length > 0) void Promise.allSettled(asks).then(() => window.api.remote.list().then((l) => set({ paired: l }), () => undefined))
+      if (asks.length > 0) {
+        await Promise.allSettled(asks)
+        await window.api.remote.list().then((l) => set({ paired: l }), () => undefined)
+      }
     },
     () => set({ paired: [] })
   )
-  void window.api.remote.migrationMachines().then((m) => set({ migratable: m }), () => set({ migratable: [] }))
-  void window.api.remote.thisMachine().then((m) => set({ mine: m }), () => set({ mine: null }))
+  const migration = window.api.remote.migrationMachines().then((m) => set({ migratable: m }), () => set({ migratable: [] }))
+  const mine = window.api.remote.thisMachine().then((m) => set({ mine: m }), () => set({ mine: null }))
+  void Promise.allSettled([list, migration, mine]).then(() => gate.end())
 }
 
 let discovering = false
@@ -73,7 +80,7 @@ export const closeAddDevice = (): void => set({ adding: null })
 export function useDevices(): DevicesSnapshot {
   const s = useSyncExternalStore(subscribe, () => snap)
   useEffect(() => {
-    if (!loaded) refreshDevices()
+    refreshDevices(false)
   }, [])
   return s
 }

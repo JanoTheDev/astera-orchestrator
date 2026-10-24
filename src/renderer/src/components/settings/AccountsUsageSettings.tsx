@@ -1,6 +1,7 @@
 // W9-E: Accounts & usage (DESIGN §7) — accounts (the old accounts tab), and the usage guard with subagents per tab
 // (it lived in the agent tab).
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { useSetting } from '../../hooks/useSetting'
 import type { Account } from '../../../../core/types'
 import { useI18n } from '../../i18n/I18nProvider'
 import { toast } from '../../lib/toast'
@@ -9,17 +10,23 @@ import { UsageGuardSettings } from '../usage/UsageGuardSettings'
 import { Card, Field } from '../ui'
 import { SettingRow, type GroupProps } from './SettingRow'
 
+const NO_CAPS: Record<string, number> = {}
+const draftOf = (m: Record<string, number>): Record<string, string> =>
+  Object.fromEntries(Object.entries(m).map(([id, n]) => [id, String(n)]))
+
 /** T5b (decision 21): live Astera sessions per account at most; empty is no cap. Saved on blur, like the usage guard. */
 function AccountMaxSessionsSetting({ accounts }: { accounts: Account[] }): React.JSX.Element {
   const { t } = useI18n()
-  const [saved, setSaved] = useState<Record<string, number>>({})
-  const [draft, setDraft] = useState<Record<string, string>>({})
+  const [read, setSaved] = useSetting('accountMaxSessions', () => window.api.settings.getAccountMaxSessions())
+  const saved = read ?? NO_CAPS
+  const [draft, setDraft] = useState<Record<string, string>>(() => draftOf(saved))
+  // Seeded once: from the cache on the first frame, else when the first read answers. Later changes come from this pane.
+  const seeded = useRef(read !== undefined)
   useEffect(() => {
-    void window.api.settings.getAccountMaxSessions().then((m) => {
-      setSaved(m)
-      setDraft(Object.fromEntries(Object.entries(m).map(([id, n]) => [id, String(n)])))
-    })
-  }, [])
+    if (read === undefined || seeded.current) return
+    seeded.current = true
+    setDraft(draftOf(read))
+  }, [read])
 
   const commit = (id: string): void => {
     const raw = (draft[id] ?? '').trim()

@@ -142,3 +142,24 @@ describe('Needs you: coordinator Gates (W8-F, #97)', () => {
     expect(board({ tasks: [gated], layers: [['g']] })).not.toContain('plan-question')
   })
 })
+
+describe('TaskBoard windowing', () => {
+  const many = (n: number): JobTask[] => Array.from({ length: n }, (_, i) => task(`m${i}`))
+  const rowsOf = (html: string): number => html.match(/<li id="plan-task-/g)?.length ?? 0
+
+  it('draws far fewer than 600 Task rows for a 600-Task board', () => {
+    const rows = rowsOf(board({ tasks: many(600), layers: [many(600).map((x) => x.id)] }))
+    expect(rows).toBeGreaterThan(0)
+    expect(rows).toBeLessThan(60)
+  })
+  it('draws far fewer than 600 rows when the Tasks are split into 20 steps of 30', () => {
+    const all = many(600)
+    const layers = Array.from({ length: 20 }, (_, i) => all.slice(i * 30, i * 30 + 30).map((x) => x.id))
+    const rows = rowsOf(board({ tasks: all, layers }))
+    expect(rows).toBeGreaterThan(0)
+    expect(rows).toBeLessThan(80)
+  })
+  it('draws every row of a small board', () => {
+    expect(rowsOf(board({ tasks: many(10), layers: [many(10).map((x) => x.id)] }))).toBe(10)
+  })
+})

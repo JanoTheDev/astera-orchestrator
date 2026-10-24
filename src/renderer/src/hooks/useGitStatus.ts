@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { folderCounts, type GitState } from '../../../core/git/status'
 import { onFileChanges } from '../lib/fileChanges'
 
@@ -12,6 +12,22 @@ export interface GitStatusMap {
 }
 
 const DEBOUNCE_MS = 250
+const MAX_ROOTS = 16
+const EMPTY: Record<string, GitState> = {}
+
+// The last answer per root: switching projects or tabs back shows that root's badges at once while the query runs.
+// Insertion order is the recency; the oldest root goes when over the cap.
+const lastByRoot = new Map<string, Record<string, GitState>>()
+
+export function fileStateOf(root: string | null): Record<string, GitState> {
+  return (root && lastByRoot.get(root)) || EMPTY
+}
+
+export function rememberFileState(root: string, state: Record<string, GitState>): void {
+  lastByRoot.delete(root)
+  lastByRoot.set(root, state)
+  if (lastByRoot.size > MAX_ROOTS) lastByRoot.delete(lastByRoot.keys().next().value as string)
+}
 
 /** One git.status answer applied to the badges. null is "could not check" — never an empty map, which
  *  is a clean tree: the previous badges stay, marked stale. */
@@ -40,7 +56,8 @@ export function nextGitStatus(
  * and `stale` turns on until a query is answered again (nextGitStatus).
  */
 export function useGitStatus(root: string | null): GitStatusMap {
-  const [fileState, setFileState] = useState<Record<string, GitState>>({})
+  const [, redraw] = useReducer((n: number) => n + 1, 0)
+  const fileState = fileStateOf(root)
   const [stale, setStale] = useState(false)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const running = useRef(false)
@@ -62,7 +79,11 @@ export function useGitStatus(root: string | null): GitStatusMap {
       // avoid flicker) and marked stale. The result is also discarded if the root changed during the
       // query — an old root's status must not end up on the new tree.
       if (rootRef.current === r) {
-        setFileState((prev) => nextGitStatus(prev, map).fileState)
+        const next = nextGitStatus(fileStateOf(r), map).fileState
+        if (next !== fileStateOf(r)) {
+          rememberFileState(r, next)
+          redraw()
+        }
         setStale(map === null)
       }
     } catch {
@@ -84,11 +105,7 @@ export function useGitStatus(root: string | null): GitStatusMap {
 
   useEffect(() => {
     setStale(false)
-    if (!root) {
-      setFileState({})
-      return
-    }
-    setFileState({}) // clear the old state immediately when the root changes
+    if (!root) return
     void window.api.git.watch(root)
     void run() // the first query runs without the debounce
 

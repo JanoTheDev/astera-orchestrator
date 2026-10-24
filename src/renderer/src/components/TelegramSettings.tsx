@@ -4,6 +4,7 @@ import { useI18n } from '../i18n/I18nProvider'
 import { isTelegramReady } from '../../../core/telegram/ready'
 import { toast } from '../lib/toast'
 import { createTouched } from '../lib/touched'
+import { useSetting } from '../hooks/useSetting'
 import { Button, Card, Chip, Field } from './ui'
 
 export function TelegramSettings(): React.JSX.Element {
@@ -20,23 +21,20 @@ export function TelegramSettings(): React.JSX.Element {
    *  others empty and Save would then send them as null over the stored ones. */
   const touched = useRef(createTouched())
 
+  // Said, and Save stays off: saving the empty fields would erase the configuration it could not read.
+  const [cfg, setCfg] = useSetting('telegramConfig', () =>
+    window.api.telegram.getConfig().catch((err) => {
+      toast.error(err instanceof Error ? err.message : String(err))
+      throw err
+    })
+  )
   useEffect(() => {
-    let cancelled = false
-    void window.api.telegram.getConfig().then(
-      (c) => {
-        if (cancelled) return
-        touched.current.unless('bot', () => setBotToken(c.botToken ?? ''))
-        touched.current.unless('chat', () => setChatId(c.chatId ?? ''))
-        touched.current.unless('user', () => setUserId(c.userId ?? ''))
-        setLoaded(true)
-      },
-      // Said, and Save stays off: saving the empty fields would erase the configuration it could not read.
-      (err) => toast.error(err instanceof Error ? err.message : String(err))
-    )
-    return () => {
-      cancelled = true
-    }
-  }, [])
+    if (!cfg) return
+    touched.current.unless('bot', () => setBotToken(cfg.botToken ?? ''))
+    touched.current.unless('chat', () => setChatId(cfg.chatId ?? ''))
+    touched.current.unless('user', () => setUserId(cfg.userId ?? ''))
+    setLoaded(true)
+  }, [cfg])
 
   const ready = isTelegramReady({ botToken: botToken.trim(), chatId: chatId.trim() })
 
@@ -89,14 +87,18 @@ export function TelegramSettings(): React.JSX.Element {
       <div className="settings-integration-actions">
         <Button
           disabled={!loaded}
-          onClick={() =>
+          onClick={() => {
+            const next = {
+              botToken: botToken.trim() || null,
+              chatId: chatId.trim() || null,
+              userId: userId.trim() || null
+            }
             void window.api.telegram
-              .setConfig({
-                botToken: botToken.trim() || null,
-                chatId: chatId.trim() || null,
-                userId: userId.trim() || null
+              .setConfig(next)
+              .then(() => {
+                setCfg(next)
+                setSaved(true)
               })
-              .then(() => setSaved(true))
               // A rejection means the store refused to overwrite values it could not read — the file on disk survived.
               .catch((err) =>
                 toast.error(
@@ -105,7 +107,7 @@ export function TelegramSettings(): React.JSX.Element {
                   })
                 )
               )
-          }
+          }}
         >
           {t('settings.telegram.save')}
         </Button>

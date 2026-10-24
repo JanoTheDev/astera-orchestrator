@@ -20,7 +20,7 @@ export function HistoryView(p: SideBarViewProps): React.JSX.Element {
         runs: workspaceData?.runs ?? [],
         jobs: Object.values(workspaceData?.jobsByProject ?? {}).flat()
       }),
-    [sessions, attention, workspaceData]
+    [sessions, attention, workspaceData?.dispatches, workspaceData?.tasks, workspaceData?.runs, workspaceData?.jobsByProject]
   )
   // shortcut: a session counts for the folder it was started in, compared as written; normalize if a trailing slash or
   // case difference ever leaves a live project unsorted

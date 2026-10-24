@@ -413,6 +413,7 @@ export const UNTRANSLATED: readonly MessageKey[] = [
   'worktrees.reachableOnly',
   'worktrees.viewOptions',
   'worktrees.noMatch',
+  'worktrees.refreshing',
   'worktrees.emptyTitle',
   'worktrees.pickTitle',
   'worktrees.state.active',

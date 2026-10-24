@@ -40,3 +40,22 @@ export function runDetailKey(snapshot: OrchSnapshot | null, runId: string, sessi
   if (snapshot === null) return 'none'
   return JSON.stringify([findRun(snapshot, runId) ?? null, [...sessions].sort()])
 }
+
+/** Whether `snapshot` was folded for another project than `project`. One without a tag (a paired Runtime's, an older
+ *  main's) is for whoever asked. */
+export function isForeignSnapshot(snapshot: OrchSnapshot, project: string | null): boolean {
+  return snapshot.project !== undefined && snapshot.project !== project
+}
+
+/** The snapshot the renderer holds after `next` arrives for `currentProject`: `prev` when `next` is another project's
+ *  (a second window's, or a late push from before a switch) or carries the version `prev` has, so an unchanged push
+ *  keeps the object and draws nothing; `next` otherwise. Without versions on both, the serialized compare
+ *  (sameOrNext's, lib/remoteSessions.ts, which this file cannot import). */
+export function acceptSnapshot(prev: OrchSnapshot | null, next: OrchSnapshot, currentProject: string | null): OrchSnapshot | null {
+  if (isForeignSnapshot(next, currentProject)) return prev
+  if (prev === null) return next
+  if (prev.version !== undefined && next.version !== undefined) {
+    return prev.version === next.version && prev.project === next.project ? prev : next
+  }
+  return JSON.stringify(prev) === JSON.stringify(next) ? prev : next
+}

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useSetting } from '../hooks/useSetting'
 import type { ResumeStrategy } from '../../../core/types'
 import { useI18n } from '../i18n/I18nProvider'
 import { confirmModal } from '../lib/confirm'
@@ -13,18 +14,13 @@ import { arrowFocus } from './settings/SettingRow'
  *  the checkbox. Loads and saves both values itself — nothing else reads them. */
 export function ResumeStrategySettings(): React.JSX.Element {
   const { t } = useI18n()
-  const [strategy, setStrategy] = useState<ResumeStrategy>('original')
-  const [continuity, setContinuity] = useState(false)
+  const [strategy, setStrategy] = useSetting<ResumeStrategy>('resumeStrategy', () => window.api.settings.getResumeStrategy(), 'original')
+  const [continuity, setContinuity] = useSetting('jobContinuity', () => window.api.settings.getJobContinuityEnabled(), false)
   /** Mirrors `strategy` for code that runs after an await: `pick` suspends on the confirm dialog while
    *  the checkbox's own IPC may flip the picker to `smart`, and the closure's `strategy` is then stale.
    *  Reading the ref gives the value that is actually on screen. */
   const strategyRef = useRef(strategy)
   strategyRef.current = strategy
-
-  useEffect(() => {
-    void window.api.settings.getResumeStrategy().then(setStrategy)
-    void window.api.settings.getJobContinuityEnabled().then(setContinuity)
-  }, [])
 
   const pick = async (next: ResumeStrategy): Promise<void> => {
     if (next === strategy) return

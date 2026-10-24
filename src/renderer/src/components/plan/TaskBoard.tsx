@@ -6,7 +6,7 @@
 // waves, reasons, counts and "now" lines are planBoard.ts's. T4: a card carries its kind (and a merge Task its badge, a
 // reusing Task the worktree it continues in), and a kind filter sits above the steps.
 // T2: an expanded row opens with everything about its Task (renderAbout: TaskDetail), above what it showed before.
-import { useEffect, useMemo, useState } from 'react'
+import { memo, useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import type { ActivityEvent } from '../../../../core/orchestration/activity'
 import type { Account, JobEvent, JobTask } from '../../../../core/types'
 import { type RoleModelSettings } from '../../../../core/orchestration/roleModels'
@@ -39,6 +39,7 @@ import {
 import { taskActionOf } from './planCommands'
 import { QuestionAnswer } from './QuestionAnswer'
 import { Button, Chip, Icon, Meter, Select, Tooltip, type ChipTone, type IconName } from '../ui'
+import { useVirtualRows, VIRTUAL_AFTER_ROWS } from '../ui/virtualRows'
 import { openWorktree } from '../shell/navigation' // W9-J
 import { TaskLines } from '../attribution/TaskLines' // W8-B
 import type { SessionSummary } from '../../../../core/sessions/summary'
@@ -49,7 +50,7 @@ import './plan.css'
 /** Files a card lists before "+N more". */
 const FILES_SHOWN = 3
 
-export function TaskBoard({
+export const TaskBoard = memo(function TaskBoard({
   tasks,
   accounts,
   selected,
@@ -122,7 +123,7 @@ export function TaskBoard({
     void window.api?.settings?.getRoleModels?.().then(setRoleModels).catch(() => {})
   }, [])
   const label = (id: string): string => accounts?.find((a) => a.id === id)?.label ?? id
-  const waves = wavesOf(tasks, layers)
+  const waves = useMemo(() => wavesOf(tasks, layers), [tasks, layers])
   const current = currentWaveOf(waves)
   // T4: finished waves fold to one line; a click flips a wave from its default. T8: the wave of the expanded Task opens.
   const folded = collapsedWavesOf(waves)
@@ -133,6 +134,9 @@ export function TaskBoard({
   const [kindFilter, setKindFilter] = useState<KindFilter>('all')
   const kind = kinds.some((k) => k.kind === kindFilter) ? kindFilter : 'all'
   const rank = (tk: JobTask): number => CATEGORIES.indexOf(categoryOf(tk))
+  // a long board draws only the Task rows on screen (each step's list windows itself)
+  let estimatedTop = 0 // where the next step's list starts, for the first render's window
+  const virtual = waves.reduce((n, w) => n + filterByKind(w.tasks, kind).length, 0) > VIRTUAL_AFTER_ROWS
   return (
     <div className="plan-board plan-waves">
       {kinds.length > 1 && (
@@ -152,9 +156,11 @@ export function TaskBoard({
       {waves.map((w, wi) => {
         const shown = filterByKind(w.tasks, kind)
         if (shown.length === 0) return null
+        const listTop = estimatedTop
         const isCurrent = w.index === current
         const percent = Math.floor((w.done * 100) / w.tasks.length)
         const hidden = folded.has(w.index) !== flipped.has(w.index) && !w.tasks.some((tk) => tk.id === selected)
+        estimatedTop += WAVE_HEAD_ESTIMATE + (hidden ? 0 : shown.length * ROW_ESTIMATE)
         const progress = t('plan.wave.progress', { done: w.done, total: w.tasks.length })
         const step = stepStateOf(w, waves, replanning)
         return (
@@ -193,37 +199,40 @@ export function TaskBoard({
               </div>
             )}
             {!hidden && (
-              <ul className="plan-wave-cards">
-                {[...shown]
-                  .sort((a, b) => rank(a) - rank(b))
-                  .map((tk) => (
-                    <TaskRow
-                      key={tk.id}
-                      task={tk}
-                      reuse={reuseOf(tk, tasks, deps)}
-                      expanded={selected === tk.id}
-                      nowMs={nowMs}
-                      label={label}
-                      model={cardModelOf(tk, roleModels, accounts ?? [])}
-                      effort={cardEffortOf(tk, roleModels, accounts ?? [])}
-                      now={nowOf(tk, tk.sessionId ? sessions[tk.sessionId] : undefined, eventsOf.get(tk.id) ?? NONE, nowMs)}
-                      answers={autoAnswersOf(activityOf.get(tk.id) ?? NONE, tk.id)}
-                      onSelect={onSelect}
-                      projectPath={projectPath}
-                      summary={summaries?.get(tk.id)}
-                      detail={selected === tk.id ? renderDetail?.(tk) : undefined}
-                      about={selected === tk.id ? renderAbout?.(tk) : undefined}
-                      compact={compact}
-                      onRestart={onRestart}
-                      lockedReason={lockedReason}
-                      onOpenConsole={
-                        tk.sessionId && categoryOf(tk) === 'running' && onOpenSession && canOpenSession?.(tk.sessionId)
-                          ? () => onOpenSession(tk.sessionId!)
-                          : undefined
-                      }
-                    />
-                  ))}
-              </ul>
+              <WaveCards
+                tasks={[...shown].sort((x, y) => rank(x) - rank(y))}
+                virtual={virtual}
+                top={listTop + WAVE_HEAD_ESTIMATE}
+                reveal={selected}
+                renderRow={(tk, rowRef) => (
+                  <TaskRow
+                    key={tk.id}
+                    rowRef={rowRef}
+                    task={tk}
+                    reuse={reuseOf(tk, tasks, deps)}
+                    expanded={selected === tk.id}
+                    nowMs={nowMs}
+                    label={label}
+                    model={cardModelOf(tk, roleModels, accounts ?? [])}
+                    effort={cardEffortOf(tk, roleModels, accounts ?? [])}
+                    now={nowOf(tk, tk.sessionId ? sessions[tk.sessionId] : undefined, eventsOf.get(tk.id) ?? NONE, nowMs)}
+                    answers={autoAnswersOf(activityOf.get(tk.id) ?? NONE, tk.id)}
+                    onSelect={onSelect}
+                    projectPath={projectPath}
+                    summary={summaries?.get(tk.id)}
+                    detail={selected === tk.id ? renderDetail?.(tk) : undefined}
+                    about={selected === tk.id ? renderAbout?.(tk) : undefined}
+                    compact={compact}
+                    onRestart={onRestart}
+                    lockedReason={lockedReason}
+                    onOpenConsole={
+                      tk.sessionId && categoryOf(tk) === 'running' && onOpenSession && canOpenSession?.(tk.sessionId)
+                        ? () => onOpenSession(tk.sessionId!)
+                        : undefined
+                    }
+                  />
+                )}
+              />
             )}
             {!hidden && onAddTask && step.state !== 'done' && (
               <Button variant="ghost" size="sm" className="plan-wave-add" icon={<Icon name="add" size={14} />} onClick={() => onAddTask(wi === 0 ? [] : waves[wi - 1].tasks.map((tk) => tk.id))}>
@@ -234,6 +243,39 @@ export function TaskBoard({
         )
       })}
     </div>
+  )
+})
+
+/** Height of a collapsed Task row until it has been drawn once (--list-row-h) */
+const ROW_ESTIMATE = 24
+/** A step's heading line, and the gap under it, until laid out */
+const WAVE_HEAD_ESTIMATE = 40
+
+/** One step's Task rows. `virtual`: only the rows on screen are drawn, the rest is the list's padding. A selected row
+ *  that is out of the window is scrolled in (the callers that jump to a Task look it up by its anchor afterwards). */
+function WaveCards({
+  tasks,
+  virtual,
+  top,
+  reveal,
+  renderRow
+}: {
+  tasks: readonly JobTask[]
+  virtual: boolean
+  /** Estimated distance from the board's top to this list (the steps above it) */
+  top: number
+  reveal: string | undefined
+  renderRow: (task: JobTask, rowRef: (el: HTMLElement | null) => void) => React.ReactNode
+}): React.JSX.Element {
+  const vr = useVirtualRows<HTMLUListElement>(tasks.map((tk) => tk.id), () => ROW_ESTIMATE, virtual, top)
+  useLayoutEffect(() => {
+    if (reveal !== undefined) vr.revealKey(reveal)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a new selection scrolls
+  }, [reveal])
+  return (
+    <ul ref={vr.listRef} className="plan-wave-cards" style={virtual ? { paddingTop: vr.before, paddingBottom: vr.after } : undefined}>
+      {tasks.slice(vr.start, vr.end).map((tk) => renderRow(tk, vr.measure(tk.id)))}
+    </ul>
   )
 }
 
@@ -296,6 +338,7 @@ function byTask<T extends { taskId?: string }>(rows: readonly T[]): Map<string, 
 }
 
 function TaskRow({
+  rowRef,
   task: tk,
   reuse,
   expanded,
@@ -315,6 +358,8 @@ function TaskRow({
   onRestart,
   lockedReason
 }: {
+  /** The windowed list's measure of this row */
+  rowRef?: (el: HTMLElement | null) => void
   task: JobTask
   /** T4: the worktree this Task continues in (planBoard reuseOf), or null */
   reuse: ReturnType<typeof reuseOf>
@@ -347,7 +392,7 @@ function TaskRow({
   const shown = allFiles ? files : files.slice(0, FILES_SHOWN)
   const line = now ? t(now.key, now.params) : reason && text ? t(text.key, text.params) : undefined
   return (
-    <li id={taskAnchorId(tk.id)} className={`plan-card plan-cat-${categoryOf(tk)}${expanded ? ' selected' : ''}`}>
+    <li ref={rowRef} id={taskAnchorId(tk.id)} className={`plan-card plan-cat-${categoryOf(tk)}${expanded ? ' selected' : ''}`}>
       <div className="plan-row">
         {/* The title is the row's toggle: one button, so a click anywhere on the name expands it */}
         <Button

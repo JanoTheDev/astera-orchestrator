@@ -3,6 +3,10 @@ import type { SessionSummary } from '../../../core/sessions/summary'
 import type { Account, HistoryEntry, ProjectSummary, ScheduleConfig, SessionKind, TranscriptPreview } from '../../../core/types'
 import { ResumeDialog } from './ResumeDialog'
 import { TranscriptPreviewModal } from './TranscriptPreviewModal'
+import {
+  cachedPage, cachedProjects, mergePage, mergeProjects, pageKey, projectsKey, rememberExpanded, rememberPage, rememberProjects,
+  rememberedExpanded
+} from './historyCache'
 import { accountChipText, scopeProjects, sessionTreeRows, shortModel, type SessionFacts, type SessionPage } from './historyTree'
 import { elapsedLabel, modelEffortLabel } from './wall/sessionRow'
 import { openPlan } from './shell/navigation'
@@ -133,18 +137,28 @@ export function HistoryBrowser({
   asPage?: boolean
 }): React.JSX.Element {
   const { t } = useI18n()
-  const [projects, setProjects] = useState<ProjectSummary[]>([])
-  const [total, setTotal] = useState(0)
+  // A remount starts from what was shown last (historyCache), so the skeleton is only for the very first open.
+  const [seed] = useState(() => cachedProjects(projectsKey(loadAccountFilter(), scopeId !== null)))
+  const [projects, setProjects] = useState<ProjectSummary[]>(seed?.projects ?? [])
+  const [total, setTotal] = useState(seed?.total ?? 0)
   // Whether the first project page has ever arrived. Without it an empty `projects` means two different
   // things — still loading, or genuinely nothing. It never goes back to false: on an account-filter change or
   // history:updated the previous list stays on screen until the new one lands.
-  const [loaded, setLoaded] = useState(false)
+  const [loaded, setLoaded] = useState(seed !== undefined)
   const [accountFilter, setAccountFilter] = useState<string>(loadAccountFilter)
-  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [expanded, setExpanded] = useState<Set<string>>(rememberedExpanded)
   const [summaries, setSummaries] = useState<Record<string, Map<string, SessionSummary>>>({})
   const setProjectSummaries = useCallback((path: string, m: Map<string, SessionSummary>) => setSummaries((p) => ({ ...p, [path]: m })), [])
   // Each expanded project's sessions. A project with no entry here is still waiting for its first page.
-  const [pages, setPages] = useState<Record<string, SessionPage & { entries: HistoryEntry[] }>>({})
+  const [pages, setPages] = useState<Record<string, SessionPage & { entries: HistoryEntry[] }>>(() => {
+    const acc = loadAccountFilter()
+    const out: Record<string, SessionPage & { entries: HistoryEntry[] }> = {}
+    for (const path of rememberedExpanded()) {
+      const c = cachedPage(pageKey(acc, path))
+      if (c) out[path] = c
+    }
+    return out
+  })
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [preview, setPreview] = useState<TranscriptPreview | null>(null)
   const [resumingId, setResumingId] = useState<string | null>(null)
@@ -173,8 +187,12 @@ export function HistoryBrowser({
   const autoExpanded = useRef(new Set<string>())
   const projectsLenRef = useRef(0)
   projectsLenRef.current = projects.length
+  const projectsRef = useRef(projects)
+  projectsRef.current = projects
   const accountFilterRef = useRef(accountFilter)
   accountFilterRef.current = accountFilter
+  const scopedRef = useRef(scopeId !== null)
+  scopedRef.current = scopeId !== null
   const hiddenRef = useRef<string[]>(hidden)
   hiddenRef.current = hidden
   const expandedRef = useRef(expanded)
@@ -209,6 +227,7 @@ export function HistoryBrowser({
       })
       .then((p) => {
         if (reqToken.current !== token) return // ignore a late response
+        rememberProjects(projectsKey(acc, scopedRef.current), p)
         setProjects(p.projects)
         setTotal(p.total)
         setLoaded(true)
@@ -229,16 +248,16 @@ export function HistoryBrowser({
       .then((p) => {
         fetchingRef.current = false
         if (reqToken.current !== token) return
-        setProjects((prev) => {
-          const seen = new Set(prev.map((x) => x.projectPath))
-          return [...prev, ...p.projects.filter((x) => !seen.has(x.projectPath))]
-        })
+        const merged = mergeProjects(projectsRef.current, p.projects)
+        rememberProjects(projectsKey(accountFilterRef.current, scopedRef.current), { projects: merged, total: p.total })
+        setProjects(merged)
         setTotal(p.total)
       })
   }
 
   /** A project's sessions: its first page again at the window already shown (`append` false), or the next page. */
   const loadSessions = (projectPath: string, append: boolean): void => {
+    const acc = accountFilterRef.current
     const have = pagesRef.current[projectPath]?.entries.length ?? 0
     const token = (sessionTokens.current[projectPath] = (sessionTokens.current[projectPath] ?? 0) + 1)
     void window.api.history
@@ -251,15 +270,9 @@ export function HistoryBrowser({
       .then((p) => {
         if (sessionTokens.current[projectPath] !== token) return // the window was swapped out in the meantime — ignore
         setPages((prev) => {
-          const before = append ? (prev[projectPath]?.entries ?? []) : []
-          const seen = new Set(before.map((e) => e.id))
-          return {
-            ...prev,
-            [projectPath]: {
-              entries: [...before, ...p.entries.filter((e) => !seen.has(e.id))],
-              total: p.total
-            }
-          }
+          const next = { entries: mergePage(append ? (prev[projectPath]?.entries ?? []) : [], p.entries), total: p.total }
+          rememberPage(pageKey(acc, projectPath), next)
+          return { ...prev, [projectPath]: next }
         })
       })
   }
@@ -268,7 +281,8 @@ export function HistoryBrowser({
   // and the auto-expansion starts over
   useEffect(() => {
     autoExpanded.current = new Set()
-    loadFirstProjects(accountFilterRef.current, scopeId === null ? PAGE : SCOPED_LIMIT)
+    // a window the user had paged down to is refetched at its size, not cut back to the first page
+    loadFirstProjects(accountFilterRef.current, scopeId === null ? Math.max(projectsLenRef.current, PAGE) : SCOPED_LIMIT)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scopeId])
 
@@ -299,6 +313,7 @@ export function HistoryBrowser({
         })
         .then((p) => {
           if (reqToken.current !== token) return
+          rememberProjects(projectsKey(accountFilterRef.current, scopedRef.current), p)
           setProjects(p.projects)
           setTotal(p.total)
           // Also settles the first load, not just a refresh of it: a transcript written while the mount
@@ -309,6 +324,13 @@ export function HistoryBrowser({
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // the projects that came back expanded show their cached sessions now; this asks for fresh ones
+  useEffect(() => {
+    for (const path of expandedRef.current) if (!autoExpanded.current.has(path)) loadSessions(path, false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  useEffect(() => rememberExpanded(expanded), [expanded])
 
   useEffect(() => window.api.on('history:scan', (e) => setScan(e.active ? e : null)), [])
 
@@ -565,6 +587,11 @@ export function HistoryBrowser({
     }
     setExpanded(new Set()) // reset the expansion when the filter changes
     setPages({})
+    const cached = cachedProjects(projectsKey(id, scopeId !== null))
+    if (cached) {
+      setProjects(cached.projects)
+      setTotal(cached.total)
+    }
     autoExpanded.current = new Set() // a scoped project opens again once its list arrives
     loadFirstProjects(id, scopeId === null ? PAGE : SCOPED_LIMIT)
   }

@@ -4,9 +4,10 @@
 // subscriber would unwatch it.
 import { useEffect, useState } from 'react'
 import type { JobRow, OrchSnapshot } from '../../../../core/types'
+import { pollWhileVisible } from '../../lib/visiblePoll'
 import { indexJobRows } from './wallModel'
 
-/** As often as the workspace tree is read (useWorkspaceData). */
+/** As often as the workspace tree is read (useWorkspaceData). `enabled` is false while the page is hidden. */
 const POLL_MS = 5000
 
 export function useJobRows(anchor: string | null, projectIds: readonly string[], enabled: boolean): Record<string, JobRow> {
@@ -35,11 +36,10 @@ export function useJobRows(anchor: string | null, projectIds: readonly string[],
         running = false
       }
     }
-    void tick()
-    const timer = setInterval(() => void tick(), POLL_MS)
+    const stop = pollWhileVisible(() => void tick(), POLL_MS)
     return () => {
       alive = false
-      clearInterval(timer)
+      stop()
     }
     // `key` stands for the project ids
     // eslint-disable-next-line react-hooks/exhaustive-deps
