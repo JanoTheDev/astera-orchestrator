@@ -302,7 +302,7 @@ describe('workbench primitives (DESIGN-W13)', () => {
   })
 
   it('ViewPane: a pane without a saved size keeps its CSS sizing while its siblings have saved sizes', () => {
-    const saved = new Map([['cm.section.b.size', '300'], ['cm.section.c.size', '200']])
+    const saved = new Map([['cm.section.b.weight', '300'], ['cm.section.c.weight', '200']])
     vi.stubGlobal('localStorage', { getItem: (k: string) => saved.get(k) ?? null, setItem: () => undefined })
     try {
       const pane = (k: string): React.ReactElement => React.createElement(ViewPane, { key: k, title: k, storageKey: k, children: 'x' })
