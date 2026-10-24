@@ -8,9 +8,11 @@ import type {
   HostRuntimeInstallState,
   MachineProgress,
   MigrateItemResult,
+  UpdateApi,
   UpdateCampaignInfo,
   UpdateStatus
 } from '../core/types'
+import type { JustUpdatedApi } from '../core/update/sourceUpdate'
 
 const invoke =
   (channel: string) =>
@@ -426,8 +428,9 @@ const api = {
     current: () => ipcRenderer.invoke('update:status'),
     check: () => ipcRenderer.invoke('update:check'),
     download: () => ipcRenderer.invoke('update:download'),
-    install: () => ipcRenderer.invoke('update:install')
-  },
+    install: () => ipcRenderer.invoke('update:install'),
+    justUpdated: () => ipcRenderer.invoke('update:justUpdated')
+  } as UpdateApi & JustUpdatedApi,
   rolling: {
     forceRoll: invoke('rolling.forceRoll'),
     state: invoke('rolling.state'),

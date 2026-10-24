@@ -106,6 +106,7 @@ export const common: Partial<Record<keyof typeof ko, string>> = {
   'run.jump.notAllowed': 'そのプロジェクトへは移動できません — このアプリで一度開いたプロジェクトである必要があります',
   'settings.slack.hint': '新しいセッションで「Slack 進捗通知」をオンにすると進捗を送信します。',
   'update.info.downloading': 'ダウンロード中 {percent}%…',
+  'update.tb.sourceUpdate': 'アップデート · 変更 {count} 件',
   'update.tb.building': 'アップデートをビルド中… {step}',
   'update.tb.buildWaiting': '他の重い処理の後ろでビルド待機中…',
   'update.ui.restart': '再起動して更新',

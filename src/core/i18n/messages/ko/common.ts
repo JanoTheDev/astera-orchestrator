@@ -132,6 +132,7 @@ export const common = {
   'settings.defaultKind.chat': '대화',
   'settings.defaultKind.saveFailed': '새 세션 기본 종류를 저장하지 못했습니다: {detail}',
   'update.info.downloading': '다운로드 중 {percent}%…',
+  'update.tb.sourceUpdate': '업데이트 · 변경 {count}건',
   'update.tb.building': '업데이트 빌드 중… {step}',
   'update.tb.buildWaiting': '다른 무거운 작업 뒤에서 업데이트 빌드 대기 중…',
   'update.ui.restart': '다시 시작해 업데이트',

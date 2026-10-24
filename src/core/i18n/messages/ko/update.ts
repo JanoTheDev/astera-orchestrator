@@ -4,6 +4,8 @@ export const update = {
   'update.manual.quit': '종료하고 옮기기',
   // App.tsx — the toast for a downloaded new version, and the session-kill confirmation when installing now
   'update.toast.available': '새 버전 v{version}이 나왔습니다',
+  'update.toast.updatedTo': '{sha}(으)로 업데이트됨',
+  'update.toast.updatedMore': '외 {count}건',
   'update.toast.download': '다운로드',
   // Slice 2 of the Astera Host. Installing quits the app, so this is the same three-way split the
   // close confirmation faces, counted the same way (host.sessionsOutlivingApp) and shared with it —

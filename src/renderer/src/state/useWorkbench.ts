@@ -8,7 +8,7 @@ import type { EditorState, StateEffect } from '@codemirror/state'
 import { openSessionIds, placeAppTabs, removeAppTab } from '../lib/workspaceMirror'
 import { flushPendingEdits } from '../lib/editCoalescer'
 import { mirrorFrames } from '../lib/mirrorFrames'
-import type { TerminalBuffer } from '../../../core/types'
+import type { TerminalBuffer, UpdateApi } from '../../../core/types'
 import { findActionForEvent } from '../../../core/keys/binding'
 import { ACTIONS } from '../lib/actions'
 import { MIN_CHECKING_MS, isCheckResult, shouldNotifyDownloaded, showChecking } from '../../../core/update/checkFeedback'
@@ -80,6 +80,12 @@ export type WorkbenchDeps = Pick<ReturnType<typeof useWorkbenchState>,
 
 /** T1: a session's account and rolling chain for a respawn (Restart, Reopen): its account first, then the rest of its
  *  chain; no chain, no rolling. */
+/** The update:justUpdated record as the toast reads it (JustUpdatedApi in core/update/sourceUpdate.ts is outside the web project). */
+type JustUpdatedApi = { justUpdated(): Promise<{ sha: string; commits: { subject: string }[] } | null> }
+
+/** Commit subjects the "Updated to" toast lists before "and N more". */
+const JUST_UPDATED_LISTED = 5
+
 const chainOf = (accountId: string, chain: string[] | undefined): { accountIds: string[]; roll: boolean } =>
   chain && chain.length > 0
     ? { accountIds: [accountId, ...chain.filter((id) => id !== accountId)], roll: true }
@@ -307,6 +313,14 @@ export function useWorkbench(deps: WorkbenchDeps) {
           onClick: () => void installUpdate()
         }
       })
+    })
+    // A restart onto a new build announces what came in, once (main hands the record out a single time).
+    void (window.api.update as UpdateApi & JustUpdatedApi).justUpdated().then((u) => {
+      if (!u) return
+      const t = tRef.current
+      const shown = u.commits.slice(0, JUST_UPDATED_LISTED).map((c) => `• ${c.subject}`)
+      const more = u.commits.length - shown.length
+      toast.info([t('update.toast.updatedTo', { sha: u.sha }), ...shown, ...(more > 0 ? [t('update.toast.updatedMore', { count: more })] : [])].join('\n'))
     })
     return () => {
       offAccounts()
