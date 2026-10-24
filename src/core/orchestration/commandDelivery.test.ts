@@ -613,6 +613,24 @@ describe('T5: a hands-free plan mends a failed delivery validation with fix Task
     expect(questions(h)[0].body).toContain('npm test exited 1')
   })
 
+  it('a fix Task that failed asks the owner with the last reason; not hands-free or an ordinary failed Task keeps not-completed', async () => {
+    const failedFix = { ...fixTask(1), status: 'failed' as const, consecutiveFailures: 3 }
+    const lastRun = { worktree: '/wt-run', deliveryState: { state: 'retrying' as const, attempts: 1, lastError: failed.reason, lastCode: 'validation-failed', nextRetryAt: NOW } }
+    const h = setup({ project: { delivery: 'push', handsOff: true }, run: lastRun, push: failed, tasks: [task(), task({ id: 't2' }), failedFix] })
+    const r = await h.call('run-deliver', { run: 'r1', auto: true })
+    expect(r.body).toMatchObject({ code: 'validation-failed', deliveryState: { state: 'needs-owner' } })
+    expect(questions(h)).toHaveLength(1)
+    expect(questions(h)[0].body).toContain('npm test exited 1')
+    for (const o of [
+      { project: { delivery: 'push' as const }, tasks: [task(), task({ id: 't2' }), failedFix] },
+      { project: { delivery: 'push' as const, handsOff: true }, tasks: [task(), task({ id: 't2', status: 'failed', consecutiveFailures: 3 }), failedFix] }
+    ]) {
+      const h2 = setup({ ...o, run: lastRun, push: failed })
+      expect((await h2.call('run-deliver', { run: 'r1', auto: true })).body).toMatchObject({ code: 'not-completed' })
+      expect(questions(h2)).toEqual([])
+    }
+  })
+
   it('a plan that is neither hands-off nor auto-approve keeps the backoff and asks at the fifth attempt', async () => {
     const h = setup({ project: { delivery: 'push' }, run: { worktree: '/wt-run' }, push: failed })
     await h.call('run-deliver', { run: 'r1', pending: true })
