@@ -7454,7 +7454,7 @@ export function registerIpc(
         const holdings = entries !== null && procEntries !== null ? hostHoldings(entries, procEntries) : null
         const busyChats = procEntries !== null ? busyChatCount(procEntries, (id) => core.chat.state(id)?.status === 'idle') : null
         const state = orchMirror.loaded() ? orchMirror.getState() : null
-        const activeTasks = state ? workingTaskCount(state) : null
+        const activeTasks = state ? workingTaskCount(state, (id) => entries?.some((e) => e.alive && e.meta?.id === id) === true) : null
         const handover = speaksHandover()
         const handoverChats = client.status().features.includes(HOST_FEATURE_HANDOVER_CHATS)
         const nowMs = Date.now()

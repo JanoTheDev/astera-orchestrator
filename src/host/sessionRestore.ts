@@ -54,6 +54,8 @@ export interface SavedSession {
   rollAccountIds?: string[]
   /** The agent CLI's own conversation id: what `claude --resume` / `codex resume` takes. */
   nativeSessionId?: string
+  /** When the session first started (SessionInfo.startedAt): a resumed session keeps its elapsed time. */
+  startedAt?: number
 }
 
 export type SessionRole = 'user' | 'planner' | 'coordinator' | 'worker' | 'replan'
@@ -132,7 +134,8 @@ export function savedOf(meta: PtyMeta | null): SavedSession | null {
     cwd,
     ...(str(r.title) ? { title: str(r.title) } : {}),
     ...(rolls.length > 0 ? { rollAccountIds: rolls } : {}),
-    ...(native ? { nativeSessionId: native } : {})
+    ...(native ? { nativeSessionId: native } : {}),
+    ...(typeof r.startedAt === 'number' ? { startedAt: r.startedAt } : {})
   }
 }
 
@@ -269,9 +272,20 @@ export function writeHandover(profileDir: string, h: Handover): void {
   renameSync(tmp, file)
 }
 
-/** The Tasks a handover must not cut short: a worker, a check, a review or a merge in flight. */
-export function workingTaskCount(s: OrchState | null): number {
-  return s?.tasks.filter((t) => ['dispatched', 'validating', 'reviewing', 'merging'].includes(t.status)).length ?? 0
+/** The work a handover must not cut short: a worker, a check, a review or a merge in flight, and a plan's replan while
+ *  its planner starts or lives (`alive`; absent: every one counts). Its planner session is not brought back: a swap that
+ *  began right after a review left the plan holding a dead replan. One whose planner is already dead holds nothing.
+ *  A `dispatched` Task works only while a Dispatch of it is open: a paused plan's (its Dispatch closed by the pause) has
+ *  no worker to cut short, and counting it held every automatic Host swap back for as long as the plan stayed paused. */
+export function workingTaskCount(s: OrchState | null, alive?: (sessionId: string) => boolean): number {
+  if (!s) return 0
+  const open = new Set(s.dispatches.filter((d) => !d.endedAt).map((d) => d.taskId))
+  const tasks = s.tasks.filter((t) => (t.status === 'dispatched' ? open.has(t.id) : ['validating', 'reviewing', 'merging'].includes(t.status))).length
+  const replans = s.jobs.filter((j) => {
+    const r = j.replanning
+    return r !== undefined && j.archivedAt === undefined && (r.sessionId === undefined || (alive?.(r.sessionId) ?? true))
+  }).length
+  return tasks + replans
 }
 
 export interface SessionTracker {
@@ -378,10 +392,14 @@ export interface RestoreDeps {
     cwd: string
     title?: string
     rollAccountIds: string[]
-    resumeSessionId: string
+    /** Absent: the conversation has no transcript to resume (`hasConversation`), so it starts fresh. */
+    resumeSessionId?: string
     autoAccounts: boolean
     sessionId?: string
+    startedAt?: number
   }): Promise<{ id: string }>
+  /** Whether the agent CLI can resume this conversation (`conversationOnDisk`); absent: assumed it can. */
+  hasConversation?(accountId: string, nativeId: string): Promise<boolean>
   /** A command under the Host's own caller. */
   handle(cmd: string, args: Record<string, unknown>): Promise<{ status: number; body: unknown }>
   /** The tracker's `settle`: called once per saved session, when its respawn succeeded or failed for good. */
@@ -417,14 +435,19 @@ export async function restoreSessions(d: RestoreDeps): Promise<{ tabs: number; p
         d.log(`session restore: ${row.sessionId} in ${row.cwd} has no conversation id to resume; left closed`)
         continue
       }
+      // A console never typed into has a conversation id but no transcript: `claude --resume` of it says "No conversation
+      // found" and exits, so the tab died with the swap. It starts fresh in its folder instead.
+      const resumable = (await d.hasConversation?.(row.accountId, native).catch(() => true)) ?? true
+      if (!resumable) d.log(`session restore: ${row.sessionId}'s conversation ${native} was never written; starting it fresh in ${row.cwd}`)
       const info = await d.createSession({
         accountId: row.accountId,
         cwd: row.cwd,
         ...(row.title !== undefined ? { title: row.title } : {}),
         rollAccountIds: row.rollAccountIds ?? [],
-        resumeSessionId: native,
+        ...(resumable ? { resumeSessionId: native } : {}),
         autoAccounts: true,
-        ...(d.handover ? { sessionId: row.sessionId } : {})
+        ...(d.handover ? { sessionId: row.sessionId } : {}),
+        ...(row.startedAt !== undefined ? { startedAt: row.startedAt } : {})
       })
       d.log(`session restore: ${row.sessionId} resumed as ${info.id} (conversation ${native}) in ${row.cwd}`)
       tabs++
@@ -473,6 +496,20 @@ export async function restoreHandover(
   }
   await fs.rm(d.file, { force: true }).catch((err) => d.log(`session restore: ${d.file} could not be removed: ${String(err)}`))
   return { ...r, ptys, chats }
+}
+
+/** Whether `nativeId` can be resumed: a codex one always (found by its rollout, not here); a claude one when its
+ *  transcript is under some claude account's folder (a resume carries it across accounts, `carryTranscript`). */
+export async function conversationOnDisk(
+  accounts: Account[],
+  accountId: string,
+  nativeId: string,
+  find: (configDir: string, id: string) => Promise<string | null> = findClaudeTranscript
+): Promise<boolean> {
+  const own = accounts.find((a) => a.id === accountId)
+  if (own && providerOf(own) !== 'claude') return true
+  for (const a of accounts) if (providerOf(a) === 'claude' && (await find(a.configDir, nativeId).catch(() => null))) return true
+  return false
 }
 
 /** A claude conversation resumed on `account` while its transcript is under another claude account's folder (the

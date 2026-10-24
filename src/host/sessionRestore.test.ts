@@ -16,6 +16,7 @@ import {
   sessionsLeftBehind,
   trackLiveSessions,
   workingTaskCount,
+  conversationOnDisk,
   writeCleanExit,
   writeHandover,
   type HandoverChat,
@@ -71,13 +72,13 @@ describe('trackLiveSessions', () => {
     const reg = fakeRegistry()
     reg.open('pty-0', meta('sess-old', { accountId: 'acc_1', cwd: '/w/old' })) // live before the tracker starts
     const t = trackLiveSessions({ registry: reg, file, nativeIdOf: async () => null, log: () => {}, pollMs: 60_000 })
-    reg.open('pty-1', meta('sess-1', { accountId: 'acc_1', cwd: '/w/a', title: 'A' }))
+    reg.open('pty-1', meta('sess-1', { accountId: 'acc_1', cwd: '/w/a', title: 'A', startedAt: 7_000 }))
     reg.open('pty-2', { kind: 'terminal', id: 'shell', restore: { cwd: '/w' } }) // a plain shell tab: not kept
     reg.note('pty-1', { codexSessionId: 'native-1' })
     await t.flushed()
     expect(await readSavedSessions(file)).toEqual([
       { sessionId: 'sess-old', accountId: 'acc_1', cwd: '/w/old' },
-      { sessionId: 'sess-1', accountId: 'acc_1', cwd: '/w/a', title: 'A', nativeSessionId: 'native-1' }
+      { sessionId: 'sess-1', accountId: 'acc_1', cwd: '/w/a', title: 'A', nativeSessionId: 'native-1', startedAt: 7_000 }
     ])
     reg.exit('pty-1')
     await t.flushed()
@@ -255,6 +256,34 @@ describe('restoreSessions', () => {
     ])
   })
 
+  it('starts a console fresh, in its folder, when its conversation was never written (no transcript to resume)', async () => {
+    const { deps, created } = restoreDeps({
+      saved: [
+        { sessionId: 'typed', accountId: 'acc_1', cwd: '/w/a', nativeSessionId: 'n-typed' },
+        { sessionId: 'untyped', accountId: 'acc_1', cwd: '/w/b', nativeSessionId: 'n-empty', startedAt: 9_000 }
+      ],
+      hasConversation: async (_acc, id) => id === 'n-typed',
+      handover: true
+    })
+    expect(await restoreSessions(deps)).toEqual({ tabs: 2, planners: 0 })
+    expect(created).toEqual([
+      { accountId: 'acc_1', cwd: '/w/a', rollAccountIds: [], resumeSessionId: 'n-typed', autoAccounts: true, sessionId: 'typed' },
+      { accountId: 'acc_1', cwd: '/w/b', rollAccountIds: [], autoAccounts: true, sessionId: 'untyped', startedAt: 9_000 }
+    ])
+  })
+
+  it('finds a claude conversation under any claude account; a codex one is always resumable', async () => {
+    const accounts = [
+      { id: 'acc_1', label: 'a', configDir: '/cfg/1', provider: 'claude' },
+      { id: 'acc_2', label: 'b', configDir: '/cfg/2', provider: 'claude' },
+      { id: 'acc_cx', label: 'c', configDir: '/cfg/cx', provider: 'codex' }
+    ] as Account[]
+    const find = async (dir: string, id: string) => (dir === '/cfg/2' && id === 'n-1' ? '/cfg/2/projects/x/n-1.jsonl' : null)
+    expect(await conversationOnDisk(accounts, 'acc_1', 'n-1', find)).toBe(true)
+    expect(await conversationOnDisk(accounts, 'acc_1', 'n-none', find)).toBe(false)
+    expect(await conversationOnDisk(accounts, 'acc_cx', 'th-1', find)).toBe(true)
+  })
+
   it('goes on past a tab that cannot be resumed', async () => {
     const { deps } = restoreDeps({
       saved: [
@@ -303,7 +332,7 @@ describe('the handover (a resume retire)', () => {
     state.dispatches.push({ ...state.dispatches[0], id: 'dsp_done', sessionId: 'worker-done', endedAt: NOW, outcome: 'succeeded' } as never)
     return handoverOf({
       sessions: [
-        { sessionId: 'tab-1', accountId: 'acc_1', cwd: '/w/a', title: 'A', nativeSessionId: 'n-1' },
+        { sessionId: 'tab-1', accountId: 'acc_1', cwd: '/w/a', title: 'A', nativeSessionId: 'n-1', startedAt: 5_000 },
         { sessionId: 'worker-done', accountId: 'acc_1', cwd: '/w/wt', nativeSessionId: 'n-w' }
       ],
       ptys: [
@@ -341,7 +370,7 @@ describe('the handover (a resume retire)', () => {
   it('lists the agent sessions with their Dispatch, the shell terminals and the run configurations, each with only the env that differs', () => {
     const h = leaving()
     expect(h.sessions).toEqual([
-      { sessionId: 'tab-1', accountId: 'acc_1', cwd: '/w/a', title: 'A', nativeSessionId: 'n-1' },
+      { sessionId: 'tab-1', accountId: 'acc_1', cwd: '/w/a', title: 'A', nativeSessionId: 'n-1', startedAt: 5_000 },
       { sessionId: 'worker-done', accountId: 'acc_1', cwd: '/w/wt', nativeSessionId: 'n-w', dispatchId: 'dsp_done' }
     ])
     expect(h.ptys).toEqual([
@@ -407,7 +436,7 @@ describe('the handover (a resume retire)', () => {
     expect(r).toEqual({ tabs: 2, planners: 0, ptys: 2, chats: 1 })
     expect(respawned.map((c) => [c.sessionId, c.threadId])).toEqual([['chat-cl', 'th-cl']])
     expect(created).toEqual([
-      { accountId: 'acc_1', cwd: '/w/a', title: 'A', rollAccountIds: [], resumeSessionId: 'n-1', autoAccounts: true, sessionId: 'tab-1' },
+      { accountId: 'acc_1', cwd: '/w/a', title: 'A', rollAccountIds: [], resumeSessionId: 'n-1', autoAccounts: true, sessionId: 'tab-1', startedAt: 5_000 },
       { accountId: 'acc_1', cwd: '/w/wt', rollAccountIds: [], resumeSessionId: 'n-w', autoAccounts: true, sessionId: 'worker-done' }
     ])
     expect(buildClaudeCommand('linux', () => null)({ resumeSessionId: created[0].resumeSessionId }).args).toEqual(expect.arrayContaining(['--resume', 'n-1']))
@@ -465,8 +494,33 @@ describe('the handover (a resume retire)', () => {
 describe('workingTaskCount', () => {
   it('counts the Tasks a handover would cut short: a worker, a check, a review or a merge', () => {
     const task = (id: string, status: string) => ({ id, status }) as OrchState['tasks'][number]
-    const s = { ...crashed(), tasks: ['pending', 'ready', 'dispatched', 'validating', 'reviewing', 'merging', 'completed', 'failed', 'blocked'].map((st, i) => task(`t${i}`, st)) }
+    const base = crashed()
+    const s = {
+      ...base,
+      tasks: ['pending', 'ready', 'dispatched', 'validating', 'reviewing', 'merging', 'completed', 'failed', 'blocked'].map((st, i) => task(`t${i}`, st)),
+      dispatches: [{ ...base.dispatches[0], id: 'dsp_t2', taskId: 't2' }]
+    }
     expect(workingTaskCount(s)).toBe(4)
     expect(workingTaskCount(null)).toBe(0)
+  })
+
+  it('does not count a paused plan\'s dispatched Task, whose Dispatch the pause closed', () => {
+    const base = crashed()
+    const paused = {
+      ...base,
+      tasks: [{ id: 't1', status: 'dispatched' } as OrchState['tasks'][number]],
+      dispatches: [{ ...base.dispatches[0], id: 'dsp_p', taskId: 't1', workerState: 'stopped', endedAt: NOW, closedBy: 'pause' } as OrchState['dispatches'][number]]
+    }
+    expect(workingTaskCount(paused)).toBe(0)
+  })
+
+  it('counts a plan\'s replan in flight: its planner session would not come back', () => {
+    const base = crashed()
+    const job = { ...base.jobs[0], replanning: { runId: 'run_1', mode: 'completion', wave: 1, done: 1, startedAt: NOW, sessionId: 'replan-1' } } as OrchState['jobs'][number]
+    expect(workingTaskCount({ ...base, tasks: [], dispatches: [], jobs: [job] })).toBe(1)
+    expect(workingTaskCount({ ...base, tasks: [], dispatches: [], jobs: [job] }, (id) => id === 'replan-1')).toBe(1)
+    expect(workingTaskCount({ ...base, tasks: [], dispatches: [], jobs: [{ ...job, archivedAt: NOW }] })).toBe(0)
+    // a replan whose planner already died (a crash, an older swap) holds nothing back
+    expect(workingTaskCount({ ...base, tasks: [], dispatches: [], jobs: [job] }, () => false)).toBe(0)
   })
 })

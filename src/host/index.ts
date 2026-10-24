@@ -74,6 +74,7 @@ import {
   leftBehind,
   readSavedSessions,
   restoreHandover,
+  conversationOnDisk,
   restoreSessions,
   sessionRestoreFileIn,
   trackLiveSessions,
@@ -259,6 +260,11 @@ async function main(): Promise<void> {
    *  sockets, so their restore waits for it (or HANDOVER_APP_WAIT_MS: an app that comes later takes them back at boot). */
   let appGreeted!: () => void
   const firstApp = new Promise<void>((resolve) => (appGreeted = resolve))
+  /** The sessions a handover or a crash left are back (or there were none): the worktree sweep at start waits for it. A
+   *  retained worker of a delivered plan is dead between the two Hosts, so a sweep before its respawn took its folder and
+   *  the respawn then failed CWD_MISSING. */
+  let restoreDone!: () => void
+  const restored = new Promise<void>((resolve) => (restoreDone = resolve))
   /** Declared here and assigned below `createHostOrch` (S6 final review M3): the rolling wiring's
    *  `exits` getter reads it, and a `const` below that getter would throw in its temporal dead zone if a
    *  chain ever decided before the assignment. Null until then, and null for good without a spawner. */
@@ -1114,7 +1120,8 @@ async function main(): Promise<void> {
       runGit?.onState(orch.state())
       // T5: the sweep — worktrees a crash or an older version left behind for plans that are finished (delivered, or archived)
       if (spawner)
-        void readAutoCleanWorktrees(path.join(profileDir, 'app-settings.json'))
+        void restored
+          .then(() => readAutoCleanWorktrees(path.join(profileDir, 'app-settings.json')))
           .then((on) => (on ? worktrees.cleanFinished() : undefined))
           .then((r) => (r && r.removed.length > 0 ? log.write(`worktree sweep at start: removed ${r.removed.length}, kept ${r.kept.length}`) : undefined))
           .catch((err: unknown) => log.write(`worktree sweep at start failed: ${String(err)}`))
@@ -1273,7 +1280,8 @@ async function main(): Promise<void> {
         remote: remoteEnabled
       }),
       // A handover is refused while a Task works (sessionRestore.ts). Read from the file when no command loaded it yet.
-      workingTasks: () => workingTaskCount(orch.loaded() ? orch.state() : readStateFile(path.join(profileDir, 'orchestration.json'))),
+      workingTasks: () =>
+        workingTaskCount(orch.loaded() ? orch.state() : readStateFile(path.join(profileDir, 'orchestration.json')), (id) => registry.sessionPty(id) !== null),
       orch,
       // Announced only when there is a spawner, so an app can tell a Host that starts sessions itself,
       // that it also owns worktrees.json (R5: the one decision is `spawner !== null`), that it drives
@@ -1340,6 +1348,8 @@ async function main(): Promise<void> {
   const savedSessions = left.handover?.sessions ?? left.saved
   const nativeIdOf = async (sid: string): Promise<string | null> =>
     (await hostSessions.agentSessionOf(sid).catch(() => null)) ?? savedSessions.find((x) => x.sessionId === sid)?.nativeSessionId ?? null
+  const hasConversation = async (accountId: string, nativeId: string): Promise<boolean> =>
+    conversationOnDisk(await readAccountEntries(path.join(profileDir, 'accounts.json')), accountId, nativeId)
   if (wiring && spawner) {
     const starter = spawner
     const tracker = trackLiveSessions({ registry, file: restoreFile, pending: savedSessions, nativeIdOf: (sid) => hostSessions.agentSessionOf(sid), log: (m) => log.write(m) })
@@ -1377,6 +1387,7 @@ async function main(): Promise<void> {
             state: crashState,
             nativeIdOf,
             createSession: (o) => starter.createSession(o),
+            hasConversation,
             handle: (cmd, args) => orch.handle(cmd, args),
             settle: (sid) => tracker.settle(sid),
             baseEnv: hostWorkerBaseEnv(process.env),
@@ -1386,6 +1397,7 @@ async function main(): Promise<void> {
           })
         )
         .then((r) => log.write(`session restore: resumed ${r.tabs} tab(s), ${r.planners} planner(s); reopened ${r.ptys} terminal(s) or run(s); respawned ${r.chats} chat(s)`))
+        .finally(() => restoreDone())
     } else if (savedSessions.length > 0) {
       log.write(`session restore: the last Host did not leave cleanly; bringing back ${savedSessions.length} session(s)`)
       void restoreSessions({
@@ -1393,12 +1405,15 @@ async function main(): Promise<void> {
         state: crashState,
         nativeIdOf,
         createSession: (o) => starter.createSession(o),
+        hasConversation,
         handle: (cmd, args) => orch.handle(cmd, args),
         settle: (sid) => tracker.settle(sid),
         log: (m) => log.write(m)
-      }).then((r) => log.write(`session restore: resumed ${r.tabs} tab(s), ${r.planners} planner(s)`))
-    }
-  }
+      })
+        .then((r) => log.write(`session restore: resumed ${r.tabs} tab(s), ${r.planners} planner(s)`))
+        .finally(() => restoreDone())
+    } else restoreDone()
+  } else restoreDone()
   if (wiring) {
     const recovery = wiring.orchHooks.recovery
     void resumeAfterCrash({
