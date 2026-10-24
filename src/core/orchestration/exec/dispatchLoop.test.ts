@@ -2745,6 +2745,27 @@ describe('wave replanning (W6-D)', () => {
     expect(h.stopCoordinator).toHaveBeenCalledWith(session, expect.any(String))
   })
 
+  it('neither reminds nor ends a chat replan with its owner, however long it is idle', async () => {
+    const h = rig()
+    planned(h, (t) => (t.id === 'tsk_1' ? { ...t, status: 'completed' } : t))
+    failedOnce(h)
+    const start = h.clock
+    await h.loop.run()
+    await h.settle()
+    const s = h.state()
+    h.setState({ ...s, jobs: s.jobs.map((j) => (j.id === 'job_1' ? { ...j, replanning: { ...j.replanning!, chat: true } } : j)) })
+    await h.loop.nudge()
+    await h.settle()
+    h.clock = start + REPLAN_TIMEOUT_MS + 1
+    await h.loop.nudge()
+    await h.settle()
+    await h.loop.nudge()
+    await h.settle()
+    expect(h.typed).toHaveLength(0)
+    expect(h.handled()).not.toContain('jobs-replan-done')
+    expect(h.state().jobs[0].replanning).toBeDefined()
+  })
+
   it.each([
     ['the owner', 'Lift the hold'],
     ['a hands-off coordinator', 'lift the hold. Why: tsk_2 was planned without a prompt; the item is missing']

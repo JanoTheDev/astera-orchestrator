@@ -939,7 +939,8 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       const r = job.replanning
       if (!r) continue
       if (r.sessionId !== undefined && c.sessionGone?.(r.sessionId) !== true) {
-        await hurryReplan(job.id, r.sessionId, r.startedAt)
+        // A planner chat waits on its owner, so it is neither hurried nor timed out.
+        if (!r.chat) await hurryReplan(job.id, r.sessionId, r.startedAt)
         continue
       }
       const stale = r.sessionId === undefined && c.nowMs() - Date.parse(r.startedAt) > REPLAN_START_WINDOW_MS
@@ -1019,7 +1020,8 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
    * A replan planner that stays alive but never calls `jobs-replan-done` would hold its Job forever. Idle at its prompt
    * for REPLAN_IDLE_NUDGE_MS, it is reminded once; REPLAN_TIMEOUT_MS after the replan began it is ended
    * (`jobs-replan-done --timedOut`, which stops the session): the boundary passes as a skipped replan, the plan as it
-   * stands, and the activity feed says so. A session whose state cannot be told counts as idle.
+   * stands, and the activity feed says so. A session whose state cannot be told counts as idle. Not called for a chat
+   * replan (`replanning.chat`): its owner is the one who talks, so nothing hurries or times it out.
    */
   const hurryReplan = async (jobId: string, sessionId: string, startedAt: string): Promise<void> => {
     const now = c.nowMs()
