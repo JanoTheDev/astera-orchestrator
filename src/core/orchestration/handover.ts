@@ -349,6 +349,7 @@ export function buildPlannerBrief(a: {
     '  conversation, so the prompt must stand alone: goal, files, constraints, how to check the result.',
     '- `--criteria \'["...", "..."]\'`: one or more acceptance criteria, each one checkable.',
     '- `--affected-paths \'["src/a/", "src/b.ts"]\'`: the files or folders it will change.',
+    '- `--no-files`: instead of `--affected-paths`, for a `--kind ops|audit|docs` Task that changes no repository file (archive plans, a CLI cleanup, an audit). Never invent a path. `task-create` answers with `warnings`: what approval would refuse in that Task. Fix them at once.',
     // W8-F (#94): a plan with a Task that has no basis is refused at approval
     '- `--basis missing|partial|broken` and `--evidence "<file:line, #issue, PR or Job id>"`: what you found of it; a Task without them is refused.',
     '- `--deps \'["<taskId>", ...]\'`: the Tasks it must wait for. Create Tasks in dependency order.',

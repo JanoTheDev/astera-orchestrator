@@ -14,7 +14,7 @@ import { buildPlannerBrief } from '../handover'
 // W8-D several plans in one repo
 import { otherPlansBrief, planOverlapWarnings } from '../overlap'
 import { archiveJob, isJobActive } from '../lifecycle'
-import { cancelPlanTask, plannerJobOf, validatePlan } from '../planner'
+import { cancelPlanTask, planWarnings, plannerJobOf, validatePlan } from '../planner'
 import { replanJobOf } from '../replan'
 import { outcomeOfTasks } from '../running'
 import type { OrchState } from '../state'
@@ -67,6 +67,26 @@ export const plansMissingReady = (s: OrchState, alive: ReadonlySet<string>): str
         validatePlan(s, j.id).length === 0
     )
     .map((j) => j.id)
+
+/** What a planner that ended its turn is told when its plan is not ready to approve: the problems approval would find
+ *  (`validatePlan`) and the warnings only it hears (`planWarnings`), one line. `key` is the list itself, so the same list
+ *  is told once. null when the plan awaits no approval, the session is not its latest planner, or nothing is wrong. */
+export function plannerProblemsNotice(s: OrchState, sessionId: string): { jobId: string; key: string; text: string } | null {
+  const job = s.jobs.find((j) => j.plannerSessionIds?.at(-1) === sessionId)
+  if (!job || !awaitsApproval(job) || !isJobActive(job)) return null
+  const problems = [...validatePlan(s, job.id), ...planWarnings(s, job.id)]
+  if (problems.length === 0) return null
+  const shown = problems.slice(0, 8).map((p, i) => `${i + 1}. ${p}`)
+  if (problems.length > shown.length) shown.push(`(${problems.length - shown.length} more after these)`)
+  return {
+    jobId: job.id,
+    key: problems.join('\n'),
+    text:
+      `Astera: your plan is not ready for the owner to approve. ${shown.join(' ')} Fix them with \`astera task-update --id <taskId>\`, ` +
+      `\`astera task-create --run ${job.id}\` or \`astera task-cancel\`, then end your turn. A Task that changes no repository file ` +
+      'says `--kind ops|audit|docs --no-files`.'
+  }
+}
 
 const oneLine = (t: string): string => t.replace(/\s+/g, ' ').trim()
 

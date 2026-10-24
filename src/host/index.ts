@@ -429,7 +429,9 @@ async function main(): Promise<void> {
     // W7-A: auto-approve, as the Host itself (an agent can never approve)
     autoStart: async (jobId) => (await orch.handle('jobs-auto-start', { id: jobId })).status < 300,
     // #116: the plan waits on the owner; a refusal (the plan moved on meanwhile) leaves nothing to mark
-    markReady: async (jobId) => void (await orch.handle('jobs-plan-ready', { id: jobId }))
+    markReady: async (jobId) => void (await orch.handle('jobs-plan-ready', { id: jobId })),
+    // a plan that is not ready: its planner is told what is wrong, once per distinct list
+    tellPlanner: async (sessionId, text) => void (await orch.handle('sessions-send', { id: sessionId, text }))
   })
   // W6-G: the usage guard over this Host's own sessions' statusLine readings. `worker-start` and the dispatch loop
   // ask it before a start; the timer below lets a pause end on its own. Its changes are feed lines (and notices).

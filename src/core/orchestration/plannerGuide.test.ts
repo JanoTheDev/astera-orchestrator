@@ -27,6 +27,11 @@ describe('planner-guide.md — multi-file planning and waves', () => {
     for (const needle of ['Repo-relative, forward slashes', 'No leading `/` and no `./`', 'A folder ends with `/`', '`*` appears only in the last segment', 'Never `.` or `/`', 'List exactly the files'])
       expect(section, needle).toContain(needle)
   })
+  it('says when a Task may declare --no-files', () => {
+    const section = guide.slice(guide.indexOf('**When a Task changes no file.**'), guide.indexOf('**Path rules for `--affected-paths`'))
+    for (const needle of ['`--no-files`', '`--kind ops`, `audit` or `docs`', 'never together with `--affected-paths`', '`warnings`'])
+      expect(section, needle).toContain(needle)
+  })
   it('cuts by ownership, handles shared files and sizes the waves', () => {
     const section = guide.slice(guide.indexOf('## 2. Cut the objective'), guide.indexOf('## 3. Write each Task'))
     for (const needle of ['Cut by ownership, not by step', 'Shared files go to one Task', 'i18n catalogs', '`types.ts`', 'Size the waves', 'foundations', 'worker limit'])

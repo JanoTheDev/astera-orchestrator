@@ -167,6 +167,23 @@ describe('hostSessionActivity (W5-D)', () => {
     expect(lines(log)).toMatchObject([{ type: 'plan.awaiting-approval', jobId: 'j1' }])
   })
 
+  it('a planner ending its turn on a plan that is not ready is told the problems, once per distinct list', async () => {
+    const log = open(BOOT_A)
+    await log.load()
+    let s: OrchState = { ...emptyState(), jobs: [{ ...job, pendingStart: true, plannerSessionIds: ['ses_plan'] }], tasks: [planned({ affectedPaths: undefined })] }
+    const told: Array<{ id: string; text: string }> = []
+    const acts = hostSessionActivity({ log, state: () => s, report: () => {}, tellPlanner: async (id, text) => void told.push({ id, text }) })
+    acts.onHookEvent('ses_plan', stop)
+    acts.onHookEvent('ses_plan', stop)
+    expect(told).toHaveLength(1)
+    expect(told[0]).toMatchObject({ id: 'ses_plan', text: expect.stringContaining('names no files') })
+    // a different list is told again; a worker's turn end tells nothing
+    s = { ...s, tasks: [planned({ affectedPaths: undefined, acceptanceCriteria: [] })] }
+    acts.onHookEvent('ses_plan', stop)
+    acts.onHookEvent('ses_worker', stop)
+    expect(told).toHaveLength(2)
+  })
+
   it('#116: the plan is marked ready (Job.planReadyAt) where its ready line is recorded; a plan that starts by itself is not', async () => {
     const log = open(BOOT_A)
     await log.load()
