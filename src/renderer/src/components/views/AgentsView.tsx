@@ -49,10 +49,10 @@ export function AgentsView(p: SideBarViewProps): React.JSX.Element {
   // a plan that is gone (archived, another project) falls back to every plan; a plan that exists keeps its filter, even with no console yet
   const picked = plan === NO_PLAN || refs.some((x) => x.jobId === plan) || plans.some((x) => x.jobId === plan) ? plan : ALL_PLANS
   const pickedName = refs.find((x) => x.jobId === picked)?.name ?? plans.find((x) => x.jobId === picked)?.name ?? ''
-  const shown = scoped.filter((c) => picked === ALL_PLANS || (picked === NO_PLAN ? !c.jobId : c.jobId === picked))
+  const shown = useMemo(() => scoped.filter((c) => picked === ALL_PLANS || (picked === NO_PLAN ? !c.jobId : c.jobId === picked)), [scoped, picked])
   const planEmpty = picked !== ALL_PLANS && picked !== NO_PLAN && shown.length === 0
   const panes = useMemo(() => agentPanes(shown), [shown])
-  const byId = new Map(shown.map((c) => [c.sessionId, c]))
+  const byId = useMemo(() => new Map(shown.map((c) => [c.sessionId, c])), [shown])
 
   const accountOf = (c: WallConsole): string | undefined => (c.accountId ? (accounts.find((a) => a.id === c.accountId)?.label ?? c.accountId) : undefined)
   const stop = (c: WallConsole): void => {
