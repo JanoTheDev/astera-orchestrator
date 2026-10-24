@@ -273,14 +273,22 @@ export function clampEffort(level: string, levels: readonly string[] | undefined
   return { effort: best, note: `effort ${level} is not listed for the model — used ${best}` }
 }
 
-/** The next attempt's effort: one listed level above `prev`, or `prev` itself at the model's max (with a note). */
-export function escalateEffort(prev: string | undefined, levels: readonly string[] | undefined, provider: Provider): { effort?: string; note?: string } {
-  if (!prev) return {}
-  const reach = reachableLevels(levels, provider)
-  if (!reach) return { note: `effort not raised from ${prev}: the model's levels are unknown` }
-  const at = (EFFORTS as readonly string[]).indexOf(prev)
-  const up = reach.find((r) => EFFORTS.indexOf(r) > at)
-  return up ? { effort: up, note: `effort raised from ${prev} to ${up} after the previous attempt` } : { effort: prev, note: `effort stays ${prev}: already the model's highest` }
+/** The repair ladder: the next attempt after a failed one, one rung stronger than `prev` (what that attempt ran on).
+ *  Effort climbs first; from `high` up on a lower claude tier the model moves one tier up at `high`; the top tier
+ *  climbs effort to `max` and stays there. A model with no tier (codex, a vendor id, the CLI default) climbs effort
+ *  only. Whether the account's model lists the new level is the start path's clampEffort's question, not this one's. */
+export function nextRung(prev: { model?: string; effort?: string }, provider: Provider): { model?: string; effort?: Effort; reason: string } {
+  const effort = isEffort(prev.effort) ? prev.effort : undefined
+  const tier = provider === 'claude' ? tierOf(prev.model) : -1
+  const up = effort ? EFFORTS[Math.min(EFFORTS.indexOf(effort) + 1, EFFORTS.length - 1)] : undefined
+  const next: { model?: string; effort?: Effort } =
+    tier >= 0 && tier < TIERS.length - 1 && (!effort || EFFORTS.indexOf(effort) >= EFFORTS.indexOf('high'))
+      ? { model: TIERS[tier + 1], effort: 'high' }
+      : { ...(prev.model ? { model: prev.model } : {}), ...(up ? { effort: up } : {}) }
+  const label = (r: { model?: string; effort?: string }) => `${r.model ?? 'CLI default'}/${r.effort ?? 'no effort'}`
+  if (next.model === prev.model && next.effort === effort)
+    return { ...next, reason: `stays ${label(next)}: ${tier === TIERS.length - 1 ? 'already the best model at max effort' : 'nothing left to raise'}` }
+  return { ...next, reason: `${label({ model: prev.model, effort })} → ${label(next)}` }
 }
 
 /** What a worker start hands back about its model and effort, as the Dispatch fields that record them. Every
