@@ -302,7 +302,7 @@ export function PlanHeader({
             <>
               {!approve.ready && (
                 <div className="plan-page-problems" role="alert">
-                  <strong>{t('plan.talk.problems')}</strong>
+                  <strong>{t(run.autoApprove === true || run.handsOff === true ? 'plan.talk.waitingPlanner' : 'plan.talk.problems')}</strong>
                   {approve.problems.length > 0 && (
                     <ul>
                       {approve.problems.map((x) => (

@@ -8,6 +8,7 @@
 // (host/activity.ts `planReadyActivity`, once per feedback round). **While the plan runs** the feedback starts a W6-D
 // replan at once (`jobs-replan --feedback`), with W6-D's rules: only Tasks that have not started change. T1: feedback
 // during a replan is typed into its planner or queued for the next one, and a finished plan reopens with a final check.
+import { approvalDefaultOf, approvalFallbackOf, type ApprovalMode } from '../../settings/approvalDefault'
 import type { OrchServerDeps } from '../command'
 import { handsOffOf, projectOfJob } from '../delivery'
 import { buildPlannerBrief } from '../handover'
@@ -42,10 +43,19 @@ const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() !=
 // #117: beside deliveryOf, so the pure delivery and state code reads it too
 export { handsOffOf }
 
-/** Whether a plan starts on its own once it holds: the Job's own setting, else its project's, else no. A hands-off
- *  plan always does (#117). */
-export const autoApproveOf = (s: OrchState, job: Job): boolean =>
-  handsOffOf(s, job) || (job.autoApprove ?? projectOfJob(s, job)?.autoApprove ?? false)
+/** The approval setting of a plan, the first that is set: hands-off (the plan's or its project's, #117), then the plan's
+ *  own auto-approve, its project's, the app's global default (Settings > Agents), and last the planning mode: `auto`
+ *  starts when the plan holds, `chat` asks. A global hands-off starts the plan like `start`; the coordinator's
+ *  hands-off decisions stay with the plan's and project's own `handsOff`. */
+export const approvalOf = (s: OrchState, job: Job, globalDefault?: ApprovalMode): ApprovalMode => {
+  if (handsOffOf(s, job)) return 'hands-off'
+  const own = job.autoApprove ?? projectOfJob(s, job)?.autoApprove
+  if (own !== undefined) return own ? 'start' : 'ask'
+  return approvalFallbackOf(job, globalDefault)
+}
+
+/** Whether a plan starts on its own once it holds (`approvalOf` is anything but `ask`). */
+export const autoApproveOf = (s: OrchState, job: Job, globalDefault?: ApprovalMode): boolean => approvalOf(s, job, globalDefault) !== 'ask'
 
 /** A plan waiting for its approval (W2-A): not started, and planned. */
 const awaitsApproval = (job: Job): boolean => job.pendingStart === true && job.plannerSessionIds !== undefined
@@ -217,7 +227,9 @@ export async function feedbackCommand(deps: OrchServerDeps, caller: Caller, cmd:
 
   if (cmd === 'jobs-auto-start') {
     if (!awaitsApproval(job) || !isJobActive(job)) return conflict(`job ${jobId} is not a plan waiting for approval`)
-    if (!autoApproveOf(s, job)) return conflict(`job ${jobId} is not set to auto-approve`)
+    // the Host passes the app's global default (`--approval`): the command cannot read app-settings.json itself
+    const globalDefault = approvalDefaultOf(args.approval)
+    if (!autoApproveOf(s, job, globalDefault)) return conflict(`job ${jobId} is not set to auto-approve`)
     const problems = validatePlan(s, jobId)
     if (problems.length) return { status: 400, body: { error: `the plan does not hold: ${problems.join('; ')}`, problems } }
     const tasks = s.tasks.filter((t) => t.jobId === jobId && t.runId === undefined).length

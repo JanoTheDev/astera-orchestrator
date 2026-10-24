@@ -43,7 +43,7 @@ import { nodeProcSpawn } from './nodeProc'
 import { HOST_FEATURE_ORCH, HOST_FEATURE_REQUESTS, HOST_PROTOCOL, HOST_YIELD_JOURNAL, HOST_YIELD_UNDERSTANDING, HOST_YIELD_WORK_UNITS, HOST_YIELD_WORKSPACE, HOST_YIELD_WORKTREES } from '../core/host/protocol'
 import { createHostJournal } from './hostJournal'
 import { createHostEventLog } from './eventLog'
-import { activityOf, followActivity, hostSessionActivity } from './activity'
+import { activityOf, followActivity, hostSessionActivity, readApprovalDefault } from './activity'
 import { watchdogActivity } from '../core/orchestration/exec/stallWatch'
 import { ACTIVITY_KINDS, deriveActivity } from '../core/orchestration/activity'
 import { readActivityDigestMinutes } from '../core/settings/activityDigest'
@@ -427,7 +427,8 @@ async function main(): Promise<void> {
     state: () => orch.state(),
     report: (m) => log.write(m),
     // W7-A: auto-approve, as the Host itself (an agent can never approve)
-    autoStart: async (jobId) => (await orch.handle('jobs-auto-start', { id: jobId })).status < 300,
+    autoStart: async (jobId) => (await orch.handle('jobs-auto-start', { id: jobId, approval: readApprovalDefault(path.join(profileDir, 'app-settings.json')) })).status < 300,
+    approvalDefault: () => readApprovalDefault(path.join(profileDir, 'app-settings.json')),
     // #116: the plan waits on the owner; a refusal (the plan moved on meanwhile) leaves nothing to mark
     markReady: async (jobId) => void (await orch.handle('jobs-plan-ready', { id: jobId })),
     // a plan that is not ready: its planner is told what is wrong, once per distinct list

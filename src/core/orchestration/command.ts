@@ -211,6 +211,7 @@ import { coordinatorHandoff, refreshCoordinator } from './exec/coordinatorRotate
 import { crashResumedBrief } from './exec/crashResume'
 import { adoptLiveWorkers, specIdsOf, type LiveWorker } from './exec/adopt'
 import { specsDirOf } from './exec/specFiles'
+import { approvalDefaultOf } from '../settings/approvalDefault'
 import { feedbackCommand, handsOffOf, isFeedbackCommand } from './exec/plannerFeedback'
 export { JOB_SOURCE } from './commandSources'
 import { pluginIdOfCheck, type CompletionCheckInput, type PluginCheckAnswer } from './pluginChecks'
@@ -1342,6 +1343,14 @@ function projectSettingsArgs(
   const handsOff = flag(args.handsOff)
   if (handsOff === null) return { error: '--hands-off must be on or off' }
   if (handsOff !== undefined) patch.handsOff = handsOff ? true : null
+  // `--approval` says it in one word and, unlike `--auto-approve off`, can keep a project on ask when the app's global
+  // default would start plans: ask stores auto-approve off, start on, hands-off both
+  if (args.approval !== undefined) {
+    const mode = approvalDefaultOf(args.approval)
+    if (mode === undefined) return { error: '--approval must be ask, start or hands-off' }
+    patch.autoApprove = mode !== 'ask'
+    patch.handsOff = mode === 'hands-off' ? true : null
+  }
   // T7: like auto-approve, off clears it back to the default
   const serialFiles = flag(args.serialFiles)
   if (serialFiles === null) return { error: '--serial-files must be on or off' }

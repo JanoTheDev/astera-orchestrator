@@ -433,6 +433,7 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       // W7-A, W7-B
       { name: 'auto-approve', value: '<on|off>', about: 'approve this project\'s plans as soon as their planner finishes, with no one asked (default off)' },
       // #117
+      { name: 'approval', value: '<ask|start|hands-off>', about: "the plan approval in one word: ask (approve by hand, even where the app's default starts plans), start (start once the plan holds) or hands-off; sets --auto-approve and --hands-off together" },
       { name: 'hands-off', value: '<on|off>', about: "run this project's plans hands-off (default off): nothing waits on the owner: the plan starts by itself once it holds, its coordinator answers its own escalations, and its planner, coordinator and workers run with permissions bypassed" },
       // T7
       { name: 'serial-files', value: '<on|off>', about: "never run two Tasks on the same files at once, and keep a done Task's files leased until its plan delivers (default off: they run side by side in their own worktrees and the merge worker settles a conflict)" },

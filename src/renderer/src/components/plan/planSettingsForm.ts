@@ -3,6 +3,7 @@
 import type { MessageKey } from '../../../../core/i18n'
 import type { RunOutcome } from '../../../../core/types'
 import { editableSettingsOf, type PlanSetting, type PlanSettingKey, type PlanSettingReason, type PlanSettings } from '../../../../core/orchestration/planSettings'
+import type { ApprovalMode } from '../../../../core/settings/approvalDefault'
 import { emptyState } from '../../../../core/orchestration/state'
 import { DEFAULT_CONCURRENCY, MAX_CONCURRENT_WORKERS, MAX_REVIEW_ROUNDS, type DeliveryMode, type Job, type JobRun, type Project } from '../../../../core/orchestration/types'
 
@@ -17,14 +18,20 @@ export interface PlanSettingsValues {
   delivery: DeliveryMode
 }
 
+/** The approval setting's words, shared with Settings > Agents. */
+export const APPROVAL_LABEL = { ask: 'plan.approval.ask', start: 'plan.approval.start', 'hands-off': 'plan.approval.handsOff' } as const satisfies Record<ApprovalMode, MessageKey>
+
+/** The one approval setting the two stored flags make. */
+export const approvalOf = (v: Pick<PlanSettingsValues, 'autoApprove' | 'handsOff'>): ApprovalMode => (v.handsOff ? 'hands-off' : v.autoApprove ? 'start' : 'ask')
+
 export type PlanSettingsForm = { values: PlanSettingsValues; fields: Record<PlanSettingKey, Omit<PlanSetting<unknown>, 'value'>> }
 
 /** The form for one plan from `jobs-get` (the Job, its latest Run under `run`) and `projects-get`. The renderer has no
  *  OrchState, so editableSettingsOf reads a state of just these; the snapshot row's `outcome` stands in for the Tasks
  *  that state leaves out (a plan whose Run no longer reads running is finished, as settingRefusalOf says). */
-export function planSettingsFormOf(job: Job, run: JobRun | undefined, project: Project | undefined, outcome: RunOutcome | undefined): PlanSettingsForm {
+export function planSettingsFormOf(job: Job, run: JobRun | undefined, project: Project | undefined, outcome: RunOutcome | undefined, globalDefault?: ApprovalMode): PlanSettingsForm {
   const state = { ...emptyState(), jobs: [job], runs: run ? [run] : [], projects: project ? [project] : [] }
-  const s = editableSettingsOf(state, job.id) as PlanSettings
+  const s = editableSettingsOf(state, job.id, globalDefault) as PlanSettings
   const finished = outcome !== undefined && outcome !== 'running'
   const field = (f: PlanSetting<unknown>): Omit<PlanSetting<unknown>, 'value'> =>
     finished ? { editable: false, reason: 'finished' } : f.reason === undefined ? { editable: f.editable } : { editable: f.editable, reason: f.reason }

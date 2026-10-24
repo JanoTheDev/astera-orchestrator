@@ -33,6 +33,7 @@ import { usagePauseAtOf, USAGE_PAUSE_AT_DEFAULT } from '../core/orchestration/us
 import { accountMaxSessionsOf } from '../core/settings/accountMaxSessions'
 import { ACTIVITY_DIGEST_DEFAULT_MINUTES, activityDigestMinutesOf } from '../core/settings/activityDigest'
 import { tabSummariesOf } from '../core/settings/tabSummaries'
+import { approvalDefaultOf, type ApprovalMode } from '../core/settings/approvalDefault'
 import { FRESH_COORDINATOR_DEFAULT_PCT, freshCoordinatorPctOf } from '../core/settings/freshCoordinator'
 import { stallWatchOnOf } from '../core/settings/stallWatch'
 import { crashReportsOf, type CrashReportsSetting } from '../core/crash/report' // T27
@@ -146,6 +147,7 @@ export class AppSettingsStore {
   /** W3-A: minutes between activity digests, 0 for none. Written only when it is not the default. */
   private activityDigestMinutes = ACTIVITY_DIGEST_DEFAULT_MINUTES
   private freshCoordinatorContextPct = FRESH_COORDINATOR_DEFAULT_PCT
+  private approvalDefault: ApprovalMode | undefined = undefined
   /** Stall watchdog (orchestration/exec/stallWatch.ts): on by default; only an explicit false turns it off. */
   private stallWatch = true
   /** T27 crash reports (core/crash): 'ask' by default; only an explicit 'never' turns the prompt off. */
@@ -268,6 +270,7 @@ export class AppSettingsStore {
       this.freshCoordinatorContextPct = freshCoordinatorPctOf(
         (parsed as { freshCoordinatorContextPct?: unknown }).freshCoordinatorContextPct
       )
+      this.approvalDefault = approvalDefaultOf((parsed as { approvalDefault?: unknown }).approvalDefault)
       this.stallWatch = stallWatchOnOf((parsed as { stallWatch?: unknown }).stallWatch)
       this.crashReports = crashReportsOf((parsed as { crashReports?: unknown }).crashReports) // T27
       this.startAtLogin = startAtLoginOf((parsed as { startAtLogin?: unknown }).startAtLogin)
@@ -357,6 +360,7 @@ export class AppSettingsStore {
         this.accountMaxSessions = {}
         this.activityDigestMinutes = ACTIVITY_DIGEST_DEFAULT_MINUTES
         this.freshCoordinatorContextPct = FRESH_COORDINATOR_DEFAULT_PCT
+        this.approvalDefault = undefined
         this.stallWatch = true
         this.crashReports = 'ask'
         this.startAtLogin = true
@@ -410,6 +414,7 @@ export class AppSettingsStore {
       this.accountMaxSessions = {}
       this.activityDigestMinutes = ACTIVITY_DIGEST_DEFAULT_MINUTES
       this.freshCoordinatorContextPct = FRESH_COORDINATOR_DEFAULT_PCT
+      this.approvalDefault = undefined
       this.stallWatch = true
       this.crashReports = 'ask'
       this.startAtLogin = true
@@ -708,6 +713,16 @@ export class AppSettingsStore {
     await this.persist()
   }
 
+  getApprovalDefault(): ApprovalMode | undefined {
+    return this.approvalDefault
+  }
+
+  /** Narrowed like the file: the value arrives from the renderer; anything but a mode clears the default. */
+  async setApprovalDefault(mode: unknown): Promise<void> {
+    this.approvalDefault = approvalDefaultOf(mode)
+    await this.persist()
+  }
+
   getStallWatch(): boolean {
     return this.stallWatch
   }
@@ -964,6 +979,7 @@ export class AppSettingsStore {
       accountMaxSessions?: Record<string, number>
       activityDigestMinutes?: number
       freshCoordinatorContextPct?: number
+      approvalDefault?: ApprovalMode
       stallWatch?: false
       crashReports?: 'never' // T27
       startAtLogin?: false
@@ -1020,6 +1036,7 @@ export class AppSettingsStore {
     if (Object.keys(this.accountMaxSessions).length > 0) data.accountMaxSessions = this.accountMaxSessions
     if (this.activityDigestMinutes !== ACTIVITY_DIGEST_DEFAULT_MINUTES) data.activityDigestMinutes = this.activityDigestMinutes
     if (this.freshCoordinatorContextPct !== FRESH_COORDINATOR_DEFAULT_PCT) data.freshCoordinatorContextPct = this.freshCoordinatorContextPct
+    if (this.approvalDefault !== undefined) data.approvalDefault = this.approvalDefault
     if (!this.stallWatch) data.stallWatch = false
     if (this.crashReports === 'never') data.crashReports = 'never' // T27
     if (!this.startAtLogin) data.startAtLogin = false

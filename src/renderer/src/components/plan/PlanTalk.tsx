@@ -60,7 +60,7 @@ export function PlanTalk({ row, door, ui, name }: { row: JobRow; door: OrchDoor;
       {/* W8-F (#94): what keeps Run from working, before it is pressed */}
       {row.pendingStart === true && row.planProblems !== undefined && row.planProblems.length > 0 && (
         <div className="plan-talk-problems" role="alert">
-          <p>{t('plan.talk.problems')}</p>
+          <p>{t(row.autoApprove === true || row.handsOff === true ? 'plan.talk.waitingPlanner' : 'plan.talk.problems')}</p>
           <ul>
             {row.planProblems.map((p) => (
               <li key={p}>{p}</li>

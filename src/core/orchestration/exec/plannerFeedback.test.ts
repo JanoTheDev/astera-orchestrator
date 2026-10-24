@@ -7,8 +7,8 @@ import { deriveActivity, noticeOf, type ActivityEvent } from '../activity'
 import { planIncompleteActivity, planReadyActivity } from '../../../host/activity'
 import { snapshotFor } from '../view'
 import { buildPlannerBrief } from '../handover'
-import type { Task } from '../types'
-import { autoApproveOf, plannerProblemsNotice, feedbackLine, freshFeedbackBrief, handsOffOf, plansMissingReady, resumeBrief } from './plannerFeedback'
+import type { Job, Project, Task } from '../types'
+import { approvalOf, autoApproveOf, plannerProblemsNotice, feedbackLine, freshFeedbackBrief, handsOffOf, plansMissingReady, resumeBrief } from './plannerFeedback'
 
 const NOW = '2026-10-18T00:00:00.000Z'
 
@@ -291,6 +291,51 @@ describe('#117 hands-off', () => {
     const on = { ...base.jobs[0], handsOff: true, autoApprove: false }
     expect(handsOffOf(base, on)).toBe(true)
     expect(autoApproveOf(base, on)).toBe(true)
+  })
+})
+
+describe('approval setting: plan, then project, then global default, then planning mode', () => {
+  const job = (over: Partial<Job> = {}): Job => ({ id: 'j', objective: 'o', title: 't', cwd: '/p', createdAt: NOW, projectId: 'prj', ...over })
+  const state = (project: Partial<Project> = {}): OrchState => ({ ...emptyState(), projects: [{ id: 'prj', name: 'p', path: '/p', createdAt: NOW, ...project } as Project] })
+
+  it('chat mode asks, auto mode starts when the plan holds', () => {
+    expect(approvalOf(state(), job())).toBe('ask')
+    expect(approvalOf(state(), job({ planning: 'chat' }))).toBe('ask')
+    expect(approvalOf(state(), job({ planning: 'auto' }))).toBe('start')
+    expect(autoApproveOf(state(), job({ planning: 'auto' }))).toBe(true)
+  })
+
+  it('the plan beats its project, the project beats the global default, the global default beats the planning mode', () => {
+    expect(approvalOf(state({ autoApprove: true }), job({ autoApprove: false }))).toBe('ask')
+    expect(approvalOf(state({ autoApprove: false }), job({ planning: 'auto' }), 'start')).toBe('ask')
+    expect(approvalOf(state({ autoApprove: true }), job(), 'ask')).toBe('start')
+    expect(approvalOf(state(), job({ planning: 'auto' }), 'ask')).toBe('ask')
+    expect(approvalOf(state(), job(), 'start')).toBe('start')
+    expect(approvalOf(state(), job(), 'hands-off')).toBe('hands-off')
+  })
+
+  it('hands-off of the plan or its project keeps winning', () => {
+    expect(approvalOf(state({ handsOff: true }), job({ autoApprove: false }), 'ask')).toBe('hands-off')
+    expect(approvalOf(state(), job({ handsOff: true }))).toBe('hands-off')
+  })
+
+  it('jobs-auto-start takes the Host\'s global default (--approval) and refuses without one', async () => {
+    const r = rig()
+    const { jobId } = await planned(r)
+    expect((await r.person('jobs-auto-start', { id: jobId })).status).toBe(409)
+    expect((await r.person('jobs-auto-start', { id: jobId, approval: 'start' })).status).toBe(200)
+  })
+
+  it('projects-set --approval keeps ask apart from unset', async () => {
+    const r = rig()
+    await planned(r)
+    const id = r.state().projects[0]?.id
+    if (!id) return
+    for (const [approval, autoApprove, handsOff] of [['ask', false, undefined], ['start', true, undefined], ['hands-off', true, true]] as const) {
+      expect((await r.person('projects-set', { id, approval })).status).toBe(200)
+      expect(r.state().projects[0]).toMatchObject({ autoApprove, ...(handsOff ? { handsOff } : {}) })
+    }
+    expect((await r.person('projects-set', { id, approval: 'maybe' })).status).toBeGreaterThanOrEqual(400)
   })
 })
 
