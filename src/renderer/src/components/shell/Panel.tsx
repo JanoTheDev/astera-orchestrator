@@ -7,6 +7,8 @@ import { previewTargetOf } from '../../../../core/preview/url'
 import { BottomPanel } from '../BottomPanel'
 import { InboxPage } from '../inbox/InboxPage'
 import { ActivityPanel } from '../activity/ActivityPanel'
+import { ConsolePane } from '../console/ConsolePane'
+import { useState } from 'react'
 import { Icon, IconButton, Sash, Tabs } from '../ui'
 import { openConsole, openPanel } from './navigation'
 import { shownPanelTab } from './shellView'
@@ -17,7 +19,8 @@ const LABEL: Record<PanelTab, MessageKey> = {
   needs: 'shell.panel.needs',
   activity: 'shell.panel.activity',
   output: 'shell.panel.output',
-  terminal: 'shell.panel.terminal'
+  terminal: 'shell.panel.terminal',
+  console: 'shell.panel.console'
 }
 export const PANEL_MIN_H = 100
 export const PANEL_MAX_H = 800
@@ -35,6 +38,9 @@ export type PanelProps = Pick<
 export function Panel(p: PanelProps): React.JSX.Element | null {
   const { bottomTabShown, openLinkedFolder, panelTab, runPanelOpen, runPanelHeight, t, terminals } = p
   const shown = shownPanelTab(panelTab, bottomTabShown)
+  // The console stays mounted once opened, so its thread and scroll survive a tab switch
+  const [consoleOpened, setConsoleOpened] = useState(false)
+  if (shown === 'console' && !consoleOpened) setConsoleOpened(true)
   if (!runPanelOpen) return null
   const consoles = shown === 'output' || shown === 'terminal'
   return (
@@ -75,6 +81,11 @@ export function Panel(p: PanelProps): React.JSX.Element | null {
         {shown === 'activity' && (
           <div className="wb-panel__scroll">
             <ActivityPanel planId={p.workspacePlanId} accounts={p.accounts} onOpenSession={(sessionId) => openConsole(sessionId)} />
+          </div>
+        )}
+        {consoleOpened && (
+          <div className="wb-panel__consoles" style={shown === 'console' ? undefined : { display: 'none' }}>
+            <ConsolePane shown={shown === 'console'} onOpenPath={p.openLinkedPath} />
           </div>
         )}
         {/* mounted while the panel shows, hidden off its two tabs: the run consoles and shells keep their scrollback */}

@@ -114,4 +114,10 @@ export const shell = {
   'shell.welcome.keyPanel': '패널 보이기/숨기기',
   'shell.welcome.keySettings': '설정',
   'shell.welcome.keyAgents': '에이전트 보기',
+  // T10 Astera console (bottom panel)
+  'shell.panel.console': '콘솔',
+  'shell.console.starting': 'Astera 콘솔을 여는 중…',
+  'shell.console.ended': 'Astera 콘솔이 끝났습니다',
+  'shell.console.failed': 'Astera 콘솔을 열 수 없습니다',
+  'shell.console.start': '다시 시작',
 } as const

@@ -104,4 +104,10 @@ export const shell: Record<keyof typeof ko, string> = {
   'shell.welcome.keyPanel': 'Show or hide the panel',
   'shell.welcome.keySettings': 'Settings',
   'shell.welcome.keyAgents': 'Agents view',
+  // T10 Astera console (bottom panel)
+  'shell.panel.console': 'Console',
+  'shell.console.starting': 'Opening the Astera console…',
+  'shell.console.ended': 'The Astera console ended',
+  'shell.console.failed': 'The Astera console could not open',
+  'shell.console.start': 'Start again',
 }
