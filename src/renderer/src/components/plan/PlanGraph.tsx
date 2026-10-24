@@ -13,6 +13,7 @@ import { checkTooltip, nodeMetaText, type GlyphKind } from '../checkText'
 import { STATUS_COLOR, TaskGlyph } from '../JobIcons'
 import { Button, Icon, IconButton, type IconName } from '../ui'
 import { reasonText } from './planBoard'
+import { taskActionOf } from './planCommands'
 
 /** A check's state as a registry icon, in place of the old glyph characters (checkText GLYPH). */
 const CHECK_ICON: Record<GlyphKind, IconName> = {
@@ -160,10 +161,10 @@ export function Graph({
       (task.status === 'ready' || task.status === 'pending')
     const showGate = task.status === 'ready' || task.status === 'pending'
     const showStop = task.status === 'dispatched' && dispatchOpen
-    const showRestart = task.status === 'failed' || (task.status === 'dispatched' && !dispatchOpen)
-    // 열린 Gate 가 있어야 답할 것이 있다. blocked 인데 gate 가 없는 조합은 만들어지지 않지만
-    // (blocked 로 가는 길이 createGate 뿐이다) 판정이 그 사실에 기대지 않는다 — 기대면 그
-    // 불변식이 깨지는 날 답할 것 없는 버튼이 뜬다
+    const showContinue = taskActionOf(task) === 'continue'
+    const showRestart = task.status === 'failed' || (task.status === 'dispatched' && !dispatchOpen) || showContinue
+    // 열린 Gate 가 있어야 답할 것이 있다. gate 없는 blocked 는 주인에게 붙들린 Task 다(holdForOwner)
+    // — 그쪽은 답할 것이 없으니 위의 Continue 가 맡는다
     const showAnswer = task.status === 'blocked' && task.gate !== undefined
     // 제목 아래 한 줄. **없으면 줄을 그리지 않는다** — 스냅숏이 이 값을 주지 않는 Task 가 더
     // 많고(끝난 것, 아직 안 뜬 것), 빈 줄을 두면 그 카드들의 제목이 가운데에서 위로 밀려 한
@@ -324,9 +325,9 @@ export function Graph({
               <IconButton
                 size="sm"
                 className="detail-node-btn"
-                label={t('jobs.node.restart')}
+                label={t(showContinue ? 'plan.task.continue' : 'jobs.node.restart')}
                 disabled={lockedReason !== undefined}
-                title={lockedReason ?? t('jobs.node.restart')}
+                title={lockedReason ?? t(showContinue ? 'plan.task.continue' : 'jobs.node.restart')}
                 icon={<Icon name="refresh" size={14} />}
                 onClick={(ev) => {
                   ev.stopPropagation()

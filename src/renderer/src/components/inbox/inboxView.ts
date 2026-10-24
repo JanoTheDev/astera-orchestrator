@@ -9,10 +9,12 @@ import type { OpenQuestion } from '../plan/planBoard'
 import type { Lang, Message, MessageKey } from '../../../../core/i18n'
 import type { Translate } from '../checkText'
 
-/** An open row of `questions-list`: an ask or escalation (`source`), or a Gate (none). */
-export type QuestionRow = Omit<OpenQuestion, 'source'> & { source?: OpenQuestion['source']; runId: string; createdAt: string }
+/** An open row of `questions-list`: an ask or escalation (`source`), or a Gate (none). T4: `approval` is a worker's
+ *  request to run an owner-only command, `command` that command as typed. */
+export type QuestionRow = Omit<OpenQuestion, 'source'> & { source?: OpenQuestion['source'] | 'approval'; command?: string; runId: string; createdAt: string }
 
-export type NeedKind = 'approval' | 'question' | 'escalation' | 'gate' | 'permission' | 'waiting'
+/** `approval` is a plan's; `command` a worker's request to run an owner-only command. */
+export type NeedKind = 'approval' | 'command' | 'question' | 'escalation' | 'gate' | 'permission' | 'waiting'
 
 /** What `openInbox(filter)` can ask for. `plan:<jobId>` keeps one plan's cards. */
 export type InboxGroup = 'all' | 'approvals' | 'questions' | 'permissions' | 'handled'
@@ -22,7 +24,7 @@ export interface InboxFilter {
 }
 
 const GROUP_KINDS: Record<Exclude<InboxGroup, 'all' | 'handled'>, readonly NeedKind[]> = {
-  approvals: ['approval'],
+  approvals: ['approval', 'command'],
   questions: ['question', 'escalation', 'gate'],
   permissions: ['permission', 'waiting']
 }
@@ -37,6 +39,7 @@ export function parseFilter(raw: string | undefined): InboxFilter {
 /** The chip a card leads with: its kind as a word, and the word's tone. */
 export const NEED_WORD: Record<NeedKind, [MessageKey, 'info' | 'warn' | 'danger']> = {
   approval: ['inbox.kind.approval', 'info'],
+  command: ['inbox.kind.command', 'warn'],
   question: ['inbox.kind.question', 'warn'],
   gate: ['inbox.kind.question', 'warn'],
   escalation: ['inbox.kind.decision', 'danger'],
@@ -141,7 +144,7 @@ export function needsOf(input: InboxInput): NeedCard[] {
     const taskTitle = input.taskTitles.get(q.taskId)
     cards.push({
       key: `q:${q.id}`,
-      kind: q.source === 'escalation' ? 'escalation' : q.source === 'ask' ? 'question' : 'gate',
+      kind: q.source === 'approval' ? 'command' : q.source === 'escalation' ? 'escalation' : q.source === 'ask' ? 'question' : 'gate',
       at: q.createdAt,
       jobId,
       ...at,

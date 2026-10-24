@@ -283,6 +283,8 @@ export const plan: Record<keyof typeof ko, string> = {
   'plan.doc.tab.sofar': 'So far',
   'plan.doc.tabs': 'Activity views',
   'plan.doc.openConsoles': 'Open consoles',
+  'plan.task.continue': 'Continue',
+  'plan.task.retry': 'Retry',
   'plan.row.openConsole': 'Open console',
   'plan.row.expand': 'Show details of {task}',
   'plan.row.collapse': 'Hide details of {task}',

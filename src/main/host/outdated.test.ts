@@ -24,6 +24,37 @@ describe('hostIsOutdated', () => {
     expect(hostIsOutdated('1.3.20-beta.1', '1.3.21')).toBe(false)
     expect(hostIsOutdated('1.3.20', 'unknown')).toBe(false)
   })
+
+  // A local build is <semver>-build.<UTC time>[.<sha>] (scripts/dist-version.mjs). Same semver, older
+  // stamp: the Host predates the app's build, and must be replaced after a self-update.
+  it('is true for the same semver with an older build stamp', () => {
+    expect(hostIsOutdated('1.4.14-build.202610231544.c6104a9', '1.4.14-build.202610232220.b3a07d0')).toBe(true)
+    expect(hostIsOutdated('1.4.14-build.202610231544', '1.4.14-build.202610232220.b3a07d0')).toBe(true)
+  })
+
+  it('is false for the same semver with an equal build stamp, whatever the sha', () => {
+    expect(hostIsOutdated('1.4.14-build.202610232220.b3a07d0', '1.4.14-build.202610232220.b3a07d0')).toBe(false)
+    expect(hostIsOutdated('1.4.14-build.202610232220.aaaaaaa', '1.4.14-build.202610232220.b3a07d0')).toBe(false)
+  })
+
+  it('is false for the same semver with a newer build stamp', () => {
+    expect(hostIsOutdated('1.4.14-build.202610232220.b3a07d0', '1.4.14-build.202610231544.c6104a9')).toBe(false)
+  })
+
+  it('is false when a build part is missing on either side — the stamp cannot be ordered', () => {
+    expect(hostIsOutdated('1.4.14', '1.4.14-build.202610232220.b3a07d0')).toBe(false)
+    expect(hostIsOutdated('1.4.14-build.202610231544.c6104a9', '1.4.14')).toBe(false)
+  })
+
+  it('still orders by semver first when the build stamps are present on both sides', () => {
+    expect(hostIsOutdated('1.4.13-build.202610239999.aaaaaaa', '1.4.14-build.202610230001.bbbbbbb')).toBe(true)
+    expect(hostIsOutdated('1.4.15-build.202610230001.aaaaaaa', '1.4.14-build.202610239999.bbbbbbb')).toBe(false)
+  })
+
+  it('is false for a build version with an unreadable semver', () => {
+    expect(hostIsOutdated('1.4-build.202610231544.c6104a9', '1.4.14-build.202610232220.b3a07d0')).toBe(false)
+    expect(hostIsOutdated('dev-build.202610231544', '1.4.14-build.202610232220.b3a07d0')).toBe(false)
+  })
 })
 
 describe('hostSpeaksProcs', () => {

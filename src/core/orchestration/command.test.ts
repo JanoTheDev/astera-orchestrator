@@ -218,12 +218,12 @@ describe('handleCommand — 역할 인가', () => {
   it('워커 세션은 worker-start를 부를 수 없다 — 중첩 오케스트레이션 차단', async () => {
     const deps = await seedWorker()
     const r = await call(deps, 'worker-start', { taskId: 'x' }, 'sess1')
-    expect(r.status).toBe(403)
+    expect(r.status).toBe(202) // T4: asks the owner instead of running it
   })
   it('워커 세션은 task-create·run-create·reset·gate-create를 부를 수 없다', async () => {
     const deps = await seedWorker()
     for (const cmd of ['task-create', 'run-create', 'reset', 'gate-create']) {
-      expect((await call(deps, cmd, {}, 'sess1')).status).toBe(403)
+      expect((await call(deps, cmd, {}, 'sess1')).status).toBe(202) // T4: asks the owner instead of running it
     }
   })
   it('워커 세션은 자기 send·ask를 부를 수 있다', async () => {
@@ -356,7 +356,7 @@ describe('handleCommand — 롤링이 세션을 rekey 한 뒤 (worker-rolling-ph
 
     // rekey 된 뒤에는 'sess2'가 그 Dispatch의 sessionId이므로 워커로 인식되어 같은 명령이 막힌다
     const after = await call(deps, 'run-create', { objective: 'o3', cwd: 'D:/p' }, 'sess2')
-    expect(after.status).toBe(403)
+    expect(after.status).toBe(202) // T4: asks the owner instead of running it
   })
 })
 
@@ -991,7 +991,7 @@ describe('handleCommand — check', () => {
       worktree: 'current'
     })
     const r = await call(deps, 'check', {}, 'sess1')
-    expect(r.status).toBe(403)
+    expect(r.status).toBe(202) // T4: asks the owner instead of running it
   })
 })
 
@@ -1184,7 +1184,7 @@ describe('handleCommand — inbox는 코디네이터 전용', () => {
 
   it('워커 세션의 inbox는 403이다 — ask --resume의 소유권 가드를 우회하는 구멍이었다', async () => {
     const deps = await seedTwoWorkers()
-    expect((await call(deps, 'inbox', { limit: 200 }, 'sess1')).status).toBe(403)
+    expect((await call(deps, 'inbox', { limit: 200 }, 'sess1')).status).toBe(202) // T4: asks the owner instead of running it
   })
 
   it('코디네이터의 inbox는 여전히 200이다', async () => {
@@ -1667,7 +1667,7 @@ describe('handleCommand — task-update (전이 표 우회, task-13a)', () => {
       worktree: 'current'
     })
     const r = await call(deps, 'task-update', { id: taskId, status: 'ready' }, 'sess1')
-    expect(r.status).toBe(403)
+    expect(r.status).toBe(202) // T4: asks the owner instead of running it
   })
 })
 
@@ -3331,7 +3331,7 @@ describe('run-delete', () => {
     })
     // 그 워커의 세션 id 로 부른다 — handleCommand 가 Dispatch 를 가진 세션을 워커로 본다
     const r = await call(deps, 'run-delete', { id: runId }, 'sess1')
-    expect(r.status).toBe(403)
+    expect(r.status).toBe(202) // T4: asks the owner instead of running it
   })
 })
 
@@ -4648,7 +4648,7 @@ describe('run-pause', () => {
   it('워커 세션은 부를 수 없다', async () => {
     const { deps, templateId } = await runningSchedule()
     const r = await call(deps, 'run-pause', { run: templateId }, 'sess_running')
-    expect(r.status).toBe(403)
+    expect(r.status).toBe(202) // T4: asks the owner instead of running it
   })
 })
 
@@ -6715,8 +6715,12 @@ describe('jobs create / tasks add / accounts list', () => {
     })
     for (const [session, role] of [['sess_worker', 'worker'], ['sess_coord', 'coordinator'], ['sess_planner', 'planner']] as const) {
       const r = await call(deps, 'task-update', { id: b.id, deps: [] }, session)
+      // T4: a worker asks the owner for task-update (COORDINATOR_ONLY), a planner is refused a Task outside its plan (plannerRefusal)
+      if (role === 'worker') {
+        expect(r.status, session).toBe(202)
+        continue
+      }
       expect(r.status, session).toBeGreaterThanOrEqual(400)
-      // a worker is refused task-update outright (COORDINATOR_ONLY), a planner a Task outside its plan (plannerRefusal)
       expect((r.body as { error: string }).error, session).toContain(role)
     }
     const tab = await call(deps, 'task-update', { id: b.id, deps: [], spec: 'b, on its own' }, 'sess_owner_tab')
@@ -7028,9 +7032,9 @@ describe('jobs create / tasks add / accounts list', () => {
       worktree: 'current'
     })
     const job = await call(deps, 'jobs-create', { objective: 'x', cwd: 'D:/p' }, 'sess1')
-    expect(job.status).toBe(403)
+    expect(job.status).toBe(202) // T4: asks the owner instead of running it
     const add = await call(deps, 'tasks-add', { run: runId, spec: 's', account: 'acc1' }, 'sess1')
-    expect(add.status).toBe(403)
+    expect(add.status).toBe(202) // T4: asks the owner instead of running it
   })
 })
 

@@ -23,14 +23,27 @@ import {
   HOST_FEATURE_MCP_HTTP
 } from '../../core/host/protocol'
 
+/** A local build's version: `<semver>-build.<UTC time>[.<sha>]` (scripts/dist-version.mjs). The stamp is
+ *  fixed-width, so two stamps order as strings. */
+const BUILD_RE = /^(\d+\.\d+\.\d+)-build\.(\d{12})(?:\.[0-9a-f]+)?$/
+
 /** True only when the Host's version is readable and strictly older than the app's. A version that
  *  cannot be parsed is **not** outdated: replacing a Host on a guess about what it is would be worse
  *  than leaving it. A Host newer than the app is not outdated either — after a downgrade it is the
- *  app that is behind, and that is not this rule's to fix. */
+ *  app that is behind, and that is not this rule's to fix. Within one semver, a local build's stamp
+ *  orders it: a Host from an older build of the same release is outdated after a self-update. */
 export function hostIsOutdated(hostVersion: string | null, appVersion: string): boolean {
   if (hostVersion === null) return false
-  const cmp = compareVersions(hostVersion, appVersion)
-  return cmp !== null && cmp < 0
+  const host = BUILD_RE.exec(hostVersion)
+  const app = BUILD_RE.exec(appVersion)
+  const hostSemver = host?.[1] ?? hostVersion
+  const appSemver = app?.[1] ?? appVersion
+  const cmp = compareVersions(hostSemver, appSemver)
+  if (cmp === null) return false
+  if (cmp !== 0) return cmp < 0
+  // A release (no stamp) on either side cannot be ordered against a build of the same semver.
+  if (!host || !app) return false
+  return host[2] < app[2]
 }
 
 /** Whether the connected Host can be asked about line processes — it said so in its hello. A Host that

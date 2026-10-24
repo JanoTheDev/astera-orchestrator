@@ -17,6 +17,7 @@ import { randomBytes } from 'node:crypto'
 import {
   ackDelivery,
   applyReply,
+  createApproval,
   answerEscalation, // W7-C
   applyReviewResult,
   applyWorkerDone,
@@ -164,6 +165,7 @@ import { isSamePath } from '../files/tree'
 import type { RunPr, TaskKind, TaskLinks } from './types'
 import { escalationOpen } from './sessionIndex' // W7-C
 import type { Gate, Message } from './types' // W7-C
+import { spelledCommand } from './cliUsage'
 import type { BranchPushResult, PrCreateRequest, PrCreateResult } from '../github/prCreate'
 import { mergePullRequest, PR_MERGE_METHODS, type PrMergeMethod } from '../github/prMerge'
 // W8-A commit attribution
@@ -1284,6 +1286,57 @@ const COORDINATOR_ONLY = new Set([
   'worktrees-remove'
 ])
 
+/** T4: a command as `astera` takes it, the way the owner reads an approval request: `astera jobs archive --id job_1`. */
+function commandLine(cmd: string, args: Record<string, unknown>): string {
+  const flags = Object.entries(args).flatMap(([k, v]) => {
+    if (v === undefined || v === false) return []
+    const flag = `--${k.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}`
+    if (v === true) return [flag]
+    const value = Array.isArray(v) ? v.join(',') : typeof v === 'string' ? v : JSON.stringify(v)
+    return [`${flag} ${/^[\w./:@,=-]+$/.test(value) ? value : JSON.stringify(value)}`]
+  })
+  return [`astera ${spelledCommand(cmd)}`, ...flags].join(' ')
+}
+
+/** T4: the approval requests whose command is running now, so a second click does not run it twice. */
+const approving = new Set<string>()
+
+/** T4: the owner answers a worker's approval request. Approve replays exactly the stored command as the app (the
+ *  replay passes every role guard, so it is only ever one a worker is refused, with the args it asked with); deny runs
+ *  nothing. Either way the answer, with the command's result, is what the worker's `ask --resume` returns. */
+async function answerApproval(deps: OrchServerDeps, msg: Message & { approval: NonNullable<Message['approval']> }, answer: string): Promise<Reply> {
+  const rowOf = (extra: Record<string, unknown> = {}): Reply => {
+    const st = deps.getState()
+    const m = st.messages.find((x) => x.id === msg.id)
+    return okBody(m ? { ...messageQuestionOf(st, m), ...extra } : null)
+  }
+  if (msg.answered) return rowOf()
+  const word = answer.trim().toLowerCase()
+  const approve = ['approve', 'approved', 'yes'].includes(word)
+  if (!approve && !['deny', 'denied', 'no'].includes(word)) return bad('answer approve or deny')
+  if (approving.has(msg.id)) return conflict('this approval request is already being run')
+  const { cmd, args } = msg.approval
+  const line = commandLine(cmd, args)
+  approving.add(msg.id)
+  try {
+    const result = !approve
+      ? null
+      : COORDINATOR_ONLY.has(cmd)
+        ? await handleCommand(deps, { sessionId: APP_CALLER, role: 'app' }, cmd, { ...args })
+        : denied(`${cmd} is not an owner-only command`)
+    const shown = result ? JSON.stringify(result.body) ?? 'null' : ''
+    const body = result
+      ? `Approved: the owner ran \`${line}\`. Result (${result.status}): ${shown.length > 4000 ? `${shown.slice(0, 3997)}...` : shown}`
+      : `Denied: the owner did not allow \`${line}\`. Do not run it; carry on without it.`
+    const r = applyReply(deps.getState(), { messageId: msg.id, body, by: 'owner' }, deps.now?.() ?? new Date().toISOString())
+    if (!r.ok) return refused(r)
+    await deps.setState(r.state)
+    return rowOf(result ? { result: { status: result.status, body: result.body } } : {})
+  } finally {
+    approving.delete(msg.id)
+  }
+}
+
 /** Session-task commands answer to the work-unit tracking toggle, not the orchestration one. They
  *  are the only commands that do: everything else here drives Jobs, which is what "orchestration"
  *  names. */
@@ -1443,7 +1496,7 @@ const jobStateOf = (view: Parameters<typeof stateWord>[0]): string => {
  * Gates and in their shape (`source` tells them apart). An ask is open until answered; an escalation while
  * `escalationOpen` (sessionIndex.ts) holds. `resolution` is the answer given.
  */
-function messageQuestionOf(s: OrchState, m: Message): (Pick<Gate, 'id' | 'runId' | 'taskId' | 'question' | 'options' | 'status' | 'resolution' | 'createdAt'> & { source: 'ask' | 'escalation' }) | null {
+function messageQuestionOf(s: OrchState, m: Message): (Pick<Gate, 'id' | 'runId' | 'taskId' | 'question' | 'options' | 'status' | 'resolution' | 'createdAt'> & { source: 'ask' | 'escalation' | 'approval'; command?: string }) | null {
   if (m.type !== 'question' && m.type !== 'escalation') return null
   let open: boolean
   // An ask nobody can hear any more (its worker's Dispatch ended) is not waiting on anyone
@@ -1454,11 +1507,13 @@ function messageQuestionOf(s: OrchState, m: Message): (Pick<Gate, 'id' | 'runId'
   }
   return {
     id: m.id,
-    source: m.type === 'question' ? 'ask' : 'escalation',
+    // T4: a worker's request to run an owner-only command (answerApproval)
+    source: m.approval ? 'approval' : m.type === 'question' ? 'ask' : 'escalation',
     runId: m.runId,
     taskId: m.taskId ?? '',
     question: m.type === 'question' ? m.body : [m.subject, m.body].filter((x) => x !== '').join('\n\n'),
     ...(m.options !== undefined ? { options: m.options } : {}),
+    ...(m.approval ? { command: commandLine(m.approval.cmd, m.approval.args) } : {}),
     status: open ? 'open' : 'resolved',
     ...(m.answered && (m.answerBody ?? '') !== '' ? { resolution: m.answerBody } : {}),
     createdAt: m.createdAt
@@ -2008,7 +2063,27 @@ export async function handleCommand(
     s.dispatches.filter((d) => d.sessionId === caller.sessionId).map((d) => d.id)
   )
   const isWorker = myDispatchIds.size > 0
-  if (isWorker && COORDINATOR_ONLY.has(cmd)) return denied(`worker sessions cannot call ${cmd}`)
+  if (isWorker && COORDINATOR_ONLY.has(cmd)) {
+    // T4: a worker at work asks its owner instead; approving runs exactly this command for it (answerApproval)
+    if (!myDispatch) return denied(`worker sessions cannot call ${cmd}`)
+    const line = commandLine(cmd, args)
+    const asked = createApproval(s, { taskId: myDispatch.taskId, dispatchId: myDispatch.id, cmd, args, line }, now)
+    // A dispatch the state cannot place (no such Task) asks nobody
+    if (!asked.ok) return denied(`worker sessions cannot call ${cmd}`)
+    await deps.setState(asked.state)
+    const id = asked.value.id
+    const wait = `astera ask --resume ${id} --json`
+    return {
+      status: 202,
+      body: {
+        approvalRequested: true,
+        questionId: id,
+        command: line,
+        wait,
+        message: `Worker sessions cannot run ${cmd} themselves, so the owner was asked to approve \`${line}\`. Wait for the answer with \`${wait}\`: it returns the command's result once approved, or the refusal.`
+      }
+    }
+  }
   // **The driving loop's own calls are not an agent's** (final review M3). `run-coordinator-stop --gone`
   // empties a slot with nothing stopped, and a coordinator sending it with its own id would orphan
   // itself; `run-start-marks-clear` is the loop's sweep. Refused from inside any agent session, as
@@ -5913,12 +5988,17 @@ export async function handleCommand(
         // on a hands-off plan, whose own running coordinator decides in the owner's place
         if (msg.type === 'escalation' && fromAgent && !handsOffCoordinatorOf(s, msg.runId, caller))
           return denied('an escalation is answered by the owner, from the app or a shell')
+        // T4: approving runs a command no agent may, so no agent answers it, a hands-off coordinator included
+        if (msg.approval) {
+          if (fromAgent) return denied('an approval request is answered by the owner, from the app or a shell')
+          return answerApproval(deps, { ...msg, approval: msg.approval }, answer)
+        }
         if (msg.type === 'question') {
           const r = applyReply(s, { messageId: msg.id, body: answer, ...(fromAgent ? {} : { by: 'owner' as const }) }, now)
           if (!r.ok) return refused(r)
           await deps.setState(r.state)
         } else {
-          const r = answerEscalation(s, { messageId: msg.id, body: answer }, now)
+          const r = answerEscalation(s, { messageId: msg.id, body: answer, ...(fromAgent ? {} : { by: 'owner' as const }) }, now)
           if (!r.ok) return refused(r)
           await deps.setState(r.state)
         }

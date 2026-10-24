@@ -22,6 +22,14 @@ export type IntegrateAllOutcome =
   | { state: 'fixing-conflicts'; taskId: string }
   | { state: 'refused'; error?: string }
 
+/** The owner's way out of a stuck Task: Continue a Task held for them (blocked with no Gate: dispatchLoop holdForOwner),
+ *  Retry a failed one. A blocked Task with a Gate keeps its Answer flow. Both go through restartTask. */
+export function taskActionOf(task: Pick<JobTask, 'status' | 'gate'>): 'continue' | 'retry' | undefined {
+  if (task.status === 'failed') return 'retry'
+  if (task.status === 'blocked' && task.gate === undefined) return 'continue'
+  return undefined
+}
+
 export function integrateAllOutcomeOf(reply: CommandReply): IntegrateAllOutcome {
   const b = (reply.body ?? {}) as { state?: unknown; taskId?: unknown; error?: unknown }
   const error = typeof b.error === 'string' ? b.error : undefined

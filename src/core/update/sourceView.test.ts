@@ -15,17 +15,23 @@ describe('titlebarView', () => {
     // A dev run answers update:status with disabled; that is no error to show.
     expect(titlebarView({ state: 'disabled', reason: 'unpackaged' })).toEqual({ kind: 'none' })
   })
-  it('counts new changes for a source build', () => {
+  it('offers a build button for new changes when the app can install itself', () => {
     expect(titlebarView(src({ state: 'available', version: 'deadbee', source: withChanges }))).toEqual({
-      kind: 'text',
-      message: { key: 'update.tb.sourceChanges', params: { count: 25 } }
+      kind: 'build',
+      message: { key: 'update.tb.sourceUpdate', params: { count: 25 } }
     })
+  })
+  it('only counts the changes when the app cannot build itself in', () => {
+    const manual: UpdateStatus = { state: 'available', version: 'deadbee', source: withChanges, sourceBuild: { commit: 'abc1234', selfInstall: false } }
+    expect(titlebarView(manual)).toEqual({ kind: 'text', message: { key: 'update.tb.sourceChanges', params: { count: 25 } } })
   })
   it('names the build step, and the heavy-job wait in its own words', () => {
     const building = (step: UpdateStatus['step']): TitlebarResult =>
       titlebarView(src({ state: 'building', step, message: `step ${step}` })) as TitlebarResult
-    for (const step of ['cloning', 'installing', 'building'] as const)
+    for (const step of ['cloning', 'installing', 'building'] as const) {
+      expect(building(step).kind).toBe('text') // progress, not clickable
       expect(building(step).message).toEqual({ key: 'update.tb.building', params: { step: `step ${step}` } })
+    }
     expect(building('waiting').message.key).toBe('update.tb.buildWaiting')
   })
   it('offers a restart button without a version number once built', () => {

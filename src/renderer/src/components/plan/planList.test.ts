@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { JobRow, JobTask } from '../../../../core/types'
 import { ageOf } from './planBoard'
-import { lastActivityOf, planStatusOf } from './planList'
+import { isStalledPlan, lastActivityOf, planStatusOf, resumeActionOf } from './planList'
 
 const task = (id: string, over: Partial<JobTask> = {}): JobTask => ({ id, title: id, status: 'pending', openGates: 0, ...over })
 const row = (over: Partial<JobRow> = {}): JobRow => ({
@@ -26,8 +26,25 @@ describe('planStatusOf', () => {
   // T8: a running plan with nothing that can move never reads Working
   it('says Needs you or Stalled for a running plan nothing can move', () => {
     expect(planStatusOf(row({ stuck: 'needs-you', tasks: [task('a', { status: 'blocked' })] }))).toEqual({ key: 'plan.outcome.needsYou', tone: 'warn' })
-    expect(planStatusOf(row({ stuck: 'stalled', tasks: [task('a', { status: 'failed' })] }))).toEqual({ key: 'plan.outcome.stalled', tone: 'danger' })
+    expect(planStatusOf(row({ stuck: 'stalled', tasks: [task('a', { status: 'failed' })] }))).toEqual({ key: 'pages.plans.status.stalled', tone: 'danger' })
     expect(planStatusOf(row({ stuck: 'stalled', paused: true })).key).toBe('jobs.run.roundStopped')
+  })
+
+  it('a plan with no Tasks that nothing works on reads Stalled with its Archive and Resume, never Working', () => {
+    const dead = row({ stuck: 'stalled', tasks: [] })
+    expect(planStatusOf(dead).key).toBe('pages.plans.status.stalled')
+    expect(isStalledPlan(dead)).toBe(true)
+    expect(isStalledPlan(row())).toBe(false)
+    expect(isStalledPlan(row({ stuck: 'stalled', archivedAt: '2026-10-24T00:00:00.000Z' }))).toBe(false)
+  })
+
+  it('Resume does what fits the stall: restart the lead, else retry the failed Task, else nothing', () => {
+    expect(resumeActionOf(row({ stuck: 'stalled', coordinatorMissing: true }))).toEqual({ kind: 'restart-lead' })
+    // no coordinator account (job_2855…): a failed Task with nothing waiting on it
+    expect(resumeActionOf(row({ stuck: 'stalled', tasks: [task('a', { status: 'completed' }), task('f', { status: 'failed' })] }))).toEqual({ kind: 'retry', taskId: 'f' })
+    expect(resumeActionOf(row({ stuck: 'stalled', stalledOn: { taskId: 'g', title: 'G', waiting: 1 }, tasks: [task('f', { status: 'failed' })] }))).toEqual({ kind: 'retry', taskId: 'g' })
+    expect(resumeActionOf(row({ stuck: 'stalled', tasks: [] }))).toBeUndefined()
+    expect(resumeActionOf(row())).toBeUndefined()
   })
 
   it('says Stalled on a failed Task (T36), never paused or running', () => {

@@ -342,6 +342,17 @@ describe('stuckOf', () => {
     expect(stuck(stateOf([at('c')]))).toBeUndefined()
   })
 
+  it('a Run with no Tasks and nobody to make any is stalled, never plain running', () => {
+    const s = stateOf([])
+    expect(outcomeOf(s, 'run_1')).toBe('running')
+    expect(stuck(s)).toBe('stalled')
+    // a coordinator, a replan, a coordinator start in flight or an archived plan is not a dead one
+    expect(stuck({ ...s, runs: [{ ...s.runs[0], coordinatorSessionId: 'ses_c' }] })).toBeUndefined()
+    expect(stuck({ ...s, runs: [{ ...s.runs[0], coordinatorStartingAt: new Date().toISOString() }] })).toBeUndefined()
+    expect(stuck({ ...s, jobs: [{ ...s.jobs[0], replanning: { runId: 'run_1', mode: 'completion', wave: 1, done: 0, startedAt: NOW } }] })).toBeUndefined()
+    expect(stuck({ ...s, jobs: [{ ...s.jobs[0], archivedAt: NOW }] })).toBeUndefined()
+  })
+
   it('a worker waiting on its own unanswered question, with no coordinator to answer it, needs you', () => {
     const d: Dispatch = { ...open('d1', 'w') }
     const q = { id: 'msg_q', runId: 'run_1', type: 'question' as const, taskId: 'w', dispatchId: 'd1', subject: 'which?', body: 'which?', createdAt: NOW, answered: false }

@@ -214,3 +214,14 @@ describe('ageOf / whereOf', () => {
     expect(whereOf('gameful', 'L4')).toBe('gameful › L4')
   })
 })
+
+describe("T4: a worker's request to run an owner-only command", () => {
+  it('is a command card of its own, in the approvals group, and covers its Task\'s question wait', () => {
+    const asked = q('msg_a', { source: 'approval', question: 'The worker asks to run `astera jobs archive --id j9`. Approve or deny.', command: 'astera jobs archive --id j9', options: ['approve', 'deny'] })
+    const items: InboxItem[] = [{ kind: 'session', session: session({ waitingFor: 'question' }) }]
+    const cards = needsOf(input({ items, questions: [asked] }))
+    expect(cards).toEqual([expect.objectContaining({ key: 'q:msg_a', kind: 'command', taskId: 't1', taskTitle: 'T1', q: asked })])
+    expect(filterNeeds(cards, parseFilter('approvals')).map((c) => c.kind)).toEqual(['command'])
+    expect(filterNeeds(cards, parseFilter('questions'))).toEqual([])
+  })
+})

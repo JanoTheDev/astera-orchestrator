@@ -1549,6 +1549,7 @@ app.whenReady().then(async () => {
     push({ state: 'init', version: app.getVersion() })
     // Registered before the updater loads, so a renderer that mounts meanwhile is answered too.
     ipcMain.handle('update:status', () => lastStatus)
+    ipcMain.handle('update:justUpdated', () => null) // only the source channel restarts onto a build it can name
     import('electron-updater')
       .then((mod) => {
         // electron-updater is CommonJS, so depending on the dynamic import's interop autoUpdater can
@@ -1834,12 +1835,13 @@ app.whenReady().then(async () => {
     ipcMain.handle('update:check', () => source.check(true))
     ipcMain.handle('update:download', () => source.build())
     ipcMain.handle('update:install', () => source.install())
+    ipcMain.handle('update:justUpdated', () => source.justUpdated())
     source.start()
   } else {
     // No channel (a dev run, or a build made with neither flag): every update:* call is answered rather than left
     // to reject with "No handler registered", which Electron logs from main on every call.
     const disabled = updateDisabledOf(app.isPackaged)
-    for (const ch of UPDATE_IPC_CHANNELS) ipcMain.handle(ch, () => disabled)
+    for (const ch of UPDATE_IPC_CHANNELS) ipcMain.handle(ch, () => (ch === 'update:justUpdated' ? null : disabled))
   }
 })
 

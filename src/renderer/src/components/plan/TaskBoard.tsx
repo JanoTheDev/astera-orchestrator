@@ -35,6 +35,7 @@ import {
   wavesOf,
   type LiveSession,
 } from './planBoard'
+import { taskActionOf } from './planCommands'
 import { QuestionAnswer } from './QuestionAnswer'
 import { Button, Chip, Icon, Meter, Select, Tooltip, type ChipTone, type IconName } from '../ui'
 import { openWorktree } from '../shell/navigation' // W9-J
@@ -67,7 +68,9 @@ export function TaskBoard({
   renderAbout,
   compact = false,
   nowMs = Date.now(),
-  onAddTask
+  onAddTask,
+  onRestart,
+  lockedReason
 }: {
   tasks: readonly JobTask[]
   accounts: Account[] | null
@@ -103,6 +106,10 @@ export function TaskBoard({
   nowMs?: number
   /** Present: every step not done ends with "Add task to this step", handing over the previous step's Task ids. */
   onAddTask?: (deps: string[]) => void
+  /** Present: a blocked Task with no Gate gets Continue and a failed one Retry (planCommands taskActionOf). */
+  onRestart?: (taskId: string) => void
+  /** Why the owner's buttons are off (a read-only plan), or undefined. */
+  lockedReason?: string
 }): React.JSX.Element {
   const { t } = useI18n()
   // T9: each Task's slice of the timeline and the feed, cut once when they change, so a row reads its own and a tick
@@ -205,6 +212,8 @@ export function TaskBoard({
                       detail={selected === tk.id ? renderDetail?.(tk) : undefined}
                       about={selected === tk.id ? renderAbout?.(tk) : undefined}
                       compact={compact}
+                      onRestart={onRestart}
+                      lockedReason={lockedReason}
                       onOpenConsole={
                         tk.sessionId && categoryOf(tk) === 'running' && onOpenSession && canOpenSession?.(tk.sessionId)
                           ? () => onOpenSession(tk.sessionId!)
@@ -299,7 +308,9 @@ function TaskRow({
   summary,
   detail,
   about,
-  compact
+  compact,
+  onRestart,
+  lockedReason
 }: {
   task: JobTask
   /** T4: the worktree this Task continues in (planBoard reuseOf), or null */
@@ -318,8 +329,11 @@ function TaskRow({
   detail?: React.ReactNode
   about?: React.ReactNode
   compact: boolean
+  onRestart?: (taskId: string) => void
+  lockedReason?: string
 }): React.JSX.Element {
   const { t } = useI18n()
+  const action = taskActionOf(tk)
   const [allFiles, setAllFiles] = useState(false)
   const [showAnswers, setShowAnswers] = useState(false)
   const reason = tk.board?.reason
@@ -360,6 +374,11 @@ function TaskRow({
           {account !== undefined && <span className="plan-row-account">{label(account)}</span>}
           {tk.attempts !== undefined && <span className="plan-card-attempts">{t(tk.attempts === 1 ? 'plan.card.attempts.one' : 'plan.card.attempts', { n: tk.attempts })}</span>}
         </span>
+        {action !== undefined && onRestart && (
+          <Button size="sm" className="plan-row-action" disabled={lockedReason !== undefined} title={lockedReason} icon={<Icon name="refresh" size={14} />} onClick={() => onRestart(tk.id)}>
+            {t(`plan.task.${action}`)}
+          </Button>
+        )}
         {onOpenConsole && (
           <Button variant="ghost" size="sm" className="plan-link plan-row-console" title={t('plan.card.focus')} icon={<Icon name="open" size={14} />} onClick={onOpenConsole}>
             {t('plan.row.openConsole')}

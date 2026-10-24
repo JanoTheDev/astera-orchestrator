@@ -2157,8 +2157,9 @@ export function createQuestion(
   // endedAt counts as terminal here for the same reason as in applyWorkerDone — a new question
   // cannot be attached to a dispatch that closeDispatch closed.
   if (dispatch.outcome || dispatch.endedAt) return err('dispatch already settled')
+  // An approval request (createApproval) is its own wait: it does not hold up a question
   const pending = s.messages.some(
-    (m) => m.type === 'question' && m.dispatchId === a.dispatchId && !m.answered
+    (m) => m.type === 'question' && m.approval === undefined && m.dispatchId === a.dispatchId && !m.answered
   )
   if (pending) return err('a pending question already exists for this dispatch')
   const task = s.tasks.find((t) => t.id === a.taskId)
@@ -2179,10 +2180,51 @@ export function createQuestion(
   return ok(state, message)
 }
 
+/** T4: a worker asks the owner to run an owner-only command (command.ts COORDINATOR_ONLY) for it. The request is a
+ *  question the worker waits on with `ask --resume`; `line` is the command as the owner reads it. The same command
+ *  asked again while open is the same request. */
+export function createApproval(
+  s: OrchState,
+  a: { taskId: string; dispatchId: string; cmd: string; args: Record<string, unknown>; line: string },
+  now: string
+): Res<Message> {
+  const dispatch = s.dispatches.find((d) => d.id === a.dispatchId)
+  if (!dispatch) return gone(`unknown dispatch: ${a.dispatchId}`)
+  if (dispatch.taskId !== a.taskId) return err('taskId does not match dispatch')
+  if (dispatch.outcome || dispatch.endedAt) return err('dispatch already settled')
+  const task = s.tasks.find((t) => t.id === a.taskId)
+  if (!task) return gone(`unknown task: ${a.taskId}`)
+  // Stored as JSON holds it, so what is shown, kept and replayed is one value
+  const args = JSON.parse(JSON.stringify(a.args)) as Record<string, unknown>
+  const same = s.messages.find(
+    (m) => m.dispatchId === a.dispatchId && !m.answered && m.approval?.cmd === a.cmd && JSON.stringify(m.approval.args) === JSON.stringify(args)
+  )
+  if (same) return ok(s, same)
+  const question = `The worker asks to run \`${a.line}\`. Approve or deny.`
+  const { state, message } = pushMessage(
+    s,
+    { runId: runIdOf(task), type: 'question', taskId: a.taskId, dispatchId: a.dispatchId, subject: question.slice(0, 120), body: question, options: ['approve', 'deny'], approval: { cmd: a.cmd, args } },
+    now
+  )
+  return ok(state, message)
+}
+
 /** W7-C (#72): the subject of the status line an owner's answer leaves (`applyReply` with `by: 'owner'`, and
  *  `answerEscalation`). The coordinator reads it in its inbox as the copy of the answer; the feed reads it as
  *  "answered by you" (activity.ts). */
 export const OWNER_ANSWER_SUBJECT = 'the owner answered'
+
+/** A Task held for its owner (running.ts `heldForOwner`: blocked, no open Gate) whose questions the owner has now all
+ *  answered goes on: pending, then ready once its deps allow (`resolveGate`'s path). Nothing else moves it: a hands-off
+ *  plan holds it with the owner's question left open. A Task with an open Gate is resolveGate's. */
+function releaseHeld(s: OrchState, taskId: string | undefined, now: string): OrchState {
+  const task = s.tasks.find((t) => t.id === taskId)
+  if (!task || task.status !== 'blocked') return s
+  if (s.gates.some((g) => g.taskId === task.id && g.status === 'open')) return s
+  if (s.messages.some((m) => m.taskId === task.id && !m.answered && (m.type === 'question' || m.type === 'escalation'))) return s
+  const moved = moveTask(task, 'pending', now)
+  return moved ? { ...s, tasks: readyIn(s, replace(s.tasks, moved)) } : s
+}
 
 export function applyReply(
   s: OrchState,
@@ -2195,6 +2237,8 @@ export function applyReply(
   if (!q) return gone(`unknown question: ${a.messageId}`)
   if (q.type !== 'question') return err(`not a question: ${a.messageId}`)
   if (q.answered) return ok(s, 'alreadyAnswered')
+  // T4: an approval request is answered by the owner alone, with the result of the command it asked for
+  if (q.approval && a.by !== 'owner') return err('an approval request is answered by the owner, in Astera')
   const next: Message = { ...q, answered: true, answerBody: a.body }
   let state: OrchState = { ...s, messages: replace(s.messages, next) }
   state = pushMessage(
@@ -2211,7 +2255,7 @@ export function applyReply(
     },
     now
   ).state
-  return ok(state, 'accepted')
+  return ok(a.by === 'owner' ? releaseHeld(state, q.taskId, now) : state, 'accepted')
 }
 
 /**
@@ -2222,7 +2266,7 @@ export function applyReply(
  */
 export function answerEscalation(
   s: OrchState,
-  a: { messageId: string; body: string },
+  a: { messageId: string; body: string; by?: 'owner' },
   now: string
 ): Res<{ answered: 'accepted' | 'alreadyAnswered'; questionId?: string }> {
   const e = s.messages.find((m) => m.id === a.messageId)
@@ -2230,14 +2274,15 @@ export function answerEscalation(
   if (e.type !== 'escalation') return err(`not an escalation: ${a.messageId}`)
   if (e.answered) return ok(s, { answered: 'alreadyAnswered' })
   let state: OrchState = { ...s, messages: replace(s.messages, { ...e, answered: true, answerBody: a.body }) }
-  const open = state.messages.filter((m) => m.type === 'question' && !m.answered && m.runId === e.runId)
+  // An approval request waits on its own answer: an escalation's never approves it
+  const open = state.messages.filter((m) => m.type === 'question' && m.approval === undefined && !m.answered && m.runId === e.runId)
   const q =
     (e.dispatchId !== undefined ? open.filter((m) => m.dispatchId === e.dispatchId).at(-1) : undefined) ??
     (e.taskId !== undefined ? open.filter((m) => m.taskId === e.taskId).at(-1) : undefined)
   if (q) {
     const r = applyReply(state, { messageId: q.id, body: a.body, by: 'owner' }, now)
     if (!r.ok) return r
-    return ok(r.state, { answered: 'accepted', questionId: q.id })
+    return ok(a.by === 'owner' ? releaseHeld(r.state, e.taskId, now) : r.state, { answered: 'accepted', questionId: q.id })
   }
   state = pushMessage(
     state,
@@ -2253,7 +2298,7 @@ export function answerEscalation(
     },
     now
   ).state
-  return ok(state, { answered: 'accepted' })
+  return ok(a.by === 'owner' ? releaseHeld(state, e.taskId, now) : state, { answered: 'accepted' })
 }
 
 export function createGate(

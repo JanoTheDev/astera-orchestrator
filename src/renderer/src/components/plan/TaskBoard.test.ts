@@ -93,6 +93,18 @@ describe('TaskBoard by wave', () => {
   })
 })
 
+describe('Continue / Retry on a row', () => {
+  const stuck = [task('h', { status: 'blocked' }), task('g', { status: 'blocked', gate: { id: 'g1', question: 'q' } }), task('f', { status: 'failed' })]
+  const html = board({ tasks: stuck, layers: [['h', 'g', 'f']], onRestart: () => {} })
+  it('shows Continue on the gate-less blocked Task, Retry on the failed one, nothing on the Gate one', () => {
+    expect(html.match(/plan\.task\.continue/g)).toHaveLength(1)
+    expect(html.match(/plan\.task\.retry/g)).toHaveLength(1)
+  })
+  it('shows no button without onRestart', () => {
+    expect(board({ tasks: stuck, layers: [['h', 'g', 'f']] })).not.toContain('plan-row-action')
+  })
+})
+
 describe('PlanFiles', () => {
   it('lists every path with its Tasks, and marks a path two Tasks share', () => {
     const html = renderToStaticMarkup(React.createElement(PlanFiles, { tasks, onOpenPath: () => {}, onSelect: () => {} }))

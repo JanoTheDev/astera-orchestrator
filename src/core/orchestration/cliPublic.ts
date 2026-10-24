@@ -54,6 +54,8 @@ const PAGED: Record<string, string> = { 'tasks-list': 'tasks', 'questions-list':
 /** The package's shaping, plus a paged list read's `{ <list>, total, offset, limit }`: its list is shaped row by row
  *  as the plain list is, and the counts pass as they are. */
 export function publicFor(cmd: string, body: unknown): unknown {
+  // T4: a worker's owner-only command came back as an approval request (command.ts), not as that command's answer
+  if (body !== null && typeof body === 'object' && (body as Record<string, unknown>).approvalRequested === true) return body
   const key = Object.hasOwn(PAGED, cmd) ? PAGED[cmd] : undefined
   if (key !== undefined && body !== null && typeof body === 'object' && Array.isArray((body as Record<string, unknown>)[key]))
     return { ...body, [key]: shapeFor(cmd, (body as Record<string, unknown>)[key]) }

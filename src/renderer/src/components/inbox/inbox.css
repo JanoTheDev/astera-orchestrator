@@ -21,6 +21,7 @@
 .inbox__where { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
 .inbox__age { flex: none; font-size: var(--fs-11); color: var(--text-faint); font-variant-numeric: tabular-nums; }
 .inbox__body { margin: 0; font-size: var(--fs-13); color: var(--text-dim); }
+.inbox__command { margin: 0; padding: var(--sp-2) var(--sp-3); border-radius: var(--radius); background: var(--editor-bg); font-family: var(--mono); font-size: var(--fs-12); white-space: pre-wrap; overflow-wrap: anywhere; }
 .inbox__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .inbox__warn { display: flex; flex-direction: column; gap: 8px; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--warn-line); background: var(--warn-soft); border-radius: var(--radius); font-size: var(--fs-12); }
 .inbox__warn p { margin: 0; }

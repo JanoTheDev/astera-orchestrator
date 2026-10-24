@@ -64,3 +64,21 @@ describe('NeedCardView', () => {
     expect(html).not.toContain('Start after')
   })
 })
+
+describe("T4: a worker's request to run an owner-only command", () => {
+  it('names the Task and the exact command, and offers Approve and Deny, not an answer box', () => {
+    const html = render(
+      card({
+        kind: 'command',
+        taskId: 't1',
+        taskTitle: 'T4 · Archive',
+        q: { id: 'msg_a', runId: 'r1', taskId: 't1', source: 'approval', question: 'The worker asks to run `astera jobs archive --id j9`. Approve or deny.', command: 'astera jobs archive --id j9', options: ['approve', 'deny'], createdAt: '2026-10-18T09:00:00Z' }
+      })
+    )
+    expect(html).toContain('Worker of T4 · Archive asks to run')
+    expect(html).toContain('<code>astera jobs archive --id j9</code>')
+    expect(html).toContain('>Approve<')
+    expect(html).toContain('>Deny<')
+    expect(html).not.toContain('<textarea')
+  })
+})

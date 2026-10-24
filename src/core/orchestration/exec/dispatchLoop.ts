@@ -2005,6 +2005,15 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
           due.push({ a: step.answer, decision: step.decision, hold: step.hold })
           continue
         }
+        if (step.kind === 'hold') {
+          if (!c.mayStart()) return
+          autoTried.add(step.id)
+          const job = handsOffJobOf(s, open.find((x) => x.id === step.id)!.runId)
+          if (job) await decide(job.id, step.decision)
+          refusedHolds.set(step.hold.taskId, step.hold.reason)
+          await holdRefused()
+          continue
+        }
         const q = step.question
         if (handedOver.has(q.id)) continue
         // `send` posts into a Task's Run: a question with no Task (a coordinator's own escalation) names one of its Run's

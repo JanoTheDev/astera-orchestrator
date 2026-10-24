@@ -11,6 +11,7 @@ import { postPlanFeedback, type ActionUi } from '../../lib/jobActions'
 import { replyNote, type OrchDoor } from '../../lib/orchDoor'
 import { Button, Field, Icon, IconButton } from '../ui'
 import { TaskEditModal } from './TaskEditModal'
+import { taskActionOf } from './planCommands'
 import { attemptStateOf, feedbackTextOf, loadTaskInfo, taskEditOf, type TaskInfo } from './taskEdit'
 
 export function TaskDetail({
@@ -21,7 +22,8 @@ export function TaskDetail({
   ui,
   compact = false,
   accountLabel,
-  onShowTask
+  onShowTask,
+  onRestart
 }: {
   door: OrchDoor
   /** The plan's Job: where a change request goes. */
@@ -34,6 +36,8 @@ export function TaskDetail({
   accountLabel: (id: string) => string
   /** Expands that Task's row and scrolls to it. */
   onShowTask: (taskId: string) => void
+  /** Present: Continue / Retry for a Task taskActionOf names. */
+  onRestart?: (taskId: string) => void
 }): React.JSX.Element {
   const { t } = useI18n()
   const [info, setInfo] = useState<TaskInfo | null | 'loading'>('loading')
@@ -65,6 +69,7 @@ export function TaskDetail({
   const full = info.task
   const criteria = full.acceptanceCriteria ?? []
   const done = full.status === 'completed'
+  const action = taskActionOf(task)
   const titleOf = (id: string): string => tasks.find((tk) => tk.id === id)?.title ?? id
   const edit = taskEditOf({ ...full, dispatches: info.attempts.length }, { outcome: info.outcome })
 
@@ -209,6 +214,15 @@ export function TaskDetail({
       )}
       {/* Simple mode keeps the owner's two actions: they are how a plan that is not quite right is fixed */}
       <div className="plan-task-actions">
+        {action !== undefined && onRestart && (
+          <>
+            <Button size="sm" icon={<Icon name="refresh" size={14} />} disabled={door.readOnlyReason !== null} title={door.readOnlyReason ?? undefined} onClick={() => onRestart(task.id)}>
+              {t(`plan.task.${action}`)}
+            </Button>
+            {/* The hold reason; non-compact already shows the result section above */}
+            {action === 'continue' && compact && full.result !== undefined && <span className="plan-task-spec">{full.result}</span>}
+          </>
+        )}
         <Button
           size="sm"
           icon={<Icon name="edit" size={14} />}

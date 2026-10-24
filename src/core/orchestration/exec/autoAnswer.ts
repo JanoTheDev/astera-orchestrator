@@ -17,7 +17,8 @@ export interface OpenQuestion {
   question: string
   options?: string[]
   kind?: string
-  source?: 'ask' | 'escalation'
+  /** `approval`: a worker asks the owner to run an owner-only command for it (command.ts answerApproval) */
+  source?: 'ask' | 'escalation' | 'approval'
   createdAt: string
 }
 
@@ -147,8 +148,10 @@ function safeDefault(q: OpenQuestion, choices: string[], retried: boolean): Auto
 }
 
 /** T36: the owner's question over a failed Task that holds back its plan (replan.ts `failedWaitQuestion`): never
- *  answered by Astera, nor handed to a hands-off coordinator. Nothing else can move that plan. */
-const ownersOnly = (q: OpenQuestion): boolean => q.source === 'escalation' && isFailedWait({ type: 'escalation', options: q.options })
+ *  answered by Astera, nor handed to a hands-off coordinator. Nothing else can move that plan. T4: nor a worker's
+ *  request to run an owner-only command: approving it is the owner's call, and so is refusing it. */
+const ownersOnly = (q: OpenQuestion): boolean =>
+  q.source === 'approval' || (q.source === 'escalation' && isFailedWait({ type: 'escalation', options: q.options }))
 
 /** Whether an earlier Gate on the question's Task was already answered with a retry. */
 const retriedOf = (s: OrchState, q: OpenQuestion): boolean =>
@@ -169,6 +172,9 @@ export type HandsOffStep =
   /** `hold`: a refused owner-only decision a Task needs. That Task is held for the owner (blocked, running.ts
    *  `heldForOwner`) with `reason` as its result, so the rest of the plan goes on without it. */
   | { kind: 'answer'; answer: AutoAnswer; decision: Omit<Decision, 'at'>; hold?: { taskId: string; reason: string } }
+  /** A refused escalation: its Task is held the same way, and the escalation is left open as the owner's question, so
+   *  the owner answering it moves the Task on (state.ts `releaseHeld`). Not answered: a refusal is not the owner's call. */
+  | { kind: 'hold'; id: string; decision: Omit<Decision, 'at'>; hold: { taskId: string; reason: string } }
   | { kind: 'coordinator'; question: OpenQuestion }
 
 // The answers that say no to a guardrail case, in this order; else the refusal is written out (REFUSED_ANSWER)
@@ -244,7 +250,14 @@ export function handsOffStepsDue(s: OrchState, open: OpenQuestion[], nowMs: numb
       const no = REFUSAL.map(option).find((o) => o !== undefined)
       // The Task that needs it waits for the owner; the rest of the plan goes on
       const hold = q.taskId ? { taskId: q.taskId, reason: `Waiting on the owner's decision: ${asked}` } : undefined
-      return answer({ id: q.id, answer: no ?? REFUSED_ANSWER, why: 'safe default' }, 'refused', "a guardrail: only the owner decides this, and the plan runs hands-off", hold)
+      const why = "a guardrail: only the owner decides this, and the plan runs hands-off"
+      // No worker waits on an escalation: it stays open for the owner, and once its Task is held it is theirs alone
+      if (hold && q.source === 'escalation') {
+        const task = s.tasks.find((t) => t.id === q.taskId)
+        if (task?.status === 'blocked' && !s.gates.some((g) => g.taskId === task.id && g.status === 'open')) return []
+        return [{ kind: 'hold', id: q.id, decision: { kind: 'refused', taskId: hold.taskId, question: asked, choice: firstLine(no ?? REFUSED_ANSWER, 200), why }, hold }]
+      }
+      return answer({ id: q.id, answer: no ?? REFUSED_ANSWER, why: 'safe default' }, 'refused', why, hold)
     }
     const a = autoAnswerOf(s, q, retried)
     if (a) return answer(a, q.source === undefined ? 'gate' : 'escalation', a.why)

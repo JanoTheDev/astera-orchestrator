@@ -9,10 +9,10 @@ export const isSourceStatus = (u: UpdateStatus | null): boolean => !!u?.sourceBu
 
 const changes = (u: UpdateStatus): number => u.source?.behind ?? 0
 
-/** The title bar's notice: nothing, a plain label, an error label, or the restart button. */
+/** The title bar's notice: nothing, a plain label, an error label, the restart button, or the build button. */
 export type TitlebarView =
   | { kind: 'none' }
-  | { kind: 'text' | 'error' | 'button'; message: Message }
+  | { kind: 'text' | 'error' | 'button' | 'build'; message: Message }
 
 export function titlebarView(u: UpdateStatus | null): TitlebarView {
   if (!u || u.state === 'init' || u.state === 'uptodate' || u.state === 'disabled') return { kind: 'none' }
@@ -28,9 +28,11 @@ export function titlebarView(u: UpdateStatus | null): TitlebarView {
     case 'checking':
       return text('update.tb.checking')
     case 'available':
-      return isSourceStatus(u) && u.source
-        ? text('update.tb.sourceChanges', { count: changes(u) })
-        : text('update.tb.available', { version })
+      if (!isSourceStatus(u) || !u.source) return text('update.tb.available', { version })
+      // Only a build that can swap itself in has anything for the button to start.
+      return u.sourceBuild?.selfInstall
+        ? { kind: 'build', message: { key: 'update.tb.sourceUpdate', params: { count: changes(u) } } }
+        : text('update.tb.sourceChanges', { count: changes(u) })
     case 'building':
       // Waiting for the heavy-job slot is not building yet, and says so in its own words.
       return u.step === 'waiting'

@@ -89,7 +89,7 @@ export default function App(): React.JSX.Element {
   return (
     <div className="app">
       {/* DESIGN-W13 §2: title bar (command center) / activity bar | side bar | editor area over the panel / status bar */}
-      <Titlebar isMax={isMax} update={update} runningCount={runningCount} onInstall={() => void installUpdate()}>
+      <Titlebar isMax={isMax} update={update} runningCount={runningCount} onInstall={() => void installUpdate()} onBuild={() => void window.api.update.download()}>
         {!onboarding && <CommandCenter {...props} />}
       </Titlebar>
       {/* Only a block-mode campaign covers the workbench. notify is announced with a toast */}

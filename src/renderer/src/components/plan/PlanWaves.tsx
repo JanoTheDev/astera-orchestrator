@@ -97,6 +97,8 @@ export function PlanTaskBoard({
       nowMs={live.nowMs}
       compact={compact}
       onAddTask={onAddTask}
+      onRestart={(id) => void p.restartTask(id)}
+      lockedReason={p.lockedReason}
       renderAbout={(tk) => (
         // T2: everything about the Task, its Edit and its Request changes; a dep's title opens that Task's row
         <TaskDetail
@@ -107,6 +109,7 @@ export function PlanTaskBoard({
           ui={p.ui}
           compact={compact}
           accountLabel={(id) => accounts?.find((a) => a.id === id)?.label ?? id}
+          onRestart={(id) => void p.restartTask(id)}
           onShowTask={(id) => {
             p.setSelected(id)
             requestAnimationFrame(() => document.getElementById(taskAnchorId(id))?.scrollIntoView({ block: 'center' }))

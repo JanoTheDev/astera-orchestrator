@@ -39,6 +39,7 @@ export const plans = {
   'pages.plans.status.queued': '대기 중',
   'pages.plans.status.needsYou': '확인 필요',
   'pages.plans.status.working': '진행 중',
+  'pages.plans.status.stalled': '멈춤',
   'pages.plans.status.failed': '실패',
   'pages.plans.status.done': '완료',
   'pages.plans.status.deliveryDismissed': '전달 취소됨',
