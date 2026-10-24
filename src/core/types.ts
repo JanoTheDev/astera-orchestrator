@@ -580,6 +580,8 @@ export interface JobTask {
   /** Why the latest attempt's effort differs from the ask (Dispatch.effortNote). */
   effortNote?: string
   jobModels?: Partial<Record<'coordinator' | 'planner' | 'worker' | 'reviewer', string>>
+  /** The Job's effort (Job.effort), what a Task without its own effort runs on. */
+  jobEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
   /** The account its latest attempt ran on. Absent until it is dispatched; `accountIds` says what it will use. */
   accountId?: string
   /** The branch of the worktree its latest attempt worked in, when the worktree registry knows it. */

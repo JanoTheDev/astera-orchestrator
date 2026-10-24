@@ -349,6 +349,8 @@ export interface Job {
   // W6-H delivery (delivery.ts)
   /** This plan's own delivery, ahead of its project's (`deliveryOf`). Absent: the project's. */
   delivery?: DeliveryMode
+  /** The reasoning effort its Task workers use when a Task has none of its own (resolveWorkerEffort). */
+  effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
   // W7-E planner review and final check
   /** Whether this plan's Tasks are reviewed by a fresh reviewer before they count as done. `jobs plan` sets it to
    *  true unless `--no-review` (there or at `jobs create`) set false; `task-create` then marks each new Task of the

@@ -218,7 +218,7 @@ import { feedbackCommand, handsOffOf, isFeedbackCommand } from './exec/plannerFe
 export { JOB_SOURCE } from './commandSources'
 import { pluginIdOfCheck, type CompletionCheckInput, type PluginCheckAnswer } from './pluginChecks'
 import { checkIdsOf, pluginCheckRefusal, tasksOfNextRun } from './commandChecks'
-import { dispatchModelFields } from './roleModels'
+import { dispatchModelFields, EFFORTS, isEffort, type Effort } from './roleModels'
 // W1-C plan lifecycle
 import { archiveJob, archivedTargetOf, isJobActive, renameJob, unarchiveJob } from './lifecycle'
 import { worktreesList, worktreesRemove, type WorktreesOps } from './worktreesCommand'
@@ -2526,6 +2526,8 @@ export async function handleCommand(
       // W6-H: the plan's own delivery, ahead of its project's
       const delivery = parseDelivery(args.delivery)
       if (delivery === null) return bad('--delivery must be pr, push or manual')
+      // The plan's own reasoning effort, for its Task workers whose Task has none (resolveWorkerEffort)
+      if (args.effort !== undefined && !isEffort(args.effort)) return bad(`--effort must be one of ${EFFORTS.join('|')}`)
       // 완료 수렴(설계 D12). --convergence 만 주면 빈 정책(기본값). 숫자 셋은 --convergence 없이는
       // 거절한다 — 조용히 받으면 "정책을 줬는데 꺼져 있다" 가 된다.
       let convergence: ConvergencePolicy | undefined
@@ -2687,10 +2689,13 @@ export async function handleCommand(
       if (!made.ok) return commit(made)
       // T7: every plan has a short name from the start (the planner renames it); a source's title already names one
       const titled = made.value.source?.title !== undefined ? made : (renameJob(made.state, made.value.id, shortTitleOf(objective)) as typeof made)
-      const created =
+      const delivered =
         delivery === undefined
           ? titled
           : (setJobDelivery(titled.state, titled.value.id, delivery) as typeof made)
+      const created = isEffort(args.effort)
+        ? { ...delivered, state: { ...delivered.state, jobs: delivered.state.jobs.map((j) => (j.id === delivered.value.id ? { ...j, effort: args.effort as Effort } : j)) } }
+        : delivered
       // **코디네이터에게는 곧바로 회차를 준다.** 계획만 만들고 끝내면 `--run` 에 넣을 id 가 없고,
       // 코디네이터는 Task 를 만들어 가며 일하므로 붙일 자리가 그 자리에 있어야 한다.
       //
@@ -3614,7 +3619,7 @@ export async function handleCommand(
       // refused call changes nothing. Each is read from the Job when its work starts (slotsToFill, policyOfJob, replan,
       // handsOffOf, deliveryOf), so it takes effect for work that has not started. `--after` keeps its own path below.
       const EDIT_KEYS = ['reviewRounds', 'replan', 'autoApprove', 'handsOff', 'delivery'] as const
-      const editsRunning = EDIT_KEYS.some((k) => args[k] !== undefined) || (args.concurrency !== undefined && args.priority !== undefined)
+      const editsRunning = EDIT_KEYS.some((k) => args[k] !== undefined) || args.effort !== undefined || (args.concurrency !== undefined && args.priority !== undefined)
       if (editsRunning && args.after === undefined) {
         if (args.planning !== undefined) return bad('--planning is set without the plan-settings flags')
         const rounds = args.reviewRounds === undefined ? undefined : posInt(args.reviewRounds)
@@ -3630,16 +3635,18 @@ export async function handleCommand(
         if (concurrency === null) return bad('--concurrency must be an integer >= 1')
         const priority = args.priority === undefined ? undefined : typeof args.priority === 'string' ? Number(args.priority) : args.priority
         if (priority !== undefined && (typeof priority !== 'number' || !Number.isInteger(priority))) return bad('--priority must be an integer')
+        if (args.effort !== undefined && args.effort !== 'none' && !isEffort(args.effort)) return bad(`--effort must be one of ${EFFORTS.join('|')} or none`)
         const named = s.runs.find((r) => r.id === id)
         const job = s.jobs.find((j) => j.id === id) ?? (named && jobOf(s, named))
         if (!job) return notFound(`unknown job or run: ${id}`)
         const given = (['concurrency', 'priority', ...EDIT_KEYS] as const).filter((k) => args[k] !== undefined)
-        for (const k of given) {
+        // --effort has no PlanSettingKey: it is refused when the plan has finished, like --concurrency
+        for (const k of args.effort !== undefined ? [...given, 'concurrency' as const] : given) {
           const why = settingRefusalOf(s, job, k)
           if (why === 'finished') return conflict(`job ${job.id} has finished: its settings no longer change`)
           if (why === 'deliveryStarted') return conflict(`job ${job.id}: delivery has started, so --delivery can no longer change`)
         }
-        const { priority: _p, ...rest } = job
+        const { priority: _p, effort: _e, ...rest } = job
         const conv = rounds === undefined ? job.convergence : { ...job.convergence, maxReviewRounds: rounds }
         const next: Job = {
           ...rest,
@@ -3649,7 +3656,8 @@ export async function handleCommand(
           ...(args.replan !== undefined ? { replan: args.replan as 'waves' | 'off' } : {}),
           ...(handsOff !== undefined ? { handsOff } : {}),
           ...(auto !== undefined ? { autoApprove: auto } : {}),
-          ...(delivery !== undefined ? { delivery } : {})
+          ...(delivery !== undefined ? { delivery } : {}),
+          ...(args.effort === undefined ? (job.effort !== undefined ? { effort: job.effort } : {}) : isEffort(args.effort) ? { effort: args.effort } : {})
         }
         await deps.setState({ ...s, jobs: s.jobs.map((j) => (j.id === job.id ? next : j)) })
         return okBody({ ...jobView(deps.getState(), next, latestRunOf(deps.getState(), next)), takesEffect: 'for work that has not started yet' })

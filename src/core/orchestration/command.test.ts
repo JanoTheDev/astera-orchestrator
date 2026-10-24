@@ -10293,6 +10293,24 @@ describe('#117 hands-off', () => {
     expect(deps.getState().jobs.find((j) => j.id === id)?.handsOff).toBe(false)
   })
 
+  it('jobs-create --effort and jobs-set --effort set the Job effort; none clears; a bad level is refused with the list', async () => {
+    const deps = rig()
+    const bad = await person(deps, 'jobs-create', { objective: 'o', cwd: 'D:/p', coordinatorAccount: 'acc1', effort: 'turbo' })
+    expect(bad.status).toBe(400)
+    expect(JSON.stringify(bad.body)).toContain('low|medium|high|xhigh|max')
+    const made = await person(deps, 'jobs-create', { objective: 'o', cwd: 'D:/p', coordinatorAccount: 'acc1', effort: 'high' })
+    expect(made.status).toBe(200)
+    const id = (made.body as { id: string }).id
+    expect(deps.getState().jobs.find((j) => j.id === id)?.effort).toBe('high')
+    const refused = await person(deps, 'jobs-set', { id, effort: 'turbo' })
+    expect(refused.status).toBe(400)
+    expect(JSON.stringify(refused.body)).toContain('low|medium|high|xhigh|max')
+    expect((await person(deps, 'jobs-set', { id, effort: 'max' })).status).toBe(200)
+    expect(deps.getState().jobs.find((j) => j.id === id)?.effort).toBe('max')
+    expect((await person(deps, 'jobs-set', { id, effort: 'none' })).status).toBe(200)
+    expect(deps.getState().jobs.find((j) => j.id === id)).not.toHaveProperty('effort')
+  })
+
   it('T5: projects-set --grants and --coordinator-model set, none clears, projects-list shows them, an agent is refused', async () => {
     const deps = makeDeps()
     await deps.setState({ ...deps.getState(), projects: [{ id: 'prj_1', path: 'D:/p', name: 'p', addedAt: NOW }] })
