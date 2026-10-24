@@ -71,6 +71,15 @@ Files are `<page>-<WxH>-<theme>.png` (`--themes night,day`, default both). `--pa
 start, mainplan, history, explorer, scm, run, devices, switcher, accounts, settings (default: all); `--sizes` defaults
 to `1440x900,1024x640`. The Sessions shot shows the empty state: a live agent session needs a signed-in account.
 
+## Real-scale seed (`--scale`)
+
+`node scripts/shots-seed.mjs --profile "$P-dev" --scale` adds today's real data volume on top of the small seed, for the
+switch benchmark (`docs/perf/README.md`). Without `--scale` nothing changes. It writes 72 plans over 5 projects (the four
+above plus `mobile-app`), about 650 Tasks, 940 Dispatches, 3360 messages, 1440 Deliveries, 185 Gates and 320 more History
+transcripts. A plan is completed (delivered), "running" (paused and held, one Dispatch closed `closedBy: 'pause'`, one open
+"ask me" Gate) or planned (paused and held, every Task pending): the same inert shapes as plans A and B, so the Host still
+does nothing. `windows.json` cannot hold tabs (it stores windows only); `perf-switch.mjs` opens its tabs through the UI.
+
 ## How the Host is kept idle
 
 No orchestration flag parks a Job outright. Pause and archive do not stop the auto-answerer or the stall watchdog.

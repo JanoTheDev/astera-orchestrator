@@ -37,6 +37,8 @@ docs/*
 # Published deliberately: the user guide, and the fork's plan, spec, audit and wave prompts.
 !docs/guide.md
 !docs/dev/
+# Before/after numbers of the switch benchmark (scripts/perf-switch.mjs): the AFTER run is compared to them.
+!docs/perf/
 !docs/orchestrator/
 # Published deliberately: @astera-app/client is a public interface, and cli.md, mcp.md and the package README link to it.
 !docs/sdk.md
