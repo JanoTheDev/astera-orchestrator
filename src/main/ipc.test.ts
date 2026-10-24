@@ -343,11 +343,24 @@ describe('releaseThenRemoveAccount — the handler releases finished workers, th
     expect(h.calls).toEqual(['release:d1', 'release:d2', 'remove:a1'])
   })
 
-  it('a releaseWorker that throws leaves the account in place', async () => {
+  it('a releaseWorker that throws leaves the account in place and does not log out', async () => {
     const h = harness(false)
+    const logout = vi.fn(async () => ({ ok: true }))
     h.deps.releaseWorker.mockRejectedValueOnce(new Error('pty busy'))
-    await expect(releaseThenRemoveAccount('a1', releasable, h.deps)).rejects.toThrow('pty busy')
+    await expect(releaseThenRemoveAccount('a1', releasable, h.deps, logout)).rejects.toThrow('pty busy')
     expect(h.deps.removeAccount).not.toHaveBeenCalled()
+    expect(logout).not.toHaveBeenCalled()
+  })
+
+  it('a logout requested with the removal runs after core.accounts.remove and returns its result', async () => {
+    const h = harness(false)
+    const logout = vi.fn(async () => {
+      h.calls.push('logout')
+      return { ok: false, message: 'boom' }
+    })
+    const r = await releaseThenRemoveAccount('a1', releasable, h.deps, logout)
+    expect(h.calls).toEqual(['release:d1', 'release:d2', 'remove:a1', 'logout'])
+    expect(r).toEqual({ ok: false, message: 'boom' })
   })
 })
 

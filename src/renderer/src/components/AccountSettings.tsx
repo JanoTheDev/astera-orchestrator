@@ -151,14 +151,14 @@ export function RemoveAccountDialog({ account, onClose }: { account: Account; on
       // 거부는 실패가 아니라 사용자가 몰랐던 사실을 알리는 것이므로, 어느 세션이 막고 있는지 이름을
       // 말한다 — 이름 없이 "쓰이는 중"만 말하면 사용자가 무엇을 닫아야 할지 알 수 없다.
       // 로그아웃은 제거가 성공한 뒤에만 한다: 거부된 제거가 살아 있는 세션의 로그인을 먼저 끊으면 안 된다.
-      const r = await window.api.accounts.remove(account.id)
+      // 로그아웃은 main 이 제거 뒤에, 제거 전에 잡아 둔 계정으로 한다(accounts.remove 의 logout 옵션).
+      const r = await window.api.accounts.remove(account.id, { logout: logoutToo })
       if (r && !r.ok) {
         toast.error(t('account.remove.inUse', { titles: r.titles.join(', ') }))
         return
       }
-      if (logoutToo) {
-        const lo = await window.api.accounts.logout(account.id)
-        if (!lo.ok) toast.error(t('account.logout.failed', { detail: tm(lo.message ?? null) ?? '' }))
+      if (r?.logout && !r.logout.ok) {
+        toast.error(t('account.logout.failed', { detail: tm(r.logout.message ?? null) ?? '' }))
       }
     } catch (e) {
       toast.error(t('account.remove.releaseFailed', { detail: e instanceof Error ? e.message : String(e) }))
