@@ -305,6 +305,10 @@ export interface Job {
   /** When the plan was archived (`jobs archive`). **Present: it starts no new work** (isJobActive) and default lists
    *  hide it; its running sessions are left alone unless the archive asked to close them. */
   archivedAt?: string
+  /** A later plan's delivery carried this plan's branch to the base (deliveredBy.ts), so its work landed though its own
+   *  delivery did not. The plan's outcome stays as recorded; it reads Delivered. On the Job, not a Run's `deliveryState`:
+   *  the fact is about the plan (a Run's own delivery says nothing of another plan's), and the row reads one place. */
+  deliveredBy?: { jobId: string; at: string; commit?: string }
   // W6-A: the planner found everything asked for already built (`plan-nothing-to-do`). The Job is archived with it.
   /** When, and the planner's summary (its inputs/existing.md). */
   nothingToDo?: { at: string; summary: string }
