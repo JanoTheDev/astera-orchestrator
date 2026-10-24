@@ -494,7 +494,7 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
         <ViewPane title={t('pages.plans.main')} storageKey="plans.main" className="plans-mainpane">
           <p className="plans-mainpane__head">{t('pages.plans.main.head', { plans: main.plans.length, done: main.done, total: main.total })}</p>
           <ClickTree
-            className="plans-tree"
+            className="plans-tree plans-maintree"
             label={t('pages.plans.main')}
             rows={main.plans.map(({ row, name }) => {
               const status = planStatusOf(row)

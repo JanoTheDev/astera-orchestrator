@@ -126,7 +126,7 @@ export function renderViewTab(p: ViewTabProps, name: ViewName, arg: string | und
     case 'mainplan':
       return (
         <div className="view-doc">
-          <MainPlan rows={p.orchSnapshot?.runs ?? []} acts={planActs(p)} />
+          <MainPlan rows={p.orchSnapshot?.runs ?? []} acts={planActs(p)} accounts={p.accounts} />
         </div>
       )
     case 'start': {

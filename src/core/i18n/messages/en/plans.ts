@@ -34,6 +34,14 @@ export const plans: Record<keyof typeof ko, string> = {
   'pages.plans.main.checksRunning': 'Checks are running',
   'pages.plans.main.checksFailed': 'Checks failed',
   'pages.plans.main.checksNeedYou': 'Checks need you',
+  // T13 Main plan page redesign: the header chips, the Hide done toggle, a finished plan's row
+  'pages.plans.main.running': '{n} running',
+  'pages.plans.main.waiting': '{n} waiting',
+  'pages.plans.main.needs': '{n} need you',
+  'pages.plans.main.hideDone': 'Hide done plans',
+  'pages.plans.main.tasks': '{n} Tasks',
+  'pages.plans.main.toggle': 'Show or hide the Tasks of {plan}',
+  'pages.plans.main.allDone': 'Every plan is done.',
   // W11 Plans page: the native list and the Coordinator strip (plan/PlanList.tsx, plan/PlanRow.tsx, plan/Coordinator.tsx)
   'pages.plans.status.approve': 'Needs approval',
   'pages.plans.status.queued': 'Queued',

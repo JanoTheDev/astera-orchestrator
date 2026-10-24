@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { JobRow, JobTask } from '../../../../core/types'
-import { mainPlanViewOf } from './mainPlanView'
+import { mainPlanViewOf, shownPlans } from './mainPlanView'
 
 const task = (id: string, over: Partial<JobTask> = {}): JobTask => ({ id, title: id, status: 'pending', openGates: 0, ...over })
 const done = (id: string): JobTask => task(id, { status: 'completed', board: { category: 'done' } })
@@ -70,4 +70,77 @@ describe('mainPlanViewOf', () => {
       { key: 'pages.plans.main.checksWait', params: { plan: 'Auth rework' } }
     ])
   })
+
+  it('names an untitled plan by a short summary of its objective, never a mid-word cut', () => {
+    const v = mainPlanViewOf([row('a', { title: undefined, objective: 'aslo what i realize is that in the tasks there is alot of repetition of the same affected Tasks' })])
+    expect(v.plans[0].name).toBe('aslo what i realize is that in the tasks there is alot of…')
+  })
+
+  it('sorts each plan into needs you, running, waiting or done, and counts the plans of each for the header', () => {
+    const v = mainPlanViewOf([
+      row('run', { createdAt: '1', tasks: [task('r1', { status: 'dispatched', board: { category: 'running' } })] }),
+      row('ask', { createdAt: '2', tasks: [task('q1', { status: 'blocked', gate: { id: 'g', question: 'Which?' } })] }),
+      // paused, yet a Task waits on the owner: needs you wins
+      row('pausedAsk', { createdAt: '3', paused: true, tasks: [task('q2', { status: 'blocked', gate: { id: 'g2', question: 'Which?' } })] }),
+      row('paused', { createdAt: '4', paused: true, tasks: [task('w1')] }),
+      row('fin', { createdAt: '5', outcome: 'completed', done: 1, total: 1, tasks: [done('f1')] }),
+      row('failed', { createdAt: '6', outcome: 'failed', tasks: [done('x1')] })
+    ])
+    expect(Object.fromEntries(v.plans.map((p) => [p.row.id, p.phase]))).toEqual({
+      run: 'running',
+      ask: 'needs',
+      pausedAsk: 'needs',
+      paused: 'waiting',
+      fin: 'done',
+      failed: 'needs'
+    })
+    expect(v.counts).toEqual({ needs: 3, running: 1, waiting: 1, done: 1 })
+  })
+
+  it('opens the plans at work or waiting and folds the finished ones to one row', () => {
+    const v = mainPlanViewOf([
+      row('run', { createdAt: '1', tasks: [task('r1', { status: 'dispatched', board: { category: 'running' } })] }),
+      row('paused', { createdAt: '2', paused: true, tasks: [task('w1')] }),
+      row('fin', { createdAt: '3', outcome: 'completed', tasks: [done('f1')] })
+    ])
+    expect(v.plans.map((p) => p.open)).toEqual([true, true, false])
+  })
+
+  it('sums up a finished plan: its Task count, the delivered commit short and when', () => {
+    const v = mainPlanViewOf([
+      row('fin', {
+        createdAt: '2026-10-01T08:00:00.000Z',
+        outcome: 'completed',
+        done: 2,
+        total: 2,
+        pr: { at: '2026-10-02T09:00:00.000Z', attributed: 'caaea2cc1234567890', attributedAt: '2026-10-03T10:00:00.000Z' },
+        tasks: [done('f1'), done('f2')]
+      }),
+      // no merge commit: the last commit a Task added, and the plan's last activity
+      row('push', {
+        createdAt: '2026-10-04T08:00:00.000Z',
+        outcome: 'completed',
+        done: 1,
+        total: 1,
+        tasks: [{ ...done('p1'), links: { commits: ['aaaaaaa111', 'bbbbbbb222'] } }]
+      }),
+      row('run', { createdAt: '2026-10-05T08:00:00.000Z', tasks: [task('r1')] })
+    ])
+    expect(v.plans.map((p) => p.finished)).toEqual([
+      { tasks: 2, commit: 'caaea2c', at: Date.parse('2026-10-03T10:00:00.000Z') },
+      { tasks: 1, commit: 'bbbbbbb', at: Date.parse('2026-10-04T08:00:00.000Z') },
+      undefined
+    ])
+  })
+
+  it('hides the done plans when asked, keeping the order', () => {
+    const v = mainPlanViewOf([
+      row('a', { createdAt: '1', outcome: 'completed', tasks: [done('a1')] }),
+      row('b', { createdAt: '2', tasks: [task('b1')] }),
+      row('c', { createdAt: '3', outcome: 'completed', tasks: [done('c1')] })
+    ])
+    expect(shownPlans(v, false).map((p) => p.row.id)).toEqual(['a', 'b', 'c'])
+    expect(shownPlans(v, true).map((p) => p.row.id)).toEqual(['b'])
+  })
 })
+

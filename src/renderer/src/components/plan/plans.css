@@ -17,6 +17,9 @@
 .plans-tree .ui-tree__meta { flex: 0 100 auto; min-width: 0; overflow: hidden; }
 .plans-tree .ui-tree__deco { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .plans-tree__overlap { display: inline-flex; flex: none; color: var(--warn); }
+/* The MAIN PLAN list keeps the other order: its "4 of 50" count is shown whole and the plan's name is cut instead */
+.plans-tree.plans-maintree .ui-tree__label { flex-shrink: 1; max-width: none; }
+.plans-tree.plans-maintree .ui-tree__desc { flex-shrink: 0; overflow: visible; }
 
 /* Status icons carry their tone; the word beside them says the same */
 .plans-tone--ok { color: var(--ok); }
