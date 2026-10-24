@@ -1,6 +1,7 @@
 // The plan page's shared state and effects (moved out of pages/PlanPage.tsx). The commands that change the plan are
 // planCommands.ts'; the sections draw from what this returns.
 import { useEffect, useState } from 'react'
+import { invalidate, useCachedRead } from '../../lib/readCache'
 import type { Account, JobRow, RunDetail as RunDetailData } from '../../../../core/types'
 import { runningCount } from '../../../../core/orchestration/running'
 import { useI18n } from '../../i18n/I18nProvider'
@@ -9,6 +10,7 @@ import { confirmModal, confirmModalWithChoices } from '../../lib/confirm'
 import type { ActionUi } from '../../lib/jobActions'
 import { toast } from '../../lib/toast'
 import { useSummaries } from '../../state/useSummaries'
+import { planAccountsKey, planCheckPluginsKey, planRunConfigsKey } from './planReadKeys'
 import { planCommands } from './planCommands'
 import { canManualStartOf, headCountsOf, waveStatusOf } from './planPage'
 import { wavesOf } from './planBoard'
@@ -79,6 +81,25 @@ export function usePlanPage({
    *  자체는 잠깐 보이지 않지만, 상태는 그대로 있으므로 폼을 닫으면 원래 걸러 보던 화면이 다시
    *  나온다. */
   const [authoring, setAuthoring] = useState(false)
+  /** 계정 목록. **두 곳이 쓴다** — Task 짓기 폼의 계정 칸(그 Run 의 provider 것만 걸러 넘긴다)과
+   *  아래 필터 줄이 지정된 계정의 **이름**을 적는 자리다. 그래서 폼이 열릴 때만이 아니라 창이 열려
+   *  있는 동안 들고 있고, 폼을 열 때마다 다시 받는다(그 사이 계정이 늘거나 지워졌을 수 있다).
+   *
+   *  **로그인 여부는 묻지 않는다**: 이 목록은 "고를 수 있는 것"이고, 고른 계정을 정말 쓸 수 있는지는
+   *  띄우는 순간 accountToDispatchOn 이 본다 — 지금 로그아웃돼 있어도 나중에 로그인하면 되는
+   *  것이라, 여기서 숨기면 고를 수 없는 이유가 화면에 남지 않는다. */
+  const accountsRead = useCachedRead(planAccountsKey(door), () => door.accounts())
+  // 거부 팔: 실패해도 폼은 쓸 수 있어야 하므로 빈 목록으로 접는다. 그러면 계정 칸이 그려지지 않고(고를 것이 둘 미만)
+  // 지정 없이 Task 를 만드는 길이 남는다.
+  const accounts: Account[] | null = accountsRead.data ?? (accountsRead.error ? [] : null)
+  // The cache keeps the lists across opens (a plan reopens at once); the form asks again when it opens, since accounts,
+  // configurations and plugins may have changed meanwhile.
+  useEffect(() => {
+    if (!authoring) return
+    invalidate(planAccountsKey(door))
+    invalidate(planRunConfigsKey(door, runId))
+    invalidate(planCheckPluginsKey(door))
+  }, [authoring, door, runId])
   /** Task 짓기 폼의 검증 구성 목록. null 은 아직 안 온 것 — NewTaskModal 의 prop 문서와 같은 뜻이다.
    *
    *  **run.list 로 받는다. orch.command(..., 'run-configs', ...) 가 아니다.** run-configs 명령은
@@ -93,81 +114,20 @@ export function usePlanPage({
    *  loadRunConfigs({projectPath, stored, assertAllowedPath})를 부르므로 id 가 갈라지지 않는다 —
    *  여기서 고른 id 가 곧 validateConfigId 로 저장되고 TaskValidator 가 나중에 그 id 로 찾아낼 그
    *  설정이다. */
-  const [runConfigs, setRunConfigs] = useState<{ id: string; name: string }[] | null>(null)
-  /** 계정 목록. **두 곳이 쓴다** — Task 짓기 폼의 계정 칸(그 Run 의 provider 것만 걸러 넘긴다)과
-   *  아래 필터 줄이 지정된 계정의 **이름**을 적는 자리다. 그래서 폼이 열릴 때만이 아니라 창이 열려
-   *  있는 동안 들고 있고, 폼을 열 때마다 다시 받는다(그 사이 계정이 늘거나 지워졌을 수 있다).
-   *
-   *  **로그인 여부는 묻지 않는다**: 이 목록은 "고를 수 있는 것"이고, 고른 계정을 정말 쓸 수 있는지는
-   *  띄우는 순간 accountToDispatchOn 이 본다 — 지금 로그아웃돼 있어도 나중에 로그인하면 되는
-   *  것이라, 여기서 숨기면 고를 수 없는 이유가 화면에 남지 않는다. */
-  const [accounts, setAccounts] = useState<Account[] | null>(null)
-  // 계정 목록은 창이 열려 있는 동안 들고 있고 폼을 열 때 다시 받는다(authoring 이 의존성에 있는
-  // 이유). 실행 구성과 **따로 둔 이유**: 그쪽은 폼이 닫히면 비우고 이쪽은 비우지 않는다 — 두
-  // 수명을 한 effect 에 넣으면 정리 함수가 갈래마다 생겨 읽을 수 없게 된다.
-  useEffect(() => {
-    let cancelled = false
-    // 거부 팔을 둔다 — 실패해도 폼은 쓸 수 있어야 하므로 빈 목록으로 접는다. 그러면 계정 칸이
-    // 그려지지 않고(고를 것이 둘 미만) 지정 없이 Task 를 만드는 길이 남는다.
-    void door.accounts().then(
-      (list) => {
-        if (!cancelled) setAccounts(list)
-      },
-      () => {
-        if (!cancelled) setAccounts([])
-      }
-    )
-    return () => {
-      cancelled = true
-    }
-  }, [authoring, door])
-  useEffect(() => {
-    if (!authoring) {
-      setRunConfigs(null) // 다음에 지을 때 다시 받도록 비운다 — 그 사이 설정이 바뀌었을 수 있다
-      return
-    }
-    let cancelled = false
-    // 거부 팔을 반드시 둔다 — main 이 프로젝트를 읽다 던질 수 있고, 그러면 DevTools 에
-    // Uncaught (in promise) 가 뜬다. 실패해도 폼은 그대로 쓸 수 있어야 하므로(검증 없이 Task 를
-    // 만드는 것도 유효한 선택이다) 빈 목록으로 접는다 — "검증 없음" 하나만 남는다.
-    void door.runConfigs(runId).then(
-      (configs) => {
-        // A compound has no command and no exit code of its own — validation's contract is one
-        // command, one exit code (see prepareRun's compoundNotRunnable refusal), so it is excluded
-        // here rather than offered and then failed every time it runs.
-        if (!cancelled)
-          setRunConfigs(configs.filter((c) => c.type !== 'compound').map((c) => ({ id: c.id, name: c.name })))
-      },
-      () => {
-        if (!cancelled) setRunConfigs([])
-      }
-    )
-    return () => {
-      cancelled = true
-    }
-  }, [authoring, door, runId])
+  const runConfigsRead = useCachedRead(authoring ? planRunConfigsKey(door, runId) : null, async () =>
+    // A compound has no command and no exit code of its own — validation's contract is one
+    // command, one exit code (see prepareRun's compoundNotRunnable refusal), so it is excluded
+    // here rather than offered and then failed every time it runs.
+    (await door.runConfigs(runId)).filter((c) => c.type !== 'compound').map((c) => ({ id: c.id, name: c.name }))
+  )
+  // 거부 팔을 반드시 둔다 — 실패해도 폼은 그대로 쓸 수 있어야 하므로(검증 없이 Task 를 만드는 것도 유효한 선택이다)
+  // 빈 목록으로 접는다 — "검증 없음" 하나만 남는다.
+  const runConfigs: { id: string; name: string }[] | null = runConfigsRead.data ?? (runConfigsRead.error ? [] : null)
   /** This computer's completion check plugins for the form (plugin Phase 5 C6), read beside the run configurations and
    *  apart from them: the Host may be slow or down, and the run configurations are offered without waiting for it. A
    *  Runtime's door offers none (C14). null = not read yet. */
-  const [checkPlugins, setCheckPlugins] = useState<CheckPluginRow[] | null>(null)
-  useEffect(() => {
-    if (!authoring) {
-      setCheckPlugins(null)
-      return
-    }
-    let cancelled = false
-    void door.checkPlugins().then(
-      (list) => {
-        if (!cancelled) setCheckPlugins(list)
-      },
-      () => {
-        if (!cancelled) setCheckPlugins([])
-      }
-    )
-    return () => {
-      cancelled = true
-    }
-  }, [authoring, door])
+  const pluginsRead = useCachedRead<CheckPluginRow[]>(authoring ? planCheckPluginsKey(door) : null, () => door.checkPlugins())
+  const checkPlugins: CheckPluginRow[] | null = pluginsRead.data ?? (pluginsRead.error ? [] : null)
   /** 물어보기(Gate)의 질문을 쓰는 중인 Task id. null 이면 안 쓰는 중이다 — authoring 과 같은 자리에
    *  서는 세 번째 모습이다(그래프는 그대로, .detail-events 만 바뀐다). authoring 처럼 selected(필터)는
    *  건드리지 않는다. */

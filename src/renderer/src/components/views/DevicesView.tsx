@@ -19,7 +19,7 @@ export function DevicesView(p: SideBarViewProps): React.JSX.Element {
   const { paired, accountsOf, mine, found, adding } = useDevices()
   useEffect(() => {
     startDiscovery()
-    refreshDevices()
+    refreshDevices(false)
   }, [])
   const toFind = foundNotPaired(found)
   const openDevice = (runtimeId: string): void => openView('device', runtimeId)
@@ -78,7 +78,7 @@ export function DevicesView(p: SideBarViewProps): React.JSX.Element {
         label={title}
         items={[
           { id: 'add', icon: <Icon name="add" />, label: t('devices.add.title'), onClick: () => openAddDevice() },
-          { id: 'refresh', icon: <Icon name="refresh" />, label: t('devices.refresh'), onClick: refreshDevices }
+          { id: 'refresh', icon: <Icon name="refresh" />, label: t('devices.refresh'), onClick: () => refreshDevices() }
         ]}
       />
       <ViewPane title={t('devices.pane.this')} storageKey="devices.this" className="devices-this">
