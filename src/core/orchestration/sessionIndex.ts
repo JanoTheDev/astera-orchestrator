@@ -162,11 +162,10 @@ export type InboxItem =
 /** A plan awaiting approval: the W2-A rule (CONTEXT rule 10), the one place the inbox reads it. */
 export const awaitsApproval = (job: Job): boolean => job.pendingStart === true && job.plannerSessionIds !== undefined
 
-/** #116: a plan awaiting approval that the owner can approve now: its planner ended a turn on it (Job.planReadyAt,
- *  never set on an auto-approve plan that started by itself) and it still has a Task. planApprovable's rule as far as
- *  the renderer can read it: validatePlan is main-side. */
-const approvable = (job: Job, tasks: readonly Task[]): boolean =>
-  awaitsApproval(job) && job.planReadyAt !== undefined && tasks.some((t) => t.jobId === job.id && t.runId === undefined)
+/** A plan awaiting approval that still has a Task: Needs you offers Approve for it (the plan page's rule, planPage.ts
+ *  approveViewOf). It does not wait for Job.planReadyAt: a plan whose planner finished writing Tasks must not go
+ *  missing when that mark is unset. run-start still refuses a plan that does not hold. */
+const approvable = (job: Job, tasks: readonly Task[]): boolean => awaitsApproval(job) && tasks.some((t) => t.jobId === job.id && t.runId === undefined)
 
 /** #117: the plans in the tree that run hands-off: handsOffOf (delivery.ts) as the renderer reads it, the plan's own
  *  setting, else its project's. The Inbox page drops their questions with it too (useInbox). */

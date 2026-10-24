@@ -83,9 +83,12 @@ describe('approveViewOf', () => {
     expect(approveViewOf(plan({ planProblems: ['T1 has no files'] }))).toEqual({ show: true, ready: false, problems: ['T1 has no files'] })
     expect(approveViewOf(plan({ planReady: true, planProblems: ['cycle'] }))).toMatchObject({ show: true, ready: false, problems: ['cycle'] })
   })
-  it('a plan with no Tasks, one still planning without problems, or not waiting shows no button', () => {
+  it('shows a disabled Approve for a waiting plan with Tasks that is not marked ready, or starts by itself', () => {
+    expect(approveViewOf(plan({}))).toEqual({ show: true, ready: false, problems: [] })
+    expect(approveViewOf(plan({ autoApprove: true }))).toMatchObject({ show: true, ready: false })
+  })
+  it('a plan with no Tasks or not waiting shows no button', () => {
     expect(approveViewOf(plan({ tasks: [], planProblems: ['no tasks'] })).show).toBe(false)
-    expect(approveViewOf(plan({})).show).toBe(false)
     expect(approveViewOf(plan({ pendingStart: false, planProblems: ['x'] })).show).toBe(false)
     expect(approveViewOf(plan({ archivedAt: 'x', planProblems: ['x'] })).show).toBe(false)
   })

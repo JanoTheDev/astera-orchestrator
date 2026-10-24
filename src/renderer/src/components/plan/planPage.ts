@@ -184,9 +184,9 @@ export const nextPlanOpen = (prev: PlanOpen, section?: PlanSection): PlanOpen =>
 export const planAnchorId = (a: PlanAnchor): string => (a.kind === 'task' ? taskAnchorId(a.taskId) : `plan-${a.kind}`)
 export const taskAnchorId = (taskId: string): string => `plan-task-${taskId}`
 
-/** What the plan header shows where Approve & execute stands. The button shows for a plan that waits for approval and
- *  has Tasks, even when it is not ready (its planner is not done, or `planProblems` hold it): then it is disabled and
- *  the problems stand beside it. A plan with no Tasks, or still planning with nothing wrong, keeps its words. */
+/** What the plan header shows where Approve & execute stands. The button shows for every plan that waits for approval
+ *  and has Tasks. It is enabled once the plan is ready (approveSlot); before that, or while `planProblems` hold it, it is
+ *  disabled and "Not ready to approve" stands beside it with the problems. */
 export interface ApproveView {
   show: boolean
   /** Approve can be pressed now. */
@@ -196,9 +196,7 @@ export interface ApproveView {
 }
 
 export function approveViewOf(row: Pick<JobRow, 'pendingStart' | 'planned' | 'planReady' | 'autoApprove' | 'handsOff' | 'planProblems' | 'archivedAt' | 'tasks'>): ApproveView {
-  const slot = approveSlot(row)
   const problems = row.planProblems ?? []
-  if (slot === 'approve') return { show: true, ready: row.tasks.length > 0 && problems.length === 0, problems }
-  const held = slot !== null && row.tasks.length > 0 && problems.length > 0
-  return { show: held, ready: false, problems: held ? problems : [] }
+  const show = row.pendingStart === true && row.archivedAt === undefined && row.tasks.length > 0
+  return { show, ready: show && approveSlot(row) === 'approve' && problems.length === 0, problems: show ? problems : [] }
 }

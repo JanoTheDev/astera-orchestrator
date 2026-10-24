@@ -300,14 +300,16 @@ export function PlanHeader({
               아무 일도 일어나지 않는다. 누르면 게이트가 걷히고 이 버튼도 사라진다. 도는 동안은 회전과 문구로 바뀐다. */}
           {run && approve?.show && (
             <>
-              {approve.problems.length > 0 && (
+              {!approve.ready && (
                 <div className="plan-page-problems" role="alert">
                   <strong>{t('plan.talk.problems')}</strong>
-                  <ul>
-                    {approve.problems.map((x) => (
-                      <li key={x}>{x}</li>
-                    ))}
-                  </ul>
+                  {approve.problems.length > 0 && (
+                    <ul>
+                      {approve.problems.map((x) => (
+                        <li key={x}>{x}</li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               )}
               <Button
