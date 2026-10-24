@@ -90,6 +90,7 @@ import { transcribe } from '../core/intents/transcribe'
 import { parseWithCoordinator } from '../core/intents/parseRun'
 import type { ModelListResult } from '../core/models/types'
 import { attachmentNameOf } from '../core/files/attachmentName'
+import { MAX_ATTACHMENT_BYTES, saveClipboardFile } from './intakePaste'
 import { devInstallOverride, installCommandFor } from '../core/install/cliInstall'
 import { addToProfile, findAfterInstall, locateCli, runInstallCommand } from './cliLocate'
 import { mcpClientsStatus, registerMcpClientNow } from './mcpClients'
@@ -429,9 +430,6 @@ export interface HostWiring {
  *  handleCommand 는 caller.sessionId 가 Dispatch 를 가진 적이 있으면 워커로 보고 COORDINATOR_ONLY
  *  명령을 막는다. 겹치면 앱이 워커로 오인되어 Task 를 만들 수 없게 된다. 세션 id 는 randomUUID
  *  (core/sessions/manager.ts)이므로 콜론이 들어갈 자리가 없다. */
-/** The most this will write for one dropped or pasted file. A prompt attachment is a screenshot or a
- *  document, not a disk image, and the cap is what keeps a stray drop from filling a disk. */
-const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
 
 // The same string core's handleCommand lets send the driving loop's own calls (APP_CALLER).
 const UI_CALLER = APP_CALLER
@@ -8066,6 +8064,11 @@ export function registerIpc(
       // Forward slashes: this is typed into a prompt, where a Windows backslash reads as an escape.
       return file.replaceAll('\\', '/')
     }
+  )
+
+  // T4: a file pasted into Start with no path of its own; Start attaches the answered path through the intake
+  ipcMain.handle('files.savePasted', (_e, name: unknown, mime: unknown, base64: unknown) =>
+    saveClipboardFile(app.getPath('userData'), name, mime, base64)
   )
 
   // What the model menu offers. The same list settings shows and the same per-account cache — the

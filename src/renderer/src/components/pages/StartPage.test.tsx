@@ -58,4 +58,19 @@ describe('Start page', () => {
     expect(render({ mode: 'prompts' })).toContain('start.how.promptsHint')
     expect(render({ mode: 'auto' })).toContain('start.go.auto')
   })
+
+  it('offers Attach, and takes a paste, in every mode (T4)', () => {
+    for (const mode of ['chat', 'auto', 'prompts']) {
+      const html = render({ mode })
+      expect(html).toContain('aria-label="start.attach"')
+      expect(html).toContain('start.attach.hint')
+    }
+  })
+
+  it('holds the project, the box, the attachments and the mode tabs in one composer card', () => {
+    const html = render({ files: ['/u/intake-paste/id/image-1.png', '/w/spec.md'] })
+    const card = html.slice(html.indexOf('start-composer'), html.indexOf('start-mode-hint'))
+    for (const part of ['aria-label="start.project"', 'start.q.placeholder', 'image-1.png', 'spec.md', 'start.remove', 'role="tablist"']) expect(card).toContain(part)
+    expect(html.match(/ui-btn--primary/g)).toHaveLength(1)
+  })
 })

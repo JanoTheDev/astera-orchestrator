@@ -68,4 +68,7 @@ export const start: Partial<Record<keyof typeof ko, string>> = {
   'start.adv.replanHint': 'Deja que el planificador ajuste el siguiente paso tras ver lo que hizo el anterior.',
   'start.adv.replan.waves': 'Replanificar tras cada paso',
   'start.adv.replan.off': 'Mantener el primer plan tal cual',
+  // T4: paste to attach
+  'start.paste.failed': 'No se pudo adjuntar {name}',
+  'start.attach.hint': 'Pega o suelta archivos para adjuntarlos',
 }

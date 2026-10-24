@@ -68,4 +68,7 @@ export const start: Partial<Record<keyof typeof ko, string>> = {
   'start.adv.replanHint': '前のステップの結果を見て、次のステップをプランナーが調整できます。',
   'start.adv.replan.waves': '各ステップのあとに再計画',
   'start.adv.replan.off': '最初の計画のままにする',
+  // T4: paste to attach
+  'start.paste.failed': '{name} を添付できませんでした',
+  'start.attach.hint': 'ファイルを貼り付けるかドロップすると添付されます',
 }

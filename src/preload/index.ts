@@ -331,6 +331,7 @@ const api = {
     copy: invoke('files.copy'),
     importExternal: invoke('files.importExternal'),
     pathForFile: (file: File) => webUtils.getPathForFile(file),
+    savePasted: invoke('files.savePasted'),
     reveal: invoke('files.reveal'),
     countEntries: invoke('files.countEntries'),
     resolveLink: invoke('files.resolveLink'),
