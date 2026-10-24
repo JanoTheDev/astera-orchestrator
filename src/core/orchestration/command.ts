@@ -13,6 +13,7 @@ import { briefQuestion, briefTask, jobView, latestRunOf, runView } from './publi
 // W8-C plan after plan
 import { afterNameOf, afterRefusal, afterSweep, jobDelivered } from './after'
 import { lastByState } from './stateMemo'
+import { commitFresh, isStateConflict } from './stateConflict'
 import { randomBytes } from 'node:crypto'
 import {
   ackDelivery,
@@ -2229,18 +2230,19 @@ export async function handleCommand(
     return reply
   }
 
-  /** W2-A: rewrites a Job's `plannerSessionIds` on the state as it is now (`jobs plan` awaits a spawn);
-   *  `undefined` drops the field. False when the Job is gone. */
-  const setJobPlanners = async (jobId: string, f: (ids: string[]) => string[] | undefined): Promise<boolean> => {
-    const current = deps.getState()
-    const job = current.jobs.find((j) => j.id === jobId)
-    if (!job) return false
-    // #116: a planner session added or removed is a new planning round: the plan is not ready until it ends a turn
-    const { plannerSessionIds: was, planReadyAt: _ready, ...rest } = job
-    const ids = f(was ?? [])
-    await deps.setState({ ...current, jobs: current.jobs.map((j) => (j.id === jobId ? (ids ? { ...rest, plannerSessionIds: ids } : rest) : j)) })
-    return true
-  }
+  /** W2-A: rewrites a Job's `plannerSessionIds` (and sets `extra`) on the state as it is now (`jobs plan` awaits a spawn);
+   *  `undefined` drops the field. False when the Job is gone. A state conflict re-reads and re-applies it (commitFresh):
+   *  it runs once a planner session exists, which must not be lost or started twice by a re-run. */
+  const setJobPlanners = (jobId: string, f: (ids: string[]) => string[] | undefined, extra: Partial<Job> = {}): Promise<boolean> =>
+    commitFresh(deps, (current) => {
+      const job = current.jobs.find((j) => j.id === jobId)
+      if (!job) return null
+      // #116: a planner session added or removed is a new planning round: the plan is not ready until it ends a turn
+      const { plannerSessionIds: was, planReadyAt: _ready, ...rest } = job
+      const ids = f(was ?? [])
+      const next = { ...rest, ...extra, ...(ids ? { plannerSessionIds: ids } : {}) }
+      return { ...current, jobs: current.jobs.map((j) => (j.id === jobId ? next : j)) }
+    })
 
   /** T25: records on the Job why its planner or coordinator start waits for an account with room (null: it no longer does).
    *  Best-effort: a write that fails is not a reason to fail the start. The start is then answered at once and the dispatch
@@ -3848,62 +3850,52 @@ export async function handleCommand(
         (await deps.listAccounts(undefined, { withDefault: true })).find((k) => k.default === true)?.id
       if (!accountId) return bad('no account is logged in to plan on: log in to an account first')
       if (!deps.startCoordinator) return conflict('starting a planner is not available in this build')
-      if (args.replan !== undefined) {
-        const cur = deps.getState()
-        await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id ? { ...j, replan: args.replan as 'waves' | 'off' } : j)) })
-      }
-      if (planningFlag !== undefined) {
-        const cur = deps.getState()
-        await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id ? { ...j, planning: planningFlag } : j)) })
-      }
-      if (handsOff !== undefined) {
-        const cur = deps.getState()
-        await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id ? { ...j, handsOff } : j)) })
-      }
-      if (auto !== undefined) {
-        const cur = deps.getState()
-        await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id ? { ...j, autoApprove: auto } : j)) })
-      }
-      if (delivery !== undefined) {
-        // #116: from the current state, not `s`: the --replan / --auto-approve written above would be lost
-        const set = setJobDelivery(deps.getState(), id, delivery)
-        if (!set.ok) return refused(set)
-        await deps.setState(set.state)
-      }
-      if (concurrency !== null) {
-        const current = deps.getState()
-        await deps.setState({ ...current, jobs: current.jobs.map((j) => (j.id === id ? { ...j, concurrency } : j)) })
-      }
-      // W7-E: a planned Job's Tasks are reviewed, with the convergence defaults (up to MAX_REVIEW_ROUNDS rounds, then a
-      // Gate that escalates), unless `--no-review` here or at `jobs create` said not; and the planner's account is kept,
-      // so a plan with no coordinator still replans and gets its final check (replanAccountOf)
-      {
-        const review = args.noReview === true ? false : job.review !== false
-        const cur = deps.getState()
-        await deps.setState({
-          ...cur,
-          jobs: cur.jobs.map((j) =>
-            j.id === id
-              ? {
-                  ...j,
-                  review,
-                  plannerAccountId: accountId,
-                  ...(preferredId !== undefined ? { preferredAccountId: preferredId } : {}),
-                  ...(review && !j.convergence ? { convergence: {} } : {})
-                }
-              : j
-          )
-        })
-      }
+      // One write for every field set before the planner starts, the planned mark included, built from one read: a write
+      // the Host refuses (OrchStateConflict) then lands none of them, and a re-run starts from the Job as it was
+      const before = deps.getState()
+      if (!before.jobs.some((j) => j.id === id)) return notFound(`unknown job: ${id}`)
+      // #116: from the current state, not `s`, so the fields below are not written over a stale Job
+      const set = delivery === undefined ? null : setJobDelivery(before, id, delivery)
+      if (set && !set.ok) return refused(set)
+      const base = set ? set.state : before
       // **Marked planned before the session exists** (an empty list): from here an agent cannot approve it
       // (run-start above), which covers the seconds before the new session's id is recorded below.
-      const marked = job.plannerSessionIds === undefined
-      if (marked) await setJobPlanners(id, (ids) => ids)
+      // Decided from the state this write is built on, so a re-run after a refused write still marks (and unmarks).
+      const marked = base.jobs.find((j) => j.id === id)?.plannerSessionIds === undefined
+      await deps.setState({
+        ...base,
+        jobs: base.jobs.map((j) => {
+          if (j.id !== id) return j
+          // #116: a new planner session is a new planning round, as setJobPlanners drops it
+          const { planReadyAt: _ready, ...unready } = j
+          // W7-E: a planned Job's Tasks are reviewed, with the convergence defaults (up to MAX_REVIEW_ROUNDS rounds, then a
+          // Gate that escalates), unless `--no-review` here or at `jobs create` said not; and the planner's account is kept,
+          // so a plan with no coordinator still replans and gets its final check (replanAccountOf)
+          const review = args.noReview === true ? false : j.review !== false
+          return {
+            ...(marked ? { ...unready, plannerSessionIds: [] } : j),
+            // W6-D --replan, T1 --planning, #117 --hands-off, W7-A --auto-approve, W6-C --concurrency
+            ...(args.replan !== undefined ? { replan: args.replan as 'waves' | 'off' } : {}),
+            ...(planningFlag !== undefined ? { planning: planningFlag } : {}),
+            ...(handsOff !== undefined ? { handsOff } : {}),
+            ...(auto !== undefined ? { autoApprove: auto } : {}),
+            ...(concurrency !== null ? { concurrency } : {}),
+            review,
+            plannerAccountId: accountId,
+            ...(preferredId !== undefined ? { preferredAccountId: preferredId } : {}),
+            ...(review && !j.convergence ? { convergence: {} } : {})
+          }
+        })
+      })
       let sessionId: string
       let startedOn: string | undefined
       // W8-G (#101): earlier plans' work that sits on an unmerged branch, which the workers of this plan will not have
       const projectOfPlan = projectOfJob(deps.getState(), job)
       const unmerged = projectOfPlan ? await unmergedPlanBranches(deps.getState(), projectOfPlan) : null
+      // The planned mark taken back once no planner runs. Best-effort after commitFresh's own retries: a throw here would
+      // hide the answer about the planner, and no planner is left running either way
+      const unmark = (): Promise<unknown> =>
+        setJobPlanners(id, () => undefined).catch((e) => deps.log?.(`job ${id}: its planned mark could not be undone: ${String(e)}`))
       // T5: the crash restore's `jobs-plan --resume <native id>`: the dead planner's own conversation goes on
       const resume = str(args.resume)
       try {
@@ -3933,20 +3925,27 @@ export async function handleCommand(
         sessionId = started.sessionId
         startedOn = started.accountId
       } catch (e) {
-        if (marked) await setJobPlanners(id, () => undefined)
+        if (marked) await unmark()
         const waiting = deps.getState().jobs.find((j) => j.id === id)?.startWait
         if (waiting !== undefined) return okBody({ jobId: id, waiting })
         return bad(`could not start the planner: ${String(e)}`)
       }
-      if (!(await setJobPlanners(id, (ids) => [...ids, sessionId]))) {
+      // T5b: the account the planner actually started on, which replans and feedback rounds then plan on; recorded in the
+      // same write as the session id. From here a conflict must not throw out: the planner runs, and a re-run would start a second one
+      let recorded: boolean
+      try {
+        recorded = await setJobPlanners(id, (ids) => [...ids, sessionId], startedOn !== undefined && startedOn !== accountId ? { plannerAccountId: startedOn } : {})
+      } catch (e) {
+        // Recorded nowhere, nothing would gate or end that session: it is stopped, and the Job is as before the call
+        await deps.stopCoordinator?.(sessionId, 'Astera could not record the planner it started').catch(() => {})
+        if (marked) await unmark()
+        if (!isStateConflict(e)) throw e
+        return conflict('Astera was busy saving other work and could not start the planner. Try again.')
+      }
+      if (!recorded) {
         // The Job went while the session started: nothing would gate that session, so it is stopped.
         await deps.stopCoordinator?.(sessionId, 'its Job was deleted while the planner started').catch(() => {})
         return notFound(`unknown job: ${id}`)
-      }
-      // T5b: the account the planner actually started on, which replans and feedback rounds then plan on
-      if (startedOn !== undefined && startedOn !== accountId) {
-        const cur = deps.getState()
-        await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id ? { ...j, plannerAccountId: startedOn } : j)) })
       }
       return okBody({ jobId: id, sessionId, ...(startedOn !== undefined ? { accountId: startedOn } : {}) })
     }
