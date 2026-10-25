@@ -56,15 +56,28 @@ export type TerminalClipboard = {
  *  (core/terminal/copy.ts has the measurement). */
 export function attachTerminalKeys(
   term: Terminal,
-  o: { isMac: boolean; plainFind?: boolean; readOnly?: () => boolean; onFind?: () => void; before?: (e: KeyboardEvent) => boolean }
+  o: {
+    isMac: boolean
+    plainFind?: boolean
+    readOnly?: () => boolean
+    onFind?: () => void
+    /** Runs after the menu's Clear has cleared the terminal, for state that describes its old contents (find matches) */
+    onClear?: () => void
+    before?: (e: KeyboardEvent) => boolean
+  }
 ): TerminalClipboard {
+  // 고른 순간의 글자를 붙잡아 둔다 — TerminalView 와 같은 이유이고 같은 방식이다. xterm 의
+  // 선택은 좌표만 가리키므로, 실행된 명령이 화면을 다시 그리면(TUI 를 띄우는 명령이 그렇다)
+  // 그 좌표에서 읽히는 것은 이미 다른 것이다. core/terminal/copy.ts 에 그 측정이 있다.
   let latched = ''
   const latch = term.onSelectionChange(() => {
     latched = term.getSelection()
   })
   const copy = (): boolean => {
     const text = copyTextFor(latched, term.getSelection())
-    if (text === null) return false // nothing to write: leave the clipboard alone rather than blank it
+    // 쓸 것이 없으면 클립보드를 그대로 둔다 — 다시 그려진 자리의 공백으로 덮어쓰면 복사한
+    // 사람은 붙여넣기가 고장 난 것으로 본다.
+    if (text === null) return false
     window.api.clipboard.writeText(text)
     term.clearSelection()
     latched = ''
@@ -76,7 +89,10 @@ export function attachTerminalKeys(
       const text = window.api.clipboard.readText()
       if (text && !o.readOnly?.()) term.paste(text)
     } else if (action === 'selectAll') term.selectAll()
-    else if (action === 'clear') term.clear()
+    else if (action === 'clear') {
+      term.clear()
+      o.onClear?.()
+    }
     else if (o.onFind) return o.onFind()
     term.focus()
   }
@@ -112,6 +128,12 @@ const MENU_LABEL: Record<TerminalAction, MessageKey> = {
   find: 'terminal.menu.find'
 }
 
+/** Whether a right-click landed on the xterm surface. The wrapper also holds the find bar, banners and overlays, which
+ *  keep their own menus (the native input menu in the find field, for one). */
+export function isXtermTarget(target: EventTarget | null): boolean {
+  return (target as Element | null)?.closest?.('.xterm') != null
+}
+
 /** The right-click menu of a terminal: `onContextMenu` goes on its wrapper, `menu` is drawn beside the terminal. */
 export function useTerminalMenu(
   clip: RefObject<TerminalClipboard | null>,
@@ -119,6 +141,7 @@ export function useTerminalMenu(
 ): { onContextMenu: (e: React.MouseEvent) => void; menu: ReactElement | null } {
   const [open, setOpen] = useState<{ at: { x: number; y: number }; hasSelection: boolean } | null>(null)
   const onContextMenu = (e: React.MouseEvent): void => {
+    if (!isXtermTarget(e.target)) return
     e.preventDefault()
     setOpen({ at: menuPointOf(e), hasSelection: clip.current?.hasSelection() ?? false })
   }

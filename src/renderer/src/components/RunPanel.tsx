@@ -52,6 +52,8 @@ export function RunPanel({
   onFindOpenChangeRef.current = onFindOpenChange
   const attachFindRef = useRef(find.attach)
   attachFindRef.current = find.attach
+  const resetFindRef = useRef(find.reset)
+  resetFindRef.current = find.reset
   const onOpenFileRef = useRef(onOpenFile)
   onOpenFileRef.current = onOpenFile
   const onOpenUrlRef = useRef(onOpenUrl)
@@ -78,7 +80,8 @@ export function RunPanel({
     clipRef.current = attachTerminalKeys(term, {
       isMac: window.api.platform === 'darwin',
       plainFind: true,
-      onFind: () => onFindOpenChangeRef.current(true)
+      onFind: () => onFindOpenChangeRef.current(true),
+      onClear: () => resetFindRef.current()
     })
     const disposeLinks = attachConsoleLinks(term, {
       onUrl: (url, ev) => onOpenUrlRef.current(url, ev),
