@@ -2,8 +2,10 @@
 // vouch for last) and the Changes pane (the selected worktree's changed files). A click on a worktree opens its own
 // `view:worktree` tab, where its detail, commits and actions are; a click on a changed file shows that file's diff.
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { ChangedFile } from '../../../../core/git/changedFile'
 import type { WorktreeStatus } from '../../../../core/types'
 import { resolveFileIcon } from '../../../../core/files/icons'
+import { isMac } from '../../lib/platformKeys'
 import { toast } from '../../lib/toast'
 import { setCached, useCachedRead } from '../../lib/readCache'
 import { repoInScope } from '../../state/projectView'
@@ -13,8 +15,9 @@ import { PushBadge } from '../PushBadge'
 import { rowSlot } from '../rowSlot'
 import { EmptyState, ICONS, Icon, Input, Menu, Tree, ViewContainer, ViewPane, menuPointOf, type MenuItem, type ToolbarItem, Toolbar, type TreeItem } from '../ui'
 import { changeLetter } from '../explorerChanged'
+import { absoluteOf, changedFileLabels, changedFileMenu } from '../changedFileMenu'
 import { DiffView } from '../DiffView'
-import { openWorktree } from '../shell/navigation'
+import { openFile, openWorktree } from '../shell/navigation'
 import type { SideBarViewProps } from '../shell/SideBar'
 import { AheadBehind } from '../worktrees/WorktreeDetail'
 import { useWorktreeDetail } from '../worktrees/useWorktreeDetail'
@@ -111,6 +114,7 @@ export function ScmView(p: SideBarViewProps): React.JSX.Element {
   const detail = useWorktreeDetail(row)
   const files = detail?.files ?? null
   const [diff, setDiff] = useState<Diff | null>(null)
+  const [fileMenu, setFileMenu] = useState<{ at: { x: number; y: number }; file: ChangedFile; root: string } | null>(null)
   useEffect(() => setDiff(null), [selected])
   // A click shows the file's diff, read as the Explorer's Changed pane reads it (worktrees.fileDiff by the file's id)
   const showDiff = (fileId: string): void => {
@@ -263,7 +267,16 @@ export function ScmView(p: SideBarViewProps): React.JSX.Element {
             <p className="wb-view-empty">{t('worktrees.changes.none')}</p>
           ) : (
             <div className="scm-tree" {...fileTree.handlers}>
-              <Tree rows={changeItems} label={t('worktrees.changesPane')} onSelect={fileTree.onSelect} onOpen={() => openWorktree(row.item.path)} />
+              <Tree
+                rows={changeItems}
+                label={t('worktrees.changesPane')}
+                onSelect={fileTree.onSelect}
+                onOpen={() => openWorktree(row.item.path)}
+                onContextMenu={(id, e) => {
+                  const file = files?.find((f) => f.id === id)
+                  if (file) setFileMenu({ at: menuPointOf(e), file, root: row.item.path })
+                }}
+              />
             </div>
           )}
           {diff?.state === 'shown' && <DiffView diff={diff.diff} truncated={diff.truncated} binary={shownFile?.binary === true} />}
@@ -272,6 +285,23 @@ export function ScmView(p: SideBarViewProps): React.JSX.Element {
       </ViewContainer>
       {wt.overlays}
       {menu && <Menu at={menu} label={t('worktrees.rowMenu')} items={menuItems(menu.path)} onClose={() => setMenu(null)} />}
+      {fileMenu && (
+        <Menu
+          at={fileMenu.at}
+          items={changedFileMenu(
+            { status: fileMenu.file.status, path: absoluteOf(fileMenu.root, fileMenu.file.path), relative: fileMenu.file.path },
+            changedFileLabels(t, isMac()),
+            {
+              open: openFile,
+              diff: () => showDiff(fileMenu.file.id),
+              copy: (text) => window.api.clipboard.writeText(text),
+              reveal: (path) =>
+                void window.api.files.reveal(path).catch((err: unknown) => toast.error(t('explorer.reveal.failed', { detail: err instanceof Error ? err.message : String(err) })))
+            }
+          )}
+          onClose={() => setFileMenu(null)}
+        />
+      )}
     </div>
   )
 }
