@@ -11,9 +11,14 @@ import { postPlanFeedback, type ActionUi } from '../../lib/jobActions'
 import { replyNote, type OrchDoor } from '../../lib/orchDoor'
 import { Button, Field, Icon, IconButton } from '../ui'
 import { TaskEditModal } from './TaskEditModal'
+import { TaskActionButtons, type OnTaskAction } from './TaskActionMenu'
+import type { TaskActionId } from './taskActions'
 import { taskActionKey, taskActionOf } from './planCommands'
 import { doneViewOf, foldReport } from './taskDoneView'
 import { attemptStateOf, feedbackTextOf, loadTaskInfo, taskEditOf, type TaskInfo } from './taskEdit'
+
+/** The actions this detail shows as buttons; Retry/Continue/Restart, Ask about it and Edit are its own buttons. */
+const DETAIL_ACTIONS: readonly TaskActionId[] = ['start', 'ask', 'stop', 'holdWorker', 'unholdWorker', 'stopAutoFix', 'acceptFailed', 'cancelFailed']
 
 export function TaskDetail({
   door,
@@ -25,7 +30,9 @@ export function TaskDetail({
   accountLabel,
   onShowTask,
   onRestart,
-  onAsk
+  onAsk,
+  onTaskAction,
+  canManualStart = false
 }: {
   door: OrchDoor
   /** The plan's Job: where a change request goes. */
@@ -42,6 +49,9 @@ export function TaskDetail({
   onRestart?: (taskId: string) => void
   /** Present: "Ask about this task" on a finished Task (planCommands askAboutTaskWithToast). */
   onAsk?: (taskId: string) => Promise<void>
+  /** Present: the Task's per-state actions as buttons (taskActions: Start, Ask, Stop, Pause/Resume worker, Stop auto-fix, Accept, Cancel). */
+  onTaskAction?: OnTaskAction
+  canManualStart?: boolean
 }): React.JSX.Element {
   const { t } = useI18n()
   const [info, setInfo] = useState<TaskInfo | null | 'loading'>('loading')
@@ -248,6 +258,9 @@ export function TaskDetail({
             {/* The hold reason; non-compact already shows the result section above */}
             {action === 'continue' && compact && full.result !== undefined && <span className="plan-task-spec">{full.result}</span>}
           </>
+        )}
+        {onTaskAction && (
+          <TaskActionButtons task={task} ctx={{ canManualStart, consoleOpen: false }} ids={DETAIL_ACTIONS} lockedReason={door.readOnlyReason ?? undefined} onAction={onTaskAction} />
         )}
         {view.ask && onAsk && (
           <Button

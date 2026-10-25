@@ -419,4 +419,13 @@ export const plan: Record<keyof typeof ko, string> = {
   'plan.header.reveal': 'Reveal plan folder',
   'plan.header.terminal': 'Open terminal in plan folder',
   'plan.header.noFolder': 'This plan has no folder on this computer',
+  // Task actions on the Board and Graph (taskActions.ts): the right-click menu and the worker/worktree items
+  'plan.taskMenu.label': 'Task actions',
+  'plan.taskMenu.pauseWorker': 'Pause worker',
+  'plan.taskMenu.resumeWorker': 'Resume worker',
+  'plan.taskMenu.openWorktree': 'Open worktree',
+  'plan.taskMenu.reveal': 'Reveal folder',
+  'plan.taskMenu.noWorker': 'No running worker',
+  'plan.taskMenu.noWorktree': "Could not find this task's worktree folder",
+  'plan.taskMenu.terminal': 'Open terminal here',
 }
