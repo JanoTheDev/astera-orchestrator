@@ -369,6 +369,23 @@ describe('createDispatchLoop', () => {
     expect(h.state().tasks.every((t) => t.status === 'ready')).toBe(true)
   })
 
+  it('a worker-start refused at the Run concurrency limit (atRunLimit) opens no Gate and starts once a slot frees', async () => {
+    const h = rig()
+    let full = true
+    h.ctx.handle = async (cmd, args) =>
+      cmd === 'worker-start' && full
+        ? { status: 409, body: { error: 'run run_x is at its concurrency limit: 5 of 5 dispatches are open', atRunLimit: true } }
+        : h.real(cmd, args)
+    await h.loop.run()
+    await h.settle()
+    expect(h.handled()).not.toContain('gate-create')
+    expect(h.state().tasks.every((t) => t.status === 'ready')).toBe(true)
+    full = false
+    await h.loop.run()
+    await h.settle()
+    expect(h.startWorker).toHaveBeenCalledTimes(1)
+  })
+
   // W6-G: the usage guard. A paused account starts nothing and opens no Gate; the pass after its end starts it.
   it('starts no worker on an account at usagePauseAt, opens no Gate, and starts once the pause ends', async () => {
     const h = rig()

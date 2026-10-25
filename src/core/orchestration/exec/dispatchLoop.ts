@@ -1639,6 +1639,10 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     // Nothing for a person to fix, so no Gate: the next pass after a worker ends places it.
     if (reply.status === 409 && (reply.body as { atCapacity?: unknown })?.atCapacity === true)
       return { kind: 'wait', why: 'the app-wide worker cap is reached' }
+    // A review or repair took the Run's last slot between slotsToFill and here (they are counted, never
+    // refused). Nothing for a person to fix, so no Gate: the next pass after a Dispatch closes places it.
+    if (reply.status === 409 && (reply.body as { atRunLimit?: unknown })?.atRunLimit === true)
+      return { kind: 'wait', why: 'the run is at its concurrency limit' }
     // W5-C: the plan was held from launching between slotsToFill and here. A person's choice, so no Gate.
     if (reply.status === 409 && (reply.body as { held?: unknown })?.held === true)
       return { kind: 'wait', why: 'the plan is held from launching new workers' }

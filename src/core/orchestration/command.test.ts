@@ -3736,6 +3736,7 @@ describe('worker-start — 동시 실행 한도', () => {
     const err = String((third.body as { error?: string }).error)
     expect(err).toContain('concurrency limit')
     expect(err).toContain('2 of 2')
+    expect(third.body).toMatchObject({ atRunLimit: true })
   })
 
   it('한도 안이면 그대로 통과한다', async () => {
