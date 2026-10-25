@@ -440,4 +440,5 @@ export const plan = {
   "plan.taskMenu.reveal": "폴더 보기",
   "plan.taskMenu.noWorker": "실행 중인 워커가 없습니다",
   "plan.taskMenu.noWorktree": "이 작업의 워크트리 폴더를 찾지 못했습니다",
+  "plan.taskMenu.terminal": "여기서 터미널 열기",
 } as const

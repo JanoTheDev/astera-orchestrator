@@ -12,6 +12,7 @@ import { showWorktrees } from '../components/worktrees/worktreeView'
 import type { AppState } from './appState'
 import { planSectionOf } from '../components/plan/planBoard'
 import { ownerOf, scopeFor } from './projectScope'
+import { toast } from '../lib/toast'
 
 type NavigationDeps = Pick<
   AppState,
@@ -19,7 +20,7 @@ type NavigationDeps = Pick<
   | 'canOpenSessionTab' | 'setWorkspaceScope' | 'workspaceIds' | 'workspaceProjectId' | 'selectWorkbenchTab' | 'workspaceTree' | 'enterWorkspace' | 'setPendingRun'
   | 'setPlanPage' | 'showActivity' | 'setSidebarOpen' | 'openPanelTab' | 'setPanelVisible' | 'runPanelOpen' | 'layoutRef'
   | 'activePaneIdRef' | 'setLayout' | 'setActivePaneId' | 'openStart' | 'terminals' | 'setBottomTab' | 'openTerminal'
-  | 'openLinkedPath' | 'spawn'
+  | 'openLinkedPath' | 'spawn' | 'setTerminals' | 'setRunPanelOpen' | 't'
 >
 
 export function useNavigation(app: NavigationDeps): void {
@@ -28,7 +29,8 @@ export function useNavigation(app: NavigationDeps): void {
       setSettingsTab, setSettingsAnchor, canOpenSessionTab, setWorkspaceScope,
       selectWorkbenchTab, workspaceTree, enterWorkspace, setPendingRun, setPlanPage, workspaceIds, workspaceProjectId,
       showActivity, setSidebarOpen, openPanelTab, setPanelVisible, runPanelOpen, layoutRef, activePaneIdRef, setLayout,
-      setActivePaneId, openStart, terminals, setBottomTab, openTerminal, openLinkedPath, spawn
+      setActivePaneId, openStart, terminals, setBottomTab, openTerminal, openLinkedPath, spawn,
+      setTerminals, setRunPanelOpen, t
     } = app
     /** Opens the view tab, or focuses the one already open, in whichever group it sits. */
     const placeView = (name: ViewName, arg?: string): void => {
@@ -96,7 +98,18 @@ export function useNavigation(app: NavigationDeps): void {
       // T7 review: Edit on a hunk
       openFile: (path, at) => openLinkedPath(path, at),
       // T7 review: Ask AI on a plain worktree. No account named is Auto (T1); no default is saved for it
-      startSession: (cwd, kind) => spawn({ accountIds: [], cwd, saveDefault: false, kind })
+      startSession: (cwd, kind) => spawn({ accountIds: [], cwd, saveDefault: false, kind }),
+      // A Task's worktree shell: newTerminal's steps (state/useRunActions.ts), at `cwd` instead of the panel's root
+      openTerminalAt: async (cwd) => {
+        try {
+          const info = await window.api.terminal.open(cwd)
+          setTerminals((prev) => [...prev, { id: info.id, buffer: '' }])
+          setBottomTab(info.id)
+          setRunPanelOpen(true)
+        } catch (err) {
+          toast.error(t('terminal.open.failed', { detail: err instanceof Error ? err.message : String(err) }))
+        }
+      }
     })
   })
 }

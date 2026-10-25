@@ -23,6 +23,7 @@ export type TaskActionId =
   | 'openConsole'
   | 'openWorktree'
   | 'reveal'
+  | 'terminal'
   | 'copyId'
 
 /** `mutates`: changes the plan, so a read-only pairing (`lockedReason`) turns it off. The rest only look or copy. */
@@ -62,7 +63,7 @@ export function taskActionsOf(task: JobTask, ctx: TaskActionCtx): TaskAction[] {
   if (task.status !== 'completed') out.push(harmless('edit'))
   if (task.sessionId !== undefined && ctx.consoleOpen) out.push(harmless('openConsole'))
   // The worktree is found by its branch (the registry), as the row's branch button does
-  if (task.branch !== undefined) out.push(harmless('openWorktree'), harmless('reveal'))
+  if (task.branch !== undefined) out.push(harmless('openWorktree'), harmless('reveal'), harmless('terminal'))
   out.push(harmless('copyId'))
   return out
 }

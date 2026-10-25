@@ -25,6 +25,7 @@ const VIEW: Record<TaskActionId, { label: MessageKey; icon: IconName; danger?: t
   openConsole: { label: 'plan.row.openConsole', icon: 'open' },
   openWorktree: { label: 'plan.taskMenu.openWorktree', icon: 'branch' },
   reveal: { label: 'plan.taskMenu.reveal', icon: 'folder' },
+  terminal: { label: 'plan.taskMenu.terminal', icon: 'terminal' },
   copyId: { label: 'pages.plans.tree.menu.copyId', icon: 'copy' }
 }
 

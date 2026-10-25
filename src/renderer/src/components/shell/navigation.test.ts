@@ -19,7 +19,8 @@ const handlers = (): NavigationHandlers => ({
   openWorktree: vi.fn(),
   openSettings: vi.fn(),
   openFile: vi.fn(),
-  startSession: vi.fn(async () => null)
+  startSession: vi.fn(async () => null),
+  openTerminalAt: vi.fn(async () => {})
 })
 
 describe('navigation registry', () => {

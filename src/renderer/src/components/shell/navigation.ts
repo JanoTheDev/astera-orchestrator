@@ -32,6 +32,8 @@ export interface NavigationHandlers {
   /** T7 review: a new agent session in `cwd` on the Auto account, its tab opened (the New session dialog's spawn).
    *  Answers its id, or null when it did not start (the spawn already said why). */
   startSession: (cwd: string, kind: 'chat') => Promise<string | null>
+  /** A new shell in `cwd` (a Task's worktree), its tab added to the bottom panel and shown. */
+  openTerminalAt: (cwd: string) => Promise<void>
 }
 
 let current: NavigationHandlers | null = null
@@ -77,5 +79,10 @@ export const startSession = (cwd: string, kind: 'chat'): Promise<string | null> 
   if (current) return current.startSession(cwd, kind)
   console.warn('navigation.startSession: no handlers registered')
   return Promise.resolve(null)
+}
+export const openTerminalAt = (cwd: string): Promise<void> => {
+  if (current) return current.openTerminalAt(cwd)
+  console.warn('navigation.openTerminalAt: no handlers registered')
+  return Promise.resolve()
 }
 export const openSettings = (group: SettingsGroup | OldSettingsTab, anchor?: string): void => forward('openSettings', group, anchor)

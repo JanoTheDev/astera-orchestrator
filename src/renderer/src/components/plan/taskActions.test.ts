@@ -45,7 +45,7 @@ describe('taskActionsOf', () => {
   })
 
   it('a Task with a branch offers its worktree; an open tab offers the console', () => {
-    expect(ids(task('completed', { branch: 'b' }))).toEqual(['askAbout', 'openWorktree', 'reveal', 'copyId'])
+    expect(ids(task('completed', { branch: 'b' }))).toEqual(['askAbout', 'openWorktree', 'reveal', 'terminal', 'copyId'])
     expect(ids(task('dispatched', { provider: 'claude', sessionId: 's' }), { ...ctx, consoleOpen: true })).toContain('openConsole')
     expect(ids(task('dispatched', { provider: 'claude', sessionId: 's' }))).not.toContain('openConsole')
   })

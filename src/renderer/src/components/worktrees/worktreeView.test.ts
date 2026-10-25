@@ -31,6 +31,7 @@ describe('worktreeView', () => {
       openSettings: () => {},
       openFile: () => {},
       startSession: async () => null,
+      openTerminalAt: async () => {},
       openActivity: () => {},
       openView: () => {},
       openPanel: () => {},

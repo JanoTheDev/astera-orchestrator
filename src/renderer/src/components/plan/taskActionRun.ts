@@ -6,7 +6,7 @@ import type { Dispatch } from '../../../../core/orchestration/types'
 import { holdWorker, resolveFailed, unholdWorker, type ActionUi } from '../../lib/jobActions'
 import type { OrchDoor } from '../../lib/orchDoor'
 import { toast } from '../../lib/toast'
-import { openConsole, openWorktree } from '../shell/navigation'
+import { openConsole, openTerminalAt, openWorktree } from '../shell/navigation'
 import { askAboutTaskWithToast } from './planCommands'
 import type { TaskActionId } from './taskActions'
 
@@ -59,11 +59,13 @@ export async function runTaskAction(id: TaskActionId, task: JobTask, r: TaskActi
       return
     }
     case 'openWorktree':
-    case 'reveal': {
+    case 'reveal':
+    case 'terminal': {
       const path = task.branch === undefined ? null : await worktreePathOf(task.branch)
       if (path === null) return void toast.error(r.t('plan.taskMenu.noWorktree'))
       if (id === 'openWorktree') openWorktree(path)
-      else await window.api.files.reveal(path)
+      else if (id === 'reveal') await window.api.files.reveal(path)
+      else await openTerminalAt(path)
       return
     }
   }

@@ -419,4 +419,5 @@ export const plan: Record<keyof typeof ko, string> = {
   'plan.taskMenu.reveal': 'Reveal folder',
   'plan.taskMenu.noWorker': 'No running worker',
   'plan.taskMenu.noWorktree': "Could not find this task's worktree folder",
+  'plan.taskMenu.terminal': 'Open terminal here',
 }
