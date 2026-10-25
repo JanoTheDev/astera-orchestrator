@@ -1,17 +1,20 @@
 // T9 / DESIGN-W13 §7: the bell in the status bar. The badge counts the unread "needs you" cards of the open project; the
 // popover (menu-like, 22px rows) lists the newest of them, each with its one action, then the latest handled lines, and
 // "View all" opens the panel's Needs you tab. The status bar's "needs you" opens it too.
-import { useMemo, useSyncExternalStore } from 'react'
+import { useMemo, useState, useSyncExternalStore } from 'react'
 import type { AppState } from '../../state/appState'
 import { useI18n } from '../../i18n/I18nProvider'
 import { approvePlan, type ActionUi } from '../../lib/jobActions'
 import { localDoor } from '../../lib/orchDoor'
-import { Button, Icon, IconButton } from '../ui'
+import { Button, Icon, IconButton, Menu, menuPointOf, type MenuItem } from '../ui'
 import { Popover } from '../ui/Popover'
-import { markRead, setRead, toggleAllProjects } from '../inbox/bellStore'
+import { markRead, markUnread, setRead, toggleAllProjects } from '../inbox/bellStore'
 import { useNeedsYou } from '../inbox/useNeedsYou'
 import { NEED_WORD, ageOf, handledOf, whereOf, type HandledLine, type NeedCard } from '../inbox/inboxView'
 import { BELL_ACTION_LABEL, BELL_RECENT_MAX, badgeOf, bellActionOf, bellItems, markAllRead } from '../inbox/bellView'
+import { goTo } from '../inbox/InboxPage'
+import { lineTargetOf, openTargetOf } from '../inbox/inboxNav'
+import { itemMenuOf, needTextOf, type ItemDeps, type ItemRef } from '../inbox/itemMenu'
 import { openConsole, openInbox, openPlan } from './navigation'
 import '../inbox/inbox.css'
 
@@ -51,6 +54,22 @@ export function NotificationBell({ accounts, actionUi, scopedData, scopedTree, t
   )
   const items = bellItems(needs, handled, read)
   const badge = badgeOf(items.unread)
+
+  const [menu, setMenu] = useState<{ at: { x: number; y: number }; ref: ItemRef; read: boolean } | null>(null)
+  const deps: ItemDeps = {
+    open: (target) => {
+      setBellOpen(false)
+      goTo(target)
+    },
+    console: (id) => {
+      setBellOpen(false)
+      openConsole(id)
+    },
+    setRead: (key, r) => (r ? markRead(key) : markUnread(key)),
+    copy: (text) => window.api.clipboard.writeText(text)
+  }
+  const needRef = (c: NeedCard): ItemRef => ({ key: c.key, target: openTargetOf(c), sessionId: c.sessionId, text: needTextOf(c, t) })
+  const lineRef = (l: HandledLine): ItemRef => ({ key: l.id, target: lineTargetOf(l), sessionId: l.sessionId, text: l.text })
 
   const act = (c: NeedCard, ui: ActionUi): void => {
     markRead(c.key)
@@ -103,11 +122,22 @@ export function NotificationBell({ accounts, actionUi, scopedData, scopedTree, t
         }}
         onAct={(c) => act(c, actionUi)}
         onLine={(l) => {
-          if (!l.sessionId) return
+          const target = lineTargetOf(l)
+          if (!target) return
           markRead(l.id)
-          setBellOpen(false)
-          openConsole(l.sessionId)
+          deps.open(target)
         }}
+        onOpen={(c) => {
+          markRead(c.key)
+          deps.open(openTargetOf(c))
+        }}
+        onToggleRead={(key, isRead) => deps.setRead(key, !isRead)}
+        onMenu={(e, which, isRead) => {
+          e.preventDefault()
+          setMenu({ at: menuPointOf(e), ref: 'id' in which ? lineRef(which) : needRef(which), read: isRead })
+        }}
+        menu={menu ? { at: menu.at, items: itemMenuOf(menu.ref, menu.read, deps, t) } : null}
+        onMenuClose={() => setMenu(null)}
         onViewAll={viewAllInbox}
       />
     </Popover>
@@ -128,6 +158,11 @@ export function BellPanel({
   onMarkAllRead,
   onAct,
   onLine,
+  onOpen,
+  onToggleRead,
+  onMenu,
+  menu,
+  onMenuClose,
   onViewAll
 }: {
   needs: readonly NeedCard[]
@@ -140,6 +175,13 @@ export function BellPanel({
   onMarkAllRead: () => void
   onAct: (c: NeedCard) => void
   onLine: (l: HandledLine) => void
+  /** Open the card's source, beside its one action. */
+  onOpen: (c: NeedCard) => void
+  onToggleRead: (key: string, read: boolean) => void
+  /** Right-click on a card or a line. */
+  onMenu: (e: React.MouseEvent, item: NeedCard | HandledLine, read: boolean) => void
+  menu: { at: { x: number; y: number }; items: MenuItem[] } | null
+  onMenuClose: () => void
   onViewAll: () => void
 }): React.JSX.Element {
   return (
@@ -165,12 +207,20 @@ export function BellPanel({
               const [word, tone] = NEED_WORD[c.kind]
               const action = bellActionOf(c)
               return (
-                <li key={c.key} className={read.has(c.key) ? 'bell__item' : 'bell__item bell__item--unread'}>
+                <li key={c.key} className={read.has(c.key) ? 'bell__item' : 'bell__item bell__item--unread'} onContextMenu={(e) => onMenu(e, c, read.has(c.key))}>
                   <span className={`bell__kind bell__kind--${tone}`}>{t(word)}</span>
                   <span className="bell__where" title={whereOf(c.projectName, c.planName, c.taskTitle)}>
                     {whereOf(c.projectName, c.planName, c.taskTitle)}
                   </span>
                   <span className="bell__age">{ageOf(c.at, nowMs, t)}</span>
+                  <IconButton size="sm" data-roving="" icon={<Icon name="open" size={14} />} label={t('bell.open')} onClick={() => onOpen(c)} />
+                  <IconButton
+                    size="sm"
+                    data-roving=""
+                    icon={<Icon name={read.has(c.key) ? 'pending' : 'check'} size={14} />}
+                    label={t(read.has(c.key) ? 'inbox.item.markUnread' : 'inbox.item.markRead')}
+                    onClick={() => onToggleRead(c.key, read.has(c.key))}
+                  />
                   <Button size="sm" variant={action === 'approve' ? 'primary' : 'secondary'} data-roving="" onClick={() => onAct(c)}>
                     {t(BELL_ACTION_LABEL[action])}
                   </Button>
@@ -185,8 +235,8 @@ export function BellPanel({
           <h3 className="bell__h">{t('bell.recent')}</h3>
           <ul className="bell__list">
             {recent.map((l) => (
-              <li key={l.id}>
-                <Button variant="ghost" size="sm" className="bell__line" data-roving="" disabled={l.sessionId === undefined} title={l.text} onClick={() => onLine(l)}>
+              <li key={l.id} onContextMenu={(e) => onMenu(e, l, read.has(l.id))}>
+                <Button variant="ghost" size="sm" className="bell__line" data-roving="" disabled={lineTargetOf(l) === null} title={l.text} onClick={() => onLine(l)}>
                   <span className="bell__text">{l.text}</span>
                   {l.plan && <span className="bell__plan">{l.plan}</span>}
                   <span className="bell__age">{timeOf(l.at)}</span>
@@ -201,6 +251,7 @@ export function BellPanel({
           {t('bell.viewAll')}
         </Button>
       </div>
+      {menu && <Menu at={menu.at} items={menu.items} onClose={onMenuClose} label={t('bell.title')} />}
     </div>
   )
 }

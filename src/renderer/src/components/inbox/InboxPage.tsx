@@ -6,11 +6,12 @@ import { useEffect, useMemo, useState } from 'react'
 import { useI18n } from '../../i18n/I18nProvider'
 import { approvePlan, type ActionUi } from '../../lib/jobActions'
 import { localDoor, replyNote } from '../../lib/orchDoor'
-import { Button, Chip, Icon, IconButton, Tabs, type IconName } from '../ui'
+import { Button, Chip, Icon, IconButton, Menu, menuPointOf, Tabs, type IconName } from '../ui'
 import { openConsole, openPlan } from '../shell/navigation'
 import { QuestionAnswer } from '../plan/QuestionAnswer'
 import { setInboxFilter, useInboxRequest, type OpenTarget, openTargetOf, revealTask } from './inboxNav'
-import { toggleAllProjects } from './bellStore'
+import { markRead, markUnread, toggleAllProjects, useBellState } from './bellStore'
+import { itemMenuOf, needTextOf } from './itemMenu'
 import { BELL_ACTION_LABEL, bellActionOf } from './bellView'
 import { NEED_WORD, ageOf, filterNeeds, whereOf, type NeedCard, type NeedKind } from './inboxView'
 import { useNeedsYou, type NeedsYouScope } from './useNeedsYou'
@@ -98,6 +99,8 @@ export function NeedCardView({
   const [word, tone] = NEED_WORD[c.kind]
   const [busy, setBusy] = useState(false)
   const [open, setOpen] = useState(startOpen)
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null)
+  const isRead = useBellState().read.has(c.key)
   const action = bellActionOf(c)
   const run = async (fn: () => Promise<unknown>): Promise<void> => {
     setBusy(true)
@@ -121,14 +124,29 @@ export function NeedCardView({
   // Overlapping plans, once each, for "Start after"
   const others = [...new Map((c.overlaps ?? []).map((o) => [o.otherJobId, o.otherPlanName])).entries()]
 
+  const target = openTargetOf(c)
+  const menuItems = itemMenuOf(
+    { key: c.key, target, sessionId: c.sessionId, text: needTextOf(c, t) },
+    isRead,
+    { open: goTo, console: openConsole, setRead: (key, r) => (r ? markRead(key) : markUnread(key)), copy: (text) => window.api.clipboard.writeText(text) },
+    t
+  )
+
   return (
-    <div className={`needs-row${open ? ' needs-row--open' : ''}${c.kind === 'escalation' ? ' needs-row--danger' : ''}`}>
-      <div className="needs-row__head">
+    <div className={`needs-row${open ? ' needs-row--open' : ''}${isRead ? ' needs-row--read' : ''}${c.kind === 'escalation' ? ' needs-row--danger' : ''}`}>
+      <div
+        className="needs-row__head"
+        onContextMenu={(e) => {
+          e.preventDefault()
+          setMenuAt(menuPointOf(e))
+        }}
+      >
         <Button variant="ghost" size="sm" className="needs-row__toggle" aria-expanded={open} icon={<Icon name={open ? 'chevronDown' : 'chevronRight'} size={14} />} onClick={() => setOpen((v) => !v)}>
           <Icon name={KIND_ICON[c.kind]} size={14} className={`needs-row__kind needs-row__kind--${tone}`} />
           <span className="needs-row__word">{t(word)}</span>
           <span className="inbox__where">{whereOf(c.projectName, c.planName, c.taskTitle)}</span>
           <span className="inbox__age">{ageOf(c.at, nowMs, t)}</span>
+          {isRead && <Icon name="check" size={14} className="needs-row__read" label={t('inbox.item.readCue')} />}
         </Button>
         <Button
           size="sm"
@@ -139,6 +157,7 @@ export function NeedCardView({
           {t(BELL_ACTION_LABEL[action])}
         </Button>
       </div>
+      {menuAt && <Menu at={menuAt} items={menuItems} onClose={() => setMenuAt(null)} label={t('bell.needsYou')} />}
       {open && <div className="needs-row__body">
       {c.kind === 'command' && c.q && (
         <>

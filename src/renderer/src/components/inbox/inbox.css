@@ -46,3 +46,5 @@
 .bell .bell__kind--danger { color: var(--danger); }
 .wb-status__bell .tb-popover.bell { width: 360px; }
 .bell .bell__line:disabled { opacity: 1; color: var(--text-dim); }
+.needs-row--read .needs-row__word, .needs-row--read .inbox__where { color: var(--text-dim); }
+.needs-row__read { flex: none; color: var(--text-dim); }

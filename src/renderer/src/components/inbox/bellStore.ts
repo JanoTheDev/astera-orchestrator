@@ -33,6 +33,12 @@ export function markRead(key: string): void {
   setRead([...cur, key])
 }
 
+/** "Mark unread": the item counts again. */
+export function markUnread(key: string): void {
+  const cur = getBellState().read
+  if (cur.has(key)) setRead([...cur].filter((k) => k !== key))
+}
+
 export const toggleAllProjects = (): void => set({ ...getBellState(), allProjects: !getBellState().allProjects })
 
 /** Test seam: forget the cached state. */
@@ -45,4 +51,4 @@ const subscribe = (l: () => void): (() => void) => {
   return () => listeners.delete(l)
 }
 
-export const useBellState = (): BellState => useSyncExternalStore(subscribe, getBellState)
+export const useBellState = (): BellState => useSyncExternalStore(subscribe, getBellState, getBellState)
