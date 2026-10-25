@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { JobRow, JobTask } from '../../../../core/types'
 import { ageOf } from './planBoard'
-import { clearableOf, finishedAtMs, isStalledPlan, lastActivityOf, planStatusOf, resumeActionOf, splitPlans } from './planList'
+import { clearableOf, finishedAtMs, isStalledPlan, isStoppedPlan, lastActivityOf, planStatusOf, resumeActionOf, splitPlans } from './planList'
 
 const task = (id: string, over: Partial<JobTask> = {}): JobTask => ({ id, title: id, status: 'pending', openGates: 0, ...over })
 const row = (over: Partial<JobRow> = {}): JobRow => ({
@@ -56,6 +56,16 @@ describe('planStatusOf', () => {
     expect(resumeActionOf(row({ stuck: 'stalled', stalledOn: { taskId: 'g', title: 'G', waiting: 1 }, tasks: [task('f', { status: 'failed' })] }))).toEqual({ kind: 'retry', taskId: 'g' })
     expect(resumeActionOf(row({ stuck: 'stalled', tasks: [] }))).toBeUndefined()
     expect(resumeActionOf(row())).toBeUndefined()
+  })
+
+  it('Resume on a plan stopped with Kill runs runs-resume; schedules, archived, pending and finished plans are not stopped', () => {
+    expect(resumeActionOf(row({ paused: true }))).toEqual({ kind: 'resume-run' })
+    expect(isStoppedPlan(row({ paused: true }))).toBe(true)
+    expect(isStoppedPlan(row({ dispatchHold: true }))).toBe(false)
+    expect(isStoppedPlan(row({ paused: true, schedule: { kind: 'daily', at: '09:00' } as never }))).toBe(false)
+    expect(isStoppedPlan(row({ paused: true, archivedAt: 'x' }))).toBe(false)
+    expect(isStoppedPlan(row({ paused: true, pendingStart: true }))).toBe(false)
+    expect(isStoppedPlan(row({ paused: true, outcome: 'completed' }))).toBe(false)
   })
 
   it('says Stalled on a failed Task (T36), never paused or running', () => {
