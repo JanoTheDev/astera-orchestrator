@@ -219,4 +219,6 @@ export const overlays: Partial<Record<keyof typeof ko, string>> = {
   'keys.source.default': '既定',
   'keys.source.user': 'ユーザー',
   'command.placeholder': 'タブ・プラン・ファイル・コンソールを検索。> でコマンド、@ でタスク、またはリードエージェントに依頼…',
-}
+  'pr.create.done': 'プルリクエストを作成しました',
+  'pr.create.openPr': 'PR を開く',
+  'pr.create.copyLink': 'リンクをコピー',}

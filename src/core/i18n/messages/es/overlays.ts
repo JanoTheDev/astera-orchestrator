@@ -219,4 +219,6 @@ export const overlays: Partial<Record<keyof typeof ko, string>> = {
   'keys.source.default': 'Predeterminado',
   'keys.source.user': 'Usuario',
   'command.placeholder': 'Busca pestañas, planes, archivos y consolas. Escribe > para comandos, @ para tareas, o pregunta al agente principal…',
-}
+  'pr.create.done': 'Pull request creada',
+  'pr.create.openPr': 'Abrir PR',
+  'pr.create.copyLink': 'Copiar enlace',}
