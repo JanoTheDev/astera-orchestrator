@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { terminalKeyAction, terminalMenuEntries } from './terminalMenu'
+import { isXtermTarget, terminalKeyAction, terminalMenuEntries } from './terminalMenu'
 
 const key = (k: string, mods: Partial<Record<'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey', boolean>> = {}) => ({
   type: 'keydown',
@@ -51,5 +51,22 @@ describe('terminalKeyAction', () => {
     expect(terminalKeyAction(key('f', { ctrlKey: true }), false, true)).toBe('find')
     expect(terminalKeyAction(key('f', { metaKey: true }), true)).toBe('find')
     expect(terminalKeyAction(key('f', { metaKey: true, shiftKey: true }), true)).toBeNull()
+  })
+})
+
+describe('isXtermTarget', () => {
+  // A stand-in element: closest() finds `.xterm` only when the node sits inside the xterm surface
+  const under = (inside: boolean) => ({ closest: (sel: string) => (inside && sel === '.xterm' ? {} : null) })
+
+  it('accepts a target inside the xterm element', () => {
+    expect(isXtermTarget(under(true) as unknown as EventTarget)).toBe(true)
+  })
+
+  it('rejects the find bar, banners and overlays that share the terminal wrapper', () => {
+    expect(isXtermTarget(under(false) as unknown as EventTarget)).toBe(false)
+  })
+
+  it('rejects a missing target', () => {
+    expect(isXtermTarget(null)).toBe(false)
   })
 })
