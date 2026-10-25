@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { BranchRef, WorktreeListItem } from '../../../core/types'
 import { useI18n } from '../i18n/I18nProvider'
+import { toast } from '../lib/toast'
 import { Button, Icon, Modal, Select, Checkbox, Field } from './ui'
 
 type Failure = { kind: string; detail: string; pushed: boolean; stage: 'push' | 'create' }
@@ -103,7 +104,20 @@ export function CreatePrDialog({
         draft,
         needsPush: willPush
       })
-      if (r.ok) onDone()
+      if (r.ok) {
+        onDone()
+        // One action per toast: Open PR on the success one, Copy link on a second
+        toast.success(t('pr.create.done'), { action: { label: t('pr.create.openPr'), onClick: () => void window.api.system.openExternal(r.url) } })
+        toast.info(r.url, {
+          action: {
+            label: t('pr.create.copyLink'),
+            onClick: () => {
+              window.api.clipboard.writeText(r.url)
+              toast.success(t('github.badge.linkCopied'))
+            }
+          }
+        })
+      }
       else setFailure({ kind: r.kind, detail: r.detail, pushed: r.pushed, stage: r.stage })
     } finally {
       setBusy(false)

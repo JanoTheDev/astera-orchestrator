@@ -313,4 +313,6 @@ export const overlays = {
   'keys.source': '출처',
   'keys.source.default': '기본',
   'keys.source.user': '사용자',
-} as const
+  'pr.create.done': 'PR 을 만들었습니다',
+  'pr.create.openPr': 'PR 열기',
+  'pr.create.copyLink': '링크 복사',} as const

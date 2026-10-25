@@ -296,4 +296,6 @@ export const overlays: Record<keyof typeof ko, string> = {
   'keys.source': 'Source',
   'keys.source.default': 'Default',
   'keys.source.user': 'User',
-}
+  'pr.create.done': 'Pull request created',
+  'pr.create.openPr': 'Open PR',
+  'pr.create.copyLink': 'Copy link',}
