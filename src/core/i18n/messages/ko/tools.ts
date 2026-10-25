@@ -280,4 +280,12 @@ export const tools = {
   'run.row.edit': '구성 편집',
   'run.view.refresh': '새로 고침',
   'run.view.empty': '실행 구성이 없습니다. +로 만드세요.',
+  'terminal.menu.copy': '복사',
+  'terminal.menu.paste': '붙여넣기',
+  'terminal.menu.selectAll': '모두 선택',
+  'terminal.menu.clear': '지우기',
+  'terminal.menu.find': '찾기',
+  'terminal.tab.rename': '이름 바꾸기',
+  'terminal.tab.renameLabel': '터미널 이름',
+  'terminal.tab.closeOthers': '다른 터미널 닫기',
 } as const

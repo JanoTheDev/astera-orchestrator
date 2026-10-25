@@ -5,7 +5,7 @@ import { useWheelScrollX } from '../hooks/useWheelScrollX'
 import { RunPanel } from './RunPanel'
 import { RunTabStrip } from './RunTabStrip'
 import { TerminalBody } from './TerminalBody'
-import { Icon, Toolbar, type ToolbarItem } from './ui'
+import { Icon, IconButton, Input, Menu, menuPointOf, Toolbar, type ToolbarItem } from './ui'
 
 /**
  * Bottom panel. The Run tab and the project terminals share this one panel through tabs.
@@ -82,6 +82,11 @@ export function BottomPanel({
     set((prev) => ({ ...prev, [key]: (prev[key] ?? 0) + 1 }))
   // The find bar is per run, so switching tabs shows that run's search
   const [findOpen, setFindOpen] = useState<Record<string, boolean>>({})
+  // A tab's name is local: no backend stores one, so a rename lasts until the panel is closed. An empty name
+  // goes back to the numbered label.
+  const [names, setNames] = useState<Record<string, string>>({})
+  const [renaming, setRenaming] = useState<string | null>(null)
+  const [tabMenu, setTabMenu] = useState<{ at: { x: number; y: number }; id: string } | null>(null)
 
   // One clock for the whole panel, ticking only while something is still alive. Finished runs are
   // computed from their own exitedAt, so the tick never changes their text.
@@ -151,13 +156,66 @@ export function BottomPanel({
                 className={activeTab === term.id ? 'bottom-tab on' : 'bottom-tab'}
                 onClick={() => onSelectTab(term.id)}
                 onKeyDown={tabKeyDown(term.id)}
+                onAuxClick={(e) => {
+                  if (e.button !== 1) return
+                  e.preventDefault()
+                  onCloseTerminal(term.id)
+                }}
+                onContextMenu={(e) => {
+                  e.preventDefault()
+                  setTabMenu({ at: menuPointOf(e), id: term.id })
+                }}
               >
                 {/* The number in the label is the display order in the current list — creation order is not remembered */}
                 <Icon name="terminal" size={14} />
-                {t('terminal.tab.label', { n: i + 1 })}
+                {renaming === term.id ? (
+                  <Input
+                    autoFocus
+                    defaultValue={names[term.id] || t('terminal.tab.label', { n: i + 1 })}
+                    aria-label={t('terminal.tab.renameLabel')}
+                    onClick={(e) => e.stopPropagation()}
+                    onFocus={(e) => e.currentTarget.select()}
+                    onBlur={(e) => {
+                      const name = e.currentTarget.value.trim()
+                      setNames((prev) => ({ ...prev, [term.id]: name }))
+                      setRenaming(null)
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') e.currentTarget.blur()
+                      else if (e.key === 'Escape') setRenaming(null)
+                    }}
+                  />
+                ) : (
+                  names[term.id] || t('terminal.tab.label', { n: i + 1 })
+                )}
+                <IconButton
+                  size="sm"
+                  icon={<Icon name="close" size={14} />}
+                  label={t('terminal.tab.close')}
+                  tabIndex={-1}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onCloseTerminal(term.id)
+                  }}
+                />
               </span>
             ))}
           </span>
+        )}
+        {tabMenu && (
+          <Menu
+            at={tabMenu.at}
+            onClose={() => setTabMenu(null)}
+            items={[
+              { label: t('terminal.tab.rename'), onSelect: () => setRenaming(tabMenu.id) },
+              { label: t('terminal.tab.close'), onSelect: () => onCloseTerminal(tabMenu.id) },
+              {
+                label: t('terminal.tab.closeOthers'),
+                disabled: terminals.length < 2,
+                onSelect: () => terminals.forEach((x) => x.id !== tabMenu.id && onCloseTerminal(x.id))
+              }
+            ]}
+          />
         )}
         <Toolbar label={t(only === 'run' ? 'shell.panel.output' : 'shell.panel.terminal')} items={only === 'run' ? runTools : terminalTools} className="bottom-toolbar" />
       </div>

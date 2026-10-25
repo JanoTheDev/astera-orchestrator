@@ -13,7 +13,8 @@ import * as sessionBus from '../lib/sessionBus'
 import { useI18n } from '../i18n/I18nProvider'
 import { useTerminalFont } from '../lib/terminalFont'
 import { useTheme } from '../lib/theme'
-import { copyTextFor } from '../../../core/terminal/copy'
+import { RunFindBar } from './RunFindBar'
+import { attachTerminalKeys, useTerminalFind, useTerminalMenu, type TerminalClipboard } from './terminalMenu'
 import { goneOutcome, InputCoalescer, remoteCall, type RemoteSessionRef } from '../lib/remoteSessions'
 
 const RETRY_MS = 5_000
@@ -34,6 +35,12 @@ export function RemoteTerminalView({
   const { theme } = useTheme()
   const hostRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
+  const clipRef = useRef<TerminalClipboard | null>(null)
+  const [findOpen, setFindOpen] = useState(false)
+  const find = useTerminalFind(termRef, theme, findOpen, setFindOpen)
+  const { onContextMenu, menu } = useTerminalMenu(clipRef, t)
+  const attachFindRef = useRef(find.attach)
+  attachFindRef.current = find.attach
   const fitRef = useRef<(() => void) | null>(null)
   const readOnlyRef = useRef(readOnly)
   readOnlyRef.current = readOnly
@@ -55,6 +62,7 @@ export function RemoteTerminalView({
     const host = hostRef.current!
     const term = new Terminal({ fontSize: 14, fontFamily: family, scrollback: 5000, theme: xtermThemeOf(theme) })
     const blinkGuard = pinCursorBlinkOff(term)
+    const detachFind = attachFindRef.current(term)
     term.open(host)
     termRef.current = term
     let disposed = false
@@ -161,36 +169,16 @@ export function RemoteTerminalView({
     })
     attach()
 
-    const isMac = window.api.platform === 'darwin'
-    let latchedSelection = ''
-    const selectionLatch = term.onSelectionChange(() => {
-      latchedSelection = term.getSelection()
-    })
-    const clipMod = (e: KeyboardEvent): boolean => (isMac ? e.metaKey : e.ctrlKey)
-    const otherMod = (e: KeyboardEvent): boolean => (isMac ? e.ctrlKey : e.metaKey)
-    term.attachCustomKeyEventHandler((e) => {
-      if (e.type === 'keydown' && e.key === 'Enter' && e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey) {
+    // A read-only pairing pastes nothing; a copied file is never turned into a path here.
+    clipRef.current = attachTerminalKeys(term, {
+      isMac: window.api.platform === 'darwin',
+      readOnly: () => readOnlyRef.current,
+      onFind: () => setFindOpen(true),
+      before: (e) => {
+        if (e.type !== 'keydown' || e.key !== 'Enter' || !e.ctrlKey || e.altKey || e.shiftKey || e.metaKey) return false
         if (!readOnlyRef.current) input.push('\x1b\r')
-        return false
-      }
-      if (e.type === 'keydown' && (e.key === 'c' || e.key === 'C') && clipMod(e) && !e.altKey && !otherMod(e) && !e.shiftKey) {
-        const text = copyTextFor(latchedSelection, term.getSelection())
-        if (text !== null) {
-          window.api.clipboard.writeText(text)
-          term.clearSelection()
-          latchedSelection = ''
-          return false
-        }
         return true
       }
-      // Text from the clipboard goes in as text, bracketed like a paste; a copied file is never turned into a path here.
-      if (e.type === 'keydown' && (e.key === 'v' || e.key === 'V') && clipMod(e) && !e.altKey && !otherMod(e)) {
-        e.preventDefault()
-        const text = window.api.clipboard.readText()
-        if (text && !readOnlyRef.current) term.paste(text)
-        return false
-      }
-      return true
     })
     const typed = term.onData((d) => {
       if (!readOnlyRef.current) input.push(d)
@@ -210,7 +198,9 @@ export function RemoteTerminalView({
       observer.disconnect()
       input.dispose()
       typed.dispose()
-      selectionLatch.dispose()
+      clipRef.current?.dispose()
+      clipRef.current = null
+      detachFind()
       offReset()
       detachOutput()
       offSize()
@@ -244,8 +234,10 @@ export function RemoteTerminalView({
   }, [active])
 
   return (
-    <div className="terminal-wrap">
+    <div className="terminal-wrap" onContextMenu={onContextMenu}>
       <div className="terminal-host" ref={hostRef} />
+      {findOpen && <RunFindBar {...find.barProps} />}
+      {menu}
       {(readOnly || sizeNote || banner || inputLost) && (
         <div className="remote-session-banners">
           {banner?.kind === 'reconnecting' && <div className="remote-session-banner">{t('remote.session.reconnecting')}</div>}

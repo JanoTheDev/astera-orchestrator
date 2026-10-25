@@ -247,4 +247,12 @@ export const tools: Record<keyof typeof ko, string> = {
   'run.row.edit': 'Edit configuration',
   'run.view.refresh': 'Refresh configurations',
   'run.view.empty': 'No run configurations yet. Create one with +.',
+  'terminal.menu.copy': 'Copy',
+  'terminal.menu.paste': 'Paste',
+  'terminal.menu.selectAll': 'Select all',
+  'terminal.menu.clear': 'Clear',
+  'terminal.menu.find': 'Find',
+  'terminal.tab.rename': 'Rename',
+  'terminal.tab.renameLabel': 'Terminal name',
+  'terminal.tab.closeOthers': 'Close other terminals',
 }
