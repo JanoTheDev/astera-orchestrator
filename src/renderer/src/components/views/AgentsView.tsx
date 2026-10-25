@@ -57,6 +57,8 @@ export function AgentsView(p: SideBarViewProps): React.JSX.Element {
   const panes = useMemo(() => agentPanes(shown), [shown])
   const byId = useMemo(() => new Map(shown.map((c) => [c.sessionId, c])), [shown])
 
+  // the one condition for the row's Restart/Dismiss buttons and its menu
+  const endedOf = (c: WallConsole): boolean => c.state === 'finished'
   const accountOf = (c: WallConsole): string | undefined => (c.accountId ? (accounts.find((a) => a.id === c.accountId)?.label ?? c.accountId) : undefined)
   const stop = (c: WallConsole): void => {
     const running = sessions.find((s) => s.id === c.sessionId)?.status !== 'exited'
@@ -75,7 +77,7 @@ export function AgentsView(p: SideBarViewProps): React.JSX.Element {
 
   const rowOf = (c: WallConsole): TreeItem => {
     const summary = summaries.get(c.sessionId)
-    const done = c.state === 'finished'
+    const done = endedOf(c)
     const dot: Dot = done && summary?.outcome === 'gave-up' ? 'failed' : c.state
     const word = done && summary ? outcomeText(summary, t) : t(stateWord(c))
     const title = done && summary ? summary.facts.title : consoleTitle(c)
@@ -118,9 +120,10 @@ export function AgentsView(p: SideBarViewProps): React.JSX.Element {
   // The same session actions as the tab menu (shell/tabMenu.ts), minus the ones this menu words itself (rename, stop)
   const sessionItems = (c: WallConsole): Array<MenuItem | 'separator'> => {
     const s = sessions.find((x) => x.id === c.sessionId)
-    if (!s) return []
-    const exited = s.status === 'exited'
-    const acts = tabActions({ kind: 'local', exited })
+    const ended = endedOf(c)
+    const dismiss: MenuItem[] = ended ? [{ id: 'dismiss', label: t('shell.agents.dismiss'), icon: <Icon name="close" size={14} />, onSelect: () => closeWorkbenchTab(sessionTab(c.sessionId), 'end') }] : []
+    if (!s) return dismiss
+    const acts = tabActions({ kind: 'local', exited: ended })
     const one = (a: string): MenuItem[] => {
       switch (a) {
         case 'restart':
@@ -142,7 +145,7 @@ export function AgentsView(p: SideBarViewProps): React.JSX.Element {
     const manage = acts.manage.flatMap(one)
     return [
       ...(manage.length > 0 ? ['separator' as const, ...manage] : []),
-      ...(exited ? [{ id: 'dismiss', label: t('shell.agents.dismiss'), icon: <Icon name="close" size={14} />, onSelect: () => closeWorkbenchTab(sessionTab(c.sessionId), 'end') } as MenuItem] : []),
+      ...dismiss,
       'separator' as const,
       ...acts.path.flatMap(one)
     ]
@@ -154,7 +157,7 @@ export function AgentsView(p: SideBarViewProps): React.JSX.Element {
     ...(c.jobId ? [{ id: 'plan', label: t('agents.row.plan'), icon: <Icon name="listTree" size={14} />, onSelect: () => openPlan(c.jobId!) }] : []),
     { id: 'rename', label: t('agents.row.rename'), icon: <Icon name="edit" size={14} />, onSelect: () => rename(c) },
     ...sessionItems(c),
-    ...(c.state === 'finished' ? [] : ['separator' as const, { id: 'stop', label: t('agents.row.stop'), icon: <Icon name="stop" size={14} />, danger: true, onSelect: () => stop(c) }])
+    ...(endedOf(c) ? [] : ['separator' as const, { id: 'stop', label: t('agents.row.stop'), icon: <Icon name="stop" size={14} />, danger: true, onSelect: () => stop(c) }])
   ]
 
   const filterItems: Array<MenuItem | 'separator'> = [
