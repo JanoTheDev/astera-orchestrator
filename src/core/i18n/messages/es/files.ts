@@ -120,4 +120,7 @@ export const files: Partial<Record<keyof typeof ko, string>> = {
   'attribution.humanLines': 'persona: {lines} líneas ({percent}%)',
   'attribution.lines': 'Líneas',
   'attribution.taskLinesSr': '({ai} líneas de IA, {human} líneas humanas)',
+  'files.menu.open': 'Abrir',
+  'files.menu.openDiff': 'Abrir diff',
+  'files.menu.openTerminal': 'Abrir en terminal',
 }
