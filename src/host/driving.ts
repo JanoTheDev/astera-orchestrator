@@ -136,7 +136,8 @@ export function createHostDriving(d: {
   spawner: Pick<HostSpawner, 'sessionBusy' | 'typeInto' | 'isRetiring' | 'inFlight'> & Partial<Pick<HostSpawner, 'statusLinePayload'>>
   worktrees: Pick<HostWorktrees, 'fork' | 'integrate' | 'reap' | 'isRegistered'>
   /** B3: the loop's accounts, login and sync lang come from the checks. */
-  checks: Pick<HostChecks, 'resumeSweep' | 'stopForeignValidations' | 'checking' | 'accounts' | 'loginStatus' | 'langNow' | 'lang'>
+  checks: Pick<HostChecks, 'resumeSweep' | 'stopForeignValidations' | 'checking' | 'accounts' | 'loginStatus' | 'langNow' | 'lang'> &
+    Partial<Pick<HostChecks, 'startValidation'>>
   /** The handover belt (N1): starts one open repair Dispatch that has no spec yet. */
   startRepair(a: { dispatchId: string }): void
   /** `sessionExitCode` answers the loop's `sessionGone` (limits pass L1); optional for the test fakes. */
@@ -463,6 +464,8 @@ export function createHostDriving(d: {
     ? createStallWatch({
         handle: (cmd, args) => d.orch.handle(cmd, args),
         getState: () => d.orch.state(),
+        // A lost validation is started again (stallWatch.ts VALIDATE_STALL_MS)
+        ...(d.checks.startValidation ? { checking: (id: string) => d.checks.checking(id), startValidation: d.checks.startValidation } : {}),
         on: () => readStallWatchOn(settingsPath),
         cap: () => readMaxConcurrentWorkers(settingsPath).catch(() => machineSpecs().recommended),
         busy: (id) => d.spawner.sessionBusy(id),
