@@ -1,9 +1,10 @@
-import { useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { SessionKind } from '../../../core/types'
 import { resolveFileIcon } from '../../../core/files/icons'
 import { useI18n } from '../i18n/I18nProvider'
 import { FileIcon } from './FileIcon'
 import { EditorTab, Icon, IconButton, Menu, cx, menuPointOf, nextFocusIndex, type IconName, type MenuItem } from './ui'
+import { useWheelScrollX } from '../hooks/useWheelScrollX'
 import { endRenameOnce } from '../lib/renameOnce'
 import { recentlyClosed, reopenClosed, subscribeRecentlyClosed } from '../lib/recentlyClosed'
 
@@ -198,6 +199,11 @@ export function WorkbenchTabs({
   // W7-F (#84): the overflow menu's place on screen while open. Fixed, not inside .tabs, which scrolls and clips.
   const [overflowAt, setOverflowAt] = useState<{ x: number; y: number } | null>(null)
   const tablist = useRef<HTMLDivElement>(null)
+  useWheelScrollX(tablist)
+  // The active tab may sit past the strip's edge (a tab picked from the overflow menu, a new one): bring it in
+  useEffect(() => {
+    tablist.current?.querySelector<HTMLElement>('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [activeTabId])
   // The one tab in the Tab order (roving tabindex): the active tab, or the first when the active one is elsewhere
   const rovingId = tabs.some((tab) => tab.tabId === activeTabId) ? activeTabId : (tabs[0]?.tabId ?? null)
   // T13: the menu's Recently closed (hidden or ended tabs, newest first); Ctrl+Shift+T reopens the first

@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { RunStatus, TerminalBuffer } from '../../../core/types'
 import { useI18n } from '../i18n/I18nProvider'
+import { useWheelScrollX } from '../hooks/useWheelScrollX'
 import { RunPanel } from './RunPanel'
 import { RunTabStrip } from './RunTabStrip'
 import { TerminalBody } from './TerminalBody'
@@ -73,6 +74,8 @@ export function BottomPanel({
   const { t } = useI18n()
   // Clear means emptying a body's xterm — bump a per-body counter (a runId or a terminal id) and let the
   // body clear itself. Scroll-to-end works the same way for runs.
+  const tabList = useRef<HTMLSpanElement>(null)
+  useWheelScrollX(tabList)
   const [clearNonces, setClearNonces] = useState<Record<string, number>>({})
   const [scrollNonces, setScrollNonces] = useState<Record<string, number>>({})
   const bump = (set: typeof setClearNonces, key: string): void =>
@@ -138,7 +141,7 @@ export function BottomPanel({
         {only === 'run' ? (
           <RunTabStrip runs={runs} selectedId={selectedRunId} now={now} onSelect={onSelectRun} onDismiss={onDismissRun} onOpenPreview={onOpenPreview} />
         ) : (
-          <span className="bottom-tab-list" role="tablist" aria-label={t('panel.terminals')}>
+          <span ref={tabList} className="bottom-tab-list" role="tablist" aria-label={t('panel.terminals')}>
             {terminals.map((term, i) => (
               <span
                 key={term.id}
