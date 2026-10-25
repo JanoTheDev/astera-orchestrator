@@ -2,10 +2,10 @@
 // sessions created for it and orchestration's sessions in its worktrees; never a person's own tab, never a retained
 // worker. And the Host's sweep closes them once, after the grace and the settled completion check, with one log line.
 import { describe, expect, it, vi } from 'vitest'
-import { createRunEndSweep, graceOver, orchOwnerOfCaller, orchSessionsAdded, runEndSessions, type RunEndSession } from './runEnd'
+import { createRunEndSweep, orchOwnerOfCaller, orchSessionsAdded, runEndSessions, type RunEndSession } from './runEnd'
 import { emptyState, type OrchState } from '../state'
 import type { Dispatch, Job, JobRun, Task } from '../types'
-import { FINISHED_RUN_BUSY_CAP_MS, FINISHED_RUN_GRACE_MS } from './dispatchLoop'
+import { FINISHED_RUN_BUSY_CAP_MS, FINISHED_RUN_GRACE_MS, graceOver } from './dispatchLoop'
 import { ORCH_MARK_AGENT } from '../../host/protocol'
 
 const NOW = '2026-10-20T11:00:00.000Z'
@@ -112,13 +112,23 @@ describe('orchSessionsAdded / orchOwnerOfCaller', () => {
 
 describe('graceOver', () => {
   const base = { scheduled: false, finishedAt: NOW_MS, typedAt: null, busy: false }
-  it('waits the grace from the later of the finish and the last input, and a busy session up to the cap', () => {
-    expect(graceOver({ ...base, nowMs: NOW_MS + FINISHED_RUN_GRACE_MS - 1 })).toBe(false)
-    expect(graceOver({ ...base, nowMs: NOW_MS + FINISHED_RUN_GRACE_MS })).toBe(true)
-    expect(graceOver({ ...base, typedAt: NOW_MS + 1000, nowMs: NOW_MS + FINISHED_RUN_GRACE_MS })).toBe(false)
-    expect(graceOver({ ...base, busy: true, nowMs: NOW_MS + FINISHED_RUN_GRACE_MS })).toBe(false)
-    expect(graceOver({ ...base, busy: true, nowMs: NOW_MS + FINISHED_RUN_GRACE_MS + FINISHED_RUN_BUSY_CAP_MS })).toBe(true)
-    expect(graceOver({ ...base, scheduled: true, nowMs: NOW_MS })).toBe(true)
+  it('is due at once when no person typed after the finish, busy or not', () => {
+    expect(graceOver({ ...base, nowMs: NOW_MS })).toBe(true)
+    expect(graceOver({ ...base, busy: true, nowMs: NOW_MS })).toBe(true)
+    expect(graceOver({ ...base, busy: null, nowMs: NOW_MS })).toBe(true)
+    // input before (or at) the finish counts for nothing
+    expect(graceOver({ ...base, typedAt: NOW_MS - 5000, busy: true, nowMs: NOW_MS })).toBe(true)
+    expect(graceOver({ ...base, typedAt: NOW_MS, busy: true, nowMs: NOW_MS })).toBe(true)
+  })
+  it('after a person typed post-finish, waits the grace from that input, and a busy session up to the cap', () => {
+    const typed = { ...base, typedAt: NOW_MS + 1000 }
+    expect(graceOver({ ...typed, nowMs: NOW_MS + 1000 + FINISHED_RUN_GRACE_MS - 1 })).toBe(false)
+    expect(graceOver({ ...typed, nowMs: NOW_MS + 1000 + FINISHED_RUN_GRACE_MS })).toBe(true)
+    expect(graceOver({ ...typed, busy: true, nowMs: NOW_MS + 1000 + FINISHED_RUN_GRACE_MS })).toBe(false)
+    expect(graceOver({ ...typed, busy: true, nowMs: NOW_MS + 1000 + FINISHED_RUN_GRACE_MS + FINISHED_RUN_BUSY_CAP_MS })).toBe(true)
+  })
+  it('is due at once for a scheduled Run even after a person typed', () => {
+    expect(graceOver({ ...base, typedAt: NOW_MS + 1000, scheduled: true, nowMs: NOW_MS })).toBe(true)
   })
 })
 

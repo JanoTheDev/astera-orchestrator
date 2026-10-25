@@ -162,16 +162,29 @@ export const COORDINATOR_STOP_RETRY_MAX_MS = 10 * 60_000
  *  each time. Giving up is logged once and is in memory only: the slot and its pending mark stay, so a
  *  restart or a new driver asks again, and a session later known to be gone is still released. */
 export const COORDINATOR_STOP_RETRY_CAP_TRIES = 6
-/** How long a finished manual Run keeps its coordinator, counted from the later of the Run finishing and
- *  the last time a person typed into that session (the user's decision of 2026-10-02). Ten minutes: long
- *  enough to read the coordinator's closing summary or ask it a follow-up, and a follow-up starts the
- *  count again; short enough that a finished Run does not keep its sessions, and with them the Host,
- *  alive for good. A scheduled Run gets none, since nothing watches it. */
+/** How long a finished manual Run keeps a session a person typed into after the Run finished, counted from
+ *  that last input (the user's decision of 2026-10-02, narrowed 2026-10-25). Ten minutes: long enough to
+ *  read the closing summary or ask a follow-up, and a follow-up starts the count again. It guards a
+ *  person's follow-up only: a session nobody typed into after the finish is ended as soon as the Run's
+ *  completion check has settled, and a scheduled Run's at once, since nothing watches it. */
 export const FINISHED_RUN_GRACE_MS = 10 * 60_000
 /** How long past FINISHED_RUN_GRACE_MS a busy session still holds off its end. A person's follow-up
  *  rarely takes an hour; the busy state is a terminal title spinner that never ages out, so a spinner
  *  still up after that is read as hung, and the session is ended anyway. */
 export const FINISHED_RUN_BUSY_CAP_MS = 60 * 60_000
+
+/** Whether one session of a finished Run may be ended now (FINISHED_RUN_GRACE_MS). At once for a scheduled
+ *  Job's Run, and for a session no person typed into after the Run finished (`typedAt` null or not later
+ *  than `finishedAt`), busy or not. Otherwise once the grace has passed since that last input, and the
+ *  session is not mid-turn, for up to FINISHED_RUN_BUSY_CAP_MS more: the busy state is a title spinner
+ *  that never ages out, so one still up past the cap is read as hung. A busy state this process cannot
+ *  tell (null) falls back to the time rule. */
+export function graceOver(a: { scheduled: boolean; finishedAt: number; typedAt: number | null; busy: boolean | null; nowMs: number }): boolean {
+  if (a.scheduled || a.typedAt === null || a.typedAt <= a.finishedAt) return true
+  const since = a.nowMs - a.typedAt
+  if (since < FINISHED_RUN_GRACE_MS) return false
+  return a.busy !== true || since >= FINISHED_RUN_GRACE_MS + FINISHED_RUN_BUSY_CAP_MS
+}
 
 /** One session's resend backoff: how many sends, when the next may go, how many waited the cap, and
  *  whether it was given up on (LP-1/2). */
@@ -217,7 +230,7 @@ export interface DispatchLoopContext {
   /** When a person last typed into the session, in ms since the epoch, or null when this process has
    *  not seen it (FINISHED_RUN_GRACE_MS). Only a person's typing: never this loop's own `typeInto`, a
    *  prompt a spawn or a roll types, or a terminal's own reports. In memory, so a restart forgets it.
-   *  Optional: without it the grace counts from the Run's finish alone. */
+   *  Optional: without it no person's input is known, and a finished Run's sessions are due at once. */
   lastPersonInputAt?(sessionId: string): number | null
   /** Coordinator rotation: a session's statusLine context reading, 0-100, or null when it has none. Optional: without
    *  it a coordinator is refreshed at wave boundaries only. */
@@ -382,26 +395,19 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
    *  its session is no longer alive. In memory: a restart or a new driver asks again. */
   const releaseRetry = new Map<string, Retry>()
 
-  /** Whether a finished Run's session may be ended now (FINISHED_RUN_GRACE_MS): at once for a scheduled
-   *  Job's Run, otherwise once the grace has passed since the later of the Run's finish and the last time
-   *  a person typed into that session. The finish is the latest `updatedAt` of the Run's Tasks: the
-   *  commit that made the last one terminal stamps it, and nothing on the Run records the moment. A later
-   *  edit of a finished Task moves it on, which only waits longer.
-   *
-   *  **Not mid-turn, for up to an hour** (fix round 1, then the controller's ruling): the grace counts
-   *  from the last input, so a session still answering a person's follow-up past it is busy, and is
-   *  left until it is idle, or until FINISHED_RUN_BUSY_CAP_MS past the grace. A busy state this
-   *  process cannot tell (null) falls back to the time rule. `run-coordinator-stop` asks no idle state
-   *  for a finished Run, so this is the one place that asks. */
-  const graceOver = (s: OrchState, run: JobRun, sessionId: string, nowMs: number): boolean => {
-    if (jobOf(s, run)?.schedule !== undefined) return true
-    const finishedAt = Math.max(...tasksOwnedBy(s, run.id).map((t) => Date.parse(t.updatedAt)))
-    const typedAt = c.lastPersonInputAt?.(sessionId) ?? null
-    const since = nowMs - Math.max(finishedAt, typedAt ?? finishedAt)
-    if (since < FINISHED_RUN_GRACE_MS) return false
-    // The busy veto, bounded: past FINISHED_RUN_BUSY_CAP_MS a spinner still up is read as hung.
-    return c.sessionBusy(sessionId) !== true || since >= FINISHED_RUN_GRACE_MS + FINISHED_RUN_BUSY_CAP_MS
-  }
+  /** `graceOver` for one session of a finished Run. The finish is the latest `updatedAt` of the Run's
+   *  Tasks: the commit that made the last one terminal stamps it, and nothing on the Run records the
+   *  moment. A later edit of a finished Task moves it on, which only waits longer for a person's input
+   *  to count. `run-coordinator-stop` asks no idle state for a finished Run, so this is the one place
+   *  that asks. */
+  const sessionDue = (s: OrchState, run: JobRun, sessionId: string, nowMs: number): boolean =>
+    graceOver({
+      scheduled: jobOf(s, run)?.schedule !== undefined,
+      finishedAt: Math.max(...tasksOwnedBy(s, run.id).map((x) => Date.parse(x.updatedAt))),
+      typedAt: c.lastPersonInputAt?.(sessionId) ?? null,
+      busy: c.sessionBusy(sessionId),
+      nowMs
+    })
 
   /**
    * **A Run that has finished gets its coordinator stopped** (the user's U4 of 2026-09-25, widened to
@@ -434,7 +440,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
         // W6-D: a Run this process watched finish keeps its coordinator until its final check settles
         const runJob = jobOf(s, run)
         if (runJob && seenRunning(run.id) && !completionSettled(s, runJob, run.id)) continue
-        if (!graceOver(s, run, sessionId, c.nowMs())) continue
+        if (!sessionDue(s, run, sessionId, c.nowMs())) continue
       }
       // **A session this process knows has ended is the stop confirmed** (L1): its exit was never heard
       // (no exit release came), so nothing else would ever empty the slot, and a stop sent to it goes
@@ -497,7 +503,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
    * and then waits (the guide's rule, so a follow-up can reach it), and only `worker-release` ends its
    * session; that is the coordinator's to send, and once the Run has finished nothing sent it (e2e
    * "Fourth run": the converged Run's worker stayed alive beside its coordinator). So the driving loop
-   * sends it, under the coordinator's grace (`graceOver`), for each Dispatch of a finished Run that is
+   * sends it, under the coordinator's `graceOver`, for each Dispatch of a finished Run that is
    * closed, not retained (`worker-retain` is a person's "keep it", never overridden here), the latest
    * owner of its session (`releaseArgsFor`'s rule: a reused session is the later Dispatch's), and whose
    * session is still alive. `worker-release` and not `worker-stop`: it only ends the session, where
@@ -524,7 +530,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       const now = current.runs.find((r) => r.id === runId)
       if (!now || !idleIn(current, runId, d.id)) continue
       const nowMs = c.nowMs()
-      if (!graceOver(current, now, d.sessionId, nowMs)) continue
+      if (!sessionDue(current, now, d.sessionId, nowMs)) continue
       const retry = releaseRetry.get(d.sessionId)
       if (retry && (retry.gaveUp || nowMs < retry.nextAt)) continue
       if (!c.mayStart()) return

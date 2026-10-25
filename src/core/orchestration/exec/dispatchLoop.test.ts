@@ -1254,10 +1254,11 @@ describe('a finished scheduled Run’s coordinator is stopped (U4)', () => {
     expect(h.stopCoordinator).toHaveBeenCalledTimes(1)
   })
 
-  it('leaves a manual Run’s coordinator alone while its grace runs', async () => {
+  it('leaves a manual Run’s coordinator alone while a person’s follow-up grace runs', async () => {
     const h = rig()
     withCoordinator(h, 'run_1', 'coord-1')
     finish(h, 'run_1')
+    h.ctx.lastPersonInputAt = () => NOW_MS + 1
     await h.loop.run()
     await h.settle()
     expect(h.stopCoordinator).not.toHaveBeenCalled()
@@ -1329,10 +1330,12 @@ describe('stopFinishedCoordinators asks mayStart before each stop', () => {
 
 // The user's decision of 2026-10-02 (e2e "Fourth run"): a manual Run that has finished kept its
 // coordinator alive for good, so `host stop` refused and an MCP client had nothing to end it with. Its
-// coordinator now stops once FINISHED_RUN_GRACE_MS has passed since the later of the Run finishing (its
-// Tasks' last change) and the last time a person typed into that session.
+// coordinator now stops as soon as the Run's completion check has settled; only a person typing into it
+// after the finish holds it for FINISHED_RUN_GRACE_MS from that input (2026-10-25).
 describe('a finished manual Run’s coordinator stops after the grace', () => {
   const MIN = 60_000
+  // A person typed into the session 1 ms after the Run finished: the follow-up grace counts from here.
+  const TYPED = NOW_MS + 1
   const finishedWithCoordinator = () => {
     const h = rig()
     const s = h.state()
@@ -1353,12 +1356,22 @@ describe('a finished manual Run’s coordinator stops after the grace', () => {
     expect(FINISHED_RUN_GRACE_MS).toBe(10 * MIN)
   })
 
-  it('leaves it alone 9 minutes after the finish, and sends the stop once at 10', async () => {
+  it('stops it on the first pass after the finish when nobody typed into it, busy or not', async () => {
     const h = finishedWithCoordinator()
-    h.clock = NOW_MS + 9 * MIN
+    h.ctx.sessionBusy = () => true
+    h.clock = NOW_MS
+    await pass(h)
+    expect(stops(h)).toBe(1)
+    expect(h.stopCoordinator.mock.calls).toEqual([['coord-1', 'the run has nothing left for it to do', 'stopped']])
+  })
+
+  it('after a person’s follow-up, leaves it alone 9 minutes, and sends the stop once at 10', async () => {
+    const h = finishedWithCoordinator()
+    h.ctx.lastPersonInputAt = () => TYPED
+    h.clock = TYPED + 9 * MIN
     await pass(h)
     expect(stops(h)).toBe(0)
-    h.clock = NOW_MS + 10 * MIN
+    h.clock = TYPED + 10 * MIN
     await pass(h)
     expect(stops(h)).toBe(1)
     expect(h.stopCoordinator.mock.calls).toEqual([['coord-1', 'the run has nothing left for it to do', 'stopped']])
@@ -1368,7 +1381,7 @@ describe('a finished manual Run’s coordinator stops after the grace', () => {
 
   it('the timer tick sends it too, with nothing committed', async () => {
     const h = finishedWithCoordinator()
-    h.clock = NOW_MS + 10 * MIN
+    h.clock = NOW_MS
     await h.loop.nudge()
     await h.settle()
     expect(h.stopCoordinator.mock.calls).toEqual([['coord-1', 'the run has nothing left for it to do', 'stopped']])
@@ -1404,8 +1417,7 @@ describe('a finished manual Run’s coordinator stops after the grace', () => {
     await h.loop.nudge()
     await h.settle()
     expect(h.typed.length).toBeGreaterThan(0)
-    h.clock = NOW_MS + 10 * MIN
-    await pass(h)
+    // counted as a person's input it would hold the stop for 10 more minutes
     expect(stops(h)).toBe(1)
   })
 
@@ -1425,6 +1437,7 @@ describe('a finished manual Run’s coordinator stops after the grace', () => {
   it('a coordinator busy at minute 11 is not stopped; once idle it is', async () => {
     const h = finishedWithCoordinator()
     let busy: boolean | null = true
+    h.ctx.lastPersonInputAt = () => TYPED
     h.ctx.sessionBusy = (id) => (id === 'coord-1' ? busy : false)
     h.clock = NOW_MS + 11 * MIN
     await pass(h)
@@ -1438,12 +1451,13 @@ describe('a finished manual Run’s coordinator stops after the grace', () => {
   // so a session hung with it up was never cleaned.
   it('a coordinator busy at grace + 59 min is left alone; at grace + 60 min it is stopped', async () => {
     const h = finishedWithCoordinator()
+    h.ctx.lastPersonInputAt = () => TYPED
     h.ctx.sessionBusy = () => true
     expect(FINISHED_RUN_BUSY_CAP_MS).toBe(60 * MIN)
-    h.clock = NOW_MS + FINISHED_RUN_GRACE_MS + 59 * MIN
+    h.clock = TYPED + FINISHED_RUN_GRACE_MS + 59 * MIN
     await pass(h)
     expect(stops(h)).toBe(0)
-    h.clock = NOW_MS + FINISHED_RUN_GRACE_MS + 60 * MIN
+    h.clock = TYPED + FINISHED_RUN_GRACE_MS + 60 * MIN
     await pass(h)
     expect(stops(h)).toBe(1)
   })
@@ -1536,6 +1550,8 @@ describe('idleWorkersOf', () => {
 
 describe('a finished Run’s idle workers are released after the grace', () => {
   const MIN = 60_000
+  // A person typed into the worker's session 1 ms after the Run finished: the follow-up grace counts from here.
+  const TYPED = NOW_MS + 1
   const dispatch = (over: Partial<Dispatch> & { id: string; taskId: string; sessionId: string }): Dispatch => ({
     provider: 'claude' as const,
     accountId: 'accA',
@@ -1564,12 +1580,21 @@ describe('a finished Run’s idle workers are released after the grace', () => {
   }
   const releases = (h: ReturnType<typeof rig>): string[] => h.releaseWorker.mock.calls.map(([a]) => a.dispatchId)
 
-  it('leaves it alone 9 minutes after the finish, and releases it once at 10', async () => {
+  it('releases it on the first pass after the finish when nobody typed into it, busy or not', async () => {
     const h = finishedWithWorker()
-    h.clock = NOW_MS + 9 * MIN
+    h.ctx.sessionBusy = () => true
+    h.clock = NOW_MS
+    await pass(h)
+    expect(releases(h)).toEqual(['dsp_1'])
+  })
+
+  it('after a person’s follow-up, leaves it alone 9 minutes, and releases it once at 10', async () => {
+    const h = finishedWithWorker()
+    h.ctx.lastPersonInputAt = () => TYPED
+    h.clock = TYPED + 9 * MIN
     await pass(h)
     expect(releases(h)).toEqual([])
-    h.clock = NOW_MS + 10 * MIN
+    h.clock = TYPED + 10 * MIN
     await pass(h)
     expect(releases(h)).toEqual(['dsp_1'])
     expect(h.handled()).toContain('worker-release')
@@ -1659,6 +1684,7 @@ describe('a finished Run’s idle workers are released after the grace', () => {
   it('a worker busy at minute 11 is not released; once idle it is', async () => {
     const h = finishedWithWorker()
     let busy: boolean | null = true
+    h.ctx.lastPersonInputAt = () => TYPED
     h.ctx.sessionBusy = (id) => (id === 'sess_w1' ? busy : false)
     h.clock = NOW_MS + 11 * MIN
     await pass(h)
@@ -1670,11 +1696,12 @@ describe('a finished Run’s idle workers are released after the grace', () => {
 
   it('a worker busy at grace + 59 min is left alone; at grace + 60 min it is released', async () => {
     const h = finishedWithWorker()
+    h.ctx.lastPersonInputAt = () => TYPED
     h.ctx.sessionBusy = () => true
-    h.clock = NOW_MS + FINISHED_RUN_GRACE_MS + 59 * MIN
+    h.clock = TYPED + FINISHED_RUN_GRACE_MS + 59 * MIN
     await pass(h)
     expect(releases(h)).toEqual([])
-    h.clock = NOW_MS + FINISHED_RUN_GRACE_MS + 60 * MIN
+    h.clock = TYPED + FINISHED_RUN_GRACE_MS + 60 * MIN
     await pass(h)
     expect(releases(h)).toEqual(['dsp_1'])
   })
