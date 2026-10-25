@@ -14,7 +14,7 @@ import { overlapLines, planOverlapWarnings } from './overlap'
 import { isSamePath } from '../files/tree'
 import { findProjectByPath, jobInProject, projectOfJob } from './projects'
 import { isIntegrationTask, runsWorkingIn, runWorktreesFrom } from './integrate'
-import type { JobRow, JobTask, OrchSnapshot, TaskBoard, WorktreeInfo, UsagePause } from '../types'
+import type { JobRow, JobTask, OrchSnapshot, RunOutcome, TaskBoard, WorktreeInfo, UsagePause } from '../types'
 import { repoPathOf } from '../worktrees/repo'
 import { coordinatorStarting, type OrchState } from './state'
 import { eventCountsOf } from './timeline'
@@ -284,6 +284,23 @@ function jobTaskOf(
   }
 }
 
+/** When a plan ended (JobRow.finishedAt): the latest of its Tasks' `updatedAt`, its Dispatches' `endedAt`, its PR's
+ *  `attributedAt`, `nothingToDo.at` and `deliveredBy.at`. Undefined while it runs or waits for approval. */
+export function finishedAtOf(
+  job: Job, run: JobRun | undefined, outcome: RunOutcome, tasks: readonly Task[], dispatches: readonly Dispatch[]
+): string | undefined {
+  const ended = outcome === 'completed' || outcome === 'failed' || job.archivedAt !== undefined || job.nothingToDo !== undefined
+  if (!ended) return undefined
+  const stamps = [
+    ...tasks.map((t) => t.updatedAt),
+    ...dispatches.map((d) => d.endedAt),
+    run?.pr?.attributedAt,
+    job.nothingToDo?.at,
+    job.deliveredBy?.at
+  ].filter((s): s is string => s !== undefined)
+  return stamps.reduce<string | undefined>((latest, s) => (latest === undefined || Date.parse(s) > Date.parse(latest) ? s : latest), undefined)
+}
+
 /** A plan's wave being worked on and its wave count, 1-based (JobRow.wave). */
 export function waveProgressOf(tasks: readonly Task[]): { at: number; of: number } {
   const waves = tasks.map((t) => waveOf(t, tasks))
@@ -449,6 +466,8 @@ export function snapshotFor(
     const worktreesOf = (
       run ? runWorktreesFrom(run, ix.jobById.get(run.jobId)?.cwd, ix.dispatchesByRun.get(run.id) ?? []) : []
     ).filter(exists)
+    const outcome = outcomeOfRun(ownedTasks, run, state)
+    const finishedAt = finishedAtOf(job, run, outcome, ownedTasks, ownedTasks.flatMap((t) => ix.dispatchesByTask.get(t.id) ?? []))
     return {
       id: rowId,
       objective: previewOf(job.objective),
@@ -473,7 +492,7 @@ export function snapshotFor(
         : {}),
       ...(run?.coordinatorModel !== undefined ? { coordinatorModel: run.coordinatorModel } : {}),
       concurrency: job.concurrency,
-      outcome: outcomeOfRun(ownedTasks, run, state),
+      outcome,
       // T8: a running Run with nothing that can move
       ...(stuck !== undefined ? { stuck } : {}),
       // T36: waits on a failed Task; the owner retries, accepts or cancels it
@@ -574,6 +593,7 @@ export function snapshotFor(
       ...(job.areas?.length ? { areas: job.areas } : {}),
       ...(job.after !== undefined ? { after: job.after } : {}),
       createdAt: job.createdAt,
+      ...(finishedAt !== undefined ? { finishedAt } : {}),
       // W2-D: the plan's pull request, on the row of the Run that opened it
       ...(run?.pr ? { pr: run.pr } : {}),
       ...(run === undefined && job.schedule && nextFireOf(job.id) !== null

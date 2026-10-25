@@ -4,7 +4,7 @@
 .plans-view__dim { margin: 0; color: var(--text-faint); font-size: var(--fs-12); }
 .plans-stall { display: flex; align-items: center; gap: var(--sp-2); margin: var(--sp-1) var(--sp-2) var(--sp-1) 20px; padding: var(--sp-1) var(--sp-2); border-radius: var(--radius); background: var(--warn-soft); color: var(--warn); font-size: var(--fs-12); }
 
-/* The filter row over the tree: the text filter, Group by, the filter menu */
+/* The filter row over the Running tree: the text filter and Group by (both apply to the Finished pane too) */
 .plans-tree__bar { flex: none; display: flex; align-items: center; gap: var(--sp-1); padding: var(--sp-1) var(--sp-2) var(--sp-1) 20px; }
 .plans-tree__filter { flex: 1; min-width: 0; height: var(--h-sm); font-size: var(--fs-12); }
 .plans-tree__wrap { flex: 1; display: flex; flex-direction: column; min-height: 0; }
@@ -43,11 +43,6 @@
 .plans-tone--warn { color: var(--warn); }
 .plans-tone--danger { color: var(--danger); }
 .plans-tone--neutral { color: var(--text-dim); }
-
-/* The pinned Main plan pane: as tall as its plans; the sash between the panes resizes it */
-.ui-viewpane.plans-mainpane.is-open { flex: 0 1 auto; }
-.plans-mainpane__head { margin: 0; padding: var(--sp-1) var(--sp-2) var(--sp-1) 20px; color: var(--text-dim); font-size: var(--fs-12); }
-.plans-mainpane__open { padding: var(--sp-1) var(--sp-2) var(--sp-2) 20px; }
 
 /* Coordinator strip: live plans side by side, scrolling sideways */
 .plans-coord { display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0; }

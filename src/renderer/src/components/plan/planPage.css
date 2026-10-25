@@ -1,16 +1,61 @@
 /* T8 plan tab (DESIGN-W13 §5 `view:plan`, §11, §12, §13): one document on the editor ground; sections are titled
-   blocks separated by a 1px line, never cards. W17: it fills its editor group at any width. The tab root is the size
-   container: every breakpoint below asks the tab's width (`@container plan-tab`), never the window's. Narrow is under
-   560px; prose caps at 80ch while the steps, graph and lists use the full width. */
+   blocks separated by a 1px line. T3: the summary card is the one card, at the top of the rail; nothing else is boxed.
+   W17: it fills its editor group at any width. The tab root is the size container: every breakpoint below asks the tab's
+   width (`@container plan-tab`), never the window's. Narrow is under 560px; wide (two columns) from 1100px. Long prose
+   caps at 100ch while the steps, graph and lists use the full width. */
 .plan-pages:has(> .plan-doc) { container: plan-tab / inline-size; background: var(--editor-bg); }
 .plan-page.plan-doc { flex: none; min-height: auto; width: 100%; gap: var(--sp-6); }
-.plan-goal, .plan-decided, .plan-needs-item { max-width: 80ch; }
+.plan-goal, .plan-decided { max-width: 100ch; }
+
+/* T3 layout: one column under 1100px, the summary first; the columns' wrappers step aside (`display: contents`) and
+   `order` puts the sections in reading order. From 1100px: the steps on the left, a rail of the summary, the Goal and the
+   Activity on the right. The rail scrolls with the page: the Activity's log is taller than a tab. */
+.plan-doc-body { display: flex; flex-direction: column; gap: var(--sp-6); min-width: 0; }
+.plan-doc-main, .plan-doc-rail { display: contents; }
+.plan-summary { order: 1; }
+#plan-needs { order: 2; }
+#plan-goal { order: 3; }
+#plan-steps { order: 4; }
+#plan-settings { order: 5; }
+#plan-activity { order: 6; }
+@container plan-tab (min-width: 1100px) {
+  .plan-doc-body { display: grid; grid-template-columns: minmax(0, 1fr) clamp(340px, 28cqi, 440px); align-items: start; gap: var(--sp-6) var(--sp-8); }
+  .plan-doc-main, .plan-doc-rail { display: flex; flex-direction: column; gap: var(--sp-6); min-width: 0; }
+}
+
+/* Summary card: the progress in large figures, the Task counts by state (an icon and a word each), then the facts */
+.plan-summary.ui-card { display: flex; flex-direction: column; gap: var(--sp-3); min-width: 0; padding: var(--sp-4); }
+.plan-summary-title { margin: 0; font-size: var(--fs-11); font-weight: var(--fw-semi); text-transform: uppercase; letter-spacing: .04em; color: var(--text-dim); }
+.plan-summary-empty { margin: 0; font-size: var(--fs-12); color: var(--text-faint); }
+.plan-summary-progress { display: flex; align-items: baseline; gap: var(--sp-2); }
+.plan-summary-percent { font-size: var(--fs-18); font-weight: var(--fw-semi); line-height: var(--lh-tight); color: var(--text); font-variant-numeric: tabular-nums; }
+.plan-summary-done { font-size: var(--fs-12); color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.plan-summary-counts { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: var(--sp-1) var(--sp-3); margin: 0; padding: 0; list-style: none; }
+.plan-summary-count { display: flex; align-items: center; gap: var(--sp-1); min-width: 0; font-size: var(--fs-12); color: var(--text-dim); }
+.plan-summary-count > svg { flex: none; color: var(--plan-cat); }
+.plan-summary-n { font-weight: var(--fw-semi); color: var(--text); font-variant-numeric: tabular-nums; }
+.plan-summary-count--done { --plan-cat: var(--ok); }
+.plan-summary-count--running { --plan-cat: var(--accent); }
+.plan-summary-count--waiting { --plan-cat: var(--text-dim); }
+.plan-summary-count--failed { --plan-cat: var(--danger); }
+.plan-summary-count--cancelled { --plan-cat: var(--text-faint); }
+.plan-summary-facts { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--sp-1) var(--sp-3); margin: 0; padding-top: var(--sp-3); border-top: 1px solid var(--line-soft); font-size: var(--fs-12); }
+.plan-summary-facts:empty { display: none; }
+.plan-summary-facts dt { color: var(--text-faint); }
+.plan-summary-facts dd { margin: 0; min-width: 0; color: var(--text); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.plan-summary-delivery { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-2); }
+.plan-summary-delivery--fault { color: var(--danger); }
+.plan-summary-link.ui-btn { height: auto; padding: 0; background: none; color: var(--link); }
+.plan-summary-link.ui-btn:hover:not(:disabled) { background: none; text-decoration: underline; }
+.plan-summary-branch { display: inline-flex; align-items: center; gap: var(--sp-1); min-width: 0; font-family: var(--mono); font-size: var(--fs-11); }
+.plan-summary-areas { font-family: var(--mono); font-size: var(--fs-11); color: var(--text-dim); }
 .plan-doc-section { display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0; scroll-margin-top: var(--sp-4); }
 .plan-doc-title { display: flex; align-items: center; gap: var(--sp-2); margin: 0; padding-bottom: var(--sp-1); border-bottom: 1px solid var(--line); font-size: var(--fs-15); font-weight: var(--fw-semi); line-height: var(--lh-tight); color: var(--text); }
 .plan-doc-count { min-width: 16px; padding: 0 var(--sp-1); border-radius: var(--radius-pill); background: var(--badge-bg); color: var(--badge-fg); font-size: var(--fs-11); font-weight: var(--fw-semi); text-align: center; font-variant-numeric: tabular-nums; }
 
-/* Header: the plan's name (18/600), its status word, the step line and a progress Meter; actions on the right */
-.plan-doc > .plan-page-header { padding: 0; flex: none; }
+/* Header: the plan's name (18/600), its status word, the step line and a progress Meter; actions on the right. T3: a
+   hairline under it closes the header off from the document. */
+.plan-doc > .plan-page-header { padding: 0 0 var(--sp-3); flex: none; border-bottom: 1px solid var(--line); }
 .plan-doc .ui-page-header__title { font-size: var(--fs-18); font-weight: var(--fw-semi); }
 .plan-page-title { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .plan-page-header .jobs-title-input { font: inherit; min-width: min(240px, 100%); }

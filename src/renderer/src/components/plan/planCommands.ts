@@ -12,7 +12,9 @@ import { approvePlan, type ActionUi } from '../../lib/jobActions'
 import { toast } from '../../lib/toast'
 import { errText } from '../../hooks/useFileOps'
 import { jobName } from '../../lib/jobName'
+import { openConsole } from '../shell/navigation'
 import { RUN_MERGE, RUN_START } from './planPage'
+import { askAboutTask } from './taskConsole'
 
 /** What `run-integrate-all` answered (command.ts): delivered, stopped with the delivery's error, handed its conflicts to the
  *  AI merge Task `taskId`, or refused (a 409 names the worktrees it could not merge). */
@@ -28,6 +30,18 @@ export function taskActionOf(task: Pick<JobTask, 'status' | 'gate'>): 'continue'
   if (task.status === 'failed') return 'retry'
   if (task.status === 'blocked' && task.gate === undefined) return 'continue'
   return undefined
+}
+
+/** "Ask about this task" (the row's button and the Plans tree's menu): a chat session on the finished Task, its tab opened,
+ *  or a toast saying why not. */
+export async function askAboutTaskWithToast(door: Pick<OrchDoor, 'command'>, runId: string, taskId: string, t: (key: MessageKey, params?: MessageParams) => string): Promise<void> {
+  const r = await askAboutTask(door, runId, taskId, (id) => {
+    // shortcut: the tab arrives through session:created, which can land after the reply; openConsole ignores a tab it
+    // does not have yet, so it is tried twice, not awaited (as RunConfigManager does).
+    setTimeout(() => openConsole(id), 300)
+    setTimeout(() => openConsole(id), 1500)
+  })
+  if (!r.ok) toast.error(t('plan.done.askFailed', { detail: r.error }))
 }
 
 export function integrateAllOutcomeOf(reply: CommandReply): IntegrateAllOutcome {

@@ -814,6 +814,7 @@ const NOT_SWITCHED = [
   'jobs-create-from-source',
   // W7-A: answered before the switch by exec/plannerFeedback.ts (task-cancel: also exec/replanStart.ts)
   'jobs-feedback',
+  'jobs-chat',
   'jobs-feedback-done',
   'jobs-reject',
   'task-cancel'

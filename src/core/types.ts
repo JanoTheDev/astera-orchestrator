@@ -854,6 +854,9 @@ export interface JobRow {
   after?: string
   /** When the Job was made: the row's age. Optional only for snapshots from an older Runtime. */
   createdAt?: string
+  /** When the plan ended (completed, failed, archived or nothing to do): the latest time its work, PR and delivery
+   *  show (view.ts `finishedAtOf`). Absent while it runs or waits for approval. Sorts finished plans newest first. */
+  finishedAt?: string
   // W2-D: the plan's one pull request (JobRun.pr), on the Run's own row and a Job row folded onto it
   pr?: RunPr
   /** 관리자가 있어야 하는데 없다 — 코디네이터 계정이 지정돼 있지만 붙어 있는 세션이 없다.

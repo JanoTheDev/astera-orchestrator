@@ -2,7 +2,7 @@
 // plain line saying what it waits for. Pure, so the node-only test suite reaches it; MainPlan.tsx only renders.
 //
 // The renderer holds JobRows, not the Host's OrchState, so core's `mainPlanOf` cannot run here: the order is its rule
-// (oldest first, a plan queued `after` another right behind it) and the waits are read from each Task's board reason
+// (oldest first, a plan queued `after` another right behind it) regrouped by phase: a person's part first, finished last and the waits are read from each Task's board reason
 // (core/orchestration/blocked.ts), which is where `mainPlanOf`'s links come from too.
 import type { MessageKey, MessageParams } from '../../../../core/i18n'
 import type { JobRow, JobTask } from '../../../../core/types'
@@ -124,8 +124,20 @@ function phaseOf(row: JobRow): MainPhase {
 function finishedOf(row: JobRow): FinishedSummary {
   // the squash merge's commit once seen on the base, else the last commit a Task added
   const commit = row.pr?.attributed ?? row.tasks.flatMap((t) => t.links?.commits ?? []).at(-1)
-  const at = row.pr?.attributedAt !== undefined ? Date.parse(row.pr.attributedAt) : lastActivityOf(row)
+  const at = row.finishedAt !== undefined ? Date.parse(row.finishedAt) : row.pr?.attributedAt !== undefined ? Date.parse(row.pr.attributedAt) : lastActivityOf(row)
   return { tasks: row.total, ...(commit ? { commit: commit.slice(0, 7) } : {}), ...(at !== undefined && !Number.isNaN(at) ? { at } : {}) }
+}
+
+/** Draw order of the phases: what needs the owner, what moves, what waits, what ended. */
+const PHASE_RANK: Record<MainPhase, number> = { needs: 0, running: 1, waiting: 2, done: 3 }
+
+/** A finished plan's age, short: "<1m", "5m", "3h", "4d". */
+export function finishedAgeOf(at: number, nowMs: number): string {
+  const min = Math.floor(Math.max(0, nowMs - at) / 60_000)
+  if (min < 1) return '<1m'
+  if (min < 60) return `${min}m`
+  const h = Math.floor(min / 60)
+  return h < 24 ? `${h}h` : `${Math.floor(h / 24)}d`
 }
 
 /** A finished plan's date in `locale`: month and day, with the year only when it is not `nowMs`'s year. */
@@ -141,7 +153,7 @@ export const shownPlans = (view: MainPlanView, hideDone: boolean): MainPlanBlock
 /** `rows` (the open project's plans) as the main plan: archived plans and schedule templates left out. */
 export function mainPlanViewOf(rows: readonly JobRow[]): MainPlanView {
   const live = rows.filter((r) => r.archivedAt === undefined && !r.schedule)
-  const plans = runOrder(live).map((row): MainPlanBlock => {
+  const blocks = runOrder(live).map((row): MainPlanBlock => {
     const checks = checksOf(row, live)
     const phase = phaseOf(row)
     return {
@@ -157,6 +169,8 @@ export function mainPlanViewOf(rows: readonly JobRow[]): MainPlanView {
       ...(checks ? { checks } : {})
     }
   })
+  // stable: within a phase the run order stays (a queued plan right behind the one it waits for); done plans newest first
+  const plans = blocks.sort((a, b) => PHASE_RANK[a.phase] - PHASE_RANK[b.phase] || (a.phase === 'done' ? (b.finished?.at ?? -Infinity) - (a.finished?.at ?? -Infinity) || 0 : 0))
   const all = plans.flatMap((p) => p.tasks)
   const counts: Record<MainPhase, number> = { needs: 0, running: 0, waiting: 0, done: 0 }
   for (const p of plans) counts[p.phase]++

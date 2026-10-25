@@ -1,6 +1,7 @@
 // W9-C plan page: a plan's own page (RunDetail's window became it). T8 (DESIGN-W13 §5 `view:plan:<jobId>`): one
-// scrollable document, top to bottom: the header, Needs you, the Goal, the Steps, Plan settings and the Activity. The
-// shared state is plan/usePlanPage.ts; each part is its own file under components/plan/.
+// scrollable document under the header. T3: a wide tab sets it in two columns, Needs you, the Steps and Plan settings on
+// the left and a rail of the summary card, the Goal and the Activity on the right; a narrower one stacks them, the
+// summary first (planPage.css). The shared state is plan/usePlanPage.ts; each part is its own file under components/plan/.
 import type { JobRow, OrchSnapshot, RunDetail as RunDetailData } from '../../../../core/types'
 import { useEffect, useRef, useState } from 'react'
 import { useI18n } from '../../i18n/I18nProvider'
@@ -12,7 +13,7 @@ import { PlanChanges } from '../plan/PlanChanges'
 import { PlanFiles } from '../plan/PlanFiles'
 import { PlanHeader } from '../plan/PlanHeader'
 import { PlanJournal } from '../plan/PlanJournal'
-import { PlanGoal, PlanSoFar } from '../plan/PlanOverviewSection'
+import { PlanGoal, PlanSoFar, PlanSummaryCard } from '../plan/PlanOverviewSection'
 import { PlanSettings } from '../plan/PlanSettings'
 import { PlanTalk } from '../plan/PlanTalk'
 import { answerVia, PlanWaves } from '../plan/PlanWaves'
@@ -157,43 +158,50 @@ export function PlanPage({
       />
       {run === undefined && <p className="jobs-disabled-reason">{t('pages.plan.gone')}</p>}
       {p.lockedReason !== undefined && <p className="jobs-disabled-reason">{p.lockedReason}</p>}
-      {needsYou.length > 0 && (
-        <DocSection id="plan-needs" title={t('plan.doc.needsYou')} count={needsYou.length}>
-          <NeedsYou items={needsYou} onAnswer={answerVia(door, t as (k: string) => string)} onShowTask={showTask} />
-        </DocSection>
-      )}
-      {run && (
-        <DocSection id="plan-goal" title={t('plan.doc.goal')}>
-          <PlanGoal run={run} />
-        </DocSection>
-      )}
-      <DocSection id="plan-steps" title={t('plan.doc.steps')}>
-        <PlanWaves
-          p={p}
-          door={door}
-          runId={runId}
-          runtimeId={runtimeId}
-          projectPath={projectPath}
-          detail={detail}
-          canOpenSession={canOpenSession}
-          onOpenSession={onOpenSession}
-          simple={simple}
-        />
-      </DocSection>
-      {/* T8: shown in simple mode too (DESIGN-W13 §13) */}
-      <DocSection id="plan-settings" title={t('plan.doc.settings')}>
-        <PlanSettings door={door} jobId={runId} row={run} confirm={p.ui.confirm} />
-      </DocSection>
-      <DocSection id="plan-activity" title={t('plan.doc.activity')}>
-        <Tabs variant="underline" label={t('plan.doc.tabs')} value={tabs.some((x) => x.id === shownTab) ? shownTab : 'log'} onChange={setTab} items={tabs} />
-        <div className="plan-activity-body">
-          {shownTab === 'log' && <PlanJournal p={p} detail={detail} canOpenSession={canOpenSession} onOpenSession={onOpenSession} onShowOlderJournal={onShowOlderJournal} />}
-          {shownTab === 'changes' && <PlanChanges door={door} runId={runId} run={run} />}
-          {shownTab === 'files' && <PlanFiles tasks={p.tasks} onOpenPath={onOpenPath} onSelect={p.onNodeClick} />}
-          {shownTab === 'talk' && run && <PlanTalk row={run} door={door} name={jobName(run)} ui={p.ui} />}
-          {shownTab === 'sofar' && <PlanSoFar p={p} canOpenSession={canOpenSession} onOpenSession={onOpenSession} />}
+      <div className="plan-doc-body">
+        <div className="plan-doc-main">
+          {needsYou.length > 0 && (
+            <DocSection id="plan-needs" title={t('plan.doc.needsYou')} count={needsYou.length}>
+              <NeedsYou items={needsYou} onAnswer={answerVia(door, t as (k: string) => string)} onShowTask={showTask} />
+            </DocSection>
+          )}
+          <DocSection id="plan-steps" title={t('plan.doc.steps')}>
+            <PlanWaves
+              p={p}
+              door={door}
+              runId={runId}
+              runtimeId={runtimeId}
+              projectPath={projectPath}
+              detail={detail}
+              canOpenSession={canOpenSession}
+              onOpenSession={onOpenSession}
+              simple={simple}
+            />
+          </DocSection>
+          {/* T8: shown in simple mode too (DESIGN-W13 §13) */}
+          <DocSection id="plan-settings" title={t('plan.doc.settings')}>
+            <PlanSettings door={door} jobId={runId} row={run} confirm={p.ui.confirm} />
+          </DocSection>
         </div>
-      </DocSection>
+        <div className="plan-doc-rail">
+          {run && <PlanSummaryCard run={run} />}
+          {run && (
+            <DocSection id="plan-goal" title={t('plan.doc.goal')}>
+              <PlanGoal run={run} />
+            </DocSection>
+          )}
+          <DocSection id="plan-activity" title={t('plan.doc.activity')}>
+            <Tabs variant="underline" label={t('plan.doc.tabs')} value={tabs.some((x) => x.id === shownTab) ? shownTab : 'log'} onChange={setTab} items={tabs} />
+            <div className="plan-activity-body">
+              {shownTab === 'log' && <PlanJournal p={p} detail={detail} canOpenSession={canOpenSession} onOpenSession={onOpenSession} onShowOlderJournal={onShowOlderJournal} />}
+              {shownTab === 'changes' && <PlanChanges door={door} runId={runId} run={run} />}
+              {shownTab === 'files' && <PlanFiles tasks={p.tasks} onOpenPath={onOpenPath} onSelect={p.onNodeClick} />}
+              {shownTab === 'talk' && run && <PlanTalk row={run} door={door} name={jobName(run)} ui={p.ui} />}
+              {shownTab === 'sofar' && <PlanSoFar p={p} canOpenSession={canOpenSession} onOpenSession={onOpenSession} />}
+            </div>
+          </DocSection>
+        </div>
+      </div>
     </div>
   )
 }

@@ -1,8 +1,8 @@
-// T7 Plans side bar view (DESIGN-W13 §4 "Plans"): one tree Plan › Step › Task (plan/planTree.ts builds the rows), grouped
-// by plan, Task status or area, with a pinned Main plan pane above it. Every plan action is on its row's context menu
+// T7 Plans side bar view (DESIGN-W13 §4 "Plans"): the tree Plan › Step › Task (plan/planTree.ts builds the rows), grouped
+// by plan, Task status or area, in two panes: Running on top, Finished below (newest finished first, Clear finished, Show archived). Every plan action is on its row's context menu
 // (lib/jobActions, as the old list rows wired them). A paired Runtime's plans keep their selector and list (JobsView).
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { JobRow } from '../../../../core/types'
+import type { JobRow, JobTask } from '../../../../core/types'
 import { jobsStall, jobsViewScreen } from '../../../../core/orchestration/jobsView'
 import { groupOfTab } from '../../../../core/panes/tree'
 import { sessionTab } from '../../../../core/panes/tabId'
@@ -14,17 +14,19 @@ import { controlReason, isRemoteRuntime, offlineNote } from '../../lib/remoteJob
 import { localDoor, replyNote } from '../../lib/orchDoor'
 import { jobName } from '../../lib/jobName'
 import { toast } from '../../lib/toast'
-import { archiveJob, deleteRun, holdJob, pauseRun, restartCoordinator as restartRunCoordinator, resolveFailed, resumeRun, unarchiveJob } from '../../lib/jobActions'
+import { archiveJob, archiveJobs, deleteRun, holdJob, openPlanChat, pauseRun, restartCoordinator as restartRunCoordinator, resolveFailed, resumeRun, unarchiveJob } from '../../lib/jobActions'
 import { openConsole, openPlanConsoles, openView } from '../shell/navigation'
 import { ViewToolbar, type SideBarViewProps } from '../shell/SideBar'
-import { PLAN_FILTERS, filterPlans, isStalledPlan, planFilterOf, planStatusOf, resumeActionOf, type PlanFilter } from '../plan/planList'
-import { approveSlot } from '../plan/planTalk'
+import { OLD_FINISHED_DAYS, clearableOf, isStalledPlan, planStatusOf, resumeActionOf, splitPlans } from '../plan/planList'
+import { approveSlot, canAskPlanMore } from '../plan/planTalk'
+import { askAboutTaskWithToast } from '../plan/planCommands'
+import { doneViewOf } from '../plan/taskDoneView'
 import { deliveryActionsOf } from '../plan/planPage'
 import { type PlanSection } from '../plan/planBoard'
-import { mainPlanMemo } from '../plan/mainPlanView'
 import {
   GROUP_BYS,
   groupByOf,
+  finishedDescription,
   groupCount,
   needsYouOf,
   openByDefault,
@@ -42,15 +44,6 @@ import {
 import '../plan/plans.css'
 
 const GROUP_KEY = 'cm.plansGroupBy'
-const FILTER_KEY = 'cm.plansFilter'
-
-function storedFilter(): PlanFilter {
-  try {
-    return planFilterOf(localStorage.getItem(FILTER_KEY))
-  } catch {
-    return 'active'
-  }
-}
 
 function storedGroupBy(): GroupBy {
   try {
@@ -156,14 +149,15 @@ function ClickTree({ onActivate, onSelect, ...rest }: TreeProps & { onActivate: 
   )
 }
 
-type Ctx = { id: string; at: { x: number; y: number } }
+type Pane = 'running' | 'finished'
+type Ctx = { pane: Pane; id: string; at: { x: number; y: number } }
 
 function LocalPlans(p: SideBarViewProps): React.JSX.Element {
   const { t, orchSnapshot, currentProject, accounts, layout, actionUi } = p
   const [groupBy, setGroupBy] = useState<GroupBy>(storedGroupBy)
   const [filter, setFilter] = useState('')
-  // Done and archived plans are hidden until asked for (Active is the default; the choice is remembered)
-  const [planFilter, setPlanFilter] = useState<PlanFilter>(storedFilter)
+  // Archived plans are hidden from the Finished pane until asked for
+  const [showArchived, setShowArchived] = useState(false)
   // the rows whose open state is not their default (openByDefault)
   const [toggled, setToggled] = useState<ReadonlySet<string>>(new Set())
   const [selected, setSelected] = useState<string | null>(null)
@@ -176,12 +170,29 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
   }, [])
 
   const runs = useMemo(() => orchSnapshot?.runs ?? [], [orchSnapshot])
-  const shown = useMemo(() => filterPlans(runs, planFilter), [runs, planFilter])
-  const rows = useMemo(
-    () => planTreeRows({ rows: shown, groupBy, filter, showArchived: true, isOpen: (id, node) => toggled.has(id) !== openByDefault(node) }),
-    [shown, groupBy, filter, toggled]
+  const split = useMemo(() => splitPlans(runs, showArchived), [runs, showArchived])
+  // a group or step id is the same in both panes, so the Finished pane's open state is kept under its own key
+  const toggleKey = (pane: Pane, id: string): string => (pane === 'finished' ? `finished|${id}` : id)
+  const runningRows = useMemo(
+    () => planTreeRows({ rows: split.running, groupBy, filter, showArchived: true, isOpen: (id, node) => toggled.has(id) !== openByDefault(node) }),
+    [split.running, groupBy, filter, toggled]
   )
-  const byId = useMemo(() => new Map(rows.map((r) => [r.id, r])), [rows])
+  const finishedRows = useMemo(
+    () =>
+      planTreeRows({
+        rows: split.finished,
+        groupBy,
+        filter,
+        showArchived: true,
+        keepOrder: true,
+        isOpen: (id, node) => toggled.has(toggleKey('finished', id)) !== openByDefault(node)
+      }),
+    [split.finished, groupBy, filter, toggled]
+  )
+  const rowsOf = (pane: Pane): PlanTreeRow[] => (pane === 'running' ? runningRows : finishedRows)
+  const byRunning = useMemo(() => new Map(runningRows.map((r) => [r.id, r])), [runningRows])
+  const byFinished = useMemo(() => new Map(finishedRows.map((r) => [r.id, r])), [finishedRows])
+  const byId = (pane: Pane): Map<string, PlanTreeRow> => (pane === 'running' ? byRunning : byFinished)
   const local = currentProject ? localDoor(window.api, currentProject) : null
   const canOpenSession = (id: string): boolean => !!layout && !!groupOfTab(layout, sessionTab(id))
   const accountLabel = (id: string): string => accounts.find((a) => a.id === id)?.label ?? id
@@ -194,23 +205,17 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
       /* no storage: the tree opens grouped by plan next time */
     }
   }
-  const choosePlanFilter = (f: PlanFilter): void => {
-    setPlanFilter(f)
-    try {
-      localStorage.setItem(FILTER_KEY, f)
-    } catch {
-      /* no storage: the tree opens on the active plans next time */
-    }
-  }
-  const setOpen = (row: PlanTreeRow, open: boolean): void =>
+  const setOpen = (pane: Pane, row: PlanTreeRow, open: boolean): void =>
     setToggled((prev) => {
       const next = new Set(prev)
-      if (open === openByDefault(row.node)) next.delete(row.id)
-      else next.add(row.id)
+      const key = toggleKey(pane, row.id)
+      if (open === openByDefault(row.node)) next.delete(key)
+      else next.add(key)
       return next
     })
   // every group and step shown closes; the plans opened go back to closed
-  const collapseAll = (): void => setToggled(new Set(rows.filter((r) => openByDefault(r.node)).map((r) => r.id)))
+  const collapseAll = (): void =>
+    setToggled(new Set((['running', 'finished'] as const).flatMap((pane) => rowsOf(pane).filter((r) => openByDefault(r.node)).map((r) => toggleKey(pane, r.id)))))
 
   /** The plan tab, at a section (`settings`, `task-<id>`, as planAnchorOf reads it) or its top. Opens from orchSnapshot
    *  like before (archived plans too), so the section goes to the page state, not navigation's openPlan (workspaceTree). */
@@ -225,13 +230,42 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
     if (sessionId && canOpenSession(sessionId)) openConsole(sessionId)
     else openPlanTab(row.id, taskSection(taskId))
   }
-  const activate = (id: string): void => {
-    const row = byId.get(id)
+  const activate = (pane: Pane, id: string): void => {
+    const row = byId(pane).get(id)
     if (!row) return
     const n = row.node
     if (n.kind === 'plan') openPlanTab(n.row.id)
     else if (n.kind === 'task') openTask(n.row, n.task.id, n.task.sessionId)
-    else setOpen(row, !row.expanded)
+    else setOpen(pane, row, !row.expanded)
+  }
+
+  /** Clear finished: one confirm, then every finished plan older than OLD_FINISHED_DAYS (or all of them) is archived, never deleted. */
+  const clearFinished = async (): Promise<void> => {
+    if (!local) return
+    const old = clearableOf(runs, false, Date.now()).length
+    const all = clearableOf(runs, true, Date.now()).length
+    if (all === 0) {
+      toast.info(t('pages.plans.clearFinished.none'))
+      return
+    }
+    const answer = await actionUi.confirmChoices({
+      title: t('pages.plans.clearFinished'),
+      body: t('pages.plans.clearFinished.body', { old, all, days: OLD_FINISHED_DAYS }),
+      confirmLabel: t('jobs.lifecycle.archive'),
+      choices: [
+        { id: 'all', label: t('pages.plans.clearFinished.all', { days: OLD_FINISHED_DAYS }) },
+        { id: 'kill', label: t('pages.plans.clearFinished.kill'), hint: t('jobs.lifecycle.archiveKillHint') }
+      ]
+    })
+    if (!answer.ok) return
+    const ids = clearableOf(runs, answer.checked.includes('all'), Date.now()).map((r) => r.id)
+    if (ids.length === 0) {
+      toast.info(t('pages.plans.clearFinished.none'))
+      return
+    }
+    const { archived, failed } = await archiveJobs(local, ids, answer.checked.includes('kill'))
+    if (failed > 0) toast.error(t('pages.plans.clearFinished.failed', { n: failed }) + (archived > 0 ? ` · ${t('pages.plans.clearFinished.done', { n: archived })}` : ''))
+    else toast.success(t('pages.plans.clearFinished.done', { n: archived }))
   }
 
   const retryDelivery = async (row: JobRow): Promise<void> => {
@@ -270,13 +304,14 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
       ...(delivery && deliveryActionsOf({ delivery }).retry && delivery.state !== 'delivering'
         ? [item('deliver', t('plan.delivery.retry'), 'rerun', () => void retryDelivery(row))]
         : []),
+      ...(local && canAskPlanMore(row) ? [item('askMore', t('plan.chat.askMore'), 'sparkles', () => void openPlanChat(local, row.id, actionUi))] : []),
       ...(local && archived ? [item('unarchive', t('jobs.lifecycle.unarchive'), 'restore', () => void unarchiveJob(local, row.id, actionUi))] : []),
       ...(local && !archived ? [item('archive', t('jobs.lifecycle.archive'), 'archive', () => void archiveJob(local, orchSnapshot, row.id, actionUi))] : []),
       // lib/jobActions asks before it deletes
       ...(local ? ['separator' as const, item('delete', t('jobs.run.delete'), 'delete', () => void deleteRun(local, orchSnapshot, row.id, actionUi), true)] : [])
     ]
   }
-  const taskMenu = (row: JobRow, taskId: string, sessionId?: string): Array<MenuItem | 'separator'> => [
+  const taskMenu = (row: JobRow, taskId: string, sessionId?: string, status?: JobTask['status']): Array<MenuItem | 'separator'> => [
     {
       id: 'console',
       label: t('pages.plans.tree.menu.openConsole'),
@@ -284,11 +319,15 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
       disabled: !(sessionId && canOpenSession(sessionId)),
       onSelect: () => sessionId && openConsole(sessionId)
     },
+    ...(status !== undefined && doneViewOf({ status }).ask
+      ? [{ id: 'ask', label: t('plan.done.ask'), icon: <Icon name="terminal" />, disabled: !local, onSelect: () => local && void askAboutTaskWithToast(local, row.id, taskId, t) }]
+      : []),
     { id: 'plan', label: t('pages.plans.tree.menu.openInPlan'), icon: <Icon name="listTree" />, onSelect: () => openPlanTab(row.id, taskSection(taskId)) },
     { id: 'copy', label: t('pages.plans.tree.menu.copyId'), icon: <Icon name="copy" />, onSelect: () => window.api.clipboard.writeText(taskId) }
   ]
+  // Finished plans keep this same menu; actions that only suit a finished plan are added to planMenu for `archived || done` rows.
   const menuOf = (node: PlanNode): Array<MenuItem | 'separator'> | null =>
-    node.kind === 'plan' ? planMenu(node.row) : node.kind === 'task' ? taskMenu(node.row, node.task.id, node.task.sessionId) : null
+    node.kind === 'plan' ? planMenu(node.row) : node.kind === 'task' ? taskMenu(node.row, node.task.id, node.task.sessionId, node.task.status) : null
 
   const overlapMark = (names: string[] | null): React.ReactNode => {
     if (!names) return null
@@ -300,7 +339,7 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
     )
   }
 
-  const itemOf = (r: PlanTreeRow): TreeItem => {
+  const itemOf = (pane: Pane, shown: readonly JobRow[]) => (r: PlanTreeRow): TreeItem => {
     const base = { id: r.id, depth: r.depth, hasChildren: r.hasChildren, expanded: r.expanded }
     const n = r.node
     if (n.kind === 'group') {
@@ -346,8 +385,12 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
       ...base,
       label: jobName(n.row),
       icon: toned(TONE_ICON[status.tone], status.tone),
-      description: planDescription(n.row, nowMs, t),
+      description: pane === 'finished' ? finishedDescription(n.row, nowMs, t) : planDescription(n.row, nowMs, t),
       decoration: { text: t(status.key, status.params), tone: status.tone },
+      // A finished plan is one click from a planner tab to ask what was done and add more (T7)
+      ...(local && pane === 'finished' && canAskPlanMore(n.row)
+        ? { actions: <IconButton size="sm" label={t('plan.chat.askMore')} icon={<Icon name="sparkles" size={14} />} onClick={() => void openPlanChat(local, n.row.id, actionUi)} /> }
+        : {}),
       // A dead plan is one click from archived, or from running again where something can resume it (resumeActionOf)
       ...(local && isStalledPlan(n.row)
         ? {
@@ -417,63 +460,68 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
         </Button>
       </div>
     )
-  } else {
-    body = (
-      <>
-        <div className="plans-tree__bar">
-          <Input
-            className="plans-tree__filter"
-            value={filter}
-            placeholder={t('pages.plans.tree.filter')}
-            aria-label={t('pages.plans.tree.filter')}
-            onChange={(e) => setFilter(e.target.value)}
-            onKeyDown={(e) => e.key === 'Escape' && setFilter('')}
-          />
-          <Menu
-            label={t('pages.plans.tree.groupBy')}
-            align="end"
-            trigger={{ icon: <Icon name="listTree" />, size: 'sm', title: `${t('pages.plans.tree.groupBy')}: ${groupLabel(groupBy)}` }}
-            items={GROUP_BYS.map((g) => ({ id: g, label: groupLabel(g), checked: g === groupBy, onSelect: () => chooseGroupBy(g) }))}
-          />
-          <Menu
-            label={t('pages.plans.tree.filterMenu')}
-            align="end"
-            trigger={{ icon: <Icon name="filter" />, size: 'sm', title: `${t('pages.plans.tree.filterMenu')}: ${t(`pages.plans.tree.show.${planFilter}`)}` }}
-            items={PLAN_FILTERS.map((f) => ({ id: f, label: t(`pages.plans.tree.show.${f}`), checked: f === planFilter, onSelect: () => choosePlanFilter(f) }))}
-          />
-        </div>
-        {rows.length === 0 ? (
-          <p className="wb-view-empty">{t('pages.plans.tree.noMatch')}</p>
-        ) : (
-          <ClickTree
-            className="plans-tree"
-            label={t('pages.plans.tree.label')}
-            rows={rows.map(itemOf)}
-            selectedId={selected}
-            onSelect={setSelected}
-            onActivate={activate}
-            onToggle={(id, open) => {
-              const row = byId.get(id)
-              if (row) setOpen(row, open)
-            }}
-            onContextMenu={(id, e) => {
-              e.preventDefault()
-              const row = byId.get(id)
-              if (row && menuOf(row.node)) setCtx({ id, at: menuPointOf(e) })
-            }}
-          />
-        )}
-      </>
-    )
   }
 
-  const ctxRow = ctx ? byId.get(ctx.id) : undefined
+  const bar = (
+    <div className="plans-tree__bar">
+      <Input
+        className="plans-tree__filter"
+        value={filter}
+        placeholder={t('pages.plans.tree.filter')}
+        aria-label={t('pages.plans.tree.filter')}
+        onChange={(e) => setFilter(e.target.value)}
+        onKeyDown={(e) => e.key === 'Escape' && setFilter('')}
+      />
+      <Menu
+        label={t('pages.plans.tree.groupBy')}
+        align="end"
+        trigger={{ icon: <Icon name="listTree" />, size: 'sm', title: `${t('pages.plans.tree.groupBy')}: ${groupLabel(groupBy)}` }}
+        items={GROUP_BYS.map((g) => ({ id: g, label: groupLabel(g), checked: g === groupBy, onSelect: () => chooseGroupBy(g) }))}
+      />
+    </div>
+  )
+  const treeOf = (pane: Pane, shown: readonly JobRow[], empty: string): React.ReactNode => {
+    const rows = rowsOf(pane)
+    return rows.length === 0 ? (
+      <p className="wb-view-empty">{empty}</p>
+    ) : (
+      <ClickTree
+        className="plans-tree"
+        label={t(pane === 'running' ? 'pages.plans.running' : 'pages.plans.finished')}
+        rows={rows.map(itemOf(pane, shown))}
+        selectedId={selected}
+        onSelect={setSelected}
+        onActivate={(id) => activate(pane, id)}
+        onToggle={(id, open) => {
+          const row = byId(pane).get(id)
+          if (row) setOpen(pane, row, open)
+        }}
+        onContextMenu={(id, e) => {
+          e.preventDefault()
+          const row = byId(pane).get(id)
+          if (row && menuOf(row.node)) setCtx({ pane, id, at: menuPointOf(e) })
+        }}
+      />
+    )
+  }
+  const stallNote = stall && (
+    <p className="plans-stall" role="status">
+      <Icon name="warning" size={14} />
+      {stall.kind === 'unresponsive'
+        ? t('pages.plans.stall.unresponsive')
+        : stall.kind === 'reading'
+          ? t('pages.plans.stall.reading')
+          : t('pages.plans.stall.parked', { reason: t(stall.gate === 'unreadable' ? 'jobs.stall.gate.unreadable' : 'jobs.stall.gate.notMigrated') })}
+    </p>
+  )
+  const twoPanes = screen === 'runs' && !!currentProject && runs.length > 0
+
+  const ctxRow = ctx ? byId(ctx.pane).get(ctx.id) : undefined
   const ctxItems = ctxRow ? menuOf(ctxRow.node) : null
   // the row went (a snapshot moved it): its menu goes too, and does not come back with it
   useEffect(() => {
     if (ctx && !ctxRow) setCtx(null)
   }, [ctx, ctxRow])
-  const main = mainPlanMemo(runs)
 
   return (
     <>
@@ -489,48 +537,43 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
             disabled: !currentProject,
             onClick: () => currentProject && p.setSourceJobOpen(currentProject)
           },
+          { id: 'main', icon: <Icon name="target" />, label: t('pages.plans.tree.openMain'), onClick: () => openView('mainplan') },
           { id: 'collapse', icon: <Icon name="collapseAll" />, label: t('pages.plans.tree.collapseAll'), onClick: collapseAll }
         ]}
       />
-      {screen === 'runs' && main.plans.length > 0 && (
-        <ViewPane title={t('pages.plans.main')} storageKey="plans.main" className="plans-mainpane">
-          <p className="plans-mainpane__head">{t('pages.plans.main.head', { plans: main.plans.length, done: main.done, total: main.total })}</p>
-          <ClickTree
-            className="plans-tree plans-maintree"
-            label={t('pages.plans.main')}
-            rows={main.plans.map(({ row, name }) => {
-              const status = planStatusOf(row)
-              return {
-                id: row.id,
-                depth: 0,
-                label: name,
-                icon: toned(TONE_ICON[status.tone], status.tone),
-                description: t('pages.plans.main.count', { done: row.done, total: row.total })
-              }
-            })}
-            selectedId={null}
-            onActivate={(id) => openPlanTab(id)}
-          />
-          <div className="plans-mainpane__open">
-            <Button size="sm" variant="secondary" icon={<Icon name="target" size={14} />} onClick={() => openView('mainplan')}>
-              {t('pages.plans.tree.openMain')}
-            </Button>
-          </div>
+      {twoPanes ? (
+        <>
+          <ViewPane title={t('pages.plans.running')} count={split.running.length} storageKey="plans.running">
+            {stallNote}
+            {bar}
+            {treeOf('running', split.running, t('pages.plans.tree.noMatch'))}
+          </ViewPane>
+          <ViewPane
+            title={t('pages.plans.finished')}
+            count={split.finished.length}
+            storageKey="plans.finished"
+            actions={
+              <>
+                <Menu
+                  label={t('pages.plans.tree.showArchived')}
+                  align="end"
+                  trigger={{ icon: <Icon name="filter" />, size: 'sm', title: t('pages.plans.tree.showArchived') }}
+                  items={[{ id: 'archived', label: t('pages.plans.tree.showArchived'), checked: showArchived, onSelect: () => setShowArchived(!showArchived) }]}
+                />
+                <IconButton size="sm" label={t('pages.plans.clearFinished')} icon={<Icon name="archive" size={14} />} disabled={!local} onClick={() => void clearFinished()} />
+              </>
+            }
+          >
+            {/* finished-row actions (Archive, Unarchive, Delete) are planMenu's; a finished-only action goes there */}
+            {treeOf('finished', split.finished, filter.trim() === '' ? t('pages.plans.finished.empty') : t('pages.plans.tree.noMatch'))}
+          </ViewPane>
+        </>
+      ) : (
+        <ViewPane title={t('pages.plans.title')} storageKey="plans.tree">
+          {stallNote}
+          {body}
         </ViewPane>
       )}
-      <ViewPane title={t('pages.plans.title')} count={screen === 'runs' ? shown.length : undefined} storageKey="plans.tree">
-        {stall && (
-          <p className="plans-stall" role="status">
-            <Icon name="warning" size={14} />
-            {stall.kind === 'unresponsive'
-              ? t('pages.plans.stall.unresponsive')
-              : stall.kind === 'reading'
-                ? t('pages.plans.stall.reading')
-                : t('pages.plans.stall.parked', { reason: t(stall.gate === 'unreadable' ? 'jobs.stall.gate.unreadable' : 'jobs.stall.gate.notMigrated') })}
-          </p>
-        )}
-        {body}
-      </ViewPane>
       {ctx && ctxItems && <Menu at={ctx.at} onClose={() => setCtx(null)} label={t('pages.plans.tree.menu.label')} items={ctxItems} />}
     </>
   )

@@ -6,6 +6,7 @@ import { emptyState, type OrchState } from '../state'
 import { deriveActivity, noticeOf, type ActivityEvent } from '../activity'
 import { planIncompleteActivity, planReadyActivity } from '../../../host/activity'
 import { snapshotFor } from '../view'
+import { outcomeOf } from '../running'
 import { buildPlannerBrief } from '../handover'
 import type { Job, Project, Task } from '../types'
 import { approvalOf, autoApproveOf, plannerProblemsNotice, feedbackLine, freshFeedbackBrief, handsOffOf, plansMissingReady, resumeBrief } from './plannerFeedback'
@@ -518,5 +519,90 @@ describe('plannerProblemsNotice', () => {
   it('says nothing to a session that is not the latest planner of a plan awaiting approval', () => {
     expect(plannerProblemsNotice(state({}), 'ses-other')).toBeNull()
     expect(plannerProblemsNotice(state({}, { pendingStart: false }), 'ses-p1')).toBeNull()
+  })
+})
+
+describe('T2 jobs-chat: a planner chat on a finished plan', () => {
+  /** A planned plan whose Tasks all completed and whose coordinator has ended. */
+  const finished = async (r: Rig, job: Partial<Job> = {}) => {
+    const { jobId } = await planned(r)
+    expect((await r.person('run-start', { run: jobId })).status).toBe(200)
+    const s = r.state()
+    const runId = s.runs[0].id
+    r.set({
+      ...s,
+      jobs: s.jobs.map((j) => ({ ...j, ...job })),
+      runs: s.runs.map(({ coordinatorSessionId: _c, ...run }) => run),
+      tasks: s.tasks.map((t) => (t.runId === runId ? { ...t, status: 'completed' as const } : t))
+    })
+    return { jobId, runId }
+  }
+
+  it('starts a completion replan with the chat brief and answers its session; a second call answers the same one', async () => {
+    const r = rig()
+    const { jobId, runId } = await finished(r)
+    const reply = await r.person('jobs-chat', { id: jobId })
+    expect(reply).toMatchObject({ status: 200, body: { jobId, runId, sessionId: 'ses-planner-2' } })
+    expect(r.state().jobs[0].replanning).toMatchObject({ mode: 'completion', chat: true, sessionId: 'ses-planner-2' })
+    expect(r.state().jobs[0].dispatchHold).toBe(true)
+    const brief = r.starts.at(-1)!.brief as string
+    expect(brief).toContain('OWNER CHAT')
+    expect(brief).toContain('Do not change files')
+    expect(brief).not.toContain('OWNER FEEDBACK')
+    expect(brief).not.toContain('THE FINAL CHECK')
+    const starts = r.starts.length
+    expect(await r.person('jobs-chat', { id: jobId })).toMatchObject({ status: 200, body: { jobId, runId, sessionId: 'ses-planner-2' } })
+    expect(r.starts).toHaveLength(starts)
+  })
+
+  it('ended with no new Task, leaves the plan completed with the hold lifted, also with replanning off', async () => {
+    for (const job of [{}, { replan: 'off' as const }]) {
+      const r = rig()
+      const { jobId, runId } = await finished(r, job)
+      const sid = ((await r.person('jobs-chat', { id: jobId })).body as { sessionId: string }).sessionId
+      const coordinators = r.starts.filter((x) => x.role !== 'planner').length
+      expect((await r.as(sid)('jobs-replan-done', { id: jobId, summary: 'answered two questions' })).status).toBe(200)
+      const after = r.state().jobs[0]
+      expect(after.replanning).toBeUndefined()
+      expect(after.dispatchHold).toBeUndefined()
+      expect(after.lastReplan).toMatchObject({ runId, mode: 'completion', summary: 'done, nothing to add: answered two questions' })
+      expect(outcomeOf(r.state(), runId)).toBe('completed')
+      expect(r.stopped).toContain(sid)
+      expect(r.starts.filter((x) => x.role !== 'planner').length).toBe(coordinators)
+    }
+  })
+
+  it('adds a follow-up Task when asked: the plan runs again past the follow-up cap, and its ended delivery reopens', async () => {
+    const r = rig()
+    const { jobId, runId } = await finished(r, { replanFollowUps: 3 })
+    const s = r.state()
+    r.set({ ...s, runs: s.runs.map((x) => ({ ...x, delivery: { at: NOW, branch: 'main', sha: 'abc1234' }, pr: { at: NOW, url: 'https://github.com/o/r/pull/1', landed: 'merged' as const } })) })
+    const sid = ((await r.person('jobs-chat', { id: jobId })).body as { sessionId: string }).sessionId
+    expect((await r.as(sid)('task-create', { run: runId, ...plan('dark', { kind: 'feature' }) })).status).toBe(200)
+    expect((await r.as(sid)('jobs-replan-done', { id: jobId, summary: 'dark mode Task' })).status).toBe(200)
+    const job = r.state().jobs[0]
+    expect(job.dispatchHold).toBeUndefined()
+    expect(job.replanFollowUps).toBe(3)
+    const run = r.state().runs[0]
+    expect(run.delivery).toBeUndefined()
+    expect(run.pr).toBeUndefined()
+    expect(run.coordinatorSessionId).toBe('ses-coordinator')
+    expect(outcomeOf(r.state(), runId)).toBe('running')
+  })
+
+  it('refuses an unknown, archived, unplanned or still running plan, and an agent', async () => {
+    const r = rig()
+    expect((await r.person('jobs-chat', { id: 'job_nope' })).status).toBe(404)
+    const made = await r.person('run-create', { objective: 'o', cwd: '/repo', coordinatorAccount: 'acc1', auto: true })
+    expect((await r.person('jobs-chat', { id: (made.body as { id: string }).id })).status).toBe(409)
+    const { jobId } = await planned(r)
+    expect((await r.person('run-start', { run: jobId })).status).toBe(200)
+    expect((await r.person('jobs-chat', { id: jobId })).status).toBe(409)
+    expect((await r.as('ses-someone')('jobs-chat', { id: jobId })).status).toBe(403)
+    expect((await handleCommand(r.deps, { sessionId: '', role: 'mcp' }, 'jobs-chat', { id: jobId })).status).toBe(403)
+    const s = r.state()
+    r.set({ ...s, jobs: s.jobs.map((j) => ({ ...j, archivedAt: NOW })), tasks: s.tasks.map((t) => (t.runId ? { ...t, status: 'completed' as const } : t)) })
+    expect((await r.person('jobs-chat', { id: jobId })).status).toBe(409)
+    expect(r.starts.filter((x) => x.role === 'planner')).toHaveLength(1)
   })
 })

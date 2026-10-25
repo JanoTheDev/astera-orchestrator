@@ -8,6 +8,8 @@
 // (host/activity.ts `planReadyActivity`, once per feedback round). **While the plan runs** the feedback starts a W6-D
 // replan at once (`jobs-replan --feedback`), with W6-D's rules: only Tasks that have not started change. T1: feedback
 // during a replan is typed into its planner or queued for the next one, and a finished plan reopens with a final check.
+// T2: `jobs-chat` opens a planner on a finished plan with no feedback: it answers the owner's questions and adds
+// follow-up Tasks only when asked.
 import { approvalDefaultOf, approvalFallbackOf, type ApprovalMode } from '../../settings/approvalDefault'
 import type { OrchServerDeps } from '../command'
 import { handsOffOf, projectOfJob } from '../delivery'
@@ -26,7 +28,7 @@ type Reply = { status: number; body: unknown }
 type Caller = { sessionId: string; role?: 'app' | 'cli' | 'mcp' | 'controller' | 'plugin' }
 type Handle = (deps: OrchServerDeps, caller: Caller, cmd: string, args: Record<string, unknown>) => Promise<Reply>
 
-export const FEEDBACK_COMMANDS: ReadonlySet<string> = new Set(['jobs-feedback', 'jobs-reject', 'jobs-feedback-done', 'jobs-auto-start', 'jobs-plan-ready'])
+export const FEEDBACK_COMMANDS: ReadonlySet<string> = new Set(['jobs-feedback', 'jobs-chat', 'jobs-reject', 'jobs-feedback-done', 'jobs-auto-start', 'jobs-plan-ready'])
 /** The longest feedback or reason kept. */
 export const FEEDBACK_TEXT_MAX = 4000
 /** At most this many change lines per feedback round, each at most CHANGE_LINE_MAX characters. */
@@ -198,6 +200,22 @@ export async function feedbackCommand(deps: OrchServerDeps, caller: Caller, cmd:
 
   // The rest is the owner's: in Astera, the command bar, or their own shell. Never an agent's.
   if (!byPerson) return denied(`${cmd} is for the person, in Astera or at their own shell`)
+
+  // T2: a chat with a planner about a finished plan, a completion replan with no feedback. One at a time: while a replan
+  // runs, its planner is the one to talk to
+  if (cmd === 'jobs-chat') {
+    if (!isJobActive(job)) return conflict(`job ${jobId} is archived: unarchive it first`)
+    if (job.plannerSessionIds === undefined) return conflict(`job ${jobId} was not planned: there is no planner to talk to`)
+    if (job.replanning) {
+      const sid = job.replanning.sessionId
+      if (!sid) return conflict(`job ${jobId}'s planner is starting: try again in a moment`)
+      return ok({ jobId, runId: job.replanning.runId, sessionId: sid })
+    }
+    const run = s.runs.filter((r) => r.jobId === jobId).at(-1)
+    if (!run) return conflict(`job ${jobId} has no run: there is no finished plan to talk about`)
+    if (outcomeOfTasks(s.tasks.filter((t) => t.runId === run.id)) === 'running') return conflict(`job ${jobId} still runs: send feedback instead`)
+    return replanCommand(deps, caller, 'jobs-replan', { id: jobId, run: run.id, mode: 'completion', chat: true }, false, handle)
+  }
 
   if (cmd === 'jobs-reject') {
     if (!awaitsApproval(job)) return conflict(`job ${jobId} is not a plan waiting for approval: stop or archive it instead`)

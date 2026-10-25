@@ -2502,6 +2502,44 @@ describe('a delivery that finishes by itself (T3)', () => {
     expect(calls).toBe(before)
   })
 
+  it('T2: a follow-up Task the owner\'s chat adds to a delivered plan runs, and the plan is delivered again', async () => {
+    let calls = 0
+    const h = pushPlan(async (a) => (++calls, ok(a)))
+    const s = h.state()
+    h.setState({ ...s, jobs: s.jobs.map((j) => ({ ...j, plannerSessionIds: ['ses-p0'], plannerAccountId: 'accA', replan: 'off' as const })) })
+    await pass(h)
+    finishAll(h)
+    await pass(h)
+    expect(calls).toBe(1)
+    expect(h.state().runs[0].delivery).toMatchObject({ sha: 'abc1234' })
+    const chat = await h.real('jobs-chat', { id: 'job_1' })
+    expect(chat.status).toBe(200)
+    const sid = (chat.body as { sessionId: string }).sessionId
+    const made = await h.as(sid, 'task-create', {
+      run: 'run_1',
+      account: 'accA',
+      title: 'dark mode',
+      spec: 'the dark mode part',
+      prompt: 'Build dark mode.',
+      criteria: ['dark mode works'],
+      affectedPaths: ['src/dark.ts'],
+      kind: 'feature',
+      basis: 'missing',
+      evidence: 'no dark mode in src/'
+    })
+    expect(made.status).toBe(200)
+    expect((await h.as(sid, 'jobs-replan-done', { id: 'job_1', summary: 'dark mode Task' })).status).toBe(200)
+    await pass(h)
+    expect(h.startWorker.mock.calls.some(([a]) => a.taskId === (made.body as Task).id)).toBe(true)
+    expect(calls).toBe(1)
+    finishAll(h)
+    await pass(h)
+    await pass(h)
+    expect(calls).toBe(2)
+    expect(h.state().runs[0].delivery).toMatchObject({ sha: 'abc1234' })
+    expect(outcomeOf(h.state(), 'run_1')).toBe('completed')
+  })
+
   it('a Run finishing, then a restart before delivery, still delivers', async () => {
     let calls = 0
     const h = pushPlan(async (a) => (++calls, ok(a)))
@@ -2705,6 +2743,27 @@ describe('wave replanning (W6-D)', () => {
     expect(job.lastReplan).toMatchObject({ mode: 'wave', wave: 1 })
     expect(job.lastReplan?.summary).toMatch(/^Replan skipped: its planner did not finish in time/)
     expect(h.stopCoordinator).toHaveBeenCalledWith(session, expect.any(String))
+  })
+
+  it('neither reminds nor ends a chat replan with its owner, however long it is idle', async () => {
+    const h = rig()
+    planned(h, (t) => (t.id === 'tsk_1' ? { ...t, status: 'completed' } : t))
+    failedOnce(h)
+    const start = h.clock
+    await h.loop.run()
+    await h.settle()
+    const s = h.state()
+    h.setState({ ...s, jobs: s.jobs.map((j) => (j.id === 'job_1' ? { ...j, replanning: { ...j.replanning!, chat: true } } : j)) })
+    await h.loop.nudge()
+    await h.settle()
+    h.clock = start + REPLAN_TIMEOUT_MS + 1
+    await h.loop.nudge()
+    await h.settle()
+    await h.loop.nudge()
+    await h.settle()
+    expect(h.typed).toHaveLength(0)
+    expect(h.handled()).not.toContain('jobs-replan-done')
+    expect(h.state().jobs[0].replanning).toBeDefined()
   })
 
   it.each([

@@ -59,7 +59,7 @@
 .plan-talk { display: flex; flex-direction: column; gap: var(--sp-2); font-size: var(--fs-12); }
 .plan-talk-head { margin: 0; font-size: var(--fs-12); font-weight: 600; }
 .plan-talk-history { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
-.plan-talk-msg { max-width: 80ch; white-space: pre-wrap; }
+.plan-talk-msg { max-width: 100ch; white-space: pre-wrap; }
 .plan-talk-phase { margin-left: 6px; font-size: var(--fs-11); color: var(--text-faint); }
 .plan-talk-changes { margin: 2px 0 0; padding-left: 16px; color: var(--text-dim); }
 .plan-talk-wait { margin: 2px 0 0; color: var(--text-faint); font-style: italic; }

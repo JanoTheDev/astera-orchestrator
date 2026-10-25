@@ -15,13 +15,15 @@ import {
   overlapOf,
   pauseActionOf,
   planDescription,
+  finishedDescription,
   planTreeRows,
   statusGroupOf,
   stepsOf,
   taskDescription,
   taskSection,
   type GroupBy,
-  type PlanNode
+  type PlanNode,
+  type PlanTreeRow
 } from './planTree'
 
 const task = (id: string, over: Partial<JobTask> = {}): JobTask => ({ id, title: `title ${id}`, status: 'pending', openGates: 0, ...over })
@@ -187,5 +189,47 @@ describe('plan name truncation priority (plans.css)', () => {
     expect(shrink('.ui-tree__label')).toBeGreaterThan(0)
     expect(shrink('.ui-tree__meta')).toBe(0)
     expect(css).not.toMatch(/\.plans-tree \.ui-tree__deco \{[^}]*text-overflow/)
+  })
+})
+
+describe('planTreeRows keepOrder', () => {
+  it('lists the plans as given instead of by rank (the Finished pane sorts by finishedAt)', () => {
+    const rows = [row('a', { outcome: 'completed', archivedAt: 'x' }), row('b', { outcome: 'completed' })]
+    const ids = (keepOrder: boolean): string[] =>
+      planTreeRows({ rows, groupBy: 'plans', filter: '', showArchived: true, keepOrder, isOpen: () => false }).map((r) => r.id)
+    expect(ids(false)).toEqual(['plan:b', 'plan:a'])
+    expect(ids(true)).toEqual(['plan:a', 'plan:b'])
+  })
+
+  // The done plan comes first in the input; planListOrder would put the running one first, so a re-sort shows.
+  const finished = row('done', { outcome: 'completed', tasks: [task('t1', { status: 'completed' })] })
+  const live = row('live', { outcome: 'running', tasks: [task('t2', { status: 'completed' })] })
+  const plansOf = (r: JobRow[], groupBy: GroupBy, keepOrder: boolean): PlanTreeRow[] =>
+    planTreeRows({ rows: r, groupBy, filter: '', showArchived: false, keepOrder, isOpen: () => true })
+
+  it('Group by status: keepOrder keeps the input order inside each group; without it the group is re-sorted', () => {
+    const doneTasks = (keepOrder: boolean): string[] =>
+      plansOf([finished, live], 'status', keepOrder).map((r) => r.id).filter((id) => id.startsWith('status:done/task:'))
+    expect(doneTasks(true)).toEqual(['status:done/task:done:t1', 'status:done/task:live:t2'])
+    expect(doneTasks(false)).toEqual(['status:done/task:live:t2', 'status:done/task:done:t1'])
+  })
+
+  it('Group by area: keepOrder keeps the input order inside each area group; without it the group is re-sorted', () => {
+    const plansIn = (keepOrder: boolean): string[] =>
+      plansOf([{ ...finished, areas: ['auth'] }, { ...live, areas: ['auth'] }], 'area', keepOrder)
+        .filter((r) => r.node.kind === 'plan')
+        .map((r) => r.id)
+    expect(plansIn(true)).toEqual(['area:auth/plan:done', 'area:auth/plan:live'])
+    expect(plansIn(false)).toEqual(['area:auth/plan:live', 'area:auth/plan:done'])
+  })
+})
+
+describe('finishedDescription', () => {
+  it('says the progress and how long ago the plan finished', () => {
+    const t = ((k: string, p?: Record<string, unknown>) => `${k}${p ? JSON.stringify(p) : ''}`) as never
+    const now = Date.parse('2026-10-24T12:00:00Z')
+    const done = row('d', { outcome: 'completed', done: 3, total: 3, finishedAt: '2026-10-24T10:00:00Z' })
+    expect(finishedDescription(done, now, t)).toBe('pages.plans.progress{"done":3,"total":3} · pages.plans.finishedAge{"age":"2h"}')
+    expect(finishedDescription(row('e', { outcome: 'completed' }), now, t)).toBe('')
   })
 })

@@ -7,10 +7,10 @@ import type { JobRow } from '../../../../core/types'
 import { useI18n } from '../../i18n/I18nProvider'
 import type { OrchDoor } from '../../lib/orchDoor'
 import { replyNote } from '../../lib/orchDoor'
-import { postPlanFeedback, rejectPlan, stopRun, type ActionUi } from '../../lib/jobActions'
+import { openPlanChat, postPlanFeedback, rejectPlan, stopRun, type ActionUi } from '../../lib/jobActions'
 import { openConsole } from '../shell/navigation'
 import { Button, Chip, Icon, Input, Textarea } from '../ui'
-import { feedbackMark, feedbackOutcomeOf, planTalkView, plannerWaitingIn, type FeedbackOutcome } from './planTalk'
+import { canAskPlanMore, feedbackMark, feedbackOutcomeOf, planTalkView, plannerWaitingIn, type FeedbackOutcome } from './planTalk'
 
 /** The sentence under the box for what the message did. */
 const OUTCOME_KEY = { sent: 'plan.talk.sent', queued: 'plan.talk.queuedNotice', reopened: 'plan.talk.reopened' } as const satisfies Record<FeedbackOutcome, string>
@@ -117,6 +117,19 @@ export function PlanTalk({ row, door, ui, name }: { row: JobRow; door: OrchDoor;
         <Button size="sm" loading={sending} disabled={!text.trim() || door.readOnlyReason != null} title={t('plan.talk.placeholder')} onClick={() => void send()}>
           {t('plan.talk.send')}
         </Button>
+        {/* T7: a finished plan's planner in a tab of its own; a paired Runtime's has no tab on this computer */}
+        {canAskPlanMore(row) && (
+          <Button
+            size="sm"
+            variant="ghost"
+            icon={<Icon name="sparkles" size={14} />}
+            disabled={door.readOnlyReason != null || door.runtimeId !== undefined}
+            title={door.runtimeId !== undefined ? t('plan.chat.remote') : t('plan.chat.askMoreHint')}
+            onClick={() => void openPlanChat(door, row.id, ui)}
+          >
+            {t('plan.chat.openTab')}
+          </Button>
+        )}
       </div>
       {result === 'waiting' ? (
         <div className="plan-talk-waiting" role="alert">

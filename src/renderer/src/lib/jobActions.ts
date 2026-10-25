@@ -5,6 +5,7 @@ import type { OrchSnapshot } from '../../../core/types'
 import { findRun } from '../../../core/orchestration/snapshot'
 import { isOutcomeUnknown, replyNote, type CommandReply, type OrchDoor } from './orchDoor'
 import { jobName } from './jobName'
+import { openConsole } from '../components/shell/navigation'
 
 export interface ActionUi {
   t(key: string, params?: Record<string, string | number>): string
@@ -248,6 +249,21 @@ export async function archiveJob(door: OrchDoor, snapshot: OrchSnapshot | null, 
   if (reply && reply.status >= 400) failure(reply, ui, ui.t('jobs.lifecycle.archiveFailed'))
 }
 
+/** Archives many Jobs with one `jobs-archive` each (the caller asked once). A refusal or a lost answer counts as failed and
+ *  the rest go on; archived and failed are the counts for the caller's one toast. Archive, never delete. */
+export async function archiveJobs(door: OrchDoor, jobIds: readonly string[], killSessions: boolean): Promise<{ archived: number; failed: number }> {
+  let archived = 0
+  for (const id of jobIds) {
+    try {
+      const reply = await door.command('jobs-archive', { id, ...(killSessions ? { killSessions: true } : {}) })
+      if (reply.status < 400) archived++
+    } catch {
+      /* counted as failed below */
+    }
+  }
+  return { archived, failed: jobIds.length - archived }
+}
+
 export async function unarchiveJob(door: OrchDoor, jobId: string, ui: ActionUi): Promise<void> {
   const reply = await send(door, 'jobs-unarchive', { id: jobId }, ui, ui.t('jobs.lifecycle.unarchiveFailed'))
   if (reply && reply.status >= 400) failure(reply, ui, ui.t('jobs.lifecycle.unarchiveFailed'))
@@ -292,4 +308,26 @@ export async function setJobAfter(door: OrchDoor, jobId: string, afterId: string
   const reply = await send(door, 'jobs-set', { id: jobId, after: afterId }, ui, fallback)
   if (reply && reply.status >= 400) failure(reply, ui, fallback)
   return reply !== null && reply.status < 400
+}
+
+/** Opens a session's tab. The tab arrives through session:created, which can land after the reply, and openConsole
+ *  ignores a tab it does not have yet, so it is tried twice, not awaited (as planCommands' askAboutTask does). */
+const openSessionTab = (sessionId: string): void => {
+  setTimeout(() => openConsole(sessionId), 300)
+  setTimeout(() => openConsole(sessionId), 1500)
+}
+
+/** "Ask & plan more" on a finished plan: `jobs-chat` starts (or finds) its planner in chat mode and this opens that
+ *  planner's tab. A refusal or a lost answer is a toast. True when a tab was asked for. */
+export async function openPlanChat(door: OrchDoor, jobId: string, ui: ActionUi, open: (sessionId: string) => void = openSessionTab): Promise<boolean> {
+  const fallback = ui.t('plan.chat.failed')
+  const reply = await send(door, 'jobs-chat', { id: jobId }, ui, fallback)
+  if (reply === null) return false
+  const sessionId = (reply.body as { sessionId?: unknown } | null)?.sessionId
+  if (reply.status >= 400 || typeof sessionId !== 'string') {
+    failure(reply, ui, fallback)
+    return false
+  }
+  open(sessionId)
+  return true
 }
