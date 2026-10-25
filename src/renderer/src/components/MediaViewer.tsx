@@ -112,6 +112,9 @@ export function MediaViewer({ path, active, nonce }: { path: string; active: boo
         <Button size="sm" variant="ghost" icon={<Icon name="external" size={14} />} onClick={() => window.api.media.openExternal(path).catch(fail)}>
           {t('media.action.openExternal')}
         </Button>
+        <Button size="sm" variant="ghost" icon={<Icon name="copy" size={14} />} onClick={() => window.api.clipboard.writeText(path)}>
+          {t('media.action.copyPath')}
+        </Button>
         <Button size="sm" variant="ghost" icon={<Icon name="folder" size={14} />} onClick={() => window.api.media.reveal(path).catch(fail)}>
           {t('media.action.reveal')}
         </Button>

@@ -127,4 +127,16 @@ export const history: Record<keyof typeof ko, string> = {
   'history.entry.copyId': 'Copy session id',
   'history.session.menu': 'Session actions',
   'history.view.accountFilter': 'Filter by account',
+  'preview.menu.copyLink': 'Copy link address',
+  'preview.menu.openLink': 'Open link in browser',
+  'preview.menu.copyText': 'Copy selected text',
+  'preview.menu.copyImageAddress': 'Copy image address',
+  'preview.menu.cut': 'Cut',
+  'preview.menu.copy': 'Copy',
+  'preview.menu.paste': 'Paste',
+  'history.menu.deleteHistory': "Delete this project's history",
+  'history.menu.deleteTitle': 'Delete history?',
+  'history.menu.deleteBody': 'Deletes the saved session history of {path}. The project folder itself is not touched.',
+  'history.menu.deleteConfirm': 'Delete history',
+  'history.menu.deleteFailed': 'Could not delete the history (a session may still be running)'
 }

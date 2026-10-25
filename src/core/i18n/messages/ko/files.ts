@@ -130,4 +130,5 @@ export const files = {
   'attribution.humanLines': '사람: {lines}줄 ({percent}%)',
   'attribution.lines': '줄',
   'attribution.taskLinesSr': '(AI {ai}줄, 사람 {human}줄)',
+  'media.action.copyPath': '경로 복사',
 } as const
