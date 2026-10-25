@@ -1,0 +1,1 @@
+{"v":1,"tool":"astera","job":"job_2979a5c66de4a266","task":"tsk_9b68b802099b71d8","session":"44fbec91-e529-442c-8df7-28d059fa873f","agent":"claude","model":"sonnet","account":"936be082-7e63-47f4-bed6-8f1680ce6a09","role":"worker","lines":{"src/renderer/src/components/plan/taskActions.test.ts":[[1,47],[49,57]],"src/renderer/src/components/plan/taskActions.ts":[[1,64],[66,68]]}}
