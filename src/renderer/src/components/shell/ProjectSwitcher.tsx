@@ -1,7 +1,7 @@
 // W6-F project switcher, as the top bar's button (W9-B; DESIGN-W11 §8): "● <project> ▾" opens a searchable menu.
 // T11 redesign: "All projects" on top as a row of its own, then the Projects section (each workspace with its status dot,
 // branch, running plans and open questions, a changes badge that opens Source Control, its Ctrl+Alt+N key, and its
-// sub-projects nested under it), then the Actions section (new, add, the open project's settings and window).
+// sub-projects nested under it), then the Actions section (new, add, new window, the open project's settings); each row also opens in a window of its own.
 // switcherItems stays the one list of actions; the popover only lays it out.
 import { useEffect, useRef, useState } from 'react'
 import type { Attention, ProjectGitStatus, SessionInfo } from '../../../../core/types'
@@ -12,7 +12,7 @@ import {
 import { switcherName } from '../../state/projectScope'
 import * as sticky from '../../lib/stickyProject'
 import { openActivity } from './navigation'
-import { Badge, Button, Icon, Input, Kbd, Popover, Tooltip, type MenuItem } from '../ui'
+import { Badge, Button, Icon, IconButton, Input, Kbd, Popover, Tooltip, type MenuItem } from '../ui'
 import type { Translate } from '../checkText'
 import './projectSwitcher.css'
 
@@ -28,8 +28,8 @@ export interface SwitcherProps {
   onNew: () => void
   onAdd: () => void
   onSettings: (id: string) => void
-  /** W9-K: opens the project in a window of its own (or focuses the one it has). */
-  onOpenWindow?: (id: string) => void
+  /** W9-K: opens the project in a window of its own (or focuses the one it has); null opens an All window. */
+  onOpenWindow?: (id: string | null) => void
   /** Why the project tools are off (no tab open to anchor the commands), or undefined. */
   toolsDisabledReason?: string
   t: Translate
@@ -106,18 +106,22 @@ export function switcherItems(p: SwitcherProps, facts: SwitcherFacts = {}): Menu
               openActivity('scm')
             }
           }]
+        : []),
+      ...(p.onOpenWindow && r.id !== OTHER_WORKSPACE // "Other" is no project
+        ? [{
+            id: `window:${r.id}`,
+            label: t('shell.switcher.openWindow', { name: r.name }),
+            icon: <Icon name="external" size={14} />,
+            onSelect: () => p.onOpenWindow?.(r.parentId ?? r.id)
+          }]
         : [])
     ]),
     { id: 'new', label: t('shell.switcher.new'), icon: <Icon name="add" size={14} />, disabled: tools, onSelect: p.onNew },
     { id: 'add', label: t('settings.projects.add'), icon: <Icon name="folderAdd" size={14} />, disabled: tools, onSelect: p.onAdd },
-    // W7-B / W9-K: the open project's settings and window; All and "Other" are no project
+    ...(p.onOpenWindow ? [{ id: 'newWindow', label: t('shell.switcher.newWindow'), icon: <Icon name="external" size={14} />, onSelect: () => p.onOpenWindow?.(null) }] : []),
+    // W7-B: the open project's settings; All and "Other" are no project
     ...(current
-      ? [
-          { id: 'settings', label: t('shell.switcher.settings', { name: current.name }), icon: <Icon name="settings" size={14} />, disabled: tools, onSelect: () => p.onSettings(current.id) },
-          ...(p.onOpenWindow
-            ? [{ id: 'window', label: t('shell.switcher.openWindow', { name: current.name }), icon: <Icon name="external" size={14} />, onSelect: () => p.onOpenWindow?.(current.id) }]
-            : [])
-        ]
+      ? [{ id: 'settings', label: t('shell.switcher.settings', { name: current.name }), icon: <Icon name="settings" size={14} />, disabled: tools, onSelect: () => p.onSettings(current.id) }]
       : [])
   ]
 }
@@ -207,7 +211,7 @@ export function ProjectSwitcher(p: SwitcherProps): React.JSX.Element {
         title={it.disabled ? p.toolsDisabledReason : undefined}
         aria-current={opts.current || undefined}
         className={`tb-sw-main${opts.current ? ' tb-sw-selected' : ''}`}
-        onClick={() => pick(it)}
+        onClick={(e) => pick((e.ctrlKey || e.metaKey ? byId.get(`window:${it.id}`) : undefined) ?? it)}
       >
         {it.label}
         {opts.current && <Icon name="check" size={14} className="tb-sw-check" />}
@@ -227,7 +231,11 @@ export function ProjectSwitcher(p: SwitcherProps): React.JSX.Element {
       </Tooltip>
     )
   }
-  const actions = ['new', 'add', 'settings', 'window'].map((id) => byId.get(id)).filter((it): it is MenuItem => it !== undefined)
+  const windowButton = (r: WorkspaceSummary): React.ReactNode => {
+    const it = byId.get(`window:${r.id}`)
+    return it && <IconButton size="sm" data-roving="" tabIndex={-1} className="tb-psw-window" icon={<Icon name="external" size={14} />} label={String(it.label)} onClick={() => pick(it)} />
+  }
+  const actions = ['new', 'add', 'newWindow', 'settings'].map((id) => byId.get(id)).filter((it): it is MenuItem => it !== undefined)
 
   return (
     <div ref={root} className="tb-sw" onKeyDown={(e) => e.key === 'Tab' && open && setShown(false)}>
@@ -263,7 +271,7 @@ export function ProjectSwitcher(p: SwitcherProps): React.JSX.Element {
           {shown.length === 0 && <div className="tb-sw-empty">{t('shell.switcher.noMatch')}</div>}
           {shown.map((r) => {
             const it = byId.get(r.id)
-            return it ? row(it, { current: r.id === p.selectedId, className: r.parentId !== undefined ? 'tb-psw-sub' : undefined, extra: changesBadge(r) }) : null
+            return it ? row(it, { current: r.id === p.selectedId, className: r.parentId !== undefined ? 'tb-psw-sub' : undefined, extra: <>{changesBadge(r)}{windowButton(r)}</> }) : null
           })}
           <div className="tb-psw-section" role="presentation">{t('shell.switcher.actions')}</div>
           {actions.map((it) => row(it, { className: 'tb-psw-action' }))}

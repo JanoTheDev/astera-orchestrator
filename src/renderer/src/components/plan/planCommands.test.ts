@@ -16,6 +16,11 @@ describe('taskActionOf', () => {
     expect(taskActionOf({ status: 'blocked' })).toBe('continue')
     expect(taskActionOf({ status: 'blocked', gate: { id: 'g', question: 'q' } })).toBeUndefined()
     expect(taskActionOf({ status: 'failed' })).toBe('retry')
-    for (const status of ['pending', 'ready', 'dispatched', 'completed'] as const) expect(taskActionOf({ status })).toBeUndefined()
+    for (const status of ['pending', 'ready', 'completed'] as const) expect(taskActionOf({ status })).toBeUndefined()
+  })
+
+  it('restarts a dispatched Task with no running Dispatch, leaves one with a running Dispatch alone', () => {
+    expect(taskActionOf({ status: 'dispatched' })).toBe('restart')
+    expect(taskActionOf({ status: 'dispatched', provider: 'claude' })).toBeUndefined()
   })
 })

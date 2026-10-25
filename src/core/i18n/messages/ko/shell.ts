@@ -53,6 +53,7 @@ export const shell = {
   'shell.switcher.waiting': '입력이 필요한 프로젝트가 있습니다',
   'shell.switcher.running': '{n}개 실행 중',
   'shell.switcher.openWindow': '{name} 새 창에서 열기',
+  'shell.switcher.newWindow': '새 창',
   'shell.switcher.settings': '{name} 설정…',
   'shell.switcher.new': '새 프로젝트',
   'shell.switcher.other': '기타',

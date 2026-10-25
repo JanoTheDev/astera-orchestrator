@@ -25,11 +25,18 @@ export type IntegrateAllOutcome =
   | { state: 'refused'; error?: string }
 
 /** The owner's way out of a stuck Task: Continue a Task held for them (blocked with no Gate: dispatchLoop holdForOwner),
- *  Retry a failed one. A blocked Task with a Gate keeps its Answer flow. Both go through restartTask. */
-export function taskActionOf(task: Pick<JobTask, 'status' | 'gate'>): 'continue' | 'retry' | undefined {
+ *  Retry a failed one, Restart one whose agent was stopped (dispatched with no running Dispatch: `provider` is only set
+ *  while one runs, as PlanGraph reads it). A blocked Task with a Gate keeps its Answer flow. All go through restartTask. */
+export function taskActionOf(task: Pick<JobTask, 'status' | 'gate' | 'provider'>): 'continue' | 'retry' | 'restart' | undefined {
   if (task.status === 'failed') return 'retry'
   if (task.status === 'blocked' && task.gate === undefined) return 'continue'
+  if (task.status === 'dispatched' && task.provider === undefined) return 'restart'
   return undefined
+}
+
+/** The button label of a taskActionOf action; Restart shares the graph node's label. */
+export function taskActionKey(action: 'continue' | 'retry' | 'restart'): MessageKey {
+  return action === 'restart' ? 'jobs.node.restart' : `plan.task.${action}`
 }
 
 /** "Ask about this task" (the row's button and the Plans tree's menu): a chat session on the finished Task, its tab opened,

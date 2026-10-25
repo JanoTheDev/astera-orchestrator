@@ -36,7 +36,7 @@ import {
   wavesOf,
   type LiveSession,
 } from './planBoard'
-import { taskActionOf } from './planCommands'
+import { taskActionKey, taskActionOf } from './planCommands'
 import { QuestionAnswer } from './QuestionAnswer'
 import { Button, Chip, Icon, Meter, Select, Tooltip, type ChipTone, type IconName } from '../ui'
 import { useVirtualRows, VIRTUAL_AFTER_ROWS } from '../ui/virtualRows'
@@ -430,7 +430,7 @@ function TaskRow({
         </span>
         {action !== undefined && onRestart && (
           <Button size="sm" className="plan-row-action" disabled={lockedReason !== undefined} title={lockedReason} icon={<Icon name="refresh" size={14} />} onClick={() => onRestart(tk.id)}>
-            {t(`plan.task.${action}`)}
+            {t(taskActionKey(action))}
           </Button>
         )}
         {onOpenConsole && (

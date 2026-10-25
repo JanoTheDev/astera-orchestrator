@@ -19,6 +19,7 @@ import {
   resumeRun,
   setJobAfter,
   stopRun,
+  resumeStoppedRun,
   unarchiveJob
 } from '../../lib/jobActions'
 import { toast } from '../../lib/toast'
@@ -28,7 +29,7 @@ import { SourceChip } from '../SourceChip'
 import { Button, Chip, Icon, Input, Menu, Meter, PageHeader, Toolbar, type MenuItem } from '../ui'
 import { planProgressOf } from './planBoard'
 import { integrateAllOutcomeOf, type IntegrateAllOutcome } from './planCommands'
-import { planStatusOf } from './planList'
+import { isStoppedPlan, planStatusOf } from './planList'
 import { approveViewOf } from './planPage'
 import './plans.css'
 import { PlanMergeActions } from './PlanChanges'
@@ -186,7 +187,12 @@ export function PlanHeader({
       label: run.paused ? t('jobs.run.resume') : t('jobs.run.pause'),
       title: lockedReason,
       onSelect: () => void (run.paused ? resumeRun(door, runId, ui) : pauseRun(door, runId, ui))
-    } : !local ? null : {
+    } : !local ? null : isStoppedPlan(run) ? {
+      // Kill (runs-stop) paused the Run: Resume undoes it, with the id stopRun used
+      label: t('jobs.run.resume'),
+      title: lockedReason,
+      onSelect: () => void resumeStoppedRun(door, run.foldedRunId ?? runId, ui)
+    } : {
       label: run.dispatchHold ? t('jobs.run.resume') : t('jobs.run.pause'),
       title: lockedReason ?? (run.dispatchHold ? t('plan.header.release') : t('plan.header.hold')),
       onSelect: () => void holdJob(door, runId, !run.dispatchHold, ui)

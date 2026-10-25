@@ -461,6 +461,7 @@ export function PaneGrid({
                   schedState={schedStates[s.id] ?? null}
                   cwd={s.cwd}
                   onOpenPath={onOpenPath}
+                  onRestart={() => onRestart(s)}
                 />
               </div>
             ) : (
