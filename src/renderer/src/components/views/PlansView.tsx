@@ -6,12 +6,12 @@ import type { JobRow, JobTask } from '../../../../core/types'
 import { jobsStall, jobsViewScreen } from '../../../../core/orchestration/jobsView'
 import { groupOfTab } from '../../../../core/panes/tree'
 import { sessionTab } from '../../../../core/panes/tabId'
-import { Badge, Button, Icon, IconButton, Input, Menu, Modal, Tree, ViewContainer, ViewPane, menuPointOf, type ChipTone, type IconName, type MenuItem, type TreeItem, type TreeProps } from '../ui'
+import { Badge, Button, Icon, IconButton, Input, Menu, Tree, ViewContainer, ViewPane, menuPointOf, type ChipTone, type IconName, type MenuItem, type TreeItem, type TreeProps } from '../ui'
 import { RuntimeSelector } from '../RuntimeSelector'
 import { JobsView } from '../JobsView'
 import { STATE_KEY, TaskGlyph } from '../JobIcons'
 import { controlReason, isRemoteRuntime, offlineNote } from '../../lib/remoteJobs'
-import { localDoor, replyNote } from '../../lib/orchDoor'
+import { localDoor, replyNote, type CheckPluginRow } from '../../lib/orchDoor'
 import { jobName } from '../../lib/jobName'
 import { toast } from '../../lib/toast'
 import { archiveJob, archiveJobs, deleteRun, holdJob, integratePlan, mergePlan, openPlanChat, pauseRun, refreshLead, rejectPlan, renameJob, restartCoordinator as restartRunCoordinator, resolveFailed, resumeRun, resumeStoppedRun, stopRun, unarchiveJob } from '../../lib/jobActions'
@@ -21,6 +21,10 @@ import { OLD_FINISHED_DAYS, clearableOf, isStalledPlan, isStoppedPlan, planStatu
 import { approveSlot, canAskPlanMore } from '../plan/planTalk'
 import { planActionsOf } from '../plan/planHeaderActions'
 import { findRunFolder } from '../plan/PlanChanges'
+import { useCachedRead } from '../../lib/readCache'
+import { planCheckPluginsKey, planRunConfigsKey } from '../plan/planReadKeys'
+import { checkChoicesOf } from '../checkText'
+import { RenamePlanModal } from '../plan/RenamePlanModal'
 import { NewTaskModal } from '../NewTaskModal'
 import { askAboutTaskWithToast } from '../plan/planCommands'
 import { doneViewOf } from '../plan/taskDoneView'
@@ -200,6 +204,13 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
   const byFinished = useMemo(() => new Map(finishedRows.map((r) => [r.id, r])), [finishedRows])
   const byId = (pane: Pane): Map<string, PlanTreeRow> => (pane === 'running' ? byRunning : byFinished)
   const local = currentProject ? localDoor(window.api, currentProject) : null
+  // the run configs and check plugins the plan page's own new-Task form reads, while this tree's Add task is open
+  const adder = adding && local ? local : null
+  const configsRead = useCachedRead(adder && adding ? planRunConfigsKey(adder, adding.row.id) : null, async () =>
+    (await adder!.runConfigs(adding!.row.id)).filter((c) => c.type !== 'compound').map((c) => ({ id: c.id, name: c.name }))
+  )
+  const pluginsRead = useCachedRead<CheckPluginRow[]>(adder ? planCheckPluginsKey(adder) : null, () => adder!.checkPlugins())
+  const runConfigs = configsRead.data ? checkChoicesOf(configsRead.data, pluginsRead.data ?? (pluginsRead.error ? [] : null), t) : configsRead.error ? [] : null
   const canOpenSession = (id: string): boolean => !!layout && !!groupOfTab(layout, sessionTab(id))
   const accountLabel = (id: string): string => accounts.find((a) => a.id === id)?.label ?? id
 
@@ -358,8 +369,10 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
   /** A step row: the plan opened at the board, and the plan page's own new-Task form with the previous step's Tasks as deps. */
   const stepMenu = (row: JobRow, step: number): Array<MenuItem | 'separator'> => {
     const previous = row.tasks.filter((x) => x.wave === step - 1).map((x) => x.id)
+    // the plan page has no step anchor: land on the step's first Task (expanded and flashed), else the steps section
+    const first = row.tasks.find((x) => x.wave === step)
     return [
-      { id: 'openStep', label: t('shell.plans.menu.openStep'), icon: <Icon name="open" />, onSelect: () => openPlanTab(row.id, 'waves') },
+      { id: 'openStep', label: t('shell.plans.menu.openStep'), icon: <Icon name="open" />, onSelect: () => openPlanTab(row.id, first ? taskSection(first.id) : 'waves') },
       ...(local && row.archivedAt === undefined ? [{ id: 'addTask', label: t('plan.steps.addTask'), icon: <Icon name="add" />, onSelect: () => setAdding({ row, deps: step === 0 ? [] : previous }) }] : [])
     ]
   }
@@ -623,45 +636,14 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
           {body}
         </ViewPane>
       )}
-      {renaming && local && (
-        <Modal
-          title={t('jobs.lifecycle.rename')}
-          size="sm"
-          onClose={() => setRenaming(null)}
-          closeLabel={t('common.close')}
-          footer={
-            <Button
-              variant="primary"
-              onClick={() => {
-                void renameJob(local, renaming.id, renaming.title, actionUi)
-                setRenaming(null)
-              }}
-            >
-              {t('common.confirm')}
-            </Button>
-          }
-        >
-          <Input
-            autoFocus
-            value={renaming.title}
-            placeholder={t('jobs.lifecycle.titlePlaceholder')}
-            aria-label={t('jobs.lifecycle.rename')}
-            onChange={(e) => setRenaming({ ...renaming, title: e.target.value })}
-            onKeyDown={(e) => {
-              if (e.nativeEvent.isComposing || e.key !== 'Enter') return
-              void renameJob(local, renaming.id, renaming.title, actionUi)
-              setRenaming(null)
-            }}
-          />
-        </Modal>
-      )}
+      {renaming && local && <RenamePlanModal initial={renaming.title} onRename={(title) => void renameJob(local, renaming.id, title, actionUi)} onClose={() => setRenaming(null)} />}
       {adding && local && (
         <NewTaskModal
           door={local}
           runId={adding.row.id}
           tasks={adding.row.tasks}
           accounts={accounts}
-          runConfigs={null}
+          runConfigs={runConfigs}
           initialDeps={adding.deps}
           onClose={() => setAdding(null)}
           onCreated={() => setAdding(null)}
