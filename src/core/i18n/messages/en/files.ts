@@ -125,4 +125,5 @@ export const files: Record<keyof typeof ko, string> = {
   'attribution.humanLines': 'human: {lines} lines ({percent}%)',
   'attribution.lines': 'Lines',
   'attribution.taskLinesSr': '({ai} AI lines, {human} human lines)',
+  'media.action.copyPath': 'Copy path',
 }

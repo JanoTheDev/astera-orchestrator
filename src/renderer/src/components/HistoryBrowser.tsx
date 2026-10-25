@@ -16,6 +16,7 @@ import { summaryOneLine } from './wall/summaryText'
 import { ViewToolbar } from './shell/SideBar'
 import { isGhostAccountId } from '../../../core/accounts/ghostId'
 import { confirmModal } from '../lib/confirm'
+import { toast } from '../lib/toast'
 import { useI18n } from '../i18n/I18nProvider'
 import { Badge, Chip, EmptyState, ICONS, Icon, IconButton, Menu, Skeleton, Tree, menuPointOf, type MenuItem, type TreeItem } from './ui'
 import * as hiddenProjects from '../lib/hiddenProjects'
@@ -523,6 +524,23 @@ export function HistoryBrowser({
     }
   }
 
+  const deleteHistory = async (projectPath: string): Promise<void> => {
+    const ok = await confirmModal({
+      title: t('history.menu.deleteTitle'),
+      body: t('history.menu.deleteBody', { path: projectPath }),
+      confirmLabel: t('history.menu.deleteConfirm'),
+      danger: true
+    })
+    if (!ok) return
+    try {
+      const r = await window.api.history.deleteProjects([projectPath])
+      if (r.deleted.length > 0) hiddenProjects.unhideMany(r.deleted)
+      else toast.error(t('history.menu.deleteFailed'))
+    } catch {
+      toast.error(t('history.menu.deleteFailed'))
+    }
+  }
+
   const menuRow = menu ? byId.get(menu.id) : undefined
   const menuItems = (): Array<MenuItem | 'separator'> => {
     if (menuRow?.kind === 'project')
@@ -532,6 +550,12 @@ export function HistoryBrowser({
           label: t('history.menu.hide'),
           icon: <Icon name="hide" size={14} />,
           onSelect: () => hiddenProjects.hide(menuRow.project.projectPath)
+        },
+        {
+          id: 'delete',
+          label: t('history.menu.deleteHistory'),
+          icon: <Icon name="delete" size={14} />,
+          onSelect: () => void deleteHistory(menuRow.project.projectPath)
         }
       ]
     if (menuRow?.kind !== 'session') return []
