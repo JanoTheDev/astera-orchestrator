@@ -5091,9 +5091,13 @@ export async function handleCommand(
         return s.tasks.find((x) => x.id === d.taskId)?.runId === run.id
       }).length
       if (openHere >= limit)
-        return conflict(
-          `run ${run.id} is at its concurrency limit: ${openHere} of ${limit} dispatches are open`
-        )
+        return {
+          status: 409,
+          body: {
+            error: `run ${run.id} is at its concurrency limit: ${openHere} of ${limit} dispatches are open`,
+            atRunLimit: true
+          }
+        }
       // **W1-B: the app-wide cap**, for every placer — the app's loop, `tasks dispatch` and a
       // coordinator alike, since a coordinator's workers share the machine too. Only new work is held
       // here: reviews and repairs open through their own doors (startReview, openRepairDispatch) and
