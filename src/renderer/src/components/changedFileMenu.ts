@@ -21,8 +21,11 @@ export interface ChangedFileHandlers {
   reveal: (path: string) => void
 }
 
-/** The absolute path of a file that git lists relative to `root` (forward slashes, as git prints it). */
-export const absoluteOf = (root: string, rel: string): string => `${root.replace(/[\\/]+$/, '')}/${rel}`
+/** The absolute path of a file that git lists relative to `root` (forward slashes, as git prints it), joined with the root's own separator. */
+export function absoluteOf(root: string, rel: string): string {
+  const sep = root.includes('\\') && !root.includes('/') ? '\\' : '/'
+  return `${root.replace(/[\\/]+$/, '')}${sep}${rel.split('/').join(sep)}`
+}
 
 export function changedFileLabels(t: (key: MessageKey) => string, mac: boolean): Record<ChangedFileAction, string> {
   return {

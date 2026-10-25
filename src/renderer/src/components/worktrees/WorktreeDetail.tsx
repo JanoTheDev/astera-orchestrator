@@ -313,6 +313,7 @@ function Body({
           <ul className="changed-files-list">
             {files.map((f) => (
               <li key={f.id}>
+                <div className="changed-file-item">
                 <Button
                   variant="ghost"
                   className={`changed-file-row${diff?.fileId === f.id ? ' is-open' : ''}`}
@@ -329,6 +330,10 @@ function Body({
                   <span className="changed-file-path">{f.path}</span>
                   <span className="changed-file-counts">{f.binary ? t('jobs.changes.binary') : `+${f.additions ?? 0} −${f.deletions ?? 0}`}</span>
                 </Button>
+                {f.status !== 'deleted' && (
+                  <IconButton size="sm" className="changed-file-open" icon={<Icon name="open" size={14} />} label={t('changedFile.menu.open')} onClick={() => openFile(absoluteOf(w.path, f.path))} />
+                )}
+                </div>
                 {diff?.fileId === f.id && (
                   <div className="changed-file-diff">
                     {diff.state === 'loading' && <p className="ui-note">{t('files.editor.loading')}</p>}
