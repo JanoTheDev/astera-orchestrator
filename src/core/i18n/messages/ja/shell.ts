@@ -117,4 +117,5 @@ export const shell: Partial<Record<keyof typeof ko, string>> = {
   'shell.console.start': 'もう一度開始',
   'shell.plans.menu.openStep': 'このステップでプランを開く',
   'shell.plans.menu.openPr': 'プルリクエストを開く',
+  'shell.agents.dismiss': '閉じる',
 }

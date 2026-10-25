@@ -149,4 +149,5 @@ export const shell = {
   'shell.run.delete': '삭제',
   'shell.run.deleteTitle': '실행 구성 삭제',
   'shell.run.deleteBody': '"{name}"을(를) 삭제할까요? 되돌릴 수 없습니다.',
+  'shell.agents.dismiss': '치우기',
 } as const

@@ -5,6 +5,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { sessionTab } from '../../../../core/panes/tabId'
 import { groupOfTab } from '../../../../core/panes/tree'
+import { isMac } from '../../lib/platformKeys'
+import { tabActions } from '../shell/tabMenu'
+import { copyText, moveTargets, moveToAccount, revealPath } from '../shell/tabActions'
 import { Button, Chip, EmptyState, ICONS, Icon, IconButton, Menu, Tree, ViewContainer, ViewPane, menuPointOf, type MenuItem, type TreeItem } from '../ui'
 import { scopeSessions } from '../../state/projectView'
 import { openConsole, openPlan } from '../shell/navigation'
@@ -104,10 +107,45 @@ export function AgentsView(p: SideBarViewProps): React.JSX.Element {
         <>
           <IconButton size="sm" label={t('agents.row.side')} icon={<Icon name="splitView" size={14} />} onClick={() => openSide(c)} />
           {c.jobId && <IconButton size="sm" label={t('agents.row.plan')} icon={<Icon name="listTree" size={14} />} onClick={() => openPlan(c.jobId!)} />}
+          {done && sessions.find((x) => x.id === c.sessionId) && <IconButton size="sm" label={t('overlays.tabMenu.restart')} icon={<Icon name="refresh" size={14} />} onClick={() => p.restart(sessions.find((x) => x.id === c.sessionId)!)} />}
+          {done && <IconButton size="sm" label={t('shell.agents.dismiss')} icon={<Icon name="close" size={14} />} onClick={() => closeWorkbenchTab(sessionTab(c.sessionId), 'end')} />}
           {!done && <IconButton size="sm" label={t('agents.row.stop')} icon={<Icon name="stop" size={14} />} onClick={() => stop(c)} />}
         </>
       )
     }
+  }
+
+  // The same session actions as the tab menu (shell/tabMenu.ts), minus the ones this menu words itself (rename, stop)
+  const sessionItems = (c: WallConsole): Array<MenuItem | 'separator'> => {
+    const s = sessions.find((x) => x.id === c.sessionId)
+    if (!s) return []
+    const exited = s.status === 'exited'
+    const acts = tabActions({ kind: 'local', exited })
+    const one = (a: string): MenuItem[] => {
+      switch (a) {
+        case 'restart':
+          return [{ id: 'restart', label: t('overlays.tabMenu.restart'), icon: <Icon name="refresh" size={14} />, onSelect: () => p.restart(s) }]
+        case 'duplicate':
+          return [{ id: 'duplicate', label: t('overlays.tabMenu.duplicate'), icon: <Icon name="copy" size={14} />, onSelect: () => void p.spawn({ accountIds: [s.accountId], cwd: s.cwd, saveDefault: false, kind: s.kind, slackNotify: s.slackNotify, bypassPermissions: s.bypassPermissions }) }]
+        case 'moveAccount':
+          return moveTargets(s, accounts).map((acc) => ({ id: `move:${acc.id}`, label: t('overlays.tabMenu.moveTo', { label: acc.label }), icon: <Icon name="users" size={14} />, onSelect: () => void moveToAccount(s, acc, t) }))
+        case 'copyId':
+          return [{ id: 'copyId', label: t('overlays.tabMenu.copyId'), icon: <Icon name="copy" size={14} />, onSelect: () => copyText(s.id) }]
+        case 'copyPath':
+          return [{ id: 'copyCwd', label: t('overlays.tabMenu.copyPath'), icon: <Icon name="copy" size={14} />, onSelect: () => copyText(s.cwd) }]
+        case 'reveal':
+          return [{ id: 'reveal', label: t(isMac() ? 'overlays.tabMenu.revealMac' : 'overlays.tabMenu.reveal'), icon: <Icon name="folder" size={14} />, onSelect: () => revealPath(s.cwd, t) }]
+        default:
+          return []
+      }
+    }
+    const manage = acts.manage.flatMap(one)
+    return [
+      ...(manage.length > 0 ? ['separator' as const, ...manage] : []),
+      ...(exited ? [{ id: 'dismiss', label: t('shell.agents.dismiss'), icon: <Icon name="close" size={14} />, onSelect: () => closeWorkbenchTab(sessionTab(c.sessionId), 'end') } as MenuItem] : []),
+      'separator' as const,
+      ...acts.path.flatMap(one)
+    ]
   }
 
   const menuOf = (c: WallConsole): Array<MenuItem | 'separator'> => [
@@ -115,6 +153,7 @@ export function AgentsView(p: SideBarViewProps): React.JSX.Element {
     { id: 'side', label: t('agents.row.side'), icon: <Icon name="splitView" size={14} />, onSelect: () => openSide(c) },
     ...(c.jobId ? [{ id: 'plan', label: t('agents.row.plan'), icon: <Icon name="listTree" size={14} />, onSelect: () => openPlan(c.jobId!) }] : []),
     { id: 'rename', label: t('agents.row.rename'), icon: <Icon name="edit" size={14} />, onSelect: () => rename(c) },
+    ...sessionItems(c),
     ...(c.state === 'finished' ? [] : ['separator' as const, { id: 'stop', label: t('agents.row.stop'), icon: <Icon name="stop" size={14} />, danger: true, onSelect: () => stop(c) }])
   ]
 

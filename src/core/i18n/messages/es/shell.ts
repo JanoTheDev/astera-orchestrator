@@ -117,4 +117,5 @@ export const shell: Partial<Record<keyof typeof ko, string>> = {
   'shell.console.start': 'Volver a iniciar',
   'shell.plans.menu.openStep': 'Abrir el plan en este paso',
   'shell.plans.menu.openPr': 'Abrir la pull request',
+  'shell.agents.dismiss': 'Descartar',
 }
