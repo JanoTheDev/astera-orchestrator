@@ -553,6 +553,8 @@ export interface JobTask {
   provider?: Provider
   /** That Dispatch's startedAt. The renderer counts elapsed time from this with formatElapsed. */
   startedAt?: string
+  /** The running Dispatch is paused by a person (`worker-hold`, Dispatch.held); absent when it runs or nothing does. */
+  workerHeld?: true
   /** 지금 멈춰 있으면 그 계정과 정지 사유, 그리고 리셋 시각. **열린 Dispatch 의 마지막 이력 항목에
    *  `resumedAt` 이 없을 때만 있다** — 끝난 Dispatch 의 열린 항목은 아무도 기다리지 않는 것이다
    *  (앱이 꺼져 outcome_unknown 으로 닫힌 경우가 그 갈래다).

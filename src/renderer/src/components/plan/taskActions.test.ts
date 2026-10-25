@@ -15,8 +15,9 @@ describe('taskActionsOf', () => {
     }
   })
 
-  it('dispatched with an open Dispatch: Stop and the worker pause pair; without one: Restart', () => {
-    expect(ids(task('dispatched', { provider: 'claude' }))).toEqual(['stop', 'holdWorker', 'unholdWorker', 'edit', 'copyId'])
+  it('dispatched with an open Dispatch: Stop and the one worker pause action that applies; without one: Restart', () => {
+    expect(ids(task('dispatched', { provider: 'claude' }))).toEqual(['stop', 'holdWorker', 'edit', 'copyId'])
+    expect(ids(task('dispatched', { provider: 'claude', workerHeld: true }))).toEqual(['stop', 'unholdWorker', 'edit', 'copyId'])
     expect(ids(task('dispatched'))).toEqual(['restart', 'edit', 'copyId'])
   })
 

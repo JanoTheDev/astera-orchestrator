@@ -52,9 +52,7 @@ export function taskActionsOf(task: JobTask, ctx: TaskActionCtx): TaskAction[] {
   if (notStarted && ctx.canManualStart && (task.accountIds?.length ?? 0) > 0) out.push(mutating('start'))
   if (notStarted) out.push(mutating('ask'))
   if (running) out.push(mutating('stop'))
-  // shortcut: the snapshot does not say whether the worker is paused, so a running Task offers both; the Host refuses the
-  // one that does not apply. Upgrade when JobTask carries Dispatch.held.
-  if (running) out.push(mutating('holdWorker'), mutating('unholdWorker'))
+  if (running) out.push(mutating(task.workerHeld ? 'unholdWorker' : 'holdWorker'))
   if (canStopConvergence(task)) out.push(mutating('stopAutoFix'))
   if (restart !== undefined) out.push(mutating(restart))
   // The Host accepts any failed Task with no worker on it (replan.ts resolveFailedWait), not only a stalled plan's
