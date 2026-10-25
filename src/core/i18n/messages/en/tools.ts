@@ -252,4 +252,12 @@ export const tools: Record<keyof typeof ko, string> = {
   'run.menu.stopAll': 'Stop all',
   'run.menu.editCurrent': 'Edit current configuration',
   'run.menu.showOutput': 'Show output',
+  'terminal.menu.copy': 'Copy',
+  'terminal.menu.paste': 'Paste',
+  'terminal.menu.selectAll': 'Select all',
+  'terminal.menu.clear': 'Clear',
+  'terminal.menu.find': 'Find',
+  'terminal.tab.rename': 'Rename',
+  'terminal.tab.renameLabel': 'Terminal name',
+  'terminal.tab.closeOthers': 'Close other terminals',
 }
