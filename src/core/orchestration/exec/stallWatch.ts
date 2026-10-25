@@ -36,6 +36,7 @@ import { DEFAULT_CONCURRENCY, FAILURE_LIMIT, type Dispatch, type Job, type JobRu
 import { outcomeOf } from '../view'
 import { ENTER_DELAY_MS } from '../../sessions/sessionDriver'
 import { workerStartInFlight } from './coordinatorRotate'
+import { latestImplDispatch } from '../convergence'
 import { providerOf } from '../../providers/meta'
 import { startPauseOf } from '../usageGuard'
 import type { Account } from '../../types'
@@ -59,6 +60,9 @@ export const DEAD_COORDINATOR_MS = 2 * 60_000
 export const LOST_STALL_MS = 2 * 60_000
 /** A worker idle at its prompt this long with its Dispatch open (no `worker-done`): it is nudged. */
 export const IDLE_STALL_MS = 10 * 60_000
+/** A Task `validating` this long with no check of it running (its run's exit lost, or its start never reached a
+ *  validator): its validation is started again, as the resume sweep restarts one. */
+export const VALIDATE_STALL_MS = 5 * 60_000
 /** The waits between the tries of a stall that stays (after its first); the last repeats. */
 export const BACKOFF_MS = [2 * 60_000, 5 * 60_000, 10 * 60_000, 20 * 60_000]
 /** Tries of one stall before it is raised to the owner: the placements of a ready Task, the restarts of a coordinator,
@@ -106,6 +110,9 @@ export interface StallProbe {
   cap?: number | null
   /** Whether a session is alive: a Run driven by a live external coordinator gets no restart. Absent: it is. */
   alive?(sessionId: string): boolean
+  /** Whether a check of this Task is queued or running (HostChecks.checking). Absent: a `validating` Task is never
+   *  taken for a lost validation. */
+  checking?(taskId: string): boolean
 }
 
 export type StallRemedy = { key: string; runId: string } & (
@@ -119,6 +126,8 @@ export type StallRemedy = { key: string; runId: string } & (
   /** No `dispatch`: the Task is `dispatched` with no record at all, and no live worker runs its spec */
   | { kind: 'retry-lost'; task: Task; dispatch?: Dispatch; try: number }
   | { kind: 'nudge-worker'; task: Task; dispatch: Dispatch; since: number }
+  /** A Task `validating` with no check of it running: its validation started again in its implementation's folder */
+  | { kind: 'revalidate'; task: Task; cwd: string; since: number; try: number }
   | { kind: 'tell-idle'; task: Task; dispatch: Dispatch; since: number }
   | { kind: 'escalate'; taskId: string; dispatchId?: string; subject: string; body: string }
   /** T11: a Task held by another plan's lease for `LEASE_TELL_MS`: its coordinator is told */
@@ -138,6 +147,7 @@ export type StallRemedy = { key: string; runId: string } & (
 export const APPLIED_HERE: ReadonlySet<StallRemedy['kind']> = new Set([
   'restart',
   'retry-lost',
+  'revalidate',
   'nudge-worker',
   'tell-idle',
   'escalate',
@@ -518,6 +528,32 @@ export function stallRemedies(
       })
   }
 
+  // Lost validation: `validating`, no open Dispatch and no check of it queued or running, so nothing will ever give it a
+  // verdict (worker-start refuses it, and the resume sweep runs only at a Host boot or an app leaving). Its validation
+  // is started again in its implementation's folder, with backoff, then the owner. Only with the check probe wired.
+  for (const task of probe.checking ? s.tasks : []) {
+    if (task.status !== 'validating' || runGatedForTask(s, task) || probe.checking!(task.id)) continue
+    if (s.dispatches.some((d) => d.taskId === task.id && !d.outcome && !d.endedAt)) continue
+    const run = s.runs.find((r) => r.id === task.runId)
+    const impl = latestImplDispatch(s, task.id)
+    if (!run || !impl || !placing(run, jobOf(s, run))) continue
+    const since = at.get(task.id) ?? nowMs
+    const key = `revalidate:${task.id}:${task.updatedAt}`
+    const e = seen(key, since)
+    if (!due_(e, e.since + VALIDATE_STALL_MS)) continue
+    if (e.step < TRIES) {
+      due.push({ key, runId: run.id, kind: 'revalidate', task, cwd: impl.cwd, since: e.since, try: e.step + 1 })
+      stepped(key, e)
+    } else if (e.step === TRIES)
+      escalate(key, e, run.id, {
+        taskId: task.id,
+        subject: `watchdog: task ${task.id} validating since ${new Date(e.since).toISOString()} with no check running`,
+        body:
+          `${task.id} (${task.title}) has been validating with no check running, and ${TRIES} restarts of its checks did ` +
+          'not give it a verdict. Look at its checks (Runs panel), retry it, or stop it.'
+      })
+  }
+
   // Idle: a worker at its prompt with its Dispatch open, so it never reported. Nudged, then its coordinator is told,
   // then the owner. Working again (or unreadable) drops the stall.
   for (const d of s.dispatches) {
@@ -605,6 +641,9 @@ export function startNotice(runId: string, t: Task, since: number, agent: string
 export interface StallWatchDeps {
   handle(cmd: string, args: Record<string, unknown>): Promise<{ status: number; body: unknown }>
   getState(): OrchState
+  /** HostChecks.checking and startValidation: a lost validation is started again. Absent (either): it is not. */
+  checking?(taskId: string): boolean
+  startValidation?(a: { taskId: string; cwd: string }): void
   /** The "Watch for stalled plans" setting. */
   on(): boolean | Promise<boolean>
   /** The app-wide cap setting, null for the default. */
@@ -686,6 +725,16 @@ export function createStallWatch(d: StallWatchDeps): { adopt(): Promise<void>; w
           reply.status < 400
             ? `started ${r.task.title} again: its worker ended without a report (try ${r.try} of ${TRIES})`
             : `could not start ${r.task.title} again after its worker ended without a report (try ${r.try} of ${TRIES}): ${why(reply.body)}`,
+          r.task.id
+        )
+        return
+      }
+      case 'revalidate': {
+        // The resume sweep's restart (resumeSweep.ts): the Task is already `validating`, so the runner takes it
+        d.startValidation?.({ taskId: r.task.id, cwd: r.cwd })
+        line(
+          r.runId,
+          `restarted the checks of ${r.task.title}: it was validating ${mins(d.nowMs() - r.since)} min with no check running (try ${r.try} of ${TRIES})`,
           r.task.id
         )
         return
@@ -866,7 +915,8 @@ export function createStallWatch(d: StallWatchDeps): { adopt(): Promise<void>; w
           isRegistered: (p) => d.isRegistered(p),
           ...usage,
           cap,
-          alive: (id) => d.alive(id)
+          alive: (id) => d.alive(id),
+          ...(d.checking && d.startValidation ? { checking: (id: string) => d.checking!(id) } : {})
         })
         memo = planned.memo
         for (const r of planned.due) {

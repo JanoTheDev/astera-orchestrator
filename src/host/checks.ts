@@ -293,7 +293,15 @@ export function createHostChecksForTest(d: HostChecksDeps): HostChecks & { _vali
   // every time. The validator ignores the exit of a run it is not waiting for.
   registry.onExit((ptyId, exitCode) => {
     const meta = registry.metaOf(ptyId)
-    if (meta?.kind !== 'run' || runs.get(meta.id) === null) return
+    if (meta?.kind !== 'run') return
+    if (runs.get(meta.id) === null) {
+      // Another process's validation run (the app's): its check is that validator's to record, never silently. If its
+      // exit never reaches it, the Task stays validating with nothing checking it, and the stall watchdog restarts
+      // its checks (stallWatch.ts VALIDATE_STALL_MS); this line ties the pty to its folder for that day.
+      if (meta.restore?.validation === true)
+        log(`validation run=${meta.id} pty=${ptyId} in ${String(meta.restore.projectPath ?? '?')} exited ${String(exitCode)} — started by another process, which records its check`)
+      return
+    }
     try {
       // **A leaving Host records no check** (the ruling on Task 13): the exit of a run it is killing on
       // its way out says nothing about the build. Lost sight settles nothing and advances nothing, so the

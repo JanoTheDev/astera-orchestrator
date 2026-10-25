@@ -1,7 +1,7 @@
 // Stall watchdog (owner 2026-10-18): each stall detected from Host state alone and remedied once, a healthy plan left
 // alone, and nothing at all with the setting off.
 import { describe, expect, it } from 'vitest'
-import { DROPPED_ASK_MS, HOLD_ASK_MS, LEASE_ASK_MS, LEASE_TELL_MS, PLANNER_IDLE_MS, PLANNER_NUDGE, PLANNER_RESTART_MS, BACKOFF_MS, BUSY_REFRESH_MS, BUSY_TELL_MS, DEAD_COORDINATOR_MS, DRAFT_STALL_MS, IDLE_NUDGE, IDLE_STALL_MS, LOST_STALL_MS, MERGE_STALL_MS, READY_STALL_MS, STALL_WATCH_MS, TRIES, createStallWatch, stallRemedies, type StallEntry, type StallProbe, type StallRemedy } from './stallWatch'
+import { DROPPED_ASK_MS, HOLD_ASK_MS, LEASE_ASK_MS, LEASE_TELL_MS, PLANNER_IDLE_MS, PLANNER_NUDGE, PLANNER_RESTART_MS, BACKOFF_MS, BUSY_REFRESH_MS, BUSY_TELL_MS, DEAD_COORDINATOR_MS, DRAFT_STALL_MS, IDLE_NUDGE, IDLE_STALL_MS, LOST_STALL_MS, MERGE_STALL_MS, READY_STALL_MS, STALL_WATCH_MS, TRIES, VALIDATE_STALL_MS, createStallWatch, stallRemedies, type StallEntry, type StallWatchDeps, type StallProbe, type StallRemedy } from './stallWatch'
 import { startPauseOf } from '../usageGuard'
 import { createDispatchLoop, type DispatchLoopContext } from './dispatchLoop'
 import { emptyState, type OrchState } from '../state'
@@ -435,7 +435,8 @@ function watchRig(
   busy: (id: string) => boolean | null = () => false,
   live: LiveWorker[] = [],
   alive: (id: string) => boolean = () => false,
-  answer: (cmd: string, args: Record<string, unknown>) => { status: number; body: unknown } | undefined = () => undefined
+  answer: (cmd: string, args: Record<string, unknown>) => { status: number; body: unknown } | undefined = () => undefined,
+  extra: Partial<StallWatchDeps> = {}
 ) {
   let state = s0
   let clock = T0
@@ -473,7 +474,8 @@ function watchRig(
     mayStart: () => true,
     log: () => {},
     nowMs: () => clock,
-    wait: async () => {}
+    wait: async () => {},
+    ...extra
   })
   return {
     cmds, typed, told, lines,
@@ -670,5 +672,38 @@ describe('no silent stalls (T11)', () => {
     const h = watchRig(s, () => true, [], () => true)
     await h.run(30 * MIN)
     expect(h.cmds.filter((c) => c.cmd === 'sessions-send').map((c) => c.args.id).sort()).toEqual(['pa', 'pb'])
+  })
+})
+
+// 2026-10-25: a typecheck's exit was lost, and its Task sat `validating` 45+ min with nothing checking it
+describe('a lost validation', () => {
+  /** tsk_1 validating since NOW, its worker's Dispatch ended in /wt-t1. */
+  const lost = (over: Partial<Task> = {}): OrchState =>
+    plan({ tasks: [task({ id: 'tsk_1', status: 'validating', ...over })], dispatches: [ended('tsk_1', '/wt-t1')] })
+  const nobody: StallProbe = { ...idle, checking: () => false }
+
+  it('is restarted after VALIDATE_STALL_MS in its implementation folder, with backoff, then raised to the owner once', () => {
+    expect(watch(lost(), [T0 + VALIDATE_STALL_MS - 1], nobody)).toEqual([])
+    const r = stallRemedies(lost(), T0 + VALIDATE_STALL_MS, new Map(), nobody).due
+    expect(r).toMatchObject([{ kind: 'revalidate', cwd: '/wt-t1', try: 1 }])
+    expect(watch(lost(), every30s(120 * MIN), nobody)).toEqual([...Array<string>(TRIES).fill('revalidate:tsk_1'), 'escalate:tsk_1'])
+  })
+
+  it('is no stall while a check of it is queued or running, with its Dispatch open, or with no check probe', () => {
+    expect(watch(lost(), every30s(30 * MIN), { ...idle, checking: () => true })).toEqual([])
+    expect(watch(lost(), every30s(30 * MIN))).toEqual([])
+    const open = { ...lost(), dispatches: [{ ...ended('tsk_1', '/wt-t1'), endedAt: undefined, outcome: undefined } as Dispatch] }
+    expect(watch(open, every30s(30 * MIN), { ...nobody, busy: () => true })).toEqual([])
+  })
+
+  it('the Host starts its validation again through startValidation, with a feed line', async () => {
+    const started: unknown[] = []
+    const h = watchRig(lost(), () => false, [], () => false, () => undefined, {
+      checking: () => false,
+      startValidation: (a) => started.push(a)
+    })
+    await h.run(VALIDATE_STALL_MS)
+    expect(started).toEqual([{ taskId: 'tsk_1', cwd: '/wt-t1' }])
+    expect(h.lines).toEqual(['Restarted the checks of TSK_1: it was validating 5 min with no check running (try 1 of 4)'])
   })
 })

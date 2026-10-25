@@ -40,6 +40,8 @@ interface RigOpts {
   /** The fake pty delivers its exit in a microtask right after it is spawned, before the validator has
    *  recorded the run (Task 6's early-exit buffer). */
   exitEarly?: number
+  /** What the fake pty prints just before that early exit. */
+  earlyOutput?: string
   /** An open repair Dispatch on the Task whose start has not happened yet (specPath ''). */
   openRepair?: boolean
   /** A kill reaches nothing: the pty never exits (Task 14 round 2, the bounded wait). */
@@ -103,9 +105,10 @@ async function rig(o: RigOpts = {}) {
   const registry = new PtyRegistry({
     spawn: (_file, _args, opts) => {
       let onExit: (e: { exitCode: number }) => void = () => {}
+      let onData: (d: string) => void = () => {}
       const pty: FakePty = {
         pid: 2000 + spawned.length,
-        onData: () => {},
+        onData: (cb) => { onData = cb },
         onExit: (cb) => { onExit = cb },
         write() {}, resize() {}, kill: () => endKilled(pty.pid), pause() {}, resume() {},
         exit: (c) => onExit({ exitCode: c })
@@ -113,7 +116,11 @@ async function rig(o: RigOpts = {}) {
       spawned.push({ opts, pty })
       if (o.exitEarly !== undefined) {
         const code = o.exitEarly
-        queueMicrotask(() => pty.exit(code))
+        const out = o.earlyOutput
+        queueMicrotask(() => {
+          if (out !== undefined) onData(out)
+          pty.exit(code)
+        })
       }
       return pty
     },
@@ -302,6 +309,23 @@ describe('createHostChecks', () => {
     const h = await rig({ exitEarly: 0 })
     h.checks.startValidation({ taskId: h.taskId, cwd: h.cwd })
     await vi.waitFor(() => expect(h.task().status).toBe('completed'))
+  })
+
+  // 2026-10-25: a typecheck whose `pnpm` was missing exited 127 a moment after it started; no check was recorded
+  it('a validation that exits 127 before the validator has recorded its run settles as a failed check with its output', async () => {
+    const h = await rig({ exitEarly: 127, earlyOutput: 'sh: 1: pnpm: not found\r\n' })
+    h.checks.startValidation({ taskId: h.taskId, cwd: h.cwd })
+    await vi.waitFor(() => expect(h.task().status).not.toBe('validating'))
+    expect(h.task().checks?.[0]).toMatchObject({ status: 'failed', exitCode: 127 })
+    expect(h.task().checks?.[0].outputTail).toContain('pnpm: not found')
+  })
+
+  it('another process’s validation run that exits is said in the log with its folder, and records nothing here', async () => {
+    const h = await rig()
+    h.openForeignRun('run_app_9', true)
+    h.exitLast(127)
+    expect(h.logs.some((l) => l.includes('validation run=run_app_9') && l.includes(h.cwd) && l.includes('exited 127'))).toBe(true)
+    expect(h.task().status).toBe('validating')
   })
 
   // W6-H: a push delivery's one validation of the merged folder
