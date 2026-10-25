@@ -313,4 +313,10 @@ export const plan: Partial<Record<keyof typeof ko, string>> = {
   "plan.edit.why.finished": "このタスクは終了しました：編集できません。",
   "plan.edit.nothing": "変更はありません。",
   "plan.edit.failed": "タスクを保存できませんでした",
+  'plan.header.refreshLead': 'リードエージェントを更新',
+  'plan.header.refreshLeadFailed': 'リードエージェントを更新できませんでした',
+  'plan.header.leadRefreshed': 'リードエージェントを更新しました',
+  'plan.header.reveal': 'プランのフォルダーを表示',
+  'plan.header.terminal': 'プランのフォルダーでターミナルを開く',
+  'plan.header.noFolder': 'このプランのフォルダーはこのコンピューターにありません',
 }

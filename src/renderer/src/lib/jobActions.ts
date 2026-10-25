@@ -1,11 +1,13 @@
 // The Jobs sidebar's one-shot actions (pause, resume, coordinator restart, approve, delete), each through a door
 // (lib/orchDoor.ts) so a paired Runtime's Job takes the same flow as this computer's (remote runtime design Phase 7).
 // The bodies are the App's own, moved: the same confirmations, counts, choices and failure sentences.
-import type { OrchSnapshot } from '../../../core/types'
+import type { JobRow, OrchSnapshot } from '../../../core/types'
 import { findRun } from '../../../core/orchestration/snapshot'
 import { isOutcomeUnknown, replyNote, type CommandReply, type OrchDoor } from './orchDoor'
 import { jobName } from './jobName'
 import { openConsole } from '../components/shell/navigation'
+import { runIdToMerge } from '../../../core/orchestration/snapshot'
+import { toast } from './toast'
 
 export interface ActionUi {
   t(key: string, params?: Record<string, string | number>): string
@@ -339,4 +341,51 @@ export async function openPlanChat(door: OrchDoor, jobId: string, ui: ActionUi, 
   }
   open(sessionId)
   return true
+}
+
+// T2 plan actions the Plans tree menu offers beside the plan page's own (planHeaderActions.ts decides which apply)
+
+/** Replaces a live coordinator with a fresh session (`run-coordinator-refresh`; the old one ends once the new one is up). */
+export async function refreshLead(door: OrchDoor, runId: string, ui: ActionUi): Promise<boolean> {
+  const reply = await send(door, 'run-coordinator-refresh', { run: runId, reason: 'owner' }, ui, ui.t('plan.header.refreshLeadFailed'))
+  if (reply && reply.status >= 400) failure(reply, ui, ui.t('plan.header.refreshLeadFailed'))
+  else if (reply) toast.success(ui.t('plan.header.leadRefreshed'))
+  return reply !== null && reply.status < 400
+}
+
+/** Merges the plan's worktrees into the project folder (`run-merge`) after asking, as the plan page's Merge does. */
+export async function mergePlan(door: OrchDoor, row: JobRow, ui: ActionUi): Promise<boolean> {
+  const count = (row.worktrees ?? []).length
+  const ok = await ui.confirm({ title: ui.t('jobs.run.mergeConfirmTitle'), body: ui.t('jobs.run.mergeConfirmBody', { count }), confirmLabel: ui.t('jobs.run.merge') })
+  if (!ok) return false
+  const reply = await send(door, 'run-merge', { run: runIdToMerge(row, row.id) }, ui, ui.t('jobs.run.mergeFailed', { reason: '' }))
+  if (!reply) return false
+  if (reply.status >= 400) {
+    const reason = (reply.body as { error?: unknown } | null)?.error
+    failure(reply, ui, ui.t('jobs.run.mergeFailed', { reason: typeof reason === 'string' ? reason : String(reply.status) }))
+    return false
+  }
+  const body = (reply.body ?? {}) as { merged?: unknown; uncommitted?: unknown; uncommittedUnchecked?: unknown }
+  const merged = Array.isArray(body.merged) ? body.merged.length : count
+  toast.success(merged === 0 ? ui.t('jobs.run.mergeNothing') : ui.t('jobs.run.merged', { count: merged }))
+  // git moves commits only: say loudly what stayed behind in the worktrees
+  if (typeof body.uncommitted === 'number' && body.uncommitted > 0) ui.error(ui.t('jobs.run.mergeUncommitted', { count: body.uncommitted }))
+  if (Array.isArray(body.uncommittedUnchecked) && body.uncommittedUnchecked.length > 0)
+    ui.error(ui.t('jobs.run.mergeUncommittedUnknown', { count: body.uncommittedUnchecked.length }))
+  return true
+}
+
+/** Every worktree into the plan branch, an agent fixes the conflicts, then the plan's own delivery (`run-integrate-all`). */
+export async function integratePlan(door: OrchDoor, row: Pick<JobRow, 'id' | 'foldedRunId'>, name: string, ui: ActionUi): Promise<boolean> {
+  const ok = await ui.confirm({ title: ui.t('plan.integrate.title'), body: ui.t('plan.integrate.body', { plan: name }), confirmLabel: ui.t('plan.integrate.confirm') })
+  if (!ok) return false
+  const reply = await send(door, 'run-integrate-all', { run: row.foldedRunId ?? row.id }, ui, ui.t('jobs.node.failed'))
+  if (!reply) return false
+  const b = (reply.body ?? {}) as { state?: unknown; error?: unknown }
+  const error = typeof b.error === 'string' ? b.error : undefined
+  if (b.state === 'fixing-conflicts') toast.info(ui.t('plan.integrate.fixing'))
+  else if (b.state === 'stopped') ui.error(ui.t('plan.integrate.stopped', { reason: error ?? '—' }))
+  else if (reply.status >= 400) ui.error(ui.t('plan.integrate.failed', { reason: replyNote(reply, ui.t, error ?? ui.t('jobs.node.failed')) }))
+  else toast.success(ui.t('plan.integrate.delivered'))
+  return reply.status < 400
 }

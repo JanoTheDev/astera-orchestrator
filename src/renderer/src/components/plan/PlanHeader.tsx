@@ -12,6 +12,8 @@ import {
   deleteRun,
   holdJob,
   openPlanChat,
+  refreshLead,
+  rejectPlan,
   pauseRun,
   renameJob,
   resolveFailed,
@@ -32,11 +34,11 @@ import { integrateAllOutcomeOf, type IntegrateAllOutcome } from './planCommands'
 import { isStoppedPlan, planStatusOf } from './planList'
 import { approveViewOf } from './planPage'
 import './plans.css'
-import { PlanMergeActions } from './PlanChanges'
+import { PlanMergeActions, useRunFolder } from './PlanChanges'
 import { deliveryActionsOf, RUN_START, taskAnchorId } from './planPage'
 import type { PlanPageState } from './usePlanPage'
 import { FailedWaitButtons } from './FailedWaitButtons'
-import { headerActionsOf } from './planHeaderActions'
+import { headerActionsOf, planActionsOf } from './planHeaderActions'
 
 export function PlanHeader({
   p,
@@ -62,7 +64,7 @@ export function PlanHeader({
   simple?: boolean
 }): React.JSX.Element {
   const { t } = useI18n()
-  const { lockedReason, ui, running, waveStatus, tasks, busy } = p
+  const { lockedReason, ui, waveStatus, tasks, busy } = p
   const [renaming, setRenaming] = useState(false)
   // T8: the Stalled chip's Fix in flight
   const [fixing, setFixing] = useState(false)
@@ -123,6 +125,8 @@ export function PlanHeader({
   const local = runtimeId === undefined
   const otherPlans = plans.filter((pl) => pl.id !== runId && pl.archivedAt === undefined)
   const acts = headerActionsOf(run, local)
+  const planActs = run ? planActionsOf(run, local) : undefined
+  const folder = useRunFolder(run)
   const copy = (text: string, done: string): void => {
     window.api.clipboard.writeText(text)
     toast.success(done)
@@ -156,6 +160,17 @@ export function PlanHeader({
         ...(local && run.pendingStart && !run.planned
           ? [{ id: 'after', label: t('pages.plan.startAfter'), icon: <Icon name="ordered" size={14} />, disabled: off, onSelect: () => void pickAfter() }]
           : []),
+        // T2: Copy plan ID in every state; a finished plan shows it as a header button instead
+        ...(!acts.finished ? [{ id: 'copyId', label: t('plan.header.copyId'), icon: <Icon name="copy" size={14} />, onSelect: () => copy(runId, t('plan.header.idCopied')) }] : []),
+        ...(planActs?.refreshLead
+          ? [{ id: 'refreshLead', label: t('plan.header.refreshLead'), icon: <Icon name="refresh" size={14} />, disabled: off, onSelect: () => void refreshLead(door, run.foldedRunId ?? runId, ui) }]
+          : []),
+        ...(folder
+          ? [
+              { id: 'reveal', label: t('plan.header.reveal'), icon: <Icon name="folder" size={14} />, onSelect: () => void window.api.files.reveal(folder.path) },
+              { id: 'terminal', label: t('plan.header.terminal'), icon: <Icon name="terminal" size={14} />, onSelect: () => void window.api.terminal.open(folder.path) }
+            ]
+          : []),
         ...(run.coordinatorMissing
           ? [{ id: 'coordinator', label: t('plan.header.restartLead'), icon: <Icon name="run" size={14} />, disabled: off, onSelect: () => void restartCoordinator(door, runId, ui) }]
           : []),
@@ -173,7 +188,7 @@ export function PlanHeader({
         ...(run.archivedAt === undefined && !run.pendingStart
           ? [{ id: 'integrate', label: integrating ? t('plan.integrate.working') : t('plan.integrate.menu'), icon: <Icon name="merge" size={14} />, disabled: off || integrating, onSelect: () => void mergeEverything() }]
           : []),
-        { id: 'kill', label: t('pages.plan.kill'), icon: <Icon name="stop" size={14} />, danger: true, disabled: off || running === 0, onSelect: () => void stopRun(door, run.foldedRunId ?? runId, jobName(run), ui) },
+        { id: 'kill', label: t('pages.plan.kill'), icon: <Icon name="stop" size={14} />, danger: true, disabled: off || !planActs?.stop, onSelect: () => void stopRun(door, run.foldedRunId ?? runId, jobName(run), ui) },
         // T3: Archive stands in the header of a finished plan; the menu keeps it otherwise
         ...(!local || acts.archive !== undefined ? [] : run.archivedAt !== undefined
           ? [{ id: 'unarchive', label: t('jobs.lifecycle.unarchive'), icon: <Icon name="restore" size={14} />, disabled: off, onSelect: () => void unarchiveJob(door, runId, ui) }]
@@ -203,7 +218,7 @@ export function PlanHeader({
     ...(acts.askMore ? [{ id: 'askMore', label: t('plan.chat.askMore'), icon: <Icon name="sparkles" size={14} />, disabled: off, onSelect: askMore }] : []),
     ...(acts.openPr ? [{ id: 'openPr', label: acts.openPr.kind === 'pr' ? openPrLabel : t('plan.header.copyBranch'), icon: <Icon name={acts.openPr.kind === 'pr' ? 'pullRequest' : 'branch'} size={14} />, onSelect: openPr }] : []),
     ...(acts.archive ? [{ id: 'archiveNow', label: archiveLabel, icon: <Icon name={acts.archive === 'unarchive' ? 'restore' : 'archive'} size={14} />, disabled: off, onSelect: archive }] : []),
-    ...(acts.copyId ? [{ id: 'copyId', label: t('plan.header.copyId'), icon: <Icon name="copy" size={14} />, onSelect: () => copy(runId, t('plan.header.idCopied')) }] : []),
+    ...(acts.copyId && acts.finished ? [{ id: 'copyId', label: t('plan.header.copyId'), icon: <Icon name="copy" size={14} />, onSelect: () => copy(runId, t('plan.header.idCopied')) }] : []),
     ...(acts.consoles ? [{ id: 'consoles', label: t('plan.doc.openConsoles'), icon: <Icon name="layoutGrid" size={14} />, onSelect: onOpenConsoles }] : []),
     ...(menu.length > 0 ? ['separator' as const, ...menu] : [])
   ]
@@ -347,6 +362,11 @@ export function PlanHeader({
               >
                 {busy === RUN_START ? t('jobs.run.starting') : t('jobs.run.approve')}
               </Button>
+              {planActs?.reject && (
+                <Button size="sm" variant="ghost" icon={<Icon name="close" size={14} />} disabled={off || busy === RUN_START} title={lockedReason} onClick={() => void rejectPlan(door, runId, jobName(run), '', ui)}>
+                  {t('plan.talk.reject')}
+                </Button>
+              )}
             </>
           )}
           {/* the finished group's Open PR stands for the PR chip, so the merge actions leave it out */}

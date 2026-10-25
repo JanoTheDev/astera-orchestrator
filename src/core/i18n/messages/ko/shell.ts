@@ -142,4 +142,6 @@ export const shell = {
   'shell.console.ended': 'Astera 콘솔이 끝났습니다',
   'shell.console.failed': 'Astera 콘솔을 열 수 없습니다',
   'shell.console.start': '다시 시작',
+  'shell.plans.menu.openStep': '이 단계에서 계획 열기',
+  'shell.plans.menu.openPr': '풀 리퀘스트 열기',
 } as const

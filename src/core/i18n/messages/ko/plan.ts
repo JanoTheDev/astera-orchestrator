@@ -434,4 +434,10 @@ export const plan = {
   "plan.edit.failed": "작업을 저장하지 못했습니다",
   "plan.summary.retryPr": "다시 시도",
   "plan.summary.retryPrFailed": "풀 리퀘스트를 열지 못했습니다: {reason}",
+  'plan.header.refreshLead': '리드 에이전트 새로고침',
+  'plan.header.refreshLeadFailed': '리드 에이전트를 새로고침하지 못했습니다',
+  'plan.header.leadRefreshed': '리드 에이전트를 새로고침했습니다',
+  'plan.header.reveal': '계획 폴더 보기',
+  'plan.header.terminal': '계획 폴더에서 터미널 열기',
+  'plan.header.noFolder': '이 계획의 폴더가 이 컴퓨터에 없습니다',
 } as const

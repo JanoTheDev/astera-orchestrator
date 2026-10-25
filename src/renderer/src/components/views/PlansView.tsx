@@ -6,7 +6,7 @@ import type { JobRow, JobTask } from '../../../../core/types'
 import { jobsStall, jobsViewScreen } from '../../../../core/orchestration/jobsView'
 import { groupOfTab } from '../../../../core/panes/tree'
 import { sessionTab } from '../../../../core/panes/tabId'
-import { Badge, Button, Icon, IconButton, Input, Menu, Tree, ViewContainer, ViewPane, menuPointOf, type ChipTone, type IconName, type MenuItem, type TreeItem, type TreeProps } from '../ui'
+import { Badge, Button, Icon, IconButton, Input, Menu, Modal, Tree, ViewContainer, ViewPane, menuPointOf, type ChipTone, type IconName, type MenuItem, type TreeItem, type TreeProps } from '../ui'
 import { RuntimeSelector } from '../RuntimeSelector'
 import { JobsView } from '../JobsView'
 import { STATE_KEY, TaskGlyph } from '../JobIcons'
@@ -14,11 +14,14 @@ import { controlReason, isRemoteRuntime, offlineNote } from '../../lib/remoteJob
 import { localDoor, replyNote } from '../../lib/orchDoor'
 import { jobName } from '../../lib/jobName'
 import { toast } from '../../lib/toast'
-import { archiveJob, archiveJobs, deleteRun, holdJob, openPlanChat, pauseRun, restartCoordinator as restartRunCoordinator, resolveFailed, resumeRun, resumeStoppedRun, unarchiveJob } from '../../lib/jobActions'
+import { archiveJob, archiveJobs, deleteRun, holdJob, integratePlan, mergePlan, openPlanChat, pauseRun, refreshLead, rejectPlan, renameJob, restartCoordinator as restartRunCoordinator, resolveFailed, resumeRun, resumeStoppedRun, stopRun, unarchiveJob } from '../../lib/jobActions'
 import { openConsole, openPlanConsoles, openView } from '../shell/navigation'
 import { ViewToolbar, type SideBarViewProps } from '../shell/SideBar'
 import { OLD_FINISHED_DAYS, clearableOf, isStalledPlan, isStoppedPlan, planStatusOf, resumeActionOf, splitPlans } from '../plan/planList'
 import { approveSlot, canAskPlanMore } from '../plan/planTalk'
+import { planActionsOf } from '../plan/planHeaderActions'
+import { findRunFolder } from '../plan/PlanChanges'
+import { NewTaskModal } from '../NewTaskModal'
 import { askAboutTaskWithToast } from '../plan/planCommands'
 import { doneViewOf } from '../plan/taskDoneView'
 import { deliveryActionsOf } from '../plan/planPage'
@@ -162,6 +165,9 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
   const [toggled, setToggled] = useState<ReadonlySet<string>>(new Set())
   const [selected, setSelected] = useState<string | null>(null)
   const [ctx, setCtx] = useState<Ctx | null>(null)
+  // Rename (an input in the dialog) and Add task to step (the plan page's own form) come from the menu
+  const [renaming, setRenaming] = useState<{ id: string; title: string } | null>(null)
+  const [adding, setAdding] = useState<{ row: JobRow; deps: string[] } | null>(null)
   // "3h ago" to the minute
   const [nowMs, setNowMs] = useState(() => Date.now())
   useEffect(() => {
@@ -290,21 +296,44 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
       onSelect,
       ...(danger ? { danger } : {})
     })
+    const acts = planActionsOf(row, !!local)
+    const folderAction = (id: string, label: string, icon: IconName, run: (path: string) => void): MenuItem =>
+      item(id, label, icon, () =>
+        void findRunFolder(row).then(
+          (f) => (f ? run(f.path) : toast.error(t('plan.header.noFolder'))),
+          () => toast.error(t('plan.header.noFolder'))
+        )
+      )
     return [
       item('open', t('pages.plans.tree.menu.open'), 'open', () => openPlanTab(row.id)),
       item('consoles', t('pages.plans.tree.menu.consoles'), 'terminal', () => openPlanConsoles(row.id)),
       item('settings', t('pages.plans.tree.menu.settings'), 'settings', () => openPlanTab(row.id, 'settings')),
       'separator',
       ...(approveSlot(row) === 'approve' && local ? [item('approve', t('jobs.run.approve'), 'check', () => p.approve(local, orchSnapshot, row.id, actionUi))] : []),
+      ...(acts.reject && local ? [item('reject', t('plan.talk.reject'), 'close', () => void rejectPlan(local, row.id, jobName(row), '', actionUi), true)] : []),
       ...(pause === 'pause-schedule' ? [item('pause', t('jobs.run.pause'), 'pause', () => p.pauseScheduleRun(row.id))] : []),
       ...(pause === 'resume-schedule' ? [item('resume', t('jobs.run.resume'), 'run', () => p.resumeScheduleRun(row.id))] : []),
       ...(pause === 'hold' && local ? [item('pause', t('jobs.run.pause'), 'pause', () => void holdJob(local, row.id, true, actionUi))] : []),
       ...(pause === 'release' && local ? [item('resume', t('jobs.run.resume'), 'run', () => void holdJob(local, row.id, false, actionUi))] : []),
+      ...(acts.stop && local ? [item('stop', t('pages.plan.kill'), 'stop', () => void stopRun(local, row.foldedRunId ?? row.id, jobName(row), actionUi), true)] : []),
+      ...(acts.refreshLead && local ? [item('refreshLead', t('plan.header.refreshLead'), 'refresh', () => void refreshLead(local, row.foldedRunId ?? row.id, actionUi))] : []),
       ...(row.coordinatorMissing ? [item('coord', t('pages.plans.restartLead'), 'reset', () => p.restartCoordinator(row.id))] : []),
       ...(delivery && deliveryActionsOf({ delivery }).retry && delivery.state !== 'delivering'
         ? [item('deliver', t('plan.delivery.retry'), 'rerun', () => void retryDelivery(row))]
         : []),
       ...(local && canAskPlanMore(row) ? [item('askMore', t('plan.chat.askMore'), 'sparkles', () => void openPlanChat(local, row.id, actionUi))] : []),
+      ...(acts.merge && local ? [item('merge', t('jobs.run.merge'), 'merge', () => void mergePlan(local, row, actionUi))] : []),
+      ...(acts.mergeAll && local ? [item('mergeAll', t('plan.integrate.menu'), 'merge', () => void integratePlan(local, row, jobName(row), actionUi))] : []),
+      ...(acts.openPr
+        ? [
+            acts.openPr.kind === 'pr'
+              ? item('openPr', t('shell.plans.menu.openPr'), 'pullRequest', () => void window.api.system.openExternal((acts.openPr as { url: string }).url))
+              : item('copyBranch', t('plan.header.copyBranch'), 'branch', () => window.api.clipboard.writeText((acts.openPr as { branch: string }).branch))
+          ]
+        : []),
+      ...(acts.folder && local ? [folderAction('reveal', t('plan.header.reveal'), 'folder', (path) => void window.api.files.reveal(path)), folderAction('terminal', t('plan.header.terminal'), 'terminal', (path) => void window.api.terminal.open(path))] : []),
+      ...(acts.rename && local ? [item('rename', t('jobs.lifecycle.rename'), 'edit', () => setRenaming({ id: row.id, title: jobName(row) }))] : []),
+      item('copyId', t('plan.header.copyId'), 'copy', () => window.api.clipboard.writeText(row.id)),
       ...(local && archived ? [item('unarchive', t('jobs.lifecycle.unarchive'), 'restore', () => void unarchiveJob(local, row.id, actionUi))] : []),
       ...(local && !archived ? [item('archive', t('jobs.lifecycle.archive'), 'archive', () => void archiveJob(local, orchSnapshot, row.id, actionUi))] : []),
       // lib/jobActions asks before it deletes
@@ -326,8 +355,22 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
     { id: 'copy', label: t('pages.plans.tree.menu.copyId'), icon: <Icon name="copy" />, onSelect: () => window.api.clipboard.writeText(taskId) }
   ]
   // Finished plans keep this same menu; actions that only suit a finished plan are added to planMenu for `archived || done` rows.
+  /** A step row: the plan opened at the board, and the plan page's own new-Task form with the previous step's Tasks as deps. */
+  const stepMenu = (row: JobRow, step: number): Array<MenuItem | 'separator'> => {
+    const previous = row.tasks.filter((x) => x.wave === step - 1).map((x) => x.id)
+    return [
+      { id: 'openStep', label: t('shell.plans.menu.openStep'), icon: <Icon name="open" />, onSelect: () => openPlanTab(row.id, 'waves') },
+      ...(local && row.archivedAt === undefined ? [{ id: 'addTask', label: t('plan.steps.addTask'), icon: <Icon name="add" />, onSelect: () => setAdding({ row, deps: step === 0 ? [] : previous }) }] : [])
+    ]
+  }
   const menuOf = (node: PlanNode): Array<MenuItem | 'separator'> | null =>
-    node.kind === 'plan' ? planMenu(node.row) : node.kind === 'task' ? taskMenu(node.row, node.task.id, node.task.sessionId, node.task.status) : null
+    node.kind === 'plan'
+      ? planMenu(node.row)
+      : node.kind === 'task'
+        ? taskMenu(node.row, node.task.id, node.task.sessionId, node.task.status)
+        : node.kind === 'step'
+          ? stepMenu(node.row, node.step)
+          : null
 
   const overlapMark = (names: string[] | null): React.ReactNode => {
     if (!names) return null
@@ -579,6 +622,50 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
           {stallNote}
           {body}
         </ViewPane>
+      )}
+      {renaming && local && (
+        <Modal
+          title={t('jobs.lifecycle.rename')}
+          size="sm"
+          onClose={() => setRenaming(null)}
+          closeLabel={t('common.close')}
+          footer={
+            <Button
+              variant="primary"
+              onClick={() => {
+                void renameJob(local, renaming.id, renaming.title, actionUi)
+                setRenaming(null)
+              }}
+            >
+              {t('common.confirm')}
+            </Button>
+          }
+        >
+          <Input
+            autoFocus
+            value={renaming.title}
+            placeholder={t('jobs.lifecycle.titlePlaceholder')}
+            aria-label={t('jobs.lifecycle.rename')}
+            onChange={(e) => setRenaming({ ...renaming, title: e.target.value })}
+            onKeyDown={(e) => {
+              if (e.nativeEvent.isComposing || e.key !== 'Enter') return
+              void renameJob(local, renaming.id, renaming.title, actionUi)
+              setRenaming(null)
+            }}
+          />
+        </Modal>
+      )}
+      {adding && local && (
+        <NewTaskModal
+          door={local}
+          runId={adding.row.id}
+          tasks={adding.row.tasks}
+          accounts={accounts}
+          runConfigs={null}
+          initialDeps={adding.deps}
+          onClose={() => setAdding(null)}
+          onCreated={() => setAdding(null)}
+        />
       )}
       {ctx && ctxItems && <Menu at={ctx.at} onClose={() => setCtx(null)} label={t('pages.plans.tree.menu.label')} items={ctxItems} />}
     </>

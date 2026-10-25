@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { JobRow } from '../../../../core/types'
-import { headerActionsOf } from './planHeaderActions'
+import { headerActionsOf, planActionsOf } from './planHeaderActions'
 
 const row = (o: Partial<JobRow>): JobRow => ({ id: 'j', objective: 'o', tasks: [{}], outcome: 'running', ...o }) as unknown as JobRow
 const primaries = (a: ReturnType<typeof headerActionsOf>): number => [a.primary].filter((x) => x !== null).length
@@ -8,7 +8,7 @@ const primaries = (a: ReturnType<typeof headerActionsOf>): number => [a.primary]
 describe('headerActionsOf', () => {
   it('keeps Open consoles visible on a running plan, with no finished group and no primary', () => {
     const a = headerActionsOf(row({}), true)
-    expect(a).toMatchObject({ finished: false, approve: false, consoles: true, copyId: false, primary: null })
+    expect(a).toMatchObject({ finished: false, approve: false, consoles: true, copyId: true, primary: null })
     expect(a.openPr).toBeUndefined()
     expect(a.archive).toBeUndefined()
   })
@@ -50,7 +50,7 @@ describe('headerActionsOf', () => {
   })
 
   it('no row: consoles only', () => {
-    expect(headerActionsOf(undefined, true)).toEqual({ finished: false, approve: false, consoles: true, askMore: false, copyId: false, primary: null })
+    expect(headerActionsOf(undefined, true)).toEqual({ finished: false, approve: false, consoles: true, askMore: false, copyId: true, primary: null })
   })
 
   it('a planned, unarchived, finished plan of this computer makes Ask & plan more the primary', () => {
@@ -69,5 +69,84 @@ describe('headerActionsOf', () => {
   it('never more than one primary', () => {
     for (const o of [{}, { outcome: 'completed' as const }, { outcome: 'completed' as const, pr: { at: 'x', url: 'u' } }, { pendingStart: true, planned: true as const }])
       expect(primaries(headerActionsOf(row(o), true))).toBeLessThanOrEqual(1)
+  })
+})
+
+describe('planActionsOf per plan status', () => {
+  const running = { id: 't', status: 'dispatched', startedAt: 'x' }
+  const wt = { worktrees: ['/w/a'] }
+  const act = (o: Partial<JobRow>, local = true) => planActionsOf(row(o) as never, local)
+
+  it('lists Copy ID in every state', () => {
+    const states: Array<Partial<JobRow>> = [
+      { pendingStart: true, planned: true },
+      { pendingStart: true, planned: true, planReady: true },
+      { outcome: 'running' },
+      { paused: true },
+      { dispatchHold: true },
+      { stuck: 'stalled' },
+      { outcome: 'failed' },
+      { outcome: 'completed' },
+      { outcome: 'completed', archivedAt: 'x' }
+    ]
+    for (const o of states) {
+      expect(act(o).copyId).toBe(true)
+      expect(headerActionsOf(row(o), true).copyId).toBe(true)
+    }
+  })
+
+  it('planning: Reject is offered, nothing runs', () => {
+    expect(act({ pendingStart: true, planned: true })).toMatchObject({ reject: true, stop: false, refreshLead: false, rename: true })
+  })
+
+  it('approve: Reject beside Approve', () => {
+    expect(act({ pendingStart: true, planned: true, planReady: true })).toMatchObject({ reject: true, refreshLead: false })
+    expect(headerActionsOf(row({ pendingStart: true, planned: true, planReady: true }), true).approve).toBe(true)
+  })
+
+  it('working: Stop and Refresh lead, no Reject', () => {
+    expect(act({ tasks: [running] as never })).toMatchObject({ stop: true, refreshLead: true, restartLead: false, reject: false })
+  })
+
+  it('working with no coordinator: Restart lead instead of Refresh lead', () => {
+    expect(act({ coordinatorMissing: true })).toMatchObject({ refreshLead: false, restartLead: true })
+  })
+
+  it('paused (stopped): the coordinator is gone, so no Refresh lead', () => {
+    expect(act({ paused: true })).toMatchObject({ refreshLead: false, stop: false })
+  })
+
+  it('held: workers carry on, so Stop stays and the lead can be refreshed', () => {
+    expect(act({ dispatchHold: true, tasks: [running] as never })).toMatchObject({ stop: true, refreshLead: true })
+  })
+
+  it('stalled: nothing runs, the lead can be refreshed', () => {
+    expect(act({ stuck: 'stalled' })).toMatchObject({ stop: false, refreshLead: true })
+  })
+
+  it('failed and done: no Stop, no Refresh lead, no Reject', () => {
+    for (const outcome of ['failed', 'completed'] as const)
+      expect(act({ outcome })).toMatchObject({ stop: false, refreshLead: false, reject: false })
+  })
+
+  it('archived: no Refresh lead, no Merge everything', () => {
+    expect(act({ outcome: 'running', archivedAt: 'x', ...wt })).toMatchObject({ refreshLead: false, mergeAll: false, merge: true })
+  })
+
+  it('worktrees open Merge, Merge everything and the folder; none means none', () => {
+    expect(act({ ...wt })).toMatchObject({ merge: true, mergeAll: true, folder: true })
+    expect(act({})).toMatchObject({ merge: false, mergeAll: false, folder: false })
+    expect(act({ pendingStart: true, ...wt })).toMatchObject({ mergeAll: false })
+    expect(act({ schedule: {} as never, ...wt }).merge).toBe(false)
+  })
+
+  it('Open PR follows the row in any state', () => {
+    expect(act({ outcome: 'running', pr: { at: 'x', url: 'u' } }).openPr).toEqual({ kind: 'pr', url: 'u' })
+    expect(act({ pr: { at: 'x', branch: 'b' } }).openPr).toEqual({ kind: 'branch', branch: 'b' })
+    expect(act({}).openPr).toBeUndefined()
+  })
+
+  it("a paired Runtime's plan keeps only the read actions", () => {
+    expect(act({ pendingStart: true, planned: true, coordinatorMissing: true }, false)).toMatchObject({ rename: false, reject: false, restartLead: false, refreshLead: false, copyId: true })
   })
 })
