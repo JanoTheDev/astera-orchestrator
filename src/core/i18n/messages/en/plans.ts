@@ -163,4 +163,7 @@ export const plans: Record<keyof typeof ko, string> = {
   'plan.chat.openTab': 'Open in a tab',
   'plan.chat.failed': 'Could not open the planner tab',
   'plan.chat.remote': "A paired Runtime's plan has no planner tab on this computer",
+  'pages.plans.main.rowMenu': 'Plan actions',
+  'pages.plans.main.taskMenu': 'Task actions',
+  'pages.plans.main.rowMore': 'Actions for {plan}',
 }

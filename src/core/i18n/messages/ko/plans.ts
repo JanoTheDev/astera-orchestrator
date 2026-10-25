@@ -163,4 +163,7 @@ export const plans = {
   'plan.chat.openTab': '탭에서 열기',
   'plan.chat.failed': '플래너 탭을 열지 못했습니다',
   'plan.chat.remote': '다른 컴퓨터의 계획은 이 컴퓨터에서 플래너 탭을 열 수 없습니다',
+  'pages.plans.main.rowMenu': '계획 작업',
+  'pages.plans.main.taskMenu': '작업 메뉴',
+  'pages.plans.main.rowMore': '{plan}의 작업',
 } as const

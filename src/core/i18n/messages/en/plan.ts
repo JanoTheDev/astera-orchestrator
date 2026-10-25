@@ -411,4 +411,6 @@ export const plan: Record<keyof typeof ko, string> = {
   "plan.edit.why.finished": "This task has finished: it cannot be edited.",
   "plan.edit.nothing": "Nothing changed.",
   "plan.edit.failed": "Could not save the task",
+  "plan.summary.retryPr": "Try again",
+  "plan.summary.retryPrFailed": "Could not open the pull request: {reason}",
 }

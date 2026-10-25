@@ -32,7 +32,7 @@ export function PlanMergeActions({ p, run }: { p: PlanPageState; run: JobRow | u
         </Button>
       )}
       {/* W2-D: the plan's one pull request, beside the local Merge, which stays */}
-      {run?.pr && <RunPrChip pr={run.pr} />}
+      {run?.pr && <RunPrChip pr={run.pr} retry={p.lockedReason === undefined ? { door: p.door, runId: run.foldedRunId ?? run.id } : undefined} />}
     </>
   )
 }

@@ -184,7 +184,7 @@ export function PlanPage({
           </DocSection>
         </div>
         <div className="plan-doc-rail">
-          {run && <PlanSummaryCard run={run} />}
+          {run && <PlanSummaryCard run={run} door={door} />}
           {run && (
             <DocSection id="plan-goal" title={t('plan.doc.goal')}>
               <PlanGoal run={run} />

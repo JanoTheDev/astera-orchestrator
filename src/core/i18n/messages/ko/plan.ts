@@ -432,4 +432,6 @@ export const plan = {
   "plan.edit.why.finished": "이 작업은 끝났습니다: 편집할 수 없습니다.",
   "plan.edit.nothing": "바뀐 것이 없습니다.",
   "plan.edit.failed": "작업을 저장하지 못했습니다",
+  "plan.summary.retryPr": "다시 시도",
+  "plan.summary.retryPrFailed": "풀 리퀘스트를 열지 못했습니다: {reason}",
 } as const

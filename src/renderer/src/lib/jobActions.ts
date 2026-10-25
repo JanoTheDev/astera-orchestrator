@@ -150,6 +150,15 @@ export async function resolveFailed(door: OrchDoor, taskId: string, action: 'ret
   return reply !== null && reply.status < 400
 }
 
+/** Opens the plan's pull request again after it failed (`run-open-pr --force`); `run-deliver` is the retry only once a delivery
+ *  exists, and a failed open leaves none. Answers whether it opened. */
+export async function openPr(door: OrchDoor, runId: string, ui: Pick<ActionUi, 't' | 'error'>): Promise<boolean> {
+  const fallback = ui.t('jobs.node.failed')
+  const reply = await send(door, 'run-open-pr', { run: runId, force: true }, ui as ActionUi, fallback)
+  if (reply && reply.status >= 400) ui.error(ui.t('plan.summary.retryPrFailed', { reason: replyNote(reply, ui.t, String((reply.body as { error?: unknown } | null)?.error ?? fallback)) }))
+  return reply !== null && reply.status < 400
+}
+
 /** Rolls back a Job just made when the step after jobs-create failed (its planner did not start): no draft is left
  *  behind. Asks nothing: a just-made Job has no work to lose. A failed delete keeps the caller's own error. */
 export async function discardMadeJob(door: OrchDoor, id: string): Promise<void> {
