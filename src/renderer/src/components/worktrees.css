@@ -3,6 +3,9 @@
 /* 캐럿이 아이콘이 된 뒤로 정렬이 필요하다 — 인라인 svg 는 baseline 에 앉아 대문자 글자보다 내려간다. */
 .panel-toggle { background: none; border: none; padding: 0; font-size: var(--fs-11); letter-spacing: .11em; text-transform: uppercase; color: var(--text-dim); font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
 .panel-toggle:hover { color: var(--text); }
+.changed-file-item { position: relative; }
+.changed-file-open { position: absolute; top: 50%; right: var(--sp-2); transform: translateY(-50%); display: none; }
+.changed-file-item:hover .changed-file-open, .changed-file-item:focus-within .changed-file-open { display: inline-flex; }
 .changed-file-row.ui-btn { height: auto; justify-content: flex-start; }
 .changed-file-row .ui-btn__label { display: flex; align-items: baseline; gap: var(--sp-2); flex: 1; min-width: 0; overflow: visible; text-overflow: clip; }
 .worktree-aheadbehind { display: inline-flex; align-items: center; gap: 2px; flex: none; font-size: var(--fs-11); color: var(--text-faint); font-variant-numeric: tabular-nums; }

@@ -13,7 +13,7 @@ import { changedFileLabels, changedFileMenu } from './changedFileMenu'
 import { DiffView } from './DiffView'
 import { GIT_LABEL } from './ExplorerRow'
 import { FileIcon } from './FileIcon'
-import { Button, EmptyState, ICONS, Menu, menuPointOf, type MenuItem } from './ui'
+import { Button, EmptyState, ICONS, Icon, IconButton, Menu, menuPointOf, type MenuItem } from './ui'
 import { changedRows, changeLetter, type ChangedRow, type ChangeKind } from './explorerChanged'
 
 /** A row's status as the letter, colour and label show it: a renamed file reads R whatever its git state. */
@@ -96,6 +96,7 @@ export function ChangedList({ root, gitStatus, onOpenFile }: { root: string; git
     <div className={`fx-tree ui-tree${gitStatus.stale ? ' git-stale' : ''}`} onKeyDown={moveFocus}>
       {rows.map((r) => (
         <div key={r.path}>
+          <div className="fx-changed-item">
           <Button
             variant="ghost"
             className="fx-changed-row"
@@ -114,6 +115,10 @@ export function ChangedList({ root, gitStatus, onOpenFile }: { root: string; git
               {changeLetter(kind(r))}
             </span>
           </Button>
+          {r.state !== 'deleted' && (
+            <IconButton size="sm" className="fx-changed-open" icon={<Icon name="open" size={14} />} label={t('changedFile.menu.open')} onClick={() => onOpenFile(r.path)} />
+          )}
+          </div>
           {diff?.path === r.path && diff.state === 'shown' && <DiffView diff={diff.diff} truncated={diff.truncated} binary={r.binary === true} />}
         </div>
       ))}

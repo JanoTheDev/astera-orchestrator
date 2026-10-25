@@ -20,6 +20,9 @@
 /* A Changed row is a ui Button (ghost): a Tab stop with the house ring, arrows move between rows (ChangedList). It is
    drawn as a tree row: 22px, the file icon, the name, the folder dim, the status letter on the right. The primitive
    wraps its children in a label span, which carries the row layout here. */
+.fx-changed-item { position: relative; }
+.fx-changed-open { position: absolute; top: 50%; right: 28px; transform: translateY(-50%); display: none; }
+.fx-changed-item:hover .fx-changed-open, .fx-changed-item:focus-within .fx-changed-open { display: inline-flex; }
 .fx-changed-row.ui-btn { width: 100%; height: var(--row-h); padding: 0 8px; justify-content: flex-start; border-radius: 0; font-weight: var(--fw-regular); font-size: var(--fs-13); color: var(--text); }
 .fx-changed-row:hover:not(:disabled) { background: var(--list-hover); }
 .fx-changed-row[aria-expanded="true"] { background: var(--list-inactive-selection); }

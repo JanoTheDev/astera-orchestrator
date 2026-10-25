@@ -55,4 +55,14 @@ describe('absoluteOf', () => {
     expect(absoluteOf('/wt/a', 'src/x.ts')).toBe('/wt/a/src/x.ts')
     expect(absoluteOf('/wt/a/', 'src/x.ts')).toBe('/wt/a/src/x.ts')
   })
+
+  it('uses a Windows root\'s backslash and converts the git path to it', () => {
+    expect(absoluteOf('C:\\wt', 'src/x.ts')).toBe('C:\\wt\\src\\x.ts')
+    expect(absoluteOf('C:\\wt\\', 'a/b/x.ts')).toBe('C:\\wt\\a\\b\\x.ts')
+  })
+
+  it('keeps forward slashes for a POSIX root, even one holding a backslash', () => {
+    expect(absoluteOf('/wt', 'src/x.ts')).toBe('/wt/src/x.ts')
+    expect(absoluteOf('/wt/a\\b', 'x.ts')).toBe('/wt/a\\b/x.ts')
+  })
 })

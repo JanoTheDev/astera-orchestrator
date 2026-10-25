@@ -13,7 +13,7 @@ import { FileIcon } from '../FileIcon'
 import { PrBadge } from '../PrBadge'
 import { PushBadge } from '../PushBadge'
 import { rowSlot } from '../rowSlot'
-import { EmptyState, ICONS, Icon, Input, Menu, Tree, ViewContainer, ViewPane, menuPointOf, type MenuItem, type ToolbarItem, Toolbar, type TreeItem } from '../ui'
+import { EmptyState, ICONS, Icon, IconButton, Input, Menu, Tree, ViewContainer, ViewPane, menuPointOf, type MenuItem, type ToolbarItem, Toolbar, type TreeItem } from '../ui'
 import { changeLetter } from '../explorerChanged'
 import { absoluteOf, changedFileLabels, changedFileMenu } from '../changedFileMenu'
 import { DiffView } from '../DiffView'
@@ -138,6 +138,10 @@ export function ScmView(p: SideBarViewProps): React.JSX.Element {
       title: `${f.path}\n${word}`,
       icon: <FileIcon {...resolveFileIcon(f.path.slice(cut + 1))} />,
       description: cut < 0 ? undefined : f.path.slice(0, cut),
+      actions:
+        f.status === 'deleted' ? undefined : (
+          <IconButton size="sm" icon={<Icon name="open" size={14} />} label={t('changedFile.menu.open')} onClick={() => openFile(absoluteOf(row!.item.path, f.path))} />
+        ),
       decoration: { text: changeLetter(f.status), tone: f.status === 'added' ? 'ok' : f.status === 'deleted' ? 'danger' : f.status === 'renamed' ? 'info' : 'warn' }
     }
   })
