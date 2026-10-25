@@ -1,11 +1,45 @@
 import type { Account, AccountUsage } from '../../../core/types'
 import { AccountUsageMeter, AccountUsageDetail, hasUsage } from './AccountUsageMeter'
 import { ProviderBadge } from './ProviderBadge'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import type { MessageKey } from '../../../core/i18n'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
 import { endRenameOnce } from '../lib/renameOnce'
-import { Chip, Icon, IconButton, Input, Menu, type MenuItem } from './ui'
+import { Chip, Icon, IconButton, Input, Menu, menuPointOf, type IconName, type MenuItem } from './ui'
+import { accountStatus, type AccountAction, type AccountActionId } from './accountActions'
+
+const ACTION_VIEW: Record<AccountActionId, { label: MessageKey; icon: IconName; danger?: true }> = {
+  signIn: { label: 'account.signIn.button', icon: 'login' },
+  signInAgain: { label: 'account.signInAgain.button', icon: 'login' },
+  signOut: { label: 'account.signOut.button', icon: 'lock' },
+  rename: { label: 'account.rename.button', icon: 'edit' },
+  switch: { label: 'account.switch.action', icon: 'refresh' },
+  merge: { label: 'account.merge.button', icon: 'merge' },
+  remove: { label: 'account.remove.button', icon: 'delete', danger: true }
+}
+
+/** The ids of the accounts the usage guard has paused (no new worker starts on them). Polled like the plan view's strip;
+ *  a missed answer keeps what is drawn. */
+export function usePausedIds(): ReadonlySet<string> {
+  const [ids, setIds] = useState<ReadonlySet<string>>(new Set())
+  useEffect(() => {
+    let live = true
+    const read = (): void => {
+      window.api.usage.guard().then(
+        (v) => live && setIds(new Set(v.accounts.filter((a) => a.paused !== null).map((a) => a.accountId))),
+        () => {}
+      )
+    }
+    read()
+    const timer = setInterval(read, 30_000)
+    return () => {
+      live = false
+      clearInterval(timer)
+    }
+  }, [])
+  return ids
+}
 
 /** Account row UI. Shared by the sidebar and the settings Accounts tab.
  *  The action buttons come in as children — the row does not need to know "who gets which button".
@@ -19,7 +53,9 @@ export function AccountRow({
   usage,
   expanded,
   onToggle,
-  menu,
+  actions,
+  onAction,
+  paused,
   note,
   children
 }: {
@@ -37,8 +73,12 @@ export function AccountRow({
   /** Toggle this row's detail. Called on a click or on Enter/Space; the list decides what that
    *  means for the other rows. */
   onToggle?: () => void
-  /** Extra items of the row's "⋯" menu, after Rename. Given, the menu replaces the separate rename button. */
-  menu?: MenuItem[]
+  /** What the row's "⋯" and right-click menus offer (accountActions.ts). Given, the menu replaces the separate rename
+   *  button. The row handles `rename` itself; every other pick goes to `onAction`. */
+  actions?: AccountAction[]
+  onAction?: (id: AccountActionId) => void
+  /** The usage guard has paused this account. */
+  paused?: boolean
   /** A line under the email, e.g. that this account is the same login as another. */
   note?: string
   children?: React.ReactNode
@@ -61,6 +101,19 @@ export function AccountRow({
       toast.error(err instanceof Error ? err.message : String(err))
     }
   }
+  const [ctx, setCtx] = useState<{ x: number; y: number } | null>(null)
+  const items: MenuItem[] | undefined = actions?.map((a) => {
+    const v = ACTION_VIEW[a.id]
+    return {
+      id: a.id,
+      label: a.block === undefined ? t(v.label) : `${t(v.label)} · ${a.block}`,
+      icon: <Icon name={v.icon} size={14} />,
+      danger: v.danger,
+      disabled: a.block !== undefined,
+      onSelect: () => (a.id === 'rename' ? setRenaming(true) : onAction?.(a.id))
+    }
+  })
+  const status = accountStatus(loggedIn, Boolean(paused))
   const openable = Boolean(loggedIn) && hasUsage(usage)
   const toggle = openable && onToggle ? onToggle : undefined
 
@@ -69,6 +122,14 @@ export function AccountRow({
       className={expanded && openable ? 'acct-row acct-row--open' : 'acct-row'}
       title={email ? `${account.label} · ${email}` : account.configDir}
       onClick={toggle}
+      onContextMenu={
+        items
+          ? (e) => {
+              e.preventDefault()
+              setCtx(menuPointOf(e))
+            }
+          : undefined
+      }
       // A click needs a keyboard equivalent or the figures are reachable by mouse alone. No
       // role="button": the row already contains real buttons in the settings tab, and nesting
       // buttons inside a button is a worse lie than an unnamed focusable row.
@@ -125,7 +186,12 @@ export function AccountRow({
           <ProviderBadge provider={account.provider} />
           {isDefault && <Chip>{t('accounts.default')}</Chip>}
           {/* W11: said in words, and only when it is a problem; undefined (not asked yet) draws nothing. */}
-          {loggedIn === false && <Chip tone="warn" dot>{t('account.status.notLoggedIn')}</Chip>}
+          {status === 'signedOut' && <Chip tone="warn" dot>{t('account.status.notLoggedIn')}</Chip>}
+          {status === 'paused' && (
+            <Chip tone="warn">
+              <Icon name="pause" size={14} /> {t('account.status.paused')}
+            </Chip>
+          )}
         </div>
         {email && <span className="acct-id__email">{email}</span>}
         {note && <span className="acct-id__email acct-id__note" title={note}>{note}</span>}
@@ -135,16 +201,16 @@ export function AccountRow({
           each button so a caller cannot forget. */}
       <span className="acct-row__actions" onClick={(e) => e.stopPropagation()}>
         {children}
-        {!renaming && menu && (
+        {!renaming && items && (
           <Menu
             label={t('account.menu.label', { label: account.label })}
             align="end"
             trigger={{ icon: <Icon name="more" size={14} />, variant: 'ghost', size: 'sm' }}
-            items={[{ id: 'rename', label: t('account.rename.button'), icon: <Icon name="edit" size={14} />, onSelect: () => setRenaming(true) }, ...menu]}
+            items={items}
           />
         )}
         {/* Renaming had only a double-click; this is its keyboard and pointer-visible way in. */}
-        {!renaming && !menu && (
+        {!renaming && !items && (
           <IconButton size="sm" icon={<Icon name="edit" size={14} />} label={t('account.rename.button')} onClick={() => setRenaming(true)} />
         )}
       </span>
@@ -152,6 +218,7 @@ export function AccountRow({
           not logged in, and `undefined` (the state before useAccountStatus has answered) draws
           nothing either, so no meter flashes in and out on mount. */}
       {loggedIn && <AccountUsageMeter usage={usage} />}
+      {ctx && items && <Menu at={ctx} items={items} onClose={() => setCtx(null)} />}
       {/* In flow, after the row's own content, so opening it grows the row downward instead of
           covering the rows beneath (design doc §5.1). */}
       {expanded && openable && <AccountUsageDetail usage={usage} />}

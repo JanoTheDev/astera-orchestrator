@@ -103,4 +103,14 @@ export const accounts: Record<keyof typeof ko, string> = {
   'account.sync.button': "Import settings",
   'account.empty.body': "Accounts let Astera run agents on your Claude or Codex subscription. Add one to get started.",
   'account.empty.bodySettings': "Add one from the accounts menu in the top bar.",
+  // T11: account row actions, paused chip, sign-in retry
+  'account.signInAgain.button': 'Sign in again',
+  'account.signOut.button': 'Sign out',
+  'account.signOut.title': 'Sign out {label}',
+  'account.signOut.confirm': 'Sign out of {label}? The account stays in the list and can sign in again.',
+  'account.signOut.done': 'Signed out of {label}.',
+  'account.signOut.failed': 'Could not sign out: {detail}',
+  'account.signOut.processing': 'Signing out…',
+  'account.status.paused': 'Paused',
+  'account.signIn.retry': 'Retry',
 }
