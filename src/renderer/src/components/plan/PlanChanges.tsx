@@ -51,15 +51,20 @@ export function PlanChanges({ door, runId, run }: { door: OrchDoor; runId: strin
 }
 
 /** The Run's own integration folder (the worktree no Task's branch is on), from this computer's worktree registry. */
-function useRunFolder(run: JobRow | undefined): WorktreeListItem | null {
+export async function findRunFolder(run: JobRow): Promise<WorktreeListItem | null> {
+  const items = await window.api.worktrees.list()
+  return items.find((w) => w.status === 'ok' && planOwnerOfPath([run], w)?.planFolder === true) ?? null
+}
+
+export function useRunFolder(run: JobRow | undefined): WorktreeListItem | null {
   const [folder, setFolder] = useState<WorktreeListItem | null>(null)
   const key = (run?.worktrees ?? []).join('\n')
   useEffect(() => {
     setFolder(null)
     if (!run || key === '') return
     let live = true
-    void window.api.worktrees.list().then(
-      (items) => live && setFolder(items.find((w) => w.status === 'ok' && planOwnerOfPath([run], w)?.planFolder === true) ?? null),
+    void findRunFolder(run).then(
+      (found) => live && setFolder(found),
       () => undefined
     )
     return () => {

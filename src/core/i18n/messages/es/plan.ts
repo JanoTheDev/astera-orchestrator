@@ -313,4 +313,10 @@ export const plan: Partial<Record<keyof typeof ko, string>> = {
   "plan.edit.why.finished": "Esta tarea terminó: no se puede editar.",
   "plan.edit.nothing": "No cambió nada.",
   "plan.edit.failed": "No se pudo guardar la tarea",
+  'plan.header.refreshLead': 'Renovar el agente líder',
+  'plan.header.refreshLeadFailed': 'No se pudo renovar el agente líder',
+  'plan.header.leadRefreshed': 'Se renovó el agente líder',
+  'plan.header.reveal': 'Mostrar la carpeta del plan',
+  'plan.header.terminal': 'Abrir terminal en la carpeta del plan',
+  'plan.header.noFolder': 'Este plan no tiene carpeta en este equipo',
 }

@@ -432,4 +432,10 @@ export const plan = {
   "plan.edit.why.finished": "이 작업은 끝났습니다: 편집할 수 없습니다.",
   "plan.edit.nothing": "바뀐 것이 없습니다.",
   "plan.edit.failed": "작업을 저장하지 못했습니다",
+  'plan.header.refreshLead': '리드 에이전트 새로고침',
+  'plan.header.refreshLeadFailed': '리드 에이전트를 새로고침하지 못했습니다',
+  'plan.header.leadRefreshed': '리드 에이전트를 새로고침했습니다',
+  'plan.header.reveal': '계획 폴더 보기',
+  'plan.header.terminal': '계획 폴더에서 터미널 열기',
+  'plan.header.noFolder': '이 계획의 폴더가 이 컴퓨터에 없습니다',
 } as const

@@ -411,4 +411,10 @@ export const plan: Record<keyof typeof ko, string> = {
   "plan.edit.why.finished": "This task has finished: it cannot be edited.",
   "plan.edit.nothing": "Nothing changed.",
   "plan.edit.failed": "Could not save the task",
+  'plan.header.refreshLead': 'Refresh the lead agent',
+  'plan.header.refreshLeadFailed': 'Could not refresh the lead agent',
+  'plan.header.leadRefreshed': 'The lead agent was refreshed',
+  'plan.header.reveal': 'Reveal plan folder',
+  'plan.header.terminal': 'Open terminal in plan folder',
+  'plan.header.noFolder': 'This plan has no folder on this computer',
 }

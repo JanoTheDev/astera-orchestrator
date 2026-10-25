@@ -132,4 +132,6 @@ export const shell: Record<keyof typeof ko, string> = {
   'shell.console.ended': 'The Astera console ended',
   'shell.console.failed': 'The Astera console could not open',
   'shell.console.start': 'Start again',
+  'shell.plans.menu.openStep': 'Open plan at this step',
+  'shell.plans.menu.openPr': 'Open pull request',
 }
