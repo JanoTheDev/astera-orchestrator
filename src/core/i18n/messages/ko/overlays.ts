@@ -313,4 +313,10 @@ export const overlays = {
   'keys.source': '출처',
   'keys.source.default': '기본',
   'keys.source.user': '사용자',
+  'remote.sessions.retry': '다시 시도',
+  'remote.sessions.menu.label': '세션 작업',
+  'remote.sessions.menu.open': '열기',
+  'remote.sessions.menu.close': '세션 닫기',
+  'remote.sessions.menu.copyId': 'ID 복사',
+  'remote.sessions.closed': '{name} 닫음'
 } as const

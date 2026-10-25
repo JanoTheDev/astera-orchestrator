@@ -134,4 +134,11 @@ export const shell: Record<keyof typeof ko, string> = {
   'shell.console.start': 'Start again',
   'shell.plans.menu.openStep': 'Open plan at this step',
   'shell.plans.menu.openPr': 'Open pull request',
+  'shell.projectMenu.label': 'Project actions',
+  'shell.projectMenu.open': 'Open',
+  'shell.projectMenu.window': 'Open in new window',
+  'shell.projectMenu.settings': 'Settings',
+  'shell.projectMenu.reveal': 'Reveal folder',
+  'shell.projectMenu.remove': 'Remove',
+  'shell.projectMenu.revealFailed': 'Could not show the folder: {message}'
 }

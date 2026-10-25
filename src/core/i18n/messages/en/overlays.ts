@@ -296,4 +296,10 @@ export const overlays: Record<keyof typeof ko, string> = {
   'keys.source': 'Source',
   'keys.source.default': 'Default',
   'keys.source.user': 'User',
+  'remote.sessions.retry': 'Retry',
+  'remote.sessions.menu.label': 'Session actions',
+  'remote.sessions.menu.open': 'Open',
+  'remote.sessions.menu.close': 'Close session',
+  'remote.sessions.menu.copyId': 'Copy ID',
+  'remote.sessions.closed': 'Closed {name}'
 }

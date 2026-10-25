@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AddMachineResult, FoundDevice, RemoteRuntimeInfo } from '../../../../core/types'
-import { deviceState, devicesBadge, foundNotPaired, needsAttention, osName, shellQuote, sourceLabel, suggestedTarget, terminalFixOf } from './devicesView'
+import { acceptsWork, deviceActions, FOUND_ACTIONS, deviceState, devicesBadge, foundNotPaired, needsAttention, osName, shellQuote, sourceLabel, suggestedTarget, terminalFixOf } from './devicesView'
 
 const rt = (runtimeId: string, offline: boolean | null): RemoteRuntimeInfo => ({
   runtimeId, name: runtimeId, address: '10.0.0.2', port: 47831, permission: 'full-control', lastSeenAt: null, offline
@@ -64,5 +64,19 @@ describe('Run in a terminal', () => {
     expect(shellQuote('a b')).toBe("'a b'")
     expect(shellQuote('$(rm -rf ~)')).toBe("'$(rm -rf ~)'")
     expect(shellQuote("it's")).toBe("'it'\\''s'")
+  })
+
+  it('a device menu opens it, checks it (Retry while offline) and forgets it', () => {
+    expect(deviceActions('online')).toEqual(['open', 'check', 'forget'])
+    expect(deviceActions('unknown')).toEqual(['open', 'check', 'forget'])
+    expect(deviceActions('offline')).toEqual(['open', 'retry', 'forget'])
+    expect(FOUND_ACTIONS).toEqual(['add', 'copyAddress'])
+  })
+
+  it('this computer accepts work unless its Gateway is disabled or the Host cannot say', () => {
+    expect(acceptsWork({ gateway: { state: 'listening' } })).toBe(true)
+    expect(acceptsWork({ gateway: { state: 'disabled' } })).toBe(false)
+    expect(acceptsWork(null)).toBe(false)
+    expect(acceptsWork(undefined)).toBe(false)
   })
 })

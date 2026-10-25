@@ -144,4 +144,11 @@ export const shell = {
   'shell.console.start': '다시 시작',
   'shell.plans.menu.openStep': '이 단계에서 계획 열기',
   'shell.plans.menu.openPr': '풀 리퀘스트 열기',
+  'shell.projectMenu.label': '프로젝트 작업',
+  'shell.projectMenu.open': '열기',
+  'shell.projectMenu.window': '새 창에서 열기',
+  'shell.projectMenu.settings': '설정',
+  'shell.projectMenu.reveal': '폴더 보기',
+  'shell.projectMenu.remove': '제거',
+  'shell.projectMenu.revealFailed': '폴더를 열지 못했습니다: {message}'
 } as const
