@@ -8,7 +8,9 @@ import { useI18n } from '../../i18n/I18nProvider'
 import { STATE_KEY, TaskGlyph } from '../JobIcons'
 import { Button, Chip, EmptyState, ICONS, Icon, IconButton, Menu, Meter, Switch, cx, menuPointOf, type ChipTone, type IconName, type MenuItem } from '../ui'
 import { finishedAgeOf, finishedDateOf, mainPlanMemo, shownPlans, type Line, type MainPhase, type MainPlanBlock } from './mainPlanView'
-import { planActionsOf, type PlanActionId } from './mainPlanActions'
+import { rowMenuActionsOf, type PlanActionId } from './mainPlanActions'
+import { RenamePlanModal } from './RenamePlanModal'
+import { jobName } from '../../lib/jobName'
 import { planStatusOf } from './planList'
 import type { PlanActs } from './PlanRow'
 import { statusGroupOf, type StatusGroup } from './planTree'
@@ -40,6 +42,7 @@ export const MainPlan = memo(function MainPlan({ rows, acts, accounts = [] }: { 
   const { t, lang } = useI18n()
   const [hideDone, setHideDone] = useState(storedHideDone)
   const [, setOpenTick] = useState(0)
+  const [renaming, setRenaming] = useState<{ id: string; title: string } | null>(null)
   const [menu, setMenu] = useState<{ at: { x: number; y: number }; items: Array<MenuItem | 'separator'>; label: string } | null>(null)
   const view = mainPlanMemo(rows)
   const say = (l: Line): string => t(l.key, l.params)
@@ -96,10 +99,11 @@ export const MainPlan = memo(function MainPlan({ rows, acts, accounts = [] }: { 
       unarchive: [t('jobs.lifecycle.unarchive'), 'restore'],
       delete: [t('jobs.run.delete'), 'delete']
     }
-    const ids = planActionsOf(row, acts)
+    const ids = rowMenuActionsOf(row, acts)
     const rest = ids.filter((id) => id !== 'delete')
     return [
       item('open', t('pages.plans.tree.menu.open'), 'open', () => acts.onOpen(row.id)),
+      ...(acts.onRename ? [item('rename', t('jobs.lifecycle.rename'), 'edit', () => setRenaming({ id: row.id, title: jobName(row) }))] : []),
       ...(rest.length > 0 ? ['separator' as const] : []),
       ...rest.map((id) => item(id, meta[id][0], meta[id][1], run[id])),
       ...(ids.includes('delete') ? ['separator' as const, item('delete', meta.delete[0], meta.delete[1], run.delete, true)] : [])
@@ -252,6 +256,7 @@ export const MainPlan = memo(function MainPlan({ rows, acts, accounts = [] }: { 
         )
       })}
       </div>
+      {renaming && acts.onRename && <RenamePlanModal initial={renaming.title} onRename={(title) => acts.onRename?.(renaming.id, title)} onClose={() => setRenaming(null)} />}
       {menu && <Menu at={menu.at} onClose={() => setMenu(null)} label={menu.label} items={menu.items} />}
     </div>
   )

@@ -10,7 +10,8 @@ export type PlanActionId = 'approve' | 'pause' | 'resume' | 'hold' | 'release' |
 type ActRow = Pick<JobRow, 'pendingStart' | 'planned' | 'planReady' | 'autoApprove' | 'handsOff' | 'planProblems' | 'archivedAt' | 'schedule' | 'paused' | 'dispatchHold' | 'outcome' | 'coordinatorMissing'>
 
 /** The actions `row` offers, in menu order; one `acts` leaves unwired is not offered. Delete and archive confirm in lib/jobActions. */
-export function planActionsOf(row: ActRow, acts: Pick<PlanActs, 'onApprove' | 'onPause' | 'onResume' | 'onHold' | 'onRestartCoordinator' | 'onArchive' | 'onUnarchive' | 'onDelete'>): PlanActionId[] {
+// Not planHeaderActions.planActionsOf: that maps state to header/tree flags; this one maps state and the wired handlers to a row menu.
+export function rowMenuActionsOf(row: ActRow, acts: Pick<PlanActs, 'onApprove' | 'onPause' | 'onResume' | 'onHold' | 'onRestartCoordinator' | 'onArchive' | 'onUnarchive' | 'onDelete'>): PlanActionId[] {
   const pause = pauseActionOf(row as JobRow)
   const archived = row.archivedAt !== undefined
   const out: Array<PlanActionId | false> = [
