@@ -27,10 +27,15 @@ export const isStalledPlan = (row: JobRow): boolean => {
   return key === STALLED_KEY || key === 'plan.outcome.stalledOnFailed'
 }
 
+/** A plan the owner stopped with Kill (runs-stop sets run.paused): runs-resume starts it again. A schedule's paused is its own pause. */
+export const isStoppedPlan = (row: JobRow): boolean =>
+  row.paused === true && !row.schedule && row.archivedAt === undefined && !row.pendingStart && row.outcome !== 'completed'
+
 /** What Resume does on a stalled plan: put a lead back on it (run-start, which needs a coordinator account), else retry the
  *  failed Task it waits on (task-failed-resolve). Neither: nothing can resume it, so the row offers Archive alone. */
-export type ResumeAction = { kind: 'restart-lead' } | { kind: 'retry'; taskId: string }
+export type ResumeAction = { kind: 'restart-lead' } | { kind: 'retry'; taskId: string } | { kind: 'resume-run' }
 export function resumeActionOf(row: JobRow): ResumeAction | undefined {
+  if (isStoppedPlan(row)) return { kind: 'resume-run' }
   if (!isStalledPlan(row)) return undefined
   if (row.coordinatorMissing) return { kind: 'restart-lead' }
   const failed = row.stalledOn?.taskId ?? row.tasks.find((t) => t.status === 'failed')?.id
