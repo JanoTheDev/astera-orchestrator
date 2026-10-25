@@ -74,6 +74,9 @@ export interface ConversationPaneProps {
    *  TerminalView shows them. */
   rollState?: RollStateEvent | null;
   schedState?: SchedStateEvent | null;
+  /** Restarts this ended session the way the console header's restart does (it resumes the thread).
+   *  The exited banner shows its Restart button only when this is passed. */
+  onRestart?: (() => void) | null;
   /** The session's cwd — what a relative path a SendUserFile row names resolves against. */
   cwd?: string;
   /** Opens a file a SendUserFile row names, once main has resolved it (App: media in the viewer,
@@ -439,7 +442,8 @@ export function ConversationPane({
   rollState = null,
   schedState = null,
   cwd,
-  onOpenPath
+  onOpenPath,
+  onRestart = null
 }: ConversationPaneProps): ReactNode {
   const { t } = useI18n();
   // A SendUserFile row's file button (ToolRow.tsx). The path goes through files.resolveLink first even
@@ -1436,10 +1440,10 @@ export function ConversationPane({
       closeReason={chat?.closeReason}
       reason={chat?.error ?? null}
       detail={chat?.errorDetail ?? null}
-      // design F5: null unless the manager actually found both signals (a refusal-shaped death *and*
-      // a manager detected) — never a guess. Pressing it does not retry anything by itself; it opens
-      // the confirm dialog below, which is the only thing that can (PendingBanner.tsx's own comment).
-      onRestart={chat?.bypassOffer ? () => setBypassConfirmOpen(true) : null}
+      // design F5: the bypass offer opens the confirm dialog below, the only thing that can retry past a
+      // toolchain refusal (PendingBanner.tsx's own comment). Any other ended session gets the plain
+      // restart the console header has — no dialog, nothing skipped.
+      onRestart={chat?.bypassOffer ? () => setBypassConfirmOpen(true) : onRestart}
     />
   ) : chatBanner.kind === "request" ? (
     // Keyed on the request so a new one gets a new card: the old one's `busy`/`submitting` state
