@@ -33,6 +33,7 @@ export function RunConfigMenu({
   onOpenChange,
   onSelect,
   onRun,
+  onStop,
   onEdit,
   onManage,
   shortcut
@@ -47,6 +48,9 @@ export function RunConfigMenu({
   /** The row's inline ▶. It selects as well as runs: leaving the selection behind would put the pill
    *  on one configuration while another one runs. */
   onRun: (id: string) => void
+  /** A running config's row ⏹: stops that run. */
+  onStop: (runId: string) => void
+  /** The row's ✎ — every row, not just the selected one (the footer's Edit row stays for the selected). */
   onEdit: (id: string) => void
   onManage: () => void
   /** run.selectConfig's binding, already formatted — this is what opens the pill, so the pill's title
@@ -113,6 +117,26 @@ export function RunConfigMenu({
           )}
           {text && <span className={`rcmenu-status${statusClass}`}>{text}</span>}
         </Button>
+        {s?.kind === 'running' && (
+          <IconButton
+            size="sm"
+            icon={<Icon name="stop" size={14} />}
+            label={`${t('run.action.stop')}: ${c.name}`}
+            onClick={() => {
+              runs.filter((r) => r.configId === c.id && r.status === 'running').forEach((r) => onStop(r.runId))
+              onOpenChange(false)
+            }}
+          />
+        )}
+        <IconButton
+          size="sm"
+          icon={<Icon name="edit" size={14} />}
+          label={`${t('run.row.edit')}: ${c.name}`}
+          onClick={() => {
+            onOpenChange(false)
+            onEdit(c.id)
+          }}
+        />
         <IconButton
           size="sm"
           className="rcmenu-run"

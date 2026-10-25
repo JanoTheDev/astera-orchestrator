@@ -4,13 +4,16 @@
 import { useEffect, useRef, useState } from 'react'
 import type { RunConfig } from '../../../../core/types'
 import type { RunConfigType } from '../../../../core/run/types'
-import { isSeedId } from '../../../../core/run/draft'
+import { duplicateItem, isSeedId, removeItem } from '../../../../core/run/draft'
+import { exitWording } from '../../../../core/sessions/exitWording'
 import { runTypeIcon } from '../../../../core/run/typeIcon'
 import { FileIcon } from '../FileIcon'
 import { RunConfigManager } from '../RunConfigManager'
 import { RunTypePicker } from '../RunTypePicker'
-import { Icon, IconButton, Tree, ViewContainer, ViewPane, type TreeItem } from '../ui'
+import { confirmModal } from '../../lib/confirm'
+import { Icon, IconButton, Menu, Tree, ViewContainer, ViewPane, menuPointOf, type MenuItem, type TreeItem } from '../ui'
 import { ViewToolbar, type SideBarViewProps } from '../shell/SideBar'
+import { configActionsOf, type ConfigAction } from '../runConfigActions'
 import { runRowState, runRowText } from './runRows'
 
 /** What the editor modal was opened for: one configuration, or a new one of a kind. */
@@ -26,6 +29,7 @@ export function RunView(p: SideBarViewProps): React.JSX.Element {
     configs: RunConfig[]
   } | null>(null)
   const treeRef = useRef<HTMLDivElement>(null)
+  const [ctx, setCtx] = useState<{ id: string; at: { x: number; y: number } } | null>(null)
 
   // run.selectConfig (revealRunConfigs) shows this view and raises the flag; it lands the keyboard on the list
   const { runMenuOpen, setRunMenuOpen } = p
@@ -51,9 +55,66 @@ export function RunView(p: SideBarViewProps): React.JSX.Element {
     p.runStart(id)
   }
 
+  /** Duplicate and Delete save the whole list the way the manager's Apply does (runManagerApply refetches it). */
+  const saveConfigs = (configs: RunConfig[]): void => {
+    if (!currentProject) return
+    void p.runManagerApply(currentProject, configs)
+  }
+  const showOutput = (runId: string): void => {
+    p.setSelectedRunId(runId)
+    p.setRunPanelOpen(true)
+  }
+
+  const act = async (c: RunConfig, action: ConfigAction): Promise<void> => {
+    const row = runRowState(runs, runConfigs, c.id)
+    switch (action) {
+      case 'run':
+      case 'restart':
+        return run(c.id)
+      case 'stop':
+        return row.state === 'running' ? row.stopTargets.forEach((id) => p.runStop(id)) : undefined
+      case 'edit':
+        return open({ configId: c.id })
+      case 'duplicate':
+        return saveConfigs(duplicateItem({ items: runConfigs }, c.id, `user:${crypto.randomUUID()}`).items)
+      case 'delete': {
+        const ok = await confirmModal({
+          title: t('shell.run.deleteTitle'),
+          body: t('shell.run.deleteBody', { name: c.name }),
+          confirmLabel: t('shell.run.delete'),
+          danger: true
+        })
+        return ok ? saveConfigs(removeItem({ items: runConfigs }, c.id).items) : undefined
+      }
+      case 'output':
+        return row.state === 'idle' ? undefined : showOutput(row.outputRunId)
+      case 'dismiss':
+        return row.state === 'exited' ? row.dismissTargets.forEach((id) => p.runDismiss(id)) : undefined
+    }
+  }
+  const ACTION_LABEL: Record<ConfigAction, Parameters<typeof t>[0]> = {
+    run: 'run.action.run',
+    restart: 'run.action.restart',
+    stop: 'run.action.stop',
+    edit: 'run.row.edit',
+    duplicate: 'run.manager.duplicate',
+    delete: 'shell.run.delete',
+    output: 'shell.run.showOutput',
+    dismiss: 'shell.run.dismiss'
+  }
+  const menuOf = (c: RunConfig): MenuItem[] =>
+    configActionsOf(runRowState(runs, runConfigs, c.id), { seed: isSeedId(c.id) }).map((a) => ({
+      id: a.id,
+      label: t(ACTION_LABEL[a.id]),
+      danger: a.danger,
+      disabled: a.disabled,
+      onSelect: () => void act(c, a.id)
+    }))
+
   const rowOf = (c: RunConfig): TreeItem => {
     const row = runRowState(runs, runConfigs, c.id)
-    const live = row.state !== 'idle'
+    const live = row.state === 'running' || row.state === 'stopping'
+    const exit = row.state === 'exited' ? exitWording(row.run.exitCode, { closedByAstera: row.run.closedByAstera, closeReason: row.run.closeReason }) : null
     return {
       id: c.id,
       depth: 0,
@@ -66,9 +127,17 @@ export function RunView(p: SideBarViewProps): React.JSX.Element {
             text: runRowText(row, t),
             tone: 'ok'
           }
-        : undefined,
+        : exit && row.state === 'exited'
+          ? { icon: <Icon name={row.failed ? 'error' : 'check'} size={14} />, text: t(exit.key, exit.params), tone: row.failed ? 'danger' : 'neutral' }
+          : undefined,
       actions: (
         <>
+          {row.state === 'exited' ? (
+            <>
+              <IconButton size="sm" label={t('shell.run.showOutput')} icon={<Icon name="terminal" size={14} />} onClick={() => showOutput(row.outputRunId)} />
+              <IconButton size="sm" label={t('shell.run.dismiss')} icon={<Icon name="close" size={14} />} onClick={() => row.dismissTargets.forEach((id) => p.runDismiss(id))} />
+            </>
+          ) : null}
           {row.state === 'running' ? (
             <IconButton
               size="sm"
@@ -138,10 +207,17 @@ export function RunView(p: SideBarViewProps): React.JSX.Element {
               selectedId={p.runSelectedId}
               onSelect={(id) => currentProject && p.applyRunSelection(currentProject, id)}
               onOpen={run}
+              onContextMenu={(id, e) => {
+                e.preventDefault()
+                setCtx({ id, at: menuPointOf(e) })
+              }}
             />
           </div>
         )}
       </ViewPane>
+      {ctx && runConfigs.some((c) => c.id === ctx.id) && (
+        <Menu label={t('shell.run.configs')} at={ctx.at} items={menuOf(runConfigs.find((c) => c.id === ctx.id)!)} onClose={() => setCtx(null)} />
+      )}
       {editing && snapshot && runContext && (
         <RunConfigManager
           configs={snapshot.configs}
