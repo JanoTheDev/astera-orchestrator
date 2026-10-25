@@ -10,12 +10,14 @@ import { useI18n } from '../../i18n/I18nProvider'
 import { confirmModal } from '../../lib/confirm'
 import { jobName } from '../../lib/jobName'
 import type { CommandReply, OrchDoor } from '../../lib/orchDoor'
+import { isMac } from '../../lib/platformKeys'
 import { toast } from '../../lib/toast'
 import { CreatePrDialog } from '../CreatePrDialog'
+import { absoluteOf, changedFileLabels, changedFileMenu } from '../changedFileMenu'
 import { DiffView } from '../DiffView'
-import { Button, Chip, EmptyState, ICONS, Icon, IconButton, Menu, type ChipTone, type MenuItem } from '../ui'
+import { Button, Chip, EmptyState, ICONS, Icon, IconButton, Menu, menuPointOf, type ChipTone, type MenuItem } from '../ui'
 import { changeLetter } from '../explorerChanged'
-import { openConsole, openPlan } from '../shell/navigation'
+import { openConsole, openFile, openPlan } from '../shell/navigation'
 import { ReviewSlot } from './ReviewSlot'
 import { useWorktreeDetail } from './useWorktreeDetail'
 import { useWorktreeTab, type WorktreeTabData } from './useWorktreeTab'
@@ -111,6 +113,7 @@ function Body({
   const { t } = useI18n()
   const detail = useWorktreeDetail({ item: w, ahead: wt.push?.ahead ?? null, dirty: wt.dirty, unpushed: null })
   const [diff, setDiff] = useState<Diff | null>(null)
+  const [fileMenu, setFileMenu] = useState<{ at: { x: number; y: number }; file: ChangedFile } | null>(null)
   const [busy, setBusy] = useState(false)
   const [creating, setCreating] = useState(false)
 
@@ -310,7 +313,16 @@ function Body({
           <ul className="changed-files-list">
             {files.map((f) => (
               <li key={f.id}>
-                <Button variant="ghost" className={`changed-file-row${diff?.fileId === f.id ? ' is-open' : ''}`} aria-expanded={diff?.fileId === f.id} onClick={() => showDiff(f)}>
+                <Button
+                  variant="ghost"
+                  className={`changed-file-row${diff?.fileId === f.id ? ' is-open' : ''}`}
+                  aria-expanded={diff?.fileId === f.id}
+                  onClick={() => showDiff(f)}
+                  onContextMenu={(e) => {
+                    e.preventDefault()
+                    setFileMenu({ at: menuPointOf(e), file: f })
+                  }}
+                >
                   <span className={`changed-file-status is-${f.status}`} title={t(`jobs.changes.status.${f.status}` as never)}>
                     {changeLetter(f.status)}
                   </span>
@@ -327,6 +339,23 @@ function Body({
               </li>
             ))}
           </ul>
+        )}
+        {fileMenu && (
+          <Menu
+            at={fileMenu.at}
+            items={changedFileMenu(
+              { status: fileMenu.file.status, path: absoluteOf(w.path, fileMenu.file.path), relative: fileMenu.file.path },
+              changedFileLabels(t, isMac()),
+              {
+                open: openFile,
+                diff: () => showDiff(fileMenu.file),
+                copy: (text) => window.api.clipboard.writeText(text),
+                reveal: (path) =>
+                  void window.api.files.reveal(path).catch((err: unknown) => toast.error(t('explorer.reveal.failed', { detail: err instanceof Error ? err.message : String(err) })))
+              }
+            )}
+            onClose={() => setFileMenu(null)}
+          />
         )}
       </section>
 

@@ -131,4 +131,6 @@ export const files = {
   'attribution.lines': '줄',
   'attribution.taskLinesSr': '(AI {ai}줄, 사람 {human}줄)',
   'media.action.copyPath': '경로 복사',
+  'changedFile.menu.open': '파일 열기',
+  'changedFile.menu.diff': '변경 내용 보기',
 } as const

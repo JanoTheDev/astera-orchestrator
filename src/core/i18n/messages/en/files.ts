@@ -126,4 +126,6 @@ export const files: Record<keyof typeof ko, string> = {
   'attribution.lines': 'Lines',
   'attribution.taskLinesSr': '({ai} AI lines, {human} human lines)',
   'media.action.copyPath': 'Copy path',
+  'changedFile.menu.open': 'Open file',
+  'changedFile.menu.diff': 'Show diff',
 }
