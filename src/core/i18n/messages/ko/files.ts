@@ -130,4 +130,7 @@ export const files = {
   'attribution.humanLines': '사람: {lines}줄 ({percent}%)',
   'attribution.lines': '줄',
   'attribution.taskLinesSr': '(AI {ai}줄, 사람 {human}줄)',
+  'files.menu.open': '열기',
+  'files.menu.openDiff': '변경 내용 보기',
+  'files.menu.openTerminal': '터미널에서 열기',
 } as const
