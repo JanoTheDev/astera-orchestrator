@@ -115,4 +115,5 @@ export const shell: Partial<Record<keyof typeof ko, string>> = {
   'shell.console.ended': 'La consola de Astera terminó',
   'shell.console.failed': 'No se pudo abrir la consola de Astera',
   'shell.console.start': 'Volver a iniciar',
+  'shell.agents.dismiss': 'Descartar',
 }
