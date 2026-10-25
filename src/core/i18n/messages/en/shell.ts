@@ -43,6 +43,7 @@ export const shell: Record<keyof typeof ko, string> = {
   'shell.switcher.waiting': 'a project needs input',
   'shell.switcher.running': '{n} running',
   'shell.switcher.openWindow': 'Open {name} in new window',
+  'shell.switcher.newWindow': 'New window',
   'shell.switcher.settings': '{name} settings…',
   'shell.switcher.new': 'New project',
   'shell.switcher.other': 'Other',

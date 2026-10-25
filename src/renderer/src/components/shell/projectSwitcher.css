@@ -35,6 +35,8 @@
 .tb-sw .tb-psw-changes > .ui-btn__label { display: flex; align-items: center; gap: var(--sp-1); }
 .tb-psw-changes .ui-badge { white-space: nowrap; }
 
+.tb-sw .tb-psw-window.ui-btn { flex: none; margin-right: var(--sp-1); color: var(--text-dim); }
+
 /* sub-projects sit under their workspace */
 .tb-sw .tb-psw-sub .tb-sw-main.ui-btn { padding-left: calc(var(--sp-2) + var(--sp-4)); }
 

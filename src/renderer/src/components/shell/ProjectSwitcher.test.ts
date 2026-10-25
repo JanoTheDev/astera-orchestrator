@@ -81,12 +81,28 @@ describe('ProjectSwitcher', () => {
   })
 })
 
-// W9-K: the open project opens in a window of its own; "Other" is no project and gets none.
+// W9-K / T5: every project opens in a window of its own; "Other" is no project and gets none.
 describe('ProjectSwitcher: Open in new window', () => {
-  it('offers the item for the open project only', () => {
-    const items = switcherItems(props({ onOpenWindow: () => {} }))
-    expect(items.find((i) => i.id === 'window')?.label).toBe('Open gameful in new window')
-    expect(switcherItems(props({ onOpenWindow: () => {}, selectedId: OTHER_WORKSPACE })).map((i) => i.id)).not.toContain('window')
+  it('gives each project row its own window action, calling onOpenWindow with its id', () => {
+    const opened: (string | null)[] = []
+    const items = switcherItems(props({ onOpenWindow: (id) => opened.push(id) }), { subProjects: [{ id: 'gs', name: 'values', parentId: 'g' }] })
+    const ids = items.map((i) => i.id ?? '')
+    expect(ids.filter((id) => id.startsWith('window:'))).toEqual(['window:g', 'window:gs', 'window:a'])
+    expect(ids).not.toContain('window:' + OTHER_WORKSPACE)
+    expect(items.find((i) => i.id === 'window:a')?.label).toBe('Open Astera in new window')
+    items.filter((i) => i.id?.startsWith('window:')).forEach((i) => i.onSelect())
+    expect(opened).toEqual(['g', 'g', 'a'])
+  })
+
+  it('has a New window action that opens an All window', () => {
+    const opened: (string | null)[] = []
+    const items = switcherItems(props({ onOpenWindow: (id) => opened.push(id) }))
+    items.find((i) => i.id === 'newWindow')?.onSelect()
+    expect(opened).toEqual([null])
+  })
+
+  it('shows none of it without onOpenWindow', () => {
+    expect(switcherItems(props()).filter((i) => i.id?.startsWith('window:') || i.id === 'newWindow')).toEqual([])
   })
 })
 
