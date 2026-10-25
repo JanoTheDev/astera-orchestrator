@@ -24,8 +24,7 @@ import {
   COORDINATOR_STOP_RETRY_CAP_TRIES,
   COORDINATOR_STOP_RETRY_MAX_MS,
   COORDINATOR_STOP_RETRY_MS,
-  FINISHED_RUN_BUSY_CAP_MS,
-  FINISHED_RUN_GRACE_MS,
+  graceOver,
   idleWorkersOf
 } from './dispatchLoop'
 
@@ -218,16 +217,6 @@ export function orchOwnerOfCaller(s: OrchState, sessionId: string): string | nul
   const t = d && s.tasks.find((x) => x.id === d.taskId)
   if (t) return t.runId ?? t.jobId ?? null
   return s.jobs.find((j) => j.plannerSessionIds?.includes(sessionId))?.id ?? null
-}
-
-/** The coordinator stop's grace (dispatchLoop.ts graceOver), for one session of a finished Run: a scheduled Run's at
- *  once; any other once `FINISHED_RUN_GRACE_MS` passed since the later of the Run finishing and a person's last input
- *  into that session, and the session is not mid-turn, for up to `FINISHED_RUN_BUSY_CAP_MS` more. */
-export function graceOver(a: { scheduled: boolean; finishedAt: number; typedAt: number | null; busy: boolean | null; nowMs: number }): boolean {
-  if (a.scheduled) return true
-  const since = a.nowMs - Math.max(a.finishedAt, a.typedAt ?? a.finishedAt)
-  if (since < FINISHED_RUN_GRACE_MS) return false
-  return a.busy !== true || since >= FINISHED_RUN_GRACE_MS + FINISHED_RUN_BUSY_CAP_MS
 }
 
 /** What the sweep needs of the Host. `stop` ends a session through the Host's stop path (`stopCoordinator`). */
