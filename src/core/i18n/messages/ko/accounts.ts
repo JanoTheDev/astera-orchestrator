@@ -106,4 +106,14 @@ export const accounts = {
   'account.sync.button': "설정 가져오기",
   'account.empty.body': "계정을 추가하면 Astera가 Claude 또는 Codex 구독으로 에이전트를 실행할 수 있습니다.",
   'account.empty.bodySettings': "상단 바의 계정 메뉴에서 추가하세요.",
+  // T11: account row actions, paused chip, sign-in retry
+  'account.signInAgain.button': "다시 로그인",
+  'account.signOut.button': "로그아웃",
+  'account.signOut.title': "{label} 로그아웃",
+  'account.signOut.confirm': "{label} 계정에서 로그아웃할까요? 계정은 목록에 남고, 다시 로그인할 수 있습니다.",
+  'account.signOut.done': "{label} 계정에서 로그아웃했습니다.",
+  'account.signOut.failed': "로그아웃하지 못했습니다: {detail}",
+  'account.signOut.processing': "로그아웃 중…",
+  'account.status.paused': "일시 중지",
+  'account.signIn.retry': "다시 시도",
 } as const

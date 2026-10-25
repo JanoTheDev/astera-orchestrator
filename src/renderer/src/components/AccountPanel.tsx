@@ -5,12 +5,12 @@ import { toast } from '../lib/toast'
 import { useI18n } from '../i18n/I18nProvider'
 import { useAccountStatus, useAccountsList } from '../hooks/useAccountStatus'
 import { useAccountUsage } from '../hooks/useAccountUsage'
-import { useActiveSession } from '../lib/activeSession'
 import { ProviderBadge } from './ProviderBadge'
-import { AccountRow } from './AccountRow'
+import { AccountRow, usePausedIds } from './AccountRow'
+import { accountActions, type AccountActionId } from './accountActions'
 import { AccountSignInDialog } from './AccountSignIn'
-import { RemoveAccountDialog } from './AccountSettings'
-import { Badge, Button, Chip, EmptyState, Field, ICONS, Icon, Input, Modal, Tabs, Checkbox, Toolbar, type MenuItem } from './ui'
+import { RemoveAccountDialog, SignOutDialog, useTabSwitch } from './AccountSettings'
+import { Badge, Button, Chip, EmptyState, Field, ICONS, Icon, Input, Modal, Tabs, Checkbox, Toolbar } from './ui'
 
 interface DetectItem {
   configDir: string
@@ -66,51 +66,15 @@ export function AccountPanel({ accounts }: { accounts: Account[] }): React.JSX.E
   // W7-F (#82): the account being signed in, and the one whose removal is being confirmed.
   const [signInTarget, setSignInTarget] = useState<Account | null>(null)
   const [removeTarget, setRemoveTarget] = useState<Account | null>(null)
-  // "Use for this tab": the session tab the top bar speaks for, and a switch in flight.
-  const tab = useActiveSession()
-  const tabAccount = tab ? accounts.find((a) => a.id === tab.accountId) : undefined
-  const [switching, setSwitching] = useState(false)
+  const [signOutTarget, setSignOutTarget] = useState<Account | null>(null)
+  const paused = usePausedIds()
+  const { switchBlock, switchTab } = useTabSwitch(accounts, loginMap)
 
-  const switchTab = async (a: Account): Promise<void> => {
-    if (!tab || switching) return
-    setSwitching(true)
-    try {
-      const r = await window.api.rolling.switchTo(tab.id, a.id)
-      if (r.outcome === 'switched' || r.outcome === 'same') toast.success(t('account.switch.done', { label: a.label }))
-      else if (r.outcome === 'busy') toast.info(t('account.switch.busy'))
-      else toast.error(t('account.switch.failed', { detail: r.reason ?? '' }))
-    } catch (err) {
-      toast.error(t('account.switch.failed', { detail: err instanceof Error ? err.message : String(err) }))
-    } finally {
-      setSwitching(false)
-    }
-  }
-
-  /** Why the row's switch button is disabled, or null when it is not; undefined hides the button (the
-   *  account the tab already runs on). */
-  const switchBlock = (a: Account): string | null | undefined => {
-    if (!tab || !tabAccount) return t('account.switch.noTab')
-    if (providerOf(a) !== providerOf(tabAccount))
-      return t('account.switch.otherProvider', { provider: PROVIDER_META[providerOf(tabAccount)].displayName })
-    if (a.id === tab.accountId) return undefined
-    if (loginMap[a.id] !== true) return t('account.status.notLoggedIn')
-    return null
-  }
-
-  /** The row's "⋯" menu after Rename: Use for this tab (a real item, disabled with its reason as the label hint), Unregister last. */
-  const rowMenu = (a: Account): MenuItem[] => {
-    const block = switchBlock(a)
-    const items: MenuItem[] = []
-    if (block !== undefined)
-      items.push({
-        id: 'switch',
-        label: block === null ? t('account.switch.action') : `${t('account.switch.action')} · ${block}`,
-        icon: <Icon name="refresh" size={14} />,
-        disabled: block !== null || switching,
-        onSelect: () => void switchTab(a)
-      })
-    items.push({ id: 'remove', label: t('account.remove.button'), icon: <Icon name="delete" size={14} />, danger: true, onSelect: () => setRemoveTarget(a) })
-    return items
+  const act = (a: Account, id: AccountActionId): void => {
+    if (id === 'signIn' || id === 'signInAgain') setSignInTarget(a)
+    else if (id === 'signOut') setSignOutTarget(a)
+    else if (id === 'switch') void switchTab(a)
+    else if (id === 'remove') setRemoveTarget(a)
   }
 
   const { accounts: listed, ready } = useAccountsList()
@@ -260,7 +224,9 @@ export function AccountPanel({ accounts }: { accounts: Account[] }): React.JSX.E
             usage={usage[a.configDir]}
             expanded={expandedId === a.id}
             onToggle={() => setExpandedId((cur) => (cur === a.id ? null : a.id))}
-            menu={rowMenu(a)}
+            actions={accountActions({ loggedIn: loginMap[a.id], switchBlock: switchBlock(a), mergeable: false })}
+            onAction={(id) => act(a, id)}
+            paused={paused.has(a.id)}
           >
             {/* W7-F (#82): sign in from the row itself. `false`, not undefined: no button before the login check has answered. */}
             {loginMap[a.id] === false && (
@@ -328,6 +294,7 @@ export function AccountPanel({ accounts }: { accounts: Account[] }): React.JSX.E
         </Modal>
       )}
       {signInTarget && <AccountSignInDialog account={signInTarget} onClose={() => setSignInTarget(null)} />}
+      {signOutTarget && <SignOutDialog account={signOutTarget} onClose={() => setSignOutTarget(null)} />}
       {removeTarget && <RemoveAccountDialog account={removeTarget} onClose={() => setRemoveTarget(null)} />}
       {importDir && (
         <Modal
