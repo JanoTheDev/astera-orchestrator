@@ -313,4 +313,12 @@ export const plan: Partial<Record<keyof typeof ko, string>> = {
   "plan.edit.why.finished": "このタスクは終了しました：編集できません。",
   "plan.edit.nothing": "変更はありません。",
   "plan.edit.failed": "タスクを保存できませんでした",
+  // Task actions on the Board and Graph (taskActions.ts)
+  "plan.taskMenu.label": "タスクの操作",
+  "plan.taskMenu.pauseWorker": "ワーカーを一時停止",
+  "plan.taskMenu.resumeWorker": "ワーカーを再開",
+  "plan.taskMenu.openWorktree": "ワークツリーを開く",
+  "plan.taskMenu.reveal": "フォルダーを表示",
+  "plan.taskMenu.noWorker": "実行中のワーカーがありません",
+  "plan.taskMenu.noWorktree": "このタスクのワークツリーのフォルダーが見つかりません",
 }

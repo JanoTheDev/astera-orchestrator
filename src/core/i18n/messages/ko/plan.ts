@@ -432,4 +432,12 @@ export const plan = {
   "plan.edit.why.finished": "이 작업은 끝났습니다: 편집할 수 없습니다.",
   "plan.edit.nothing": "바뀐 것이 없습니다.",
   "plan.edit.failed": "작업을 저장하지 못했습니다",
+  // Task actions on the Board and Graph (taskActions.ts): the right-click menu and the worker/worktree items
+  "plan.taskMenu.label": "작업 동작",
+  "plan.taskMenu.pauseWorker": "워커 일시 중지",
+  "plan.taskMenu.resumeWorker": "워커 재개",
+  "plan.taskMenu.openWorktree": "워크트리 열기",
+  "plan.taskMenu.reveal": "폴더 보기",
+  "plan.taskMenu.noWorker": "실행 중인 워커가 없습니다",
+  "plan.taskMenu.noWorktree": "이 작업의 워크트리 폴더를 찾지 못했습니다",
 } as const

@@ -38,7 +38,9 @@ import {
 } from './planBoard'
 import { taskActionKey, taskActionOf } from './planCommands'
 import { QuestionAnswer } from './QuestionAnswer'
-import { Button, Chip, Icon, Meter, Select, Tooltip, type ChipTone, type IconName } from '../ui'
+import type { TaskActionId } from './taskActions'
+import { TaskActionButtons, taskMenuItems, type OnTaskAction } from './TaskActionMenu'
+import { Button, Chip, Icon, Menu, Meter, menuPointOf, Select, Tooltip, type ChipTone, type IconName } from '../ui'
 import { useVirtualRows, VIRTUAL_AFTER_ROWS } from '../ui/virtualRows'
 import { openWorktree } from '../shell/navigation' // W9-J
 import { TaskLines } from '../attribution/TaskLines' // W8-B
@@ -46,6 +48,9 @@ import type { SessionSummary } from '../../../../core/sessions/summary'
 import { summaryOneLine } from '../wall/summaryText' // W9-I
 import '../wall/wall.css'
 import './plan.css'
+
+/** The per-state actions a collapsed row shows as buttons; the rest are in its detail and its right-click menu. */
+const ROW_ACTIONS: readonly TaskActionId[] = ['start', 'ask', 'stop', 'acceptFailed', 'cancelFailed']
 
 /** Files a card lists before "+N more". */
 const FILES_SHOWN = 3
@@ -72,6 +77,8 @@ export const TaskBoard = memo(function TaskBoard({
   nowMs = Date.now(),
   onAddTask,
   onRestart,
+  onTaskAction,
+  canManualStart = false,
   lockedReason
 }: {
   tasks: readonly JobTask[]
@@ -110,6 +117,10 @@ export const TaskBoard = memo(function TaskBoard({
   onAddTask?: (deps: string[]) => void
   /** Present: a blocked Task with no Gate gets Continue and a failed one Retry (planCommands taskActionOf). */
   onRestart?: (taskId: string) => void
+  /** Present: a row offers its per-state actions (Start, Ask, Stop, Accept, Cancel) and a right-click menu (taskActions). */
+  onTaskAction?: OnTaskAction
+  /** The plan lets the owner start one Task by hand (planPage canManualStartOf). */
+  canManualStart?: boolean
   /** Why the owner's buttons are off (a read-only plan), or undefined. */
   lockedReason?: string
 }): React.JSX.Element {
@@ -224,6 +235,8 @@ export const TaskBoard = memo(function TaskBoard({
                     about={selected === tk.id ? renderAbout?.(tk) : undefined}
                     compact={compact}
                     onRestart={onRestart}
+                    onTaskAction={onTaskAction}
+                    canManualStart={canManualStart}
                     lockedReason={lockedReason}
                     onOpenConsole={
                       tk.sessionId && categoryOf(tk) === 'running' && onOpenSession && canOpenSession?.(tk.sessionId)
@@ -356,6 +369,8 @@ function TaskRow({
   about,
   compact,
   onRestart,
+  onTaskAction,
+  canManualStart,
   lockedReason
 }: {
   /** The windowed list's measure of this row */
@@ -379,10 +394,15 @@ function TaskRow({
   about?: React.ReactNode
   compact: boolean
   onRestart?: (taskId: string) => void
+  onTaskAction?: OnTaskAction
+  canManualStart: boolean
   lockedReason?: string
 }): React.JSX.Element {
   const { t } = useI18n()
   const action = taskActionOf(tk)
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  // a running Task's tab: the row's console button exists exactly when it is open
+  const ctx = { canManualStart, consoleOpen: onOpenConsole !== undefined }
   const [allFiles, setAllFiles] = useState(false)
   const [showAnswers, setShowAnswers] = useState(false)
   const reason = tk.board?.reason
@@ -393,7 +413,17 @@ function TaskRow({
   const line = now ? t(now.key, now.params) : reason && text ? t(text.key, text.params) : undefined
   return (
     <li ref={rowRef} id={taskAnchorId(tk.id)} className={`plan-card plan-cat-${categoryOf(tk)}${expanded ? ' selected' : ''}`}>
-      <div className="plan-row">
+      <div
+        className="plan-row"
+        onContextMenu={
+          onTaskAction
+            ? (e) => {
+                e.preventDefault()
+                setMenu(menuPointOf(e))
+              }
+            : undefined
+        }
+      >
         {/* The title is the row's toggle: one button, so a click anywhere on the name expands it */}
         <Button
           variant="ghost"
@@ -433,10 +463,14 @@ function TaskRow({
             {t(taskActionKey(action))}
           </Button>
         )}
+        {onTaskAction && <TaskActionButtons task={tk} ctx={ctx} ids={ROW_ACTIONS} iconOnly lockedReason={lockedReason} onAction={onTaskAction} />}
         {onOpenConsole && (
           <Button variant="ghost" size="sm" className="plan-link plan-row-console" title={t('plan.card.focus')} icon={<Icon name="open" size={14} />} onClick={onOpenConsole}>
             {t('plan.row.openConsole')}
           </Button>
+        )}
+        {menu && onTaskAction && (
+          <Menu at={menu} onClose={() => setMenu(null)} label={t('plan.taskMenu.label')} items={taskMenuItems(tk, ctx, t, lockedReason, onTaskAction)} />
         )}
       </div>
       {reuse !== null && (

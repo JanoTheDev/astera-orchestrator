@@ -313,4 +313,12 @@ export const plan: Partial<Record<keyof typeof ko, string>> = {
   "plan.edit.why.finished": "Esta tarea terminó: no se puede editar.",
   "plan.edit.nothing": "No cambió nada.",
   "plan.edit.failed": "No se pudo guardar la tarea",
+  // Task actions on the Board and Graph (taskActions.ts)
+  "plan.taskMenu.label": "Acciones de la tarea",
+  "plan.taskMenu.pauseWorker": "Pausar el worker",
+  "plan.taskMenu.resumeWorker": "Reanudar el worker",
+  "plan.taskMenu.openWorktree": "Abrir el worktree",
+  "plan.taskMenu.reveal": "Mostrar la carpeta",
+  "plan.taskMenu.noWorker": "No hay ningún worker en ejecución",
+  "plan.taskMenu.noWorktree": "No se encontró la carpeta del worktree de esta tarea",
 }

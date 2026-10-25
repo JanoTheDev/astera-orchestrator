@@ -411,4 +411,12 @@ export const plan: Record<keyof typeof ko, string> = {
   "plan.edit.why.finished": "This task has finished: it cannot be edited.",
   "plan.edit.nothing": "Nothing changed.",
   "plan.edit.failed": "Could not save the task",
+  // Task actions on the Board and Graph (taskActions.ts): the right-click menu and the worker/worktree items
+  'plan.taskMenu.label': 'Task actions',
+  'plan.taskMenu.pauseWorker': 'Pause worker',
+  'plan.taskMenu.resumeWorker': 'Resume worker',
+  'plan.taskMenu.openWorktree': 'Open worktree',
+  'plan.taskMenu.reveal': 'Reveal folder',
+  'plan.taskMenu.noWorker': 'No running worker',
+  'plan.taskMenu.noWorktree': "Could not find this task's worktree folder",
 }
