@@ -104,5 +104,15 @@ export const devices: Record<keyof typeof ko, string> = {
   'devices.add.terminalKey': 'Your SSH key is not on the device yet. Copy it there once in a terminal, then try again:',
   'devices.add.terminalOpened': 'Finish in the terminal below, then refresh Devices.',
   'devices.add.ready': '{name} is ready.',
-  'devices.add.openConsole': 'Open a console on {name}'
+  'devices.add.openConsole': 'Open a console on {name}',
+  'devices.menu.label': 'Device actions',
+  'devices.menu.open': 'Open',
+  'devices.menu.check': 'Check connection',
+  'devices.menu.retry': 'Retry',
+  'devices.menu.forget': 'Forget',
+  'devices.menu.add': 'Add',
+  'devices.menu.copyAddress': 'Copy address',
+  'devices.menu.copied': 'Copied {address}',
+  'devices.this.acceptLabel': 'Accept work from other devices',
+  'devices.this.noAddress': 'This computer has no address to listen on.'
 }

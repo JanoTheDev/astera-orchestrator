@@ -327,4 +327,10 @@ export const overlays = {
   'overlays.tabMenu.copyRelativePath': '상대 경로 복사',
   'overlays.tabMenu.reveal': '파일 관리자에서 보기',
   'overlays.tabMenu.revealMac': 'Finder에서 보기',
+  'remote.sessions.retry': '다시 시도',
+  'remote.sessions.menu.label': '세션 작업',
+  'remote.sessions.menu.open': '열기',
+  'remote.sessions.menu.close': '세션 닫기',
+  'remote.sessions.menu.copyId': 'ID 복사',
+  'remote.sessions.closed': '{name} 닫음'
 } as const

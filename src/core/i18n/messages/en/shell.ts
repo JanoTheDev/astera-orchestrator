@@ -140,4 +140,11 @@ export const shell: Record<keyof typeof ko, string> = {
   'shell.run.deleteTitle': 'Delete run configuration',
   'shell.run.deleteBody': 'Delete "{name}"? This cannot be undone.',
   'shell.agents.dismiss': 'Dismiss',
+  'shell.projectMenu.label': 'Project actions',
+  'shell.projectMenu.open': 'Open',
+  'shell.projectMenu.window': 'Open in new window',
+  'shell.projectMenu.settings': 'Settings',
+  'shell.projectMenu.reveal': 'Reveal folder',
+  'shell.projectMenu.remove': 'Remove',
+  'shell.projectMenu.revealFailed': 'Could not show the folder: {message}'
 }

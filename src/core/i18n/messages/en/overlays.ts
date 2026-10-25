@@ -310,4 +310,10 @@ export const overlays: Record<keyof typeof ko, string> = {
   'overlays.tabMenu.copyRelativePath': 'Copy relative path',
   'overlays.tabMenu.reveal': 'Reveal in file manager',
   'overlays.tabMenu.revealMac': 'Reveal in Finder',
+  'remote.sessions.retry': 'Retry',
+  'remote.sessions.menu.label': 'Session actions',
+  'remote.sessions.menu.open': 'Open',
+  'remote.sessions.menu.close': 'Close session',
+  'remote.sessions.menu.copyId': 'Copy ID',
+  'remote.sessions.closed': 'Closed {name}'
 }

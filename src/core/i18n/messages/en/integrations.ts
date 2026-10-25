@@ -424,4 +424,8 @@ export const integrations: Record<keyof typeof ko, string> = {
   'github.project.done': 'Created: {url}',
   'github.project.failed': 'Could not create the GitHub repository.',
   'github.project.hasOrigin': 'This project already has an origin remote.',
+  'project.state.missing': 'Folder missing',
+  'project.state.notGit': 'Not a git repository',
+  'project.state.missing.hint': 'The folder is gone. Restore it, or remove the project.',
+  'project.reveal': 'Reveal folder'
 }

@@ -2,10 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Account } from '../../../../core/types'
 import { MAX_CONCURRENT_WORKERS, PROJECT_DEFAULTS, type Project } from '../../../../core/orchestration/types'
 import { useI18n } from '../../i18n/I18nProvider'
-import { Button, Field, Icon, Input, Modal, Select } from '../ui'
+import { toast } from '../../lib/toast'
+import { Button, Chip, Field, Icon, Input, Modal, Select } from '../ui'
 import { AccountSelect } from '../AccountSelect'
 import { ProjectDelivery } from '../delivery/ProjectDelivery'
 import { ProjectAttribution } from '../attribution/ProjectAttribution' // W8-B
+import { PROJECT_CHIP, projectStateOf, type ProjectState } from './projectMenu'
 import './projects.css'
 
 /** W7-B: one project's settings as a dialog (the project switcher's gear). The body is the Settings page's Projects
@@ -74,6 +76,7 @@ export function ProjectSettingsBody({
   const [ghBusy, setGhBusy] = useState(false)
   const [ghNote, setGhNote] = useState<{ ok: boolean; text: string } | null>(null)
   const [hasOrigin, setHasOrigin] = useState<boolean | null>(null)
+  const [state, setState] = useState<ProjectState>('ok')
   const [prompts, setPrompts] = useState('')
   const [initial, setInitial] = useState({ test: '', concurrency: '', rounds: '', prompts: '' })
 
@@ -112,6 +115,18 @@ export function ProjectSettingsBody({
       (v) => live && setHasOrigin(v),
       () => live && setHasOrigin(false)
     )
+    return () => {
+      live = false
+    }
+  }, [projectPath])
+  useEffect(() => {
+    if (!projectPath) return
+    let live = true
+    void (async () => {
+      const exists = await window.api.system.pathExists(projectPath).catch(() => undefined)
+      const repo = exists === false ? undefined : (await window.api.worktrees.isGitRepo(projectPath).catch(() => undefined))?.kind
+      if (live) setState(projectStateOf({ exists, repo }))
+    })()
     return () => {
       live = false
     }
@@ -184,6 +199,15 @@ export function ProjectSettingsBody({
     <div className="proj-settings">
       {project && (
         <>
+          {state !== 'ok' && (
+            <div className="ui-field">
+              <Chip tone="warn">
+                <Icon name={PROJECT_CHIP[state].icon} size={14} />
+                {t(PROJECT_CHIP[state].key)}
+              </Chip>
+              {state === 'missing' && <span className="ui-field__hint">{t('project.state.missing.hint')}</span>}
+            </div>
+          )}
           <section className="proj-group" aria-labelledby={`proj-${projectId}-delivery`}>
             <h3 className="proj-group__title" id={`proj-${projectId}-delivery`}>{t('project.group.delivery')}</h3>
             <ProjectDelivery projectPath={project.path} />
@@ -341,6 +365,13 @@ export function ProjectSettingsBody({
             </section>
           )}
           <div className="proj-remove">
+            <Button
+              icon={<Icon name="folder" size={14} />}
+              disabled={state === 'missing'}
+              onClick={() => void window.api.files.reveal(project.path).catch((e) => toast.error(e instanceof Error ? e.message : String(e)))}
+            >
+              {t('project.reveal')}
+            </Button>
             <Button variant="danger" icon={<Icon name="delete" size={14} />} onClick={() => { setRemoveError(null); setConfirmRemove(true) }}>
               {t('project.remove')}
             </Button>

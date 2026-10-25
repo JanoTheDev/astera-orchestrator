@@ -102,5 +102,15 @@ export const devices = {
   'devices.add.terminalKey': '내 SSH 키가 아직 기기에 없습니다. 터미널에서 한 번 복사한 뒤 다시 시도하세요:',
   'devices.add.terminalOpened': '아래 터미널에서 마친 뒤 기기 목록을 새로 고치세요.',
   'devices.add.ready': '{name} 준비가 끝났습니다.',
-  'devices.add.openConsole': '{name} 에서 콘솔 열기'
+  'devices.add.openConsole': '{name} 에서 콘솔 열기',
+  'devices.menu.label': '기기 작업',
+  'devices.menu.open': '열기',
+  'devices.menu.check': '연결 확인',
+  'devices.menu.retry': '다시 시도',
+  'devices.menu.forget': '잊기',
+  'devices.menu.add': '추가',
+  'devices.menu.copyAddress': '주소 복사',
+  'devices.menu.copied': '{address} 복사함',
+  'devices.this.acceptLabel': '다른 기기의 작업 받기',
+  'devices.this.noAddress': '이 컴퓨터에는 수신할 주소가 없습니다.'
 } as const

@@ -150,4 +150,11 @@ export const shell = {
   'shell.run.deleteTitle': '실행 구성 삭제',
   'shell.run.deleteBody': '"{name}"을(를) 삭제할까요? 되돌릴 수 없습니다.',
   'shell.agents.dismiss': '치우기',
+  'shell.projectMenu.label': '프로젝트 작업',
+  'shell.projectMenu.open': '열기',
+  'shell.projectMenu.window': '새 창에서 열기',
+  'shell.projectMenu.settings': '설정',
+  'shell.projectMenu.reveal': '폴더 보기',
+  'shell.projectMenu.remove': '제거',
+  'shell.projectMenu.revealFailed': '폴더를 열지 못했습니다: {message}'
 } as const
