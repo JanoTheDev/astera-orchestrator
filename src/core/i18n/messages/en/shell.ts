@@ -134,4 +134,9 @@ export const shell: Record<keyof typeof ko, string> = {
   'shell.console.start': 'Start again',
   'shell.plans.menu.openStep': 'Open plan at this step',
   'shell.plans.menu.openPr': 'Open pull request',
+  'shell.run.showOutput': 'Show output',
+  'shell.run.dismiss': 'Dismiss',
+  'shell.run.delete': 'Delete',
+  'shell.run.deleteTitle': 'Delete run configuration',
+  'shell.run.deleteBody': 'Delete "{name}"? This cannot be undone.',
 }

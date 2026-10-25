@@ -247,4 +247,9 @@ export const tools: Record<keyof typeof ko, string> = {
   'run.row.edit': 'Edit configuration',
   'run.view.refresh': 'Refresh configurations',
   'run.view.empty': 'No run configurations yet. Create one with +.',
+  'run.action.stopAgain': 'Stop again',
+  'run.menu.rerunLast': 'Rerun last',
+  'run.menu.stopAll': 'Stop all',
+  'run.menu.editCurrent': 'Edit current configuration',
+  'run.menu.showOutput': 'Show output',
 }

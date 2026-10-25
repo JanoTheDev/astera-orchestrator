@@ -144,4 +144,9 @@ export const shell = {
   'shell.console.start': '다시 시작',
   'shell.plans.menu.openStep': '이 단계에서 계획 열기',
   'shell.plans.menu.openPr': '풀 리퀘스트 열기',
+  'shell.run.showOutput': '출력 보기',
+  'shell.run.dismiss': '닫기',
+  'shell.run.delete': '삭제',
+  'shell.run.deleteTitle': '실행 구성 삭제',
+  'shell.run.deleteBody': '"{name}"을(를) 삭제할까요? 되돌릴 수 없습니다.',
 } as const

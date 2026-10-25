@@ -280,4 +280,9 @@ export const tools = {
   'run.row.edit': '구성 편집',
   'run.view.refresh': '새로 고침',
   'run.view.empty': '실행 구성이 없습니다. +로 만드세요.',
+  'run.action.stopAgain': '다시 중지',
+  'run.menu.rerunLast': '마지막 실행 다시',
+  'run.menu.stopAll': '모두 중지',
+  'run.menu.editCurrent': '현재 구성 편집',
+  'run.menu.showOutput': '출력 보기',
 } as const
