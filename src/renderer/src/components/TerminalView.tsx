@@ -58,6 +58,8 @@ export function TerminalView({
   const { onContextMenu, menu } = useTerminalMenu(clipRef, t)
   const attachFindRef = useRef(find.attach)
   attachFindRef.current = find.attach
+  const resetFindRef = useRef(find.reset)
+  resetFindRef.current = find.reset
   const onOpenUrlRef = useRef(onOpenUrl)
   onOpenUrlRef.current = onOpenUrl
   const onOpenFileRef = useRef(onOpenFile)
@@ -240,6 +242,7 @@ export function TerminalView({
     clipRef.current = attachTerminalKeys(term, {
       isMac,
       onFind: () => setFindOpen(true),
+      onClear: () => resetFindRef.current(),
       before: (e) => {
         if (e.type === 'keydown' && e.key === 'Enter' && e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey) {
           window.api.sessions.write(session.id, '\x1b\r')

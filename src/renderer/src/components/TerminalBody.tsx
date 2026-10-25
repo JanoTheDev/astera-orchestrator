@@ -59,6 +59,8 @@ export function TerminalBody({
   const { onContextMenu, menu } = useTerminalMenu(clipRef, t)
   const attachFindRef = useRef(find.attach)
   attachFindRef.current = find.attach
+  const resetFindRef = useRef(find.reset)
+  resetFindRef.current = find.reset
   const hostRef = useRef<HTMLDivElement>(null)
   const fitRef = useRef<FitAddon | null>(null)
   const onOpenUrlRef = useRef(onOpenUrl)
@@ -101,7 +103,8 @@ export function TerminalBody({
     // paste at all: the app menu that normally carries them is null there.
     clipRef.current = attachTerminalKeys(term, {
       isMac: window.api.platform === 'darwin',
-      onFind: () => setFindOpen(true)
+      onFind: () => setFindOpen(true),
+      onClear: () => resetFindRef.current()
     })
     fit.fit()
     termRef.current = term

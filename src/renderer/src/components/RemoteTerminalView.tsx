@@ -41,6 +41,8 @@ export function RemoteTerminalView({
   const { onContextMenu, menu } = useTerminalMenu(clipRef, t)
   const attachFindRef = useRef(find.attach)
   attachFindRef.current = find.attach
+  const resetFindRef = useRef(find.reset)
+  resetFindRef.current = find.reset
   const fitRef = useRef<(() => void) | null>(null)
   const readOnlyRef = useRef(readOnly)
   readOnlyRef.current = readOnly
@@ -174,6 +176,7 @@ export function RemoteTerminalView({
       isMac: window.api.platform === 'darwin',
       readOnly: () => readOnlyRef.current,
       onFind: () => setFindOpen(true),
+      onClear: () => resetFindRef.current(),
       before: (e) => {
         if (e.type !== 'keydown' || e.key !== 'Enter' || !e.ctrlKey || e.altKey || e.shiftKey || e.metaKey) return false
         if (!readOnlyRef.current) input.push('\x1b\r')
