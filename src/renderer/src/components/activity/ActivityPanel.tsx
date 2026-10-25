@@ -4,10 +4,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { Account } from '../../../../core/types'
 import { useI18n } from '../../i18n/I18nProvider'
-import { Button, Icon, Input, type IconName } from '../ui'
+import { Button, Icon, Input, Menu, menuPointOf, type IconName } from '../ui'
 import { goTo } from '../inbox/InboxPage'
+import { itemMenuOf } from '../inbox/itemMenu'
+import { openConsole } from '../shell/navigation'
 import { lineTargetOf } from '../inbox/inboxNav'
-import { byDay, handledOf } from '../inbox/inboxView'
+import { byDay, handledOf, type HandledLine } from '../inbox/inboxView'
 import { useActivityFeed } from './useActivityFeed'
 import { filterLines, type Tone } from './activityView'
 import './activity.css'
@@ -32,6 +34,7 @@ export function ActivityPanel({
   const events = useActivityFeed(true)
   const [all, setAll] = useState(false)
   const [query, setQuery] = useState('')
+  const [menu, setMenu] = useState<{ at: { x: number; y: number }; l: HandledLine } | null>(null)
   const [nowMs, setNowMs] = useState(() => Date.now())
   useEffect(() => {
     const timer = setInterval(() => setNowMs(Date.now()), 30_000)
@@ -61,7 +64,14 @@ export function ActivityPanel({
             {d.lines.map((l) => {
               const target = lineTargetOf(l)
               return (
-                <li key={l.id} className={`act__line act__line--${l.tone}`}>
+                <li
+                  key={l.id}
+                  className={`act__line act__line--${l.tone}`}
+                  onContextMenu={(e) => {
+                    e.preventDefault()
+                    setMenu({ at: menuPointOf(e), l })
+                  }}
+                >
                   <Button
                     variant="ghost"
                     size="sm"
@@ -81,6 +91,14 @@ export function ActivityPanel({
           </ul>
         </div>
       ))}
+      {menu && (
+        <Menu
+          at={menu.at}
+          items={itemMenuOf({ target: lineTargetOf(menu.l), sessionId: menu.l.sessionId, text: menu.l.text }, false, { open: goTo, console: openConsole, setRead: () => {}, copy: (text) => window.api.clipboard.writeText(text) }, t)}
+          onClose={() => setMenu(null)}
+          label={t('inbox.handled')}
+        />
+      )}
     </section>
   )
 }

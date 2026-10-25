@@ -33,6 +33,11 @@ const panel = (over: Partial<React.ComponentProps<typeof BellPanel>> = {}): Reac
   onMarkAllRead: vi.fn(),
   onAct: vi.fn(),
   onLine: vi.fn(),
+  onOpen: vi.fn(),
+  onToggleRead: vi.fn(),
+  onMenu: vi.fn(),
+  menu: null,
+  onMenuClose: vi.fn(),
   onViewAll: vi.fn(),
   ...over
 })
@@ -65,11 +70,30 @@ describe('BellPanel', () => {
     const p = panel()
     const tree = elements(BellPanel(p))
     const rows = tree.filter((el) => el.props['data-roving'] === '')
-    // toggle absent: Mark all read + three cards + one line + View all
-    expect(rows).toHaveLength(6)
+    // toggle absent: Mark all read + three cards (Open, read toggle, action) + one line + View all
+    expect(rows).toHaveLength(12)
     const viewAll = rows.find((el) => text(el.props.children as React.ReactNode) === 'View all')
     ;(viewAll?.props.onClick as () => void)()
     expect(p.onViewAll).toHaveBeenCalled()
+  })
+})
+
+describe('BellPanel item actions', () => {
+  it('a card offers Open and Mark read/unread beside its action', () => {
+    const p = panel()
+    const tree = elements(BellPanel(p))
+    const byLabel = (l: string) => tree.filter((el) => el.props.label === l)
+    ;(byLabel('Open')[0]!.props.onClick as () => void)()
+    expect(p.onOpen).toHaveBeenCalledWith(p.needs[0])
+    expect(byLabel('Mark read')).toHaveLength(2)
+    expect(byLabel('Mark unread')).toHaveLength(1)
+    ;(byLabel('Mark unread')[0]!.props.onClick as () => void)()
+    expect(p.onToggleRead).toHaveBeenCalledWith('q', true)
+  })
+  it('a Recent line with only a jobId is enabled, one with nothing is not', () => {
+    const rows = (l: HandledLine) => elements(BellPanel(panel({ recent: [l] }))).filter((el) => el.props.className === 'bell__line')
+    expect(rows({ ...line, sessionId: undefined })[0]!.props.disabled).toBe(false)
+    expect(rows({ ...line, sessionId: undefined, jobId: undefined })[0]!.props.disabled).toBe(true)
   })
 })
 
