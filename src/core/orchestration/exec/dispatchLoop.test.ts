@@ -2584,6 +2584,31 @@ describe('a delivery that finishes by itself (T3)', () => {
     expect(outcomeOf(h.state(), 'run_1')).toBe('completed')
   })
 
+  it('a follow-up Task on a delivered plan whose worktree was removed makes the worktree again, with no Gate', async () => {
+    const h = pushPlan(async (a) => ok(a))
+    const s = h.state()
+    h.setState({ ...s, jobs: s.jobs.map((j) => ({ ...j, plannerSessionIds: ['ses-p0'], plannerAccountId: 'accA', replan: 'off' as const })) })
+    await pass(h)
+    finishAll(h)
+    await pass(h)
+    expect(h.state().runs[0].delivery).toMatchObject({ sha: 'abc1234' })
+    // delivery took the folder; the Run still names it
+    const wt = h.state().runs[0].worktree!
+    let there = false
+    h.ctx.worktreeGone = async (p) => p === wt && !there
+    h.ctx.forkRunWorktree = async (a) => (h.forked.push(a), (there = true), wt)
+    const sid = ((await h.real('jobs-chat', { id: 'job_1' })).body as { sessionId: string }).sessionId
+    const made = await h.as(sid, 'task-create', {
+      run: 'run_1', account: 'accA', title: 'dark mode', spec: 'the dark mode part', prompt: 'Build dark mode.',
+      criteria: ['dark mode works'], affectedPaths: ['src/dark.ts'], kind: 'feature', basis: 'missing', evidence: 'no dark mode in src/'
+    })
+    expect((await h.as(sid, 'jobs-replan-done', { id: 'job_1', summary: 'dark mode Task' })).status).toBe(200)
+    await pass(h)
+    expect(h.forked).toHaveLength(1)
+    expect(h.startWorker.mock.calls.some(([a]) => a.taskId === (made.body as Task).id)).toBe(true)
+    expect(h.state().gates ?? []).toEqual([])
+  })
+
   it('a Run finishing, then a restart before delivery, still delivers', async () => {
     let calls = 0
     const h = pushPlan(async (a) => (++calls, ok(a)))

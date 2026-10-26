@@ -278,7 +278,7 @@ import { cleanRows, worktreeRows } from '../core/worktrees/cleanupRun'
 import { worktreeDetail, worktreeFileDiff, workingFileDiff } from '../core/worktrees/detail'
 import { listWithStatus } from '../core/worktrees/list'
 import { PresenceCache, PRESENCE_SWEEP_MS } from '../core/worktrees/presence'
-import { probeLog } from '../core/sessions/pathProbe'
+import { defaultGateProbe, probeLog } from '../core/sessions/pathProbe'
 import { gateFolders, unreachableInLang, withUnreachableInLang } from './fileOpGate'
 import { readConfiguredModel } from './models/configuredModel'
 import { lastClaudeModelOf } from '../core/history/conversation'
@@ -3438,6 +3438,7 @@ export function registerIpc(
       lang: () => core.lang,
       forkRunWorktree: (a) =>
         forkWorktree({ repoPath: a.repoPath, name: a.name }, { registry: core.worktrees, log: orchLog, setupCommand: findProjectContaining(store.get(), a.repoPath)?.setupCommand }),
+      worktreeGone: async (p) => (await defaultGateProbe(p)) === 'absent',
       integrate: (runRoot, merges, heads, opts) => integrateWorktrees(runRoot, merges, { heads, ...opts }, gitCtx),
       reap: (p) => reapWorktree(p),
       isRegisteredWorktree: (p) => core.worktrees.list().some((w) => isSamePath(w.path, p)),
