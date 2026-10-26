@@ -67,8 +67,9 @@ function settled(s: OrchState, id: string): boolean {
   return !task || task.status !== 'dispatched'
 }
 
-export const crashFeedLine = (workers: number, coordinators: number): string =>
-  `Recovered after a crash: resumed ${workers} worker${workers === 1 ? '' : 's'}, ${coordinators} coordinator${coordinators === 1 ? '' : 's'}`
+export const crashFeedLine = (workers: number, coordinators: number, waiting = 0): string =>
+  `Recovered after a crash: resumed ${workers} worker${workers === 1 ? '' : 's'}, ${coordinators} coordinator${coordinators === 1 ? '' : 's'}` +
+  (waiting > 0 ? `; ${waiting} worker${waiting === 1 ? ' waits' : 's wait'} for a free slot` : '')
 
 export interface CrashResumeDeps {
   /** orchestration.json as it is on disk, before anything loads it; null when there is none. */
@@ -80,6 +81,9 @@ export interface CrashResumeDeps {
   handle(cmd: string, args: Record<string, unknown>): Promise<{ status: number; body: unknown }>
   /** The recovery work in flight, awaited (host/recovery.ts `catchUp`). */
   settle(): Promise<void>
+  /** T2: the lost Dispatches recovery left for a free slot (host/recovery.ts `waiting`): done with for now, so the
+   *  coordinators are not held back behind them. Absent: none. */
+  waiting?(): ReadonlySet<string>
   activity(d: ActivityDraft): void
   log(m: string): void
   /** T5: the agent CLI's own conversation id a dead session had (`agentSessionOf`, or what the Host saved); null for
@@ -103,9 +107,10 @@ export async function resumeAfterCrash(d: CrashResumeDeps): Promise<{ workers: n
     const sleep = d.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)))
     const now = d.nowMs ?? Date.now
     const until = now() + RECOVERY_WAIT_MS
+    const waitingNow = (id: string): boolean => !settled(d.state(), id) && (d.waiting?.().has(id) ?? false)
     for (;;) {
       await d.settle()
-      if (was.dispatchIds.every((id) => settled(d.state(), id))) break
+      if (was.dispatchIds.every((id) => settled(d.state(), id) || waitingNow(id))) break
       if (now() >= until) {
         d.log('crash resume: recovery has not acted on every lost worker yet; going on without it')
         break
@@ -137,7 +142,7 @@ export async function resumeAfterCrash(d: CrashResumeDeps): Promise<{ workers: n
       else d.log(`crash resume: run ${runId}'s coordinator could not be restarted (${r.status} ${JSON.stringify(r.body)})`)
     }
 
-    const line = crashFeedLine(workers, coordinators)
+    const line = crashFeedLine(workers, coordinators, was.dispatchIds.filter(waitingNow).length)
     d.log(`crash resume: ${line}`)
     d.activity({ type: 'host.recovered', payload: { title: 'Astera', reason: line } })
     return { workers, coordinators }

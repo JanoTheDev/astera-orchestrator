@@ -37,6 +37,8 @@ function rig(over: {
   dirty?: boolean
   state?: OrchState
   guard?: LostGateGuard
+  /** The app-wide worker cap the recovery reads; 50 when left out, so only a Run's own limit binds. */
+  cap?: number
 } = {}) {
   let current = over.state ?? lostState()
   const appended: Array<{ type: string }> = []
@@ -72,10 +74,12 @@ function rig(over: {
       return { exists: true, head: 'aaa', dirty: over.dirty ?? false, inProgress: null, conflicts: false, branch: 'main' } as GitFacts
     },
     readResumeStrategy: async () => (over.strategy ? over.strategy() : 'original'),
+    readMaxConcurrentWorkers: async () => over.cap ?? 50,
     executeRecovery: async (a) => {
       executed.push({ dispatchId: a.attempt.dispatchId, strategy: a.decision.strategy })
-      current = { ...current, dispatches: [...current.dispatches, lost({ id: 'dsp_2', sessionId: 'sess-2', startedAt: NOW, endedAt: undefined, workerState: 'ready', retryOf: 'dsp_1' })] }
-      return { ok: true as const, newDispatchId: 'dsp_2' }
+      const id = a.attempt.dispatchId === 'dsp_1' ? 'dsp_2' : `${a.attempt.dispatchId}_retry`
+      current = { ...current, dispatches: [...current.dispatches, lost({ id, taskId: a.attempt.taskId, sessionId: `sess-${id}`, startedAt: NOW, endedAt: undefined, workerState: 'ready', retryOf: a.attempt.dispatchId })] }
+      return { ok: true as const, newDispatchId: id }
     }
   }
   return { r: createHostRecovery(deps), box, appended, executed, handled, logs, set: (f: (s: OrchState) => OrchState) => { current = f(current) } }
@@ -181,6 +185,33 @@ describe('createHostRecovery (remote runtime design §2.6, Phase 3R)', () => {
     expect(h.executed).toEqual([{ dispatchId: 'dsp_1', strategy: 'redispatch' }])
     await h.r.catchUp()
     expect(h.executed).toHaveLength(1)
+  })
+
+  // T2: after a crash the start may have lowered the app-wide cap; recovery restarts no more lost workers than it allows.
+  it('restarts lost workers only up to the app-wide cap; the rest wait for a free slot, untouched', async () => {
+    const three = stateFromLegacy({
+      runs: [run(), run({ id: 'run_2' }), run({ id: 'run_3' })],
+      tasks: [task(), task({ id: 'tsk_2', runId: 'run_2' }), task({ id: 'tsk_3', runId: 'run_3' })],
+      dispatches: [lost(), lost({ id: 'dsp_b', taskId: 'tsk_2', sessionId: 'sess-b' }), lost({ id: 'dsp_c', taskId: 'tsk_3', sessionId: 'sess-c' })]
+    })
+    const events = ['dsp_1', 'dsp_b', 'dsp_c'].map((dispatchId) => ({ type: 'PROMPT_WRITE_CONFIRMED', dispatchId }))
+    const h = rig({ state: three, cap: 2, events })
+    await h.r.sweep('a test')
+    await h.r.catchUp()
+    expect(h.executed.map((e) => e.dispatchId)).toEqual(['dsp_1', 'dsp_b'])
+    expect([...h.r.waiting()]).toEqual(['dsp_c'])
+    // Neither failed, gated nor dropped: still dispatched, its lost attempt as it was.
+    expect(h.handled).toEqual([])
+    let now!: OrchState
+    h.set((s) => (now = s))
+    expect(now.tasks.find((t) => t.id === 'tsk_3')?.status).toBe('dispatched')
+    expect(now.dispatches.find((d) => d.id === 'dsp_c')).toMatchObject({ endedAt: NOW, cwd: 'D:/wt' })
+    expect(now.dispatches.find((d) => d.id === 'dsp_c')?.outcome).toBeUndefined()
+    // A restarted worker reports; its slot goes to the one waiting.
+    h.set((s) => ({ ...s, dispatches: s.dispatches.map((d) => (d.id === 'dsp_2' ? { ...d, endedAt: NOW, outcome: 'succeeded' } : d)) }))
+    await h.r.catchUp()
+    expect(h.executed.map((e) => e.dispatchId)).toEqual(['dsp_1', 'dsp_b', 'dsp_c'])
+    expect(h.r.waiting().size).toBe(0)
   })
 
   it('catchUp waits for a recovery in flight, so the scheduler fills no slot before it', async () => {
