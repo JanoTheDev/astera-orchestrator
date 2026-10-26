@@ -6,7 +6,7 @@ Claude Code and Codex tools using your own accounts.
 ## Start a session
 
 1. [Install Astera and your chosen CLI](../README.md#run-it).
-2. Open **Accounts** (bottom of the activity bar, or the usage in the status bar), then use **Auto-detect** to
+2. Open **Accounts** (bottom of the activity bar, or the usage in the status bar), then use **Find signed-in accounts** to
    register an existing account, or **Add account** to create a separate account entry and complete its sign-in.
 3. Open **New session** (`Ctrl+N`, or **Open a console** in the Agents view), choose your **Project folder** and **Account**, then choose
    **Terminal** or **Chat** and click **Start**.
@@ -19,6 +19,8 @@ sessions under **Settings → General → New sessions start as**.
 
 ## Reopen an earlier conversation
 
+<img src="../assets/docs/history.png" width="760" alt="The History view listing earlier sessions across several projects, with a conversation summary open in a tab" />
+
 1. Open the **History** view in the activity bar (`Ctrl+5`) and find the conversation under **Sessions**.
 2. Click a conversation to open its summary in a tab. Previewing does not start a session.
 3. Use its **Resume session** button, choose a logged-in account, and click **Resume**.
@@ -28,9 +30,17 @@ hidden from the history list, use **Settings → History → Unhide**.
 
 ## Use multiple accounts
 
+<img src="../assets/docs/accounts.png" width="760" alt="The Accounts and usage view with several accounts and their usage bars" />
+
 Register the accounts you need and sign in to each. In **New session**, pick the first account
 and use **+ Add account** to set the rolling order. When a usage limit is reached, Astera can
 continue on the next available account for the same service. Each account retains its own limits.
+
+<img src="../assets/docs/diagrams/account-rolling.svg" width="760" alt="Diagram: a session hits its usage limit, Astera reads the reset time, then resumes the conversation on the next account" />
+
+The animation shows rolling in the app:
+
+<img src="../assets/rolling.gif" width="760" alt="Animation of a session moving to the next account when the first account reaches its usage limit" />
 
 With a single account, **Wait for the limit to reset, then resume automatically** controls waiting
 and resuming. With multiple accounts, rolling is automatic; check the displayed reset time if
@@ -50,6 +60,8 @@ In **New session**, enable **Scheduler**, choose an interval or a daily, weekly,
 then enter the command for Terminal or the prompt for Chat. Start the session to activate it.
 Keep Astera running and the computer awake when you expect scheduled work to run.
 
+<img src="../assets/schedule.gif" width="760" alt="Animation of setting up a scheduled run: choosing a rule, entering the prompt and starting the session" />
+
 For Slack updates, follow the [Slack bot setup](slack-bot-setup.md), then enable
 **Slack progress notifications** for the session. Bot mode groups a session's updates in one
 thread. Replies require Socket Mode and your configured Slack member ID; without that ID,
@@ -62,6 +74,8 @@ looking at another session or window. In the app, the bell in the status bar lis
 the bottom panel's **Needs you** tab holds the same items.
 
 ## Work with files and panes
+
+<img src="../assets/docs/explorer.png" width="760" alt="The Explorer view with a file open in the editor beside the file tree" />
 
 Open the **Explorer** view (`Ctrl+3`) to browse files; its **Changed** pane lists the changed files of
 the current worktree. A file opens as a tab. File tabs and session tabs share the editor groups;
@@ -79,6 +93,8 @@ through this feature.
 
 ## Run a dev server, build, or test
 
+<img src="../assets/docs/run.png" width="760" alt="The Run view listing run configurations with Run, Stop and Edit on each row" />
+
 Open the **Run** view (`Ctrl+6`) and run a configuration from its row (Run, Stop and Edit sit on the row). Astera detects supported project scripts
 and tasks, including npm scripts and standard Gradle/Maven tasks. A detected configuration appears
 in italics until you edit it and save it as your own.
@@ -88,6 +104,8 @@ cargo, go, Python, pytest, Docker Compose, Dockerfile, .NET, or Compound. Use it
 tool rather than manually assembling every command. Read the bottom panel's **Output** tab for output and errors.
 
 ## Isolate work and open a pull request
+
+<img src="../assets/docs/source-control.png" width="760" alt="The Source Control view with worktrees and their changes" />
 
 1. In a git project with a commit and branch, enable **Start in a separate worktree** in
    **New session**. Choose the base branch if needed.
@@ -125,6 +143,9 @@ through a flow, and read console and network errors. This browser is restricted 
   flow diagrams, decision sources, and verification results.
 
 ## Adjust appearance, language, and shortcuts
+
+
+<img src="../assets/docs/plan-board-day.png" width="760" alt="A running plan tab shown in the Day theme" />
 
 - **Settings → Appearance:** choose a theme and terminal font. Theme changes apply to open
   terminals without clearing their scrollback.
