@@ -1,18 +1,12 @@
 {
+  "extends": "../tsconfig.base.json",
   "compilerOptions": {
-    "target": "ES2022",
-    "lib": ["ES2022"],
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "strict": true,
-    "verbatimModuleSyntax": true,
-    "isolatedModules": true,
-    "skipLibCheck": true,
-    "types": ["node"],
     "declaration": true,
     "outDir": "dist/esm",
     "rootDir": "src",
-    "paths": { "@astera-app/client": ["./build/client.d.ts"] }
+    "paths": { "@astera-app/client": ["./types-stub/client.d.ts"] }
   },
   "include": ["src"],
   "exclude": ["src/**/*.test.ts"]
