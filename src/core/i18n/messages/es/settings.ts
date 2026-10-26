@@ -250,4 +250,13 @@ export const settings: Partial<Record<keyof typeof ko, string>> = {
   'settings.instructions.preview': 'Texto integrado (solo lectura)',
   'settings.instructions.previewHint': 'Un ejemplo de lo que Astera escribe para este rol. Tu texto se añade después.',
   'settings.instructions.previewFailed': 'No se pudo cargar el texto integrado: {detail}',
+  // T6: limits Astera lowered itself
+  'settings.autoLimit.lowered': 'Astera bajó esto a {count} el {date}: {detail}. Frena los inicios nuevos; los agentes en marcha continúan.',
+  'settings.autoLimit.backByItself': 'Vuelve a subir solo cuando la máquina se calme.',
+  'settings.autoLimit.staysUntilRestored': 'Se mantiene hasta que lo restaures.',
+  'settings.autoLimit.restore': 'Restaurar mi límite',
+  'settings.autoLimit.restoreFailed': 'No se pudo restaurar el límite: {detail}',
+  'settings.autoLimit.checksWait': 'Cada comprobación espera un hueco de trabajo pesado hasta que la máquina se calme.',
+  'settings.autoLimit.crashToast': 'Astera bajó sus límites tras un fallo para que no vuelva a ocurrir',
+  'settings.autoLimit.openSettings': 'Abrir ajustes',
 }
