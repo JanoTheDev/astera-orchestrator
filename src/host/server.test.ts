@@ -231,7 +231,7 @@ describe('startHostServer', () => {
     expect(h.logs.some((l) => l.startsWith('unknown message'))).toBe(false)
   })
 
-  // Protocol 4 (core/host/hostKey.ts): the client's nonce is answered with an HMAC of the profile's key,
+  // Protocol 4 (packages/client/src/hostKey.ts): the client's nonce is answered with an HMAC of the profile's key,
   // which is how the app and `astera` tell this account's Host from a squatter on the address.
   it('answers a nonce with the proof of its key, and sends none for a hello without one', async () => {
     const key = 'c'.repeat(64)

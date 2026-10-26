@@ -1202,7 +1202,7 @@ async function main(): Promise<void> {
     await workUnits.start()
   }
 
-  // Protocol 4: the proof every client checks before it hands this Host anything (core/host/hostKey.ts).
+  // Protocol 4: the proof every client checks before it hands this Host anything (packages/client/src/hostKey.ts).
   // Made before the bind, so no client can meet this Host before its key exists. A Host that cannot
   // make one would be refused by every client, so it does not serve at all.
   let hostKey: string

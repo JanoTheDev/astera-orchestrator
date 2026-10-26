@@ -346,7 +346,7 @@ export interface ListResult<T> {
   readonly nextCursor?: string
 }
 
-/** What the Host's public event log records (SDK spec §6, and the session events of plugin Phase 3). `run.cancelled`,
+/** What the Host's public event log records (and the session events plugins receive). `run.cancelled`,
  *  `github.*` and `runtime.*` are not produced yet: there is no cancel (a stop pauses), and neither GitHub nor a
  *  Runtime's presence moves the state. */
 export type EventType =

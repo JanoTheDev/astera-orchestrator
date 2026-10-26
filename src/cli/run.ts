@@ -180,7 +180,7 @@ export function connectFailureEnd(a: {
   profileDir: string
 }): { fallback: true } | { fallback: false; code: CliErrorCode; message: string; details?: Record<string, unknown> } {
   if (a.error === 'unreachable') return { fallback: true }
-  // Somebody else's process at this profile's address (core/host/hostKey.ts): not a Host to read the
+  // Somebody else's process at this profile's address (packages/client/src/hostKey.ts): not a Host to read the
   // file around, and not one to talk to.
   if (a.error === 'impostor') return { fallback: false, ...impostorError(a.address, a.profileDir) }
   if (a.error === 'protocol')

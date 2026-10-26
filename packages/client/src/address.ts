@@ -1,5 +1,5 @@
 // Where the Host listens. Derived from the profile directory, so the dev app, the installed app and
-// a throwaway verification profile each get their own Host and never meet (design §5).
+// a throwaway verification profile each get their own Host and never meet.
 //
 // Pure, and the platform arrives as an argument rather than being read from `process`: this module's
 // tests run on windows, macos and ubuntu, and a module that asks the host which platform it is on

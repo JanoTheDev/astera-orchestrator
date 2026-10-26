@@ -1,5 +1,5 @@
-// The typed namespaces on the client (SDK spec §5): each method sends the Host command and arguments the public CLI
-// sends (docs/superpowers/specs/2026-10-12-sdk-1c-command-reference.md §A), does the pre-reads MCP does (a project
+// The typed namespaces on the client: each method sends the Host command and arguments the public CLI
+// sends, does the pre-reads MCP does (a project
 // id to its folder), and answers in the DTO shapes of types.ts. Lists come back as `{ items }`; a wait's ending is
 // data, not an error.
 import path from 'node:path'
@@ -278,7 +278,7 @@ export function createNamespaces(call: Call, features: () => readonly string[], 
     ending?: WaitEnding | null
   }
 
-  /** The CLI's follow (src/cli/follow.ts followRun): windows of `runs-follow` on one connection, each event once by
+  /** The CLI's follow (`followRun` in the astera CLI): windows of `runs-follow` on one connection, each event once by
    *  `eventKey` though the Host answers the whole timeline when anything is new, the ending last. */
   async function* follow(runId: string, o: WaitOptions = {}): AsyncGenerator<FollowItem> {
     const id = need('runId', runId)

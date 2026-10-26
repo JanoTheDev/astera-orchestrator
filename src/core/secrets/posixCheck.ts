@@ -1,5 +1,5 @@
-// Read-side checks for the secret store (remote runtime design §4.6, D5.3). `privateDirProblem` in
-// `src/core/host/socketDir.ts` is the precedent; this extends it to files and to the walk up to the profile
+// Read-side checks for the secret store. `privateDirProblem` in
+// `packages/client/src/socketDir.ts` is the precedent; this extends it to files and to the walk up to the profile
 // directory. Pure: the caller passes `lstat`, so the rules are tested on any OS.
 import path from 'node:path'
 

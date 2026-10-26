@@ -751,7 +751,7 @@ describe('connectFailureEnd — 접속 실패 셋을 가른다', () => {
     expect(EXIT_CODES['TIMEOUT']).toBe(7)
   })
 
-  // 프로토콜 4 (core/host/hostKey.ts): 주소에 있는 것이 이 프로필의 Host 라고 증명하지 못했다. 다른 계정이
+  // 프로토콜 4 (packages/client/src/hostKey.ts): 주소에 있는 것이 이 프로필의 Host 라고 증명하지 못했다. 다른 계정이
   // 주소를 잡고 있을 수 있고, 그쪽에는 아무것도 보내지 않았다. 없는 Host 도, 파일로 답할 일도 아니다.
   it('증명하지 못한 것은 PERMISSION_DENIED 이고 파일을 읽지 않는다', () => {
     const end = connectFailureEnd({ error: 'impostor', address: addr, profileDir: 'P' })

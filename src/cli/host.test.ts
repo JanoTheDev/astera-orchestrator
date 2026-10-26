@@ -44,7 +44,7 @@ const envelopeOf = (
   return JSON.parse(errEnvelope(r.error, cmd)) as { ok: boolean; error: { nextSteps: string[] } }
 }
 
-/** A fake Host's answer to the nonce in the first line it was sent (protocol 4, core/host/hostKey.ts). */
+/** A fake Host's answer to the nonce in the first line it was sent (protocol 4, packages/client/src/hostKey.ts). */
 const proofOf = (key: string, firstData: string): string =>
   hostProof(key, (JSON.parse(firstData.split(/\r?\n/)[0]) as { nonce?: string }).nonce ?? '')
 

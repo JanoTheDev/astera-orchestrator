@@ -1,11 +1,11 @@
-// @astera-app/plugin-sdk: what an Astera plugin is written against (SDK + Plugin spec §15, plugin runtime design P10).
+// @astera-app/plugin-sdk: what an Astera plugin is written against.
 // A plugin's entry file exports `definePlugin({...})` as its default; Astera's launcher loads it, builds the context
 // and calls `activate`. `ctx.astera` is a client from @astera-app/client, which the Host answers within the
 // permissions the person granted the plugin. Plugins run trusted code on the person's machine: the permissions limit
-// what a plugin asks Astera for, not what it can do (design P1).
+// what a plugin asks Astera for, not what it can do.
 import type { AsteraClient, AsteraEvent, EventGap } from '@astera-app/client'
 
-/** The Plugin API this package is written for: the manifest's `astera.apiVersion` (spec §28). */
+/** The Plugin API this package is written for: the manifest's `astera.apiVersion`. */
 export const PLUGIN_API_VERSION = '1'
 
 /** Lines to the plugin's log, which `astera plugins logs` reads. Anything the plugin prints goes there too. */
@@ -15,7 +15,7 @@ export interface PluginLog {
   error(message: string): void
 }
 
-/** Secrets the plugin keeps (spec §23): in Astera's store for this plugin alone, never shown to anyone, and redacted
+/** Secrets the plugin keeps: in Astera's store for this plugin alone, never shown to anyone, and redacted
  *  from the plugin's log. Names are letters, digits, `_`, `-` and `.`, at most 73, not starting or ending with `.`, and
  *  `Token` is the same name as `token`; values are text of at most 65,536 characters. */
 export interface PluginSecrets {

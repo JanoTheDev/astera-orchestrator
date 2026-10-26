@@ -175,7 +175,7 @@ export const COMPLETION_CHECK_FIELDS = Object.freeze([
   'skipped'
 ] as const)
 
-/** One public event's envelope (SDK spec §6); its payload is shaped by its type (shape.ts shapeEvent). */
+/** One public event's envelope; its payload is shaped by its type (shape.ts shapeEvent). */
 export const EVENT_FIELDS = Object.freeze(['id', 'type', 'sequence', 'occurredAt', 'projectId', 'jobId', 'runId', 'taskId', 'sessionId', 'payload'] as const)
 
 /** Built from a record of every EventType, so a type added to the union and not here fails the typecheck. */

@@ -1,11 +1,11 @@
 // The error contract of everything Astera answers to a script: the `astera` CLI, its MCP server and the SDK
-// (public CLI design §7-§8, remote runtime design §3.10). A message is for a person; the code is for the machine.
+// A message is for a person; the code is for the machine.
 //
 // **A closed set, and the list is the type.** `EXIT_CODES` is a `Record` over it, so adding a code breaks the
 // compile until the code has an exit code; the app's own tables over the same type (the CLI's next steps) break the
 // same way.
 
-/** The remote runtime's codes (design §3.10), as a Runtime's controller gate and the controller link name them. */
+/** The remote runtime's codes, as a Runtime's controller gate and the controller link name them. */
 export const REMOTE_ERROR_CODES = Object.freeze([
   'RUNTIME_NOT_FOUND',
   'RUNTIME_OFFLINE',
@@ -47,7 +47,7 @@ export const ERROR_CODES = Object.freeze([
 ] as const)
 export type AsteraErrorCode = (typeof ERROR_CODES)[number]
 
-/** One exit code per code: the public CLI design's §8 table is this object, so it cannot be written twice. */
+/** One exit code per code: the table of exit codes is this object, so it cannot be written twice. */
 export const EXIT_CODES: Readonly<Record<AsteraErrorCode, number>> = Object.freeze({
   FAILED: 1,
   INVALID_ARGUMENTS: 2,
@@ -77,7 +77,7 @@ export const EXIT_CODES: Readonly<Record<AsteraErrorCode, number>> = Object.free
 })
 
 /** The remote code a Runtime's refusal names in its body (`{ code }`), or null. Read from the field, never the
- *  sentence (§3.10). */
+ *  sentence. */
 export const remoteCodeOf = (body: unknown): RemoteErrorCode | null => {
   const code = bodyCodeOf(body)
   return code !== null && (REMOTE_ERROR_CODES as readonly string[]).includes(code) ? (code as RemoteErrorCode) : null

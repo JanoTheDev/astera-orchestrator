@@ -1,4 +1,4 @@
-// @astera-app/client: talks to this machine's Astera Host the way the `astera` CLI does (SDK spec §4, local mode).
+// @astera-app/client: talks to this machine's Astera Host the way the `astera` CLI does (local mode).
 // One connection, many calls in flight (each `orch-call` carries its own id), the CLI's error codes, request ids for
 // safe retries, the CLI's deadlines, and the CLI's public field shaping on every answer.
 //
@@ -63,7 +63,7 @@ export interface CallOptions {
   readonly requestId?: string
   /** Ends the wait for the answer, the connect included, rejecting with the signal's reason (an `AbortError`
    *  DOMException by default, not an AsteraError). The Host may still finish the command: cancelling a call is not
-   *  cancelling a Run (SDK spec §34). */
+   *  cancelling a Run. */
   readonly signal?: AbortSignal
   /** How long to wait for this answer, the connect included, in ms. Default: the command's deadline (see
    *  `AsteraClientOptions.callTimeoutMs`). */
@@ -164,7 +164,7 @@ export async function createAsteraClient(options: AsteraClientOptions = {}): Pro
 }
 
 /**
- * A client over a connection its caller makes (plugin runtime design P10): the plugin launcher hands one built on the
+ * A client over a connection its caller makes (the plugin launcher hands one built on the
  * plugin's stdio, where the Host is on the other end of the process's pipes. Internal: the published package exports
  * `createAsteraClient` only. `connect` resolves an open connection or throws the error a call should fail with;
  * `address` names the connection in messages.

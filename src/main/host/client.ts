@@ -33,7 +33,7 @@ export interface HostClientDeps {
    *  Hosts racing for one address. Time spent in here does not count against `ready(ms)` either. */
   spawnHost(ctx: SpawnContext): void | Promise<void>
   log(m: string): void
-  /** The profile's Host key (core/host/hostKey.ts `readHostKey`), read before each connection. The
+  /** The profile's Host key (packages/client/src/hostKey.ts `readHostKey`), read before each connection. The
    *  Host's hello has to carry the proof of it, or this client treats what answered as somebody
    *  else's and sends it nothing more: on Windows another account can create the pipe first. */
   hostKey(): Promise<string | null>
@@ -132,7 +132,7 @@ const sleep = (ms: number): Promise<void> =>
 
 const connectOnce = async (address: string, log: (m: string) => void): Promise<net.Socket> => {
   // Before anything is sent there: a socket in a directory another user could have made is not this
-  // user's Host, whatever answers (core/host/socketDir.ts). Refused the way an absent Host is, and the
+  // user's Host, whatever answers (packages/client/src/socketDir.ts). Refused the way an absent Host is, and the
   // Host this then starts refuses the same directory itself, so nothing of this profile ever runs there.
   const unsafe = await unsafeSocketDir(address)
   if (unsafe !== null) {
@@ -728,7 +728,7 @@ export class HostClient {
     // Before anything is read off it: whatever this message says, it says the Host's event loop is
     // turning. That is the only question `unresponsive` asks, so a Host written off a moment ago
     // takes itself back here rather than waiting for somebody to notice (design F1).
-    // **Nothing from a peer that has not proven itself reaches anyone** (protocol 4, core/host/hostKey.ts).
+    // **Nothing from a peer that has not proven itself reaches anyone** (protocol 4, packages/client/src/hostKey.ts).
     // A Host sends nothing before its hello, so this drops only what a squatter would try to slip in.
     if (this.proven !== this.socket && m?.t !== 'hello' && m?.t !== 'protocol-mismatch') return
     this.alive()

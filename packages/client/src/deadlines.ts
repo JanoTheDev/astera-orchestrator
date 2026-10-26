@@ -1,5 +1,5 @@
-// How long a client waits for the Host's answer (the CLI's rule, src/cli/follow.ts clientTimeoutMs, and the SDK's).
-// Imports nothing: the renderer reaches these deadlines through src/core/publicProtocol.ts.
+// How long a client waits for the Host's answer (the CLI's rule and the SDK's).
+// Imports nothing: the app's renderer reaches these deadlines through its public protocol module.
 
 /** The Host's default long-poll deadline for `runs wait`, `jobs wait` and `sessions send --wait`. The Host and every
  *  client read it from here: two copies would drift. */

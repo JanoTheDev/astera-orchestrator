@@ -19,7 +19,7 @@ import { makeDescriptors } from '../../core/providers/descriptor'
 import type { ProcLike } from '../../core/sessions/proc'
 import type { Account } from '../../core/types'
 
-/** The profile's Host key every test Host holds (protocol 4, core/host/hostKey.ts), and the read the
+/** The profile's Host key every test Host holds (protocol 4, packages/client/src/hostKey.ts), and the read the
  *  client makes of it. */
 const KEY = 'e'.repeat(64)
 const hostKey = async (): Promise<string | null> => KEY
