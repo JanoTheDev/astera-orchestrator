@@ -15,7 +15,6 @@ import { Button, EmptyState, ICONS, type IconName } from '../ui'
 import { PlansPage } from '../pages/PlansPage'
 import { StartPage } from '../pages/StartPage'
 import { WorktreeDetail } from '../worktrees/WorktreeDetail'
-import { cdCommand } from '../worktrees/worktreeActions'
 import { SettingsPage } from '../settings/SettingsPage'
 import { KeyboardShortcuts } from '../ShortcutSettings'
 import { MainPlan } from '../plan/MainPlan'
@@ -126,7 +125,7 @@ function WorktreeTab({ p, path, close }: { p: ViewTabProps; path?: string; close
         p.setShowNew(true)
       }}
       onOpenFiles={(cwd) => p.openLinkedFolder(cwd)}
-      onTerminal={(cwd) => void p.newTerminal(cdCommand(cwd))}
+      onTerminal={(cwd) => void p.newTerminal(undefined, cwd)}
     />
   )
 }

@@ -20,7 +20,7 @@ type NavigationDeps = Pick<
   | 'canOpenSessionTab' | 'setWorkspaceScope' | 'workspaceIds' | 'workspaceProjectId' | 'selectWorkbenchTab' | 'workspaceTree' | 'enterWorkspace' | 'setPendingRun'
   | 'setPlanPage' | 'showActivity' | 'setSidebarOpen' | 'openPanelTab' | 'setPanelVisible' | 'runPanelOpen' | 'layoutRef'
   | 'activePaneIdRef' | 'setLayout' | 'setActivePaneId' | 'openStart' | 'terminals' | 'setBottomTab' | 'openTerminal'
-  | 'openLinkedPath' | 'spawn' | 'setTerminals' | 'setRunPanelOpen' | 't'
+  | 'openLinkedPath' | 'spawn' | 'setTerminals' | 'setRunPanelOpen' | 'bottomRoot' | 't'
 >
 
 export function useNavigation(app: NavigationDeps): void {
@@ -30,7 +30,7 @@ export function useNavigation(app: NavigationDeps): void {
       selectWorkbenchTab, workspaceTree, enterWorkspace, setPendingRun, setPlanPage, workspaceIds, workspaceProjectId,
       showActivity, setSidebarOpen, openPanelTab, setPanelVisible, runPanelOpen, layoutRef, activePaneIdRef, setLayout,
       setActivePaneId, openStart, terminals, setBottomTab, openTerminal, openLinkedPath, spawn,
-      setTerminals, setRunPanelOpen, t
+      setTerminals, setRunPanelOpen, bottomRoot, t
     } = app
     /** Opens the view tab, or focuses the one already open, in whichever group it sits. */
     const placeView = (name: ViewName, arg?: string): void => {
@@ -99,10 +99,11 @@ export function useNavigation(app: NavigationDeps): void {
       openFile: (path, at) => openLinkedPath(path, at),
       // T7 review: Ask AI on a plain worktree. No account named is Auto (T1); no default is saved for it
       startSession: (cwd, kind) => spawn({ accountIds: [], cwd, saveDefault: false, kind }),
-      // A Task's worktree shell: newTerminal's steps (state/useRunActions.ts), at `cwd` instead of the panel's root
+      // A Task's worktree shell: newTerminal's steps (state/useRunActions.ts), at `cwd`; keyed by the panel's root so a re-list keeps it
       openTerminalAt: async (cwd) => {
+        if (!bottomRoot) return
         try {
-          const info = await window.api.terminal.open(cwd)
+          const info = await window.api.terminal.open(bottomRoot, undefined, undefined, cwd)
           setTerminals((prev) => [...prev, { id: info.id, buffer: '' }])
           setBottomTab(info.id)
           setRunPanelOpen(true)
