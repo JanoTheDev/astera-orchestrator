@@ -3,6 +3,7 @@ import type { MessageKey } from '../../../core/i18n'
 import { isStoppedWorker } from '../../../core/orchestration/running'
 import { useI18n } from '../i18n/I18nProvider'
 import { Icon } from './ui'
+import { TASK_MEANING, taskStatusColor } from './ui/statusTone'
 
 /** 여덟 상태의 툴팁 키. 글리프와 **같은 파일에** 있는 이유는 글리프가 여기 있는 이유와 같다 —
  *  아이콘이 말로 풀리는 자리(툴팁, 접근성 이름)가 화면마다 다른 낱말을 쓰면 같은 모양이 두 뜻을
@@ -22,27 +23,10 @@ export const STATE_KEY: Record<TaskStatus, MessageKey> = {
   blocked: 'jobs.state.blocked'
 }
 
-/** Task 한 상태의 색. 글리프도 띠도 그래프도 여기서 가져간다.
- *
- *  pending/ready 는 쉬는 글자 톤을 그대로 쓰고(아직 아무 일도 일어나지 않았다), 끝난 셋은 git 상태
- *  팔레트(ok/deleted/conflict)를 빌린다 — 같은 세 뜻에 새 색을 만들 이유가 없다. */
-export const STATUS_COLOR: Record<TaskStatus, string> = {
-  // 의존이 아직 풀리지 않은 것. 파일 트리에서 '봐도 되지만 볼 필요는 없는' 것에 쓰는 톤을 빌린다
-  pending: 'var(--fi-mute)',
-  ready: 'var(--text-dim)',
-  dispatched: 'var(--accent)',
-  // 검증 중 — 도는 중(accent)과도, 끝난 셋과도 달라야 한다. git 의 '수정됨' 톤을 빌린다:
-  // 이 앱에서 이미 "아직 정해지지 않았다"를 뜻하는 색이다.
-  validating: 'var(--git-modified)',
-  // 검토 중 — 검증(--git-modified)과도, 도는 중(accent)과도, 끝난 셋과도 달라야 한다.
-  // 다른 에이전트가 읽고 있는 상태이므로 상태 팔레트에 없던 색을 하나 빌린다.
-  reviewing: 'var(--fi-purple)',
-  // Landing on the plan branch is still undecided work, so it shares validating's tone
-  merging: 'var(--git-modified)',
-  completed: 'var(--ok)',
-  failed: 'var(--git-deleted)',
-  blocked: 'var(--git-conflict)'
-}
+/** Task 한 상태의 색. 글리프도 띠도 그래프도 여기서 가져간다. 뜻과 색은 ui/statusTone.ts 가 정한다. */
+export const STATUS_COLOR: Record<TaskStatus, string> = Object.fromEntries(
+  (Object.keys(TASK_MEANING) as TaskStatus[]).map((s) => [s, taskStatusColor(s)])
+) as Record<TaskStatus, string>
 
 /** Task 상태의 여덟 글리프. 사이드바와 상세 창이 **같은 파일에서** 가져다 쓴다 — 같은 뜻이 화면마다
  *  다르게 생기면 "아이콘으로 읽는다"는 규칙 자체가 무너진다.

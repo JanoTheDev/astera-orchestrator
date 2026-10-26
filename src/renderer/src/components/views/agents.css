@@ -30,7 +30,8 @@
 
 /* The status dot; its aria-label and tooltip say the state in words */
 .agents-dot { display: block; width: 8px; height: 8px; border-radius: 50%; background: var(--text-faint); }
-.agents-dot--working { background: var(--accent); }
+/* colours follow ui/statusTone.ts */
+.agents-dot--working { background: var(--info); }
 .agents-dot--needs { background: var(--warn); }
 .agents-dot--failed { background: var(--danger); }
 .agents-dot--finished { border: 1.5px solid var(--text-faint); background: transparent; }

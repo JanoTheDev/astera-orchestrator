@@ -1,7 +1,7 @@
-/* W2-C plan board (components/plan/). Bucket colours borrow the task glyph palette (STATUS_COLOR): cancelled is the
-   faint grey of a stopped thing, never failed's red. */
+/* W2-C plan board (components/plan/). Bucket colours follow ui/statusTone.ts: cancelled is the faint grey of a
+   stopped thing, never failed's red. */
 .plan-cat-done { --plan-cat: var(--ok); }
-.plan-cat-running { --plan-cat: var(--accent); }
+.plan-cat-running { --plan-cat: var(--info); }
 .plan-cat-awaiting-review { --plan-cat: var(--fi-purple); }
 .plan-cat-queued { --plan-cat: var(--text-dim); }
 .plan-cat-failed { --plan-cat: var(--danger); }
@@ -39,17 +39,18 @@
 .detail-node-acts button.detail-node-act:hover:not(:disabled) { color: var(--accent); }
 .detail-checks .detail-check { display: inline-flex; align-items: center; }
 
-/* T4 task kinds: one token colour per kind on the badge's icon; the label keeps the text colour */
+/* T4 task kinds: one --fi-* colour per kind on the badge's icon; the label keeps the text colour. Never a status
+   colour (statusTone.ts: --danger --ok --warn --info --accent), so a kind cannot read as a state. */
 .plan-kind { --plan-kind: var(--text-dim); flex: none; }
 .plan-kind svg { color: var(--plan-kind); }
-.plan-kind--bugfix { --plan-kind: var(--danger); }
-.plan-kind--feature { --plan-kind: var(--accent); }
-.plan-kind--refactor { --plan-kind: var(--fi-cyan); }
-.plan-kind--ui { --plan-kind: var(--fi-purple); }
+.plan-kind--bugfix { --plan-kind: var(--fi-pink); }
+.plan-kind--feature { --plan-kind: var(--fi-cyan); }
+.plan-kind--refactor { --plan-kind: var(--fi-gray); }
+.plan-kind--ui { --plan-kind: var(--fi-blue); }
 .plan-kind--audit { --plan-kind: var(--fi-yellow); }
-.plan-kind--docs { --plan-kind: var(--fi-blue); }
-.plan-kind--test { --plan-kind: var(--ok); }
-.plan-kind--ops { --plan-kind: var(--fi-orange); }
+.plan-kind--docs { --plan-kind: var(--fi-orange); }
+.plan-kind--test { --plan-kind: var(--fi-green); }
+.plan-kind--ops { --plan-kind: var(--fi-mute); }
 .plan-kind-merge { flex: none; }
 .plan-kind-filter { grid-column: 1 / -1; display: flex; }
 .plan-row-reuse { margin: 0; display: flex; align-items: center; gap: 4px; font-size: var(--fs-11); color: var(--text-faint); }

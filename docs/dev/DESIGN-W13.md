@@ -288,6 +288,10 @@ Rules:
   active chip is `--text` on `--accent-soft`, with the 2px `--accent` marker.
 - At most one filled accent button per view.
 - Status colours only for status, always with an icon or a word.
+- **One colour per status, everywhere** (`ui/statusTone.ts`; glyphs, chips, bands, graph, board, dots): waiting
+  (pending, ready) `--text-dim` (pending `--fi-mute`) · running (dispatched) `--info` · checking (validating,
+  reviewing, merging) `--fi-purple` · done `--ok` · failed `--danger` · blocked / needs you `--warn`. Idle is
+  neutral, never `--ok`. Task kinds use `--fi-*` hues only, never one of these.
 - Fixed colours (PR, git, file types, brand, roles, agent violet, syntax) stay in `tokens.css` as they are.
 - Older token names (`--rail`, `--surface-hover`, `--btn-bg`, `--status-bg`, …) keep working; they derive from the
   tokens above (`core/theme/apply.ts`).
