@@ -6,11 +6,13 @@
 // limits whoever drove it. A plugin is third-party code; what it answers reaches a worker's spec and a person's screen.
 //
 // Pure, and type-only imports from the state: state.ts imports this module.
+import type { CompletionCheckInput } from '../pluginContract'
 import { clip, webUrl } from '../sources/answers'
 import type { OrchState } from './state'
 import type { CheckDiagnostic, CheckResult, Task } from './types'
 
 export type { CheckDiagnostic } from './types'
+export type { CompletionCheckInput }
 
 /** A Task's check list names a plugin's check as `plugin:<pluginId>` (C6). */
 export const PLUGIN_CHECK_PREFIX = 'plugin:'
@@ -20,17 +22,6 @@ export function pluginIdOfCheck(configId: string): string | null {
   if (!configId.startsWith(PLUGIN_CHECK_PREFIX)) return null
   const id = configId.slice(PLUGIN_CHECK_PREFIX.length)
   return id === '' ? null : id
-}
-
-/** What Astera asks a check plugin with (C3). `root` is the folder the Task's checks run in; `base` the commit its work
- *  started from, `head` the commit its last attempt reached, each when the Host recorded one. */
-export interface CompletionCheckInput {
-  projectId?: string
-  jobId: string
-  runId: string
-  taskId: string
-  task: { title: string }
-  workspace: { root: string; base?: string; head?: string; branch?: string }
 }
 
 /** A plugin check's answer as Astera keeps it (C4, C5), named by the plugin's display name. */
