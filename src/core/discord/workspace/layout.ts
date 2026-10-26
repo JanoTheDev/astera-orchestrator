@@ -3,6 +3,7 @@
 // the bot created, and apply.ts runs the steps. Only channels named in the store are ever edited, moved or deleted.
 import { basename } from 'node:path'
 import { awaitsApproval } from '../../orchestration/activity'
+import { holdOf } from '../../orchestration/holds'
 import { jobNameOf } from '../../orchestration/jobName'
 import { isJobActive } from '../../orchestration/lifecycle'
 import { projectOfJob } from '../../orchestration/projects'
@@ -77,7 +78,14 @@ function planState(s: OrchState, job: Job): { rank: number; words: string } {
   if (delivery === 'needs-owner') return { rank: 0, words: 'delivery needs you' }
   if (job.deliveredBy || delivery === 'delivered' || delivery === 'delivered-by-owner')
     return { rank: 2, words: 'delivered' }
+  const hold = holdOf(job)
+  if (hold === 'replan-question') return { rank: 0, words: 'the planner asked you a question' }
+  if (hold === 'owner') return { rank: 0, words: 'held by you: not launching new agents' }
+  if (last?.paused === true) return { rank: 2, words: 'stopped' }
   if (job.paused) return { rank: 2, words: 'paused' }
+  if (hold === 'final-check') return { rank: 1, words: 'final check before merging' }
+  if (hold === 'replanning') return { rank: 1, words: 're-planning' }
+  if (delivery === 'delivering' || delivery === 'retrying') return { rank: 1, words: 'merging into main' }
   if (job.pendingStart) return { rank: 2, words: 'planning' }
   if (last) return { rank: 1, words: 'running' }
   return { rank: 2, words: 'not started' }

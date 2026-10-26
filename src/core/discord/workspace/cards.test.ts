@@ -84,6 +84,39 @@ describe('planCard', () => {
   })
 })
 
+describe('planStateOf names the real state', () => {
+  const run = (over: Partial<JobRun> = {}): JobRun => ({ id: 'run_1', jobId: 'job_1', ordinal: 1, createdAt: 'x', ...over }) as JobRun
+  const replan = { startedAt: 'x', runId: 'run_1', mode: 'wave' as const, wave: 1, done: 0 }
+
+  it('reads a final check, a re-plan and a held plan from holdOf', () => {
+    const running = [task(1, 'completed', { runId: 'run_1', jobId: undefined })]
+    const finalCheck = stateWith({ jobs: [job({ replanning: { ...replan, mode: 'completion' } })], runs: [run()], tasks: running })
+    expect(planStateOf(finalCheck, finalCheck.jobs[0])).toBe('finalCheck')
+    const replanning = stateWith({ jobs: [job({ replanning: replan })], runs: [run()], tasks: running })
+    expect(planStateOf(replanning, replanning.jobs[0])).toBe('replanning')
+    const held = stateWith({ jobs: [job({ dispatchHold: true })], runs: [run()], tasks: running })
+    expect(planStateOf(held, held.jobs[0])).toBe('held')
+  })
+
+  it('reads a planner question waiting for the owner as question, not held', () => {
+    const asked = job({ dispatchHold: true, lastReplan: { ...replan, at: 'x', summary: 's', escalated: 'Which way?' } })
+    const s = stateWith({ jobs: [asked], runs: [run()] })
+    expect(planStateOf(s, s.jobs[0])).toBe('question')
+  })
+
+  it('reads a delivery still in flight as delivering, retrying included', () => {
+    for (const state of ['delivering', 'retrying'] as const) {
+      const s = stateWith({ jobs: [job()], runs: [run({ deliveryState: { state, attempts: 1 } })], tasks: [task(1, 'completed', { runId: 'run_1', jobId: undefined })] })
+      expect(planStateOf(s, s.jobs[0])).toBe('delivering')
+    }
+  })
+
+  it('reads a paused run as stopped', () => {
+    const s = stateWith({ jobs: [job()], runs: [run({ paused: true })], tasks: [task(1, 'pending', { runId: 'run_1', jobId: undefined })] })
+    expect(planStateOf(s, s.jobs[0])).toBe('stopped')
+  })
+})
+
 describe('gateMessage', () => {
   const gate = (options?: string[]): Gate => ({ id: 'gat_1', runId: 'run_1', taskId: 'tsk_1', question: 'Which way?', options, status: 'open', createdAt: 'x' })
 
