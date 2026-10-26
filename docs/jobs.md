@@ -50,7 +50,7 @@ Its coordinator then plans first: it breaks the objective into a few Tasks (with
 project's run configurations as checks) and runs them. A Job that has Tasks is run as it stands; the coordinator
 creates no Tasks of its own.
 
-**The coordinator plans and places; it never edits files.** Its session runs in the project folder itself, not in a
+**The coordinator plans and places; it is told not to edit files.** Its session runs in the project folder itself, not in a
 worktree, so all editing, building and committing is done by the workers that take the Tasks.
 
 Nothing is written to disk at this point. A Job that never runs leaves no empty folder behind.
