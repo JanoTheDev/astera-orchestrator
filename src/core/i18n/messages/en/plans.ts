@@ -162,9 +162,9 @@ export const plans: Record<keyof typeof ko, string> = {
   'plan.header.copyId': 'Copy plan ID',
   'plan.header.idCopied': 'Plan ID copied',
   // T7 Ask & plan more on finished plans
-  'plan.chat.askMore': 'Ask & plan more',
-  'plan.chat.askMoreHint': "Chat with this finished plan's planner in a tab: ask what was done or add follow-up Tasks",
-  'plan.chat.openTab': 'Open in a tab',
+  'plan.chat.label': 'Chat',
+  'plan.chat.hint': 'Ask about progress or add to this plan',
+  'plan.chat.diff': 'The box sends a change to the planner. The chat answers questions and can pass changes on.',
   'plan.chat.failed': 'Could not open the planner tab',
   'plan.chat.remote': "A paired Runtime's plan has no planner tab on this computer",
   'pages.plans.main.rowMenu': 'Plan actions',

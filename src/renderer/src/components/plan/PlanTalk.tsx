@@ -10,7 +10,7 @@ import { replyNote } from '../../lib/orchDoor'
 import { openPlanChat, postPlanFeedback, rejectPlan, stopRun, type ActionUi } from '../../lib/jobActions'
 import { openConsole } from '../shell/navigation'
 import { Button, Chip, Icon, Input, Textarea } from '../ui'
-import { canAskPlanMore, feedbackMark, feedbackOutcomeOf, planTalkView, plannerWaitingIn, type FeedbackOutcome } from './planTalk'
+import { canChat, feedbackMark, feedbackOutcomeOf, planTalkView, plannerWaitingIn, type FeedbackOutcome } from './planTalk'
 
 /** The sentence under the box for what the message did. */
 const OUTCOME_KEY = { sent: 'plan.talk.sent', queued: 'plan.talk.queuedNotice', reopened: 'plan.talk.reopened' } as const satisfies Record<FeedbackOutcome, string>
@@ -117,20 +117,21 @@ export function PlanTalk({ row, door, ui, name }: { row: JobRow; door: OrchDoor;
         <Button size="sm" loading={sending} disabled={!text.trim() || door.readOnlyReason != null} title={t('plan.talk.placeholder')} onClick={() => void send()}>
           {t('plan.talk.send')}
         </Button>
-        {/* T7: a finished plan's planner in a tab of its own; a paired Runtime's has no tab on this computer */}
-        {canAskPlanMore(row) && (
+        {/* the plan's chat tab, in every phase; a paired Runtime's has no tab on this computer */}
+        {canChat(row) && (
           <Button
             size="sm"
             variant="ghost"
-            icon={<Icon name="sparkles" size={14} />}
+            icon={<Icon name="message" size={14} />}
             disabled={door.readOnlyReason != null || door.runtimeId !== undefined}
-            title={door.runtimeId !== undefined ? t('plan.chat.remote') : t('plan.chat.askMoreHint')}
+            title={door.runtimeId !== undefined ? t('plan.chat.remote') : t('plan.chat.hint')}
             onClick={() => void openPlanChat(door, row.id, ui)}
           >
-            {t('plan.chat.openTab')}
+            {t('plan.chat.label')}
           </Button>
         )}
       </div>
+      {canChat(row) && <p className="plan-talk-wait">{t('plan.chat.diff')}</p>}
       {result === 'waiting' ? (
         <div className="plan-talk-waiting" role="alert">
           <span>{t('plan.talk.plannerWaiting')}</span>

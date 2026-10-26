@@ -53,14 +53,15 @@ describe('headerActionsOf', () => {
     expect(headerActionsOf(undefined, true)).toEqual({ finished: false, approve: false, consoles: true, askMore: false, copyId: true, primary: null })
   })
 
-  it('a planned, unarchived, finished plan of this computer makes Ask & plan more the primary', () => {
+  it('a planned, unarchived, finished plan of this computer makes Chat the primary', () => {
     const a = headerActionsOf(row({ outcome: 'completed', planned: true, pr: { at: 'x', url: 'u' } }), true)
     expect(a).toMatchObject({ askMore: true, primary: 'askMore', archive: 'archive' })
     expect(headerActionsOf(row({ outcome: 'failed', planned: true }), true).primary).toBe('askMore')
   })
 
-  it('no Ask & plan more on a running, archived, unplanned or paired-Runtime plan', () => {
-    expect(headerActionsOf(row({ outcome: 'running', planned: true }), true).askMore).toBe(false)
+  it('Chat on a running or waiting plan too, but never the primary; none for archived, unplanned or paired-Runtime plans', () => {
+    expect(headerActionsOf(row({ outcome: 'running', planned: true }), true)).toMatchObject({ askMore: true, primary: null })
+    expect(headerActionsOf(row({ pendingStart: true, planned: true, planReady: true }), true)).toMatchObject({ askMore: true, primary: 'approve' })
     expect(headerActionsOf(row({ outcome: 'completed', planned: true, archivedAt: 'x' }), true).askMore).toBe(false)
     expect(headerActionsOf(row({ outcome: 'completed' }), true).askMore).toBe(false)
     expect(headerActionsOf(row({ outcome: 'completed', planned: true }), false).askMore).toBe(false)

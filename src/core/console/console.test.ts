@@ -5,7 +5,9 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { handleCommand, type HostSession, type OrchServerDeps, type SessionCreate } from '../orchestration/command'
 import { emptyState, type OrchState } from '../orchestration/state'
 import { CONSOLE_BRIEF } from './brief'
-import { CONSOLE_TITLE, consoleIdStore, ensureConsole, type ConsoleDeps } from './console'
+import { CONSOLE_TITLE, consoleIdStore, ensureChat, ensureConsole, isChatSession, type ConsoleDeps } from './console'
+import { planChatBrief } from '../orchestration/planChatBrief'
+import type { Job } from '../orchestration/types'
 
 const row = (id: string, alive: boolean, extra: Partial<HostSession> = {}): HostSession => ({
   id,
@@ -120,5 +122,79 @@ describe('console-ensure', () => {
 
   it('is refused by a caller that is not the Host (409)', async () => {
     expect((await handleCommand(deps({}), { sessionId: '' }, 'console-ensure', {})).status).toBe(409)
+  })
+})
+
+describe('ensureChat', () => {
+  it('keeps two chats apart: each key starts its own session', async () => {
+    const f = fakes()
+    let a: string | null = null
+    let b: string | null = null
+    const chat = (key: string, get: () => string | null, set: (v: string) => void) =>
+      ensureChat({ ...f.deps, key, title: key, prompt: 'p', store: { read: async () => get(), write: async (v) => set(v) } })
+    const [x, y] = await Promise.all([chat('job_a', () => a, (v) => (a = v)), chat('job_b', () => b, (v) => (b = v))])
+    expect(x.id).not.toBe(y.id)
+    expect(f.created.map((c) => c.title)).toEqual(['job_a', 'job_b'])
+  })
+})
+
+describe('isChatSession', () => {
+  const rows = [row('c1', false), row('c2', true, { rolledFrom: 'c1' }), row('x', true)]
+  it('is the chat itself or a session rolled from it', () => {
+    expect(isChatSession(rows, 'c1', 'c1')).toBe(true)
+    expect(isChatSession(rows, 'c2', 'c1')).toBe(true)
+    expect(isChatSession(rows, 'x', 'c1')).toBe(false)
+    expect(isChatSession(rows, 'c1', 'c2')).toBe(false)
+  })
+})
+
+describe('jobs-chat-ensure', () => {
+  const job: Job = { id: 'job_1', objective: 'ship it', title: 'Ship', cwd: '/repo', createdAt: '2026-10-24T00:00:00.000Z' }
+  const deps = (f: ReturnType<typeof fakes> | null, jobs: Job[] = [job]): { d: OrchServerDeps; state: () => OrchState } => {
+    const box = { state: { ...emptyState(), jobs } }
+    const d = {
+      getState: () => box.state,
+      setState: async (next: OrchState) => void (box.state = next),
+      listAccounts: () => [],
+      now: () => '2026-10-24T00:00:00.000Z',
+      ...(f ? { listSessions: f.deps.list, createSession: f.deps.create } : {})
+    } as unknown as OrchServerDeps
+    return { d, state: () => box.state }
+  }
+
+  it("starts the plan's chat in its folder with its brief, keeps the id on the Job and reuses it", async () => {
+    const f = fakes()
+    const { d, state } = deps(f)
+    const a = await handleCommand(d, { sessionId: '' }, 'jobs-chat-ensure', { id: 'job_1' })
+    expect(a.status).toBe(200)
+    const id = (a.body as HostSession).id
+    expect(f.created).toEqual([{ kind: 'chat', cwd: '/repo', title: 'Plan chat: Ship', prompt: planChatBrief(job), rollAccountIds: [], unattended: 'hold' }])
+    expect(state().jobs[0].chatSessionId).toBe(id)
+    const b = await handleCommand(d, { sessionId: '' }, 'jobs-chat-ensure', { id: 'job_1' })
+    expect((b.body as HostSession).id).toBe(id)
+    expect(f.created).toHaveLength(1)
+  })
+
+  it('starts a new chat after the old one ended, and follows a roll', async () => {
+    const ended = fakes([row('old', false)])
+    const r = deps(ended, [{ ...job, chatSessionId: 'old' }])
+    const a = await handleCommand(r.d, { sessionId: '' }, 'jobs-chat-ensure', { id: 'job_1' })
+    expect((a.body as HostSession).id).not.toBe('old')
+    expect(ended.created).toHaveLength(1)
+    expect(r.state().jobs[0].chatSessionId).toBe((a.body as HostSession).id)
+
+    const rolled = fakes([row('c1', false), row('c2', true, { rolledFrom: 'c1' })])
+    const q = deps(rolled, [{ ...job, chatSessionId: 'c1' }])
+    expect(((await handleCommand(q.d, { sessionId: '' }, 'jobs-chat-ensure', { id: 'job_1' })).body as HostSession).id).toBe('c2')
+    expect(rolled.created).toHaveLength(0)
+    expect(q.state().jobs[0].chatSessionId).toBe('c2')
+  })
+
+  it('refuses an unknown job (404), an archived one (409) and a caller that is not the Host (409)', async () => {
+    const f = fakes()
+    expect((await handleCommand(deps(f).d, { sessionId: '' }, 'jobs-chat-ensure', { id: 'nope' })).status).toBe(404)
+    expect((await handleCommand(deps(f, [{ ...job, archivedAt: '2026-10-24T00:00:00.000Z' }]).d, { sessionId: '' }, 'jobs-chat-ensure', { id: 'job_1' })).status).toBe(409)
+    expect((await handleCommand(deps(null).d, { sessionId: '' }, 'jobs-chat-ensure', { id: 'job_1' })).status).toBe(409)
+    expect(f.created).toHaveLength(0)
   })
 })

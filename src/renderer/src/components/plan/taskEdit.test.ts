@@ -3,7 +3,7 @@ import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { Task } from '../../../../core/orchestration/types'
 import type { CommandReply } from '../../lib/orchDoor'
-import { addTaskRequestOf, attemptStateOf, canEdit, createArgsOf, draftOf, editArgsOf, feedbackTextOf, loadTaskInfo, taskEditOf, type EditableTask } from './taskEdit'
+import { placementLineOf, taskModeOf, addTaskRequestOf, attemptStateOf, canEdit, createArgsOf, draftOf, editArgsOf, feedbackTextOf, loadTaskInfo, taskEditOf, type EditableTask } from './taskEdit'
 
 vi.mock('../../i18n/I18nProvider', () => ({ useI18n: () => ({ lang: 'en', t: (key: string) => key }) }))
 const { TaskEditModal } = await import('./TaskEditModal')
@@ -142,5 +142,22 @@ describe('TaskEditModal', () => {
     const html = modal({ fields: 'all' })
     expect(html).not.toContain('plan.edit.why')
     expect((html.match(/<textarea[^>]*>/g) ?? []).every((x) => !x.includes('disabled'))).toBe(true)
+  })
+})
+
+describe('Add task window helpers', () => {
+  const tasks = [{ id: 't1', title: 'Build API' }, { id: 't2', title: 'Docs' }]
+  it('opens on the planner box only for a planned plan', () => {
+    expect(taskModeOf(true)).toBe('ai')
+    expect(taskModeOf(false)).toBe('manual')
+    expect(taskModeOf(undefined)).toBe('manual')
+  })
+  it('names the Tasks to place the new one after', () => {
+    expect(placementLineOf([], tasks)).toBe('')
+    expect(placementLineOf(['t1', 't2', 'gone'], tasks)).toBe('Place it after: "Build API" (t1), "Docs" (t2), gone')
+  })
+  it('adds the placement line to the request', () => {
+    expect(addTaskRequestOf('', ' dark mode ', 'Place it after: x')).toBe('Add a task to the plan.\n\ndark mode\n\nPlace it after: x')
+    expect(addTaskRequestOf('', 'dark mode')).toBe('Add a task to the plan.\n\ndark mode')
   })
 })

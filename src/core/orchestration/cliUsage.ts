@@ -615,7 +615,7 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
   'jobs-feedback': {
     summary: "send the owner's feedback on a plan to its planner",
     detail:
-      'Before approval the text goes to the same planner session: typed in while it runs, its conversation resumed when it has ended, else a fresh planner is started with plan.md, existing.md and the history. While the plan runs it starts a replan at once that changes only Tasks not started, and holds new workers meanwhile. Refused from an agent session.',
+      'Before approval the text goes to the same planner session: typed in while it runs, its conversation resumed when it has ended, else a fresh planner is started with plan.md, existing.md and the history. While the plan runs it starts a replan at once that changes only Tasks not started, and holds new workers meanwhile. Refused from an agent session, except the Astera console and the plan\'s own chat (`jobs chat-ensure`), which send it for the owner.',
     flags: [
       { name: 'job', value: '<jobId>', required: true, about: 'the Job whose plan to change' },
       { name: 'text', value: '<text|->', required: true, about: 'what to change; - reads stdin' }
@@ -627,6 +627,13 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
     detail:
       'Starts a planner on the finished plan that answers your questions from its Tasks\' reports and changed files, changes no files, and adds follow-up Tasks only when you ask; they run like the plan\'s own. Answers its session id; while a replan of the plan runs, answers that planner instead. Refused from an agent session.',
     flags: [{ name: 'id', value: '<jobId>', required: true, about: 'the finished Job to talk about' }]
+  },
+  // T2 a plan's own chat (console/console.ts ensureChat)
+  'jobs-chat-ensure': {
+    summary: "a plan's chat: one chat session per plan, started when none is alive",
+    detail:
+      "The Host starts it as a chat session titled \"Plan chat: <plan>\" in the plan's folder, with a first prompt that has it answer progress from the astera CLI and pass changes to the planner with `jobs feedback`; it changes no files and starts nothing. Its id is kept on the Job, so the next call answers the same session at any phase of the plan. One that ended is started again; one that moved to another account at a usage limit is followed to its new session. Answers the session as `sessions list` shows it. An unknown Job is 4, an archived one 6, a worker session 5, and a caller that is not the Host 6.",
+    flags: [{ name: 'id', value: '<jobId>', required: true, about: 'the plan whose chat to answer' }]
   },
   'jobs-reject': {
     summary: 'reject a plan waiting for approval',
