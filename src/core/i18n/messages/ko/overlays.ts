@@ -332,5 +332,8 @@ export const overlays = {
   'remote.sessions.menu.open': '열기',
   'remote.sessions.menu.close': '세션 닫기',
   'remote.sessions.menu.copyId': 'ID 복사',
-  'remote.sessions.closed': '{name} 닫음'
+  'remote.sessions.closed': '{name} 닫음',
+  'pr.create.done': 'PR 을 만들었습니다',
+  'pr.create.openPr': 'PR 열기',
+  'pr.create.copyLink': '링크 복사',
 } as const

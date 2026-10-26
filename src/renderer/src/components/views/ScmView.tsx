@@ -19,9 +19,10 @@ import { absoluteOf, changedFileLabels, changedFileMenu } from '../changedFileMe
 import { DiffView } from '../DiffView'
 import { openFile, openWorktree } from '../shell/navigation'
 import type { SideBarViewProps } from '../shell/SideBar'
-import { AheadBehind } from '../worktrees/WorktreeDetail'
+import { AheadBehind, worktreeMenuItems } from '../worktrees/WorktreeDetail'
 import { useWorktreeDetail } from '../worktrees/useWorktreeDetail'
 import { useWorktrees } from '../worktrees/useWorktrees'
+import { cdCommand } from '../worktrees/worktreeActions'
 import { filterWorktrees, rowState, selectWorktree, useWorktreeView, worktreeEntries } from '../worktrees/worktreeView'
 
 const STATUS_LABEL: Record<Exclude<WorktreeStatus, 'ok'>, 'worktree.status.orphanDir' | 'worktree.status.unreachable' | 'worktree.status.gitUnchecked'> = {
@@ -160,33 +161,19 @@ export function ScmView(p: SideBarViewProps): React.JSX.Element {
     const w = r.item
     const pr = wt.prs[w.repoPath]?.byBranch[w.branch]
     const ahead = wt.pushStateOf(w)?.ahead
-    const out: Array<MenuItem | 'separator'> = [
-      { label: t('worktrees.detail.openHere'), disabled: w.status !== 'ok', onSelect: () => startSession(w.path) },
-      { label: t('worktrees.menu.openExplorer'), disabled: w.status !== 'ok', onSelect: () => p.openLinkedFolder(w.path) },
-      'separator'
-    ]
-    if (pr) {
-      out.push(
-        { label: t('github.badge.openInBrowser'), onSelect: () => void window.api.system.openExternal(pr.url) },
-        {
-          label: t('github.badge.copyLink'),
-          onSelect: () => {
-            window.api.clipboard.writeText(pr.url)
-            toast.success(t('github.badge.linkCopied'))
-          }
-        }
-      )
-    }
     // A closed or merged PR keeps its badge, but the branch can be proposed again; a merged branch is usually ahead === 0,
     // which the disabled rule keeps quiet. A disabled item states its reason in its own label (no hint field).
-    if (!pr || pr.state !== 'open')
-      out.push({
-        label: ahead === 0 ? t('worktree.push.noCommits') : !wt.ghConnected ? t('worktree.push.ghDisconnected') : t('worktree.push.createPr'),
-        disabled: ahead === 0 || !wt.ghConnected || wt.busy,
-        onSelect: () => wt.createPr(w)
-      })
-    out.push('separator', { label: t('files.action.delete'), disabled: wt.busy, onSelect: () => void wt.remove(w) })
-    return out
+    const extra: MenuItem[] =
+      w.status === 'ok' && (!pr || pr.state !== 'open')
+        ? [
+            {
+              label: ahead === 0 ? t('worktree.push.noCommits') : !wt.ghConnected ? t('worktree.push.ghDisconnected') : t('worktree.push.createPr'),
+              disabled: ahead === 0 || !wt.ghConnected || wt.busy,
+              onSelect: () => wt.createPr(w)
+            }
+          ]
+        : []
+    return worktreeMenuItems(t, w, pr, { openHere: () => startSession(w.path), openFiles: () => p.openLinkedFolder(w.path), terminal: () => void p.newTerminal(cdCommand(w.path)), removeDisabled: wt.busy, remove: () => void wt.remove(w) }, extra)
   }
 
   const body = (): React.ReactNode => {

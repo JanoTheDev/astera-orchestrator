@@ -233,4 +233,7 @@ export const overlays: Partial<Record<keyof typeof ko, string>> = {
   'overlays.tabMenu.copyRelativePath': '相対パスをコピー',
   'overlays.tabMenu.reveal': 'ファイルマネージャーで表示',
   'overlays.tabMenu.revealMac': 'Finder で表示',
+  'pr.create.done': 'プルリクエストを作成しました',
+  'pr.create.openPr': 'PR を開く',
+  'pr.create.copyLink': 'リンクをコピー',
 }

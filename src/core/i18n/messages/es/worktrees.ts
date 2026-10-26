@@ -74,4 +74,10 @@ export const worktrees: Partial<Record<keyof typeof ko, string>> = {
   'worktrees.mergeBase.failed': 'No se pudo fusionar: {reason}',
   'worktrees.review.title': 'Este plan espera tu revisión',
   'worktrees.review.body': 'El trabajo está hecho y no se entregó nada. Revisa los cambios y crea una pull request o fusiona.',
-}
+  'worktrees.act.terminal': 'Abrir en el terminal',
+  'worktrees.act.reveal': 'Mostrar en el gestor de archivos',
+  'worktrees.act.revealFailed': 'No se pudo mostrar la carpeta: {detail}',
+  'worktrees.commit.menu': 'Acciones del commit',
+  'worktrees.commit.copySha': 'Copiar SHA',
+  'worktrees.commit.copySubject': 'Copiar asunto',
+  'worktrees.commit.copied': 'Copiado',}

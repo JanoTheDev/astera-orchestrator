@@ -1,10 +1,11 @@
 // A worktree's tab (DESIGN-W13 §5, `view:worktree:<path>`): the one worktree it was opened for, what it changed against its
 // base, its commits, and the review actions on it: Create PR, View / Merge PR, Merge into the base. The worktree list lives
 // in the Source Control side bar only.
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import type { ChangedFile } from '../../../../core/git/changedFile'
 import type { WorktreeRow } from '../../../../core/worktrees/cleanup'
 import type { JobRow, WorktreeListItem } from '../../../../core/types'
+import type { PrInfo } from '../../../../core/github/types'
 import { runIdToMerge } from '../../../../core/orchestration/snapshot'
 import { useI18n } from '../../i18n/I18nProvider'
 import { confirmModal } from '../../lib/confirm'
@@ -21,7 +22,8 @@ import { openConsole, openFile, openPlan } from '../shell/navigation'
 import { ReviewSlot } from './ReviewSlot'
 import { useWorktreeDetail } from './useWorktreeDetail'
 import { useWorktreeTab, type WorktreeTabData } from './useWorktreeTab'
-import { worktreeActions, type Gate } from './worktreeActions'
+import { useWorktrees } from './useWorktrees'
+import { worktreeActions, worktreeMenu, type Gate } from './worktreeActions'
 import { planOwnerOfPath, worktreeTitle } from './worktreeView'
 
 type Diff = { fileId: string } & ({ state: 'loading' } | { state: 'shown'; diff: string; truncated: boolean } | { state: 'failed' })
@@ -54,6 +56,48 @@ export function AheadBehind({ ahead, behind, className }: { ahead: number | null
   )
 }
 
+const failText = (err: unknown): string => (err instanceof Error ? err.message : String(err))
+
+/** The worktree's own menu, from the one per-state list (`worktreeMenu`): the tab and the side-bar row menu both draw
+ *  it, each supplying what differs between them. `extra` (Create PR in the side bar) sits before Delete. */
+export function worktreeMenuItems(
+  t: ReturnType<typeof useI18n>['t'],
+  w: WorktreeListItem,
+  pr: PrInfo | undefined,
+  on: { openHere(): void; openFiles(): void; terminal(): void; remove(): void; removeDisabled?: boolean },
+  extra: MenuItem[] = []
+): Array<MenuItem | 'separator'> {
+  const ok = w.status === 'ok'
+  const copy = (text: string, done: string) => (): void => {
+    window.api.clipboard.writeText(text)
+    toast.success(done)
+  }
+  const by: Record<ReturnType<typeof worktreeMenu>[number], MenuItem> = {
+    openHere: { label: t('worktrees.detail.openHere'), icon: <Icon name="run" size={14} />, disabled: !ok, onSelect: on.openHere },
+    openFiles: { label: t('worktrees.detail.openFiles'), icon: <Icon name="folder" size={14} />, disabled: !ok, onSelect: on.openFiles },
+    terminal: {
+      label: t('worktrees.act.terminal'),
+      icon: <Icon name="terminal" size={14} />,
+      onSelect: on.terminal
+    },
+    reveal: {
+      label: t('worktrees.act.reveal'),
+      icon: <Icon name="folder" size={14} />,
+      onSelect: () => void window.api.files.reveal(w.path).catch((err) => toast.error(t('worktrees.act.revealFailed', { detail: failText(err) })))
+    },
+    copyPath: { label: t('worktrees.detail.copyPath'), icon: <Icon name="copy" size={14} />, onSelect: copy(w.path, t('worktrees.detail.pathCopied')) },
+    viewPr: { label: t('worktrees.act.viewPr', { number: pr?.number ?? 0 }), icon: <Icon name="external" size={14} />, onSelect: () => void window.api.system.openExternal(pr!.url) },
+    copyPr: { label: t('github.badge.copyLink'), icon: <Icon name="copy" size={14} />, onSelect: copy(pr?.url ?? '', t('github.badge.linkCopied')) },
+    remove: { label: t('files.action.delete'), icon: <Icon name="delete" size={14} />, disabled: on.removeDisabled, onSelect: on.remove }
+  }
+  const out: Array<MenuItem | 'separator'> = []
+  for (const id of worktreeMenu({ status: w.status, pr })) {
+    if (id === 'remove') out.push('separator', ...extra)
+    out.push(by[id])
+  }
+  return out
+}
+
 const replyError = (r: CommandReply): string =>
   typeof r.body === 'object' && r.body !== null && 'error' in r.body ? String((r.body as { error: unknown }).error) : String(r.status)
 
@@ -65,7 +109,8 @@ export function WorktreeDetail({
   door,
   onClose,
   onStartSession,
-  onOpenFiles
+  onOpenFiles,
+  onTerminal
 }: {
   path: string
   runs: readonly JobRow[]
@@ -73,6 +118,8 @@ export function WorktreeDetail({
   onClose: () => void
   onStartSession: (path: string) => void
   onOpenFiles: (path: string) => void
+  /** A terminal in the bottom panel, started in this folder. */
+  onTerminal: (path: string) => void
 }): React.JSX.Element | null {
   const { t } = useI18n()
   const wt = useWorktreeTab(path)
@@ -90,7 +137,7 @@ export function WorktreeDetail({
     )
   return (
     <div className="worktree-tab">
-      <Body item={wt.item} wt={wt} runs={runs} door={door} onStartSession={onStartSession} onOpenFiles={onOpenFiles} />
+      <Body item={wt.item} wt={wt} runs={runs} door={door} onStartSession={onStartSession} onOpenFiles={onOpenFiles} onTerminal={onTerminal} />
     </div>
   )
 }
@@ -101,7 +148,8 @@ function Body({
   runs,
   door,
   onStartSession,
-  onOpenFiles
+  onOpenFiles,
+  onTerminal
 }: {
   item: WorktreeListItem
   wt: WorktreeTabData
@@ -109,6 +157,7 @@ function Body({
   door: OrchDoor | null
   onStartSession: (path: string) => void
   onOpenFiles: (path: string) => void
+  onTerminal: (path: string) => void
 }): React.JSX.Element {
   const { t } = useI18n()
   const detail = useWorktreeDetail({ item: w, ahead: wt.push?.ahead ?? null, dirty: wt.dirty, unpushed: null })
@@ -116,6 +165,9 @@ function Body({
   const [fileMenu, setFileMenu] = useState<{ at: { x: number; y: number }; file: ChangedFile } | null>(null)
   const [busy, setBusy] = useState(false)
   const [creating, setCreating] = useState(false)
+  const [commitMenu, setCommitMenu] = useState<{ at: { x: number; y: number }; sha: string; subject: string } | null>(null)
+  const repoFilter = useCallback((repo: string) => repo === w.repoPath, [w.repoPath])
+  const worktrees = useWorktrees(repoFilter)
 
   const owner = planOwnerOfPath(runs, w)
   const plan = owner?.row
@@ -206,10 +258,6 @@ function Body({
   }
 
   const reason = (g: Gate): string | undefined => (g.reason ? t(g.reason) : undefined)
-  const copyPath = (): void => {
-    window.api.clipboard.writeText(w.path)
-    toast.success(t('worktrees.detail.pathCopied'))
-  }
 
   const actions = (
     <>
@@ -253,11 +301,13 @@ function Body({
     ...(acts.mergePr.show ? METHODS.flatMap((m) => item(`${t('worktrees.act.mergePr')}: ${t(`worktrees.act.method.${m}` as never)}`, acts.mergePr, () => void mergePr(m), <Icon name="merge" size={14} />)) : []),
     ...item(t('worktrees.act.mergeBase', { base: w.baseRef }), acts.mergeBase, () => void mergeBase(), <Icon name="merge" size={14} />)
   ]
-  const secondary: MenuItem[] = [
-    { label: t('worktrees.detail.openHere'), icon: <Icon name="run" size={14} />, disabled: !ok, onSelect: () => onStartSession(w.path) },
-    { label: t('worktrees.detail.openFiles'), icon: <Icon name="folder" size={14} />, disabled: !ok, onSelect: () => onOpenFiles(w.path) },
-    { label: t('worktrees.detail.copyPath'), icon: <Icon name="copy" size={14} />, onSelect: copyPath }
-  ]
+  const secondary = worktreeMenuItems(t, w, wt.pr, {
+    openHere: () => onStartSession(w.path),
+    openFiles: () => onOpenFiles(w.path),
+    terminal: () => onTerminal(w.path),
+    removeDisabled: busy || worktrees.busy,
+    remove: () => void worktrees.remove(w).then(() => wt.refresh())
+  })
 
   const dirty = wt.dirty
   const treeWords = dirty === null ? t('worktrees.fact.unknown') : dirty === 0 ? t('worktrees.fact.treeClean') : t('worktrees.fact.treeDirty', { count: dirty })
@@ -377,7 +427,7 @@ function Body({
         ) : (
           <ul className="worktree-commits">
             {detail.commits.map((c) => (
-              <li key={c.sha}>
+              <li key={c.sha} onContextMenu={(e) => { e.preventDefault(); setCommitMenu({ at: menuPointOf(e), sha: c.sha, subject: c.subject }) }}>
                 <code>{c.sha.slice(0, 7)}</code>
                 <span className="worktree-commits__subject">{c.subject}</span>
                 <Chip tone={c.kind === 'ai' ? 'info' : 'neutral'}>
@@ -389,6 +439,18 @@ function Body({
         )}
       </section>
 
+      {commitMenu && (
+        <Menu
+          at={commitMenu.at}
+          label={t('worktrees.commit.menu')}
+          onClose={() => setCommitMenu(null)}
+          items={[
+            { label: t('worktrees.commit.copySha'), icon: <Icon name="copy" size={14} />, onSelect: () => { window.api.clipboard.writeText(commitMenu.sha); toast.success(t('worktrees.commit.copied')) } },
+            { label: t('worktrees.commit.copySubject'), icon: <Icon name="copy" size={14} />, onSelect: () => { window.api.clipboard.writeText(commitMenu.subject); toast.success(t('worktrees.commit.copied')) } }
+          ]}
+        />
+      )}
+      {worktrees.overlays}
       {creating && (
         <CreatePrDialog
           worktree={w}

@@ -315,5 +315,8 @@ export const overlays: Record<keyof typeof ko, string> = {
   'remote.sessions.menu.open': 'Open',
   'remote.sessions.menu.close': 'Close session',
   'remote.sessions.menu.copyId': 'Copy ID',
-  'remote.sessions.closed': 'Closed {name}'
+  'remote.sessions.closed': 'Closed {name}',
+  'pr.create.done': 'Pull request created',
+  'pr.create.openPr': 'Open PR',
+  'pr.create.copyLink': 'Copy link',
 }

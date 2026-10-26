@@ -1,5 +1,7 @@
 // T6: which of the worktree tab's actions show, and why one is off. Pure, so the rules are tested without the tab.
 import type { PrInfo } from '../../../../core/github/types'
+import { shellQuote } from '../devices/devicesView'
+import type { WorktreeStatus } from '../../../../core/types'
 import type { MessageKey } from '../../../../core/i18n'
 
 export interface ActionFacts {
@@ -47,3 +49,16 @@ export function worktreeActions(f: ActionFacts): WorktreeActions {
       : { show: false }
   }
 }
+
+export type MenuActionId = 'openHere' | 'openFiles' | 'terminal' | 'reveal' | 'copyPath' | 'viewPr' | 'copyPr' | 'remove'
+
+/** The worktree's own actions (not the review buttons above), one list for the tab menu and the side-bar row menu.
+ *  A folder that does not answer (orphan, unreachable, unchecked) offers only what needs no git: copy its path, delete it.
+ *  The PR actions follow the PR in every state: a merged or closed PR keeps its link. */
+export function worktreeMenu(f: { status: WorktreeStatus; pr: PrInfo | undefined }): MenuActionId[] {
+  if (f.status !== 'ok') return ['copyPath', 'remove']
+  return ['openHere', 'openFiles', 'terminal', 'reveal', 'copyPath', ...(f.pr ? (['viewPr', 'copyPr'] as const) : []), 'remove']
+}
+
+/** What a new bottom-panel terminal types to land in the worktree: the panel lists terminals of the project root only. */
+export const cdCommand = (path: string): string => `cd ${shellQuote(path)}`

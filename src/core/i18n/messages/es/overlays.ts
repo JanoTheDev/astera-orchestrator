@@ -233,4 +233,7 @@ export const overlays: Partial<Record<keyof typeof ko, string>> = {
   'overlays.tabMenu.copyRelativePath': 'Copiar ruta relativa',
   'overlays.tabMenu.reveal': 'Mostrar en el explorador de archivos',
   'overlays.tabMenu.revealMac': 'Mostrar en Finder',
+  'pr.create.done': 'Pull request creada',
+  'pr.create.openPr': 'Abrir PR',
+  'pr.create.copyLink': 'Copiar enlace',
 }
