@@ -6,6 +6,7 @@ import path from 'node:path'
 import { fingerprintOf, issueOf, reportOf, RENDERER_KINDS, type CrashEnv, type CrashOffer, type CrashProcess, type CrashReportsSetting } from '../core/crash/report'
 import { CRASH_DIR, markOffered, nodeCrashEnv, pendingReports, readReport, tailSync, writeReportSync } from '../core/crash/store'
 import { flushAllLogsSync } from '../core/log/logWriter'
+import { lowerForOom } from './overloadLimits'
 
 export interface CrashReportsDeps {
   dir: string
@@ -112,9 +113,23 @@ interface AppLike {
   on(event: 'child-process-gone', l: (e: unknown, details: { type: string; reason: string }) => void): unknown
 }
 
+/** T5: an out-of-memory exit lowers the limits; a failure there never escapes the event handler. */
+function limitOnOom(onOom: ((what: string) => void) | undefined, what: string): void {
+  try {
+    onOom?.(what)
+  } catch (err) {
+    console.error(`oom limit lowering failed (${err instanceof Error ? err.name : typeof err})`)
+  }
+}
+
 /** Main's handlers. `uncaughtExceptionMonitor` only watches: Electron still does what it did with the exception. An
  *  unhandled rejection is still printed (by name: a message can carry a token). A process that ended cleanly is no crash. */
-export function registerCrashReports(proc: ProcessLike, app: AppLike, reports: Pick<CrashReports, 'record'>): void {
+export function registerCrashReports(
+  proc: ProcessLike,
+  app: AppLike,
+  reports: Pick<CrashReports, 'record'>,
+  onOom?: (what: 'renderer' | string) => void
+): void {
   proc.on('uncaughtExceptionMonitor', (err) => {
     reports.record('main', 'uncaughtException', err)
   })
@@ -125,10 +140,12 @@ export function registerCrashReports(proc: ProcessLike, app: AppLike, reports: P
   app.on('render-process-gone', (_e, _wc, details) => {
     if (details.reason === 'clean-exit') return
     reports.record('renderer', 'render-process-gone', { name: details.reason })
+    if (details.reason === 'oom') limitOnOom(onOom, 'renderer')
   })
   app.on('child-process-gone', (_e, details) => {
     if (details.reason === 'clean-exit') return
     reports.record('child', 'child-process-gone', { name: `${details.type} ${details.reason}` })
+    if (details.reason === 'oom') limitOnOom(onOom, details.type)
   })
 }
 
@@ -152,7 +169,7 @@ export function installCrashReports(a: {
     logPath: path.join(userData, 'host-client.log'),
     log: (m) => console.error(m)
   })
-  registerCrashReports(a.proc, a.app, reports)
+  registerCrashReports(a.proc, a.app, reports, (what) => lowerForOom(userData, what))
   a.ipc.handle('crash.report', (_e, payload) => reports.fromRenderer(payload))
   a.ipc.handle('crash.pending', () => reports.pending())
   a.ipc.handle('crash.send', (_e, id) => reports.send(id))
