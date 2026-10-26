@@ -233,6 +233,13 @@ describe('holds (#38, #39)', () => {
     }
   })
 
+  it('resume of a plan under a replan or final-check hold is not an unhold: it takes the stopped-Run path', async () => {
+    const h = harness(true)
+    const replanning = { ...DIR, plans: DIR.plans.map((p) => (p.jobId === 'j-held' ? { ...p, held: undefined } : p)) }
+    await execute(resolveIntent({ kind: 'resume', target: 'Held' }, replanning) as Ready, h.deps)
+    expect(h.sent.map((s) => s.cmd)).not.toContain('jobs-unhold')
+  })
+
   it('resume lets a held plan launch again, and a paused worker take input again', async () => {
     const h = harness(true)
     await execute(ready({ kind: 'resume', target: 'Held' }), h.deps)

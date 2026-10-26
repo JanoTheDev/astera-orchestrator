@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest'
 import { makeActions } from '../../../../core/keys/binding'
 import { ACTIVITY_IDS, PANEL_TABS } from '../../../../core/ui/pages'
-import { COMMAND_CATEGORIES, PALETTE_COMMANDS, type PaletteCx } from './directory'
+import { COMMAND_CATEGORIES, PALETTE_COMMANDS, directoryOf, type PaletteCx } from './directory'
 
 const byId = new Map(PALETTE_COMMANDS.map((c) => [c.id, c]))
 const actionIds = new Set(makeActions('linux').map((a) => a.id))
@@ -77,5 +77,21 @@ describe('commands that open a second list', () => {
     stage.rows[2].pick()
     expect(seen).toEqual([['preview', 'dusk'], ['preview', 'night'], ['commit', 'day']])
     expect(stage.rows.find((r) => r.current)?.key).toBe('night')
+  })
+})
+
+describe('directoryOf: a plan is held only by the owner\'s own hold', () => {
+  const tree = [{ id: 'g', name: 'Gameful', path: '/p/g', plans: [{ jobId: 'j', name: 'Trading', projectId: 'g', archived: false, paused: false, runId: 'r', planner: [], coordinator: [], workers: [] }] }] as never
+  const heldAs = (job: Record<string, unknown>): boolean | undefined =>
+    directoryOf(tree, { jobsByProject: { g: [{ id: 'j', ...job }] } } as never, null, null).plans[0].held
+  it('marks a plan held for the owner hold and for a hold from an older Host that sends no holdBy', () => {
+    expect(heldAs({ dispatchHold: true, holdBy: 'owner' })).toBe(true)
+    expect(heldAs({ dispatchHold: true })).toBe(true)
+  })
+  it('does not mark a replan, the final check or a replan\'s question as held, so resume falls through', () => {
+    for (const holdBy of ['replanning', 'final-check', 'replan-question'] as const) expect(heldAs({ dispatchHold: true, holdBy }), holdBy).toBeUndefined()
+  })
+  it('does not mark a plan with no hold', () => {
+    expect(heldAs({})).toBeUndefined()
   })
 })
