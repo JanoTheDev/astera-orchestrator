@@ -321,6 +321,7 @@ export const integrations = {
   'settings.discord.plansHint': '서버에 프로젝트마다 카테고리를, 플랜마다 채널을 만듭니다.',
   'settings.discord.save': '저장',
   'settings.discord.saved': '저장됨',
+  'settings.discord.removeToken': '토큰 삭제',
   'settings.discord.saveFailed': 'Discord 설정을 저장하지 못했습니다: {detail}',
   'settings.discord.ready': '준비됨 — 세션 메시지가 이 서버로 전송됩니다.',
   'settings.discord.notReady': '준비 안 됨 — 봇 토큰과 서버 ID가 모두 필요합니다.',

@@ -73,6 +73,7 @@ import type { SlackConfig } from '../core/slack/config'
 import type { TelegramConfig } from '../core/telegram/config'
 import type { DiscordConfig } from '../core/discord/config'
 import { TelegramConfigStore } from './telegramConfigStore'
+import { DiscordConfigStore } from './discordConfigStore'
 import { SlackInboxController } from '../core/slack/inbox'
 import { createSocketClient, createWebClient } from './slackSdk'
 import { createConnectionsOwnership, type ConnectionsOwnership } from './connectionsOwnership'
@@ -636,6 +637,7 @@ app.whenReady().then(async () => {
   const slackLog = lineLog(path.join(app.getPath('userData'), 'slack.log'))
   const slackStore = new SlackConfigStore(path.join(app.getPath('userData'), 'slack.json'))
   const telegramStore = new TelegramConfigStore(path.join(app.getPath('userData'), 'telegram.json'))
+  const discordStore = new DiscordConfigStore(path.join(app.getPath('userData'), 'discord.json'))
   const slack = new SlackNotifier({
     getAccount: (id) => {
       try {
@@ -1476,7 +1478,8 @@ app.whenReady().then(async () => {
         hostClientRetireRef = retire
         hostSurvivesUpdateRef = survivesUpdate
       }
-    }
+    },
+    { store: discordStore, configChanged: (cfg) => connectionsOwnership.configChanged('discord', cfg) }
   )
   registerExtensionsIpc(ipcMain, {
     accounts: () => core!.accounts.list(),

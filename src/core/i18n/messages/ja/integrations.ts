@@ -194,6 +194,7 @@ export const integrations: Partial<Record<keyof typeof ko, string>> = {
   'settings.discord.plansHint': 'サーバーにプロジェクトごとのカテゴリと、プランごとのチャンネルを作ります。',
   'settings.discord.save': '保存',
   'settings.discord.saved': '保存しました',
+  'settings.discord.removeToken': 'トークンを削除',
   'settings.discord.saveFailed': 'Discord の設定を保存できませんでした: {detail}',
   'settings.discord.ready': '準備完了 — セッションのメッセージがこのサーバーに送られます。',
   'settings.discord.notReady': '未準備 — ボットトークンとサーバー ID の両方が必要です。',

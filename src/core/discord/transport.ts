@@ -53,8 +53,14 @@ export class DiscordTransport implements ConnectionTransport {
     }
     // Only a session's root opens a thread; a notice or a channel-level fallback stays a plain message.
     if (!ctx) return msg.id
-    const thread = await this.rest.startThread(channel, msg.id, { name: threadNameOf(text), auto_archive_duration: AUTO_ARCHIVE_MIN })
-    return thread.id
+    try {
+      const thread = await this.rest.startThread(channel, msg.id, { name: threadNameOf(text), auto_archive_duration: AUTO_ARCHIVE_MIN })
+      return thread.id
+    } catch (err) {
+      // No thread means nothing ever points at this root: take it down so #sessions keeps no orphan.
+      await this.rest.deleteMessage(channel, msg.id).catch(() => {})
+      throw err
+    }
   }
 
   private sessionsChannel(): Promise<string> {

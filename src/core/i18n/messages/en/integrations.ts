@@ -322,6 +322,7 @@ export const integrations: Record<keyof typeof ko, string> = {
   'settings.discord.plansHint': 'Builds a category per project and a channel per plan in your server.',
   'settings.discord.save': 'Save',
   'settings.discord.saved': 'Saved',
+  'settings.discord.removeToken': 'Remove token',
   'settings.discord.saveFailed': 'Could not save the Discord settings: {detail}',
   'settings.discord.ready': 'Ready — session messages are sent to this server.',
   'settings.discord.notReady': 'Not ready — a bot token and a server id are both needed.',

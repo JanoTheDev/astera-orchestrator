@@ -61,6 +61,19 @@ describe('DiscordTransport', () => {
     expect(calls.filter((c) => c.route === `/guilds/${GUILD}/channels`)).toHaveLength(3) // one lookup, two creates
   })
 
+  it('deletes the root message and rethrows when the thread cannot be started', async () => {
+    const chans = [
+      { id: '300000000000000001', type: 4, name: 'Astera' },
+      { id: '300000000000000003', type: 0, name: 'sessions', parent_id: '300000000000000001' }
+    ]
+    const { rest, calls } = rig(chans)
+    const failing = { ...rest, startThread: async () => Promise.reject(new ConnectionPostError('status=403 code=50013')) }
+    await expect(new DiscordTransport(failing, GUILD).post('hi', undefined, { sessionId: 's1' })).rejects.toThrow('status=403 code=50013')
+    const root = posts(calls)[0]
+    expect(root.route).toBe('/channels/300000000000000003/messages')
+    expect(calls.filter((c) => c.method === 'DELETE').map((c) => c.route.replace(/\d{18}$/, 'ID'))).toEqual(['/channels/300000000000000003/messages/ID'])
+  })
+
   it('reuses an existing #sessions under the Astera category, looked up by name', async () => {
     const { rest, calls } = rig([
       { id: '300000000000000001', type: 4, name: 'astera' },

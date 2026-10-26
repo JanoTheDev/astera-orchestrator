@@ -76,12 +76,13 @@ describe('discordRest', () => {
   })
 
   it('hits the documented routes', async () => {
-    const { rest, calls } = setup(Array.from({ length: 9 }, () => json(200, {})))
+    const { rest, calls } = setup(Array.from({ length: 10 }, () => json(200, {})))
     await rest.application()
     await rest.guildChannels('g')
     await rest.createChannel('g', { name: 'plan', type: 0, parent_id: 'cat' }, { reason: 'plan created' })
     await rest.editChannel('c', { topic: 't' })
     await rest.deleteChannel('c')
+    await rest.deleteMessage('c', 'm')
     await rest.pinMessage('c', 'm')
     await rest.startThread('c', 'm', { name: 'n', auto_archive_duration: 1440 })
     await rest.startThreadWithoutMessage('c', { name: 'n', type: 11 })
@@ -92,13 +93,14 @@ describe('discordRest', () => {
       'POST /guilds/g/channels',
       'PATCH /channels/c',
       'DELETE /channels/c',
+      'DELETE /channels/c/messages/m',
       'PUT /channels/c/pins/m',
       'POST /channels/c/messages/m/threads',
       'POST /channels/c/threads',
       'PUT /applications/a/guilds/g/commands'
     ])
     expect(headersOf(calls[2])['X-Audit-Log-Reason']).toBe('plan%20created')
-    expect(bodyOf(calls[8])).toEqual([{ name: 'plan' }])
+    expect(bodyOf(calls[9])).toEqual([{ name: 'plan' }])
   })
 
   it('a 204 resolves to undefined', async () => {
