@@ -1,26 +1,45 @@
 <div align="center">
 
+<img src="assets/mark.svg" width="72" alt="Astera mark" />
+
 # Astera
 
 **Hand it a plan. It runs the agents. It asks you only when it must.**
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
-![Platform](https://img.shields.io/badge/platform-Linux%20first-555)
+[![Platform](https://img.shields.io/badge/platform-Linux%20first-555)](docs/dev/LINUX.md)
+![Version](https://img.shields.io/badge/version-1.4.14-informational)
+[![CI](https://github.com/JanoTheDev/astera-orchestrator/actions/workflows/ci.yml/badge.svg)](https://github.com/JanoTheDev/astera-orchestrator/actions/workflows/ci.yml)
+![Works with Claude Code and Codex](https://img.shields.io/badge/works%20with-Claude%20Code%20%7C%20Codex-8A63D2)
 
-[How it works](#how-it-works) · [Run it](#run-it) · [What it does](#what-it-does) · [The `astera` command](#the-astera-command) · [Docs](#documentation)
+[At a glance](#at-a-glance) · [How it works](#how-it-works) · [Run it](#run-it) · [What it does](#what-it-does) · [Architecture](#architecture) · [The `astera` command](#the-astera-command) · [Docs](#documentation)
 
-<img src="assets/ui-hero-dark.png" width="960" alt="Astera's workbench: coordinator and worker consoles as live terminals, next to a plan's Waves board" />
+<img src="assets/ui-hero-dark.png" width="960" alt="Astera's Plans view: the Checkout redesign plan with its Steps and Tasks, each showing a model and an account, and the plan's Activity log on the right" />
 
 </div>
 
 Astera is a desktop app that runs many Claude Code and Codex terminals for you. You give it a goal or a source (an
 issue, a folder of written plans), a planner splits it into Tasks, and workers run them in parallel, each on the right
-model. A reviewer checks every Task, the plan ends as a pull request or a push, and Astera asks you only when it must.
+model. A reviewer checks every Task, the plan is delivered the way you chose, and Astera asks you only when it must.
 
 Every agent is a real `claude` or `codex` terminal, never an imitation of one. You can watch any of them and type into
 any of them without stopping the rest.
 
+## At a glance
+
+- **Parallel workers, one worktree each.** Tasks that do not touch the same files run side by side, and Astera merges
+  finished Tasks itself.
+- **A reviewer on every Task.** A fresh reviewer checks each Task (up to 5 rounds), and a final check compares the
+  result with the goal.
+- **Account rolling.** When an account reaches its usage limit, Astera reads the reset time and resumes the work on the
+  next account.
+- **It asks only when it must.** Permission prompts, questions and failed reviews wait in one place, **Needs you**.
+
 ## How it works
+
+<div align="center">
+<img src="assets/docs/diagrams/plan-lifecycle.svg" width="760" alt="The life of a plan: a goal goes to the planner, you approve, the coordinator starts workers in waves, a reviewer checks each Task, then a final check and delivery" />
+</div>
 
 1. **Add a project.** A project is one git repository. Add an existing folder or create a new one, optionally with a
    GitHub repository.
@@ -28,7 +47,7 @@ any of them without stopping the rest.
    attach your own files. **Run as written** turns each prompt file (or each `##` section of one document) into one
    Task with its text unchanged.
 
-   <img src="assets/ui-start.png" width="760" alt="The Start flow: one composer, attached files, and the two modes Plan it for me and Run as written" />
+   <img src="assets/docs/start.png" width="760" alt="The Start tab: the What do you want done composer with With me, On its own and As written, a Start planning button and shortcuts such as Fix bugs and From GitHub issues" />
 
 3. **Approve or talk.** The plan lands in the bottom panel's **Needs you** tab. Read the Tasks, then press **Approve & execute**. Or tell the
    planner what to change and it replans. Turn on auto-approve for a project to skip this step.
@@ -37,16 +56,17 @@ any of them without stopping the rest.
    waves a fresh planner adjusts what has not started yet. After the last wave a final check compares the result with
    the goal.
 
-   <img src="assets/ui-plan-board.png" width="760" alt="A plan's Waves board: Tasks in columns per wave, each with its live line, model, account and files" />
+   <img src="assets/docs/plan-board.png" width="760" alt="A plan tab with Steps: Step 1 done, Step 2 with Tasks done, in review and asking, Step 3 waiting, each Task with its account and attempts, and Plan settings below" />
 
 5. **Answer in Needs you.** Permission prompts, questions Astera cannot answer itself and failed reviews wait in one
    place, with a sound and a desktop notice. Everything Astera did without you is listed beside them.
 
-   <img src="assets/ui-inbox.png" width="760" alt="Needs you: what needs you on the left, what was handled for you on the right" />
+   <img src="assets/docs/needs-you.png" width="760" alt="The Needs you tab listing open questions from several projects and a plan ready for approval, under a plan's summary with an express-pay question and answer buttons" />
 
-6. **It delivers.** Per project: **pr** opens one pull request per plan and never merges it. **push** merges into the
-   delivery branch and pushes it, after the reviews, the final check and the tests pass. It stops and asks when
-   anything is off, and never force-pushes.
+6. **It delivers.** Per project or per plan, one of four modes: **pr** opens one pull request and never merges it.
+   **push** merges into the delivery branch and pushes it, after the reviews, the final check and the tests pass.
+   **merge** merges into the delivery branch on this computer and never pushes. **manual** pushes the plan's branch for
+   safekeeping and leaves the finished plan for you. Astera stops and asks when anything is off, and never force-pushes.
 
 Before planning, the planner checks what already exists: the code, GitHub issues and pull requests, and your other
 plans. Nothing gets built twice.
@@ -80,19 +100,28 @@ Agents stop at every permission prompt until you answer it. Turn that off only f
 ## What it does
 
 Astera is a VSCode-style workbench. The **activity bar** on the left switches the side bar between six views: **Agents ·
-Plans · Explorer · Source Control · History · Run** (`Ctrl+1…6`). The side bar is resizable (`Ctrl+B` hides it).
-Consoles, files, plans, settings and worktrees open as **tabs** in editor groups that you can split. The **bottom
-panel** (`Ctrl+J`) has **Needs you · Activity · Output · Terminal** tabs. The status bar shows the project, branch,
-working and needs-you counts, account usage, the Host state and the notification bell. `Ctrl+Shift+P` opens the
-command palette.
+Plans · Explorer · Source Control · History · Run** (`Ctrl+1…6`). Consoles, files, plans, settings and worktrees open as
+**tabs** in editor groups that you can split. `Ctrl+Shift+P` opens the command palette.
 
-**Agents.** The Agents view lists the project's consoles by state (Needs you, Working, Finished). Click one to open it in its own tab and type into it. While you type, the coordinator's messages to that console wait, so they never land in the middle of
-your line. A finished console leaves a short summary card of what it did.
-
-<img src="assets/ui-agents-light.png" width="760" alt="The Agents view in the Day theme" />
+<table>
+<tr>
+<td width="33%" valign="top"><a href="docs/guide.md"><img src="assets/docs/plans-tree.png" alt="The Plans side bar as a tree of plans, steps and Tasks next to the open plan tab" /></a><br /><b>Plans</b><br />A tree of plan, step and Task, grouped by plan, status or area. <a href="docs/guide.md">Guide</a></td>
+<td width="33%" valign="top"><a href="docs/guide.md#needs-you"><img src="assets/docs/needs-you.png" alt="The Needs you tab with open questions and a plan ready for approval" /></a><br /><b>Needs you</b><br />Questions, approvals and failed reviews in one list, with a bell in the status bar. <a href="docs/guide.md#needs-you">Guide</a></td>
+<td width="33%" valign="top"><a href="docs/guide.md"><img src="assets/docs/activity.png" alt="The Activity tab: a time-ordered feed of what Astera did on each plan" /></a><br /><b>Activity</b><br />The feed of what Astera handled without you, filterable. <a href="docs/guide.md">Guide</a></td>
+</tr>
+<tr>
+<td valign="top"><a href="docs/concepts.md"><img src="assets/docs/task-detail.png" alt="One Task expanded: done-when criteria, result, attempts, review issues and changed files" /></a><br /><b>Task detail</b><br />Criteria, result, attempts, review and files for one Task. <a href="docs/concepts.md">Concepts</a></td>
+<td valign="top"><a href="docs/usage-guide.md"><img src="assets/docs/history.png" alt="The History view listing a project's sessions with their account and age" /></a><br /><b>History</b><br />Every session of a project, by account. <a href="docs/usage-guide.md">Usage guide</a></td>
+<td valign="top"><a href="docs/guide.md"><img src="assets/docs/source-control.png" alt="Source Control: a worktree with its changes, a symbol map of the review and a Create pull request button" /></a><br /><b>Source Control</b><br />Worktrees, their changes and a review map. <a href="docs/guide.md">Guide</a></td>
+</tr>
+<tr>
+<td valign="top"><a href="docs/usage-guide.md"><img src="assets/docs/accounts.png" alt="The Accounts panel with three accounts and their 5-hour and weekly usage bars" /></a><br /><b>Accounts</b><br />Several accounts per vendor, with usage bars. <a href="docs/usage-guide.md">Usage guide</a></td>
+<td valign="top"><a href="docs/usage-guide.md"><img src="assets/docs/run.png" alt="The Run view listing seven run configurations" /></a><br /><b>Run</b><br />Run configurations for dev servers, tests and scripts. <a href="docs/usage-guide.md">Usage guide</a></td>
+<td valign="top"><a href="docs/getting-started.md"><img src="assets/docs/plan-board-day.png" alt="The same plan tab in the Day theme" /></a><br /><b>Day theme</b><br />Night and Day themes. <a href="docs/getting-started.md">Getting started</a></td>
+</tr>
+</table>
 
 **Plans.**
-- The Plans view is a tree of plan, step and Task. Group it by plan, status or area; plans that touch the same files are flagged.
 - Per-role models: coordinator, planner, workers and reviewer each run on their own model.
 - One app-wide cap on workers (1 to 100, set in Settings › Agents). Plans with a higher priority get the next free slot.
 - Wave replanning, a reviewer on every Task (up to 5 rounds) and a final check against the goal.
@@ -103,9 +132,12 @@ your line. A finished console leaves a short summary card of what it did.
   Changes save as you make them and apply to agents that start from then on.
 - Usage guards: no new worker starts on an account near its limit (90% by default); it starts on the next account.
 
-**Needs you.** The bottom panel's **Needs you** tab lists what needs you, with a feed of what Astera handled without
-you. The bell in the status bar shows the same at a glance. Agents can never approve a plan or answer a permission
-prompt. Only you can.
+**Agents and Needs you.**
+- The Agents view lists the project's consoles by state (Needs you, Working, Finished). Click one to open it in its own
+  tab and type into it. While you type, the coordinator's messages to that console wait. A finished console leaves a
+  short summary card of what it did.
+- The bottom panel (`Ctrl+J`) has **Needs you · Activity · Output · Terminal** tabs. Agents can never approve a plan or
+  answer a permission prompt. Only you can.
 
 **Source Control and Explorer.**
 - One git worktree per worker, under `~/astera-worktrees/<repo>/`. Astera merges finished Tasks itself and cleans up
@@ -130,6 +162,15 @@ prompt. Only you can.
 - Auto-update and the remote policy are off unless built with `ASTERA_AUTO_UPDATE=1`.
 - Agents ask before every permission prompt, and the bypass is off unless you turn it on.
 
+## Architecture
+
+<div align="center">
+<img src="assets/docs/diagrams/architecture.svg" width="860" alt="Astera's architecture: the app window, the Host, the CLI, MCP and SDK clients, agent terminals, worktrees and git or GitHub" />
+</div>
+
+The Host owns every session, worktree and plan. The app window, the `astera` command, the MCP server and the SDK are
+clients of that one Host. See [docs/architecture.md](docs/architecture.md).
+
 ## The `astera` command
 
 It talks to the Host, so it works with the app open or closed:
@@ -151,17 +192,15 @@ instead of you attaching them. The decided plans and the contracts are in [docs/
 
 ## Documentation
 
-- [Product docs](docs/product/): features, known limits (platforms, tools, network, open gaps) and the licensing seam.
-- [User guide](docs/guide.md): projects, plans, approval, the Agents, Plans and Source Control views, Needs you, delivery.
-- [Everyday usage](docs/usage-guide.md): sessions, accounts, files, recovery and settings.
-- [Jobs](docs/jobs.md): what a plan does from creation to delivery, and scheduled jobs.
-- [How It Works](docs/how-it-works.md): explanations of finished work.
-- [The `astera` command](docs/cli.md), [MCP](docs/mcp.md), [SDK](docs/sdk.md), [Plugins](docs/plugins.md).
-- [Remote runtimes](docs/remote-runtime.md), [Slack bot](docs/slack-bot-setup.md), [Telegram bot](docs/telegram-bot-setup.md).
-- [Linux](docs/dev/LINUX.md): prerequisites, what is verified, known issues.
-- For contributors: [plan](docs/dev/PLAN.md), [spec](docs/dev/SPEC.md), [context](docs/dev/CONTEXT.md),
-  [design](docs/dev/DESIGN.md), [wave prompts](docs/dev/prompts/README.md), [releasing](docs/releasing.md),
-  [CONTRIBUTING](.github/CONTRIBUTING.md).
+| | |
+|---|---|
+| **Start here** | [Docs hub](docs/README.md) · [Getting started](docs/getting-started.md) · [Concepts](docs/concepts.md) · [Architecture](docs/architecture.md) |
+| **Use** | [User guide](docs/guide.md) · [Everyday usage](docs/usage-guide.md) · [Jobs](docs/jobs.md) · [Troubleshooting](docs/troubleshooting.md) |
+| **Build on it** | [`astera` command](docs/cli.md) · [MCP](docs/mcp.md) · [SDK](docs/sdk.md) · [Plugins](docs/plugins.md) |
+| **Run it elsewhere** | [Remote runtimes](docs/remote-runtime.md) · [Slack bot](docs/slack-bot-setup.md) · [Telegram bot](docs/telegram-bot-setup.md) |
+| **Contribute** | [CONTRIBUTING](.github/CONTRIBUTING.md) · [Plan](docs/dev/PLAN.md) · [Releasing](docs/releasing.md) · [Linux notes](docs/dev/LINUX.md) |
+
+Also: [product docs](docs/product/) (features, known limits, licensing) and [How It Works](docs/how-it-works.md).
 
 ## Credits
 
