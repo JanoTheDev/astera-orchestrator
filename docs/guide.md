@@ -211,7 +211,7 @@ When the planner is done, the plan lands in the bottom panel's **Needs you** tab
 
 ## While it runs
 
-<img src="../assets/docs/plan-board.png" width="760" alt="A running plan's tab: Steps with Tasks working, done and waiting, each with a live line, model and account" />
+<img src="../assets/docs/plan-board.png" width="760" alt="A plan's tab, stopped: Steps with Tasks marked done, waiting or Plan paused, each with its account and attempts" />
 
 A coordinator places workers. Every Task whose dependencies are done gets a worker in its own git worktree under
 `~/astera-worktrees/<repo>/`. Dependents start on their own when their dependencies complete, never before. "Done" is
@@ -307,7 +307,7 @@ and Area. Areas are set with `astera jobs set --id <job> --areas auth,api` (1–
 too), and a plan that overlaps another is marked. **Open main plan** (also "Open Main Plan" in the command palette) opens the Main plan tab: every plan of the project
 with its open Tasks.
 
-<img src="../assets/docs/main-plan.png" width="760" alt="The Main plan page: several sub-plans, each with its open Tasks and progress" />
+<img src="../assets/docs/main-plan.png" width="760" alt="The Main plan page: three plans, one under Needs you and two under Done, each with its Tasks and their status" />
 
 A text filter narrows the tree, and the filter menu can show
 archived plans. A plan row shows its state, progress and count. **New plan** opens Start. A plan's context menu has
@@ -351,13 +351,15 @@ them and `astera jobs list --area api` filters plans by area.
 
 ## Needs you
 
-<img src="../assets/docs/needs-you.png" width="760" alt="The bottom panel's Needs you tab with open questions and permission items, and the Handled for you feed below" />
+<img src="../assets/docs/needs-you.png" width="760" alt="The bottom panel's Needs you tab with open questions and a plan ready for approval, beside the Activity tab" />
 
 The bottom panel's **Needs you** tab (`Ctrl+J` opens the panel) holds everything that waits on you, oldest first: plan
-approvals, questions, permission prompts, give-ups and escalations. Below it, **Handled for you** is the activity feed
-of what ran without you:
+approvals, questions, permission prompts, give-ups and escalations. The **Activity** tab beside it is the feed of what
+ran without you:
 auto-answers, merges, replans, clean-ups, deliveries and usage pauses. The feed is kept in `<profile>/orch/activity.jsonl`,
 so it survives a restart, and it includes the lines of every paired Remote runtime, marked "on <runtime>".
+
+<img src="../assets/docs/activity.png" width="760" alt="The bottom panel's Activity tab: a dated feed of lines such as a plan ready for approval, a Task awaiting review and an agent exiting" />
 
 Only Needs-you items notify you: a desktop notice, a chime and the badge on the Needs you tab and in the status bar.
 The notification bell in the status bar opens a short list of what needs you and what happened lately, with **View
@@ -461,7 +463,7 @@ Every console that ends leaves a short card, so you can see later what happened 
 
 ## Projects and windows
 
-<img src="../assets/docs/project-switcher.png" width="760" alt="The title bar project switcher open, listing several projects with their running consoles and attention dots" />
+<img src="../assets/docs/project-switcher.png" width="760" alt="The title bar project switcher open, listing several projects, with dots marking the ones that need attention" />
 
 - **Switcher.** The project name in the title bar (or the status bar) opens the switcher, which has a "Find a project" box and lists each project with its number of running consoles and a dot
   while one waits for you. Click a project, or press **Ctrl+Alt+1…9** for the first nine. Every view then shows only

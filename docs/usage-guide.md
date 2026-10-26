@@ -19,7 +19,7 @@ sessions under **Settings → General → New sessions start as**.
 
 ## Reopen an earlier conversation
 
-<img src="../assets/docs/history.png" width="760" alt="The History view listing earlier sessions across several projects, with a conversation summary open in a tab" />
+<img src="../assets/docs/history.png" width="760" alt="The History view listing the earlier sessions of one project, with the Work records pane below" />
 
 1. Open the **History** view in the activity bar (`Ctrl+5`) and find the conversation under **Sessions**.
 2. Click a conversation to open its summary in a tab. Previewing does not start a session.
@@ -93,7 +93,7 @@ through this feature.
 
 ## Run a dev server, build, or test
 
-<img src="../assets/docs/run.png" width="760" alt="The Run view listing run configurations with Run, Stop and Edit on each row" />
+<img src="../assets/docs/run.png" width="760" alt="The Run view listing run configurations such as dev server, unit tests and lint" />
 
 Open the **Run** view (`Ctrl+6`) and run a configuration from its row (Run, Stop and Edit sit on the row). Astera detects supported project scripts
 and tasks, including npm scripts and standard Gradle/Maven tasks. A detected configuration appears
@@ -145,7 +145,7 @@ through a flow, and read console and network errors. This browser is restricted 
 ## Adjust appearance, language, and shortcuts
 
 
-<img src="../assets/docs/plan-board-day.png" width="760" alt="A running plan tab shown in the Day theme" />
+<img src="../assets/docs/plan-board-day.png" width="760" alt="A plan tab in the Day theme, with Steps and Tasks marked done, waiting or Plan paused" />
 
 - **Settings → Appearance:** choose a theme and terminal font. Theme changes apply to open
   terminals without clearing their scrollback.
