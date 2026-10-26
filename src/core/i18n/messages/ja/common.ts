@@ -299,6 +299,12 @@ export const common: Partial<Record<keyof typeof ko, string>> = {
   "jobs.task.askPlanner": "代わりにプランナーに頼む",
   "jobs.task.askPlannerHint": "説明をプランナーに送り、計画に合わせてタスクを入れてもらいます",
   "jobs.task.askedPlanner": "プランナーに送りました。",
+  "jobs.task.aiSpec": "このタスクは何をしますか？",
+  "jobs.task.aiHint": "一行で十分です。プランナーがタイトル・指示・チェックを書いて計画に入れます。",
+  "jobs.task.addWithAi": "AIで追加",
+  "jobs.task.writeMyself": "自分で書く",
+  "jobs.task.openPlanner": "プランナーを開く",
+  "jobs.task.noPlannerHint": "この計画にはプランナーがいないため、自分で書いてください。",
   "jobs.task.askFailed": "プランナーに送れませんでした",
   'jobs.task.accountHint':
     'この Task のワーカーを起動するアカウントです。自動は余裕が最も大きいアカウントを選ぶので、他のアカウントで動かしたくないときだけ指定してください。2つ以上指定すると、利用上限に達したときに並べた順に切り替わります',

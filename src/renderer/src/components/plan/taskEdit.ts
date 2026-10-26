@@ -100,9 +100,22 @@ export function feedbackTextOf(task: { id: string; title: string }, text: string
   return `Request changes on Task "${task.title}" (${task.id}):\n\n${text.trim()}`
 }
 
-/** The new-Task form's "Ask the planner instead": the typed Task as a request to add it, for `jobs-feedback`. */
-export function addTaskRequestOf(title: string, spec: string): string {
-  return [`Add a task to the plan${title.trim() ? `: "${title.trim()}"` : ''}.`, '', spec.trim()].join('\n')
+/** The Add task window's first screen: the planner's box when the plan has a planner, else the manual form. */
+export const taskModeOf = (planned: boolean | undefined): 'ai' | 'manual' => (planned === true ? 'ai' : 'manual')
+
+/** "Place it after: …" for the Tasks the window opened with as dependencies, so the planner puts the new Task behind them. Empty when none. */
+export function placementLineOf(deps: readonly string[], tasks: readonly { id: string; title: string }[]): string {
+  if (deps.length === 0) return ''
+  const names = deps.map((id) => {
+    const title = tasks.find((x) => x.id === id)?.title
+    return title ? `"${title}" (${id})` : id
+  })
+  return `Place it after: ${names.join(', ')}`
+}
+
+/** The Add task window's text for `jobs-feedback`: the typed Task as a request to add it, with where to place it. */
+export function addTaskRequestOf(title: string, spec: string, placement = ''): string {
+  return [`Add a task to the plan${title.trim() ? `: "${title.trim()}"` : ''}.`, '', spec.trim(), ...(placement ? ['', placement] : [])].join('\n')
 }
 
 /** One attempt as `tasks-get` lists it (core/orchestration/taskDetail.ts TaskAttempt, which the web build does not

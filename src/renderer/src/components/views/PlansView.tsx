@@ -645,6 +645,7 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
           accounts={accounts}
           runConfigs={runConfigs}
           initialDeps={adding.deps}
+          planned={adding.row.planned === true}
           onClose={() => setAdding(null)}
           onCreated={() => setAdding(null)}
         />

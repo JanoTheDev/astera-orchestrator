@@ -331,6 +331,12 @@ export const common: Record<keyof typeof ko, string> = {
   "jobs.task.askPlanner": "Ask the planner instead",
   "jobs.task.askPlannerHint": "Sends the description to the planner, who fits the task into the plan",
   "jobs.task.askedPlanner": "Sent to the planner.",
+  "jobs.task.aiSpec": "What should this Task do?",
+  "jobs.task.aiHint": "One line is enough. The planner writes the title, instructions and checks and fits it into the plan.",
+  "jobs.task.addWithAi": "Add with AI",
+  "jobs.task.writeMyself": "Write it myself",
+  "jobs.task.openPlanner": "Open planner",
+  "jobs.task.noPlannerHint": "This plan has no planner, so write the Task yourself.",
   "jobs.task.askFailed": "Could not reach the planner",
   'jobs.task.accountHint':
     'The accounts this Task runs its worker on. Auto picks the account with the most room; pin accounts only to keep the work off others. With more than one pinned, a usage limit moves the worker to the next in the order you list them',

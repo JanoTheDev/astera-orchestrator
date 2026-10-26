@@ -260,6 +260,7 @@ export function PlanWaves({
           tasks={p.tasks}
           accounts={p.accounts}
           initialDeps={initialDeps}
+          planned={p.planned}
           runConfigs={p.runConfigs === null ? null : checkChoicesOf(p.runConfigs, p.checkPlugins, t)}
           onClose={() => p.setAuthoring(false)}
           onCreated={() => p.setAuthoring(false)}
