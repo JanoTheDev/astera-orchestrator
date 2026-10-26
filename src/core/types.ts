@@ -2896,3 +2896,51 @@ export type RendererApi = CoreApi & {
   }
   on<C extends CoreEventChannel>(channel: C, cb: (payload: CoreEvents[C]) => void): () => void
 }
+
+// Auto-limits foundation (T1): caps Astera lowers itself, and the Host's health snapshot. Node side: core/settings/autoLimits.ts.
+export type AutoLimitCause = 'strain' | 'crash' | 'oom'
+export interface AutoLimit {
+  cap: number
+  cause: AutoLimitCause
+  /** ISO time */
+  at: string
+  /** One English line: what was seen. */
+  detail: string
+}
+export interface AutoLimits {
+  /** Cap on agents across all plans. */
+  workers?: AutoLimit
+  /** Cap on heavy jobs at once. */
+  heavy?: AutoLimit
+  /** While set, every Task check (typecheck, lint, biome, ...) waits for a heavy slot, not only test/build/dist. */
+  checksAsHeavy?: { cause: AutoLimitCause; at: string }
+  /** Last 20 lowerings and restores, newest last, for the Settings explanation. */
+  history: Array<{
+    at: string
+    what: 'workers' | 'heavy' | 'checks'
+    from: number | null
+    to: number | null
+    cause: AutoLimitCause | 'calm' | 'reset'
+    detail: string
+  }>
+}
+export interface HealthSnapshot {
+  /** ISO time of the sample */
+  at: string
+  /** Available memory, % of total */
+  memAvailablePct: number
+  /** os.loadavg()[0] / logical CPUs */
+  load1PerCpu: number
+  /** Host event-loop delay, p99 over the sample window */
+  loopDelayP99Ms: number
+  /** The monitor judged this sample strained */
+  strained: boolean
+  /** Job worker sessions alive */
+  liveWorkers: number
+  /** All agent sessions alive */
+  liveSessions: number
+  /** Heavy slots held (tests/builds/checks) */
+  heavyRunning: number
+  /** Task checks running */
+  checksRunning: number
+}

@@ -52,6 +52,7 @@ import { prepareRun } from '../core/run/prepare'
 import { CHECK_TIMEOUT_MS } from '../core/orchestration/types'
 import { stripAnsi } from '../core/rolling/detect'
 import { readHeavyJobsAtOnce } from '../core/settings/heavyJobs'
+import { readChecksAsHeavy } from '../core/settings/autoLimits'
 
 export interface HostChecks {
   startValidation(a: { taskId: string; cwd: string }): void
@@ -277,6 +278,7 @@ export function createHostChecksForTest(d: HostChecksDeps): HostChecks & { _vali
     isAlive,
     ...(d.heavySlot ? { heavySlot: d.heavySlot } : {}),
     heavyJobsAtOnce: () => readHeavyJobsAtOnce(settingsPath),
+    checksAsHeavy: () => readChecksAsHeavy(d.profileDir),
     startReview: (a) => reviewBody(a),
     startRepair: (a) => startRepairOnce(a),
     // R12: the continuity journal is the app's (D8), so there is no diff base here.

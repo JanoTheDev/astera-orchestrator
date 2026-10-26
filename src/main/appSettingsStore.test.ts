@@ -1379,3 +1379,20 @@ describe('crashReports', () => {
     expect(store.getCrashReports()).toBe('ask')
   })
 })
+
+describe('AppSettingsStore effective caps with auto-limits', () => {
+  it('lowers the effective caps, keeps the person values, never raises', async () => {
+    await fs.writeFile(
+      path.join(dir, 'auto-limits.json'),
+      JSON.stringify({ workers: { cap: 2, cause: 'strain', at: 't', detail: 'd' }, heavy: { cap: 9, cause: 'strain', at: 't', detail: 'd' } })
+    )
+    const store = new AppSettingsStore(file())
+    await store.load()
+    await store.setMaxConcurrentWorkers(6)
+    await store.setHeavyJobsAtOnce(3)
+    expect(store.getEffectiveMaxConcurrentWorkers()).toBe(2)
+    expect(store.getMaxConcurrentWorkers()).toBe(6)
+    expect(store.getEffectiveHeavyJobsAtOnce()).toBe(3)
+    expect(store.getHeavyJobsAtOnce()).toBe(3)
+  })
+})

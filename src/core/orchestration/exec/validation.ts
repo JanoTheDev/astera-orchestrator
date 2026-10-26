@@ -65,6 +65,8 @@ export interface ValidationContext {
   heavySlot?(a: { cwd: string; cmd: string; abandoned?: () => boolean; slots?: number }): Promise<(() => void) | null>
   /** How many heavy jobs the machine runs at once (the heavyJobsAtOnce setting), read per heavy check; 1 when absent. */
   heavyJobsAtOnce?(): Promise<number>
+  /** While true, every check waits for a heavy slot (auto-limits checksAsHeavy). */
+  checksAsHeavy?(): Promise<boolean>
 }
 /** A git head, null when there is no baseline, 'unknown' when there may be one the journal could not give. */
 export type CheckpointHead = string | null | 'unknown'
