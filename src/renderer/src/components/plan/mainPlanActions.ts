@@ -7,7 +7,7 @@ import { approveSlot } from './planTalk'
 
 export type PlanActionId = 'approve' | 'pause' | 'resume' | 'hold' | 'release' | 'restartCoordinator' | 'archive' | 'unarchive' | 'delete'
 
-type ActRow = Pick<JobRow, 'pendingStart' | 'planned' | 'planReady' | 'autoApprove' | 'handsOff' | 'planProblems' | 'archivedAt' | 'schedule' | 'paused' | 'dispatchHold' | 'outcome' | 'coordinatorMissing'>
+type ActRow = Pick<JobRow, 'pendingStart' | 'planned' | 'planReady' | 'autoApprove' | 'handsOff' | 'planProblems' | 'archivedAt' | 'schedule' | 'paused' | 'dispatchHold' | 'holdBy' | 'outcome' | 'coordinatorMissing'>
 
 /** The actions `row` offers, in menu order; one `acts` leaves unwired is not offered. Delete and archive confirm in lib/jobActions. */
 // Not planHeaderActions.planActionsOf: that maps state to header/tree flags; this one maps state and the wired handlers to a row menu.

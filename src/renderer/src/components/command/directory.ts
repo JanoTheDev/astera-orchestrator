@@ -6,6 +6,7 @@ import type { MessageKey } from '../../../../core/i18n'
 import type { ActionId } from '../../../../core/keys/binding'
 import { ACTIVITY_IDS, PANEL_TABS } from '../../../../core/ui/pages'
 import type { ThemeId } from '../../../../core/theme/themes'
+import { isOwnerHeld } from '../plan/planList'
 import { planSessions, type WorkspaceData, type WorkspaceProject } from '../../state/workspaceTree'
 import { setHelpOpen } from '../help/helpStore'
 import { openActivity, openConsole, openPanel, openPlan, openView, toggleSideBar, togglePanel } from '../shell/navigation'
@@ -32,7 +33,7 @@ export function directoryOf(
             projectPath: p.path,
             scheduled: job?.schedule !== undefined,
             pendingStart: job?.pendingStart === true,
-            ...(job?.dispatchHold ? { held: true } : {}),
+            ...(job && isOwnerHeld(job) ? { held: true } : {}),
             ...(pl.runId !== undefined ? { runId: pl.runId } : {}),
             sessions: planSessions(pl).map((x) => ({
               sessionId: x.sessionId,

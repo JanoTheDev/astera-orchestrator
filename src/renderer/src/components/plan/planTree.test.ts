@@ -147,6 +147,13 @@ describe('steps, status and row text', () => {
     expect(pauseActionOf(row('a', { pendingStart: true }))).toBeNull()
   })
 
+  it('Release only for the owner\'s own hold: a replan, the final check or a replan\'s question has no Pause / Resume item', () => {
+    expect(pauseActionOf(row('a', { dispatchHold: true, holdBy: 'owner' }))).toBe('release')
+    expect(pauseActionOf(row('a', { dispatchHold: true, holdBy: undefined }))).toBe('release')
+    for (const holdBy of ['replanning', 'final-check', 'replan-question'] as const) expect(pauseActionOf(row('a', { dispatchHold: true, holdBy })), holdBy).toBeNull()
+    expect(pauseActionOf(row('a', { holdBy: undefined }))).toBe('hold')
+  })
+
   it('group-by reads back what was stored, and a stranger value is Plans', () => {
     expect(groupByOf('status')).toBe('status')
     expect(groupByOf('overlap')).toBe('plans')

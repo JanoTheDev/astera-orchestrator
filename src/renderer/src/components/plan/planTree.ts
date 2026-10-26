@@ -6,7 +6,7 @@ import type { MessageKey, MessageParams } from '../../../../core/i18n'
 import type { JobRow, JobTask } from '../../../../core/types'
 import { jobName } from '../../lib/jobName'
 import { ageOf, areaGroupsOf, categoryOf, planListOrder, type PlanSection } from './planBoard'
-import { finishedAtMs, lastActivityOf } from './planList'
+import { finishedAtMs, isOwnerHeld, lastActivityOf } from './planList'
 
 type T = (key: MessageKey, params?: MessageParams) => string
 
@@ -208,6 +208,7 @@ export type PauseAction = 'pause-schedule' | 'resume-schedule' | 'hold' | 'relea
 export function pauseActionOf(row: JobRow): PauseAction | null {
   if (row.archivedAt !== undefined || row.pendingStart || row.outcome === 'completed') return null
   if (row.schedule) return row.paused ? 'resume-schedule' : 'pause-schedule'
+  if (row.dispatchHold && !isOwnerHeld(row)) return null
   return row.dispatchHold ? 'release' : 'hold'
 }
 
