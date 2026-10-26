@@ -1886,6 +1886,9 @@ export interface CoreApi {
     /** T5b: live sessions per account at most, by account id; absent = no cap. */
     getAccountMaxSessions(): Promise<Record<string, number>>
     setAccountMaxSessions(v: Record<string, number>): Promise<void>
+    /** T6: the limits Astera lowered itself; restore clears them. */
+    getAutoLimits(): Promise<AutoLimits>
+    restoreAutoLimits(): Promise<void>
     /** W3-A: minutes between activity digests; 0 is none. */
     getActivityDigestMinutes(): Promise<number>
     setActivityDigestMinutes(n: number): Promise<void>

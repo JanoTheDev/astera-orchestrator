@@ -253,4 +253,13 @@ export const settings: Partial<Record<keyof typeof ko, string>> = {
   'settings.instructions.preview': '組み込みテキスト (読み取り専用)',
   'settings.instructions.previewHint': 'Astera がこのロールに書く内容の例です。あなたのテキストはその後に追加されます。',
   'settings.instructions.previewFailed': '組み込みテキストを読み込めませんでした: {detail}',
+  // T6: limits Astera lowered itself
+  'settings.autoLimit.lowered': 'Astera は {date} にこの値を {count} に下げました: {detail}。新しい開始だけを止め、実行中のエージェントはそのまま動きます。',
+  'settings.autoLimit.backByItself': 'マシンが落ち着くと自動で元に戻ります。',
+  'settings.autoLimit.staysUntilRestored': '自分で復元するまでそのままです。',
+  'settings.autoLimit.restore': '自分の上限に戻す',
+  'settings.autoLimit.restoreFailed': '上限を復元できませんでした: {detail}',
+  'settings.autoLimit.checksWait': 'マシンが落ち着くまで、すべてのチェックが重いジョブの枠を待ちます。',
+  'settings.autoLimit.crashToast': '同じことが起きないよう、Astera はクラッシュ後に上限を下げました',
+  'settings.autoLimit.openSettings': '設定を開く',
 }

@@ -36,6 +36,7 @@ import { registerReviewIpc } from './reviewIpc'
 import { registerIpc, parseAllowedExternalUrl, type AppWindows, type OrchHandle } from './ipc'
 import { registerExtensionsIpc } from './extensionsIpc'
 import { registerPromptsIpc } from './promptsIpc'
+import { registerAutoLimitsIpc } from './autoLimitsIpc'
 // W9-K: one window per project
 import { isValidState } from '../core/orchestration/store'
 import {
@@ -1466,6 +1467,9 @@ app.whenReady().then(async () => {
   // narrows whatever the renderer sends (accountMaxSessionsOf).
   ipcMain.handle('settings.getAccountMaxSessions', () => core!.appSettings.getAccountMaxSessions())
   ipcMain.handle('settings.setAccountMaxSessions', (_e, v: unknown) => core!.appSettings.setAccountMaxSessions(v))
+
+  // T6: the lowered limits in Settings › Agents (autoLimitsIpc.ts).
+  registerAutoLimitsIpc(ipcMain, { profileDir: app.getPath('userData') })
 
   // Change map and PR merge for a worktree outside a plan (reviewIpc.ts).
   registerReviewIpc(ipcMain, {
