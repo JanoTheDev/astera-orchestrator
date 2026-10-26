@@ -1,0 +1,130 @@
+---
+title: Astera
+description: A desktop app that runs many Claude Code and Codex terminals for you, and asks you only when it must.
+template: splash
+tableOfContents: false
+editUrl: false
+hero:
+  title: Astera
+  tagline: Hand it a plan. It runs the agents. It asks you only when it must.
+  image:
+    file: ../../../../assets/mark.svg
+    alt: The Astera mark
+  actions:
+    - text: Get started
+      link: docs/getting-started/
+      icon: right-arrow
+    - text: GitHub
+      link: https://github.com/JanoTheDev/astera-orchestrator
+      icon: github
+      variant: minimal
+---
+
+{/* Hand-written, not generated: scripts/docs-site-sync.mjs never touches this file. Every claim below comes from
+    README.md or a page under docs/. Links carry the base so the page works at a domain root and under a path. */}
+
+import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components'
+import { Image } from 'astro:assets'
+import hero from '../../../../assets/ui-hero-dark.png'
+import lifecycle from '../../../../assets/docs/diagrams/plan-lifecycle.svg'
+import planBoard from '../../../../assets/docs/plan-board.png'
+import taskDetail from '../../../../assets/docs/task-detail.png'
+import needsYou from '../../../../assets/docs/needs-you.png'
+import accounts from '../../../../assets/docs/accounts.png'
+import sourceControl from '../../../../assets/docs/source-control.png'
+import plansTree from '../../../../assets/docs/plans-tree.png'
+import mainPlan from '../../../../assets/docs/main-plan.png'
+import start from '../../../../assets/docs/start.png'
+import activity from '../../../../assets/docs/activity.png'
+import history from '../../../../assets/docs/history.png'
+import run from '../../../../assets/docs/run.png'
+import day from '../../../../assets/docs/plan-board-day.png'
+
+export const base = import.meta.env.BASE_URL.replace(/\/?$/, '/')
+export const gallery = [
+  { img: planBoard, title: 'Plan tab', text: 'Steps and Tasks, each with its live line, model and account.', page: 'Getting started', href: 'docs/getting-started/#6-watch-it-run' },
+  { img: taskDetail, title: 'Task detail', text: 'Criteria, result, attempts, review and files for one Task.', page: 'User guide', href: 'docs/guide/#tasks' },
+  { img: needsYou, title: 'Needs you', text: 'Questions, approvals and failed reviews in one list.', page: 'User guide', href: 'docs/guide/#needs-you' },
+  { img: accounts, title: 'Accounts', text: 'Several accounts per vendor, with usage bars.', page: 'Usage guide', href: 'docs/usage-guide/#use-multiple-accounts' },
+  { img: sourceControl, title: 'Source Control', text: 'Worktrees, their branches and their changes.', page: 'User guide', href: 'docs/guide/#worktrees' },
+  { img: plansTree, title: 'Plans', text: 'A tree of plan, step and Task next to the open plan tab.', page: 'User guide', href: 'docs/guide/#plans' },
+  { img: mainPlan, title: 'Main plan', text: 'Several sub-plans and their open Tasks on one page.', page: 'User guide', href: 'docs/guide/#plans' },
+  { img: start, title: 'Start', text: 'Write a goal, pick GitHub issues or attach your own files.', page: 'User guide', href: 'docs/guide/#start-make-a-plan' },
+  { img: activity, title: 'Activity', text: 'The feed of what Astera handled without you.', page: 'User guide', href: 'docs/guide/#needs-you' },
+  { img: history, title: 'History', text: 'Every session of a project, by account.', page: 'Usage guide', href: 'docs/usage-guide/#reopen-an-earlier-conversation' },
+  { img: run, title: 'Run', text: 'Run configurations for dev servers, tests and scripts.', page: 'Usage guide', href: 'docs/usage-guide/#run-a-dev-server-build-or-test' },
+  { img: day, title: 'Day theme', text: 'Night and Day themes.', page: 'Usage guide', href: 'docs/usage-guide/#adjust-appearance-language-and-shortcuts' }
+]
+
+<figure class="astera-hero-shot">
+  <Image src={hero} alt="Astera's Plans view: the Checkout redesign plan with its Steps and Tasks, each showing a model and an account, and the plan's Activity log on the right" widths={[640, 1280, 1920]} sizes="(min-width: 72rem) 72rem, 100vw" loading="eager" />
+</figure>
+
+Astera is a desktop app that runs many Claude Code and Codex terminals for you. You give it a goal or a source (an
+issue, a folder of written plans), a planner splits it into Tasks, and workers run them in parallel, each on the right
+model. A reviewer checks every Task, the plan is delivered the way you chose, and Astera asks you only when it must.
+
+## At a glance
+
+<CardGrid>
+  <Card title="Parallel workers, one worktree each" icon="code-branch">
+    Tasks that do not touch the same files run side by side, and Astera merges finished Tasks itself.
+  </Card>
+  <Card title="A reviewer on every Task" icon="approve-check">
+    A fresh reviewer checks each Task (up to 5 rounds), and a final check compares the result with the goal.
+  </Card>
+  <Card title="Account rolling" icon="random">
+    When an account reaches its usage limit, Astera reads the reset time and resumes the work on the next account.
+  </Card>
+  <Card title="It asks only when it must" icon="comment">
+    Permission prompts, questions and failed reviews wait in one place, **Needs you**.
+  </Card>
+  <Card title="Real terminals" icon="laptop">
+    Every agent is a real `claude` or `codex` terminal. You can watch any of them and type into any of them without
+    stopping the rest.
+  </Card>
+  <Card title="Delivered your way" icon="rocket">
+    Per project or per plan: **pr**, **push**, **merge** or **manual**. Astera stops and asks when anything is off, and
+    never force-pushes.
+  </Card>
+  <Card title="Drive it from code" icon="puzzle">
+    The `astera` command, an MCP server and a TypeScript SDK all drive the same Host, and plugins run beside it.
+  </Card>
+  <Card title="Run it elsewhere" icon="server">
+    Remote runtimes run sessions and plans on another machine over your own LAN, VPN or Tailscale.
+  </Card>
+</CardGrid>
+
+## How a plan runs
+
+<a class="astera-diagram" href={`${base}docs/architecture/#the-plan-lifecycle`}>
+  <Image src={lifecycle} alt="The life of a plan: a goal goes to the planner, you approve, the coordinator starts workers in waves, a reviewer checks each Task, then a final check and delivery" />
+</a>
+
+You write a goal, the planner splits it into Tasks, and you press **Approve & execute**. A coordinator places workers as
+their dependencies finish, a reviewer checks each Task, and after the last wave a final check compares the result with
+the goal. Then the plan is delivered.
+
+## A look around
+
+<div class="astera-gallery not-content">
+  {gallery.map((g) => (
+    <figure>
+      <a href={`${base}${g.href}`}>
+        <Image src={g.img} alt={`${g.title}: ${g.text}`} widths={[480, 960]} sizes="(min-width: 50rem) 24rem, 100vw" />
+      </a>
+      <figcaption>
+        <strong>{g.title}</strong> {g.text} <a href={`${base}${g.href}`}>{g.page}</a>
+      </figcaption>
+    </figure>
+  ))}
+</div>
+
+## Read next
+
+<CardGrid>
+  <LinkCard title="Getting started" description="Install, first run and your first delivered plan." href={`${base}docs/getting-started/`} />
+  <LinkCard title="Concepts" description="Projects, plans, Tasks, consoles, the Host." href={`${base}docs/concepts/`} />
+  <LinkCard title="User guide" description="Every view and setting, day to day." href={`${base}docs/guide/`} />
+  <LinkCard title="The astera command" description="Drive the same Host from a shell or CI." href={`${base}docs/cli/`} />
+</CardGrid>
