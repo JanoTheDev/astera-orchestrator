@@ -1,5 +1,6 @@
 // T6: which of the worktree tab's actions show, and why one is off. Pure, so the rules are tested without the tab.
 import type { PrInfo } from '../../../../core/github/types'
+import { shellQuote } from '../devices/devicesView'
 import type { WorktreeStatus } from '../../../../core/types'
 import type { MessageKey } from '../../../../core/i18n'
 
@@ -58,3 +59,6 @@ export function worktreeMenu(f: { status: WorktreeStatus; pr: PrInfo | undefined
   if (f.status !== 'ok') return ['copyPath', 'remove']
   return ['openHere', 'openFiles', 'terminal', 'reveal', 'copyPath', ...(f.pr ? (['viewPr', 'copyPr'] as const) : []), 'remove']
 }
+
+/** What a new bottom-panel terminal types to land in the worktree: the panel lists terminals of the project root only. */
+export const cdCommand = (path: string): string => `cd ${shellQuote(path)}`

@@ -142,7 +142,6 @@ export const worktrees = {
   'worktrees.review.title': '이 계획이 검토를 기다리고 있습니다',
   'worktrees.review.body': '작업은 끝났고 아무것도 전달되지 않았습니다. 변경을 살펴본 뒤 PR 을 만들거나 병합하세요.',
   'worktrees.act.terminal': '터미널에서 열기',
-  'worktrees.act.terminalOpened': '이 워크트리에서 터미널을 열었습니다',
   'worktrees.act.reveal': '파일 관리자에서 보기',
   'worktrees.act.revealFailed': '폴더를 표시하지 못했습니다: {detail}',
   'worktrees.commit.menu': '커밋 동작',

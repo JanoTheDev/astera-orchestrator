@@ -136,7 +136,6 @@ export const worktrees: Record<keyof typeof ko, string> = {
   'worktrees.review.title': 'This plan is waiting for your review',
   'worktrees.review.body': 'The work is done and nothing was delivered. Look through the changes, then create a pull request or merge.',
   'worktrees.act.terminal': 'Open in Terminal',
-  'worktrees.act.terminalOpened': 'Opened a terminal in this worktree',
   'worktrees.act.reveal': 'Reveal in file manager',
   'worktrees.act.revealFailed': 'Could not reveal the folder: {detail}',
   'worktrees.commit.menu': 'Commit actions',

@@ -75,7 +75,6 @@ export const worktrees: Partial<Record<keyof typeof ko, string>> = {
   'worktrees.review.title': 'このプランはレビュー待ちです',
   'worktrees.review.body': '作業は完了しましたが、まだ何も届けられていません。変更を確認してから PR を作成するかマージしてください。',
   'worktrees.act.terminal': 'ターミナルで開く',
-  'worktrees.act.terminalOpened': 'このワークツリーでターミナルを開きました',
   'worktrees.act.reveal': 'ファイルマネージャーで表示',
   'worktrees.act.revealFailed': 'フォルダを表示できませんでした: {detail}',
   'worktrees.commit.menu': 'コミットの操作',

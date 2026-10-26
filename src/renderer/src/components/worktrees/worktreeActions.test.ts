@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { PrInfo } from '../../../../core/github/types'
-import { worktreeActions, worktreeMenu, type ActionFacts } from './worktreeActions'
+import { worktreeActions, worktreeMenu, cdCommand, type ActionFacts } from './worktreeActions'
 
 const pr = (over: Partial<PrInfo> = {}): PrInfo => ({ number: 7, title: 't', state: 'open', isDraft: false, url: 'https://x/pull/7', checks: 'passing', ...over })
 const facts = (over: Partial<ActionFacts> = {}): ActionFacts => ({ ok: true, ghConnected: true, ahead: 2, dirty: 0, pr: undefined, pushable: false, busy: false, ...over })
@@ -58,4 +58,9 @@ describe('worktreeMenu', () => {
     for (const status of ['orphan-dir', 'unreachable', 'git-unchecked'] as const)
       expect(worktreeMenu({ status, pr: pr() })).toEqual(['copyPath', 'remove'])
   })
+})
+
+it('cdCommand quotes a path a shell would split', () => {
+  expect(cdCommand('/a/b')).toBe('cd /a/b')
+  expect(cdCommand("/a b/it's")).toBe("cd '/a b/it'\\''s'")
 })

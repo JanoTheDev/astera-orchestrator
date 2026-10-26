@@ -62,7 +62,7 @@ export function worktreeMenuItems(
   t: ReturnType<typeof useI18n>['t'],
   w: WorktreeListItem,
   pr: PrInfo | undefined,
-  on: { openHere(): void; openFiles(): void; remove(): void; removeDisabled?: boolean },
+  on: { openHere(): void; openFiles(): void; terminal(): void; remove(): void; removeDisabled?: boolean },
   extra: MenuItem[] = []
 ): Array<MenuItem | 'separator'> {
   const ok = w.status === 'ok'
@@ -76,7 +76,7 @@ export function worktreeMenuItems(
     terminal: {
       label: t('worktrees.act.terminal'),
       icon: <Icon name="terminal" size={14} />,
-      onSelect: () => void window.api.terminal.open(w.path).then(() => toast.success(t('worktrees.act.terminalOpened')), (err) => toast.error(t('terminal.open.failed', { detail: failText(err) })))
+      onSelect: on.terminal
     },
     reveal: {
       label: t('worktrees.act.reveal'),
@@ -107,7 +107,8 @@ export function WorktreeDetail({
   door,
   onClose,
   onStartSession,
-  onOpenFiles
+  onOpenFiles,
+  onTerminal
 }: {
   path: string
   runs: readonly JobRow[]
@@ -115,6 +116,8 @@ export function WorktreeDetail({
   onClose: () => void
   onStartSession: (path: string) => void
   onOpenFiles: (path: string) => void
+  /** A terminal in the bottom panel, started in this folder. */
+  onTerminal: (path: string) => void
 }): React.JSX.Element | null {
   const { t } = useI18n()
   const wt = useWorktreeTab(path)
@@ -132,7 +135,7 @@ export function WorktreeDetail({
     )
   return (
     <div className="worktree-tab">
-      <Body item={wt.item} wt={wt} runs={runs} door={door} onStartSession={onStartSession} onOpenFiles={onOpenFiles} />
+      <Body item={wt.item} wt={wt} runs={runs} door={door} onStartSession={onStartSession} onOpenFiles={onOpenFiles} onTerminal={onTerminal} />
     </div>
   )
 }
@@ -143,7 +146,8 @@ function Body({
   runs,
   door,
   onStartSession,
-  onOpenFiles
+  onOpenFiles,
+  onTerminal
 }: {
   item: WorktreeListItem
   wt: WorktreeTabData
@@ -151,6 +155,7 @@ function Body({
   door: OrchDoor | null
   onStartSession: (path: string) => void
   onOpenFiles: (path: string) => void
+  onTerminal: (path: string) => void
 }): React.JSX.Element {
   const { t } = useI18n()
   const detail = useWorktreeDetail({ item: w, ahead: wt.push?.ahead ?? null, dirty: wt.dirty, unpushed: null })
@@ -296,6 +301,7 @@ function Body({
   const secondary = worktreeMenuItems(t, w, wt.pr, {
     openHere: () => onStartSession(w.path),
     openFiles: () => onOpenFiles(w.path),
+    terminal: () => onTerminal(w.path),
     removeDisabled: busy || worktrees.busy,
     remove: () => void worktrees.remove(w).then(() => wt.refresh())
   })
