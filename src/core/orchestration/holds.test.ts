@@ -8,6 +8,8 @@ import path from 'node:path'
 import { handleCommand, type HostSession, type OrchServerDeps } from './command'
 import { emptyState, type OrchState } from './state'
 import { slotsToFill, workersAgainstCap } from './schedule'
+import { holdOf } from './holds'
+import type { Job } from './types'
 import { mcpRefusal } from '../host/mcpGate'
 import { controllerRefusal } from '../host/controllerGate'
 import { APP_CALLER } from '../host/driver'
@@ -154,5 +156,33 @@ describe('the Host gates', () => {
   it.each(['worker-hold', 'worker-unhold', 'jobs-hold', 'jobs-unhold'])('%s is closed to MCP clients and remote controllers', (cmd) => {
     expect(mcpRefusal(cmd, 'control', true, true)?.status).toBe(403)
     expect(controllerRefusal(cmd, { name: 'c', permission: 'full-control' } as never)?.status).toBe(403)
+  })
+})
+
+describe('holdOf: who holds a plan from launching', () => {
+  const job: Job = { id: 'j', objective: 'o', cwd: '/p', createdAt: NOW }
+  const mark = { runId: 'r1', wave: 1, done: 0, startedAt: NOW }
+  const lastReplan = { ...mark, mode: 'completion' as const, at: NOW, summary: 's' }
+
+  it('none', () => {
+    expect(holdOf(job)).toBeUndefined()
+    // a scoped replan holds only the Tasks it can affect, not the plan
+    expect(holdOf({ ...job, replanning: { ...mark, mode: 'wave', scoped: true } as Job['replanning'] })).toBeUndefined()
+    expect(holdOf({ ...job, lastReplan: { ...lastReplan, escalated: 'x' } })).toBeUndefined()
+  })
+
+  it('the owner', () => {
+    expect(holdOf({ ...job, dispatchHold: true })).toBe('owner')
+    expect(holdOf({ ...job, dispatchHold: true, lastReplan })).toBe('owner')
+    expect(holdOf({ ...job, dispatchHold: true, replanning: { ...mark, mode: 'wave', scoped: true } as Job['replanning'] })).toBe('owner')
+  })
+
+  it('a replan, the final check, and a replan question', () => {
+    expect(holdOf({ ...job, dispatchHold: true, replanning: { ...mark, mode: 'wave' } })).toBe('replanning')
+    expect(holdOf({ ...job, dispatchHold: true, replanning: { ...mark, mode: 'completion' } })).toBe('final-check')
+    // the owner's feedback or chat on a finished plan is a replan, not the final check
+    expect(holdOf({ ...job, dispatchHold: true, replanning: { ...mark, mode: 'completion', feedbackAt: NOW } })).toBe('replanning')
+    expect(holdOf({ ...job, dispatchHold: true, replanning: { ...mark, mode: 'completion', chat: true } })).toBe('replanning')
+    expect(holdOf({ ...job, dispatchHold: true, lastReplan: { ...lastReplan, escalated: 'x' } })).toBe('replan-question')
   })
 })

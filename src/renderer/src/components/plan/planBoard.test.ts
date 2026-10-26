@@ -65,7 +65,12 @@ describe('reasonText', () => {
       { kind: 'rate-limited', accountId: 'a', switching: true },
       { kind: 'archived' },
       { kind: 'pending-start' },
-      { kind: 'paused' },
+      { kind: 'paused', why: 'stopped' },
+      { kind: 'paused', why: 'schedule' },
+      { kind: 'paused', why: 'held' },
+      { kind: 'paused', why: 'replanning' },
+      { kind: 'paused', why: 'final-check' },
+      { kind: 'paused', why: 'replan-question' },
       { kind: 'definition' },
       { kind: 'gate', gateId: 'g', question: 'q?' },
       { kind: 'failure-limit', failures: 3, limit: 3 },
@@ -264,6 +269,16 @@ describe('reasonText: a plan queued after another (W8-C)', () => {
     expect(reasonText(stopped, 0, (x) => x)).toEqual({ key: 'plan.reason.afterStopped', params: { plan: 'Plan A' } })
     expect(reasonTone(stopped)).toBe('action')
     expect(reasonText({ kind: 'pending-start' }, 0, (x) => x)).toEqual({ key: 'plan.reason.pendingStart' })
+  })
+})
+
+// A held plan says why: a replan and the final check end by themselves, the rest wait on the owner
+describe('reasonText — why a plan is paused', () => {
+  it('a distinct key per why; a replan and the final check are plain waiting', () => {
+    const whys = ['stopped', 'schedule', 'held', 'replanning', 'final-check', 'replan-question'] as const
+    const keys = whys.map((why) => reasonText({ kind: 'paused', why }, 0, (x) => x).key)
+    expect(new Set(keys).size).toBe(whys.length)
+    expect(whys.map((why) => reasonTone({ kind: 'paused', why }))).toEqual(['action', 'action', 'action', 'wait', 'wait', 'action'])
   })
 })
 

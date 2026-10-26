@@ -95,7 +95,7 @@ describe('activityView', () => {
       cancelled: [],
       awaitingReview: [],
       plansDone: [],
-      blocked: [{ title: 'c', jobId: 'j1', at: T0, reason: { kind: 'paused' as const } }]
+      blocked: [{ title: 'c', jobId: 'j1', at: T0, reason: { kind: 'paused' as const, why: 'held' as const } }]
     }
     expect(summaryOf(s, 'j1').map((b) => [b.label, b.items.length])).toEqual([
       ['completed', 1],

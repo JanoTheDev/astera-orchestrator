@@ -276,7 +276,7 @@ describe('notices', () => {
 
   it('a digest only when something happened; blocked alone is no news', () => {
     expect(digestText(summary())).toBeNull()
-    expect(digestText(summary({ blocked: [{ title: 'x', at: T0, reason: { kind: 'paused' } }] }))).toBeNull()
+    expect(digestText(summary({ blocked: [{ title: 'x', at: T0, reason: { kind: 'paused', why: 'held' } }] }))).toBeNull()
     const text = digestText(summary({ completed: [1, 2, 3, 4].map((i) => ({ title: `t${i}`, at: T0 })) }), 2)!
     expect(text).toContain('4 completed: t1, t2, t3 and 1 more')
     expect(text).toContain('2 more notice(s) held back')

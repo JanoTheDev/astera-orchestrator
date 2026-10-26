@@ -223,7 +223,6 @@ export const UNTRANSLATED: readonly MessageKey[] = [
   'plan.reason.pendingStart',
   'plan.reason.queuedAfter',
   'plan.reason.afterStopped',
-  'plan.reason.paused',
   'plan.reason.definition',
   'plan.reason.gate',
   'plan.reason.failureLimit',
