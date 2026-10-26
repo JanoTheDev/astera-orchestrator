@@ -18,21 +18,23 @@ const PAGES = [
   // ready: the scan is done and the tree holds a session row under its project row, not only the project and "Loading…"
   ['history', () => activity('History'), "document.querySelectorAll('.history-tree [role=treeitem]').length > 1 && !/Loading|Scanning/.test(document.body.innerText)"],
   ['explorer', () => activity('Explorer')],
-  ['scm', () => activity('Source Control')],
+  // --showcase: one click on the worktree row fills the Changes pane (it reads "Select a worktree" before)
+  ['scm', async () => (await activity('Source Control'), await sleep(500), await sleepClick('.scm-tree [role=treeitem]'), true)],
   ['run', () => activity('Run')],
   ['devices', () => activity('Devices')],
   ['switcher', async () => (await activity('Agents'), await sleep(300), sleepClick('.tb-switcher'))],
   ['accounts', () => sleepClick('.wb-activitybar button[aria-label="Accounts"]')],
   ['settings', async () => (await sleepClick('.wb-activitybar button[aria-label="Manage"]')) && sleepClick('[role=menuitem]', '^\\s*Settings\\s*$')],
   // --showcase pages (docs/dev/shots/SEED.md, "Showcase seed"): the plan named by --plan, its Task named by --task
-  ['planboard', () => openPlan(), PLAN_READY],
+  // scrolled so the Steps board (Step 2 open, with its Tasks) fills the tab
+  ['planboard', async () => (await openPlan()) && (await sleep(800), await scrollTo('document.getElementById("plan-steps")', 'start'), true), PLAN_READY],
   // the Plans tree with that plan's Steps and Tasks unfolded, next to its tab
   ['planstree', async () => (await openPlan()) && (await unfoldPlan(), true), PLAN_READY],
   // every project's cards ("All projects"), so the other projects' questions and approval show too
   ['needsyou', async () => (await openPlan()) && (await panelTab('^\\s*Needs you')) && (await sleepClick('.needs__bar [role=tab]', '^\\s*All projects\\s*$'), true), `${PLAN_READY} && !!document.querySelector('.wb-panel .needs')`],
   ['activity', async () => (await openPlan()) && panelTab('^\\s*Activity'), `${PLAN_READY} && !!document.querySelector('.wb-panel .act')`],
   // Attempts and the prompt show only in Advanced mode (ADVANCED below)
-  ['taskdetail', async () => (await openPlan()) && (await sleep(800), sleepClick(`button.plan-card-title[aria-label=${JSON.stringify(`Show details of ${TASK}`)}]`)), `${PLAN_READY} && !!document.querySelector('.plan-card.selected .plan-row-detail')`],
+  ['taskdetail', async () => (await openPlan()) && (await sleep(800), sleepClick(`button.plan-card-title[aria-label=${JSON.stringify(`Show details of ${TASK}`)}]`) && (await sleep(500), await scrollTo("document.querySelector('.plan-card.selected')", 'start'), true)), `${PLAN_READY} && !!document.querySelector('.plan-card.selected .plan-row-detail')`],
   ['settings-agents', async () => (await openSettings()) && (await sleepClick('nav.settings-editor__toc [role=treeitem]', '^\\s*Agents\\s*$')) && (await evaluate(`document.querySelector('[data-anchor="roleModels"]')?.scrollIntoView({ block: 'start' }) ?? true`), true)],
   // Explorer with a file open in the editor: --file is a path under the open project, its folders unfolded on the way
   ['editor', () => openFile(FILE), "!!document.querySelector('.wb-editor .cm-editor')"]
@@ -151,6 +153,8 @@ async function clickEl(expr) {
   })()`)
   return found && sleepClick('[data-shoot-hit]')
 }
+/** Scrolls the element the page-side expression `expr` returns into view (false when it returns none). */
+const scrollTo = (expr, block) => evaluate(`(() => { const el = ${expr}; el?.scrollIntoView({ block: '${block}' }); return !!el })()`)
 /** Opens --plan's tab from the Plans side bar (one click on its row). */
 async function openPlan() {
   await activity('Plans')
