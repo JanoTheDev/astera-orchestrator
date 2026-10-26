@@ -1,5 +1,6 @@
 // The one composition of the Host's chat connections (Slack in the Host, spec §3, plan rulings P4, P7,
-// P9, P16; Telegram beside it): one builder per connection (slackConnection.ts, telegramConnection.ts),
+// P9, P16; Telegram and Discord beside it): one builder per connection (slackConnection.ts, telegramConnection.ts,
+// discordConnection.ts),
 // each a notifier, a read-only settings reader and an inbox, held in one list; one ConnectionFanout over
 // their notifiers, which every session input goes through (connectionsSessions.ts follows the Host's
 // registries, connectionsSources.ts feeds the rest and the app's forwarded events); where a reply goes
@@ -36,6 +37,8 @@
 import { HOST_YIELD_SLACK } from '../core/host/protocol'
 import type { SlackConfig } from '../core/slack/config'
 import type { TelegramConfig } from '../core/telegram/config'
+import type { DiscordConfig } from '../core/discord/config'
+import type { GatewaySocketCtor } from '../core/discord/gateway'
 import { ConnectionFanout } from '../core/connections/fanout'
 import type { Connection } from '../core/connections/connection'
 import type { ConnectionNotifier } from '../core/connections/notifier'
@@ -54,6 +57,7 @@ import { createHostConnectionSources } from './connectionsSources'
 import { hostInboxRoutes } from './connectionsRoutes'
 import { hostSlackConnection, hostSlackLog } from './slackConnection'
 import { telegramConnection, telegramLog, type ConsoleRoute } from './telegramConnection'
+import { discordConnection, discordLog } from './discordConnection'
 import { readFileTail } from '../core/connections/notifier'
 import { extractLastTurnAssistantText } from '../core/connections/transcript'
 import { extractLastAgentMessage } from '../core/connections/codexTranscript'
@@ -69,7 +73,7 @@ export const HOST_SLACK_START_GRACE_MS = 10_000
 export interface HostConnectionsWiring {
   /** Every connection's notifier behind one object: what a session input or an activity notice goes to. */
   fanout: ConnectionFanout
-  /** One connection's own notifier, by name ('slack', 'telegram'), or null. */
+  /** One connection's own notifier, by name ('slack', 'telegram', 'discord'), or null. */
   notifier(name: string): ConnectionNotifier | null
   /** The SDK is there and no attached app keeps the connections (P4). */
   active(): boolean
@@ -124,12 +128,13 @@ export function composeHostConnections(a: {
   rolling: Pick<HostRolling, 'has' | 'account'> | null
   server(): Pick<HostServer, 'appsKeep' | 'hasApp' | 'act'>
   lang(): Lang
-  /** Test seams. `log` is the composition's and Slack's (slack.log); Telegram's is `telegram.log`. */
+  /** Test seams. `log` is the composition's and Slack's (slack.log); Telegram's is `telegram.log`, Discord's `discord.log`. */
   log?(m: string): void
   readConfig?(): Promise<SlackConfig>
-  /** Starts or finds the Astera console (console-ensure); without it Telegram's non-reply messages get the reply hint. */
+  /** Starts or finds the Astera console (console-ensure); without it Telegram's and Discord's non-reply messages get the reply hint. */
   ensureConsole?(): Promise<{ id: string }>
   telegram?: { log?(m: string): void; readConfig?(): Promise<TelegramConfig>; fetchFn?: typeof fetch }
+  discord?: { log?(m: string): void; readConfig?(): Promise<DiscordConfig>; fetchFn?: typeof fetch; WebSocketCtor?: GatewaySocketCtor }
   every?(ms: number, fn: () => void): () => void
   /** The start grace's timer (HOST_SLACK_START_GRACE_MS); returns its cancel. */
   after?(ms: number, fn: () => void): () => void
@@ -186,7 +191,7 @@ export function composeHostConnections(a: {
       hostInboxRoutes({ registry: a.registry, procs: a.procs, chats: a.chats, notifier, server: a.server }),
     isQuitting: () => disposed
   }
-  // Telegram's console: a message sent to it, and the text its turn ends with, read from the same transcript the
+  // Telegram's and Discord's console: a message sent to it, and the text its turn ends with, read from the same transcript the
   // turn summary reads. The listener is on before the send, so a fast turn cannot be missed.
   const TURN_CAP_MS = 30 * 60_000
   const consoleRoute: ConsoleRoute | undefined =
@@ -244,6 +249,14 @@ export function composeHostConnections(a: {
       log: safeLog(a.telegram?.log ?? telegramLog(a.profileDir, true)),
       ...(a.telegram?.readConfig ? { load: a.telegram.readConfig } : {}),
       ...(a.telegram?.fetchFn ? { fetchFn: a.telegram.fetchFn } : {})
+    }),
+    discordConnection({
+      ...shared,
+      ...(consoleRoute ? { console: consoleRoute } : {}),
+      log: safeLog(a.discord?.log ?? discordLog(a.profileDir, true)),
+      ...(a.discord?.readConfig ? { load: a.discord.readConfig } : {}),
+      ...(a.discord?.fetchFn ? { fetchFn: a.discord.fetchFn } : {}),
+      ...(a.discord?.WebSocketCtor ? { WebSocketCtor: a.discord.WebSocketCtor } : {})
     })
   ]
   const fanout = new ConnectionFanout(

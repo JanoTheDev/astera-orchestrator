@@ -430,7 +430,7 @@ export class ConnectionNotifier {
     const label = this.deps.getAccount(record.info.accountId)?.label
     const header = `🖥 ${record.info.title}${label ? ` · ${label}` : ''}\n${record.info.cwd}`
     return transport
-      .post(header)
+      .post(header, undefined, { sessionId: record.info.id })
       .then((ts) => {
         if (!ts) return ts
         this.rememberOwnPost(ts) // second line of loop defence — recorded regardless of whether the session is alive

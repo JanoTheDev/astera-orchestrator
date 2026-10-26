@@ -9,6 +9,9 @@ import { flushAllLogsSync } from '../core/log/logWriter'
 import type { HostSlackSdk } from './slackSdk'
 import type { SlackConfig } from '../core/slack/config'
 import { EMPTY_TELEGRAM_CONFIG, type TelegramConfig } from '../core/telegram/config'
+import { EMPTY_DISCORD_CONFIG, type DiscordConfig } from '../core/discord/config'
+import { DISCORD_API } from '../core/discord/rest'
+import type { GatewaySocket } from '../core/discord/gateway'
 import type { Account } from '../core/types'
 
 const CFG: SlackConfig = { webhookUrl: null, botToken: 'xoxb-fake', channelId: 'C1', appToken: 'xapp-fake', memberId: 'U1' }
@@ -52,7 +55,7 @@ function fakePty(): RegistryPty & { emit(d: string): void; sent: string[] } {
   return { pid: 1, sent, onData: (cb) => { onData = cb }, onExit: () => {}, write: (d) => { sent.push(d) }, resize: () => {}, kill: () => {}, pause: () => {}, resume: () => {}, emit: (d) => onData(d) }
 }
 
-async function rig(o: { keep?: boolean; sdk?: boolean; delay?: number; profileDir?: string; readConfig?: (() => Promise<SlackConfig>) | null; statusLinePayload?: () => Promise<unknown>; hostChains?: string[]; manualGrace?: boolean; telegram?: { readConfig?: () => Promise<TelegramConfig>; fetchFn?: typeof fetch } } = {}) {
+async function rig(o: { keep?: boolean; sdk?: boolean; delay?: number; profileDir?: string; readConfig?: (() => Promise<SlackConfig>) | null; statusLinePayload?: () => Promise<unknown>; hostChains?: string[]; manualGrace?: boolean; telegram?: { readConfig?: () => Promise<TelegramConfig>; fetchFn?: typeof fetch }; discord?: { readConfig?: () => Promise<DiscordConfig>; fetchFn?: typeof fetch; WebSocketCtor?: new (url: string) => GatewaySocket } } = {}) {
   const slack = fakeSlack({ delay: o.delay })
   const ptys = new Map<string, ReturnType<typeof fakePty>>()
   let next = ''
@@ -85,6 +88,8 @@ async function rig(o: { keep?: boolean; sdk?: boolean; delay?: number; profileDi
     ...(o.readConfig === null ? {} : { readConfig: o.readConfig ?? (async () => ({ ...CFG })) }),
     // Telegram reads no file and polls nothing unless a test says so.
     telegram: { log: (m) => logs.push(m), ...(o.telegram ?? { readConfig: async () => ({ ...EMPTY_TELEGRAM_CONFIG }) }) },
+    // Discord neither: no file, no Gateway.
+    discord: { log: (m) => logs.push(m), ...(o.discord ?? { readConfig: async () => ({ ...EMPTY_DISCORD_CONFIG }) }) },
     every: () => () => {},
     after
   })
@@ -302,7 +307,7 @@ describe('composeHostConnections (Slack in the Host Task 5, S1, S2, S4)', () => 
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
-    for (const f of ['connectionsWiring.ts', 'connectionsSessions.ts', 'slackConnection.ts', 'telegramConnection.ts'])
+    for (const f of ['connectionsWiring.ts', 'connectionsSessions.ts', 'slackConnection.ts', 'telegramConnection.ts', 'discordConnection.ts'])
       expect(readFileSync(path.join(__dirname, f), 'utf8'), f).not.toMatch(/SlackConfigStore|writeFile|\.patch\(|\.save\(/)
   })
 
@@ -555,5 +560,90 @@ describe('composeHostConnections: Telegram beside Slack', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
+  })
+})
+
+const DC: DiscordConfig = { botToken: 'MTIz.fake', guildId: '100', userId: '777', plans: true }
+
+/** A Discord server holding Astera/#sessions (REST) and a Gateway whose sockets the test drives. */
+function fakeDiscord() {
+  const posts: Array<{ channel: string; content: string; id: string }> = []
+  let next = 800
+  const fetchFn = (async (url: unknown, init?: RequestInit) => {
+    const route = String(url).slice(DISCORD_API.length)
+    if (route === '/guilds/100/channels')
+      return new Response(JSON.stringify([{ id: '200', type: 4, name: 'Astera' }, { id: '300', type: 0, name: 'sessions', parent_id: '200' }]))
+    const thread = route.match(/\/messages\/(\d+)\/threads$/)
+    if (thread) return new Response(JSON.stringify({ id: thread[1], type: 11 }))
+    const id = String(next++)
+    const content = String((JSON.parse(String(init?.body)) as { content?: string }).content)
+    posts.push({ channel: route.split('/')[2], content, id })
+    return new Response(JSON.stringify({ id, channel_id: route.split('/')[2], content }))
+  }) as typeof fetch
+  const sockets: Array<GatewaySocket & { closed: boolean }> = []
+  class Socket implements GatewaySocket {
+    onopen: GatewaySocket['onopen'] = null
+    onmessage: GatewaySocket['onmessage'] = null
+    onclose: GatewaySocket['onclose'] = null
+    onerror: GatewaySocket['onerror'] = null
+    closed = false
+    constructor() {
+      sockets.push(this)
+    }
+    send(): void {}
+    close(): void {
+      this.closed = true
+    }
+  }
+  const push = (p: unknown): void => sockets.filter((x) => !x.closed).at(-1)!.onmessage?.({ data: JSON.stringify(p) })
+  return {
+    fetchFn,
+    WebSocketCtor: Socket,
+    posts,
+    open: () => sockets.filter((x) => !x.closed).length,
+    sockets: () => sockets.length,
+    ready: () => {
+      push({ op: 10, d: { heartbeat_interval: 3_600_000 } })
+      push({ op: 0, s: 1, t: 'READY', d: { session_id: 's', user: { id: '999' } } })
+    },
+    message: (d: unknown) => push({ op: 0, s: 2, t: 'MESSAGE_CREATE', d })
+  }
+}
+
+describe('composeHostConnections: Discord beside Slack and Telegram', () => {
+  it('opens a session thread in #sessions, notes it, and writes an allowed reply there into the session', async () => {
+    const dc = fakeDiscord()
+    const h = await rig({ discord: { readConfig: async () => ({ ...DC }), fetchFn: dc.fetchFn, WebSocketCtor: dc.WebSocketCtor } })
+    h.wiring.start()
+    await h.active()
+    expect(h.wiring.notifier('discord')).not.toBeNull()
+    await vi.waitFor(() => expect(dc.open()).toBe(1))
+    dc.ready()
+    h.openSession('s1')
+    await vi.waitFor(() => expect(dc.posts).toHaveLength(1))
+    const thread = dc.posts[0].id
+    expect(dc.posts[0].channel).toBe('300')
+    await vi.waitFor(() => expect(h.registry.metaOf('p-s1')?.restore).toMatchObject({ discordThreadId: thread, discordChannel: '100' }))
+    dc.message({ id: '1', channel_id: thread, guild_id: '100', content: 'go on', author: { id: '777' } })
+    dc.message({ id: '2', channel_id: thread, guild_id: '100', content: 'not you', author: { id: '1' } })
+    await vi.waitFor(() => expect(h.ptys.get('p-s1')!.sent).toEqual(['go on', '\r']))
+    await h.wiring.dispose()
+    expect(dc.open()).toBe(0)
+  })
+
+  it('holds the Gateway only while no attached app keeps the connections, never twice', async () => {
+    const dc = fakeDiscord()
+    const h = await rig({ keep: true, discord: { readConfig: async () => ({ ...DC }), fetchFn: dc.fetchFn, WebSocketCtor: dc.WebSocketCtor } })
+    h.wiring.start()
+    await h.wiring.reload()
+    expect(dc.open()).toBe(0)
+    for (const keep of [false, true, false]) {
+      h.state.keep = keep
+      h.wiring.onAppsChanged()
+      await h.wiring.reload()
+      await vi.waitFor(() => expect(dc.open()).toBe(keep ? 0 : 1))
+    }
+    await h.wiring.dispose()
+    expect(dc.open()).toBe(0)
   })
 })
