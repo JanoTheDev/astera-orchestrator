@@ -14,7 +14,7 @@ is the mechanics underneath: worktrees, how Tasks share them, merging, deleting,
 **Before a Job can run, its project folder must be a git repository with at least one commit.**
 
 A Job's workers always work in git worktrees. Without a repository there is no worktree, so the Job does not start
-and a Gate says why. The **New job** dialog says so up front ("Runs only in a folder that is a git repository"); it
+and a Gate says why. The **From a source** dialog says so up front ("Runs only in a folder that is a git repository"); it
 does not stop you making the Job, but the Job will not run.
 
 If the folder is not a repository yet, either add it as a project (`astera projects add --path <folder>
@@ -41,9 +41,8 @@ the planner first; see [Start: make a plan](guide.md#start-make-a-plan).
 Where a Job comes from:
 
 - **Start page** (**Plan with me**, **Plan and start on its own** or **Run my prompts as written**): a planned Job. The planner writes the Tasks, except for **Run my prompts as written**, where each prompt becomes one Task.
-- **Plans page → New job**: an objective, a lead agent account, **Workers at once**, and optionally
-  **Scheduled run** (section 7). With **Plan with planner first** ticked, the planner writes the Tasks; otherwise you
-  add them yourself.
+- **Plans page → New plan**: opens the Start page, the same as above.
+- **Plans page → From a source**: makes a Job from an item of a connected source (an issue, for example).
 - **CLI / MCP**: `astera jobs create` or MCP `create_job`. `jobs create` makes the Job and runs nothing.
 
 A Job with a coordinator account may run with no Tasks at all, as a Job from `jobs create` or `create_job` often does.
@@ -94,7 +93,7 @@ From then on **agents do not touch the project folder.** You can keep editing fi
 
 <img src="../assets/docs/task-detail.png" width="760" alt="One Task detail showing its attempts, review and changed files" />
 
-The Job's concurrency decides it: **Workers at once** in **New job**, **Agents at once** on Start,
+The Job's concurrency decides it: **Agents at once** on Start,
 `--concurrency` on the CLI. **The default is 3.** It can be changed later with `astera jobs set --id <job>
 --concurrency <n>`.
 
@@ -234,9 +233,9 @@ not see what failed yesterday. Separate runs keep the record.
 
 ### Making one, and when it fires
 
-Plans page → **New job** → tick **Scheduled run** and pick a rule: every N minutes, daily, weekly or monthly at a
-time. A coordinator account is required. A schedule has no planner option: its Tasks are copied into every run, so you
-lay them out by hand. The Start page and `astera jobs create` have no schedule option.
+On the Start page, under **When**, pick **On a schedule** and choose a rule: every N minutes, daily, weekly or monthly
+at a time. It is not available with **Plan with me**, which has no objective to repeat. A schedule has no planner: its
+Tasks are copied into every run. The CLI cannot set a schedule; only the app does.
 
 **The schedule starts when you lay out the Tasks and press Start**, as with any Job. Except that pressing it does not run
 anything right then; it makes the schedule live. Pressed at 08:59 with a rule of daily 09:00, the first run starts a
