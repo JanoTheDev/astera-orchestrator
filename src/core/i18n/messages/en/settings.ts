@@ -296,4 +296,13 @@ export const settings: Record<keyof typeof ko, string> = {
   'settings.instructions.preview': 'Built-in text (read only)',
   'settings.instructions.previewHint': 'A sample of what Astera writes for this role. Your text is added after it.',
   'settings.instructions.previewFailed': 'Could not load the built-in text: {detail}',
+  // T6: limits Astera lowered itself
+  'settings.autoLimit.lowered': 'Astera lowered this to {count} on {date}: {detail}. It holds back new starts; running agents carry on.',
+  'settings.autoLimit.backByItself': 'It goes back up by itself once the machine is calm.',
+  'settings.autoLimit.staysUntilRestored': 'It stays until you restore it.',
+  'settings.autoLimit.restore': 'Restore my limit',
+  'settings.autoLimit.restoreFailed': 'Could not restore the limit: {detail}',
+  'settings.autoLimit.checksWait': 'Every check waits for a heavy slot until the machine is calm.',
+  'settings.autoLimit.crashToast': 'Astera lowered its limits after a crash so it does not happen again',
+  'settings.autoLimit.openSettings': 'Open settings',
 }

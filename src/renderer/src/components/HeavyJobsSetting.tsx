@@ -3,6 +3,7 @@ import { useI18n } from "../i18n/I18nProvider";
 import { toast } from "../lib/toast";
 import { Input } from "./ui";
 import { SettingItem } from "./settings/SettingItem";
+import { AutoLimitHint } from "./AutoLimitHint";
 
 // shortcut: copy of HEAVY_JOBS_MAX (core/settings/heavyJobs.ts, which imports node:fs and is outside tsconfig.web); main clamps anyway.
 const HEAVY_JOBS_MAX = 8;
@@ -57,6 +58,8 @@ export function HeavyJobsSetting(): React.JSX.Element {
           onBlur={commit}
         />
       }
-    />
+    >
+      <AutoLimitHint kind="heavy" />
+    </SettingItem>
   );
 }

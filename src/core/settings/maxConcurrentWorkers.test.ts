@@ -33,3 +33,15 @@ describe('readMaxConcurrentWorkers', () => {
     await expect(readMaxConcurrentWorkers(file('{not json'))).rejects.toBeInstanceOf(RepairNeeded)
   })
 })
+
+describe('readMaxConcurrentWorkers with an auto-limit', () => {
+  it('lowers the read, never raises it', async () => {
+    const d = mkdtempSync(path.join(os.tmpdir(), 'mcw-auto-'))
+    const f = path.join(d, 'app-settings.json')
+    writeFileSync(f, '{"maxConcurrentWorkers":6}')
+    writeFileSync(path.join(d, 'auto-limits.json'), JSON.stringify({ workers: { cap: 2, cause: 'crash', at: 't', detail: 'd' } }))
+    expect(await readMaxConcurrentWorkers(f)).toBe(2)
+    writeFileSync(path.join(d, 'auto-limits.json'), JSON.stringify({ workers: { cap: 9, cause: 'crash', at: 't', detail: 'd' } }))
+    expect(await readMaxConcurrentWorkers(f)).toBe(6)
+  })
+})

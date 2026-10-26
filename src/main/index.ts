@@ -24,6 +24,7 @@ import trayAsset from '../../resources/tray.png?asset'
 import { APP_ID } from './appId'
 import { createCore, type Core } from './core'
 import { installCrashReports } from './crashReports'
+import { watchWindowFreezes } from './overloadLimits'
 import { clearAppRunning, markAppRunning } from '../core/host/pidFile'
 import { flushAllLogsSync, lineLog } from '../core/log/logWriter'
 import { createHeldNotifications } from './heldNotifications'
@@ -36,6 +37,7 @@ import { registerReviewIpc } from './reviewIpc'
 import { registerIpc, parseAllowedExternalUrl, type AppWindows, type OrchHandle } from './ipc'
 import { registerExtensionsIpc } from './extensionsIpc'
 import { registerPromptsIpc } from './promptsIpc'
+import { registerAutoLimitsIpc } from './autoLimitsIpc'
 // W9-K: one window per project
 import { isValidState } from '../core/orchestration/store'
 import {
@@ -364,6 +366,8 @@ function createWindow(startingText: string | null = null, theme?: Theme, place?:
   // W9-K: the title is "<project> — Astera" (windows.ts setScope), not the page's <title>
   win.on('page-title-updated', (e) => e.preventDefault())
   win.on('focus', () => windows.noteFocus(win))
+  // T5 (overloadLimits.ts): repeated window freezes lower the workers auto-limit
+  watchWindowFreezes(win, { profileDir: app.getPath('userData'), effectiveWorkers: () => core?.appSettings.getEffectiveMaxConcurrentWorkers() ?? 1 })
   win.on('close', () => windows.closing(win))
   win.on('closed', () => {
     windows.closed(win, quitting)
@@ -1466,6 +1470,9 @@ app.whenReady().then(async () => {
   // narrows whatever the renderer sends (accountMaxSessionsOf).
   ipcMain.handle('settings.getAccountMaxSessions', () => core!.appSettings.getAccountMaxSessions())
   ipcMain.handle('settings.setAccountMaxSessions', (_e, v: unknown) => core!.appSettings.setAccountMaxSessions(v))
+
+  // T6: the lowered limits in Settings › Agents (autoLimitsIpc.ts).
+  registerAutoLimitsIpc(ipcMain, { profileDir: app.getPath('userData') })
 
   // Change map and PR merge for a worktree outside a plan (reviewIpc.ts).
   registerReviewIpc(ipcMain, {

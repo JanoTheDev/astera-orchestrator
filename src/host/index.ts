@@ -49,6 +49,8 @@ import { ACTIVITY_KINDS, deriveActivity } from '../core/orchestration/activity'
 import { readActivityDigestMinutes } from '../core/settings/activityDigest'
 import { readMaxConcurrentWorkers } from '../core/settings/maxConcurrentWorkers'
 import { machineSpecs } from '../core/settings/machineSpecs'
+import { readHeavyJobsAtOnce } from '../core/settings/heavyJobs'
+import { lowerLimitsAfterCrash, markExit } from './crashLimits'
 import { hostNotifier } from './pluginNotify'
 import { pickInitialLang } from '../core/i18n/locale'
 import { createHostSessionEvents, type HostSessionEvents } from './sessionEvents'
@@ -66,6 +68,10 @@ import { createUsageGuard } from '../core/orchestration/usageGuard'
 import { readAccountMaxSessions } from '../core/settings/accountMaxSessions'
 import { usageActivity } from '../core/orchestration/activity'
 import { resumeAfterCrash } from '../core/orchestration/exec/crashResume'
+// T3: the load monitor
+import { createLoadMonitor, type LoadMonitor } from './loadMonitor'
+import { workersAgainstCap } from '../core/orchestration/schedule'
+import { heavyQueue } from '../core/orchestration/heavyLock'
 // T5 crash restore
 import {
   handoverFileIn,
@@ -274,6 +280,8 @@ async function main(): Promise<void> {
   let remoteSessions: RemoteSessions | null = null
   /** T5: the live agent sessions kept for a crash restore (sessionRestore.ts); set once the Host serves. */
   let sessionTracker: SessionTracker | null = null
+  // T3: the load monitor; started after the orchestration state is up, stopped in `leave`.
+  let loadMonitor: LoadMonitor | null = null
   /** The shell terminals and run processes an app opened (its `pty-spawn`, at the size last given), and the ones a
    *  handover reopened, by pty id while they live: what a handover writes down for them (sessionRestore.ts). */
   const ptySpawns = new Map<string, PtySpawn>()
@@ -312,9 +320,11 @@ async function main(): Promise<void> {
     // T5: the saved sessions stay as they are through the `killAll` below. Only a deliberate way out (idle, `host
     // stop`, a retire) is clean; a signal is a reboot or a kill, and its sessions come back at the next start.
     // A handover (`resume`) writes its marker only after the handover itself, before the `killAll` (`handOver`).
+    loadMonitor?.stop() // T3
     sessionTracker?.freeze()
     sessionTracker?.dispose()
-    if (!why && !resume) writeCleanExit(profileDir)
+    // T2 (crashLimits.ts): a signal leaves its own marker, so the next start tells a reboot or a kill from a hard death.
+    markExit(profileDir, why, resume)
     // **The driver stops first** (S4+S5, the review of Task 12): no tick from here on, no commit, load
     // or app coming or going starts a pass, and a pass already under way stops at its next `mayStart`
     // (drivingWiring.ts) — before the spawner's own retiring flag is set below. From here on this Host
@@ -1343,6 +1353,21 @@ async function main(): Promise<void> {
   // Read first and synchronously: a load (an app's first command) empties dead coordinator slots, and roles are read here.
   const crashState = readStateFile(path.join(profileDir, 'orchestration.json'))
   const restoreFile = sessionRestoreFileIn(profileDir)
+  // T2 (crashLimits.ts): after a hard death the limits are lowered before any worker or session is resumed, so the
+  // recovery below brings back no more than the new cap. Reads the clean-exit marker without taking it. Never rejects.
+  {
+    const settingsFile = path.join(profileDir, 'app-settings.json')
+    await lowerLimitsAfterCrash({
+      profileDir,
+      state: crashState,
+      effective: async () => ({
+        workers: await readMaxConcurrentWorkers(settingsFile).catch(() => machineSpecs().recommended),
+        heavy: await readHeavyJobsAtOnce(settingsFile)
+      }),
+      log: (m) => log.write(m),
+      activity: (draft) => activityLog.recorded([draft])
+    })
+  }
   // A handover the last Host wrote on its way out comes first; its sessions are the saved ones then (sessionRestore.ts).
   const left = wiring && spawner ? await leftBehind(profileDir) : { handover: null, saved: [] }
   const savedSessions = left.handover?.sessions ?? left.saved
@@ -1423,11 +1448,27 @@ async function main(): Promise<void> {
       state: () => orch.state(),
       handle: (cmd, args) => orch.handle(cmd, args),
       settle: () => recovery.catchUp(),
+      // T2: lost workers past the (possibly just lowered) worker cap wait for a free slot; the start goes on without them.
+      waiting: () => recovery.waiting(),
       activity: (draft) => activityLog.recorded([draft]),
       log: (m) => log.write(m)
     })
   }
 
+  // T3: the load monitor. A sample every 10 s; on sustained strain it lowers the auto-limits so nothing new starts, and
+  // it raises them back when calm. Running sessions are never touched.
+  loadMonitor = createLoadMonitor({
+    profileDir,
+    live: () => ({
+      workers: workersAgainstCap(orch.state()),
+      sessions: registry.list().filter((e) => e.alive && e.meta?.kind === 'session').length + procs.liveCount(),
+      heavyTickets: heavyQueue().length,
+      checks: orch.state().tasks.filter((t) => t.status === 'validating').length
+    }),
+    activity: (draft) => activityLog.recorded([draft]),
+    log: (m) => log.write(m)
+  })
+  loadMonitor.start()
   // The Host's connections start once the server exists: who keeps them is the server's to say.
   connectionsWiring?.start()
   // W3-A: the activity feed's notices to every connection, while this Host holds them (the app's desktop

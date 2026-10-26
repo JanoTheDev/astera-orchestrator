@@ -59,6 +59,7 @@ import { createHostWorkspaceView, type HostWorkspaceView } from './host/hostWork
 import { clampAppSize } from '../core/workspace/size'
 import { createHostMcpHttpView, type HostMcpHttpView } from './host/hostMcpHttp'
 import { heavyJobsAtOnceOf } from '../core/settings/heavyJobs'
+import { readChecksAsHeavy } from '../core/settings/autoLimits'
 import { machineSpecs } from '../core/settings/machineSpecs'
 import { githubDefaultsOf, githubDefaultsRefusal } from '../core/settings/githubDefaults'
 import { mcpHttpHostsProblem, mcpHttpOf, type McpHttpSettings } from '../core/settings/mcpHttp'
@@ -3368,7 +3369,8 @@ export function registerIpc(
       // Plugins run in the Host: the app asks it (plugin Phase 5 C8). `deps` is defined below and read at the call.
       pluginCheck: (plugin, input) =>
         deps.completionChecks?.run(plugin, input) ?? Promise.resolve({ name: plugin, ...unavailable('plugin checks cannot run here') }),
-      heavyJobsAtOnce: async () => core.appSettings.getHeavyJobsAtOnce()
+      heavyJobsAtOnce: async () => core.appSettings.getEffectiveHeavyJobsAtOnce(),
+      checksAsHeavy: () => readChecksAsHeavy(path.dirname(core.appSettings.filePath))
     })
     orchValidator = validation.validator
 

@@ -27,6 +27,7 @@ import { agentPermissionModeOf } from '../core/settings/agentPermissionMode'
 import { maxConcurrentWorkersOf } from '../core/settings/maxConcurrentWorkers'
 import { HEAVY_JOBS_DEFAULT, heavyJobsAtOnceOf } from '../core/settings/heavyJobs'
 import { machineSpecs } from '../core/settings/machineSpecs'
+import { effectiveCap, readAutoLimitsSync } from '../core/settings/autoLimits'
 // W6-G usage guards
 import { maxSubagentsPerSessionOf, SUBAGENT_CAP_DEFAULT } from '../core/sessions/subagentCap'
 import { usagePauseAtOf, USAGE_PAUSE_AT_DEFAULT } from '../core/orchestration/usageGuard'
@@ -226,7 +227,15 @@ export class AppSettingsStore {
   /** Whether the last load recovered from a damaged file and the person has not been told yet. */
   private recoveryNotice = false
 
-  constructor(private filePath: string) {}
+  constructor(public readonly filePath: string) {}
+
+  // T1: the Host-written auto-limits, re-read from the tiny file when the cache is older than 5 s.
+  private autoCache: { at: number; value: ReturnType<typeof readAutoLimitsSync> } | null = null
+  private autoLimits(): ReturnType<typeof readAutoLimitsSync> {
+    const now = Date.now()
+    if (!this.autoCache || now - this.autoCache.at > 5000) this.autoCache = { at: now, value: readAutoLimitsSync(path.dirname(this.filePath)) }
+    return this.autoCache.value
+  }
 
   async load(): Promise<{ recovered: boolean }> {
     try {
@@ -643,7 +652,7 @@ export class AppSettingsStore {
 
   /** What the scheduler uses: the saved limit, or this machine's recommendation when not set (as the Host's read does). */
   getEffectiveMaxConcurrentWorkers(): number {
-    return this.maxConcurrentWorkers ?? machineSpecs().recommended
+    return effectiveCap(this.maxConcurrentWorkers ?? machineSpecs().recommended, this.autoLimits().workers)
   }
 
   /** Narrowed like the file: the value arrives from the renderer. */
@@ -655,6 +664,11 @@ export class AppSettingsStore {
   /** How many heavy jobs (`astera heavy`, a Task's heavy check) the machine runs at once. */
   getHeavyJobsAtOnce(): number {
     return this.heavyJobsAtOnce
+  }
+
+  /** What the heavy-job gate uses: the saved value lowered by an auto-limit. Settings shows `getHeavyJobsAtOnce`. */
+  getEffectiveHeavyJobsAtOnce(): number {
+    return effectiveCap(this.heavyJobsAtOnce, this.autoLimits().heavy)
   }
 
   /** Narrowed like the file: the value arrives from the renderer. Anything but a whole number >= 1 is the default. */
