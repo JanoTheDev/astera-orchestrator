@@ -3,6 +3,7 @@ import type { IntakeTab } from '../intake/intakeRequest'
 import type { ScheduleRule } from '../../../../core/types'
 import { MAX_CONCURRENT_WORKERS, PROJECT_DEFAULTS, type DeliveryMode, type Job, type Project } from '../../../../core/orchestration/types'
 import { isEffort, type Effort } from '../../../../core/orchestration/roleModels'
+import { holdOf } from '../../../../core/orchestration/holds'
 import { jobNameOf } from '../../../../core/orchestration/jobName'
 import type { Account, AccountUsage } from '../../../../core/types'
 import { providerOf } from '../../../../core/providers/meta'
@@ -285,7 +286,7 @@ export const afterCreate = (sessionId: string | undefined): { openConsole: strin
 /** A `jobs-list` row: the Job with the fields `jobView` derives. */
 export type PlanRow = Job & { outcome?: string; questionsOpen?: number; paused?: boolean }
 
-export type LivePlanState = 'queued' | 'planning' | 'waiting' | 'running' | 'held'
+export type LivePlanState = 'queued' | 'planning' | 'waiting' | 'running' | 'replanning' | 'finalCheck' | 'held' | 'stopped'
 
 /** The plans a new plan may start after, each with its state: queued, planning, waiting for approval, running or held.
  *  Completed, failed, scheduled and archived plans are left out (`jobs-list` already drops archived ones). */
@@ -300,7 +301,12 @@ export function livePlans(rows: PlanRow[]): { id: string; name: string; state: L
 
 function liveStateOf(r: PlanRow): LivePlanState | null {
   if (r.archivedAt !== undefined || r.schedule !== undefined) return null
-  if (r.paused === true || r.outcome === 'paused') return 'held'
+  if (r.paused === true) return 'stopped'
+  const by = holdOf(r)
+  if (by === 'replanning') return 'replanning'
+  if (by === 'final-check') return 'finalCheck'
+  if (by === 'replan-question') return 'waiting'
+  if (by === 'owner' || r.outcome === 'paused') return 'held'
   if (r.pendingStart === true) return r.after !== undefined ? 'queued' : 'planning'
   if ((r.questionsOpen ?? 0) > 0) return 'waiting'
   return r.outcome === 'running' || r.outcome === 'checking' ? 'running' : null

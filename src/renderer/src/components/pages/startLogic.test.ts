@@ -236,6 +236,17 @@ describe('Start after', () => {
     ]
     expect(livePlans(rows).map((p) => [p.id, p.state])).toEqual([['q', 'queued'], ['p', 'planning'], ['w', 'waiting'], ['r', 'running'], ['h', 'held']])
   })
+  it('tells re-planning, final check, held by you and stopped apart', () => {
+    const replan = (mode: 'completion' | 'wave') => ({ runId: 'r', mode, wave: 1, done: 0, startedAt: 'T0' }) as never
+    const rows = [
+      row('a', { outcome: 'running', dispatchHold: true, replanning: replan('wave') }),
+      row('b', { outcome: 'checking', dispatchHold: true, replanning: replan('completion') }),
+      row('c', { outcome: 'running', dispatchHold: true, lastReplan: { escalated: 'x' } as never }),
+      row('d', { outcome: 'running', dispatchHold: true }),
+      row('e', { outcome: 'running', paused: true })
+    ]
+    expect(livePlans(rows).map((p) => [p.id, p.state])).toEqual([['a', 'replanning'], ['b', 'finalCheck'], ['c', 'waiting'], ['d', 'held'], ['e', 'stopped']])
+  })
   it('leaves out completed, failed, scheduled and archived plans', () => {
     const rows = [row('c', { outcome: 'completed' }), row('f', { outcome: 'failed' }), row('a', { outcome: 'running', archivedAt: 'x' }), row('s', { outcome: 'running', schedule: {} as never })]
     expect(livePlans(rows)).toEqual([])

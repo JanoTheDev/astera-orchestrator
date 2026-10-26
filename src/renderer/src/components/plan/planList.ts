@@ -42,6 +42,10 @@ export function resumeActionOf(row: JobRow): ResumeAction | undefined {
   return failed !== undefined ? { kind: 'retry', taskId: failed } : undefined
 }
 
+/** The owner's own hold (`jobs-hold`), the only one Resume/Release undoes: holdBy `owner`, or a hold from an older Host that
+ *  sends no holdBy. A replan, the final check and a replan's question release themselves. */
+export const isOwnerHeld = (row: Pick<JobRow, 'dispatchHold' | 'holdBy'>): boolean => row.holdBy === undefined ? row.dispatchHold === true : row.holdBy === 'owner'
+
 /** The one word a plan row's status chip says. A person's part first (approve, a gate), then what holds it, then how it runs. */
 export function planStatusOf(row: JobRow): PlanStatus {
   if (row.archivedAt !== undefined) return { key: 'jobs.lifecycle.archived', tone: 'neutral' }
@@ -63,7 +67,13 @@ export function planStatusOf(row: JobRow): PlanStatus {
   // T8: nothing can move until the owner answers (JobRow.stuck)
   if (row.stuck === 'needs-you') return { key: 'plan.outcome.needsYou', tone: 'warn' }
   if (row.tasks.some((t) => t.status === 'blocked')) return { key: 'pages.plans.status.needsYou', tone: 'warn' }
-  if (row.dispatchHold) return { key: 'jobs.hold.held', tone: 'warn' }
+  // The hold's real cause, before dispatchHold: a replan and the final check set the same flag as the owner's own hold
+  if (row.holdBy === 'final-check' || (row.outcome === 'checking' && row.replanWave !== undefined)) return { key: 'pages.plans.status.finalCheck', tone: 'info' }
+  if (row.holdBy === 'replanning') return { key: 'pages.plans.status.replanning', tone: 'info' }
+  if (row.holdBy === 'replan-question') return { key: 'plan.outcome.needsYou', tone: 'warn' }
+  if (isOwnerHeld(row)) return { key: 'jobs.hold.held', tone: 'warn' }
+  if (row.delivery?.state === 'delivering') return { key: 'pages.plans.status.delivering', tone: 'info' }
+  if (row.delivery?.state === 'retrying') return { key: 'pages.plans.status.deliveryRetrying', tone: 'warn' }
   // T8: reads running, and nothing works on it or retries it (`runs doctor`)
   if (row.stuck === 'stalled') return { key: STALLED_KEY, tone: 'danger' }
   if (row.outcome === 'running') return { key: 'pages.plans.status.working', tone: 'info' }
