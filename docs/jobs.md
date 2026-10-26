@@ -5,12 +5,16 @@ the [guide](guide.md) covers the day-to-day side (the Start page, approving a pl
 is the mechanics underneath: worktrees, how Tasks share them, merging, deleting, failures and scheduled Jobs. Sections
 1 to 6 are plain Jobs; section 7 is scheduled Jobs. The commands are in the [CLI reference](cli.md).
 
+<img src="../assets/docs/diagrams/plan-lifecycle.svg" width="760" alt="Diagram: goal, planner, approval, coordinator, workers in waves, reviewer, final check, delivery" />
+
+<img src="../assets/jobs.gif" width="760" alt="Animation of creating a job and watching its Tasks run" />
+
 ## First: the project must be a git repository
 
 **Before a Job can run, its project folder must be a git repository with at least one commit.**
 
 A Job's workers always work in git worktrees. Without a repository there is no worktree, so the Job does not start
-and a Gate says why. The "Create a job" dialog says so up front ("Runs only in a folder that is a git repository"); it
+and a Gate says why. The **From a source** dialog says so up front ("Runs only in a folder that is a git repository"); it
 does not stop you making the Job, but the Job will not run.
 
 If the folder is not a repository yet, either add it as a project (`astera projects add --path <folder>
@@ -27,17 +31,18 @@ git commit -m "first commit"
 
 ## 1. Create
 
+<img src="../assets/docs/start.png" width="760" alt="The Start tab with the New plan composer" />
+
 Making a Job starts nothing, and neither does adding Tasks to it. The Job is marked `pendingStart` and has no run yet.
-It starts when you press **Run** on its plan page (`astera jobs run --id <job>`), or, for a planned Job, when you
-approve its plan (**Approve & execute**, or automatically with auto-approve). Plans made on the Start page go through
+It starts when you press **Approve & execute** on its plan page (`astera jobs run --id <job>`), or automatically with
+auto-approve. Plans made on the Start page go through
 the planner first; see [Start: make a plan](guide.md#start-make-a-plan).
 
 Where a Job comes from:
 
-- **Start page** (New → Plan it for me / Run as written): a planned Job. The planner writes the Tasks.
-- **Plans page → + New job** ("Create a job"): an objective, a coordinator account, **Run at once**, and optionally
-  **Scheduled run** (section 7). With "Plan with planner first" ticked, the planner writes the Tasks; otherwise you
-  add them yourself.
+- **Start page** (**Plan with me**, **Plan and start on its own** or **Run my prompts as written**): a planned Job. The planner writes the Tasks, except for **Run my prompts as written**, where each prompt becomes one Task.
+- **Plans page → New plan**: opens the Start page, the same as above.
+- **Plans page → From a source**: makes a Job from an item of a connected source (an issue, for example).
 - **CLI / MCP**: `astera jobs create` or MCP `create_job`. `jobs create` makes the Job and runs nothing.
 
 A Job with a coordinator account may run with no Tasks at all, as a Job from `jobs create` or `create_job` often does.
@@ -73,6 +78,8 @@ closed. See [While it runs](guide.md#while-it-runs).
 
 ## 2. Run
 
+<img src="../assets/docs/plan-board.png" width="760" alt="A running plan tab with Steps, several Tasks working, done and waiting, live lines, models and accounts" />
+
 **The run gets its own working folder, a git worktree.** It is made when the first worker is placed or the coordinator
 starts, not when the Job is created.
 
@@ -84,7 +91,9 @@ From then on **agents do not touch the project folder.** You can keep editing fi
 
 ## 3. How Tasks run
 
-The Job's concurrency decides it: **Run at once** in "Create a job", **Consoles at once** on Start,
+<img src="../assets/docs/task-detail.png" width="760" alt="One Task detail showing its attempts, review and changed files" />
+
+The Job's concurrency decides it: **Agents at once** on Start,
 `--concurrency` on the CLI. **The default is 3.** It can be changed later with `astera jobs set --id <job>
 --concurrency <n>`.
 
@@ -107,7 +116,7 @@ starts, their results are merged into the run's worktree, and the dependent Task
 its result. Nothing needs merging.
 
 The **Start** button on a Task node in the plan's dependency graph launches that one Task by hand (to retry one held
-at a Gate). **It exists only on a Job with concurrency 1, after Run was pressed, and not on a schedule template.** With
+at a Gate). **It exists only on a Job with concurrency 1, after **Approve & execute** was pressed, and not on a schedule template.** With
 2 or more, every worker runs in its own worktree, and a worker started by hand would go to the run's worktree, the
 folder the integration Task merges into. So the button is not there and the scheduler does that work instead. Since
 the default is 3, **a Job made with the defaults never shows this button.** A schedule template never runs its own
@@ -129,6 +138,10 @@ delivery mode. The full rules are in [Delivery](guide.md#delivery):
   or a conflict.
 
 A scheduled Job's runs are never delivered (section 7).
+
+A question delivery cannot settle on its own (a dirty folder, the wrong branch, a conflict) waits for you under **Needs you** in the bottom panel; the "Handled for you" feed beside it lists what Astera settled without asking.
+
+<img src="../assets/docs/needs-you.png" width="760" alt="The bottom panel Needs you tab with open questions and permission items, and the Handled for you feed" />
 
 **The local Merge.** The plan page's **Merge** button (`astera run-merge`) folds what the workers committed into the
 **current branch of the project folder**, at a moment you choose. It changes the working tree you have checked out, and
@@ -184,7 +197,7 @@ Failure is never silent. It shows as a Gate with a reason a person can read, and
 | HEAD is not on a branch | The same. Check out a branch, then answer the Gate |
 | No account the Task can use | Gate |
 | Merge conflict | An integration Task, or a Gate when there is nothing left to hand it to |
-| Attempts or review rounds ran out | Gate ("Needs your decision" in the Inbox) |
+| Attempts or review rounds ran out | Gate (a **Decision** item in the Inbox) |
 | A review is blocked by something no code change fixes | Gate, and no repair attempt is spent. See below |
 
 **A review that no repair can satisfy asks for a decision.** In `review.json` the reviewer marks what fixing each issue
@@ -203,6 +216,8 @@ that was lost or killed is not a step.
 
 ## 7. Scheduled Jobs
 
+<img src="../assets/schedule.gif" width="760" alt="Animation of a scheduled run being set up and firing at its next time" />
+
 With a schedule on, **the Job itself never runs.** It becomes a template that holds the definition. At each fire time
 it makes one run of the Job and runs that. The runs are the record.
 
@@ -218,15 +233,15 @@ not see what failed yesterday. Separate runs keep the record.
 
 ### Making one, and when it fires
 
-Plans page → **+ New job** → tick **Scheduled run** and pick a rule: every N minutes, daily, weekly or monthly at a
-time. A coordinator account is required. A schedule has no planner option: its Tasks are copied into every run, so you
-lay them out by hand. The Start page and `astera jobs create` have no schedule option.
+On the Start page, under **When**, pick **On a schedule** and choose a rule: every N minutes, daily, weekly or monthly
+at a time. It is not available with **Plan with me**, which has no objective to repeat. A schedule has no planner: its
+Tasks are copied into every run. The CLI cannot set a schedule; only the app does.
 
-**The schedule starts when you lay out the Tasks and press Run**, as with any Job. Except that pressing it does not run
+**The schedule starts when you lay out the Tasks and press Approve & execute**, as with any Job. Except that pressing it does not run
 anything right then; it makes the schedule live. Pressed at 08:59 with a rule of daily 09:00, the first run starts a
 minute later; pressed at 09:01, the next day at 09:00. Until then the row says "Press Run to start the schedule".
 
-Before Run is pressed the schedule neither fires nor even sets its next time. If it did, a time that passed while you
+Before you press **Approve & execute** the schedule neither fires nor even sets its next time. If it did, a time that passed while you
 were laying out the Tasks would become the first fire, and pressing the button would start an overdue run at once.
 
 After that, the process that drives (the Host, or the app when no Host drives) checks every 15 seconds, and when a time
@@ -248,7 +263,7 @@ fire. A run that finishes has its coordinator stopped at once.
 
 ### Pausing and resuming
 
-The template's row on the Plans page has a **Pause** / **Resume** toggle (⏸ / ▶). It is separate from the **Run** button
+The template's row on the Plans page has a **Pause** / **Resume** toggle (⏸ / ▶). It is separate from the **Approve & execute** button
 on the plan page, which is the button that **starts** a schedule for the first time; stopping and starting again is a
 different act.
 
@@ -308,7 +323,7 @@ Finished runs are cleaned up automatically 30 days after they finish.
 
 | | Plain Job | Scheduled Job |
 |---|---|---|
-| Starts | You press Run, or approve the plan | At the scheduled time |
+| Starts | You press Approve & execute | At the scheduled time |
 | Jobs | One | 1 template + N runs |
 | Worktree | One per run | One per run |
 | Folders after it ends | Kept until delivery cleans up, or you delete them | Removed automatically (a failed run keeps them) |
