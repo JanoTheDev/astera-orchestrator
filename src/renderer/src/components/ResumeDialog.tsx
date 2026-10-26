@@ -4,6 +4,7 @@ import { resumeAccountOptions, resumeRollAccountIds } from '../../../core/resume
 import { providerOf } from '../../../core/providers/meta'
 import { isSlackReady } from '../../../core/slack/ready'
 import { isTelegramReady } from '../../../core/telegram/ready'
+import { isDiscordReady } from '../../../core/discord/ready'
 import { useI18n } from '../i18n/I18nProvider'
 import { useChatAvailability } from '../hooks/useChatAvailability'
 import { isGhostAccountId } from '../../../core/accounts/ghostId'
@@ -108,9 +109,9 @@ export function ResumeDialog({
     // isSlackReady (looking only at webhookUrl means a user who configured just the bot path cannot
     // turn it on).
     let cancelled = false
-    // slackReady means any connection (Slack or Telegram) is ready; the flag fans out to all of them.
-    void Promise.all([window.api.slack.getConfig(), window.api.telegram.getConfig()]).then(([sl, tg]) => {
-      if (!cancelled) setSlackReady(isSlackReady(sl) || isTelegramReady(tg))
+    // slackReady means any connection (Slack, Telegram or Discord) is ready; the flag fans out to all of them.
+    void Promise.all([window.api.slack.getConfig(), window.api.telegram.getConfig(), window.api.discord.getConfig()]).then(([sl, tg, dc]) => {
+      if (!cancelled) setSlackReady(isSlackReady(sl) || isTelegramReady(tg) || isDiscordReady({ ...dc, botToken: dc.hasToken ? 'stored' : null }))
     })
     void window.api.sessions
       .resumeDefaults(entry.sessionId)

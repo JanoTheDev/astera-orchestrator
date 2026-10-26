@@ -498,13 +498,13 @@ A Settings tab (`Ctrl+,`) with groups on the left and a search box that filters 
 | Accounts & usage | Accounts, sign in, remove, rolling, usage guard, subagents per tab |
 | Agents | Orchestration models, permission mode, max agents, heavy jobs, plan approval default, resume strategy, voice, agent browser and app |
 | Projects | One page per project (delivery, auto-approve, test command, concurrency, review rounds, replan, account, line attribution), Add project |
-| Integrations | GitHub, Slack, Telegram, CLI and MCP, Remote runtimes, Plugins |
+| Integrations | GitHub, Slack, Telegram, Discord, CLI and MCP, Remote runtimes, Plugins |
 | Notifications | Desktop notices, sound, digest, console summaries |
 | Advanced | Work unit tracking, Explanation account, worktree creation location, History |
 | About | App and build version, CLI versions, Host status, updates and channel, crash reports, licenses |
 
 Related guides: [accounts, rolling, files and everyday sessions](usage-guide.md), [the `astera` command](cli.md),
-[MCP](mcp.md), [SDK](sdk.md), [plugins](plugins.md), [remote runtimes](remote-runtime.md), [Slack bot](slack-bot-setup.md), [Telegram bot](telegram-bot-setup.md).
+[MCP](mcp.md), [SDK](sdk.md), [plugins](plugins.md), [remote runtimes](remote-runtime.md), [Slack bot](slack-bot-setup.md), [Telegram bot](telegram-bot-setup.md), [Discord bot](discord-bot-setup.md).
 
 ## The box and voice
 

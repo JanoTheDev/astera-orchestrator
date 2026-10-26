@@ -52,7 +52,7 @@ export const GROUPS = [
       ['remote-runtime.md', 'Remote runtime']
     ]
   },
-  { label: 'Integrations', pages: [['slack-bot-setup.md', 'Slack bot setup'], ['telegram-bot-setup.md', 'Telegram bot setup']] },
+  { label: 'Integrations', pages: [['slack-bot-setup.md', 'Slack bot setup'], ['telegram-bot-setup.md', 'Telegram bot setup'], ['discord-bot-setup.md', 'Discord bot setup']] },
   { label: 'Project', pages: [['releasing.md', 'Releasing']] }
 ]
 

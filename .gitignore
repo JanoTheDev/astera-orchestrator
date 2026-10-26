@@ -25,6 +25,7 @@ docs/*
 !docs/product/
 !docs/slack-bot-setup.md
 !docs/telegram-bot-setup.md
+!docs/discord-bot-setup.md
 !docs/jobs.md
 !docs/how-it-works.md
 !docs/usage-guide.md
