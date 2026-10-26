@@ -66,6 +66,10 @@ import { createUsageGuard } from '../core/orchestration/usageGuard'
 import { readAccountMaxSessions } from '../core/settings/accountMaxSessions'
 import { usageActivity } from '../core/orchestration/activity'
 import { resumeAfterCrash } from '../core/orchestration/exec/crashResume'
+// T3: the load monitor
+import { createLoadMonitor, type LoadMonitor } from './loadMonitor'
+import { workersAgainstCap } from '../core/orchestration/schedule'
+import { heavyQueue } from '../core/orchestration/heavyLock'
 // T5 crash restore
 import {
   handoverFileIn,
@@ -274,6 +278,8 @@ async function main(): Promise<void> {
   let remoteSessions: RemoteSessions | null = null
   /** T5: the live agent sessions kept for a crash restore (sessionRestore.ts); set once the Host serves. */
   let sessionTracker: SessionTracker | null = null
+  // T3: the load monitor; started after the orchestration state is up, stopped in `leave`.
+  let loadMonitor: LoadMonitor | null = null
   /** The shell terminals and run processes an app opened (its `pty-spawn`, at the size last given), and the ones a
    *  handover reopened, by pty id while they live: what a handover writes down for them (sessionRestore.ts). */
   const ptySpawns = new Map<string, PtySpawn>()
@@ -312,6 +318,7 @@ async function main(): Promise<void> {
     // T5: the saved sessions stay as they are through the `killAll` below. Only a deliberate way out (idle, `host
     // stop`, a retire) is clean; a signal is a reboot or a kill, and its sessions come back at the next start.
     // A handover (`resume`) writes its marker only after the handover itself, before the `killAll` (`handOver`).
+    loadMonitor?.stop() // T3
     sessionTracker?.freeze()
     sessionTracker?.dispose()
     if (!why && !resume) writeCleanExit(profileDir)
@@ -1428,6 +1435,20 @@ async function main(): Promise<void> {
     })
   }
 
+  // T3: the load monitor. A sample every 10 s; on sustained strain it lowers the auto-limits so nothing new starts, and
+  // it raises them back when calm. Running sessions are never touched.
+  loadMonitor = createLoadMonitor({
+    profileDir,
+    live: () => ({
+      workers: workersAgainstCap(orch.state()),
+      sessions: registry.list().filter((e) => e.alive && e.meta?.kind === 'session').length + procs.liveCount(),
+      heavyTickets: heavyQueue().length,
+      checks: orch.state().tasks.filter((t) => t.status === 'validating').length
+    }),
+    activity: (draft) => activityLog.recorded([draft]),
+    log: (m) => log.write(m)
+  })
+  loadMonitor.start()
   // The Host's connections start once the server exists: who keeps them is the server's to say.
   connectionsWiring?.start()
   // W3-A: the activity feed's notices to every connection, while this Host holds them (the app's desktop
