@@ -13,6 +13,9 @@ import { EMPTY_DISCORD_CONFIG, type DiscordConfig } from '../core/discord/config
 import { DISCORD_API } from '../core/discord/rest'
 import type { GatewaySocket } from '../core/discord/gateway'
 import type { Account } from '../core/types'
+import { emptyState, type OrchState } from '../core/orchestration/state'
+import type { Dispatch, Job, JobRun, Task } from '../core/orchestration/types'
+import type { DiscordWorkspaceDeps } from './discordWorkspace'
 
 const CFG: SlackConfig = { webhookUrl: null, botToken: 'xoxb-fake', channelId: 'C1', appToken: 'xapp-fake', memberId: 'U1' }
 const account: Account = { id: 'a1', label: 'home', configDir: 'C:\\c1', color: '#fff', createdAt: '2026-09-26T00:00:00Z' }
@@ -55,7 +58,7 @@ function fakePty(): RegistryPty & { emit(d: string): void; sent: string[] } {
   return { pid: 1, sent, onData: (cb) => { onData = cb }, onExit: () => {}, write: (d) => { sent.push(d) }, resize: () => {}, kill: () => {}, pause: () => {}, resume: () => {}, emit: (d) => onData(d) }
 }
 
-async function rig(o: { keep?: boolean; sdk?: boolean; delay?: number; profileDir?: string; readConfig?: (() => Promise<SlackConfig>) | null; statusLinePayload?: () => Promise<unknown>; hostChains?: string[]; manualGrace?: boolean; telegram?: { readConfig?: () => Promise<TelegramConfig>; fetchFn?: typeof fetch }; discord?: { readConfig?: () => Promise<DiscordConfig>; fetchFn?: typeof fetch; WebSocketCtor?: new (url: string) => GatewaySocket } } = {}) {
+async function rig(o: { keep?: boolean; sdk?: boolean; delay?: number; profileDir?: string; readConfig?: (() => Promise<SlackConfig>) | null; statusLinePayload?: () => Promise<unknown>; hostChains?: string[]; manualGrace?: boolean; telegram?: { readConfig?: () => Promise<TelegramConfig>; fetchFn?: typeof fetch }; discord?: { readConfig?: () => Promise<DiscordConfig>; fetchFn?: typeof fetch; WebSocketCtor?: new (url: string) => GatewaySocket; workspace?: Pick<DiscordWorkspaceDeps, 'activity' | 'state' | 'handle' | 'debounceMs'> } } = {}) {
   const slack = fakeSlack({ delay: o.delay })
   const ptys = new Map<string, ReturnType<typeof fakePty>>()
   let next = ''
@@ -565,16 +568,32 @@ describe('composeHostConnections: Telegram beside Slack', () => {
 
 const DC: DiscordConfig = { botToken: 'MTIz.fake', guildId: '100', userId: '777', plans: true }
 
-/** A Discord server holding Astera/#sessions (REST) and a Gateway whose sockets the test drives. */
+/** A Discord server holding Astera/#sessions (REST; the channels the bot creates are listed after) and a Gateway whose
+ *  sockets the test drives. `routes` records every call; `posts` the messages. */
 function fakeDiscord() {
   const posts: Array<{ channel: string; content: string; id: string }> = []
+  const routes: string[] = []
+  const channels: Array<{ id: string; type: number; name: string; parent_id?: string }> = [
+    { id: '200', type: 4, name: 'Astera' },
+    { id: '300', type: 0, name: 'sessions', parent_id: '200' }
+  ]
   let next = 800
+  const json = (v: unknown): Response => new Response(JSON.stringify(v))
   const fetchFn = (async (url: unknown, init?: RequestInit) => {
     const route = String(url).slice(DISCORD_API.length)
-    if (route === '/guilds/100/channels')
-      return new Response(JSON.stringify([{ id: '200', type: 4, name: 'Astera' }, { id: '300', type: 0, name: 'sessions', parent_id: '200' }]))
+    const method = init?.method ?? 'GET'
+    routes.push(`${method} ${route}`)
+    if (route === '/guilds/100/channels') {
+      if (method === 'GET') return json(channels)
+      const made = { id: String(next++), ...(JSON.parse(String(init?.body)) as { type: number; name: string }) }
+      channels.push(made)
+      return json(made)
+    }
+    if (route === '/applications/@me') return json({ id: 'app', name: 'Astera' })
     const thread = route.match(/\/messages\/(\d+)\/threads$/)
-    if (thread) return new Response(JSON.stringify({ id: thread[1], type: 11 }))
+    if (thread) return json({ id: thread[1], type: 11 })
+    // edits, pins, permissions and command registration: nothing the tests read back
+    if (method !== 'POST' || !route.endsWith('/messages')) return json({ id: String(next++) })
     const id = String(next++)
     const content = String((JSON.parse(String(init?.body)) as { content?: string }).content)
     posts.push({ channel: route.split('/')[2], content, id })
@@ -600,6 +619,8 @@ function fakeDiscord() {
     fetchFn,
     WebSocketCtor: Socket,
     posts,
+    routes,
+    channel: (name: string) => channels.find((c) => c.name === name),
     open: () => sockets.filter((x) => !x.closed).length,
     sockets: () => sockets.length,
     ready: () => {
@@ -645,5 +666,75 @@ describe('composeHostConnections: Discord beside Slack and Telegram', () => {
     }
     await h.wiring.dispose()
     expect(dc.open()).toBe(0)
+  })
+})
+
+/** A plan with one running Task whose Dispatch runs in session `s1`. */
+const planState = (): OrchState => ({
+  ...emptyState(),
+  projects: [{ id: 'prj_1', path: '/repo', name: 'Repo', addedAt: 'x' }],
+  jobs: [{ id: 'job_1', title: 'Fix login', objective: 'Fix the login', cwd: '/repo', projectId: 'prj_1', createdAt: 'x' } as Job],
+  runs: [{ id: 'run_1', jobId: 'job_1', ordinal: 1, createdAt: 'x' } as JobRun],
+  tasks: [{ id: 'tsk_1', runId: 'run_1', title: 'Do it', status: 'running' } as unknown as Task],
+  dispatches: [{ id: 'dsp_1', taskId: 'tsk_1', sessionId: 's1' } as Dispatch]
+})
+/** The plan workspace's deps: a quiet activity log, the state above, an orch that answers nothing. */
+const workspaceDeps = (): Pick<DiscordWorkspaceDeps, 'activity' | 'state' | 'handle' | 'debounceMs'> => ({
+  activity: { tail: () => 'e0', read: () => ({ events: [], cursor: 'e0', gap: false }), next: () => new Promise<void>(() => {}) } as unknown as DiscordWorkspaceDeps['activity'],
+  state: planState,
+  handle: vi.fn(async () => ({ status: 200, body: {} })),
+  debounceMs: 0
+})
+
+describe('composeHostConnections: the Discord plan workspace', () => {
+  const withWorkspace = (dc: ReturnType<typeof fakeDiscord>, keep = false) =>
+    rig({ keep, discord: { readConfig: async () => ({ ...DC }), fetchFn: dc.fetchFn, WebSocketCtor: dc.WebSocketCtor, workspace: workspaceDeps() } })
+
+  it("opens a worker session's thread in its plan's channel", async () => {
+    const dc = fakeDiscord()
+    const h = await withWorkspace(dc)
+    h.wiring.start()
+    await h.active()
+    // the layout made the plan's channel and posted its card there
+    await vi.waitFor(() => expect(dc.posts.some((p) => p.channel === dc.channel('fix-login')?.id)).toBe(true))
+    const plan = dc.channel('fix-login')!.id
+    h.openSession('s1')
+    await vi.waitFor(() => expect(dc.posts.filter((p) => p.channel === plan)).toHaveLength(2))
+    expect(dc.posts.filter((p) => p.channel === '300')).toHaveLength(0)
+    await h.wiring.dispose()
+  })
+
+  it('gives Discord each activity notice once, in #astera, and every other connection its own', async () => {
+    const dc = fakeDiscord()
+    const h = await withWorkspace(dc)
+    h.wiring.start()
+    await h.active()
+    await vi.waitFor(() => expect(dc.channel('astera')).toBeDefined())
+    // the first sync is through once the plan's card is up
+    await vi.waitFor(() => expect(dc.posts.some((p) => p.channel === dc.channel('fix-login')?.id)).toBe(true))
+    const before = dc.posts.length
+    h.wiring.postNotice({ title: 'Plan done', body: 'all green' })
+    await vi.waitFor(() => expect(h.slack.posts.filter((p) => p.text.includes('Plan done'))).toHaveLength(1))
+    await vi.waitFor(() => expect(dc.posts.length).toBe(before + 1))
+    await new Promise((r) => setTimeout(r, 20))
+    const notices = dc.posts.filter((p) => p.content.includes('Plan done'))
+    expect(notices).toHaveLength(1)
+    expect(notices[0].channel).toBe(dc.channel('astera')!.id)
+    await h.wiring.dispose()
+  })
+
+  it('runs nothing while an attached app keeps the connections, and starts once the Host holds them', async () => {
+    const dc = fakeDiscord()
+    const h = await withWorkspace(dc, true)
+    h.wiring.start()
+    await h.wiring.reload()
+    await new Promise((r) => setTimeout(r, 20))
+    expect(dc.routes).toEqual([])
+    h.state.keep = false
+    h.wiring.onAppsChanged()
+    await h.active()
+    await vi.waitFor(() => expect(dc.routes).toContain('GET /applications/@me'))
+    await vi.waitFor(() => expect(dc.channel('fix-login')).toBeDefined())
+    await h.wiring.dispose()
   })
 })
