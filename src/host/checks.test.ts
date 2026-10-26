@@ -10,6 +10,7 @@ import { PtyRegistry, type RegistryPty } from './registry'
 import type { HostMessage, PtyEntry } from '../core/host/protocol'
 import type { OrchServerDeps } from '../core/orchestration/command'
 import { applyWorkerDone, createJob, createTask, emptyState, openDispatch, startJobRun, type OrchState } from '../core/orchestration/state'
+import { CHECK_TIMEOUT_MS } from '../core/orchestration/types'
 import { pickInitialLang } from '../core/i18n/locale'
 
 const NOW = '2026-09-24T00:00:00.000Z'
@@ -48,6 +49,8 @@ interface RigOpts {
   killsHang?: boolean
   /** HostChecksDeps.foreignKillWaitMs. */
   foreignKillWaitMs?: number
+  /** HostChecksDeps.heavySlot; defaults to a grant at once. */
+  heavySlot?: NonNullable<Parameters<typeof createHostChecksForTest>[0]['heavySlot']>
 }
 
 async function rig(o: RigOpts = {}) {
@@ -152,7 +155,7 @@ async function rig(o: RigOpts = {}) {
     // Never a real taskkill: the fake pids are numbers some real process may hold.
     killRunner: (cmd) => endKilled(Number(cmd.args[cmd.args.indexOf('/pid') + 1])),
     // Never the machine's real heavy queue/lock: `seed:npm:test` is a heavy check.
-    heavySlot: async () => () => {},
+    heavySlot: o.heavySlot ?? (async () => () => {}),
     ...(o.foreignKillWaitMs !== undefined ? { foreignKillWaitMs: o.foreignKillWaitMs } : {})
   })
   if (o.onRunExitThrows)
@@ -345,6 +348,51 @@ describe('createHostChecks', () => {
     expect(await h.checks.validateTree(h.cwd, [])).toEqual({ ok: true, ran: 0 })
     // The Task the rig validates is untouched: these runs are no Task's
     expect(h.task().status).toBe('validating')
+  })
+
+  it('validateTree waits for a heavy slot as a delivery ticket and frees it on success, failure and timeout', async () => {
+    const asked: unknown[] = []
+    let freed = 0
+    let grant: (() => void) | undefined
+    const h = await rig({
+      heavySlot: (a) => {
+        asked.push(a)
+        return new Promise((resolve) => (grant = () => resolve(() => void freed++)))
+      }
+    })
+    const ok = h.checks.validateTree(h.cwd, ['seed:npm:test'])
+    await vi.waitFor(() => expect(grant).toBeDefined())
+    expect(h.opened()).toHaveLength(0) // queued, not started
+    grant!()
+    await vi.waitFor(() => expect(h.opened()).toHaveLength(1))
+    expect(freed).toBe(0)
+    h.exitLast(0)
+    expect(await ok).toEqual({ ok: true, ran: 1 })
+    expect(freed).toBe(1)
+    expect(asked[0]).toMatchObject({ cwd: h.cwd, cmd: 'test', kind: 'delivery' })
+
+    grant = undefined
+    const bad = h.checks.validateTree(h.cwd, ['seed:npm:test'])
+    await vi.waitFor(() => expect(grant).toBeDefined())
+    grant!()
+    await vi.waitFor(() => expect(h.opened()).toHaveLength(2))
+    h.exitLast(1)
+    expect(await bad).toMatchObject({ ok: false })
+    expect(freed).toBe(2)
+
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      grant = undefined
+      const slow = h.checks.validateTree(h.cwd, ['seed:npm:test'])
+      await vi.waitFor(() => expect(grant).toBeDefined())
+      grant!()
+      await vi.waitFor(() => expect(h.opened()).toHaveLength(3))
+      await vi.advanceTimersByTimeAsync(CHECK_TIMEOUT_MS)
+      expect(await slow).toMatchObject({ ok: false, reason: expect.stringContaining('timed out') })
+      expect(freed).toBe(3)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('validateTree settles a check whose exit lands right after it starts', async () => {

@@ -31,7 +31,7 @@ import { knowledgeIn } from '../core/orchestration/exec/coordinator'
 import { performRepair, repairOnce, repairTargetFor, type RepairDeps } from '../core/orchestration/exec/repair'
 import { createResumeSweep } from '../core/orchestration/exec/resumeSweep'
 import { createReviewStarter } from '../core/orchestration/exec/review'
-import { createTaskValidation } from '../core/orchestration/exec/validation'
+import { createTaskValidation, heavySlot, isHeavyCheck } from '../core/orchestration/exec/validation'
 import { unavailable } from '../core/orchestration/pluginChecks'
 import type { TaskValidator } from '../core/orchestration/exec/validator'
 import { readAccountEntries } from '../core/accounts/accountsFile'
@@ -119,7 +119,7 @@ export interface HostChecksDeps {
   /** Test seam: FOREIGN_KILL_WAIT_MS. */
   foreignKillWaitMs?: number
   /** Test seam, passed to createTaskValidation: the machine's heavy slot (a heavy check waits on it). Defaults to the real one. */
-  heavySlot?(a: { cwd: string; cmd: string; slots?: number }): Promise<() => void>
+  heavySlot?(a: { cwd: string; cmd: string; slots?: number; kind?: 'check' | 'delivery' }): Promise<(() => void) | null>
 }
 
 /** The OS locale as node reports it — what the app's `app.getLocale()` stands in for (R13). */
@@ -455,18 +455,32 @@ export function createHostChecksForTest(d: HostChecksDeps): HostChecks & { _vali
           t: (key, params) => t(langNow(), key as never, params)
         })
         name = prepared.config.name
-        const started = runs.start({ projectPath: cwd, projectName: prepared.projectName, config: prepared.config, command: prepared.command, validation: true })
-        const code = await new Promise<number | 'timeout'>((resolve) => {
-          const timer = setTimeout(() => {
-            treeWaiters.delete(started.runId)
-            runs.stop(started.runId)
-            resolve('timeout')
-          }, CHECK_TIMEOUT_MS)
-          treeWaiters.set(started.runId, (c) => {
-            clearTimeout(timer)
-            resolve(c)
+        // A heavy config waits its turn like a Task's heavy check does (queued, not failed; the timeout starts after
+        // the wait). Its own ticket kind keeps it apart from a Task check's ticket of this folder.
+        let release: (() => void) | undefined
+        if (isHeavyCheck(prepared.config) || (await readChecksAsHeavy(d.profileDir))) {
+          log(`delivery check "${name}" is queued for the machine's heavy slot`)
+          release = (await (d.heavySlot ?? heavySlot)({ cwd, cmd: name, kind: 'delivery', slots: await readHeavyJobsAtOnce(settingsPath) })) ?? undefined
+        }
+        let code: number | 'timeout'
+        let started: { runId: string }
+        try {
+          started = runs.start({ projectPath: cwd, projectName: prepared.projectName, config: prepared.config, command: prepared.command, validation: true })
+          const runId = started.runId
+          code = await new Promise<number | 'timeout'>((resolve) => {
+            const timer = setTimeout(() => {
+              treeWaiters.delete(runId)
+              runs.stop(runId)
+              resolve('timeout')
+            }, CHECK_TIMEOUT_MS)
+            treeWaiters.set(runId, (c) => {
+              clearTimeout(timer)
+              resolve(c)
+            })
           })
-        })
+        } finally {
+          release?.()
+        }
         ran++
         if (code !== 0) {
           const tail = stripAnsi(runs.recentOutput(started.runId)).trim().slice(-1500)
