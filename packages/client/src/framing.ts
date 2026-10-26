@@ -1,4 +1,4 @@
-// Newline-delimited JSON. One object per line, both directions (design §6).
+// Newline-delimited JSON. One object per line, both directions.
 //
 // A reader has to buffer, because a socket hands over bytes and not messages: one write can arrive
 // as three chunks, and three writes can arrive as one.
@@ -20,7 +20,7 @@ export function createLineReader(a: {
   /** The longest line read, in characters (UTF-16 units, about bytes for this JSON). A line that runs
    *  past it, finished or not, calls `onOverflow` once and the reader reads nothing after it: a sender
    *  that never ends its line would otherwise grow the buffer without bound. No cap when absent, which
-   *  is what every reader of the Host's own messages wants (remote runtime design §3.1). */
+   *  is what every reader of the Host's own messages wants. */
   maxLine?: number
   onOverflow?(): void
 }): (chunk: string) => void {

@@ -12,7 +12,7 @@ import {
   type HostConnection
 } from '../core/publicContract'
 import { RPC_CLOSED, RPC_INTERNAL_ERROR, RPC_INVALID_PARAMS, RPC_METHOD_NOT_FOUND, RPC_NOT_READY, RpcError, createRpcPeer } from '../core/plugins/rpc'
-import type { PluginContext, PluginDefinition } from '../../packages/plugin-sdk/src/index'
+import type { PluginContext, PluginDefinition } from '../core/pluginContract'
 
 interface InitializeParams {
   apiVersion: string

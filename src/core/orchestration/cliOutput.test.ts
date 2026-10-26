@@ -5,7 +5,7 @@ import {
   codeForStatus,
   dataFor,
   errEnvelope,
-  exitCodeFor,
+  EXIT_CODES,
   messageFrom,
   nextStepsFor,
   okEnvelope,
@@ -16,20 +16,20 @@ import {
   waitEnd
 } from './cliOutput'
 
-describe('exitCodeFor', () => {
+describe('EXIT_CODES', () => {
   // 설계 §8 의 표를 그대로 고정한다. 이 숫자들은 스크립트가 분기하는 값이라, 바뀌면 남의 CI 가
   // 조용히 틀린 길로 간다 — 표를 옮겨 적은 것이 아니라 계약을 박아 두는 테스트다.
   it('코드마다 정해진 종료 코드를 준다', () => {
-    expect(exitCodeFor('FAILED')).toBe(1)
-    expect(exitCodeFor('INVALID_ARGUMENTS')).toBe(2)
-    expect(exitCodeFor('HOST_NOT_RUNNING')).toBe(3)
-    expect(exitCodeFor('NOT_FOUND')).toBe(4)
-    expect(exitCodeFor('PERMISSION_DENIED')).toBe(5)
-    expect(exitCodeFor('CONFLICT')).toBe(6)
-    expect(exitCodeFor('TIMEOUT')).toBe(7)
-    expect(exitCodeFor('WAITING_FOR_INPUT')).toBe(8)
-    expect(exitCodeFor('VERSION_MISMATCH')).toBe(9)
-    expect(exitCodeFor('RUN_FAILED')).toBe(10)
+    expect(EXIT_CODES['FAILED']).toBe(1)
+    expect(EXIT_CODES['INVALID_ARGUMENTS']).toBe(2)
+    expect(EXIT_CODES['HOST_NOT_RUNNING']).toBe(3)
+    expect(EXIT_CODES['NOT_FOUND']).toBe(4)
+    expect(EXIT_CODES['PERMISSION_DENIED']).toBe(5)
+    expect(EXIT_CODES['CONFLICT']).toBe(6)
+    expect(EXIT_CODES['TIMEOUT']).toBe(7)
+    expect(EXIT_CODES['WAITING_FOR_INPUT']).toBe(8)
+    expect(EXIT_CODES['VERSION_MISMATCH']).toBe(9)
+    expect(EXIT_CODES['RUN_FAILED']).toBe(10)
   })
 })
 
@@ -45,7 +45,7 @@ describe('codeForStatus', () => {
   // CLI 의 버전이 갈렸다는 뜻이고, 고칠 사람도 고칠 곳도 다르다.
   it('모르는 명령의 501 은 버전 불일치다', () => {
     expect(codeForStatus(501)).toBe('VERSION_MISMATCH')
-    expect(exitCodeFor(codeForStatus(501))).toBe(9)
+    expect(EXIT_CODES[codeForStatus(501)]).toBe(9)
   })
 
   // 짐작이 스크립트의 분기를 조용히 틀리게 만든다
@@ -175,7 +175,7 @@ describe('waitEnd', () => {
     expect(l?.code).toBe('WAITING_FOR_INPUT')
     expect(l?.message).toMatch(/2026-09-25T15:00:00\.000Z/)
     expect(l?.details).toMatchObject({ state: 'limited', resetsAt: '2026-09-25T15:00:00.000Z' })
-    expect(exitCodeFor('WAITING_FOR_INPUT')).toBe(8)
+    expect(EXIT_CODES['WAITING_FOR_INPUT']).toBe(8)
     expect(nextStepsFor({ code: 'WAITING_FOR_INPUT', cmd: 'runs-wait', details: { state: 'limited' } })).toEqual([
       'astera runs wait --id <runId>',
       'astera runs get --id <runId>'
@@ -576,7 +576,7 @@ describe('a CONFLICT that names a file to repair', () => {
       details: { repair: 'accounts.json' },
       nextSteps: []
     })
-    expect(exitCodeFor(e.code)).toBe(6)
+    expect(EXIT_CODES[e.code]).toBe(6)
     expect(nextStepsFor({ code: 'CONFLICT', cmd: 'worker-start' })).toEqual(['astera status'])
   })
 })
@@ -669,7 +669,7 @@ describe('the remote runtime codes', () => {
     }
     for (const [code, exit] of Object.entries(want)) {
       expect(CLI_ERROR_CODES as readonly string[]).toContain(code)
-      expect(exitCodeFor(code as CliErrorCode), code).toBe(exit)
+      expect(EXIT_CODES[code as CliErrorCode], code).toBe(exit)
     }
   })
   it('remoteCodeOf reads a remote code from a refusal body, and nothing else', () => {

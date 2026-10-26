@@ -42,6 +42,7 @@ version.
 - [Remote runtime](remote-runtime.md): run the Host on another machine.
 - [Slack bot setup](slack-bot-setup.md)
 - [Telegram bot setup](telegram-bot-setup.md)
+- [Discord bot setup](discord-bot-setup.md)
 
 ## Contribute
 

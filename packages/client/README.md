@@ -1,10 +1,10 @@
 # @astera-app/client
 
-The TypeScript client for the [Astera](https://github.com/parsingk/Astera) Host. It talks to the Host on this machine
+The TypeScript client for the [Astera](https://github.com/JanoTheDev/astera-orchestrator) Host. It talks to the Host on this machine
 the way the `astera` CLI does: the same discovery, the same deadlines, the same error codes and the same public
 fields.
 
-The guide, with examples: [docs/sdk.md](https://github.com/parsingk/Astera/blob/main/docs/sdk.md).
+The guide, with examples: [docs/sdk.md](https://github.com/JanoTheDev/astera-orchestrator/blob/main/docs/sdk.md).
 
 ```bash
 npm install @astera-app/client
@@ -41,7 +41,7 @@ does not start a Host: with none running, `createAsteraClient` rejects `HOST_NOT
   `AsteraError`; its numeric `code` (20) is not one of ours, so check `isAsteraError` before reading `code`.
 - A `requestId` makes a retry safe while the same Host is up: the Host runs a command once per id. But receipts live in
   the Host's memory, for an hour, and a Host restart forgets them, so after `HOST_NOT_RUNNING` ask `requests-show`
-  before sending it again (the guide's [Retries and request ids](https://github.com/parsingk/Astera/blob/main/docs/sdk.md#retries-and-request-ids)).
+  before sending it again (the guide's [Retries and request ids](https://github.com/JanoTheDev/astera-orchestrator/blob/main/docs/sdk.md#retries-and-request-ids)).
   A Host that keeps no receipts refuses it.
 - **Deadlines.** The handshake waits 5 s (`connectTimeoutMs`). An ordinary command waits 330 s, the CLI's
   (`callTimeoutMs`). A command that waits on the Host (`runs-wait`, `jobs-wait`, `ask`, `check`, or any call whose
@@ -142,5 +142,5 @@ for await (const e of astera.events.subscribe({ types: ['run.completed', 'run.fa
   now.
 
 It is versioned apart from the Astera app, and 0.x, so a minor version may still change names:
-[CHANGELOG.md](https://github.com/parsingk/Astera/blob/main/packages/client/CHANGELOG.md) says what each version
+[CHANGELOG.md](https://github.com/JanoTheDev/astera-orchestrator/blob/main/packages/client/CHANGELOG.md) says what each version
 changed. It needs Astera 1.4.12 or later, and 1.4.13 for the session events.

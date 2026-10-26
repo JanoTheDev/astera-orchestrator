@@ -1,4 +1,4 @@
-// astera.events (SDK spec §6): the Host's public event log, read a page at a time (`list`) or followed (`subscribe`),
+// astera.events: the Host's public event log, read a page at a time (`list`) or followed (`subscribe`),
 // with `cursor` saying where the next event will be, all over the Host command `events-poll`.
 //
 // **At least once, never twice in a row.** The Host gives each event an id that never repeats; a subscription drops

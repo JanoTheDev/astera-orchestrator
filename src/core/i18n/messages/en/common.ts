@@ -398,6 +398,9 @@ export const common: Record<keyof typeof ko, string> = {
   'settings.row.telegram': 'Telegram',
   'settings.telegram.hint':
     'Create a bot with @BotFather and send it any message. For a private chat, the chat id and user id are your own numeric Telegram id.',
+  'settings.row.discord': 'Discord',
+  'settings.discord.hint':
+    'Create a bot in the Discord developer portal and turn on its Message Content intent — without it the bot cannot read your replies.',
   'settings.projects.list': 'Project settings',
   'settings.projects.hint': 'Per project: delivery, approving plans automatically, test command, agents at once, review rounds, planning again between steps, default account and line attribution.',
   'settings.projects.add': 'Add project',

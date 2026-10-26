@@ -7,9 +7,9 @@ import { mcpStatus } from './status'
 import { TOOLS } from './tools'
 import { hostAddress } from '../../host/address'
 import { startHostServer, type HostServer } from '../../host/server'
-import { ensureHostKey } from '../../core/host/hostKey'
+import { ensureHostKey } from '../../core/publicContract'
 import { HOST_PROTOCOL } from '../../core/host/protocol'
-import { errEnvelope, exitCodeFor, type CliError } from '../../core/orchestration/cliOutput'
+import { errEnvelope, EXIT_CODES, type CliError } from '../../core/orchestration/cliOutput'
 
 // Spec §40: `astera mcp status` says whether `mcp serve` would work here, without starting a Host.
 const cleanups: Array<() => Promise<void>> = []
@@ -79,7 +79,7 @@ describe('mcpStatus', () => {
     const dir = await profile(JSON.stringify({ mcpAccess: 'off' }))
     const e = failed(await run(dir))
     expect(e.code).toBe('HOST_NOT_RUNNING')
-    expect(exitCodeFor(e.code)).toBe(3)
+    expect(EXIT_CODES[e.code]).toBe(3)
     expect(e.details).toEqual({ cliVersion: '1.4.1', transport: 'stdio', host: { running: false, mcp: false }, access: 'off', tools: TOOLS.length })
     // Still nothing at the address afterwards: status only looks.
     expect(failed(await run(dir)).code).toBe('HOST_NOT_RUNNING')
@@ -90,7 +90,7 @@ describe('mcpStatus', () => {
     await host(dir, { orch: false })
     const e = failed(await run(dir))
     expect(e.code).toBe('VERSION_MISMATCH')
-    expect(exitCodeFor(e.code)).toBe(9)
+    expect(EXIT_CODES[e.code]).toBe(9)
     expect(e.message).toContain('MCP')
     expect(e.details).toMatchObject({ host: { running: true, version: '9.9.9', protocol: HOST_PROTOCOL, mcp: false } })
   })

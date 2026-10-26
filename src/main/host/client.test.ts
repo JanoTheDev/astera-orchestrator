@@ -9,7 +9,7 @@ import { encodeLine, createLineReader } from '../../host/framing'
 import { HOST_PROTOCOL, HOST_YIELD_WORKTREES, HOST_YIELD_DISPATCH, HOST_YIELD_ROLLING, HOST_YIELD_CHAT_TAKEOVER, HOST_YIELD_JOURNAL, HOST_YIELD_UNDERSTANDING, HOST_YIELD_WORKSPACE, HOST_YIELD_ORCH_STATE_LATEST, HOST_YIELD_WORK_UNITS, HOST_YIELD_SLACK, HOST_YIELD_RECOVERY, type HostMessage } from '../../core/host/protocol'
 import { HostClient } from './client'
 import { hostSpeaksDispatch } from './outdated'
-import { hostProof } from '../../core/host/hostKey'
+import { hostProof } from '../../core/publicContract'
 import { chatRespawnOf, handoverOf, leftBehind, writeHandover } from '../../host/sessionRestore'
 import { PTY_LOST_SIGHT_EXIT_CODE } from '../../core/sessions/pty'
 import { ChatSessionManager, type ChatManagerDeps } from '../../core/chat/manager'
@@ -19,7 +19,7 @@ import { makeDescriptors } from '../../core/providers/descriptor'
 import type { ProcLike } from '../../core/sessions/proc'
 import type { Account } from '../../core/types'
 
-/** The profile's Host key every test Host holds (protocol 4, core/host/hostKey.ts), and the read the
+/** The profile's Host key every test Host holds (protocol 4, packages/client/src/hostKey.ts), and the read the
  *  client makes of it. */
 const KEY = 'e'.repeat(64)
 const hostKey = async (): Promise<string | null> => KEY

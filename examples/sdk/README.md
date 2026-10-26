@@ -12,7 +12,7 @@ them is [docs/sdk.md](../../docs/sdk.md).
 
 ## Run them
 
-These scripts use the client in this repository, which can be ahead of the one on npm, so build it first:
+These scripts use the client in this repository, which may differ from the one on npm; build it from `packages/client` to get the newest:
 
     npm ci --ignore-scripts
     npm run build:packages

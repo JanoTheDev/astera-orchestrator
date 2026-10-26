@@ -27,7 +27,7 @@ import { main } from './run'
 import { hostAddress } from '../host/address'
 import { encodeLine, createLineReader } from '../host/framing'
 import { startHostServer, ADDRESS_TAKEN, type HostServer } from '../host/server'
-import { ensureHostKey, hostProof } from '../core/host/hostKey'
+import { ensureHostKey, hostProof } from '../core/publicContract'
 import { createHostOrch, type HostOrch } from '../host/orch'
 import { createPluginManager } from '../host/plugins/manager'
 import { createHostJournal } from '../host/hostJournal'
@@ -64,7 +64,7 @@ import {
 } from '../core/host/protocol'
 import { createGate, createJob, createTask, emptyState, openDispatch, startJobRun, type OrchState, type Res } from '../core/orchestration/state'
 import { ensureProject } from '../core/orchestration/projects'
-import { CLI_PROTOCOL, codeForStatus, exitCodeFor } from '../core/orchestration/cliOutput'
+import { CLI_PROTOCOL, codeForStatus, EXIT_CODES } from '../core/orchestration/cliOutput'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { connectHost } from '../core/host/connect'
@@ -1015,7 +1015,7 @@ describe('the public CLI against a real Host (§48, §49)', { timeout: 60_000 },
     const late = await app.call('state-put', { state: renamed(seen.state, 'too late'), version: seen.version })
     expect(late.status).toBe(409)
     expect(codeForStatus(late.status)).toBe('CONFLICT')
-    expect(exitCodeFor('CONFLICT')).toBe(6)
+    expect(EXIT_CODES['CONFLICT']).toBe(6)
     expect((late.body as { state: OrchState }).state.runs.find((r) => r.id === runId)?.paused).toBe(true)
     expect(objective()).toBe('renamed inside the stop')
     expect(paused()).toBe(true)

@@ -8,9 +8,9 @@
     "client",
     "agents"
   ],
-  "homepage": "https://github.com/parsingk/Astera/blob/main/docs/sdk.md",
+  "homepage": "https://github.com/JanoTheDev/astera-orchestrator/blob/main/docs/sdk.md",
   "bugs": {
-    "url": "https://github.com/parsingk/Astera/issues"
+    "url": "https://github.com/JanoTheDev/astera-orchestrator/issues"
   },
   "license": "Apache-2.0",
   "type": "module",
@@ -48,7 +48,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/parsingk/Astera.git",
+    "url": "git+https://github.com/JanoTheDev/astera-orchestrator.git",
     "directory": "packages/client"
   }
 }

@@ -1,7 +1,8 @@
 // `runs follow` (CLI spec §22): one line per timeline event. The lines have no contract, like every
 // `--human` shape; what is pinned here is that each kind of event says what happened and to which task.
 import { describe, it, expect } from 'vitest'
-import { eventKey, followLine, clockOf } from './cliFollow'
+import { followLine, clockOf } from './cliFollow'
+import { eventKey } from '../publicContract'
 import type { JobEvent } from '../types'
 
 const AT = '2026-09-26T05:21:02.000Z'

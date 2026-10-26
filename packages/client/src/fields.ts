@@ -1,15 +1,15 @@
-// The fields the public surface publishes (public CLI design §11): the CLI, its MCP server and the SDK print these
+// The fields the public surface publishes: the CLI, its MCP server and the SDK print these
 // and nothing else.
 //
 // **An allowlist, never a blocklist.** A blocklist is the list of leaks someone already thought of, and every field
 // added after it walks straight past. What these lists really do is pin the edge of the public API: without them, a
 // field added to the app's state would silently become public, and removing it later would break someone's script.
 //
-// The app checks at compile time that every field of its internal objects is either here or on its own list of
-// fields it deliberately keeps back (src/core/orchestration/cliPublic.ts), so a list cannot fall behind unnoticed.
+// Every field of a public object is either listed here or deliberately kept back, so a list cannot fall behind
+// unnoticed.
 import type { EventType } from './types.js'
 
-export const PROJECT_FIELDS = Object.freeze(['id', 'path', 'name', 'addedAt', /* T3 workspaces */ 'parentId'] as const)
+export const PROJECT_FIELDS = Object.freeze(['id', 'path', 'name', 'addedAt', 'parentId'] as const)
 
 /**
  * The three fields that say how a Job or a Run stands. They are not stored: the Host derives them on every read
@@ -33,10 +33,10 @@ export const JOB_FIELDS = Object.freeze([
   'paused',
   'convergence',
   'source',
-  // A plan's name and whether it is archived (W1-C)
+  // A plan's name and whether it is archived
   'title',
   'archivedAt',
-  // Which Job takes a free slot first under the app-wide worker cap (orchestrator W1-B).
+  // Which Job takes a free slot first under the app-wide worker cap.
   'priority'
 ] as const)
 
@@ -85,7 +85,7 @@ export const QUESTION_FIELDS = Object.freeze([
   'question',
   'options',
   'kind',
-  // W7-C (#72): `ask` or `escalation` for a question that is a message, absent for a Gate
+  // `ask` or `escalation` for a question that is a message, absent for a Gate
   'source',
   'status',
   'resolution',
@@ -175,7 +175,7 @@ export const COMPLETION_CHECK_FIELDS = Object.freeze([
   'skipped'
 ] as const)
 
-/** One public event's envelope (SDK spec §6); its payload is shaped by its type (shape.ts shapeEvent). */
+/** One public event's envelope; its payload is shaped by its type (shape.ts shapeEvent). */
 export const EVENT_FIELDS = Object.freeze(['id', 'type', 'sequence', 'occurredAt', 'projectId', 'jobId', 'runId', 'taskId', 'sessionId', 'payload'] as const)
 
 /** Built from a record of every EventType, so a type added to the union and not here fails the typecheck. */

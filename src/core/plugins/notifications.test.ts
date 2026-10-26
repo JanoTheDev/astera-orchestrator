@@ -5,7 +5,6 @@ import { LANGS, t, type Lang } from '../i18n'
 import type { AsteraEvent } from '../publicContract'
 import { resumeAtText } from '../notify/resumeAt'
 import { NOTIFICATION_KINDS, NOTIFICATION_LEVEL, notificationOf } from './notifications'
-import { NOTIFICATION_KINDS as SDK_KINDS } from '../../../packages/plugin-sdk/src/index'
 
 const objectives: Record<string, string> = { job_1: 'Ship the release\nwith notes' }
 const word = (e: unknown, lang: Lang = 'en') => notificationOf(e as AsteraEvent, { lang, objectiveOf: (id) => objectives[id] })
@@ -106,11 +105,6 @@ describe('notificationOf (plugin Phase 3 N10)', () => {
     const s = word(ev('session.input_needed', { session: { id: 's', kind: 'terminal', title: 't'.repeat(200) }, prompt: null }, { sessionId: 's' }))!
     expect(s.title).toBe(`${'t'.repeat(119)}…`)
   })
-})
-
-// N11: a provider chooses what to hear from the plugin SDK's list, so it is the Host's list
-it('names the kinds the plugin SDK exports, in the same order', () => {
-  expect([...SDK_KINDS]).toEqual([...NOTIFICATION_KINDS])
 })
 
 describe('notificationOf, against what a person would not expect (plugin 3c final review)', () => {

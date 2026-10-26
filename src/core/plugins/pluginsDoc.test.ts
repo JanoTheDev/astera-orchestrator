@@ -224,9 +224,10 @@ describe('docs/plugins.md', () => {
     expect(ts).toContain('"types": ["node"]')
     expect(guide).not.toMatch(/not on npm yet/)
     expect(section(guide, '## Not yet')).not.toContain('@astera-app/plugin-sdk')
-    // Its example imports definePlugin when the plugin runs, so there it is a dependency, which an npm install keeps
+    // Its example imports types only, the guide's pattern, so there too the SDK is a dev dependency
     const readme = read('packages/plugin-sdk/README.md')
-    expect(readme).toContain('npm install @astera-app/plugin-sdk\n')
+    expect(readme).toContain('npm install --save-dev @astera-app/plugin-sdk\n')
+    expect(readme).toContain("import type { PluginDefinition } from '@astera-app/plugin-sdk'")
     expect(readme).toContain('docs/plugins.md#typescript-and-bundling')
     expect(readme).not.toMatch(/not published/i)
   })

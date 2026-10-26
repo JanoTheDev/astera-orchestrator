@@ -30,7 +30,7 @@ import { HOST_EXIT, listenExitCode } from './exitCodes'
 import { controllerRecordsFile, createControllerRegistry } from './controllers'
 import { openSecretStore } from '../core/secrets/secretStore'
 import { randomBytes, randomUUID } from 'node:crypto'
-import { ensureHostKey } from '../core/host/hostKey'
+import { ensureHostKey } from '../core/publicContract'
 import { completeWindowsPath } from '../core/sessions/windowsPath'
 import { PtyRegistry } from './registry'
 import { createConhostReaper, reapWindowsConsoleHosts } from './conhostReaper'
@@ -721,9 +721,14 @@ async function main(): Promise<void> {
             const id = (r.body as { id?: unknown } | null)?.id
             if (r.status >= 300 || typeof id !== 'string') throw new Error('the console could not be started')
             return { id }
-          }
+          },
+          // Discord's plan workspace follows the activity feed and drives Astera through the same orch.handle.
+          discord: { workspace: { activity: activityLog, state: () => orch.state(), handle: (cmd, args) => orch.handle(cmd, args) } }
         })
       : null
+  // The app holds every connection then, and it keeps no Discord plan workspace (discordWorkspace.ts).
+  if (!connectionsWiring && spawner && wiring && rollingWiring)
+    log.write('connections: no Slack SDK, so the app holds the chat connections; the Discord plan workspace runs only in a Host that holds them')
 
   // The orchestration state and the commands over it (host control plane design §5, §6).
   //
@@ -1212,7 +1217,7 @@ async function main(): Promise<void> {
     await workUnits.start()
   }
 
-  // Protocol 4: the proof every client checks before it hands this Host anything (core/host/hostKey.ts).
+  // Protocol 4: the proof every client checks before it hands this Host anything (packages/client/src/hostKey.ts).
   // Made before the bind, so no client can meet this Host before its key exists. A Host that cannot
   // make one would be refused by every client, so it does not serve at all.
   let hostKey: string
@@ -1479,7 +1484,7 @@ async function main(): Promise<void> {
     followActivity({
       log: activityLog,
       send: (n) => {
-        if (connections.active()) void connections.fanout.postNotice(`*${n.title}*\n${n.body}`)
+        if (connections.active()) connections.postNotice(n)
       },
       state: () => orch.state(),
       limits: async () => ({ maxConcurrentWorkers: await readMaxConcurrentWorkers(settingsFile).catch(() => machineSpecs().recommended) }),

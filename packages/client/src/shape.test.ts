@@ -572,4 +572,17 @@ describe('publicFor events-poll', () => {
       gap: false
     })
   })
+
+  // A paged read answers `{ <list>, total, offset, limit }` (command.ts listReply), not a Task
+  it('keeps the rows and the counts of a paged tasks-list and questions-list', () => {
+    const page = { tasks: [{ id: 't1', prompt: 'held back' }], total: 9, offset: 0, limit: 1 }
+    expect(publicFor('tasks-list', page)).toEqual({ tasks: [{ id: 't1' }], total: 9, offset: 0, limit: 1 })
+    const questions = { questions: [{ id: 'q1', reason: 'held back' }], total: 1, offset: 0, limit: null }
+    expect(publicFor('questions-list', questions)).toEqual({ questions: [{ id: 'q1' }], total: 1, offset: 0, limit: null })
+  })
+
+  it("passes a worker's approval request whole, not shaped as the command it stands in for", () => {
+    const body = { approvalRequested: true, questionId: 'msg_1', command: 'astera jobs archive --id job_1', wait: 'astera ask --resume msg_1 --json', message: 'm' }
+    expect(publicFor('jobs-archive', body)).toEqual(body)
+  })
 })

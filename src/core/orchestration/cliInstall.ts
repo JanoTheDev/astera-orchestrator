@@ -4,11 +4,12 @@
 // 그것을 세션의 PATH 에 넣어 준다. 공개한다는 것은 그 두 파일을 사람의 PATH 에서도 닿는 곳에
 // 한 벌 더 쓰는 일이다.
 //
-// **순수하다** — 플랫폼과 환경변수가 인자로 들어온다. cliDiscovery.ts 와 같은 이유다: 세 운영체제
+// **순수하다** — 플랫폼과 환경변수가 인자로 들어온다. publicContract 의 nativePath 와 같은 이유다: 세 운영체제
 // 에서 다 맞아야 하는데 테스트는 한 대에서만 돈다.
 import path from 'node:path'
 import { isSamePath } from '../files/tree'
-import { nativePath } from './cliDiscovery'
+// The SDK's discovery rule (packages/client/src/discovery.ts): the CLI and @astera-app/client find the same Host
+import { nativePath } from '../publicContract'
 import type { AppImageLaunch } from './exec/shuttle'
 
 /**

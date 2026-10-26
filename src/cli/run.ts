@@ -59,7 +59,7 @@ import {
   dataFor,
   waitEnd,
   errEnvelope,
-  exitCodeFor,
+  EXIT_CODES,
   messageFrom,
   nextStepsFor,
   okEnvelope,
@@ -142,7 +142,7 @@ export function outputMode(a: {
 /** 앱의 응답 상태에서 종료 코드로. 2xx 는 0 이다 — ask --wait 의 타임아웃 응답도 200 이고, 이
  *  설계의 계약은 "타임아웃은 오류가 아니라 정보" 다(오케스트레이션 가이드 4.7절). */
 export function exitCodeForStatus(status: number): number {
-  return status >= 200 && status < 300 ? 0 : exitCodeFor(codeForStatus(status))
+  return status >= 200 && status < 300 ? 0 : EXIT_CODES[codeForStatus(status)]
 }
 
 /**
@@ -180,7 +180,7 @@ export function connectFailureEnd(a: {
   profileDir: string
 }): { fallback: true } | { fallback: false; code: CliErrorCode; message: string; details?: Record<string, unknown> } {
   if (a.error === 'unreachable') return { fallback: true }
-  // Somebody else's process at this profile's address (core/host/hostKey.ts): not a Host to read the
+  // Somebody else's process at this profile's address (packages/client/src/hostKey.ts): not a Host to read the
   // file around, and not one to talk to.
   if (a.error === 'impostor') return { fallback: false, ...impostorError(a.address, a.profileDir) }
   if (a.error === 'protocol')
@@ -1139,7 +1139,7 @@ export async function main(): Promise<void> {
   if (argv[0] === 'help' && argv.length > 1 && !argv.some((t) => t === '--help' || t === '-h')) {
     const refuse: (message: string, code?: CliErrorCode) => never = (message, code = 'INVALID_ARGUMENTS') => {
       out(errorOutput(message, code))
-      process.exit(exitCodeFor(code))
+      process.exit(EXIT_CODES[code])
     }
     const req = helpGuideRequest(argv.slice(1))
     if ('error' in req) refuse(req.error)
@@ -1166,7 +1166,7 @@ export async function main(): Promise<void> {
   if (help !== null) {
     if ('error' in help) {
       out(errorOutput(help.error, 'INVALID_ARGUMENTS'))
-      process.exit(exitCodeFor('INVALID_ARGUMENTS'))
+      process.exit(EXIT_CODES['INVALID_ARGUMENTS'])
     }
     // Text, not an envelope, and exit 0. `--help` is inherently for a person, the same footing as
     // `astera help`, and asking for it is not one of the ten failures.
@@ -1177,13 +1177,13 @@ export async function main(): Promise<void> {
   const parsed = parseArgs(argv)
   if ('error' in parsed) {
     out(errorOutput(parsed.error, 'INVALID_ARGUMENTS'))
-    process.exit(exitCodeFor('INVALID_ARGUMENTS'))
+    process.exit(EXIT_CODES['INVALID_ARGUMENTS'])
   }
 
   const mode = outputMode({ json: parsed.json, human: parsed.human, quiet: parsed.quiet })
   if (typeof mode !== 'string') {
     out(errorOutput(mode.error, 'INVALID_ARGUMENTS'))
-    process.exit(exitCodeFor('INVALID_ARGUMENTS'))
+    process.exit(EXIT_CODES['INVALID_ARGUMENTS'])
   }
 
   /** `--verbose` (cliVerbose.ts): stderr only, and nothing at all unless it was given. */
@@ -1207,7 +1207,7 @@ export async function main(): Promise<void> {
   let answer: HostAnswer | null = null
   const fail: (e: CliError) => never = (e) => {
     out(renderErr(e, mode, parsed.cmd, answer === null ? null : markOf(answer)))
-    process.exit(exitCodeFor(e.code))
+    process.exit(EXIT_CODES[e.code])
   }
   // FAIL_SEAM — 이 줄 아래에서 실패를 내보내는 길은 `fail` 하나다. 봉투를 직접 짓는 호출을
   // 두지 않는다(run.test.ts 가 이 표식 아래를 훑는다).

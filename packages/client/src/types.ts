@@ -1,7 +1,7 @@
-// The public DTOs: what the client's typed methods return, in the public shape the CLI prints (fields.ts). The app
-// checks at compile time that its own objects fit these (src/core/orchestration/publicTypes.ts), so a field added,
-// renamed or retyped on either side breaks its typecheck. Answers the app builds as plain records (the Job and Run
-// views' derived fields, wait endings, a stop's answer) are defined here and pinned by tests.
+// The public DTOs: what the client's typed methods return, in the public shape the CLI prints (fields.ts). The
+// Astera app checks its own objects against these, so a field added, renamed or retyped on either side is caught at
+// compile time. Answers built as plain records (the Job and Run views' derived fields, wait endings, a stop's answer)
+// are defined here and pinned by tests.
 
 export type Provider = 'claude' | 'codex'
 export type TaskStatus = 'pending' | 'ready' | 'dispatched' | 'validating' | 'reviewing' | 'merging' | 'completed' | 'failed' | 'blocked'
@@ -48,7 +48,7 @@ export interface Project {
   readonly path: string
   readonly name: string
   readonly addedAt: string
-  /** T3 workspaces: the workspace (root project) this sub-project belongs to; absent on a root. */
+  /** The workspace (root project) this sub-project belongs to; absent on a root. */
   readonly parentId?: string
 }
 
@@ -211,7 +211,7 @@ export interface Question {
   readonly question: string
   readonly options?: readonly string[]
   readonly kind?: GateKind
-  /** W7-C: a worker's `astera ask` question or a coordinator's escalation; absent for a Gate. */
+  /** A worker's `astera ask` question or a coordinator's escalation; absent for a Gate. */
   readonly source?: 'ask' | 'escalation'
   readonly status: 'open' | 'resolved'
   readonly resolution?: string
@@ -346,7 +346,7 @@ export interface ListResult<T> {
   readonly nextCursor?: string
 }
 
-/** What the Host's public event log records (SDK spec §6, and the session events of plugin Phase 3). `run.cancelled`,
+/** What the Host's public event log records (and the session events plugins receive). `run.cancelled`,
  *  `github.*` and `runtime.*` are not produced yet: there is no cancel (a stop pauses), and neither GitHub nor a
  *  Runtime's presence moves the state. */
 export type EventType =

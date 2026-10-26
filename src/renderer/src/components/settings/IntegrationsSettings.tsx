@@ -8,6 +8,7 @@ import { GithubSettings } from '../GithubSettings'
 import { CreativeHubSettings } from '../CreativeHubSettings'
 import { SlackSettings } from '../SlackSettings'
 import { TelegramSettings } from '../TelegramSettings'
+import { DiscordSettings } from '../DiscordSettings'
 import { FinderPanel } from '../extensions/FinderPanel'
 import { SettingItem } from './SettingItem'
 import { SettingRow, type GroupProps } from './SettingRow'
@@ -26,6 +27,9 @@ export function IntegrationsSettings({ shown, only, cliInstallStatus, setCliInst
       </SettingRow>
       <SettingRow a="telegram" only={only} keep hidden={!shown}>
         <TelegramSettings />
+      </SettingRow>
+      <SettingRow a="discord" only={only} keep hidden={!shown}>
+        <DiscordSettings />
       </SettingRow>
       {shown && (
         <>

@@ -44,7 +44,7 @@ const RUN = [...RUN_FIELDS, ...DERIVED_FIELDS, 'waitingForApproval']
 const TASK = [...TASK_FIELDS, 'spec_truncated']
 /** `sessions read` has two shapes: a terminal (screen, size, scrollback) and a chat (turns and the open card). */
 const SESSION_READ = ['id', 'kind', 'alive', 'cols', 'rows', 'screen', 'scrollback', 'screenWrapped', 'scrollbackWrapped', 'turns', 'pending'] as const
-/** W9-H: a send into a console the owner holds is queued in the Host and answered `queued`, `reason`, `target`. */
+/** A send into a console the owner holds is queued in the Host and answered `queued`, `reason`, `target`. */
 const SESSION_SEND = ['id', 'sent', 'enter', 'turn', 'queued', 'reason', 'target'] as const
 /** `tasks dispatch`: the worker the Host's loop started for the Task. The spec file's path stays on the Host. */
 const TASK_DISPATCH = ['taskId', 'runId', 'dispatchId', 'sessionId', 'cwd'] as const
@@ -62,9 +62,9 @@ const SHAPE: Record<string, readonly string[]> = {
   'jobs-list': JOB,
   'jobs-get': JOB,
   'jobs-create': JOB,
-  // Plugin Phase 4 J21: the Job made from a source's item
+  // The Job made from a source's item
   'jobs-create-from-source': JOB,
-  // W1-C: a renamed, archived or unarchived Job
+  // A renamed, archived or unarchived Job
   'jobs-rename': JOB,
   'jobs-archive': JOB,
   'jobs-unarchive': JOB,
@@ -216,7 +216,7 @@ function shapePayload(type: unknown, payload: unknown): unknown {
   return {}
 }
 
-/** One public event (SDK spec §6): the envelope's fields, and the payload as its type's DTO. */
+/** One public event: the envelope's fields, and the payload as its type's DTO. */
 export function shapeEvent(e: unknown): unknown {
   if (e === null || typeof e !== 'object') return e
   const out = pick(EVENT_FIELDS, e)
@@ -232,8 +232,17 @@ function shapeEventPage(body: unknown): unknown {
   return out
 }
 
-/** What the Host answered, in the public shape. A command not in the table passes through untouched. */
+/** The list a paged read carries (`tasks list --limit`, `questions list --offset`, command.ts listReply). */
+const PAGED: Record<string, string> = { 'tasks-list': 'tasks', 'questions-list': 'questions' }
+
+/** What the Host answered, in the public shape. A command not in the table passes through untouched. A paged list
+ *  read's `{ <list>, total, offset, limit }` has its list shaped row by row and its counts passed as they are. */
 export function publicFor(cmd: string, body: unknown): unknown {
+  // A worker's owner-only command comes back as an approval request (command.ts), not as that command's answer
+  if (body !== null && typeof body === 'object' && (body as Record<string, unknown>).approvalRequested === true) return body
+  const key = Object.hasOwn(PAGED, cmd) ? PAGED[cmd] : undefined
+  if (key !== undefined && body !== null && typeof body === 'object' && Array.isArray((body as Record<string, unknown>)[key]))
+    return { ...body, [key]: publicFor(cmd, (body as Record<string, unknown>)[key]) }
   if (cmd === 'skills-list' || cmd === 'skills-install') return shapeSkills(cmd, body)
   if (cmd === 'runs-checks') return shapeRunChecks(body)
   if (cmd === 'runs-completion') return shapeCompletion(body)

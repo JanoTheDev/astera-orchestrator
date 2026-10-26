@@ -316,6 +316,9 @@ export const core = {
   'shortcut.workspace.project': '프로젝트 작업 공간 {n} 열기',
   'telegram.inbox.replyHint': '세션에 입력을 보내려면 그 세션의 메시지에 답장하세요',
   'telegram.console.cut': "… (텔레그램 글자 수 제한으로 여기서 잘렸습니다)",
+  // Discord session threads and replies
+  'discord.inbox.replyHint': '세션에 입력을 보내려면 그 세션의 스레드에 쓰세요',
+  'discord.console.cut': '… (Discord 글자 수 제한으로 여기서 잘렸습니다)',
   // W9-E start page and New
   'shortcut.new.open': '새로 만들기 열기',
   'plan.doctor.failedGate': '이 Task는 {limit}번 중 {failures}번 실패했고 다시 시도할 코디네이터가 없습니다. 이 Gate를 해결하면 다시 실행합니다.',

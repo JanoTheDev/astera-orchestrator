@@ -14,7 +14,7 @@ import {
   REMOTE_ERROR_CODES,
   bodyCodeOf,
   codeForStatus,
-  exitCodeFor,
+  EXIT_CODES,
   remoteCodeOf,
   type AsteraErrorCode,
   type RemoteErrorCode
@@ -25,7 +25,7 @@ import {
  * contract for the CLI, MCP and @astera-app/client. They keep their CLI names here, so nothing that imports them
  * changes. `astera agent-context` still prints the list as it is (cliAgentContext.ts).
  */
-export { REMOTE_ERROR_CODES, bodyCodeOf, codeForStatus, exitCodeFor, remoteCodeOf, type RemoteErrorCode }
+export { REMOTE_ERROR_CODES, bodyCodeOf, codeForStatus, EXIT_CODES, remoteCodeOf, type RemoteErrorCode }
 /** The CLI's name for the package's code list. */
 export const CLI_ERROR_CODES = ERROR_CODES
 export type CliErrorCode = AsteraErrorCode

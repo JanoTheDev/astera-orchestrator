@@ -9,7 +9,7 @@
 // not watch. Started again, it reads on from there, so a restart of it or of the Astera app loses nothing the Host
 // still holds; what the Host no longer holds is posted as one "events were lost" line.
 //
-// Delivery is at least once. A post that fails is tried again three times; if it still fails, the script stops
+// Delivery is at least once. A post that fails is tried again three times (not when the webhook refuses it with a 4xx other than 429); if it still fails, the script stops
 // without moving its cursor, and its next start posts that event again.
 import { readFile, rename, writeFile } from 'node:fs/promises'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -40,14 +40,22 @@ function textOf(e: AsteraEvent<Watched> | EventGap): string {
   }
 }
 
+/** Slack reads `<...>` as a mention or a link and `&` as the start of an escape, so the text escapes all three (the
+ *  webhook-notifier plugin does the same). */
+const escaped = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
+/** Permanent answers: a retry gets the same one. 429 and the 5xx ones may pass. */
+class Refused extends Error {}
+
 async function post(body: unknown): Promise<void> {
   for (let attempt = 1; ; attempt++) {
     try {
       const res = await fetch(url!, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(10_000) })
       if (res.ok) return
-      throw new Error(`the webhook answered ${res.status}`)
+      const error = new Error(`the webhook answered ${res.status}`)
+      throw res.status >= 400 && res.status < 500 && res.status !== 429 ? new Refused(error.message) : error
     } catch (e) {
-      if (attempt === 4) throw e
+      if (e instanceof Refused || attempt === 4) throw e
       await sleep(500 * attempt)
     }
   }
@@ -110,7 +118,7 @@ try {
     try {
       for await (const e of sub) {
         posting = true
-        await post({ text: textOf(e), event: e })
+        await post({ text: escaped(textOf(e)), event: e })
         if (e.type !== 'gap') await save((wanted = e.id))
         console.log(`posted ${e.type === 'gap' ? 'a gap' : `${e.type} ${e.id}`}`)
         posting = false

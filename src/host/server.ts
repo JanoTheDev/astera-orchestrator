@@ -25,8 +25,9 @@ import type { HostLog } from './log'
 import { AppUnreachable, type OrchCall, type OrchCaller } from '../core/host/orchProtocol'
 import { HOST_UNRESPONSIVE_MS } from '../core/host/unresponsive'
 import { pidLives } from '../core/host/pidFile'
-import { privateDirProblem } from '../core/host/socketDir'
-import { hostProof } from '../core/host/hostKey'
+// The proof a client checks before it hands this Host anything, and the folder check both sides run; the SDK's rules
+// (packages/client/src/hostKey.ts, socketDir.ts) so the Host and every client share one copy
+import { privateDirProblem, hostProof } from '../core/publicContract'
 import { mcpClientOf, mcpRemoteOf, type McpClient } from '../core/continuity/actor'
 
 /** Thrown by `startHostServer` when another Host already answers at this address. The entry point
@@ -117,7 +118,7 @@ export interface HostServerDeps {
    *  and a gap measured on it held a push for as long as the step. Injectable so a test can move time
    *  and fire the trailing push itself instead of waiting out real milliseconds. */
   stateClock?: StateClock
-  /** The profile's Host key (core/host/hostKey.ts), made before this binds. A hello that carries a
+  /** The profile's Host key (packages/client/src/hostKey.ts), made before this binds. A hello that carries a
    *  `nonce` is answered with its proof; without a key (tests that do not ask) no proof is sent. */
   hostKey?: string
   /** The longest line a client may send, in characters; INBOUND_LINE_CAP when left out. A test passes a
@@ -276,7 +277,7 @@ export async function startHostServer(deps: HostServerDeps): Promise<HostServer>
     // EADDRINUSE path below would read as a live Host and step aside for. Design section 5 says
     // access control is the operating system, and that only holds while the directory's own mode says
     // so, so check it rather than assume it.
-    // The same question every client asks before connecting (core/host/socketDir.ts)
+    // The same question every client asks before connecting (packages/client/src/socketDir.ts)
     const st = await fs.lstat(deps.dirToPrepare)
     const problem = privateDirProblem(st, process.getuid?.())
     if (problem !== null) {
@@ -613,7 +614,7 @@ export async function startHostServer(deps: HostServerDeps): Promise<HostServer>
             ],
             // Only while one is attached, so `astera host status` can say so (LEGACY_APP_NOTICE).
             ...(legacyAttached() ? { legacyApp: true as const } : {}),
-            // Protocol 4: the answer that tells this account's Host from a squatter (core/host/hostKey.ts).
+            // Protocol 4: the answer that tells this account's Host from a squatter (packages/client/src/hostKey.ts).
             // A nonce longer than any client sends is not worth hashing.
             ...(deps.hostKey && typeof m.nonce === 'string' && m.nonce.length > 0 && m.nonce.length <= 256
               ? { proof: hostProof(deps.hostKey, m.nonce) }

@@ -1,4 +1,4 @@
-// How a tool outside the app finds this machine's Astera Host (public CLI design §4): the `astera` CLI's rule, and
+// How a tool outside the app finds this machine's Astera Host: the `astera` CLI's rule, and
 // now @astera-app/client's. One profile folder gives both the Host's address and its files.
 //
 // **Pure**: the platform and the environment arrive as arguments. The answer has to be right on three operating
@@ -15,7 +15,7 @@ import { HOST_PROTOCOL } from './protocol.js'
 export const nativePath = (p: string, platform: NodeJS.Platform): string =>
   platform === 'win32' ? p.replace(/\//g, '\\') : p
 
-/** The app's profile folder (Electron's userData): `astera`, or `astera-dev` for a dev build (src/main/index.ts). */
+/** The app's profile folder (Electron's userData): `astera`, or `astera-dev` for a dev build. */
 export function userDataDir(a: {
   platform: NodeJS.Platform
   env: Record<string, string | undefined>

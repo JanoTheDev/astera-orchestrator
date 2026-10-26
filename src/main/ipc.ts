@@ -22,6 +22,8 @@ import { isForwardedChatEvent } from '../core/connections/forwarded'
 import type { ConnectionsOwnership } from './connectionsOwnership'
 import type { SlackConfigStore } from './slackConfigStore'
 import type { TelegramConfigStore } from './telegramConfigStore'
+import { DiscordConfigStore } from './discordConfigStore'
+import type { DiscordConfig } from '../core/discord/config'
 import type { SlackConfig } from '../core/slack/config'
 import type { TelegramConfig } from '../core/telegram/config'
 import { codexRolloutFromNote, type CodexRolloutWatcher } from '../core/sessions/codexRolloutWatcher'
@@ -46,7 +48,7 @@ import { hostRuntimeBase } from '../core/host/runtime'
 import { createRuntimeInstaller, installHostRuntime, spawnableRuntime, spawnWhenInstalled, type InstalledRuntime } from './host/runtimeInstall'
 import { executableProbe, parseExecutablePath, hostKillPlan, killHostCommand } from './host/hostProcess'
 import { hostPidFilePath, parseHostPidFile } from '../core/host/pidFile'
-import { readHostKey } from '../core/host/hostKey'
+import { readHostKey } from '../core/publicContract'
 import { hostAddress, retireOlderHosts } from '../host/address'
 import { createHostPtyFactory } from './host/ptyFactory'
 import { createHostProcFactory } from './host/procFactory'
@@ -1031,7 +1033,13 @@ export function registerIpc(
    *  fills it lives here. Optional so the existing harnesses keep compiling; a missing one is built. */
   agentGuestsIn?: AgentGuestRegistry<WebContents>,
   /** index.ts's share of the Astera Host — see HostWiring. */
-  hostWiring?: HostWiring
+  hostWiring?: HostWiring,
+  /** Discord settings. Left out, the card still saves to <userData>/discord.json; the connection that acts
+   *  on a save passes its own `configChanged` (as Telegram's does). */
+  discord?: {
+    store: DiscordConfigStore
+    configChanged(cfg: DiscordConfig): Promise<void>
+  }
 ): void {
   const agentGuests = agentGuestsIn ?? new AgentGuestRegistry<WebContents>((id) => webContents.fromId(id))
   // 재생 데이터는 렌더러가 귀를 열 때까지 게이트가 붙잡는다. `webContents.send` 는 들을 사람이
@@ -6351,6 +6359,22 @@ export function registerIpc(
     await telegram.configChanged(normalized)
   })
 
+  // discord — same shape as telegram above, except the renderer never receives the bot token: it learns only
+  // whether one is stored, and a save that leaves the token field out keeps it (patch).
+  const discordSettings = discord ?? {
+    store: new DiscordConfigStore(path.join(app.getPath('userData'), 'discord.json')),
+    configChanged: async () => {}
+  }
+  ipcMain.handle('discord.getConfig', async () => {
+    const { botToken, ...rest } = await discordSettings.store.load()
+    return { ...rest, hasToken: botToken !== null }
+  })
+  ipcMain.handle('discord.setConfig', async (_e, patch: Partial<DiscordConfig>) => {
+    // patch() refuses to merge over a file it could not read, so a failed read cannot erase the token.
+    const normalized = await discordSettings.store.patch(patch)
+    await discordSettings.configChanged(normalized)
+  })
+
   // The language setting. getLang returns both halves: `resolved` is what the renderer translates with,
   // `stored` is what the settings dropdown shows — null there means System, and the dropdown has to be
   // able to show System as selected rather than the language it happens to resolve to. One call rather
@@ -6978,7 +7002,7 @@ export function registerIpc(
       address: addr.address,
       appVersion: app.getVersion(),
       log: hostLog,
-      // Protocol 4: the Host's hello must carry the proof of this key (core/host/hostKey.ts)
+      // Protocol 4: the Host's hello must carry the proof of this key (packages/client/src/hostKey.ts)
       hostKey: () => readHostKey(profileDir),
       // Read at every handshake, so the notice belongs to the Host that just answered rather than to
       // whatever the runtime looked like when the app started.

@@ -2,30 +2,11 @@
 // plugin, trusted code; the ticket inside its answer was written by someone else, and a page, a title or a body of any
 // size must not slow the Host or the window it lands in. An answer of the wrong shape is refused with what is wrong;
 // text past a limit is cut, and `cut` says so.
+import type { JobSourceContext, JobSourceItem, JobSourceItemDetail } from '../pluginContract'
 
-/** An item in a source's list. */
-export interface SourceItem {
-  id: string
-  title: string
-  status?: string
-  url?: string
-  summary?: string
-}
-
-/** One item, read whole. */
-export interface SourceDetail extends SourceItem {
-  body?: string
-  fields?: Record<string, string>
-}
-
-/** What a Job made from an item is to do, and where the item is. */
-export interface SourceContext {
-  objective: string
-  sourceLabel: string
-  sourceUrl?: string
-  evidence?: Array<{ label: string; content: string }>
-  metadata?: Record<string, string>
-}
+export type SourceItem = JobSourceItem
+export type SourceDetail = JobSourceItemDetail
+export type SourceContext = JobSourceContext
 
 export type Checked<T> = { ok: true; value: T; cut: boolean } | { ok: false; problem: string }
 

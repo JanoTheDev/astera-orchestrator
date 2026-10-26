@@ -283,6 +283,9 @@ export const core: Partial<Record<keyof typeof ko, string>> = {
   'pluginNotify.accountSwitched': 'Continuando con la cuenta {label}.',
   'telegram.inbox.replyHint': 'Responde a un mensaje de la sesión para enviarle una entrada',
   'telegram.console.cut': "… (cortado aquí: supera el límite de Telegram)",
+  // Discord session threads and replies
+  'discord.inbox.replyHint': 'Escribe en el hilo de una sesión para enviarle una entrada',
+  'discord.console.cut': '… (cortado aquí: supera el límite de Discord)',
   // W9-E start page and New
   'shortcut.new.open': 'Abrir Nuevo',
   'shortcut.tabs.reopenClosed': 'Reabrir la última pestaña cerrada',

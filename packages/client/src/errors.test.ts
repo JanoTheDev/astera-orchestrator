@@ -1,15 +1,15 @@
 import { describe, it, expect } from 'vitest'
-import { AsteraError, ERROR_CODES, EXIT_CODES, REMOTE_ERROR_CODES, bodyCodeOf, codeForStatus, exitCodeFor, isAsteraError, remoteCodeOf } from './index.js'
+import { AsteraError, ERROR_CODES, EXIT_CODES, REMOTE_ERROR_CODES, bodyCodeOf, codeForStatus, isAsteraError, remoteCodeOf } from './internal.js'
 
 // The codes are the CLI's and MCP's (public CLI design §7-§8, remote runtime design §3.10); the SDK throws the same.
 describe('the error contract', () => {
   it('has one exit code per code, the public CLI table', () => {
     expect(Object.keys(EXIT_CODES).sort()).toEqual([...ERROR_CODES].sort())
-    expect(exitCodeFor('INVALID_ARGUMENTS')).toBe(2)
-    expect(exitCodeFor('HOST_NOT_RUNNING')).toBe(3)
-    expect(exitCodeFor('VERSION_MISMATCH')).toBe(9)
-    expect(exitCodeFor('RUNTIME_OFFLINE')).toBe(3)
-    expect(exitCodeFor('REMOTE_REPLY_TOO_LARGE')).toBe(1)
+    expect(EXIT_CODES['INVALID_ARGUMENTS']).toBe(2)
+    expect(EXIT_CODES['HOST_NOT_RUNNING']).toBe(3)
+    expect(EXIT_CODES['VERSION_MISMATCH']).toBe(9)
+    expect(EXIT_CODES['RUNTIME_OFFLINE']).toBe(3)
+    expect(EXIT_CODES['REMOTE_REPLY_TOO_LARGE']).toBe(1)
   })
 
   it('maps a Host status to a code and guesses nothing else', () => {
@@ -32,7 +32,7 @@ describe('the error contract', () => {
     expect(bodyCodeOf({ error: 'PLUGIN_CAPABILITY_MISSING' })).toBeNull()
     expect(bodyCodeOf(null)).toBeNull()
     // Its refusal is a 409: it exits as CONFLICT does
-    expect(exitCodeFor('PLUGIN_CAPABILITY_MISSING')).toBe(6)
+    expect(EXIT_CODES['PLUGIN_CAPABILITY_MISSING']).toBe(6)
   })
 
   it('AsteraError carries the code and the details', () => {

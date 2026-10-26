@@ -1,6 +1,6 @@
 // The app reads the public contract from the SDK package (packages/client), one copy for the CLI, MCP and the SDK.
 import { describe, it, expect } from 'vitest'
-import * as pkg from '../../packages/client/src/index.js'
+import * as pkg from '../../packages/client/src/internal.js'
 import * as cliOutput from './orchestration/cliOutput'
 
 describe('the app uses the package contract', () => {
@@ -8,8 +8,8 @@ describe('the app uses the package contract', () => {
     expect(cliOutput.CLI_ERROR_CODES).toBe(pkg.ERROR_CODES)
     expect(cliOutput.REMOTE_ERROR_CODES).toBe(pkg.REMOTE_ERROR_CODES)
     expect(cliOutput.codeForStatus).toBe(pkg.codeForStatus)
-    expect(cliOutput.exitCodeFor).toBe(pkg.exitCodeFor)
     expect(cliOutput.remoteCodeOf).toBe(pkg.remoteCodeOf)
+    expect(cliOutput.EXIT_CODES).toBe(pkg.EXIT_CODES)
   })
 })
 
@@ -54,20 +54,14 @@ describe('the app uses the package transport', () => {
   it('framing, the host key, the socket folder check, the address, discovery and the protocol constant', async () => {
     const internal = await import('../../packages/client/src/internal.js')
     const framing = await import('../host/framing')
-    const hostKey = await import('./host/hostKey')
-    const socketDir = await import('./host/socketDir')
+    const door = await import('./publicContract')
     const address = await import('../host/address')
-    const discovery = await import('./orchestration/cliDiscovery')
     const protocol = await import('./host/protocol')
     expect(framing.encodeLine).toBe(internal.encodeLine)
     expect(framing.createLineReader).toBe(internal.createLineReader)
-    for (const k of ['hostKeyPath', 'readHostKey', 'ensureHostKey', 'newHostNonce', 'hostProof', 'proofMatches'] as const)
-      expect(hostKey[k], k).toBe(internal[k])
-    expect(socketDir.unsafeSocketDir).toBe(internal.unsafeSocketDir)
-    expect(socketDir.privateDirProblem).toBe(internal.privateDirProblem)
+    for (const k of ['hostKeyPath', 'readHostKey', 'ensureHostKey', 'newHostNonce', 'hostProof', 'proofMatches', 'unsafeSocketDir', 'privateDirProblem', 'userDataDir', 'nativePath'] as const)
+      expect(door[k], k).toBe(internal[k])
     expect(address.hostAddress).toBe(internal.hostAddress)
-    expect(discovery.userDataDir).toBe(internal.userDataDir)
-    expect(discovery.nativePath).toBe(internal.nativePath)
     expect(protocol.HOST_PROTOCOL).toBe(internal.HOST_PROTOCOL)
     expect(protocol.HOST_FEATURE_REQUESTS).toBe(internal.HOST_FEATURE_REQUESTS)
   })
@@ -75,10 +69,9 @@ describe('the app uses the package transport', () => {
   // SDK 1c: following a Run is the package's rule too
   it('the follow key and window', async () => {
     const internal = await import('../../packages/client/src/internal.js')
-    const cliFollow = await import('./orchestration/cliFollow')
-    const command = await import('./orchestration/command')
-    expect(cliFollow.eventKey).toBe(internal.eventKey)
-    expect(command.FOLLOW_WINDOW_MS).toBe(internal.FOLLOW_WINDOW_MS)
+    const door = await import('./publicContract')
+    expect(door.eventKey).toBe(internal.eventKey)
+    expect(door.FOLLOW_WINDOW_MS).toBe(internal.FOLLOW_WINDOW_MS)
   })
 
   it('the published entry is the error contract (and the client), not the app internals', async () => {

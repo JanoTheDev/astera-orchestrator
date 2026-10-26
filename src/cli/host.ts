@@ -294,7 +294,7 @@ export function cliHostTarget(a: {
 }
 
 /** The answer when something at the address could not prove it is this profile's Host
- *  (core/host/hostKey.ts). PERMISSION_DENIED (5): it is somebody else's, and this CLI will not talk to
+ *  (packages/client/src/hostKey.ts). PERMISSION_DENIED (5): it is somebody else's, and this CLI will not talk to
  *  it. Shared with run.ts's `connectFailureEnd`, which says the same thing for every other command. */
 export function impostorError(address: string, profileDir: string): { code: 'PERMISSION_DENIED'; message: string; details: Record<string, unknown> } {
   return {

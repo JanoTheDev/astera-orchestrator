@@ -1,4 +1,5 @@
-export * from './errors.js'
+export { AsteraError, EXIT_CODES, bodyCodeOf, isAsteraError } from './errors.js'
+export type { AsteraErrorCode } from './errors.js'
 export { CLIENT_VERSION, DEFAULT_CALL_TIMEOUT_MS, DEFAULT_CONNECT_TIMEOUT_MS, createAsteraClient } from './client.js'
 export type { AsteraClient, AsteraClientOptions, CallOptions, CallResult, HostInfo } from './client.js'
 export type * from './types.js'
