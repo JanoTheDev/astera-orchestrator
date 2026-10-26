@@ -29,7 +29,7 @@ import {
 } from '../core/orchestration/state'
 import { outcomeOf } from '../core/orchestration/view'
 import type { HostChecks } from './checks'
-import { codeForStatus, exitCodeFor } from '../core/orchestration/cliOutput'
+import { codeForStatus, EXIT_CODES } from '../core/orchestration/cliOutput'
 import type { OrchCaller } from '../core/host/orchProtocol'
 import { createHostSpawner, type HostLocal, type HostSpawner, type HostSpawnerDeps } from './spawner'
 import type { HostMessage } from '../core/host/protocol'
@@ -2713,7 +2713,7 @@ describe('Host-local spawn (S2)', () => {
     expect(pending.sessionId.startsWith('pending:')).toBe(true)
     const r = await orch.call({ cmd: 'worker-stop', args: { dispatch: pending.id }, sessionId: '' })
     expect(r.status).toBe(409)
-    expect(exitCodeFor(codeForStatus(r.status))).toBe(6)
+    expect(EXIT_CODES[codeForStatus(r.status)]).toBe(6)
     expect((r.body as { error: string }).error).toContain('the worker is still starting; try again in a moment')
     expect(l.releaseWorker).not.toHaveBeenCalled()
     finish()
@@ -3472,7 +3472,7 @@ describe('repair refusals (S2)', () => {
   const worker = (taskId: string) => ({ task: taskId, agent: 'claude', account: 'acc1', worktree: 'current' })
   const refusedForRepair = (r: { status: number; body: unknown }, file: string) => {
     expect(r.status).toBe(409)
-    expect(exitCodeFor(codeForStatus(r.status))).toBe(6)
+    expect(EXIT_CODES[codeForStatus(r.status)]).toBe(6)
     expect(r.body).toMatchObject({ repair: file })
     expect((r.body as { error: string }).error).toMatch(/open Astera to repair it/)
   }
@@ -3559,7 +3559,7 @@ describe('a retiring Host refuses new spawns (S2)', () => {
     await spawner.closeAndSettle(1_000)
     const r = await box.orch.call({ cmd: 'worker-start', args: { task: taskId, agent: 'claude', account: 'acc1', worktree: 'current' }, sessionId: '' })
     expect(r.status).toBe(409)
-    expect(exitCodeFor(codeForStatus(r.status))).toBe(6)
+    expect(EXIT_CODES[codeForStatus(r.status)]).toBe(6)
     expect((r.body as { retry?: string }).retry).toBe('host-retiring')
     expect((r.body as { error: string }).error).toMatch(/the Host is retiring/)
     expect(box.orch.state().dispatches).toEqual([])

@@ -2,6 +2,8 @@
 // door): the public field lists and their shaping, and the Host transport the app, the CLI and the SDK share. Not
 // in the package's exports map, so a consumer of the published package cannot depend on it.
 export * from './index.js'
+export { ERROR_CODES, PLUGIN_ERROR_CODES, REMOTE_ERROR_CODES, codeForStatus, remoteCodeOf } from './errors.js'
+export type { RemoteErrorCode } from './errors.js'
 export * from './fields.js'
 export { publicEvent, publicFor, shapeEvent } from './shape.js'
 export * from './framing.js'

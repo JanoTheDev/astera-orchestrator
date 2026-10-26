@@ -232,8 +232,17 @@ function shapeEventPage(body: unknown): unknown {
   return out
 }
 
-/** What the Host answered, in the public shape. A command not in the table passes through untouched. */
+/** The list a paged read carries (`tasks list --limit`, `questions list --offset`, command.ts listReply). */
+const PAGED: Record<string, string> = { 'tasks-list': 'tasks', 'questions-list': 'questions' }
+
+/** What the Host answered, in the public shape. A command not in the table passes through untouched. A paged list
+ *  read's `{ <list>, total, offset, limit }` has its list shaped row by row and its counts passed as they are. */
 export function publicFor(cmd: string, body: unknown): unknown {
+  // A worker's owner-only command comes back as an approval request (command.ts), not as that command's answer
+  if (body !== null && typeof body === 'object' && (body as Record<string, unknown>).approvalRequested === true) return body
+  const key = Object.hasOwn(PAGED, cmd) ? PAGED[cmd] : undefined
+  if (key !== undefined && body !== null && typeof body === 'object' && Array.isArray((body as Record<string, unknown>)[key]))
+    return { ...body, [key]: publicFor(cmd, (body as Record<string, unknown>)[key]) }
   if (cmd === 'skills-list' || cmd === 'skills-install') return shapeSkills(cmd, body)
   if (cmd === 'runs-checks') return shapeRunChecks(body)
   if (cmd === 'runs-completion') return shapeCompletion(body)

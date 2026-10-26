@@ -76,13 +76,11 @@ export const EXIT_CODES: Readonly<Record<AsteraErrorCode, number>> = Object.free
   PLUGIN_CAPABILITY_MISSING: 6
 })
 
-const REMOTE: ReadonlySet<string> = new Set(REMOTE_ERROR_CODES)
-
 /** The remote code a Runtime's refusal names in its body (`{ code }`), or null. Read from the field, never the
  *  sentence (§3.10). */
 export const remoteCodeOf = (body: unknown): RemoteErrorCode | null => {
-  const code = typeof body === 'object' && body !== null ? (body as { code?: unknown }).code : undefined
-  return typeof code === 'string' && REMOTE.has(code) ? (code as RemoteErrorCode) : null
+  const code = bodyCodeOf(body)
+  return code !== null && (REMOTE_ERROR_CODES as readonly string[]).includes(code) ? (code as RemoteErrorCode) : null
 }
 
 /** The codes a refusal may name in its body: the remote ones and the plugins' ones. */
@@ -94,8 +92,6 @@ export const bodyCodeOf = (body: unknown): AsteraErrorCode | null => {
   const code = typeof body === 'object' && body !== null ? (body as { code?: unknown }).code : undefined
   return typeof code === 'string' && BODY.has(code) ? (code as AsteraErrorCode) : null
 }
-
-export const exitCodeFor = (code: AsteraErrorCode): number => EXIT_CODES[code]
 
 /**
  * The Host's HTTP-like status as a code.

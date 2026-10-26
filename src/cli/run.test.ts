@@ -3,7 +3,7 @@ import { GIT_WRITE_TIMEOUT_MS } from '../core/worktrees/git'
 import { MERGE_CLIENT_TIMEOUT_MS } from '../core/orchestration/cliKeepalive'
 import { SCRIPT_TIMEOUT_MS } from '../core/agentBrowser/script'
 import { LAUNCH_WAIT_MAX_MS } from '../core/workspace/script'
-import { exitCodeFor, refusalDetailsOf } from '../core/orchestration/cliOutput'
+import { EXIT_CODES, refusalDetailsOf } from '../core/orchestration/cliOutput'
 import { promises as fs, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import os from 'node:os'
@@ -488,7 +488,7 @@ describe('requestForHost — 실은 id 와 새긴 id 는 옛 Host 앞에서 갈�
   it('실은 id 는 조용히 버려지지 않고 9 로 끝난다', () => {
     const r = against(['orch'], true)
     expect(r).toEqual({ error: { code: 'VERSION_MISMATCH', message: expect.stringContaining('older build') } })
-    expect(exitCodeFor((r as { error: { code: 'VERSION_MISMATCH' } }).error.code)).toBe(9)
+    expect(EXIT_CODES[(r as { error: { code: 'VERSION_MISMATCH' } }).error.code]).toBe(9)
     // 주소를 댄다 — 어느 Host 가 옛것인지 말하지 않으면 사람이 할 수 있는 일이 없다.
     expect((r as { error: { message: string } }).error.message).toContain('\\\\.\\pipe\\astera')
   })
@@ -720,7 +720,7 @@ describe('닿지 못했을 때의 코드', () => {
   it('앱을 찾지 못한 것은 HOST_NOT_RUNNING 이고 종료 코드 3 이다', () => {
     const e = JSON.parse(errorOutput('cannot read …', 'HOST_NOT_RUNNING'))
     expect(e.error.code).toBe('HOST_NOT_RUNNING')
-    expect(exitCodeFor('HOST_NOT_RUNNING')).toBe(3)
+    expect(EXIT_CODES['HOST_NOT_RUNNING']).toBe(3)
   })
 })
 
@@ -738,7 +738,7 @@ describe('connectFailureEnd — 접속 실패 셋을 가른다', () => {
     const end = connectFailureEnd({ error: 'protocol', address: addr, profileDir: 'P' })
     expect(end.fallback).toBe(false)
     expect((end as { code: string }).code).toBe('VERSION_MISMATCH')
-    expect(exitCodeFor('VERSION_MISMATCH')).toBe(9)
+    expect(EXIT_CODES['VERSION_MISMATCH']).toBe(9)
     expect((end as { message: string }).message).toContain(addr)
   })
 
@@ -748,7 +748,7 @@ describe('connectFailureEnd — 접속 실패 셋을 가른다', () => {
     const end = connectFailureEnd({ error: 'timeout', address: addr, profileDir: 'P' })
     expect(end.fallback).toBe(false)
     expect((end as { code: string }).code).toBe('TIMEOUT')
-    expect(exitCodeFor('TIMEOUT')).toBe(7)
+    expect(EXIT_CODES['TIMEOUT']).toBe(7)
   })
 
   // 프로토콜 4 (core/host/hostKey.ts): 주소에 있는 것이 이 프로필의 Host 라고 증명하지 못했다. 다른 계정이
@@ -757,7 +757,7 @@ describe('connectFailureEnd — 접속 실패 셋을 가른다', () => {
     const end = connectFailureEnd({ error: 'impostor', address: addr, profileDir: 'P' })
     expect(end.fallback).toBe(false)
     expect((end as { code: string }).code).toBe('PERMISSION_DENIED')
-    expect(exitCodeFor('PERMISSION_DENIED')).toBe(5)
+    expect(EXIT_CODES['PERMISSION_DENIED']).toBe(5)
     expect((end as { message: string }).message).toContain('could not prove')
   })
 
@@ -767,7 +767,7 @@ describe('connectFailureEnd — 접속 실패 셋을 가른다', () => {
     expect((connectFailureEnd({ error: 'timeout', address: addr, profileDir: 'P' }) as { code: string }).code).toBe(
       SILENT_HOST_CODE
     )
-    expect(exitCodeFor(SILENT_HOST_CODE)).toBe(7)
+    expect(EXIT_CODES[SILENT_HOST_CODE]).toBe(7)
   })
 })
 
@@ -779,7 +779,7 @@ describe('siblingHostError — 다른 판의 Host 가 이 프로필을 쥐고 �
   it('VERSION_MISMATCH 이고, 두 판과 주소를 말하며, 파일을 읽지 않았다고 한다', () => {
     const e = siblingHostError({ found, cliProtocol: 3 })
     expect(e.code).toBe('VERSION_MISMATCH')
-    expect(exitCodeFor(e.code)).toBe(9)
+    expect(EXIT_CODES[e.code]).toBe(9)
     expect(e.message).toContain('protocol 4')
     expect(e.message).toContain('protocol 3')
     expect(e.message).toContain(found.address)
@@ -929,7 +929,7 @@ describe('renderOk / renderErr', () => {
     )
     expect(json.replayed).toBe(true)
     expect(json.error.code).toBe('NOT_FOUND')
-    expect(exitCodeFor('NOT_FOUND')).toBe(4)
+    expect(EXIT_CODES['NOT_FOUND']).toBe(4)
   })
 
   // 사람용 두 모드는 표시를 싣지 않는다 — 봉투를 읽는 것은 스크립트이고, `--quiet` 는 id 목록이라

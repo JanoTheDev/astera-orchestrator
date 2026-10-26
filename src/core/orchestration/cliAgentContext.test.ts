@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
-import { CLI_ERROR_CODES, exitCodeFor, nextStepsFor } from './cliOutput'
+import { CLI_ERROR_CODES, EXIT_CODES, nextStepsFor } from './cliOutput'
 import { USAGE } from './cliUsage'
 import { agentContext } from './cliAgentContext'
 
@@ -52,7 +52,7 @@ describe('agent-context — 무엇이 실리는가', () => {
   it('종료 코드 표가 통째로 실리고, 숫자는 한 표에서 온다', () => {
     expect(ctx.exitCodes.map((e) => e.code)).toEqual([...CLI_ERROR_CODES])
     for (const e of ctx.exitCodes) {
-      expect(e.exit, e.code).toBe(exitCodeFor(e.code))
+      expect(e.exit, e.code).toBe(EXIT_CODES[e.code])
       expect(e.meaning, e.code).not.toBe('')
     }
   })

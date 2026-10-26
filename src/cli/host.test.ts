@@ -21,7 +21,7 @@ import { HOST_PROTOCOL } from '../core/host/protocol'
 import { ensureHostKey, hostProof } from '../core/host/hostKey'
 import { HOST_STOP_WAIT_MS, HOST_UNRESPONSIVE_MS, SPAWN_DEADLINE_MS } from '../core/host/unresponsive'
 import { encodeLine } from '../host/framing'
-import { exitCodeFor } from '../core/orchestration/cliOutput'
+import { EXIT_CODES } from '../core/orchestration/cliOutput'
 import { hostRuntimePaths } from '../core/host/runtime'
 import { errEnvelope, type CliError } from '../core/orchestration/cliOutput'
 
@@ -34,7 +34,7 @@ const failed = (r: Awaited<ReturnType<typeof runHostCommand>>, cmd: string): Cli
   if (r.ok) throw new Error(`${cmd} succeeded: ${JSON.stringify(r.body)}`)
   const env = JSON.parse(errEnvelope(r.error, cmd)) as { ok: boolean }
   expect(env.ok, `${cmd} printed ok: true on a failure`).toBe(false)
-  expect(exitCodeFor(r.error.code)).toBeGreaterThan(0)
+  expect(EXIT_CODES[r.error.code]).toBeGreaterThan(0)
   return r.error
 }
 const envelopeOf = (
@@ -281,7 +281,7 @@ describe('runHostCommand — host stop against a real Host', () => {
       try {
         const refused = await runHostCommand({ cmd: 'host-stop', env, platform: process.platform, home })
         expect(failed(refused, 'host-stop')).toMatchObject({ code: 'CONFLICT', details: { sessions: 2, runs: 0 } })
-        expect(exitCodeFor('CONFLICT')).toBe(6)
+        expect(EXIT_CODES['CONFLICT']).toBe(6)
 
         sessions = 0
         const stopped = await runHostCommand({ cmd: 'host-stop', env, platform: process.platform, home })
