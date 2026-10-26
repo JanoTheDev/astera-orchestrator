@@ -132,6 +132,8 @@ export const NOUNS = {
     'feedback', 'reject',
     // T2 planner chat on a finished plan (exec/plannerFeedback.ts)
     'chat',
+    // T2 a plan's own chat (console/console.ts ensureChat)
+    'chat-ensure',
     // W8-D several plans in one repo (overlap.ts)
     'overlaps'],
   runs: ['list', 'get', 'wait', 'follow', 'stop', 'resume', 'checks', /* T8 */ 'doctor'],

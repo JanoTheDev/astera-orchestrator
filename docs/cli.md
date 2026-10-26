@@ -726,6 +726,7 @@ astera jobs    unarchive --id <jobId>
 astera jobs    plan --id <jobId> [--account <id>] [--replan <waves|off>] [--concurrency <n>] [--delivery <pr|push|manual>] [--no-review] [--auto-approve <on|off>] [--hands-off <on|off>] [--planning <chat|auto>]
 astera jobs    feedback --job <jobId> --text <text|->
 astera jobs    chat --id <jobId>
+astera jobs    chat-ensure --id <jobId>
 astera jobs    reject --job <jobId> [--reason <text>]
 astera jobs    create --objective <text> [--cwd <path>] [--concurrency <n>] [--priority <n>] [--replan <waves|off>] [--coordinator-account <accountId>] [--coordinator-provider <claude|codex>] [--convergence [--max-fix-attempts <n>] [--max-review-rounds <n>] [--blocking-severity <high|medium>] [--max-total-minutes <n>]] [--mode <plan|audit|fixlist|prompts>] [--scope <path[,path…]|all>] [--focus <list>] [--instructions <text>] [--attach <path>] [--approve <auto|ask>] [--delivery <pr|push|manual>] [--no-review] [--after <jobId>] [--hands-off] [--planning <chat|auto>] [--effort <low|medium|high|xhigh|max>]
 astera jobs    create-from-source --source <sourceId> --item <itemId> --project <projectId> [--concurrency <n>] [--priority <n>] [--replan <waves|off>] [--coordinator-account <accountId>] [--coordinator-provider <claude|codex>] [--convergence [--max-fix-attempts <n>] [--max-review-rounds <n>] [--blocking-severity <high|medium>] [--max-total-minutes <n>]] [--delivery <pr|push|manual>] [--planning <chat|auto>]
@@ -1476,6 +1477,13 @@ folder, with a first prompt that teaches it `main-plan`, `jobs list`, `jobs crea
 a Host restart answers the same session. A console that ended is started again; one that moved to
 another account at a usage limit is followed to its new session. It answers the session as
 `sessions list` shows it. A worker session is refused with 5, and a caller that is not the Host 6.
+
+**`jobs chat-ensure --id <jobId>` answers a plan's own chat** the same way: one chat session per plan,
+started in the plan's folder titled "Plan chat: <plan>", that answers progress from the CLI and passes
+changes to the plan's planner with `jobs feedback`. It changes no files and starts nothing. Its id is
+kept on the Job, so it stays the same chat while the plan is planned, runs and after it finishes. An
+unknown Job is 4, an archived one 6. `jobs feedback` is refused from an agent session except from the
+Astera console and from the plan's own chat, which send it for the owner.
 
 **`runs stop` is reversible, which is why it is not called cancel.** It closes the run's open worker
 dispatches, stops the run's coordinator session when it has one, and pauses the run. A run that has

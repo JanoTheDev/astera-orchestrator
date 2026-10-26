@@ -330,6 +330,9 @@ export interface Job {
   /** Every planner session `jobs plan` started for this Job, oldest first. **Never emptied**: a session
    *  named here may only plan (plannerRefusal), for as long as it lives, also after the plan is approved. */
   plannerSessionIds?: string[]
+  /** The plan's own chat (`jobs-chat-ensure`, console.ts ensureChat): a plain chat session the owner keeps open at any
+   *  phase. The latest live id, followed across account rolls; archiving the Job leaves it alone. */
+  chatSessionId?: string
   // W5-C holds (schedule.ts appDriven, command.ts jobs-hold)
   /** A person said "stop launching new tasks for this plan" (`jobs-hold`). **Present: no new worker is placed** (no
    *  slot from `slotsToFill`, `worker-start` and `tasks dispatch` refuse), and nothing is closed: running workers
