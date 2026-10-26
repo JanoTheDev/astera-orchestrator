@@ -5,7 +5,7 @@ import path from 'node:path'
 import { BROWSER_VERBS, NOUNS, camel, parseArgs, verbsOf } from './cliArgs'
 import { GLOBAL_FLAGS, USAGE, spelledCommand, unknownFlagError, usageFor, type PublicCommand } from './cliUsage'
 import { agentContext, sessionUsage } from './cliAgentContext'
-import { exitCodeFor } from './cliOutput'
+import { EXIT_CODES } from './cliOutput'
 
 /** 사람이 치는 모양(`jobs wait`)이 아니라 표의 키(`jobs-wait`). */
 const commandsFromNouns = (): string[] =>
@@ -627,7 +627,7 @@ describe('docs/cli.md — Job sources', () => {
     expect(at).toBeGreaterThan(0)
     expect(sec).not.toMatch(/\b(400|403|404|409|502|503|504)\b/)
     for (const code of ['INVALID_ARGUMENTS', 'PERMISSION_DENIED', 'NOT_FOUND', 'CONFLICT', 'FAILED'] as const)
-      expect(sec, code).toContain(`\`${code}\` (exit ${exitCodeFor(code)})`)
+      expect(sec, code).toContain(`\`${code}\` (exit ${EXIT_CODES[code]})`)
     for (const cmd of ['sources-items', 'sources-show', 'jobs-create-from-source'] as const)
       expect(USAGE[cmd].detail ?? '', cmd).not.toMatch(/\b(400|403|404|409|502|503|504)\b/)
   })

@@ -1,6 +1,6 @@
 // The app reads the public contract from the SDK package (packages/client), one copy for the CLI, MCP and the SDK.
 import { describe, it, expect } from 'vitest'
-import * as pkg from '../../packages/client/src/index.js'
+import * as pkg from '../../packages/client/src/internal.js'
 import * as cliOutput from './orchestration/cliOutput'
 
 describe('the app uses the package contract', () => {
@@ -8,8 +8,8 @@ describe('the app uses the package contract', () => {
     expect(cliOutput.CLI_ERROR_CODES).toBe(pkg.ERROR_CODES)
     expect(cliOutput.REMOTE_ERROR_CODES).toBe(pkg.REMOTE_ERROR_CODES)
     expect(cliOutput.codeForStatus).toBe(pkg.codeForStatus)
-    expect(cliOutput.exitCodeFor).toBe(pkg.exitCodeFor)
     expect(cliOutput.remoteCodeOf).toBe(pkg.remoteCodeOf)
+    expect(cliOutput.EXIT_CODES).toBe(pkg.EXIT_CODES)
   })
 })
 

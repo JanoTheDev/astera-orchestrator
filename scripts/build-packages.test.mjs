@@ -54,7 +54,8 @@ describe('build-packages', () => {
       const esm = await import(pathToFileURL(path.join(dist, 'esm', 'index.js')).href)
       const cjs = createRequire(import.meta.url)(path.join(dist, 'cjs', 'index.js'))
       expect(Object.keys(esm).sort()).toEqual(Object.keys(cjs).filter((k) => k !== '__esModule').sort())
-      expect(esm.ERROR_CODES).toContain('NOT_FOUND')
+      expect(esm.EXIT_CODES.NOT_FOUND).toBe(4)
+      expect(esm).not.toHaveProperty('ERROR_CODES')
       expect(new cjs.AsteraError('NOT_FOUND', 'x')).toBeInstanceOf(Error)
       // Final review of SDK 1b, Important 4: two copies of the package, one AsteraError
       expect(new cjs.AsteraError('NOT_FOUND', 'x') instanceof esm.AsteraError).toBe(true)
@@ -76,8 +77,8 @@ describe('build-packages', () => {
       cpSync(path.join(root, 'packages', 'client', 'package.json'), path.join(installed, 'package.json'))
       cpSync(dist, path.join(installed, 'dist'), { recursive: true })
       const run = (args) => execFileSync(process.execPath, args, { cwd: consumer, encoding: 'utf8' }).trim()
-      expect(run(['--input-type=module', '-e', "import('@astera-app/client').then((m) => console.log(m.ERROR_CODES.length, typeof m.AsteraError, typeof m.createAsteraClient))"])).toBe(`${esm.ERROR_CODES.length} function function`)
-      expect(run(['-e', "const m = require('@astera-app/client'); console.log(m.ERROR_CODES.length, typeof m.AsteraError, typeof m.createAsteraClient)"])).toBe(`${esm.ERROR_CODES.length} function function`)
+      expect(run(['--input-type=module', '-e', "import('@astera-app/client').then((m) => console.log(Object.keys(m.EXIT_CODES).length, typeof m.AsteraError, typeof m.createAsteraClient))"])).toBe(`${Object.keys(esm.EXIT_CODES).length} function function`)
+      expect(run(['-e', "const m = require('@astera-app/client'); console.log(Object.keys(m.EXIT_CODES).length, typeof m.AsteraError, typeof m.createAsteraClient)"])).toBe(`${Object.keys(esm.EXIT_CODES).length} function function`)
       expect(run(['-e', "console.log(require('@astera-app/client/package.json').name)"])).toBe('@astera-app/client')
     } finally {
       rmSync(out, { recursive: true, force: true })

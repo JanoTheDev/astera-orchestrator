@@ -32,7 +32,7 @@
 //
 // **A local read.** No Host, no state file, exit 0 — the same footing as `--help`. A caller asking
 // what the commands are must get an answer with nothing running.
-import { CLI_ERROR_CODES, CLI_PROTOCOL, exitCodeFor, type CliErrorCode } from './cliOutput'
+import { CLI_ERROR_CODES, CLI_PROTOCOL, EXIT_CODES, type CliErrorCode } from './cliOutput'
 import { USAGE, invocationLine, type CommandUsage, type PublicCommand, type UsageFlag } from './cliUsage'
 
 /** `--id <jobId>` where the placeholder names a Task. Repeated often enough to be worth a name. */
@@ -871,7 +871,7 @@ export interface AgentContext {
 }
 
 /** What `error.code` means, one line each. The numbers are not written here — they come from
- *  `exitCodeFor`, which is the one table (packages/client/src/errors.ts, through cliOutput.ts). */
+ *  `EXIT_CODES`, which is the one table (packages/client/src/errors.ts, through cliOutput.ts). */
 const MEANING: Record<CliErrorCode, string> = {
   FAILED: 'a failure none of the other codes describes',
   INVALID_ARGUMENTS: 'the parser refused, or the command rejected the arguments',
@@ -1004,7 +1004,7 @@ export function agentContext(): AgentContext {
     commands,
     exitCodes: CLI_ERROR_CODES.map((code) => ({
       code,
-      exit: exitCodeFor(code),
+      exit: EXIT_CODES[code],
       meaning: MEANING[code]
     }))
   }

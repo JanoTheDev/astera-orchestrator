@@ -3,6 +3,30 @@
 `@astera-app/client` is versioned apart from the Astera app. [docs/sdk.md](https://github.com/parsingk/Astera/blob/main/docs/sdk.md)
 is the guide.
 
+## Unreleased
+
+The next release must be 0.5.0 or later: a `client-v0.4.0` tag already exists.
+
+### Breaking
+
+- The package's exports are now named, and the error internals are no longer exported: `codeForStatus`, `remoteCodeOf`,
+  `exitCodeFor`, `ERROR_CODES`, `REMOTE_ERROR_CODES`, `PLUGIN_ERROR_CODES` and the `RemoteErrorCode` type. None was
+  documented. What stays is `AsteraError`, `isAsteraError`, `EXIT_CODES`, `bodyCodeOf` and the `AsteraErrorCode` type;
+  `EXIT_CODES[code]` replaces `exitCodeFor(code)`.
+- New members of closed unions break an exhaustive `switch`: `TaskStatus` `'merging'`, `JobOutcome` and `RunOutcome`
+  `'checking'` and `'blocked'`, `GateKind` `'review-needs-decision'`. A `waits` result can now end in state `'blocked'`.
+
+### Fixed
+
+- `call('tasks-list', ...)` and `call('questions-list', ...)` with `limit` or `offset` answered `{}`; they now keep the
+  shaped rows and the `total`, `offset` and `limit` counts. A worker's approval request now passes whole too.
+
+### Added
+
+- `Project.parentId`, `Job.priority`, `Job.title`, `Job.archivedAt`, `Question.source` (`'ask' | 'escalation'`) and
+  `ReviewIssue.needs` (the `ReviewNeeds` type).
+- `jobs.list({ archived: true })` also lists archived Jobs; `jobs.create` takes a `priority`.
+
 ## 0.3.0
 
 - A Job's `source`: the job source and the item it was made from (`{ id, itemId, label, title?, url? }`, `title` the item's own, at most 300 characters), when Astera made it
