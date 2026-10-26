@@ -133,4 +133,7 @@ export const files = {
   'media.action.copyPath': '경로 복사',
   'changedFile.menu.open': '파일 열기',
   'changedFile.menu.diff': '변경 내용 보기',
+  'files.menu.open': '열기',
+  'files.menu.openDiff': '변경 내용 보기',
+  'files.menu.openTerminal': '터미널에서 열기',
 } as const
