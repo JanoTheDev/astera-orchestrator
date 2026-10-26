@@ -116,7 +116,7 @@ import { mainPlanOf } from './mainPlan'
 import { isPathWithin } from '../files/tree'
 import { buildHandoverPrompt, buildPlannerBrief } from './handover'
 import { read as readOwner } from '../prompts/ownerInstructions'
-import { consoleIdStore, ensureConsole } from '../console/console'
+import { consoleIdStore, ensureChat, ensureConsole } from '../console/console'
 import { noRemoteNote, unmergedPlanBranches } from './unmergedBranches' // W8-G (#101)
 // W2-A planner stage
 import { editPlanTask, kindOf, leftOutArg, orchestrationRoleOf, planFieldsFromArgs, plannerJobOf, plannerRefusal, taskProblems, validatePlan, withPreviousAttempt, workerSpecOf, worktreeRefusal } from './planner'
@@ -165,7 +165,8 @@ import {
   prNumberOf,
   rangeCommits
 } from '../github/taskLinks'
-import { jobNameOf } from './jobName'
+import { jobDisplayName, jobNameOf } from './jobName'
+import { planChatBrief } from './planChatBrief'
 import { deliveryWaitStep } from './exec/deliveryWait'
 import type { DeliverySetup } from './deliveryChoices'
 // W8-D several plans in one repo
@@ -6540,6 +6541,42 @@ export async function handleCommand(
         )
       } catch (e) {
         return bad(`could not start the console: ${e instanceof Error ? e.message : String(e)}`)
+      }
+    }
+    /**
+     * T2: a plan's own chat, one plain chat session per Job the owner keeps open at any phase (console.ts ensureChat,
+     * planChatBrief.ts). Its id is the Job's `chatSessionId`; one that ended is started again, a roll is followed.
+     */
+    case 'jobs-chat-ensure': {
+      if (myDispatch !== undefined) return denied("a worker session cannot start a plan's chat; run it from a shell or the app")
+      const id = str(args.id)
+      if (!id) return bad('--id is required: the Job')
+      const job = s.jobs.find((j) => j.id === id)
+      if (!job) return notFound(`unknown job: ${id}`)
+      if (!isJobActive(job)) return conflict(`job ${id} is archived: unarchive it first`)
+      const { createSession, listSessions } = deps
+      if (!createSession || !listSessions)
+        return conflict("a plan's chat is started by the Astera Host, and this caller is not one")
+      try {
+        return okBody(
+          await ensureChat({
+            key: id,
+            cwd: job.cwd,
+            title: `Plan chat: ${jobDisplayName(job)}`,
+            prompt: planChatBrief(job),
+            list: () => listSessions.call(deps),
+            create: (o) => createSession.call(deps, o),
+            store: {
+              read: async () => deps.getState().jobs.find((j) => j.id === id)?.chatSessionId ?? null,
+              write: async (sessionId) => {
+                const cur = deps.getState()
+                await deps.setState({ ...cur, jobs: cur.jobs.map((j) => (j.id === id ? { ...j, chatSessionId: sessionId } : j)) })
+              }
+            }
+          })
+        )
+      } catch (e) {
+        return bad(`could not start the plan's chat: ${e instanceof Error ? e.message : String(e)}`)
       }
     }
     /**

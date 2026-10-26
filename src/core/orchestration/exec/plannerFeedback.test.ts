@@ -1,5 +1,8 @@
 // W7-A talk to the planner through the real command layer: feedback before approval (typed, resumed, fresh), the
 // planner's revision and report, feedback while the plan runs (a W6-D replan at once), rejection, and auto-approve.
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { describe, it, expect } from 'vitest'
 import { handleCommand, type HostSession, type OrchServerDeps } from '../command'
 import { emptyState, type OrchState } from '../state'
@@ -9,7 +12,7 @@ import { snapshotFor } from '../view'
 import { outcomeOf } from '../running'
 import { buildPlannerBrief } from '../handover'
 import type { Job, Project, Task } from '../types'
-import { approvalOf, autoApproveOf, plannerProblemsNotice, feedbackLine, freshFeedbackBrief, handsOffOf, plansMissingReady, resumeBrief } from './plannerFeedback'
+import { approvalOf, autoApproveOf, plannerProblemsNotice, feedbackLine, freshFeedbackBrief, handsOffOf, plansMissingReady, resumeBrief, sendsForOwner } from './plannerFeedback'
 
 const NOW = '2026-10-18T00:00:00.000Z'
 
@@ -161,6 +164,54 @@ describe('feedback before approval', () => {
       expect((await r.as('ses-planner-1')(cmd, { job: jobId, text: 'x' })).status).toBe(403)
     expect((await r.as('ses-other')('jobs-feedback', { job: jobId, text: 'x' })).status).toBe(403)
     expect((await r.as('ses-other')('jobs-feedback-done', { id: jobId, changes: [] })).status).toBe(403)
+  })
+})
+
+describe('T2 the console and a plan\'s own chat send jobs-feedback for the owner', () => {
+  const row = (id: string, rolledFrom?: string): HostSession =>
+    ({ id, kind: 'chat', title: null, accountId: 'acc1', cwd: '/repo', alive: true, state: 'unknown', ...(rolledFrom ? { rolledFrom } : {}) }) as HostSession
+  const sessions = [row('ses-console'), row('ses-console-2', 'ses-console'), row('ses-chat'), row('ses-chat-2', 'ses-chat'), row('ses-other-chat')]
+  const job = { chatSessionId: 'ses-chat' }
+
+  it.each([
+    ['the console', { sessionId: 'ses-console' }, true],
+    ['the console after an account roll', { sessionId: 'ses-console-2' }, true],
+    ["the plan's own chat", { sessionId: 'ses-chat' }, true],
+    ["the plan's own chat after an account roll", { sessionId: 'ses-chat-2' }, true],
+    ["another plan's chat", { sessionId: 'ses-other-chat' }, false],
+    ['a worker', { sessionId: 'ses-worker' }, false],
+    ['a planner', { sessionId: 'ses-planner-1' }, false],
+    ['an MCP client', { sessionId: '', role: 'mcp' as const }, false],
+    ['an MCP client naming the console', { sessionId: 'ses-console', role: 'mcp' as const }, false]
+  ])('%s: %s', (_who, caller, expected) => {
+    expect(sendsForOwner(caller, job, 'ses-console', sessions)).toBe(expected)
+  })
+
+  it('no console and no chat: nobody', () => {
+    expect(sendsForOwner({ sessionId: 'ses-console' }, {}, null, sessions)).toBe(false)
+  })
+
+  it('through the command layer: only jobs-feedback, only for the own plan', async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'owner-proxy-'))
+    try {
+      writeFileSync(path.join(dir, 'console.json'), JSON.stringify({ sessionId: 'ses-console' }))
+      const r = rig()
+      ;(r.deps as { profileDir?: string }).profileDir = dir
+      const { jobId } = await planned(r)
+      const other: Job = { id: 'job_other', objective: 'other', cwd: '/repo', createdAt: NOW, chatSessionId: 'ses-other-chat' }
+      r.set({ ...r.state(), jobs: [...r.state().jobs.map((j) => (j.id === jobId ? { ...j, chatSessionId: 'ses-chat' } : j)), other] })
+      expect((await r.as('ses-console')('jobs-feedback', { job: jobId, text: 'add a README' })).status).toBe(200)
+      expect((await r.as('ses-chat')('jobs-feedback', { job: jobId, text: 'and tests' })).status).toBe(200)
+      expect((await r.as('ses-other-chat')('jobs-feedback', { job: jobId, text: 'x' })).status).toBe(403)
+      for (const who of ['ses-console', 'ses-chat']) {
+        expect((await r.as(who)('jobs-reject', { job: jobId })).status).toBe(403)
+        expect((await r.as(who)('jobs-chat', { id: jobId })).status).toBe(403)
+        expect((await r.as(who)('jobs-auto-start', { id: jobId })).status).toBe(403)
+      }
+      expect(r.state().jobs.find((j) => j.id === jobId)?.feedback?.map((f) => f.text)).toEqual(['add a README', 'and tests'])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })
 

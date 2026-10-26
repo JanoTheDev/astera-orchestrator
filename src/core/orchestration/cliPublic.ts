@@ -167,7 +167,8 @@ const JOB_HIDDEN = [
   /* T20: the owner's words that started a plan from its planner chat, and when its Tasks last lost one; not in the SDK's contract yet */ 'approvedFromChat',
   'planCancelledAt',
   /* The plan's reasoning effort for its Task workers; not in the SDK's contract yet */ 'effort',
-  /* T14: the later plan that delivered this one's branch (deliveredBy.ts), not in the SDK's contract yet */ 'deliveredBy'
+  /* T14: the later plan that delivered this one's branch (deliveredBy.ts), not in the SDK's contract yet */ 'deliveredBy',
+  /* T2: the plan's own chat session (jobs-chat-ensure), not in the SDK's contract yet */ 'chatSessionId'
 ] as const
 
 /** A followed event's message body (pages long) and the app's link from an event to a tab. */

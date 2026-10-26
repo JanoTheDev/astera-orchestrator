@@ -42,6 +42,8 @@ export const HOST_ANSWERED: ReadonlySet<string> = new Set([
   'jobs-feedback',
   // T2: its planner is the Host's too
   'jobs-chat',
+  // T2: a plan's own chat is the Host's chat session, as the console is
+  'jobs-chat-ensure',
   // W9-H: the app tells the Host which console the owner views full size, so agents' sends into it wait (orch.ts)
   'owner-hold',
   // W9-H: the Agents page reads each project's JobRow snapshot; main's copy of the command layer has no such command

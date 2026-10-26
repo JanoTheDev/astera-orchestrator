@@ -11,7 +11,8 @@
 // T2: `jobs-chat` opens a planner on a finished plan with no feedback: it answers the owner's questions and adds
 // follow-up Tasks only when asked.
 import { approvalDefaultOf, approvalFallbackOf, type ApprovalMode } from '../../settings/approvalDefault'
-import type { OrchServerDeps } from '../command'
+import { consoleIdStore, isChatSession } from '../../console/console'
+import type { HostSession, OrchServerDeps } from '../command'
 import { handsOffOf, projectOfJob } from '../delivery'
 import { buildPlannerBrief } from '../handover'
 // W8-D several plans in one repo
@@ -159,6 +160,14 @@ const openRound = (job: Job, phase: PlanFeedback['phase']): number => {
   return -1
 }
 
+/** T2: whether an agent caller sends `jobs-feedback` for the owner: the Astera console for any Job, or the Job's own
+ *  chat (`jobs-chat-ensure`), each also after an account roll replaced it. Another plan's chat, a worker, a planner and an
+ *  MCP client do not. Only `jobs-feedback`: the rest of the owner's commands stay the person's. */
+export function sendsForOwner(caller: Caller, job: Pick<Job, 'chatSessionId'>, consoleId: string | null, sessions: readonly HostSession[]): boolean {
+  if (caller.role === 'mcp' || caller.sessionId === '') return false
+  return [consoleId, job.chatSessionId].some((id) => id != null && isChatSession(sessions, caller.sessionId, id))
+}
+
 /** The feedback commands. `fromAgent`: the caller is an agent session (not the app, the Host, a shell). `handle` is
  *  handleCommand, for the start `jobs-auto-start` makes (`run-start`). */
 export async function feedbackCommand(deps: OrchServerDeps, caller: Caller, cmd: string, args: Record<string, unknown>, fromAgent: boolean, handle: Handle): Promise<Reply> {
@@ -199,7 +208,10 @@ export async function feedbackCommand(deps: OrchServerDeps, caller: Caller, cmd:
   }
 
   // The rest is the owner's: in Astera, the command bar, or their own shell. Never an agent's.
-  if (!byPerson) return denied(`${cmd} is for the person, in Astera or at their own shell`)
+  const forOwner = async (): Promise<boolean> =>
+    cmd === 'jobs-feedback' &&
+    sendsForOwner(caller, job, deps.profileDir ? await consoleIdStore(deps.profileDir).read() : null, (await deps.listSessions?.()) ?? [])
+  if (!byPerson && !(await forOwner())) return denied(`${cmd} is for the person, in Astera or at their own shell`)
 
   // T2: a chat with a planner about a finished plan, a completion replan with no feedback. One at a time: while a replan
   // runs, its planner is the one to talk to
