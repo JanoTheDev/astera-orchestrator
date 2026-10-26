@@ -18,6 +18,8 @@ export interface WorkspaceStore {
   /** The name the bot last gave each of its channels, by channel id: a name the owner changed is renamed back only
    *  when the bot's own name for it changes (the plan was renamed), never on every sync. */
   names: Record<string, string>
+  /** The pinned card message of each plan (jobId → message id), kept beside the layout so one file holds the workspace. */
+  cards: Record<string, string>
 }
 
 /** One place in the layout the bot owns: a fixed category or channel, a project's category or a plan's channel. */
@@ -28,7 +30,8 @@ export const emptyWorkspaceStore = (guildId: string): WorkspaceStore => ({
   guildId,
   categories: { astera: null, archive: null, projects: {} },
   channels: { control: null, sessions: null, plans: {} },
-  names: {}
+  names: {},
+  cards: {}
 })
 
 export function slotId(s: WorkspaceStore, slot: Slot): string | null {
@@ -99,7 +102,8 @@ export async function readWorkspaceStore(file: string, guildId: string): Promise
       sessions: str(raw.channels?.sessions),
       plans: idMap(raw.channels?.plans)
     },
-    names: idMap(raw.names)
+    names: idMap(raw.names),
+    cards: idMap(raw.cards)
   }
 }
 

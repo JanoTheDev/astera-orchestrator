@@ -30,6 +30,10 @@
 // would open a second socket beside it until the hello arrived. So the first activation waits for the first
 // app hello, or for HOST_SLACK_START_GRACE_MS when no app connects (a headless `astera host start`).
 //
+// **Discord's plan workspace** (discordWorkspace.ts) rides the Discord connection: it is applied after the connection
+// and stopped before it, so it runs only while this Host holds the connections, and a reload re-applies it. While it
+// runs, activity notices reach Discord in #astera instead of through its notifier (`postNotice`), once.
+//
 // **Late-bound on purpose**, as rollingWiring.ts is: `server` does not exist when index.ts builds this,
 // so it is a function, read at the call, and nothing is opened until `start()`.
 //
@@ -58,6 +62,8 @@ import { hostInboxRoutes } from './connectionsRoutes'
 import { hostSlackConnection, hostSlackLog } from './slackConnection'
 import { telegramConnection, telegramLog, type ConsoleRoute } from './telegramConnection'
 import { discordConnection, discordLog } from './discordConnection'
+import { createDiscordWorkspace, type DiscordWorkspace, type DiscordWorkspaceDeps } from './discordWorkspace'
+import type { ActivityNotice } from '../core/orchestration/activity'
 import { readFileTail } from '../core/connections/notifier'
 import { extractLastTurnAssistantText } from '../core/connections/transcript'
 import { extractLastAgentMessage } from '../core/connections/codexTranscript'
@@ -71,8 +77,10 @@ export { hostSlackLog }
 export const HOST_SLACK_START_GRACE_MS = 10_000
 
 export interface HostConnectionsWiring {
-  /** Every connection's notifier behind one object: what a session input or an activity notice goes to. */
+  /** Every connection's notifier behind one object: what a session input goes to. */
   fanout: ConnectionFanout
+  /** An activity notice to every connection, Discord's to #astera while its plan workspace runs. Never throws. */
+  postNotice(n: Pick<ActivityNotice, 'title' | 'body'>): void
   /** One connection's own notifier, by name ('slack', 'telegram', 'discord'), or null. */
   notifier(name: string): ConnectionNotifier | null
   /** The SDK is there and no attached app keeps the connections (P4). */
@@ -134,7 +142,14 @@ export function composeHostConnections(a: {
   /** Starts or finds the Astera console (console-ensure); without it Telegram's and Discord's non-reply messages get the reply hint. */
   ensureConsole?(): Promise<{ id: string }>
   telegram?: { log?(m: string): void; readConfig?(): Promise<TelegramConfig>; fetchFn?: typeof fetch }
-  discord?: { log?(m: string): void; readConfig?(): Promise<DiscordConfig>; fetchFn?: typeof fetch; WebSocketCtor?: GatewaySocketCtor }
+  discord?: {
+    log?(m: string): void
+    readConfig?(): Promise<DiscordConfig>
+    fetchFn?: typeof fetch
+    WebSocketCtor?: GatewaySocketCtor
+    /** The plan workspace's activity log and orch; without it Discord has no plan workspace. */
+    workspace?: Pick<DiscordWorkspaceDeps, 'activity' | 'state' | 'handle' | 'debounceMs'>
+  }
   every?(ms: number, fn: () => void): () => void
   /** The start grace's timer (HOST_SLACK_START_GRACE_MS); returns its cancel. */
   after?(ms: number, fn: () => void): () => void
@@ -240,6 +255,27 @@ export function composeHostConnections(a: {
           }
         }
       : undefined
+  const discordLogLine = safeLog(a.discord?.log ?? discordLog(a.profileDir, true))
+  // Late-bound both ways: the workspace posts with the connection's REST, the connection asks it for root channels.
+  let workspace: DiscordWorkspace | null = null
+  const discord = discordConnection({
+    ...shared,
+    ...(consoleRoute ? { console: consoleRoute } : {}),
+    log: discordLogLine,
+    ...(a.discord?.workspace
+      ? {
+          rootChannel: (sid?: string) => workspace?.rootChannel(sid) ?? Promise.resolve(null),
+          onDispatch: (type: string, data: unknown) => workspace?.onDispatch(type, data) ?? false
+        }
+      : {}),
+    ...(a.discord?.readConfig ? { load: a.discord.readConfig } : {}),
+    ...(a.discord?.fetchFn ? { fetchFn: a.discord.fetchFn } : {}),
+    ...(a.discord?.WebSocketCtor ? { WebSocketCtor: a.discord.WebSocketCtor } : {})
+  })
+  workspace = a.discord?.workspace
+    ? createDiscordWorkspace({ ...a.discord.workspace, profileDir: a.profileDir, rest: () => discord.rest(), lang, log: discordLogLine })
+    : null
+  const ws = workspace
   /** The list: one entry per connection (see the header). */
   const connections: Connection[] = [
     hostSlackConnection({ ...shared, log, sdk: a.sdk, ...(a.readConfig ? { load: a.readConfig } : {}) }),
@@ -250,14 +286,19 @@ export function composeHostConnections(a: {
       ...(a.telegram?.readConfig ? { load: a.telegram.readConfig } : {}),
       ...(a.telegram?.fetchFn ? { fetchFn: a.telegram.fetchFn } : {})
     }),
-    discordConnection({
-      ...shared,
-      ...(consoleRoute ? { console: consoleRoute } : {}),
-      log: safeLog(a.discord?.log ?? discordLog(a.profileDir, true)),
-      ...(a.discord?.readConfig ? { load: a.discord.readConfig } : {}),
-      ...(a.discord?.fetchFn ? { fetchFn: a.discord.fetchFn } : {}),
-      ...(a.discord?.WebSocketCtor ? { WebSocketCtor: a.discord.WebSocketCtor } : {})
-    })
+    ws
+      ? {
+          ...discord,
+          apply: async (cfg: DiscordConfig, o?: { transport?: boolean }) => {
+            await discord.apply(cfg, o)
+            await ws.apply(cfg)
+          },
+          stop: async () => {
+            await ws.stop()
+            await discord.stop()
+          }
+        }
+      : discord
   ]
   const fanout = new ConnectionFanout(
     connections.map((c) => c.notifier),
@@ -357,6 +398,11 @@ export function composeHostConnections(a: {
   })
   return {
     fanout,
+    postNotice: (n) => {
+      const text = `*${n.title}*\n${n.body}`
+      if (!ws?.postNotice(n)) return void fanout.postNotice(text)
+      for (const c of connections) if (c.name !== 'discord') void c.notifier.postNotice(text).catch(() => false)
+    },
     notifier: (name) => connections.find((c) => c.name === name)?.notifier ?? null,
     active: () => isActive,
     start: () => {
