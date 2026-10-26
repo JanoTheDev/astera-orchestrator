@@ -13,12 +13,11 @@ import {
   runHostCommand,
   startHostNotice
 } from './host'
-import { userDataDir } from '../core/orchestration/cliDiscovery'
+import { userDataDir, ensureHostKey, hostProof } from '../core/publicContract'
 import { pendingReportsDirIn } from '../core/orchestration/pendingReports'
 import { hostAddress } from '../host/address'
 import { startHostServer, type HostServerDeps } from '../host/server'
 import { HOST_PROTOCOL } from '../core/host/protocol'
-import { ensureHostKey, hostProof } from '../core/host/hostKey'
 import { HOST_STOP_WAIT_MS, HOST_UNRESPONSIVE_MS, SPAWN_DEADLINE_MS } from '../core/host/unresponsive'
 import { encodeLine } from '../host/framing'
 import { exitCodeFor } from '../core/orchestration/cliOutput'

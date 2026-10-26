@@ -12,7 +12,7 @@ import { HOST_PROTOCOL, HOST_YIELD_ORCH_STATE_LATEST, ORCH_STATE_PUSH_MS, type C
 import { emptyState } from '../core/orchestration/state'
 import { versionOnlyOrchCall, AppUnreachable } from '../core/host/orchProtocol'
 import { HOST_UNRESPONSIVE_MS } from '../core/host/unresponsive'
-import { hostProof } from '../core/host/hostKey'
+import { hostProof } from '../core/publicContract'
 
 let dir: string
 let open: HostServer[] = []

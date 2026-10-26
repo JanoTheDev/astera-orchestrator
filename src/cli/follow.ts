@@ -1,12 +1,11 @@
 // The shapes a call takes on its way to a Host or a paired Runtime, shared by run.ts and remote.ts (Phase 4 review M6:
 // remote.ts used to import them from run.ts, which imports remote.ts). Pure but for `followRun`'s calls.
-import { FOLLOW_WINDOW_MS } from '../core/orchestration/command'
-import { eventKey, followLine } from '../core/orchestration/cliFollow'
+import { followLine } from '../core/orchestration/cliFollow'
 import { okEnvelope } from '../core/orchestration/cliOutput'
 import { MERGE_CLIENT_TIMEOUT_MS, mergeCommand } from '../core/orchestration/cliKeepalive'
 import { publicEvent } from '../core/orchestration/cliPublic'
 import { DEFAULT_CHECK_TIMEOUT_MS } from '../core/orchestration/types'
-import { TIMEOUT_HEADROOM_MS, callDeadlineMs } from '../core/publicContract'
+import { TIMEOUT_HEADROOM_MS, callDeadlineMs, FOLLOW_WINDOW_MS, eventKey } from '../core/publicContract'
 import { SCRIPT_TIMEOUT_MS } from '../core/agentBrowser/script'
 import { LAUNCH_WAIT_MAX_MS } from '../core/workspace/script'
 import type { JobEvent } from '../core/types'

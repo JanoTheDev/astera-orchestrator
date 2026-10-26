@@ -25,8 +25,9 @@ import type { HostLog } from './log'
 import { AppUnreachable, type OrchCall, type OrchCaller } from '../core/host/orchProtocol'
 import { HOST_UNRESPONSIVE_MS } from '../core/host/unresponsive'
 import { pidLives } from '../core/host/pidFile'
-import { privateDirProblem } from '../core/host/socketDir'
-import { hostProof } from '../core/host/hostKey'
+// The proof a client checks before it hands this Host anything, and the folder check both sides run; the SDK's rules
+// (packages/client/src/hostKey.ts, socketDir.ts) so the Host and every client share one copy
+import { privateDirProblem, hostProof } from '../core/publicContract'
 import { mcpClientOf, mcpRemoteOf, type McpClient } from '../core/continuity/actor'
 
 /** Thrown by `startHostServer` when another Host already answers at this address. The entry point

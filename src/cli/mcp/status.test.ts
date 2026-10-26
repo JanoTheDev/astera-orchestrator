@@ -7,7 +7,7 @@ import { mcpStatus } from './status'
 import { TOOLS } from './tools'
 import { hostAddress } from '../../host/address'
 import { startHostServer, type HostServer } from '../../host/server'
-import { ensureHostKey } from '../../core/host/hostKey'
+import { ensureHostKey } from '../../core/publicContract'
 import { HOST_PROTOCOL } from '../../core/host/protocol'
 import { errEnvelope, exitCodeFor, type CliError } from '../../core/orchestration/cliOutput'
 
