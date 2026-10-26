@@ -9,8 +9,7 @@ import { encodeLine, createLineReader } from '../../host/framing'
 // HostStatus is declared in core/types.ts, not here, so the renderer can name it without importing
 // from src/main.
 import type { HostStatus } from '../../core/types'
-import { unsafeSocketDir } from '../../core/host/socketDir'
-import { newHostNonce, proofMatches } from '../../core/host/hostKey'
+import { unsafeSocketDir, newHostNonce, proofMatches } from '../../core/publicContract'
 
 /** What `spawnHost` is handed: whether the spawn it is about to make is still wanted. */
 export interface SpawnContext {

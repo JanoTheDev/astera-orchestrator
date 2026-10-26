@@ -1752,7 +1752,6 @@ const POLL_MS = 50
 // FOLLOW_WINDOW_MS (packages/client/src/deadlines.ts), which the CLI and @astera-app/client ask for too. The client asks
 // again at once, so this bounds only how long a poll outlives a client that went away, and how often an idle follow
 // costs a round trip. `FOLLOW_WINDOW_MAX_MS` caps what a caller may ask for.
-export { FOLLOW_WINDOW_MS }
 /** How long `runs resume` waits for the coordinator `runs stop` stopped to be gone: the exit release
  *  waits EXIT_DEFER_MS (3 s) after the process exits, so a stop that landed has emptied the slot well
  *  within this. */

@@ -19,10 +19,6 @@ export function clockOf(at: string): string {
   return `${two(d.getHours())}:${two(d.getMinutes())}:${two(d.getSeconds())}`
 }
 
-/** Which event this is, across polls: the SDK package's rule (packages/client/src/follow.ts), so the CLI, MCP and
- *  @astera-app/client each show an event once by the same key. */
-export { eventKey } from '../publicContract'
-
 /** A summary is often a first line already, but a message subject is whatever its writer sent. */
 const oneLine = (text: string | undefined): string => (text ?? '').replace(/\s*\r?\n\s*/g, ' ').trim()
 

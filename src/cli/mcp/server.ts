@@ -15,7 +15,7 @@ import {
 } from '../../core/orchestration/cliOutput'
 import type { JobEvent } from '../../core/types'
 import type { McpClient } from '../../core/continuity/actor'
-import { eventKey } from '../../core/orchestration/cliFollow'
+import { eventKey } from '../../core/publicContract'
 import { publicEvent, publicFor } from '../../core/orchestration/cliPublic'
 import { sanitize } from '../../core/orchestration/checkpoint'
 import { cliHostTarget, runHostCommand } from '../host'
