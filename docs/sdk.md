@@ -159,6 +159,11 @@ Answers come in the public shapes the CLI prints with `--json`, typed: `Project`
 `RunCompletion`, `AsteraEvent` and the rest are exported from the package. The words are the Host's: a question is
 `open` or `resolved`, and a stop pauses a Run (`runs.resume` takes it back). There is no cancel.
 
+### Projects
+
+`projects.list` and `projects.get` answer `{ id, path, name, addedAt }`. A project inside a workspace also has `parentId`,
+the workspace (the root project) it belongs to; a root has none.
+
 ### Jobs and Runs
 
 `jobs.create` takes an `objective`, and where the work happens: a `projectId` (a project registered in the app) or an
