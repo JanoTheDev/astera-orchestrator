@@ -183,4 +183,10 @@ export const agents: Record<keyof typeof ko, string> = {
   'agents.header.plan': 'Open plan {name}',
   'agents.header.task': 'Show Task {name} in the plan',
   'agents.header.restart': 'Restart',
+  'session.terminal.resume': 'Resume conversation',
+  'session.terminal.fresh': 'Start fresh',
+  'session.terminal.closeTab': 'Close tab',
+  'session.terminal.switchNow': 'Switch account now',
+  'agents.header.folder': 'Folder actions',
+  'agents.header.openFolder': 'Open folder',
 }

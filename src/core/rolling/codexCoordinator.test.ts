@@ -1243,6 +1243,27 @@ describe('CodexRollingCoordinator', () => {
     h.coord.stop()
   })
 
+  // The waiting banner's "Switch account now": a chain waiting out a limit is not busy.
+  it('switchTo switches a chain waiting out a limit and cancels its wait', async () => {
+    const h = harness()
+    const single: SessionInfo = { ...h.info1, rollAccountIds: ['c1'] } // one account: the limit can only wait
+    const resetSec = Math.floor((Date.now() + 300_000) / 1000)
+    const file = await writeRollout({
+      accountId: 'c1', uuid: 'cx-wait-switch', cwd: single.cwd, primary: 99, primaryReset: resetSec
+    })
+    h.coord.register(single)
+    await advance(1_500)
+    await appendLimitError(file)
+    h.coord.handleData({ sessionId: 's1', data: LIMIT_TEXT })
+    await advance(100)
+    expect(h.sent.at(-1)?.payload.state).toBe('waiting')
+    expect(await h.coord.switchTo('s1', 'c2')).toEqual({ outcome: 'switched' })
+    // Past the planned retry: a wait still armed would fire and roll the tab back onto c1.
+    await advance(400_000)
+    expect(h.events.filter((e) => e.startsWith('spawn:'))).toEqual(['spawn:s2:c2'])
+    h.coord.stop()
+  })
+
   // 아래 unregister 테스트의 대조군. 그 테스트와 setup 이 같고 unregister 한 줄만 없다 — 그것이
   // 부정 단언의 근거다(이 테스트가 통과하는 동안에만 아래가 무언가를 증명한다).
   // **하네스마다 테스트를 나눈다**: findRollout 은 파일의 실제 생성 시각을 register 시각(가짜 시계)과
