@@ -780,7 +780,8 @@ export class CodexRollingCoordinator {
 
   /** A person's "Use for this tab" — mirrors switchTo in claudeCoordinator.ts: any registered, logged-in
    *  codex account (appended to the chain when outside it), reached through the same roll() a limit
-   *  takes, and an abort arms no wait. */
+   *  takes, and an abort arms no wait — except from a chain waiting out a limit, whose wait is cancelled
+   *  for the roll and re-armed by its abort. */
   async switchTo(sessionId: string, accountId: string): Promise<RollSwitchResult> {
     const chain = this.chains.get(sessionId)
     if (!chain || chain.disposed) throw new Error('no active codex rolling chain')
@@ -788,7 +789,10 @@ export class CodexRollingCoordinator {
     if (!account) return { outcome: 'refused', reason: 'no such account' }
     if (account.provider !== 'codex') return { outcome: 'refused', reason: 'not a codex account' }
     if (chain.accountIds.indexOf(accountId) === chain.cycle.currentIndex) return { outcome: 'same' }
-    const busy = (): boolean => chain.rolling || chain.waitTimer !== null || chain.heldTimer !== null
+    // As on the claude side: only the wait standing at this click may be cancelled.
+    const waitedOn = chain.waitTimer
+    const busy = (): boolean =>
+      chain.rolling || (chain.waitTimer !== null && chain.waitTimer !== waitedOn) || chain.heldTimer !== null
     if (this.switching.has(chain) || busy()) return { outcome: 'busy' }
     if (!this.acts(chain)) return { outcome: 'refused', reason: 'another app window holds this tab' }
     // Held across the awaits below: a second click there would otherwise pass the checks too.
@@ -819,7 +823,13 @@ export class CodexRollingCoordinator {
       const at = chain.accountIds.indexOf(accountId)
       const toIndex = at >= 0 ? at : this.appendAccount(chain, accountId)
       this.deps.log(`codex switch requested session=${chain.liveId} to=${accountId}`)
-      await this.roll(chain, toIndex, true)
+      const fromWait = chain.waitTimer !== null
+      if (chain.waitTimer) {
+        clearTimeout(chain.waitTimer)
+        chain.waitTimer = null
+        chain.waitPlan = null
+      }
+      await this.roll(chain, toIndex, !fromWait)
       return !chain.disposed && chain.cycle.currentIndex === toIndex
         ? { outcome: 'switched' }
         : { outcome: 'refused', reason: 'roll aborted' }

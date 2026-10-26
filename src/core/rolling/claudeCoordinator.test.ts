@@ -767,6 +767,32 @@ describe('RollingCoordinator switchTo (Use for this tab)', () => {
     expect(h.sent.some((m) => m.payload.state === 'waiting')).toBe(false)
     expect(h.spawned).toHaveLength(0)
   })
+
+  // The waiting banner's "Switch account now": a chain waiting out a limit is not busy.
+  it('switches a chain waiting out a limit and cancels its wait', async () => {
+    const h = harness()
+    h.payloads.set('s1', payload(97, 'claude-sess'))
+    h.payloads.set('s2', payload(10))
+    h.coord.register({ ...h.info1, rollAccountIds: ['a1'] }) // one account: the limit can only wait
+    h.coord.handleData({ sessionId: 's1', data: LIMIT_TEXT })
+    await flush()
+    expect(h.coord.stateOf('s1')).toMatchObject({ state: 'waiting' })
+    expect(await h.coord.switchTo('s1', 'a2')).toEqual({ outcome: 'switched' })
+    // Past the planned retry: a wait still armed would fire and roll the tab back onto a1.
+    await vi.advanceTimersByTimeAsync(60 * 60_000)
+    expect(h.spawned.map((s) => s.accountId)).toEqual(['a2'])
+  })
+
+  it('re-arms the wait when a switch from it aborts, since the session is still blocked', async () => {
+    const h = harness({ prepareSpawn: () => Promise.reject(new Error('no seat')) })
+    h.payloads.set('s1', payload(97, 'claude-sess'))
+    h.coord.register({ ...h.info1, rollAccountIds: ['a1'] })
+    h.coord.handleData({ sessionId: 's1', data: LIMIT_TEXT })
+    await flush()
+    expect(await h.coord.switchTo('s1', 'a2')).toEqual({ outcome: 'refused', reason: 'roll aborted' })
+    expect(h.spawned).toHaveLength(0)
+    expect(h.coord.stateOf('s1')).toMatchObject({ state: 'waiting' })
+  })
 })
 
 describe('롤 직후 리플레이 유예', () => {

@@ -434,7 +434,7 @@ export interface RollStateEvent {
 }
 
 /** What a chosen-account switch (`RollingApi.switchTo`) did. 'same': the tab already runs there. 'busy':
- *  the chain is rolling, waiting or settling after a roll. 'refused': not possible, `reason` says why. */
+ *  the chain is rolling or settling after a roll (a wait is cancelled for the switch). 'refused': not possible, `reason` says why. */
 export interface RollSwitchResult {
   outcome: 'switched' | 'same' | 'busy' | 'refused'
   reason?: string

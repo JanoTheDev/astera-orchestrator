@@ -942,7 +942,9 @@ export class RollingCoordinator {
    *  through the same roll() a limit takes (copy, kill, respawn, re-key, state). Any registered, logged-in
    *  claude account qualifies; one outside the chain is appended to it first, so the cycle then sits on it
    *  and later limits roll on in the chain's order. An abort inside the roll arms no wait: nothing is
-   *  blocked, the session simply stays where it was. */
+   *  blocked, the session simply stays where it was. A chain waiting out a limit (the waiting banner's
+   *  "Switch account now") is not busy: its wait is cancelled and the roll goes ahead, and an abort then
+   *  re-arms a wait, since that session is still blocked. */
   async switchTo(sessionId: string, accountId: string): Promise<RollSwitchResult> {
     const chain = this.chains.get(sessionId)
     if (!chain || chain.disposed) throw new Error('no active rolling chain')
@@ -950,8 +952,14 @@ export class RollingCoordinator {
     if (!account) return { outcome: 'refused', reason: 'no such account' }
     if ((account.provider ?? 'claude') !== 'claude') return { outcome: 'refused', reason: 'not a claude account' }
     if (chain.accountIds.indexOf(accountId) === chain.cycle.currentIndex) return { outcome: 'same' }
+    // Only the wait standing at this click may be cancelled: one armed during the awaits below (a new
+    // timer handle, e.g. a quiet fireWait's re-look) means the chain moved on, and counts as busy.
+    const waitedOn = chain.waitTimer
     const busy = (): boolean =>
-      chain.rolling || chain.waitTimer !== null || chain.heldTimer !== null || chain.awaitingReady
+      chain.rolling ||
+      (chain.waitTimer !== null && chain.waitTimer !== waitedOn) ||
+      chain.heldTimer !== null ||
+      chain.awaitingReady
     if (this.switching.has(chain) || busy()) return { outcome: 'busy' }
     if (!this.acts(chain)) return { outcome: 'refused', reason: 'another app window holds this tab' }
     // Held across the awaits below: a second click there would otherwise pass the checks too.
@@ -977,7 +985,16 @@ export class RollingCoordinator {
       const at = chain.accountIds.indexOf(accountId)
       const toIndex = at >= 0 ? at : this.appendAccount(chain, accountId)
       this.deps.log(`switch requested session=${chain.liveId} to=${accountId}`)
-      await this.roll(chain, toIndex, true)
+      // Ending the wait the way fireWait does, minus its resume: the roll below is the move instead.
+      const fromWait = chain.waitTimer !== null
+      if (chain.waitTimer) {
+        clearTimeout(chain.waitTimer)
+        chain.waitTimer = null
+        chain.waitPlan = null
+      }
+      // Not 'manual' after a wait: a manual abort takes the banner down, but this session is still
+      // blocked, so its abort re-arms a wait like any limit roll's.
+      await this.roll(chain, toIndex, !fromWait)
       return !chain.disposed && chain.cycle.currentIndex === toIndex
         ? { outcome: 'switched' }
         : { outcome: 'refused', reason: 'roll aborted' }
