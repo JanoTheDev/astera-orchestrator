@@ -5,7 +5,7 @@ import type { JobRow } from '../../../../core/types'
 import { approveViewOf } from './planPage'
 import { isFinishedOutcome } from './planSummary'
 import { runningCount } from '../../../../core/orchestration/running'
-import { canAskPlanMore, planTalkView } from './planTalk'
+import { canChat, planTalkView } from './planTalk'
 
 export type HeaderRow = Pick<
   JobRow,
@@ -18,7 +18,7 @@ export interface HeaderActions {
   approve: boolean
   /** Open consoles as a visible button; otherwise it is a ⋯ item. */
   consoles: boolean
-  /** Ask & plan more (`jobs-chat`): a planned, unarchived, finished plan of this computer. The finished state's primary. */
+  /** Chat (`jobs-chat-ensure`): a planned, unarchived plan of this computer, in any phase. The finished state's primary. */
   askMore: boolean
   /** The PR opens in the browser; a branch (a project with no remote) copies its name. */
   openPr?: { kind: 'pr'; url: string } | { kind: 'branch'; branch: string }
@@ -36,7 +36,8 @@ export function headerActionsOf(row: HeaderRow | undefined, local: boolean): Hea
   const approve = approveViewOf(row).show
   // a schedule template never finishes, and a plan not started yet waits, whatever its outcome reads
   const finished = row.schedule === undefined && !row.pendingStart && (row.archivedAt !== undefined || isFinishedOutcome(row.outcome))
-  if (!finished) return { finished: false, approve, consoles: true, askMore: false, copyId: true, primary: approve ? 'approve' : null }
+  const askMore = local && canChat(row)
+  if (!finished) return { finished: false, approve, consoles: true, askMore, copyId: true, primary: approve ? 'approve' : null }
   const pr = row.pr
   const openPr: HeaderActions['openPr'] = pr?.url
     ? { kind: 'pr', url: pr.url }
@@ -44,7 +45,6 @@ export function headerActionsOf(row: HeaderRow | undefined, local: boolean): Hea
       ? { kind: 'branch', branch: pr.branch }
       : undefined
   const archive: HeaderActions['archive'] = !local ? undefined : row.archivedAt !== undefined ? 'unarchive' : 'archive'
-  const askMore = local && canAskPlanMore(row)
   return {
     finished: true,
     approve: false,

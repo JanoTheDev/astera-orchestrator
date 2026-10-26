@@ -328,11 +328,11 @@ const openSessionTab = (sessionId: string): void => {
   setTimeout(() => openConsole(sessionId), 1500)
 }
 
-/** "Ask & plan more" on a finished plan: `jobs-chat` starts (or finds) its planner in chat mode and this opens that
- *  planner's tab. A refusal or a lost answer is a toast. True when a tab was asked for. */
+/** "Chat" on a plan: `jobs-chat-ensure` returns the plan's persistent chat session (started if none is alive) and this
+ *  opens its tab. A refusal or a lost answer is a toast. True when a tab was asked for. */
 export async function openPlanChat(door: OrchDoor, jobId: string, ui: ActionUi, open: (sessionId: string) => void = openSessionTab): Promise<boolean> {
   const fallback = ui.t('plan.chat.failed')
-  const reply = await send(door, 'jobs-chat', { id: jobId }, ui, fallback)
+  const reply = await send(door, 'jobs-chat-ensure', { id: jobId }, ui, fallback)
   if (reply === null) return false
   const sessionId = (reply.body as { sessionId?: unknown } | null)?.sessionId
   if (reply.status >= 400 || typeof sessionId !== 'string') {

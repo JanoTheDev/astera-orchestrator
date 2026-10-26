@@ -129,9 +129,9 @@ export const plans: Partial<Record<keyof typeof ko, string>> = {
   'plan.header.copyId': '計画 ID をコピー',
   'plan.header.idCopied': '計画 ID をコピーしました',
   // T7 Ask & plan more on finished plans
-  'plan.chat.askMore': '質問して計画を追加',
-  'plan.chat.askMoreHint': '終わった計画のプランナーとタブで話します。やったことを聞いたり、追加の Task を足せます',
-  'plan.chat.openTab': 'タブで開く',
+  'plan.chat.label': 'チャット',
+  'plan.chat.hint': '進み具合を聞いたり、この計画に作業を足したりできます',
+  'plan.chat.diff': '入力欄は変更をプランナーに送ります。チャットは質問に答え、変更を伝えることもできます。',
   'plan.chat.failed': 'プランナーのタブを開けませんでした',
   'plan.chat.remote': 'ペアリングした Runtime の計画は、このコンピューターでプランナーのタブを開けません',
   'pages.plans.main.rowMenu': 'プランの操作',

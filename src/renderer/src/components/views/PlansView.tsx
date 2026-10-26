@@ -18,7 +18,7 @@ import { archiveJob, archiveJobs, deleteRun, holdJob, integratePlan, mergePlan, 
 import { openConsole, openPlanConsoles, openView } from '../shell/navigation'
 import { ViewToolbar, type SideBarViewProps } from '../shell/SideBar'
 import { OLD_FINISHED_DAYS, clearableOf, isStalledPlan, isStoppedPlan, planStatusOf, resumeActionOf, splitPlans } from '../plan/planList'
-import { approveSlot, canAskPlanMore } from '../plan/planTalk'
+import { approveSlot, canChat } from '../plan/planTalk'
 import { planActionsOf } from '../plan/planHeaderActions'
 import { findRunFolder } from '../plan/PlanChanges'
 import { useCachedRead } from '../../lib/readCache'
@@ -332,7 +332,7 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
       ...(delivery && deliveryActionsOf({ delivery }).retry && delivery.state !== 'delivering'
         ? [item('deliver', t('plan.delivery.retry'), 'rerun', () => void retryDelivery(row))]
         : []),
-      ...(local && canAskPlanMore(row) ? [item('askMore', t('plan.chat.askMore'), 'sparkles', () => void openPlanChat(local, row.id, actionUi))] : []),
+      ...(local && canChat(row) ? [item('chat', t('plan.chat.label'), 'message', () => void openPlanChat(local, row.id, actionUi))] : []),
       ...(acts.merge && local ? [item('merge', t('jobs.run.merge'), 'merge', () => void mergePlan(local, row, actionUi))] : []),
       ...(acts.mergeAll && local ? [item('mergeAll', t('plan.integrate.menu'), 'merge', () => void integratePlan(local, row, jobName(row), actionUi))] : []),
       ...(acts.openPr
@@ -443,9 +443,9 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
       icon: toned(TONE_ICON[status.tone], status.tone),
       description: pane === 'finished' ? finishedDescription(n.row, nowMs, t) : planDescription(n.row, nowMs, t),
       decoration: { text: t(status.key, status.params), tone: status.tone },
-      // A finished plan is one click from a planner tab to ask what was done and add more (T7)
-      ...(local && pane === 'finished' && canAskPlanMore(n.row)
-        ? { actions: <IconButton size="sm" label={t('plan.chat.askMore')} icon={<Icon name="sparkles" size={14} />} onClick={() => void openPlanChat(local, n.row.id, actionUi)} /> }
+      // Every plan is one click from its chat tab (T3); the row menu carries it, the finished pane's row action too
+      ...(local && pane === 'finished' && canChat(n.row)
+        ? { actions: <IconButton size="sm" label={t('plan.chat.label')} icon={<Icon name="message" size={14} />} onClick={() => void openPlanChat(local, n.row.id, actionUi)} /> }
         : {}),
       // A dead plan is one click from archived, or from running again where something can resume it (resumeActionOf)
       ...(local && (isStalledPlan(n.row) || isStoppedPlan(n.row))
