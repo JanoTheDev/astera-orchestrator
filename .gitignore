@@ -50,6 +50,12 @@ docs/*
 # it describes is picked up in another session and often another worktree, where an ignored file does
 # not exist. It says on its face that nothing in it is decided yet.
 !docs/agent-workspace-isolation.md
+# Published deliberately: the docs hub and the pages it links (getting started, concepts, architecture, troubleshooting).
+!docs/README.md
+!docs/getting-started.md
+!docs/concepts.md
+!docs/architecture.md
+!docs/troubleshooting.md
 # Not a note but an input: scripts/build-release-notes.cjs reads docs/release-notes/<tag>.md out of
 # the checkout the publish job makes at the tag, so a write-up that is not committed does not exist.
 !docs/release-notes/
