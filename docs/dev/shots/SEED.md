@@ -68,8 +68,9 @@ npm run shots -- --port 9351 --out docs/shots/after --sizes 1920x1080,1000x800 -
 ```
 
 Files are `<page>-<WxH>-<theme>.png` (`--themes night,day`, default both). `--pages` takes any of: sessions, plans,
-start, mainplan, history, explorer, scm, run, devices, switcher, accounts, settings (default: all); `--sizes` defaults
-to `1440x900,1024x640`. The Sessions shot shows the empty state: a live agent session needs a signed-in account.
+start, mainplan, history, explorer, scm, run, devices, switcher, accounts, settings, planboard, planstree, needsyou,
+activity, taskdetail, settings-agents, editor (default: all); `--sizes` defaults to `1440x900,1024x640`. The last seven
+are for the showcase seed (below). The Sessions shot shows the empty state: a live agent session needs a signed-in account.
 
 ## Real-scale seed (`--scale`)
 
@@ -79,6 +80,99 @@ above plus `mobile-app`), about 650 Tasks, 940 Dispatches, 3360 messages, 1440 D
 transcripts. A plan is completed (delivered), "running" (paused and held, one Dispatch closed `closedBy: 'pause'`, one open
 "ask me" Gate) or planned (paused and held, every Task pending): the same inert shapes as plans A and B, so the Host still
 does nothing. `windows.json` cannot hold tabs (it stores windows only); `perf-switch.mjs` opens its tabs through the UI.
+
+## Showcase seed (`--showcase`)
+
+`node scripts/shots-seed.mjs --profile "$P-dev" --showcase` adds a busy, made-up product team on top of the small seed,
+for the screenshots in `assets/docs/`. Without `--showcase` nothing changes. It does not combine with `--scale`. A plain
+re-run without the flag removes it again.
+
+What it adds:
+- **Projects.** `storefront`, `payments-api` and `mobile-app`, each a git repo with a few source files under
+  `shots-seed/`. `storefront` also has the worktree `shots-seed/worktrees/checkout-layout` on branch
+  `astera/checkout-layout`: 1 commit ahead and 2 changes not committed. `windows.json` opens `storefront` first.
+- **Seven plans** (`job_5eed…301`–`307`):
+  - "Checkout redesign" (`storefront`), the "running" plan: 3 Steps and 10 Tasks. 4 are done, 1 is in flight, 1 is in
+    review, 1 asks a question (an open Gate) and 3 wait for the others. They use the models haiku, sonnet, opus and
+    gpt-5-codex and the accounts work, personal and team-codex.
+  - "Order history export" (`storefront`): delivered as pull request #412.
+  - "Product search filters" (`storefront`): delivered by a push to `main`.
+  - "Refund webhooks" (`payments-api`): every Task done, but the delivery failed (`main-diverged`).
+  - "Card decline retries" (`payments-api`): paused, with an open Gate.
+  - "Offline cart sync" (`mobile-app`): planned and awaiting approval (5 Tasks, no Run yet).
+  - "Push notification settings" (`mobile-app`): queued after "Offline cart sync".
+- **Task details.** Each Task has an account, a model, an effort, a file list and acceptance criteria. Finished Tasks also
+  have changed files, a result and a commit. "Show delivery estimates under each address" also has a failed first
+  attempt, a reviewer pass and two non-blocking review notes.
+- **Accounts.** `accounts.json` gets `work` and `personal` (claude) and `team-codex` (codex), in place of the
+  `shots-seed` account. Each config folder holds an empty `.credentials.json` or `auth.json` (`{}`), so the login check
+  passes but the usage fetch finds no token and makes no network call.
+  - `account-usage.json` holds a reading per account: work 42% / 67%, personal 12% / 31%, team-codex 58% / 81%
+    (5-hour / weekly). The Accounts panel draws them dimmed as remembered figures. They stay valid for about four days.
+- **Cards and History.**
+  - `summaries.json` gets 17 summary cards, one per finished showcase Task. These are the plan board's one-liners.
+  - `orch/activity.jsonl` gets 21 more feed lines: agents finished and failed, an account switch, answered questions,
+    a pull request, a push, a failed push.
+  - History gets 22 more sessions over the three projects. All 27 transcripts live in the `work` account's folder.
+- **Run configs.** `storefront` gets 4: dev server, unit tests, lint and bash.
+
+The plans stay inert for the same reasons as the small seed (next section):
+- The running and paused plans are paused and held. Their in-flight Dispatch is closed `closedBy: 'pause'`, and their
+  Gates say "ask me".
+- The plan in review is a convergence plan (`Job.convergence`). Its review restarts only on resume: `interruptedResumes`
+  skips a paused Run, and the Host's stalled-check pass skips convergence Runs.
+- The approval plan has `planReadyAt`, `autoApprove: false` and no live planner. The queued plan waits on a plan that
+  is not delivered (`afterStartsDue` is empty).
+- `scripts/shots-seed.test.mjs` ("showcase seed") checks all of this against the core functions.
+
+Limits (what no seed can show without a live agent):
+- **No Task is really working.** "Working" needs an open Dispatch. The Host closes an open Dispatch at load when its
+  session is not alive, and recovery would then start a worker. So the in-flight Task reads "queued" and the plan reads
+  paused. A Task row's live line comes only from a live session.
+- **No permission requests.** A worker's approval request is open only while its Dispatch is. Needs you shows the open
+  Gates and the plan awaiting approval instead.
+- **No Agents view.** Its consoles come from the Host's live session list, and a seeded summary card shows there only
+  beside its live session. `agents.png` is therefore not produced.
+
+### Shooting the documentation screens
+
+Start the app on the seeded profile as under "Command", then:
+
+```bash
+npm run shots -- --port 9351 --out <dir> --sizes 1440x900 --themes night \
+  --pages planboard,planstree,mainplan,start,needsyou,taskdetail,history,scm,editor,run,accounts,settings-agents,switcher
+npm run shots -- --port 9351 --out <dir> --sizes 1440x900 --themes day --pages planboard
+```
+
+The new pages:
+- `planboard` opens `--plan` (default "Checkout redesign") from the Plans side bar.
+- `planstree` does the same, then unfolds that plan's row and its Steps in the tree.
+- `needsyou` and `activity` open that plan, then the bottom panel (Ctrl+J) on its Needs you or Activity tab. `needsyou`
+  also picks "All projects", so the other projects' cards show. The "Handled for you" feed is the Activity tab.
+- `taskdetail` opens the plan and expands `--task` (default "Show delivery estimates under each address").
+- `settings-agents` opens Settings, then Agents, and scrolls to "Orchestration models".
+- `editor` opens Explorer, unfolds the folders of `--file` (default `src/cart/CartSummary.tsx`) and opens that file.
+
+`taskdetail` and `settings-agents` are shot in Advanced mode, which the script turns on through Settings. Every other
+page is shot in the mode the app had, which is restored at the end. Each output is `<page>-1440x900-<theme>.png`:
+
+| shoot.mjs output | assets/docs/ |
+|---|---|
+| `planboard-1440x900-night.png` | `plan-board.png` |
+| `planboard-1440x900-day.png` | `plan-board-day.png` |
+| `planstree-1440x900-night.png` | `plans-tree.png` |
+| `mainplan-1440x900-night.png` | `main-plan.png` |
+| `start-1440x900-night.png` | `start.png` |
+| `needsyou-1440x900-night.png` | `needs-you.png` |
+| `taskdetail-1440x900-night.png` | `task-detail.png` |
+| `history-1440x900-night.png` | `history.png` |
+| `scm-1440x900-night.png` | `source-control.png` |
+| `editor-1440x900-night.png` | `explorer.png` |
+| `run-1440x900-night.png` | `run.png` |
+| `accounts-1440x900-night.png` | `accounts.png` |
+| `settings-agents-1440x900-night.png` | `settings-agents.png` |
+| `switcher-1440x900-night.png` | `project-switcher.png` |
+| `sessions-1440x900-night.png` | `agents.png` (not produced: the Agents view needs live sessions) |
 
 ## How the Host is kept idle
 

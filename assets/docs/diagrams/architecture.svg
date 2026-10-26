@@ -1,0 +1,110 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 690" width="960" height="690" role="img" aria-labelledby="t d">
+  <title id="t">How Astera is put together</title>
+  <desc id="d">The app window (renderer, preload, main) and the astera CLI, MCP server, SDK and plugins all talk to the Astera Host. The Host runs the claude and codex terminals, each in a git worktree. Worktrees merge into the repository, which is delivered as a pull request or a push, merged on this computer, or left for you by hand. A remote runtime is optional.</desc>
+  <style>
+    text { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    .bg { fill: #11161d; }
+    .title { fill: #f1f5f9; font-size: 24px; font-weight: 700; }
+    .sub { fill: #9fb0c3; font-size: 14px; }
+    .grp { fill: none; stroke: #3b4a5e; stroke-width: 1.5; }
+    .glabel { fill: #9fb0c3; font-size: 14px; font-weight: 700; letter-spacing: 0.04em; }
+    .box { fill: #1c2430; stroke: #3b4a5e; stroke-width: 1.5; }
+    .name { fill: #f1f5f9; font-size: 17px; font-weight: 700; }
+    .small { fill: #9fb0c3; font-size: 14px; }
+    .host { fill: #c4f25a; }
+    .hname { fill: #121a00; font-size: 20px; font-weight: 700; }
+    .hsub { fill: #121a00; font-size: 14px; }
+    .arrow { fill: none; stroke: #c4f25a; stroke-width: 2; marker-end: url(#ah); }
+    .dash { fill: none; stroke: #9fb0c3; stroke-width: 2; stroke-dasharray: 7 6; marker-end: url(#ah2); }
+    .lbl { fill: #c4f25a; font-size: 13px; font-weight: 600; }
+    .lbl2 { fill: #9fb0c3; font-size: 13px; font-weight: 600; }
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#c4f25a"/></marker>
+    <marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#9fb0c3"/></marker>
+  </defs>
+  <rect class="bg" width="960" height="690" rx="24"/>
+  <text class="title" x="40" y="48">How Astera is put together</text>
+
+  <!-- app window -->
+  <rect class="grp" x="40" y="72" width="430" height="150" rx="14"/>
+  <text class="glabel" x="58" y="98">APP WINDOW (ELECTRON)</text>
+  <rect class="box" x="56" y="116" width="120" height="86" rx="10"/>
+  <text class="name" x="116" y="152" text-anchor="middle">Renderer</text>
+  <text class="small" x="116" y="174" text-anchor="middle">React UI</text>
+  <rect class="box" x="200" y="116" width="120" height="86" rx="10"/>
+  <text class="name" x="260" y="152" text-anchor="middle">Preload</text>
+  <text class="small" x="260" y="174" text-anchor="middle">window.api</text>
+  <rect class="box" x="344" y="116" width="110" height="86" rx="10"/>
+  <text class="name" x="399" y="152" text-anchor="middle">Main</text>
+  <text class="small" x="399" y="174" text-anchor="middle">IPC, windows</text>
+  <path class="arrow" d="M176 159H198"/>
+  <path class="arrow" d="M320 159H342"/>
+
+  <!-- other clients -->
+  <rect class="grp" x="500" y="72" width="420" height="150" rx="14"/>
+  <text class="glabel" x="518" y="98">EVERYTHING ELSE THAT TALKS TO THE HOST</text>
+  <rect class="box" x="516" y="112" width="190" height="48" rx="10"/>
+  <text class="name" x="611" y="132" text-anchor="middle">astera CLI</text>
+  <text class="small" x="611" y="150" text-anchor="middle">people and scripts</text>
+  <rect class="box" x="718" y="112" width="186" height="48" rx="10"/>
+  <text class="name" x="811" y="132" text-anchor="middle">MCP server</text>
+  <text class="small" x="811" y="150" text-anchor="middle">astera mcp serve</text>
+  <rect class="box" x="516" y="168" width="190" height="44" rx="10"/>
+  <text class="name" x="611" y="187" text-anchor="middle">SDK</text>
+  <text class="small" x="611" y="204" text-anchor="middle">@astera-app/client</text>
+  <rect class="box" x="718" y="168" width="186" height="44" rx="10"/>
+  <text class="name" x="811" y="187" text-anchor="middle">Plugins</text>
+  <text class="small" x="811" y="204" text-anchor="middle">started by the Host</text>
+
+  <!-- arrows into the Host -->
+  <path class="arrow" d="M255 222V290"/>
+  <path class="arrow" d="M710 222V290"/>
+  <text class="lbl" x="267" y="262">pipe / socket</text>
+  <text class="lbl" x="722" y="262">pipe / socket</text>
+
+  <!-- Host -->
+  <rect class="host" x="40" y="292" width="880" height="92" rx="16"/>
+  <text class="hname" x="64" y="326">Astera Host</text>
+  <text class="hsub" x="64" y="350">Background process on plain Node. Owns every session, plan, account roll and schedule.</text>
+  <text class="hsub" x="64" y="370">It keeps running when the window closes.</text>
+
+  <!-- agent terminals -->
+  <path class="arrow" d="M200 384V440"/>
+  <rect class="grp" x="40" y="442" width="560" height="112" rx="14"/>
+  <text class="glabel" x="58" y="468">AGENT TERMINALS (ONE REAL TERMINAL PER CONSOLE)</text>
+  <rect class="box" x="56" y="480" width="150" height="44" rx="10"/>
+  <text class="name" x="131" y="509" text-anchor="middle">claude</text>
+  <rect class="box" x="222" y="480" width="150" height="44" rx="10"/>
+  <text class="name" x="297" y="509" text-anchor="middle">codex</text>
+  <text class="small" x="388" y="494">Each runs on one account:</text>
+  <text class="small" x="388" y="512">its own CLAUDE_CONFIG_DIR</text>
+  <text class="small" x="388" y="530">or CODEX_HOME.</text>
+
+  <!-- remote runtime -->
+  <path class="dash" d="M780 384V442"/>
+  <text class="lbl2" x="792" y="418">pinned TLS</text>
+  <rect class="grp" x="640" y="444" width="280" height="150" rx="14" stroke-dasharray="7 6"/>
+  <text class="glabel" x="658" y="470">REMOTE RUNTIME (OPTIONAL)</text>
+  <text class="small" x="658" y="496">Another machine runs its own</text>
+  <text class="small" x="658" y="516">Host, terminals and worktrees.</text>
+  <text class="small" x="658" y="540">This machine only sends</text>
+  <text class="small" x="658" y="560">commands and reads results.</text>
+
+  <!-- worktrees, repository, GitHub -->
+  <path class="arrow" d="M200 554V592"/>
+  <text class="lbl" x="212" y="578">one worktree per worker</text>
+  <rect class="box" x="40" y="594" width="230" height="64" rx="10"/>
+  <text class="name" x="155" y="622" text-anchor="middle">git worktrees</text>
+  <text class="small" x="155" y="644" text-anchor="middle">~/astera-worktrees/&lt;repo&gt;/</text>
+  <path class="arrow" d="M270 626H330"/>
+  <text class="lbl" x="276" y="618">merge</text>
+  <rect class="box" x="332" y="594" width="150" height="64" rx="10"/>
+  <text class="name" x="407" y="622" text-anchor="middle">Repository</text>
+  <text class="small" x="407" y="644" text-anchor="middle">your project</text>
+  <path class="arrow" d="M482 626H572"/>
+  <text class="lbl" x="494" y="618">pr or push</text>
+  <rect class="box" x="574" y="594" width="130" height="64" rx="10"/>
+  <text class="name" x="639" y="622" text-anchor="middle">GitHub</text>
+  <text class="small" x="639" y="644" text-anchor="middle">PR or branch</text>
+</svg>

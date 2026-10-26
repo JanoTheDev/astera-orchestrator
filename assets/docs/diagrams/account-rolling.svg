@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 480" width="960" height="480" role="img" aria-labelledby="t d">
+  <title id="t">How account rolling works</title>
+  <desc id="d">A session reaches the usage limit of its account. Astera reads the reset time and records the block. If another account in the rolling order has room, the same work resumes there. If every account is blocked, Astera waits for the earliest reset. When a limit resets, that account is usable again.</desc>
+  <style>
+    text { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    .bg { fill: #11161d; }
+    .title { fill: #f1f5f9; font-size: 24px; font-weight: 700; }
+    .box { fill: #1c2430; stroke: #3b4a5e; stroke-width: 1.5; }
+    .ok { fill: #c4f25a; }
+    .name { fill: #f1f5f9; font-size: 17px; font-weight: 700; }
+    .small { fill: #9fb0c3; font-size: 14px; }
+    .oname { fill: #121a00; font-size: 17px; font-weight: 700; }
+    .osub { fill: #121a00; font-size: 14px; }
+    .arrow { fill: none; stroke: #c4f25a; stroke-width: 2; marker-end: url(#ah); }
+    .lbl { fill: #c4f25a; font-size: 13px; font-weight: 600; }
+    .num { fill: #c4f25a; font-size: 14px; font-weight: 800; }
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#c4f25a"/></marker>
+  </defs>
+  <rect class="bg" width="960" height="480" rx="24"/>
+  <text class="title" x="40" y="48">How account rolling works</text>
+
+  <rect class="box" x="40" y="80" width="250" height="100" rx="12"/>
+  <text class="num" x="58" y="104">1</text>
+  <text class="name" x="80" y="104">Limit reached</text>
+  <text class="small" x="58" y="130">A session runs out of usage</text>
+  <text class="small" x="58" y="150">on account A.</text>
+  <path class="arrow" d="M290 130H338"/>
+
+  <rect class="box" x="340" y="80" width="250" height="100" rx="12"/>
+  <text class="num" x="358" y="104">2</text>
+  <text class="name" x="380" y="104">Read the reset time</text>
+  <text class="small" x="358" y="130">From the limit message, else</text>
+  <text class="small" x="358" y="150">the usage reading. Shared.</text>
+  <path class="arrow" d="M590 130H638"/>
+
+  <rect class="box" x="640" y="80" width="280" height="100" rx="12"/>
+  <text class="num" x="658" y="104">3</text>
+  <text class="name" x="680" y="104">Account with room?</text>
+  <text class="small" x="658" y="130">Next one in the rolling order</text>
+  <text class="small" x="658" y="150">that is not blocked.</text>
+
+  <path class="arrow" d="M820 180V262"/>
+  <text class="lbl" x="832" y="226">yes</text>
+  <rect class="ok" x="640" y="264" width="280" height="100" rx="12"/>
+  <text class="oname" x="658" y="292">4  Resume on account B</text>
+  <text class="osub" x="658" y="318">Same conversation, same work.</text>
+  <text class="osub" x="658" y="338">Smart Resume sends a checkpoint.</text>
+
+  <path class="arrow" d="M700 180V222H465V262"/>
+  <text class="lbl" x="480" y="214">no, every account is blocked</text>
+  <rect class="box" x="340" y="264" width="250" height="100" rx="12"/>
+  <text class="num" x="358" y="292">4</text>
+  <text class="name" x="380" y="292">Wait for earliest reset</text>
+  <text class="small" x="358" y="318">Then resume there. No reset</text>
+  <text class="small" x="358" y="338">time known: look again in 15 min.</text>
+
+  <path class="arrow" d="M465 364V402"/>
+  <path class="arrow" d="M780 364V402"/>
+  <rect class="box" x="40" y="404" width="880" height="56" rx="12"/>
+  <text class="name" x="60" y="428">Back when the limit resets</text>
+  <text class="small" x="60" y="449">Account A is usable again and the rolling order wraps round to it. Other workers skip it until then.</text>
+</svg>
