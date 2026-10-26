@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { JobRow } from '../../../../core/types'
-import { approveSlot, canAskPlanMore, feedbackMark, feedbackOutcomeOf, planTalkView, plannerWaitingIn } from './planTalk'
+import { approveSlot, canChat, feedbackMark, feedbackOutcomeOf, planTalkView, plannerWaitingIn } from './planTalk'
 
 const row = (o: Partial<JobRow>): JobRow => ({ id: 'j', tasks: [{}, {}], ...o }) as unknown as JobRow
 
@@ -69,16 +69,14 @@ describe('feedbackMark (T4)', () => {
   })
 })
 
-describe('canAskPlanMore', () => {
-  it('is true for a planned, unarchived plan whose Run is over', () => {
-    expect(canAskPlanMore(row({ planned: true, outcome: 'completed' }))).toBe(true)
-    expect(canAskPlanMore(row({ planned: true, outcome: 'failed' }))).toBe(true)
+describe('canChat', () => {
+  it('is true for a planned, unarchived plan in every phase', () => {
+    for (const o of ['completed', 'failed', 'running'] as const) expect(canChat(row({ planned: true, outcome: o }))).toBe(true)
+    expect(canChat(row({ planned: true, pendingStart: true }))).toBe(true)
   })
-  it('is false while running, archived, unplanned, waiting to start or a schedule', () => {
-    expect(canAskPlanMore(row({ planned: true, outcome: 'running' }))).toBe(false)
-    expect(canAskPlanMore(row({ planned: true, outcome: 'completed', archivedAt: 'x' }))).toBe(false)
-    expect(canAskPlanMore(row({ outcome: 'completed' }))).toBe(false)
-    expect(canAskPlanMore(row({ planned: true, outcome: 'completed', pendingStart: true }))).toBe(false)
-    expect(canAskPlanMore(row({ planned: true, outcome: 'completed', schedule: {} as never }))).toBe(false)
+  it('is false when archived, unplanned or a schedule', () => {
+    expect(canChat(row({ planned: true, outcome: 'completed', archivedAt: 'x' }))).toBe(false)
+    expect(canChat(row({ outcome: 'completed' }))).toBe(false)
+    expect(canChat(row({ planned: true, outcome: 'completed', schedule: {} as never }))).toBe(false)
   })
 })

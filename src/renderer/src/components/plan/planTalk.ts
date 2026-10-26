@@ -2,7 +2,6 @@
 import type { JobRow } from '../../../../core/types'
 import type { PlanFeedback } from '../../../../core/orchestration/types'
 import type { CommandReply } from '../../lib/orchDoor'
-import { isFinishedOutcome } from './planSummary'
 
 export interface PlanTalkView {
   /** The box shows at all: a planned, unarchived plan. */
@@ -23,10 +22,10 @@ export function planTalkView(row: JobRow): PlanTalkView {
   }
 }
 
-/** T7: "Ask & plan more" (`jobs-chat`) is for a planned, unarchived plan whose Run is over. A paired Runtime's plan has no
- *  tab on this computer, so the callers also pass `local`. */
-export const canAskPlanMore = (row: Pick<JobRow, 'planned' | 'archivedAt' | 'outcome' | 'schedule' | 'pendingStart'>): boolean =>
-  row.planned === true && row.archivedAt === undefined && row.schedule === undefined && !row.pendingStart && isFinishedOutcome(row.outcome)
+/** "Chat" (`jobs-chat-ensure`) is for every planned, unarchived plan in any phase (waiting for approval, running,
+ *  finished). A paired Runtime's plan has no tab on this computer, so the callers also pass `local`. */
+export const canChat = (row: Pick<JobRow, 'planned' | 'archivedAt' | 'schedule'>): boolean =>
+  row.planned === true && row.archivedAt === undefined && row.schedule === undefined
 
 /** #116: what stands where a plan's Approve would: the button, "Planning…" (its planner is not done), "Starts by
  *  itself" (auto-approve), or nothing (not a plan waiting to start). A Run built by hand (no planner) keeps its Start. */

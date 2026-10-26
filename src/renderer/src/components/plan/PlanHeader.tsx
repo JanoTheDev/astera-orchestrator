@@ -216,7 +216,7 @@ export function PlanHeader({
   // W17: a narrow tab folds Pause, Open consoles and the ⋯ menu into one ⋯ toolbar (planPage.css shows one set)
   const narrowMenu: Array<MenuItem | 'separator'> = [
     ...(pause ? [{ id: 'pause', label: pause.label, disabled: off, onSelect: pause.onSelect }] : []),
-    ...(acts.askMore ? [{ id: 'askMore', label: t('plan.chat.askMore'), icon: <Icon name="sparkles" size={14} />, disabled: off, onSelect: askMore }] : []),
+    ...(acts.askMore ? [{ id: 'askMore', label: t('plan.chat.label'), icon: <Icon name="message" size={14} />, disabled: off, onSelect: askMore }] : []),
     ...(acts.openPr ? [{ id: 'openPr', label: acts.openPr.kind === 'pr' ? openPrLabel : t('plan.header.copyBranch'), icon: <Icon name={acts.openPr.kind === 'pr' ? 'pullRequest' : 'branch'} size={14} />, onSelect: openPr }] : []),
     ...(acts.archive ? [{ id: 'archiveNow', label: archiveLabel, icon: <Icon name={acts.archive === 'unarchive' ? 'restore' : 'archive'} size={14} />, disabled: off, onSelect: archive }] : []),
     ...(acts.copyId && acts.finished ? [{ id: 'copyId', label: t('plan.header.copyId'), icon: <Icon name="copy" size={14} />, onSelect: () => copy(runId, t('plan.header.idCopied')) }] : []),
@@ -378,13 +378,13 @@ export function PlanHeader({
                 {pause.label}
               </Button>
             )}
+            {acts.askMore && (
+              <Button size="sm" variant={acts.primary === 'askMore' ? 'primary' : 'ghost'} icon={<Icon name="message" size={14} />} disabled={off} title={lockedReason ?? t('plan.chat.hint')} onClick={askMore}>
+                {t('plan.chat.label')}
+              </Button>
+            )}
             {acts.finished && (
               <>
-                {acts.askMore && (
-                  <Button size="sm" variant="primary" icon={<Icon name="sparkles" size={14} />} disabled={off} title={lockedReason ?? t('plan.chat.askMoreHint')} onClick={askMore}>
-                    {t('plan.chat.askMore')}
-                  </Button>
-                )}
                 {acts.openPr && (
                   <Button
                     size="sm"

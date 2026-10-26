@@ -162,9 +162,9 @@ export const plans = {
   'plan.header.copyId': '계획 ID 복사',
   'plan.header.idCopied': '계획 ID 를 복사했습니다',
   // T7 Ask & plan more on finished plans
-  'plan.chat.askMore': '계획 더 물어보기·추가하기',
-  'plan.chat.askMoreHint': '끝난 계획의 플래너와 탭에서 대화합니다. 한 일을 묻거나 후속 Task 를 더할 수 있습니다',
-  'plan.chat.openTab': '탭에서 열기',
+  'plan.chat.label': '채팅',
+  'plan.chat.hint': '계획의 진행을 묻거나 일을 더하는 채팅을 탭에서 엽니다',
+  'plan.chat.diff': '위 입력란은 변경을 플래너에 보냅니다. 채팅은 질문에 답하고 변경을 대신 전달할 수 있습니다.',
   'plan.chat.failed': '플래너 탭을 열지 못했습니다',
   'plan.chat.remote': '다른 컴퓨터의 계획은 이 컴퓨터에서 플래너 탭을 열 수 없습니다',
   'pages.plans.main.rowMenu': '계획 작업',

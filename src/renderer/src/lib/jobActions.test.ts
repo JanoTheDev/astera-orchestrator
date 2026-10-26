@@ -198,12 +198,12 @@ describe('archiveJobs', () => {
 })
 
 describe('openPlanChat', () => {
-  it('sends jobs-chat and opens the answered session', async () => {
+  it('sends jobs-chat-ensure and opens the answered session', async () => {
     const d = door({ status: 200, body: { jobId: 'j1', runId: 'r1', sessionId: 'ses-1' } })
     const u = ui()
     const opened: string[] = []
     expect(await openPlanChat(d, 'j1', u, (id) => void opened.push(id))).toBe(true)
-    expect(d.sent).toEqual([['jobs-chat', { id: 'j1' }]])
+    expect(d.sent).toEqual([['jobs-chat-ensure', { id: 'j1' }]])
     expect(opened).toEqual(['ses-1'])
     expect(u.errors).toEqual([])
   })

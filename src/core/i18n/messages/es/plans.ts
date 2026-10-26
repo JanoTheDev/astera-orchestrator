@@ -130,9 +130,9 @@ export const plans: Partial<Record<keyof typeof ko, string>> = {
   'plan.header.copyId': 'Copiar ID del plan',
   'plan.header.idCopied': 'ID del plan copiado',
   // T7 Ask & plan more on finished plans
-  'plan.chat.askMore': 'Preguntar y planificar más',
-  'plan.chat.askMoreHint': 'Habla con el planificador de este plan terminado en una pestaña: pregunta qué se hizo o añade Tasks de seguimiento',
-  'plan.chat.openTab': 'Abrir en una pestaña',
+  'plan.chat.label': 'Chat',
+  'plan.chat.hint': 'Pregunta por el avance o añade trabajo a este plan',
+  'plan.chat.diff': 'El cuadro envía un cambio al planificador. El chat responde preguntas y puede transmitir cambios.',
   'plan.chat.failed': 'No se pudo abrir la pestaña del planificador',
   'plan.chat.remote': 'El plan de un Runtime emparejado no tiene pestaña de planificador en este equipo',
   'pages.plans.main.rowMenu': 'Acciones del plan',
