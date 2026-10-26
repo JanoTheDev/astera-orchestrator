@@ -210,6 +210,9 @@ export interface DispatchLoopContext {
   loginStatus(accountId: string): Promise<boolean>
   lang(): Lang
   forkRunWorktree(a: { repoPath: string; name: string }): Promise<string>
+  /** True when the folder is there for sure not (delivery removes a plan's worktree but the Run keeps the path). A
+   *  folder that does not answer is not gone. Optional: without it a recorded Run worktree is taken as present. */
+  worktreeGone?(p: string): Promise<boolean>
   /** T3: `reap: false` keeps the merged worktrees (one a Task will continue in, or the plan branch merged into one). */
   integrate(runRoot: string, merges: string[], heads?: Record<string, string>, opts?: { reap?: boolean }): Promise<Integration>
   /** T11: merges another plan's delivered commit into a running plan's Run worktree (integrateGit.ts refreshOnto).
@@ -1427,6 +1430,35 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
           kind: 'gate',
           reason: t(c.lang(), 'jobs.integration.runWorktreeNotMade', { error: String(e) }),
           why: `the run worktree could not be made: ${String(e)}`
+        }
+      }
+    }
+    // A plan delivered to main loses its worktree and plan branch, but the Run keeps the path, and a Task added to it
+    // later would start in a folder that is not there (NO_REPO). The project repo is still asked first: only when it
+    // is gone is that a Gate. Otherwise the plan worktree is made again, on the same path from the delivered base.
+    if (run.worktree !== undefined && c.worktreeGone && (await c.worktreeGone(run.worktree))) {
+      const gone = run.worktree
+      try {
+        const runJob = jobOf(state, run)
+        const created = await c.forkRunWorktree({
+          repoPath: runJob?.cwd ?? '',
+          name: nameForRun({ id: run.jobId, objective: runJob ? jobNameOf(runJob) : '' })
+        })
+        if (!isSamePath(created, gone)) {
+          // The name is taken (the plan branch still exists): the Run cannot be moved, so undo the fork and ask.
+          await c.reap(created).catch(() => false)
+          return {
+            kind: 'gate',
+            reason: t(c.lang(), 'jobs.integration.runWorktreeNotMade', { error: `${gone} came back as ${created}` }),
+            why: `the run worktree ${gone} could not be recreated on its own path (it came back as ${created})`
+          }
+        }
+        log(`scheduler: run=${run.id} worktree ${gone} was removed (delivered); made it again`)
+      } catch (e) {
+        return {
+          kind: 'gate',
+          reason: t(c.lang(), 'jobs.integration.runWorktreeNotMade', { error: String(e) }),
+          why: `the run worktree could not be made again: ${String(e)}`
         }
       }
     }

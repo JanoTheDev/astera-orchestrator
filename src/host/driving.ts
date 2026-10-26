@@ -42,6 +42,7 @@
 // journal off, where neither reconciler can act.
 //
 // Imports only core modules and node builtins: this bundles into the Host.
+import { defaultGateProbe } from '../core/sessions/pathProbe'
 import path from 'node:path'
 import { t } from '../core/i18n'
 import { HOST_YIELD_DISPATCH, HOST_YIELD_RECOVERY, ORCH_MARK_KEY } from '../core/host/protocol'
@@ -422,6 +423,7 @@ export function createHostDriving(d: {
     loginStatus: (id) => d.checks.loginStatus(id),
     lang: () => d.checks.langNow(),
     forkRunWorktree: (a) => d.worktrees.fork(a),
+    worktreeGone: async (p) => (await defaultGateProbe(p)) === 'absent',
     integrate: (runRoot, merges, heads, opts) => d.worktrees.integrate(runRoot, merges, heads, opts),
     reap: reapWhileDriving,
     isRegisteredWorktree: (p) => d.worktrees.isRegistered(p),
