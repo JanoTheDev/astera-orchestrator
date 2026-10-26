@@ -197,6 +197,7 @@ export const integrations: Partial<Record<keyof typeof ko, string>> = {
   'settings.discord.plansHint': 'Crea una categoría por proyecto y un canal por plan en tu servidor.',
   'settings.discord.save': 'Guardar',
   'settings.discord.saved': 'Guardado',
+  'settings.discord.removeToken': 'Quitar token',
   'settings.discord.saveFailed': 'No se pudo guardar la configuración de Discord: {detail}',
   'settings.discord.ready': 'Listo — los mensajes de las sesiones se envían a este servidor.',
   'settings.discord.notReady': 'No está listo — hacen falta un token de bot y un ID de servidor.',

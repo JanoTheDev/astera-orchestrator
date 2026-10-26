@@ -186,6 +186,8 @@ export function discordRest(opts: DiscordRestOptions) {
       request<DiscordMessage>('POST', `/channels/${channelId}/messages`, noPings(msg)),
     editMessage: (channelId: string, messageId: string, msg: MessageBody) =>
       request<DiscordMessage>('PATCH', `/channels/${channelId}/messages/${messageId}`, noPings(msg)),
+    deleteMessage: (channelId: string, messageId: string) =>
+      request<void>('DELETE', `/channels/${channelId}/messages/${messageId}`),
     pinMessage: (channelId: string, messageId: string) =>
       request<void>('PUT', `/channels/${channelId}/pins/${messageId}`),
     startThread: (channelId: string, messageId: string, t: { name: string; auto_archive_duration: number }) =>

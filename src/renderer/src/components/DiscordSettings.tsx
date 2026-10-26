@@ -123,6 +123,25 @@ export function DiscordSettings(): React.JSX.Element {
         >
           {t('settings.discord.save')}
         </Button>
+        {cfg?.hasToken && (
+          <Button
+            onClick={() => {
+              void window.api.discord
+                .setConfig({ botToken: null })
+                .then(() => {
+                  setCfg({ ...cfg, hasToken: false })
+                  setBotToken('')
+                })
+                .catch((err) =>
+                  toast.error(
+                    t('settings.discord.saveFailed', { detail: err instanceof Error ? err.message : String(err) })
+                  )
+                )
+            }}
+          >
+            {t('settings.discord.removeToken')}
+          </Button>
+        )}
         {saved && <span className="update-note">{t('settings.discord.saved')}</span>}
       </div>
       <p className="settings-card-desc">{t(ready ? 'settings.discord.ready' : 'settings.discord.notReady')}</p>
