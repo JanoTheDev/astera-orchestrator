@@ -14,7 +14,7 @@ is the mechanics underneath: worktrees, how Tasks share them, merging, deleting,
 **Before a Job can run, its project folder must be a git repository with at least one commit.**
 
 A Job's workers always work in git worktrees. Without a repository there is no worktree, so the Job does not start
-and a Gate says why. The **From a source** dialog says so up front ("Runs only in a folder that is a git repository"); it
+and a Gate says why. The **Make a job from a source** dialog says so up front ("Runs only in a folder that is a git repository"); it
 does not stop you making the Job, but the Job will not run.
 
 If the folder is not a repository yet, either add it as a project (`astera projects add --path <folder>
@@ -42,7 +42,7 @@ Where a Job comes from:
 
 - **Start page** (**Plan with me**, **Plan and start on its own** or **Run my prompts as written**): a planned Job. The planner writes the Tasks, except for **Run my prompts as written**, where each prompt becomes one Task.
 - **Plans page → New plan**: opens the Start page, the same as above.
-- **Plans page → From a source**: makes a Job from an item of a connected source (an issue, for example).
+- **Plans side bar → From GitHub issues…**: makes a Job from an item of a connected source (an issue, for example).
 - **CLI / MCP**: `astera jobs create` or MCP `create_job`. `jobs create` makes the Job and runs nothing.
 
 A Job with a coordinator account may run with no Tasks at all, as a Job from `jobs create` or `create_job` often does.
@@ -78,7 +78,7 @@ closed. See [While it runs](guide.md#while-it-runs).
 
 ## 2. Run
 
-<img src="../assets/docs/plan-board.png" width="760" alt="A running plan tab with Steps, several Tasks working, done and waiting, live lines, models and accounts" />
+<img src="../assets/docs/plan-board.png" width="760" alt="A plan tab with Steps, Tasks marked done, waiting or Plan paused, each with its account and attempts" />
 
 **The run gets its own working folder, a git worktree.** It is made when the first worker is placed or the coordinator
 starts, not when the Job is created.
@@ -139,9 +139,9 @@ delivery mode. The full rules are in [Delivery](guide.md#delivery):
 
 A scheduled Job's runs are never delivered (section 7).
 
-A question delivery cannot settle on its own (a dirty folder, the wrong branch, a conflict) waits for you under **Needs you** in the bottom panel; the "Handled for you" feed beside it lists what Astera settled without asking.
+A question delivery cannot settle on its own (a dirty folder, the wrong branch, a conflict) waits for you under **Needs you** in the bottom panel; the **Activity** tab beside it lists what Astera settled without asking.
 
-<img src="../assets/docs/needs-you.png" width="760" alt="The bottom panel Needs you tab with open questions and permission items, and the Handled for you feed" />
+<img src="../assets/docs/needs-you.png" width="760" alt="The bottom panel's Needs you tab with open questions and a plan ready for approval, beside the Activity tab" />
 
 **The local Merge.** The plan page's **Merge** button (`astera run-merge`) folds what the workers committed into the
 **current branch of the project folder**, at a moment you choose. It changes the working tree you have checked out, and
