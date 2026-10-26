@@ -2150,7 +2150,7 @@ export interface CoreApi {
   terminal: {
     // An interactive shell at a project path. open and list go through assertAllowedPath, which
     // permits only registered paths.
-    open(projectPath: string, cols?: number, rows?: number): Promise<TerminalInfo>
+    open(projectPath: string, cols?: number, rows?: number, cwd?: string): Promise<TerminalInfo>
     list(projectPath: string): Promise<TerminalBuffer[]>
     write(id: string, data: string): void
     resize(id: string, cols: number, rows: number): void

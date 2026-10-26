@@ -69,6 +69,14 @@ describe('TerminalManager', () => {
     expect(spawned).toEqual(['C:\\Windows\\System32\\powershell.exe'])
   })
 
+  it('starts the shell in `cwd` but keeps the terminal listed under the project', async () => {
+    const { mgr, spawned } = setup()
+    const info = await mgr.open('D:\\p', undefined, undefined, 'D:\\p\\sub')
+    expect(spawned[0].opts.cwd).toBe('D:\\p\\sub')
+    expect(mgr.list('D:\\p').map((x) => x.id)).toEqual([info.id])
+    expect(mgr.list('D:\\p\\sub')).toEqual([])
+  })
+
   // node-pty (conpty.cc) walks PATH itself, synchronously, for a relative file name. So the pty must
   // be handed the absolute path the async lookup found, or one dead PATH entry freezes the thread.
   it('hands the pty the absolute path the lookup found, never a bare name', async () => {

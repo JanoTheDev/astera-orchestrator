@@ -77,15 +77,17 @@ export class TerminalManager {
    *  only thread. So the project folder is probed first, async and time-limited (CWD_MISSING, or
    *  CWD_UNREACHABLE for a folder on an offline drive, which CreateProcess would have waited on), and the
    *  shell is handed over by absolute path (node-pty walks PATH synchronously for a bare name). */
-  async open(projectPath: string, cols?: number, rows?: number): Promise<TerminalInfo> {
+  async open(projectPath: string, cols?: number, rows?: number, cwd?: string): Promise<TerminalInfo> {
+    // `cwd` (a folder below the project) only moves the shell; the terminal stays listed under `projectPath`.
+    const dir = cwd ?? projectPath
     const fallback = path.win32.join(this.deps.systemRoot ?? process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'cmd.exe')
     const [, shell] = await Promise.all([
-      checkCwd(projectPath, this.deps.cwdProbe ?? defaultCwdProbe),
+      checkCwd(dir, this.deps.cwdProbe ?? defaultCwdProbe),
       resolveShellAsync(this.platform, this.locate, this.envShell, fallback)
     ])
     const id = randomUUID()
     const pty = this.ptyFactory(shell.file, shell.args, {
-      cwd: projectPath,
+      cwd: dir,
       cols: cols ?? 120,
       rows: rows ?? 30,
       env: { ...process.env },
