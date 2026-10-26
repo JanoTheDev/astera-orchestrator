@@ -1,0 +1,1 @@
+{"v":1,"tool":"astera","job":"job_755f68c1ccc27589","task":"tsk_2a4ac16d11eb02c8","session":"562b795e-1f1a-4178-ad9f-fbbfb68fc413","agent":"claude","model":"sonnet","account":"71b8fb23-5c26-4782-a9d1-2f7ba1ff753e","role":"worker","lines":{"src/renderer/src/components/plan/planBoard.css":[[42,43],[49,53]],"src/renderer/src/components/ui/statusTone.test.ts":[[1,2],[32,40]]}}
