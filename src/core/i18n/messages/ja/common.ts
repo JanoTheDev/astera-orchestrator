@@ -323,6 +323,9 @@ export const common: Partial<Record<keyof typeof ko, string>> = {
   'settings.row.telegram': 'Telegram',
   'settings.telegram.hint':
     '@BotFather でボットを作り、ボットに何かメッセージを送ってください。個人チャットでは、チャット ID とユーザー ID は自分の数値の Telegram ID です。',
+  'settings.row.discord': 'Discord',
+  'settings.discord.hint':
+    'Discord 開発者ポータルでボットを作り、Message Content インテントをオンにしてください。オフだとボットは返信を読めません。',
   'settings.projects.list': 'プロジェクト設定',
   'settings.projects.hint': 'プロジェクトごとに、配信方法、プランの自動承認、テストコマンド、同時エージェント数、レビュー回数、ステップごとの再計画、既定のアカウント、行の出所を決めます。',
   'settings.projects.add': 'プロジェクトを追加',

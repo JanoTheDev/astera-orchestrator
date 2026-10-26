@@ -199,6 +199,10 @@ const api = {
     getConfig: invoke('telegram.getConfig'),
     setConfig: invoke('telegram.setConfig')
   },
+  discord: {
+    getConfig: invoke('discord.getConfig'),
+    setConfig: invoke('discord.setConfig')
+  },
   /** `astera` 명령을 사람의 PATH 에서 닿는 자리에 깔아 둔다(공개 CLI 설계 §10). */
   cli: {
     status: invoke('cli.status'),

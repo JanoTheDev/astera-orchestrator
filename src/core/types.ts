@@ -1813,6 +1813,19 @@ export interface CoreApi {
       userId?: string | null
     }): Promise<void>
   }
+  discord: {
+    // Bot token, the server (guild) the bot works in, the one user id allowed to drive Astera, and the plan
+    // workspace switch. getConfig never returns the token — only whether one is stored. setConfig takes a
+    // partial update like telegram.setConfig: unsent fields keep their stored value, null clears. An empty
+    // userId blocks every message and button rather than allowing everyone.
+    getConfig(): Promise<{ hasToken: boolean; guildId: string | null; userId: string | null; plans: boolean }>
+    setConfig(cfg: {
+      botToken?: string | null
+      guildId?: string | null
+      userId?: string | null
+      plans?: boolean
+    }): Promise<void>
+  }
   /** `astera` 명령을 사람의 PATH 에서 닿는 자리에 깔아 둔다(공개 CLI 설계 §10). */
   cli: {
     status(): Promise<CliInstallStatus>

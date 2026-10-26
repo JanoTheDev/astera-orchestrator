@@ -433,6 +433,9 @@ export const common = {
   'settings.row.telegram': 'Telegram',
   'settings.telegram.hint':
     '@BotFather로 봇을 만들고 봇에게 아무 메시지나 보내세요. 개인 채팅이라면 채팅 ID와 사용자 ID는 본인의 숫자 Telegram ID입니다.',
+  'settings.row.discord': 'Discord',
+  'settings.discord.hint':
+    'Discord 개발자 포털에서 봇을 만들고 Message Content 인텐트를 켜세요. 켜지 않으면 봇이 답장을 읽을 수 없습니다.',
   'settings.projects.list': '프로젝트 설정',
   'settings.projects.hint': '프로젝트마다 전달 방식, 플랜 자동 승인, 테스트 명령, 동시 에이전트 수, 리뷰 횟수, 단계 사이 재계획, 기본 계정, 줄 출처를 정합니다.',
   'settings.projects.add': '프로젝트 추가',
