@@ -28,6 +28,7 @@ import { jobNameOf } from './jobName'
 // T7 objective coverage
 import { objectiveItemsOf } from './objectiveItems'
 import { stallOf, waveOf } from './replan'
+import { holdOf } from './holds'
 import { autoApproveOf, handsOffOf, planApprovable } from './exec/plannerFeedback'
 import type { ScheduleLimits } from './schedule'
 
@@ -587,6 +588,7 @@ export function snapshotFor(
       ...(job.pick !== undefined ? { pick: job.pick } : {}),
       // W5-C: the plan's "stop launching" (jobs-hold), on every row of the Job
       ...(job.dispatchHold ? { dispatchHold: true as const } : {}),
+      ...(holdOf(job) !== undefined ? { holdBy: holdOf(job) } : {}),
       // W8-D: the plan's overlaps with the other plans of its project, as lines
       ...(job.overlaps?.length ? { overlaps: overlapLines(state, job) } : {}),
       // W9-C Plans page: "By area", "overlaps <plan>", "starts after X" and the row's age

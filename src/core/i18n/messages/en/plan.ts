@@ -138,7 +138,12 @@ export const plan: Record<keyof typeof ko, string> = {
   // W8-C plan after plan
   'plan.reason.queuedAfter': 'Queued after {plan}',
   'plan.reason.afterStopped': 'Waiting on {plan}, which stopped',
-  'plan.reason.paused': 'Plan paused',
+  'plan.reason.stopped.plan': 'Plan stopped · press Resume to continue',
+  'plan.reason.schedulePaused': 'Schedule paused',
+  'plan.reason.held': 'New starts paused · press Start new agents again',
+  'plan.reason.replanning': 'Planner is updating the plan · starts when done',
+  'plan.reason.finalCheck': 'Final check before merging',
+  'plan.reason.replanQuestion': 'The planner asked you a question · see Inbox',
   'plan.reason.definition': 'Definition · copied into each run',
   'plan.reason.gate': 'Waiting for an answer: {question}',
   'plan.reason.failureLimit': 'Failed {failures} times in a row · nothing restarts it on its own',

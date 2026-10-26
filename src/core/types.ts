@@ -623,6 +623,9 @@ export interface JobTask {
 /** The plan overview's buckets. Each Task is in exactly one. */
 export type TaskCategory = 'done' | 'running' | 'queued' | 'failed' | 'cancelled' | 'awaiting-review'
 
+/** Who holds a plan from launching new workers (Job.dispatchHold, orchestration/holds.ts `holdOf`). */
+export type JobHold = 'owner' | 'replanning' | 'final-check' | 'replan-question'
+
 /** Why a Task is not running right now. One reason: the first that holds, in the order taskBoardsOf asks. */
 export type TaskBlockedReason =
   /** Its worker stopped at a usage limit: waiting for the reset, or moving to the next account. */
@@ -631,7 +634,9 @@ export type TaskBlockedReason =
   /** W8-C `after`: the plan is queued after another (Job.after), which has not delivered yet, or `stopped` (gave up or
    *  was archived) so this one waits on a person. */
   | { kind: 'pending-start'; after?: { id: string; title: string; stopped?: true } }
-  | { kind: 'paused' }
+  /** Nothing new starts in the plan, and why: `stopped` (runs-stop), `schedule` (its schedule is paused), `held` (the
+   *  owner's jobs-hold), or a replan holding it (orchestration/holds.ts `holdOf`). */
+  | { kind: 'paused'; why: 'stopped' | 'schedule' | 'held' | Exclude<JobHold, 'owner'> }
   /** A definition Task: copied into each Run, never placed itself. */
   | { kind: 'definition' }
   | { kind: 'gate'; gateId: string; question: string; gateKind?: GateKind }
@@ -845,6 +850,8 @@ export interface JobRow {
   pick?: { at: string; picked: IssuePick[]; skipped: IssuePick[] }
   // W5-C: the plan is held from launching new workers (Job.dispatchHold)
   dispatchHold?: true
+  /** Who holds it (holds.ts `holdOf`): the owner, a replan, the final check before delivery, or a replan's question. */
+  holdBy?: JobHold
   /** W8-D: where this plan meets another plan of its project, one line each (overlap.ts overlapLines); the approve area
    *  lists them until W9-D's card. Absent: none. */
   overlaps?: string[]

@@ -65,6 +65,36 @@ const boardOf = (s: OrchState, id: string, cap?: number | null) =>
   taskBoardsOf(s, { maxConcurrentWorkers: cap }).get(id)
 const reasonOf = (s: OrchState, id: string, cap?: number | null) => boardOf(s, id, cap)?.reason
 
+describe('taskBoardsOf — why a plan is paused', () => {
+  const mark = { runId: 'r1', wave: 1, done: 0, startedAt: T0 }
+  const why = (jobOver: Partial<Job>, runOver: Partial<JobRun> = {}, over: Partial<Task> = {}) =>
+    reasonOf(one([task('a', 'r1', over)], jobOver, runOver), 'a')
+
+  it("the owner's hold (jobs-hold)", () => {
+    expect(why({ dispatchHold: true })).toEqual({ kind: 'paused', why: 'held' })
+  })
+
+  it('a wave replan and the final check before delivery', () => {
+    expect(why({ dispatchHold: true, replanning: { ...mark, mode: 'wave' } })).toEqual({ kind: 'paused', why: 'replanning' })
+    expect(why({ dispatchHold: true, replanning: { ...mark, mode: 'completion' } })).toEqual({ kind: 'paused', why: 'final-check' })
+  })
+
+  it('a replan handed to the owner keeps the hold until they answer', () => {
+    const lastReplan = { ...mark, mode: 'completion' as const, at: T0, summary: 's', escalated: 'the plan does not hold' }
+    expect(why({ dispatchHold: true, lastReplan })).toEqual({ kind: 'paused', why: 'replan-question' })
+  })
+
+  it('runs-stop, and a paused schedule', () => {
+    expect(why({}, { paused: true })).toEqual({ kind: 'paused', why: 'stopped' })
+    expect(why({ schedule: { kind: 'interval', minutes: 30 }, paused: true }, { paused: true })).toEqual({ kind: 'paused', why: 'schedule' })
+  })
+
+  it('a merging Task is never paused', () => {
+    expect(why({ dispatchHold: true, replanning: { ...mark, mode: 'completion' } }, {}, { status: 'merging' })).toBeUndefined()
+    expect(why({}, { paused: true }, { status: 'merging' })).toBeUndefined()
+  })
+})
+
 describe('taskBoardsOf — reasons', () => {
   it('waiting on deps names the unfinished ones only', () => {
     const s = one([
@@ -128,8 +158,8 @@ describe('taskBoardsOf — reasons', () => {
   })
 
   it('plan paused, archived, pending start (jobActive / isJobActive)', () => {
-    expect(reasonOf(one([task('a', 'r1')], { paused: true }), 'a')).toEqual({ kind: 'paused' })
-    expect(reasonOf(one([task('a', 'r1')], {}, { paused: true }), 'a')).toEqual({ kind: 'paused' })
+    expect(reasonOf(one([task('a', 'r1')], { paused: true }), 'a')).toEqual({ kind: 'paused', why: 'stopped' })
+    expect(reasonOf(one([task('a', 'r1')], {}, { paused: true }), 'a')).toEqual({ kind: 'paused', why: 'stopped' })
     expect(reasonOf(one([task('a', 'r1')], { archivedAt: T0 }), 'a')).toEqual({ kind: 'archived' })
     expect(reasonOf(one([task('a', 'r1')], { pendingStart: true }), 'a')).toEqual({ kind: 'pending-start' })
     // Archived wins over paused: unpausing it would still start nothing
