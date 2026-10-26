@@ -327,4 +327,7 @@ export const plan: Partial<Record<keyof typeof ko, string>> = {
   "plan.taskMenu.reveal": "フォルダーを表示",
   "plan.taskMenu.noWorker": "実行中のワーカーがありません",
   "plan.taskMenu.noWorktree": "このタスクのワークツリーのフォルダーが見つかりません",
+  'plan.summary.retryPr': 'もう一度試す',
+  'plan.summary.retryPrFailed': 'プルリクエストを開けませんでした: {reason}',
+  'plan.taskMenu.terminal': 'ここでターミナルを開く'
 }

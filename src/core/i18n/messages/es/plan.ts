@@ -327,4 +327,7 @@ export const plan: Partial<Record<keyof typeof ko, string>> = {
   "plan.taskMenu.reveal": "Mostrar la carpeta",
   "plan.taskMenu.noWorker": "No hay ningún worker en ejecución",
   "plan.taskMenu.noWorktree": "No se encontró la carpeta del worktree de esta tarea",
+  'plan.summary.retryPr': 'Intentar de nuevo',
+  'plan.summary.retryPrFailed': 'No se pudo abrir la pull request: {reason}',
+  'plan.taskMenu.terminal': 'Abrir terminal aquí'
 }

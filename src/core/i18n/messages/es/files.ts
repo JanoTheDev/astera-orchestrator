@@ -125,4 +125,5 @@ export const files: Partial<Record<keyof typeof ko, string>> = {
   'files.menu.open': 'Abrir',
   'files.menu.openDiff': 'Abrir diff',
   'files.menu.openTerminal': 'Abrir en terminal',
+  'media.action.copyPath': 'Copiar ruta'
 }

@@ -132,4 +132,8 @@ export const inbox: Partial<Record<keyof typeof ko, string>> = {
   'activity.line.fellToReview': '{title}: {why}',
   'activity.line.titled': '{title}: {reason}',
   'activity.line.onRuntime': '{runtime}上',
+  'inbox.item.markRead': '既読にする',
+  'inbox.item.markUnread': '未読にする',
+  'inbox.item.copy': 'テキストをコピー',
+  'inbox.item.readCue': '読む'
 }

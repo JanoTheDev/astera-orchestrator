@@ -236,4 +236,10 @@ export const overlays: Partial<Record<keyof typeof ko, string>> = {
   'pr.create.done': 'Pull request creada',
   'pr.create.openPr': 'Abrir PR',
   'pr.create.copyLink': 'Copiar enlace',
+  'remote.sessions.retry': 'Reintentar',
+  'remote.sessions.menu.label': 'Acciones de la sesión',
+  'remote.sessions.menu.open': 'Abrir',
+  'remote.sessions.menu.close': 'Cerrar esta sesión',
+  'remote.sessions.menu.copyId': 'Copiar ID',
+  'remote.sessions.closed': 'Se cerró {name}'
 }

@@ -239,4 +239,17 @@ export const tools: Partial<Record<keyof typeof ko, string>> = {
   'run.row.edit': '構成を編集',
   'run.view.refresh': '構成を更新',
   'run.view.empty': '実行構成はまだありません。+ で作成します。',
+  'run.action.stopAgain': 'もう一度停止',
+  'run.menu.rerunLast': '前回を再実行',
+  'run.menu.stopAll': 'すべて停止',
+  'run.menu.editCurrent': '現在の構成を編集',
+  'run.menu.showOutput': '出力を表示',
+  'terminal.menu.copy': 'コピー',
+  'terminal.menu.paste': '貼り付け',
+  'terminal.menu.selectAll': 'すべて選択',
+  'terminal.menu.clear': 'クリア',
+  'terminal.menu.find': '検索',
+  'terminal.tab.rename': '名前を変更',
+  'terminal.tab.renameLabel': 'ターミナルの名前',
+  'terminal.tab.closeOthers': '他のターミナルを閉じる'
 }

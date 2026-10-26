@@ -297,4 +297,8 @@ export const integrations: Partial<Record<keyof typeof ko, string>> = {
   'github.project.done': '作成しました: {url}',
   'github.project.failed': 'GitHub リポジトリを作成できませんでした。',
   'github.project.hasOrigin': 'このプロジェクトには既に origin リモートがあります。',
+  'project.state.missing': 'フォルダーが見つかりません',
+  'project.state.notGit': 'Git リポジトリではありません',
+  'project.state.missing.hint': 'フォルダーがありません。復元するか、プロジェクトを削除してください。',
+  'project.reveal': 'フォルダーを表示'
 }

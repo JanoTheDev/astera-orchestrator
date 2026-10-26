@@ -118,4 +118,17 @@ export const shell: Partial<Record<keyof typeof ko, string>> = {
   'shell.plans.menu.openStep': 'Abrir el plan en este paso',
   'shell.plans.menu.openPr': 'Abrir la pull request',
   'shell.agents.dismiss': 'Descartar',
+  'shell.switcher.newWindow': 'Ventana nueva',
+  'shell.run.showOutput': 'Mostrar salida',
+  'shell.run.dismiss': 'Descartar',
+  'shell.run.delete': 'Eliminar',
+  'shell.run.deleteTitle': 'Eliminar configuración de ejecución',
+  'shell.run.deleteBody': '¿Eliminar "{name}"? Esta acción no se puede deshacer.',
+  'shell.projectMenu.label': 'Acciones del proyecto',
+  'shell.projectMenu.open': 'Abrir',
+  'shell.projectMenu.window': 'Abrir en una ventana nueva',
+  'shell.projectMenu.settings': 'Configuración',
+  'shell.projectMenu.reveal': 'Mostrar carpeta',
+  'shell.projectMenu.remove': 'Quitar',
+  'shell.projectMenu.revealFailed': 'No se pudo mostrar la carpeta: {message}'
 }

@@ -130,4 +130,7 @@ export const plans: Partial<Record<keyof typeof ko, string>> = {
   'plan.chat.openTab': 'Abrir en una pestaña',
   'plan.chat.failed': 'No se pudo abrir la pestaña del planificador',
   'plan.chat.remote': 'El plan de un Runtime emparejado no tiene pestaña de planificador en este equipo',
+  'pages.plans.main.rowMenu': 'Acciones del plan',
+  'pages.plans.main.taskMenu': 'Acciones de la tarea',
+  'pages.plans.main.rowMore': 'Acciones de {plan}'
 }

@@ -81,4 +81,13 @@ export const accounts: Partial<Record<keyof typeof ko, string>> = {
   'account.sync.button': "設定をインポート",
   'account.empty.body': "アカウントを追加すると、Astera が Claude または Codex のサブスクリプションでエージェントを実行できます。",
   'account.empty.bodySettings': "上部バーのアカウントメニューから追加できます。",
+  'account.signInAgain.button': 'もう一度サインイン',
+  'account.signOut.button': 'サインアウト',
+  'account.signOut.title': '{label} からサインアウト',
+  'account.signOut.confirm': '{label} からサインアウトしますか？ アカウントは一覧に残り、再びサインインできます。',
+  'account.signOut.done': '{label} からサインアウトしました。',
+  'account.signOut.failed': 'サインアウトできませんでした: {detail}',
+  'account.signOut.processing': 'サインアウトしています…',
+  'account.status.paused': '一時停止',
+  'account.signIn.retry': '再試行'
 }

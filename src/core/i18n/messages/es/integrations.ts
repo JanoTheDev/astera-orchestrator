@@ -300,4 +300,8 @@ export const integrations: Partial<Record<keyof typeof ko, string>> = {
   'github.project.done': 'Creado: {url}',
   'github.project.failed': 'No se pudo crear el repositorio de GitHub.',
   'github.project.hasOrigin': 'Este proyecto ya tiene un remoto origin.',
+  'project.state.missing': 'Falta la carpeta',
+  'project.state.notGit': 'No es un repositorio de git',
+  'project.state.missing.hint': 'La carpeta ya no existe. Restáurela o elimine el proyecto.',
+  'project.reveal': 'Mostrar carpeta'
 }

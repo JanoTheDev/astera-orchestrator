@@ -118,4 +118,17 @@ export const shell: Partial<Record<keyof typeof ko, string>> = {
   'shell.plans.menu.openStep': 'このステップでプランを開く',
   'shell.plans.menu.openPr': 'プルリクエストを開く',
   'shell.agents.dismiss': '閉じる',
+  'shell.switcher.newWindow': '新しいウィンドウ',
+  'shell.run.showOutput': '出力を表示',
+  'shell.run.dismiss': '閉じる',
+  'shell.run.delete': '削除',
+  'shell.run.deleteTitle': '実行構成を削除',
+  'shell.run.deleteBody': '"{name}" を削除しますか？ この操作は取り消せません。',
+  'shell.projectMenu.label': 'プロジェクトの操作',
+  'shell.projectMenu.open': '開く',
+  'shell.projectMenu.window': '新しいウィンドウで開く',
+  'shell.projectMenu.settings': '設定',
+  'shell.projectMenu.reveal': 'フォルダーを表示',
+  'shell.projectMenu.remove': '削除',
+  'shell.projectMenu.revealFailed': 'フォルダーを表示できませんでした: {message}'
 }

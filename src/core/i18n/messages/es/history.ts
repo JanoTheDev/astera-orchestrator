@@ -131,4 +131,16 @@ export const history: Partial<Record<keyof typeof ko, string>> = {
   'history.entry.copyId': 'Copiar id de sesión',
   'history.session.menu': 'Acciones de la sesión',
   'history.view.accountFilter': 'Filtrar por cuenta',
+  'preview.menu.copyLink': 'Copiar dirección del enlace',
+  'preview.menu.openLink': 'Abrir enlace en el navegador',
+  'preview.menu.copyText': 'Copiar texto seleccionado',
+  'preview.menu.copyImageAddress': 'Copiar dirección de la imagen',
+  'preview.menu.cut': 'Cortar',
+  'preview.menu.copy': 'Copiar',
+  'preview.menu.paste': 'Pegar',
+  'history.menu.deleteHistory': 'Eliminar el historial de este proyecto',
+  'history.menu.deleteTitle': '¿Eliminar el historial?',
+  'history.menu.deleteBody': 'Se eliminará el historial de sesiones guardado de {path}. La carpeta del proyecto no se modifica.',
+  'history.menu.deleteConfirm': 'Eliminar historial',
+  'history.menu.deleteFailed': 'No se pudo eliminar el historial (puede que una sesión siga en ejecución)'
 }

@@ -104,5 +104,15 @@ export const devices: Partial<Record<keyof typeof ko, string>> = {
   'devices.add.terminalKey': 'Tu clave SSH aún no está en el dispositivo. Cópiala una vez en una terminal y vuelve a intentarlo:',
   'devices.add.terminalOpened': 'Termina en la terminal de abajo y luego actualiza Dispositivos.',
   'devices.add.ready': '{name} está listo.',
-  'devices.add.openConsole': 'Abrir una consola en {name}'
+  'devices.add.openConsole': 'Abrir una consola en {name}',
+  'devices.menu.label': 'Acciones del dispositivo',
+  'devices.menu.open': 'Abrir',
+  'devices.menu.check': 'Comprobar conexión',
+  'devices.menu.retry': 'Reintentar',
+  'devices.menu.forget': 'Olvidar',
+  'devices.menu.add': 'Agregar',
+  'devices.menu.copyAddress': 'Copiar dirección',
+  'devices.menu.copied': 'Copiado: {address}',
+  'devices.this.acceptLabel': 'Aceptar trabajo de otros dispositivos',
+  'devices.this.noAddress': 'Este equipo no tiene una dirección en la que escuchar.'
 }

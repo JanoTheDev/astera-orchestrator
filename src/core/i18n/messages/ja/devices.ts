@@ -104,5 +104,15 @@ export const devices: Partial<Record<keyof typeof ko, string>> = {
   'devices.add.terminalKey': 'あなたの SSH 鍵はまだデバイスにありません。ターミナルで一度コピーしてから再試行してください:',
   'devices.add.terminalOpened': '下のターミナルで完了してから、デバイスを更新してください。',
   'devices.add.ready': '{name} の準備ができました。',
-  'devices.add.openConsole': '{name} でコンソールを開く'
+  'devices.add.openConsole': '{name} でコンソールを開く',
+  'devices.menu.label': 'デバイスの操作',
+  'devices.menu.open': '開く',
+  'devices.menu.check': '接続を確認',
+  'devices.menu.retry': '再試行',
+  'devices.menu.forget': '削除',
+  'devices.menu.add': '追加',
+  'devices.menu.copyAddress': 'アドレスをコピー',
+  'devices.menu.copied': '{address} をコピーしました',
+  'devices.this.acceptLabel': '他のデバイスからの作業を受け付ける',
+  'devices.this.noAddress': 'このコンピューターには待ち受けるアドレスがありません。'
 }
