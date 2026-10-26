@@ -26,8 +26,8 @@ shows up in all of them:
 
 **Workers never touch your project folder.** Each worker runs in its own git worktree under
 `~/astera-worktrees/<repo>/`. When a Task's work is finished its worktree is merged into the plan's worktree, and the
-plan is delivered ([delivery](#delivery)). The coordinator and the planner read your project
-but never edit it.
+plan is delivered ([delivery](#delivery)). The coordinator and the planner read your project;
+they are told not to edit it.
 
 **Accounts are isolated.** Each Claude account has its own `CLAUDE_CONFIG_DIR` and each Codex account its own
 `CODEX_HOME` (`src/core/accounts/`), so every console runs as one account and keeps that account's own limits.

@@ -63,3 +63,10 @@ docs/*
 # The source brand sheet (a 1254x1254 mockup). Icons are cropped from it and only the outputs are
 # committed — see scripts/gen-icon.ps1.
 astera.png
+
+# The docs site (site/README.md): installs, builds, and what scripts/docs-site-sync.mjs generates from docs/ and assets/.
+site/node_modules/
+site/dist/
+site/.astro/
+site/src/content/docs/docs/
+site/public/assets/

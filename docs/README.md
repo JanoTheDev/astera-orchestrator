@@ -54,7 +54,7 @@ version.
 <table>
   <tr>
     <td width="50%"><a href="guide.md#while-it-runs"><img src="../assets/docs/plans-tree.png" alt="The Plans side bar with plans in mixed states next to an open plan tab" /></a><br />Plans tree and plan tabs: <a href="guide.md#while-it-runs">While it runs</a></td>
-    <td width="50%"><a href="guide.md#needs-you"><img src="../assets/docs/needs-you.png" alt="The Needs you tab with open questions and the Handled for you feed" /></a><br />Needs you: <a href="guide.md#needs-you">the guide</a></td>
+    <td width="50%"><a href="guide.md#needs-you"><img src="../assets/docs/needs-you.png" alt="A plan with an open question and its answer buttons, and the bottom panel's Needs you tab listing four open items" /></a><br />Needs you: <a href="guide.md#needs-you">the guide</a></td>
   </tr>
   <tr>
     <td width="50%"><a href="guide.md"><img src="../assets/docs/history.png" alt="History with sessions across several projects" /></a><br />History: <a href="guide.md">the guide</a></td>

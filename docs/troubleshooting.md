@@ -7,7 +7,7 @@ Where to look first, then symptom, cause and fix. Terms are in [Concepts](concep
 - **Profile folder.** `~/.config/astera` on Linux, `~/Library/Application Support/astera` on macOS and `%APPDATA%\astera`
   on Windows. A dev app (`npm run dev`) uses the same name with `-dev` added, for example `~/.config/astera-dev`.
 - **`host/host.log`** in the profile folder: the background Host. **`rolling.log`**: account rolling.
-- **`orch/activity.jsonl`**: the feed behind **Handled for you**, kept across restarts.
+- **`orch/activity.jsonl`**: the feed behind **Handled for you** in the bottom panel's **Activity** tab, kept across restarts.
 - **Bottom panel** (`Ctrl+J`): **Needs you** (everything waiting on you), **Activity**, **Output** and **Terminal**.
 - **Status bar**: the Host state ("Background service offline"), account usage and the count of consoles that need you.
 - **Host commands:**

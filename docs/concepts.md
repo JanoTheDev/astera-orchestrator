@@ -67,11 +67,13 @@ A decision block. Attempts or review rounds that ran out, a review no code chang
 something only the owner can decide, become a **Needs you** row you answer with a button or text and **Send answer**.
 Hands-off plans decide for themselves. Depth: [guide, Needs you](guide.md#needs-you).
 
-<img src="../assets/docs/needs-you.png" width="760" alt="The Needs you tab with open questions and the Handled for you feed" />
+<img src="../assets/docs/needs-you.png" width="760" alt="A plan with an open question and its answer buttons, and the bottom panel's Needs you tab listing four open items" />
 
-### Delivery: `pr` or `push`
+### Delivery: `pr`, `push`, `merge` or `manual`
 What happens when a plan finishes. `pr` (the default) opens one pull request and never merges it. `push` merges the
-plan's worktrees into the delivery branch, re-runs the checks and pushes, with no person reviewing. Set it in
+plan's worktrees into the delivery branch, re-runs the checks and pushes, with no person reviewing. `merge` does the
+same merge and checks on this computer and pushes nothing. `manual` delivers nothing by itself: the person reviews the
+plan's worktree, then opens the PR or pushes (`run-deliver --as`). Set it in
 Settings → Projects → "When a plan is done", or per plan with `--delivery`.
 Depth: [guide, Delivery](guide.md#delivery), [Jobs, delivery](jobs.md#4-when-it-is-done-delivery-or-a-merge-you-press).
 

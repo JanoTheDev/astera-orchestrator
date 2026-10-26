@@ -95,9 +95,9 @@ window does not stop the plan: the background Host keeps running it.
 ## 7. Answer Needs you
 
 Permission prompts, questions Astera cannot answer itself and failed reviews wait in the **Needs you** tab, with a sound
-and a desktop notice. What Astera decided without you is listed beside them under **Handled for you**.
+and a desktop notice. What Astera decided without you is listed in the bottom panel's **Activity** tab, under **Handled for you**.
 
-<img src="../assets/docs/needs-you.png" width="760" alt="Needs you with open questions on the left and the Handled for you feed on the right" />
+<img src="../assets/docs/needs-you.png" width="760" alt="A plan with an open question and its answer buttons, and the bottom panel's Needs you tab listing four open items" />
 
 ## 8. Delivery
 

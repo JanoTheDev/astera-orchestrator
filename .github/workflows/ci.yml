@@ -114,3 +114,22 @@ jobs:
         run: |
           npx vitest run "$E2E_FILE" --reporter=default --reporter=json --outputFile.json="$RUNNER_TEMP/e2e.json"
           node -e 'const r = require(process.argv[1]); const want = Number(process.argv[2]); if (r.numTotalTests !== want || r.numPassedTests !== want) { console.error(`expected ${want} of ${want} e2e tests to pass, got ${r.numPassedTests} passed of ${r.numTotalTests} (${r.numPendingTests} skipped)`); process.exit(1) }' "$RUNNER_TEMP/e2e.json" "$E2E_EXPECT"
+
+  # The docs website (site/README.md): docs/ through scripts/docs-site-sync.mjs into Starlight, with the link validator
+  # on, so a broken link or anchor in docs/ fails here. It builds only; nothing is deployed. The sync script needs
+  # nothing but Node, so the root install (and its native rebuild) is skipped.
+  docs-site:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # 24, not the 22 above: Astro 7 needs Node >= 22.23.4.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      - run: npm ci --prefix site
+
+      - run: npm run docs:build
