@@ -129,4 +129,7 @@ export const plans: Partial<Record<keyof typeof ko, string>> = {
   'plan.chat.openTab': 'タブで開く',
   'plan.chat.failed': 'プランナーのタブを開けませんでした',
   'plan.chat.remote': 'ペアリングした Runtime の計画は、このコンピューターでプランナーのタブを開けません',
+  'pages.plans.main.rowMenu': 'プランの操作',
+  'pages.plans.main.taskMenu': 'タスクの操作',
+  'pages.plans.main.rowMore': '{plan} の操作'
 }

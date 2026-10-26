@@ -5932,9 +5932,10 @@ export function registerIpc(
   // being started at an arbitrary path. write, resize, and close take only an id and are not subject to
   // path validation, and the only valid ids are the ones open returned (anything not in the map is
   // silently ignored).
-  ipcMain.handle('terminal.open', async (_e, projectPath: string, cols?: number, rows?: number) => {
+  ipcMain.handle('terminal.open', async (_e, projectPath: string, cols?: number, rows?: number, cwd?: string) => {
     await assertTerminalPath(projectPath)
-    return core.terminal.open(projectPath, cols, rows)
+    if (cwd) await assertTerminalPath(cwd)
+    return core.terminal.open(projectPath, cols, rows, cwd)
   })
   ipcMain.handle('terminal.list', async (_e, projectPath: string) => {
     // What the batcher holds goes first (final review m2): those chunks are in the buffers handed out here already.

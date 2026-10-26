@@ -221,13 +221,15 @@ export function useRunActions(deps: RunActionsDeps) {
   // function is not hoisted, but this is only definition order rather than execution, so no order can
   // produce a runtime reference error (both are created when the component body runs, and the actual
   // call happens later on a click, by which time openTerminal's closure over newTerminal is initialised).
-  /** `command`: typed into the new shell and run (Devices' Run in a terminal). */
-  const newTerminal = async (command?: string): Promise<void> => {
+  /** `command`: typed into the new shell and run (Devices' Run in a terminal). `cwd`: where the shell starts
+   *  (the explorer's Open in Terminal); default is the bottom root. main still lists the terminal under the bottom root,
+   *  so a panel re-list keeps it. */
+  const newTerminal = async (command?: string, cwd?: string): Promise<void> => {
     // bottomRoot — openTerminal 과 같은 경로여야 한다. currentProject 로 두면 프로젝트가 없을 때
     // 여기서 조용히 빠지고, 패널만 열린 채 터미널이 만들어지지 않는다.
     if (!bottomRoot) return
     try {
-      const info = await window.api.terminal.open(bottomRoot)
+      const info = await window.api.terminal.open(bottomRoot, undefined, undefined, cwd)
       if (command) window.api.terminal.write(info.id, `${command}\r`)
       setTerminals((prev) => [...prev, { id: info.id, buffer: '' }])
       setBottomTab(info.id)

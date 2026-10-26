@@ -6,8 +6,11 @@ import { memo, useState } from 'react'
 import { useVirtualRows, VIRTUAL_AFTER_ROWS } from '../ui/virtualRows'
 import { useI18n } from '../../i18n/I18nProvider'
 import { STATE_KEY, TaskGlyph } from '../JobIcons'
-import { Button, Chip, EmptyState, ICONS, Icon, IconButton, Meter, Switch, cx, type ChipTone } from '../ui'
+import { Button, Chip, EmptyState, ICONS, Icon, IconButton, Menu, Meter, Switch, cx, menuPointOf, type ChipTone, type IconName, type MenuItem } from '../ui'
 import { finishedAgeOf, finishedDateOf, mainPlanMemo, shownPlans, type Line, type MainPhase, type MainPlanBlock } from './mainPlanView'
+import { rowMenuActionsOf, type PlanActionId } from './mainPlanActions'
+import { RenamePlanModal } from './RenamePlanModal'
+import { jobName } from '../../lib/jobName'
 import { planStatusOf } from './planList'
 import type { PlanActs } from './PlanRow'
 import { statusGroupOf, type StatusGroup } from './planTree'
@@ -39,6 +42,8 @@ export const MainPlan = memo(function MainPlan({ rows, acts, accounts = [] }: { 
   const { t, lang } = useI18n()
   const [hideDone, setHideDone] = useState(storedHideDone)
   const [, setOpenTick] = useState(0)
+  const [renaming, setRenaming] = useState<{ id: string; title: string } | null>(null)
+  const [menu, setMenu] = useState<{ at: { x: number; y: number }; items: Array<MenuItem | 'separator'>; label: string } | null>(null)
   const view = mainPlanMemo(rows)
   const say = (l: Line): string => t(l.key, l.params)
   const plans = shownPlans(view, hideDone)
@@ -70,6 +75,46 @@ export const MainPlan = memo(function MainPlan({ rows, acts, accounts = [] }: { 
     requestAnimationFrame(() => document.getElementById(anchorOf(first.row.id))?.scrollIntoView({ block: 'start', behavior: 'smooth' }))
   }
 
+  const item = (id: string, label: string, icon: IconName, onSelect: () => void, danger?: boolean): MenuItem => ({ id, label, icon: <Icon name={icon} />, onSelect, ...(danger ? { danger } : {}) })
+  const planItems = (row: JobRow): Array<MenuItem | 'separator'> => {
+    const run: Record<PlanActionId, () => void> = {
+      approve: () => acts.onApprove?.(row.id),
+      pause: () => acts.onPause?.(row.id),
+      resume: () => acts.onResume?.(row.id),
+      hold: () => acts.onHold?.(row.id, true),
+      release: () => acts.onHold?.(row.id, false),
+      restartCoordinator: () => acts.onRestartCoordinator?.(row.id),
+      archive: () => acts.onArchive?.(row.id),
+      unarchive: () => acts.onUnarchive?.(row.id),
+      delete: () => acts.onDelete?.(row.id) // lib/jobActions asks before it deletes
+    }
+    const meta: Record<PlanActionId, [string, IconName]> = {
+      approve: [t('jobs.run.approve'), 'check'],
+      pause: [t('jobs.run.pause'), 'pause'],
+      resume: [t('jobs.run.resume'), 'run'],
+      hold: [t('jobs.run.pause'), 'pause'],
+      release: [t('jobs.run.resume'), 'run'],
+      restartCoordinator: [t('pages.plans.restartLead'), 'reset'],
+      archive: [t('jobs.lifecycle.archive'), 'archive'],
+      unarchive: [t('jobs.lifecycle.unarchive'), 'restore'],
+      delete: [t('jobs.run.delete'), 'delete']
+    }
+    const ids = rowMenuActionsOf(row, acts)
+    const rest = ids.filter((id) => id !== 'delete')
+    return [
+      item('open', t('pages.plans.tree.menu.open'), 'open', () => acts.onOpen(row.id)),
+      ...(acts.onRename ? [item('rename', t('jobs.lifecycle.rename'), 'edit', () => setRenaming({ id: row.id, title: jobName(row) }))] : []),
+      ...(rest.length > 0 ? ['separator' as const] : []),
+      ...rest.map((id) => item(id, meta[id][0], meta[id][1], run[id])),
+      ...(ids.includes('delete') ? ['separator' as const, item('delete', meta.delete[0], meta.delete[1], run.delete, true)] : [])
+    ]
+  }
+  const taskItems = (task: JobTask, row: JobRow, sessionId?: string): Array<MenuItem | 'separator'> => [
+    item('open', t('pages.plans.tree.menu.open'), 'open', () => (sessionId ? acts.onOpenSession(sessionId) : acts.onOpen(row.id))),
+    { id: 'console', label: t('pages.plans.tree.menu.openConsole'), icon: <Icon name="terminal" />, disabled: sessionId === undefined, onSelect: () => sessionId && acts.onOpenSession(sessionId) },
+    item('copy', t('pages.plans.tree.menu.copyId'), 'copy', () => window.api.clipboard.writeText(task.id))
+  ]
+
   const taskRow = (task: JobTask, row: JobRow): React.JSX.Element => {
     const sessionId = task.sessionId && acts.canOpenSession(task.sessionId) ? task.sessionId : undefined
     const group = statusGroupOf(task)
@@ -82,6 +127,10 @@ export const MainPlan = memo(function MainPlan({ rows, acts, accounts = [] }: { 
         className="plans-main__trow"
         title={task.title}
         onClick={() => (sessionId ? acts.onOpenSession(sessionId) : acts.onOpen(row.id))}
+        onContextMenu={(e) => {
+          e.preventDefault()
+          setMenu({ at: menuPointOf(e), items: taskItems(task, row, sessionId), label: t('pages.plans.main.taskMenu') })
+        }}
       >
         <TaskGlyph task={task} size={14} />
         <span className="plans-main__ttitle">{task.title}</span>
@@ -133,7 +182,13 @@ export const MainPlan = memo(function MainPlan({ rows, acts, accounts = [] }: { 
                 <span className="plans-main__phasecount">{view.counts[p.phase]}</span>
               </h3>
             )}
-            <div className="plans-row__main">
+            <div
+              className="plans-row__main"
+              onContextMenu={(e) => {
+                e.preventDefault()
+                setMenu({ at: menuPointOf(e), items: planItems(row), label: t('pages.plans.main.rowMenu') })
+              }}
+            >
               <IconButton
                 size="sm"
                 icon={<Icon name={open ? 'chevronDown' : 'chevronRight'} size={14} />}
@@ -164,6 +219,16 @@ export const MainPlan = memo(function MainPlan({ rows, acts, accounts = [] }: { 
               ) : (
                 <Meter className="plans-main__rowmeter" value={row.total > 0 ? (row.done / row.total) * 100 : 0} label={t('pages.plans.main.count', { done: row.done, total: row.total })} />
               )}
+              <IconButton
+                size="sm"
+                icon={<Icon name="more" size={14} />}
+                label={t('pages.plans.main.rowMore', { plan: name })}
+                aria-haspopup="menu"
+                onClick={(e) => {
+                  const r = e.currentTarget.getBoundingClientRect()
+                  setMenu({ at: { x: r.right, y: r.bottom }, items: planItems(row), label: t('pages.plans.main.rowMenu') })
+                }}
+              />
             </div>
             {open && (
               <>
@@ -191,6 +256,8 @@ export const MainPlan = memo(function MainPlan({ rows, acts, accounts = [] }: { 
         )
       })}
       </div>
+      {renaming && acts.onRename && <RenamePlanModal initial={renaming.title} onRename={(title) => acts.onRename?.(renaming.id, title)} onClose={() => setRenaming(null)} />}
+      {menu && <Menu at={menu.at} onClose={() => setMenu(null)} label={menu.label} items={menu.items} />}
     </div>
   )
 })

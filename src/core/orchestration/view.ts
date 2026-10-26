@@ -212,6 +212,7 @@ function jobTaskOf(
     openGates: open.length,
     ...(task.status === 'reviewing' && reviewerEnded(own, task.id) ? { reviewerEnded: true as const } : {}),
     ...(running ? { provider: running.provider, startedAt: running.startedAt } : {}),
+    ...(running?.held ? { workerHeld: true as const } : {}),
     ...(openEntry
       ? {
           waiting: {

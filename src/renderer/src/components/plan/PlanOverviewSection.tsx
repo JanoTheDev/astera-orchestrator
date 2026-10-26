@@ -6,6 +6,9 @@ import type { JobRow } from '../../../../core/types'
 import { useI18n } from '../../i18n/I18nProvider'
 import { PlanSummaryRollup } from '../wall/PlanSummaryRollup' // W9-I
 import { UsageStrip } from '../usage/UsageStrip'
+import { openPr } from '../../lib/jobActions'
+import type { OrchDoor } from '../../lib/orchDoor'
+import { toast } from '../../lib/toast'
 import { Button, Card, Icon, Meter, type IconName } from '../ui'
 import { PlanDecided } from './PlanOverview'
 import { durationText, planSummaryOf, type SummaryState } from './planSummary'
@@ -15,7 +18,7 @@ import type { PlanPageState } from './usePlanPage'
 const STATE_ICON: Record<SummaryState, IconName> = { done: 'done', running: 'active', waiting: 'queued', failed: 'error', cancelled: 'remove' }
 
 /** T3: the plan at a glance, from the row already on the page (no fetch). The time is read at render, to the minute. */
-export function PlanSummaryCard({ run }: { run: JobRow }): React.JSX.Element {
+export function PlanSummaryCard({ run, door }: { run: JobRow; door?: OrchDoor }): React.JSX.Element {
   const { t } = useI18n()
   const s = planSummaryOf(run, Date.now())
   const link = s.link
@@ -84,7 +87,16 @@ export function PlanSummaryCard({ run }: { run: JobRow }): React.JSX.Element {
                   <span>{link.branch}</span>
                 </span>
               )}
-              {link?.kind === 'prFailed' && <span title={link.error}>{t('github.link.runPrFailed')}</span>}
+              {link?.kind === 'prFailed' && (
+                <>
+                  <span title={link.error}>{t('github.link.runPrFailed')}</span>
+                  {door && door.readOnlyReason === null && (
+                    <Button size="sm" variant="ghost" icon={<Icon name="rerun" size={14} />} onClick={() => void openPr(door, run.foldedRunId ?? run.id, { t: t as never, error: toast.error })}>
+                      {t('plan.summary.retryPr')}
+                    </Button>
+                  )}
+                </>
+              )}
             </dd>
           </>
         )}

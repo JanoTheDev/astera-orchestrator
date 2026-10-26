@@ -11,8 +11,11 @@ import {
 } from '../../state/workspaceTree'
 import { switcherName } from '../../state/projectScope'
 import * as sticky from '../../lib/stickyProject'
+import { confirmModal } from '../../lib/confirm'
+import { toast } from '../../lib/toast'
 import { openActivity } from './navigation'
-import { Badge, Button, Icon, IconButton, Input, Kbd, Popover, Tooltip, type MenuItem } from '../ui'
+import { Badge, Button, Chip, Icon, IconButton, Input, Kbd, Menu, Popover, Tooltip, menuPointOf, type MenuItem } from '../ui'
+import { PROJECT_CHIP, projectActions, projectStateOf, type ProjectState } from '../projects/projectMenu'
 import type { Translate } from '../checkText'
 import './projectSwitcher.css'
 
@@ -39,7 +42,12 @@ export interface SwitcherProps {
 export interface SwitcherFacts {
   git?: Readonly<Record<string, ProjectGitStatus>>
   subProjects?: readonly SubProjectRef[]
+  /** Each workspace folder's state (missing, no git repository), by path. */
+  states?: Readonly<Record<string, ProjectState>>
 }
+
+/** The folder a row stands for: a sub-project shares its workspace's. */
+const folderOf = (p: Pick<SwitcherProps, 'tree'>, r: Pick<WorkspaceSummary, 'id' | 'parentId'>): string => p.tree.find((x) => x.id === (r.parentId ?? r.id))?.path ?? ''
 
 const rowName = (r: WorkspaceSummary, t: Translate): string => (r.id === OTHER_WORKSPACE ? t('shell.switcher.other') : r.name)
 
@@ -52,10 +60,10 @@ export function countsText(r: Pick<WorkspaceSummary, 'plans' | 'questions'>, t: 
   return parts.filter(Boolean).join(' · ')
 }
 
-function rowLabel(r: WorkspaceSummary, key: number | undefined, t: Translate): React.JSX.Element {
+function rowLabel(r: WorkspaceSummary, key: number | undefined, t: Translate, state: ProjectState = 'ok'): React.JSX.Element {
   const dot = projectStatusDot(r)
   const counts = countsText(r, t)
-  const meta = r.branch !== undefined || r.behind > 0 || counts !== ''
+  const meta = r.branch !== undefined || r.behind > 0 || counts !== '' || state !== 'ok'
   return (
     <span className="tb-psw-row">
       <span className={`tb-psw-dot tb-psw-dot--${dot}`} role="img" aria-label={t(`shell.switcher.dot.${dot}`)} />
@@ -76,6 +84,12 @@ function rowLabel(r: WorkspaceSummary, key: number | undefined, t: Translate): R
               </span>
             )}
             {counts !== '' && <span className="tb-psw-counts">{counts}</span>}
+            {state !== 'ok' && (
+              <Chip tone="warn">
+                <Icon name={PROJECT_CHIP[state].icon} size={14} />
+                {t(PROJECT_CHIP[state].key)}
+              </Chip>
+            )}
           </span>
         )}
       </span>
@@ -96,7 +110,7 @@ export function switcherItems(p: SwitcherProps, facts: SwitcherFacts = {}): Menu
   return [
     { id: 'all', label: t('wall.scope.all'), icon: <Icon name="layoutGrid" size={14} />, onSelect: () => p.onSelect(null) },
     ...rows.flatMap((r): MenuItem[] => [
-      { id: r.id, label: rowLabel(r, r.parentId === undefined ? slot.get(r.id) : undefined, t), onSelect: () => p.onSelect(r.parentId ?? r.id) },
+      { id: r.id, label: rowLabel(r, r.parentId === undefined ? slot.get(r.id) : undefined, t, facts.states?.[folderOf(p, r)]), onSelect: () => p.onSelect(r.parentId ?? r.id) },
       ...(r.dirty > 0 || r.unpushed > 0
         ? [{
             id: `changes:${r.id}`,
@@ -141,16 +155,22 @@ function useSwitcherFacts(open: boolean, tree: readonly WorkspaceProject[]): Swi
     if (!open || paths === '') return
     let alive = true
     const list = paths.split('\n')
+    const stateOf = async (path: string): Promise<[string, ProjectState]> => {
+      const exists = await window.api.system.pathExists(path).catch(() => undefined)
+      const repo = exists === false ? undefined : (await window.api.worktrees.isGitRepo(path).catch(() => undefined))?.kind
+      return [path, projectStateOf({ exists, repo })]
+    }
     void Promise.all([
       window.api.projects.status(list).catch(() => ({})),
+      Promise.all(list.map(stateOf)),
       window.api.orch.command(list[0], 'projects-list', {}).then(
         (r) => (r.status === 200 && Array.isArray(r.body) ? (r.body as Project[]) : []),
         () => []
       )
-    ]).then(([git, projects]) => {
+    ]).then(([git, states, projects]) => {
       if (!alive) return
       const subProjects = projects.flatMap((x) => (x.parentId === undefined ? [] : [{ id: x.id, name: x.name, parentId: x.parentId }]))
-      setFacts({ git, subProjects })
+      setFacts({ git, subProjects, states: Object.fromEntries(states) })
     })
     return () => {
       alive = false
@@ -200,8 +220,41 @@ export function ProjectSwitcher(p: SwitcherProps): React.JSX.Element {
     if (e.key === 'Home' || e.key === 'End') e.stopPropagation() // the caret's, not the list's
     else if (e.key === 'Enter') pick(byId.get(shown[0]?.id ?? ''))
   }
-  const row = (it: MenuItem, opts: { current?: boolean; className?: string; extra?: React.ReactNode } = {}): React.JSX.Element => (
-    <div key={it.id} className={`tb-sw-item${opts.className ? ` ${opts.className}` : ''}`}>
+  const [menu, setMenu] = useState<{ at: { x: number; y: number }; items: Array<MenuItem | 'separator'> } | null>(null)
+  // Right-click on a project row: Open, Open in new window, Settings, Reveal folder, Remove (projectMenu.ts says which stand).
+  const rowMenu = (r: WorkspaceSummary): Array<MenuItem | 'separator'> => {
+    const folder = folderOf(p, r)
+    const id = r.parentId ?? r.id
+    const label: Record<string, string> = {
+      open: t('shell.projectMenu.open'), window: t('shell.projectMenu.window'), settings: t('shell.projectMenu.settings'),
+      reveal: t('shell.projectMenu.reveal'), remove: t('shell.projectMenu.remove')
+    }
+    const icon = { open: 'folder', window: 'external', settings: 'settings', reveal: 'folder', remove: 'delete' } as const
+    const run: Record<string, () => void> = {
+      open: () => p.onSelect(id),
+      window: () => p.onOpenWindow?.(id),
+      settings: () => p.onSettings(r.id),
+      reveal: () => void window.api.files.reveal(folder).catch((e) => toast.error(t('shell.projectMenu.revealFailed', { message: e instanceof Error ? e.message : String(e) }))),
+      remove: () => void removeProject(r)
+    }
+    return projectActions({ state: facts.states?.[folder] ?? 'ok', canWindow: !!p.onOpenWindow, tools: p.toolsDisabledReason === undefined }).map((a) => ({
+      id: a.id, label: label[a.id], icon: <Icon name={icon[a.id]} size={14} />, disabled: a.disabled, danger: a.id === 'remove', onSelect: run[a.id]
+    }))
+  }
+  // The same unregistering as Project Settings' Remove: nothing on disk is touched.
+  const removeProject = async (r: WorkspaceSummary): Promise<void> => {
+    const ok = await confirmModal({ title: t('project.remove.title', { name: r.name }), body: t('project.remove.body'), confirmLabel: t('project.remove.confirm'), danger: true })
+    if (!ok) return
+    const res = await window.api.orch.command(p.tree[0]?.path ?? folderOf(p, r), 'projects-remove', { id: r.id }).catch(() => null)
+    if (res?.status !== 200) return void toast.error((res?.body as { error?: string } | null)?.error ?? t('project.error.remove'))
+    if (p.selectedId === r.id) p.onSelect(null)
+  }
+  const row = (it: MenuItem, opts: { current?: boolean; className?: string; extra?: React.ReactNode; menu?: WorkspaceSummary } = {}): React.JSX.Element => (
+    <div
+      key={it.id}
+      className={`tb-sw-item${opts.className ? ` ${opts.className}` : ''}`}
+      onContextMenu={opts.menu && ((e) => { e.preventDefault(); setMenu({ at: menuPointOf(e), items: rowMenu(opts.menu!) }) })}
+    >
       <Button
         variant="ghost"
         data-roving=""
@@ -271,12 +324,13 @@ export function ProjectSwitcher(p: SwitcherProps): React.JSX.Element {
           {shown.length === 0 && <div className="tb-sw-empty">{t('shell.switcher.noMatch')}</div>}
           {shown.map((r) => {
             const it = byId.get(r.id)
-            return it ? row(it, { current: r.id === p.selectedId, className: r.parentId !== undefined ? 'tb-psw-sub' : undefined, extra: <>{changesBadge(r)}{windowButton(r)}</> }) : null
+            return it ? row(it, { current: r.id === p.selectedId, className: r.parentId !== undefined ? 'tb-psw-sub' : undefined, extra: <>{changesBadge(r)}{windowButton(r)}</>, menu: r.id === OTHER_WORKSPACE ? undefined : r }) : null
           })}
           <div className="tb-psw-section" role="presentation">{t('shell.switcher.actions')}</div>
           {actions.map((it) => row(it, { className: 'tb-psw-action' }))}
         </div>
       </Popover>
+      {menu && <Menu at={menu.at} items={menu.items} label={t('shell.projectMenu.label')} onClose={() => setMenu(null)} />}
     </div>
   )
 }

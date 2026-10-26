@@ -125,6 +125,7 @@ function WorktreeTab({ p, path, close }: { p: ViewTabProps; path?: string; close
         p.setShowNew(true)
       }}
       onOpenFiles={(cwd) => p.openLinkedFolder(cwd)}
+      onTerminal={(cwd) => void p.newTerminal(undefined, cwd)}
     />
   )
 }

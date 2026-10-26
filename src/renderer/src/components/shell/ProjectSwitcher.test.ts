@@ -112,4 +112,12 @@ describe('ProjectSwitcher search', () => {
     expect(matchesProject('Astera Web', '')).toBe(true)
     expect(matchesProject('Astera Web', 'gameful')).toBe(false)
   })
+
+  it('shows a chip with a word and an icon on a project whose folder is missing or is no git repository', () => {
+    const items = switcherItems(props(), { states: { '/repos/gameful': 'missing', '/repos/astera': 'notGit' } })
+    expect(html(items[1].label)).toContain('Folder missing')
+    expect(html(items[1].label)).toContain('<svg')
+    expect(html(items[2].label)).toContain('Not a git repository')
+    expect(html(switcherItems(props())[1].label)).not.toContain('ui-chip')
+  })
 })

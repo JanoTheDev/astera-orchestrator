@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
@@ -7,6 +7,9 @@ import { pinCursorBlinkOff } from '../lib/cursorBlink'
 import { useTerminalFont } from '../lib/terminalFont'
 import { useTheme } from '../lib/theme'
 import { attachConsoleLinks } from '../terminalLinks'
+import { useI18n } from '../i18n/I18nProvider'
+import { RunFindBar } from './RunFindBar'
+import { attachTerminalKeys, useTerminalFind, useTerminalMenu, type TerminalClipboard } from './terminalMenu'
 
 /**
  * Project terminal body. Subscribes to terminal:data, and input goes to the PTY via terminal.write.
@@ -46,10 +49,19 @@ export function TerminalBody({
   /** A folder link's click (D2, 2026-10-14), as in a session terminal. */
   onOpenFolder?: (path: string) => void
 }): React.JSX.Element {
+  const { t } = useI18n()
+  const termRef = useRef<Terminal | null>(null)
   const { family } = useTerminalFont()
   const { theme } = useTheme()
+  const [findOpen, setFindOpen] = useState(false)
+  const clipRef = useRef<TerminalClipboard | null>(null)
+  const find = useTerminalFind(termRef, theme, findOpen, setFindOpen)
+  const { onContextMenu, menu } = useTerminalMenu(clipRef, t)
+  const attachFindRef = useRef(find.attach)
+  attachFindRef.current = find.attach
+  const resetFindRef = useRef(find.reset)
+  resetFindRef.current = find.reset
   const hostRef = useRef<HTMLDivElement>(null)
-  const termRef = useRef<Terminal | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
   const onOpenUrlRef = useRef(onOpenUrl)
   onOpenUrlRef.current = onOpenUrl
@@ -76,6 +88,7 @@ export function TerminalBody({
     const blinkGuard = pinCursorBlinkOff(term)
     const fit = new FitAddon()
     term.loadAddon(fit)
+    const detachFind = attachFindRef.current(term)
     term.open(host)
     // URLs and paths in the output are links; a path is a link only when main finds a regular file
     // there (files.resolveLink), relative ones against the folder the shell was opened in — the same
@@ -85,6 +98,13 @@ export function TerminalBody({
       resolvePath: (target) => window.api.files.resolveLink(cwdRef.current ?? '', target, undefined, { dirs: true }).catch(() => null),
       onOpenFile: (path, at) => onOpenFileRef.current(path, at),
       onOpenFolder: (path) => onOpenFolderRef.current?.(path)
+    })
+    // The same copy / paste / find keys as every other terminal. Without them a Linux or Windows shell has no copy or
+    // paste at all: the app menu that normally carries them is null there.
+    clipRef.current = attachTerminalKeys(term, {
+      isMac: window.api.platform === 'darwin',
+      onFind: () => setFindOpen(true),
+      onClear: () => resetFindRef.current()
     })
     fit.fit()
     termRef.current = term
@@ -106,6 +126,9 @@ export function TerminalBody({
     })
     observer.observe(host)
     return () => {
+      clipRef.current?.dispose()
+      clipRef.current = null
+      detachFind()
       disposeLinks()
       off()
       blinkGuard.dispose()
@@ -151,5 +174,11 @@ export function TerminalBody({
     if (clearNonce > 0) termRef.current?.clear()
   }, [clearNonce])
 
-  return <div className="run-panel-host" ref={hostRef} />
+  return (
+    <div className="run-panel-body" onContextMenu={onContextMenu}>
+      <div className="run-panel-host" ref={hostRef} />
+      {findOpen && <RunFindBar {...find.barProps} />}
+      {menu}
+    </div>
+  )
 }

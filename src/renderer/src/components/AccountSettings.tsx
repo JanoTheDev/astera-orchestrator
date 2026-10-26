@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { Account } from '../../../core/types'
-import { providerOf } from '../../../core/providers/meta'
+import { PROVIDER_META, providerOf } from '../../../core/providers/meta'
 import { duplicateLoginGroups } from '../../../core/accounts/duplicateLogins'
 import { useAccountStatus } from '../hooks/useAccountStatus'
 import { useAccountUsage } from '../hooks/useAccountUsage'
-import { AccountRow } from './AccountRow'
+import { AccountRow, usePausedIds } from './AccountRow'
+import { AccountSignInDialog } from './AccountSignIn'
+import { accountActions, type AccountActionId } from './accountActions'
+import { useActiveSession } from '../lib/activeSession'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
-import { Button, Card, Checkbox, EmptyState, ICONS, Icon, IconButton, Modal } from './ui'
+import { Button, Card, Checkbox, ConfirmDialog, EmptyState, ICONS, Icon, Modal } from './ui'
 
 /** The Accounts tab of the settings modal. It holds the delete and import-settings flows moved over from
  *  the sidebar. The sidebar (AccountPanel) is left with only listing and adding accounts. */
@@ -20,6 +23,10 @@ export function AccountSettings({ accounts }: { accounts: Account[] }): React.JS
   const [removeTarget, setRemoveTarget] = useState<Account | null>(null)
   const [syncTarget, setSyncTarget] = useState<Account | null>(null)
   const [syncing, setSyncing] = useState(false)
+  const [signInTarget, setSignInTarget] = useState<Account | null>(null)
+  const [signOutTarget, setSignOutTarget] = useState<Account | null>(null)
+  const paused = usePausedIds()
+  const { switchBlock, switchTab } = useTabSwitch(accounts, loginMap)
   const [mergeTarget, setMergeTarget] = useState<{ keep: Account; drop: Account } | null>(null)
 
   // Accounts signed in as the same email: the kept one of each group, found for every account in it.
@@ -37,7 +44,15 @@ export function AccountSettings({ accounts }: { accounts: Account[] }): React.JS
     return out
   }, [accounts, loginMap, emailMap])
 
-  const openRemove = (account: Account): void => setRemoveTarget(account)
+  const act = (a: Account, id: AccountActionId): void => {
+    if (id === 'signIn' || id === 'signInAgain') setSignInTarget(a)
+    else if (id === 'signOut') setSignOutTarget(a)
+    else if (id === 'switch') void switchTab(a)
+    else if (id === 'merge') {
+      const dup = sameLoginAs.get(a.id)
+      if (dup) setMergeTarget(dup)
+    } else if (id === 'remove') setRemoveTarget(a)
+  }
 
   const confirmSync = async (): Promise<void> => {
     if (!syncTarget || syncing) return
@@ -71,28 +86,20 @@ export function AccountSettings({ accounts }: { accounts: Account[] }): React.JS
             isDefault={defaultId === a.id}
             usage={usage[a.configDir]}
             note={dup ? t('account.merge.sameLogin', { label: dup.keep.label }) : undefined}
+            actions={accountActions({ loggedIn: loginMap[a.id], switchBlock: switchBlock(a), mergeable: Boolean(dup) })}
+            onAction={(id) => act(a, id)}
+            paused={paused.has(a.id)}
             expanded={expandedId === a.id}
             onToggle={() => setExpandedId((cur) => (cur === a.id ? null : a.id))}
           >
             {/* Importing needs a source, and that source is this provider's default account. Hidden on the default
                 itself (it would be copying onto itself) and when the provider has no default yet, which
                 means nothing of that CLI is logged in. */}
-            {dup && (
-              <Button size="sm" variant="ghost" onClick={() => setMergeTarget(dup)}>
-                {t('account.merge.button')}
-              </Button>
-            )}
             {defaultId !== null && defaultId !== a.id && (
               <Button size="sm" variant="ghost" title={t('account.sync.title')} onClick={() => setSyncTarget(a)}>
                 {t('account.sync.button')}
               </Button>
             )}
-            <IconButton
-              size="sm"
-              icon={<Icon name="delete" size={14} />}
-              label={t('account.remove.button')}
-              onClick={() => openRemove(a)}
-            />
           </AccountRow>
           )
         })}
@@ -106,6 +113,8 @@ export function AccountSettings({ accounts }: { accounts: Account[] }): React.JS
       )}
       {mergeTarget && <MergeAccountsDialog keep={mergeTarget.keep} drop={mergeTarget.drop} onClose={() => setMergeTarget(null)} />}
       {removeTarget && <RemoveAccountDialog account={removeTarget} onClose={() => setRemoveTarget(null)} />}
+      {signInTarget && <AccountSignInDialog account={signInTarget} onClose={() => setSignInTarget(null)} />}
+      {signOutTarget && <SignOutDialog account={signOutTarget} onClose={() => setSignOutTarget(null)} />}
       {syncTarget && (
         <Modal
           title={t('account.sync.title')}
@@ -275,5 +284,77 @@ export function RemoveAccountDialog({ account, onClose }: { account: Account; on
         {logoutToo && <p className="acct-note acct-note--warn">{t('account.remove.logoutWarning')}</p>}
       </div>
     </Modal>
+  )
+}
+
+/** "Use for this tab" for a list of rows: moves the session tab the top bar speaks for onto an account. `switchBlock` says
+ *  why the item is off for an account, null when it works, undefined when the account is the one the tab already runs on. */
+export function useTabSwitch(
+  accounts: Account[],
+  loginMap: Record<string, boolean>
+): { switchBlock: (a: Account) => string | null | undefined; switchTab: (a: Account) => Promise<void> } {
+  const { t } = useI18n()
+  const tab = useActiveSession()
+  const tabAccount = tab ? accounts.find((a) => a.id === tab.accountId) : undefined
+  const [switching, setSwitching] = useState(false)
+
+  const switchTab = async (a: Account): Promise<void> => {
+    if (!tab || switching) return
+    setSwitching(true)
+    try {
+      const r = await window.api.rolling.switchTo(tab.id, a.id)
+      if (r.outcome === 'switched' || r.outcome === 'same') toast.success(t('account.switch.done', { label: a.label }))
+      else if (r.outcome === 'busy') toast.info(t('account.switch.busy'))
+      else toast.error(t('account.switch.failed', { detail: r.reason ?? '' }))
+    } catch (err) {
+      toast.error(t('account.switch.failed', { detail: err instanceof Error ? err.message : String(err) }))
+    } finally {
+      setSwitching(false)
+    }
+  }
+
+  const switchBlock = (a: Account): string | null | undefined => {
+    if (!tab || !tabAccount) return t('account.switch.noTab')
+    if (providerOf(a) !== providerOf(tabAccount))
+      return t('account.switch.otherProvider', { provider: PROVIDER_META[providerOf(tabAccount)].displayName })
+    if (a.id === tab.accountId) return undefined
+    if (loginMap[a.id] !== true) return t('account.status.notLoggedIn')
+    return switching ? t('account.switch.busy') : null
+  }
+  return { switchBlock, switchTab }
+}
+
+/** Confirms signing an account out (the CLI's own logout, which removes its credentials). The account stays registered. */
+export function SignOutDialog({ account, onClose }: { account: Account; onClose: () => void }): React.JSX.Element {
+  const { t, tm } = useI18n()
+  const [busy, setBusy] = useState(false)
+  const confirm = async (): Promise<void> => {
+    if (busy) return
+    setBusy(true)
+    try {
+      const r = await window.api.accounts.logout(account.id)
+      if (r.ok) toast.success(t('account.signOut.done', { label: account.label }))
+      else toast.error(t('account.signOut.failed', { detail: tm(r.message ?? null) ?? '' }))
+    } catch (err) {
+      toast.error(t('account.signOut.failed', { detail: err instanceof Error ? err.message : String(err) }))
+    } finally {
+      // The login check re-runs when the window regains focus; ask it now so the row does not keep its old state.
+      window.dispatchEvent(new Event('focus'))
+      setBusy(false)
+      onClose()
+    }
+  }
+  return (
+    <ConfirmDialog
+      title={t('account.signOut.title', { label: account.label })}
+      confirmLabel={busy ? t('account.signOut.processing') : t('account.signOut.button')}
+      cancelLabel={t('common.cancel')}
+      closeLabel={t('common.close')}
+      danger
+      onConfirm={() => void confirm()}
+      onCancel={() => !busy && onClose()}
+    >
+      <p className="acct-note">{t('account.signOut.confirm', { label: account.label })}</p>
+    </ConfirmDialog>
   )
 }

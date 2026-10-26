@@ -21,6 +21,7 @@ import { toast } from '../lib/toast'
 import { escStopsAgent, pointerToView, type AgentPointerState } from './agentOverlay'
 import { AnnotationPopover } from './AnnotationPopover'
 import { AnnotationTray } from './AnnotationTray'
+import { browserMenuActions, type BrowserMenuAction } from './browserMenu'
 import { EmptyState, Icon, ICONS, IconButton, Input, Menu, Button, Select, type MenuItem } from './ui'
 import type { BrowserTab } from './WorkbenchTabs'
 
@@ -197,7 +198,7 @@ export function BrowserPane({
   const [gaveUp, setGaveUp] = useState(false)
   const [devtools, setDevtools] = useState(false)
   // Right-click inside the page: screen coordinates for the menu, guest coordinates for inspectElement
-  const [menu, setMenu] = useState<{ x: number; y: number; gx: number; gy: number } | null>(null)
+  const [menu, setMenu] = useState<{ x: number; y: number; gx: number; gy: number; actions: BrowserMenuAction[] } | null>(null)
 
   // ---- Design Mode ----
   const [designMode, setDesignMode] = useState(false)
@@ -362,7 +363,7 @@ export function BrowserPane({
     const onFocus = (): void => onFocusPaneRef.current()
     const onMenu = (e: Electron.ContextMenuEvent): void => {
       const r = view.getBoundingClientRect()
-      setMenu({ x: r.left + e.params.x, y: r.top + e.params.y, gx: e.params.x, gy: e.params.y })
+      setMenu({ x: r.left + e.params.x, y: r.top + e.params.y, gx: e.params.x, gy: e.params.y, actions: browserMenuActions(e.params) })
     }
     const onDevtoolsOpened = (): void => setDevtools(true)
     const onDevtoolsClosed = (): void => setDevtools(false)
@@ -801,8 +802,28 @@ export function BrowserPane({
 
   const waiting = error?.kind === 'unreachable' && serverPending && !gaveUp
 
+  const paramItem = (a: BrowserMenuAction): MenuItem => {
+    const view = viewRef.current
+    switch (a.kind) {
+      case 'copyLink':
+        return { label: t('preview.menu.copyLink'), onSelect: () => window.api.clipboard.writeText(a.url) }
+      case 'openLink':
+        return { label: t('preview.menu.openLink'), onSelect: () => void window.api.system.openExternal(a.url) }
+      case 'copyText':
+        return { label: t('preview.menu.copyText'), onSelect: () => window.api.clipboard.writeText(a.text) }
+      case 'copyImage':
+        return { label: t('preview.menu.copyImageAddress'), onSelect: () => window.api.clipboard.writeText(a.url) }
+      case 'cut':
+        return { label: t('preview.menu.cut'), onSelect: () => view?.cut() }
+      case 'copy':
+        return { label: t('preview.menu.copy'), onSelect: () => view?.copy() }
+      case 'paste':
+        return { label: t('preview.menu.paste'), onSelect: () => view?.paste() }
+    }
+  }
   const menuItems: Array<MenuItem | 'separator'> = menu
     ? [
+        ...(menu.actions.length > 0 ? [...menu.actions.map(paramItem), 'separator' as const] : []),
         { label: t('preview.toolbar.back'), disabled: !canBack, onSelect: () => viewRef.current?.goBack() },
         { label: t('preview.toolbar.reload'), onSelect: () => viewRef.current?.reload() },
         'separator',

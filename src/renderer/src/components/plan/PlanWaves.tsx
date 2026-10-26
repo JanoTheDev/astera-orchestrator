@@ -13,6 +13,8 @@ import { Button, Icon, Tabs } from '../ui'
 import { coordinatorRefreshOf, replanningOf } from './planBoard'
 import { askAboutTaskWithToast } from './planCommands'
 import { doneViewOf } from './taskDoneView'
+import { runTaskAction } from './taskActionRun'
+import type { OnTaskAction } from './TaskActionMenu'
 import { taskAnchorId, type WaveStatus } from './planPage'
 import { Graph } from './PlanGraph'
 import { TaskBoard } from './TaskBoard'
@@ -57,6 +59,34 @@ export const answerVia =
 const NO_LAYERS: string[][] = []
 const NO_EVENTS: JobEvent[] = []
 
+/** One stable handler for a Task's actions (buttons and right-click menus of the board, its detail and the graph): the page's
+ *  own commands, read through a ref so a memoised board keeps its props. */
+function useTaskActions(p: PlanPageState, door: OrchDoor, runId: string): OnTaskAction {
+  const { t } = useI18n()
+  const ref = useRef({ p, door, runId, t })
+  ref.current = { p, door, runId, t }
+  return useCallback((id, task) => {
+    const { p, door, runId, t } = ref.current
+    void runTaskAction(id, task, {
+      door,
+      ui: p.ui,
+      runId,
+      t,
+      start: (taskId) => void p.startTask(taskId),
+      stop: (taskId) => void p.stopTask(taskId),
+      stopAutoFix: (taskId) => void p.stopConvergence(taskId),
+      restart: (taskId) => void p.restartTask(taskId),
+      // the question form is the journal's (PlanJournal), the same one the graph's button opens
+      ask: (taskId) => {
+        p.setAsking(taskId)
+        p.setQuestion('')
+        p.setGateError(null)
+      },
+      show: (taskId) => p.setSelected(taskId)
+    })
+  }, [])
+}
+
 /** The Task board of a plan with its sessions wired in, and an expanded row's completion checks and changes.
  *  `compact`: no model, account, branch or files in a row's detail (simple mode). */
 export function PlanTaskBoard({
@@ -94,6 +124,7 @@ export function PlanTaskBoard({
   const canOpen = useCallback((id: string) => openRef.current.canOpenSession(id), [])
   const openSession = useCallback((id: string) => openRef.current.onOpenSession(id), [])
   const onAsk = useCallback((id: string) => askAboutTaskWithToast(door, runId, id, t), [door, runId, t])
+  const onTaskAction = useTaskActions(p, door, runId)
   const renderAbout = useCallback(
     (tk: JobTask) => (
       // T2: everything about the Task, its Edit and its Request changes; a dep's title opens that Task's row
@@ -107,13 +138,15 @@ export function PlanTaskBoard({
         accountLabel={(id) => accounts?.find((a) => a.id === id)?.label ?? id}
         onRestart={onRestart}
         onAsk={onAsk}
+        onTaskAction={onTaskAction}
+        canManualStart={p.canManualStart}
         onShowTask={(id) => {
           pRef.current.setSelected(id)
           requestAnimationFrame(() => document.getElementById(taskAnchorId(id))?.scrollIntoView({ block: 'center' }))
         }}
       />
     ),
-    [door, runId, tasks, compact, accounts, onRestart, onAsk]
+    [door, runId, tasks, compact, accounts, onRestart, onAsk, onTaskAction, p.canManualStart]
   )
   const renderDetail = useCallback(
     (tk: JobTask) => (
@@ -146,6 +179,8 @@ export function PlanTaskBoard({
       compact={compact}
       onAddTask={onAddTask}
       onRestart={onRestart}
+      onTaskAction={onTaskAction}
+      canManualStart={p.canManualStart}
       lockedReason={p.lockedReason}
       renderAbout={renderAbout}
       renderDetail={renderDetail}
@@ -178,6 +213,7 @@ export function PlanWaves({
   const { t } = useI18n()
   const { tasks, accounts, selectedTask, onNodeClick, view, setView, waveStatus, lockedReason, busy } = p
   const graph = !simple && view === 'graph'
+  const onTaskAction = useTaskActions(p, door, runId)
   // "Add task to this step" presets the form's deps; the bar's button opens it empty
   const [initialDeps, setInitialDeps] = useState<string[]>([])
   const canAdd = lockedReason === undefined && busy === null && !p.authoringOpen
@@ -270,6 +306,7 @@ export function PlanWaves({
           }}
           onRestart={(taskId) => void p.restartTask(taskId)}
           onStopConvergence={(taskId) => void p.stopConvergence(taskId)}
+          onTaskAction={onTaskAction}
         />
       )}
     </>

@@ -1,7 +1,9 @@
-import type { RollStateEvent, SchedStateEvent } from '../../../core/types'
+import type { Account, RollStateEvent, SchedStateEvent, SessionInfo } from '../../../core/types'
 import { schedRuleSummary } from '../../../core/scheduler/summary'
 import { useI18n } from '../i18n/I18nProvider'
-import { Button, Icon } from './ui'
+import { useAccountsList } from '../hooks/useAccountStatus'
+import { moveTargets, moveToAccount } from './shell/tabActions'
+import { Button, Icon, Menu } from './ui'
 
 const fmtTime = (iso?: string): string =>
   iso
@@ -27,6 +29,11 @@ const fmtDateTime = (iso?: string): string =>
 export const rollBannerVisible = (s: RollStateEvent | null): s is RollStateEvent =>
   !!s && s.state !== 'none' && s.state !== 'nudged' && s.state !== 'stalled'
 
+/** The accounts the waiting banner's "Switch account now" offers: only while the roll waits out a limit, and only
+ *  when the banner knows its session (the terminal passes it). */
+export const switchNowTargets = (s: RollStateEvent | null, session: SessionInfo | undefined, accounts: readonly Account[]): Account[] =>
+  s?.state === 'waiting' && session ? moveTargets(session, [...accounts]) : []
+
 /** One banner's height in the strip — the same 25px `.sched-banner.below-roll` offsets by, measured
  *  there. Kept beside that rule so the two move together. */
 const BANNER_ROW_PX = 25
@@ -48,14 +55,18 @@ export const stateBannerHeight = (rollState: RollStateEvent | null, schedState: 
  *  strip sized by stateBannerHeight above. */
 export function SessionStateBanners({
   sessionId,
+  session,
   rollState,
   schedState
 }: {
   sessionId: string
+  /** The terminal's session, for the waiting banner's account switch; absent, the banner offers none. */
+  session?: SessionInfo
   rollState: RollStateEvent | null
   schedState: SchedStateEvent | null
 }): React.JSX.Element | null {
   const { t } = useI18n()
+  const targets = switchNowTargets(rollState, session, useAccountsList().accounts ?? [])
   if (!rollBannerVisible(rollState) && !(schedState && schedState.state === 'active')) return null
   return (
     <>
@@ -80,6 +91,14 @@ export function SessionStateBanners({
                     time: fmtTime(rollState.nextRetryAt)
                   }))}
           </span>
+          {session && targets.length > 0 && (
+            <Menu
+              label={t('session.terminal.switchNow')}
+              align="end"
+              items={targets.map((a) => ({ id: a.id, label: a.label, onSelect: () => void moveToAccount(session, a, t) }))}
+              trigger={{ size: 'sm', variant: 'ghost', children: t('session.terminal.switchNow') }}
+            />
+          )}
         </div>
       )}
       {schedState && schedState.state === 'active' && (

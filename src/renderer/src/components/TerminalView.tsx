@@ -11,12 +11,14 @@ import { useI18n } from '../i18n/I18nProvider'
 import { useTerminalFont } from '../lib/terminalFont'
 import { useTheme } from '../lib/theme'
 import { attachConsoleLinks } from '../terminalLinks'
-import { copyTextFor } from '../../../core/terminal/copy'
 import { SessionStateBanners } from './SessionStateBanners'
 import { terminalMayTakeFocus } from '../lib/terminalFocus'
 import { registerDockable } from './wall/consoleDock'
 import { exitWording } from '../../../core/sessions/exitWording'
+import { RunFindBar } from './RunFindBar'
+import { attachTerminalKeys, useTerminalFind, useTerminalMenu, type TerminalClipboard } from './terminalMenu'
 import { Button, Icon } from './ui'
+import type { RestartHow } from '../state/restartOptions'
 
 /** W9-H: a wall tile's font (DESIGN §2: the session's own xterm at 10.5–11px). */
 export const TILE_FONT = 11
@@ -36,7 +38,8 @@ export function TerminalView({
   onOpenFolder
 }: {
   session: SessionInfo
-  onRestart: (old: SessionInfo) => void
+  /** The exit overlay's choice: resume the conversation (the default), start fresh, or close the tab. */
+  onRestart: (old: SessionInfo, how?: RestartHow | 'close') => void
   rollState?: RollStateEvent | null
   schedState?: SchedStateEvent | null
   active?: boolean
@@ -51,6 +54,14 @@ export function TerminalView({
   const { theme } = useTheme()
   const hostRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
+  const clipRef = useRef<TerminalClipboard | null>(null)
+  const [findOpen, setFindOpen] = useState(false)
+  const find = useTerminalFind(termRef, theme, findOpen, setFindOpen)
+  const { onContextMenu, menu } = useTerminalMenu(clipRef, t)
+  const attachFindRef = useRef(find.attach)
+  attachFindRef.current = find.attach
+  const resetFindRef = useRef(find.reset)
+  resetFindRef.current = find.reset
   const onOpenUrlRef = useRef(onOpenUrl)
   onOpenUrlRef.current = onOpenUrl
   const onOpenFileRef = useRef(onOpenFile)
@@ -84,6 +95,7 @@ export function TerminalView({
     })
     // If a program run inside the session changes the cursor style and does not restore it, only that tab's cursor blinks
     const blinkGuard = pinCursorBlinkOff(term)
+    const detachFind = attachFindRef.current(term)
     term.open(host)
     // URLs and paths in the output are links. A path is resolved by main — against the agent's current
     // directory (its statusLine payload), then the session's cwd — and is a link only when a regular
@@ -225,71 +237,21 @@ export function TerminalView({
     // On macOS, terminal copy/paste is Cmd. Ctrl+C must always flow through as an interrupt — swallowing
     // it just because a selection is active is, to a mac user, simply a 'Ctrl+C doesn't work' bug.
     const isMac = window.api.platform === 'darwin'
-    // 선택이 만들어지던 순간의 글자. xterm 의 선택은 좌표만 가리키고 글자를 붙잡지 않으므로,
-    // claude 처럼 화면을 매 프레임 다시 그리는 TUI 위에서는 Cmd+C 를 누를 때 그 좌표에서 읽히는
-    // 것이 이미 다른 것 — 대개 공백 — 이다. 고를 때 붙잡아 두는 것이 유일한 방법이다.
-    // (core/terminal/copy.ts 가 그 판단과 측정을 적어 둔다.)
-    let latchedSelection = ''
-    const selectionLatch = term.onSelectionChange(() => {
-      latchedSelection = term.getSelection()
-    })
-    /** Was the modifier that opens copy/paste on this platform pressed? */
-    const clipMod = (e: KeyboardEvent): boolean => (isMac ? e.metaKey : e.ctrlKey)
-    /** The opposite modifier — if it's held too, this is a different combo and not ours. */
-    const otherMod = (e: KeyboardEvent): boolean => (isMac ? e.ctrlKey : e.metaKey)
-
     // Ctrl+Enter → newline. A terminal sends Ctrl+Enter as a plain Enter (submit) by default, so the
     // same sequence as Alt+Enter (ESC+CR) is sent directly to make claude treat it as a newline
-    // (restores the behavior from the PowerShell days).
-    term.attachCustomKeyEventHandler((e) => {
-      if (
-        e.type === 'keydown' &&
-        e.key === 'Enter' &&
-        e.ctrlKey &&
-        !e.altKey &&
-        !e.shiftKey &&
-        !e.metaKey
-      ) {
-        window.api.sessions.write(session.id, '\x1b\r')
-        return false // prevents xterm's default handling (Enter = submit)
-      }
-      // Copy: if there's a selection, copy it and clear the selection. Otherwise let the event through
-      // for xterm to handle (win32's Ctrl+C stays SIGINT as-is, mac's Cmd+C does nothing at all).
-      if (
-        e.type === 'keydown' &&
-        (e.key === 'c' || e.key === 'C') &&
-        clipMod(e) &&
-        !e.altKey &&
-        !otherMod(e) &&
-        !e.shiftKey
-      ) {
-        const text = copyTextFor(latchedSelection, term.getSelection())
-        if (text !== null) {
-          window.api.clipboard.writeText(text)
-          term.clearSelection()
-          latchedSelection = ''
-          return false
+    // (restores the behavior from the PowerShell days). Copy / paste / find are the shared handler's
+    // (terminalMenu.ts, which also keeps the selection latched for a TUI that repaints every frame).
+    clipRef.current = attachTerminalKeys(term, {
+      isMac,
+      onFind: () => setFindOpen(true),
+      onClear: () => resetFindRef.current(),
+      before: (e) => {
+        if (e.type === 'keydown' && e.key === 'Enter' && e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey) {
+          window.api.sessions.write(session.id, '\x1b\r')
+          return true // keeps xterm's default (Enter = submit) from running
         }
-        // 쓸 것이 없으면 클립보드를 건드리지 않고 키도 삼키지 않는다 — 고른 것이 없는 것과
-        // 같은 상태이므로, 예전처럼 이 키가 제 갈 길을 가게 둔다.
-        return true
-      }
-      // Paste: read the clipboard directly and feed it in via term.paste (bracketed paste → onData → pty).
-      // Without e.preventDefault() blocking the browser's default paste, xterm's built-in handler writes
-      // it a second time and it ends up pasted twice.
-      if (
-        e.type === 'keydown' &&
-        (e.key === 'v' || e.key === 'V') &&
-        clipMod(e) &&
-        !e.altKey &&
-        !otherMod(e)
-      ) {
-        e.preventDefault()
-        const text = window.api.clipboard.readText()
-        if (text) term.paste(text)
         return false
       }
-      return true
     })
 
     // When to drop the resume loading overlay: the first bytes are a meaningless startup sequence
@@ -351,7 +313,9 @@ export function TerminalView({
       // A tile holding the terminal when the session's view goes: take it back so dispose removes it from the page.
       if (tiled && term.element) host.appendChild(term.element)
       disposeLinks()
-      selectionLatch.dispose()
+      clipRef.current?.dispose()
+      clipRef.current = null
+      detachFind()
       detach()
       blinkGuard.dispose()
       input.dispose()
@@ -397,11 +361,32 @@ export function TerminalView({
     if (active && !tiledRef.current && session.status !== 'exited' && terminalMayTakeFocus(document.activeElement)) termRef.current?.focus()
   }, [active, session.status])
 
+  // Resume is offered once there is a conversation to resume: the id it was itself resumed from, or the one its
+  // statusline names (the lookup useWorkbench.restart makes again on the click)
+  const exited = session.status === 'exited'
+  const [resumable, setResumable] = useState(false)
+  useEffect(() => {
+    if (!exited) return
+    if (session.resumeSessionId) {
+      setResumable(true)
+      return
+    }
+    let live = true
+    window.api.sessions
+      .transcript(session.id)
+      .then((tr) => live && setResumable(tr !== null))
+      .catch(() => undefined)
+    return () => {
+      live = false
+    }
+  }, [exited, session.id, session.resumeSessionId])
   const exit = exitWording(session.exitCode, { closedByAstera: session.closedByAstera, closeReason: session.closeReason })
   return (
-    <div className="terminal-wrap">
+    <div className="terminal-wrap" onContextMenu={onContextMenu}>
       <div className="terminal-host" ref={hostRef} />
-      <SessionStateBanners sessionId={session.id} rollState={rollState} schedState={schedState} />
+      {findOpen && <RunFindBar {...find.barProps} />}
+      {menu}
+      <SessionStateBanners sessionId={session.id} session={session} rollState={rollState} schedState={schedState} />
       {sizedRemote && session.status !== 'exited' && (
         <div className="remote-session-banners">
           <div className="remote-session-banner">{t('session.terminal.sizedRemote')}</div>
@@ -413,11 +398,19 @@ export function TerminalView({
           {t('session.terminal.loadingContent')}
         </div>
       )}
-      {session.status === 'exited' && (
+      {exited && (
         <div className="exit-overlay">
           <p>{t(exit.key, exit.params)}</p>
-          <Button variant="primary" icon={<Icon name="refresh" />} onClick={() => onRestart(session)}>
-            {t('session.terminal.restart')}
+          {resumable && (
+            <Button variant="primary" icon={<Icon name="history" />} onClick={() => onRestart(session, 'resume')}>
+              {t('session.terminal.resume')}
+            </Button>
+          )}
+          <Button variant={resumable ? 'secondary' : 'primary'} icon={<Icon name="refresh" />} onClick={() => onRestart(session, 'fresh')}>
+            {t('session.terminal.fresh')}
+          </Button>
+          <Button variant="ghost" icon={<Icon name="close" />} onClick={() => onRestart(session, 'close')}>
+            {t('session.terminal.closeTab')}
           </Button>
         </div>
       )}

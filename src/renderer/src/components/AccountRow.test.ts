@@ -109,4 +109,21 @@ describe('AccountRow', () => {
   it('the title tooltip is still present', () => {
     expect(render({ email: 'me@example.com' })).toContain('title="Work · me@example.com"')
   })
+
+  it('a paused account shows a chip with an icon and the word; a signed-out one keeps the signed-out chip', () => {
+    const paused = render({ paused: true })
+    expect(paused).toContain('account.status.paused')
+    expect(paused).toContain('<svg')
+    expect(render({})).not.toContain('account.status.paused')
+    const out = render({ loggedIn: false, paused: true })
+    expect(out).toContain('account.status.notLoggedIn')
+    expect(out).not.toContain('account.status.paused')
+  })
+
+  it('with actions, the menu replaces the separate rename button', () => {
+    const actions = [{ id: 'rename' as const }, { id: 'remove' as const }]
+    expect(render({ actions })).not.toContain('account.rename.button"')
+    expect(render({ actions })).toContain('account.menu.label')
+    expect(render({})).toContain('account.rename.button')
+  })
 })

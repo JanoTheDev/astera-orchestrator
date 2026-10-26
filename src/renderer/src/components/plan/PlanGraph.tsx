@@ -11,9 +11,10 @@ import { canStopConvergence, nodeMetaOf, retryingCheckOf } from '../../../../cor
 import { useI18n } from '../../i18n/I18nProvider'
 import { checkTooltip, nodeMetaText, type GlyphKind } from '../checkText'
 import { STATUS_COLOR, TaskGlyph } from '../JobIcons'
-import { Button, Icon, IconButton, type IconName } from '../ui'
+import { Button, Icon, IconButton, Menu, menuPointOf, type IconName } from '../ui'
 import { reasonText } from './planBoard'
 import { taskActionOf } from './planCommands'
+import { taskMenuItems, type OnTaskAction } from './TaskActionMenu'
 
 /** A check's state as a registry icon, in place of the old glyph characters (checkText GLYPH). */
 const CHECK_ICON: Record<GlyphKind, IconName> = {
@@ -81,6 +82,7 @@ export function Graph({
   onRestart,
   onStopConvergence,
   lockedReason,
+  onTaskAction,
   accountLabel = (id) => id
 }: {
   tasks: JobTask[]
@@ -116,10 +118,13 @@ export function Graph({
   onStopConvergence: (taskId: string) => void
   /** Why the node actions are off (a read-only pairing, Phase 7): drawn disabled with this as their title. */
   lockedReason?: string
+  /** Present: a node opens the right-click menu of its Task's actions (taskActions). It works while `formOpen` hides the icons. */
+  onTaskAction?: OnTaskAction
   /** W12: an account id as the name the person gave it, for a waiting node's "why" (reasonText). */
   accountLabel?: (id: string) => string
 }): React.JSX.Element {
   const { t } = useI18n()
+  const [menu, setMenu] = useState<{ x: number; y: number; task: JobTask } | null>(null)
   const byId = new Map(tasks.map((tk) => [tk.id, tk]))
   // 스냅샷에 없는 id 는 버린다 — detail 과 스냅샷은 서로 다른 호출이라 한쪽이 한 박자 낡을 수 있고,
   // 그때 제목도 상태도 없는 빈 상자를 그리게 된다
@@ -202,6 +207,14 @@ export function Graph({
           ...(pos ? { left: pos.x, top: pos.y } : {})
         }}
         onClick={() => onSelect(task.id)}
+        onContextMenu={
+          onTaskAction
+            ? (e) => {
+                e.preventDefault()
+                setMenu({ ...menuPointOf(e), task })
+              }
+            : undefined
+        }
         title={tip}
       >
         {/* 글리프는 왼쪽 칸에서 두 줄에 걸쳐 선다 — 제목 줄에만 붙이면 부제가 있는 카드에서
@@ -360,6 +373,20 @@ export function Graph({
 
   return (
     <>
+      {menu && onTaskAction && (
+        <Menu
+          at={menu}
+          onClose={() => setMenu(null)}
+          label={t('plan.taskMenu.label')}
+          items={taskMenuItems(
+            menu.task,
+            { canManualStart, consoleOpen: menu.task.sessionId !== undefined && canOpenSession(menu.task.sessionId) },
+            t,
+            lockedReason,
+            onTaskAction
+          )}
+        />
+      )}
       {/* 스크롤은 **이 안에서만** 돈다 — 범례는 이 밖에 있어 무엇을 스크롤하든 칸의 왼쪽 아래에
           그대로 붙어 있다. 선의 색을 설명하는 글이 스크롤에 밀려 사라지면, 색을 물어볼 자리가
           화면에서 없어진다(선에는 툴팁을 달 곳이 없다). */}

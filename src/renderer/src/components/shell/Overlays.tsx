@@ -22,8 +22,12 @@ import { ProjectSettings } from '../projects/ProjectSettings'
 import { useDropToStart, useStartLanding } from '../pages/StartPage'
 import { NewModal } from '../NewModal'
 import { MAX_PANES, countLeaves, groupOfTab, splitAndMove, type PaneDir } from '../../../../core/panes/tree'
-import { parseTab, sessionTab } from '../../../../core/panes/tabId'
+import { parseTab, parseRemoteSessionKey, sessionTab } from '../../../../core/panes/tabId'
 import { Menu, ToastViewport, type MenuItem } from '../ui'
+import { isConfirmOpen } from '../../lib/confirm'
+import { isMac } from '../../lib/platformKeys'
+import { closeInSequence, closeTargets, relativeUnder, tabActions, type TabMenuKind } from './tabMenu'
+import { copyText, moveTargets, moveToAccount, revealPath, stopKeepTab } from './tabActions'
 import type { AppState } from '../../state/appState'
 import { HelpPanel } from '../help/HelpPanel'
 import { setHelpOpen, useHelpOpen } from '../help/helpStore'
@@ -38,7 +42,7 @@ export type OverlaysProps = Pick<
   'openRemoteSession' | 'openWorkspacePlan' | 'openWorkspaceProject' | 'orchSnapshot' | 'pairedRuntimes' |
   'pendingSplitRef' | 'projectAnchor' | 'projectDialog' | 'remoteAccounts' | 'remoteDialog' |
   'remoteProject' | 'remoteProjects' | 'remoteReadOnly' | 'remoteSessions' | 'remoteSnapshot' | 'remoteViewDoor' |
-  'restartHost' | 'runManagerApply' | 'runningCount' | 'selectWorkbenchTab' | 'setActivePaneId' |
+  'restart' | 'restartHost' | 'runManagerApply' | 'runningCount' | 'selectWorkbenchTab' | 'setActivePaneId' |
   'setAgentAppEnabled' | 'setAgentBrowserEnabled' | 'setAgentYolo' | 'setAutoCloseEndedPlanTabs' |
   'setCheckClickedAt' | 'setCli' | 'setCliInstallStatus' | 'setCliInstalled' | 'setCommandOpen' |
   'setDefaultSessionKind' | 'setDetail' | 'setFirstPlan' | 'setFirstRunAsked' |
@@ -62,7 +66,7 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
     newSessionCwd, openLinkedFolder, openLinkedPath, openRemoteSession, openWorkspacePlan, openWorkspaceProject,
     orchSnapshot, pairedRuntimes, pendingSplitRef, projectAnchor, projectDialog, remoteAccounts, remoteDialog,
     remoteProject, remoteProjects, remoteReadOnly, remoteSessions, remoteSnapshot, remoteViewDoor,
-    restartHost, runManagerApply, runningCount, selectWorkbenchTab, setActivePaneId, setAgentAppEnabled,
+    restart, restartHost, runManagerApply, runningCount, selectWorkbenchTab, setActivePaneId, setAgentAppEnabled,
     setAgentBrowserEnabled, setAgentYolo, setAutoCloseEndedPlanTabs, setCheckClickedAt, setCli, setCliInstallStatus,
     setCliInstalled, setCommandOpen, setDefaultSessionKind, setDetail, setFirstPlan, setFirstRunAsked,
     setKeyOverrides, setLang, setLayout, setManagerFor, setManagerInitialSelectedId,
@@ -161,6 +165,44 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
             const agentTab = parseTab(tid)?.kind === 'browser' ? browserTabsRef.current.find((b) => b.id === tid && b.agentSessionId !== undefined) : undefined
             const agentSid = agentTab?.agentSessionId
             const agentRunning = agentSid !== undefined && agentBusy[agentSid] === true
+            const local = isSession ? sessions.find((x) => x.id === tabRef.id) : undefined
+            const filePath = tabRef?.kind === 'file' || tabRef?.kind === 'media' ? tabRef.id : undefined
+            const kind: TabMenuKind = remote ? 'remote' : local ? 'local' : filePath !== undefined ? 'file' : tabRef?.kind === 'browser' ? 'browser' : 'other'
+            const relPath = filePath !== undefined ? relativeUnder(workspaceCwd, filePath) : null
+            const acts = tabActions({ kind, exited: local?.status === 'exited', relative: relPath !== null })
+            const tabName = local?.title ?? tid
+            const sessionItem = (a: string): Array<MenuItem | 'separator'> => {
+              switch (a) {
+                case 'stop':
+                  return local ? [{ label: t('overlays.tabMenu.stop'), danger: true, onSelect: () => void stopKeepTab(local, tabName, t) }] : []
+                case 'restart':
+                  return local ? [{ label: t('overlays.tabMenu.restart'), onSelect: () => restart(local) }] : []
+                case 'duplicate':
+                  return local
+                    ? [{
+                        label: t('overlays.tabMenu.duplicate'),
+                        onSelect: () => void spawn({ accountIds: [local.accountId], cwd: local.cwd, saveDefault: false, kind: local.kind, slackNotify: local.slackNotify, bypassPermissions: local.bypassPermissions })
+                      }]
+                    : []
+                case 'moveAccount':
+                  return local ? moveTargets(local, accounts).map((acc) => ({ label: t('overlays.tabMenu.moveTo', { label: acc.label }), onSelect: () => void moveToAccount(local, acc, t) })) : []
+                case 'copyId':
+                  return [{ label: t('overlays.tabMenu.copyId'), onSelect: () => copyText(local?.id ?? (tabRef ? (parseRemoteSessionKey(tabRef.id)?.sessionId ?? tabRef.id) : tid)) }]
+                case 'copyPath':
+                  return [{ label: t('overlays.tabMenu.copyPath'), onSelect: () => copyText(filePath ?? local?.cwd ?? '') }]
+                case 'copyRelativePath':
+                  return relPath !== null ? [{ label: t('overlays.tabMenu.copyRelativePath'), onSelect: () => copyText(relPath) }] : []
+                case 'reveal':
+                  return [{ label: t(isMac() ? 'overlays.tabMenu.revealMac' : 'overlays.tabMenu.reveal'), onSelect: () => revealPath(filePath ?? local?.cwd ?? '', t) }]
+                default:
+                  return [] // rename sits above with its own wording
+              }
+            }
+            const manageItems = acts.manage.filter((a) => a !== 'rename').flatMap(sessionItem)
+            const pathItems = acts.path.flatMap(sessionItem)
+            const ids = group?.tabIds ?? [tid]
+            const targets = closeTargets(ids, tid)
+            const closeMany = (list: string[]): void => void closeInSequence(list, closeWorkbenchTab, isConfirmOpen)
             return [
               // 세션 탭에만. 파일 탭의 라벨은 파일 이름이라 여기서 바꿀 것이 아니고, 기록 탭의
               // 라벨은 그 기록의 요청문이다. 더블클릭과 같은 자리를 연다.
@@ -170,6 +212,7 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
                       label: t('session.tab.rename'),
                       onSelect: () => setRenamingTabId(tid)
                     },
+                    ...manageItems,
                     'separator'
                   ] as Array<MenuItem | 'separator'>)
                 : []),
@@ -213,7 +256,11 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
                 disabled: cur == null || countLeaves(cur) < 2,
                 onSelect: () => group && unsplitPane(group.id)
               },
+              ...(pathItems.length > 0 ? ['separator' as const, ...pathItems] : []),
               'separator',
+              { label: t('overlays.tabMenu.closeOthers'), disabled: targets.others.length === 0, onSelect: () => closeMany(targets.others) },
+              { label: t('overlays.tabMenu.closeRight'), disabled: targets.right.length === 0, onSelect: () => closeMany(targets.right) },
+              { label: t('overlays.tabMenu.closeAll'), onSelect: () => closeMany(targets.all) },
               { label: t('common.close'), danger: true, onSelect: () => closeWorkbenchTab(tid) }
             ]
           })()}

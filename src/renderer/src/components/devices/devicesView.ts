@@ -68,3 +68,15 @@ export function terminalFixOf(
   }
   return null
 }
+
+/** Whether this computer takes work from other devices: its Gateway is not disabled. Unasked (undefined) or unknown
+ *  (null: the Host cannot say) reads as no. */
+export const acceptsWork = (mine: { gateway: { state: string } } | null | undefined): boolean => !!mine && mine.gateway.state !== 'disabled'
+
+export type DeviceAction = 'open' | 'check' | 'retry' | 'forget'
+/** A paired device's menu, in order: Open, then Check connection (Retry while it does not answer), then Forget. */
+export const deviceActions = (state: DeviceState): DeviceAction[] => ['open', state === 'offline' ? 'retry' : 'check', 'forget']
+
+export type FoundAction = 'add' | 'copyAddress'
+/** A found device's menu. Ignore has no backend, so it is not offered. */
+export const FOUND_ACTIONS: readonly FoundAction[] = ['add', 'copyAddress']

@@ -22,6 +22,21 @@ const render = (c: NeedCard): string =>
     })
   )
 
+describe('NeedCardView read state', () => {
+  it('an unread card has no read cue; a read one is dimmed and carries a Read icon', async () => {
+    const { markRead, resetBellStore } = await import('./bellStore')
+    vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => {} })
+    resetBellStore()
+    expect(render(card({ key: 'u1' }))).not.toContain('needs-row--read')
+    markRead('u1')
+    const html = render(card({ key: 'u1' }))
+    expect(html).toContain('needs-row--read')
+    expect(html).toContain('aria-label="Read"')
+    vi.unstubAllGlobals()
+    resetBellStore()
+  })
+})
+
 describe('NeedCardView', () => {
   it('collapsed, a row is the toggle and its one action, with no body', () => {
     const html = renderToStaticMarkup(React.createElement(NeedCardView, { c: card({ kind: 'permission', sessionId: 's1' }), nowMs: Date.parse('2026-10-18T09:12:00Z'), door: {} as never, ui: {} as ActionUi, t: ((k: Parameters<typeof t>[1]) => t('en', k)) as never }))

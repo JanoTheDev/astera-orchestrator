@@ -127,4 +127,16 @@ export const history: Partial<Record<keyof typeof ko, string>> = {
   'history.entry.copyId': 'セッションIDをコピー',
   'history.session.menu': 'セッションのメニュー',
   'history.view.accountFilter': 'アカウントで絞り込む',
+  'preview.menu.copyLink': 'リンクのアドレスをコピー',
+  'preview.menu.openLink': 'ブラウザーでリンクを開く',
+  'preview.menu.copyText': '選択したテキストをコピー',
+  'preview.menu.copyImageAddress': '画像のアドレスをコピー',
+  'preview.menu.cut': '切り取り',
+  'preview.menu.copy': 'コピー',
+  'preview.menu.paste': '貼り付け',
+  'history.menu.deleteHistory': 'このプロジェクトの履歴を削除',
+  'history.menu.deleteTitle': '履歴を削除しますか？',
+  'history.menu.deleteBody': '{path} の保存済みセッション履歴を削除します。プロジェクトのフォルダー自体には触れません。',
+  'history.menu.deleteConfirm': '履歴を削除',
+  'history.menu.deleteFailed': '履歴を削除できませんでした（実行中のセッションがある可能性があります）'
 }

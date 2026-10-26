@@ -4,6 +4,8 @@ import { validateName, isSubPath, canMove, canCopy } from '../../../core/files/o
 import { resolveFileIcon, resolveFolderIcon } from '../../../core/files/icons'
 import { FileIcon } from './FileIcon'
 import { LocalHistoryDialog } from './LocalHistoryDialog'
+import { DiffView } from './DiffView'
+import { explorerPathItems } from './explorerMenu'
 import { RootReading, FileOpStatusLine, ROOT_SLOW_MS } from './ExplorerLoading'
 import { ExplorerRow, Indent, type RowActions } from './ExplorerRow'
 import {
@@ -32,7 +34,7 @@ import { useFileOps, errText } from '../hooks/useFileOps'
 import { useI18n } from '../i18n/I18nProvider'
 import type { UndoEntry } from '../../../core/files/undo'
 import { runnableKindForFile } from '../../../core/run/runFile'
-import { EmptyState, Icon, ICONS, Menu, menuPointOf, Toolbar, ViewPane, type MenuItem } from './ui'
+import { EmptyState, Icon, ICONS, Menu, Modal, menuPointOf, Toolbar, ViewPane, type MenuItem } from './ui'
 import { useGitStatus, type GitStatusMap } from '../hooks/useGitStatus'
 import { deleteKey, isMac, modKey } from '../lib/platformKeys'
 import { isWindowsPath, revealFor, treeKeysTo, type FolderReveal } from '../lib/folderLink'
@@ -72,6 +74,7 @@ export function FileExplorer({
   onPathRenamed,
   onPathDeleted,
   onRunFile,
+  onOpenTerminal,
   revealFolder,
   onRevealDone
 }: {
@@ -102,6 +105,8 @@ export function FileExplorer({
   /** Runs a file from the context menu. The explorer does not own the run panel, so what a started run
    *  does to the screen stays in one place — the App's own run-start path. */
   onRunFile: (path: string) => void
+  /** Open in Terminal on a folder: the App starts a bottom-panel terminal there. */
+  onOpenTerminal?: (dir: string) => void
   /** A folder a terminal link named under this root (D2, 2026-10-14), as its names below the root: each level is
    *  expanded and the folder selected and scrolled to. A new `seq` asks again for the same folder. */
   revealFolder?: FolderReveal | null
@@ -116,7 +121,10 @@ export function FileExplorer({
   const [menu, setMenu] = useState<{ x: number; y: number; entry: Entry | null } | null>(null)
   // entry=null means a right-click on the root's empty space (a menu targeting the root)
   // Whether the Local History modal is open. The history is per-project, so it is unrelated to entry.
-  const [historyOpen, setHistoryOpen] = useState(false)
+  // `file` set: the history of that one file (opened from a file's menu); unset: the whole project.
+  const [history, setHistory] = useState<{ file?: string } | null>(null)
+  // Open Diff: the clicked file's diff in a modal (git.fileDiff, as the Changed list reads it).
+  const [diffView, setDiffView] = useState<{ path: string; diff: string; truncated: boolean } | null>(null)
 
   /** Paths currently being dragged. Why a ref instead of dataTransfer: during dragover the contents of
    *  dataTransfer cannot be read (for security only the types are exposed), so canMove cannot decide
@@ -286,7 +294,7 @@ export function FileExplorer({
       sel.dispatch({ type: 'rootCleared' })
       // The Local History modal is tied to the project it was opened for — if the open flag stays true
       // after the session is gone, it abruptly reopens against whatever project fills root next.
-      setHistoryOpen(false)
+      setHistory(null)
       // Clear the undo journal too — the journal follows the same rule as selection, not the clipboard:
       // the clipboard is something the user explicitly put there and it has on-screen feedback (cut
       // items are dimmed, etc.) so it may cross projects, but the journal holds only paths and has no
@@ -330,7 +338,7 @@ export function FileExplorer({
       // holding the previous project's projectPath, so a restore would put the file back into a project
       // the user is not looking at and then try to select that path in the current (new) tree. Close it
       // so the next instance the user opens sees the current root.
-      setHistoryOpen(false)
+      setHistory(null)
       // Clear the undo journal too — same reason as the !root branch (see the undoRef comment above).
       // The rootRestored branch (the if above) does not clear it — that is a return to the same
       // project, so it is kept just like the tree.
@@ -373,6 +381,18 @@ export function FileExplorer({
     gitStatus.refresh() // refresh git status along with the explorer — appended after the existing behavior, which is unchanged
   }
 
+  // Either modal (Local History, Open Diff) renders inside the tree's key handler, so both gate it.
+  const modalOpen = history !== null || diffView !== null
+
+  const openDiff = (path: string): void => {
+    if (!root) return
+    // No diff (git could not answer): the file opens in the editor instead.
+    void window.api.git.fileDiff(root, path).then(
+      (d) => (d ? setDiffView({ path, ...d }) : onOpenFile(path)),
+      () => onOpenFile(path)
+    )
+  }
+
   const menuItemsFor = (entry: Entry | null): (MenuItem | 'separator')[] => {
     // entry=null (root empty space) is treated as the root folder. For a file, New File/New Folder are created in its parent (VS Code behavior)
     // root!: this menu only opens from the tree, and the tree only renders when root exists, so root is always non-null.
@@ -383,10 +403,19 @@ export function FileExplorer({
     // with its descendants). menuItemsFor runs during render, so selectionPaths() is computed once and
     // reused.
     const targetCount = sel.selectionPaths().length
-    const items: (MenuItem | 'separator')[] = [
+    const items: (MenuItem | 'separator')[] = []
+    if (entry) {
+      for (const kind of explorerPathItems(entry, gitStatus.fileState[entry.path])) {
+        if (kind === 'open') items.push({ label: t('files.menu.open'), onSelect: () => onOpenFile(entry.path) })
+        else if (kind === 'openDiff') items.push({ label: t('files.menu.openDiff'), onSelect: () => openDiff(entry.path) })
+        else if (onOpenTerminal) items.push({ label: t('files.menu.openTerminal'), onSelect: () => onOpenTerminal(entry.path) })
+      }
+      if (items.length) items.push('separator')
+    }
+    items.push(
       { label: t('explorer.menu.newFile'), onSelect: () => startCreate(dirForCreate, false) },
       { label: t('explorer.menu.newFolder'), onSelect: () => startCreate(dirForCreate, true) }
-    ]
+    )
     if (entry) {
       items.push(
         'separator',
@@ -435,7 +464,7 @@ export function FileExplorer({
     // The history is per-project, so this is always shown regardless of entry — it sits outside the
     // if (entry) block above and therefore also appears in the root empty-space menu (entry===null).
     // 'Local History' is a feature name (a proper noun) and is left untranslated in every locale.
-    items.push('separator', { label: 'Local History…', onSelect: () => setHistoryOpen(true) })
+    items.push('separator', { label: 'Local History…', onSelect: () => setHistory(entry && !entry.isDir ? { file: entry.path } : {}) })
     const target = entry?.path ?? root!
     items.push(
       'separator',
@@ -861,7 +890,7 @@ export function FileExplorer({
         // The same guards as onKeyDown below, for the same reasons: nothing while a name is being
         // edited or while a menu or modal sits over the tree, and a paste aimed at a text field is
         // left alone.
-        if (editing || menu || historyOpen) return
+        if (editing || menu || modalOpen) return
         const target = ev.target as HTMLElement
         if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return
         ev.preventDefault()
@@ -886,7 +915,7 @@ export function FileExplorer({
         // focus on .fx-tree — without the guard, Ctrl+Z/Ctrl+V would fire on the tree behind the open
         // modal with no confirmation. This guard means "every overlay on top of the explorer" — any
         // modal added later must have its open flag added here as well.
-        if (editing || menu || historyOpen) return
+        if (editing || menu || modalOpen) return
         const target = ev.target as HTMLElement
         if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return // defensive — the inline-edit input already calls stopPropagation
         if ((ev.ctrlKey || ev.metaKey) && !ev.shiftKey && !ev.altKey) {
@@ -960,7 +989,7 @@ export function FileExplorer({
           // tree bubble up there, so they keep working while the tree has focus. F2/Delete are keys
           // that have a default action, so they stay narrowed to the tree — a Delete while focus is on
           // the header buttons must not delete a file
-          if (editing || menu || historyOpen) return
+          if (editing || menu || modalOpen) return
           if (ev.key === 'Escape' && sel.clipboard) {
             ev.preventDefault()
             sel.dispatch({ type: 'clipboardCleared' })
@@ -1003,15 +1032,21 @@ export function FileExplorer({
       {menu && (
         <Menu at={{ x: menu.x, y: menu.y }} label={t('explorer.title')} items={menuItemsFor(menu.entry)} onClose={() => setMenu(null)} />
       )}
-      {historyOpen && root && (
+      {diffView && (
+        <Modal title={diffView.path} onClose={() => setDiffView(null)} closeLabel={t('common.close')}>
+          <DiffView diff={diffView.diff} truncated={diffView.truncated} binary={false} />
+        </Modal>
+      )}
+      {history && root && (
         <LocalHistoryDialog
           projectPath={root}
+          file={history.file}
           onRestored={(path) => {
             // doRestore is async, so it keeps running regardless of unmount. This callback is a closure
             // from the moment the modal rendered, so the root inside it is pinned to "the root when the
             // modal was opened". If the user changes the root while the restore is in progress (via a
             // session tab, etc. — even though the else branch closes the modal with
-            // setHistoryOpen(false)), a result arriving in the meantime touches tree.loadDir and
+            // setHistory(null)), a result arriving in the meantime touches tree.loadDir and
             // sel.dispatch for this closure's root, which has nothing to do with what is on screen: the
             // old project's directory listing gets planted in the dirs cache the current tree renders
             // from, and selection/anchor get overwritten with old paths — after which Ctrl+V and F2
@@ -1029,9 +1064,9 @@ export function FileExplorer({
             tree.expandDir(parentDir(path))
             tree.loadDir(parentDir(path))
             opsSel.dispatch({ type: 'selectionSet', paths: [path] })
-            setHistoryOpen(false)
+            setHistory(null)
           }}
-          onClose={() => setHistoryOpen(false)}
+          onClose={() => setHistory(null)}
         />
       )}
     </section>

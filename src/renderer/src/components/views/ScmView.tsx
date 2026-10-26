@@ -2,8 +2,10 @@
 // vouch for last) and the Changes pane (the selected worktree's changed files). A click on a worktree opens its own
 // `view:worktree` tab, where its detail, commits and actions are; a click on a changed file shows that file's diff.
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { ChangedFile } from '../../../../core/git/changedFile'
 import type { WorktreeStatus } from '../../../../core/types'
 import { resolveFileIcon } from '../../../../core/files/icons'
+import { isMac } from '../../lib/platformKeys'
 import { toast } from '../../lib/toast'
 import { setCached, useCachedRead } from '../../lib/readCache'
 import { repoInScope } from '../../state/projectView'
@@ -11,12 +13,13 @@ import { FileIcon } from '../FileIcon'
 import { PrBadge } from '../PrBadge'
 import { PushBadge } from '../PushBadge'
 import { rowSlot } from '../rowSlot'
-import { EmptyState, ICONS, Icon, Input, Menu, Tree, ViewContainer, ViewPane, menuPointOf, type MenuItem, type ToolbarItem, Toolbar, type TreeItem } from '../ui'
+import { EmptyState, ICONS, Icon, IconButton, Input, Menu, Tree, ViewContainer, ViewPane, menuPointOf, type MenuItem, type ToolbarItem, Toolbar, type TreeItem } from '../ui'
 import { changeLetter } from '../explorerChanged'
+import { absoluteOf, changedFileLabels, changedFileMenu } from '../changedFileMenu'
 import { DiffView } from '../DiffView'
-import { openWorktree } from '../shell/navigation'
+import { openFile, openWorktree } from '../shell/navigation'
 import type { SideBarViewProps } from '../shell/SideBar'
-import { AheadBehind } from '../worktrees/WorktreeDetail'
+import { AheadBehind, worktreeMenuItems } from '../worktrees/WorktreeDetail'
 import { useWorktreeDetail } from '../worktrees/useWorktreeDetail'
 import { useWorktrees } from '../worktrees/useWorktrees'
 import { filterWorktrees, rowState, selectWorktree, useWorktreeView, worktreeEntries } from '../worktrees/worktreeView'
@@ -111,6 +114,7 @@ export function ScmView(p: SideBarViewProps): React.JSX.Element {
   const detail = useWorktreeDetail(row)
   const files = detail?.files ?? null
   const [diff, setDiff] = useState<Diff | null>(null)
+  const [fileMenu, setFileMenu] = useState<{ at: { x: number; y: number }; file: ChangedFile; root: string } | null>(null)
   useEffect(() => setDiff(null), [selected])
   // A click shows the file's diff, read as the Explorer's Changed pane reads it (worktrees.fileDiff by the file's id)
   const showDiff = (fileId: string): void => {
@@ -134,6 +138,10 @@ export function ScmView(p: SideBarViewProps): React.JSX.Element {
       title: `${f.path}\n${word}`,
       icon: <FileIcon {...resolveFileIcon(f.path.slice(cut + 1))} />,
       description: cut < 0 ? undefined : f.path.slice(0, cut),
+      actions:
+        f.status === 'deleted' ? undefined : (
+          <IconButton size="sm" icon={<Icon name="open" size={14} />} label={t('changedFile.menu.open')} onClick={() => openFile(absoluteOf(row!.item.path, f.path))} />
+        ),
       decoration: { text: changeLetter(f.status), tone: f.status === 'added' ? 'ok' : f.status === 'deleted' ? 'danger' : f.status === 'renamed' ? 'info' : 'warn' }
     }
   })
@@ -152,33 +160,19 @@ export function ScmView(p: SideBarViewProps): React.JSX.Element {
     const w = r.item
     const pr = wt.prs[w.repoPath]?.byBranch[w.branch]
     const ahead = wt.pushStateOf(w)?.ahead
-    const out: Array<MenuItem | 'separator'> = [
-      { label: t('worktrees.detail.openHere'), disabled: w.status !== 'ok', onSelect: () => startSession(w.path) },
-      { label: t('worktrees.menu.openExplorer'), disabled: w.status !== 'ok', onSelect: () => p.openLinkedFolder(w.path) },
-      'separator'
-    ]
-    if (pr) {
-      out.push(
-        { label: t('github.badge.openInBrowser'), onSelect: () => void window.api.system.openExternal(pr.url) },
-        {
-          label: t('github.badge.copyLink'),
-          onSelect: () => {
-            window.api.clipboard.writeText(pr.url)
-            toast.success(t('github.badge.linkCopied'))
-          }
-        }
-      )
-    }
     // A closed or merged PR keeps its badge, but the branch can be proposed again; a merged branch is usually ahead === 0,
     // which the disabled rule keeps quiet. A disabled item states its reason in its own label (no hint field).
-    if (!pr || pr.state !== 'open')
-      out.push({
-        label: ahead === 0 ? t('worktree.push.noCommits') : !wt.ghConnected ? t('worktree.push.ghDisconnected') : t('worktree.push.createPr'),
-        disabled: ahead === 0 || !wt.ghConnected || wt.busy,
-        onSelect: () => wt.createPr(w)
-      })
-    out.push('separator', { label: t('files.action.delete'), disabled: wt.busy, onSelect: () => void wt.remove(w) })
-    return out
+    const extra: MenuItem[] =
+      w.status === 'ok' && (!pr || pr.state !== 'open')
+        ? [
+            {
+              label: ahead === 0 ? t('worktree.push.noCommits') : !wt.ghConnected ? t('worktree.push.ghDisconnected') : t('worktree.push.createPr'),
+              disabled: ahead === 0 || !wt.ghConnected || wt.busy,
+              onSelect: () => wt.createPr(w)
+            }
+          ]
+        : []
+    return worktreeMenuItems(t, w, pr, { openHere: () => startSession(w.path), openFiles: () => p.openLinkedFolder(w.path), terminal: () => void p.newTerminal(undefined, w.path), removeDisabled: wt.busy, remove: () => void wt.remove(w) }, extra)
   }
 
   const body = (): React.ReactNode => {
@@ -263,7 +257,16 @@ export function ScmView(p: SideBarViewProps): React.JSX.Element {
             <p className="wb-view-empty">{t('worktrees.changes.none')}</p>
           ) : (
             <div className="scm-tree" {...fileTree.handlers}>
-              <Tree rows={changeItems} label={t('worktrees.changesPane')} onSelect={fileTree.onSelect} onOpen={() => openWorktree(row.item.path)} />
+              <Tree
+                rows={changeItems}
+                label={t('worktrees.changesPane')}
+                onSelect={fileTree.onSelect}
+                onOpen={() => openWorktree(row.item.path)}
+                onContextMenu={(id, e) => {
+                  const file = files?.find((f) => f.id === id)
+                  if (file) setFileMenu({ at: menuPointOf(e), file, root: row.item.path })
+                }}
+              />
             </div>
           )}
           {diff?.state === 'shown' && <DiffView diff={diff.diff} truncated={diff.truncated} binary={shownFile?.binary === true} />}
@@ -272,6 +275,23 @@ export function ScmView(p: SideBarViewProps): React.JSX.Element {
       </ViewContainer>
       {wt.overlays}
       {menu && <Menu at={menu} label={t('worktrees.rowMenu')} items={menuItems(menu.path)} onClose={() => setMenu(null)} />}
+      {fileMenu && (
+        <Menu
+          at={fileMenu.at}
+          items={changedFileMenu(
+            { status: fileMenu.file.status, path: absoluteOf(fileMenu.root, fileMenu.file.path), relative: fileMenu.file.path },
+            changedFileLabels(t, isMac()),
+            {
+              open: openFile,
+              diff: () => showDiff(fileMenu.file.id),
+              copy: (text) => window.api.clipboard.writeText(text),
+              reveal: (path) =>
+                void window.api.files.reveal(path).catch((err: unknown) => toast.error(t('explorer.reveal.failed', { detail: err instanceof Error ? err.message : String(err) })))
+            }
+          )}
+          onClose={() => setFileMenu(null)}
+        />
+      )}
     </div>
   )
 }

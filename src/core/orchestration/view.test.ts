@@ -426,6 +426,15 @@ describe('snapshotFor', () => {
     expect(t.startedAt).toBe('2026-08-18T01:00:00.000Z')
   })
 
+  // workerHeld 는 열린 Dispatch 가 held 일 때만 실린다 — 메뉴가 Pause 와 Resume 중 맞는 하나만 고르게 한다
+  it('열린 Dispatch 가 held 면 workerHeld 를 싣고, 아니면 아예 싣지 않는다', () => {
+    const base = withRuns([run('r1', absPath('p'))], [task('t1', 'r1', 'dispatched')])
+    const held = snapshotFor({ ...base, dispatches: [{ ...dispatch('d1', 't1', 'sess-1', '2026-08-18T01:00:00.000Z'), held: true }] }, absPath('p'), anySession, noWorktrees, noFires, allExist).runs[0].tasks[0]
+    const free = snapshotFor({ ...base, dispatches: [dispatch('d1', 't1', 'sess-1', '2026-08-18T01:00:00.000Z')] }, absPath('p'), anySession, noWorktrees, noFires, allExist).runs[0].tasks[0]
+    expect(held.workerHeld).toBe(true)
+    expect('workerHeld' in free).toBe(false)
+  })
+
   // outcome 과 endedAt 이 붙으면 그 Dispatch 는 더 이상 도는 것이 아니다. sessionId 는 그 워커의
   // 탭을 여전히 열어야 하므로 남지만, provider·startedAt 은 "지금 돈다"는 주장이라 남으면 거짓말이 된다
   it('Dispatch 가 끝났으면 둘 다 없다 — 도는 것이 아니기 때문이다', () => {

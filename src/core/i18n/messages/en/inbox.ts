@@ -134,4 +134,8 @@ export const inbox: Record<keyof typeof ko, string> = {
   'activity.line.fellToReview': '{title}: {why}',
   'activity.line.titled': '{title}: {reason}',
   'activity.line.onRuntime': 'on {runtime}',
+  'inbox.item.markRead': 'Mark read',
+  'inbox.item.markUnread': 'Mark unread',
+  'inbox.item.copy': 'Copy text',
+  'inbox.item.readCue': 'Read',
 }

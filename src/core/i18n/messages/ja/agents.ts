@@ -108,4 +108,10 @@ export const agents: Partial<Record<keyof typeof ko, string>> = {
   'agents.header.plan': 'プラン {name} を開く',
   'agents.header.task': 'プランでタスク {name} を表示',
   'agents.header.restart': '再起動',
+  'session.terminal.resume': '会話を再開',
+  'session.terminal.fresh': '新しく始める',
+  'session.terminal.closeTab': 'タブを閉じる',
+  'session.terminal.switchNow': '今すぐアカウントを切り替え',
+  'agents.header.folder': 'フォルダー操作',
+  'agents.header.openFolder': 'フォルダーを開く',
 }

@@ -119,4 +119,10 @@ export const files: Partial<Record<keyof typeof ko, string>> = {
   'attribution.humanLines': '人: {lines} 行 ({percent}%)',
   'attribution.lines': '行',
   'attribution.taskLinesSr': '(AI {ai} 行、人 {human} 行)',
+  'changedFile.menu.open': 'ファイルを開く',
+  'changedFile.menu.diff': '差分を表示',
+  'files.menu.open': '開く',
+  'files.menu.openDiff': '差分を開く',
+  'files.menu.openTerminal': 'ターミナルで開く',
+  'media.action.copyPath': 'パスをコピー'
 }

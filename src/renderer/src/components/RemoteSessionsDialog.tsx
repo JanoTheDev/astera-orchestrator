@@ -2,11 +2,12 @@
 // D8.3). Reached from the new session dialog's runtime choice. Everything is a Host command on that Runtime; the
 // folder is one of the Runtime's registered projects (a controller starts sessions only there, §4.8), never a local
 // picker, and its path is shown as text.
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { createSessionArgs, refOf, remoteCall, type RemoteSessionRef, type RemoteSessionRow } from '../lib/remoteSessions'
 import { useI18n } from '../i18n/I18nProvider'
+import { toast } from '../lib/toast'
 import { AccountDisclosure, AccountSelect } from './AccountSelect'
-import { Button, Card, Field, Modal, Tabs, nextFocusIndex } from './ui'
+import { Button, Card, Field, Icon, Menu, Modal, Tabs, menuPointOf, nextFocusIndex, type MenuItem } from './ui'
 import './overlays.css'
 import './sessionDialog.css'
 
@@ -54,15 +55,13 @@ export function RemoteSessionsDialog({
   const [starting, setStarting] = useState(false)
   const [startError, setStartError] = useState<string | null>(null)
   const listRef = useRef<HTMLUListElement>(null)
+  const [menu, setMenu] = useState<{ at: { x: number; y: number }; row: RemoteSessionRow } | null>(null)
 
-  useEffect(() => {
+  // The running list: read on opening, again on Retry and after a Close.
+  const readRows = useCallback((): (() => void) => {
     let alive = true
     setRows(null)
     setListError(null)
-    setAccounts([])
-    setProjects([])
-    setAccountId('')
-    setCwd('')
     void remoteCall(runtimeId, 'sessions-list', {}).then(
       (r) => {
         if (!alive) return
@@ -71,6 +70,23 @@ export function RemoteSessionsDialog({
       },
       (e) => alive && setListError(String(e))
     )
+    return () => {
+      alive = false
+    }
+  }, [runtimeId])
+  const stopList = useRef<(() => void) | null>(null)
+  const reload = (): void => {
+    stopList.current?.()
+    stopList.current = readRows()
+  }
+
+  useEffect(() => {
+    let alive = true
+    setAccounts([])
+    setProjects([])
+    setAccountId('')
+    setCwd('')
+    stopList.current = readRows()
     void remoteCall(runtimeId, 'accounts-list', {}).then(
       (r) => {
         if (!alive || r.status !== 200 || !Array.isArray(r.body)) return
@@ -90,8 +106,25 @@ export function RemoteSessionsDialog({
     )
     return () => {
       alive = false
+      stopList.current?.()
     }
-  }, [runtimeId])
+  }, [runtimeId, readRows])
+
+  const closeSession = async (r: RemoteSessionRow): Promise<void> => {
+    try {
+      const done = await remoteCall(runtimeId, 'sessions-close', { id: r.id })
+      if (done.status !== 200) return void toast.error(t('remote.session.failed', { message: errorOf(done) }))
+      toast.success(t('remote.sessions.closed', { name: r.title ?? r.id }))
+    } catch (e) {
+      toast.error(t('remote.session.failed', { message: String(e) }))
+    }
+    reload()
+  }
+  const rowMenu = (r: RemoteSessionRow): Array<MenuItem | 'separator'> => [
+    { id: 'open', label: t('remote.sessions.menu.open'), icon: <Icon name="external" size={14} />, onSelect: () => onOpen(refOf(runtimeId, r)) },
+    { id: 'copyId', label: t('remote.sessions.menu.copyId'), icon: <Icon name="copy" size={14} />, onSelect: () => window.api.clipboard.writeText(r.id) },
+    { id: 'close', label: t('remote.sessions.menu.close'), icon: <Icon name="close" size={14} />, danger: true, disabled: readOnly, onSelect: () => void closeSession(r) }
+  ]
 
   const start = async (): Promise<void> => {
     setStarting(true)
@@ -155,7 +188,12 @@ export function RemoteSessionsDialog({
         <div className="sd-group">
           <span className="sd-label">{t('remote.sessions.running')}</span>
           {listError !== null ? (
-            <p className="sd-warn">{t('remote.session.failed', { message: listError })}</p>
+            <div className="sd-row">
+              <p className="sd-warn">{t('remote.session.failed', { message: listError })}</p>
+              <Button size="sm" icon={<Icon name="refresh" size={14} />} onClick={reload}>
+                {t('remote.sessions.retry')}
+              </Button>
+            </div>
           ) : rows === null ? (
             <p className="sd-hint">{t('remote.sessions.loading')}</p>
           ) : live.length === 0 ? (
@@ -164,7 +202,15 @@ export function RemoteSessionsDialog({
             <ul ref={listRef} className="ov-remote-list" onKeyDown={rovingRows}>
               {live.map((r) => (
                 <li key={r.id}>
-                  <Card className="ov-remote-row" data-roving="" onClick={() => onOpen(refOf(runtimeId, r))}>
+                  <Card
+                    className="ov-remote-row"
+                    data-roving=""
+                    onClick={() => onOpen(refOf(runtimeId, r))}
+                    onContextMenu={(e: React.MouseEvent) => {
+                      e.preventDefault()
+                      setMenu({ at: menuPointOf(e), row: r })
+                    }}
+                  >
                     <span className="remote-session-name">{r.title ?? r.id}</span>
                     <span className="remote-session-meta">
                       {[t(r.kind === 'chat' ? 'session.kind.chat' : 'session.kind.terminal'), r.provider, r.cwd]
@@ -243,6 +289,7 @@ export function RemoteSessionsDialog({
         <Field kind="textarea" label={t('remote.sessions.prompt')} value={prompt} disabled={readOnly} rows={3} onChange={(e) => setPrompt(e.target.value)} />
         {startError !== null && <p className="sd-warn">{t('remote.session.failed', { message: startError })}</p>}
       </div>
+      {menu && <Menu at={menu.at} items={rowMenu(menu.row)} label={t('remote.sessions.menu.label')} onClose={() => setMenu(null)} />}
     </Modal>
   )
 }

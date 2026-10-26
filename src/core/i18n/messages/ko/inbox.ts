@@ -132,4 +132,8 @@ export const inbox = {
   'activity.line.fellToReview': '{title}: {why}',
   'activity.line.titled': '{title}: {reason}',
   'activity.line.onRuntime': '{runtime}에서',
+  'inbox.item.markRead': '읽음으로 표시',
+  'inbox.item.markUnread': '읽지 않음으로 표시',
+  'inbox.item.copy': '텍스트 복사',
+  'inbox.item.readCue': '읽음',
 } as const

@@ -434,7 +434,7 @@ export interface RollStateEvent {
 }
 
 /** What a chosen-account switch (`RollingApi.switchTo`) did. 'same': the tab already runs there. 'busy':
- *  the chain is rolling, waiting or settling after a roll. 'refused': not possible, `reason` says why. */
+ *  the chain is rolling or settling after a roll (a wait is cancelled for the switch). 'refused': not possible, `reason` says why. */
 export interface RollSwitchResult {
   outcome: 'switched' | 'same' | 'busy' | 'refused'
   reason?: string
@@ -553,6 +553,8 @@ export interface JobTask {
   provider?: Provider
   /** That Dispatch's startedAt. The renderer counts elapsed time from this with formatElapsed. */
   startedAt?: string
+  /** The running Dispatch is paused by a person (`worker-hold`, Dispatch.held); absent when it runs or nothing does. */
+  workerHeld?: true
   /** 지금 멈춰 있으면 그 계정과 정지 사유, 그리고 리셋 시각. **열린 Dispatch 의 마지막 이력 항목에
    *  `resumedAt` 이 없을 때만 있다** — 끝난 Dispatch 의 열린 항목은 아무도 기다리지 않는 것이다
    *  (앱이 꺼져 outcome_unknown 으로 닫힌 경우가 그 갈래다).
@@ -1547,6 +1549,8 @@ export interface CoreApi {
       slackNotify?: boolean
       bypassPermissions?: boolean // start without permission prompts
       schedule?: ScheduleConfig // recurring command schedule
+      model?: string // terminal only: SessionInfo.model to start on (a Restart keeps the old session's)
+      effort?: string // terminal only: SessionInfo.effort, kept like `model`
       kind?: SessionKind // default 'terminal'
       resumeThreadId?: string // chat only: resume this protocol thread instead of starting one
       /** Stop the Claude background session holding the conversation, then resume it here — the
@@ -2150,7 +2154,7 @@ export interface CoreApi {
   terminal: {
     // An interactive shell at a project path. open and list go through assertAllowedPath, which
     // permits only registered paths.
-    open(projectPath: string, cols?: number, rows?: number): Promise<TerminalInfo>
+    open(projectPath: string, cols?: number, rows?: number, cwd?: string): Promise<TerminalInfo>
     list(projectPath: string): Promise<TerminalBuffer[]>
     write(id: string, data: string): void
     resize(id: string, cols: number, rows: number): void

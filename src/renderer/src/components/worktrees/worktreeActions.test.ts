@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { PrInfo } from '../../../../core/github/types'
-import { worktreeActions, type ActionFacts } from './worktreeActions'
+import { worktreeActions, worktreeMenu, type ActionFacts } from './worktreeActions'
 
 const pr = (over: Partial<PrInfo> = {}): PrInfo => ({ number: 7, title: 't', state: 'open', isDraft: false, url: 'https://x/pull/7', checks: 'passing', ...over })
 const facts = (over: Partial<ActionFacts> = {}): ActionFacts => ({ ok: true, ghConnected: true, ahead: 2, dirty: 0, pr: undefined, pushable: false, busy: false, ...over })
@@ -39,5 +39,23 @@ describe('worktreeActions', () => {
     expect(worktreeActions(facts({ pushable: true })).mergeBase).toEqual({ show: true })
     expect(worktreeActions(facts({ pushable: true, dirty: 3 })).mergeBase.reason).toBe('worktrees.act.dirty')
     expect(worktreeActions(facts({ pushable: true, dirty: null })).mergeBase.reason).toBe('worktrees.act.dirtyUnknown')
+  })
+})
+
+describe('worktreeMenu', () => {
+  const base = ['openHere', 'openFiles', 'terminal', 'reveal', 'copyPath']
+
+  it('a clean or dirty worktree without a PR has no PR actions', () => {
+    expect(worktreeMenu({ status: 'ok', pr: undefined })).toEqual([...base, 'remove'])
+  })
+
+  it('offers View PR and Copy PR link in every PR state', () => {
+    for (const state of ['open', 'merged', 'closed'] as const)
+      expect(worktreeMenu({ status: 'ok', pr: pr({ state }) })).toEqual([...base, 'viewPr', 'copyPr', 'remove'])
+  })
+
+  it('an orphan or unreachable folder offers Copy path and Delete only', () => {
+    for (const status of ['orphan-dir', 'unreachable', 'git-unchecked'] as const)
+      expect(worktreeMenu({ status, pr: pr() })).toEqual(['copyPath', 'remove'])
   })
 })

@@ -3,6 +3,7 @@ import type { LocalHistoryEntry } from '../../../core/types'
 import { errText } from '../hooks/useFileOps'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
+import { historyForFile } from './explorerMenu'
 import { Button, EmptyState, ICONS, Modal, Skeleton } from './ui'
 import './sessionDialog.css'
 
@@ -41,10 +42,13 @@ function baseName(p: string): string {
  *  AccountPanel's detect dialog (the .detect-list style layout). Escape, the focus trap and focus return are Modal's. */
 export function LocalHistoryDialog({
   projectPath,
+  file,
   onRestored,
   onClose
 }: {
   projectPath: string
+  /** Lists only this file's snapshots (opened from a file's menu). */
+  file?: string
   onRestored: (path: string) => void
   onClose: () => void
 }): React.JSX.Element {
@@ -60,7 +64,7 @@ export function LocalHistoryDialog({
       .then((list) => {
         if (cancelled) return
         // Descending by deletion time — the most recently deleted goes on top
-        setEntries([...list].sort((a, b) => b.deletedAt - a.deletedAt))
+        setEntries([...historyForFile(list, file)].sort((a, b) => b.deletedAt - a.deletedAt))
       })
       .catch((err: unknown) => {
         if (cancelled) return
@@ -70,7 +74,7 @@ export function LocalHistoryDialog({
     return () => {
       cancelled = true
     }
-  }, [projectPath])
+  }, [projectPath, file])
 
   const doRestore = async (id: string | null = selectedId): Promise<void> => {
     if (!id || restoring) return

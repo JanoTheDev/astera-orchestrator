@@ -11,6 +11,9 @@ export function AccountSignInDialog({ account, onClose }: { account: Account; on
   const { t } = useI18n()
   const [state, setState] = useState<{ url: string | null; asksCode: boolean }>({ url: null, asksCode: false })
   const [code, setCode] = useState('')
+  // A failed or timed-out login keeps the dialog open with its reason and Retry; each Retry is a new attempt.
+  const [error, setError] = useState<string | null>(null)
+  const [attempt, setAttempt] = useState(0)
   const closed = useRef(false)
   const close = (): void => {
     if (closed.current) return
@@ -24,6 +27,12 @@ export function AccountSignInDialog({ account, onClose }: { account: Account; on
     // second run has started, and must not close the dialog the second run owns.
     let alive = true
     closed.current = false
+    setError(null)
+    setState({ url: null, asksCode: false })
+    const fail = (message: string): void => {
+      if (!alive || closed.current) return
+      setError(message)
+    }
     const finish = (): void => {
       if (!alive || closed.current) return
       closed.current = true
@@ -32,16 +41,14 @@ export function AccountSignInDialog({ account, onClose }: { account: Account; on
     window.api.accounts.login(account.id).then(
       (r) => {
         if (!alive || closed.current) return
-        if (r.ok) toast.success(t('account.signIn.done', { label: account.label }))
-        else if (r.reason === 'timeout') toast.error(t('account.signIn.timeout'))
-        else if (r.reason !== 'cancelled') toast.error(t('account.signIn.failed', { detail: r.message ?? '' }))
-        finish()
+        if (r.ok) {
+          toast.success(t('account.signIn.done', { label: account.label }))
+          finish()
+        } else if (r.reason === 'timeout') fail(t('account.signIn.timeout'))
+        else if (r.reason === 'cancelled') finish()
+        else fail(t('account.signIn.failed', { detail: r.message ?? '' }))
       },
-      (err) => {
-        if (!alive || closed.current) return
-        toast.error(t('account.signIn.failed', { detail: err instanceof Error ? err.message : String(err) }))
-        finish()
-      }
+      (err) => fail(t('account.signIn.failed', { detail: err instanceof Error ? err.message : String(err) }))
     )
     // The link arrives a moment after the CLI starts; the probe settles it, also for a browser-side login the CLI
     // itself does not notice at once.
@@ -60,7 +67,7 @@ export function AccountSignInDialog({ account, onClose }: { account: Account; on
     }
     // One login per open dialog.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [account.id])
+  }, [account.id, attempt])
 
   const copy = async (url: string): Promise<void> => {
     try {
@@ -87,10 +94,21 @@ export function AccountSignInDialog({ account, onClose }: { account: Account; on
       onClose={close}
       size="sm"
       closeLabel={t('common.close')}
-      footer={<Button onClick={close}>{t('common.cancel')}</Button>}
+      footer={
+        <>
+          {error !== null && (
+            <Button variant="primary" icon={<Icon name="refresh" />} onClick={() => setAttempt((n) => n + 1)}>
+              {t('account.signIn.retry')}
+            </Button>
+          )}
+          <Button onClick={close}>{t('common.cancel')}</Button>
+        </>
+      }
     >
       <div className="acct-form">
-        {state.url === null ? (
+        {error !== null ? (
+          <p className="acct-note acct-note--warn" role="alert">{error}</p>
+        ) : state.url === null ? (
           <p className="acct-note acct-note--faint">{t('account.signIn.starting')}</p>
         ) : (
           <>
@@ -115,7 +133,7 @@ export function AccountSignInDialog({ account, onClose }: { account: Account; on
             </div>
           </>
         )}
-        {state.asksCode && (
+        {error === null && state.asksCode && (
           <form
             className="acct-signin-code"
             onSubmit={(e) => {

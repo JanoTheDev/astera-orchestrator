@@ -1,46 +1,17 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
-import { SearchAddon, type ISearchOptions } from '@xterm/addon-search'
 import '@xterm/xterm/css/xterm.css'
 import { xtermThemeOf } from '../../../core/theme/apply'
-import type { Theme } from '../../../core/theme/themes'
-import { consoleTerminalOptions, findHighlightPaint } from '../../../core/run/consoleTerminal'
+import { consoleTerminalOptions } from '../../../core/run/consoleTerminal'
 import { pinCursorBlinkOff } from '../lib/cursorBlink'
 import { useTerminalFont } from '../lib/terminalFont'
 import { useTheme } from '../lib/theme'
 import { attachConsoleLinks } from '../terminalLinks'
-import { copyTextFor } from '../../../core/terminal/copy'
+import { useI18n } from '../i18n/I18nProvider'
+import { attachTerminalKeys, findHighlightColor, useTerminalFind, useTerminalMenu, type TerminalClipboard } from './terminalMenu'
 import { RunFindBar } from './RunFindBar'
 import { createReplayJoin } from '../lib/runReplay'
-
-/** The app's amber, which both the find highlights and the console's selection colour are built from.
- *  Read from the theme rather than hardcoded; the fallback is the value every shipped theme defines. */
-function findHighlightColor(): string {
-  return getComputedStyle(document.documentElement).getPropertyValue('--warn').trim() || '#d9a441'
-}
-
-/** The search addon's highlight colours. Every match is now one colour, not two: a decoration's
- *  background and xterm's selection background (which the active match sits inside, since the addon
- *  selects it) follow different paint rules, so left to their own devices the same input colour came
- *  out as two different pixels — see findHighlightPaint for the detail. The active match is told apart
- *  by its outline instead. A function of the paint, not a copy of it, so this and consoleTerminalOptions
- *  (which sets the selection side) cannot drift apart. */
-function searchDecorations(theme: Theme): ISearchOptions['decorations'] {
-  const xtermTheme = xtermThemeOf(theme)
-  const paint = findHighlightPaint({
-    highlight: findHighlightColor(),
-    background: xtermTheme.background,
-    outline: xtermTheme.foreground
-  })
-  return {
-    matchBackground: paint.decorationBackground,
-    activeMatchBackground: paint.decorationBackground,
-    activeMatchBorder: paint.activeBorder,
-    matchOverviewRuler: paint.ruler,
-    activeMatchColorOverviewRuler: paint.ruler
-  }
-}
 
 /** One run's console. The tab strip, the tool rail and the header are owned by BottomPanel; this draws
  *  xterm, plus the two things that live on the terminal itself: the link provider (shared —
@@ -72,12 +43,17 @@ export function RunPanel({
   const hostRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
-  const searchRef = useRef<SearchAddon | null>(null)
-  const [query, setQuery] = useState('')
-  const [results, setResults] = useState<{ index: number | null; total: number } | null>(null)
+  const clipRef = useRef<TerminalClipboard | null>(null)
+  const { t } = useI18n()
+  const find = useTerminalFind(termRef, theme, findOpen, onFindOpenChange)
+  const { onContextMenu, menu } = useTerminalMenu(clipRef, t)
   // The construction effect runs once per run and must not capture a stale callback
   const onFindOpenChangeRef = useRef(onFindOpenChange)
   onFindOpenChangeRef.current = onFindOpenChange
+  const attachFindRef = useRef(find.attach)
+  attachFindRef.current = find.attach
+  const resetFindRef = useRef(find.reset)
+  resetFindRef.current = find.reset
   const onOpenFileRef = useRef(onOpenFile)
   onOpenFileRef.current = onOpenFile
   const onOpenUrlRef = useRef(onOpenUrl)
@@ -93,69 +69,19 @@ export function RunPanel({
     const blinkGuard = pinCursorBlinkOff(term)
     const fit = new FitAddon()
     term.loadAddon(fit)
-    const search = new SearchAddon()
-    term.loadAddon(search)
+    const detachFind = attachFindRef.current(term)
     term.open(host)
     fit.fit()
     termRef.current = term
     fitRef.current = fit
-    searchRef.current = search
-    // The addon reports the active match and the total only while decorations are on (they are, below).
-    // It reports resultIndex -1 when it stops tracking the active match (its highlightLimit, 1000 by
-    // default) — the total is still right, the position is not known. A separate state from "no search
-    // has run", so the bar can show the total alone instead of inventing a 0th match.
-    const onResults = search.onDidChangeResults((e) =>
-      setResults({ index: e.resultIndex < 0 ? null : e.resultIndex + 1, total: e.resultCount })
-    )
-    // Cmd on macOS, Ctrl elsewhere — the same platform split TerminalView uses for its own keybindings
-    // — for the two keys this console claims. F opens this run's find bar instead of sending the key
-    // to the process; bound on the terminal, not the window, so the editor's own find is untouched.
-    const isMac = window.api.platform === 'darwin'
-    // 고른 순간의 글자를 붙잡아 둔다 — TerminalView 와 같은 이유이고 같은 방식이다. xterm 의
-    // 선택은 좌표만 가리키므로, 실행된 명령이 화면을 다시 그리면(TUI 를 띄우는 명령이 그렇다)
-    // 그 좌표에서 읽히는 것은 이미 다른 것이다. core/terminal/copy.ts 에 그 측정이 있다.
-    let latchedSelection = ''
-    const selectionLatch = term.onSelectionChange(() => {
-      latchedSelection = term.getSelection()
-    })
-    const keyMod = (e: KeyboardEvent): boolean => (isMac ? e.metaKey : e.ctrlKey)
-    const otherMod = (e: KeyboardEvent): boolean => (isMac ? e.ctrlKey : e.metaKey)
-    term.attachCustomKeyEventHandler((e) => {
-      if (
-        e.type === 'keydown' &&
-        keyMod(e) &&
-        !otherMod(e) &&
-        !e.altKey &&
-        !e.shiftKey &&
-        e.key.toLowerCase() === 'f'
-      ) {
-        onFindOpenChangeRef.current(true)
-        return false
-      }
-      // Copy, as the session terminal does it: with a selection, C copies it and clears the selection
-      // instead of reaching the process — a user copying a stack trace must not interrupt the server
-      // that printed it. With nothing selected the key flows through as before (an interrupt on
-      // Windows and Linux; nothing at all on macOS, where Ctrl+C is the interrupt and Cmd+C is not).
-      if (
-        e.type === 'keydown' &&
-        (e.key === 'c' || e.key === 'C') &&
-        keyMod(e) &&
-        !otherMod(e) &&
-        !e.altKey &&
-        !e.shiftKey
-      ) {
-        const text = copyTextFor(latchedSelection, term.getSelection())
-        if (text !== null) {
-          window.api.clipboard.writeText(text)
-          term.clearSelection()
-          latchedSelection = ''
-          return false
-        }
-        // 쓸 것이 없으면 클립보드를 그대로 둔다 — 다시 그려진 자리의 공백으로 덮어쓰면 복사한
-        // 사람은 붙여넣기가 고장 난 것으로 본다.
-        return true
-      }
-      return true
+    // Ctrl+F opens this run's find bar instead of sending the key to the process (the console is not interactive);
+    // bound on the terminal, not the window, so the editor's own find is untouched. Copy with a selection must not
+    // interrupt the server that printed the text: the shared handler lets Ctrl+C through only when nothing is selected.
+    clipRef.current = attachTerminalKeys(term, {
+      isMac: window.api.platform === 'darwin',
+      plainFind: true,
+      onFind: () => onFindOpenChangeRef.current(true),
+      onClear: () => resetFindRef.current()
     })
     const disposeLinks = attachConsoleLinks(term, {
       onUrl: (url, ev) => onOpenUrlRef.current(url, ev),
@@ -193,15 +119,15 @@ export function RunPanel({
       cancelled = true
       off()
       disposeLinks()
-      selectionLatch.dispose()
-      onResults.dispose()
+      clipRef.current?.dispose()
+      clipRef.current = null
+      detachFind()
       blinkGuard.dispose()
       input.dispose()
       observer.disconnect()
       clearTimeout(resizeTimer)
       termRef.current = null
       fitRef.current = null
-      searchRef.current = null
       term.dispose()
     }
   }, [runId])
@@ -240,13 +166,7 @@ export function RunPanel({
     if (clearNonce > 0) {
       termRef.current?.clear()
       // The matches went with the scrollback — a count with nothing behind it is worse than none.
-      // clearSelection() alongside it: SearchAddon.clearDecorations() does not clear the selection
-      // despite its typing saying "Clears the decorations and selection" — read the shipped
-      // implementation. Left alone, the active match's selection survives and, now that it is amber
-      // rather than xterm's grey, stays plainly visible.
-      searchRef.current?.clearDecorations()
-      termRef.current?.clearSelection()
-      setResults(null)
+      find.reset()
     }
   }, [clearNonce])
 
@@ -254,56 +174,11 @@ export function RunPanel({
     if (scrollToEndNonce > 0) termRef.current?.scrollToBottom()
   }, [scrollToEndNonce])
 
-  // Search. Typing searches incrementally from the current position; Enter / the buttons step. Closing
-  // clears the highlights but keeps the query, so reopening resumes where the user left it.
-  const options = (incremental: boolean): ISearchOptions => ({
-    caseSensitive: false,
-    regex: false,
-    incremental,
-    decorations: searchDecorations(theme)
-  })
-  const findNext = (): void => {
-    if (query) searchRef.current?.findNext(query, options(false))
-  }
-  const findPrev = (): void => {
-    if (query) searchRef.current?.findPrevious(query, options(false))
-  }
-  const onQueryChange = (q: string): void => {
-    setQuery(q)
-    if (q) searchRef.current?.findNext(q, options(true))
-    else {
-      searchRef.current?.clearDecorations()
-      termRef.current?.clearSelection()
-      setResults(null)
-    }
-  }
-  // Closing the bar hands focus back to the terminal. Not on mount: the effect body also runs on the
-  // first commit (findOpen starts false), and a run starting must not take focus from wherever the
-  // user is typing — this file never moved focus before the find bar existed.
-  const findWasOpen = useRef(findOpen)
-  useEffect(() => {
-    const wasOpen = findWasOpen.current
-    findWasOpen.current = findOpen
-    if (findOpen) return
-    searchRef.current?.clearDecorations()
-    termRef.current?.clearSelection()
-    setResults(null)
-    if (wasOpen) termRef.current?.focus()
-  }, [findOpen])
-
   return (
-    <div className="run-panel-body">
+    <div className="run-panel-body" onContextMenu={onContextMenu}>
       <div className="run-panel-host" ref={hostRef} />
-      {findOpen && (
-        <RunFindBar
-          query={query}
-          results={results}
-          onQueryChange={onQueryChange}
-          onNext={findNext}
-          onPrev={findPrev}
-          onClose={() => onFindOpenChange(false)}
-        />
-      )}
+      {findOpen && <RunFindBar {...find.barProps} />}
+      {menu}
     </div>
   )
 }

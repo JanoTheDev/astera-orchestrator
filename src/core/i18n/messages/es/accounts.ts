@@ -81,4 +81,13 @@ export const accounts: Partial<Record<keyof typeof ko, string>> = {
   'account.sync.button': "Importar configuración",
   'account.empty.body': "Las cuentas permiten a Astera ejecutar agentes con su suscripción de Claude o Codex. Agregue una para empezar.",
   'account.empty.bodySettings': "Agregue una desde el menú de cuentas de la barra superior.",
+  'account.signInAgain.button': 'Volver a iniciar sesión',
+  'account.signOut.button': 'Cerrar sesión',
+  'account.signOut.title': 'Cerrar sesión de {label}',
+  'account.signOut.confirm': '¿Cerrar sesión de {label}? La cuenta seguirá en la lista y podrá volver a iniciar sesión.',
+  'account.signOut.done': 'Se cerró la sesión de {label}.',
+  'account.signOut.failed': 'No se pudo cerrar la sesión: {detail}',
+  'account.signOut.processing': 'Cerrando sesión…',
+  'account.status.paused': 'En pausa',
+  'account.signIn.retry': 'Reintentar'
 }

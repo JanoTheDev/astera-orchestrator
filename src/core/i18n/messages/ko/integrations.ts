@@ -423,4 +423,8 @@ export const integrations = {
   'github.project.done': '만들었습니다: {url}',
   'github.project.failed': 'GitHub 저장소를 만들지 못했습니다.',
   'github.project.hasOrigin': '이 프로젝트에는 이미 origin 원격이 있습니다.',
+  'project.state.missing': '폴더 없음',
+  'project.state.notGit': 'git 저장소 아님',
+  'project.state.missing.hint': '폴더가 없습니다. 복원하거나 프로젝트를 제거하세요.',
+  'project.reveal': '폴더 보기'
 } as const

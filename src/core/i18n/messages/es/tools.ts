@@ -240,4 +240,17 @@ export const tools: Partial<Record<keyof typeof ko, string>> = {
   'run.row.edit': 'Editar configuración',
   'run.view.refresh': 'Actualizar configuraciones',
   'run.view.empty': 'Aún no hay configuraciones. Crea una con +.',
+  'run.action.stopAgain': 'Detener de nuevo',
+  'run.menu.rerunLast': 'Volver a ejecutar la última',
+  'run.menu.stopAll': 'Detener todo',
+  'run.menu.editCurrent': 'Editar la configuración actual',
+  'run.menu.showOutput': 'Mostrar salida',
+  'terminal.menu.copy': 'Copiar',
+  'terminal.menu.paste': 'Pegar',
+  'terminal.menu.selectAll': 'Seleccionar todo',
+  'terminal.menu.clear': 'Limpiar',
+  'terminal.menu.find': 'Buscar',
+  'terminal.tab.rename': 'Renombrar',
+  'terminal.tab.renameLabel': 'Nombre de la terminal',
+  'terminal.tab.closeOthers': 'Cerrar las otras terminales'
 }

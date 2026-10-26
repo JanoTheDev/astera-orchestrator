@@ -3,6 +3,7 @@ import type { RunConfig, RunStatus } from '../../../core/types'
 import { actedConfigIds, decideStart, toolbarState } from '../../../core/run/instances'
 import { useI18n } from '../i18n/I18nProvider'
 import { RunConfigMenu } from './RunConfigMenu'
+import { toolbarActionsOf } from './runConfigActions'
 import { Button, Icon, IconButton, Menu, Popover } from './ui'
 
 /** Run toolbar. It sits in the title bar, next to the app name, and is drawn whenever a project is
@@ -30,6 +31,7 @@ export function RunToolbar({
   activeRuns,
   onJump,
   onStopRun,
+  onShowOutput,
   menuOpen,
   onMenuOpenChange,
   shortcut
@@ -52,6 +54,8 @@ export function RunToolbar({
   activeRuns: RunStatus[]
   onJump: (projectPath: string) => void
   onStopRun: (runId: string) => void
+  /** The ⋮ menu's Show output: selects that run and opens the panel. */
+  onShowOutput: (runId: string) => void
   /** Controlled: Task 9's run.selectConfig shortcut opens the configuration menu from outside. */
   menuOpen: boolean
   onMenuOpenChange: (open: boolean) => void
@@ -78,6 +82,8 @@ export function RunToolbar({
     .map((id) => configs.find((c) => c.id === id))
     .some((c) => !!c && decideStart(runs, c).action === 'restart')
 
+  const more = toolbarActionsOf(runs, configs, selectedId)
+
   return (
     <div className="run-toolbar">
       <RunConfigMenu
@@ -88,6 +94,7 @@ export function RunToolbar({
         onOpenChange={onMenuOpenChange}
         onSelect={onSelect}
         onRun={onRunConfig}
+        onStop={onStop}
         onEdit={onEditConfig}
         onManage={onOpenManager}
         shortcut={shortcut}
@@ -120,7 +127,14 @@ export function RunToolbar({
         label={t('run.config.more')}
         align="end"
         trigger={{ icon: <Icon name="moreVertical" size={16} />, title: t('run.config.more') }}
-        items={[{ id: 'manager', label: t('run.manager.open'), onSelect: onOpenManager }]}
+        items={[
+          { id: 'rerun', label: t('run.menu.rerunLast'), disabled: !more.rerunConfigId, onSelect: () => more.rerunConfigId && onRunConfig(more.rerunConfigId) },
+          { id: 'stopAll', label: t('run.menu.stopAll'), disabled: more.stopIds.length === 0, onSelect: () => more.stopIds.forEach(onStop) },
+          { id: 'edit', label: t('run.menu.editCurrent'), disabled: !more.editId, onSelect: () => more.editId && onEditConfig(more.editId) },
+          { id: 'output', label: t('run.menu.showOutput'), disabled: !more.outputRunId, onSelect: () => more.outputRunId && onShowOutput(more.outputRunId) },
+          'separator',
+          { id: 'manager', label: t('run.manager.open'), onSelect: onOpenManager }
+        ]}
       />
       {activeRuns.length > 0 && (
         <Popover
@@ -157,13 +171,13 @@ export function RunToolbar({
               >
                 {r.projectName} — {r.configName}
               </Button>
-              {r.status === 'running' && (
+              {(r.status === 'running' || r.status === 'stopping') && (
                 <IconButton
                   data-roving=""
                   size="sm"
                   className="run-global-stop"
                   icon={<Icon name="stop" size={14} />}
-                  label={t('run.action.stop')}
+                  label={t(r.status === 'stopping' ? 'run.action.stopAgain' : 'run.action.stop')}
                   onClick={() => onStopRun(r.runId)}
                 />
               )}

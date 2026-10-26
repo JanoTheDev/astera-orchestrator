@@ -9,7 +9,7 @@ import type { SideBarViewProps } from '../shell/SideBar'
 export function ExplorerView(p: SideBarViewProps): React.JSX.Element {
   const {
     t, currentProject, openProjectFile, explorerTreesRef, explorerClipboardRef, explorerUndoRef, handlePathRenamed, handlePathDeleted,
-    runFile, explorerReveal, setExplorerReveal
+    runFile, newTerminal, explorerReveal, setExplorerReveal
   } = p
   const gitStatus = useGitStatus(currentProject)
   return (
@@ -25,6 +25,7 @@ export function ExplorerView(p: SideBarViewProps): React.JSX.Element {
           onPathRenamed={handlePathRenamed}
           onPathDeleted={handlePathDeleted}
           onRunFile={runFile}
+          onOpenTerminal={(dir) => void newTerminal(undefined, dir)}
           revealFolder={explorerReveal}
           onRevealDone={(seq) => setExplorerReveal((r) => (r !== null && r.seq === seq ? null : r))}
         />

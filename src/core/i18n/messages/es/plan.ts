@@ -313,4 +313,21 @@ export const plan: Partial<Record<keyof typeof ko, string>> = {
   "plan.edit.why.finished": "Esta tarea terminó: no se puede editar.",
   "plan.edit.nothing": "No cambió nada.",
   "plan.edit.failed": "No se pudo guardar la tarea",
+  'plan.header.refreshLead': 'Renovar el agente líder',
+  'plan.header.refreshLeadFailed': 'No se pudo renovar el agente líder',
+  'plan.header.leadRefreshed': 'Se renovó el agente líder',
+  'plan.header.reveal': 'Mostrar la carpeta del plan',
+  'plan.header.terminal': 'Abrir terminal en la carpeta del plan',
+  'plan.header.noFolder': 'Este plan no tiene carpeta en este equipo',
+  // Task actions on the Board and Graph (taskActions.ts)
+  "plan.taskMenu.label": "Acciones de la tarea",
+  "plan.taskMenu.pauseWorker": "Pausar el worker",
+  "plan.taskMenu.resumeWorker": "Reanudar el worker",
+  "plan.taskMenu.openWorktree": "Abrir el worktree",
+  "plan.taskMenu.reveal": "Mostrar la carpeta",
+  "plan.taskMenu.noWorker": "No hay ningún worker en ejecución",
+  "plan.taskMenu.noWorktree": "No se encontró la carpeta del worktree de esta tarea",
+  'plan.summary.retryPr': 'Intentar de nuevo',
+  'plan.summary.retryPrFailed': 'No se pudo abrir la pull request: {reason}',
+  'plan.taskMenu.terminal': 'Abrir terminal aquí'
 }

@@ -1,13 +1,16 @@
 // The Devices side bar view (DESIGN-W13 §4): This computer (whether it takes work from other devices), Your devices
 // (the paired Runtimes, online or not; a click opens the device's `view:device` tab) and Found on your network (the
 // found devices not paired yet, each with an inline Add). The Add device modal opens from here.
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { parseViewTab } from '../../../../core/panes/tabId'
-import { Button, Icon, IconButton, Tree, ViewContainer, ViewPane, type TreeItem } from '../ui'
+import { confirmModal } from '../../lib/confirm'
+import { toast } from '../../lib/toast'
+import { Button, Icon, IconButton, Menu, Switch, Tree, ViewContainer, ViewPane, menuPointOf, type MenuItem, type TreeItem } from '../ui'
 import { openSettings, openView } from '../shell/navigation'
 import { ViewToolbar, type SideBarViewProps } from '../shell/SideBar'
+import { controlFailureLine, failureLine, pingLine } from '../remoteRuntimesText'
 import { AddDeviceModal } from '../devices/AddDeviceModal'
-import { deviceState, foundNotPaired, needsAttention, osName, sourceLabel } from '../devices/devicesView'
+import { acceptsWork, deviceActions, deviceState, FOUND_ACTIONS, foundNotPaired, needsAttention, osName, sourceLabel } from '../devices/devicesView'
 import { closeAddDevice, openAddDevice, refreshDevices, startDiscovery, useDevices } from '../devices/useDevices'
 import '../devices/devices.css'
 
@@ -27,7 +30,56 @@ export function DevicesView(p: SideBarViewProps): React.JSX.Element {
   const yours = useClickOpen(openDevice)
   const thisClick = useClickOpen(remoteSettings)
 
-  const accepts = !!mine && mine.gateway.state !== 'disabled'
+  const [menu, setMenu] = useState<{ at: { x: number; y: number }; items: Array<MenuItem | 'separator'> } | null>(null)
+  const [switching, setSwitching] = useState(false)
+  const fail = (err: unknown): void => void toast.error(err instanceof Error ? err.message : String(err))
+  const check = async (runtimeId: string): Promise<void> => {
+    try {
+      const res = await window.api.remote.ping(runtimeId)
+      ;(res.ok ? toast.success : toast.error)(pingLine(res, t as never))
+      refreshDevices()
+    } catch (err) {
+      fail(err)
+    }
+  }
+  const forget = async (runtimeId: string, name: string): Promise<void> => {
+    const ok = await confirmModal({ title: t('devices.unpair.title'), body: t('devices.unpair.body', { name }), confirmLabel: t('devices.unpair.button'), danger: true })
+    if (!ok) return
+    try {
+      const done = await window.api.remote.remove(runtimeId)
+      if (!done.ok) toast.error(failureLine(done, t as never))
+    } catch (err) {
+      fail(err)
+    }
+    refreshDevices()
+    p.setPairedChanged((n) => n + 1)
+  }
+  // Remote on listens on this computer's first address (private IPv4 first), as Settings › Remote Runtimes offers; off asks first.
+  const setAccepting = async (on: boolean): Promise<void> => {
+    setSwitching(true)
+    try {
+      if (on) {
+        const listen = (await window.api.remote.addresses())[0]?.address
+        if (!listen) return void toast.error(t('devices.this.noAddress'))
+        const r = await window.api.remote.start(listen)
+        if (!r.ok) return void toast.error(controlFailureLine(r, 'start', t as never))
+        toast.success(t('settings.remote.start.done', { listen: String(r.body.listen ?? listen), port: String(r.body.port ?? '') }))
+      } else {
+        const ok = await confirmModal({ title: t('settings.remote.stop.title'), body: t('settings.remote.stop.body'), confirmLabel: t('settings.remote.stop.button'), danger: true })
+        if (!ok) return
+        const r = await window.api.remote.stop()
+        if (!r.ok) return void toast.error(controlFailureLine(r, 'stop', t as never))
+        toast.success(t('settings.remote.stop.done'))
+      }
+    } catch (err) {
+      fail(err)
+    } finally {
+      setSwitching(false)
+      refreshDevices()
+    }
+  }
+
+  const accepts = acceptsWork(mine)
   const thisRows: TreeItem[] = [
     {
       id: THIS,
@@ -36,7 +88,12 @@ export function DevicesView(p: SideBarViewProps): React.JSX.Element {
       title: mine ? `${t('devices.thisComputer')}\n${t(accepts ? 'devices.this.accepts' : 'devices.this.off')}` : undefined,
       icon: <Icon name="laptop" size={16} />,
       description: mine === undefined ? '' : mine === null ? t('devices.this.unknown') : t(accepts ? 'devices.this.acceptsShort' : 'devices.this.offShort'),
-      actions: <IconButton size="sm" icon={<Icon name="settings" size={14} />} label={t('devices.this.settings')} onClick={remoteSettings} />
+      actions: (
+        <>
+          <Switch checked={accepts} disabled={!mine || switching} aria-label={t('devices.this.acceptLabel')} onChange={(on) => void setAccepting(on)} />
+          <IconButton size="sm" icon={<Icon name="settings" size={14} />} label={t('devices.this.settings')} onClick={remoteSettings} />
+        </>
+      )
     }
   ]
   const pairedRows: TreeItem[] = (paired ?? []).map((r) => {
@@ -50,6 +107,14 @@ export function DevicesView(p: SideBarViewProps): React.JSX.Element {
       title: `${r.name}\n${r.address}:${r.port}\n${t(`devices.state.${state}`)}`,
       icon: <Icon name={STATE_ICON[state]} size={16} />,
       description: osName(os),
+      actions: (
+        <IconButton
+          size="sm"
+          icon={<Icon name="refresh" size={14} />}
+          label={t(state === 'offline' ? 'devices.menu.retry' : 'devices.menu.check')}
+          onClick={() => void check(r.runtimeId)}
+        />
+      ),
       decoration: needsAttention(r, accounts)
         ? { icon: <Icon name="warning" size={14} />, text: t(state === 'offline' ? 'devices.state.offline' : 'devices.account.needsSignIn'), tone: 'warn' }
         : accounts && accounts.length > 0
@@ -71,6 +136,43 @@ export function DevicesView(p: SideBarViewProps): React.JSX.Element {
     if (f) openAddDevice(f)
   }
 
+  const open = (e: React.MouseEvent, items: Array<MenuItem | 'separator'>): void => {
+    e.preventDefault()
+    setMenu({ at: menuPointOf(e), items })
+  }
+  const thisMenu = (): Array<MenuItem | 'separator'> => [
+    { id: 'accept', label: t('devices.this.acceptLabel'), checked: accepts, disabled: !mine || switching, onSelect: () => void setAccepting(!accepts) },
+    { id: 'settings', label: t('devices.this.settings'), icon: <Icon name="settings" size={14} />, onSelect: remoteSettings }
+  ]
+  const deviceMenu = (runtimeId: string): Array<MenuItem | 'separator'> => {
+    const r = paired?.find((x) => x.runtimeId === runtimeId)
+    if (!r) return []
+    const item: Record<ReturnType<typeof deviceActions>[number], MenuItem> = {
+      open: { id: 'open', label: t('devices.menu.open'), icon: <Icon name="screen" size={14} />, onSelect: () => openDevice(runtimeId) },
+      check: { id: 'check', label: t('devices.menu.check'), icon: <Icon name="refresh" size={14} />, onSelect: () => void check(runtimeId) },
+      retry: { id: 'retry', label: t('devices.menu.retry'), icon: <Icon name="refresh" size={14} />, onSelect: () => void check(runtimeId) },
+      forget: { id: 'forget', label: t('devices.menu.forget'), icon: <Icon name="delete" size={14} />, danger: true, onSelect: () => void forget(runtimeId, r.name) }
+    }
+    return deviceActions(deviceState(r)).map((a) => item[a])
+  }
+  const foundMenu = (key: string): Array<MenuItem | 'separator'> => {
+    const f = toFind.find((x) => x.key === key)
+    if (!f) return []
+    const item = {
+      add: { id: 'add', label: t('devices.menu.add'), icon: <Icon name="add" size={14} />, onSelect: () => openAddDevice(f) },
+      copyAddress: {
+        id: 'copyAddress',
+        label: t('devices.menu.copyAddress'),
+        icon: <Icon name="copy" size={14} />,
+        onSelect: () => {
+          window.api.clipboard.writeText(f.address)
+          toast.success(t('devices.menu.copied', { address: f.address }))
+        }
+      }
+    } satisfies Record<(typeof FOUND_ACTIONS)[number], MenuItem>
+    return FOUND_ACTIONS.map((a) => item[a])
+  }
+
   const title = t('shell.activity.devices')
   return (
     <ViewContainer label={title}>
@@ -83,7 +185,7 @@ export function DevicesView(p: SideBarViewProps): React.JSX.Element {
       />
       <ViewPane title={t('devices.pane.this')} storageKey="devices.this" className="devices-this">
         <div className="devices-tree" {...thisClick.handlers}>
-          <Tree label={t('devices.pane.this')} rows={thisRows} onSelect={thisClick.onSelect} onOpen={remoteSettings} />
+          <Tree label={t('devices.pane.this')} rows={thisRows} onSelect={thisClick.onSelect} onOpen={remoteSettings} onContextMenu={(_id, e) => open(e, thisMenu())} />
         </div>
       </ViewPane>
       <ViewPane title={t('devices.pane.yours')} count={paired && paired.length > 0 ? paired.length : undefined} storageKey="devices.yours">
@@ -98,7 +200,7 @@ export function DevicesView(p: SideBarViewProps): React.JSX.Element {
           </div>
         ) : (
           <div className="devices-tree" {...yours.handlers}>
-            <Tree label={t('devices.pane.yours')} rows={pairedRows} onSelect={yours.onSelect} onOpen={openDevice} selectedId={activeDevice(p.activeTabId)} />
+            <Tree label={t('devices.pane.yours')} rows={pairedRows} onSelect={yours.onSelect} onOpen={openDevice} selectedId={activeDevice(p.activeTabId)} onContextMenu={(id, e) => open(e, deviceMenu(id))} />
           </div>
         )}
       </ViewPane>
@@ -111,9 +213,10 @@ export function DevicesView(p: SideBarViewProps): React.JSX.Element {
             </Button>
           </div>
         ) : (
-          <Tree label={t('devices.pane.found')} rows={foundRows} onOpen={addFound} />
+          <Tree label={t('devices.pane.found')} rows={foundRows} onOpen={addFound} onContextMenu={(id, e) => open(e, foundMenu(id))} />
         )}
       </ViewPane>
+      {menu && menu.items.length > 0 && <Menu at={menu.at} items={menu.items} label={t('devices.menu.label')} onClose={() => setMenu(null)} />}
       {adding && (
         <AddDeviceModal
           found={toFind}
