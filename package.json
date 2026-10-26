@@ -32,7 +32,9 @@
     "dist:linux": "node scripts/dist-version.mjs electron-vite build + node scripts/gen-licenses.mjs + electron-builder --linux --publish never",
     "postinstall": "electron-builder install-app-deps",
     "host-runtime": "node scripts/host-runtime.mjs",
-    "shots": "node scripts/shoot.mjs"
+    "shots": "node scripts/shoot.mjs",
+    "docs:dev": "node scripts/docs-site-sync.mjs && npm --prefix site run dev",
+    "docs:build": "node scripts/docs-site-sync.mjs && npm --prefix site run build"
   },
   "dependencies": {
     "@assistant-ui/react": "^0.15.18",

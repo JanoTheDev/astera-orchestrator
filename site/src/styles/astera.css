@@ -1,0 +1,103 @@
+/* Astera's look on Starlight. Colours are the app's own theme tokens (src/core/theme/themes.ts): Night for dark,
+   Day for light. accent-low = accentSoft, accent = accent, accent-high = link (the text-safe accent). */
+:root {
+	--sl-color-accent-low: #0f2b46;
+	--sl-color-accent: #0078d4;
+	--sl-color-accent-high: #4daafc;
+	--sl-color-black: #1f1f1f; /* bg / editorBg */
+	--sl-color-gray-6: #181818; /* panel / sidebarBg */
+	--sl-color-gray-5: #2b2b2b; /* line */
+	--astera-frame: #2b2b2b;
+	--astera-shadow: 0 6px 24px rgb(0 0 0 / 0.35);
+}
+:root[data-theme='light'] {
+	--sl-color-accent-low: #dbeaf9;
+	--sl-color-accent: #005fb8;
+	--sl-color-accent-high: #005fb8;
+	--sl-color-black: #ffffff;
+	--sl-color-gray-6: #f8f8f8;
+	--sl-color-gray-7: #f8f8f8;
+	--astera-frame: #e5e5e5;
+	--astera-shadow: 0 6px 20px rgb(0 0 0 / 0.08);
+}
+
+/* Screenshots look framed; the diagrams carry their own background, so they only get the corners. */
+.sl-markdown-content img:not(:where(.not-content *)),
+.astera-hero-shot img,
+.astera-gallery img {
+	border-radius: 0.6rem;
+	border: 1px solid var(--astera-frame);
+	box-shadow: var(--astera-shadow);
+	max-width: 100%;
+	height: auto;
+}
+.sl-markdown-content img[src$='.svg'] {
+	box-shadow: none;
+}
+.sl-markdown-content :is(p, td, a) > img:not(:where(.not-content *)) {
+	margin-block: 0.5rem;
+}
+
+/* Tables scroll inside the content column instead of widening the page (Starlight makes them blocks already). */
+.sl-markdown-content table:not(:where(.not-content *)) {
+	max-width: 100%;
+}
+.sl-markdown-content table img:not(:where(.not-content *)) {
+	min-width: 12rem;
+}
+
+/* Home page. */
+/* :root raises it above Starlight's own hero rule, which loads later at the same specificity. */
+:root .hero > img {
+	width: min(8rem, 35vw);
+}
+@media (min-width: 50rem) {
+	:root .hero > img {
+		width: 11rem;
+	}
+}
+.astera-hero-shot {
+	margin: 0 auto 2rem;
+}
+.astera-hero-shot img {
+	display: block;
+	width: 100%;
+}
+.astera-diagram img {
+	display: block;
+	width: min(100%, 48rem);
+	margin-inline: auto;
+	border-radius: 0.6rem;
+}
+.astera-gallery {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr));
+	gap: 1.5rem;
+	margin-top: 1rem;
+}
+.astera-gallery figure {
+	margin: 0;
+}
+.astera-gallery img {
+	display: block;
+	width: 100%;
+	aspect-ratio: 16 / 10;
+	object-fit: cover;
+	object-position: top left;
+	transition: transform 0.15s ease;
+}
+.astera-gallery a:hover img {
+	transform: translateY(-2px);
+}
+.astera-gallery figcaption {
+	margin-top: 0.6rem;
+	font-size: var(--sl-text-sm);
+	line-height: 1.5;
+	color: var(--sl-color-gray-2);
+}
+.astera-gallery figcaption strong {
+	color: var(--sl-color-white);
+}
+.astera-gallery figcaption a {
+	color: var(--sl-color-text-accent);
+}

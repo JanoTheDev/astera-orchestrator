@@ -19,6 +19,8 @@ files:
   # below, and only on Windows. Keeping it out of the asar is not a tidiness point here: without this
   # line every platform's package would carry a second, unreachable copy of a Windows Node binary.
   - '!resources/host-runtime/**'
+  # The docs website (site/README.md) is its own Astro project and never part of the app.
+  - '!site/**'
 asarUnpack:
   - '**/node_modules/node-pty/**'
 extraResources:

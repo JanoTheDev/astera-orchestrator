@@ -189,7 +189,7 @@ already merged: git refuses to delete a branch with unmerged commits, so that wo
 
 ## 6. When something fails
 
-Failure is never silent. It shows as a Gate with a reason a person can read, and lands in the [Inbox](guide.md#inbox).
+Failure is never silent. It shows as a Gate with a reason a person can read, and lands in the [Inbox](guide.md#needs-you).
 
 | Situation | Result |
 |---|---|
