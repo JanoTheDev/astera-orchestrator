@@ -1549,6 +1549,8 @@ export interface CoreApi {
       slackNotify?: boolean
       bypassPermissions?: boolean // start without permission prompts
       schedule?: ScheduleConfig // recurring command schedule
+      model?: string // terminal only: SessionInfo.model to start on (a Restart keeps the old session's)
+      effort?: string // terminal only: SessionInfo.effort, kept like `model`
       kind?: SessionKind // default 'terminal'
       resumeThreadId?: string // chat only: resume this protocol thread instead of starting one
       /** Stop the Claude background session holding the conversation, then resume it here — the

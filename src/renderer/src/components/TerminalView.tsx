@@ -18,6 +18,7 @@ import { exitWording } from '../../../core/sessions/exitWording'
 import { RunFindBar } from './RunFindBar'
 import { attachTerminalKeys, useTerminalFind, useTerminalMenu, type TerminalClipboard } from './terminalMenu'
 import { Button, Icon } from './ui'
+import type { RestartHow } from '../state/restartOptions'
 
 /** W9-H: a wall tile's font (DESIGN §2: the session's own xterm at 10.5–11px). */
 export const TILE_FONT = 11
@@ -37,7 +38,8 @@ export function TerminalView({
   onOpenFolder
 }: {
   session: SessionInfo
-  onRestart: (old: SessionInfo) => void
+  /** The exit overlay's choice: resume the conversation (the default), start fresh, or close the tab. */
+  onRestart: (old: SessionInfo, how?: RestartHow | 'close') => void
   rollState?: RollStateEvent | null
   schedState?: SchedStateEvent | null
   active?: boolean
@@ -359,13 +361,32 @@ export function TerminalView({
     if (active && !tiledRef.current && session.status !== 'exited' && terminalMayTakeFocus(document.activeElement)) termRef.current?.focus()
   }, [active, session.status])
 
+  // Resume is offered once there is a conversation to resume: the id it was itself resumed from, or the one its
+  // statusline names (the lookup useWorkbench.restart makes again on the click)
+  const exited = session.status === 'exited'
+  const [resumable, setResumable] = useState(false)
+  useEffect(() => {
+    if (!exited) return
+    if (session.resumeSessionId) {
+      setResumable(true)
+      return
+    }
+    let live = true
+    window.api.sessions
+      .transcript(session.id)
+      .then((tr) => live && setResumable(tr !== null))
+      .catch(() => undefined)
+    return () => {
+      live = false
+    }
+  }, [exited, session.id, session.resumeSessionId])
   const exit = exitWording(session.exitCode, { closedByAstera: session.closedByAstera, closeReason: session.closeReason })
   return (
     <div className="terminal-wrap" onContextMenu={onContextMenu}>
       <div className="terminal-host" ref={hostRef} />
       {findOpen && <RunFindBar {...find.barProps} />}
       {menu}
-      <SessionStateBanners sessionId={session.id} rollState={rollState} schedState={schedState} />
+      <SessionStateBanners sessionId={session.id} session={session} rollState={rollState} schedState={schedState} />
       {sizedRemote && session.status !== 'exited' && (
         <div className="remote-session-banners">
           <div className="remote-session-banner">{t('session.terminal.sizedRemote')}</div>
@@ -377,11 +398,19 @@ export function TerminalView({
           {t('session.terminal.loadingContent')}
         </div>
       )}
-      {session.status === 'exited' && (
+      {exited && (
         <div className="exit-overlay">
           <p>{t(exit.key, exit.params)}</p>
-          <Button variant="primary" icon={<Icon name="refresh" />} onClick={() => onRestart(session)}>
-            {t('session.terminal.restart')}
+          {resumable && (
+            <Button variant="primary" icon={<Icon name="history" />} onClick={() => onRestart(session, 'resume')}>
+              {t('session.terminal.resume')}
+            </Button>
+          )}
+          <Button variant={resumable ? 'secondary' : 'primary'} icon={<Icon name="refresh" />} onClick={() => onRestart(session, 'fresh')}>
+            {t('session.terminal.fresh')}
+          </Button>
+          <Button variant="ghost" icon={<Icon name="close" />} onClick={() => onRestart(session, 'close')}>
+            {t('session.terminal.closeTab')}
           </Button>
         </div>
       )}

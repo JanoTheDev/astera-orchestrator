@@ -51,6 +51,7 @@ import { scopeKey } from './appConstants'
 import { adoptSessions, cycledTab, type OwnerPick } from './selection'
 import { openInbox } from '../components/shell/navigation'
 import { setHelpOpen } from '../components/help/helpStore'
+import { chainOf, restartOptionsOf, type RestartHow } from './restartOptions'
 import { closeSessionTab, dropClosed, isAgentSession, ownConsolePref, recentlyClosed, recordClosed, reopenClosed, reopenWayOf, setOwnConsolePref, setReopenHandler, type ClosedTab, type CloseHow } from '../lib/recentlyClosed'
 
 export type WorkbenchDeps = Pick<ReturnType<typeof useWorkbenchState>,
@@ -80,18 +81,11 @@ export type WorkbenchDeps = Pick<ReturnType<typeof useWorkbenchState>,
   Pick<ReturnType<typeof useDialogs>,
     'setCommandOpen' | 'setRunMenuOpen' | 'setSwitcherOpen' | 'setTalkSignal' | /* W9-E */ 'setNewOpen'>
 
-/** T1: a session's account and rolling chain for a respawn (Restart, Reopen): its account first, then the rest of its
- *  chain; no chain, no rolling. */
 /** The update:justUpdated record as the toast reads it (JustUpdatedApi in core/update/sourceUpdate.ts is outside the web project). */
 type JustUpdatedApi = { justUpdated(): Promise<{ sha: string; commits: { subject: string }[] } | null> }
 
 /** Commit subjects the "Updated to" toast lists before "and N more". */
 const JUST_UPDATED_LISTED = 5
-
-const chainOf = (accountId: string, chain: string[] | undefined): { accountIds: string[]; roll: boolean } =>
-  chain && chain.length > 0
-    ? { accountIds: [accountId, ...chain.filter((id) => id !== accountId)], roll: true }
-    : { accountIds: [accountId], roll: false }
 
 export function useWorkbench(deps: WorkbenchDeps) {
   const {
@@ -854,6 +848,9 @@ export function useWorkbench(deps: WorkbenchDeps) {
     worktreeOpId?: string
     repoRoot?: string | null
     schedule?: ScheduleConfig
+    /** Terminal only: the model and reasoning effort to start on (a Restart keeps the old session's) */
+    model?: string
+    effort?: string
     /** The old session id, for when an existing tab's session id has to be swapped, as on a restart */
     replacesSessionId?: string
   }): Promise<string | null> => {
@@ -894,7 +891,9 @@ export function useWorkbench(deps: WorkbenchDeps) {
         slackNotify: opts.slackNotify, // Slack progress notifications
         bypassPermissions: opts.bypassPermissions, // start without permission prompts
         unattendedPermission: opts.unattendedPermission, // chat takeover P8: hold, or deny after 60 s
-        schedule: opts.schedule
+        schedule: opts.schedule,
+        model: opts.model,
+        effort: opts.effort
       })
       // The default account mapping is keyed on the original repo — a worktree path is new every time and mappings must not pile up
       // T1: no account (auto) saves no default
@@ -1675,25 +1674,21 @@ export function useWorkbench(deps: WorkbenchDeps) {
     setLayout(next)
   }
 
-  const restart = (old: SessionInfo): void => {
+  /** An ended session's Restart: 'resume' (the default) picks its conversation back up, 'fresh' starts a new one with
+   *  the same settings (restartOptionsOf), 'close' is the exit overlay's Close tab. */
+  const restart = async (old: SessionInfo, how: RestartHow | 'close' = 'resume'): Promise<void> => {
+    if (how === 'close') {
+      closeWorkbenchTab(sessionTab(old.id), 'end')
+      return
+    }
+    // A terminal session resumes on the CLI conversation it wrote, found the way Reopen finds it (reopenTab)
+    const transcript =
+      how === 'resume' && sessionKindOf(old) === 'terminal' ? await window.api.sessions.transcript(old.id).catch(() => null) : null
     // A restarted session inherits the tab position the old one held — it neither steals the active
     // group nor leaves a tab pointing at a dead session id
     setSessions((prev) => prev.filter((s) => s.id !== old.id))
-    // Task 7 review carry-over: without `kind`, a restarted chat session spawned as a plain terminal
-    // one instead — `spawn`'s default. `resumeThreadId` is the thread to pick the conversation back
-    // up on; it is omitted (not sent as undefined-but-present) for a session that never reached
-    // `ready` and so never got one, the same as any other resume path in this file.
     // T1: the old chain goes with it (main moves the start off a full account, sessions.spawn)
-    void spawn({
-      ...chainOf(old.accountId, old.rollAccountIds),
-      cwd: old.cwd,
-      saveDefault: false,
-      slackNotify: old.slackNotify,
-      bypassPermissions: old.bypassPermissions,
-      replacesSessionId: old.id,
-      kind: old.kind,
-      ...(sessionKindOf(old) === 'chat' && old.threadId !== undefined ? { resumeThreadId: old.threadId } : {})
-    })
+    void spawn(restartOptionsOf(old, how, transcript))
   }
 
   const resumeFromHistory = (

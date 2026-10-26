@@ -200,4 +200,10 @@ export const agents = {
   'agents.header.plan': '계획 {name} 열기',
   'agents.header.task': '계획에서 작업 {name} 보기',
   'agents.header.restart': '다시 시작',
+  'session.terminal.resume': '대화 이어서 하기',
+  'session.terminal.fresh': '새로 시작',
+  'session.terminal.closeTab': '탭 닫기',
+  'session.terminal.switchNow': '지금 계정 바꾸기',
+  'agents.header.folder': '폴더 작업',
+  'agents.header.openFolder': '폴더 열기',
 } as const
