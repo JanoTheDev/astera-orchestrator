@@ -18,9 +18,12 @@ function lowerWorkers(cur: AutoLimits, cap: number, cause: AutoLimit['cause'], a
   // an 'oom' on a same-valued 'strain' cap still takes it over: only 'strain' caps are raised again by the Host
   const changed = to !== from || (cause === 'oom' && cur.workers?.cause !== 'oom')
   if (!changed) return cur
+  // a 'strain' lowering keeps a crash or OOM cause, so the Host monitor does not raise it back on its calm timer
+  const keep = cur.workers?.cause
+  const capCause = cause === 'strain' && (keep === 'crash' || keep === 'oom') ? keep : cause
   return {
     ...cur,
-    workers: { cap: to, cause, at, detail },
+    workers: { cap: to, cause: capCause, at, detail },
     history: [...cur.history, { at, what: 'workers' as const, from, to, cause, detail }].slice(-HISTORY_MAX)
   }
 }

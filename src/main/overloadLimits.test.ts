@@ -78,6 +78,26 @@ describe('freezeLowering', () => {
     })
     expect(freezeLowering({ effectiveWorkers: 1, freezes: 2, now: NOW })(empty).workers?.cap).toBe(1)
   })
+  it('keeps an oom cause on a cap it lowers, and its history row says strain', () => {
+    const cur = { history: [], workers: { cap: 4, cause: 'oom' as const, at: 'x', detail: 'old' } }
+    const next = freezeLowering({ effectiveWorkers: 4, freezes: 2, now: NOW })(cur)
+    expect(next.workers).toMatchObject({ cap: 3, cause: 'oom', at: NOW })
+    expect(next.history).toEqual([{ at: NOW, what: 'workers', from: 4, to: 3, cause: 'strain', detail: 'The window froze 2 times in 10 minutes' }])
+  })
+  it('keeps a crash cause on a cap it lowers, and its history row says strain', () => {
+    const cur = { history: [], workers: { cap: 4, cause: 'crash' as const, at: 'x', detail: 'old' } }
+    const next = freezeLowering({ effectiveWorkers: 4, freezes: 2, now: NOW })(cur)
+    expect(next.workers).toMatchObject({ cap: 3, cause: 'crash' })
+    expect(next.history[0]).toMatchObject({ from: 4, to: 3, cause: 'strain' })
+  })
+  it('leaves an oom cap alone when it is already at the floor', () => {
+    const cur = { history: [], workers: { cap: 1, cause: 'oom' as const, at: 'x', detail: 'old' } }
+    expect(freezeLowering({ effectiveWorkers: 4, freezes: 2, now: NOW })(cur)).toBe(cur)
+  })
+  it('labels a strain cap it lowers as strain', () => {
+    const cur = { history: [], workers: { cap: 4, cause: 'strain' as const, at: 'x', detail: 'old' } }
+    expect(freezeLowering({ effectiveWorkers: 4, freezes: 2, now: NOW })(cur).workers).toMatchObject({ cap: 3, cause: 'strain' })
+  })
 })
 
 describe('watchWindowFreezes', () => {
