@@ -6,7 +6,7 @@ side see the [user guide](guide.md); for the mechanics of one Job see [Jobs](job
 
 ## Processes and who owns what
 
-<img src="../assets/docs/diagrams/architecture.svg" width="760" alt="Diagram: the app window (renderer, preload, main) and the astera CLI, MCP server, SDK and plugins all talk to the Astera Host. The Host runs claude and codex terminals, each in a git worktree. Worktrees merge into the repository, which is delivered to GitHub as a pull request or a push. A remote runtime is optional." />
+<img src="../assets/docs/diagrams/architecture.svg" width="760" alt="Diagram: the app window (renderer, preload, main) and the astera CLI, MCP server, SDK and plugins all talk to the Astera Host. The Host runs claude and codex terminals, each in a git worktree. Worktrees merge into the repository, which is delivered as a pull request or a push, merged on this computer, or left for you by hand. A remote runtime is optional." />
 
 **The Host owns the work.** The Astera Host is a background process on plain Node. It runs every console (one real
 `claude` or `codex` terminal each), drives every plan, rolls accounts, fires schedules and writes the activity feed. The
@@ -26,7 +26,7 @@ shows up in all of them:
 
 **Workers never touch your project folder.** Each worker runs in its own git worktree under
 `~/astera-worktrees/<repo>/`. When a Task's work is finished its worktree is merged into the plan's worktree, and the
-plan is delivered as a pull request or a push ([delivery](#delivery)). The coordinator and the planner read your project
+plan is delivered ([delivery](#delivery)). The coordinator and the planner read your project
 but never edit it.
 
 **Accounts are isolated.** Each Claude account has its own `CLAUDE_CONFIG_DIR` and each Codex account its own
@@ -38,16 +38,14 @@ pairing; use a private network.
 
 ## The plan lifecycle
 
-<img src="../assets/docs/diagrams/plan-lifecycle.svg" width="760" alt="Diagram: a goal or source goes to the planner; you approve and execute; the coordinator places workers in waves, each Task with a worker in its own worktree and a fresh reviewer; a fresh planner replans between waves; a final check follows; the plan is delivered as a pull request or a push. Amber marks show where Astera asks you." />
+<img src="../assets/docs/diagrams/plan-lifecycle.svg" width="760" alt="Diagram: a goal or source goes to the planner; you approve and execute; the coordinator places workers in waves, each Task with a worker in its own worktree and a fresh reviewer; a fresh planner replans between waves; a final check follows; the plan is delivered (pull request, push, merge or by hand). Amber marks show where Astera asks you." />
 
 A **plan** is a Job: a goal cut into **Tasks**. Four roles run it, each a separate console:
 
 1. **Planner.** Reads the code, the issues and the project's other plans, then writes the Tasks. Its result lands in
    the **Needs you** tab as "Plan ready".
-2. **You approve.** Press **Approve & execute**, ask the planner for changes, or reject. Auto-approve skips the step. An
-   agent session can never approve. See [Approve it, or talk to the planner](guide.md#approve-it-or-talk-to-the-planner).
-3. **Coordinator.** Places a worker for every Task whose dependencies are done, and answers workers' questions. It plans
-   and places; it never edits files.
+2. **You approve.** Press **Approve & execute**, ask the planner for changes, or reject. Auto-approve skips the step. An agent session cannot approve: the CLI and MCP refuse it, except the plan's own planner when you told it to run the plan here. See [Approve it, or talk to the planner](guide.md#approve-it-or-talk-to-the-planner).
+3. **Coordinator.** Places a worker for every Task whose dependencies are done, and answers workers' questions. It plans and places; it is told not to edit files.
 4. **Workers.** One console per Task, each in its own worktree. Tasks of one wave run side by side. A Task counts as done
    on the worker's explicit report plus any checks, not on a quiet terminal.
 5. **Reviewer.** A fresh reviewer checks every Task. A blocking finding goes back to the worker for up to 5 rounds, then
@@ -71,6 +69,8 @@ instead. Details are in [Needs you](guide.md#needs-you).
   branch.
 - **`push`**: Astera merges the plan's worktrees into the delivery branch, runs the checks once more and pushes. It stops
   and asks instead of touching a dirty folder, the wrong branch or a conflict.
+- **`merge`**: Astera merges the plan's worktrees into the delivery branch on this computer, runs the checks and pushes nothing.
+- **`manual`**: Astera delivers nothing by itself. You review the plan's worktree, then open the PR or push with `run-deliver --as`.
 
 The full rules are in [Delivery](guide.md#delivery) and [Jobs](jobs.md#4-when-it-is-done-delivery-or-a-merge-you-press).
 

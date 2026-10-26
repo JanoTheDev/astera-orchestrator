@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 640" width="960" height="640" role="img" aria-labelledby="t d">
   <title id="t">The life of a plan</title>
-  <desc id="d">A goal or source goes to the planner. You approve the plan. The coordinator places workers in waves; each Task has a worker in its own worktree and a fresh reviewer. A planner replans between waves, runs a final check, and the plan is delivered as a pull request or a push. Amber marks show where Astera asks you.</desc>
+  <desc id="d">A goal or source goes to the planner. You approve the plan. The coordinator places workers in waves; each Task has a worker in its own worktree and a fresh reviewer. A planner replans between waves, runs a final check, and the plan is delivered as a pull request, a push, a merge on this computer, or by hand. Amber marks show where Astera asks you.</desc>
   <style>
     text { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
     .bg { fill: #11161d; }
@@ -95,7 +95,7 @@
   <!-- legend -->
   <circle class="ask" cx="52" cy="548" r="12"/><text class="askt" x="52" y="553" text-anchor="middle">!</text>
   <text class="legend" x="74" y="553">Astera asks you, in the Needs you tab:</text>
-  <text class="small" x="40" y="580">Plan ready. A Task out of attempts or review rounds. A plan that no longer holds together.</text>
-  <text class="small" x="40" y="602">A push that finds a dirty folder, the wrong branch or a conflict.</text>
+  <text class="small" x="40" y="580">Plan ready. A Task out of attempts or review rounds.</text>
+  <text class="small" x="40" y="602">A plan that no longer holds together. A push that finds a dirty folder, the wrong branch or a conflict.</text>
   <text class="small" x="40" y="624">Auto-approve and hands-off plans skip some of these questions.</text>
 </svg>

@@ -21,7 +21,7 @@ Astera is a VSCode-style workbench:
 - **Status bar**: project and branch, how many consoles work and need you, account usage, the Host state and the
   notification bell.
 - **Command palette** (`Ctrl+Shift+P`, or the search field in the title bar) and quick open (`Ctrl+P`: tabs, plans,
-  files). `Ctrl+,` opens Settings and `Ctrl+N` opens New. Rebind any of these in Settings → Shortcuts.
+  files). `Ctrl+,` opens Settings and `Ctrl+N` opens New. Rebind any of these in the Keyboard Shortcuts tab, from the Manage menu or the command palette.
 
 **Start** opens from New, from the Plans view's **New plan**, and by itself when a project has nothing yet.
 
@@ -67,7 +67,7 @@ Astera is a VSCode-style workbench:
 
 ## Start: make a plan
 
-<img src="../assets/docs/start.png" width="760" alt="The Start tab: one text box for the goal, attach and starter chips, the With me / On its own / As written switch and the Start planning button" />
+<img src="../assets/docs/start.png" width="760" alt="The Start tab: one text box for the goal, attach and Start from chips, the With me / On its own / As written switch and the Start planning button" />
 
 **New** (or `Ctrl+N`) offers three cards, **Plan with me**, **Plan and start on its own** and **Run my prompts as
 written**, plus an **Open a console instead** link (a plain Claude Code or Codex console: agent, account, folder,
@@ -83,7 +83,7 @@ button, or paste and drop), and a switch with three modes:
 - **On its own**. The planner decides, writes the plan and starts the work without waiting for you.
 - **As written**. No planning: each prompt file or `##` section becomes one Task. See [Run as written](#run-as-written).
 
-**Starter** chips under the box fill the text: **Fix bugs**, **Build a feature**, **Audit a folder** (a ready-made audit
+**Start from** chips under the box fill the text: **Fix bugs**, **Build a feature**, **Audit a folder** (a ready-made audit
 request that the planner turns into fixes), **From GitHub issues** and **From a file**.
 
 Under the box, the **Plan settings** row sums up the choices ("Auto account · Right away · 3 agents · PR · Effort:
@@ -194,7 +194,7 @@ When the planner is done, the plan lands in the bottom panel's **Needs you** tab
 - **Approve.** Read the Tasks (the plan tab's steps), then press **Approve & execute** (the Needs you row says **Approve**) and confirm. From a
   shell, `astera jobs run --id <job>`. Astera refuses a plan in which a Task lacks a prompt or a criterion, a
   dependency is missing, or the dependencies form a cycle, and lists what is wrong. If it says a Task "has no basis",
-  tell the planner; it fixes the plan. An agent session can never approve. Approval ends the planner session.
+  tell the planner; it fixes the plan. An agent session cannot approve: the CLI and MCP refuse it, except the plan's own planner when you told it to run the plan here. Approval ends the planner session.
 - **Request changes.** Type what to change in the "Talk to the planner" box and send it. The text goes to the same
   planner session; if that session has ended, its conversation is resumed, or else a fresh planner starts with
   `plan.md`, `existing.md` and the history. You approve again when it is done. `astera jobs feedback --job <job> --text
@@ -506,8 +506,7 @@ Related guides: [accounts, rolling, files and everyday sessions](usage-guide.md)
 
 ## The box and voice
 
-The box is one overlay from **Ctrl+Shift+K** (rebind it in Settings → General →
-Shortcuts, action "Open the command bar"). It searches consoles, Tasks, plans, settings and commands, and matches
+The box is one overlay from **Ctrl+Shift+K** (rebind it in the Keyboard Shortcuts tab, action "Open the command bar"). It searches consoles, Tasks, plans, settings and commands, and matches
 initials too (`hw1` finds "Hold Worker 1"). Type a command and press Enter. It handles it in three steps:
 
 1. **Parse.** Simple phrasings are read without a model. Anything else goes to the `coordinator` role model (default
