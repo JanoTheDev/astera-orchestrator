@@ -34,8 +34,8 @@ git commit -m "first commit"
 <img src="../assets/docs/start.png" width="760" alt="The Start tab with the New plan composer" />
 
 Making a Job starts nothing, and neither does adding Tasks to it. The Job is marked `pendingStart` and has no run yet.
-It starts when you press **Start** on its plan page (`astera jobs run --id <job>`), or, for a planned Job, when you
-approve its plan (**Approve & execute**, or automatically with auto-approve). Plans made on the Start page go through
+It starts when you press **Approve & execute** on its plan page (`astera jobs run --id <job>`), or automatically with
+auto-approve. Plans made on the Start page go through
 the planner first; see [Start: make a plan](guide.md#start-make-a-plan).
 
 Where a Job comes from:
@@ -116,7 +116,7 @@ starts, their results are merged into the run's worktree, and the dependent Task
 its result. Nothing needs merging.
 
 The **Start** button on a Task node in the plan's dependency graph launches that one Task by hand (to retry one held
-at a Gate). **It exists only on a Job with concurrency 1, after Run was pressed, and not on a schedule template.** With
+at a Gate). **It exists only on a Job with concurrency 1, after **Approve & execute** was pressed, and not on a schedule template.** With
 2 or more, every worker runs in its own worktree, and a worker started by hand would go to the run's worktree, the
 folder the integration Task merges into. So the button is not there and the scheduler does that work instead. Since
 the default is 3, **a Job made with the defaults never shows this button.** A schedule template never runs its own
@@ -237,11 +237,11 @@ On the Start page, under **When**, pick **On a schedule** and choose a rule: eve
 at a time. It is not available with **Plan with me**, which has no objective to repeat. A schedule has no planner: its
 Tasks are copied into every run. The CLI cannot set a schedule; only the app does.
 
-**The schedule starts when you lay out the Tasks and press Start**, as with any Job. Except that pressing it does not run
+**The schedule starts when you lay out the Tasks and press Approve & execute**, as with any Job. Except that pressing it does not run
 anything right then; it makes the schedule live. Pressed at 08:59 with a rule of daily 09:00, the first run starts a
 minute later; pressed at 09:01, the next day at 09:00. Until then the row says "Press Run to start the schedule".
 
-Before Run is pressed the schedule neither fires nor even sets its next time. If it did, a time that passed while you
+Before you press **Approve & execute** the schedule neither fires nor even sets its next time. If it did, a time that passed while you
 were laying out the Tasks would become the first fire, and pressing the button would start an overdue run at once.
 
 After that, the process that drives (the Host, or the app when no Host drives) checks every 15 seconds, and when a time
@@ -263,7 +263,7 @@ fire. A run that finishes has its coordinator stopped at once.
 
 ### Pausing and resuming
 
-The template's row on the Plans page has a **Pause** / **Resume** toggle (⏸ / ▶). It is separate from the **Start** button
+The template's row on the Plans page has a **Pause** / **Resume** toggle (⏸ / ▶). It is separate from the **Approve & execute** button
 on the plan page, which is the button that **starts** a schedule for the first time; stopping and starting again is a
 different act.
 
@@ -323,7 +323,7 @@ Finished runs are cleaned up automatically 30 days after they finish.
 
 | | Plain Job | Scheduled Job |
 |---|---|---|
-| Starts | You press Start, or approve the plan | At the scheduled time |
+| Starts | You press Approve & execute | At the scheduled time |
 | Jobs | One | 1 template + N runs |
 | Worktree | One per run | One per run |
 | Folders after it ends | Kept until delivery cleans up, or you delete them | Removed automatically (a failed run keeps them) |
