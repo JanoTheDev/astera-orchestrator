@@ -25,6 +25,7 @@
 .plan-row-line { flex: 1 1 0; min-width: 0; font-size: var(--fs-12); color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .plan-row-line--fault { color: var(--danger); }
 .plan-row-line--action { color: var(--warn); }
+.plan-row-line--wait { background: var(--info-bg); color: var(--text-dim); }
 .plan-row-meta { margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-11); color: var(--text-faint); }
 .plan-row-account { max-width: clamp(80px, 15cqi, 240px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .plan-waves .plan-row-console.ui-btn { flex: none; }

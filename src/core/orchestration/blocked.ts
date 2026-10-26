@@ -8,6 +8,7 @@ import type { TaskBlockedReason, TaskBoard, TaskCategory, UsagePause } from '../
 import { DEFAULT_CONCURRENCY, FAILURE_LIMIT, type Dispatch, type Gate, type Job, type Task } from './types'
 import { placedByApp, type OrchState } from './state'
 import { isJobActive } from './lifecycle'
+import { holdOf } from './holds'
 import {
   editingByProject,
   jobActive,
@@ -130,8 +131,8 @@ export function taskBoardsOf(
         }
       return undefined
     }
-    // The app runs the checks itself, with no session (running.ts runningCount)
-    if (task.status === 'validating') return undefined
+    // The app runs the checks itself, with no session (running.ts runningCount); a merge under way is not paused either
+    if (task.status === 'validating' || task.status === 'merging') return undefined
     const run = task.runId === undefined ? undefined : runById.get(task.runId)
     const job = run ? jobById.get(run.jobId) : task.jobId === undefined ? undefined : jobById.get(task.jobId)
     if (!job) return undefined
@@ -143,12 +144,14 @@ export function taskBoardsOf(
         const stopped = afterStandOf(s, job.after!) === 'stopped'
         return { kind: 'pending-start', after: { id: job.after!, title: afterNameOf(s, job.after!), ...(stopped ? { stopped: true as const } : {}) } }
       }
-      return { kind: 'paused' }
+      // Job.paused: a person paused its schedule (state.ts pauseSchedule)
+      return { kind: 'paused', why: job.schedule ? 'schedule' : 'stopped' }
     }
     if (!run) return { kind: 'definition' }
-    if (run.paused) return { kind: 'paused' }
-    // W5-C: held from launching (Job.dispatchHold): nothing new is placed, so the board says paused, not "next"
-    if (job.dispatchHold) return { kind: 'paused' }
+    if (run.paused) return { kind: 'paused', why: 'stopped' }
+    // W5-C: held from launching (Job.dispatchHold, or a replan): nothing new is placed, so the board says paused, not "next"
+    const hold = holdOf(job)
+    if (hold) return { kind: 'paused', why: hold === 'owner' ? 'held' : hold }
     const gate = [...(gates.get(task.id) ?? [])].sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0]
     if (gate)
       return { kind: 'gate', gateId: gate.id, question: gate.question, ...(gate.kind ? { gateKind: gate.kind } : {}) }

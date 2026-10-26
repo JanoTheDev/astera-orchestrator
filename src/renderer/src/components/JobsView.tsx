@@ -14,7 +14,7 @@ import type { RunIconKind } from './JobIcons'
 import { Button, EmptyState, Icon, ICONS, IconButton, Input, PageHeader } from './ui'
 import { SourceChip } from './SourceChip'
 import { approveSlot } from './plan/planTalk'
-import { convergenceText, isRunningTask as isRunning, taskMeta } from './plan/planList'
+import { convergenceText, isOwnerHeld, isRunningTask as isRunning, taskMeta } from './plan/planList'
 
 /** Run 헤더 글리프의 툴팁. 끝난·실패·막힘은 줄의 글리프와 같은 모양이고 같은 뜻이라 같은 문구를 쓴다.
  *
@@ -164,11 +164,11 @@ function LifecycleButtons({
     <IconButton className="jobs-lifecycle" size="sm" icon={icon} label={label} disabled={off} title={disabledReason ?? label} onClick={onClick} />
   )
   // W5-C: a schedule pauses as a whole (its ⏸), and a plan not started has nothing to launch yet
-  const holdable = acts.onHoldJob !== undefined && run.archivedAt === undefined && !run.schedule && !run.pendingStart
+  const holdable = acts.onHoldJob !== undefined && (!run.dispatchHold || isOwnerHeld(run)) && run.archivedAt === undefined && !run.schedule && !run.pendingStart
   return (
     <>
       {holdable &&
-        (run.dispatchHold
+        (isOwnerHeld(run)
           ? button(t('jobs.view.holdRelease'), <Icon name="run" size={14} />, () => acts.onHoldJob?.(run.id, false))
           : button(t('jobs.view.hold'), <Icon name="hold" size={14} />, () => acts.onHoldJob?.(run.id, true)))}
       {acts.onRenameJob && button(t('jobs.lifecycle.rename'), <Icon name="edit" size={14} />, onStartRename)}
@@ -184,7 +184,7 @@ const ArchivedChip = ({ run }: { run: JobRow }): React.JSX.Element | null => {
   const { t } = useI18n()
   if (run.archivedAt !== undefined) return <span className="jobs-tmpl-badge">{t('jobs.lifecycle.archived')}</span>
   // W5-C: a held plan says so beside its name
-  return run.dispatchHold ? <span className="jobs-tmpl-badge">{t('jobs.hold.held')}</span> : null
+  return isOwnerHeld(run) ? <span className="jobs-tmpl-badge">{t('jobs.hold.held')}</span> : null
 }
 
 function RunCardImpl({

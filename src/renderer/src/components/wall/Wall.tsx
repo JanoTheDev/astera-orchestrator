@@ -12,7 +12,7 @@ export const stateWord = (c: WallConsole): MessageKey =>
 export const stateGlyph = (c: WallConsole): IconName =>
   c.state === 'needs' ? (c.needs === 'permission' ? 'lock' : 'warning') : c.state === 'working' ? 'activity' : c.state === 'finished' ? 'done' : 'pending'
 export const stateTone = (c: WallConsole): ChipTone =>
-  c.state === 'needs' ? (c.tone ?? 'warn') : c.state === 'working' ? 'info' : c.state === 'finished' ? 'neutral' : 'ok'
+  c.state === 'needs' ? (c.tone ?? 'warn') : c.state === 'working' ? 'info' : c.state === 'finished' ? 'ok' : 'neutral'
 
 export function StateChip({ c }: { c: WallConsole }): React.JSX.Element {
   const { t } = useI18n()

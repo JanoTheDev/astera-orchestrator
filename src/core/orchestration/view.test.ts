@@ -288,6 +288,16 @@ describe('snapshotFor', () => {
     expect(rowOf(job)).not.toHaveProperty('autoApprove')
   })
 
+  it('holdBy says who holds the plan (holds.ts holdOf), beside dispatchHold', () => {
+    const base = withRuns([run('r1', absPath('p'))])
+    const rowOf = (over: Partial<OrchState['jobs'][number]>) =>
+      snapshotFor({ ...base, jobs: [{ ...base.jobs[0], ...over }] }, absPath('p'), anySession, noWorktrees, noFires, allExist).runs[0]
+    expect(rowOf({})).not.toHaveProperty('holdBy')
+    expect(rowOf({ dispatchHold: true })).toMatchObject({ dispatchHold: true, holdBy: 'owner' })
+    const replanning = { runId: base.runs[0].id, mode: 'completion' as const, wave: 1, done: 0, startedAt: 'T0' }
+    expect(rowOf({ dispatchHold: true, replanning })).toMatchObject({ dispatchHold: true, holdBy: 'final-check' })
+  })
+
   it('the plan list autoApprove reads the project and the global default, as the Plan settings tab does', () => {
     const reg = ensureProject(emptyState(), { path: absPath('p'), now: 'T0' })
     const base = { ...withRuns([run('r1', absPath('p'))]), projects: reg.state.projects }

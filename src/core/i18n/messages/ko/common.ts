@@ -267,7 +267,7 @@ export const common = {
   'jobs.run.pause': '일시 중지',
   'jobs.run.pauseConfirmTitle': '예약 일시 중지',
   'jobs.run.pauseConfirmBody': '현재 작업 중인 모든 task가 중지되며 다시 실행 시 다음 예약 시간부터 실행됩니다.',
-  'jobs.run.paused': '일시 중지됨',
+  'jobs.run.paused': '스케줄 일시 중지됨',
   'jobs.run.roundStopped': '중지됨',
   'jobs.run.pauseFailed': '일시 중지하지 못했습니다',
   'jobs.run.pauseRetained': 'worker-retain 으로 붙잡아 둔 세션이 있어 멈출 수 없습니다 — 먼저 놓아 주세요',
@@ -417,7 +417,7 @@ export const common = {
   'command.holdWorker.releaseFailed': '워커를 재개하지 못했다',
   'jobs.hold.hold': '새 워커 시작 중지 (도는 워커는 계속한다)',
   'jobs.hold.release': '새 워커 다시 시작',
-  'jobs.hold.held': '계획이 일시 중지됐다',
+  'jobs.hold.held': '새 에이전트를 시작하지 않음',
   'jobs.hold.failed': '계획의 새 워커 시작을 멈추지 못했다',
   'jobs.hold.releaseFailed': '계획이 다시 워커를 띄우게 하지 못했다',
   // W7-F (#84)

@@ -3,6 +3,7 @@
 // message is pinned by a test here. Words come from i18n (`discord.ws.*`); the notice keeps activity.ts's own.
 import { t, type Lang, type MessageKey } from '../../i18n'
 import { awaitsApproval, type ActivityNotice } from '../../orchestration/activity'
+import { holdOf } from '../../orchestration/holds'
 import { planApprovable } from '../../orchestration/exec/plannerFeedback'
 import { jobNameOf } from '../../orchestration/jobName'
 import { jobView, latestRunOf } from '../../orchestration/publicViews'
@@ -60,15 +61,39 @@ export function cut(s: string, max: number): string {
 const w = (lang: Lang, key: string, params?: Record<string, string | number>): string =>
   t(lang, `discord.ws.${key}` as MessageKey, params)
 
-export type PlanState = 'archived' | 'approve' | 'planning' | 'notStarted' | 'pending' | 'running' | 'checking' | 'completed' | 'failed' | 'blocked' | 'paused'
+export type PlanState =
+  | 'archived'
+  | 'approve'
+  | 'planning'
+  | 'notStarted'
+  | 'pending'
+  | 'running'
+  | 'checking'
+  | 'finalCheck'
+  | 'replanning'
+  | 'question'
+  | 'held'
+  | 'delivering'
+  | 'stopped'
+  | 'completed'
+  | 'failed'
+  | 'blocked'
+
+const HOLD_STATE = { 'replan-question': 'question', owner: 'held', replanning: 'replanning', 'final-check': 'finalCheck' } as const
 
 /** Where a plan stands, in the words the app uses: waiting for approval is offered only once the plan can be
- *  approved (the app's approveSlot), otherwise its planner is still at it; a started plan reads its latest Run. */
+ *  approved (the app's approveSlot), otherwise its planner is still at it; a hold (holdOf) and a stopped or delivering
+ *  Run come before the Tasks' outcome, which would read them as running. */
 export function planStateOf(s: OrchState, job: Job): PlanState {
   if (job.archivedAt !== undefined) return 'archived'
   if (awaitsApproval(job)) return planApprovable(s, job) ? 'approve' : 'planning'
+  const hold = holdOf(job)
+  if (hold !== undefined) return HOLD_STATE[hold]
   const run = latestRunOf(s, job)
   if (run === undefined) return job.pendingStart ? 'notStarted' : 'pending'
+  if (run.paused === true) return 'stopped'
+  const delivery = run.deliveryState?.state
+  if (delivery === 'delivering' || delivery === 'retrying') return 'delivering'
   return jobView(s, job, run).outcome as PlanState
 }
 

@@ -234,7 +234,7 @@ export const common: Record<keyof typeof ko, string> = {
   'jobs.run.pause': 'Pause',
   'jobs.run.pauseConfirmTitle': 'Pause the schedule',
   'jobs.run.pauseConfirmBody': 'Every task now running stops, and starting again resumes from the next scheduled time.',
-  'jobs.run.paused': 'Paused',
+  'jobs.run.paused': 'Schedule paused',
   'jobs.run.roundStopped': 'Stopped',
   'jobs.run.pauseFailed': 'Could not pause',
   'jobs.run.pauseRetained': 'A session is held by worker-retain, so it cannot be stopped — release it first',
@@ -382,7 +382,7 @@ export const common: Record<keyof typeof ko, string> = {
   'command.holdWorker.releaseFailed': 'Could not resume the worker',
   'jobs.hold.hold': 'Stop launching new workers (running ones carry on)',
   'jobs.hold.release': 'Launch new workers again',
-  'jobs.hold.held': 'Plan paused',
+  'jobs.hold.held': 'Not launching new agents',
   'jobs.hold.failed': 'Could not stop the plan launching',
   'jobs.hold.releaseFailed': 'Could not let the plan launch again',
   // W7-F (#84)

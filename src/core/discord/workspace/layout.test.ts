@@ -151,6 +151,40 @@ describe('desiredLayout', () => {
   })
 })
 
+describe('desiredLayout names the real state', () => {
+  it('ranks a held plan and a waiting planner question with the plans that need the owner, and names each state', () => {
+    const s = state([
+      { id: 'job_run', title: 'Running one' },
+      { id: 'job_held', title: 'Held one', dispatchHold: true },
+      { id: 'job_ask', title: 'Asked one', dispatchHold: true, lastReplan: { runId: 'run_3', mode: 'wave', wave: 1, done: 0, at: at(5), summary: 's', escalated: 'q' } },
+      { id: 'job_final', title: 'Final one', replanning: { startedAt: at(6), runId: 'run_4', mode: 'completion', wave: 2, done: 0 } },
+      { id: 'job_stop', title: 'Stopped one' },
+      { id: 'job_merge', title: 'Merging one' }
+    ])
+    s.runs = [
+      { id: 'run_1', jobId: 'job_run', ordinal: 1, createdAt: at(10) } as JobRun,
+      { id: 'run_2', jobId: 'job_held', ordinal: 1, createdAt: at(10) } as JobRun,
+      { id: 'run_3', jobId: 'job_ask', ordinal: 1, createdAt: at(10) } as JobRun,
+      { id: 'run_4', jobId: 'job_final', ordinal: 1, createdAt: at(10) } as JobRun,
+      { id: 'run_5', jobId: 'job_stop', ordinal: 1, createdAt: at(10), paused: true } as JobRun,
+      { id: 'run_6', jobId: 'job_merge', ordinal: 1, createdAt: at(10), deliveryState: { state: 'delivering', attempts: 1 } } as JobRun
+    ]
+    const plans = desired(s).projects[0]!.plans
+    const topic = Object.fromEntries(plans.map((p) => [p.jobId, p.topic]))
+    expect(topic).toEqual({
+      job_held: 'held by you: not launching new agents · job_held',
+      job_ask: 'the planner asked you a question · job_ask',
+      job_run: 'running · job_run',
+      job_final: 'final check before merging · job_final',
+      job_merge: 'merging into main · job_merge',
+      job_stop: 'stopped · job_stop'
+    })
+    // rank 0 (needs the owner) first, then running and the re-plan, then the rest
+    expect(plans.slice(0, 2).map((p) => p.jobId).sort()).toEqual(['job_ask', 'job_held'])
+    expect(plans.at(-1)!.jobId).toBe('job_stop')
+  })
+})
+
 describe('reconcile', () => {
   it('builds an empty server parents first, and a matching server yields []', () => {
     const s = state([{ id: 'job_a', title: 'Fix login' }])

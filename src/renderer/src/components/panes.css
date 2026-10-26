@@ -80,7 +80,7 @@
    scrolls vertically (overflow-y hidden in tabs.css) */
 .pane-tabbar .tabs::-webkit-scrollbar { width: 0; height: 0; }
 .pane-tabbar .tabs:hover::-webkit-scrollbar { height: 4px; }
-.pane-tabbar .tabs:hover::-webkit-scrollbar-thumb { background: var(--elevated-hover); border: 0; border-radius: 2px; }
+.pane-tabbar .tabs:hover::-webkit-scrollbar-thumb { background: var(--elevated-hover); border: 0; border-radius: var(--radius-sm); }
 /* The + must not disappear when the tabs overflow — a group's + is the main entry point for a new session.
    It is sticky above the tabs, so its background has to be the same opaque colour as the bar or the tabs
    passing underneath show through */

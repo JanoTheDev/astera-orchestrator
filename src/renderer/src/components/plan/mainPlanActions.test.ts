@@ -17,6 +17,10 @@ describe('rowMenuActionsOf', () => {
     expect(rowMenuActionsOf(row({ schedule: {} as never }), all)).toContain('pause')
     expect(rowMenuActionsOf(row({ schedule: {} as never, paused: true }), all)).toContain('resume')
   })
+  it('releases only the owner\'s own hold, not a replan, the final check or a replan\'s question', () => {
+    expect(rowMenuActionsOf(row({ dispatchHold: true, holdBy: 'owner' }), all)).toContain('release')
+    for (const holdBy of ['replanning', 'final-check', 'replan-question'] as const) expect(rowMenuActionsOf(row({ dispatchHold: true, holdBy }), all), holdBy).toEqual(['archive', 'delete'])
+  })
   it('offers a restart only to a plan that lost its coordinator', () => {
     expect(rowMenuActionsOf(row({ coordinatorMissing: true }), all)).toContain('restartCoordinator')
     expect(rowMenuActionsOf(row({}), all)).not.toContain('restartCoordinator')

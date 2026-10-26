@@ -72,7 +72,18 @@ export function reasonText(
       if (reason.after) return { key: reason.after.stopped ? 'plan.reason.afterStopped' : 'plan.reason.queuedAfter', params: { plan: reason.after.title } }
       return { key: 'plan.reason.pendingStart' }
     case 'paused':
-      return { key: 'plan.reason.paused' }
+      return {
+        key: (
+          {
+            stopped: 'plan.reason.stopped.plan',
+            schedule: 'plan.reason.schedulePaused',
+            held: 'plan.reason.held',
+            replanning: 'plan.reason.replanning',
+            'final-check': 'plan.reason.finalCheck',
+            'replan-question': 'plan.reason.replanQuestion'
+          } as const
+        )[reason.why]
+      }
     case 'definition':
       return { key: 'plan.steps.reason.definition' }
     case 'gate':
@@ -125,6 +136,8 @@ export function reasonText(
 export function reasonTone(reason: TaskBlockedReason): 'action' | 'fault' | 'wait' {
   // W8-C plan after plan: queued after a plan still on its way starts by itself
   if (reason.kind === 'pending-start' && reason.after && !reason.after.stopped) return 'wait'
+  // a replan and the final check end by themselves
+  if (reason.kind === 'paused' && (reason.why === 'replanning' || reason.why === 'final-check')) return 'wait'
   switch (reason.kind) {
     case 'gate':
     case 'no-account':

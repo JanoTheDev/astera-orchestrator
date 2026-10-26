@@ -25,9 +25,10 @@
 .tb-psw-behind { display: inline-flex; align-items: center; flex: none; color: var(--warn); font-variant-numeric: tabular-nums; }
 .tb-psw-counts { flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
 
-/* status dot: working green, needs you amber, idle grey; the word is its aria-label */
+/* status dot: working blue, needs you amber, idle grey; the word is its aria-label */
 .tb-psw-dot { flex: none; width: 8px; height: 8px; border-radius: var(--radius-pill); background: var(--text-faint); }
-.tb-psw-dot--working { background: var(--ok); }
+/* colours follow ui/statusTone.ts */
+.tb-psw-dot--working { background: var(--info); }
 .tb-psw-dot--needsYou { background: var(--warn); }
 
 /* the changes badge, beside the row: opens Source Control */

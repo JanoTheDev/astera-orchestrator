@@ -35,7 +35,7 @@
 .plan-summary-count > svg { flex: none; color: var(--plan-cat); }
 .plan-summary-n { font-weight: var(--fw-semi); color: var(--text); font-variant-numeric: tabular-nums; }
 .plan-summary-count--done { --plan-cat: var(--ok); }
-.plan-summary-count--running { --plan-cat: var(--accent); }
+.plan-summary-count--running { --plan-cat: var(--info); }
 .plan-summary-count--waiting { --plan-cat: var(--text-dim); }
 .plan-summary-count--failed { --plan-cat: var(--danger); }
 .plan-summary-count--cancelled { --plan-cat: var(--text-faint); }

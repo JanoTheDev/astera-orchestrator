@@ -62,6 +62,11 @@ export const plans: Partial<Record<keyof typeof ko, string>> = {
   'pages.plans.tree.menu.copyId': 'Copiar id',
   'pages.plans.tree.menu.label': 'Acciones del plan',
   'pages.plans.status.stalled': 'Detenido',
+  'pages.plans.status.finalCheck': 'Comprobación final',
+  'pages.plans.status.replanning': 'Replanificando',
+  'pages.plans.status.delivering': 'Fusionando en main',
+  'pages.plans.status.deliveryRetrying': 'Reintentando la entrega',
+  'pages.plans.status.working': 'En curso',
   // T13 Main plan page redesign (plan/MainPlan.tsx)
   'pages.plans.main.running': '{n} en curso',
   'pages.plans.main.waiting': '{n} en espera',
