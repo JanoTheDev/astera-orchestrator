@@ -366,6 +366,12 @@ export const common = {
   "jobs.task.askPlanner": "대신 플래너에게 요청",
   "jobs.task.askPlannerHint": "설명을 플래너에게 보내 계획에 맞게 작업을 넣게 합니다",
   "jobs.task.askedPlanner": "플래너에게 보냈습니다.",
+  "jobs.task.aiSpec": "이 작업은 무엇을 해야 하나요?",
+  "jobs.task.aiHint": "한 줄이면 됩니다. 플래너가 제목·지침·검사를 채워 계획에 넣습니다.",
+  "jobs.task.addWithAi": "AI로 추가",
+  "jobs.task.writeMyself": "직접 작성",
+  "jobs.task.openPlanner": "플래너 열기",
+  "jobs.task.noPlannerHint": "이 계획에는 플래너가 없어 직접 작성해야 합니다.",
   "jobs.task.askFailed": "플래너에게 보내지 못했습니다",
   'jobs.task.accountHint':
     '이 Task 의 워커를 띄울 계정입니다. 자동은 여유가 가장 많은 계정을 고르니, 다른 계정에서 일을 떼어 놓고 싶을 때만 계정을 지정하세요. 둘 이상 지정하면 한도에 걸렸을 때 적은 순서대로 갈아탑니다',

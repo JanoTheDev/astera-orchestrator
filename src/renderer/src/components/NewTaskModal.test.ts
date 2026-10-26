@@ -53,6 +53,24 @@ describe('NewTaskModal initialDeps', () => {
   })
 })
 
+describe('NewTaskModal AI-first', () => {
+  const planned = (): string =>
+    renderToStaticMarkup(React.createElement(NewTaskModal, { door: door(), runId: 'run_1', tasks: [], accounts: [], runConfigs: [], planned: true, onClose: () => {}, onCreated: () => {} }))
+  it('a planned plan opens on one box with Add with AI, the manual fields hidden', () => {
+    const html = planned()
+    expect(html).toContain('jobs.task.addWithAi')
+    expect(html).toContain('jobs.task.writeMyself')
+    expect(html).not.toContain('jobs.task.title')
+    expect(html).not.toContain('jobs.task.create')
+  })
+  it('a plan without a planner opens on the manual form with a hint', () => {
+    const html = render(door(), [])
+    expect(html).toContain('jobs.task.noPlannerHint')
+    expect(html).toContain('jobs.task.create')
+    expect(html).not.toContain('jobs.task.addWithAi')
+  })
+})
+
 describe('NewTaskModal plan fields (T2)', () => {
   it('offers the prompt, criteria and kind, and Ask the planner instead', () => {
     const html = render(door(), [])

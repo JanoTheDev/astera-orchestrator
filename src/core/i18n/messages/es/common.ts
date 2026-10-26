@@ -304,6 +304,12 @@ export const common: Partial<Record<keyof typeof ko, string>> = {
   "jobs.task.askPlanner": "Pedírselo al planificador",
   "jobs.task.askPlannerHint": "Envía la descripción al planificador, que encaja la tarea en el plan",
   "jobs.task.askedPlanner": "Enviado al planificador.",
+  "jobs.task.aiSpec": "¿Qué debe hacer esta tarea?",
+  "jobs.task.aiHint": "Basta una línea. El planificador escribe el título, las instrucciones y las comprobaciones y la encaja en el plan.",
+  "jobs.task.addWithAi": "Añadir con IA",
+  "jobs.task.writeMyself": "Escribirla yo",
+  "jobs.task.openPlanner": "Abrir el planificador",
+  "jobs.task.noPlannerHint": "Este plan no tiene planificador: escribe la tarea tú.",
   "jobs.task.askFailed": "No se pudo contactar con el planificador",
   'jobs.task.accountHint':
     'Las cuentas en las que esta tarea ejecuta su worker. Automática elige la cuenta con más margen; fija cuentas solo para mantener el trabajo fuera de otras. Con más de una fijada, al alcanzar el límite de uso el worker pasa a la siguiente en el orden indicado',

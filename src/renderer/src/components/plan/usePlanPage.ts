@@ -210,6 +210,7 @@ export function usePlanPage({
 
   return {
     ...commands,
+    planned: run?.planned === true,
     door, lockedReason, ui, selected, setSelected, open, toggle, authoring, setAuthoring, runConfigs, accounts, checkPlugins,
     asking, setAsking, question, setQuestion, answering, setAnswering, answer, setAnswer, busy, gateError, setGateError,
     authoringOpen, formOpen, canManualStart, tasks, view, setView, live, summaries, selectedTask, events, running,

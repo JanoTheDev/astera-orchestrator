@@ -7,7 +7,8 @@ import { AccountDisclosure, AccountSelect } from './AccountSelect'
 import { Button, Field, Icon, IconButton, Modal, Checkbox } from './ui'
 import './formDialogs.css'
 import { DepsPicker, PlanFields } from './plan/TaskEditModal'
-import { addTaskRequestOf, createArgsOf } from './plan/taskEdit'
+import { addTaskRequestOf, createArgsOf, placementLineOf, taskModeOf } from './plan/taskEdit'
+import { openConsole } from './shell/navigation'
 
 /** 계정 슬롯 최대 개수. 새 세션 대화상자의 MAX_ROLL_ACCOUNTS 와 같은 값이지만 **상수를 공유하지
  *  않는다** — 저쪽은 탭 세션의 롤링이고 이쪽은 Task 의 체인이다. 한쪽을 늘릴 때 다른 쪽이 따라
@@ -35,6 +36,7 @@ export function NewTaskModal({
   accounts,
   runConfigs,
   initialDeps,
+  planned,
   onClose,
   onCreated
 }: {
@@ -54,6 +56,8 @@ export function NewTaskModal({
   runConfigs: { id: string; name: string }[] | null
   /** The Tasks the form starts with as dependencies ("Add task to this step": the previous step's Tasks). Still editable. */
   initialDeps?: readonly string[]
+  /** The plan has a planner (JobRow.planned): the window opens on the planner's box; else on the manual form. */
+  planned?: boolean
   onClose: () => void
   onCreated: () => void
 }): React.JSX.Element {
@@ -67,6 +71,9 @@ export function NewTaskModal({
   const [plan, setPlan] = useState({ prompt: '', criteria: '', kind: '' })
   /** T2: the description went to the planner instead (`jobs-feedback`): the planner adds the Task, this form makes none */
   const [asked, setAsked] = useState(false)
+  const [mode, setMode] = useState<'ai' | 'manual'>(() => taskModeOf(planned))
+  /** The planner's session from the jobs-feedback reply, for "Open planner" */
+  const [plannerSession, setPlannerSession] = useState<string | null>(null)
   /** 이 Task 를 띄울 계정들, 순서대로. **빈 배열이 Auto 다**(Auto, most room) — task-create 가 `account` 없이도
    *  받고, 그때는 앱이 provider 의 계정을 여유 순으로 골라 띄운다. 계정을 고르는 것은 다른 계정에서
    *  일을 떼어 놓고 싶을 때뿐이라 칸은 접혀 있다.
@@ -178,7 +185,7 @@ export function NewTaskModal({
     setBusy(true)
     setError(null)
     try {
-      const reply = await door.command('jobs-feedback', { job: runId, text: addTaskRequestOf(title, spec) })
+      const reply = await door.command('jobs-feedback', { job: runId, text: addTaskRequestOf(title, spec, placementLineOf(initialDeps ?? [], tasks)) })
       if (reply.status >= 400) {
         // the Host's own reason ("was not planned: there is no planner…"), else the generic line
         const said = (reply.body as { error?: unknown } | null)?.error
@@ -186,6 +193,8 @@ export function NewTaskModal({
         if (isOutcomeUnknown(reply)) setLocked(true)
         return
       }
+      const sid = (reply.body as { sessionId?: unknown } | null)?.sessionId
+      setPlannerSession(typeof sid === 'string' ? sid : null)
       setAsked(true)
       setLocked(true)
     } catch {
@@ -202,23 +211,77 @@ export function NewTaskModal({
       closeLabel={t('common.cancel')}
       onClose={() => !busy && onClose()}
       footer={
-        <>
-          <Button variant="ghost" onClick={onClose} disabled={busy}>
-            {t('common.cancel')}
-          </Button>
-          {/* 계정을 안 골라도 만든다(Auto). 등록된 계정이 아예 없을 때만 막는다 */}
-          <Button
-            variant="primary"
-            loading={busy}
-            disabled={locked || busy || !spec.trim() || noAccounts}
-            onClick={() => void create()}
-          >
-            {t('jobs.task.create')}
-          </Button>
-        </>
+        mode === 'ai' || asked ? (
+          <>
+            <Button variant="ghost" onClick={onClose} disabled={busy}>
+              {asked ? t('common.close') : t('common.cancel')}
+            </Button>
+            {!asked && (
+              <Button variant="ghost" onClick={() => setMode('manual')} disabled={busy}>
+                {t('jobs.task.writeMyself')}
+              </Button>
+            )}
+            {asked ? (
+              plannerSession && (
+                <Button
+                  variant="primary"
+                  onClick={() => {
+                    openConsole(plannerSession)
+                    onClose()
+                  }}
+                >
+                  {t('jobs.task.openPlanner')}
+                </Button>
+              )
+            ) : (
+              <Button variant="primary" loading={busy} disabled={locked || busy || !spec.trim()} onClick={() => void askPlanner()}>
+                {t('jobs.task.addWithAi')}
+              </Button>
+            )}
+          </>
+        ) : (
+          <>
+            <Button variant="ghost" onClick={onClose} disabled={busy}>
+              {t('common.cancel')}
+            </Button>
+            {/* 계정을 안 골라도 만든다(Auto). 등록된 계정이 아예 없을 때만 막는다 */}
+            <Button
+              variant="primary"
+              loading={busy}
+              disabled={locked || busy || !spec.trim() || noAccounts}
+              onClick={() => void create()}
+            >
+              {t('jobs.task.create')}
+            </Button>
+          </>
+        )
       }
     >
+      {mode === 'ai' || asked ? (
+        <div
+          className="form-stack"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !asked) {
+              e.preventDefault()
+              void askPlanner()
+            }
+          }}
+        >
+          <Field kind="textarea" label={t('jobs.task.aiSpec')} hint={t('jobs.task.aiHint')} rows={6} value={spec} onChange={(e) => setSpec(e.target.value)} disabled={asked} autoFocus />
+          {asked && (
+            <p className="ui-field__hint" role="status">
+              {t('jobs.task.askedPlanner')}
+            </p>
+          )}
+          {error && (
+            <p className="ui-field__error" role="alert">
+              {error}
+            </p>
+          )}
+        </div>
+      ) : (
       <div className="form-stack">
+        {!planned && <p className="ui-field__hint">{t('jobs.task.noPlannerHint')}</p>}
         <Field label={t('jobs.task.title')} value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />
         <Field kind="textarea" label={t('jobs.task.spec')} rows={4} value={spec} onChange={(e) => setSpec(e.target.value)} />
         <div className="new-task-ask">
@@ -371,6 +434,7 @@ export function NewTaskModal({
           </p>
         )}
       </div>
+      )}
     </Modal>
   )
 }
