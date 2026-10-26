@@ -1,0 +1,1 @@
+{"v":1,"tool":"astera","job":"job_df370e7204f51641","task":"tsk_52bb913d6049fbed","session":"081207d0-8e80-4cef-bb3c-c9376bb154e7","agent":"claude","model":"opus","account":"71b8fb23-5c26-4782-a9d1-2f7ba1ff753e","role":"worker","lines":{".github/workflows/ci.yml":[[118,135]],"electron-builder.yml":[[22,23]]}}
