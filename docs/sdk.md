@@ -164,7 +164,8 @@ Answers come in the public shapes the CLI prints with `--json`, typed: `Project`
 `jobs.create` takes an `objective`, and where the work happens: a `projectId` (a project registered in the app) or an
 absolute `cwd`. A relative `cwd` is refused, because the Host would resolve it against its own folder. The rest is
 optional: `coordinator` (`{ provider: 'claude' }`, `{ provider: 'codex' }` or `{ accountId }`), `concurrency`, and
-`convergence` (`true` for the Host's repair defaults, or a policy). A Job with no coordinator runs only the Tasks you
+`convergence` (`true` for the Host's repair defaults, or a policy), and `priority` (any integer, absent is 0: when the app-wide
+worker cap is reached, a higher one takes a free slot first). A Job with no coordinator runs only the Tasks you
 add to it:
 
 ```ts
@@ -188,6 +189,13 @@ such a Job with `call('jobs-create-from-source', { source, item, project })`, as
 create-from-source`), with `jobs.create`'s coordinator and convergence arguments beside them; the answer is the Job.
 [Job source plugins](plugins.md#job-source-plugins) says where the items come from.
 
+A Job also carries `title`, what a person named it (`astera jobs rename`; absent, the app names it by its source's title
+or its objective), `priority`, `archivedAt` and `outcome`. A person archives a Job with `astera jobs archive`: it starts
+no new work, `archivedAt` says when, and `jobs.list` leaves it out unless you ask for it with `jobs.list({ archived: true })`.
+`outcome` is how the Job's latest Run stands, or the Job before it has one: `pending`, `running`, `checking` (the work
+is done and the final check has not settled), `completed`, `blocked` (finished with Tasks held for the
+owner), `failed` or `paused`. A Run's `outcome` has the same words but `pending`.
+
 `jobs.run` answers the Run it started. `runs.stop` releases the Run's workers and pauses it; `runs.resume` takes it
 back.
 
@@ -198,6 +206,7 @@ back.
 | `state` | Means | Also carries |
 |---|---|---|
 | `completed` | every Task finished | `progress` |
+| `blocked` | the Run finished with Tasks held for the owner | `progress` |
 | `failed` | the Run ended in failure | `progress` |
 | `waiting` | a question waits for a person | `questionId`, `taskId` |
 | `paused` | the Run was stopped | |
@@ -236,6 +245,10 @@ for (const q of items) {
 }
 ```
 
+A question's `source` says who asked: `ask` for a worker's `astera ask`, `escalation` for a coordinator's; absent, it is a
+gate Astera opened, and its `kind` says which: `convergence-exhausted`, `convergence-blocked`, `check-unavailable` or
+`review-needs-decision` (a review found an issue that needs a person's decision).
+
 When a question lists `options`, answer with one of them. The one a plugin's completion check opens when it could not
 be made, `kind` `check-unavailable`, refuses any answer but `retry`, `skip-check` or `mark-failed` with
 `INVALID_ARGUMENTS`: `retry` runs the Task's checks again, `skip-check` goes on without that check this round, and
@@ -255,6 +268,11 @@ the order the checks run) and `review`. Without `accountIds` it uses the Job's c
 the Job has none. A `plugin:<id>` whose plugin is not installed, does not offer completion checks, or is disabled is
 refused with `PLUGIN_CAPABILITY_MISSING` ([plugins.md](plugins.md#completion-check-plugins)). `tasks.list({ runId, status, ready, brief })` and
 `tasks.get` read them.
+
+A Task's `status` is `pending`, `ready`, `dispatched`, `validating`, `reviewing`, `merging` (its work is being landed
+on the Run's own branch), `completed`, `failed` or `blocked`. After a review, `reviewIssues` lists what it found: each has
+a `severity`, `blocking`, and `needs`, what fixing it takes: `code` (when absent too), `environment`, `scope`,
+`permission` or `person`.
 
 ### Completion
 

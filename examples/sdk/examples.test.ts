@@ -339,6 +339,17 @@ describe('notify-webhook.ts', () => {
     expect(r.err()).toMatch(/the next start posts it again/)
   }, 30_000)
 
+  it('escapes & < > in the text, and gives up at once on a 4xx other than 429', async () => {
+    const hook = await receiver([404])
+    const cursorFile = path.join(work, 'cursor refused')
+    writeFileSync(cursorFile, `ev_${A}_3`)
+    const host = await scriptedHost({ 'events-poll': [ok({ events: [event(`ev_${A}_4`, 4, 'question.created', question('q_1', '<!channel> R&D?'))], cursor: `ev_${A}_4`, gap: false }), 'hang'] })
+    const r = run('notify-webhook.ts', [cursorFile], host.address, { WEBHOOK_URL: hook.url })
+    expect(await r.exited).toBe(1)
+    expect(hook.texts).toEqual(['A question needs a person: &lt;!channel&gt; R&amp;D?'])
+    expect(readFileSync(cursorFile, 'utf8')).toBe(`ev_${A}_3`)
+  }, 30_000)
+
   // SDK 1e smoke finding: saving only what it posted, a restart after a quiet spell read from a cursor the Host had
   // dropped, and posted "events were lost" though it had read everything
   it('saves the cursor past what its filter skipped while it waits, without posting', async () => {
