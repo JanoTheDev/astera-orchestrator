@@ -9,6 +9,7 @@ import path from 'node:path'
 import { hostWorkerBaseEnv } from '../../core/host/spawn'
 import { killProcessTree } from '../../core/run/kill'
 import { redactSecrets } from '../../core/remote/redact'
+import { PLUGIN_API_VERSION } from '../../core/pluginContract'
 import type { OrchCall } from '../../core/host/orchProtocol'
 import { RPC_CLOSED, RPC_INTERNAL_ERROR, RPC_INVALID_PARAMS, RPC_METHOD_NOT_FOUND, RPC_NOT_READY, RpcError, createRpcPeer, type RpcPeer } from '../../core/plugins/rpc'
 import { capabilityPermissionProblem, type PluginCapability } from '../../core/plugins/manifest'
@@ -565,7 +566,7 @@ export function createPluginRuntime(d: {
     const host = d.host()
     peer
       .request('initialize', {
-        apiVersion: '1',
+        apiVersion: PLUGIN_API_VERSION,
         plugin: { id: p.id, version: p.version, dir: p.dir, entry: p.entry, permissions: [...p.granted], settings: { ...p.settings } },
         host: { version: host.version, pid: host.pid, startedAt: host.startedAt, features: [...host.features] }
       })

@@ -5,22 +5,9 @@
 import { t, type Lang } from '../i18n'
 import type { AsteraEvent } from '../publicContract'
 import { resumeAtText } from '../notify/resumeAt'
+import { NOTIFICATION_KINDS, type NotificationKind, type NotificationLevel } from '../pluginContract'
 
-/** The events a notification is made for, most pressing first (N10). @astera-app/plugin-sdk exports the same list,
- *  which notifications.test.ts holds to this one. */
-export const NOTIFICATION_KINDS = [
-  'question.created',
-  'session.input_needed',
-  'run.failed',
-  'completion.exhausted',
-  'session.limit_waiting',
-  'run.completed',
-  'session.account_switched'
-] as const
-export type NotificationKind = (typeof NOTIFICATION_KINDS)[number]
-
-/** How much it matters: `action` waits on the person, `error` failed, `warning` stopped for now, `info` went on. */
-export type NotificationLevel = 'action' | 'error' | 'warning' | 'info'
+export { NOTIFICATION_KINDS, type NotificationKind, type NotificationLevel }
 
 export const NOTIFICATION_LEVEL = {
   'question.created': 'action',
