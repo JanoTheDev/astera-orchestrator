@@ -93,4 +93,7 @@ export const start: Partial<Record<keyof typeof ko, string>> = {
   'start.sum.auto': '自動アカウント',
   'start.sum.agents': 'エージェント {n} 個',
   'start.sum.effort': '推論の深さ: {level}',
+  'start.opt.state.replanning': '再計画中',
+  'start.opt.state.finalCheck': '最終確認中',
+  'start.opt.state.stopped': '停止中',
 }

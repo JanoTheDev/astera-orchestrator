@@ -31,7 +31,7 @@ import { SourceChip } from '../SourceChip'
 import { Button, Chip, Icon, Input, Menu, Meter, PageHeader, Toolbar, type MenuItem } from '../ui'
 import { planProgressOf } from './planBoard'
 import { integrateAllOutcomeOf, type IntegrateAllOutcome } from './planCommands'
-import { isStoppedPlan, planStatusOf } from './planList'
+import { isOwnerHeld, isStoppedPlan, planStatusOf } from './planList'
 import { approveViewOf } from './planPage'
 import './plans.css'
 import { PlanMergeActions, useRunFolder } from './PlanChanges'
@@ -207,7 +207,8 @@ export function PlanHeader({
       label: t('jobs.run.resume'),
       title: lockedReason,
       onSelect: () => void resumeStoppedRun(door, run.foldedRunId ?? runId, ui)
-    } : {
+    } : run.dispatchHold && !isOwnerHeld(run) ? null : {
+      // a replan, the final check and a replan's question release themselves: only the owner's own hold shows Resume
       label: run.dispatchHold ? t('jobs.run.resume') : t('jobs.run.pause'),
       title: lockedReason ?? (run.dispatchHold ? t('plan.header.release') : t('plan.header.hold')),
       onSelect: () => void holdJob(door, runId, !run.dispatchHold, ui)

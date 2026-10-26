@@ -93,4 +93,7 @@ export const start: Partial<Record<keyof typeof ko, string>> = {
   'start.sum.auto': 'Cuenta automática',
   'start.sum.agents': '{n} agentes',
   'start.sum.effort': 'Esfuerzo: {level}',
+  'start.opt.state.replanning': 'replanificando',
+  'start.opt.state.finalCheck': 'comprobación final',
+  'start.opt.state.stopped': 'detenido',
 }

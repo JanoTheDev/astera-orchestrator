@@ -61,6 +61,11 @@ export const plans: Partial<Record<keyof typeof ko, string>> = {
   'pages.plans.tree.menu.copyId': 'id をコピー',
   'pages.plans.tree.menu.label': 'プランの操作',
   'pages.plans.status.stalled': '停止中',
+  'pages.plans.status.finalCheck': '最終確認',
+  'pages.plans.status.replanning': '再計画中',
+  'pages.plans.status.delivering': 'main にマージ中',
+  'pages.plans.status.deliveryRetrying': '配信を再試行中',
+  'pages.plans.status.working': '作業中',
   // T13 Main plan page redesign (plan/MainPlan.tsx)
   'pages.plans.main.running': '{n} 件実行中',
   'pages.plans.main.waiting': '{n} 件待機中',

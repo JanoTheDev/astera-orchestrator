@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { JobRow, JobTask } from '../../../../core/types'
 import { ageOf } from './planBoard'
-import { clearableOf, finishedAtMs, isStalledPlan, isStoppedPlan, lastActivityOf, planStatusOf, resumeActionOf, splitPlans } from './planList'
+import { clearableOf, finishedAtMs, isOwnerHeld, isStalledPlan, isStoppedPlan, lastActivityOf, planStatusOf, resumeActionOf, splitPlans } from './planList'
 
 const task = (id: string, over: Partial<JobTask> = {}): JobTask => ({ id, title: id, status: 'pending', openGates: 0, ...over })
 const row = (over: Partial<JobRow> = {}): JobRow => ({
@@ -21,6 +21,31 @@ describe('planStatusOf', () => {
     expect(planStatusOf(row()).key).toBe('pages.plans.status.working')
     expect(planStatusOf(row({ outcome: 'failed' })).tone).toBe('danger')
     expect(planStatusOf(row({ outcome: 'completed' }))).toEqual({ key: 'pages.plans.status.done', tone: 'ok' })
+  })
+
+  it('names the real hold: final check, re-planning, a replan question, the owner, a hold from an older Host', () => {
+    const held = { dispatchHold: true as const }
+    expect(planStatusOf(row({ ...held, holdBy: 'final-check', outcome: 'checking' }))).toEqual({ key: 'pages.plans.status.finalCheck', tone: 'info' })
+    expect(planStatusOf(row({ outcome: 'checking', replanWave: 2 })).key).toBe('pages.plans.status.finalCheck')
+    expect(planStatusOf(row({ ...held, holdBy: 'replanning' }))).toEqual({ key: 'pages.plans.status.replanning', tone: 'info' })
+    expect(planStatusOf(row({ ...held, holdBy: 'replan-question' }))).toEqual({ key: 'plan.outcome.needsYou', tone: 'warn' })
+    expect(planStatusOf(row({ ...held, holdBy: 'owner' }))).toEqual({ key: 'jobs.hold.held', tone: 'warn' })
+    expect(planStatusOf(row(held)).key).toBe('jobs.hold.held')
+    for (const holdBy of ['final-check', 'replanning', 'replan-question'] as const)
+      expect(planStatusOf(row({ ...held, holdBy })).key).not.toBe('jobs.hold.held')
+  })
+
+  it('names a delivery in progress: merging, retrying', () => {
+    const delivery = (state: 'delivering' | 'retrying') => ({ runId: 'r', state })
+    expect(planStatusOf(row({ outcome: 'checking', delivery: delivery('delivering') }))).toEqual({ key: 'pages.plans.status.delivering', tone: 'info' })
+    expect(planStatusOf(row({ outcome: 'failed', delivery: delivery('retrying') }))).toEqual({ key: 'pages.plans.status.deliveryRetrying', tone: 'warn' })
+  })
+
+  it('offers Resume/Release only for the owner’s hold', () => {
+    expect(isOwnerHeld(row({ dispatchHold: true, holdBy: 'owner' }))).toBe(true)
+    expect(isOwnerHeld(row({ dispatchHold: true }))).toBe(true)
+    expect(isOwnerHeld(row())).toBe(false)
+    for (const holdBy of ['final-check', 'replanning', 'replan-question'] as const) expect(isOwnerHeld(row({ dispatchHold: true, holdBy }))).toBe(false)
   })
 
   it('reads Delivered, with the plan that delivered it, for a failed plan whose work landed through a later plan', () => {

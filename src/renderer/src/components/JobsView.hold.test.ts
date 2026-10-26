@@ -40,6 +40,15 @@ describe('the Jobs view hold button', () => {
     expect(held).not.toContain('aria-label="jobs.view.hold"')
   })
 
+  it('offers no Release for a replan, the final check or a replan question', () => {
+    for (const holdBy of ['replanning', 'final-check', 'replan-question'] as const) {
+      const html = render([row({ dispatchHold: true, holdBy })])
+      expect(html).not.toContain('jobs.view.holdRelease')
+      expect(html).not.toContain('jobs.hold.held')
+    }
+    expect(render([row({ dispatchHold: true, holdBy: 'owner' })])).toContain('jobs.view.holdRelease')
+  })
+
   it('is not drawn for a schedule, a plan not started, an archived plan, or without the action', () => {
     for (const r of [row({ schedule: { kind: 'interval', everyMinutes: 60 } as never }), row({ pendingStart: true })])
       expect(render([r])).not.toContain('jobs.view.hold"')
