@@ -145,7 +145,7 @@ through a flow, and read console and network errors. This browser is restricted 
 ## Adjust appearance, language, and shortcuts
 
 
-<img src="../assets/docs/plan-board-day.png" width="760" alt="A plan tab in the dark theme, with Steps and Tasks marked done, waiting or Plan paused" />
+<img src="../assets/docs/plan-board-day.png" width="760" alt="A plan tab in the Day theme, with Steps and Tasks marked done, waiting or Plan paused" />
 
 - **Settings → Appearance:** choose a theme and terminal font. Theme changes apply to open
   terminals without clearing their scrollback.
