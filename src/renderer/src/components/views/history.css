@@ -31,4 +31,4 @@
 .history-dot--working { background: var(--info); }
 .history-dot--needs { background: var(--warn); }
 .history-dot--failed { background: var(--danger); }
-.history-dot--finished { border: 1.5px solid var(--text-faint); background: transparent; }
+.history-dot--finished { border: 1.5px solid var(--ok); background: transparent; }

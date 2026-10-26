@@ -34,4 +34,4 @@
 .agents-dot--working { background: var(--info); }
 .agents-dot--needs { background: var(--warn); }
 .agents-dot--failed { background: var(--danger); }
-.agents-dot--finished { border: 1.5px solid var(--text-faint); background: transparent; }
+.agents-dot--finished { border: 1.5px solid var(--ok); background: transparent; }

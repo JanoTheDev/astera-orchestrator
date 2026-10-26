@@ -94,7 +94,7 @@
 .jobs-av { flex: none; width: 21px; height: 21px; display: grid; place-items: center; border-radius: var(--radius-sm); background: var(--line-soft); color: var(--text-dim); font-size: var(--fs-11); font-weight: 700; }
 /* 배지의 색은 provider 가 아니라 **상태**다 — 같은 워커가 구현으로 돌 때와 검토로 돌 때는 다른
    일이고, 어느 CLI 인지는 두 글자와 바로 아래 줄의 이름이 이미 말한다 */
-.jobs-task--dispatched .jobs-av { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
+.jobs-task--dispatched .jobs-av { background: color-mix(in srgb, var(--info) 16%, transparent); color: var(--info); }
 .jobs-task--reviewing .jobs-av { background: color-mix(in srgb, var(--fi-purple) 18%, transparent); color: var(--fi-purple); }
 .jobs-task-body { flex: 1; min-width: 0; }
 .jobs-task-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-12); }

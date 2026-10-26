@@ -93,12 +93,12 @@
    한다. **바닥이 --panel 인 것은 뒤에 격자가 있기 때문이다**: 투명하게 두면 점선이 상자를 뚫고
    제목 위로 지나간다(그래서 archify 도 색 사각형 아래에 불투명 사각형을 한 장 더 깐다). 테두리색은
    RunDetail 의 borderOf 가 inline 으로 주므로 여기 적지 않는다 — 두 곳에 적으면 갈라진다 */
-.detail-node--dispatched { background: color-mix(in srgb, var(--accent) 12%, var(--panel)); }
-.detail-node--validating { background: color-mix(in srgb, var(--git-modified) 12%, var(--panel)); }
-.detail-node--merging { background: color-mix(in srgb, var(--git-modified) 12%, var(--panel)); }
+.detail-node--dispatched { background: color-mix(in srgb, var(--info) 12%, var(--panel)); }
+.detail-node--validating { background: color-mix(in srgb, var(--fi-purple) 12%, var(--panel)); }
+.detail-node--merging { background: color-mix(in srgb, var(--fi-purple) 12%, var(--panel)); }
 .detail-node--reviewing { background: color-mix(in srgb, var(--fi-purple) 12%, var(--panel)); }
-.detail-node--failed { background: color-mix(in srgb, var(--git-deleted) 12%, var(--panel)); }
-.detail-node--blocked { background: color-mix(in srgb, var(--git-conflict) 12%, var(--panel)); }
+.detail-node--failed { background: color-mix(in srgb, var(--danger) 12%, var(--panel)); }
+.detail-node--blocked { background: color-mix(in srgb, var(--warn) 12%, var(--panel)); }
 /* 글리프. 1 / -1 은 줄이 하나일 때도 둘일 때도 맞는 유일한 값이다 — 한 줄이면 그 줄, 두 줄이면
    두 줄에 걸쳐 가운데 */
 .detail-node-sig { grid-row: 1 / -1; display: flex; align-self: center; opacity: .76; }
@@ -223,7 +223,7 @@
 /* worker_done 의 결과. 색은 STATUS_COLOR 가 completed/failed 에 쓰는 둘과 같다 */
 .detail-outcome { font-size: var(--fs-11); }
 .detail-outcome.o-succeeded { color: var(--ok); }
-.detail-outcome.o-failed { color: var(--git-deleted); }
+.detail-outcome.o-failed { color: var(--danger); }
 /* 어느 Task 의 일인가. 걸러 놓지 않았을 때만 나오고, 제목이 길어도 줄의 반을 넘지 않는다 */
 .detail-ev-task { min-width: 0; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-faint); font-size: var(--fs-11); }
 .detail-jump { margin-left: auto; background: none; border: 0; padding: 0 2px; color: var(--text-faint); font-size: var(--fs-12); cursor: pointer; }
