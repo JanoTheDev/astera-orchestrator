@@ -27,7 +27,14 @@ export function threadNotePatch(t: NotedThread | null, keys: NoteKeys): Record<s
  *  core/telegram so CONNECTION_NOTE_KEYS below names every connection without importing one. */
 export const TELEGRAM_NOTE_KEYS = ['telegramMessageId', 'telegramChat'] as const
 
+/** Discord's note keys: the thread's id (which is its root message's id) and the server it is in. */
+export const DISCORD_NOTE_KEYS = ['discordThreadId', 'discordChannel'] as const
+
 /** Every connection's note keys, so a step that carries a session's threads onward (a chat roll,
  *  core/chat/manager.ts) carries each connection's without importing any connection. A new connection's
  *  keys join this list. Slack's pair must equal THREAD_NOTE_KEYS in core/slack/threadNote.ts (tested). */
-export const CONNECTION_NOTE_KEYS: readonly NoteKeys[] = [['slackThreadTs', 'slackChannel'], TELEGRAM_NOTE_KEYS]
+export const CONNECTION_NOTE_KEYS: readonly NoteKeys[] = [
+  ['slackThreadTs', 'slackChannel'],
+  TELEGRAM_NOTE_KEYS,
+  DISCORD_NOTE_KEYS
+]

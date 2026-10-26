@@ -14,7 +14,8 @@ export class ConnectionPostError extends Error {
 
 export interface ConnectionTransport {
   /** On success the posted message's id (usable as a thread root), or null when unsupported. Failure throws
-   *  ConnectionPostError. */
-  post(text: string, threadId?: string): Promise<string | null>
+   *  ConnectionPostError. `ctx` is given only for a session's thread root (ConnectionNotifier.register), so a
+   *  transport that picks a channel per session (Discord's) can see which; the others ignore it. */
+  post(text: string, threadId?: string, ctx?: { sessionId?: string }): Promise<string | null>
   readonly supportsThreads: boolean
 }

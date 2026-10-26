@@ -71,12 +71,14 @@ import { SlackNotifier } from '../core/slack/connect'
 import { SlackConfigStore } from './slackConfigStore'
 import type { SlackConfig } from '../core/slack/config'
 import type { TelegramConfig } from '../core/telegram/config'
+import type { DiscordConfig } from '../core/discord/config'
 import { TelegramConfigStore } from './telegramConfigStore'
 import { SlackInboxController } from '../core/slack/inbox'
 import { createSocketClient, createWebClient } from './slackSdk'
 import { createConnectionsOwnership, type ConnectionsOwnership } from './connectionsOwnership'
 import { ConnectionFanout } from '../core/connections/fanout'
 import { telegramConnection, telegramLog, type ReplyRoutes } from '../host/telegramConnection'
+import { discordConnection, discordLog } from '../host/discordConnection'
 import { createSessionSignalForwarder } from './sessionSignals'
 import { hearForwarded } from '../core/connections/forwarded'
 import { HookEventWatcher } from '../core/hooks/eventWatcher'
@@ -166,6 +168,7 @@ let codexRolloutRef: CodexRolloutWatcher | null = null
 let slackInboxControllerRef: SlackInboxController | null = null // Slack inbound socket rebuilder — cut on quit
 let connectionsOwnershipRef: ConnectionsOwnership | null = null // who owns the chat connections — its hand-back timer is cut on quit
 let telegramStopRef: (() => Promise<void>) | null = null // Telegram's poller — stopped on quit
+let discordStopRef: (() => Promise<void>) | null = null // Discord's Gateway — stopped on quit
 let rollingRef: RollingCoordinator | null = null // lets the hook callback reach a coordinator created later
 let orchRef: OrchHandle | null = null // orchestration shutdown cleanup + the rolling seam
 let hostClientStopRef: (() => Promise<void>) | null = null // Astera Host client — closes the socket on quit
@@ -623,12 +626,12 @@ app.whenReady().then(async () => {
   // and the app is already quitting — there is nothing to load and nothing to wire up.
   if (win.isDestroyed()) return
   if (process.platform !== 'win32') loadApp(win)
-  // Chat connection progress notifications (Slack, Telegram): hook events, roll state, limits and exits go
+  // Chat connection progress notifications (Slack, Telegram, Discord): hook events, roll state, limits and exits go
   // out through each connection's notifier, behind one ConnectionFanout every session input below goes
   // to. **Adding a connection** is the recipe in host/connectionsWiring.ts's header: its builder (the
   // Host's own, telegramConnection.ts is the pattern), one entry in `connections` below and one in
   // the fan-out. Slack: an Incoming Webhook or a Slack bot (chat.postMessage) — SlackNotifier abstracts
-  // both behind a transport. Logs go to userData/slack.log and telegram.log (same pattern as
+  // both behind a transport. Logs go to userData/slack.log, telegram.log and discord.log (same pattern as
   // rolling.log) — webhook URLs and bot tokens are never recorded.
   const slackLog = lineLog(path.join(app.getPath('userData'), 'slack.log'))
   const slackStore = new SlackConfigStore(path.join(app.getPath('userData'), 'slack.json'))
@@ -793,8 +796,33 @@ app.whenReady().then(async () => {
     load: () => telegramStore.load()
   })
   telegramStopRef = () => telegram.stop()
+  // Discord: the same builder the Host uses, reading userData/discord.json itself (the settings screen writes it).
+  const discord = discordConnection({
+    profileDir: app.getPath('userData'),
+    getAccount: (id) => {
+      try {
+        return core!.accounts.get(id)
+      } catch {
+        return null
+      }
+    },
+    readStatusPayload: (id) => core!.statusLinePayload(id),
+    lang: () => core!.lang,
+    log: discordLog(app.getPath('userData'), false),
+    remember: (sid, patch) => {
+      try {
+        if (core!.chat.has(sid)) core!.chat.remember(sid, patch)
+        else core!.sessions.remember(sid, patch)
+      } catch {
+        /* a note must not cost a notice */
+      }
+    },
+    routes: () => replyRoutes,
+    isQuitting: () => quitting
+  })
+  discordStopRef = () => discord.stop()
   // Every session input below goes to every connection through this.
-  const connections = new ConnectionFanout([slack, telegram.notifier], slackLog)
+  const connections = new ConnectionFanout([slack, telegram.notifier, discord.notifier], slackLog)
   // Who owns the chat connections (Slack in the Host, P4, P5): this app, or a Host that announced
   // `slack-owner`, for every connection together. Nothing is applied at start any more: the settings are
   // read and the socket and poller opened only once the startup chain settles with no Slack-owning Host
@@ -814,7 +842,8 @@ app.whenReady().then(async () => {
           void slackInboxController.stop()
         }
       },
-      { name: 'telegram', load: () => telegram.load(), apply: (c: TelegramConfig) => void telegram.apply(c), stop: () => void telegram.stop() }
+      { name: 'telegram', load: () => telegram.load(), apply: (c: TelegramConfig) => void telegram.apply(c), stop: () => void telegram.stop() },
+      { name: 'discord', load: () => discord.load(), apply: (c: DiscordConfig) => void discord.apply(c), stop: () => void discord.stop() }
     ],
     // Final review M2: what was held while a Slack-owning Host was away, told here once this app takes it.
     hear: (ev) => hearForwarded(connections, ev),
@@ -1853,6 +1882,8 @@ app.on('before-quit', () => {
   slackInboxControllerRef = null
   void telegramStopRef?.() // Telegram's poller, the same (it never rejects)
   telegramStopRef = null
+  void discordStopRef?.() // Discord's Gateway, the same (it never rejects)
+  discordStopRef = null
   // What the logs hold so far, written now (stage 3, task 3): a quit that never reaches will-quit (a
   // crash in a window's teardown) still leaves them on disk. Synchronous, once — acceptable at quit.
   flushAllLogsSync()

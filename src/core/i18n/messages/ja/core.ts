@@ -275,6 +275,9 @@ export const core: Partial<Record<keyof typeof ko, string>> = {
   'pluginNotify.accountSwitched': '{label} アカウントで続けます。',
   'telegram.inbox.replyHint': 'セッションに入力を送るには、そのセッションのメッセージに返信してください',
   'telegram.console.cut': "…（Telegram の文字数上限のためここで切りました）",
+  // Discord session threads and replies
+  'discord.inbox.replyHint': 'セッションに入力を送るには、そのセッションのスレッドに書いてください',
+  'discord.console.cut': '…（Discord の文字数上限のためここで切りました）',
   // W9-E start page and New
   'shortcut.new.open': '新規を開く',
   'shortcut.tabs.reopenClosed': '最後に閉じたタブを開き直す',

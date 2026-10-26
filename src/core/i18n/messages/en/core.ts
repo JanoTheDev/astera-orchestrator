@@ -288,6 +288,9 @@ export const core: Record<keyof typeof ko, string> = {
   'shortcut.workspace.project': 'Open project workspace {n}',
   'telegram.inbox.replyHint': 'Reply to one of a session’s messages to send it input',
   'telegram.console.cut': "… (cut here: over Telegram’s length limit)",
+  // Discord session threads and replies
+  'discord.inbox.replyHint': 'Write in a session’s thread to send it input',
+  'discord.console.cut': '… (cut here: over Discord’s length limit)',
   // W9-E start page and New
   'shortcut.new.open': 'Open New',
   'plan.doctor.failedGate': 'This Task failed {failures} of {limit} times and nothing retries it (no coordinator). Resolve this Gate to run it again.',
