@@ -7,6 +7,8 @@ import { HEAVY_JOBS_DEFAULT, HEAVY_JOBS_MAX, heavyJobsAtOnceOf, readHeavyJobsAtO
 const dir = mkdtempSync(path.join(os.tmpdir(), 'astera-heavy-jobs-'))
 const file = path.join(dir, 'app-settings.json')
 afterEach(() => rmSync(file, { force: true }))
+const autoFile = path.join(dir, 'auto-limits.json')
+afterEach(() => rmSync(autoFile, { force: true }))
 
 describe('heavyJobsAtOnceOf', () => {
   it('takes a whole number >= 1, caps it at the max, and reads anything else as not set', () => {
@@ -28,5 +30,15 @@ describe('readHeavyJobsAtOnce', () => {
     writeFileSync(file, '{broken')
     expect(await readHeavyJobsAtOnce(file)).toBe(1)
     expect(await readHeavyJobsAtOnce(dir)).toBe(1)
+  })
+})
+
+describe('readHeavyJobsAtOnce with an auto-limit', () => {
+  it('lowers the read, never raises it', async () => {
+    writeFileSync(file, JSON.stringify({ heavyJobsAtOnce: 4 }))
+    writeFileSync(autoFile, JSON.stringify({ heavy: { cap: 2, cause: 'strain', at: 't', detail: 'd' } }))
+    expect(await readHeavyJobsAtOnce(file)).toBe(2)
+    writeFileSync(autoFile, JSON.stringify({ heavy: { cap: 9, cause: 'strain', at: 't', detail: 'd' } }))
+    expect(await readHeavyJobsAtOnce(file)).toBe(4)
   })
 })

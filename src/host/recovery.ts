@@ -32,6 +32,8 @@ import { lostWithNobody } from '../core/orchestration/lostGate'
 import { readGitSummary } from '../core/orchestration/exec/gitSummary'
 import { knowledgeIn } from '../core/orchestration/exec/coordinator'
 import { readResumeStrategy as realReadResumeStrategy } from '../core/settings/resumeStrategy'
+import { readMaxConcurrentWorkers as realReadMaxConcurrentWorkers } from '../core/settings/maxConcurrentWorkers'
+import { machineSpecs } from '../core/settings/machineSpecs'
 import type { OrchServerDeps } from '../core/orchestration/command'
 import type { OrchState } from '../core/orchestration/state'
 import type { ResumeStrategy } from '../core/types'
@@ -58,6 +60,7 @@ export interface HostRecoveryDeps {
   guard?: LostGateGuard
   readGitFacts?(cwd: string): Promise<GitFacts>
   readResumeStrategy?(settingsPath: string): Promise<ResumeStrategy>
+  readMaxConcurrentWorkers?(settingsPath: string): Promise<number>
   executeRecovery?: typeof realExecuteRecovery
 }
 
@@ -72,6 +75,8 @@ export interface HostRecovery {
    *  pass awaits it before the scheduler fills a slot. Nothing is asked while this Host does not own recovery.
    *  Never rejects. */
   catchUp(): Promise<void>
+  /** T2: the lost Dispatches left for a later pass (no room in their Run or under the app-wide cap), by id. */
+  waiting(): ReadonlySet<string>
 }
 
 export function createHostRecovery(d: HostRecoveryDeps): HostRecovery {
@@ -93,11 +98,19 @@ export function createHostRecovery(d: HostRecoveryDeps): HostRecovery {
   }
   /** The resume strategy the current trigger read (§2.6 design 2: read per pass, as the app reads its store). */
   let smart = false
+  /** T2: the app-wide worker cap the current trigger read, so a restart after a crash never passes it (the cap the
+   *  start may have just lowered, crashLimits.ts); the rest wait in `waiting` for a free slot. */
+  let workerCap = machineSpecs().recommended
   const readStrategy = async (): Promise<void> => {
     try {
       smart = (await (d.readResumeStrategy ?? realReadResumeStrategy)(settingsPath)) === 'smart'
     } catch {
       smart = false
+    }
+    try {
+      workerCap = await (d.readMaxConcurrentWorkers ?? realReadMaxConcurrentWorkers)(settingsPath)
+    } catch {
+      workerCap = machineSpecs().recommended
     }
   }
   const execute = d.executeRecovery ?? realExecuteRecovery
@@ -136,6 +149,7 @@ export function createHostRecovery(d: HostRecoveryDeps): HostRecovery {
     journal: d.journal.reconcilerJournal,
     readGitFacts: (cwd) => (d.readGitFacts ?? realReadGitFacts)(cwd),
     smartResume: () => smart,
+    workerCap: () => workerCap,
     // The last gate before a worker is spawned: the reads before it waited on git and the journal, and the Host
     // may have stopped driving, begun to leave, or met an app that takes recovery back in the meantime. The
     // reconciler journals the refusal as RECOVERY_FAILED, the honest record of what happened.
@@ -213,6 +227,7 @@ export function createHostRecovery(d: HostRecoveryDeps): HostRecovery {
       } catch (err) {
         log(`recovery: catching up failed: ${String(err)}`)
       }
-    }
+    },
+    waiting: () => waiting
   }
 }

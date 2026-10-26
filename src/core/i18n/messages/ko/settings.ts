@@ -330,4 +330,13 @@ export const settings = {
   'settings.instructions.preview': '기본 내용 (읽기 전용)',
   'settings.instructions.previewHint': 'Astera 가 이 역할에 쓰는 내용의 예시입니다. 당신의 글은 그 뒤에 붙습니다.',
   'settings.instructions.previewFailed': '기본 내용을 읽지 못했습니다: {detail}',
+  // T6: Astera 가 스스로 낮춘 한도
+  'settings.autoLimit.lowered': 'Astera 가 {date}에 이 값을 {count}(으)로 낮췄습니다: {detail}. 새 시작만 막고, 실행 중인 에이전트는 계속 돕니다.',
+  'settings.autoLimit.backByItself': '기기가 안정되면 저절로 다시 올라갑니다.',
+  'settings.autoLimit.staysUntilRestored': '직접 복원할 때까지 유지됩니다.',
+  'settings.autoLimit.restore': '내 한도로 복원',
+  'settings.autoLimit.restoreFailed': '한도를 복원하지 못했습니다: {detail}',
+  'settings.autoLimit.checksWait': '기기가 안정될 때까지 모든 검사가 무거운 작업 자리를 기다립니다.',
+  'settings.autoLimit.crashToast': '같은 일이 반복되지 않도록 Astera 가 충돌 뒤 한도를 낮췄습니다',
+  'settings.autoLimit.openSettings': '설정 열기',
 } as const

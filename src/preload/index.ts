@@ -290,6 +290,8 @@ const api = {
     setUsagePauseAt: invoke('settings.setUsagePauseAt'),
     getAccountMaxSessions: invoke('settings.getAccountMaxSessions'), // T5b
     setAccountMaxSessions: invoke('settings.setAccountMaxSessions'),
+    getAutoLimits: invoke('settings.getAutoLimits'), // T6
+    restoreAutoLimits: invoke('settings.restoreAutoLimits'),
     getDesktopNotify: invoke('settings.getDesktopNotify'),
     setDesktopNotify: invoke('settings.setDesktopNotify'),
     getGenerator: invoke('settings.getGenerator'),

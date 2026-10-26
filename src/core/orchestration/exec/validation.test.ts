@@ -46,6 +46,8 @@ interface RigOpts {
   heavyQueue?: { lock: string; queueDir: string }
   /** The context's heavyJobsAtOnce; absent from the context when left out. */
   heavyJobsAtOnce?: number
+  /** ValidationContext.checksAsHeavy's answer; the dep is absent when left out. */
+  checksAsHeavy?: boolean
 }
 
 function rig(o: RigOpts = {}) {
@@ -149,6 +151,7 @@ function rig(o: RigOpts = {}) {
       pluginAsks.push({ plugin, input })
       return o.pluginCheck ? o.pluginCheck(plugin, input) : { name: plugin.toUpperCase(), status: 'passed', summary: 'passed' }
     },
+    ...(o.checksAsHeavy !== undefined ? { checksAsHeavy: async () => o.checksAsHeavy! } : {}),
     ...(o.heavyJobsAtOnce ? { heavyJobsAtOnce: async () => o.heavyJobsAtOnce! } : {}),
     heavySlot: o.heavyQueue
       ? (a) => heavySlot({ ...a, ...o.heavyQueue, pollMs: 20 })
@@ -496,6 +499,36 @@ describe('T2: heavy checks take the machine heavy slot', () => {
     expect(third).not.toBeNull()
     second()
     third!()
+  })
+
+  it('a delivery ticket neither replaces nor is replaced by a Task check ticket of its folder', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'astera-heavy-'))
+    dirs.push(dir)
+    const at = { lock: path.join(dir, 'lock'), queueDir: path.join(dir, 'q'), pollMs: 20, slots: 1 }
+    const holder = (await heavySlot({ ...at, cwd: path.join(dir, 'held'), cmd: 'held' }))!
+    const check = heavySlot({ ...at, cwd: path.join(dir, 'w'), cmd: 'check' })
+    const delivery = heavySlot({ ...at, cwd: path.join(dir, 'w'), cmd: 'delivery', kind: 'delivery' })
+    await new Promise((r) => setTimeout(r, 150))
+    expect(fs.readdirSync(at.queueDir).length).toBe(3)
+    holder()
+    const c = (await check)!
+    expect(c).not.toBeNull()
+    c()
+    const d = (await delivery)!
+    expect(d).not.toBeNull()
+    d()
+  })
+
+  it('a light check takes the slot only while checksAsHeavy answers true', async () => {
+    for (const [strained, want] of [[true, ['lint']], [false, []]] as const) {
+      const h = rig({ checks: ['seed:npm:lint'], checksAsHeavy: strained })
+      h.validation.startValidation({ taskId: h.taskId, cwd: h.cwd })
+      await h.started()
+      expect(h.heavy.taken).toEqual(want)
+      await h.finish(0)
+      expect(h.heavy.released).toBe(want.length)
+      expect(h.logs.some((m) => m.includes('the machine was strained'))).toBe(strained)
+    }
   })
 
   it('a light check does not wait for the slot', async () => {

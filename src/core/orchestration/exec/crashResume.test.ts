@@ -205,4 +205,41 @@ describe('crashResumeBriefing', () => {
 
 it('crashFeedLine counts in words', () => {
   expect(crashFeedLine(3, 1)).toBe('Recovered after a crash: resumed 3 workers, 1 coordinator')
+  expect(crashFeedLine(1, 0, 1)).toBe('Recovered after a crash: resumed 1 worker, 0 coordinators; 1 worker waits for a free slot')
+  expect(crashFeedLine(2, 1, 3)).toBe('Recovered after a crash: resumed 2 workers, 1 coordinator; 3 workers wait for a free slot')
+})
+
+// T2: a lost worker recovery holds back under the (lowered) app-wide cap does not hold the start for RECOVERY_WAIT_MS.
+it('goes on at once when recovery left the remaining lost workers waiting for a free slot, and says so', async () => {
+  const lostOne = (id: string, taskId: string): Dispatch => dispatch({ id, taskId, sessionId: `s-${id}` })
+  const before = stateFromLegacy({
+    runs: [{ id: 'run_1', objective: 'o', cwd: dir, createdAt: NOW, autoDispatch: true }],
+    tasks: [task({ id: 'tsk_1', status: 'dispatched' }), task({ id: 'tsk_2', status: 'dispatched' })],
+    dispatches: [lostOne('dsp_1', 'tsk_1'), lostOne('dsp_2', 'tsk_2')]
+  })
+  // After the load and recovery: dsp_1 closed and resumed as dsp_1r, dsp_2 closed and waiting.
+  const after = {
+    ...before,
+    dispatches: [
+      { ...lostOne('dsp_1', 'tsk_1'), endedAt: NOW },
+      { ...lostOne('dsp_2', 'tsk_2'), endedAt: NOW },
+      { ...lostOne('dsp_1r', 'tsk_1'), retryOf: 'dsp_1' }
+    ]
+  }
+  const sleeps: number[] = []
+  const feed: ActivityDraft[] = []
+  const r = await resumeAfterCrash({
+    readFile: () => before,
+    ready: async () => {},
+    state: () => after,
+    settle: async () => {},
+    waiting: () => new Set(['dsp_2']),
+    handle: async () => ({ status: 200, body: {} }),
+    activity: (a) => feed.push(a),
+    log: () => {},
+    sleep: async (ms) => void sleeps.push(ms)
+  })
+  expect(r).toEqual({ workers: 1, coordinators: 0 })
+  expect(sleeps).toEqual([])
+  expect(feed[0].payload.reason).toBe('Recovered after a crash: resumed 1 worker, 0 coordinators; 1 worker waits for a free slot')
 })

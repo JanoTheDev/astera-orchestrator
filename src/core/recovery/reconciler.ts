@@ -5,6 +5,7 @@
 import { drivenByAppAlone, jobOf, type OrchState } from '../orchestration/state'
 import { checkConfigIdsOf, policyOf } from '../orchestration/convergence'
 import { DEFAULT_CONCURRENCY } from '../orchestration/types'
+import { workerCapOf, workersAgainstCap } from '../orchestration/schedule'
 import type { GitFacts, LostAttempt, RecoveryDecision } from './types'
 import { decideRecovery } from './decide'
 import type { ContinuityEvent, ContinuityEventType } from '../continuity/events'
@@ -48,6 +49,9 @@ export interface ReconcilerDeps {
    *  Host has neither on a schedule, so it keeps these and asks again once room frees (Phase 3R final review C1).
    *  A throw is logged. */
   onLeftForLater?(seed: LostAttemptSeed): void
+  /** T2: the app-wide worker cap in force (`readMaxConcurrentWorkers`, lowered after a crash), read synchronously; a
+   *  restart past it is left for later like one with no room in its Run. Absent: only the Run's own limit binds. */
+  workerCap?(): number
 }
 
 /**
@@ -86,9 +90,11 @@ const turn = (): Promise<void> => new Promise((resolve) => setImmediate(resolve)
  *  (the `room` calculation in core/orchestration/schedule.ts's slotsToFill). Several lost Tasks in one
  *  Run would otherwise all restart at once, and in a Run whose Tasks dispatch into the Run root they
  *  would land in the same folder. A candidate with no room is left for the next trigger. */
-const hasRoom = (state: OrchState, runId: string): boolean => {
+const hasRoom = (state: OrchState, runId: string, workerCap?: number): boolean => {
   const run = state.runs.find((r) => r.id === runId)
   if (!run) return false
+  // T2: and the app-wide half of that calculation (`globalRoom`), when the caller holds the cap.
+  if (workerCap !== undefined && workersAgainstCap(state) >= workerCapOf(workerCap)) return false
   const openHere = state.dispatches.filter(
     (d) => !d.outcome && !d.endedAt && state.tasks.find((t) => t.id === d.taskId)?.runId === runId
   ).length
@@ -270,8 +276,8 @@ export class RecoveryReconciler {
       this.deps.log(`recovery: dispatch ${dispatch.id} is no longer lost, leaving it alone`)
       return false
     }
-    if (!hasRoom(after, runId)) {
-      this.deps.log(`recovery: run ${runId} filled up while dispatch ${dispatch.id}'s evidence was read, left for the next trigger`)
+    if (!hasRoom(after, runId, this.deps.workerCap?.())) {
+      this.deps.log(`recovery: run ${runId} (or the app-wide worker cap) filled up while dispatch ${dispatch.id}'s evidence was read, left for the next trigger`)
       this.leftForLater(seed)
       return false
     }
@@ -399,7 +405,7 @@ export class RecoveryReconciler {
       if (!fresh) continue
       // The concurrency limit binds recovery too (hasRoom above) — a candidate with no room is left
       // for the next trigger, not counted as acted on.
-      if (!hasRoom(this.deps.getState(), fresh.runId)) {
+      if (!hasRoom(this.deps.getState(), fresh.runId, this.deps.workerCap?.())) {
         this.leftForLater(fresh)
         continue
       }
@@ -420,7 +426,7 @@ export class RecoveryReconciler {
     if (!seed) return
     // Same concurrency gate as reconcileAll — a single lost worker found live is still a second
     // door into starting one, and the Run it belongs to may already be at its limit.
-    if (!hasRoom(this.deps.getState(), seed.runId)) {
+    if (!hasRoom(this.deps.getState(), seed.runId, this.deps.workerCap?.())) {
       this.leftForLater(seed)
       return
     }

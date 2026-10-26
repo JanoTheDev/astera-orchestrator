@@ -7,6 +7,9 @@ import type { CrashOffer, RENDERER_KINDS } from '../../../core/crash/report'
 import { Button, Modal } from './ui'
 import { ErrorDetails } from './ErrorScreen'
 import { useI18n } from '../i18n/I18nProvider'
+import { toast } from '../lib/toast'
+import { newestCrashLowering } from './autoLimitNote'
+import { openSettings } from './shell/navigation'
 import './search/errorScreen.css'
 import './sessionDialog.css'
 
@@ -109,4 +112,31 @@ export function CrashReportHost(): React.JSX.Element | null {
       onNever={() => setQueue([])}
     />
   )
+}
+
+const SEEN_KEY = 'astera.autoLimits.crashSeen'
+
+/** T6: at start, one toast when a crash or out-of-memory lowering is newer than the one the person last saw. */
+export function AutoLimitsCrashNotice(): null {
+  const { t } = useI18n()
+  useEffect(() => {
+    void window.api.settings.getAutoLimits().then((auto) => {
+      const at = newestCrashLowering(auto)
+      let seen: string | null = null
+      try {
+        seen = localStorage.getItem(SEEN_KEY)
+      } catch {
+        /* no storage: show it, as the person has not been told */
+      }
+      if (!at || (seen !== null && seen >= at)) return
+      try {
+        localStorage.setItem(SEEN_KEY, at)
+      } catch {
+        /* shown again next start */
+      }
+      toast.info(t('settings.autoLimit.crashToast'), { action: { label: t('settings.autoLimit.openSettings'), onClick: () => openSettings('agents') } })
+    }, () => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per start
+  }, [])
+  return null
 }

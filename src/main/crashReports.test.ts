@@ -130,4 +130,25 @@ describe('registerCrashReports', () => {
       'child child-process-gone GPU oom'
     ])
   })
+
+  it('lowers the limits on an oom exit of a renderer or child, not on a crash', () => {
+    const l: Record<string, (...a: unknown[]) => void> = {}
+    const on = (ev: string, fn: (...a: unknown[]) => void): void => void (l[ev] = fn)
+    const got: string[] = []
+    registerCrashReports({ on } as never, { on } as never, { record: () => null }, (what) => void got.push(what))
+    l['render-process-gone']({}, {}, { reason: 'crashed' })
+    l['render-process-gone']({}, {}, { reason: 'oom' })
+    l['child-process-gone']({}, { type: 'GPU', reason: 'killed' })
+    l['child-process-gone']({}, { type: 'GPU', reason: 'oom' })
+    expect(got).toEqual(['renderer', 'GPU'])
+  })
+
+  it('does not throw out of the handler when the lowering fails', () => {
+    const l: Record<string, (...a: unknown[]) => void> = {}
+    const on = (ev: string, fn: (...a: unknown[]) => void): void => void (l[ev] = fn)
+    registerCrashReports({ on } as never, { on } as never, { record: () => null }, () => {
+      throw new Error('boom')
+    })
+    expect(() => l['render-process-gone']({}, {}, { reason: 'oom' })).not.toThrow()
+  })
 })

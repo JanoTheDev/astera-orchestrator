@@ -9,7 +9,7 @@ import { defaultAccountIdOf } from '../../../../core/accounts/defaultAccount'
 import { CommandBar } from '../command/CommandBar'
 import { openActivity, openPlan } from './navigation'
 import { ConfirmHost } from '../ui/ConfirmHost'
-import { CrashReportHost } from '../CrashReportPrompt'
+import { AutoLimitsCrashNotice, CrashReportHost } from '../CrashReportPrompt'
 import { Onboarding } from '../onboarding/Onboarding'
 import { exitEffects, isOnboardingShown, projectDialogOf } from '../onboarding/onboardingModel'
 import { setOnboardingReplay, useOnboardingReplay } from '../onboarding/replay'
@@ -395,6 +395,7 @@ export function Overlays(p: OverlaysProps): React.JSX.Element {
       <ConfirmHost />
       {/* T27: a crash report is offered here, and sent only on its Send */}
       <CrashReportHost />
+      <AutoLimitsCrashNotice />
       {/* The first-run onboarding, replacing the old single question. Shown on a genuinely fresh profile only
           (main/appSettingsStore.ts's firstRunAsked carries how that is told from an install that predates it) or
           when Settings > General asks to show it again. Every way out settles firstRunAsked, so it shows once. */}

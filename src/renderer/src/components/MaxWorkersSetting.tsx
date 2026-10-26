@@ -5,6 +5,7 @@ import type { MachineSpecs } from "../../../core/types";
 import { toast } from "../lib/toast";
 import { Input } from "./ui";
 import { SettingItem } from "./settings/SettingItem";
+import { AutoLimitHint } from "./AutoLimitHint";
 
 /** The app-wide Job worker cap (orchestrator W1-B). Empty uses the machine recommendation, at most 100 (W6-C). Saved on blur, so typing "12" does not save "1" on
  *  the way; a value that is not a whole number of 1 or more goes back to what was saved. */
@@ -67,6 +68,7 @@ export function MaxWorkersSetting(): React.JSX.Element {
           })}
         </span>
       )}
+      <AutoLimitHint kind="workers" />
       {specs && Number(draft) > specs.recommended && (
         <span className="settings-hint" role="alert">
           {t("settings.maxWorkers.overRecommended", {
