@@ -124,6 +124,7 @@ export const plans: Partial<Record<keyof typeof ko, string>> = {
   'plan.summary.draft': '下書き',
   'plan.summary.areas': '領域',
   'plan.header.openPr': 'PR を開く',
+  'plan.header.mergePrBody': '「{plan}」を GitHub でベースブランチにマージします: {method}。Astera では元に戻せません。',
   'plan.header.copyBranch': 'ブランチ名をコピー',
   'plan.header.branchCopied': 'ブランチ名をコピーしました',
   'plan.header.copyId': '計画 ID をコピー',
