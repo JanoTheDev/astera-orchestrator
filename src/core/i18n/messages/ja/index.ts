@@ -27,6 +27,7 @@ import { crash } from './crash'
 import { help } from './help'
 import { misc } from './misc'
 import { review } from './review'
+import { prs } from './prs'
 
 export const ja: Catalog = {
   ...common,
@@ -53,5 +54,6 @@ export const ja: Catalog = {
   ...crash,
   ...help,
   ...misc,
-  ...review
+  ...review,
+  ...prs
 }

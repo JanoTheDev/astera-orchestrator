@@ -52,8 +52,8 @@ export function togglePage(current: PageId, target: PageId): PageId {
 
 // ---- The VSCode-style workbench: activity bar views, side bar and bottom panel state ----
 
-export const ACTIVITY_IDS = ['agents', 'plans', 'explorer', 'scm', 'history', 'run', 'devices'] as const
-/** `Ctrl+1…6` open the first six activities; Devices, after them, has no digit key. */
+export const ACTIVITY_IDS = ['agents', 'plans', 'explorer', 'scm', 'history', 'run', 'devices', 'prs'] as const
+/** `Ctrl+1…6` open the first six activities; Devices and Pull requests, after them, have no digit key. */
 export const KEYED_ACTIVITY_COUNT = 6
 export type ActivityId = (typeof ACTIVITY_IDS)[number]
 export const DEFAULT_ACTIVITY: ActivityId = 'agents'

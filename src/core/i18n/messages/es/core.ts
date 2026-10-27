@@ -297,6 +297,7 @@ export const core: Partial<Record<keyof typeof ko, string>> = {
   'shortcut.activity.history': 'Abrir la vista Historial',
   'shortcut.activity.run': 'Abrir la vista Ejecutar',
   'shortcut.activity.devices': 'Abrir la vista Dispositivos',
+  'shortcut.activity.prs': 'Abrir la vista de Pull requests',
   'shortcut.sidebar.toggle': 'Mostrar u ocultar la barra lateral',
   'shortcut.panel.toggle': 'Mostrar u ocultar el panel inferior',
   'shortcut.palette.open': 'Abrir la paleta de comandos',
