@@ -130,25 +130,35 @@ export function finishedAtMs(row: JobRow): number | undefined {
   return Number.isNaN(ms) ? lastActivityOf(row) : ms
 }
 
-/** The Plans side bar's two panes: the plans not ended (in the snapshot's order) on top, the ended ones newest-finished
- *  first below. Archived plans are in `finished` only with `showArchived`. A plan with no known finish time sorts last. */
-export function splitPlans(rows: readonly JobRow[], showArchived: boolean): { running: JobRow[]; finished: JobRow[] } {
-  const finished = rows
-    .filter((r) => isEndedPlan(r) && (showArchived || r.archivedAt === undefined))
-    .map((row) => ({ row, at: finishedAtMs(row) ?? -Infinity }))
-    .sort((a, b) => b.at - a.at)
-    .map((x) => x.row)
-  return { running: rows.filter((r) => !isEndedPlan(r)), finished }
+/** An ended plan whose work is not merged yet: a ready (not draft) PR GitHub has not landed, or a manual plan waiting for review. Archived: gone. */
+export const isUnmergedPlan = (row: JobRow): boolean =>
+  isEndedPlan(row) && row.archivedAt === undefined && ((!!row.pr?.url && row.pr.draft !== true && row.pr.landed === undefined) || row.awaitingReview === true)
+
+/** The Plans side bar's three panes: the plans not ended (in the snapshot's order) on top, the ended-but-unmerged ones, then the
+ *  rest of the ended ones. Both lower panes are newest-finished first. Archived plans are in `finished` only with `showArchived`.
+ *  A plan with no known finish time sorts last. */
+export function splitPlans(rows: readonly JobRow[], showArchived: boolean): { running: JobRow[]; unmerged: JobRow[]; finished: JobRow[] } {
+  const newestFirst = (list: JobRow[]): JobRow[] =>
+    list
+      .map((row) => ({ row, at: finishedAtMs(row) ?? -Infinity }))
+      .sort((a, b) => b.at - a.at)
+      .map((x) => x.row)
+  const ended = rows.filter(isEndedPlan)
+  return {
+    running: rows.filter((r) => !isEndedPlan(r)),
+    unmerged: newestFirst(ended.filter(isUnmergedPlan)),
+    finished: newestFirst(ended.filter((r) => !isUnmergedPlan(r) && (showArchived || r.archivedAt === undefined)))
+  }
 }
 
 /** Plans finished longer ago than this are what "Clear finished" offers by default. */
 export const OLD_FINISHED_DAYS = 7
 
-/** The finished plans Clear finished would archive: never an archived one; `all`, or only those finished more than
+/** The finished plans Clear finished would archive: never an archived or an unmerged one; `all`, or only those finished more than
  *  OLD_FINISHED_DAYS before `nowMs` (a plan with no known finish time is not old). */
 export const clearableOf = (rows: readonly JobRow[], all: boolean, nowMs: number): JobRow[] =>
   rows.filter((r) => {
-    if (!isEndedPlan(r) || r.archivedAt !== undefined) return false
+    if (!isEndedPlan(r) || r.archivedAt !== undefined || isUnmergedPlan(r)) return false
     const at = finishedAtMs(r)
     return all || (at !== undefined && at < nowMs - OLD_FINISHED_DAYS * 86_400_000)
   })

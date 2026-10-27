@@ -93,6 +93,9 @@ export const plans: Partial<Record<keyof typeof ko, string>> = {
   'pages.plans.clearFinished.failed': 'No se pudieron archivar {n} planes',
   'pages.plans.clearFinished.none': 'No hay planes terminados que limpiar',
   'pages.plans.finished.empty': 'Aún no hay planes terminados.',
+  'pages.plans.unmerged': 'Sin fusionar',
+  'pages.plans.unmerged.empty': 'No hay planes sin fusionar.',
+  'pages.plans.unmerged.review': 'Revisar con IA',
   // Completed task: what was done, and Ask about this task
   'plan.done.showAll': 'Mostrar todo',
   'plan.done.showLess': 'Mostrar menos',

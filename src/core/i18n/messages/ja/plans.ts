@@ -92,6 +92,9 @@ export const plans: Partial<Record<keyof typeof ko, string>> = {
   'pages.plans.clearFinished.failed': '{n} 件のプランをアーカイブできませんでした',
   'pages.plans.clearFinished.none': '整理できる完了プランはありません',
   'pages.plans.finished.empty': '完了したプランはまだありません。',
+  'pages.plans.unmerged': '未マージ',
+  'pages.plans.unmerged.empty': '未マージのプランはありません。',
+  'pages.plans.unmerged.review': 'AIでレビュー',
   // Completed task: what was done, and Ask about this task
   'plan.done.showAll': 'すべて表示',
   'plan.done.showLess': '折りたたむ',

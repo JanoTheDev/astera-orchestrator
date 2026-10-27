@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { JobRow, JobTask } from '../../../../core/types'
 import { ageOf } from './planBoard'
-import { clearableOf, finishedAtMs, isOwnerHeld, isStalledPlan, isStoppedPlan, lastActivityOf, planStatusOf, resumeActionOf, splitPlans } from './planList'
+import { clearableOf, finishedAtMs, isOwnerHeld, isUnmergedPlan, isStalledPlan, isStoppedPlan, lastActivityOf, planStatusOf, resumeActionOf, splitPlans } from './planList'
 
 const task = (id: string, over: Partial<JobTask> = {}): JobTask => ({ id, title: id, status: 'pending', openGates: 0, ...over })
 const row = (over: Partial<JobRow> = {}): JobRow => ({
@@ -161,5 +161,32 @@ describe('splitPlans', () => {
   it('clearableOf: older than 7 days, or all; never an archived plan, a running plan or one with no finish time (older only)', () => {
     expect(clearableOf(plans, false, now).map((r) => r.id)).toEqual(['old'])
     expect(clearableOf(plans, true, now).map((r) => r.id)).toEqual(['old', 'new', 'nodate'])
+  })
+})
+
+describe('isUnmergedPlan and the Unmerged pane', () => {
+  const done = { outcome: 'completed' as const, finishedAt: '2026-10-20T00:00:00Z' }
+  const pr = (extra: object = {}) => ({ at: '2026-10-20T00:00:00Z', url: 'https://github.com/o/r/pull/1', number: 1, ...extra })
+  it('is an ended, unarchived plan with a ready un-landed PR, or one awaiting review', () => {
+    expect(isUnmergedPlan(row({ ...done, pr: pr() }))).toBe(true)
+    expect(isUnmergedPlan(row({ ...done, awaitingReview: true }))).toBe(true)
+    expect(isUnmergedPlan(row({ ...done, pr: pr({ draft: true }) }))).toBe(false)
+    expect(isUnmergedPlan(row({ ...done, pr: pr({ landed: 'merged' }) }))).toBe(false)
+    expect(isUnmergedPlan(row({ ...done, pr: { at: 'x' } }))).toBe(false)
+    expect(isUnmergedPlan(row({ ...done, archivedAt: done.finishedAt, pr: pr() }))).toBe(false)
+    expect(isUnmergedPlan(row({ outcome: 'running', pr: pr() }))).toBe(false)
+  })
+  it('splits them out of finished, newest first, and Clear finished leaves them', () => {
+    const rows = [
+      row({ id: 'a', ...done, pr: pr() }),
+      row({ id: 'b', outcome: 'completed', finishedAt: '2026-10-22T00:00:00Z', awaitingReview: true }),
+      row({ id: 'c', ...done }),
+      row({ id: 'r', outcome: 'running' })
+    ]
+    const s = splitPlans(rows, false)
+    expect(s.running.map((r) => r.id)).toEqual(['r'])
+    expect(s.unmerged.map((r) => r.id)).toEqual(['b', 'a'])
+    expect(s.finished.map((r) => r.id)).toEqual(['c'])
+    expect(clearableOf(rows, true, Date.parse('2026-11-30T00:00:00Z')).map((r) => r.id)).toEqual(['c'])
   })
 })

@@ -125,6 +125,9 @@ export const plans = {
   'pages.plans.clearFinished.failed': '계획 {n}개를 보관하지 못했습니다',
   'pages.plans.clearFinished.none': '정리할 끝난 계획이 없습니다',
   'pages.plans.finished.empty': '아직 끝난 계획이 없습니다.',
+  'pages.plans.unmerged': '병합 전',
+  'pages.plans.unmerged.empty': '병합 전인 계획이 없습니다.',
+  'pages.plans.unmerged.review': 'AI로 검토',
   // Completed task: what was done, and Ask about this task
   'plan.done.showAll': '모두 보기',
   'plan.done.showLess': '접기',

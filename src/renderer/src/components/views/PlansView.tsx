@@ -1,5 +1,5 @@
 // T7 Plans side bar view (DESIGN-W13 §4 "Plans"): the tree Plan › Step › Task (plan/planTree.ts builds the rows), grouped
-// by plan, Task status or area, in two panes: Running on top, Finished below (newest finished first, Clear finished, Show archived). Every plan action is on its row's context menu
+// by plan, Task status or area, in three panes: Running on top, Unmerged (ended, PR not landed; Review with AI, Merge PR) then Finished (newest finished first, Clear finished, Show archived). Every plan action is on its row's context menu
 // (lib/jobActions, as the old list rows wired them). A paired Runtime's plans keep their selector and list (JobsView).
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { JobRow, JobTask } from '../../../../core/types'
@@ -14,10 +14,11 @@ import { controlReason, isRemoteRuntime, offlineNote } from '../../lib/remoteJob
 import { localDoor, replyNote, type CheckPluginRow } from '../../lib/orchDoor'
 import { jobName } from '../../lib/jobName'
 import { toast } from '../../lib/toast'
+import { confirmModal } from '../../lib/confirm'
 import { archiveJob, archiveJobs, deleteRun, holdJob, integratePlan, mergePlan, openPlanChat, pauseRun, refreshLead, rejectPlan, renameJob, restartCoordinator as restartRunCoordinator, resolveFailed, resumeRun, resumeStoppedRun, stopRun, unarchiveJob } from '../../lib/jobActions'
 import { openConsole, openPlanConsoles, openView } from '../shell/navigation'
 import { ViewToolbar, type SideBarViewProps } from '../shell/SideBar'
-import { OLD_FINISHED_DAYS, clearableOf, isStalledPlan, isStoppedPlan, planStatusOf, resumeActionOf, splitPlans } from '../plan/planList'
+import { OLD_FINISHED_DAYS, clearableOf, isStalledPlan, isStoppedPlan, planStatusOf, resumeActionOf, isUnmergedPlan, splitPlans } from '../plan/planList'
 import { approveSlot, canChat } from '../plan/planTalk'
 import { planActionsOf } from '../plan/planHeaderActions'
 import { findRunFolder } from '../plan/PlanChanges'
@@ -27,6 +28,7 @@ import { checkChoicesOf } from '../checkText'
 import { RenamePlanModal } from '../plan/RenamePlanModal'
 import { NewTaskModal } from '../NewTaskModal'
 import { askAboutTaskWithToast } from '../plan/planCommands'
+import { startCodeReviewWithToast } from '../review/codeReviewSession'
 import { doneViewOf } from '../plan/taskDoneView'
 import { deliveryActionsOf } from '../plan/planPage'
 import { type PlanSection } from '../plan/planBoard'
@@ -156,7 +158,10 @@ function ClickTree({ onActivate, onSelect, ...rest }: TreeProps & { onActivate: 
   )
 }
 
-type Pane = 'running' | 'finished'
+type Pane = 'running' | 'unmerged' | 'finished'
+const PANE_TITLE = { running: 'pages.plans.running', unmerged: 'pages.plans.unmerged', finished: 'pages.plans.finished' } as const
+/** How often the view asks GitHub whether the unmerged plans' PRs landed (`runs-pr-sync`). */
+const PR_SYNC_MS = 5 * 60_000
 type Ctx = { pane: Pane; id: string; at: { x: number; y: number } }
 
 function LocalPlans(p: SideBarViewProps): React.JSX.Element {
@@ -181,11 +186,23 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
 
   const runs = useMemo(() => orchSnapshot?.runs ?? [], [orchSnapshot])
   const split = useMemo(() => splitPlans(runs, showArchived), [runs, showArchived])
-  // a group or step id is the same in both panes, so the Finished pane's open state is kept under its own key
-  const toggleKey = (pane: Pane, id: string): string => (pane === 'finished' ? `finished|${id}` : id)
+  // a group or step id is the same in every pane, so the lower panes' open state is kept under their own key
+  const toggleKey = (pane: Pane, id: string): string => (pane === 'running' ? id : `${pane}|${id}`)
   const runningRows = useMemo(
     () => planTreeRows({ rows: split.running, groupBy, filter, showArchived: true, isOpen: (id, node) => toggled.has(id) !== openByDefault(node) }),
     [split.running, groupBy, filter, toggled]
+  )
+  const unmergedRows = useMemo(
+    () =>
+      planTreeRows({
+        rows: split.unmerged,
+        groupBy,
+        filter,
+        showArchived: true,
+        keepOrder: true,
+        isOpen: (id, node) => toggled.has(toggleKey('unmerged', id)) !== openByDefault(node)
+      }),
+    [split.unmerged, groupBy, filter, toggled]
   )
   const finishedRows = useMemo(
     () =>
@@ -199,11 +216,21 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
       }),
     [split.finished, groupBy, filter, toggled]
   )
-  const rowsOf = (pane: Pane): PlanTreeRow[] => (pane === 'running' ? runningRows : finishedRows)
+  const rowsOf = (pane: Pane): PlanTreeRow[] => (pane === 'running' ? runningRows : pane === 'unmerged' ? unmergedRows : finishedRows)
   const byRunning = useMemo(() => new Map(runningRows.map((r) => [r.id, r])), [runningRows])
+  const byUnmerged = useMemo(() => new Map(unmergedRows.map((r) => [r.id, r])), [unmergedRows])
   const byFinished = useMemo(() => new Map(finishedRows.map((r) => [r.id, r])), [finishedRows])
-  const byId = (pane: Pane): Map<string, PlanTreeRow> => (pane === 'running' ? byRunning : byFinished)
+  const byId = (pane: Pane): Map<string, PlanTreeRow> => (pane === 'running' ? byRunning : pane === 'unmerged' ? byUnmerged : byFinished)
   const local = currentProject ? localDoor(window.api, currentProject) : null
+  // Merged PRs leave Unmerged: ask GitHub on mount and every PR_SYNC_MS while the view is up (its errors change nothing)
+  useEffect(() => {
+    if (!currentProject) return
+    const door = localDoor(window.api, currentProject)
+    const sync = (): void => void door.command('runs-pr-sync', { projectPath: currentProject }).catch(() => undefined)
+    sync()
+    const id = setInterval(sync, PR_SYNC_MS)
+    return () => clearInterval(id)
+  }, [currentProject])
   // the run configs and check plugins the plan page's own new-Task form reads, while this tree's Add task is open
   const adder = adding && local ? local : null
   const configsRead = useCachedRead(adder && adding ? planRunConfigsKey(adder, adding.row.id) : null, async () =>
@@ -232,7 +259,7 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
     })
   // every group and step shown closes; the plans opened go back to closed
   const collapseAll = (): void =>
-    setToggled(new Set((['running', 'finished'] as const).flatMap((pane) => rowsOf(pane).filter((r) => openByDefault(r.node)).map((r) => toggleKey(pane, r.id)))))
+    setToggled(new Set((['running', 'unmerged', 'finished'] as const).flatMap((pane) => rowsOf(pane).filter((r) => openByDefault(r.node)).map((r) => toggleKey(pane, r.id)))))
 
   /** The plan tab, at a section (`settings`, `task-<id>`, as planAnchorOf reads it) or its top. Opens from orchSnapshot
    *  like before (archived plans too), so the section goes to the page state, not navigation's openPlan (workspaceTree). */
@@ -296,6 +323,52 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
     }
   }
 
+  /** Review with AI: a chat in the plan's repository with the review prompt of its PR, else of its branch against the project's target. */
+  const reviewPlan = async (row: JobRow): Promise<void> => {
+    if (!local) return
+    const fail = (detail: string): void => void toast.error(t('review.code.failed', { detail }))
+    try {
+      const job = await local.command('jobs-get', { id: row.id })
+      const body = job.body as { cwd?: unknown; projectId?: unknown; run?: { delivery?: { branch?: unknown } } } | null
+      if (job.status >= 400 || typeof body?.cwd !== 'string') return fail(String((job.body as { error?: unknown } | null)?.error ?? job.status))
+      const pr = row.pr
+      if (pr?.number !== undefined) {
+        await startCodeReviewWithToast(local, { cwd: body.cwd, target: { kind: 'pr', number: pr.number, ...(pr.url ? { url: pr.url } : {}), title: jobName(row) } }, t)
+        return
+      }
+      const head = pr?.branch ?? (typeof body.run?.delivery?.branch === 'string' ? body.run.delivery.branch : undefined)
+      if (head === undefined) return fail(row.id)
+      const project = typeof body.projectId === 'string' ? await local.command('projects-get', { id: body.projectId }).catch(() => null) : null
+      const p = project?.body as { deliveryBranch?: string; defaultBranch?: string } | null
+      await startCodeReviewWithToast(local, { cwd: body.cwd, target: { kind: 'branch', base: p?.deliveryBranch ?? p?.defaultBranch ?? 'main', head, title: jobName(row) } }, t)
+    } catch (e) {
+      fail(e instanceof Error ? e.message : String(e))
+    }
+  }
+  /** Merge PR: the plan page's confirm and toasts, `run-pr-merge` on the plan's folded Run id. */
+  const mergePlanPr = async (row: JobRow, method: 'merge' | 'squash' | 'rebase'): Promise<void> => {
+    const pr = planActionsOf(row, !!local).mergePr
+    if (!pr || !local) return
+    const ok = await confirmModal({
+      title: t('worktrees.mergePr.title', { number: pr.number ?? '' }),
+      body: t('plan.header.mergePrBody', { plan: jobName(row), method: t(`worktrees.act.method.${method}` as never) }),
+      confirmLabel: t('worktrees.mergePr.confirm'),
+      danger: true
+    })
+    if (!ok) return
+    try {
+      const reply = await local.command('run-pr-merge', { run: row.foldedRunId ?? row.id, method })
+      if (reply.status >= 400) {
+        const error = (reply.body as { error?: unknown } | null)?.error
+        toast.error(t('worktrees.mergePr.failed', { reason: replyNote(reply, t as never, typeof error === 'string' ? error : String(reply.status)) }))
+      } else toast.success(t('worktrees.mergePr.done', { number: pr.number ?? '' }))
+    } catch (err) {
+      toast.error(t('worktrees.mergePr.failed', { reason: err instanceof Error ? err.message : String(err) }))
+    } finally {
+      void window.api.github.refresh({ force: true })
+    }
+  }
+
   const planMenu = (row: JobRow): Array<MenuItem | 'separator'> => {
     const archived = row.archivedAt !== undefined
     const pause = pauseActionOf(row)
@@ -333,6 +406,8 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
         ? [item('deliver', t('plan.delivery.retry'), 'rerun', () => void retryDelivery(row))]
         : []),
       ...(local && canChat(row) ? [item('chat', t('plan.chat.label'), 'message', () => void openPlanChat(local, row.id, actionUi))] : []),
+      ...(local && isUnmergedPlan(row) ? [item('review', t('pages.plans.unmerged.review'), 'search', () => void reviewPlan(row))] : []),
+      ...(acts.mergePr && local ? (['merge', 'squash', 'rebase'] as const).map((m) => item(`mergePr-${m}`, `${t('worktrees.act.mergePr')}: ${t(`worktrees.act.method.${m}` as never)}`, 'merge', () => void mergePlanPr(row, m))) : []),
       ...(acts.merge && local ? [item('merge', t('jobs.run.merge'), 'merge', () => void mergePlan(local, row, actionUi))] : []),
       ...(acts.mergeAll && local ? [item('mergeAll', t('plan.integrate.menu'), 'merge', () => void integratePlan(local, row, jobName(row), actionUi))] : []),
       ...(acts.openPr
@@ -441,11 +516,23 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
       ...base,
       label: jobName(n.row),
       icon: toned(TONE_ICON[status.tone], status.tone),
-      description: pane === 'finished' ? finishedDescription(n.row, nowMs, t) : planDescription(n.row, nowMs, t),
+      description: pane !== 'running' ? finishedDescription(n.row, nowMs, t) : planDescription(n.row, nowMs, t),
       decoration: { text: t(status.key, status.params), tone: status.tone },
       // Every plan is one click from its chat tab (T3); the row menu carries it, the finished pane's row action too
       ...(local && pane === 'finished' && canChat(n.row)
         ? { actions: <IconButton size="sm" label={t('plan.chat.label')} icon={<Icon name="message" size={14} />} onClick={() => void openPlanChat(local, n.row.id, actionUi)} /> }
+        : {}),
+      // An unmerged plan: its review and its merge are one click (the menu has the other merge methods and Open PR)
+      ...(local && pane === 'unmerged'
+        ? {
+            actions: (
+              <>
+                <IconButton size="sm" label={t('pages.plans.unmerged.review')} icon={<Icon name="search" size={14} />} onClick={() => void reviewPlan(n.row)} />
+                {planActionsOf(n.row, true).mergePr && <IconButton size="sm" label={t('worktrees.act.mergePr')} icon={<Icon name="merge" size={14} />} onClick={() => void mergePlanPr(n.row, 'merge')} />}
+                {n.row.pr?.url && <IconButton size="sm" label={t('shell.plans.menu.openPr')} icon={<Icon name="pullRequest" size={14} />} onClick={() => void window.api.system.openExternal(n.row.pr!.url!)} />}
+              </>
+            )
+          }
         : {}),
       // A dead plan is one click from archived, or from running again where something can resume it (resumeActionOf)
       ...(local && (isStalledPlan(n.row) || isStoppedPlan(n.row))
@@ -549,7 +636,7 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
     ) : (
       <ClickTree
         className="plans-tree"
-        label={t(pane === 'running' ? 'pages.plans.running' : 'pages.plans.finished')}
+        label={t(PANE_TITLE[pane])}
         rows={rows.map(itemOf(pane, shown))}
         selectedId={selected}
         onSelect={setSelected}
@@ -609,6 +696,9 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
             {stallNote}
             {bar}
             {treeOf('running', split.running, t('pages.plans.tree.noMatch'))}
+          </ViewPane>
+          <ViewPane title={t('pages.plans.unmerged')} count={split.unmerged.length} storageKey="plans.unmerged">
+            {treeOf('unmerged', split.unmerged, filter.trim() === '' ? t('pages.plans.unmerged.empty') : t('pages.plans.tree.noMatch'))}
           </ViewPane>
           <ViewPane
             title={t('pages.plans.finished')}

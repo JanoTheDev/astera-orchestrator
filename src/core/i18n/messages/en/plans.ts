@@ -125,6 +125,9 @@ export const plans: Record<keyof typeof ko, string> = {
   'pages.plans.clearFinished.failed': 'Could not archive {n} plans',
   'pages.plans.clearFinished.none': 'No finished plans to clear',
   'pages.plans.finished.empty': 'No finished plans yet.',
+  'pages.plans.unmerged': 'Unmerged',
+  'pages.plans.unmerged.empty': 'No unmerged plans.',
+  'pages.plans.unmerged.review': 'Review with AI',
   // Completed task: what was done, and Ask about this task
   'plan.done.showAll': 'Show all',
   'plan.done.showLess': 'Show less',
