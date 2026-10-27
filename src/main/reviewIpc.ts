@@ -4,7 +4,7 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { isPathWithin, isSamePath } from '../core/files/tree'
-import { defaultGhRunner, ghFailureSentence, type GhRunner } from '../core/github/gh'
+import { defaultGhRunner, type GhRunner } from '../core/github/gh'
 import { listOpenPrs } from '../core/github/prList'
 import type { OpenPrsResult } from '../core/github/types'
 import { mergePullRequest, PR_MERGE_METHODS, type PrMergeRequest, type PrMergeResult } from '../core/github/prMerge'

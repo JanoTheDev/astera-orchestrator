@@ -67,6 +67,7 @@ export const shell: Partial<Record<keyof typeof ko, string>> = {
   'shell.activity.history': '履歴',
   'shell.activity.run': '実行',
   'shell.activity.devices': 'デバイス',
+  'shell.activity.prs': 'Pull request',
   'shell.activity.accounts': 'アカウント',
   'shell.activity.manage': '管理',
   'shell.manage.keys': 'キーボードショートカット',

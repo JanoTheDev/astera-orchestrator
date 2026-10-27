@@ -19,7 +19,8 @@ export const ACTIVITY_META: Record<ActivityId, { icon: IconName; label: MessageK
   scm: { icon: 'branch', label: 'shell.activity.scm' },
   history: { icon: 'history', label: 'shell.activity.history' },
   run: { icon: 'run', label: 'shell.activity.run' },
-  devices: { icon: 'laptop', label: 'shell.activity.devices' }
+  devices: { icon: 'laptop', label: 'shell.activity.devices' },
+  prs: { icon: 'pullRequest', label: 'shell.activity.prs' }
 }
 
 // The accounts popover opens from here and from the status bar's usage item: one open state for both.

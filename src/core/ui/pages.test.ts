@@ -50,7 +50,7 @@ describe('the shell’s pages', () => {
 
 describe('workbench ids', () => {
   it('lists the activities in key order', () => {
-    expect(ACTIVITY_IDS).toEqual(['agents', 'plans', 'explorer', 'scm', 'history', 'run', 'devices'])
+    expect(ACTIVITY_IDS).toEqual(['agents', 'plans', 'explorer', 'scm', 'history', 'run', 'devices', 'prs'])
     expect(KEYED_ACTIVITY_COUNT).toBe(6)
     expect(DEFAULT_ACTIVITY).toBe('agents')
   })

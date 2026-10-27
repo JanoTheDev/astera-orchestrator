@@ -1,0 +1,13 @@
+/* The Pull requests side bar view. Tokens only. */
+.prs-filter { margin: var(--sp-2) 12px; width: calc(100% - 24px); }
+.prs-list { list-style: none; margin: 0; padding: 0; }
+.prs-row { display: flex; flex-direction: column; gap: var(--sp-1); padding: var(--sp-2) 12px; border-bottom: 1px solid var(--border); font-size: var(--fs-13); }
+.prs-title { display: flex; align-items: center; gap: var(--sp-1); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prs-meta { color: var(--text-dim); font-size: var(--fs-12); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prs-stats { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-12); color: var(--text-dim); }
+.prs-add { color: var(--ok, var(--text-dim)); }
+.prs-del { color: var(--danger, var(--text-dim)); }
+.prs-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1); }
+.prs-note { margin: 0; font-size: var(--fs-12); }
+.prs-note.ok { color: var(--ok, var(--text-dim)); }
+.prs-note.bad { color: var(--danger, var(--text)); }

@@ -67,6 +67,7 @@ export const shell: Partial<Record<keyof typeof ko, string>> = {
   'shell.activity.history': 'Historial',
   'shell.activity.run': 'Ejecutar',
   'shell.activity.devices': 'Dispositivos',
+  'shell.activity.prs': 'Pull requests',
   'shell.activity.accounts': 'Cuentas',
   'shell.activity.manage': 'Administrar',
   'shell.manage.keys': 'Atajos de teclado',
