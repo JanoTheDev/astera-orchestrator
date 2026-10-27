@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { RepoPr } from '../../../../core/github/types'
-import { canMerge, filterPrs, prRowView } from './pullRequests'
+import { canMerge, filterPrs, loadForPath, prRowView } from './pullRequests'
 
 const pr = (over: Partial<RepoPr> = {}): RepoPr => ({
   number: 7,
@@ -61,4 +61,14 @@ describe('canMerge', () => {
     expect(canMerge({ isDraft: true }, false)).toBe(false)
     expect(canMerge({ isDraft: false }, true)).toBe(false)
   })
+})
+
+describe('loadForPath', () => {
+  const ready = { state: 'ready' as const, path: '/a', prs: [pr()] }
+  it('keeps a load made for the same path', () => expect(loadForPath(ready, '/a')).toBe(ready))
+  it('reads a load made for another path as loading', () => expect(loadForPath(ready, '/b')).toEqual({ state: 'loading' }))
+  it('reads a failure made for another path as loading', () =>
+    expect(loadForPath({ state: 'failed', path: '/a', kind: 'error', message: 'x' }, '/b')).toEqual({ state: 'loading' }))
+  it('reads no project as loading', () => expect(loadForPath(ready, null)).toEqual({ state: 'loading' }))
+  it('keeps loading as loading', () => expect(loadForPath({ state: 'loading' }, '/a')).toEqual({ state: 'loading' }))
 })
