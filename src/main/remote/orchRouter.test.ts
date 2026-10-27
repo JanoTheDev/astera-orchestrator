@@ -125,6 +125,23 @@ describe('createOrchRouter (remote runtime design §2.7, D1.1, D1.6, D1.7)', () 
     expect(host).toHaveLength(1)
   })
 
+  it('T1: every command that needs deps.github goes to the Host, not main\'s copy of the command layer', async () => {
+    const l = recordingLocal()
+    const host: string[] = []
+    const r = createOrchRouter({
+      local: l.local,
+      host: async (_p, c) => (host.push(c), { status: 200, body: { host: true } }),
+      remote: { client: async () => fakeClient() }
+    })
+    const cmds = [
+      'run-pr-merge', 'runs-pr-sync', 'run-open-pr', 'run-draft-pr', 'run-deliver', 'attribution-remap', 'task-link-issue',
+      'github-pr', 'github-ci', 'github-ci-rerun', 'github-issue', 'github-pr-create'
+    ]
+    for (const cmd of cmds) expect(await r.command('/p', cmd, {}), cmd).toEqual({ status: 200, body: { host: true } })
+    expect(host).toEqual(cmds)
+    expect(l.calls).toEqual([])
+  })
+
   it('W8-F (#93): jobs-feedback goes to the Host, which owns the planner session, and a Runtime keeps its own', async () => {
     const l = recordingLocal()
     const host: string[] = []
