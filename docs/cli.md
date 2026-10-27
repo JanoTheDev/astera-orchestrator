@@ -713,6 +713,8 @@ astera projects create --name <name> --parent <path> [--describe <text>] [--gith
 astera projects github-create --project <path> [--private|--public]
 astera projects set   --id <projectId> [--delivery <pr|push|manual>] [--delivery-branch <branch>] [--auto-approve <on|off>] [--approval <ask|start|hands-off>] [--hands-off <on|off>] [--serial-files <on|off>] [--test-command <cmd>] [--test-config <id>] [--concurrency <1-100>] [--review-rounds <n>] [--replan <waves|off>] [--account <id>] [--setup-command <cmd|off>] [--prompts-dir <path|none>] [--auto-projects <on|off>] [--grants <kind,...|none>] [--coordinator-model <id|none>]
 
+astera git branch-create --cwd <path> --name <branch> [--from <branch>]
+
 astera jobs    list   [--status <pending|paused|scheduled|waiting|running|completed|failed>] [--project <path>] [--archived] [--area <word>]
 astera jobs    get    --id <jobId | runId>
 astera jobs    run    --id <jobId>

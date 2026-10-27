@@ -185,6 +185,7 @@ import { remapMerged } from '../attribution/remap'
 import { attributionBlock } from '../attribution/stats'
 import { hookEventsFileIn } from '../hooks/sessionState'
 import { git as attributionGit } from '../worktrees/git'
+import { createBranch } from '../git/branchCreate'
 // W8-C draft PR
 import { completedWorktrees, draftPrDue, DRAFT_PR_FOOTER, runWaves, wavesDoneOf, wavesSection } from './draftPr'
 import type { SessionCheck } from '../workUnit/types'
@@ -2756,6 +2757,20 @@ export async function handleCommand(
       if (!p) return bad('--path is required')
       const project = findProjectContaining(s, p)
       return project ? okBody(project) : notFound(`no project registered for: ${p}`)
+    }
+    // Creates a branch in a registered project's repository and publishes it to origin when there is one, so a plan can
+    // target it. It writes to a remote: the person's, like projects-set.
+    case 'git-branch-create': {
+      if (fromAgentSession || caller.role === 'mcp') return denied('a branch is created by the person, in Astera or at their own shell')
+      const cwd = str(args.cwd)
+      if (!cwd) return bad('--cwd is required')
+      const name = str(args.name)
+      if (!name) return bad('--name is required')
+      const from = args.from === undefined ? undefined : str(args.from)
+      if (from === null) return bad('--from needs a value: the branch to start from')
+      if (!findProjectByPath(s, cwd)) return notFound(`no project registered for: ${cwd}`)
+      const made = await createBranch({ cwd, name, ...(from ? { from } : {}) })
+      return made.ok ? okBody(made) : conflict(made.reason)
     }
     // ── T3 workspaces (projects.ts): unregistering a project; `projects-add --parent` is the Host's (src/host/orch.ts).
     // The person's, like projects-set.
