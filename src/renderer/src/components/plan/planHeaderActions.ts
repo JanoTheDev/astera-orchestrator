@@ -5,6 +5,7 @@ import type { JobRow } from '../../../../core/types'
 import { approveViewOf } from './planPage'
 import { isFinishedOutcome } from './planSummary'
 import { runningCount } from '../../../../core/orchestration/running'
+import { isUnmergedPlan } from './planList'
 import { canChat, planTalkView } from './planTalk'
 
 export type HeaderRow = Pick<
@@ -57,7 +58,7 @@ export function headerActionsOf(row: HeaderRow | undefined, local: boolean): Hea
   }
 }
 
-export type PlanActionRow = HeaderRow & Pick<JobRow, 'coordinatorMissing' | 'worktrees' | 'paused' | 'dispatchHold'>
+export type PlanActionRow = HeaderRow & Pick<JobRow, 'coordinatorMissing' | 'worktrees' | 'paused' | 'dispatchHold' | 'awaitingReview'>
 
 /** Every plan-level action the row's state allows, read by the plan page header and the Plans tree menu alike. */
 export interface PlanActions {
@@ -80,6 +81,8 @@ export interface PlanActions {
   openPr?: NonNullable<HeaderActions['openPr']>
   /** Merge PR (`run-pr-merge`): the PR is ready (not a draft), not landed on GitHub, and the plan is not archived. */
   mergePr?: { number?: number; url: string }
+  /** Mark as merged (`run-mark-merged`): the plan is Unmerged and the owner merged it where git cannot see it. This computer's plans only. */
+  markMerged: boolean
   /** The plan has an integration folder to reveal or open a terminal in (the caller finds it). */
   folder: boolean
 }
@@ -104,6 +107,7 @@ export function planActionsOf(row: PlanActionRow, local: boolean): PlanActions {
     mergeAll: !archived && !notStarted && worktrees,
     ...(openPr ? { openPr } : {}),
     ...(mergePr ? { mergePr } : {}),
+    markMerged: local && isUnmergedPlan(row as JobRow),
     folder: worktrees
   }
 }

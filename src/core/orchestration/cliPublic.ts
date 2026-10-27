@@ -68,6 +68,8 @@ const RUN_HIDDEN = [
   'externalCoordinatorSessionId',
   // W2-D: the plan's PR, read by the app's view; not in the SDK's contract yet (`run-open-pr` answers it)
   'pr',
+  // T6: the PR sync's check time for a Run with no `pr`; not in the SDK's contract yet
+  'landedCheckedAt',
   // W6-H: a push delivery's result, answered by `run-deliver`; not in the SDK's contract yet
   'delivery',
   // T3: the delivery's and the plan-branch push's attempts, answered by `run-deliver`; not in the SDK's contract yet

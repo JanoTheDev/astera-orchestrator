@@ -53,7 +53,25 @@ export const HOST_ANSWERED: ReadonlySet<string> = new Set([
   // W9-I: the tab summaries (a finished session's outcome, the sidebar's failed dot) are read by the Host only; main's
   // copy answered 409 and the sidebar never showed a session that gave up
   'summaries',
-  'sessions-summary'
+  'sessions-summary',
+  // T1: these need `deps.github` (the Host's gh runner); main's copy of the command layer has no gh and refused them
+  // ("GitHub commands are answered by the Astera Host"), so Merge PR, PR sync and Open PR never ran
+  'run-pr-merge',
+  'runs-pr-sync',
+  'run-open-pr',
+  'run-draft-pr',
+  'attribution-remap',
+  'task-link-issue',
+  'github-pr',
+  'github-ci',
+  'github-ci-rerun',
+  'github-issue',
+  'github-pr-create',
+  // T1: reads the folder's delivery setup through `deps.github.deliverySetup`; without it main's copy delivers by the
+  // saved mode and misses the fall back when the folder cannot push or open a PR
+  'run-deliver',
+  // The owner marks an Unmerged plan merged; its clean-up of the Run's worktrees is the Host's (cleanWorktrees)
+  'run-mark-merged'
 ])
 
 /** W5-D (#44): the reads that are one list across every Host. A call with no `runtimeId` asks the local Host and every

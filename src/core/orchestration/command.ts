@@ -117,7 +117,7 @@ import { isPathWithin } from '../files/tree'
 import { buildHandoverPrompt, buildPlannerBrief } from './handover'
 import { read as readOwner } from '../prompts/ownerInstructions'
 import { consoleIdStore, ensureChat, ensureConsole } from '../console/console'
-import { noRemoteNote, unmergedPlanBranches } from './unmergedBranches' // W8-G (#101)
+import { branchInDeliveryBranch, noRemoteNote, unmergedPlanBranches } from './unmergedBranches' // W8-G (#101)
 // W2-A planner stage
 import { editPlanTask, kindOf, leftOutArg, orchestrationRoleOf, planFieldsFromArgs, plannerJobOf, plannerRefusal, taskProblems, validatePlan, withPreviousAttempt, workerSpecOf, worktreeRefusal } from './planner'
 import { parseReviewFile, type ReviewIssueInput } from './review'
@@ -1302,6 +1302,7 @@ const COORDINATOR_ONLY = new Set([
   'projects-set',
   'run-deliver',
   'run-pr-merge',
+  'run-mark-merged',
   'runs-pr-sync',
   'run-integrate-all',
   // W8-C draft PR
@@ -7284,14 +7285,34 @@ export async function handleCommand(
         { cwd, ...(run.pr.number !== undefined ? { number: run.pr.number } : { branch: run.pr.url }), method },
         deps.github.run
       )
-      if (!merged.ok) return { status: merged.kind === 'not-found' ? 404 : ['not-mergeable', 'already-merged', 'not-installed', 'auth'].includes(merged.kind) ? 409 : 502, body: { error: `gh pr merge: ${merged.detail}`, kind: merged.kind } }
+      // gh says "already merged" when the owner merged the PR by hand: that is the landing, recorded as merged (a closed, unmerged PR stays a 409)
+      const alreadyMerged = !merged.ok && merged.kind === 'already-merged' && /already merged/i.test(merged.detail)
+      if (!merged.ok && !alreadyMerged) return { status: merged.kind === 'not-found' ? 404 : ['not-mergeable', 'already-merged', 'not-installed', 'auth'].includes(merged.kind) ? 409 : 502, body: { error: `gh pr merge: ${merged.detail}`, kind: merged.kind } }
       await deps.setState(landedOnGitHub(deps.getState(), id, 'merged', deps.now?.() ?? now))
       await cleanAfterDelivery(deps, id)
-      return okBody({ run: id, url: run.pr.url, merged: true, method, deliveryState: deps.getState().runs.find((r) => r.id === id)?.deliveryState })
+      return okBody({ run: id, url: run.pr.url, merged: true, ...(alreadyMerged ? { alreadyMerged: true } : {}), method, deliveryState: deps.getState().runs.find((r) => r.id === id)?.deliveryState })
+    }
+    // The owner merged the plan's branch where git cannot see it (a squash merge, a deleted branch): the Unmerged plan
+    // reads delivered and merged, as run-pr-merge leaves it. Refused from an agent session and an MCP client.
+    case 'run-mark-merged': {
+      const id = str(args.run)
+      if (!id) return bad('--run is required')
+      if (fromAgentSession || caller.role === 'mcp') return denied("marking a plan merged is the owner's")
+      const run = s.runs.find((r) => r.id === id)
+      if (!run) return notFound(`unknown run: ${id}`)
+      if (run.pr?.landed !== undefined) return conflict(`This Run was already ${run.pr.landed}`)
+      const unmerged = (run.pr?.url !== undefined && run.pr.draft !== true) || run.deliveryState?.state === 'awaiting-review'
+      if (!unmerged) return conflict('This Run has no unmerged work to mark merged')
+      if (outcomeOf(s, id) === 'running') return conflict('This Run is still working')
+      await deps.setState(landedOnGitHub(s, id, 'merged', deps.now?.() ?? now))
+      await cleanAfterDelivery(deps, id)
+      return okBody({ run: id, merged: true, deliveryState: deps.getState().runs.find((r) => r.id === id)?.deliveryState })
     }
     // T6: asks GitHub for each ready PR not yet landed and records merged or closed (`landedOnGitHub`), so the Unmerged
-    // list stays true without the PR poller. A batch is capped, the longest-unchecked first, and a PR checked within
-    // PR_SYNC_FRESH_MS is skipped. A gh error skips that PR only.
+    // list stays true without the PR poller. A manual plan waiting for review is not on GitHub, and a PR the owner merged
+    // by hand is still open there: both are also asked of git, whether the plan's branch is already in the delivery
+    // branch. A batch is capped, the longest-unchecked first, and a PR checked within PR_SYNC_FRESH_MS is skipped. A gh
+    // or git error skips that run only.
     case 'runs-pr-sync': {
       if (fromAgentSession || caller.role === 'mcp') return denied("syncing plans' pull requests is Astera's own")
       if (!deps.github) return conflict('GitHub commands are answered by the Astera Host, and this caller is not one')
@@ -7299,21 +7320,25 @@ export async function handleCommand(
       if ('error' in inProject) return inProject.error
       const project = inProject.project
       const at = deps.now?.() ?? now
-      const fresh = (r: JobRun): boolean => Date.parse(at) - Date.parse(r.pr?.landedCheckedAt ?? '') < PR_SYNC_FRESH_MS
+      // a Run with no `pr` record keeps its check time on the Run itself (types.ts), never as an empty `pr`
+      const checkedAt = (r: JobRun): string => r.pr?.landedCheckedAt ?? r.landedCheckedAt ?? ''
+      const fresh = (r: JobRun): boolean => Date.parse(at) - Date.parse(checkedAt(r)) < PR_SYNC_FRESH_MS
+      const readyPr = (r: JobRun): boolean => r.pr?.url !== undefined && r.pr.draft !== true
       const due = s.runs
         .filter((r) => {
-          if (r.pr?.url === undefined || r.pr.draft === true || r.pr.landed !== undefined || fresh(r)) return false
+          if (r.pr?.landed !== undefined || fresh(r) || !(readyPr(r) || r.deliveryState?.state === 'awaiting-review')) return false
           const job = jobOf(s, r)
           return !project || (job !== undefined && jobInProject(s, job, project))
         })
-        .sort((a, b) => (a.pr?.landedCheckedAt ?? '').localeCompare(b.pr?.landedCheckedAt ?? ''))
+        .sort((a, b) => checkedAt(a).localeCompare(checkedAt(b)))
         .slice(0, PR_SYNC_BATCH)
       const states = await Promise.all(
-        due.map(async (r) => ({
-          run: r,
+        due.map(async (r) => {
           // the repo folder first: a delivered plan's own worktree is usually removed, and a gh run in a missing folder fails
-          state: await prStateOf(deps.github!.run, r.pr!.url!, jobOf(s, r)?.cwd ?? r.worktree ?? '').catch(() => null)
-        }))
+          const gh = readyPr(r) ? await prStateOf(deps.github!.run, r.pr!.url!, jobOf(s, r)?.cwd ?? r.worktree ?? '').catch(() => null) : null
+          const byHand = gh === 'MERGED' || gh === 'CLOSED' ? null : await branchInDeliveryBranch(s, r, attributionGit).catch(() => null)
+          return { run: r, state: byHand === true ? 'MERGED' : gh }
+        })
       )
       let next = deps.getState()
       const landed: { runId: string; landed: 'merged' | 'closed' }[] = []
@@ -7323,7 +7348,7 @@ export async function handleCommand(
           next = landedOnGitHub(next, run.id, to, at)
           landed.push({ runId: run.id, landed: to })
         } else {
-          next = { ...next, runs: next.runs.map((r) => (r.id === run.id && r.pr ? { ...r, pr: { ...r.pr, landedCheckedAt: at } } : r)) }
+          next = { ...next, runs: next.runs.map((r) => (r.id === run.id ? (r.pr ? { ...r, pr: { ...r.pr, landedCheckedAt: at } } : { ...r, landedCheckedAt: at }) : r)) }
         }
       }
       if (due.length > 0) await deps.setState(next)

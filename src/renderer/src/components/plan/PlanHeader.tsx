@@ -159,6 +159,24 @@ export function PlanHeader({
       void window.api.github.refresh({ force: true })
     }
   }
+  const [markingMerged, setMarkingMerged] = useState(false)
+  const markMerged = async (): Promise<void> => {
+    if (!run) return
+    const ok = await ui.confirm({ title: t('plan.markMerged.title', { plan: jobName(run) }), body: t('plan.markMerged.body', { plan: jobName(run) }), confirmLabel: t('plan.markMerged.confirm') })
+    if (!ok) return
+    setMarkingMerged(true)
+    try {
+      const reply = await door.command('run-mark-merged', { run: run.foldedRunId ?? runId })
+      if (reply.status >= 400) {
+        const error = (reply.body as { error?: unknown } | null)?.error
+        toast.error(t('plan.markMerged.failed', { reason: replyNote(reply, t as never, typeof error === 'string' ? error : String(reply.status)) }))
+      } else toast.success(t('plan.markMerged.done'))
+    } catch (err) {
+      toast.error(t('plan.markMerged.failed', { reason: err instanceof Error ? err.message : String(err) }))
+    } finally {
+      setMarkingMerged(false)
+    }
+  }
   const archive = (): void =>
     void (acts.archive === 'unarchive' ? unarchiveJob(door, runId, ui) : archiveJob(door, snapshot, runId, ui))
   const askMore = (): void => void openPlanChat(door, runId, ui)
@@ -207,6 +225,9 @@ export function PlanHeader({
           : []),
         ...(deliveryActions.dismiss
           ? [{ id: 'dismiss', label: t('plan.delivery.dismiss'), icon: <Icon name="close" size={14} />, disabled: off || redelivering, onSelect: () => void dismissDelivery() }]
+          : []),
+        ...(planActs?.markMerged
+          ? [{ id: 'markMerged', label: t('plan.markMerged.menu'), icon: <Icon name="check" size={14} />, disabled: off || markingMerged, onSelect: () => void markMerged() }]
           : []),
         // T4 (advanced): every worktree into the plan branch, an agent fixes the conflicts, then the plan's own delivery
         ...(run.archivedAt === undefined && !run.pendingStart

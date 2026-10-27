@@ -2,9 +2,10 @@
 // each plan's work on its own branch (`JobRun.pr.note` + `branch`), and the next plan's workers start from the default
 // branch. The planner is told which branches those are, so it does not base Tasks on work the workers will not have.
 import { git as realGit } from '../worktrees/git'
-import { jobInProject } from './projects'
-import type { OrchState } from './state'
-import type { Project } from './types'
+import { deliveryBranchOf } from './delivery'
+import { jobInProject, projectOfJob } from './projects'
+import { jobOf, type OrchState } from './state'
+import type { JobRun, Project } from './types'
 
 /** What a plan whose project has no remote says instead of a pull request: where the work is and how to merge it. */
 export const noRemoteNote = (branch: string, folder: string): string =>
@@ -33,4 +34,24 @@ export async function unmergedPlanBranches(s: OrchState, project: Project, run: 
     if (!merged.ok && merged.stderr.trim() === '') branches.push(b) // exit 1, no message: not an ancestor
   }
   return { branches, into }
+}
+
+/** Whether git sees a Run's plan branch already in its delivery branch, as when the owner merged it by hand. The branch is
+ *  the PR's, else the one the Run's folder stands on; the target is the plan's delivery branch, else the project's default
+ *  branch, else the branch the project folder stands on. `null`: git cannot tell (no branch, a git error), so the Run is
+ *  left as it is. The target branch itself never counts, and neither does a branch that no longer exists. */
+export async function branchInDeliveryBranch(s: OrchState, runOf: JobRun, run: typeof realGit = realGit): Promise<boolean | null> {
+  const job = jobOf(s, runOf)
+  if (!job) return null
+  const head = async (cwd: string): Promise<string | null> => {
+    const r = await run(['symbolic-ref', '--quiet', '--short', 'HEAD'], { cwd })
+    return r.ok && r.stdout !== '' ? r.stdout : null
+  }
+  const branch = runOf.pr?.branch ?? (runOf.worktree !== undefined ? await head(runOf.worktree) : null)
+  const into = deliveryBranchOf(s, job) ?? projectOfJob(s, job)?.defaultBranch ?? (await head(job.cwd))
+  if (!branch || !into || branch === into) return null
+  if (!(await run(['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], { cwd: job.cwd })).ok) return null
+  const merged = await run(['merge-base', '--is-ancestor', `refs/heads/${branch}`, into], { cwd: job.cwd })
+  if (merged.ok) return true
+  return merged.stderr.trim() === '' ? false : null // exit 1, no message: not an ancestor; anything else, git failed
 }
