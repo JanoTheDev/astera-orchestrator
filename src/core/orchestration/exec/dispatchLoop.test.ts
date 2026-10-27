@@ -2671,6 +2671,29 @@ describe('a delivery that finishes by itself (T3)', () => {
     expect(questions(h)).toEqual([])
   })
 
+  it('T1: a push a pre-push hook refused gets a fix Task quoting the hook output, and is delivered again once it completes', async () => {
+    let calls = 0
+    const refused: Push = async () => ({
+      ok: false,
+      reason: 'git push origin main was refused, and origin/main has not moved, so pushing again would not help:\ntypecheck: error TS2345',
+      branch: 'main',
+      code: 'push-refused'
+    })
+    const h = pushPlan(async (a) => (++calls === 1 ? refused(a) : ok(a)))
+    handsOff(h)
+    await pass(h)
+    finishAll(h)
+    await pass(h)
+    expect(fixes(h)).toHaveLength(1)
+    expect(fixes(h)[0]).toMatchObject({ runId: 'run_1', spec: expect.stringContaining('error TS2345') })
+    expect(questions(h)).toEqual([])
+    await pass(h)
+    finishAll(h)
+    await pass(h)
+    expect(calls).toBe(2)
+    expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'delivered' })
+  })
+
   it('T1: a fix Task of a plan whose Tasks name no account starts on the account with most room, with no Gate', async () => {
     const h = pushPlan(checksFailed)
     handsOff(h)
