@@ -33,6 +33,8 @@ export interface IntakeForm {
   /** T17: the delivery shown (useDeliveryChoices' effective mode), always sent so a saved one this folder cannot do is
    *  never used. */
   delivery: DeliveryMode
+  /** The plan's own target branch, ahead of its project's; '' sends none. */
+  deliveryBranch?: string
   /** T17: replanning between steps; not sent for Run as written, which has no planner. */
   replan: 'waves' | 'off'
   /** T17: hands-off, always sent: the plan's own, ahead of its project's. */
@@ -49,6 +51,7 @@ export function intakeRequest(f: IntakeForm): { cmd: string; args: Record<string
     ...(f.instructions.trim() !== '' ? { instructions: f.instructions.trim() } : {}),
     ...(f.effort !== '' ? { effort: f.effort } : {}),
     delivery: f.delivery,
+    ...(f.deliveryBranch ? { deliveryBranch: f.deliveryBranch } : {}),
     handsOff: f.handsOff ? 'on' : 'off'
   }
   const priority = f.priority ? { priority: f.priority } : {}
