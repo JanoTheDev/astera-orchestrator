@@ -827,6 +827,16 @@ describe('run-pr-merge', () => {
     expect((await run('run-pr-merge', { run: 'r1' })).status).toBe(409) // already merged
   })
 
+  it('records a PR the owner already merged by hand on GitHub as merged, and answers success', async () => {
+    const { run, ghCalls, h } = withGh('Pull request #9 is already merged')
+    const r = await run('run-pr-merge', { run: 'r1', method: 'squash' })
+    expect(ghCalls).toEqual([['pr', 'merge', '9', '--squash']])
+    expect(r.status).toBe(200)
+    expect(r.body).toMatchObject({ merged: true, alreadyMerged: true })
+    expect(h.state().runs[0].pr?.landed).toBe('merged')
+    expect(h.state().runs[0].deliveryState?.state).toBe('delivered')
+  })
+
   it('is refused to an agent session and an MCP client, and does not run gh', async () => {
     const { run, ghCalls } = withGh()
     expect((await run('run-pr-merge', { run: 'r1' }, 'sess_agent')).status).toBe(403)

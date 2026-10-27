@@ -7284,10 +7284,12 @@ export async function handleCommand(
         { cwd, ...(run.pr.number !== undefined ? { number: run.pr.number } : { branch: run.pr.url }), method },
         deps.github.run
       )
-      if (!merged.ok) return { status: merged.kind === 'not-found' ? 404 : ['not-mergeable', 'already-merged', 'not-installed', 'auth'].includes(merged.kind) ? 409 : 502, body: { error: `gh pr merge: ${merged.detail}`, kind: merged.kind } }
+      // gh says "already merged" when the owner merged the PR by hand: that is the landing, recorded as merged (a closed, unmerged PR stays a 409)
+      const alreadyMerged = !merged.ok && merged.kind === 'already-merged' && /already merged/i.test(merged.detail)
+      if (!merged.ok && !alreadyMerged) return { status: merged.kind === 'not-found' ? 404 : ['not-mergeable', 'already-merged', 'not-installed', 'auth'].includes(merged.kind) ? 409 : 502, body: { error: `gh pr merge: ${merged.detail}`, kind: merged.kind } }
       await deps.setState(landedOnGitHub(deps.getState(), id, 'merged', deps.now?.() ?? now))
       await cleanAfterDelivery(deps, id)
-      return okBody({ run: id, url: run.pr.url, merged: true, method, deliveryState: deps.getState().runs.find((r) => r.id === id)?.deliveryState })
+      return okBody({ run: id, url: run.pr.url, merged: true, ...(alreadyMerged ? { alreadyMerged: true } : {}), method, deliveryState: deps.getState().runs.find((r) => r.id === id)?.deliveryState })
     }
     // T6: asks GitHub for each ready PR not yet landed and records merged or closed (`landedOnGitHub`), so the Unmerged
     // list stays true without the PR poller. A batch is capped, the longest-unchecked first, and a PR checked within
