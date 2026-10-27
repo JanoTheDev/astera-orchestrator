@@ -584,6 +584,7 @@ export function snapshotFor(
       ...(job.pendingStart && autoApproveOf(projectsOnce, job, approvalDefault) ? { autoApprove: true as const } : {}),
       // #117: hands-off, what it decided for the owner, and #119's picks
       ...(handsOffOf(projectsOnce, job) ? { handsOff: true as const } : {}),
+      ...(job.deliveryBranch !== undefined ? { deliveryBranch: job.deliveryBranch } : {}),
       ...(job.decisions?.length ? { decisions: job.decisions } : {}),
       ...(job.pick !== undefined ? { pick: job.pick } : {}),
       // W5-C: the plan's "stop launching" (jobs-hold), on every row of the Job

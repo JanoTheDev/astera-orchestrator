@@ -1028,3 +1028,79 @@ describe('run-deliver on a folder where the delivery cannot work (T32)', () => {
     expect(deliveryLandingOf(h.state(), h.state().jobs[0])).toEqual({ mode: 'pr' })
   })
 })
+
+describe("a plan's own target branch (--delivery-branch)", () => {
+  /** A plan with a Run worktree on a fake GitHub whose default branch is main; `prs` collects each PR's base. */
+  const prSetup = (o: { deliveryBranch?: string; tasks?: Task[] } = {}) => {
+    const WT = '/wt/run'
+    const box: { state: OrchState } = {
+      state: {
+        ...emptyState(),
+        projects: [project()],
+        jobs: [{ id: 'job_1', objective: 'Fix auth', cwd: REPO, projectId: 'p1', createdAt: NOW, ...(o.deliveryBranch ? { deliveryBranch: o.deliveryBranch } : {}) }],
+        runs: [{ id: 'r1', jobId: 'job_1', ordinal: 1, createdAt: NOW, worktree: WT } as JobRun],
+        tasks: o.tasks ?? [task()],
+        dispatches: []
+      }
+    }
+    const bases: string[] = []
+    const deps = {
+      getState: () => box.state,
+      setState: async (next: OrchState) => {
+        box.state = next
+      },
+      now: () => NOW,
+      listAccounts: () => [],
+      github: {
+        run: async (args: string[]) =>
+          args[0] === 'repo' && args[1] === 'view' ? { ok: true, stdout: 'main\n', stderr: '' } : { ok: false, stdout: '', stderr: 'no gh here' },
+        worktreeOf: (p: string) => (p === WT ? { id: 'w1', repoPath: REPO, path: WT, name: 'run', branch: 'astera/run', baseRef: 'main', createdAt: NOW } : null),
+        push: async () => ({ ok: true }),
+        createPr: async (req: { base: string }) => {
+          bases.push(req.base)
+          return { ok: true as const, url: 'https://github.com/o/r/pull/13' }
+        },
+        readCommits: async () => [{ subject: 'Fix login', body: '' }],
+        isClean: async () => ({ changedCount: 0 })
+      }
+    } as unknown as OrchServerDeps
+    const call = (cmd: string, args: Record<string, unknown>) => handleCommand(deps, { sessionId: HOST_CALLER }, cmd, args)
+    return { call, bases, state: () => box.state }
+  }
+
+  it('run-open-pr opens the PR against the target branch, else the default branch', async () => {
+    const own = prSetup({ deliveryBranch: 'release' })
+    expect((await own.call('run-open-pr', { run: 'r1' }))).toMatchObject({ status: 200 })
+    expect(own.bases).toEqual(['release'])
+    const none = prSetup()
+    expect((await none.call('run-open-pr', { run: 'r1' })).status).toBe(200)
+    expect(none.bases).toEqual(['main'])
+  })
+
+  it('run-draft-pr opens the draft against the target branch', async () => {
+    const h = prSetup({ deliveryBranch: 'release', tasks: [task({ mergedIntoPlanAt: NOW }), task({ id: 't2', status: 'ready' })] })
+    const r = await h.call('run-draft-pr', { run: 'r1' })
+    expect(r).toMatchObject({ status: 200 })
+    expect(h.bases).toEqual(['release'])
+  })
+
+  it('jobs-set --delivery-branch sets, validates and clears the plan\'s own branch', async () => {
+    const h = setup({ tasks: [task({ status: 'ready' })] })
+    const set = await h.call('jobs-set', { id: 'job_1', deliveryBranch: 'release/2' })
+    expect(set.status).toBe(200)
+    expect(h.state().jobs[0].deliveryBranch).toBe('release/2')
+    expect((await h.call('jobs-set', { id: 'job_1', deliveryBranch: 'a b' })).status).toBe(400)
+    expect((await h.call('jobs-set', { id: 'job_1', deliveryBranch: '-x' })).status).toBe(400)
+    expect(h.state().jobs[0].deliveryBranch).toBe('release/2')
+    expect((await h.call('jobs-set', { id: 'job_1', deliveryBranch: '' })).status).toBe(200)
+    expect('deliveryBranch' in h.state().jobs[0]).toBe(false)
+  })
+
+  it('jobs-create --delivery-branch keeps the branch on the new plan, and refuses a bad one', async () => {
+    const h = setup()
+    const made = await h.call('jobs-create', { objective: 'Ship it', cwd: REPO, deliveryBranch: 'develop' })
+    expect(made.status).toBe(200)
+    expect(h.state().jobs.find((j) => j.objective === 'Ship it')?.deliveryBranch).toBe('develop')
+    expect((await h.call('jobs-create', { objective: 'Bad', cwd: REPO, deliveryBranch: 'a b' })).status).toBe(400)
+  })
+})

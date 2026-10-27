@@ -31,6 +31,16 @@ export const handsOffOf = (s: OrchState, job: Job): boolean => job.handsOff ?? p
 /** How this Job's plan lands: its own setting, else its project's, else `pr`. */
 export const deliveryOf = (s: OrchState, job: Job): DeliveryMode => job.delivery ?? projectOfJob(s, job)?.delivery ?? 'pr'
 
+/** The branch this plan forks from and delivers into: its own, else its project's. Absent: the repository's default
+ *  branch (a PR) or the branch the folder stands on (a fork). */
+export const deliveryBranchOf = (s: OrchState, job: Job): string | undefined => job.deliveryBranch ?? projectOfJob(s, job)?.deliveryBranch
+
+/** A `--delivery-branch` value trimmed, or null when it cannot name a branch (empty, a space, a leading `-`). */
+const branchNameOf = (v: string): string | null => {
+  const b = v.trim()
+  return b === '' || /\s/.test(b) || b.startsWith('-') ? null : b
+}
+
 // T32: the folder setups last read, by folder, so the sync callers (draftPrDue, the stall watch, deliveryWait) see what the
 // async ones (`run-deliver`, the dispatch loop) read. Empty (nothing read, e.g. the app, tests): the saved delivery stands.
 const setups = new Map<string, DeliverySetup>()
@@ -62,7 +72,7 @@ export async function readLandingOf(s: OrchState, job: Job, read?: (cwd: string)
 export function deliveryFallbackOf(s: OrchState, job: Job): { mode: DeliveryMode; reason: DeliveryOffReason; branch?: string } | null {
   const { mode, reason } = deliveryLandingOf(s, job)
   if (reason === undefined) return null
-  const branch = projectOfJob(s, job)?.deliveryBranch ?? setups.get(job.cwd)?.branch ?? undefined
+  const branch = deliveryBranchOf(s, job) ?? setups.get(job.cwd)?.branch ?? undefined
   return branch === undefined ? { mode, reason } : { mode, reason, branch }
 }
 
@@ -111,9 +121,8 @@ export function setProjectDelivery(
 ): Res<Project> {
   const found = findProject(s, id)
   if (!found) return { ok: false, error: `unknown project: ${id}` }
-  const branch = patch.branch?.trim()
-  if (branch !== undefined && (branch === '' || /\s/.test(branch) || branch.startsWith('-')))
-    return { ok: false, error: `not a branch name: ${JSON.stringify(patch.branch)}` }
+  const branch = patch.branch == null ? undefined : branchNameOf(patch.branch)
+  if (branch === null) return { ok: false, error: `not a branch name: ${JSON.stringify(patch.branch)}` }
   const { deliveryBranch: _old, ...rest } = found
   const next: Project = {
     ...(patch.branch === null ? rest : found),
@@ -158,6 +167,17 @@ export function setJobDelivery(s: OrchState, jobId: string, delivery: DeliveryMo
   const found = s.jobs.find((j) => j.id === jobId)
   if (!found) return { ok: false, error: `unknown job: ${jobId}` }
   const next: Job = { ...found, delivery }
+  return { ok: true, state: { ...s, jobs: s.jobs.map((j) => (j.id === jobId ? next : j)) }, value: next }
+}
+
+/** Sets a plan's own target branch (`deliveryBranchOf`); null clears it, back to its project's. */
+export function setJobDeliveryBranch(s: OrchState, jobId: string, branch: string | null): Res<Job> {
+  const found = s.jobs.find((j) => j.id === jobId)
+  if (!found) return { ok: false, error: `unknown job: ${jobId}` }
+  const name = branch === null ? undefined : branchNameOf(branch)
+  if (name === null) return { ok: false, error: `not a branch name: ${JSON.stringify(branch)}` }
+  const { deliveryBranch: _old, ...rest } = found
+  const next: Job = name === undefined ? rest : { ...found, deliveryBranch: name }
   return { ok: true, state: { ...s, jobs: s.jobs.map((j) => (j.id === jobId ? next : j)) }, value: next }
 }
 

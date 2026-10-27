@@ -187,7 +187,7 @@ function rig(o: RigOpts = {}) {
   const logs: string[] = []
   const typed: string[] = []
   const reaped: string[] = []
-  const forked: { repoPath: string; name: string }[] = []
+  const forked: { repoPath: string; name: string; base?: string }[] = []
   let calls = 0
   let inFlight = 0
   // 안전판: 회전하는 루프(attempted 를 지운 변이)가 이 파일을 멈춰 세우지 않고 횟수로 실패하게 한다.
@@ -1006,6 +1006,15 @@ describe('createDispatchLoop', () => {
     await h.settle()
     expect(h.forked).toHaveLength(1)
     expect(h.handled().slice(0, 2)).toEqual(['run-worktree-set', 'worker-start'])
+  })
+
+  it("forks the Run worktree from the plan's target branch when it has one", async () => {
+    const h = rig({ runWithoutWorktree: true })
+    h.setState({ ...h.state(), jobs: h.state().jobs.map((j) => ({ ...j, deliveryBranch: 'release' })) })
+    await h.loop.run()
+    await h.settle()
+    expect(h.forked).toHaveLength(1)
+    expect(h.forked[0].base).toBe('release')
   })
 
   // Review m3: the re-read after run-worktree-set is what puts the first worker in the new Run worktree.

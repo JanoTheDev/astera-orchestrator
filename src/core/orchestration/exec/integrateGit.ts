@@ -61,6 +61,9 @@ export async function forkWorktree(
     /** The folder whose checked-out branch to fork from, when it is not repoPath's own (W5-A, #50): a
      *  dependent Task forks from its Run's worktree, where its finished deps were merged. Default repoPath. */
     baseOf?: string
+    /** The plan's target branch (`deliveryBranchOf`) to fork from instead of the branch the folder stands on: the local
+     *  branch, or `origin/<base>` when origin is ahead of it or it is only on origin. Callers never pass it with baseOf. */
+    base?: string
   },
   ctx: {
     registry: WorktreeStore
@@ -84,9 +87,11 @@ export async function forkWorktree(
     throw new Error(workerBaseFailure({ repoPath: a.repoPath, repoReachable: false, onBranch: false, stderr: 'the folder is not there' }) ?? '')
   const baseDir = a.baseOf ?? a.repoPath
   const gitDirProbe = await realGit(['rev-parse', '--git-dir'], { cwd: baseDir })
-  const head = gitDirProbe.ok
-    ? await realGit(['symbolic-ref', '--quiet', '--short', 'HEAD'], { cwd: baseDir })
-    : { ok: false, stdout: '', stderr: '' }
+  const head = !gitDirProbe.ok
+    ? { ok: false, stdout: '', stderr: '' }
+    : a.base !== undefined
+      ? { ok: true, stdout: a.base, stderr: '' }
+      : await realGit(['symbolic-ref', '--quiet', '--short', 'HEAD'], { cwd: baseDir })
   const baseFailure = workerBaseFailure({
     repoPath: baseDir,
     repoReachable: gitDirProbe.ok,
@@ -96,10 +101,12 @@ export async function forkWorktree(
   if (baseFailure !== null) throw new Error(baseFailure)
   // T4: a fork off the project folder starts from origin's commit when teammates pushed since the folder last pulled
   const ahead = a.baseOf === undefined ? await originAhead(a.repoPath, head.stdout, ctx.log) : false
+  // A target branch only on origin (fetched just above) forks from origin's copy; createWorktree says NO_BASE for neither
+  const onlyOnOrigin = a.base !== undefined && !(await realGit(['rev-parse', '--verify', '--quiet', `refs/heads/${a.base}`], { cwd: a.repoPath })).ok
   const r = await createWorktree({
     repoPath: a.repoPath,
     name: a.name,
-    baseRef: head.stdout,
+    baseRef: onlyOnOrigin ? `origin/${head.stdout}` : head.stdout,
     registry: ctx.registry,
     ...(ctx.probe ? { repoProbe: ctx.probe } : {})
   })

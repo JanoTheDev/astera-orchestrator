@@ -94,6 +94,20 @@ describe('forkWorktree', () => {
     gitSync(repo, ['checkout', '--detach'])
     await expect(forkWorktree({ repoPath: repo, name: 'a' }, { registry, log: () => {} })).rejects.toThrow(/NO_BASE/)
   })
+  it("forks from the plan's target branch, not the branch the project stands on", async () => {
+    const start = gitSync(repo, ['symbolic-ref', '--short', 'HEAD']).trim()
+    gitSync(repo, ['checkout', '-b', 'release'])
+    await fs.writeFile(path.join(repo, 'only-on-release.txt'), 'r'); gitSync(repo, ['add', '.']); gitSync(repo, ['commit', '-m', 'r'])
+    gitSync(repo, ['checkout', start])
+    const wt = await forkWorktree({ repoPath: repo, name: 'a', base: 'release' }, { registry, log: () => {} })
+    await expect(fs.stat(path.join(wt, 'only-on-release.txt'))).resolves.toBeTruthy()
+    // a detached project folder does not matter when the branch is given
+    gitSync(repo, ['checkout', '--detach'])
+    await expect(forkWorktree({ repoPath: repo, name: 'b', base: 'release' }, { registry, log: () => {} })).resolves.toBeTruthy()
+  })
+  it('says NO_BASE for a target branch that exists nowhere', async () => {
+    await expect(forkWorktree({ repoPath: repo, name: 'a', base: 'nope' }, { registry, log: () => {} })).rejects.toThrow(/NO_BASE/)
+  })
 })
 
 describe('integrateWorktrees — the rules of the one automatic writer into a repository (§3.2)', () => {
