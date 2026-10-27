@@ -29,7 +29,7 @@ interface RollupItem {
 const FAILING_CONCLUSIONS = new Set(['FAILURE', 'TIMED_OUT', 'CANCELLED', 'ACTION_REQUIRED', 'STARTUP_FAILURE'])
 
 /** Folds a rollup to one value: any failure wins, then any pending, then passing; no checks → null. */
-function foldChecks(rollup: unknown): PrChecks {
+export function foldChecks(rollup: unknown): PrChecks {
   if (!Array.isArray(rollup) || rollup.length === 0) return null
   let pending = false
   for (const raw of rollup as RollupItem[]) {

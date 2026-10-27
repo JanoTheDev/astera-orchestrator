@@ -16,6 +16,28 @@ export interface PrInfo {
   checks: PrChecks
 }
 
+/** One open PR in the full list (`gh pr list --state open`). */
+export interface RepoPr {
+  number: number
+  title: string
+  /** Author login; '' when GitHub no longer has the account. */
+  author: string
+  head: string
+  base: string
+  isDraft: boolean
+  url: string
+  updatedAt: string // ISO 8601
+  additions: number
+  deletions: number
+  /** APPROVED | CHANGES_REQUESTED | REVIEW_REQUIRED; absent when the repo requires no review. */
+  reviewDecision?: string
+  checks: PrChecks
+}
+
+export type OpenPrsResult =
+  | { ok: true; prs: RepoPr[] }
+  | { ok: false; kind: 'not-installed' | 'not-authenticated' | 'no-remote' | 'error'; message: string }
+
 /** One repository's PRs keyed by head branch name. */
 export interface RepoPrSnapshot {
   byBranch: Record<string, PrInfo>

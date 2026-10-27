@@ -28,7 +28,7 @@ import type { RollConfig } from './rolling/types'
 export type { RollConfig } from './rolling/types'
 import type { GitState } from './git/status'
 export type { GitState } from './git/status'
-import type { GhProbe, RepoPrSnapshot } from './github/types'
+import type { GhProbe, OpenPrsResult, RepoPrSnapshot } from './github/types'
 export type { GhProbe, PrChecks, PrInfo, PrState, RepoPrSnapshot, GhStatusKind } from './github/types'
 import type { ProjectUnderstanding } from './understanding/types'
 import type { Provider } from './providers/meta'
@@ -1707,6 +1707,8 @@ export interface CoreApi {
           detail: string
         }
     >
+    /** Every open PR of the project at `cwd` (a registered worktree or project folder), newest update first. */
+    listOpen(req: { cwd: string }): Promise<OpenPrsResult>
   }
   // Change map: what a worktree's commits changed against its base and how the changes connect.
   review: {
