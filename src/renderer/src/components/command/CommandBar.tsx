@@ -178,10 +178,10 @@ export function CommandBar({
           return s ? { tabId, title: s.label, label: s.label, planName: s.planName, taskTitle: s.taskTitle, projectName: s.projectName } : { tabId, title: ref.id }
         }
         const view = parseViewTab(tabId)
-        if (view) return { tabId, title: viewTabInfo({ t, orchSnapshot } as Parameters<typeof viewTabInfo>[0], view.name, view.arg).title }
+        if (view) return { tabId, title: viewTabInfo({ t, orchSnapshot, workspaceTree: tree } as Parameters<typeof viewTabInfo>[0], view.name, view.arg).title }
         return { tabId, title: ref ? baseName(ref.id) : tabId }
       })
-  }, [open, layout, source, t, orchSnapshot])
+  }, [open, layout, source, t, orchSnapshot, tree])
 
   const openFileRel = (rel: string): void => {
     const root = currentProject ?? ''

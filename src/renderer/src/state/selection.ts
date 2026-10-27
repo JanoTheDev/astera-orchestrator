@@ -42,12 +42,13 @@ export function focusInScope(
   layout: PaneNode | null,
   activePaneId: string | null,
   keep: ReadonlySet<string> | null,
-  remembered?: string
+  remembered?: string,
+  hidePlans?: ReadonlySet<string>
 ): { root: PaneNode; paneId: string | null } | null {
   if (!layout || !keep) return null
-  const shown = scopeLayout(layout, keep)
+  const shown = scopeLayout(layout, keep, hidePlans)
   const pane = shown && activePaneId ? leafOf(shown, activePaneId) : null
-  const tab = pane ? pane.activeTabId : (entryTab(layout, keep, remembered) ?? (shown ? firstLeaf(shown).activeTabId : undefined))
+  const tab = pane ? pane.activeTabId : (entryTab(layout, keep, remembered, hidePlans) ?? (shown ? firstLeaf(shown).activeTabId : undefined))
   if (!tab) return activePaneId === null ? null : { root: layout, paneId: null }
   const act = activateTab(layout, tab)
   return !act || (act.root === layout && act.paneId === activePaneId) ? null : act
@@ -74,9 +75,10 @@ export const boundEntry = (
   bound: string,
   layout: PaneNode | null,
   keep: ReadonlySet<string> | null,
-  remembered?: string
+  remembered?: string,
+  hidePlans?: ReadonlySet<string>
 ): { projectId: string; tab: string | undefined } | null =>
-  pick === null ? { projectId: bound, tab: entryTab(layout, keep, remembered) } : null
+  pick === null ? { projectId: bound, tab: entryTab(layout, keep, remembered, hidePlans) } : null
 
 /** The startup re-adoption of running sessions as tabs, merged into the tree already there (tabs opened or placed
  *  before the list answered stay). New tabs go into the first group, in list order; `wanted` takes the focus unless
