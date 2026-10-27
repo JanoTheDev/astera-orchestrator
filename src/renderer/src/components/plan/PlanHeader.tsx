@@ -147,7 +147,7 @@ export function PlanHeader({
     if (!ok) return
     setMergingPr(true)
     try {
-      const reply = await door.command('run-pr-merge', { run: runId, method })
+      const reply = await door.command('run-pr-merge', { run: run.foldedRunId ?? runId, method })
       if (reply.status >= 400) {
         const error = (reply.body as { error?: unknown } | null)?.error
         toast.error(t('worktrees.mergePr.failed', { reason: replyNote(reply, t as never, typeof error === 'string' ? error : String(reply.status)) }))
