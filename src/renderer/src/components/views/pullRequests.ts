@@ -5,6 +5,17 @@ import type { MessageKey } from '../../../../core/i18n'
 /** Why the list is not showing PRs (the failures of `pr.listOpen`), as the view tells them apart. */
 export type PrListFailure = Extract<OpenPrsResult, { ok: false }>['kind']
 
+/** The list the view holds, tagged with the project path it was loaded for. */
+export type PrLoad =
+  | { state: 'loading' }
+  | { state: 'ready'; path: string; prs: RepoPr[] }
+  | { state: 'failed'; path: string; kind: PrListFailure; message: string }
+
+/** The load when it was made for `path`; one made for another project (or none yet) reads as loading. */
+export function loadForPath(load: PrLoad, path: string | null): PrLoad {
+  return load.state === 'loading' || load.path === path ? load : { state: 'loading' }
+}
+
 /** The PRs whose number, title, author or branches contain every word of the query (case-insensitive). */
 export function filterPrs(prs: readonly RepoPr[], query: string): RepoPr[] {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean)
