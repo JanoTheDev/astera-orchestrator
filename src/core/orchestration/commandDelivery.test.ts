@@ -1104,3 +1104,44 @@ describe("a plan's own target branch (--delivery-branch)", () => {
     expect((await h.call('jobs-create', { objective: 'Bad', cwd: REPO, deliveryBranch: 'a b' })).status).toBe(400)
   })
 })
+
+describe('run-mark-merged', () => {
+  const awaiting = { deliveryState: { state: 'awaiting-review', attempts: 0 } } as Partial<JobRun>
+  const openPr = { pr: { at: NOW, url: 'https://github.com/o/r/pull/1' } } as Partial<JobRun>
+
+  it('lands a manual plan that waits for review as merged and cleans its worktrees', async () => {
+    const h = setup({ run: awaiting })
+    const r = await h.call('run-mark-merged', { run: 'r1' })
+    expect(r.status).toBe(200)
+    expect(h.state().runs[0].pr?.landed).toBe('merged')
+    expect(h.state().runs[0].deliveryState?.state).toBe('delivered')
+    expect(h.cleaned).toEqual(['r1'])
+  })
+
+  it('lands a ready pull request the owner merged where GitHub could not be asked', async () => {
+    const h = setup({ run: openPr })
+    expect((await h.call('run-mark-merged', { run: 'r1' })).status).toBe(200)
+    expect(h.state().runs[0].pr).toMatchObject({ url: 'https://github.com/o/r/pull/1', landed: 'merged' })
+  })
+
+  it('is refused from an agent session and an MCP client, and changes nothing', async () => {
+    const h = setup({ run: awaiting })
+    expect((await h.call('run-mark-merged', { run: 'r1' }, 'sess_agent')).status).toBe(403)
+    expect((await h.call('run-mark-merged', { run: 'r1' }, '', 'mcp')).status).toBe(403)
+    expect(h.state().runs[0].pr).toBeUndefined()
+    expect(h.cleaned).toEqual([])
+  })
+
+  it('is refused for a Run that already landed, a plan that is not Unmerged, a draft PR, and a missing or unknown --run', async () => {
+    expect((await setup({ run: { pr: { at: NOW, url: 'u', landed: 'closed' }, ...awaiting } }).call('run-mark-merged', { run: 'r1' })).status).toBe(409)
+    expect((await setup().call('run-mark-merged', { run: 'r1' })).status).toBe(409)
+    expect((await setup({ run: { pr: { at: NOW, url: 'u', draft: true } } }).call('run-mark-merged', { run: 'r1' })).status).toBe(409)
+    expect((await setup({ run: awaiting }).call('run-mark-merged', {})).status).toBe(400)
+    expect((await setup({ run: awaiting }).call('run-mark-merged', { run: 'nope' })).status).toBe(404)
+  })
+
+  it('is refused while the Run is still working', async () => {
+    const h = setup({ run: awaiting, tasks: [task({ status: 'dispatched' })] })
+    expect((await h.call('run-mark-merged', { run: 'r1' })).status).toBe(409)
+  })
+})

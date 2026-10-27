@@ -53,7 +53,9 @@ export const HOST_ANSWERED: ReadonlySet<string> = new Set([
   // W9-I: the tab summaries (a finished session's outcome, the sidebar's failed dot) are read by the Host only; main's
   // copy answered 409 and the sidebar never showed a session that gave up
   'summaries',
-  'sessions-summary'
+  'sessions-summary',
+  // The owner marks an Unmerged plan merged; its clean-up of the Run's worktrees is the Host's (cleanWorktrees)
+  'run-mark-merged'
 ])
 
 /** W5-D (#44): the reads that are one list across every Host. A call with no `runtimeId` asks the local Host and every
