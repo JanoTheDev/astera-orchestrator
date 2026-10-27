@@ -63,8 +63,8 @@ export function BranchPicker({
     const names = value !== '' && !branches.includes(value) ? [value, ...branches] : branches
     return [
       { value: DEFAULT_ITEM, label: t('delivery.targetDefault', { branch: defaultBranch ?? detected ?? t('delivery.defaultBranch') }) },
-      ...names.map((n) => ({ value: n, label: n })),
-      { value: CREATE_ITEM, label: t('delivery.targetCreate') }
+      { value: CREATE_ITEM, label: t('delivery.targetCreate') },
+      ...names.map((n) => ({ value: n, label: n }))
     ]
   }, [branches, value, defaultBranch, detected, t])
 
