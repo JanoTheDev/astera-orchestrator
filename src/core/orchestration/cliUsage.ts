@@ -134,6 +134,7 @@ const JOB_MAKING_FLAGS: readonly UsageFlag[] = [
   },
   // W6-H delivery
   { name: 'delivery', value: '<pr|push|merge|manual>', about: "how this Job's finished plan lands, ahead of its project's: one pull request, pushed to the delivery branch with no review by a person, merged into the delivery branch on this computer and not pushed (merge), or left for you to review and deliver (manual)" },
+  { name: 'delivery-branch', value: '<branch>', about: "the plan's target branch, ahead of its project's: its worktree forks from it and its PR, push or merge lands on it" },
   { name: 'max-fix-attempts', value: '<n>', about: 'repairs per task; needs --convergence' },
   { name: 'max-review-rounds', value: '<n>', about: 'review rounds per task; needs --convergence' },
   {
@@ -554,6 +555,7 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       { name: 'auto-approve', value: '<on|off>', about: 'start the plan once planned without waiting for approval' },
       { name: 'hands-off', value: '<on|off>', about: 'run without asking; from a person only' },
       { name: 'delivery', value: '<pr|push|merge|manual>', about: 'how the plan lands; refused once delivery has started' },
+      { name: 'delivery-branch', value: '<branch>', about: "the plan's target branch, ahead of its project's; empty clears it; refused once delivery has started" },
       { name: 'effort', value: '<low|medium|high|xhigh|max|none>', about: "reasoning effort for the plan's workers whose Task sets none; none clears it" },
       // T3 workspaces
       { name: 'project', value: '<projectId>', about: 'file a plan not started yet under another project of its workspace; alone' }

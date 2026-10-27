@@ -144,6 +144,7 @@ const JOB_HIDDEN = [
   'lastReplan',
   /* W6-A: a plan ended with nothing to do, not in the SDK's contract yet */ 'nothingToDo',
   /* W6-H: the plan's own delivery (jobs-create/jobs-plan --delivery), not in the SDK's contract yet */ 'delivery',
+  /* The plan's own target branch (jobs-create/jobs-set --delivery-branch), not in the SDK's contract yet */ 'deliveryBranch',
   /* W7-E: the review default and the planner's account, not in the SDK's contract yet */ 'review',
   'plannerAccountId',
   /* W7-A: talking to the planner, rejecting a plan, auto-approve; not in the SDK's contract yet */ 'autoApprove',

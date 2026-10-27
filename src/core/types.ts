@@ -844,6 +844,8 @@ export interface JobRow {
   autoApprove?: true
   /** #117: the plan runs hands-off (`handsOffOf`: its own setting, else its project's). Absent: it does not. */
   handsOff?: true
+  /** The plan's own target branch (Job.deliveryBranch), ahead of its project's. Absent: the project's, else the default. */
+  deliveryBranch?: string
   /** #117: what a hands-off plan decided for the owner (Job.decisions), in order; absent when nothing was. */
   decisions?: Decision[]
   /** #119: why each issue was picked or skipped (Job.pick). */

@@ -369,6 +369,9 @@ export interface Job {
   // W6-H delivery (delivery.ts)
   /** This plan's own delivery, ahead of its project's (`deliveryOf`). Absent: the project's. */
   delivery?: DeliveryMode
+  /** This plan's own target branch, its "main", ahead of its project's `deliveryBranch` (`deliveryBranchOf`): the Run
+   *  worktree forks from it, and its PR, push or merge lands on it. Absent: the project's. */
+  deliveryBranch?: string
   /** The reasoning effort its Task workers use when a Task has none of its own (resolveWorkerEffort). */
   effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
   // W7-E planner review and final check

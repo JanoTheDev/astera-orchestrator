@@ -3447,7 +3447,7 @@ export function registerIpc(
       loginStatus: (accountId) => core.accounts.loginStatus(accountId),
       lang: () => core.lang,
       forkRunWorktree: (a) =>
-        forkWorktree({ repoPath: a.repoPath, name: a.name }, { registry: core.worktrees, log: orchLog, setupCommand: findProjectContaining(store.get(), a.repoPath)?.setupCommand }),
+        forkWorktree({ repoPath: a.repoPath, name: a.name, base: a.base }, { registry: core.worktrees, log: orchLog, setupCommand: findProjectContaining(store.get(), a.repoPath)?.setupCommand }),
       worktreeGone: async (p) => (await defaultGateProbe(p)) === 'absent',
       integrate: (runRoot, merges, heads, opts) => integrateWorktrees(runRoot, merges, { heads, ...opts }, gitCtx),
       reap: (p) => reapWorktree(p),
@@ -3564,7 +3564,7 @@ export function registerIpc(
        *  끌고 온다 — 스케줄러의 게으른 생성이 같은 함수를 쓰는 이유와 같다. 그 판단은 한 곳에만
        *  있어야 한다. */
       makeRunWorktree: (a) =>
-        forkWorktree({ repoPath: a.repoPath, name: a.name }, { registry: core.worktrees, log: orchLog, setupCommand: findProjectContaining(store.get(), a.repoPath)?.setupCommand }),
+        forkWorktree({ repoPath: a.repoPath, name: a.name, base: a.base }, { registry: core.worktrees, log: orchLog, setupCommand: findProjectContaining(store.get(), a.repoPath)?.setupCommand }),
       /** 이 Run 을 관리할 코디네이터 세션을 띄운다 — the body, and the reasoning for its brief file,
        *  its one-account chain and its permission mode, is startCoordinatorSession in
        *  core/orchestration/exec/workerStart.ts. What stays here is the app's spawn adapter. */
