@@ -157,6 +157,7 @@ export const plans: Record<keyof typeof ko, string> = {
   'plan.summary.draft': 'draft',
   'plan.summary.areas': 'Areas',
   'plan.header.openPr': 'Open PR',
+  'plan.header.mergePrBody': '"{plan}" is merged into its base branch on GitHub: {method}. Astera cannot undo it.',
   'plan.header.copyBranch': 'Copy branch name',
   'plan.header.branchCopied': 'Branch name copied',
   'plan.header.copyId': 'Copy plan ID',

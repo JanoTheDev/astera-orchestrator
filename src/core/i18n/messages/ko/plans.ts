@@ -157,6 +157,7 @@ export const plans = {
   'plan.summary.draft': '초안',
   'plan.summary.areas': '영역',
   'plan.header.openPr': 'PR 열기',
+  'plan.header.mergePrBody': '"{plan}" 을(를) GitHub에서 기준 브랜치에 병합합니다: {method}. Astera에서 되돌릴 수 없습니다.',
   'plan.header.copyBranch': '브랜치 이름 복사',
   'plan.header.branchCopied': '브랜치 이름을 복사했습니다',
   'plan.header.copyId': '계획 ID 복사',

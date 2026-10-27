@@ -125,6 +125,7 @@ export const plans: Partial<Record<keyof typeof ko, string>> = {
   'plan.summary.draft': 'borrador',
   'plan.summary.areas': 'Áreas',
   'plan.header.openPr': 'Abrir PR',
+  'plan.header.mergePrBody': '"{plan}" se fusiona en su rama base en GitHub: {method}. Astera no puede deshacerlo.',
   'plan.header.copyBranch': 'Copiar el nombre de la rama',
   'plan.header.branchCopied': 'Nombre de la rama copiado',
   'plan.header.copyId': 'Copiar ID del plan',

@@ -151,3 +151,21 @@ describe('planActionsOf per plan status', () => {
     expect(act({ pendingStart: true, planned: true, coordinatorMissing: true }, false)).toMatchObject({ rename: false, reject: false, restartLead: false, refreshLead: false, copyId: true })
   })
 })
+
+describe('planActionsOf mergePr', () => {
+  const act = (o: Partial<JobRow>) => planActionsOf(row(o) as never, true)
+  const pr = { at: 'x', url: 'https://gh/pr/7', number: 7 }
+
+  it('offers Merge PR for a ready, not-landed, unarchived PR', () => {
+    expect(act({ outcome: 'completed', pr }).mergePr).toEqual({ url: 'https://gh/pr/7', number: 7 })
+  })
+
+  it('offers nothing for a draft, a landed, an archived or a missing PR', () => {
+    expect(act({ pr: { ...pr, draft: true } }).mergePr).toBeUndefined()
+    expect(act({ pr: { ...pr, landed: 'merged' } }).mergePr).toBeUndefined()
+    expect(act({ pr: { ...pr, landed: 'closed' } }).mergePr).toBeUndefined()
+    expect(act({ outcome: 'completed', archivedAt: 'x', pr }).mergePr).toBeUndefined()
+    expect(act({ pr: { at: 'x', note: 'no remote', branch: 'b' } }).mergePr).toBeUndefined()
+    expect(act({}).mergePr).toBeUndefined()
+  })
+})
