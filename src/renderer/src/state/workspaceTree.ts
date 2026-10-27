@@ -11,7 +11,7 @@ import type { ProjectGitStatus } from '../../../core/types'
 // W8-C plan after plan
 import { afterNameOf, afterQueued, afterStandOf } from '../../../core/orchestration/after'
 import { leaves, removeTab, type PaneNode } from '../../../core/panes/tree'
-import { parseTab } from '../../../core/panes/tabId'
+import { parseTab, parseViewTab } from '../../../core/panes/tabId'
 
 /** What the reads return (useWorkspaceData). Jobs come per project because the Host matches a Job to its project
  *  (`jobs-list --project`, jobInProject), which the renderer cannot (node:path). */
@@ -184,13 +184,18 @@ export function findPlan(tree: WorkspaceProject[], jobId: string): WorkspacePlan
  * terminal hidden with display:none, still mounted: its process, cwd, xterm scrollback (5000 lines) and input
  * routing are untouched, and a hidden terminal is never `active`, so typing cannot reach it.
  */
-export function scopeLayout(layout: PaneNode | null, keep: ReadonlySet<string>): PaneNode | null {
+export function scopeLayout(layout: PaneNode | null, keep: ReadonlySet<string>, hidePlans?: ReadonlySet<string>): PaneNode | null {
   if (!layout) return null
   let out: PaneNode | null = layout
   for (const leaf of leaves(layout))
     for (const tabId of leaf.tabIds) {
       const ref = parseTab(tabId)
-      if (out && (ref?.kind === 'session' || ref?.kind === 'app') && !keep.has(ref.id)) out = removeTab(out, tabId)
+      const plan = parseViewTab(tabId)
+      const hidden =
+        ref?.kind === 'session' || ref?.kind === 'app'
+          ? !keep.has(ref.id)
+          : plan?.name === 'plan' && plan.arg !== undefined && !!hidePlans?.has(plan.arg)
+      if (out && hidden) out = removeTab(out, tabId)
     }
   return out
 }
@@ -274,10 +279,26 @@ export function scopeIds(
   return projectId ? new Set(byWorkspace.get(projectId) ?? []) : null
 }
 
+/** The job and run ids of the plans of every project but `projectId`: their `view:plan:<id>` tabs are not this
+ *  project's. A plan the tree does not know is in no set, so its tab stays (never hide what we cannot place). Empty
+ *  for the All projects view (null). */
+export function otherProjectPlanIds(tree: readonly WorkspaceProject[], projectId: string | null): Set<string> {
+  const out = new Set<string>()
+  if (projectId === null) return out
+  for (const p of tree)
+    if (p.id !== projectId) for (const plan of p.plans) for (const id of [plan.jobId, plan.runId]) if (id) out.add(id)
+  return out
+}
+
 /** The tab to focus on entering a workspace: the one it had when it was left, while still shown there, else its first
  *  session tab shown. Undefined when it shows none. `keep` null is the unscoped view. */
-export function entryTab(layout: PaneNode | null, keep: ReadonlySet<string> | null, remembered?: string): string | undefined {
-  const shown = keep ? scopeLayout(layout, keep) : layout
+export function entryTab(
+  layout: PaneNode | null,
+  keep: ReadonlySet<string> | null,
+  remembered?: string,
+  hidePlans?: ReadonlySet<string>
+): string | undefined {
+  const shown = keep ? scopeLayout(layout, keep, hidePlans) : layout
   if (!shown) return undefined
   const tabs = leaves(shown).flatMap((l) => l.tabIds)
   if (remembered && tabs.includes(remembered)) return remembered
