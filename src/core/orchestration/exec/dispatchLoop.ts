@@ -67,6 +67,7 @@ import {
   deliveryFixOf,
   deliveryFallbackLine,
   deliveryFallbackOf,
+  deliveryBranchOf,
   handsOffOf,
   readLandingOf,
   ownerCheckDue,
@@ -209,7 +210,8 @@ export interface DispatchLoopContext {
   accounts(): Account[] | Promise<Account[]>
   loginStatus(accountId: string): Promise<boolean>
   lang(): Lang
-  forkRunWorktree(a: { repoPath: string; name: string }): Promise<string>
+  /** `base`: the plan's target branch (`deliveryBranchOf`), forked from instead of the branch the folder stands on. */
+  forkRunWorktree(a: { repoPath: string; name: string; base?: string }): Promise<string>
   /** True when the folder is there for sure not (delivery removes a plan's worktree but the Run keeps the path). A
    *  folder that does not answer is not gone. Optional: without it a recorded Run worktree is taken as present. */
   worktreeGone?(p: string): Promise<boolean>
@@ -1392,9 +1394,11 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
         // 브랜치**에서 갈라 준다. raw createWorktree 를 부르면 origin/HEAD 에서 갈라져 최종 병합이
         // 엉뚱한 조상을 끌고 온다 — 그 판단은 한 곳에만 있어야 한다.
         const runJob = jobOf(state, run)
+        const base = runJob && deliveryBranchOf(state, runJob)
         const created = await c.forkRunWorktree({
           repoPath: runJob?.cwd ?? '',
-          name: nameForRun({ id: run.jobId, objective: runJob ? jobNameOf(runJob) : '' }) // W7-D (#68): named as the plan is
+          name: nameForRun({ id: run.jobId, objective: runJob ? jobNameOf(runJob) : '' }), // W7-D (#68): named as the plan is
+          ...(base ? { base } : {})
         })
         const set = await c.handle('run-worktree-set', { run: run.id, worktree: created })
         if (set.status >= 400)
@@ -1440,9 +1444,11 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       const gone = run.worktree
       try {
         const runJob = jobOf(state, run)
+        const base = runJob && deliveryBranchOf(state, runJob)
         const created = await c.forkRunWorktree({
           repoPath: runJob?.cwd ?? '',
-          name: nameForRun({ id: run.jobId, objective: runJob ? jobNameOf(runJob) : '' })
+          name: nameForRun({ id: run.jobId, objective: runJob ? jobNameOf(runJob) : '' }),
+          ...(base ? { base } : {})
         })
         if (!isSamePath(created, gone)) {
           // The name is taken (the plan branch still exists): the Run cannot be moved, so undo the fork and ask.

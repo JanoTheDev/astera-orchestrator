@@ -93,6 +93,9 @@ export const plans: Partial<Record<keyof typeof ko, string>> = {
   'pages.plans.clearFinished.failed': 'No se pudieron archivar {n} planes',
   'pages.plans.clearFinished.none': 'No hay planes terminados que limpiar',
   'pages.plans.finished.empty': 'Aún no hay planes terminados.',
+  'pages.plans.unmerged': 'Sin fusionar',
+  'pages.plans.unmerged.empty': 'No hay planes sin fusionar.',
+  'pages.plans.unmerged.review': 'Revisar con IA',
   // Completed task: what was done, and Ask about this task
   'plan.done.showAll': 'Mostrar todo',
   'plan.done.showLess': 'Mostrar menos',
@@ -125,6 +128,7 @@ export const plans: Partial<Record<keyof typeof ko, string>> = {
   'plan.summary.draft': 'borrador',
   'plan.summary.areas': 'Áreas',
   'plan.header.openPr': 'Abrir PR',
+  'plan.header.mergePrBody': '"{plan}" se fusiona en su rama base en GitHub: {method}. Astera no puede deshacerlo.',
   'plan.header.copyBranch': 'Copiar el nombre de la rama',
   'plan.header.branchCopied': 'Nombre de la rama copiado',
   'plan.header.copyId': 'Copiar ID del plan',

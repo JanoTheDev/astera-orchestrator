@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { deliveryOf, parseDelivery, setJobDelivery, setProjectDelivery } from './delivery'
+import { deliveryBranchOf, deliveryOf, parseDelivery, setJobDelivery, setJobDeliveryBranch, setProjectDelivery } from './delivery'
 import { emptyState, type OrchState } from './state'
 import type { Job } from './types'
 
@@ -30,5 +30,29 @@ describe('manual delivery', () => {
     const m = setJobDelivery(state(), 'job_1', 'manual')
     if (!m.ok) throw new Error(m.error)
     expect(deliveryOf(m.state, job(m.state))).toBe('manual')
+  })
+})
+
+describe("a plan's target branch", () => {
+  it("deliveryBranchOf reads the plan's own branch over its project's, and neither reads undefined", () => {
+    let s = state()
+    expect(deliveryBranchOf(s, job(s))).toBeUndefined()
+    const p = setProjectDelivery(s, 'p1', { branch: 'develop' })
+    if (!p.ok) throw new Error(p.error)
+    s = p.state
+    expect(deliveryBranchOf(s, job(s))).toBe('develop')
+    const j = setJobDeliveryBranch(s, 'job_1', ' release/2 ')
+    if (!j.ok) throw new Error(j.error)
+    expect(job(j.state).deliveryBranch).toBe('release/2')
+    expect(deliveryBranchOf(j.state, job(j.state))).toBe('release/2')
+    const cleared = setJobDeliveryBranch(j.state, 'job_1', null)
+    if (!cleared.ok) throw new Error(cleared.error)
+    expect('deliveryBranch' in job(cleared.state)).toBe(false)
+    expect(deliveryBranchOf(cleared.state, job(cleared.state))).toBe('develop')
+  })
+
+  it('refuses a value that cannot name a branch, and an unknown plan', () => {
+    for (const bad of ['', '  ', 'a b', '-x']) expect(setJobDeliveryBranch(state(), 'job_1', bad).ok).toBe(false)
+    expect(setJobDeliveryBranch(state(), 'job_9', 'main').ok).toBe(false)
   })
 })

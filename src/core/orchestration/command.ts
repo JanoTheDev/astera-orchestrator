@@ -185,6 +185,7 @@ import { remapMerged } from '../attribution/remap'
 import { attributionBlock } from '../attribution/stats'
 import { hookEventsFileIn } from '../hooks/sessionState'
 import { git as attributionGit } from '../worktrees/git'
+import { createBranch } from '../git/branchCreate'
 // W8-C draft PR
 import { completedWorktrees, draftPrDue, DRAFT_PR_FOOTER, runWaves, wavesDoneOf, wavesSection } from './draftPr'
 import type { SessionCheck } from '../workUnit/types'
@@ -243,7 +244,9 @@ import {
   cleanAfterDelivery,
   recordDelivery,
   setJobDelivery,
+  setJobDeliveryBranch,
   setProjectDelivery,
+  deliveryBranchOf,
   // T3: delivery that finishes by itself
   afterAttempt,
   deliveryDue,
@@ -570,7 +573,7 @@ export interface OrchServerDeps {
    *
    *  주입되지 않으면 만들지 않는다 — 그때는 worker-start 가 `--worktree` 없는 호출을 소리 내어
    *  거절하므로(아래) 코디네이터가 `--worktree new` 로 갈 수 있다. */
-  makeRunWorktree?(a: { repoPath: string; name: string }): Promise<string>
+  makeRunWorktree?(a: { repoPath: string; name: string; base?: string }): Promise<string>
   /** **Either an array or a promise of one, and the three call sites `await` it.**
    *
    *  It is answered locally in the app and across a socket in the Host, and the command layer must
@@ -1240,6 +1243,10 @@ const waitingForApprovalIn = async (deps: OrchServerDeps, ds: readonly Dispatch[
   return new Set(open.filter((_, i) => turns[i]?.prompt === 'permission').map((d) => d.id))
 }
 
+/** T6 `runs-pr-sync`: PRs asked about per call, and how long a still-open one is left alone. */
+const PR_SYNC_BATCH = 20
+const PR_SYNC_FRESH_MS = 2 * 60_000
+
 /** Commands only the orchestrator may call. Workers do not need check (the worker preamble uses only
  *  send and ask) — and on top of that the single unacknowledged Delivery is shared per Run with the
  *  coordinator, so a worker calling check --ack would acknowledge, on the coordinator's behalf, a
@@ -1295,6 +1302,7 @@ const COORDINATOR_ONLY = new Set([
   'projects-set',
   'run-deliver',
   'run-pr-merge',
+  'runs-pr-sync',
   'run-integrate-all',
   // W8-C draft PR
   'run-draft-pr',
@@ -2376,9 +2384,11 @@ export async function handleCommand(
     let freshWorktree: string | null = null
     if (!target.worktree && deps.makeRunWorktree) {
       try {
+        const branch = deliveryBranchOf(withWorktree, job)
         const created = await deps.makeRunWorktree({
           repoPath: job.cwd,
-          name: nameForRun({ id: job.id, objective: jobNameOf(job) }) // W7-D (#68): named as the plan is
+          name: nameForRun({ id: job.id, objective: jobNameOf(job) }), // W7-D (#68): named as the plan is
+          ...(branch !== undefined ? { base: branch } : {}) // the plan's target branch, else the branch the folder stands on
         })
         const recorded = setRunWorktree(withWorktree, target.id, created)
         if (!recorded.ok) return bad(recorded.error)
@@ -2551,7 +2561,10 @@ export async function handleCommand(
       if (args.replan !== undefined && args.replan !== 'waves' && args.replan !== 'off') return bad('--replan must be waves|off')
       // W6-H: the plan's own delivery, ahead of its project's
       const delivery = parseDelivery(args.delivery)
-      if (delivery === null) return bad('--delivery must be pr, push or manual')
+      if (delivery === null) return bad('--delivery must be pr, push, merge or manual')
+      // The plan's own target branch, ahead of its project's (deliveryBranchOf); an empty value sets none
+      const branchArg = args.deliveryBranch
+      if (branchArg !== undefined && branchArg !== null && typeof branchArg !== 'string') return bad('--delivery-branch needs a value')
       // The plan's own reasoning effort, for its Task workers whose Task has none (resolveWorkerEffort)
       if (args.effort !== undefined && !isEffort(args.effort)) return bad(`--effort must be one of ${EFFORTS.join('|')}`)
       // 완료 수렴(설계 D12). --convergence 만 주면 빈 정책(기본값). 숫자 셋은 --convergence 없이는
@@ -2715,10 +2728,14 @@ export async function handleCommand(
       if (!made.ok) return commit(made)
       // T7: every plan has a short name from the start (the planner renames it); a source's title already names one
       const titled = made.value.source?.title !== undefined ? made : (renameJob(made.state, made.value.id, shortTitleOf(objective)) as typeof made)
-      const delivered =
+      const withDelivery =
         delivery === undefined
           ? titled
           : (setJobDelivery(titled.state, titled.value.id, delivery) as typeof made)
+      const branched =
+        typeof branchArg !== 'string' || branchArg.trim() === '' ? withDelivery : setJobDeliveryBranch(withDelivery.state, withDelivery.value.id, branchArg)
+      if (!branched.ok) return bad(branched.error)
+      const delivered = branched as typeof made
       const created = isEffort(args.effort)
         ? { ...delivered, state: { ...delivered.state, jobs: delivered.state.jobs.map((j) => (j.id === delivered.value.id ? { ...j, effort: args.effort as Effort } : j)) } }
         : delivered
@@ -2757,6 +2774,20 @@ export async function handleCommand(
       const project = findProjectContaining(s, p)
       return project ? okBody(project) : notFound(`no project registered for: ${p}`)
     }
+    // Creates a branch in a registered project's repository and publishes it to origin when there is one, so a plan can
+    // target it. It writes to a remote: the person's, like projects-set.
+    case 'git-branch-create': {
+      if (fromAgentSession || caller.role === 'mcp') return denied('a branch is created by the person, in Astera or at their own shell')
+      const cwd = str(args.cwd)
+      if (!cwd) return bad('--cwd is required')
+      const name = str(args.name)
+      if (!name) return bad('--name is required')
+      const from = args.from === undefined ? undefined : str(args.from)
+      if (from === null) return bad('--from needs a value: the branch to start from')
+      if (!findProjectByPath(s, cwd)) return notFound(`no project registered for: ${cwd}`)
+      const made = await createBranch({ cwd, name, ...(from ? { from } : {}) })
+      return made.ok ? okBody(made) : conflict(made.reason)
+    }
     // ── T3 workspaces (projects.ts): unregistering a project; `projects-add --parent` is the Host's (src/host/orch.ts).
     // The person's, like projects-set.
     case 'projects-remove': {
@@ -2774,7 +2805,7 @@ export async function handleCommand(
       if (!id) return bad('--id is required')
       if (fromAgentSession || caller.role === 'mcp') return denied("a project's settings are set by the person, in Astera or at their own shell")
       const delivery = parseDelivery(args.delivery)
-      if (delivery === null) return bad('--delivery must be pr, push or manual')
+      if (delivery === null) return bad('--delivery must be pr, push, merge or manual')
       const branchArg = args.deliveryBranch
       if (branchArg !== undefined && typeof branchArg !== 'string') return bad('--delivery-branch needs a value')
       // W7-B: the rest of the project's settings. An empty value clears one, back to PROJECT_DEFAULTS
@@ -3645,7 +3676,11 @@ export async function handleCommand(
       // refused call changes nothing. Each is read from the Job when its work starts (slotsToFill, policyOfJob, replan,
       // handsOffOf, deliveryOf), so it takes effect for work that has not started. `--after` keeps its own path below.
       const EDIT_KEYS = ['reviewRounds', 'replan', 'autoApprove', 'handsOff', 'delivery'] as const
-      const editsRunning = EDIT_KEYS.some((k) => args[k] !== undefined) || args.effort !== undefined || (args.concurrency !== undefined && args.priority !== undefined)
+      const editsRunning =
+        EDIT_KEYS.some((k) => args[k] !== undefined) ||
+        args.deliveryBranch !== undefined ||
+        args.effort !== undefined ||
+        (args.concurrency !== undefined && args.priority !== undefined)
       if (editsRunning && args.after === undefined) {
         if (args.planning !== undefined) return bad('--planning is set without the plan-settings flags')
         const rounds = args.reviewRounds === undefined ? undefined : posInt(args.reviewRounds)
@@ -3656,21 +3691,26 @@ export async function handleCommand(
         const auto = args.autoApprove === undefined ? undefined : onOff(args.autoApprove)
         if (auto === null) return bad('--auto-approve must be on or off')
         const delivery = parseDelivery(args.delivery)
-        if (delivery === null) return bad('--delivery must be pr, push or manual')
+        if (delivery === null) return bad('--delivery must be pr, push, merge or manual')
         const concurrency = args.concurrency === undefined ? undefined : concurrencyArg(args.concurrency)
         if (concurrency === null) return bad('--concurrency must be an integer >= 1')
         const priority = args.priority === undefined ? undefined : typeof args.priority === 'string' ? Number(args.priority) : args.priority
         if (priority !== undefined && (typeof priority !== 'number' || !Number.isInteger(priority))) return bad('--priority must be an integer')
         if (args.effort !== undefined && args.effort !== 'none' && !isEffort(args.effort)) return bad(`--effort must be one of ${EFFORTS.join('|')} or none`)
+        // The plan's own target branch; an empty value (or null) clears it, back to its project's
+        const branchArg = args.deliveryBranch
+        if (branchArg !== undefined && branchArg !== null && typeof branchArg !== 'string') return bad('--delivery-branch needs a value')
         const named = s.runs.find((r) => r.id === id)
         const job = s.jobs.find((j) => j.id === id) ?? (named && jobOf(s, named))
         if (!job) return notFound(`unknown job or run: ${id}`)
         const given = (['concurrency', 'priority', ...EDIT_KEYS] as const).filter((k) => args[k] !== undefined)
+        // The target branch is where the plan lands, so it changes when its delivery may
+        if (branchArg !== undefined) given.push('delivery')
         // --effort has no PlanSettingKey: it is refused when the plan has finished, like --concurrency
         for (const k of args.effort !== undefined ? [...given, 'concurrency' as const] : given) {
           const why = settingRefusalOf(s, job, k)
           if (why === 'finished') return conflict(`job ${job.id} has finished: its settings no longer change`)
-          if (why === 'deliveryStarted') return conflict(`job ${job.id}: delivery has started, so --delivery can no longer change`)
+          if (why === 'deliveryStarted') return conflict(`job ${job.id}: delivery has started, so --delivery and --delivery-branch can no longer change`)
         }
         const { priority: _p, effort: _e, ...rest } = job
         const conv = rounds === undefined ? job.convergence : { ...job.convergence, maxReviewRounds: rounds }
@@ -3685,8 +3725,15 @@ export async function handleCommand(
           ...(delivery !== undefined ? { delivery } : {}),
           ...(args.effort === undefined ? (job.effort !== undefined ? { effort: job.effort } : {}) : isEffort(args.effort) ? { effort: args.effort } : {})
         }
-        await deps.setState({ ...s, jobs: s.jobs.map((j) => (j.id === job.id ? next : j)) })
-        return okBody({ ...jobView(deps.getState(), next, latestRunOf(deps.getState(), next)), takesEffect: 'for work that has not started yet' })
+        let state: OrchState = { ...s, jobs: s.jobs.map((j) => (j.id === job.id ? next : j)) }
+        if (branchArg !== undefined) {
+          const set = setJobDeliveryBranch(state, job.id, branchArg === null || branchArg.trim() === '' ? null : branchArg)
+          if (!set.ok) return bad(set.error)
+          state = set.state
+        }
+        await deps.setState(state)
+        const written = state.jobs.find((j) => j.id === job.id) ?? next
+        return okBody({ ...jobView(deps.getState(), written, latestRunOf(deps.getState(), written)), takesEffect: 'for work that has not started yet' })
       }
       // T1 chat-first planning: `--planning chat|auto` and `--priority <int>`, on their own or together
       if (args.planning !== undefined || args.priority !== undefined) {
@@ -3734,7 +3781,7 @@ export async function handleCommand(
         const auto = args.autoApprove === undefined ? undefined : onOff(args.autoApprove)
         if (auto === null) return bad('--auto-approve must be on or off')
         const delivery = parseDelivery(args.delivery)
-        if (delivery === null) return bad('--delivery must be pr, push or manual')
+        if (delivery === null) return bad('--delivery must be pr, push, merge or manual')
         const { after: _old, afterStopNotified: _mark, ...rest } = job
         const kept: Job = handsOff === undefined ? rest : { ...rest, handsOff }
         const queued: Job = target === 'none' ? kept : { ...kept, after: target }
@@ -3835,7 +3882,7 @@ export async function handleCommand(
       if (auto === null) return bad('--auto-approve must be on or off')
       // W6-H: the plan's own delivery, set before its planner starts
       const delivery = parseDelivery(args.delivery)
-      if (delivery === null) return bad('--delivery must be pr, push or manual')
+      if (delivery === null) return bad('--delivery must be pr, push, merge or manual')
       // W6-C: how many workers the plan may run at once, set with the plan (up to MAX_CONCURRENT_WORKERS)
       const concurrency = args.concurrency === undefined ? null : concurrencyArg(args.concurrency)
       if (args.concurrency !== undefined && concurrency === null) return bad('--concurrency must be an integer >= 1')
@@ -6925,7 +6972,7 @@ export async function handleCommand(
         return okBody({ deliveryState: next })
       }
       const proj = projectOfJob(s, job)
-      const branch = proj?.deliveryBranch
+      const branch = deliveryBranchOf(s, job)
       const pushTarget = {
         cwd: job.cwd,
         ...(branch !== undefined ? { branch } : {}),
@@ -7160,7 +7207,8 @@ export async function handleCommand(
           await record({ ...open, at, draft: true, wavesDone: done })
           return okBody({ url: open.url, number: open.number ?? null, draft: true, wavesDone: done, opened: false })
         }
-        const base = (await defaultBranchOf(g.run, t.cwd)) ?? t.baseRef
+        // The plan's target branch when it has one, else the repository's default
+        const base = deliveryBranchOf(cur, job) ?? (await defaultBranchOf(g.run, t.cwd)) ?? t.baseRef
         const made = await g.createPr({ worktreePath: t.cwd, repoPath: t.repoPath, branch: t.branch, base, title, body, draft: true, needsPush: true })
         if (!made.ok) {
           if (made.kind === 'no-remote') return okBody({ noRemote: true, branch: t.branch, message: noRemoteNote(t.branch, t.repoPath) })
@@ -7239,6 +7287,46 @@ export async function handleCommand(
       await deps.setState(landedOnGitHub(deps.getState(), id, 'merged', deps.now?.() ?? now))
       await cleanAfterDelivery(deps, id)
       return okBody({ run: id, url: run.pr.url, merged: true, method, deliveryState: deps.getState().runs.find((r) => r.id === id)?.deliveryState })
+    }
+    // T6: asks GitHub for each ready PR not yet landed and records merged or closed (`landedOnGitHub`), so the Unmerged
+    // list stays true without the PR poller. A batch is capped, the longest-unchecked first, and a PR checked within
+    // PR_SYNC_FRESH_MS is skipped. A gh error skips that PR only.
+    case 'runs-pr-sync': {
+      if (fromAgentSession || caller.role === 'mcp') return denied("syncing plans' pull requests is Astera's own")
+      if (!deps.github) return conflict('GitHub commands are answered by the Astera Host, and this caller is not one')
+      const inProject = projectFilter(s, args.projectPath)
+      if ('error' in inProject) return inProject.error
+      const project = inProject.project
+      const at = deps.now?.() ?? now
+      const fresh = (r: JobRun): boolean => Date.parse(at) - Date.parse(r.pr?.landedCheckedAt ?? '') < PR_SYNC_FRESH_MS
+      const due = s.runs
+        .filter((r) => {
+          if (r.pr?.url === undefined || r.pr.draft === true || r.pr.landed !== undefined || fresh(r)) return false
+          const job = jobOf(s, r)
+          return !project || (job !== undefined && jobInProject(s, job, project))
+        })
+        .sort((a, b) => (a.pr?.landedCheckedAt ?? '').localeCompare(b.pr?.landedCheckedAt ?? ''))
+        .slice(0, PR_SYNC_BATCH)
+      const states = await Promise.all(
+        due.map(async (r) => ({
+          run: r,
+          // the repo folder first: a delivered plan's own worktree is usually removed, and a gh run in a missing folder fails
+          state: await prStateOf(deps.github!.run, r.pr!.url!, jobOf(s, r)?.cwd ?? r.worktree ?? '').catch(() => null)
+        }))
+      )
+      let next = deps.getState()
+      const landed: { runId: string; landed: 'merged' | 'closed' }[] = []
+      for (const { run, state } of states) {
+        if (state === 'MERGED' || state === 'CLOSED') {
+          const to = state === 'MERGED' ? 'merged' : 'closed'
+          next = landedOnGitHub(next, run.id, to, at)
+          landed.push({ runId: run.id, landed: to })
+        } else {
+          next = { ...next, runs: next.runs.map((r) => (r.id === run.id && r.pr ? { ...r, pr: { ...r.pr, landedCheckedAt: at } } : r)) }
+        }
+      }
+      if (due.length > 0) await deps.setState(next)
+      return okBody({ checked: due.length, landed })
     }
     /**
      * The owner's "Merge everything and fix conflicts": every Task worktree of the Run into its plan worktree
@@ -7342,7 +7430,8 @@ export async function handleCommand(
           return conflict(merged.reason)
         }
       }
-      const base = await defaultBranchOf(deps.github.run, worktree)
+      // The plan's target branch when it has one, else the repository's default
+      const base = deliveryBranchOf(s, job) ?? (await defaultBranchOf(deps.github.run, worktree))
       let accounts: OrchAccount[] = []
       try {
         accounts = await deps.listAccounts()

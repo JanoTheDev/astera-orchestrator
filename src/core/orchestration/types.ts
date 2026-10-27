@@ -369,6 +369,9 @@ export interface Job {
   // W6-H delivery (delivery.ts)
   /** This plan's own delivery, ahead of its project's (`deliveryOf`). Absent: the project's. */
   delivery?: DeliveryMode
+  /** This plan's own target branch, its "main", ahead of its project's `deliveryBranch` (`deliveryBranchOf`): the Run
+   *  worktree forks from it, and its PR, push or merge lands on it. Absent: the project's. */
+  deliveryBranch?: string
   /** The reasoning effort its Task workers use when a Task has none of its own (resolveWorkerEffort). */
   effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
   // W7-E planner review and final check
@@ -1108,4 +1111,6 @@ export interface RunPr {
   // T1: delivery state machine
   /** The pull request was merged or closed on GitHub: the plan's delivery ended there (`gh pr view --json state`). */
   landed?: 'merged' | 'closed'
+  /** T6: when `runs-pr-sync` last asked GitHub about this PR and found it still open; repeated calls skip it for 2 minutes. */
+  landedCheckedAt?: string
 }

@@ -125,6 +125,9 @@ export const plans = {
   'pages.plans.clearFinished.failed': '계획 {n}개를 보관하지 못했습니다',
   'pages.plans.clearFinished.none': '정리할 끝난 계획이 없습니다',
   'pages.plans.finished.empty': '아직 끝난 계획이 없습니다.',
+  'pages.plans.unmerged': '병합 전',
+  'pages.plans.unmerged.empty': '병합 전인 계획이 없습니다.',
+  'pages.plans.unmerged.review': 'AI로 검토',
   // Completed task: what was done, and Ask about this task
   'plan.done.showAll': '모두 보기',
   'plan.done.showLess': '접기',
@@ -157,6 +160,7 @@ export const plans = {
   'plan.summary.draft': '초안',
   'plan.summary.areas': '영역',
   'plan.header.openPr': 'PR 열기',
+  'plan.header.mergePrBody': '"{plan}" 을(를) GitHub에서 기준 브랜치에 병합합니다: {method}. Astera에서 되돌릴 수 없습니다.',
   'plan.header.copyBranch': '브랜치 이름 복사',
   'plan.header.branchCopied': '브랜치 이름을 복사했습니다',
   'plan.header.copyId': '계획 ID 복사',

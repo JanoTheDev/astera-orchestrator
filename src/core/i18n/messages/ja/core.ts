@@ -289,6 +289,7 @@ export const core: Partial<Record<keyof typeof ko, string>> = {
   'shortcut.activity.history': '履歴ビューを開く',
   'shortcut.activity.run': '実行ビューを開く',
   'shortcut.activity.devices': 'デバイスビューを開く',
+  'shortcut.activity.prs': 'Pull request ビューを開く',
   'shortcut.sidebar.toggle': 'サイドバーの表示/非表示',
   'shortcut.panel.toggle': '下部パネルの表示/非表示',
   'shortcut.palette.open': 'コマンドパレットを開く',

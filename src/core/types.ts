@@ -28,7 +28,7 @@ import type { RollConfig } from './rolling/types'
 export type { RollConfig } from './rolling/types'
 import type { GitState } from './git/status'
 export type { GitState } from './git/status'
-import type { GhProbe, RepoPrSnapshot } from './github/types'
+import type { GhProbe, OpenPrsResult, RepoPrSnapshot } from './github/types'
 export type { GhProbe, PrChecks, PrInfo, PrState, RepoPrSnapshot, GhStatusKind } from './github/types'
 import type { ProjectUnderstanding } from './understanding/types'
 import type { Provider } from './providers/meta'
@@ -844,6 +844,8 @@ export interface JobRow {
   autoApprove?: true
   /** #117: the plan runs hands-off (`handsOffOf`: its own setting, else its project's). Absent: it does not. */
   handsOff?: true
+  /** The plan's own target branch (Job.deliveryBranch), ahead of its project's. Absent: the project's, else the default. */
+  deliveryBranch?: string
   /** #117: what a hands-off plan decided for the owner (Job.decisions), in order; absent when nothing was. */
   decisions?: Decision[]
   /** #119: why each issue was picked or skipped (Job.pick). */
@@ -1707,6 +1709,8 @@ export interface CoreApi {
           detail: string
         }
     >
+    /** Every open PR of the project at `cwd` (a registered worktree or project folder), newest update first. */
+    listOpen(req: { cwd: string }): Promise<OpenPrsResult>
   }
   // Change map: what a worktree's commits changed against its base and how the changes connect.
   review: {

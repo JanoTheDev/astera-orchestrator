@@ -16,6 +16,7 @@ import { useProjectScope } from '../../state/useProjectScope'
 import { openActivity, openConsole } from '../shell/navigation'
 import { Button, Card, Chip, Field, Icon, IconButton, Input, Menu, PageHeader, Select, Tabs, Textarea, Tooltip } from '../ui'
 import { useIntake } from '../intake/useIntake'
+import { BranchPicker } from '../delivery/BranchPicker'
 import { useDeliveryChoices } from '../delivery/useDeliveryChoices'
 import { ScheduleRuleFields } from '../ScheduleRuleFields'
 import { useAccountUsage } from '../../hooks/useAccountUsage'
@@ -87,8 +88,11 @@ export function StartPage({
   }
   // An account no longer listed reads as Auto
   const account = accounts.some((a) => a.id === settings.account) ? settings.account : ''
-  const deliveryBranch = project?.deliveryBranch ?? choice.root?.deliveryBranch
-  const delivery = useDeliveryChoices(project?.path, settings.delivery, deliveryBranch)
+  // The plan's own target branch, ahead of its project's; a new project pick starts from the project's again
+  const [targetBranch, setTargetBranch] = useState('')
+  useEffect(() => setTargetBranch(''), [projectId])
+  const projectBranch = project?.deliveryBranch ?? choice.root?.deliveryBranch
+  const delivery = useDeliveryChoices(project?.path, settings.delivery, targetBranch || projectBranch)
 
   const [chosen, setChosen] = useState<StartMode | undefined>(req.mode)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -98,6 +102,7 @@ export function StartPage({
     project,
     // the delivery shown is the one sent, so a saved one this folder cannot do is never used
     settings: { ...settings, account, delivery: delivery.mode },
+    deliveryBranch: targetBranch,
     initialText: req.text,
     initialFiles: req.files,
     tabOf: ({ files }) => intakeTab({ mode, files }),
@@ -529,6 +534,12 @@ export function StartPage({
                       options={delivery.options}
                     />
                   </div>
+                  {project && (
+                    <div className="ui-field" data-hint={t('delivery.targetHint')}>
+                      <span className="ui-field__label">{t('delivery.target')}</span>
+                      <BranchPicker repoPath={project.path} value={targetBranch} onChange={setTargetBranch} command={door.command} defaultBranch={projectBranch} />
+                    </div>
+                  )}
                   {mode !== 'prompts' && (
                     <div data-hint={t('start.adv.replanHint')}>
                       <Field

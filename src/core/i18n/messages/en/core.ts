@@ -302,6 +302,7 @@ export const core: Record<keyof typeof ko, string> = {
   'shortcut.activity.history': 'Open the History view',
   'shortcut.activity.run': 'Open the Run view',
   'shortcut.activity.devices': 'Open the Devices view',
+  'shortcut.activity.prs': 'Open the Pull requests view',
   'shortcut.sidebar.toggle': 'Show or hide the side bar',
   'shortcut.panel.toggle': 'Show or hide the bottom panel',
   'shortcut.palette.open': 'Open the command palette',

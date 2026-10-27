@@ -63,5 +63,6 @@ export const review: Record<keyof typeof ko, string> = {
   'review.keys': 'Keys',
   'review.keys.move': 'next / previous change',
   'review.keys.viewed': 'file viewed',
-  'review.run.pick': 'Folder to review'
+  'review.run.pick': 'Folder to review',
+  'review.code.failed': 'Could not start the AI code review: {detail}'
 }

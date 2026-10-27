@@ -4,6 +4,9 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { isPathWithin, isSamePath } from '../core/files/tree'
+import { defaultGhRunner, type GhRunner } from '../core/github/gh'
+import { listOpenPrs } from '../core/github/prList'
+import type { OpenPrsResult } from '../core/github/types'
 import { mergePullRequest, PR_MERGE_METHODS, type PrMergeRequest, type PrMergeResult } from '../core/github/prMerge'
 import { buildChangeMap, CHANGE_MAP_MAX_BYTES, CONTENT_TOO_LARGE, parseUnifiedDiff, type ChangeMap, type ReadNew } from '../core/review/changeMap'
 import { detectBaseRef, git as runGit } from '../core/worktrees/git'
@@ -15,6 +18,7 @@ export interface ReviewDeps {
   git?: typeof runGit
   detectBase?: (cwd: string) => Promise<string | null>
   merge?: (req: PrMergeRequest) => Promise<PrMergeResult>
+  gh?: GhRunner
 }
 
 /** Same rule as `worktrees.detail`: only a folder the app knows (a registered worktree or a project) is read or merged. */
@@ -83,5 +87,10 @@ export function registerReviewIpc(
       ...(number !== undefined ? { number } : { branch }),
       ...(r.deleteBranch === true ? { deleteBranch: true } : {})
     })
+  })
+  ipcMain.handle('pr.listOpen', async (_e, req: unknown): Promise<OpenPrsResult> => {
+    const cwd = ((req ?? {}) as { cwd?: unknown }).cwd
+    if (!(await isKnownCwd(cwd, deps))) return { ok: false, kind: 'error', message: 'not a known worktree or project folder' }
+    return listOpenPrs(deps.gh ?? defaultGhRunner, cwd as string)
   })
 }

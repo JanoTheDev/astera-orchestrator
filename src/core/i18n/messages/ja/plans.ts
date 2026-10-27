@@ -92,6 +92,9 @@ export const plans: Partial<Record<keyof typeof ko, string>> = {
   'pages.plans.clearFinished.failed': '{n} 件のプランをアーカイブできませんでした',
   'pages.plans.clearFinished.none': '整理できる完了プランはありません',
   'pages.plans.finished.empty': '完了したプランはまだありません。',
+  'pages.plans.unmerged': '未マージ',
+  'pages.plans.unmerged.empty': '未マージのプランはありません。',
+  'pages.plans.unmerged.review': 'AIでレビュー',
   // Completed task: what was done, and Ask about this task
   'plan.done.showAll': 'すべて表示',
   'plan.done.showLess': '折りたたむ',
@@ -124,6 +127,7 @@ export const plans: Partial<Record<keyof typeof ko, string>> = {
   'plan.summary.draft': '下書き',
   'plan.summary.areas': '領域',
   'plan.header.openPr': 'PR を開く',
+  'plan.header.mergePrBody': '「{plan}」を GitHub でベースブランチにマージします: {method}。Astera では元に戻せません。',
   'plan.header.copyBranch': 'ブランチ名をコピー',
   'plan.header.branchCopied': 'ブランチ名をコピーしました',
   'plan.header.copyId': '計画 ID をコピー',

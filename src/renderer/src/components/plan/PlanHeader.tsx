@@ -135,6 +135,30 @@ export function PlanHeader({
     if (acts.openPr?.kind === 'pr') void window.api.system.openExternal(acts.openPr.url)
     else if (acts.openPr?.kind === 'branch') copy(acts.openPr.branch, t('plan.header.branchCopied'))
   }
+  const [mergingPr, setMergingPr] = useState(false)
+  const mergePr = async (method: 'merge' | 'squash' | 'rebase'): Promise<void> => {
+    const pr = planActs?.mergePr
+    if (!pr || !run) return
+    const ok = await ui.confirm({
+      title: t('worktrees.mergePr.title', { number: pr.number ?? '' }),
+      body: t('plan.header.mergePrBody', { plan: jobName(run), method: t(`worktrees.act.method.${method}` as never) }),
+      confirmLabel: t('worktrees.mergePr.confirm')
+    })
+    if (!ok) return
+    setMergingPr(true)
+    try {
+      const reply = await door.command('run-pr-merge', { run: run.foldedRunId ?? runId, method })
+      if (reply.status >= 400) {
+        const error = (reply.body as { error?: unknown } | null)?.error
+        toast.error(t('worktrees.mergePr.failed', { reason: replyNote(reply, t as never, typeof error === 'string' ? error : String(reply.status)) }))
+      } else toast.success(t('worktrees.mergePr.done', { number: planActs?.mergePr?.number ?? '' }))
+    } catch (err) {
+      toast.error(t('worktrees.mergePr.failed', { reason: err instanceof Error ? err.message : String(err) }))
+    } finally {
+      setMergingPr(false)
+      void window.api.github.refresh({ force: true })
+    }
+  }
   const archive = (): void =>
     void (acts.archive === 'unarchive' ? unarchiveJob(door, runId, ui) : archiveJob(door, snapshot, runId, ui))
   const askMore = (): void => void openPlanChat(door, runId, ui)
@@ -372,6 +396,19 @@ export function PlanHeader({
           )}
           {/* the finished group's Open PR stands for the PR chip, so the merge actions leave it out */}
           {!p.authoringOpen && <PlanMergeActions p={p} run={acts.openPr && run ? { ...run, pr: undefined } : run} />}
+          {planActs?.mergePr && local && (
+            <span className="wt-split" title={lockedReason}>
+              <Button size="sm" variant="primary" icon={<Icon name="merge" size={14} />} disabled={off || mergingPr} onClick={() => void mergePr('merge')}>
+                {t('worktrees.act.mergePr')}
+              </Button>
+              <Menu
+                label={t('worktrees.act.mergeMethod')}
+                align="end"
+                trigger={{ size: 'sm', variant: 'primary', icon: <Icon name="chevronDown" size={14} />, disabled: off || mergingPr, 'aria-label': t('worktrees.act.mergeMethod') }}
+                items={(['merge', 'squash', 'rebase'] as const).map((m) => ({ id: m, label: t(`worktrees.act.method.${m}` as never), onSelect: () => void mergePr(m) }))}
+              />
+            </span>
+          )}
           <span className="plan-header-wide">
             {pause && (
               <Button size="sm" variant="ghost" disabled={off} title={pause.title} onClick={pause.onSelect}>

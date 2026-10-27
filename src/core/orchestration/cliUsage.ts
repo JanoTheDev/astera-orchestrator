@@ -134,6 +134,7 @@ const JOB_MAKING_FLAGS: readonly UsageFlag[] = [
   },
   // W6-H delivery
   { name: 'delivery', value: '<pr|push|merge|manual>', about: "how this Job's finished plan lands, ahead of its project's: one pull request, pushed to the delivery branch with no review by a person, merged into the delivery branch on this computer and not pushed (merge), or left for you to review and deliver (manual)" },
+  { name: 'delivery-branch', value: '<branch>', about: "the plan's target branch, ahead of its project's: its worktree forks from it and its PR, push or merge lands on it" },
   { name: 'max-fix-attempts', value: '<n>', about: 'repairs per task; needs --convergence' },
   { name: 'max-review-rounds', value: '<n>', about: 'review rounds per task; needs --convergence' },
   {
@@ -417,6 +418,16 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       { name: 'public', about: 'a public repository' }
     ]
   },
+  'git-branch-create': {
+    summary: "create a branch in a project's repository and publish it to origin",
+    detail:
+      'Refused when the name is not a valid branch name or the branch already exists (409). Starts from --from (default: the repository default branch), taken from origin when origin has it. With an origin remote it then pushes the branch with an upstream, never with force; a failed push still answers ok with pushed false and the reason in pushError, and the local branch stays. Refused from an agent session and an MCP client.',
+    flags: [
+      { name: 'cwd', value: '<path>', required: true, about: 'the project folder (a registered project)' },
+      { name: 'name', value: '<branch>', required: true, about: 'the new branch' },
+      { name: 'from', value: '<branch>', about: 'the branch to start from (default: the repository default branch)' }
+    ]
+  },
   'projects-get': {
     summary: 'one registered project',
     flags: [ID('<projectId>', 'the project to read')]
@@ -554,6 +565,7 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       { name: 'auto-approve', value: '<on|off>', about: 'start the plan once planned without waiting for approval' },
       { name: 'hands-off', value: '<on|off>', about: 'run without asking; from a person only' },
       { name: 'delivery', value: '<pr|push|merge|manual>', about: 'how the plan lands; refused once delivery has started' },
+      { name: 'delivery-branch', value: '<branch>', about: "the plan's target branch, ahead of its project's; empty clears it; refused once delivery has started" },
       { name: 'effort', value: '<low|medium|high|xhigh|max|none>', about: "reasoning effort for the plan's workers whose Task sets none; none clears it" },
       // T3 workspaces
       { name: 'project', value: '<projectId>', about: 'file a plan not started yet under another project of its workspace; alone' }

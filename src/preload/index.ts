@@ -144,7 +144,8 @@ const api = {
   pr: {
     draftFor: invoke('pr.draftFor'),
     create: invoke('pr.create'),
-    merge: invoke('pr.merge')
+    merge: invoke('pr.merge'),
+    listOpen: invoke('pr.listOpen')
   },
   review: {
     changeMap: invoke('review.changeMap')

@@ -78,6 +78,8 @@ export interface PlanActions {
   mergeAll: boolean
   /** The plan's pull request, or its branch when the project has no remote: any state that has one. */
   openPr?: NonNullable<HeaderActions['openPr']>
+  /** Merge PR (`run-pr-merge`): the PR is ready (not a draft), not landed on GitHub, and the plan is not archived. */
+  mergePr?: { number?: number; url: string }
   /** The plan has an integration folder to reveal or open a terminal in (the caller finds it). */
   folder: boolean
 }
@@ -88,6 +90,8 @@ export function planActionsOf(row: PlanActionRow, local: boolean): PlanActions {
   const notStarted = row.pendingStart === true
   const pr = row.pr
   const openPr: PlanActions['openPr'] = pr?.url ? { kind: 'pr', url: pr.url } : pr?.branch !== undefined ? { kind: 'branch', branch: pr.branch } : undefined
+  const mergePr: PlanActions['mergePr'] =
+    pr?.url && pr.draft !== true && pr.landed === undefined && !archived ? { url: pr.url, ...(pr.number !== undefined ? { number: pr.number } : {}) } : undefined
   const live = local && row.schedule === undefined && !archived && !notStarted && row.outcome === 'running' && row.coordinatorMissing !== true && row.paused !== true
   return {
     rename: local,
@@ -99,6 +103,7 @@ export function planActionsOf(row: PlanActionRow, local: boolean): PlanActions {
     merge: row.schedule === undefined && worktrees,
     mergeAll: !archived && !notStarted && worktrees,
     ...(openPr ? { openPr } : {}),
+    ...(mergePr ? { mergePr } : {}),
     folder: worktrees
   }
 }

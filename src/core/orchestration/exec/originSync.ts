@@ -9,12 +9,12 @@
 import { git as realGit, fetchOrigin, gitVersionAtLeast, GIT_WRITE_TIMEOUT_MS } from '../../worktrees/git'
 import { jobNameOf } from '../jobName'
 import { isJobActive } from '../lifecycle'
-import { projectOfJob } from '../delivery'
+import { deliveryBranchOf, projectOfJob } from '../delivery'
 import { runWaves, wavesDoneOf } from '../draftPr'
 import { isIntegrationTask, workingInRunRoot } from '../integrate'
 import { outcomeOfTasks, tasksOwnedBy } from '../running'
 import { jobOf, type OrchState } from '../state'
-import type { Project, Task } from '../types'
+import type { Job, Task } from '../types'
 import { refreshOnto } from './integrateGit'
 
 export const ORIGIN_SYNC_EVERY_MS = 10 * 60_000
@@ -66,13 +66,14 @@ async function conflictingFiles(worktree: string, tip: string): Promise<string[]
 export const originSyncHold = (s: OrchState, runId: string): Task | undefined =>
   s.tasks.find((x) => x.runId === runId && isIntegrationTask(x) && x.spec.includes(ORIGIN_SYNC_MARK) && x.status !== 'completed')
 
-/** The branch a plan is kept in sync with: the project's delivery branch, else origin's default, else the recorded one
- *  (`deliverByPush`'s order). Null when none is known. */
-async function baseBranchOf(project: Project | undefined, worktree: string): Promise<string | null> {
-  if (project?.deliveryBranch) return project.deliveryBranch
+/** The branch a plan is kept in sync with: its target branch (`deliveryBranchOf`), else origin's default, else the
+ *  recorded one (`deliverByPush`'s order). Null when none is known. */
+async function baseBranchOf(s: OrchState, job: Job, worktree: string): Promise<string | null> {
+  const target = deliveryBranchOf(s, job)
+  if (target) return target
   const head = await realGit(['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'], { cwd: worktree })
   if (head.ok && head.stdout.startsWith('origin/')) return head.stdout.slice('origin/'.length)
-  return project?.defaultBranch ?? null
+  return projectOfJob(s, job)?.defaultBranch ?? null
 }
 
 export interface OriginSyncContext {
@@ -103,7 +104,7 @@ export function createOriginSync(c: OriginSyncContext): { tick(): Promise<void> 
     const job = jobOf(s, run)!
     const plan = jobNameOf(job)
     const worktree = run.worktree!
-    const branch = await baseBranchOf(projectOfJob(s, job), worktree)
+    const branch = await baseBranchOf(s, job, worktree)
     const first = run.lastOriginSyncAt === undefined
     const r: OriginSync = branch === null ? { kind: 'human', reason: 'no base branch is known' } : await syncWithOrigin(worktree, branch, c)
     // Only a sync that reached git's answer about origin is recorded; the rest is looked at again from memory

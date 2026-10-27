@@ -11,6 +11,7 @@ import type { ActionUi } from '../../lib/jobActions'
 import { toast } from '../../lib/toast'
 import { APPROVAL_MODES, type ApprovalMode } from '../../../../core/settings/approvalDefault'
 import { Input, Select, Switch } from '../ui'
+import { BranchPicker } from '../delivery/BranchPicker'
 import { useDeliveryChoices } from '../delivery/useDeliveryChoices'
 import {
   APPROVAL_LABEL,
@@ -34,6 +35,9 @@ export function PlanSettings({ door, jobId, row, confirm }: { door: OrchDoor; jo
   const [saving, setSaving] = useState(false)
   /** T6: the plan's project, for the deliveries its folder is set up for (none read for a plan on another machine). */
   const [project, setProject] = useState<Project | undefined>(undefined)
+  /** The plan's own target branch ('' is its project's) and why its last save was refused. */
+  const [branch, setBranch] = useState('')
+  const [branchError, setBranchError] = useState<string | null>(null)
   // Read again when the plan's state moves on (it finishes, its delivery starts): what can change follows it
   const outcome = row?.outcome
   const moved = `${outcome}:${row?.archivedAt ?? ''}:${row?.delivery?.state ?? ''}`
@@ -47,6 +51,7 @@ export function PlanSettings({ door, jobId, row, confirm }: { door: OrchDoor; jo
       const globalDefault = (await window.api.settings.getApprovalDefault().catch(() => null)) ?? undefined
       if (cancelled) return
       setId(job.id)
+      setBranch(job.deliveryBranch ?? '')
       setProject(proj && proj.status < 400 ? (proj.body as Project) : undefined)
       setForm(planSettingsFormOf(job, run, proj && proj.status < 400 ? (proj.body as Project) : undefined, outcome, globalDefault))
     })().catch(() => {})
@@ -56,7 +61,7 @@ export function PlanSettings({ door, jobId, row, confirm }: { door: OrchDoor; jo
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `moved` names what the read depends on
   }, [door, jobId, moved])
 
-  const offered = useDeliveryChoices(door.runtimeId === undefined ? project?.path : undefined, form?.values.delivery ?? 'pr', project?.deliveryBranch)
+  const offered = useDeliveryChoices(door.runtimeId === undefined ? project?.path : undefined, form?.values.delivery ?? 'pr', branch || project?.deliveryBranch)
   if (form === null) return <p className="plan-settings-loading">{t('plan.settings.loading')}</p>
   const { values, fields } = form
   const locked = door.readOnlyReason ?? undefined
@@ -78,6 +83,26 @@ export function PlanSettings({ door, jobId, row, confirm }: { door: OrchDoor; jo
     }
     if (ok) toast.success(t('plan.settings.saved'))
     setForm((cur) => (cur === null ? cur : { ...cur, values: settledValues(values, next, ok) }))
+  }
+  /** The target branch is its own `jobs-set --delivery-branch`; a refusal puts the pick back and says why. */
+  const saveBranch = async (next: string): Promise<void> => {
+    const before = branch
+    setBranch(next)
+    setBranchError(null)
+    setSaving(true)
+    try {
+      const reply = await door.command('jobs-set', { id, deliveryBranch: next })
+      if (reply.status < 400) toast.success(t('plan.settings.saved'))
+      else {
+        setBranch(before)
+        setBranchError((reply.body as { error?: string } | null)?.error ?? t('delivery.saveFailed'))
+      }
+    } catch {
+      setBranch(before)
+      setBranchError(t('delivery.saveFailed'))
+    } finally {
+      setSaving(false)
+    }
   }
   const set2 = (mode: ApprovalMode): void => void save({ ...values, autoApprove: mode !== 'ask', handsOff: mode === 'hands-off' })
   const set = <K extends keyof PlanSettingsValues>(key: K, value: PlanSettingsValues[K]): void => void save({ ...values, [key]: value })
@@ -167,6 +192,7 @@ export function PlanSettings({ door, jobId, row, confirm }: { door: OrchDoor; jo
       {row_(
         'delivery',
         (props) => (
+          <>
           <Select
             {...props}
             aria-label={t('plan.settings.delivery')}
@@ -177,6 +203,18 @@ export function PlanSettings({ door, jobId, row, confirm }: { door: OrchDoor; jo
               if (d !== undefined) set('delivery', d)
             }}
           />
+          {door.runtimeId === undefined && project && (
+            <BranchPicker
+              repoPath={project.path}
+              value={branch}
+              onChange={(b) => void saveBranch(b)}
+              command={door.command}
+              defaultBranch={project.deliveryBranch}
+              disabled={props.disabled}
+              error={branchError}
+            />
+          )}
+          </>
         ),
         offered.reason
       )}

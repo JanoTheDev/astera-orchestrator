@@ -25,6 +25,7 @@ import { crash } from './crash'
 import { help } from './help'
 import { misc } from './misc'
 import { review } from './review'
+import { prs } from './prs'
 
 export const en: Record<keyof typeof ko, string> = {
   ...common,
@@ -51,5 +52,6 @@ export const en: Record<keyof typeof ko, string> = {
   ...crash,
   ...help,
   ...misc,
-  ...review
+  ...review,
+  ...prs
 }

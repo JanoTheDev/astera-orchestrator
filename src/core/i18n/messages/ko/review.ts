@@ -61,5 +61,6 @@ export const review = {
   'review.keys': '키',
   'review.keys.move': '다음 / 이전 변경',
   'review.keys.viewed': '파일 확인함',
-  'review.run.pick': '리뷰할 폴더'
+  'review.run.pick': '리뷰할 폴더',
+  'review.code.failed': 'AI 코드 리뷰를 시작하지 못했습니다: {detail}'
 }
