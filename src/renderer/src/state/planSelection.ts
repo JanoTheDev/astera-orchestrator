@@ -4,6 +4,7 @@
 import type { OrchSnapshot } from '../../../core/types'
 import { findRun, isForeignSnapshot } from '../../../core/orchestration/snapshot'
 import { detailRunGone } from '../lib/remoteJobs'
+import type { WorkspacePlan, WorkspaceProject } from './workspaceTree'
 
 export interface PlanRef {
   projectPath: string
@@ -36,4 +37,37 @@ export function pendingRunStep(pending: PlanRef | null, currentProject: string |
 /** The pending plan once the owner opened `openRun`: another plan supersedes it. */
 export function pendingAfterOpen(pending: PlanRef | null, openRun: PlanRef | null): PlanRef | null {
   return pending && openRun && openRun.runId !== pending.runId ? null : pending
+}
+
+/** The tree entry a plan tab's id (`view:plan:<runId>`) names: its Run, or its Job before it has run. */
+const treeHit = (tree: readonly WorkspaceProject[], runId: string): { project: WorkspaceProject; plan: WorkspacePlan } | undefined => {
+  for (const project of tree) {
+    const plan = project.plans.find((x) => x.jobId === runId || x.runId === runId)
+    if (plan) return { project, plan }
+  }
+  return undefined
+}
+
+/** A plan tab's title: the plan's name from the workspace tree, which holds every project's plans. */
+export const planNameOf = (tree: readonly WorkspaceProject[] | undefined, runId: string): string | undefined =>
+  (tree && treeHit(tree, runId)?.plan.name) || undefined
+
+/** The project path of the plan a plan tab names, from the workspace tree. */
+export const planProjectOf = (tree: readonly WorkspaceProject[], runId: string): string | undefined => treeHit(tree, runId)?.project.path
+
+/** The plan the active tab opens: its own plan when the tab is a plan tab that openRun does not show yet. A local plan
+ *  of another project than the current one is not opened (openRunCheck would close it at once); a remote plan opens as
+ *  remembered (`known`, from the last open of it). An unknown project falls back to the current one. */
+export function planToOpen(a: {
+  tabRunId: string | null
+  openRun: PlanRef | null
+  currentProject: string | null
+  treePath: string | undefined
+  known: PlanRef | undefined
+}): PlanRef | null {
+  if (a.tabRunId === null || a.openRun?.runId === a.tabRunId) return null
+  if (a.known?.runtimeId) return a.known
+  const projectPath = a.known?.projectPath ?? a.treePath ?? a.currentProject
+  if (!projectPath || projectPath !== a.currentProject) return null
+  return a.known ?? { projectPath, runId: a.tabRunId }
 }

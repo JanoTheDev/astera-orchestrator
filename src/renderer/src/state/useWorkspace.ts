@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceData } from './useWorkspaceData'
 import { buildWorkspaceTree, findPlan, planSessions, projectOfCwd, scopeLayout } from './workspaceTree'
 // W6-F: one workspace per project
-import { entryTab, OTHER_WORKSPACE, scopeIds as workspaceScopeOf, workspaceFolderOf, workspaceSessionIds } from './workspaceTree'
+import { entryTab, OTHER_WORKSPACE, otherProjectPlanIds, scopeIds as workspaceScopeOf, workspaceFolderOf, workspaceSessionIds } from './workspaceTree'
 import { initialScope, ownerOf } from './projectScope'
 import { projectScopeOf, scopeData, scopeTree } from './projectView'
 import { boundEntry, focusInScope, followTarget, selectionAfterBound } from './selection'
@@ -83,10 +83,13 @@ export function useWorkspace(deps: WorkspaceDeps) {
   const scopeOf = (projectId: string | null, planId: string | null): Set<string> | null =>
     workspaceScopeOf(workspaceTree, workspaceIds, projectId, planId)
   const workspaceScope = scopeOf(workspaceProjectId, workspacePlanId)
+  const hiddenPlansOf = (projectId: string | null): Set<string> => otherProjectPlanIds(workspaceTree, projectId)
+  const hiddenPlans = hiddenPlansOf(workspaceProjectId)
+  const hiddenPlansKey = [...hiddenPlans].join('\n')
   const workspaceKey = workspaceScope ? [...workspaceScope].join('\n') : null
-  const showOf = (l: PaneNode | null): PaneNode | null => (!scopeKnown ? null : workspaceScope ? scopeLayout(l, workspaceScope) : l)
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- workspaceKey stands for the scope's session ids
-  const shownLayout = useMemo(() => showOf(layout), [layout, workspaceKey, scopeKnown])
+  const showOf = (l: PaneNode | null): PaneNode | null => (!scopeKnown ? null : workspaceScope ? scopeLayout(l, workspaceScope, hiddenPlans) : l)
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- workspaceKey and hiddenPlansKey stand for the scope's session and hidden plan ids
+  const shownLayout = useMemo(() => showOf(layout), [layout, workspaceKey, hiddenPlansKey, scopeKnown])
   shownLayoutRef.current = showOf // the tab cycling keys walk what is shown
   const canOpenSessionTab = (sessionId: string): boolean => !!layout && !!groupOfTab(layout, sessionTab(sessionId))
   // W7-F (#84): an ended plan's ended tabs, and a replan's stale planner tab, close on their own (tabsToAutoClose),
@@ -140,7 +143,7 @@ export function useWorkspace(deps: WorkspaceDeps) {
   /** Opens a workspace and focuses the tab it had when it was left, else its first. */
   const enterWorkspace = (projectId: string | null, planId: string | null): void => {
     setWorkspaceScope(projectId, planId)
-    const tab = entryTab(layoutRef.current, scopeOf(projectId, planId), workspaceFocusRef.current.get(planId ?? projectId ?? ''))
+    const tab = entryTab(layoutRef.current, scopeOf(projectId, planId), workspaceFocusRef.current.get(planId ?? projectId ?? ''), hiddenPlansOf(projectId))
     if (tab) selectWorkbenchTab(tab)
   }
   // Closing a plan's workspace goes back to its project's
@@ -176,11 +179,11 @@ export function useWorkspace(deps: WorkspaceDeps) {
     const paneId = activePaneIdRef.current
     // the tree already moved on to a pick this render does not show yet: that render decides it
     if (!picked && pick !== null && root && paneId && leafOf(root, paneId)?.activeTabId === pick) return
-    const fixed = focusInScope(root, paneId, workspaceScope, workspaceFocusRef.current.get(workspacePlanId ?? workspaceProjectId ?? ''))
+    const fixed = focusInScope(root, paneId, workspaceScope, workspaceFocusRef.current.get(workspacePlanId ?? workspaceProjectId ?? ''), hiddenPlans)
     if (!fixed) return
     setLayout(fixed.root)
     setActivePaneId(fixed.paneId)
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- workspaceKey stands for the scope's session ids
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- workspaceKey and hiddenPlansKey stand for the scope's session and hidden plan ids
   }, [activeTabId, activeTabRoot, layout, workspaceKey, workspaceProjectId, workspacePlanId, workspaceData, scopeKnown])
   // W9-K: this window's project (main binds it, src/main/windows.ts), read once at mount and entered once the tree is
   // in, so the window focuses one of its own tabs. From then on what the window shows is reported back: that retitles
@@ -210,7 +213,7 @@ export function useWorkspace(deps: WorkspaceDeps) {
     if (!boundProject || !workspaceData || boundEnteredRef.current) return
     boundEnteredRef.current = true
     // a restore: none of it once the owner has picked a project or a tab, and it is no pick itself
-    const entry = boundEntry(ownerPickRef.current, boundProject, layoutRef.current, scopeOf(boundProject, null), workspaceFocusRef.current.get(boundProject))
+    const entry = boundEntry(ownerPickRef.current, boundProject, layoutRef.current, scopeOf(boundProject, null), workspaceFocusRef.current.get(boundProject), hiddenPlansOf(boundProject))
     if (!entry) return
     scopeTo(entry.projectId, null)
     const act = entry.tab && layoutRef.current ? activateTab(layoutRef.current, entry.tab) : null
@@ -248,7 +251,7 @@ export function useWorkspace(deps: WorkspaceDeps) {
       ...(workspaceName ? { name: workspaceName } : {}),
       sessionIds: workspaceScope ? [...workspaceScope] : null
     })
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- workspaceKey stands for the scope's session ids
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- workspaceKey and hiddenPlansKey stand for the scope's session and hidden plan ids
   }, [boundProject, workspaceProjectId, workspaceName, workspaceKey])
   // A new tab opened in a project workspace starts in the project's folder
   const workspaceCwd = workspaceFolderOf(workspaceTree, workspaceProjectId)

@@ -27,6 +27,7 @@ import { openPlan } from './navigation'
 import type { AppState } from '../../state/appState'
 import type { ShellState } from './useShell'
 import { useOrchConsumer } from '../../state/orchFeed'
+import { planNameOf, planProjectOf, planToOpen } from '../../state/planSelection'
 
 export type ViewTabProps = AppState & ShellState
 
@@ -43,11 +44,12 @@ const VIEW_META: Record<ViewName, { icon: IconName; title: MessageKey }> = {
 }
 
 /** A view tab's title and icon: a plan's own name, a worktree's folder, a device's name, else the view's name. */
-export function viewTabInfo(p: Pick<ViewTabProps, 't' | 'orchSnapshot'>, name: ViewName, arg?: string): { title: string; icon: IconName } {
+export function viewTabInfo(p: Pick<ViewTabProps, 't' | 'orchSnapshot'> & { workspaceTree?: ViewTabProps['workspaceTree'] }, name: ViewName, arg?: string): { title: string; icon: IconName } {
   const meta = VIEW_META[name]
   if (name === 'plan' && arg !== undefined) {
     const run = p.orchSnapshot ? findRun(p.orchSnapshot, arg) : undefined
-    return { icon: meta.icon, title: run ? jobName(run) : p.t(meta.title) }
+    // another project's plan is not in orchSnapshot, but the tree holds every project's
+    return { icon: meta.icon, title: run ? jobName(run) : (planNameOf(p.workspaceTree, arg) ?? p.t(meta.title)) }
   }
   if (name === 'settings' && arg === 'keys') return { icon: 'keyboard', title: p.t('keys.title') }
   if (name === 'worktree' && arg !== undefined) return { icon: meta.icon, title: worktreeTitle(undefined, arg) }
@@ -253,18 +255,29 @@ export function useViewTabSync(p: SyncDeps): void {
     if (activeTabId !== id) place(id)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- follows the open plan only
   }, [openRun])
-  const lastActive = useRef(activeTabId)
+  // The active plan tab shows its plan: after a project switch or on switching back openRun is null (useJobs closes it
+  // on every switch) while the tab stays active. Once per (tab, project): a plan that closes afterwards (gone from its
+  // snapshot, the ✕) stays closed, so this never fights openRunCheck.
+  const synced = useRef({ key: '', done: false })
+  const { currentProject } = p
   useEffect(() => {
-    if (lastActive.current === activeTabId) return
-    lastActive.current = activeTabId
+    const key = `${activeTabId}|${currentProject}`
+    if (synced.current.key !== key) synced.current = { key, done: false }
     const view = activeTabId ? parseViewTab(activeTabId) : null
-    if (view?.name !== 'plan' || view.arg === undefined || p.openRun?.runId === view.arg) return
-    const runId = view.arg
-    const known = opened.current.get(runId)
-    const projectPath = known?.projectPath ?? p.workspaceTree.find((x) => x.plans.some((plan) => plan.jobId === runId || plan.runId === runId))?.path ?? p.currentProject
-    if (!projectPath) return
+    const tabRunId = view?.name === 'plan' && view.arg !== undefined ? view.arg : null
+    if (tabRunId !== null && openRun?.runId === tabRunId) synced.current.done = true
+    if (synced.current.done) return
+    const next = planToOpen({
+      tabRunId,
+      openRun,
+      currentProject,
+      treePath: tabRunId === null ? undefined : planProjectOf(p.workspaceTree, tabRunId),
+      known: tabRunId === null ? undefined : opened.current.get(tabRunId)
+    })
+    if (!next) return
+    synced.current.done = true
     p.setDetail(null)
-    p.setOpenRun(known ?? { projectPath, runId })
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- follows the active tab only
-  }, [activeTabId])
+    p.setOpenRun(next)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- follows the active tab, the open plan and the project only
+  }, [activeTabId, openRun, currentProject])
 }

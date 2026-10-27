@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import type { Dispatch, Job, JobRun, Project, Task } from '../../../core/orchestration/types'
 import { addTab, createGroup, leaves, splitAndMove, type PaneNode } from '../../../core/panes/tree'
-import { appTab, fileTab, sessionTab } from '../../../core/panes/tabId'
-import { buildWorkspaceTree, findPlan, planSessions, scopeLayout, type WorkspaceData } from './workspaceTree'
+import { appTab, fileTab, sessionTab, viewTab } from '../../../core/panes/tabId'
+import { buildWorkspaceTree, findPlan, otherProjectPlanIds, planSessions, scopeLayout, type WorkspaceData } from './workspaceTree'
 import {
   entryTab, OTHER_WORKSPACE, projectOfCwd, projectStatusDot, workspacesOf, scopeIds, workspaceFolderOf, workspaceSessionIds, workspaceSummaries, type WorkspaceProject
 } from './workspaceTree'
@@ -183,6 +183,32 @@ describe('scopeLayout', () => {
     const out = scopeLayout(split.root, new Set(['keep']))
     expect(tabsOf(out)).toEqual([[sessionTab('keep')]])
     expect(out && leaves(out)[0].activeTabId).toBe(sessionTab('keep'))
+  })
+
+  describe('plan view tabs', () => {
+    const tree = [
+      { id: 'pA', plans: [{ jobId: 'jA', runId: 'rA' }] },
+      { id: 'pB', plans: [{ jobId: 'jB', runId: 'rB' }, { jobId: 'jB2' }] }
+    ] as unknown as WorkspaceProject[]
+    let root: PaneNode = createGroup(sessionTab('a'))
+    for (const arg of ['jA', 'rB', 'jB2', 'unknown']) root = addTab(root, root.id, viewTab('plan', arg))
+    root = addTab(root, root.id, viewTab('settings'))
+
+    it('hides another project’s plan tab by job or run id, keeps own, unknown and non-plan tabs', () => {
+      const out = scopeLayout(root, new Set(['a']), otherProjectPlanIds(tree, 'pA'))
+      expect(tabsOf(out)).toEqual([[sessionTab('a'), viewTab('plan', 'jA'), viewTab('plan', 'unknown'), viewTab('settings')]])
+    })
+
+    it('shows every plan tab with no hidden set (All projects)', () => {
+      expect(otherProjectPlanIds(tree, null).size).toBe(0)
+      expect(tabsOf(scopeLayout(root, new Set(['a']), otherProjectPlanIds(tree, null)))[0]).toHaveLength(6)
+    })
+
+    it('entryTab ignores a remembered plan tab that is hidden, takes it once shown again', () => {
+      const keep = new Set(['a'])
+      expect(entryTab(root, keep, viewTab('plan', 'rB'), otherProjectPlanIds(tree, 'pA'))).toBe(sessionTab('a'))
+      expect(entryTab(root, keep, viewTab('plan', 'rB'), otherProjectPlanIds(tree, 'pB'))).toBe(viewTab('plan', 'rB'))
+    })
   })
 
   it('is null when the plan has no open tab, and leaves the given layout untouched', () => {
