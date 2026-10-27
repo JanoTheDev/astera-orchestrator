@@ -169,3 +169,22 @@ describe('planActionsOf mergePr', () => {
     expect(act({}).mergePr).toBeUndefined()
   })
 })
+
+describe('planActionsOf markMerged', () => {
+  const act = (o: Partial<JobRow>, local = true) => planActionsOf(row({ outcome: 'completed', ...o }) as never, local)
+  const pr = { at: 'x', url: 'https://gh/pr/7', number: 7 }
+
+  it('offers Mark as merged on an Unmerged plan: a ready PR not landed, or a manual plan awaiting review', () => {
+    expect(act({ pr }).markMerged).toBe(true)
+    expect(act({ awaitingReview: true }).markMerged).toBe(true)
+  })
+
+  it('offers nothing for a landed, draft, archived, running or paired-Runtime plan', () => {
+    expect(act({ pr: { ...pr, landed: 'merged' } }).markMerged).toBe(false)
+    expect(act({ pr: { ...pr, draft: true } }).markMerged).toBe(false)
+    expect(act({ archivedAt: 'x', awaitingReview: true }).markMerged).toBe(false)
+    expect(act({ outcome: 'running', awaitingReview: true }).markMerged).toBe(false)
+    expect(act({ awaitingReview: true }, false).markMerged).toBe(false)
+    expect(act({}).markMerged).toBe(false)
+  })
+})

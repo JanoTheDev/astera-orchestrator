@@ -231,11 +231,17 @@ const SESSION = {
       "Merges the pull request recorded on the run, then records the run as delivered and merged. For a manual plan the owner has reviewed, or any plan whose PR is open. The person's: refused from an agent session and an MCP client. Answered by the Host.",
     flags: [RUN_ARG('<runId>', 'the run whose pull request is merged'), { name: 'method', value: '<merge|squash|rebase>', about: 'how GitHub merges it (default merge)' }]
   },
+  'run-mark-merged': {
+    summary: "mark a run's unmerged work as merged, when the owner merged it where git cannot see it",
+    detail:
+      "For a finished run whose plan is Unmerged (a ready pull request not landed, or a manual plan waiting for review): records it as delivered and merged and cleans its worktrees, as run-pr-merge does. Nothing is pushed or merged. Refused for a run that already landed or is still working. The person's: refused from an agent session and an MCP client. Answered by the Host.",
+    flags: [RUN_ARG('<runId>', 'the finished run whose work was merged')]
+  },
   // T6: the Unmerged list stays true without the PR poller
   'runs-pr-sync': {
     summary: "ask GitHub whether the runs' ready pull requests are merged or closed, and record it",
     detail:
-      "For every run (of the project, or all) with a ready, not-yet-landed pull request: gh pr view, and a merged or closed one is recorded as landed (the run reads delivered). At most 20 PRs per call, the longest-unchecked first; one checked in the last 2 minutes is skipped; a gh error skips that PR only. Answers { checked, landed: [{ runId, landed }] }. The app's: refused from an agent session and an MCP client. Answered by the Host.",
+      "For every run (of the project, or all) with a ready, not-yet-landed pull request: gh pr view, and a merged or closed one is recorded as landed (the run reads delivered). At most 20 PRs per call, the longest-unchecked first; one checked in the last 2 minutes is skipped; a gh error skips that PR only. A manual plan waiting for review, and a PR left open, are also checked against git: a plan branch already in the delivery branch is recorded merged. Answers { checked, landed: [{ runId, landed }] }. The app's: refused from an agent session and an MCP client. Answered by the Host.",
     flags: [{ name: 'projectPath', value: '<folder>', about: 'only the runs of this project (default all)' }]
   },
   // Merge everything and fix conflicts

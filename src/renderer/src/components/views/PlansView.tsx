@@ -369,6 +369,22 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
     }
   }
 
+  /** Mark as merged: an Unmerged plan the owner merged where git cannot see it (`run-mark-merged`). */
+  const markPlanMerged = async (row: JobRow): Promise<void> => {
+    if (!local) return
+    const ok = await confirmModal({ title: t('plan.markMerged.title', { plan: jobName(row) }), body: t('plan.markMerged.body', { plan: jobName(row) }), confirmLabel: t('plan.markMerged.confirm') })
+    if (!ok) return
+    try {
+      const reply = await local.command('run-mark-merged', { run: row.foldedRunId ?? row.id })
+      if (reply.status >= 400) {
+        const error = (reply.body as { error?: unknown } | null)?.error
+        toast.error(t('plan.markMerged.failed', { reason: replyNote(reply, t as never, typeof error === 'string' ? error : String(reply.status)) }))
+      } else toast.success(t('plan.markMerged.done'))
+    } catch (err) {
+      toast.error(t('plan.markMerged.failed', { reason: err instanceof Error ? err.message : String(err) }))
+    }
+  }
+
   const planMenu = (row: JobRow): Array<MenuItem | 'separator'> => {
     const archived = row.archivedAt !== undefined
     const pause = pauseActionOf(row)
@@ -408,6 +424,7 @@ function LocalPlans(p: SideBarViewProps): React.JSX.Element {
       ...(local && canChat(row) ? [item('chat', t('plan.chat.label'), 'message', () => void openPlanChat(local, row.id, actionUi))] : []),
       ...(local && isUnmergedPlan(row) ? [item('review', t('pages.plans.unmerged.review'), 'search', () => void reviewPlan(row))] : []),
       ...(acts.mergePr && local ? (['merge', 'squash', 'rebase'] as const).map((m) => item(`mergePr-${m}`, `${t('worktrees.act.mergePr')}: ${t(`worktrees.act.method.${m}` as never)}`, 'merge', () => void mergePlanPr(row, m))) : []),
+      ...(acts.markMerged && local ? [item('markMerged', t('plan.markMerged.menu'), 'check', () => void markPlanMerged(row))] : []),
       ...(acts.merge && local ? [item('merge', t('jobs.run.merge'), 'merge', () => void mergePlan(local, row, actionUi))] : []),
       ...(acts.mergeAll && local ? [item('mergeAll', t('plan.integrate.menu'), 'merge', () => void integratePlan(local, row, jobName(row), actionUi))] : []),
       ...(acts.openPr

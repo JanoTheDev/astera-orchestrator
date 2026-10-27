@@ -69,7 +69,9 @@ export const HOST_ANSWERED: ReadonlySet<string> = new Set([
   'github-pr-create',
   // T1: reads the folder's delivery setup through `deps.github.deliverySetup`; without it main's copy delivers by the
   // saved mode and misses the fall back when the folder cannot push or open a PR
-  'run-deliver'
+  'run-deliver',
+  // The owner marks an Unmerged plan merged; its clean-up of the Run's worktrees is the Host's (cleanWorktrees)
+  'run-mark-merged'
 ])
 
 /** W5-D (#44): the reads that are one list across every Host. A call with no `runtimeId` asks the local Host and every
