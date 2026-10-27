@@ -1108,4 +1108,6 @@ export interface RunPr {
   // T1: delivery state machine
   /** The pull request was merged or closed on GitHub: the plan's delivery ended there (`gh pr view --json state`). */
   landed?: 'merged' | 'closed'
+  /** T6: when `runs-pr-sync` last asked GitHub about this PR and found it still open; repeated calls skip it for 2 minutes. */
+  landedCheckedAt?: string
 }

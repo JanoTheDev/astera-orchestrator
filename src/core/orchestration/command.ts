@@ -1241,6 +1241,10 @@ const waitingForApprovalIn = async (deps: OrchServerDeps, ds: readonly Dispatch[
   return new Set(open.filter((_, i) => turns[i]?.prompt === 'permission').map((d) => d.id))
 }
 
+/** T6 `runs-pr-sync`: PRs asked about per call, and how long a still-open one is left alone. */
+const PR_SYNC_BATCH = 20
+const PR_SYNC_FRESH_MS = 2 * 60_000
+
 /** Commands only the orchestrator may call. Workers do not need check (the worker preamble uses only
  *  send and ask) — and on top of that the single unacknowledged Delivery is shared per Run with the
  *  coordinator, so a worker calling check --ack would acknowledge, on the coordinator's behalf, a
@@ -1296,6 +1300,7 @@ const COORDINATOR_ONLY = new Set([
   'projects-set',
   'run-deliver',
   'run-pr-merge',
+  'runs-pr-sync',
   'run-integrate-all',
   // W8-C draft PR
   'run-draft-pr',
@@ -7254,6 +7259,46 @@ export async function handleCommand(
       await deps.setState(landedOnGitHub(deps.getState(), id, 'merged', deps.now?.() ?? now))
       await cleanAfterDelivery(deps, id)
       return okBody({ run: id, url: run.pr.url, merged: true, method, deliveryState: deps.getState().runs.find((r) => r.id === id)?.deliveryState })
+    }
+    // T6: asks GitHub for each ready PR not yet landed and records merged or closed (`landedOnGitHub`), so the Unmerged
+    // list stays true without the PR poller. A batch is capped, the longest-unchecked first, and a PR checked within
+    // PR_SYNC_FRESH_MS is skipped. A gh error skips that PR only.
+    case 'runs-pr-sync': {
+      if (fromAgentSession || caller.role === 'mcp') return denied("syncing plans' pull requests is Astera's own")
+      if (!deps.github) return conflict('GitHub commands are answered by the Astera Host, and this caller is not one')
+      const inProject = projectFilter(s, args.projectPath)
+      if ('error' in inProject) return inProject.error
+      const project = inProject.project
+      const at = deps.now?.() ?? now
+      const fresh = (r: JobRun): boolean => Date.parse(at) - Date.parse(r.pr?.landedCheckedAt ?? '') < PR_SYNC_FRESH_MS
+      const due = s.runs
+        .filter((r) => {
+          if (r.pr?.url === undefined || r.pr.draft === true || r.pr.landed !== undefined || fresh(r)) return false
+          const job = jobOf(s, r)
+          return !project || (job !== undefined && jobInProject(s, job, project))
+        })
+        .sort((a, b) => (a.pr?.landedCheckedAt ?? '').localeCompare(b.pr?.landedCheckedAt ?? ''))
+        .slice(0, PR_SYNC_BATCH)
+      const states = await Promise.all(
+        due.map(async (r) => ({
+          run: r,
+          // the repo folder first: a delivered plan's own worktree is usually removed, and a gh run in a missing folder fails
+          state: await prStateOf(deps.github!.run, r.pr!.url!, jobOf(s, r)?.cwd ?? r.worktree ?? '').catch(() => null)
+        }))
+      )
+      let next = deps.getState()
+      const landed: { runId: string; landed: 'merged' | 'closed' }[] = []
+      for (const { run, state } of states) {
+        if (state === 'MERGED' || state === 'CLOSED') {
+          const to = state === 'MERGED' ? 'merged' : 'closed'
+          next = landedOnGitHub(next, run.id, to, at)
+          landed.push({ runId: run.id, landed: to })
+        } else {
+          next = { ...next, runs: next.runs.map((r) => (r.id === run.id && r.pr ? { ...r, pr: { ...r.pr, landedCheckedAt: at } } : r)) }
+        }
+      }
+      if (due.length > 0) await deps.setState(next)
+      return okBody({ checked: due.length, landed })
     }
     /**
      * The owner's "Merge everything and fix conflicts": every Task worktree of the Run into its plan worktree
