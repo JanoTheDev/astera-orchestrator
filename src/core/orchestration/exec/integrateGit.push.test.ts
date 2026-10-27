@@ -246,8 +246,8 @@ describe('deliverByPush (W6-H)', () => {
     expect(h.validated).toEqual([])
   })
 
-  it('fetches and pushes again after a rejected push, ten rounds at most, then stops, never forcing', async () => {
-    const h = setup({ 'push origin main': { ok: false, stderr: '! [rejected] main -> main (fetch first)' } })
+  it('fetches and pushes again after a push the connection lost, ten rounds at most, then stops, never forcing', async () => {
+    const h = setup({ 'push origin main': { ok: false, stderr: 'fatal: the remote end hung up unexpectedly' } })
     const r = await h.go()
     expect(r).toMatchObject({ ok: false, reason: expect.stringContaining('was rejected') })
     expect(h.calls.filter((a) => a[0] === 'push')).toHaveLength(11)
@@ -256,7 +256,7 @@ describe('deliverByPush (W6-H)', () => {
   })
 
   it('succeeds on the one retry when the rejection was passing', async () => {
-    const h = setup({ 'push origin main': [{ ok: false, stderr: 'remote hung up' }, {}] })
+    const h = setup({ 'push origin main': [{ ok: false, stderr: 'fatal: the remote end hung up unexpectedly' }, {}] })
     const r = await h.go()
     expect(r.ok).toBe(true)
     expect(h.calls.filter((a) => a[0] === 'push')).toHaveLength(2)
@@ -299,10 +299,31 @@ describe('deliverByPush (W6-H)', () => {
   })
 
   it('T3: a push still rejected after every round is rejected and undoes the merges', async () => {
-    const h = setup({ 'push origin main': { ok: false, stderr: '! [rejected] main -> main (fetch first)' } })
+    const h = setup({ 'push origin main': { ok: false, stderr: 'fatal: the remote end hung up unexpectedly' } })
     const r = await h.go()
     expect(r).toMatchObject({ ok: false, code: 'rejected' })
     expect(h.head()).toBe('base')
+  })
+
+  // T1: lefthook's pre-push typecheck failed; git printed only "failed to push some refs" on stderr
+  const hookRefused = { ok: false, stdout: 'typecheck ❯ article-rules.test.ts(12,5): error TS2345', stderr: "error: failed to push some refs to 'origin'" }
+
+  it('T1: a push refused while origin has not moved stops after one round as push-refused, the hook output kept', async () => {
+    const h = setup({ 'push origin main': hookRefused })
+    const r = await h.go()
+    expect(r).toMatchObject({ ok: false, code: 'push-refused' })
+    if (r.ok) return
+    expect(r.reason).toContain('error TS2345')
+    expect(r.reason).toContain('failed to push some refs')
+    expect(h.calls.filter((a) => a[0] === 'push')).toHaveLength(1)
+    expect(h.calls.filter((a) => a[0] === 'fetch')).toHaveLength(2)
+    expect(h.head()).toBe('base')
+  })
+
+  it('T1: a refused push whose origin moved on still catches up and pushes again', async () => {
+    const h = setup({ ...movedOn(), 'push origin main': [hookRefused, {}] })
+    expect((await h.go()).ok).toBe(true)
+    expect(h.calls.filter((a) => a[0] === 'push')).toHaveLength(2)
   })
 
   it('T3: leaves the merges when the owner changed the folder meanwhile', async () => {
@@ -460,6 +481,25 @@ describe('deliverByPush over a real bare origin (T3)', () => {
     writeFileSync(path.join(r.work, 'a.txt'), 'changed')
     const stop = await deliverByPush({ cwd: r.work, branch: 'main', worktrees: [], message: 'm' }, ctxOf(r, { file: 'plan2.txt', text: 'p' }))
     expect(stop).toMatchObject({ ok: false, reason: expect.stringContaining('uncommitted change') })
+  })
+
+  it('T1: a real pre-push hook that fails stops at once as push-refused, its report in the reason, the merges undone', async () => {
+    const r = repos()
+    const before = r.sh(r.work, 'rev-parse', 'HEAD')
+    const hook = path.join(r.work, '.git', 'hooks', 'pre-push')
+    writeFileSync(hook, '#!/bin/sh\necho "typecheck: error TS2345 in article-rules.test.ts"\nexit 1\n', { mode: 0o755 })
+    const pushes: string[][] = []
+    const ctx = ctxOf(r, { file: 'plan.txt', text: 'plan' })
+    const inner = ctx.git!
+    ctx.git = async (args, opts) => {
+      if (args[0] === 'push') pushes.push(args)
+      return inner(args, opts)
+    }
+    const res = await deliverByPush({ cwd: r.work, branch: 'main', worktrees: [], message: 'm' }, ctx)
+    expect(res).toMatchObject({ ok: false, code: 'push-refused', reason: expect.stringContaining('error TS2345') })
+    expect(pushes).toHaveLength(1)
+    expect(r.sh(r.work, 'rev-parse', 'HEAD')).toBe(before)
+    expect(r.sh(r.origin, 'rev-parse', 'main')).toBe(before)
   })
 
   it('catches up with a teammate push by a merge commit with no git identity configured', async () => {

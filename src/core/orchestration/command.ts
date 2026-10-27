@@ -7101,8 +7101,9 @@ export async function handleCommand(
         r.ok ? { at, branch: r.branch, sha: r.sha } : { at, ...(r.branch ? { branch: r.branch } : {}), error: r.reason },
         { quiet: true }
       )
-      // T5: a hands-free plan's failed validation becomes a fix Task (the loop opens it), until FAILURE_LIMIT of them ran
-      const fix = !r.ok && r.code === 'validation-failed' ? deliveryFixOf(deps.getState(), run) : null
+      // T5: a hands-free plan's failed validation becomes a fix Task (the loop opens it), until FAILURE_LIMIT of them ran;
+      // T1: so does a push the repository refused (a pre-push hook's checks)
+      const fix = !r.ok && (r.code === 'validation-failed' || r.code === 'push-refused') ? deliveryFixOf(deps.getState(), run) : null
       const p = await settle(r.ok ? undefined : r.reason, recorded, r.ok ? undefined : r.code, fix)
       if (!r.ok)
         return { status: 409, body: { error: r.reason, ...(r.branch ? { branch: r.branch } : {}), ...(r.code ? { code: r.code } : {}), ...(r.conflictWith ? { conflictWith: r.conflictWith } : {}), deliveryState: p } }

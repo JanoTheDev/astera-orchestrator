@@ -891,8 +891,9 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
           planActivity(run.id, `Integration Task created in plan ${plan} for its conflict with ${where} (${sha.slice(0, 7)})`)
         }
         // T5: a hands-free plan's checks failed on the merged result: a fix Task in the plan branch makes them pass, and
-        // once it completes the Run is delivered (validated) again; FAILURE_LIMIT of them, then run-deliver asks the owner
-        if (body?.code === 'validation-failed' && anchor) await startDeliveryFix(run.id, anchor, why, typeof body.branch === 'string' ? body.branch : undefined)
+        // once it completes the Run is delivered (validated) again; FAILURE_LIMIT of them, then run-deliver asks the owner.
+        // T1: a push refused by the repository (a pre-push hook) too, its output quoted in the Task
+        if ((body?.code === 'validation-failed' || body?.code === 'push-refused') && anchor) await startDeliveryFix(run.id, anchor, why, typeof body.branch === 'string' ? body.branch : undefined)
         return
       }
       log(

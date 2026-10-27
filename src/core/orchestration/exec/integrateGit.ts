@@ -976,8 +976,17 @@ export interface PushContext {
  *  origin could not be read, `rejected` origin kept refusing the push, `origin-conflict` origin moved on and does not
  *  merge with the plan, `merge-failed` the plan's worktrees did not merge into the branch, T1: `main-diverged` the
  *  folder's branch has commits origin does not, so it cannot fast-forward (the owner's to fix; retried by itself), T5:
- *  `validation-failed` the checks failed on the merged result (a hands-free plan opens a fix Task for it). */
-export type PushStop = 'fetch-failed' | 'rejected' | 'origin-conflict' | 'merge-failed' | 'main-diverged' | 'validation-failed'
+ *  `validation-failed` the checks failed on the merged result (a hands-free plan opens a fix Task for it), `push-refused`
+ *  the repository refused a push origin had nothing new for (a pre-push hook, a protected branch): pushing again changes
+ *  nothing, so it stops at once and, like `validation-failed`, a hands-free plan opens a fix Task quoting the refusal. */
+export type PushStop = 'fetch-failed' | 'rejected' | 'origin-conflict' | 'merge-failed' | 'main-diverged' | 'validation-failed' | 'push-refused'
+
+/** The end of a git command's output, both streams: a pre-push hook prints its report on stdout, git its own line
+ *  ("failed to push some refs") on stderr, and the report is what says why. */
+export function gitWhy(r: { stderr: string; stdout: string }, max = 2000): string {
+  const tail = (x: string): string => (x.length > max ? `…${x.slice(-max)}` : x)
+  return [r.stdout.trim(), r.stderr.trim()].filter((x) => x !== '').map(tail).join('\n')
+}
 
 export type PushResult =
   | { ok: true; branch: string; sha: string; merged: string[]; validated: number }
@@ -998,7 +1007,8 @@ export type PushResult =
  * 6. `push origin <branch>`, **never forced**; a rejected push fetches, and when origin moved on merges it in and runs
  *    the validation again, then pushes; up to `PUSH_ROUNDS` times. T3: every stop here (a conflict with origin, a
  *    failed fetch, a push still rejected, a failed second validation) undoes the merges as 5 does, so no half
- *    delivery sits unpushed on the owner's branch.
+ *    delivery sits unpushed on the owner's branch. T1: a push refused while origin has not moved (a pre-push hook)
+ *    stops after that one fetch as `push-refused`, the hook's output in the reason.
  * The undo resets only while the folder is still on `branch` with no tracked change Astera did not make.
  * T6 `local` (a `merge` delivery) skips 3 and 6: it ends after the validation, the merges left on the folder's branch.
  */
@@ -1006,7 +1016,7 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
   const run = ctx.git ?? realGit
   const cwd = a.cwd
   const w = { cwd, timeoutMs: GIT_WRITE_TIMEOUT_MS }
-  const why = (r: { stderr: string; stdout: string }): string => (r.stderr || r.stdout).trim()
+  const why = gitWhy
 
   // 1.
   let branch = a.branch
@@ -1160,7 +1170,12 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
     const refetched = await run(['fetch', 'origin', branch], w)
     if (!refetched.ok)
       return undo(`git push origin ${branch} was rejected (${why(pushed)}), and fetching origin to catch up failed: ${why(refetched)}.`, 'fetch-failed')
-    if (!(await run(['merge-base', '--is-ancestor', `origin/${branch}`, 'HEAD'], { cwd })).ok) {
+    const behind = !(await run(['merge-base', '--is-ancestor', `origin/${branch}`, 'HEAD'], { cwd })).ok
+    // Origin has nothing new, so the push was a fast-forward the repository refused (a hook, a protected branch): pushing
+    // again changes nothing. A `fatal:` is the connection (a hang-up, a timeout), which another round may get through
+    if (!behind && !/^fatal:/m.test(pushed.stderr))
+      return undo(`git push origin ${branch} was refused, and origin/${branch} has not moved, so pushing again would not help:\n${why(pushed)}\n`, 'push-refused')
+    if (behind) {
       // T3: a merge commit needs an identity (none on a fresh machine), and the app's git watcher is told it is Astera's
       const op = ctx.gitOp ? await ctx.gitOp.begin('job-merge', cwd) : null
       let caught: Awaited<ReturnType<typeof run>>
