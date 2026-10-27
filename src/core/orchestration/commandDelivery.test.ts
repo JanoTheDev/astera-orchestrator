@@ -837,6 +837,15 @@ describe('run-pr-merge', () => {
     expect(h.state().runs[0].deliveryState?.state).toBe('delivered')
   })
 
+  it('refuses a PR gh reports closed (not merged) with 409 and records nothing', async () => {
+    const { run, h } = withGh('Pull request #9 is closed')
+    const r = await run('run-pr-merge', { run: 'r1', method: 'squash' })
+    expect(r.status).toBe(409)
+    expect(r.body).toMatchObject({ kind: 'already-merged' })
+    expect(h.state().runs[0].pr?.landed).toBeUndefined()
+    expect(h.state().runs[0].deliveryState).toBeUndefined()
+  })
+
   it('is refused to an agent session and an MCP client, and does not run gh', async () => {
     const { run, ghCalls } = withGh()
     expect((await run('run-pr-merge', { run: 'r1' }, 'sess_agent')).status).toBe(403)

@@ -7320,7 +7320,9 @@ export async function handleCommand(
       if ('error' in inProject) return inProject.error
       const project = inProject.project
       const at = deps.now?.() ?? now
-      const fresh = (r: JobRun): boolean => Date.parse(at) - Date.parse(r.pr?.landedCheckedAt ?? '') < PR_SYNC_FRESH_MS
+      // a Run with no `pr` record keeps its check time on the Run itself (types.ts), never as an empty `pr`
+      const checkedAt = (r: JobRun): string => r.pr?.landedCheckedAt ?? r.landedCheckedAt ?? ''
+      const fresh = (r: JobRun): boolean => Date.parse(at) - Date.parse(checkedAt(r)) < PR_SYNC_FRESH_MS
       const readyPr = (r: JobRun): boolean => r.pr?.url !== undefined && r.pr.draft !== true
       const due = s.runs
         .filter((r) => {
@@ -7328,7 +7330,7 @@ export async function handleCommand(
           const job = jobOf(s, r)
           return !project || (job !== undefined && jobInProject(s, job, project))
         })
-        .sort((a, b) => (a.pr?.landedCheckedAt ?? '').localeCompare(b.pr?.landedCheckedAt ?? ''))
+        .sort((a, b) => checkedAt(a).localeCompare(checkedAt(b)))
         .slice(0, PR_SYNC_BATCH)
       const states = await Promise.all(
         due.map(async (r) => {
@@ -7346,7 +7348,7 @@ export async function handleCommand(
           next = landedOnGitHub(next, run.id, to, at)
           landed.push({ runId: run.id, landed: to })
         } else {
-          next = { ...next, runs: next.runs.map((r) => (r.id === run.id && r.pr ? { ...r, pr: { ...r.pr, landedCheckedAt: at } } : r)) }
+          next = { ...next, runs: next.runs.map((r) => (r.id === run.id ? (r.pr ? { ...r, pr: { ...r.pr, landedCheckedAt: at } } : { ...r, landedCheckedAt: at }) : r)) }
         }
       }
       if (due.length > 0) await deps.setState(next)

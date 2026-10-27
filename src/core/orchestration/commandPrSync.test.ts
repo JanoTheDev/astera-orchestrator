@@ -152,6 +152,22 @@ describe('runs-pr-sync', () => {
       expect(t.runOf('a').pr).toBeUndefined()
     })
 
+    it('skips an awaiting-review Run with no PR that was checked within PR_SYNC_FRESH_MS', async () => {
+      const t = setup([run('a', undefined, { deliveryState: awaiting })], {}, { head: { '/wt/a': 'plan-a' }, merged: { 'plan-a': false } }, { deliveryBranch: 'main' })
+      expect((await t.call()).body).toEqual({ checked: 1, landed: [] })
+      expect(t.runOf('a').landedCheckedAt).toBe(NOW)
+      expect((await t.call()).body).toEqual({ checked: 0, landed: [] })
+    })
+
+    it('still checks a ready PR Run after more than PR_SYNC_BATCH unchecked awaiting-review Runs with no PR', async () => {
+      const waiting = Array.from({ length: 21 }, (_, i) => run(`w${i}`, undefined, { deliveryState: awaiting }))
+      const t = setup([...waiting, run('pr', { at: NOW, url: url(1) })], { [url(1)]: 'MERGED' }, {}, { deliveryBranch: 'main' })
+      await t.call()
+      await t.call()
+      expect(t.asked).toEqual([url(1)])
+      expect(t.runOf('pr').pr?.landed).toBe('merged')
+    })
+
     it('leaves an awaiting-review Run whose folder stands on no branch', async () => {
       const t = setup([run('a', undefined, { deliveryState: awaiting })], {}, {}, { deliveryBranch: 'main' })
       expect((await t.call()).body).toEqual({ checked: 1, landed: [] })

@@ -589,6 +589,9 @@ export interface JobRun {
   /** The pull request opened from this Run's integration branch when it completed, or why it could not be. Present:
    *  the driving loop does not try again (`run-open-pr --force` does). */
   pr?: RunPr
+  /** T6: when `runs-pr-sync` last checked this Run that has no `pr` record (a manual plan awaiting review): the same
+   *  2-minute skip as `pr.landedCheckedAt`. A Run with a `pr` keeps its stamp there. */
+  landedCheckedAt?: string
   // ── W6-H: a `push` delivery (`run-deliver`) ──
   /** The pushed commit, or why the push stopped (escalated). Present: the driving loop does not try again
    *  (`run-deliver --force` does). */
