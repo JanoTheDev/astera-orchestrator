@@ -63,5 +63,6 @@ export const review: Partial<Record<keyof typeof ko, string>> = {
   'review.keys': 'キー',
   'review.keys.move': '次 / 前の変更',
   'review.keys.viewed': 'ファイル確認済み',
-  'review.run.pick': 'レビューするフォルダー'
+  'review.run.pick': 'レビューするフォルダー',
+  'review.code.failed': 'AIコードレビューを開始できませんでした: {detail}'
 }

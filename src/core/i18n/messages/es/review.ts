@@ -63,5 +63,6 @@ export const review: Partial<Record<keyof typeof ko, string>> = {
   'review.keys': 'Teclas',
   'review.keys.move': 'cambio siguiente / anterior',
   'review.keys.viewed': 'archivo revisado',
-  'review.run.pick': 'Carpeta a revisar'
+  'review.run.pick': 'Carpeta a revisar',
+  'review.code.failed': 'No se pudo iniciar la revisión de código con IA: {detail}'
 }
