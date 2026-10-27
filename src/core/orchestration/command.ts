@@ -7267,7 +7267,8 @@ export async function handleCommand(
       const states = await Promise.all(
         due.map(async (r) => ({
           run: r,
-          state: await prStateOf(deps.github!.run, r.pr!.url!, r.worktree ?? jobOf(s, r)?.cwd ?? '').catch(() => null)
+          // the repo folder first: a delivered plan's own worktree is usually removed, and a gh run in a missing folder fails
+          state: await prStateOf(deps.github!.run, r.pr!.url!, jobOf(s, r)?.cwd ?? r.worktree ?? '').catch(() => null)
         }))
       )
       let next = deps.getState()

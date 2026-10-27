@@ -18,6 +18,7 @@ const setup = (runs: JobRun[], states: Record<string, string | undefined>) => {
     state: { ...emptyState(), jobs: [{ id: 'job_1', objective: 'x', cwd: '/repo', createdAt: NOW }], runs }
   }
   const asked: string[] = []
+  const cwds: string[] = []
   const deps = {
     getState: () => box.state,
     setState: async (next: OrchState) => {
@@ -25,15 +26,16 @@ const setup = (runs: JobRun[], states: Record<string, string | undefined>) => {
     },
     now: () => NOW,
     github: {
-      run: async (args: string[]): Promise<GhResult> => {
+      run: async (args: string[], cwd: string): Promise<GhResult> => {
         asked.push(args[2])
+        cwds.push(cwd)
         const st = states[args[2]]
         return st === undefined ? { ok: false, stdout: '', stderr: 'boom' } : { ok: true, stdout: JSON.stringify({ state: st }), stderr: '' }
       }
     }
   } as unknown as OrchServerDeps
   const call = (args: Record<string, unknown> = {}) => handleCommand(deps, { sessionId: APP_CALLER }, 'runs-pr-sync', args)
-  return { call, asked, runOf: (id: string) => box.state.runs.find((r) => r.id === id)! }
+  return { call, asked, cwds, runOf: (id: string) => box.state.runs.find((r) => r.id === id)! }
 }
 
 describe('runs-pr-sync', () => {
@@ -72,6 +74,12 @@ describe('runs-pr-sync', () => {
     expect(t.asked).toEqual([url(2)])
     expect(t.runOf('b').pr?.landedCheckedAt).toBe(NOW)
     expect((await t.call()).body).toEqual({ checked: 0, landed: [] })
+  })
+
+  it("asks gh in the plan's repo folder, not in a Run worktree that delivery may have removed", async () => {
+    const t = setup([run('a', { at: NOW, url: url(1) })], { [url(1)]: 'MERGED' })
+    await t.call()
+    expect(t.cwds).toEqual(['/repo'])
   })
 
   it('checks at most 20 PRs per call, the longest-unchecked first', async () => {
