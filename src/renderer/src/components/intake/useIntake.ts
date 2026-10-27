@@ -15,6 +15,8 @@ export interface IntakeOptions {
   project: Project | null
   /** T17: the plan's settings as Start shows them (its delivery the effective one). */
   settings: StartSettings
+  /** The plan's own target branch ('' is its project's). */
+  deliveryBranch?: string
   /** `sessionId`: the planner's terminal, when the planner started now (not when the plan queued after another or runs
    *  on a schedule). */
   onCreated: (jobId: string, sessionId?: string) => void
@@ -70,6 +72,7 @@ export function useIntake(o: IntakeOptions) {
     concurrency: settings.concurrency,
     effort: settings.effort,
     delivery: settings.delivery,
+    deliveryBranch: o.deliveryBranch ?? '',
     replan: settings.replan,
     handsOff: settings.handsOff
   })
