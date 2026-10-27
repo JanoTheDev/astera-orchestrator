@@ -116,6 +116,8 @@ const APP_SUBCOMMANDS = new Set<string>(APP_VERBS)
  */
 export const NOUNS = {
   host: ['start', 'status', 'stop'],
+  // Creates a branch in a registered project's repository (core/git/branchCreate.ts).
+  git: ['branch-create'],
   // `add` registers a folder of this machine (remote runtime N5): the Host answers it for local callers only.
   projects: ['list', 'get', 'find', 'add', /* W6-H */ 'set', /* W7-B */ 'create', /* T3 workspaces */ 'remove', /* T8 */ 'github-create'],
   // `jobs create` 와 `tasks add` 는 phase C 다 — 앞의 것은 run-create 를 `--auto` 로, 뒤의 것은

@@ -417,6 +417,16 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       { name: 'public', about: 'a public repository' }
     ]
   },
+  'git-branch-create': {
+    summary: "create a branch in a project's repository and publish it to origin",
+    detail:
+      'Refused when the name is not a valid branch name or the branch already exists (409). Starts from --from (default: the repository default branch), taken from origin when origin has it. With an origin remote it then pushes the branch with an upstream, never with force; a failed push still answers ok with pushed false and the reason in pushError, and the local branch stays. Refused from an agent session and an MCP client.',
+    flags: [
+      { name: 'cwd', value: '<path>', required: true, about: 'the project folder (a registered project)' },
+      { name: 'name', value: '<branch>', required: true, about: 'the new branch' },
+      { name: 'from', value: '<branch>', about: 'the branch to start from (default: the repository default branch)' }
+    ]
+  },
   'projects-get': {
     summary: 'one registered project',
     flags: [ID('<projectId>', 'the project to read')]
