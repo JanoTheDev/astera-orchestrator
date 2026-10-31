@@ -12,7 +12,9 @@ import path from 'node:path'
 import { stat } from 'node:fs/promises'
 import { jobsViewOf, runsTimelineOf, type RuntimeFacts } from './remoteReads'
 import { createPresence } from './presence'
-import { handleCommand, handleExit, type OrchServerDeps } from '../core/orchestration/command'
+import { handleCommand, handleExit, type InstallingStart, type OrchServerDeps, type StartedWorker } from '../core/orchestration/command'
+import type { WorkerInstall } from '../core/orchestration/exec/coordinator'
+import { readHeavyJobsAtOnce } from '../core/settings/heavyJobs'
 // W8-D several plans in one repo
 import { refreshOverlaps } from '../core/orchestration/overlap'
 import type { CompletionCheckInput } from '../core/orchestration/pluginChecks'
@@ -1063,10 +1065,67 @@ export function createHostOrch(a: {
       ...deps,
       // `worker-stop` adopts the original of a stopped duplicate (exec/adopt.ts)
       ...(a.liveWorkers ? { liveWorkers: a.liveWorkers } : {}),
-      ...(startWorker ? { startWorker: (x: Parameters<typeof startWorker>[0]) => outsideChain(() => startWorker(x)) } : {}),
+      ...(startWorker
+        ? {
+            startWorker: (x: Parameters<typeof startWorker>[0]) =>
+              outsideChain(() => (x.installLater === true ? startInstallingLater(startWorker, x) : startWorker(x)))
+          }
+        : {}),
       ...(readWorker ? { readWorker: (x: Parameters<typeof readWorker>[0]) => outsideChain(() => readWorker(x)) } : {})
     }
   }
+
+  /**
+   * **T2: a worker start whose install waits for a heavy slot answers once the install is queued.** worker-start runs
+   * inside the scheduler's pass, which places its slots one after another (d6800b53e) and may itself run inside a
+   * command that holds the chain; an install waiting there for a slot would hold up every later start, and a pass that
+   * hands the chain on per slot is how d6800b53e deadlocked. So the whole start (fork, deps merge, install, session)
+   * runs outside every holder's async context (`holding.exit`), and this answers `installing` as soon as the fork's
+   * install queues (WorkerInstall.queued): `outsideChain` takes the chain back and worker-start records the Dispatch as
+   * installing and answers. Nothing of the start runs inline in a hold or takes the chain as a sibling holder; how it
+   * ended is recorded by a fresh command (`InstallingStart.record`, `asFreshCommand`). A start whose setup is skipped,
+   * or that is forwarded to the app (the plan's functions do not survive JSON), answers once it is whole, as before.
+   */
+  const startInstallingLater = (
+    start: OrchServerDeps['startWorker'],
+    x: Parameters<OrchServerDeps['startWorker']>[0]
+  ): ReturnType<OrchServerDeps['startWorker']> =>
+    new Promise((resolve, reject) => {
+      let answered = false
+      const once = (f: () => void): void => {
+        if (answered) return
+        answered = true
+        f()
+      }
+      const whole: { start?: Promise<StartedWorker> } = {}
+      const install: WorkerInstall = {
+        slots: () => readHeavyJobsAtOnce(path.join(a.profileDir, 'app-settings.json')),
+        // Stopped, abandoned or removed while it waited: the install is given up and no session is started
+        abandoned: () => {
+          const d = store.get().dispatches.find((y) => y.id === x.dispatchId)
+          return d === undefined || d.endedAt !== undefined || d.outcome !== undefined
+        },
+        queued: (at) =>
+          once(() => resolve({ sessionId: '', cwd: at.cwd, specPath: at.specPath, installing: { done: whole.start!, record: asFreshCommand } }))
+      }
+      whole.start = holding.exit(() => start({ ...x, install }))
+      // Handled here from the start, so a start that fails after the answer is never an unhandled rejection
+      whole.start.then(
+        (r) => once(() => resolve(r)),
+        (e: unknown) => once(() => reject(e))
+      )
+    })
+
+  /** `InstallingStart.record`: `run` as a command of its own, queued on the chain the way any outside caller is.
+   *  `holding.exit` drops the async context of whatever command asked, so `serially` can neither run it inline in that
+   *  command's hold (it may still be running: a pass inside a holder) nor let it take the chain as that holder's
+   *  sibling. It waits for whoever holds the chain, and nobody waits for it. */
+  const asFreshCommand: InstallingStart['record'] = (run) =>
+    holding.exit(() => {
+      void serially('worker-start', {}, () => run(depsFor(throwaway(), HOST_ACTOR))).catch((err) =>
+        a.log(`worker-start: recording how an installing start ended failed: ${String(err)}`)
+      )
+    })
 
   /** A 409 body with the file to repair (`marks.repair`), or the retry a leaving Host asks for
    *  (`marks.retry`), beside its error. Fields, so the CLI reads which it is rather than matching the

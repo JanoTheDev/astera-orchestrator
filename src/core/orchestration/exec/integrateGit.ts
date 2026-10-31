@@ -15,7 +15,7 @@ import { createWorktree } from '../../worktrees/create'
 import { workerBaseFailure } from '../../worktrees/base'
 import { git as realGit, gitDir, gitVersionAtLeast, listGitWorktrees, fetchOrigin, GIT_WRITE_TIMEOUT_MS } from '../../worktrees/git'
 import { backupRef, removeWorktree } from '../../worktrees/remove'
-import { LOCKFILES, runWorktreeSetup } from '../../worktrees/setup'
+import { LOCKFILES, runWorktreeSetup, type SetupHeavy, type SetupResult } from '../../worktrees/setup'
 import { askUntilAnswered, defaultActionPresenceCheck, type CheckResult, type PresenceCheck } from '../../worktrees/presence'
 import type { WorktreeStore } from '../../worktrees/registry'
 import { defaultGateProbe, type Probe } from '../../sessions/pathProbe'
@@ -141,16 +141,27 @@ export function inForkTurn<T>(repoPath: string, run: () => Promise<T>): Promise<
   return mine
 }
 
+/** T2: the setup of a fork, handed to the caller instead of run by `forkWorktree` (`setupLater`). It runs the project's
+ *  setup command in the new worktree, waiting for a heavy slot first when given `heavy`. */
+export type ForkSetup = (heavy?: SetupHeavy) => Promise<SetupResult>
+
 /** forkWorktreeGit (its doc above), then the setup command in the new worktree. Only the git half waits its turn in the
  *  repository: the setup (`bun install` and the like, minutes on a large repo) runs beside other forks' setups, so the
- *  scheduler can start several workers of one repository at once without each waiting for the last one's install. */
+ *  scheduler can start several workers of one repository at once without each waiting for the last one's install.
+ *
+ *  T2: with `setupLater`, the setup is not run here but handed over, and the fork answers as soon as the git half is
+ *  done. A worker start takes it (OrchCoordinator.startWorker): it merges the deps first, then runs the install under a
+ *  heavy slot outside the scheduler's pass. The wirings pass `a` through to here unchanged (the Host's spawner and
+ *  worktrees.ts `fork`, the app's createWorktree), which is how the callback arrives. */
 export async function forkWorktree(
-  a: Parameters<typeof forkWorktreeGit>[0],
+  a: Parameters<typeof forkWorktreeGit>[0] & { setupLater?: (setup: ForkSetup) => void },
   ctx: Parameters<typeof forkWorktreeGit>[1]
 ): Promise<string> {
   const dir = await inForkTurn(a.repoPath, () => forkWorktreeGit(a, ctx))
   // Fresh checkouts have no node_modules, which a pre-push hook that needs its tools rejects; never fails the fork
-  await runWorktreeSetup({ dir, setting: ctx.setupCommand, log: ctx.log })
+  const setup: ForkSetup = (heavy) => runWorktreeSetup({ dir, setting: ctx.setupCommand, log: ctx.log, ...(heavy ? { heavy } : {}) })
+  if (typeof a.setupLater === 'function') a.setupLater(setup)
+  else await setup()
   return dir
 }
 

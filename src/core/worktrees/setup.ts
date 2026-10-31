@@ -7,6 +7,8 @@ import { spawn } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { killProcessTree } from '../run/kill'
+import { HEAVY_QUEUE_DIR, heavyQueue } from '../orchestration/heavyLock'
+import { heavySlot } from '../orchestration/exec/validation'
 
 export const LOCKFILES: [files: string[], command: string][] = [
   [['bun.lock', 'bun.lockb'], 'bun install --frozen-lockfile'],
@@ -33,11 +35,33 @@ export interface SetupResult {
   command: string | null
   /** The last ~4000 characters of the command's output (or the reason it never ran). */
   tail: string
+  /** T2: the install never ran because `heavy.abandoned` answered true while it waited for its slot. */
+  abandoned?: true
+}
+
+/** T2: an install waits for one of the machine's heavy slots (the ones `astera heavy`, heavy checks and deliveries take,
+ *  exec/validation.ts heavySlot), so many agents can start while only that many installs run at once. */
+export interface SetupHeavy {
+  /** How many heavy jobs the machine runs at once (the heavyJobsAtOnce setting), read when the install queues. */
+  slots(): Promise<number>
+  /** Asked while waiting: true once nobody wants this install any more (its worker start was stopped). It then never
+   *  runs, and the answer says `abandoned`. */
+  abandoned?(): boolean
+  /** Called once, when the install will run and is about to wait for its slot: a skipped setup never calls it. */
+  queued?(): void
+  /** Test seams: the slot's lock and queue dir (heavyLock.ts HEAVY_LOCK / HEAVY_QUEUE_DIR), its poll, the slot itself. */
+  lock?: string
+  queueDir?: string
+  pollMs?: number
+  take?: typeof heavySlot
 }
 
 /** Runs the project's setup command in `dir`. `setting` is the project's `setupCommand`: absent detects from the
  *  lockfile, `off` runs nothing, anything else runs as given. Skipped when `dir/node_modules` is already there, unless
  *  `force`: a delivery whose merges changed the manifest or lockfile installs over the old tree.
+ *  With `heavy`, an install that will run first waits for a heavy slot (a skipped one takes none), and its timeout
+ *  starts once it holds it; the slot is freed when the install ends, fails or times out. A slot that cannot be taken
+ *  is logged and the install runs without one: it never blocks a worker for good.
  *  Never throws: a failure, a missing tool or a timeout is logged and returned, and the worker starts anyway. */
 export async function runWorktreeSetup(o: {
   dir: string
@@ -45,18 +69,77 @@ export async function runWorktreeSetup(o: {
   log(m: string): void
   timeoutMs?: number
   force?: boolean
+  heavy?: SetupHeavy
 }): Promise<SetupResult> {
   const skipped: SetupResult = { ran: false, ok: true, command: null, tail: '' }
   if (o.setting === 'off') return skipped
   const command = o.setting ?? (await detectSetupCommand(o.dir))
   if (command === null || (!o.force && (await exists(path.join(o.dir, 'node_modules'))))) return skipped
-  const result = await run(command, o.dir, o.timeoutMs ?? SETUP_TIMEOUT_MS)
+  let release: (() => void) | null = null
+  if (o.heavy) {
+    const slot = await waitForSlot(command, o.dir, o.heavy, o.log)
+    if (slot === 'abandoned') {
+      o.log(`setup: ${JSON.stringify(command)} in ${o.dir} was given up while it waited for a heavy slot`)
+      return { ran: false, ok: false, command, tail: 'given up while waiting for a heavy slot', abandoned: true }
+    }
+    if (slot === 'superseded') {
+      o.log(`setup: ${JSON.stringify(command)} in ${o.dir} is left to a newer install of the same folder`)
+      return { ran: false, ok: true, command, tail: 'a newer install of this folder runs in its place' }
+    }
+    release = slot
+  }
+  let result: { ok: boolean; tail: string }
+  try {
+    result = await run(command, o.dir, o.timeoutMs ?? SETUP_TIMEOUT_MS)
+  } finally {
+    release?.()
+  }
   o.log(
     result.ok
       ? `setup: ${JSON.stringify(command)} finished in ${o.dir}`
       : `setup: ${JSON.stringify(command)} failed in ${o.dir}, so the worker starts without it: ${result.tail}`
   )
   return { ran: true, ...result, command }
+}
+
+/** One heavy slot for an install: its release, `abandoned` (nobody wants it any more), `superseded` (a newer install
+ *  of this folder took the ticket's place), or null when the slot could not be taken at all (the install then runs
+ *  without one, logged). */
+async function waitForSlot(
+  command: string,
+  dir: string,
+  h: SetupHeavy,
+  log: (m: string) => void
+): Promise<(() => void) | 'abandoned' | 'superseded' | null> {
+  h.queued?.()
+  const startedAt = Date.now()
+  try {
+    const slots = await h.slots()
+    // Every live ticket already in line is ahead of this one: holding a slot or waiting for one
+    const ahead = heavyQueue(h.queueDir ?? HEAVY_QUEUE_DIR).length
+    log(`setup: waiting for a heavy slot (${ahead} ahead) to run ${JSON.stringify(command)} in ${dir}`)
+    const release = await (h.take ?? heavySlot)({
+      cwd: dir,
+      cmd: command,
+      kind: 'setup',
+      slots,
+      ...(h.abandoned ? { abandoned: h.abandoned } : {}),
+      ...(h.lock !== undefined ? { lock: h.lock } : {}),
+      ...(h.queueDir !== undefined ? { queueDir: h.queueDir } : {}),
+      ...(h.pollMs !== undefined ? { pollMs: h.pollMs } : {})
+    })
+    if (release === null) return 'superseded'
+    // heavySlot answers a no-op release to a waiter nobody wants any more
+    if (h.abandoned?.() === true) {
+      release()
+      return 'abandoned'
+    }
+    log(`setup: took a heavy slot after ${Math.round((Date.now() - startedAt) / 1000)}s for ${JSON.stringify(command)} in ${dir}`)
+    return release
+  } catch (e) {
+    log(`setup: could not take a heavy slot (${e instanceof Error ? e.message : String(e)}), so ${JSON.stringify(command)} runs in ${dir} without one`)
+    return null
+  }
 }
 
 function run(command: string, cwd: string, timeoutMs: number): Promise<{ ok: boolean; tail: string }> {

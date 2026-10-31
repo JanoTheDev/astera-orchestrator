@@ -1339,3 +1339,83 @@ describe('startWorker owner instructions on a caller-assembled spec', () => {
     expect(out.endsWith(`## ${OWNER_HEADING}\n\nWorker only.\n`)).toBe(true)
   })
 })
+
+describe('OrchCoordinator.startWorker — T2: the fork’s install waits for a heavy slot', () => {
+  /** A wiring that hands the fork's setup back (forkWorktree's setupLater) and a setup the test finishes itself. */
+  const rig = (o: { abandonedAfterInstall?: boolean } = {}) => {
+    const order: string[] = []
+    const handedHeavy: unknown[] = []
+    const asked: Array<Record<string, unknown>> = []
+    let finishInstall: () => void = () => {}
+    let wanted = true
+    const deps: CoordinatorDeps & { spawned: unknown[] } = {
+      ...makeDeps(),
+      createWorktree: async (a) => {
+        asked.push({ ...a })
+        a.setupLater?.(async (heavy) => {
+          handedHeavy.push(heavy)
+          heavy?.queued?.()
+          await new Promise<void>((r) => (finishInstall = r))
+          order.push('install')
+          if (o.abandonedAfterInstall) wanted = false
+          return { ran: true, ok: true, command: 'npm ci', tail: '' }
+        })
+        return { path: path.join(dir, 'wt-' + a.name) }
+      },
+      mergeIntoWorktree: async () => void order.push('merge')
+    }
+    const spawn = deps.spawnSession
+    deps.spawnSession = async (x) => {
+      order.push('spawn')
+      return spawn(x)
+    }
+    const queuedAt: Array<{ cwd: string; specPath: string }> = []
+    const install = {
+      slots: async () => 2,
+      abandoned: () => !wanted,
+      queued: (at: { cwd: string; specPath: string }) => {
+        order.push('queued')
+        queuedAt.push(at)
+      }
+    }
+    return { deps, order, handedHeavy, asked, queuedAt, install, finish: () => finishInstall() }
+  }
+  const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 20))
+
+  it('merges the deps, then queues the install with the folder and spec path, and spawns only once it ran', async () => {
+    const h = rig()
+    const co = new OrchCoordinator(h.deps)
+    const started = co.startWorker({ ...baseArgs(), runCwd: dir, worktree: 'new', name: 'auth', fork: { base: dir, merge: ['dep-wt'] }, install: h.install })
+    await tick()
+    expect(h.order).toEqual(['merge', 'queued'])
+    expect(h.deps.spawned).toHaveLength(0)
+    h.finish()
+    const r = await started
+    expect(h.order).toEqual(['merge', 'queued', 'install', 'spawn'])
+    expect(h.queuedAt).toEqual([{ cwd: path.join(dir, 'wt-auth'), specPath: r.specPath }])
+    expect(r).toMatchObject({ sessionId: 'sess1', cwd: path.join(dir, 'wt-auth') })
+    // The install waits on the plan's own slot count and asks the plan whether it is still wanted
+    expect(h.handedHeavy).toEqual([expect.objectContaining({ slots: h.install.slots, abandoned: h.install.abandoned })])
+  })
+
+  it('starts no session for a Dispatch nobody wants any more once its install is over', async () => {
+    const h = rig({ abandonedAfterInstall: true })
+    const co = new OrchCoordinator(h.deps)
+    const started = co.startWorker({ ...baseArgs(), runCwd: dir, worktree: 'new', name: 'auth', install: h.install })
+    await tick()
+    h.finish()
+    await expect(started).rejects.toThrow(/stopped while its install waited/)
+    expect(h.deps.spawned).toHaveLength(0)
+  })
+
+  it('without an install plan, or with one whose functions were lost on the way to the app, the fork installs inline', async () => {
+    for (const install of [undefined, {} as never]) {
+      const h = rig()
+      const co = new OrchCoordinator(h.deps)
+      const r = await co.startWorker({ ...baseArgs(), runCwd: dir, worktree: 'new', name: 'auth', ...(install !== undefined ? { install } : {}) })
+      expect(h.asked[0]).not.toHaveProperty('setupLater')
+      expect(h.order).toEqual(['spawn'])
+      expect(r.sessionId).toBe('sess1')
+    }
+  })
+})
