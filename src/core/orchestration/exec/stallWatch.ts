@@ -69,6 +69,25 @@ export const BACKOFF_MS = [2 * 60_000, 5 * 60_000, 10 * 60_000, 20 * 60_000]
  *  the retries of a lost Task. */
 export const TRIES = 4
 
+/** The placeholder session id of a worker start whose fork's dependency install waits for, or runs in, one of the
+ *  machine's heavy slots (command.ts `worker-start`, worktrees/setup.ts). Still `pending:`: the Dispatch counts against
+ *  the caps and the board shows it starting. Told apart so that it is read by its own bound, not the 2-minute one. */
+export const INSTALL_PLACEHOLDER_PREFIX = 'pending:install:'
+/** Whether this session id is a start waiting on its install (`INSTALL_PLACEHOLDER_PREFIX`). */
+export const isInstallingStart = (sessionId: string): boolean => sessionId.startsWith(INSTALL_PLACEHOLDER_PREFIX)
+/** How long after its `startedAt` such a start still counts as one in flight. Its install waits at most
+ *  SETUP_SLOT_WAIT_MS (30 min) for a slot and runs at most SETUP_TIMEOUT_MS (15 min), then the session starts within
+ *  command.ts's PENDING_START_WINDOW_MS (2 min); a test pins that this stays above that sum. A literal, as
+ *  coordinatorRotate.ts keeps its window: command.ts imports this file. */
+export const INSTALL_START_WINDOW_MS = 50 * 60_000
+/** A worker start of this Run is waiting on its install inside INSTALL_START_WINDOW_MS: not a lost or stuck start. */
+export const installStartInFlight = (s: Pick<OrchState, 'tasks' | 'dispatches'>, runId: string, nowMs: number): boolean => {
+  const mine = new Set(s.tasks.filter((t) => t.runId === runId).map((t) => t.id))
+  return s.dispatches.some(
+    (d) => mine.has(d.taskId) && d.endedAt === undefined && isInstallingStart(d.sessionId) && nowMs - Date.parse(d.startedAt) < INSTALL_START_WINDOW_MS
+  )
+}
+
 /** T11: a ready Task held back by another plan's lease this long: its coordinator is told, once. */
 export const LEASE_TELL_MS = 30 * 60_000
 /** ... and this long: one owner question, wait, run it anyway or cancel it (`LEASE_WAIT_OPTIONS`). */
@@ -277,7 +296,8 @@ export function stallRemedies(
       continue
     }
 
-    if (workerStartInFlight(s, run.id, nowMs)) continue
+    // A start in flight, its install's longer wait for a heavy slot included: not a Run whose coordinator is stuck
+    if (workerStartInFlight(s, run.id, nowMs) || installStartInFlight(s, run.id, nowMs)) continue
     const mine = new Set(s.tasks.filter((t) => t.runId === run.id).map((t) => t.id))
     const open = s.dispatches.filter((d) => mine.has(d.taskId) && !d.outcome && !d.endedAt).length
     let free = (job.concurrency ?? DEFAULT_CONCURRENCY) - open
@@ -558,6 +578,8 @@ export function stallRemedies(
   // then the owner. Working again (or unreadable) drops the stall.
   for (const d of s.dispatches) {
     if (d.outcome || d.endedAt || probe.busy(d.sessionId) !== false) continue
+    // A start waiting on its install has no session yet, so no prompt to be idle at
+    if (isInstallingStart(d.sessionId)) continue
     // A rolled Dispatch waits for its account (Dispatch.resumes): not idle, held
     const roll = d.resumes?.at(-1)
     if (roll && roll.resumedAt === undefined) continue

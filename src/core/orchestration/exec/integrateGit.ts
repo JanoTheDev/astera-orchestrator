@@ -15,7 +15,7 @@ import { createWorktree } from '../../worktrees/create'
 import { workerBaseFailure } from '../../worktrees/base'
 import { git as realGit, gitDir, gitVersionAtLeast, listGitWorktrees, fetchOrigin, GIT_WRITE_TIMEOUT_MS } from '../../worktrees/git'
 import { backupRef, removeWorktree } from '../../worktrees/remove'
-import { LOCKFILES, runWorktreeSetup } from '../../worktrees/setup'
+import { LOCKFILES, SETUP_SLOT_WAIT_MS, installTurn, runWorktreeSetup } from '../../worktrees/setup'
 import { askUntilAnswered, defaultActionPresenceCheck, type CheckResult, type PresenceCheck } from '../../worktrees/presence'
 import type { WorktreeStore } from '../../worktrees/registry'
 import { defaultGateProbe, type Probe } from '../../sessions/pathProbe'
@@ -143,14 +143,23 @@ export function inForkTurn<T>(repoPath: string, run: () => Promise<T>): Promise<
 
 /** forkWorktreeGit (its doc above), then the setup command in the new worktree. Only the git half waits its turn in the
  *  repository: the setup (`bun install` and the like, minutes on a large repo) runs beside other forks' setups, so the
- *  scheduler can start several workers of one repository at once without each waiting for the last one's install. */
+ *  scheduler can start several workers of one repository at once without each waiting for the last one's install.
+ *  Inside a worker start that lends it an install turn (setup.ts `installTurn`, the Host's `worker-start`), the install
+ *  first waits for one of the machine's heavy slots, at most SETUP_SLOT_WAIT_MS, and says when it queues, so that start
+ *  stops holding the scheduler pass and the Host's command chain; the fork turn is already handed on by then. */
 export async function forkWorktree(
   a: Parameters<typeof forkWorktreeGit>[0],
   ctx: Parameters<typeof forkWorktreeGit>[1]
 ): Promise<string> {
   const dir = await inForkTurn(a.repoPath, () => forkWorktreeGit(a, ctx))
+  const turn = installTurn()
   // Fresh checkouts have no node_modules, which a pre-push hook that needs its tools rejects; never fails the fork
-  await runWorktreeSetup({ dir, setting: ctx.setupCommand, log: ctx.log })
+  await runWorktreeSetup({
+    dir,
+    setting: ctx.setupCommand,
+    log: ctx.log,
+    ...(turn ? { heavy: { ...turn.heavy, maxWaitMs: SETUP_SLOT_WAIT_MS, queued: () => turn.queued(dir) } } : {})
+  })
   return dir
 }
 

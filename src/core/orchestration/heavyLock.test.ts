@@ -140,6 +140,19 @@ describe('heavyWaits', () => {
   })
 })
 
+describe('heavyQueue ticket kinds (T2)', () => {
+  it('reads each ticket with its kind, a dependency install (setup) among the checks, and keeps one line for all of them', () => {
+    mkdirSync(queueDir, { recursive: true })
+    const t = (n: number, kind?: string): void =>
+      writeFileSync(path.join(queueDir, `${String(n).padStart(20, '0')}.json`), JSON.stringify({ pid: process.pid, cmd: 'x', cwd: dir, at: n, ...(kind ? { kind } : {}) }))
+    t(1, 'check')
+    t(2, 'setup')
+    t(3, 'delivery')
+    t(4)
+    expect(heavyQueue(queueDir).map((x) => x.kind)).toEqual(['check', 'setup', 'delivery', undefined])
+  })
+})
+
 describe('orchestration-guide W8-C block', () => {
   it('tells workers to use astera heavy, that hand tabs share the lock, and never to kill the orchestrator', () => {
     const guide = readFileSync(path.resolve(__dirname, '../../../resources/skills/orchestration-guide.md'), 'utf8')

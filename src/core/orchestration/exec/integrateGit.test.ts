@@ -14,6 +14,8 @@ import {
   type ReapContext
 } from './integrateGit'
 import { createActionPresenceCheck } from '../../worktrees/presence'
+import { untilInstallQueues } from '../../worktrees/setup'
+import { heavySlot } from './validation'
 import { PROBE_TIMEOUT_MS } from '../../sessions/pathProbe'
 
 let repo: string, registry: WorktreeRegistry, logs: string[], ops: string[], reaped: string[]
@@ -63,6 +65,26 @@ describe('forkWorktree', () => {
     await expect(fs.stat(path.join(ran, 'ran.txt'))).resolves.toBeTruthy()
     const off = await forkWorktree({ repoPath: repo, name: 'off' }, { registry, log: () => {}, setupCommand: 'off' })
     await expect(fs.stat(path.join(off, 'ran.txt'))).rejects.toThrow()
+  })
+  // T2: inside a worker start's install turn the install waits for one of the machine's heavy slots, after the fork turn
+  // is handed on, and says when it queues
+  it('inside an install turn, waits for a heavy slot outside the repo fork turn: a second fork goes ahead meanwhile', async () => {
+    const root = await tempDir('astera-fork-heavy-')
+    const at = { lock: path.join(root, 'lock'), queueDir: path.join(root, 'queue'), pollMs: 20 }
+    const holder = (await heavySlot({ ...at, cwd: path.join(root, 'held'), cmd: 'held' }))!
+    const setupCommand = `node -e "require('fs').writeFileSync('ran.txt','')"`
+    const start = (name: string) =>
+      untilInstallQueues({ slots: async () => 1, ...at }, () => forkWorktree({ repoPath: repo, name }, { registry, log: () => {}, setupCommand }))
+    const a = await start('a')
+    if (!('queued' in a)) throw new Error('a did not queue its install')
+    // a's install still waits for the slot, and b's git half has run all the same
+    const b = await start('b')
+    if (!('queued' in b)) throw new Error('b did not queue its install')
+    await expect(fs.stat(path.join(a.queued.dir, 'ran.txt'))).rejects.toThrow()
+    holder()
+    const [wa, wb] = await Promise.all([a.queued.rest, b.queued.rest])
+    expect([wa, wb]).toEqual([a.queued.dir, b.queued.dir])
+    for (const wt of [wa, wb]) await expect(fs.stat(path.join(wt, 'ran.txt'))).resolves.toBeTruthy()
   })
   it('logs a failing setup and still forks', async () => {
     const wt = await forkWorktree({ repoPath: repo, name: 'bad' }, { registry, log: logTo(), setupCommand: 'echo nope; exit 2' })
