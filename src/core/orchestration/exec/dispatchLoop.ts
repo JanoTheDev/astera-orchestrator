@@ -1058,8 +1058,19 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       const key = `${t.id}@${t.updatedAt}`
       if (failedStepTried.has(key)) continue
       if (step.kind === 'escalate') {
+        if (!c.mayStart()) return
         failedStepTried.add(key)
         log(`run=${t.runId}: failed ${t.id} goes to the owner: ${step.why}`)
+        // Hands-off leftovers: asked now, stalled Run or not (`unstallRuns` only asks for a stalled one); once per failure
+        try {
+          const r = await c.handle('run-failed-ask', { run: t.runId, task: t.id })
+          const asked = (r.body as { asked?: unknown[] } | undefined)?.asked
+          if (r.status >= 400) log(`run=${t.runId}: asking the owner about failed ${t.id} was refused: ${JSON.stringify(r.body)}`)
+          else if (Array.isArray(asked) && asked.length > 0 && t.runId !== undefined)
+            c.activity?.(watchdogActivity(c.getState(), t.runId, `${t.title} failed and goes to the owner: ${step.why}`, t.id))
+        } catch (e) {
+          log(`run=${t.runId}: asking the owner about failed ${t.id} failed: ${String(e)}`)
+        }
         continue
       }
       if (step.kind === 'wait' || (step.kind === 'retry' && !step.due)) continue

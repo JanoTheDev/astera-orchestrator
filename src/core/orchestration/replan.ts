@@ -280,10 +280,15 @@ export function failedWaitQuestion(s: OrchState, block: FailedBlock, now: string
     runId: block.task.runId ?? '',
     type: 'escalation',
     taskId: block.task.id,
-    subject: `${plan}: ${n} Task${n === 1 ? '' : 's'} wait on failed ${block.task.title}: ${oneLine(block.task.result, 300)}`.slice(0, 500),
+    subject: (n === 0
+      ? `${plan}: failed ${block.task.title}: ${oneLine(block.task.result, 300)}`
+      : `${plan}: ${n} Task${n === 1 ? '' : 's'} wait on failed ${block.task.title}: ${oneLine(block.task.result, 300)}`
+    ).slice(0, 500),
     body:
-      `${block.task.title} (${block.task.id}) failed, and nothing else can move the plan: ` +
-      `${block.waiting.map((t) => t.title).join(', ')} wait on it.\n\n` +
+      (n === 0
+        ? `${block.task.title} (${block.task.id}) failed and Astera cannot settle it itself; nothing waits on it.\n\n`
+        : `${block.task.title} (${block.task.id}) failed, and nothing else can move the plan: ` +
+          `${block.waiting.map((t) => t.title).join(', ')} wait on it.\n\n`) +
       `${FAILED_WAIT_OPTIONS[0]}: run it again. ${FAILED_WAIT_OPTIONS[1]}: take what it did as done, with its gaps, so what ` +
       `waits on it starts. ${FAILED_WAIT_OPTIONS[2]}: drop the Tasks that wait on it; the rest of the plan ends.`,
     options: [...FAILED_WAIT_OPTIONS],
