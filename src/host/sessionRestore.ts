@@ -36,7 +36,8 @@
 // (`restartWaitingOn`), then writes the handover with `restart: true` and marks every session whose Dispatch is still
 // open `working`. The next Host keeps those Dispatches open through its load's cleanup (`handedOverWorkers` is read
 // before anything can load), resumes each such worker under its own id on its own account with RESTART_RESUME_LINE as
-// its one prompt, and hands one it cannot resume to the recovery (`lostWorker`), as a crash would. Then it lifts a
+// its one prompt and its own start settings (`startedWith`, T19: model, effort, bypass, a claude worker's barred
+// tools), and hands one it cannot resume to the recovery (`lostWorker`), as a crash would. Then it lifts a
 // restart's hold and writes `restartFeedLine` to the activity feed. What the worker was running in the old Host
 // (`astera heavy` children, a setup install) ended with it: the worker runs it again, and the tickets and owner files
 // it left read dead (their pid is gone) and are dropped.
@@ -45,8 +46,10 @@
 import { mkdirSync, promises as fs, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import type { PtyMeta, PtyOpenOptions } from '../core/host/protocol'
-import type { OrchState } from '../core/orchestration/state'
+import { jobOf, type OrchState } from '../core/orchestration/state'
 import { isPlaceholderSessionId } from '../core/orchestration/types'
+import { handsOffOf } from '../core/orchestration/delivery'
+import { WORKER_DISALLOWED_TOOLS } from '../core/orchestration/exec/coordinator'
 import { liftStartHold } from '../core/orchestration/startHold'
 import { providerOf } from '../core/providers/meta'
 import { claudeHistoryStrategy, findClaudeTranscript } from '../core/history/strategies/claude'
@@ -68,6 +71,13 @@ export interface SavedSession {
   nativeSessionId?: string
   /** When the session first started (SessionInfo.startedAt): a resumed session keeps its elapsed time. */
   startedAt?: number
+  /** T19: what the session was started with, from its note (core/sessions/manager.ts writes them there): a worker or a
+   *  replan's planner a handover resumes keeps them. Absent in a file an older Host wrote. */
+  model?: string
+  effort?: string
+  bypassPermissions?: boolean
+  /** The phrase its rolling types on a resume: a worker's names its report (coordinator.ts startWorker). */
+  rollPrompt?: string
 }
 
 export type SessionRole = 'user' | 'planner' | 'coordinator' | 'worker' | 'replan'
@@ -160,7 +170,11 @@ export function savedOf(meta: PtyMeta | null): SavedSession | null {
     ...(str(r.title) ? { title: str(r.title) } : {}),
     ...(rolls.length > 0 ? { rollAccountIds: rolls } : {}),
     ...(native ? { nativeSessionId: native } : {}),
-    ...(typeof r.startedAt === 'number' ? { startedAt: r.startedAt } : {})
+    ...(typeof r.startedAt === 'number' ? { startedAt: r.startedAt } : {}),
+    ...(str(r.model) ? { model: str(r.model) } : {}),
+    ...(str(r.effort) ? { effort: str(r.effort) } : {}),
+    ...(typeof r.bypassPermissions === 'boolean' ? { bypassPermissions: r.bypassPermissions } : {}),
+    ...(str(r.rollPrompt) ? { rollPrompt: str(r.rollPrompt) } : {})
   }
 }
 
@@ -481,6 +495,31 @@ export function roleOf(s: OrchState | null, sessionId: string): SessionRole {
   return 'user'
 }
 
+type StartSettings = Pick<Parameters<RestoreDeps['createSession']>[0], 'model' | 'effort' | 'bypassPermissions' | 'disallowedTools' | 'rollPrompt'>
+
+/** T19: what a worker, or a replan's planner, was started with, so the session a handover resumes runs as it did: the
+ *  model, effort, bypass and roll phrase its note had (`savedOf`); for a handover an older Host wrote, without them, the
+ *  model and effort its last Dispatch recorded and the bypass a hands-off plan gives its workers (workerStart.ts). And a
+ *  claude worker is started without `WORKER_DISALLOWED_TOOLS` again (coordinator.ts startWorker), read from its last
+ *  Dispatch's provider, since no note keeps it. Absent: the spawn's own default. */
+export function startedWith(row: SavedSession, s: OrchState | null): StartSettings {
+  const last = s?.dispatches.filter((x) => x.sessionId === row.sessionId).at(-1)
+  const model = str(row.model) ?? str(last?.model)
+  const effort = str(row.effort) ?? str(last?.effort)
+  const task = last && s?.tasks.find((t) => t.id === last.taskId)
+  const run = task && s?.runs.find((r) => r.id === task.runId)
+  const job = run && s ? jobOf(s, run) : undefined
+  const bypass = typeof row.bypassPermissions === 'boolean' ? row.bypassPermissions : job && s && handsOffOf(s, job) ? true : undefined
+  const rollPrompt = str(row.rollPrompt)
+  return {
+    ...(model ? { model } : {}),
+    ...(effort ? { effort } : {}),
+    ...(bypass !== undefined ? { bypassPermissions: bypass } : {}),
+    ...(last?.provider === 'claude' ? { disallowedTools: [...WORKER_DISALLOWED_TOOLS] } : {}),
+    ...(rollPrompt ? { rollPrompt } : {})
+  }
+}
+
 export interface RestoreDeps {
   saved: SavedSession[]
   /** orchestration.json as the crash left it, before a load; null when there is none. */
@@ -498,8 +537,16 @@ export interface RestoreDeps {
     autoAccounts: boolean
     sessionId?: string
     startedAt?: number
-    /** The one prompt it starts with: RESTART_RESUME_LINE for a worker a restart handed over mid-Task (T13). */
+    /** The one prompt it starts with: RESTART_RESUME_LINE for a worker a restart handed over mid-Task (T13). The spawner
+     *  hands it to a codex resume as its resume phrase (T19). */
     initialPrompt?: string
+    /** T19: a worker's or a replan planner's own start settings (`startedWith`); absent: the spawn's defaults (the CLI's
+     *  model and effort, the bypass the settings say, every tool). */
+    model?: string
+    effort?: string
+    bypassPermissions?: boolean
+    disallowedTools?: string[]
+    rollPrompt?: string
   }): Promise<{ id: string }>
   /** Whether the agent CLI can resume this conversation (`conversationOnDisk`); absent: assumed it can. */
   hasConversation?(accountId: string, nativeId: string): Promise<boolean>
@@ -566,6 +613,8 @@ export async function restoreSessions(d: RestoreDeps): Promise<{ tabs: number; p
         autoAccounts: !midTask,
         ...(d.handover ? { sessionId: row.sessionId } : {}),
         ...(row.startedAt !== undefined ? { startedAt: row.startedAt } : {}),
+        // T19: a worker comes back on its own model, effort, bypass and tools; a person's tab as before
+        ...(role === 'worker' ? startedWith(row, d.state) : {}),
         ...(midTask ? { initialPrompt: RESTART_RESUME_LINE } : {})
       })
       d.log(`session restore: ${row.sessionId} resumed as ${info.id} (conversation ${native}) in ${row.cwd}${midTask ? ', told it was restarted mid-Task' : ''}`)

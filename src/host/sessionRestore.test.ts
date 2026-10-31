@@ -22,6 +22,8 @@ import {
   restartFeedLine,
   restartWaitingOn,
   RESTART_RESUME_LINE,
+  savedOf,
+  startedWith,
   withoutResumed,
   writeCleanExit,
   writeHandover,
@@ -29,7 +31,7 @@ import {
   type RestoreDeps,
   type SavedSession
 } from './sessionRestore'
-import { buildClaudeCommand, LAUNCH_FORBIDDEN } from '../core/sessions/commands'
+import { buildClaudeCommand, buildCodexCommand, LAUNCH_FORBIDDEN } from '../core/sessions/commands'
 import { readStartHold, writeStartHold } from '../core/orchestration/startHold'
 import { stateFromLegacy } from '../core/orchestration/legacyState'
 import type { PtyEntry, PtyMeta } from '../core/host/protocol'
@@ -598,10 +600,10 @@ describe('a restart (T13): working Tasks are handed over too', () => {
     expect(r).toEqual({ tabs: 4, planners: 0, ptys: 0, chats: 0 })
     expect(lost).toEqual([])
     expect(created).toEqual([
-      { accountId: 'acc_1', cwd: '/w/wt', title: 'T1', rollAccountIds: [], resumeSessionId: 'n-w1', autoAccounts: false, sessionId: 'worker-1', initialPrompt: RESTART_RESUME_LINE },
-      { accountId: 'acc_2', cwd: '/w/wt2', rollAccountIds: ['acc_2', 'acc_3'], resumeSessionId: 'n-w2', autoAccounts: false, sessionId: 'worker-2', initialPrompt: RESTART_RESUME_LINE },
+      { accountId: 'acc_1', cwd: '/w/wt', title: 'T1', rollAccountIds: [], resumeSessionId: 'n-w1', autoAccounts: false, sessionId: 'worker-1', disallowedTools: ['AskUserQuestion'], initialPrompt: RESTART_RESUME_LINE },
+      { accountId: 'acc_2', cwd: '/w/wt2', rollAccountIds: ['acc_2', 'acc_3'], resumeSessionId: 'n-w2', autoAccounts: false, sessionId: 'worker-2', disallowedTools: ['AskUserQuestion'], initialPrompt: RESTART_RESUME_LINE },
       // Done with its Task, and a person's tab: as the automatic swap brings them back, with nothing typed in
-      { accountId: 'acc_1', cwd: '/w/wt3', rollAccountIds: [], resumeSessionId: 'n-wd', autoAccounts: true, sessionId: 'worker-done' },
+      { accountId: 'acc_1', cwd: '/w/wt3', rollAccountIds: [], resumeSessionId: 'n-wd', autoAccounts: true, sessionId: 'worker-done', disallowedTools: ['AskUserQuestion'] },
       { accountId: 'acc_1', cwd: '/w/a', rollAccountIds: [], resumeSessionId: 'n-t1', autoAccounts: true, sessionId: 'tab-1' }
     ])
     expect(created.filter((c) => c.initialPrompt === RESTART_RESUME_LINE).map((c) => c.sessionId)).toEqual(['worker-1', 'worker-2'])
@@ -654,7 +656,7 @@ describe('a restart (T13): working Tasks are handed over too', () => {
     const reported = { ...s, dispatches: s.dispatches.map((d) => (d.id === 'dsp_1' ? { ...d, endedAt: NOW, outcome: 'succeeded' as const } : d)) }
     const { deps, created } = restoreDeps({ state: reported })
     await restoreSessions({ ...deps, saved: [{ ...rows[0], working: true } as SavedSession], handover: true })
-    expect(created).toEqual([{ accountId: 'acc_1', cwd: '/w/wt', title: 'T1', rollAccountIds: [], resumeSessionId: 'n-w1', autoAccounts: true, sessionId: 'worker-1' }])
+    expect(created).toEqual([{ accountId: 'acc_1', cwd: '/w/wt', title: 'T1', rollAccountIds: [], resumeSessionId: 'n-w1', autoAccounts: true, sessionId: 'worker-1', disallowedTools: ['AskUserQuestion'] }])
   })
 
   it('keeps crash resume from waiting on the workers the handover resumes', () => {
@@ -740,5 +742,101 @@ describe('restartWaitingOn (the safe point)', () => {
     expect(restartWaitingOn(s, { alive: () => false, busy: () => null })).toEqual([])
     const starting = { ...s, jobs: [{ ...job, replanning: { ...job.replanning!, sessionId: undefined } }] }
     expect(restartWaitingOn(starting, { alive: () => false, busy: () => null })).toEqual([job.id])
+  })
+})
+
+describe('T19: a restart brings every agent back as it was', () => {
+  /** A Run with a coordinator, a claude worker and a codex worker mid-Task, each Dispatch with the model it started on. */
+  const working = (o: { handsOff?: boolean } = {}): OrchState => {
+    const s = crashed()
+    const d = s.dispatches[0]
+    return {
+      ...s,
+      jobs: s.jobs.map((j) => (s.runs.some((r) => r.jobId === j.id) && o.handsOff ? { ...j, handsOff: true } : j)),
+      tasks: [
+        { id: 'tsk_1', status: 'dispatched', runId: 'run_1' },
+        { id: 'tsk_2', status: 'dispatched', runId: 'run_1' }
+      ] as OrchState['tasks'],
+      dispatches: [
+        { ...d, model: 'claude-sonnet-5-5', effort: 'high' },
+        { ...d, id: 'dsp_2', taskId: 'tsk_2', provider: 'codex', accountId: 'acc_cx', sessionId: 'worker-cx', cwd: '/w/wt2', model: 'gpt-5.5' }
+      ] as OrchState['dispatches']
+    }
+  }
+  /** The two workers' notes, as the spawn wrote them (core/sessions/manager.ts). */
+  const claudeNote = meta('worker-1', {
+    accountId: 'acc_1', cwd: '/w/wt', title: 'T1', resumeSessionId: 'n-w1', model: 'claude-sonnet-5-5', effort: 'high', bypassPermissions: true,
+    rollPrompt: 'Continue the work. When it is finished, report exactly once.'
+  })
+  const codexNote = meta('worker-cx', { accountId: 'acc_cx', cwd: '/w/wt2', codexSessionId: 'th-cx', model: 'gpt-5.5', bypassPermissions: true })
+
+  it('keeps each worker\'s start settings in the handover, read from its note', () => {
+    const h = handoverOf({ sessions: [savedOf(claudeNote)!, savedOf(codexNote)!], ptys: [], procs: [], state: working(), baseEnv: {}, restart: true })
+    expect(h.sessions).toEqual([
+      {
+        sessionId: 'worker-1', accountId: 'acc_1', cwd: '/w/wt', title: 'T1', nativeSessionId: 'n-w1', model: 'claude-sonnet-5-5', effort: 'high',
+        bypassPermissions: true, rollPrompt: 'Continue the work. When it is finished, report exactly once.', dispatchId: 'dsp_1', working: true
+      },
+      { sessionId: 'worker-cx', accountId: 'acc_cx', cwd: '/w/wt2', nativeSessionId: 'th-cx', model: 'gpt-5.5', bypassPermissions: true, dispatchId: 'dsp_2', working: true }
+    ])
+  })
+
+  it('resumes a mid-Task claude worker with its model, effort, bypass and barred tools, and a codex one with the line', async () => {
+    writeHandover(dir, handoverOf({ sessions: [savedOf(claudeNote)!, savedOf(codexNote)!], ptys: [], procs: [], state: working(), baseEnv: {}, restart: true }))
+    const left = await leftBehind(dir)
+    const { deps, created } = restoreDeps({ state: working() })
+    await restoreHandover({ ...deps, file: handoverFileIn(dir), handover: left.handover!, baseEnv: {}, openPty: () => {}, respawnChat: async () => {} })
+    expect(created).toEqual([
+      {
+        accountId: 'acc_1', cwd: '/w/wt', title: 'T1', rollAccountIds: [], resumeSessionId: 'n-w1', autoAccounts: false, sessionId: 'worker-1',
+        model: 'claude-sonnet-5-5', effort: 'high', bypassPermissions: true, disallowedTools: ['AskUserQuestion'],
+        rollPrompt: 'Continue the work. When it is finished, report exactly once.', initialPrompt: RESTART_RESUME_LINE
+      },
+      // codex has no AskUserQuestion to bar
+      {
+        accountId: 'acc_cx', cwd: '/w/wt2', rollAccountIds: [], resumeSessionId: 'th-cx', autoAccounts: false, sessionId: 'worker-cx',
+        model: 'gpt-5.5', bypassPermissions: true, initialPrompt: RESTART_RESUME_LINE
+      }
+    ])
+    // The claude launch: the role settings, then the resume with the line as its one prompt
+    const claude = buildClaudeCommand('linux', () => null)({ ...created[0], resumeSessionId: 'n-w1' }).args
+    expect(claude).toEqual(expect.arrayContaining(['--model', 'claude-sonnet-5-5', '--effort', 'high', '--disallowedTools', 'AskUserQuestion', '--dangerously-skip-permissions']))
+    expect(claude.slice(-2)).toEqual(['--', RESTART_RESUME_LINE])
+    // The codex launch, as the spawner hands a resume its line (spawner.ts createSession): `resume <id> <line>`
+    const codex = buildCodexCommand('linux', () => null)({ resumeSessionId: 'th-cx', resumePrompt: created[1].initialPrompt, model: 'gpt-5.5', bypassPermissions: true }).args
+    expect(codex.slice(codex.indexOf('resume'), codex.indexOf('resume') + 3)).toEqual(['resume', 'th-cx', RESTART_RESUME_LINE])
+    expect(codex).toEqual(expect.arrayContaining(['-m', 'gpt-5.5']))
+  })
+
+  it('still restores from a handover an older Host wrote, taking the model and effort from the Dispatch', async () => {
+    // No model, effort, bypass or roll phrase on the rows: what a Host before T19 wrote
+    const old = {
+      sessions: [
+        { sessionId: 'worker-1', accountId: 'acc_1', cwd: '/w/wt', nativeSessionId: 'n-w1', dispatchId: 'dsp_1', working: true },
+        { sessionId: 'tab-1', accountId: 'acc_1', cwd: '/w/a', nativeSessionId: 'n-t1' }
+      ],
+      ptys: [],
+      restart: true
+    }
+    await fs.mkdir(path.dirname(handoverFileIn(dir)), { recursive: true })
+    await fs.writeFile(handoverFileIn(dir), JSON.stringify(old))
+    expect(handedOverWorkers(dir)).toEqual(['worker-1'])
+    const left = await leftBehind(dir)
+    const { deps, created } = restoreDeps({ state: working({ handsOff: true }) })
+    const r = await restoreHandover({ ...deps, file: handoverFileIn(dir), handover: left.handover!, baseEnv: {}, openPty: () => {}, respawnChat: async () => {} })
+    expect(r.tabs).toBe(2)
+    expect(created).toEqual([
+      {
+        accountId: 'acc_1', cwd: '/w/wt', rollAccountIds: [], resumeSessionId: 'n-w1', autoAccounts: false, sessionId: 'worker-1',
+        // a hands-off plan's worker runs bypassed (workerStart.ts)
+        model: 'claude-sonnet-5-5', effort: 'high', bypassPermissions: true, disallowedTools: ['AskUserQuestion'], initialPrompt: RESTART_RESUME_LINE
+      },
+      // A person's tab as before: the spawn's own defaults
+      { accountId: 'acc_1', cwd: '/w/a', rollAccountIds: [], resumeSessionId: 'n-t1', autoAccounts: true, sessionId: 'tab-1' }
+    ])
+    // Not hands-off and no note: the bypass is left to the settings the spawn reads
+    expect(startedWith({ sessionId: 'worker-1', accountId: 'acc_1', cwd: '/w/wt' }, working())).toEqual({
+      model: 'claude-sonnet-5-5', effort: 'high', disallowedTools: ['AskUserQuestion']
+    })
   })
 })
