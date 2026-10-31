@@ -9,10 +9,23 @@
 //
 // So the Host **knows the tree while it is alive**: one process query per tick for every live worker
 // session at once, and each descendant is remembered by pid **and** creation time, so a pid Windows hands
-// to another process later is never taken for it. When the Dispatch has ended and its session is gone,
-// the remembered processes still alive, and the orphans whose command line names the worker's worktree,
-// are stopped. Never anything under a live pty or line process of this Host (the owner's tabs, other
-// sessions), the Host itself or its ancestors (the app).
+// to another process later is never taken for it.
+//
+// **At the close.** A worker that reports does not end: it waits at its prompt, and only the release at the
+// end of the Run (or the coordinator) ends its session. So the leftovers go when the Dispatch closes, not
+// when the session does. Every commit tells the tracker (`stateChanged`); the next look records the tree
+// as it is at the close, and a look `LEFTOVER_CLOSE_GRACE_MS` later stops what of it is still alive, plus
+// the orphans whose command line names the worker's worktree. The grace lets the worker's own report
+// (`astera send`) and the hooks of its last turn finish. What the session needs to go on living is
+// spared: its **own** processes, the ones it had when the tracker first saw the Dispatch and the ones it
+// started in its first `SESSION_SETTLE_MS` (the agent, its MCP servers, the start hooks), and anything
+// made after the close (a hook, the statusline, the next Dispatch of a reused session).
+//
+// **At the session's end** whatever is still alive of the remembered tree goes too, its own processes
+// included: an MCP server that outlives its agent is a leftover as well.
+//
+// Never anything under another live pty or line process of this Host (the owner's tabs, other sessions),
+// the Host itself or its ancestors (the app).
 //
 // The pure parts (parsing, the descendant walk, choosing what to stop, the activity line) are exported
 // for tests; everything that touches a real process arrives as a dependency.
@@ -25,6 +38,16 @@ export const LEFTOVER_TICK_MS = 45_000
 /** After a session's pty ends, how long before the tracker looks again: the exit defer
  *  (`EXIT_DEFER_MS`, 3 s) for the Dispatch to close, plus time for the session's own tree kill. */
 export const LEFTOVER_AFTER_EXIT_MS = 8_000
+/** After a look first sees a Dispatch closed while its session lives, how long before what its worker left
+ *  is stopped: the worker's own `astera send` and the hooks of its last turn are done by then. */
+export const LEFTOVER_CLOSE_GRACE_MS = 10_000
+/** Commits come in bursts: the tracker reads the state for a new close at most once per this. */
+export const LEFTOVER_STATE_CHECK_MS = 1_000
+/** What a session starts in its first 30 s is its own (the agent, its MCP servers, the start hooks), and is
+ *  never stopped while the session lives. */
+export const SESSION_SETTLE_MS = 30_000
+/** `ProcRow.created` units per ms: ms on Windows, clock ticks on Linux, where USER_HZ is 100. */
+const createdPerMs = (platform: NodeJS.Platform): number => (platform === 'win32' ? 1 : 0.1)
 /** Linux: how long a SIGTERM gets before the SIGKILL. */
 export const LINUX_TERM_GRACE_MS = 5_000
 
@@ -196,13 +219,21 @@ export interface StopGuard {
   /** A worktree-matched process must have been made at or after this (the Dispatch's start), in the
    *  platform's `created` unit. */
   since?: number
+  /** A remembered or worktree-matched process must have been made at or before this (the Dispatch's end),
+   *  in the platform's `created` unit: what came after the close is not the worker's. Their descendants are
+   *  taken whenever they were made. */
+  until?: number
+  /** Never stopped, by identity: a live session's own processes (its agent, its MCP servers). Their
+   *  descendants are not covered by this, and are not walked from them. */
+  keep?: readonly ProcId[]
 }
 
 /**
  * What to stop for one ended Dispatch: the `remembered` descendants still alive (same pid **and**
  * creation time), the processes whose command line names `worktree` and whose parent is gone (a process
  * an editor or a service started for that folder has a live parent and is left alone), and the
- * descendants of both. Minus everything under `guard.liveRoots`, the Host and its ancestors.
+ * descendants of both. Minus everything under `guard.liveRoots`, the Host and its ancestors, and
+ * `guard.keep`.
  */
 export function toStop(
   remembered: readonly ProcId[],
@@ -212,14 +243,18 @@ export function toStop(
   guard: StopGuard
 ): ProcRow[] {
   const byPid = new Map(nowRows.map((r) => [r.pid, r]))
+  const kept = new Map((guard.keep ?? []).map((k) => [k.pid, k.created]))
+  const isKept = (p: ProcId): boolean => kept.get(p.pid) === p.created
+  const inTime = (created: number): boolean => guard.until === undefined || created <= guard.until
+  const roots = remembered.filter((m) => !isKept(m) && inTime(m.created))
   const seeds = new Map<number, ProcRow>()
-  for (const m of remembered) {
+  for (const m of roots) {
     const r = byPid.get(m.pid)
     if (r && r.created === m.created) seeds.set(r.pid, r)
   }
   if (worktree) {
     for (const r of nowRows) {
-      if (seeds.has(r.pid) || !namesWorktree(r.cmd, worktree, platform)) continue
+      if (seeds.has(r.pid) || isKept(r) || !inTime(r.created) || !namesWorktree(r.cmd, worktree, platform)) continue
       if (guard.since !== undefined && r.created < guard.since) continue
       const parent = liveParent(byPid, r)
       // Linux hands an orphan to init (or a subreaper), so a parent there that is pid 1 counts as gone.
@@ -228,7 +263,8 @@ export function toStop(
     }
   }
   const picked = new Map<number, ProcRow>(seeds)
-  for (const d of descendantsOf(nowRows, [...remembered, ...seeds.values()])) picked.set(d.pid, d)
+  for (const d of descendantsOf(nowRows, [...roots, ...seeds.values()])) picked.set(d.pid, d)
+  for (const r of picked.values()) if (isKept(r)) picked.delete(r.pid)
   if (picked.size === 0) return []
 
   const shielded = new Set<number>(guard.liveRoots)
@@ -281,6 +317,8 @@ export interface LeftoverDispatch {
   worktree: string | null
   /** When the Dispatch started, in the platform's `created` unit (see `StopGuard.since`). */
   since?: number
+  /** When it ended, in the platform's `created` unit (see `StopGuard.until`). */
+  until?: number
   /** Has it ended (an outcome or an end time)? */
   closed: boolean
   /** A Dispatch whose leftovers must stay: retained by the user, or abandoned (its resources may live on). */
@@ -307,16 +345,24 @@ export interface LeftoverTrackerDeps {
   log(m: string): void
   every?(ms: number, fn: () => void): () => void
   after?(ms: number, fn: () => void): () => void
+  now?(): number
   tickMs?: number
   afterExitMs?: number
+  closeGraceMs?: number
+  stateCheckMs?: number
 }
 
 export interface LeftoverTracker {
   /** One look: records the trees of the live workers, frees the Dispatches that ended. Never rejects. */
   tick(): Promise<void>
+  /** The orchestration state moved (every commit: a Dispatch may have closed). Looks soon if one did.
+   *  Never throws. */
+  stateChanged(): void
   /** A session's pty ended: look again once its Dispatch has had time to close. Never throws. */
   sessionEnded(sessionId: string): void
-  /** Stops what this Dispatch's worker left running, now. Never rejects; runs at most once per Dispatch. */
+  /** Stops what this Dispatch's worker left running, now: while its session lives, what is not the
+   *  session's own; once it is gone, everything remembered. Never rejects; each of the two runs at most
+   *  once per Dispatch. */
   freeFor(dispatchId: string, rows?: ProcRow[]): Promise<number>
   /** What is remembered for a Dispatch (tests, logs). */
   rememberedOf(dispatchId: string): ProcId[]
@@ -326,10 +372,20 @@ export interface LeftoverTracker {
 interface Memory {
   sessionId: string
   procs: Map<number, ProcId>
+  /** The session's own processes (see `SESSION_SETTLE_MS`): never stopped while the session lives. */
+  own: Map<number, ProcId>
   worktree: string | null
   since?: number
+  until?: number
   label: string
+  /** When a look first saw the Dispatch closed with its session alive (`now()`). The tree stops growing
+   *  there: what the session starts afterwards is not this worker's. */
+  closedSeenAt?: number
+  /** The close's free has run (the session lived on); what is left waits for the session's end. */
+  freedAtClose?: boolean
 }
+
+const idOf = (r: ProcRow): ProcId => ({ pid: r.pid, created: r.created })
 
 export function createLeftoverTracker(d: LeftoverTrackerDeps): LeftoverTracker {
   const every =
@@ -346,42 +402,97 @@ export function createLeftoverTracker(d: LeftoverTrackerDeps): LeftoverTracker {
       t.unref?.()
       return () => clearTimeout(t)
     })
-  /** Per Dispatch, from the first tick that saw it open until it is freed. */
+  const now = d.now ?? Date.now
+  const closeGraceMs = d.closeGraceMs ?? LEFTOVER_CLOSE_GRACE_MS
+  const settle = SESSION_SETTLE_MS * createdPerMs(d.platform)
+  /** Per Dispatch, from the first look that saw its session alive until its session's end is freed. */
   const memory = new Map<string, Memory>()
-  /** Dispatches already freed (or given up): never twice. Bounded by the Dispatches this Host has seen. */
+  /** Dispatches freed at their session's end (or given up): never again. Bounded by the Dispatches this Host has seen. */
   const done = new Set<string>()
   let running: Promise<void> | null = null
   let again = false
   let disposed = false
-  let cancelAfter: (() => void) | null = null
+  /** The one planned look, the earliest asked for. */
+  let wake: { at: number; cancel: () => void } | null = null
+  let stateCheck: (() => void) | null = null
+
+  const lookIn = (ms: number): void => {
+    if (disposed) return
+    const at = now() + ms
+    if (wake && wake.at <= at) return
+    wake?.cancel()
+    wake = {
+      at,
+      cancel: after(ms, () => {
+        wake = null
+        void tick()
+      })
+    }
+  }
 
   const memoryOf = (x: LeftoverDispatch): Memory => {
     let m = memory.get(x.dispatchId)
     if (!m) {
-      m = { sessionId: x.sessionId, procs: new Map(), worktree: x.worktree, since: x.since, label: x.label }
+      m = { sessionId: x.sessionId, procs: new Map(), own: new Map(), worktree: x.worktree, since: x.since, label: x.label }
       memory.set(x.dispatchId, m)
     }
     return m
   }
 
-  const freeWith = async (dispatchId: string, rows?: ProcRow[]): Promise<number> => {
+  /** Stops `stop` and writes the Dispatch's activity line. Throws only what `d.stop` throws. */
+  const stopAndTell = async (dispatchId: string, m: Memory, stop: ProcRow[], when: string): Promise<number> => {
+    if (stop.length === 0) return 0
+    await d.stop(stop)
+    const line = freedLine(m.label, stop)
+    d.log(`leftovers: dispatch ${dispatchId} (${when}): ${line} (${stop.map((r) => r.pid).join(', ')})`)
+    try {
+      d.freed(dispatchId, line)
+    } catch (err) {
+      d.log(`leftovers: the activity line for dispatch ${dispatchId} could not be written: ${String(err)}`)
+    }
+    return stop.length
+  }
+
+  /** The Dispatch has closed and its session lives on: what the worker started, and what of it is still
+   *  alive, goes; the session's own processes and the session itself stay. At most once per Dispatch. */
+  const freeAtClose = async (dispatchId: string, sessionPid: number, rows?: ProcRow[]): Promise<number> => {
+    const m = memory.get(dispatchId)
+    if (!m || done.has(dispatchId) || m.freedAtClose) return 0
+    m.freedAtClose = true
+    try {
+      const current = rows ?? (await d.list())
+      const root = current.find((r) => r.pid === sessionPid)
+      const keep = [...m.own.values(), ...(root ? [idOf(root)] : [])]
+      const stop = toStop([...m.procs.values()], current, m.worktree, d.platform, {
+        // The session's own tree is not shielded as a whole here, only its own processes are (`keep`).
+        liveRoots: d.liveRoots().filter((p) => p !== sessionPid),
+        hostPid: d.hostPid,
+        since: m.since,
+        until: m.until,
+        keep
+      }).filter((r) => r.pid !== sessionPid)
+      return await stopAndTell(dispatchId, m, stop, 'at its close')
+    } catch (err) {
+      d.log(`leftovers: freeing what dispatch ${dispatchId} left running at its close failed: ${String(err)}`)
+      return 0
+    }
+  }
+
+  /** The Dispatch has closed and its session is gone: everything remembered that is still alive goes. */
+  const freeAtEnd = async (dispatchId: string, rows?: ProcRow[]): Promise<number> => {
     const m = memory.get(dispatchId)
     if (!m || done.has(dispatchId)) return 0
     done.add(dispatchId)
     memory.delete(dispatchId)
     try {
-      const now = rows ?? (await d.list())
-      const stop = toStop([...m.procs.values()], now, m.worktree, d.platform, { liveRoots: d.liveRoots(), hostPid: d.hostPid, since: m.since })
-      if (stop.length === 0) return 0
-      await d.stop(stop)
-      const line = freedLine(m.label, stop)
-      d.log(`leftovers: dispatch ${dispatchId}: ${line} (${stop.map((r) => r.pid).join(', ')})`)
-      try {
-        d.freed(dispatchId, line)
-      } catch (err) {
-        d.log(`leftovers: the activity line for dispatch ${dispatchId} could not be written: ${String(err)}`)
-      }
-      return stop.length
+      const current = rows ?? (await d.list())
+      const stop = toStop([...m.procs.values()], current, m.worktree, d.platform, {
+        liveRoots: d.liveRoots(),
+        hostPid: d.hostPid,
+        since: m.since,
+        until: m.until
+      })
+      return await stopAndTell(dispatchId, m, stop, 'at its session end')
     } catch (err) {
       d.log(`leftovers: freeing what dispatch ${dispatchId} left running failed: ${String(err)}`)
       return 0
@@ -390,8 +501,10 @@ export function createLeftoverTracker(d: LeftoverTrackerDeps): LeftoverTracker {
 
   const look = async (): Promise<void> => {
     const all = d.dispatches()
-    const live: Array<{ x: LeftoverDispatch; pid: number }> = []
-    const due: LeftoverDispatch[] = []
+    const t = now()
+    const live: Array<{ x: LeftoverDispatch; pid: number; closing: boolean }> = []
+    const atClose: Array<{ x: LeftoverDispatch; pid: number }> = []
+    const atEnd: LeftoverDispatch[] = []
     for (const x of all) {
       if (done.has(x.dispatchId)) continue
       if (x.keep) {
@@ -399,28 +512,58 @@ export function createLeftoverTracker(d: LeftoverTrackerDeps): LeftoverTracker {
         if (memory.delete(x.dispatchId) || x.closed) done.add(x.dispatchId)
         continue
       }
+      const m = memory.get(x.dispatchId)
+      if (m && x.until !== undefined) m.until = x.until
       const pid = d.sessionPid(x.sessionId)
-      // The session is alive: its tree is remembered, whether or not the Dispatch has closed yet. A
-      // closed Dispatch whose session lives on (worker_done before the release, or a session a later
-      // Dispatch reuses) waits: the session's own MCP children are in that tree and are no leftovers.
-      if (pid !== null) live.push({ x, pid })
-      // Ended, and its session gone too. Only a Dispatch seen alive has a memory to free from.
-      else if (x.closed && memory.has(x.dispatchId)) due.push(x)
+      if (pid === null) {
+        // Ended, and its session gone too. Only a Dispatch seen alive has a memory to free from.
+        if (x.closed && m) atEnd.push(x)
+        continue
+      }
+      // Open: its tree is remembered.
+      if (!x.closed) live.push({ x, pid, closing: false })
+      // Closed before any look saw it alive: nothing tells its session's own processes from the worker's.
+      else if (!m) continue
+      // Closed, first seen so: the tree as it is at the close is the last one remembered.
+      else if (m.closedSeenAt === undefined) live.push({ x, pid, closing: true })
+      else if (!m.freedAtClose) {
+        const wait = m.closedSeenAt + closeGraceMs - t
+        if (wait <= 0) atClose.push({ x, pid })
+        else lookIn(wait)
+      }
     }
-    if (live.length === 0 && due.length === 0) return
+    if (live.length === 0 && atClose.length === 0 && atEnd.length === 0) return
     const rows = await d.list()
     if (live.length > 0) {
       const byPid = new Map(rows.map((r) => [r.pid, r]))
       const parents = new Set(rows.map((r) => r.ppid))
-      for (const { x, pid } of live) {
+      // A remembered process that is gone and left no child naming it can never matter again: a worker runs
+      // thousands of short shells, and the memory must not grow with each.
+      const prune = (procs: Map<number, ProcId>): void => {
+        for (const [p, id] of procs) if (byPid.get(p)?.created !== id.created && !parents.has(p)) procs.delete(p)
+      }
+      for (const { x, pid, closing } of live) {
+        const first = !memory.has(x.dispatchId)
         const m = memoryOf(x)
-        // A remembered process that is gone and left no child naming it can never matter again: a
-        // worker runs thousands of short shells, and the memory must not grow with each.
-        for (const [p, id] of m.procs) if (byPid.get(p)?.created !== id.created && !parents.has(p)) m.procs.delete(p)
-        for (const r of descendantsOf(rows, [pid])) m.procs.set(r.pid, { pid: r.pid, created: r.created })
+        // A rolled session hands its Dispatch on under a new id.
+        m.sessionId = x.sessionId
+        prune(m.procs)
+        prune(m.own)
+        const root = byPid.get(pid)
+        for (const r of descendantsOf(rows, [pid])) {
+          m.procs.set(r.pid, idOf(r))
+          // The session's own: what it had when this Dispatch was first seen (a reused session's agent, or a
+          // late first look), and what it started as it came up.
+          if (first || (root && r.created - root.created <= settle)) m.own.set(r.pid, idOf(r))
+        }
+        if (closing) {
+          m.closedSeenAt = t
+          lookIn(closeGraceMs)
+        }
       }
     }
-    for (const x of due) await freeWith(x.dispatchId, rows)
+    for (const { x, pid } of atClose) await freeAtClose(x.dispatchId, pid, rows)
+    for (const x of atEnd) await freeAtEnd(x.dispatchId, rows)
   }
 
   const tick = async (): Promise<void> => {
@@ -442,30 +585,61 @@ export function createLeftoverTracker(d: LeftoverTrackerDeps): LeftoverTracker {
     return running
   }
 
+  /** A Dispatch this tracker saw alive has closed, and no look has seen that yet. */
+  const closedUnseen = (): boolean =>
+    d.dispatches().some((x) => {
+      const m = memory.get(x.dispatchId)
+      return x.closed && m !== undefined && m.closedSeenAt === undefined && !done.has(x.dispatchId)
+    })
+
   const stopTicking = every(d.tickMs ?? LEFTOVER_TICK_MS, () => void tick())
 
   return {
     tick,
+    stateChanged: () => {
+      try {
+        if (disposed || stateCheck || memory.size === 0) return
+        stateCheck = after(d.stateCheckMs ?? LEFTOVER_STATE_CHECK_MS, () => {
+          stateCheck = null
+          try {
+            if (closedUnseen()) void tick()
+          } catch (err) {
+            d.log(`leftovers: reading the state for a closed dispatch failed: ${String(err)}`)
+          }
+        })
+      } catch (err) {
+        d.log(`leftovers: a commit could not be followed: ${String(err)}`)
+      }
+    },
     sessionEnded: (sessionId) => {
       try {
         if (disposed) return
         // A session never tracked had no tree remembered; the next tick still sees its Dispatch.
         if (![...memory.values()].some((m) => m.sessionId === sessionId)) return
-        cancelAfter?.()
-        cancelAfter = after(d.afterExitMs ?? LEFTOVER_AFTER_EXIT_MS, () => {
-          cancelAfter = null
-          void tick()
-        })
+        lookIn(d.afterExitMs ?? LEFTOVER_AFTER_EXIT_MS)
       } catch (err) {
         d.log(`leftovers: session ${sessionId} ended, and the look after it could not be planned: ${String(err)}`)
       }
     },
-    freeFor: (dispatchId, rows) => freeWith(dispatchId, rows),
+    freeFor: async (dispatchId, rows) => {
+      try {
+        const m = memory.get(dispatchId)
+        if (!m || done.has(dispatchId)) return 0
+        const pid = d.sessionPid(m.sessionId)
+        return pid !== null ? await freeAtClose(dispatchId, pid, rows) : await freeAtEnd(dispatchId, rows)
+      } catch (err) {
+        d.log(`leftovers: freeing what dispatch ${dispatchId} left running failed: ${String(err)}`)
+        return 0
+      }
+    },
     rememberedOf: (dispatchId) => [...(memory.get(dispatchId)?.procs.values() ?? [])],
     dispose: () => {
       disposed = true
       stopTicking()
-      cancelAfter?.()
+      wake?.cancel()
+      wake = null
+      stateCheck?.()
+      stateCheck = null
     }
   }
 }
@@ -588,6 +762,7 @@ export function leftoverDispatchesOf(
     const endedAt = Date.parse(x.endedAt ?? x.startedAt)
     if (closed && Number.isFinite(endedAt) && now - endedAt > LEFTOVER_RECENT_MS) continue
     const startedAt = Date.parse(x.startedAt)
+    const finishedAt = x.endedAt ? Date.parse(x.endedAt) : NaN
     const task = s.tasks.find((t) => t.id === x.taskId)
     out.push({
       dispatchId: x.id,
@@ -595,6 +770,7 @@ export function leftoverDispatchesOf(
       worktree: x.cwd && isWorktree(x.cwd) ? x.cwd : null,
       // Linux counts creation in clock ticks since boot, which an ISO time does not compare with.
       ...(platform === 'win32' && Number.isFinite(startedAt) ? { since: startedAt } : {}),
+      ...(platform === 'win32' && Number.isFinite(finishedAt) ? { until: finishedAt } : {}),
       closed,
       keep: x.retained || x.closedBy === 'abandon',
       label: task ? `"${task.title}"` : x.id

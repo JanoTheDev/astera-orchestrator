@@ -4,7 +4,10 @@ import {
   descendantsOf,
   freedLine,
   leftoverDispatchesOf,
+  LEFTOVER_AFTER_EXIT_MS,
+  LEFTOVER_CLOSE_GRACE_MS,
   LEFTOVER_RECENT_MS,
+  LEFTOVER_STATE_CHECK_MS,
   namesWorktree,
   parseLinuxStat,
   parseWindowsRows,
@@ -168,6 +171,31 @@ describe('toStop', () => {
     expect(toStop([{ pid: 310, created: 15_000 }], rows, WT, 'win32', { liveRoots: [300, 320], hostPid: HOST })).toEqual([])
   })
 
+  it("spares a live session's own processes and does not walk from them, and seeds nothing made after the close", () => {
+    // The live session 200: its agent 201 and MCP server 202 are kept; 230 and 231 are the worker's; the hook
+    // 270 was made after the close (80 000); 232 is storybook's own later child, taken with it.
+    const rows = [
+      row(HOST, 50, 2_000),
+      row(200, HOST, 10_000, 'cmd.exe'),
+      row(201, 200, 10_100, 'claude.exe'),
+      row(202, 201, 10_200, 'node.exe', 'mcp'),
+      row(230, 201, 50_000, 'bash.exe'),
+      row(231, 230, 50_100, 'node.exe', 'storybook dev'),
+      row(232, 231, 95_000, 'esbuild.exe'),
+      row(270, 201, 90_000, 'astera-host.exe', `astera-host.exe hook ${WT}`)
+    ]
+    const remembered = [201, 202, 230, 231, 270].map((pid) => ({ pid, created: rows.find((r) => r.pid === pid)!.created }))
+    const keep = [
+      { pid: 201, created: 10_100 },
+      { pid: 202, created: 10_200 }
+    ]
+    const stop = toStop(remembered, rows, WT, 'win32', { liveRoots: [300], hostPid: HOST, until: 80_000, keep })
+    expect(stop.map((r) => r.pid).sort()).toEqual([230, 231, 232])
+    // A kept pid that another process holds now is not kept.
+    const reused = [...rows.filter((r) => r.pid !== 202), row(202, 9_999, 60_000, 'node.exe', `node ${WT}\\x.js`)]
+    expect(toStop([], reused, WT, 'win32', { liveRoots: [], hostPid: HOST, until: 80_000, keep }).map((r) => r.pid)).toEqual([202])
+  })
+
   it('does not stop a worktree process made before the Dispatch started', () => {
     const rows = [row(HOST, 50, 2_000), row(800, 7777, 13_000, 'node.exe', `node ${WT}\\server.js`)]
     expect(toStop([], rows, WT, 'win32', { ...guard, since: 20_000 })).toEqual([])
@@ -205,7 +233,16 @@ describe('the activity line', () => {
 })
 
 describe('createLeftoverTracker', () => {
-  const rig = (o: { rows?: () => ProcRow[]; list?: () => Promise<ProcRow[]>; stop?: (r: ProcRow[]) => Promise<void>; freed?: () => void } = {}) => {
+  const rig = (
+    o: {
+      rows?: () => ProcRow[]
+      list?: () => Promise<ProcRow[]>
+      stop?: (r: ProcRow[]) => Promise<void>
+      freed?: () => void
+      dispatches?: () => LeftoverDispatch[]
+      platform?: NodeJS.Platform
+    } = {}
+  ) => {
     let rows = o.rows ?? base
     const dispatches: LeftoverDispatch[] = []
     const pids = new Map<string, number>([['ses_w', 200]])
@@ -214,14 +251,18 @@ describe('createLeftoverTracker', () => {
     const freed: Array<[string, string]> = []
     const logs: string[] = []
     const timers: Array<{ ms: number; fn: () => void }> = []
+    const clock = { now: 0 }
+    let listFails: Error | null = null
     const t = createLeftoverTracker({
-      platform: 'win32',
+      platform: o.platform ?? 'win32',
       hostPid: HOST,
-      dispatches: () => dispatches,
+      dispatches: o.dispatches ?? (() => dispatches),
+      now: () => clock.now,
       sessionPid: (s) => pids.get(s) ?? null,
       liveRoots: () => [...pids.values(), 300],
       list: async () => {
         lists.push(1)
+        if (listFails) throw listFails
         return o.list ? o.list() : rows()
       },
       stop: async (r) => {
@@ -244,7 +285,19 @@ describe('createLeftoverTracker', () => {
       dispatches.push(full)
       return full
     }
-    return { t, add, pids, lists, stopped, freed, logs, timers, setRows: (r: () => ProcRow[]) => (rows = r) }
+    return {
+      t,
+      add,
+      pids,
+      lists,
+      stopped,
+      freed,
+      logs,
+      timers,
+      clock,
+      setRows: (r: () => ProcRow[]) => (rows = r),
+      failLists: (err: Error) => (listFails = err)
+    }
   }
 
   /** The worker (200) has started storybook through `start`: cmd 210 -> node 211 -> esbuild 212. */
@@ -275,16 +328,18 @@ describe('createLeftoverTracker', () => {
     const r = rig({ rows: working })
     const d = r.add({ dispatchId: 'dsp_1' })
     await r.t.tick()
-    // worker_done: the Dispatch closes while the session still lives: nothing is stopped yet.
+    // worker_done: the Dispatch closes while the session still lives. The look that sees it plans the free
+    // after the grace, and stops nothing yet.
     d.closed = true
     await r.t.tick()
     expect(r.stopped).toEqual([])
-    // The release ends the session.
+    expect(r.timers.map((x) => x.ms)).toEqual([LEFTOVER_CLOSE_GRACE_MS])
+    // The release ends the session inside the grace: the earlier look it asks for replaces the planned one.
     r.pids.delete('ses_w')
     r.setRows(after)
     r.t.sessionEnded('ses_w')
-    expect(r.timers).toHaveLength(1)
-    r.timers[0].fn()
+    expect(r.timers.map((x) => x.ms)).toEqual([LEFTOVER_CLOSE_GRACE_MS, LEFTOVER_AFTER_EXIT_MS])
+    r.timers[1].fn()
     await r.t.tick()
     expect(r.stopped).toEqual([[211, 212]])
     expect(r.freed).toEqual([['dsp_1', 'Freed 2 processes worker T16 left running: esbuild, node, 2.0 GB']])
@@ -343,6 +398,178 @@ describe('createLeftoverTracker', () => {
     await expect(r.t.freeFor('dsp_none')).resolves.toBe(0)
     expect(() => r.t.sessionEnded('ses_none')).not.toThrow()
     expect(r.timers).toHaveLength(0)
+  })
+
+  // A worker that reports does not end: it waits at its prompt until the Run's release. What it left running
+  // goes at the close, while its session lives on.
+  describe('at the close, while the session lives', () => {
+    /** The session came up at T0: pty 200, its agent 201, and an MCP server 202 the agent started then. The
+     *  owner's tab 300 and another worker's session 400 each run a server naming the same worktree. */
+    const T0 = 1_000_000
+    const session = (): ProcRow[] => [
+      row(50, 1, 1_000, 'Astera.exe'),
+      row(HOST, 50, 2_000, 'astera-host.exe'),
+      row(200, HOST, T0, 'cmd.exe', '/c call claude.cmd'),
+      row(201, 200, T0 + 100, 'claude.exe'),
+      row(202, 201, T0 + 5_000, 'node.exe', 'node C:\\tools\\mcp-server.js'),
+      row(300, HOST, 11_000, 'pwsh.exe'),
+      row(301, 300, T0 + 150_000, 'node.exe', `node ${WT}\\server.js`),
+      row(400, HOST, 12_000, 'cmd.exe', '/c call claude.cmd'),
+      row(401, 400, T0 + 160_000, 'node.exe', `node ${WT}\\other.js`)
+    ]
+    /** At work: background shell 230 runs storybook 231; shell 250 ran Start-Process for headless Chrome 241;
+     *  Firefox 240, started with `start`, has no parent left and keeps its profile in the worktree. */
+    const working = (): ProcRow[] => [
+      ...session(),
+      row(230, 201, T0 + 200_000, 'bash.exe', 'bash -c "npm run storybook &"'),
+      row(231, 230, T0 + 200_100, 'node.exe', `node ${WT}\\node_modules\\storybook\\bin\\index.cjs dev`, 2.7 * GB),
+      row(250, 201, T0 + 210_000, 'powershell.exe', 'Start-Process chrome'),
+      row(241, 250, T0 + 210_100, 'chrome.exe', 'chrome --headless', 0.7 * GB),
+      row(240, 9_999, T0 + 220_000, 'firefox.exe', 'firefox.exe -profile c:/users/jonx/astera-worktrees/astera/t16/.profile', 1 * GB)
+    ]
+    const END = T0 + 300_000
+    /** The close: shell 250 has exited (Chrome lives on), and the worker's own report is still on its way. */
+    const closing = (): ProcRow[] => [
+      ...working().filter((r) => r.pid !== 250),
+      row(260, 201, END - 500, 'cmd.exe', '/c astera send --type worker_done'),
+      row(261, 260, END - 400, 'astera.exe', 'astera send --type worker_done')
+    ]
+    /** The grace later: the report is done, and the Stop hook of the last turn runs (made after the close). */
+    const idle = (): ProcRow[] => [
+      ...closing().filter((r) => r.pid !== 260 && r.pid !== 261),
+      row(270, 201, END + 2_000, 'astera-host.exe', 'astera-host.exe astera-hook-capture.cjs')
+    ]
+    const sorted = (rows: number[][]) => rows.map((x) => [...x].sort((a, b) => a - b))
+
+    /** The worker came up and worked; then worker_done closed its Dispatch. */
+    const toTheClose = async (o: Parameters<typeof rig>[0] = {}) => {
+      const r = rig({ ...o, rows: session })
+      r.pids.set('ses_other', 400)
+      const d = r.add({ dispatchId: 'dsp_1', since: T0 - 1_000 })
+      await r.t.tick()
+      r.setRows(working)
+      await r.t.tick()
+      d.closed = true
+      d.until = END
+      r.setRows(closing)
+      return { r, d }
+    }
+
+    it("stops what the worker started once the grace after the close is over, sparing the session's own, the owner's tab and other sessions", async () => {
+      const { r } = await toTheClose()
+      // The commit tells the tracker; a burst of commits reads the state once.
+      r.t.stateChanged()
+      r.t.stateChanged()
+      expect(r.timers.map((x) => x.ms)).toEqual([LEFTOVER_STATE_CHECK_MS])
+      r.timers[0].fn()
+      await r.t.tick()
+      // The look at the close stops nothing yet: the worker's report may still be on its way.
+      expect(r.stopped).toEqual([])
+      expect(r.timers.map((x) => x.ms)).toEqual([LEFTOVER_STATE_CHECK_MS, LEFTOVER_CLOSE_GRACE_MS])
+      r.clock.now += LEFTOVER_CLOSE_GRACE_MS
+      r.setRows(idle)
+      r.timers[1].fn()
+      await r.t.tick()
+      // Not the pty 200, the agent 201, its MCP server 202, the hook 270, the tab's 301 or the other session's 401.
+      expect(sorted(r.stopped)).toEqual([[230, 231, 240, 241]])
+      expect(r.freed).toEqual([['dsp_1', 'Freed 4 processes worker T16 left running: bash, chrome, firefox, node (storybook), 4.4 GB']])
+      // Later looks while the session idles stop nothing more.
+      r.clock.now += LEFTOVER_CLOSE_GRACE_MS
+      await r.t.tick()
+      expect(r.stopped).toHaveLength(1)
+    })
+
+    it('frees what is left of the tree once the session ends, the MCP server that outlived its agent included', async () => {
+      const { r } = await toTheClose()
+      await r.t.tick()
+      r.clock.now += LEFTOVER_CLOSE_GRACE_MS
+      r.setRows(idle)
+      await r.t.tick()
+      expect(sorted(r.stopped)).toEqual([[230, 231, 240, 241]])
+      // The release ends the session; MCP server 202 survives its agent.
+      r.pids.delete('ses_w')
+      r.setRows(() => session().filter((x) => x.pid !== 200 && x.pid !== 201))
+      r.t.sessionEnded('ses_w')
+      await r.t.tick()
+      expect(sorted(r.stopped)).toEqual([[230, 231, 240, 241], [202]])
+      await r.t.tick()
+      expect(r.stopped).toHaveLength(2)
+    })
+
+    it('never takes what was made after the close, as when a reused session starts its next Dispatch before the look', async () => {
+      const { r } = await toTheClose()
+      // No commit reached the tracker: the tick sees the close late, after the session took its next Dispatch,
+      // whose worker has started a dev server 290 under the same agent.
+      const next = (): ProcRow[] => [...idle(), row(290, 201, END + 20_000, 'node.exe', `node ${WT}\\node_modules\\vite\\bin\\vite.js`, GB)]
+      r.setRows(next)
+      r.add({ dispatchId: 'dsp_2', since: END + 15_000 })
+      await r.t.tick()
+      r.clock.now += LEFTOVER_CLOSE_GRACE_MS
+      await r.t.tick()
+      expect(sorted(r.stopped)).toEqual([[230, 231, 240, 241]])
+    })
+
+    it('a failure while freeing at the close is logged and never rejects or throws, so it cannot hold the close up', async () => {
+      for (const fail of ['list', 'stop', 'freed'] as const) {
+        const { r } = await toTheClose({
+          ...(fail === 'stop' ? { stop: () => Promise.reject(new Error('access denied')) } : {}),
+          ...(fail === 'freed'
+            ? {
+                freed: () => {
+                  throw new Error('feed closed')
+                }
+              }
+            : {})
+        })
+        expect(() => r.t.stateChanged()).not.toThrow()
+        await r.t.tick()
+        r.clock.now += LEFTOVER_CLOSE_GRACE_MS
+        r.setRows(idle)
+        if (fail === 'list') r.failLists(new Error('powershell timed out'))
+        await expect(r.t.tick()).resolves.toBeUndefined()
+        await expect(r.t.freeFor('dsp_1')).resolves.toBe(0)
+        expect(r.logs.some((m) => /failed|could not/.test(m))).toBe(true)
+      }
+    })
+
+    it('reads Linux rows, where creation counts in clock ticks: the start-up window is 30 s of them', async () => {
+      // The session's pty 200 came up at tick 1 000 (10 s after boot); the first look saw only it and its agent.
+      const up = (): ProcRow[] => [row(1, 0, 1, 'systemd'), row(HOST, 1, 100, 'astera-host'), row(200, HOST, 1_000, 'bash'), row(201, 200, 1_010, 'claude')]
+      // 20 s in, the agent started its MCP server; 50 s in, the worker started vite in the worktree.
+      const wt = '/home/u/astera-worktrees/T16'
+      const later = (): ProcRow[] => [...up(), row(202, 201, 3_000, 'node', 'node /opt/mcp/server.js'), row(203, 201, 6_000, 'node', `node ${wt}/node_modules/.bin/vite`)]
+      const r = rig({ rows: up, platform: 'linux' })
+      const d = r.add({ dispatchId: 'dsp_1', worktree: wt })
+      await r.t.tick()
+      r.setRows(later)
+      await r.t.tick()
+      d.closed = true
+      await r.t.tick()
+      r.clock.now += LEFTOVER_CLOSE_GRACE_MS
+      await r.t.tick()
+      expect(r.stopped).toEqual([[203]])
+    })
+  })
+
+  it('a commit is followed without ever throwing, even when the state cannot be read', async () => {
+    let fail = false
+    const list: LeftoverDispatch[] = []
+    const r = rig({
+      rows: working,
+      dispatches: () => {
+        if (fail) throw new Error('the state is not loaded')
+        return list
+      }
+    })
+    // Nothing remembered yet: no close can matter, so a commit plans nothing.
+    r.t.stateChanged()
+    expect(r.timers).toHaveLength(0)
+    list.push({ dispatchId: 'dsp_1', sessionId: 'ses_w', worktree: WT, closed: false, keep: false, label: 'T16' })
+    await r.t.tick()
+    fail = true
+    expect(() => r.t.stateChanged()).not.toThrow()
+    expect(() => r.timers[0].fn()).not.toThrow()
+    expect(r.logs.some((m) => /reading the state for a closed dispatch failed/.test(m))).toBe(true)
   })
 })
 
@@ -420,10 +647,12 @@ describe('leftoverDispatchesOf', () => {
     const out = leftoverDispatchesOf(s, NOW, 'win32', (p) => p === WT)
     expect(out.map((x) => x.dispatchId)).toEqual(['dsp_1', 'dsp_2', 'dsp_4', 'dsp_5'])
     expect(out[0]).toEqual({ dispatchId: 'dsp_1', sessionId: 'ses_w', worktree: WT, since: Date.parse('2026-10-31T11:00:00Z'), closed: false, keep: false, label: '"Free what workers leave running"' })
-    expect(out[1]).toMatchObject({ worktree: null, closed: true, keep: false })
+    expect(out[1]).toMatchObject({ worktree: null, closed: true, keep: false, until: Date.parse('2026-10-31T11:30:00Z') })
+    expect(out[0].until).toBeUndefined()
     expect(out[2].keep).toBe(true)
     expect(out[3].keep).toBe(true)
     // Linux counts creation in ticks since boot: no ISO lower bound there.
     expect(leftoverDispatchesOf(s, NOW, 'linux', () => true)[0].since).toBeUndefined()
+    expect(leftoverDispatchesOf(s, NOW, 'linux', () => true)[1].until).toBeUndefined()
   })
 })

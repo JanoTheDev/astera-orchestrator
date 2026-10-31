@@ -1132,6 +1132,13 @@ async function main(): Promise<void> {
     // The rolling's hooks (rolling, rolledInto, rekeyRolled): absent with no spawner, and then
     // `unregisterRolling` only forwards to the app and a rolled-from exit closes as before.
     ...(rollingWiring?.orchHooks ?? {}),
+    // T16: every commit, which is where each Dispatch close lands (a worker_done, a stop, a retire, the app's state-put),
+    // tells the leftover tracker, which frees what that worker left running. It never throws, and the driver's kick
+    // runs after it as before.
+    onCommit: () => {
+      leftovers?.stateChanged()
+      wiring?.orchHooks?.onCommit?.()
+    },
     // After the driver's own after-load pass: what the profile already held, so work under way when this Host started
     // is recorded before anything changes (Phase 11). The load stays lazy; this only hears that it happened.
     onLoaded: () => {
@@ -1195,8 +1202,9 @@ async function main(): Promise<void> {
     : null
   // T16: the processes a worker leaves running (dev servers, browsers) cost more memory than the sessions themselves
   // (knowledge/history/2026-10-31-memory-at-25-agents.md). One process query per tick remembers every live worker's
-  // tree; once a Dispatch has ended and its session is gone, what is left of that tree, and the orphans naming its
-  // worktree, are stopped (workerLeftovers.ts). Whoever closes the Dispatch (app or Host), the tick and the pty exit
+  // tree; when a Dispatch closes, what its worker started that is still alive, and the orphans naming its worktree,
+  // are stopped, the live session's own processes spared; when the session ends, the rest of that tree goes
+  // (workerLeftovers.ts). Whoever closes the Dispatch (app or Host), the commit hook above, the tick and the pty exit
   // below see it, and nothing here can hold a close up: the tracker never throws or rejects.
   leftovers = createLeftoverTracker({
     platform: process.platform,
