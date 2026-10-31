@@ -10,7 +10,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { OrchServerDeps } from '../command'
 import { t, type Message, type MessageKey, type MessageParams } from '../../i18n'
-import { isSamePath } from '../../files/tree'
+import { comparablePath, isSamePath } from '../../files/tree'
 import { createWorktree } from '../../worktrees/create'
 import { workerBaseFailure } from '../../worktrees/base'
 import { git as realGit, gitDir, gitVersionAtLeast, listGitWorktrees, fetchOrigin, GIT_WRITE_TIMEOUT_MS } from '../../worktrees/git'
@@ -54,7 +54,7 @@ import { ensureNotesConfig, pushNotes, trailersOfRef, withTrailers } from '../..
  *  사본에서 갈라진다)은 그대로다 — 이 저장소의 원격은 origin 하나이고 어느 지역 브랜치의 첫
  *  조각도 그것과 다르다. 그 판단의 전문은 이 헬퍼를 뽑아 온 자리(git.ts 의 fetchBaseRef 주석)에
  *  있다. */
-export async function forkWorktree(
+async function forkWorktreeGit(
   a: {
     repoPath: string
     name?: string
@@ -123,9 +123,35 @@ export async function forkWorktree(
         : `fork: ${r.info.path} could not fast-forward to origin/${head.stdout}, so it starts at the local ${head.stdout}: ${ff.stderr}`
     )
   }
-  // Fresh checkouts have no node_modules, which a pre-push hook that needs its tools rejects; never fails the fork
-  await runWorktreeSetup({ dir: r.info.path, setting: ctx.setupCommand, log: ctx.log })
   return r.info.path
+}
+
+/** The git half of each fork of one repository runs one at a time: two `worktree add`s or fetches in the same repo at
+ *  once race on its lock files. Keyed by the repo's comparable path; a failed fork hands the turn on all the same. */
+const forkTurns = new Map<string, Promise<unknown>>()
+export function inForkTurn<T>(repoPath: string, run: () => Promise<T>): Promise<T> {
+  const key = comparablePath(repoPath)
+  const before = forkTurns.get(key) ?? Promise.resolve()
+  const mine = before.then(run, run)
+  const tail = mine.catch(() => undefined)
+  forkTurns.set(key, tail)
+  void tail.then(() => {
+    if (forkTurns.get(key) === tail) forkTurns.delete(key)
+  })
+  return mine
+}
+
+/** forkWorktreeGit (its doc above), then the setup command in the new worktree. Only the git half waits its turn in the
+ *  repository: the setup (`bun install` and the like, minutes on a large repo) runs beside other forks' setups, so the
+ *  scheduler can start several workers of one repository at once without each waiting for the last one's install. */
+export async function forkWorktree(
+  a: Parameters<typeof forkWorktreeGit>[0],
+  ctx: Parameters<typeof forkWorktreeGit>[1]
+): Promise<string> {
+  const dir = await inForkTurn(a.repoPath, () => forkWorktreeGit(a, ctx))
+  // Fresh checkouts have no node_modules, which a pre-push hook that needs its tools rejects; never fails the fork
+  await runWorktreeSetup({ dir, setting: ctx.setupCommand, log: ctx.log })
+  return dir
 }
 
 /** T4: fetches origin's `branch` before a fork and says whether `origin/<branch>` is ahead of the local branch, which

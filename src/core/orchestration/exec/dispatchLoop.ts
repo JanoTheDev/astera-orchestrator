@@ -1804,34 +1804,52 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
           accounts.map(async (a) => ((await c.loginStatus(a.id)) ? a.id : null))
         )
         const loggedIn = new Set(loggedInIds.filter((id): id is string => id !== null))
-        for (const slot of slots) {
-          // **슬롯마다 운전자를 다시 묻는다**(설계 §4.3). 이 for 는 await 를 여럿 지나고(계정 조회, 앞 슬롯의
-          // worker-start), 그 사이 운전이 다른 프로세스로 넘어갈 수 있다 — 넘어간 뒤에 띄우는 자리는 두
-          // 운전자가 같은 ready Task 를 두고 다투는 자리다. 멈추면 새 운전자의 다음 바퀴가 남은 자리를 본다.
-          if (!c.mayStart()) break
-          attempted.add(slot.taskId)
-          // 슬롯 하나의 실패는 **그 슬롯에서 멈춘다.** 거절(status >= 400)과 예외는 여기서 같은
-          // 뜻이다 — "이 자리는 지금 못 뜬다" — 이므로 같은 곳으로 보낸다. handleCommand 는 실제로
-          // 던진다: 그 안의 setState 가 store.save 의 tmp+rename 을 지나고, 디스크가 찼거나
-          // Windows 에서 rename 이 잠기면 거부된다. 잡지 않으면 그 예외가 이 for 를 뚫고 나가
-          // **남은 슬롯이 통째로 버려진다** — 상관없는 다른 프로젝트의 Run 이 남의 실패 때문에
-          // 서 있게 되고, 하나의 문제가 전부를 세우지 않는다는 이 루프의 전제가 거짓이 된다.
-          try {
-            const end = await placeSlot(slot, accounts, loggedIn)
-            // **떠나는 Host 의 거절은 Gate 가 아니다**(R15). 물러나는 Host 는 retire 가 온 순간부터 모든
-            // 시작을 거절하고, worker-start 는 그것을 `retry` 를 실은 409 로 답한다 — "이 Task 를 못
-            // 띄운다" 가 아니라 "나중에, 다음 운전자에게 같은 명령을" 이다. **이 활성화를 통째로 멈춘다**
-            // (break 가 아니라 return). 이유는 placeSlot 의 그 자리 주석에 있다.
-            if (end.kind === 'leaving') {
-              log('scheduler: the Host is leaving — no further slot this activation')
-              return
+        // **Slots of different Runs are placed at once; a Run's own slots one after another.** A start can take minutes
+        // (a new worktree and its `bun install`), and placed in a row ten ready plans waited ten installs. One Run's
+        // slots stay in order because they share its run worktree (forked once, above in placeSlot) and its integration
+        // step. Commands still run one at a time in the Host (orch.ts `serially`); the fork and its setup run outside that
+        // chain (`outsideChain`) and the git half of forks in one repository takes turns (integrateGit.ts inForkTurn).
+        const byRun = new Map<string, Slot[]>()
+        for (const slot of slots) byRun.set(slot.runId, [...(byRun.get(slot.runId) ?? []), slot])
+        let leaving = false
+        await Promise.all(
+          [...byRun.values()].map(async (group) => {
+            for (const slot of group) {
+              // **슬롯마다 운전자를 다시 묻는다**(설계 §4.3). 이 for 는 await 를 여럿 지나고(계정 조회, 앞 슬롯의
+              // worker-start), 그 사이 운전이 다른 프로세스로 넘어갈 수 있다 — 넘어간 뒤에 띄우는 자리는 두
+              // 운전자가 같은 ready Task 를 두고 다투는 자리다. 멈추면 새 운전자의 다음 바퀴가 남은 자리를 본다.
+              if (leaving || !c.mayStart()) return
+              attempted.add(slot.taskId)
+              // 슬롯 하나의 실패는 **그 슬롯에서 멈춘다.** 거절(status >= 400)과 예외는 여기서 같은
+              // 뜻이다 — "이 자리는 지금 못 뜬다" — 이므로 같은 곳으로 보낸다. handleCommand 는 실제로
+              // 던진다: 그 안의 setState 가 store.save 의 tmp+rename 을 지나고, 디스크가 찼거나
+              // Windows 에서 rename 이 잠기면 거부된다. 잡지 않으면 그 예외가 이 for 를 뚫고 나가
+              // **남은 슬롯이 통째로 버려진다** — 상관없는 다른 프로젝트의 Run 이 남의 실패 때문에
+              // 서 있게 되고, 하나의 문제가 전부를 세우지 않는다는 이 루프의 전제가 거짓이 된다.
+              try {
+                const end = await placeSlot(slot, accounts, loggedIn)
+                // **떠나는 Host 의 거절은 Gate 가 아니다**(R15). 물러나는 Host 는 retire 가 온 순간부터 모든
+                // 시작을 거절하고, worker-start 는 그것을 `retry` 를 실은 409 로 답한다 — "이 Task 를 못
+                // 띄운다" 가 아니라 "나중에, 다음 운전자에게 같은 명령을" 이다. **이 활성화를 통째로 멈춘다**
+                // (break 가 아니라 return). 이유는 placeSlot 의 그 자리 주석에 있다. Other Runs' groups stop at their
+                // next slot; the activation ends below, once every group has.
+                if (end.kind === 'leaving') {
+                  leaving = true
+                  return
+                }
+                if (end.kind === 'gate') await gateSlot(slot.taskId, end.reason)
+                else if (end.kind === 'refused')
+                  await gateSlot(slot.taskId, t(c.lang(), 'jobs.integration.startFailed', { error: JSON.stringify(end.reply.body) }))
+              } catch (e) {
+                await gateSlot(slot.taskId, t(c.lang(), 'jobs.integration.startFailed', { error: String(e) }))
+              }
             }
-            if (end.kind === 'gate') await gateSlot(slot.taskId, end.reason)
-            else if (end.kind === 'refused')
-              await gateSlot(slot.taskId, t(c.lang(), 'jobs.integration.startFailed', { error: JSON.stringify(end.reply.body) }))
-          } catch (e) {
-            await gateSlot(slot.taskId, t(c.lang(), 'jobs.integration.startFailed', { error: String(e) }))
-          }
+          })
+        )
+        // R15: a retiring Host refuses every start; the slots already in flight above have ended, none more this activation
+        if (leaving) {
+          log('scheduler: the Host is leaving — no further slot this activation')
+          return
         }
       } while (scheduleAgain)
 
