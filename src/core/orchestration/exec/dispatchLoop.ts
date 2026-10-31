@@ -80,6 +80,7 @@ import { createCoordinatorRotation, refreshRunCoordinator } from './coordinatorR
 import { autoAnswerLine, autoAnswersDue, coordinatorDecideBody, handsOffStepsDue, type AutoAnswer, type OpenQuestion } from './autoAnswer'
 import { STALL_WATCH_MS, stallPauseProbe, stallRemedies, startNotice, watchdogActivity, type StallEntry, type StallRemedy } from './stallWatch'
 import type { ActivityDraft } from '../activity'
+import { DETACHED_GRACE_MS, isDetachedHeadError } from '../../worktrees/base'
 
 /** W6-D: a replan whose start left no session after this long died with its process, and is ended. */
 export const REPLAN_START_WINDOW_MS = 5 * 60_000
@@ -1292,6 +1293,21 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
    * person's call does with it stays in `dispatchOne` (an answer). `why` is the same fact as `reason`,
    * in English, for that answer: some reasons are Gate questions in the app's language.
    */
+  // A project folder whose HEAD is detached only for a moment (a session in it ran `git checkout <commit>` to look, then
+  // went back) must not Gate every fork made in that window: the slot waits and the next pass tries again. Only a
+  // folder still detached after DETACHED_GRACE_MS is a Gate, for a person to put back on a branch.
+  const detachedSince = new Map<string, number>()
+  const detachedWait = (runId: string, error: string): SlotEnd | null => {
+    if (!isDetachedHeadError(error)) return null
+    const since = detachedSince.get(runId) ?? Date.now()
+    detachedSince.set(runId, since)
+    if (Date.now() - since >= DETACHED_GRACE_MS) {
+      detachedSince.delete(runId)
+      return null
+    }
+    return { kind: 'wait', why: 'the project folder is not on a branch right now (detached HEAD); it is tried again' }
+  }
+
   const placeSlot = async (slot: Slot, accounts: Account[], loggedIn: Set<string>): Promise<SlotEnd> => {
     // 사람이 이 Task 에 계정을 지정했으면 그 목록의 첫 계정, 아니면 그 provider 의 기본
     // 계정. 판정은 core 에 있다(accountToDispatchOn) — 이 파일에는 테스트가 닿지 않는다.
@@ -1431,6 +1447,8 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
         // 읽을 수 있는 접두사가 붙어 오므로 그대로 Gate 에 싣는다. 다음 상태 변경에 다시
         // 시도한다(사람이 저장소를 고치는 것 자체가 상태 변경은 아니지만, 그 Gate 를 푸는
         // 것이 상태 변경이다).
+        const detached = detachedWait(slot.runId, String(e))
+        if (detached) return detached
         return {
           kind: 'gate',
           reason: t(c.lang(), 'jobs.integration.runWorktreeNotMade', { error: String(e) }),
@@ -1694,7 +1712,12 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     // W6-G: the account crossed `usagePauseAt` between the check above and here. It resumes on its own.
     if (reply.status === 409 && (reply.body as { usagePaused?: unknown })?.usagePaused !== undefined)
       return { kind: 'wait', why: String((reply.body as { error?: unknown }).error) }
-    return reply.status >= 400 ? { kind: 'refused', reply } : { kind: 'started', reply }
+    if (reply.status >= 400) {
+      const detached = detachedWait(slot.runId, JSON.stringify(reply.body))
+      return detached ?? { kind: 'refused', reply }
+    }
+    detachedSince.delete(slot.runId)
+    return { kind: 'started', reply }
   }
 
   // 자동 진행. **setState 뒤에 매단다** — 새 Task 가 ready 가 되거나 자리가 비는 경로가 일곱이고

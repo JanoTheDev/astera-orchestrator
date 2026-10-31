@@ -260,6 +260,13 @@ const ACCOUNT_RULE = '- Account: omit `--account` unless the objective names one
 // W2-A planner stage (SPEC §2). The planner's brief, beside the coordinator's for the same reasons: words an
 // agent reads, written to a file and pointed at with `coordinatorLaunchPrompt`'s one line.
 
+/** The planner's session runs in the project folder, which every worker worktree forks from: a checkout there (even a
+ *  brief `git checkout origin/main` to look) detaches HEAD and every fork in that window fails NO_BASE. */
+export const PROJECT_FOLDER_HANDS_OFF =
+  'Never change the checkout of the repository root: no git checkout, switch, reset, stash, merge, pull or rebase there. ' +
+  'Workers fork from it while you run. To look at another commit or branch, read it in place: ' +
+  '`git show <ref>:<path>`, `git log <ref>`, `git grep <pattern> <ref>`, `git diff <a> <b>`.'
+
 /** W8-C: what the planner of a prompts-mode Job is told. Only the planner's brief: the coordinator's must not carry it. */
 export const PROMPTS_MODE_FILL_IN = [
   'RUN AS WRITTEN (planner-guide.md section 6)',
@@ -310,6 +317,7 @@ export function buildPlannerBrief(a: {
     `- id: ${a.jobId}`,
     `- objective: ${a.objective}`,
     `- repository root: ${a.repoRoot} (your session runs here)`,
+    `  ${PROJECT_FOLDER_HANDS_OFF}`,
     `- workers that may run at once: ${a.concurrency}`,
     '  Cut the plan so up to that many Tasks can run at once: independent Tasks, small, deps only where one uses code, an API, a file\'s content or a decision another produces; same area or same files is never a reason (planner-guide.md section 2).',
     '',

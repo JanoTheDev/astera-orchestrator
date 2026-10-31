@@ -6,7 +6,7 @@
 // brief differs: the objective, what every completed Task reported, its review and its changed files, and what is
 // left. Its end is #47's: the session is stopped once its work is recorded.
 // W8-D several plans in one repo
-import { PROMPTS_MODE_FILL_IN, plannerPlanningSection } from '../handover'
+import { PROJECT_FOLDER_HANDS_OFF, PROMPTS_MODE_FILL_IN, plannerPlanningSection } from '../handover'
 import { otherPlansBrief } from '../overlap'
 import { collectChanges, rangesFor } from '../changedFiles'
 import { releases, stillStarting, type OrchServerDeps } from '../command'
@@ -193,6 +193,7 @@ export function buildReplanBrief(a: {
     `- run: ${a.runId}`,
     `- objective: ${a.job.objective}`,
     `- repository root: ${a.job.cwd}`,
+    `  ${PROJECT_FOLDER_HANDS_OFF}`,
     '',
     ...(a.job.verbatim !== undefined ? [...PROMPTS_MODE_FILL_IN, ''] : []),
     a.focused ? 'WHAT DEVIATED (completed Tasks that did not go as planned; every other completed Task did)' : 'WHAT HAS BEEN DONE (completed Tasks)',

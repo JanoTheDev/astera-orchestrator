@@ -118,6 +118,13 @@ export function workerBaseFailure(opts: {
       `not a git repository${opts.stderr ? `: ${opts.stderr}` : ''}`
     )
   if (!opts.onBranch)
-    return `NO_BASE: HEAD is not on a branch (detached) — cannot fork a worker worktree from ${opts.repoPath}`
+    return `${DETACHED_HEAD_FAILURE} — cannot fork a worker worktree from ${opts.repoPath}`
   return null
 }
+
+/** The start of workerBaseFailure's sentence for a project folder on a detached HEAD. */
+export const DETACHED_HEAD_FAILURE = 'NO_BASE: HEAD is not on a branch (detached)'
+/** How long a detached project folder makes a fork wait before it is a Gate (dispatchLoop.ts detachedWait). */
+export const DETACHED_GRACE_MS = 10 * 60_000
+/** Whether an error (a thrown fork, a refused worker-start's body) carries workerBaseFailure's detached-HEAD sentence. */
+export const isDetachedHeadError = (error: string): boolean => error.includes(DETACHED_HEAD_FAILURE)
