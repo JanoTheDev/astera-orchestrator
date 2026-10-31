@@ -541,6 +541,8 @@ export function createHostDriving(d: {
         activity: d.activity,
         ...(d.orch.adoptWorkers ? { adopt: () => d.orch.adoptWorkers!() } : {}),
         accounts: () => d.checks.accounts(),
+        // T19: no start nudge, retry or planner restart while new starts are held
+        startHeld: () => startHeldNow(d.profileDir),
         mayStart,
         log,
         nowMs: () => d.nowMs()

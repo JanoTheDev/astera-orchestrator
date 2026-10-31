@@ -113,6 +113,11 @@ export interface StallProbe {
   /** Whether a check of this Task is queued or running (HostChecks.checking). Absent: a `validating` Task is never
    *  taken for a lost validation. */
   checking?(taskId: string): boolean
+  /** T19: new starts are on hold (startHold.ts, a restart's or the owner's). Nothing that starts a worker or a planner
+   *  is due meanwhile: a ready Task is held by it, as by a full cap (no `tell-start`, `place`, `tell-busy`), and no lost
+   *  Task is retried nor a planner restarted. `worker-start` and `jobs-plan` would refuse each, and each refusal would
+   *  spend a try toward the owner's escalation. A ready Task's stall counts from the lift. Absent: not held. */
+  startHeld?: boolean
 }
 
 export type StallRemedy = { key: string; runId: string } & (
@@ -326,7 +331,7 @@ export function stallRemedies(
     for (const t of candidates) {
       const since = Math.max(at.get(t.id) ?? 0, ...t.deps.map((d) => at.get(d) ?? 0))
       const clash = sameFilesAs(t, editing.get(project) ?? [])
-      const held = clash ? `same-files:${clash.task.id}` : free <= 0 ? 'plan-cap' : capFree <= 0 ? 'app-cap' : null
+      const held = clash ? `same-files:${clash.task.id}` : probe.startHeld ? 'start-hold' : free <= 0 ? 'plan-cap' : capFree <= 0 ? 'app-cap' : null
       const base = `ready:${t.id}:${since}:`
       if (held !== null) {
         seen(base + held, nowMs)
@@ -460,7 +465,7 @@ export function stallRemedies(
       }
       e = { ...e, step: 1, at: nowMs - PLANNER_RESTART_MS } // gone: nothing to nudge, restart now
     }
-    if (e.step === 1 && quiet >= PLANNER_RESTART_MS && nowMs - e.at >= PLANNER_RESTART_MS) {
+    if (e.step === 1 && quiet >= PLANNER_RESTART_MS && nowMs - e.at >= PLANNER_RESTART_MS && !probe.startHeld) {
       const preferred = job.plannerAccountId ?? job.coordinatorAccountId
       due.push({
         key,
@@ -493,7 +498,8 @@ export function stallRemedies(
   const untracked = s.tasks
     .filter((t) => t.status === 'dispatched' && !runGatedForTask(s, t) && !s.dispatches.some((d) => d.taskId === t.id))
     .map((t) => ({ runId: t.runId ?? '', taskId: t.id, dispatch: undefined as Dispatch | undefined }))
-  for (const seed of [...lostWithDriver(s), ...untracked]) {
+  // T19: held starts retry nothing; the stall starts over once the hold lifts, due at once
+  for (const seed of probe.startHeld ? [] : [...lostWithDriver(s), ...untracked]) {
     const run = s.runs.find((r) => r.id === seed.runId)
     const job = run && jobOf(s, run)
     const task = s.tasks.find((t) => t.id === seed.taskId)
@@ -664,6 +670,8 @@ export interface StallWatchDeps {
   adopt?(): Promise<Dispatch[]>
   /** accounts.json: the agent of an untracked Task's account, to start it again. Absent: the Task's provider. */
   accounts?(): Account[] | Promise<Account[]>
+  /** T19: the hold on new starts (startHold.ts startHeldNow), read once per look. Absent: never held. */
+  startHeld?(): boolean
   mayStart(): boolean
   log(m: string): void
   nowMs(): number
@@ -916,7 +924,8 @@ export function createStallWatch(d: StallWatchDeps): { adopt(): Promise<void>; w
           ...usage,
           cap,
           alive: (id) => d.alive(id),
-          ...(d.checking && d.startValidation ? { checking: (id: string) => d.checking!(id) } : {})
+          ...(d.checking && d.startValidation ? { checking: (id: string) => d.checking!(id) } : {}),
+          ...(d.startHeld?.() === true ? { startHeld: true } : {})
         })
         memo = planned.memo
         for (const r of planned.due) {

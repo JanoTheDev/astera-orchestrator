@@ -1,6 +1,10 @@
 // Stall watchdog (owner 2026-10-18): each stall detected from Host state alone and remedied once, a healthy plan left
 // alone, and nothing at all with the setting off.
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { liftStartHold, RESTART_HOLD_REASON, startHeldNow, writeStartHold } from '../startHold'
 import { DROPPED_ASK_MS, HOLD_ASK_MS, LEASE_ASK_MS, LEASE_TELL_MS, PLANNER_IDLE_MS, PLANNER_NUDGE, PLANNER_RESTART_MS, BACKOFF_MS, BUSY_REFRESH_MS, BUSY_TELL_MS, DEAD_COORDINATOR_MS, DRAFT_STALL_MS, IDLE_NUDGE, IDLE_STALL_MS, LOST_STALL_MS, MERGE_STALL_MS, READY_STALL_MS, STALL_WATCH_MS, TRIES, VALIDATE_STALL_MS, createStallWatch, stallRemedies, type StallEntry, type StallWatchDeps, type StallProbe, type StallRemedy } from './stallWatch'
 import { startPauseOf } from '../usageGuard'
 import { createDispatchLoop, type DispatchLoopContext } from './dispatchLoop'
@@ -705,5 +709,72 @@ describe('a lost validation', () => {
     await h.run(VALIDATE_STALL_MS)
     expect(started).toEqual([{ taskId: 'tsk_1', cwd: '/wt-t1' }])
     expect(h.lines).toEqual(['Restarted the checks of TSK_1: it was validating 5 min with no check running (try 1 of 4)'])
+  })
+})
+
+// T19: while start-hold.json exists nothing new starts (worker-start refuses), so the watchdog tells no coordinator to
+// start a ready Task and starts nothing itself. The profile is a temp folder: a drive-letter path on Windows.
+describe('the hold on new starts', () => {
+  const profiles: string[] = []
+  afterEach(() => {
+    for (const p of profiles.splice(0)) fs.rmSync(p, { recursive: true, force: true })
+  })
+  const heldProfile = async (): Promise<string> => {
+    const p = fs.mkdtempSync(path.join(os.tmpdir(), 'astera-stallhold-'))
+    profiles.push(p)
+    await writeStartHold(p, { by: 'restart', reason: RESTART_HOLD_REASON, at: NOW })
+    expect(startHeldNow(p)).toBe(true)
+    return p
+  }
+  const held: StallProbe = { ...idle, startHeld: true }
+
+  it('a ready Task gets no start nudge and no start while held, and its stall counts from the lift', () => {
+    let memo = new Map<string, StallEntry>()
+    const got: [string, number][] = []
+    for (const t of every30s(30 * MIN)) {
+      const r = stallRemedies(plan(), t, memo, t - T0 < 20 * MIN ? held : idle)
+      memo = r.memo
+      for (const d of r.due) got.push([`${d.kind}:${label(d)}`, (t - T0) / MIN])
+    }
+    // lifted at 20 min: told 2 min later, started 2 min after that and again on the usual backoff, never during the hold
+    expect(got).toEqual([['tell-start:tsk_1', 22], ['place:tsk_1', 24], ['place:tsk_1', 29]])
+  })
+
+  it('a busy coordinator is not told what is ready, a lost Task is not retried and a planner not restarted while held', () => {
+    const busyWithWork: StallProbe = { ...held, busy: (id) => id === 'coord-1' }
+    expect(watch(plan(), every30s(60 * MIN), busyWithWork)).toEqual([])
+    const lost = plan({ tasks: [task({ id: 'tsk_1', status: 'dispatched' })], dispatches: [{ ...ended('tsk_1', '/wt1'), outcome: undefined } as Dispatch] })
+    expect(watch(lost, every30s(60 * MIN), held)).toEqual([])
+    // lifted: retried at once (it has been lost for an hour)
+    let memo = new Map<string, StallEntry>()
+    for (const t of every30s(60 * MIN)) memo = stallRemedies(lost, t, memo, held).memo
+    expect(stallRemedies(lost, T0 + 60 * MIN + STALL_WATCH_MS, memo, idle).due.map((d) => `${d.kind}:${label(d)}`)).toEqual(['retry-lost:tsk_1'])
+    const planning = plan({ runs: [] }, { pendingStart: true, plannerSessionIds: ['pl'], planning: 'auto' })
+    expect(watch(planning, every30s(60 * MIN), { ...held, alive: () => false }).filter((x) => x.startsWith('restart-planner'))).toEqual([])
+  })
+
+  it('the loop tells no coordinator to start a ready Task while start-hold.json exists, and does once it is lifted', async () => {
+    const profile = await heldProfile()
+    const h = rig(plan())
+    h.ctx.sessionBusy = () => false
+    h.ctx.startHeld = () => startHeldNow(profile)
+    for (let t = 0; t <= 20 * MIN; t += STALL_WATCH_MS) await h.at(t)
+    expect(h.cmds).toEqual([])
+    expect(h.lines).toEqual([])
+    expect(await liftStartHold(profile)).toBe(true)
+    for (let t = 20 * MIN + STALL_WATCH_MS; t <= 26 * MIN; t += STALL_WATCH_MS) await h.at(t)
+    expect(String(h.cmds.find((c) => c.cmd === 'send')?.args.body)).toContain('astera worker-start --task tsk_1')
+    expect(h.cmds.filter((c) => c.cmd === 'worker-start')).toHaveLength(1)
+  })
+
+  it('the Host watchdog starts nothing while held: no lost-Task retry, no planner restart', async () => {
+    const profile = await heldProfile()
+    const lost = plan({ tasks: [task({ id: 'tsk_1', status: 'dispatched' })], dispatches: [{ ...ended('tsk_1', '/wt1'), outcome: undefined } as Dispatch] })
+    const h = watchRig(lost, undefined, undefined, undefined, undefined, { startHeld: () => startHeldNow(profile) })
+    await h.run(30 * MIN)
+    expect(h.cmds.filter((c) => c.cmd === 'worker-start')).toEqual([])
+    await liftStartHold(profile)
+    await h.run(31 * MIN)
+    expect(h.cmds.filter((c) => c.cmd === 'worker-start')).toHaveLength(1)
   })
 })
