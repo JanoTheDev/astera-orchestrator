@@ -220,7 +220,7 @@ import {
   type JobSourcesDeps
 } from './commandSources'
 // W6-D wave replanning
-import { failedWaitAsked, failedWaitQuestion, replanJobOf, resolveFailedWait, stallOf, waveOpen, type ReplanRecord } from './replan'
+import { failedBlocks, failedWaitAsked, failedWaitQuestion, replanJobOf, resolveFailedWait, stallOf, waveOpen, type ReplanRecord } from './replan'
 import { REPLAN_COMMANDS, replanCommand, replanRefusal } from './exec/replanStart'
 // Coordinator rotation
 import { coordinatorHandoff, refreshCoordinator } from './exec/coordinatorRotate'
@@ -5786,6 +5786,18 @@ export async function handleCommand(
       const id = str(args.run)
       const run = s.runs.find((r) => r.id === id)
       if (!run) return notFound(`unknown run: ${String(id)}`)
+      // Hands-off leftovers: a failed Task Astera escalates (exec/failedRetry.ts) is asked about whether or not its Run is
+      // stalled: a failed Task that holds nothing back would otherwise reach nobody. Once per failure.
+      const only = str(args.task)
+      if (only) {
+        const failed = s.tasks.find((t) => t.id === only && t.runId === run.id)
+        if (!failed) return notFound(`unknown task in ${run.id}: ${only}`)
+        if (failed.status !== 'failed' || failedWaitAsked(s, failed)) return okBody({ stalled: false, asked: [] })
+        const block = failedBlocks(s, run.id).find((b) => b.task.id === failed.id) ?? { task: failed, waiting: [] }
+        const question = failedWaitQuestion(s, block, now)
+        await deps.setState({ ...s, messages: [...s.messages, question] })
+        return okBody({ stalled: false, asked: [{ id: question.id, taskId: question.taskId }] })
+      }
       const stall = stallOf(s, run)
       if (!stall) return okBody({ stalled: false, asked: [] })
       const questions = stall.blocks.filter((b) => !failedWaitAsked(s, b.task)).map((b) => failedWaitQuestion(s, b, now))

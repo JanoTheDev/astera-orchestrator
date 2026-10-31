@@ -8,8 +8,10 @@
 //   tries run out instead of repeating forever.
 // - `accept`: its last try failed, but its branch has commits beyond its base and its latest checks passed (or it has
 //   none): it counts as done with a `completionOverride` that says so.
-// - `escalate`: otherwise. Today's path: the stalled Run asks the owner (`run-failed-ask`); a failed Task that holds
-//   nothing back is left to the owner as before.
+// - `escalate`: otherwise. The owner is asked the failed-Task question (Retry / Accept as done / Cancel what waits on it,
+//   replan.ts `failedWaitQuestion`) once per failure, whether or not the Run is stalled (the dispatch loop's
+//   `retryFailedTasks` raises it with `run-failed-ask --task`; `unstallRuns` asks for a stalled Run, and whichever comes
+//   first wins, `failedWaitAsked`), and the activity feed says so.
 // - `wait`: its last try ended moments ago and the Host has not recorded where its branch ended yet, so whether it
 //   committed is not known (`HEAD_WAIT_MS`).
 //
