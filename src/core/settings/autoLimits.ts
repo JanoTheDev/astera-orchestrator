@@ -127,7 +127,7 @@ export function healthSnapshotOf(value: unknown): HealthSnapshot | null {
   if (!isObj(value) || !str(value.at) || typeof value.strained !== 'boolean') return null
   const { memAvailablePct, load1PerCpu, loopDelayP99Ms, liveWorkers, liveSessions, heavyRunning, checksRunning } = value
   if (![memAvailablePct, load1PerCpu, loopDelayP99Ms, liveWorkers, liveSessions, heavyRunning, checksRunning].every(num)) return null
-  return {
+  const out: HealthSnapshot = {
     at: value.at,
     memAvailablePct: memAvailablePct as number,
     load1PerCpu: load1PerCpu as number,
@@ -138,6 +138,9 @@ export function healthSnapshotOf(value: unknown): HealthSnapshot | null {
     heavyRunning: heavyRunning as number,
     checksRunning: checksRunning as number
   }
+  if (value.memUnknown === true) out.memUnknown = true
+  if (num(value.commitHeadroomPct)) out.commitHeadroomPct = value.commitHeadroomPct
+  return out
 }
 
 /** Atomic (tmp + rename), mode 600. Sync: the Host writes it from a timer and from its exit handler. Never throws. */
