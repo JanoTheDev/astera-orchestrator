@@ -107,6 +107,13 @@ export function TaskDetail({
           <p className="plan-task-spec plan-task-gaps">{full.gaps}</p>
         </section>
       )}
+      {/* T12: what this machine could not run, shown the way gaps are */}
+      {full.notProvable !== undefined && (
+        <section className="plan-task-part" aria-label={t('plan.task.notProvable')}>
+          <h4 className="plan-task-head">{t('plan.task.notProvable')}</h4>
+          <p className="plan-task-spec plan-task-gaps">{full.notProvable}</p>
+        </section>
+      )}
     </>
   )
   const action = taskActionOf(task)

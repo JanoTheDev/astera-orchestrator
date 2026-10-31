@@ -634,6 +634,10 @@ export interface Task {
   /** What the worker could not reach (environment limits, refused commands), from its succeeded report. A Task with
    *  gaps did not go as planned, so a replan looks at what depends on it. */
   gaps?: string
+  /** T12: what this machine could not run and why ("flock: not found on Windows"), from a succeeded report's
+   *  `--not-provable`, or from a failed report a hands-off plan took as one (exec/notProvable.ts). In a hands-off plan it
+   *  is accepted with a recorded decision and is no deviation; elsewhere it counts like `gaps` (replan.ts wentAsPlanned). */
+  notProvable?: string
   filesModified?: string[]
   /** 이 Task 의 워커를 띄울 계정들, **순서대로**.
    *

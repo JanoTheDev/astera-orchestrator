@@ -389,7 +389,9 @@ const howToAnswer = (questionId: string): string =>
   `Answer it from the plan's design (the Job's objective, the Task's spec and paths, the decisions in your plan and \`existing.md\`) ` +
   `with \`astera questions-answer --id ${questionId} --answer "<your decision and why>"\`, then end your turn. ` +
   'Keep within the guardrails: force-push, pushing or merging to the default branch, deleting data outside the plan worktrees, ' +
-  'money and credentials stay the owner\'s, so answer those "no". Do not start any work and do not change the plan.'
+  'money and credentials stay the owner\'s, so answer those "no". ' +
+  'When the worker cannot run something this machine lacks (an OS-specific tool, a missing service or device), tell it to ' +
+  'report succeeded with `--not-provable "<command>: <why>"` and prove the rest. Do not start any work and do not change the plan.'
 
 /** T11: the line typed into a live planner: one line, since a terminal's Enter would cut a longer one. */
 export const plannerQuestionLine = (q: Pick<Message, 'id' | 'body' | 'subject'>, task: Task | undefined): string =>

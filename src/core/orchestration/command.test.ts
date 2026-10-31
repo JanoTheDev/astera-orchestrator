@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { promises as fs } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import os from 'node:os'
 import path from 'node:path'
 import { handleCommand, handleExit, PENDING_START_WINDOW_MS, type HostSession, type OrchServerDeps, type SessionScreen } from './command'
@@ -8,6 +9,7 @@ import { SPAWN_DEADLINE_MS } from '../host/unresponsive'
 import { APP_CALLER, HOST_CALLER } from '../host/driver'
 import { ensureProject } from './projects'
 import { absPath } from '../testPaths'
+import { removeFixture } from '../testFixtures'
 import { PTY_LOST_SIGHT_EXIT_CODE } from '../sessions/pty'
 import { DEFAULT_IDLE_WAIT_TIMEOUT_MS, OrchCoordinator, type CoordinatorDeps } from './exec/coordinator'
 import { OrchestrationStore } from './store'
@@ -260,6 +262,99 @@ describe('handleCommand — 역할 인가', () => {
     const failed = { type: 'worker_done', taskId: d.taskId, dispatchId: d.id, outcome: 'failed', subject: 'a', body: 'b', gaps: 'x' }
     expect((await call(deps, 'send', failed, 'sess1')).status).toBe(200)
     expect(deps.getState().tasks.find((t) => t.id === d.taskId)?.gaps).toBeUndefined()
+  })
+
+  // T12: what this machine cannot run
+  /** The real git repositories the T12 tests made, removed after each: git can hold a handle a moment on Windows */
+  const repos: string[] = []
+  afterEach(async () => {
+    for (const r of repos.splice(0)) await removeFixture(r)
+  })
+  /** The seeded worker's plan, hands-off or not, its attempt working in a real git repository (a temp folder, a
+   *  Windows path here) from a recorded base, and with `committed` one commit over it. */
+  const seedNotProvable = async (o: { handsOff: boolean; committed?: boolean }): Promise<OrchServerDeps> => {
+    const repo = await fs.mkdtemp(path.join(os.tmpdir(), 'astera-notprovable-'))
+    repos.push(repo)
+    const git = (...a: string[]): string =>
+      execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...a], { cwd: repo, encoding: 'utf8' }).trim()
+    git('init', '-q')
+    git('commit', '-q', '--allow-empty', '-m', 'base')
+    const base = git('rev-parse', 'HEAD')
+    if (o.committed) git('commit', '-q', '--allow-empty', '-m', 'the lock')
+    const deps = await seedWorker()
+    const s = deps.getState()
+    await deps.setState({
+      ...s,
+      jobs: s.jobs.map((j) => ({ ...j, handsOff: o.handsOff })),
+      dispatches: s.dispatches.map((d) => ({ ...d, cwd: repo, git: { base } }))
+    })
+    return deps
+  }
+  const report = (d: { taskId: string; id: string }, over: Record<string, unknown>) => ({
+    type: 'worker_done',
+    taskId: d.taskId,
+    dispatchId: d.id,
+    subject: 'Lock the store',
+    body: 'b',
+    ...over
+  })
+
+  it('T12: worker_done --not-provable on a succeeded report is kept on the Task, and a hands-off plan records the decision', async () => {
+    const deps = await seedNotProvable({ handsOff: true })
+    const d = deps.getState().dispatches[0]
+    const r = await call(deps, 'send', report(d, { outcome: 'succeeded', notProvable: 'flock: not on Windows' }), 'sess1')
+    expect(r.status).toBe(200)
+    const task = deps.getState().tasks.find((t) => t.id === d.taskId)!
+    expect(task).toMatchObject({ status: 'completed', notProvable: 'flock: not on Windows' })
+    expect(task.gaps).toBeUndefined()
+    expect(deps.getState().jobs[0].decisions).toEqual([
+      expect.objectContaining({ kind: 'gate', taskId: d.taskId, at: NOW, choice: 'accepted t: not provable here: flock: not on Windows', why: expect.stringContaining('hands-off') })
+    ])
+  })
+
+  it('T12: outside hands-off, --not-provable is kept on the Task with no decision', async () => {
+    const deps = await seedNotProvable({ handsOff: false })
+    const d = deps.getState().dispatches[0]
+    expect((await call(deps, 'send', report(d, { outcome: 'succeeded', notProvable: 'flock: not on Windows' }), 'sess1')).status).toBe(200)
+    expect(deps.getState().tasks.find((t) => t.id === d.taskId)?.notProvable).toBe('flock: not on Windows')
+    expect(deps.getState().jobs[0].decisions).toBeUndefined()
+  })
+
+  it('T12: a hands-off plan takes a failed report of a missing tool over committed work as succeeded with the note', async () => {
+    for (const body of ['Implemented the lock.\nbash: flock: command not found', "Implemented the lock.\r\n'flock' is not recognized as an internal or external command,"]) {
+      const deps = await seedNotProvable({ handsOff: true, committed: true })
+      const d = deps.getState().dispatches[0]
+      expect((await call(deps, 'send', report(d, { outcome: 'failed', body }), 'sess1')).status).toBe(200)
+      const s = deps.getState()
+      const task = s.tasks.find((t) => t.id === d.taskId)!
+      expect(task).toMatchObject({ status: 'completed', consecutiveFailures: 0, result: body })
+      expect(task.notProvable).toMatch(/flock/)
+      expect(s.dispatches.find((x) => x.id === d.id)?.outcome).toBe('succeeded')
+      expect(s.jobs[0].decisions).toEqual([
+        expect.objectContaining({ kind: 'gate', taskId: d.taskId, question: expect.stringContaining('t reported failed'), choice: expect.stringContaining('accepted t: not provable here:') })
+      ])
+    }
+  })
+
+  it('T12: the same failed report counts as failed outside hands-off, without commits, or with another cause', async () => {
+    const flock = 'Implemented the lock.\nbash: flock: command not found'
+    const cases = [
+      { seed: { handsOff: false, committed: true }, body: flock },
+      { seed: { handsOff: true, committed: false }, body: flock },
+      { seed: { handsOff: true, committed: true }, body: 'Tests failed: 3 of 40 in src/lock.test.ts' }
+    ]
+    for (const c of cases) {
+      const deps = await seedNotProvable(c.seed)
+      const d = deps.getState().dispatches[0]
+      expect((await call(deps, 'send', report(d, { outcome: 'failed', body: c.body }), 'sess1')).status).toBe(200)
+      const s = deps.getState()
+      const task = s.tasks.find((t) => t.id === d.taskId)!
+      expect(task.status).not.toBe('completed')
+      expect(task.consecutiveFailures).toBe(1)
+      expect(task.notProvable).toBeUndefined()
+      expect(s.dispatches.find((x) => x.id === d.id)?.outcome).toBe('failed')
+      expect(s.jobs[0].decisions).toBeUndefined()
+    }
   })
   it('워커 세션은 다른 dispatch로 보고할 수 없다', async () => {
     const deps = await seedWorker()

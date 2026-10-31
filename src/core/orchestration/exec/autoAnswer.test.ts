@@ -10,7 +10,8 @@ import { handleCommand, type OrchServerDeps } from '../command'
 import { addDecision, createGate, emptyState, type OrchState } from '../state'
 import { deriveActivity, noticeOf, type ActivityDraft } from '../activity'
 import { heldForOwner, outcomeOf } from '../running'
-import type { Task } from '../types'
+import type { ReviewIssue, Task } from '../types'
+import { notProvableReviewAnswer } from './notProvable'
 import { FAILED_WAIT_OPTIONS } from '../replan'
 
 const NOW = '2026-10-18T00:00:00.000Z'
@@ -469,6 +470,55 @@ describe('a review-needs-decision Gate on a hands-off plan', () => {
     }
   })
 
+  const issue = (over: Partial<ReviewIssue>): ReviewIssue => ({ id: 'iss_1', severity: 'high', blocking: true, title: 'next dev not run', description: '', ...over })
+  const reviewed = (issues: ReviewIssue[], grants?: string[]): OrchState => {
+    const s = planned(grants)
+    return { ...s, tasks: s.tasks.map((t) => ({ ...t, reviewIssues: issues })) }
+  }
+
+  it('T12: only environment blockers: accepted as not provable here and recorded, not handed to a coordinator', () => {
+    const g = gate('The review needs a decision: next dev not run (needs environment); no iOS simulator (needs environment)')
+    const s = reviewed([issue({ needs: 'environment' }), issue({ id: 'iss_2', title: 'no iOS simulator', needs: 'environment' }), issue({ id: 'iss_3', blocking: false, title: 'nit' })])
+    const steps = handsOffStepsDue(s, [g], T0)
+    expect(steps).toEqual([
+      {
+        kind: 'answer',
+        answer: { id: 'gat_1', answer: notProvableReviewAnswer([{ title: 'next dev not run' }, { title: 'no iOS simulator' }]), why: 'safe default' },
+        decision: {
+          kind: 'gate',
+          taskId: 'tsk_x',
+          question: g.question,
+          choice: 'accepted T1 · Login: not provable here: next dev not run (needs environment); no iOS simulator (needs environment)',
+          why: expect.stringContaining('plan runs hands-off')
+        }
+      }
+    ])
+    // The answer tells the repair worker to report --not-provable, and the next review reads it as dropping that proof
+    const answer = (steps[0] as { answer: { answer: string } }).answer.answer
+    expect(answer).toContain('--not-provable')
+    expect(answer).toContain('its absence is not a finding')
+  })
+
+  it('T12: an environment blocker beside a code or scope blocker goes the usual way', () => {
+    const g = gate('The review needs a decision: next dev not run (needs environment)')
+    for (const other of [issue({ id: 'iss_2', title: 'bug' }), issue({ id: 'iss_2', title: 'wider change', needs: 'scope' })])
+      expect(handsOffStepsDue(reviewed([issue({ needs: 'environment' }), other]), [g], T0)).toEqual([{ kind: 'coordinator', question: g }])
+  })
+
+  it('T12: a Task accepted this way once already goes the usual way, not round a loop', () => {
+    const g = gate('The review needs a decision: next dev not run (needs environment)')
+    const s = reviewed([issue({ needs: 'environment' })])
+    const earlier = { id: 'gat_0', runId: 'run_1', taskId: 'tsk_x', question: 'q', kind: 'review-needs-decision' as const, status: 'resolved' as const, resolution: notProvableReviewAnswer([issue({})]), createdAt: NOW, resolvedAt: NOW }
+    expect(handsOffStepsDue({ ...s, gates: [earlier] }, [g], T0)).toEqual([{ kind: 'coordinator', question: g }])
+  })
+
+  it('T12: a guardrail in the text still holds the Task for the owner', () => {
+    const g = gate('The review needs a decision: the production credentials (needs environment)')
+    expect(handsOffStepsDue(reviewed([issue({ title: 'the production credentials', needs: 'environment' })]), [g], T0)).toEqual([
+      expect.objectContaining({ kind: 'hold', decision: expect.objectContaining({ kind: 'refused' }) })
+    ])
+  })
+
   it('has no safe default for the global auto-answer', () => {
     expect(autoAnswerOf(planned(), gate('The review needs a running dev server.'))).toBeNull()
     expect(autoAnswerOf(planned(), gate('The review needs a decision. Options are open.'))).toBeNull()
@@ -566,9 +616,14 @@ describe('a hands-off escalation with no live coordinator (T11)', () => {
     await r.tick()
     expect(r.state().messages.find((m) => m.id === 'msg_esc')).toMatchObject({ answered: true, answerBody: ESCALATION_DEFAULT_ANSWER })
     expect(r.state().jobs[0].decisions).toEqual([
-      expect.objectContaining({ kind: 'escalation', choice: ESCALATION_DEFAULT_ANSWER, why: expect.stringContaining('did not answer within 5 minutes') })
+      expect.objectContaining({ kind: 'escalation', choice: ESCALATION_DEFAULT_ANSWER.slice(0, 200), why: expect.stringContaining('did not answer within 5 minutes') })
     ])
     expect(typed).toHaveLength(1)
+  })
+
+  it('T12: the default answer tells a worker that lacks a tool or OS here to report --not-provable', () => {
+    expect(ESCALATION_DEFAULT_ANSWER).toContain('tool or OS this machine lacks')
+    expect(ESCALATION_DEFAULT_ANSWER).toContain('report succeeded with --not-provable')
   })
 
   it('no planner to reach: the default answer after the wait, recorded once', async () => {

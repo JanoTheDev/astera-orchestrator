@@ -401,6 +401,7 @@ export const plan = {
   "plan.task.copied": "복사했습니다",
   "plan.task.result": "결과",
   "plan.task.gaps": "하지 못한 것",
+  "plan.task.notProvable": "이 컴퓨터에서 증명할 수 없음",
   "plan.task.attempts": "시도",
   "plan.task.attempt.work": "작업",
   "plan.task.attempt.review": "검토",

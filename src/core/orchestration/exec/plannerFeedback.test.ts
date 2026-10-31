@@ -680,6 +680,8 @@ describe('jobs-ask-planner (T11)', () => {
     expect(r.typed[0].text).toContain('the A part')
     expect(r.typed[0].text).toContain('src/A.ts')
     expect(r.typed[0].text).toContain('astera questions-answer --id msg_q')
+    // T12: a worker that cannot run something this machine lacks is told to report --not-provable
+    expect(r.typed[0].text).toContain('report succeeded with `--not-provable "<command>: <why>"`')
     expect(r.typed[0].text).not.toContain('\n')
   })
 

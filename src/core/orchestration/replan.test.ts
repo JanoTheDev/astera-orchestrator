@@ -188,6 +188,22 @@ describe('replansDue', () => {
     expect(replansDue(s, seen)).toHaveLength(1)
   })
 
+  it('T12: a hands-off plan starts no replan for a Task whose only deviation is what this machine cannot run', () => {
+    const tasks = [task('a', { status: 'completed', notProvable: 'flock: not found on Windows' }), task('b', { deps: ['a'] })]
+    expect(replansDue(state(tasks, { handsOff: true }), seen)).toEqual([])
+    // the plan's project runs hands-off: the same
+    const viaProject = { ...state(tasks, { projectId: 'prj_1' }), projects: [{ id: 'prj_1', path: '/p', handsOff: true } as OrchState['projects'][number]] }
+    expect(replansDue(viaProject, seen)).toEqual([])
+  })
+
+  it('T12: outside hands-off, what this machine cannot run counts like gaps and asks for a replan', () => {
+    const tasks = [task('a', { status: 'completed', notProvable: 'flock: not found on Windows' }), task('b', { deps: ['a'] })]
+    expect(replansDue(state(tasks), seen)).toHaveLength(1)
+    expect(replansDue(state(tasks, { handsOff: false }), seen)).toHaveLength(1)
+    // a hands-off plan still replans over gaps beside it
+    expect(replansDue(state([{ ...tasks[0], gaps: 'e2e not run' }, tasks[1]], { handsOff: true }), seen)).toHaveLength(1)
+  })
+
   it('asks for the final check once every Task completed, only for a Run it saw running, once per done count', () => {
     const s = state([task('a', { status: 'completed' }), task('b', { deps: ['a'], status: 'completed' })])
     expect(replansDue(s, () => false)).toEqual([])

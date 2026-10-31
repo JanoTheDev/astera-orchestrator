@@ -381,6 +381,12 @@ const SESSION = {
       { name: 'body', value: '<text|->', about: 'the body (a value of `-` reads it from stdin)' },
       { name: 'files-modified', value: '<a,b,c>', about: 'the files this Task changed (worker_done only)' },
       { name: 'gaps', value: '<text>', about: 'with --outcome succeeded: the few parts it could not reach and why (worker_done only; ignored on failed)' },
+      {
+        name: 'not-provable',
+        value: '<what: why>',
+        about:
+          'with --outcome succeeded: what this machine cannot run and why, e.g. "flock: not on Windows" (worker_done only; ignored on failed). A hands-off plan accepts it; elsewhere it counts like --gaps'
+      },
       // W2-D GitHub links
       { name: 'issue', value: '<n>', about: "this Task's GitHub issue number, linked to the Task (worker_done only)" },
       { name: 'issue-created', about: "the repository's workflow created that issue for this Task, so the plan's PR closes it (worker_done only)" }

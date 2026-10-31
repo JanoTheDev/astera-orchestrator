@@ -284,6 +284,7 @@ export const plan: Partial<Record<keyof typeof ko, string>> = {
   "plan.task.copied": "コピーしました",
   "plan.task.result": "結果",
   "plan.task.gaps": "できなかったこと",
+  "plan.task.notProvable": "このマシンでは証明できない",
   "plan.task.attempts": "試行",
   "plan.task.attempt.work": "作業",
   "plan.task.attempt.review": "レビュー",
