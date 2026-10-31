@@ -184,6 +184,7 @@ export const core: Partial<Record<keyof typeof ko, string>> = {
   'slack.limitWaiting': '⏸ 上限に到達 — {at} に再開予定 ({scope}上限)',
   'slack.limitScope.weekly': '週間',
   'slack.limitScope.session': '5時間',
+  'slack.limitScope.usage': '使用量',
   'slack.accountSwitched': '🔁 アカウント切り替え → {label}',
   'slack.limitReset': '▶️ 上限リセット — 自動再開プロンプトを送信',
   'slack.stalled': '⚠️ セッションが停止しています — 自動再開に失敗、確認が必要です',

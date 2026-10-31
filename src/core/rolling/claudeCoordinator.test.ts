@@ -1191,6 +1191,43 @@ describe('RollingCoordinator 단일 계정 자동 재개', () => {
     expect(resumeCount(h)).toBe(1)
   })
 
+  describe('an account with no 5-hour window (weekly only)', () => {
+    const win = (usedPercent: number, resetsAt: string | null) => ({ usedPercent, resetsAt })
+    const ultra = (weeklyPct: number) => ({
+      readings: new Map([['a1', { session: null, weekly: win(weeklyPct, new Date(Date.now() + 3 * 24 * 60 * MIN).toISOString()) }]]),
+      pauseAt: 90
+    })
+
+    it('never labels its wait a session (5-hour) wait: the scope is the neutral usage one', async () => {
+      const h = harness({ accountUsage: () => ultra(30) })
+      const now = Date.now()
+      h.payloads.set('s1', payloadEx({ five: 100, weekly: 20, fiveReset: new Date(now + 10 * MIN).toISOString() }))
+      h.coord.register(infoSelf())
+      h.coord.handleData({ sessionId: 's1', data: LIMIT_TEXT }); await flush()
+      expect(lastWaiting(h.sent)?.scope).toBe('usage')
+      expect(h.coord.stateOf('s1')).toMatchObject({ state: 'waiting', scope: 'usage' })
+    })
+
+    it('a weekly block on it is still named weekly', async () => {
+      const h = harness({ accountUsage: () => ultra(30) })
+      const now = Date.now()
+      h.payloads.set('s1', payloadEx({ five: 20, weekly: 100, weeklyReset: new Date(now + 15 * MIN).toISOString() }))
+      h.coord.register(infoSelf())
+      h.coord.handleData({ sessionId: 's1', data: LIMIT_TEXT }); await flush()
+      expect(lastWaiting(h.sent)?.scope).toBe('weekly')
+    })
+
+    it('an account that has both windows keeps the session scope', async () => {
+      const both = { readings: new Map([['a1', { session: win(10, null), weekly: win(30, null) }]]), pauseAt: 90 }
+      const h = harness({ accountUsage: () => both })
+      const now = Date.now()
+      h.payloads.set('s1', payloadEx({ five: 100, weekly: 20, fiveReset: new Date(now + 10 * MIN).toISOString() }))
+      h.coord.register(infoSelf())
+      h.coord.handleData({ sessionId: 's1', data: LIMIT_TEXT }); await flush()
+      expect(lastWaiting(h.sent)?.scope).toBe('session')
+    })
+  })
+
   it('stateOf reflects a waiting state', async () => {
     const h = harness()
     const now = Date.now()

@@ -94,7 +94,7 @@ function isEntry(v: unknown): v is RollJournalEntry {
   if (typeof o.at !== 'string' || typeof o.sessionId !== 'string') return false
   if (o.kind !== 'rolled' && o.kind !== 'state') return false
   if (o.state !== undefined && !STATES.has(o.state as string)) return false
-  if (o.scope !== undefined && o.scope !== 'session' && o.scope !== 'weekly') return false
+  if (o.scope !== undefined && o.scope !== 'session' && o.scope !== 'weekly' && o.scope !== 'usage') return false
   return optString(o.oldSessionId) && optString(o.accountLabel) && optString(o.nextRetryAt)
 }
 

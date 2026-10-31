@@ -55,6 +55,7 @@ import { t, type Lang } from '../i18n'
 import { ClaudeTranscriptTail } from './claudeSignal'
 import { ROLL_SNAPSHOT_VERSION, MAX_SNAPSHOT_PROMPT_CHARS, snapshotKey, type RollSnapshot, type RollRespawnExtra } from './snapshot'
 import { parseResetTime } from './resetTime'
+import { hasNoSessionWindow } from '../accounts/autoAccountOrder'
 
 /** A blank-slate respawn's note: owed the briefing, and the briefing's text (Task 12 fix round 1). A text
  *  past the parser's bound is left out rather than written — parseRollSnapshot would refuse the whole
@@ -1423,6 +1424,15 @@ export class RollingCoordinator {
     return true
   }
 
+  /** Which limit a planned wait names. A weekly block is weekly. Otherwise it is the 5-hour one, unless the account
+   *  waited for has a reading with no 5-hour window (an Ultra plan): that wait is never a 5-hour wait, and with no
+   *  weekly mark either it is named 'usage', a limit without a window. */
+  private waitScopeOf(chain: Chain, plan: { target: number; weekly: boolean }): 'session' | 'weekly' | 'usage' {
+    if (plan.weekly) return 'weekly'
+    const reading = this.deps.accountUsage?.()?.readings.get(chain.accountIds[plan.target] ?? '')
+    return hasNoSessionWindow(reading) ? 'usage' : 'session'
+  }
+
   /** Arms a planned wait: the banner, the timer, and the plan a snapshot carries (S6 R4). */
   private armWait(
     chain: Chain,
@@ -1432,7 +1442,7 @@ export class RollingCoordinator {
     chain.waitPlan = { retryAt: plan.retryAt, target: plan.target, weekly: plan.weekly }
     this.pushState(chain, 'waiting', {
       nextRetryAt: new Date(plan.retryAt).toISOString(),
-      scope: plan.weekly ? 'weekly' : 'session',
+      scope: this.waitScopeOf(chain, plan),
       // A restored wait is the same stop another process already published (preflight R5): marked as a
       // re-publish, so the roll tap (it skips reattach) and Slack do not record it a second time.
       ...(opts.reattach ? { reattach: true } : {})

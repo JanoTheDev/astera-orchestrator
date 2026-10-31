@@ -441,7 +441,9 @@ export interface RollStateEvent {
   // duplicate notification
   reattach?: boolean
   nextRetryAt?: string // ISO — the retry time, when state='waiting'
-  scope?: 'session' | 'weekly' // which limit, when state='waiting' — selects the banner wording and time format
+  // which limit, when state='waiting' — selects the banner wording and time format. 'usage': the blocked account has
+  // no 5-hour window (an Ultra plan) and the block is not known to be its weekly one, so no window is named
+  scope?: 'session' | 'weekly' | 'usage'
   // Set on state='switching' when a person asked for the move ("Use for this tab") rather than a limit
   manual?: boolean
 }

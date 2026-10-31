@@ -77,6 +77,27 @@ describe('ConnectionNotifier — a reply to any message it posted', () => {
   })
 })
 
+describe('ConnectionNotifier — how a waiting limit is worded', () => {
+  const waiting = async (scope: 'session' | 'weekly' | 'usage' | undefined): Promise<string> => {
+    const { notifier, posts } = setup()
+    notifier.register(info())
+    notifier.onRollState({ sessionId: 's-1', state: 'waiting', nextRetryAt: new Date(Date.now() + 3_600_000).toISOString(), ...(scope ? { scope } : {}) })
+    await flush()
+    return posts.map((p) => p.text).join('\n')
+  }
+
+  it('names the 5-hour limit for a session wait and the weekly one for a weekly wait', async () => {
+    expect(await waiting('session')).toContain('(5-hour limit)')
+    expect(await waiting('weekly')).toContain('(weekly limit)')
+  })
+
+  it('names no window for a wait on an account without a 5-hour window', async () => {
+    const text = await waiting('usage')
+    expect(text).toContain('(usage limit)')
+    expect(text).not.toMatch(/5-hour|weekly/)
+  })
+})
+
 describe('ConnectionNotifier — a pending tool call', () => {
   const ask = { questions: [{ question: 'Q?', options: [{ label: 'a' }, { label: 'b' }] }] }
   it('a failed call (PostToolUseFailure) drops the capture like PostToolUse', () => {
