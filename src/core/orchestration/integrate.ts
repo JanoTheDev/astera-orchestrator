@@ -337,8 +337,8 @@ Four rules make the rest of the run work:
   merge and nothing else.
 
 Before you commit a resolved conflict, run the test files that cover the files you resolved, through
-\`astera heavy -- npx vitest run <files>\` (heavy jobs run one at a time on this machine). Never run the
-full suite outside \`astera heavy\`.
+\`astera heavy -- npx vitest run <files>\` (test, typecheck and build runs are heavy jobs: they run one at a time
+on this machine). Never run the full suite, a typecheck or a build outside \`astera heavy\`.
 `
 }
 

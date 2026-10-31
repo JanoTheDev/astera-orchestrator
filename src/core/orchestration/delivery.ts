@@ -335,7 +335,7 @@ and do not create a new one.
 1. ${fetch} && git merge --no-edit ${origin}
    A conflict is resolved so both sides' work survives; never \`git merge --abort\` or \`git reset --hard\`.
 2. Make the failing checks below pass. Fix the cause; never skip, delete or weaken a test or a check.
-3. Run the checks that failed (heavy jobs through \`astera heavy -- <cmd>\`), then commit everything:
+3. Run the checks that failed (test, typecheck and build runs are heavy jobs: \`astera heavy -- <cmd>\`), then commit everything:
    \`git status --porcelain\` must print nothing when you are done.
 
 Once you report, Astera validates the merged result again and delivers it.

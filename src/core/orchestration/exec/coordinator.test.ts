@@ -141,6 +141,14 @@ describe('buildSpecFile', () => {
     expect(out).toContain('as `astera heavy -- <cmd>`: one at a time on this machine.')
     expect(out).toContain('`ASTERA_PROFILE_DIR=~/.config/astera-dev`')
   })
+  it('names test, typecheck and build runs as heavy jobs and gives the wrapped commands', () => {
+    const out = buildSpecFile({ title: 'T', spec: 'S', taskId: 'tsk_1', dispatchId: 'dsp_1' })
+    expect(out).toContain('`astera heavy -- npx vitest run --maxWorkers=2 <files>`')
+    expect(out).toContain('`astera heavy -- npm run typecheck`')
+    expect(out).toContain('Test, typecheck and build runs are heavy jobs')
+    // the bare commands are no longer what the brief tells a worker to run
+    expect(out).not.toContain('(`npx vitest run --maxWorkers=2 <files>`')
+  })
   it('the Work fast section recommends subagents for both Claude Code and Codex, and keeps the final check', () => {
     const out = buildSpecFile({ title: 'T', spec: 'S', taskId: 'tsk_1', dispatchId: 'dsp_1' })
     expect(out).toContain('## Work fast')
