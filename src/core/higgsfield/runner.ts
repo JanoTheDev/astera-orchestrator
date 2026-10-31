@@ -58,7 +58,9 @@ export function passThrough(file: string, platform: NodeJS.Platform, args: strin
       resolve(2)
       return
     }
-    const child = spawn(cmd.file, cmd.args, { env: cmd.env, stdio: 'inherit' })
+    // Inherited stdio: the program shares the caller's console, so windowsHide hides nothing it needs; it only keeps a
+    // console-less caller from handing it a visible window of its own (src/core/childWindows.ts).
+    const child = spawn(cmd.file, cmd.args, { env: cmd.env, stdio: 'inherit', windowsHide: true })
     child.on('error', (e) => { process.stderr.write(`${String(e)}\n`); resolve(127) })
     child.on('close', (code) => resolve(code ?? 1))
   })

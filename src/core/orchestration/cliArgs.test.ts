@@ -181,6 +181,7 @@ describe('공개 표면 — 두 낱말 명령', () => {
     expect(parseArgs(['host', 'status'])).toMatchObject({ cmd: 'host-status' })
     expect(parseArgs(['host', 'start'])).toMatchObject({ cmd: 'host-start' })
     expect(parseArgs(['host', 'stop'])).toMatchObject({ cmd: 'host-stop' })
+    expect(parseArgs(['host', 'restart', '--wait', '5', '--now'])).toMatchObject({ cmd: 'host-restart', args: { wait: '5', now: true } })
   })
 
   it('읽기 표면의 다섯 명사를 전부 잇는다', () => {

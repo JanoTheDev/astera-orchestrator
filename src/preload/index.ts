@@ -258,6 +258,7 @@ const api = {
     setGithubPolling: invoke('settings.setGithubPolling'),
     getMaxConcurrentWorkers: invoke('settings.getMaxConcurrentWorkers'),
     getHeavyJobsAtOnce: invoke('settings.getHeavyJobsAtOnce'),
+    getAutoHeavySlots: invoke('settings.getAutoHeavySlots'),
     getMachineSpecs: invoke('settings.getMachineSpecs'),
     // W3-A
     getActivityDigestMinutes: invoke('settings.getActivityDigestMinutes'),
@@ -293,6 +294,10 @@ const api = {
     setAccountMaxSessions: invoke('settings.setAccountMaxSessions'),
     getAutoLimits: invoke('settings.getAutoLimits'), // T6
     restoreAutoLimits: invoke('settings.restoreAutoLimits'),
+    restoreAutoLimit: invoke('settings.restoreAutoLimit'),
+    agentLimits: invoke('settings.agentLimits'),
+    getMinWorkersUnderPressure: invoke('settings.getMinWorkersUnderPressure'),
+    setMinWorkersUnderPressure: invoke('settings.setMinWorkersUnderPressure'),
     getDesktopNotify: invoke('settings.getDesktopNotify'),
     setDesktopNotify: invoke('settings.setDesktopNotify'),
     getGenerator: invoke('settings.getGenerator'),
@@ -575,6 +580,7 @@ const api = {
     sessionsOutlivingApp: invoke('host.sessionsOutlivingApp'),
     survivesUpdate: invoke('host.survivesUpdate'),
     replace: invoke('host.replace'),
+    restartNow: invoke('host.restartNow'),
     driver: invoke('host.driver'),
     holdings: invoke('host.holdings')
   },

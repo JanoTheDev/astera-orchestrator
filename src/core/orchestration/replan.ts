@@ -23,7 +23,7 @@ import { reviewRoundIn } from './convergence'
 import { layersOf } from './graph'
 import { crossPlanDepRefusal, externalDepsOf, waitsOnItself } from './mainPlan'
 import { jobActive, pathsOverlap } from './schedule'
-import { doneStatusOf, jobOf, type OrchState, type PlanFields, type Res } from './state'
+import { doneStatusOf, jobOf, projectWithWorkspace, type OrchState, type PlanFields, type Res } from './state'
 import { jobNameOf } from './jobName'
 import { FAILURE_LIMIT, newId, recomputeReady, type Dispatch, type Job, type JobRun, type Message, type ReplanMark, type Task } from './types'
 
@@ -113,13 +113,25 @@ const completedIn = (ts: readonly Task[]): number => ts.filter((t) => t.status =
 
 /** Whether a completed Task went as planned, from Host state only: no attempt of it failed (a retry resets its failure
  *  count, so the Dispatches say), it needed one review round at most,
- *  was not let through by a person, reported no gaps, and touched files only inside its affected paths (no paths: nothing to leave). */
+ *  was not let through by a person, reported no gaps, and touched files only inside its affected paths (no paths: nothing to leave).
+ *  T12: what this machine could not run (`notProvable`) is no deviation in a hands-off plan, which accepts it with a
+ *  recorded decision; elsewhere it counts like gaps. */
 const wentAsPlanned = (s: OrchState, t: Task): boolean =>
   !s.dispatches.some((d) => d.taskId === t.id && !d.review && d.outcome === 'failed') &&
   t.completionOverride === undefined &&
   !t.gaps &&
+  (!t.notProvable || handsOffTask(s, t)) &&
   reviewRoundIn(s.dispatches.filter((d) => d.taskId === t.id)) <= 1 &&
   (t.filesModified ?? []).every((f) => !t.affectedPaths?.length || t.affectedPaths.some((p) => pathsOverlap(f, p)))
+
+/** T12: whether the Task's plan runs hands-off: delivery.ts `handsOffOf`, read through the plan's own project here
+ *  because this file stays renderer-safe (projects.ts reaches node:path). */
+function handsOffTask(s: OrchState, t: Task): boolean {
+  const run = s.runs.find((r) => r.id === t.runId)
+  const job = run && jobOf(s, run)
+  if (!job) return false
+  return job.handsOff ?? (job.projectId !== undefined ? projectWithWorkspace(s, job.projectId)?.handsOff : undefined) ?? false
+}
 
 /** When this Run's deviations were last looked at: the start of its last replan that ended. '' for none. */
 function coveredSince(job: Job, runId: string): string {
@@ -228,6 +240,19 @@ export function stallOf(s: OrchState, run: JobRun): RunStall | undefined {
 /** T36: the answers of the owner question over a failed Task that holds back the rest of its plan. */
 export const FAILED_WAIT_OPTIONS = ['Retry', 'Accept as done', 'Cancel what waits on it'] as const
 export type FailedWaitAction = 'retry' | 'accept' | 'cancel'
+
+/** T10: how long after its Nth failure (index N-1) a hands-off plan with no coordinator retries a failed Task itself
+ *  (exec/failedRetry.ts): 1 minute after the 1st, 5 after the 2nd. Here, renderer-safe, for the board's "retrying in". */
+export const FAILED_RETRY_BACKOFF_MS: readonly number[] = [60_000, 5 * 60_000]
+
+/** T10: when such a failed Task with tries left is retried: its failure time (`updatedAt`) plus its backoff. Undefined
+ *  once its tries are used up. */
+export function failedRetryAt(t: Pick<Task, 'consecutiveFailures' | 'updatedAt'>): string | undefined {
+  if (t.consecutiveFailures >= FAILURE_LIMIT) return undefined
+  const wait = FAILED_RETRY_BACKOFF_MS[Math.min(Math.max(t.consecutiveFailures, 1), FAILED_RETRY_BACKOFF_MS.length) - 1]
+  const at = Date.parse(t.updatedAt)
+  return Number.isNaN(at) ? t.updatedAt : new Date(at + wait).toISOString()
+}
 const FAILED_WAIT_ACTIONS: readonly FailedWaitAction[] = ['retry', 'accept', 'cancel']
 
 /** The owner question `failedWaitQuestion` raised: told apart by its answers. */
@@ -280,7 +305,9 @@ export function failedWaitChoice(s: OrchState, task: Task): FailedWaitAction | u
 
 /**
  * T36: carries out a choice over a failed Task (the owner's answer, the plan views' buttons, or a replan):
- * - `retry`: it is ready again with its tries reset, with `patch` (a replan's changed spec) applied;
+ * - `retry`: it is ready again with its tries reset, with `patch` (a replan's changed spec) applied; T10: with
+ *   `keepFailures` (Astera's own retry in a hands-off plan with no coordinator) it keeps its failure count, so its tries
+ *   run out instead of repeating forever;
  * - `accept`: it counts as done with its gaps (`completionOverride` with `reason`), so what waits on it starts;
  * - `cancel`: the not-started Tasks that wait on it leave the Run, and it stays failed with its tries used up, so the
  *   Run ends.
@@ -291,7 +318,7 @@ export function resolveFailedWait(
   taskId: string,
   action: FailedWaitAction,
   now: string,
-  opts: { reason?: string; patch?: PlanFields & { title?: string; spec?: string } } = {}
+  opts: { reason?: string; patch?: PlanFields & { title?: string; spec?: string }; keepFailures?: boolean } = {}
 ): Res<Task> {
   const task = s.tasks.find((t) => t.id === taskId)
   if (!task) return { ok: false, error: `unknown task: ${taskId}`, missing: true }
@@ -314,7 +341,7 @@ export function resolveFailedWait(
     const done = { ...task, consecutiveFailures: Math.max(task.consecutiveFailures, FAILURE_LIMIT), updatedAt: now }
     next = { ...next, tasks: next.tasks.map((t) => (t.id === taskId ? done : t)) }
   } else if (action === 'retry') {
-    const done: Task = { ...task, ...opts.patch, status: 'ready', consecutiveFailures: 0, updatedAt: now }
+    const done: Task = { ...task, ...opts.patch, status: 'ready', consecutiveFailures: opts.keepFailures ? task.consecutiveFailures : 0, updatedAt: now }
     next = { ...next, tasks: next.tasks.map((t) => (t.id === taskId ? done : t)) }
   } else {
     const done: Task = {

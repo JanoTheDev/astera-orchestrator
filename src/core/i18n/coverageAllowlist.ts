@@ -232,7 +232,6 @@ export const UNTRANSLATED: readonly MessageKey[] = [
   'plan.reason.noAccount',
   'plan.reason.coordinator',
   'plan.reason.planCap',
-  'plan.reason.globalCap',
   'plan.reason.sameFiles',
   'plan.reason.sameFilesPlan',
   'plan.reason.leasePlan',

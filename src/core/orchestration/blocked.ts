@@ -17,7 +17,7 @@ import {
   serialFilesOf,
   slotsToFill,
   workerCapOf,
-  workersAgainstCap,
+  workersAgainstCapSplit,
   type ScheduleLimits
 } from './schedule'
 import { usageChoice } from './usageGuard'
@@ -26,6 +26,8 @@ import { afterNameOf, afterQueued, afterStandOf } from './after'
 // W8-D several plans in one repo
 import { jobNameOf } from './jobName'
 import { externalDepsOf } from './mainPlan'
+// T10: a hands-off plan's own retry of a failed Task (exec/failedRetry.ts)
+import { failedRetryAt } from './replan'
 
 const isOpen = (d: Dispatch): boolean => !d.outcome && !d.endedAt
 
@@ -75,7 +77,13 @@ export function taskBoardsOf(
   const runById = new Map(s.runs.map((r) => [r.id, r]))
   const jobById = new Map(s.jobs.map((j) => [j.id, j]))
   let placement:
-    | { count: number; slotted: Set<string>; byRun: Map<string, number>; used: number; editing: Map<string, Task[]> }
+    | {
+        count: number
+        slotted: Set<string>
+        byRun: Map<string, number>
+        busy: { running: number; starting: number }
+        editing: Map<string, Task[]>
+      }
     | undefined
   const placed = (): NonNullable<typeof placement> => {
     if (placement) return placement
@@ -92,7 +100,7 @@ export function taskBoardsOf(
       // T7: only a project that keeps same-file Tasks apart (schedule.ts `serialFilesOf`)
       if (t && key !== undefined && serialFilesOf(s, key)) editing.set(key, [...(editing.get(key) ?? []), t])
     }
-    placement = { count: slots.length, slotted: new Set(slots.map((x) => x.taskId)), byRun, used: workersAgainstCap(s), editing }
+    placement = { count: slots.length, slotted: new Set(slots.map((x) => x.taskId)), byRun, busy: workersAgainstCapSplit(s), editing }
     return placement
   }
   const openByRun = new Map<string, number>()
@@ -157,13 +165,20 @@ export function taskBoardsOf(
       return { kind: 'gate', gateId: gate.id, question: gate.question, ...(gate.kind ? { gateKind: gate.kind } : {}) }
     if (task.consecutiveFailures >= FAILURE_LIMIT)
       return { kind: 'failure-limit', failures: task.consecutiveFailures, limit: FAILURE_LIMIT }
-    if (task.status === 'failed')
+    if (task.status === 'failed') {
+      // T10: a hands-off plan with no coordinator retries it itself, after its backoff. handsOffOf (delivery.ts) as this
+      // renderer-safe module can read it, as activity.ts does: by `projectId` only (the folder match needs node)
+      const handsOff = job.handsOff ?? (job.projectId !== undefined ? s.projects.find((p) => p.id === job.projectId)?.handsOff : undefined) ?? false
+      const auto = handsOff && run.coordinatorSessionId === undefined && run.externalCoordinatorSessionId === undefined
+      const retryAt = auto ? failedRetryAt(task) : undefined
       return {
         kind: 'failed-retry',
         failures: task.consecutiveFailures,
         limit: FAILURE_LIMIT,
-        ...(run.coordinatorSessionId === undefined ? { noCoordinator: true as const } : {})
+        ...(run.coordinatorSessionId === undefined ? { noCoordinator: true as const } : {}),
+        ...(retryAt !== undefined ? { retryAt } : {})
       }
+    }
     if (task.status === 'reviewing') return { kind: 'awaiting-review' }
     if (task.status === 'dispatched') return { kind: 'stopped' }
     if (task.status === 'pending') {
@@ -199,8 +214,15 @@ export function taskBoardsOf(
     const openHere = openByRun.get(run.id) ?? 0
     const limit = job.concurrency ?? DEFAULT_CONCURRENCY
     if (openHere + (p.byRun.get(run.id) ?? 0) >= limit) return { kind: 'plan-cap', used: openHere, limit }
-    if (p.used + p.count >= cap)
-      return { kind: 'global-cap', used: p.used, limit: cap, priority: job.priority ?? 0 }
+    // The slots this pass places hold the cap too, and have not started yet: they count as starting
+    if (p.busy.running + p.busy.starting + p.count >= cap)
+      return {
+        kind: 'global-cap',
+        running: p.busy.running,
+        starting: p.busy.starting + p.count,
+        limit: cap,
+        priority: job.priority ?? 0
+      }
     return { kind: 'next' }
   }
 

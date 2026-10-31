@@ -22,14 +22,14 @@ import { cancelPlanTask, planWarnings, plannerJobOf, validatePlan } from '../pla
 import { replanJobOf } from '../replan'
 import { outcomeOfTasks } from '../running'
 import type { OrchState } from '../state'
-import { DEFAULT_CONCURRENCY, type Decision, type Job, type PlanFeedback } from '../types'
+import { DEFAULT_CONCURRENCY, type Decision, type Job, type Message, type PlanFeedback, type Task } from '../types'
 import { replanCommand } from './replanStart'
 
 type Reply = { status: number; body: unknown }
 type Caller = { sessionId: string; role?: 'app' | 'cli' | 'mcp' | 'controller' | 'plugin' }
 type Handle = (deps: OrchServerDeps, caller: Caller, cmd: string, args: Record<string, unknown>) => Promise<Reply>
 
-export const FEEDBACK_COMMANDS: ReadonlySet<string> = new Set(['jobs-feedback', 'jobs-chat', 'jobs-reject', 'jobs-feedback-done', 'jobs-auto-start', 'jobs-plan-ready'])
+export const FEEDBACK_COMMANDS: ReadonlySet<string> = new Set(['jobs-feedback', 'jobs-chat', 'jobs-reject', 'jobs-feedback-done', 'jobs-auto-start', 'jobs-plan-ready', 'jobs-ask-planner'])
 /** The longest feedback or reason kept. */
 export const FEEDBACK_TEXT_MAX = 4000
 /** At most this many change lines per feedback round, each at most CHANGE_LINE_MAX characters. */
@@ -255,6 +255,9 @@ export async function feedbackCommand(deps: OrchServerDeps, caller: Caller, cmd:
     return ok({ jobId, planReadyAt: now, ...(overlaps.length > 0 ? { overlaps } : {}) })
   }
 
+  // T11: a hands-off plan's worker question with no live coordinator, put to the plan's planner (the Host's dispatch loop)
+  if (cmd === 'jobs-ask-planner') return askPlanner(deps, job, str(args.question))
+
   if (cmd === 'jobs-auto-start') {
     if (!awaitsApproval(job) || !isJobActive(job)) return conflict(`job ${jobId} is not a plan waiting for approval`)
     // the Host passes the app's global default (`--approval`): the command cannot read app-settings.json itself
@@ -366,3 +369,120 @@ export async function feedbackCommand(deps: OrchServerDeps, caller: Caller, cmd:
 /** Whether `cmd` from `sessionId` is this module's: its commands, and a planner's (not a replan's) `task-cancel`. */
 export const isFeedbackCommand = (s: OrchState, sessionId: string, cmd: string): boolean =>
   FEEDBACK_COMMANDS.has(cmd) || (cmd === 'task-cancel' && replanJobOf(s, sessionId) === undefined && plannerJobOf(s, sessionId) !== undefined)
+
+/** T11: what the planner is told about a worker's question it answers: the question and the Task's spec and paths. */
+function questionFacts(q: Pick<Message, 'id' | 'body' | 'subject'>, task: Task | undefined): string[] {
+  const asked = q.body.trim() !== '' ? q.body : q.subject
+  return [
+    `Question ${q.id}${task ? ` from the worker of ${task.title} (${task.id})` : ''}: «${oneLine(asked).slice(0, 1500)}»`,
+    ...(task
+      ? [
+          `The Task's spec: «${oneLine(task.spec).slice(0, 1500)}»`,
+          `Its affected paths: ${task.affectedPaths?.length ? task.affectedPaths.join(', ') : 'none named'}`
+        ]
+      : [])
+  ]
+}
+
+/** T11: how the planner answers, the same words whichever way the question reaches it. */
+const howToAnswer = (questionId: string): string =>
+  `Answer it from the plan's design (the Job's objective, the Task's spec and paths, the decisions in your plan and \`existing.md\`) ` +
+  `with \`astera questions-answer --id ${questionId} --answer "<your decision and why>"\`, then end your turn. ` +
+  'Keep within the guardrails: force-push, pushing or merging to the default branch, deleting data outside the plan worktrees, ' +
+  'money and credentials stay the owner\'s, so answer those "no". ' +
+  'When the worker cannot run something this machine lacks (an OS-specific tool, a missing service or device), tell it to ' +
+  'report succeeded with `--not-provable "<command>: <why>"` and prove the rest. Do not start any work and do not change the plan.'
+
+/** T11: the line typed into a live planner: one line, since a terminal's Enter would cut a longer one. */
+export const plannerQuestionLine = (q: Pick<Message, 'id' | 'body' | 'subject'>, task: Task | undefined): string =>
+  `Astera: your plan runs hands-off and has no live coordinator, so a worker's question is yours. ${questionFacts(q, task).join('. ')}. ${howToAnswer(q.id)}`
+
+/** T11: the brief for a resumed planner (its conversation goes on), or with `fresh` one that has to find the plan first. */
+export function plannerQuestionBrief(job: Job, q: Pick<Message, 'id' | 'body' | 'subject'>, task: Task | undefined, fresh = false): string {
+  return [
+    `A worker's question on your plan ${job.id}`,
+    '',
+    "The plan runs hands-off and has no live coordinator, so you decide this question in the owner's place.",
+    ...(fresh
+      ? [
+          '',
+          `You are the planner of this plan, started again to answer it. Read the plan first: \`astera tasks-list --job ${job.id}\`, ` +
+            `\`$ASTERA_PROFILE_DIR/plans/${job.id}/plan.md\`, and \`$ASTERA_PROFILE_DIR/plans/${job.id}/inputs/existing.md\` when it is there.`,
+          `The Job's objective: «${oneLine(job.objective).slice(0, 1500)}»`
+        ]
+      : []),
+    '',
+    ...questionFacts(q, task),
+    '',
+    howToAnswer(q.id)
+  ].join('\n')
+}
+
+/** T11: `jobs-ask-planner`: a hands-off plan's open worker question put to its planner: typed into it while it lives,
+ *  else its conversation resumed, else a fresh planner. The new session joins `plannerSessionIds`, so its answer is
+ *  accepted (command.ts `questions-answer`) and it stays a planner (planner.ts `plannerRefusal`). */
+async function askPlanner(deps: OrchServerDeps, job: Job, questionId: string | null): Promise<Reply> {
+  const s = deps.getState()
+  if (!questionId) return bad('--question is required: the open question')
+  if (!handsOffOf(s, job)) return conflict(`job ${job.id} is not hands-off: its questions are the owner's`)
+  const q = s.messages.find((m) => m.id === questionId && (m.type === 'question' || m.type === 'escalation'))
+  if (!q) return notFound(`unknown question: ${questionId}`)
+  if (q.approval) return denied('an approval request is answered by the owner, from the app or a shell')
+  if (q.answered) return conflict(`question ${questionId} is answered already`)
+  if (s.runs.find((r) => r.id === q.runId)?.jobId !== job.id) return bad(`question ${questionId} is not a question of job ${job.id}`)
+  const last = job.plannerSessionIds?.at(-1)
+  if (!last) return conflict(`job ${job.id} was not planned: there is no planner to ask`)
+  const task = s.tasks.find((t) => t.id === q.taskId)
+  // 1. Typed into the planner while it lives
+  const live = deps.listSessions && deps.sendSession ? (await deps.listSessions()).find((x) => x.id === last && x.alive && x.kind === 'terminal') : undefined
+  if (live) {
+    const turn = await deps.sessionTurn?.(last)
+    if (turn?.state === 'waiting' && turn.prompt !== null) return conflict(`the planner waits on ${turn.prompt === 'permission' ? 'a permission prompt' : 'a question'}`)
+    await deps.sendSession!(last, plannerQuestionLine(q, task), true)
+    return ok({ jobId: job.id, questionId, sessionId: last, via: 'typed' })
+  }
+  if (!deps.startCoordinator) return conflict('starting a planner is not available in this build')
+  const accountId = job.preferredAccountId ?? job.coordinatorAccountId ?? job.plannerAccountId
+  if (!accountId) return bad('the Job names no account to plan on')
+  let startedOn: string | undefined
+  const start = async (brief: string, resume?: string): Promise<string> => {
+    const started = await deps.startCoordinator!({
+      runId: job.id,
+      cwd: job.cwd,
+      accountId,
+      ...(job.preferredAccountId === undefined ? { auto: true as const } : {}),
+      role: 'planner',
+      brief,
+      ...(resume ? { resume } : {})
+    })
+    startedOn = started.accountId
+    return started.sessionId
+  }
+  // 2. Its own conversation resumed, which keeps everything it read
+  const agent = await deps.agentSessionOf?.(last).catch(() => null)
+  let sessionId: string | undefined
+  let via: 'resumed' | 'fresh' = 'resumed'
+  if (agent) {
+    try {
+      sessionId = await start(plannerQuestionBrief(job, q, task), agent)
+    } catch (e) {
+      deps.log?.(`planner of job ${job.id} could not be resumed (${String(e)}): starting a fresh one`)
+    }
+  }
+  // 3. A fresh planner that reads the plan first
+  if (!sessionId) {
+    via = 'fresh'
+    try {
+      sessionId = await start(plannerQuestionBrief(job, q, task, true))
+    } catch (e) {
+      return { status: 502, body: { error: `the planner could not start: ${String(e)}` } }
+    }
+  }
+  const started = sessionId
+  const cur = deps.getState()
+  await deps.setState({
+    ...cur,
+    jobs: cur.jobs.map((j) => (j.id === job.id ? { ...j, plannerSessionIds: [...(j.plannerSessionIds ?? []), started], ...(startedOn ? { plannerAccountId: startedOn } : {}) } : j))
+  })
+  return ok({ jobId: job.id, questionId, sessionId: started, via })
+}

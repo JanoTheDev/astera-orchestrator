@@ -10,6 +10,7 @@ import { renameRetrying } from '../renameRetry'
 import { SESSION_CONTEXT_SCRIPT } from './sessionContext'
 import { SUBAGENT_CAP_SCRIPT } from './subagentCap'
 import { DELIVERY_GUARD_IFS, DELIVERY_GUARD_SCRIPT } from './deliveryGuard'
+import { HEAVY_GUARD_IFS, HEAVY_GUARD_SCRIPT } from './heavyGuard'
 import { CHECKPOINT_SCRIPT } from '../attribution/checkpoint'
 
 /** The statusLine injection info handed to SessionManager when a session is spawned. */
@@ -35,7 +36,7 @@ function finish() {
   if (out) { try { fs.writeFileSync(out, data) } catch {} }
   if (orig && orig.trim()) {
     try {
-      const child = cp.spawn(orig, { shell: true, stdio: ['pipe', 'inherit', 'inherit'] })
+      const child = cp.spawn(orig, { shell: true, stdio: ['pipe', 'inherit', 'inherit'], windowsHide: true })
       child.on('error', () => process.exit(0))
       child.on('close', (code) => process.exit(typeof code === 'number' ? code : 0))
       child.stdin.on('error', () => {})
@@ -230,6 +231,7 @@ export class StatusLineManager {
   private readonly subagentCapPath: string // W6-G
   private readonly checkpointPath: string // W8-B
   private readonly deliveryGuardPath: string // workers never deliver (deliveryGuard.ts)
+  private readonly heavyGuardPath: string // a worker's test, typecheck and build runs take a heavy slot (heavyGuard.ts)
   readonly hookEventsDir: string // Watched by index.ts's HookEventWatcher
 
   constructor(
@@ -252,6 +254,8 @@ export class StatusLineManager {
     this.checkpointPath = path.join(userDataDir, 'astera-attribution-checkpoint.cjs')
     // beside orchestration.json, which it reads to tell a worker (deliveryGuard.ts)
     this.deliveryGuardPath = path.join(userDataDir, 'astera-delivery-guard.cjs')
+    // beside orchestration.json too (heavyGuard.ts)
+    this.heavyGuardPath = path.join(userDataDir, 'astera-heavy-guard.cjs')
     // The Host reads these files back for `sessions list` (host/sessions.ts), so where they are is one
     // rule in core rather than a path spelled out twice.
     this.hookEventsDir = hookEventsDirIn(userDataDir)
@@ -285,6 +289,7 @@ export class StatusLineManager {
     await writeScript(this.subagentCapPath, SUBAGENT_CAP_SCRIPT)
     await writeScript(this.checkpointPath, CHECKPOINT_SCRIPT) // W8-B
     await writeScript(this.deliveryGuardPath, DELIVERY_GUARD_SCRIPT)
+    await writeScript(this.heavyGuardPath, HEAVY_GUARD_SCRIPT)
     const hookCmd = captureCommand(this.nodePath, this.hookCapturePath)
     const contextCmd = captureCommand(this.nodePath, this.sessionContextPath)
     // W6-G: the subagent cap (subagentCap.ts). **Synchronous**, unlike the capture hooks: its PreToolUse answer is
@@ -295,6 +300,14 @@ export class StatusLineManager {
     // `git push` or `gh pr create` line spawns its node.
     const guardCmd = captureCommand(this.nodePath, this.deliveryGuardPath)
     const deliveryGuardHook = { matcher: 'Bash', hooks: DELIVERY_GUARD_IFS.map((f) => ({ type: 'command', if: f, command: guardCmd })) }
+    // A worker's test, typecheck and build runs take a heavy slot (heavyGuard.ts): the command is rewritten to run under
+    // `astera heavy`. Synchronous (its answer is the rewritten call), and `if`-filtered per tool, so only a line that
+    // names a test runner, a typecheck or a build tool spawns its node.
+    const heavyCmd = captureCommand(this.nodePath, this.heavyGuardPath)
+    const heavyGuardHooks = (['Bash', 'PowerShell'] as const).map((tool) => ({
+      matcher: tool,
+      hooks: HEAVY_GUARD_IFS[tool].map((f) => ({ type: 'command', if: f, command: heavyCmd }))
+    }))
     // W8-B: the line checkpoint (core/attribution/checkpoint.ts), every session: the owner's interactive tabs are where a
     // human and an agent share a commit. `async`, so an edit never waits on it; one node process per edit call.
     const checkpointHook = {
@@ -336,7 +349,7 @@ export class StatusLineManager {
       // this hook's tool_input, and nothing else carries it (the transcript is silent while the CLI
       // waits). Matcher-limited to the one tool so ordinary tool calls pay nothing; the write/execute
       // family stays in the gated file below for the reasons given there.
-      PreToolUse: [{ matcher: ASK_MATCHER, hooks: [{ type: 'command', command: hookCmd }] }, subagentCapHook, deliveryGuardHook],
+      PreToolUse: [{ matcher: ASK_MATCHER, hooks: [{ type: 'command', command: hookCmd }] }, subagentCapHook, deliveryGuardHook, ...heavyGuardHooks],
       PostToolUse: [{ matcher: ASK_MATCHER, hooks: [{ type: 'command', command: hookCmd }] }, checkpointHook],
       // A call that failed fires this instead of PostToolUse; without it the call stays outstanding until Stop.
       PostToolUseFailure: [{ matcher: ASK_MATCHER, hooks: [{ type: 'command', command: hookCmd }] }],
@@ -403,7 +416,7 @@ export class StatusLineManager {
         // The cost: a user who configured the read tools to require approval gets only the text in that notification.
         // Hardcoding tool names here is a limitation too — a new tool will be missing from this list. Either way the
         // notification only falls back to the previous behaviour (a one-line message), so it is not a silent failure.
-        PreToolUse: [{ matcher: TOOL_MATCHER, hooks: [{ type: 'command', command: hookCmd }] }, subagentCapHook, deliveryGuardHook],
+        PreToolUse: [{ matcher: TOOL_MATCHER, hooks: [{ type: 'command', command: hookCmd }] }, subagentCapHook, deliveryGuardHook, ...heavyGuardHooks],
         // The pair that ends the capture: PostToolUse fires once the tool has actually run, and its
         // tool_use_id lets SlackNotifier drop the capture for certain. Without it a subagent's tool call
         // stays "waiting" until Stop — its tool_use is written only to the subagent's own transcript, so the

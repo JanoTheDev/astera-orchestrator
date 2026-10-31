@@ -68,11 +68,13 @@ import type { ProcRegistry } from './procRegistry'
 import type { HostSpawner } from './spawner'
 import type { HostWorktrees } from './worktrees'
 import { readMaxConcurrentWorkers } from '../core/settings/maxConcurrentWorkers'
+import { startHeldNow } from '../core/orchestration/startHold'
 import { machineSpecs } from '../core/settings/machineSpecs'
 // Coordinator rotation
 import { readFreshCoordinatorPct } from '../core/settings/freshCoordinator'
 import { readStallWatchOn } from '../core/settings/stallWatch'
 import { readAutoAnswerOn } from '../core/orchestration/exec/autoAnswer'
+import { readHealthSnapshot } from '../core/settings/autoLimits'
 import { parseStatusLinePayload } from '../core/usage/statusline'
 
 export interface HostDriving {
@@ -419,6 +421,8 @@ export function createHostDriving(d: {
     deliverySetup: (cwd) => readDeliverySetup(cwd), // T32
     // W1-B. A damaged file reads as no cap: the spawn refuses on that file anyway (orch.ts, the same line).
     maxConcurrentWorkers: () => readMaxConcurrentWorkers(settingsPath).catch(() => machineSpecs().recommended),
+    // T13: a hold on new starts (a restart's, or the owner's) places nothing
+    startHeld: () => startHeldNow(d.profileDir),
     accounts: () => d.checks.accounts(),
     loginStatus: (id) => d.checks.loginStatus(id),
     lang: () => d.checks.langNow(),
@@ -450,6 +454,11 @@ export function createHostDriving(d: {
     freshCoordinatorPct: () => readFreshCoordinatorPct(settingsPath),
     // #117: a hands-off plan's decision, appended to its Job (the feed derives its line from the commit)
     recordDecision: (jobId, decision) => d.orch.internalDeps().setState(addDecision(d.orch.state(), jobId, decision)),
+    // T8: a transiently failed merge waits while the machine is strained: the load monitor's snapshot, written every 10 s
+    strained: async () => {
+      const health = await readHealthSnapshot(d.profileDir)
+      return health !== null && health.strained && d.nowMs() - Date.parse(health.at) < 60_000
+    },
     // Stall watchdog (exec/stallWatch.ts): only where its lines have a feed, the Host's activity log
     ...(d.activity
       ? { stallWatch: () => readStallWatchOn(settingsPath), autoAnswer: () => readAutoAnswerOn(settingsPath), activity: d.activity }

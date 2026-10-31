@@ -7,6 +7,7 @@ const task = {
   acceptanceCriteria: ['retries 3 times', 'logs each retry'],
   result: 'Added retry to fetchAll.',
   gaps: 'No test for the timeout path.',
+  notProvable: 'flock: not found on Windows',
   reviewIssues: [{ severity: 'major', title: 'No backoff', file: 'src/a.ts', line: 7, blocking: true }],
   links: { branch: 'astera/add-retry', commits: ['aaa111', 'bbb222'] }
 }
@@ -26,7 +27,7 @@ describe('rangeOf', () => {
 describe('briefOf', () => {
   const brief = briefOf({ plan: 'Retry plan', task, changes })
   it('holds the plan, task, spec, criteria, report, gaps, review issues, branch, range and files', () => {
-    for (const s of ['Retry plan', 'Add retry', 'Retry failed fetches.', 'retries 3 times', 'Added retry to fetchAll.', 'No test for the timeout path.', 'No backoff', 'src/a.ts:7', 'astera/add-retry', 'aaa111^..bbb222', 'src/a.ts (modified, +5 −1)', 'img.png (added, binary)'])
+    for (const s of ['Retry plan', 'Add retry', 'Retry failed fetches.', 'retries 3 times', 'Added retry to fetchAll.', 'No test for the timeout path.', 'Not provable here:', 'flock: not found on Windows', 'No backoff', 'src/a.ts:7', 'astera/add-retry', 'aaa111^..bbb222', 'src/a.ts (modified, +5 −1)', 'img.png (added, binary)'])
       expect(brief).toContain(s)
   })
   it('ends with the instruction to answer from code and history without editing', () => {
@@ -36,7 +37,7 @@ describe('briefOf', () => {
   })
   it('leaves out sections the task does not have', () => {
     const bare = briefOf({ plan: 'p', task: { title: 't' }, changes: null })
-    expect(bare).not.toMatch(/Gaps|Review|Branch|Changed files/)
+    expect(bare).not.toMatch(/Gaps|Not provable|Review|Branch|Changed files/)
   })
   it('caps a huge report and file list, with a note', () => {
     const files = Array.from({ length: BRIEF_FILES_MAX + 10 }, (_, i) => ({ path: `f${i}.ts`, status: 'modified' as const }))

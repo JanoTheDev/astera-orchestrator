@@ -591,7 +591,49 @@ describe('T2: heavy checks take the machine heavy slot', () => {
     expect(tickets(at.queueDir)).toEqual([])
   })
 
-  it('a flock that cannot run rejects: a failure, not a skip', async () => {
+  it('a setup ticket neither replaces nor is replaced by a check or a delivery ticket of its folder', async () => {
+    const { dir, at } = tmpQueue()
+    const holder = (await heavySlot({ ...at, cwd: path.join(dir, 'held'), cmd: 'held' }))!
+    const w = path.join(dir, 'w')
+    const check = heavySlot({ ...at, cwd: w, cmd: 'check' })
+    const setup = heavySlot({ ...at, cwd: w, cmd: 'npm ci', kind: 'setup' })
+    const delivery = heavySlot({ ...at, cwd: w, cmd: 'delivery', kind: 'delivery' })
+    const later = heavySlot({ ...at, cwd: w, cmd: 'check again' }) // replaces the check alone
+    expect(await check).toBeNull()
+    await new Promise((r) => setTimeout(r, 100))
+    const kinds = tickets(at.queueDir).map((n) => JSON.parse(fs.readFileSync(path.join(at.queueDir, n), 'utf8')).kind)
+    expect(kinds).toEqual(['check', 'setup', 'delivery', 'check'])
+    holder()
+    for (const waiting of [setup, delivery, later]) {
+      const release = await waiting
+      expect(release).not.toBeNull()
+      release!()
+    }
+    expect(tickets(at.queueDir)).toEqual([])
+  })
+
+  it('a newer setup of the same folder replaces the older one, whose waiter answers null: one install of a folder waits, not two', async () => {
+    const { dir, at } = tmpQueue()
+    const holder = (await heavySlot({ ...at, cwd: path.join(dir, 'held'), cmd: 'held' }))!
+    const w = path.join(dir, 'w')
+    const old = heavySlot({ ...at, cwd: w, cmd: 'npm ci', kind: 'setup' })
+    await new Promise((r) => setTimeout(r, 100))
+    const fresh = heavySlot({ ...at, cwd: w, cmd: 'npm ci', kind: 'setup' })
+    // Another folder's install is other work: it keeps its place
+    const other = heavySlot({ ...at, cwd: path.join(dir, 'other'), cmd: 'npm ci', kind: 'setup' })
+    expect(await old).toBeNull()
+    await new Promise((r) => setTimeout(r, 100))
+    expect(tickets(at.queueDir)).toHaveLength(3) // holder, the newer setup of w, the other folder's
+    holder()
+    const first = (await fresh)!
+    first()
+    const second = (await other)!
+    second()
+    expect(tickets(at.queueDir)).toEqual([])
+  })
+
+  // Windows takes its slots with an owner file, not flock (heavyLock.ts takeHeavySlotByFile)
+  it.skipIf(process.platform === 'win32')('a flock that cannot run rejects: a failure, not a skip', async () => {
     const { dir, at } = tmpQueue()
     await expect(heavySlot({ ...at, lock: path.join(dir, 'no', 'such', 'lock'), cmd: 'x' })).rejects.toThrow(/flock/)
     expect(tickets(at.queueDir)).toEqual([])

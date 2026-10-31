@@ -28,6 +28,10 @@ const step = (out: string, name: string, ms = 150): string[] => [
   `const fs=require('fs');fs.appendFileSync(${JSON.stringify(out)},'start ${name}\\n');setTimeout(()=>fs.appendFileSync(${JSON.stringify(out)},'end ${name}\\n'),${ms})`
 ]
 
+// The tests that drive the real flock binary or POSIX signals: Windows has neither, and its heavy slots are covered by
+// heavyLock.win.test.ts. Off Windows they still run; without flock on PATH they are skipped.
+const posixFlock = process.platform !== 'win32' && spawnSync('flock', ['--version']).status === 0
+
 const deadPid = (): number => spawnSync(process.execPath, ['-e', '']).pid!
 
 const until = async (ok: () => boolean): Promise<void> => {
@@ -54,7 +58,7 @@ describe('runHeavy', () => {
     expect(await run(['--', process.execPath, '-e', 'process.exit(7)'])).toBe(7)
   })
 
-  it('releases the slot when the holder is killed, and the next caller runs', async () => {
+  it.skipIf(!posixFlock)('releases the slot when the holder is killed, and the next caller runs', async () => {
     const pidFile = path.join(dir, 'pid')
     const holder = run(['--', process.execPath, '-e', `require('fs').writeFileSync(${JSON.stringify(pidFile)},String(process.pid));setInterval(()=>{},1000)`])
     const next = run(['--', process.execPath, '-e', 'process.exit(0)'])
@@ -66,7 +70,7 @@ describe('runHeavy', () => {
     expect(spawnSync('flock', ['-n', lock, 'true']).status).toBe(0)
   })
 
-  it('shares the slot with a hand-opened tab that holds the same lock with flock', async () => {
+  it.skipIf(!posixFlock)('shares the slot with a hand-opened tab that holds the same lock with flock', async () => {
     const out = path.join(dir, 'log')
     const hand = spawn('flock', [lock, process.execPath, '-e', `const fs=require('fs');fs.appendFileSync(${JSON.stringify(out)},'start hand\\n');setTimeout(()=>fs.appendFileSync(${JSON.stringify(out)},'end hand\\n'),300)`])
     const handDone = new Promise((r) => hand.on('exit', r))
@@ -90,7 +94,7 @@ describe('runHeavy', () => {
     expect(heavyQueue(queueDir)).toEqual([])
   })
 
-  it('takes slot 1 when a hand-opened tab holds slot 0', async () => {
+  it.skipIf(!posixFlock)('takes slot 1 when a hand-opened tab holds slot 0', async () => {
     const out = path.join(dir, 'log')
     const hand = spawn('flock', [lock, process.execPath, '-e', `const fs=require('fs');fs.appendFileSync(${JSON.stringify(out)},'start hand\\n');setTimeout(()=>fs.appendFileSync(${JSON.stringify(out)},'end hand\\n'),600)`])
     const handDone = new Promise((r) => hand.on('exit', r))
@@ -133,6 +137,19 @@ describe('heavyWaits', () => {
     expect(heavyWaits(path.join(dir, 'missing')).size).toBe(0)
     // Two slots: the first two live tickets (s-run, s-a) run; the session-less one is 1st in line, s-b 2nd
     expect([...heavyWaits(queueDir, undefined, 2)]).toEqual([['s-b', 2]])
+  })
+})
+
+describe('heavyQueue ticket kinds (T2)', () => {
+  it('reads each ticket with its kind, a dependency install (setup) among the checks, and keeps one line for all of them', () => {
+    mkdirSync(queueDir, { recursive: true })
+    const t = (n: number, kind?: string): void =>
+      writeFileSync(path.join(queueDir, `${String(n).padStart(20, '0')}.json`), JSON.stringify({ pid: process.pid, cmd: 'x', cwd: dir, at: n, ...(kind ? { kind } : {}) }))
+    t(1, 'check')
+    t(2, 'setup')
+    t(3, 'delivery')
+    t(4)
+    expect(heavyQueue(queueDir).map((x) => x.kind)).toEqual(['check', 'setup', 'delivery', undefined])
   })
 })
 

@@ -235,6 +235,8 @@ export const core: Record<keyof typeof ko, string> = {
   'jobs.convergence.gate.needsDecision':
     'The review found issues no code change fixes: {issues}\nAnswer with what to do. One repair, outside the budget, then acts on your answer.',
   'jobs.checks.gate.unavailable': 'The check could not be made: {check}: {reason}',
+  'jobs.checks.gate.reviewEnded':
+    'The review could not run: {reason}\nTo review the Task again, answer review-again. To close it on the worker\'s report and its checks without throwing the finished work away, answer accept-as-done (or use task-update --status completed).',
   'jobs.gate.noAccount': 'No {provider} account is logged in, so this Task cannot start',
   'jobs.gate.noAccountAnyProvider': 'No account of any provider is signed in, so this Task cannot start',
   // The Host's lost-worker Gate (R16): a worker that ended unreported while no app was attached, in a Run

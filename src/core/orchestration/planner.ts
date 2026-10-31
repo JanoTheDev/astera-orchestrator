@@ -56,7 +56,10 @@ export const PLANNER_COMMANDS: ReadonlySet<string> = new Set([
   'main-plan',
   'jobs-set',
   // T7: the planner names its own Job once it knows the goal
-  'jobs-rename'
+  'jobs-rename',
+  // T11: a hands-off plan's planner answers its workers' questions when the Run has no live coordinator (command.ts
+  // `questions-answer` takes only its own plan's, and an escalation only while that plan runs hands-off)
+  'questions-answer'
 ])
 
 /** The Job whose planner `sessionId` is, if it is one. An empty id (a shell, an MCP client) is never one. */

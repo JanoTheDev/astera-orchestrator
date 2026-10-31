@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { promises as fs } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import os from 'node:os'
 import path from 'node:path'
 import { handleCommand, handleExit, PENDING_START_WINDOW_MS, type HostSession, type OrchServerDeps, type SessionScreen } from './command'
@@ -8,6 +9,7 @@ import { SPAWN_DEADLINE_MS } from '../host/unresponsive'
 import { APP_CALLER, HOST_CALLER } from '../host/driver'
 import { ensureProject } from './projects'
 import { absPath } from '../testPaths'
+import { removeFixture } from '../testFixtures'
 import { PTY_LOST_SIGHT_EXIT_CODE } from '../sessions/pty'
 import { DEFAULT_IDLE_WAIT_TIMEOUT_MS, OrchCoordinator, type CoordinatorDeps } from './exec/coordinator'
 import { OrchestrationStore } from './store'
@@ -260,6 +262,99 @@ describe('handleCommand — 역할 인가', () => {
     const failed = { type: 'worker_done', taskId: d.taskId, dispatchId: d.id, outcome: 'failed', subject: 'a', body: 'b', gaps: 'x' }
     expect((await call(deps, 'send', failed, 'sess1')).status).toBe(200)
     expect(deps.getState().tasks.find((t) => t.id === d.taskId)?.gaps).toBeUndefined()
+  })
+
+  // T12: what this machine cannot run
+  /** The real git repositories the T12 tests made, removed after each: git can hold a handle a moment on Windows */
+  const repos: string[] = []
+  afterEach(async () => {
+    for (const r of repos.splice(0)) await removeFixture(r)
+  })
+  /** The seeded worker's plan, hands-off or not, its attempt working in a real git repository (a temp folder, a
+   *  Windows path here) from a recorded base, and with `committed` one commit over it. */
+  const seedNotProvable = async (o: { handsOff: boolean; committed?: boolean }): Promise<OrchServerDeps> => {
+    const repo = await fs.mkdtemp(path.join(os.tmpdir(), 'astera-notprovable-'))
+    repos.push(repo)
+    const git = (...a: string[]): string =>
+      execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...a], { cwd: repo, encoding: 'utf8' }).trim()
+    git('init', '-q')
+    git('commit', '-q', '--allow-empty', '-m', 'base')
+    const base = git('rev-parse', 'HEAD')
+    if (o.committed) git('commit', '-q', '--allow-empty', '-m', 'the lock')
+    const deps = await seedWorker()
+    const s = deps.getState()
+    await deps.setState({
+      ...s,
+      jobs: s.jobs.map((j) => ({ ...j, handsOff: o.handsOff })),
+      dispatches: s.dispatches.map((d) => ({ ...d, cwd: repo, git: { base } }))
+    })
+    return deps
+  }
+  const report = (d: { taskId: string; id: string }, over: Record<string, unknown>) => ({
+    type: 'worker_done',
+    taskId: d.taskId,
+    dispatchId: d.id,
+    subject: 'Lock the store',
+    body: 'b',
+    ...over
+  })
+
+  it('T12: worker_done --not-provable on a succeeded report is kept on the Task, and a hands-off plan records the decision', async () => {
+    const deps = await seedNotProvable({ handsOff: true })
+    const d = deps.getState().dispatches[0]
+    const r = await call(deps, 'send', report(d, { outcome: 'succeeded', notProvable: 'flock: not on Windows' }), 'sess1')
+    expect(r.status).toBe(200)
+    const task = deps.getState().tasks.find((t) => t.id === d.taskId)!
+    expect(task).toMatchObject({ status: 'completed', notProvable: 'flock: not on Windows' })
+    expect(task.gaps).toBeUndefined()
+    expect(deps.getState().jobs[0].decisions).toEqual([
+      expect.objectContaining({ kind: 'gate', taskId: d.taskId, at: NOW, choice: 'accepted t: not provable here: flock: not on Windows', why: expect.stringContaining('hands-off') })
+    ])
+  })
+
+  it('T12: outside hands-off, --not-provable is kept on the Task with no decision', async () => {
+    const deps = await seedNotProvable({ handsOff: false })
+    const d = deps.getState().dispatches[0]
+    expect((await call(deps, 'send', report(d, { outcome: 'succeeded', notProvable: 'flock: not on Windows' }), 'sess1')).status).toBe(200)
+    expect(deps.getState().tasks.find((t) => t.id === d.taskId)?.notProvable).toBe('flock: not on Windows')
+    expect(deps.getState().jobs[0].decisions).toBeUndefined()
+  })
+
+  it('T12: a hands-off plan takes a failed report of a missing tool over committed work as succeeded with the note', async () => {
+    for (const body of ['Implemented the lock.\nbash: flock: command not found', "Implemented the lock.\r\n'flock' is not recognized as an internal or external command,"]) {
+      const deps = await seedNotProvable({ handsOff: true, committed: true })
+      const d = deps.getState().dispatches[0]
+      expect((await call(deps, 'send', report(d, { outcome: 'failed', body }), 'sess1')).status).toBe(200)
+      const s = deps.getState()
+      const task = s.tasks.find((t) => t.id === d.taskId)!
+      expect(task).toMatchObject({ status: 'completed', consecutiveFailures: 0, result: body })
+      expect(task.notProvable).toMatch(/flock/)
+      expect(s.dispatches.find((x) => x.id === d.id)?.outcome).toBe('succeeded')
+      expect(s.jobs[0].decisions).toEqual([
+        expect.objectContaining({ kind: 'gate', taskId: d.taskId, question: expect.stringContaining('t reported failed'), choice: expect.stringContaining('accepted t: not provable here:') })
+      ])
+    }
+  })
+
+  it('T12: the same failed report counts as failed outside hands-off, without commits, or with another cause', async () => {
+    const flock = 'Implemented the lock.\nbash: flock: command not found'
+    const cases = [
+      { seed: { handsOff: false, committed: true }, body: flock },
+      { seed: { handsOff: true, committed: false }, body: flock },
+      { seed: { handsOff: true, committed: true }, body: 'Tests failed: 3 of 40 in src/lock.test.ts' }
+    ]
+    for (const c of cases) {
+      const deps = await seedNotProvable(c.seed)
+      const d = deps.getState().dispatches[0]
+      expect((await call(deps, 'send', report(d, { outcome: 'failed', body: c.body }), 'sess1')).status).toBe(200)
+      const s = deps.getState()
+      const task = s.tasks.find((t) => t.id === d.taskId)!
+      expect(task.status).not.toBe('completed')
+      expect(task.consecutiveFailures).toBe(1)
+      expect(task.notProvable).toBeUndefined()
+      expect(s.dispatches.find((x) => x.id === d.id)?.outcome).toBe('failed')
+      expect(s.jobs[0].decisions).toBeUndefined()
+    }
   })
   it('워커 세션은 다른 dispatch로 보고할 수 없다', async () => {
     const deps = await seedWorker()
@@ -2992,6 +3087,92 @@ describe('검토 Dispatch 가 스스로 끝나지 못했을 때 — handleExit �
     expect(calls).toBe(0)
     expect(deps.getState().tasks[0].status).toBe('completed')
     expect('limitResetsAt' in deps.getState().dispatches.find((d) => d.id === reviewId)!).toBe(false)
+  })
+
+  describe('T9: a reviewer that ended without a report opens a review-ended Gate', () => {
+    /** A second review Dispatch, as startReview would have opened it for the Task. */
+    const seedSecondReview = async (deps: OrchServerDeps, taskId: string): Promise<void> => {
+      const first = deps.getState().dispatches.find((d) => d.review)!
+      await deps.setState({ ...deps.getState(), dispatches: [...deps.getState().dispatches, { ...first, id: 'dsp_review2', sessionId: 'sess_review2', endedAt: undefined, outcome: undefined, taskId }] })
+    }
+    const gateOf = (deps: OrchServerDeps) => deps.getState().gates.find((g) => g.status === 'open')!
+
+    it('opens it with English text and the two options', async () => {
+      const { deps } = await seedReviewing()
+      await handleExit(deps, { sessionId: 'sess_review', exitCode: 1 })
+      const gate = gateOf(deps)
+      expect(gate.kind).toBe('review-ended')
+      expect(gate.options).toEqual(['review-again', 'accept-as-done'])
+      expect(gate.question).toMatch(/^The review could not run: the reviewer session ended without a report \(dispatch=dsp_review\)\n/)
+      expect(gate.question).toContain('review-again')
+    })
+
+    it('review-again starts one new review and does not start the implementation worker', async () => {
+      const { deps, taskId } = await seedReviewing()
+      const started: Array<{ taskId: string }> = []
+      deps.startReview = (a) => void started.push(a)
+      let workers = 0
+      const startWorker = deps.startWorker.bind(deps)
+      deps.startWorker = async (...args) => (workers++, startWorker(...args))
+      await handleExit(deps, { sessionId: 'sess_review', exitCode: 1 })
+      const dispatchesBefore = deps.getState().dispatches.length
+      const r = await call(deps, 'questions-answer', { id: gateOf(deps).id, answer: 'review-again' })
+      expect(r.status).toBe(200)
+      expect(deps.getState().tasks[0].status).toBe('reviewing')
+      expect(started).toEqual([{ taskId }])
+      expect(workers).toBe(0)
+      expect(deps.getState().dispatches).toHaveLength(dispatchesBefore)
+      expect(deps.getState().gates.find((g) => g.kind === 'review-ended')).toMatchObject({ status: 'resolved', resolution: 'review-again' })
+    })
+
+    it('refuses review-again where no review can be started, the Gate left open', async () => {
+      const { deps } = await seedReviewing()
+      await handleExit(deps, { sessionId: 'sess_review', exitCode: 1 })
+      delete (deps as { startReview?: unknown }).startReview
+      expect((await call(deps, 'gate-resolve', { id: gateOf(deps).id, resolution: 'review-again' })).status).toBe(409)
+      expect(gateOf(deps).kind).toBe('review-ended')
+      expect(deps.getState().tasks[0].status).toBe('blocked')
+    })
+
+    it('a second ending and accept-as-done complete the Task with a completionOverride when its checks passed', async () => {
+      const { deps, taskId } = await seedReviewing()
+      await handleExit(deps, { sessionId: 'sess_review', exitCode: 1 })
+      await call(deps, 'questions-answer', { id: gateOf(deps).id, answer: 'review-again' })
+      await seedSecondReview(deps, taskId)
+      await handleExit(deps, { sessionId: 'sess_review2', exitCode: 1 })
+      const second = gateOf(deps)
+      expect(second.kind).toBe('review-ended')
+      const r = await call(deps, 'questions-answer', { id: second.id, answer: 'accept-as-done' })
+      expect(r.status).toBe(200)
+      const task = deps.getState().tasks[0]
+      expect(task.status).toBe('completed')
+      expect(task.consecutiveFailures).toBe(0)
+      expect(task.completionOverride).toEqual({ reason: "reviewer ended twice without a report; accepted on the worker's report and its checks", at: NOW })
+      expect(deps.getState().gates.find((g) => g.id === second.id)).toMatchObject({ status: 'resolved', resolution: 'accept-as-done' })
+    })
+
+    it('accept-as-done stays with the owner when the Task’s checks did not pass', async () => {
+      const { deps, taskId } = await seedReviewing()
+      await deps.setState({
+        ...deps.getState(),
+        tasks: deps.getState().tasks.map((t) => (t.id === taskId ? { ...t, checks: [{ configId: 'npm-test', name: 'Tests', status: 'failed' as const, exitCode: 1 }] } : t))
+      })
+      await handleExit(deps, { sessionId: 'sess_review', exitCode: 1 })
+      const r = await call(deps, 'questions-answer', { id: gateOf(deps).id, answer: 'accept-as-done' })
+      expect(r.status).toBe(409)
+      expect(gateOf(deps).kind).toBe('review-ended')
+      expect(deps.getState().tasks[0].status).toBe('blocked')
+      expect(deps.getState().tasks[0].completionOverride).toBeUndefined()
+    })
+
+    it('takes no other answer: a plain resolve would hand the Task to a worker', async () => {
+      const { deps } = await seedReviewing()
+      await handleExit(deps, { sessionId: 'sess_review', exitCode: 1 })
+      const r = await call(deps, 'questions-answer', { id: gateOf(deps).id, answer: 'go on' })
+      expect(r.status).toBe(400)
+      expect((r.body as { error: string }).error).toBe('answer one of review-again, accept-as-done')
+      expect(deps.getState().tasks[0].status).toBe('blocked')
+    })
   })
 })
 
@@ -10467,6 +10648,49 @@ describe('#117 hands-off', () => {
     it("the coordinator of a Run that is not hands-off is still refused", async () => {
       const { deps, esc } = await seed(false)
       expect((await call(deps, 'questions-answer', { id: esc.id, answer: 'No' }, 'ses-coord')).status).toBe(403)
+    })
+
+    /** T11: the seeded plan with planner sessions, and a second plan with its own planner. */
+    const withPlanners = async (handsOff: boolean) => {
+      const { deps, esc } = await seed(handsOff)
+      await call(deps, 'run-create', { objective: 'other', cwd: 'D:/q' })
+      const st = deps.getState()
+      const ownJob = st.runs.find((r) => r.id === esc.runId)!.jobId
+      await deps.setState({
+        ...st,
+        jobs: st.jobs.map((j) => ({ ...j, plannerSessionIds: j.id === ownJob ? ['ses-planner-1', 'ses-planner-2'] : ['ses-planner-other'] }))
+      })
+      return { deps, esc }
+    }
+
+    it("T11: a planner session of the running hands-off plan answers it; another plan's planner is refused", async () => {
+      const { deps, esc } = await withPlanners(true)
+      expect((await call(deps, 'questions-answer', { id: esc.id, answer: 'No' }, 'ses-planner-other')).status).toBe(403)
+      const r = await call(deps, 'questions-answer', { id: esc.id, answer: 'Yes, from the plan: keep to the spec' }, 'ses-planner-1')
+      expect(r.status).toBe(200)
+      expect(r.body).toMatchObject({ id: esc.id, status: 'resolved', resolution: 'Yes, from the plan: keep to the spec' })
+    })
+
+    it('T11: the planner of a plan that is not hands-off, an MCP client and an unrelated agent are still refused', async () => {
+      const off = await withPlanners(false)
+      expect((await call(off.deps, 'questions-answer', { id: off.esc.id, answer: 'No' }, 'ses-planner-1')).status).toBe(403)
+      const on = await withPlanners(true)
+      expect((await handleCommand(on.deps, { sessionId: '', role: 'mcp' }, 'questions-answer', { id: on.esc.id, answer: 'No' })).status).toBe(403)
+      expect((await call(on.deps, 'questions-answer', { id: on.esc.id, answer: 'No' }, 'ses-other')).status).toBe(403)
+    })
+
+    it('T11: the coordinator an account roll respawned under a new id answers it', async () => {
+      const { deps, esc } = await seed(true)
+      deps.listSessions = async () => [{ id: 'ses-coord-2', rolledFrom: 'ses-coord', kind: 'terminal', title: null, accountId: 'acc1', cwd: 'D:/p', alive: true } as HostSession]
+      expect((await call(deps, 'questions-answer', { id: esc.id, answer: 'No' }, 'ses-coord-2')).status).toBe(200)
+    })
+
+    it("T11: an approval request stays the owner's, a hands-off plan's planner included", async () => {
+      const { deps, esc } = await withPlanners(true)
+      const st = deps.getState()
+      const approval: Message = { ...esc, id: 'msg_appr', type: 'question', subject: 'Run astera jobs archive?', body: '', approval: { cmd: 'jobs-archive', args: { id: 'job_x' } } }
+      await deps.setState({ ...st, messages: [...st.messages, approval] })
+      expect((await call(deps, 'questions-answer', { id: 'msg_appr', answer: 'approve' }, 'ses-planner-1')).status).toBe(403)
     })
   })
 })

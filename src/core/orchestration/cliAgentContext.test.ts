@@ -124,6 +124,7 @@ const NOT_SWITCHED = [
   'host-start',
   'host-status',
   'host-stop',
+  'host-restart',
   'browser-js',
   'app-help',
   'app-js',

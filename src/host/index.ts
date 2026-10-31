@@ -21,7 +21,7 @@ import { hostAddress } from './address'
 import { nodePtyMissing } from './nodePtyCheck'
 import { hostPidFilePath, writeHostPidFile } from '../core/host/pidFile'
 import { SPAWN_DEADLINE_MS } from '../core/host/unresponsive'
-import { hideForkedConsoleWindows } from './childWindows'
+import { hideAllChildConsoleWindows, hideForkedConsoleWindows, type ChildProcessProto } from '../core/childWindows'
 import { trustSystemCa } from './systemCa'
 import { openHostLog, logUncaughtExceptions, logUnhandledRejections } from './log'
 import { flushAll, flushAllLogsSync } from '../core/log/logWriter'
@@ -81,9 +81,14 @@ import {
   readSavedSessions,
   restoreHandover,
   conversationOnDisk,
+  handedOverWorkers,
+  liftRestartHold,
+  restartFeedLine,
+  restartWaitingOn,
   restoreSessions,
   sessionRestoreFileIn,
   trackLiveSessions,
+  withoutResumed,
   workingTaskCount,
   writeCleanExit,
   writeHandover,
@@ -93,6 +98,9 @@ import {
 } from './sessionRestore'
 import { plansMissingReady } from '../core/orchestration/exec/plannerFeedback'
 import { readStateFile } from '../core/orchestration/stateFile'
+// T13: a restart's hold on new starts, and the write-off of a worker it could not resume
+import { RESTART_HOLD_REASON, writeStartHold } from '../core/orchestration/startHold'
+import { writeOffDispatch } from '../core/orchestration/state'
 import { readAccountReadings, withFetchedReadings } from '../core/usage/accountReadings'
 import { readUsagePauseAt } from '../core/settings/usagePauseAt'
 import { readAutoAccountsOn } from '../core/settings/autoAccounts'
@@ -109,6 +117,7 @@ import { createHostSpawner } from './spawner'
 import { createHostWorktrees, loadWorktreesIfSpawning } from './worktrees'
 import { createHostProjectRoots } from './projectRoots'
 import { createHostExits, ptyHeldBy, type HostExits } from './exits'
+import { createLeftoverTracker, leftoverDispatchesOf, queryWindowsProcesses, readLinuxProcesses, stopProcesses, type LeftoverTracker } from './workerLeftovers'
 import { registrySessions } from './sessions'
 import { hookEventsDirIn } from '../core/hooks/sessionState'
 import { readAccountEntries } from '../core/accounts/accountsFile'
@@ -172,6 +181,9 @@ async function main(): Promise<void> {
   // this process is a console-subsystem node.exe, so that helper would be handed a console window of
   // its own — a black window flashing up whenever a person closes a session tab. See childWindows.ts.
   hideForkedConsoleWindows(childProcess, process.platform)
+  // And every other async child (spawn, exec, execFile) a call site started without windowsHide: each one popped a
+  // console window over whatever the person was doing.
+  hideAllChildConsoleWindows(childProcess.ChildProcess.prototype as unknown as ChildProcessProto, process.platform)
 
   const profileDir = process.env.ASTERA_HOST_PROFILE_DIR
   if (!profileDir) {
@@ -288,8 +300,9 @@ async function main(): Promise<void> {
   registry.onExit((ptyId) => ptySpawns.delete(ptyId))
   /** A handover's resume retire: the sessions, terminals, runs and chats this Host holds, written down for the next Host
    *  before the `killAll`; then `clean-exit`. A handover that could not be written leaves no marker, so the next Host
-   *  restores the sessions as after a crash. Never rejects. */
-  const handOver = async (): Promise<void> => {
+   *  restores the sessions as after a crash. `restart` (T13): a restart's, which marks the workers it cuts short so the
+   *  next Host resumes them mid-Task (sessionRestore.ts). Never rejects. */
+  const handOver = async (restart: boolean): Promise<void> => {
     try {
       await sessionTracker?.flushed()
       const live = new Set(registry.list().filter((e) => e.alive).map((e) => e.id))
@@ -298,10 +311,14 @@ async function main(): Promise<void> {
         ptys: [...ptySpawns].filter(([id]) => live.has(id)).map(([, p]) => p),
         procs: procs.list().filter((e) => e.alive).map((e) => e.meta),
         state: orch.loaded() ? orch.state() : null,
-        baseEnv: hostWorkerBaseEnv(process.env)
+        baseEnv: hostWorkerBaseEnv(process.env),
+        restart
       })
       writeHandover(profileDir, h)
-      log.write(`handover: ${h.sessions.length} session(s), ${h.ptys.length} terminal(s) or run(s) and ${h.chats?.length ?? 0} chat(s) written for the next Host`)
+      const working = h.sessions.filter((x) => x.working === true).length
+      log.write(
+        `handover: ${h.sessions.length} session(s)${working > 0 ? ` (${working} mid-Task)` : ''}, ${h.ptys.length} terminal(s) or run(s) and ${h.chats?.length ?? 0} chat(s) written for the next Host${restart ? ' (a restart)' : ''}`
+      )
       writeCleanExit(profileDir)
     } catch (err) {
       log.write(`the handover could not be written: ${String(err)} — the next Host restores the sessions as after a crash`)
@@ -314,7 +331,7 @@ async function main(): Promise<void> {
    *  reached the promise. The Host then sat there with its pipe closed and its sessions still running,
    *  and the rejection went nowhere because the promise was only `void`ed. The registry guards each
    *  kill now, and this guards the rest of the path. */
-  const leave = (why?: string, resume = false): void => {
+  const leave = (why?: string, resume = false, restart = false): void => {
     // The idle and retire paths have already said why in the server's own log line; a signal has not.
     if (why) log.write(`${why} — leaving`)
     // T5: the saved sessions stay as they are through the `killAll` below. Only a deliberate way out (idle, `host
@@ -342,6 +359,8 @@ async function main(): Promise<void> {
     sessionEvents?.dispose()
     // The work units' watchers and their sync timer stop with them. Never throws.
     hostWorkUnits?.dispose()
+    // No leftover look from here on: `killAll` below ends every session, and their Dispatches stay open for the next Host.
+    leftovers?.dispose()
     // The MCP HTTP entrance stops with the Host (MCP HTTP §3): its stdin ends, which is its way out, and
     // a Host that exits before the kill's grace still ends that pipe. Never rejects.
     void mcpHttp.stop()
@@ -394,7 +413,7 @@ async function main(): Promise<void> {
       await pluginsStopped
       // The handover, while every pty still lives and the address is still this Host's: the next Host can only start
       // once this one has let it go, and it reads the file first thing.
-      if (resume) await handOver()
+      if (resume) await handOver(restart)
       await server
         .close()
         .catch((err) => log.write(`the server did not close cleanly: ${String(err)}`))
@@ -433,6 +452,8 @@ async function main(): Promise<void> {
   /** Session work units (E2 §4): built below, once `orch` exists, and only with a spawner. Declared here
    *  because the worktrees' `git-op` and the rolling's events reach it, and both are built first. */
   let hostWorkUnits: HostWorkUnits | null = null
+  /** T16: what workers leave running, freed when their Dispatch ends (workerLeftovers.ts). Built below, once `orch` exists. */
+  let leftovers: LeftoverTracker | null = null
 
   // The Host's own worktree registry (Host S3 §3.1, §3.3, §3.4): forks, merges and removes Job
   // worktrees over its own registry, whether or not an app is attached. Construction reads and writes
@@ -959,6 +980,14 @@ async function main(): Promise<void> {
     if (meta?.kind === 'session' && registry.sessionPty(meta.id) === null) summaries.sessionExited(meta.id)
   })
   spawner?.onBusyChanged((sessionId, busy) => summaries.sessionBusy(sessionId, busy))
+  /** T13: the workers a restart's handover is resuming under their own ids, from the file the last Host left. Read now,
+   *  synchronously, before this Host serves anything: the first command can load, and the load's cleanup counts them alive
+   *  (`aliveSessionIds` below), so their Dispatches stay open for the resume. Each leaves once its resume settled: one
+   *  resumed is alive in the registry from then on, and one that was not is written off (`writeOffUnresumed`). Only a
+   *  Host that brings a handover back. */
+  const resuming = new Set<string>(wiring && spawner ? handedOverWorkers(profileDir) : [])
+  /** T13: this Host is restarting itself (its hold is its own, so its start must not lift it). */
+  let restartHeld = false
   const orch = createHostOrch({
     profileDir,
     usageGuard,
@@ -978,7 +1007,14 @@ async function main(): Promise<void> {
               mergeWorktrees: (into, paths, o) => worktrees.mergeWorktrees(into, paths, o),
               validate: (cwd) => wiring.checks.validateTree(cwd, checks),
               install: async (cwd) => {
-                const r = await runWorktreeSetup({ dir: cwd, setting: findProjectContaining(orch.state(), cwd)?.setupCommand, log: (m) => log.write(m), force: true })
+                // T2: an install is heavy work, so it waits for one of the machine's heavy slots, as the delivery check after it does
+                const r = await runWorktreeSetup({
+                  dir: cwd,
+                  setting: findProjectContaining(orch.state(), cwd)?.setupCommand,
+                  log: (m) => log.write(m),
+                  force: true,
+                  heavy: { slots: () => readHeavyJobsAtOnce(path.join(profileDir, 'app-settings.json')) }
+                })
                 return r.ok ? { ok: true } : { ok: false, reason: r.tail }
               },
               log: (m) => log.write(m),
@@ -1003,8 +1039,9 @@ async function main(): Promise<void> {
     // have to ask this Host for and could be told nothing about (design §6). A worker session is a
     // pty, so only `registry` is read: a line process is a chat session, and no `Dispatch.sessionId`
     // ever names one. `meta.id` is the app's own id for the session, which is what a Dispatch holds.
+    // T13: and the workers a restart handed over that are still being resumed (`resuming`).
     aliveSessionIds: () =>
-      new Set(registry.list().filter((e) => e.alive && e.meta?.kind === 'session').map((e) => e.meta!.id)),
+      new Set([...registry.list().filter((e) => e.alive && e.meta?.kind === 'session').map((e) => e.meta!.id), ...resuming]),
     act: (name, args) => server.act(name, args),
     hasApp: () => server.hasApp(),
     // Every commit goes to the clients, so the app can swap its mirror (design §5). Greeted sockets
@@ -1124,6 +1161,13 @@ async function main(): Promise<void> {
     // The rolling's hooks (rolling, rolledInto, rekeyRolled): absent with no spawner, and then
     // `unregisterRolling` only forwards to the app and a rolled-from exit closes as before.
     ...(rollingWiring?.orchHooks ?? {}),
+    // T16: every commit, which is where each Dispatch close lands (a worker_done, a stop, a retire, the app's state-put),
+    // tells the leftover tracker, which frees what that worker left running. It never throws, and the driver's kick
+    // runs after it as before.
+    onCommit: () => {
+      leftovers?.stateChanged()
+      wiring?.orchHooks?.onCommit?.()
+    },
     // After the driver's own after-load pass: what the profile already held, so work under way when this Host started
     // is recorded before anything changes (Phase 11). The load stays lazy; this only hears that it happened.
     onLoaded: () => {
@@ -1185,6 +1229,35 @@ async function main(): Promise<void> {
         log: (m) => log.write(m)
       })
     : null
+  // T16: the processes a worker leaves running (dev servers, browsers) cost more memory than the sessions themselves
+  // (knowledge/history/2026-10-31-memory-at-25-agents.md). One process query per tick remembers every live worker's
+  // tree; when a Dispatch closes, what its worker started that is still alive, and the orphans naming its worktree,
+  // are stopped, the live session's own processes spared; when the session ends, the rest of that tree goes
+  // (workerLeftovers.ts). Whoever closes the Dispatch (app or Host), the commit hook above, the tick and the pty exit
+  // below see it, and nothing here can hold a close up: the tracker never throws or rejects.
+  leftovers = createLeftoverTracker({
+    platform: process.platform,
+    hostPid: process.pid,
+    dispatches: () => (orch.loaded() ? leftoverDispatchesOf(orch.state(), Date.now(), process.platform, (p) => worktrees.infoOf(p) !== null) : []),
+    sessionPid: (sessionId) => {
+      const ptyId = registry.sessionPty(sessionId)
+      const e = ptyId ? registry.list().find((x) => x.id === ptyId && x.alive) : undefined
+      return e && e.pid > 0 ? e.pid : null
+    },
+    liveRoots: () => [...registry.list(), ...procs.list()].filter((e) => e.alive && e.pid > 0).map((e) => e.pid),
+    list: () => (process.platform === 'win32' ? queryWindowsProcesses() : process.platform === 'linux' ? readLinuxProcesses() : Promise.resolve([])),
+    stop: (rows) => stopProcesses(rows, { platform: process.platform, log: (m) => log.write(m) }),
+    freed: (dispatchId, line) => {
+      const s = orch.state()
+      const task = s.tasks.find((t) => t.id === s.dispatches.find((x) => x.id === dispatchId)?.taskId)
+      if (task?.runId) activityLog.recorded([watchdogActivity(s, task.runId, line, task.id)])
+    },
+    log: (m) => log.write(m)
+  })
+  registry.onExit((ptyId) => {
+    const meta = registry.metaOf(ptyId)
+    if (meta?.kind === 'session') leftovers?.sessionEnded(meta.id)
+  })
   // Session work units (E2 §3, §4): the collector over this Host's own sessions, writing workUnits.json while
   // no attached app keeps the duty, read per write. **Only with a spawner**, as the duty is announced: a
   // Host that cannot start sessions has none to watch. Tracking is read now; the collector starts once the
@@ -1235,7 +1308,7 @@ async function main(): Promise<void> {
       dirToPrepare: addr.dirToPrepare,
       version: hostVersion,
       idleMs: IDLE_MS,
-      onIdle: (o) => leave(undefined, o?.resume === true),
+      onIdle: (o) => leave(undefined, o?.resume === true, o?.restart === true),
       onMessage: (m, send, from) => {
         // A shell terminal's or a run's spawn, and its later sizes, kept for a handover (`handOver`).
         if (m.t === 'pty-spawn' && (m.meta?.kind === 'terminal' || m.meta?.kind === 'run'))
@@ -1297,6 +1370,25 @@ async function main(): Promise<void> {
       // A handover is refused while a Task works (sessionRestore.ts). Read from the file when no command loaded it yet.
       workingTasks: () =>
         workingTaskCount(orch.loaded() ? orch.state() : readStateFile(path.join(profileDir, 'orchestration.json')), (id) => registry.sessionPty(id) !== null),
+      // T13: a restart (protocol.ts `restart`): new starts held by the restart, then the safe point looked at until every
+      // working Task is idle at its prompt or the wait runs out. Only a Host that brings a handover back serves it, the
+      // one condition the restore at start has too.
+      ...(wiring && spawner
+        ? {
+            restart: {
+              hold: async () => {
+                restartHeld = true
+                const h = await writeStartHold(profileDir, { by: 'restart', reason: RESTART_HOLD_REASON, at: new Date().toISOString() })
+                log.write(h.by === 'restart' ? 'restart: new starts are held until the next Host has resumed the sessions' : `restart: the owner's hold on new starts was already in place (${h.reason}) and stays`)
+              },
+              waitingOn: () =>
+                restartWaitingOn(orch.loaded() ? orch.state() : readStateFile(path.join(profileDir, 'orchestration.json')), {
+                  alive: (id) => registry.sessionPty(id) !== null,
+                  busy: (id) => spawner.sessionBusy(id)
+                })
+            }
+          }
+        : {}),
       orch,
       // Announced only when there is a spawner, so an app can tell a Host that starts sessions itself,
       // that it also owns worktrees.json (R5: the one decision is `spawner !== null`), that it drives
@@ -1380,6 +1472,26 @@ async function main(): Promise<void> {
     (await hostSessions.agentSessionOf(sid).catch(() => null)) ?? savedSessions.find((x) => x.sessionId === sid)?.nativeSessionId ?? null
   const hasConversation = async (accountId: string, nativeId: string): Promise<boolean> =>
     conversationOnDisk(await readAccountEntries(path.join(profileDir, 'accounts.json')), accountId, nativeId)
+  /** T13: a worker a restart handed over that this Host could not resume. It is no longer counted alive; once the load
+   *  has run, its open Dispatch is written off as the load's cleanup would have (`writeOffDispatch`) and handed to the
+   *  recovery, which resumes it in its worktree as after a crash. Before the load, the load's own cleanup does both.
+   *  Never rejects. */
+  const writeOffUnresumed = async (sessionId: string): Promise<void> => {
+    resuming.delete(sessionId)
+    try {
+      await orch.ready()
+      if (registry.sessionPty(sessionId) !== null) return
+      const open = orch.state().dispatches.find((x) => x.sessionId === sessionId && !x.endedAt && !x.outcome)
+      if (!open) return
+      const r = writeOffDispatch(orch.state(), { dispatchId: open.id }, new Date().toISOString())
+      if (!r.closed) return
+      await orch.internalDeps().setState(r.state)
+      log.write(`session restore: worker ${sessionId} was not resumed — dispatch ${open.id} written off for the recovery`)
+      wiring?.orchHooks.recovery.lost(open.id)
+    } catch (err) {
+      log.write(`session restore: worker ${sessionId} was not resumed, and its dispatch could not be written off: ${String(err)}`)
+    }
+  }
   if (wiring && spawner) {
     const starter = spawner
     const tracker = trackLiveSessions({ registry, file: restoreFile, pending: savedSessions, nativeIdOf: (sid) => hostSessions.agentSessionOf(sid), log: (m) => log.write(m) })
@@ -1419,14 +1531,24 @@ async function main(): Promise<void> {
             createSession: (o) => starter.createSession(o),
             hasConversation,
             handle: (cmd, args) => orch.handle(cmd, args),
-            settle: (sid) => tracker.settle(sid),
+            // T13: a worker resumed is in the registry from here on, so it leaves `resuming` (one not resumed left it already)
+            settle: (sid) => {
+              tracker.settle(sid)
+              resuming.delete(sid)
+            },
             baseEnv: hostWorkerBaseEnv(process.env),
             openPty,
             respawnChat,
+            lostWorker: (sid) => void writeOffUnresumed(sid),
             log: (m) => log.write(m)
           })
         )
-        .then((r) => log.write(`session restore: resumed ${r.tabs} tab(s), ${r.planners} planner(s); reopened ${r.ptys} terminal(s) or run(s); respawned ${r.chats} chat(s)`))
+        .then((r) => {
+          log.write(`session restore: resumed ${r.tabs} tab(s), ${r.planners} planner(s); reopened ${r.ptys} terminal(s) or run(s); respawned ${r.chats} chat(s)`)
+          // T13: a restart says so in the plans' feed, once its sessions are back (the hold is lifted below, at `restored`).
+          if (handover.restart === true)
+            activityLog.recorded([{ type: 'host.recovered', payload: { title: 'Astera', reason: restartFeedLine(hostVersion, r.tabs + r.planners + r.chats) } }])
+        })
         .finally(() => restoreDone())
     } else if (savedSessions.length > 0) {
       log.write(`session restore: the last Host did not leave cleanly; bringing back ${savedSessions.length} session(s)`)
@@ -1444,11 +1566,19 @@ async function main(): Promise<void> {
         .finally(() => restoreDone())
     } else restoreDone()
   } else restoreDone()
+  // T13: once the sessions are back (or there were none), a restart's hold goes (sessionRestore.ts liftRestartHold).
+  void restored
+    .then(async () => {
+      if (await liftRestartHold(profileDir, () => restartHeld)) log.write('restart: the hold on new starts is lifted')
+    })
+    .catch((err) => log.write(`restart: the hold on new starts could not be lifted: ${String(err)}`))
   if (wiring) {
     const recovery = wiring.orchHooks.recovery
+    // T13: the workers a restart handed over are resumed above, not lost: crash resume is not to wait for them.
+    const handedOver = new Set(resuming)
     void resumeAfterCrash({
       nativeIdOf,
-      readFile: () => crashState,
+      readFile: () => withoutResumed(crashState, handedOver),
       ready: () => orch.ready(),
       state: () => orch.state(),
       handle: (cmd, args) => orch.handle(cmd, args),

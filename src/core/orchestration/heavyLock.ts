@@ -30,8 +30,9 @@ export interface HeavyTicket {
   sessionId?: string
   at: number
   /** 'check': taken by a Task's check (exec/validation.ts heavySlot); 'delivery': the delivery check's (host/checks.ts
-   *  validateTree), which never supersedes or is superseded by a 'check' of its cwd; absent: `astera heavy`. */
-  kind?: 'check' | 'delivery'
+   *  validateTree), which never supersedes or is superseded by a 'check' of its cwd; 'setup': a dependency install
+   *  (worktrees/setup.ts runWorktreeSetup), which supersedes only an older 'setup' of its cwd; absent: `astera heavy`. */
+  kind?: 'check' | 'delivery' | 'setup'
 }
 
 function pidAlive(pid: number): boolean {
@@ -93,6 +94,7 @@ export async function takeHeavySlot(a: {
   cwd?: string
 }): Promise<{ child: ChildProcess; exited: Promise<number> } | 'busy'> {
   const io = typeof a.stdio === 'string' ? [a.stdio, a.stdio, a.stdio] : [...a.stdio].slice(0, 3)
+  if (process.platform === 'win32') return takeHeavySlotByFile(a, io as StdioOptions)
   for (let k = 0; k < Math.max(1, a.slots); k++) {
     const slotLock = heavySlotLock(a.lock, k)
     const child = spawn('flock', ['-n', '-E', String(SLOT_TAKEN), slotLock, 'sh', '-c', 'echo held >&3; exec 3>&-; exec "$@"', 'sh', ...a.cmd], {
@@ -120,6 +122,78 @@ export async function takeHeavySlot(a: {
     if (code !== SLOT_TAKEN) throw Object.assign(new Error(`flock ${slotLock} ended (${String(code)}) before it held the lock`), { exitCode: code })
   }
   return 'busy'
+}
+
+/** Windows has no flock (util-linux), and every check under strain took the heavy slot and failed `spawn flock ENOENT`.
+ *  There a slot is a file made with O_EXCL (`<slotLock>.owner`) that names the pid holding it: taken while that pid
+ *  lives, taken back from a pid that is gone (a crashed Host or CLI), freed when the command exits. */
+export async function takeHeavySlotByFile(
+  a: { lock: string; slots: number; cmd: string[]; env?: NodeJS.ProcessEnv; cwd?: string },
+  stdio: StdioOptions,
+  alive: (pid: number) => boolean = pidAlive
+): Promise<{ child: ChildProcess; exited: Promise<number> } | 'busy'> {
+  for (let k = 0; k < Math.max(1, a.slots); k++) {
+    const owner = `${heavySlotLock(a.lock, k)}.owner`
+    if (!claimOwnerFile(owner, alive)) continue
+    let child: ChildProcess
+    try {
+      const [cmd, ...args] = a.cmd
+      // shell: a `.cmd` shim (npx, bun) only starts through cmd.exe on Windows; arguments with spaces stay one argument
+      const q = (x: string): string => (/[\s"]/.test(x) ? `"${x.replace(/"/g, '\\"')}"` : x)
+      child = spawn(q(cmd!), args.map(q), {
+        stdio,
+        env: a.env,
+        cwd: a.cwd,
+        shell: true,
+        windowsHide: true
+      })
+    } catch (e) {
+      rmSync(owner, { force: true })
+      throw e
+    }
+    const exited = new Promise<number>((resolve, reject) => {
+      child.once('error', (e) => {
+        rmSync(owner, { force: true })
+        reject(Object.assign(new Error(`could not start ${a.cmd[0] ?? ''}: ${e.message}`), { exitCode: 127 }))
+      })
+      child.once('exit', (code, signal) => {
+        rmSync(owner, { force: true })
+        resolve(code ?? 128 + (signal ? (constants.signals[signal] ?? 0) : 0))
+      })
+    })
+    exited.catch(() => {})
+    return { child, exited }
+  }
+  return 'busy'
+}
+
+/** Makes `owner` with this process's pid, or takes it back once from a pid that is gone. False while a live pid holds it. */
+function claimOwnerFile(owner: string, alive: (pid: number) => boolean): boolean {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      mkdirSync(join(owner, '..'), { recursive: true, mode: 0o700 })
+      writeFileSync(owner, String(process.pid), { flag: 'wx' })
+      return true
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e
+      let pid = NaN
+      try {
+        pid = Number(readFileSync(owner, 'utf8').trim())
+      } catch {
+        /* removed meanwhile: try again */
+      }
+      if (Number.isInteger(pid) && pid > 0 && alive(pid)) return false
+      rmSync(owner, { force: true })
+    }
+  }
+  return false
+}
+
+/** What holds a check's heavy slot until it is freed: a process reading stdin until it closes. `cat` where there is one;
+ *  on Windows this process's own node (Electron runs as node with ELECTRON_RUN_AS_NODE). */
+export function slotHolder(): { cmd: string[]; env?: NodeJS.ProcessEnv } {
+  if (process.platform !== 'win32') return { cmd: ['cat'] }
+  return { cmd: [process.execPath, '-e', 'process.stdin.resume()'], env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } }
 }
 
 let seq = 0

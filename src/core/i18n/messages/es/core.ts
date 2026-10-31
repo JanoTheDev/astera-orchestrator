@@ -245,6 +245,8 @@ export const core: Partial<Record<keyof typeof ko, string>> = {
   'jobs.convergence.gate.needsDecision':
     'La revisión encontró problemas que ningún cambio de código resuelve: {issues}\nResponde qué hacer. Luego una reparación, fuera del presupuesto, actúa según tu respuesta.',
   'jobs.checks.gate.unavailable': 'No se pudo realizar la comprobación: {check}: {reason}',
+  'jobs.checks.gate.reviewEnded':
+    'No se pudo ejecutar la revisión: {reason}\nPara revisar la Task de nuevo, responde review-again. Para cerrarla con el informe del worker y sus comprobaciones sin tirar el trabajo terminado, responde accept-as-done (o usa task-update --status completed).',
   'jobs.gate.noAccount': 'Ninguna cuenta de {provider} tiene la sesión iniciada, así que esta Task no puede empezar',
   'jobs.gate.noAccountAnyProvider': 'Ninguna cuenta de ningún proveedor tiene la sesión iniciada, así que esta Task no puede empezar',
   'jobs.gate.workerLostNoApp': 'El worker de esta Task se perdió (dispatch {dispatch}) mientras ningún Astera estaba abierto para recuperarlo. Resuelve esta Gate para volver a iniciarlo.',

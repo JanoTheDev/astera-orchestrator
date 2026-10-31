@@ -27,7 +27,7 @@ import { addDecision, COORDINATOR_START_WINDOW_MS, emptyState, type OrchState } 
 import { needsInput } from '../sessionIndex'
 import { outcomeOf } from '../running'
 import { ASK_GRACE_MS } from './autoAnswer'
-import type { Dispatch, Job, Message, Task } from '../types'
+import type { Decision, Dispatch, Job, Message, Task } from '../types'
 import { FAILURE_LIMIT } from '../types'
 import type { Account } from '../../types'
 
@@ -355,6 +355,21 @@ describe('createDispatchLoop', () => {
     await h.loop.run()
     await h.settle()
     expect(h.startWorker).toHaveBeenCalledTimes(1)
+  })
+
+  // T13: a hold on new starts for the whole profile (a restart's, or the owner's): nothing placed, nothing asked
+  it('places nothing while new starts are held, and places again once the hold is lifted', async () => {
+    const h = rig({ concurrency: 2 })
+    let held = true
+    h.ctx.startHeld = async () => held
+    await h.loop.run()
+    await h.settle()
+    expect(h.startWorker).not.toHaveBeenCalled()
+    expect(h.handled()).not.toContain('worker-start')
+    held = false
+    await h.loop.run()
+    await h.settle()
+    expect(h.startWorker).toHaveBeenCalledTimes(2)
   })
 
   it('a worker-start held at the app-wide cap (atCapacity) opens no Gate', async () => {
@@ -758,6 +773,164 @@ describe('createDispatchLoop', () => {
     await human.h.settle()
     expect(human.starts).toEqual([])
     expect(human.h.state().gates.filter((g) => g.taskId === 'tsk_A')).toHaveLength(1)
+  })
+
+  // T8: a merge that failed for a passing reason is retried with backoff in a hands-off plan
+  type Integrated = Awaited<ReturnType<DispatchLoopContext['integrate']>>
+  const outOfMemory: Integrated = {
+    kind: 'human',
+    reason: 'Could not merge the a branch into the folder to merge into: fatal: Out of memory, malloc failed (tried to allocate 1048576 bytes).',
+    message: { key: 'jobs.integration.mergeFailedRestored', params: { branch: 'a', output: 'fatal: Out of memory, malloc failed (tried to allocate 1048576 bytes)' } }
+  }
+  const detached: Integrated = { kind: 'human', reason: 'HEAD is detached', message: { key: 'jobs.integration.detachedHead', params: { folder: 'C:\\p' } } }
+  const statusUnreadable: Integrated = {
+    kind: 'human',
+    reason: 'Could not read the git status of the folder to merge into (C:\\p): timed out',
+    message: { key: 'jobs.integration.statusUnreadable', params: { folder: 'C:\\p', error: 'timed out' } }
+  }
+  /** `integrate` answers `answers` in turn (the last one again after that); the decisions are recorded on the Job. */
+  const transientRig = (answers: Integrated[], handsOff = true) => {
+    const { h, starts } = mergingRig(answers[0], {}, handsOff)
+    let calls = 0
+    h.ctx.integrate = async () => answers[Math.min(calls++, answers.length - 1)]
+    h.ctx.recordDecision = async (jobId, d) => h.setState(addDecision(h.state(), jobId, d))
+    const pass = async (atMs: number): Promise<void> => {
+      h.clock = atMs
+      await h.loop.nudge()
+      await h.settle()
+    }
+    return { h, starts, calls: () => calls, pass, decisions: () => h.state().jobs[0].decisions ?? [], taskA: () => h.state().tasks.find((t) => t.id === 'tsk_A')! }
+  }
+
+  it('T8: a hands-off plan retries an out-of-memory merge after a minute, records it, and merges on the 2nd try with no Gate', async () => {
+    const r = transientRig([outOfMemory, { kind: 'merged', uncommitted: 0 }])
+    await r.pass(NOW_MS)
+    expect(r.calls()).toBe(1)
+    expect(r.taskA().status).toBe('merging')
+    expect(r.decisions()).toMatchObject([
+      { kind: 'gate', taskId: 'tsk_A', choice: 'retry the merge in 1 min (1 of 5)', why: 'git ran out of memory, which passes' }
+    ])
+    expect(r.decisions()[0].question).toContain('fatal: Out of memory, malloc failed')
+    await r.pass(NOW_MS + 59_000)
+    expect(r.calls()).toBe(1)
+    await r.pass(NOW_MS + 60_000)
+    expect(r.calls()).toBe(2)
+    expect(r.taskA().status).toBe('completed')
+    expect(r.taskA().mergedIntoPlanAt).toBeDefined()
+    expect(r.starts).toEqual([])
+    expect(r.h.state().gates).toEqual([])
+    expect(r.decisions()).toHaveLength(1)
+  })
+
+  it('T8: five failed retries, 1, 2, 4, 8 and 16 min apart, end on the merge worker as before', async () => {
+    const r = transientRig([outOfMemory])
+    let at = NOW_MS
+    await r.pass(at)
+    for (const [i, wait] of [60_000, 120_000, 240_000, 480_000, 960_000].entries()) {
+      await r.pass(at + wait - 1_000)
+      expect(r.calls()).toBe(i + 1)
+      at += wait
+      await r.pass(at)
+      expect(r.calls()).toBe(i + 2)
+      if (i < 4) expect(r.starts).toEqual([])
+    }
+    expect(r.decisions().map((d) => d.choice)).toEqual([
+      'retry the merge in 1 min (1 of 5)',
+      'retry the merge in 2 min (2 of 5)',
+      'retry the merge in 4 min (3 of 5)',
+      'retry the merge in 8 min (4 of 5)',
+      'retry the merge in 16 min (5 of 5)'
+    ])
+    // The sixth failure is today's: a merge worker mends a failed git merge in a hands-off plan (the scheduler may place
+    // the ready merge Task before startMergeWorker does; either way one worker runs it)
+    const merge = mergeTaskOf(r.h)
+    expect(merge.spec).toContain('Out of memory')
+    expect(merge.status).toBe('dispatched')
+    expect(r.h.state().dispatches.filter((d) => d.taskId === merge.id)).toHaveLength(1)
+    expect(r.h.state().gates).toEqual([])
+  })
+
+  it("T8: an unreadable git status that keeps failing ends on the owner's Gate, with a kind and a retry option", async () => {
+    const r = transientRig([statusUnreadable])
+    let at = NOW_MS
+    await r.pass(at)
+    for (const wait of [60_000, 120_000, 240_000, 480_000, 960_000]) {
+      expect(r.h.state().gates).toEqual([])
+      at += wait
+      await r.pass(at)
+    }
+    expect(r.calls()).toBe(6)
+    expect(r.decisions().every((d) => d.why === 'the git status or worktree list could not be read, which passes')).toBe(true)
+    const gate = r.h.state().gates.find((g) => g.taskId === 'tsk_A')!
+    expect(gate).toMatchObject({ status: 'open', kind: 'merge-failed', options: ['retry'] })
+    expect(gate.question).toContain('timed out')
+  })
+
+  it('T8: a detached HEAD that comes back is retried and merged', async () => {
+    const r = transientRig([detached, { kind: 'merged', uncommitted: 0 }])
+    await r.pass(NOW_MS)
+    expect(r.decisions()).toMatchObject([{ choice: 'retry the merge in 1 min (1 of 5)', why: "the plan folder's HEAD was detached, which passes" }])
+    expect(r.starts).toEqual([])
+    await r.pass(NOW_MS + 60_000)
+    expect(r.taskA().status).toBe('completed')
+    expect(r.starts).toEqual([])
+    expect(r.h.state().gates).toEqual([])
+  })
+
+  it('T8: while the machine is strained a due retry waits, and runs once it is not', async () => {
+    const r = transientRig([outOfMemory, { kind: 'merged', uncommitted: 0 }])
+    let strained = true
+    r.h.ctx.strained = () => strained
+    await r.pass(NOW_MS)
+    await r.pass(NOW_MS + 5 * 60_000)
+    expect(r.calls()).toBe(1)
+    expect(r.decisions()).toHaveLength(1)
+    strained = false
+    await r.pass(NOW_MS + 5 * 60_000 + 1_000)
+    expect(r.calls()).toBe(2)
+    expect(r.taskA().status).toBe('completed')
+  })
+
+  it("T8: the retry count and wait survive a restart, read back from the Job's decisions", async () => {
+    const r = transientRig([outOfMemory, outOfMemory, { kind: 'merged', uncommitted: 0 }])
+    await r.pass(NOW_MS)
+    await r.pass(NOW_MS + 60_000)
+    expect(r.calls()).toBe(2)
+    // A new loop (a Host restart) over the same state: the 2nd retry is due 2 min after it was decided
+    const restarted = freshLoop(r.h.ctx)
+    r.h.clock = NOW_MS + 60_000 + 119_000
+    await restarted.nudge()
+    await r.h.settle()
+    expect(r.calls()).toBe(2)
+    r.h.clock = NOW_MS + 60_000 + 120_000
+    await restarted.nudge()
+    await r.h.settle()
+    expect(r.calls()).toBe(3)
+    expect(r.taskA().status).toBe('completed')
+  })
+
+  it('T8: outside hands-off a transient failure opens the Gate at once, as before, and nothing is retried', async () => {
+    const r = transientRig([outOfMemory, { kind: 'merged', uncommitted: 0 }], false)
+    await r.pass(NOW_MS)
+    expect(r.calls()).toBe(1)
+    expect(r.decisions()).toEqual([])
+    expect(r.h.state().gates.filter((g) => g.taskId === 'tsk_A' && g.status === 'open')).toHaveLength(1)
+    expect(r.taskA().status).toBe('blocked')
+    await r.pass(NOW_MS + 60_000)
+    expect(r.calls()).toBe(1)
+  })
+
+  it("T8: a hands-off plan answers a merge Gate whose git output says 'main' and 'overwritten' with a retry, not a refusal", async () => {
+    const r = transientRig([{ kind: 'human', reason: 'error: Your local changes to the following files would be overwritten by merge:\n\tmain/app.ts\nPlease commit or remove them before you merge into main.' }])
+    r.h.ctx.autoAnswer = async () => false
+    r.h.ctx.activity = () => {}
+    await r.pass(NOW_MS)
+    const gate = r.h.state().gates.find((g) => g.taskId === 'tsk_A')!
+    expect(gate.kind).toBe('merge-failed')
+    await r.pass(NOW_MS + 1_000)
+    expect(r.h.state().gates.find((g) => g.id === gate.id)).toMatchObject({ status: 'resolved', resolution: 'retry' })
+    expect(r.decisions()).toMatchObject([{ kind: 'gate', taskId: 'tsk_A', choice: 'retry' }])
+    expect(r.decisions().some((d) => d.kind === 'refused')).toBe(false)
   })
 
   it("a clean wave merge tells the coordinator, once, and the next ready Task", async () => {
@@ -2908,14 +3081,14 @@ describe('wave replanning (W6-D)', () => {
 // owner question, whose answer the loop carries out.
 describe('a Run stalled on a failed Task (T36)', () => {
   /** tsk_1 failed (its worker reported failed), tsk_2 waits on it, nothing else runs. */
-  const failedFirst = (h: ReturnType<typeof rig>, job: Partial<Job> = {}): void => {
+  const failedFirst = (h: ReturnType<typeof rig>, job: Partial<Job> = {}, failed: Partial<Task> = {}): void => {
     const s = h.state()
     h.setState({
       ...s,
       jobs: s.jobs.map((j) => ({ ...j, title: 'Shots', ...job })),
       tasks: s.tasks.map((t) =>
         t.id === 'tsk_1'
-          ? { ...t, status: 'failed' as const, consecutiveFailures: 1, result: 'made 19 screens, gaps listed', prompt: 'p', acceptanceCriteria: ['c'], affectedPaths: ['src/a'], basis: { state: 'missing' as const, evidence: 'e' } }
+          ? { ...t, status: 'failed' as const, consecutiveFailures: 1, result: 'made 19 screens, gaps listed', prompt: 'p', acceptanceCriteria: ['c'], affectedPaths: ['src/a'], basis: { state: 'missing' as const, evidence: 'e' }, ...failed }
           : { ...t, status: 'pending' as const, deps: ['tsk_1'], prompt: 'p', acceptanceCriteria: ['c'], affectedPaths: ['src/b'], basis: { state: 'missing' as const, evidence: 'e' } }
       )
     })
@@ -2945,9 +3118,10 @@ describe('a Run stalled on a failed Task (T36)', () => {
     expect(h.handled()).toContain('task-failed-resolve')
   })
 
-  it('a hands-off plan still asks the owner, and the answer Retry runs the Task again', async () => {
+  it('a hands-off plan asks the owner once its tries are used up with no work committed, and the answer Retry runs the Task again', async () => {
     const h = rig()
-    failedFirst(h, { handsOff: true })
+    // T10: with tries left Astera retries it itself; the third failure with nothing committed is the owner's
+    failedFirst(h, { handsOff: true }, { consecutiveFailures: 3 })
     await h.loop.run()
     await h.loop.nudge()
     await h.settle()
@@ -2978,6 +3152,84 @@ describe('a Run stalled on a failed Task (T36)', () => {
     await h.settle()
     expect(h.handled().filter((c) => c === 'jobs-replan')).toHaveLength(1)
     expect(asked(h)).toHaveLength(1)
+  })
+
+  // T10: a hands-off plan with no coordinator retries its own failed Tasks, then accepts or escalates
+  it('hands-off: the 1st failure is retried after its 1-minute backoff, keeping its count, as a decision', async () => {
+    const h = rig()
+    const decisions: Decision[] = []
+    h.ctx.recordDecision = async (_jobId, d) => {
+      decisions.push(d)
+    }
+    failedFirst(h, { handsOff: true })
+    await h.loop.run()
+    await h.loop.nudge()
+    await h.settle()
+    // in its backoff: neither retried nor put to the owner
+    expect(h.state().tasks.find((t) => t.id === 'tsk_1')?.status).toBe('failed')
+    expect(asked(h)).toHaveLength(0)
+    h.clock += 61_000
+    await h.loop.run()
+    await h.settle()
+    const t1 = h.state().tasks.find((t) => t.id === 'tsk_1')!
+    expect(t1.consecutiveFailures).toBe(1)
+    expect(['ready', 'dispatched']).toContain(t1.status)
+    expect(asked(h)).toHaveLength(0)
+    expect(decisions).toEqual([
+      expect.objectContaining({ kind: 'escalation', taskId: 'tsk_1', choice: 'retried tsk_1 (attempt 2 of 3)', why: 'made 19 screens, gaps listed' })
+    ])
+  })
+
+  it('hands-off: the 3rd failure that committed its work and has no checks is accepted as done, as a decision', async () => {
+    const h = rig()
+    const decisions: Decision[] = []
+    h.ctx.recordDecision = async (_jobId, d) => {
+      decisions.push(d)
+    }
+    failedFirst(h, { handsOff: true }, { consecutiveFailures: 3 })
+    const s = h.state()
+    h.setState({
+      ...s,
+      dispatches: [
+        ...s.dispatches,
+        {
+          id: 'dsp_t1',
+          taskId: 'tsk_1',
+          provider: 'claude',
+          accountId: 'accA',
+          sessionId: 'sess_t1',
+          cwd: 'C:\\wt\\t1',
+          specPath: '/specs/t1.md',
+          startedAt: NOW,
+          workerState: 'stopped',
+          outcome: 'failed',
+          endedAt: NOW,
+          retained: false,
+          git: { base: 'aaaaaaa', head: 'bbbbbbb' }
+        }
+      ]
+    })
+    await h.loop.run()
+    await h.settle()
+    const t1 = h.state().tasks.find((t) => t.id === 'tsk_1')!
+    expect(t1.completionOverride?.reason).toBe(
+      'failed 3 of 3 attempts; accepted because it committed its work and its checks pass: made 19 screens, gaps listed'
+    )
+    expect(['completed', 'merging']).toContain(t1.status)
+    expect(asked(h)).toHaveLength(0)
+    expect(decisions).toEqual([expect.objectContaining({ kind: 'escalation', taskId: 'tsk_1', choice: 'accepted tsk_1 as done' })])
+  })
+
+  it('hands-off with a live coordinator: Astera does not retry the failed Task itself', async () => {
+    const h = rig()
+    failedFirst(h, { handsOff: true })
+    const s = h.state()
+    h.setState({ ...s, runs: s.runs.map((r) => ({ ...r, coordinatorSessionId: 'coord-run_1' })) })
+    h.clock += 61_000
+    await h.loop.run()
+    await h.settle()
+    expect(h.handled()).not.toContain('task-failed-resolve')
+    expect(h.state().tasks.find((t) => t.id === 'tsk_1')?.status).toBe('failed')
   })
 })
 

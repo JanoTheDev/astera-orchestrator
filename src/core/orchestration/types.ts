@@ -123,7 +123,10 @@ export type RepairReason = 'check-failure' | 'review-failure'
  *  gate-resolve), blocked 는 보통 Gate 처럼 풀린다 — 질문이 왜 막혔는지 말한다 */
 // `review-needs-decision` (T3): the review's blocking issue needs something no code change gives (ReviewNeeds). Its
 // free-text answer opens one repair outside the budget that carries it (`Dispatch.decision`).
-export type GateKind = 'convergence-exhausted' | 'convergence-blocked' | 'check-unavailable' | 'review-needs-decision'
+// `review-ended`: a review could not run or its session ended without a report; answered `review-again` or `accept-as-done`
+// `merge-failed` (T8): a Task's branch could not be merged into its plan branch (dispatchLoop.ts mergeIntoPlan); its text
+// carries git's output, so a hands-off plan judges its options, not its words (autoAnswer.ts).
+export type GateKind = 'convergence-exhausted' | 'convergence-blocked' | 'check-unavailable' | 'review-needs-decision' | 'review-ended' | 'merge-failed'
 // W6-C: why a Gate opened, when that is something the notices act on. `review-rounds-exhausted`: the reviewer rejected
 // the work `maxReviewRounds` times (W6-B escalates it with a sound).
 export type GateReason = 'review-rounds-exhausted'
@@ -631,6 +634,10 @@ export interface Task {
   /** What the worker could not reach (environment limits, refused commands), from its succeeded report. A Task with
    *  gaps did not go as planned, so a replan looks at what depends on it. */
   gaps?: string
+  /** T12: what this machine could not run and why ("flock: not found on Windows"), from a succeeded report's
+   *  `--not-provable`, or from a failed report a hands-off plan took as one (exec/notProvable.ts). In a hands-off plan it
+   *  is accepted with a recorded decision and is no deviation; elsewhere it counts like `gaps` (replan.ts wentAsPlanned). */
+  notProvable?: string
   filesModified?: string[]
   /** 이 Task 의 워커를 띄울 계정들, **순서대로**.
    *

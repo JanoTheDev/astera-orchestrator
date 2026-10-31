@@ -391,8 +391,8 @@ export const WORKER_MACHINE_RULES = `
 
 - Ignore the prompt's worktree, branch, push and PR steps; Astera gives you a worktree and delivers the plan.
 - Never stop, restart or pkill the orchestrating Astera app or its Host, and never kill processes you did not start.
-- Test only what you touched: the test files of the files you changed (\`npx vitest run --maxWorkers=2 <files>\` or the project's equivalent) and the typecheck. Do not run the full test suite: it runs once when the plan is delivered.
-- Run heavy jobs (the full test suite, \`npm run dev\` / Electron, \`npm run dist:linux\`) as \`astera heavy -- <cmd>\`: one at a time on this machine. Manual checks run the dev app on the dev profile (\`ASTERA_PROFILE_DIR=~/.config/astera-dev\`), never the profile Astera runs on.
+- Test only what you touched: the test files of the files you changed (\`astera heavy -- npx vitest run --maxWorkers=2 <files>\` or the project's equivalent) and the typecheck (\`astera heavy -- npm run typecheck\`). Do not run the full test suite: it runs once when the plan is delivered.
+- Test, typecheck and build runs are heavy jobs, and so are the full test suite, \`npm run dev\` / Electron and \`npm run dist:linux\`. Run every one of them as \`astera heavy -- <cmd>\`: one at a time on this machine. Manual checks run the dev app on the dev profile (\`ASTERA_PROFILE_DIR=~/.config/astera-dev\`), never the profile Astera runs on.
 `
 
 // The worker may run in Claude Code or Codex, so the section names both tools and is the same text for either.
@@ -527,6 +527,9 @@ Do not record a failure in the body alone.
 Did the main job but could not reach a few parts (environment limits, refused commands)? That is not a
 failure: report --outcome succeeded and add --gaps "<what you could not reach and why>". Report failed
 only when the main job is not done, or when a gap blocks what depends on this task.
+If this machine cannot run something the Task needs proven (OS-specific tooling, a missing service or
+device), do not report failed and do not retry it: report succeeded with
+--not-provable "<command>: <why it cannot run here>" and prove the rest.
 
 After reporting, end your turn and wait at the agent prompt. Do not start more work and do not close
 the terminal yourself. If the orchestrator reuses this terminal, new instructions arrive as input.

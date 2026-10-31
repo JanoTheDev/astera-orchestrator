@@ -2,6 +2,7 @@ import {
   DEFAULT_CONCURRENCY,
   FAILURE_LIMIT,
   MAX_CONCURRENT_WORKERS,
+  isPlaceholderSessionId,
   type Dispatch,
   type Gate,
   type Job,
@@ -68,11 +69,11 @@ export function jobActive(job: Job): boolean {
 
 const isOpen = (d: Dispatch): boolean => !d.outcome && !d.endedAt
 
-/** Workers that count against the app-wide cap (`maxConcurrentWorkers`): every open Dispatch — a
- *  review and a repair are processes too — whose Run is live: its Job active (`jobActive`) and the Run
- *  itself not paused. Who placed it does not matter: a coordinator's workers share the machine with
- *  the app's. */
-export function workersAgainstCap(s: OrchState): number {
+/** The workers that count against the app-wide cap, split: `running` has a session, `starting` still
+ *  has the placeholder session worker-start wrote before the session existed (`pending:`). Every open
+ *  Dispatch of a live Run counts — a review and a repair are processes too — and who placed it does not
+ *  matter: a coordinator's workers share the machine with the app's. */
+export function workersAgainstCapSplit(s: OrchState): { running: number; starting: number } {
   const live = new Set(
     s.runs
       .filter((r) => {
@@ -82,17 +83,32 @@ export function workersAgainstCap(s: OrchState): number {
       .map((r) => r.id)
   )
   const runOf = new Map(s.tasks.map((t) => [t.id, t.runId]))
-  return s.dispatches.filter((d) => {
-    if (!isOpen(d)) return false
+  let running = 0
+  let starting = 0
+  for (const d of s.dispatches) {
+    if (!isOpen(d)) continue
     const runId = runOf.get(d.taskId)
-    return runId !== undefined && live.has(runId)
-  }).length
+    if (runId === undefined || !live.has(runId)) continue
+    if (isPlaceholderSessionId(d.sessionId)) starting++
+    else running++
+  }
+  return { running, starting }
+}
+
+/** Workers that count against the app-wide cap (`maxConcurrentWorkers`): `workersAgainstCapSplit`'s two
+ *  counts added up. */
+export function workersAgainstCap(s: OrchState): number {
+  const { running, starting } = workersAgainstCapSplit(s)
+  return running + starting
 }
 
 /** What `slotsToFill` takes besides the state: the app-wide cap from app settings. `null` or absent is
  *  MAX_CONCURRENT_WORKERS (`workerCapOf`). */
 export interface ScheduleLimits {
   maxConcurrentWorkers?: number | null
+  /** T13: new starts are held for the whole profile (`<profile>/host/start-hold.json`, startHold.ts): nothing is placed.
+   *  The workers already open go on, and so do the checks and merges of the Tasks they finish. */
+  startHeld?: boolean
 }
 
 // W6-C: the app-wide cap never passes MAX_CONCURRENT_WORKERS. Read here, not only when the setting is parsed, because
@@ -337,6 +353,8 @@ export function editingByProject(s: OrchState): Map<string, FileHolder[]> {
  *  turns instead of the first in the array winning every freed slot. That order is read off the state
  *  alone, which keeps this function pure. */
 export function slotsToFill(s: OrchState, limits: ScheduleLimits = {}): Slot[] {
+  // T13: held for the whole profile (a restart, or the owner): no slot, whatever is ready
+  if (limits.startHeld === true) return []
   const open = s.dispatches.filter(isOpen)
   const runOf = new Map(s.tasks.map((t) => [t.id, t.runId]))
   let globalRoom = workerCapOf(limits.maxConcurrentWorkers) - workersAgainstCap(s)

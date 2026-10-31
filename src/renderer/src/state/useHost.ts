@@ -4,6 +4,7 @@ import type { CliStatus, HostHoldings, HostStatus, HostRuntimeInstallState, Upda
 import { confirmModal } from '../lib/confirm'
 import { toast } from '../lib/toast'
 import { sameOrNext } from '../lib/remoteSessions'
+import { HOST_FEATURE_HANDOVER, HOST_FEATURE_RESTART } from '../../../core/host/protocol'
 import type { useLayout } from './useLayout'
 
 /** How often the Host's status is re-read. Slow on purpose: the only thing that changes without anyone
@@ -97,9 +98,27 @@ export function useHost(deps: HostDeps) {
     return () => clearInterval(timer)
   }, [hostRuntimeSlow])
   const [hostRestarting, setHostRestarting] = useState(false)
-  /** The Info tab's *Restart now* and the status bar's fallback button: confirm with what is handed over or what ends,
-   *  replace, then re-read the row. */
+  /** **Restart the Host now** (T15), for a Host that can hand its sessions over: no question first, since nothing ends. The
+   *  Host holds new starts and waits for the working Tasks to reach a safe point; main pushes that as `HostStatus.restart`,
+   *  which the status bar and the Info tab show, with "Restart anyway". This resolves once the new Host answered or the
+   *  restart failed (the sentence for either is in the status). */
+  const restartHostNow = async (): Promise<void> => {
+    setHostRestarting(true)
+    try {
+      await window.api.host.restartNow()
+      const status = await window.api.host.status()
+      setHostStatus(status)
+      setHostHolding(status.connected ? await window.api.host.holdings().catch(() => null) : null)
+    } finally {
+      setHostRestarting(false)
+    }
+  }
+  /** The Info tab's *Restart now* and the status bar's button. A Host that hands over (or restarts on request) goes the way
+   *  above; one that is not answering, or too old to hand over, is first confirmed with what ends, then replaced, then the
+   *  row is re-read. */
   const restartHost = async (): Promise<void> => {
+    const features = hostStatus?.features ?? []
+    if (hostStatus?.unresponsive !== true && (features.includes(HOST_FEATURE_RESTART) || features.includes(HOST_FEATURE_HANDOVER))) return restartHostNow()
     // **A Host that is not answering cannot be asked what it holds**, so `hostHolding` is null there
     // and staying silent about it would be the wrong kind of quiet — something does end. The app's own
     // count of sessions that outlive it is the honest answer: it is this app's record of what it

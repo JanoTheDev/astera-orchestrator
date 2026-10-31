@@ -2,6 +2,9 @@
 // alone, and nothing at all with the setting off.
 import { describe, expect, it } from 'vitest'
 import { DROPPED_ASK_MS, HOLD_ASK_MS, LEASE_ASK_MS, LEASE_TELL_MS, PLANNER_IDLE_MS, PLANNER_NUDGE, PLANNER_RESTART_MS, BACKOFF_MS, BUSY_REFRESH_MS, BUSY_TELL_MS, DEAD_COORDINATOR_MS, DRAFT_STALL_MS, IDLE_NUDGE, IDLE_STALL_MS, LOST_STALL_MS, MERGE_STALL_MS, READY_STALL_MS, STALL_WATCH_MS, TRIES, VALIDATE_STALL_MS, createStallWatch, stallRemedies, type StallEntry, type StallWatchDeps, type StallProbe, type StallRemedy } from './stallWatch'
+import { INSTALL_START_WINDOW_MS, isInstallingStart } from './stallWatch'
+import { SETUP_SLOT_WAIT_MS, SETUP_TIMEOUT_MS } from '../../worktrees/setup'
+import { PENDING_START_WINDOW_MS } from '../command'
 import { startPauseOf } from '../usageGuard'
 import { createDispatchLoop, type DispatchLoopContext } from './dispatchLoop'
 import { emptyState, type OrchState } from '../state'
@@ -285,6 +288,39 @@ describe('stallRemedies', () => {
     const got = watch(s, every30s(10 * MIN)).filter((x) => x.startsWith('draft-pr'))
     expect(got).toEqual(['draft-pr:1'])
     expect(watch(s, [T0, T0 + DRAFT_STALL_MS - STALL_WATCH_MS]).filter((x) => x.startsWith('draft-pr'))).toEqual([])
+  })
+
+  // T2: a start whose fork's install waits for a heavy slot holds its `pending:install:` placeholder for many minutes
+  it('a worker start waiting on its install is in flight for INSTALL_START_WINDOW_MS, not a stuck coordinator or a lost start', () => {
+    const starting = (sessionId: string): OrchState =>
+      plan(
+        {
+          tasks: [task({ id: 'tsk_1', status: 'dispatched' }), task({ id: 'tsk_2' })],
+          dispatches: [{ ...ended('tsk_1', '/wt-a'), sessionId, specPath: '', endedAt: undefined, outcome: undefined } as Dispatch]
+        },
+        { concurrency: 3 }
+      )
+    const busy: StallProbe = { ...idle, busy: (id) => (id === 'coord-1' ? true : null) }
+    // Within its window: nothing is done about the start, its Run or its busy coordinator
+    expect(watch(starting('pending:install:ab12cd34'), every30s(INSTALL_START_WINDOW_MS - MIN), busy)).toEqual([])
+    // A plain placeholder reads as a dead start after two minutes, so the Run is watched again
+    expect(watch(starting('pending:ab12cd34'), every30s(15 * MIN), busy)).toEqual(
+      expect.arrayContaining(['tell-start:tsk_2', 'tell-busy:coord-1', 'refresh:coord-1'])
+    )
+    // Past its own window the install placeholder is read the same way
+    const past = T0 + INSTALL_START_WINDOW_MS
+    expect(watch(starting('pending:install:ab12cd34'), every30s(15 * MIN).map((t) => t + past), busy)).toEqual(
+      expect.arrayContaining(['tell-start:tsk_2', 'tell-busy:coord-1', 'refresh:coord-1'])
+    )
+    expect(isInstallingStart('pending:install:ab12cd34')).toBe(true)
+    expect(isInstallingStart('pending:ab12cd34')).toBe(false)
+    // Nor is it a worker idle at its prompt, even where an unknown session reads as idle: it has no session yet
+    const alone = plan({ tasks: [task({ id: 'tsk_1', status: 'dispatched' })], dispatches: starting('pending:install:ab12cd34').dispatches })
+    expect(watch(alone, every30s(INSTALL_START_WINDOW_MS - MIN), idle)).toEqual([])
+  })
+
+  it('INSTALL_START_WINDOW_MS outlasts the longest install start: the slot wait, the install, then the session start', () => {
+    expect(INSTALL_START_WINDOW_MS).toBeGreaterThan(SETUP_SLOT_WAIT_MS + SETUP_TIMEOUT_MS + PENDING_START_WINDOW_MS)
   })
 
   it('a healthy plan gets nothing: its worker is working and nothing waits', () => {

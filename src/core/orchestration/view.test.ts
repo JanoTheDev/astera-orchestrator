@@ -1341,7 +1341,7 @@ describe('snapshotFor — plan board fields', () => {
     s.dispatches = [dispatch('d1', 't1', 's1', '2026-08-18T01:00:00.000Z')]
     const fold = (cap: number | null) =>
       snapshotFor(s, absPath('p'), anySession, noWorktrees, noFires, allExist, 0, { maxConcurrentWorkers: cap }).runs[0].tasks[1].board
-    expect(fold(1)).toEqual({ category: 'queued', reason: { kind: 'global-cap', used: 1, limit: 1, priority: 0 } })
+    expect(fold(1)).toEqual({ category: 'queued', reason: { kind: 'global-cap', running: 1, starting: 0, limit: 1, priority: 0 } })
     expect(fold(null)).toEqual({ category: 'queued', reason: { kind: 'next' } })
   })
 })

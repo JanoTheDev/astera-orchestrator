@@ -53,6 +53,7 @@ import { isSamePath } from '../../files/tree'
 import { outcomeOf } from '../view'
 import { completionSettled, failedWaitAsked, failedWaitChoice, replansDue, stallOf } from '../replan'
 import { REPLAN_LIFT_HOLD } from './replanStart'
+import { failedRetriesDue, failedRetryOf } from './failedRetry'
 // W8-C draft PR
 import { draftPrDue } from '../draftPr'
 import { refreshOnto, type Integration, type Refresh } from './integrateGit'
@@ -77,9 +78,11 @@ import {
 import { afterStartsDue, afterSweep } from '../after'
 // Coordinator rotation and finished tabs
 import { createCoordinatorRotation, refreshRunCoordinator } from './coordinatorRotate'
-import { autoAnswerLine, autoAnswersDue, coordinatorDecideBody, handsOffStepsDue, type AutoAnswer, type OpenQuestion } from './autoAnswer'
+import { autoAnswerLine, autoAnswersDue, coordinatorDecideBody, ESCALATION_DEFAULT_ANSWER, handsOffStepsDue, PLANNER_ANSWER_WAIT_MS, type AutoAnswer, type OpenQuestion } from './autoAnswer'
 import { STALL_WATCH_MS, stallPauseProbe, stallRemedies, startNotice, watchdogActivity, type StallEntry, type StallRemedy } from './stallWatch'
 import type { ActivityDraft } from '../activity'
+import { DETACHED_GRACE_MS, isDetachedHeadError } from '../../worktrees/base'
+import { MERGE_FAILED_GATE, MERGE_FAILED_OPTIONS, MERGE_RETRY_BACKOFF_MS, mergeRetryChoice, mergeRetryOf, transientCauseOf, transientWhy, type TransientCause } from './transientGit'
 
 /** W6-D: a replan whose start left no session after this long died with its process, and is ended. */
 export const REPLAN_START_WINDOW_MS = 5 * 60_000
@@ -207,6 +210,10 @@ export interface DispatchLoopContext {
   /** W1-B: the app-wide worker cap from app settings, or null for none. Read once per pass. Optional:
    *  without it there is no cap. */
   maxConcurrentWorkers?(): number | null | Promise<number | null>
+  /** T13: whether new starts are held for the whole profile (core/orchestration/startHold.ts). Read once per pass, beside
+   *  the cap: while it says yes the pass places nothing (`slotsToFill`). Optional: without it nothing is held here, and
+   *  `worker-start` still refuses a held start. */
+  startHeld?(): boolean | Promise<boolean>
   accounts(): Account[] | Promise<Account[]>
   loginStatus(accountId: string): Promise<boolean>
   lang(): Lang
@@ -251,6 +258,9 @@ export interface DispatchLoopContext {
   /** #117: appends one call a hands-off plan made in the owner's place to its Job (state.ts addDecision), which the
    *  feed's plan.decided / plan.refused line is derived from. Optional: without it the decision is a log line only. */
   recordDecision?(jobId: string, d: Decision): Promise<void>
+  /** T8: whether the machine is strained now (the Host's health snapshot, autoLimits.ts). A transiently failed merge waits
+   *  while it is, instead of being retried. Optional: without it the retry runs when due. */
+  strained?(): boolean | Promise<boolean>
   /** A feed line no commit makes (the watchdog's), recorded by the Host's activity log. Optional: without it a log line. */
   activity?(d: ActivityDraft): void
   /** T32: what a plan's folder is set up for (exec/deliverySetup.ts). Optional: without it every plan delivers as saved. */
@@ -353,7 +363,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       log(`scheduler: blocking task=${taskId} failed — ${String(e)}`)
     }
   }
-  const gateSlot = async (taskId: string, reason: string): Promise<void> => {
+  const gateSlot = async (taskId: string, reason: string, opts?: { kind: typeof MERGE_FAILED_GATE; options: string[] }): Promise<void> => {
     // Gate 와 별개로 로그를 남긴다 — Gate 는 사용자가 읽는 것이고, 이 줄은 왜 그 Gate 가 열렸는지
     // 나중에 되짚을 때 읽는 것이다.
     log(`scheduler: cannot start task=${taskId} — ${reason}`)
@@ -371,7 +381,8 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     try {
       const gated = await c.handle('gate-create', {
         task: taskId,
-        question: reason
+        question: reason,
+        ...(opts ? { kind: opts.kind, options: opts.options } : {})
       })
       // Gate 마저 거절되는 경우가 있다: gate-create 는 열린 Dispatch 가 있는 Task 를 거절하고
       // (state.ts), dispatched 에서 blocked 로 가는 전이도 없다(types.ts 의 ALLOWED). 그 상태로
@@ -1015,11 +1026,69 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
         log(`run=${run.id} stalled: ${stall.reason}`)
       }
       if (stall.blocks.every((b) => failedWaitAsked(c.getState(), b.task)) || !c.mayStart()) continue
+      // T10: not while Astera still retries or accepts one of its failed Tasks itself (`retryFailedTasks`)
+      if (stall.blocks.some((b) => failedRetriedByAstera(c.getState(), b.task))) continue
       try {
         const r = await c.handle('run-failed-ask', { run: run.id })
         log(r.status >= 400 ? `run=${run.id}: asking the owner about its failed Task was refused: ${JSON.stringify(r.body)}` : `run=${run.id}: asked the owner about its failed Task`)
       } catch (e) {
         log(`run=${run.id}: asking the owner about its failed Task failed: ${String(e)}`)
+      }
+    }
+  }
+
+  /**
+   * T10: a hands-off plan whose Run has no live coordinator (`coordinatorLive`) handles its own failed Tasks
+   * (failedRetry.ts): one with tries left is retried once its backoff is over, keeping its failure count
+   * (`task-failed-resolve` with `keepFailures`); one whose last try failed but that committed its work and passes its checks
+   * is accepted as done. Each is a decision on its Job (the feed's plan.decided line). The rest escalate: `unstallRuns`
+   * asks the owner as before, the one way the failed-Task question reaches them. Before `unstallRuns`, so a retried Task
+   * no longer stalls its Run. Driving process only; a failure is logged and never thrown.
+   */
+  // In memory: a refused step is not repeated for the same failure in this process
+  const failedStepTried = new Set<string>()
+  const failedRetriedByAstera = (s: OrchState, task: Task): boolean => {
+    const step = task.runId === undefined ? undefined : failedRetryOf(s, task, { coordinatorLive: coordinatorLive(s, task.runId), nowMs: c.nowMs() })
+    return step !== undefined && step.kind !== 'escalate' && !failedStepTried.has(`${task.id}@${task.updatedAt}`)
+  }
+  const retryFailedTasks = async (): Promise<void> => {
+    const s = c.getState()
+    for (const step of failedRetriesDue(s, c.nowMs(), (runId) => coordinatorLive(s, runId))) {
+      const t = step.task
+      const key = `${t.id}@${t.updatedAt}`
+      if (failedStepTried.has(key)) continue
+      if (step.kind === 'escalate') {
+        failedStepTried.add(key)
+        log(`run=${t.runId}: failed ${t.id} goes to the owner: ${step.why}`)
+        continue
+      }
+      if (step.kind === 'wait' || (step.kind === 'retry' && !step.due)) continue
+      if (!c.mayStart()) return
+      failedStepTried.add(key)
+      const job = handsOffJobOf(c.getState(), t.runId ?? '')
+      const args =
+        step.kind === 'retry' ? { id: t.id, action: 'retry', keepFailures: true } : { id: t.id, action: 'accept', reason: step.reason }
+      try {
+        const r = await c.handle('task-failed-resolve', args)
+        if (r.status >= 400) {
+          log(`run=${t.runId}: Astera's ${step.kind} of failed ${t.id} was refused: ${JSON.stringify(r.body)}`)
+          continue
+        }
+        if (!job) continue
+        await decide(
+          job.id,
+          step.kind === 'retry'
+            ? {
+                kind: 'escalation',
+                taskId: t.id,
+                question: `${t.title} failed (${t.consecutiveFailures} of ${FAILURE_LIMIT})`,
+                choice: `retried ${t.title} (attempt ${step.attempt} of ${FAILURE_LIMIT})`,
+                why: step.why
+              }
+            : { kind: 'escalation', taskId: t.id, question: `${t.title} failed ${t.consecutiveFailures} of ${FAILURE_LIMIT} times`, choice: `accepted ${t.title} as done`, why: step.reason }
+        )
+      } catch (e) {
+        log(`run=${t.runId}: Astera's ${step.kind} of failed ${t.id} failed: ${String(e)}`)
       }
     }
   }
@@ -1249,6 +1318,9 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       await liftAnsweredHolds()
       await replanAtBoundaries()
       if (!c.mayStart()) return
+      // T10: after the replans (one under way looks at the failure first), before the stall's owner question
+      await retryFailedTasks()
+      if (!c.mayStart()) return
       // T36: after the replans, so a Run a replan just took up is not stalled
       await unstallRuns()
       if (!c.mayStart()) return
@@ -1292,6 +1364,21 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
    * person's call does with it stays in `dispatchOne` (an answer). `why` is the same fact as `reason`,
    * in English, for that answer: some reasons are Gate questions in the app's language.
    */
+  // A project folder whose HEAD is detached only for a moment (a session in it ran `git checkout <commit>` to look, then
+  // went back) must not Gate every fork made in that window: the slot waits and the next pass tries again. Only a
+  // folder still detached after DETACHED_GRACE_MS is a Gate, for a person to put back on a branch.
+  const detachedSince = new Map<string, number>()
+  const detachedWait = (runId: string, error: string): SlotEnd | null => {
+    if (!isDetachedHeadError(error)) return null
+    const since = detachedSince.get(runId) ?? Date.now()
+    detachedSince.set(runId, since)
+    if (Date.now() - since >= DETACHED_GRACE_MS) {
+      detachedSince.delete(runId)
+      return null
+    }
+    return { kind: 'wait', why: 'the project folder is not on a branch right now (detached HEAD); it is tried again' }
+  }
+
   const placeSlot = async (slot: Slot, accounts: Account[], loggedIn: Set<string>): Promise<SlotEnd> => {
     // 사람이 이 Task 에 계정을 지정했으면 그 목록의 첫 계정, 아니면 그 provider 의 기본
     // 계정. 판정은 core 에 있다(accountToDispatchOn) — 이 파일에는 테스트가 닿지 않는다.
@@ -1431,6 +1518,8 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
         // 읽을 수 있는 접두사가 붙어 오므로 그대로 Gate 에 싣는다. 다음 상태 변경에 다시
         // 시도한다(사람이 저장소를 고치는 것 자체가 상태 변경은 아니지만, 그 Gate 를 푸는
         // 것이 상태 변경이다).
+        const detached = detachedWait(slot.runId, String(e))
+        if (detached) return detached
         return {
           kind: 'gate',
           reason: t(c.lang(), 'jobs.integration.runWorktreeNotMade', { error: String(e) }),
@@ -1694,7 +1783,12 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     // W6-G: the account crossed `usagePauseAt` between the check above and here. It resumes on its own.
     if (reply.status === 409 && (reply.body as { usagePaused?: unknown })?.usagePaused !== undefined)
       return { kind: 'wait', why: String((reply.body as { error?: unknown }).error) }
-    return reply.status >= 400 ? { kind: 'refused', reply } : { kind: 'started', reply }
+    if (reply.status >= 400) {
+      const detached = detachedWait(slot.runId, JSON.stringify(reply.body))
+      return detached ?? { kind: 'refused', reply }
+    }
+    detachedSince.delete(slot.runId)
+    return { kind: 'started', reply }
   }
 
   // 자동 진행. **setState 뒤에 매단다** — 새 Task 가 ready 가 되거나 자리가 비는 경로가 일곱이고
@@ -1765,7 +1859,16 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
         }
         // Awaited only when wired, so a pass with no cap keeps its old timing.
         const maxConcurrentWorkers = c.maxConcurrentWorkers ? ((await c.maxConcurrentWorkers()) ?? null) : null
-        const slots = slotsToFill(c.getState(), { maxConcurrentWorkers }).filter((s) => !attempted.has(s.taskId))
+        // T13: a hold on new starts places nothing; a probe that fails reads as no hold (worker-start still refuses one).
+        // A probe that answers at once is not awaited, so a pass that is not held keeps its old timing.
+        let heldProbe: boolean | Promise<boolean> = false
+        try {
+          heldProbe = c.startHeld?.() ?? false
+        } catch {
+          heldProbe = false
+        }
+        const startHeld = typeof heldProbe === 'boolean' ? heldProbe : await heldProbe.catch(() => false)
+        const slots = slotsToFill(c.getState(), { maxConcurrentWorkers, startHeld }).filter((s) => !attempted.has(s.taskId))
         // 띄울 자리가 없으면 계정 조회까지 가지 않는다. 이 함수는 **모든 저장마다** 불리고 그
         // 대부분은 띄울 것이 없는 저장이다 — 아래 조회에 계정마다 파일(macOS 에서는 Keychain)
         // 읽기가 하나씩 붙으므로, 빈 바퀴에 그것을 치르면 상태를 쓰는 모든 명령이 그만큼 느려진다.
@@ -2140,6 +2243,8 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
           continue
         }
         const q = step.question
+        // T11: a worker's question in a Run with no live coordinator goes to the plan's planner, then to the default
+        if (await askPlanner(s, q)) continue
         if (handedOver.has(q.id)) continue
         // `send` posts into a Task's Run: a question with no Task (a coordinator's own escalation) names one of its Run's
         const taskId = q.taskId || s.tasks.find((t) => t.runId === q.runId)?.id
@@ -2176,6 +2281,51 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     } catch (e) {
       log(`auto-answer: the pass failed: ${String(e)}`)
     }
+  }
+  /** T11: the worker questions of hands-off Runs with no live coordinator put to the plan's planner, with when they were
+   *  first tried and whether the planner was reached. shortcut: in memory, so a Host restart asks the planner again once. */
+  const plannerAsked = new Map<string, { at: number; asked: boolean }>()
+  /** T11: whether the Run has a coordinator to hand a question to: one that is alive, or one that is starting. */
+  const coordinatorLive = (s: OrchState, runId: string): boolean => {
+    const run = s.runs.find((r) => r.id === runId)
+    return run !== undefined && (run.coordinatorStartingAt !== undefined || (run.coordinatorSessionId !== undefined && c.sessionAlive(run.coordinatorSessionId)))
+  }
+  /** T11: a worker's ask or escalation of a hands-off plan whose Run has no live coordinator: put to the plan's planner
+   *  (`jobs-ask-planner`), its answer recorded once it lands (`handedOver`); answered with ESCALATION_DEFAULT_ANSWER, and
+   *  that recorded, when no planner answered within PLANNER_ANSWER_WAIT_MS. false: the question is not the planner's. */
+  const askPlanner = async (s: OrchState, q: OpenQuestion): Promise<boolean> => {
+    if ((q.source !== 'ask' && q.source !== 'escalation') || coordinatorLive(s, q.runId)) return false
+    const job = handsOffJobOf(s, q.runId)
+    if (!job) return false
+    const nowMs = c.nowMs()
+    const seen = plannerAsked.get(q.id)
+    if (seen && nowMs - seen.at >= PLANNER_ANSWER_WAIT_MS) {
+      if (!c.mayStart()) return true
+      plannerAsked.delete(q.id)
+      handedOver.delete(q.id)
+      autoTried.add(q.id)
+      const r = await c.handle('questions-answer', { id: q.id, answer: ESCALATION_DEFAULT_ANSWER })
+      if (r.status >= 400) {
+        log(`run=${q.runId}: the default answer to ${q.id} was refused: ${JSON.stringify(r.body)}`)
+        return true
+      }
+      const line = (t: string, max: number): string => (t.trim().split('\n')[0] ?? '').slice(0, max)
+      const reached = seen.asked ? 'did not answer' : 'could not be reached'
+      await decide(job.id, {
+        kind: 'escalation',
+        ...(q.taskId ? { taskId: q.taskId } : {}),
+        question: line(q.question, 300),
+        choice: line(ESCALATION_DEFAULT_ANSWER, 200),
+        why: `the Run has no live coordinator and the plan's planner ${reached} within ${PLANNER_ANSWER_WAIT_MS / 60_000} minutes: the default`
+      })
+      return true
+    }
+    if (seen?.asked) return true
+    const r = await c.handle('jobs-ask-planner', { id: job.id, question: q.id }).catch((e: unknown) => ({ status: 500, body: String(e) }))
+    plannerAsked.set(q.id, { at: seen?.at ?? nowMs, asked: r.status < 400 })
+    if (r.status < 400) handedOver.set(q.id, q)
+    else log(`run=${q.runId}: the planner of job ${job.id} could not be asked ${q.id}: ${JSON.stringify(r.body)}`)
+    return true
   }
   /** Item 2: the Tasks whose owner-only decision a hands-off plan refused, held once each (`holdForOwner`). One with a
    *  live worker waits until its Dispatch ends: a Task is not blocked under a running worker (types.ts ALLOWED).
@@ -2296,6 +2446,9 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
    *  it, or, for a merging Task git cannot merge at all, the owner's Gate (it never completes without its merge). The
    *  integration's answer, or what stopped it. Never throws. */
   const mergeIntoPlan = async (w: { runId: string; taskId: string; runRoot: string; worktree: string }): Promise<Integration> => {
+    // T8: a hands-off plan's merge that failed for a passing reason waits out its backoff, and a strained machine
+    const waiting = await mergeRetryWait(w)
+    if (waiting) return waiting
     let result: Integration
     try {
       // T3: kept while a Task not finished will continue in it; that Task's own merge reaps it
@@ -2307,9 +2460,11 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     // the merge worker takes it, as a conflict, so the work reaches the plan branch instead of being lost
     const left = result.kind === 'merged' ? [...(result.dirty ?? []), ...(result.unchecked ?? [])] : []
     if (result.kind === 'merged' && left.length === 0) {
+      mergeRetries.delete(w.taskId)
       await recordMerge(w)
       return result
     }
+    const cause = transientCauseOf(result)
     if (result.kind === 'merged')
       result = {
         kind: 'agent',
@@ -2317,10 +2472,15 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
         worktrees: [{ path: w.worktree, branch: null }]
       }
     log(`run=${w.runId}: task=${w.taskId} did not merge into ${w.runRoot}: ${result.reason}`)
+    if (cause !== null && (await retryMergeLater(w, result, cause))) return result
     // T1: a hands-off plan gives a git problem the merge worker can mend to it (uncommitted changes, a merge left half done)
     const mendable = result.kind === 'human' && result.message !== undefined && MENDABLE_INTEGRATION.has(result.message.key) && handsOffJobOf(c.getState(), w.runId) !== undefined
     if (result.kind === 'human' && !mendable && c.getState().tasks.find((t) => t.id === w.taskId)?.status === 'merging') {
-      await gateSlot(w.taskId, `${w.taskId}'s branch (${w.worktree}) could not be merged into the plan branch (${w.runRoot}): ${result.reason}`)
+      // T8: a kind and options, so a hands-off plan judges those, not git's output in its text (autoAnswer.ts)
+      await gateSlot(w.taskId, `${w.taskId}'s branch (${w.worktree}) could not be merged into the plan branch (${w.runRoot}): ${result.reason}`, {
+        kind: MERGE_FAILED_GATE,
+        options: [...MERGE_FAILED_OPTIONS]
+      })
       return result
     }
     try {
@@ -2334,6 +2494,57 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       log(`run=${w.runId}: the merge worker for task=${w.taskId} failed to start: ${String(e)}`)
     }
     return result
+  }
+
+  /** T8: the transient merge retries scheduled per Task in this process: how many, and when the next try is due. After a
+   *  Host restart they are read back from the Job's decisions (mergeRetryOf), where each retry is recorded. */
+  const mergeRetries = new Map<string, { tries: number; dueAt: number }>()
+  const mergeRetryState = (taskId: string, runId: string): { tries: number; dueAt: number } | undefined =>
+    mergeRetries.get(taskId) ?? mergeRetryOf(handsOffJobOf(c.getState(), runId)?.decisions, taskId)
+  const strainedNow = async (): Promise<boolean> => {
+    try {
+      return (await c.strained?.()) === true
+    } catch {
+      return false
+    }
+  }
+
+  /** T8: why a hands-off plan's merge is not tried now (its backoff runs, or the machine is strained), as the answer
+   *  mergeIntoPlan gives; undefined: try it. Never throws. */
+  const mergeRetryWait = async (w: { runId: string; taskId: string }): Promise<Integration | undefined> => {
+    if (handsOffJobOf(c.getState(), w.runId) === undefined) return undefined
+    const due = mergeRetryState(w.taskId, w.runId)
+    if (due === undefined) return undefined
+    if (c.nowMs() < due.dueAt) return { kind: 'human', reason: `the merge of ${w.taskId} is retried at ${new Date(due.dueAt).toISOString()}` }
+    if (await strainedNow()) {
+      log(`run=${w.runId}: the merge retry of task=${w.taskId} waits: the machine is strained`)
+      return { kind: 'human', reason: `the merge of ${w.taskId} waits for the machine to be less strained` }
+    }
+    return undefined
+  }
+
+  /** T8: a hands-off plan's merge that failed for a passing reason is tried again after the next wait of
+   *  MERGE_RETRY_BACKOFF_MS, recorded as a decision; the Task stays as it is. False when it is not retried (not a
+   *  hands-off plan, or its retries are spent): today's path, a merge worker or a Gate, takes it. Never throws. */
+  const retryMergeLater = async (w: { runId: string; taskId: string }, result: Exclude<Integration, { kind: 'merged' }>, cause: TransientCause): Promise<boolean> => {
+    const job = handsOffJobOf(c.getState(), w.runId)
+    if (job === undefined) return false
+    const tries = mergeRetryState(w.taskId, w.runId)?.tries ?? 0
+    if (tries >= MERGE_RETRY_BACKOFF_MS.length) {
+      log(`run=${w.runId}: task=${w.taskId}'s merge failed ${tries + 1} times for a passing reason; no more retries`)
+      return false
+    }
+    const next = { tries: tries + 1, dueAt: c.nowMs() + MERGE_RETRY_BACKOFF_MS[tries] }
+    mergeRetries.set(w.taskId, next)
+    const title = c.getState().tasks.find((t) => t.id === w.taskId)?.title ?? w.taskId
+    await decide(job.id, {
+      kind: 'gate',
+      taskId: w.taskId,
+      question: `The merge of ${title} into the plan branch failed: ${result.reason.split('\n')[0].slice(0, 240)}`,
+      choice: mergeRetryChoice(next.tries),
+      why: `${transientWhy(cause)}, which passes`
+    })
+    return true
   }
 
   // DispatchLoop.startMergeWorker. The merge Task is told to the coordinator as it starts and as it fails; it is a

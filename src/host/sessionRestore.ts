@@ -31,11 +31,23 @@
 // finds it again with its history. Only an idle chat is handed over by the automatic swap: the app waits out a turn
 // (main/ipc.ts hostReplaceDue), since the respawn resumes the thread and a turn cut short is not carried.
 //
+// **A restart** (T13, the `restart` message: protocol.ts) is a handover that does not wait for a moment with no Task
+// working. The leaving Host holds new starts, waits a bounded time for each working Task to reach a safe point
+// (`restartWaitingOn`), then writes the handover with `restart: true` and marks every session whose Dispatch is still
+// open `working`. The next Host keeps those Dispatches open through its load's cleanup (`handedOverWorkers` is read
+// before anything can load), resumes each such worker under its own id on its own account with RESTART_RESUME_LINE as
+// its one prompt, and hands one it cannot resume to the recovery (`lostWorker`), as a crash would. Then it lifts a
+// restart's hold and writes `restartFeedLine` to the activity feed. What the worker was running in the old Host
+// (`astera heavy` children, a setup install) ended with it: the worker runs it again, and the tickets and owner files
+// it left read dead (their pid is gone) and are dropped.
+//
 // Imports only core modules: this bundles into the Host.
-import { mkdirSync, promises as fs, renameSync, writeFileSync } from 'node:fs'
+import { mkdirSync, promises as fs, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import type { PtyMeta, PtyOpenOptions } from '../core/host/protocol'
 import type { OrchState } from '../core/orchestration/state'
+import { isPlaceholderSessionId } from '../core/orchestration/types'
+import { liftStartHold } from '../core/orchestration/startHold'
 import { providerOf } from '../core/providers/meta'
 import { claudeHistoryStrategy, findClaudeTranscript } from '../core/history/strategies/claude'
 import { copyTranscript } from '../core/rolling/transcript'
@@ -64,8 +76,19 @@ export const sessionRestoreFileIn = (profileDir: string): string => path.join(pr
 export const cleanExitFileIn = (profileDir: string): string => path.join(profileDir, 'host', 'clean-exit')
 export const handoverFileIn = (profileDir: string): string => path.join(profileDir, 'host', 'handover.json')
 
-/** A saved session in a handover, with the Dispatch it held last when it is a worker. */
-export type HandoverSession = SavedSession & { dispatchId?: string }
+/** A saved session in a handover, with the Dispatch it held last when it is a worker. `working`: a restart handed it
+ *  over with that Dispatch still open (T13), so the next Host resumes it mid-Task and tells it so (RESTART_RESUME_LINE). */
+export type HandoverSession = SavedSession & { dispatchId?: string; working?: true }
+
+/** What a worker a restart handed over mid-Task is told, once, as the next Host resumes its conversation (T13). Its
+ *  launch prompt, so it is typed in exactly once; free of every character a launch line must not carry (commands.ts
+ *  LAUNCH_FORBIDDEN). */
+export const RESTART_RESUME_LINE =
+  'The Astera Host restarted while you worked. Your conversation is restored; if your last command was cut off, run it again, then carry on.'
+
+/** The activity feed's line once a restart's sessions are back (T13). */
+export const restartFeedLine = (version: string, sessions: number): string =>
+  `Host restarted to ${version}: ${sessions} session${sessions === 1 ? '' : 's'} resumed`
 
 /** A shell terminal or a run process, as the app's `pty-spawn` opened it. */
 export interface HandoverPty {
@@ -104,6 +127,8 @@ export interface Handover {
   ptys: HandoverPty[]
   /** Absent in a handover an older Host wrote. */
   chats?: HandoverChat[]
+  /** A restart wrote it (T13), not the automatic swap: the next Host says so in the activity feed. */
+  restart?: true
 }
 
 /** A `pty-spawn` as the Host received it, with the size it was last given. */
@@ -227,9 +252,27 @@ async function readHandover(profileDir: string): Promise<Handover | null> {
   try {
     const v = JSON.parse(await readFileRetrying(handoverFileIn(profileDir))) as Partial<Handover> | null
     if (!v || !Array.isArray(v.sessions) || !Array.isArray(v.ptys)) return null
-    return { sessions: v.sessions.filter(isSaved), ptys: v.ptys.filter(isHandoverPty), chats: Array.isArray(v.chats) ? v.chats.filter(isHandoverChat) : [] }
+    return {
+      sessions: v.sessions.filter(isSaved),
+      ptys: v.ptys.filter(isHandoverPty),
+      chats: Array.isArray(v.chats) ? v.chats.filter(isHandoverChat) : [],
+      ...(v.restart === true ? { restart: true as const } : {})
+    }
   } catch {
     return null
+  }
+}
+
+/** The sessions a restart's handover marked `working` (T13), read synchronously before this Host serves anything: the
+ *  load's cleanup must count them alive until their resume settles, and the first command can load. Empty for no
+ *  handover, an automatic swap's, and a file that does not read. Never throws. */
+export function handedOverWorkers(profileDir: string): string[] {
+  try {
+    const v = JSON.parse(readFileSync(handoverFileIn(profileDir), 'utf8')) as Partial<Handover> | null
+    if (!v || !Array.isArray(v.sessions)) return []
+    return v.sessions.filter((x) => isSaved(x) && (x as HandoverSession).working === true).map((x) => x.sessionId)
+  } catch {
+    return []
   }
 }
 
@@ -244,14 +287,24 @@ export async function leftBehind(profileDir: string): Promise<{ handover: Handov
 
 /** The handover of a Host leaving on a resume retire: its saved sessions, each worker's last Dispatch, the shell
  *  terminals and run processes among `ptys` (the live `pty-spawn`s; an agent session's own is the session list's), and
- *  the chats among `procs` (the live line processes' notes). */
-export function handoverOf(a: { sessions: SavedSession[]; ptys: PtySpawn[]; procs: Array<PtyMeta | null>; state: OrchState | null; baseEnv: NodeJS.ProcessEnv }): Handover {
+ *  the chats among `procs` (the live line processes' notes). `restart` (T13): a restart's, which marks each session
+ *  whose last Dispatch is still open `working`. */
+export function handoverOf(a: {
+  sessions: SavedSession[]
+  ptys: PtySpawn[]
+  procs: Array<PtyMeta | null>
+  state: OrchState | null
+  baseEnv: NodeJS.ProcessEnv
+  restart?: boolean
+}): Handover {
   return {
     chats: a.procs.flatMap((m) => handoverChatOf(m) ?? []),
     sessions: a.sessions.map((row) => {
-      const dispatchId = a.state?.dispatches.filter((x) => x.sessionId === row.sessionId).at(-1)?.id
-      return dispatchId ? { ...row, dispatchId } : row
+      const last = a.state?.dispatches.filter((x) => x.sessionId === row.sessionId).at(-1)
+      if (!last) return row
+      return { ...row, dispatchId: last.id, ...(a.restart === true && !last.endedAt && !last.outcome ? { working: true as const } : {}) }
     }),
+    ...(a.restart === true ? { restart: true as const } : {}),
     ptys: a.ptys.flatMap((p) => {
       if (p.meta?.kind !== 'terminal' && p.meta?.kind !== 'run') return []
       // shortcut: a key the Host has and the pty had not is not carried; upgrade if a shell ever needs one removed
@@ -286,6 +339,54 @@ export function workingTaskCount(s: OrchState | null, alive?: (sessionId: string
     return r !== undefined && j.archivedAt === undefined && (r.sessionId === undefined || (alive?.(r.sessionId) ?? true))
   }).length
   return tasks + replans
+}
+
+/** **A restart's safe point** (T13): of the work `workingTaskCount` counts, the ids still to wait for, in the state's
+ *  order. A worker, a reviewer or a repair is at a safe point while its session sits idle at its prompt between turns
+ *  (`busy` answers false: the verdict the stall watch nudges an idle worker by) or is gone (nothing of it is left to cut
+ *  short). One that is busy, or whose screen never said (`busy` null), is not, and neither is a start still in flight (a
+ *  `pending:` session). A Task validating, reviewing or merging with no Dispatch open runs a check or a merge in the
+ *  Host itself, or is about to start its reviewer, and is waited for until it moves on. A replan in flight is its Job,
+ *  by the Job's id, its planner judged as a worker is. */
+export function restartWaitingOn(
+  s: OrchState | null,
+  probe: { alive(sessionId: string): boolean; busy(sessionId: string): boolean | null }
+): string[] {
+  if (!s) return []
+  const safe = (sessionId: string | undefined): boolean =>
+    sessionId !== undefined && !isPlaceholderSessionId(sessionId) && (!probe.alive(sessionId) || probe.busy(sessionId) === false)
+  const open = new Map<string, string[]>()
+  for (const d of s.dispatches) if (!d.endedAt) open.set(d.taskId, [...(open.get(d.taskId) ?? []), d.sessionId])
+  const tasks = s.tasks.flatMap((t) => {
+    const sessions = open.get(t.id) ?? []
+    if (t.status === 'dispatched') return sessions.length > 0 && !sessions.every(safe) ? [t.id] : []
+    if (!['validating', 'reviewing', 'merging'].includes(t.status)) return []
+    return sessions.length === 0 || !sessions.every(safe) ? [t.id] : []
+  })
+  const replans = s.jobs.flatMap((j) => {
+    const r = j.replanning
+    if (r === undefined || j.archivedAt !== undefined) return []
+    if (r.sessionId === undefined) return [j.id]
+    return probe.alive(r.sessionId) && probe.busy(r.sessionId) !== false ? [j.id] : []
+  })
+  return [...tasks, ...replans]
+}
+
+/** T13: a restart's hold on new starts (start-hold.json, by `restart`), lifted once this Host's start has brought the
+ *  sessions back: after a restart's handover, and after any other start too, since a Host that died in the middle of
+ *  its restart left one that nothing else would ever lift. An owner's hold stays. Nothing while this Host holds for a
+ *  restart of its own (`ownRestart`): that hold is for the next Host to lift. True when one was lifted. Never rejects. */
+export async function liftRestartHold(profileDir: string, ownRestart: () => boolean): Promise<boolean> {
+  if (ownRestart()) return false
+  return liftStartHold(profileDir, 'restart')
+}
+
+/** The state crash resume reads (exec/crashResume.ts), less the open Dispatches of the workers a restart's handover is
+ *  resuming under their own ids (T13). Those are no lost workers to wait recovery out for: counted, they held the start
+ *  for its whole wait and then said "Recovered after a crash". */
+export function withoutResumed(s: OrchState | null, sessionIds: ReadonlySet<string>): OrchState | null {
+  if (!s || sessionIds.size === 0) return s
+  return { ...s, dispatches: s.dispatches.filter((d) => d.endedAt !== undefined || d.outcome !== undefined || !sessionIds.has(d.sessionId)) }
 }
 
 export interface SessionTracker {
@@ -397,6 +498,8 @@ export interface RestoreDeps {
     autoAccounts: boolean
     sessionId?: string
     startedAt?: number
+    /** The one prompt it starts with: RESTART_RESUME_LINE for a worker a restart handed over mid-Task (T13). */
+    initialPrompt?: string
   }): Promise<{ id: string }>
   /** Whether the agent CLI can resume this conversation (`conversationOnDisk`); absent: assumed it can. */
   hasConversation?(accountId: string, nativeId: string): Promise<boolean>
@@ -407,6 +510,9 @@ export interface RestoreDeps {
   log(m: string): void
   /** A handover's sessions: each tab comes back under its own id, and so does a worker no open Dispatch waits on. */
   handover?: true
+  /** T13: a worker a restart handed over mid-Task (`working`) that could not be resumed (no conversation to go on with,
+   *  or its spawn failed). Its Dispatch is still open with no session: the caller writes it off for the recovery. */
+  lostWorker?(sessionId: string): void
 }
 
 /** Brings back the sessions an unclean exit (or a handover) left: tabs and pending plans' planners. Never rejects. */
@@ -414,6 +520,8 @@ export async function restoreSessions(d: RestoreDeps): Promise<{ tabs: number; p
   let tabs = 0
   let planners = 0
   for (const row of d.saved) {
+    /** T13: a worker a restart handed over with its Dispatch still open. */
+    let midTask = false
     try {
       const role = roleOf(d.state, row.sessionId)
       const native = (await d.nativeIdOf(row.sessionId).catch(() => null)) ?? row.nativeSessionId ?? null
@@ -430,14 +538,23 @@ export async function restoreSessions(d: RestoreDeps): Promise<{ tabs: number; p
       }
       // A worker whose Dispatch is still open is the recovery's, as after a crash; one done with it is a tab.
       const idle = (): boolean => !d.state?.dispatches.some((x) => x.sessionId === row.sessionId && !x.endedAt && !x.outcome)
-      if (role !== 'user' && !(d.handover && role === 'worker' && idle())) continue
+      // T13: but one a restart handed over mid-Task comes back too, in its own conversation, told once it was restarted.
+      midTask = d.handover === true && role === 'worker' && (row as HandoverSession).working === true && !idle()
+      if (role !== 'user' && !(d.handover && role === 'worker' && (idle() || midTask))) continue
       if (!native) {
         d.log(`session restore: ${row.sessionId} in ${row.cwd} has no conversation id to resume; left closed`)
+        if (midTask) d.lostWorker?.(row.sessionId)
         continue
       }
       // A console never typed into has a conversation id but no transcript: `claude --resume` of it says "No conversation
       // found" and exits, so the tab died with the swap. It starts fresh in its folder instead.
       const resumable = (await d.hasConversation?.(row.accountId, native).catch(() => true)) ?? true
+      // Not a worker mid-Task, which a fresh start in its folder would leave knowing nothing of its Task: the recovery's.
+      if (midTask && !resumable) {
+        d.log(`session restore: worker ${row.sessionId}'s conversation ${native} was never written; left to the recovery`)
+        d.lostWorker?.(row.sessionId)
+        continue
+      }
       if (!resumable) d.log(`session restore: ${row.sessionId}'s conversation ${native} was never written; starting it fresh in ${row.cwd}`)
       const info = await d.createSession({
         accountId: row.accountId,
@@ -445,14 +562,17 @@ export async function restoreSessions(d: RestoreDeps): Promise<{ tabs: number; p
         ...(row.title !== undefined ? { title: row.title } : {}),
         rollAccountIds: row.rollAccountIds ?? [],
         ...(resumable ? { resumeSessionId: native } : {}),
-        autoAccounts: true,
+        // A worker mid-Task stays on its own account: its open Dispatch names that one.
+        autoAccounts: !midTask,
         ...(d.handover ? { sessionId: row.sessionId } : {}),
-        ...(row.startedAt !== undefined ? { startedAt: row.startedAt } : {})
+        ...(row.startedAt !== undefined ? { startedAt: row.startedAt } : {}),
+        ...(midTask ? { initialPrompt: RESTART_RESUME_LINE } : {})
       })
-      d.log(`session restore: ${row.sessionId} resumed as ${info.id} (conversation ${native}) in ${row.cwd}`)
+      d.log(`session restore: ${row.sessionId} resumed as ${info.id} (conversation ${native}) in ${row.cwd}${midTask ? ', told it was restarted mid-Task' : ''}`)
       tabs++
     } catch (err) {
       d.log(`session restore: ${row.sessionId} could not be resumed: ${String(err)}`)
+      if (midTask) d.lostWorker?.(row.sessionId)
     } finally {
       d.settle(row.sessionId)
     }

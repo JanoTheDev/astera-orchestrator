@@ -468,6 +468,7 @@ export function humanFor(cmd: string, data: Record<string, unknown>): string | n
     case 'host-status':
     case 'host-start':
     case 'host-stop':
+    case 'host-restart':
     case 'mcp-status':
       return fields(data)
     default:

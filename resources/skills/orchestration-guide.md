@@ -877,6 +877,14 @@ server blocks `check` and `inbox` as coordinator-only (403).
   Report `failed` only when the main job is not done, or a gap blocks what depends on the Task. A Task
   with gaps counts as a deviation, so a replan looks at what depends on it. The coordinator can record
   the same with `task-update --status completed --gaps "<text>"`.
+- **What this machine cannot run is not a failure either.** If the Task needs something proven that this
+  machine cannot run (OS-specific tooling such as a `.sh` build, `flock` or an `apt` dependency on Windows,
+  a missing service or device), do not report failed and do not retry it: prove the rest and report
+  `--outcome succeeded --not-provable "<command>: <why it cannot run here>"`. A hands-off plan accepts such
+  a Task with the note, records the decision in the activity feed and starts no replan for it; in other
+  plans it counts like `--gaps`. A hands-off plan also takes a failed report that only says a tool or OS
+  is missing here (`command not found`, `is not recognized as an internal or external command`, "Linux-only"),
+  over committed work, as succeeded with that note.
 - **A worker started for a review Dispatch does not change code.** Its spec file says so explicitly —
   read the requirement, the implementer's report, and the changed files, then judge; do not fix
   anything you find wrong. It still reports exactly once, `worker_done --outcome succeeded` or
@@ -929,17 +937,23 @@ server blocks `check` and `inbox` as coordinator-only (403).
 <!-- W8-C: heavy jobs and self-hosting -->
 ### Heavy jobs and the orchestrating app (W8-C)
 
-- **Run heavy jobs through `astera heavy`.** The full test suite, `npm run dev` / Electron launches and
-  `npm run dist:linux` run one at a time on this machine, first come first served:
+- **Run heavy jobs through `astera heavy`.** Test runs, typechecks and builds are heavy jobs, and so are the
+  full test suite, `npm run dev` / Electron launches and `npm run dist:linux`. They run one at a time on this
+  machine (a few at a time if the owner raised the heavy-job count), first come first served:
   ```bash
   astera heavy -- nice -n 10 npx vitest run --maxWorkers=2
+  astera heavy -- npx vitest run --maxWorkers=2 <files>
+  astera heavy -- npm run typecheck
   astera heavy -- npm run dist:linux
   ```
   It waits for the slot, runs the command in your terminal, and exits with the command's exit code. While
   you wait, the plan board shows "Waiting for the heavy-job slot (2nd in line)". The slot is the lock file
   `/tmp/astera-fullsuite.lock`: hand-opened tabs that run `flock /tmp/astera-fullsuite.lock <command>`
-  share it. The lock is released when the command exits or crashes. Your own test files
-  (`npx vitest run --maxWorkers=2 <files>`) and the typecheck are not heavy jobs.
+  share it. The lock is released when the command exits or crashes. Run your own test files
+  (`astera heavy -- npx vitest run --maxWorkers=2 <files>`) and the typecheck (`astera heavy -- npm run typecheck`)
+  the same way; only the full suite is left to the delivery. In a Claude worker, Astera's PreToolUse hook puts
+  `astera heavy --` in front of a test, typecheck or build command you forgot it on (`heavyGuard.ts`); a Codex worker
+  has no such hook, so write it yourself.
 - **Manual checks run the dev app on the dev profile** (`ASTERA_PROFILE_DIR=~/.config/astera-dev`), with
   its own Host, never on the profile the orchestrating Astera runs on.
 - **Never stop, restart or `pkill` the orchestrating Astera app or its Host**, and never kill processes

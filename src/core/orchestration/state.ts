@@ -43,7 +43,7 @@ import {
 import { normalizeIssues, type ReviewIssueInput } from './review'
 import { nextRung } from './roleModels'
 import { failedChecksSummary } from './completion'
-import { oneLine, pluginCheckText, skippedResult } from './pluginChecks'
+import { CHECK_SUMMARY_MAX, oneLine, pluginCheckText, skippedResult } from './pluginChecks'
 import { isJobActive } from './lifecycle'
 import { foldPathCase } from '../files/paths'
 // T1 the main plan: a dep on another plan's Task is met once that plan delivers
@@ -1177,6 +1177,16 @@ export type CheckUnavailableAnswer = (typeof CHECK_UNAVAILABLE_OPTIONS)[number]
 export const isCheckUnavailableAnswer = (v: string): v is CheckUnavailableAnswer =>
   (CHECK_UNAVAILABLE_OPTIONS as readonly string[]).includes(v)
 
+/** The words the record of a check a hands-off plan skipped starts with, before the reason it could not be made. */
+export const SKIPPED_BY_HANDS_OFF_PREFIX = 'Skipped by the hands-off plan after one retry: '
+
+/** `skippedResult` for a check a hands-off plan let go after retrying it once: the same record, with who skipped it and
+ *  why in its summary, so the delivery and the owner can see the check did not run. */
+function skippedByHandsOff(c: CheckResult): CheckResult {
+  const text = `${SKIPPED_BY_HANDS_OFF_PREFIX}${c.summary ?? 'it could not be made'}`
+  return { ...skippedResult(c), summary: text.length > CHECK_SUMMARY_MAX ? `${text.slice(0, CHECK_SUMMARY_MAX - 1)}…` : text }
+}
+
 /**
  * A person's answer to a `check-unavailable` question (plugin Phase 5 C9), in one commit with the Gate's resolution.
  *
@@ -1191,7 +1201,7 @@ export const isCheckUnavailableAnswer = (v: string): v is CheckUnavailableAnswer
  */
 export function answerCheckUnavailable(
   s: OrchState,
-  a: { gateId: string; resolution: CheckUnavailableAnswer },
+  a: { gateId: string; resolution: CheckUnavailableAnswer; by?: 'hands-off' },
   now: string
 ): Res<{ gate: Gate; revalidate: { taskId: string; cwd: string } | null }> {
   const gate = s.gates.find((g) => g.id === a.gateId)
@@ -1218,7 +1228,7 @@ export function answerCheckUnavailable(
   const at = round.findIndex((c) => c.status === 'error')
   const resume =
     a.resolution === 'skip-check' && at >= 0
-      ? { dispatchId: attempt.id, done: [...round.slice(0, at), skippedResult(round[at])], rest: round.slice(at + 1).map((c) => c.configId) }
+      ? { dispatchId: attempt.id, done: [...round.slice(0, at), a.by === 'hands-off' ? skippedByHandsOff(round[at]) : skippedResult(round[at])], rest: round.slice(at + 1).map((c) => c.configId) }
       : null
   const again: Task = { ...base, status: 'validating', updatedAt: now, ...(resume ? { checkResume: resume } : {}) }
   return ok({ ...s, gates: replace(s.gates, resolved), tasks: replace(s.tasks, again) }, { gate: resolved, revalidate: { taskId: task.id, cwd } })
@@ -1723,17 +1733,75 @@ export function applyReviewResult(
  *  남긴 후속이고 여기서 새로 풀지 않는다. */
 export function blockForReview(
   s: OrchState,
-  a: { taskId: string; reason: string },
+  a: { taskId: string; reason: string; lang?: Lang },
   now: string
 ): Res<Gate> {
   return createGate(
     s,
     {
       taskId: a.taskId,
-      question: `검토를 실행할 수 없습니다: ${a.reason}\n끝난 일을 버리지 않고 이 Task 를 닫으려면 task-update --status completed 를 쓰세요.`
+      question: t(a.lang ?? 'en', 'jobs.checks.gate.reviewEnded', { reason: a.reason }),
+      options: [...REVIEW_ENDED_OPTIONS],
+      kind: 'review-ended'
     },
     now
   )
+}
+
+/** The answers to a `review-ended` question: put a reviewer on the Task again, or take the Task as done on its own
+ *  report and its checks. gate-resolve takes these two and no other. */
+export const REVIEW_ENDED_OPTIONS = ['review-again', 'accept-as-done'] as const
+export type ReviewEndedAnswer = (typeof REVIEW_ENDED_OPTIONS)[number]
+export const isReviewEndedAnswer = (v: string): v is ReviewEndedAnswer => (REVIEW_ENDED_OPTIONS as readonly string[]).includes(v)
+
+/** Whether a Task's last round of checks passed: none failed, timed out or could not be made, and none was left unrun
+ *  behind a failed one. A check someone skipped does not count against it. No checks at all: nothing failed. */
+export const checksPassedOf = (task: Pick<Task, 'checks'>): boolean =>
+  (task.checks ?? []).every((c) => c.status === 'passed' || (c.status === 'not-run' && c.skipped === true))
+
+/** The reason a Task gets when `accept-as-done` completes it after its reviewer ended without a report twice. */
+export const REVIEW_ENDED_ACCEPT_REASON = "reviewer ended twice without a report; accepted on the worker's report and its checks"
+
+/**
+ * An answer to a `review-ended` question, in one commit with the Gate's resolution.
+ *
+ * - `review-again`: the Task goes back to `reviewing` and `review` names it, so the caller starts one new review
+ *   Dispatch (`startReview`). The implementation worker does not run again: its work is done.
+ * - `accept-as-done`: the Task is completed on the worker's report and its checks, with a `completionOverride` that says
+ *   so. Refused when its checks did not pass: that call stays with the owner.
+ *
+ * **The Task moves out of `blocked` past the transition table** (blocked → reviewing, blocked → completed), as
+ * `answerCheckUnavailable` does: resolveGate's own move (blocked → pending → ready) would hand the Task to a worker.
+ */
+export function answerReviewEnded(
+  s: OrchState,
+  a: { gateId: string; resolution: ReviewEndedAnswer },
+  now: string
+): Res<{ gate: Gate; review: { taskId: string } | null }> {
+  const gate = s.gates.find((g) => g.id === a.gateId)
+  if (!gate) return gone(`unknown gate: ${a.gateId}`)
+  if (gate.kind !== 'review-ended' || gate.status !== 'open') return err(`not an open review-ended question: ${a.gateId}`)
+  const task = s.tasks.find((x) => x.id === gate.taskId)
+  if (!task) return err(`unknown task for gate: ${a.gateId}`)
+  const other = s.gates.find((g) => g.taskId === task.id && g.status === 'open' && g.id !== gate.id)
+  if (other) return err(`another question about this Task is still open: ${other.id}`)
+  const resolved: Gate = { ...gate, status: 'resolved', resolution: a.resolution, resolvedAt: now }
+  // A question left open over a Task a person has already moved: it is answered, and the Task stays where they put it
+  if (task.status !== 'blocked') return ok({ ...s, gates: replace(s.gates, resolved) }, { gate: resolved, review: null })
+  if (a.resolution === 'review-again') {
+    const again: Task = { ...task, status: 'reviewing', updatedAt: now }
+    return ok({ ...s, gates: replace(s.gates, resolved), tasks: replace(s.tasks, again) }, { gate: resolved, review: { taskId: task.id } })
+  }
+  if (!checksPassedOf(task)) return err(`task ${task.id} cannot be accepted as done: its checks did not pass`)
+  const done: Task = {
+    ...task,
+    status: doneStatusOf(s, task),
+    consecutiveFailures: 0,
+    completionOverride: { reason: REVIEW_ENDED_ACCEPT_REASON, at: now },
+    updatedAt: now
+  }
+  const state: OrchState = { ...s, gates: replace(s.gates, resolved), tasks: readyIn(s, replace(s.tasks, done)) }
+  return ok(closeGatesOfCompleted(state, task.id, now), { gate: resolved, review: null })
 }
 
 /** Settle unanswered questions without an answer — never delete them. An unacked Delivery's
@@ -1869,7 +1937,7 @@ export function interruptStalledTask(
           { taskId: task.id, question: '앱이 재시작되어 검증이 중단되었습니다. 다시 검증할까요?' },
           now
         )
-      : blockForReview(s, { taskId: task.id, reason: '앱이 재시작되어 검토가 중단되었습니다' }, now)
+      : blockForReview(s, { taskId: task.id, reason: 'the app restarted and interrupted the review' }, now)
   // 전이가 막히면 그 Task 는 그대로 둔다 — 잃는 것보다 낫다
   if (!r.ok) return { state: s, interrupted: null, resume: null, stuck: true }
   return {

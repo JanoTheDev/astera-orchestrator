@@ -50,6 +50,21 @@ export const HOST_FEATURE_HANDOVER = 'handover'
  *  on the way out, so the app swaps that one only while it holds none. Additive, like the handover itself. */
 export const HOST_FEATURE_HANDOVER_CHATS = 'handover-chats'
 
+/** **The restart the owner can ask for at any time** (T13): the `restart` message, answered with `restart-progress`.
+ *  Where the handover above waits for a moment with no Task working, which never comes while plans run, a restart
+ *  makes one: it holds new starts (`<profile>/host/start-hold.json`, core/orchestration/startHold.ts), waits a bounded
+ *  time for every working Task to reach a safe point, then hands every session over, working ones too, and the next
+ *  Host resumes them and lifts the hold. Announced only by a Host that can bring a handover back (one with a spawner).
+ *  An app that sees no `restart` keeps to the plain handover, refused while a Task works. Additive, so HOST_PROTOCOL
+ *  stays as it is. */
+export const HOST_FEATURE_RESTART = 'restart'
+/** How long a `restart` with no `waitMs` waits for the safe point. */
+export const RESTART_WAIT_MS = 10 * 60_000
+/** The longest wait a Host takes: a larger `waitMs` is read as this one. */
+export const RESTART_WAIT_MAX_MS = 60 * 60_000
+/** How often a restart looks at the safe point again, and so how often it answers `restart-progress`. */
+export const RESTART_PROGRESS_MS = 2_000
+
 /** What `HostClient.retire` came to: the Host left (or was not there to ask), or it answered `retire-refused`, with
  *  that message's counts. */
 export type RetireOutcome = { outcome: 'left' } | { outcome: 'refused'; sessions: number; runs: number; tasks?: number }
@@ -379,6 +394,19 @@ export type ClientMessage =
    *  shell terminals and run processes before it ends them, and the next Host brings them back (host/sessionRestore.ts).
    *  Refused while a Task is actively working. An older Host ignores the flag and leaves as for a plain retire. */
   | { t: 'retire'; reason?: 'user' | 'protocol'; resume?: boolean }
+  /** **A restart** (HOST_FEATURE_RESTART), sent only to a Host whose `hello` named it, and only from a greeted app or
+   *  CLI. In order:
+   *  1. New starts are held at once (start-hold.json, `by: 'restart'`; an owner's hold already there is kept as it is).
+   *     A Task already working goes on, and so do the checks and the merge of a finished one.
+   *  2. The Host waits up to `waitMs` (RESTART_WAIT_MS when absent, at most RESTART_WAIT_MAX_MS) for every working Task
+   *     to reach a **safe point**: its worker, reviewer or repair session idle at its prompt between turns, or done.
+   *     A check or a merge the Host runs itself is waited for until it ends. It answers `restart-progress` as it goes.
+   *  3. When none is left, when the wait runs out, or at once with `force`, it hands every session over, working ones
+   *     too, exactly as a `retire` with `resume: true` does, and leaves: the socket closes.
+   *  4. The next Host resumes them under their own ids (each worker that was working is told so, once, in one line),
+   *     then lifts a restart's hold and writes "Host restarted to <version>: N sessions resumed" to the activity feed.
+   *  A second `restart` while one is under way joins it; with `force` it hands over at once. */
+  | { t: 'restart'; waitMs?: number; force?: boolean }
   /** The heartbeat. Sent only to a Host whose `hello` named HOST_FEATURE_PING, and answered with a
    *  `pong` carrying the same `seq`. What it asks is not "are you there" — the socket answers that —
    *  but "is your event loop still turning", which is the one thing a stuck pty spawn takes away. */
@@ -448,6 +476,13 @@ export type HostMessage =
       /** A `resume` retire's refusal: the Tasks actively working (a worker, a check, a review or a merge). */
       tasks?: number
     }
+  /** A restart's progress (HOST_FEATURE_RESTART), to the clients that asked for it and to every greeted app: once as
+   *  it begins, then every RESTART_PROGRESS_MS, the last one right before the handover. Nothing answers it.
+   *  - `working`: the Tasks actively working (the count `retire-refused` names `tasks`).
+   *  - `waitingOn`: the ids of those not at a safe point yet: a Task's id, or a Job's id for a replan in flight. Empty
+   *    in the last message when the handover comes because every one reached its safe point.
+   *  - `leftMs`: what is left of the wait; 0 when it ran out, or when `force` cut it short. */
+  | { t: 'restart-progress'; working: number; waitingOn: string[]; leftMs: number }
   | { t: 'pong'; seq: number }
   | OrchResultMessage
   /** Asks the app to do one thing the Host cannot do itself — spawn a session, touch a worktree

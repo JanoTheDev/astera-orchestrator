@@ -657,3 +657,66 @@ describe('T2 jobs-chat: a planner chat on a finished plan', () => {
     expect(r.starts.filter((x) => x.role === 'planner')).toHaveLength(1)
   })
 })
+
+// T11: a hands-off plan's worker question with no live coordinator is put to the plan's planner
+describe('jobs-ask-planner (T11)', () => {
+  /** A planned hands-off Job with a Run and an open escalation from the worker of its Task A. */
+  const asking = async (r: Rig, o: { handsOff?: boolean; message?: Record<string, unknown> } = {}) => {
+    const { jobId, a } = await planned(r)
+    const s = r.state()
+    const run = { id: 'run_t11', jobId, createdAt: NOW } as OrchState['runs'][number]
+    const msg = { id: 'msg_q', runId: run.id, type: 'escalation' as const, taskId: a.id, subject: 'Which colour?', body: 'Which colour should the button be?', answered: false, createdAt: NOW, ...o.message }
+    r.set({ ...s, jobs: s.jobs.map((j) => (j.id === jobId ? { ...j, handsOff: o.handsOff ?? true } : j)), runs: [...s.runs, run], messages: [...s.messages, msg as OrchState['messages'][number]] })
+    return { jobId, a }
+  }
+
+  it('types the question, the Task spec and paths into the live planner, on one line', async () => {
+    const r = rig()
+    const { jobId } = await asking(r)
+    const reply = await r.person('jobs-ask-planner', { id: jobId, question: 'msg_q' })
+    expect(reply).toMatchObject({ status: 200, body: { via: 'typed', sessionId: 'ses-planner-1' } })
+    expect(r.typed).toHaveLength(1)
+    expect(r.typed[0].text).toContain('Which colour should the button be?')
+    expect(r.typed[0].text).toContain('the A part')
+    expect(r.typed[0].text).toContain('src/A.ts')
+    expect(r.typed[0].text).toContain('astera questions-answer --id msg_q')
+    // T12: a worker that cannot run something this machine lacks is told to report --not-provable
+    expect(r.typed[0].text).toContain('report succeeded with `--not-provable "<command>: <why>"`')
+    expect(r.typed[0].text).not.toContain('\n')
+  })
+
+  it('resumes the planner conversation when it no longer lives, and the new session joins the planners', async () => {
+    const r = rig({ alive: false })
+    const { jobId } = await asking(r)
+    const reply = await r.person('jobs-ask-planner', { id: jobId, question: 'msg_q' })
+    expect(reply).toMatchObject({ status: 200, body: { via: 'resumed', sessionId: 'ses-planner-2' } })
+    expect(r.starts.at(-1)).toMatchObject({ role: 'planner', resume: 'claude-conv-1', brief: expect.stringContaining('astera questions-answer --id msg_q') })
+    expect(r.state().jobs[0].plannerSessionIds).toEqual(['ses-planner-1', 'ses-planner-2'])
+  })
+
+  it('starts a fresh planner that reads the plan and existing.md first when there is no conversation to resume', async () => {
+    const r = rig({ alive: false, agent: null })
+    const { jobId } = await asking(r)
+    const reply = await r.person('jobs-ask-planner', { id: jobId, question: 'msg_q' })
+    expect(reply).toMatchObject({ status: 200, body: { via: 'fresh' } })
+    expect(r.starts.at(-1)?.brief).toEqual(expect.stringContaining('inputs/existing.md'))
+    expect(r.starts.at(-1)).not.toHaveProperty('resume')
+  })
+
+  it('is refused outside hands-off, to an agent, for an approval request and for an answered question', async () => {
+    const off = rig()
+    const o = await asking(off, { handsOff: false })
+    expect((await off.person('jobs-ask-planner', { id: o.jobId, question: 'msg_q' })).status).toBe(409)
+    const r = rig()
+    const { jobId } = await asking(r)
+    expect((await r.as('ses-worker')('jobs-ask-planner', { id: jobId, question: 'msg_q' })).status).toBe(403)
+    expect((await r.person('jobs-ask-planner', { id: jobId })).status).toBe(400)
+    const appr = rig()
+    const ap = await asking(appr, { message: { type: 'question', approval: { cmd: 'jobs-archive', args: {} } } })
+    expect((await appr.person('jobs-ask-planner', { id: ap.jobId, question: 'msg_q' })).status).toBe(403)
+    const done = rig()
+    const d = await asking(done, { message: { answered: true } })
+    expect((await done.person('jobs-ask-planner', { id: d.jobId, question: 'msg_q' })).status).toBe(409)
+    expect(r.typed).toEqual([])
+  })
+})

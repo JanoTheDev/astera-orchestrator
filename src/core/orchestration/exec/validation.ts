@@ -28,7 +28,7 @@ import {
 import { cutTail } from '../taskOutput'
 import type { Dispatch } from '../types'
 import { checkInputOf, pluginIdOfCheck, type CompletionCheckInput, type PluginCheckAnswer } from '../pluginChecks'
-import { HEAVY_LOCK, HEAVY_QUEUE_DIR, heavyQueue, takeHeavySlot } from '../heavyLock'
+import { HEAVY_LOCK, HEAVY_QUEUE_DIR, heavyQueue, slotHolder, takeHeavySlot, type HeavyTicket } from '../heavyLock'
 import { repairTargetFor } from './repair'
 import { TaskValidator } from './validator'
 
@@ -62,7 +62,7 @@ export interface ValidationContext {
    *  answer, its reason in `summary`. */
   pluginCheck(plugin: string, input: CompletionCheckInput): Promise<PluginCheckAnswer>
   /** T2: waits for the machine's heavy slot and answers its release, or null when superseded (`heavySlot`). Test seam; defaults to the real one. */
-  heavySlot?(a: { cwd: string; cmd: string; abandoned?: () => boolean; slots?: number; kind?: 'check' | 'delivery' }): Promise<(() => void) | null>
+  heavySlot?(a: { cwd: string; cmd: string; abandoned?: () => boolean; slots?: number; kind?: HeavyKind }): Promise<(() => void) | null>
   /** How many heavy jobs the machine runs at once (the heavyJobsAtOnce setting), read per heavy check; 1 when absent. */
   heavyJobsAtOnce?(): Promise<number>
   /** While true, every check waits for a heavy slot (auto-limits checksAsHeavy). */
@@ -83,12 +83,15 @@ export const isHeavyCheck = (config: RunConfig): boolean => /^npm:(test|(build|d
 
 let heavySeq = 0
 
+/** What a heavy slot is taken for (HeavyTicket.kind): a Task's check, the delivery check, or a dependency install. */
+export type HeavyKind = NonNullable<HeavyTicket['kind']>
+
 /** T2: waits for one of the machine's heavy slots, the ones `astera heavy` takes (heavyLock.ts): a ticket in its FIFO
  *  queue among the first `slots`, then a free slot's OS lock (`takeHeavySlot`), held by a `flock` child until the
  *  answered release. The child holds the lock with `cat` on a pipe from
  *  this process, so a process that dies drops the lock with the pipe, and its ticket reads dead. Rejects when `flock`
- *  cannot run. Answers null when a newer check of this folder replaced the ticket: that check takes this one's place, so
- *  this waiter is no longer work, not a failure. (runHeavy itself is not called: it takes over SIGINT/SIGTERM, which would keep the Host from stopping.) */
+ *  cannot run. Answers null when a newer ticket of this folder and kind replaced the ticket (a 'check' or a 'setup'):
+ *  that one takes this one's place, so this waiter is no longer work, not a failure. (runHeavy itself is not called: it takes over SIGINT/SIGTERM, which would keep the Host from stopping.) */
 export async function heavySlot(a: {
   cwd: string
   cmd: string
@@ -99,16 +102,20 @@ export async function heavySlot(a: {
   pollMs?: number
   /** How many heavy jobs run at once; 1 when left out. */
   slots?: number
-  /** 'check' (default): a Task's check, one waiter per cwd. 'delivery': the delivery check, outside that rule. */
-  kind?: 'check' | 'delivery'
+  /** 'check' (default): a Task's check, one waiter per cwd. 'setup': a dependency install, one waiter per cwd among
+   *  installs (a second install of one folder is the same work). 'delivery': the delivery check, outside that rule.
+   *  A kind never replaces or is replaced by a ticket of another kind. */
+  kind?: HeavyKind
 }): Promise<(() => void) | null> {
   const kind = a.kind ?? 'check'
+  // A newer ticket of the same cwd and kind replaces the older (a restarted Host's, or the same Host's next try)
+  const onePerCwd = kind !== 'delivery'
+  const sameWork = (x: HeavyTicket): boolean => x.kind === kind && x.cwd === a.cwd
   const dir = a.queueDir ?? HEAVY_QUEUE_DIR
   const lock = a.lock ?? HEAVY_LOCK
   // The same ticket as runHeavy's: the name sorts by arrival among every caller's, the pid keeps it alive
   const name = `${process.hrtime.bigint().toString().padStart(20, '0')}-${String(process.pid).padStart(8, '0')}-${String(heavySeq++).padStart(4, '0')}.json`
   const file = join(dir, name)
-  // kind: a check's ticket. A newer one for the same cwd replaces it (a restarted Host's check, or the same Host's next try)
   const body = JSON.stringify({ pid: process.pid, cmd: a.cmd, cwd: a.cwd, at: Date.now(), kind })
   const writeTicket = (): void => {
     mkdirSync(dir, { recursive: true, mode: 0o700 })
@@ -117,7 +124,7 @@ export async function heavySlot(a: {
   }
   const drop = (): void => rmSync(file, { force: true })
   // One waiter per cwd: the predecessor's ticket (the old Host's, still a live pid until it leaves) goes first
-  if (kind === 'check') for (const x of heavyQueue(dir)) if (x.kind === 'check' && x.cwd === a.cwd) rmSync(join(dir, x.file), { force: true })
+  if (onePerCwd) for (const x of heavyQueue(dir)) if (sameWork(x)) rmSync(join(dir, x.file), { force: true })
   writeTicket()
   const slots = a.slots ?? 1
   try {
@@ -131,11 +138,11 @@ export async function heavySlot(a: {
       if (at === -1) {
         // Gone from the queue: rewrite it, unless a newer ticket for this cwd replaced it — this waiter is then the
         // predecessor, and rewriting would make two waiters of one cwd fight over the queue for ever
-        if (kind === 'check' && q.some((x) => x.kind === 'check' && x.cwd === a.cwd && x.file > name)) return null
+        if (onePerCwd && q.some((x) => sameWork(x) && x.file > name)) return null
         writeTicket()
       } else if (at < slots) {
         // Every slot held (a hand-opened tab may hold slot 0): keep the place in line and poll again
-        const took = await takeHeavySlot({ lock, slots, cmd: ['cat'], stdio: ['pipe', 'ignore', 'ignore'] })
+        const took = await takeHeavySlot({ lock, slots, ...slotHolder(), stdio: ['pipe', 'ignore', 'ignore'] })
         if (took !== 'busy') {
           const holder = took.child
           holder.stdin!.on('error', () => {}) // EPIPE once the holder is gone

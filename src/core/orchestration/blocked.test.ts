@@ -141,9 +141,24 @@ describe('taskBoardsOf — reasons', () => {
       tasks: [task('a', 'r1', { status: 'dispatched' }), task('b', 'r2')],
       dispatches: [dispatch('d_a', 'a')]
     }
-    expect(reasonOf(s, 'b', 1)).toEqual({ kind: 'global-cap', used: 1, limit: 1, priority: 0 })
+    expect(reasonOf(s, 'b', 1)).toEqual({ kind: 'global-cap', running: 1, starting: 0, limit: 1, priority: 0 })
     // No cap: it would be placed
     expect(reasonOf(s, 'b')).toEqual({ kind: 'next' })
+  })
+
+  it('the global cap reason counts running and starting slots apart: a pending: Dispatch and the slots this pass places are starting', () => {
+    const tasks = [
+      task('a', 'r1', { status: 'dispatched' }),
+      task('b', 'r1', { status: 'dispatched' }),
+      task('c', 'r1', { status: 'dispatched' }),
+      ...['d', 'e', 'f', 'g', 'h', 'i', 'j'].map((id) => task(id, 'r1'))
+    ]
+    const s: OrchState = {
+      ...one(tasks, { concurrency: 20 }),
+      dispatches: [dispatch('d_a', 'a'), dispatch('d_b', 'b'), dispatch('d_c', 'c', { sessionId: 'pending:abc123' })]
+    }
+    // 2 running, 1 still starting (pending:) and 6 slots this pass places: 9 of the limit 9
+    expect(reasonOf(s, 'j', 9)).toEqual({ kind: 'global-cap', running: 2, starting: 7, limit: 9, priority: 0 })
   })
 
   it("the global cap's last slot going to a higher-priority plan", () => {
@@ -154,7 +169,7 @@ describe('taskBoardsOf — reasons', () => {
       tasks: [task('a', 'r1'), task('b', 'r2')]
     }
     expect(reasonOf(s, 'a', 1)).toEqual({ kind: 'next' })
-    expect(reasonOf(s, 'b', 1)).toEqual({ kind: 'global-cap', used: 0, limit: 1, priority: 1 })
+    expect(reasonOf(s, 'b', 1)).toEqual({ kind: 'global-cap', running: 0, starting: 1, limit: 1, priority: 1 })
   })
 
   it('plan paused, archived, pending start (jobActive / isJobActive)', () => {
@@ -195,6 +210,25 @@ describe('taskBoardsOf — reasons', () => {
     })
     // W5-B (#45): no coordinator to decide on the retry, so the board does not name one
     expect(reasonOf(one(failed), 'a')).toEqual({ kind: 'failed-retry', failures: 1, limit: FAILURE_LIMIT, noCoordinator: true })
+  })
+
+  it('T10: failed with retries left in a hands-off plan with no coordinator: Astera retries it after its backoff', () => {
+    const once = [task('a', 'r1', { status: 'failed', consecutiveFailures: 1, updatedAt: T0 })]
+    expect(reasonOf(one(once, { handsOff: true }), 'a')).toEqual({
+      kind: 'failed-retry',
+      failures: 1,
+      limit: FAILURE_LIMIT,
+      noCoordinator: true,
+      retryAt: '2026-10-17T00:01:00.000Z'
+    })
+    const twice = [task('a', 'r1', { status: 'failed', consecutiveFailures: 2, updatedAt: T0 })]
+    expect(reasonOf(one(twice, { handsOff: true }), 'a')).toMatchObject({ retryAt: '2026-10-17T00:05:00.000Z' })
+    // with a coordinator slot it is the coordinator's to retry, as before
+    expect(reasonOf(one(once, { handsOff: true, autoDispatch: false }, { coordinatorSessionId: 'coord' }), 'a')).toEqual({
+      kind: 'failed-retry',
+      failures: 1,
+      limit: FAILURE_LIMIT
+    })
   })
 
   it('gate open names the oldest open gate', () => {
