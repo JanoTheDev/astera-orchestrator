@@ -132,7 +132,7 @@ describe('Job actions through a door (remote runtime design Phase 7)', () => {
   it('a resume that fails says it could not resume', async () => {
     const u = ui()
     await resumeRun(door({ status: 400, body: { error: 'no' } }), 'r1', u)
-    expect(u.errors).toEqual(['jobs.run.resumeFailed'])
+    expect(u.errors).toEqual(['jobs.run.resumeFailed: no'])
   })
 })
 

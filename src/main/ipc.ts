@@ -451,6 +451,10 @@ export interface HostWiring {
 
 // The same string core's handleCommand lets send the driving loop's own calls (APP_CALLER).
 const UI_CALLER = APP_CALLER
+/** Commands a person sends from a form and waits on: they queue behind the Host's command chain, so they get longer
+ *  than HOST_UNRESPONSIVE_MS before the form calls them failed (the Host still runs one that arrives late). */
+const PERSON_WAITS_LONGER = new Set(['jobs-create', 'jobs-create-from-issue', 'jobs-create-from-source', 'jobs-set', 'projects-set'])
+const PERSON_COMMAND_DEADLINE_MS = 120_000
 
 /** http:/https:/mailto: 만 허용하는 스킴 화이트리스트. 통과하면 파싱된 URL 을 돌려준다 —
  *  new URL 은 탭·개행을 스스로 걷어내므로, 호출자는 원래 문자열이 아니라 이 반환값의
@@ -5278,11 +5282,18 @@ export function registerIpc(
     },
     // W4: HOST_ANSWERED (sessions-send) to the Host that owns the sessions. A Host that cannot be asked is a 503, not a throw.
     host: async (projectPath, cmd, args) => {
-      await assertOrchPath(projectPath)
       try {
-        const r = await orchCall({ cmd, args: args ?? {}, sessionId: '' })
+        await assertOrchPath(projectPath)
+      } catch (e) {
+        return { status: 403, body: { error: e instanceof Error ? e.message : String(e) } }
+      }
+      try {
+        // A person's create waits its turn behind the Host's command chain (a scheduling pass with merges can hold it
+        // well past HOST_UNRESPONSIVE_MS); at 15 s the form said "Could not create the job" while the Host made it anyway
+        const r = await orchCall({ cmd, args: args ?? {}, sessionId: '', ...(PERSON_WAITS_LONGER.has(cmd) ? { timeoutMs: PERSON_COMMAND_DEADLINE_MS } : {}) })
         return { status: r.status, body: r.body }
       } catch (e) {
+        orchLog(`host route: ${cmd} got no answer: ${e instanceof Error ? e.message : String(e)}`)
         return { status: 503, body: { error: e instanceof Error ? e.message : String(e) } }
       }
     },

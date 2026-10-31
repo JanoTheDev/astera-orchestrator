@@ -56,7 +56,8 @@ export function replyNote(r: CommandReply, t: T, fallback: string): string {
   const error = (r.body as { error?: unknown } | null)?.error
   if (code === 'RUNTIME_PERMISSION_DENIED' && typeof error === 'string') return error
   if (code === 'RUNTIME_OFFLINE') return t('jobs.runtime.unreachable')
-  return fallback
+  // The reason the Host or main gave (a deadline, no Host connection, a refusal): without it every failure read the same
+  return typeof error === 'string' && error.trim() !== '' ? `${fallback}: ${error.trim()}` : fallback
 }
 
 /** The enabled plugins that make completion checks, from the Host's plugins list (C6), each by its display name (its id
