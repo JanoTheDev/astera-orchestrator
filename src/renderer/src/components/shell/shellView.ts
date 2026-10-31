@@ -1,9 +1,10 @@
 // W9-B: what the top bar and the status bar say (DESIGN.md §1). Pure, so the node-only test suite reaches it.
-import type { Account, Attention, JobRow } from '../../../../core/types'
+import type { Account, AccountPlan, AccountUsage, Attention, JobRow } from '../../../../core/types'
 import type { Job, JobRun, Task } from '../../../../core/orchestration/types'
 import { afterNameOf, afterQueued, afterStandOf } from '../../../../core/orchestration/after'
 import { jobNameOf } from '../../../../core/orchestration/jobName'
 import { agentPanes, type WallConsole } from '../wall/wallModel'
+import { hasSessionWindow } from '../sessionWindow'
 import type { Translate } from '../checkText'
 import {
   ACTIVITY_IDS, ACTIVITY_STORAGE_KEY, PAGE_STORAGE_KEY, PANEL_TABS, PANEL_TAB_KEY, PANEL_VISIBLE_KEY, SIDEBAR_DEFAULT_WIDTH,
@@ -52,6 +53,16 @@ export function nextQueuedLine(s: { jobs: readonly Job[]; runs: readonly JobRun[
   const after = afterNameOf(state, job.after!)
   const line = t(afterStandOf(state, job.after!) === 'stopped' ? 'shell.next.waits' : 'shell.next.after', { plan: jobNameOf(job), after })
   return queued.length > 1 ? `${line} (+${queued.length - 1})` : line
+}
+
+/** The status bar's two usage figures, in percent. `five` is absent for an account with no 5-hour window (Ultra, or a
+ *  weekly-only reading: components/sessionWindow.ts), so the status bar draws no "5h" for it. */
+export function statusUsageOf(
+  plan: Pick<AccountPlan, 'hasSessionWindow'> | null | undefined,
+  usage: Pick<AccountUsage, 'session' | 'weekly'> | null | undefined
+): { five: number | undefined; week: number | undefined } {
+  const sessionWindow = hasSessionWindow(plan, usage)
+  return { five: sessionWindow ? usage?.session?.usedPercent : undefined, week: usage?.weekly?.usedPercent }
 }
 
 /** The account the status bar and the top-bar meter show: the focused console's, else the first one. */

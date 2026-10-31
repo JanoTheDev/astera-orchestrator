@@ -6,6 +6,7 @@ import { useNeedsYou } from '../inbox/useNeedsYou'
 import { useHostWaiting } from '../search/useHostWaiting'
 import { useConsoleSnapshot } from '../wall/consoleStore'
 import { useAccountUsage } from '../../hooks/useAccountUsage'
+import { useAccountPlans } from '../../hooks/useAccountPlans'
 import type { AppState } from '../../state/appState'
 import { scopeSessions } from '../../state/projectView'
 import { activeAccountOf, nextQueuedLine, shellCounts } from './shellView'
@@ -42,7 +43,9 @@ export function useShell({ accounts, active, sessions: allSessions, t, workspace
     : null
   const accountUsage = useAccountUsage()
   const shellAccount = activeAccountOf(accounts, active?.accountId)
-  return { attention, sessionIndex, needsYou, needsYouUnread, counts, nextQueued, shellAccount, shellUsage: shellAccount ? accountUsage[shellAccount.configDir] : undefined }
+  // T6: the shown account's plan, so the status bar draws no "5h" for an account with no 5-hour window
+  const shellPlan = useAccountPlans(shellAccount ? [shellAccount] : [])[shellAccount?.id ?? '']
+  return { attention, sessionIndex, needsYou, needsYouUnread, counts, nextQueued, shellAccount, shellPlan, shellUsage: shellAccount ? accountUsage[shellAccount.configDir] : undefined }
 }
 
 export type ShellState = ReturnType<typeof useShell>

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { Account } from '../../../../core/types'
 import type { Job, JobRun, Task } from '../../../../core/orchestration/types'
-import { activeAccountOf, consolesOfSessions, activityClick, activityOnLaunch, nextQueuedLine, readWorkbenchLayout, runningPlans, shellCounts, shownPanelTab } from './shellView'
+import { activeAccountOf, consolesOfSessions, activityClick, activityOnLaunch, nextQueuedLine, readWorkbenchLayout, runningPlans, shellCounts, shownPanelTab, statusUsageOf } from './shellView'
 import type { WallConsole } from '../wall/wallModel'
 import { t } from '../../../../core/i18n'
 
@@ -124,5 +124,25 @@ describe('workbench layout (DESIGN-W13)', () => {
 describe('Agents view groups and the Plans badge', () => {
   it('counts running plans only', () => {
     expect(runningPlans([{ outcome: 'running' }, { outcome: 'running', paused: true }, { outcome: 'running', archivedAt: 'x' }, { outcome: 'failed' }] as never)).toBe(1)
+  })
+})
+
+describe('statusUsageOf', () => {
+  const win = (usedPercent: number) => ({ usedPercent, resetsAt: null })
+  const reading = { session: win(12), weekly: win(40), readAt: '2026-10-31T12:00:00.000Z', remembered: false }
+  const ultra = { id: 'ultra', raw: 'ultra', hasSessionWindow: false } as const
+  const max = { id: 'max', raw: 'max', hasSessionWindow: true } as const
+
+  it('an Ultra account shows no 5-hour figure, even when its reading carries a session window', () => {
+    expect(statusUsageOf(ultra, reading)).toEqual({ five: undefined, week: 40 })
+  })
+
+  it('keeps both figures while the plan is unknown, or when the plan has a 5-hour window', () => {
+    expect(statusUsageOf(undefined, reading)).toEqual({ five: 12, week: 40 })
+    expect(statusUsageOf(max, reading)).toEqual({ five: 12, week: 40 })
+  })
+
+  it('a reading with no session window shows no 5-hour figure', () => {
+    expect(statusUsageOf(undefined, { ...reading, session: null })).toEqual({ five: undefined, week: 40 })
   })
 })
