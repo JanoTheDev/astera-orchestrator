@@ -95,6 +95,7 @@ export const settings: Record<keyof typeof ko, string> = {
   'settings.info.hostUnresponsive': 'Not answering · {detail}',
   'settings.info.hostUnresponsiveWhat': 'New sessions are opening inside the app. Those end when the app closes.',
   'settings.info.hostRuntimeIncomplete': 'Some of the files the background service runs from are gone. Left alone it will stop answering at the next session. It is repaired on its own once it is holding nothing, and restarting now does the same.',
+  'settings.info.hostRestartHint': 'Restarting now holds new starts, waits for working Tasks to reach a safe point, then hands every session over to the new Host.',
   'settings.worktree.createLocation': 'Worktree creation location',
   'settings.worktree.change': 'Change…',
   'settings.worktree.hint':

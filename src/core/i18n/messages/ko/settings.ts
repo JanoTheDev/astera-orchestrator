@@ -116,6 +116,8 @@ export const settings = {
   'settings.info.hostUnresponsiveWhat': '새 세션은 앱 안에서 열리고 있습니다. 그 세션들은 앱을 끄면 함께 끝납니다.',
   // 런타임 파일이 사라진 Host. 지금은 멀쩡해 보여도 다음 세션에서 멎는다.
   'settings.info.hostRuntimeIncomplete': '백그라운드 서비스가 쓰는 파일 일부가 사라졌습니다. 이대로 두면 다음 세션에서 응답이 멈춥니다. 유지 중인 것이 없어지면 자동으로 고쳐지고, 지금 재시작해도 됩니다.',
+  // 오래된 Host 옆의 "지금 재시작" 이 무엇을 하는지 한 줄로 (T15).
+  'settings.info.hostRestartHint': '지금 재시작하면 새 시작을 보류하고, 작업 중인 Task 가 안전한 지점에 이르기를 기다린 뒤 모든 세션을 새 Host 로 넘깁니다.',
   'settings.worktree.createLocation': 'worktree 생성 위치',
   'settings.worktree.change': '변경…',
   'settings.worktree.hint':
