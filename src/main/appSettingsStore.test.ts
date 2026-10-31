@@ -472,6 +472,73 @@ describe('maxConcurrentWorkers', () => {
   })
 })
 
+describe('minWorkersUnderPressure', () => {
+  it('defaults to not set, which the limits read as half the person limit', async () => {
+    const store = new AppSettingsStore(file())
+    await store.load()
+    await store.setMaxConcurrentWorkers(25)
+    expect(store.getMinWorkersUnderPressure()).toBeNull()
+    expect(store.getAgentLimits().minUnderPressure).toEqual({ value: 13, isDefault: true })
+  })
+
+  it('stores the key a whole number 1..person limit, and empty clears it', async () => {
+    const a = new AppSettingsStore(file())
+    await a.load()
+    await a.setMaxConcurrentWorkers(25)
+    await a.setMinWorkersUnderPressure(6)
+    expect(JSON.parse(await fs.readFile(file(), 'utf8')).minWorkersUnderPressure).toBe(6)
+    const b = new AppSettingsStore(file())
+    await b.load()
+    expect(b.getMinWorkersUnderPressure()).toBe(6)
+    expect(b.getAgentLimits().minUnderPressure).toEqual({ value: 6, isDefault: false })
+    await b.setMinWorkersUnderPressure(null)
+    expect(JSON.parse(await fs.readFile(file(), 'utf8')).minWorkersUnderPressure).toBeUndefined()
+  })
+
+  it('keeps a value above the person limit at that limit and reads 0, fractions and strings as not set', async () => {
+    const store = new AppSettingsStore(file())
+    await store.load()
+    await store.setMaxConcurrentWorkers(10)
+    await store.setMinWorkersUnderPressure(40)
+    expect(store.getMinWorkersUnderPressure()).toBe(10)
+    for (const v of [0, -1, 1.5]) {
+      await store.setMinWorkersUnderPressure(v)
+      expect(store.getMinWorkersUnderPressure()).toBeNull()
+    }
+    for (const v of ['3', true, 0]) {
+      await fs.writeFile(file(), JSON.stringify({ minWorkersUnderPressure: v }), 'utf8')
+      const s = new AppSettingsStore(file())
+      await s.load()
+      expect(s.getMinWorkersUnderPressure()).toBeNull()
+    }
+  })
+})
+
+describe('getAgentLimits', () => {
+  const autoFile = (): string => path.join(dir, 'auto-limits.json')
+  it('accepts 25 and names no auto-limit when none is set', async () => {
+    const store = new AppSettingsStore(file())
+    await store.load()
+    await store.setMaxConcurrentWorkers(25)
+    const l = store.getAgentLimits()
+    expect(l).toMatchObject({ person: 25, effective: 25, recommended: machineSpecs().recommended })
+    expect(l.autoLimit).toBeUndefined()
+  })
+
+  it('shows the auto-limit that lowers the person limit, and nothing for one above it', async () => {
+    const store = new AppSettingsStore(file())
+    await store.load()
+    await store.setMaxConcurrentWorkers(25)
+    const lim = { cap: 9, cause: 'strain', at: '2026-10-31T11:24:00.000Z', detail: 'memory 6% free while 10 agents ran' }
+    await fs.writeFile(autoFile(), JSON.stringify({ workers: lim, history: [] }), 'utf8')
+    expect(store.getAgentLimits()).toMatchObject({ person: 25, effective: 9, autoLimit: lim })
+    await fs.writeFile(autoFile(), JSON.stringify({ workers: { ...lim, cap: 40 }, history: [] }), 'utf8')
+    const l = store.getAgentLimits()
+    expect(l.effective).toBe(25)
+    expect(l.autoLimit).toBeUndefined()
+  })
+})
+
 describe('heavyJobsAtOnce', () => {
   it('defaults to 1, persists a value the CLI and Host then read, and narrows what it is given', async () => {
     const a = new AppSettingsStore(file())

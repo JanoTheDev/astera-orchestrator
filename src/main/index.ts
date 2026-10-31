@@ -1521,7 +1521,12 @@ app.whenReady().then(async () => {
   ipcMain.handle('settings.setAccountMaxSessions', (_e, v: unknown) => core!.appSettings.setAccountMaxSessions(v))
 
   // T6: the lowered limits in Settings › Agents (autoLimitsIpc.ts).
-  registerAutoLimitsIpc(ipcMain, { profileDir: app.getPath('userData') })
+  registerAutoLimitsIpc(ipcMain, {
+    profileDir: app.getPath('userData'),
+    agentLimits: () => core!.appSettings.getAgentLimits(),
+    getMinWorkers: () => core!.appSettings.getMinWorkersUnderPressure(),
+    setMinWorkers: (n) => core!.appSettings.setMinWorkersUnderPressure(n)
+  })
 
   // Change map and PR merge for a worktree outside a plan (reviewIpc.ts).
   registerReviewIpc(ipcMain, {

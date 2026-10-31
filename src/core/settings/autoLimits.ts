@@ -78,6 +78,26 @@ export function resetAutoLimits(cur: AutoLimits, at: string): AutoLimits {
   return { history: [...cur.history, ...rows].slice(-HISTORY_MAX) }
 }
 
+/** Clears the one auto-limit named by `what` and records a 'reset' row for it; the other limits stay. A limit that is
+ *  not set changes nothing (no row). */
+export function resetAutoLimit(cur: AutoLimits, what: 'workers' | 'heavy' | 'checks', at: string): AutoLimits {
+  const detail = 'This auto-limit was restored.'
+  const next: AutoLimits = { ...cur }
+  let row: AutoLimits['history'][number]
+  if (what === 'checks') {
+    if (!cur.checksAsHeavy) return cur
+    delete next.checksAsHeavy
+    row = { at, what, from: null, to: null, cause: 'reset', detail }
+  } else {
+    const was = cur[what]
+    if (!was) return cur
+    delete next[what]
+    row = { at, what, from: was.cap, to: null, cause: 'reset', detail }
+  }
+  next.history = [...cur.history, row].slice(-HISTORY_MAX)
+  return next
+}
+
 /** Never throws: a missing or unreadable file is no auto-limits. */
 export async function readAutoLimits(profileDir: string): Promise<AutoLimits> {
   try {
