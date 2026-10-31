@@ -1,0 +1,1 @@
+{"v":1,"tool":"astera","job":"job_98139d6ea35cd47c","task":"tsk_b625c64586d4f0dc","session":"25bce2ec-53de-472e-a198-de5a7a5a9ea5","agent":"claude","model":"opus","account":"5dcdaeb4-f5a6-4a1e-9541-2190cbd10764","role":"worker","lines":{"src/core/childWindows.scan.test.ts":[[1,35],[37,139],[141,317]]}}
