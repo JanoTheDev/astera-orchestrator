@@ -107,13 +107,19 @@ export function currentAutoHeavySlots(d: HeavyJobsDeps = {}): number {
   return autoHeavySlots({ availableBytes, heldSlots: held() })
 }
 
+/** The person's heavy slots from the stored setting, before any auto-limit: not set or "auto" is the auto answer now
+ *  (currentAutoHeavySlots), a valid number is used as is, anything else is HEAVY_JOBS_DEFAULT. The heavy slots and the
+ *  load monitor's own view of the person's value both read it here, so the two cannot drift apart. */
+export function personHeavyJobsOf(raw: unknown, deps: HeavyJobsDeps = {}): number {
+  return raw === undefined || raw === HEAVY_JOBS_AUTO ? currentAutoHeavySlots(deps) : (heavyJobsAtOnceOf(raw) ?? HEAVY_JOBS_DEFAULT)
+}
+
 /** A non-app process's read (CLI, Host, source updater), per call. Not set or "auto" is sized from available memory;
  *  a number is used as is; an auto-limit only lowers the answer. Never throws: an unreadable or invalid file is
  *  HEAVY_JOBS_DEFAULT, the safe answer for a heavy job. */
 export async function readHeavyJobsAtOnce(filePath: string, deps: HeavyJobsDeps = {}): Promise<number> {
   try {
-    const raw = (await readAppSettingsObject(filePath))?.heavyJobsAtOnce
-    const person = raw === undefined || raw === HEAVY_JOBS_AUTO ? currentAutoHeavySlots(deps) : (heavyJobsAtOnceOf(raw) ?? HEAVY_JOBS_DEFAULT)
+    const person = personHeavyJobsOf((await readAppSettingsObject(filePath))?.heavyJobsAtOnce, deps)
     return effectiveCap(person, (await readAutoLimits(path.dirname(filePath))).heavy) // T1: auto-limits only lower
   } catch {
     return HEAVY_JOBS_DEFAULT

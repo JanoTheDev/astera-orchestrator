@@ -3013,8 +3013,12 @@ export interface HealthSnapshot {
   memAvailablePct: number
   /** Set when the OS gave no usable memory reading for this sample. */
   memUnknown?: true
-  /** Windows only: commit headroom, 100 * (commit limit - committed) / commit limit. Absent when unknown or not Windows. */
+  /** Windows only: commit headroom, 100 * (commit limit - committed) / commit limit, against the current commit limit.
+   *  For diagnosis: a system-managed pagefile grows on demand, so this alone is not strain. Absent when unknown or not Windows. */
   commitHeadroomPct?: number
+  /** Windows only: the same headroom against the commit limit the machine can still reach (RAM + the pagefiles at their
+   *  most); the load monitor judges commit strain by this one. Absent when unknown or not Windows. */
+  commitReachablePct?: number
   /** os.loadavg()[0] / logical CPUs */
   load1PerCpu: number
   /** Host event-loop delay, p99 over the sample window */
