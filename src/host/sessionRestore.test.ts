@@ -17,13 +17,20 @@ import {
   trackLiveSessions,
   workingTaskCount,
   conversationOnDisk,
+  handedOverWorkers,
+  liftRestartHold,
+  restartFeedLine,
+  restartWaitingOn,
+  RESTART_RESUME_LINE,
+  withoutResumed,
   writeCleanExit,
   writeHandover,
   type HandoverChat,
   type RestoreDeps,
   type SavedSession
 } from './sessionRestore'
-import { buildClaudeCommand } from '../core/sessions/commands'
+import { buildClaudeCommand, LAUNCH_FORBIDDEN } from '../core/sessions/commands'
+import { readStartHold, writeStartHold } from '../core/orchestration/startHold'
 import { stateFromLegacy } from '../core/orchestration/legacyState'
 import type { PtyEntry, PtyMeta } from '../core/host/protocol'
 import type { OrchState } from '../core/orchestration/state'
@@ -522,5 +529,216 @@ describe('workingTaskCount', () => {
     expect(workingTaskCount({ ...base, tasks: [], dispatches: [], jobs: [{ ...job, archivedAt: NOW }] })).toBe(0)
     // a replan whose planner already died (a crash, an older swap) holds nothing back
     expect(workingTaskCount({ ...base, tasks: [], dispatches: [], jobs: [job] }, () => false)).toBe(0)
+  })
+})
+
+describe('a restart (T13): working Tasks are handed over too', () => {
+  /** Two workers mid-Task (their Dispatches open), a worker done with its Task, and a person's tab. */
+  const working = (): OrchState => {
+    const s = crashed()
+    const d = s.dispatches[0]
+    return {
+      ...s,
+      tasks: [
+        { id: 'tsk_1', status: 'dispatched' },
+        { id: 'tsk_2', status: 'dispatched' },
+        { id: 'tsk_3', status: 'completed' }
+      ] as OrchState['tasks'],
+      dispatches: [
+        d,
+        { ...d, id: 'dsp_2', taskId: 'tsk_2', sessionId: 'worker-2', cwd: '/w/wt2' },
+        { ...d, id: 'dsp_3', taskId: 'tsk_3', sessionId: 'worker-done', endedAt: NOW, outcome: 'succeeded' }
+      ] as OrchState['dispatches']
+    }
+  }
+  const rows: SavedSession[] = [
+    { sessionId: 'worker-1', accountId: 'acc_1', cwd: '/w/wt', title: 'T1', nativeSessionId: 'n-w1' },
+    { sessionId: 'worker-2', accountId: 'acc_2', cwd: '/w/wt2', nativeSessionId: 'n-w2', rollAccountIds: ['acc_2', 'acc_3'] },
+    { sessionId: 'worker-done', accountId: 'acc_1', cwd: '/w/wt3', nativeSessionId: 'n-wd' },
+    { sessionId: 'tab-1', accountId: 'acc_1', cwd: '/w/a', nativeSessionId: 'n-t1' }
+  ]
+  const leaving = (restart: boolean) => handoverOf({ sessions: rows, ptys: [], procs: [], state: working(), baseEnv: {}, restart })
+
+  it('marks every session whose Dispatch is still open working, and says it is a restart', () => {
+    const h = leaving(true)
+    expect(h.restart).toBe(true)
+    expect(h.sessions.map((x) => [x.sessionId, x.dispatchId, x.working])).toEqual([
+      ['worker-1', 'dsp_1', true],
+      ['worker-2', 'dsp_2', true],
+      ['worker-done', 'dsp_3', undefined],
+      ['tab-1', undefined, undefined]
+    ])
+    // The automatic swap marks nothing, as before
+    const swap = leaving(false)
+    expect(swap.restart).toBeUndefined()
+    expect(swap.sessions.some((x) => x.working)).toBe(false)
+  })
+
+  it('keeps the marks on disk, and the next Host reads which workers it resumes before anything loads', async () => {
+    writeHandover(dir, leaving(true))
+    expect(handedOverWorkers(dir)).toEqual(['worker-1', 'worker-2'])
+    const left = await leftBehind(dir)
+    expect(left.handover?.restart).toBe(true)
+    expect(left.handover?.sessions.filter((x) => x.working).map((x) => x.sessionId)).toEqual(['worker-1', 'worker-2'])
+    // An automatic swap's handover, a torn one and none resume no worker mid-Task
+    writeHandover(dir, leaving(false))
+    expect(handedOverWorkers(dir)).toEqual([])
+    await fs.writeFile(handoverFileIn(dir), '{ torn')
+    expect(handedOverWorkers(dir)).toEqual([])
+    await fs.rm(handoverFileIn(dir))
+    expect(handedOverWorkers(dir)).toEqual([])
+  })
+
+  it('resumes both working workers under their own ids on their own accounts, typing the line into each once', async () => {
+    writeHandover(dir, leaving(true))
+    const left = await leftBehind(dir)
+    const lost: string[] = []
+    const { deps, created } = restoreDeps({ state: working(), lostWorker: (sid) => void lost.push(sid) })
+    const r = await restoreHandover({ ...deps, file: handoverFileIn(dir), handover: left.handover!, baseEnv: {}, openPty: () => {}, respawnChat: async () => {} })
+    expect(r).toEqual({ tabs: 4, planners: 0, ptys: 0, chats: 0 })
+    expect(lost).toEqual([])
+    expect(created).toEqual([
+      { accountId: 'acc_1', cwd: '/w/wt', title: 'T1', rollAccountIds: [], resumeSessionId: 'n-w1', autoAccounts: false, sessionId: 'worker-1', initialPrompt: RESTART_RESUME_LINE },
+      { accountId: 'acc_2', cwd: '/w/wt2', rollAccountIds: ['acc_2', 'acc_3'], resumeSessionId: 'n-w2', autoAccounts: false, sessionId: 'worker-2', initialPrompt: RESTART_RESUME_LINE },
+      // Done with its Task, and a person's tab: as the automatic swap brings them back, with nothing typed in
+      { accountId: 'acc_1', cwd: '/w/wt3', rollAccountIds: [], resumeSessionId: 'n-wd', autoAccounts: true, sessionId: 'worker-done' },
+      { accountId: 'acc_1', cwd: '/w/a', rollAccountIds: [], resumeSessionId: 'n-t1', autoAccounts: true, sessionId: 'tab-1' }
+    ])
+    expect(created.filter((c) => c.initialPrompt === RESTART_RESUME_LINE).map((c) => c.sessionId)).toEqual(['worker-1', 'worker-2'])
+    // ...which the launch turns into the resume with the line as its one prompt
+    const args = buildClaudeCommand('linux', () => null)({ resumeSessionId: 'n-w1', initialPrompt: created[0].initialPrompt }).args
+    expect(args.slice(-4)).toEqual(['--resume', 'n-w1', '--', RESTART_RESUME_LINE])
+    expect(args.filter((a) => a === RESTART_RESUME_LINE)).toHaveLength(1)
+    // win32 starts it through cmd.exe: the line carries nothing a launch line must not (commands.ts)
+    expect(LAUNCH_FORBIDDEN.test(RESTART_RESUME_LINE)).toBe(false)
+  })
+
+  it('hands a working worker it cannot resume to the recovery instead of starting it blank', async () => {
+    const handover = {
+      sessions: [
+        { sessionId: 'worker-1', accountId: 'acc_1', cwd: '/w/wt', working: true as const }, // no conversation id at all
+        { sessionId: 'worker-2', accountId: 'acc_2', cwd: '/w/wt2', nativeSessionId: 'never-written', working: true as const }
+      ],
+      ptys: [],
+      restart: true as const
+    }
+    const lost: string[] = []
+    const { deps, created } = restoreDeps({ state: working(), lostWorker: (sid) => void lost.push(sid), hasConversation: async () => false })
+    await restoreHandover({ ...deps, file: handoverFileIn(dir), handover, baseEnv: {}, openPty: () => {}, respawnChat: async () => {} })
+    expect(created).toEqual([])
+    expect(lost).toEqual(['worker-1', 'worker-2'])
+
+    // A spawn that fails is the recovery's too
+    const failed: string[] = []
+    const again = restoreDeps({
+      state: working(),
+      nativeIdOf: async () => 'n-1',
+      lostWorker: (sid) => void failed.push(sid),
+      createSession: async () => {
+        throw new Error('CWD_MISSING: /w/wt')
+      }
+    })
+    await restoreHandover({
+      ...again.deps,
+      file: handoverFileIn(dir),
+      handover: { ...handover, sessions: [handover.sessions[0]] },
+      baseEnv: {},
+      openPty: () => {},
+      respawnChat: async () => {}
+    })
+    expect(failed).toEqual(['worker-1'])
+  })
+
+  it('brings back a worker that reported in the last moment as a tab, with nothing typed in', async () => {
+    const s = working()
+    const reported = { ...s, dispatches: s.dispatches.map((d) => (d.id === 'dsp_1' ? { ...d, endedAt: NOW, outcome: 'succeeded' as const } : d)) }
+    const { deps, created } = restoreDeps({ state: reported })
+    await restoreSessions({ ...deps, saved: [{ ...rows[0], working: true } as SavedSession], handover: true })
+    expect(created).toEqual([{ accountId: 'acc_1', cwd: '/w/wt', title: 'T1', rollAccountIds: [], resumeSessionId: 'n-w1', autoAccounts: true, sessionId: 'worker-1' }])
+  })
+
+  it('keeps crash resume from waiting on the workers the handover resumes', () => {
+    const s = working()
+    expect(withoutResumed(s, new Set(['worker-1']))!.dispatches.map((d) => d.id)).toEqual(['dsp_2', 'dsp_3'])
+    expect(withoutResumed(s, new Set())).toBe(s)
+    expect(withoutResumed(null, new Set(['worker-1']))).toBeNull()
+  })
+
+  it('lifts a restart’s hold once the sessions are back, and keeps an owner’s', async () => {
+    await writeStartHold(dir, { by: 'restart', reason: 'r', at: NOW })
+    // Not while this Host is restarting itself
+    expect(await liftRestartHold(dir, () => true)).toBe(false)
+    expect(await readStartHold(dir)).not.toBeNull()
+    expect(await liftRestartHold(dir, () => false)).toBe(true)
+    expect(await readStartHold(dir)).toBeNull()
+    await writeStartHold(dir, { by: 'owner', reason: 'moving', at: NOW })
+    expect(await liftRestartHold(dir, () => false)).toBe(false)
+    expect(await readStartHold(dir)).toEqual({ by: 'owner', reason: 'moving', at: NOW })
+  })
+
+  it('says what it did in the feed', () => {
+    expect(restartFeedLine('1.4.2', 3)).toBe('Host restarted to 1.4.2: 3 sessions resumed')
+    expect(restartFeedLine('1.4.2', 1)).toBe('Host restarted to 1.4.2: 1 session resumed')
+  })
+})
+
+describe('restartWaitingOn (the safe point)', () => {
+  const task = (id: string, status: string) => ({ id, status }) as OrchState['tasks'][number]
+  const at = (over: Partial<OrchState['dispatches'][number]>) => ({ ...crashed().dispatches[0], ...over }) as OrchState['dispatches'][number]
+  const state = (): OrchState => ({
+    ...crashed(),
+    tasks: [
+      task('t_busy', 'dispatched'),
+      task('t_idle', 'dispatched'),
+      task('t_unknown', 'dispatched'),
+      task('t_gone', 'dispatched'),
+      task('t_starting', 'dispatched'),
+      task('t_check', 'validating'),
+      task('t_review', 'reviewing'),
+      task('t_merge', 'merging'),
+      task('t_done', 'completed'),
+      task('t_paused', 'dispatched')
+    ],
+    dispatches: [
+      at({ id: 'd1', taskId: 't_busy', sessionId: 's-busy' }),
+      at({ id: 'd2', taskId: 't_idle', sessionId: 's-idle' }),
+      at({ id: 'd3', taskId: 't_unknown', sessionId: 's-unknown' }),
+      at({ id: 'd4', taskId: 't_gone', sessionId: 's-gone' }),
+      at({ id: 'd5', taskId: 't_starting', sessionId: 'pending:abc' }),
+      at({ id: 'd6', taskId: 't_review', sessionId: 's-reviewer' }),
+      at({ id: 'd7', taskId: 't_paused', sessionId: 's-busy-2', endedAt: NOW, closedBy: 'pause' })
+    ]
+  })
+  const probe = {
+    alive: (id: string) => id !== 's-gone',
+    busy: (id: string): boolean | null => (id === 's-busy' || id === 's-busy-2' ? true : id === 's-unknown' ? null : false)
+  }
+
+  it('waits on a busy worker, one whose screen never said, a start in flight, and a check or merge the Host runs', () => {
+    expect(restartWaitingOn(state(), probe)).toEqual(['t_busy', 't_unknown', 't_starting', 't_check', 't_merge'])
+    expect(restartWaitingOn(null, probe)).toEqual([])
+  })
+
+  it('goes on once each worker is idle at its prompt or has reported', () => {
+    const s = state()
+    const settled: OrchState = {
+      ...s,
+      tasks: s.tasks.map((t) => (['t_check', 't_merge', 't_starting'].includes(t.id) ? { ...t, status: 'completed' } : t)) as OrchState['tasks']
+    }
+    const idle = { alive: probe.alive, busy: (): boolean | null => false }
+    expect(restartWaitingOn(settled, idle)).toEqual([])
+    // A reviewer busy at its review is waited for like a worker
+    expect(restartWaitingOn(settled, { alive: probe.alive, busy: (id) => id === 's-reviewer' })).toEqual(['t_review'])
+  })
+
+  it('waits on a replan whose planner is busy or still starting, by its Job', () => {
+    const base = crashed()
+    const job = { ...base.jobs[0], replanning: { runId: 'run_1', mode: 'completion', wave: 1, done: 1, startedAt: NOW, sessionId: 'replan-1' } } as OrchState['jobs'][number]
+    const s = { ...base, tasks: [], dispatches: [], jobs: [job] }
+    expect(restartWaitingOn(s, { alive: () => true, busy: () => true })).toEqual([job.id])
+    expect(restartWaitingOn(s, { alive: () => true, busy: () => false })).toEqual([])
+    expect(restartWaitingOn(s, { alive: () => false, busy: () => null })).toEqual([])
+    const starting = { ...s, jobs: [{ ...job, replanning: { ...job.replanning!, sessionId: undefined } }] }
+    expect(restartWaitingOn(starting, { alive: () => false, busy: () => null })).toEqual([job.id])
   })
 })

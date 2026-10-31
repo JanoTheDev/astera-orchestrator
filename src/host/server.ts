@@ -11,12 +11,16 @@ import {
   HOST_FEATURE_PING,
   HOST_FEATURE_HANDOVER,
   HOST_FEATURE_HANDOVER_CHATS,
+  HOST_FEATURE_RESTART,
   HOST_FEATURE_PTY_SEQ,
   HOST_FEATURE_ORCH,
   HOST_FEATURE_REQUESTS,
   HOST_FEATURE_MCP,
   HOST_YIELD_ORCH_STATE_LATEST,
   ORCH_STATE_PUSH_MS,
+  RESTART_PROGRESS_MS,
+  RESTART_WAIT_MAX_MS,
+  RESTART_WAIT_MS,
   type ClientMessage,
   type HostMessage
 } from '../core/host/protocol'
@@ -60,8 +64,10 @@ export interface HostServerDeps {
   /** How long a connection has to say `hello` before it is dropped. Defaults to HANDSHAKE_MS. */
   helloMs?: number
   /** What to do when the last client has been gone for `idleMs`, or when a client says `retire`. `resume`: the retire
-   *  asked for a handover, so the sessions are written down for the next Host before they end (sessionRestore.ts). */
-  onIdle(o?: { resume: true }): void
+   *  asked for a handover, so the sessions are written down for the next Host before they end (sessionRestore.ts).
+   *  `restart`: a `restart` reached its handover (T13), working Tasks and all: the handover marks the workers it cuts
+   *  short, so the next Host tells each it was restarted. */
+  onIdle(o?: { resume: true; restart?: true }): void
   log: HostLog
   /** A handler for messages the server does not own. Returns true when it handled one; false lets
    *  the server treat it as unknown. Slice 2's pty-* messages arrive here. `from` is the sender: the
@@ -106,6 +112,12 @@ export interface HostServerDeps {
   liveCounts?(): { sessions: number; runs: number; remote?: boolean }
   /** The Tasks actively working (sessionRestore.ts `workingTaskCount`): a `resume` retire is refused while any is. */
   workingTasks?(): number
+  /** What a `restart` asks of this Host (T13). HOST_FEATURE_RESTART is announced only when this is given: serving the
+   *  message and naming it are one fact, as for `orch`. */
+  restart?: HostRestartDeps
+  /** The clock a restart measures its wait on and looks again with; `monotonicClock` when left out, for the reason
+   *  `stateClock` is. Injectable so a test moves time instead of waiting minutes. */
+  restartClock?: StateClock
   /** Answers `orch-call` (design §5). Optional here only so a caller that never sends `orch-call`
    *  does not have to supply one; `host/index.ts` always does, because it always advertises
    *  HOST_FEATURE_ORCH below. */
@@ -132,6 +144,17 @@ export interface HostServerDeps {
   /** The same for the app, the one reader the Host must not lose (final review M3): a main thread that stalls falls
    *  behind every worker's output at once, and a cut socket costs a reconnect and a handover. 512 MiB when left out. */
   maxAppQueuedBytes?: number
+}
+
+/** A restart's two questions to the Host (T13; protocol.ts documents the message). */
+export interface HostRestartDeps {
+  /** Holds new starts for the restart (`<profile>/host/start-hold.json`, by `restart`). Awaited before the first look
+   *  at the safe point, so a worker placed while it is being written is still waited for. A rejection is logged and
+   *  the restart goes on: the wait still bounds it, and whatever started is handed over with the rest. */
+  hold(): Promise<void>
+  /** The working Tasks not at a safe point yet, by id (sessionRestore.ts `restartWaitingOn`). A throw is logged and
+   *  read as "not known yet", so the restart keeps waiting, bounded as always. */
+  waitingOn(): string[]
 }
 
 /** Broadcasts a CLI never reads (it reads the answers to its own calls only, cli/run.ts): every session's output, its
@@ -509,6 +532,96 @@ export async function startHostServer(deps: HostServerDeps): Promise<HostServer>
     idleTimer.unref?.()
   }
 
+  /**
+   * **The restart under way** (T13; protocol.ts documents `restart`), or null. One per Host: a second `restart` joins
+   * it (its socket is told the progress too) and its `force` hurries it.
+   * - `askers`: the sockets that asked, each sent the progress whatever its role (a CLI is sent no broadcast).
+   * - `until`: when the wait for the safe point ends, on `restartClock`.
+   * - `looking`: the hold is in place and the looks have begun, so a later `force` may look at once.
+   * - `cancel`: the next look's timer.
+   * - `handedOver`: `onIdle` was asked, once and for good.
+   */
+  type Restarting = { askers: Set<net.Socket>; until: number; force: boolean; looking: boolean; cancel: (() => void) | null; handedOver: boolean }
+  let restarting: Restarting | null = null
+  const restartClock = deps.restartClock ?? monotonicClock
+  /** To the sockets that asked and to every greeted app, so the window that did not ask still sees the restart. */
+  const restartProgress = (askers: ReadonlySet<net.Socket>, m: HostMessage): void => {
+    const line = lazyLine(m)
+    for (const s of greetedSockets) if (!s.destroyed && (askers.has(s) || roles.get(s) === 'app')) writeTo(s, m, line)
+  }
+  /** One look at the safe point: the progress, then the next look, or the handover. */
+  const restartLook = (): void => {
+    const r = restarting
+    // A Host already leaving another way (a retire, a signal) is not left twice.
+    if (!r || r.handedOver || closing || !accepting) return
+    r.cancel = null
+    let waitingOn: string[] | null
+    try {
+      waitingOn = deps.restart!.waitingOn()
+    } catch (err) {
+      deps.log.write(`restart: could not tell which Tasks are at a safe point (${String(err)}); waiting on`)
+      waitingOn = null
+    }
+    let working: number
+    try {
+      working = deps.workingTasks?.() ?? waitingOn?.length ?? 0
+    } catch {
+      working = waitingOn?.length ?? 0
+    }
+    const leftMs = r.force ? 0 : Math.max(0, r.until - restartClock.now())
+    restartProgress(r.askers, { t: 'restart-progress', working, waitingOn: waitingOn ?? [], leftMs })
+    if (!r.force && leftMs > 0 && (waitingOn === null || waitingOn.length > 0)) {
+      r.cancel = restartClock.after(Math.min(RESTART_PROGRESS_MS, leftMs), () => {
+        // A timer's throw is uncaught, and it would end the Host with every pty it holds.
+        try {
+          restartLook()
+        } catch (err) {
+          deps.log.write(`restart: a look at the safe point failed: ${String(err)}`)
+        }
+      })
+      return
+    }
+    deps.log.write(
+      r.force
+        ? `restart: forced — handing over now${waitingOn && waitingOn.length > 0 ? `, cutting ${waitingOn.length} Task(s) short (${waitingOn.join(', ')})` : ''}`
+        : waitingOn !== null && waitingOn.length === 0
+          ? 'restart: every working Task is at a safe point — handing over'
+          : `restart: the wait ran out with ${waitingOn?.length ?? 'an unknown number of'} Task(s) not at a safe point — handing over anyway`
+    )
+    r.handedOver = true
+    deps.onIdle({ resume: true, restart: true })
+  }
+  /** A `restart` message from a greeted socket. */
+  const restartAsked = (socket: net.Socket, m: { waitMs?: number; force?: boolean }): void => {
+    if (restarting) {
+      restarting.askers.add(socket)
+      if (m.force === true && !restarting.force) {
+        restarting.force = true
+        deps.log.write('restart: asked again with force — handing over at the next look')
+        if (restarting.looking) {
+          restarting.cancel?.()
+          restartLook()
+        }
+      }
+      return
+    }
+    const waitMs =
+      typeof m.waitMs === 'number' && Number.isFinite(m.waitMs) ? Math.min(Math.max(0, m.waitMs), RESTART_WAIT_MAX_MS) : RESTART_WAIT_MS
+    const r: Restarting = { askers: new Set([socket]), until: restartClock.now() + waitMs, force: m.force === true, looking: false, cancel: null, handedOver: false }
+    restarting = r
+    deps.log.write(`asked to restart — holding new starts${r.force ? ' and handing over at once' : `, waiting up to ${Math.round(waitMs / 1000)} s for the working Tasks to reach a safe point`}`)
+    void (async () => {
+      try {
+        await deps.restart!.hold()
+      } catch (err) {
+        deps.log.write(`restart: new starts could not be held (${String(err)}); restarting anyway`)
+      }
+      if (restarting !== r) return
+      r.looking = true
+      restartLook()
+    })().catch((err) => deps.log.write(`restart failed: ${String(err)}`))
+  }
+
   const server = net.createServer((socket) => {
     if (!accepting) {
       socket.destroy()
@@ -609,6 +722,9 @@ export async function startHostServer(deps: HostServerDeps): Promise<HostServer>
               // Its chats are written down with it and respawned on their threads (sessionRestore.ts HandoverChat).
               HOST_FEATURE_HANDOVER_CHATS,
               HOST_FEATURE_PTY_SEQ,
+              // T13: a `restart` holds new starts, waits for the safe point and hands over working Tasks too. Only
+              // with the deps that serve it, which only a Host that brings a handover back gives.
+              ...(deps.restart ? [HOST_FEATURE_RESTART] : []),
               ...(deps.orch ? [HOST_FEATURE_ORCH, HOST_FEATURE_REQUESTS, HOST_FEATURE_MCP] : []),
               ...(deps.features ?? [])
             ],
@@ -675,6 +791,16 @@ export async function startHostServer(deps: HostServerDeps): Promise<HostServer>
           }
           deps.log.write('asked to retire — leaving')
           deps.onIdle()
+          return
+        }
+        // T13: a restart, only from a socket that said hello (unlike `retire`, which protocol-mismatch replacement sends
+        // with none), and only to a Host that announced it. An MCP socket never reaches here (the gate above).
+        if (m?.t === 'restart' && deps.restart) {
+          if (!greetedSockets.has(socket)) {
+            deps.log.write('a socket that has not said hello asked to restart — dropped')
+            return
+          }
+          restartAsked(socket, m)
           return
         }
         if (m?.t === 'orch-call' && deps.orch) {
@@ -768,6 +894,8 @@ export async function startHostServer(deps: HostServerDeps): Promise<HostServer>
       mcpRemotes.delete(socket)
       dropState(socket)
       stateLanes.delete(socket)
+      // A restart goes on when the one who asked hangs up: the owner asked for it, not that socket.
+      restarting?.askers.delete(socket)
       if (wasGreeted && wasApp) tellAppsChanged()
       // Whatever this socket was asked and never answered is refused now. Left in the map it would
       // be a promise nothing can ever settle, and the CLI call waiting behind it would hang for as
@@ -912,6 +1040,9 @@ export async function startHostServer(deps: HostServerDeps): Promise<HostServer>
         if (closing) return resolve()
         closing = true
         if (idleTimer) clearTimeout(idleTimer)
+        // A restart's next look must not fire into a server that is gone.
+        restarting?.cancel?.()
+        restarting = null
         // `server.close` stops accepting and waits for the open connections. The Host is leaving, so
         // it does not wait: a peer that has already ended its side may not have been reaped yet, and
         // a close that hangs on it is worse than a connection dropped a moment early.
