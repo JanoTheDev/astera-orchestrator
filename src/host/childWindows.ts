@@ -68,3 +68,29 @@ export function hideForkedConsoleWindows(cp: ForkHolder, platform: NodeJS.Platfo
   cp.fork = wrapped as typeof childProcess.fork
   return true
 }
+
+/** The one method every async child start ends in: `spawn`, `exec`, `execFile` and `fork` all build a `ChildProcess`
+ *  and call its `spawn(options)` with the normalized options (`windowsHide` among them). Injected for the test. */
+export interface ChildProcessProto {
+  spawn(this: unknown, options: { windowsHide?: boolean } & Record<string, unknown>): unknown
+}
+
+/**
+ * Makes every async child the Host starts windowless (win32), whatever its call site passed. The `fork` wrapper above
+ * covers node-pty's helper; this covers the rest: a `spawn`, `exec` or `execFile` anywhere in the Host or the core code
+ * it runs (git helpers, attribution, setup commands, tools) that forgot `windowsHide` gave the detached console-
+ * subsystem Host a brand-new console window, which Windows puts on top of whatever the person is doing.
+ *
+ * Patched on the prototype rather than on the module's functions because a bundled `import { spawn }` may have bound
+ * the function before this runs; every one of them still calls `ChildProcess.prototype.spawn`. Sync starts
+ * (`spawnSync`, `execSync`, `execFileSync`) do not go through it; those keep their own `windowsHide`.
+ */
+export function hideAllChildConsoleWindows(proto: ChildProcessProto, platform: NodeJS.Platform): boolean {
+  if (platform !== 'win32') return false
+  const real = proto.spawn
+  proto.spawn = function (this: unknown, options) {
+    if (options && typeof options === 'object') options.windowsHide = true
+    return real.call(this, options)
+  }
+  return true
+}

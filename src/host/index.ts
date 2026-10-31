@@ -21,7 +21,7 @@ import { hostAddress } from './address'
 import { nodePtyMissing } from './nodePtyCheck'
 import { hostPidFilePath, writeHostPidFile } from '../core/host/pidFile'
 import { SPAWN_DEADLINE_MS } from '../core/host/unresponsive'
-import { hideForkedConsoleWindows } from './childWindows'
+import { hideAllChildConsoleWindows, hideForkedConsoleWindows, type ChildProcessProto } from './childWindows'
 import { trustSystemCa } from './systemCa'
 import { openHostLog, logUncaughtExceptions, logUnhandledRejections } from './log'
 import { flushAll, flushAllLogsSync } from '../core/log/logWriter'
@@ -172,6 +172,9 @@ async function main(): Promise<void> {
   // this process is a console-subsystem node.exe, so that helper would be handed a console window of
   // its own — a black window flashing up whenever a person closes a session tab. See childWindows.ts.
   hideForkedConsoleWindows(childProcess, process.platform)
+  // And every other async child (spawn, exec, execFile) a call site started without windowsHide: each one popped a
+  // console window over whatever the person was doing.
+  hideAllChildConsoleWindows(childProcess.ChildProcess.prototype as unknown as ChildProcessProto, process.platform)
 
   const profileDir = process.env.ASTERA_HOST_PROFILE_DIR
   if (!profileDir) {
