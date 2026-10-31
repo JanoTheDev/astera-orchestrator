@@ -15,6 +15,7 @@ import { HOST_STOP_WAIT_MS } from '../core/host/unresponsive'
 import { siblingHostAddresses } from '../host/address'
 import { answers, LEGACY_APP_NOTICE } from '../host/server'
 import { handoverFileIn } from '../host/sessionRestore'
+import { formatRestartLeft, handoverSessionCount as sessionsInHandover } from '../core/host/restartView'
 import { encodeLine } from '../host/framing'
 import net from 'node:net'
 import { resolveSkillsDir } from './skills'
@@ -416,8 +417,10 @@ export function spawnHostDetached(a: {
   // Its stderr to a file beside host.log, so a Host that dies of something it could not log leaves the reason.
   const stderr = hostStderr(path.join(profileDir, 'host', 'host-stderr.log'), fsSync)
   let child: ReturnType<typeof spawn>
+  const opts = { ...plan.options, stdio: stderr.stdio }
   try {
-    child = (a.spawnFn ?? spawn)(plan.command, plan.args, { ...plan.options, stdio: stderr.stdio })
+    // `spawn(` itself stays in sight of the `finally`: core/host/spawn.test.ts checks every Host starter closes its copy.
+    child = a.spawnFn ? a.spawnFn(plan.command, plan.args, opts) : spawn(plan.command, plan.args, opts)
   } finally {
     stderr.close()
   }
@@ -433,18 +436,10 @@ export function spawnHostDetached(a: {
  *  file, or one that does not read or does not parse: never throws. `readFile` is injectable so a test needs no disk. */
 export function handoverSessionCount(profileDir: string, readFile: (file: string) => string = (f) => readFileSync(f, 'utf8')): number {
   try {
-    const v = JSON.parse(readFile(handoverFileIn(profileDir))) as { sessions?: unknown; chats?: unknown } | null
-    const n = (x: unknown): number => (Array.isArray(x) ? x.length : 0)
-    return v ? n(v.sessions) + n(v.chats) : 0
+    return sessionsInHandover(readFile(handoverFileIn(profileDir)))
   } catch {
     return 0
   }
-}
-
-/** `m:ss` for a count of milliseconds, rounded up to the second: `2:10`. */
-const clock = (ms: number): string => {
-  const s = Math.ceil(Math.max(0, ms) / 1000)
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
 
 /** One `restart-progress` as the line `host restart` prints on stderr: "Holding new starts · waiting for 3 workers to
@@ -453,7 +448,7 @@ export function restartProgressLine(p: { working: number; waitingOn: readonly st
   const n = p.waitingOn.length
   if (n === 0) return 'Holding new starts · every worker is at a safe point — handing over'
   if (p.leftMs <= 0) return `Handing over now · ${n} worker${n === 1 ? '' : 's'} not at a safe point yet are cut short`
-  return `Holding new starts · waiting for ${n} worker${n === 1 ? '' : 's'} to reach a safe point (${clock(p.leftMs)} left)`
+  return `Holding new starts · waiting for ${n} worker${n === 1 ? '' : 's'} to reach a safe point (${formatRestartLeft(p.leftMs)} left)`
 }
 
 /** How long `host restart` waits for the old Host's address to be free once its connection ended: the Host keeps
@@ -554,8 +549,9 @@ export async function runHostRestart(a: {
     }
   }
 
-  // Waiting for the safe point can take up to the wait the Host takes, then the handover itself.
-  const exitMs = d.exitMs ?? (force ? 0 : (waitMs ?? RESTART_WAIT_MS)) + HOST_STOP_WAIT_MS
+  // Waiting for the safe point can take up to the wait the Host takes, then the handover itself, which the Host measured at
+  // about a minute to finish: the same allowance the address gets below.
+  const exitMs = d.exitMs ?? (force ? 0 : (waitMs ?? RESTART_WAIT_MS)) + RESTART_LEAVE_WAIT_MS
   let last: { key: string; leftMs: number } | null = null
   const exited = await new Promise<boolean>((resolve) => {
     let offMessage: () => void = () => {}

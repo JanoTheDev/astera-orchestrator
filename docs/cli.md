@@ -145,7 +145,7 @@ It ends with `{"restarted": true, "from": "1.4.1", "to": "1.4.2", "resumed": 12}
 number of sessions and chats the old Host handed over, read from its handover file; the Host does not
 report a count of its own. Exit 3 (`HOST_NOT_RUNNING`) when there was no Host to restart, and also when the
 old Host left but the new one did not answer in time: its sessions are kept, and `astera host start` brings
-them back. Exit 7 (`TIMEOUT`) when the old Host did not leave within the wait plus 35 seconds, or kept its
+them back. Exit 7 (`TIMEOUT`) when the old Host did not leave within the wait plus 90 seconds, or kept its
 address for more than 90 seconds after it ended its connection. Exit 9 (`VERSION_MISMATCH`) for a Host too
 old to restart on request: it does not announce `restart`, and `host stop` or the app's Restart now is
 what it can do. `--wait` takes a number of minutes above 0; anything else is exit 2.
