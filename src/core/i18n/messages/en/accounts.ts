@@ -113,4 +113,12 @@ export const accounts: Record<keyof typeof ko, string> = {
   'account.signOut.processing': 'Signing out…',
   'account.status.paused': 'Paused',
   'account.signIn.retry': 'Retry',
+  // T2: plan display names
+  'account.plan.free': 'Free',
+  'account.plan.pro': 'Pro',
+  'account.plan.max': 'Max',
+  'account.plan.team': 'Team',
+  'account.plan.enterprise': 'Enterprise',
+  'account.plan.ultra': 'Ultra',
+  'account.plan.unknown': 'Unknown',
 }

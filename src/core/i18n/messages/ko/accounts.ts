@@ -116,4 +116,12 @@ export const accounts = {
   'account.signOut.processing': "로그아웃 중…",
   'account.status.paused': "일시 중지",
   'account.signIn.retry': "다시 시도",
+  // T2: plan display names
+  'account.plan.free': '무료',
+  'account.plan.pro': 'Pro',
+  'account.plan.max': 'Max',
+  'account.plan.team': 'Team',
+  'account.plan.enterprise': 'Enterprise',
+  'account.plan.ultra': 'Ultra',
+  'account.plan.unknown': '알 수 없음',
 } as const

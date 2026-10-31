@@ -90,6 +90,7 @@ const api = {
     detect: invoke('accounts.detect'),
     ghosts: invoke('accounts.ghosts'),
     email: invoke('accounts.email'),
+    plan: invoke('accounts.plan'),
     emailOfDir: invoke('accounts.emailOfDir'),
     logout: invoke('accounts.logout'),
     syncSettings: invoke('accounts.syncSettings'),

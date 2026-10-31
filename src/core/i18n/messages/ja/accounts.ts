@@ -89,5 +89,13 @@ export const accounts: Partial<Record<keyof typeof ko, string>> = {
   'account.signOut.failed': 'サインアウトできませんでした: {detail}',
   'account.signOut.processing': 'サインアウトしています…',
   'account.status.paused': '一時停止',
-  'account.signIn.retry': '再試行'
+  'account.signIn.retry': '再試行',
+  // T2: plan display names
+  'account.plan.free': '無料',
+  'account.plan.pro': 'Pro',
+  'account.plan.max': 'Max',
+  'account.plan.team': 'Team',
+  'account.plan.enterprise': 'Enterprise',
+  'account.plan.ultra': 'Ultra',
+  'account.plan.unknown': '不明',
 }

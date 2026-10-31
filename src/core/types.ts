@@ -95,6 +95,15 @@ export interface Account {
   email?: string
 }
 
+/** Which subscription an account is on, read from its config folder (accounts/plan.ts). `unknown` keeps
+ *  the unrecognised string in `raw`. Read-only and never persisted on `Account`; it carries no token. */
+export type AccountPlanId = 'free' | 'pro' | 'max' | 'team' | 'enterprise' | 'ultra' | 'unknown'
+export interface AccountPlan {
+  id: AccountPlanId
+  raw: string | null // the plan string it was read from; null when the folder holds none
+  hasSessionWindow: boolean // false only for ultra, which has no 5-hour window
+}
+
 export interface DetectCandidate {
   configDir: string
   loggedIn: boolean // the verdict from accounts/loginStatus.ts (claude also checks Keychain on macOS)
@@ -1535,6 +1544,7 @@ export interface CoreApi {
      *  authenticate, so they must not reach session spawning, rolling or the account management UI. */
     ghosts(): Promise<Account[]>
     email(id: string): Promise<string | null> // the login email of a registered account (for the list)
+    plan(id: string): Promise<AccountPlan> // the subscription plan of a registered account (`unknown` when unreadable or not a claude account)
     emailOfDir(configDir: string, provider?: Provider): Promise<string | null> // the email of an unregistered folder (to prefill the import dialog)
     logout(id: string): Promise<{ ok: boolean; message?: Message }> // claude auth logout (removes the credentials)
     // W7-F (#82): the CLI's own sign-in for this account's folder (main/accountLogin.ts). login resolves when the CLI

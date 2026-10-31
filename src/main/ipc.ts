@@ -2198,6 +2198,7 @@ export function registerIpc(
   ipcMain.handle('accounts.detect', () => core.detectAccounts())
   ipcMain.handle('accounts.ghosts', () => core.ghostAccounts())
   ipcMain.handle('accounts.email', (_e, id) => core.accountEmail(id))
+  ipcMain.handle('accounts.plan', (_e, id) => core.accountPlan(id))
   ipcMain.handle('accounts.emailOfDir', (_e, dir, provider) => core.accountEmailOfDir(dir, provider))
   ipcMain.handle('accounts.logout', (_e, id) => core.accountLogout(id))
   ipcMain.handle('accounts.syncSettings', (_e, id) => core.accountSyncSettings(id))
