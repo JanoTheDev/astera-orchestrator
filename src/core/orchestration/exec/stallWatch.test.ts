@@ -10,6 +10,7 @@ import type { Dispatch, Job, Task } from '../types'
 import { mergedIntoPlan } from '../finishedSessions'
 import { adoptLiveWorkers, type LiveWorker } from './adopt'
 import type { Account } from '../../types'
+import { INSTALLING_PREFIX } from '../command'
 
 const NOW = '2026-10-18T00:00:00.000Z'
 const T0 = Date.parse(NOW)
@@ -563,6 +564,26 @@ describe('stallRemedies: a dispatched Task with no Dispatch', () => {
   it('a Task with a Dispatch on record is not untracked', () => {
     const s = plan({ tasks: [task({ id: 'tsk_1', status: 'dispatched' })], dispatches: [{ ...ended('tsk_1', '/wt1'), endedAt: undefined, outcome: undefined } as Dispatch] })
     expect(watch(s, every30s(5 * MIN), { ...idle, busy: () => true })).toEqual([])
+  })
+})
+
+describe('stallRemedies: a start waiting for a heavy slot to install (T2)', () => {
+  const installing = (startedAt = NOW): Dispatch =>
+    ({ ...ended('tsk_1', '/wt-child'), sessionId: `${INSTALLING_PREFIX}ab12cd34`, specPath: '/specs/tsk_1-dsp_tsk_1.md', startedAt, endedAt: undefined, outcome: undefined }) as Dispatch
+
+  it('is neither idle, lost nor untracked for the hour it may wait, whatever the probe says of its placeholder', () => {
+    const s = plan({ tasks: [task({ id: 'tsk_1', status: 'dispatched' })], dispatches: [installing()] })
+    // `idle` answers false (not busy) for every id, the placeholder's too: still no nudge, no retry, no escalation
+    expect(watch(s, every30s(60 * MIN))).toEqual([])
+    // An app-driven Run, which the watchdog itself retries a lost Task for
+    expect(watch({ ...s, jobs: [{ ...s.jobs[0], autoDispatch: true }], runs: [{ ...s.runs[0], coordinatorSessionId: undefined }] }, every30s(60 * MIN))).toEqual([])
+  })
+
+  it('holds its slot, and the plan’s other ready Task still gets the free one', () => {
+    const s = plan({ tasks: [task({ id: 'tsk_1', status: 'dispatched' }), task({ id: 'tsk_2' })], dispatches: [installing(new Date(T0 - 30 * MIN).toISOString())] })
+    expect(watch(s, every30s(5 * MIN))).toEqual(['tell-start:tsk_2', 'place:tsk_2'])
+    // With one slot it is the start in flight that holds it: nothing to tell or place
+    expect(watch({ ...s, jobs: [{ ...s.jobs[0], concurrency: 1 }] }, every30s(5 * MIN))).toEqual([])
   })
 })
 

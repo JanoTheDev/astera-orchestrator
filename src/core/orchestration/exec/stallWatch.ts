@@ -32,7 +32,7 @@ import { isLost } from '../../recovery/candidates'
 import { editingByProject, isLeaseWaitGate, LEASE_WAIT_OPTIONS, projectKeyOf, sameFilesAs, serialFilesOf, workerCapOf, workersAgainstCap } from '../schedule'
 import { DROPPED_OPTIONS, isDroppedGate, plannerOverlapNotices } from '../overlap'
 import { coordinatorStarting, jobOf, runGatedForTask, type OrchState } from '../state'
-import { DEFAULT_CONCURRENCY, FAILURE_LIMIT, type Dispatch, type Job, type JobRun, type Task } from '../types'
+import { DEFAULT_CONCURRENCY, FAILURE_LIMIT, isPlaceholderSessionId, type Dispatch, type Job, type JobRun, type Task } from '../types'
 import { outcomeOf } from '../view'
 import { ENTER_DELAY_MS } from '../../sessions/sessionDriver'
 import { workerStartInFlight } from './coordinatorRotate'
@@ -558,6 +558,9 @@ export function stallRemedies(
   // then the owner. Working again (or unreadable) drops the stall.
   for (const d of s.dispatches) {
     if (d.outcome || d.endedAt || probe.busy(d.sessionId) !== false) continue
+    // Still starting (a `pending:` placeholder, T2: one waiting for a heavy slot to install can be for many minutes): no
+    // session yet, so nothing at a prompt, whatever the probe says of an id it does not hold
+    if (isPlaceholderSessionId(d.sessionId)) continue
     // A rolled Dispatch waits for its account (Dispatch.resumes): not idle, held
     const roll = d.resumes?.at(-1)
     if (roll && roll.resumedAt === undefined) continue

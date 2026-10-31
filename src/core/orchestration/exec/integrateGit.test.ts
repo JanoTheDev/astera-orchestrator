@@ -10,6 +10,7 @@ import {
   reapWorktree,
   refreshOnto,
   worktreeDeps,
+  type ForkSetup,
   type IntegrateContext,
   type ReapContext
 } from './integrateGit'
@@ -63,6 +64,21 @@ describe('forkWorktree', () => {
     await expect(fs.stat(path.join(ran, 'ran.txt'))).resolves.toBeTruthy()
     const off = await forkWorktree({ repoPath: repo, name: 'off' }, { registry, log: () => {}, setupCommand: 'off' })
     await expect(fs.stat(path.join(off, 'ran.txt'))).rejects.toThrow()
+  })
+  it('hands the setup to the caller with setupLater, which runs it under the heavy slot it gives (T2)', async () => {
+    let handed: ForkSetup | undefined
+    const wt = await forkWorktree(
+      { repoPath: repo, name: 'later', setupLater: (setup) => void (handed = setup) },
+      { registry, log: () => {}, setupCommand: `node -e "require('fs').writeFileSync('ran.txt','')"` }
+    )
+    // The fork answered with the git half done and nothing installed yet
+    await expect(fs.stat(path.join(wt, 'ran.txt'))).rejects.toThrow()
+    expect(handed).toBeTypeOf('function')
+    const asked: string[] = []
+    const r = await handed!({ slots: async () => 1, take: async (a) => (asked.push(`${a.kind} ${a.cwd}`), () => {}) })
+    expect(r.ran).toBe(true)
+    expect(asked).toEqual([`setup ${wt}`])
+    await expect(fs.stat(path.join(wt, 'ran.txt'))).resolves.toBeTruthy()
   })
   it('logs a failing setup and still forks', async () => {
     const wt = await forkWorktree({ repoPath: repo, name: 'bad' }, { registry, log: logTo(), setupCommand: 'echo nope; exit 2' })

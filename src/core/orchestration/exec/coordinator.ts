@@ -26,6 +26,28 @@ import type { CloseReason } from '../../types'
 import { REPAIR_DIAGNOSTICS, diagnosticLine, findingsCountOf } from '../pluginChecks'
 import { boundedSlug } from '../../worktrees/naming'
 import { appendTo, profileDirOfSpecs, read as readOwner } from '../../prompts/ownerInstructions'
+import type { ForkSetup } from './integrateGit'
+
+/** T2: a `--worktree new` start whose dependency install waits for one of the machine's heavy slots, outside the
+ *  scheduler's pass and the Host's command chain. The Host's chain wrapper builds it for worker-start's own start
+ *  (host/orch.ts); every other start forks and installs inline as before. */
+export interface WorkerInstall {
+  /** How many heavy jobs the machine runs at once (the heavyJobsAtOnce setting), read when the install queues. */
+  slots(): Promise<number>
+  /** True once nobody wants this start any more (its Dispatch closed or gone): the install is given up, and the start
+   *  fails before a session is spawned. */
+  abandoned(): boolean
+  /** Called once, when the fork exists, its deps are merged and its install is queued for a slot, with the folder and
+   *  the spec path the session will get: worker-start answers then, and the start goes on without it. A skipped setup
+   *  (node_modules there, `off`, no lockfile) never calls it, and the start answers once the session is up, as before. */
+  queued(at: { cwd: string; specPath: string }): void
+}
+
+/** The install plan only when its functions are there: one forwarded to the app as JSON (`act`) arrives as `{}`. */
+const workerInstallOf = (x: unknown): WorkerInstall | null => {
+  const w = x as Partial<WorkerInstall> | undefined
+  return typeof w?.slots === 'function' && typeof w.abandoned === 'function' && typeof w.queued === 'function' ? (w as WorkerInstall) : null
+}
 
 /** Job Continuity's two prompt events (P0 design §5): 'requested' right before the prompt leaves
  *  the app, 'confirmed' once it has — the spawned process holds it as argv, or the typed prompt's
@@ -111,7 +133,9 @@ export interface CoordinatorDeps {
    *  does not hold (main/orchestration/stopWorker.ts). `releaseWorker` waits for it, so a refusal
    *  reaches worker-stop before it marks anything stopped. */
   killSession(sessionId: string, reason?: CloseReason): void | Promise<void>
-  createWorktree(a: { repoPath: string; name: string; baseOf?: string }): Promise<{ path: string }>
+  /** `setupLater` (T2): hand the fork's setup back instead of running it (integrateGit.ts forkWorktree), so startWorker
+   *  runs it after the deps merge, under a heavy slot. A wiring that ignores it installs inline, as before. */
+  createWorktree(a: { repoPath: string; name: string; baseOf?: string; setupLater?: (setup: ForkSetup) => void }): Promise<{ path: string }>
   /** W5-A (#50): merges the dependency worktrees into a fork made for their dependent Task
    *  (integrateGit.ts mergeDepsInto). Called after createWorktree returns, so a throw here is a failed
    *  start whose fork the wiring removes like any other. Absent: deps are not merged into the fork. */
@@ -870,6 +894,8 @@ export class OrchCoordinator {
     fork?: { base: string; merge: string[] }
     /** #117: true for a hands-off plan's worker (set by startWorkerWithChain). Absent: the wiring's app-wide setting. */
     bypassPermissions?: true
+    /** T2: a `--worktree new` fork's install waits for a heavy slot (WorkerInstall). Absent: it runs inline, as before. */
+    install?: WorkerInstall
   }): Promise<{ sessionId: string; cwd: string; specPath: string }> {
     const actual = this.deps.accountProvider(a.accountId)
     if (actual === null) throw new Error(`unknown account: ${a.accountId}`)
@@ -940,18 +966,31 @@ export class OrchCoordinator {
         throw new Error(`terminal session is not alive: ${a.terminal}`)
     } else if (a.worktree === 'new') {
       if (!a.name) throw new Error('--name is required for --worktree new')
+      const install = workerInstallOf(a.install)
+      const handed: { setup?: ForkSetup } = {}
       // The name is free text the coordinator agent wrote; it becomes a folder and a branch, so it is
       // bounded like a Run's or a Task's (naming.ts MAX_NAME_LENGTH)
       cwd = (
         await this.deps.createWorktree({
           repoPath: a.runCwd,
           name: boundedSlug(a.name),
-          ...(a.fork ? { baseOf: a.fork.base } : {})
+          ...(a.fork ? { baseOf: a.fork.base } : {}),
+          ...(install ? { setupLater: (setup: ForkSetup) => void (handed.setup = setup) } : {})
         })
       ).path
       if (a.fork && a.fork.merge.length > 0) {
         if (this.deps.mergeIntoWorktree) await this.deps.mergeIntoWorktree(cwd, a.fork.merge)
         else this.deps.log(`orch: dispatch ${a.dispatchId}: this build cannot merge the deps into ${cwd}`)
+      }
+      // T2: the install runs after the deps merge (so it sees their lockfile), under a heavy slot. Once it queues,
+      // worker-start answers (`queued`) and this start goes on outside the scheduler's pass. A fork or merge that
+      // failed has thrown above, before that: the caller still sees it.
+      if (install && handed.setup) {
+        const at = cwd
+        const r = await handed.setup({ slots: install.slots, abandoned: install.abandoned, queued: () => install.queued({ cwd: at, specPath }) })
+        // Stopped while it waited or installed: no session is started for a Dispatch nobody wants
+        if (r.abandoned === true || install.abandoned())
+          throw new Error(`dispatch ${a.dispatchId} was stopped while its install waited for a heavy slot, so no worker was started`)
       }
     } else if (a.worktree === 'current') {
       cwd = a.runCwd

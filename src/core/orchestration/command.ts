@@ -219,6 +219,7 @@ import { coordinatorHandoff, refreshCoordinator } from './exec/coordinatorRotate
 // T5 crash restore
 import { crashResumedBrief } from './exec/crashResume'
 import { adoptLiveWorkers, specIdsOf, type LiveWorker } from './exec/adopt'
+import type { WorkerInstall } from './exec/coordinator'
 import { specsDirOf } from './exec/specFiles'
 import { approvalDefaultOf } from '../settings/approvalDefault'
 import { feedbackCommand, handsOffOf, isFeedbackCommand } from './exec/plannerFeedback'
@@ -380,6 +381,27 @@ export function keptPhrase(why: 'dirty' | 'unchecked'): string {
     : 'could not be checked (its folder did not answer, or git could not read its status)'
 }
 
+/** What a worker start answers (`OrchServerDeps.startWorker`). */
+export interface StartedWorker {
+  sessionId: string
+  cwd: string
+  specPath: string
+  /** W1-A role models: the model the session started on and why it differs from the ask, recorded on
+   *  the Dispatch (dispatchModelFields, roleModels.ts). */
+  model?: string
+  modelNote?: string
+}
+
+/** T2: a worker start that answered with its fork's install queued for a heavy slot (`installLater`). */
+export interface InstallingStart {
+  /** Settles with the whole start once the install has run and the session is up, or rejects with why it could not. */
+  done: Promise<StartedWorker>
+  /** Runs `run` later as a command of its own, with fresh deps: it takes the Host's command chain the way any outside
+   *  caller does, never inline in the command that asked and never as a sibling holder of another command's chain
+   *  (host/orch.ts). How the start ended is recorded through it. Never throws; a `run` that fails is logged. */
+  record(run: (deps: OrchServerDeps) => Promise<void>): void
+}
+
 export interface OrchServerDeps {
   getState(): OrchState
   /** `rollsBack`: this commit undoes an earlier commit of **the same command**, and the command left
@@ -424,14 +446,17 @@ export interface OrchServerDeps {
     /** Forwarded straight through to OrchCoordinator.startWorker, where the reason it exists is
      *  documented. Type-only pass-through here — this file adds no behaviour for it. */
     launchPhrase?: string
-  }): Promise<{
-    sessionId: string
-    cwd: string
-    specPath: string
-    /** W1-A role models: the model the session started on and why it differs from the ask, recorded on
-     *  the Dispatch (dispatchModelFields, roleModels.ts). */
-    model?: string
-    modelNote?: string
+    /** T2: worker-start's own `--worktree new` start. A wiring that can (the Host, host/orch.ts) answers as soon as
+     *  the fork's install is queued for a heavy slot, with `installing`, and goes on with the install and the session
+     *  outside the command. Any other wiring ignores it and answers once the session is up. */
+    installLater?: true
+    /** T2: the install plan the Host's chain wrapper adds to an `installLater` start (host/orch.ts), forwarded to
+     *  OrchCoordinator.startWorker. Never set by a caller. */
+    install?: WorkerInstall
+  }): Promise<StartedWorker & {
+    /** T2: set when the start answered with its install queued (`installLater`). `cwd` and `specPath` are already
+     *  the real ones and `sessionId` is empty. */
+    installing?: InstallingStart
   }>
   releaseWorker(a: { dispatchId: string; closeReason?: CloseReason }): Promise<void>
   /** 그 세션의 롤링 체인을 버린다 — **세션은 죽이지 않는다**(releaseWorker 와 그 점이 다르다).
@@ -1032,14 +1057,113 @@ export const PENDING_START_WINDOW_MS = 2 * 60_000
  *  `worker-abandon` or a Host restart. Such a one goes ahead, with no release (`releases`).
  *  Null when no Dispatch among `open` is still starting. */
 export const stillStarting = (open: readonly Dispatch[], now: string): Reply | null => {
-  const d = open.find(
-    (x) => isPlaceholderSessionId(x.sessionId) && Date.parse(now) - Date.parse(x.startedAt) < PENDING_START_WINDOW_MS
+  const d = open.find((x) => isPlaceholderSessionId(x.sessionId) && Date.parse(now) - Date.parse(x.startedAt) < startWindowOf(x.sessionId))
+  if (!d) return null
+  return conflict(
+    isInstallingSessionId(d.sessionId)
+      ? `the worker is waiting for a heavy slot to install its dependencies, and starts after that; try again once it has started (dispatch ${d.id})`
+      : `the worker is still starting; try again in a moment (dispatch ${d.id})`
   )
-  return d ? conflict(`the worker is still starting; try again in a moment (dispatch ${d.id})`) : null
 }
+
+/** T2: the placeholder of a worker-start that answered with its fork's install queued for a heavy slot: the Dispatch
+ *  is open and counts against the caps like any start in flight (it is still a `pending:` placeholder, so the board
+ *  shows it starting), and its session is spawned once the install has run. `worker-show` shows it by this id. */
+export const INSTALLING_PREFIX = 'pending:install:'
+export const isInstallingSessionId = (id: string): boolean => id.startsWith(INSTALLING_PREFIX)
+/** T2: how long an installing start counts as in flight: waiting its turn behind the machine's other heavy jobs (with
+ *  one slot and 25 agents at ~2 min an install, the last waits ~50 min) and then up to `SETUP_TIMEOUT_MS` (15 min)
+ *  installing. Past it the stop goes ahead, and the start, which asks whether its Dispatch is still wanted while it
+ *  waits and again before it spawns, gives up without a session. */
+export const INSTALL_START_WINDOW_MS = 60 * 60_000
+/** The window a placeholder counts as a start in flight. */
+export const startWindowOf = (sessionId: string): number =>
+  isInstallingSessionId(sessionId) ? INSTALL_START_WINDOW_MS : PENDING_START_WINDOW_MS
 /** Whether stopping this Dispatch has a session to kill. A placeholder that got past `stillStarting`
  *  is a start that died: no pty was ever opened for it, so there is nothing to release. */
 export const releases = (d: Dispatch): boolean => !isPlaceholderSessionId(d.sessionId)
+
+/**
+ * T2: how a worker-start that answered with its install queued ends. The start (the install under its heavy slot,
+ * then the session) goes on outside that command; once it settles, a fresh command records the outcome
+ * (`InstallingStart.record`: it takes the Host's chain as any outside caller does, never inline in another command's
+ * hold), so no command ever waits for an install. The account's reservation (`release`) goes as the start settles.
+ *
+ * Started: the session id, folder, spec and model are patched onto the Dispatch, as worker-start patches a start
+ * that answered whole. A Dispatch closed meanwhile (stopped past the install window) has its new session released;
+ * the start asks whether it is still wanted while it waits and before it spawns, so that is a narrow race.
+ * Failed: the Dispatch is closed unreported with a status message saying why, the way a worker that died is
+ * (closeDispatch): its Task stays `dispatched` and counts the failure, and is started again with `--retry-of` by its
+ * coordinator or the stall watchdog up to its limits, or gets the lost-worker Gate. Nobody waits on an answer any
+ * more, and a rollback to `ready` would place it again at once, installing again each time. A Dispatch closed or
+ * removed meanwhile keeps that record.
+ */
+function finishInstallingStart(installing: InstallingStart, a: { dispatchId: string; release: () => void }): void {
+  installing.done.then(
+    (started) => {
+      a.release()
+      installing.record(async (deps) => {
+        const latest = deps.getState()
+        const d = latest.dispatches.find((x) => x.id === a.dispatchId)
+        if (!d) {
+          deps.log?.(`worker-start: dispatch ${a.dispatchId} was removed while it installed; its worker ${started.sessionId} has no Dispatch`)
+          return
+        }
+        await deps.setState({
+          ...latest,
+          dispatches: latest.dispatches.map((x) =>
+            x.id === a.dispatchId
+              ? { ...x, sessionId: started.sessionId, cwd: started.cwd, specPath: started.specPath, ...dispatchModelFields(started) }
+              : x
+          )
+        })
+        if (d.endedAt !== undefined || d.outcome !== undefined) {
+          deps.log?.(`worker-start: dispatch ${a.dispatchId} was closed while it installed, so its new worker ${started.sessionId} is released`)
+          await deps.releaseWorker({ dispatchId: a.dispatchId, closeReason: 'stopped' })
+        }
+      })
+    },
+    (e: unknown) => {
+      a.release()
+      installing.record(async (deps) => {
+        const latest = deps.getState()
+        const d = latest.dispatches.find((x) => x.id === a.dispatchId)
+        if (!d || d.endedAt !== undefined || d.outcome !== undefined) return
+        const why = e instanceof Error ? e.message : String(e)
+        deps.log?.(`worker-start: dispatch ${a.dispatchId} could not start its worker after its install: ${why}`)
+        await deps.setState(failedInstallingStart(latest, d, why, deps.now?.() ?? new Date().toISOString()))
+      })
+    }
+  )
+}
+
+/** T2: an installing start that could not start its worker, closed as `closeDispatch` closes a worker that ended
+ *  unreported (lost: no outcome, no `closedBy`), with its own status message. */
+function failedInstallingStart(s: OrchState, d: Dispatch, why: string, now: string): OrchState {
+  const task = s.tasks.find((t) => t.id === d.taskId)
+  return {
+    ...s,
+    dispatches: s.dispatches.map((x) => (x.id === d.id ? { ...x, endedAt: now, workerState: 'failed' as const } : x)),
+    tasks: s.tasks.map((t) => (t.id === d.taskId ? { ...t, consecutiveFailures: t.consecutiveFailures + 1, updatedAt: now } : t)),
+    messages: task
+      ? [
+          ...s.messages,
+          {
+            // 16 hex, as newId (types.ts)
+            id: `msg_${randomBytes(8).toString('hex')}`,
+            runId: runIdOf(task),
+            type: 'status' as MessageType,
+            taskId: task.id,
+            dispatchId: d.id,
+            subject: 'worker could not start after its install',
+            body: `${why}\nNo session was started. It is started again like a worker that ended without reporting.`,
+            answered: false,
+            createdAt: now
+          }
+        ]
+      : s.messages
+  }
+}
 
 /** The Job's latest Run **while it still runs**, else undefined. `jobs run` refuses on it, and a fire
  *  skips on it (`run-spawn --unless-running`; the user's ruling of 2026-09-25 on U1): the same test in
@@ -5329,10 +5453,15 @@ export async function handleCommand(
         ? { subject: report?.subject ?? 'it failed', body: report?.body ?? 'No failure report was recorded.' }
         : undefined
 
-      let started: { sessionId: string; cwd: string; specPath: string; model?: string; modelNote?: string }
+      // T2: a fresh fork's install queues for one of the machine's heavy slots. Where the wiring can finish the start
+      // as a fresh command (the Host), the start answers once the install is queued, so the scheduler's pass and the
+      // Host's command chain never wait for an install; the app ignores it and answers once the session is up.
+      const installLater = worktree === 'new' && !terminal
+      let started: Awaited<ReturnType<OrchServerDeps['startWorker']>>
       try {
         // T5b: the session now counts itself on its account (a live session), so the start's own count goes
         started = await deps.startWorker({
+          ...(installLater ? { installLater: true as const } : {}),
           dispatchId,
           taskId,
           title: task.title,
@@ -5383,6 +5512,23 @@ export async function handleCommand(
         if (leftNothingBehind(e)) await deps.setState(rolledBack, { rollsBack: true })
         else await deps.setState(rolledBack)
         return bad(`failed to start worker: ${e instanceof Error ? e.message : String(e)}`)
+      }
+
+      // T2: the fork exists and its install is queued for a heavy slot. The Dispatch stays a placeholder (so it still
+      // counts against the caps and the board shows it starting), named as installing (`INSTALLING_PREFIX`: its own,
+      // longer start window), with its real folder and spec path: the spec sweep keeps a spec an open Dispatch names,
+      // and the spec is written just before the session starts. The account's reservation is kept until then.
+      if (started.installing !== undefined) {
+        const installingId = `${INSTALLING_PREFIX}${pendingSessionId.slice('pending:'.length)}`
+        const queued = deps.getState()
+        await deps.setState({
+          ...queued,
+          dispatches: queued.dispatches.map((d) =>
+            d.id === dispatchId ? { ...d, sessionId: installingId, cwd: started.cwd, specPath: started.specPath } : d
+          )
+        })
+        finishInstallingStart(started.installing, { dispatchId, release })
+        return okBody({ sessionId: installingId, cwd: started.cwd, specPath: started.specPath, dispatchId, installing: true })
       }
 
       release()
