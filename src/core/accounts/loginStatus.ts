@@ -57,10 +57,20 @@ export function claudeLoginProbe(opts: {
       let expired = false
       try {
         const parsed = JSON.parse(await fs.readFile(credPath, 'utf8')) as {
-          claudeAiOauth?: { refreshTokenExpiresAt?: unknown }
+          claudeAiOauth?: { refreshTokenExpiresAt?: unknown; refreshToken?: unknown; expiresAt?: unknown }
         }
-        const exp = parsed.claudeAiOauth?.refreshTokenExpiresAt
+        const oauth = parsed.claudeAiOauth
+        const exp = oauth?.refreshTokenExpiresAt
         if (typeof exp === 'number' && exp <= now) expired = true
+        // **A refresh the server refused leaves its own mark.** Measured 2026-10-31: an account whose
+        // refresh failed ("OAuth session expired and could not be refreshed") had its file rewritten
+        // with `expiresAt: 0` and no refresh token, while `refreshTokenExpiresAt` stayed in the future —
+        // so the check above kept calling it logged in, a planner was started on it, and it opened on
+        // "Login expired · Please run /login". No refresh token and an access token already past its
+        // expiry is an account that cannot authenticate until it logs in again.
+        const access = oauth?.expiresAt
+        const noRefresh = oauth !== undefined && (typeof oauth.refreshToken !== 'string' || oauth.refreshToken === '')
+        if (noRefresh && typeof access === 'number' && access <= now) expired = true
       } catch {
         /* unreadable or unparsable — fall through to "present means logged in" */
       }

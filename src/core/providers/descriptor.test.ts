@@ -171,6 +171,23 @@ describe('isLoggedIn 프로브 — 어떤 증거를 보는가', () => {
     expect(await probe(dir)).toBe(true)
   })
 
+  // The file a refused refresh leaves behind (measured 2026-10-31): access expired, refresh token gone
+  it('claude: a refused refresh (no refresh token, access expired) is logged out', async () => {
+    const never: KeychainHas = async () => false
+    const probe = claudeLoginProbe({ platform: 'win32', homeDir: dir, account: 'u', keychainHas: never, now: () => 2000 })
+    const cred = { claudeAiOauth: { accessToken: 'a', expiresAt: 0, refreshTokenExpiresAt: 9000 } }
+    await fs.writeFile(path.join(dir, '.credentials.json'), JSON.stringify(cred), 'utf8')
+    expect(await probe(dir)).toBe(false)
+  })
+
+  it('claude: an expired access token with a refresh token is still logged in — claude refreshes it', async () => {
+    const never: KeychainHas = async () => false
+    const probe = claudeLoginProbe({ platform: 'win32', homeDir: dir, account: 'u', keychainHas: never, now: () => 2000 })
+    const cred = { claudeAiOauth: { accessToken: 'a', refreshToken: 'r', expiresAt: 1000, refreshTokenExpiresAt: 9000 } }
+    await fs.writeFile(path.join(dir, '.credentials.json'), JSON.stringify(cred), 'utf8')
+    expect(await probe(dir)).toBe(true)
+  })
+
   it('claude: refreshTokenExpiresAt 필드가 없으면 종전대로 파일 존재로 본다', async () => {
     const never: KeychainHas = async () => false
     const probe = claudeLoginProbe({ platform: 'win32', homeDir: dir, account: 'u', keychainHas: never, now: () => 2000 })

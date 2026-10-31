@@ -126,6 +126,10 @@ export const closedWithReason = (text: string): CloseReason => `closed:${text.re
 
 export interface SessionInfo {
   id: string
+  /** The prompt a fresh (not resumed) session was started with — spawn's initialPrompt. A roll of a
+   *  session that never got as far as a conversation (its first turn met "Login expired") has no
+   *  transcript to carry, and starts over on the next account with this instead. */
+  firstPrompt?: string
   accountId: string
   cwd: string
   status: SessionStatus

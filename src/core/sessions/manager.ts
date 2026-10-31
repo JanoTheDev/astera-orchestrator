@@ -409,6 +409,7 @@ export class SessionManager {
       schedule: opts.schedule,
       ...(opts.model ? { model: opts.model } : {}),
       ...(opts.effort ? { effort: opts.effort } : {}),
+      ...(opts.initialPrompt && !opts.resumeSessionId ? { firstPrompt: opts.initialPrompt } : {}),
       startedAt
     }
     return this.track(info, pty)

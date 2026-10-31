@@ -83,6 +83,13 @@ const LIMIT_SQUASHED_RE =
 // alternative for versions that still ask it.
 const TRUST_RE = /yes,itrustthisfolder|doyoutrustthefilesinthisfolder/i
 
+// A login claude can no longer use. "Login expired · Please run /login" is what a session started on
+// an account whose refresh the server refused prints (2026-10-31), and "OAuth session expired and
+// could not be refreshed" is the same failure worded by the API path. Matched squashed, like the
+// trust menu. A phrase alone is only a suspicion — the coordinator acts on it once the account's own
+// login probe agrees, since the same words can sit in a file the agent is reading.
+const AUTH_RE = /loginexpired|pleaserun\/login|oauthsessionexpired|couldnotberefreshed/i
+
 const ARROW_DOWN = '\x1b[B'
 const ARROW_UP = '\x1b[A'
 
@@ -106,6 +113,8 @@ export function trustAcceptKeys(text: string): string[] {
 export interface ScanHit {
   limit: boolean
   trust: boolean
+  /** A login-failure phrase is on screen (AUTH_RE) — a suspicion for the coordinator to confirm. */
+  auth: boolean
   /** The stripped text accumulated up to the moment of the match (the value before the buffer is
    *  cleared). For callers that need to know "what it was looking at when it bit", such as parsing
    *  the choice list. With no match, this is the currently accumulated tail as-is.
@@ -145,7 +154,8 @@ export class OutputScanner {
     const trust = TRUST_RE.test(squashed)
     const text = this.tail // capture before clearing — so the caller can re-parse what the match was based on
     if (limit || trust) this.tail = ''
-    return { limit, trust, text }
+    const auth = AUTH_RE.test(squashed)
+    return { limit, trust, auth, text }
   }
 }
 

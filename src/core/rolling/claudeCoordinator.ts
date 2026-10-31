@@ -331,6 +331,12 @@ interface Chain {
    *  purpose — a login is a fact about this machine's account folder, not a usage verdict to broadcast
    *  through the shared BlockRegistry, and every chain learns it from the same source on its own tick. */
   loggedOut: Set<string>
+  /** The live session whose screen showed a login-failure phrase (detect.ts AUTH_RE), not yet
+   *  confirmed by the login probe; null when there is nothing to confirm. Keyed by liveId so a roll
+   *  clears it by moving on. checkAuthFailure confirms it — at once, then on every tick. */
+  authSuspect: string | null
+  /** The in-flight latch of checkAuthFailure. */
+  authChecking: boolean
   /** The in-flight latch of refreshLoginState. One round at a time per chain: the probes are I/O and the
    *  tick is 15 seconds, so two overlapping rounds could resolve out of order and leave the older
    *  verdict standing. */
@@ -547,6 +553,8 @@ export class RollingCoordinator {
       disposed: false,
       recovery: ids.map(() => null),
       loggedOut: new Set(),
+      authSuspect: null,
+      authChecking: false,
       loginRefreshing: false,
       lastBlindProbeAt: 0,
       resetCheckAt: null,
@@ -751,6 +759,11 @@ export class RollingCoordinator {
         if (keys.length > 0) chain.trustTimer = setTimeout(pressNext, TRUST_KEY_GAP_MS)
       }
       chain.trustTimer = setTimeout(pressNext, TRUST_ENTER_DELAY_MS)
+    }
+    // A login the account can no longer use: a suspicion until its login probe agrees (checkAuthFailure).
+    if (hit.auth && chain.authSuspect !== chain.liveId && this.acts(chain)) {
+      chain.authSuspect = chain.liveId
+      void this.checkAuthFailure(chain)
     }
     // If the choice list was not yet on screen when the limit phrase matched, keep looking in later chunks.
     // A hit.limit chunk is excluded because the branch below handles it directly — the same text is not tried twice.
@@ -1799,7 +1812,12 @@ export class RollingCoordinator {
       // reported to. Nothing upstream of this line may fall back the same way — see the Chain fields' comment.
       const sessionId = chain.claudeSessionId ?? chain.resumeSeedSessionId
       const transcriptPath = chain.transcriptPath ?? chain.resumeSeedTranscriptPath
-      if (!sessionId || !transcriptPath) {
+      // A session that never got as far as a conversation — its first prompt met "Login expired", say —
+      // has nothing to resume, but it does have the prompt it was started with. It starts over on the
+      // target account as a blank slate owed that prompt, through the same briefing path Smart Resume
+      // uses (the prompt is typed once the new session is ready). Without one, the roll waits as before.
+      const restartPrompt = !sessionId || !transcriptPath ? chain.liveInfo.firstPrompt : undefined
+      if ((!sessionId || !transcriptPath) && !restartPrompt) {
         this.deps.log(`roll aborted — no session metadata (statusline never recorded) session=${chain.liveId}`)
         this.rescheduleAbortedRoll(chain, 'no session metadata', manual)
         return
@@ -1810,8 +1828,12 @@ export class RollingCoordinator {
       // 복사할지(백지 재개인지) 정할 것이 없으므로 묻지 않고, sendPrompt 가 지금까지처럼 respawn
       // 뒤에 스스로 한 번만 묻는다(Step 4) — 두 번 다 물으면 부수 효과도 두 번 일어난다.
       const strategy = this.resumeStrategy()
-      let briefing: { prompt: string; briefed: boolean } | null = null
-      if (strategy === 'smart') {
+      let briefing: { prompt: string; briefed: boolean } | null = restartPrompt
+        ? { prompt: restartPrompt, briefed: true }
+        : null
+      if (restartPrompt) {
+        this.deps.log(`roll restarts from the first prompt — no conversation to resume session=${chain.liveId}`)
+      } else if (strategy === 'smart') {
         briefing = await this.resumePromptFor(chain, chain.liveId, 'handover', true)
         if (chain.disposed) {
           this.deps.log(
@@ -1855,7 +1877,8 @@ export class RollingCoordinator {
       // ① copy — a claude blocked by a limit is idle, so there is no write contention. Smart Resume
       // skips this: the new session starts blank, so there is no transcript to hand it.
       let dest: string | undefined
-      if (!smart) {
+      if (!smart && transcriptPath) {
+        // (Always present here: a roll with no transcript either restarts as a blank slate or aborted above.)
         dest = claudeHistoryStrategy.mapTargetPath(transcriptPath, target.configDir)
         await this.copy(transcriptPath, dest)
         // 복사 대기 중에 unregister()가 체인을 폐기했으면 여기서 멈춘다 — ② kill·③ spawn을 하지 않고,
@@ -1916,7 +1939,7 @@ export class RollingCoordinator {
       const info = this.deps.spawn({
         account: target,
         cwd: chain.cwd,
-        resumeSessionId: smart ? undefined : sessionId,
+        resumeSessionId: smart ? undefined : (sessionId ?? undefined),
         rollAccountIds: chain.accountIds,
         slackNotify: chain.liveInfo.slackNotify, // Slack notifications are kept per chain
         bypassPermissions: chain.liveInfo.bypassPermissions, // bypass is kept per chain
@@ -1963,7 +1986,8 @@ export class RollingCoordinator {
       this.chains.delete(oldId)
       chain.killing = false
       chain.liveId = info.id
-      chain.liveInfo = info
+      // A restart keeps the first prompt it is owed, so a second failure before any conversation can restart again.
+      chain.liveInfo = restartPrompt && !info.firstPrompt ? { ...info, firstPrompt: restartPrompt } : info
       chain.scanner = new OutputScanner()
       if (dest !== undefined) {
         chain.transcriptPath = dest // the live transcript now lives on the target account's side
@@ -2261,8 +2285,52 @@ export class RollingCoordinator {
       // callback. Nothing else in tickChain may move up here: this call touches only chain.loggedOut,
       // which no roll in flight reads.
       void this.refreshLoginState(chain)
+      if (chain.authSuspect !== null) void this.checkAuthFailure(chain)
       if (chain.rolling || chain.waitTimer || chain.awaitingReady) continue
       void this.tickChain(chain)
+    }
+  }
+
+  /** Rolls a session whose account can no longer log in onto the next one that can.
+   *
+   *  **Why this exists.** A planner was started on an account whose OAuth refresh the server had
+   *  refused (2026-10-31). claude opened on "Login expired · Please run /login" and sat there: nothing
+   *  here read that screen, the limit paths never fired because no limit was hit, and the person had to
+   *  switch accounts by hand.
+   *
+   *  **The phrase is not the verdict; the probe is.** The same words can be on screen because the agent
+   *  is reading a file that contains them, so a roll needs the account's own login probe to say
+   *  "logged out" too — claude rewrites its credentials file when a refresh is refused, before it
+   *  prints the line, and claudeLoginProbe reads that mark. A probe that still says logged in leaves the
+   *  suspicion standing for the next tick (the probe is memoised briefly), never rolls on the phrase.
+   *
+   *  It goes through onLimit, so the target is chosen as for a limit — round robin, skipping blocked and
+   *  logged-out accounts, waiting when there is none — with the awaitingReady cooldown lifted first: a
+   *  session that cannot authenticate never becomes ready, and the cooldown is exactly the window right
+   *  after a roll onto such an account, which is when this is most needed. */
+  private async checkAuthFailure(chain: Chain): Promise<void> {
+    const liveId = chain.authSuspect
+    if (liveId === null || chain.authChecking) return
+    if (chain.liveId !== liveId) {
+      chain.authSuspect = null // rolled since: that session's screen says nothing about this one
+      return
+    }
+    if (chain.rolling || chain.waitTimer || chain.disposed || !this.acts(chain)) return
+    const accountId = chain.accountIds[chain.cycle.currentIndex]
+    const probe = this.deps.loginStatus
+    if (!probe || accountId === undefined) return
+    chain.authChecking = true
+    try {
+      const loggedIn = await probe(accountId).catch(() => true)
+      if (chain.disposed || chain.liveId !== liveId || chain.rolling || chain.waitTimer) return
+      if (loggedIn) return
+      chain.authSuspect = null
+      chain.loggedOut.add(accountId)
+      this.deps.log(`login expired → roll session=${liveId} account=${accountId}`)
+      chain.awaitingReady = false
+      this.onLimit(chain)
+    } finally {
+      chain.authChecking = false
     }
   }
 

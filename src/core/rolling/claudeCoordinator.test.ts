@@ -3875,6 +3875,26 @@ describe('chat chains', () => {
 // retryState as a block with an unknown reset (at: null) — pickAvailable skips a logged-out account and
 // planRetry re-checks it on the RETRY_FALLBACK_MS cadence, exactly as it already does for a usage block.
 describe('logged-out accounts', () => {
+  // 2026-10-31: a planner started on an account whose refresh the server refused, and sat on
+  // "Login expired · Please run /login" with nobody there. The probe confirms; the chain rolls on.
+  it('rolls off an account whose login expired once its probe agrees', async () => {
+    const h = harness({ loginStatus: (id) => Promise.resolve(id !== 'a1') })
+    // a1, a2, a3 — on a1. Its first turn failed, so there is no conversation: it restarts from the prompt.
+    h.coord.register({ ...h.info1, firstPrompt: 'Read the planner spec and follow it' })
+    h.coord.handleData({ sessionId: 's1', data: 'Login expired · Please run /login' })
+    await flush()
+    expect(h.events).toContain('spawn:s2:a2')
+  })
+
+  it('does not roll on the phrase alone while the probe says logged in', async () => {
+    const h = harness({ loginStatus: () => Promise.resolve(true) })
+    h.coord.register(h.info1)
+    h.coord.handleData({ sessionId: 's1', data: 'the docs say: Login expired · Please run /login' })
+    await flush()
+    await advanceIo(15_000)
+    expect(h.events.filter((e) => e.startsWith('spawn:'))).toEqual([])
+  })
+
   it('rolls past a logged-out account to the next live one', async () => {
     const h = harness({ loginStatus: (id) => Promise.resolve(id !== 'a2') })
     h.payloads.set('s1', payload(97))
