@@ -38,14 +38,19 @@ describe('detectSetupCommand', () => {
   })
 })
 
+// Commands through node, so they read the same under cmd.exe (Windows) and sh
+const node = (js: string): string => `node -e "${js}"`
+const BOOM_EXIT_3 = node("console.log('boom');process.exit(3)")
+const TOUCH_RAN = node("require('fs').writeFileSync('ran.txt','')")
+
 describe('runWorktreeSetup', () => {
   const logs: string[] = []
   const log = (m: string): void => void logs.push(m)
 
   it('runs the given command in the worktree', async () => {
     const dir = await withFiles()
-    const r = await runWorktreeSetup({ dir, setting: 'touch ran.txt', log })
-    expect(r).toMatchObject({ ran: true, ok: true, command: 'touch ran.txt' })
+    const r = await runWorktreeSetup({ dir, setting: TOUCH_RAN, log })
+    expect(r).toMatchObject({ ran: true, ok: true, command: TOUCH_RAN })
     await expect(fs.access(path.join(dir, 'ran.txt'))).resolves.toBeUndefined()
   })
 
@@ -61,14 +66,14 @@ describe('runWorktreeSetup', () => {
   it('skips when node_modules is already there', async () => {
     const dir = await withFiles()
     await fs.mkdir(path.join(dir, 'node_modules'))
-    expect(await runWorktreeSetup({ dir, setting: 'touch ran.txt', log })).toMatchObject({ ran: false })
+    expect(await runWorktreeSetup({ dir, setting: TOUCH_RAN, log })).toMatchObject({ ran: false })
     await expect(fs.access(path.join(dir, 'ran.txt'))).rejects.toThrow()
   })
 
   it('force runs even when node_modules is already there', async () => {
     const dir = await withFiles()
     await fs.mkdir(path.join(dir, 'node_modules'))
-    expect(await runWorktreeSetup({ dir, setting: 'touch ran.txt', log, force: true })).toMatchObject({ ran: true, ok: true })
+    expect(await runWorktreeSetup({ dir, setting: TOUCH_RAN, log, force: true })).toMatchObject({ ran: true, ok: true })
     await expect(fs.access(path.join(dir, 'ran.txt'))).resolves.toBeUndefined()
   })
 
@@ -78,22 +83,23 @@ describe('runWorktreeSetup', () => {
 
   it('reports a failing command with its output, never throws', async () => {
     logs.length = 0
-    const r = await runWorktreeSetup({ dir: await withFiles(), setting: 'echo boom; exit 3', log })
+    const r = await runWorktreeSetup({ dir: await withFiles(), setting: BOOM_EXIT_3, log })
     expect(r).toMatchObject({ ran: true, ok: false })
     expect(r.tail).toContain('exit 3')
     expect(r.tail).toContain('boom')
-    expect(logs.join('\n')).toContain('echo boom; exit 3')
+    expect(logs.join('\n')).toContain(JSON.stringify(BOOM_EXIT_3)) // the log quotes the command as JSON
   })
 
   it('reports a missing tool', async () => {
     const r = await runWorktreeSetup({ dir: await withFiles(), setting: 'astera-no-such-tool-xyz', log })
     expect(r).toMatchObject({ ran: true, ok: false })
-    expect(r.tail).toContain('127')
+    // sh says 127 for a missing command; cmd.exe says 1
+    expect(r.tail).toContain(process.platform === 'win32' ? 'exit 1' : '127')
   })
 
   it('reports a timeout and ends the command', async () => {
     const t = Date.now()
-    const r = await runWorktreeSetup({ dir: await withFiles(), setting: 'sleep 30', log, timeoutMs: 200 })
+    const r = await runWorktreeSetup({ dir: await withFiles(), setting: node('setTimeout(()=>{},30000)'), log, timeoutMs: 200 })
     expect(r).toMatchObject({ ran: true, ok: false })
     expect(r.tail).toContain('timed out')
     expect(Date.now() - t).toBeLessThan(5000)
@@ -101,8 +107,6 @@ describe('runWorktreeSetup', () => {
 })
 
 describe('runWorktreeSetup with a heavy slot (T2)', () => {
-  // Commands through node, so they read the same under cmd.exe and sh
-  const node = (js: string): string => `node -e "${js}"`
   const WRITE_RAN = node("require('fs').writeFileSync('ran.txt','')")
   const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 

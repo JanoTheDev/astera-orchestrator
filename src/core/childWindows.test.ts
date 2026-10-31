@@ -93,7 +93,7 @@ describe('hideAllChildConsoleWindows with exceptDetached (the CLI and main)', ()
     hideAllChildConsoleWindows(proto, 'win32', { exceptDetached: true })
     proto.spawn({ file: 'git', detached: false, windowsHide: false })
     // electron-updater's NSIS installer: detached, a GUI program whose window SW_HIDE would hide.
-    proto.spawn({ file: 'C:\Users\me\AppData\Local\astera-updater\pending\Astera-Setup.exe', detached: true, windowsHide: false })
+    proto.spawn({ file: 'C:\\Users\\me\\AppData\\Local\\astera-updater\\pending\\Astera-Setup.exe', detached: true, windowsHide: false })
     expect(seen.map((o) => o.windowsHide)).toEqual([true, false])
   })
 })
@@ -116,20 +116,20 @@ describe('hideSyncChildConsoleWindows', () => {
     const { hideSyncChildConsoleWindows } = await import('./childWindows')
     const { cp, calls } = syncHolder()
     expect(hideSyncChildConsoleWindows(cp, 'win32')).toBe(true)
-    cp.spawnSync('git', ['status'], { cwd: 'C:\repo' })
-    cp.spawnSync('git', { cwd: 'C:\repo' })
+    cp.spawnSync('git', ['status'], { cwd: 'C:\\repo' })
+    cp.spawnSync('git', { cwd: 'C:\\repo' })
     cp.spawnSync('git')
-    cp.execFileSync('C:\Program Files\Git\cmd\git.exe', ['rev-parse', 'HEAD'])
+    cp.execFileSync('C:\\Program Files\\Git\\cmd\\git.exe', ['rev-parse', 'HEAD'])
     cp.execFileSync('where', { encoding: 'utf8' })
     cp.execSync('ver', { encoding: 'utf8', windowsHide: false })
     cp.execSync('ver')
     expect(calls.spawnSync).toEqual([
-      ['git', ['status'], { cwd: 'C:\repo', windowsHide: true }],
-      ['git', { cwd: 'C:\repo', windowsHide: true }],
+      ['git', ['status'], { cwd: 'C:\\repo', windowsHide: true }],
+      ['git', { cwd: 'C:\\repo', windowsHide: true }],
       ['git', undefined, { windowsHide: true }]
     ])
     expect(calls.execFileSync).toEqual([
-      ['C:\Program Files\Git\cmd\git.exe', ['rev-parse', 'HEAD'], { windowsHide: true }],
+      ['C:\\Program Files\\Git\\cmd\\git.exe', ['rev-parse', 'HEAD'], { windowsHide: true }],
       ['where', { encoding: 'utf8', windowsHide: true }]
     ])
     expect(calls.execSync).toEqual([
@@ -189,7 +189,7 @@ describe('hideChildConsoleWindows (the guard the CLI and Electron main apply)', 
     const { hideChildConsoleWindows } = await import('./childWindows')
     const { cp, spawned } = module()
     hideChildConsoleWindows(cp, 'win32')
-    const login = { file: 'C:\Users\me\AppData\Roaming\npm\claude.cmd', stdio: [0, 2, 2], shell: true }
+    const login = { file: 'C:\\Users\\me\\AppData\\Roaming\\npm\\claude.cmd', stdio: [0, 2, 2], shell: true }
     cp.ChildProcess.prototype.spawn({ ...login })
     cp.ChildProcess.prototype.spawn({ file: 'claude', stdio: ['inherit', 'pipe', 'inherit'], shell: true })
     expect(spawned[0]).toEqual({ ...login, windowsHide: true })
