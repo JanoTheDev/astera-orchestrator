@@ -82,6 +82,7 @@ import { autoAnswerLine, autoAnswersDue, coordinatorDecideBody, ESCALATION_DEFAU
 import { STALL_WATCH_MS, stallPauseProbe, stallRemedies, startNotice, watchdogActivity, type StallEntry, type StallRemedy } from './stallWatch'
 import type { ActivityDraft } from '../activity'
 import { DETACHED_GRACE_MS, isDetachedHeadError } from '../../worktrees/base'
+import { forkAnsweringAtInstall, installPending, installSettled, type InstallTurn } from '../../worktrees/setup'
 import { MERGE_FAILED_GATE, MERGE_FAILED_OPTIONS, MERGE_RETRY_BACKOFF_MS, mergeRetryChoice, mergeRetryOf, transientCauseOf, transientWhy, type TransientCause } from './transientGit'
 
 /** W6-D: a replan whose start left no session after this long died with its process, and is ended. */
@@ -219,6 +220,14 @@ export interface DispatchLoopContext {
   lang(): Lang
   /** `base`: the plan's target branch (`deliveryBranchOf`), forked from instead of the branch the folder stands on. */
   forkRunWorktree(a: { repoPath: string; name: string; base?: string }): Promise<string>
+  /** T24: the heavy slots a Run worktree's dependency install waits for (worktrees/setup.ts InstallTurn), read at each
+   *  fork. With it the lazy fork answers once its install queues, so the pass is not held while the install waits for a
+   *  slot or runs, and a Run whose worktree still installs (`installPending`) waits, its other Runs placed meanwhile.
+   *  Optional: without it the fork installs inside the pass with no slot, and nothing waits on an install. */
+  installHeavy?(): InstallTurn['heavy']
+  /** Test seams: setup.ts installPending and installSettled. */
+  installPending?(dir: string): boolean
+  installSettled?(dir: string): Promise<void> | undefined
   /** True when the folder is there for sure not (delivery removes a plan's worktree but the Run keeps the path). A
    *  folder that does not answer is not gone. Optional: without it a recorded Run worktree is taken as present. */
   worktreeGone?(p: string): Promise<boolean>
@@ -1390,6 +1399,39 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     return { kind: 'wait', why: 'the project folder is not on a branch right now (detached HEAD); it is tried again' }
   }
 
+  /** T24: a Run worktree's fork. With `installHeavy` it answers once the folder's install queues for a heavy slot, and
+   *  the install goes on beside the pass (setup.ts forkAnsweringAtInstall); a Run that is gone stops its wait. */
+  const forkRun = (runId: string, a: { repoPath: string; name: string; base?: string }): Promise<string> => {
+    const heavy = c.installHeavy?.()
+    if (!heavy) return c.forkRunWorktree(a)
+    return forkAnsweringAtInstall(
+      { ...heavy, abandoned: () => heavy.abandoned?.() === true || !c.getState().runs.some((r) => r.id === runId) },
+      () => c.forkRunWorktree(a),
+      log
+    )
+  }
+  /** The Run worktrees whose install end will start a pass, so a Run that waited on it is placed then. */
+  const wakeOnInstall = new Set<string>()
+  /** How often a Run waiting on an install it cannot see the end of (another process's) looks again. */
+  const INSTALL_LOOK_AGAIN_MS = 30_000
+  /** T24: a wait while the Run worktree's dependency install has not ended: a worker started there now would find its
+   *  node_modules half made. Null when it may go on (no install, or no `installHeavy` wiring). */
+  const installWait = (dir: string): SlotEnd | null => {
+    if (!c.installHeavy) return null
+    if (!(c.installPending ?? installPending)(dir)) return null
+    if (!wakeOnInstall.has(dir)) {
+      wakeOnInstall.add(dir)
+      const again = (): void => {
+        wakeOnInstall.delete(dir)
+        void runScheduler().catch((e) => log(`scheduler: the pass after ${dir}'s install failed: ${String(e)}`))
+      }
+      const settled = (c.installSettled ?? installSettled)(dir)
+      if (settled) void settled.then(again)
+      else setTimeout(again, INSTALL_LOOK_AGAIN_MS).unref?.()
+    }
+    return { kind: 'wait', why: `its plan worktree ${dir} is installing its dependencies (or waits for a heavy slot to), and it starts once that ends` }
+  }
+
   const placeSlot = async (slot: Slot, accounts: Account[], loggedIn: Set<string>): Promise<SlotEnd> => {
     // 사람이 이 Task 에 계정을 지정했으면 그 목록의 첫 계정, 아니면 그 provider 의 기본
     // 계정. 판정은 core 에 있다(accountToDispatchOn) — 이 파일에는 테스트가 닿지 않는다.
@@ -1494,7 +1536,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
         // 엉뚱한 조상을 끌고 온다 — 그 판단은 한 곳에만 있어야 한다.
         const runJob = jobOf(state, run)
         const base = runJob && deliveryBranchOf(state, runJob)
-        const created = await c.forkRunWorktree({
+        const created = await forkRun(run.id, {
           repoPath: runJob?.cwd ?? '',
           name: nameForRun({ id: run.jobId, objective: runJob ? jobNameOf(runJob) : '' }), // W7-D (#68): named as the plan is
           ...(base ? { base } : {})
@@ -1546,7 +1588,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       try {
         const runJob = jobOf(state, run)
         const base = runJob && deliveryBranchOf(state, runJob)
-        const created = await c.forkRunWorktree({
+        const created = await forkRun(run.id, {
           repoPath: runJob?.cwd ?? '',
           name: nameForRun({ id: run.jobId, objective: runJob ? jobNameOf(runJob) : '' }),
           ...(base ? { base } : {})
@@ -1568,6 +1610,12 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
           why: `the run worktree could not be made again: ${String(e)}`
         }
       }
+    }
+    // T24: a Run worktree made just now (above, or by run-start's makeRunWorktree) installs beside the pass; until that
+    // ends, this Run's slots wait and the pass places the next
+    if (run.worktree !== undefined) {
+      const installing = installWait(run.worktree)
+      if (installing) return installing
     }
     // Task 는 **워크트리 확보 블록 뒤에** 읽는다. 반드시 있는 것은 run 과 같은 이유이고
     // (slotsToFill 이 상태에서 골라낸 id 다), 여기까지 내려온 것은 이 루프의 "슬롯마다

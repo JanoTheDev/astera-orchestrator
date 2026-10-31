@@ -80,7 +80,7 @@ import { DESKTOP_ACTOR, HOST_ACTOR, actorOf, type JournalActor } from '../core/c
 import { parseJournalOps } from '../core/continuity/journalOps'
 import { readMaxConcurrentWorkers } from '../core/settings/maxConcurrentWorkers'
 import { readHeavyJobsAtOnce } from '../core/settings/heavyJobs'
-import { untilInstallQueues } from '../core/worktrees/setup'
+import { forkAnsweringAtInstall, untilInstallQueues } from '../core/worktrees/setup'
 import { machineSpecs } from '../core/settings/machineSpecs'
 
 /** One reply — today's HTTP status and body, the shape `OrchCall.call` already answers with. Named
@@ -1099,9 +1099,22 @@ export function createHostOrch(a: {
         a.log(detail ? `${name} refused by the Host: ${why}` : `${name} could not be put to the app: ${why}`)
       }
     })
-    const { startWorker, readWorker } = deps
+    const { startWorker, readWorker, makeRunWorktree } = deps
     return {
       ...deps,
+      // T24: run-start's Run worktree answers once its install queues for one of the machine's heavy slots, so the command
+      // holding the chain never waits on a slot. The install goes on outside every holder; until it ends the folder is
+      // installPending, and the scheduler starts no worker there (dispatchLoop.ts installWait)
+      ...(makeRunWorktree
+        ? {
+            makeRunWorktree: (x: Parameters<typeof makeRunWorktree>[0]) =>
+              forkAnsweringAtInstall(
+                { slots: () => readHeavyJobsAtOnce(path.join(a.profileDir, 'app-settings.json')) },
+                () => holding.exit(() => makeRunWorktree(x)),
+                a.log
+              )
+          }
+        : {}),
       // `worker-stop` adopts the original of a stopped duplicate (exec/adopt.ts)
       ...(a.liveWorkers ? { liveWorkers: a.liveWorkers } : {}),
       ...(startWorker

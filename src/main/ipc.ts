@@ -188,7 +188,8 @@ import { performRepair, repairOnce, repairTargetFor, type RepairDeps } from '../
 import { snapshotFor, jobsForProject, outcomeOf } from '../core/orchestration/view'
 import { createOrchPush } from './orchPush'
 import { dropNonGitProjects, ensureProject, findProjectContaining } from '../core/orchestration/projects'
-import { commitFresh } from '../core/orchestration/stateConflict'
+import { commitFresh, rerunOnConflict } from '../core/orchestration/stateConflict'
+import { forkAnsweringAtInstall, untilInstallQueues, type InstallTurn } from '../core/worktrees/setup'
 import { mainRepoRoot } from '../core/projects/detect'
 import { hasOriginRemote } from '../core/projects/create'
 import { readFolderSetup } from '../core/orchestration/exec/deliverySetup'
@@ -3241,6 +3242,43 @@ export function registerIpc(
         log: orchLog
       })
 
+    /** T24: the heavy slots this app's dependency installs wait for (the heavyJobsAtOnce setting), as the Host's do. */
+    const appInstallHeavy: InstallTurn['heavy'] = { slots: async () => core.appSettings.getEffectiveHeavyJobsAtOnce() }
+    /** T24: the app's `worker-start` whose fork installs dependencies answers once the install queues for a heavy slot,
+     *  as the Host's startBesideInstall does (host/orch.ts), so the scheduler pass places its next slot meanwhile. The
+     *  app has no command chain: what the start records afterwards is run as its own write, again on a conflict. */
+    const appStartBesideInstall = async (
+      dispatchId: string,
+      start: () => ReturnType<OrchServerDeps['startWorker']>
+    ): ReturnType<OrchServerDeps['startWorker']> => {
+      const r = await untilInstallQueues(
+        {
+          ...appInstallHeavy,
+          // A start given up meanwhile (worker-abandon, its rollback) stops waiting for a slot
+          abandoned: () => {
+            const d = store.get().dispatches.find((y) => y.id === dispatchId)
+            return d === undefined || d.endedAt !== undefined || d.outcome !== undefined
+          }
+        },
+        start
+      )
+      if ('done' in r) return r.done
+      orchLog(`worker-start: dispatch ${dispatchId} answers now; its install in ${r.queued.dir} waits for a heavy slot`)
+      return {
+        sessionId: '',
+        cwd: r.queued.dir,
+        specPath: '',
+        installing: {
+          rest: r.queued.rest,
+          later: (commit) => {
+            void rerunOnConflict(() => commit()).catch((e) =>
+              orchLog(`worker-start: dispatch ${dispatchId}: recording how its start ended failed: ${String(e)}`)
+            )
+          }
+        }
+      }
+    }
+
     const coordinator = new OrchCoordinator({
       // session:created is emitted at three sites: here (this spawnSession closure), in
       // startCoordinator's own registration below, and in startHostClient's reattach adopter. All
@@ -3331,8 +3369,10 @@ export function registerIpc(
       // registers it, so the worktree list and delete paths in settings handle a worker's worktree
       // exactly like any other. 갈라질 자리를 고르는 판단은 forkWorktree(integrateGit.ts)에 있다 —
       // Run 워크트리를 만드는 스케줄러도 같은 것을 쓴다.
+      // T24: the install takes one of the machine's heavy slots. A worker-start's fork has an install turn (startWorker
+      // below), which answers once it queues; any other fork waits for the slot here, as long as a start may
       createWorktree: async (a) => ({
-        path: await forkWorktree(a, { registry: core.worktrees, log: orchLog, setupCommand: findProjectContaining(store.get(), a.repoPath)?.setupCommand })
+        path: await forkWorktree(a, { registry: core.worktrees, log: orchLog, setupCommand: findProjectContaining(store.get(), a.repoPath)?.setupCommand, heavy: appInstallHeavy })
       }),
       // W5-A (#50): a dependent Task's fork gets its deps merged in (integrateGit.ts).
       mergeIntoWorktree: (worktree, from) => mergeDepsInto(worktree, from, { log: orchLog }),
@@ -3467,6 +3507,8 @@ export function registerIpc(
       lang: () => core.lang,
       forkRunWorktree: (a) =>
         forkWorktree({ repoPath: a.repoPath, name: a.name, base: a.base }, { registry: core.worktrees, log: orchLog, setupCommand: findProjectContaining(store.get(), a.repoPath)?.setupCommand }),
+      // T24: the lazy Run worktree's install takes one of the machine's heavy slots, beside the pass
+      installHeavy: () => appInstallHeavy,
       worktreeGone: async (p) => (await defaultGateProbe(p)) === 'absent',
       integrate: (runRoot, merges, heads, opts) => integrateWorktrees(runRoot, merges, { heads, ...opts }, gitCtx),
       reap: (p) => reapWorktree(p),
@@ -3582,8 +3624,15 @@ export function registerIpc(
        *  안에 있고, raw createWorktree 를 부르면 origin/HEAD 에서 갈라져 최종 병합이 엉뚱한 조상을
        *  끌고 온다 — 스케줄러의 게으른 생성이 같은 함수를 쓰는 이유와 같다. 그 판단은 한 곳에만
        *  있어야 한다. */
+      // T24: answers once the install queues for a heavy slot, as the Host's does (host/orch.ts); the scheduler starts no
+      // worker in the folder until the install ends (dispatchLoop.ts installWait)
       makeRunWorktree: (a) =>
-        forkWorktree({ repoPath: a.repoPath, name: a.name, base: a.base }, { registry: core.worktrees, log: orchLog, setupCommand: findProjectContaining(store.get(), a.repoPath)?.setupCommand }),
+        forkAnsweringAtInstall(
+          appInstallHeavy,
+          () =>
+            forkWorktree({ repoPath: a.repoPath, name: a.name, base: a.base }, { registry: core.worktrees, log: orchLog, setupCommand: findProjectContaining(store.get(), a.repoPath)?.setupCommand }),
+          orchLog
+        ),
       /** 이 Run 을 관리할 코디네이터 세션을 띄운다 — the body, and the reasoning for its brief file,
        *  its one-account chain and its permission mode, is startCoordinatorSession in
        *  core/orchestration/exec/workerStart.ts. What stays here is the app's spawn adapter. */
@@ -3633,22 +3682,25 @@ export function registerIpc(
       // worker-start and review Dispatches alike. The chain rule and the tail are
       // startWorkerWithChain's (core/orchestration/exec/workerStart.ts), which the Host will call
       // (Task 9).
-      startWorker: (a) =>
-        startWorkerWithChain(
-          {
-            getState: () => store.get(),
-            accounts: async () => core.accounts.list(),
-            loginStatus: (id) => core.accounts.loginStatus(id),
-            coordinator,
-            tails: orchTails,
-            log: orchLog,
-            roleModels: async () => core.appSettings.getRoleModels(),
-            // T5b: the chain by usage, as the Host's (startWorkerWithChain)
-            usageGuard,
-            effortLevels: effortLevelsFor
-          },
-          a
-        ),
+      startWorker: (a) => {
+        const start = (): ReturnType<typeof startWorkerWithChain> =>
+          startWorkerWithChain(
+            {
+              getState: () => store.get(),
+              accounts: async () => core.accounts.list(),
+              loginStatus: (id) => core.accounts.loginStatus(id),
+              coordinator,
+              tails: orchTails,
+              log: orchLog,
+              roleModels: async () => core.appSettings.getRoleModels(),
+              // T5b: the chain by usage, as the Host's (startWorkerWithChain)
+              usageGuard,
+              effortLevels: effortLevelsFor
+            },
+            a
+          )
+        return a.queueInstall ? appStartBesideInstall(a.dispatchId, start) : start()
+      },
       releaseWorker: async ({ dispatchId, closeReason }) => {
         // The coordinator does not know about state, so the wiring pulls the material for the "is it
         // safe to close" verdict out of state and passes it in (the computation is in release.ts, and
