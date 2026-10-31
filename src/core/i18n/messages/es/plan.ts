@@ -159,7 +159,7 @@ export const plan: Partial<Record<keyof typeof ko, string>> = {
   'plan.reason.replanQuestion': 'El planificador te hizo una pregunta · mira la Bandeja',
   'plan.steps.reason.lead': 'La inicia el agente principal',
   'plan.steps.reason.planCap': 'Límite del plan lleno ({used} de {limit} agentes)',
-  'plan.steps.reason.globalCap': 'Límite de la app lleno ({used} de {limit} agentes, prioridad {priority})',
+  'plan.steps.reason.globalCap': 'Límite de la app lleno ({running} en ejecución, {starting} iniciando, límite {limit}, prioridad {priority})',
   'plan.steps.now.asked': 'Preguntó al agente principal',
   'plan.graph.gate': 'Retenerla con una pregunta para ti',
   'plan.graph.answer': 'Responder su pregunta',

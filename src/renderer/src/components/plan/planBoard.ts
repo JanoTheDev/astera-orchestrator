@@ -108,7 +108,10 @@ export function reasonText(
     case 'plan-cap':
       return { key: 'plan.steps.reason.planCap', params: { used: reason.used, limit: reason.limit } }
     case 'global-cap':
-      return { key: 'plan.steps.reason.globalCap', params: { used: reason.used, limit: reason.limit, priority: reason.priority } }
+      return {
+        key: 'plan.steps.reason.globalCap',
+        params: { running: reason.running, starting: reason.starting, limit: reason.limit, priority: reason.priority }
+      }
     // W6-C
     case 'same-files':
       // W8-D: "Waits for Auth rework · T6 (same files: src/api/routes.ts)" when it is another plan's

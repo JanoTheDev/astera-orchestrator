@@ -17,7 +17,7 @@ import {
   serialFilesOf,
   slotsToFill,
   workerCapOf,
-  workersAgainstCap,
+  workersAgainstCapSplit,
   type ScheduleLimits
 } from './schedule'
 import { usageChoice } from './usageGuard'
@@ -75,7 +75,13 @@ export function taskBoardsOf(
   const runById = new Map(s.runs.map((r) => [r.id, r]))
   const jobById = new Map(s.jobs.map((j) => [j.id, j]))
   let placement:
-    | { count: number; slotted: Set<string>; byRun: Map<string, number>; used: number; editing: Map<string, Task[]> }
+    | {
+        count: number
+        slotted: Set<string>
+        byRun: Map<string, number>
+        busy: { running: number; starting: number }
+        editing: Map<string, Task[]>
+      }
     | undefined
   const placed = (): NonNullable<typeof placement> => {
     if (placement) return placement
@@ -92,7 +98,7 @@ export function taskBoardsOf(
       // T7: only a project that keeps same-file Tasks apart (schedule.ts `serialFilesOf`)
       if (t && key !== undefined && serialFilesOf(s, key)) editing.set(key, [...(editing.get(key) ?? []), t])
     }
-    placement = { count: slots.length, slotted: new Set(slots.map((x) => x.taskId)), byRun, used: workersAgainstCap(s), editing }
+    placement = { count: slots.length, slotted: new Set(slots.map((x) => x.taskId)), byRun, busy: workersAgainstCapSplit(s), editing }
     return placement
   }
   const openByRun = new Map<string, number>()
@@ -199,8 +205,15 @@ export function taskBoardsOf(
     const openHere = openByRun.get(run.id) ?? 0
     const limit = job.concurrency ?? DEFAULT_CONCURRENCY
     if (openHere + (p.byRun.get(run.id) ?? 0) >= limit) return { kind: 'plan-cap', used: openHere, limit }
-    if (p.used + p.count >= cap)
-      return { kind: 'global-cap', used: p.used, limit: cap, priority: job.priority ?? 0 }
+    // The slots this pass places hold the cap too, and have not started yet: they count as starting
+    if (p.busy.running + p.busy.starting + p.count >= cap)
+      return {
+        kind: 'global-cap',
+        running: p.busy.running,
+        starting: p.busy.starting + p.count,
+        limit: cap,
+        priority: job.priority ?? 0
+      }
     return { kind: 'next' }
   }
 
