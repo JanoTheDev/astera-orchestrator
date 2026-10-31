@@ -17,7 +17,7 @@ import { autoOrderOf, rankAccounts, type AutoAccountsGuard, type UnusableReason 
 import { isGhostAccountId } from '../../accounts/ghostId'
 import type { UsageGuard } from '../usageGuard'
 import { markCodexProjectTrusted } from '../../accounts/codexTrust'
-import { claudeConfigFileFor, markClaudeProjectTrusted } from '../../accounts/claudeTrust'
+import { CLAUDE_SETTINGS_FILE, claudeConfigFileFor, ensureClaudeTheme, markClaudeProjectTrusted } from '../../accounts/claudeTrust'
 import { coordinatorLaunchPrompt } from '../handover'
 import { startPlannerSession } from './plannerStart'
 import { workerTabTitle } from './coordinatorRotate'
@@ -696,5 +696,14 @@ export async function preTrustWorkspace(a: {
     )
   } catch (e) {
     a.log(`trust preset failed account=${account.id} cwd=${a.cwd}: ${String(e)}`)
+  }
+  // The theme onboarding would have asked for, now that the trust preset marks onboarding done: in
+  // settings.json under the config dir, for the ambient account too (its <home>/.claude). Apart from
+  // the trust write, so a settings file this cannot write costs a light theme, not a trust menu.
+  if (providerOf(account) === 'codex') return
+  try {
+    await ensureClaudeTheme(path.join(account.configDir, CLAUDE_SETTINGS_FILE))
+  } catch (e) {
+    a.log(`theme preset failed account=${account.id}: ${String(e)}`)
   }
 }

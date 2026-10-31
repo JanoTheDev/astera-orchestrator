@@ -148,3 +148,36 @@ export async function markClaudeProjectTrusted(
     await writeThroughTmp(file, next)
   })
 }
+
+/** The file claude keeps an account's user settings in — the theme among them. */
+export const CLAUDE_SETTINGS_FILE = 'settings.json'
+
+/** Returns `existing` settings with a theme, or `existing` unchanged when one is already chosen.
+ *
+ *  **The theme is the other half of skipping onboarding.** claude keeps the picker's answer in
+ *  settings.json, not in `.claude.json`, so marking onboarding done (upsertClaudeTrust) left an
+ *  account that never went through it with no theme at all — and claude drew it light. "dark" is what
+ *  the picker has selected when it opens. A theme the person chose is never touched. */
+export function upsertClaudeTheme(existing: string): string {
+  const text = existing.charCodeAt(0) === 0xfeff ? existing.slice(1) : existing
+  const root: Record<string, unknown> = text.trim() === '' ? {} : (JSON.parse(text) as Record<string, unknown>)
+  if (typeof root.theme === 'string' && root.theme !== '') return existing
+  return JSON.stringify({ ...root, theme: 'dark' }, null, indentOf(text) || 2) + (text.endsWith('\n') ? '\n' : '')
+}
+
+/** Gives one account's settings file a theme when it has none (upsertClaudeTheme). Same write
+ *  discipline as markClaudeProjectTrusted: one at a time, `.bak`, tmp+rename, and a file that is
+ *  there but blank or unreadable is left alone rather than replaced by a one-key object. */
+export async function ensureClaudeTheme(settingsFile: string): Promise<void> {
+  return oneAtATime(settingsFile, async () => {
+    const read = await readStoreFile(settingsFile)
+    if (read.kind === 'unreadable') throw read.error
+    if (read.kind === 'text' && read.text.trim() === '') throw new Error(`${settingsFile} is blank; not written over`)
+    const existing = read.kind === 'text' ? read.text : ''
+    const next = upsertClaudeTheme(existing)
+    if (next === existing) return
+    await fs.mkdir(path.dirname(settingsFile), { recursive: true })
+    await fs.copyFile(settingsFile, settingsFile + '.bak').catch(() => {})
+    await writeThroughTmp(settingsFile, next)
+  })
+}

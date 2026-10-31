@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import {
+  upsertClaudeTheme,
   claudeConfigFileFor,
   claudeProjectKey,
   markClaudeProjectTrusted,
@@ -192,5 +193,17 @@ describe('markClaudeProjectTrusted', () => {
     await fs.writeFile(file, JSON.stringify({ projects: { 'D:/a': { hasTrustDialogAccepted: true } } }), 'utf8')
     await markClaudeProjectTrusted(file, 'D:/a')
     await expect(fs.readFile(file + '.bak', 'utf8')).rejects.toThrow()
+  })
+})
+
+describe('upsertClaudeTheme', () => {
+  it('gives an account that never saw the picker the dark theme it would have opened on', () => {
+    expect(JSON.parse(upsertClaudeTheme('')).theme).toBe('dark')
+    expect(JSON.parse(upsertClaudeTheme('{"model":"opus"}'))).toEqual({ model: 'opus', theme: 'dark' })
+  })
+
+  it('never touches a theme the person chose', () => {
+    const before = '{\n  "theme": "light"\n}\n'
+    expect(upsertClaudeTheme(before)).toBe(before)
   })
 })
