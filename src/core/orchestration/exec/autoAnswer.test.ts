@@ -229,10 +229,24 @@ describe('hands-off plans decide for the owner (#117)', () => {
     expect(handsOffStepsDue(s, [exhausted], T0)).toEqual([
       { kind: 'answer', answer: { id: 'gat_1', answer: 'retry-once', why: 'safe default' }, decision: expect.objectContaining({ kind: 'gate', taskId: 'tsk_x', choice: 'retry-once' }) }
     ])
-    const retried: OrchState = { ...s, gates: [{ id: 'gat_0', runId: 'run_1', taskId: 'tsk_x', question: 'q', status: 'resolved', resolution: 'retry-once', createdAt: NOW }] }
+    const retried: OrchState = { ...s, gates: [{ id: 'gat_0', runId: 'run_1', taskId: 'tsk_x', question: 'q', kind: 'convergence-exhausted', status: 'resolved', resolution: 'retry-once', createdAt: NOW }] }
     expect(handsOffStepsDue(retried, [exhausted], T0)).toEqual([
       { kind: 'answer', answer: expect.objectContaining({ answer: 'mark-failed' }), decision: expect.objectContaining({ kind: 'gate', choice: 'mark-failed' }) }
     ])
+  })
+
+  it('a retry answered on a check-unavailable Gate is not the retry of a later convergence-exhausted Gate of the Task', () => {
+    // Windows paths in the Gate text, as the Host writes them
+    const check = { id: 'gat_0', runId: 'run_1', taskId: 'tsk_x', question: 'lint could not run in C:\\wt\\x', kind: 'check-unavailable' as const, status: 'resolved' as const, resolution: 'retry', createdAt: NOW }
+    const afterCheckRetry: OrchState = { ...s, gates: [check] }
+    expect(handsOffStepsDue(afterCheckRetry, [exhausted], T0)).toEqual([
+      { kind: 'answer', answer: { id: 'gat_1', answer: 'retry-once', why: 'safe default' }, decision: expect.objectContaining({ kind: 'gate', choice: 'retry-once' }) }
+    ])
+    // its own kind's earlier retry still counts, whatever else was retried
+    const both: OrchState = { ...s, gates: [check, { ...check, id: 'gat_2', kind: 'convergence-exhausted', resolution: 'retry-once' }] }
+    expect(handsOffStepsDue(both, [exhausted], T0)).toEqual([expect.objectContaining({ answer: expect.objectContaining({ answer: 'mark-failed' }) })])
+    // the same holds outside hands-off (autoAnswersDue)
+    expect(autoAnswersDue(afterCheckRetry, [exhausted], T0)).toEqual([expect.objectContaining({ answer: 'retry-once' })])
   })
 
   describe('T9: a check that could not run and a review that ended without a report', () => {
@@ -329,7 +343,7 @@ describe('hands-off plans decide for the owner (#117)', () => {
     ])
     // Without the kind the same text is a guardrail case
     expect(handsOffStepsDue(s, [{ ...mergeGate, kind: undefined, options: undefined }], T0)).toEqual([expect.objectContaining({ decision: expect.objectContaining({ kind: 'refused' }) })])
-    const retried: OrchState = { ...s, gates: [{ id: 'gat_0', runId: 'run_1', taskId: 'tsk_x', question: 'q', status: 'resolved', resolution: 'retry', createdAt: NOW }] }
+    const retried: OrchState = { ...s, gates: [{ id: 'gat_0', runId: 'run_1', taskId: 'tsk_x', question: 'q', kind: 'merge-failed', status: 'resolved', resolution: 'retry', createdAt: NOW }] }
     expect(handsOffStepsDue(retried, [mergeGate], T0)).toEqual([{ kind: 'coordinator', question: mergeGate }])
   })
 

@@ -156,9 +156,18 @@ function safeDefault(q: OpenQuestion, choices: string[], retried: boolean): Auto
 const ownersOnly = (q: OpenQuestion): boolean =>
   q.source === 'approval' || (q.source === 'escalation' && isFailedWait({ type: 'escalation', options: q.options }))
 
-/** Whether an earlier Gate on the question's Task was already answered with a retry. */
+/** Whether an earlier Gate on the question's Task was already answered with a retry. A Gate the Host wrote itself
+ *  (`kind`) counts only a retry of its own kind: a retry of a check that could not run is not the retry-once of a later
+ *  convergence-exhausted Gate. A question with no kind keeps counting any. */
 const retriedOf = (s: OrchState, q: OpenQuestion): boolean =>
-  s.gates.some((g) => g.taskId === q.taskId && g.id !== q.id && g.status === 'resolved' && /^retry/i.test(g.resolution ?? ''))
+  s.gates.some(
+    (g) =>
+      g.taskId === q.taskId &&
+      g.id !== q.id &&
+      (q.kind === undefined || g.kind === q.kind) &&
+      g.status === 'resolved' &&
+      /^retry/i.test(g.resolution ?? '')
+  )
 
 /** The open questions due an answer now, each with its answer. Asks wait out `ASK_GRACE_MS` for their coordinator. */
 export function autoAnswersDue(s: OrchState, open: OpenQuestion[], nowMs: number): AutoAnswer[] {
