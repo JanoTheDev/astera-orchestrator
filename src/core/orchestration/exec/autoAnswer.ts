@@ -189,6 +189,9 @@ export type HandsOffStep =
   /** A refused escalation: its Task is held the same way, and the escalation is left open as the owner's question, so
    *  the owner answering it moves the Task on (state.ts `releaseHeld`). Not answered: a refusal is not the owner's call. */
   | { kind: 'hold'; id: string; decision: Omit<Decision, 'at'>; hold: { taskId: string; reason: string } }
+  /** A Gate left open for the owner on purpose (a second review-ended Gate whose checks failed): nothing is answered,
+   *  and the decision says why, once per Gate, so the feed is not silent about it. */
+  | { kind: 'left'; id: string; decision: Omit<Decision, 'at'> }
   | { kind: 'coordinator'; question: OpenQuestion }
 
 // The answers that say no to a guardrail case, in this order; else the refusal is written out (REFUSED_ANSWER)
@@ -317,7 +320,7 @@ const answeredBefore = (s: OrchState, q: OpenQuestion, resolution: string): bool
  * T9: the step for the two infrastructure Gates of a hands-off plan; neither is the code's fault, so neither fails the Task.
  * - `check-unavailable`: `retry` the first time, `skip-check` once a retry was answered; never `mark-failed`.
  * - `review-ended`: `review-again` the first time, `accept-as-done` the second, when the Task's checks passed. When they
- *   did not, nothing is answered and the Gate stays with the owner.
+ *   did not, nothing is answered and the Gate stays with the owner (a `left` step, which records why).
  */
 function infrastructureStepOf(
   s: OrchState,
@@ -337,7 +340,8 @@ function infrastructureStepOf(
       : [{ kind: 'coordinator', question: q }]
   }
   const again = answeredBefore(s, q, 'review-again')
-  if (again && !checksPassedOf(s.tasks.find((t) => t.id === q.taskId) ?? { checks: undefined })) return []
+  if (again && !checksPassedOf(s.tasks.find((t) => t.id === q.taskId) ?? { checks: undefined }))
+    return [{ kind: 'left', id: q.id, decision: { kind: 'gate', ...(q.taskId ? { taskId: q.taskId } : {}), question: firstLine(q.question, 300), choice: 'left to the owner', why: 'review ended twice and checks failed' } }]
   const a = pick(again ? 'accept-as-done' : 'review-again')
   return a
     ? answer(a, 'gate', again ? 'the reviewer ended twice without a report: accepted on the worker\'s report and its checks, reason recorded' : 'the reviewer ended without a report (infrastructure, not the code): reviewed again once')

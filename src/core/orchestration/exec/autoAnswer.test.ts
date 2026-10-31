@@ -90,7 +90,7 @@ async function rig(
   on = true,
   o: {
     handsOff?: boolean
-    kind?: 'convergence-exhausted'
+    kind?: 'convergence-exhausted' | 'review-ended'
     escalation?: boolean
     /** T11: more of the Host's deps (a planner's sessions), and the plan's planner sessions */
     deps?: Partial<OrchServerDeps>
@@ -239,6 +239,63 @@ describe('Hands-off leftovers: a failed Task Astera escalates asks the owner onc
   })
 })
 
+describe('Hands-off leftovers: a review-ended Gate left to the owner says why, once', () => {
+  async function secondReviewEnded(checksPassed: boolean) {
+    const r = await rig('The review could not run: the reviewer session ended in C:\\wt\\x without a report', ['review-again', 'accept-as-done'], true, { handsOff: true, kind: 'review-ended' })
+    const s = r.state()
+    const check = (status: 'passed' | 'failed') => ({ configId: 'c1', name: 'tests', status })
+    await r.deps.setState({
+      ...s,
+      tasks: s.tasks.map((t, i) => (i === 0 ? { ...t, checks: [check(checksPassed ? 'passed' : 'failed')] } : t)),
+      gates: [{ id: 'gat_0', runId: s.runs[0].id, taskId: s.tasks[0].id, question: 'q', kind: 'review-ended' as const, status: 'resolved' as const, resolution: 'review-again', createdAt: NOW }, ...s.gates]
+    })
+    return r
+  }
+  const lines = (r: Awaited<ReturnType<typeof secondReviewEnded>>) => r.feed().filter((l) => l.type === 'plan.decided')
+
+  it('records one decision line and leaves the Gate open, however many ticks pass', async () => {
+    const r = await secondReviewEnded(false)
+    await r.tick()
+    await r.tick()
+    await r.tick()
+    expect(r.gateNow()?.status).toBe('open')
+    expect(lines(r)).toHaveLength(1)
+    expect(String(lines(r)[0].payload.reason)).toContain('left to the owner')
+    expect(String(lines(r)[0].payload.reason)).toContain('review ended twice and checks failed')
+    expect(r.state().jobs[0].decisions).toEqual([expect.objectContaining({ kind: 'gate', choice: 'left to the owner', taskId: r.state().tasks[0].id })])
+  })
+
+  it('does not record it again after a restart that rebuilds the loop, when the Job already holds the decision', async () => {
+    const r = await secondReviewEnded(false)
+    await r.tick()
+    const rebuilt = createDispatchLoop({
+      handle: r.handle,
+      getState: () => r.state(),
+      accounts: () => [],
+      loginStatus: async () => true,
+      lang: () => 'en',
+      sessionAlive: () => false,
+      sessionBusy: () => null,
+      typeInto: () => {},
+      autoAnswer: () => true,
+      activity: () => {},
+      recordDecision: async (jobId: string, d: Parameters<typeof addDecision>[2]) => r.deps.setState(addDecision(r.state(), jobId, d)),
+      mayStart: () => true,
+      log: () => {},
+      nowMs: () => Date.now()
+    } as unknown as DispatchLoopContext)
+    await rebuilt.nudge()
+    expect(r.state().jobs[0].decisions).toHaveLength(1)
+  })
+
+  it('says nothing when the checks passed: the Gate is accepted as done instead', async () => {
+    const r = await secondReviewEnded(true)
+    await r.tick()
+    expect(lines(r).map((l) => String(l.payload.reason))).toEqual([expect.stringContaining('accept-as-done')])
+    expect(r.state().jobs[0].decisions?.some((d) => d.choice === 'left to the owner')).toBe(false)
+  })
+})
+
 describe('the Host answers on its tick', () => {
   it('a Gate naming a safe default is answered within 60 s, with one feed line', async () => {
     const r = await rig('Hold it until W9-A merges? say go or hold', undefined)
@@ -355,7 +412,13 @@ describe('hands-off plans decide for the owner (#117)', () => {
 
     it('leaves a second review-ended Gate to the owner when the Task checks did not pass', () => {
       const failing = base([task({ id: 'tsk_x', title: 'T1 · Login', checks: [passed, { configId: 'c2', name: 'tests', status: 'failed' }] })])
-      expect(answerOf({ ...failing, gates: [gate('gat_0', 'review-ended', 'review-again')] }, ended)).toEqual([])
+      expect(answerOf({ ...failing, gates: [gate('gat_0', 'review-ended', 'review-again')] }, ended)).toEqual([
+        {
+          kind: 'left',
+          id: 'gat_1',
+          decision: { kind: 'gate', taskId: 'tsk_x', question: ended.question, choice: 'left to the owner', why: 'review ended twice and checks failed' }
+        }
+      ])
       // the first time it still reviews again
       expect(answerOf(failing, ended)).toEqual([expect.objectContaining({ answer: expect.objectContaining({ answer: 'review-again' }) })])
       const passing = base([task({ id: 'tsk_x', title: 'T1 · Login', checks: [passed] })])

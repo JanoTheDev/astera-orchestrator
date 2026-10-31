@@ -2244,6 +2244,14 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
           due.push({ a: step.answer, decision: step.decision, hold: step.hold })
           continue
         }
+        if (step.kind === 'left') {
+          // Once per Gate: in memory (autoTried), and across a restart by the decision already on the Job
+          autoTried.add(step.id)
+          const job = handsOffJobOf(s, open.find((x) => x.id === step.id)!.runId)
+          const d = step.decision
+          if (job && !job.decisions?.some((x) => x.taskId === d.taskId && x.choice === d.choice && x.question === d.question)) await decide(job.id, d)
+          continue
+        }
         if (step.kind === 'hold') {
           if (!c.mayStart()) return
           autoTried.add(step.id)
