@@ -40,6 +40,9 @@ import {
   answerCheckUnavailable,
   isCheckUnavailableAnswer,
   CHECK_UNAVAILABLE_OPTIONS,
+  answerReviewEnded,
+  isReviewEndedAnswer,
+  REVIEW_ENDED_OPTIONS,
   deleteRuns,
   deleteJobs,
   startJobRun,
@@ -6076,12 +6079,25 @@ export async function handleCommand(
       if (gate?.kind === 'check-unavailable' && gate.status === 'open') {
         if (!isCheckUnavailableAnswer(resolution)) return bad(`answer one of ${CHECK_UNAVAILABLE_OPTIONS.join(', ')}`)
         if (resolution !== 'mark-failed' && !deps.startValidation) return conflict('the checks cannot be run here')
-        const answered = answerCheckUnavailable(s, { gateId, resolution }, now)
+        const answered = answerCheckUnavailable(s, { gateId, resolution, ...(skippedByHandsOff(s, gate, resolution) ? { by: 'hands-off' as const } : {}) }, now)
         if (!answered.ok) return answered.missing ? refused(answered) : conflict(answered.error)
         deps.log?.(`gate-resolve: task=${gate.taskId} blocked -> ${resolution === 'mark-failed' ? 'failed' : 'validating'} (${resolution} on a check-unavailable Gate)`)
         await deps.setState(answered.state)
         // After the commit, as every start of checks is: the Task is validating before the runner reads it
         if (answered.value.revalidate) deps.startValidation?.(answered.value.revalidate)
+        return okBody(answered.value.gate satisfies AnsweredQuestion)
+      }
+      // A review that ended without a report takes its two answers and no other: the plain resolve below would hand the
+      // Task back to a worker whose work is done
+      if (gate?.kind === 'review-ended' && gate.status === 'open') {
+        if (!isReviewEndedAnswer(resolution)) return bad(`answer one of ${REVIEW_ENDED_OPTIONS.join(', ')}`)
+        if (resolution === 'review-again' && !deps.startReview) return conflict('a review cannot be started here')
+        const answered = answerReviewEnded(s, { gateId, resolution }, now)
+        if (!answered.ok) return answered.missing ? refused(answered) : conflict(answered.error)
+        deps.log?.(`gate-resolve: task=${gate.taskId} blocked -> ${resolution === 'review-again' ? 'reviewing' : 'completed'} (${resolution} on a review-ended Gate)`)
+        await deps.setState(answered.state)
+        // After the commit, as every start of a review is: the Task is reviewing before the reviewer is opened
+        if (answered.value.review) deps.startReview?.(answered.value.review)
         return okBody(answered.value.gate satisfies AnsweredQuestion)
       }
       const r = resolveGate(s, { gateId, resolution }, now)
@@ -7846,6 +7862,17 @@ export async function handleCommand(
   }
 }
 
+/** Whether a `skip-check` answer is the one a hands-off plan gives: the plan runs hands-off and the Task's check had
+ *  already been retried once (an earlier check-unavailable Gate of the Task was answered `retry`). Its check record then
+ *  says the plan skipped it (`skippedBy`). */
+function skippedByHandsOff(s: OrchState, gate: Gate, resolution: string): boolean {
+  if (resolution !== 'skip-check') return false
+  const run = s.runs.find((r) => r.id === gate.runId)
+  const job = run && jobOf(s, run)
+  if (!job || !handsOffOf(s, job)) return false
+  return s.gates.some((g) => g.taskId === gate.taskId && g.id !== gate.id && g.kind === 'check-unavailable' && g.status === 'resolved' && g.resolution === 'retry')
+}
+
 /** T8: the Run this session coordinates (its slot or its external coordinator), or undefined. Not `callerRun`, which
  *  falls back to the latest Run: a permission check must not read any session as that Run's coordinator. */
 const coordinatedBy = (s: OrchState, sessionId: string): JobRun | undefined =>
@@ -7924,7 +7951,7 @@ export async function handleExit(
   }
   const gated = blockForReview(
     r.state,
-    { taskId: task.id, reason: `검토자의 세션이 보고 없이 끝났습니다(dispatch=${closed.id})` },
+    { taskId: task.id, reason: `the reviewer session ended without a report (dispatch=${closed.id})`, lang: (await deps.lang?.()) ?? 'en' },
     now
   )
   if (!gated.ok) {
