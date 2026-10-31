@@ -77,7 +77,7 @@ import {
 import { afterStartsDue, afterSweep } from '../after'
 // Coordinator rotation and finished tabs
 import { createCoordinatorRotation, refreshRunCoordinator } from './coordinatorRotate'
-import { autoAnswerLine, autoAnswersDue, coordinatorDecideBody, handsOffStepsDue, type AutoAnswer, type OpenQuestion } from './autoAnswer'
+import { autoAnswerLine, autoAnswersDue, coordinatorDecideBody, ESCALATION_DEFAULT_ANSWER, handsOffStepsDue, PLANNER_ANSWER_WAIT_MS, type AutoAnswer, type OpenQuestion } from './autoAnswer'
 import { STALL_WATCH_MS, stallPauseProbe, stallRemedies, startNotice, watchdogActivity, type StallEntry, type StallRemedy } from './stallWatch'
 import type { ActivityDraft } from '../activity'
 import { DETACHED_GRACE_MS, isDetachedHeadError } from '../../worktrees/base'
@@ -2163,6 +2163,8 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
           continue
         }
         const q = step.question
+        // T11: a worker's question in a Run with no live coordinator goes to the plan's planner, then to the default
+        if (await askPlanner(s, q)) continue
         if (handedOver.has(q.id)) continue
         // `send` posts into a Task's Run: a question with no Task (a coordinator's own escalation) names one of its Run's
         const taskId = q.taskId || s.tasks.find((t) => t.runId === q.runId)?.id
@@ -2199,6 +2201,51 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     } catch (e) {
       log(`auto-answer: the pass failed: ${String(e)}`)
     }
+  }
+  /** T11: the worker questions of hands-off Runs with no live coordinator put to the plan's planner, with when they were
+   *  first tried and whether the planner was reached. shortcut: in memory, so a Host restart asks the planner again once. */
+  const plannerAsked = new Map<string, { at: number; asked: boolean }>()
+  /** T11: whether the Run has a coordinator to hand a question to: one that is alive, or one that is starting. */
+  const coordinatorLive = (s: OrchState, runId: string): boolean => {
+    const run = s.runs.find((r) => r.id === runId)
+    return run !== undefined && (run.coordinatorStartingAt !== undefined || (run.coordinatorSessionId !== undefined && c.sessionAlive(run.coordinatorSessionId)))
+  }
+  /** T11: a worker's ask or escalation of a hands-off plan whose Run has no live coordinator: put to the plan's planner
+   *  (`jobs-ask-planner`), its answer recorded once it lands (`handedOver`); answered with ESCALATION_DEFAULT_ANSWER, and
+   *  that recorded, when no planner answered within PLANNER_ANSWER_WAIT_MS. false: the question is not the planner's. */
+  const askPlanner = async (s: OrchState, q: OpenQuestion): Promise<boolean> => {
+    if ((q.source !== 'ask' && q.source !== 'escalation') || coordinatorLive(s, q.runId)) return false
+    const job = handsOffJobOf(s, q.runId)
+    if (!job) return false
+    const nowMs = c.nowMs()
+    const seen = plannerAsked.get(q.id)
+    if (seen && nowMs - seen.at >= PLANNER_ANSWER_WAIT_MS) {
+      if (!c.mayStart()) return true
+      plannerAsked.delete(q.id)
+      handedOver.delete(q.id)
+      autoTried.add(q.id)
+      const r = await c.handle('questions-answer', { id: q.id, answer: ESCALATION_DEFAULT_ANSWER })
+      if (r.status >= 400) {
+        log(`run=${q.runId}: the default answer to ${q.id} was refused: ${JSON.stringify(r.body)}`)
+        return true
+      }
+      const line = (t: string, max: number): string => (t.trim().split('\n')[0] ?? '').slice(0, max)
+      const reached = seen.asked ? 'did not answer' : 'could not be reached'
+      await decide(job.id, {
+        kind: 'escalation',
+        ...(q.taskId ? { taskId: q.taskId } : {}),
+        question: line(q.question, 300),
+        choice: line(ESCALATION_DEFAULT_ANSWER, 200),
+        why: `the Run has no live coordinator and the plan's planner ${reached} within ${PLANNER_ANSWER_WAIT_MS / 60_000} minutes: the default`
+      })
+      return true
+    }
+    if (seen?.asked) return true
+    const r = await c.handle('jobs-ask-planner', { id: job.id, question: q.id }).catch((e: unknown) => ({ status: 500, body: String(e) }))
+    plannerAsked.set(q.id, { at: seen?.at ?? nowMs, asked: r.status < 400 })
+    if (r.status < 400) handedOver.set(q.id, q)
+    else log(`run=${q.runId}: the planner of job ${job.id} could not be asked ${q.id}: ${JSON.stringify(r.body)}`)
+    return true
   }
   /** Item 2: the Tasks whose owner-only decision a hands-off plan refused, held once each (`holdForOwner`). One with a
    *  live worker waits until its Dispatch ends: a Task is not blocked under a running worker (types.ts ALLOWED).

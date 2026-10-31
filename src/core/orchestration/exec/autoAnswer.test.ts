@@ -2,7 +2,9 @@
 // questions-answer with one feed line; the owner's kinds of question stay open; the setting turns it all off.
 import { describe, expect, it } from 'vitest'
 import { STOPPED_DEP_OPTIONS } from '../overlap'
-import { ASK_GRACE_MS, autoAnswersDue, autoAnswerOf, autoAnswerOnOf, coordinatorDecideBody, grantedAnswer, grantOf, handsOffStepsDue, REFUSED_ANSWER, type OpenQuestion } from './autoAnswer'
+import { ASK_GRACE_MS, autoAnswersDue, autoAnswerOf, autoAnswerOnOf, coordinatorDecideBody, ESCALATION_DEFAULT_ANSWER, grantedAnswer, grantOf, handsOffStepsDue, PLANNER_ANSWER_WAIT_MS, REFUSED_ANSWER, type OpenQuestion } from './autoAnswer'
+import { SCOPE_ANSWER, SCOPE_WHY } from './scopeDecider'
+import type { HostSession } from '../command'
 import { createDispatchLoop, ORCH_FIRE_TICK_MS, type DispatchLoopContext } from './dispatchLoop'
 import { handleCommand, type OrchServerDeps } from '../command'
 import { addDecision, createGate, emptyState, type OrchState } from '../state'
@@ -81,7 +83,19 @@ describe('autoAnswerOf', () => {
 })
 
 /** The loop's tick over the real command layer, with one Gate open. */
-async function rig(question: string, options: string[] | undefined, on = true, o: { handsOff?: boolean; kind?: 'convergence-exhausted'; escalation?: boolean } = {}) {
+async function rig(
+  question: string,
+  options: string[] | undefined,
+  on = true,
+  o: {
+    handsOff?: boolean
+    kind?: 'convergence-exhausted'
+    escalation?: boolean
+    /** T11: more of the Host's deps (a planner's sessions), and the plan's planner sessions */
+    deps?: Partial<OrchServerDeps>
+    plannerSessionIds?: string[]
+  } = {}
+) {
   let state: OrchState = emptyState()
   let clock = T0
   // Every commit, so the feed can be derived the way the Host does: one commit at a time
@@ -93,13 +107,15 @@ async function rig(question: string, options: string[] | undefined, on = true, o
       commits.push(next)
     },
     listAccounts: () => [{ id: 'acc1', label: 'a', provider: 'claude' }],
-    now: () => new Date(clock).toISOString()
+    now: () => new Date(clock).toISOString(),
+    ...o.deps
   } as unknown as OrchServerDeps
   const handle = (cmd: string, args: Record<string, unknown>) => handleCommand(deps, { sessionId: '' }, cmd, args)
   await handle('run-create', { objective: 'o', cwd: '/p' })
   await handle('task-create', { spec: 's', account: 'acc1', title: 'W9-B · Inbox' })
   await handle('task-create', { spec: 's', account: 'acc1', title: 'W9-A · Coordinator answers' })
   if (o.handsOff) state = { ...state, jobs: state.jobs.map((j) => ({ ...j, handsOff: true })) }
+  if (o.plannerSessionIds) state = { ...state, jobs: state.jobs.map((j) => ({ ...j, plannerSessionIds: o.plannerSessionIds })) }
   // `escalation`: a worker's escalation on the first Task, past its grace, instead of the Gate
   const made = o.escalation
     ? { ok: true as const, state: { ...state, messages: [...state.messages, { id: 'msg_esc', runId: state.runs[0].id, type: 'escalation' as const, taskId: state.tasks[0].id, subject: question, body: question, ...(options ? { options } : {}), answered: false, createdAt: new Date(T0 - ASK_GRACE_MS).toISOString() }] }, value: { id: 'msg_esc' } }
@@ -134,8 +150,13 @@ async function rig(question: string, options: string[] | undefined, on = true, o
     lines,
     gateNow: () => state.gates.find((g) => g.id === made.value.id),
     handle,
+    deps,
     state: () => state,
     before,
+    /** T11: moves the clock on without a tick */
+    advance: (ms: number) => {
+      clock += ms
+    },
     /** The feed lines of every commit since the rig was built, each derived from the commit before it. */
     feed: () => {
       const chain = [before, ...commits.slice(mark)]
@@ -377,5 +398,113 @@ describe('a review-needs-decision Gate on a hands-off plan', () => {
   it('has no safe default for the global auto-answer', () => {
     expect(autoAnswerOf(planned(), gate('The review needs a running dev server.'))).toBeNull()
     expect(autoAnswerOf(planned(), gate('The review needs a decision. Options are open.'))).toBeNull()
+  })
+})
+
+// T11: a hands-off plan settles a worker's scope question itself, and a question with no coordinator goes to the planner
+describe('hands-off scope questions (T11)', () => {
+  const old = new Date(T0 - ASK_GRACE_MS).toISOString()
+  const planned: OrchState = {
+    ...base([task({ id: 'tsk_x', title: 'T1 · Login', status: 'dispatched', affectedPaths: ['src/core/login.ts'] })]),
+    jobs: [{ id: 'job_1', objective: 'o', cwd: 'C:\\dev\\repo', createdAt: NOW, handsOff: true } as OrchState['jobs'][number]],
+    runs: [{ id: 'run_1', jobId: 'job_1' } as OrchState['runs'][number]]
+  }
+  const esc = (text: string, over: Partial<OpenQuestion> = {}) => q(text, { source: 'escalation', createdAt: old, ...over })
+
+  it('"May I touch src/core/x.ts outside my paths?" is answered yes with the instruction and recorded as a decision', () => {
+    expect(handsOffStepsDue(planned, [esc('May I touch src/core/x.ts outside my paths?')], T0)).toEqual([
+      { kind: 'answer', answer: { id: 'gat_1', answer: SCOPE_ANSWER, why: 'safe default' }, decision: expect.objectContaining({ kind: 'escalation', taskId: 'tsk_x', why: SCOPE_WHY }) }
+    ])
+  })
+
+  it('permission words no longer hold a scope question, an ask included, with Windows paths inside the repository', () => {
+    for (const text of ['I need permission to edit C:\\dev\\repo\\src\\core\\state.ts outside my paths', 'Am I allowed to add a test file src\\core\\login.test.ts?'])
+      expect(handsOffStepsDue(planned, [esc(text, { source: 'ask' })], T0)).toEqual([expect.objectContaining({ kind: 'answer', answer: expect.objectContaining({ answer: SCOPE_ANSWER }) })])
+  })
+
+  it('deleting data, pushing to main, force-push, credentials and sudo are still held for the owner', () => {
+    const texts = [
+      'May I delete C:\\Users\\me\\data?',
+      'Can I push to main?',
+      'May I force-push my edits outside my paths?',
+      'May I put the api key in a file outside my paths?',
+      'May I sudo chmod the files outside my paths?'
+    ]
+    for (const text of texts)
+      expect(handsOffStepsDue(planned, [esc(text)], T0)).toEqual([
+        expect.objectContaining({ kind: 'hold', decision: expect.objectContaining({ kind: 'refused' }), hold: expect.objectContaining({ taskId: 'tsk_x' }) })
+      ])
+  })
+
+  it('a path outside the repository is no scope question: it goes on as any other question', () => {
+    expect(handsOffStepsDue(planned, [esc('May I edit D:\\elsewhere\\x.ts outside my paths?')], T0)).toEqual([{ kind: 'coordinator', question: expect.objectContaining({ id: 'gat_1' }) }])
+  })
+
+  it("outside hands-off nothing changes: the scope question stays the owner's", () => {
+    const off: OrchState = { ...planned, jobs: planned.jobs.map((j) => ({ ...j, handsOff: false })) }
+    expect(autoAnswersDue(off, [esc('May I touch src/core/x.ts outside my paths?')], T0)).toEqual([])
+  })
+
+  it('the loop answers the escalation and records the decision; outside hands-off it stays open', async () => {
+    const r = await rig('May I touch src/core/x.ts outside my paths?', undefined, true, { handsOff: true, escalation: true })
+    await r.tick()
+    expect(r.state().messages.find((m) => m.id === 'msg_esc')).toMatchObject({ answered: true, answerBody: SCOPE_ANSWER })
+    expect(r.state().jobs[0].decisions).toEqual([expect.objectContaining({ kind: 'escalation', why: SCOPE_WHY })])
+    expect(deriveActivity(r.before, r.state()).filter((l) => l.type.startsWith('plan.'))).toEqual([expect.objectContaining({ type: 'plan.decided' })])
+    const off = await rig('May I touch src/core/x.ts outside my paths?', undefined, true, { escalation: true })
+    await off.tick()
+    expect(off.state().messages.find((m) => m.id === 'msg_esc')).toMatchObject({ answered: false })
+    expect(off.state().jobs[0].decisions).toBeUndefined()
+  })
+})
+
+describe('a hands-off escalation with no live coordinator (T11)', () => {
+  const live = (typed: Array<{ id: string; text: string }>): Partial<OrchServerDeps> =>
+    ({
+      listSessions: async () => [{ id: 'ses-planner-1', kind: 'terminal', title: null, accountId: 'acc1', cwd: '/p', alive: true } as HostSession],
+      sendSession: async (id: string, text: string) => {
+        typed.push({ id, text })
+      },
+      sessionTurn: async () => ({ alive: true, state: 'unknown', prompt: null })
+    }) as Partial<OrchServerDeps>
+
+  it("goes to the plan's live planner, whose answer is recorded as a decision", async () => {
+    const typed: Array<{ id: string; text: string }> = []
+    const r = await rig('Which colour should the button be?', undefined, true, { handsOff: true, escalation: true, plannerSessionIds: ['ses-planner-1'], deps: live(typed) })
+    await r.tick()
+    await r.tick()
+    expect(typed).toEqual([{ id: 'ses-planner-1', text: expect.stringContaining('astera questions-answer --id msg_esc') }])
+    expect(typed[0].text).not.toContain('\n')
+    // Not posted into the Run's inbox, which no coordinator reads
+    expect(r.state().messages.some((m) => m.subject.startsWith('Decide for the owner'))).toBe(false)
+    const answered = await handleCommand(r.deps, { sessionId: 'ses-planner-1' }, 'questions-answer', { id: 'msg_esc', answer: 'blue: the brand colour' })
+    expect(answered.status).toBe(200)
+    await r.tick()
+    expect(r.state().jobs[0].decisions).toEqual([expect.objectContaining({ kind: 'escalation', choice: 'blue: the brand colour' })])
+  })
+
+  it('a planner that does not answer within the wait: the default answer, recorded', async () => {
+    const typed: Array<{ id: string; text: string }> = []
+    const r = await rig('Which colour should the button be?', undefined, true, { handsOff: true, escalation: true, plannerSessionIds: ['ses-planner-1'], deps: live(typed) })
+    await r.tick()
+    expect(r.state().messages.find((m) => m.id === 'msg_esc')).toMatchObject({ answered: false })
+    r.advance(PLANNER_ANSWER_WAIT_MS)
+    await r.tick()
+    expect(r.state().messages.find((m) => m.id === 'msg_esc')).toMatchObject({ answered: true, answerBody: ESCALATION_DEFAULT_ANSWER })
+    expect(r.state().jobs[0].decisions).toEqual([
+      expect.objectContaining({ kind: 'escalation', choice: ESCALATION_DEFAULT_ANSWER, why: expect.stringContaining('did not answer within 5 minutes') })
+    ])
+    expect(typed).toHaveLength(1)
+  })
+
+  it('no planner to reach: the default answer after the wait, recorded once', async () => {
+    const r = await rig('Which colour should the button be?', undefined, true, { handsOff: true, escalation: true })
+    await r.tick()
+    expect(r.state().messages.find((m) => m.id === 'msg_esc')).toMatchObject({ answered: false })
+    r.advance(PLANNER_ANSWER_WAIT_MS)
+    await r.tick()
+    await r.tick()
+    expect(r.state().messages.find((m) => m.id === 'msg_esc')).toMatchObject({ answered: true, answerBody: ESCALATION_DEFAULT_ANSWER })
+    expect(r.state().jobs[0].decisions).toEqual([expect.objectContaining({ kind: 'escalation', why: expect.stringContaining('could not be reached') })])
   })
 })
