@@ -109,6 +109,7 @@ import { createHostSpawner } from './spawner'
 import { createHostWorktrees, loadWorktreesIfSpawning } from './worktrees'
 import { createHostProjectRoots } from './projectRoots'
 import { createHostExits, ptyHeldBy, type HostExits } from './exits'
+import { createLeftoverTracker, leftoverDispatchesOf, queryWindowsProcesses, readLinuxProcesses, stopProcesses, type LeftoverTracker } from './workerLeftovers'
 import { registrySessions } from './sessions'
 import { hookEventsDirIn } from '../core/hooks/sessionState'
 import { readAccountEntries } from '../core/accounts/accountsFile'
@@ -345,6 +346,8 @@ async function main(): Promise<void> {
     sessionEvents?.dispose()
     // The work units' watchers and their sync timer stop with them. Never throws.
     hostWorkUnits?.dispose()
+    // No leftover look from here on: `killAll` below ends every session, and their Dispatches stay open for the next Host.
+    leftovers?.dispose()
     // The MCP HTTP entrance stops with the Host (MCP HTTP §3): its stdin ends, which is its way out, and
     // a Host that exits before the kill's grace still ends that pipe. Never rejects.
     void mcpHttp.stop()
@@ -436,6 +439,8 @@ async function main(): Promise<void> {
   /** Session work units (E2 §4): built below, once `orch` exists, and only with a spawner. Declared here
    *  because the worktrees' `git-op` and the rolling's events reach it, and both are built first. */
   let hostWorkUnits: HostWorkUnits | null = null
+  /** T16: what workers leave running, freed when their Dispatch ends (workerLeftovers.ts). Built below, once `orch` exists. */
+  let leftovers: LeftoverTracker | null = null
 
   // The Host's own worktree registry (Host S3 §3.1, §3.3, §3.4): forks, merges and removes Job
   // worktrees over its own registry, whether or not an app is attached. Construction reads and writes
@@ -1127,6 +1132,13 @@ async function main(): Promise<void> {
     // The rolling's hooks (rolling, rolledInto, rekeyRolled): absent with no spawner, and then
     // `unregisterRolling` only forwards to the app and a rolled-from exit closes as before.
     ...(rollingWiring?.orchHooks ?? {}),
+    // T16: every commit, which is where each Dispatch close lands (a worker_done, a stop, a retire, the app's state-put),
+    // tells the leftover tracker, which frees what that worker left running. It never throws, and the driver's kick
+    // runs after it as before.
+    onCommit: () => {
+      leftovers?.stateChanged()
+      wiring?.orchHooks?.onCommit?.()
+    },
     // After the driver's own after-load pass: what the profile already held, so work under way when this Host started
     // is recorded before anything changes (Phase 11). The load stays lazy; this only hears that it happened.
     onLoaded: () => {
@@ -1188,6 +1200,35 @@ async function main(): Promise<void> {
         log: (m) => log.write(m)
       })
     : null
+  // T16: the processes a worker leaves running (dev servers, browsers) cost more memory than the sessions themselves
+  // (knowledge/history/2026-10-31-memory-at-25-agents.md). One process query per tick remembers every live worker's
+  // tree; when a Dispatch closes, what its worker started that is still alive, and the orphans naming its worktree,
+  // are stopped, the live session's own processes spared; when the session ends, the rest of that tree goes
+  // (workerLeftovers.ts). Whoever closes the Dispatch (app or Host), the commit hook above, the tick and the pty exit
+  // below see it, and nothing here can hold a close up: the tracker never throws or rejects.
+  leftovers = createLeftoverTracker({
+    platform: process.platform,
+    hostPid: process.pid,
+    dispatches: () => (orch.loaded() ? leftoverDispatchesOf(orch.state(), Date.now(), process.platform, (p) => worktrees.infoOf(p) !== null) : []),
+    sessionPid: (sessionId) => {
+      const ptyId = registry.sessionPty(sessionId)
+      const e = ptyId ? registry.list().find((x) => x.id === ptyId && x.alive) : undefined
+      return e && e.pid > 0 ? e.pid : null
+    },
+    liveRoots: () => [...registry.list(), ...procs.list()].filter((e) => e.alive && e.pid > 0).map((e) => e.pid),
+    list: () => (process.platform === 'win32' ? queryWindowsProcesses() : process.platform === 'linux' ? readLinuxProcesses() : Promise.resolve([])),
+    stop: (rows) => stopProcesses(rows, { platform: process.platform, log: (m) => log.write(m) }),
+    freed: (dispatchId, line) => {
+      const s = orch.state()
+      const task = s.tasks.find((t) => t.id === s.dispatches.find((x) => x.id === dispatchId)?.taskId)
+      if (task?.runId) activityLog.recorded([watchdogActivity(s, task.runId, line, task.id)])
+    },
+    log: (m) => log.write(m)
+  })
+  registry.onExit((ptyId) => {
+    const meta = registry.metaOf(ptyId)
+    if (meta?.kind === 'session') leftovers?.sessionEnded(meta.id)
+  })
   // Session work units (E2 §3, §4): the collector over this Host's own sessions, writing workUnits.json while
   // no attached app keeps the duty, read per write. **Only with a spawner**, as the duty is announced: a
   // Host that cannot start sessions has none to watch. Tracking is read now; the collector starts once the
