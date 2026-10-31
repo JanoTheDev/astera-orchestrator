@@ -357,6 +357,21 @@ describe('createDispatchLoop', () => {
     expect(h.startWorker).toHaveBeenCalledTimes(1)
   })
 
+  // T13: a hold on new starts for the whole profile (a restart's, or the owner's): nothing placed, nothing asked
+  it('places nothing while new starts are held, and places again once the hold is lifted', async () => {
+    const h = rig({ concurrency: 2 })
+    let held = true
+    h.ctx.startHeld = async () => held
+    await h.loop.run()
+    await h.settle()
+    expect(h.startWorker).not.toHaveBeenCalled()
+    expect(h.handled()).not.toContain('worker-start')
+    held = false
+    await h.loop.run()
+    await h.settle()
+    expect(h.startWorker).toHaveBeenCalledTimes(2)
+  })
+
   it('a worker-start held at the app-wide cap (atCapacity) opens no Gate', async () => {
     const h = rig({ concurrency: 2 })
     h.ctx.handle = async (cmd, args) =>

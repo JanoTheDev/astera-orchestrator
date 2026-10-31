@@ -68,6 +68,7 @@ import type { ProcRegistry } from './procRegistry'
 import type { HostSpawner } from './spawner'
 import type { HostWorktrees } from './worktrees'
 import { readMaxConcurrentWorkers } from '../core/settings/maxConcurrentWorkers'
+import { startHeldNow } from '../core/orchestration/startHold'
 import { machineSpecs } from '../core/settings/machineSpecs'
 // Coordinator rotation
 import { readFreshCoordinatorPct } from '../core/settings/freshCoordinator'
@@ -419,6 +420,8 @@ export function createHostDriving(d: {
     deliverySetup: (cwd) => readDeliverySetup(cwd), // T32
     // W1-B. A damaged file reads as no cap: the spawn refuses on that file anyway (orch.ts, the same line).
     maxConcurrentWorkers: () => readMaxConcurrentWorkers(settingsPath).catch(() => machineSpecs().recommended),
+    // T13: a hold on new starts (a restart's, or the owner's) places nothing
+    startHeld: () => startHeldNow(d.profileDir),
     accounts: () => d.checks.accounts(),
     loginStatus: (id) => d.checks.loginStatus(id),
     lang: () => d.checks.langNow(),
