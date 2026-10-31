@@ -251,8 +251,9 @@ for (const q of items) {
 ```
 
 A question's `source` says who asked: `ask` for a worker's `astera ask`, `escalation` for a coordinator's; absent, it is a
-gate Astera opened, and its `kind` says which: `convergence-exhausted`, `convergence-blocked`, `check-unavailable` or
-`review-needs-decision` (a review found an issue that needs a person's decision).
+gate Astera opened, and its `kind` says which: `convergence-exhausted`, `convergence-blocked`, `check-unavailable`,
+`review-needs-decision` (a review found an issue that needs a person's decision) or `merge-failed` (a Task's branch could
+not be merged into its plan branch; any answer, `retry` or words, runs the Task again).
 
 When a question lists `options`, answer with one of them. The one a plugin's completion check opens when it could not
 be made, `kind` `check-unavailable`, refuses any answer but `retry`, `skip-check` or `mark-failed` with

@@ -9,6 +9,7 @@ import { isDroppedGate, isDuplicateGate, isStoppedDepGate } from '../overlap'
 import { isLeaseWaitGate } from '../schedule'
 import { readAppSettingsObject } from '../../settings/settingsObject'
 import { SCOPE_WHY, scopeAnswerOf, type ScopeContext } from './scopeDecider'
+import { MERGE_FAILED_GATE } from './transientGit'
 
 /** One open question as `questions-list` returns it: a Gate (with its `kind`) or an ask / escalation (`source`). */
 export interface OpenQuestion {
@@ -162,6 +163,8 @@ const retriedOf = (s: OrchState, q: OpenQuestion): boolean =>
 export function autoAnswersDue(s: OrchState, open: OpenQuestion[], nowMs: number): AutoAnswer[] {
   return open.flatMap((q) => {
     if (ownersOnly(q)) return []
+    // T8: outside a hands-off plan a merge Gate stays the owner's, as it was before it had a kind and an option
+    if (q.kind === MERGE_FAILED_GATE) return []
     if (q.source === 'ask' && nowMs - Date.parse(q.createdAt) < ASK_GRACE_MS) return []
     return autoAnswerOf(s, q, retriedOf(s, q)) ?? []
   })
@@ -253,6 +256,13 @@ export function handsOffStepsDue(s: OrchState, open: OpenQuestion[], nowMs: numb
       }
       const granted = grantOf(grantsOf(s, q), q.question)
       if (granted) return answer({ id: q.id, answer: grantedAnswer(granted), why: 'Host state' }, 'gate', `the owner granted ${granted} in advance`)
+      return [{ kind: 'coordinator', question: q }]
+    }
+    // T8: a merge into the plan branch git could not make: its text is git's output, never an owner-only question. The
+    // Task is tried once more; after that the plan's coordinator decides
+    if (q.kind === MERGE_FAILED_GATE) {
+      const retry = retried ? undefined : option(/^retry$/i)
+      if (retry) return answer({ id: q.id, answer: retry, why: 'safe default' }, 'gate', 'the merge into the plan branch failed for a git reason: one more try')
       return [{ kind: 'coordinator', question: q }]
     }
     // A Gate the Host wrote itself, its tries spent: one more, then given up, so the plan reaches its end

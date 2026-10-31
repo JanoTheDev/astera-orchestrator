@@ -123,7 +123,9 @@ export type RepairReason = 'check-failure' | 'review-failure'
  *  gate-resolve), blocked 는 보통 Gate 처럼 풀린다 — 질문이 왜 막혔는지 말한다 */
 // `review-needs-decision` (T3): the review's blocking issue needs something no code change gives (ReviewNeeds). Its
 // free-text answer opens one repair outside the budget that carries it (`Dispatch.decision`).
-export type GateKind = 'convergence-exhausted' | 'convergence-blocked' | 'check-unavailable' | 'review-needs-decision'
+// `merge-failed` (T8): a Task's branch could not be merged into its plan branch (dispatchLoop.ts mergeIntoPlan); its text
+// carries git's output, so a hands-off plan judges its options, not its words (autoAnswer.ts).
+export type GateKind = 'convergence-exhausted' | 'convergence-blocked' | 'check-unavailable' | 'review-needs-decision' | 'merge-failed'
 // W6-C: why a Gate opened, when that is something the notices act on. `review-rounds-exhausted`: the reviewer rejected
 // the work `maxReviewRounds` times (W6-B escalates it with a sound).
 export type GateReason = 'review-rounds-exhausted'
