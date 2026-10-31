@@ -91,6 +91,14 @@ export function reasonText(
     case 'failure-limit':
       return { key: 'plan.reason.failureLimit', params: { failures: reason.failures } }
     case 'failed-retry':
+      // T10: "Failed · retrying in 4 min (attempt 2 of 3)": a hands-off plan retries it itself
+      if (reason.retryAt !== undefined) {
+        const left = Date.parse(reason.retryAt) - nowMs
+        const params = { limit: reason.limit, attempt: reason.failures + 1 }
+        return Number.isNaN(left) || left <= 0
+          ? { key: 'plan.steps.reason.failedRetryAutoNow', params }
+          : { key: 'plan.steps.reason.failedRetryAuto', params: { ...params, minutes: Math.ceil(left / 60_000) } }
+      }
       return {
         key: reason.noCoordinator ? 'plan.steps.reason.failedRetryByYou' : 'plan.steps.reason.failedRetry',
         params: { failures: reason.failures, limit: reason.limit }

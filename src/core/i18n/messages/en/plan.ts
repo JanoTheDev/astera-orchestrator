@@ -255,6 +255,8 @@ export const plan: Record<keyof typeof ko, string> = {
   'plan.steps.reason.definition': 'Template task · copied into each run of the plan',
   'plan.steps.reason.failedRetry': 'Failed ({failures} of {limit}) · the lead agent decides whether to retry',
   'plan.steps.reason.failedRetryByYou': 'Failed ({failures} of {limit}) · no lead agent: start it again to retry',
+  'plan.steps.reason.failedRetryAuto': 'Failed · retrying in {minutes} min (attempt {attempt} of {limit})',
+  'plan.steps.reason.failedRetryAutoNow': 'Failed · retrying now (attempt {attempt} of {limit})',
   'plan.steps.reason.stopped': 'Its agent was stopped',
   'plan.steps.reason.lead': 'The lead agent starts it',
   'plan.steps.reason.planCap': 'Plan limit full ({used} of {limit} agents)',

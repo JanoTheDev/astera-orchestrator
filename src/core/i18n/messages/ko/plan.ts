@@ -276,6 +276,8 @@ export const plan = {
   'plan.steps.reason.definition': '템플릿 작업 · 계획을 실행할 때마다 복사됩니다',
   'plan.steps.reason.failedRetry': '실패 ({failures}/{limit}) · 재시도는 리드 에이전트가 정합니다',
   'plan.steps.reason.failedRetryByYou': '실패 ({failures}/{limit}) · 리드 에이전트가 없습니다: 다시 시작해야 재시도됩니다',
+  'plan.steps.reason.failedRetryAuto': '실패 · {minutes}분 뒤 다시 시도합니다 (시도 {attempt}/{limit})',
+  'plan.steps.reason.failedRetryAutoNow': '실패 · 지금 다시 시도합니다 (시도 {attempt}/{limit})',
   'plan.steps.reason.stopped': '에이전트가 멈췄습니다',
   'plan.steps.reason.lead': '리드 에이전트가 시작합니다',
   'plan.steps.reason.planCap': '계획 한도가 찼습니다 (에이전트 {used}/{limit})',

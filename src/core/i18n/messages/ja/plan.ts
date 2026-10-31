@@ -150,6 +150,8 @@ export const plan: Partial<Record<keyof typeof ko, string>> = {
   'plan.steps.reason.definition': 'テンプレートのタスク · 計画の実行ごとにコピーされます',
   'plan.steps.reason.failedRetry': '失敗 ({failures} / {limit}) · 再試行するかはリードエージェントが決めます',
   'plan.steps.reason.failedRetryByYou': '失敗 ({failures} / {limit}) · リードエージェントがいません: 再試行するにはもう一度開始してください',
+  'plan.steps.reason.failedRetryAuto': '失敗 · {minutes} 分後に再試行します (試行 {attempt} / {limit})',
+  'plan.steps.reason.failedRetryAutoNow': '失敗 · まもなく再試行します (試行 {attempt} / {limit})',
   'plan.steps.reason.stopped': 'エージェントが停止しました',
   'plan.reason.stopped.plan': '計画は停止中 · 再開を押すと続きます',
   'plan.reason.schedulePaused': 'スケジュールは一時停止中',

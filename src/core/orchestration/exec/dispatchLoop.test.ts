@@ -27,7 +27,7 @@ import { addDecision, COORDINATOR_START_WINDOW_MS, emptyState, type OrchState } 
 import { needsInput } from '../sessionIndex'
 import { outcomeOf } from '../running'
 import { ASK_GRACE_MS } from './autoAnswer'
-import type { Dispatch, Job, Message, Task } from '../types'
+import type { Decision, Dispatch, Job, Message, Task } from '../types'
 import { FAILURE_LIMIT } from '../types'
 import type { Account } from '../../types'
 
@@ -3081,14 +3081,14 @@ describe('wave replanning (W6-D)', () => {
 // owner question, whose answer the loop carries out.
 describe('a Run stalled on a failed Task (T36)', () => {
   /** tsk_1 failed (its worker reported failed), tsk_2 waits on it, nothing else runs. */
-  const failedFirst = (h: ReturnType<typeof rig>, job: Partial<Job> = {}): void => {
+  const failedFirst = (h: ReturnType<typeof rig>, job: Partial<Job> = {}, failed: Partial<Task> = {}): void => {
     const s = h.state()
     h.setState({
       ...s,
       jobs: s.jobs.map((j) => ({ ...j, title: 'Shots', ...job })),
       tasks: s.tasks.map((t) =>
         t.id === 'tsk_1'
-          ? { ...t, status: 'failed' as const, consecutiveFailures: 1, result: 'made 19 screens, gaps listed', prompt: 'p', acceptanceCriteria: ['c'], affectedPaths: ['src/a'], basis: { state: 'missing' as const, evidence: 'e' } }
+          ? { ...t, status: 'failed' as const, consecutiveFailures: 1, result: 'made 19 screens, gaps listed', prompt: 'p', acceptanceCriteria: ['c'], affectedPaths: ['src/a'], basis: { state: 'missing' as const, evidence: 'e' }, ...failed }
           : { ...t, status: 'pending' as const, deps: ['tsk_1'], prompt: 'p', acceptanceCriteria: ['c'], affectedPaths: ['src/b'], basis: { state: 'missing' as const, evidence: 'e' } }
       )
     })
@@ -3118,9 +3118,10 @@ describe('a Run stalled on a failed Task (T36)', () => {
     expect(h.handled()).toContain('task-failed-resolve')
   })
 
-  it('a hands-off plan still asks the owner, and the answer Retry runs the Task again', async () => {
+  it('a hands-off plan asks the owner once its tries are used up with no work committed, and the answer Retry runs the Task again', async () => {
     const h = rig()
-    failedFirst(h, { handsOff: true })
+    // T10: with tries left Astera retries it itself; the third failure with nothing committed is the owner's
+    failedFirst(h, { handsOff: true }, { consecutiveFailures: 3 })
     await h.loop.run()
     await h.loop.nudge()
     await h.settle()
@@ -3151,6 +3152,84 @@ describe('a Run stalled on a failed Task (T36)', () => {
     await h.settle()
     expect(h.handled().filter((c) => c === 'jobs-replan')).toHaveLength(1)
     expect(asked(h)).toHaveLength(1)
+  })
+
+  // T10: a hands-off plan with no coordinator retries its own failed Tasks, then accepts or escalates
+  it('hands-off: the 1st failure is retried after its 1-minute backoff, keeping its count, as a decision', async () => {
+    const h = rig()
+    const decisions: Decision[] = []
+    h.ctx.recordDecision = async (_jobId, d) => {
+      decisions.push(d)
+    }
+    failedFirst(h, { handsOff: true })
+    await h.loop.run()
+    await h.loop.nudge()
+    await h.settle()
+    // in its backoff: neither retried nor put to the owner
+    expect(h.state().tasks.find((t) => t.id === 'tsk_1')?.status).toBe('failed')
+    expect(asked(h)).toHaveLength(0)
+    h.clock += 61_000
+    await h.loop.run()
+    await h.settle()
+    const t1 = h.state().tasks.find((t) => t.id === 'tsk_1')!
+    expect(t1.consecutiveFailures).toBe(1)
+    expect(['ready', 'dispatched']).toContain(t1.status)
+    expect(asked(h)).toHaveLength(0)
+    expect(decisions).toEqual([
+      expect.objectContaining({ kind: 'escalation', taskId: 'tsk_1', choice: 'retried tsk_1 (attempt 2 of 3)', why: 'made 19 screens, gaps listed' })
+    ])
+  })
+
+  it('hands-off: the 3rd failure that committed its work and has no checks is accepted as done, as a decision', async () => {
+    const h = rig()
+    const decisions: Decision[] = []
+    h.ctx.recordDecision = async (_jobId, d) => {
+      decisions.push(d)
+    }
+    failedFirst(h, { handsOff: true }, { consecutiveFailures: 3 })
+    const s = h.state()
+    h.setState({
+      ...s,
+      dispatches: [
+        ...s.dispatches,
+        {
+          id: 'dsp_t1',
+          taskId: 'tsk_1',
+          provider: 'claude',
+          accountId: 'accA',
+          sessionId: 'sess_t1',
+          cwd: 'C:\\wt\\t1',
+          specPath: '/specs/t1.md',
+          startedAt: NOW,
+          workerState: 'stopped',
+          outcome: 'failed',
+          endedAt: NOW,
+          retained: false,
+          git: { base: 'aaaaaaa', head: 'bbbbbbb' }
+        }
+      ]
+    })
+    await h.loop.run()
+    await h.settle()
+    const t1 = h.state().tasks.find((t) => t.id === 'tsk_1')!
+    expect(t1.completionOverride?.reason).toBe(
+      'failed 3 of 3 attempts; accepted because it committed its work and its checks pass: made 19 screens, gaps listed'
+    )
+    expect(['completed', 'merging']).toContain(t1.status)
+    expect(asked(h)).toHaveLength(0)
+    expect(decisions).toEqual([expect.objectContaining({ kind: 'escalation', taskId: 'tsk_1', choice: 'accepted tsk_1 as done' })])
+  })
+
+  it('hands-off with a live coordinator: Astera does not retry the failed Task itself', async () => {
+    const h = rig()
+    failedFirst(h, { handsOff: true })
+    const s = h.state()
+    h.setState({ ...s, runs: s.runs.map((r) => ({ ...r, coordinatorSessionId: 'coord-run_1' })) })
+    h.clock += 61_000
+    await h.loop.run()
+    await h.settle()
+    expect(h.handled()).not.toContain('task-failed-resolve')
+    expect(h.state().tasks.find((t) => t.id === 'tsk_1')?.status).toBe('failed')
   })
 })
 
