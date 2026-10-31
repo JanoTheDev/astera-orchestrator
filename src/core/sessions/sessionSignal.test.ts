@@ -14,6 +14,12 @@ describe('parseSessionSignal', () => {
     expect(parseSessionSignal({ kind: 'roll-state', session: { id: 's1', kind: 'terminal' }, event: roll })).toEqual({ kind: 'roll-state', session: { id: 's1', kind: 'terminal' }, event: roll })
   })
 
+  // An account with no 5-hour window (Ultra) waits with the neutral scope 'usage'; the Host must not drop it.
+  it("takes a roll state with the neutral 'usage' scope", () => {
+    const roll = { sessionId: 's1', state: 'waiting', nextRetryAt: 'R', scope: 'usage' }
+    expect(parseSessionSignal({ kind: 'roll-state', session: { id: 's1', kind: 'terminal' }, event: roll })).toEqual({ kind: 'roll-state', session: { id: 's1', kind: 'terminal' }, event: roll })
+  })
+
   it('keeps only the session fields it knows', () => {
     expect(parseSessionSignal({ kind: 'chat', session: { ...session, accountId: 'a1' }, event: { type: 'status', status: 'idle' } })).toEqual({ kind: 'chat', session, event: { type: 'status', status: 'idle' } })
   })

@@ -2,6 +2,7 @@
 // no new worker (usageGuard.ts), the threshold, and the live subagents per tab against their limit.
 import { useEffect, useState } from 'react'
 import type { Account, JobTask, UsageGuardView } from '../../../../core/types'
+import { useAccountPlans } from '../../hooks/useAccountPlans'
 import { useI18n } from '../../i18n/I18nProvider'
 import { stripRows, USAGE_STRIP_POLL_MS, type StripWindow } from './usageView'
 import { coarseDuration } from '../../../../core/usage/relativeTime'
@@ -11,6 +12,7 @@ import './usage.css'
 export function UsageStrip({ accounts, tasks }: { accounts: readonly Account[] | null; tasks: readonly JobTask[] }): React.JSX.Element | null {
   const { t, lang } = useI18n()
   const [view, setView] = useState<UsageGuardView | null>(null)
+  const plans = useAccountPlans(accounts ?? [])
 
   useEffect(() => {
     let live = true
@@ -31,7 +33,7 @@ export function UsageStrip({ accounts, tasks }: { accounts: readonly Account[] |
   }, [])
 
   if (view === null) return null
-  const rows = stripRows(view, accounts, tasks)
+  const rows = stripRows(view, accounts, tasks, plans)
   const room = rows.room
   // the one-account line draws the account name bold: its message splits around the {account} slot
   const roomSlot = room?.kind === 'one' ? t('usage.strip.onlyOneRoom', { account: '\u0000' }).split('\u0000') : null

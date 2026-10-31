@@ -87,7 +87,6 @@ export const accounts: Record<keyof typeof ko, string> = {
   'account.select.usage': '5h {session}% · week {weekly}%',
   // Switch a running tab account: the menu action, its confirmation and its failure messages
   'account.switch.action': 'Use for this tab',
-  'account.switch.title': 'Move the open tab to {label}; the conversation continues there',
   'account.switch.done': 'This tab now runs on {label}',
   'account.switch.failed': 'Could not switch accounts: {detail}',
   'account.switch.busy': 'This tab is already changing accounts; try again in a moment',
@@ -102,7 +101,7 @@ export const accounts: Record<keyof typeof ko, string> = {
   'account.usage.nearLimit': "Close to the limit",
   'account.sync.button': "Import settings",
   'account.empty.body': "Accounts let Astera run agents on your Claude or Codex subscription. Add one to get started.",
-  'account.empty.bodySettings': "Add one from the accounts menu in the top bar.",
+  'account.empty.bodySettings': "Add one with the buttons above, or find the accounts already signed in on this computer.",
   // T11: account row actions, paused chip, sign-in retry
   'account.signInAgain.button': 'Sign in again',
   'account.signOut.button': 'Sign out',
@@ -113,4 +112,26 @@ export const accounts: Record<keyof typeof ko, string> = {
   'account.signOut.processing': 'Signing out…',
   'account.status.paused': 'Paused',
   'account.signIn.retry': 'Retry',
+  // T2: plan display names
+  'account.plan.free': 'Free',
+  'account.plan.pro': 'Pro',
+  'account.plan.max': 'Max',
+  'account.plan.team': 'Team',
+  'account.plan.enterprise': 'Enterprise',
+  'account.plan.ultra': 'Ultra',
+  'account.plan.unknown': 'Unknown',
+  // T4: account center redesign: state chips, the active mark, Manage accounts, plan chip, weekly-only usage
+  'account.status.signedIn': 'Signed in',
+  'account.status.signedOut': 'Not signed in',
+  'account.status.expired': 'Sign-in expired',
+  'account.status.expiredHint': 'The saved sign-in was refused. Sign in again to use this account.',
+  'account.status.unknown': 'Status unknown',
+  'account.status.unknownHint': 'The sign-in check failed. Astera checks again shortly.',
+  'account.active': 'Active',
+  'account.active.hintTab': 'The open tab runs on this account',
+  'account.active.hintStatusBar': 'The status bar shows this account',
+  'account.manage': 'Manage accounts…',
+  'account.plan.title': 'Plan: {plan}',
+  'account.select.usageWeekly': 'week {weekly}%',
+  'account.pickUsageWeekly': '{name} · week {weekly}',
 }

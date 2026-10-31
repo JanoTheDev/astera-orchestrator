@@ -1,7 +1,8 @@
 // W6-G: what the plan view's usage strip draws, from main's `usage.guard` (UsageGuardView). Pure, so the node-only
 // test suite reaches it.
-import type { Account, JobTask, RateLimitWindow, UsageGuardView } from '../../../../core/types'
+import type { Account, AccountPlan, JobTask, RateLimitWindow, UsageGuardView } from '../../../../core/types'
 import { resetClock } from '../../../../core/orchestration/activity'
+import { hasSessionWindow } from '../sessionWindow'
 import { poolRunOutOf, runOutOf, SESSION_WINDOW_MS, WEEKLY_WINDOW_MS, type RunOut } from './runOut'
 
 /** How often the strip asks again. The guard itself reads on its own minute timer; this only redraws. */
@@ -62,14 +63,15 @@ const roomOf = (view: UsageGuardView, label: (id: string) => string, now: number
   return { kind: 'none', resumes: resets.length === 0 ? null : resetClock(resets[0].iso, resets[0].weekly) }
 }
 
-export function stripRows(view: UsageGuardView, accounts: readonly Account[] | null, tasks: readonly JobTask[], now = Date.now()): StripRows {
+/** `plans` by account id (useAccountPlans): an account with no 5-hour window draws no 5-hour figure, even when its reading has one. */
+export function stripRows(view: UsageGuardView, accounts: readonly Account[] | null, tasks: readonly JobTask[], plans: Readonly<Record<string, AccountPlan>>, now = Date.now()): StripRows {
   const label = (id: string): string => accounts?.find((a) => a.id === id)?.label ?? id
   const taskOf = new Map(tasks.flatMap((t) => (t.sessionId !== undefined ? [[t.sessionId, t.title] as const] : [])))
   return {
     accounts: view.accounts.map((a) => ({
       accountId: a.accountId,
       label: label(a.accountId),
-      fiveHour: windowOf(a.session, false, view.pauseAt),
+      fiveHour: hasSessionWindow(plans[a.accountId], { session: a.session, weekly: a.weekly }) ? windowOf(a.session, false, view.pauseAt) : null,
       sevenDay: windowOf(a.weekly, true, view.pauseAt),
       paused: a.paused !== null,
       // the paused / over-threshold states come first; the estimate only speaks for an account that has neither

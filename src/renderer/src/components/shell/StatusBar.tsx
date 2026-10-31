@@ -8,6 +8,7 @@ import { openActivity, openPanel } from './navigation'
 import { NotificationBell } from './NotificationBell'
 import { setAccountsOpen } from './ActivityBar'
 import { openProjectSwitcher } from './ProjectSwitcher'
+import { statusUsageOf } from './shellView'
 import type { AppState } from '../../state/appState'
 import type { ShellState } from './useShell'
 
@@ -47,7 +48,7 @@ export type StatusBarProps = Pick<
   | 'appVersion' | 'hostRestarting' | 'hostRuntime' | 'hostRuntimeNow' | 'hostStatus' | 'restartHost' | 't' | 'accounts'
   | 'actionUi' | 'scopedData' | 'scopedTree' | 'workspaceData' | 'workspaceTree' | 'workspaceProjectId' | 'currentProject'
 > &
-  Pick<ShellState, 'counts' | 'needsYouUnread' | 'nextQueued' | 'shellAccount' | 'shellUsage'> & {
+  Pick<ShellState, 'counts' | 'needsYouUnread' | 'nextQueued' | 'shellAccount' | 'shellPlan' | 'shellUsage'> & {
     /** The project's branch (useCurrentBranch), or null. */
     branch: string | null
   }
@@ -76,14 +77,14 @@ export function useCurrentBranch(path: string | null): string | null {
 }
 
 export function StatusBar(p: StatusBarProps): React.JSX.Element {
-  const { appVersion, counts, needsYouUnread, hostRestarting, hostRuntime, hostRuntimeNow, hostStatus, nextQueued, restartHost, shellAccount, shellUsage, t } = p
+  const { appVersion, counts, needsYouUnread, hostRestarting, hostRuntime, hostRuntimeNow, hostStatus, nextQueued, restartHost, shellAccount, shellPlan, shellUsage, t } = p
   const { branch } = p
   // An outdated Host waiting for its swap is still connected and still working; only the button replaces that word.
   const swapping = hostStatus?.replacement === 'swapping'
   const hostOk = !!hostStatus?.connected && !hostStatus.unresponsive && !(hostStatus.outdated && hostStatus.replacement === 'manual')
   const project = p.workspaceTree.find((x) => x.id === p.workspaceProjectId)?.name ?? p.currentProject?.split(/[\\/]/).filter(Boolean).pop()
-  const five = shellUsage?.session?.usedPercent
-  const week = shellUsage?.weekly?.usedPercent
+  // T6: an account with no 5-hour window (Ultra) shows no "5h" figure (shellPlan: useShell, from useAccountPlans)
+  const { five, week } = statusUsageOf(shellPlan, shellUsage)
   return (
     <>
       {/* DESIGN-W13 §7: accent-tinted only when the background service is offline */}

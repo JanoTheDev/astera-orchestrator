@@ -390,7 +390,7 @@ export interface SessionInputNeeded {
  *  when the Host knows them. */
 export interface SessionLimitWaiting {
   readonly session: EventSession
-  readonly scope?: 'session' | 'weekly'
+  readonly scope?: 'session' | 'weekly' | 'usage'
   readonly nextRetryAt?: string
 }
 

@@ -95,6 +95,15 @@ export interface Account {
   email?: string
 }
 
+/** Which subscription an account is on, read from its config folder (accounts/plan.ts). `unknown` keeps
+ *  the unrecognised string in `raw`. Read-only and never persisted on `Account`; it carries no token. */
+export type AccountPlanId = 'free' | 'pro' | 'max' | 'team' | 'enterprise' | 'ultra' | 'unknown'
+export interface AccountPlan {
+  id: AccountPlanId
+  raw: string | null // the plan string it was read from; null when the folder holds none
+  hasSessionWindow: boolean // false only for ultra, which has no 5-hour window
+}
+
 export interface DetectCandidate {
   configDir: string
   loggedIn: boolean // the verdict from accounts/loginStatus.ts (claude also checks Keychain on macOS)
@@ -432,7 +441,9 @@ export interface RollStateEvent {
   // duplicate notification
   reattach?: boolean
   nextRetryAt?: string // ISO — the retry time, when state='waiting'
-  scope?: 'session' | 'weekly' // which limit, when state='waiting' — selects the banner wording and time format
+  // which limit, when state='waiting' — selects the banner wording and time format. 'usage': the blocked account has
+  // no 5-hour window (an Ultra plan) and the block is not known to be its weekly one, so no window is named
+  scope?: 'session' | 'weekly' | 'usage'
   // Set on state='switching' when a person asked for the move ("Use for this tab") rather than a limit
   manual?: boolean
 }
@@ -1086,6 +1097,10 @@ export interface CoreEvents {
   'accounts:changed': { accounts: Account[] }
   // The unregistered history sources were re-scanned (fires after an account is added or removed)
   'accounts:ghostsChanged': { accounts: Account[] }
+  /** T3 (account center sync): this account's login may have changed (in-app sign-in or sign-out, add, an
+   *  email change, its credentials file written outside the app, a refused or accepted credential). The
+   *  renderer re-asks accounts.status for it (main/accountSync.ts). */
+  'accounts:status-changed': { accountId: string }
   'files:changed': { path: string; kind: 'add' | 'change' | 'unlink' | 'addDir' | 'unlinkDir' } // watcher, one event (the older shape — still accepted by the renderer's subscribeFileChanges)
   /** The watcher's events, one message per FILE_CHANGE_BATCH_MS window (core/files/changeBatch.ts). */
   'files:changedBatch': FileChangeBatch
@@ -1529,12 +1544,16 @@ export interface CoreApi {
     /** Folds `dropId` into `keepId` (the same login): their Task/Job references and project defaults move, then `dropId` is removed. `inUse` lists the running sessions that block it. */
     merge(keepId: string, dropId: string): Promise<{ ok: boolean; reason?: 'notSameLogin' | 'inUse' | 'unavailable'; titles: string[] }>
     loginStatus(id: string): Promise<boolean> // the verdict from accounts/loginStatus.ts (claude also checks Keychain on macOS)
+    /** T3: login state and email in one ask, for the account center. `expired`: credentials on disk that the usage
+     *  endpoint refused (main/accountSync.ts). Rolling and dispatch keep reading loginStatus. */
+    status(id: string): Promise<{ login: 'signedIn' | 'signedOut' | 'expired'; email: string | null }>
     detect(): Promise<DetectCandidate[]> // detection candidates, excluding registered and unregistered-by-the-user config dirs
     /** Unregistered config dirs as account-shaped history sources — this one keeps the ones the user
      *  unregistered, since their transcripts should stay visible. Never registry accounts: they cannot
      *  authenticate, so they must not reach session spawning, rolling or the account management UI. */
     ghosts(): Promise<Account[]>
     email(id: string): Promise<string | null> // the login email of a registered account (for the list)
+    plan(id: string): Promise<AccountPlan> // the subscription plan of a registered account (`unknown` when unreadable or not a claude account)
     emailOfDir(configDir: string, provider?: Provider): Promise<string | null> // the email of an unregistered folder (to prefill the import dialog)
     logout(id: string): Promise<{ ok: boolean; message?: Message }> // claude auth logout (removes the credentials)
     // W7-F (#82): the CLI's own sign-in for this account's folder (main/accountLogin.ts). login resolves when the CLI
@@ -1771,6 +1790,8 @@ export interface CoreApi {
     guard(): Promise<UsageGuardView>
     subscribe(): void
     unsubscribe(): void
+    /** T3: the account popover opened — fetch fresher figures, at most once per 30 s per account; the map is pushed. */
+    refresh(): void
   }
   notify: {
     // The session on screen, pushed on every change so main can suppress a notification for it

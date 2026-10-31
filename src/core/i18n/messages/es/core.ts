@@ -190,6 +190,7 @@ export const core: Partial<Record<keyof typeof ko, string>> = {
   'slack.limitWaiting': '⏸ Límite alcanzado — reanudación: {at} (límite {scope})',
   'slack.limitScope.weekly': 'semanal',
   'slack.limitScope.session': 'de 5 horas',
+  'slack.limitScope.usage': 'de uso',
   'slack.accountSwitched': '🔁 Cambio de cuenta → {label}',
   'slack.limitReset': '▶️ Límite restablecido — se envió el mensaje de reanudación automática',
   'slack.stalled': '⚠️ La sesión está detenida — falló la reanudación automática, hay que revisarla',

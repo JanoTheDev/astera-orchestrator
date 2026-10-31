@@ -188,6 +188,7 @@ export const core = {
   'slack.limitWaiting': '⏸ 한도 도달 — {at} 재개 예정 ({scope} 한도)',
   'slack.limitScope.weekly': '주간',
   'slack.limitScope.session': '5시간',
+  'slack.limitScope.usage': '사용량',
   'slack.accountSwitched': '🔁 계정 전환 → {label}',
   'slack.limitReset': '▶️ 한도 리셋 — 자동 재개 프롬프트 전송',
   'slack.stalled': '⚠️ 세션이 멈춰 있습니다 — 자동 재개 실패, 확인이 필요합니다',

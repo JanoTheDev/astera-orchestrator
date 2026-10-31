@@ -23,14 +23,22 @@ function usedNow(w: RateLimitWindow | null | undefined, nowMs: number): number |
   return Number.isFinite(resets) && resets <= nowMs ? 0 : w.usedPercent
 }
 
+/** A reading with a weekly window and no 5-hour one: an account whose plan has no 5-hour window (Ultra). It is judged
+ *  on the window it has, and its waits are never called 5-hour waits. A reading with neither window is not this: it
+ *  says nothing about the account. */
+export function hasNoSessionWindow(r: AccountReading | null | undefined): boolean {
+  return !!r && !r.session && !!r.weekly
+}
+
 /**
- * The one ranking rule (decision 6). Usable = logged in, under its `maxSessions` cap, and both the weekly and the
- * 5-hour window known and under `threshold` (a window whose reset has passed counts as 0). Weekly is checked first: a
- * full weekly window makes the account unusable whatever its 5-hour value and whatever its reset (null included) says,
- * until that reset passes.
+ * The one ranking rule (decision 6). Usable = logged in, under its `maxSessions` cap, and the weekly window known and
+ * under `threshold`, as is the 5-hour window when the account has one (a window whose reset has passed counts as 0).
+ * An account with a weekly window and no 5-hour window (hasNoSessionWindow) is usable on the weekly window alone; one
+ * with no weekly window is unknown, and so is one with neither. Weekly is checked first: a full weekly window makes the
+ * account unusable whatever its 5-hour value and whatever its reset (null included) says, until that reset passes.
  *
- * Usable accounts order by `max(weekly%, 5h%) + SPREAD_WEIGHT * liveSessions`, then weekly headroom, then the list's
- * own (registry) order. Unusable ones come after, in the order they may still be tried: unknown/stale first (flagged,
+ * Usable accounts order by `max(weekly%, 5h%) + SPREAD_WEIGHT * liveSessions` (a missing 5-hour window counts as 0, so
+ * such an account is ordered by its weekly fill), then weekly headroom, then the list's own (registry) order. Unusable ones come after, in the order they may still be tried: unknown/stale first (flagged,
  * tried last), then full ones least used first, then at-cap and logged-out.
  */
 export function rankAccounts<A extends Pick<Account, 'id'>>(a: {
@@ -61,7 +69,7 @@ export function rankAccounts<A extends Pick<Account, 'id'>>(a: {
             ? 'weekly-full'
             : session !== null && session >= a.threshold
               ? 'session-full'
-              : weekly === null || session === null
+              : weekly === null
                 ? 'unknown'
                 : r?.at !== undefined && a.nowMs - r.at > READING_MAX_AGE_MS
                   ? 'stale'

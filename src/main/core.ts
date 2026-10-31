@@ -42,7 +42,8 @@ import { specsDirOf } from '../core/orchestration/exec/specFiles'
 import { plansDirOf } from '../core/orchestration/intakeFiles'
 import { setPseudoLocalization } from '../core/i18n/pseudo'
 import type { Lang, Message } from '../core/i18n'
-import type { Account, DetectCandidate, Provider, SessionUsage } from '../core/types'
+import type { Account, AccountPlan, DetectCandidate, Provider, SessionUsage } from '../core/types'
+import { readAccountPlan } from '../core/accounts/plan'
 import type { PtyFactory } from '../core/sessions/pty'
 import type { ProcFactory } from '../core/sessions/proc'
 import type { BypassSignal } from '../core/sessions/retryBypass'
@@ -71,6 +72,8 @@ export interface Core {
   // management UI. Only the history sidebar and the resume modal see them.
   ghostAccounts: () => Account[]
   accountEmail: (id: string) => Promise<string | null>
+  /** The account's subscription plan, read-only and cached; dropped with the email when the login changes. */
+  accountPlan: (id: string) => Promise<AccountPlan>
   accountEmailOfDir: (configDir: string, provider?: Provider) => Promise<string | null>
   accountLogout: (id: string) => Promise<{ ok: boolean; message?: Message }>
   /** Logout for an account the caller already holds — still works after the account left the registry. */
@@ -78,6 +81,9 @@ export interface Core {
   // No isDefaultAccountDir here any more. Which account is the default is derived per provider from the
   // account list plus login state, and the renderer computes it itself (core/accounts/defaultAccount.ts is
   // pure and node-free), so nothing has to be decorated onto each account at serialisation time.
+  /** T3 (account center sync): an account's login changed under it (accountEmail noticed another email).
+   *  ipc.ts sets it to main/accountSync.ts changed; nothing is wired here, as with accounts.onChanged. */
+  onLoginChanged?: (id: string) => void
   accountSyncSettings: (id: string) => Promise<{ ok: boolean; message?: Message }> // Import the provider's default account settings
   usageSession: (sessionId: string) => Promise<SessionUsage | null>
   /** The one account-usage fetcher. Shared rather than per-caller, and that sharing is the point: the
@@ -373,13 +379,47 @@ export async function createCore(userDataDir: string, osLocale: string): Promise
   const ghostAccountList = (): Account[] => ghostCache
   // The renderer asks this at every login check (useAccountStatus, on focus). W7-F (#77): a folder re-logged as
   // someone else relabels its row and loses the old person's usage reading here.
+  // The plan cache sits beside the email: a folder re-logged as someone else drops it with the usage reading.
+  // The TTL covers a re-login as the same person on another plan, where the email does not change.
+  const PLAN_TTL_MS = 30_000
+  const planCache = new Map<string, { at: number; plan: AccountPlan }>()
+  const accountPlan = async (id: string): Promise<AccountPlan> => {
+    const account = accounts.get(id)
+    const hit = planCache.get(id)
+    if (hit && Date.now() - hit.at < PLAN_TTL_MS) return hit.plan
+    // Only claude folders carry these fields; a codex folder reads as unknown. Just the plan fields are
+    // picked out of the files (core/accounts/plan.ts), the token beside them is never returned.
+    const plan: AccountPlan =
+      providerOf(account) !== 'claude'
+        ? { id: 'unknown', raw: null, hasSessionWindow: true }
+        : await readAccountPlan(async (name) => {
+            const dirs = [account.configDir]
+            // the default account keeps its .claude.json beside the folder, not inside it
+            if (name === '.claude.json' && isAmbientDir(descriptorOf(descriptors, account), os.homedir(), account.configDir)) {
+              dirs.push(os.homedir())
+            }
+            for (const dir of dirs) {
+              try {
+                return await fsp.readFile(path.join(dir, name), 'utf8')
+              } catch {
+                // absent here, try the next
+              }
+            }
+            return null
+          })
+    planCache.set(id, { at: Date.now(), plan })
+    return plan
+  }
   const accountEmail = async (id: string): Promise<string | null> => {
     const account = accounts.get(id)
     const email = await descriptorOf(descriptors, account).readEmail(account.configDir, os.homedir())
     if (await accounts.noteEmail(id, email).catch(() => false)) {
+      planCache.delete(id)
       usageFetcher.forget(account.configDir)
       codexUsageFetcher.forget(account.configDir)
       await accountUsage.forget(account.configDir)
+      // T3: the row and its usage are asked again (main/accountSync.ts changed), not left to the next tick
+      core.onLoginChanged?.(id)
     }
     return email
   }
@@ -390,7 +430,10 @@ export async function createCore(userDataDir: string, osLocale: string): Promise
   // lives in runAccountLogout (above) — this closure only looks the account up and hands it over.
   const accountLogoutOf = (account: Account): Promise<{ ok: boolean; message?: Message }> =>
     runAccountLogout(descriptorOf(descriptors, account), os.homedir(), account.configDir)
-  const accountLogout = (id: string): Promise<{ ok: boolean; message?: Message }> => accountLogoutOf(accounts.get(id))
+  const accountLogout = (id: string): Promise<{ ok: boolean; message?: Message }> => {
+    planCache.delete(id)
+    return accountLogoutOf(accounts.get(id))
+  }
   /** That provider's default account. Deriving it needs the login state of every account of that provider,
    *  which is a file check each, so this fans out rather than reading a stored field. */
   const defaultAccountIdFor = async (provider: Provider): Promise<string | null> => {
@@ -451,7 +494,7 @@ export async function createCore(userDataDir: string, osLocale: string): Promise
       )
     )
   )
-  return {
+  const core: Core = {
     accounts,
     sessions,
     chat,
@@ -462,6 +505,7 @@ export async function createCore(userDataDir: string, osLocale: string): Promise
     refreshGhostAccounts,
     ghostAccounts: ghostAccountList,
     accountEmail,
+    accountPlan,
     accountEmailOfDir,
     accountLogout,
     accountLogoutOf,
@@ -489,4 +533,5 @@ export async function createCore(userDataDir: string, osLocale: string): Promise
     procRouter,
     bypassSignalFor: (cli: Provider) => bypassSignalCache[cli] ?? null
   }
+  return core
 }

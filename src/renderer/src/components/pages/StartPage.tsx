@@ -20,6 +20,7 @@ import { BranchPicker } from '../delivery/BranchPicker'
 import { useDeliveryChoices } from '../delivery/useDeliveryChoices'
 import { ScheduleRuleFields } from '../ScheduleRuleFields'
 import { useAccountUsage } from '../../hooks/useAccountUsage'
+import { useAccountPlans } from '../../hooks/useAccountPlans'
 import {
   AUTO_ACCOUNT, STARTERS, attachableOf, STARTER_MODE, accountPickOptions, afterCreate, askOptions, blockedReason, consolesIn, dropOpensStart, filesFromDrop, intakeTab, isSubmitKey, lastMode,
   lookupArgs, planningOf, primaryLabel, projectChoice, projectDefaults, rememberSetting, saveMode, settingsSummary, shouldLandOnStart, startSettings, withStarter, type NameLookup, type StarterId,
@@ -140,7 +141,7 @@ export function StartPage({
   // T5b: the planner's account. Auto sends none, so the Host picks the one with most room by usage; a picked account
   // is only a preference
   const signedInKey = `start:signedIn:${door.projectKey}:${accounts.map((a) => a.id).join(',')}`
-  const signedInRead = useCachedRead(signedInKey, async () => [...(await door.signedInIds(accounts))], { invalidateOn: ['accounts:changed'] })
+  const signedInRead = useCachedRead(signedInKey, async () => [...(await door.signedInIds(accounts))], { invalidateOn: ['accounts:changed', 'accounts:status-changed'] }) // T3: a login change too
   // Login status changes without the id list changing: a form opened with an answer in the cache asks again once.
   const hadSignedIn = useRef(signedInRead.data !== undefined)
   useEffect(() => {
@@ -148,6 +149,7 @@ export function StartPage({
   }, [signedInKey])
   const signedIn = useMemo<ReadonlySet<string>>(() => new Set(signedInRead.data), [signedInRead.data])
   const usage = useAccountUsage()
+  const plans = useAccountPlans(accounts) // T4: an Ultra account is listed without a 5h figure
 
   // W10-A Run as written by name: the typed prompt names, looked up on the Host a moment after the last key
   const [lookup, setLookup] = useState<NameLookup | null>(null)
@@ -218,7 +220,7 @@ export function StartPage({
   }
   const hasPromptsDir = project?.promptsDir !== undefined
 
-  const accountOptions = accountPickOptions(accounts, signedIn, usage, t as never)
+  const accountOptions = accountPickOptions(accounts, signedIn, usage, t as never, plans)
   const accountName = account === '' ? undefined : accounts.find((a) => a.id === account)?.label
   const deliveryLabel = delivery.options.find((o) => o.value === delivery.mode)?.label ?? delivery.mode
   const summary = settingsSummary(

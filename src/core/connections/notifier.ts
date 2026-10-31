@@ -784,8 +784,9 @@ export class ConnectionNotifier {
       const at = Date.parse(ev.nextRetryAt)
       if (!Number.isFinite(at)) return
       const lang = this.deps.lang()
-      const scope = t(lang, weekly ? 'slack.limitScope.weekly' : 'slack.limitScope.session')
-      void this.send(record, t(lang, 'slack.limitWaiting', { at: resumeAtText(at, weekly), scope }))
+      // 'usage': the account has no 5-hour window, so no window is named and the reset is shown with its day
+      const scope = t(lang, weekly ? 'slack.limitScope.weekly' : ev.scope === 'usage' ? 'slack.limitScope.usage' : 'slack.limitScope.session')
+      void this.send(record, t(lang, 'slack.limitWaiting', { at: resumeAtText(at, weekly || ev.scope === 'usage'), scope }))
     } else if (ev.state === 'switching' && ev.accountLabel && !ev.reattach) {
       // reattach is the re-publish that reattaches the banner to the new sessionId after a respawn — the
       // same switch is not announced twice. (The account in the prefix differs before and after the switch,

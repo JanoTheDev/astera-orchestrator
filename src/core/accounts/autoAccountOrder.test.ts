@@ -42,6 +42,28 @@ describe('rankAccounts', () => {
     expect(rank([acct('a')], { a: r(10) }).unusable[0].reason).toBe('unknown') // weekly missing
   })
 
+  it('ranks a weekly-only account (no 5-hour window) usable, by its weekly fill against two-window accounts', () => {
+    const readings = { ultra: r(null, 40), full: r(70, 70), roomy: r(10, 10) }
+    const out = rank([acct('full'), acct('ultra'), acct('roomy')], readings)
+    expect(ids(out)).toEqual(['roomy', 'ultra', 'full'])
+    expect(out.unusable).toEqual([])
+    // 40% weekly beats a two-window account whose 5-hour value is the higher fill
+    expect(ids(rank([acct('a'), acct('ultra')], { a: r(60, 20), ultra: r(null, 40) }))).toEqual(['ultra', 'a'])
+  })
+
+  it('judges a weekly-only account on the window it has: full weekly is weekly-full, a live session adds spread', () => {
+    expect(rank([acct('ultra')], { ultra: r(null, 95) }).unusable[0].reason).toBe('weekly-full')
+    const out = rank([acct('ultra'), acct('b')], { ultra: r(null, 20), b: r(25, 25) }, { liveSessions: new Map([['ultra', 1]]) })
+    expect(ids(out)).toEqual(['b', 'ultra'])
+  })
+
+  it('a weekly-only account with an old reading is stale; with neither window it stays unknown', () => {
+    const old = { ...r(null, 10), at: NOW - READING_MAX_AGE_MS - 1 }
+    expect(rank([acct('a')], { a: old }).unusable[0].reason).toBe('stale')
+    expect(rank([acct('a')], { a: r(null, null) }).unusable[0].reason).toBe('unknown')
+    expect(rank([acct('a')], {}).unusable[0].reason).toBe('unknown')
+  })
+
   it('flags a reading older than ten minutes as stale', () => {
     const old = { ...r(10, 10), at: NOW - READING_MAX_AGE_MS - 1 }
     expect(rank([acct('a')], { a: old }).unusable[0].reason).toBe('stale')

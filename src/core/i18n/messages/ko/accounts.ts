@@ -90,7 +90,6 @@ export const accounts = {
   'account.select.usage': '5시간 {session}% · 주간 {weekly}%',
   // Switch a running tab account: the menu action, its confirmation and its failure messages
   'account.switch.action': '이 탭에서 사용',
-  'account.switch.title': '열린 탭을 {label}(으)로 옮깁니다. 대화는 거기서 이어집니다',
   'account.switch.done': '이 탭은 이제 {label}에서 실행됩니다',
   'account.switch.failed': '계정을 바꾸지 못했습니다: {detail}',
   'account.switch.busy': '이 탭은 이미 계정을 바꾸는 중입니다. 잠시 뒤 다시 시도하세요',
@@ -105,7 +104,7 @@ export const accounts = {
   'account.usage.nearLimit': "한도에 가까워요",
   'account.sync.button': "설정 가져오기",
   'account.empty.body': "계정을 추가하면 Astera가 Claude 또는 Codex 구독으로 에이전트를 실행할 수 있습니다.",
-  'account.empty.bodySettings': "상단 바의 계정 메뉴에서 추가하세요.",
+  'account.empty.bodySettings': "위의 버튼으로 추가하거나, 이 컴퓨터에 이미 로그인된 계정을 찾으세요.",
   // T11: account row actions, paused chip, sign-in retry
   'account.signInAgain.button': "다시 로그인",
   'account.signOut.button': "로그아웃",
@@ -116,4 +115,26 @@ export const accounts = {
   'account.signOut.processing': "로그아웃 중…",
   'account.status.paused': "일시 중지",
   'account.signIn.retry': "다시 시도",
+  // T2: plan display names
+  'account.plan.free': '무료',
+  'account.plan.pro': 'Pro',
+  'account.plan.max': 'Max',
+  'account.plan.team': 'Team',
+  'account.plan.enterprise': 'Enterprise',
+  'account.plan.ultra': 'Ultra',
+  'account.plan.unknown': '알 수 없음',
+  // T4: account center redesign: state chips, the active mark, Manage accounts, plan chip, weekly-only usage
+  'account.status.signedIn': '로그인됨',
+  'account.status.signedOut': '로그인 안 됨',
+  'account.status.expired': '로그인 만료',
+  'account.status.expiredHint': '저장된 로그인이 거부되었습니다. 이 계정을 쓰려면 다시 로그인하세요.',
+  'account.status.unknown': '상태 알 수 없음',
+  'account.status.unknownHint': '로그인 확인에 실패했습니다. 잠시 뒤 다시 확인합니다.',
+  'account.active': '사용 중',
+  'account.active.hintTab': '열린 탭이 이 계정으로 실행됩니다',
+  'account.active.hintStatusBar': '상태 표시줄이 이 계정을 보여 줍니다',
+  'account.manage': '계정 관리…',
+  'account.plan.title': '요금제: {plan}',
+  'account.select.usageWeekly': '주간 {weekly}%',
+  'account.pickUsageWeekly': '{name} · 주간 {weekly}',
 } as const

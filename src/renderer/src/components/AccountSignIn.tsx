@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { Account } from '../../../core/types'
 import { useI18n } from '../i18n/I18nProvider'
 import { toast } from '../lib/toast'
+import { refreshAccountStatus } from '../hooks/useAccountStatus'
 import { Button, Field, Icon, Modal } from './ui'
 
 /** W7-F (#82): signs one account in. Astera runs the CLI's own login for the account's folder (main/accountLogin.ts)
@@ -42,6 +43,8 @@ export function AccountSignInDialog({ account, onClose }: { account: Account; on
       (r) => {
         if (!alive || closed.current) return
         if (r.ok) {
+          // T3: every row in the window re-asks now (main also pushes accounts:status-changed when the CLI exits)
+          refreshAccountStatus()
           toast.success(t('account.signIn.done', { label: account.label }))
           finish()
         } else if (r.reason === 'timeout') fail(t('account.signIn.timeout'))
@@ -56,6 +59,7 @@ export function AccountSignInDialog({ account, onClose }: { account: Account; on
       window.api.accounts.loginState().then((s) => { if (alive && s && s.id === account.id) setState({ url: s.url, asksCode: s.asksCode }) }, () => {})
       window.api.accounts.loginStatus(account.id).then((on) => {
         if (!on || !alive || closed.current) return
+        refreshAccountStatus() // T3: as on the login's own answer above
         toast.success(t('account.signIn.done', { label: account.label }))
         close()
       }, () => {})

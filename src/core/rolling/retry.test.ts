@@ -178,6 +178,25 @@ describe('T5a: usage in the roll verdict', () => {
     expect(pickAvailable(state({ recovery: u.blocks, order: u.order }), 1, NOW)).toBe(2)
   })
 
+  it('an account with no 5-hour window (weekly only) is ranked, and preferred over a fuller two-window account', () => {
+    const readings = new Map([
+      ['b', { session: w(60, null), weekly: w(60, null) }],
+      ['c', { session: null, weekly: w(40, null) }]
+    ])
+    const u = usageRetryOf(['a', 'b', 'c'], { readings, pauseAt: 90 }, NOW)
+    expect(u.order).toEqual(['c', 'b'])
+    // the round robin from a would take b next; the ranked order takes the weekly-only c
+    expect(pickAvailable(state({ recovery: u.blocks, order: u.order }), 1, NOW)).toBe(2)
+    expect(u.blocks[2]).toBeNull()
+  })
+
+  it('a weekly-only account whose weekly window is full is a weekly block, not ranked', () => {
+    const readings = new Map([['c', { session: null, weekly: w(100, iso(NOW + 5_000)) }]])
+    const u = usageRetryOf(['a', 'c'], { readings, pauseAt: 90 }, NOW)
+    expect(u.order).toEqual([])
+    expect(u.blocks[1]).toEqual({ at: NOW + 5_000, weekly: true, since: NOW })
+  })
+
   it('with every other account full, waits for the earliest reset', () => {
     const readings = new Map([
       ['b', { session: w(0, null), weekly: w(100, iso(NOW + 9e6)) }],

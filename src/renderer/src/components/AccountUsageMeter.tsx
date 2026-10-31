@@ -42,6 +42,10 @@ const track = (label: string, w: RateLimitWindow | null): React.JSX.Element => (
  * The top track is always the 5-hour window and the bottom always weekly. The order never varies: the
  * detail names them, so it has to be learned exactly once.
  *
+ * T4: an account with no 5-hour window (an Ultra plan, or a reading with a weekly window and no session window:
+ * sessionWindow.ts) draws the weekly track alone. Its caller decides that with `hasSessionWindow` and passes
+ * `sessionWindow={false}`; an account that has the window but no figure for it still draws the empty track.
+ *
  * Nothing at all is drawn when there is no reading — an account that is not logged in, one whose
  * provider endpoint has never answered for it, and a reading discarded past its reset all arrive here
  * as `undefined`. A dash was considered and rejected: it reads as 0%, not as "no value".
@@ -50,15 +54,18 @@ const track = (label: string, w: RateLimitWindow | null): React.JSX.Element => (
  * so the two tracks mean the same thing on either row and nothing branches on provider.
  */
 export function AccountUsageMeter({
-  usage
+  usage,
+  sessionWindow = true
 }: {
   usage: AccountUsage | undefined
+  /** False: the account has no 5-hour window (sessionWindow.ts), so only the weekly track is drawn. */
+  sessionWindow?: boolean
 }): React.JSX.Element | null {
   const { t } = useI18n()
   if (!hasUsage(usage)) return null
   return (
     <span className={usage.remembered ? 'acct-meter stale' : 'acct-meter'}>
-      {track(t('account.usage.fiveHour'), usage.session)}
+      {sessionWindow && track(t('account.usage.fiveHour'), usage.session)}
       {track(t('account.usage.weekly'), usage.weekly)}
     </span>
   )
@@ -77,9 +84,12 @@ export function AccountUsageMeter({
  * there is nothing here that a transition clarifies.
  */
 export function AccountUsageDetail({
-  usage
+  usage,
+  sessionWindow = true
 }: {
   usage: AccountUsage | undefined
+  /** As on AccountUsageMeter: false leaves the 5-hour line out. */
+  sessionWindow?: boolean
 }): React.JSX.Element | null {
   const { t, lang } = useI18n()
   if (!hasUsage(usage)) return null
@@ -127,7 +137,7 @@ export function AccountUsageDetail({
 
   return (
     <span className="acct-detail">
-      {usage.session && line(t('account.usage.fiveHour'), usage.session, SESSION_WINDOW_MS)}
+      {sessionWindow && usage.session && line(t('account.usage.fiveHour'), usage.session, SESSION_WINDOW_MS)}
       {usage.weekly && line(t('account.usage.weekly'), usage.weekly, WEEKLY_WINDOW_MS)}
       {usage.remembered && ago && <span className="acct-detail-stale">{ago}</span>}
     </span>

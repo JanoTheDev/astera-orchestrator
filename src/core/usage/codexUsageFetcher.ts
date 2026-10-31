@@ -2,14 +2,28 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { RateLimitUsage } from '../types'
 import { mapCodexUsageResponse } from './codexAccount'
-import type { FetchLike } from './rateLimitFetcher'
+import { refusedLogin, type FetchLike } from './rateLimitFetcher'
 import {
   ERROR_USAGE,
   parseRetryAfterMs,
   TTL_RATE_LIMITED_MS,
   UsageCache,
-  type UsageAttempt
+  type UsageAttempt,
+  type UsageStoredListener
 } from './usageCache'
+
+/** T3: the `exp` claim of a JWT access token, in ms; null for anything that is not a readable JWT. Reads
+ *  the expiry only: the token itself never leaves the fetcher and is never logged. */
+export function jwtExpiryMs(token: string): number | null {
+  const payload = token.split('.')[1]
+  if (!payload) return null
+  try {
+    const json = JSON.parse(Buffer.from(payload.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')) as { exp?: unknown }
+    return typeof json.exp === 'number' && Number.isFinite(json.exp) ? json.exp * 1000 : null
+  } catch {
+    return null
+  }
+}
 
 /** The codex account-usage endpoint. `wham` is codex's own internal name for its backend and is the
  *  path the CLI actually calls — the newer alias it also carries, `/backend-api/api/codex/usage`,
@@ -86,8 +100,13 @@ export class CodexUsageFetcher {
   }
 
   /** W7-F (#77): see UsageCache.forget. */
-  forget(configDir: string): void {
-    this.cache.forget(configDir)
+  forget(configDir: string, opts?: { keepBackOff?: boolean }): void {
+    this.cache.forget(configDir, opts)
+  }
+
+  /** T3: see UsageCache.onStored. */
+  onStored(listener: UsageStoredListener): () => void {
+    return this.cache.onStored(listener)
   }
 
   private async fetch(configDir: string): Promise<UsageAttempt> {
@@ -103,8 +122,9 @@ export class CodexUsageFetcher {
         return { result: ERROR_USAGE('error'), retryAfterMs: ra ?? TTL_RATE_LIMITED_MS }
       }
       // 401 lands here: an expired token is an ordinary failure, retried on the error TTL, because
-      // codex refreshes it the moment a session runs on that account.
-      if (!res.ok) return { result: ERROR_USAGE('error') }
+      // codex refreshes it the moment a session runs on that account. T3: a refusal of a token whose own
+      // `exp` is still ahead is a refused login, and the account row says so (refusedLogin).
+      if (!res.ok) return { result: ERROR_USAGE('error'), refused: refusedLogin(res.status, jwtExpiryMs(token), this.now()) }
       const data = (await res.json()) as unknown
       return { result: mapCodexUsageResponse(data) }
     } catch {
