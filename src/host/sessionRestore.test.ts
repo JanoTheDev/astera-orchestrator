@@ -733,6 +733,16 @@ describe('restartWaitingOn (the safe point)', () => {
     expect(restartWaitingOn(settled, { alive: probe.alive, busy: (id) => id === 's-reviewer' })).toEqual(['t_review'])
   })
 
+  // T19: the restart holds new starts before it asks, and a held reviewer does not start (exec/review.ts)
+  it('does not wait on a review whose reviewer the hold keeps from starting', () => {
+    const s = state()
+    const held: OrchState = { ...s, dispatches: s.dispatches.filter((d) => d.taskId !== 't_review') }
+    expect(restartWaitingOn(held, probe)).toEqual(['t_busy', 't_unknown', 't_starting', 't_check', 't_merge'])
+    // A reviewer whose start got past the hold has its Dispatch, pending at first: waited for
+    const starting: OrchState = { ...s, dispatches: s.dispatches.map((d) => (d.taskId === 't_review' ? { ...d, sessionId: 'pending:rv' } : d)) }
+    expect(restartWaitingOn(starting, probe)).toContain('t_review')
+  })
+
   it('waits on a replan whose planner is busy or still starting, by its Job', () => {
     const base = crashed()
     const job = { ...base.jobs[0], replanning: { runId: 'run_1', mode: 'completion', wave: 1, done: 1, startedAt: NOW, sessionId: 'replan-1' } } as OrchState['jobs'][number]

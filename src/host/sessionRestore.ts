@@ -359,9 +359,12 @@ export function workingTaskCount(s: OrchState | null, alive?: (sessionId: string
  *  order. A worker, a reviewer or a repair is at a safe point while its session sits idle at its prompt between turns
  *  (`busy` answers false: the verdict the stall watch nudges an idle worker by) or is gone (nothing of it is left to cut
  *  short). One that is busy, or whose screen never said (`busy` null), is not, and neither is a start still in flight (a
- *  `pending:` session). A Task validating, reviewing or merging with no Dispatch open runs a check or a merge in the
- *  Host itself, or is about to start its reviewer, and is waited for until it moves on. A replan in flight is its Job,
- *  by the Job's id, its planner judged as a worker is. */
+ *  `pending:` session). A Task validating or merging with no Dispatch open runs a check or a merge in the Host itself,
+ *  and is waited for until it moves on. A Task reviewing with no Dispatch open is safe (T19): the restart holds new
+ *  starts before it asks this, and a held reviewer does not start (exec/review.ts), so it waits for the next Host
+ *  instead of this Host waiting out its whole time for it. A reviewer whose start got past the hold has opened its
+ *  Dispatch (a `pending:` one at first) and is judged as a worker. A replan in flight is its Job, by the Job's id, its
+ *  planner judged as a worker is. */
 export function restartWaitingOn(
   s: OrchState | null,
   probe: { alive(sessionId: string): boolean; busy(sessionId: string): boolean | null }
@@ -375,6 +378,7 @@ export function restartWaitingOn(
     const sessions = open.get(t.id) ?? []
     if (t.status === 'dispatched') return sessions.length > 0 && !sessions.every(safe) ? [t.id] : []
     if (!['validating', 'reviewing', 'merging'].includes(t.status)) return []
+    if (t.status === 'reviewing' && sessions.length === 0) return []
     return sessions.length === 0 || !sessions.every(safe) ? [t.id] : []
   })
   const replans = s.jobs.flatMap((j) => {
