@@ -1,5 +1,6 @@
 // Account row actions: which items an account's menu offers for its state. Pure, so the rules are tested without the row.
 // The same list feeds the "⋯" menu, the right-click menu, in the side-bar panel and in Settings › Accounts.
+import type { AccountPlan, AccountPlanId } from '../../../core/types'
 import type { AccountLoginState } from '../hooks/useAccountStatus'
 
 export type AccountActionId = 'signIn' | 'signInAgain' | 'signOut' | 'rename' | 'switch' | 'merge' | 'remove'
@@ -41,10 +42,36 @@ export function accountActions(f: AccountActionFacts): AccountAction[] {
   return out
 }
 
-/** The status chip a row draws besides the default badge: signed out wins over paused (a signed-out account takes no
- *  worker either way). null: nothing to say. The usage guard has no unpause, so a paused row only says so. An expired
- *  login reads as signed out: the row asks for a sign-in either way. */
-export function accountStatus(loggedIn: AccountLoginFact, paused: boolean): 'signedOut' | 'paused' | null {
-  if (signedOut(loggedIn) || loggedIn === 'expired') return 'signedOut'
-  return paused ? 'paused' : null
+/** The one state chip a row draws (T4): the login state, each with its own word and icon (AccountRow STATUS_VIEW), or
+ *  `paused` when the usage guard has paused the account (it has no unpause, so the row only says so). A signed-out or
+ *  expired login wins over paused (a signed-out account takes no worker either way); paused wins over unknown, since
+ *  the pause is a known fact and a failed probe is not. null: the login check has not answered and nothing is paused,
+ *  so nothing is drawn. An expired login is its own chip: credentials are on disk but were refused, so the row asks
+ *  for a sign-in again (see useAccountStatus for when main reports it). */
+export type AccountStatus = 'signedIn' | 'signedOut' | 'expired' | 'unknown' | 'paused'
+
+export function accountStatus(loggedIn: AccountLoginFact, paused: boolean): AccountStatus | null {
+  if (signedOut(loggedIn)) return 'signedOut'
+  if (loggedIn === 'expired') return 'expired'
+  if (paused) return 'paused'
+  if (loggedIn === 'unknown') return 'unknown'
+  return signedIn(loggedIn) ? 'signedIn' : null
+}
+
+/** The row's inline sign-in button: `signIn` for a signed-out account, `signInAgain` for an expired one, null otherwise
+ *  (signed in, unknown or not answered yet; the row's menu still offers what accountActions gives it). */
+export function signInButtonOf(loggedIn: AccountLoginFact): 'signIn' | 'signInAgain' | null {
+  if (signedOut(loggedIn)) return 'signIn'
+  return loggedIn === 'expired' ? 'signInAgain' : null
+}
+
+type PlanKey = `account.plan.${Exclude<AccountPlanId, 'unknown'>}`
+
+/** The plan chip's text (T4): the plan's name; the raw string of a plan not recognised; null (no chip) when nothing
+ *  was read: no answer yet, or an unknown plan with no string (a codex folder, a folder with no plan field). */
+export function planLabelOf(plan: AccountPlan | undefined, t: (key: PlanKey) => string): string | null {
+  if (!plan) return null
+  if (plan.id !== 'unknown') return t(`account.plan.${plan.id}`)
+  const raw = plan.raw?.trim()
+  return raw ? raw : null
 }

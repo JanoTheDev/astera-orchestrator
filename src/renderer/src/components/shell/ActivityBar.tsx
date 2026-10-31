@@ -94,7 +94,7 @@ export function ActivityBar({ t, accounts, activity, sidebarOpen, badges, onActi
           panelClassName="tb-popover wb-accounts__pop"
           trigger={(tp) => <ActivityBarItem {...tp} icon={<Icon name="circleUser" size={20} />} label={t('shell.activity.accounts')} active={open} />}
         >
-          <AccountPanel accounts={accounts} />
+          <AccountPanel accounts={accounts} onClose={() => setAccountsOpen(false)} />
         </Popover>
         <ActivityBarItem
           icon={<Icon name="settings" size={20} />}
