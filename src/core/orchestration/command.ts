@@ -116,7 +116,7 @@ import { mainPlanOf } from './mainPlan'
 import { isPathWithin } from '../files/tree'
 import { buildHandoverPrompt, buildPlannerBrief } from './handover'
 import { read as readOwner } from '../prompts/ownerInstructions'
-import { consoleIdStore, ensureChat, ensureConsole } from '../console/console'
+import { consoleIdStore, ensureChat, ensureConsole, isChatSession } from '../console/console'
 import { branchInDeliveryBranch, noRemoteNote, unmergedPlanBranches } from './unmergedBranches' // W8-G (#101)
 // W2-A planner stage
 import { editPlanTask, kindOf, leftOutArg, orchestrationRoleOf, planFieldsFromArgs, plannerJobOf, plannerRefusal, taskProblems, validatePlan, withPreviousAttempt, workerSpecOf, worktreeRefusal } from './planner'
@@ -1380,15 +1380,25 @@ const str = (v: unknown): string | null => (typeof v === 'string' && v.length > 
 const onOff = (v: unknown): boolean | null =>
   v === 'on' || v === true || v === 'true' ? true : v === 'off' || v === false || v === 'false' ? false : null
 
-/** #117: whether `caller` is the running coordinator of Run `runId`, and that Run's plan is hands-off: the one agent
- *  session that answers the Run's escalations itself (`questions-answer`). */
-const handsOffCoordinatorOf = (s: OrchState, runId: string, caller: { sessionId: string; role?: string }): boolean => {
+/** #117: whether `caller` decides the escalations of Run `runId` in the owner's place (`questions-answer`): the Run is
+ *  running, its plan is hands-off, and the caller is its coordinator. T11: the coordinator the Run names now, also when an
+ *  account roll respawned it under a new id (`sessions`' `rolledFrom`), or a planner session of the plan (one that
+ *  planned it, a replan's, one `jobs-ask-planner` started). Never an MCP client or a shell. */
+const handsOffCoordinatorOf = (s: OrchState, runId: string, caller: { sessionId: string; role?: string }, sessions: readonly HostSession[] = []): boolean => {
   const run = s.runs.find((r) => r.id === runId)
   const job = run && s.jobs.find((j) => j.id === run.jobId)
-  return (
-    !!run && !!job && caller.role !== 'mcp' && caller.sessionId !== '' && run.coordinatorSessionId === caller.sessionId &&
-    outcomeOf(s, run.id) === 'running' && handsOffOf(s, job)
-  )
+  if (!run || !job || caller.role === 'mcp' || caller.sessionId === '' || outcomeOf(s, run.id) !== 'running' || !handsOffOf(s, job)) return false
+  const deciders = [run.coordinatorSessionId, ...(job.plannerSessionIds ?? []), job.replanning?.sessionId]
+  return deciders.some((id) => id !== undefined && id !== '' && isChatSession(sessions, caller.sessionId, id))
+}
+
+/** T11: why a planner session may not answer question `id`: it is a question of another plan. null: not a planner, or
+ *  a question of its own plan. Gates stay refused to it anyway (planner.ts `plannerRefusal` of `gate-resolve`). */
+const plannerAnswerRefusal = (s: OrchState, caller: { sessionId: string }, id: string | null): string | null => {
+  const job = plannerJobOf(s, caller.sessionId) ?? replanJobOf(s, caller.sessionId)
+  if (!job) return null
+  const runId = s.messages.find((m) => m.id === id)?.runId ?? s.gates.find((g) => g.id === id)?.runId
+  return s.runs.find((r) => r.id === runId)?.jobId === job.id ? null : `a planner answers the questions of its own plan (${job.id}) only`
 }
 
 /** #117: a plan's `--hands-off` (on/off, or bare). Hands-off starts the plan's workers and planner with permissions
@@ -6136,13 +6146,15 @@ export async function handleCommand(
     case 'questions-answer': {
       const answer = str(args.answer) ?? str(args.resolution)
       if (!answer) return bad('--answer is required')
+      const plannerNo = plannerAnswerRefusal(s, caller, str(args.id))
+      if (plannerNo) return denied(plannerNo)
       // W7-C (#72): an `astera ask` question or an escalation is a message, answered the way a coordinator's reply is
       const msg = s.messages.find((m) => m.id === str(args.id) && (m.type === 'question' || m.type === 'escalation'))
       if (msg) {
         const fromAgent = fromAgentSession || caller.role === 'mcp'
         // An escalation is what only the owner decides: an agent answering it would undo the escalation. #117: except
-        // on a hands-off plan, whose own running coordinator decides in the owner's place
-        if (msg.type === 'escalation' && fromAgent && !handsOffCoordinatorOf(s, msg.runId, caller))
+        // on a hands-off plan, whose own running coordinator decides in the owner's place (T11: or its planner)
+        if (msg.type === 'escalation' && fromAgent && !handsOffCoordinatorOf(s, msg.runId, caller, (await deps.listSessions?.().catch(() => [])) ?? []))
           return denied('an escalation is answered by the owner, from the app or a shell')
         // T4: approving runs a command no agent may, so no agent answers it, a hands-off coordinator included
         if (msg.approval) {

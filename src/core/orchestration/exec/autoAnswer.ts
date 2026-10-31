@@ -8,6 +8,7 @@ import { isFailedWait } from '../replan'
 import { isDroppedGate, isDuplicateGate, isStoppedDepGate } from '../overlap'
 import { isLeaseWaitGate } from '../schedule'
 import { readAppSettingsObject } from '../../settings/settingsObject'
+import { SCOPE_WHY, scopeAnswerOf, type ScopeContext } from './scopeDecider'
 
 /** One open question as `questions-list` returns it: a Gate (with its `kind`) or an ask / escalation (`source`). */
 export interface OpenQuestion {
@@ -239,6 +240,9 @@ export function handsOffStepsDue(s: OrchState, open: OpenQuestion[], nowMs: numb
     ]
     const options = q.options ?? []
     const option = (re: RegExp): string | undefined => options.find((o) => re.test(o.trim()))
+    // T11: a worker's scope question is settled from the plan's design, before its permission words could hold it
+    const scoped = scopeStepOf(s, q)
+    if (scoped) return answer(scoped, 'escalation', SCOPE_WHY)
     if (q.kind === REVIEW_NEEDS_DECISION) {
       // A guardrail other than a permission ask stays the owner's whatever is granted; its Task is held, the plan goes on
       if (OWNER_ONLY.some((re) => re !== PERMISSION && re.test(q.question))) {
@@ -308,3 +312,39 @@ export function autoAnswerLine(s: OrchState, q: Pick<OpenQuestion, 'taskId'>, a:
   const answer = a.answer.length > 160 ? `${a.answer.slice(0, 157)}...` : a.answer
   return `Auto-answered: ${answer} — ${task?.title ?? q.taskId} (${a.why})`
 }
+
+/** T11: the owner-only categories besides a plain permission ask: deleting data, the default branch, force-push, money,
+ *  credentials, "ask me". What a scope question must not touch (scopeDecider.ts). */
+const guardedBesidesPermission = (text: string): boolean => OWNER_ONLY.some((re) => re !== PERMISSION && re.test(text))
+
+/** T11: what a worker's scope question is judged against: its plan's repository, the Run's worktree and the worktrees
+ *  its Task's workers ran in, and the Task's affected paths. */
+function scopeContextOf(s: OrchState, q: OpenQuestion): ScopeContext {
+  const run = s.runs.find((r) => r.id === q.runId)
+  const job = run && s.jobs.find((j) => j.id === run.jobId)
+  const task = s.tasks.find((t) => t.id === q.taskId)
+  const roots = [job?.cwd, run?.worktree, ...s.dispatches.filter((d) => d.taskId === q.taskId).map((d) => d.cwd)]
+  return {
+    roots: roots.filter((r): r is string => typeof r === 'string' && r !== ''),
+    ...(task?.affectedPaths ? { affectedPaths: task.affectedPaths } : {}),
+    guarded: guardedBesidesPermission
+  }
+}
+
+/** T11: the answer to a worker's ask or escalation in a hands-off plan that asks to work outside its Task's paths, or
+ *  null when it is not one. A Task whose own text says "ask me" keeps its questions for the owner. */
+function scopeStepOf(s: OrchState, q: OpenQuestion): AutoAnswer | null {
+  if (q.source !== 'ask' && q.source !== 'escalation') return null
+  const task = s.tasks.find((t) => t.id === q.taskId)
+  if (task && /\bask me\b/i.test(`${task.prompt ?? ''}\n${task.spec}`)) return null
+  const text = scopeAnswerOf(q, scopeContextOf(s, q))
+  return text === null ? null : { id: q.id, answer: text, why: 'safe default' }
+}
+
+/** T11: how long a hands-off plan with no live coordinator waits for its planner to answer a worker's question, before
+ *  the question gets ESCALATION_DEFAULT_ANSWER. */
+export const PLANNER_ANSWER_WAIT_MS = 5 * 60_000
+
+/** T11: the answer a worker's question gets when neither a coordinator nor the plan's planner decided it in time. */
+export const ESCALATION_DEFAULT_ANSWER =
+  "Proceed with the option that keeps to your Task's spec and the plan's decisions; record the choice in your report."

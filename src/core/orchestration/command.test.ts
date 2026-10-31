@@ -10468,6 +10468,49 @@ describe('#117 hands-off', () => {
       const { deps, esc } = await seed(false)
       expect((await call(deps, 'questions-answer', { id: esc.id, answer: 'No' }, 'ses-coord')).status).toBe(403)
     })
+
+    /** T11: the seeded plan with planner sessions, and a second plan with its own planner. */
+    const withPlanners = async (handsOff: boolean) => {
+      const { deps, esc } = await seed(handsOff)
+      await call(deps, 'run-create', { objective: 'other', cwd: 'D:/q' })
+      const st = deps.getState()
+      const ownJob = st.runs.find((r) => r.id === esc.runId)!.jobId
+      await deps.setState({
+        ...st,
+        jobs: st.jobs.map((j) => ({ ...j, plannerSessionIds: j.id === ownJob ? ['ses-planner-1', 'ses-planner-2'] : ['ses-planner-other'] }))
+      })
+      return { deps, esc }
+    }
+
+    it("T11: a planner session of the running hands-off plan answers it; another plan's planner is refused", async () => {
+      const { deps, esc } = await withPlanners(true)
+      expect((await call(deps, 'questions-answer', { id: esc.id, answer: 'No' }, 'ses-planner-other')).status).toBe(403)
+      const r = await call(deps, 'questions-answer', { id: esc.id, answer: 'Yes, from the plan: keep to the spec' }, 'ses-planner-1')
+      expect(r.status).toBe(200)
+      expect(r.body).toMatchObject({ id: esc.id, status: 'resolved', resolution: 'Yes, from the plan: keep to the spec' })
+    })
+
+    it('T11: the planner of a plan that is not hands-off, an MCP client and an unrelated agent are still refused', async () => {
+      const off = await withPlanners(false)
+      expect((await call(off.deps, 'questions-answer', { id: off.esc.id, answer: 'No' }, 'ses-planner-1')).status).toBe(403)
+      const on = await withPlanners(true)
+      expect((await handleCommand(on.deps, { sessionId: '', role: 'mcp' }, 'questions-answer', { id: on.esc.id, answer: 'No' })).status).toBe(403)
+      expect((await call(on.deps, 'questions-answer', { id: on.esc.id, answer: 'No' }, 'ses-other')).status).toBe(403)
+    })
+
+    it('T11: the coordinator an account roll respawned under a new id answers it', async () => {
+      const { deps, esc } = await seed(true)
+      deps.listSessions = async () => [{ id: 'ses-coord-2', rolledFrom: 'ses-coord', kind: 'terminal', title: null, accountId: 'acc1', cwd: 'D:/p', alive: true } as HostSession]
+      expect((await call(deps, 'questions-answer', { id: esc.id, answer: 'No' }, 'ses-coord-2')).status).toBe(200)
+    })
+
+    it("T11: an approval request stays the owner's, a hands-off plan's planner included", async () => {
+      const { deps, esc } = await withPlanners(true)
+      const st = deps.getState()
+      const approval: Message = { ...esc, id: 'msg_appr', type: 'question', subject: 'Run astera jobs archive?', body: '', approval: { cmd: 'jobs-archive', args: { id: 'job_x' } } }
+      await deps.setState({ ...st, messages: [...st.messages, approval] })
+      expect((await call(deps, 'questions-answer', { id: 'msg_appr', answer: 'approve' }, 'ses-planner-1')).status).toBe(403)
+    })
   })
 })
 
