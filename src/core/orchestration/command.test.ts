@@ -2993,6 +2993,92 @@ describe('검토 Dispatch 가 스스로 끝나지 못했을 때 — handleExit �
     expect(deps.getState().tasks[0].status).toBe('completed')
     expect('limitResetsAt' in deps.getState().dispatches.find((d) => d.id === reviewId)!).toBe(false)
   })
+
+  describe('T9: a reviewer that ended without a report opens a review-ended Gate', () => {
+    /** A second review Dispatch, as startReview would have opened it for the Task. */
+    const seedSecondReview = async (deps: OrchServerDeps, taskId: string): Promise<void> => {
+      const first = deps.getState().dispatches.find((d) => d.review)!
+      await deps.setState({ ...deps.getState(), dispatches: [...deps.getState().dispatches, { ...first, id: 'dsp_review2', sessionId: 'sess_review2', endedAt: undefined, outcome: undefined, taskId }] })
+    }
+    const gateOf = (deps: OrchServerDeps) => deps.getState().gates.find((g) => g.status === 'open')!
+
+    it('opens it with English text and the two options', async () => {
+      const { deps } = await seedReviewing()
+      await handleExit(deps, { sessionId: 'sess_review', exitCode: 1 })
+      const gate = gateOf(deps)
+      expect(gate.kind).toBe('review-ended')
+      expect(gate.options).toEqual(['review-again', 'accept-as-done'])
+      expect(gate.question).toMatch(/^The review could not run: the reviewer session ended without a report \(dispatch=dsp_review\)\n/)
+      expect(gate.question).toContain('review-again')
+    })
+
+    it('review-again starts one new review and does not start the implementation worker', async () => {
+      const { deps, taskId } = await seedReviewing()
+      const started: Array<{ taskId: string }> = []
+      deps.startReview = (a) => void started.push(a)
+      let workers = 0
+      const startWorker = deps.startWorker.bind(deps)
+      deps.startWorker = async (...args) => (workers++, startWorker(...args))
+      await handleExit(deps, { sessionId: 'sess_review', exitCode: 1 })
+      const dispatchesBefore = deps.getState().dispatches.length
+      const r = await call(deps, 'questions-answer', { id: gateOf(deps).id, answer: 'review-again' })
+      expect(r.status).toBe(200)
+      expect(deps.getState().tasks[0].status).toBe('reviewing')
+      expect(started).toEqual([{ taskId }])
+      expect(workers).toBe(0)
+      expect(deps.getState().dispatches).toHaveLength(dispatchesBefore)
+      expect(deps.getState().gates.find((g) => g.kind === 'review-ended')).toMatchObject({ status: 'resolved', resolution: 'review-again' })
+    })
+
+    it('refuses review-again where no review can be started, the Gate left open', async () => {
+      const { deps } = await seedReviewing()
+      await handleExit(deps, { sessionId: 'sess_review', exitCode: 1 })
+      delete (deps as { startReview?: unknown }).startReview
+      expect((await call(deps, 'gate-resolve', { id: gateOf(deps).id, resolution: 'review-again' })).status).toBe(409)
+      expect(gateOf(deps).kind).toBe('review-ended')
+      expect(deps.getState().tasks[0].status).toBe('blocked')
+    })
+
+    it('a second ending and accept-as-done complete the Task with a completionOverride when its checks passed', async () => {
+      const { deps, taskId } = await seedReviewing()
+      await handleExit(deps, { sessionId: 'sess_review', exitCode: 1 })
+      await call(deps, 'questions-answer', { id: gateOf(deps).id, answer: 'review-again' })
+      await seedSecondReview(deps, taskId)
+      await handleExit(deps, { sessionId: 'sess_review2', exitCode: 1 })
+      const second = gateOf(deps)
+      expect(second.kind).toBe('review-ended')
+      const r = await call(deps, 'questions-answer', { id: second.id, answer: 'accept-as-done' })
+      expect(r.status).toBe(200)
+      const task = deps.getState().tasks[0]
+      expect(task.status).toBe('completed')
+      expect(task.consecutiveFailures).toBe(0)
+      expect(task.completionOverride).toEqual({ reason: "reviewer ended twice without a report; accepted on the worker's report and its checks", at: NOW })
+      expect(deps.getState().gates.find((g) => g.id === second.id)).toMatchObject({ status: 'resolved', resolution: 'accept-as-done' })
+    })
+
+    it('accept-as-done stays with the owner when the Task’s checks did not pass', async () => {
+      const { deps, taskId } = await seedReviewing()
+      await deps.setState({
+        ...deps.getState(),
+        tasks: deps.getState().tasks.map((t) => (t.id === taskId ? { ...t, checks: [{ configId: 'npm-test', name: 'Tests', status: 'failed' as const, exitCode: 1 }] } : t))
+      })
+      await handleExit(deps, { sessionId: 'sess_review', exitCode: 1 })
+      const r = await call(deps, 'questions-answer', { id: gateOf(deps).id, answer: 'accept-as-done' })
+      expect(r.status).toBe(409)
+      expect(gateOf(deps).kind).toBe('review-ended')
+      expect(deps.getState().tasks[0].status).toBe('blocked')
+      expect(deps.getState().tasks[0].completionOverride).toBeUndefined()
+    })
+
+    it('takes no other answer: a plain resolve would hand the Task to a worker', async () => {
+      const { deps } = await seedReviewing()
+      await handleExit(deps, { sessionId: 'sess_review', exitCode: 1 })
+      const r = await call(deps, 'questions-answer', { id: gateOf(deps).id, answer: 'go on' })
+      expect(r.status).toBe(400)
+      expect((r.body as { error: string }).error).toBe('answer one of review-again, accept-as-done')
+      expect(deps.getState().tasks[0].status).toBe('blocked')
+    })
+  })
 })
 
 // Job Continuity P1: a worker Dispatch that closes on its own, with no reported outcome, is a

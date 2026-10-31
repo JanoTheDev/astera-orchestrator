@@ -1,7 +1,7 @@
 // T21 (owner, 2026-10-18): "i want him to automatically answer the questions". The Host answers the open questions it
 // safely can (Gates, worker asks, coordinator escalations), from its own state first, else with the safe default; the
 // rest stay with the owner. Pure: dispatchLoop.ts answers through `questions-answer` and writes the feed line.
-import type { OrchState } from '../state'
+import { checksPassedOf, type OrchState } from '../state'
 import { projectOfJob } from '../projects'
 import type { Decision, Task } from '../types'
 import { isFailedWait } from '../replan'
@@ -255,6 +255,8 @@ export function handsOffStepsDue(s: OrchState, open: OpenQuestion[], nowMs: numb
       if (granted) return answer({ id: q.id, answer: grantedAnswer(granted), why: 'Host state' }, 'gate', `the owner granted ${granted} in advance`)
       return [{ kind: 'coordinator', question: q }]
     }
+    // T9: a check that could not run, or a review that ended without a report: infrastructure, settled here, not failed
+    if (q.kind === 'check-unavailable' || q.kind === 'review-ended') return infrastructureStepOf(s, q, answer)
     // A Gate the Host wrote itself, its tries spent: one more, then given up, so the plan reaches its end
     if (q.kind) {
       const retry = retried ? undefined : option(/^retry-once$/i)
@@ -282,6 +284,41 @@ export function handsOffStepsDue(s: OrchState, open: OpenQuestion[], nowMs: numb
     if (a) return answer(a, q.source === undefined ? 'gate' : 'escalation', a.why)
     return [{ kind: 'coordinator', question: q }]
   })
+}
+
+/** T9: whether an earlier Gate of the question's kind on the same Task was already answered `resolution`. */
+const answeredBefore = (s: OrchState, q: OpenQuestion, resolution: string): boolean =>
+  s.gates.some((g) => g.taskId === q.taskId && g.id !== q.id && g.kind === q.kind && g.status === 'resolved' && g.resolution === resolution)
+
+/**
+ * T9: the step for the two infrastructure Gates of a hands-off plan; neither is the code's fault, so neither fails the Task.
+ * - `check-unavailable`: `retry` the first time, `skip-check` once a retry was answered; never `mark-failed`.
+ * - `review-ended`: `review-again` the first time, `accept-as-done` the second, when the Task's checks passed. When they
+ *   did not, nothing is answered and the Gate stays with the owner.
+ */
+function infrastructureStepOf(
+  s: OrchState,
+  q: OpenQuestion,
+  answer: (a: AutoAnswer, kind: Decision['kind'], why: string) => HandsOffStep[]
+): HandsOffStep[] {
+  const options = q.options ?? []
+  const pick = (word: string): AutoAnswer | undefined => {
+    const option = options.find((o) => o.trim().toLowerCase() === word)
+    return option === undefined ? undefined : { id: q.id, answer: option, why: 'safe default' }
+  }
+  if (q.kind === 'check-unavailable') {
+    const skip = answeredBefore(s, q, 'retry')
+    const a = pick(skip ? 'skip-check' : 'retry')
+    return a
+      ? answer(a, 'gate', skip ? 'the check could not run (infrastructure, not the code), still unavailable after a retry: skipped, reason recorded' : 'the check could not run (infrastructure, not the code): retried once')
+      : [{ kind: 'coordinator', question: q }]
+  }
+  const again = answeredBefore(s, q, 'review-again')
+  if (again && !checksPassedOf(s.tasks.find((t) => t.id === q.taskId) ?? { checks: undefined })) return []
+  const a = pick(again ? 'accept-as-done' : 'review-again')
+  return a
+    ? answer(a, 'gate', again ? 'the reviewer ended twice without a report: accepted on the worker\'s report and its checks, reason recorded' : 'the reviewer ended without a report (infrastructure, not the code): reviewed again once')
+    : [{ kind: 'coordinator', question: q }]
 }
 
 /** #117: the message that hands a hands-off plan's open question to its coordinator. */

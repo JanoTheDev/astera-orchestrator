@@ -237,6 +237,8 @@ export const core: Partial<Record<keyof typeof ko, string>> = {
   'jobs.convergence.gate.needsDecision':
     'レビューがコードの修正では解決しない問題を見つけました: {issues}\nどうするか回答してください。その回答を載せた修正が 1 回、予算の外で開かれます。',
   'jobs.checks.gate.unavailable': 'チェックを実行できませんでした: {check}: {reason}',
+  'jobs.checks.gate.reviewEnded':
+    'レビューを実行できませんでした: {reason}\nこの Task をもう一度レビューするには review-again と答えてください。終わった作業を捨てずにワーカーの報告とチェック結果で閉じるには accept-as-done と答えてください(task-update --status completed でも構いません)。',
   'jobs.gate.noAccount': '{provider} アカウントにログインしていないため、この Task を開始できません',
   'jobs.gate.noAccountAnyProvider': 'どの提供元のアカウントにもログインしていないため、この Task を開始できません',
   'jobs.gate.workerLostNoApp': 'この Task のワーカーは、復旧できる Astera が開いていない間に失われました（dispatch {dispatch}）。この Gate を解決すると、もう一度開始します。',

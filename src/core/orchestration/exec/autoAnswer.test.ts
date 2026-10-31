@@ -234,6 +234,56 @@ describe('hands-off plans decide for the owner (#117)', () => {
     ])
   })
 
+  describe('T9: a check that could not run and a review that ended without a report', () => {
+    const gate = (id: string, kind: 'check-unavailable' | 'review-ended', resolution: string) => ({ id, runId: 'run_1', taskId: 'tsk_x', question: 'q', kind, status: 'resolved' as const, resolution, createdAt: NOW })
+    const unavailable = q('The check could not be made: lint: down', { kind: 'check-unavailable', options: ['retry', 'skip-check', 'mark-failed'] })
+    const ended = q('The review could not run: the reviewer session ended without a report', { kind: 'review-ended', options: ['review-again', 'accept-as-done'] })
+    const passed = { configId: 'c1', name: 'lint', status: 'passed' as const }
+    const answerOf = (st: OrchState, question: OpenQuestion) => handsOffStepsDue(st, [question], T0)
+
+    it('answers a check-unavailable Gate retry, then skip-check, never mark-failed, and records why', () => {
+      expect(answerOf(s, unavailable)).toEqual([
+        { kind: 'answer', answer: { id: 'gat_1', answer: 'retry', why: 'safe default' }, decision: expect.objectContaining({ kind: 'gate', taskId: 'tsk_x', choice: 'retry', why: expect.stringContaining('retried once') }) }
+      ])
+      const retried: OrchState = { ...s, gates: [gate('gat_0', 'check-unavailable', 'retry')] }
+      expect(answerOf(retried, unavailable)).toEqual([
+        { kind: 'answer', answer: { id: 'gat_1', answer: 'skip-check', why: 'safe default' }, decision: expect.objectContaining({ kind: 'gate', choice: 'skip-check', why: expect.stringContaining('skipped, reason recorded') }) }
+      ])
+      // however many times it comes back, mark-failed is not an answer
+      const twice: OrchState = { ...s, gates: [gate('gat_0', 'check-unavailable', 'retry'), gate('gat_2', 'check-unavailable', 'skip-check')] }
+      expect(JSON.stringify(answerOf(twice, unavailable))).not.toContain('mark-failed')
+    })
+
+    it('a retry of another kind of Gate does not count as the check having been retried', () => {
+      const other: OrchState = { ...s, gates: [{ ...gate('gat_0', 'check-unavailable', 'retry-once'), kind: undefined }] }
+      expect(answerOf(other, unavailable)).toEqual([expect.objectContaining({ answer: expect.objectContaining({ answer: 'retry' }) })])
+    })
+
+    it('answers a review-ended Gate review-again, then accept-as-done, as decisions', () => {
+      expect(answerOf(s, ended)).toEqual([
+        { kind: 'answer', answer: { id: 'gat_1', answer: 'review-again', why: 'safe default' }, decision: expect.objectContaining({ kind: 'gate', taskId: 'tsk_x', choice: 'review-again' }) }
+      ])
+      const again: OrchState = { ...s, gates: [gate('gat_0', 'review-ended', 'review-again')] }
+      expect(answerOf(again, ended)).toEqual([
+        { kind: 'answer', answer: { id: 'gat_1', answer: 'accept-as-done', why: 'safe default' }, decision: expect.objectContaining({ kind: 'gate', choice: 'accept-as-done', why: expect.stringContaining('ended twice') }) }
+      ])
+    })
+
+    it('leaves a second review-ended Gate to the owner when the Task checks did not pass', () => {
+      const failing = base([task({ id: 'tsk_x', title: 'T1 · Login', checks: [passed, { configId: 'c2', name: 'tests', status: 'failed' }] })])
+      expect(answerOf({ ...failing, gates: [gate('gat_0', 'review-ended', 'review-again')] }, ended)).toEqual([])
+      // the first time it still reviews again
+      expect(answerOf(failing, ended)).toEqual([expect.objectContaining({ answer: expect.objectContaining({ answer: 'review-again' }) })])
+      const passing = base([task({ id: 'tsk_x', title: 'T1 · Login', checks: [passed] })])
+      expect(answerOf({ ...passing, gates: [gate('gat_0', 'review-ended', 'review-again')] }, ended)).toEqual([expect.objectContaining({ answer: expect.objectContaining({ answer: 'accept-as-done' }) })])
+    })
+
+    it('outside hands-off the owner keeps a review-ended Gate', () => {
+      expect(autoAnswerOf(s, ended)).toBeNull()
+      expect(autoAnswersDue(s, [ended], T0)).toEqual([])
+    })
+  })
+
   it("a question Astera asked itself is judged by its options, not by the Task titles in its text", () => {
     const stopped = q('"Remove the All consoles wall" (plan P) waits on "Visual check" of plan W, whose plan stopped. Keep waiting, drop this dependency, or cancel this Task? [dep tsk_d]', {
       options: [...STOPPED_DEP_OPTIONS]

@@ -87,6 +87,45 @@ describe('answering a check that could not be made', () => {
     expect(deps.validations).toEqual([{ taskId, cwd: 'D:/w' }])
   })
 
+  describe('T9: a hands-off plan retries once, then skips the check and records why', () => {
+    /** The Task's check already retried once: an earlier check-unavailable Gate answered `retry`. */
+    const retriedOnce = async (deps: Deps, taskId: string, handsOff: boolean): Promise<void> => {
+      const s = deps.getState()
+      const earlier = { id: 'gat_earlier', runId: s.tasks[0].runId!, taskId, question: 'q', kind: 'check-unavailable' as const, status: 'resolved' as const, resolution: 'retry', createdAt: NOW }
+      await deps.setState({ ...s, gates: [...s.gates, earlier], jobs: s.jobs.map((j) => ({ ...j, handsOff })) })
+    }
+
+    it('keeps who skipped the check and why on the Task’s check record', async () => {
+      const deps = makeDeps()
+      const { taskId, gateId } = await blocked(deps)
+      await retriedOnce(deps, taskId, true)
+      expect((await call(deps, 'questions-answer', { id: gateId, answer: 'skip-check' })).status).toBe(200)
+      const skipped = taskOf(deps, taskId).checkResume!.done[1]
+      expect(skipped).toEqual({
+        configId: 'plugin:d',
+        name: 'D',
+        status: 'not-run',
+        skipped: true,
+        summary: 'Skipped by the hands-off plan after one retry: service down'
+      })
+      expect(taskOf(deps, taskId).checkResume!.rest).toEqual(['lint'])
+    })
+
+    it('a person’s skip, or a skip with no earlier retry, is still recorded as a person’s', async () => {
+      const handsOff = makeDeps()
+      const a = await blocked(handsOff)
+      await handsOff.setState({ ...handsOff.getState(), jobs: handsOff.getState().jobs.map((j) => ({ ...j, handsOff: true })) })
+      await call(handsOff, 'gate-resolve', { id: a.gateId, resolution: 'skip-check' })
+      expect(taskOf(handsOff, a.taskId).checkResume!.done[1]).toMatchObject({ summary: 'Skipped by a person: service down' })
+
+      const manual = makeDeps()
+      const b = await blocked(manual)
+      await retriedOnce(manual, b.taskId, false)
+      await call(manual, 'gate-resolve', { id: b.gateId, resolution: 'skip-check' })
+      expect(taskOf(manual, b.taskId).checkResume!.done[1]).toMatchObject({ summary: 'Skipped by a person: service down' })
+    })
+  })
+
   it('skip-check of the last check leaves nothing to run', async () => {
     const deps = makeDeps()
     const { taskId, gateId } = await blocked(deps, [])
