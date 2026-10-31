@@ -159,7 +159,7 @@ export const plan: Partial<Record<keyof typeof ko, string>> = {
   'plan.reason.replanQuestion': 'プランナーから質問があります · 受信箱を見てください',
   'plan.steps.reason.lead': 'リードエージェントが開始します',
   'plan.steps.reason.planCap': '計画の上限に達しました (エージェント {used} / {limit})',
-  'plan.steps.reason.globalCap': 'アプリ全体の上限に達しました (エージェント {used} / {limit}、優先度 {priority})',
+  'plan.steps.reason.globalCap': 'アプリ全体の上限に達しました (実行中 {running}、起動中 {starting}、上限 {limit}、優先度 {priority})',
   'plan.steps.now.asked': 'リードエージェントに質問しました',
   'plan.graph.gate': 'あなたへの質問で保留にする',
   'plan.graph.answer': '質問に答える',

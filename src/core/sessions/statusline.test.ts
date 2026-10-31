@@ -70,6 +70,26 @@ describe('StatusLineManager 훅 주입', () => {
     expect(await fs.readFile(path.join(dir, 'astera-subagent-cap.cjs'), 'utf8')).toContain('permissionDecision')
   })
 
+  // A worker's test, typecheck and build runs take a heavy slot (heavyGuard.ts): in both files, for Bash and PowerShell,
+  // synchronous (the rewritten call is its answer) and `if`-filtered so an ordinary call spawns no node.
+  it('both settings files carry the heavy guard for Bash and PowerShell, if-filtered and synchronous', async () => {
+    for (const f of ['astera-statusline-settings.json', 'astera-hooks-settings.json']) {
+      const settings = JSON.parse(await fs.readFile(path.join(dir, f), 'utf8'))
+      for (const tool of ['Bash', 'PowerShell']) {
+        const entries = settings.hooks.PreToolUse.filter(
+          (e: { matcher: string; hooks: { command: string }[] }) => e.matcher === tool && e.hooks.some((h) => h.command.includes('astera-heavy-guard.cjs'))
+        )
+        expect(entries, `${f} ${tool}`).toHaveLength(1)
+        for (const h of entries[0].hooks) {
+          expect(h.if.startsWith(`${tool}(`)).toBe(true)
+          expect(h.async).toBeUndefined()
+        }
+        expect(entries[0].hooks.some((h: { if: string }) => h.if === `${tool}(*vitest*)`)).toBe(true)
+      }
+    }
+    expect(await fs.readFile(path.join(dir, 'astera-heavy-guard.cjs'), 'utf8')).toContain('updatedInput')
+  })
+
   it('spawnConfig: toolHooks=true면 도구 캡처까지 든 설정 파일', () => {
     const c = mgr.spawnConfig('sess-1', account, { toolHooks: true })
     expect(c.settingsFile).toContain('astera-hooks-settings.json')
@@ -100,9 +120,19 @@ describe('StatusLineManager 훅 주입', () => {
     const settings = JSON.parse(await fs.readFile(path.join(dir, 'astera-statusline-settings.json'), 'utf8'))
     // W6-G: the second entry is the subagent cap's Agent|Task hook (its own test below); the third the delivery
     // guard's Bash hook, `if`-filtered so an ordinary Bash call spawns nothing (deliveryGuard.test.ts)
-    expect(settings.hooks.PreToolUse).toHaveLength(3)
+    expect(settings.hooks.PreToolUse).toHaveLength(5)
     expect(settings.hooks.PreToolUse[2].matcher).toBe('Bash')
     for (const h of settings.hooks.PreToolUse[2].hooks) expect(h.if).toMatch(/^Bash\(/)
+    // the heavy guard's (heavyGuard.ts): a Bash and a PowerShell entry, each handler `if`-filtered to its own tool
+    expect(settings.hooks.PreToolUse[3].matcher).toBe('Bash')
+    expect(settings.hooks.PreToolUse[4].matcher).toBe('PowerShell')
+    for (const [at, tool] of [[3, 'Bash'], [4, 'PowerShell']] as const) {
+      expect(settings.hooks.PreToolUse[at].hooks.length).toBeGreaterThan(0)
+      for (const h of settings.hooks.PreToolUse[at].hooks) {
+        expect(h.if.startsWith(`${tool}(`)).toBe(true)
+        expect(h.command).toContain('astera-heavy-guard.cjs')
+      }
+    }
     expect(settings.hooks.PreToolUse[0].matcher).toBe('AskUserQuestion')
     expect(settings.hooks.PreToolUse[0].hooks[0].command).toContain('astera-hook-capture.cjs')
     expect(settings.hooks.PostToolUse[0].matcher).toBe('AskUserQuestion')

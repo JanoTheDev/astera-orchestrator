@@ -82,7 +82,7 @@ describe('reasonText', () => {
       { kind: 'no-account' },
       { kind: 'coordinator' },
       { kind: 'plan-cap', used: 2, limit: 2 },
-      { kind: 'global-cap', used: 4, limit: 4, priority: 1 },
+      { kind: 'global-cap', running: 3, starting: 1, limit: 4, priority: 1 },
       { kind: 'next' },
       // W6-G
       { kind: 'usage-paused', accountId: 'a', window: 'five_hour', percent: 93, resetsAt: '2026-10-17T14:20:00.000Z' },

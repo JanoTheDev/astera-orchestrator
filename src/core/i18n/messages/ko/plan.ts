@@ -176,7 +176,6 @@ export const plan = {
   'plan.reason.noAccount': '지정된 계정이 없다',
   'plan.reason.coordinator': '코디네이터가 시작한다',
   'plan.reason.planCap': '계획 한도가 찼다 (워커 {used}/{limit})',
-  'plan.reason.globalCap': '앱 전체 한도가 찼다 (워커 {used}/{limit}, 우선순위 {priority})',
   'plan.reason.sameFiles': '{task} 을(를) 기다리는 중: 같은 파일을 고친다 ({path})',
   // W8-D: 기다리는 Task 가 다른 계획의 것이다
   'plan.reason.sameFilesPlan': '{plan} · {task} 을(를) 기다리는 중 (같은 파일: {path})',
@@ -280,7 +279,7 @@ export const plan = {
   'plan.steps.reason.stopped': '에이전트가 멈췄습니다',
   'plan.steps.reason.lead': '리드 에이전트가 시작합니다',
   'plan.steps.reason.planCap': '계획 한도가 찼습니다 (에이전트 {used}/{limit})',
-  'plan.steps.reason.globalCap': '앱 전체 한도가 찼습니다 (에이전트 {used}/{limit}, 우선순위 {priority})',
+  'plan.steps.reason.globalCap': '앱 전체 한도가 찼습니다 (실행 중 {running}, 시작 중 {starting}, 한도 {limit}, 우선순위 {priority})',
   'plan.steps.now.asked': '리드 에이전트에게 질문함',
   'plan.graph.gate': '당신에게 묻는 질문으로 멈춰 두기',
   'plan.graph.answer': '질문에 답하기',

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { pendingMerges } from './integrate'
-import { slotsToFill } from './schedule'
+import { slotsToFill, workersAgainstCap, workersAgainstCapSplit } from './schedule'
 import { emptyState, type OrchState } from './state'
-import type { Task } from './types'
+import type { Dispatch, Task } from './types'
 import { stateFromLegacy } from './legacyState'
 import type { LegacyRun } from './legacy'
 
@@ -238,3 +238,37 @@ describe('slotsToFill', () => {
   })
 })
 
+
+describe('workersAgainstCapSplit — running and starting apart', () => {
+  const T0 = '2026-10-17T00:00:00.000Z'
+  const state = (dispatches: Dispatch[]): OrchState => ({
+    ...emptyState(),
+    jobs: [{ id: 'j1', objective: 'j1', cwd: '/p', createdAt: T0, autoDispatch: true }],
+    runs: [{ id: 'r1', jobId: 'j1', ordinal: 1, createdAt: T0 }],
+    tasks: ['a', 'b', 'c'].map((id) => ({ ...task(id), runId: 'r1', status: 'dispatched' as const })),
+    dispatches
+  })
+  const dispatch = (id: string, taskId: string, sessionId: string): Dispatch => ({
+    id,
+    taskId,
+    provider: 'claude',
+    accountId: 'acc_1',
+    sessionId,
+    cwd: '/p',
+    specPath: '/spec',
+    startedAt: T0,
+    workerState: 'ready',
+    retained: false
+  })
+
+  it('counts a Dispatch with a pending: session as starting, the rest as running', () => {
+    const s = state([dispatch('d_a', 'a', 'ses_a'), dispatch('d_b', 'b', 'ses_b'), dispatch('d_c', 'c', 'pending:x1')])
+    expect(workersAgainstCapSplit(s)).toEqual({ running: 2, starting: 1 })
+  })
+
+  it('workersAgainstCap is the sum of both, as before', () => {
+    const s = state([dispatch('d_a', 'a', 'ses_a'), dispatch('d_c', 'c', 'pending:x1')])
+    expect(workersAgainstCap(s)).toBe(2)
+    expect(workersAgainstCapSplit(s)).toEqual({ running: 1, starting: 1 })
+  })
+})

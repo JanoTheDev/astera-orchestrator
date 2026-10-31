@@ -659,7 +659,8 @@ export type TaskBlockedReason =
   /** A coordinator drives this Run: the app does not place its Tasks, the coordinator starts them. */
   | { kind: 'coordinator' }
   | { kind: 'plan-cap'; used: number; limit: number }
-  | { kind: 'global-cap'; used: number; limit: number; priority: number }
+  /** `running`: workers with a session; `starting`: placeholder Dispatches plus the slots this pass places. */
+  | { kind: 'global-cap'; running: number; starting: number; limit: number; priority: number }
   /** W6-C: another Task of the plan is at files this one would edit (`path`, the first of its own that collides). */
   | {
       kind: 'same-files'

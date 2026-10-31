@@ -929,17 +929,23 @@ server blocks `check` and `inbox` as coordinator-only (403).
 <!-- W8-C: heavy jobs and self-hosting -->
 ### Heavy jobs and the orchestrating app (W8-C)
 
-- **Run heavy jobs through `astera heavy`.** The full test suite, `npm run dev` / Electron launches and
-  `npm run dist:linux` run one at a time on this machine, first come first served:
+- **Run heavy jobs through `astera heavy`.** Test runs, typechecks and builds are heavy jobs, and so are the
+  full test suite, `npm run dev` / Electron launches and `npm run dist:linux`. They run one at a time on this
+  machine (a few at a time if the owner raised the heavy-job count), first come first served:
   ```bash
   astera heavy -- nice -n 10 npx vitest run --maxWorkers=2
+  astera heavy -- npx vitest run --maxWorkers=2 <files>
+  astera heavy -- npm run typecheck
   astera heavy -- npm run dist:linux
   ```
   It waits for the slot, runs the command in your terminal, and exits with the command's exit code. While
   you wait, the plan board shows "Waiting for the heavy-job slot (2nd in line)". The slot is the lock file
   `/tmp/astera-fullsuite.lock`: hand-opened tabs that run `flock /tmp/astera-fullsuite.lock <command>`
-  share it. The lock is released when the command exits or crashes. Your own test files
-  (`npx vitest run --maxWorkers=2 <files>`) and the typecheck are not heavy jobs.
+  share it. The lock is released when the command exits or crashes. Run your own test files
+  (`astera heavy -- npx vitest run --maxWorkers=2 <files>`) and the typecheck (`astera heavy -- npm run typecheck`)
+  the same way; only the full suite is left to the delivery. In a Claude worker, Astera's PreToolUse hook puts
+  `astera heavy --` in front of a test, typecheck or build command you forgot it on (`heavyGuard.ts`); a Codex worker
+  has no such hook, so write it yourself.
 - **Manual checks run the dev app on the dev profile** (`ASTERA_PROFILE_DIR=~/.config/astera-dev`), with
   its own Host, never on the profile the orchestrating Astera runs on.
 - **Never stop, restart or `pkill` the orchestrating Astera app or its Host**, and never kill processes
