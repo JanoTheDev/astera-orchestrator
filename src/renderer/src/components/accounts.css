@@ -7,6 +7,8 @@
 .acct-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--line); }
 .acct-head__title { display: flex; align-items: center; gap: var(--sp-2); margin: 0; font-size: var(--fs-13); font-weight: var(--fw-semi); color: var(--text); }
 .account-panel > .ui-empty { padding: var(--sp-6) var(--sp-4); }
+/* T4: "Manage accounts…" to Settings > Accounts & usage, under the list (DESIGN-W13 §3). */
+.acct-foot { display: flex; padding: var(--sp-1) var(--sp-2); border-top: 1px solid var(--line); }
 
 /* The list: rows separated by a hairline. */
 .acct-list { list-style: none; margin: 0; padding: 0; }
@@ -21,7 +23,9 @@
    the same rule rather than promising a click that does nothing */
 .acct-row[tabindex] { cursor: pointer; }
 .acct-row[tabindex]:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-.acct-row--open { background: var(--elevated); border-left-color: var(--accent); }
+.acct-row--open { background: var(--elevated); }
+/* T4: the active account (the open tab's, else the status bar's): an accent edge, and the word "Active" on its second line. */
+.acct-row--active { border-left-color: var(--accent); }
 
 /* The account's colour, as a mark; the name beside it says which account it is, so colour carries no meaning alone. */
 .acct-mark { width: var(--sp-3); height: var(--sp-3); border-radius: var(--radius-pill); flex: none; }
@@ -29,8 +33,17 @@
 .acct-id__line { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; }
 .acct-id__name { min-width: 0; font-size: var(--fs-13); font-weight: var(--fw-medium); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acct-id__edit { flex: 1; min-width: 0; }
-.acct-id__email { font-size: var(--fs-11); color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.acct-id__note { color: var(--warn); }
+/* T4: the identity line holds the name, the provider, the plan chip and the state chip; the name gives way first. */
+.acct-plan, .acct-state { display: inline-flex; flex: none; min-width: 0; }
+.acct-plan { max-width: 14ch; flex-shrink: 1; }
+.acct-plan__chip { font-weight: var(--fw-medium); color: var(--text); background: transparent; border: 1px solid var(--line-strong); }
+.acct-state__chip { font-size: var(--fs-11); }
+/* The second line: the email, then the Default and Active marks. */
+.acct-id__meta { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; font-size: var(--fs-11); line-height: var(--lh-tight); }
+.acct-id__email { min-width: 0; font-size: var(--fs-11); color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct-tag { flex: none; display: inline-flex; align-items: center; gap: 2px; color: var(--text-dim); white-space: nowrap; }
+.acct-tag--active { color: var(--accent); font-weight: var(--fw-medium); }
+.acct-id__note { font-size: var(--fs-11); color: var(--warn); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acct-row__actions { display: inline-flex; align-items: center; gap: var(--sp-1); }
 
 /* Usage: two labelled meters under the name (design doc §5). Each track is the house Meter on its usage-guard thresholds. */
@@ -58,6 +71,8 @@
 
 /* Settings > Accounts: the list in a Card, the per-account caps in another. */
 .acct-settings { display: flex; flex-direction: column; gap: var(--sp-3); }
+/* T4: the page's one toolbar: Add, Import, Find, the same actions as the popover's. */
+.acct-settings__bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
 .acct-card { padding: 0; overflow: hidden; }
 .acct-limits { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-3); }
 .acct-card__title { font-size: var(--fs-13); font-weight: var(--fw-medium); color: var(--text); }

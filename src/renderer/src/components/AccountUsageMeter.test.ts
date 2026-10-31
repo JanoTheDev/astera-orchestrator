@@ -58,9 +58,27 @@ describe('AccountUsageMeter', () => {
     expect(render(usage({ session: null, weekly: null }))).toBe('')
   })
 
-  it('one window present still draws both tracks, the missing one empty', () => {
+  it('a missing weekly window still draws both tracks, the missing one empty', () => {
     // Both tracks stay in the markup so the meter keeps its height and the row does not shift.
     expect(fills(render(usage({ weekly: null })))).toEqual(['12', '0'])
+  })
+
+  // T4 (changed on purpose): this used to pin "one window present still draws both tracks". An account with no 5-hour
+  // window (Ultra; or a reading with weekly and no session, sessionWindow.ts) now draws the weekly track alone, so it
+  // never shows a "5h 0%" it does not have. The caller decides with hasSessionWindow.
+  it('with no 5-hour window, only the weekly track is drawn', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(AccountUsageMeter, { usage: usage({ session: null }), sessionWindow: false })
+    )
+    expect(fills(html)).toEqual(['41'])
+    expect(html).not.toContain('account.usage.fiveHour')
+    expect(html).toContain('account.usage.weekly')
+  })
+
+  it('an account that has the window but no figure for it keeps the empty 5-hour track', () => {
+    const html = render(usage({ session: null }))
+    expect(fills(html)).toEqual(['0', '41'])
+    expect(html).toContain('account.usage.fiveHour')
   })
 
   it('a percentage outside 0-100 is clamped to the track', () => {
@@ -136,6 +154,12 @@ describe('AccountUsageDetail', () => {
     })
     expect(html).not.toContain('account.usage.resetsIn(1h)')
     expect(html).toContain('78%')
+  })
+
+  it('with no 5-hour window, the detail has the weekly line alone', () => {
+    const html = renderToStaticMarkup(React.createElement(AccountUsageDetail, { usage: both(), sessionWindow: false }))
+    expect(html).not.toContain('account.usage.fiveHour')
+    expect(html).toContain('36%')
   })
 
   it('renders nothing when the meter renders nothing', () => {

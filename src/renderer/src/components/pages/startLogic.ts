@@ -5,7 +5,8 @@ import { MAX_CONCURRENT_WORKERS, PROJECT_DEFAULTS, type DeliveryMode, type Job, 
 import { isEffort, type Effort } from '../../../../core/orchestration/roleModels'
 import { holdOf } from '../../../../core/orchestration/holds'
 import { jobNameOf } from '../../../../core/orchestration/jobName'
-import type { Account, AccountUsage } from '../../../../core/types'
+import type { Account, AccountPlan, AccountUsage } from '../../../../core/types'
+import { hasSessionWindow } from '../sessionWindow'
 import { providerOf } from '../../../../core/providers/meta'
 
 /** T14: the three plain ways to start. `chat`: the planner talks the plan through with the person; `auto`: it plans and
@@ -316,12 +317,14 @@ function liveStateOf(r: PlanRow): LivePlanState | null {
 // ranks the accounts by usage; a picked account is only a preference.
 export const AUTO_ACCOUNT = 'auto'
 
-/** Auto, then each signed-in Claude account with its weekly and 5h used percent (— while unknown). */
+/** Auto, then each signed-in Claude account with its weekly and 5h used percent (— while unknown). T4: an account with
+ *  no 5-hour window (its plan, by `plans`, or a weekly-only reading: sessionWindow.ts) shows its weekly figure alone. */
 export function accountPickOptions(
   accounts: readonly Account[],
   signedIn: ReadonlySet<string>,
   usage: Readonly<Record<string, AccountUsage>>,
-  t: T
+  t: T,
+  plans: Readonly<Record<string, AccountPlan>> = {}
 ): { value: string; label: string }[] {
   const pct = (w: { usedPercent: number } | null | undefined): string => (w ? `${w.usedPercent}%` : '—')
   return [
@@ -330,7 +333,10 @@ export function accountPickOptions(
       .filter((a) => providerOf(a) === 'claude' && signedIn.has(a.id))
       .map((a) => {
         const u = usage[a.configDir]
-        return { value: a.id, label: t('accounts.pickUsage', { name: a.label, weekly: pct(u?.weekly), session: pct(u?.session) }) }
+        const label = hasSessionWindow(plans[a.id], u)
+          ? t('accounts.pickUsage', { name: a.label, weekly: pct(u?.weekly), session: pct(u?.session) })
+          : t('account.pickUsageWeekly', { name: a.label, weekly: pct(u?.weekly) })
+        return { value: a.id, label }
       })
   ]
 }

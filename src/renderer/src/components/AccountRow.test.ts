@@ -116,7 +116,7 @@ describe('AccountRow', () => {
     expect(paused).toContain('<svg')
     expect(render({})).not.toContain('account.status.paused')
     const out = render({ loggedIn: false, paused: true })
-    expect(out).toContain('account.status.notLoggedIn')
+    expect(out).toContain('account.status.signedOut')
     expect(out).not.toContain('account.status.paused')
   })
 
@@ -125,5 +125,77 @@ describe('AccountRow', () => {
     expect(render({ actions })).not.toContain('account.rename.button"')
     expect(render({ actions })).toContain('account.menu.label')
     expect(render({})).toContain('account.rename.button')
+  })
+})
+
+// T4: the account center redesign.
+describe('AccountRow states, plan and active mark (T4)', () => {
+  const chipOf = (html: string): string | undefined => /class="ui-chip ui-chip--(\w+) acct-state__chip">(.*?)<\/span><\/span>/.exec(html)?.[0]
+
+  it('each login state has its own chip, with an icon and a word as well as a colour', () => {
+    const cases = [
+      ['signedIn', 'ok', 'account.status.signedIn'],
+      ['signedOut', 'warn', 'account.status.signedOut'],
+      ['expired', 'danger', 'account.status.expired'],
+      ['unknown', 'neutral', 'account.status.unknown']
+    ] as const
+    for (const [state, tone, word] of cases) {
+      const chip = chipOf(render({ loggedIn: state }))
+      expect(chip, state).toContain(`ui-chip--${tone}`)
+      expect(chip, state).toContain('<svg')
+      expect(chip, state).toContain(word)
+    }
+    // before the check answers there is no chip at all
+    expect(chipOf(render({ loggedIn: undefined }))).toBeUndefined()
+  })
+
+  it('an expired or unknown login says what it means on hover', () => {
+    expect(render({ loggedIn: 'expired' })).toContain('title="account.status.expiredHint"')
+    expect(render({ loggedIn: 'unknown' })).toContain('title="account.status.unknownHint"')
+  })
+
+  it('the inline sign-in button: sign in when signed out, sign in again when expired, none otherwise', () => {
+    const onAction = (): void => {}
+    expect(render({ loggedIn: 'signedOut', onAction })).toContain('account.signIn.button')
+    expect(render({ loggedIn: 'expired', onAction })).toContain('account.signInAgain.button')
+    for (const s of ['signedIn', 'unknown', undefined] as const) {
+      const html = render({ loggedIn: s, onAction })
+      expect(html).not.toContain('account.signIn.button')
+      expect(html).not.toContain('account.signInAgain.button')
+    }
+  })
+
+  it('only a signed-in login draws the meter; expired and unknown do not', () => {
+    expect(render({ loggedIn: 'signedIn', usage: usage() })).toContain('acct-meter')
+    expect(render({ loggedIn: 'expired', usage: usage() })).not.toContain('acct-meter')
+    expect(render({ loggedIn: 'unknown', usage: usage() })).not.toContain('acct-meter')
+  })
+
+  it('the plan chip: Ultra by name, an unknown plan by its raw string, nothing without a reading', () => {
+    expect(render({ plan: { id: 'ultra', raw: 'default_claude_ultra', hasSessionWindow: false } })).toContain('account.plan.ultra')
+    expect(render({ plan: { id: 'unknown', raw: 'claude_galaxy', hasSessionWindow: true } })).toContain('>claude_galaxy<')
+    expect(render({ plan: { id: 'unknown', raw: null, hasSessionWindow: true } })).not.toContain('acct-plan')
+    expect(render({})).not.toContain('acct-plan')
+  })
+
+  it('an Ultra account draws no 5-hour track, even with a session figure in the reading', () => {
+    const ultra = { id: 'ultra' as const, raw: 'ultra', hasSessionWindow: false }
+    expect(render({ plan: ultra, usage: usage() })).not.toContain('account.usage.fiveHour')
+    expect(render({ plan: ultra, usage: usage() })).toContain('account.usage.weekly')
+    expect(render({ usage: usage() })).toContain('account.usage.fiveHour')
+  })
+
+  it('the active account is marked with an edge, aria-current and the word', () => {
+    const html = render({ active: true, activeHint: 'hint' })
+    expect(html).toContain('acct-row--active')
+    expect(html).toContain('aria-current="true"')
+    expect(html).toContain('account.active')
+    expect(render({})).not.toContain('acct-row--active')
+    expect(render({})).not.toContain('aria-current')
+  })
+
+  it('the default account says so on its second line', () => {
+    expect(render({ isDefault: true })).toContain('accounts.default')
+    expect(render({})).not.toContain('accounts.default')
   })
 })

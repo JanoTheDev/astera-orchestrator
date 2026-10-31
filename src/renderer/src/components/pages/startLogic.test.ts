@@ -256,11 +256,20 @@ describe('Start after', () => {
 describe('account picker (T5b)', () => {
   const acc = (id: string, provider?: 'codex'): Account => ({ id, label: id.toUpperCase(), configDir: `/c/${id}`, color: '', createdAt: '', provider })
   it('Auto first, then each signed-in Claude account with its weekly and 5h used percent', () => {
-    const usage = { '/c/a': { weekly: { usedPercent: 40, resetsAt: null }, session: null, readAt: '', remembered: false } }
+    const usage = { '/c/a': { weekly: { usedPercent: 40, resetsAt: null }, session: { usedPercent: 7, resetsAt: null }, readAt: '', remembered: false } }
     expect(accountPickOptions([acc('a'), acc('b'), acc('c'), acc('x', 'codex')], new Set(['a', 'b', 'x']), usage, t)).toEqual([
       { value: 'auto', label: 'accounts.auto' },
-      { value: 'a', label: 'accounts.pickUsage:{"name":"A","weekly":"40%","session":"—"}' },
+      { value: 'a', label: 'accounts.pickUsage:{"name":"A","weekly":"40%","session":"7%"}' },
       { value: 'b', label: 'accounts.pickUsage:{"name":"B","weekly":"—","session":"—"}' }
+    ])
+  })
+  // T4: no "5h —" for an account with no 5-hour window
+  it('an Ultra account, or one whose reading has only a weekly window, shows the weekly figure alone', () => {
+    const weeklyOnly = { '/c/w': { weekly: { usedPercent: 40, resetsAt: null }, session: null, readAt: '', remembered: false } }
+    const plans = { u: { id: 'ultra' as const, raw: 'ultra', hasSessionWindow: false } }
+    expect(accountPickOptions([acc('u'), acc('w')], new Set(['u', 'w']), weeklyOnly, t, plans).slice(1)).toEqual([
+      { value: 'u', label: 'account.pickUsageWeekly:{"name":"U","weekly":"—"}' },
+      { value: 'w', label: 'account.pickUsageWeekly:{"name":"W","weekly":"40%"}' }
     ])
   })
 })
