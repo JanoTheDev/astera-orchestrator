@@ -10,6 +10,7 @@ import {
   readAutoLimits,
   readChecksAsHeavy,
   readHealthSnapshot,
+  resetAutoLimit,
   resetAutoLimits,
   takeSignalExit,
   updateAutoLimits,
@@ -64,6 +65,24 @@ describe('resetAutoLimits', () => {
     expect(r.heavy).toBeUndefined()
     expect(r.checksAsHeavy).toBeUndefined()
     expect(r.history.map((h) => [h.what, h.cause])).toEqual([['workers', 'reset'], ['heavy', 'reset'], ['checks', 'reset']])
+  })
+})
+
+describe('resetAutoLimit', () => {
+  const all = { workers: lim(2), heavy: lim(1), checksAsHeavy: { cause: 'crash' as const, at: 't' }, history: [] }
+  it('clears only the named limit and records one reset row', () => {
+    const r = resetAutoLimit(all, 'workers', 'now')
+    expect(r.workers).toBeUndefined()
+    expect(r.heavy?.cap).toBe(1)
+    expect(r.checksAsHeavy).toBeDefined()
+    expect(r.history).toEqual([{ at: 'now', what: 'workers', from: 2, to: null, cause: 'reset', detail: expect.any(String) }])
+    expect(resetAutoLimit(all, 'heavy', 'now').workers?.cap).toBe(2)
+    const c = resetAutoLimit(all, 'checks', 'now')
+    expect(c.checksAsHeavy).toBeUndefined()
+    expect(c.workers?.cap).toBe(2)
+  })
+  it('changes nothing and writes no row for a limit that is not set', () => {
+    expect(resetAutoLimit({ heavy: lim(1), history: [] }, 'workers', 'now')).toEqual({ heavy: lim(1), history: [] })
   })
 })
 

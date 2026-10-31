@@ -73,6 +73,7 @@ import { machineSpecs } from '../core/settings/machineSpecs'
 import { readFreshCoordinatorPct } from '../core/settings/freshCoordinator'
 import { readStallWatchOn } from '../core/settings/stallWatch'
 import { readAutoAnswerOn } from '../core/orchestration/exec/autoAnswer'
+import { readHealthSnapshot } from '../core/settings/autoLimits'
 import { parseStatusLinePayload } from '../core/usage/statusline'
 
 export interface HostDriving {
@@ -450,6 +451,11 @@ export function createHostDriving(d: {
     freshCoordinatorPct: () => readFreshCoordinatorPct(settingsPath),
     // #117: a hands-off plan's decision, appended to its Job (the feed derives its line from the commit)
     recordDecision: (jobId, decision) => d.orch.internalDeps().setState(addDecision(d.orch.state(), jobId, decision)),
+    // T8: a transiently failed merge waits while the machine is strained: the load monitor's snapshot, written every 10 s
+    strained: async () => {
+      const health = await readHealthSnapshot(d.profileDir)
+      return health !== null && health.strained && d.nowMs() - Date.parse(health.at) < 60_000
+    },
     // Stall watchdog (exec/stallWatch.ts): only where its lines have a feed, the Host's activity log
     ...(d.activity
       ? { stallWatch: () => readStallWatchOn(settingsPath), autoAnswer: () => readAutoAnswerOn(settingsPath), activity: d.activity }

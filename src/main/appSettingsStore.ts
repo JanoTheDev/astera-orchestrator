@@ -4,7 +4,7 @@ import { isLang, type Lang } from '../core/i18n'
 import { sanitizeFontFamily } from '../core/terminal/font'
 import type { TerminalFont } from '../core/terminal/font'
 import { DEFAULT_THEME_ID, isThemeId, themeIdOf, type ThemeId } from '../core/theme/themes'
-import type { AgentPermissionMode, McpAccess, ResumeStrategy, SessionKind, UpdateChannel, UpdateMode } from '../core/types'
+import type { AgentLimits, AgentPermissionMode, McpAccess, ResumeStrategy, SessionKind, UpdateChannel, UpdateMode } from '../core/types'
 import { DEFAULT_UPDATE_MODE, isUpdateMode } from '../core/update/sourceUpdate'
 import { DEFAULT_UPDATE_CHANNEL, updateChannelOf } from '../core/update/updateChannel'
 import { applyContinuityToggle } from '../core/continuity/settings'
@@ -28,6 +28,8 @@ import { maxConcurrentWorkersOf } from '../core/settings/maxConcurrentWorkers'
 import { HEAVY_JOBS_DEFAULT, heavyJobsAtOnceOf } from '../core/settings/heavyJobs'
 import { machineSpecs } from '../core/settings/machineSpecs'
 import { effectiveCap, readAutoLimitsSync } from '../core/settings/autoLimits'
+import { MEMORY_PER_WORKER_GB } from '../core/settings/machineCap'
+import { minWorkersFloor, minWorkersUnderPressureOf } from '../core/settings/minWorkersUnderPressure'
 // W6-G usage guards
 import { maxSubagentsPerSessionOf, SUBAGENT_CAP_DEFAULT } from '../core/sessions/subagentCap'
 import { usagePauseAtOf, USAGE_PAUSE_AT_DEFAULT } from '../core/orchestration/usageGuard'
@@ -137,6 +139,8 @@ export class AppSettingsStore {
   /** W1-B: how many Job workers may be open at once across every plan. null: no cap (the default, and
    *  the behaviour from before the setting). Written only when set. */
   private maxConcurrentWorkers: number | null = null
+  /** Key `minWorkersUnderPressure`: the load monitor's floor; null = half the person's limit. */
+  private minWorkersUnderPressure: number | null = null
   private heavyJobsAtOnce = HEAVY_JOBS_DEFAULT
   /** W6-G: subagents at once per Claude tab (1–10), and the usage percent at which no new worker starts on an
    *  account. The subagent hook and the Host read the file themselves, narrowed by the same functions. Written only
@@ -269,6 +273,9 @@ export class AppSettingsStore {
       )
       // The same function the CLI's and Host's read uses (readHeavyJobsAtOnce)
       this.heavyJobsAtOnce = heavyJobsAtOnceOf((parsed as { heavyJobsAtOnce?: unknown }).heavyJobsAtOnce) ?? HEAVY_JOBS_DEFAULT
+      this.minWorkersUnderPressure = minWorkersUnderPressureOf(
+        (parsed as { minWorkersUnderPressure?: unknown }).minWorkersUnderPressure
+      )
       this.maxSubagentsPerSession = maxSubagentsPerSessionOf((parsed as { maxSubagentsPerSession?: unknown }).maxSubagentsPerSession)
       this.usagePauseAt = usagePauseAtOf((parsed as { usagePauseAt?: unknown }).usagePauseAt)
       this.accountMaxSessions = accountMaxSessionsOf((parsed as { accountMaxSessions?: unknown }).accountMaxSessions)
@@ -363,6 +370,7 @@ export class AppSettingsStore {
         this.jobContinuityEnabled = false
         this.githubPolling = true
         this.maxConcurrentWorkers = null
+        this.minWorkersUnderPressure = null
         this.heavyJobsAtOnce = HEAVY_JOBS_DEFAULT
         this.maxSubagentsPerSession = SUBAGENT_CAP_DEFAULT
         this.usagePauseAt = USAGE_PAUSE_AT_DEFAULT
@@ -417,6 +425,7 @@ export class AppSettingsStore {
       this.jobContinuityEnabled = false
       this.githubPolling = true
       this.maxConcurrentWorkers = null
+      this.minWorkersUnderPressure = null
       this.heavyJobsAtOnce = HEAVY_JOBS_DEFAULT
       this.maxSubagentsPerSession = SUBAGENT_CAP_DEFAULT
       this.usagePauseAt = USAGE_PAUSE_AT_DEFAULT
@@ -659,6 +668,38 @@ export class AppSettingsStore {
   async setMaxConcurrentWorkers(n: number | null): Promise<void> {
     this.maxConcurrentWorkers = maxConcurrentWorkersOf(n)
     await this.persist()
+  }
+
+  getMinWorkersUnderPressure(): number | null {
+    return this.minWorkersUnderPressure
+  }
+
+  /** Empty (null) means the default, half the person's limit. A whole number >= 1 is kept, at most the person's own
+   *  limit; anything else reads as not set. */
+  async setMinWorkersUnderPressure(n: number | null): Promise<void> {
+    const v = minWorkersUnderPressureOf(n)
+    this.minWorkersUnderPressure = v === null ? null : Math.min(v, this.maxConcurrentWorkers ?? machineSpecs().recommended)
+    await this.persist()
+  }
+
+  /** Settings > Agents: the limit in force and why. Reads the auto-limits file fresh, not through the 5 s cache, so a
+   *  restore shows at once. */
+  getAgentLimits(): AgentLimits {
+    const specs = machineSpecs()
+    const person = this.maxConcurrentWorkers ?? specs.recommended
+    const auto = readAutoLimitsSync(path.dirname(this.filePath)).workers
+    const out: AgentLimits = {
+      person,
+      effective: effectiveCap(person, auto),
+      recommended: specs.recommended,
+      memoryPerAgentGb: MEMORY_PER_WORKER_GB,
+      minUnderPressure: {
+        value: minWorkersFloor(person, this.minWorkersUnderPressure),
+        isDefault: this.minWorkersUnderPressure === null
+      }
+    }
+    if (auto && auto.cap < person) out.autoLimit = { cap: auto.cap, cause: auto.cause, at: auto.at, detail: auto.detail }
+    return out
   }
 
   /** How many heavy jobs (`astera heavy`, a Task's heavy check) the machine runs at once. */
@@ -987,6 +1028,7 @@ export class AppSettingsStore {
       jobContinuityEnabled?: boolean
       githubPolling?: boolean
       maxConcurrentWorkers?: number
+      minWorkersUnderPressure?: number
       heavyJobsAtOnce?: number
       maxSubagentsPerSession?: number
       usagePauseAt?: number
@@ -1044,6 +1086,7 @@ export class AppSettingsStore {
     if (this.jobContinuityEnabled) data.jobContinuityEnabled = true
     if (this.githubPolling === false) data.githubPolling = false
     if (this.maxConcurrentWorkers !== null) data.maxConcurrentWorkers = this.maxConcurrentWorkers
+    if (this.minWorkersUnderPressure !== null) data.minWorkersUnderPressure = this.minWorkersUnderPressure
     if (this.heavyJobsAtOnce !== HEAVY_JOBS_DEFAULT) data.heavyJobsAtOnce = this.heavyJobsAtOnce
     if (this.maxSubagentsPerSession !== SUBAGENT_CAP_DEFAULT) data.maxSubagentsPerSession = this.maxSubagentsPerSession
     if (this.usagePauseAt !== USAGE_PAUSE_AT_DEFAULT) data.usagePauseAt = this.usagePauseAt

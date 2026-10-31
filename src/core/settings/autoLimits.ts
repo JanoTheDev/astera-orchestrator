@@ -78,6 +78,26 @@ export function resetAutoLimits(cur: AutoLimits, at: string): AutoLimits {
   return { history: [...cur.history, ...rows].slice(-HISTORY_MAX) }
 }
 
+/** Clears the one auto-limit named by `what` and records a 'reset' row for it; the other limits stay. A limit that is
+ *  not set changes nothing (no row). */
+export function resetAutoLimit(cur: AutoLimits, what: 'workers' | 'heavy' | 'checks', at: string): AutoLimits {
+  const detail = 'This auto-limit was restored.'
+  const next: AutoLimits = { ...cur }
+  let row: AutoLimits['history'][number]
+  if (what === 'checks') {
+    if (!cur.checksAsHeavy) return cur
+    delete next.checksAsHeavy
+    row = { at, what, from: null, to: null, cause: 'reset', detail }
+  } else {
+    const was = cur[what]
+    if (!was) return cur
+    delete next[what]
+    row = { at, what, from: was.cap, to: null, cause: 'reset', detail }
+  }
+  next.history = [...cur.history, row].slice(-HISTORY_MAX)
+  return next
+}
+
 /** Never throws: a missing or unreadable file is no auto-limits. */
 export async function readAutoLimits(profileDir: string): Promise<AutoLimits> {
   try {
@@ -127,7 +147,7 @@ export function healthSnapshotOf(value: unknown): HealthSnapshot | null {
   if (!isObj(value) || !str(value.at) || typeof value.strained !== 'boolean') return null
   const { memAvailablePct, load1PerCpu, loopDelayP99Ms, liveWorkers, liveSessions, heavyRunning, checksRunning } = value
   if (![memAvailablePct, load1PerCpu, loopDelayP99Ms, liveWorkers, liveSessions, heavyRunning, checksRunning].every(num)) return null
-  return {
+  const out: HealthSnapshot = {
     at: value.at,
     memAvailablePct: memAvailablePct as number,
     load1PerCpu: load1PerCpu as number,
@@ -138,6 +158,9 @@ export function healthSnapshotOf(value: unknown): HealthSnapshot | null {
     heavyRunning: heavyRunning as number,
     checksRunning: checksRunning as number
   }
+  if (value.memUnknown === true) out.memUnknown = true
+  if (num(value.commitHeadroomPct)) out.commitHeadroomPct = value.commitHeadroomPct
+  return out
 }
 
 /** Atomic (tmp + rename), mode 600. Sync: the Host writes it from a timer and from its exit handler. Never throws. */

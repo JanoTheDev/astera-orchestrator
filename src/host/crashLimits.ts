@@ -55,6 +55,13 @@ export function countsAtCrash(a: { health: HealthSnapshot | null; state: OrchSta
 
 const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`
 
+/** The memory part of a crash detail. An unknown reading (memUnknown) must not read as 100% free; commit headroom is
+ *  added when the sample has it (Windows). */
+export function memoryText(h: HealthSnapshot): string {
+  const mem = h.memUnknown ? 'memory unknown' : `memory ${Math.round(h.memAvailablePct)}% free`
+  return typeof h.commitHeadroomPct === 'number' ? `${mem}; commit headroom ${Math.round(h.commitHeadroomPct)}%` : mem
+}
+
 /** The lowering a start after a hard death applies, as a change to the auto-limits file; null when there is none:
  *  a clean exit, a signal on a machine that was not strained (a reboot or a person's kill), or nothing running.
  *  `effectiveWorkers` / `effectiveHeavy` are the caps in force (the person's value already lowered by any auto cap),
@@ -83,7 +90,7 @@ export function crashLowering(a: {
 
   const how = a.signal ? `Host ended on ${a.signal} while the machine was strained` : 'Host ended without a clean exit'
   const ran = `${plural(a.workersAtCrash, 'agent', 'agents')}, ${plural(a.heavyAtCrash, 'heavy job', 'heavy jobs')} and ${plural(a.checksAtCrash, 'check', 'checks')} ran`
-  const mem = a.health ? `; memory ${Math.round(a.health.memAvailablePct)}% free` : ''
+  const mem = a.health ? `; ${memoryText(a.health)}` : ''
   const detail = `${how} while ${ran}${mem}`
 
   return (cur) => {

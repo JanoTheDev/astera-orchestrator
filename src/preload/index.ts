@@ -293,6 +293,10 @@ const api = {
     setAccountMaxSessions: invoke('settings.setAccountMaxSessions'),
     getAutoLimits: invoke('settings.getAutoLimits'), // T6
     restoreAutoLimits: invoke('settings.restoreAutoLimits'),
+    restoreAutoLimit: invoke('settings.restoreAutoLimit'),
+    agentLimits: invoke('settings.agentLimits'),
+    getMinWorkersUnderPressure: invoke('settings.getMinWorkersUnderPressure'),
+    setMinWorkersUnderPressure: invoke('settings.setMinWorkersUnderPressure'),
     getDesktopNotify: invoke('settings.getDesktopNotify'),
     setDesktopNotify: invoke('settings.setDesktopNotify'),
     getGenerator: invoke('settings.getGenerator'),
