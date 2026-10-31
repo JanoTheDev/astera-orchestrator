@@ -151,10 +151,11 @@ describe('replyNote', () => {
     expect(isOutcomeUnknown({ status: 409, body: { error: 'running' } })).toBe(false)
     expect(replyNote(lost, t, 'generic')).toBe('jobs.runtime.outcomeUnknown')
   })
-  it("a permission refusal says the Runtime's reason; an unreachable Runtime says so; anything else is the fallback", () => {
+  it("a permission refusal says the Runtime's reason; an unreachable Runtime says so; anything else is the fallback with its reason", () => {
     expect(replyNote({ status: 403, body: { error: 'this pairing is read only', code: 'RUNTIME_PERMISSION_DENIED' } }, t, 'generic')).toBe('this pairing is read only')
     expect(replyNote({ status: 503, body: { error: 'down', code: 'RUNTIME_OFFLINE' } }, t, 'generic')).toBe('jobs.runtime.unreachable')
-    expect(replyNote({ status: 400, body: { error: 'bad' } }, t, 'generic')).toBe('generic')
+    expect(replyNote({ status: 400, body: { error: 'bad' } }, t, 'generic')).toBe('generic: bad')
+    expect(replyNote({ status: 503, body: {} }, t, 'generic')).toBe('generic')
   })
 })
 
@@ -164,7 +165,7 @@ describe('formFailure', () => {
   const t = (key: string): string => key
   it('locks the form when the outcome is unknown, and only then', () => {
     expect(formFailure({ status: 409, body: { code: 'RUNTIME_OUTCOME_UNKNOWN' } }, t, 'jobs.new.failed')).toEqual({ message: 'jobs.runtime.outcomeUnknown', lock: true })
-    expect(formFailure({ status: 400, body: { error: 'bad' } }, t, 'jobs.new.failed')).toEqual({ message: 'jobs.new.failed', lock: false })
+    expect(formFailure({ status: 400, body: { error: 'bad' } }, t, 'jobs.new.failed')).toEqual({ message: 'jobs.new.failed: bad', lock: false })
     expect(formFailure({ status: 403, body: { error: 'read only', code: 'RUNTIME_PERMISSION_DENIED' } }, t, 'jobs.new.failed')).toEqual({ message: 'read only', lock: false })
   })
 })

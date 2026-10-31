@@ -95,8 +95,8 @@ export function useIntake(o: IntakeOptions) {
       const made = await createPlan(door, { cmd: request.cmd, args, projectId, after, scheduled: schedule !== undefined, t: t as never })
       if (made.ok) o.onCreated(made.id, made.sessionId)
       else setError(made.error)
-    } catch {
-      setError(t('jobs.new.failed'))
+    } catch (e) {
+      setError(e instanceof Error && e.message ? `${t('jobs.new.failed')}: ${e.message}` : t('jobs.new.failed'))
     } finally {
       setBusy(false)
     }
