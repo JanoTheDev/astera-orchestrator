@@ -331,6 +331,18 @@ describe('T36: a Run stalled on a failed Task', () => {
     expect(r.ok && stallOf(r.state, run(r.state))).toBeUndefined()
   })
 
+  it("retry with keepFailures (Astera's own retry): ready again with its failure count kept", () => {
+    const twice = state(
+      tasks.map((t) => (t.id === 'f' ? { ...t, consecutiveFailures: 2 } : t)),
+      off
+    )
+    const r = resolveFailedWait(twice, 'f', 'retry', LATER, { keepFailures: true })
+    expect(r.ok && r.value).toMatchObject({ status: 'ready', consecutiveFailures: 2, updatedAt: LATER })
+    // without it, the owner's retry still resets the count
+    const reset = resolveFailedWait(twice, 'f', 'retry', LATER)
+    expect(reset.ok && reset.value.consecutiveFailures).toBe(0)
+  })
+
   it('accept: done with its gaps recorded, and what waits on it is ready', () => {
     const r = resolveFailedWait(state(tasks, off), 'f', 'accept', LATER, { reason: 'the 19 screens are enough' })
     expect(r.ok && r.value).toMatchObject({ status: 'completed', completionOverride: { reason: 'the 19 screens are enough', at: LATER } })

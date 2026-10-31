@@ -647,8 +647,10 @@ export type TaskBlockedReason =
   /** FAILURE_LIMIT consecutive failures: nothing restarts it on its own. */
   | { kind: 'failure-limit'; failures: number; limit: number }
   /** Failed with retries left: its coordinator (or a person) decides whether to retry. `noCoordinator` (W5-B, #45): the
-   *  Run has no coordinator slot, so only a person can (the app's loop starts `ready` Tasks, never a failed one). */
-  | { kind: 'failed-retry'; failures: number; limit: number; noCoordinator?: true }
+   *  Run has no coordinator slot, so only a person can (the app's loop starts `ready` Tasks, never a failed one).
+   *  `retryAt` (T10): a hands-off plan with no coordinator, so Astera retries it itself at that time, as attempt
+   *  `failures + 1` (exec/failedRetry.ts). */
+  | { kind: 'failed-retry'; failures: number; limit: number; noCoordinator?: true; retryAt?: string }
   /** The reviewer has not started yet, or was stopped. */
   | { kind: 'awaiting-review' }
   /** `dispatched` with no worker: a person stopped it, or its worker was lost. */

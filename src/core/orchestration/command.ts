@@ -5608,7 +5608,8 @@ export async function handleCommand(
       if (!id) return bad('--id is required: the failed Task')
       const action = str(args.action)
       if (action !== 'retry' && action !== 'accept' && action !== 'cancel') return bad('--action must be one of retry|accept|cancel')
-      return commit(resolveFailedWait(s, id, action, now, { reason: str(args.reason) ?? undefined }))
+      // T10: Astera's own retry in a hands-off plan keeps the failure count (exec/failedRetry.ts)
+      return commit(resolveFailedWait(s, id, action, now, { reason: str(args.reason) ?? undefined, keepFailures: args.keepFailures === true }))
     }
     // T36: the driving loop asks the owner once about each failure a stalled Run waits on (replan.ts stallOf).
     case 'run-failed-ask': {

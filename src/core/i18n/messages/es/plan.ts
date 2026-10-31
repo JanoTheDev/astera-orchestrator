@@ -150,6 +150,8 @@ export const plan: Partial<Record<keyof typeof ko, string>> = {
   'plan.steps.reason.definition': 'Tarea plantilla · se copia en cada ejecución del plan',
   'plan.steps.reason.failedRetry': 'Falló ({failures} de {limit}) · el agente principal decide si reintentar',
   'plan.steps.reason.failedRetryByYou': 'Falló ({failures} de {limit}) · sin agente principal: iníciala de nuevo para reintentar',
+  'plan.steps.reason.failedRetryAuto': 'Falló · se reintenta en {minutes} min (intento {attempt} de {limit})',
+  'plan.steps.reason.failedRetryAutoNow': 'Falló · se reintenta ahora (intento {attempt} de {limit})',
   'plan.steps.reason.stopped': 'Su agente se detuvo',
   'plan.reason.stopped.plan': 'Plan detenido · pulsa Reanudar para seguir',
   'plan.reason.schedulePaused': 'Programación en pausa',

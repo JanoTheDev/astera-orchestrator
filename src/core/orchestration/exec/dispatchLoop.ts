@@ -53,6 +53,7 @@ import { isSamePath } from '../../files/tree'
 import { outcomeOf } from '../view'
 import { completionSettled, failedWaitAsked, failedWaitChoice, replansDue, stallOf } from '../replan'
 import { REPLAN_LIFT_HOLD } from './replanStart'
+import { failedRetriesDue, failedRetryOf } from './failedRetry'
 // W8-C draft PR
 import { draftPrDue } from '../draftPr'
 import { refreshOnto, type Integration, type Refresh } from './integrateGit'
@@ -1020,11 +1021,69 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
         log(`run=${run.id} stalled: ${stall.reason}`)
       }
       if (stall.blocks.every((b) => failedWaitAsked(c.getState(), b.task)) || !c.mayStart()) continue
+      // T10: not while Astera still retries or accepts one of its failed Tasks itself (`retryFailedTasks`)
+      if (stall.blocks.some((b) => failedRetriedByAstera(c.getState(), b.task))) continue
       try {
         const r = await c.handle('run-failed-ask', { run: run.id })
         log(r.status >= 400 ? `run=${run.id}: asking the owner about its failed Task was refused: ${JSON.stringify(r.body)}` : `run=${run.id}: asked the owner about its failed Task`)
       } catch (e) {
         log(`run=${run.id}: asking the owner about its failed Task failed: ${String(e)}`)
+      }
+    }
+  }
+
+  /**
+   * T10: a hands-off plan whose Run has no live coordinator (`coordinatorLive`) handles its own failed Tasks
+   * (failedRetry.ts): one with tries left is retried once its backoff is over, keeping its failure count
+   * (`task-failed-resolve` with `keepFailures`); one whose last try failed but that committed its work and passes its checks
+   * is accepted as done. Each is a decision on its Job (the feed's plan.decided line). The rest escalate: `unstallRuns`
+   * asks the owner as before, the one way the failed-Task question reaches them. Before `unstallRuns`, so a retried Task
+   * no longer stalls its Run. Driving process only; a failure is logged and never thrown.
+   */
+  // In memory: a refused step is not repeated for the same failure in this process
+  const failedStepTried = new Set<string>()
+  const failedRetriedByAstera = (s: OrchState, task: Task): boolean => {
+    const step = task.runId === undefined ? undefined : failedRetryOf(s, task, { coordinatorLive: coordinatorLive(s, task.runId), nowMs: c.nowMs() })
+    return step !== undefined && step.kind !== 'escalate' && !failedStepTried.has(`${task.id}@${task.updatedAt}`)
+  }
+  const retryFailedTasks = async (): Promise<void> => {
+    const s = c.getState()
+    for (const step of failedRetriesDue(s, c.nowMs(), (runId) => coordinatorLive(s, runId))) {
+      const t = step.task
+      const key = `${t.id}@${t.updatedAt}`
+      if (failedStepTried.has(key)) continue
+      if (step.kind === 'escalate') {
+        failedStepTried.add(key)
+        log(`run=${t.runId}: failed ${t.id} goes to the owner: ${step.why}`)
+        continue
+      }
+      if (step.kind === 'wait' || (step.kind === 'retry' && !step.due)) continue
+      if (!c.mayStart()) return
+      failedStepTried.add(key)
+      const job = handsOffJobOf(c.getState(), t.runId ?? '')
+      const args =
+        step.kind === 'retry' ? { id: t.id, action: 'retry', keepFailures: true } : { id: t.id, action: 'accept', reason: step.reason }
+      try {
+        const r = await c.handle('task-failed-resolve', args)
+        if (r.status >= 400) {
+          log(`run=${t.runId}: Astera's ${step.kind} of failed ${t.id} was refused: ${JSON.stringify(r.body)}`)
+          continue
+        }
+        if (!job) continue
+        await decide(
+          job.id,
+          step.kind === 'retry'
+            ? {
+                kind: 'escalation',
+                taskId: t.id,
+                question: `${t.title} failed (${t.consecutiveFailures} of ${FAILURE_LIMIT})`,
+                choice: `retried ${t.title} (attempt ${step.attempt} of ${FAILURE_LIMIT})`,
+                why: step.why
+              }
+            : { kind: 'escalation', taskId: t.id, question: `${t.title} failed ${t.consecutiveFailures} of ${FAILURE_LIMIT} times`, choice: `accepted ${t.title} as done`, why: step.reason }
+        )
+      } catch (e) {
+        log(`run=${t.runId}: Astera's ${step.kind} of failed ${t.id} failed: ${String(e)}`)
       }
     }
   }
@@ -1253,6 +1312,9 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       // W6-D: before the PR, which waits for the final check
       await liftAnsweredHolds()
       await replanAtBoundaries()
+      if (!c.mayStart()) return
+      // T10: after the replans (one under way looks at the failure first), before the stall's owner question
+      await retryFailedTasks()
       if (!c.mayStart()) return
       // T36: after the replans, so a Run a replan just took up is not stalled
       await unstallRuns()
