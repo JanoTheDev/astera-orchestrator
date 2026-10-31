@@ -214,7 +214,7 @@ export interface RollJournalEntry {
   state?: 'waiting' | 'switching' | 'nudged' | 'stalled'
   accountLabel?: string
   nextRetryAt?: string
-  scope?: 'session' | 'weekly'
+  scope?: 'session' | 'weekly' | 'usage'
 }
 
 /** worktrees.json as the Host holds it, stamped with where it stands in this Host's changes. The

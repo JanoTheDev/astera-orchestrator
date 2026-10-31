@@ -91,6 +91,14 @@ describe('createRollJournal (D5)', () => {
     const onDisk = JSON.parse(await fs.readFile(j.file, 'utf8'))
     expect(onDisk).toMatchObject({ lastSeq: 2, entries: got.entries })
   })
+  it('keeps a wait on an account with no 5-hour window (scope usage) across a reload', async () => {
+    const j = await journalIn()
+    const first = j.make()
+    first.append(state('s1', { scope: 'usage' }))
+    await first.take() // lets the write finish
+    const got = await j.make().take()
+    expect(got.entries).toEqual([expect.objectContaining({ kind: 'state', sessionId: 's1', state: 'waiting', scope: 'usage' })])
+  })
   it('keeps seq rising across a reload, even after every entry was acked', async () => {
     const j = await journalIn()
     const first = j.make()

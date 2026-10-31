@@ -492,6 +492,43 @@ describe('chooseStartAccount (T5b)', () => {
     }
   })
 
+  describe('an account with no 5-hour window (weekly only)', () => {
+    type Reading = { weekly: ReturnType<typeof win> | null; session: ReturnType<typeof win> | null }
+    const guardOf = (readings: Record<string, Reading>) =>
+      createUsageGuard({
+        readings: async () => new Map(Object.entries(readings)),
+        pauseAt: async () => 90,
+        autoAccounts: async () => true,
+        nowMs: () => Date.parse(NOW)
+      })
+
+    it('starts on it ahead of a fuller two-window account (no account named)', async () => {
+      const g = guardOf({ a1: { weekly: win(60), session: win(60) }, a2: { weekly: win(40), session: null } })
+      const p = await chooseStartAccount(ctxOf(g, [acct('a1'), acct('a2')]), { purpose: 'worker' })
+      expect(p).toMatchObject({ ok: true, accountId: 'a2' })
+    })
+
+    it('is the named account when it is the best one, and is not left waiting as merely tryable', async () => {
+      const g = guardOf({ a1: { weekly: win(20), session: null }, a2: { weekly: win(10), session: win(10) } })
+      expect(await chooseStartAccount(ctxOf(g, [acct('a1'), acct('a2')]), { preferred: 'a1', purpose: 'worker' })).toMatchObject({ ok: true, accountId: 'a1' })
+    })
+
+    it('a full weekly window still keeps it from starting, with the weekly reason', async () => {
+      const g = guardOf({ a1: { weekly: win(100), session: null } })
+      expect(await chooseStartAccount(ctxOf(g, [acct('a1')]), { preferred: 'a1', purpose: 'worker' })).toMatchObject({
+        ok: false,
+        why: expect.stringMatching(/a1 \(its weekly limit/)
+      })
+    })
+
+    it('among accounts of unknown freshness, the weekly-only one is ordered by the weekly figure alone', async () => {
+      const old = Date.parse(NOW) - 60 * 60_000
+      const stale = (r: Reading) => ({ ...r, at: old })
+      const g = guardOf({ a1: stale({ weekly: win(50), session: win(5) }), a2: stale({ weekly: win(30), session: null }) })
+      expect(await chooseStartAccount(ctxOf(g, [acct('a1'), acct('a2')]), { preferred: 'a1', purpose: 'worker' })).toMatchObject({ ok: true, accountId: 'a2' })
+    })
+  })
+
   it('the app path (startCoordinatorSession with the app context) and the Host path (autoStartChain) choose the same on one fixture', async () => {
     const readings = { ...allEmpty, a1: [100, 5], a2: [50, 50], a3: [20, 30] } as Record<string, [number, number]>
     const host = await autoStartChain(ctxOf(realGuard({ readings })), 'a1')

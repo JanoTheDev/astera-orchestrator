@@ -164,6 +164,7 @@ export const core: Record<keyof typeof ko, string> = {
   'slack.limitWaiting': '⏸ Limit reached — resuming at {at} ({scope} limit)',
   'slack.limitScope.weekly': 'weekly',
   'slack.limitScope.session': '5-hour',
+  'slack.limitScope.usage': 'usage',
   'slack.accountSwitched': '🔁 Switched account → {label}',
   'slack.limitReset': '▶️ Limit reset — resume prompt sent',
   'slack.stalled': '⚠️ The session is stuck — auto-resume failed and it needs a look',
