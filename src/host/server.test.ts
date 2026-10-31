@@ -8,7 +8,17 @@ import { encodeLine, createLineReader } from './framing'
 import { startHostServer, ADDRESS_TAKEN, UNSAFE_ADDRESS_DIR, type HostServer, type HostServerDeps } from './server'
 import { createHostOrch } from './orch'
 import { hostFeatures } from './features'
-import { HOST_PROTOCOL, HOST_YIELD_ORCH_STATE_LATEST, ORCH_STATE_PUSH_MS, type ClientMessage, type HostMessage } from '../core/host/protocol'
+import {
+  HOST_FEATURE_RESTART,
+  HOST_PROTOCOL,
+  HOST_YIELD_ORCH_STATE_LATEST,
+  ORCH_STATE_PUSH_MS,
+  RESTART_PROGRESS_MS,
+  RESTART_WAIT_MAX_MS,
+  RESTART_WAIT_MS,
+  type ClientMessage,
+  type HostMessage
+} from '../core/host/protocol'
 import { emptyState } from '../core/orchestration/state'
 import { versionOnlyOrchCall, AppUnreachable } from '../core/host/orchProtocol'
 import { HOST_UNRESPONSIVE_MS } from '../core/host/unresponsive'
@@ -42,6 +52,8 @@ const server = async (
     onAppGreeted?: HostServerDeps['onAppGreeted']
     pidLives?: HostServerDeps['pidLives']
     stateClock?: HostServerDeps['stateClock']
+    restart?: HostServerDeps['restart']
+    restartClock?: HostServerDeps['restartClock']
     hostKey?: HostServerDeps['hostKey']
     maxLine?: HostServerDeps['maxLine']
     bootId?: HostServerDeps['bootId']
@@ -81,6 +93,8 @@ const server = async (
     // real probe of whatever this machine runs under them.
     pidLives: over.pidLives ?? ((): boolean => true),
     stateClock: over.stateClock,
+    restart: over.restart,
+    restartClock: over.restartClock,
     hostKey: over.hostKey,
     maxLine: over.maxLine,
     ...(over.maxQueuedBytes !== undefined ? { maxQueuedBytes: over.maxQueuedBytes } : {}),
@@ -1810,5 +1824,176 @@ describe('orch-state pushes to a client that reads the latest', () => {
     expect(versionOf(await a.ch.next())).toBe(4)
     expect(await a.ch.next(QUIET_MS)).toBeUndefined()
     a.sock.end()
+  })
+})
+
+// T13: a restart holds new starts, waits for the safe point while it says how far it got, then hands over. The clock and
+// its timers are injected (`restartClock`), so nothing here waits out a real two seconds, let alone ten minutes.
+describe('restart', () => {
+  const fakeClock = () => {
+    const at = { now: 5_000_000 }
+    const timers: Array<{ ms: number; fn: () => void; cancelled: boolean }> = []
+    return {
+      at,
+      clock: {
+        now: () => at.now,
+        after: (ms: number, fn: () => void) => {
+          const t = { ms, fn, cancelled: false }
+          timers.push(t)
+          return () => {
+            t.cancelled = true
+          }
+        }
+      },
+      live: () => timers.filter((t) => !t.cancelled),
+      /** Moves the clock by the next look's wait and runs that look. */
+      tick: () => {
+        const due = timers.splice(0).filter((t) => !t.cancelled)
+        for (const t of due) {
+          at.now += t.ms
+          t.fn()
+        }
+      }
+    }
+  }
+  /** A Host with two Tasks working, both busy until the test says otherwise. */
+  const restartHost = async (over: { hold?: () => Promise<void>; profile?: string } = {}) => {
+    const c = fakeClock()
+    const busy = new Set(['tsk_1', 'tsk_2'])
+    const calls: string[] = []
+    const left: Array<Parameters<HostServerDeps['onIdle']>[0]> = []
+    const h = await server({
+      profile: over.profile,
+      restartClock: c.clock,
+      workingTasks: () => 2,
+      restart: {
+        hold: over.hold ?? (async () => void calls.push('hold')),
+        waitingOn: () => (calls.push('look'), [...busy])
+      },
+      onIdle: (o) => void left.push(o)
+    })
+    const connect = async (role: 'app' | 'cli', features?: string[]) => {
+      const sock = net.connect(h.address)
+      await new Promise((r) => sock.once('connect', r))
+      const ch = messageChannel(sock)
+      ch.send({ t: 'hello', protocol: HOST_PROTOCOL, app: '1.0.0', role, ...(features ? { features } : {}) })
+      const hello = (await ch.next()) as { features: string[] }
+      return { ...ch, hello, sock }
+    }
+    return { ...h, c, busy, calls, left, connect }
+  }
+  const quiet = (ch: { next(waitMs?: number): Promise<unknown> }) => ch.next(80)
+
+  it('is named in hello only by a Host that serves it', async () => {
+    const h = await restartHost()
+    const cli = await h.connect('cli')
+    expect(cli.hello.features).toContain(HOST_FEATURE_RESTART)
+    const plain = await server({ profile: 'plain' })
+    const [reply] = await talk(plain.address, [{ t: 'hello', protocol: HOST_PROTOCOL, app: '1.0.0' }])
+    expect((reply as { features: string[] }).features).not.toContain(HOST_FEATURE_RESTART)
+  })
+
+  it('holds new starts, waits for both working Tasks to go idle while it says so, then hands over', async () => {
+    const h = await restartHost()
+    const asker = await h.connect('cli')
+    const app = await h.connect('app') // a window that did not ask still sees it
+    const bystander = await h.connect('cli') // a CLI that did not ask is told nothing
+    asker.send({ t: 'restart' })
+    expect(await asker.next()).toEqual({ t: 'restart-progress', working: 2, waitingOn: ['tsk_1', 'tsk_2'], leftMs: RESTART_WAIT_MS })
+    expect(await app.next()).toEqual({ t: 'restart-progress', working: 2, waitingOn: ['tsk_1', 'tsk_2'], leftMs: RESTART_WAIT_MS })
+    // The hold came before the first look at the safe point
+    expect(h.calls).toEqual(['hold', 'look'])
+    expect(h.c.live().map((t) => t.ms)).toEqual([RESTART_PROGRESS_MS])
+
+    h.busy.delete('tsk_1')
+    h.c.tick()
+    expect(await asker.next()).toEqual({ t: 'restart-progress', working: 2, waitingOn: ['tsk_2'], leftMs: RESTART_WAIT_MS - RESTART_PROGRESS_MS })
+    expect(h.left).toEqual([])
+
+    h.busy.delete('tsk_2')
+    h.c.tick()
+    expect(await asker.next()).toEqual({ t: 'restart-progress', working: 2, waitingOn: [], leftMs: RESTART_WAIT_MS - 2 * RESTART_PROGRESS_MS })
+    expect(h.left).toEqual([{ resume: true, restart: true }])
+    expect(h.calls.filter((x) => x === 'hold')).toHaveLength(1)
+    expect(h.c.live()).toEqual([])
+    expect(await quiet(bystander)).toBeUndefined()
+    expect(h.logs).toContain('restart: every working Task is at a safe point — handing over')
+  })
+
+  it('with force hands over at once, saying which Tasks it cut short', async () => {
+    const h = await restartHost()
+    const asker = await h.connect('app')
+    asker.send({ t: 'restart', force: true })
+    expect(await asker.next()).toEqual({ t: 'restart-progress', working: 2, waitingOn: ['tsk_1', 'tsk_2'], leftMs: 0 })
+    expect(h.calls).toEqual(['hold', 'look'])
+    expect(h.left).toEqual([{ resume: true, restart: true }])
+    expect(h.c.live()).toEqual([])
+  })
+
+  it('hands over anyway when the wait runs out, and keeps the wait it was given within bounds', async () => {
+    const h = await restartHost()
+    const asker = await h.connect('cli')
+    asker.send({ t: 'restart', waitMs: 3_000 })
+    expect(await asker.next()).toMatchObject({ waitingOn: ['tsk_1', 'tsk_2'], leftMs: 3_000 })
+    h.c.tick()
+    expect(await asker.next()).toMatchObject({ waitingOn: ['tsk_1', 'tsk_2'], leftMs: 1_000 })
+    expect(h.c.live().map((t) => t.ms)).toEqual([1_000]) // the last look lands on the end of the wait
+    h.c.tick()
+    expect(await asker.next()).toEqual({ t: 'restart-progress', working: 2, waitingOn: ['tsk_1', 'tsk_2'], leftMs: 0 })
+    expect(h.left).toEqual([{ resume: true, restart: true }])
+
+    const long = await restartHost({ profile: 'long' })
+    const a = await long.connect('cli')
+    a.send({ t: 'restart', waitMs: 10 * RESTART_WAIT_MAX_MS })
+    expect(await a.next()).toMatchObject({ leftMs: RESTART_WAIT_MAX_MS })
+  })
+
+  it('takes a second restart into the one under way, and its force hurries it', async () => {
+    const h = await restartHost()
+    const first = await h.connect('cli')
+    const second = await h.connect('cli')
+    first.send({ t: 'restart' })
+    await first.next()
+    second.send({ t: 'restart' })
+    expect(await quiet(second)).toBeUndefined() // joined: no second hold, no second look
+    expect(h.calls).toEqual(['hold', 'look'])
+    second.send({ t: 'restart', force: true })
+    expect(await second.next()).toEqual({ t: 'restart-progress', working: 2, waitingOn: ['tsk_1', 'tsk_2'], leftMs: 0 })
+    expect(await first.next()).toEqual({ t: 'restart-progress', working: 2, waitingOn: ['tsk_1', 'tsk_2'], leftMs: 0 })
+    expect(h.left).toEqual([{ resume: true, restart: true }])
+    expect(h.calls.filter((x) => x === 'hold')).toHaveLength(1)
+  })
+
+  it('goes on when the hold cannot be written, and when the one who asked hangs up', async () => {
+    const h = await restartHost({ hold: async () => Promise.reject(new Error('EACCES')) })
+    const asker = await h.connect('cli')
+    const app = await h.connect('app')
+    asker.send({ t: 'restart' })
+    expect(await app.next()).toMatchObject({ waitingOn: ['tsk_1', 'tsk_2'] })
+    expect(h.logs.some((l) => l.startsWith('restart: new starts could not be held (Error: EACCES)'))).toBe(true)
+    asker.sock.destroy()
+    await new Promise((r) => setTimeout(r, 50))
+    h.busy.clear()
+    h.c.tick()
+    expect(await app.next()).toMatchObject({ waitingOn: [] })
+    expect(h.left).toEqual([{ resume: true, restart: true }])
+  })
+
+  it('is dropped from a socket that never said hello, and unknown to a Host that does not serve it', async () => {
+    const h = await restartHost()
+    const silent = net.connect(h.address)
+    await new Promise((r) => silent.once('connect', r))
+    silent.write(encodeLine({ t: 'restart', force: true }))
+    await new Promise((r) => setTimeout(r, 100))
+    silent.destroy()
+    expect(h.left).toEqual([])
+    expect(h.calls).toEqual([])
+    expect(h.logs).toContain('a socket that has not said hello asked to restart — dropped')
+
+    const left: unknown[] = []
+    const plain = await server({ profile: 'plain', onIdle: (o) => void left.push(o) })
+    await talk(plain.address, [{ t: 'hello', protocol: HOST_PROTOCOL, app: '1.0.0', role: 'cli' }, { t: 'restart', force: true }, { t: 'ping', seq: 1 }], 2)
+    expect(left).toEqual([])
+    expect(plain.logs.some((l) => l.startsWith('unknown message: {"t":"restart"'))).toBe(true)
   })
 })

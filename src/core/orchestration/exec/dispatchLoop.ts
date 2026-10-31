@@ -208,6 +208,10 @@ export interface DispatchLoopContext {
   /** W1-B: the app-wide worker cap from app settings, or null for none. Read once per pass. Optional:
    *  without it there is no cap. */
   maxConcurrentWorkers?(): number | null | Promise<number | null>
+  /** T13: whether new starts are held for the whole profile (core/orchestration/startHold.ts). Read once per pass, beside
+   *  the cap: while it says yes the pass places nothing (`slotsToFill`). Optional: without it nothing is held here, and
+   *  `worker-start` still refuses a held start. */
+  startHeld?(): boolean | Promise<boolean>
   accounts(): Account[] | Promise<Account[]>
   loginStatus(accountId: string): Promise<boolean>
   lang(): Lang
@@ -1788,7 +1792,16 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
         }
         // Awaited only when wired, so a pass with no cap keeps its old timing.
         const maxConcurrentWorkers = c.maxConcurrentWorkers ? ((await c.maxConcurrentWorkers()) ?? null) : null
-        const slots = slotsToFill(c.getState(), { maxConcurrentWorkers }).filter((s) => !attempted.has(s.taskId))
+        // T13: a hold on new starts places nothing; a probe that fails reads as no hold (worker-start still refuses one).
+        // A probe that answers at once is not awaited, so a pass that is not held keeps its old timing.
+        let heldProbe: boolean | Promise<boolean> = false
+        try {
+          heldProbe = c.startHeld?.() ?? false
+        } catch {
+          heldProbe = false
+        }
+        const startHeld = typeof heldProbe === 'boolean' ? heldProbe : await heldProbe.catch(() => false)
+        const slots = slotsToFill(c.getState(), { maxConcurrentWorkers, startHeld }).filter((s) => !attempted.has(s.taskId))
         // 띄울 자리가 없으면 계정 조회까지 가지 않는다. 이 함수는 **모든 저장마다** 불리고 그
         // 대부분은 띄울 것이 없는 저장이다 — 아래 조회에 계정마다 파일(macOS 에서는 Keychain)
         // 읽기가 하나씩 붙으므로, 빈 바퀴에 그것을 치르면 상태를 쓰는 모든 명령이 그만큼 느려진다.

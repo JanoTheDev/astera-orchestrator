@@ -148,6 +148,8 @@ import path from 'node:path'
 import { SAVE_REASON_TEXT } from '../run/validateConfigs'
 import type { AddRunConfigResult } from '../run/runConfigsFile'
 import { access, readFile } from 'node:fs/promises'
+// T13: the hold on new starts for the whole profile (a restart's, or the owner's)
+import { readStartHold, startHeldNow, startHoldMessage } from './startHold'
 import { promptPlanOf, sha256Of } from './promptWaves'
 // W10-A Run as written by name
 import { detectPromptsDir, isNamesText, PROMPTS_DIR_MAX_DEPTH, promptNamesOf, repoRelative, resolvePromptNames, takenPrompts } from './promptNames'
@@ -1008,6 +1010,16 @@ const refused = (r: { error: string; missing?: true }): Reply =>
   r.missing ? notFound(r.error) : bad(r.error)
 const denied = (msg: string): Reply => ({ status: 403, body: { error: msg } })
 const conflict = (msg: string): Reply => ({ status: 409, body: { error: msg } })
+
+/** T13: the profile's hold on new starts (startHold.ts) as a refusal, or null when nothing holds. A wait, not a failure:
+ *  `held: true` is what every placer already reads a plan's own hold by (dispatchLoop.ts placeSlot), so no Gate opens and
+ *  a coordinator waits. Only a caller that names the profile can be held, which is the Host (`deps.profileDir`).
+ *  **No turn is taken when nothing holds** (`startHeldNow` is a stat): a start that is not held reaches its commit in
+ *  the same turns as before, which the commands racing it rely on. */
+function startHeldReply(deps: OrchServerDeps): Promise<Reply | null> | null {
+  if (!deps.profileDir || !startHeldNow(deps.profileDir)) return null
+  return readStartHold(deps.profileDir).then((h) => (h ? { status: 409, body: { error: startHoldMessage(h), held: true, startHold: h } } : null))
+}
 
 /** What the Run's Tasks say, not what it reads: a Run whose delivery failed reads `failed`, and a delivery retried
  *  (`--force`) must still see its Tasks completed. A paused Run is neither. */
@@ -3879,6 +3891,13 @@ export async function handleCommand(
       // W8-C plan after plan: a queued plan's planner is the Host's to start, once the plan it waits on is delivered
       if (job.after !== undefined && job.plannerSessionIds === undefined && !jobDelivered(s, job.after))
         return conflict(`queued after ${afterNameOf(s, job.after)}: it starts by itself once that plan is delivered`)
+      // T13: no fresh planner while new starts are held for the whole profile. A planner's own conversation resumed after
+      // a restart (`--resume`, host/sessionRestore.ts) is not a new start: the next Host brings it back before it lifts the hold
+      if (!str(args.resume)) {
+        const holding = startHeldReply(deps)
+        const profileHeld = holding && (await holding)
+        if (profileHeld) return profileHeld
+      }
       // Every flag is checked before the first write below, so a refused call leaves the Job as it was
       // W6-D: `--replan waves|off` sets Job.replan as the plan starts
       if (args.replan !== undefined && args.replan !== 'waves' && args.replan !== 'off') return bad('--replan must be waves|off')
@@ -4785,6 +4804,10 @@ export async function handleCommand(
       // T1: no account is "auto" with "Pick accounts automatically" on: the loop places it on the account with most room
       if ((task.accountIds?.length ?? 0) === 0 && deps.usageGuard?.autoAccounts?.() !== true)
         return conflict(`task ${id} names no account to run on`)
+      // T13: held for the whole profile (worker-start would refuse it the same way, later)
+      const holding = startHeldReply(deps)
+      const profileHeld = holding && (await holding)
+      if (profileHeld) return profileHeld
       const limit = job?.concurrency ?? DEFAULT_CONCURRENCY
       const mine = new Set(s.tasks.filter((t) => t.runId === run.id).map((t) => t.id))
       const openHere = s.dispatches.filter((d) => mine.has(d.taskId) && !d.outcome && !d.endedAt).length
@@ -5102,6 +5125,10 @@ export async function handleCommand(
       // 회차를 찾지 못한다. 그래도 남겨 둔다: orchestration.json 은 손으로 고쳐진다.
       if (runJob?.schedule && run.ordinal === 0)
         return bad(`job ${run.jobId} is a schedule — it does not dispatch its own Tasks; its runs do`)
+      // T13: held for the whole profile (a restart, or the owner): no new worker from any placer, the plan's own hold aside
+      const holding = startHeldReply(deps)
+      const profileHeld = holding && (await holding)
+      if (profileHeld) return profileHeld
       // W5-C: a plan held from launching (`jobs-hold`) gets no new worker from any placer: the app's loop, `tasks
       // dispatch`, a coordinator, a person. `held` tells the loop this is a wait, not a reason for a Gate.
       // W8-E (#95): a replan holds the plan too (dispatchHold), but it lifts by itself: the coordinator waits for

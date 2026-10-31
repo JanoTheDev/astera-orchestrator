@@ -60,6 +60,13 @@ describe('slotsToFill — 계정 지정', () => {
 })
 
 describe('slotsToFill', () => {
+  // T13: the profile's hold on new starts (startHold.ts), a restart's or the owner's
+  it('places nothing while new starts are held, whatever is ready', () => {
+    const s = state({ tasks: [task('t1'), task('t2')] })
+    expect(slotsToFill(s, { startHeld: true })).toEqual([])
+    expect(slotsToFill(s, { startHeld: false, maxConcurrentWorkers: 1 }).map((x) => x.taskId)).toEqual(['t1'])
+  })
+
   it('autoDispatch 가 아닌 Run 은 보지 않는다 — 코디네이터가 돌리는 Run 이다', () => {
     const s = state({ runs: [run({ autoDispatch: undefined })], tasks: [task('t1')] })
     expect(slotsToFill(s)).toEqual([])
