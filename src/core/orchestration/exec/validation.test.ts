@@ -591,7 +591,8 @@ describe('T2: heavy checks take the machine heavy slot', () => {
     expect(tickets(at.queueDir)).toEqual([])
   })
 
-  it('a flock that cannot run rejects: a failure, not a skip', async () => {
+  // Windows takes its slots with an owner file, not flock (heavyLock.ts takeHeavySlotByFile)
+  it.skipIf(process.platform === 'win32')('a flock that cannot run rejects: a failure, not a skip', async () => {
     const { dir, at } = tmpQueue()
     await expect(heavySlot({ ...at, lock: path.join(dir, 'no', 'such', 'lock'), cmd: 'x' })).rejects.toThrow(/flock/)
     expect(tickets(at.queueDir)).toEqual([])

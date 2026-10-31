@@ -28,7 +28,7 @@ import {
 import { cutTail } from '../taskOutput'
 import type { Dispatch } from '../types'
 import { checkInputOf, pluginIdOfCheck, type CompletionCheckInput, type PluginCheckAnswer } from '../pluginChecks'
-import { HEAVY_LOCK, HEAVY_QUEUE_DIR, heavyQueue, takeHeavySlot } from '../heavyLock'
+import { HEAVY_LOCK, HEAVY_QUEUE_DIR, heavyQueue, slotHolder, takeHeavySlot } from '../heavyLock'
 import { repairTargetFor } from './repair'
 import { TaskValidator } from './validator'
 
@@ -135,7 +135,7 @@ export async function heavySlot(a: {
         writeTicket()
       } else if (at < slots) {
         // Every slot held (a hand-opened tab may hold slot 0): keep the place in line and poll again
-        const took = await takeHeavySlot({ lock, slots, cmd: ['cat'], stdio: ['pipe', 'ignore', 'ignore'] })
+        const took = await takeHeavySlot({ lock, slots, ...slotHolder(), stdio: ['pipe', 'ignore', 'ignore'] })
         if (took !== 'busy') {
           const holder = took.child
           holder.stdin!.on('error', () => {}) // EPIPE once the holder is gone
