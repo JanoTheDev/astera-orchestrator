@@ -9,9 +9,10 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { spawn } from 'node:child_process'
-import { promises as fs } from 'node:fs'
+import { existsSync, promises as fs } from 'node:fs'
 import path from 'node:path'
 import { killProcessTree } from '../run/kill'
+import { comparablePath } from '../files/tree'
 import { HEAVY_QUEUE_DIR, heavyQueue } from '../orchestration/heavyLock'
 import { heavySlot } from '../orchestration/exec/validation'
 
@@ -166,9 +167,27 @@ export const installTurn = (): InstallTurn | undefined => turns.getStore()
 /** What `untilInstallQueues` answers: the start's own result, or its install queued and the whole start (`rest`) going on. */
 export type UntilInstallQueues<T> = { done: T } | { queued: { dir: string; rest: Promise<T> } }
 
+/** The folders whose install a start answered before (untilInstallQueues), by comparablePath, each until its start
+ *  settles. In memory: the heavy queue's 'setup' tickets say the same across processes (installPending). */
+const early = new Map<string, Promise<void>>()
+
+/** Whether a dependency install of `dir` is still waiting for its heavy slot or running: one a start of this process
+ *  answered before (untilInstallQueues), or a 'setup' ticket of that folder in the machine's heavy queue (another
+ *  process's). A worker must not start in such a folder yet: the install is about to replace its node_modules. */
+export function installPending(dir: string, queueDir: string = HEAVY_QUEUE_DIR): boolean {
+  const key = comparablePath(dir)
+  if (early.has(key)) return true
+  return heavyQueue(queueDir).some((t) => t.kind === 'setup' && comparablePath(t.cwd) === key)
+}
+
+/** Settles once the install of `dir` a start of this process answered before has ended; undefined when there is none
+ *  (none was answered early, or it has ended). Never rejects. */
+export const installSettled = (dir: string): Promise<void> | undefined => early.get(comparablePath(dir))
+
 /** Runs `start` with an install turn and answers as soon as it ends or its fork's install queues for a heavy slot,
  *  whichever comes first. Once queued, `rest` is the whole start, still going: it settles when the install ran and the
- *  start ended, and its caller owns its outcome (a rejection never goes unhandled meanwhile). */
+ *  start ended, and its caller owns its outcome (a rejection never goes unhandled meanwhile). The folder counts as
+ *  installing (installPending) from the moment it queues until `rest` settles. */
 export function untilInstallQueues<T>(heavy: InstallTurn['heavy'], start: () => Promise<T>): Promise<UntilInstallQueues<T>> {
   return new Promise((resolve, reject) => {
     let answered = false
@@ -181,6 +200,15 @@ export function untilInstallQueues<T>(heavy: InstallTurn['heavy'], start: () => 
           queuedDir = dir
           // A microtask later: `rest` is assigned by then even if the start queued at once
           queueMicrotask(() => {
+            const key = comparablePath(dir)
+            const settled = rest.then(
+              () => {},
+              () => {}
+            )
+            early.set(key, settled)
+            void settled.then(() => {
+              if (early.get(key) === settled) early.delete(key)
+            })
             if (answered) return
             answered = true
             resolve({ queued: { dir, rest } })
@@ -203,6 +231,29 @@ export function untilInstallQueues<T>(heavy: InstallTurn['heavy'], start: () => 
       }
     )
   })
+}
+
+/** A fork (`start`, forkWorktree under the hood) that answers its new folder as soon as the folder's dependency install
+ *  queues for one of the machine's heavy slots, or when it ends without one. The install goes on outside the caller,
+ *  waits at most SETUP_SLOT_WAIT_MS (forkWorktree), and holds its slot until it ends; meanwhile the folder is
+ *  installPending, which the scheduler waits on before it starts a worker there. For a fork whose caller must not wait
+ *  on a slot: the scheduler's pass (its lazy Run worktree) and `run-start`'s command chain (makeRunWorktree). A folder
+ *  removed meanwhile (run-start's discard of a coordinator that did not start) stops the wait. */
+export async function forkAnsweringAtInstall(
+  heavy: InstallTurn['heavy'],
+  start: () => Promise<string>,
+  log: (m: string) => void
+): Promise<string> {
+  let dir: string | null = null
+  const r = await untilInstallQueues(
+    { ...heavy, abandoned: () => heavy.abandoned?.() === true || (dir !== null && !existsSync(dir)) },
+    start
+  )
+  if ('done' in r) return r.done
+  dir = r.queued.dir
+  log(`setup: the fork answers ${r.queued.dir} now; its dependency install waits for a heavy slot and runs on its own`)
+  r.queued.rest.catch((e: unknown) => log(`setup: the fork of ${r.queued.dir} failed after its install queued: ${String(e)}`))
+  return r.queued.dir
 }
 
 function run(command: string, cwd: string, timeoutMs: number): Promise<{ ok: boolean; tail: string }> {

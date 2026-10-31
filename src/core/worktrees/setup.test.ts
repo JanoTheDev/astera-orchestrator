@@ -1,9 +1,21 @@
 import { describe, it, expect } from 'vitest'
 import { promises as fs, existsSync, readdirSync } from 'node:fs'
 import path from 'node:path'
-import { tempDir } from './testRepo'
-import { detectSetupCommand, installTurn, runWorktreeSetup, untilInstallQueues, type SetupHeavy } from './setup'
+import { makeRepo, tempDir } from './testRepo'
+import {
+  detectSetupCommand,
+  forkAnsweringAtInstall,
+  installPending,
+  installSettled,
+  installTurn,
+  runWorktreeSetup,
+  untilInstallQueues,
+  type InstallTurn,
+  type SetupHeavy
+} from './setup'
 import { heavySlot } from '../orchestration/exec/validation'
+import { forkWorktree } from '../orchestration/exec/integrateGit'
+import { WorktreeRegistry } from './registry'
 
 const withFiles = async (...names: string[]): Promise<string> => {
   const dir = await tempDir('astera-setup-')
@@ -297,4 +309,190 @@ describe('untilInstallQueues (T2)', () => {
     install.resolve()
     await expect(r.queued.rest).rejects.toThrow('spawn failed')
   })
+})
+
+// T24: the Run worktree's forks (the scheduler's lazy one, run-start's makeRunWorktree) answer once the install queues,
+// and the app's own forks wait for a slot in place. Each takes one of the machine's heavy slots and gives it back.
+describe('forks that take a heavy slot for their install (T24)', () => {
+  const node = (js: string): string => `node -e "${js}"`
+  const WRITE_RAN = node("require('fs').writeFileSync('ran.txt','')")
+  const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
+  type At = { lock: string; queueDir: string; pollMs: number }
+  /** A queue and lock of the test's own. On Windows a drive-letter path with backslashes, here with a space too. */
+  const machine = async (): Promise<{ root: string; at: At; logs: string[]; log: (m: string) => void }> => {
+    const root = await tempDir('astera-setup-fork-')
+    const logs: string[] = []
+    const at = { lock: path.join(root, 'heavy lock'), queueDir: path.join(root, 'heavy queue'), pollMs: 20 }
+    if (process.platform === 'win32') expect(at.queueDir).toMatch(/^[A-Za-z]:\\.+\\heavy queue$/)
+    return { root, at, logs, log: (m) => void logs.push(m) }
+  }
+  const tickets = (queueDir: string): string[] => (existsSync(queueDir) ? readdirSync(queueDir).filter((n) => n.endsWith('.json')) : [])
+  const holdSlot = async (at: At, root: string): Promise<() => void> =>
+    (await heavySlot({ ...at, cwd: path.join(root, 'held'), cmd: 'held', kind: 'check' }))!
+  const slotFree = async (at: At, root: string, ms = 2_000): Promise<boolean> => {
+    let late = false
+    const took = heavySlot({ ...at, cwd: path.join(root, 'probe'), cmd: 'probe', kind: 'check', abandoned: () => late })
+    const r = await Promise.race([took.then(() => 'took' as const), sleep(ms).then(() => 'busy' as const)])
+    late = true
+    ;(await took)?.()
+    return r === 'took'
+  }
+  /** What forkWorktree does after its git half, with bounds a test can wait out: the install under the lent turn. */
+  const fakeFork =
+    (o: { setting: string; maxWaitMs?: number; timeoutMs?: number; log: (m: string) => void }) =>
+    async (): Promise<string> => {
+      const dir = await withFiles()
+      const turn = installTurn()!
+      await runWorktreeSetup({
+        dir,
+        setting: o.setting,
+        log: o.log,
+        ...(o.timeoutMs !== undefined ? { timeoutMs: o.timeoutMs } : {}),
+        heavy: { ...turn.heavy, ...(o.maxWaitMs !== undefined ? { maxWaitMs: o.maxWaitMs } : {}), queued: () => turn.queued(dir) }
+      })
+      return dir
+    }
+
+  it('installPending holds from the queue to the end of the start, case-folded on Windows, and installSettled says when', async () => {
+    let finish!: () => void
+    const install = new Promise<void>((r) => (finish = r))
+    const dir = process.platform === 'win32' ? 'D:\\Work Trees\\Plan A' : '/work trees/plan a'
+    const r = await untilInstallQueues({ slots: async () => 1 }, async () => {
+      installTurn()!.queued(dir)
+      await install
+      return 'started'
+    })
+    if (!('queued' in r)) throw new Error('not queued')
+    const q = path.join(await tempDir('astera-empty-q-'), 'q')
+    expect(installPending(dir, q)).toBe(true)
+    if (process.platform === 'win32') expect(installPending('d:\\work trees\\PLAN A\\', q)).toBe(true)
+    const settled = installSettled(dir)
+    expect(settled).toBeDefined()
+    finish()
+    await settled
+    expect(installPending(dir, q)).toBe(false)
+    expect(installSettled(dir)).toBeUndefined()
+  })
+
+  it("installPending also reads another process's waiting install from the heavy queue, and only a setup ticket", async () => {
+    const m = await machine()
+    const holder = await holdSlot(m.at, m.root)
+    const dir = await withFiles()
+    let gone = false
+    const setup = heavySlot({ ...m.at, cwd: dir, cmd: 'npm ci', kind: 'setup', abandoned: () => gone })
+    await sleep(100)
+    expect(installPending(dir, m.at.queueDir)).toBe(true)
+    // A check of a folder is no install
+    const other = await withFiles()
+    const check = heavySlot({ ...m.at, cwd: other, cmd: 'npm test', kind: 'check', abandoned: () => gone })
+    await sleep(100)
+    expect(installPending(other, m.at.queueDir)).toBe(false)
+    gone = true
+    ;(await setup)?.()
+    ;(await check)?.()
+    expect(installPending(dir, m.at.queueDir)).toBe(false)
+    holder()
+  })
+
+  it('answers the folder once its install queues, then installs under the slot and gives it back (success)', async () => {
+    const m = await machine()
+    const holder = await holdSlot(m.at, m.root)
+    const dir = await forkAnsweringAtInstall({ slots: async () => 1, ...m.at }, fakeFork({ setting: WRITE_RAN, log: m.log }), m.log)
+    // Answered while the slot is still held: nothing ran yet, the folder is installing
+    expect(existsSync(path.join(dir, 'ran.txt'))).toBe(false)
+    expect(installPending(dir, m.at.queueDir)).toBe(true)
+    expect(m.logs.some((l) => l.includes(`the fork answers ${dir} now`))).toBe(true)
+    holder()
+    await installSettled(dir)
+    expect(existsSync(path.join(dir, 'ran.txt'))).toBe(true)
+    expect(installPending(dir, m.at.queueDir)).toBe(false)
+    expect(tickets(m.at.queueDir)).toEqual([])
+    expect(await slotFree(m.at, m.root)).toBe(true)
+  })
+
+  it('gives the slot back after a failing install', async () => {
+    const m = await machine()
+    const dir = await forkAnsweringAtInstall({ slots: async () => 1, ...m.at }, fakeFork({ setting: node('process.exit(3)'), log: m.log }), m.log)
+    await installSettled(dir)
+    expect(m.logs.some((l) => l.includes('failed in') && l.includes('exit 3'))).toBe(true)
+    expect(installPending(dir, m.at.queueDir)).toBe(false)
+    expect(await slotFree(m.at, m.root)).toBe(true)
+  })
+
+  it('gives the slot back after an install that timed out', async () => {
+    const m = await machine()
+    const dir = await forkAnsweringAtInstall(
+      { slots: async () => 1, ...m.at },
+      fakeFork({ setting: node('setTimeout(()=>{},60000)'), timeoutMs: 300, log: m.log }),
+      m.log
+    )
+    await installSettled(dir)
+    expect(m.logs.some((l) => l.includes('timed out after'))).toBe(true)
+    expect(await slotFree(m.at, m.root)).toBe(true)
+  })
+
+  it('stops waiting for the slot after its bound and drops its ticket; the folder is no longer installing', async () => {
+    const m = await machine()
+    const holder = await holdSlot(m.at, m.root)
+    const dir = await forkAnsweringAtInstall({ slots: async () => 1, ...m.at }, fakeFork({ setting: WRITE_RAN, maxWaitMs: 200, log: m.log }), m.log)
+    await installSettled(dir)
+    expect(existsSync(path.join(dir, 'ran.txt'))).toBe(false)
+    expect(m.logs.some((l) => l.includes('no heavy slot came free'))).toBe(true)
+    expect(installPending(dir, m.at.queueDir)).toBe(false)
+    expect(tickets(m.at.queueDir)).toHaveLength(1) // the holder's own
+    holder()
+  })
+
+  it('stops waiting once the folder is removed (run-start discarded it), or once the caller gives it up', async () => {
+    const m = await machine()
+    const holder = await holdSlot(m.at, m.root)
+    const dir = await forkAnsweringAtInstall({ slots: async () => 1, ...m.at }, fakeFork({ setting: WRITE_RAN, log: m.log }), m.log)
+    await fs.rm(dir, { recursive: true, force: true })
+    await installSettled(dir)
+    expect(m.logs.some((l) => l.includes('nobody needs it any more'))).toBe(true)
+    let given = false
+    const dir2 = await forkAnsweringAtInstall({ slots: async () => 1, ...m.at, abandoned: () => given }, fakeFork({ setting: WRITE_RAN, log: m.log }), m.log)
+    given = true
+    await installSettled(dir2)
+    expect(existsSync(path.join(dir2, 'ran.txt'))).toBe(false)
+    expect(tickets(m.at.queueDir)).toHaveLength(1)
+    holder()
+  })
+
+  it('answers a fork that installs nothing as it ends, and marks nothing as installing', async () => {
+    const m = await machine()
+    const dir = await forkAnsweringAtInstall({ slots: async () => 1, ...m.at }, fakeFork({ setting: 'off', log: m.log }), m.log)
+    expect(installPending(dir, m.at.queueDir)).toBe(false)
+    expect(installSettled(dir)).toBeUndefined()
+  })
+
+  it('rejects with a fork whose git half fails', async () => {
+    const m = await machine()
+    await expect(
+      forkAnsweringAtInstall({ slots: async () => 1, ...m.at }, () => Promise.reject(new Error('NO_REPO: gone')), m.log)
+    ).rejects.toThrow('NO_REPO')
+  })
+
+  // The app's own forks (OrchCoordinator.createWorktree with no install turn) wait for the slot in place
+  it('forkWorktree with ctx.heavy and no turn waits for a slot, installs under it and gives it back', async () => {
+    const m = await machine()
+    const repo = await makeRepo('astera-setup-forkheavy-')
+    const regRoot = await tempDir('astera-setup-forkheavy-reg-')
+    const registry = new WorktreeRegistry(path.join(regRoot, 'worktrees.json'), regRoot)
+    await registry.load()
+    const holder = await holdSlot(m.at, m.root)
+    const heavy: InstallTurn['heavy'] = { slots: async () => 1, ...m.at }
+    let settled = false
+    const fork = forkWorktree({ repoPath: repo, name: 'app-fork' }, { registry, log: m.log, setupCommand: WRITE_RAN, heavy }).finally(() => {
+      settled = true
+    })
+    for (let i = 0; i < 100 && !m.logs.some((l) => l.startsWith('setup: waiting for a heavy slot')); i++) await sleep(50)
+    await sleep(200)
+    expect(settled).toBe(false)
+    expect(m.logs.some((l) => l.startsWith('setup: waiting for a heavy slot'))).toBe(true)
+    holder()
+    const dir = await fork
+    expect(existsSync(path.join(dir, 'ran.txt'))).toBe(true)
+    expect(await slotFree(m.at, m.root)).toBe(true)
+  }, 30_000)
 })

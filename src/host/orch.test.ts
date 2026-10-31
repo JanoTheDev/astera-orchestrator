@@ -54,7 +54,7 @@ import { runRecordInputOf } from '../core/orchestration/runRecord'
 import { createControllerRegistry } from './controllers'
 import { createPluginManager } from './plugins/manager'
 import { git } from '../core/worktrees/git'
-import { installTurn } from '../core/worktrees/setup'
+import { installPending, installSettled, installTurn } from '../core/worktrees/setup'
 import { specsDirOf } from '../core/orchestration/exec/specFiles'
 import { INSTALL_START_WINDOW_MS } from '../core/orchestration/exec/stallWatch'
 
@@ -2797,6 +2797,44 @@ describe('Host-local spawn (S2)', () => {
     expect(l.startCoordinator).toHaveBeenCalledTimes(1)
     const run = orch.state().runs.find((x) => x.jobId === job.value.id)!
     expect(run).toMatchObject({ worktree: 'D:/wt-run', coordinatorSessionId: 'ses_coord' })
+  })
+  // T24: run-start holds the chain, so its Run worktree answers once its install queues for a heavy slot, and the
+  // install goes on beside every command; the folder is installing (installPending) until it ends
+  it('run-start answers once its Run worktree install queues for a heavy slot, and no command waits on that install', async () => {
+    const job = createJob(emptyState(), { objective: 'o', cwd: 'D:/p', coordinatorAccountId: 'acc1' }, NOW); if (!job.ok) throw new Error(job.error)
+    await fs.writeFile(path.join(dir, 'orchestration.json'), JSON.stringify(job.state))
+    const wt = process.platform === 'win32' ? 'D:\\Work Trees\\plan run' : '/work trees/plan run'
+    const noQueue = path.join(dir, 'no-heavy-queue')
+    let finish!: (fail?: Error) => void
+    let lent: unknown
+    const l = local({
+      makeRunWorktree: vi.fn(async () => {
+        await Promise.resolve()
+        const turn = installTurn()
+        lent = turn?.heavy
+        if (!turn) return wt
+        turn.queued(wt)
+        // As forkWorktree: the install never throws, so the fork ends with its folder however the install went
+        await new Promise<Error | undefined>((r) => (finish = r))
+        return wt
+      })
+    })
+    const orch = orchOver({ hasApp: () => false, act: vi.fn(), local: l })
+    const r = await Promise.race([
+      orch.call({ cmd: 'run-start', args: { run: job.value.id }, sessionId: '' }),
+      new Promise<'held'>((res) => setTimeout(() => res('held'), 5_000))
+    ])
+    expect(r, 'run-start waited on the install').not.toBe('held')
+    expect((r as { status: number }).status).toBe(200)
+    expect(lent).toMatchObject({ slots: expect.any(Function) })
+    expect(orch.state().runs.find((x) => x.jobId === job.value.id)).toMatchObject({ worktree: wt, coordinatorSessionId: 'ses_coord' })
+    expect(installPending(wt, noQueue)).toBe(true)
+    // An outside caller is not held up by it either
+    const listed = await Promise.race([orch.call({ cmd: 'jobs-list', args: {}, sessionId: '' }), new Promise<'held'>((res) => setTimeout(() => res('held'), 2_000))])
+    expect(listed).not.toBe('held')
+    finish()
+    await installSettled(wt)
+    expect(installPending(wt, noQueue)).toBe(false)
   })
   // Fix round 1, I1: risk-6's cleanup calls the Host's own removeWorktrees, which can itself throw
   // AppUnreachable (an unattached app is alive). That must never turn a spawn failure into a 409 —

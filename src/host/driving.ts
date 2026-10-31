@@ -68,6 +68,7 @@ import type { ProcRegistry } from './procRegistry'
 import type { HostSpawner } from './spawner'
 import type { HostWorktrees } from './worktrees'
 import { readMaxConcurrentWorkers } from '../core/settings/maxConcurrentWorkers'
+import { readHeavyJobsAtOnce } from '../core/settings/heavyJobs'
 import { startHeldNow } from '../core/orchestration/startHold'
 import { machineSpecs } from '../core/settings/machineSpecs'
 // Coordinator rotation
@@ -473,6 +474,8 @@ export function createHostDriving(d: {
     loginStatus: (id) => d.checks.loginStatus(id),
     lang: () => d.checks.langNow(),
     forkRunWorktree: (a) => d.worktrees.fork(a),
+    // T24: the lazy Run worktree's install takes one of the machine's heavy slots, beside the pass
+    installHeavy: () => ({ slots: () => readHeavyJobsAtOnce(settingsPath) }),
     worktreeGone: async (p) => (await defaultGateProbe(p)) === 'absent',
     integrate: (runRoot, merges, heads, opts) => d.worktrees.integrate(runRoot, merges, heads, opts),
     reap: reapWhileDriving,

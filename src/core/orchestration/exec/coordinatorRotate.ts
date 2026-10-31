@@ -55,12 +55,23 @@ export function workerTabTitle(s: Pick<OrchState, 'tasks'>, taskId: string, titl
 
 /** command.ts's PENDING_START_WINDOW_MS, by value: command.ts imports this file. Past it a placeholder is a dead start. */
 const START_WINDOW_MS = 2 * 60_000
+/** stallWatch.ts's INSTALL_PLACEHOLDER_PREFIX and INSTALL_START_WINDOW_MS, by value: stallWatch.ts imports this file. A
+ *  start whose dependency install waits for a heavy slot holds `pending:install:` for up to that long (command.ts
+ *  startWindowOf). */
+const INSTALL_PREFIX = 'pending:install:'
+const INSTALL_WINDOW_MS = 50 * 60_000
 
-/** A worker-start of this Run is under way: its Dispatch still holds the `pending:` placeholder, inside the window. */
+/** A worker-start of this Run is under way: its Dispatch still holds the `pending:` placeholder, inside the window. A
+ *  start whose install waits for a heavy slot (`pending:install:`) is under way for its longer install window, so its
+ *  coordinator is not refreshed or rotated while it waits. */
 export const workerStartInFlight = (s: OrchState, runId: string, nowMs: number): boolean => {
   const mine = new Set(s.tasks.filter((t) => t.runId === runId).map((t) => t.id))
   return s.dispatches.some(
-    (d) => mine.has(d.taskId) && d.endedAt === undefined && isPlaceholderSessionId(d.sessionId) && nowMs - Date.parse(d.startedAt) < START_WINDOW_MS
+    (d) =>
+      mine.has(d.taskId) &&
+      d.endedAt === undefined &&
+      isPlaceholderSessionId(d.sessionId) &&
+      nowMs - Date.parse(d.startedAt) < (d.sessionId.startsWith(INSTALL_PREFIX) ? INSTALL_WINDOW_MS : START_WINDOW_MS)
   )
 }
 

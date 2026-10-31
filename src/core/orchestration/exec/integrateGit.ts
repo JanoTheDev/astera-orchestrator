@@ -15,7 +15,7 @@ import { createWorktree } from '../../worktrees/create'
 import { workerBaseFailure } from '../../worktrees/base'
 import { git as realGit, gitDir, gitVersionAtLeast, listGitWorktrees, fetchOrigin, GIT_WRITE_TIMEOUT_MS } from '../../worktrees/git'
 import { backupRef, removeWorktree } from '../../worktrees/remove'
-import { LOCKFILES, SETUP_SLOT_WAIT_MS, installTurn, runWorktreeSetup } from '../../worktrees/setup'
+import { LOCKFILES, SETUP_SLOT_WAIT_MS, installTurn, runWorktreeSetup, type InstallTurn } from '../../worktrees/setup'
 import { askUntilAnswered, defaultActionPresenceCheck, type CheckResult, type PresenceCheck } from '../../worktrees/presence'
 import type { WorktreeStore } from '../../worktrees/registry'
 import { defaultGateProbe, type Probe } from '../../sessions/pathProbe'
@@ -72,6 +72,9 @@ async function forkWorktreeGit(
     probe?: Probe
     /** The project's `setupCommand` (absent: detect from the lockfile, `off`: none), run in the new worktree. */
     setupCommand?: string
+    /** T24: the heavy slots the install waits for when no install turn is lent (forkWorktree): the caller is outside
+     *  every chain and pass, so it may wait, at most SETUP_SLOT_WAIT_MS. forkWorktreeGit itself never reads it. */
+    heavy?: InstallTurn['heavy']
   }
 ): Promise<string> {
   // **폴더를 git 보다 먼저 묻는다** (예산 안의 세션 폴더 probe). 끊긴 공유 위의 폴더를 cwd 로
@@ -146,7 +149,8 @@ export function inForkTurn<T>(repoPath: string, run: () => Promise<T>): Promise<
  *  scheduler can start several workers of one repository at once without each waiting for the last one's install.
  *  Inside a worker start that lends it an install turn (setup.ts `installTurn`, the Host's `worker-start`), the install
  *  first waits for one of the machine's heavy slots, at most SETUP_SLOT_WAIT_MS, and says when it queues, so that start
- *  stops holding the scheduler pass and the Host's command chain; the fork turn is already handed on by then. */
+ *  stops holding the scheduler pass and the Host's command chain; the fork turn is already handed on by then. With no
+ *  turn, `ctx.heavy` (T24: the app's own forks) has the install wait for a slot in place, as long, before it runs. */
 export async function forkWorktree(
   a: Parameters<typeof forkWorktreeGit>[0],
   ctx: Parameters<typeof forkWorktreeGit>[1]
@@ -158,7 +162,11 @@ export async function forkWorktree(
     dir,
     setting: ctx.setupCommand,
     log: ctx.log,
-    ...(turn ? { heavy: { ...turn.heavy, maxWaitMs: SETUP_SLOT_WAIT_MS, queued: () => turn.queued(dir) } } : {})
+    ...(turn
+      ? { heavy: { ...turn.heavy, maxWaitMs: SETUP_SLOT_WAIT_MS, queued: () => turn.queued(dir) } }
+      : ctx.heavy
+        ? { heavy: { ...ctx.heavy, maxWaitMs: SETUP_SLOT_WAIT_MS } }
+        : {})
   })
   return dir
 }
