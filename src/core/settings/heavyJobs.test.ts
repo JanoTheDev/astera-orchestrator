@@ -10,6 +10,7 @@ import {
   heavyJobsAtOnceOf,
   heldHeavySlots,
   memAvailableBytesOfMeminfo,
+  personHeavyJobsOf,
   readHeavyJobsAtOnce
 } from './heavyJobs'
 
@@ -88,6 +89,16 @@ describe('heldHeavySlots', () => {
     for (const [i, pid] of [1, 2, 3, 4].entries()) writeFileSync(path.join(q, `00${i}.json`), JSON.stringify({ pid, cmd: 'x', cwd: '/', at: i }))
     expect(heldHeavySlots({ platform: 'linux', queueDir: q, alive: (p) => p !== 4 })).toBe(3)
     expect(heldHeavySlots({ platform: 'linux', queueDir: q, alive: () => true, limit: 2 })).toBe(2)
+  })
+})
+
+describe('personHeavyJobsOf', () => {
+  it('is the auto answer when not set or "auto", the number when one is set, and the default for anything else', () => {
+    expect(personHeavyJobsOf(undefined, win(25))).toBe(2)
+    expect(personHeavyJobsOf('auto', win(33))).toBe(3)
+    expect(personHeavyJobsOf('auto', win(12))).toBe(1)
+    expect(personHeavyJobsOf(4, win(1))).toBe(4)
+    for (const bad of [0, 'two', null, 1.5]) expect(personHeavyJobsOf(bad, win(500))).toBe(HEAVY_JOBS_DEFAULT)
   })
 })
 

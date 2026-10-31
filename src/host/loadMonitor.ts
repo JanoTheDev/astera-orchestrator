@@ -11,7 +11,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { monitorEventLoopDelay } from 'node:perf_hooks'
 import { effectiveCap, readAutoLimits, updateAutoLimits, writeHealthSnapshotSync, type AutoLimits, type HealthSnapshot } from '../core/settings/autoLimits'
-import { HEAVY_JOBS_DEFAULT, heavyJobsAtOnceOf } from '../core/settings/heavyJobs'
+import { personHeavyJobsOf, type HeavyJobsDeps } from '../core/settings/heavyJobs'
 import { machineSpecs } from '../core/settings/machineSpecs'
 import { maxConcurrentWorkersOf } from '../core/settings/maxConcurrentWorkers'
 import { minWorkersFloor, minWorkersUnderPressureOf } from '../core/settings/minWorkersUnderPressure'
@@ -30,10 +30,14 @@ export const LOWER_WORKERS_STEP = 2
 export const RAISE_WORKERS_STEPS = 4
 export const MEM_STRAINED_PCT = 10
 export const MEM_CRITICAL_PCT = 5
-/** Windows commit headroom thresholds. Allocations fail when the commit charge reaches the commit limit, which can
- *  happen while physical memory still looks free. A measuring Task may tune these. */
+/** Windows commit headroom thresholds, against the commit limit the machine can still reach (RAM + the pagefiles at the
+ *  most they can grow to). Allocations fail when the commit charge reaches the commit limit, which can happen while
+ *  physical memory still looks free. Against the current limit they are not used: a system-managed pagefile grows on
+ *  demand, so headroom against it sits at 2-4% on a healthy machine (knowledge/history/2026-10-31-memory-at-25-agents.md). */
 export const COMMIT_STRAINED_PCT = 10
 export const COMMIT_CRITICAL_PCT = 5
+/** Free space a growing pagefile leaves on its volume, in GB. */
+export const PAGEFILE_DISK_MARGIN_GB = 4
 /** How often the Windows commit reader asks, and how old its last answer may be before it reads as unknown. */
 export const COMMIT_READ_MS = 30_000
 export const COMMIT_STALE_MS = 3 * COMMIT_READ_MS
@@ -43,8 +47,12 @@ export interface Sample {
   at: number
   /** Available memory, % of total; null when the OS gave no usable reading (unknown is not strain) */
   memAvailablePct: number | null
-  /** Windows: 100 * (commit limit - committed) / commit limit; null or absent when unknown or not Windows */
+  /** Windows: 100 * (commit limit - committed) / commit limit, against the current limit; for diagnosis, and for the
+   *  fallback rule when `commitReachablePct` is unknown. Null or absent when unknown or not Windows. */
   commitHeadroomPct?: number | null
+  /** Windows: the same headroom against the commit limit the machine can still reach (reachableCommitLimitKb). Strain
+   *  and critical from commit are judged by this one. Null or absent when unknown or not Windows. */
+  commitReachablePct?: number | null
   /** 1-minute load / logical CPUs; 0 where the OS has no load average (Windows) */
   load1PerCpu: number
   loopDelayP99Ms: number
@@ -68,12 +76,20 @@ export interface PersonCaps extends Caps {
   workersFloor?: number
 }
 
-const memLow = (s: Sample, pct: number): boolean => s.memAvailablePct !== null && s.memAvailablePct < pct
-const commitLow = (s: Sample, pct: number): boolean => typeof s.commitHeadroomPct === 'number' && s.commitHeadroomPct < pct
+const below = (x: number | null | undefined, pct: number): x is number => typeof x === 'number' && x < pct
+const memLow = (s: Sample, pct: number): boolean => below(s.memAvailablePct, pct)
+/** Commit is strained by the reachable headroom. Without that reading, low headroom against the current limit counts
+ *  only when physical memory is low too: the pagefile may still grow, so it alone says nothing. */
+const commitStrained = (s: Sample): boolean =>
+  typeof s.commitReachablePct === 'number'
+    ? s.commitReachablePct < COMMIT_STRAINED_PCT
+    : below(s.commitHeadroomPct, COMMIT_STRAINED_PCT) && memLow(s, MEM_STRAINED_PCT)
+/** Commit is critical only by the reachable headroom, never from the current limit alone. */
+const commitCritical = (s: Sample): boolean => below(s.commitReachablePct, COMMIT_CRITICAL_PCT)
 
 export const isStrained = (s: Sample): boolean =>
-  memLow(s, MEM_STRAINED_PCT) || commitLow(s, COMMIT_STRAINED_PCT) || s.loopDelayP99Ms > 1000 || s.load1PerCpu > 3
-export const isCritical = (s: Sample): boolean => memLow(s, MEM_CRITICAL_PCT) || commitLow(s, COMMIT_CRITICAL_PCT)
+  memLow(s, MEM_STRAINED_PCT) || commitStrained(s) || s.loopDelayP99Ms > 1000 || s.load1PerCpu > 3
+export const isCritical = (s: Sample): boolean => memLow(s, MEM_CRITICAL_PCT) || commitCritical(s)
 
 // ── Readings ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -81,8 +97,10 @@ export const isCritical = (s: Sample): boolean => memLow(s, MEM_CRITICAL_PCT) ||
 export interface Readings {
   /** NaN when the OS gave nothing usable */
   memAvailablePct: number
-  /** Windows commit headroom %; null or absent when unknown or not Windows */
+  /** Windows commit headroom % against the current limit; null or absent when unknown or not Windows */
   commitHeadroomPct?: number | null
+  /** Windows commit headroom % against the reachable limit; null or absent when unknown or not Windows */
+  commitReachablePct?: number | null
   /** os.loadavg()[0] */
   load1: number
   cpus: number
@@ -100,6 +118,7 @@ export function sampleOf(r: Readings, at: number): Sample {
     at,
     memAvailablePct: pctOrNull(r.memAvailablePct),
     commitHeadroomPct: pctOrNull(r.commitHeadroomPct),
+    commitReachablePct: pctOrNull(r.commitReachablePct),
     load1PerCpu: r.cpus > 0 ? orZero(r.load1 / r.cpus) : 0,
     loopDelayP99Ms: orZero(r.loopDelayP99Ns / 1e6)
   }
@@ -132,27 +151,115 @@ function memAvailablePct(platform: NodeJS.Platform): number {
   return total > 0 ? (os.freemem() / total) * 100 : NaN
 }
 
-/** One line of the commit reader: "<FreeVirtualMemory KB> <TotalVirtualMemorySize KB>" from Win32_OperatingSystem, that
- *  is the commit limit minus the commit charge, and the commit limit. Headroom %, or null for anything else. */
-export function commitHeadroomPctOf(line: string): number | null {
-  const m = /^\s*(\d+)\s+(\d+)\s*$/.exec(line)
+/** One pagefile as the commit reader prints it. */
+export interface PagefileReading {
+  /** The drive it is on, "C:" */
+  volume: string
+  /** MB: 0 is system-managed (Windows sizes it), above 0 the fixed maximum, -1 unknown (it is not grown) */
+  maxMb: number
+  /** MB allocated now */
+  allocatedMb: number
+  /** Bytes free on its volume, -1 unknown (it is not grown) */
+  volumeFreeBytes: number
+  /** Bytes of its volume, -1 unknown */
+  volumeSizeBytes: number
+}
+
+const GB_KB = 1024 * 1024
+
+/**
+ * The commit limit the machine can still reach, in KB: the current limit (RAM + the pagefiles as allocated now) plus what
+ * each pagefile can still grow by. Windows' rule for a system-managed pagefile: at most 3 x RAM (4 GB at the least), and
+ * no more than an eighth of its volume. A fixed one grows to its maximum. Either is capped by the free space on its
+ * volume less PAGEFILE_DISK_MARGIN_GB, shared between the pagefiles on one volume. An unknown maximum or free space
+ * grows nothing. Pure.
+ */
+export function reachableCommitLimitKb(a: { limitKb: number; ramKb: number; pagefiles: readonly PagefileReading[] }): number {
+  const room = new Map<string, number>()
+  let growth = 0
+  for (const p of a.pagefiles) {
+    const vol = p.volume.toUpperCase()
+    if (!room.has(vol)) room.set(vol, p.volumeFreeBytes >= 0 ? Math.max(0, p.volumeFreeBytes / 1024 - PAGEFILE_DISK_MARGIN_GB * GB_KB) : 0)
+    const allocKb = Math.max(0, p.allocatedMb) * 1024
+    let maxKb = allocKb
+    if (p.maxMb === 0) {
+      maxKb = Math.max(3 * a.ramKb, 4 * GB_KB)
+      if (p.volumeSizeBytes > 0) maxKb = Math.min(maxKb, p.volumeSizeBytes / 1024 / 8)
+    } else if (p.maxMb > 0) maxKb = p.maxMb * 1024
+    const left = room.get(vol) ?? 0
+    const g = Math.max(0, Math.min(maxKb - allocKb, left))
+    room.set(vol, left - g)
+    growth += g
+  }
+  return a.limitKb + growth
+}
+
+/** One reading of the commit reader: headroom % against the current commit limit, and against the reachable one (null
+ *  when the pagefile part of the reading failed). */
+export interface CommitReading {
+  headroomPct: number
+  reachablePct: number | null
+}
+
+/**
+ * One line of the commit reader:
+ *   "<FreeVirtualMemory KB> <TotalVirtualMemorySize KB>[ | <TotalVisibleMemorySize KB> <pagefile>...]"
+ * from Win32_OperatingSystem (the commit limit minus the commit charge, the commit limit, RAM), each pagefile as
+ * "<volume>,<max MB>,<allocated MB>,<volume free bytes>,<volume size bytes>" (PagefileReading). Null for a line without
+ * the first two numbers; a missing or malformed part after "|" leaves only the reachable headroom unknown.
+ */
+export function commitReadingOf(line: string): CommitReading | null {
+  const bar = line.indexOf('|')
+  const m = /^\s*(\d+)\s+(\d+)\s*$/.exec(bar >= 0 ? line.slice(0, bar) : line)
   if (!m) return null
   const free = Number(m[1])
   const limit = Number(m[2])
   if (!(limit > 0) || !Number.isFinite(free)) return null
-  return (100 * Math.min(free, limit)) / limit
+  const committed = limit - Math.min(free, limit)
+  const headroomPct = (100 * (limit - committed)) / limit
+  return { headroomPct, reachablePct: bar >= 0 ? reachablePctOf(line.slice(bar + 1), limit, committed) : null }
 }
 
-/** The PowerShell loop the commit reader runs: one CIM query every 30 s, so a sample costs no process start. It leaves
- *  when the Host that started it is gone or its stdout closes. Win32_OperatingSystem's property names are not
- *  localised, unlike the performance counter names typeperf takes. */
+function reachablePctOf(tail: string, limitKb: number, committedKb: number): number | null {
+  const [ram, ...rest] = tail.trim().split(/\s+/)
+  if (!/^\d+$/.test(ram ?? '') || !(Number(ram) > 0)) return null
+  const pagefiles: PagefileReading[] = []
+  for (const t of rest) {
+    const p = /^([A-Za-z]:),(-?\d+),(\d+),(-?\d+),(-?\d+)$/.exec(t)
+    if (!p) return null
+    pagefiles.push({ volume: p[1], maxMb: Number(p[2]), allocatedMb: Number(p[3]), volumeFreeBytes: Number(p[4]), volumeSizeBytes: Number(p[5]) })
+  }
+  const reach = reachableCommitLimitKb({ limitKb, ramKb: Number(ram), pagefiles })
+  return (100 * Math.max(0, reach - committedKb)) / reach
+}
+
+/** The PowerShell loop the commit reader runs: one set of CIM queries every 30 s, so a sample costs no process start. It
+ *  leaves when the Host that started it is gone or its stdout closes. CIM class and property names are not localised,
+ *  unlike the performance counter names typeperf takes. The pagefile part (Win32_ComputerSystem.AutomaticManagedPagefile,
+ *  Win32_PageFileSetting.MaximumSize, Win32_PageFileUsage.AllocatedBaseSize, Win32_LogicalDisk) is left off the line
+ *  when any of it fails, which leaves the reachable headroom unknown. */
 export function commitReaderScript(parentPid: number, everyMs: number = COMMIT_READ_MS): string {
   return [
     `$ErrorActionPreference = 'SilentlyContinue'`,
     `while ($true) {`,
     `if (-not (Get-Process -Id ${Math.floor(parentPid)})) { exit }`,
-    `$o = Get-CimInstance -ClassName Win32_OperatingSystem -Property FreeVirtualMemory,TotalVirtualMemorySize`,
-    `try { [Console]::Out.WriteLine("$($o.FreeVirtualMemory) $($o.TotalVirtualMemorySize)"); [Console]::Out.Flush() } catch { exit }`,
+    `$o = Get-CimInstance -ClassName Win32_OperatingSystem -Property FreeVirtualMemory,TotalVirtualMemorySize,TotalVisibleMemorySize`,
+    `$x = ''`,
+    `try {`,
+    `$auto = (Get-CimInstance -ClassName Win32_ComputerSystem -Property AutomaticManagedPagefile -ErrorAction Stop).AutomaticManagedPagefile`,
+    `$set = @(Get-CimInstance -ClassName Win32_PageFileSetting -Property Name,MaximumSize -ErrorAction Stop)`,
+    `$pf = @(foreach ($u in @(Get-CimInstance -ClassName Win32_PageFileUsage -Property Name,AllocatedBaseSize -ErrorAction Stop)) {`,
+    `$s = @($set | Where-Object { $_.Name -eq $u.Name })[0]`,
+    `$max = if ($auto) { 0 } elseif ($s) { [int64]$s.MaximumSize } else { -1 }`,
+    `$dev = $u.Name.Substring(0, 2)`,
+    `$d = Get-CimInstance -ClassName Win32_LogicalDisk -Filter "DeviceID='$dev'" -Property DeviceID,FreeSpace,Size -ErrorAction Stop`,
+    `$free = if ($d -and $null -ne $d.FreeSpace) { [int64]$d.FreeSpace } else { -1 }`,
+    `$size = if ($d -and $null -ne $d.Size) { [int64]$d.Size } else { -1 }`,
+    `"$dev,$max,$([int64]$u.AllocatedBaseSize),$free,$size"`,
+    `})`,
+    `if ($o.TotalVisibleMemorySize) { $x = (@(" | $($o.TotalVisibleMemorySize)") + $pf) -join ' ' }`,
+    `} catch { $x = '' }`,
+    `try { [Console]::Out.WriteLine("$($o.FreeVirtualMemory) $($o.TotalVirtualMemorySize)$x"); [Console]::Out.Flush() } catch { exit }`,
     `Start-Sleep -Milliseconds ${Math.max(1000, Math.round(everyMs))}`,
     `}`
   ].join('\n')
@@ -162,8 +269,8 @@ export function commitReaderScript(parentPid: number, everyMs: number = COMMIT_R
 export const encodedCommand = (script: string): string => Buffer.from(script, 'utf16le').toString('base64')
 
 export interface CommitReader {
-  /** The last headroom read, or null when unknown (not Windows, not read yet, unreadable, or older than COMMIT_STALE_MS). */
-  latest(): number | null
+  /** The last reading, or null when unknown (not Windows, not read yet, unreadable, or older than COMMIT_STALE_MS). */
+  latest(): CommitReading | null
   stop(): void
 }
 
@@ -187,7 +294,7 @@ export function createCommitReader(d: CommitReaderDeps = {}): CommitReader {
   const restartMs = d.restartMs ?? 5 * 60_000
   let child: ChildProcess | null = null
   let startedAt = -Infinity
-  let value: { pct: number; at: number } | null = null
+  let value: { reading: CommitReading; at: number } | null = null
 
   const start = (): void => {
     startedAt = now()
@@ -206,9 +313,9 @@ export function createCommitReader(d: CommitReaderDeps = {}): CommitReader {
       buf += String(chunk)
       let nl: number
       while ((nl = buf.indexOf('\n')) >= 0) {
-        const pct = commitHeadroomPctOf(buf.slice(0, nl))
+        const reading = commitReadingOf(buf.slice(0, nl))
         buf = buf.slice(nl + 1)
-        if (pct !== null) value = { pct, at: now() }
+        if (reading !== null) value = { reading, at: now() }
       }
       if (buf.length > 4096) buf = ''
     })
@@ -226,7 +333,7 @@ export function createCommitReader(d: CommitReaderDeps = {}): CommitReader {
     latest() {
       if (platform !== 'win32') return null
       if (!child && now() - startedAt >= restartMs) start()
-      return value && now() - value.at <= COMMIT_STALE_MS ? value.pct : null
+      return value && now() - value.at <= COMMIT_STALE_MS ? value.reading : null
     },
     stop() {
       const c = child
@@ -251,7 +358,12 @@ export type Update = ((cur: AutoLimits) => AutoLimits) & { stage: Stage; floor?:
 function seenLine(s: Sample, liveWorkers: number): string {
   const parts: string[] = []
   if (memLow(s, MEM_STRAINED_PCT)) parts.push(`memory ${Math.round(s.memAvailablePct!)}% free`)
-  if (commitLow(s, COMMIT_STRAINED_PCT)) parts.push(`commit headroom ${Math.round(s.commitHeadroomPct!)}%`)
+  if (commitStrained(s)) {
+    const cur = typeof s.commitHeadroomPct === 'number' ? Math.round(s.commitHeadroomPct) : null
+    if (typeof s.commitReachablePct === 'number') {
+      parts.push(`commit headroom ${Math.round(s.commitReachablePct)}% of the reachable limit${cur === null ? '' : ` (${cur}% of the current one)`}`)
+    } else parts.push(`commit headroom ${cur}% of the current limit`)
+  }
   if (s.loopDelayP99Ms > 1000) parts.push(`Host loop ${(s.loopDelayP99Ms / 1000).toFixed(1)} s behind`)
   if (s.load1PerCpu > 3) parts.push(`load ${s.load1PerCpu.toFixed(1)} per CPU`)
   const seen = parts.join(', ')
@@ -409,6 +521,8 @@ export interface LoadMonitorDeps {
   log(m: string): void
   /** Tests inject the OS, the platform and the clock. Injected readings replace every OS read, the commit reader too. */
   readings?: () => Readings
+  /** What the auto heavy-slot answer reads (memory, held slots) when heavyJobsAtOnce is unset or "auto". */
+  heavyJobs?: HeavyJobsDeps
   platform?: NodeJS.Platform
   nowMs?: () => number
 }
@@ -420,13 +534,14 @@ export interface LoadMonitor {
   tick(): Promise<void>
 }
 
-/** The person's own caps, without any auto-limit, and the floor under strain. */
-async function personCaps(settingsFile: string): Promise<Required<PersonCaps>> {
+/** The person's own caps, without any auto-limit, and the floor under strain. Heavy slots unset or "auto" are the auto
+ *  answer the heavy slots themselves use, so the first strain stage tightens them and a raise stops there. */
+async function personCaps(settingsFile: string, heavyJobs?: HeavyJobsDeps): Promise<Required<PersonCaps>> {
   const o = await readAppSettingsObject(settingsFile)
   const workers = maxConcurrentWorkersOf(o?.maxConcurrentWorkers) ?? machineSpecs().recommended
   return {
     workers,
-    heavy: heavyJobsAtOnceOf(o?.heavyJobsAtOnce) ?? HEAVY_JOBS_DEFAULT,
+    heavy: personHeavyJobsOf(o?.heavyJobsAtOnce, heavyJobs),
     workersFloor: minWorkersFloor(workers, minWorkersUnderPressureOf(o?.minWorkersUnderPressure))
   }
 }
@@ -440,9 +555,11 @@ export function createLoadMonitor(d: LoadMonitorDeps): LoadMonitor {
   const readings =
     d.readings ??
     ((): Readings => {
+      const c = commit?.latest() ?? null
       const r: Readings = {
         memAvailablePct: memAvailablePct(platform),
-        commitHeadroomPct: commit?.latest() ?? null,
+        commitHeadroomPct: c?.headroomPct ?? null,
+        commitReachablePct: c?.reachablePct ?? null,
         load1: os.loadavg()[0],
         cpus: os.availableParallelism?.() ?? os.cpus().length,
         loopDelayP99Ns: histogram!.percentile(99)
@@ -465,7 +582,7 @@ export function createLoadMonitor(d: LoadMonitorDeps): LoadMonitor {
       const cur = await readAutoLimits(d.profileDir)
       let person: Required<PersonCaps> | null = null
       try {
-        person = await personCaps(settingsFile)
+        person = await personCaps(settingsFile, d.heavyJobs)
       } catch {
         /* an unreadable settings file: the snapshot is still written, nothing is judged */
       }
@@ -486,6 +603,7 @@ export function createLoadMonitor(d: LoadMonitorDeps): LoadMonitor {
       }
       if (sample.memAvailablePct === null) snapshot.memUnknown = true
       if (typeof sample.commitHeadroomPct === 'number') snapshot.commitHeadroomPct = sample.commitHeadroomPct
+      if (typeof sample.commitReachablePct === 'number') snapshot.commitReachablePct = sample.commitReachablePct
       writeHealthSnapshotSync(d.profileDir, snapshot)
       if (!person || !effective) return
       const update = judge(samples, cur, live, effective, person, at)
