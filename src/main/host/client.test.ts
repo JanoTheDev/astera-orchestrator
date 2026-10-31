@@ -1299,6 +1299,152 @@ describe('HostClient.retire announce', () => {
   })
 })
 
+// T15: "Restart the Host now". The Hosts are real servers: one that serves `restart` (and so names it in its hello), and
+// one that does not, which is what an app meets right after an update.
+describe('HostClient.requestRestart', () => {
+  type IdleArg = Parameters<Parameters<typeof startHostServer>[0]['onIdle']>[0]
+  /** A Host with `waiting` Tasks not at a safe point; its clock stands still, so the wait never runs out unless forced. */
+  const restartingHost = async (
+    name: string,
+    o: { waiting?: () => string[]; working?: number } = {}
+  ): Promise<{ addr: ReturnType<typeof hostAddress>; idle: IdleArg[]; server: HostServer }> => {
+    const addr = addressFor(name)
+    const idle: IdleArg[] = []
+    let server: HostServer | null = null
+    server = await startHostServer({
+      address: addr.address,
+      dirToPrepare: addr.dirToPrepare,
+      version: '9.9.9',
+      idleMs: 60_000,
+      // A real Host leaves here; the server alone only closes when told to.
+      onIdle: (x) => {
+        idle.push(x)
+        void server?.close()
+      },
+      workingTasks: () => o.working ?? 0,
+      restart: { hold: async () => {}, waitingOn: o.waiting ?? ((): string[] => []) },
+      restartClock: { now: () => 1_000, after: () => () => {} },
+      hostKey: KEY,
+      log: { write: () => {}, close: () => {} }
+    })
+    servers.push(server)
+    return { addr, idle, server }
+  }
+  const connected = async (addr: ReturnType<typeof hostAddress>, over: { restartExitMarginMs?: number } = {}): Promise<HostClient> => {
+    const c = new HostClient({ hostKey, address: addr.address, appVersion: '1.0.0', log: () => {}, spawnHost: () => {}, ...over })
+    c.start()
+    await settled(c, (s) => s.connected)
+    return c
+  }
+
+  it('sends restart with force, surfaces the progress, and resolves left once the Host closes', async () => {
+    const { addr, idle } = await restartingHost('rr-force', { waiting: () => ['tsk_1', 'tsk_2'], working: 2 })
+    const c = await connected(addr)
+    expect(c.status().features).toContain('restart')
+    const progress: unknown[] = []
+    let leaving = 0
+    let gone = 0
+    c.onDisconnect(() => gone++)
+    const outcome = await c.requestRestart({ force: true, onProgress: (p) => progress.push(p), onLeaving: () => leaving++ })
+    expect(outcome).toEqual({ outcome: 'left', via: 'restart' })
+    // force: the wait is cut short, so the one message says 0 left while it names who was not at a safe point
+    expect(progress).toEqual([{ working: 2, waitingOn: ['tsk_1', 'tsk_2'], leftMs: 0 }])
+    expect(idle).toEqual([{ resume: true, restart: true }])
+    expect(leaving).toBe(1)
+    // The handles the Host's ptys left are told, as for a retire; and the client is stopped, so nothing reconnects.
+    expect(gone).toBe(1)
+    await c.stop()
+  })
+
+  it('sends the wait it was given, and nothing else, without force', async () => {
+    const { addr, idle } = await restartingHost('rr-wait')
+    const c = await connected(addr)
+    const progress: Array<{ leftMs: number }> = []
+    expect(await c.requestRestart({ waitMs: 5_000, onProgress: (p) => progress.push(p) })).toEqual({ outcome: 'left', via: 'restart' })
+    // Nobody is waiting on: handed over at the first look, with all of the 5 s still left.
+    expect(progress.map((p) => p.leftMs)).toEqual([5_000])
+    expect(idle).toEqual([{ resume: true, restart: true }])
+    await c.stop()
+  })
+
+  it('falls back to the resume retire against a Host without the restart feature', async () => {
+    const asked: Array<{ resume?: boolean } | undefined> = []
+    const addr = addressFor('rr-old')
+    await serveAt(addr, { onIdle: (o) => void asked.push(o), workingTasks: () => 0 })
+    const c = await connected(addr)
+    expect(c.status().features).not.toContain('restart')
+    let progressed = 0
+    expect(await c.requestRestart({ onProgress: () => progressed++ })).toEqual({ outcome: 'left', via: 'retire' })
+    await waitFor(() => asked.length === 1)
+    // Today's retire: a handover, and not a `restart` (that Host would not know the word).
+    expect(asked).toEqual([{ resume: true }])
+    expect(progressed).toBe(0)
+  })
+
+  it('carries the refusal of that retire, and keeps the connection, while a Task works', async () => {
+    const addr = addressFor('rr-old-refused')
+    let left = false
+    await serveAt(addr, { workingTasks: () => 2, onIdle: () => void (left = true) })
+    const c = await connected(addr)
+    let leaving = 0
+    expect(await c.requestRestart({ force: true, onLeaving: () => leaving++ })).toEqual({ outcome: 'refused', sessions: 0, runs: 0, tasks: 2 })
+    expect(left).toBe(false)
+    expect(leaving).toBe(0)
+    expect(c.status().connected).toBe(true)
+    expect(c.send({ t: 'ping', seq: 1 })).toBe(true)
+  })
+
+  it('joins a restart under way: one outcome for both, the second call’s force cuts the wait short', async () => {
+    const { addr, idle } = await restartingHost('rr-join', { waiting: () => ['tsk_1'], working: 1 })
+    const c = await connected(addr)
+    const first: Array<{ leftMs: number }> = []
+    const second: Array<{ leftMs: number }> = []
+    const a = c.requestRestart({ onProgress: (p) => first.push(p) })
+    await waitFor(() => first.length === 1)
+    expect(first[0].leftMs).toBeGreaterThan(0)
+    expect(idle).toEqual([])
+    const b = c.requestRestart({ force: true, onProgress: (p) => second.push(p) })
+    expect(await Promise.all([a, b])).toEqual([
+      { outcome: 'left', via: 'restart' },
+      { outcome: 'left', via: 'restart' }
+    ])
+    expect(idle).toEqual([{ resume: true, restart: true }])
+    // both heard the last message, the one a force makes
+    expect(first.at(-1)?.leftMs).toBe(0)
+    expect(second.at(-1)?.leftMs).toBe(0)
+    await c.stop()
+  })
+
+  it('reads a Host that does not leave in time as a timeout and leaves the connection as it was', async () => {
+    // A Host that serves restart but never closes: its `onIdle` is a no-op here.
+    const addr = addressFor('rr-timeout')
+    const s = await startHostServer({
+      address: addr.address,
+      dirToPrepare: addr.dirToPrepare,
+      version: '9.9.9',
+      idleMs: 60_000,
+      onIdle: () => {},
+      restart: { hold: async () => {}, waitingOn: () => [] },
+      restartClock: { now: () => 1_000, after: () => () => {} },
+      hostKey: KEY,
+      log: { write: () => {}, close: () => {} }
+    })
+    servers.push(s)
+    const c = await connected(addr, { restartExitMarginMs: 100 })
+    expect(await c.requestRestart({ waitMs: 0 })).toEqual({ outcome: 'timeout' })
+    expect(c.status().connected).toBe(true)
+    expect(c.send({ t: 'ping', seq: 1 })).toBe(true)
+    // …and a later one is asked afresh rather than joining the one that gave up
+    expect(await c.requestRestart({ waitMs: 0 })).toEqual({ outcome: 'timeout' })
+    await c.stop()
+  })
+
+  it('answers absent when there is no connection to ask on', async () => {
+    const c = new HostClient({ hostKey, address: addressFor('rr-none').address, appVersion: '1.0.0', log: () => {}, spawnHost: () => {} })
+    expect(await c.requestRestart({ force: true })).toEqual({ outcome: 'absent' })
+  })
+})
+
 // T16: what the automatic swap (main/ipc.ts replaceHost) does — a resume retire, then restart() onto the new build's
 // Host — brings the sessions back into the tabs they had. The Hosts are real servers; the handover file is the one
 // host/sessionRestore.ts writes and reads; what the next Host does with it on the app's greeting (host/index.ts

@@ -579,6 +579,7 @@ const api = {
     sessionsOutlivingApp: invoke('host.sessionsOutlivingApp'),
     survivesUpdate: invoke('host.survivesUpdate'),
     replace: invoke('host.replace'),
+    restartNow: invoke('host.restartNow'),
     driver: invoke('host.driver'),
     holdings: invoke('host.holdings')
   },

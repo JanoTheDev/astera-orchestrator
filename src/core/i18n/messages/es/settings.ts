@@ -213,6 +213,7 @@ export const settings: Partial<Record<keyof typeof ko, string>> = {
   'settings.roleModels.effortHint': 'Profundidad de razonamiento abajo. Primero cuenta la de la propia Task, y al iniciar se ajusta a los niveles que ofrece el modelo.',
   'settings.info.hostOutdated': 'Servicio en segundo plano {host} · app {app}: al cerrar todas las sesiones se actualiza solo a la nueva versión. Reiniciar ahora lo actualiza de inmediato.',
   'settings.info.hostRuntimeIncomplete': 'Faltan algunos archivos con los que funciona el servicio en segundo plano. Si se deja así, dejará de responder en la próxima sesión. Se repara solo cuando no tiene nada abierto, y reiniciar ahora hace lo mismo.',
+  'settings.info.hostRestartHint': 'Reiniciar ahora retiene los inicios nuevos, espera a que las tareas en curso lleguen a un punto seguro y traspasa todas las sesiones al nuevo Host.',
   'settings.maxWorkers.label': 'Máximo de agentes en todos los planes',
   'settings.maxWorkers.hint': 'Hasta 100; vacío usa la recomendación para esta máquina. En el límite, los planes de mayor prioridad reciben el siguiente hueco libre; los iguales se turnan.',
   'settings.maxWorkers.saveFailed': 'No se pudo guardar el límite de agentes: {detail}',

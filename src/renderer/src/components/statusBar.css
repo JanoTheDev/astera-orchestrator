@@ -32,6 +32,9 @@
 }
 .statusbar .status-host-outdated.ui-btn:hover:not(:disabled) { background: var(--warn-bg); }
 .statusbar .status-host-outdated.ui-btn:disabled { opacity: 0.6; }
+/* "Host 1.4.1 is older than the app 1.4.2 · Restart now" (T15): the text beside the amber button, in the same ink. */
+.statusbar .status-host-older { flex: none; margin-left: 12px; color: var(--warn-ink); white-space: nowrap; }
+.statusbar .status-host-older + .status-host-older { margin-left: 6px; }
 /* The Host runtime being put in place (stage 3 task 2). Plain text and the shared spinner while it
    works — nothing is wrong, it is only slow — and the same amber outline as the notices above if it
    failed, because that is the same kind of fact: worth a look, not broken. */
