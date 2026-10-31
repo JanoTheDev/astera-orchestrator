@@ -22,10 +22,21 @@ import { readDispatchGate, type DispatchGate } from '../core/host/driver'
 import { ORCH_FIRE_TICK_MS } from '../core/orchestration/exec/dispatchLoop'
 import { liftStartHold, RESTART_HOLD_REASON, writeStartHold } from '../core/orchestration/startHold'
 import { pendingReportFileName, pendingReportsDirIn, serializePendingReport } from '../core/orchestration/pendingReports'
-import type { Lang } from '../core/i18n'
+import { t, type Lang } from '../core/i18n'
 import type { Account } from '../core/types'
 
-const NOW = '2026-09-25T00:00:00.000Z'
+// The loop reads each plan's folder through `gh auth status` and git (readDeliverySetup). Run for real that is a process
+// spawn per folder (about a second on Windows, where a ready Task then starts later than these tests wait); the rig's
+// folder is no repository, so the answer is the one a machine without gh gives.
+vi.mock('../core/orchestration/exec/deliverySetup', () => ({
+  readDeliverySetup: async () => ({ isGitRepo: false, remoteUrl: null, ghSignedIn: false, branch: null })
+}))
+
+// Near the real clock, not a fixed date: the store drops a finished Run 30 days after its createdAt (RUN_TTL_MS) when it
+// loads, by the real Date.now, so a fixed NOW pruned the fixture's finished child Runs once the calendar passed it
+const NOW = new Date(Date.now() - 60 * 60 * 1000).toISOString()
+// The review-ended Gate's own words in the rig's language (en), up to its {reason}: asserted through the catalog, not a literal
+const reviewEndedLead = t('en', 'jobs.checks.gate.reviewEnded', { reason: 'REASON_MARK' }).split('REASON_MARK')[0]
 const NOW_MS = Date.parse(NOW)
 const ACCOUNT: Account = { id: 'accA', label: 'a', configDir: '/cfg/accA', color: '#000', createdAt: NOW, provider: 'claude' }
 
@@ -1159,7 +1170,7 @@ describe('createHostDriving — a Task nobody is checking (final review I1)', ()
     h.clock = NOW_MS + 12_000
     await h.tickNow()
     expect(h.statusOf('tsk_r')).toBe('blocked')
-    expect(h.openGateQuestion()).toMatch(/검토가 중단되었습니다/)
+    expect(h.openGateQuestion()).toContain(reviewEndedLead)
   })
 
   it('never gates a Task this Host is checking', async () => {
@@ -1296,7 +1307,7 @@ describe('createHostDriving — the restart Gate is armed again on a driving tic
     h.clock = NOW_MS + 6_000
     await h.tickNow()
     expect(h.statusOf('tsk_rev')).toBe('blocked')
-    expect(h.openGateQuestion()).toMatch(/검토가 중단되었습니다/)
+    expect(h.openGateQuestion()).toContain(reviewEndedLead)
     expect(h.statusOf('tsk_pending')).toBe('reviewing')
     expect(h.gates()).toHaveLength(1)
   })
