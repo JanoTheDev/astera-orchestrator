@@ -45,7 +45,10 @@ export const HEAVY_GUARD_IF_BODIES = [
   '*bun test*',
   '*bun run*',
   '*bun x*',
-  '*bunx*'
+  '*bunx*',
+  '*biome*',
+  '*eslint*',
+  '*bun lint*'
 ] as const
 
 /** The hook's handlers: one per tool and filter. */
@@ -189,7 +192,8 @@ export function heavyRewrite(command: unknown, isWorker: boolean, shell?: string
   function plain(t: string): string {
     return t.replace(/["']/g, '').replace(/[)};]+$/, '')
   }
-  const SCRIPT = /^(test|typecheck|type-check|build|dist)/
+  // lint and format:check are heavy too: biome peaked at 18.6 GB in the 25-agent memory measurement
+  const SCRIPT = /^(test|typecheck|type-check|build|dist|lint|format:check)/
   const VALUE_FLAGS = ['--prefix', '--cwd', '-C', '--dir', '--workspace', '--filter', '-F']
   /** The index of the first token from `k` that is not a flag (a flag's own value is skipped too), or -1. */
   function nonFlag(toks: Tok[], k: number): number {
@@ -211,7 +215,7 @@ export function heavyRewrite(command: unknown, isWorker: boolean, shell?: string
   function heavy(toks: Tok[], k: number, depth: number): boolean {
     if (k < 0 || k >= toks.length || depth > 4) return false
     const w = word(toks[k].t)
-    if (w === 'vitest' || w === 'jest' || w === 'tsc' || w === 'vue-tsc') return !versionOnly(toks, k + 1)
+    if (w === 'vitest' || w === 'jest' || w === 'tsc' || w === 'vue-tsc' || w === 'biome' || w === 'eslint') return !versionOnly(toks, k + 1)
     if (w === 'electron-vite') {
       const a = nonFlag(toks, k + 1)
       return a !== -1 && plain(toks[a].t) === 'build'
