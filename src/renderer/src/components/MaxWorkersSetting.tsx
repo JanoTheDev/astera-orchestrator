@@ -34,7 +34,7 @@ function useAgentLimits(): { limits: AgentLimits | null; refresh: () => void } {
  *  the way; a value that is not a whole number of 1 or more goes back to what was saved. A value above the recommendation is saved
  *  and explained, not warned about. While Astera holds the limit lower (T7), the row says which limit is in force and why. */
 export function MaxWorkersSetting(): React.JSX.Element {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const [saved, setSaved] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
   const [specs, setSpecs] = useState<MachineSpecs | null>(null);
@@ -84,7 +84,7 @@ export function MaxWorkersSetting(): React.JSX.Element {
   const typed = draft.trim() === "" ? null : Number(draft);
   const shown = limits && typed !== null && Number.isInteger(typed) && typed >= 1 ? { ...limits, person: Math.min(typed, MAX_CONCURRENT_WORKERS) } : limits;
   const above = shown ? aboveRecommendedNote(shown, t) : null;
-  const lowered = limits ? effectiveLimitNote(limits, t) : null;
+  const lowered = limits ? effectiveLimitNote(limits, t, (iso) => new Date(iso).toLocaleString(lang)) : null;
 
   return (
     <>

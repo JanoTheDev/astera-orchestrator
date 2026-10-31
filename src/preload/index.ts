@@ -258,6 +258,7 @@ const api = {
     setGithubPolling: invoke('settings.setGithubPolling'),
     getMaxConcurrentWorkers: invoke('settings.getMaxConcurrentWorkers'),
     getHeavyJobsAtOnce: invoke('settings.getHeavyJobsAtOnce'),
+    getAutoHeavySlots: invoke('settings.getAutoHeavySlots'),
     getMachineSpecs: invoke('settings.getMachineSpecs'),
     // W3-A
     getActivityDigestMinutes: invoke('settings.getActivityDigestMinutes'),

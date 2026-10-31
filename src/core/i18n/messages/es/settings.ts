@@ -221,7 +221,8 @@ export const settings: Partial<Record<keyof typeof ko, string>> = {
   'settings.minWorkers.default': '{count} = la mitad de {person}',
   'settings.minWorkers.saveFailed': 'No se pudo guardar el mínimo de agentes: {detail}',
   'settings.heavyJobs.label': 'Trabajos pesados a la vez',
-  'settings.heavyJobs.hint': 'Limita las suites de pruebas completas, Electron, las compilaciones dist y las comprobaciones de Tasks en toda la máquina. 1 es lo más seguro en un portátil; más usa más CPU y memoria.',
+  'settings.heavyJobs.hint': 'Limita las suites de pruebas completas, Electron, las compilaciones dist y las comprobaciones de Tasks en toda la máquina. Déjalo vacío para Auto, que lo calcula con la memoria libre en cada momento; un número se usa tal cual.',
+  'settings.heavyJobs.auto': 'Auto (ahora {count} según la memoria libre)',
   'settings.heavyJobs.saveFailed': 'No se pudo guardar el límite de trabajos pesados: {detail}',
   'settings.tabSummaries.hint': 'Cuando termina una pestaña, Astera escribe una tarjeta breve: qué hizo, sus archivos, comprobaciones y revisión, y dos o tres frases del modelo del agente principal. Las tarjetas aparecen en el tablero de Tasks, en el historial y en el resumen del plan.',
   // MCP & skills finder, custom instructions

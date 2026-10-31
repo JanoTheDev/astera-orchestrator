@@ -224,7 +224,8 @@ export const settings: Partial<Record<keyof typeof ko, string>> = {
   'settings.minWorkers.default': '{count} = {person} の半分',
   'settings.minWorkers.saveFailed': '最小エージェント数を保存できませんでした: {detail}',
   'settings.heavyJobs.label': '同時に実行する重いジョブ数',
-  'settings.heavyJobs.hint': 'フルテストスイート、Electron、dist ビルド、Task のチェックをマシン全体で同時に何件まで実行するかを決めます。ノート PC では 1 が最も安全で、増やすと CPU とメモリを多く使います。',
+  'settings.heavyJobs.hint': 'フルテストスイート、Electron、dist ビルド、Task のチェックをマシン全体で同時に何件まで実行するかを決めます。空欄なら自動で、その時点の空きメモリから決めます。数値を入れるとその値をそのまま使います。',
+  'settings.heavyJobs.auto': '自動 (現在は空きメモリから {count})',
   'settings.heavyJobs.saveFailed': '重いジョブの上限を保存できませんでした: {detail}',
   'settings.tabSummaries.hint': 'タブが終わると、Astera が短いカードを書きます: したこと、ファイル、チェックとレビュー、そしてリードエージェントのモデルによる 2〜3 文。カードは Task ボード、履歴、プランの概要に表示されます。',
   // MCP & skills finder, custom instructions

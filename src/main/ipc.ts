@@ -4727,10 +4727,11 @@ export function registerIpc(
   })
   ipcMain.handle('settings.getHeavyJobsAtOnce', () => core.appSettings.getHeavyJobsAtOnce())
   ipcMain.handle('settings.setHeavyJobsAtOnce', async (_e, n: unknown) => {
-    const slots = heavyJobsAtOnceOf(n)
+    const slots = n === 'auto' ? 'auto' : heavyJobsAtOnceOf(n)
     if (slots === null) throw new Error(`INVALID_HEAVY_JOBS_AT_ONCE: ${String(n)}`)
     await core.appSettings.setHeavyJobsAtOnce(slots)
   })
+  ipcMain.handle('settings.getAutoHeavySlots', () => core.appSettings.getAutoHeavySlots())
 
   // The renderer pushes the session on screen; main cannot work it out (§7). Narrowed on arrival, and
   // narrowed again inside setActiveSession.
