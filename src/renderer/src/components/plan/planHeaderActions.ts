@@ -6,7 +6,7 @@ import { approveViewOf } from './planPage'
 import { isFinishedOutcome } from './planSummary'
 import { runningCount } from '../../../../core/orchestration/running'
 import { isUnmergedPlan } from './planList'
-import { canChat, planTalkView } from './planTalk'
+import { canChat, planTalkView } from './planTalkModel'
 
 export type HeaderRow = Pick<
   JobRow,

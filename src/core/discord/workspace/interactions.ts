@@ -86,7 +86,7 @@ async function run(deps: WorkspaceDeps, cmd: string, args: Record<string, unknow
 
 const failed = (lang: Lang, text: string): string => cut(w(lang, 'failed', { error: text }), DISCORD_TEXT_MAX)
 
-/** What jobs-feedback did, read off its body as the app's feedbackOutcomeOf (planTalk.ts) reads it: queued for the
+/** What jobs-feedback did, read off its body as the app's feedbackOutcomeOf (planTalkModel.ts) reads it: queued for the
  *  next replan, a finished plan reopened by a completion replan, or typed to the planner. */
 function feedbackOutcome(body: unknown): 'sent' | 'queued' | 'reopened' {
   const b = rec(body)

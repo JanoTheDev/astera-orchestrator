@@ -13,7 +13,7 @@ import { PauseIcon, PlayIcon, RunIcon, STATE_KEY, STATUS_COLOR, TaskGlyph, TaskI
 import type { RunIconKind } from './JobIcons'
 import { Button, EmptyState, Icon, ICONS, IconButton, Input, PageHeader } from './ui'
 import { SourceChip } from './SourceChip'
-import { approveSlot } from './plan/planTalk'
+import { approveSlot } from './plan/planTalkModel'
 import { convergenceText, isOwnerHeld, isRunningTask as isRunning, taskMeta } from './plan/planList'
 
 /** Run 헤더 글리프의 툴팁. 끝난·실패·막힘은 줄의 글리프와 같은 모양이고 같은 뜻이라 같은 문구를 쓴다.

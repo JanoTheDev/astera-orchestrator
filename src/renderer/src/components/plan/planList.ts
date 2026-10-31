@@ -5,7 +5,7 @@ import type { JobRow, JobTask, Provider } from '../../../../core/types'
 import { formatElapsed, formatRemaining } from '../../../../core/orchestration/elapsed'
 import type { ConvergenceChip } from '../../../../core/orchestration/nodeMeta'
 import type { ChipTone } from '../ui/Chip'
-import { approveSlot } from './planTalk'
+import { approveSlot } from './planTalkModel'
 
 type T = (key: MessageKey, params?: MessageParams) => string
 

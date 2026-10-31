@@ -19,7 +19,7 @@ import { archiveJob, archiveJobs, deleteRun, holdJob, integratePlan, mergePlan, 
 import { openConsole, openPlanConsoles, openView } from '../shell/navigation'
 import { ViewToolbar, type SideBarViewProps } from '../shell/SideBar'
 import { OLD_FINISHED_DAYS, clearableOf, isStalledPlan, isStoppedPlan, planStatusOf, resumeActionOf, isUnmergedPlan, splitPlans } from '../plan/planList'
-import { approveSlot, canChat } from '../plan/planTalk'
+import { approveSlot, canChat } from '../plan/planTalkModel'
 import { planActionsOf } from '../plan/planHeaderActions'
 import { findRunFolder } from '../plan/PlanChanges'
 import { useCachedRead } from '../../lib/readCache'

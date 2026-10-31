@@ -3,7 +3,7 @@
 import type { JobRow } from '../../../../core/types'
 import type { PlanActs } from './PlanRow'
 import { pauseActionOf } from './planTree'
-import { approveSlot } from './planTalk'
+import { approveSlot } from './planTalkModel'
 
 export type PlanActionId = 'approve' | 'pause' | 'resume' | 'hold' | 'release' | 'restartCoordinator' | 'archive' | 'unarchive' | 'delete'
 

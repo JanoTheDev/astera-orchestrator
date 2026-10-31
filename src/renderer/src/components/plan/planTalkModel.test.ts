@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { JobRow } from '../../../../core/types'
-import { approveSlot, canChat, feedbackMark, feedbackOutcomeOf, planTalkView, plannerWaitingIn } from './planTalk'
+import { approveSlot, canChat, feedbackMark, feedbackOutcomeOf, planTalkView, plannerWaitingIn } from './planTalkModel'
 
 const row = (o: Partial<JobRow>): JobRow => ({ id: 'j', tasks: [{}, {}], ...o }) as unknown as JobRow
 

@@ -3,7 +3,7 @@
 import type { MessageKey } from '../../../../core/i18n'
 import type { JobEvent, JobRow, JobTask, MessageType, TaskStatus } from '../../../../core/types'
 import { DEFAULT_CONCURRENCY } from '../../../../core/orchestration/types'
-import { approveSlot } from './planTalk'
+import { approveSlot } from './planTalkModel'
 import { currentWaveOf, type PlanSection, type PlanWave } from './planBoard'
 
 /** 종류 배지의 문구. message 는 messageType 이 정한다.

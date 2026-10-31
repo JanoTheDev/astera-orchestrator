@@ -380,7 +380,7 @@ export function PlanHeader({
       actions={
         <>
           {/* #116 (approveSlot): a planned Job's planner not done yet, or an auto-approve plan: words, no button. Moved here
-              from the overview (T8); the logic is planTalk.ts'. */}
+              from the overview (T8); the logic is planTalkModel.ts'. */}
           {/* Task 를 다 짜고 누르는 버튼. **Task 가 없으면 잠근다** — 빈 Run 을 시작하면 pendingStart 만 걷히고
               아무 일도 일어나지 않는다. 누르면 게이트가 걷히고 이 버튼도 사라진다. 도는 동안은 회전과 문구로 바뀐다. */}
           {run && approve?.show && (

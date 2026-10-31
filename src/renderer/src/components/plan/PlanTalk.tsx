@@ -10,7 +10,7 @@ import { replyNote } from '../../lib/orchDoor'
 import { openPlanChat, postPlanFeedback, rejectPlan, stopRun, type ActionUi } from '../../lib/jobActions'
 import { openConsole } from '../shell/navigation'
 import { Button, Chip, Icon, Input, Textarea } from '../ui'
-import { canChat, feedbackMark, feedbackOutcomeOf, planTalkView, plannerWaitingIn, type FeedbackOutcome } from './planTalk'
+import { canChat, feedbackMark, feedbackOutcomeOf, planTalkView, plannerWaitingIn, type FeedbackOutcome } from './planTalkModel'
 
 /** The sentence under the box for what the message did. */
 const OUTCOME_KEY = { sent: 'plan.talk.sent', queued: 'plan.talk.queuedNotice', reopened: 'plan.talk.reopened' } as const satisfies Record<FeedbackOutcome, string>
