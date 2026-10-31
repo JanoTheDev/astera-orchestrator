@@ -5347,30 +5347,32 @@ describe('T2: a worker start answers once its install queues for a heavy slot', 
     const replies = new Map<string, { status: number; body: unknown }>()
     let passing = false
     const box: { orch?: ReturnType<typeof orchOver> } = {}
+    const pause = { accountId: 'acc-held', window: 'five_hour' as const, percent: 93, resetsAt: '2026-10-17T14:20:00.000Z' }
     box.orch = orchOver({
       hasApp: () => false,
       act: vi.fn(),
       local: w.local,
-      // The pass of d6800b53e: run inside the command that holds the chain (here the holder's worker-start, which asks
-      // the usage guard first), it places its slots one after another, each a worker-start whose fork installs
+      // The pass of d6800b53e: run inside the command that holds the chain (here a worker-start, which asks the usage
+      // guard first), it places its slots one after another, each a worker-start whose fork installs. The holding
+      // command is then refused (its account is paused), so it commits nothing over what the pass committed
       usageGuard: {
         refresh: async () => {
           if (passing) return
           passing = true
           for (const [id, name] of [[a, 'a'], [b, 'b']]) replies.set(id, await box.orch!.handle('worker-start', fresh(id, name)))
         },
-        pauseOf: () => null
+        pauseOf: (id) => (id === 'acc-held' ? pause : null)
       }
     })
     const orch = box.orch
     const held = await Promise.race([
-      orch.call({ cmd: 'worker-start', args: { task: holder, agent: 'claude', account: 'acc1', worktree: 'current' }, sessionId: '' }),
+      orch.call({ cmd: 'worker-start', args: { task: holder, agent: 'claude', account: 'acc-held', worktree: 'current' }, sessionId: '' }),
       sleepFor(5_000).then(() => 'deadlocked' as const)
     ])
     expect(held, 'the command holding the chain waited on an install').not.toBe('deadlocked')
-    expect((held as { status: number }).status).toBe(200)
+    expect(held).toMatchObject({ status: 409, body: { usagePaused: pause } })
     // Both slots answered, and the second slot's start began while the first slot's install had not run
-    expect(w.started).toEqual([a, b, holder])
+    expect(w.started).toEqual([a, b])
     expect([...w.installs.keys()]).toEqual([a, b])
     for (const id of [a, b]) {
       expect(replies.get(id)?.status).toBe(200)
@@ -5380,7 +5382,6 @@ describe('T2: a worker start answers once its install queues for a heavy slot', 
       expect(d.sessionId).toMatch(/^pending:install:/)
       expect(d.specPath).toBe(path.join(specsDirOf(dir), `${id}-${d.id}.md`))
     }
-    expect(openOf(orch, holder)?.sessionId).toBe(`ses_${holder}`)
     // A caller from outside is not held up by either install
     const listed = await Promise.race([orch.call({ cmd: 'jobs-list', args: {}, sessionId: '' }), sleepFor(2_000).then(() => 'deadlocked' as const)])
     expect(listed, 'an outside command waited on an install').not.toBe('deadlocked')
