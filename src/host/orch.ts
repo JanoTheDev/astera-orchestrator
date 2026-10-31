@@ -79,6 +79,8 @@ import type { WorkspaceManager } from './workspace/manager'
 import { DESKTOP_ACTOR, HOST_ACTOR, actorOf, type JournalActor } from '../core/continuity/actor'
 import { parseJournalOps } from '../core/continuity/journalOps'
 import { readMaxConcurrentWorkers } from '../core/settings/maxConcurrentWorkers'
+import { readHeavyJobsAtOnce } from '../core/settings/heavyJobs'
+import { untilInstallQueues } from '../core/worktrees/setup'
 import { machineSpecs } from '../core/settings/machineSpecs'
 
 /** One reply — today's HTTP status and body, the shape `OrchCall.call` already answers with. Named
@@ -909,6 +911,45 @@ export function createHostOrch(a: {
       holder.running = true
     }
   }
+  /** T2: a `worker-start` whose fork installs dependencies (`queueInstall`) answers as soon as the install queues for one
+   *  of the machine's heavy slots (worktrees/setup.ts untilInstallQueues), so the scheduler pass, which places its
+   *  slots one after another, places the next while this install waits and runs. Not a way around d6800b53e:
+   *  - the start runs outside every holder (`holding.exit`): what it does after the call answered belongs to no command;
+   *  - `outsideChain` takes the chain back for the caller as soon as this answers, before the caller commits;
+   *  - what the start then records (its session, or its failure) is `later`: a command of its own that takes the chain
+   *    as any outside caller does, never inline in a holder and never a sibling holder of one.
+   *  Nothing here waits on the chain while holding a slot, and nothing holding the chain waits on a slot. */
+  const startBesideInstall = async (
+    x: Parameters<OrchServerDeps['startWorker']>[0],
+    start: OrchServerDeps['startWorker']
+  ): ReturnType<OrchServerDeps['startWorker']> => {
+    const r = await untilInstallQueues(
+      {
+        slots: () => readHeavyJobsAtOnce(path.join(a.profileDir, 'app-settings.json')),
+        // A start given up meanwhile (worker-abandon, its rollback) stops waiting for a slot
+        abandoned: () => {
+          const d = store.get().dispatches.find((y) => y.id === x.dispatchId)
+          return d === undefined || d.endedAt !== undefined || d.outcome !== undefined
+        }
+      },
+      () => holding.exit(() => start(x))
+    )
+    if ('done' in r) return r.done
+    a.log(`worker-start: dispatch ${x.dispatchId} answers now; its install in ${r.queued.dir} waits for a heavy slot`)
+    return {
+      sessionId: '',
+      cwd: r.queued.dir,
+      specPath: '',
+      installing: {
+        rest: r.queued.rest,
+        later: (commit) => {
+          void holding
+            .exit(() => serially('worker-start', {}, commit))
+            .catch((e) => a.log(`worker-start: dispatch ${x.dispatchId}: the command recording how its start ended failed: ${String(e)}`))
+        }
+      }
+    }
+  }
   /** Item 9: marks the sessions a commit gave orchestration (exec/runEnd.ts orchSessionsAdded). Isolated: the commit
    *  has landed, and a mark that fails costs only the sweep's reach. */
   const markOrchSessions = (prev: OrchState, next: OrchState): void => {
@@ -1063,7 +1104,12 @@ export function createHostOrch(a: {
       ...deps,
       // `worker-stop` adopts the original of a stopped duplicate (exec/adopt.ts)
       ...(a.liveWorkers ? { liveWorkers: a.liveWorkers } : {}),
-      ...(startWorker ? { startWorker: (x: Parameters<typeof startWorker>[0]) => outsideChain(() => startWorker(x)) } : {}),
+      ...(startWorker
+        ? {
+            startWorker: (x: Parameters<typeof startWorker>[0]) =>
+              outsideChain(() => (x.queueInstall ? startBesideInstall(x, startWorker) : startWorker(x)))
+          }
+        : {}),
       ...(readWorker ? { readWorker: (x: Parameters<typeof readWorker>[0]) => outsideChain(() => readWorker(x)) } : {})
     }
   }

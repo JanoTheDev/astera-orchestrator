@@ -981,7 +981,14 @@ async function main(): Promise<void> {
               mergeWorktrees: (into, paths, o) => worktrees.mergeWorktrees(into, paths, o),
               validate: (cwd) => wiring.checks.validateTree(cwd, checks),
               install: async (cwd) => {
-                const r = await runWorktreeSetup({ dir: cwd, setting: findProjectContaining(orch.state(), cwd)?.setupCommand, log: (m) => log.write(m), force: true })
+                // T2: an install is heavy work, so it waits for one of the machine's heavy slots, as the delivery check after it does
+                const r = await runWorktreeSetup({
+                  dir: cwd,
+                  setting: findProjectContaining(orch.state(), cwd)?.setupCommand,
+                  log: (m) => log.write(m),
+                  force: true,
+                  heavy: { slots: () => readHeavyJobsAtOnce(path.join(profileDir, 'app-settings.json')) }
+                })
                 return r.ok ? { ok: true } : { ok: false, reason: r.tail }
               },
               log: (m) => log.write(m),
