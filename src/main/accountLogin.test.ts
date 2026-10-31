@@ -71,3 +71,38 @@ describe('accountLoginHandlers, opened again right after a cancel (#82)', () => 
     await expect(second).resolves.toEqual({ ok: true })
   })
 })
+
+// T3 (account center sync): the row learns of an in-app sign-in from main, not from a window focus the
+// paste-the-code flow never causes.
+describe('accountLoginHandlers, telling the account center (T3)', () => {
+  it('calls onFinished once the CLI has exited, after the login check, success or not', async () => {
+    const order: string[] = []
+    const proc = fakeProc()
+    const h = accountLoginHandlers({
+      account: () => account,
+      run: () => proc,
+      loggedIn: async () => (order.push('checked'), true),
+      onFinished: (id) => void order.push(`finished:${id}`)
+    })
+    const done = h.login('a1')
+    expect(order).toEqual([])
+    proc.exit(0)
+    await expect(done).resolves.toEqual({ ok: true })
+    expect(order).toEqual(['checked', 'finished:a1'])
+
+    const failed = fakeProc()
+    const h2 = accountLoginHandlers({ account: () => account, run: () => failed, loggedIn: async () => false, onFinished: (id) => void order.push(`finished:${id}`) })
+    const done2 = h2.login('a1')
+    h2.cancelLogin()
+    await expect(done2).resolves.toEqual({ ok: false, reason: 'cancelled' })
+    expect(order).toEqual(['checked', 'finished:a1', 'finished:a1'])
+  })
+
+  it('a throwing onFinished does not fail the sign-in', async () => {
+    const proc = fakeProc()
+    const h = accountLoginHandlers({ account: () => account, run: () => proc, loggedIn: async () => true, onFinished: () => { throw new Error('boom') } })
+    const done = h.login('a1')
+    proc.exit(0)
+    await expect(done).resolves.toEqual({ ok: true })
+  })
+})

@@ -9,11 +9,15 @@ import type { RateLimitUsage } from '../types'
 // the URL, the headers and the response mapping stay with each provider, because that is the part
 // that genuinely differs.
 
-// The account-usage service ticks at exactly this interval: every tick is then the first ask this
-// cache will not serve, so nothing is spent re-fetching what is already held and nothing sits staler
-// than the cache would have permitted anyway (design doc §4).
+// The account-usage service ticks a little above this interval (TICK_MS in main/accountUsage.ts), so a
+// tick is never served the entry the previous one stored — a tick at exactly the TTL could land a hair
+// early and be handed the old figure, which doubled the real gap (T3, account center sync).
 export const TTL_OK_MS = 5 * 60_000 // success cache — fresh enough for one user while staying clear of 429
 const TTL_ERR_MS = 60_000 // an ordinary failure is retried after a minute
+// "No credentials" costs no request (the fetcher stops at reading the file), so holding it long saves
+// nothing and only hides a fresh login: a just-signed-in account showed no meter for the full success TTL
+// (T3). It is held as long as an ordinary failure instead, and a login change forgets it outright.
+export const TTL_UNAVAILABLE_MS = TTL_ERR_MS
 export const TTL_RATE_LIMITED_MS = 15 * 60_000 // the default backoff for a 429 that carries no Retry-After
 const MAX_RETRY_AFTER_MS = 24 * 60 * 60 * 1000 // ceiling for a hostile or corrupt Retry-After
 // The absolute ceiling on a failure cache. The claude query is also the evidence the limit verdict runs
@@ -27,7 +31,17 @@ interface CacheEntry {
   result: RateLimitUsage
   retryAtMs: number // before this time the cache is returned and no request is made
   storedAt: number // when this value was actually fetched — the basis for the caller's maxAgeMs test
+  backOff: boolean // the TTL came from a 429 (retryAfterMs), not from the status
 }
+
+/** What a store listener hears about one fetched answer, beyond the answer itself. */
+export interface UsageStoredInfo {
+  /** The endpoint refused the credential itself (401/403) while it was not known to be past its expiry:
+   *  the login failed, not the request. */
+  refused: boolean
+}
+
+export type UsageStoredListener = (configDir: string, result: RateLimitUsage, info: UsageStoredInfo) => void
 
 /** When the entry was fetched — a missing entry counts as -Infinity so it always reads as stale */
 const cachedStoredAt = (e: CacheEntry | undefined): number => (e ? e.storedAt : -Infinity)
@@ -58,6 +72,8 @@ export const ERROR_USAGE = (status: RateLimitUsage['status']): RateLimitUsage =>
 export interface UsageAttempt {
   result: RateLimitUsage
   retryAfterMs?: number
+  /** See UsageStoredInfo.refused. Set by the fetcher, the only side that sees the HTTP status. */
+  refused?: boolean
 }
 
 /**
@@ -68,6 +84,7 @@ export interface UsageAttempt {
 export class UsageCache {
   private cache = new Map<string, CacheEntry>() // key = configDir
   private inflight = new Map<string, Promise<RateLimitUsage>>()
+  private listeners = new Set<UsageStoredListener>()
 
   constructor(private now: () => number = () => Date.now()) {}
 
@@ -94,27 +111,42 @@ export class UsageCache {
   }
 
   /** W7-F (#77): the next ask fetches again, for a folder whose login changed. */
-  forget(configDir: string): void {
+  forget(configDir: string, opts?: { keepBackOff?: boolean }): void {
+    // T3: with `keepBackOff`, a live 429 back-off survives. A login change is a reason to ask again, not a
+    // reason to ask an endpoint that told us to wait.
+    const entry = this.cache.get(configDir)
+    if (opts?.keepBackOff && entry?.backOff && this.now() < entry.retryAtMs) return
     this.cache.delete(configDir)
+  }
+
+  /** T3: hears every answer this cache stores (an actual request, never a cache hit), whoever asked for
+   *  it, so the account panel can push a reading the limit gate or the usage guard fetched instead of
+   *  waiting for its own tick. Returns the unsubscribe. A throwing listener is isolated. */
+  onStored(listener: UsageStoredListener): () => void {
+    this.listeners.add(listener)
+    return () => void this.listeners.delete(listener)
   }
 
   private async fetchAndCache(
     configDir: string,
     attempt: (configDir: string) => Promise<UsageAttempt>
   ): Promise<RateLimitUsage> {
-    const { result, retryAfterMs } = await attempt(configDir)
+    const { result, retryAfterMs, refused } = await attempt(configDir)
     const now = this.now()
     const ttl =
       retryAfterMs ??
-      (result.status === 'ok'
-        ? TTL_OK_MS
-        : result.status === 'unavailable'
-          ? TTL_OK_MS // missing credentials rarely change — no reason to retry quickly
-          : TTL_ERR_MS)
+      (result.status === 'ok' ? TTL_OK_MS : result.status === 'unavailable' ? TTL_UNAVAILABLE_MS : TTL_ERR_MS)
     // The failure cache is cut at MAX_ERROR_TTL_MS — a Retry-After naming a day cannot switch the gate
     // off for a day.
     const capped = result.status === 'ok' ? ttl : Math.min(ttl, MAX_ERROR_TTL_MS)
-    this.cache.set(configDir, { result, retryAtMs: now + capped, storedAt: now })
+    this.cache.set(configDir, { result, retryAtMs: now + capped, storedAt: now, backOff: retryAfterMs !== undefined })
+    for (const l of this.listeners) {
+      try {
+        l(configDir, result, { refused: refused === true })
+      } catch {
+        /* one listener's throw must not fail the fetch every other caller is waiting on */
+      }
+    }
     return result
   }
 }

@@ -140,7 +140,7 @@ export function StartPage({
   // T5b: the planner's account. Auto sends none, so the Host picks the one with most room by usage; a picked account
   // is only a preference
   const signedInKey = `start:signedIn:${door.projectKey}:${accounts.map((a) => a.id).join(',')}`
-  const signedInRead = useCachedRead(signedInKey, async () => [...(await door.signedInIds(accounts))], { invalidateOn: ['accounts:changed'] })
+  const signedInRead = useCachedRead(signedInKey, async () => [...(await door.signedInIds(accounts))], { invalidateOn: ['accounts:changed', 'accounts:status-changed'] }) // T3: a login change too
   // Login status changes without the id list changing: a form opened with an answer in the cache asks again once.
   const hadSignedIn = useRef(signedInRead.data !== undefined)
   useEffect(() => {

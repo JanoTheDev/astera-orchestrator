@@ -19,6 +19,14 @@ async function exists(p: string): Promise<boolean> {
   }
 }
 
+/** T3: the file each provider's CLI writes its login into, relative to the account's configDir. The
+ *  account center stats it (never reads it) to notice a login made outside the app. claude on darwin
+ *  may keep its credential in the Keychain instead, which no stat sees; window focus covers that case. */
+export const CREDENTIALS_FILE: Record<'claude' | 'codex', string> = {
+  claude: '.credentials.json',
+  codex: 'auth.json'
+}
+
 /** Decides by the presence of a marker file inside configDir (codex, and claude on win32). */
 export function fileMarkerProbe(marker: string): LoginProbe {
   return (configDir) => exists(path.join(configDir, marker))

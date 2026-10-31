@@ -36,13 +36,14 @@ describe('followAccountUsage', () => {
 
 describe('createUsageStore', () => {
   const make = () => {
-    const calls = { subscribe: 0, unsubscribe: 0, ask: 0 }
+    const calls = { subscribe: 0, unsubscribe: 0, ask: 0, refresh: 0 }
     let push: (m: Record<string, unknown>) => void = () => {}
     const store = createUsageStore({
       ask: () => (calls.ask++, Promise.resolve({})),
       on: (cb) => ((push = cb as never), () => {}),
       subscribe: () => void calls.subscribe++,
-      unsubscribe: () => void calls.unsubscribe++
+      unsubscribe: () => void calls.unsubscribe++,
+      refresh: () => void calls.refresh++
     })
     return { store, calls, push: (m: Record<string, unknown>) => push(m) }
   }
@@ -51,7 +52,7 @@ describe('createUsageStore', () => {
     const { store, calls } = make()
     const a = store.subscribe(() => {})
     const b = store.subscribe(() => {})
-    expect(calls).toEqual({ subscribe: 1, unsubscribe: 0, ask: 1 })
+    expect(calls).toEqual({ subscribe: 1, unsubscribe: 0, ask: 1, refresh: 1 })
     a()
     expect(calls.unsubscribe).toBe(0)
     b()
@@ -67,5 +68,42 @@ describe('createUsageStore', () => {
     const late = store.subscribe(() => {})
     expect(store.get()).toEqual({ a: 'new' })
     late()
+  })
+})
+
+// T3 (account center sync): the status bar keeps the store subscribed for the app's life, so a popover opening
+// later never caused main's mount fetch. It now asks for one.
+describe('createUsageStore refresh (T3)', () => {
+  const make = () => {
+    const calls = { subscribe: 0, refresh: 0 }
+    const store = createUsageStore({
+      ask: () => Promise.resolve({}),
+      on: () => () => {},
+      subscribe: () => void calls.subscribe++,
+      unsubscribe: () => {},
+      refresh: () => void calls.refresh++
+    })
+    return { store, calls }
+  }
+
+  it('an explicit refresh asks main for a fresh tick even when the store is already subscribed', () => {
+    const { store, calls } = make()
+    store.subscribe(() => {}) // the status bar, for the app's life
+    store.refresh()
+    expect(calls).toEqual({ subscribe: 1, refresh: 1 })
+  })
+
+  it('a listener joining an already-subscribed store asks for a refresh; the first does not, its subscribe already fetches', () => {
+    const { store, calls } = make()
+    store.subscribe(() => {})
+    expect(calls.refresh).toBe(0)
+    store.subscribe(() => {}) // the popover opening
+    expect(calls.refresh).toBe(1)
+  })
+
+  it('refresh with nothing subscribed still asks: main answers with a pushed map either way', () => {
+    const { store, calls } = make()
+    store.refresh()
+    expect(calls.refresh).toBe(1)
   })
 })

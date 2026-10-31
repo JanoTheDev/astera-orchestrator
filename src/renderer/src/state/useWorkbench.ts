@@ -53,6 +53,7 @@ import { openInbox } from '../components/shell/navigation'
 import { setHelpOpen } from '../components/help/helpStore'
 import { chainOf, restartOptionsOf, type RestartHow } from './restartOptions'
 import { closeSessionTab, dropClosed, isAgentSession, ownConsolePref, recentlyClosed, recordClosed, reopenClosed, reopenWayOf, setOwnConsolePref, setReopenHandler, type ClosedTab, type CloseHow } from '../lib/recentlyClosed'
+import { followAccountsList } from '../hooks/useAccountStatus' // T3
 
 export type WorkbenchDeps = Pick<ReturnType<typeof useWorkbenchState>,
     'activeFileIdRef' | 'cliRef' | 'closableTabIdRef' | 'closeWorkbenchTabRef' | 'defaultMdMode' | 'dropReveal' |
@@ -136,7 +137,12 @@ export function useWorkbench(deps: WorkbenchDeps) {
   // 하나로 합쳐졌고, 그것이 유일한 호출자였다. 세션이 없는 상태에서 새로 만드는 경로는 place()가 맡는다.
 
   useEffect(() => {
-    void window.api.accounts.list().then(setAccounts)
+    // T3: subscribed before the first read, and that read dropped when a push beat it (followAccountsList)
+    const offAccounts = followAccountsList({
+      ask: () => window.api.accounts.list(),
+      on: (cb) => window.api.on('accounts:changed', (p) => cb(p.accounts)),
+      set: setAccounts
+    })
     void window.api.accounts.ghosts().then(setGhostAccounts)
     void window.api.system.checkCli().then(setCli)
     void window.api.system.checkCliInstalled().then(setCliInstalled)
@@ -200,7 +206,6 @@ export function useWorkbench(deps: WorkbenchDeps) {
       setLayout(withMirrors)
       setActivePaneId(act.paneId)
     })
-    const offAccounts = window.api.on('accounts:changed', (p) => setAccounts(p.accounts))
     const offGhosts = window.api.on('accounts:ghostsChanged', (p) => setGhostAccounts(p.accounts))
     // Clicking a desktop notification raises the window in main and lands here to activate that
     // session's tab, through the same path a click on the tab bar takes. A session with no tab (one

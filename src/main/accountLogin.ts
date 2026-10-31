@@ -37,6 +37,10 @@ export function accountLoginHandlers(deps: {
   run: (account: Account) => LoginProc
   loggedIn: (id: string) => Promise<boolean>
   timeoutMs?: number
+  /** T3: the CLI has exited (signed in, failed, cancelled or timed out) and the login check has answered.
+   *  The account center's change signal (main/accountSync.ts `changed`): whatever the CLI did to the
+   *  credentials, the row and its usage are asked again. Called before `login` resolves; a throw is ignored. */
+  onFinished?: (id: string) => void | Promise<void>
 }) {
   let active: { id: string; url: string | null; asksCode: boolean; proc: LoginProc; why: 'cancel' | 'timeout' | null } | null = null
   return {
@@ -62,6 +66,13 @@ export function accountLoginHandlers(deps: {
         me.why ??= 'timeout'
         proc.kill()
       }, deps.timeoutMs ?? ACCOUNT_LOGIN_TIMEOUT_MS)
+      const finished = (): void => {
+        try {
+          void Promise.resolve(deps.onFinished?.(account.id)).catch(() => {})
+        } catch {
+          /* the sign-in's answer does not depend on the account center hearing about it */
+        }
+      }
       try {
         const code = await proc.exited
         if (me.why === 'cancel') return { ok: false, reason: 'cancelled' }
@@ -73,6 +84,7 @@ export function accountLoginHandlers(deps: {
       } finally {
         clearTimeout(timer)
         if (active === me) active = null
+        finished()
       }
     },
     loginState(): AccountLoginState | null {
@@ -125,11 +137,18 @@ export function spawnAccountLogin(d: ProviderDescriptor, homeDir: string, config
 
 export function registerAccountLoginIpc(
   ipcMain: IpcMain,
-  deps: { account: (id: string) => Account; descriptors: Record<Provider, ProviderDescriptor>; homeDir: string; loggedIn: (id: string) => Promise<boolean> }
+  deps: {
+    account: (id: string) => Account
+    descriptors: Record<Provider, ProviderDescriptor>
+    homeDir: string
+    loggedIn: (id: string) => Promise<boolean>
+    onFinished?: (id: string) => void | Promise<void>
+  }
 ): void {
   const h = accountLoginHandlers({
     account: deps.account,
     loggedIn: deps.loggedIn,
+    onFinished: deps.onFinished,
     run: (a) => spawnAccountLogin(descriptorOf(deps.descriptors, a), deps.homeDir, a.configDir)
   })
   ipcMain.handle('accounts.login', (_e, id) => h.login(id))

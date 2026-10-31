@@ -16,7 +16,7 @@ import { Button, Card, Checkbox, ConfirmDialog, EmptyState, ICONS, Icon, Modal }
  *  the sidebar. The sidebar (AccountPanel) is left with only listing and adding accounts. */
 export function AccountSettings({ accounts }: { accounts: Account[] }): React.JSX.Element {
   const { t, tm } = useI18n()
-  const { loginMap, emailMap, defaultIdByProvider } = useAccountStatus(accounts)
+  const { loginMap, loginStates, emailMap, defaultIdByProvider } = useAccountStatus(accounts)
   const usage = useAccountUsage()
   // Which row has its usage detail open — the same one-at-a-time rule as the sidebar panel.
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -86,7 +86,7 @@ export function AccountSettings({ accounts }: { accounts: Account[] }): React.JS
             isDefault={defaultId === a.id}
             usage={usage[a.configDir]}
             note={dup ? t('account.merge.sameLogin', { label: dup.keep.label }) : undefined}
-            actions={accountActions({ loggedIn: loginMap[a.id], switchBlock: switchBlock(a), mergeable: Boolean(dup) })}
+            actions={accountActions({ loggedIn: loginStates[a.id], switchBlock: switchBlock(a), mergeable: Boolean(dup) })}
             onAction={(id) => act(a, id)}
             paused={paused.has(a.id)}
             expanded={expandedId === a.id}

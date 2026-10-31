@@ -78,6 +78,9 @@ export interface Core {
   // No isDefaultAccountDir here any more. Which account is the default is derived per provider from the
   // account list plus login state, and the renderer computes it itself (core/accounts/defaultAccount.ts is
   // pure and node-free), so nothing has to be decorated onto each account at serialisation time.
+  /** T3 (account center sync): an account's login changed under it (accountEmail noticed another email).
+   *  ipc.ts sets it to main/accountSync.ts changed; nothing is wired here, as with accounts.onChanged. */
+  onLoginChanged?: (id: string) => void
   accountSyncSettings: (id: string) => Promise<{ ok: boolean; message?: Message }> // Import the provider's default account settings
   usageSession: (sessionId: string) => Promise<SessionUsage | null>
   /** The one account-usage fetcher. Shared rather than per-caller, and that sharing is the point: the
@@ -380,6 +383,8 @@ export async function createCore(userDataDir: string, osLocale: string): Promise
       usageFetcher.forget(account.configDir)
       codexUsageFetcher.forget(account.configDir)
       await accountUsage.forget(account.configDir)
+      // T3: the row and its usage are asked again (main/accountSync.ts changed), not left to the next tick
+      core.onLoginChanged?.(id)
     }
     return email
   }
@@ -451,7 +456,7 @@ export async function createCore(userDataDir: string, osLocale: string): Promise
       )
     )
   )
-  return {
+  const core: Core = {
     accounts,
     sessions,
     chat,
@@ -489,4 +494,5 @@ export async function createCore(userDataDir: string, osLocale: string): Promise
     procRouter,
     bypassSignalFor: (cli: Provider) => bypassSignalCache[cli] ?? null
   }
+  return core
 }

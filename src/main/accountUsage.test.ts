@@ -4,8 +4,8 @@ import os from 'node:os'
 import path from 'node:path'
 import type { Account, AccountUsage, RateLimitUsage } from '../core/types'
 import { AccountUsageStore, type RememberedUsage } from './accountUsageStore'
-import { createAccountUsage } from './accountUsage'
-import { TTL_OK_MS } from '../core/usage/usageCache'
+import { createAccountUsage, TICK_MS, REFRESH_MIN_GAP_MS } from './accountUsage'
+import { ERROR_USAGE, TTL_OK_MS, UsageCache, type UsageAttempt } from '../core/usage/usageCache'
 
 const HOUR = 3_600_000
 const NOW = Date.parse('2026-09-02T12:00:00.000Z')
@@ -229,7 +229,7 @@ describe('createAccountUsage', () => {
     await vi.advanceTimersByTimeAsync(0)
     expect(calls).toHaveLength(1) // the mount fetch
 
-    await vi.advanceTimersByTimeAsync(TTL_OK_MS)
+    await vi.advanceTimersByTimeAsync(TICK_MS)
     expect(calls).toHaveLength(2)
 
     svc.unsubscribe()
@@ -246,13 +246,20 @@ describe('createAccountUsage', () => {
     const afterMounts = calls.length
 
     svc.unsubscribe()
-    await vi.advanceTimersByTimeAsync(TTL_OK_MS)
+    await vi.advanceTimersByTimeAsync(TICK_MS)
     expect(calls.length).toBeGreaterThan(afterMounts)
 
     svc.unsubscribe()
     const afterStop = calls.length
     await vi.advanceTimersByTimeAsync(TTL_OK_MS * 2)
     expect(calls).toHaveLength(afterStop)
+  })
+
+  // T3: the tick at exactly the cache TTL could land a hair early and be served the old entry, doubling the
+  // real gap; it runs a little above it.
+  it('the tick runs a little above the fetcher success TTL', () => {
+    expect(TICK_MS).toBeGreaterThan(TTL_OK_MS)
+    expect(TICK_MS).toBeLessThan(TTL_OK_MS * 2)
   })
 
   it('stop clears the tick however many subscribers were counted', async () => {
@@ -266,5 +273,108 @@ describe('createAccountUsage', () => {
     svc.stop()
     await vi.advanceTimersByTimeAsync(TTL_OK_MS * 3)
     expect(calls).toHaveLength(mounted)
+  })
+})
+
+/** T3: a fetcher over the real shared cache (UsageCache), with each configDir's answers scripted in order.
+ *  What these tests are about is the cache's listener and forget, so the double keeps them real. */
+function cachedFetcher(script: Record<string, UsageAttempt[]>, now: () => number = () => NOW) {
+  const cache = new UsageCache(now)
+  const asked: Array<[string, number | undefined]> = []
+  const seen: Record<string, number> = {}
+  const attempt = async (dir: string): Promise<UsageAttempt> => {
+    const list = script[dir] ?? [{ result: failed }]
+    const i = Math.min(seen[dir] ?? 0, list.length - 1)
+    seen[dir] = (seen[dir] ?? 0) + 1
+    return list[i]
+  }
+  return {
+    asked,
+    fetches: (dir: string) => seen[dir] ?? 0,
+    get(configDir: string, maxAgeMs?: number) {
+      asked.push([configDir, maxAgeMs])
+      return cache.get(configDir, maxAgeMs, attempt)
+    },
+    forget: (configDir: string, opts?: { keepBackOff?: boolean }) => cache.forget(configDir, opts),
+    onStored: cache.onStored.bind(cache)
+  }
+}
+
+describe('createAccountUsage, kept in step with the shared cache (T3)', () => {
+  const setup = (script: Record<string, UsageAttempt[]>, opts?: { now?: () => number }) => {
+    const sent: Record<string, AccountUsage>[] = []
+    const answers: Array<[string, string, boolean]> = []
+    const fetcher = cachedFetcher(script, opts?.now)
+    const codexFetcher = cachedFetcher({}, opts?.now)
+    const svc = createAccountUsage({
+      accounts: { list: () => [account('main', '/cfg/main'), account('spare', '/cfg/spare')] },
+      fetcher,
+      codexFetcher,
+      store: fakeStore(),
+      send: (_c, payload) => sent.push(payload),
+      onAnswer: (dir, a) => answers.push([dir, a.status, a.refused]),
+      now: opts?.now
+    })
+    return { svc, sent, answers, fetcher }
+  }
+
+  it('pushes a reading someone else fetched through the shared cache, without waiting for its own tick', async () => {
+    const { sent, fetcher } = setup({ '/cfg/main': [{ result: ok(91) }] })
+    await fetcher.get('/cfg/main', 10_000) // the limit gate asking, not the panel
+    await vi.waitFor(() => expect(sent).toHaveLength(1))
+    expect(sent[0]['/cfg/main']).toMatchObject({ session: { usedPercent: 91 }, remembered: false })
+  })
+
+  it('its own tick pushes once, not once per answer plus once at the end', async () => {
+    const { svc, sent } = setup({ '/cfg/main': [{ result: ok(20) }], '/cfg/spare': [{ result: ok(30) }] })
+    await svc.tick()
+    await new Promise((r) => setTimeout(r, 0))
+    expect(sent).toHaveLength(1)
+    expect(Object.keys(sent[0]).sort()).toEqual(['/cfg/main', '/cfg/spare'])
+  })
+
+  it('a reading for a folder no account uses is ignored', async () => {
+    const { sent, fetcher } = setup({ '/cfg/other': [{ result: ok(5) }] })
+    await fetcher.get('/cfg/other')
+    await new Promise((r) => setTimeout(r, 0))
+    expect(sent).toEqual([])
+  })
+
+  it('reports each answer with its refusal flag to onAnswer', async () => {
+    const { answers, fetcher } = setup({ '/cfg/main': [{ result: ERROR_USAGE('error'), refused: true }] })
+    await fetcher.get('/cfg/main')
+    expect(answers).toEqual([['/cfg/main', 'error', true]])
+  })
+
+  // The sign-in case: a cached "no credentials" would hide the new login for the cache's whole hold.
+  it('refetch asks again past a cached missing-credentials answer and pushes the new reading', async () => {
+    const { svc, sent, fetcher } = setup({ '/cfg/main': [{ result: ERROR_USAGE('unavailable') }, { result: ok(12) }] })
+    await svc.tick()
+    expect(svc.usage()['/cfg/main']).toBeUndefined()
+    await svc.refetch('/cfg/main')
+    expect(fetcher.fetches('/cfg/main')).toBe(2)
+    expect(sent.at(-1)?.['/cfg/main']).toMatchObject({ session: { usedPercent: 12 }, remembered: false })
+  })
+
+  it('refetch leaves a 429 back-off alone', async () => {
+    const { svc, fetcher } = setup({ '/cfg/main': [{ result: ERROR_USAGE('error'), retryAfterMs: 600_000 }, { result: ok(12) }] })
+    await svc.tick()
+    await svc.refetch('/cfg/main')
+    expect(fetcher.fetches('/cfg/main')).toBe(1)
+  })
+
+  // The popover-open refresh: fresher than the tick's cache, and at most once per REFRESH_MIN_GAP_MS per account.
+  it('refresh reads through a short max age, and only once per gap', async () => {
+    let now = NOW
+    const { svc, fetcher, sent } = setup({ '/cfg/main': [{ result: ok(1) }] }, { now: () => now })
+    await svc.refresh()
+    expect(fetcher.asked.map(([, age]) => age)).toEqual([expect.any(Number), expect.any(Number)])
+    expect(fetcher.asked[0][1]!).toBeLessThan(TTL_OK_MS)
+    expect(sent.length).toBeGreaterThan(0)
+    await svc.refresh()
+    expect(fetcher.asked).toHaveLength(2) // inside the gap: nothing asked
+    now += REFRESH_MIN_GAP_MS
+    await svc.refresh()
+    expect(fetcher.asked).toHaveLength(4)
   })
 })
