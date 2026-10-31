@@ -312,6 +312,30 @@ describe('hands-off plans decide for the owner (#117)', () => {
     expect(handsOffStepsDue(s, [esc], T0)).toEqual([])
   })
 
+  // T8: git's output in a merge Gate's text says "main", "overwritten", "remove": its kind makes it judged by its options
+  const mergeGate = q(
+    "tsk_x's branch (C:\\wt\\x) could not be merged into the plan branch (C:\\p): error: Your local changes to the following files would be overwritten by merge:\n\tmain/app.ts\nPlease commit or remove them before you merge into main.",
+    { kind: 'merge-failed', options: ['retry'] }
+  )
+
+  it('T8: a merge Gate is answered retry, never refused for the git output in its text, then handed to the coordinator', () => {
+    expect(handsOffStepsDue(s, [mergeGate], T0)).toEqual([
+      {
+        kind: 'answer',
+        answer: { id: 'gat_1', answer: 'retry', why: 'safe default' },
+        decision: expect.objectContaining({ kind: 'gate', taskId: 'tsk_x', choice: 'retry', why: 'the merge into the plan branch failed for a git reason: one more try' })
+      }
+    ])
+    // Without the kind the same text is a guardrail case
+    expect(handsOffStepsDue(s, [{ ...mergeGate, kind: undefined, options: undefined }], T0)).toEqual([expect.objectContaining({ decision: expect.objectContaining({ kind: 'refused' }) })])
+    const retried: OrchState = { ...s, gates: [{ id: 'gat_0', runId: 'run_1', taskId: 'tsk_x', question: 'q', status: 'resolved', resolution: 'retry', createdAt: NOW }] }
+    expect(handsOffStepsDue(retried, [mergeGate], T0)).toEqual([{ kind: 'coordinator', question: mergeGate }])
+  })
+
+  it('T8: outside hands-off a merge Gate stays the owner\'s, though it offers retry', () => {
+    expect(autoAnswersDue(s, [mergeGate], T0)).toEqual([])
+  })
+
   it('an escalation with no safe answer waits out the grace, then goes to the coordinator', () => {
     const esc = q('Which colour should the button be?', { id: 'msg_1', source: 'escalation' })
     expect(handsOffStepsDue(s, [esc], T0)).toEqual([])

@@ -81,6 +81,7 @@ import { autoAnswerLine, autoAnswersDue, coordinatorDecideBody, ESCALATION_DEFAU
 import { STALL_WATCH_MS, stallPauseProbe, stallRemedies, startNotice, watchdogActivity, type StallEntry, type StallRemedy } from './stallWatch'
 import type { ActivityDraft } from '../activity'
 import { DETACHED_GRACE_MS, isDetachedHeadError } from '../../worktrees/base'
+import { MERGE_FAILED_GATE, MERGE_FAILED_OPTIONS, MERGE_RETRY_BACKOFF_MS, mergeRetryChoice, mergeRetryOf, transientCauseOf, transientWhy, type TransientCause } from './transientGit'
 
 /** W6-D: a replan whose start left no session after this long died with its process, and is ended. */
 export const REPLAN_START_WINDOW_MS = 5 * 60_000
@@ -256,6 +257,9 @@ export interface DispatchLoopContext {
   /** #117: appends one call a hands-off plan made in the owner's place to its Job (state.ts addDecision), which the
    *  feed's plan.decided / plan.refused line is derived from. Optional: without it the decision is a log line only. */
   recordDecision?(jobId: string, d: Decision): Promise<void>
+  /** T8: whether the machine is strained now (the Host's health snapshot, autoLimits.ts). A transiently failed merge waits
+   *  while it is, instead of being retried. Optional: without it the retry runs when due. */
+  strained?(): boolean | Promise<boolean>
   /** A feed line no commit makes (the watchdog's), recorded by the Host's activity log. Optional: without it a log line. */
   activity?(d: ActivityDraft): void
   /** T32: what a plan's folder is set up for (exec/deliverySetup.ts). Optional: without it every plan delivers as saved. */
@@ -358,7 +362,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       log(`scheduler: blocking task=${taskId} failed — ${String(e)}`)
     }
   }
-  const gateSlot = async (taskId: string, reason: string): Promise<void> => {
+  const gateSlot = async (taskId: string, reason: string, opts?: { kind: typeof MERGE_FAILED_GATE; options: string[] }): Promise<void> => {
     // Gate 와 별개로 로그를 남긴다 — Gate 는 사용자가 읽는 것이고, 이 줄은 왜 그 Gate 가 열렸는지
     // 나중에 되짚을 때 읽는 것이다.
     log(`scheduler: cannot start task=${taskId} — ${reason}`)
@@ -376,7 +380,8 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     try {
       const gated = await c.handle('gate-create', {
         task: taskId,
-        question: reason
+        question: reason,
+        ...(opts ? { kind: opts.kind, options: opts.options } : {})
       })
       // Gate 마저 거절되는 경우가 있다: gate-create 는 열린 Dispatch 가 있는 Task 를 거절하고
       // (state.ts), dispatched 에서 blocked 로 가는 전이도 없다(types.ts 의 ALLOWED). 그 상태로
@@ -2379,6 +2384,9 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
    *  it, or, for a merging Task git cannot merge at all, the owner's Gate (it never completes without its merge). The
    *  integration's answer, or what stopped it. Never throws. */
   const mergeIntoPlan = async (w: { runId: string; taskId: string; runRoot: string; worktree: string }): Promise<Integration> => {
+    // T8: a hands-off plan's merge that failed for a passing reason waits out its backoff, and a strained machine
+    const waiting = await mergeRetryWait(w)
+    if (waiting) return waiting
     let result: Integration
     try {
       // T3: kept while a Task not finished will continue in it; that Task's own merge reaps it
@@ -2390,9 +2398,11 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     // the merge worker takes it, as a conflict, so the work reaches the plan branch instead of being lost
     const left = result.kind === 'merged' ? [...(result.dirty ?? []), ...(result.unchecked ?? [])] : []
     if (result.kind === 'merged' && left.length === 0) {
+      mergeRetries.delete(w.taskId)
       await recordMerge(w)
       return result
     }
+    const cause = transientCauseOf(result)
     if (result.kind === 'merged')
       result = {
         kind: 'agent',
@@ -2400,10 +2410,15 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
         worktrees: [{ path: w.worktree, branch: null }]
       }
     log(`run=${w.runId}: task=${w.taskId} did not merge into ${w.runRoot}: ${result.reason}`)
+    if (cause !== null && (await retryMergeLater(w, result, cause))) return result
     // T1: a hands-off plan gives a git problem the merge worker can mend to it (uncommitted changes, a merge left half done)
     const mendable = result.kind === 'human' && result.message !== undefined && MENDABLE_INTEGRATION.has(result.message.key) && handsOffJobOf(c.getState(), w.runId) !== undefined
     if (result.kind === 'human' && !mendable && c.getState().tasks.find((t) => t.id === w.taskId)?.status === 'merging') {
-      await gateSlot(w.taskId, `${w.taskId}'s branch (${w.worktree}) could not be merged into the plan branch (${w.runRoot}): ${result.reason}`)
+      // T8: a kind and options, so a hands-off plan judges those, not git's output in its text (autoAnswer.ts)
+      await gateSlot(w.taskId, `${w.taskId}'s branch (${w.worktree}) could not be merged into the plan branch (${w.runRoot}): ${result.reason}`, {
+        kind: MERGE_FAILED_GATE,
+        options: [...MERGE_FAILED_OPTIONS]
+      })
       return result
     }
     try {
@@ -2417,6 +2432,57 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       log(`run=${w.runId}: the merge worker for task=${w.taskId} failed to start: ${String(e)}`)
     }
     return result
+  }
+
+  /** T8: the transient merge retries scheduled per Task in this process: how many, and when the next try is due. After a
+   *  Host restart they are read back from the Job's decisions (mergeRetryOf), where each retry is recorded. */
+  const mergeRetries = new Map<string, { tries: number; dueAt: number }>()
+  const mergeRetryState = (taskId: string, runId: string): { tries: number; dueAt: number } | undefined =>
+    mergeRetries.get(taskId) ?? mergeRetryOf(handsOffJobOf(c.getState(), runId)?.decisions, taskId)
+  const strainedNow = async (): Promise<boolean> => {
+    try {
+      return (await c.strained?.()) === true
+    } catch {
+      return false
+    }
+  }
+
+  /** T8: why a hands-off plan's merge is not tried now (its backoff runs, or the machine is strained), as the answer
+   *  mergeIntoPlan gives; undefined: try it. Never throws. */
+  const mergeRetryWait = async (w: { runId: string; taskId: string }): Promise<Integration | undefined> => {
+    if (handsOffJobOf(c.getState(), w.runId) === undefined) return undefined
+    const due = mergeRetryState(w.taskId, w.runId)
+    if (due === undefined) return undefined
+    if (c.nowMs() < due.dueAt) return { kind: 'human', reason: `the merge of ${w.taskId} is retried at ${new Date(due.dueAt).toISOString()}` }
+    if (await strainedNow()) {
+      log(`run=${w.runId}: the merge retry of task=${w.taskId} waits: the machine is strained`)
+      return { kind: 'human', reason: `the merge of ${w.taskId} waits for the machine to be less strained` }
+    }
+    return undefined
+  }
+
+  /** T8: a hands-off plan's merge that failed for a passing reason is tried again after the next wait of
+   *  MERGE_RETRY_BACKOFF_MS, recorded as a decision; the Task stays as it is. False when it is not retried (not a
+   *  hands-off plan, or its retries are spent): today's path, a merge worker or a Gate, takes it. Never throws. */
+  const retryMergeLater = async (w: { runId: string; taskId: string }, result: Exclude<Integration, { kind: 'merged' }>, cause: TransientCause): Promise<boolean> => {
+    const job = handsOffJobOf(c.getState(), w.runId)
+    if (job === undefined) return false
+    const tries = mergeRetryState(w.taskId, w.runId)?.tries ?? 0
+    if (tries >= MERGE_RETRY_BACKOFF_MS.length) {
+      log(`run=${w.runId}: task=${w.taskId}'s merge failed ${tries + 1} times for a passing reason; no more retries`)
+      return false
+    }
+    const next = { tries: tries + 1, dueAt: c.nowMs() + MERGE_RETRY_BACKOFF_MS[tries] }
+    mergeRetries.set(w.taskId, next)
+    const title = c.getState().tasks.find((t) => t.id === w.taskId)?.title ?? w.taskId
+    await decide(job.id, {
+      kind: 'gate',
+      taskId: w.taskId,
+      question: `The merge of ${title} into the plan branch failed: ${result.reason.split('\n')[0].slice(0, 240)}`,
+      choice: mergeRetryChoice(next.tries),
+      why: `${transientWhy(cause)}, which passes`
+    })
+    return true
   }
 
   // DispatchLoop.startMergeWorker. The merge Task is told to the coordinator as it starts and as it fails; it is a

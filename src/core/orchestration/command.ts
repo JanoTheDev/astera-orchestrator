@@ -6089,7 +6089,9 @@ export async function handleCommand(
           {
             taskId,
             question,
-            options: Array.isArray(args.options) ? (args.options as string[]) : undefined
+            options: Array.isArray(args.options) ? (args.options as string[]) : undefined,
+            // T8: the one kind a caller may name, the app's merge Gate (dispatchLoop.ts mergeIntoPlan)
+            ...(args.kind === 'merge-failed' ? { kind: 'merge-failed' as const } : {})
           },
           now
         )

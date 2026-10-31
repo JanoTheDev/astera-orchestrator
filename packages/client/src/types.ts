@@ -8,7 +8,7 @@ export type TaskStatus = 'pending' | 'ready' | 'dispatched' | 'validating' | 're
 export type Outcome = 'succeeded' | 'failed'
 export type MessageType = 'status' | 'worker_done' | 'question' | 'escalation' | 'heartbeat' | 'decision_gate'
 export type RepairReason = 'check-failure' | 'review-failure'
-export type GateKind = 'convergence-exhausted' | 'convergence-blocked' | 'check-unavailable' | 'review-needs-decision' | 'review-ended'
+export type GateKind = 'convergence-exhausted' | 'convergence-blocked' | 'check-unavailable' | 'review-needs-decision' | 'review-ended' | 'merge-failed'
 export type ReviewSeverity = 'critical' | 'high' | 'medium' | 'low' | 'info'
 /** What fixing a review issue needs; absent means `code`. */
 export type ReviewNeeds = 'code' | 'environment' | 'scope' | 'permission' | 'person'

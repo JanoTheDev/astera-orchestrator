@@ -14,8 +14,8 @@ The next release must be 0.5.0 or later: a `client-v0.4.0` tag already exists.
   documented. What stays is `AsteraError`, `isAsteraError`, `EXIT_CODES`, `bodyCodeOf` and the `AsteraErrorCode` type;
   `EXIT_CODES[code]` replaces `exitCodeFor(code)`.
 - New members of closed unions break an exhaustive `switch`: `TaskStatus` `'merging'`, `JobOutcome` and `RunOutcome`
-  `'checking'` and `'blocked'`, `GateKind` `'review-needs-decision'` and `'review-ended'` (a review that ended without a
-  report; answered `review-again` or `accept-as-done`). A `waits` result can now end in state `'blocked'`.
+  `'checking'` and `'blocked'`, `GateKind` `'review-needs-decision'`, `'review-ended'` (a review that ended without a
+  report; answered `review-again` or `accept-as-done`) and `'merge-failed'`. A `waits` result can now end in state `'blocked'`.
 
 ### Fixed
 
