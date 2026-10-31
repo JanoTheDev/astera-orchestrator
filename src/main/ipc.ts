@@ -318,6 +318,8 @@ import { createGithubPrs } from './githubPrs'
 import { registerHiggsfieldIpc } from './higgsfield'
 import { registerAccountLoginIpc } from './accountLogin'
 import { createAccountUsage } from './accountUsage'
+import { createAccountSync, type AccountSync } from './accountSync' // T3
+import { CREDENTIALS_FILE } from '../core/accounts/loginStatus' // T3
 // W6-G usage guards
 import { createUsageGuard, startPauseOf } from '../core/orchestration/usageGuard'
 import { readAccountReadings, withFetchedReadings } from '../core/usage/accountReadings'
@@ -2145,9 +2147,21 @@ export function registerIpc(
   }
 
   // accounts
+  // T3 (account center sync): the one "login changed" signal (main/accountSync.ts). Built with the usage service
+  // below, which it needs; the handlers here only reach it once that has run, hence the late binding.
+  let accountSync: AccountSync | null = null
+  core.onLoginChanged = (id) => void accountSync?.changed(id)
   ipcMain.handle('accounts.list', () => core.accounts.list())
-  ipcMain.handle('accounts.create', (_e, input) => core.accounts.create(input))
-  ipcMain.handle('accounts.import', (_e, input) => core.accounts.import(input))
+  ipcMain.handle('accounts.create', async (_e, input) => {
+    const created = await core.accounts.create(input)
+    void accountSync?.changed(created.id) // T3
+    return created
+  })
+  ipcMain.handle('accounts.import', async (_e, input) => {
+    const imported = await core.accounts.import(input)
+    void accountSync?.changed(imported.id) // T3
+    return imported
+  })
   // 돌아가는 세션이 쓰는 계정은 지우지 않는다 — 판단은 accountRemovalBlockers(위)에 있고, 여기는
   // 세션 목록을 건네고 결과를 렌더러가 읽을 모양으로 바꾸는 일만 한다. 렌더러에도 같은 검사를 두면
   // 두 곳이 어긋날 수 있으므로 두지 않는다: 여기가 경계다.
@@ -2200,14 +2214,25 @@ export function registerIpc(
   ipcMain.handle('accounts.email', (_e, id) => core.accountEmail(id))
   ipcMain.handle('accounts.plan', (_e, id) => core.accountPlan(id))
   ipcMain.handle('accounts.emailOfDir', (_e, dir, provider) => core.accountEmailOfDir(dir, provider))
-  ipcMain.handle('accounts.logout', (_e, id) => core.accountLogout(id))
+  ipcMain.handle('accounts.logout', async (_e, id) => {
+    const out = await core.accountLogout(id)
+    void accountSync?.changed(id) // T3: the row learns of it from here, not from a faked window focus
+    return out
+  })
+  // T3: login state (with `expired` for a refused credential) and email in one ask, for hooks/useAccountStatus.ts
+  ipcMain.handle('accounts.status', async (_e, id: string) => {
+    if (accountSync) return accountSync.status(id)
+    const [on, email] = await Promise.all([core.accounts.loginStatus(id), core.accountEmail(id)])
+    return { login: on ? 'signedIn' : 'signedOut', email }
+  })
   ipcMain.handle('accounts.syncSettings', (_e, id) => core.accountSyncSettings(id))
   // W7-F (#82): sign an account in from the app (the CLI's own login, its link shown in a dialog).
   registerAccountLoginIpc(ipcMain, {
     account: (id) => core.accounts.get(id),
     descriptors: core.descriptors,
     homeDir: os.homedir(),
-    loggedIn: (id) => core.accounts.loginStatus(id)
+    loggedIn: (id) => core.accounts.loginStatus(id),
+    onFinished: (id) => accountSync?.changed(id) // T3
   })
 
   // sessions (resolving accountId to an Account is a plain lookup)
@@ -4614,12 +4639,31 @@ export function registerIpc(
     fetcher: core.usageFetcher,
     codexFetcher: core.codexUsageFetcher,
     store: core.accountUsage,
-    send
+    send,
+    onAnswer: (configDir, answer) => accountSync?.answer(configDir, answer) // T3
   })
   onNewDocument.push(() => accountUsage.stop())
   ipcMain.handle('usage.accounts', () => accountUsage.usage())
   ipcMain.on('usage.subscribe', () => accountUsage.subscribe())
   ipcMain.on('usage.unsubscribe', () => accountUsage.unsubscribe())
+  // T3: the account popover opened. Rate-limited per account inside (REFRESH_MIN_GAP_MS).
+  ipcMain.on('usage.refresh', () => void accountUsage.refresh().catch(() => {}))
+  // T3: the account center's change signal, and its stat poll of each account's credentials file. For the app's life:
+  // the poll is a stat per account every 30 s, and a change it sees must reach a panel that opens later too.
+  accountSync = createAccountSync({
+    accounts: { list: () => core.accounts.list(), loginStatus: (id) => core.accounts.loginStatus(id) },
+    email: (id) => core.accountEmail(id),
+    usage: accountUsage,
+    send,
+    credentialsMtime: async (a) => {
+      try {
+        return (await fs.stat(path.join(a.configDir, CREDENTIALS_FILE[providerOf(a)]))).mtimeMs
+      } catch {
+        return null
+      }
+    }
+  })
+  accountSync.start()
 
   ipcMain.handle('settings.getGithubPolling', () => core.appSettings.getGithubPolling())
   ipcMain.handle('settings.setGithubPolling', async (_e, enabled: boolean) => {

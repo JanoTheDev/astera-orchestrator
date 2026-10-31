@@ -45,7 +45,7 @@ function ProviderPicker({
 
 export function AccountPanel({ accounts }: { accounts: Account[] }): React.JSX.Element {
   const { t, tm } = useI18n()
-  const { loginMap, emailMap, defaultIdByProvider } = useAccountStatus(accounts)
+  const { loginMap, loginStates, emailMap, defaultIdByProvider } = useAccountStatus(accounts)
   const usage = useAccountUsage()
   // Which row has its usage detail open. One at a time, so the answer belongs to the list
   // rather than to each row. Keyed by account id — configDir can be shared by two accounts.
@@ -224,7 +224,7 @@ export function AccountPanel({ accounts }: { accounts: Account[] }): React.JSX.E
             usage={usage[a.configDir]}
             expanded={expandedId === a.id}
             onToggle={() => setExpandedId((cur) => (cur === a.id ? null : a.id))}
-            actions={accountActions({ loggedIn: loginMap[a.id], switchBlock: switchBlock(a), mergeable: false })}
+            actions={accountActions({ loggedIn: loginStates[a.id], switchBlock: switchBlock(a), mergeable: false })}
             onAction={(id) => act(a, id)}
             paused={paused.has(a.id)}
           >

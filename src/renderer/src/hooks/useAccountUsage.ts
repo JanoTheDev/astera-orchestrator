@@ -10,16 +10,23 @@ import type { AccountUsage } from '../../../core/types'
  * nobody is looking at should not be spending requests. This is the zero-subscriber stop githubPrs
  * already has, for the same reason.
  *
- * There is no `accounts` argument and no refresh: main decides which accounts it can answer for, and
- * pushes the whole map whenever it changes. A failed fetch is silent by design (§9) — the row falls
- * back to its remembered reading, or to nothing.
+ * There is no `accounts` argument: main decides which accounts it can answer for, and pushes the whole
+ * map whenever it changes — on its tick, and (T3) whenever the shared fetcher cache stores a newer reading
+ * for an account, whoever asked for it. A failed fetch is silent by design (§9) — the row falls back to its
+ * remembered reading, or to nothing.
+ *
+ * T3 (account center sync): the status bar holds the store for the app's life, so a panel that opens later
+ * never caused main's mount fetch. A listener joining an already-subscribed store now asks main for a
+ * refresh, and `refreshAccountUsage()` asks explicitly; main rate-limits both per account
+ * (main/accountUsage.ts REFRESH_MIN_GAP_MS).
  */
 /** The hook's reads without React (second pass R2-9): the map main holds, then each pushed map. A first read that
- *  lands after a push is older than it and is dropped, and nothing is set once stopped. Returns the stop. */
-export function followAccountUsage(o: {
-  ask: () => Promise<Record<string, AccountUsage>>
-  on: (cb: (m: Record<string, AccountUsage>) => void) => () => void
-  set: (m: Record<string, AccountUsage>) => void
+ *  lands after a push is older than it and is dropped, and nothing is set once stopped. Returns the stop.
+ *  Generic since T3: the workbench's account list (state/useWorkbench.ts) follows the same rule. */
+export function followAccountUsage<T = Record<string, AccountUsage>>(o: {
+  ask: () => Promise<T>
+  on: (cb: (m: T) => void) => () => void
+  set: (m: T) => void
 }): () => void {
   let alive = true
   let pushed = false
@@ -49,6 +56,8 @@ export function createUsageStore(io: {
   on: (cb: (m: UsageMap) => void) => () => void
   subscribe: () => void
   unsubscribe: () => void
+  /** T3: ask main for fresher figures (usage.refresh); the answer arrives as a push. */
+  refresh: () => void
 }) {
   let map: UsageMap = {}
   let stop: (() => void) | null = null
@@ -67,6 +76,8 @@ export function createUsageStore(io: {
           }
         })
         io.subscribe()
+      } else {
+        io.refresh() // T3: a panel opening while the status bar already holds the store
       }
       return () => {
         listeners.delete(l)
@@ -75,6 +86,10 @@ export function createUsageStore(io: {
         stop = null
         io.unsubscribe()
       }
+    },
+    /** T3: the popover opened (or anything else wants a fresher figure). Asked even while subscribed. */
+    refresh(): void {
+      io.refresh()
     }
   }
 }
@@ -83,8 +98,14 @@ const store = createUsageStore({
   ask: () => window.api.usage.accounts(),
   on: (cb) => window.api.on('usage:accounts-updated', cb),
   subscribe: () => void window.api.usage.subscribe(),
-  unsubscribe: () => void window.api.usage.unsubscribe()
+  unsubscribe: () => void window.api.usage.unsubscribe(),
+  refresh: () => void window.api.usage.refresh()
 })
+
+/** T3: asks main for fresher usage figures for every account (rate-limited there); the map arrives as a push. */
+export function refreshAccountUsage(): void {
+  store.refresh()
+}
 
 export function useAccountUsage(): UsageMap {
   return useSyncExternalStore(store.subscribe, store.get, store.get)

@@ -9,7 +9,8 @@ import {
   parseRetryAfterMs,
   TTL_RATE_LIMITED_MS,
   UsageCache,
-  type UsageAttempt
+  type UsageAttempt,
+  type UsageStoredListener
 } from './usageCache'
 import {
   claudeKeychainServicesFor,
@@ -61,14 +62,32 @@ function runSecurityRead(file: string, args: string[]): Promise<string | null> {
  *  .credentials.json carry the identical shape (measured on an installed claude 2.1.224 binary via
  *  `security find-generic-password -a "$USER" -s "Claude Code-credentials" -w`), so one parser serves
  *  both sources. */
-function accessTokenFrom(raw: string): string | null {
+function accessTokenFrom(raw: string): AccessTokenInfo | null {
   try {
-    const parsed = JSON.parse(raw) as { claudeAiOauth?: { accessToken?: unknown } }
+    const parsed = JSON.parse(raw) as { claudeAiOauth?: { accessToken?: unknown; expiresAt?: unknown } }
     const token = parsed?.claudeAiOauth?.accessToken
-    return typeof token === 'string' && token.trim() !== '' ? token : null
+    const exp = parsed?.claudeAiOauth?.expiresAt
+    return typeof token === 'string' && token.trim() !== ''
+      ? { token, expiresAt: typeof exp === 'number' && Number.isFinite(exp) ? exp : null }
+      : null
   } catch {
     return null
   }
+}
+
+/** The token and the access-token expiry the CLI recorded beside it (ms), null when none was recorded. */
+export interface AccessTokenInfo {
+  token: string
+  expiresAt: number | null
+}
+
+/** T3: is a 401/403 a refused login, or just a stale access token? An idle account's access token runs out
+ *  and the CLI only refreshes it when a session runs there (§3 of the usage design), so a 401 on a token
+ *  already past its recorded expiry says nothing about the login. Only a refusal of a token that should
+ *  still be good, or one with no recorded expiry, counts. */
+export function refusedLogin(httpStatus: number, expiresAt: number | null, nowMs: number): boolean {
+  if (httpStatus !== 401 && httpStatus !== 403) return false
+  return expiresAt === null || expiresAt > nowMs
 }
 
 /**
@@ -94,6 +113,18 @@ export async function readAccessToken(
   account: string,
   keychainRead: KeychainRead
 ): Promise<string | null> {
+  return (await readAccessTokenInfo(configDir, platform, homeDir, account, keychainRead))?.token ?? null
+}
+
+/** readAccessToken with the recorded expiry beside the token (T3: refusedLogin needs it). Same sources,
+ *  same order. */
+export async function readAccessTokenInfo(
+  configDir: string,
+  platform: NodeJS.Platform,
+  homeDir: string,
+  account: string,
+  keychainRead: KeychainRead
+): Promise<AccessTokenInfo | null> {
   try {
     const raw = await fs.readFile(path.join(configDir, '.credentials.json'), 'utf8')
     const token = accessTokenFrom(raw)
@@ -149,19 +180,25 @@ export class RateLimitFetcher {
   }
 
   /** W7-F (#77): see UsageCache.forget. */
-  forget(configDir: string): void {
-    this.cache.forget(configDir)
+  forget(configDir: string, opts?: { keepBackOff?: boolean }): void {
+    this.cache.forget(configDir, opts)
+  }
+
+  /** T3: see UsageCache.onStored. */
+  onStored(listener: UsageStoredListener): () => void {
+    return this.cache.onStored(listener)
   }
 
   private async fetch(configDir: string): Promise<UsageAttempt> {
-    const token = await readAccessToken(
+    const info = await readAccessTokenInfo(
       configDir,
       this.platform,
       this.homeDir,
       this.account,
       this.keychainRead
     )
-    if (!token) return { result: ERROR_USAGE('unavailable') }
+    if (!info) return { result: ERROR_USAGE('unavailable') }
+    const { token } = info
     try {
       const res = await this.fetchImpl(USAGE_URL, {
         headers: {
@@ -175,7 +212,7 @@ export class RateLimitFetcher {
         const ra = parseRetryAfterMs(res.headers.get('retry-after'), this.now())
         return { result: ERROR_USAGE('error'), retryAfterMs: ra ?? TTL_RATE_LIMITED_MS }
       }
-      if (!res.ok) return { result: ERROR_USAGE('error') }
+      if (!res.ok) return { result: ERROR_USAGE('error'), refused: refusedLogin(res.status, info.expiresAt, this.now()) }
       const data = (await res.json()) as unknown
       return { result: mapUsageResponse(data) }
     } catch {

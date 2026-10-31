@@ -41,6 +41,7 @@ const EVENT_CHANNELS = [
   'history:scan',
   'accounts:changed',
   'accounts:ghostsChanged',
+  'accounts:status-changed', // T3
   'files:changed',
   'files:changedBatch',
   'files:opProgress',
@@ -87,6 +88,7 @@ const api = {
     remove: invoke('accounts.remove'),
     merge: invoke('accounts.merge'),
     loginStatus: invoke('accounts.loginStatus'),
+    status: invoke('accounts.status'), // T3
     detect: invoke('accounts.detect'),
     ghosts: invoke('accounts.ghosts'),
     email: invoke('accounts.email'),
@@ -179,7 +181,8 @@ const api = {
     // W6-G
     guard: invoke('usage.guard'),
     subscribe: fire('usage.subscribe'),
-    unsubscribe: fire('usage.unsubscribe')
+    unsubscribe: fire('usage.unsubscribe'),
+    refresh: fire('usage.refresh') // T3
   },
   notify: {
     activeSession: fire('notify.activeSession'),

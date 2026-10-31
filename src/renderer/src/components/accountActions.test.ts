@@ -47,3 +47,29 @@ describe('accountStatus', () => {
     expect(accountStatus(undefined, false)).toBeNull()
   })
 })
+
+// T3 (account center sync): the rows now read the window-wide store's full state.
+describe('accountActions with the login store state (T3)', () => {
+  const st = (loggedIn: Parameters<typeof accountActions>[0]['loggedIn']): string[] => ids({ ...base, loggedIn })
+
+  it('signed in and signed out read like true and false', () => {
+    expect(st('signedIn')).toEqual(ids({ ...base, loggedIn: true }))
+    expect(st('signedOut')).toEqual(ids({ ...base, loggedIn: false }))
+  })
+
+  // Finding 9: a failed probe used to leave the state undefined, and both items vanished.
+  it('a failed probe (unknown) keeps both sign-in and sign-out on offer', () => {
+    expect(st('unknown')).toEqual(['signIn', 'rename', 'signOut', 'remove'])
+  })
+
+  it('an expired login offers sign-in, and sign-out to clear the refused credentials', () => {
+    expect(st('expired')).toEqual(['signIn', 'rename', 'signOut', 'remove'])
+  })
+
+  it('the status chip: expired reads as signed out, unknown says nothing beyond paused', () => {
+    expect(accountStatus('expired', false)).toBe('signedOut')
+    expect(accountStatus('signedOut', true)).toBe('signedOut')
+    expect(accountStatus('unknown', true)).toBe('paused')
+    expect(accountStatus('signedIn', false)).toBeNull()
+  })
+})
