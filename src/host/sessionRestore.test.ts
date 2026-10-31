@@ -32,6 +32,7 @@ import {
   type SavedSession
 } from './sessionRestore'
 import { buildClaudeCommand, buildCodexCommand, LAUNCH_FORBIDDEN } from '../core/sessions/commands'
+import { CRASH_REASON, resumeAfterCrash } from '../core/orchestration/exec/crashResume'
 import { readStartHold, writeStartHold } from '../core/orchestration/startHold'
 import { stateFromLegacy } from '../core/orchestration/legacyState'
 import type { PtyEntry, PtyMeta } from '../core/host/protocol'
@@ -848,5 +849,109 @@ describe('T19: a restart brings every agent back as it was', () => {
     expect(startedWith({ sessionId: 'worker-1', accountId: 'acc_1', cwd: '/w/wt' }, working())).toEqual({
       model: 'claude-sonnet-5-5', effort: 'high', disallowedTools: ['AskUserQuestion']
     })
+  })
+
+  describe('a replan planner open at a forced handover', () => {
+    const replanning = (o: { chat?: boolean } = {}): OrchState => {
+      const s = crashed()
+      return {
+        ...s,
+        tasks: [],
+        dispatches: [],
+        jobs: s.jobs.map((j) =>
+          j.id === 'job_done'
+            ? ({ ...j, plannerSessionIds: ['planner-2', 'replan-1'], replanning: { runId: 'run_1', mode: 'wave', wave: 2, done: 1, startedAt: NOW, sessionId: 'replan-1', ...(o.chat ? { chat: true } : {}) } } as OrchState['jobs'][number])
+            : j
+        )
+      }
+    }
+    const row = savedOf(meta('replan-1', { accountId: 'acc_1', cwd: '/w/d', title: 'Replan', resumeSessionId: 'n-rp', model: 'opus', bypassPermissions: true, startedAt: 7_000 }))!
+
+    it('is resumed in its own conversation under its own id, so its Job\'s replan still names it', async () => {
+      expect(roleOf(replanning(), 'replan-1')).toBe('replan')
+      const { deps, created, handled } = restoreDeps({ state: replanning() })
+      const r = await restoreHandover({ ...deps, file: handoverFileIn(dir), handover: { sessions: [row], ptys: [], restart: true }, baseEnv: {}, openPty: () => {}, respawnChat: async () => {} })
+      expect(r).toMatchObject({ tabs: 0, planners: 1 })
+      expect(created).toEqual([
+        {
+          accountId: 'acc_1', cwd: '/w/d', title: 'Replan', rollAccountIds: [], resumeSessionId: 'n-rp', autoAccounts: false, sessionId: 'replan-1', startedAt: 7_000,
+          model: 'opus', bypassPermissions: true, initialPrompt: RESTART_RESUME_LINE
+        }
+      ])
+      expect(handled).toEqual([])
+    })
+
+    it('waits on its owner untold when it is a chat replan', async () => {
+      const { deps, created } = restoreDeps({ state: replanning({ chat: true }) })
+      await restoreSessions({ ...deps, saved: [row], handover: true })
+      expect(created).toHaveLength(1)
+      expect(created[0].initialPrompt).toBeUndefined()
+    })
+
+    it('ends the replan as the loop ends one whose planner is gone, when there is nothing to resume', async () => {
+      const none = restoreDeps({ state: replanning() })
+      expect(await restoreSessions({ ...none.deps, saved: [{ ...row, nativeSessionId: undefined }], handover: true })).toEqual({ tabs: 0, planners: 0 })
+      expect(none.created).toEqual([])
+      expect(none.handled).toEqual([{ cmd: 'jobs-replan-done', id: 'job_done', gone: true }])
+      // A spawn that fails ends it too
+      const failed = restoreDeps({
+        state: replanning(),
+        createSession: async () => {
+          throw new Error('CWD_MISSING: /w/d')
+        }
+      })
+      await restoreSessions({ ...failed.deps, saved: [row], handover: true })
+      expect(failed.handled).toEqual([{ cmd: 'jobs-replan-done', id: 'job_done', gone: true }])
+    })
+
+    it('is left to its Job after a crash, which brings sessions back under new ids', async () => {
+      const { deps, created, handled } = restoreDeps({ state: replanning() })
+      await restoreSessions({ ...deps, saved: [row] })
+      expect(created).toEqual([])
+      expect(handled).toEqual([])
+    })
+  })
+
+  // Finding 4: a coordinator open at the handover is already brought back by crash resume, in its own conversation.
+  it('brings a coordinator open at a forced handover back through crash resume, resuming its conversation', async () => {
+    const state = crashed()
+    const handover = handoverOf({
+      sessions: [
+        { sessionId: 'coord-1', accountId: 'acc_1', cwd: '/w/r', nativeSessionId: 'n-coord' },
+        { sessionId: 'worker-1', accountId: 'acc_1', cwd: '/w/wt', nativeSessionId: 'n-w1' }
+      ],
+      ptys: [],
+      procs: [],
+      state,
+      baseEnv: {},
+      restart: true
+    })
+    writeHandover(dir, handover)
+    const left = await leftBehind(dir)
+    // The restore leaves the coordinator alone (two would start)...
+    const { deps, created } = restoreDeps({ state })
+    await restoreHandover({ ...deps, file: handoverFileIn(dir), handover: left.handover!, baseEnv: {}, openPty: () => {}, respawnChat: async () => {} })
+    expect(created.map((c) => c.sessionId)).toEqual(['worker-1'])
+    // ...and crash resume puts it back: the load emptied its dead slot, and the handover kept its conversation id
+    // (host/index.ts nativeIdOf reads the hook events, then the handover's sessions).
+    let live: OrchState = { ...state, runs: state.runs.map(({ coordinatorSessionId: _c, ...r }) => r) as OrchState['runs'] }
+    const handled: Record<string, unknown>[] = []
+    const r = await resumeAfterCrash({
+      readFile: () => withoutResumed(state, new Set(['worker-1'])),
+      ready: async () => {},
+      state: () => live,
+      handle: async (cmd, args) => {
+        handled.push({ cmd, ...args })
+        live = { ...live, runs: live.runs.map((x) => (x.id === args.run ? { ...x, coordinatorSessionId: 'coord-new' } : x)) }
+        return { status: 200, body: {} }
+      },
+      settle: async () => {},
+      activity: () => {},
+      log: () => {},
+      nativeIdOf: async (sid) => left.handover!.sessions.find((x) => x.sessionId === sid)?.nativeSessionId ?? null,
+      sleep: async () => {}
+    })
+    expect(r).toEqual({ workers: 0, coordinators: 1 })
+    expect(handled).toEqual([{ cmd: 'run-start', run: 'run_1', reason: CRASH_REASON, resume: 'n-coord' }])
   })
 })

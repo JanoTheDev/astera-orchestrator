@@ -13,8 +13,9 @@
 // (`restoreSessions`): a person's tab through `createSession` with the provider's native resume, on its account or,
 // with "Pick accounts automatically" on and that account over the threshold, the next of the usage order; the dead
 // planner of a plan awaiting approval through `jobs-plan` (`--resume` when its conversation is known, else fresh).
-// Coordinators are crashResume's (core/orchestration/exec/crashResume.ts), workers the recovery's (host/recovery.ts);
-// a replan session is its Job's. Which is which is read from orchestration.json as the crash left it.
+// Coordinators are crashResume's (core/orchestration/exec/crashResume.ts), after a handover too; workers the
+// recovery's (host/recovery.ts); after a crash a replan session is its Job's, and a handover resumes it under its own id
+// (T19, `restoreSessions`). Which is which is read from orchestration.json as the crash left it.
 //
 // **A handover** (a `retire` with `resume: true`: the app replacing an outdated Host) is the deliberate way out that
 // brings everything back. Before its `killAll` the leaving Host writes `<profile>/host/handover.json` (`handoverOf`):
@@ -340,8 +341,9 @@ export function writeHandover(profileDir: string, h: Handover): void {
 }
 
 /** The work a handover must not cut short: a worker, a check, a review or a merge in flight, and a plan's replan while
- *  its planner starts or lives (`alive`; absent: every one counts). Its planner session is not brought back: a swap that
- *  began right after a review left the plan holding a dead replan. One whose planner is already dead holds nothing.
+ *  its planner starts or lives (`alive`; absent: every one counts). A swap that began right after a review once left the
+ *  plan holding a dead replan; its planner is resumed now (T19, `restoreSessions`), but a turn cut short is not carried,
+ *  so the automatic swap still waits for it. One whose planner is already dead holds nothing.
  *  A `dispatched` Task works only while a Dispatch of it is open: a paused plan's (its Dispatch closed by the pause) has
  *  no worker to cut short, and counting it held every automatic Host swap back for as long as the plan stayed paused. */
 export function workingTaskCount(s: OrchState | null, alive?: (sessionId: string) => boolean): number {
@@ -541,8 +543,8 @@ export interface RestoreDeps {
     autoAccounts: boolean
     sessionId?: string
     startedAt?: number
-    /** The one prompt it starts with: RESTART_RESUME_LINE for a worker a restart handed over mid-Task (T13). The spawner
-     *  hands it to a codex resume as its resume phrase (T19). */
+    /** The one prompt it starts with: RESTART_RESUME_LINE for a worker a restart handed over mid-Task (T13), and for a
+     *  replan's planner (T19). The spawner hands it to a codex resume as its resume phrase. */
     initialPrompt?: string
     /** T19: a worker's or a replan planner's own start settings (`startedWith`); absent: the spawn's defaults (the CLI's
      *  model and effort, the bypass the settings say, every tool). */
@@ -566,10 +568,45 @@ export interface RestoreDeps {
   lostWorker?(sessionId: string): void
 }
 
-/** Brings back the sessions an unclean exit (or a handover) left: tabs and pending plans' planners. Never rejects. */
+/** Brings back the sessions an unclean exit (or a handover) left: tabs and pending plans' planners, and on a handover a
+ *  replan's planner too (counted with the planners). Never rejects. */
 export async function restoreSessions(d: RestoreDeps): Promise<{ tabs: number; planners: number }> {
   let tabs = 0
   let planners = 0
+  /** T19: the planner of a replan a handover cut off (`replanning.sessionId`). The next Host held none of it, so the
+   *  driving loop never reads it as gone (dispatchLoop.ts replanAtBoundaries asks `sessionGone`, an ended pty this
+   *  registry holds): the Job stayed held until the replan timed out, and a chat replan, never timed out, for good. It
+   *  is resumed in its own conversation under its own id, so `replanning.sessionId` still names it and its
+   *  `jobs-replan-done` is taken; told the restart line unless it waits on its owner (a chat replan). With no
+   *  conversation to resume, or a spawn that fails, the replan ends as the loop ends one whose planner is gone
+   *  (`jobs-replan-done --gone`). True when resumed. */
+  const restoreReplan = async (row: SavedSession, native: string | null): Promise<boolean> => {
+    const job = d.state?.jobs.find((j) => j.replanning?.sessionId === row.sessionId && j.archivedAt === undefined)
+    if (!job) return false
+    if (native && ((await d.hasConversation?.(row.accountId, native).catch(() => true)) ?? true)) {
+      try {
+        const info = await d.createSession({
+          accountId: row.accountId,
+          cwd: row.cwd,
+          ...(row.title !== undefined ? { title: row.title } : {}),
+          rollAccountIds: row.rollAccountIds ?? [],
+          resumeSessionId: native,
+          autoAccounts: false,
+          sessionId: row.sessionId,
+          ...(row.startedAt !== undefined ? { startedAt: row.startedAt } : {}),
+          ...startedWith(row, d.state),
+          ...(job.replanning?.chat ? {} : { initialPrompt: RESTART_RESUME_LINE })
+        })
+        d.log(`session restore: the replan planner of ${job.id} resumed as ${info.id} (conversation ${native})`)
+        return true
+      } catch (err) {
+        d.log(`session restore: the replan planner of ${job.id} could not be resumed: ${String(err)}`)
+      }
+    } else d.log(`session restore: the replan planner of ${job.id} has no conversation to resume`)
+    const r = await d.handle('jobs-replan-done', { id: job.id, gone: true })
+    d.log(`session restore: the replan of ${job.id} ended, its planner gone (${r.status} ${JSON.stringify(r.body)})`)
+    return false
+  }
   for (const row of d.saved) {
     /** T13: a worker a restart handed over with its Dispatch still open. */
     let midTask = false
@@ -587,6 +624,14 @@ export async function restoreSessions(d: RestoreDeps): Promise<{ tabs: number; p
         else d.log(`session restore: planner of ${job.id} could not be restarted (${r.status} ${JSON.stringify(r.body)})`)
         continue
       }
+      // A crash brings sessions back under new ids, which no `replanning.sessionId` names: a replan is its Job's then.
+      if (role === 'replan') {
+        if (d.handover && (await restoreReplan(row, native))) planners++
+        continue
+      }
+      // A coordinator is crash resume's after a handover too (exec/crashResume.ts): the load empties its dead slot, and
+      // the start resumes its conversation through `run-start --resume`, by the id the handover kept (host/index.ts
+      // nativeIdOf). Restoring it here as well would start two.
       // A worker whose Dispatch is still open is the recovery's, as after a crash; one done with it is a tab.
       const idle = (): boolean => !d.state?.dispatches.some((x) => x.sessionId === row.sessionId && !x.endedAt && !x.outcome)
       // T13: but one a restart handed over mid-Task comes back too, in its own conversation, told once it was restarted.
