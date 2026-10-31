@@ -1568,7 +1568,10 @@ export async function main(): Promise<void> {
       descriptors: makeDescriptors(process.platform),
       run: (command, cliArgs, env) =>
         new Promise((resolve) => {
-          const child = spawn(command, cliArgs, { env: { ...process.env, ...env }, stdio: [0, 2, 2], shell: process.platform === 'win32' })
+          // windowsHide is safe for a child that needs this terminal: it shares the terminal's console through the inherited
+          // stdio (no console is created for it, so there is nothing to hide), and it only hides the console Windows would
+          // otherwise create when the CLI holds none, a window nobody could type into. See hideChildConsoleWindows.
+          const child = spawn(command, cliArgs, { env: { ...process.env, ...env }, stdio: [0, 2, 2], shell: process.platform === 'win32', windowsHide: true })
           child.once('error', () => resolve(127))
           child.once('close', (code) => resolve(code ?? 1))
         })

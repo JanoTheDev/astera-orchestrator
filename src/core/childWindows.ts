@@ -1,4 +1,6 @@
-// The Host must never give a child process a console window of its own (win32).
+// No Astera process may give a child process a console window of its own (win32). Written for the Host
+// first (the history below); the CLI and the Electron main process apply the same guard through
+// `hideChildConsoleWindows` at the end of this file.
 //
 // **Why this exists, and why it did not before 1.3.20.** node-pty forks a helper on every ConPTY
 // kill — `_getConsoleProcessList` in windowsPtyAgent.js, which enumerates the console's processes
@@ -85,12 +87,85 @@ export interface ChildProcessProto {
  * the function before this runs; every one of them still calls `ChildProcess.prototype.spawn`. Sync starts
  * (`spawnSync`, `execSync`, `execFileSync`) do not go through it; those keep their own `windowsHide`.
  */
-export function hideAllChildConsoleWindows(proto: ChildProcessProto, platform: NodeJS.Platform): boolean {
+export function hideAllChildConsoleWindows(
+  proto: ChildProcessProto,
+  platform: NodeJS.Platform,
+  opts: { exceptDetached?: boolean } = {}
+): boolean {
   if (platform !== 'win32') return false
   const real = proto.spawn
   proto.spawn = function (this: unknown, options) {
-    if (options && typeof options === 'object') options.windowsHide = true
+    if (options && typeof options === 'object' && !(opts.exceptDetached && options.detached === true)) options.windowsHide = true
     return real.call(this, options)
   }
+  return true
+}
+
+/** The sync starters on the `node:child_process` module object. They do not reach `ChildProcess.prototype.spawn`, and
+ *  `execSync` / `execFileSync` do not reach the exported `spawnSync` either (node calls its module-local binding), so
+ *  each is replaced on its own. Injected for the test. */
+export interface SyncStarters {
+  spawnSync: typeof childProcess.spawnSync
+  execSync: typeof childProcess.execSync
+  execFileSync: typeof childProcess.execFileSync
+}
+
+type Opts = { windowsHide?: boolean; detached?: boolean } & Record<string, unknown>
+
+/** `options` with `windowsHide: true`, unless it asks for `detached` and `exceptDetached` holds. */
+function hidden(options: unknown, exceptDetached: boolean): Opts {
+  const o = (options && typeof options === 'object' ? options : {}) as Opts
+  return exceptDetached && o.detached === true ? o : { ...o, windowsHide: true }
+}
+
+/**
+ * Makes every sync child start windowless (win32): `spawnSync`, `execSync` and `execFileSync`, whatever its call site
+ * passed. Replaced on the module object, which is what the bundled main and CLI call through (`childProcess.spawnSync(…)`
+ * in out/main). Returns whether it did; a no-op off win32.
+ */
+export function hideSyncChildConsoleWindows(cp: SyncStarters, platform: NodeJS.Platform, opts: { exceptDetached?: boolean } = {}): boolean {
+  if (platform !== 'win32') return false
+  const except = opts.exceptDetached === true
+  // `spawnSync(file, args?, options?)` and `execFileSync(file, args?, options?)`: the second argument is the options
+  // object when it is not an args array. Node reads a null or absent args as no arguments, so the hidden options can
+  // always go third once the second is not an object.
+  const fileStyle = <F extends (...a: never[]) => unknown>(real: F): F =>
+    ((file: string, argsOrOptions?: unknown, options?: unknown) =>
+      argsOrOptions !== null && typeof argsOrOptions === 'object' && !Array.isArray(argsOrOptions)
+        ? (real as unknown as (...a: unknown[]) => unknown)(file, hidden(argsOrOptions, except))
+        : (real as unknown as (...a: unknown[]) => unknown)(file, argsOrOptions, hidden(options, except))) as unknown as F
+  cp.spawnSync = fileStyle(cp.spawnSync)
+  cp.execFileSync = fileStyle(cp.execFileSync)
+  const realExecSync = cp.execSync as unknown as (command: string, options?: unknown) => unknown
+  cp.execSync = ((command: string, options?: unknown) => realExecSync(command, hidden(options, except))) as typeof childProcess.execSync
+  return true
+}
+
+/**
+ * The guard the `astera` CLI and the Electron main process apply first thing (win32): every child they start, async
+ * or sync, gets `windowsHide`. Both are GUI-subsystem programs (Astera.exe), so a console program they start without
+ * it is handed a brand-new, visible console whenever they hold none themselves. `fork` is covered by the prototype
+ * patch: it ends in `ChildProcess.prototype.spawn` like the others.
+ *
+ * **Detached children are left as their call site wrote them.** A detached start is DETACHED_PROCESS on win32: a
+ * console program started that way has no console at all, so `windowsHide` would add nothing for it. What it would
+ * do is hide a GUI program's first window (`SW_HIDE`), and the GUI programs these two processes start are detached:
+ * electron-updater runs the NSIS installer (`oneClick: false`, so it has a UI) with `detached: true`. The Host's guard
+ * has no such exception because it starts no GUI program.
+ *
+ * **Children that share the caller's terminal keep working.** `windowsHide` asks Windows to hide a console window
+ * that is *created* for the child. A child started with inherited stdio from a CLI that is attached to a terminal
+ * (Astera.exe run as Node attaches to its parent's console; measured: such a child makes no conhost of its own)
+ * shares that terminal's console, so nothing is created and nothing is hidden; libuv also leaves CREATE_NO_WINDOW off
+ * whenever a stdio slot is inherited. Only a child that would have been given a new console is affected, and that
+ * is exactly the window that popped up.
+ */
+export function hideChildConsoleWindows(
+  cp: SyncStarters & { ChildProcess: { prototype: unknown } },
+  platform: NodeJS.Platform
+): boolean {
+  if (platform !== 'win32') return false
+  hideAllChildConsoleWindows(cp.ChildProcess.prototype as ChildProcessProto, platform, { exceptDetached: true })
+  hideSyncChildConsoleWindows(cp, platform, { exceptDetached: true })
   return true
 }
