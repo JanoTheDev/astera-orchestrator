@@ -2674,7 +2674,8 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       const planned = stallRemedies(c.getState(), c.nowMs(), stallMemo, {
         busy: (id) => c.sessionBusy(id),
         isRegistered: (p) => c.isRegisteredWorktree(p),
-        ...usage
+        ...usage,
+        startHeld: (await c.startHeld?.()) === true // T19: no tell-start or place while new starts are held
       })
       stallMemo = planned.memo
       for (const r of planned.due) {

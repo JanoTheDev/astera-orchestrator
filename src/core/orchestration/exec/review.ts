@@ -24,6 +24,7 @@ import { buildReviewSpecFile, knowledgeIn, specFileName } from './coordinator'
 import { profileDirOfSpecs, read as readOwner } from '../../prompts/ownerInstructions'
 import { createReviewGate } from './reviewGate'
 import { dispatchModelFields } from '../roleModels'
+import { startHeldNow } from '../startHold'
 
 export interface ReviewContext {
   getState(): OrchState
@@ -39,6 +40,8 @@ export interface ReviewContext {
   /** T5b: the account with most room per provider (OrchServerDeps.startAccount), so a review skips a full account.
    *  Absent, or null: the provider's default account, as before. */
   startAccount?(a: Parameters<NonNullable<OrchServerDeps['startAccount']>>[0]): ReturnType<NonNullable<OrchServerDeps['startAccount']>> | null
+  /** T19: whether new starts are on hold (startHold.ts). Absent: start-hold.json in the profile `specsDir` lives in. */
+  startHeld?(): boolean
 }
 
 /** OrchServerDeps.startReview 의 본문을 돌려준다. 돌려준 함수는 흘려보내는 쪽이 종단 .catch 를
@@ -53,6 +56,19 @@ export function createReviewStarter(c: ReviewContext): (a: { taskId: string }) =
     now: () => c.now(),
     log: (m) => c.log(m)
   })
+
+  /** T19: **a reviewer is a new start, so the hold on new starts keeps it** (startHold.ts). Held, the Task stays
+   *  `reviewing` with no Dispatch and no Gate, which is not a failure: nothing is wrong with it. A restart then does not
+   *  wait for a reviewer that started during its wait (sessionRestore.ts restartWaitingOn reads such a Task as safe),
+   *  and the review starts once the hold lifts: the Host's driving starts the reviews it saw held (host/driving.ts
+   *  `followHold`), and a convergence Run's resume sweep restarts its own. Asked twice: at the door, and again right
+   *  before the review Dispatch commits, after the awaits in between, with nothing awaited between that ask and the
+   *  commit. A stat, so a start that is not held takes no extra turn. */
+  const held = (taskId: string): boolean => {
+    if (!(c.startHeld?.() ?? startHeldNow(profileDirOfSpecs(c.specsDir)))) return false
+    c.log(`review task=${taskId}: new starts are on hold — the reviewer starts once the hold lifts`)
+    return true
+  }
 
   /** 검토 세션 하나를 띄운다. 실패하는 모든 경로가 Gate 로 간다 — 조용히 통과시키면 "검토됨"과
    *  "검토 못 함"이 화면에서 같아진다. **한 갈래만 예외이고 그것은 실패가 아니다**: 이미 검토가
@@ -72,6 +88,7 @@ export function createReviewStarter(c: ReviewContext): (a: { taskId: string }) =
       // 것이다. **이 자리가 큐로 들어온 보고의 뒷문이기도 하다**: 대기 보고 배수가 worker_done 을
       // 적용하면 applyWorkerDone 이 수렴 Run 의 Task 를 곧바로 reviewing 으로 보내고 여기를 부른다.
       if (await reviewGate.refuseIfRunGated({ taskId })) return
+      if (held(taskId)) return
       // 구현 Dispatch — 그 provider 를 피해야 하고, cwd 도 여기서 얻는다(그래서 이 함수는 taskId
       // 하나만 받는다: 호출자가 cwd 를 따로 구하면 두 경로가 갈라진다)
       const impl = st.dispatches
@@ -122,6 +139,7 @@ export function createReviewStarter(c: ReviewContext): (a: { taskId: string }) =
       const fresh = c.getState()
       const freshTask = fresh.tasks.find((t) => t.id === taskId)
       if (freshTask?.status !== 'reviewing') return
+      if (held(taskId)) return
       const opened = openReviewDispatch(
         fresh,
         {

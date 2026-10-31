@@ -13,8 +13,9 @@
 // (`restoreSessions`): a person's tab through `createSession` with the provider's native resume, on its account or,
 // with "Pick accounts automatically" on and that account over the threshold, the next of the usage order; the dead
 // planner of a plan awaiting approval through `jobs-plan` (`--resume` when its conversation is known, else fresh).
-// Coordinators are crashResume's (core/orchestration/exec/crashResume.ts), workers the recovery's (host/recovery.ts);
-// a replan session is its Job's. Which is which is read from orchestration.json as the crash left it.
+// Coordinators are crashResume's (core/orchestration/exec/crashResume.ts), after a handover too; workers the
+// recovery's (host/recovery.ts); after a crash a replan session is its Job's, and a handover resumes it under its own id
+// (T19, `restoreSessions`). Which is which is read from orchestration.json as the crash left it.
 //
 // **A handover** (a `retire` with `resume: true`: the app replacing an outdated Host) is the deliberate way out that
 // brings everything back. Before its `killAll` the leaving Host writes `<profile>/host/handover.json` (`handoverOf`):
@@ -36,7 +37,8 @@
 // (`restartWaitingOn`), then writes the handover with `restart: true` and marks every session whose Dispatch is still
 // open `working`. The next Host keeps those Dispatches open through its load's cleanup (`handedOverWorkers` is read
 // before anything can load), resumes each such worker under its own id on its own account with RESTART_RESUME_LINE as
-// its one prompt, and hands one it cannot resume to the recovery (`lostWorker`), as a crash would. Then it lifts a
+// its one prompt and its own start settings (`startedWith`, T19: model, effort, bypass, a claude worker's barred
+// tools), and hands one it cannot resume to the recovery (`lostWorker`), as a crash would. Then it lifts a
 // restart's hold and writes `restartFeedLine` to the activity feed. What the worker was running in the old Host
 // (`astera heavy` children, a setup install) ended with it: the worker runs it again, and the tickets and owner files
 // it left read dead (their pid is gone) and are dropped.
@@ -45,8 +47,10 @@
 import { mkdirSync, promises as fs, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import type { PtyMeta, PtyOpenOptions } from '../core/host/protocol'
-import type { OrchState } from '../core/orchestration/state'
+import { jobOf, type OrchState } from '../core/orchestration/state'
 import { isPlaceholderSessionId } from '../core/orchestration/types'
+import { handsOffOf } from '../core/orchestration/delivery'
+import { WORKER_DISALLOWED_TOOLS } from '../core/orchestration/exec/coordinator'
 import { liftStartHold } from '../core/orchestration/startHold'
 import { providerOf } from '../core/providers/meta'
 import { claudeHistoryStrategy, findClaudeTranscript } from '../core/history/strategies/claude'
@@ -68,6 +72,13 @@ export interface SavedSession {
   nativeSessionId?: string
   /** When the session first started (SessionInfo.startedAt): a resumed session keeps its elapsed time. */
   startedAt?: number
+  /** T19: what the session was started with, from its note (core/sessions/manager.ts writes them there): a worker or a
+   *  replan's planner a handover resumes keeps them. Absent in a file an older Host wrote. */
+  model?: string
+  effort?: string
+  bypassPermissions?: boolean
+  /** The phrase its rolling types on a resume: a worker's names its report (coordinator.ts startWorker). */
+  rollPrompt?: string
 }
 
 export type SessionRole = 'user' | 'planner' | 'coordinator' | 'worker' | 'replan'
@@ -160,7 +171,11 @@ export function savedOf(meta: PtyMeta | null): SavedSession | null {
     ...(str(r.title) ? { title: str(r.title) } : {}),
     ...(rolls.length > 0 ? { rollAccountIds: rolls } : {}),
     ...(native ? { nativeSessionId: native } : {}),
-    ...(typeof r.startedAt === 'number' ? { startedAt: r.startedAt } : {})
+    ...(typeof r.startedAt === 'number' ? { startedAt: r.startedAt } : {}),
+    ...(str(r.model) ? { model: str(r.model) } : {}),
+    ...(str(r.effort) ? { effort: str(r.effort) } : {}),
+    ...(typeof r.bypassPermissions === 'boolean' ? { bypassPermissions: r.bypassPermissions } : {}),
+    ...(str(r.rollPrompt) ? { rollPrompt: str(r.rollPrompt) } : {})
   }
 }
 
@@ -326,8 +341,9 @@ export function writeHandover(profileDir: string, h: Handover): void {
 }
 
 /** The work a handover must not cut short: a worker, a check, a review or a merge in flight, and a plan's replan while
- *  its planner starts or lives (`alive`; absent: every one counts). Its planner session is not brought back: a swap that
- *  began right after a review left the plan holding a dead replan. One whose planner is already dead holds nothing.
+ *  its planner starts or lives (`alive`; absent: every one counts). A swap that began right after a review once left the
+ *  plan holding a dead replan; its planner is resumed now (T19, `restoreSessions`), but a turn cut short is not carried,
+ *  so the automatic swap still waits for it. One whose planner is already dead holds nothing.
  *  A `dispatched` Task works only while a Dispatch of it is open: a paused plan's (its Dispatch closed by the pause) has
  *  no worker to cut short, and counting it held every automatic Host swap back for as long as the plan stayed paused. */
 export function workingTaskCount(s: OrchState | null, alive?: (sessionId: string) => boolean): number {
@@ -345,9 +361,12 @@ export function workingTaskCount(s: OrchState | null, alive?: (sessionId: string
  *  order. A worker, a reviewer or a repair is at a safe point while its session sits idle at its prompt between turns
  *  (`busy` answers false: the verdict the stall watch nudges an idle worker by) or is gone (nothing of it is left to cut
  *  short). One that is busy, or whose screen never said (`busy` null), is not, and neither is a start still in flight (a
- *  `pending:` session). A Task validating, reviewing or merging with no Dispatch open runs a check or a merge in the
- *  Host itself, or is about to start its reviewer, and is waited for until it moves on. A replan in flight is its Job,
- *  by the Job's id, its planner judged as a worker is. */
+ *  `pending:` session). A Task validating or merging with no Dispatch open runs a check or a merge in the Host itself,
+ *  and is waited for until it moves on. A Task reviewing with no Dispatch open is safe (T19): the restart holds new
+ *  starts before it asks this, and a held reviewer does not start (exec/review.ts), so it waits for the next Host
+ *  instead of this Host waiting out its whole time for it. A reviewer whose start got past the hold has opened its
+ *  Dispatch (a `pending:` one at first) and is judged as a worker. A replan in flight is its Job, by the Job's id, its
+ *  planner judged as a worker is. */
 export function restartWaitingOn(
   s: OrchState | null,
   probe: { alive(sessionId: string): boolean; busy(sessionId: string): boolean | null }
@@ -361,6 +380,7 @@ export function restartWaitingOn(
     const sessions = open.get(t.id) ?? []
     if (t.status === 'dispatched') return sessions.length > 0 && !sessions.every(safe) ? [t.id] : []
     if (!['validating', 'reviewing', 'merging'].includes(t.status)) return []
+    if (t.status === 'reviewing' && sessions.length === 0) return []
     return sessions.length === 0 || !sessions.every(safe) ? [t.id] : []
   })
   const replans = s.jobs.flatMap((j) => {
@@ -481,6 +501,31 @@ export function roleOf(s: OrchState | null, sessionId: string): SessionRole {
   return 'user'
 }
 
+type StartSettings = Pick<Parameters<RestoreDeps['createSession']>[0], 'model' | 'effort' | 'bypassPermissions' | 'disallowedTools' | 'rollPrompt'>
+
+/** T19: what a worker, or a replan's planner, was started with, so the session a handover resumes runs as it did: the
+ *  model, effort, bypass and roll phrase its note had (`savedOf`); for a handover an older Host wrote, without them, the
+ *  model and effort its last Dispatch recorded and the bypass a hands-off plan gives its workers (workerStart.ts). And a
+ *  claude worker is started without `WORKER_DISALLOWED_TOOLS` again (coordinator.ts startWorker), read from its last
+ *  Dispatch's provider, since no note keeps it. Absent: the spawn's own default. */
+export function startedWith(row: SavedSession, s: OrchState | null): StartSettings {
+  const last = s?.dispatches.filter((x) => x.sessionId === row.sessionId).at(-1)
+  const model = str(row.model) ?? str(last?.model)
+  const effort = str(row.effort) ?? str(last?.effort)
+  const task = last && s?.tasks.find((t) => t.id === last.taskId)
+  const run = task && s?.runs.find((r) => r.id === task.runId)
+  const job = run && s ? jobOf(s, run) : undefined
+  const bypass = typeof row.bypassPermissions === 'boolean' ? row.bypassPermissions : job && s && handsOffOf(s, job) ? true : undefined
+  const rollPrompt = str(row.rollPrompt)
+  return {
+    ...(model ? { model } : {}),
+    ...(effort ? { effort } : {}),
+    ...(bypass !== undefined ? { bypassPermissions: bypass } : {}),
+    ...(last?.provider === 'claude' ? { disallowedTools: [...WORKER_DISALLOWED_TOOLS] } : {}),
+    ...(rollPrompt ? { rollPrompt } : {})
+  }
+}
+
 export interface RestoreDeps {
   saved: SavedSession[]
   /** orchestration.json as the crash left it, before a load; null when there is none. */
@@ -498,8 +543,16 @@ export interface RestoreDeps {
     autoAccounts: boolean
     sessionId?: string
     startedAt?: number
-    /** The one prompt it starts with: RESTART_RESUME_LINE for a worker a restart handed over mid-Task (T13). */
+    /** The one prompt it starts with: RESTART_RESUME_LINE for a worker a restart handed over mid-Task (T13), and for a
+     *  replan's planner (T19). The spawner hands it to a codex resume as its resume phrase. */
     initialPrompt?: string
+    /** T19: a worker's or a replan planner's own start settings (`startedWith`); absent: the spawn's defaults (the CLI's
+     *  model and effort, the bypass the settings say, every tool). */
+    model?: string
+    effort?: string
+    bypassPermissions?: boolean
+    disallowedTools?: string[]
+    rollPrompt?: string
   }): Promise<{ id: string }>
   /** Whether the agent CLI can resume this conversation (`conversationOnDisk`); absent: assumed it can. */
   hasConversation?(accountId: string, nativeId: string): Promise<boolean>
@@ -515,10 +568,45 @@ export interface RestoreDeps {
   lostWorker?(sessionId: string): void
 }
 
-/** Brings back the sessions an unclean exit (or a handover) left: tabs and pending plans' planners. Never rejects. */
+/** Brings back the sessions an unclean exit (or a handover) left: tabs and pending plans' planners, and on a handover a
+ *  replan's planner too (counted with the planners). Never rejects. */
 export async function restoreSessions(d: RestoreDeps): Promise<{ tabs: number; planners: number }> {
   let tabs = 0
   let planners = 0
+  /** T19: the planner of a replan a handover cut off (`replanning.sessionId`). The next Host held none of it, so the
+   *  driving loop never reads it as gone (dispatchLoop.ts replanAtBoundaries asks `sessionGone`, an ended pty this
+   *  registry holds): the Job stayed held until the replan timed out, and a chat replan, never timed out, for good. It
+   *  is resumed in its own conversation under its own id, so `replanning.sessionId` still names it and its
+   *  `jobs-replan-done` is taken; told the restart line unless it waits on its owner (a chat replan). With no
+   *  conversation to resume, or a spawn that fails, the replan ends as the loop ends one whose planner is gone
+   *  (`jobs-replan-done --gone`). True when resumed. */
+  const restoreReplan = async (row: SavedSession, native: string | null): Promise<boolean> => {
+    const job = d.state?.jobs.find((j) => j.replanning?.sessionId === row.sessionId && j.archivedAt === undefined)
+    if (!job) return false
+    if (native && ((await d.hasConversation?.(row.accountId, native).catch(() => true)) ?? true)) {
+      try {
+        const info = await d.createSession({
+          accountId: row.accountId,
+          cwd: row.cwd,
+          ...(row.title !== undefined ? { title: row.title } : {}),
+          rollAccountIds: row.rollAccountIds ?? [],
+          resumeSessionId: native,
+          autoAccounts: false,
+          sessionId: row.sessionId,
+          ...(row.startedAt !== undefined ? { startedAt: row.startedAt } : {}),
+          ...startedWith(row, d.state),
+          ...(job.replanning?.chat ? {} : { initialPrompt: RESTART_RESUME_LINE })
+        })
+        d.log(`session restore: the replan planner of ${job.id} resumed as ${info.id} (conversation ${native})`)
+        return true
+      } catch (err) {
+        d.log(`session restore: the replan planner of ${job.id} could not be resumed: ${String(err)}`)
+      }
+    } else d.log(`session restore: the replan planner of ${job.id} has no conversation to resume`)
+    const r = await d.handle('jobs-replan-done', { id: job.id, gone: true })
+    d.log(`session restore: the replan of ${job.id} ended, its planner gone (${r.status} ${JSON.stringify(r.body)})`)
+    return false
+  }
   for (const row of d.saved) {
     /** T13: a worker a restart handed over with its Dispatch still open. */
     let midTask = false
@@ -536,6 +624,14 @@ export async function restoreSessions(d: RestoreDeps): Promise<{ tabs: number; p
         else d.log(`session restore: planner of ${job.id} could not be restarted (${r.status} ${JSON.stringify(r.body)})`)
         continue
       }
+      // A crash brings sessions back under new ids, which no `replanning.sessionId` names: a replan is its Job's then.
+      if (role === 'replan') {
+        if (d.handover && (await restoreReplan(row, native))) planners++
+        continue
+      }
+      // A coordinator is crash resume's after a handover too (exec/crashResume.ts): the load empties its dead slot, and
+      // the start resumes its conversation through `run-start --resume`, by the id the handover kept (host/index.ts
+      // nativeIdOf). Restoring it here as well would start two.
       // A worker whose Dispatch is still open is the recovery's, as after a crash; one done with it is a tab.
       const idle = (): boolean => !d.state?.dispatches.some((x) => x.sessionId === row.sessionId && !x.endedAt && !x.outcome)
       // T13: but one a restart handed over mid-Task comes back too, in its own conversation, told once it was restarted.
@@ -566,6 +662,8 @@ export async function restoreSessions(d: RestoreDeps): Promise<{ tabs: number; p
         autoAccounts: !midTask,
         ...(d.handover ? { sessionId: row.sessionId } : {}),
         ...(row.startedAt !== undefined ? { startedAt: row.startedAt } : {}),
+        // T19: a worker comes back on its own model, effort, bypass and tools; a person's tab as before
+        ...(role === 'worker' ? startedWith(row, d.state) : {}),
         ...(midTask ? { initialPrompt: RESTART_RESUME_LINE } : {})
       })
       d.log(`session restore: ${row.sessionId} resumed as ${info.id} (conversation ${native}) in ${row.cwd}${midTask ? ', told it was restarted mid-Task' : ''}`)
