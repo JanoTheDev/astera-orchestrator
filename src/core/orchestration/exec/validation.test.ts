@@ -519,6 +519,42 @@ describe('T2: heavy checks take the machine heavy slot', () => {
     d()
   })
 
+  it('a setup ticket neither replaces nor is replaced by a check or a delivery ticket of its folder', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'astera-heavy-'))
+    dirs.push(dir)
+    const at = { lock: path.join(dir, 'lock'), queueDir: path.join(dir, 'q'), pollMs: 20, slots: 1 }
+    const w = path.join(dir, 'w')
+    const holder = (await heavySlot({ ...at, cwd: path.join(dir, 'held'), cmd: 'held' }))!
+    const check = heavySlot({ ...at, cwd: w, cmd: 'check' })
+    const setup = heavySlot({ ...at, cwd: w, cmd: 'npm ci', kind: 'setup' })
+    const delivery = heavySlot({ ...at, cwd: w, cmd: 'delivery', kind: 'delivery' })
+    await new Promise((r) => setTimeout(r, 150))
+    expect(fs.readdirSync(at.queueDir).filter((f) => f.endsWith('.json')).length).toBe(4)
+    holder()
+    for (const waiting of [check, setup, delivery]) {
+      const release = await waiting
+      expect(release).not.toBeNull()
+      release!()
+    }
+  })
+
+  it('two setups of one folder do not both wait: the newer takes the older one’s place, which answers null', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'astera-heavy-'))
+    dirs.push(dir)
+    const at = { lock: path.join(dir, 'lock'), queueDir: path.join(dir, 'q'), pollMs: 20, slots: 1 }
+    const w = path.join(dir, 'w')
+    const holder = (await heavySlot({ ...at, cwd: path.join(dir, 'held'), cmd: 'held' }))!
+    const older = heavySlot({ ...at, cwd: w, cmd: 'npm ci', kind: 'setup' })
+    await new Promise((r) => setTimeout(r, 60))
+    const newer = heavySlot({ ...at, cwd: w, cmd: 'npm ci', kind: 'setup' })
+    expect(await older).toBeNull()
+    expect(fs.readdirSync(at.queueDir).filter((f) => f.endsWith('.json')).length).toBe(2)
+    holder()
+    const release = await newer
+    expect(release).not.toBeNull()
+    release!()
+  })
+
   it('a light check takes the slot only while checksAsHeavy answers true', async () => {
     for (const [strained, want] of [[true, ['lint']], [false, []]] as const) {
       const h = rig({ checks: ['seed:npm:lint'], checksAsHeavy: strained })
