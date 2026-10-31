@@ -89,9 +89,17 @@ export function upsertClaudeTrust(
   const found = Object.keys(projects).find((k) => sameKey(k, platform) === sameKey(key, platform))
   const target = found ?? key
   const entry = projects[target] ?? {}
-  if (entry.hasTrustDialogAccepted === true) return existing
+  // First-run onboarding (the theme picker) is a screen too, drawn before the trust menu, and an
+  // account Astera logged in on a new machine has never been through it: its state file holds the
+  // login and nothing else. A session rolled onto such an account stopped at "Choose the text style"
+  // with nobody there. Only a logged-in file is marked — a logged-out one still owes its login, which
+  // onboarding is also where claude asks for.
+  const loggedIn = root.oauthAccount != null || typeof root.primaryApiKey === 'string'
+  const owesOnboarding = loggedIn && root.hasCompletedOnboarding !== true
+  if (entry.hasTrustDialogAccepted === true && !owesOnboarding) return existing
   const next = {
     ...root,
+    ...(owesOnboarding ? { hasCompletedOnboarding: true } : {}),
     projects: { ...projects, [target]: { ...entry, hasTrustDialogAccepted: true } }
   }
   return JSON.stringify(next, null, indentOf(text)) + (text.endsWith('\n') ? '\n' : '')

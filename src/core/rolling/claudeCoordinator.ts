@@ -28,7 +28,8 @@ import {
   findWaitChoice,
   hasWaitChoiceLabel,
   looksLikeChoicePrompt,
-  maskLimitPhrase
+  maskLimitPhrase,
+  trustAcceptKeys
 } from './detect'
 import { RollCycle } from './cycle'
 import {
@@ -69,7 +70,8 @@ const READY_FALLBACK_MS = 30_000 // the fallback that sends the prompt even with
 const READY_TIMEOUT_MS = 120_000 // the deadline for giving up on the automatic prompt
 const HEALTHY_MS = 60_000 // no limit detected for this long after a switch → reset the consecutive block count
 const ENTER_DELAY_MS = 150 // the gap between the prompt text and Enter
-const TRUST_ENTER_DELAY_MS = 400 // the gap between detecting the trust prompt and Enter
+const TRUST_ENTER_DELAY_MS = 400 // the gap between detecting the trust prompt and the first key
+const TRUST_KEY_GAP_MS = 150 // between the arrow that moves to the yes item and the Enter
 // Blind-spot detection: only the retrospective single-account reset-anchor verdict (3-b) remains. The
 // multi-account real-time stall (3-a) was removed once the transcript began recording subagent limit
 // errors directly, which achieved the same purpose — BLIND_PROBE_MIN_MS survives as the file-tree stat
@@ -737,10 +739,18 @@ export class RollingCoordinator {
       this.pushState(chain, 'trust')
       this.deps.log(`trust dialog → auto-accept session=${chain.liveId}`)
       const liveId = chain.liveId // captured so nothing is written to a stale session even if a re-roll finishes within 400ms
-      chain.trustTimer = setTimeout(() => {
+      // One key per tick: an arrow and an Enter in one write can reach the menu as a single unparsed
+      // chunk, and the Enter would then land on whatever the cursor sat on before (trustAcceptKeys).
+      const keys = trustAcceptKeys(hit.text)
+      const pressNext = (): void => {
         chain.trustTimer = null
-        if (!chain.disposed && chain.liveId === liveId) this.deps.write(liveId, '\r')
-      }, TRUST_ENTER_DELAY_MS)
+        if (chain.disposed || chain.liveId !== liveId) return
+        const key = keys.shift()
+        if (key === undefined) return
+        this.deps.write(liveId, key)
+        if (keys.length > 0) chain.trustTimer = setTimeout(pressNext, TRUST_KEY_GAP_MS)
+      }
+      chain.trustTimer = setTimeout(pressNext, TRUST_ENTER_DELAY_MS)
     }
     // If the choice list was not yet on screen when the limit phrase matched, keep looking in later chunks.
     // A hit.limit chunk is excluded because the branch below handles it directly — the same text is not tried twice.

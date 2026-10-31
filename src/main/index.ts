@@ -69,6 +69,7 @@ import type { RollSnapshot } from '../core/rolling/snapshot'
 import { chatSpawnOptsOf } from '../core/chat/respawn'
 import { writeRollSnapshotTo } from './rollSnapshotSink'
 import { memoiseLoginStatus } from '../core/accounts/loginStatusCache'
+import { preTrustWorkspace } from '../core/orchestration/exec/workerStart'
 import { SlackNotifier } from '../core/slack/connect'
 import { SlackConfigStore } from './slackConfigStore'
 import type { SlackConfig } from '../core/slack/config'
@@ -106,6 +107,7 @@ import {
   type StagingState
 } from './manualInstall'
 import type {
+  Account,
   SessionInfo,
   RollStateEvent,
   UpdateCampaignInfo,
@@ -931,6 +933,21 @@ app.whenReady().then(async () => {
   // marked, through the same writer, so the two keep one order.
   const rollingLog = lineLog(path.join(app.getPath('userData'), 'rolling.log'))
   const schedLog = (m: string): void => rollingLog(`[sched] ${m}`)
+  // A roll's respawn, prepared before the kill: the folder check, then folder trust (and first-run
+  // onboarding) on the account being rolled *to*. The Host's roll already did the trust half
+  // (spawner.prepareRollSpawn); the app's did not, so a roll onto an account that had never opened
+  // this folder met the trust menu — and on a new machine, the theme picker — with nobody there.
+  // The person approved this folder on the account the chain started on; the roll carries that.
+  const prepareRollSpawn = async (account: Account, cwd: string): Promise<void> => {
+    await core!.sessions.prepare({ account, cwd })
+    await preTrustWorkspace({
+      account,
+      cwd,
+      homeDir: app.getPath('home'),
+      descriptors: core!.descriptors,
+      log: (m) => rollingLog(m)
+    })
+  }
   // Reports the per-entry validation result for scheduler.json — createCore has no logger, so it is
   // logged here instead. The normal path (recovered=false, dropped=0, pruned=0) stays quiet.
   {
@@ -1254,7 +1271,7 @@ app.whenReady().then(async () => {
     // What the synchronous respawn above would otherwise look for on disk (the folder, and Git Bash on
     // win32), looked for before the kill and without blocking this thread: an offline drive fails the
     // roll here, where it is rescheduled, instead of freezing every window at the spawn.
-    prepareSpawn: (account, cwd) => core!.sessions.prepare({ account, cwd }),
+    prepareSpawn: (account, cwd) => prepareRollSpawn(account, cwd),
     // What the roll above carries: the model the person picked, read off the session being rolled
     // before it is killed. Terminal chains never reach this — the manager only knows chat sessions.
     chosenModelOf: (id) => core!.chat.chosenModelOf(id),
@@ -1356,7 +1373,7 @@ app.whenReady().then(async () => {
     // What the synchronous respawn above would otherwise look for on disk (the folder, and Git Bash on
     // win32), looked for before the kill and without blocking this thread: an offline drive fails the
     // roll here, where it is rescheduled, instead of freezing every window at the spawn.
-    prepareSpawn: (account, cwd) => core!.sessions.prepare({ account, cwd }),
+    prepareSpawn: (account, cwd) => prepareRollSpawn(account, cwd),
     // design F5 fix round 1 (Important 3): claudeCoordinator.ts's own dep, same contract.
     bypassedOf: (id) => core!.chat.bypassedOf(id),
     kill: (id) => (core!.chat.has(id) ? core!.chat.kill(id) : core!.sessions.kill(id)),

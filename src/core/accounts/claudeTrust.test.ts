@@ -34,6 +34,27 @@ describe('claudeConfigFileFor', () => {
 })
 
 describe('upsertClaudeTrust', () => {
+  // A login Astera made on a new machine: oauth and nothing else, so claude opened on the theme picker
+  it('marks first-run onboarding done on a logged-in file that never finished it', () => {
+    const out = JSON.parse(upsertClaudeTrust('{"oauthAccount":{"emailAddress":"x@y.z"}}', 'C:/a'))
+    expect(out.hasCompletedOnboarding).toBe(true)
+    expect(out.projects['C:/a'].hasTrustDialogAccepted).toBe(true)
+  })
+
+  it('writes the onboarding mark even when the folder is already trusted', () => {
+    const before = '{"oauthAccount":{},"projects":{"C:/a":{"hasTrustDialogAccepted":true}}}'
+    expect(JSON.parse(upsertClaudeTrust(before, 'C:/a')).hasCompletedOnboarding).toBe(true)
+  })
+
+  it('leaves a logged-out file to its own onboarding, which is where it logs in', () => {
+    expect(JSON.parse(upsertClaudeTrust('{}', 'C:/a')).hasCompletedOnboarding).toBeUndefined()
+  })
+
+  it('is unchanged when trusted and already onboarded', () => {
+    const before = '{"oauthAccount":{},"hasCompletedOnboarding":true,"projects":{"C:/a":{"hasTrustDialogAccepted":true}}}'
+    expect(upsertClaudeTrust(before, 'C:/a')).toBe(before)
+  })
+
   it('없던 프로젝트에 항목을 만든다', () => {
     const out = JSON.parse(upsertClaudeTrust('{"projects":{}}', 'C:\\wt\\a'))
     expect(out.projects['C:/wt/a'].hasTrustDialogAccepted).toBe(true)

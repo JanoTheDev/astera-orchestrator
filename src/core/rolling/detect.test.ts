@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { OutputScanner, stripAnsi, findWaitChoice, looksLikeChoicePrompt, matchesLimitPhrase } from './detect'
+import { OutputScanner, stripAnsi, findWaitChoice, looksLikeChoicePrompt, matchesLimitPhrase, trustAcceptKeys } from './detect'
 
 // The transcript path reads prose with real spaces (LIMIT_RE), not squashed screen text.
 describe('matchesLimitPhrase', () => {
@@ -274,5 +274,26 @@ describe('findWaitChoice', () => {
 
   it('두 자리 번호도 인식한다', () => {
     expect(findWaitChoice('  10. Wait for ' + 'limit to reset')).toBe(10)
+  })
+})
+
+describe('trustAcceptKeys', () => {
+  it('moves off "No, exit" to the yes item before Enter — the menu as captured in host.log 2026-10-31', () => {
+    const screen =
+      "Accessing workspace: C:\dev\Astera Quick safety check: Is this a project you created or one you trust? " +
+      'Security guide\n > No, exit\n   Yes, I trust this folder\n Enter to confirm · Esc to cancel'
+    expect(trustAcceptKeys(screen)).toEqual(['\x1b[B', '\r'])
+  })
+
+  it('reads the squashed rendering the scanner sees', () => {
+    expect(trustAcceptKeys('Securityguide>No,exitYes,ItrustthisfolderEntertoconfirm·Esctocancel')).toEqual(['\x1b[B', '\r'])
+  })
+
+  it('moves up when the yes item is listed above the cursor', () => {
+    expect(trustAcceptKeys('  1. Yes, I trust this folder\n❯ 2. No, exit\nEnter to confirm')).toEqual(['\x1b[A', '\r'])
+  })
+
+  it('a bare Enter when the cursor is already on yes', () => {
+    expect(trustAcceptKeys('❯ 1. Yes, I trust this folder\n  2. No, exit\nEnter to confirm')).toEqual(['\r'])
   })
 })

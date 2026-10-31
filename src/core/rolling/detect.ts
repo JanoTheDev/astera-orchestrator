@@ -83,6 +83,26 @@ const LIMIT_SQUASHED_RE =
 // alternative for versions that still ask it.
 const TRUST_RE = /yes,itrustthisfolder|doyoutrustthefilesinthisfolder/i
 
+const ARROW_DOWN = '\x1b[B'
+const ARROW_UP = '\x1b[A'
+
+/** The keys that accept the folder-trust menu on this screen, in order.
+ *
+ *  **Enter alone is not "yes".** It was, while the menu listed "Yes, proceed" first with the cursor
+ *  on it. The menu observed 2026-10-31 puts the cursor on "No, exit" instead, and a rolled planner
+ *  answered with a bare Enter left on the spot (exit 1, host.log), two seconds after rolling.log said
+ *  "auto-accept". So the cursor is read off the screen: on "No, exit", one arrow toward the "Yes"
+ *  item first. A screen this cannot read keeps the old single Enter, which is right for the old menu. */
+export function trustAcceptKeys(text: string): string[] {
+  const s = squash(text).toLowerCase()
+  const cursorOnNo = /[>❯](?:\d+[.)])?no,exit/.test(s)
+  if (!cursorOnNo) return ['\r']
+  const yesAt = s.lastIndexOf('yes,itrustthisfolder')
+  const noAt = s.lastIndexOf('no,exit')
+  if (yesAt < 0) return ['\r']
+  return [yesAt > noAt ? ARROW_DOWN : ARROW_UP, '\r']
+}
+
 export interface ScanHit {
   limit: boolean
   trust: boolean
