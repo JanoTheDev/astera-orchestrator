@@ -2958,8 +2958,12 @@ export interface AutoLimits {
 export interface HealthSnapshot {
   /** ISO time of the sample */
   at: string
-  /** Available memory, % of total */
+  /** Available memory, % of total. 100 when the reading was unknown (`memUnknown`): unknown is not strain. */
   memAvailablePct: number
+  /** Set when the OS gave no usable memory reading for this sample. */
+  memUnknown?: true
+  /** Windows only: commit headroom, 100 * (commit limit - committed) / commit limit. Absent when unknown or not Windows. */
+  commitHeadroomPct?: number
   /** os.loadavg()[0] / logical CPUs */
   load1PerCpu: number
   /** Host event-loop delay, p99 over the sample window */
