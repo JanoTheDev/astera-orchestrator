@@ -1903,8 +1903,11 @@ export interface CoreApi {
     /** W1-B: the app-wide Job worker cap; null is no cap. */
     getMaxConcurrentWorkers(): Promise<number | null>
     setMaxConcurrentWorkers(n: number | null): Promise<void>
-    getHeavyJobsAtOnce(): Promise<number>
-    setHeavyJobsAtOnce(n: number): Promise<void>
+    /** The owner's heavy-jobs setting: a number, or 'auto' (sized from free memory at each read). */
+    getHeavyJobsAtOnce(): Promise<number | 'auto'>
+    setHeavyJobsAtOnce(n: number | 'auto'): Promise<void>
+    /** The heavy slots auto sizes to now, from available memory. */
+    getAutoHeavySlots(): Promise<number>
     /** This machine's memory and CPUs and the worker cap they support (what an unset limit schedules at). */
     getMachineSpecs(): Promise<MachineSpecs>
     /** W6-G: subagents at once per Claude tab (1–10), and the usage percent at which no new worker starts. */

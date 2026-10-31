@@ -540,10 +540,11 @@ describe('getAgentLimits', () => {
 })
 
 describe('heavyJobsAtOnce', () => {
-  it('defaults to 1, persists a value the CLI and Host then read, and narrows what it is given', async () => {
+  it('defaults to auto, persists a number the CLI and Host then read, and narrows what it is given', async () => {
     const a = new AppSettingsStore(file())
     await a.load()
-    expect(a.getHeavyJobsAtOnce()).toBe(1)
+    expect(a.getHeavyJobsAtOnce()).toBe('auto')
+    expect(a.getEffectiveHeavyJobsAtOnce()).toBeGreaterThanOrEqual(1)
     await a.setHeavyJobsAtOnce(3)
     const b = new AppSettingsStore(file())
     await b.load()
@@ -552,7 +553,10 @@ describe('heavyJobsAtOnce', () => {
     await b.setHeavyJobsAtOnce(50)
     expect(b.getHeavyJobsAtOnce()).toBe(8)
     await b.setHeavyJobsAtOnce(0)
-    expect(b.getHeavyJobsAtOnce()).toBe(1)
+    expect(b.getHeavyJobsAtOnce()).toBe('auto')
+    await b.setHeavyJobsAtOnce(2)
+    await b.setHeavyJobsAtOnce('auto')
+    expect(b.getHeavyJobsAtOnce()).toBe('auto')
     expect(JSON.parse(await fs.readFile(file(), 'utf8'))).not.toHaveProperty('heavyJobsAtOnce')
   })
 })
