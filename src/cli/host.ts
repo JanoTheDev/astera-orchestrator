@@ -7,13 +7,14 @@ import fsSync, { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import os from 'node:os'
 import path from 'node:path'
-import { HOST_PROTOCOL } from '../core/host/protocol'
+import { HOST_FEATURE_RESTART, HOST_PROTOCOL, RESTART_WAIT_MAX_MS, RESTART_WAIT_MS } from '../core/host/protocol'
 import { connectHost, type HostConnection } from '../core/host/connect'
 import { hostSpawnPlan, hostStderr, resolveHostEntry, type HostCliPaths } from '../core/host/spawn'
 import { hostRuntimeBase, hostRuntimePaths } from '../core/host/runtime'
 import { HOST_STOP_WAIT_MS } from '../core/host/unresponsive'
 import { siblingHostAddresses } from '../host/address'
 import { answers, LEGACY_APP_NOTICE } from '../host/server'
+import { handoverFileIn } from '../host/sessionRestore'
 import { encodeLine } from '../host/framing'
 import net from 'node:net'
 import { resolveSkillsDir } from './skills'
@@ -401,6 +402,256 @@ export function hostSpawnPlanFor(a: {
   return { plan, logPath: targets.logPath }
 }
 
+/**
+ * Starts the Host `plan` describes, detached, and lets this process go. Shared by `host start` and `host restart`, so
+ * both start it the same way (the plan's `windowsHide`, `detached` and env; its stderr to a file beside host.log).
+ * `spawnFn` is injectable so a test sees the call instead of starting a Host.
+ */
+export function spawnHostDetached(a: {
+  plan: ReturnType<typeof hostSpawnPlan>
+  profileDir: string
+  spawnFn?: typeof spawn
+}): void {
+  const { plan, profileDir } = a
+  // Its stderr to a file beside host.log, so a Host that dies of something it could not log leaves the reason.
+  const stderr = hostStderr(path.join(profileDir, 'host', 'host-stderr.log'), fsSync)
+  let child: ReturnType<typeof spawn>
+  try {
+    child = (a.spawnFn ?? spawn)(plan.command, plan.args, { ...plan.options, stdio: stderr.stdio })
+  } finally {
+    stderr.close()
+  }
+  // A spawn that fails arrives as an async 'error' event, not a throw — see the same handling in
+  // `src/main/ipc.ts`'s `startHostClient`. The polling loop of the caller reports the outcome either way; this
+  // only keeps a failed spawn from being an unhandled process-level error.
+  child.on('error', (err) => logToStderr(`the Host could not be started: ${String(err)}`))
+  child.unref()
+}
+
+/** How many sessions a handover file holds: its saved sessions and its chats, which is what the next Host resumes
+ *  (host/sessionRestore.ts `restoreHandover` returns the ones that came back; this is what was handed over). 0 for no
+ *  file, or one that does not read or does not parse: never throws. `readFile` is injectable so a test needs no disk. */
+export function handoverSessionCount(profileDir: string, readFile: (file: string) => string = (f) => readFileSync(f, 'utf8')): number {
+  try {
+    const v = JSON.parse(readFile(handoverFileIn(profileDir))) as { sessions?: unknown; chats?: unknown } | null
+    const n = (x: unknown): number => (Array.isArray(x) ? x.length : 0)
+    return v ? n(v.sessions) + n(v.chats) : 0
+  } catch {
+    return 0
+  }
+}
+
+/** `m:ss` for a count of milliseconds, rounded up to the second: `2:10`. */
+const clock = (ms: number): string => {
+  const s = Math.ceil(Math.max(0, ms) / 1000)
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+}
+
+/** One `restart-progress` as the line `host restart` prints on stderr: "Holding new starts · waiting for 3 workers to
+ *  reach a safe point (2:10 left)". Pure, so the wording is checked without a Host. */
+export function restartProgressLine(p: { working: number; waitingOn: readonly string[]; leftMs: number }): string {
+  const n = p.waitingOn.length
+  if (n === 0) return 'Holding new starts · every worker is at a safe point — handing over'
+  if (p.leftMs <= 0) return `Handing over now · ${n} worker${n === 1 ? '' : 's'} not at a safe point yet are cut short`
+  return `Holding new starts · waiting for ${n} worker${n === 1 ? '' : 's'} to reach a safe point (${clock(p.leftMs)} left)`
+}
+
+/** How long `host restart` waits for the old Host's address to be free once its connection ended: the Host keeps
+ *  it bound until its workspaces, spawns and plugins have closed (measured at about a minute; main/host/client.ts
+ *  RETIRING_WAIT_MS is the app's own bound for the same wait). */
+export const RESTART_LEAVE_WAIT_MS = 90_000
+/** How long the new Host gets to answer its first `hello` after the spawn. More than `host start` gives: the next
+ *  Host first reads the handover. */
+export const RESTART_START_WAIT_MS = 30_000
+/** How long, once the old Host is gone, the app's own client has to bring its Host back before this CLI starts one. */
+export const RESTART_APP_GRACE_MS = 2_000
+
+/** What `host restart` is asked for, as `run.ts` reads it off the line. */
+export interface HostRestartOptions {
+  /** `--wait <minutes>` as typed (the parser keeps a string, or `true` when no value followed). */
+  wait?: unknown
+  /** `--now`: hand over at once, cutting short the workers that have not reached a safe point. */
+  now?: boolean
+}
+
+/** Everything `host restart` touches outside this process, injectable so a test drives it with a fake Host. */
+export interface HostRestartDeps {
+  connect?: typeof connectHost
+  spawnFn?: typeof spawn
+  /** Where the new Host is started from; this CLI's own install (`hostSpawnPlanFor`) when left out. */
+  spawnPlan?: typeof hostSpawnPlanFor
+  /** Whether anything answers at `address`; `answers` (host/server.ts) when left out. */
+  answers?: (address: string) => Promise<boolean>
+  /** The sessions the old Host handed over, read before the new Host starts; `handoverSessionCount` when left out. */
+  handedOver?: (profileDir: string) => number
+  sleep?: (ms: number) => Promise<void>
+  write?: (line: string) => void
+  /** The waits, each overridable for a test. */
+  exitMs?: number
+  leaveMs?: number
+  graceMs?: number
+  startMs?: number
+  pollMs?: number
+}
+
+/**
+ * `astera host restart [--wait <minutes>] [--now]`: asks the Host to hold new starts, wait for the safe point, hand
+ * its sessions over and leave (protocol.ts `restart`), then starts the next Host from this CLI's own install, unless
+ * the app's own Host is already back, and reports `{ restarted, from, to, resumed }`. Progress goes to stderr.
+ *
+ * **A Host without HOST_FEATURE_RESTART is refused, not retired the old way.** The app falls back to the resume
+ * retire, which a working Task refuses; here a person asked for this command by name, and `host stop` is the other
+ * command for what an old Host can do.
+ * **`resumed` is what the old Host handed over**, read from its handover file before the next Host removes it. The
+ * Host reports no count of its own over the connection.
+ */
+export async function runHostRestart(a: {
+  env: NodeJS.ProcessEnv
+  platform: NodeJS.Platform
+  home: string
+  options?: HostRestartOptions
+  deps?: HostRestartDeps
+}): Promise<HostCommandResult> {
+  const d = a.deps ?? {}
+  const connect = d.connect ?? connectHost
+  const wait = d.sleep ?? sleep
+  const say = d.write ?? logToStderr
+  const o = a.options ?? {}
+  let waitMs: number | undefined
+  if (o.wait !== undefined) {
+    const minutes = typeof o.wait === 'string' && o.wait.trim() !== '' ? Number(o.wait) : typeof o.wait === 'number' ? o.wait : NaN
+    if (!Number.isFinite(minutes) || minutes <= 0)
+      return { ok: false, error: { code: 'INVALID_ARGUMENTS', message: '--wait needs a number of minutes above 0, such as --wait 5' } }
+    waitMs = Math.min(Math.round(minutes * 60_000), RESTART_WAIT_MAX_MS)
+  }
+  const force = o.now === true
+  const { address, profileDir } = cliHostTarget({ env: a.env, platform: a.platform, home: a.home })
+
+  const old = await connect({ address, profileDir, app: CLI_VERSION, log: logToStderr })
+  if ('error' in old) {
+    if (old.error === 'impostor') return { ok: false, error: impostorError(address, profileDir) }
+    return {
+      ok: false,
+      error: {
+        code: 'HOST_NOT_RUNNING',
+        message: `no Host is running for the profile ${profileDir}, so there is nothing to restart`,
+        details: { profileDir }
+      }
+    }
+  }
+  const from = old.hello.host
+  if (!old.hello.features.includes(HOST_FEATURE_RESTART)) {
+    old.close()
+    return {
+      ok: false,
+      error: {
+        code: 'VERSION_MISMATCH',
+        message:
+          `the Host (${from}) is too old to restart on request: it does not announce \`restart\`. It can be replaced only once it holds nothing: ` +
+          'the app does that on its own when no Task works, and `astera host stop` asks it to leave when it holds no session or run.',
+        details: { hostVersion: from, features: old.hello.features }
+      }
+    }
+  }
+
+  // Waiting for the safe point can take up to the wait the Host takes, then the handover itself.
+  const exitMs = d.exitMs ?? (force ? 0 : (waitMs ?? RESTART_WAIT_MS)) + HOST_STOP_WAIT_MS
+  let last: { key: string; leftMs: number } | null = null
+  const exited = await new Promise<boolean>((resolve) => {
+    let offMessage: () => void = () => {}
+    let offClose: () => void = () => {}
+    const settle = (v: boolean): void => {
+      clearTimeout(timer)
+      offMessage()
+      offClose()
+      resolve(v)
+    }
+    const timer = setTimeout(() => settle(false), exitMs)
+    timer.unref?.()
+    offMessage = old.onMessage((m) => {
+      if (m.t !== 'restart-progress') return
+      // Every two seconds the Host looks again; a line each time would scroll the count away. A change of who is
+      // waited on, the end of the wait and every ten seconds of it get one.
+      const key = m.waitingOn.join(',')
+      if (last !== null && last.key === key && m.leftMs > 0 && last.leftMs - m.leftMs < 10_000) return
+      last = { key, leftMs: m.leftMs }
+      say(restartProgressLine(m))
+    })
+    offClose = old.onClose(() => settle(true))
+    old.call({ t: 'restart', ...(waitMs !== undefined ? { waitMs } : {}), ...(force ? { force: true as const } : {}) })
+  })
+  old.close()
+  if (!exited)
+    return {
+      ok: false,
+      error: {
+        code: 'TIMEOUT',
+        message: `restart was sent, but the Host did not leave within ${exitMs}ms — it may still be running (and possibly stuck)`,
+        details: { waitedMs: exitMs }
+      }
+    }
+
+  // The connection ending is not the address being free: the Host closes its workspaces first.
+  say('The Host is handing its sessions over and leaving')
+  const probe = d.answers ?? answers
+  const pollMs = d.pollMs ?? START_POLL_MS
+  const leaveBy = Date.now() + (d.leaveMs ?? RESTART_LEAVE_WAIT_MS)
+  while (await probe(address)) {
+    if (Date.now() >= leaveBy)
+      return {
+        ok: false,
+        error: {
+          code: 'TIMEOUT',
+          message: `the Host ended its connection but still holds ${address}: nothing was started beside it`,
+          details: { address }
+        }
+      }
+    await wait(pollMs)
+  }
+  // Read now, not later: the next Host removes the file once it has brought the sessions back.
+  const resumed = (d.handedOver ?? ((p: string) => handoverSessionCount(p)))(profileDir)
+
+  // The app brings its own Host back within a moment when it is open: give it that moment, then start one here.
+  const hello = async (): Promise<string | CliError | null> => {
+    const c = await connect({ address, profileDir, app: CLI_VERSION, log: logToStderr })
+    if ('error' in c) return c.error === 'impostor' ? impostorError(address, profileDir) : null
+    const version = c.hello.host
+    c.close()
+    return version
+  }
+  const waitFor = async (ms: number): Promise<string | CliError | null> => {
+    const until = Date.now() + ms
+    for (;;) {
+      const v = await hello()
+      if (v !== null || Date.now() >= until) return v
+      await wait(pollMs)
+    }
+  }
+  const finish = (to: string): HostCommandResult => {
+    say(`Restarted · ${resumed} session${resumed === 1 ? '' : 's'} resumed`)
+    return { ok: true, body: { restarted: true, from, to, resumed } }
+  }
+  let up = await waitFor(d.graceMs ?? RESTART_APP_GRACE_MS)
+  if (typeof up === 'object' && up !== null) return { ok: false, error: up }
+  if (typeof up === 'string') return finish(up)
+
+  const planned = (d.spawnPlan ?? hostSpawnPlanFor)({ profileDir, platform: a.platform, env: a.env })
+  if ('error' in planned) return { ok: false, error: planned.error }
+  say('Starting the new Host')
+  spawnHostDetached({ plan: planned.plan, profileDir, ...(d.spawnFn ? { spawnFn: d.spawnFn } : {}) })
+  up = await waitFor(d.startMs ?? RESTART_START_WAIT_MS)
+  if (typeof up === 'object' && up !== null) return { ok: false, error: up }
+  if (typeof up === 'string') return finish(up)
+  return {
+    ok: false,
+    error: {
+      code: 'HOST_NOT_RUNNING',
+      message: `the old Host left, but the new one did not answer within ${d.startMs ?? RESTART_START_WAIT_MS}ms — its log is at ${planned.logPath}. Its sessions are kept for the next Host: \`astera host start\` brings them back.`,
+      details: { logPath: planned.logPath, resumed }
+    }
+  }
+}
+
 export async function runHostCommand(a: {
   cmd: string
   env: NodeJS.ProcessEnv
@@ -417,7 +668,13 @@ export async function runHostCommand(a: {
   replace?: boolean
   /** The notice's timing and its writer. Test injection only. */
   notice?: { firstMs?: number; everyMs?: number; write?: (line: string) => void }
+  /** `host restart`: what it was asked for, and (tests only) what it talks to. */
+  restart?: HostRestartOptions
+  restartDeps?: HostRestartDeps
 }): Promise<HostCommandResult> {
+  // `host restart` prints its own progress lines on stderr, so it has no keepalive notice of its own.
+  if (a.cmd === 'host-restart')
+    return runHostRestart({ env: a.env, platform: a.platform, home: a.home, options: a.restart, deps: a.restartDeps })
   const notice = startHostNotice({ cmd: a.cmd, enabled: a.noKeepalive !== true, ...a.notice })
   try {
     return await runHostCommandNow(a)
@@ -536,19 +793,7 @@ async function runHostCommandNow(a: {
   const planned = hostSpawnPlanFor({ profileDir, platform: a.platform, env: a.env })
   if ('error' in planned) return { ok: false, error: planned.error }
   const { plan, logPath } = planned
-  // Its stderr to a file beside host.log, so a Host that dies of something it could not log leaves the reason.
-  const stderr = hostStderr(path.join(profileDir, 'host', 'host-stderr.log'), fsSync)
-  let child: ReturnType<typeof spawn>
-  try {
-    child = spawn(plan.command, plan.args, { ...plan.options, stdio: stderr.stdio })
-  } finally {
-    stderr.close()
-  }
-  // A spawn that fails arrives as an async 'error' event, not a throw — see the same handling in
-  // `src/main/ipc.ts`'s `startHostClient`. The polling loop below reports the outcome either way; this
-  // only keeps a failed spawn from being an unhandled process-level error.
-  child.on('error', (err) => logToStderr(`the Host could not be started: ${String(err)}`))
-  child.unref()
+  spawnHostDetached({ plan, profileDir })
 
   const deadline = Date.now() + START_TIMEOUT_MS
   for (;;) {
