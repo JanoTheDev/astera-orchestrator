@@ -56,6 +56,19 @@ describe('crashLowering', () => {
       ['checks', null, null, 'crash']
     ])
   })
+  it('says memory unknown, not 100% free, for an unknown reading', () => {
+    const next = crashLowering({ ...base, health: health({ memAvailablePct: 100, memUnknown: true }) })!(empty())
+    expect(next.workers?.detail).toBe('Host ended without a clean exit while 8 agents, 2 heavy jobs and 3 checks ran; memory unknown')
+    expect(next.workers?.detail).not.toContain('100%')
+  })
+  it('adds the commit headroom when the sample has it', () => {
+    const next = crashLowering({ ...base, health: health({ commitHeadroomPct: 12.6 }) })!(empty())
+    expect(next.workers?.detail).toBe('Host ended without a clean exit while 8 agents, 2 heavy jobs and 3 checks ran; memory 4% free; commit headroom 13%')
+  })
+  it('says memory unknown and the commit headroom together on Windows', () => {
+    const next = crashLowering({ ...base, health: health({ memAvailablePct: 100, memUnknown: true, commitHeadroomPct: 30 }) })!(empty())
+    expect(next.heavy?.detail).toBe('Host ended without a clean exit while 8 agents, 2 heavy jobs and 3 checks ran; memory unknown; commit headroom 30%')
+  })
   it('leaves the agent cap alone when only one worker ran', () => {
     expect(crashLowering({ ...base, workersAtCrash: 1, heavyAtCrash: 0, checksAtCrash: 0, effectiveHeavy: 1 })).toBeNull()
   })
