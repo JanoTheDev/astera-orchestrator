@@ -378,6 +378,7 @@ export const plan: Record<keyof typeof ko, string> = {
   "plan.task.copied": "Copied",
   "plan.task.result": "Result",
   "plan.task.gaps": "Could not reach",
+  "plan.task.notProvable": "Not provable here",
   "plan.task.attempts": "Attempts",
   "plan.task.attempt.work": "Work",
   "plan.task.attempt.review": "Review",

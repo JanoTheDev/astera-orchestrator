@@ -132,7 +132,9 @@ const TASK_HIDDEN = [
   // T3: where the Task's worker starts, held back with the planner's other fields
   'worktree',
   // T36: what a succeeded worker could not reach, not in the SDK's contract yet
-  'gaps'
+  'gaps',
+  // T12: what this machine could not run, held back with `gaps`
+  'notProvable'
 ] as const
 
 /** W1-A role models: a Job's per-role model override, held back from the SDK like the Task's three above. */

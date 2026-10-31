@@ -16,6 +16,8 @@ export interface BriefTask {
   acceptanceCriteria?: readonly string[]
   result?: string
   gaps?: string
+  /** T12: what this machine could not run and why */
+  notProvable?: string
   reviewIssues?: ReadonlyArray<{ severity: string; title: string; file?: string; line?: number }>
   links?: { branch?: string; commits?: readonly string[] }
 }
@@ -44,6 +46,7 @@ export function briefOf({ plan, task, changes }: { plan: string; task: BriefTask
   part('Acceptance criteria', task.acceptanceCriteria?.map((c) => `- ${c}`).join('\n'))
   part("Worker's report", task.result && cut(task.result, BRIEF_REPORT_MAX))
   part('Gaps', task.gaps)
+  part('Not provable here', task.notProvable)
   part(
     'Review issues',
     task.reviewIssues?.map((i) => `- [${i.severity}] ${i.title}${i.file ? ` (${i.file}${i.line !== undefined ? `:${i.line}` : ''})` : ''}`).join('\n')

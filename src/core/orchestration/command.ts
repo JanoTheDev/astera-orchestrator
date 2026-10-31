@@ -59,10 +59,12 @@ import {
   recordDispatchGit,
   placedByApp,
   coordinatorStarting,
+  addDecision,
   type OrchState,
   type RepairTarget,
   type Res
 } from './state'
+import { acceptedNotProvable, missingToolOf } from './exec/notProvable'
 import { CLI_PROTOCOL } from './cliOutput'
 import { collectChanges, rangesFor } from './changedFiles'
 import type { ChangedFile } from '../git/changes'
@@ -1675,6 +1677,74 @@ async function assignAll(gh: GhRunner, cwd: string, numbers: readonly number[]):
 export function ghRefusal(f: GhFailed): Reply {
   const status = f.kind === 'not-found' ? 404 : f.kind === 'not-installed' || f.kind === 'auth' ? 409 : 502
   return { status, body: { error: f.message } }
+}
+
+/** T12: what a `worker_done` says this machine cannot run. A succeeded report's own `--not-provable`; or, in a hands-off
+ *  plan, a failed implementation report whose words only say a tool or OS is missing here (exec/notProvable.ts
+ *  `missingToolOf`) from an attempt that committed its work: that one is `converted` to succeeded with the note. null:
+ *  nothing to note, and a failed report stays failed. Never throws: a git read that fails converts nothing. */
+async function notProvableOfReport(
+  deps: OrchServerDeps,
+  s: OrchState,
+  a: { taskId: string; dispatch: Dispatch | undefined; outcome: 'succeeded' | 'failed'; args: Record<string, unknown> }
+): Promise<{ note: string; converted: boolean } | null> {
+  const given = str(a.args.notProvable)?.trim()
+  if (a.outcome === 'succeeded') return given ? { note: given, converted: false } : null
+  const d = a.dispatch
+  if (!d || d.review || !d.git?.base) return null
+  const task = s.tasks.find((t) => t.id === a.taskId)
+  const run = task && s.runs.find((r) => r.id === task.runId)
+  const job = run && jobOf(s, run)
+  if (!job || !handsOffOf(s, job)) return null
+  const note = missingToolOf([given, str(a.args.subject), str(a.args.body)].filter((x): x is string => !!x).join('\n'))
+  if (note === null) return null
+  try {
+    // The commits the attempt added over its recorded base, read on this machine (rangeCommits: empty when git cannot say)
+    return (await rangeCommits(d.cwd, d.git.base)).length > 0 ? { note, converted: true } : null
+  } catch (e) {
+    deps.log?.(`task ${a.taskId}: the commits of dispatch=${d.id} could not be read: ${String(e)}`)
+    return null
+  }
+}
+
+/** T12: the state after an accepted `worker_done`, with the Task's `notProvable` set from the report (a later report
+ *  without one clears an earlier one's, as `gaps`), and in a hands-off plan the decision that accepted it, unless the
+ *  attempt acts on a Gate answer, whose own decision already said so (autoAnswer.ts `notProvableReviewStepOf`). */
+function withNotProvable(
+  s: OrchState,
+  a: { taskId: string; dispatch: Dispatch | undefined; found: { note: string; converted: boolean } | null; subject: string },
+  now: string
+): OrchState {
+  const note = a.found?.note
+  let next: OrchState = {
+    ...s,
+    tasks: s.tasks.map((t) => {
+      if (t.id !== a.taskId) return t
+      if (note !== undefined) return { ...t, notProvable: note }
+      if (t.notProvable === undefined) return t
+      const { notProvable: _cleared, ...rest } = t
+      return rest
+    })
+  }
+  const task = next.tasks.find((t) => t.id === a.taskId)
+  const run = task && next.runs.find((r) => r.id === task.runId)
+  const job = run && jobOf(next, run)
+  if (note === undefined || !task || !job || !handsOffOf(next, job) || a.dispatch?.decision !== undefined) return next
+  const line = (text: string, max: number): string => {
+    const one = text.replace(/\s+/g, ' ').trim()
+    return one.length > max ? `${one.slice(0, max - 3)}...` : one
+  }
+  next = addDecision(next, job.id, {
+    at: now,
+    kind: 'gate',
+    taskId: task.id,
+    question: line(a.found!.converted ? `${task.title} reported failed: ${a.subject || note}` : `${task.title} could not prove everything here`, 300),
+    choice: line(acceptedNotProvable(task.title, note), 200),
+    why: a.found!.converted
+      ? 'its report says only that this machine lacks a tool, its work is committed, and the plan runs hands-off'
+      : 'the worker proved the rest, this machine cannot run that part, and the plan runs hands-off'
+  })
+  return next
 }
 
 /** W2-D: what a worker's `worker_done` gives its Task's links (core/github/taskLinks.ts): the issue it reports
@@ -5798,6 +5868,11 @@ export async function handleCommand(
           }
           return okBody(r.value)
         }
+        // T12: what this machine cannot run; a hands-off plan takes a failed report that only says so as succeeded.
+        // Not a report that ended at a usage limit: that is the limit's, not the machine's.
+        const notProvable =
+          limitResetsAt === null ? await notProvableOfReport(deps, deps.getState(), { taskId, dispatch: reporting, outcome, args }) : null
+        if (notProvable?.converted) deps.log?.(`worker_done: task=${taskId} failed -> succeeded, not provable here: ${notProvable.note}`)
         // getState is read again here — the state may have changed during the probeLimit await
         // above, and calling applyWorkerDone with the pre-await snapshot (s) would overwrite and
         // lose that change (the same reason as in handleExit — the write inversion this has caused
@@ -5807,7 +5882,7 @@ export async function handleCommand(
           {
             taskId,
             dispatchId,
-            outcome,
+            outcome: notProvable?.converted ? 'succeeded' : outcome,
             subject: str(args.subject) ?? '',
             body: str(args.body) ?? '',
             filesModified:
@@ -5824,7 +5899,13 @@ export async function handleCommand(
           now
         )
         if (!result.ok) return refused(result)
-        await deps.setState(withLimit(result.state))
+        await deps.setState(
+          withLimit(
+            result.value === 'accepted'
+              ? withNotProvable(result.state, { taskId, dispatch: reporting, found: notProvable, subject: str(args.subject) ?? '' }, now)
+              : result.state
+          )
+        )
         if (result.value === 'accepted') dropRollingChain() // 위 검토 경로와 같은 이유·같은 조건
         // W2-D: the issue, branch and commits this attempt reports go to its Task's links, after the commit and off the
         // reply's path (gh is a network call)

@@ -23,7 +23,7 @@ import { reviewRoundIn } from './convergence'
 import { layersOf } from './graph'
 import { crossPlanDepRefusal, externalDepsOf, waitsOnItself } from './mainPlan'
 import { jobActive, pathsOverlap } from './schedule'
-import { doneStatusOf, jobOf, type OrchState, type PlanFields, type Res } from './state'
+import { doneStatusOf, jobOf, projectWithWorkspace, type OrchState, type PlanFields, type Res } from './state'
 import { jobNameOf } from './jobName'
 import { FAILURE_LIMIT, newId, recomputeReady, type Dispatch, type Job, type JobRun, type Message, type ReplanMark, type Task } from './types'
 
@@ -113,13 +113,25 @@ const completedIn = (ts: readonly Task[]): number => ts.filter((t) => t.status =
 
 /** Whether a completed Task went as planned, from Host state only: no attempt of it failed (a retry resets its failure
  *  count, so the Dispatches say), it needed one review round at most,
- *  was not let through by a person, reported no gaps, and touched files only inside its affected paths (no paths: nothing to leave). */
+ *  was not let through by a person, reported no gaps, and touched files only inside its affected paths (no paths: nothing to leave).
+ *  T12: what this machine could not run (`notProvable`) is no deviation in a hands-off plan, which accepts it with a
+ *  recorded decision; elsewhere it counts like gaps. */
 const wentAsPlanned = (s: OrchState, t: Task): boolean =>
   !s.dispatches.some((d) => d.taskId === t.id && !d.review && d.outcome === 'failed') &&
   t.completionOverride === undefined &&
   !t.gaps &&
+  (!t.notProvable || handsOffTask(s, t)) &&
   reviewRoundIn(s.dispatches.filter((d) => d.taskId === t.id)) <= 1 &&
   (t.filesModified ?? []).every((f) => !t.affectedPaths?.length || t.affectedPaths.some((p) => pathsOverlap(f, p)))
+
+/** T12: whether the Task's plan runs hands-off: delivery.ts `handsOffOf`, read through the plan's own project here
+ *  because this file stays renderer-safe (projects.ts reaches node:path). */
+function handsOffTask(s: OrchState, t: Task): boolean {
+  const run = s.runs.find((r) => r.id === t.runId)
+  const job = run && jobOf(s, run)
+  if (!job) return false
+  return job.handsOff ?? (job.projectId !== undefined ? projectWithWorkspace(s, job.projectId)?.handsOff : undefined) ?? false
+}
 
 /** When this Run's deviations were last looked at: the start of its last replan that ended. '' for none. */
 function coveredSince(job: Job, runId: string): string {

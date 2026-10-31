@@ -9,6 +9,7 @@ import { isDroppedGate, isDuplicateGate, isStoppedDepGate } from '../overlap'
 import { isLeaseWaitGate } from '../schedule'
 import { readAppSettingsObject } from '../../settings/settingsObject'
 import { SCOPE_WHY, scopeAnswerOf, type ScopeContext } from './scopeDecider'
+import { acceptedNotProvable, environmentOnlyIssues, isNotProvableAnswer, notProvableReviewAnswer } from './notProvable'
 
 /** One open question as `questions-list` returns it: a Gate (with its `kind`) or an ask / escalation (`source`). */
 export interface OpenQuestion {
@@ -251,6 +252,9 @@ export function handsOffStepsDue(s: OrchState, open: OpenQuestion[], nowMs: numb
         const why = 'a guardrail: only the owner decides this, and the plan runs hands-off'
         return [{ kind: 'hold', id: q.id, decision: { kind: 'refused', taskId: q.taskId, question: asked, choice: firstLine(REFUSED_ANSWER, 200), why }, hold }]
       }
+      // T12: blockers that only need an environment this machine lacks are accepted as not provable here
+      const notProvable = notProvableReviewStepOf(s, q, asked)
+      if (notProvable) return [notProvable]
       const granted = grantOf(grantsOf(s, q), q.question)
       if (granted) return answer({ id: q.id, answer: grantedAnswer(granted), why: 'Host state' }, 'gate', `the owner granted ${granted} in advance`)
       return [{ kind: 'coordinator', question: q }]
@@ -341,10 +345,35 @@ function scopeStepOf(s: OrchState, q: OpenQuestion): AutoAnswer | null {
   return text === null ? null : { id: q.id, answer: text, why: 'safe default' }
 }
 
+/** T12: the step for a hands-off plan's `review-needs-decision` Gate whose blocking issues all need an environment this
+ *  machine lacks: answered with the not-provable acceptance (the repair it opens reports `--not-provable`, and the next
+ *  review reads the answer as the owner's) and recorded as "accepted T: not provable here: …". null when another blocker
+ *  is there, or when the Task was accepted this way once already: a second time goes the usual way, not round a loop. */
+function notProvableReviewStepOf(s: OrchState, q: OpenQuestion, asked: string): HandsOffStep | null {
+  const task = s.tasks.find((t) => t.id === q.taskId)
+  const issues = environmentOnlyIssues(task)
+  if (!task || !issues) return null
+  if (s.gates.some((g) => g.taskId === task.id && g.id !== q.id && g.kind === REVIEW_NEEDS_DECISION && isNotProvableAnswer(g.resolution))) return null
+  const text = notProvableReviewAnswer(issues)
+  const note = issues.map((i) => `${i.title} (needs environment)`).join('; ')
+  return {
+    kind: 'answer',
+    answer: { id: q.id, answer: text, why: 'safe default' },
+    decision: {
+      kind: 'gate',
+      taskId: task.id,
+      question: asked,
+      choice: firstLine(acceptedNotProvable(task.title, note), 200),
+      why: 'the review found only what this machine cannot provide, and the plan runs hands-off'
+    }
+  }
+}
+
 /** T11: how long a hands-off plan with no live coordinator waits for its planner to answer a worker's question, before
  *  the question gets ESCALATION_DEFAULT_ANSWER. */
 export const PLANNER_ANSWER_WAIT_MS = 5 * 60_000
 
 /** T11: the answer a worker's question gets when neither a coordinator nor the plan's planner decided it in time. */
 export const ESCALATION_DEFAULT_ANSWER =
-  "Proceed with the option that keeps to your Task's spec and the plan's decisions; record the choice in your report."
+  "Proceed with the option that keeps to your Task's spec and the plan's decisions; record the choice in your report. " +
+  'When the blocker is a tool or OS this machine lacks, report succeeded with --not-provable "<command>: <why>".'
