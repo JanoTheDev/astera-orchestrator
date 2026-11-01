@@ -63,6 +63,35 @@ describe('createWorktree', () => {
     expect(await fs.readFile(path.join(info.path, '.env'), 'utf8')).toBe('K=1')
   })
 
+  it('deferCheckout: the admin step leaves an empty tree; finish gives a clean worktree on its branch, includes copied', async () => {
+    await fs.writeFile(path.join(repo, '.gitignore'), '.env
+', 'utf8')
+    await fs.writeFile(path.join(repo, '.env'), 'K=1', 'utf8')
+    await fs.writeFile(path.join(repo, '.worktreeinclude'), '.env
+', 'utf8')
+    execFileSync('git', ['add', '.gitignore', '.worktreeinclude'], { cwd: repo, windowsHide: true })
+    execFileSync('git', ['commit', '-m', 'inc'], { cwd: repo, windowsHide: true })
+    const pending = await createWorktree({ repoPath: repo, name: 'split', registry: reg, deferCheckout: true })
+    expect(existsSync(path.join(pending.path, 'f.txt'))).toBe(false)
+    expect(reg.list()).toEqual([])
+    const { info } = await pending.finish()
+    expect(info.path).toBe(pending.path)
+    expect(gitIn(info.path, ['branch', '--show-current'])).toBe('Test-User/split')
+    expect(gitIn(info.path, ['status', '--porcelain'])).toBe('')
+    expect(existsSync(path.join(info.path, 'f.txt'))).toBe(true)
+    expect(await fs.readFile(path.join(info.path, '.env'), 'utf8')).toBe('K=1')
+    expect(reg.get(info.id)?.path).toBe(info.path)
+  })
+
+  it('deferCheckout: a checkout past its deadline is reported as such and removes the half-made worktree and its branch', async () => {
+    const pending = await createWorktree({ repoPath: repo, name: 'slow', registry: reg, deferCheckout: true, checkoutTimeoutMs: 1 })
+    await expect(pending.finish()).rejects.toThrow(/GIT_CHECKOUT_FAILED: git checkout timed out/)
+    expect(existsSync(pending.path)).toBe(false)
+    expect(await localBranchExists(repo, pending.branch)).toBe(false)
+    expect(gitIn(repo, ['worktree', 'list', '--porcelain'])).not.toContain('slow')
+    expect(reg.list()).toEqual([])
+  })
+
   it('git repo가 아니면 NOT_GIT_REPO', async () => {
     const notRepo = await tempDir('astera-wt-plain-')
     await expect(createWorktree({ repoPath: notRepo, registry: reg })).rejects.toThrow(/NOT_GIT_REPO/)
