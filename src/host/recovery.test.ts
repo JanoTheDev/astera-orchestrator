@@ -1,4 +1,7 @@
 import { describe, it, expect } from 'vitest'
+import { promises as fs } from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { createHostRecovery, type HostRecoveryDeps } from './recovery'
 import { stateFromLegacy } from '../core/orchestration/legacyState'
 import type { OrchState } from '../core/orchestration/state'
@@ -8,6 +11,7 @@ import type { GitFacts } from '../core/recovery/types'
 import type { ResumeStrategy } from '../core/types'
 import { HOST_YIELD_RECOVERY } from '../core/host/protocol'
 import { createLostGateGuard, type LostGateGuard } from './lostGateGuard'
+import { sessionRestoreFileIn } from './sessionRestore'
 import { CRASH_RESUME_NOTE, resumeAfterCrash } from '../core/orchestration/exec/crashResume'
 import type { ActivityDraft } from '../core/orchestration/activity'
 
@@ -47,6 +51,8 @@ function rig(over: {
   realExecute?: boolean
   /** T34: the orchestration's `agentSessionOf`. */
   agentSessionOf?: (sid: string) => Promise<string | null>
+  /** T34: where live-sessions.json is read from; D:/profile (no file) when left out. */
+  profileDir?: string
 } = {}) {
   let current = over.state ?? lostState()
   const appended: Array<{ type: string }> = []
@@ -84,7 +90,7 @@ function rig(over: {
       state: () => current
     },
     checks: { startValidation: () => {}, langNow: () => 'en' },
-    profileDir: 'D:/profile',
+    profileDir: over.profileDir ?? 'D:/profile',
     ...(over.guard ? { guard: over.guard } : {}),
     log: (m) => logs.push(m),
     now: () => NOW,
@@ -338,6 +344,22 @@ describe('createHostRecovery after a crash (T34)', () => {
     expect(h.started[0].worktree).toBe('D:/wt')
     expect(h.started[0].resume?.nativeSessionId).toBe('native-1')
     expect(h.started[0].resume?.briefing).toContain(CRASH_RESUME_NOTE)
+  })
+
+  it('a conversation only live-sessions.json knows (the hook events gone with the crash) is resumed too', async () => {
+    const profileDir = await fs.mkdtemp(path.join(os.tmpdir(), 'astera-recovery-'))
+    try {
+      const file = sessionRestoreFileIn(profileDir)
+      await fs.mkdir(path.dirname(file), { recursive: true })
+      await fs.writeFile(file, JSON.stringify([{ sessionId: 'sess-1', accountId: 'acc_1', cwd: 'D:/wt', nativeSessionId: 'native-saved' }]))
+      const h = rig({ realExecute: true, agentSessionOf: async () => null, profileDir })
+      await h.r.sweep('the load')
+      expect(h.started).toHaveLength(1)
+      expect(h.started[0].resume?.nativeSessionId).toBe('native-saved')
+      expect(h.started[0].resume?.briefing).toContain(CRASH_RESUME_NOTE)
+    } finally {
+      await fs.rm(profileDir, { recursive: true, force: true })
+    }
   })
 
   it('with no conversation known it starts fresh', async () => {

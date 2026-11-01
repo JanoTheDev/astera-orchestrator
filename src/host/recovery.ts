@@ -40,6 +40,7 @@ import type { ResumeStrategy } from '../core/types'
 import type { HostChecks } from './checks'
 import type { HostJournal } from './hostJournal'
 import { createLostGateGuard, type LostGateGuard } from './lostGateGuard'
+import { readSavedSessions, sessionRestoreFileIn } from './sessionRestore'
 
 export interface HostRecoveryDeps {
   journal: Pick<HostJournal, 'reconcilerJournal' | 'writes'>
@@ -62,8 +63,6 @@ export interface HostRecoveryDeps {
   readResumeStrategy?(settingsPath: string): Promise<ResumeStrategy>
   readMaxConcurrentWorkers?(settingsPath: string): Promise<number>
   executeRecovery?: typeof realExecuteRecovery
-  /** T34: a dead worker session's conversation id; the orchestration's `agentSessionOf` when left out. */
-  nativeIdOf?(sessionId: string): Promise<string | null>
 }
 
 export interface HostRecovery {
@@ -83,6 +82,9 @@ export interface HostRecovery {
 
 export function createHostRecovery(d: HostRecoveryDeps): HostRecovery {
   const settingsPath = path.join(d.profileDir, 'app-settings.json')
+  /** T34: the sessions the last Host left (sessionRestore.ts), read now: this Host's tracker rewrites the file later
+   *  (host/index.ts trackLiveSessions) and drops each worker row once the restore has settled it. Never rejects. */
+  const savedAtStart = readSavedSessions(sessionRestoreFileIn(d.profileDir))
   const log = (m: string): void => {
     try {
       d.log(m)
@@ -153,7 +155,11 @@ export function createHostRecovery(d: HostRecoveryDeps): HostRecovery {
     smartResume: () => smart,
     workerCap: () => workerCap,
     // T34: a lost worker whose conversation is known resumes in it (decide.ts `resume-native`), as a handover does.
-    nativeIdOf: async (sid) => (d.nativeIdOf ? d.nativeIdOf(sid) : ((await d.orch.internalDeps().agentSessionOf?.(sid)) ?? null)),
+    // After a crash the hook events are often gone (the app's start empties them), so the saved list is asked next.
+    nativeIdOf: async (sid) =>
+      (await d.orch.internalDeps().agentSessionOf?.(sid).catch(() => null)) ??
+      (await savedAtStart).find((x) => x.sessionId === sid)?.nativeSessionId ??
+      null,
     // The last gate before a worker is spawned: the reads before it waited on git and the journal, and the Host
     // may have stopped driving, begun to leave, or met an app that takes recovery back in the meantime. The
     // reconciler journals the refusal as RECOVERY_FAILED, the honest record of what happened.
