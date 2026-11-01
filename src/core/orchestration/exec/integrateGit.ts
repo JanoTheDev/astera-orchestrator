@@ -1021,6 +1021,8 @@ export interface PushContext {
   gitAtLeast?: typeof gitVersionAtLeast
   /** T3: who is told Astera moves HEAD for the catch-up merge with origin (integrateWorktrees' own). Optional. */
   gitOp?: IntegrateContext['gitOp']
+  /** Test seam for the retry's `.git` link check; defaults to the action-lane check (worktrees/presence.ts). */
+  presence?: PresenceCheck
 }
 
 /** T3: why a push delivery stopped part-way, for the caller to tell a retry from an integration Task: `fetch-failed`
@@ -1150,7 +1152,14 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
         if (!reset.ok || !back.ok || back.stdout !== base) stop = `could not go back to ${base} to try again: ${why(reset)}`
       }
     }
-    const tips = stop === null ? await tipsOf(a.worktrees, run) : []
+    // A worktree without its `.git` link (half removed, or gone) is skipped as mergeWorktrees does: refreshing it would
+    // run git where git cannot run and stop the delivery on a folder that holds nothing to merge
+    const linked = stop === null
+      ? await Promise.all(a.worktrees.map(async (wt) => (await askUntilAnswered(ctx.presence ?? defaultActionPresenceCheck, path.join(wt, '.git'))) !== 'missing'))
+      : []
+    const skipped = a.worktrees.filter((_, i) => linked[i] === false)
+    if (skipped.length > 0) ctx.log(`delivery: skipping ${skipped.length} removed worktree(s) on the retry: ${skipped.join(', ')}`)
+    const tips = stop === null ? await tipsOf(a.worktrees.filter((_, i) => linked[i]), run) : []
     for (const wt of tips) {
       if (stop !== null) break
       const r = await refreshOnto(wt, base, `Refresh onto ${branch} before delivery`, { log: ctx.log, git: run, ...(ctx.gitAtLeast ? { gitAtLeast: ctx.gitAtLeast } : {}) })

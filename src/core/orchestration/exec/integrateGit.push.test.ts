@@ -7,6 +7,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { git as realGit, type GitResult } from '../../worktrees/git'
 import { deliverByPush, type PushContext } from './integrateGit'
+import type { PresenceCheck } from '../../worktrees/presence'
 import { createJob, createTask, emptyState, startJobRun, type OrchState } from '../state'
 import { deliveryWaitStep } from './deliveryWait'
 
@@ -53,7 +54,7 @@ const happy = (): Record<string, Reply | Reply[]> => ({
   'merge-base --is-ancestor origin/main HEAD': {}
 })
 
-function setup(over: Record<string, Reply | Reply[]> = {}, o: { merge?: 'ok' | 'conflict' | 'conflict-once' | 'dirty'; validate?: 'ok' | 'fail' | 'fail-second'; install?: 'ok' | 'fail' } = {}) {
+function setup(over: Record<string, Reply | Reply[]> = {}, o: { merge?: 'ok' | 'conflict' | 'conflict-once' | 'dirty'; validate?: 'ok' | 'fail' | 'fail-second'; install?: 'ok' | 'fail'; presence?: PresenceCheck } = {}) {
   const g = fakeGit({ ...happy(), ...over })
   const merges: { into: string; paths: string[]; message?: string }[] = []
   const validated: string[] = []
@@ -62,6 +63,8 @@ function setup(over: Record<string, Reply | Reply[]> = {}, o: { merge?: 'ok' | '
   const ctx: PushContext = {
     git: g.git,
     gitAtLeast: async () => true,
+    // the fake worktrees are not on disk: every one answers present unless a test says otherwise
+    presence: o.presence ?? (async () => 'present'),
     log: (m) => logs.push(m),
     mergeWorktrees: async (into, paths, opts) => {
       merges.push({ into, paths, ...(opts?.message !== undefined ? { message: opts.message } : {}) })
@@ -210,6 +213,19 @@ describe('deliverByPush (W6-H)', () => {
     expect(h.calls.some((a) => a.join(' ') === 'push origin main')).toBe(true)
     expect(forced(h.calls)).toBe(false)
     expect(h.logs.some((m) => m.includes('trying once more'))).toBe(true)
+  })
+
+  it('the retry skips a half removed worktree (its .git link gone): the others are refreshed, merged and pushed', async () => {
+    const h = setup(
+      // git cannot run in the half removed folder: refreshing it would stop the delivery
+      { ...refreshable(), 'symbolic-ref --quiet HEAD': (cwd) => (cwd === '/wt-b' ? { ok: false, stderr: 'fatal: not a git repository' } : { stdout: 'refs/heads/astera/b' }) },
+      { merge: 'conflict-once', presence: async (p) => (p === path.join('/wt-b', '.git') ? 'missing' : 'present') }
+    )
+    const r = await h.go()
+    expect(r).toMatchObject({ ok: true, branch: 'main', sha: 'merged' })
+    expect(h.merges.map((m) => m.paths)).toEqual([['/wt-a', '/wt-b'], ['/wt-a']])
+    expect(h.calls.some((a) => a.join(' ') === 'push origin main')).toBe(true)
+    expect(h.logs.some((m) => m.includes('skipping 1 removed worktree(s)') && m.includes('/wt-b'))).toBe(true)
   })
 
   it('retries only once: a second failed merge stops the delivery', async () => {
