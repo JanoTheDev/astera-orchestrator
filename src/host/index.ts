@@ -36,6 +36,7 @@ import { ensureHostKey } from '../core/publicContract'
 import { completeWindowsPath } from '../core/sessions/windowsPath'
 import { PtyRegistry, type RegistrySpawn } from './registry'
 import { startPtySupervisor } from './ptySupervisor/client'
+import { adoptSurvivors, listSurvivors } from './ptyAdopt'
 import { createConhostReaper, reapWindowsConsoleHosts } from './conhostReaper'
 import { createRemoteSessions, type RemoteSessions } from './remoteSessions'
 import { attachPtyHost } from './ptyHost'
@@ -78,6 +79,7 @@ import { workersAgainstCap } from '../core/orchestration/schedule'
 import { heavyQueue } from '../core/orchestration/heavyLock'
 // T5 crash restore
 import {
+  cleanExitFileIn,
   handoverFileIn,
   handoverOf,
   chatRespawnOf,
@@ -1324,6 +1326,18 @@ async function main(): Promise<void> {
     await workUnits.start()
   }
 
+  // T23: work the file says was in flight when the last Host died is picked up now, not when an app first asks — a Host
+  // started at login has no app (core/orchestration/exec/crashResume.ts). Only a Host that starts sessions itself.
+  // T5: the sessions an unclean exit left (sessionRestore.ts): read before the tracker writes this Host's own list.
+  // Read first and synchronously: a load (an app's first command) empties dead coordinator slots, and roles are read here.
+  const crashState = readStateFile(path.join(profileDir, 'orchestration.json'))
+  const restoreFile = sessionRestoreFileIn(profileDir)
+  // T36 (ptyAdopt.ts): after a crash (no clean-exit marker; a handover writes one too) the agent ptys the pty supervisor
+  // kept are listed before this Host serves, and adopted once the address is ours, before any command can load.
+  const survivors =
+    wiring && spawner && !existsSync(cleanExitFileIn(profileDir)) ? await listSurvivors(ptySupervisor, (m) => log.write(m)) : null
+  const savedAtCrash = survivors ? await readSavedSessions(restoreFile) : []
+
   // Protocol 4: the proof every client checks before it hands this Host anything (packages/client/src/hostKey.ts).
   // Made before the bind, so no client can meet this Host before its key exists. A Host that cannot
   // make one would be refused by every client, so it does not serve at all.
@@ -1474,6 +1488,10 @@ async function main(): Promise<void> {
     log.write(code === HOST_EXIT.lostBindRace ? 'another Host already serves this profile — leaving' : `could not listen: ${String(err)}`)
     process.exit(code)
   }
+  // T36: synchronously, right after the bind: the load's cleanup must find the adopted sessions alive in the registry.
+  const adopted = survivors
+    ? adoptSurvivors({ survivors, supervisor: ptySupervisor, registry, saved: savedAtCrash, state: crashState, log: (m) => log.write(m) })
+    : new Set<string>()
 
   // Written only once the address is ours: a Host that lost the bind race has nothing to say about
   // who serves this profile, and a record from it would name the wrong process. Never fatal — the
@@ -1489,12 +1507,6 @@ async function main(): Promise<void> {
   for (const line of previousHostLines(path.join(profileDir, 'host'))) log.write(line)
   exitWatch = watchExit({ proc: process, log, dir: path.join(profileDir, 'host') })
 
-  // T23: work the file says was in flight when the last Host died is picked up now, not when an app first asks — a Host
-  // started at login has no app (core/orchestration/exec/crashResume.ts). Only a Host that starts sessions itself.
-  // T5: the sessions an unclean exit left (sessionRestore.ts): read before the tracker writes this Host's own list.
-  // Read first and synchronously: a load (an app's first command) empties dead coordinator slots, and roles are read here.
-  const crashState = readStateFile(path.join(profileDir, 'orchestration.json'))
-  const restoreFile = sessionRestoreFileIn(profileDir)
   // T2 (crashLimits.ts): after a hard death the limits are lowered before any worker or session is resumed, so the
   // recovery below brings back no more than the new cap. Reads the clean-exit marker without taking it. Never rejects.
   {
@@ -1512,7 +1524,8 @@ async function main(): Promise<void> {
   }
   // A handover the last Host wrote on its way out comes first; its sessions are the saved ones then (sessionRestore.ts).
   const left = wiring && spawner ? await leftBehind(profileDir) : { handover: null, saved: [] }
-  const savedSessions = left.handover?.sessions ?? left.saved
+  // T36: an adopted session is alive already; only the ones whose pty is gone are restored.
+  const savedSessions = (left.handover?.sessions ?? left.saved).filter((x) => !adopted.has(x.sessionId))
   const nativeIdOf = async (sid: string): Promise<string | null> =>
     (await hostSessions.agentSessionOf(sid).catch(() => null)) ?? savedSessions.find((x) => x.sessionId === sid)?.nativeSessionId ?? null
   const hasConversation = async (accountId: string, nativeId: string): Promise<boolean> =>
@@ -1637,6 +1650,7 @@ async function main(): Promise<void> {
     void resumeAfterCrash({
       nativeIdOf,
       readFile: () => withoutResumed(crashState, handedOver),
+      adopted,
       ready: () => orch.ready(),
       state: () => orch.state(),
       handle: (cmd, args) => orch.handle(cmd, args),
