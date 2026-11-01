@@ -11,6 +11,7 @@
 import { isSamePath } from '../files/tree'
 import { jobOf, type OrchState } from './state'
 import type { Dispatch, Job, JobRun, Task } from './types'
+import { DELIVERY_FIX_MARK } from './delivery'
 
 /** 의존 하나가 남긴 워크트리 — 그 의존 Task 의 id 와 그것이 돌았던 폴더 */
 interface WorktreeDep {
@@ -208,8 +209,23 @@ export function worktreeDepsOf(s: OrchState, taskId: string): string[] {
  *  통합 Task 를 만들지 않는다 — 그 대가를 받는 이유는 반대 방향의 실패가 훨씬 나쁘기 때문이다:
  *  표식이 없으면 저장 한 번마다 Task 가 하나씩 늘어난다. */
 export function integrationTaskFor(s: OrchState, taskId: string): Task | undefined {
-  return s.tasks.find((t) => t.parentId === taskId)
+  // Newest first, and never a plan-wide one hung off the same anchor (isPlanWideIntegration): that one's completion
+  // says nothing about this Task's own branch, and finding it would hide the real merge (wavesToMerge, startMergeWorker)
+  for (let i = s.tasks.length - 1; i >= 0; i--) {
+    const t = s.tasks[i]
+    if (t.parentId === taskId && !isPlanWideIntegration(t)) return t
+  }
+  return undefined
 }
+
+/** What the reason of every integration Task for a commit from outside the plan says (a refresh onto another plan's
+ *  delivery, origin moving on, exec/originSync.ts): it is in its spec, through buildIntegrationSpec's reason. */
+export const PLAN_CONFLICT_MARK = "conflicts with this plan's branch"
+
+/** An integration Task hung off a Task only as the plan's anchor (dispatchLoop anchorOf): a refresh or origin conflict
+ *  (PLAN_CONFLICT_MARK) or a delivery fix (DELIVERY_FIX_MARK), not the merge of that Task's own branch. */
+export const isPlanWideIntegration = (t: Task): boolean =>
+  t.parentId !== undefined && (t.spec.includes(PLAN_CONFLICT_MARK) || t.spec.includes(DELIVERY_FIX_MARK))
 
 /** 앱이 만든 통합 Task 인가. 통합 Task 자신은 통합 단계를 지나지 않는다.
  *

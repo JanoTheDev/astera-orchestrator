@@ -36,6 +36,7 @@ import {
   openDispatch,
   resolveGate,
   closeGatesOf,
+  landMerge,
   closeGatesOfCompleted,
   answerCheckUnavailable,
   isCheckUnavailableAnswer,
@@ -5060,17 +5061,10 @@ export async function handleCommand(
       // A merging Task (state.ts doneStatusOf) is completed by its merge: here, with its dependents readied.
       if (args.mergedIntoPlan === true) {
         if (fromAgentSession || caller.role === 'mcp') return bad('--merged-into-plan is recorded by Astera itself')
-        const target = s.tasks.find((t) => t.id === id)
-        if (!target) return notFound(`unknown task: ${id}`)
-        if (target.status === 'merging') {
-          const landed: Task = { ...target, status: 'completed', updatedAt: now, mergedIntoPlanAt: now }
-          await deps.setState(closeGatesOf({ ...s, tasks: recomputeReady(s.tasks.map((t) => (t.id === id ? landed : t))) }, id, 'closed: task completed', now))
-          return okBody({ id, mergedIntoPlanAt: now })
-        }
-        if (target.status !== 'completed') return bad(`task ${id} is ${target.status}, not completed`)
-        if (target.mergedIntoPlanAt !== undefined) return okBody({ id, mergedIntoPlanAt: target.mergedIntoPlanAt })
-        await deps.setState({ ...s, tasks: s.tasks.map((t) => (t.id === id ? { ...t, mergedIntoPlanAt: now } : t)) })
-        return okBody({ id, mergedIntoPlanAt: now })
+        const r = landMerge(s, id, now)
+        if (!r.ok) return r.missing ? notFound(r.error) : bad(r.error)
+        if (r.state !== s) await deps.setState(r.state)
+        return okBody(r.value)
       }
       // W2-A: editing a plan's Task (its title, spec, deps and plan fields) instead of moving its status.
       const PLAN_EDIT = ['title', 'spec', 'deps', 'prompt', 'criteria', 'affectedPaths', 'noFiles', 'difficulty', 'effort', 'provider', 'model', 'modelReason', /* W6-A */ 'basis', 'evidence', /* T7 */ 'covers', /* T9 */ 'kind', /* T3 */ 'worktree']

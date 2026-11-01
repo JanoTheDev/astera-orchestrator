@@ -39,12 +39,14 @@ import {
   runRootOf,
   wavesToMerge,
   workingInRunRoot,
-  worktreeDepsOf
+  worktreeDepsOf,
+  PLAN_CONFLICT_MARK
 } from '../integrate'
 import { reapableChildRuns } from '../reap'
 import { lostAttemptOf } from '../../recovery/candidates'
 import { jobActive, slotsToFill, type Slot } from '../schedule'
-import { coordinatorStarting, jobOf, type OrchState } from '../state'
+import { coordinatorStarting, jobOf, landMerge, type OrchState } from '../state'
+import { createMergingWatch } from './mergingWatch'
 import { isJobActive } from '../lifecycle'
 import { DEFAULT_CONCURRENCY, FAILURE_LIMIT, type Decision, type Job, type JobRun, type Task } from '../types'
 import { deliveryEnded, isTerminal, outcomeOfTasks, tasksOwnedBy } from '../running'
@@ -267,6 +269,10 @@ export interface DispatchLoopContext {
   /** #117: appends one call a hands-off plan made in the owner's place to its Job (state.ts addDecision), which the
    *  feed's plan.decided / plan.refused line is derived from. Optional: without it the decision is a log line only. */
   recordDecision?(jobId: string, d: Decision): Promise<void>
+  /** The loop's own state write, as recordDecision's: `change` applied to the state as it is at the write, not queued
+   *  behind the command chain. The wave merge records a merged Task with it in the same step as its merge
+   *  (state.ts landMerge). Optional: without it that record goes through `handle` (task-update --merged-into-plan). */
+  commit?(change: (s: OrchState) => OrchState): Promise<void>
   /** T8: whether the machine is strained now (the Host's health snapshot, autoLimits.ts). A transiently failed merge waits
    *  while it is, instead of being retried. Optional: without it the retry runs when due. */
   strained?(): boolean | Promise<boolean>
@@ -328,6 +334,12 @@ export interface DispatchLoop {
   /** The armed next fire of a schedule template, or null: what orchSnapshotOf shows as nextFireAt (N3). */
   nextFireOf(runId: string): number | null
 }
+
+/** One await of the merge pass (mergeWaves) is given up after this, so it cannot pin the pass. */
+export const LANDING_STEP_MS = 2 * 60_000
+/** A merge pass older than this no longer holds the next one back (it is abandoned, logged once). */
+export const LANDING_STALE_MS = 5 * 60_000
+const TIMED_OUT = Symbol('timed out')
 
 /** The module reads every `c.*` at each call, never a copy taken at construction (C5): the app and the
  *  tests replace members after building it. */
@@ -711,7 +723,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
         runId,
         taskId: existing?.parentId ?? anchorId,
         key: d.sha,
-        reason: `plan ${plan} delivered ${d.sha} to ${d.branch ?? 'its branch'}, and it conflicts with this plan's branch: ${r.reason}`,
+        reason: `plan ${plan} delivered ${d.sha} to ${d.branch ?? 'its branch'}, and it ${PLAN_CONFLICT_MARK}: ${r.reason}`,
         worktrees: [{ path: d.job.cwd, branch: d.branch ?? null }]
       })
       const made = existing ? undefined : ofThis(c.getState())
@@ -907,7 +919,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
             runId: run.id,
             taskId: anchor.id,
             key: sha,
-            reason: `${where} moved on to ${sha} while the plan was being delivered, and it conflicts with this plan's branch: merge it in with \`git merge --no-edit ${sha}\` and resolve the conflict. ${why}`,
+            reason: `${where} moved on to ${sha} while the plan was being delivered, and it ${PLAN_CONFLICT_MARK}: merge it in with \`git merge --no-edit ${sha}\` and resolve the conflict. ${why}`,
             worktrees: []
           })
           planActivity(run.id, `Integration Task created in plan ${plan} for its conflict with ${where} (${sha.slice(0, 7)})`)
@@ -2482,81 +2494,176 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
   // Part 2: a Run's finished worktree Tasks go into its plan branch (integrate.ts wavesToMerge), a coordinator's Run or
   // the app's. One merge at a time per Run root, never under a worker working there (workingInRunRoot, as the slot's
   // merge). Both the scheduler's pass (after every commit) and the tick run it; one at a time, so two never merge the
-  // same Task.
-  let landing = false
+  // same Task. A pass is never pinned: each await in it is given up after LANDING_STEP_MS (`within`), and a pass older
+  // than LANDING_STALE_MS no longer holds the next one back.
+  let landing: { since: number } | null = null
   const mergeWaves = async (): Promise<void> => {
-    if (landing) return
-    landing = true
+    await watchMerging()
+    if (landing !== null) {
+      if (c.nowMs() - landing.since < LANDING_STALE_MS) return
+      log(`scheduler: the merge pass begun at ${new Date(landing.since).toISOString()} has not ended; it is abandoned and a new one starts`)
+    }
+    const mine = { since: c.nowMs() }
+    landing = mine
     try {
       await landWaves()
     } finally {
-      landing = false
+      if (landing === mine) landing = null
+    }
+  }
+  /** An await of the merge pass given up after LANDING_STEP_MS (logged, answered TIMED_OUT), so a command chain held
+   *  for minutes cannot pin `landing`. What it started still runs and lands when it can. */
+  const within = async <T>(what: string, p: Promise<T>): Promise<T | typeof TIMED_OUT> => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const late = new Promise<typeof TIMED_OUT>((resolve) => {
+      timer = setTimeout(() => {
+        log(`scheduler: ${what} did not answer in ${LANDING_STEP_MS / 60_000} min; the merge pass goes on without it`)
+        resolve(TIMED_OUT)
+      }, LANDING_STEP_MS)
+    })
+    try {
+      return await Promise.race([p, late])
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+  /** A merging Task whose merge Task completed, still not recorded when the pass stops early, is logged. */
+  const stoppedEarly = (why: string): void => {
+    const s = c.getState()
+    for (const t of s.tasks) {
+      const m = t.status === 'merging' ? integrationTaskFor(s, t.id) : undefined
+      if (m?.status === 'completed') log(`scheduler: the merge pass stopped (${why}) with task=${t.id} merging although its merge task=${m.id} completed`)
     }
   }
   const landWaves = async (): Promise<void> => {
-    // A merging Task whose merge Task completed is completed with it. A merge Task left ready (its start was refused) is
-    // started again; one that failed goes to the owner. In an app-driven Run only a merging Task's: the slot's own
-    // merge Tasks (pendingMerges) are its scheduler's.
+    // A merging Task whose merge Task completed is completed with it, first, so no early return below skips one. Only
+    // its own merge Task (integrationTaskFor): a refresh or delivery fix hung off it as the plan's anchor says nothing
+    // about its branch.
     const pre = c.getState()
+    for (const parent of pre.tasks) {
+      const run = parent.status === 'merging' ? pre.runs.find((r) => r.id === parent.runId) : undefined
+      const merge = run && integrationTaskFor(pre, parent.id)
+      if (run && merge?.status === 'completed')
+        await recordMerge({ runId: run.id, taskId: parent.id, runRoot: runRootOf(run, jobOf(pre, run)) }, `its merge task ${merge.id} completed`)
+    }
+    // An integration Task left ready (its start was refused) is started again; one that failed goes to the owner. In an
+    // app-driven Run only a merging Task's: the slot's own merge Tasks (pendingMerges) are its scheduler's.
     for (const m of pre.tasks) {
       const run = pre.runs.find((r) => r.id === m.runId)
       const parent = m.parentId === undefined ? undefined : pre.tasks.find((t) => t.id === m.parentId)
       if (!parent || !run) continue
-      if (parent.status === 'merging' && m.status === 'completed') {
-        await recordMerge({ runId: run.id, taskId: parent.id, runRoot: runRootOf(run, jobOf(pre, run)) })
-        continue
-      }
       if ((run.coordinatorSessionId === undefined && parent.status !== 'merging') || (m.status !== 'ready' && m.status !== 'failed')) continue
-      if (!c.mayStart()) return
+      if (!c.mayStart()) return stoppedEarly('this process may not start work')
       // T1: a hands-off plan's failed merge Task starts again (startMergeWorker), so it waits for the plan branch too
       if ((m.status === 'ready' || handsOffJobOf(c.getState(), run.id)) && workingInRunRoot(c.getState(), run.id)) continue
-      await startMergeWorker({ runId: run.id, taskId: parent.id, reason: 'the merge worker failed', worktrees: [] })
+      await within(
+        `the merge worker of task=${parent.id}`,
+        startMergeWorker({ runId: run.id, taskId: parent.id, mergeId: m.id, reason: 'the merge worker failed', worktrees: [] })
+      )
     }
     for (const w of wavesToMerge(c.getState(), (p) => c.isRegisteredWorktree(p))) {
-      if (!c.mayStart()) return
+      if (!c.mayStart()) return stoppedEarly('this process may not start work')
       if (workingInRunRoot(c.getState(), w.runId)) continue
       await mergeIntoPlan(w)
     }
   }
 
-  /** A Task's branch is in its plan branch: recorded on the Task (`mergedIntoPlanAt`; a merging Task is completed by it)
-   *  and told to the Run's coordinator, if it has one. Never throws. */
-  const recordMerge = async (w: { runId: string; taskId: string; runRoot: string }): Promise<void> => {
+  // The safety net under all of the above (mergingWatch.ts): a Task merging over MERGING_WATCH_MS whose merge is done
+  // is recorded. One at a time; never throws.
+  const mergingWatch = createMergingWatch()
+  let watchingMerging = false
+  const watchMerging = async (): Promise<void> => {
+    if (watchingMerging) return
+    watchingMerging = true
     try {
-      const r = await c.handle('task-update', { id: w.taskId, mergedIntoPlan: true })
-      if (r.status >= 400) log(`run=${w.runId}: task=${w.taskId}'s merge was not recorded: ${JSON.stringify(r.body)}`)
+      for (const d of await mergingWatch.due(c.getState(), c.nowMs())) {
+        if (!(await recordMerge(d, d.reason))) continue
+        log(`run=${d.runId}: recorded ${d.taskId} merged: ${d.reason}`)
+        const title = c.getState().tasks.find((t) => t.id === d.taskId)?.title ?? d.taskId
+        planActivity(d.runId, `Recorded ${title} as merged into the plan branch: ${d.reason}`)
+      }
     } catch (e) {
-      log(`run=${w.runId}: recording task=${w.taskId}'s merge failed: ${String(e)}`)
+      log(`scheduler: the merging watch failed: ${String(e)}`)
+    } finally {
+      watchingMerging = false
     }
-    if (c.getState().runs.find((r) => r.id === w.runId)?.coordinatorSessionId === undefined) return
-    await tell({
-      runId: w.runId,
-      taskId: w.taskId,
-      subject: planMergedSubject(w.taskId),
-      body: `${w.taskId}'s branch is merged into the plan branch (${w.runRoot}).\n\n${nextActionOf(c.getState(), w.runId)}`
-    })
   }
 
-  /** One finished Task's worktree into its plan branch: merged, it is recorded (recordMerge); not, a merge worker takes
-   *  it, or, for a merging Task git cannot merge at all, the owner's Gate (it never completes without its merge). The
-   *  integration's answer, or what stopped it. Never throws. */
+  /** A Task's branch is in its plan branch: recorded on the Task (state.ts landMerge: `mergedIntoPlanAt`; a merging Task
+   *  is completed by it), through the loop's own write (`commit`) when it has one, so a held command chain cannot hold
+   *  it back; and told to the Run's coordinator, if it has one. `why` names what showed it merged, for the log line of
+   *  a record that did not land. True when it is recorded (now or before). Never throws. */
+  const recordMerge = async (w: { runId: string; taskId: string; runRoot: string }, why: string): Promise<boolean> => {
+    const now = new Date(c.nowMs()).toISOString()
+    const before = c.getState()
+    const checked = landMerge(before, w.taskId, now)
+    if (!checked.ok) {
+      log(`run=${w.runId}: task=${w.taskId}'s merge was not recorded (${why}): ${checked.error}`)
+      return false
+    }
+    if (checked.state === before) return true
+    try {
+      if (c.commit) {
+        const change = (s: OrchState): OrchState => {
+          const r = landMerge(s, w.taskId, now)
+          return r.ok ? r.state : s
+        }
+        if ((await within(`recording task=${w.taskId}'s merge`, c.commit(change))) === TIMED_OUT) return false
+      } else {
+        const r = await within(`recording task=${w.taskId}'s merge`, c.handle('task-update', { id: w.taskId, mergedIntoPlan: true }))
+        if (r === TIMED_OUT) return false
+        if (r.status >= 400) {
+          log(`run=${w.runId}: task=${w.taskId}'s merge was not recorded (${why}): ${JSON.stringify(r.body)}`)
+          return false
+        }
+      }
+    } catch (e) {
+      log(`run=${w.runId}: recording task=${w.taskId}'s merge failed (${why}): ${String(e)}`)
+      return false
+    }
+    if (c.getState().runs.find((r) => r.id === w.runId)?.coordinatorSessionId === undefined) return true
+    await within(
+      `telling the coordinator of task=${w.taskId}'s merge`,
+      tell({
+        runId: w.runId,
+        taskId: w.taskId,
+        subject: planMergedSubject(w.taskId),
+        body: `${w.taskId}'s branch is merged into the plan branch (${w.runRoot}).\n\n${nextActionOf(c.getState(), w.runId)}`
+      })
+    )
+    return true
+  }
+
+  /** The Run roots a merge runs into now (mergeIntoPlan): a second one into the same folder waits, so an abandoned pass
+   *  (LANDING_STALE_MS) or the stall watchdog never merges beside a merge still running there. */
+  const integrating = new Set<string>()
+
+  /** One finished Task's worktree into its plan branch: merged, it is recorded in the same step (recordMerge); not, a
+   *  merge worker takes it, or, for a merging Task git cannot merge at all, the owner's Gate (it never completes without
+   *  its merge). A merging Task is never left with neither a merge Task nor a Gate. The integration's answer, or what
+   *  stopped it. Never throws. */
   const mergeIntoPlan = async (w: { runId: string; taskId: string; runRoot: string; worktree: string }): Promise<Integration> => {
     // T8: a hands-off plan's merge that failed for a passing reason waits out its backoff, and a strained machine
-    const waiting = await mergeRetryWait(w)
+    const waiting = await within(`the merge retry check of task=${w.taskId}`, mergeRetryWait(w))
+    if (waiting === TIMED_OUT) return { kind: 'human', reason: `the merge retry check of ${w.taskId} did not answer` }
     if (waiting) return waiting
+    if (integrating.has(w.runRoot)) return { kind: 'human', reason: `another merge into ${w.runRoot} is still running` }
+    integrating.add(w.runRoot)
     let result: Integration
     try {
       // T3: kept while a Task not finished will continue in it; that Task's own merge reaps it
       result = await c.integrate(w.runRoot, [w.worktree], undefined, reusedLater(c.getState(), w.taskId) ? { reap: false } : undefined)
     } catch (e) {
       result = { kind: 'human', reason: String(e) }
+    } finally {
+      integrating.delete(w.runRoot)
     }
     // A worktree that still holds uncommitted work is kept (integrateWorktrees does not reap it) and not counted merged:
     // the merge worker takes it, as a conflict, so the work reaches the plan branch instead of being lost
     const left = result.kind === 'merged' ? [...(result.dirty ?? []), ...(result.unchecked ?? [])] : []
     if (result.kind === 'merged' && left.length === 0) {
       mergeRetries.delete(w.taskId)
-      await recordMerge(w)
+      await recordMerge(w, `git merged ${w.worktree} into ${w.runRoot}`)
       return result
     }
     const cause = transientCauseOf(result)
@@ -2567,26 +2674,41 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
         worktrees: [{ path: w.worktree, branch: null }]
       }
     log(`run=${w.runId}: task=${w.taskId} did not merge into ${w.runRoot}: ${result.reason}`)
-    if (cause !== null && (await retryMergeLater(w, result, cause))) return result
+    if (cause !== null && (await within(`the merge retry of task=${w.taskId}`, retryMergeLater(w, result, cause))) === true) return result
     // T1: a hands-off plan gives a git problem the merge worker can mend to it (uncommitted changes, a merge left half done)
     const mendable = result.kind === 'human' && result.message !== undefined && MENDABLE_INTEGRATION.has(result.message.key) && handsOffJobOf(c.getState(), w.runId) !== undefined
+    // T8: a kind and options, so a hands-off plan judges those, not git's output in its text (autoAnswer.ts)
+    const gateMerge = (why: string): Promise<void | typeof TIMED_OUT> =>
+      within(
+        `the merge Gate of task=${w.taskId}`,
+        gateSlot(w.taskId, `${w.taskId}'s branch (${w.worktree}) could not be merged into the plan branch (${w.runRoot}): ${why}`, {
+          kind: MERGE_FAILED_GATE,
+          options: [...MERGE_FAILED_OPTIONS]
+        })
+      )
     if (result.kind === 'human' && !mendable && c.getState().tasks.find((t) => t.id === w.taskId)?.status === 'merging') {
-      // T8: a kind and options, so a hands-off plan judges those, not git's output in its text (autoAnswer.ts)
-      await gateSlot(w.taskId, `${w.taskId}'s branch (${w.worktree}) could not be merged into the plan branch (${w.runRoot}): ${result.reason}`, {
-        kind: MERGE_FAILED_GATE,
-        options: [...MERGE_FAILED_OPTIONS]
-      })
+      await gateMerge(result.reason)
       return result
     }
+    let started: void | typeof TIMED_OUT = undefined
     try {
-      await startMergeWorker({
-        runId: w.runId,
-        taskId: w.taskId,
-        reason: result.reason,
-        worktrees: result.kind === 'agent' ? result.worktrees : [{ path: w.worktree, branch: null }]
-      })
+      started = await within(
+        `the merge worker of task=${w.taskId}`,
+        startMergeWorker({
+          runId: w.runId,
+          taskId: w.taskId,
+          reason: result.reason,
+          worktrees: result.kind === 'agent' ? result.worktrees : [{ path: w.worktree, branch: null }]
+        })
+      )
     } catch (e) {
       log(`run=${w.runId}: the merge worker for task=${w.taskId} failed to start: ${String(e)}`)
+    }
+    // No merge Task came of it (it could not be made): the owner's Gate, so a merging Task never waits on nothing
+    const after = c.getState()
+    if (started !== TIMED_OUT && after.tasks.find((t) => t.id === w.taskId)?.status === 'merging' && !integrationTaskFor(after, w.taskId)) {
+      log(`run=${w.runId}: task=${w.taskId} is still merging with no merge task: the owner's Gate takes it`)
+      await gateMerge(`${result.reason} (and no merge task could be made for it)`)
     }
     return result
   }
@@ -2653,6 +2775,8 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     key?: string
     /** T15: the worker forks a worktree of its own (`--worktree new`), for a Run with no plan worktree to work in. */
     fork?: true
+    /** The integration Task under `taskId` to start again, by id (landWaves): the one it looked at, whatever kind. */
+    mergeId?: string
   }): Promise<void> => {
     let s = c.getState()
     const run = s.runs.find((r) => r.id === a.runId)
@@ -2660,7 +2784,11 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     if (!run || !forTask) return
     const runRoot = runRootOf(run, jobOf(s, run))
     const mergeOf = (st: OrchState): Task | undefined =>
-      a.key === undefined ? integrationTaskFor(st, a.taskId) : st.tasks.find((t) => t.parentId === a.taskId && t.spec.includes(a.key!))
+      a.mergeId !== undefined
+        ? st.tasks.find((t) => t.id === a.mergeId && t.parentId === a.taskId)
+        : a.key === undefined
+          ? integrationTaskFor(st, a.taskId)
+          : st.tasks.find((t) => t.parentId === a.taskId && t.spec.includes(a.key!))
     let merge = mergeOf(s)
     // T1: a hands-off plan starts its failed merge worker again (failed -> dispatched), FAILURE_LIMIT attempts in all
     const failures = merge ? s.dispatches.filter((d) => d.taskId === merge!.id && d.outcome === 'failed').length : 0

@@ -2484,6 +2484,22 @@ export function closeGatesOf(s: OrchState, taskId: string, why: string, now: str
   }
 }
 
+/** A Task's branch is in its plan branch: `mergedIntoPlanAt` recorded; a merging Task is completed by it, its dependents
+ *  readied and its Gates closed. The one state change of `task-update --merged-into-plan` and of the dispatch loop's own
+ *  record right after its merge (exec/dispatchLoop.ts recordMerge), so the two cannot drift. Recorded already: the same
+ *  state back. */
+export function landMerge(s: OrchState, id: string, now: string): Res<{ id: string; mergedIntoPlanAt: string }> {
+  const target = s.tasks.find((t) => t.id === id)
+  if (!target) return gone(`unknown task: ${id}`)
+  if (target.status === 'merging') {
+    const landed: Task = { ...target, status: 'completed', updatedAt: now, mergedIntoPlanAt: now }
+    return ok(closeGatesOf({ ...s, tasks: recomputeReady(s.tasks.map((t) => (t.id === id ? landed : t))) }, id, 'closed: task completed', now), { id, mergedIntoPlanAt: now })
+  }
+  if (target.status !== 'completed') return err(`task ${id} is ${target.status}, not completed`)
+  if (target.mergedIntoPlanAt !== undefined) return ok(s, { id, mergedIntoPlanAt: target.mergedIntoPlanAt })
+  return ok({ ...s, tasks: s.tasks.map((t) => (t.id === id ? { ...t, mergedIntoPlanAt: now } : t)) }, { id, mergedIntoPlanAt: now })
+}
+
 /** closeGatesOf for a Task that has just moved to `completed` (a no-op for any other status) */
 export const closeGatesOfCompleted = (s: OrchState, taskId: string, now: string): OrchState =>
   s.tasks.find((t) => t.id === taskId)?.status === 'completed' ? closeGatesOf(s, taskId, 'closed: task completed', now) : s
