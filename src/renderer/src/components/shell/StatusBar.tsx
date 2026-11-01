@@ -3,12 +3,13 @@
 // ("5h 16% · week 40%", → the accounts popover), the Host as a word, and the bell. Zero counts are hidden.
 import { useEffect, useState } from 'react'
 import { HostRuntimeNotice } from '../HostRuntimeNotice'
-import { Button, Icon, StatusBarItem } from '../ui'
+import { Button, Icon, StatusBarItem, Switch } from '../ui'
 import { openActivity, openPanel } from './navigation'
 import { NotificationBell } from './NotificationBell'
 import { setAccountsOpen } from './ActivityBar'
 import { openProjectSwitcher } from './ProjectSwitcher'
 import { hostRestartCanForce, hostRestartMessage, hostRestartOffered, hostRestartRunning } from '../../../../core/host/restartView'
+import { hostUpdateBanner } from '../../../../core/host/hostUpdateState'
 import type { HostStatus } from '../../../../core/types'
 import type { AppState } from '../../state/appState'
 import type { ShellState } from './useShell'
@@ -95,7 +96,14 @@ export function StatusBar(p: StatusBarProps): React.JSX.Element {
   // The Host's restart (T15): its progress, or the offer of one. The offer replaces the word "connected", as the manual one did.
   const restart = hostStatus?.restart
   const restartOffer = hostRestartOffered(hostStatus)
-  const hostOk = !!hostStatus?.connected && !hostStatus.unresponsive && !restartOffer && !(hostStatus.outdated && hostStatus.replacement === 'manual')
+  // T28: "Host update waiting: N agents still running", or why the restart failed; a restart under way says its own,
+  // except the held restart still waiting for an outdated Host's agents (the default, the toggle on): until it hands
+  // over, the banner, the toggle and "Restart now (hand over)" stand in for its progress and "Restart anyway".
+  const update = hostStatus?.update
+  const updateWaiting = hostRestartCanForce(restart) && update?.state.kind === 'outdated-waiting'
+  const banner = restart && !updateWaiting ? null : hostUpdateBanner(update)
+  const offer = restartOffer || updateWaiting
+  const hostOk = !!hostStatus?.connected && !hostStatus.unresponsive && !offer && !(hostStatus.outdated && hostStatus.replacement === 'manual')
   const project = p.workspaceTree.find((x) => x.id === p.workspaceProjectId)?.name ?? p.currentProject?.split(/[\\/]/).filter(Boolean).pop()
   const five = shellUsage?.session?.usedPercent
   const week = shellUsage?.weekly?.usedPercent
@@ -129,7 +137,7 @@ export function StatusBar(p: StatusBarProps): React.JSX.Element {
           </StatusBarItem>
         )}
         {/* The automatic swap (T16) drops the connection on purpose for a few seconds: one short word, not "offline". */}
-        {restart ? (
+        {restart && !updateWaiting ? (
           <RestartProgressItem restart={restart} t={t} />
         ) : swapping ? (
           <StatusBarItem icon={<Icon name="loading" size={14} />}>{t('status.hostUpdating')}</StatusBarItem>
@@ -156,24 +164,38 @@ export function StatusBar(p: StatusBarProps): React.JSX.Element {
             they are outside the session branches. */}
         <HostRuntimeNotice state={hostRuntime} nowMs={hostRuntimeNow} />
         {/* T15: offered whenever the Host is older than the app, not only after the swap has waited 30 minutes. */}
-        {restartOffer && hostStatus && (
+        {offer && hostStatus && (
           <>
-            <span className="status-host-older">{t('status.hostRestartOffer', { host: hostStatus.hostVersion ?? '?', app: appVersion })}</span>
+            <span className="status-host-older" title={t('status.hostRestartOffer', { host: hostStatus.hostVersion ?? '?', app: appVersion })}>
+              {banner ? t(banner.key, banner.params) : t('status.hostRestartOffer', { host: hostStatus.hostVersion ?? '?', app: appVersion })}
+            </span>
             <span className="status-host-older" aria-hidden="true">·</span>
             <Button
               variant="secondary"
               size="sm"
               className="status-host-outdated"
               loading={hostRestarting}
-              onClick={() => void restartHost()}
+              // The held restart is already waiting: "Restart now" cuts that wait short and hands over.
+              onClick={() => void (updateWaiting ? window.api.host.restartNow({ force: true }) : restartHost())}
               title={t('status.hostRestartOfferTitle', { host: hostStatus.hostVersion ?? '?', app: appVersion })}
             >
-              {hostRestarting ? t('settings.info.hostRestarting') : t('settings.info.hostRestartNow')}
+              {hostRestarting ? t('settings.info.hostRestarting') : update ? t('status.hostRestartNowHandOver') : t('settings.info.hostRestartNow')}
             </Button>
           </>
         )}
+        {/* T28: the owner's toggle beside the offer. A held restart cannot be called back, so it is shown, not changed, while one runs. */}
+        {update && hostStatus?.replacement !== 'swapping' && (restartOffer || hostRestartRunning(restart)) && (
+          <label className="status-host-older" title={t('status.hostRestartWhenIdleTitle')}>
+            <Switch
+              checked={update.restartWhenIdle}
+              disabled={hostRestartRunning(restart)}
+              onChange={(on) => void window.api.host.setRestartWhenIdle(on).catch(() => undefined)}
+            />{' '}
+            {t('status.hostRestartWhenIdle')}
+          </label>
+        )}
         {/* The workers that have not reached a safe point need not be waited for: hand over now. */}
-        {hostRestartCanForce(restart) && (
+        {!updateWaiting && hostRestartCanForce(restart) && (
           <Button
             variant="secondary"
             size="sm"

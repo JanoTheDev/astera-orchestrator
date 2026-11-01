@@ -4,9 +4,9 @@ import { isJobActive } from './lifecycle'
 import { outcomeOf } from './running'
 import { projectWithWorkspace, type OrchState } from './state'
 import { approvalFallbackOf, type ApprovalMode } from '../settings/approvalDefault'
-import { MAX_REVIEW_ROUNDS, type DeliveryMode, type Job, type JobRun } from './types'
+import { MAX_REVIEW_ROUNDS, type DeliveryMode, type Job, type JobRun, type PushCadence } from './types'
 
-export type PlanSettingKey = 'concurrency' | 'priority' | 'reviewRounds' | 'replan' | 'autoApprove' | 'handsOff' | 'delivery'
+export type PlanSettingKey = 'concurrency' | 'priority' | 'reviewRounds' | 'replan' | 'autoApprove' | 'handsOff' | 'delivery' | 'pushCadence'
 
 /** Why a setting cannot change now. The UI maps it to a sentence; `jobs-set` answers 409 with its own. */
 export type PlanSettingReason = 'finished' | 'deliveryStarted'
@@ -25,6 +25,8 @@ export interface PlanSettings {
   autoApprove: PlanSetting<boolean>
   handsOff: PlanSetting<boolean>
   delivery: PlanSetting<DeliveryMode>
+  /** T11: when the plan branch is pushed while the plan runs; editable as long as its delivery is (`jobs-set` files it under delivery). */
+  pushCadence: PlanSetting<PushCadence>
 }
 
 const latestRun = (s: OrchState, job: Job): JobRun | undefined =>
@@ -35,7 +37,7 @@ const latestRun = (s: OrchState, job: Job): JobRun | undefined =>
 export function settingRefusalOf(s: OrchState, job: Job, key: PlanSettingKey): PlanSettingReason | undefined {
   const run = latestRun(s, job)
   if (!isJobActive(job) || (run !== undefined && outcomeOf(s, run.id) !== 'running')) return 'finished'
-  if (key === 'delivery' && run !== undefined && (run.deliveryState !== undefined || run.delivery !== undefined)) return 'deliveryStarted'
+  if ((key === 'delivery' || key === 'pushCadence') && run !== undefined && (run.deliveryState !== undefined || run.delivery !== undefined)) return 'deliveryStarted'
   return undefined
 }
 
@@ -57,6 +59,7 @@ export function editableSettingsOf(s: OrchState, jobId: string, globalDefault?: 
     replan: field('replan', job.replan ?? project?.replan ?? 'waves'),
     autoApprove: field('autoApprove', job.autoApprove ?? project?.autoApprove ?? approvalFallbackOf(job, globalDefault) !== 'ask'),
     handsOff: field('handsOff', job.handsOff ?? project?.handsOff ?? false),
-    delivery: field('delivery', job.delivery ?? project?.delivery ?? 'pr')
+    delivery: field('delivery', job.delivery ?? project?.delivery ?? 'pr'),
+    pushCadence: field('pushCadence', job.pushCadence ?? 'end')
   }
 }

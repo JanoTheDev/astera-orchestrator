@@ -1,17 +1,19 @@
 // A Task completes only once its commits are merged into the plan branch (the Run's own worktree): a succeeded Task
 // waits in `merging`, the app's wave merge (dispatchLoop mergeWaves) lands it, and only then is it completed. Real temp
 // repositories and the real command layer; only the session spawn is faked.
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { makeRepo, gitSync, tempDir } from '../../worktrees/testRepo'
 import { WorktreeRegistry } from '../../worktrees/registry'
 import { git } from '../../worktrees/git'
 import { forkWorktree, integrateWorktrees, type Integration } from './integrateGit'
-import { createDispatchLoop, type DispatchLoopContext } from './dispatchLoop'
+import { createDispatchLoop, LANDING_STALE_MS, type DispatchLoopContext } from './dispatchLoop'
 import { handleCommand, type OrchServerDeps } from '../command'
 import { APP_CALLER } from '../../host/driver'
 import { emptyState, openDispatch, type OrchState } from '../state'
+import { buildIntegrationSpec, PLAN_CONFLICT_MARK } from '../integrate'
+import { MERGING_WATCH_MS } from './mergingWatch'
 import type { Task } from '../types'
 import type { Account } from '../../types'
 
@@ -96,7 +98,11 @@ function rig(runWt: string, tasks: Task[]) {
   return {
     ctx,
     loop,
+    deps,
     state: () => state,
+    put: (next: OrchState): void => {
+      state = next
+    },
     get: (id: string): Task => state.tasks.find((t) => t.id === id)!,
     /** A worker for this Task, in this folder (what worker-start records). */
     start: (taskId: string, cwd: string): void => {
@@ -116,6 +122,8 @@ function rig(runWt: string, tasks: Task[]) {
 }
 
 describe('a Task completes only once merged into the plan branch', () => {
+  /** T10: an open Task that depends on tsk_A, so tsk_A's work is merged into the plan branch before the delivery */
+  const dependent = task({ id: 'tsk_Z', status: 'pending', deps: ['tsk_A'] })
   it('A -> B with no coordinator: A lands on the plan branch before B is ready, and B completes only after its own merge', async () => {
     const runWt = await fork('run')
     const h = rig(runWt, [task({ id: 'tsk_A' }), task({ id: 'tsk_B', status: 'pending', deps: ['tsk_A'] })])
@@ -137,15 +145,15 @@ describe('a Task completes only once merged into the plan branch', () => {
     h.start('tsk_B', b)
     const shaB = await write(b, 'b.txt', 'b')
     await h.done('tsk_B')
-    expect(h.get('tsk_B').status).toBe('merging')
-    await h.loop.nudge()
+    // T10: no open Task depends on B, so it completes at once and the delivery merges its worktree
     expect(h.get('tsk_B').status).toBe('completed')
-    expect(await isAncestor(shaB, runWt)).toBe(true)
+    await h.loop.nudge()
+    expect(await isAncestor(shaB, runWt)).toBe(false)
   })
 
   it('a conflicting branch stays merging, gets one merge Task, and completes when that merge Task does', async () => {
     const runWt = await fork('run')
-    const h = rig(runWt, [task({ id: 'tsk_A' })])
+    const h = rig(runWt, [task({ id: 'tsk_A' }), dependent]) // T10: merged now only while an open Task depends on it
     const a = await fork('a')
     h.start('tsk_A', a)
     await write(a, 'f.txt', 'from A')
@@ -172,7 +180,7 @@ describe('a Task completes only once merged into the plan branch', () => {
 
   it('a failed merge Task opens a Gate, and the Task is never completed', async () => {
     const runWt = await fork('run')
-    const h = rig(runWt, [task({ id: 'tsk_A' })])
+    const h = rig(runWt, [task({ id: 'tsk_A' }), dependent]) // T10: merged now only while an open Task depends on it
     const a = await fork('a')
     h.start('tsk_A', a)
     await write(a, 'f.txt', 'from A')
@@ -188,7 +196,7 @@ describe('a Task completes only once merged into the plan branch', () => {
 
   it('a merge git cannot do opens a Gate on the Task, which is not completed', async () => {
     const runWt = await fork('run')
-    const h = rig(runWt, [task({ id: 'tsk_A' })])
+    const h = rig(runWt, [task({ id: 'tsk_A' }), dependent]) // T10: merged now only while an open Task depends on it
     const a = await fork('a')
     h.start('tsk_A', a)
     await write(a, 'a.txt', 'a')
@@ -209,5 +217,149 @@ describe('a Task completes only once merged into the plan branch', () => {
     await write(runWt, 'a.txt', 'a')
     await h.done('tsk_A')
     expect(h.get('tsk_A').status).toBe('completed')
+  })
+})
+
+describe('a merged Task never stays merging', () => {
+  const dependent = task({ id: 'tsk_Z', status: 'pending', deps: ['tsk_A'] }) // T10: merged now only while an open Task depends on it
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+  const refreshSpec = buildIntegrationSpec({ mergeInto: '/plan', reason: `plan x delivered abc123 to main, and it ${PLAN_CONFLICT_MARK}: c`, worktrees: [] })
+
+  it('a merging parent with a completed merge Task and an older refresh Task on the same anchor is recorded merged', async () => {
+    const runWt = await fork('run')
+    const h = rig(runWt, [
+      task({ id: 'tsk_A', status: 'merging' }),
+      task({ id: 'tsk_R', parentId: 'tsk_A', status: 'failed', spec: refreshSpec }),
+      task({ id: 'tsk_M', parentId: 'tsk_A', status: 'completed' })
+    ])
+    await h.loop.nudge()
+    expect(h.get('tsk_A').status).toBe('completed')
+    expect(h.get('tsk_A').mergedIntoPlanAt).toBe(NOW)
+  })
+
+  it('a completed refresh Task never records its anchor as merged', async () => {
+    const runWt = await fork('run')
+    const h = rig(runWt, [task({ id: 'tsk_A', status: 'merging' }), task({ id: 'tsk_R', parentId: 'tsk_A', status: 'completed', spec: refreshSpec })])
+    await h.loop.nudge()
+    expect(h.get('tsk_A').status).toBe('merging')
+    expect(h.get('tsk_A').mergedIntoPlanAt).toBeUndefined()
+  })
+
+  it('wave merge: the record is written in the same step as the merge, though the command chain never answers', async () => {
+    const runWt = await fork('run')
+    const h = rig(runWt, [task({ id: 'tsk_A' }), dependent])
+    const a = await fork('a')
+    h.start('tsk_A', a)
+    const sha = await write(a, 'a.txt', 'a')
+    await h.done('tsk_A')
+    const real = h.ctx.handle
+    h.ctx.handle = (cmd, args) => (cmd === 'task-update' ? new Promise(() => {}) : real(cmd, args))
+    h.ctx.commit = async (change) => h.put(change(h.state()))
+    await h.loop.nudge()
+    expect(await isAncestor(sha, runWt)).toBe(true)
+    expect(h.get('tsk_A').status).toBe('completed')
+    expect(h.get('tsk_A').mergedIntoPlanAt).toBe(NOW)
+  })
+
+  it('merged with uncommitted work left: the Task keeps a merge Task for the rest', async () => {
+    const runWt = await fork('run')
+    const h = rig(runWt, [task({ id: 'tsk_A' }), dependent])
+    const a = await fork('a')
+    h.start('tsk_A', a)
+    await h.done('tsk_A')
+    h.ctx.integrate = async (): Promise<Integration> => ({ kind: 'merged', uncommitted: 1, dirty: [a] })
+    await h.loop.nudge()
+    expect(h.get('tsk_A').status).toBe('merging')
+    const merge = h.state().tasks.find((t) => t.parentId === 'tsk_A')
+    expect(merge?.status).toBe('dispatched')
+  })
+
+  it('merged with uncommitted work left and no merge Task can be made: the owner gets a Gate, never neither', async () => {
+    const runWt = await fork('run')
+    const h = rig(runWt, [task({ id: 'tsk_A' }), dependent])
+    const a = await fork('a')
+    h.start('tsk_A', a)
+    await h.done('tsk_A')
+    h.ctx.integrate = async (): Promise<Integration> => ({ kind: 'merged', uncommitted: 1, dirty: [a] })
+    const real = h.ctx.handle
+    h.ctx.handle = (cmd, args) => (cmd === 'task-create' ? Promise.resolve({ status: 400, body: { error: 'refused' } }) : real(cmd, args))
+    await h.loop.nudge()
+    expect(h.state().tasks.some((t) => t.parentId === 'tsk_A')).toBe(false)
+    expect(h.get('tsk_A').status).toBe('blocked')
+    expect(h.state().gates.filter((g) => g.taskId === 'tsk_A' && g.status === 'open')).toHaveLength(1)
+  })
+
+  it('a record whose command never answers is given up after 2 minutes, so the pass ends', async () => {
+    const runWt = await fork('run')
+    const h = rig(runWt, [task({ id: 'tsk_A', status: 'merging' }), task({ id: 'tsk_M', parentId: 'tsk_A', status: 'completed' })])
+    const logs: string[] = []
+    h.ctx.log = (m) => logs.push(m)
+    const real = h.ctx.handle
+    let askedAt: number | undefined
+    h.ctx.handle = (cmd, args) => (cmd === 'task-update' ? ((askedAt = Date.now()), new Promise(() => {})) : real(cmd, args))
+    vi.useFakeTimers({ now: Date.parse(NOW), toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    h.ctx.nowMs = () => Date.now()
+    let ended = false
+    void h.loop.nudge().then(() => (ended = true))
+    while (askedAt === undefined) await vi.advanceTimersByTimeAsync(1_000)
+    await vi.advanceTimersByTimeAsync(askedAt + 119_000 - Date.now())
+    expect(ended).toBe(false)
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(ended).toBe(true)
+    expect(logs.some((l) => l.includes("recording task=tsk_A's merge did not answer"))).toBe(true)
+  })
+
+  it('a merge pass whose await never resolves holds later passes back 5 minutes at most', async () => {
+    const runWt = await fork('run')
+    const h = rig(runWt, [task({ id: 'tsk_A' }), dependent])
+    const a = await fork('a')
+    h.start('tsk_A', a)
+    await write(a, 'a.txt', 'a')
+    await h.done('tsk_A')
+    const logs: string[] = []
+    h.ctx.log = (m) => logs.push(m)
+    let pinnedAt: number | undefined
+    h.ctx.integrate = () => ((pinnedAt = Date.now()), new Promise(() => {}))
+    vi.useFakeTimers({ now: Date.parse(NOW), toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    h.ctx.nowMs = () => Date.now()
+    void h.loop.nudge() // pinned in the merge of tsk_A
+    while (pinnedAt === undefined) await vi.advanceTimersByTimeAsync(1_000)
+    await vi.advanceTimersByTimeAsync(60_000)
+    // Another Task whose merge Task completed, after the pass began
+    const at = new Date(Date.now()).toISOString()
+    h.put({
+      ...h.state(),
+      tasks: [...h.state().tasks, task({ id: 'tsk_B', status: 'merging', updatedAt: at }), task({ id: 'tsk_M', parentId: 'tsk_B', status: 'completed', updatedAt: at })]
+    })
+    await h.loop.run()
+    expect(h.get('tsk_B').status).toBe('merging')
+    // Under 5 minutes old itself, so it is the new pass that records it, not the merging watch
+    await vi.advanceTimersByTimeAsync(pinnedAt + LANDING_STALE_MS + 1 - Date.now())
+    await h.loop.run()
+    expect(h.get('tsk_B').status).toBe('completed')
+    expect(logs.filter((l) => l.includes('is abandoned'))).toHaveLength(1)
+  })
+
+  it('the merging watch records a Task whose branch is already in the plan branch after 5 minutes, with its line', async () => {
+    const runWt = await fork('run')
+    const h = rig(runWt, [task({ id: 'tsk_A' }), task({ id: 'tsk_W' }), dependent])
+    const a = await fork('a')
+    h.start('tsk_A', a)
+    await write(a, 'a.txt', 'a')
+    await h.done('tsk_A')
+    // Merged by hand, and a worker in the plan branch keeps the wave merge away
+    gitSync(runWt, ['-c', 'user.name=F', '-c', 'user.email=f@f', 'merge', '--no-edit', gitSync(a, ['rev-parse', 'HEAD'])])
+    h.start('tsk_W', runWt)
+    const logs: string[] = []
+    h.ctx.log = (m) => logs.push(m)
+    h.ctx.nowMs = () => Date.parse(NOW) + MERGING_WATCH_MS - 1
+    await h.loop.nudge()
+    expect(h.get('tsk_A').status).toBe('merging')
+    h.ctx.nowMs = () => Date.parse(NOW) + MERGING_WATCH_MS + 1
+    await h.loop.nudge()
+    expect(h.get('tsk_A').status).toBe('completed')
+    expect(logs.some((l) => l.includes('recorded tsk_A merged: its branch tip is already in the plan branch'))).toBe(true)
   })
 })

@@ -12,6 +12,15 @@ describe('plan.deliveryDismissed (T34)', () => {
   })
 })
 
+describe('run.pr landed outside Astera', () => {
+  it('reads "landed outside Astera" in place of "PR opened", in the app language', () => {
+    const e = ev(11, { type: 'run.pr', payload: { title: 'Plan A', plan: 'Plan A', pr: { at: T0, landed: 'merged', landedOutside: true }, landedOutside: true } })
+    expect(lineOf(e, label)).toEqual({ text: 'Plan A: landed outside Astera', tone: 'ok' })
+    expect(lineOf(e, label, 'es').text).toBe('Plan A: llegó fuera de Astera')
+    expect(lineOf(ev(12, { type: 'run.pr', payload: { title: 'Plan A', pr: { at: T0, number: 9 } } }), label).text).toBe('Plan A: PR #9 opened')
+  })
+})
+
 const T0 = '2026-10-17T00:00:00.000Z'
 const ev = (n: number, over: Partial<ActivityEvent> = {}): ActivityEvent => ({
   id: `ev_000000000000_${n}`,

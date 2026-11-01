@@ -54,6 +54,8 @@ export const PLANNER_COMMANDS: ReadonlySet<string> = new Set([
   'jobs-overlaps',
   // T3: the whole main plan of its project
   'main-plan',
+  // T5: the Job, its Run and every Task with report, review and changed files in one read
+  'plan-state',
   'jobs-set',
   // T7: the planner names its own Job once it knows the goal
   'jobs-rename',

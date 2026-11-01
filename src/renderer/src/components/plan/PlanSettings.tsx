@@ -20,6 +20,9 @@ import {
   clampWorkers,
   planSettingsFormOf,
   priorityChoicesOf,
+  PUSH_CADENCE_CHOICES,
+  PUSH_CADENCE_HINT,
+  PUSH_CADENCE_LABEL,
   settingsDiff,
   settledValues,
   SETTING_REASON_KEY,
@@ -218,6 +221,18 @@ export function PlanSettings({ door, jobId, row, confirm }: { door: OrchDoor; jo
         ),
         offered.reason
       )}
+      {row_('pushCadence', (props) => (
+        <Select
+          {...props}
+          aria-label={t('plan.settings.pushCadence')}
+          value={values.pushCadence}
+          items={PUSH_CADENCE_CHOICES.map((c) => ({ value: c, label: t(PUSH_CADENCE_LABEL[c]) }))}
+          onChange={(v) => {
+            const c = PUSH_CADENCE_CHOICES.find((x) => x === v)
+            if (c !== undefined) set('pushCadence', c)
+          }}
+        />
+      ), t(PUSH_CADENCE_HINT[values.pushCadence]))}
     </div>
   )
 }

@@ -70,6 +70,7 @@ const RUN_HIDDEN = [
   'pr',
   // T6: the PR sync's check time for a Run with no `pr`; not in the SDK's contract yet
   'landedCheckedAt',
+  'outsideCheckedAt',
   // W6-H: a push delivery's result, answered by `run-deliver`; not in the SDK's contract yet
   'delivery',
   // T3: the delivery's and the plan-branch push's attempts, answered by `run-deliver`; not in the SDK's contract yet
@@ -131,6 +132,8 @@ const TASK_HIDDEN = [
   'kind',
   // T3: where the Task's worker starts, held back with the planner's other fields
   'worktree',
+  // T32: which replan added the Task and why, not in the SDK's contract yet
+  'addedBy',
   // T36: what a succeeded worker could not reach, not in the SDK's contract yet
   'gaps',
   // T12: what this machine could not run, held back with `gaps`
@@ -149,6 +152,7 @@ const JOB_HIDDEN = [
   /* W6-A: a plan ended with nothing to do, not in the SDK's contract yet */ 'nothingToDo',
   /* W6-H: the plan's own delivery (jobs-create/jobs-plan --delivery), not in the SDK's contract yet */ 'delivery',
   /* The plan's own target branch (jobs-create/jobs-set --delivery-branch), not in the SDK's contract yet */ 'deliveryBranch',
+  /* T10: when its plan branch is pushed while it runs (jobs-set --push-cadence), not in the SDK's contract yet */ 'pushCadence',
   /* W7-E: the review default and the planner's account, not in the SDK's contract yet */ 'review',
   'plannerAccountId',
   /* W7-A: talking to the planner, rejecting a plan, auto-approve; not in the SDK's contract yet */ 'autoApprove',
@@ -185,7 +189,7 @@ type _project = NothingLeft<Unlisted<Project, typeof PROJECT_FIELDS, typeof PROJ
 type _job = NothingLeft<Unlisted<Job, typeof JOB_FIELDS, typeof JOB_HIDDEN>>
 type _run = NothingLeft<Unlisted<JobRun, typeof RUN_FIELDS, typeof RUN_HIDDEN>>
 type _task = NothingLeft<Unlisted<Task, typeof TASK_FIELDS, typeof TASK_HIDDEN>>
-type _question = NothingLeft<Unlisted<Gate, typeof QUESTION_FIELDS, [/* W6-C: the app's notices read it */ 'reason']>>
+type _question = NothingLeft<Unlisted<Gate, typeof QUESTION_FIELDS, [/* W6-C: the app's notices read it */ 'reason', /* the app's own review-paused marker */ 'cause']>>
 type _account = NothingLeft<Unlisted<OrchAccount, typeof ACCOUNT_FIELDS, []>>
 type _runConfig = NothingLeft<Unlisted<OrchRunConfig, typeof RUN_CONFIG_FIELDS, []>>
 /** The pty and process ids are the Host's own: a controller reads them from the raw reply to subscribe, and a

@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import { promises as fs, existsSync } from 'node:fs'
 import path from 'node:path'
-import { blockingChanges, removeWorktree, isDangerousRemovalPath } from './remove'
+import { blockingChanges, deleteTrash, removeWorktree, isDangerousRemovalPath, type TrashFs } from './remove'
 import { createWorktree } from './create'
 import { WorktreeRegistry } from './registry'
 import { localBranchExists } from './git'
@@ -155,6 +155,35 @@ describe('removeWorktree', () => {
     const trash = path.join(reg.getRoot(), '.trash')
     const kept = (await fs.readdir(trash)).find((n) => n.startsWith(path.basename(info.path)))
     expect(await fs.readFile(path.join(trash, kept!, 'untracked.txt'), 'utf8')).toBe('u')
+  })
+
+  // T22: a process holding the folder (a server a worker left, its cwd in the worktree) left it half removed.
+  it('stops what still runs in the folder right before git removes it, and not when the removal is refused', async () => {
+    const { info } = await createWorktree({ repoPath: repo, name: 'held', registry: reg })
+    const seen: Array<[string, boolean]> = []
+    const stopProcessesIn = async (dir: string): Promise<void> => {
+      seen.push([dir, existsSync(path.join(dir, 'f.txt'))])
+    }
+    await fs.writeFile(path.join(info.path, 'd.txt'), 'd', 'utf8')
+    await expect(removeWorktree({ id: info.id, registry: reg, isPathInUse: noUse, stopProcessesIn })).rejects.toThrow(/DIRTY/)
+    expect(seen).toEqual([])
+    await removeWorktree({ id: info.id, force: true, registry: reg, isPathInUse: noUse, stopProcessesIn })
+    expect(seen).toEqual([[info.path, true]])
+    expect(existsSync(info.path)).toBe(false)
+  })
+
+  it('stops what still runs in a folder git forgot right before it is moved aside, and not when it is refused', async () => {
+    const { info } = await createWorktree({ repoPath: repo, name: 'held-orphan', registry: reg })
+    await fs.rm(path.join(repo, '.git', 'worktrees', path.basename(info.path)), { recursive: true, force: true })
+    const seen: Array<[string, boolean]> = []
+    const stopProcessesIn = async (dir: string): Promise<void> => {
+      seen.push([dir, existsSync(path.join(dir, 'f.txt'))])
+    }
+    await expect(removeWorktree({ id: info.id, registry: reg, isPathInUse: noUse, stopProcessesIn })).rejects.toThrow(/ORPHAN_UNVERIFIABLE/)
+    expect(seen).toEqual([])
+    await removeWorktree({ id: info.id, force: true, registry: reg, isPathInUse: noUse, stopProcessesIn })
+    expect(seen).toEqual([[info.path, true]])
+    expect(existsSync(info.path)).toBe(false)
   })
 
   it('branch -D first writes a backup ref at the branch head', async () => {
@@ -510,5 +539,83 @@ describe('removeWorktree branches (T5)', () => {
     await removeWorktree({ id: kept.id, registry: reg, isPathInUse: noUse, deleteRemoteBranch: true })
     expect(gitIn(repo, ['ls-remote', '--heads', 'origin', merged.branch])).toBe('')
     expect(gitIn(repo, ['ls-remote', '--heads', 'origin', kept.branch])).not.toBe('')
+  })
+})
+
+// T21: a removal renames the folder into `.trash` first, so a locked file never leaves a checkout without its `.git`.
+describe('removeWorktree, renamed aside before it goes', () => {
+  const adminGone = (info: { path: string }): boolean =>
+    !gitIn(repo, ['worktree', 'list', '--porcelain']).split('\n').some((l) => l.startsWith('worktree ') && path.resolve(l.slice(9)) === path.resolve(info.path))
+
+  it.runIf(process.platform === 'win32')('a file held open in the folder: it is moved to .trash, or left whole with its .git', async () => {
+    const { info } = await createWorktree({ repoPath: repo, name: 'held', registry: reg })
+    const held = path.join(info.path, 'held.txt')
+    await fs.writeFile(held, 'h', 'utf8')
+    const ps = spawn('powershell.exe', ['-NoProfile', '-Command',
+      `$f = [System.IO.File]::Open('${held}', 'Open', 'ReadWrite', 'None'); 'ready'; Start-Sleep 60`], { windowsHide: true })
+    try {
+      await new Promise<void>((resolve, reject) => {
+        ps.stdout.on('data', (b: Buffer) => { if (b.toString().includes('ready')) resolve() })
+        ps.on('exit', () => reject(new Error('the holder exited')))
+      })
+      const r = await removeWorktree({ id: info.id, force: true, registry: reg, isPathInUse: noUse, log: () => {} }).catch((e: Error) => e)
+      if (existsSync(info.path)) {
+        expect(String(r)).toMatch(/WORKTREE_BUSY/)
+        expect(existsSync(path.join(info.path, '.git'))).toBe(true)
+        expect(reg.get(info.id)).not.toBeNull()
+      } else {
+        expect(r).toMatchObject({ removed: true })
+        expect(adminGone(info)).toBe(true)
+      }
+    } finally {
+      ps.kill()
+    }
+  }, 30_000)
+
+  it('a rename refused EBUSY twice, then done, ends in .trash with git\'s entry pruned', async () => {
+    const { info } = await createWorktree({ repoPath: repo, name: 'busy-twice', registry: reg })
+    let refused = 0
+    const rmCalls: string[] = []
+    const seam: TrashFs = {
+      rename: async (from, to) => {
+        if (refused < 2) { refused++; throw Object.assign(new Error('busy'), { code: 'EBUSY' }) }
+        await fs.rename(from, to)
+      },
+      rm: async (p) => { rmCalls.push(p) }
+    }
+    const r = await removeWorktree({ id: info.id, force: true, registry: reg, isPathInUse: noUse, fs: seam })
+    expect(r.removed).toBe(true)
+    expect(refused).toBe(2)
+    expect(existsSync(info.path)).toBe(false)
+    const trash = path.join(reg.getRoot(), '.trash')
+    const moved = (await fs.readdir(trash)).find((n) => n.startsWith('busy-twice'))
+    expect(moved).toBeDefined()
+    expect(adminGone(info)).toBe(true)
+    await new Promise((res) => setTimeout(res, 0))
+    expect(rmCalls).toEqual([path.join(trash, moved!)])
+  })
+
+  it('a folder whose HEAD is on no branch is refused, force or not, and stays whole', async () => {
+    const { info } = await createWorktree({ repoPath: repo, name: 'detached', registry: reg })
+    gitIn(info.path, ['checkout', '-q', '--detach'])
+    await fs.writeFile(path.join(info.path, 'd.txt'), 'd', 'utf8')
+    gitIn(info.path, ['add', 'd.txt'])
+    gitIn(info.path, ['commit', '-q', '-m', 'on no branch'])
+    gitIn(repo, ['branch', '-D', info.branch])
+    await expect(removeWorktree({ id: info.id, force: true, registry: reg, isPathInUse: noUse })).rejects.toThrow(/NOT_ON_BRANCH/)
+    expect(existsSync(path.join(info.path, '.git'))).toBe(true)
+    expect(reg.get(info.id)).not.toBeNull()
+  })
+})
+
+describe('deleteTrash', () => {
+  it('tries again, then gives up quietly with one log line', async () => {
+    let tries = 0
+    const logs: string[] = []
+    const seam: TrashFs = { rename: async () => {}, rm: async () => { tries++; throw Object.assign(new Error('locked'), { code: 'EBUSY' }) } }
+    await expect(deleteTrash('D:/trash/x', (m) => logs.push(m), seam, [0, 0])).resolves.toBeUndefined()
+    expect(tries).toBe(3)
+    expect(logs).toHaveLength(1)
+    expect(logs[0]).toMatch(/could not delete D:\/trash\/x/)
   })
 })

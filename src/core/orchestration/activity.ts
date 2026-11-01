@@ -23,7 +23,7 @@ import type { UsageChange } from './usageGuard'
 import { taskBoardsOf } from './blocked'
 import { jobNameOf } from './jobName'
 import { heldForOwner, outcomeOfTasks } from './running'
-import { completionSettled, replanOn } from './replan'
+import { completionSettled } from './replan'
 // W8-C plan after plan
 import { afterStoppedText } from './after'
 // W8-D several plans in one repo
@@ -121,6 +121,8 @@ export interface ActivityPayload {
   status?: TaskStatus
   from?: TaskStatus
   category?: TaskCategory
+  // run.pr: the plan's branch landed in the base outside Astera (set on the change that settled it)
+  landedOutside?: true
   // dispatch.*
   review?: boolean
   outcome?: Outcome
@@ -382,7 +384,9 @@ export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[
       const was = before.get(r.id)
       if (was === undefined || was === r || same(was.pr, r.pr)) continue
       const at = where(r.id)
-      push('run.pr', at, { title: at.job ? jobNameOf(at.job) : r.id, ...(r.pr !== undefined ? { pr: r.pr } : {}) })
+      // the plan's work reached the base outside Astera: said once, on the change that settled it (not on later PR moves)
+      const outside = r.pr?.landedOutside === true && was.pr?.landedOutside !== true
+      push('run.pr', at, { title: at.job ? jobNameOf(at.job) : r.id, ...(r.pr !== undefined ? { pr: r.pr } : {}), ...(outside ? { landedOutside: true as const } : {}) })
     }
     // W6-H: the push landed
     for (const r of next.runs) {
@@ -509,9 +513,9 @@ export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[
       const outcome = outcomeOfTasks(ts, next.gates)
       if (outcome === 'running' || outcome === 'checking') continue
       const at = where(runId)
-      // W6-D: a plan that replans is done only when its final check settles having added nothing, which the check's end
-      // says (below). Never here: a completion pass that covered this many done Tasks before is not this one's check (item 8)
-      if (outcome === 'completed' && at.job && (replanOn(at.job) || !completionSettled(next, at.job, runId))) continue
+      // W6-D: a plan that replans is done only once its final check ran (it runs once per Run). A check that added nothing
+      // says so at its end (below); one that added follow-ups is done here, when they complete
+      if (outcome === 'completed' && at.job && !completionSettled(next, at.job, runId)) continue
       // W8-E (#99): a failed plan ends here, with no final check (replan.ts replansDue asks for an all-completed Run)
       const failedTasks = outcome === 'failed' ? ts.filter((t) => t.status === 'failed').length : undefined
       // Item 2: so does a plan whose other Tasks all ended around the ones held for the owner

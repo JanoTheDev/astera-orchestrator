@@ -157,6 +157,8 @@ export const plans = {
   'plan.summary.delivery.review': '검토를 기다립니다',
   'plan.summary.delivery.dismissed': '닫음 · 전달되지 않음',
   'plan.summary.delivery.deliveredBy': '{plan} 이(가) 전달함',
+  'plan.summary.delivery.landedOutside': 'Astera 밖에서 반영됨',
+  'plan.summary.delivery.closedOnGitHub': 'GitHub에서 닫힘',
   'plan.summary.draft': '초안',
   'plan.summary.areas': '영역',
   'plan.header.openPr': 'PR 열기',

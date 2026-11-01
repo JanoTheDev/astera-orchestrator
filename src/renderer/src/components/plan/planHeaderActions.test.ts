@@ -179,6 +179,14 @@ describe('planActionsOf markMerged', () => {
     expect(act({ awaitingReview: true }).markMerged).toBe(true)
   })
 
+  it('offers Mark as merged on a Failed plan whose delivery failed, not on one that failed in its Tasks', () => {
+    expect(act({ outcome: 'failed', deliveryError: 'push refused' }).markMerged).toBe(true)
+    expect(act({ outcome: 'failed', delivery: { state: 'needs-owner' } as never }).markMerged).toBe(true)
+    expect(act({ outcome: 'failed', deliveryError: 'x', pr: { ...pr, landed: 'merged' } }).markMerged).toBe(false)
+    expect(act({ outcome: 'failed', deliveryError: 'x' }, false).markMerged).toBe(false)
+    expect(act({ outcome: 'failed' }).markMerged).toBe(false)
+  })
+
   it('offers nothing for a landed, draft, archived, running or paired-Runtime plan', () => {
     expect(act({ pr: { ...pr, landed: 'merged' } }).markMerged).toBe(false)
     expect(act({ pr: { ...pr, draft: true } }).markMerged).toBe(false)
@@ -186,5 +194,22 @@ describe('planActionsOf markMerged', () => {
     expect(act({ outcome: 'running', awaitingReview: true }).markMerged).toBe(false)
     expect(act({ awaitingReview: true }, false).markMerged).toBe(false)
     expect(act({}).markMerged).toBe(false)
+  })
+})
+
+describe('planActionsOf pushNow', () => {
+  const act = (o: Partial<JobRow>, local = true) => planActionsOf(row({ pushesBranch: true, ...o }) as never, local)
+
+  it('offers Push now on a running or completed plan whose branch Astera pushes', () => {
+    expect(act({}).pushNow).toBe(true)
+    expect(act({ outcome: 'completed' }).pushNow).toBe(true)
+  })
+
+  it('hides it for merge-mode and owner-pushes plans (no pushesBranch), archived, not started, failed or paired-Runtime plans', () => {
+    expect(act({ pushesBranch: undefined }).pushNow).toBe(false)
+    expect(act({ archivedAt: 'x' }).pushNow).toBe(false)
+    expect(act({ pendingStart: true }).pushNow).toBe(false)
+    expect(act({ outcome: 'failed' }).pushNow).toBe(false)
+    expect(act({}, false).pushNow).toBe(false)
   })
 })

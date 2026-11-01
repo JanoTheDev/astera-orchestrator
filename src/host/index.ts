@@ -9,7 +9,8 @@ import { createPluginManager } from './plugins/manager'
 import { hostJobSources } from './jobSources'
 import { hostCompletionChecks } from './completionChecks'
 import { PLUGIN_STOP_CAP_MS, createPluginRuntime } from './plugins/runtime'
-import { existsSync, promises as fsp, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, promises as fsp, readFileSync, rmSync } from 'node:fs'
+import { CRASH_DIR } from '../core/crash/store'
 import { defaultCwdProbe, setProbeLog } from '../core/sessions/pathProbe'
 import { createRequire } from 'node:module'
 import os from 'node:os'
@@ -24,6 +25,7 @@ import { SPAWN_DEADLINE_MS } from '../core/host/unresponsive'
 import { hideAllChildConsoleWindows, hideForkedConsoleWindows, type ChildProcessProto } from '../core/childWindows'
 import { trustSystemCa } from './systemCa'
 import { openHostLog, logUncaughtExceptions, logUnhandledRejections } from './log'
+import { previousHostLines, readLogTail, watchExit, type ExitWatch } from './exitWatch'
 import { flushAll, flushAllLogsSync } from '../core/log/logWriter'
 import { startHostServer } from './server'
 import { HOST_EXIT, listenExitCode } from './exitCodes'
@@ -32,7 +34,9 @@ import { openSecretStore } from '../core/secrets/secretStore'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { ensureHostKey } from '../core/publicContract'
 import { completeWindowsPath } from '../core/sessions/windowsPath'
-import { PtyRegistry } from './registry'
+import { PtyRegistry, type RegistrySpawn } from './registry'
+import { startPtySupervisor } from './ptySupervisor/client'
+import { adoptSurvivors, listSurvivors } from './ptyAdopt'
 import { createConhostReaper, reapWindowsConsoleHosts } from './conhostReaper'
 import { createRemoteSessions, type RemoteSessions } from './remoteSessions'
 import { attachPtyHost } from './ptyHost'
@@ -58,11 +62,12 @@ import { createHostUnderstanding, readUnderstandingSettings } from './hostUnders
 import { createHostWorkUnits, readWorkUnitTracking, wireSessionExits, workUnitSessionsOf, type HostWorkUnits } from './hostWorkUnits'
 import { readHostMerges, hostMergesPathIn } from '../core/git/hostMerges'
 import { readFileRetrying } from '../core/renameRetry'
-import { outcomeOf } from '../core/orchestration/running'
+import { outcomeOf, stopBlockers } from '../core/orchestration/running'
 import { makeDescriptors } from '../core/providers/descriptor'
 import { readRange } from '../core/git/range'
 import { createHostOrch } from './orch'
 import { composeHostDriving } from './drivingWiring'
+import { hostSessionAlive } from './driving'
 // W6-G
 import { createUsageGuard } from '../core/orchestration/usageGuard'
 import { readAccountMaxSessions } from '../core/settings/accountMaxSessions'
@@ -70,10 +75,13 @@ import { usageActivity } from '../core/orchestration/activity'
 import { resumeAfterCrash } from '../core/orchestration/exec/crashResume'
 // T3: the load monitor
 import { createLoadMonitor, type LoadMonitor } from './loadMonitor'
+import { createWindowDiagnostic, queryWindowTable, type WindowDiagnostic } from './windowDiagnostic'
+import { readWindowDiagnosticOn } from '../core/settings/windowDiagnostic'
 import { workersAgainstCap } from '../core/orchestration/schedule'
 import { heavyQueue } from '../core/orchestration/heavyLock'
 // T5 crash restore
 import {
+  cleanExitFileIn,
   handoverFileIn,
   handoverOf,
   chatRespawnOf,
@@ -86,6 +94,7 @@ import {
   restartFeedLine,
   restartWaitingOn,
   restoreSessions,
+  endOrphanedReplans,
   sessionRestoreFileIn,
   trackLiveSessions,
   withoutResumed,
@@ -190,7 +199,10 @@ async function main(): Promise<void> {
     process.stderr.write('astera-host: ASTERA_HOST_PROFILE_DIR is required\n')
     process.exit(HOST_EXIT.noProfile)
   }
-  const log = openHostLog({ path: process.env.ASTERA_HOST_LOG ?? path.join(profileDir, 'host', 'host.log') })
+  const hostLogPath = process.env.ASTERA_HOST_LOG ?? path.join(profileDir, 'host', 'host.log')
+  // The dead Host's last lines, taken before this Host writes its own first one.
+  const previousTail = readLogTail(hostLogPath)
+  const log = openHostLog({ path: hostLogPath })
   // Path probes that time out (an offline drive on PATH, or a session folder on one) are told here.
   setProbeLog((m) => log.write(m))
   // Final review C1, the belt: a rejection nobody handled is logged and never ends the Host (and every
@@ -198,6 +210,12 @@ async function main(): Promise<void> {
   logUnhandledRejections(process, log)
   // 2026-10-12: an exception nobody caught ended a Host with every session and no line; it is logged before the exit.
   logUncaughtExceptions(process, log, { code: HOST_EXIT.uncaught })
+  // 25a: --report-dir (core/host/spawn.ts) points here, and node writes a fatal-error report to the cwd when it is missing.
+  try {
+    mkdirSync(path.join(profileDir, CRASH_DIR), { recursive: true, mode: 0o700 })
+  } catch (err) {
+    log.write(`could not create the crash folder: ${String(err)}`)
+  }
   // S6-22: the OS certificate store joins Node's default CAs before any HTTPS (the usage lookup), so a
   // TLS-inspecting proxy's root verifies. Never throws; on failure the defaults stay (systemCa.ts).
   trustSystemCa(tls, (m) => log.write(m))
@@ -226,24 +244,37 @@ async function main(): Promise<void> {
   // Made once for this process (remote runtime design §3.2, N11): a client comparing it learns the Host restarted. The
   // local hello, the Gateway's hello and the pty registry's replays (§3.7) carry the same value.
   const bootId = randomBytes(16).toString('hex')
+  /** The Host's own pty spawn: everything but agent sessions, and those too while the pty supervisor cannot be reached. */
+  const spawnHere: RegistrySpawn = (file, args, opts) => {
+    // **Checked here, before every spawn, and not once at startup.** The file can go missing while
+    // this Host is running — that is exactly what happened on 2026-09-22 — and the Host would not
+    // notice, because it never reads it again until a spawn needs it. Which is the moment it stops
+    // being able to tell anyone anything (see nodePtyCheck.ts for the mechanism). Two `existsSync`
+    // calls per session is nothing beside what a spawn already costs.
+    const missing = nodePtyMissing({ platform: process.platform, libDir: ptyLibDir, exists: existsSync })
+    // Thrown rather than returned: `PtyRegistry.open` already catches a spawn that throws and
+    // answers `pty-failed` with the message, which is the path this wants — the app shows the
+    // sentence on the terminal (ptyFactory.ts) instead of a session that never appears.
+    if (missing) throw new Error(`node-pty is incomplete: ${missing} is missing — the app repairs this at the next Host start`)
+    const spawned = pty.spawn(file, args, { name: 'xterm-256color', ...opts })
+    // After it returns: the console host of this pty exists by now, and is made before this mark.
+    conhostReaper.spawned()
+    return spawned
+  }
+  // T35: an agent session's pty lives in the pty supervisor, a hidden process that outlives this Host
+  // (src/host/ptySupervisor/protocol.ts), so a Host that dies does not end the agents with it.
+  const ptySupervisor = startPtySupervisor({
+    profileDir,
+    execPath: process.execPath,
+    entryPath: path.join(__dirname, 'pty-supervisor.js'),
+    env: process.env,
+    platform: process.platform,
+    log: (m) => log.write(m),
+    fallback: spawnHere
+  })
   const registry = new PtyRegistry({
     bootId,
-    spawn: (file, args, opts) => {
-      // **Checked here, before every spawn, and not once at startup.** The file can go missing while
-      // this Host is running — that is exactly what happened on 2026-09-22 — and the Host would not
-      // notice, because it never reads it again until a spawn needs it. Which is the moment it stops
-      // being able to tell anyone anything (see nodePtyCheck.ts for the mechanism). Two `existsSync`
-      // calls per session is nothing beside what a spawn already costs.
-      const missing = nodePtyMissing({ platform: process.platform, libDir: ptyLibDir, exists: existsSync })
-      // Thrown rather than returned: `PtyRegistry.open` already catches a spawn that throws and
-      // answers `pty-failed` with the message, which is the path this wants — the app shows the
-      // sentence on the terminal (ptyFactory.ts) instead of a session that never appears.
-      if (missing) throw new Error(`node-pty is incomplete: ${missing} is missing — the app repairs this at the next Host start`)
-      const spawned = pty.spawn(file, args, { name: 'xterm-256color', ...opts })
-      // After it returns: the console host of this pty exists by now, and is made before this mark.
-      conhostReaper.spawned()
-      return spawned
-    },
+    spawn: ptySupervisor.spawn,
     log: (m) => log.write(m),
     // A repeat kill's escalation (registry.ts `kill`): never a second ConPTY kill.
     killTree: (pid) => killTree(pid)
@@ -294,6 +325,7 @@ async function main(): Promise<void> {
   let sessionTracker: SessionTracker | null = null
   // T3: the load monitor; started after the orchestration state is up, stopped in `leave`.
   let loadMonitor: LoadMonitor | null = null
+  let windowDiagnostic: WindowDiagnostic | null = null
   /** The shell terminals and run processes an app opened (its `pty-spawn`, at the size last given), and the ones a
    *  handover reopened, by pty id while they live: what a handover writes down for them (sessionRestore.ts). */
   const ptySpawns = new Map<string, PtySpawn>()
@@ -338,6 +370,7 @@ async function main(): Promise<void> {
     // stop`, a retire) is clean; a signal is a reboot or a kill, and its sessions come back at the next start.
     // A handover (`resume`) writes its marker only after the handover itself, before the `killAll` (`handOver`).
     loadMonitor?.stop() // T3
+    windowDiagnostic?.stop()
     sessionTracker?.freeze()
     sessionTracker?.dispose()
     // T2 (crashLimits.ts): a signal leaves its own marker, so the next start tells a reboot or a kill from a hard death.
@@ -418,6 +451,13 @@ async function main(): Promise<void> {
         .close()
         .catch((err) => log.write(`the server did not close cleanly: ${String(err)}`))
         .finally(async () => {
+          // T3: the last commits on disk, now that no command can make another: commits no longer wait for the write.
+          // Capped like the workspaces, so a stuck disk cannot hold the way out; the store logged what failed.
+          await disposeWithin(
+            orch.flush().catch((err) => log.write(`the orchestration state could not be written on the way out: ${String(err)}`)),
+            DISPOSE_CAP_MS,
+            () => log.write(`the orchestration state was still being written after ${DISPOSE_CAP_MS / 1000} s; leaving anyway`)
+          )
           // The journal's handle, once no command can reach a commit any more: the spawns have settled and
           // the server has closed. Never throws.
           hostJournal.close()
@@ -473,6 +513,8 @@ async function main(): Promise<void> {
     ptys: registry,
     procs,
     getState: () => orch.state(),
+    // T22: a folder's removal also stops what the leftover tracker recorded under the workers that ran in it.
+    remembered: (dispatchId) => leftovers?.rememberedOf(dispatchId) ?? [],
     // E2 §4: a merge this Host runs is its own git operation for its work units too, registered before
     // the merge starts (the `begin` is told right before `git merge`).
     broadcast: (m) => {
@@ -988,8 +1030,11 @@ async function main(): Promise<void> {
   const resuming = new Set<string>(wiring && spawner ? handedOverWorkers(profileDir) : [])
   /** T13: this Host is restarting itself (its hold is its own, so its start must not lift it). */
   let restartHeld = false
+  // Set once the address is ours (below); a command before that is simply not tracked.
+  let exitWatch: ExitWatch | null = null
   const orch = createHostOrch({
     profileDir,
+    track: (cmd, run) => (exitWatch ? exitWatch.command(cmd, run) : run()),
     usageGuard,
     version: hostVersion,
     controllers,
@@ -1290,6 +1335,18 @@ async function main(): Promise<void> {
     await workUnits.start()
   }
 
+  // T23: work the file says was in flight when the last Host died is picked up now, not when an app first asks — a Host
+  // started at login has no app (core/orchestration/exec/crashResume.ts). Only a Host that starts sessions itself.
+  // T5: the sessions an unclean exit left (sessionRestore.ts): read before the tracker writes this Host's own list.
+  // Read first and synchronously: a load (an app's first command) empties dead coordinator slots, and roles are read here.
+  const crashState = readStateFile(path.join(profileDir, 'orchestration.json'))
+  const restoreFile = sessionRestoreFileIn(profileDir)
+  // T36 (ptyAdopt.ts): after a crash (no clean-exit marker; a handover writes one too) the agent ptys the pty supervisor
+  // kept are listed before this Host serves, and adopted once the address is ours, before any command can load.
+  const survivors =
+    wiring && spawner && !existsSync(cleanExitFileIn(profileDir)) ? await listSurvivors(ptySupervisor, (m) => log.write(m)) : null
+  const savedAtCrash = survivors ? await readSavedSessions(restoreFile) : []
+
   // Protocol 4: the proof every client checks before it hands this Host anything (packages/client/src/hostKey.ts).
   // Made before the bind, so no client can meet this Host before its key exists. A Host that cannot
   // make one would be refused by every client, so it does not serve at all.
@@ -1367,6 +1424,13 @@ async function main(): Promise<void> {
         // Remote on: the Host waits for controllers instead of leaving idle (remote runtime N3).
         remote: remoteEnabled
       }),
+      // What a plain `host stop` names when it refuses: the live sessions that work and the Runs in flight, not every
+      // open console (a finished worker's, a planner idle at its prompt). Same state source as `workingTasks` below.
+      stopBlockers: () =>
+        stopBlockers(
+          orch.loaded() ? orch.state() : readStateFile(path.join(profileDir, 'orchestration.json')),
+          [...registry.liveEntries(), ...procs.liveEntries()].map((e) => ({ id: e.meta?.id ?? e.id, kind: e.meta?.kind ?? ('terminal' as const) }))
+        ),
       // A handover is refused while a Task works (sessionRestore.ts). Read from the file when no command loaded it yet.
       workingTasks: () =>
         workingTaskCount(orch.loaded() ? orch.state() : readStateFile(path.join(profileDir, 'orchestration.json')), (id) => registry.sessionPty(id) !== null),
@@ -1433,6 +1497,10 @@ async function main(): Promise<void> {
     log.write(code === HOST_EXIT.lostBindRace ? 'another Host already serves this profile — leaving' : `could not listen: ${String(err)}`)
     process.exit(code)
   }
+  // T36: synchronously, right after the bind: the load's cleanup must find the adopted sessions alive in the registry.
+  const adopted = survivors
+    ? adoptSurvivors({ survivors, supervisor: ptySupervisor, registry, saved: savedAtCrash, state: crashState, log: (m) => log.write(m) })
+    : new Set<string>()
 
   // Written only once the address is ours: a Host that lost the bind race has nothing to say about
   // who serves this profile, and a record from it would name the wrong process. Never fatal — the
@@ -1443,13 +1511,11 @@ async function main(): Promise<void> {
   } catch (err) {
     log.write(`could not record which process this Host is: ${String(err)}`)
   }
+  // 25a: what the last Host left (its exit line, or that it left none, and the command it died in) before the crash
+  // resume below; then this Host's own exit line, heap watch and command breadcrumb take over the record.
+  for (const line of previousHostLines(path.join(profileDir, 'host'), { tail: previousTail })) log.write(line)
+  exitWatch = watchExit({ proc: process, log, dir: path.join(profileDir, 'host') })
 
-  // T23: work the file says was in flight when the last Host died is picked up now, not when an app first asks — a Host
-  // started at login has no app (core/orchestration/exec/crashResume.ts). Only a Host that starts sessions itself.
-  // T5: the sessions an unclean exit left (sessionRestore.ts): read before the tracker writes this Host's own list.
-  // Read first and synchronously: a load (an app's first command) empties dead coordinator slots, and roles are read here.
-  const crashState = readStateFile(path.join(profileDir, 'orchestration.json'))
-  const restoreFile = sessionRestoreFileIn(profileDir)
   // T2 (crashLimits.ts): after a hard death the limits are lowered before any worker or session is resumed, so the
   // recovery below brings back no more than the new cap. Reads the clean-exit marker without taking it. Never rejects.
   {
@@ -1467,7 +1533,8 @@ async function main(): Promise<void> {
   }
   // A handover the last Host wrote on its way out comes first; its sessions are the saved ones then (sessionRestore.ts).
   const left = wiring && spawner ? await leftBehind(profileDir) : { handover: null, saved: [] }
-  const savedSessions = left.handover?.sessions ?? left.saved
+  // T36: an adopted session is alive already; only the ones whose pty is gone are restored.
+  const savedSessions = (left.handover?.sessions ?? left.saved).filter((x) => !adopted.has(x.sessionId))
   const nativeIdOf = async (sid: string): Promise<string | null> =>
     (await hostSessions.agentSessionOf(sid).catch(() => null)) ?? savedSessions.find((x) => x.sessionId === sid)?.nativeSessionId ?? null
   const hasConversation = async (accountId: string, nativeId: string): Promise<boolean> =>
@@ -1567,6 +1634,19 @@ async function main(): Promise<void> {
     } else restoreDone()
   } else restoreDone()
   // T13: once the sessions are back (or there were none), a restart's hold goes (sessionRestore.ts liftRestartHold).
+  // After a crash (no handover) a replan's planner died with the old Host and nothing here holds it: end it at once.
+  if (!left.handover)
+    void restored
+      .then(async () => {
+        await orch.ready()
+        await endOrphanedReplans({
+          state: orch.state(),
+          alive: (id) => hostSessionAlive(registry, procs, id),
+          handle: (cmd, args) => orch.handle(cmd, args),
+          log: (m) => log.write(m)
+        })
+      })
+      .catch((err) => log.write(`session restore: orphaned replans could not be ended: ${String(err)}`))
   void restored
     .then(async () => {
       if (await liftRestartHold(profileDir, () => restartHeld)) log.write('restart: the hold on new starts is lifted')
@@ -1579,6 +1659,7 @@ async function main(): Promise<void> {
     void resumeAfterCrash({
       nativeIdOf,
       readFile: () => withoutResumed(crashState, handedOver),
+      adopted,
       ready: () => orch.ready(),
       state: () => orch.state(),
       handle: (cmd, args) => orch.handle(cmd, args),
@@ -1604,6 +1685,15 @@ async function main(): Promise<void> {
     log: (m) => log.write(m)
   })
   loadMonitor.start()
+  // Windows only, and only with the `windowDiagnostic` setting on (read at every tick): logs the Host's children that show a window.
+  windowDiagnostic = createWindowDiagnostic({
+    platform: process.platform,
+    hostPid: process.pid,
+    enabled: () => readWindowDiagnosticOn(path.join(profileDir, 'app-settings.json')),
+    query: (pid) => queryWindowTable(pid),
+    log: (m) => log.write(m)
+  })
+  windowDiagnostic.start()
   // The Host's connections start once the server exists: who keeps them is the server's to say.
   connectionsWiring?.start()
   // W3-A: the activity feed's notices to every connection, while this Host holds them (the app's desktop

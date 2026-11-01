@@ -10,8 +10,10 @@ import {
   runsWorkingIn,
   runWorktrees,
   workingInRunRoot,
-  worktreeDepsOf
+  worktreeDepsOf,
+  PLAN_CONFLICT_MARK
 } from './integrate'
+import { DELIVERY_FIX_MARK } from './delivery'
 import { emptyState, type OrchState } from './state'
 import type { Dispatch, Task } from './types'
 import { stateFromLegacy } from './legacyState'
@@ -228,6 +230,21 @@ describe('integrationTaskFor', () => {
       ]
     })
     expect(integrationTaskFor(s, 't2')).toBeUndefined()
+  })
+
+  it("picks the Task's own merge Task, newest first, never a refresh, origin or delivery-fix Task hung off it as the anchor", () => {
+    const spec = (reason: string): string => buildIntegrationSpec({ mergeInto: RUN_CWD, reason, worktrees: [] })
+    const s = state({
+      tasks: [
+        task('t1', { status: 'merging' }),
+        task('refresh', { parentId: 't1', status: 'completed', spec: spec(`plan x delivered abc to main, and it ${PLAN_CONFLICT_MARK}: c`) }),
+        task('fix', { parentId: 't1', spec: `${DELIVERY_FIX_MARK} (fix 1 of 3)` }),
+        task('old', { parentId: 't1', status: 'failed', spec: spec('git merge-tree says x does not merge cleanly') }),
+        task('merge', { parentId: 't1', spec: spec('git merge-tree says x does not merge cleanly') })
+      ]
+    })
+    expect(integrationTaskFor(s, 't1')?.id).toBe('merge')
+    expect(integrationTaskFor({ ...s, tasks: s.tasks.filter((t) => t.id === 't1' || t.id === 'refresh' || t.id === 'fix') }, 't1')).toBeUndefined()
   })
 })
 

@@ -13,6 +13,13 @@ side see the [user guide](guide.md); for the mechanics of one Job see [Jobs](job
 window is one client of it, so closing the window stops nothing. Nothing the Host imports may reach Electron, `src/main` or
 `src/renderer`: `src/host/importFence.test.ts` fails the build if it does.
 
+**Agent sessions outlive the Host.** An agent session's terminal is not held by the Host itself but by the pty
+supervisor (`src/host/ptySupervisor/`), a small hidden process the Host starts detached from itself and talks to over a
+pipe or socket of its own. On Windows a console ends with the process that holds it, so this is what keeps a Host crash
+from ending every agent. While no Host is connected the supervisor keeps the last 256,000 characters of each terminal's
+output, and it leaves by itself a minute after it holds no live terminal and no Host. Shell terminals and runs stay in the
+Host, and so does every session when the supervisor cannot start (the Host logs that once).
+
 **Five ways in, one Host behind them.** They all reach the same Host over its own pipe or socket, so a Job made in one
 shows up in all of them:
 
@@ -101,7 +108,7 @@ Astera keeps its state in the **profile folder**, and the work itself in worktre
 | Where | What |
 |---|---|
 | `~/.config/astera` on Linux, `~/Library/Application Support/astera` on macOS, `%APPDATA%\astera` on Windows | The profile folder. `npm run dev` uses a separate `astera-dev` profile next to it. `ASTERA_PROFILE_DIR` overrides it. |
-| `<profile>/host/` | The Host: `host.log`, its pid file, its key, and the sessions it holds live |
+| `<profile>/host/` | The Host: `host.log`, its pid file, its key, and the sessions it holds live; the pty supervisor's `pty-supervisor.log` |
 | `<profile>/rolling.log` | Account rolling decisions |
 | `<profile>/orch/` | Orchestration records, including the activity feed `activity.jsonl` |
 | `<profile>/accounts.json`, `<profile>/account-usage.json` | Registered accounts and their last usage readings |

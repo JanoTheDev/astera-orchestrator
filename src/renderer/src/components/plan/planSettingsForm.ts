@@ -5,7 +5,7 @@ import type { RunOutcome } from '../../../../core/types'
 import { editableSettingsOf, type PlanSetting, type PlanSettingKey, type PlanSettingReason, type PlanSettings } from '../../../../core/orchestration/planSettings'
 import type { ApprovalMode } from '../../../../core/settings/approvalDefault'
 import { emptyState } from '../../../../core/orchestration/state'
-import { DEFAULT_CONCURRENCY, MAX_CONCURRENT_WORKERS, MAX_REVIEW_ROUNDS, type DeliveryMode, type Job, type JobRun, type Project } from '../../../../core/orchestration/types'
+import { DEFAULT_CONCURRENCY, MAX_CONCURRENT_WORKERS, MAX_REVIEW_ROUNDS, PUSH_CADENCES, type DeliveryMode, type Job, type JobRun, type Project, type PushCadence } from '../../../../core/orchestration/types'
 
 /** What the form shows: every value set, the plan's own, else its project's, else the default. */
 export interface PlanSettingsValues {
@@ -16,6 +16,7 @@ export interface PlanSettingsValues {
   autoApprove: boolean
   handsOff: boolean
   delivery: DeliveryMode
+  pushCadence: PushCadence
 }
 
 /** The approval setting's words, shared with Settings > Agents. */
@@ -43,7 +44,8 @@ export function planSettingsFormOf(job: Job, run: JobRun | undefined, project: P
       replan: s.replan.value === 'waves',
       autoApprove: s.autoApprove.value,
       handsOff: s.handsOff.value,
-      delivery: s.delivery.value
+      delivery: s.delivery.value,
+      pushCadence: s.pushCadence.value
     },
     fields: {
       concurrency: field(s.concurrency),
@@ -52,7 +54,8 @@ export function planSettingsFormOf(job: Job, run: JobRun | undefined, project: P
       replan: field(s.replan),
       autoApprove: field(s.autoApprove),
       handsOff: field(s.handsOff),
-      delivery: field(s.delivery)
+      delivery: field(s.delivery),
+      pushCadence: field(s.pushCadence)
     }
   }
 }
@@ -77,11 +80,17 @@ export function settingsDiff(before: PlanSettingsValues, after: PlanSettingsValu
   if (after.autoApprove !== before.autoApprove) args.autoApprove = after.autoApprove ? 'on' : 'off'
   if (after.handsOff !== before.handsOff) args.handsOff = after.handsOff ? 'on' : 'off'
   if (after.delivery !== before.delivery) args.delivery = after.delivery
+  if (after.pushCadence !== before.pushCadence) args.pushCadence = after.pushCadence
   return Object.keys(args).length === 0 ? null : args
 }
 
 /** What the form shows once a save answered: the new values, or the old ones when it failed (the field reverts). */
 export const settledValues = (before: PlanSettingsValues, after: PlanSettingsValues, ok: boolean): PlanSettingsValues => (ok ? after : before)
+
+/** The push cadence Select's choices, in the order of PUSH_CADENCES, with the words they use. */
+export const PUSH_CADENCE_LABEL = { end: 'plan.settings.pushCadence.end', wave: 'plan.settings.pushCadence.wave', task: 'plan.settings.pushCadence.task' } as const satisfies Record<PushCadence, MessageKey>
+export const PUSH_CADENCE_HINT = { end: 'plan.settings.pushCadenceHint.end', wave: 'plan.settings.pushCadenceHint.wave', task: 'plan.settings.pushCadenceHint.task' } as const satisfies Record<PushCadence, MessageKey>
+export const PUSH_CADENCE_CHOICES: readonly PushCadence[] = PUSH_CADENCES
 
 /** The sentence under a read-only field. */
 export const SETTING_REASON_KEY: Record<PlanSettingReason, MessageKey> = {

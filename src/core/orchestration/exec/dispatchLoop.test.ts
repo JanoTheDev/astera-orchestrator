@@ -14,6 +14,7 @@ import {
   FINISHED_RUN_GRACE_MS,
   REPLAN_IDLE_NUDGE_MS,
   REPLAN_TIMEOUT_MS,
+  BACKGROUND_JOB_LIMIT_MS,
   createDispatchLoop, type DispatchLoop, type DispatchLoopContext,
   idleWorkersOf
 } from './dispatchLoop'
@@ -25,12 +26,14 @@ import { DELIVERY_FIX_MARK, DELIVERY_OWNER_PUSHES, DELIVERY_RETRY_NOW } from '..
 import { APP_CALLER } from '../../host/driver'
 import { addDecision, COORDINATOR_START_WINDOW_MS, emptyState, type OrchState } from '../state'
 import { needsInput } from '../sessionIndex'
-import { outcomeOf } from '../running'
+import { deliveryErrorOf, outcomeOf } from '../running'
 import { ASK_GRACE_MS } from './autoAnswer'
-import type { Decision, Dispatch, Job, Message, Task } from '../types'
+import type { Decision, Dispatch, Job, Message, PushCadence, Task } from '../types'
+import { acceptSlotHolds, taskBoardsOf } from '../blocked'
 import { FAILURE_LIMIT } from '../types'
-import type { Account } from '../../types'
+import type { Account, SlotHold } from '../../types'
 import { installPending, installSettled, installTurn } from '../../worktrees/setup'
+import { makeRepo } from '../../worktrees/testRepo'
 
 const NOW = '2026-09-24T00:00:00.000Z'
 const NOW_MS = Date.parse(NOW)
@@ -188,6 +191,8 @@ function rig(o: RigOpts = {}) {
   const logs: string[] = []
   const typed: string[] = []
   const reaped: string[] = []
+  /** Reaped worktrees leave the registry, as reapWorktree's do. */
+  const removed = new Set<string>()
   const forked: { repoPath: string; name: string; base?: string }[] = []
   let calls = 0
   let inFlight = 0
@@ -250,15 +255,17 @@ function rig(o: RigOpts = {}) {
     integrate: async () => ({ kind: 'clean' }) as never,
     reap: async (p) => {
       reaped.push(p)
+      if (!o.reapFails) removed.add(p)
       return !o.reapFails
     },
-    isRegisteredWorktree: (p) => p === '/wt-child',
+    isRegisteredWorktree: (p) => p === '/wt-child' && !removed.has(p),
     sessionAlive: () => !o.deadSessions,
     sessionBusy: () => false,
     typeInto: (_id, text) => {
       typed.push(text)
     },
     mayStart: () => true,
+    deliveryHeads: async () => ({}), // no git in the rig; a delivery test sets the heads it needs
     log: (m) => {
       logs.push(m)
     },
@@ -302,8 +309,17 @@ function rig(o: RigOpts = {}) {
       state = next
     },
     handled: () => [...cmds],
-    /** 떠 있는 run() 이 없을 때까지 — 마지막 handle 이 풀린 뒤 두 macrotask. */
+    /** 떠 있는 run() 이 없을 때까지 — 마지막 handle 이 풀린 뒤 두 macrotask. T7: and no background job of the loop under
+     *  way (a delivery, a plan-branch push, an origin sync, a refresh). */
     settle: async (): Promise<void> => {
+      for (;;) {
+        await new Promise<void>((r) => setImmediate(r))
+        await new Promise<void>((r) => setImmediate(r))
+        if (inFlight === 0 && loop.backgroundJobs() === 0) return
+      }
+    },
+    /** T7: settle's wait for the passes only, for a test whose background job hangs on purpose. */
+    settlePass: async (): Promise<void> => {
       for (;;) {
         await new Promise<void>((r) => setImmediate(r))
         await new Promise<void>((r) => setImmediate(r))
@@ -600,7 +616,7 @@ describe('createDispatchLoop', () => {
   it('an integration conflict starts a merge worker, and its failure opens a Gate', async () => {
     const h = rig()
     driven(h, {
-      tasks: [task({ id: 'tsk_1', status: 'completed' })],
+      tasks: [task({ id: 'tsk_1', status: 'merging' })], // T10: a completed one no open Task depends on waits for the delivery
       dispatches: [
         { id: 'dsp_1', taskId: 'tsk_1', provider: 'claude', accountId: 'accA', sessionId: 'w-1', cwd: '/wt-child', specPath: '', startedAt: NOW, endedAt: NOW, outcome: 'succeeded' } as Dispatch
       ]
@@ -632,7 +648,7 @@ describe('createDispatchLoop', () => {
   it('writes the merge Task title and its Gate reason in the app language (en), with no Hangul', async () => {
     const h = rig()
     driven(h, {
-      tasks: [task({ id: 'tsk_1', status: 'completed' })],
+      tasks: [task({ id: 'tsk_1', status: 'merging' })],
       dispatches: [
         { id: 'dsp_1', taskId: 'tsk_1', provider: 'claude', accountId: 'accA', sessionId: 'w-1', cwd: '/wt-child', specPath: '', startedAt: NOW, endedAt: NOW, outcome: 'succeeded' } as Dispatch
       ]
@@ -950,6 +966,26 @@ describe('createDispatchLoop', () => {
     const told = h.state().messages.filter((m) => m.subject === 'task tsk_1 merged into the plan')
     expect(told).toHaveLength(1)
     expect(told[0].body).toContain('tsk_3 (tsk_3) is ready and has no worker')
+  })
+
+  // A slot's dep merge that went through is not asked again when its start then waits (a held plan came back every pass).
+  it('a slot dep merge that succeeded is not repeated on the next pass when the start waits', async () => {
+    const h = rig({ concurrency: 2 })
+    h.setState({
+      ...h.state(),
+      tasks: [task({ id: 'tsk_1', status: 'completed' }), task({ id: 'tsk_3', deps: ['tsk_1'] })],
+      dispatches: [
+        { id: 'dsp_1', taskId: 'tsk_1', provider: 'claude', accountId: 'accA', sessionId: 'w-1', cwd: '/wt-child', specPath: '', startedAt: NOW, endedAt: NOW, outcome: 'succeeded', git: { head: 'abc123' } } as Dispatch
+      ]
+    })
+    const merges: string[][] = []
+    h.ctx.integrate = async (_root, paths) => (merges.push(paths), { kind: 'merged', uncommitted: 0 })
+    h.ctx.isRegisteredWorktree = () => false // no wave merge for it: the slot's own merge is the one asked
+    h.ctx.handle = async (cmd, args) => (cmd === 'worker-start' ? { status: 409, body: { held: true } } : h.real(cmd, args))
+    await h.loop.nudge()
+    await h.loop.nudge()
+    await h.loop.nudge()
+    expect(merges).toEqual([['/wt-child']])
   })
 
   it('usage resumed tells nothing while this process may not start work', async () => {
@@ -1931,7 +1967,8 @@ describe('a finished Run’s idle workers are released after the grace', () => {
     }
     h.clock = NOW_MS + 10 * MIN
     await pass(h)
-    expect(releases(h)).toEqual(['dsp_1'])
+    expect(releases(h)).toContain('dsp_1')
+    expect(releases(h)).not.toContain('dsp_2')
   })
 
   it('re-reads the state before each release: a worker retained after the snapshot is kept', async () => {
@@ -2701,6 +2738,26 @@ describe('a delivery that finishes by itself (T3)', () => {
     expect(h.state().runs[0].delivery).toMatchObject({ sha: 'abc1234' })
   })
 
+  it('T19: a merge-failed push is tried again at once when the target tip moves, before its retry time', async () => {
+    let calls = 0
+    const conflict: Push = async () => ({ ok: false, reason: 'git merge-tree says b does not merge cleanly', branch: 'main', code: 'merge-failed', target: 'm1' })
+    const h = pushPlan(async (a) => (++calls === 1 ? conflict(a) : ok(a)))
+    let tip = 'm1'
+    const refs: string[] = []
+    h.ctx.readTip = async (_cwd, ref) => (refs.push(ref), tip)
+    await pass(h)
+    finishAll(h)
+    await pass(h)
+    await pass(h)
+    expect(calls).toBe(1)
+    expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'retrying', judgedOn: { target: 'm1' } })
+    tip = 'm2'
+    await pass(h)
+    expect(calls).toBe(2)
+    expect(refs).toContain('origin/main')
+    expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'delivered' })
+  })
+
   it('after 5 failed attempts exactly one owner question exists, and its answer is acted on', async () => {
     let calls = 0
     let ownerDone = false
@@ -2752,7 +2809,8 @@ describe('a delivery that finishes by itself (T3)', () => {
       affectedPaths: ['src/dark.ts'],
       kind: 'feature',
       basis: 'missing',
-      evidence: 'no dark mode in src/'
+      evidence: 'no dark mode in src/',
+      why: 'the owner asked for dark mode'
     })
     expect(made.status).toBe(200)
     expect((await h.as(sid, 'jobs-replan-done', { id: 'job_1', summary: 'dark mode Task' })).status).toBe(200)
@@ -2783,7 +2841,7 @@ describe('a delivery that finishes by itself (T3)', () => {
     const sid = ((await h.real('jobs-chat', { id: 'job_1' })).body as { sessionId: string }).sessionId
     const made = await h.as(sid, 'task-create', {
       run: 'run_1', account: 'accA', title: 'dark mode', spec: 'the dark mode part', prompt: 'Build dark mode.',
-      criteria: ['dark mode works'], affectedPaths: ['src/dark.ts'], kind: 'feature', basis: 'missing', evidence: 'no dark mode in src/'
+      criteria: ['dark mode works'], affectedPaths: ['src/dark.ts'], kind: 'feature', basis: 'missing', evidence: 'no dark mode in src/', why: 'the owner asked for dark mode'
     })
     expect((await h.as(sid, 'jobs-replan-done', { id: 'job_1', summary: 'dark mode Task' })).status).toBe(200)
     await pass(h)
@@ -2868,6 +2926,35 @@ describe('a delivery that finishes by itself (T3)', () => {
     expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'delivered' })
   })
 
+  it('T15: a pre-push gate failure in a hands-off plan with no plan worktree opens a fix Task in its own worktree, and delivers after it', async () => {
+    let calls = 0
+    const gate: Push = async () => ({
+      ok: false,
+      reason: 'the pre-push hook failed on the merged main, so nothing was pushed:\nstorybook typecheck: error TS2375',
+      branch: 'main',
+      code: 'push-refused'
+    })
+    const h = pushPlan(async (a) => (++calls === 1 ? gate(a) : ok(a)))
+    handsOff(h)
+    await pass(h)
+    const s = h.state()
+    h.setState({ ...s, runs: s.runs.map((r) => ({ ...r, worktree: undefined })) })
+    finishAll(h)
+    await pass(h)
+    expect(fixes(h)).toHaveLength(1)
+    const fix = fixes(h)[0]
+    expect(fix.spec).toContain('error TS2375')
+    // its fork starts from the project's branch with every Task of the plan merged in, never in the owner's folder
+    expect(fix.deps.length).toBeGreaterThan(0)
+    expect(h.startWorker.mock.calls.find(([a]) => a.taskId === fix.id)?.[0]).toMatchObject({ worktree: 'new' })
+    expect(questions(h)).toEqual([])
+    await pass(h)
+    finishAll(h)
+    await pass(h)
+    expect(calls).toBe(2)
+    expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'delivered' })
+  })
+
   it('T1: a fix Task of a plan whose Tasks name no account starts on the account with most room, with no Gate', async () => {
     const h = pushPlan(checksFailed)
     handsOff(h)
@@ -2902,6 +2989,130 @@ describe('a delivery that finishes by itself (T3)', () => {
     await pass(h)
     expect(fixes(h)).toEqual([])
     expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'retrying', attempts: 1 })
+  })
+
+  // A delivery that failed is due again at once when the plan branch head moves, whatever its backoff
+  describe('retried when the plan branch head moves', () => {
+    const refused: Push = async () => ({
+      ok: false,
+      reason: 'git push origin main was refused, and origin/main has not moved, so pushing again would not help:\ntypecheck: error TS2345',
+      branch: 'main',
+      code: 'push-refused'
+    })
+    const withHead = (h: ReturnType<typeof rig>, head: string): void => {
+      h.ctx.deliveryHeads = async () => ({ head })
+    }
+    const run0 = (h: ReturnType<typeof rig>) => h.state().runs[0]
+
+    it('a hook-refused push, then a fix commit on the plan branch: delivered on the next pass with no owner action, no backoff', async () => {
+      let calls = 0
+      let during: { error?: string; state?: string; previous?: string } | undefined
+      const h: ReturnType<typeof rig> = pushPlan(async (a) => {
+        if (++calls === 1) return refused(a)
+        const r = run0(h)
+        during = { error: deliveryErrorOf(r), state: r.deliveryState?.state, previous: r.deliveryState?.previousError }
+        return ok(a)
+      })
+      withHead(h, 'aaa')
+      await pass(h)
+      finishAll(h)
+      await pass(h)
+      expect(calls).toBe(1)
+      expect(run0(h).deliveryState).toMatchObject({ state: 'retrying', attempts: 1, headAtAttempt: 'aaa' })
+      expect(deliveryErrorOf(run0(h))).toContain('TS2345')
+      expect(outcomeOf(h.state(), 'run_1')).toBe('failed')
+      // no head move: the backoff holds
+      await pass(h)
+      expect(calls).toBe(1)
+      // an agent commits the fix on the plan branch
+      withHead(h, 'bbb')
+      await pass(h)
+      expect(calls).toBe(2)
+      // while the second attempt ran, the old error was not the plan's
+      expect(during).toMatchObject({ error: undefined, state: 'delivering', previous: expect.stringContaining('TS2345') })
+      expect(run0(h).deliveryState).toMatchObject({ state: 'delivered', attempts: 1 })
+      expect(deliveryErrorOf(run0(h))).toBeUndefined()
+      expect(outcomeOf(h.state(), 'run_1')).not.toBe('failed')
+      expect(questions(h)).toEqual([])
+    })
+
+    it('a failed second attempt stores its own error, not the old one', async () => {
+      let calls = 0
+      const h = pushPlan(async () => ({ ok: false, reason: `refused ${++calls}`, branch: 'main', code: 'push-refused' }) as const)
+      withHead(h, 'aaa')
+      await pass(h)
+      finishAll(h)
+      await pass(h)
+      withHead(h, 'bbb')
+      await pass(h)
+      expect(calls).toBe(2)
+      expect(run0(h).deliveryState).toMatchObject({ state: 'retrying', attempts: 1, lastError: 'refused 2', headAtAttempt: 'bbb' })
+      expect(run0(h).deliveryState?.previousError).toBeUndefined()
+      expect(deliveryErrorOf(run0(h))).toBe('refused 2')
+    })
+
+    it('a needs-owner delivery with a moved head is retried too, counting afresh, and its owner question is closed', async () => {
+      let calls = 0
+      let fixed = false
+      const h = pushPlan(async (a) => (fixed ? (++calls, ok(a)) : (++calls, refused(a))))
+      withHead(h, 'aaa')
+      await pass(h)
+      finishAll(h)
+      for (let i = 0; i < 6; i++) {
+        await pass(h)
+        h.clock += 61 * 60_000
+      }
+      expect(run0(h).deliveryState).toMatchObject({ state: 'needs-owner' })
+      const stuck = calls
+      const [q] = questions(h)
+      expect(q).toBeDefined()
+      // the owner waits; the fix lands
+      fixed = true
+      withHead(h, 'bbb')
+      await pass(h)
+      expect(calls).toBe(stuck + 1)
+      expect(run0(h).deliveryState).toMatchObject({ state: 'delivered', attempts: 1 })
+      expect(h.state().messages.find((m) => m.id === q.id)?.answered).toBe(true)
+    })
+
+    it('a dismissed delivery is not retried, whatever the head does', async () => {
+      let calls = 0
+      const h = pushPlan(async (a) => (++calls, refused(a)))
+      withHead(h, 'aaa')
+      await pass(h)
+      finishAll(h)
+      await pass(h)
+      expect(calls).toBe(1)
+      const d = await h.real('run-delivery-dismiss', { run: 'run_1' })
+      expect(d.status).toBe(200)
+      withHead(h, 'bbb')
+      h.clock += 2 * 60 * 60_000
+      await pass(h)
+      expect(calls).toBe(1)
+      expect(run0(h).deliveryState?.state).toBe('dismissed')
+    })
+
+    it("origin moving also retries at once, and the tip an attempt left is not a move", async () => {
+      let calls = 0
+      let origin = 'o1'
+      const h = pushPlan(async (a) => {
+        ++calls
+        origin = `fetched-${calls}` // the attempt's own fetch moves the ref
+        return refused(a)
+      })
+      h.ctx.deliveryHeads = async () => ({ head: 'aaa', origin })
+      await pass(h)
+      finishAll(h)
+      await pass(h)
+      expect(calls).toBe(1)
+      // nothing moved since the attempt left origin at its tip: the backoff holds
+      await pass(h)
+      expect(calls).toBe(1)
+      expect(run0(h).deliveryState?.originAtAttempt).toBe('fetched-1')
+      origin = 'pushed-by-someone'
+      await pass(h)
+      expect(calls).toBe(2)
+    })
   })
 })
 
@@ -3131,10 +3342,8 @@ describe('a Run stalled on a failed Task (T36)', () => {
     await h.real('questions-answer', { id: asked(h)[0].id, answer: 'Retry' })
     await h.loop.run()
     await h.settle()
-    expect(h.state().tasks.find((t) => t.id === 'tsk_1')).toMatchObject({ status: 'ready', consecutiveFailures: 0 })
-    // the commit's own pass places it
-    await h.loop.run()
-    await h.settle()
+    // T7: the retry's commit asks for a pass while this one tidies; it runs once the tidy ends and places the Task
+    expect(h.state().tasks.find((t) => t.id === 'tsk_1')).toMatchObject({ consecutiveFailures: 0 })
     expect(h.startWorker.mock.calls.map((c) => JSON.stringify(c)).some((c) => c.includes('tsk_1'))).toBe(true)
   })
 
@@ -3239,10 +3448,14 @@ describe('a long plan keeps a draft PR (W8-C)', () => {
     const s = h.state()
     h.setState({
       ...s,
+      // T10: these follow the per-Task pushes, now the `task` cadence
+      jobs: s.jobs.map((j) => ({ ...j, pushCadence: 'task' as const })),
       tasks: s.tasks.map((t) => (t.id === 'tsk_1' ? { ...t, status: first } : { ...t, deps: ['tsk_1'], status: second }))
     })
   }
   const fake = (h: ReturnType<typeof rig>): void => {
+    const s = h.state()
+    h.setState({ ...s, jobs: s.jobs.map((j) => ({ ...j, pushCadence: 'task' as const })) })
     h.ctx.handle = async (cmd, args) => {
       if (cmd === 'run-draft-pr') {
         const s = h.state()
@@ -3301,6 +3514,31 @@ describe('a long plan keeps a draft PR (W8-C)', () => {
     await push.loop.run()
     await push.settle()
     expect(count(push, 'run-draft-pr')).toBe(1)
+  })
+
+  it('T10: a 10-Task, 2-wave plan pushes its plan branch once by default (the delivery), twice with wave, after each Task with task', async () => {
+    /** The plan's branch pushes while it runs (`run-draft-pr`) and its deliveries, its Tasks completed one by one. */
+    const run = async (cadence: PushCadence | undefined): Promise<{ draft: number; deliver: number }> => {
+      const h = rig()
+      fake(h)
+      const s = h.state()
+      const ids = Array.from({ length: 10 }, (_, i) => `tsk_p${i}`)
+      // Wave 1: the first five; wave 2: each of the other five depends on one of them
+      const plan = (done: number): Task[] =>
+        ids.map((id, i) => ({ ...s.tasks[0], id, title: id, deps: i < 5 ? [] : [ids[i - 5]], status: i < done ? ('completed' as const) : ('pending' as const) }))
+      h.setState({ ...s, jobs: s.jobs.map((j) => ({ ...j, pushCadence: cadence })), tasks: plan(0) })
+      for (let done = 1; done <= 10; done++) {
+        h.setState({ ...h.state(), tasks: plan(done) })
+        await h.loop.run()
+        await h.settle()
+      }
+      return { draft: count(h, 'run-draft-pr'), deliver: count(h, 'run-deliver') }
+    }
+    // The final delivery (run-deliver: run-open-pr for this pr plan) pushes the plan branch once more
+    expect(await run(undefined)).toEqual({ draft: 0, deliver: 1 })
+    expect(await run('end')).toEqual({ draft: 0, deliver: 1 })
+    expect(await run('wave')).toEqual({ draft: 1, deliver: 1 })
+    expect((await run('task')).draft).toBe(10)
   })
 
   it('T3: a failed branch push is retried after its retry time, not before', async () => {
@@ -3522,6 +3760,31 @@ describe('plans of one project: one delivery at a time, the others refreshed ont
     await h.loop.run()
     await h.settle()
     expect(refresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('T10: a running plan merges a later delivery at most every 15 minutes', async () => {
+    const h = rig()
+    withDeliveredA(h)
+    const refresh = vi.fn(async () => ({ kind: 'merged' as const }))
+    h.ctx.refreshOnto = refresh
+    await h.loop.run()
+    await h.settle()
+    expect(refresh).toHaveBeenCalledTimes(1)
+    const s = h.state()
+    h.setState({
+      ...s,
+      jobs: [...s.jobs, { id: 'job_C', title: 'C', objective: 'c', cwd: '/p', createdAt: NOW }],
+      runs: [...s.runs, { id: 'run_C', jobId: 'job_C', ordinal: 1, createdAt: NOW, worktree: '/wtC', delivery: { at: LATER, sha: 'shaC', branch: 'main' } }]
+    })
+    h.clock += 60_000
+    await h.loop.run()
+    await h.settle()
+    expect(refresh).toHaveBeenCalledTimes(1)
+    h.clock += 15 * 60_000
+    await h.loop.run()
+    await h.settle()
+    expect(refresh).toHaveBeenCalledTimes(2)
+    expect(refresh).toHaveBeenLastCalledWith('/wt1', 'shaC', "Refresh onto plan C's delivery", 'main', '/p')
   })
 
   it('a refresh that conflicts creates an integration Task in plan B instead of stopping', async () => {
@@ -3834,5 +4097,327 @@ describe('a Run worktree install beside the pass (T24)', () => {
     await h.settle()
     expect(h.startWorker).not.toHaveBeenCalled()
     expect(h.handled()).toContain('gate-create')
+  })
+})
+
+// T7: a delivery, plan-branch push, origin sync or refresh can take tens of minutes; a pass that awaited one placed no
+// worker anywhere meanwhile (the Host's "a tick is still running" with zero agents app-wide)
+describe('a slow delivery, branch push, origin sync or refresh never holds the pass (T7)', () => {
+  const LATER = new Date(NOW_MS + 1000).toISOString()
+  type Hang = 'run-deliver' | 'run-draft-pr' | 'run-origin-synced' | 'refresh'
+  /** Plan A of another project (`/a`) beside the rig's plan B (job_1), set up so that `hang`'s step is due for it, and
+   *  that step never answers. Plan B's Tasks wait behind a start hold, so the first pass places nothing. */
+  const withHangingPlanA = async (h: ReturnType<typeof rig>, hang: Hang): Promise<void> => {
+    const s = h.state()
+    const done = hang === 'run-deliver'
+    const worktree = hang === 'run-origin-synced' ? await makeRepo('astera-t7-') : '/wtA'
+    const tasks = [task({ id: 'tsk_A1', runId: 'run_A', jobId: 'job_A', status: 'completed' })]
+    if (!done) tasks.push(task({ id: 'tsk_A2', runId: 'run_A', jobId: 'job_A', status: 'dispatched', deps: ['tsk_A1'] }))
+    h.setState({
+      ...s,
+      projects: [...s.projects, { id: 'prj_a', path: '/a', name: 'a', addedAt: NOW, defaultBranch: 'main' }],
+      jobs: [
+        ...s.jobs,
+        { id: 'job_A', objective: 'a', cwd: '/a', createdAt: NOW, autoDispatch: true, ...(done ? { delivery: 'push' as const } : {}),
+          // T10: the plan branch is pushed mid-plan only on a cadence other than the default `end`
+          ...(hang === 'run-draft-pr' ? { pushCadence: 'task' as const } : {}) },
+        // T11: plan D of the same project delivered after plan A began, so plan A is refreshed onto it
+        ...(hang === 'refresh' ? [{ id: 'job_D', objective: 'd', cwd: '/a', createdAt: NOW }] : [])
+      ],
+      runs: [
+        ...s.runs,
+        { id: 'run_A', jobId: 'job_A', ordinal: 1, createdAt: NOW, worktree, ...(done ? { deliveryState: { state: 'pending' as const, attempts: 0 } } : {}) },
+        ...(hang === 'refresh' ? [{ id: 'run_D', jobId: 'job_D', ordinal: 1, createdAt: NOW, delivery: { at: LATER, sha: 'shaD', branch: 'main' } }] : [])
+      ],
+      tasks: [...s.tasks, ...tasks, ...(hang === 'refresh' ? [task({ id: 'tsk_D', runId: 'run_D', jobId: 'job_D', status: 'completed' })] : [])]
+    })
+    const never = new Promise<never>(() => {})
+    h.ctx.handle = (cmd, args) => (cmd === hang && args.run === 'run_A' && args.pending !== true && args.stopped === undefined ? never : h.real(cmd, args))
+    h.ctx.refreshOnto = async (wt) => {
+      if (hang !== 'refresh' || wt !== '/wtA') return { kind: 'current' }
+      refreshes++
+      return never
+    }
+    h.ctx.startHeld = () => held
+    held = true
+  }
+  let held = false
+  let refreshes = 0
+  /** Whether a pass ends within half a second. */
+  const passEnds = (h: ReturnType<typeof rig>): Promise<boolean> =>
+    Promise.race([h.loop.run().then(() => true), new Promise<boolean>((r) => setTimeout(() => r(false), 500))])
+  const started = (h: ReturnType<typeof rig>, cmd: Hang): boolean => (cmd === 'refresh' ? refreshes > 0 : h.handled().some((c) => c === cmd))
+
+  for (const hang of ['run-deliver', 'run-draft-pr', 'run-origin-synced', 'refresh'] as const)
+    it(`with plan A's ${hang} hanging, a ready Task of plan B is placed on the next pass`, async () => {
+      const h = rig()
+      refreshes = 0
+      await withHangingPlanA(h, hang)
+      expect(await passEnds(h)).toBe(true)
+      // plan A's step did start, and hangs
+      await vi.waitFor(() => expect(started(h, hang)).toBe(true))
+      expect(h.startWorker).not.toHaveBeenCalled()
+      held = false
+      expect(await passEnds(h)).toBe(true)
+      // placed by this pass, or by the one under way it marked to go again
+      await vi.waitFor(() => expect(h.startWorker).toHaveBeenCalledTimes(1))
+      expect(h.state().tasks.find((t) => t.id === 'tsk_1')?.status).toBe('dispatched')
+    })
+
+  it('starts one of each per Run: a later pass does not start a second while the first hangs', async () => {
+    const h = rig()
+    await withHangingPlanA(h, 'run-deliver')
+    await h.loop.run()
+    await h.loop.run()
+    await h.loop.nudge()
+    await vi.waitFor(() => expect(started(h, 'run-deliver')).toBe(true))
+    expect(h.handled().filter((c) => c === 'run-deliver')).toHaveLength(1)
+  })
+
+  it('a job past BACKGROUND_JOB_LIMIT_MS is abandoned and logged, its Run is due again, and its late answer is ignored', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      const h = rig()
+      await withHangingPlanA(h, 'run-deliver')
+      const answers: Array<(r: { status: number; body: unknown }) => void> = []
+      const attempts: Record<string, unknown>[] = []
+      h.ctx.handle = (cmd, args) => {
+        if (cmd !== 'run-deliver' || args.run !== 'run_A' || args.pending === true || args.stopped !== undefined) return h.real(cmd, args)
+        attempts.push(args)
+        return new Promise((r) => void answers.push(r))
+      }
+      await h.loop.run()
+      await h.settlePass()
+      expect(attempts).toHaveLength(1)
+      await vi.advanceTimersByTimeAsync(BACKGROUND_JOB_LIMIT_MS)
+      await h.settlePass()
+      expect(h.logs.filter((l) => l.includes('run=run_A') && l.includes('abandoned'))).toHaveLength(1)
+      // Recorded as one failed attempt: retried after its backoff
+      const p = h.state().runs.find((r) => r.id === 'run_A')!.deliveryState!
+      expect(p).toMatchObject({ state: 'retrying', attempts: 1, lastError: expect.stringContaining('abandoned') })
+      await h.loop.run()
+      await h.settlePass()
+      expect(attempts).toHaveLength(1)
+      h.clock = Date.parse(p.nextRetryAt!)
+      await h.loop.run()
+      await h.settlePass()
+      expect(attempts).toHaveLength(2)
+      // The abandoned attempt answers at last: nothing is done with it (no log line, no integration Task)
+      answers[0]({ status: 409, body: { error: 'LATE ANSWER', code: 'origin-conflict', conflictWith: 'shaLate' } })
+      await h.settlePass()
+      expect(h.logs.some((l) => l.includes('LATE ANSWER'))).toBe(false)
+      expect(h.state().tasks.some((t) => t.spec.includes('shaLate'))).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a pass asked for while the last one tidies runs once it ends', async () => {
+    const h = rig()
+    let release!: () => void
+    const reading = new Promise<void>((r) => (release = r))
+    let asked = 0
+    // The folder read of the tidy's delivery steps (readDeliverySetup), slow as gh and git are on Windows
+    h.ctx.deliverySetup = async () => {
+      asked++
+      await reading
+      return { isGitRepo: true, remoteUrl: null, ghSignedIn: false, branch: 'main' }
+    }
+    held = true
+    h.ctx.startHeld = () => held
+    const first = h.loop.run()
+    await vi.waitFor(() => expect(asked).toBeGreaterThan(0))
+    held = false
+    await h.loop.run() // asked for during the tidy: it only marks the pass under way to go again
+    expect(h.startWorker).not.toHaveBeenCalled()
+    release()
+    await first
+    await vi.waitFor(() => expect(h.startWorker).toHaveBeenCalledTimes(1))
+  })
+
+  it('a tidy that asks for a pass every time does not spin the loop: it comes to rest, and says so', async () => {
+    const h = rig()
+    let tidies = 0
+    // Each tidy's folder read asks for a pass, as a tidy step that commits every time would
+    h.ctx.deliverySetup = async () => {
+      tidies++
+      void h.loop.run()
+      return { isGitRepo: true, remoteUrl: null, ghSignedIn: false, branch: 'main' }
+    }
+    await h.loop.run()
+    await h.settle()
+    await new Promise((r) => setTimeout(r, 50))
+    const seen = tidies
+    expect(seen).toBeGreaterThan(0)
+    await new Promise((r) => setTimeout(r, 50))
+    expect(tidies).toBe(seen)
+    expect(h.logs.filter((l) => l.includes('passes in a row were asked for during the tidy'))).toHaveLength(1)
+  })
+})
+
+// T8: a ready Task whose deps are done starts, or the board says the true reason it does not
+describe('ready Tasks start or show the true blocker (T8)', () => {
+  const LATER = new Date(NOW_MS + 1000).toISOString()
+  /** A worker of the plan (tsk_w) has its Dispatch open in the plan folder /wt1; plan A delivered `shaA` after it began. */
+  const withWorkerAndDelivery = (h: ReturnType<typeof rig>, over: Partial<Dispatch> = {}): void => {
+    const s = h.state()
+    h.setState({
+      ...s,
+      jobs: [...s.jobs.map((j) => ({ ...j, title: 'B' })), { id: 'job_A', title: 'A', objective: 'a', cwd: '/p', createdAt: NOW }],
+      runs: [...s.runs, { id: 'run_A', jobId: 'job_A', ordinal: 1, createdAt: NOW, worktree: '/wtA', delivery: { at: LATER, sha: 'shaA', branch: 'main' } }],
+      tasks: [...s.tasks, task({ id: 'tsk_w', status: 'dispatched' }), task({ id: 'tsk_A', runId: 'run_A', jobId: 'job_A', status: 'completed' })],
+      dispatches: [
+        { id: 'dsp_w', taskId: 'tsk_w', provider: 'claude', accountId: 'accA', sessionId: 'sess_w', cwd: '/wt1', specPath: 'x', startedAt: NOW, workerState: 'ready', retained: false, ...over }
+      ]
+    })
+  }
+  const started = (h: ReturnType<typeof rig>): string[] => h.startWorker.mock.calls.map(([a]) => a.taskId)
+
+  it('a refresh pending on a worker in the plan folder does not stop an independent ready Task from starting', async () => {
+    const h = rig({ concurrency: 3 })
+    withWorkerAndDelivery(h)
+    h.ctx.sessionBusy = () => true
+    const refresh = vi.fn(async () => ({ kind: 'merged' as const }))
+    h.ctx.refreshOnto = refresh
+    await h.loop.run()
+    await h.settle()
+    expect(started(h).sort()).toEqual(['tsk_1', 'tsk_2'])
+    // The refresh still waits for the folder
+    expect(refresh).not.toHaveBeenCalled()
+  })
+
+  it('a Dispatch whose session is gone does not count as working in the plan folder: the refresh runs, the Task starts', async () => {
+    const h = rig({ concurrency: 3 })
+    withWorkerAndDelivery(h)
+    h.ctx.sessionAlive = (id) => id !== 'sess_w'
+    const refresh = vi.fn(async () => ({ kind: 'merged' as const }))
+    h.ctx.refreshOnto = refresh
+    await h.loop.run()
+    await h.settle()
+    expect(refresh).toHaveBeenCalled()
+    expect(started(h)).toContain('tsk_1')
+  })
+
+  it('an idle Dispatch not heard from for over 30 minutes does not count either, and is said once', async () => {
+    const h = rig({ concurrency: 3 })
+    withWorkerAndDelivery(h, { startedAt: new Date(NOW_MS - 31 * 60_000).toISOString() })
+    const refresh = vi.fn(async () => ({ kind: 'merged' as const }))
+    h.ctx.refreshOnto = refresh
+    await h.loop.run()
+    await h.settle()
+    expect(refresh).toHaveBeenCalled()
+    expect(h.logs.filter((l) => l.startsWith('dispatch=dsp_w in /wt1: no activity'))).toHaveLength(1)
+  })
+
+  it('a reviewer in the plan folder does not hold it', async () => {
+    const h = rig({ concurrency: 3 })
+    withWorkerAndDelivery(h, { review: true })
+    h.ctx.sessionBusy = () => true
+    const refresh = vi.fn(async () => ({ kind: 'merged' as const }))
+    h.ctx.refreshOnto = refresh
+    await h.loop.run()
+    await h.settle()
+    expect(refresh).toHaveBeenCalled()
+  })
+
+  it('a push waiting for the owner (branchPush needs-owner) does not stop placing', async () => {
+    const h = rig()
+    const s = h.state()
+    h.setState({ ...s, runs: s.runs.map((r) => ({ ...r, branchPush: { state: 'needs-owner' as const, attempts: 5 } })) })
+    await h.loop.run()
+    await h.settle()
+    expect(started(h)).toEqual(['tsk_1'])
+  })
+
+  describe('each hold is recorded for the board', () => {
+    const boardOf = (h: ReturnType<typeof rig>, holds: Map<string, SlotHold>, id = 'tsk_1') => taskBoardsOf(h.state(), {}, undefined, holds).get(id)?.reason
+    const withHolds = (h: ReturnType<typeof rig>): Map<string, SlotHold> => {
+      const holds = new Map<string, SlotHold>()
+      h.ctx.holds = holds
+      return holds
+    }
+
+    it('install wait', async () => {
+      const h = rig()
+      const holds = withHolds(h)
+      h.ctx.installHeavy = () => ({ slots: async () => 1 })
+      h.ctx.installPending = (d) => d === '/wt1'
+      h.ctx.installSettled = () => undefined
+      await h.loop.run()
+      await h.settle()
+      expect(boardOf(h, holds)).toMatchObject({ kind: 'hold', hold: 'install', since: NOW })
+      // It ends: the Task starts and its hold is gone
+      h.ctx.installPending = () => false
+      await h.loop.run()
+      await h.settle()
+      expect(holds.has('tsk_1')).toBe(false)
+      expect(started(h)).toEqual(['tsk_1'])
+    })
+
+    it('an origin sync with its integration Task open', async () => {
+      const h = rig({ concurrency: 3 })
+      const holds = withHolds(h)
+      const merge = task({ id: 'tsk_sync', parentId: 'tsk_1', status: 'dispatched', spec: `${ORIGIN_SYNC_MARK} origin/main moved on` })
+      h.setState({ ...h.state(), tasks: [...h.state().tasks, merge] })
+      await h.loop.run()
+      await h.settle()
+      expect(boardOf(h, holds)).toMatchObject({ kind: 'hold', hold: 'origin-sync' })
+    })
+
+    it('deps to merge while a worker works in the plan folder', async () => {
+      const h = rig({ concurrency: 3 })
+      const holds = withHolds(h)
+      const s = h.state()
+      h.setState({
+        ...s,
+        tasks: [...s.tasks.map((t) => (t.id === 'tsk_1' ? { ...t, deps: ['tsk_d'] } : t)), task({ id: 'tsk_d', status: 'completed' }), task({ id: 'tsk_w', status: 'dispatched' })],
+        dispatches: [
+          { id: 'dsp_d', taskId: 'tsk_d', provider: 'claude', accountId: 'accA', sessionId: 'sess_d', cwd: '/wt-d', specPath: 'x', startedAt: NOW, workerState: 'stopped', outcome: 'succeeded', endedAt: NOW, retained: false },
+          { id: 'dsp_w', taskId: 'tsk_w', provider: 'claude', accountId: 'accA', sessionId: 'sess_w', cwd: '/wt1', specPath: 'x', startedAt: NOW, workerState: 'ready', retained: false }
+        ]
+      })
+      h.ctx.sessionBusy = () => true
+      await h.loop.run()
+      await h.settle()
+      expect(boardOf(h, holds)).toMatchObject({ kind: 'hold', hold: 'run-root-busy' })
+      // The independent one starts
+      expect(started(h)).toEqual(['tsk_2'])
+    })
+
+    it('worker-start answering 409 (the app-wide cap)', async () => {
+      const h = rig()
+      const holds = withHolds(h)
+      h.ctx.handle = async (cmd, args) => (cmd === 'worker-start' ? { status: 409, body: { atCapacity: true } } : h.real(cmd, args))
+      await h.loop.run()
+      await h.settle()
+      expect(boardOf(h, holds)).toMatchObject({ kind: 'hold', hold: 'cap', detail: 'the app-wide worker cap is reached' })
+    })
+
+    it('usage pause', async () => {
+      const h = rig()
+      const holds = withHolds(h)
+      h.ctx.usageGuard = { refresh: async () => {}, pauseOf: () => ({ accountId: 'accA', window: 'five_hour', percent: 95, resetsAt: null }) }
+      await h.loop.run()
+      await h.settle()
+      expect(boardOf(h, holds)).toMatchObject({ kind: 'hold', hold: 'usage' })
+    })
+
+    it("reaches the board of another process: the Host loop's holds, pushed as slot-holds, are the app fold's", async () => {
+      const h = rig()
+      withHolds(h)
+      // The socket between them: what the Host broadcasts, as the app parses it (drivingWiring.ts, main/ipc.ts)
+      const appHolds = new Map<string, SlotHold>()
+      h.ctx.holdsChanged = (held) => acceptSlotHolds(JSON.parse(JSON.stringify({ t: 'slot-holds', holds: Object.fromEntries(held) })).holds, appHolds)
+      h.ctx.handle = async (cmd, args) => (cmd === 'worker-start' ? { status: 409, body: { atCapacity: true } } : h.real(cmd, args))
+      await h.loop.run()
+      await h.settle()
+      expect(boardOf(h, appHolds)).toMatchObject({ kind: 'hold', hold: 'cap', detail: 'the app-wide worker cap is reached' })
+      // The hold ends in the Host: the app's board loses it too
+      h.ctx.handle = h.real
+      await h.loop.run()
+      await h.settle()
+      expect(started(h)).toEqual(['tsk_1'])
+      expect(appHolds.size).toBe(0)
+    })
   })
 })

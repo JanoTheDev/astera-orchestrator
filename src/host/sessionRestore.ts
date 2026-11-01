@@ -568,6 +568,31 @@ export interface RestoreDeps {
   lostWorker?(sessionId: string): void
 }
 
+/** After a crash (no handover) and once the restore has settled: ends (`jobs-replan-done --gone`) every replan whose
+ *  planner this Host does not hold. The driving loop only reads an ended pty it holds as gone, so a planner the crash
+ *  killed was never ended and its plan stayed held until the owner did it by hand. A planner that is alive here (a
+ *  chat replan, an adopted pty) is left to its owner. Never rejects. */
+export async function endOrphanedReplans(d: {
+  state: Pick<OrchState, 'jobs'>
+  alive(sessionId: string): boolean
+  handle(cmd: string, args: Record<string, unknown>): Promise<{ status: number; body: unknown }>
+  log(m: string): void
+}): Promise<number> {
+  let ended = 0
+  for (const job of d.state.jobs) {
+    const sid = job.replanning?.sessionId
+    if (sid === undefined || job.archivedAt !== undefined || d.alive(sid)) continue
+    try {
+      const r = await d.handle('jobs-replan-done', { id: job.id, gone: true })
+      d.log(`session restore: the replan of ${job.id} ended, its planner ${sid} did not survive the crash (${r.status} ${JSON.stringify(r.body)})`)
+      ended++
+    } catch (err) {
+      d.log(`session restore: the replan of ${job.id} could not be ended: ${String(err)}`)
+    }
+  }
+  return ended
+}
+
 /** Brings back the sessions an unclean exit (or a handover) left: tabs and pending plans' planners, and on a handover a
  *  replan's planner too (counted with the planners). Never rejects. */
 export async function restoreSessions(d: RestoreDeps): Promise<{ tabs: number; planners: number }> {

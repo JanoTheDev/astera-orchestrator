@@ -4,7 +4,7 @@ import { ko } from '../../../../core/i18n/messages/ko'
 import { t } from '../../../../core/i18n'
 import type { ActivityEvent } from '../../../../core/orchestration/activity'
 import type { JobEvent } from '../../../../core/types'
-import { filterByKind, kindsOf, reuseOf, answersKey, autoAnswersOf, cardEffortOf, cardModelOf, categoryOf, collapsedWavesOf, currentWaveOf, filesOf, nowOf, ordinal, planProgressOf, reasonText, replanningOf, stepStateOf, wavesOf } from './planBoard'
+import { addedByText, cardReasonText, filterByKind, kindsOf, reuseOf, answersKey, autoAnswersOf, cardEffortOf, cardModelOf, categoryOf, collapsedWavesOf, currentWaveOf, filesOf, nowOf, ordinal, planProgressOf, reasonText, replanningOf, stepStateOf, wavesOf } from './planBoard'
 // W8-C plan after plan
 import { reasonTone } from './planBoard'
 
@@ -87,6 +87,10 @@ describe('reasonText', () => {
       { kind: 'plan-cap', used: 2, limit: 2 },
       { kind: 'global-cap', running: 3, starting: 1, limit: 4, priority: 1 },
       { kind: 'next' },
+      // T8: every hold kind
+      ...(['usage', 'detached', 'install', 'origin-sync', 'refresh-conflict', 'integration', 'run-root-busy', 'cap', 'held'] as const).map(
+        (hold): TaskBlockedReason => ({ kind: 'hold', hold, detail: 'd', since: '2026-10-17T00:00:00.000Z' })
+      ),
       // W6-G
       { kind: 'usage-paused', accountId: 'a', window: 'five_hour', percent: 93, resetsAt: '2026-10-17T14:20:00.000Z' },
       { kind: 'usage-paused', accountId: 'a', window: 'seven_day', percent: 95, resetsAt: '2026-10-20T14:20:00.000Z' },
@@ -140,6 +144,35 @@ describe('reasonText', () => {
       ]
     }
     expect(reasonText(r, now, label)).toEqual({ key: 'plan.reason.deps', params: { tasks: 'Build API, Write schema' } })
+  })
+})
+
+describe('T32: the one line a replan-added Task carries', () => {
+  const label = (id: string): string => `label:${id}`
+  const kinds = [
+    ['final-check', 'plan.task.addedBy.finalCheck', 'Added by the final check: the login page lacked a test'],
+    ['wave-replan', 'plan.task.addedBy.replan', 'Added by a replan: the login page lacked a test'],
+    ['feedback', 'plan.task.addedBy.feedback', 'Added from your feedback: the login page lacked a test']
+  ] as const
+
+  it('says who added it and why, for the three kinds', () => {
+    for (const [kind, key, line] of kinds) {
+      const { params } = addedByText({ kind, why: 'the login page lacked a test' })
+      expect(addedByText({ kind, why: 'the login page lacked a test' }).key).toBe(key)
+      expect(t('en', key, params)).toBe(line)
+      expect(ko[key]).toContain('{why}')
+    }
+  })
+
+  it('replaces the generic "Final check before merging" on the card of a Task a replan added', () => {
+    const board = { category: 'queued', reason: { kind: 'paused', why: 'final-check' } } as const
+    expect(cardReasonText(task('a', { board }), 0, label)).toEqual({ key: 'plan.reason.finalCheck' })
+    const added = task('f', { board, addedBy: { kind: 'final-check', why: 'no test' } })
+    expect(cardReasonText(added, 0, label)).toEqual({ key: 'plan.task.addedBy.finalCheck', params: { why: 'no test' } })
+    // any other wait keeps its own reason
+    const waiting = task('f', { board: { category: 'queued', reason: { kind: 'next' } }, addedBy: { kind: 'final-check', why: 'no test' } })
+    expect(cardReasonText(waiting, 0, label)).toEqual({ key: 'plan.reason.next' })
+    expect(cardReasonText(task('g'), 0, label)).toBeUndefined()
   })
 })
 
@@ -513,5 +546,25 @@ describe('stepStateOf', () => {
     const ws = steps([queued('a')], [queued('b')])
     expect(of(0, ws, true)).toEqual({ state: 'replanning' })
     expect(of(1, ws, true)).toEqual({ state: 'waiting', on: 1, left: 1 })
+  })
+})
+
+// T8: a ready Task the loop held says why, never "Starts on the next pass"; one just dispatched shows as started
+describe('a held or just-dispatched Task on the board (T8)', () => {
+  const now = Date.parse('2026-10-17T00:00:00.000Z')
+  const held = task('a', { status: 'ready', board: { category: 'queued', reason: { kind: 'hold', hold: 'run-root-busy', detail: 'd', since: '2026-10-17T00:00:00.000Z' } } })
+
+  it('shows its hold text, never plan.reason.next', () => {
+    const { key } = reasonText(held.board!.reason!, now, (id) => id)
+    expect(key).toBe('plan.reason.hold.run-root-busy')
+    expect(t('en', key)).toBe('A worker is still working in the plan folder · merges and starts after it')
+    expect(t('en', key)).not.toBe(t('en', 'plan.reason.next'))
+    expect(reasonTone(held.board!.reason!)).toBe('wait')
+  })
+
+  it('a Task dispatched since the last refresh shows as started on the next one', () => {
+    // The next snapshot folds its open Dispatch: running, with no reason
+    expect(categoryOf(task('a', { status: 'dispatched', board: { category: 'running' } }))).toBe('running')
+    expect(categoryOf(held)).toBe('queued')
   })
 })

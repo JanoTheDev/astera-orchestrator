@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { liftStartHold, RESTART_HOLD_REASON, startHeldNow, writeStartHold } from '../startHold'
-import { DROPPED_ASK_MS, HOLD_ASK_MS, LEASE_ASK_MS, LEASE_TELL_MS, PLANNER_IDLE_MS, PLANNER_NUDGE, PLANNER_RESTART_MS, BACKOFF_MS, BUSY_REFRESH_MS, BUSY_TELL_MS, DEAD_COORDINATOR_MS, DRAFT_STALL_MS, IDLE_NUDGE, IDLE_STALL_MS, LOST_STALL_MS, MERGE_STALL_MS, READY_STALL_MS, STALL_WATCH_MS, TRIES, VALIDATE_STALL_MS, createStallWatch, stallRemedies, type StallEntry, type StallWatchDeps, type StallProbe, type StallRemedy } from './stallWatch'
+import { DROPPED_ASK_MS, HOLD_ASK_MS, LEASE_ASK_MS, LEASE_TELL_MS, PLANNER_IDLE_MS, PLANNER_NUDGE, PLANNER_RESTART_MS, BACKOFF_MS, BUSY_REFRESH_MS, BUSY_TELL_MS, DEAD_COORDINATOR_MS, DRAFT_STALL_MS, idleNudge, IDLE_STALL_MS, CAPTURED_SUBJECT, isFinishedReport, LOST_STALL_MS, MERGE_STALL_MS, READY_STALL_MS, STALL_WATCH_MS, TRIES, VALIDATE_STALL_MS, createStallWatch, stallRemedies, type StallEntry, type StallWatchDeps, type StallProbe, type StallRemedy } from './stallWatch'
 import { INSTALL_START_WINDOW_MS, isInstallingStart } from './stallWatch'
 import { SETUP_SLOT_WAIT_MS, SETUP_TIMEOUT_MS } from '../../worktrees/setup'
 import { PENDING_START_WINDOW_MS } from '../command'
@@ -15,6 +15,7 @@ import { emptyState, type OrchState } from '../state'
 import type { ActivityDraft } from '../activity'
 import type { Dispatch, Job, Task } from '../types'
 import { mergedIntoPlan } from '../finishedSessions'
+import { withPreviousAttempt } from '../planner'
 import { adoptLiveWorkers, type LiveWorker } from './adopt'
 import type { Account } from '../../types'
 
@@ -199,7 +200,7 @@ describe('stallRemedies', () => {
     expect(watch({ ...lost(), runs: [{ ...lost().runs[0], coordinatorSessionId: undefined }] }, every30s(30 * MIN))).toEqual([])
   })
 
-  it.each(['claude', 'codex'] as const)('an idle %s worker without worker-done: nudged at 10 min, the coordinator told, then raised', (provider) => {
+  it.each(['claude', 'codex'] as const)('an idle %s worker without worker-done: nudged at 8 min, the coordinator told 8 min later, then raised', (provider) => {
     const s = plan({
       tasks: [task({ id: 'tsk_1', status: 'dispatched' })],
       dispatches: [{ ...ended('tsk_1', '/wt1'), provider, endedAt: undefined, outcome: undefined } as Dispatch]
@@ -211,18 +212,60 @@ describe('stallRemedies', () => {
       memo = r.memo
       for (const d of r.due) got.push([`${d.kind}:${label(d)}`, (t - T0) / MIN])
     }
-    expect(got).toEqual([['nudge-worker:tsk_1', 10], ['tell-idle:tsk_1', 12], ['escalate:tsk_1', 17]])
-    expect(IDLE_STALL_MS).toBe(10 * MIN)
-    // Working again before 10 min: the clock starts over
-    const flicker = (t: number): StallProbe => ({ ...idle, busy: () => (t - T0) / MIN === 8 })
+    expect(got).toEqual([['nudge-worker:tsk_1', 8], ['tell-idle:tsk_1', 16], ['escalate:tsk_1', 21]])
+    expect(IDLE_STALL_MS).toBe(8 * MIN)
+    // Working again before 8 min: the clock starts over
+    const flicker = (t: number): StallProbe => ({ ...idle, busy: () => (t - T0) / MIN === 6 })
     memo = new Map()
     const kinds: string[] = []
-    for (const t of every30s(15 * MIN)) {
+    for (const t of every30s(13 * MIN)) {
       const r = stallRemedies(s, t, memo, flicker(t))
       memo = r.memo
       kinds.push(...r.due.map((d) => d.kind))
     }
     expect(kinds).toEqual([])
+  })
+
+  // T12: activity is the newer of the transcript's mtime and the pty's last output, busy flag or not
+  it('silence is read from the activity probe: a busy worker with no output for 8 min is silent, output resets the clock', () => {
+    const s = plan({
+      tasks: [task({ id: 'tsk_1', status: 'dispatched' })],
+      dispatches: [{ ...ended('tsk_1', '/wt1'), endedAt: undefined, outcome: undefined } as Dispatch]
+    })
+    // busy, last output at 0: nudged at 8
+    expect(watch(s, every30s(9 * MIN), { ...idle, busy: () => true, lastActivityAt: () => T0 })).toEqual(['nudge-worker:tsk_1'])
+    // output at 5 min: nudged at 13, not 8
+    const timeline: [string, number][] = []
+    let memo = new Map<string, StallEntry>()
+    for (const t of every30s(14 * MIN)) {
+      const r = stallRemedies(s, t, memo, { ...idle, busy: () => true, lastActivityAt: () => (t - T0 >= 5 * MIN ? T0 + 5 * MIN : T0) })
+      memo = r.memo
+      for (const d of r.due) timeline.push([d.kind, (t - T0) / MIN])
+    }
+    expect(timeline).toEqual([['nudge-worker', 13]])
+  })
+
+  it('the setting changes N: workerSilentMinutes 3 nudges at 3 min and acts 3 min later', () => {
+    const s = plan({
+      tasks: [task({ id: 'tsk_1', status: 'dispatched' })],
+      dispatches: [{ ...ended('tsk_1', '/wt1'), endedAt: undefined, outcome: undefined } as Dispatch]
+    })
+    let memo = new Map<string, StallEntry>()
+    const got: [string, number][] = []
+    for (const t of every30s(10 * MIN)) {
+      const r = stallRemedies(s, t, memo, { ...idle, silentMs: 3 * MIN })
+      memo = r.memo
+      for (const d of r.due) got.push([d.kind, (t - T0) / MIN])
+    }
+    expect(got.slice(0, 2)).toEqual([['nudge-worker', 3], ['tell-idle', 6]])
+  })
+
+  it('in a hands-off plan the second silence reads its last turn (capture-worker) in place of the coordinator and owner', () => {
+    const s = plan(
+      { tasks: [task({ id: 'tsk_1', status: 'dispatched' })], dispatches: [{ ...ended('tsk_1', '/wt1'), endedAt: undefined, outcome: undefined } as Dispatch] },
+      { handsOff: true }
+    )
+    expect(watch(s, every30s(20 * MIN))).toEqual(['nudge-worker:tsk_1', 'capture-worker:tsk_1'])
   })
 
   it('a ready Task without a free slot, held, paused or on a paused account is no stall', () => {
@@ -278,7 +321,8 @@ describe('stallRemedies', () => {
   })
 
   it('a completed Task left out of the plan branch is merged again after 2 min, once', () => {
-    const s = plan({ tasks: [task({ id: 'tsk_1', status: 'completed' })], dispatches: [ended('tsk_1', '/wt-child')] })
+    // T10: one an open Task depends on; the rest wait for the delivery
+    const s = plan({ tasks: [task({ id: 'tsk_1', status: 'completed' }), task({ id: 'tsk_2', status: 'pending', deps: ['tsk_1'] })], dispatches: [ended('tsk_1', '/wt-child')] })
     expect(watch(s, every30s(10 * MIN)).filter((x) => !x.startsWith('draft-pr'))).toEqual(['merge:tsk_1'])
     expect(watch(s, [T0 + MERGE_STALL_MS - 1])).toEqual([])
     // marked merged (the wave merge's message): nothing
@@ -288,7 +332,7 @@ describe('stallRemedies', () => {
 
   it('a wave done with its draft PR not opened is asked again after 2 min, once', () => {
     // Two waves by deps; a `pr` delivery is the default
-    const s = plan({ tasks: [task({ id: 'tsk_1', status: 'completed' }), task({ id: 'tsk_2', deps: ['tsk_1'] })], dispatches: [ended('tsk_1', '/wt1')] })
+    const s = plan({ tasks: [task({ id: 'tsk_1', status: 'completed' }), task({ id: 'tsk_2', deps: ['tsk_1'] })], dispatches: [ended('tsk_1', '/wt1')] }, { pushCadence: 'wave' })
     const got = watch(s, every30s(10 * MIN)).filter((x) => x.startsWith('draft-pr'))
     expect(got).toEqual(['draft-pr:1'])
     expect(watch(s, [T0, T0 + DRAFT_STALL_MS - STALL_WATCH_MS]).filter((x) => x.startsWith('draft-pr'))).toEqual([])
@@ -435,7 +479,8 @@ describe('watchStalls', () => {
   })
 
   it('a completed Task out of the plan branch: merged, recorded on the Task, one line', async () => {
-    const h = rig(plan({ tasks: [task({ id: 'tsk_1', status: 'completed' })], dispatches: [ended('tsk_1', '/wt-child')] }))
+    // T10: merged before the delivery because an open Task depends on it
+    const h = rig(plan({ tasks: [task({ id: 'tsk_1', status: 'completed' }), task({ id: 'tsk_2', status: 'pending', deps: ['tsk_1'] })], dispatches: [ended('tsk_1', '/wt-child')] }))
     h.ctx.sessionBusy = () => false
     let merges = 0
     h.ctx.integrate = async () => (merges++, { kind: 'merged', uncommitted: 0 }) as never
@@ -450,7 +495,7 @@ describe('watchStalls', () => {
       plan({
         tasks: [task({ id: 'tsk_1', status: 'completed' }), task({ id: 'tsk_2', status: 'dispatched', deps: ['tsk_1'] })],
         dispatches: [ended('tsk_1', '/wt1'), { ...ended('tsk_2', '/wt1'), endedAt: undefined, outcome: undefined } as Dispatch]
-      })
+      }, { pushCadence: 'task' }) // T10: pushed after each Task
     )
     h.ctx.sessionBusy = () => false
     const real = h.ctx.handle
@@ -560,12 +605,12 @@ describe('createStallWatch', () => {
   it('an idle worker: typed the nudge and Enter, then the coordinator told, then one escalation in the Inbox', async () => {
     const h = watchRig(plan({ tasks: [task({ id: 'tsk_1', status: 'dispatched' })], dispatches: [{ ...ended('tsk_1', '/wt1'), endedAt: undefined, outcome: undefined } as Dispatch] }))
     await h.run(40 * MIN)
-    expect(h.typed).toEqual([`w-tsk_1:${IDLE_NUDGE}`, 'w-tsk_1:\r'])
-    expect(h.told).toEqual([`watchdog: worker dsp_tsk_1 idle since ${new Date(T0).toISOString()}`])
+    expect(h.typed).toEqual([`w-tsk_1:${idleNudge(8)}`, 'w-tsk_1:\r'])
+    expect(h.told).toEqual(['watchdog: worker dsp_tsk_1 silent after a nudge'])
     const escalations = h.cmds.filter((c) => c.cmd === 'send' && c.args.type === 'escalation')
     expect(escalations).toHaveLength(1)
     expect(escalations[0].args).toMatchObject({ taskId: 'tsk_1', dispatchId: 'dsp_tsk_1' })
-    expect(h.lines.map((l) => l.split(':')[0])).toEqual(['Nudged the worker of TSK_1', 'Told the coordinator the worker of TSK_1 is idle 12 min without reporting', 'Raised it to you'])
+    expect(h.lines.map((l) => l.split(':')[0])).toEqual(['Nudged the worker of TSK_1', 'Told the coordinator the worker of TSK_1 has been silent 16 min, and a nudge did not move it', 'Raised it to you'])
   })
 
   // Run job_0b682db7df32e7b4: the record of a live worker was lost, and the watchdog started a duplicate
@@ -812,5 +857,176 @@ describe('the hold on new starts', () => {
     await liftStartHold(profile)
     await h.run(31 * MIN)
     expect(h.cmds.filter((c) => c.cmd === 'worker-start')).toHaveLength(1)
+  })
+})
+
+// T12: a dispatched worker with no transcript or pty activity for N minutes is nudged once; after another N its last
+// turn is recorded as its report when it is one (and its branch has commits), else its session ends and the Task is
+// retried with that turn in its spec. The nudge survives a Host restart (Dispatch.nudgedAt).
+describe('silent workers (T12)', () => {
+  const NUDGE_8 =
+    'Astera has not seen activity from you for 8 minutes. Report your result now with the astera CLI ' +
+    '(`astera send --type worker_done …`), or say what blocks you (`astera ask …`).'
+  const silentPlan = (job: Partial<Job> = { handsOff: true }): OrchState =>
+    plan(
+      { tasks: [task({ id: 'tsk_1', status: 'dispatched' })], dispatches: [{ ...ended('tsk_1', '/wt1'), endedAt: undefined, outcome: undefined, git: { base: 'abc' } } as Dispatch] },
+      job
+    )
+
+  /** One Host watchdog over shared state; `restart()` builds a fresh one (an empty memo) over the same state. */
+  function silentRig(s0: OrchState, o: { turn?: string | null; tail?: string | null; commits?: boolean; minutes?: number } = {}) {
+    const box = { state: s0, clock: T0, activity: T0 }
+    const cmds: { cmd: string; args: Record<string, unknown> }[] = []
+    const typed: string[] = []
+    const lines: string[] = []
+    const build = () =>
+      createStallWatch({
+        handle: async (cmd, args) => {
+          cmds.push({ cmd, args })
+          const s = box.state
+          if (cmd === 'send' && args.type === 'worker_done')
+            box.state = {
+              ...s,
+              dispatches: s.dispatches.map((d) => (d.id === args.dispatchId ? { ...d, outcome: args.outcome as 'succeeded', endedAt: NOW } : d)),
+              tasks: s.tasks.map((t) => (t.id === args.taskId ? { ...t, status: args.outcome === 'failed' ? ('failed' as const) : ('validating' as const) } : t))
+            }
+          if (cmd === 'send' && args.type === 'status')
+            box.state = { ...s, messages: [...s.messages, { id: `m${cmds.length}`, runId: 'run_1', type: 'status', subject: String(args.subject), body: '', answered: false, createdAt: NOW }] }
+          return { status: 200, body: {} }
+        },
+        getState: () => box.state,
+        on: () => true,
+        cap: () => null,
+        busy: () => true,
+        alive: () => true,
+        isRegistered: () => false,
+        typeInto: (id, text) => typed.push(`${id}:${text}`),
+        // as DispatchLoop.tell: a status message in the Run's inbox
+        tell: async (n) => {
+          cmds.push({ cmd: 'tell', args: { subject: n.subject } })
+          box.state = { ...box.state, messages: [...box.state.messages, { id: `t${cmds.length}`, runId: n.runId, type: 'status', subject: n.subject, body: n.body, answered: false, createdAt: new Date(box.clock).toISOString() }] }
+          return true
+        },
+        activity: (d) => lines.push(String(d.payload.reason)),
+        mayStart: () => true,
+        log: () => {},
+        nowMs: () => box.clock,
+        wait: async () => {},
+        silentMinutes: () => o.minutes ?? 8,
+        lastActivityAt: async () => box.activity,
+        transcriptTurn: async () => (o.turn === undefined ? null : o.turn),
+        tailTurn: async () => o.tail ?? null,
+        commitsAhead: async () => o.commits ?? false,
+        markNudged: (id, at) => {
+          box.state = { ...box.state, dispatches: box.state.dispatches.map((d) => (d.id === id ? { ...d, ...at } : d)) }
+        }
+      })
+    let w = build()
+    return {
+      box, cmds, typed, lines,
+      restart: () => (w = build()),
+      /** Every 30 s from `from` to `to` (ms after T0). */
+      run: async (from: number, to: number) => {
+        for (let t = from; t <= to; t += STALL_WATCH_MS) {
+          box.clock = T0 + t
+          await w.watch()
+        }
+      }
+    }
+  }
+
+  it('8 silent minutes send exactly one nudge with the agreed text, and record it on the Dispatch', async () => {
+    expect(idleNudge(8)).toBe(NUDGE_8)
+    const h = silentRig(silentPlan())
+    await h.run(0, 15 * MIN)
+    expect(h.typed).toEqual([`w-tsk_1:${NUDGE_8}`, 'w-tsk_1:\r'])
+    expect(h.box.state.dispatches[0]).toMatchObject({ silentSince: NOW, nudgedAt: new Date(T0 + 8 * MIN).toISOString() })
+  })
+
+  it('activity after the nudge resets the ladder: nothing at nudge + 8, read 8 min after the activity, never nudged twice', async () => {
+    const h = silentRig(silentPlan(), { turn: 'Working on it, next I add the tests.' })
+    await h.run(0, 8 * MIN)
+    h.box.activity = T0 + 11 * MIN
+    await h.run(8 * MIN + STALL_WATCH_MS, 18 * MIN + STALL_WATCH_MS)
+    expect(h.cmds).toEqual([])
+    await h.run(19 * MIN, 19 * MIN)
+    expect(h.cmds.map((c) => c.cmd)).toEqual(['send', 'worker-release', 'worker-start'])
+    expect(h.typed.filter((t) => t.endsWith('\r'))).toHaveLength(1)
+  })
+
+  it('another 8 silent minutes with a finished last turn and commits on the branch: recorded as its worker_done', async () => {
+    const turn = 'Done: the watchdog now nudges silent workers. Committed abc123; all tests pass.'
+    const h = silentRig(silentPlan(), { turn, commits: true })
+    await h.run(0, 20 * MIN)
+    expect(h.cmds).toEqual([
+      { cmd: 'send', args: { type: 'worker_done', taskId: 'tsk_1', dispatchId: 'dsp_tsk_1', outcome: 'succeeded', subject: CAPTURED_SUBJECT, body: turn } }
+    ])
+    expect(CAPTURED_SUBJECT).toBe('Recorded from its last turn')
+    expect(h.lines.at(-1)).toMatch(/^Recorded the report of TSK_1 from its last turn/)
+  })
+
+  it('a last turn that is not a report: its session ended and the Task retried with that turn in its spec', async () => {
+    // the transcript has nothing: the pty tail is read second
+    const said = 'I am looking at the failing test, it seems the fixture is wrong.'
+    const h = silentRig(silentPlan(), { turn: null, tail: said, commits: true })
+    await h.run(0, 20 * MIN)
+    expect(h.cmds.map((c) => c.cmd)).toEqual(['send', 'worker-release', 'worker-start'])
+    const report = h.cmds[0].args
+    expect(report).toMatchObject({ type: 'worker_done', taskId: 'tsk_1', dispatchId: 'dsp_tsk_1', outcome: 'failed' })
+    expect(String(report.body)).toContain('What the previous attempt said last')
+    expect(String(report.body)).toContain(`> ${said}`)
+    expect(h.cmds[1].args).toEqual({ dispatch: 'dsp_tsk_1' })
+    expect(h.cmds[2].args).toEqual({ task: 'tsk_1', agent: 'claude', account: 'accA', retryOf: 'dsp_tsk_1' })
+    // worker-start puts a failed attempt's report into the retry's spec (command.ts withPreviousAttempt)
+    const spec = withPreviousAttempt('s', { subject: String(report.subject), body: String(report.body) })
+    expect(spec).toContain('What the previous attempt said last')
+    expect(spec).toContain(said)
+  })
+
+  it('a finished-sounding last turn with no commits on its branch is retried, not recorded', async () => {
+    const h = silentRig(silentPlan(), { turn: 'Done, all tests pass.', commits: false })
+    await h.run(0, 20 * MIN)
+    expect(h.cmds.map((c) => [c.cmd, c.args.outcome])).toEqual([['send', 'failed'], ['worker-release', undefined], ['worker-start', undefined]])
+  })
+
+  it('a Host restart between the nudge and the next step does not nudge again at once, and goes on at nudge + 8', async () => {
+    const h = silentRig(silentPlan(), { turn: 'Hmm.' })
+    await h.run(0, 9 * MIN)
+    expect(h.typed).toHaveLength(2)
+    h.restart()
+    await h.run(9 * MIN + STALL_WATCH_MS, 15 * MIN + STALL_WATCH_MS)
+    expect(h.typed).toHaveLength(2)
+    expect(h.cmds).toEqual([])
+    await h.run(16 * MIN, 16 * MIN)
+    expect(h.cmds.map((c) => c.cmd)).toEqual(['send', 'worker-release', 'worker-start'])
+    expect(h.typed).toHaveLength(2)
+  })
+
+  it('not hands-off: a restart after the coordinator was told neither nudges nor tells it again', async () => {
+    const h = silentRig(silentPlan({}))
+    await h.run(0, 17 * MIN)
+    expect(h.cmds.map((c) => c.cmd)).toEqual(['tell'])
+    h.restart()
+    await h.run(17 * MIN + STALL_WATCH_MS, 20 * MIN)
+    expect(h.typed).toHaveLength(2)
+    expect(h.cmds.map((c) => c.cmd)).toEqual(['tell'])
+  })
+
+  it('the setting changes N: workerSilentMinutes 3 nudges at 3 minutes with 3 in its text', async () => {
+    const h = silentRig(silentPlan(), { minutes: 3 })
+    await h.run(0, 3 * MIN - STALL_WATCH_MS)
+    expect(h.typed).toEqual([])
+    await h.run(3 * MIN, 3 * MIN)
+    expect(h.typed[0]).toBe(`w-tsk_1:${idleNudge(3)}`)
+    expect(idleNudge(3)).toContain('for 3 minutes')
+    await h.run(3 * MIN + STALL_WATCH_MS, 6 * MIN)
+    expect(h.cmds.map((c) => c.cmd)).toEqual(['send', 'worker-release', 'worker-start'])
+  })
+
+  it('reads a finished report: it says the work is done, and is not a question or a block', () => {
+    for (const t of ['Done. Committed the fix.', 'The Task is complete: tests pass.', 'I finished the change and committed it.', 'Implemented and committed.'])
+      expect(isFinishedReport(t)).toBe(true)
+    for (const t of ['Not done yet, still running tests.', 'Should I commit this?', 'I am blocked: the test fails.', 'Looking at the code now.', ''])
+      expect(isFinishedReport(t)).toBe(false)
   })
 })

@@ -209,12 +209,13 @@ export const DELIVERY_RETRY_NOW = 'Retry now'
 export const DELIVERY_OWNER_PUSHES = "I'll push it myself"
 
 /** The record after one attempt: delivered, or one more failure with its retry time. `ask: false` (a plan-branch push)
- *  never reads `needs-owner`: only the end delivery asks the owner. */
+ *  never reads `needs-owner`: only the end delivery asks the owner. T19: a `merge-failed` stop keeps the plan branch
+ *  `head` and the `target` tip it was judged on (`judgedOn`). */
 export function afterAttempt(
   prev: DeliveryProgress | undefined,
   at: string,
   error?: string,
-  opts?: { ask?: boolean; /** T1: the stop's code (PushStop), kept as `lastCode` */ code?: string }
+  opts?: { ask?: boolean; /** T1: the stop's code (PushStop), kept as `lastCode` */ code?: string; /** the heads the attempt ran against */ heads?: DeliveryHeads; /** T19: the tips a merge failure is judged on */ head?: string; target?: string }
 ): DeliveryProgress {
   const attempts = (prev?.attempts ?? 0) + 1
   const keep = prev?.questionId !== undefined ? { questionId: prev.questionId } : {}
@@ -227,18 +228,73 @@ export function afterAttempt(
     lastAttemptAt: at,
     nextRetryAt: new Date(Date.parse(at) + wait * 60_000).toISOString(),
     ...(opts?.code !== undefined ? { lastCode: opts.code } : {}),
+    ...(opts?.heads?.head !== undefined ? { headAtAttempt: opts.heads.head } : {}),
+    ...(opts?.heads?.origin !== undefined ? { originAtAttempt: opts.heads.origin } : {}),
+    ...(opts?.code === 'merge-failed' && (opts.head !== undefined || opts.target !== undefined)
+      ? { judgedOn: { ...(opts.head !== undefined ? { branch: opts.head } : {}), ...(opts.target !== undefined ? { target: opts.target } : {}) } }
+      : {}),
     ...keep
   }
 }
 
-/** Whether the driving loop attempts the end delivery now: once pending, after a failure when its retry time came
- *  (the owner's "I'll push it myself" is checked instead, `ownerCheckDue`), and a `delivering` left by a dead process. */
-export function deliveryDue(p: DeliveryProgress | undefined, nowMs: number): boolean {
+/** What the plan branch and origin stood at, read by the driving loop (one `git rev-parse` each, per Run per pass). */
+export interface DeliveryHeads {
+  head?: string
+  origin?: string
+}
+
+/** Whether the plan branch's head is not the one the last attempt ran against (a fix landed on it). Unknown on either
+ *  side (a record from before this, a head that could not be read) is no move. */
+export const headMoved = (p: DeliveryProgress | undefined, heads: DeliveryHeads | undefined): boolean =>
+  p?.headAtAttempt !== undefined && heads?.head !== undefined && heads.head !== p.headAtAttempt
+
+const originMoved = (p: DeliveryProgress, heads: DeliveryHeads | undefined): boolean =>
+  p.originAtAttempt !== undefined && heads?.origin !== undefined && heads.origin !== p.originAtAttempt
+
+/** Whether the driving loop attempts the end delivery now: once pending, after a failure when its retry time came or the
+ *  plan branch head or origin moved since its attempt (the owner's "I'll push it myself" is checked instead,
+ *  `ownerCheckDue`; a dismissed one never), and a `delivering` left by a dead process.
+ *  T19: a merge failure is also due at once when either tip moved since `judgedOn`: the plan branch (`tips.branch`, the
+ *  Run's `git.head`) or the target (`tips.target`, `origin/<branch>`, the local branch for a `merge` delivery). */
+export function deliveryDue(
+  p: DeliveryProgress | undefined,
+  nowMs: number,
+  heads?: DeliveryHeads,
+  tips?: { branch?: string | undefined; target?: string | undefined }
+): boolean {
   if (!p) return false
   if (p.state === 'pending') return true
   if (p.state === 'delivering') return p.lastAttemptAt === undefined || nowMs - Date.parse(p.lastAttemptAt) >= DELIVERING_STALE_MS
   if (p.state !== 'retrying' && p.state !== 'needs-owner') return false
-  return p.ownerPushes !== true && (p.nextRetryAt === undefined || Date.parse(p.nextRetryAt) <= nowMs)
+  if (p.ownerPushes === true) return false
+  const moved = (was: string | undefined, now: string | undefined): boolean => was !== undefined && now !== undefined && was !== now
+  if (p.lastCode === 'merge-failed' && (moved(p.judgedOn?.branch, tips?.branch) || moved(p.judgedOn?.target, tips?.target))) return true
+  return headMoved(p, heads) || originMoved(p, heads) || p.nextRetryAt === undefined || Date.parse(p.nextRetryAt) <= nowMs
+}
+
+/** The Run as its next attempt starts (`run-deliver`): the progress is `delivering`, the error it stopped with moves to
+ *  `previousError` and the Run's stored delivery errors go, so nothing reads that error as the new attempt's. A moved
+ *  plan branch head starts the count afresh (a fixed plan is not stuck at hourly retries) and answers the owner question
+ *  of the old failures. */
+export function beginAttempt(s: OrchState, runId: string, heads: DeliveryHeads | undefined, at: string): OrchState {
+  const run = s.runs.find((r) => r.id === runId)
+  if (!run) return s
+  const p = run.deliveryState
+  const moved = headMoved(p, heads)
+  const previousError = p?.lastError ?? run.delivery?.error ?? run.pr?.error ?? p?.previousError
+  const { lastError: _e, lastCode: _c, nextRetryAt: _n, ...rest } = p ?? { attempts: 0 }
+  const next: DeliveryProgress = {
+    ...rest,
+    state: 'delivering',
+    attempts: moved ? 0 : (p?.attempts ?? 0),
+    lastAttemptAt: at,
+    ...(previousError !== undefined ? { previousError } : {}),
+    ...(heads?.head !== undefined ? { headAtAttempt: heads.head } : {}),
+    ...(heads?.origin !== undefined ? { originAtAttempt: heads.origin } : {})
+  }
+  if (moved) delete next.questionId
+  const out = { ...s, runs: s.runs.map((r) => (r.id === runId ? { ...withoutDeliveryError(r), deliveryState: next } : r)) }
+  return moved ? answerQuestion(out, p?.questionId, 'the plan branch changed; delivering again') : out
 }
 
 /** Whether the owner's "I'll push it myself" is due another look at git. */
@@ -313,30 +369,49 @@ export const onlyDeliveryFixesFailed = (s: OrchState, runId: string): boolean =>
 }
 
 /** What a failed delivery validation of this Run leads to: `fix` a fix Task (no owner question meanwhile), `owner`
- *  FAILURE_LIMIT fix Tasks did not make it pass, so the owner is asked now; null: not a hands-free plan with a plan
- *  branch (the Run's worktree, where a fix Task works), so the retries and the owner question go as for any stop. */
+ *  FAILURE_LIMIT fix Tasks did not make it pass, so the owner is asked now; null: not a hands-free plan, so the retries
+ *  and the owner question go as for any stop. T15: a plan with no plan worktree gets one too, in a worktree of its own. */
 export function deliveryFixOf(s: OrchState, run: JobRun): 'fix' | 'owner' | null {
   const job = jobOf(s, run)
-  if (!job || run.worktree === undefined || !handsFreeOf(s, job)) return null
+  if (!job || !handsFreeOf(s, job)) return null
   return deliveryFixesOf(s, run.id).length < FAILURE_LIMIT ? 'fix' : 'owner'
 }
 
-/** The spec of the `n`th fix Task: it works in the plan branch (`runRoot`), merges origin's branch in first so it stands
- *  on the merged result the delivery validated, and holds the failing checks' output (`reason`, its tail). */
-export function buildDeliveryFixSpec(a: { runRoot: string; branch?: string; reason: string; n: number }): string {
+/** The spec of the `n`th fix Task: it works in the plan branch (`runRoot`; absent: a worktree of its own with the
+ *  plan's work merged in), merges origin's branch in first so it stands on the merged result the delivery validated,
+ *  and holds the failing output (`reason`, its tail). T15: a `push-refused` (the repository's pre-push hook, run by
+ *  Astera before the push or by git during it) says to run that hook, the typecheck and the lint. */
+export function buildDeliveryFixSpec(a: { runRoot?: string; branch?: string; reason: string; n: number; code?: string }): string {
   const origin = a.branch === undefined ? 'origin/HEAD' : `origin/${a.branch}`
   const fetch = a.branch === undefined ? 'git fetch origin' : `git fetch origin ${a.branch}`
-  return `This plan's delivery stopped: its checks failed on the merged result (this plan branch with ${origin} merged
-in), so nothing was pushed. Your task: ${DELIVERY_FIX_MARK} (fix ${a.n} of ${FAILURE_LIMIT}).
+  const hook = a.code === 'push-refused'
+  const where =
+    a.runRoot === undefined
+      ? `Your working directory is a worktree of its own with every task of this plan merged in. Stay on its branch.`
+      : `The repository is at ${a.runRoot}, on the plan branch, and that is your working directory. Do not switch branches
+and do not create a new one.`
+  const what = hook
+    ? `the repository refused the push: its pre-push hook failed on the merged result (this plan with ${origin}
+merged in), so nothing was pushed`
+    : `its checks failed on the merged result (this plan branch with ${origin} merged
+in), so nothing was pushed`
+  const fix = hook
+    ? `2. Run the hook as git does: \`git hook run pre-push -- origin "$(git remote get-url origin)"\` (on an old git:
+   the file \`git rev-parse --git-path hooks/pre-push\` names). Then run the repository's typecheck and lint on the
+   packages named in the output below. Fix the cause; never skip, delete or weaken a hook, a test or a check, and never
+   use --no-verify.
+3. Run the hook, the typecheck and the lint again until they pass (they are heavy jobs: \`astera heavy -- <cmd>\`),
+   quote the passing run in your report, then commit everything: \`git status --porcelain\` must print nothing.`
+    : `2. Make the failing checks below pass. Fix the cause; never skip, delete or weaken a test or a check.
+3. Run the checks that failed (test, typecheck and build runs are heavy jobs: \`astera heavy -- <cmd>\`), then commit everything:
+   \`git status --porcelain\` must print nothing when you are done.`
+  return `This plan's delivery stopped: ${what}. Your task: ${DELIVERY_FIX_MARK} (fix ${a.n} of ${FAILURE_LIMIT}).
 
-The repository is at ${a.runRoot}, on the plan branch, and that is your working directory. Do not switch branches
-and do not create a new one.
+${where}
 
 1. ${fetch} && git merge --no-edit ${origin}
    A conflict is resolved so both sides' work survives; never \`git merge --abort\` or \`git reset --hard\`.
-2. Make the failing checks below pass. Fix the cause; never skip, delete or weaken a test or a check.
-3. Run the checks that failed (test, typecheck and build runs are heavy jobs: \`astera heavy -- <cmd>\`), then commit everything:
-   \`git status --porcelain\` must print nothing when you are done.
+${fix}
 
 Once you report, Astera validates the merged result again and delivers it.
 
@@ -395,6 +470,24 @@ export function landedOnGitHub(s: OrchState, runId: string, landed: 'merged' | '
   const out = { ...s, runs: s.runs.map((r) => (r.id === runId ? { ...clean, pr: { ...pr, landed }, deliveryState: next } : r)) }
   return answerQuestion(out, p?.questionId, landed === 'merged' ? 'merged on GitHub' : 'closed on GitHub')
 }
+
+/** The plan's work reached the delivery branch outside Astera (the owner merged it by hand): delivered and merged as
+ *  `landedOnGitHub` leaves it, with the marker and the history note `landed outside Astera`. */
+export function landedOutside(s: OrchState, runId: string, at: string): OrchState {
+  const landed = landedOnGitHub(s, runId, 'merged', at)
+  return {
+    ...landed,
+    runs: landed.runs.map((r) =>
+      r.id === runId && r.pr
+        ? { ...r, pr: { ...r.pr, landedOutside: true }, ...(r.deliveryState ? { deliveryState: { ...r.deliveryState, note: 'landed outside Astera' } } : {}) }
+        : r
+    )
+  }
+}
+
+/** A finished Run whose delivery did not go through: failed, retrying, waiting on the owner, or stopped on a merge conflict. */
+export const deliveryFailedOf = (s: OrchState, run: JobRun): boolean =>
+  ownerMaySettle(run) || run.pr?.error !== undefined || run.delivery?.error !== undefined || s.gates.some((g) => g.runId === run.id && g.kind === 'merge-failed' && g.status === 'open')
 
 /** T1: the owner dismissed a failed delivery (`run-delivery-dismiss`): its errors go, it reads `dismissed` (not failed,
  *  never attempted again) and its open owner question is answered. */

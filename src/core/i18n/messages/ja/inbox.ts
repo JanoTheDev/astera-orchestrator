@@ -93,6 +93,7 @@ export const inbox: Partial<Record<keyof typeof ko, string>> = {
   'activity.line.linked': '{title}: リンク {parts}',
   'activity.line.prFailed': '{title}: PRに失敗: {error}',
   'activity.line.prOpened': '{title}: PRを作成',
+  'activity.line.landedOutside': '{title}: Astera外で反映',
   'activity.line.prOpenedNum': '{title}: PR #{n}を作成',
   'activity.line.planAwaiting': '{title}: プランは承認待ちです',
   'activity.line.planRevised': '{title}: プランを修正しました。承認待ちです',

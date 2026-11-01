@@ -1,11 +1,11 @@
 import { EventEmitter } from 'node:events'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ChildProcess } from 'node:child_process'
 import type { ActivityDraft } from '../core/orchestration/activity'
-import { healthFileIn, readAutoLimits, readHealthSnapshot, updateAutoLimits, type AutoLimits } from '../core/settings/autoLimits'
+import { autoLimitsFileIn, healthFileIn, readAutoLimits, readHealthSnapshot, updateAutoLimits, type AutoLimits } from '../core/settings/autoLimits'
 import {
   CALM_RAISE_MS,
   COMMIT_STALE_MS,
@@ -180,6 +180,42 @@ describe('judge: lowering in stages', () => {
   })
 })
 
+describe('judge: the auto-lower setting', () => {
+  // The owner allows 25 agents and keeps 18 as the minimum; only 6 run, so every stage has a reason to go low.
+  const six: LiveCounts = { workers: 6, heavyRunning: 1, checksRunning: 0 }
+  const owner = (autoLower?: PersonCaps['autoLower']): PersonCaps => ({ workers: 25, heavy: 3, workersFloor: 18, ...(autoLower ? { autoLower } : {}) })
+  const criticalRun = (now: number): Sample[] => run(now, [CRITICAL, CRITICAL])
+
+  it('floor: no stage goes below the owner minimum, pause and strain steps alike', () => {
+    const { caps, stages } = persistingStrain(none, six, owner('floor'), 8)
+    expect(stages.slice(0, 2)).toEqual(['pause', 'lower'])
+    expect(Math.min(...caps)).toBe(18)
+    expect(caps[0]).toBe(18) // the pause holds at the minimum, not at the 6 agents running
+  })
+
+  it('floor: critical strain never goes below the owner minimum either', () => {
+    const u = judge(criticalRun(T0), none, six, person, owner('floor'), T0)!
+    expect(u(none).workers?.cap).toBe(18)
+    const lower = judge(criticalRun(T0 + 1000), { workers: { cap: 20, cause: 'strain', at: at(T0), detail: 'd' }, history: [{ at: at(T0), what: 'workers', from: 25, to: 20, cause: 'strain', detail: 'd' }] }, six, { ...person, workers: 20 }, owner('floor'), T0 + 1000)!
+    expect(lower(none).workers?.cap).toBe(18)
+  })
+
+  it('on keeps today\'s steps', () => {
+    expect(persistingStrain(none, six, owner('on'), 8)).toEqual(persistingStrain(none, six, owner(), 8))
+    expect(persistingStrain(none, six, owner('on'), 8).caps.slice(0, 3)).toEqual([18, 18, 18])
+  })
+
+  it('off lowers nothing, not on strain and not on critical strain', () => {
+    expect(judge(strained3(T0), none, six, person, owner('off'), T0)).toBeNull()
+    expect(judge(criticalRun(T0), none, six, person, owner('off'), T0)).toBeNull()
+  })
+
+  it('off still raises what the monitor lowered earlier', () => {
+    const cur: AutoLimits = { workers: { cap: 10, cause: 'strain', at: at(T0 - 3600_000), detail: 'd' }, history: [] }
+    expect(judge(calmFor3Min(T0), cur, six, effectiveOf(cur), owner('off'), T0)?.stage).toBe('raise')
+  })
+})
+
 describe('judge: raising', () => {
   const lowered = (over: Partial<AutoLimits> = {}, ago = CALM_RAISE_MS + 1000): AutoLimits => ({
     workers: { cap: 13, cause: 'strain', at: at(T0 - ago), detail: 'd' },
@@ -270,17 +306,29 @@ describe('readings', () => {
     expect(judge(run(T0, [s, s, s]), none, live, person, person, T0)).toBeNull()
   })
 
-  it('on Windows, 4% reachable commit headroom is critical while physical memory is 40% free', () => {
-    const s = sampleOf({ memAvailablePct: 40, commitHeadroomPct: 3, commitReachablePct: 4, load1: 0, cpus: 24, loopDelayP99Ns: 0 }, T0)
+  it('on Windows, 4% reachable commit headroom is critical while physical memory is 12% free', () => {
+    const s = sampleOf({ memAvailablePct: 12, commitHeadroomPct: 3, commitReachablePct: 4, load1: 0, cpus: 24, loopDelayP99Ns: 0 }, T0)
     expect(isCritical(s)).toBe(true)
     const u = judge([{ ...s, at: T0 - SAMPLE_MS }, s], none, live, person, person, T0)!
     expect(u.stage).toBe('pause')
     expect(u(none).workers?.detail).toBe('commit headroom 4% of the reachable limit (3% of the current one) while 10 agents ran')
-    const tight = sampleOf({ memAvailablePct: 40, commitHeadroomPct: 8, commitReachablePct: 8, load1: 0, cpus: 24, loopDelayP99Ns: 0 }, T0)
+    const tight = sampleOf({ memAvailablePct: 12, commitHeadroomPct: 8, commitReachablePct: 8, load1: 0, cpus: 24, loopDelayP99Ns: 0 }, T0)
     expect([isStrained(tight), isCritical(tight)]).toEqual([true, false])
     const unknown = sampleOf({ memAvailablePct: 40, commitHeadroomPct: NaN, commitReachablePct: NaN, load1: 0, cpus: 24, loopDelayP99Ns: 0 }, T0)
     expect([unknown.commitHeadroomPct, unknown.commitReachablePct]).toEqual([null, null])
     expect(isStrained(unknown)).toBe(false)
+  })
+
+  it('commit headroom of 9% with 22% of the RAM free is not strain; with 12% free it is; with 8% free the RAM alone is', () => {
+    const of = (mem: number, reach: number): Sample => sampleOf({ memAvailablePct: mem, commitHeadroomPct: reach, commitReachablePct: reach, load1: 0, cpus: 24, loopDelayP99Ns: 0 }, T0)
+    expect([isStrained(of(22, 9)), isCritical(of(22, 9))]).toEqual([false, false])
+    expect([isStrained(of(12, 9)), isCritical(of(12, 9))]).toEqual([true, false])
+    expect([isStrained(of(8, 40)), isCritical(of(8, 40))]).toEqual([true, false])
+    // critical: RAM under 5%, or 4% commit headroom with RAM under 15%; 4% commit with 22% RAM free is neither
+    expect(isCritical(of(4, 40))).toBe(true)
+    expect(isCritical(of(14, 4))).toBe(true)
+    expect([isStrained(of(22, 4)), isCritical(of(22, 4))]).toEqual([false, false])
+    expect(judge(run(T0, [of(22, 9), of(22, 9), of(22, 9)]), none, live, person, person, T0)).toBeNull()
   })
 
   it('3% of the current commit limit is not strain while the pagefile can still grow to 40% headroom', () => {
@@ -471,13 +519,17 @@ describe('the sampler', () => {
   let counts: { workers: number; sessions: number; heavyTickets: number; checks: number }
   /** The auto heavy-slot answer reads this much available memory: 25 GB fits 2 heavy jobs. */
   let autoGb: number
+  let fail: boolean
   const monitor = () =>
     createLoadMonitor({
       profileDir: dir,
       live: () => counts,
       activity: (d) => feed.push(d),
       log: (m) => logs.push(m),
-      readings: () => reading,
+      readings: () => {
+        if (fail) throw new Error('boom')
+        return reading
+      },
       nowMs: () => now,
       platform: 'win32',
       heavyJobs: { platform: 'win32', freemem: () => autoGb * 1024 ** 3, held: () => 0 }
@@ -499,8 +551,16 @@ describe('the sampler', () => {
     logs = []
     counts = { workers: 7, sessions: 9, heavyTickets: 1, checks: 2 }
     autoGb = 25
+    fail = false
   })
-  afterEach(() => rmSync(dir, { recursive: true, force: true }))
+  afterEach(() => {
+    try {
+      chmodSync(autoLimitsFileIn(dir), 0o666)
+    } catch {
+      /* no file */
+    }
+    rmSync(dir, { recursive: true, force: true })
+  })
 
   it('writes the health snapshot on every sample, with the counts and the strained flag', async () => {
     const m = monitor()
@@ -606,6 +666,81 @@ describe('the sampler', () => {
     expect(limits.workers?.cap).toBe(6)
     expect(limits.heavy).toMatchObject({ cap: 1, cause: 'crash' })
     expect(feed.map((f) => f.payload.reason)).toEqual(['Machine calm again: agents back to 6'])
+  })
+
+  it('Windows: commit headroom 9% with 22% of the RAM free changes nothing; with 12% free it pauses', async () => {
+    reading = { ...reading, memAvailablePct: 22, commitHeadroomPct: 9, commitReachablePct: 9 }
+    const m = monitor()
+    await ticks(m, 8)
+    expect((await readAutoLimits(dir)).workers).toBeUndefined()
+    expect(JSON.parse(readFileSync(healthFileIn(dir), 'utf8')).strained).toBe(false)
+    reading = { ...reading, memAvailablePct: 12 }
+    await ticks(m, 3)
+    expect((await readAutoLimits(dir)).workers).toMatchObject({ cap: 7, cause: 'strain' })
+  })
+
+  it('floor: ten minutes of strain with 6 agents running never take the cap below the owner minimum', async () => {
+    settings({ maxConcurrentWorkers: 25, minWorkersUnderPressure: 18 })
+    counts = { ...counts, workers: 6 }
+    reading = { ...reading, memAvailablePct: 6 }
+    await ticks(monitor(), 62)
+    const cap = (await readAutoLimits(dir)).workers?.cap
+    expect(cap).toBe(18)
+  })
+
+  it('off: strain lowers nothing and is logged once per episode', async () => {
+    settings({ maxConcurrentWorkers: 25, autoLowerLimits: 'off' })
+    reading = { ...reading, memAvailablePct: 6 }
+    const m = monitor()
+    await ticks(m, 40)
+    const limits = await readAutoLimits(dir)
+    expect([limits.workers, limits.heavy, limits.checksAsHeavy]).toEqual([undefined, undefined, undefined])
+    expect(logs).toHaveLength(1)
+    expect(logs[0]).toContain('Auto-lower agent limits is off')
+    reading = { ...reading, memAvailablePct: 60 }
+    await ticks(m, 2)
+    reading = { ...reading, memAvailablePct: 6 }
+    await ticks(m, 5)
+    expect(logs).toHaveLength(2)
+  })
+
+  it('on: lowers without the floor of the setting changing the steps', async () => {
+    settings({ maxConcurrentWorkers: 8, heavyJobsAtOnce: 2, autoLowerLimits: 'on' })
+    reading = { ...reading, memAvailablePct: 6 }
+    await ticks(monitor(), 3)
+    expect((await readAutoLimits(dir)).workers).toMatchObject({ cap: 7, cause: 'strain' })
+  })
+
+  it('a read-only auto-limits.json logs one line in ten minutes of strain, throws nothing and is written again once writable', async () => {
+    await updateAutoLimits(dir, (c) => c)
+    chmodSync(autoLimitsFileIn(dir), 0o444)
+    const before = readFileSync(autoLimitsFileIn(dir), 'utf8')
+    reading = { ...reading, memAvailablePct: 6 }
+    const m = monitor()
+    await ticks(m, 59)
+    expect(logs).toEqual(['auto-limits.json is read-only; automatic limit changes are paused until it is writable'])
+    expect(readFileSync(autoLimitsFileIn(dir), 'utf8')).toBe(before)
+    // the file is writable again: the pause ends after ten minutes and the next lowering is written
+    chmodSync(autoLimitsFileIn(dir), 0o666)
+    await ticks(m, 5)
+    expect((await readAutoLimits(dir)).workers).toMatchObject({ cause: 'strain' })
+    expect(logs).toHaveLength(2)
+    expect(logs[1]).toContain('paused new agents')
+  })
+
+  it('a still read-only file stays quiet at each ten-minute look', async () => {
+    await updateAutoLimits(dir, (c) => c)
+    chmodSync(autoLimitsFileIn(dir), 0o444)
+    reading = { ...reading, memAvailablePct: 6 }
+    await ticks(monitor(), 200)
+    expect(logs).toHaveLength(1)
+  })
+
+  it('logs a repeated error at most once per ten minutes, with how many were left out', async () => {
+    fail = true
+    const m = monitor()
+    await ticks(m, 61)
+    expect(logs).toEqual(['load monitor: Error: boom', 'load monitor: Error: boom (59 more since the last line)'])
   })
 
   it('writes the snapshot and judges nothing when the settings file cannot be read', async () => {

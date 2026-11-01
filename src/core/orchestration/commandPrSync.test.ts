@@ -1,5 +1,9 @@
 // T6: runs-pr-sync asks GitHub for each ready, not-landed PR and records merged/closed. Over a fake gh; nothing real runs.
-import { describe, it, expect, vi } from 'vitest'
+import { afterEach, describe, it, expect, vi } from 'vitest'
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { handleCommand, type OrchServerDeps } from './command'
 import { emptyState, type OrchState } from './state'
 import type { Job, JobRun, RunPr } from './types'
@@ -64,7 +68,7 @@ const setup = (runs: JobRun[], states: Record<string, string | undefined>, fake:
     }
   } as unknown as OrchServerDeps
   const call = (args: Record<string, unknown> = {}) => handleCommand(deps, { sessionId: APP_CALLER }, 'runs-pr-sync', args)
-  return { call, asked, cwds, gitCalls, runOf: (id: string) => box.state.runs.find((r) => r.id === id)! }
+  return { deps, call, asked, cwds, gitCalls, runOf: (id: string) => box.state.runs.find((r) => r.id === id)! }
 }
 
 describe('runs-pr-sync', () => {
@@ -177,5 +181,125 @@ describe('runs-pr-sync', () => {
       const t = setup([run('a', undefined, { deliveryState: awaiting })], {}, { head: { '/wt/a': 'main' }, merged: { main: true } }, { deliveryBranch: 'main' })
       expect((await t.call()).body).toEqual({ checked: 1, landed: [] })
     })
+  })
+})
+
+// A plan whose work the owner merged into main outside Astera and pushed: a real origin and clone, real git.
+describe('a plan that landed outside Astera', () => {
+  const dirs: string[] = []
+  afterEach(() => {
+    for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
+  })
+  const sh = (cwd: string, ...args: string[]): void => {
+    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { cwd, stdio: 'ignore', windowsHide: true })
+  }
+  /** origin (bare) and a clone on main; plan-a is merged into origin/main by hand, plan-b is not. The clone's own main is left behind. */
+  function repo(): string {
+    const root = mkdtempSync(path.join(os.tmpdir(), 'astera-outside-'))
+    dirs.push(root)
+    const origin = path.join(root, 'origin.git')
+    const clone = path.join(root, 'clone')
+    sh(root, 'init', '--bare', '-b', 'main', origin)
+    sh(root, 'clone', origin, clone)
+    sh(clone, 'checkout', '-b', 'main')
+    const commit = (file: string): void => {
+      writeFileSync(path.join(clone, file), file)
+      sh(clone, 'add', '-A')
+      sh(clone, 'commit', '-m', file)
+    }
+    commit('base')
+    sh(clone, 'push', '-u', 'origin', 'main')
+    for (const b of ['plan-a', 'plan-b']) {
+      sh(clone, 'checkout', '-b', b, 'main')
+      commit(b)
+    }
+    sh(clone, 'checkout', 'main')
+    sh(clone, 'merge', '--no-ff', 'plan-a', '-m', 'merge plan-a')
+    sh(clone, 'push', 'origin', 'main')
+    sh(clone, 'reset', '--hard', 'HEAD~1') // the local main does not know the merge: only origin does
+    sh(clone, 'update-ref', '-d', 'refs/remotes/origin/main') // and neither does the remote-tracking ref
+    return clone
+  }
+  const failed = { delivery: { at: NOW, error: 'push refused' }, deliveryState: { state: 'failed', attempts: 5 } } as Partial<JobRun>
+  const realGit = async (t: ReturnType<typeof setup>): Promise<string[][]> => {
+    const actual = await vi.importActual<typeof import('../worktrees/git')>('../worktrees/git')
+    const fetches: string[][] = []
+    gitBox.answer = (args, cwd) => {
+      if (args[0] === 'fetch') fetches.push(args)
+      return actual.git(args, { cwd })
+    }
+    void t
+    return fetches
+  }
+
+  it('settles a Failed run whose branch tip is in origin/main as merged, with the history line and no error; leaves one that is not', async () => {
+    const clone = repo()
+    const t = setup(
+      [run('a', { at: NOW, branch: 'plan-a', error: 'e' }, failed), run('b', { at: NOW, branch: 'plan-b', error: 'e' }, failed)],
+      {},
+      {},
+      { cwd: clone, deliveryBranch: 'main' }
+    )
+    const fetches = await realGit(t)
+    expect((await t.call()).body).toEqual({ checked: 0, landed: [{ runId: 'a', landed: 'merged' }] })
+    const a = t.runOf('a')
+    expect(a.pr).toMatchObject({ landed: 'merged', landedOutside: true })
+    expect(a.pr?.error).toBeUndefined()
+    expect(a.delivery?.error).toBeUndefined()
+    expect(a.deliveryState).toMatchObject({ state: 'delivered', note: 'landed outside Astera' })
+    const b = t.runOf('b')
+    expect(b.pr?.landed).toBeUndefined()
+    expect(b.pr?.error).toBe('e')
+    expect(b.deliveryState?.state).toBe('failed')
+    // the check is rate-limited: a second sync within 10 minutes does not fetch again
+    const before = fetches.length
+    expect(before).toBe(2)
+    await t.call()
+    expect(fetches).toHaveLength(before)
+  })
+
+  it('runs the origin fetch through the outsideChain hook and skips a run another command settled meanwhile', async () => {
+    const clone = repo()
+    const t = setup([run('a', { at: NOW, branch: 'plan-a', error: 'e' }, failed)], {}, {}, { cwd: clone, deliveryBranch: 'main' })
+    await realGit(t)
+    let hooked = 0
+    const settled = (): void => {
+      // stands in for another command landing the Run while the chain is handed on
+      t.runOf('a').pr!.landed = 'closed'
+    }
+    t.deps.outsideChain = async (effect) => {
+      hooked++
+      const out = await effect()
+      settled()
+      return out
+    }
+    expect((await t.call()).body).toEqual({ checked: 0, landed: [] })
+    expect(hooked).toBe(1)
+    expect(t.runOf('a').pr).toMatchObject({ landed: 'closed' })
+    expect(t.runOf('a').pr?.landedOutside).toBeUndefined()
+  })
+
+  it('asks again after 10 minutes', async () => {
+    const clone = repo()
+    const old = new Date(Date.parse(NOW) - 11 * 60_000).toISOString()
+    const recent = new Date(Date.parse(NOW) - 9 * 60_000).toISOString()
+    const t = setup(
+      [run('a', { at: NOW, branch: 'plan-a' }, { ...failed, outsideCheckedAt: old }), run('b', { at: NOW, branch: 'plan-a' }, { ...failed, outsideCheckedAt: recent })],
+      {},
+      {},
+      { cwd: clone, deliveryBranch: 'main' }
+    )
+    await realGit(t)
+    expect((await t.call()).body).toEqual({ checked: 0, landed: [{ runId: 'a', landed: 'merged' }] })
+    expect(t.runOf('b').pr?.landed).toBeUndefined()
+  })
+
+  it('leaves a Run alone when origin cannot be fetched', async () => {
+    const clone = repo()
+    sh(clone, 'remote', 'remove', 'origin')
+    const t = setup([run('a', { at: NOW, branch: 'plan-a' }, failed)], {}, {}, { cwd: clone, deliveryBranch: 'main' })
+    await realGit(t)
+    expect((await t.call()).body).toEqual({ checked: 0, landed: [] })
+    expect(t.runOf('a').pr?.landed).toBeUndefined()
   })
 })

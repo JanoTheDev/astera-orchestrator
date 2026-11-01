@@ -29,6 +29,7 @@ import { jobNameOf } from './jobName'
 import { objectiveItemsOf } from './objectiveItems'
 import { stallOf, waveOf } from './replan'
 import { holdOf } from './holds'
+import { consolesIn } from './openConsoles'
 import { autoApproveOf, handsOffOf, planApprovable } from './exec/plannerFeedback'
 import type { ScheduleLimits } from './schedule'
 
@@ -282,7 +283,8 @@ function jobTaskOf(
     // T3
     kind: kindOf(task),
     ...(task.worktree ? { worktree: task.worktree } : {}),
-    ...(isIntegrationTask(task) ? { isMerge: true as const } : {})
+    ...(isIntegrationTask(task) ? { isMerge: true as const } : {}),
+    ...(task.addedBy ? { addedBy: { kind: task.addedBy.kind, why: task.addedBy.why } } : {})
   }
 }
 
@@ -469,6 +471,15 @@ export function snapshotFor(
       run ? runWorktreesFrom(run, ix.jobById.get(run.jobId)?.cwd, ix.dispatchesByRun.get(run.id) ?? []) : []
     ).filter(exists)
     const outcome = outcomeOfRun(ownedTasks, run, state)
+    const consolesOf = (r: JobRun | undefined, o: RunOutcome): Pick<JobRow, 'consoles'> | undefined => {
+      if (r === undefined || o !== 'running') return undefined
+      const list = consolesIn(
+        { run: r, job, tasks: ownedTasks, dispatches: ix.dispatchesByRun.get(r.id) ?? [], hasOpenGate: (id) => ix.openGatesByTask.has(id), running: true },
+        isKnownSession,
+        { nowMs }
+      )
+      return list.length > 0 ? { consoles: { count: list.length, list } } : undefined
+    }
     const finishedAt = finishedAtOf(job, run, outcome, ownedTasks, ownedTasks.flatMap((t) => ix.dispatchesByTask.get(t.id) ?? []))
     return {
       id: rowId,
@@ -515,6 +526,8 @@ export function snapshotFor(
         ? { deliveredBy: { jobId: job.deliveredBy.jobId, title: jobNameOf(state.jobs.find((j) => j.id === job.deliveredBy!.jobId) ?? { objective: job.deliveredBy.jobId }) } }
         : {}),
       ...(run?.deliveryState?.state === 'awaiting-review' ? { awaitingReview: true as const } : {}),
+      // T11: Push now is offered only where Astera pushes the plan branch (not `merge`/`manual`, not a branch the owner pushes themselves)
+      ...(['pr', 'push'].includes(job.delivery ?? ix.projectOf(job)?.delivery ?? 'pr') && run?.branchPush?.ownerPushes !== true ? { pushesBranch: true as const } : {}),
       // T3: the plan page's "Retry delivery" (PlanHeader) reads it
       ...(run?.deliveryState &&
       (['delivering', 'retrying', 'failed', 'needs-owner'].includes(run.deliveryState.state) || run.deliveryState.waitingFor !== undefined)
@@ -569,6 +582,8 @@ export function snapshotFor(
         ? { plannerSessionId: job.plannerSessionIds[job.plannerSessionIds.length - 1] }
         : {}),
       ...(job.replanning ? { replanWave: job.replanning.wave } : {}),
+      // T13: the consoles a running plan has open and why each stays (the view has no record of a person's typing: those read `none`)
+      ...(consolesOf(run, outcome) ?? {}),
       ...(ownedTasks.length > 0 ? { wave: waveProgressOf(ownedTasks) } : {}),
       ...(job.feedback && job.feedback.length > 0 ? { feedback: job.feedback } : {}),
       ...(job.autoStartedAt !== undefined ? { autoStartedAt: job.autoStartedAt } : {}),

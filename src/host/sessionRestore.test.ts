@@ -17,6 +17,7 @@ import {
   trackLiveSessions,
   workingTaskCount,
   conversationOnDisk,
+  endOrphanedReplans,
   handedOverWorkers,
   liftRestartHold,
   restartFeedLine,
@@ -909,6 +910,44 @@ describe('T19: a restart brings every agent back as it was', () => {
       await restoreSessions({ ...deps, saved: [row] })
       expect(created).toEqual([])
       expect(handled).toEqual([])
+    })
+
+    describe('endOrphanedReplans (after a crash, once the restore settled)', () => {
+      const run = async (state: OrchState, alive: (id: string) => boolean) => {
+        const handled: Array<Record<string, unknown>> = []
+        const ended = await endOrphanedReplans({
+          state,
+          alive,
+          handle: async (cmd, args) => (handled.push({ cmd, ...args }), { status: 200, body: {} }),
+          log: () => {}
+        })
+        return { ended, handled }
+      }
+
+      it('ends, in one pass, a replan whose planner this Host does not hold', async () => {
+        const { ended, handled } = await run(replanning(), () => false)
+        expect(ended).toBe(1)
+        expect(handled).toEqual([{ cmd: 'jobs-replan-done', id: 'job_done', gone: true }])
+      })
+
+      it('leaves a replan whose planner is alive here (a live chat replan, a resumed or adopted planner)', async () => {
+        expect((await run(replanning({ chat: true }), (id) => id === 'replan-1')).handled).toEqual([])
+        expect((await run(replanning(), (id) => id === 'replan-1')).handled).toEqual([])
+      })
+
+      it('leaves a replan whose planner has not been started yet to the start window of the loop', async () => {
+        const s = replanning()
+        const starting = { ...s, jobs: s.jobs.map((j) => (j.replanning ? { ...j, replanning: { ...j.replanning, sessionId: undefined } } : j)) }
+        expect((await run(starting, () => false)).handled).toEqual([])
+      })
+
+      it('does not end a replan a handover resumed: restoreSessions resumes it, so it is alive', async () => {
+        const { deps, created, handled } = restoreDeps({ state: replanning() })
+        await restoreSessions({ ...deps, saved: [row], handover: true })
+        expect(created).toHaveLength(1)
+        expect((await run(replanning(), (id) => created.some((c) => c.sessionId === id))).handled).toEqual([])
+        expect(handled).toEqual([])
+      })
     })
   })
 

@@ -35,6 +35,7 @@ import { pickInitialLang } from '../core/i18n/locale'
 import { shouldForceWaylandOzone } from './ozone'
 import { registerReviewIpc } from './reviewIpc'
 import { registerIpc, parseAllowedExternalUrl, type AppWindows, type OrchHandle } from './ipc'
+import { installUpdate } from './installUpdate'
 import { registerExtensionsIpc } from './extensionsIpc'
 import { registerPromptsIpc } from './promptsIpc'
 import { registerAutoLimitsIpc } from './autoLimitsIpc'
@@ -1531,7 +1532,9 @@ app.whenReady().then(async () => {
     profileDir: app.getPath('userData'),
     agentLimits: () => core!.appSettings.getAgentLimits(),
     getMinWorkers: () => core!.appSettings.getMinWorkersUnderPressure(),
-    setMinWorkers: (n) => core!.appSettings.setMinWorkersUnderPressure(n)
+    setMinWorkers: (n) => core!.appSettings.setMinWorkersUnderPressure(n),
+    getAutoLower: () => core!.appSettings.getAutoLowerLimits(),
+    setAutoLower: (mode) => core!.appSettings.setAutoLowerLimits(mode)
   })
 
   // Change map and PR merge for a worktree outside a plan (reviewIpc.ts).
@@ -1822,7 +1825,7 @@ app.whenReady().then(async () => {
               /* already gone, or never there */
             }
           }
-          autoUpdater.quitAndInstall()
+          installUpdate(autoUpdater)
           return { mode: 'auto' }
         })
 

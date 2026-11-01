@@ -120,6 +120,10 @@
 .plan-task-evidence { font-family: var(--mono); }
 .plan-task-prompt-bar { display: flex; align-items: center; gap: var(--sp-1); }
 .plan-task-prompt { margin: 0; max-height: 320px; overflow: auto; padding: var(--sp-2); border: 1px solid var(--line-soft); border-radius: var(--radius-sm); background: var(--panel-bg); font-family: var(--mono); font-size: var(--fs-11); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); }
+.plan-reviews { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; font-size: var(--fs-11); color: var(--text-dim); }
+.plan-review-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.plan-review-model { color: var(--text); }
+.plan-review-issues { margin: 4px 0 0; padding-left: 18px; }
 .plan-task-attempts { margin: 0; padding-left: 18px; font-size: var(--fs-11); color: var(--text-dim); }
 .plan-task-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
 .plan-task-request { display: flex; flex-direction: column; gap: var(--sp-1); max-width: 640px; }

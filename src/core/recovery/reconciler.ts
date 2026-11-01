@@ -52,6 +52,9 @@ export interface ReconcilerDeps {
   /** T2: the app-wide worker cap in force (`readMaxConcurrentWorkers`, lowered after a crash), read synchronously; a
    *  restart past it is left for later like one with no room in its Run. Absent: only the Run's own limit binds. */
   workerCap?(): number
+  /** T34: the agent CLI's own conversation id a dead worker session had (`agentSessionOf`), asked when neither the
+   *  Dispatch nor its checkpoint names one, so a lost worker resumes in that conversation. Absent or null: none known. */
+  nativeIdOf?(sessionId: string): Promise<string | null>
 }
 
 /**
@@ -89,16 +92,28 @@ const turn = (): Promise<void> => new Promise((resolve) => setImmediate(resolve)
 /** Recovery is a second door into starting workers, so it obeys the scheduler's concurrency rule too
  *  (the `room` calculation in core/orchestration/schedule.ts's slotsToFill). Several lost Tasks in one
  *  Run would otherwise all restart at once, and in a Run whose Tasks dispatch into the Run root they
- *  would land in the same folder. A candidate with no room is left for the next trigger. */
-const hasRoom = (state: OrchState, runId: string, workerCap?: number): boolean => {
+ *  would land in the same folder. A candidate with no room is left for the next trigger.
+ *
+ *  T34: recoveries run side by side, so one already under way (`underWay`, lost Dispatch id to its Run) holds its slot
+ *  until its new Dispatch is open in the state, where it is counted like any other; `self` is the one asking. */
+const hasRoom = (
+  state: OrchState,
+  runId: string,
+  workerCap?: number,
+  underWay: ReadonlyMap<string, string> = new Map(),
+  self?: string
+): boolean => {
   const run = state.runs.find((r) => r.id === runId)
   if (!run) return false
+  const held = [...underWay].filter(
+    ([id]) => id !== self && !state.dispatches.some((d) => d.retryOf === id && !d.outcome && !d.endedAt)
+  )
   // T2: and the app-wide half of that calculation (`globalRoom`), when the caller holds the cap.
-  if (workerCap !== undefined && workersAgainstCap(state) >= workerCapOf(workerCap)) return false
+  if (workerCap !== undefined && workersAgainstCap(state) + held.length >= workerCapOf(workerCap)) return false
   const openHere = state.dispatches.filter(
     (d) => !d.outcome && !d.endedAt && state.tasks.find((t) => t.id === d.taskId)?.runId === runId
   ).length
-  return openHere < (jobOf(state, run)?.concurrency ?? DEFAULT_CONCURRENCY)
+  return openHere + held.filter(([, r]) => r === runId).length < (jobOf(state, run)?.concurrency ?? DEFAULT_CONCURRENCY)
 }
 
 export class RecoveryReconciler {
@@ -115,9 +130,9 @@ export class RecoveryReconciler {
     }
   }
 
-  /** A dispatch whose recovery is under way: a sweep and a live reconcileOne can overlap now that the
-   *  journal reads wait on the event loop (stage 3 T1 review), and only the first acts. */
-  private readonly inFlight = new Set<string>()
+  /** A dispatch whose recovery is under way, to its Run: a sweep and a live reconcileOne can overlap now that the
+   *  journal reads wait on the event loop (stage 3 T1 review), and only the first acts. It holds its slot (hasRoom). */
+  private readonly inFlight = new Map<string, string>()
 
   private clock(): number {
     return this.deps.clock ? this.deps.clock() : performance.now()
@@ -189,7 +204,7 @@ export class RecoveryReconciler {
 
   private async recoverOne(seed: LostAttemptSeed, pass?: PassBudget): Promise<boolean> {
     if (this.inFlight.has(seed.dispatch.id)) return false
-    this.inFlight.add(seed.dispatch.id)
+    this.inFlight.set(seed.dispatch.id, seed.runId)
     try {
       return await this.recoverOneNow(seed, pass)
     } finally {
@@ -250,7 +265,11 @@ export class RecoveryReconciler {
       provider: dispatch.provider,
       accountId: dispatch.accountId,
       cwd: dispatch.cwd,
-      nativeSessionId: dispatch.nativeSessionId ?? checkpoint?.nativeSessionId ?? undefined,
+      nativeSessionId:
+        dispatch.nativeSessionId ??
+        checkpoint?.nativeSessionId ??
+        (await this.deps.nativeIdOf?.(dispatch.sessionId).catch(() => null)) ??
+        undefined,
       promptConfirmed,
       baseHead,
       hasValidateConfig: checkConfigIdsOf(task).length > 0,
@@ -276,7 +295,7 @@ export class RecoveryReconciler {
       this.deps.log(`recovery: dispatch ${dispatch.id} is no longer lost, leaving it alone`)
       return false
     }
-    if (!hasRoom(after, runId, this.deps.workerCap?.())) {
+    if (!hasRoom(after, runId, this.deps.workerCap?.(), this.inFlight, dispatch.id)) {
       this.deps.log(`recovery: run ${runId} (or the app-wide worker cap) filled up while dispatch ${dispatch.id}'s evidence was read, left for the next trigger`)
       this.leftForLater(seed)
       return false
@@ -376,9 +395,10 @@ export class RecoveryReconciler {
     return true
   }
 
-  /** Sweeps every candidate once, one at a time — two recoveries spawning at once would fight over
-   *  the concurrency limit. Returns how many attempts it acted on, not how many it fixed: a failure
-   *  still counts, and is isolated so it cannot stop the rest of the sweep.
+  /** Sweeps every candidate once, starting every one that has room side by side (T34: after a crash, every lost
+   *  worker that fits under the cap comes back at once, not one after another). Each one under way holds its slot
+   *  (hasRoom's `underWay`), so they never pass the concurrency limit between them. Returns how many attempts it
+   *  acted on, not how many it fixed: a failure still counts, and is isolated so it cannot stop the rest of the sweep.
    *
    *  The initial list is only the sweep's agenda, not a fact still true by the time it is reached —
    *  each recovery awaits an executor that takes real time and changes the state, so a person can
@@ -391,12 +411,12 @@ export class RecoveryReconciler {
    *  returns before anything is journaled or executed.
    *
    *  **It never holds the main thread for a whole pass** (stage 4 T6). The event loop turns between two
-   *  dispatches, so the window paints between the busy tries of one and those of the next, and the pass
+   *  starts, so the window paints between the busy tries of one and those of the next, and the pass
    *  spends at most RECOVERY_PASS_BUDGET_MS retrying a busy journal: a retry stops there, and that
    *  dispatch and the ones after it are left for a later pass, neither decided nor journaled. */
   async reconcileAll(): Promise<number> {
-    let count = 0
     const pass: PassBudget = { busyMs: 0 }
+    const started: Promise<boolean>[] = []
     let first = true
     for (const seed of candidates(this.deps.getState())) {
       if (!first) await turn()
@@ -405,17 +425,19 @@ export class RecoveryReconciler {
       if (!fresh) continue
       // The concurrency limit binds recovery too (hasRoom above) — a candidate with no room is left
       // for the next trigger, not counted as acted on.
-      if (!hasRoom(this.deps.getState(), fresh.runId, this.deps.workerCap?.())) {
+      if (!hasRoom(this.deps.getState(), fresh.runId, this.deps.workerCap?.(), this.inFlight, fresh.dispatch.id)) {
         this.leftForLater(fresh)
         continue
       }
-      try {
-        if (await this.recoverOne(fresh, pass)) count++
-      } catch (err) {
-        this.deps.log(`recovery: reconcile failed for dispatch ${fresh.dispatch.id}: ${String(err)}`)
-      }
+      // Not awaited here: recoverOne takes its slot before its first await, and the next candidate starts meanwhile.
+      started.push(
+        this.recoverOne(fresh, pass).catch((err) => {
+          this.deps.log(`recovery: reconcile failed for dispatch ${fresh.dispatch.id}: ${String(err)}`)
+          return false
+        })
+      )
     }
-    return count
+    return (await Promise.all(started)).filter(Boolean).length
   }
 
   /** The same path for one Dispatch, used when a worker is found lost outside a full sweep (a
@@ -426,7 +448,7 @@ export class RecoveryReconciler {
     if (!seed) return
     // Same concurrency gate as reconcileAll — a single lost worker found live is still a second
     // door into starting one, and the Run it belongs to may already be at its limit.
-    if (!hasRoom(this.deps.getState(), seed.runId, this.deps.workerCap?.())) {
+    if (!hasRoom(this.deps.getState(), seed.runId, this.deps.workerCap?.(), this.inFlight, dispatchId)) {
       this.leftForLater(seed)
       return
     }

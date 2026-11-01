@@ -5,10 +5,12 @@ import { makeRepo, gitSync, tempDir, addOrigin } from '../../worktrees/testRepo'
 import { WorktreeRegistry } from '../../worktrees/registry'
 import { git, GIT_WRITE_TIMEOUT_MS } from '../../worktrees/git'
 import {
+  forkInTurns,
   forkWorktree,
   integrateWorktrees,
   reapWorktree,
   refreshOnto,
+  deliverByPush,
   worktreeDeps,
   type IntegrateContext,
   type ReapContext
@@ -58,6 +60,7 @@ describe('forkWorktree', () => {
     const wt = await forkWorktree({ repoPath: repo, name: 'a' }, { registry, log: () => {} })
     await expect(fs.stat(path.join(wt, 'only-on-feature.txt'))).resolves.toBeTruthy()
     expect(registry.list().map((w) => w.path)).toEqual([wt])
+    expect(gitSync(wt, ['status', '--porcelain'])).toBe('') // the split checkout leaves a clean tree
   })
   it('runs the project setup command in the new worktree, and not when it is off', async () => {
     await fs.writeFile(path.join(repo, 'package-lock.json'), '{}'); gitSync(repo, ['add', '.']); gitSync(repo, ['commit', '-m', 'lock'])
@@ -164,6 +167,37 @@ describe('forkWorktree', () => {
   })
 })
 
+describe('forkInTurns — only the admin step waits its turn (T31)', () => {
+  it('6 forks of one repository with a 0.5 s admin step and a 40 s checkout all finish within 60 s, admin steps never overlapping', async () => {
+    vi.useFakeTimers()
+    try {
+      let admins = 0, adminPeak = 0
+      const finished: number[] = []
+      const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
+      const fork = (n: number): Promise<string> =>
+        forkInTurns('/big-repo', async () => {
+          adminPeak = Math.max(adminPeak, ++admins)
+          await wait(500) // git worktree add --no-checkout
+          admins--
+          return async () => {
+            await wait(40_000) // git checkout -f HEAD
+            finished.push(Date.now())
+            return `wt-${n}`
+          }
+        })
+      const start = Date.now()
+      const all = Promise.all([0, 1, 2, 3, 4, 5].map(fork))
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(finished).toHaveLength(6)
+      expect(Math.max(...finished) - start).toBeLessThanOrEqual(60_000)
+      expect(adminPeak).toBe(1)
+      await expect(all).resolves.toEqual(['wt-0', 'wt-1', 'wt-2', 'wt-3', 'wt-4', 'wt-5'])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
 describe('integrateWorktrees — the rules of the one automatic writer into a repository (§3.2)', () => {
   it('merges each worktree into the folder, announces each merge, and reaps by default', async () => {
     const a = await worked('a'); const b = await worked('b')
@@ -176,18 +210,25 @@ describe('integrateWorktrees — the rules of the one automatic writer into a re
   })
   // Owner spec 2026-10-18, part 2: a worker committed its node_modules link (a `node_modules/` rule does not match a
   // symlink), and the folder merged into has its own untracked one. git refuses that merge; it must go through.
-  // skipIf(win32): creating a symlink there needs the symlink privilege (EPERM without Developer Mode or admin)
-  it.skipIf(process.platform === 'win32')('an untracked node_modules symlink in the folder does not block the merge', async () => {
+  it('an untracked node_modules symlink in the folder does not block the merge', async () => {
     const target = await tempDir('astera-integrate-nm-')
+    await fs.writeFile(path.join(target, 'pkg.txt'), 'p') // git only refuses over a junction that holds something
     const a = await forkWorktree({ repoPath: repo, name: 'a' }, { registry, log: logTo() })
-    await fs.symlink(target, path.join(a, 'node_modules'))
+    // The link is committed as a plumbing entry (mode 120000): a real symlink needs Developer Mode on Windows, and git
+    // does not track a junction at all.
+    const blob = path.join(target, 'link-blob'); await fs.writeFile(blob, target)
+    gitSync(a, ['update-index', '--add', '--cacheinfo', `120000,${gitSync(a, ['hash-object', '-w', blob])},node_modules`])
     await fs.writeFile(path.join(a, 'a.txt'), 'a')
-    gitSync(a, ['add', 'a.txt', 'node_modules']); gitSync(a, ['commit', '-m', 'a with its link'])
-    await fs.symlink(target, path.join(repo, 'node_modules'))
+    gitSync(a, ['add', 'a.txt']); gitSync(a, ['commit', '-m', 'a with its link'])
+    await fs.symlink(target, path.join(repo, 'node_modules'), 'junction') // 'junction' is ignored elsewhere
+    // Guard: git must refuse this merge itself, or the test would pass without reaching setAsideUntracked.
+    expect((await git(['merge', '--no-commit', '--no-ff', 'a'], { cwd: repo })).ok).toBe(false)
     const r = await integrateWorktrees(repo, [a], {}, ctx())
     expect(r.kind).toBe('merged')
     await expect(fs.stat(path.join(repo, 'a.txt'))).resolves.toBeTruthy()
-    expect((await fs.lstat(path.join(repo, 'node_modules'))).isSymbolicLink()).toBe(true)
+    // Git for Windows (core.symlinks=false) checks the link out as a plain file; the junction's folder is left alone.
+    if (process.platform !== 'win32') expect((await fs.lstat(path.join(repo, 'node_modules'))).isSymbolicLink()).toBe(true)
+    await expect(fs.stat(path.join(target, 'pkg.txt'))).resolves.toBeTruthy()
     expect((await fs.readdir(repo)).filter((n) => n.includes('astera-aside'))).toEqual([])
   })
   it('an untracked file git does not ignore still stops the merge, and stays where it was', async () => {
@@ -197,17 +238,52 @@ describe('integrateWorktrees — the rules of the one automatic writer into a re
     expect(r.kind).toBe('human')
     expect(await fs.readFile(path.join(repo, 'mine.txt'), 'utf8')).toBe("the owner's")
   })
-  // W6-H: a delivery's merges carry its message (`Fixes #n`), also where git would have fast-forwarded
-  it('makes a merge commit with the message a delivery gives, never a fast-forward', async () => {
+  // W6-H: a delivery's merges carry its message (`Fixes #n`) in a merge commit
+  it('makes a merge commit with the message a delivery gives when the target moved on', async () => {
     const a = await worked('a')
+    await fs.writeFile(path.join(repo, 'main.txt'), 'main'); gitSync(repo, ['add', 'main.txt']); gitSync(repo, ['commit', '-m', 'main moved'])
     expect((await integrateWorktrees(repo, [a], { reap: false, message: 'Deliver plan: P\n\nFixes #7' }, ctx())).kind).toBe('merged')
     expect(gitSync(repo, ['log', '-1', '--format=%B']).trim()).toBe('Deliver plan: P\n\nFixes #7')
     expect(gitSync(repo, ['rev-list', '--parents', '-n', '1', 'HEAD']).trim().split(' ')).toHaveLength(3)
+  })
+  // T19: a target the branch already holds takes the branch by fast-forward
+  it('fast-forwards a delivery whose target is an ancestor of the branch: no merge commit', async () => {
+    const a = await worked('a')
+    expect((await integrateWorktrees(repo, [a], { reap: false, message: 'Deliver plan: P' }, ctx())).kind).toBe('merged')
+    expect(gitSync(repo, ['rev-parse', 'HEAD']).trim()).toBe(gitSync(a, ['rev-parse', 'HEAD']).trim())
+  })
+  // T19: only exit 1 with conflicted files is a conflict
+  it('a merge-tree probe that fails with no conflict output is not reported as "does not merge cleanly"', async () => {
+    const a = await worked('a')
+    const silent: typeof git = (args, opts) => (args[0] === 'merge-tree' ? Promise.resolve({ ok: false, stdout: '', stderr: '' }) : git(args, opts))
+    const r = await integrateWorktrees(repo, [a], { reap: false }, ctx({ git: silent }))
+    expect(r.kind).toBe('agent')
+    expect(r.kind !== 'merged' && r.reason).toContain('could not test')
+    expect(r.kind !== 'merged' && r.reason).not.toContain('does not merge cleanly')
   })
   it('does not reap when told not to (run-merge, run-delete --merge)', async () => {
     const a = await worked('a')
     expect((await integrateWorktrees(repo, [a], { reap: false }, ctx())).kind).toBe('merged')
     expect(reaped).toEqual([])
+  })
+  // The same dep merge asked again every pass (draft-PR fold, dep merge, reuse merge) ran git merge each time.
+  it('a worktree already merged is not merged again, however often it is asked, and is logged once', async () => {
+    const a = await worked('a')
+    const merges: string[][] = []
+    const spy: typeof git = (args, o) => {
+      if (args.includes('merge')) merges.push(args)
+      return git(args, o)
+    }
+    for (let i = 0; i < 5; i++) expect((await integrateWorktrees(repo, [a], { reap: false }, ctx({ git: spy }))).kind).toBe('merged')
+    expect(merges).toHaveLength(1)
+    expect(logs.filter((l) => l.includes('already in'))).toHaveLength(1)
+    expect(logs.filter((l) => l.startsWith('scheduler: merged'))).toHaveLength(1)
+  })
+  it('a worktree already merged is still reaped when clean', async () => {
+    const a = await worked('a')
+    await integrateWorktrees(repo, [a], { reap: false }, ctx())
+    await integrateWorktrees(repo, [a], {}, ctx())
+    expect(reaped).toEqual([a])
   })
   // Rule 1.
   it('never merges into a folder that is not a reachable repository', async () => {
@@ -627,6 +703,19 @@ describe('worktreeDeps', () => {
     expect(await d.removeWorktrees(['D:/gone', 'D:/ok', 'D:/stuck'])).toEqual({ failed: ['D:/stuck'], uncommitted: 0 })
     expect(tried).toEqual(['D:/ok', 'D:/stuck'])
   })
+  it('removeWorktrees after a push succeeds with a half removed folder (its .git link gone) among the rows', async () => {
+    const tried: string[] = []
+    const d = worktreeDeps({
+      integrate: async () => ({ kind: 'merged', uncommitted: 0 }),
+      reap: async (p) => { tried.push(p); return true },
+      log: logTo(),
+      presence: async (p) => (p.replace(/\\/g, '/') === 'D:/half/.git' ? 'missing' : 'present'),
+      git: cleanGit
+    })
+    expect(await d.removeWorktrees(['D:/half', 'D:/ok'])).toEqual({ failed: [], uncommitted: 0 })
+    expect(tried).toEqual(['D:/ok'])
+    expect(logs.join('\n')).toMatch(/skipping already removed worktree D:\/half/)
+  })
   // 폴더가 있는지는 비동기로 묻는다(presence.ts). 확인하지 못한 폴더는 없는 것이 아니다.
   it('mergeWorktrees does not drop a folder it could not reach: not merged, reported unchecked', async () => {
     const calls: unknown[] = []
@@ -736,6 +825,8 @@ describe('integrateWorktrees writes the attribution into its merge commits (W8-A
   it('a delivery merge carries the Wave 8 trailers and the repository gets the notes config', async () => {
     const a = await worked('a')
     note(a)
+    // a merge commit, not a fast-forward (T19)
+    await fs.writeFile(path.join(repo, 'main.txt'), 'main'); gitSync(repo, ['add', 'main.txt']); gitSync(repo, ['commit', '-m', 'main moved'])
     const r = await integrateWorktrees(repo, [a], { message: 'Deliver plan: P' }, ctx())
     expect(r.kind).toBe('merged')
     expect(gitSync(repo, ['log', '-1', '--format=%B'])).toBe('Deliver plan: P\n\nAstera-Job: job_1\nAstera-Task: tsk_1\nAI-Agent: claude/opus')
@@ -860,5 +951,76 @@ describe('refreshOnto: a running plan takes in another plan\'s delivery (T11)', 
     expect(r).toMatchObject({ kind: 'human', reason: expect.stringContaining('uncommitted') })
     await expect(fs.readFile(path.join(wt, 'b.txt'), 'utf8')).resolves.toBe('edited, not committed')
     await expect(fs.stat(path.join(wt, 'a.txt'))).rejects.toThrow()
+  })
+})
+
+describe('T19: a delivery re-reads both tips before it says "does not merge cleanly"', () => {
+  /** A local delivery into the repo's main over the real merge path (worktreeDeps over integrateWorktrees), git `g`. */
+  const deliver = (worktrees: string[], g: typeof git = git) => {
+    const c = ctx({ git: g })
+    const { mergeWorktrees } = worktreeDeps({ integrate: (into, paths, opts) => integrateWorktrees(into, paths, opts, c), reap: async () => true, log: logTo(), git: g })
+    return deliverByPush(
+      { cwd: repo, branch: 'main', worktrees, message: 'Deliver plan: P', local: true },
+      { git: g, mergeWorktrees, log: logTo(), validate: async () => ({ ok: true, ran: 0 }), install: async () => ({ ok: true }) }
+    )
+  }
+  const commitOnMain = async (file: string, body: string): Promise<void> => {
+    await fs.writeFile(path.join(repo, file), body)
+    gitSync(repo, ['add', file]); gitSync(repo, ['commit', '-m', `main: ${file}`])
+  }
+
+  it('the branch moves (main merged into it) after the probes conflicted: the delivery merges', async () => {
+    const wt = await worked('plan', 'same.txt', 'plan\n')
+    await commitOnMain('same.txt', 'main\n')
+    let conflicts = 0
+    // The second conflicting probe (the refresh's) is when someone merges main into the plan branch, resolving it
+    const moving: typeof git = async (args, opts) => {
+      const r = await git(args, opts)
+      if (args[0] === 'merge-tree' && !r.ok && ++conflicts === 2) {
+        await git(['merge', 'main'], { cwd: wt })
+        await fs.writeFile(path.join(wt, 'same.txt'), 'both\n')
+        gitSync(wt, ['add', 'same.txt']); gitSync(wt, ['commit', '--no-edit'])
+      }
+      return r
+    }
+    const r = await deliver([wt], moving)
+    expect(r).toMatchObject({ ok: true, branch: 'main' })
+    expect(conflicts).toBe(2)
+    await expect(fs.readFile(path.join(repo, 'same.txt'), 'utf8')).resolves.toBe('both\n')
+    expect(logs.some((m) => m.includes('moved to') && m.includes('merging once more'))).toBe(true)
+  })
+
+  it('main is an ancestor of the plan branch: the delivery fast-forwards, with no merge commit', async () => {
+    const wt = await worked('plan')
+    const r = await deliver([wt])
+    expect(r).toMatchObject({ ok: true })
+    expect(gitSync(repo, ['rev-parse', 'main']).trim()).toBe(gitSync(wt, ['rev-parse', 'HEAD']).trim())
+    expect(gitSync(repo, ['rev-list', '--merges', '-n', '1', 'HEAD']).trim()).toBe('')
+  })
+
+  it('a half-removed worktree folder (files, no .git) among the tips does not make the refresh fail', async () => {
+    const half = await worked('half')
+    await fs.rm(path.join(half, '.git'), { force: true })
+    const wt = await worked('plan')
+    await commitOnMain('other.txt', 'other')
+    // The first probe conflicts (another plan landed first), so the delivery refreshes its tips onto main
+    let first = true
+    const once: typeof git = (args, opts) => {
+      if (args[0] === 'merge-tree' && first) {
+        first = false
+        return Promise.resolve({ ok: false, exitCode: 1, stdout: 'tree\n100644 abc 1\tother.txt', stderr: '' })
+      }
+      return git(args, opts)
+    }
+    const r = await deliver([half, wt], once)
+    expect(r).toMatchObject({ ok: true })
+    await expect(fs.readFile(path.join(repo, 'plan.txt'), 'utf8')).resolves.toBe('plan')
+  })
+
+  it('a merge failure that stands reports the target tip it was judged on, for the retry to watch', async () => {
+    const wt = await worked('plan', 'same.txt', 'plan\n')
+    await commitOnMain('same.txt', 'main\n')
+    const r = await deliver([wt])
+    expect(r).toMatchObject({ ok: false, code: 'merge-failed', target: gitSync(repo, ['rev-parse', 'main']).trim() })
   })
 })

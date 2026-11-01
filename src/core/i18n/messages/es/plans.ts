@@ -125,6 +125,8 @@ export const plans: Partial<Record<keyof typeof ko, string>> = {
   'plan.summary.delivery.review': 'Espera tu revisión',
   'plan.summary.delivery.dismissed': 'Descartada · no entregada',
   'plan.summary.delivery.deliveredBy': 'Entregado por {plan}',
+  'plan.summary.delivery.landedOutside': 'Llegó fuera de Astera',
+  'plan.summary.delivery.closedOnGitHub': 'Cerrado en GitHub',
   'plan.summary.draft': 'borrador',
   'plan.summary.areas': 'Áreas',
   'plan.header.openPr': 'Abrir PR',

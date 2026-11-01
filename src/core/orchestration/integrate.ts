@@ -9,8 +9,9 @@
 // 두세 번 부르면 상태를 쓰는 모든 명령이 그만큼 느려진다(같은 이유로 그 루프는 슬롯이 없을 때 계정
 // 조회 앞에서 빠진다).
 import { isSamePath } from '../files/tree'
-import { jobOf, type OrchState } from './state'
+import { hasOpenDependent, jobOf, type OrchState } from './state'
 import type { Dispatch, Job, JobRun, Task } from './types'
+import { DELIVERY_FIX_MARK } from './delivery'
 
 /** 의존 하나가 남긴 워크트리 — 그 의존 Task 의 id 와 그것이 돌았던 폴더 */
 interface WorktreeDep {
@@ -208,8 +209,23 @@ export function worktreeDepsOf(s: OrchState, taskId: string): string[] {
  *  통합 Task 를 만들지 않는다 — 그 대가를 받는 이유는 반대 방향의 실패가 훨씬 나쁘기 때문이다:
  *  표식이 없으면 저장 한 번마다 Task 가 하나씩 늘어난다. */
 export function integrationTaskFor(s: OrchState, taskId: string): Task | undefined {
-  return s.tasks.find((t) => t.parentId === taskId)
+  // Newest first, and never a plan-wide one hung off the same anchor (isPlanWideIntegration): that one's completion
+  // says nothing about this Task's own branch, and finding it would hide the real merge (wavesToMerge, startMergeWorker)
+  for (let i = s.tasks.length - 1; i >= 0; i--) {
+    const t = s.tasks[i]
+    if (t.parentId === taskId && !isPlanWideIntegration(t)) return t
+  }
+  return undefined
 }
+
+/** What the reason of every integration Task for a commit from outside the plan says (a refresh onto another plan's
+ *  delivery, origin moving on, exec/originSync.ts): it is in its spec, through buildIntegrationSpec's reason. */
+export const PLAN_CONFLICT_MARK = "conflicts with this plan's branch"
+
+/** An integration Task hung off a Task only as the plan's anchor (dispatchLoop anchorOf): a refresh or origin conflict
+ *  (PLAN_CONFLICT_MARK) or a delivery fix (DELIVERY_FIX_MARK), not the merge of that Task's own branch. */
+export const isPlanWideIntegration = (t: Task): boolean =>
+  t.parentId !== undefined && (t.spec.includes(PLAN_CONFLICT_MARK) || t.spec.includes(DELIVERY_FIX_MARK))
 
 /** 앱이 만든 통합 Task 인가. 통합 Task 자신은 통합 단계를 지나지 않는다.
  *
@@ -240,18 +256,21 @@ export function isIntegrationTask(t: Task): boolean {
  *
  *  Task 를 찾지 못한 Dispatch 는 세지 않는다 — 어느 Run 것인지 말할 수 없는 것을 어느 Run 의
  *  것으로도 세면 안 된다. */
-export function runsWorkingIn(s: OrchState, cwd: string): Set<string> {
+export function runsWorkingIn(s: OrchState, cwd: string, working?: (d: Dispatch) => boolean): Set<string> {
   const runIds = new Set<string>()
   // The first Task under each id, as a search would find it, built once rather than searched per Dispatch (M1)
-  let runOfTask: Map<string, string | undefined> | null = null
+  let taskOf: Map<string, Task> | null = null
   for (const d of s.dispatches) {
-    if (d.outcome || d.endedAt || !isSamePath(d.cwd, cwd)) continue
-    if (runOfTask === null) {
-      runOfTask = new Map()
-      for (const t of s.tasks) if (!runOfTask.has(t.id)) runOfTask.set(t.id, t.runId)
+    // T8: a reviewer does not write, so it never holds the folder
+    if (d.outcome || d.endedAt || d.review || !isSamePath(d.cwd, cwd)) continue
+    if (taskOf === null) {
+      taskOf = new Map()
+      for (const t of s.tasks) if (!taskOf.has(t.id)) taskOf.set(t.id, t)
     }
-    const runId = runOfTask.get(d.taskId)
-    if (runId !== undefined) runIds.add(runId)
+    const t = taskOf.get(d.taskId)
+    // T8: a worker whose Task is finished, or one the caller knows is not working (session gone, idle for long), neither
+    if (t?.runId === undefined || t.status === 'completed' || t.status === 'failed' || (working && !working(d))) continue
+    runIds.add(t.runId)
   }
   return runIds
 }
@@ -267,10 +286,10 @@ export function runsWorkingIn(s: OrchState, cwd: string): Set<string> {
  *  **이름이 `workingInProjectFolder` 였다.** 묻는 자리가 프로젝트 폴더에서 Run 뿌리로 옮겨갔고,
  *  Run 이 워크트리를 갖게 된 뒤 프로젝트 폴더를 묻는 물음은 언제나 false 다 — 이름을 그대로 두면
  *  다음에 읽는 사람이 항상 false 인 판정으로 읽는다. */
-export function workingInRunRoot(s: OrchState, runId: string): boolean {
+export function workingInRunRoot(s: OrchState, runId: string, working?: (d: Dispatch) => boolean): boolean {
   const run = s.runs.find((r) => r.id === runId)
   if (!run) return false
-  return runsWorkingIn(s, runRootOf(run, jobOf(s, run))).size > 0
+  return runsWorkingIn(s, runRootOf(run, jobOf(s, run)), working).size > 0
 }
 
 /** 통합 Task 의 spec 본문. **영어다** — 이것을 읽는 것은 사람이 아니라 에이전트이고, 같은 이유로
@@ -354,7 +373,8 @@ export const planMergedSubject = (taskId: string): string => `task ${taskId} mer
  *  Only a Run with its own worktree: merging into the project folder is a person's. A completed Task only from a folder
  *  still registered (`isRegistered`): a merged one is reaped, and one gone has nothing left to merge; a merging Task
  *  whatever its folder, so a folder gone ends in the owner's Gate rather than in a Task that never completes. Not one
- *  marked merged (`planMergedSubject`, `mergedIntoPlanAt`), and not one that already has its merge Task
+ *  marked merged (`planMergedSubject`, `mergedIntoPlanAt`), not a completed one no open Task depends on (T10, state.ts
+ *  hasOpenDependent: the delivery merges it), and not one that already has its merge Task
  *  (`integrationTaskFor`: its completion completes it, dispatchLoop mergeWaves). */
 export function wavesToMerge(
   s: OrchState,
@@ -370,6 +390,8 @@ export function wavesToMerge(
       if (integrationTaskFor(s, t.id)) continue
       const done = t.status === 'completed'
       if (done && (t.mergedIntoPlanAt !== undefined || merged.has(`${run.id}\u0000${planMergedSubject(t.id)}`))) continue
+      // T10: a completed one no open Task depends on stays in its worktree: the delivery merges it (deliveryWorktrees)
+      if (done && !hasOpenDependent(s, t)) continue
       const last = [...s.dispatches].reverse().find((d) => d.taskId === t.id && !d.review && (d.outcome || d.endedAt) && !isSamePath(d.cwd, runRoot))
       if (!last || (done && !isRegistered(last.cwd))) continue
       out.push({ runId: run.id, taskId: t.id, runRoot, worktree: last.cwd })

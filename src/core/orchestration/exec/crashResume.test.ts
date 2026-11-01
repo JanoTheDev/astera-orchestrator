@@ -10,6 +10,7 @@ import { readGitSummary } from './gitSummary'
 import { readGitFacts } from '../../recovery/git'
 import { decideRecovery } from '../../recovery/decide'
 import { executeRecovery } from '../../recovery/execute'
+import { candidates } from '../../recovery/candidates'
 import { stateFromLegacy } from '../legacyState'
 import type { ActivityDraft } from '../activity'
 import type { Dispatch, Task } from '../types'
@@ -139,6 +140,72 @@ describe('resumeAfterCrash (Host killed -9 mid-plan, fakes for the spawns)', () 
   })
 })
 
+describe('resumeAfterCrash: a worker the next Host adopted from the pty supervisor (T36)', () => {
+  it('neither recovery nor crash resume touches the adopted worker; the one whose pty is gone is resumed as before', async () => {
+    const file = path.join(dir, 'orchestration.json')
+    await fs.writeFile(
+      file,
+      JSON.stringify(
+        stateFromLegacy({
+          runs: [{ id: 'run_1', objective: 'o', cwd: dir, createdAt: NOW, autoDispatch: true, coordinatorAccountId: 'acc_1' }],
+          tasks: [task({ id: 'tsk_a' }), task({ id: 'tsk_g' })],
+          dispatches: [
+            dispatch({ id: 'dsp_a', taskId: 'tsk_a', sessionId: 'sess-a', cwd: wt, nativeSessionId: 'native-a' }),
+            dispatch({ id: 'dsp_g', taskId: 'tsk_g', sessionId: 'sess-g', cwd: wt, nativeSessionId: 'native-g' })
+          ]
+        })
+      )
+    )
+    const store = new OrchestrationStore(file)
+    const started: { worktree: string; resume?: { nativeSessionId?: string } }[] = []
+    const feed: ActivityDraft[] = []
+    const slept: number[] = []
+    const deps = {
+      getState: () => store.get(),
+      setState: (n: Parameters<typeof store.save>[0]) => store.save(n),
+      startWorker: async (a: (typeof started)[number]) => {
+        started.push(a)
+        return { sessionId: 'sess-new', cwd: a.worktree, specPath: 'spec.md' }
+      },
+      readGitSummary: (cwd: string) => readGitSummary(cwd),
+      lang: () => 'en' as const,
+      log: () => {}
+    }
+    const r = await resumeAfterCrash({
+      readFile: () => readStateFile(file),
+      adopted: new Set(['sess-a']),
+      // The adopted pty is in the registry before the load (host/ptyAdopt.ts), so the load counts it alive.
+      ready: async () => void (await store.load({ aliveSessionIds: new Set(['sess-a']) })),
+      state: () => store.get(),
+      // The Host's recovery over what the load left lost (the reconciler's own candidates).
+      settle: async () => {
+        for (const c of candidates(store.get())) {
+          const attempt = {
+            runId: 'run_1', taskId: c.taskId, dispatchId: c.dispatch.id, provider: 'claude' as const, accountId: 'acc_1',
+            cwd: wt, nativeSessionId: c.dispatch.nativeSessionId, promptConfirmed: true, baseHead: sh(wt, 'rev-parse', 'HEAD'),
+            hasValidateConfig: false, appDriven: true
+          }
+          const decision = decideRecovery({ attempt, git: await readGitFacts(wt), smartResume: true })
+          await executeRecovery({ attempt, decision, state: store.get(), now: NOW }, deps as never)
+        }
+      },
+      handle: async () => ({ status: 200, body: {} }),
+      activity: (d) => feed.push(d),
+      log: () => {},
+      sleep: async (ms) => void slept.push(ms)
+    })
+
+    // One second resume, for the worker whose pty is gone; none in the adopted one's place.
+    expect(started.map((x) => x.resume?.nativeSessionId)).toEqual(['native-g'])
+    expect(store.get().dispatches.find((x) => x.id === 'dsp_a')).toMatchObject({ sessionId: 'sess-a' })
+    expect(store.get().dispatches.find((x) => x.id === 'dsp_a')?.endedAt).toBeUndefined()
+    // Not waited for either.
+    expect(slept).toEqual([])
+    expect(r).toEqual({ workers: 1, coordinators: 0 })
+    expect(feed[0].payload).toMatchObject({ reason: 'Recovered after a crash: resumed 1 worker, 0 coordinators; 1 worker kept running' })
+  })
+})
+
 describe('resumeAfterCrash: the coordinator (T5)', () => {
   /** A Run whose coordinator died, nothing else in flight; `run-start` answers by `accept`. */
   async function coordinatorOnly(accept: (args: Record<string, unknown>) => boolean, nativeIdOf?: CrashResumeDeps['nativeIdOf']) {
@@ -242,4 +309,37 @@ it('goes on at once when recovery left the remaining lost workers waiting for a 
   expect(r).toEqual({ workers: 1, coordinators: 0 })
   expect(sleeps).toEqual([])
   expect(feed[0].payload.reason).toBe('Recovered after a crash: resumed 1 worker, 0 coordinators; 1 worker waits for a free slot')
+})
+
+// T34: a lost worker brought back by any door counts, so the line never says 0 while workers came back.
+it('counts a lost Task re-dispatched by a worker-start (no retryOf) as brought back', async () => {
+  const before = stateFromLegacy({
+    runs: [{ id: 'run_1', objective: 'o', cwd: dir, createdAt: NOW, autoDispatch: true }],
+    tasks: [task({ id: 'tsk_1' }), task({ id: 'tsk_2' }), task({ id: 'tsk_3' })],
+    dispatches: [dispatch({ id: 'dsp_1', taskId: 'tsk_1', sessionId: 's1' }), dispatch({ id: 'dsp_2', taskId: 'tsk_2', sessionId: 's2' }), dispatch({ id: 'dsp_3', taskId: 'tsk_3', sessionId: 's3' })]
+  })
+  const after = {
+    ...before,
+    dispatches: [
+      ...before.dispatches.map((d) => ({ ...d, endedAt: NOW, workerState: 'outcome_unknown' as const })),
+      // resumed by the recovery
+      dispatch({ id: 'dsp_1r', taskId: 'tsk_1', sessionId: 's1r', retryOf: 'dsp_1' }),
+      // started again by a worker-start, which sets no retryOf
+      dispatch({ id: 'dsp_2w', taskId: 'tsk_2', sessionId: 's2w' })
+    ],
+    gates: [{ id: 'gat_1', taskId: 'tsk_3', question: 'q', options: [], status: 'open' as const, createdAt: NOW }]
+  }
+  const feed: ActivityDraft[] = []
+  const r = await resumeAfterCrash({
+    readFile: () => before,
+    ready: async () => {},
+    state: () => after as never,
+    settle: async () => {},
+    handle: async () => ({ status: 200, body: {} }),
+    activity: (a) => feed.push(a),
+    log: () => {},
+    sleep: async () => {}
+  })
+  expect(r).toEqual({ workers: 2, coordinators: 0 })
+  expect(feed[0].payload.reason).toBe('Recovered after a crash: resumed 2 workers, 0 coordinators')
 })

@@ -36,6 +36,7 @@ import { WorktreeRegistry, defaultWorktreeRoot, isRegistryFile } from '../core/w
 import { git as realGit } from '../core/worktrees/git'
 import { removeWorktree } from '../core/worktrees/remove'
 import { cleanFinished, cleanRun, worktreeRows, type CleanResult } from '../core/worktrees/cleanupRun'
+import { sweepHalfRemoved } from '../core/worktrees/sweep'
 import type { WorktreesOps } from '../core/orchestration/worktreesCommand'
 import { listWithStatus } from '../core/worktrees/list'
 import { isPathWithin, isSamePath } from '../core/files/tree'
@@ -45,15 +46,19 @@ import { RepairNeeded } from '../core/settings/repairNeeded'
 import type { WorktreeInfo } from '../core/types'
 import type { PtyRegistry } from './registry'
 import type { ProcRegistry } from './procRegistry'
+import { hostProcessDeps, stopProcessesIn, type StopInDeps } from './workspace/processesIn'
+import type { ProcId } from './workerLeftovers'
 import type { HostServer } from './server'
 
+/** How long a removal waits for a running, unattached app to attach (the app retries its Host with a 10 s backoff cap). */
+const APP_REATTACH_WAIT_MS = 30_000
 export const WORKTREE_CALLS: ReadonlySet<string> = new Set(['worktree-list', 'worktree-add', 'worktree-remove', 'worktree-root'])
 
 export interface HostWorktreesDeps {
   profileDir: string
   homeDir: string
-  ptys: Pick<PtyRegistry, 'liveEntries' | 'kill'>
-  procs: Pick<ProcRegistry, 'liveEntries'>
+  ptys: Pick<PtyRegistry, 'liveEntries' | 'kill'> & Partial<Pick<PtyRegistry, 'list'>>
+  procs: Pick<ProcRegistry, 'liveEntries'> & Partial<Pick<ProcRegistry, 'list'>>
   getState(): OrchState
   broadcast(m: HostMessage): void
   log(m: string): void
@@ -63,9 +68,22 @@ export interface HostWorktreesDeps {
    *  plan risk 3, HOST_ACT_PATH_IN_USE). `lastAppPid` (leftovers Task 1, optional for the rigs): the pid the
    *  last app's hello gave, asked when app.pid names no live app. */
   app: Pick<HostServer, 'hasApp' | 'act'> & Partial<Pick<HostServer, 'lastAppPid'>>
+  /** T22: stops what still runs in a folder before it is removed. Test seam; the wiring leaves it out and gets
+   *  workspace/processesIn.ts over the real machine, with every live pty and line process spared. */
+  stopProcessesIn?: (dir: string) => Promise<unknown>
+  /** T22: what the leftover tracker recorded (pid and creation time) under a Dispatch's session (index.ts gives
+   *  `rememberedOf`). A folder's removal stops what was recorded under the Dispatches that worked in it: a `go run`
+   *  server names the folder nowhere on its command line, and Windows cannot read another process's cwd. */
+  remembered?(dispatchId: string): ProcId[]
+  /** Test seam over the real machine's process deps (list, stop); the wiring leaves it out. */
+  processes?: Partial<StopInDeps>
   /** Test seams; the wiring leaves them out. */
   closeTimeoutMs?: number
   pollMs?: number
+  /** How long a removal waits for a running app that is not attached to attach again (default
+   *  APP_REATTACH_WAIT_MS) before it refuses. The app reconnects to a new Host by itself (main/host/client.ts),
+   *  so a plan's delivery that lands in that window must not fail on it. */
+  appReattachMs?: number
   git?: typeof realGit
   /** The clock of the merge records (R24); an ISO string. */
   now?: () => string
@@ -198,6 +216,15 @@ export function createHostWorktrees(d: HostWorktreesDeps): HostWorktrees {
     }
   }
 
+  // T22: what still runs in a folder (a server a worker left) is stopped right before its removal.
+  const liveRoots = (): number[] => {
+    if (!d.ptys.list || !d.procs.list) throw new Error('the live ptys and line processes cannot be listed')
+    return [...d.ptys.list(), ...d.procs.list()].filter((e) => e.alive && e.pid > 0).map((e) => e.pid)
+  }
+  const remembered = (dir: string): ProcId[] =>
+    d.remembered ? d.getState().dispatches.filter((x) => x.cwd && isPathWithin(dir, x.cwd)).flatMap((x) => d.remembered!(x.id)) : []
+  const stopIn = d.stopProcessesIn ?? ((dir: string) => stopProcessesIn(dir, { ...hostProcessDeps({ liveRoots, remembered, log: d.log }), ...d.processes }))
+
   // ---- the reap (rule 11, R9) ----
   const sessionsIn = (p: string): Live[] => {
     try {
@@ -241,6 +268,21 @@ export function createHostWorktrees(d: HostWorktreesDeps): HostWorktrees {
     'Astera is running but not connected to this Host; remove the worktree from the app, or quit Astera and retry'
   const liveApp = (): number | null => liveAppPid(d.profileDir, d.app.lastAppPid?.() ?? null)
   const detachedApp = (): boolean => !d.app.hasApp() && liveApp() !== null
+  /** Whether the app is still detached after waiting up to `appReattachMs` for it to attach: a running app
+   *  that is not attached is mostly one reconnecting to this Host, and a removal that refused at once failed
+   *  the plan's delivery for a gap of seconds. A throw reads as not detached, as the callers always did. */
+  const stillDetached = async (): Promise<boolean> => {
+    const until = Date.now() + (d.appReattachMs ?? APP_REATTACH_WAIT_MS)
+    for (;;) {
+      try {
+        if (!detachedApp()) return false
+      } catch {
+        return false
+      }
+      if (Date.now() >= until) return true
+      await new Promise((r) => setTimeout(r, d.pollMs ?? 250))
+    }
+  }
 
   /** Whether an app runs something in the folder the Host cannot see, as a reason, or null.
    *  - Attached (the ruling on plan risk 3): the app is asked, and one that does not answer, or
@@ -283,8 +325,9 @@ export function createHostWorktrees(d: HostWorktreesDeps): HostWorktrees {
         dispatches: () => dispatches,
         isPathInUse,
         // Asked again at the removal itself: the first answer is up to the close timeout old by then,
-        // and the app may have attached or left in between.
-        beforeRemove: askApp,
+        // and the app may have attached or left in between. Then, with the folder going (a reap removes with force),
+        // what still runs in it is stopped.
+        beforeRemove: async (dir) => (await askApp(dir)) ?? (await stopIn(dir), null),
         log: d.log,
         closeTimeoutMs: d.closeTimeoutMs,
         pollMs: d.pollMs
@@ -399,12 +442,15 @@ export function createHostWorktrees(d: HostWorktreesDeps): HostWorktrees {
     state: () => d.getState(),
     isPathInUse,
     log: d.log,
+    stopProcessesIn: stopIn,
     ...(d.activity ? { activity: d.activity } : {})
   }
 
   return {
     load: async () => {
       await registry.load()
+      // T21: the folders an earlier removal left without their .git, tidied off the start's critical path
+      void sweepHalfRemoved({ registry, log: d.log })
     },
     fork,
     gitOp,
@@ -422,13 +468,8 @@ export function createHostWorktrees(d: HostWorktreesDeps): HostWorktrees {
       // AppUnreachable because that is what it is: the app that must be asked cannot be. Tagged
       // `refusedBeforeActing` (fix round 1, I2) for the same reason `fresh()`'s is: nothing has been
       // closed or removed yet, so a caller may keep no receipt over this one.
-      let detached = false
-      try {
-        detached = detachedApp()
-      } catch {
-        /* the per-folder check in `reap` refuses on its own */
-      }
-      if (detached) throw refusedBeforeActing(new AppUnreachable(DETACHED_APP))
+      // A throw reading it is left to the per-folder check in `reap`, which refuses on its own.
+      if (await stillDetached()) throw refusedBeforeActing(new AppUnreachable(DETACHED_APP))
       return deps.removeWorktrees(paths)
     },
     // No re-read, as `mergeWorktrees`: a merge never reads the registry. The loop's options are the
@@ -460,8 +501,8 @@ export function createHostWorktrees(d: HostWorktreesDeps): HostWorktrees {
       remove: async (id, force, originCopy) => {
         await fresh()
         // As removeWorktrees: with the app detached, what it runs is invisible to this Host, so nothing is removed
-        if (detachedApp()) throw new Error(DETACHED_APP)
-        return removeWorktree({ id, force, registry, isPathInUse, ...(originCopy ? { deleteRemoteBranch: true } : {}) })
+        if (await stillDetached()) throw new Error(DETACHED_APP)
+        return removeWorktree({ id, force, registry, isPathInUse, stopProcessesIn: stopIn, ...(originCopy ? { deleteRemoteBranch: true } : {}) })
       }
     },
     call: async (cmd, args, from) => {

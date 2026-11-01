@@ -6,14 +6,18 @@
 //
 // This module must stay importable by the Host: no electron, nothing from src/main.
 
+import { execFile } from 'node:child_process'
 import { promises as fs } from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
+import { killProcessTree } from '../../run/kill'
 import type { OrchServerDeps } from '../command'
 import { t, type Message, type MessageKey, type MessageParams } from '../../i18n'
 import { comparablePath, isSamePath } from '../../files/tree'
 import { createWorktree } from '../../worktrees/create'
+import { inCheckoutSlot } from '../../worktrees/checkoutLimit'
 import { workerBaseFailure } from '../../worktrees/base'
-import { git as realGit, gitDir, gitVersionAtLeast, listGitWorktrees, fetchOrigin, GIT_WRITE_TIMEOUT_MS } from '../../worktrees/git'
+import { git as realGit, type GitResult, gitDir, gitVersionAtLeast, listGitWorktrees, fetchOrigin, GIT_WRITE_TIMEOUT_MS } from '../../worktrees/git'
 import { backupRef, removeWorktree } from '../../worktrees/remove'
 import { LOCKFILES, SETUP_SLOT_WAIT_MS, installTurn, runWorktreeSetup, type InstallTurn } from '../../worktrees/setup'
 import { askUntilAnswered, defaultActionPresenceCheck, type CheckResult, type PresenceCheck } from '../../worktrees/presence'
@@ -76,7 +80,7 @@ async function forkWorktreeGit(
      *  every chain and pass, so it may wait, at most SETUP_SLOT_WAIT_MS. forkWorktreeGit itself never reads it. */
     heavy?: InstallTurn['heavy']
   }
-): Promise<string> {
+): Promise<() => Promise<string>> {
   // **폴더를 git 보다 먼저 묻는다** (예산 안의 세션 폴더 probe). 끊긴 공유 위의 폴더를 cwd 로
   // git 을 띄우면 Windows 는 그 폴더를 부르는 스레드 — Host 의 하나뿐인 스레드 — 에서 동기로
   // 들여다보고, 그동안 그 스레드가 쥔 모든 pty 가 멈춘다. 답이 없으면 "닿지 않는다"이지 "저장소가
@@ -111,25 +115,30 @@ async function forkWorktreeGit(
     name: a.name,
     baseRef: onlyOnOrigin ? `origin/${head.stdout}` : head.stdout,
     registry: ctx.registry,
-    ...(ctx.probe ? { repoProbe: ctx.probe } : {})
+    ...(ctx.probe ? { repoProbe: ctx.probe } : {}),
+    deferCheckout: true
   })
-  // 경고를 버리지 않는다 — worktree.create.fetchFailed 는 "base 를 가져올 수 없어 낡은 참조에서
-  // 만들었다" 는 뜻이고 워커는 그 위에서 일한다. 이 경로에는 사용자 화면이 없어 로그가 유일한
-  // 흔적이다. 키만 남긴다: 번역은 렌더러의 일이고 여기에는 언어가 없다.
-  for (const w of r.warnings) ctx.log(`worktree warning ${w.key} ${JSON.stringify(w.params ?? {})}`)
-  // The new branch moves, never the owner's checked-out one; the base recorded stays the local name (a PR's base)
+  // The new branch moves, never the owner's checked-out one; the base recorded stays the local name (a PR's base).
+  // The tree is not checked out yet, so the fast-forward is the branch ref alone: origin is a descendant (originAhead).
   if (ahead) {
-    const ff = await realGit(['merge', '--ff-only', `refs/remotes/origin/${head.stdout}`], { cwd: r.info.path, timeoutMs: GIT_WRITE_TIMEOUT_MS })
+    const ff = await realGit(['update-ref', `refs/heads/${r.branch}`, `refs/remotes/origin/${head.stdout}`], { cwd: a.repoPath, timeoutMs: GIT_WRITE_TIMEOUT_MS })
     ctx.log(
       ff.ok
-        ? `fork: ${r.info.path} starts at origin/${head.stdout}, which is ahead of the local ${head.stdout}`
-        : `fork: ${r.info.path} could not fast-forward to origin/${head.stdout}, so it starts at the local ${head.stdout}: ${ff.stderr}`
+        ? `fork: ${r.path} starts at origin/${head.stdout}, which is ahead of the local ${head.stdout}`
+        : `fork: ${r.path} could not fast-forward to origin/${head.stdout}, so it starts at the local ${head.stdout}: ${ff.stderr}`
     )
   }
-  return r.info.path
+  return async () => {
+    const done = await r.finish()
+    // 경고를 버리지 않는다 — worktree.create.fetchFailed 는 "base 를 가져올 수 없어 낡은 참조에서
+    // 만들었다" 는 뜻이고 워커는 그 위에서 일한다. 이 경로에는 사용자 화면이 없어 로그가 유일한
+    // 흔적이다. 키만 남긴다: 번역은 렌더러의 일이고 여기에는 언어가 없다.
+    for (const w of done.warnings) ctx.log(`worktree warning ${w.key} ${JSON.stringify(w.params ?? {})}`)
+    return done.info.path
+  }
 }
 
-/** The git half of each fork of one repository runs one at a time: two `worktree add`s or fetches in the same repo at
+/** The git admin step of each fork of one repository runs one at a time: two `worktree add`s or fetches in the same repo at
  *  once race on its lock files. Keyed by the repo's comparable path; a failed fork hands the turn on all the same. */
 const forkTurns = new Map<string, Promise<unknown>>()
 export function inForkTurn<T>(repoPath: string, run: () => Promise<T>): Promise<T> {
@@ -144,9 +153,19 @@ export function inForkTurn<T>(repoPath: string, run: () => Promise<T>): Promise<
   return mine
 }
 
-/** forkWorktreeGit (its doc above), then the setup command in the new worktree. Only the git half waits its turn in the
- *  repository: the setup (`bun install` and the like, minutes on a large repo) runs beside other forks' setups, so the
- *  scheduler can start several workers of one repository at once without each waiting for the last one's install.
+/** T31: the admin step of a fork (`admin`: the fetch and `worktree add --no-checkout`, which race on the repo's lock
+ *  files) waits its turn in the repository (inForkTurn); the checkout it hands back, the slow part (about 40 s for the
+ *  big monorepo on Windows) that touches only the new worktree's own index, runs after the turn is handed on, beside
+ *  other forks' checkouts up to CHECKOUT_LIMIT_PER_REPO. Before, the whole checkout sat inside the turn and workers of
+ *  one repository started one every 45 s. Exported for its scheduling test. */
+export async function forkInTurns(repoPath: string, admin: () => Promise<() => Promise<string>>): Promise<string> {
+  const checkout = await inForkTurn(repoPath, admin)
+  return inCheckoutSlot(repoPath, checkout)
+}
+
+/** forkWorktreeGit (its doc above) through forkInTurns, then the setup command in the new worktree. Only the git admin
+ *  step waits its turn in the repository: the checkout and the setup (`bun install` and the like, minutes on a large
+ *  repo) run beside other forks' own, so the scheduler can start several workers of one repository at once without each waiting for the last one's install.
  *  Inside a worker start that lends it an install turn (setup.ts `installTurn`, the Host's `worker-start`), the install
  *  first waits for one of the machine's heavy slots, at most SETUP_SLOT_WAIT_MS, and says when it queues, so that start
  *  stops holding the scheduler pass and the Host's command chain; the fork turn is already handed on by then. With no
@@ -155,7 +174,7 @@ export async function forkWorktree(
   a: Parameters<typeof forkWorktreeGit>[0],
   ctx: Parameters<typeof forkWorktreeGit>[1]
 ): Promise<string> {
-  const dir = await inForkTurn(a.repoPath, () => forkWorktreeGit(a, ctx))
+  const dir = await forkInTurns(a.repoPath, () => forkWorktreeGit(a, ctx))
   const turn = installTurn()
   // Fresh checkouts have no node_modules, which a pre-push hook that needs its tools rejects; never fails the fork
   await runWorktreeSetup({
@@ -239,9 +258,11 @@ export async function mergeDepsInto(
 }
 
 /** W8-A: the arguments after `merge` for merging `ref` (the ref last): `message` with the Wave 8 trailers of the work
- *  `ref` brings in (`trailersOfRef`), with `--no-ff` so a delivery always writes its commit; without a message, git's
- *  own merge message, plus the trailers when there are any. */
+ *  `ref` brings in (`trailersOfRef`), with `--no-ff` so a delivery writes its commit; without a message, git's
+ *  own merge message, plus the trailers when there are any. T19: a delivery (`message`) into a target that `ref` already
+ *  holds is a fast-forward instead, with no merge commit. */
 async function attributedMergeArgs(cwd: string, ref: string, message: string | undefined, run: typeof realGit): Promise<string[]> {
+  if (message !== undefined && (await run(['merge-base', '--is-ancestor', 'HEAD', ref], { cwd })).ok) return ['--ff-only', ref]
   const trailers = await trailersOfRef(cwd, ref, run)
   if (message !== undefined) return ['--no-ff', '-m', withTrailers(message, trailers), ref]
   if (trailers.length === 0) return ['--no-edit', ref]
@@ -260,7 +281,8 @@ interface Aside {
  *  ignores or a symlink named node_modules; null when there are none, or one is anything else (that one is the
  *  owner's, and the merge's refusal stands). */
 export async function setAsideUntracked(cwd: string, stderr: string, run: typeof realGit = realGit): Promise<Aside[] | null> {
-  const m = /untracked working tree files would be overwritten by merge:\n([\s\S]*?)\n(?:Please|Aborting)/.exec(stderr)
+  // Git for Windows (core.symlinks=false) sees a node_modules junction as a directory and words its refusal for directories.
+  const m = /(?:untracked working tree files would be overwritten by merge|Updating the following directories would lose untracked files in them):\n([\s\S]*?)\n(?:Please|Aborting)/.exec(stderr)
   if (!m) return null
   const files = m[1].split('\n').map((l) => l.trim()).filter((l) => l !== '')
   if (files.length === 0) return null
@@ -338,6 +360,17 @@ const human = (key: MessageKey, params: MessageParams): Integration => ({
   reason: t('en', key, params),
   message: { key, params }
 })
+
+/** Keys already logged by this process: a skipped merge is said once per (folder, branch) per Host run, not on every
+ *  pass. shortcut: keyed by ref, not tip (a branch that moved on and is skipped again stays silent), and cleared whole
+ *  at the cap; the line is a log line, nothing reads it. */
+const loggedOnce = new Set<string>()
+function logOnce(key: string, line: string, log: (m: string) => void): void {
+  if (loggedOnce.has(key)) return
+  if (loggedOnce.size >= 2000) loggedOnce.clear()
+  loggedOnce.add(key)
+  log(line)
+}
 
 /** 워크트리에서 끝난 일을 **합칠 폴더에 실제로 합친다.** 그 폴더는 부르는 쪽이 정한다 —
  *  스케줄러는 Run 뿌리를 주고 `run-delete --merge` 는 프로젝트 폴더를 준다. 무엇을 합쳐야
@@ -550,28 +583,25 @@ export async function integrateWorktrees(
     uncommitted += n
     // 같은 이름의 태그가 브랜치보다 먼저 잡히는 것을 막으려고 전체 ref 를 쓴다(remove.ts 와 같다)
     const ref = `refs/heads/${target.branch}`
+    // A tip already in HEAD has nothing to merge: no merge-tree, notes config or `git merge` (callers ask again every
+    // pass). It still reaps below (a clean, merged folder). The `git` call is cheap and read-only.
+    if ((await (ctx.git ?? realGit)(['merge-base', '--is-ancestor', ref, 'HEAD'], { cwd: mergeInto })).ok) {
+      logOnce(`${mergeInto}\0${ref}`, `merge: ${ref} is already in ${mergeInto} — not merged again`, ctx.log)
+      if (reap && dirty.ok && n === 0) await ctx.reap(target.path)
+      continue
+    }
     // merge-tree --write-tree writes tree objects and on a big repository can run long; the long write
     // ceiling keeps a slow probe from being killed and misreported as "could not test".
-    const probe = await (ctx.git ?? realGit)(['merge-tree', '--write-tree', 'HEAD', ref], {
-      cwd: mergeInto,
-      timeoutMs: GIT_WRITE_TIMEOUT_MS
-    })
-    if (!probe.ok)
+    const probe = await probeMerge(mergeInto, 'HEAD', ref, ctx.git ?? realGit)
+    if (probe.kind !== 'clean')
       return {
         kind: 'agent',
-        // **0 이 아닌 것에는 두 가지가 섞여 있다** — 충돌과 "명령이 아예 못 돌았다"(없는 ref,
-        // 커밋이 없는 HEAD …). git() 은 ok 하나만 주므로 종료 코드로는 가를 수 없고, 임시
-        // 저장소에서 실측한 결과 둘 다 exit 1 이었다(오류가 128 이라는 보장도 없다). 대신
-        // **stderr 가 갈라 준다**: 충돌일 때 merge-tree 는 결과를 stdout 에 쓰고 stderr 를
-        // 비우며(273바이트/0바이트), 없는 ref 에서는 stdout 이 비고 stderr 에
-        // "merge-tree: refs/heads/nope - not something we can merge" 가 온다.
-        //
-        // 가는 곳은 어느 쪽이든 에이전트다. 가르는 것은 **문장**이다: 실제로는 ref 가 잘못된
-        // 것인데 spec 의 첫 문장이 "충돌한다"이면 에이전트는 없는 충돌을 찾아 헤매다 결국
-        // `git merge` 를 돌려 진짜 오류를 다시 발견해야 한다. 앱이 아는 것을 그대로 넘긴다.
-        reason: probe.stderr
-          ? `the app could not test whether ${target.branch} merges into the branch this folder is on — git merge-tree failed: ${probe.stderr}`
-          : `git merge-tree says ${target.branch} does not merge cleanly into the branch this folder is on`,
+        // T19: only git's exit 1 with conflicted files is a conflict (probeMerge); anything else (a timeout, a missing
+        // object, a locked ref) is said as the failure it is, so nobody looks for a conflict that is not there.
+        reason:
+          probe.kind === 'error'
+            ? `the app could not test whether ${target.branch} merges into the branch this folder is on — git merge-tree failed: ${probe.why}`
+            : `git merge-tree says ${target.branch} does not merge cleanly into the branch this folder is on`,
         worktrees: targets
       }
     // `--no-edit` 는 편집기를 막는 것이다. 이 자리에는 사람이 없고, 편집기가 뜨면 그 git 프로세스는
@@ -594,7 +624,7 @@ export async function integrateWorktrees(
     const how = await attributedMergeArgs(mergeInto, ref, opts.message, ctx.git ?? realGit)
     const mergeOpId = await ctx.gitOp.begin('job-merge', mergeInto)
     try {
-      // W6-H: a delivery names its merges (`Fixes #n`), and a fast-forward would carry no message, so it gets a commit
+      // W6-H: a delivery names its merges (`Fixes #n`) in a merge commit; T19: unless the target is an ancestor (a fast-forward)
       const mergeOnce = (): ReturnType<typeof realGit> =>
         (ctx.git ?? realGit)([...ident, 'merge', ...how], { cwd: mergeInto, timeoutMs: GIT_WRITE_TIMEOUT_MS })
       let merged = await mergeOnce()
@@ -756,19 +786,6 @@ export function worktreeDeps(ctx: {
   // git 을 돌리지도 않는다 — 닿지 않는 폴더를 cwd 로 띄우는 것 자체가 같은 자리에서 멈출 수 있다.
   // The action lane (one call per root), and a refusal asked again: see askUntilAnswered.
   const presenceOf = (p: string): Promise<CheckResult> => askUntilAnswered(ctx.presence ?? defaultActionPresenceCheck, p)
-  const sort = async (paths: string[]): Promise<{ alive: string[]; gone: string[]; unknown: string[] }> => {
-    const folders = await Promise.all(paths.map((p) => presenceOf(p)))
-    // A folder that is there without its `.git` link is a worktree half removed (the link went, the files stayed):
-    // git cannot read it, so nothing in it can merge, and it counts as gone. Only a `.git` that answers missing says so.
-    const answers = await Promise.all(
-      folders.map(async (a, i) => (a === 'present' && (await presenceOf(path.join(paths[i]!, '.git'))) === 'missing' ? 'missing' : a))
-    )
-    return {
-      alive: paths.filter((_, i) => answers[i] === 'present'),
-      gone: paths.filter((_, i) => answers[i] === 'missing'),
-      unknown: paths.filter((_, i) => answers[i] !== 'present' && answers[i] !== 'missing')
-    }
-  }
   return {
     // `run-merge`(사람이 상세 창에서 누른다)와 `run-delete --merge` 가 부른다.
     // integrateWorktrees 의 'agent'(충돌 → 에이전트에게 넘김)도 여기서는 실패다 — 사람이 결과를
@@ -788,7 +805,7 @@ export function worktreeDeps(ctx: {
     // 그것만 거른다. 닿지 않는 폴더는 합치지 않고 notMerged 로 올린다: 그 폴더의 커밋되지 않은
     // 변경을 셀 수 없고, `run-delete --merge --remove-worktrees` 는 그 폴더를 남긴다.
     mergeWorktrees: async (runCwd, paths, opts) => {
-      const { alive, gone, unknown } = await sort(paths)
+      const { alive, gone, unknown } = await sortFolders(paths, ctx.presence)
       if (gone.length > 0)
         ctx.log(`merge: skipping ${gone.length} removed worktree(s): ${gone.join(', ')}`)
       if (unknown.length > 0)
@@ -825,7 +842,10 @@ export function worktreeDeps(ctx: {
       const unchecked: string[] = []
       let uncommitted = 0
       for (const p of paths) {
-        const at = await presenceOf(p)
+        const found = await presenceOf(p)
+        // A folder without its `.git` link is a worktree half removed: counted as removed, as mergeWorktrees does
+        // (the Host-start sweep, worktrees/sweep.ts, moves it aside once its work is known to be on a branch)
+        const at = found === 'present' && (await presenceOf(path.join(p, '.git'))) === 'missing' ? 'missing' : found
         // **이미 없는 폴더는 실패가 아니다.** Dispatch 의 cwd 는 워크트리를 지운 뒤에도 상태에 남으므로
         // 그런 경로가 여기까지 온다 — reapWorktree 는 그것을 "앱 워크트리가 아니다" 로 거절하고 false 를
         // 내는데, 그것을 failed 에 담으면 사용자에게 "이 폴더를 지우지 못했습니다" 로 보고된다.
@@ -864,6 +884,38 @@ export function worktreeDeps(ctx: {
         ...(unchecked.length > 0 ? { unchecked } : {})
       }
     }
+  }
+}
+
+/** T19: `merge-tree --write-tree ours theirs` in `cwd`. A conflict only when git exits 1 with conflicted files in its
+ *  output (one `<mode> <object> <stage> TAB <path>` line each, then the `CONFLICT` messages); any other failure (a timeout,
+ *  a missing object, a locked ref) is an `error` with what git said, never read as "does not merge cleanly". */
+async function probeMerge(
+  cwd: string,
+  ours: string,
+  theirs: string,
+  run: typeof realGit
+): Promise<{ kind: 'clean' } | { kind: 'conflict' } | { kind: 'error'; why: string }> {
+  // merge-tree writes tree objects and can run long on a big repository: the write ceiling keeps it from being killed
+  const r = await run(['merge-tree', '--write-tree', ours, theirs], { cwd, timeoutMs: GIT_WRITE_TIMEOUT_MS })
+  if (r.ok) return { kind: 'clean' }
+  if (r.exitCode === 1 && /^(\d{6} [0-9a-f]+ [123]\t|CONFLICT )/m.test(r.stdout)) return { kind: 'conflict' }
+  return { kind: 'error', why: gitWhy(r) || (r.timedOut ? 'timed out' : `no output (exit code ${r.exitCode ?? 'none'})`) }
+}
+
+/** Sorts worktree folders by whether they are there, asked through `presence` (askUntilAnswered). A folder that is there
+ *  without its `.git` link is a worktree half removed (the link went, the files stayed): git cannot read it, so nothing in
+ *  it can merge, and it counts as gone. Only a `.git` that answers missing says so; an unknown answer is `unknown`. */
+async function sortFolders(paths: string[], presence: PresenceCheck = defaultActionPresenceCheck): Promise<{ alive: string[]; gone: string[]; unknown: string[] }> {
+  const presenceOf = (p: string): Promise<CheckResult> => askUntilAnswered(presence, p)
+  const folders = await Promise.all(paths.map((p) => presenceOf(p)))
+  const answers = await Promise.all(
+    folders.map(async (a, i) => (a === 'present' && (await presenceOf(path.join(paths[i]!, '.git'))) === 'missing' ? 'missing' : a))
+  )
+  return {
+    alive: paths.filter((_, i) => answers[i] === 'present'),
+    gone: paths.filter((_, i) => answers[i] === 'missing'),
+    unknown: paths.filter((_, i) => answers[i] !== 'present' && answers[i] !== 'missing')
   }
 }
 
@@ -910,13 +962,11 @@ export async function refreshOnto(
     return { kind: 'human', reason: `${worktree} has uncommitted changes (or its git status cannot be read), so ${base} was not merged into it` }
   if (!(await (ctx.gitAtLeast ?? gitVersionAtLeast)(2, 38)))
     return { kind: 'conflict', reason: `this git is older than 2.38, so the app cannot test whether ${base} merges into ${worktree}` }
-  const probe = await run(['merge-tree', '--write-tree', 'HEAD', base], { cwd: worktree, timeoutMs: GIT_WRITE_TIMEOUT_MS })
-  if (!probe.ok)
+  const probe = await probeMerge(worktree, 'HEAD', base, run)
+  if (probe.kind !== 'clean')
     return {
       kind: 'conflict',
-      reason: probe.stderr
-        ? `git merge-tree could not test ${base} against ${worktree}: ${probe.stderr}`
-        : `${base} does not merge cleanly into ${worktree}`
+      reason: probe.kind === 'error' ? `git merge-tree could not test ${base} against ${worktree}: ${probe.why}` : `${base} does not merge cleanly into ${worktree}`
     }
   const ident = await mergeIdentityArgs(worktree, run)
   const merged = await run([...ident, 'merge', '--no-ff', '-m', message, base], { cwd: worktree, timeoutMs: GIT_WRITE_TIMEOUT_MS })
@@ -962,13 +1012,44 @@ async function fetchMissing(
   return said.join('; ')
 }
 
-/** The worktrees whose HEAD no other one in the list already holds: merging those brings everything. A worktree whose
- *  HEAD cannot be read is kept, so nothing is dropped on a guess. */
-async function tipsOf(worktrees: string[], run: typeof realGit): Promise<string[]> {
-  const heads = await Promise.all(worktrees.map(async (w) => {
+/** T19: the commit `ref` names in `cwd`, or null when git cannot say. */
+export async function tipOf(cwd: string, ref: string, run: typeof realGit = realGit): Promise<string | null> {
+  const r = await run(['rev-parse', ref], { cwd })
+  return r.ok ? r.stdout : null
+}
+
+/** Each worktree's HEAD, null where it cannot be read. */
+const headsOf = (worktrees: string[], run: typeof realGit): Promise<(string | null)[]> =>
+  Promise.all(worktrees.map(async (w) => {
     const r = await run(['rev-parse', 'HEAD'], { cwd: w })
     return r.ok ? r.stdout : null
   }))
+
+/** T19: before a delivery's merge failure is declared, both sides are read again: the target (`landed`, fetched once
+ *  unless `local`) and the HEADs of the worktrees merged last (`judged`, read before that merge). What moved, for the log
+ *  and the reason, or null when neither did (or the folder cannot go back to `base`), and the failure stands. */
+async function recheckTips(
+  a: { cwd: string; landed: string; local: boolean; branch: string; base: string; list: string[]; judged: (string | null)[]; backToBase(): Promise<string | null> },
+  run: typeof realGit
+): Promise<string | null> {
+  if ((await a.backToBase()) !== null) return null
+  // A failed fetch leaves origin's ref as it was: read as not moved
+  if (!a.local) await run(['fetch', 'origin', a.branch], { cwd: a.cwd, timeoutMs: GIT_WRITE_TIMEOUT_MS })
+  const target = await run(['rev-parse', a.landed], { cwd: a.cwd })
+  if (target.ok && target.stdout !== a.base) return `${a.landed} moved to ${target.stdout.slice(0, 7)}`
+  const heads = await headsOf(a.list, run)
+  const i = heads.findIndex((h, j) => h !== a.judged[j])
+  return i === -1 ? null : `${a.list[i]} moved to ${heads[i]?.slice(0, 7) ?? 'an unreadable HEAD'}`
+}
+
+/** The worktrees whose HEAD no other one in the list already holds: merging those brings everything. A worktree whose
+ *  HEAD cannot be read is kept, so nothing is dropped on a guess; T19: but one gone or half removed (sortFolders) is
+ *  dropped, as mergeWorktrees drops it: refreshing it can only fail. */
+async function tipsOf(all: string[], run: typeof realGit, presence?: PresenceCheck, onGone?: (gone: string[]) => void): Promise<string[]> {
+  const { gone } = await sortFolders(all, presence)
+  if (gone.length > 0) onGone?.(gone)
+  const worktrees = all.filter((w) => !gone.includes(w))
+  const heads = await headsOf(worktrees, run)
   const out: string[] = []
   for (let i = 0; i < worktrees.length; i++) {
     const h = heads[i]
@@ -1007,8 +1088,9 @@ export interface PushDelivery {
 export interface PushContext {
   /** The merge `run-merge` makes, with the delivery's message (worktreeDeps' `mergeWorktrees`). */
   mergeWorktrees: NonNullable<OrchServerDeps['mergeWorktrees']>
-  /** The project's validation, once, in the merged folder. `ran`: how many checks ran (0: none configured). */
-  validate(cwd: string): Promise<{ ok: true; ran: number } | { ok: false; reason: string }>
+  /** The project's validation, once, in the merged folder. `ran`: how many checks ran (0: none configured). T7: `busy`, a
+   *  check that waited too long for a heavy slot and did not run: retried, never a fix Task. */
+  validate(cwd: string): Promise<{ ok: true; ran: number } | { ok: false; reason: string; busy?: true }>
   /** Installs the dependencies in the merged folder, even when node_modules exists (the project's setup command). */
   install(cwd: string): Promise<{ ok: true } | { ok: false; reason: string }>
   log(m: string): void
@@ -1018,6 +1100,8 @@ export interface PushContext {
   gitAtLeast?: typeof gitVersionAtLeast
   /** T3: who is told Astera moves HEAD for the catch-up merge with origin (integrateWorktrees' own). Optional. */
   gitOp?: IntegrateContext['gitOp']
+  /** Test seam for the retry's `.git` link check and which worktrees are there (tipsOf); defaults to the action-lane check (worktrees/presence.ts). */
+  presence?: PresenceCheck
 }
 
 /** T3: why a push delivery stopped part-way, for the caller to tell a retry from an integration Task: `fetch-failed`
@@ -1036,9 +1120,89 @@ export function gitWhy(r: { stderr: string; stdout: string }, max = 2000): strin
   return [r.stdout.trim(), r.stderr.trim()].filter((x) => x !== '').map(tail).join('\n')
 }
 
+/** T15: how long the repository's pre-push hook may run before delivery (a monorepo typecheck takes minutes). */
+export const PRE_PUSH_GATE_TIMEOUT_MS = 15 * 60 * 1000
+
+/** T15: **the repository's own pre-push hook, run before Astera pushes**, in the merged folder `cwd`, as git would run it
+ *  for `git push origin <branch>`: git's arguments (`origin <url>`) and its stdin line, from a temp file. The hook is
+ *  found the way git finds it (`rev-parse --git-path`, which honours core.hooksPath); none, or no answer, is no gate
+ *  (git push still runs whatever hook there is). `git hook run --to-stdin` when this git has it, else the hook file
+ *  through git's own sh. Failed: the end of its output (200 lines), for the fix Task to quote. */
+export async function runPrePushGate(
+  cwd: string,
+  branch: string,
+  run: typeof realGit,
+  log: (m: string) => void
+): Promise<{ ok: true } | { ok: false; output: string }> {
+  const where = await run(['rev-parse', '--git-path', 'hooks/pre-push'], { cwd })
+  if (!where.ok || where.stdout === '') return { ok: true }
+  const hook = path.resolve(cwd, where.stdout)
+  if (!(await fs.stat(hook).then((s) => s.isFile(), () => false))) return { ok: true }
+  const url = await run(['remote', 'get-url', '--push', 'origin'], { cwd })
+  const local = await run(['rev-parse', 'HEAD'], { cwd })
+  const remote = await run(['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`], { cwd })
+  const ref = `refs/heads/${branch}`
+  const line = `${ref} ${local.stdout} ${ref} ${remote.ok ? remote.stdout : '0'.repeat(local.stdout.length || 40)}\n`
+  const args = ['origin', url.ok ? url.stdout : 'origin']
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'astera-pre-push-'))
+  const stdin = path.join(dir, 'stdin')
+  try {
+    await fs.writeFile(stdin, line)
+    log(`delivery: running the pre-push hook ${hook} in ${cwd} before pushing ${branch}`)
+    const help = await run(['hook', 'run', '-h'], { cwd })
+    const r = /--to-stdin/.test(help.stdout + help.stderr)
+      ? await run(['hook', 'run', '--ignore-missing', `--to-stdin=${stdin}`, 'pre-push', '--', ...args], { cwd, timeoutMs: PRE_PUSH_GATE_TIMEOUT_MS, trim: false })
+      : await runHookFile(hook, args, line, cwd, run)
+    if (r.ok) return { ok: true }
+    const out = [r.stdout, r.stderr].map((x) => x.trim()).filter((x) => x !== '').join('\n')
+    const why = r.timedOut ? `the hook ran past ${PRE_PUSH_GATE_TIMEOUT_MS / 60_000} minutes and was stopped` : `exit ${r.exitCode ?? '?'}`
+    return { ok: false, output: `${out.split('\n').slice(-200).join('\n')}\n(${why})` }
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true }).catch(() => {})
+  }
+}
+
+/** The hook file run directly, for a git with no `hook run --to-stdin`: through git's own sh on Windows (next to
+ *  `git --exec-path`, as git runs hooks there), `sh` elsewhere; hidden window, the gate's time limit, the tree killed. */
+async function runHookFile(hook: string, args: string[], stdin: string, cwd: string, run: typeof realGit): Promise<GitResult> {
+  let sh = 'sh'
+  if (process.platform === 'win32') {
+    const exec = await run(['--exec-path'], { cwd })
+    // <git>/mingw64/libexec/git-core -> <git>/bin/sh.exe
+    if (exec.ok) sh = path.resolve(exec.stdout, '..', '..', '..', 'bin', 'sh.exe')
+  }
+  return new Promise((resolve) => {
+    let timedOut = false
+    // sh executes the file, so its own shebang (sh, node, …) picks the interpreter as git's run would
+    const child = execFile(sh, ['-c', '"$0" "$@"', hook, ...args], { cwd, windowsHide: true, maxBuffer: 64 * 1024 * 1024 }, (err, stdout, stderr) => {
+      clearTimeout(deadline)
+      const code = (err as { code?: unknown } | null)?.code
+      resolve({
+        ok: !err,
+        stdout: String(stdout ?? ''),
+        stderr: String(stderr ?? '') || (err && typeof code !== 'number' ? String(err.message) : ''),
+        ...(typeof code === 'number' ? { exitCode: code } : {}),
+        ...(timedOut ? { timedOut: true as const } : {})
+      })
+    })
+    const deadline = setTimeout(() => ((timedOut = true), killProcessTree(child)), PRE_PUSH_GATE_TIMEOUT_MS)
+    child.stdin?.on('error', () => {}) // a hook that never reads its stdin closes the pipe early
+    child.stdin?.end(stdin)
+  })
+}
+
 export type PushResult =
   | { ok: true; branch: string; sha: string; merged: string[]; validated: number }
-  | { ok: false; reason: string; branch?: string; code?: PushStop; /** origin-conflict: origin's commit the plan clashes with */ conflictWith?: string }
+  | {
+      ok: false
+      reason: string
+      branch?: string
+      code?: PushStop
+      /** origin-conflict: origin's commit the plan clashes with */
+      conflictWith?: string
+      /** T19 merge-failed: the target's tip it was judged on (`origin/<branch>`, the local branch when `local`) */
+      target?: string
+    }
 
 /**
  * **Lands a finished plan on a branch and pushes it, with no person reviewing** (W6-H). Every guard stops the push and
@@ -1049,7 +1213,9 @@ export type PushResult =
  * 3. `fetch`, then `merge --ff-only` from origin; a local branch that cannot fast-forward is a stop;
  * 4. the Run's worktrees merge (`mergeWorktrees`). T11: when that fails (another plan landed on the branch first), the
  *    folder goes back to the commit recorded before it, the plan's worktrees are refreshed onto that commit
- *    (`refreshOnto`) and merged once more; T3: a second failure undoes the merges as 5 does;
+ *    (`refreshOnto`) and merged once more; T19: before a failure is declared, origin's branch is fetched and both tips
+ *    read again (`recheckTips`), and when either moved since the failed merge it is merged once more onto them; T3: a
+ *    last failure undoes the merges as 5 does;
  * 5. the validation runs on the merged folder, after an install when the merges changed package.json or a lockfile; a failure resets to the commit recorded before 4, which undoes only
  *    Astera's merges (the folder was clean at 2);
  * 6. `push origin <branch>`, **never forced**; a rejected push fetches, and when origin moved on merges it in and runs
@@ -1131,32 +1297,48 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
   // 4.
   const before = await run(['rev-parse', 'HEAD'], { cwd })
   if (!before.ok) return fail(`could not read HEAD in ${cwd}: ${why(before)}`)
-  const base = before.stdout
-  let merged = await ctx.mergeWorktrees(cwd, a.worktrees, { message: a.message })
+  let base = before.stdout
+  /** Back to `base` before merging again; null once there, else why not. Only Astera's own merges are above `base` (the
+   *  folder was clean at 2), as in `undo` below. */
+  const backToBase = async (): Promise<string | null> => {
+    const now = await run(['rev-parse', 'HEAD'], { cwd })
+    if (now.ok && now.stdout === base) return null
+    if ((await backupRef(cwd, 'HEAD', 'reset-hard-delivery-retry', ctx.log, run)) === null) return `could not write a backup ref of HEAD before going back to ${base}`
+    const reset = await run(['reset', '--hard', base], w)
+    const back = await run(['rev-parse', 'HEAD'], { cwd })
+    return reset.ok && back.ok && back.stdout === base ? null : `could not go back to ${base} to try again: ${why(reset)}`
+  }
+  // T19: the worktrees merged last and their HEADs then, which a failure is judged on
+  let list = a.worktrees
+  let judged = await headsOf(list, run)
+  let merged = await ctx.mergeWorktrees(cwd, list, { message: a.message })
   // T11: refresh, then deliver once more. The worktrees holding everything are refreshed onto `base` and only they merge
   if (!merged.ok) {
     ctx.log(`delivery: merging into ${branch} failed (${merged.reason}); refreshing the plan onto ${base} and trying once more`)
-    let stop: string | null = null
-    const now = await run(['rev-parse', 'HEAD'], { cwd })
-    if (!now.ok || now.stdout !== base) {
-      // Only Astera's own merges are above `base` (the folder was clean at 2), as in `undo` below
-      if ((await backupRef(cwd, 'HEAD', 'reset-hard-delivery-retry', ctx.log, run)) === null) stop = `could not write a backup ref of HEAD before going back to ${base}`
-      else {
-        const reset = await run(['reset', '--hard', base], w)
-        const back = await run(['rev-parse', 'HEAD'], { cwd })
-        if (!reset.ok || !back.ok || back.stdout !== base) stop = `could not go back to ${base} to try again: ${why(reset)}`
-      }
-    }
-    const tips = stop === null ? await tipsOf(a.worktrees, run) : []
+    let stop = await backToBase()
+    const tips = stop === null ? await tipsOf(a.worktrees, run, ctx.presence, (gone) => ctx.log(`delivery: skipping ${gone.length} removed worktree(s) on the retry: ${gone.join(', ')}`)) : []
     for (const wt of tips) {
       if (stop !== null) break
       const r = await refreshOnto(wt, base, `Refresh onto ${branch} before delivery`, { log: ctx.log, git: run, ...(ctx.gitAtLeast ? { gitAtLeast: ctx.gitAtLeast } : {}) })
       if (r.kind === 'conflict' || r.kind === 'human') stop = r.reason
     }
     if (stop === null) {
-      const again = await ctx.mergeWorktrees(cwd, tips, { message: a.message })
+      list = tips
+      judged = await headsOf(list, run)
+      const again = await ctx.mergeWorktrees(cwd, list, { message: a.message })
       merged = again.ok ? again : { ok: false, reason: `${merged.reason}; after refreshing onto ${base}: ${again.reason}` }
     } else merged = { ok: false, reason: `${merged.reason}; refreshing onto ${base} did not help: ${stop}` }
+  }
+  if (!merged.ok) {
+    const moved = await recheckTips({ cwd, landed, local: a.local === true, branch, base, list, judged, backToBase }, run)
+    if (moved !== null) {
+      ctx.log(`delivery: ${moved} since the merge failed; merging once more`)
+      // A target that moved is taken first; one that cannot fast-forward is merged into as it stands
+      const target = await run(['rev-parse', landed], { cwd })
+      if (target.ok && target.stdout !== base && (await run(['merge', '--ff-only', target.stdout], w)).ok) base = target.stdout
+      const again = await ctx.mergeWorktrees(cwd, list, { message: a.message })
+      merged = again.ok ? again : { ok: false, reason: `${merged.reason}; after ${moved}: ${again.reason}` }
+    }
   }
   /** Undoes Astera's merges: back to `base`, the clean commit recorded before them. T3: only while the folder is still on
    *  `branch` with no tracked change (the owner may have moved on meanwhile; their work is never reset). */
@@ -1180,12 +1362,16 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
     ctx.log(`delivery: undid Astera's merges in ${cwd}, back at ${base}`)
     return fail(`${reason} Astera's merges were undone; ${branch} is back at ${base}.`, code, conflictWith)
   }
-  if (!merged.ok) return undo(`merging the plan's worktrees failed: ${merged.reason}`, 'merge-failed')
+  if (!merged.ok) {
+    const out = await undo(`merging the plan's worktrees failed: ${merged.reason}`, 'merge-failed')
+    const target = await tipOf(cwd, landed, run) // T19: read after recheckTips' fetch: a later move makes it due again
+    return target !== null && !out.ok ? { ...out, target } : out
+  }
   const left = [...(merged.dirty ?? []), ...(merged.unchecked ?? []), ...(merged.notMerged ?? [])]
   if (left.length > 0) return undo(`these worktrees hold work that was not merged (uncommitted, or not reachable): ${left.join(', ')}.`)
 
   // 5. The merges may add a dependency: validating against the old node_modules fails on a module that is not there
-  const validateMerged = async (): Promise<{ ok: true; ran: number } | { ok: false; reason: string }> => {
+  const validateMerged = async (): Promise<{ ok: true; ran: number } | { ok: false; reason: string; busy?: true }> => {
     const changed = await run(['diff', '--name-only', base, 'HEAD'], { cwd })
     const manifests = new Set(['package.json', ...LOCKFILES.flatMap(([files]) => files)])
     // An unknown diff counts as changed: skipping the install here is how the merged validation ran without its dependencies
@@ -1201,11 +1387,16 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
     return ctx.validate(cwd)
   }
   const checked = await validateMerged()
-  if (!checked.ok) return undo(`the validation failed on the merged ${branch}: ${checked.reason}`, 'validation-failed')
+  if (!checked.ok) return undo(`the validation failed on the merged ${branch}: ${checked.reason}`, checked.busy ? undefined : 'validation-failed')
   if (a.local) {
     const sha = await run(['rev-parse', 'HEAD'], { cwd })
     return { ok: true, branch, sha: sha.ok ? sha.stdout : '', merged: merged.merged, validated: checked.ran }
   }
+
+  // T15: the repository's pre-push hook, before the push: a refusal stops here as a push the hook refused would, the
+  // merges undone, and a hands-off plan's fix Task quotes the output
+  const gate = await runPrePushGate(cwd, branch, run, ctx.log)
+  if (!gate.ok) return undo(`the pre-push hook failed on the merged ${branch}, so nothing was pushed:\n${gate.output}\n`, 'push-refused')
 
   // 6. Origin can move on while the validation runs (another plan's delivery, a teammate's push). Its commits are merged
   // in, the result validated again (a clean merge can still clash, e.g. two migrations taking one number), then pushed;
@@ -1242,7 +1433,11 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
         )
       }
       const rechecked = await validateMerged()
-      if (!rechecked.ok) return undo(`the validation failed after merging origin/${branch}, which moved on during the delivery: ${rechecked.reason}`, 'validation-failed')
+      if (!rechecked.ok)
+        return undo(
+          `the validation failed after merging origin/${branch}, which moved on during the delivery: ${rechecked.reason}`,
+          rechecked.busy ? undefined : 'validation-failed'
+        )
       validated = rechecked.ran
     }
     pushed = await run(['push', 'origin', branch], w)

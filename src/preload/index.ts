@@ -269,6 +269,8 @@ const api = {
     setFreshCoordinatorContextPct: invoke('settings.setFreshCoordinatorContextPct'),
     getStallWatch: invoke('settings.getStallWatch'),
     setStallWatch: invoke('settings.setStallWatch'),
+    getWindowDiagnostic: invoke('settings.getWindowDiagnostic'),
+    setWindowDiagnostic: invoke('settings.setWindowDiagnostic'),
     getCrashReports: invoke('settings.getCrashReports'), // T27
     setCrashReports: invoke('settings.setCrashReports'),
     getStartAtLogin: invoke('settings.getStartAtLogin'),
@@ -298,6 +300,8 @@ const api = {
     agentLimits: invoke('settings.agentLimits'),
     getMinWorkersUnderPressure: invoke('settings.getMinWorkersUnderPressure'),
     setMinWorkersUnderPressure: invoke('settings.setMinWorkersUnderPressure'),
+    getAutoLowerLimits: invoke('settings.getAutoLowerLimits'),
+    setAutoLowerLimits: invoke('settings.setAutoLowerLimits'),
     getDesktopNotify: invoke('settings.getDesktopNotify'),
     setDesktopNotify: invoke('settings.setDesktopNotify'),
     getGenerator: invoke('settings.getGenerator'),
@@ -478,6 +482,7 @@ const api = {
     hostGate: invoke('orch.hostGate'),
     runDetail: invoke('orch.runDetail'),
     completion: invoke('orch.completion'),
+    reviewTranscript: invoke('orch.reviewTranscript'),
     command: invoke('orch.command'),
     // W3-A: the activity feed, a page after a cursor, and its summary since a time
     activity: invoke('orch.activity'),
@@ -581,6 +586,7 @@ const api = {
     survivesUpdate: invoke('host.survivesUpdate'),
     replace: invoke('host.replace'),
     restartNow: invoke('host.restartNow'),
+    setRestartWhenIdle: invoke('host.setRestartWhenIdle'), // T28
     driver: invoke('host.driver'),
     holdings: invoke('host.holdings')
   },

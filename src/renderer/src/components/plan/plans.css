@@ -79,3 +79,13 @@
 /* The plan header: why Approve & execute is not ready, beside the button (plan/PlanHeader.tsx) */
 .plan-page-problems { min-width: 0; max-width: 40ch; color: var(--warn); font-size: var(--fs-12); }
 .plan-page-problems ul { margin: 0; padding-left: var(--sp-4); }
+
+/* T14: the header's "N consoles" chip and its popover */
+.plan-consoles-chip { display: inline-flex; align-items: center; gap: var(--sp-1); padding: 2px var(--sp-2); border: 1px solid var(--line-soft); border-radius: var(--radius-lg); background: transparent; color: var(--text-dim); font-size: var(--fs-12); cursor: pointer; }
+.plan-consoles-chip:hover { color: var(--text); }
+.plan-consoles-pop { position: absolute; top: calc(100% + 4px); right: 0; z-index: 30; width: min(380px, calc(100cqw - 16px)); padding: var(--sp-2); border: 1px solid var(--line-soft); border-radius: var(--radius-lg); background: var(--elevated); box-shadow: var(--shadow-pop); }
+.plan-consoles-list { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+.plan-consoles-row { display: flex; flex-direction: column; align-items: flex-start; width: 100%; padding: var(--sp-2); border: 0; border-radius: var(--radius-md); background: transparent; color: var(--text); font-size: var(--fs-13); text-align: left; cursor: pointer; }
+.plan-consoles-row:hover, .plan-consoles-row:focus-visible { background: var(--hover); }
+.plan-consoles-row__why { font-size: var(--fs-12); color: var(--text-dim); }
+.plan-consoles-row--idle .plan-consoles-row__why { color: var(--warn, var(--text-dim)); }

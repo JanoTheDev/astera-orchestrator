@@ -26,9 +26,10 @@ import {
 } from '../../lib/jobActions'
 import { toast } from '../../lib/toast'
 import { jobName } from '../../lib/jobName'
-import { openPlan } from '../shell/navigation'
+import { openConsole, openPlan } from '../shell/navigation'
 import { SourceChip } from '../SourceChip'
-import { Button, Chip, Icon, Input, Menu, Meter, PageHeader, Toolbar, type MenuItem } from '../ui'
+import { Button, Chip, Icon, Input, Menu, Meter, PageHeader, Popover, Toolbar, type MenuItem } from '../ui'
+import { consoleSummaryOf, type ConsoleSummary } from './openConsoles'
 import { planProgressOf } from './planBoard'
 import { integrateAllOutcomeOf, type IntegrateAllOutcome } from './planCommands'
 import { isOwnerHeld, isStoppedPlan, planStatusOf } from './planList'
@@ -39,6 +40,46 @@ import { deliveryActionsOf, RUN_START, taskAnchorId } from './planPage'
 import type { PlanPageState } from './usePlanPage'
 import { FailedWaitButtons } from './FailedWaitButtons'
 import { headerActionsOf, planActionsOf } from './planHeaderActions'
+
+/** T14: the "N consoles" chip; its popover lists each open console (Task · role · why it is kept) and a row focuses it. */
+export function OpenConsolesChip({ summary, onFocus, defaultOpen = false }: { summary: ConsoleSummary; onFocus: (sessionId: string) => void; defaultOpen?: boolean }): React.JSX.Element {
+  const { t } = useI18n()
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <Popover
+      open={open}
+      onOpenChange={setOpen}
+      label={t('plan.consoles.label')}
+      panelClassName="plan-consoles-pop"
+      trigger={(tp) => (
+        <Button type="button" variant="ghost" size="sm" className="plan-consoles-chip" {...tp}>
+          <Icon name="terminal" size={14} />
+          {t(summary.labelKey, { count: summary.count })}
+        </Button>
+      )}
+    >
+      <ul className="plan-consoles-list">
+        {summary.rows.map((r) => (
+          <li key={r.sessionId}>
+            <Button
+              type="button"
+              variant="ghost"
+              data-roving
+              className={r.closesSoon ? 'plan-consoles-row plan-consoles-row--idle' : 'plan-consoles-row'}
+              onClick={() => {
+                setOpen(false)
+                onFocus(r.sessionId)
+              }}
+            >
+              <span className="plan-consoles-row__what">{[r.taskTitle, t(r.roleKey)].filter(Boolean).join(' · ')}</span>
+              <span className="plan-consoles-row__why">{t(r.reasonKey)}</span>
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </Popover>
+  )
+}
 
 export function PlanHeader({
   p,
@@ -125,6 +166,7 @@ export function PlanHeader({
   const local = runtimeId === undefined
   const otherPlans = plans.filter((pl) => pl.id !== runId && pl.archivedAt === undefined)
   const acts = headerActionsOf(run, local)
+  const consoleSummary = consoleSummaryOf(run?.consoles, (id) => tasks.find((tk) => tk.id === id)?.title)
   const planActs = run ? planActionsOf(run, local) : undefined
   const folder = useRunFolder(run)
   const copy = (text: string, done: string): void => {
@@ -157,6 +199,23 @@ export function PlanHeader({
     } finally {
       setMergingPr(false)
       void window.api.github.refresh({ force: true })
+    }
+  }
+  // T11: Push now = run-draft-pr --now, at once whatever the push cadence; a 409 says why nothing was pushed
+  const [pushing, setPushing] = useState(false)
+  const pushNow = async (): Promise<void> => {
+    if (!run) return
+    setPushing(true)
+    try {
+      const reply = await door.command('run-draft-pr', { run: run.foldedRunId ?? runId, now: true })
+      if (reply.status >= 400) {
+        const error = (reply.body as { error?: unknown } | null)?.error
+        toast.error(t('plan.header.pushNowFailed', { reason: replyNote(reply, t as never, typeof error === 'string' ? error : String(reply.status)) }))
+      } else toast.success(t('plan.header.pushNowDone'))
+    } catch (err) {
+      toast.error(t('plan.header.pushNowFailed', { reason: err instanceof Error ? err.message : String(err) }))
+    } finally {
+      setPushing(false)
     }
   }
   const [markingMerged, setMarkingMerged] = useState(false)
@@ -225,6 +284,9 @@ export function PlanHeader({
           : []),
         ...(deliveryActions.dismiss
           ? [{ id: 'dismiss', label: t('plan.delivery.dismiss'), icon: <Icon name="close" size={14} />, disabled: off || redelivering, onSelect: () => void dismissDelivery() }]
+          : []),
+        ...(planActs?.pushNow
+          ? [{ id: 'pushNow', label: t('plan.header.pushNow'), icon: <Icon name="arrowUp" size={14} />, disabled: off || pushing, onSelect: () => void pushNow() }]
           : []),
         ...(planActs?.markMerged
           ? [{ id: 'markMerged', label: t('plan.markMerged.menu'), icon: <Icon name="check" size={14} />, disabled: off || markingMerged, onSelect: () => void markMerged() }]
@@ -473,6 +535,7 @@ export function PlanHeader({
                 )}
               </>
             )}
+            {consoleSummary && <OpenConsolesChip summary={consoleSummary} onFocus={openConsole} />}
             {acts.consoles && (
               <Button size="sm" variant="ghost" icon={<Icon name="layoutGrid" size={14} />} onClick={onOpenConsoles}>
                 {t('plan.doc.openConsoles')}

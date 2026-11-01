@@ -45,8 +45,11 @@ export const wavesDoneOf = (waves: readonly RunWave[]): number => {
  *  at the last push that went through (`branchPush.tasksDone`), and, after a failed one, its retry time come
  *  (`branchPush.nextRetryAt`, when `nowMs` is given). A non-draft PR, a no-remote note or a recorded PR error is the end
  *  delivery's, never touched here. A Run with no worktree of its own merges no Task anywhere, so nothing is pushed.
- *  T4: `synced` (an origin sync merged into the plan branch) is due with no new Task; "I'll push it myself" never is. */
-export function draftPrDue(s: OrchState, run: JobRun, nowMs?: number, opts?: { synced?: boolean }): number | null {
+ *  T4: `synced` (an origin sync merged into the plan branch) is due with no new Task; "I'll push it myself" never is.
+ *  T10: the Job's `pushCadence` decides when: `end` (the default) never here, the final delivery pushes; `wave` counts
+ *  only the Tasks of the finished waves before the last (the last is the delivery's); `task` as above. A failed push is
+ *  retried whatever the cadence. `now` (a person's "push now") is due at once, whatever the cadence and the count. */
+export function draftPrDue(s: OrchState, run: JobRun, nowMs?: number, opts?: { synced?: boolean; now?: boolean }): number | null {
   const job = jobOf(s, run)
   if (!job || !jobActive(job) || job.schedule !== undefined) return null
   // T6: a plan merged on this computer is never pushed, its plan branch neither. T32: nor one that fell back to merge or review
@@ -56,13 +59,22 @@ export function draftPrDue(s: OrchState, run: JobRun, nowMs?: number, opts?: { s
   const pr = run.pr
   if (pr !== undefined && (pr.draft !== true || pr.error !== undefined || pr.note !== undefined)) return null
   const done = runTasks(s, run.id).filter((t) => t.status === 'completed').length
+  if (opts?.now === true) return done
   const bp = run.branchPush
   // T4: the owner pushes it; a failed push (an origin sync's too) is due again whatever the count, a sync's push at once
   if (bp?.ownerPushes === true) return null
-  const again = opts?.synced === true || (bp?.lastError !== undefined && bp.state !== 'delivered')
-  if (!again && (done < 1 || done <= (bp?.tasksDone ?? 0))) return null
+  const cadence = job.pushCadence ?? 'end'
+  const again = (opts?.synced === true && cadence === 'task') || (bp?.lastError !== undefined && bp.state !== 'delivered')
+  const due = cadence === 'task' ? done : cadence === 'wave' ? finishedWaveTasks(runWaves(s, run.id)) : 0
+  if (!again && (due < 1 || due <= (bp?.tasksDone ?? 0))) return null
   if (nowMs !== undefined && bp?.nextRetryAt !== undefined && Date.parse(bp.nextRetryAt) > nowMs) return null
-  return done
+  return again ? Math.max(due, bp?.tasksDone ?? 0) : due
+}
+
+/** The Tasks of the waves finished from the first on; none once every wave is done: the final delivery pushes then. */
+const finishedWaveTasks = (waves: readonly RunWave[]): number => {
+  const done = wavesDoneOf(waves)
+  return done === waves.length ? 0 : waves.slice(0, done).reduce((n, w) => n + w.tasks.length, 0)
 }
 
 const waveLine = (w: RunWave): string => `- Wave ${w.wave}: ${w.tasks.map((t) => t.title).join(', ')}`
@@ -79,12 +91,18 @@ export const DRAFT_PR_FOOTER =
   "A draft: Astera pushes the plan's branch and updates this description after every Task, and marks it ready after the final check. It is never merged automatically."
 
 /** The worktrees of the Run's completed Tasks that are not folded into its integration branch yet: a Task's work is
- *  folded only when a dependent starts, so at a wave boundary the last wave's is still in its own worktree. Never a
- *  folder an unfinished Dispatch still works in, the Run's own worktree or the project folder. */
+ *  folded when a dependent starts or its wave lands, so the last wave's is still in its own worktree at a wave
+ *  boundary. A Task recorded as merged into the plan (`mergedIntoPlanAt`) is folded already, its folder only kept
+ *  (reuse, a failed reap): asking for it again re-ran a no-op merge on every push. Never a folder an unfinished
+ *  Dispatch still works in, the Run's own worktree or the project folder. */
 export function completedWorktrees(s: OrchState, run: JobRun): string[] {
   const cwd = jobOf(s, run)?.cwd
   const own = new Set(runTasks(s, run.id).map((t) => t.id))
-  const done = new Set(runTasks(s, run.id).filter((t) => t.status === 'completed').map((t) => t.id))
+  const done = new Set(
+    runTasks(s, run.id)
+      .filter((t) => t.status === 'completed' && t.mergedIntoPlanAt === undefined)
+      .map((t) => t.id)
+  )
   const ds = s.dispatches.filter((d) => own.has(d.taskId))
   const busy = ds.filter((d) => !d.outcome && !d.endedAt).map((d) => d.cwd)
   const out: string[] = []

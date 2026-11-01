@@ -5,7 +5,7 @@ import { describe, it, expect, expectTypeOf, vi, afterEach } from 'vitest'
 import fs, { promises as fsp } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { createHostChecks, createHostChecksForTest, type HostChecks } from './checks'
+import { DELIVERY_HEAVY_WAIT_MS, createHostChecks, createHostChecksForTest, type HostChecks } from './checks'
 import { PtyRegistry, type RegistryPty } from './registry'
 import type { HostMessage, PtyEntry } from '../core/host/protocol'
 import type { OrchServerDeps } from '../core/orchestration/command'
@@ -390,6 +390,32 @@ describe('createHostChecks', () => {
       await vi.advanceTimersByTimeAsync(CHECK_TIMEOUT_MS)
       expect(await slow).toMatchObject({ ok: false, reason: expect.stringContaining('timed out') })
       expect(freed).toBe(3)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // T7: a delivery whose check waited for a heavy slot with no limit held its delivery (and, once, the Host's tick) for as
+  // long as the machine stayed busy
+  it('validateTree stops waiting for a heavy slot after DELIVERY_HEAVY_WAIT_MS: busy, no check run, nothing failed', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      let asked: (() => boolean) | undefined
+      const h = await rig({
+        heavySlot: async (a) => {
+          asked = a.abandoned
+          // heavySlot asks on every poll; the machine stays busy past the limit
+          expect(a.abandoned?.()).toBe(false)
+          vi.setSystemTime(Date.now() + DELIVERY_HEAVY_WAIT_MS - 1)
+          expect(a.abandoned?.()).toBe(false)
+          vi.setSystemTime(Date.now() + 1)
+          return a.abandoned?.() ? () => {} : null
+        }
+      })
+      const r = await h.checks.validateTree(h.cwd, ['seed:npm:test'])
+      expect(asked).toBeDefined()
+      expect(r).toEqual({ ok: false, busy: true, reason: expect.stringContaining('waited too long for a heavy slot') })
+      expect(h.opened()).toHaveLength(0)
     } finally {
       vi.useRealTimers()
     }

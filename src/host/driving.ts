@@ -76,7 +76,14 @@ import { readFreshCoordinatorPct } from '../core/settings/freshCoordinator'
 import { readStallWatchOn } from '../core/settings/stallWatch'
 import { readAutoAnswerOn } from '../core/orchestration/exec/autoAnswer'
 import { readHealthSnapshot } from '../core/settings/autoLimits'
-import { parseStatusLinePayload } from '../core/usage/statusline'
+import { extractStatusLineSession, parseStatusLinePayload } from '../core/usage/statusline'
+import { readWorkerSilentMinutes } from '../core/settings/workerSilentMinutes'
+import { readFileTail } from '../core/connections/notifier'
+import { extractLastTurnAssistantText } from '../core/connections/transcript'
+import { rangeCommits } from '../core/github/taskLinks'
+import { TAIL_EMPTY, TAIL_UNTRACKED } from '../core/orchestration/exec/tail'
+import { promises as fsp } from 'node:fs'
+import type { Dispatch } from '../core/orchestration/types'
 
 export interface HostDriving {
   /** Computes now, reading the settings file (used by mayDrain, N2). */
@@ -145,7 +152,7 @@ export function createHostDriving(d: {
   /** The handover belt (N1): starts one open repair Dispatch that has no spec yet. */
   startRepair(a: { dispatchId: string }): void
   /** `sessionExitCode` answers the loop's `sessionGone` (limits pass L1); optional for the test fakes. */
-  registry: Pick<PtyRegistry, 'sessionPty' | 'list'> & Partial<Pick<PtyRegistry, 'sessionExitCode' | 'lastPersonWrite' | 'liveEntries'>>
+  registry: Pick<PtyRegistry, 'sessionPty' | 'list'> & Partial<Pick<PtyRegistry, 'sessionExitCode' | 'lastPersonWrite' | 'liveEntries' | 'onData'>>
   /** The chat sessions' line processes, so `sessionAlive` sees a Run's external coordinator on a chat (spec E5).
    *  Optional for the test fakes. */
   procs?: Pick<ProcRegistry, 'list'>
@@ -172,6 +179,8 @@ export function createHostDriving(d: {
   usageGuard?: DispatchLoopContext['usageGuard']
   /** Stall watchdog: the Host's activity log, which its feed lines go into. Absent (test fakes): no watchdog. */
   activity?: DispatchLoopContext['activity']
+  /** T8: the loop's holds, on every change, for the apps' boards (`slot-holds`). Absent (test fakes): kept in this process. */
+  holdsChanged?: DispatchLoopContext['holdsChanged']
   /** Told every change of `report()` (limits pass L3), in the same turn as the change. A throw is
    *  logged and costs nothing else (constraint 14). */
   onReport?(r: HostDriverReport): void
@@ -501,8 +510,11 @@ export function createHostDriving(d: {
       return payload ? (parseStatusLinePayload(payload)?.context?.usedPercent ?? null) : null
     },
     freshCoordinatorPct: () => readFreshCoordinatorPct(settingsPath),
+    silentMinutes: () => readWorkerSilentMinutes(settingsPath),
     // #117: a hands-off plan's decision, appended to its Job (the feed derives its line from the commit)
     recordDecision: (jobId, decision) => d.orch.internalDeps().setState(addDecision(d.orch.state(), jobId, decision)),
+    // A merged Task recorded in the same step as its merge, as a decision is: not queued behind a long command
+    commit: (change) => d.orch.internalDeps().setState(change(d.orch.state())),
     // T8: a transiently failed merge waits while the machine is strained: the load monitor's snapshot, written every 10 s
     strained: async () => {
       const health = await readHealthSnapshot(d.profileDir)
@@ -515,8 +527,16 @@ export function createHostDriving(d: {
     mayStart,
     log,
     nowMs: () => d.nowMs(),
-    ...(d.usageGuard ? { usageGuard: d.usageGuard } : {})
+    ...(d.usageGuard ? { usageGuard: d.usageGuard } : {}),
+    ...(d.holdsChanged ? { holdsChanged: d.holdsChanged } : {})
   })
+
+  // T12 silent workers: when each pty last printed, by pty id (the registry's own clock is the person's input only)
+  const lastOutput = new Map<string, number>()
+  const offOutput = d.activity ? d.registry.onData?.((id) => void lastOutput.set(id, d.nowMs())) : undefined
+  /** A claude worker's transcript file, from its statusLine (a codex one has none here: its pty alone). */
+  const transcriptOf = async (x: Dispatch): Promise<string | null> =>
+    extractStatusLineSession(await d.spawner.statusLinePayload?.(x.sessionId).catch(() => null)).transcriptPath
 
   // Stall watchdog, the remedies the loop does not apply (exec/stallWatch.ts header: a dead coordinator restarted, a
   // lost Task retried, an idle worker nudged, an escalation): beside the loop's, where its lines have a feed
@@ -540,6 +560,30 @@ export function createHostDriving(d: {
             }
           : {}),
         typeInto: (id, text) => d.spawner.typeInto(id, text),
+        // T12: the newer of the transcript's mtime and the pty's last output; its last turn, transcript first
+        silentMinutes: () => readWorkerSilentMinutes(settingsPath),
+        lastActivityAt: async (x) => {
+          const file = await transcriptOf(x)
+          const mtime = file === null ? null : await fsp.stat(file).then((st) => st.mtimeMs, () => null)
+          const pty = d.registry.sessionPty(x.sessionId)
+          const out = pty === null ? undefined : lastOutput.get(pty)
+          const both = [mtime, out].filter((v): v is number => typeof v === 'number')
+          return both.length > 0 ? Math.max(...both) : null
+        },
+        transcriptTurn: async (x) => {
+          const file = await transcriptOf(x)
+          const tail = file === null ? null : await readFileTail(file, 256 * 1024)
+          return tail === null ? null : extractLastTurnAssistantText(tail)
+        },
+        tailTurn: async (x) => {
+          const out = await d.orch.internalDeps().readWorker({ dispatchId: x.id, limit: 60 })
+          return out === TAIL_UNTRACKED || out === TAIL_EMPTY ? null : out
+        },
+        commitsAhead: async (x) => (x.git?.base ? (await rangeCommits(x.cwd, x.git.base)).length > 0 : false),
+        markNudged: (id, at) => {
+          const s = d.orch.state()
+          return d.orch.internalDeps().setState({ ...s, dispatches: s.dispatches.map((x) => (x.id === id ? { ...x, ...at } : x)) })
+        },
         tell: (n) => loop.tell(n),
         activity: d.activity,
         ...(d.orch.adoptWorkers ? { adopt: () => d.orch.adoptWorkers!() } : {}),
@@ -851,6 +895,7 @@ export function createHostDriving(d: {
     },
     dispose: () => {
       stop()
+      offOutput?.()
       grace.dispose()
     }
   }

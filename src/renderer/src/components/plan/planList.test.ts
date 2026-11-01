@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { JobRow, JobTask } from '../../../../core/types'
 import { ageOf } from './planBoard'
-import { clearableOf, finishedAtMs, isOwnerHeld, isUnmergedPlan, isStalledPlan, isStoppedPlan, lastActivityOf, planStatusOf, resumeActionOf, splitPlans } from './planList'
+import { clearableOf, finishedAtMs, isFailedDeliveryPlan, isOwnerHeld, isUnmergedPlan, isStalledPlan, isStoppedPlan, lastActivityOf, planStatusOf, resumeActionOf, splitPlans } from './planList'
 
 const task = (id: string, over: Partial<JobTask> = {}): JobTask => ({ id, title: id, status: 'pending', openGates: 0, ...over })
 const row = (over: Partial<JobRow> = {}): JobRow => ({
@@ -161,6 +161,16 @@ describe('splitPlans', () => {
   it('clearableOf: older than 7 days, or all; never an archived plan, a running plan or one with no finish time (older only)', () => {
     expect(clearableOf(plans, false, now).map((r) => r.id)).toEqual(['old'])
     expect(clearableOf(plans, true, now).map((r) => r.id)).toEqual(['old', 'new', 'nodate'])
+  })
+})
+
+describe('isFailedDeliveryPlan', () => {
+  it('is a plan whose delivery failed and has not landed, archived or still running', () => {
+    expect(isFailedDeliveryPlan(row({ outcome: 'failed', deliveryError: 'push refused' }))).toBe(true)
+    expect(isFailedDeliveryPlan(row({ outcome: 'failed' }))).toBe(false)
+    expect(isFailedDeliveryPlan(row({ outcome: 'failed', deliveryError: 'x', archivedAt: 'x' }))).toBe(false)
+    expect(isFailedDeliveryPlan(row({ outcome: 'running', deliveryError: 'x' }))).toBe(false)
+    expect(isFailedDeliveryPlan(row({ outcome: 'failed', deliveryError: 'x', pr: { at: 'x', landed: 'merged' } }))).toBe(false)
   })
 })
 

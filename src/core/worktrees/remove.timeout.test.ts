@@ -34,13 +34,14 @@ const callsOf = (pred: (args: string[]) => boolean): (number | undefined)[] =>
 describe('removeWorktree, write deadlines', () => {
   // A `worktree remove --force` killed at the adapter's 30 s default leaves the folder half deleted
   // and git's record of it in place. Every mutating call here gets the long write ceiling.
-  it('worktree remove, worktree prune and branch delete run with the long write timeout', async () => {
+  // T21: the folder is renamed into .trash rather than handed to `worktree remove`; the prune then drops git's entry.
+  it('worktree prune and branch delete run with the long write timeout', async () => {
     const { info } = await createWorktree({ repoPath: repo, name: 'rmto', registry: reg })
     await fs.writeFile(path.join(info.path, 'dirty.txt'), 'x')
     vi.mocked(git).mockClear()
     const r = await removeWorktree({ id: info.id, force: true, registry: reg, isPathInUse: () => null })
     expect(r.removed).toBe(true)
-    expect(callsOf((a) => a[0] === 'worktree' && a[1] === 'remove')).toEqual([GIT_WRITE_TIMEOUT_MS])
+    expect(callsOf((a) => a[0] === 'worktree' && a[1] === 'remove')).toEqual([])
     expect(callsOf((a) => a[0] === 'worktree' && a[1] === 'prune')).toEqual([GIT_WRITE_TIMEOUT_MS])
     const deletes = callsOf((a) => a[0] === 'branch' && (a[1] === '-d' || a[1] === '-D'))
     expect(deletes.length).toBeGreaterThan(0)

@@ -171,7 +171,7 @@ gets a slower worker.
 
 ## 4. Hand over
 
-Read the plan back (`astera tasks list --run <jobId> --json`). Then print a short summary in your terminal:
+Read the plan back (`astera plan-state --job <jobId> --json`: the Job, its Tasks and the objective items left out in one call; `astera tasks list --run <jobId> --json` only for a Task's full spec). Then print a short summary in your terminal:
 the Tasks in order, what runs in parallel and why that is safe, the open questions. Tell the person to press
 **Approve & execute** on the Job in Astera, and wait. Approval is refused while a Task has no prompt or no
 acceptance criterion or no basis, depends on a Task outside the plan, or the dependencies form a cycle, and while an
@@ -192,7 +192,7 @@ A planned Job has no whole-wave barrier: a Task starts as soon as its own deps h
 running. A Task's wave (its dependency depth; no deps: wave 1 here, 0 in the code) only names where it sits. A Task that
 did not go as planned (it failed, reported gaps, needed more than one review round, changed files outside its affected paths, or was
 let through by a person) starts a **wave replan**: Astera opens a **fresh** planner session with a replan brief. That
-replan is **scoped** and holds only the Tasks it can affect, those downstream of the deviating Task or sharing its paths;
+replan is **scoped** and holds only the Tasks that depend on the deviating Task, directly or through others;
 every other Task still starts. An **unscoped** replan (owner feedback, the final check, a person's own ask) holds the
 whole Job: no Task starts until you end it. Once every Task has completed, the same session runs once more as the
 **final check**. Turn replans off per Job with `--replan off` (`jobs create` / `jobs plan`) or the "Replan between
@@ -208,13 +208,16 @@ really changed (from git) until its plan delivers, so another plan's workers wai
 changed nothing recorded falls back to its declared paths.
 
 Your brief lists, for every completed Task, its worker's report, its review and the files it changed, then what is
-running and what is left. Read the changed code (`astera runs-changed-files --id <runId> --task <taskId> --json`, then
-the files) before you change anything.
+running and what is left. Call `astera plan-state --job <jobId> --json` first: one answer with the Run, every Task
+(status, deps, paths, criteria, report cut at 4 KB, review verdict, changed files) and what is running. Use `tasks get`,
+`dispatch-show` or `runs-changed-files --id <runId> --task <taskId> --json` only for a detail it cuts. Read the changed code
+(the files themselves) before you change anything.
 
 You may:
 - change a Task that has **not started** with `astera task-update --id <taskId>` and the planner flags;
 - add Tasks to the Run with `astera task-create --run <runId>` and the planner flags (a prompt and at
-  least one criterion, as always);
+  least one criterion, as always) and `--why "<one line: why you add this Task>"`. A replan's `task-create` is refused
+  without `--why`: the plan shows the owner "Added by the final check: <why>" (or "Added by a replan: <why>") on the card;
 - cancel a Task that has not started and is no longer needed: `astera task-cancel --id <taskId> --reason "<why>"`.
   Change the `--deps` of every Task that waits on it first.
 
@@ -235,7 +238,10 @@ Change only what the facts call for: a done Task that went another way than plan
 turned out to be needed, a Task that is no longer needed. Keep the `--affected-paths` of Tasks that can run together apart, as in section 2.
 
 **Final check.** Compare the result with the objective. If it is met, change nothing. If something is missing or
-broken, add follow-up Tasks for exactly that. A Job gets at most 3 follow-up waves; a 4th goes to the person.
+broken, add follow-up Tasks for exactly that, each with `--why`. The final check runs **once** per plan: the follow-up
+Tasks are judged by their own reviews and nothing checks them again, so make each one complete. A wave replan holds
+only the Tasks that depend on a Task that went another way; Tasks that merely share its paths start at once (your brief
+lists them for information).
 
 **End** with `astera jobs-replan-done --id <jobId> --summary "<one line: what you changed and why>"`. Astera then checks
 the remaining plan as it checks a plan for approval (each Task has a prompt and a criterion, its deps exist, no cycle).

@@ -157,6 +157,8 @@ export const plans: Record<keyof typeof ko, string> = {
   'plan.summary.delivery.review': 'Waits for your review',
   'plan.summary.delivery.dismissed': 'Dismissed · not delivered',
   'plan.summary.delivery.deliveredBy': 'Delivered by {plan}',
+  'plan.summary.delivery.landedOutside': 'Landed outside Astera',
+  'plan.summary.delivery.closedOnGitHub': 'Closed on GitHub',
   'plan.summary.draft': 'draft',
   'plan.summary.areas': 'Areas',
   'plan.header.openPr': 'Open PR',

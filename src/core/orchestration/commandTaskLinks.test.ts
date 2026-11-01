@@ -1,7 +1,7 @@
 // W2-D GitHub links: task-link-issue, worker_done's --issue, and run-open-pr, over a fake gh keyed by argv. Nothing here
 // runs a real gh or git.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { promises as fs } from 'node:fs'
+import { promises as fs, readFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { handleCommand, linkReportedWork, type OrchServerDeps } from './command'
@@ -17,6 +17,8 @@ import { APP_CALLER } from '../host/driver'
 const NOW = '2026-10-17T00:00:00.000Z'
 const WT = '/wt/run'
 const info = { id: 'w1', repoPath: '/repo', path: WT, name: 'run', branch: 'astera/run', baseRef: 'main', createdAt: NOW }
+/** The JSON a body update sends (`--input <file>`), read while the call runs: the file is removed afterwards. */
+const inputOf = new WeakMap<string[], string>()
 const ISSUE_URL = (n: number): string => `https://github.com/o/r/issues/${n}`
 const issueJson = (n: number, over: Record<string, unknown> = {}) => ({
   number: n, title: 'Add login', body: '', state: 'open', labels: [], user: { login: 'me' }, author_association: 'OWNER', html_url: ISSUE_URL(n), ...over
@@ -39,7 +41,7 @@ const setup = (o: { gh?: (args: string[]) => Partial<GhResult> | undefined; task
   const box: { state: OrchState } = {
     state: {
       ...emptyState(),
-      jobs: [{ id: 'job_1', objective: 'Refactor auth', cwd: repo, createdAt: NOW }],
+      jobs: [{ id: 'job_1', objective: 'Refactor auth', cwd: repo, createdAt: NOW, pushCadence: 'task' }],
       runs: [{ id: 'r1', jobId: 'job_1', ordinal: 1, createdAt: NOW, worktree: WT, ...o.run } as JobRun],
       tasks: o.tasks ?? [task()],
       dispatches: o.dispatches ?? []
@@ -66,6 +68,7 @@ const setup = (o: { gh?: (args: string[]) => Partial<GhResult> | undefined; task
     github: {
       run: async (args: string[]): Promise<GhResult> => {
         ghCalls.push(args)
+        if (args.includes('--input')) inputOf.set(args, readFileSync(args[args.indexOf('--input') + 1], 'utf8'))
         const a = o.gh?.(args)
         return a ? { ok: true, stdout: '', stderr: '', ...a } : { ok: false, stdout: '', stderr: `unexpected gh call: ${args.join(' ')}` }
       },
@@ -277,7 +280,7 @@ describe('run-open-pr: one pull request per plan', () => {
 describe('run-draft-pr: a long plan followed from GitHub (W8-C)', () => {
   const PR = 'https://github.com/o/r/pull/13'
   const CLASSIC = 'GraphQL: Projects (classic) is being deprecated in favor of the new Projects experience'
-  const bodyOf = (a: string[]): string => a[5].slice('body='.length)
+  const bodyOf = (a: string[]): string => (JSON.parse(inputOf.get(a)!) as { body: string }).body
   const patches = (calls: string[][]): string[][] => calls.filter((a) => a[0] === 'api' && a[2] === 'PATCH')
   const ghOk = (a: string[]): Partial<GhResult> | undefined =>
     a[0] === 'repo' && a[1] === 'view'
@@ -333,7 +336,7 @@ describe('run-draft-pr: a long plan followed from GitHub (W8-C)', () => {
     expect(r.body).toMatchObject({ url: PR, wavesDone: 2, opened: false })
     expect(h.pushes).toEqual([[WT, 'astera/run']])
     const edit = patches(h.ghCalls)[0]
-    expect(edit.slice(0, 5)).toEqual(['api', '-X', 'PATCH', 'repos/o/r/pulls/13', '-f'])
+    expect(edit.slice(0, 5)).toEqual(['api', '-X', 'PATCH', 'repos/o/r/pulls/13', '--input'])
     expect(bodyOf(edit)).toContain('Done:\n- Wave 1: Add login\n- Wave 2: Add logout')
     expect(bodyOf(edit)).toContain('Remaining:\n- Wave 3: Add audit log')
     expect(h.state().runs[0].pr).toMatchObject({ draft: true, wavesDone: 2 })

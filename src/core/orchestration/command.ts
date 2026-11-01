@@ -36,6 +36,8 @@ import {
   openDispatch,
   resolveGate,
   closeGatesOf,
+  landMerge,
+  clearPausedReviewGates,
   closeGatesOfCompleted,
   answerCheckUnavailable,
   isCheckUnavailableAnswer,
@@ -69,7 +71,7 @@ import {
 } from './state'
 import { acceptedNotProvable, missingToolOf } from './exec/notProvable'
 import { CLI_PROTOCOL } from './cliOutput'
-import { collectChanges, rangesFor } from './changedFiles'
+import { collectChanges, mapAtMost, PARTS_AT_ONCE, rangesFor } from './changedFiles'
 import type { ChangedFile } from '../git/changes'
 import type { SwitchedCommand } from './cliAgentContext'
 import { rewriteAccountRefs } from '../accounts/duplicateLogins'
@@ -103,6 +105,7 @@ import {
   DEFAULT_CONCURRENCY,
   MAX_CONCURRENT_WORKERS,
   FAILURE_LIMIT,
+  PUSH_CADENCES,
   canTransition,
   isPlaceholderSessionId,
   recomputeReady,
@@ -113,6 +116,7 @@ import {
   type JobSourceRef,
   type MessageType,
   type Project,
+  type PushCadence,
   type Task,
   type TaskStatus
 } from './types'
@@ -122,7 +126,7 @@ import { isPathWithin } from '../files/tree'
 import { buildHandoverPrompt, buildPlannerBrief } from './handover'
 import { read as readOwner } from '../prompts/ownerInstructions'
 import { consoleIdStore, ensureChat, ensureConsole, isChatSession } from '../console/console'
-import { branchInDeliveryBranch, noRemoteNote, unmergedPlanBranches } from './unmergedBranches' // W8-G (#101)
+import { branchInDeliveryBranch, branchInOrigin, noRemoteNote, unmergedPlanBranches } from './unmergedBranches' // W8-G (#101)
 // W2-A planner stage
 import { editPlanTask, kindOf, leftOutArg, orchestrationRoleOf, planFieldsFromArgs, plannerJobOf, plannerRefusal, taskProblems, validatePlan, withPreviousAttempt, workerSpecOf, worktreeRefusal } from './planner'
 import { parseReviewFile, type ReviewIssueInput } from './review'
@@ -260,11 +264,16 @@ import {
   // T3: delivery that finishes by itself
   afterAttempt,
   deliveryDue,
+  beginAttempt,
+  headMoved,
+  type DeliveryHeads,
   OWNER_PUSH_CHECK_MS,
   raiseDeliveryQuestion,
   // T1: delivery state machine
   dismissDelivery,
   landedOnGitHub,
+  landedOutside,
+  deliveryFailedOf,
   ownerMaySettle,
   withoutDeliveryError,
   // T5: a hands-free plan mends a failed delivery validation itself
@@ -919,6 +928,16 @@ export interface OrchServerDeps {
    *  `deliverByPush`, with `checks` (the run configurations) as the validation. **Only the Host injects it**; absent,
    *  `run-deliver` on a push project answers 409. */
   deliverPush?(a: PushDelivery & { checks: string[] }): Promise<PushResult>
+  // ── T4: slow git and gh work outside the Host's command chain ──
+  /** Runs a slow git/gh step or a session spawn with the Host's command chain handed on, and takes it back before
+   *  answering (host/orch.ts outsideChain). The command commits nothing inside it and reads the state again after it.
+   *  Also `runs-pr-sync`'s origin fetch. Absent (the app, tests): the effect runs inline. */
+  outsideChain?<T>(effect: () => Promise<T>): Promise<T>
+  /** A commit made from inside `outsideChain` (a start's `onWait`) takes the chain for itself. Absent: inline. */
+  inChain?<T>(commit: () => Promise<T>): Promise<T>
+  /** The Runs (and Jobs, for `jobs-plan`) a slow command works on now, with that command's name: one at a time each, so
+   *  two never merge or push in the same worktrees. One map for the Host's life; absent, nothing answers "running". */
+  inFlight?: Map<string, string>
   // ── W9-J ──
   /** Removes a delivered Run's worktrees that are ready (worktrees/cleanup.ts), unless `autoCleanWorktrees` is off.
    *  **Only the Host injects it.** Absent, nothing is cleaned and the Worktrees page offers "Clean up". */
@@ -1296,6 +1315,8 @@ const waitingForApprovalIn = async (deps: OrchServerDeps, ds: readonly Dispatch[
 /** T6 `runs-pr-sync`: PRs asked about per call, and how long a still-open one is left alone. */
 const PR_SYNC_BATCH = 20
 const PR_SYNC_FRESH_MS = 2 * 60_000
+/** How long a run is left alone after `runs-pr-sync` asked origin whether its plan branch landed outside Astera. */
+const OUTSIDE_FRESH_MS = 10 * 60_000
 
 /** Commands only the orchestrator may call. Workers do not need check (the worker preamble uses only
  *  send and ask) — and on top of that the single unacknowledged Delivery is shared per Run with the
@@ -2146,7 +2167,58 @@ async function openMergeTask(
   return made.status < 400 && typeof id === 'string' ? { taskId: id } : made
 }
 
+/** T4: `effect` with the Host's chain handed on (OrchServerDeps.outsideChain); inline where there is no chain. */
+export const offChain = <T>(deps: OrchServerDeps, effect: () => Promise<T>): Promise<T> => (deps.outsideChain ? deps.outsideChain(effect) : effect())
+
+/** T4: `commit` made from inside `offChain` (a start's `onWait`) takes the chain for itself; inline where there is none. */
+const backOnChain = <T>(deps: OrchServerDeps, commit: () => Promise<T>): Promise<T> => (deps.inChain ? deps.inChain(commit) : commit())
+
+/** T4: the Run (a Job, for `jobs-plan`) a slow command's git, gh or spawn works on outside the chain; null for any other
+ *  command, and for run-deliver's loop steps that only record. */
+function inFlightKeyOf(s: OrchState, cmd: string, args: Record<string, unknown>): string | null {
+  switch (cmd) {
+    case 'run-deliver':
+      return args.pending === true || args.awaitReview === true ? null : str(args.run)
+    case 'run-draft-pr':
+    case 'run-merge':
+    case 'run-integrate-all':
+    case 'run-open-pr':
+      return str(args.run)
+    case 'run-delete':
+      return args.merge === true ? str(args.id) : null
+    case 'jobs-plan':
+      return str(args.id)
+    case 'attribution-remap': {
+      const url = str(args.pr)
+      return url ? (s.runs.find((r) => r.pr?.url === url)?.id ?? null) : null
+    }
+    default:
+      return null
+  }
+}
+
+/** Commands that can make a paused run workable again: the review-paused Gates they leave behind are cleared. */
+const RESUMING_COMMANDS = new Set(['runs-resume', 'run-resume', 'run-start'])
+
 export async function handleCommand(
+  deps: OrchServerDeps,
+  caller: { sessionId: string; role?: 'app' | 'cli' | 'mcp' | 'controller' | 'plugin' },
+  cmd: string,
+  args: Record<string, unknown>
+): Promise<Reply> {
+  const reply = await handleCommandInner(deps, caller, cmd, args)
+  if (RESUMING_COMMANDS.has(cmd) && reply.status >= 200 && reply.status < 300 && deps.startReview) {
+    // A review refused while the run was paused left a Gate; the run may be workable now, so close it and review.
+    const cleared = clearPausedReviewGates(deps.getState(), deps.now?.() ?? new Date().toISOString())
+    if (cleared.taskIds.length > 0) {
+      await deps.setState(cleared.state)
+      for (const taskId of cleared.taskIds) deps.startReview({ taskId })
+    }
+  }
+  return reply
+}
+
+async function handleCommandInner(
   deps: OrchServerDeps,
   /** `role` is the Host connection's (OrchCaller.role); absent where no Host connection exists. Only
    *  `'mcp'` changes an answer: an MCP client calls with an empty session id, as a shell does. */
@@ -2154,6 +2226,20 @@ export async function handleCommand(
   cmd: string,
   args: Record<string, unknown>
 ): Promise<Reply> {
+  // T4: a slow command hands the chain on while its git/gh work runs, so a second one on the same Run answers 409 until
+  // the first has recorded its result. The calls it makes inline (run-deliver's run-open-pr) are its own and pass.
+  const busy = deps.inFlight
+  const busyKey = busy ? inFlightKeyOf(deps.getState(), cmd, args) : null
+  if (busy && busyKey !== null) {
+    const holder = busy.get(busyKey)
+    if (holder !== undefined) return { status: 409, body: { error: `${holder} is still running for ${busyKey}; try again once it ends`, code: 'running' } }
+    busy.set(busyKey, cmd)
+    try {
+      return await handleCommand({ ...deps, inFlight: undefined }, caller, cmd, args)
+    } finally {
+      busy.delete(busyKey)
+    }
+  }
   // W2-A: a planner session plans and never starts work (planner.ts). Asked first, so no path below acts for
   // one: the app and the Host both answer commands here.
   // W6-D: a replan session is a planner that edits what has not started in its Run (replan.ts); undefined: not one.
@@ -3580,7 +3666,8 @@ export async function handleCommand(
       if (!deps.changes) return conflict('changed files are read where the run lives, and this caller cannot read git there')
       const head = { runId, ...(taskId ? { taskId } : {}), reported: found.reported }
       if (found.parts.length === 0) return okBody({ ...head, git: null, unavailable: 'not-recorded' })
-      const got = await collectChanges(found.parts, deps.changes.read)
+      const read = deps.changes.read
+      const got = await offChain(deps, () => collectChanges(found.parts, read)) // T4: git outside the chain
       if (!got.read) return okBody({ ...head, git: null, unavailable: 'git-failed' })
       return okBody({ ...head, git: { files: got.files.map((f) => f.file), live: got.live, total: got.total } })
     }
@@ -3597,12 +3684,13 @@ export async function handleCommand(
       if (!found) return notFound(taskId ? `unknown task ${taskId} in run ${runId}` : `unknown run: ${runId}`)
       if (!deps.changes) return conflict('diffs are read where the run lives, and this caller cannot read git there')
       if (found.parts.length === 0) return notFound(`run ${runId} has no recorded git range`)
-      const got = await collectChanges(found.parts, deps.changes.read)
+      const changes = deps.changes
+      const got = await offChain(deps, () => collectChanges(found.parts, changes.read)) // T4: git outside the chain
       if (!got.read) return conflict(`git could not read the changes of run ${runId}`)
       const hit = got.files.find((f) => f.file.id === fileId)
       if (!hit) return notFound(`no changed file ${fileId} in run ${runId}; read runs-changed-files again`)
       const { taskId: _part, ...asGit } = hit.file
-      const d = await deps.changes.diff(hit.range.repo, hit.range.base, hit.range.head, { ...asGit, id: hit.file.id.split('~')[0] })
+      const d = await offChain(deps, () => changes.diff(hit.range.repo, hit.range.base, hit.range.head, { ...asGit, id: hit.file.id.split('~')[0] }))
       return d ? okBody({ file: hit.file, ...d }) : conflict(`git could not produce the diff of ${hit.file.path}`)
     }
     case 'runs-completion': {
@@ -3693,6 +3781,87 @@ export async function handleCommand(
       // **파생값은 접어 실은 그 회차의 것이다.** 회차를 지목해 물었는데 계획의 숫자가 다른
       // 회차를 말하면 한 응답 안에서 두 가지를 말하는 셈이 된다.
       return okBody({ ...jobView(s, job, run), ...(run ? { run: runView(s, run) } : {}) })
+    }
+    // **A planner's whole picture in one read** (answered outside the command chain): the Job, its latest Run and every
+    // Task with its report, review and changed files, what runs and what the plan leaves out. Replaces a chain of
+    // `jobs-get`, `tasks-list`, `dispatch-show` and `runs-changed-files`. Reports are cut at 4 KB; no transcripts.
+    case 'plan-state': {
+      const id = str(args.job) ?? str(args.id)
+      if (!id) return bad('--job is required: the Job whose plan state to read')
+      const named = s.runs.find((r) => r.id === id)
+      const job = s.jobs.find((j) => j.id === id) ?? (named && jobOf(s, named))
+      if (!job) return notFound(`unknown job or run: ${id}`)
+      const run = named ?? latestRunOf(s, job)
+      const own = run ? s.tasks.filter((t) => t.runId === run.id) : s.tasks.filter((t) => t.jobId === job.id)
+      const ids = new Set(own.map((t) => t.id))
+      const byTask = new Map<string, typeof s.dispatches>()
+      for (const d of s.dispatches) if (ids.has(d.taskId)) byTask.set(d.taskId, [...(byTask.get(d.taskId) ?? []), d])
+      const REPORT_MAX = 4096
+      const FILES_MAX = 100
+      const changedOf = async (t: (typeof own)[number]) => {
+        const reported = t.changedFiles ?? t.filesModified ?? []
+        const found = run && deps.changes ? rangesFor(s, run.id, t.id) : null
+        if (deps.changes && found && found.parts.length > 0) {
+          const read = deps.changes.read
+          const got = await offChain(deps, () => collectChanges(found.parts, read)).catch(() => null)
+          if (got?.read) return { source: 'git', files: got.files.slice(0, FILES_MAX).map((f) => f.file.path), total: got.total, ...(got.live ? { live: true } : {}) }
+        }
+        return { source: 'reported', files: reported.slice(0, FILES_MAX), total: reported.length }
+      }
+      const completed = own.filter((t) => t.status === 'completed')
+      const changed = new Map(await mapAtMost(completed, PARTS_AT_ONCE, async (t) => [t.id, await changedOf(t)] as const))
+      const tasks = own.map((t) => {
+        const ds = byTask.get(t.id) ?? []
+        const reviews = ds.filter((d) => d.review).sort((a, b) => a.startedAt.localeCompare(b.startedAt))
+        const open = ds.filter((d) => !d.review && d.endedAt === undefined).at(-1)
+        const verdict = [...reviews].reverse().find((d) => d.verdict !== undefined)?.verdict
+        const spec = t.spec.replace(/\s+/g, ' ')
+        const report = t.result ?? t.gaps ?? t.notProvable
+        return {
+          id: t.id,
+          title: t.title,
+          status: t.status,
+          deps: t.deps,
+          spec: spec.slice(0, 160),
+          spec_truncated: spec.length > 160,
+          affectedPaths: t.affectedPaths ?? [],
+          acceptanceCriteria: t.acceptanceCriteria ?? [],
+          ...(t.noFiles ? { noFiles: true } : {}),
+          ...(t.covers ? { covers: t.covers } : {}),
+          ...(t.kind ? { kind: t.kind } : {}),
+          ...(t.consecutiveFailures > 0 ? { consecutiveFailures: t.consecutiveFailures } : {}),
+          attempts: ds.filter((d) => !d.review).length,
+          ...(report !== undefined
+            ? {
+                report: {
+                  text: (t.result ?? '').slice(0, REPORT_MAX),
+                  truncated: (t.result ?? '').length > REPORT_MAX,
+                  ...(t.gaps ? { gaps: t.gaps } : {}),
+                  ...(t.notProvable ? { notProvable: t.notProvable } : {})
+                }
+              }
+            : {}),
+          ...(reviews.length > 0 || t.reviewIssues?.length
+            ? {
+                review: {
+                  ...(verdict ? { verdict } : {}),
+                  rounds: reviews.length,
+                  issues: (t.reviewIssues ?? []).slice(0, 10).map((i) => ({ severity: i.severity, blocking: i.blocking, title: i.title, ...(i.file ? { file: i.file } : {}) })),
+                  issuesTotal: t.reviewIssues?.length ?? 0
+                }
+              }
+            : {}),
+          ...(open ? { running: { dispatchId: open.id, accountId: open.accountId, workerState: open.workerState, startedAt: open.startedAt } } : {}),
+          ...(changed.has(t.id) ? { changedFiles: changed.get(t.id) } : {})
+        }
+      })
+      return okBody({
+        job: jobView(s, job, run),
+        run: run ? runView(s, run) : null,
+        tasks,
+        running: tasks.filter((t) => 'running' in t).map((t) => t.id),
+        leftOut: job.leftOut ?? []
+      })
     }
     // W1-C plan lifecycle (lifecycle.ts). Each answers the Job as `jobs get` does, without the folded Run.
     case 'jobs-rename': {
@@ -3808,6 +3977,7 @@ export async function handleCommand(
       const editsRunning =
         EDIT_KEYS.some((k) => args[k] !== undefined) ||
         args.deliveryBranch !== undefined ||
+        args.pushCadence !== undefined ||
         args.effort !== undefined ||
         (args.concurrency !== undefined && args.priority !== undefined)
       if (editsRunning && args.after === undefined) {
@@ -3829,12 +3999,15 @@ export async function handleCommand(
         // The plan's own target branch; an empty value (or null) clears it, back to its project's
         const branchArg = args.deliveryBranch
         if (branchArg !== undefined && branchArg !== null && typeof branchArg !== 'string') return bad('--delivery-branch needs a value')
+        // T10: when its plan branch is pushed while it runs (draftPr.ts draftPrDue)
+        const cadence = args.pushCadence
+        if (cadence !== undefined && !PUSH_CADENCES.includes(cadence as PushCadence)) return bad(`--push-cadence must be ${PUSH_CADENCES.join('|')}`)
         const named = s.runs.find((r) => r.id === id)
         const job = s.jobs.find((j) => j.id === id) ?? (named && jobOf(s, named))
         if (!job) return notFound(`unknown job or run: ${id}`)
         const given = (['concurrency', 'priority', ...EDIT_KEYS] as const).filter((k) => args[k] !== undefined)
         // The target branch is where the plan lands, so it changes when its delivery may
-        if (branchArg !== undefined) given.push('delivery')
+        if (branchArg !== undefined || cadence !== undefined) given.push('delivery')
         // --effort has no PlanSettingKey: it is refused when the plan has finished, like --concurrency
         for (const k of args.effort !== undefined ? [...given, 'concurrency' as const] : given) {
           const why = settingRefusalOf(s, job, k)
@@ -3852,6 +4025,7 @@ export async function handleCommand(
           ...(handsOff !== undefined ? { handsOff } : {}),
           ...(auto !== undefined ? { autoApprove: auto } : {}),
           ...(delivery !== undefined ? { delivery } : {}),
+          ...(cadence !== undefined ? { pushCadence: cadence as PushCadence } : {}),
           ...(args.effort === undefined ? (job.effort !== undefined ? { effort: job.effort } : {}) : isEffort(args.effort) ? { effort: args.effort } : {})
         }
         let state: OrchState = { ...s, jobs: s.jobs.map((j) => (j.id === job.id ? next : j)) }
@@ -4075,8 +4249,10 @@ export async function handleCommand(
       let sessionId: string
       let startedOn: string | undefined
       // W8-G (#101): earlier plans' work that sits on an unmerged branch, which the workers of this plan will not have
+      // T4: the planned mark is committed above; this git read and the planner's spawn run with the chain handed on
       const projectOfPlan = projectOfJob(deps.getState(), job)
-      const unmerged = projectOfPlan ? await unmergedPlanBranches(deps.getState(), projectOfPlan) : null
+      const planned = deps.getState()
+      const unmerged = projectOfPlan ? await offChain(deps, () => unmergedPlanBranches(planned, projectOfPlan)) : null
       // The planned mark taken back once no planner runs. Best-effort after commitFresh's own retries: a throw here would
       // hide the answer about the planner, and no planner is left running either way
       const unmark = (): Promise<unknown> =>
@@ -4084,12 +4260,12 @@ export async function handleCommand(
       // T5: the crash restore's `jobs-plan --resume <native id>`: the dead planner's own conversation goes on
       const resume = str(args.resume)
       try {
-        const started = await deps.startCoordinator({
+        const start: Parameters<NonNullable<OrchServerDeps['startCoordinator']>>[0] = {
           runId: id,
           cwd: job.cwd,
           accountId,
           ...(preferredId === undefined ? { auto: true as const } : {}),
-          onWait: setStartWait(id),
+          onWait: (why) => backOnChain(deps, () => setStartWait(id)(why)),
           role: 'planner',
           ...(resume ? { resume } : {}),
           brief: resume ? crashResumedBrief('planner', id) : buildPlannerBrief({
@@ -4106,7 +4282,8 @@ export async function handleCommand(
             otherPlans: otherPlansBrief(deps.getState(), job),
             ownerInstructions: await readOwner(deps.profileDir, 'planner')
           })
-        })
+        }
+        const started = await offChain(deps, () => deps.startCoordinator!(start))
         sessionId = started.sessionId
         startedOn = started.accountId
       } catch (e) {
@@ -4210,7 +4387,7 @@ export async function handleCommand(
         if (!deps.mergeWorktrees) return bad('merging is not available in this build')
         const cwd = job?.cwd ?? (run && jobOf(s, run)?.cwd)
         if (cwd === undefined) return bad(`no project folder for ${String(id)}`)
-        const merged = await deps.mergeWorktrees(cwd, worktrees)
+        const merged = await offChain(deps, () => deps.mergeWorktrees!(cwd, worktrees))
         if (!merged.ok) return conflict(merged.reason)
         mergeFacts = {
           uncommitted: merged.uncommitted ?? 0,
@@ -4535,7 +4712,7 @@ export async function handleCommand(
       if (!deps.mergeWorktrees) return bad('merging is not available in this build')
       const mergeCwd = jobOf(s, run)?.cwd
       if (mergeCwd === undefined) return bad(`no project folder for ${id}`)
-      const merged = await deps.mergeWorktrees(mergeCwd, worktrees)
+      const merged = await offChain(deps, () => deps.mergeWorktrees!(mergeCwd, worktrees))
       if (!merged.ok && merged.conflict) {
         // A conflict is the AI merge Task's, as in the scheduler's merge: it merges them into the Run's plan branch
         const root = runRootOf(run, jobOf(s, run))
@@ -4824,6 +5001,10 @@ export async function handleCommand(
       if (!plan.ok) return bad(plan.error)
       if (plannerJobOf(s, caller.sessionId) && (!plan.fields.prompt || !plan.fields.acceptanceCriteria))
         return bad('a planner Task needs --prompt and --criteria (one or more acceptance criteria)')
+      // T32: a replan planner says in one line why it adds each Task; the plan view shows it ("Added by the final check: <why>")
+      const replan = replanJobOf(s, caller.sessionId)?.replanning
+      const why = str(args.why)?.replace(/\s+/g, ' ').trim()
+      if (replan && !why) return bad('a Task added by a replan needs --why "<one line: why this Task is added>"')
       const latest = deps.getState()
       const made = createTask(
           latest,
@@ -4843,7 +5024,10 @@ export async function handleCommand(
             // its replans or its coordinator, so none can forget `--review`; `--no-review` opts one Task out
             reviewRequested:
               args.review === true || (args.noReview !== true && reviewDefaultOf(latest, runId)) ? true : undefined,
-            ...plan.fields
+            ...plan.fields,
+            ...(replan && why
+              ? { addedBy: { kind: replan.feedbackAt !== undefined || replan.chat ? 'feedback' : replan.mode === 'completion' ? 'final-check' : 'wave-replan', why: why.slice(0, 300), at: now } as const }
+              : {})
           },
           now
         )
@@ -5001,17 +5185,10 @@ export async function handleCommand(
       // A merging Task (state.ts doneStatusOf) is completed by its merge: here, with its dependents readied.
       if (args.mergedIntoPlan === true) {
         if (fromAgentSession || caller.role === 'mcp') return bad('--merged-into-plan is recorded by Astera itself')
-        const target = s.tasks.find((t) => t.id === id)
-        if (!target) return notFound(`unknown task: ${id}`)
-        if (target.status === 'merging') {
-          const landed: Task = { ...target, status: 'completed', updatedAt: now, mergedIntoPlanAt: now }
-          await deps.setState(closeGatesOf({ ...s, tasks: recomputeReady(s.tasks.map((t) => (t.id === id ? landed : t))) }, id, 'closed: task completed', now))
-          return okBody({ id, mergedIntoPlanAt: now })
-        }
-        if (target.status !== 'completed') return bad(`task ${id} is ${target.status}, not completed`)
-        if (target.mergedIntoPlanAt !== undefined) return okBody({ id, mergedIntoPlanAt: target.mergedIntoPlanAt })
-        await deps.setState({ ...s, tasks: s.tasks.map((t) => (t.id === id ? { ...t, mergedIntoPlanAt: now } : t)) })
-        return okBody({ id, mergedIntoPlanAt: now })
+        const r = landMerge(s, id, now)
+        if (!r.ok) return r.missing ? notFound(r.error) : bad(r.error)
+        if (r.state !== s) await deps.setState(r.state)
+        return okBody(r.value)
       }
       // W2-A: editing a plan's Task (its title, spec, deps and plan fields) instead of moving its status.
       const PLAN_EDIT = ['title', 'spec', 'deps', 'prompt', 'criteria', 'affectedPaths', 'noFiles', 'difficulty', 'effort', 'provider', 'model', 'modelReason', /* W6-A */ 'basis', 'evidence', /* T7 */ 'covers', /* T9 */ 'kind', /* T3 */ 'worktree']
@@ -7088,7 +7265,7 @@ export async function handleCommand(
       if (outcome !== 'completed' && outcome !== 'failed' && outcome !== 'blocked') return conflict('This Run is still working')
       let changed: number
       try {
-        changed = (await g.isClean(t.cwd)).changedCount
+        changed = (await offChain(deps, () => g.isClean(t.cwd))).changedCount
       } catch (err) {
         // isCleanWorktree's code prefix belongs to the worktree-remove path, and reads wrong here.
         const why = (err instanceof Error ? err.message : String(err)).replace(/^GIT_REMOVE_FAILED: /, '')
@@ -7096,10 +7273,10 @@ export async function handleCommand(
       }
       if (changed > 0) return conflict(`The Run's worktree has ${changed} uncommitted changes`)
       const base = baseArg ?? t.baseRef
-      const commits = await g.readCommits(t.cwd, base)
+      const commits = await offChain(deps, () => g.readCommits(t.cwd, base))
       if (commits.length === 0) return conflict("The Run's branch adds no commits")
       const filled = fillFromCommits(t.branch, commits)
-      const made = await g.createPr({
+      const made = await offChain(deps, () => g.createPr({
         worktreePath: t.cwd,
         repoPath: t.repoPath,
         branch: t.branch,
@@ -7108,7 +7285,7 @@ export async function handleCommand(
         body: body ?? filled.body,
         draft,
         needsPush: true
-      })
+      }))
       if (made.ok) return okBody({ url: made.url, draft, pushed: true })
       // `pushed` rides on every failure: a create that failed after a push left the branch on the
       // remote. `exists` keeps gh's own words, which end with the existing pull request's URL.
@@ -7197,7 +7374,12 @@ export async function handleCommand(
       const push = route === 'push' || local
       // T3: the driving loop's own steps (persisted delivery state, retries, the owner's answer) are Astera's
       const loopStep =
-        args.pending === true || args.auto === true || args.awaitReview === true || args.ownerPushed === true || typeof args.stopped === 'string'
+        args.pending === true ||
+        args.auto === true ||
+        args.awaitReview === true ||
+        args.ownerPushed === true ||
+        typeof args.stopped === 'string' ||
+        typeof args.originSeen === 'string'
       if ((push || loopStep) && (fromAgentSession || caller.role === 'mcp'))
         return denied('a delivery is made by Astera itself, or by the person')
       const progressOf = (st: OrchState): DeliveryProgress | undefined => st.runs.find((r) => r.id === id)?.deliveryState
@@ -7205,6 +7387,21 @@ export async function handleCommand(
         ...st,
         runs: st.runs.map((r) => (r.id === id ? { ...r, deliveryState: p } : r))
       })
+      // The plan branch head and origin's tip the loop read for this attempt (`head`, `origin`): a failed delivery is due
+      // again at once when they moved (delivery.ts deliveryDue), and the attempt records them
+      const heads: DeliveryHeads = {
+        ...(typeof args.head === 'string' && args.head !== '' ? { head: args.head } : {}),
+        ...(typeof args.origin === 'string' && args.origin !== '' ? { origin: args.origin } : {})
+      }
+      // The loop, after a failed attempt: origin's tip as that attempt left it (its fetch moved the ref), so the attempt's
+      // own fetch does not read as a move
+      if (typeof args.originSeen === 'string') {
+        const p = deps.getState().runs.find((r) => r.id === id)?.deliveryState
+        if (p?.state !== 'retrying' && p?.state !== 'needs-owner') return okBody({ deliveryState: p })
+        const seen: DeliveryProgress = { ...p, originAtAttempt: args.originSeen }
+        await deps.setState(withProgress(deps.getState(), seen))
+        return okBody({ deliveryState: seen })
+      }
       // A manual plan that finished waits for the owner: no attempt is due, nothing retries
       if (args.awaitReview === true) {
         if (mode !== 'manual') return conflict('Only a manual plan waits for its owner to review it')
@@ -7243,7 +7440,7 @@ export async function handleCommand(
           return okBody({ deliveryState: mine })
         }
         if (!deps.deliverPush) return conflict('Pushing a plan is done by the Astera Host, and this caller is not one')
-        const r = await deps.deliverPush({ ...pushTarget, message: '', checks: [], ownerPushed: true })
+        const r = await offChain(deps, () => deps.deliverPush!({ ...pushTarget, message: '', checks: [], ownerPushed: true }))
         if (!r.ok) {
           // T1: checked again by the loop (ownerCheckDue reads needs-owner) until git sees the work on origin
           const wait: DeliveryProgress = {
@@ -7256,13 +7453,16 @@ export async function handleCommand(
           return { status: 409, body: { error: r.reason, deliveryState: wait } }
         }
         await deps.setState(withProgress(cleared(recordDelivery(deps.getState(), id, { at, branch: r.branch, sha: r.sha })), mine))
-        await cleanAfterDelivery(deps, id) // W9-J
+        await offChain(deps, () => cleanAfterDelivery(deps, id)) // W9-J
         return okBody({ delivery: route, branch: r.branch, sha: r.sha, pushed: false, deliveryState: mine })
       }
       const force = args.force === true
       // T3: the loop's attempt is made only when it is due (pending, or a failure's retry time came)
-      if (args.auto === true && !deliveryDue(run.deliveryState, Date.parse(deps.now?.() ?? now)))
+      // T19: `targetTip` is the target's tip the loop read, for a merge failure judged on another one
+      if (args.auto === true && !deliveryDue(run.deliveryState, Date.parse(deps.now?.() ?? now), heads, { branch: run.git?.head, target: str(args.targetTip) ?? undefined }))
         return conflict('No delivery attempt is due for this Run yet')
+      // The plan branch moved since the last attempt: this one counts afresh, as the owner's "Retry now" does
+      const moved = headMoved(run.deliveryState, heads)
       /** One attempt's end, recorded: delivered, or one more failure with its retry time; the fifth asks the owner once.
        *  A person's --force starts the count again. */
       const settle = async (
@@ -7270,11 +7470,16 @@ export async function handleCommand(
         st: OrchState = deps.getState(),
         code?: string,
         /** T5: `fix` never reads needs-owner (a fix Task runs), `owner` asks the owner at this attempt */
-        fix?: 'fix' | 'owner' | null
+        fix?: 'fix' | 'owner' | null,
+        /** T19: a merge failure's target tip it was judged on (PushResult `target`) */
+        target?: string
       ): Promise<DeliveryProgress> => {
         const at = deps.now?.() ?? now
-        let next = afterAttempt(force ? undefined : progressOf(s), at, error, {
+        let next = afterAttempt(force || moved ? undefined : progressOf(s), at, error, {
+          heads,
           ...(code !== undefined ? { code } : {}),
+          ...(run.git?.head !== undefined ? { head: run.git.head } : {}), // T19: the plan branch head judged
+          ...(target !== undefined ? { target } : {}),
           ...(fix === 'fix' ? { ask: false } : {})
         })
         if (fix === 'owner' && next.state === 'retrying') next = { ...next, state: 'needs-owner' }
@@ -7291,10 +7496,11 @@ export async function handleCommand(
       // T3: the loop stopped this attempt itself (a refresh onto another plan's delivery needs a person): one failure
       if (typeof args.stopped === 'string') return { status: 409, body: { error: args.stopped, deliveryState: await settle(args.stopped) } }
       if (!push) {
+        if (force || args.auto === true) await deps.setState(beginAttempt(deps.getState(), id, heads, deps.now?.() ?? now))
         const opened = await handleCommand(deps, caller, 'run-open-pr', { run: id, ...(force || args.auto === true ? { force: true } : {}) })
         // T1: merged or closed on GitHub: run-open-pr recorded it delivered, and no attempt is counted
         if ((opened.body as { landed?: unknown } | null)?.landed !== undefined) return { ...opened, body: { ...(opened.body as object), deliveryState: progressOf(deps.getState()) } }
-        if (opened.status < 400) await cleanAfterDelivery(deps, id) // W9-J
+        if (opened.status < 400) await offChain(deps, () => cleanAfterDelivery(deps, id)) // W9-J
         const error = opened.status < 400 ? undefined : String((opened.body as { error?: unknown } | null)?.error ?? `run-open-pr answered ${opened.status}`)
         const code = (opened.body as { code?: unknown } | null)?.code
         const p = await settle(error, undefined, typeof code === 'string' ? code : undefined)
@@ -7302,7 +7508,7 @@ export async function handleCommand(
       }
       const done = run.delivery
       if (done?.sha !== undefined) return okBody({ delivery: route, branch: done.branch ?? null, sha: done.sha, pushed: false })
-      if (done?.error !== undefined && !force && args.auto !== true)
+      if (done?.error !== undefined && !force && args.auto !== true && !moved)
         return conflict(`Pushing this Run stopped before: ${done.error}. --force tries again`)
       if (taskOutcomeOf(s, run) !== 'completed') {
         // T5: the only failed Tasks are delivery fix Tasks: the fix attempts ran out, so the owner is asked as after FAILURE_LIMIT of them
@@ -7333,14 +7539,10 @@ export async function handleCommand(
         if (w.waitingFor)
           return { status: 409, body: { error: `waiting for ${jobNameOf(w.waitingFor)} to land first`, code: 'waiting', deliveryState: progressOf(w.state) } }
       }
-      await deps.setState(
-        withProgress(deps.getState(), { ...(progressOf(deps.getState()) ?? { attempts: 0 }), state: 'delivering', lastAttemptAt: deps.now?.() ?? now })
-      )
-      const r = await deps.deliverPush({
-        ...pushTarget,
-        message: deliveryMessage(jobNameOf(job), deliveryIssuesOf(s, run)),
-        checks: deliveryChecksOf(s, id)
-      })
+      await deps.setState(beginAttempt(deps.getState(), id, heads, deps.now?.() ?? now))
+      // T4: `delivering` is committed above; the push runs with the chain handed on, from what was read before it
+      const delivery = { ...pushTarget, message: deliveryMessage(jobNameOf(job), deliveryIssuesOf(s, run)), checks: deliveryChecksOf(s, id) }
+      const r = await offChain(deps, () => deps.deliverPush!(delivery))
       const at = deps.now?.() ?? now
       // T3: recorded quietly: the owner is asked once, after the last automatic attempt (settle)
       const recorded = recordDelivery(
@@ -7352,11 +7554,14 @@ export async function handleCommand(
       // T5: a hands-free plan's failed validation becomes a fix Task (the loop opens it), until FAILURE_LIMIT of them ran;
       // T1: so does a push the repository refused (a pre-push hook's checks)
       const fix = !r.ok && (r.code === 'validation-failed' || r.code === 'push-refused') ? deliveryFixOf(deps.getState(), run) : null
-      const p = await settle(r.ok ? undefined : r.reason, recorded, r.ok ? undefined : r.code, fix)
+      const p = await settle(r.ok ? undefined : r.reason, recorded, r.ok ? undefined : r.code, fix, r.ok ? undefined : r.target)
       if (!r.ok)
         return { status: 409, body: { error: r.reason, ...(r.branch ? { branch: r.branch } : {}), ...(r.code ? { code: r.code } : {}), ...(r.conflictWith ? { conflictWith: r.conflictWith } : {}), deliveryState: p } }
-      const removed = deps.removeWorktrees && r.merged.length > 0 ? await deps.removeWorktrees(r.merged) : null
-      await cleanAfterDelivery(deps, id) // W9-J: what the push left (the Run's own folder)
+      const removed = await offChain(deps, async () => {
+        const out = deps.removeWorktrees && r.merged.length > 0 ? await deps.removeWorktrees(r.merged) : null
+        await cleanAfterDelivery(deps, id) // W9-J: what the push left (the Run's own folder)
+        return out
+      })
       return okBody({
         delivery: route,
         branch: r.branch,
@@ -7395,8 +7600,9 @@ export async function handleCommand(
       }
       // T4: `synced`: an origin sync merged into the plan branch, which is pushed with no new Task
       await readLandingOf(s, job, deps.github?.deliverySetup) // T32: draftPrDue reads what this read
-      const tasksDone = draftPrDue(s, run, undefined, { synced: args.synced === true })
-      if (tasksDone === null) return conflict("No plan-branch push is due: the plan's branch is pushed once per Task merged into it")
+      // T10: `now`, a person's "push now": at once, whatever the plan's push cadence
+      const tasksDone = draftPrDue(s, run, undefined, { synced: args.synced === true, now: args.now === true })
+      if (tasksDone === null) return conflict("No plan-branch push is due: the plan's push cadence (jobs-set --push-cadence) has none now; --now pushes anyway")
       const reply = await (async (): Promise<Reply> => {
         const t = githubTarget(deps, s, { run: id })
         if ('error' in t) return t.error
@@ -7407,18 +7613,18 @@ export async function handleCommand(
         const fold = completedWorktrees(s, run)
         if (fold.length > 0) {
           if (!deps.mergeWorktrees) return conflict('merging is not available in this build')
-          const merged = await deps.mergeWorktrees(t.cwd, fold)
+          const merged = await offChain(deps, () => deps.mergeWorktrees!(t.cwd, fold))
           if (!merged.ok) return conflict(merged.reason)
         }
         // T3: a push plan's branch is pushed for safekeeping; main receives the plan once, validated, at the end. T4: so is
         // a `pr` plan's synced before its first Task: its draft opens with that Task
         if (deliveryLandingOf(s, job).mode !== 'pr' || (run.pr?.url === undefined && tasksDone < 1)) {
-          const pushed = await g.push(t.cwd, t.branch)
+          const pushed = await offChain(deps, () => g.push!(t.cwd, t.branch))
           if (!pushed.ok)
             return pushed.kind === 'no-remote'
               ? okBody({ noRemote: true, branch: t.branch, message: noRemoteNote(t.branch, t.repoPath) })
               : conflict(`The push was rejected: ${pushed.detail.trim()}`)
-          await pushNotes(t.cwd) // W8-A
+          await offChain(deps, () => pushNotes(t.cwd)) // W8-A
           return okBody({ branch: t.branch, pushed: true, tasksDone })
         }
         let accounts: OrchAccount[] = []
@@ -7433,7 +7639,7 @@ export async function handleCommand(
         const title = jobNameOf(job)
         const tasks = planPrTasksOf(cur, id, (a) => accounts.find((x) => x.id === a)?.label)
         const body =
-          planPrBody({ plan: title, tasks, waves: wavesSection(waves), did: await prSummaries(deps, cur, id), footer: DRAFT_PR_FOOTER }) + (await prAttribution(cur, id, t.cwd)) // W8-A
+          planPrBody({ plan: title, tasks, waves: wavesSection(waves), did: await prSummaries(deps, cur, id), footer: DRAFT_PR_FOOTER }) + (await offChain(deps, () => prAttribution(cur, id, t.cwd))) // W8-A
         const at = deps.now?.() ?? now
         const record = async (pr: RunPr, links?: TaskLinks): Promise<void> => {
           const st = deps.getState()
@@ -7445,25 +7651,25 @@ export async function handleCommand(
         }
         const open = run.pr
         if (open?.url !== undefined) {
-          const pushed = await g.push(t.cwd, t.branch)
+          const pushed = await offChain(deps, () => g.push!(t.cwd, t.branch))
           if (!pushed.ok)
             return pushed.kind === 'no-remote'
               ? okBody({ noRemote: true, branch: t.branch, message: noRemoteNote(t.branch, t.repoPath) })
               : conflict(`The push was rejected: ${pushed.detail.trim()}`)
-          await pushNotes(t.cwd) // W8-A: the notes ref goes with the PR branch
-          const edited = await setPrBody(g.run, open.url, body, t.cwd)
+          await offChain(deps, () => pushNotes(t.cwd)) // W8-A: the notes ref goes with the PR branch
+          const edited = await offChain(deps, () => setPrBody(g.run, open.url!, body, t.cwd))
           if (!edited.ok) return ghRefusal({ ok: false, ...ghFailureSentence(edited) })
           await record({ ...open, at, draft: true, wavesDone: done })
           return okBody({ url: open.url, number: open.number ?? null, draft: true, wavesDone: done, opened: false })
         }
         // The plan's target branch when it has one, else the repository's default
-        const base = deliveryBranchOf(cur, job) ?? (await defaultBranchOf(g.run, t.cwd)) ?? t.baseRef
-        const made = await g.createPr({ worktreePath: t.cwd, repoPath: t.repoPath, branch: t.branch, base, title, body, draft: true, needsPush: true })
+        const base = deliveryBranchOf(cur, job) ?? (await offChain(deps, () => defaultBranchOf(g.run, t.cwd))) ?? t.baseRef
+        const made = await offChain(deps, () => g.createPr({ worktreePath: t.cwd, repoPath: t.repoPath, branch: t.branch, base, title, body, draft: true, needsPush: true }))
         if (!made.ok) {
           if (made.kind === 'no-remote') return okBody({ noRemote: true, branch: t.branch, message: noRemoteNote(t.branch, t.repoPath) })
           return conflict(`The draft pull request was not opened (${made.stage}, ${made.kind}): ${made.detail.trim()}`)
         }
-        await pushNotes(t.cwd) // W8-A: the notes ref goes with the PR branch
+        await offChain(deps, () => pushNotes(t.cwd)) // W8-A: the notes ref goes with the PR branch
         const number = prNumberOf(made.url)
         await record(
           { at, url: made.url, ...(number !== null ? { number } : {}), draft: true, wavesDone: done },
@@ -7476,7 +7682,7 @@ export async function handleCommand(
       // T4: consecutive failures count (a push that went through, or the owner's "Retry now", starts afresh); the fifth asks
       // the owner once, as a delivery does (`raiseDeliveryQuestion`), and a push that goes through answers that question
       const prev = run.branchPush
-      const bp = afterAttempt(prev?.state === 'delivered' || args.force === true ? undefined : prev, at, failed)
+      const bp = afterAttempt(prev?.state === 'delivered' || args.force === true || args.now === true ? undefined : prev, at, failed)
       const tasksPushed = failed === undefined ? tasksDone : prev?.tasksDone
       let cur = deps.getState()
       cur = { ...cur, runs: cur.runs.map((r) => (r.id === id ? { ...r, branchPush: { ...bp, ...(tasksPushed !== undefined ? { tasksDone: tasksPushed } : {}) } } : r)) }
@@ -7548,7 +7754,8 @@ export async function handleCommand(
       const run = s.runs.find((r) => r.id === id)
       if (!run) return notFound(`unknown run: ${id}`)
       if (run.pr?.landed !== undefined) return conflict(`This Run was already ${run.pr.landed}`)
-      const unmerged = (run.pr?.url !== undefined && run.pr.draft !== true) || run.deliveryState?.state === 'awaiting-review'
+      // unmerged, or finished with a delivery that failed (the owner merged it by hand after the failure)
+      const unmerged = (run.pr?.url !== undefined && run.pr.draft !== true) || run.deliveryState?.state === 'awaiting-review' || deliveryFailedOf(s, run)
       if (!unmerged) return conflict('This Run has no unmerged work to mark merged')
       if (outcomeOf(s, id) === 'running') return conflict('This Run is still working')
       await deps.setState(landedOnGitHub(s, id, 'merged', deps.now?.() ?? now))
@@ -7587,8 +7794,33 @@ export async function handleCommand(
           return { run: r, state: byHand === true ? 'MERGED' : gh }
         })
       )
+      // A finished Run that is Failed, retrying, waiting on the owner or Unmerged, whose plan branch the owner merged into
+      // origin's delivery branch outside Astera. The git work (one fetch per Run) runs with the Host's command chain handed
+      // on (`outsideChain`), and the state is read again after it before anything is recorded; each Run is asked at most
+      // once per OUTSIDE_FRESH_MS, whatever git answers.
+      const landedByGh = new Set(states.filter((x) => x.state === 'MERGED' || x.state === 'CLOSED').map((x) => x.run.id))
+      const outsideDue = s.runs
+        .filter((r) => {
+          if (r.pr?.landed !== undefined || landedByGh.has(r.id) || Date.parse(at) - Date.parse(r.outsideCheckedAt ?? '') < OUTSIDE_FRESH_MS) return false
+          if (!(readyPr(r) || r.deliveryState?.state === 'awaiting-review' || deliveryFailedOf(s, r)) || outcomeOf(s, r.id) === 'running') return false
+          const job = jobOf(s, r)
+          return job !== undefined && (!project || jobInProject(s, job, project))
+        })
+        .slice(0, PR_SYNC_BATCH)
+      const askOrigin = (): Promise<{ run: JobRun; inOrigin: boolean | null }[]> =>
+        Promise.all(outsideDue.map(async (r) => ({ run: r, inOrigin: await branchInOrigin(s, r, attributionGit).catch(() => null) })))
+      const outside = outsideDue.length === 0 ? [] : await (deps.outsideChain ? deps.outsideChain(askOrigin) : askOrigin())
       let next = deps.getState()
       const landed: { runId: string; landed: 'merged' | 'closed' }[] = []
+      for (const { run, inOrigin } of outside) {
+        // another command may have settled or restarted the Run while the chain was handed on
+        const cur = next.runs.find((r) => r.id === run.id)
+        if (!cur || cur.pr?.landed !== undefined || landedByGh.has(run.id) || outcomeOf(next, run.id) === 'running') continue
+        if (inOrigin === true) {
+          next = landedOutside(next, run.id, at)
+          landed.push({ runId: run.id, landed: 'merged' })
+        } else next = { ...next, runs: next.runs.map((r) => (r.id === run.id ? { ...r, outsideCheckedAt: at } : r)) }
+      }
       for (const { run, state } of states) {
         if (state === 'MERGED' || state === 'CLOSED') {
           const to = state === 'MERGED' ? 'merged' : 'closed'
@@ -7598,7 +7830,8 @@ export async function handleCommand(
           next = { ...next, runs: next.runs.map((r) => (r.id === run.id ? (r.pr ? { ...r, pr: { ...r.pr, landedCheckedAt: at } } : { ...r, landedCheckedAt: at }) : r)) }
         }
       }
-      if (due.length > 0) await deps.setState(next)
+      if (due.length > 0 || outside.length > 0) await deps.setState(next)
+      for (const { run, inOrigin } of outside) if (inOrigin === true && landed.some((l) => l.runId === run.id)) await cleanAfterDelivery(deps, run.id)
       return okBody({ checked: due.length, landed })
     }
     /**
@@ -7621,7 +7854,7 @@ export async function handleCommand(
         const rest = runWorktrees(s, id).filter((p) => !isSamePath(p, plan))
         if (rest.length > 0) {
           if (!deps.mergeWorktrees) return conflict('merging is not available in this build')
-          const merged = await deps.mergeWorktrees(plan, rest)
+          const merged = await offChain(deps, () => deps.mergeWorktrees!(plan, rest))
           if (!merged.ok && !merged.conflict) return conflict(merged.reason)
           if (!merged.ok) {
             const opened = await openMergeTask(deps, caller, id, merged.reason, merged.conflict!)
@@ -7663,7 +7896,8 @@ export async function handleCommand(
       if (run.pr?.url && !draft) return okBody({ url: run.pr.url, number: run.pr.number ?? null, opened: false })
       // T1: a draft merged or closed on GitHub ends the delivery: nothing is pushed, marked ready or retried on it
       if (draft?.url !== undefined && deps.github) {
-        const state = await prStateOf(deps.github.run, draft.url, jobOf(s, run)?.cwd ?? run.worktree ?? '')
+        const gh = deps.github.run
+        const state = await offChain(deps, () => prStateOf(gh, draft.url!, jobOf(s, run)?.cwd ?? run.worktree ?? ''))
         if (state === 'MERGED' || state === 'CLOSED') {
           const landed = state === 'MERGED' ? 'merged' : 'closed'
           await deps.setState(landedOnGitHub(deps.getState(), id, landed, deps.now?.() ?? now))
@@ -7697,14 +7931,15 @@ export async function handleCommand(
       ).filter((p) => !isSamePath(p, worktree))
       if (rest.length > 0) {
         if (!deps.mergeWorktrees) return conflict('merging is not available in this build')
-        const merged = await deps.mergeWorktrees(worktree, rest)
+        const merged = await offChain(deps, () => deps.mergeWorktrees!(worktree, rest))
         if (!merged.ok) {
           await record({ at: now, error: merged.reason })
           return conflict(merged.reason)
         }
       }
       // The plan's target branch when it has one, else the repository's default
-      const base = deliveryBranchOf(s, job) ?? (await defaultBranchOf(deps.github.run, worktree))
+      const gh = deps.github.run
+      const base = deliveryBranchOf(s, job) ?? (await offChain(deps, () => defaultBranchOf(gh, worktree)))
       let accounts: OrchAccount[] = []
       try {
         accounts = await deps.listAccounts()
@@ -7719,7 +7954,7 @@ export async function handleCommand(
           did: await prSummaries(deps, deps.getState(), id), // W9-I
           // W8-C draft PR: the PR that followed the plan keeps its waves, all done now
           ...(draft ? { waves: wavesSection(runWaves(deps.getState(), id)) } : {})
-        }) + (await prAttribution(deps.getState(), id, worktree)) // W8-A
+        }) + (await offChain(deps, () => prAttribution(deps.getState(), id, worktree))) // W8-A
       // W8-C draft PR: push the final branch, write the final body and mark the draft ready; `draft` is cleared
       if (draft?.url !== undefined) {
         const t = githubTarget(deps, s, { run: id })
@@ -7731,17 +7966,17 @@ export async function handleCommand(
           return conflict(error)
         }
         if (!g.push) return conflict('pushing a branch is not available in this build')
-        const pushed = await g.push(t.cwd, t.branch)
+        const pushed = await offChain(deps, () => g.push!(t.cwd, t.branch))
         if (!pushed.ok && pushed.kind === 'origin-conflict') {
           await record({ ...draft, at: now, error: pushed.detail })
           return { status: 409, body: { error: pushed.detail, code: 'origin-conflict', branch: t.branch, conflictWith: pushed.conflictWith } }
         }
         if (!pushed.ok) return fail(pushed.kind === 'no-remote' ? noRemoteNote(t.branch, t.repoPath) : `The push was rejected: ${pushed.detail.trim()}`)
-        await pushNotes(t.cwd) // W8-A: the notes ref goes with the PR branch
+        await offChain(deps, () => pushNotes(t.cwd)) // W8-A: the notes ref goes with the PR branch
         // W8-E (#99): a Run with failed Tasks delivers its completed work and stays a draft
-        const edited = await setPrBody(g.run, draft.url, body, t.cwd)
+        const edited = await offChain(deps, () => setPrBody(g.run, draft.url!, body, t.cwd))
         if (!edited.ok) return fail(`gh api (the pull request's body): ${ghFailureSentence(edited).message}`)
-        const readied = failed ? null : await markPrReady(g.run, draft.url, t.cwd)
+        const readied = failed ? null : await offChain(deps, () => markPrReady(g.run, draft.url!, t.cwd))
         if (readied !== null && !readied.ok) return fail(`gh pr ready: ${ghFailureSentence(readied).message}`)
         const { draft: _d, wavesDone: _w, error: _e, ...ready } = draft
         await record(failed ? { ...draft, at: now } : { ...ready, at: now })
@@ -7769,7 +8004,7 @@ export async function handleCommand(
       }
       const number = prNumberOf(url)
       await record({ at: now, url, ...(number !== null ? { number } : {}), ...(outcome === 'blocked' ? { draft: true as const } : {}) }, number !== null ? { prs: [{ number, url, state: 'open' }] } : undefined)
-      await pushNotes(worktree) // W8-A: the notes ref goes with the PR branch
+      await offChain(deps, () => pushNotes(worktree)) // W8-A: the notes ref goes with the PR branch
       return okBody({ url, number, opened: made.status === 200 })
     }
     /**
@@ -7787,7 +8022,8 @@ export async function handleCommand(
       const job = jobOf(s, run)
       if (!job) return notFound(`no plan for run ${run.id}`)
       if (!deps.github) return conflict('GitHub commands are answered by the Astera Host, and this caller is not one')
-      const view = await deps.github.run(['pr', 'view', url, '--json', 'state,mergeCommit,baseRefName'], job.cwd)
+      const gh = deps.github.run
+      const view = await offChain(deps, () => gh(['pr', 'view', url, '--json', 'state,mergeCommit,baseRefName'], job.cwd))
       if (!view.ok) return ghRefusal({ ok: false, ...ghFailureSentence(view) })
       let pr: { state?: unknown; mergeCommit?: { oid?: unknown } | null; baseRefName?: unknown }
       try {
@@ -7806,16 +8042,22 @@ export async function handleCommand(
         return conflict('This pull request is not merged')
       if (run.pr?.attributed === sha) return okBody({ remapped: false, sha })
       const w = { cwd: job.cwd, timeoutMs: 10 * 60 * 1000 }
-      const fetched = await attributionGit(['fetch', 'origin', pr.baseRefName], w)
-      if (!fetched.ok) return conflict(`git fetch origin ${pr.baseRefName} failed: ${(fetched.stderr || fetched.stdout).trim()}`)
-      // origin may have no notes yet: that fetch failing is no stop
-      if ((await attributionGit(['fetch', 'origin', NOTES_FETCH_REFSPEC], w)).ok) await syncNotes(job.cwd)
+      const base = pr.baseRefName
       const originals = s.tasks.filter((t) => t.runId === run.id).flatMap((t) => t.links?.commits ?? [])
-      const r = await remapMerged({ cwd: job.cwd, mergeCommit: sha, originals })
-      const pushed = r.noted.length > 0 ? await pushNotes(job.cwd) : 'none'
+      // T4: the fetches, the remap and the notes push commit nothing: the chain is handed on meanwhile
+      const done = await offChain(deps, async () => {
+        const fetched = await attributionGit(['fetch', 'origin', base], w)
+        if (!fetched.ok) return { failed: `git fetch origin ${base} failed: ${(fetched.stderr || fetched.stdout).trim()}` }
+        // origin may have no notes yet: that fetch failing is no stop
+        if ((await attributionGit(['fetch', 'origin', NOTES_FETCH_REFSPEC], w)).ok) await syncNotes(job.cwd)
+        const r = await remapMerged({ cwd: job.cwd, mergeCommit: sha, originals })
+        return { r, pushed: r.noted.length > 0 ? await pushNotes(job.cwd) : 'none' }
+      })
+      if (done.failed !== undefined) return conflict(done.failed)
+      const { r, pushed } = done
       const cur = deps.getState()
       await deps.setState({ ...cur, runs: cur.runs.map((x) => (x.id === run.id && x.pr ? { ...x, pr: { ...x.pr, attributed: sha, attributedAt: deps.now?.() ?? new Date().toISOString(), baseRefName: pr.baseRefName as string } } : x)) })
-      await cleanAfterDelivery(deps, run.id) // T5: the plan's pull request is merged: its worktrees and branches go
+      await offChain(deps, () => cleanAfterDelivery(deps, run.id)) // T5: the plan's pull request is merged: its worktrees and branches go
       return okBody({ remapped: true, kind: r.kind, noted: r.noted, sha, notesPushed: pushed === 'pushed' })
     }
     case 'github-ci-rerun': {

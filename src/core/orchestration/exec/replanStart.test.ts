@@ -59,6 +59,8 @@ const plan = (title: string, extra: Record<string, unknown> = {}) => ({
   // W6-A: validatePlan asks every planned Task why it is needed
   basis: 'missing',
   evidence: `no ${title} in src/`,
+  // T32: a replan planner says why it adds the Task (the original planner's calls ignore it)
+  why: `${title} is missing`,
   ...extra
 })
 
@@ -114,6 +116,8 @@ describe('jobs-replan', () => {
     expect(brief).toContain(`${id('B')} (B)`)
     expect(brief).toContain(`--run ${runId}`)
     expect(brief).toContain('the rest of the plan goes on meanwhile')
+    // T5: one read first, then the single commands only for a detail
+    expect(brief).toContain(`astera plan-state --job ${jobId} --json`)
     expect(deriveActivity(before, r.state()).map((e) => e.type)).toContain('plan.replanning')
   })
 
@@ -408,6 +412,34 @@ describe('jobs-replan-done', () => {
       expect(job(r).lastReplan?.escalated !== undefined).toBe(escalates)
       expect(job(r).dispatchHold === true).toBe(escalates)
     }
+  })
+
+  it('T32: a Task a replan adds records which replan added it and why; a replan Task without --why is refused', async () => {
+    for (const [mode, kind] of [
+      ['completion', 'final-check'],
+      ['wave', 'wave-replan']
+    ] as const) {
+      const r = rig()
+      const { jobId, runId } = await approved(r)
+      const s = r.state()
+      r.set({ ...s, tasks: s.tasks.map((t) => (t.runId === runId && mode === 'completion' ? { ...t, status: 'completed' as const } : t)) })
+      await r.person('jobs-replan', { id: jobId, run: runId, mode, wave: 1 })
+      r.tick()
+      const replanner = r.as('ses-planner-2')
+      const refused = await replanner('task-create', { run: runId, ...plan('fix', { why: undefined }) })
+      expect(refused.status).toBe(400)
+      expect(JSON.stringify(refused.body)).toContain('--why')
+      const added = (await replanner('task-create', { run: runId, ...plan('fix', { why: 'the login page lacked a test' }) })).body as Task
+      expect(added.addedBy).toMatchObject({ kind, why: 'the login page lacked a test' })
+      expect(typeof added.addedBy?.at).toBe('string')
+    }
+  })
+
+  it('T32: a Task the original planner or a person adds carries no addedBy', async () => {
+    const r = rig()
+    const { jobId } = await approved(r)
+    const made = (await r.person('task-create', { run: jobId, ...plan('E') })).body as Task
+    expect(made.addedBy).toBeUndefined()
   })
 
   it('reports a final check that added nothing as the plan done', async () => {

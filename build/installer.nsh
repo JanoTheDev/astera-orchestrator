@@ -51,6 +51,43 @@
 !macroend
 
 ; ---------------------------------------------------------------------------------------------
+; customInstall — start Astera again after a silent install that was asked to (`/S --force-run`).
+;
+; The in-app updater installs with `/S --force-run` (src/main/installUpdate.ts), and so does
+; scripts/install.ps1. electron-builder's own run-after (installSection.nsh: `isForceRun` + Silent ->
+; StartApp) is meant to do this, but with `oneClick: false` it was seen not to: the app was installed
+; and nothing opened. We could not trace the stock path to a cause from the template alone, so the
+; relaunch no longer depends on it: this runs inside the install section, after the files are in place
+; and before the stock step. If the stock step also fires, the second start only reaches the app's
+; single-instance lock and quits.
+;
+; **Unelevated.** The installer may be elevated (all-users install, or started from an admin shell), and
+; an app started with CreateProcess/Exec would inherit that and run as admin. StdUtils.ExecShellAsUser
+; asks the shell (Explorer) to start it, so it runs as the logged-on user, the same call the stock step
+; uses. "--updated" is passed on an update, as the stock step does.
+;
+; Only when silent AND `--force-run` is on the command line: an interactive install keeps the wizard's
+; own "Run Astera" box, and `/S` alone stays "install and leave me alone".
+!macro customInstall
+  ${if} ${Silent}
+    Push $R0
+    Push $R1
+    ${GetParameters} $R0
+    ${GetOptions} $R0 "--force-run" $R1
+    ${ifNot} ${Errors}
+      ${if} ${isUpdated}
+        ${StdUtils.ExecShellAsUser} $R1 "$INSTDIR\${APP_EXECUTABLE_FILENAME}" "open" "--updated"
+      ${else}
+        ${StdUtils.ExecShellAsUser} $R1 "$INSTDIR\${APP_EXECUTABLE_FILENAME}" "open" ""
+      ${endIf}
+    ${endIf}
+    ClearErrors
+    Pop $R1
+    Pop $R0
+  ${endIf}
+!macroend
+
+; ---------------------------------------------------------------------------------------------
 ; customUnInstall — take away the public `astera` shuttle that Settings installed (docs/cli.md).
 ;
 ; The Install button writes `astera.cmd` and `astera` into %LOCALAPPDATA%\astera\bin. Uninstalling

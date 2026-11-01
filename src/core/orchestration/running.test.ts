@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { runningCount, isStoppedWorker, runningRunCount, outcomeOf, outcomeOfTasks, outcomeOfRun, deliveryErrorOf, stuckOf } from './running'
+import { runningCount, isStoppedWorker, runningRunCount, stopBlockers, type StopSession, outcomeOf, outcomeOfTasks, outcomeOfRun, deliveryErrorOf, stuckOf } from './running'
 import { snapshotFor } from './view'
 import { emptyState } from './state'
 import type { OrchState } from './state'
@@ -214,6 +214,71 @@ describe('runningRunCount with a coordinator', () => {
   })
 })
 
+// Owner feedback item 20: a paused Run never merges, so its merging Task must not hold `host stop`.
+describe('runningRunCount with a paused Run', () => {
+  const pausedState = (status: Task['status'], paused: boolean): OrchState => {
+    const s = stateFromLegacy({ runs: [run('r1')], tasks: [task('t1', status)], dispatches: [] })
+    return { ...s, runs: s.runs.map((r) => ({ ...r, paused })) }
+  }
+
+  it('counts a merging Task as work in flight only while the Run is not paused', () => {
+    expect(runningRunCount(pausedState('merging', false))).toBe(1)
+    expect(runningRunCount(pausedState('merging', true))).toBe(0)
+  })
+
+  it('counts a paused Run\'s validating and reviewing Tasks as nothing in flight', () => {
+    expect(runningRunCount(pausedState('validating', true))).toBe(0)
+    expect(runningRunCount(pausedState('reviewing', true))).toBe(0)
+  })
+})
+
+describe('stopBlockers', () => {
+  const workerD = (id: string, taskId: string, over: Partial<Dispatch> = {}): Dispatch => ({ ...open(id, taskId), ...over })
+  const base = (tasks: Task[], dispatches: Dispatch[], over: Partial<OrchState['runs'][number]> = {}): OrchState => {
+    const s = stateFromLegacy({ runs: [run('r1')], tasks, dispatches })
+    return { ...s, runs: s.runs.map((r) => ({ ...r, ...over })) }
+  }
+  const sessionsOf = (...ids: string[]): StopSession[] => ids.map((id) => ({ id, kind: 'session' }))
+
+  it('does not let a finished worker\'s session block', () => {
+    const d = workerD('d1', 't1', { outcome: 'succeeded', endedAt: '2026-08-20T02:00:00.000Z' })
+    expect(stopBlockers(base([task('t1', 'completed')], [d]), sessionsOf('sess-d1'))).toEqual([])
+  })
+
+  it('does not let a planner idle at its prompt block, nor a session of a paused Run', () => {
+    const s = base([task('t1', 'dispatched')], [workerD('d1', 't1')], { paused: true })
+    const planned = { ...s, jobs: s.jobs.map((j) => ({ ...j, plannerSessionIds: ['planner-1'] })) }
+    expect(stopBlockers(planned, sessionsOf('planner-1', 'sess-d1'))).toEqual([])
+  })
+
+  it('lets a working worker, a reviewer, a coordinator of a live Run and a chat block, each with its id, role, task and run', () => {
+    const s = base(
+      [task('t1', 'dispatched'), task('t2', 'reviewing')],
+      [workerD('d1', 't1'), workerD('d2', 't2', { review: true })],
+      { coordinatorSessionId: 'coord-1' }
+    )
+    const got = stopBlockers(s, [...sessionsOf('sess-d1', 'sess-d2', 'coord-1', 'chat-1'), { id: 'term-1', kind: 'terminal' }])
+    expect(got.filter((b) => b.kind === 'session')).toEqual([
+      { kind: 'session', id: 'sess-d1', role: 'worker', taskId: 't1', runId: 'r1', title: 'task t1' },
+      { kind: 'session', id: 'sess-d2', role: 'reviewer', taskId: 't2', runId: 'r1', title: 'task t2' },
+      { kind: 'session', id: 'coord-1', role: 'coordinator', runId: 'r1', title: 'objective r1' },
+      { kind: 'session', id: 'chat-1', role: 'chat', title: 'chat-1' },
+      { kind: 'session', id: 'term-1', role: 'terminal', title: 'term-1' }
+    ])
+  })
+
+  it('lists each Run with work in flight and why, and none for a paused one', () => {
+    expect(stopBlockers(base([task('t1', 'merging')], []), [])).toEqual([{ kind: 'run', id: 'r1', title: 'objective r1', why: 'merging' }])
+    expect(stopBlockers(base([task('t1', 'dispatched')], [workerD('d1', 't1')]), [])).toEqual([{ kind: 'run', id: 'r1', title: 'objective r1', why: 'dispatched' }])
+    expect(stopBlockers(base([task('t1', 'merging')], [], { paused: true }), [])).toEqual([])
+  })
+
+  it('counts the same Runs runningRunCount does', () => {
+    for (const status of ['pending', 'validating', 'reviewing', 'merging', 'completed'] as const)
+      expect(stopBlockers(base([task('t1', status)], []), []).length).toBe(runningRunCount(base([task('t1', status)], [])))
+  })
+})
+
 describe('merging', () => {
   it('is not terminal: a Run whose last Task is merging still runs', () => {
     expect(outcomeOfTasks([task('a', 'completed'), task('b', 'merging')])).toBe('running')
@@ -237,6 +302,12 @@ describe('a failed delivery', () => {
     for (const state of ['dismissed', 'delivered-by-owner', 'delivered'] as const)
       expect(deliveryErrorOf(run({ delivery: { at: 'x', error: 'push refused' }, deliveryState: { state, attempts: 1 } }))).toBeUndefined()
     expect(deliveryErrorOf(run({ delivery: { at: 'x', error: 'push refused' }, deliveryState: { state: 'needs-owner', attempts: 5 } }))).toBe('push refused')
+  })
+
+  it('a new attempt that runs has no error yet, so the plan is not read failed meanwhile', () => {
+    const r = run({ delivery: { at: 'x', error: 'push refused' }, deliveryState: { state: 'delivering', attempts: 1, previousError: 'push refused' } })
+    expect(deliveryErrorOf(r)).toBeUndefined()
+    expect(outcomeOfRun(done, r, state)).toBe('completed')
   })
 
   it('makes a Run whose Tasks all completed read failed, and leaves the Tasks-only answer alone', () => {

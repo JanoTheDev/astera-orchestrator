@@ -1,7 +1,9 @@
 import type { ApprovalMode } from './settings/approvalDefault'
+import type { HostUpdateView } from './host/hostUpdateState'
 import type { CrashOffer, CrashReportsSetting, RENDERER_KINDS } from './crash/report' // T27
 import type { Decision, IssuePick, PlanFeedback } from './orchestration/types'
 import type { DeliverySetup } from './orchestration/deliveryChoices'
+import type { OpenConsole } from './orchestration/openConsoles'
 import type { WorktreeDetail, WorktreeRow } from './worktrees/cleanup'
 import type { ChangeMap } from './review/changeMap'
 import type { SlashCommand } from './commands/slashCommands'
@@ -621,6 +623,8 @@ export interface JobTask {
   worktree?: 'new' | 'reuse'
   /** An app-made merge Task (it has a parentId, integrate.ts isIntegrationTask). */
   isMerge?: true
+  /** T32: a replan added it: which one and why in one line (Task.addedBy). */
+  addedBy?: { kind: 'final-check' | 'wave-replan' | 'feedback'; why: string }
 }
 
 // W2-C plan board: declared here, as RunOutcome is, because the renderer reads them and blocked.ts is not in its build.
@@ -675,8 +679,18 @@ export type TaskBlockedReason =
     }
   /** It has a slot: the dispatch loop starts it on its next pass. */
   | { kind: 'next' }
+  /** T8: the dispatch loop's last pass tried to place it and held it (exec/dispatchLoop.ts placeSlot); in memory only. */
+  | ({ kind: 'hold' } & SlotHold)
   /** W6-G: every account it may start on is at `usagePauseAt` of a usage window (usageGuard.ts). */
   | ({ kind: 'usage-paused' } & UsagePause)
+
+/** T8: why `placeSlot` did not start a ready Task this pass, and since when (ISO). `detail` is the loop's own English line. */
+export type SlotHoldKind = 'usage' | 'detached' | 'install' | 'origin-sync' | 'refresh-conflict' | 'integration' | 'run-root-busy' | 'cap' | 'held'
+export interface SlotHold {
+  hold: SlotHoldKind
+  detail: string
+  since: string
+}
 
 // W6-G usage guards: declared here because the renderer reads them (the plan board, the usage strip).
 /** An account no new worker starts on: a usage window at or over `usagePauseAt`, until it resets. */
@@ -830,6 +844,8 @@ export interface JobRow {
   plannerSessionId?: string
   /** A replan is under way (Job.replanning): the 0-based wave it stands before. */
   replanWave?: number
+  /** T13: the consoles a running plan has open, each with the reason it is kept (openConsoles.ts). Absent: none open. */
+  consoles?: { count: number; list: OpenConsole[] }
   /** T14 Coordinator strip: the plan's wave being worked on and its wave count, both 1-based (replan.ts `waveOf`);
    *  `at` is the first wave with a Task not completed, `of` once all are. Absent: the plan has no Tasks yet. */
   wave?: { at: number; of: number }
@@ -910,6 +926,8 @@ export interface JobRow {
   deliveredBy?: { jobId: string; title: string }
   /** A `manual` plan finished and waits for its owner to review it and create the PR or merge (Run.deliveryState `awaiting-review`). */
   awaitingReview?: true
+  /** T11: Astera pushes this plan's branch (delivery `pr` or `push`, and the owner has not taken the pushing over): "Push now" applies. */
+  pushesBranch?: true
   /** T3: a delivery that is being retried, failed, waits on the owner or runs now: the Run it is of (for `run-deliver`),
    *  its step and the last reason. Absent while pending or once delivered. */
   delivery?: {
@@ -1458,6 +1476,9 @@ export interface HostStatus {
   /** A restart the owner asked for, while it is under way and until the window has shown how it ended (T15). Set by
    *  main on what it gives the window, never by HostClient. */
   restart?: HostRestartState
+  /** An outdated Host on its way to the new build, and the owner's "Restart the Host when idle" (T28,
+   *  core/host/hostUpdateState.ts). Present only while the Host is outdated. Set by main, never by HostClient. */
+  update?: HostUpdateView
 }
 
 /** **A restart of the Host the owner asked for now** (T15), as the window shows it (core/host/restartView.ts reads it
@@ -1939,14 +1960,17 @@ export interface CoreApi {
     setAccountMaxSessions(v: Record<string, number>): Promise<void>
     /** T6: the limits Astera lowered itself; restore clears them. */
     getAutoLimits(): Promise<AutoLimits>
-    restoreAutoLimits(): Promise<void>
+    restoreAutoLimits(): Promise<RestoreAutoLimitResult>
     /** Clears only the named auto-limit and writes a 'reset' history row. */
-    restoreAutoLimit(what: 'workers' | 'heavy' | 'checks'): Promise<void>
+    restoreAutoLimit(what: 'workers' | 'heavy' | 'checks'): Promise<RestoreAutoLimitResult>
     /** The agent limit in force and why it may be lower than the person's own. */
     agentLimits(): Promise<AgentLimits>
     /** The floor under memory pressure as saved (null = not set, half the person's limit). */
     getMinWorkersUnderPressure(): Promise<number | null>
     setMinWorkersUnderPressure(n: number | null): Promise<void>
+    /** Whether Astera lowers the agent limits by itself: 'on', 'floor' (never below the minimum, the default) or 'off'. */
+    getAutoLowerLimits(): Promise<'on' | 'floor' | 'off'>
+    setAutoLowerLimits(mode: 'on' | 'floor' | 'off'): Promise<void>
     /** W3-A: minutes between activity digests; 0 is none. */
     getActivityDigestMinutes(): Promise<number>
     setActivityDigestMinutes(n: number): Promise<void>
@@ -1959,6 +1983,9 @@ export interface CoreApi {
     /** Stall watchdog (orchestration/exec/stallWatch.ts); default true. */
     getStallWatch(): Promise<boolean>
     setStallWatch(on: boolean): Promise<void>
+    /** Windows: log Host children that show a window (host/windowDiagnostic.ts); default false. */
+    getWindowDiagnostic(): Promise<boolean>
+    setWindowDiagnostic(on: boolean): Promise<void>
     /** T27: crash reports, 'ask' (default) or 'never' (core/crash/report.ts). */
     getCrashReports(): Promise<CrashReportsSetting>
     setCrashReports(v: CrashReportsSetting): Promise<void>
@@ -2530,6 +2557,8 @@ export interface OrchApi {
    *  `null` 은 둘 중 하나다 — 보여 줄 것이 없거나, 이 프로젝트가 볼 수 없는 Run·Task 다.
    *  구분해 주지 않는 것이 의도다(ipc.ts 의 orch.completion). */
   completion(projectPath: string, runId: string, taskId: string, runtimeId?: string): Promise<CompletionDetail | null>
+  /** T26: a finished review's transcript for read-only preview, by its Dispatch id. Null: not a finished review of this app, or unreadable. */
+  reviewTranscript(dispatchId: string): Promise<TranscriptPreview | null>
   // ── W3-A activity feed (core/orchestration/activity.ts) ──
   /** The local Host's activity lines after `after` (an event id or cursor; none: the oldest held), a page at a time.
    *  The answer is `activity-poll`'s: `{ events, cursor, gap }` on 200. */
@@ -2809,6 +2838,8 @@ export type RendererApi = CoreApi & {
      *  it, resolves with the state it is in, and `force` cuts the wait short ("Restart anyway"). A Host without
      *  HOST_FEATURE_RESTART gets today's handover retire, which it refuses while a Task works. */
     restartNow(o?: { force?: boolean }): Promise<HostRestartState>
+    /** T28: "Restart the Host when idle"; answers the status with it applied. */
+    setRestartWhenIdle(on: boolean): Promise<HostStatus>
     /** Where putting the Host's own runtime in place stands (stage 3 task 2) — read once at mount. */
     runtimeInstall(): Promise<HostRuntimeInstallState>
     /** Every change of that, pushed as it happens; returns an unsubscribe. */
@@ -2988,6 +3019,13 @@ export interface AgentLimits {
   autoLimit?: { cap: number; cause: AutoLimitCause; at: string; detail: string }
   /** The floor under memory pressure: `value` in force, `isDefault` when the person has not set one. */
   minUnderPressure: { value: number; isDefault: boolean }
+  /** Present when auto-limits.json is read-only: the limits are locked and Astera changes none of them. */
+  locked?: true
+}
+
+/** The answer to a restore: `locked` when auto-limits.json is read-only, so nothing was restored. */
+export interface RestoreAutoLimitResult {
+  locked: boolean
 }
 export interface AutoLimits {
   /** Cap on agents across all plans. */

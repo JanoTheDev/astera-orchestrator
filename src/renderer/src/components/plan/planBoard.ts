@@ -130,6 +130,9 @@ export function reasonText(
         : { key: 'plan.reason.sameFiles', params: { task: reason.waitingOn.title, path: reason.path } }
     case 'next':
       return { key: 'plan.reason.next' }
+    // T8: what the loop's last pass held it on
+    case 'hold':
+      return { key: `plan.reason.hold.${reason.hold}` }
     // W6-G: "Paused: Max at 93% of its 5-hour limit, resumes ~14:20"
     case 'usage-paused': {
       const account = accountLabel(reason.accountId)
@@ -141,6 +144,23 @@ export function reasonText(
       }
     }
   }
+}
+
+const ADDED_BY_KEY = { 'final-check': 'plan.task.addedBy.finalCheck', 'wave-replan': 'plan.task.addedBy.replan', feedback: 'plan.task.addedBy.feedback' } as const
+
+/** T32: the one line a replan-added Task carries: "Added by the final check: <why>". */
+export const addedByText = (a: NonNullable<JobTask['addedBy']>): { key: MessageKey; params: MessageParams } => ({ key: ADDED_BY_KEY[a.kind], params: { why: a.why } })
+
+/** The reason line of a Task's card: its own `reasonText`, except that a Task a replan added, held while a replan runs,
+ *  says who added it and why instead of the generic "Final check before merging". */
+export function cardReasonText(
+  task: Pick<JobTask, 'board' | 'addedBy'>,
+  nowMs: number,
+  accountLabel: (id: string) => string
+): { key: MessageKey; params?: MessageParams } | undefined {
+  const reason = task.board?.reason
+  if (task.addedBy && reason?.kind === 'paused' && (reason.why === 'final-check' || reason.why === 'replanning')) return addedByText(task.addedBy)
+  return reason ? reasonText(reason, nowMs, accountLabel) : undefined
 }
 
 /** The badge tone: something only a person can clear, a fault, or plain waiting. */

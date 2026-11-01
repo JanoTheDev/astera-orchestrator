@@ -44,6 +44,8 @@ Where to look first, then symptom, cause and fix. Terms are in [Concepts](concep
 | `astera: command not found` | The command is not installed or its folder is not on `PATH` | Settings → CLI → **Install the astera command**, run the `PATH` line it shows and open a new shell. Inside an Astera session, call `"$ASTERA_CLI"` |
 | `npm install` fails building `node-pty` | The native toolchain is missing | Install Node ≥ 22.13, `python3`, `make` and `g++` (Debian/Ubuntu: `sudo apt install build-essential python3`) |
 | A dev relaunch fails on the same DevTools port | The Host spawned by the previous dev app inherited the port | Use a new `--remoteDebuggingPort`, or end the Host with `astera host stop` |
+| `setup.exe /S` opens the installer wizard instead of installing silently (Windows, Git Bash) | Git Bash (MSYS) rewrites the argument `/S` into a path | Write `MSYS_NO_PATHCONV=1 ./astera-<version>-setup.exe /S --force-run` or `//S`, or run `scripts\install.ps1` from PowerShell |
+| A silent install finished but Astera did not open (Windows) | The installer relaunches the app only when `--force-run` is given | Run `setup.exe /S --force-run`, or `scripts\install.ps1`, which also checks that the app is running. The in-app updater always passes both |
 | "No agent CLI installed" banner | Neither `claude` nor `codex` is on `PATH` | Press **Install** in the banner, or install one yourself |
 
 ## Still stuck

@@ -9,7 +9,7 @@
 // differs from SchedulerConfigStore, which recovers per entry.
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import { readLastGood, writeDurably } from '../recovery/plan'
+import { LAST_GOOD_SUFFIX, readLastGood, writeDurably } from '../recovery/plan'
 import {
   deleteRuns,
   detachCoordinator,
@@ -22,9 +22,120 @@ import {
 import { latestImplDispatch } from './convergence'
 import { splitLegacyRuns, type LegacyRun } from './legacy'
 import { decisionsOf, planFileOf, renderPlanFolder } from './planner'
+import type { Delivery, Dispatch, Gate, JobRun, Message, Task } from './types'
+
+const isArr = (v: unknown): v is unknown[] => Array.isArray(v)
 
 /** Cutoff for discarding a finished Run. The same 30 days as SchedulerConfigStore's ENTRY_TTL_MS */
 export const RUN_TTL_MS = 30 * 24 * 60 * 60 * 1000
+
+/** T3: a finished Run whose last activity is older than this leaves orchestration.json for `orch/archive/<runId>.json`,
+ *  so a commit rewrites only what is live. Memory keeps every Run: no reader sees the split. */
+const ARCHIVE_AFTER_MS = 24 * 60 * 60 * 1000
+
+/** One archived Run as its file holds it: the Run and every entry that belongs to it (what `deleteRuns` takes away). */
+interface RunArchive {
+  run: JobRun
+  tasks: Task[]
+  dispatches: Dispatch[]
+  messages: Message[]
+  deliveries: Delivery[]
+  gates: Gate[]
+}
+
+/** What orchestration.json keeps of each archived Run, under `archived`: enough to list it without its file. */
+interface ArchivedRun {
+  id: string
+  jobId: string
+  status: 'completed' | 'failed'
+  endedAt: string
+}
+
+const TERMINAL = new Set(['completed', 'failed'])
+/** A Run id that is safe as a file name; any other Run stays in the hot file. */
+const SAFE_ID = /^[\w-]+$/
+
+/** A Run's effective end: the newest of its creation, its Tasks' updates and its Messages. Shared by the TTL prune and
+ *  the archive, so a Run that took long does not count as ended at its start. */
+const runEndMs = (run: JobRun, tasks: readonly Task[], messages: readonly Message[]): number =>
+  Math.max(Date.parse(run.createdAt), ...tasks.map((t) => Date.parse(t.updatedAt)), ...messages.map((m) => Date.parse(m.createdAt)))
+
+const groupBy = <T>(xs: readonly T[], key: (x: T) => string | undefined): Map<string, T[]> => {
+  const m = new Map<string, T[]>()
+  for (const x of xs) {
+    const k = key(x)
+    if (k === undefined) continue
+    const list = m.get(k)
+    if (list) list.push(x)
+    else m.set(k, [x])
+  }
+  return m
+}
+
+const sameRefs = (a: readonly unknown[] | undefined, b: readonly unknown[]): boolean =>
+  a !== undefined && a.length === b.length && a.every((x, i) => x === b[i])
+
+const sameArchive = (a: RunArchive | undefined, b: RunArchive): boolean =>
+  a !== undefined &&
+  a.run === b.run &&
+  sameRefs(a.tasks, b.tasks) &&
+  sameRefs(a.dispatches, b.dispatches) &&
+  sameRefs(a.messages, b.messages) &&
+  sameRefs(a.deliveries, b.deliveries) &&
+  sameRefs(a.gates, b.gates)
+
+/** The Runs of `s` that belong in the archive at `nowMs`, each with its entries: every Task terminal, no Dispatch or
+ *  Gate open, no coordinator attached (the hooks read those from the hot file), and ended more than ARCHIVE_AFTER_MS
+ *  ago. */
+function archivableRuns(s: OrchState, nowMs: number): Map<string, RunArchive> {
+  const tasks = groupBy(s.tasks, (t) => t.runId)
+  const runOfTask = new Map(s.tasks.flatMap((t) => (t.runId === undefined ? [] : [[t.id, t.runId] as const])))
+  const dispatches = groupBy(s.dispatches, (d) => runOfTask.get(d.taskId))
+  const messages = groupBy(s.messages, (m) => m.runId)
+  const deliveries = groupBy(s.deliveries, (d) => d.runId)
+  const gates = groupBy(s.gates, (g) => g.runId)
+  const out = new Map<string, RunArchive>()
+  for (const run of s.runs) {
+    const a: RunArchive = {
+      run,
+      tasks: tasks.get(run.id) ?? [],
+      dispatches: dispatches.get(run.id) ?? [],
+      messages: messages.get(run.id) ?? [],
+      deliveries: deliveries.get(run.id) ?? [],
+      gates: gates.get(run.id) ?? []
+    }
+    if (!SAFE_ID.test(run.id) || run.coordinatorSessionId !== undefined || a.tasks.length === 0) continue
+    if (!a.tasks.every((t) => TERMINAL.has(t.status)) || a.dispatches.some((d) => !d.endedAt) || a.gates.some((g) => g.status === 'open')) continue
+    // negated so a date that does not parse (NaN) keeps the Run hot rather than failing its index row
+    if (!(nowMs - runEndMs(run, a.tasks, a.messages) > ARCHIVE_AFTER_MS)) continue
+    out.set(run.id, a)
+  }
+  return out
+}
+
+const archivedRowOf = (a: RunArchive): ArchivedRun => ({
+  id: a.run.id,
+  jobId: a.run.jobId,
+  status: a.tasks.every((t) => t.status === 'completed') ? 'completed' : 'failed',
+  endedAt: new Date(runEndMs(a.run, a.tasks, a.messages)).toISOString()
+})
+
+const isRunArchive = (v: unknown, id: string): v is RunArchive => {
+  if (v === null || typeof v !== 'object') return false
+  const o = v as Record<string, unknown>
+  const run = o.run as { id?: unknown } | null
+  return typeof run === 'object' && run !== null && run.id === id && ['tasks', 'dispatches', 'messages', 'deliveries', 'gates'].every((k) => isArr(o[k]))
+}
+
+/** `a` and `b` as one list, each keeping its own order, `b`'s entries placed by time among `a`'s. Arrays here grow by
+ *  appending, so this puts an archived Run's entries back where they were — `at(-1)` reads "the newest Run" (planner). */
+const mergeByTime = <T>(a: readonly T[], b: readonly T[], at: (x: T) => string): T[] => {
+  const out: T[] = []
+  let i = 0
+  let j = 0
+  while (i < a.length && j < b.length) out.push(at(b[j]) < at(a[i]) ? b[j++] : a[i++])
+  return out.concat(a.slice(i), b.slice(j))
+}
 
 /** Timestamped backups next to the store (`orchestration.<ISO>.json.bak`): the newest this many are kept, and
  *  any younger than the age below, whichever keeps more. */
@@ -55,8 +166,6 @@ export function backupsToDelete(names: readonly string[], nowMs: number): string
 export interface SaveOptions {
   allowMassDelete?: boolean
 }
-
-const isArr = (v: unknown): v is unknown[] => Array.isArray(v)
 
 /** Exported because the Host is asked to accept a whole state over the wire (`state-put`), and what
  *  arrives there is written to this same file — the question "is this a state at all" is the one this
@@ -341,7 +450,10 @@ export class OrchestrationStore {
     // unknown. Why there is no per-element schema validation: this is log-like data the app writes
     // itself, and if the shape is off, whole-file recovery is the right answer. The policy differs
     // from files such as accounts.json, where a bad shape risks corrupting an account.
-    const st = migrateLoadedState(parsed as OrchState)
+    // T3: the archived Runs the file names come back first, so the migrations below reach them too.
+    const whole = await this.withArchives(parsed as OrchState)
+    this.archived = new Map(whole.archives.map((x) => [x.run.id, x]))
+    const st = migrateLoadedState(whole.state)
     this.writtenTasks = st.tasks.length
 
     // Captured here: the migrations above are in place, the cleanup below builds new objects
@@ -431,23 +543,14 @@ export class OrchestrationStore {
     // TTL cleanup: once a finished Run (every Task terminal) is 30 days old, every entry belonging
     // to that Run is discarded.
     const cutoff = Date.now() - RUN_TTL_MS
-    const terminal = new Set(['completed', 'failed'])
     const doomed = new Set(
       st.runs
         .filter((r) => {
           const own = st.tasks.filter((t) => t.runId === r.id)
-          // Compute the Run's effective end time. Use the most recent of the Tasks' updatedAt and
-          // the Messages' createdAt, and fall back to Run.createdAt when there is neither.
-          // Why: it keeps a Run that took more than 30 days from being deleted right after it ends.
-          const ownMessages = st.messages.filter((m) => m.runId === r.id)
-          const terminalTimes = [
-            Date.parse(r.createdAt),
-            ...own.map((t) => Date.parse(t.updatedAt)),
-            ...ownMessages.map((m) => Date.parse(m.createdAt))
-          ]
-          const endTime = Math.max(...terminalTimes)
-          if (endTime > cutoff) return false
-          return own.length > 0 && own.every((t) => terminal.has(t.status))
+          // The Run's effective end (runEndMs): it keeps a Run that took more than 30 days from being deleted right
+          // after it ends.
+          if (runEndMs(r, own, st.messages.filter((m) => m.runId === r.id)) > cutoff) return false
+          return own.length > 0 && own.every((t) => TERMINAL.has(t.status))
         })
         .map((r) => r.id)
     )
@@ -493,13 +596,17 @@ export class OrchestrationStore {
       coordinatorsLost++
     }
     this.state = deleteRuns({ ...swept, dispatches }, doomed)
+    // T3: an old single-file state (or Runs that crossed the line since) is split now, not at the next commit
+    const archive = archivableRuns(this.state, Date.now())
+    const moves = archive.size !== this.archived.size || [...archive.keys()].some((id) => !this.archived.has(id))
 
     if (
       unknownOutcomes > 0 ||
       doomed.size > 0 ||
       staleValidations > 0 ||
       staleReviews > 0 ||
-      coordinatorsLost > 0
+      coordinatorsLost > 0 ||
+      moves
     ) {
       if (doomed.size > 0) await this.backup()
       // Not the mass-delete guard's business: the clean-up is age-based and backed up just above
@@ -544,11 +651,13 @@ export class OrchestrationStore {
     // burst of N commits cost N whole-file writes where the last one alone is what the file ends up
     // holding. Now it costs two: the one in flight, and one with the newest state.
     //
-    // **No time window, and no answer before the disk.** Every caller merged into a write gets that
-    // write's promise, so its `await` still resolves only once a state at least as new as its own is
-    // on disk — the "this is on disk" that a command's reply and its request receipt stand on
-    // (request receipts design §4). A crash before that write lands leaves the previous file and no
-    // caller told otherwise. A timer would have added its whole length to every reply, burst or not.
+    // **No time window.** Every caller merged into a write gets that write's promise, so its `await`
+    // still resolves only once a state at least as new as its own is on disk. A timer would have added
+    // its whole length to every reply, burst or not.
+    //
+    // T3: the Host no longer awaits this promise in its commit (src/host/orch.ts `setState`): a reply
+    // means the commit is in memory and queued here, and the Host's way out awaits `flush`. A failed
+    // write is logged here once and written again by the next save or the flush.
     const pending = this.pendingWrite
     if (pending) {
       pending.state = next
@@ -557,9 +666,16 @@ export class OrchestrationStore {
     const slot: { state: OrchState; done: Promise<void> } = { state: next, done: Promise.resolve() }
     // Taken off the tail the moment it starts: a save that lands while this write is running must
     // queue a new one behind it, not change what this one is already writing.
-    const run = (): Promise<void> => {
+    const run = async (): Promise<void> => {
       if (this.pendingWrite === slot) this.pendingWrite = null
-      return this.writeNow(slot.state)
+      try {
+        await this.writeNow(slot.state)
+        this.unwritten = false
+      } catch (err) {
+        this.unwritten = true
+        this.log?.(`store.write.failed: ${String(err)} — the next save writes the newest state again`)
+        throw err
+      }
     }
     // The two arguments to then(run, run) are the same — a later write has to proceed even if an
     // earlier one failed. Without onRejected, a failed queue passes every subsequent save through
@@ -572,6 +688,16 @@ export class OrchestrationStore {
 
   /** The write at the tail of the queue that has not started yet, which a new save joins (see save). */
   private pendingWrite: { state: OrchState; done: Promise<void> } | null = null
+
+  /** Whether the last write failed, so memory holds a state the disk does not. */
+  private unwritten = false
+
+  /** Resolves once every write queued so far has landed, the last state written again if its write failed. For the
+   *  Host's way out (`leave`), since commits no longer wait for the disk. Rejects only when that last try fails. */
+  async flush(): Promise<void> {
+    await this.queue.catch(() => {})
+    if (this.unwritten) await this.save(this.state)
+  }
 
   /**
    * Copy the current file to `.bak`. `reset` calls this right before its destructive operation
@@ -597,16 +723,72 @@ export class OrchestrationStore {
     return this.queue
   }
 
-  /** Copies the file as it is to `orchestration.<ISO>.json.bak` and drops the ones retention lets go. Best effort, like
-   *  `backup`: no file yet means nothing to keep. Runs inside the write queue. */
+  /** Writes the file as it is, with the archived Runs it names put back in, to `orchestration.<ISO>.json.bak`, and drops
+   *  the ones retention lets go. Whole, so the backup alone restores every Run: the archive files of Runs a big drop
+   *  removes are deleted after it. Best effort, like `backup`: no file yet means nothing to keep. Runs inside the write
+   *  queue. */
   private async stampedBackup(): Promise<void> {
     const now = new Date()
     const dir = path.dirname(this.filePath)
     try {
-      await fs.copyFile(this.filePath, path.join(dir, backupNameOf(now)))
+      const text = await fs.readFile(this.filePath, 'utf8')
+      let whole = text
+      try {
+        const st = JSON.parse(text) as OrchState & { archived?: unknown }
+        if (isArr(st.archived) && st.archived.length > 0) whole = JSON.stringify((await this.withArchives(st)).state)
+      } catch {
+        // a file that does not parse is kept as it is
+      }
+      await fs.writeFile(path.join(dir, backupNameOf(now)), whole, 'utf8')
       for (const n of backupsToDelete(await fs.readdir(dir), now.getTime())) await fs.rm(path.join(dir, n), { force: true })
     } catch {
-      // ENOENT on the copy: first run, nothing to keep
+      // ENOENT on the read: first run, nothing to keep
+    }
+  }
+
+  /** T3: the archived Runs as their files hold them now, by Run id. A Run is written there once, and again only if a
+   *  later state changes one of its entries. */
+  private archived = new Map<string, RunArchive>()
+
+  private archivePath(runId: string): string {
+    return path.join(path.dirname(this.filePath), 'orch', 'archive', `${runId}.json`)
+  }
+
+  /** `st` as read from orchestration.json, with the archived Runs its `archived` list names read back in (and the list
+   *  itself dropped). Each Run's entries go back among the others by time (mergeByTime). A Run whose archive file is
+   *  missing or damaged is left out and logged: it is finished history, and nothing live refers to it. */
+  private async withArchives(st: OrchState & { archived?: unknown }): Promise<{ state: OrchState; archives: RunArchive[] }> {
+    const rows = isArr(st.archived) ? st.archived : []
+    delete st.archived
+    if (rows.length === 0) return { state: st, archives: [] }
+    const read = await Promise.all(
+      rows.map(async (row) => {
+        const id = (row as { id?: unknown } | null)?.id
+        if (typeof id === 'string' && SAFE_ID.test(id)) {
+          try {
+            const v: unknown = JSON.parse(await fs.readFile(this.archivePath(id), 'utf8'))
+            if (isRunArchive(v, id)) return v
+          } catch {
+            // logged below
+          }
+        }
+        this.log?.(`store.archive.unreadable: run ${String(id)} is left out — its archive file is missing or damaged`)
+        return null
+      })
+    )
+    const archives = read.filter((x): x is RunArchive => x !== null)
+    const all = <K extends Exclude<keyof RunArchive, 'run'>>(k: K): RunArchive[K] => archives.flatMap((x): unknown[] => x[k]) as RunArchive[K]
+    return {
+      state: {
+        ...st,
+        runs: mergeByTime(archives.map((x) => x.run), st.runs, (r) => r.createdAt),
+        tasks: mergeByTime(all('tasks'), st.tasks, (t) => t.createdAt),
+        dispatches: mergeByTime(all('dispatches'), st.dispatches, (d) => d.startedAt),
+        messages: mergeByTime(all('messages'), st.messages, (m) => m.createdAt),
+        deliveries: mergeByTime(all('deliveries'), st.deliveries, (d) => d.createdAt),
+        gates: mergeByTime(all('gates'), st.gates, (g) => g.createdAt)
+      },
+      archives
     }
   }
 
@@ -616,27 +798,55 @@ export class OrchestrationStore {
    *  keeps (30 days, and unfinished Runs for good), and indentation made each rewrite a good third
    *  larger for no reader: every reader is a plain `JSON.parse` (load, `readStateFile`, `host status`),
    *  which reads the indented files earlier versions wrote just the same. A person who hand-edits the
-   *  file formats it in the editor first; the loader does not care which shape comes back. */
+   *  file formats it in the editor first; the loader does not care which shape comes back.
+   *
+   *  **T3: only what is live.** Finished Runs older than ARCHIVE_AFTER_MS go to `orch/archive/<runId>.json`, each
+   *  written when it moves there, and orchestration.json names them under `archived`. Archives first, then the hot file,
+   *  then the archive files of Runs it no longer names: a crash anywhere between leaves a file that loads whole. */
   private async writeNow(next: OrchState): Promise<void> {
     // A write that drops more than a tenth of the Tasks keeps what the file holds first.
     if (this.writtenTasks - next.tasks.length > this.writtenTasks * BACKUP_DROP_SHARE) await this.stampedBackup()
     this.writtenTasks = next.tasks.length
+    const archive = archivableRuns(next, Date.now())
+    for (const [id, a] of archive) {
+      if (sameArchive(this.archived.get(id), a)) continue
+      await writeDurably(this.archivePath(id), JSON.stringify(a))
+      this.archived.set(id, a)
+    }
+    const hot = deleteRuns(next, new Set(archive.keys()))
     // T23: flushed before the rename and the last good copy kept (core/recovery/plan.ts), so a crash mid-write leaves a
     // whole file. The temp file is removed when the rename still fails (second pass C2-4).
-    await writeDurably(this.filePath, JSON.stringify(next))
+    await writeDurably(this.filePath, JSON.stringify(archive.size > 0 ? { ...hot, archived: [...archive.values()].map(archivedRowOf) } : hot))
+    for (const id of [...this.archived.keys()].filter((x) => !archive.has(x))) {
+      const file = this.archivePath(id)
+      await Promise.all([fs.rm(file, { force: true }), fs.rm(file + LAST_GOOD_SUFFIX, { force: true })]).catch(() => {})
+      this.archived.delete(id)
+    }
     await this.writePlans(next)
   }
 
   // W2-A planner stage, T9: the plan folder each planned Job keeps beside this file, for a person to read.
   /** What each plan-folder file was last written with, so a commit that leaves a file alone writes nothing. */
   private plansWritten = new Map<string, Map<string, string>>()
+  /** T3: the state objects each plan folder was last rendered from, so a commit that leaves a Job alone renders nothing. */
+  private plansFrom = new Map<string, unknown[]>()
 
-  /** Writes `<profile>/plans/<jobId>/plan.md` and `tasks/<NN>-<slug>.md` for every planned Job (`Job.plannerSessionIds`),
-   *  only the files that changed, and removes task files no Task owns any more. Best effort: orchestration.json above is
-   *  the record, and a file that fails is retried by the next commit. */
+  /** Writes `<profile>/plans/<jobId>/plan.md` and `tasks/<NN>-<slug>.md` for every planned Job (`Job.plannerSessionIds`)
+   *  whose Job, Runs, Tasks or their Dispatches changed since its last render, only the files that changed, and removes
+   *  task files no Task owns any more. Best effort: orchestration.json above is the record, and a Job that fails is
+   *  retried by the next commit. An edit to `inputs/existing.md` alone shows at the Job's next change. */
   private async writePlans(next: OrchState): Promise<void> {
-    for (const job of next.jobs) {
-      if (job.plannerSessionIds === undefined) continue
+    const planned = next.jobs.filter((j) => j.plannerSessionIds !== undefined)
+    if (planned.length === 0) return
+    const runsOf = groupBy(next.runs, (r) => r.jobId)
+    const tasksOfRun = groupBy(next.tasks, (t) => t.runId)
+    const plansOf = groupBy(next.tasks, (t) => (t.runId === undefined ? t.jobId : undefined))
+    const dispatchesOf = groupBy(next.dispatches, (d) => d.taskId)
+    for (const job of planned) {
+      const runs = runsOf.get(job.id) ?? []
+      const tasks = [...(plansOf.get(job.id) ?? []), ...runs.flatMap((r) => tasksOfRun.get(r.id) ?? [])]
+      const from = [job, ...runs, ...tasks, ...tasks.flatMap((t) => dispatchesOf.get(t.id) ?? [])]
+      if (sameRefs(this.plansFrom.get(job.id), from)) continue
       const dir = path.dirname(planFileOf(path.dirname(this.filePath), job.id))
       try {
         const existing = await fs.readFile(path.join(dir, 'inputs', 'existing.md'), 'utf8').catch(() => undefined)
@@ -656,6 +866,7 @@ export class OrchestrationStore {
           written.delete(name)
         }
         this.plansWritten.set(job.id, written)
+        this.plansFrom.set(job.id, from)
       } catch {
         // retried by the next commit (see above)
       }

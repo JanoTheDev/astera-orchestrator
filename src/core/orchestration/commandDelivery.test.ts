@@ -8,7 +8,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { pushBranch } from '../github/prCreate'
 import { handleCommand, type OrchServerDeps } from './command'
-import { emptyState, type OrchState } from './state'
+import { doneStatusOf, emptyState, type OrchState } from './state'
 import type { JobRun, Project, Task } from './types'
 import { HOST_CALLER } from '../host/driver'
 import { cleanAfterDelivery, DELIVERY_FIX_MARK, deliveryChecksOf, deliveryIssuesOf, deliveryMessage, deliveryOf, recordDelivery, setProjectDelivery } from './delivery'
@@ -71,7 +71,7 @@ const setup = (o: { project?: Partial<Project>; tasks?: Task[]; run?: Partial<Jo
   } as unknown as OrchServerDeps
   const call = (cmd: string, args: Record<string, unknown>, sessionId = HOST_CALLER, role?: 'mcp') =>
     handleCommand(deps, { sessionId, ...(role ? { role } : {}) }, cmd, args)
-  return { call, pushes, removed, opened, cleaned, state: () => box.state }
+  return { call, deps, pushes, removed, opened, cleaned, state: () => box.state }
 }
 
 describe('run-deliver (W6-H)', () => {
@@ -117,6 +117,17 @@ describe('run-deliver (W6-H)', () => {
     expect(h.pushes).toHaveLength(2)
   })
 
+  it('a stopped push is tried again without --force once the plan branch head moved, counting afresh', async () => {
+    const h = setup({ project: { delivery: 'push' }, push: { ok: false, branch: 'main', reason: 'push refused' } })
+    await h.call('run-deliver', { run: 'r1', head: 'h1' })
+    expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'retrying', attempts: 1, headAtAttempt: 'h1' })
+    expect((await h.call('run-deliver', { run: 'r1', head: 'h1' })).status).toBe(409)
+    expect(h.pushes).toHaveLength(1)
+    await h.call('run-deliver', { run: 'r1', head: 'h2' })
+    expect(h.pushes).toHaveLength(2)
+    expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'retrying', attempts: 1, headAtAttempt: 'h2', lastError: 'push refused' })
+  })
+
   it('a push that stopped reads failed with its reason, and a forced push that lands reads completed again', async () => {
     const h = setup({ project: { delivery: 'push' }, push: { ok: false, branch: 'main', reason: 'push refused' } })
     expect(outcomeOf(h.state(), 'r1')).toBe('completed')
@@ -126,6 +137,14 @@ describe('run-deliver (W6-H)', () => {
     expect(outcomeOf(ok.state(), 'r1')).toBe('failed')
     expect((await ok.call('run-deliver', { run: 'r1', force: true })).status).toBe(200)
     expect(outcomeOf(ok.state(), 'r1')).toBe('completed')
+  })
+
+  it('T10: a Task no open Task depended on, never merged into the plan branch, is merged by the delivery', async () => {
+    const h = setup({ project: { delivery: 'push', deliveryBranch: 'main' }, run: { worktree: '/wt/plan' }, tasks: [task({ mergedIntoPlanAt: NOW }), task({ id: 't2' })] })
+    expect(doneStatusOf(h.state(), h.state().tasks[1])).toBe('completed')
+    expect((await h.call('run-deliver', { run: 'r1' })).status).toBe(200)
+    expect(h.pushes[0].worktrees).toContain('/wt/t2')
+    expect(h.pushes[0].worktrees).not.toContain('/wt/t1') // folded: the plan branch brings it
   })
 
   it('a conflicting branch at delivery leaves the Run failed with the conflict as its reason', async () => {
@@ -168,11 +187,11 @@ describe('run-deliver (W6-H)', () => {
     expect(h.removed).toEqual([])
   })
 
-  it('T6: the plan branch of a merge plan is never pushed after a Task', async () => {
+  it('T6: the plan branch of a merge plan is never pushed after a Task, not even with --now', async () => {
     const h = setup({ project: { delivery: 'merge' }, run: { worktree: '/wt/plan' } })
-    expect(await h.call('run-draft-pr', { run: 'r1' })).toMatchObject({ status: 409, body: { error: expect.stringContaining('No plan-branch push is due') } })
+    expect(await h.call('run-draft-pr', { run: 'r1', now: true })).toMatchObject({ status: 409, body: { error: expect.stringContaining('No plan-branch push is due') } })
     const p = setup({ project: { delivery: 'push' }, run: { worktree: '/wt/plan' } })
-    expect((await p.call('run-draft-pr', { run: 'r1' })).body).not.toMatchObject({ error: expect.stringContaining('No plan-branch push is due') })
+    expect((await p.call('run-draft-pr', { run: 'r1', now: true })).body).not.toMatchObject({ error: expect.stringContaining('No plan-branch push is due') })
   })
 
   it('jobs-create --delivery merge and projects-set --delivery merge are accepted', async () => {
@@ -205,6 +224,45 @@ describe('run-deliver (W6-H)', () => {
     expect(questions).toHaveLength(1)
     expect(questions[0].options).toEqual(['Retry now', "I'll push it myself"])
     expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'needs-owner', attempts: 5, questionId: questions[0].id })
+  })
+
+  it('T19: a merge-failed delivery is attempted again as soon as the plan branch head moves, and delivers with no owner', async () => {
+    const o: Parameters<typeof setup>[0] = {
+      project: { delivery: 'push' },
+      run: { git: { head: 'h1' } },
+      push: { ok: false, branch: 'main', reason: 'git merge-tree says b does not merge cleanly', code: 'merge-failed' }
+    }
+    const h = setup(o)
+    await h.call('run-deliver', { run: 'r1', pending: true })
+    const first = await h.call('run-deliver', { run: 'r1', auto: true })
+    expect(first.body).toMatchObject({ code: 'merge-failed', deliveryState: { state: 'retrying', judgedOn: { branch: 'h1' } } })
+    // the same head: not due before its retry time
+    expect((await h.call('run-deliver', { run: 'r1', auto: true })).status).toBe(409)
+    expect(h.pushes).toHaveLength(1)
+    // main merged into the plan branch: the Run's head moved, and the branch now merges
+    h.state().runs[0] = { ...h.state().runs[0], git: { head: 'h2' } }
+    delete o.push
+    const again = await h.call('run-deliver', { run: 'r1', auto: true })
+    expect(again.status).toBe(200)
+    expect(h.pushes).toHaveLength(2)
+    expect(h.state().runs[0].deliveryState?.state).toBe('delivered')
+  })
+
+  it('T19: a merge-failed delivery is attempted again once the target tip the loop read moved, with the plan branch unchanged', async () => {
+    const o: Parameters<typeof setup>[0] = {
+      project: { delivery: 'push' },
+      run: { git: { head: 'h1' } },
+      push: { ok: false, branch: 'main', reason: 'git merge-tree says b does not merge cleanly', code: 'merge-failed', target: 'm1' }
+    }
+    const h = setup(o)
+    await h.call('run-deliver', { run: 'r1', pending: true })
+    const first = await h.call('run-deliver', { run: 'r1', auto: true })
+    expect(first.body).toMatchObject({ deliveryState: { judgedOn: { branch: 'h1', target: 'm1' } } })
+    expect((await h.call('run-deliver', { run: 'r1', auto: true, targetTip: 'm1' })).status).toBe(409)
+    delete o.push
+    const again = await h.call('run-deliver', { run: 'r1', auto: true, targetTip: 'm2' })
+    expect(again.status).toBe(200)
+    expect(h.pushes).toHaveLength(2)
   })
 
   it("T3: a push plan that ended failed is recorded failed once, with why, and never pushed", async () => {
@@ -404,7 +462,7 @@ describe('run-draft-pr pushes the plan branch after a Task (T3, real git)', () =
       state: {
         ...emptyState(),
         projects: [project({ path: repo, delivery: 'push' })],
-        jobs: [{ id: 'job_1', objective: 'Fix auth', cwd: repo, projectId: 'p1', createdAt: NOW }],
+        jobs: [{ id: 'job_1', objective: 'Fix auth', cwd: repo, projectId: 'p1', createdAt: NOW, pushCadence: 'task' }],
         runs: [{ id: 'r1', jobId: 'job_1', ordinal: 1, createdAt: NOW, worktree: wt } as JobRun],
         tasks: [task({ mergedIntoPlanAt: NOW }), task({ id: 't2', status: 'ready' })],
         dispatches: [{ id: 'd1', taskId: 't1', cwd: wt, accountId: 'a', endedAt: NOW, outcome: 'succeeded' } as never]
@@ -439,7 +497,7 @@ describe('a plan-branch push that keeps failing asks the owner (T4)', () => {
       state: {
         ...emptyState(),
         projects: [project({ delivery: 'push' })],
-        jobs: [{ id: 'job_1', objective: 'Fix auth', cwd: REPO, projectId: 'p1', createdAt: NOW }],
+        jobs: [{ id: 'job_1', objective: 'Fix auth', cwd: REPO, projectId: 'p1', createdAt: NOW, pushCadence: 'task' }],
         runs: [{ id: 'r1', jobId: 'job_1', ordinal: 1, createdAt: NOW, worktree: '/wt/run' } as JobRun],
         tasks: [task(), task({ id: 't2', status: 'ready' })],
         dispatches: []
@@ -1098,7 +1156,7 @@ describe("a plan's own target branch (--delivery-branch)", () => {
 
   it('run-draft-pr opens the draft against the target branch', async () => {
     const h = prSetup({ deliveryBranch: 'release', tasks: [task({ mergedIntoPlanAt: NOW }), task({ id: 't2', status: 'ready' })] })
-    const r = await h.call('run-draft-pr', { run: 'r1' })
+    const r = await h.call('run-draft-pr', { run: 'r1', now: true })
     expect(r).toMatchObject({ status: 200 })
     expect(h.bases).toEqual(['release'])
   })
@@ -1162,5 +1220,69 @@ describe('run-mark-merged', () => {
   it('is refused while the Run is still working', async () => {
     const h = setup({ run: awaiting, tasks: [task({ status: 'dispatched' })] })
     expect((await h.call('run-mark-merged', { run: 'r1' })).status).toBe(409)
+  })
+
+  describe('a Run whose delivery failed', () => {
+    const failed = {
+      delivery: { at: NOW, error: 'push refused' },
+      deliveryState: { state: 'failed', attempts: 5, lastError: 'push refused' }
+    } as Partial<JobRun>
+
+    it('is marked merged by a person: recorded merged, the error cleared, worktrees cleaned', async () => {
+      const h = setup({ run: failed })
+      expect(outcomeOf(h.state(), 'r1')).toBe('failed')
+      expect((await h.call('run-mark-merged', { run: 'r1' })).status).toBe(200)
+      expect(h.state().runs[0].pr?.landed).toBe('merged')
+      expect(h.state().runs[0].deliveryState?.state).toBe('delivered')
+      expect(h.state().runs[0].delivery?.error).toBeUndefined()
+      expect(outcomeOf(h.state(), 'r1')).not.toBe('failed')
+      expect(h.cleaned).toEqual(['r1'])
+    })
+
+    it.each(['retrying', 'needs-owner'] as const)('accepts a %s delivery', async (state) => {
+      const h = setup({ run: { deliveryState: { state, attempts: 2 } } })
+      expect((await h.call('run-mark-merged', { run: 'r1' })).status).toBe(200)
+    })
+
+    it('is still refused from an agent session and an MCP client, and a landed Run', async () => {
+      const h = setup({ run: failed })
+      expect((await h.call('run-mark-merged', { run: 'r1' }, 'sess_agent')).status).toBe(403)
+      expect((await h.call('run-mark-merged', { run: 'r1' }, '', 'mcp')).status).toBe(403)
+      expect(h.state().runs[0].pr).toBeUndefined()
+      expect((await setup({ run: { ...failed, pr: { at: NOW, landed: 'merged' } } }).call('run-mark-merged', { run: 'r1' })).status).toBe(409)
+    })
+
+    it('is refused while a Task is still working', async () => {
+      const h = setup({ run: failed, tasks: [task({ status: 'dispatched' })] })
+      expect((await h.call('run-mark-merged', { run: 'r1' })).status).toBe(409)
+    })
+  })
+})
+
+// T4: on the Host a delivery's git runs with the command chain handed on, so a Run takes one slow command at a time
+describe('one slow command per Run (T4 inFlight)', () => {
+  const withInFlight = (h: ReturnType<typeof setup>, inFlight: Map<string, string>) => (cmd: string, args: Record<string, unknown>) =>
+    handleCommand({ ...h.deps, inFlight }, { sessionId: HOST_CALLER }, cmd, args)
+
+  it('answers 409 running while another slow command holds the Run, and marks the Run only while it runs', async () => {
+    const h = setup({ project: { delivery: 'push', deliveryBranch: 'main' } })
+    const inFlight = new Map([['r1', 'run-draft-pr']])
+    const call = withInFlight(h, inFlight)
+    const r = await call('run-deliver', { run: 'r1' })
+    expect(r).toMatchObject({ status: 409, body: { code: 'running' } })
+    expect(h.pushes).toEqual([])
+    // A loop step that only records is not refused
+    expect((await call('run-deliver', { run: 'r1', pending: true })).status).toBe(200)
+    inFlight.clear()
+    expect((await call('run-deliver', { run: 'r1' })).status).toBe(200)
+    expect(h.pushes).toHaveLength(1)
+    expect(inFlight.size).toBe(0)
+  })
+
+  it("lets the PR route's own run-open-pr through", async () => {
+    const h = setup()
+    const r = await withInFlight(h, new Map())('run-deliver', { run: 'r1' })
+    // The PR route reached run-open-pr, which answers for itself (no GitHub here), not "running"
+    expect(JSON.stringify(r.body)).toContain('GitHub commands are answered by the Astera Host')
   })
 })

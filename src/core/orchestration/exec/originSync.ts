@@ -1,5 +1,6 @@
-// T4: running plans stay current with teammates. Every active Run with its own worktree fetches origin at each wave
-// boundary and every ORIGIN_SYNC_EVERY_MS (`lastOriginSyncAt` on the Run, so a restart does not sync again early), and
+// T4: running plans stay current with teammates. Every active Run with its own worktree fetches origin every
+// ORIGIN_SYNC_EVERY_MS (`lastOriginSyncAt` on the Run, so a restart does not sync again early), and once at once when its
+// last Tasks are done and its delivery is next (T10: no longer at every wave boundary, which was constant load), and
 // merges `origin/<base>` into its plan branch when origin moved on (a merge, never a rebase, as the T11 refresh). A clean
 // merge pushes the plan branch through T2's recorded push (`run-draft-pr --synced`); a conflict opens one integration
 // Task in the plan, and the plan's new Tasks wait for it (`originSyncHold`). A project can turn it off (`originSync`).
@@ -10,14 +11,14 @@ import { git as realGit, fetchOrigin, gitVersionAtLeast, GIT_WRITE_TIMEOUT_MS } 
 import { jobNameOf } from '../jobName'
 import { isJobActive } from '../lifecycle'
 import { deliveryBranchOf, projectOfJob } from '../delivery'
-import { runWaves, wavesDoneOf } from '../draftPr'
 import { isIntegrationTask, workingInRunRoot } from '../integrate'
 import { outcomeOfTasks, tasksOwnedBy } from '../running'
 import { jobOf, type OrchState } from '../state'
 import type { Job, Task } from '../types'
 import { refreshOnto } from './integrateGit'
 
-export const ORIGIN_SYNC_EVERY_MS = 10 * 60_000
+/** T10: also how often a running plan is refreshed onto other plans' deliveries (dispatchLoop refreshRun). */
+export const ORIGIN_SYNC_EVERY_MS = 15 * 60_000
 /** Opens the reason of an origin sync's integration Task, so its spec (and `originSyncHold`) can tell it. */
 export const ORIGIN_SYNC_MARK = 'Origin sync:'
 
@@ -86,19 +87,21 @@ export interface OriginSyncContext {
   log(m: string): void
   nowMs(): number
   mayStart(): boolean
+  /** T7: starts one Run's sync without waiting for it (the loop's background job: one per Run, abandoned past its time
+   *  limit, `alive()` false from then on); false when one is under way. Without it each sync is awaited. */
+  background?(runId: string, work: (alive: () => boolean) => Promise<void>): boolean
   /** Test seam: the merge-tree version check. */
   gitAtLeast?: typeof gitVersionAtLeast
 }
 
 /** The driving loop's origin sync: `tick` from each pass and the timer's nudge. Never throws. */
 export function createOriginSync(c: OriginSyncContext): { tick(): Promise<void> } {
-  /** The waves done when each Run was last looked at: one more is a boundary. In memory: a restart takes the count as
-   *  it finds it, and the persisted `lastOriginSyncAt` still decides the 10-minute sync. */
-  const wavesSeen = new Map<string, number>()
+  /** T10: the Runs synced once their last Tasks were done, before their delivery. In memory: a restart syncs it once more. */
+  const syncedForDelivery = new Set<string>()
   /** When each Run was last looked at by this process, whether or not it was recorded. */
   const triedAt = new Map<string, number>()
   let busy = false
-  const syncOne = async (runId: string): Promise<void> => {
+  const syncOne = async (runId: string, alive: () => boolean): Promise<void> => {
     const s = c.getState()
     const run = s.runs.find((r) => r.id === runId)!
     const job = jobOf(s, run)!
@@ -107,6 +110,7 @@ export function createOriginSync(c: OriginSyncContext): { tick(): Promise<void> 
     const branch = await baseBranchOf(s, job, worktree)
     const first = run.lastOriginSyncAt === undefined
     const r: OriginSync = branch === null ? { kind: 'human', reason: 'no base branch is known' } : await syncWithOrigin(worktree, branch, c)
+    if (!alive()) return // T7: abandoned meanwhile; its late answer is left alone
     // Only a sync that reached git's answer about origin is recorded; the rest is looked at again from memory
     if (r.kind === 'no-repo' || r.kind === 'human') {
       c.log(`run=${runId}: not synced with origin: ${r.reason}`)
@@ -128,7 +132,9 @@ export function createOriginSync(c: OriginSyncContext): { tick(): Promise<void> 
         c.log(`plan.synced run=${runId} incoming=${r.incoming} origin/${branch}=${r.tip}`)
         c.activity(runId, `Plan ${plan} synced with origin/${branch}: ${r.incoming} incoming commit(s)`)
         const pushed = await c.handle('run-draft-pr', { run: runId, synced: true })
-        c.log(`run=${runId}: plan branch push after the origin sync: ${pushed.status >= 400 ? `refused, retried later: ${JSON.stringify(pushed.body)}` : 'done'}`)
+        // 409: the push cadence has none due now (the final delivery pushes it); anything else is refused and tried again
+        const outcome = pushed.status < 400 ? 'done' : pushed.status === 409 ? 'not pushed now (push cadence), the delivery pushes it' : `refused, retried later: ${JSON.stringify(pushed.body)}`
+        c.log(`run=${runId}: plan branch push after the origin sync: ${outcome}`)
         return
       }
       case 'conflict': {
@@ -153,23 +159,21 @@ export function createOriginSync(c: OriginSyncContext): { tick(): Promise<void> 
         const job = jobOf(s, run)
         if (!job || run.worktree === undefined || run.delivery !== undefined || !isJobActive(job) || job.schedule !== undefined) continue
         if (projectOfJob(s, job)?.originSync === 'off') continue
-        if (outcomeOfTasks(tasksOwnedBy(s, run.id)) !== 'running') continue
-        const waves = wavesDoneOf(runWaves(s, run.id))
-        const seen = wavesSeen.get(run.id)
-        if (seen === undefined) wavesSeen.set(run.id, waves)
-        const boundary = seen !== undefined && waves > seen
+        const outcome = outcomeOfTasks(tasksOwnedBy(s, run.id))
+        // T10: delivery is next (every Task done, no attempt yet): once, at once, so it lands on what origin has now
+        const deliveryNext = outcome === 'completed' && (run.deliveryState?.attempts ?? 0) === 0
+        if (deliveryNext ? syncedForDelivery.has(run.id) : outcome !== 'running') continue
         const last = Math.max(run.lastOriginSyncAt === undefined ? -Infinity : Date.parse(run.lastOriginSyncAt), triedAt.get(run.id) ?? -Infinity)
-        if (!boundary && nowMs - last < ORIGIN_SYNC_EVERY_MS) continue
+        if (!deliveryNext && nowMs - last < ORIGIN_SYNC_EVERY_MS) continue
         // Never merged under a worker in the plan worktree (an integration worker merges there), nor twice into one conflict
         if (workingInRunRoot(s, run.id) || originSyncHold(s, run.id) !== undefined) continue
         if (!c.mayStart()) return
-        wavesSeen.set(run.id, waves)
+        const sync = (alive: () => boolean): Promise<void> => syncOne(run.id, alive).catch((e: unknown) => c.log(`run=${run.id}: origin sync failed: ${String(e)}`))
+        // T7: the loop's background job; one under way is left to end, and this Run looked at again at a later tick
+        if (c.background && !c.background(run.id, sync)) continue
+        if (deliveryNext) syncedForDelivery.add(run.id)
         triedAt.set(run.id, nowMs)
-        try {
-          await syncOne(run.id)
-        } catch (e) {
-          c.log(`run=${run.id}: origin sync failed: ${String(e)}`)
-        }
+        if (!c.background) await sync(() => true)
       }
     } finally {
       busy = false

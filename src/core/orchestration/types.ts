@@ -239,6 +239,9 @@ export type DeliveryMode = 'pr' | 'push' | 'merge' | 'manual'
  *  두 층은 예약 Job 에 이미 있었다 — 예약이 걸린 Run 이 템플릿이고 발화마다 자식 Run 이 생겼다.
  *  이름이 없어서 셋(템플릿·회차·보통 Run)이 한 배열에 섞였고, `--run` 없는 task-create 가 템플릿에
  *  떨어져 모든 회차로 복사되는 일이 실제로 있었다. 이제 배열이 둘이라 그 코드를 쓸 수 없다. */
+export const PUSH_CADENCES = ['end', 'wave', 'task'] as const
+export type PushCadence = (typeof PUSH_CADENCES)[number]
+
 export interface Job {
   id: string
   objective: string
@@ -375,6 +378,9 @@ export interface Job {
   /** This plan's own target branch, its "main", ahead of its project's `deliveryBranch` (`deliveryBranchOf`): the Run
    *  worktree forks from it, and its PR, push or merge lands on it. Absent: the project's. */
   deliveryBranch?: string
+  /** When its plan branch is pushed while it runs (`draftPrDue`): `end` (absent) only by the final delivery or a person's
+   *  `run-draft-pr --now`, `wave` at most once per finished wave, `task` after every Task (`jobs-set --push-cadence`). */
+  pushCadence?: PushCadence
   /** The reasoning effort its Task workers use when a Task has none of its own (resolveWorkerEffort). */
   effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
   // W7-E planner review and final check
@@ -595,6 +601,8 @@ export interface JobRun {
   /** T6: when `runs-pr-sync` last checked this Run that has no `pr` record (a manual plan awaiting review): the same
    *  2-minute skip as `pr.landedCheckedAt`. A Run with a `pr` keeps its stamp there. */
   landedCheckedAt?: string
+  /** When `runs-pr-sync` last asked origin whether this Run's plan branch landed outside Astera (at most once per 10 minutes). */
+  outsideCheckedAt?: string
   // ── W6-H: a `push` delivery (`run-deliver`) ──
   /** The pushed commit, or why the push stopped (escalated). Present: the driving loop does not try again
    *  (`run-deliver --force` does). */
@@ -765,6 +773,17 @@ export interface Task {
    *  worktree and branch of its one dep, kept for it, with the plan branch merged in. Absent: as `new`, placed by the
    *  Run's concurrency. */
   worktree?: 'new' | 'reuse'
+  // T32 who added a Task a replan created
+  /** Set on a Task a replan session created (`task-create --why`): who added it, why in one line, and when. The plan view
+   *  shows it ("Added by the final check: <why>"). Absent: planned with the plan, or added by a coordinator or a person. */
+  addedBy?: TaskAddedBy
+}
+
+/** T32: which replan added a Task: the final check, a wave replan, or the owner's feedback or chat. */
+export interface TaskAddedBy {
+  kind: 'final-check' | 'wave-replan' | 'feedback'
+  why: string
+  at: string
 }
 
 /** T9: the kinds of work a Task can be. */
@@ -807,6 +826,10 @@ export interface ResumeEntry {
   /** 재개 후의 계정. 같은 계정에서 이어갔으면 `fromAccountId` 와 같다 — 제자리 재개가 그 갈래다 */
   toAccountId?: string
 }
+
+/** How a review ended: accepted, rejected for blocking issues (or by outcome), held for a decision no code change makes,
+ *  or its verdict file could not be read. */
+export type ReviewVerdict = 'passed' | 'rejected' | 'needs-decision' | 'failed'
 
 export interface Dispatch {
   id: string
@@ -879,6 +902,11 @@ export interface Dispatch {
   /** 이 Dispatch 가 구현이 아니라 검토인가. 한 Task 에 구현 Dispatch 와 검토 Dispatch 가 함께
    *  붙으므로, worker_done 이 도착했을 때 어느 쪽인지 아는 유일한 방법이다. */
   review?: boolean
+  /** A review Dispatch only: how its verdict landed (applyReviewResult). Absent while it runs, or when it ended without one. */
+  verdict?: ReviewVerdict
+  /** A review Dispatch only: this round's normalised issues, copied from the same change that sets `Task.reviewIssues`
+   *  (which keeps the latest round only). Written for a convergence Run, the only Run that reads issues. */
+  reviewIssues?: ReviewIssue[]
   /** 이 Dispatch 가 구현이 아니라 수리인가, 그리고 왜. review 와 배타적이다. 직전 시도는 retryOf 가
    *  가리킨다 — attempt = Dispatch 라는 기존 모델 그대로다(설계 D4) */
   repair?: RepairReason
@@ -909,6 +937,12 @@ export interface Dispatch {
    *  stays taken (`slotsToFill` counts every open Dispatch); nothing is typed into it from an agent session
    *  (`sessions-send` refuses). `worker-unhold` takes it away. */
   held?: true
+  // T12 silent workers (exec/stallWatch.ts): the watchdog's one nudge, kept here so a Host restart neither nudges
+  // again at once nor starts the ladder over
+  /** ISO: since when the worker had shown no activity when it was nudged. */
+  silentSince?: string
+  /** ISO: when the watchdog nudged it. Set once per Dispatch. */
+  nudgedAt?: string
 }
 
 export interface Message {
@@ -949,6 +983,8 @@ export interface Gate {
   question: string
   options?: string[]
   kind?: GateKind
+  /** A `review-ended` Gate opened because the Task's run was paused: resuming the run closes it and restarts the review. */
+  cause?: 'run-paused'
   // W6-C
   reason?: GateReason
   status: 'open' | 'resolved'
@@ -1094,6 +1130,17 @@ export interface DeliveryProgress {
   lastCode?: string
   /** A delivered state's remark: `closed on GitHub` for a pull request closed without merging. */
   note?: string
+  /** The plan branch's head when the last attempt started, and origin's tip after it: a delivery that failed is due again
+   *  at once when either moved (a fix landed, or origin changed), whatever its backoff (delivery.ts `deliveryDue`). */
+  headAtAttempt?: string
+  originAtAttempt?: string
+  /** The error the previous attempt stopped with, kept while the next attempt runs, so the plan never reads that stale
+   *  error as its own (running.ts `deliveryErrorOf`). */
+  previousError?: string
+  /** T19: a `merge-failed` stop: the tips it was judged on, the plan branch head (the Run's `git.head`) and the target's
+   *  (`origin/<branch>`, or the local branch). Once either moves, the delivery is due again at once (deliveryDue), with no
+   *  owner. */
+  judgedOn?: { branch?: string; target?: string }
 }
 
 /** The plan's pull request: its URL and number once opened, or the error that stopped it. */
@@ -1123,4 +1170,6 @@ export interface RunPr {
   landed?: 'merged' | 'closed'
   /** T6: when `runs-pr-sync` last asked GitHub about this PR and found it still open; repeated calls skip it for 2 minutes. */
   landedCheckedAt?: string
+  /** The owner merged the plan's branch into the delivery branch outside Astera (`landedOutside`): `landed` is `merged`. */
+  landedOutside?: true
 }

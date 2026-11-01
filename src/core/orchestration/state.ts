@@ -19,6 +19,7 @@ import {
   type Message,
   type MessageType,
   type Outcome,
+  type ReviewVerdict,
   type RepairReason,
   type Project,
   type Decision,
@@ -242,14 +243,19 @@ export const samePlace = (a: string, b: string): boolean => {
   return norm(a) === norm(b)
 }
 
-/** Where a Task whose work succeeded goes. `merging` when it has work to land on its plan branch: its Run has its own
- *  worktree (integrate.ts runRootOf), it is not itself a merge Task (`parentId`), and some attempt (not a review)
+/** T10: some not-completed Task of its Run lists it in its deps: its work must be on the plan branch before that one forks. */
+export const hasOpenDependent = (s: Pick<OrchState, 'tasks'>, task: Task): boolean =>
+  s.tasks.some((x) => x.runId === task.runId && x.status !== 'completed' && x.deps.includes(task.id))
+
+/** Where a Task whose work succeeded goes. `merging` when it has work to land on its plan branch: an open Task depends on it
+ *  (hasOpenDependent), its Run has its own worktree (integrate.ts runRootOf), it is not itself a merge Task (`parentId`), and some attempt (not a review)
  *  worked outside that worktree. Otherwise `completed`, as before. A Task reads completed only once its commits are on
  *  the plan branch: the app's merge (dispatchLoop mergeWaves) moves it on, or a Gate stops it. Every move to completed
  *  asks this, a person's `task-update --status completed` too. */
-export function doneStatusOf(s: Pick<OrchState, 'runs' | 'dispatches'>, task: Task): 'merging' | 'completed' {
+export function doneStatusOf(s: Pick<OrchState, 'runs' | 'dispatches' | 'tasks'>, task: Task): 'merging' | 'completed' {
   const root = s.runs.find((r) => r.id === task.runId)?.worktree
-  if (root === undefined || task.parentId) return 'completed'
+  // T10: only a Task an open Task depends on is merged now; the rest stay in their worktrees for the delivery to merge
+  if (root === undefined || task.parentId || !hasOpenDependent(s, task)) return 'completed'
   return s.dispatches.some((d) => d.taskId === task.id && !d.review && !samePlace(d.cwd, root)) ? 'merging' : 'completed'
 }
 
@@ -700,6 +706,8 @@ export function createTask(
     validateConfigId?: string
     validateConfigIds?: string[]
     reviewRequested?: boolean
+    /** T32: set when a replan session creates the Task (command.ts task-create) */
+    addedBy?: Task['addedBy']
   } & PlanFields,
   now: string
 ): Res<Task> {
@@ -739,6 +747,7 @@ export function createTask(
     ...(a.validateConfigId ? { validateConfigId: a.validateConfigId } : {}),
     ...(a.validateConfigIds?.length ? { validateConfigIds: a.validateConfigIds } : {}),
     ...(a.reviewRequested ? { reviewRequested: a.reviewRequested } : {}),
+    ...(a.addedBy ? { addedBy: a.addedBy } : {}),
     ...planFieldsOf(a),
     status: 'pending',
     consecutiveFailures: 0,
@@ -1590,14 +1599,28 @@ export function applyReviewResult(
   if (!task) return gone(`unknown task: ${a.taskId}`)
   if (task.status !== 'reviewing') return err(`task is not reviewing: ${task.status}`)
   const lang: Lang = a.lang ?? 'en'
+  const policy = policyOf(s, task)
+  // This round's issues and verdict, kept on its own review Dispatch: Task.reviewIssues holds the latest round only.
+  const issues =
+    policy !== null && a.issues !== 'malformed'
+      ? normalizeIssues({ outcome: a.outcome, subject: a.subject, body: a.body, issues: a.issues, policy, newId })
+      : undefined
+  const blocking = (issues ?? []).filter((i) => i.blocking)
+  // T3: a blocking issue no code change fixes stops the loop (below, above the attempt count)
+  const nonCode = blocking.filter((i) => i.needs !== undefined && i.needs !== 'code')
+  const verdict: ReviewVerdict =
+    policy === null
+      ? a.outcome === 'succeeded' ? 'passed' : 'rejected'
+      : issues === undefined ? 'failed' : blocking.length === 0 ? 'passed' : nonCode.length > 0 ? 'needs-decision' : 'rejected'
   const nextDispatch: Dispatch = {
     ...dispatch,
     outcome: a.outcome,
     endedAt: now,
-    workerState: a.outcome === 'succeeded' ? 'stopped' : 'failed'
+    workerState: a.outcome === 'succeeded' ? 'stopped' : 'failed',
+    verdict,
+    ...(issues !== undefined ? { reviewIssues: issues } : {})
   }
   const closed: OrchState = { ...s, dispatches: replace(s.dispatches, nextDispatch) }
-  const policy = policyOf(s, task)
 
   if (policy === null) {
     // ---- 지금까지의 경로. 문구까지 그대로다 ----
@@ -1640,15 +1663,7 @@ export function applyReviewResult(
     if (!g.ok) return err(g.error)
     return ok(g.state, 'accepted')
   }
-  const issues = normalizeIssues({
-    outcome: a.outcome,
-    subject: a.subject,
-    body: a.body,
-    issues: a.issues,
-    policy,
-    newId
-  })
-  const blocking = issues.filter((i) => i.blocking)
+  if (issues === undefined) return err('review issues missing') // unreachable: the malformed case returned above
   const recorded: Task = { ...task, reviewIssues: issues }
   if (blocking.length === 0) {
     const to = doneStatusOf(s, task)
@@ -1674,7 +1689,6 @@ export function applyReviewResult(
   }
   // T3: a blocking issue no code change fixes stops the loop here, above the attempt count: another repair would fail
   // on it the same way. A person (or a hands-off plan's decider) answers, and that answer opens one repair (gate-resolve).
-  const nonCode = blocking.filter((i) => i.needs !== undefined && i.needs !== 'code')
   if (nonCode.length > 0) {
     const g = createGate(
       { ...closed, tasks: replace(closed.tasks, { ...recorded, result: a.body }) },
@@ -1733,7 +1747,7 @@ export function applyReviewResult(
  *  남긴 후속이고 여기서 새로 풀지 않는다. */
 export function blockForReview(
   s: OrchState,
-  a: { taskId: string; reason: string; lang?: Lang },
+  a: { taskId: string; reason: string; lang?: Lang; cause?: Gate['cause'] },
   now: string
 ): Res<Gate> {
   return createGate(
@@ -1742,10 +1756,38 @@ export function blockForReview(
       taskId: a.taskId,
       question: t(a.lang ?? 'en', 'jobs.checks.gate.reviewEnded', { reason: a.reason }),
       options: [...REVIEW_ENDED_OPTIONS],
-      kind: 'review-ended'
+      kind: 'review-ended',
+      ...(a.cause ? { cause: a.cause } : {})
     },
     now
   )
+}
+
+/** The reason `refuseIfRunGated` gives; older Gates carry it only inside their question text. */
+export const REVIEW_PAUSED_REASON =
+  "this task's run is not one the app starts work on right now: the run or its job is paused, " +
+  'or the job has not been started yet. Resume or start it to have this task reviewed.'
+
+/**
+ * Closes the open review-paused Gates whose run the app may work on again, and puts their Tasks back to `reviewing`
+ * (the state the review was refused in). `taskIds` are the Tasks whose reviewer the caller must now start.
+ * Matches the `cause` marker, or (legacy Gates) the exact reason text. Other Gates are left alone, and so is a Task
+ * with another open question.
+ */
+export function clearPausedReviewGates(s: OrchState, now: string): { state: OrchState; taskIds: string[] } {
+  const taskIds: string[] = []
+  const gates = s.gates.map((g) => {
+    if (g.status !== 'open' || g.kind !== 'review-ended') return g
+    if (g.cause !== 'run-paused' && !g.question.includes(REVIEW_PAUSED_REASON)) return g
+    const task = s.tasks.find((x) => x.id === g.taskId)
+    if (!task || task.status !== 'blocked' || runGatedForTask(s, task)) return g
+    if (s.gates.some((o) => o.taskId === task.id && o.status === 'open' && o.id !== g.id)) return g
+    taskIds.push(task.id)
+    return { ...g, status: 'resolved' as const, resolution: 'resolved: the run was resumed', resolvedAt: now }
+  })
+  if (taskIds.length === 0) return { state: s, taskIds }
+  const tasks = s.tasks.map((x) => (taskIds.includes(x.id) ? { ...x, status: 'reviewing' as const, updatedAt: now } : x))
+  return { state: { ...s, gates, tasks }, taskIds }
 }
 
 /** The answers to a `review-ended` question: put a reviewer on the Task again, or take the Task as done on its own
@@ -2426,7 +2468,7 @@ export function answerEscalation(
 
 export function createGate(
   s: OrchState,
-  a: { taskId: string; question: string; options?: string[]; kind?: GateKind; reason?: GateReason },
+  a: { taskId: string; question: string; options?: string[]; kind?: GateKind; reason?: GateReason; cause?: Gate['cause'] },
   now: string
 ): Res<Gate> {
   const task = s.tasks.find((t) => t.id === a.taskId)
@@ -2444,6 +2486,7 @@ export function createGate(
     question: a.question,
     options: a.options,
     ...(a.kind ? { kind: a.kind } : {}),
+    ...(a.cause ? { cause: a.cause } : {}),
     ...(a.reason ? { reason: a.reason } : {}),
     status: 'open',
     createdAt: now
@@ -2476,6 +2519,22 @@ export function closeGatesOf(s: OrchState, taskId: string, why: string, now: str
     ...s,
     gates: s.gates.map((g) => (g.taskId === taskId && g.status === 'open' ? { ...g, status: 'resolved' as const, resolution: why, resolvedAt: now } : g))
   }
+}
+
+/** A Task's branch is in its plan branch: `mergedIntoPlanAt` recorded; a merging Task is completed by it, its dependents
+ *  readied and its Gates closed. The one state change of `task-update --merged-into-plan` and of the dispatch loop's own
+ *  record right after its merge (exec/dispatchLoop.ts recordMerge), so the two cannot drift. Recorded already: the same
+ *  state back. */
+export function landMerge(s: OrchState, id: string, now: string): Res<{ id: string; mergedIntoPlanAt: string }> {
+  const target = s.tasks.find((t) => t.id === id)
+  if (!target) return gone(`unknown task: ${id}`)
+  if (target.status === 'merging') {
+    const landed: Task = { ...target, status: 'completed', updatedAt: now, mergedIntoPlanAt: now }
+    return ok(closeGatesOf({ ...s, tasks: recomputeReady(s.tasks.map((t) => (t.id === id ? landed : t))) }, id, 'closed: task completed', now), { id, mergedIntoPlanAt: now })
+  }
+  if (target.status !== 'completed') return err(`task ${id} is ${target.status}, not completed`)
+  if (target.mergedIntoPlanAt !== undefined) return ok(s, { id, mergedIntoPlanAt: target.mergedIntoPlanAt })
+  return ok({ ...s, tasks: s.tasks.map((t) => (t.id === id ? { ...t, mergedIntoPlanAt: now } : t)) }, { id, mergedIntoPlanAt: now })
 }
 
 /** closeGatesOf for a Task that has just moved to `completed` (a no-op for any other status) */

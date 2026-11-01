@@ -2,7 +2,7 @@
 // it ready. `gh pr edit` runs a GraphQL query that touches classic projects, which GitHub now refuses ("GraphQL:
 // Projects (classic) is being deprecated"), so the body always goes over REST. REST cannot clear draft, so `gh pr
 // ready` stays, and only when it hits that same refusal does the markPullRequestReadyForReview mutation run alone.
-import type { GhResult, GhRunner } from './gh'
+import { withTempFile, type GhResult, type GhRunner } from './gh'
 
 /** `repos/<owner>/<repo>/pulls/<number>` from a pull request's URL, or null when the URL is not one. */
 export function pullPathOf(url: string): string | null {
@@ -10,11 +10,11 @@ export function pullPathOf(url: string): string | null {
   return m ? `repos/${m[1]}/pulls/${m[2]}` : null
 }
 
-/** The argv that sets a pull request's body over REST. `-f` (a raw string), never `-F`, which reads a value
- *  starting with `@` as a file. Null when `url` is not a pull request's URL. */
-export function prBodyArgs(url: string, body: string): string[] | null {
+/** The argv that sets a pull request's body over REST, the JSON `{"body": …}` read from `file` (`--input`): the body
+ *  itself is never on the command line, and a body starting with `@` is text. Null when `url` is not a pull request's URL. */
+export function prBodyArgs(url: string, file: string): string[] | null {
   const path = pullPathOf(url)
-  return path === null ? null : ['api', '-X', 'PATCH', path, '-f', `body=${body}`]
+  return path === null ? null : ['api', '-X', 'PATCH', path, '--input', file]
 }
 
 /** GitHub's refusal of a GraphQL query that touches classic projects. */
@@ -25,8 +25,8 @@ export const READY_MUTATION =
 
 /** Sets the body of the pull request at `url`. */
 export function setPrBody(run: GhRunner, url: string, body: string, cwd: string): Promise<GhResult> {
-  const args = prBodyArgs(url, body)
-  return args === null ? Promise.resolve({ ok: false, stdout: '', stderr: `not a pull request URL: ${url}` }) : run(args, cwd)
+  if (pullPathOf(url) === null) return Promise.resolve({ ok: false, stdout: '', stderr: `not a pull request URL: ${url}` })
+  return withTempFile('pr-body.json', JSON.stringify({ body }), (file) => run(prBodyArgs(url, file)!, cwd))
 }
 
 /** Marks the draft pull request at `url` ready for review: `gh pr ready`, or the mutation alone when that is

@@ -136,13 +136,66 @@ async function countOrphanEntries(
 /** Moves a folder git no longer tracks to `<root>/.trash/<name>-<time>`, where the owner can still open it. A failed
  *  move (another drive: EXDEV) throws and nothing is removed. */
 async function moveToTrash(folder: string, root: string): Promise<void> {
-  const to = path.join(root, '.trash', `${path.basename(folder)}-${Date.now()}`)
   try {
-    await fs.mkdir(path.dirname(to), { recursive: true })
-    await fs.rename(folder, to)
+    await renameToTrash(folder, root)
   } catch (err) {
     throw new Error(`ORPHAN_NOT_MOVED: ${folder} could not be moved aside, nothing was removed (${err instanceof Error ? err.message : String(err)})`)
   }
+}
+
+/** The errors Windows gives while a file in the folder is held open; a rename is tried again on them. */
+const BUSY = new Set(['EPERM', 'EACCES', 'EBUSY'])
+const codeOf = (err: unknown): string => (err as NodeJS.ErrnoException)?.code ?? ''
+/** Waits between attempts to rename a folder into `.trash`: about 5 s in all. */
+const RENAME_WAITS_MS = [100, 200, 400, 800, 1500, 2000]
+/** Waits between attempts to delete a trashed folder: about 10 minutes in all. */
+const DELETE_WAITS_MS = [1_000, 5_000, 15_000, 30_000, 60_000, 120_000, 180_000, 180_000]
+const sleep = (ms: number): Promise<void> => new Promise((r) => { setTimeout(r, ms).unref?.() })
+
+/** The file calls a removal makes; a test seam. */
+export interface TrashFs {
+  rename(from: string, to: string): Promise<void>
+  rm(p: string, opts: { recursive: true; force: true }): Promise<void>
+}
+const realFs: TrashFs = { rename: (from, to) => fs.rename(from, to), rm: (p, opts) => fs.rm(p, opts) }
+
+/** Renames `folder` to `<root>/.trash/<name>-<time>`, tried again while a held file refuses it (BUSY, about 5 s).
+ *  The trash path; the last error is thrown, and the folder is then where it was, whole. */
+export async function renameToTrash(folder: string, root: string, f: TrashFs = realFs, waits = RENAME_WAITS_MS): Promise<string> {
+  const to = path.join(root, '.trash', `${path.basename(folder)}-${Date.now()}`)
+  await fs.mkdir(path.dirname(to), { recursive: true })
+  for (let i = 0; ; i++) {
+    try {
+      await f.rename(folder, to)
+      return to
+    } catch (err) {
+      if (i >= waits.length || !BUSY.has(codeOf(err))) throw err
+      await sleep(waits[i]!)
+    }
+  }
+}
+
+/** Deletes a trashed folder, tried again with growing waits (about 10 minutes) while a held file refuses it. Never
+ *  rejects: a folder that still cannot go is logged once and left in `.trash`. */
+export async function deleteTrash(p: string, log: (m: string) => void = console.warn, f: TrashFs = realFs, waits = DELETE_WAITS_MS): Promise<void> {
+  for (let i = 0; ; i++) {
+    try {
+      await f.rm(p, { recursive: true, force: true })
+      return
+    } catch (err) {
+      if (i >= waits.length) {
+        log(`trash: could not delete ${p}, left there (${err instanceof Error ? err.message : String(err)})`)
+        return
+      }
+      await sleep(waits[i]!)
+    }
+  }
+}
+
+/** Whether commit `head` is on a branch, or under a backup ref (backupRef): its work survives the folder. */
+export async function isOnBranch(repo: string, head: string): Promise<boolean> {
+  const r = await git(['for-each-ref', '--count=1', '--format=%(refname)', `--contains=${head}`, 'refs/heads/', 'refs/astera/backup/'], { cwd: repo })
+  return r.ok && r.stdout !== ''
 }
 
 /** create() makes <root>/<repoDirName> on the way to the worktree, and nothing else ever removed it —
@@ -233,6 +286,13 @@ async function deleteOriginCopy(repo: string, branch: string): Promise<void> {
  *  "not known", and nothing is deleted on it (the registry entry least of all). A refusal (no call was
  *  made) is asked again a few times (askUntilAnswered); one that lasts is "could not check", which
  *  deletes nothing either. */
+/** T22: stops what still runs in the folder, right before it is removed or moved: a process holding it (a server a
+ *  worker left, with the folder as its cwd) left the folder half removed. Its own function, so the removal steps around
+ *  it can change apart from it. The stopper never throws (host/workspace/processesIn.ts). */
+async function stopProcessesBeforeRemoval(folder: string, stop: ((dir: string) => Promise<unknown>) | undefined): Promise<void> {
+  await stop?.(folder)
+}
+
 async function folderState(p: string, check: PresenceCheck): Promise<'present' | 'missing'> {
   const r = await askUntilAnswered(check, p)
   if (r === 'present' || r === 'missing') return r
@@ -255,6 +315,13 @@ export async function removeWorktree(args: {
   presence?: PresenceCheck
   /** Test seam: the link walk before git removes the folder (detachLinks.ts). */
   detach?: (root: string, opts: { keep?: (rel: string) => boolean }) => Promise<DetachResult>
+  /** Test seam: the rename into `.trash` and the background delete. */
+  fs?: TrashFs
+  /** Where the background delete says it gave up; defaults to console.warn. */
+  log?: (m: string) => void
+  /** Stops the processes still running in the folder before it is removed (the Host's processesIn.ts). Left out,
+   *  nothing is stopped. */
+  stopProcessesIn?: (dir: string) => Promise<unknown>
 }): Promise<WorktreeRemoveResult> {
   const info = args.registry.get(args.id)
   if (!info) throw new Error(`NOT_MANAGED: not a worktree created by this app (${args.id})`)
@@ -286,16 +353,15 @@ export async function removeWorktree(args: {
     // git has forgotten it
     await git(['worktree', 'prune'], write(info.repoPath))
     if ((await folderState(info.path, presence)) === 'present') {
-      if (!(await isProvenOrphanDir(info.path, info.repoPath))) {
-        // Without proof there is no telling our worktree from an unrelated directory — but an empty one
-        // has nothing to lose, and demanding proof there left the row undeletable forever
-        if ((await countOrphanEntries(info.path, { countGitDir: true })) > 0)
-          throw new Error(`ORPHAN_UNPROVEN: ownership cannot be proven, so nothing is deleted (${info.path})`)
-      } else if ((await countOrphanEntries(info.path)) > 0) {
-        if (!args.force) throw new Error(`ORPHAN_UNVERIFIABLE: ${info.path}`)
-        // git cannot say whether its files hold uncommitted work, so force moves the folder aside, never deletes it
-        await moveToTrash(info.path, args.registry.getRoot())
-      }
+      const proven = await isProvenOrphanDir(info.path, info.repoPath)
+      const entries = await countOrphanEntries(info.path, proven ? undefined : { countGitDir: true })
+      // Without proof there is no telling our worktree from an unrelated directory — but an empty one
+      // has nothing to lose, and demanding proof there left the row undeletable forever
+      if (entries > 0 && !proven) throw new Error(`ORPHAN_UNPROVEN: ownership cannot be proven, so nothing is deleted (${info.path})`)
+      if (entries > 0 && !args.force) throw new Error(`ORPHAN_UNVERIFIABLE: ${info.path}`)
+      await stopProcessesBeforeRemoval(info.path, args.stopProcessesIn)
+      // git cannot say whether its files hold uncommitted work, so force moves the folder aside, never deletes it
+      if (entries > 0) await moveToTrash(info.path, args.registry.getRoot())
       try {
         await fs.rm(info.path, { recursive: true, force: true })
       } catch (err) {
@@ -304,27 +370,43 @@ export async function removeWorktree(args: {
     }
   } else {
     // If the directory is already gone, git status itself is impossible and there is nothing to inspect — skip the cleanliness check.
-    // Force or not, the folder is asked about first: before git removes it, its links are taken out
-    // (detachBeforeRemove — git would delete through a junction into the folder it points at), and
+    // Force or not, the folder is asked about first: before it goes, its links are taken out
+    // (detachBeforeRemove — a delete would go through a junction into the folder it points at), and
     // that walk is not run on a folder that did not answer. Unreachable throws; nothing is removed.
-    // A locked worktree is refused by git without force; refused here first, before the link walk
-    // would have taken its node_modules links out for nothing.
-    if (!args.force && row.locked)
+    // A locked worktree is refused (git refuses it even with one --force, and prune keeps its entry),
+    // before the link walk would have taken its node_modules links out for nothing.
+    if (row.locked)
       throw new Error(`WORKTREE_LOCKED: the worktree is locked (git worktree lock), nothing was removed (${info.path})`)
     if ((await folderState(info.path, presence)) === 'present') {
       if (!args.force) {
         const { count } = await blockingChanges(info.path)
         if (count > 0) throw new Error(`DIRTY: ${count}`)
       }
+      // A commit no branch holds would be lost with the folder, force or not
+      if (row.head && !(await isOnBranch(info.repoPath, row.head)))
+        throw new Error(`NOT_ON_BRANCH: its commit ${row.head.slice(0, 7)} is on no branch, nothing was removed (${info.path})`)
       await detachBeforeRemove(info.path, args.force === true, args.detach ?? detachLinks)
+      // The processes still using the folder are stopped before it moves
+      await stopProcessesBeforeRemoval(info.path, args.stopProcessesIn)
+      // Renamed aside, never deleted in place: on Windows git deletes the `.git` link first and then stops at a locked
+      // file, which left a whole checkout without its `.git`. A rename moves all of it or nothing.
+      const f = args.fs ?? realFs
+      let trash: string | null = null
+      try {
+        trash = await renameToTrash(info.path, args.registry.getRoot(), f)
+      } catch (err) {
+        if (BUSY.has(codeOf(err)))
+          throw new Error(`WORKTREE_BUSY: a file in the folder is held open, it was left whole with its .git (${info.path}): ${err instanceof Error ? err.message : String(err)}`)
+        // Not a held file (another drive: EXDEV): git removes it in place
+        const rm = await git(
+          args.force ? ['worktree', 'remove', '--force', info.path] : ['worktree', 'remove', info.path],
+          write(info.repoPath)
+        )
+        if (!rm.ok) throw new Error(`GIT_REMOVE_FAILED: ${rm.stderr || rm.stdout}`)
+      }
+      if (trash !== null) void deleteTrash(trash, args.log, f)
     }
-    const rm = await git(
-      args.force
-        ? ['worktree', 'remove', '--force', info.path]
-        : ['worktree', 'remove', info.path],
-      write(info.repoPath)
-    )
-    if (!rm.ok) throw new Error(`GIT_REMOVE_FAILED: ${rm.stderr || rm.stdout}`)
+    // The moved (or missing) folder's admin entry is stale now: prune drops it
     await git(['worktree', 'prune'], write(info.repoPath))
   }
 

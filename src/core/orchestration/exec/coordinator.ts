@@ -392,6 +392,7 @@ export const WORKER_MACHINE_RULES = `
 - Ignore the prompt's worktree, branch, push and PR steps; Astera gives you a worktree and delivers the plan.
 - Never stop, restart or pkill the orchestrating Astera app or its Host, and never kill processes you did not start.
 - Test only what you touched: the test files of the files you changed (\`astera heavy -- npx vitest run --maxWorkers=2 <files>\` or the project's equivalent) and the typecheck (\`astera heavy -- npm run typecheck\`). Do not run the full test suite: it runs once when the plan is delivered.
+- Before you report done, run the repository's own checks for every package you touched: its typecheck and its lint. Find them in package.json scripts, the workspace's turbo or nx config, and the pre-push and pre-commit hooks (lefthook.yml, .husky/, .git/hooks). Quote each command with its result in your report under 'Checks run'. If a check cannot run here, say why.
 - Test, typecheck and build runs are heavy jobs, and so are the full test suite, \`npm run dev\` / Electron and \`npm run dist:linux\`. Run every one of them as \`astera heavy -- <cmd>\`: one at a time on this machine. Manual checks run the dev app on the dev profile (\`ASTERA_PROFILE_DIR=~/.config/astera-dev\`), never the profile Astera runs on.
 `
 
@@ -749,6 +750,14 @@ subtree behind it.
 Reject when the work does not do what was asked: a missing case, a requirement addressed in name only, a
 change that contradicts the spec. Say concretely what is missing, because your body text is the only
 record the next attempt gets.
+
+## Evidence the checks ran
+
+The report must contain a 'Checks run' section that names a typecheck and a lint for the packages the work
+touched, each with its command and result, or a reason why one could not run. Look for that section in the
+report; do not run the checks yourself. A report with no 'Checks run' section naming a typecheck and a lint
+is rejected: use --outcome failed, and name the issue as "No typecheck/lint evidence for <packages>", with
+<packages> the packages the changed files belong to.
 ${verdictSection}
 ---
 ## Reporting obligation (assembled by the app — do not delete)

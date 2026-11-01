@@ -21,6 +21,7 @@ import net from 'node:net'
 import { resolveSkillsDir } from './skills'
 import { hostTarget } from '../core/publicContract'
 import type { CliError } from '../core/orchestration/cliOutput'
+import type { StopBlocker } from '../core/orchestration/running'
 import { HOST_WAIT_EVERY_MS, HOST_WAIT_NOTICE_MS, hostWaitLine } from '../core/orchestration/cliKeepalive'
 
 /** What `astera host status` reports. **Answers without a Host**: the content says what is there and
@@ -102,7 +103,7 @@ export function hostStopResult(
   a:
     | { outcome: 'absent' }
     | { outcome: 'stopped' }
-    | { outcome: 'refused'; sessions: number; runs: number }
+    | { outcome: 'refused'; sessions: number; runs: number; blockers?: StopBlocker[] }
     | { outcome: 'timeout'; waitedMs: number }
 ): HostCommandResult {
   if (a.outcome === 'absent') return { ok: true, body: { stopped: true, message: 'no Host was running' } }
@@ -123,12 +124,21 @@ export function hostStopResult(
       code: 'CONFLICT',
       // **`run`, because Runs are what is counted** (ruling F57/e). It said "Job" while counting
       // Runs, so one Job with two concurrent Runs read as two Jobs.
-      message: `Cannot stop Host: ${plural(a.sessions, 'session')} and ${plural(a.runs, 'run')} are still running.`,
+      message:
+        `Cannot stop Host: ${plural(a.sessions, 'session')} and ${plural(a.runs, 'run')} are still running.` +
+        (a.blockers ?? []).map((b) => `\n  ${blockerLine(b)}`).join(''),
       // The counts a script acts on. They used to ride a success-shaped body (`ok: true` with exit 6);
       // they are the same numbers in the envelope every other refusal uses (review I1).
-      details: { sessions: a.sessions, runs: a.runs }
+      details: { sessions: a.sessions, runs: a.runs, ...(a.blockers ? { blockers: a.blockers } : {}) }
     }
   }
+}
+
+/** One line of a refusal: what holds the Host, by its id and role (or why), with its Task and Run, then its title. */
+function blockerLine(b: StopBlocker): string {
+  const what = b.kind === 'session' ? `session ${b.id} (${b.role})` : `run ${b.id} (${b.why})`
+  const where = b.kind === 'session' ? [b.taskId ? `task ${b.taskId}` : '', b.runId ? `run ${b.runId}` : ''].filter(Boolean).join(', ') : ''
+  return `${what}${where ? `, ${where}` : ''}: ${b.title}`
 }
 
 /** This file's own copy of the build-time version. `run.ts` has one too (`CLI_VERSION`) but this file
@@ -752,7 +762,7 @@ async function runHostCommandNow(a: {
       timer.unref?.()
       offMessage = connected.onMessage((m) => {
         if (m.t === 'retire-refused')
-          settle(hostStopResult({ outcome: 'refused', sessions: m.sessions, runs: m.runs }))
+          settle(hostStopResult({ outcome: 'refused', sessions: m.sessions, runs: m.runs, blockers: m.blockers }))
       })
       offClose = connected.onClose(() => settle(hostStopResult({ outcome: 'stopped' })))
       connected.call({ t: 'retire', reason: 'user' })

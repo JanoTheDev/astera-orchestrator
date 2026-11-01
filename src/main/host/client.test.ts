@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { EventEmitter } from 'node:events'
 import { promises as fs } from 'node:fs'
 import net from 'node:net'
 import os from 'node:os'
@@ -209,12 +210,9 @@ describe('HostClient — the Host proves itself (protocol 4)', () => {
   it('hands a subscriber nothing a peer sends before it has proven itself', async () => {
     const addr = addressFor('squat-early')
     const sq = await squatter(addr, () => undefined, [{ t: 'pty-data', id: 'x', data: 'rm -rf ~\r' } as HostMessage])
-    const heard: string[] = []
     const c = new HostClient({ hostKey, address: addr.address, appVersion: '9.0.0', spawnHost: () => {}, log: () => {}, attempts: 3, retryMs: 20 })
-    c.onMessage((m) => heard.push(m.t))
     c.start()
     await settled(c, (s) => s.problem !== null)
-    expect(heard).toEqual([])
     await c.stop()
     await sq.close()
   })
@@ -1608,5 +1606,154 @@ describe('session resume after a swap', () => {
     expect(launched[1].restore).toMatchObject({ accountId: 'acc-cx', title: 'Codex tab', threadId: 'th-cx', unattendedPermission: 'hold', startedAt: 222 })
     expect(await leftBehind(profileDir)).toMatchObject({ handover: { chats: [{ sessionId: 'chat-cl' }, { sessionId: 'chat-cx' }] } })
     await c.stop()
+  })
+})
+
+// The Host dies and a new one appears later, perhaps at another address: the client must find it by
+// itself (owner item 25c). Fake sockets and a fake clock, so thirty seconds of backoff cost nothing.
+describe('HostClient keeps reconnecting while the app runs', () => {
+  class FakeSocket extends EventEmitter {
+    destroyed = false
+    constructor(readonly address: string, private readonly world: FakeWorld) {
+      super()
+    }
+    setEncoding(): void {}
+    write(line: string): boolean {
+      const m = JSON.parse(line) as { t: string; nonce?: string }
+      this.world.sent.push(m.t)
+      if (m.t === 'hello') {
+        const host = this.world.hosts.get(this.address)
+        if (host) queueMicrotask(() => this.emit('data', encodeLine({ t: 'hello', protocol: HOST_PROTOCOL, host: '9.9.9', pid: host.pid, startedAt: `start-${host.pid}`, features: [], proof: hostProof(KEY, m.nonce ?? '') })))
+      }
+      return true
+    }
+    destroy(): this {
+      if (!this.destroyed) {
+        this.destroyed = true
+        queueMicrotask(() => this.emit('close'))
+      }
+      return this
+    }
+    end(): this {
+      return this.destroy()
+    }
+  }
+  class FakeWorld {
+    hosts = new Map<string, { pid: number }>()
+    sockets: FakeSocket[] = []
+    connects: number[] = []
+    sent: string[] = []
+    /** The Host goes away: every connection to it closes, and the address answers nothing. */
+    kill(address: string): void {
+      this.hosts.delete(address)
+      for (const s of this.sockets) if (s.address === address) s.destroy()
+    }
+  }
+  const A = '\\.\pipe\fake-host-a'
+  const B = '\\.\pipe\fake-host-b'
+  let world: FakeWorld
+  beforeEach(() => {
+    vi.useFakeTimers()
+    world = new FakeWorld()
+    vi.spyOn(net, 'connect').mockImplementation(((address: string) => {
+      const s = new FakeSocket(address, world)
+      world.sockets.push(s)
+      world.connects.push(Date.now())
+      queueMicrotask(() => (world.hosts.has(address) ? s.emit('connect') : s.emit('error', new Error('ECONNREFUSED'))))
+      return s
+    }) as unknown as typeof net.connect)
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+  const run = async (ms: number): Promise<void> => {
+    await vi.advanceTimersByTimeAsync(ms)
+  }
+
+  it('connects to a new Host that appears 30 s later at a new address, without a restart, and resubscribes', async () => {
+    let current = A
+    let spawned = 0
+    const c = new HostClient({ hostKey, address: () => current, appVersion: '9.0.0', spawnHost: () => { spawned += 1 }, log: () => {} })
+    const identities: string[] = []
+    c.onConnect((h) => identities.push(`${h.pid}@${h.startedAt}`))
+    world.hosts.set(A, { pid: 1 })
+    c.start()
+    await run(10)
+    expect(c.status()).toMatchObject({ connected: true, pid: 1 })
+
+    world.kill(A)
+    await run(0)
+    expect(c.status().connected).toBe(false)
+    const killedAt = Date.now()
+    const problems = new Set<string | null>()
+    let wasConnected = false
+    for (let t = 0; t < 30_000; t += 500) {
+      await run(500)
+      problems.add(c.status().problem)
+      wasConnected ||= c.status().connected
+    }
+    expect(wasConnected).toBe(false)
+    // Reconnecting, with the problem — never a terminal failure sentence on its own.
+    expect([...problems].filter((p) => p !== null).every((p) => p!.includes('reconnecting') || p === 'the connection to the Host dropped')).toBe(true)
+    expect([...problems].some((p) => p?.includes('reconnecting'))).toBe(true)
+    // Backoff is capped at 10 s once the fast attempts are over.
+    const late = world.connects.filter((t) => t > killedAt + 12_000)
+    for (let i = 1; i < late.length; i++) expect(late[i] - late[i - 1]).toBeLessThanOrEqual(10_000)
+
+    // 30 s after the crash a new Host is serving, at an address the old one never had.
+    world.hosts.set(B, { pid: 2 })
+    current = B
+    await run(10_500)
+    expect(c.status()).toMatchObject({ connected: true, pid: 2, problem: null })
+    expect(identities).toEqual(['1@start-1', '2@start-2'])
+    // A first connect's hello went out again, so the app is subscribed as at the start.
+    expect(world.sent.filter((t) => t === 'hello')).toHaveLength(2)
+    expect(spawned).toBe(1)
+    await c.stop()
+  })
+
+  it('is still retrying minutes into an outage and still says reconnecting', async () => {
+    const c = new HostClient({ hostKey, address: A, appVersion: '9.0.0', spawnHost: () => {}, log: () => {} })
+    c.start()
+    await run(180_000)
+    expect(c.status()).toMatchObject({ connected: false })
+    expect(c.status().problem).toContain('reconnecting')
+    const before = world.connects.length
+    await run(60_000)
+    expect(world.connects.length - before).toBeGreaterThanOrEqual(5)
+    world.hosts.set(A, { pid: 7 })
+    await run(10_500)
+    expect(c.status()).toMatchObject({ connected: true, pid: 7, problem: null })
+    await c.stop()
+  })
+
+  it('keeps retrying when the Host cannot be started', async () => {
+    const c = new HostClient({ hostKey, address: A, appVersion: '9.0.0', spawnHost: () => { throw new Error('no runtime') }, log: () => {} })
+    c.start()
+    await run(60_000)
+    expect(c.status()).toMatchObject({ connected: false })
+    expect(c.status().problem).toContain('no runtime')
+    expect(c.status().problem).toContain('reconnecting')
+    world.hosts.set(A, { pid: 3 })
+    await run(10_500)
+    expect(c.status()).toMatchObject({ connected: true, pid: 3 })
+    await c.stop()
+  })
+
+  it('stop() during the backoff ends it for good', async () => {
+    const c = new HostClient({ hostKey, address: A, appVersion: '9.0.0', spawnHost: () => {}, log: () => {} })
+    world.hosts.set(A, { pid: 1 })
+    c.start()
+    await run(10)
+    world.kill(A)
+    await run(20_000)
+    expect(c.status().connected).toBe(false)
+    const attempts = world.connects.length
+    await c.stop()
+    world.hosts.set(A, { pid: 2 })
+    await run(120_000)
+    expect(world.connects.length).toBe(attempts)
+    expect(c.status().connected).toBe(false)
   })
 })

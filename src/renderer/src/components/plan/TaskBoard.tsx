@@ -10,6 +10,8 @@ import { memo, useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import type { ActivityEvent } from '../../../../core/orchestration/activity'
 import type { Account, JobEvent, JobTask } from '../../../../core/types'
 import { type RoleModelSettings } from '../../../../core/orchestration/roleModels'
+import { ReviewingBadge } from './TaskDetail'
+import { isReviewing } from './reviewList'
 import { useI18n } from '../../i18n/I18nProvider'
 import { TaskGlyph } from '../JobIcons'
 import { taskAnchorId } from './planPage'
@@ -28,7 +30,7 @@ import {
   type KindFilter,
   type needsYouOf,
   nowOf,
-  reasonText,
+  cardReasonText,
   reasonTone,
   reuseOf,
   stepStateOf,
@@ -406,7 +408,7 @@ function TaskRow({
   const [allFiles, setAllFiles] = useState(false)
   const [showAnswers, setShowAnswers] = useState(false)
   const reason = tk.board?.reason
-  const text = reason ? reasonText(reason, nowMs, label) : undefined
+  const text = cardReasonText(tk, nowMs, label)
   const account = tk.accountId ?? tk.accountIds?.[0]
   const files = tk.affectedPaths ?? []
   const shown = allFiles ? files : files.slice(0, FILES_SHOWN)
@@ -448,6 +450,7 @@ function TaskRow({
             {t('plan.kind.merge')}
           </Chip>
         )}
+        {isReviewing(tk) && <ReviewingBadge startedAt={tk.startedAt as string} />}
         {line !== undefined && <span className={reason && !now ? `plan-row-line plan-row-line--${reasonTone(reason)}` : 'plan-row-line plan-now'}>{line}</span>}
         <span className="plan-row-meta">
           {account !== undefined && <span className="plan-row-account">{label(account)}</span>}

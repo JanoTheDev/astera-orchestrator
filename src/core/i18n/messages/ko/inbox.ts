@@ -93,6 +93,7 @@ export const inbox = {
   'activity.line.linked': '{title}: 연결됨 {parts}',
   'activity.line.prFailed': '{title}: PR 실패: {error}',
   'activity.line.prOpened': '{title}: PR 열림',
+  'activity.line.landedOutside': '{title}: Astera 밖에서 반영됨',
   'activity.line.prOpenedNum': '{title}: PR #{n} 열림',
   'activity.line.planAwaiting': '{title}: 플랜이 승인을 기다리는 중',
   'activity.line.planRevised': '{title}: 플랜을 수정함, 승인 대기 중',

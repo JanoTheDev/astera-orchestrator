@@ -51,6 +51,12 @@ describe('planSummaryOf', () => {
     expect(planSummaryOf(row({ deliveryDismissed: true }), NOW).delivery).toEqual({ kind: 'dismissed' })
   })
 
+  it('a plan that landed outside Astera or was closed on GitHub reads so, its delivery note', () => {
+    expect(planSummaryOf(row({ pr: { at: 'x', url: 'u', landed: 'merged', landedOutside: true } }), NOW).delivery).toEqual({ kind: 'landedOutside' })
+    expect(planSummaryOf(row({ pr: { at: 'x', url: 'u', landed: 'closed' } }), NOW).delivery).toEqual({ kind: 'closedOnGitHub' })
+    expect(planSummaryOf(row({ pr: { at: 'x', url: 'u', landed: 'merged' } }), NOW).delivery).toBeUndefined()
+  })
+
   it('carries the wave and the areas', () => {
     const s = planSummaryOf(row({ wave: { at: 2, of: 3 }, areas: ['src/core'] }), NOW)
     expect(s.wave).toEqual({ at: 2, of: 3 })

@@ -100,6 +100,34 @@ const waitsLong = (cmd: string, args: Record<string, unknown>): boolean =>
   // Waits for the driving loop's pass to end, and that pass's own `worker-start` runs through the chain.
   cmd === 'tasks-dispatch'
 
+/** **The reads that never queue in the command chain** (T2, the 64-82 s `tasks list` at 17 sessions): each answers
+ *  at once while a long write, a git run or a save holds the chain. The rule for a name here: its handler changes no
+ *  state and has no side effect, reads `getState()` (memory, which a commit moves synchronously, so a read sees every
+ *  commit made before it) and cheap local files, and awaits nothing that waits on the chain. A read made inside a
+ *  holder still runs inline. */
+export const READS_OUTSIDE_CHAIN: ReadonlySet<string> = new Set([
+  'runs-get',
+  'runs-list',
+  'jobs-list',
+  'jobs-get',
+  'tasks-get',
+  'tasks-list',
+  'sessions-list',
+  'summaries',
+  'sessions-summary',
+  'main-plan',
+  'plan-state',
+  'jobs-overlaps',
+  'dispatch-show',
+  'run-configs',
+  'run-configs-list',
+  'accounts',
+  'accounts-list'
+])
+
+/** A command slower than this, waiting included, is logged with what it waited behind. */
+const SLOW_COMMAND_MS = 2_000
+
 /** What a request id may look like (request receipts design §5). **Not a UUID**: Orca validates one
  *  in its client and enforces nothing in its runtime, and its own federation code writes ids that
  *  would fail that check — a rule that exists in one place and is broken in another. What is enforced
@@ -446,10 +474,17 @@ export interface HostOrch extends OrchCall {
   /** Runs the drain once, if it has not run in this Host's life (C6): for a Host that was `'app'` at
    *  its load and becomes `'host'` later. Re-reads the queue. Answers whether it ran. */
   drainOnce(): Promise<boolean>
+  /** T3: resolves once the last commit is on disk (`OrchestrationStore.flush`). Commits no longer wait for the disk, so
+   *  the Host's way out awaits this. Rejects only when the last write fails again. */
+  flush(): Promise<void>
 }
 
 export function createHostOrch(a: {
   profileDir: string
+  /** Tests only: the state store, to make its disk write slow. Absent: the profile's orchestration.json. */
+  store?: OrchestrationStore
+  /** Tests only: the slow-command log's threshold (SLOW_COMMAND_MS). */
+  slowCommandMs?: number
   /** The login rule `accounts-list` and `--coordinator-provider` mark each provider's default by, with
    *  no app attached. Defaults to the one rule (loginCheck.ts, C8) the Host's checks and spawner use. */
   isLoggedIn?(account: Account): Promise<boolean>
@@ -491,6 +526,8 @@ export function createHostOrch(a: {
   onState(s: OrchState, version: number): void
   /** The Host's log. Handed to the command layer as well — see `hostOrchDeps`. */
   log(message: string): void
+  /** 25a: runs a command under the Host's exit breadcrumb (host/exitWatch.ts). Absent: the command just runs. */
+  track?<T>(cmd: string, run: () => Promise<T>): Promise<T>
   /** The agent sessions this Host holds, for `astera sessions` (orchDeps' HOST_SESSIONS). */
   sessions: HostSessions
   /** A Runtime's sessions as a controller reads and drives them (remote runtime Phase 9a, remoteSessions.ts). Absent:
@@ -644,7 +681,7 @@ export function createHostOrch(a: {
       })
     | null
 }): HostOrch {
-  const store = new OrchestrationStore(path.join(a.profileDir, 'orchestration.json'), a.log)
+  const store = a.store ?? new OrchestrationStore(path.join(a.profileDir, 'orchestration.json'), a.log)
   // Built at the first ask: only a call that marks the default needs the descriptors.
   let descriptors: ReturnType<typeof makeDescriptors> | undefined
   const loggedIn = a.isLoggedIn ?? ((x: Account) => isLoggedIn(x, (descriptors ??= makeDescriptors(process.platform))))
@@ -813,6 +850,16 @@ export function createHostOrch(a: {
         await drain(queued).catch((err) => a.log(`pending reports — the drain at the Host's load failed: ${String(err)}`))
       }
       loaded = true
+      // T4: a delivery is in flight only inside the Host that runs it (the Run's `inFlight` mark): one an earlier Host left
+      // `delivering` has nobody delivering it, so it is due again now rather than after DELIVERING_STALE_MS. Before every
+      // command: each waits for this load.
+      const st = store.get()
+      if (st.runs.some((r) => r.deliveryState?.state === 'delivering')) {
+        const runs = st.runs.map((r) => (r.deliveryState?.state === 'delivering' ? { ...r, deliveryState: { ...r.deliveryState, state: 'pending' as const } } : r))
+        await depsFor(throwaway(), HOST_ACTOR)
+          .setState({ ...st, runs })
+          .catch((err) => a.log(`deliveries left delivering by an earlier Host could not be made due again: ${String(err)}`))
+      }
       // T14: plans delivered before this Host started may have carried an earlier plan's branch with them
       recordDeliveredBy(deliveredJobIds(store.get(), a.now()))
       // After `loaded`, so the pass it starts sees a loaded Host (B2). Once: this promise is memoized.
@@ -863,6 +910,9 @@ export function createHostOrch(a: {
   /** The `check --wait` calls this Host serves, for its whole life (final round 2, I-A): built once, not
    *  per call like the deps below, since a wait entered by one call is asked about by another. */
   const checkWaits = createCheckWaits()
+  /** T4: the Runs whose slow git/gh command runs now (OrchServerDeps.inFlight): one map for this Host's life, like the
+   *  waits above, since the call that marks a Run and the one refused for it are two calls. */
+  const inFlight = new Map<string, string>()
   /**
    * **One command at a time** (the Gameful lost dispatches, 2026-10-20). A command reads the state once and commits a whole
    * state after its awaits, so two running together lose the first one's commit: ten parallel `worker-start`s left three
@@ -874,9 +924,22 @@ export function createHostOrch(a: {
    * and a holder hands it on while it waits on a spawn or a screen (`outsideChain`). A command that fails or throws
    * releases it all the same.
    */
-  type Holder = { running: boolean; release: () => void }
+  type Holder = { running: boolean; release: () => void; cmd: string }
   const holding = new AsyncLocalStorage<Holder>()
   let chainTail: Promise<void> = Promise.resolve()
+  /** The command holding the chain now, or null: what a slow command's log line says it waited behind. */
+  let chainHolder: string | null = null
+  const slowMs = a.slowCommandMs ?? SLOW_COMMAND_MS
+  /** `chained` is null for a read answered outside the chain. */
+  const logIfSlow = (cmd: string, startedAt: number, chained: { ranAt: number; behind: string | null } | null): void => {
+    const end = Date.now()
+    if (end - startedAt <= slowMs) return
+    a.log(
+      chained === null
+        ? `host: slow command ${cmd} took ${end - startedAt} ms (a read, outside the chain)`
+        : `host: slow command ${cmd} took ${end - startedAt} ms (waited ${chained.ranAt - startedAt} ms behind ${chained.behind ?? 'nothing'}, ran ${end - chained.ranAt} ms)`
+    )
+  }
   /** Waits for every earlier taker to hand the chain on, and answers how to hand it on in turn. */
   const takeChain = (): Promise<() => void> => {
     let release = (): void => {}
@@ -887,14 +950,28 @@ export function createHostOrch(a: {
     chainTail = before.then(() => mine)
     return before.then(() => release)
   }
-  const serially = async <T>(cmd: string, args: Record<string, unknown>, run: () => Promise<T>): Promise<T> => {
+  const serially = async <T>(cmd: string, args: Record<string, unknown>, run0: () => Promise<T>): Promise<T> => {
+    const run = a.track ? () => a.track!(cmd, run0) : run0 // 25a: the breadcrumb
     if (holding.getStore()?.running || waitsLong(cmd, args)) return run()
-    const holder: Holder = { running: true, release: await takeChain() }
+    const startedAt = Date.now()
+    if (READS_OUTSIDE_CHAIN.has(cmd)) {
+      try {
+        return await run()
+      } finally {
+        logIfSlow(cmd, startedAt, null)
+      }
+    }
+    const behind = chainHolder
+    const holder: Holder = { running: true, release: await takeChain(), cmd }
+    chainHolder = cmd
+    const ranAt = Date.now()
     try {
       return await holding.run(holder, run)
     } finally {
       holder.running = false
+      chainHolder = null
       holder.release()
+      logIfSlow(cmd, startedAt, { ranAt, behind })
     }
   }
   /** A slow effect the holder awaits with the chain handed on, taken back before the command goes on. Only for effects
@@ -903,11 +980,13 @@ export function createHostOrch(a: {
     const holder = holding.getStore()
     if (!holder?.running) return effect()
     holder.running = false
+    chainHolder = null
     holder.release()
     try {
       return await effect()
     } finally {
       holder.release = await takeChain()
+      chainHolder = holder.cmd
       holder.running = true
     }
   }
@@ -975,7 +1054,28 @@ export function createHostOrch(a: {
       }
       return row
     }
-  const depsFor = (marks: CallMarks, actor: JournalActor): OrchServerDeps => {
+  /** `accounts list` and the other reads answer from the last list seen (per provider and default mark), refreshed
+   *  behind the answer, so a read never waits on an app round trip (up to 15 s). The first ask waits for the live one;
+   *  a command that changes state always asks live: it must not refuse an account added a moment ago. */
+  const accountsSeen = new Map<string, Awaited<ReturnType<OrchServerDeps['listAccounts']>>>()
+  const accountsAsking = new Map<string, Promise<Awaited<ReturnType<OrchServerDeps['listAccounts']>>>>()
+  const accountsFromCache =
+    (live: OrchServerDeps['listAccounts']): OrchServerDeps['listAccounts'] =>
+    (provider, opts) => {
+      const key = `${provider ?? ''}|${opts?.withDefault === true}`
+      let asking = accountsAsking.get(key)
+      if (!asking) {
+        asking = Promise.resolve(live(provider, opts))
+          .then((v) => (accountsSeen.set(key, v), v))
+          .finally(() => accountsAsking.delete(key))
+        accountsAsking.set(key, asking)
+      }
+      const seen = accountsSeen.get(key)
+      if (seen === undefined) return asking
+      asking.catch((err) => a.log(`accounts: refreshing the cached list failed: ${String(err)}`))
+      return seen
+    }
+  const depsFor = (marks: CallMarks, actor: JournalActor, read = false): OrchServerDeps => {
     const deps = hostOrchDeps({
       checkWaits,
       getState: () => store.get(),
@@ -1004,9 +1104,12 @@ export function createHostOrch(a: {
         // The public event log moves with memory and the subscribers (SDK 1d): an event never names a state a read
         // cannot see yet. A disk write that then fails leaves memory moved all the same, and the events with it.
         recordEvents(prev, next)
-        await saving
+        // T3: not awaited. A commit holds the command chain, and waiting out a whole-state fsync there made every other
+        // command wait for it too (59-120 s per planner command in the field). The store logs a failed write and writes
+        // the newest state again at the next save, and the Host's way out awaits `flush`.
+        saving.catch(() => {})
         a.onState(next, committed)
-        // J1: journaled after the commit landed (the spec's accepted crash window), with who made it (J4,
+        // J1: journaled after the commit is in memory (the spec's accepted crash window), with who made it (J4,
         // P5) and its version under this Host's life as the key (J6, P1).
         journalSafely('recording a commit', () => a.journal?.committed({ prev, next, version: committed, actor }))
         recordFinishedRuns(prev, next)
@@ -1102,6 +1205,7 @@ export function createHostOrch(a: {
     const { startWorker, readWorker, makeRunWorktree } = deps
     return {
       ...deps,
+      ...(read ? { listAccounts: accountsFromCache(deps.listAccounts) } : {}),
       // T24: run-start's Run worktree answers once its install queues for one of the machine's heavy slots, so the command
       // holding the chain never waits on a slot. The install goes on outside every holder; until it ends the folder is
       // installPending, and the scheduler starts no worker there (dispatchLoop.ts installWait)
@@ -1123,7 +1227,13 @@ export function createHostOrch(a: {
               outsideChain(() => (x.queueInstall ? startBesideInstall(x, startWorker) : startWorker(x)))
           }
         : {}),
-      ...(readWorker ? { readWorker: (x: Parameters<typeof readWorker>[0]) => outsideChain(() => readWorker(x)) } : {})
+      ...(readWorker ? { readWorker: (x: Parameters<typeof readWorker>[0]) => outsideChain(() => readWorker(x)) } : {}),
+      // T4: a slow command's git, gh and spawn steps run with the chain handed on (command.ts offChain), one command per Run
+      // at a time; a commit made inside one of them (a start's `onWait`) queues for the chain like any outside caller.
+      // Also `runs-pr-sync`'s origin fetch: slow network git that commits nothing until the command reads the state again
+      outsideChain,
+      inChain: <T>(commit: () => Promise<T>): Promise<T> => serially('in-chain', {}, commit),
+      inFlight
     }
   }
 
@@ -1824,6 +1934,7 @@ export function createHostOrch(a: {
 
   return {
     ready,
+    flush: () => store.flush(),
     runningRuns: () => runningRunCount(store.get()),
     state: () => store.get(),
     // Atomic: the snapshot and the registration happen in one synchronous step, so no commit falls
@@ -1899,7 +2010,7 @@ export function createHostOrch(a: {
       // Inside the try for `call`'s reason: the loop that asks this must be told, not thrown at.
       try {
         await ready()
-        return answerOf(await serially(cmd, args, () => handleCommand(depsFor(marks, HOST_ACTOR), { sessionId: HOST_CALLER }, cmd, args)), marks)
+        return answerOf(await serially(cmd, args, () => handleCommand(depsFor(marks, HOST_ACTOR, READS_OUTSIDE_CHAIN.has(cmd)), { sessionId: HOST_CALLER }, cmd, args)), marks)
       } catch (err) {
         return failureOf(err, marks)
       }
@@ -2548,7 +2659,7 @@ export function createHostOrch(a: {
           const queued = { status: 200, body: { queued: true, reason: 'owner-typing', target: runArgs.id } }
           return claimed === null ? queued : settleRequest(claimed, cmd, marks, queued)
         }
-        const r = await serially(cmd, runArgs, () => handleCommand(depsFor(marks, actor), { sessionId, role: from?.role }, cmd, runArgs))
+        const r = await serially(cmd, runArgs, () => handleCommand(depsFor(marks, actor, READS_OUTSIDE_CHAIN.has(cmd)), { sessionId, role: from?.role }, cmd, runArgs))
         const answered = answerOf(r, marks)
         // **Who drives, on `status`, from the Host and not from `handleCommand`** (R6): the two fields
         // exist only on a Host that drives, and their absence tells a script this one does not.

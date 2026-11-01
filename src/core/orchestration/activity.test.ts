@@ -129,6 +129,14 @@ describe('deriveActivity', () => {
     expect(pr).toMatchObject([{ type: 'run.pr', runId: 'r1', payload: { title: 'Plan A', pr: { number: 9 } } }])
   })
 
+  it('a plan settled as landed outside Astera says so once; later PR moves do not say it again', () => {
+    const landed = deriveActivity(state({ runs: [run({ pr: { at: T0, number: 9, url: 'u' } })] }), state({ runs: [run({ pr: { at: T0, number: 9, url: 'u', landed: 'merged', landedOutside: true } })] }))
+    expect(landed).toMatchObject([{ type: 'run.pr', payload: { landedOutside: true, pr: { landedOutside: true } } }])
+    const later = deriveActivity(state({ runs: [run({ pr: { at: T0, landed: 'merged', landedOutside: true } })] }), state({ runs: [run({ pr: { at: T0, landed: 'merged', landedOutside: true, attributed: 'abc' } })] }))
+    expect(later).toMatchObject([{ type: 'run.pr' }])
+    expect(later[0].payload.landedOutside).toBeUndefined()
+  })
+
   it('a fresh coordinator: "Coordinator refreshed (wave 3)", once per refresh', () => {
     const first = { at: T0, reason: 'wave 3', from: 'c1', to: 'c2', wave: 3 }
     const lines = deriveActivity(state(), state({ runs: [run({ coordinatorRefreshes: [first] })] }))
@@ -532,12 +540,15 @@ describe('plan.done of a plan that replans', () => {
     expect(doneOf(lines)).toEqual([])
   })
 
-  it('is not sent from the Tasks either when an earlier check covered as many done Tasks: only a check that ends says so', () => {
-    const lines = deriveActivity(
-      state({ jobs: [planned({ lastReplan: check(1) })], tasks: [task('a', { status: 'dispatched' })] }),
-      state({ jobs: [planned({ lastReplan: check(1) })], tasks: [task('a', { status: 'completed' })] })
-    )
-    expect(doneOf(lines)).toEqual([])
+  it('is sent once when the follow-ups the one final check added complete', () => {
+    const added = { kind: 'final-check' as const, why: 'tests missing', at: T0 }
+    const before = state({ jobs: [planned({ lastReplan: check(1) })], tasks: [task('a', { status: 'completed' }), task('f', { status: 'dispatched', addedBy: added })] })
+    const after = state({ jobs: [planned({ lastReplan: check(1) })], tasks: [task('a', { status: 'completed' }), task('f', { status: 'completed', addedBy: added })] })
+    expect(doneOf(deriveActivity(before, after))).toHaveLength(1)
+    // a wave replan of the follow-ups replaced lastReplan: the final check still ran
+    const waved = (s: typeof before) => ({ ...s, jobs: [planned({ lastReplan: { ...check(2), mode: 'wave' as const } })] })
+    expect(doneOf(deriveActivity(waved(before), waved(after)))).toHaveLength(1)
+    expect(doneOf(deriveActivity(after, structuredClone(after)))).toEqual([])
   })
 
   it('is sent once when the final check settles having added nothing, and not when it adds Tasks', () => {

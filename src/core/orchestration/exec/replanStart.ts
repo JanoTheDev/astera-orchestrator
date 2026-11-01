@@ -8,10 +8,10 @@
 // W8-D several plans in one repo
 import { PROJECT_FOLDER_HANDS_OFF, PROMPTS_MODE_FILL_IN, plannerPlanningSection } from '../handover'
 import { otherPlansBrief } from '../overlap'
-import { collectChanges, rangesFor } from '../changedFiles'
-import { releases, stillStarting, type OrchServerDeps } from '../command'
+import { PARTS_AT_ONCE, collectChanges, mapAtMost, rangesFor } from '../changedFiles'
+import { offChain, releases, stillStarting, type OrchServerDeps } from '../command'
 import { PLANNER_COMMANDS, planFieldsFromArgs, validatePlan, worktreeRefusal } from '../planner'
-import { REPLAN_FOLLOW_UPS_MAX, affectedLeft, cancelRemainingTask, cancelTaskByOwner, deviatingTasks, editRemainingTask, notStarted, replanAccountOf, replanJobOf, replanOn, resolveFailedWait, runTasks, waveOpen, type ReplanEnded, type ReplanRecord } from '../replan'
+import { REPLAN_FOLLOW_UPS_MAX, affectedLeft, pathsSharedWith, cancelRemainingTask, cancelTaskByOwner, deviatingTasks, editRemainingTask, notStarted, replanAccountOf, replanJobOf, replanOn, resolveFailedWait, runTasks, waveOpen, type ReplanEnded, type ReplanRecord } from '../replan'
 import { isIntegrationTask } from '../integrate'
 import { jobNameOf } from '../jobName'
 import { deliveryEnded, outcomeOfTasks } from '../running'
@@ -158,6 +158,8 @@ export function buildReplanBrief(a: {
   failed?: Pick<Task, 'id' | 'title' | 'result'>[]
   running: Pick<Task, 'id' | 'title'>[]
   left: Pick<Task, 'id' | 'title' | 'deps' | 'affectedPaths'>[]
+  /** T32: not-started Tasks that only share paths with the deviation: not held, listed as information. */
+  sharesPaths?: Pick<Task, 'id' | 'title' | 'affectedPaths'>[]
   /** W7-A: the owner's feedback this replan was started for, at once rather than at a wave boundary. */
   feedback?: string
   /** W8-D: the other plans of this repository and how far they got (overlap.ts `otherPlansBrief`). */
@@ -219,6 +221,13 @@ export function buildReplanBrief(a: {
     ...(a.left.length
       ? a.left.map((t) => `- ${t.id} (${t.title})${t.deps.length ? ` waits for ${t.deps.join(', ')}` : ''}${t.affectedPaths?.length ? `; paths ${t.affectedPaths.join(', ')}` : ''}`)
       : ['- (nothing)']),
+    ...(a.sharesPaths?.length
+      ? [
+          '',
+          'SHARE PATHS WITH WHAT DEVIATED (not held: they start without waiting for you; change one only if the deviation really affects it)',
+          ...a.sharesPaths.map((t) => `- ${t.id} (${t.title}); paths ${(t.affectedPaths ?? []).join(', ')}`)
+        ]
+      : []),
     '',
     // W8-D: what another plan finished meanwhile is not planned again
     ...(a.otherPlans ? [a.otherPlans, 'Before a later wave, drop or shrink a Task here that another plan has completed meanwhile.', ''] : []),
@@ -241,7 +250,7 @@ export function buildReplanBrief(a: {
       ? [
           'OWNER CHAT',
           "The person opened this tab to ask about this finished plan. Answer their questions from the Tasks' reports, reviews and",
-          `changed files: \`astera tasks-list --job ${a.job.id}\`, \`astera runs-changed-files --id ${a.runId} --task <taskId> --json\`,`,
+          `changed files: \`astera plan-state --job ${a.job.id} --json\` (all of it in one call), \`astera runs-changed-files --id ${a.runId} --task <taskId> --json\`,`,
           '`astera dispatch-show --task <taskId>`, and git log and diff of the plan branch. Do not change files.',
           'Only when they ask for more work, add follow-up Tasks as WHAT YOU MAY DO says. A completed Task is not changed: a',
           'follow-up Task does the new work. When they are done, end as WHEN YOU ARE DONE says, with or without new Tasks.',
@@ -256,13 +265,14 @@ export function buildReplanBrief(a: {
     '  Each drop is listed with its reason in the replan summary; a drop without --reason is refused.',
     '',
     'BEFORE YOU DECIDE',
+    `- Run \`astera plan-state --job ${a.job.id} --json\` first: the Run and every Task with report, review and changed files in one call.`,
     '- Read `$ASTERA_SKILLS/planner-guide.md`, section "Replanning". Read the code the done Tasks changed:',
     ...(a.focused ? ['  Read only the Tasks listed here, not the whole plan; the rest is unchanged.'] : []),
     `  \`astera runs-changed-files --id ${a.runId} --task <taskId> --json\`, and the files themselves.`,
     '',
     'WHAT YOU MAY DO',
     `- Change a Task that has not started: \`astera task-update --id <taskId>\` with --prompt -, --criteria, --affected-paths, --deps, --worktree, --difficulty, --effort, --title, --spec.`,
-    `- Add a Task: \`astera task-create --run ${a.runId} --account ${a.accountId}\` with the planner flags (--prompt -, --criteria, --affected-paths, --deps, --kind bugfix|feature|refactor|ui|audit|docs|test|ops, --worktree new|reuse, --difficulty, --effort, --model-reason) and, on every Task, --basis missing|partial|broken and --evidence "<file:line, #issue, PR or Job id>".`,
+    `- Add a Task: \`astera task-create --run ${a.runId} --account ${a.accountId}\` with the planner flags (--prompt -, --criteria, --affected-paths, --deps, --kind bugfix|feature|refactor|ui|audit|docs|test|ops, --worktree new|reuse, --difficulty, --effort, --model-reason) and, on every Task, --basis missing|partial|broken and --evidence "<file:line, #issue, PR or Job id>" and --why "<one line: why you add this Task>" (the plan shows it to the owner: "Added by the final check: <why>"; a Task without it is refused).`,
     // T3 worktree per Task
     '  `--worktree reuse` continues in the worktree of the Task\'s one dep: only for a direct continuation of it on the same files (the next step, a fix-up, tests for it); `new` (the default) for anything that can run in parallel or works elsewhere.',
     '  A follow-up for a review\'s leftovers uses `--basis partial` with evidence naming the parent Task id and its review (for example "tsk_x review round 2: <issue>").',
@@ -280,8 +290,8 @@ export function buildReplanBrief(a: {
           '',
           'THE FINAL CHECK',
           'Compare what was done with the objective. If it is met, add nothing. If something is missing or broken,',
-          `add follow-up Tasks for exactly that. This Job has had ${a.followUps} follow-up wave(s); after ${REPLAN_FOLLOW_UPS_MAX}`,
-          'a further one goes to the person instead.'
+          'add follow-up Tasks for exactly that, each with --why. This is the one final check of the plan: the follow-up Tasks are',
+          'judged by their own reviews and nothing checks them again, so make each one complete.'
         ]
       : []),
     '',
@@ -293,26 +303,29 @@ export function buildReplanBrief(a: {
 }
 
 /** The Job's Run and its Tasks split for the brief, with each completed Task's changed files read from git. */
-async function briefParts(deps: OrchServerDeps, s: OrchState, runId: string, only?: readonly Task[]): Promise<Pick<Parameters<typeof buildReplanBrief>[0], 'done' | 'failed' | 'running' | 'left'>> {
+async function briefParts(deps: OrchServerDeps, s: OrchState, runId: string, only?: readonly Task[]): Promise<Pick<Parameters<typeof buildReplanBrief>[0], 'done' | 'failed' | 'running' | 'left' | 'sharesPaths'>> {
   const own = s.tasks.filter((t) => t.runId === runId && !isIntegrationTask(t))
-  const done: DoneTask[] = []
-  for (const t of own.filter((x) => x.status === 'completed' && (!only || only.some((o) => o.id === x.id)))) {
+  // T4: the Tasks read PARTS_AT_ONCE at a time, through the changed-files cache `runs-changed-files` fills
+  const completed = own.filter((x) => x.status === 'completed' && (!only || only.some((o) => o.id === x.id)))
+  const done: DoneTask[] = await mapAtMost(completed, PARTS_AT_ONCE, async (t) => {
     let changed: string[] | null = null
     const found = deps.changes ? rangesFor(s, runId, t.id) : null
     if (deps.changes && found && found.parts.length > 0) {
       const got = await collectChanges(found.parts, deps.changes.read).catch(() => null)
       if (got?.read) changed = got.files.map((f) => f.file.path)
     }
-    done.push({ task: t, changed })
-  }
+    return { task: t, changed }
+  })
   const left = own.filter((t) => notStarted(s, t))
   // T36: a failed Task the replan was started for is listed with its report, not as running
   const failed = own.filter((t) => t.status === 'failed' && only?.some((o) => o.id === t.id))
+  const affected = only ? affectedLeft(only, left) : left
   return {
     done,
     failed,
     running: own.filter((t) => t.status !== 'completed' && !notStarted(s, t) && !failed.includes(t)),
-    left: only ? affectedLeft(only, left) : left
+    left: affected,
+    ...(only ? { sharesPaths: pathsSharedWith(only, left, affected) } : {})
   }
 }
 
@@ -473,9 +486,10 @@ export async function replanCommand(deps: OrchServerDeps, caller: Caller, cmd: s
     const accountId = replanAccountOf(job)!
     let sessionId: string
     try {
-      const parts = await briefParts(deps, deps.getState(), runId, deviating)
+      // T4: `replanning` is committed above; the brief's git reads and the planner's spawn run with the chain handed on
+      const at = deps.getState()
       sessionId = (
-        await deps.startCoordinator({
+        await offChain(deps, async () => deps.startCoordinator!({
           runId: jobId,
           cwd: job.cwd,
           accountId,
@@ -487,13 +501,13 @@ export async function replanCommand(deps: OrchServerDeps, caller: Caller, cmd: s
             wave: mark.wave,
             accountId,
             followUps: job.replanFollowUps ?? 0,
-            ...parts,
+            ...(await briefParts(deps, at, runId, deviating)),
             ...(deviating ? { focused: true as const } : {}),
             ...(feedback !== undefined ? { feedback } : {}),
             ...(chat ? { chat: true as const } : {}),
-            otherPlans: otherPlansBrief(deps.getState(), job)
+            otherPlans: otherPlansBrief(at, job)
           })
-        })
+        }))
       ).sessionId
     } catch (e) {
       const why = `the replan planner could not start: ${String(e)}`

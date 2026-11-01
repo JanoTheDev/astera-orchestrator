@@ -195,8 +195,12 @@ const SESSION = {
   'run-draft-pr': {
     summary: "push a pull-request plan's branch after a wave and open or update its draft pull request",
     detail:
-      "While later waves remain, folds the completed tasks' worktrees into the run's integration branch, pushes it, and opens the plan's pull request as a draft or rewrites its body with the done and remaining waves. run-open-pr marks it ready after the final check. Never merges. The driving loop does this once per finished wave; refused from an agent session and an MCP client. Answered by the Host.",
-    flags: [RUN_ARG('<runId>', 'the run between waves')]
+      "While later waves remain, folds the completed tasks' worktrees into the run's integration branch, pushes it, and opens the plan's pull request as a draft or rewrites its body with the done and remaining waves. run-open-pr marks it ready after the final check. Never merges. The driving loop does this as the plan's push cadence says (jobs set --push-cadence: end, the default, leaves it to the final delivery); --now pushes at once; refused from an agent session and an MCP client. Answered by the Host.",
+    flags: [
+      RUN_ARG('<runId>', 'the run between waves'),
+      // T10
+      { name: 'now', about: "push at once, whatever the plan's push cadence (jobs set --push-cadence)" }
+    ]
   },
   // T4 origin sync
   'run-origin-synced': {
@@ -234,14 +238,14 @@ const SESSION = {
   'run-mark-merged': {
     summary: "mark a run's unmerged work as merged, when the owner merged it where git cannot see it",
     detail:
-      "For a finished run whose plan is Unmerged (a ready pull request not landed, or a manual plan waiting for review): records it as delivered and merged and cleans its worktrees, as run-pr-merge does. Nothing is pushed or merged. Refused for a run that already landed or is still working. The person's: refused from an agent session and an MCP client. Answered by the Host.",
+      "For a finished run whose plan is Unmerged (a ready pull request not landed, or a manual plan waiting for review): records it as delivered and merged and cleans its worktrees, as run-pr-merge does. Also a finished run whose delivery failed (failed, retrying, needs-owner, a merge conflict): the stored error is cleared. Nothing is pushed or merged. Refused for a run that already landed or is still working. The person's: works from the astera CLI run by a person (no ASTERA_SESSION), refused from an agent session and an MCP client. Answered by the Host.",
     flags: [RUN_ARG('<runId>', 'the finished run whose work was merged')]
   },
   // T6: the Unmerged list stays true without the PR poller
   'runs-pr-sync': {
     summary: "ask GitHub whether the runs' ready pull requests are merged or closed, and record it",
     detail:
-      "For every run (of the project, or all) with a ready, not-yet-landed pull request: gh pr view, and a merged or closed one is recorded as landed (the run reads delivered). At most 20 PRs per call, the longest-unchecked first; one checked in the last 2 minutes is skipped; a gh error skips that PR only. A manual plan waiting for review, and a PR left open, are also checked against git: a plan branch already in the delivery branch is recorded merged. Answers { checked, landed: [{ runId, landed }] }. The app's: refused from an agent session and an MCP client. Answered by the Host.",
+      "For every run (of the project, or all) with a ready, not-yet-landed pull request: gh pr view, and a merged or closed one is recorded as landed (the run reads delivered). At most 20 PRs per call, the longest-unchecked first; one checked in the last 2 minutes is skipped; a gh error skips that PR only. A manual plan waiting for review, and a PR left open, are also checked against git: a plan branch already in the delivery branch is recorded merged. A finished run that is Failed, retrying, waiting on the owner or Unmerged, whose plan branch is already in origin/<delivery branch> (one git fetch, at most once per run per 10 minutes), is recorded delivered as 'landed outside Astera'. Answers { checked, landed: [{ runId, landed }] }. The app's: refused from an agent session and an MCP client. Answered by the Host.",
     flags: [{ name: 'projectPath', value: '<folder>', about: 'only the runs of this project (default all)' }]
   },
   // Merge everything and fix conflicts
@@ -332,7 +336,9 @@ const SESSION = {
       // W6-A: what the planner found of the item; a plan Task without it cannot be approved
       { name: 'basis', value: '<missing|partial|broken>', about: "the item's state as found before planning (with --evidence)" },
       { name: 'evidence', value: '<text>', about: 'with --basis: file:line, an issue or PR number, a Job id' },
-      { name: 'kind', value: '<bugfix|feature|refactor|ui|audit|docs|test|ops>', about: 'the sort of work; picks the worker skills (T9)' }
+      { name: 'kind', value: '<bugfix|feature|refactor|ui|audit|docs|test|ops>', about: 'the sort of work; picks the worker skills (T9)' },
+      // T32: required from a replan planner; the plan view shows "Added by the final check: <why>"
+      { name: 'why', value: '<text>', about: "from a replan planner (required there): one line, why this Task is added; the plan view shows it" }
     ]
   },
   'task-update': {

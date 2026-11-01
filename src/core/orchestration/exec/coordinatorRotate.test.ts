@@ -2,7 +2,7 @@
 // the hand-off brief, no refresh while a worker-start is in flight, finished workers and reviewers released while
 // the plan runs, and worker tab titles.
 import { describe, it, expect, vi } from 'vitest'
-import { coordinatorHandoff, createCoordinatorRotation, FINISHED_RELEASE_RETRY_MS, FINISHED_RELEASE_TRIES, taskRefOf, workerTabTitle, type RotationContext } from './coordinatorRotate'
+import { coordinatorHandoff, createCoordinatorRotation, FINISHED_RELEASE_RETRY_MS, IDLE_CONSOLE_CLOSE_MS, FINISHED_RELEASE_TRIES, taskRefOf, workerTabTitle, type RotationContext } from './coordinatorRotate'
 import { handleCommand, type OrchServerDeps } from '../command'
 import { APP_CALLER } from '../../host/driver'
 import { emptyState, type OrchState } from '../state'
@@ -253,6 +253,118 @@ describe('finished sessions of a running plan', () => {
     const old = rig(mk(), { typed: ['wDone'], typedAgoMs: 11 * 60_000 })
     await old.rotation.releaseFinished()
     expect(old.releaseWorker).toHaveBeenCalledTimes(1)
+  })
+
+  describe('T13: an old attempt and an idle console', () => {
+    const retried = (over: Partial<Dispatch> = {}): OrchState =>
+      running(
+        [task({ id: 'tRetry', status: 'dispatched' })],
+        [
+          dispatch({ id: 'dOld', taskId: 'tRetry', sessionId: 'wOld', outcome: 'failed', ...over }),
+          dispatch({ id: 'dNew', taskId: 'tRetry', sessionId: 'wNew', endedAt: undefined, outcome: undefined, workerState: 'ready' })
+        ]
+      )
+
+    it("closes the previous attempt's console when the retry has opened", async () => {
+      const h = rig(retried())
+      await h.rotation.releaseFinished()
+      expect(h.releaseWorker.mock.calls.map((c) => c[0].dispatchId)).toEqual(['dOld'])
+    })
+
+    it('keeps a retained old attempt and one typed into 5 minutes ago, and closes the second after the window', async () => {
+      const retained = rig(retried({ retained: true }))
+      await retained.rotation.releaseFinished()
+      expect(retained.releaseWorker).not.toHaveBeenCalled()
+      const typed = rig(retried(), { typed: ['wOld'], typedAgoMs: 5 * 60_000 })
+      await typed.rotation.releaseFinished()
+      expect(typed.releaseWorker).not.toHaveBeenCalled()
+      const later = rig(retried(), { typed: ['wOld'], typedAgoMs: 11 * 60_000 })
+      await later.rotation.releaseFinished()
+      expect(later.releaseWorker).toHaveBeenCalledTimes(1)
+    })
+
+    // A Task waiting to be dispatched again whose closed worker is still open: no Gate, no work, not retained
+    const idleState = (): OrchState => running([task({ id: 'tIdle', status: 'ready' })], [dispatch({ id: 'dIdle', taskId: 'tIdle', sessionId: 'wIdle', outcome: 'failed' })])
+
+    it('closes a console with no reason after it was idle for 16 minutes, with a log line, on a fake clock', async () => {
+      const h = rig(idleState())
+      h.ctx.sessionBusy = () => false
+      let now = NOW_MS
+      h.ctx.nowMs = () => now
+      await h.rotation.releaseFinished()
+      now += IDLE_CONSOLE_CLOSE_MS - 1
+      await h.rotation.releaseFinished()
+      expect(h.releaseWorker).not.toHaveBeenCalled()
+      now += 1
+      await h.rotation.releaseFinished()
+      expect(h.releaseWorker.mock.calls.map((c) => c[0].dispatchId)).toEqual(['dIdle'])
+      expect(h.logs.some((l) => l.includes('idle') && l.includes('wIdle'))).toBe(true)
+    })
+
+    it('closes a console with no reason after 2 x the silent-minutes setting (5 min: 10 min)', async () => {
+      const h = rig(idleState())
+      h.ctx.sessionBusy = () => false
+      h.ctx.silentMinutes = async () => 5
+      let now = NOW_MS
+      h.ctx.nowMs = () => now
+      await h.rotation.releaseFinished()
+      now += 10 * 60_000 - 1
+      await h.rotation.releaseFinished()
+      expect(h.releaseWorker).not.toHaveBeenCalled()
+      now += 1
+      await h.rotation.releaseFinished()
+      expect(h.releaseWorker.mock.calls.map((c) => c[0].dispatchId)).toEqual(['dIdle'])
+    })
+
+    it('does not count a busy console as idle, and restarts the count when it was busy in between', async () => {
+      const h = rig(idleState())
+      let busy: boolean | null = false
+      h.ctx.sessionBusy = () => busy
+      let now = NOW_MS
+      h.ctx.nowMs = () => now
+      await h.rotation.releaseFinished()
+      busy = true
+      now += IDLE_CONSOLE_CLOSE_MS
+      await h.rotation.releaseFinished()
+      busy = false
+      await h.rotation.releaseFinished()
+      now += IDLE_CONSOLE_CLOSE_MS - 1
+      await h.rotation.releaseFinished()
+      expect(h.releaseWorker).not.toHaveBeenCalled()
+    })
+
+    it('closes no idle console when the busy state is unknown or not asked', async () => {
+      const unknown = rig(idleState())
+      unknown.ctx.sessionBusy = () => null
+      let now = NOW_MS
+      unknown.ctx.nowMs = () => now
+      await unknown.rotation.releaseFinished()
+      now += 2 * IDLE_CONSOLE_CLOSE_MS
+      await unknown.rotation.releaseFinished()
+      expect(unknown.releaseWorker).not.toHaveBeenCalled()
+    })
+
+    it('keeps a console that has a reason: a retained one, a waiting Gate, a failed Task awaiting its retry', async () => {
+      const s = running(
+        [task({ id: 'tRet', status: 'ready' }), task({ id: 'tGate', status: 'blocked' }), task({ id: 'tFail', status: 'failed' })],
+        [
+          dispatch({ id: 'dRet', taskId: 'tRet', sessionId: 'wRet', retained: true }),
+          dispatch({ id: 'dGate', taskId: 'tGate', sessionId: 'wGate' }),
+          dispatch({ id: 'dFail', taskId: 'tFail', sessionId: 'wFail', outcome: 'failed' })
+        ],
+        [gate({ id: 'g1', taskId: 'tGate' })]
+      )
+      const h = rig(s)
+      h.ctx.sessionBusy = () => false
+      let now = NOW_MS
+      h.ctx.nowMs = () => now
+      await h.rotation.releaseFinished()
+      // Twenty idle minutes later the retained and Gated consoles still have their reason; the failed Task's retry window
+      // (15 min) just ran out, so its idle count starts only now
+      now += 20 * 60_000
+      await h.rotation.releaseFinished()
+      expect(h.releaseWorker).not.toHaveBeenCalled()
+    })
   })
 
   it('records one activity line after the last failed release try', async () => {
