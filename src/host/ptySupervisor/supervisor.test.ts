@@ -4,7 +4,7 @@ import { describe, it, expect } from 'vitest'
 import os from 'node:os'
 import path from 'node:path'
 import { Worker } from 'node:worker_threads'
-import { newHostNonce } from '../../core/publicContract'
+import { hostProof, newHostNonce } from '../../core/publicContract'
 import type { PtyMeta, PtyOpenOptions } from '../../core/host/protocol'
 import type { RegistryPty } from '../registry'
 import { createPtySupervisorClient, startPtySupervisor, workerRequester, type SpawnRequester, type SupervisorLink } from './client'
@@ -372,7 +372,7 @@ describe('pty supervisor protocol', () => {
            if (welcomed) return
            welcomed = true
            const m = JSON.parse(chunk.split('\\n')[0])
-           const proof = createHmac('sha256', w.key).update('astera-host-proof\\npty-supervisor-welcome\\n' + m.nonce).digest('hex')
+           const proof = createHmac('sha256', w.key).update('astera-pty-supervisor-welcome\\n' + m.nonce).digest('hex')
            sock.write(JSON.stringify({ t: 'welcome', proof }) + '\\n')
          })
          sock.on('error', () => {})
@@ -396,7 +396,9 @@ describe('pty supervisor protocol', () => {
       [{ t: 'list' }],
       [{ t: 'spawn', id: 'a', file: 'claude', args: [], opts: OPTS }],
       [hello('cd'.repeat(32)), { t: 'spawn', id: 'b', file: 'claude', args: [], opts: OPTS }],
-      [{ t: 'hello', nonce: '', proof: '' }]
+      [{ t: 'hello', nonce: '', proof: '' }],
+      // What the Host's own address hands anyone who says hello to it, for any nonce they pick: not a hello proof.
+      ...['n1', 'pty-supervisor-hello\nn1', 'astera-pty-supervisor-hello\nn1'].map((nonce) => [{ t: 'hello', nonce, proof: hostProof(KEY, nonce) } as ToSupervisor])
     ]
     for (const lines of attempts) {
       const told: FromSupervisor[] = []
@@ -429,6 +431,32 @@ describe('pty supervisor protocol', () => {
       expect(here).toEqual(['claude'])
       await expect(c.list()).rejects.toThrow('cannot be reached')
     }
+  })
+
+  it('waits for the welcome from when the pipe connects, so a supervisor slower than HELLO_MS to listen is still used', async () => {
+    const r = rig()
+    const base = r.link()
+    let connect = (): void => {}
+    const queued: ToSupervisor[] = []
+    let up = false
+    // netLink's shape: lines wait until the transport connects, which is long after the hello was written.
+    const link: SupervisorLink = { ...base, send: (m) => (up ? base.send(m) : void queued.push(m)), onConnected: (f) => (connect = f) }
+    const { c, here } = await client(r, { link, helloMs: 20 })
+    await new Promise((res) => setTimeout(res, 60))
+    up = true
+    for (const m of queued.splice(0)) base.send(m)
+    connect()
+    await settle()
+    c.spawn('claude', [], OPTS, SESSION)
+    expect(here).toEqual([])
+    expect(r.spawned).toHaveLength(1)
+    // Connected and silent past HELLO_MS is still dropped.
+    const silent: SupervisorLink = { send() {}, listen() {}, close() {}, onConnected: (f) => void setTimeout(f, 30) }
+    const s = await client(r, { link: silent, helloMs: 20 })
+    await new Promise((res) => setTimeout(res, 100))
+    s.c.spawn('claude', [], OPTS, SESSION)
+    expect(s.here).toHaveLength(1)
+    expect(s.logs.some((l) => l.includes('did not answer the hello'))).toBe(true)
   })
 
   it('does not use a supervisor when the Host has no key', async () => {

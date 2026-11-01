@@ -31,6 +31,8 @@ export interface PtySupervisorClient {
 export interface SupervisorLink {
   send(m: ToSupervisor): void
   listen(cb: (m: FromSupervisor | null) => void): void
+  /** Called once the transport is connected; the hello wait starts then. A link without it is connected already. */
+  onConnected?(cb: () => void): void
   close(): void
 }
 
@@ -106,6 +108,25 @@ export function createPtySupervisorClient(d: {
     helloSent = false
     beforeHello = []
     let expect = ''
+    // The hello wait runs from when both the key is read and the pipe is connected: the supervisor may take the whole
+    // SUPERVISOR_START_MS (netLink's deadline) to start listening.
+    let connected = !l.onConnected
+    const arm = (): void => {
+      if (!connected || !expect || helloTimer || l !== link) return
+      helloTimer = setTimeout(() => {
+        if (ready || l !== link) return
+        d.log('the pty supervisor did not answer the hello; it is not used')
+        l.close()
+        lost(l)
+      }, d.helloMs ?? HELLO_MS)
+      helloTimer.unref()
+    }
+    clearTimeout(helloTimer)
+    helloTimer = undefined
+    l.onConnected?.(() => {
+      connected = true
+      arm()
+    })
     l.listen((m) => {
       if (l !== link) return
       if (m === null) return lost(l)
@@ -134,13 +155,7 @@ export function createPtySupervisorClient(d: {
       }
       const nonce = newHostNonce()
       expect = welcomeProof(key, nonce)
-      helloTimer = setTimeout(() => {
-        if (ready || l !== link) return
-        d.log('the pty supervisor did not answer the hello; it is not used')
-        l.close()
-        lost(l)
-      }, d.helloMs ?? HELLO_MS)
-      helloTimer.unref()
+      arm()
       l.send({ t: 'hello', nonce, proof: helloProof(key, nonce) })
       helloSent = true
       for (const q of beforeHello.splice(0)) l.send(q)
@@ -212,6 +227,7 @@ export function netLink(address: string, deadline: number, log: (m: string) => v
   let sock: net.Socket | null = null
   let queue: string[] | null = []
   let cb: (m: FromSupervisor | null) => void = () => {}
+  let onConnected = (): void => {}
   let closed = false
   const gone = (): void => {
     if (closed) return
@@ -231,6 +247,7 @@ export function netLink(address: string, deadline: number, log: (m: string) => v
       sock = s
       for (const l of queue ?? []) s.write(l)
       queue = null
+      onConnected()
     })
     s.on('data', read)
     s.on('error', () => {})
@@ -250,6 +267,10 @@ export function netLink(address: string, deadline: number, log: (m: string) => v
     },
     listen(f) {
       cb = f
+    },
+    onConnected(f) {
+      if (sock) f()
+      else onConnected = f
     },
     close() {
       closed = true

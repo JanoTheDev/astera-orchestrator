@@ -9,9 +9,10 @@
 //
 // **Wire.** Newline-delimited JSON both ways (src/host/framing.ts). One connection is one Host; ptys outlive it.
 // **Hello.** The first line of every connection is `hello`: a nonce and its proof under the profile's Host key (the
-// secret the Host's own address answers with, packages/client/src/hostKey.ts). A supervisor refuses (closes) a
-// connection whose first line is anything else; it answers `welcome` with its own proof, and a client that does not get
-// that within HELLO_MS drops the supervisor. A squatter on the address has no key to do either.
+// secret the Host's own address answers with, packages/client/src/hostKey.ts; the proofs are HMACs of their own, which
+// that address never signs). A supervisor refuses (closes) a connection whose first line is anything else; it answers
+// `welcome` with its own proof, and a client that does not get that within HELLO_MS of connecting drops the supervisor.
+// A squatter on the address has no key to do either.
 //
 // **Spawn never blocks long.** The Host starts the supervisor in the background and connects in the background; a
 // session spawned before it is connected starts in the Host (logged once). A spawn on a connected supervisor is
@@ -27,9 +28,8 @@
 //     no Host is attached too) arrives as its first data, then the live output and the exit; `write`, `resize`,
 //     `kill` act on the pty. A kill ends the pty's whole process tree first, then the pty.
 //   - `close()`: lets the connection go; the ptys stay.
-import { createHash } from 'node:crypto'
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
 import path from 'node:path'
-import { hostProof } from '../../core/publicContract'
 import type { PtyMeta, PtyOpenOptions } from '../../core/host/protocol'
 
 /** In the address: a supervisor of another build's protocol is another supervisor, never a confused peer. */
@@ -38,17 +38,26 @@ export const PTY_SUPERVISOR_PROTOCOL = 1
 /** No live pty and no Host for this long, and the supervisor exits. */
 export const SUPERVISOR_IDLE_MS = 60_000
 
-/** How long a client waits for the supervisor's `welcome` before it drops the connection. */
+/** How long a client waits, once connected, for the supervisor's `welcome` before it drops the connection. */
 export const HELLO_MS = 2_000
 
 /** The most a session spawn on a connected supervisor blocks the Host's main thread (connect 1 s + the answer). */
 export const SPAWN_BOUND_MS = 2_000
 
+// Their own HMAC messages, never hostProof's: the Host's address signs any nonce a stranger sends it (so a client can
+// tell it from a squatter), so a proof built on hostProof, prefixed nonce or not, could be fetched from it.
+const ptyProof = (kind: 'hello' | 'welcome', key: string, nonce: string): string =>
+  createHmac('sha256', key).update(`astera-pty-supervisor-${kind}
+${nonce}`).digest('hex')
 /** What a client sends first: the proof of `nonce` under the Host key. */
-export const helloProof = (key: string, nonce: string): string => hostProof(key, nonce)
+export const helloProof = (key: string, nonce: string): string => ptyProof('hello', key, nonce)
 /** What the supervisor answers with: a proof no client's hello can be replayed as. */
-export const welcomeProof = (key: string, nonce: string): string => hostProof(key, `pty-supervisor-welcome
-${nonce}`)
+export const welcomeProof = (key: string, nonce: string): string => ptyProof('welcome', key, nonce)
+/** Whether `proof` is the hello proof of `nonce`, in constant time. */
+export function helloMatches(key: string, nonce: string, proof: unknown): boolean {
+  if (typeof proof !== 'string' || !/^[0-9a-f]{64}$/.test(proof)) return false
+  return timingSafeEqual(Buffer.from(helloProof(key, nonce), 'hex'), Buffer.from(proof, 'hex'))
+}
 
 /** UTF-16 units of output kept per pty: the Host registry's SCROLLBACK_CHARS. */
 export const RING_CHARS = 256_000

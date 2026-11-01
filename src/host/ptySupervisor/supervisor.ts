@@ -2,10 +2,9 @@
 // the connections attached to them. No `net` and no node-pty: the spawn, the tree kill and the clock are dependencies,
 // so the protocol is tested over a fake transport and entry.ts wires the real ones.
 import type { PtyOpenOptions } from '../../core/host/protocol'
-import { proofMatches } from '../../core/publicContract'
 import { createPtyRing, type PtyRing } from '../ptyRing'
 import type { RegistryPty } from '../registry'
-import { RING_CHARS, SUPERVISOR_IDLE_MS, welcomeProof, type FromSupervisor, type SupervisorPtyInfo, type ToSupervisor } from './protocol'
+import { RING_CHARS, SUPERVISOR_IDLE_MS, helloMatches, welcomeProof, type FromSupervisor, type SupervisorPtyInfo, type ToSupervisor } from './protocol'
 
 export interface SupervisorDeps {
   spawn(file: string, args: string[] | string, opts: PtyOpenOptions): RegistryPty
@@ -172,7 +171,7 @@ export function createSupervisor(d: SupervisorDeps): {
           if (!authed) {
             // Only a connection that proved the key counts as a Host or reaches a pty.
             const key = d.key()
-            const ok = m.t === 'hello' && key !== null && typeof m.nonce === 'string' && m.nonce.length > 0 && m.nonce.length <= 256 && proofMatches(key, m.nonce, m.proof)
+            const ok = m.t === 'hello' && key !== null && typeof m.nonce === 'string' && m.nonce.length > 0 && m.nonce.length <= 256 && helloMatches(key, m.nonce, m.proof)
             if (!ok) {
               refused = true
               d.log(`a connection was refused: its first line was ${m.t === 'hello' ? 'a hello with the wrong key' : String(m.t)}`)
