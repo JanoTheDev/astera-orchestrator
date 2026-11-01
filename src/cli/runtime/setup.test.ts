@@ -195,7 +195,7 @@ describe('headless Linux: nothing on the serve path needs a display', () => {
     expect(t.candidates).toEqual(['/opt/Astera/resources/app.asar/out/main/host.js'])
     const plan = hostSpawnPlan({ execPath: t.execPathFor(t.candidates[0]), entryPath: t.candidates[0], profileDir: '/home/me/.config/astera', logPath: t.logPath, version: '1', env })
     expect(plan.command).toBe('/opt/Astera/astera')
-    expect(plan.args).toEqual(['/opt/Astera/resources/app.asar/out/main/host.js'])
+    expect(plan.args.at(-1)).toBe('/opt/Astera/resources/app.asar/out/main/host.js')
     expect(plan.options.env.ELECTRON_RUN_AS_NODE).toBe('1')
     expect(plan.options.env.DISPLAY).toBeUndefined()
     expect(plan.options.env.WAYLAND_DISPLAY).toBeUndefined()

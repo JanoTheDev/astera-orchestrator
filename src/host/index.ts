@@ -9,7 +9,8 @@ import { createPluginManager } from './plugins/manager'
 import { hostJobSources } from './jobSources'
 import { hostCompletionChecks } from './completionChecks'
 import { PLUGIN_STOP_CAP_MS, createPluginRuntime } from './plugins/runtime'
-import { existsSync, promises as fsp, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, promises as fsp, readFileSync, rmSync } from 'node:fs'
+import { CRASH_DIR } from '../core/crash/store'
 import { defaultCwdProbe, setProbeLog } from '../core/sessions/pathProbe'
 import { createRequire } from 'node:module'
 import os from 'node:os'
@@ -24,6 +25,7 @@ import { SPAWN_DEADLINE_MS } from '../core/host/unresponsive'
 import { hideAllChildConsoleWindows, hideForkedConsoleWindows, type ChildProcessProto } from '../core/childWindows'
 import { trustSystemCa } from './systemCa'
 import { openHostLog, logUncaughtExceptions, logUnhandledRejections } from './log'
+import { previousHostLines, watchExit, type ExitWatch } from './exitWatch'
 import { flushAll, flushAllLogsSync } from '../core/log/logWriter'
 import { startHostServer } from './server'
 import { HOST_EXIT, listenExitCode } from './exitCodes'
@@ -198,6 +200,12 @@ async function main(): Promise<void> {
   logUnhandledRejections(process, log)
   // 2026-10-12: an exception nobody caught ended a Host with every session and no line; it is logged before the exit.
   logUncaughtExceptions(process, log, { code: HOST_EXIT.uncaught })
+  // 25a: --report-dir (core/host/spawn.ts) points here, and node writes a fatal-error report to the cwd when it is missing.
+  try {
+    mkdirSync(path.join(profileDir, CRASH_DIR), { recursive: true, mode: 0o700 })
+  } catch (err) {
+    log.write(`could not create the crash folder: ${String(err)}`)
+  }
   // S6-22: the OS certificate store joins Node's default CAs before any HTTPS (the usage lookup), so a
   // TLS-inspecting proxy's root verifies. Never throws; on failure the defaults stay (systemCa.ts).
   trustSystemCa(tls, (m) => log.write(m))
@@ -995,8 +1003,11 @@ async function main(): Promise<void> {
   const resuming = new Set<string>(wiring && spawner ? handedOverWorkers(profileDir) : [])
   /** T13: this Host is restarting itself (its hold is its own, so its start must not lift it). */
   let restartHeld = false
+  // Set once the address is ours (below); a command before that is simply not tracked.
+  let exitWatch: ExitWatch | null = null
   const orch = createHostOrch({
     profileDir,
+    track: (cmd, run) => (exitWatch ? exitWatch.command(cmd, run) : run()),
     usageGuard,
     version: hostVersion,
     controllers,
@@ -1457,6 +1468,10 @@ async function main(): Promise<void> {
   } catch (err) {
     log.write(`could not record which process this Host is: ${String(err)}`)
   }
+  // 25a: what the last Host left (its exit line, or that it left none, and the command it died in) before the crash
+  // resume below; then this Host's own exit line, heap watch and command breadcrumb take over the record.
+  for (const line of previousHostLines(path.join(profileDir, 'host'))) log.write(line)
+  exitWatch = watchExit({ proc: process, log, dir: path.join(profileDir, 'host') })
 
   // T23: work the file says was in flight when the last Host died is picked up now, not when an app first asks — a Host
   // started at login has no app (core/orchestration/exec/crashResume.ts). Only a Host that starts sessions itself.
