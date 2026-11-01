@@ -311,7 +311,9 @@ function lowering(latest: Sample, cur: AutoLimits, live: LiveCounts, effective: 
   if (!critical && now - lastAtOf(cur, ['strain', 'crash', 'oom']) < LOWER_COOLDOWN_MS) return null
   const heavy = effective.heavy > 1 ? effective.heavy - 1 : null
   const checks = cur.checksAsHeavy === undefined
-  const pause: Plan = { stage: 'pause', workers: live.workers >= 1 && live.workers < effective.workers ? live.workers : null, heavy, checks }
+  // The pause holds the agents that run, but never below the floor (minWorkersUnderPressure) either
+  const pauseTo = Math.max(floor, live.workers)
+  const pause: Plan = { stage: 'pause', workers: live.workers >= 1 && pauseTo < effective.workers ? pauseTo : null, heavy, checks }
   const stepTo = Math.max(floor, effective.workers - LOWER_WORKERS_STEP)
   const step: Plan = { stage: 'lower', workers: stepTo < effective.workers ? stepTo : null, heavy, checks }
   const changes = (p: Plan): boolean => p.workers !== null || p.heavy !== null || p.checks

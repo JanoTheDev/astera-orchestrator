@@ -23,6 +23,12 @@ describe('sessionsDoneWith', () => {
     expect(ids(state([task('t1', 'completed')], [dsp('d1', 't1', 'w1')]))).toEqual(['d1'])
   })
 
+  it('includes a finished worker whose Task is merging into the plan branch, but not one a merge Gate stopped', () => {
+    expect(ids(state([task('t1', 'merging')], [dsp('d1', 't1', 'w1')]))).toEqual(['d1'])
+    const gate = { id: 'g1', runId: 'r1', taskId: 't1', question: 'q', status: 'open', createdAt: NOW } as Gate
+    expect(ids(state([task('t1', 'merging')], [dsp('d1', 't1', 'w1')], [gate]))).toEqual([])
+  })
+
   it('keeps a retained worker, a failed Task, an open Gate, a live dispatch and a Task still running', () => {
     const s = state(
       [task('t1', 'completed'), task('t2', 'failed'), task('t3', 'completed'), task('t4', 'completed'), task('t5', 'dispatched')],

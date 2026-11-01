@@ -65,16 +65,17 @@ function persistingStrain(start: AutoLimits, l: LiveCounts, p: PersonCaps, round
 }
 
 describe('judge: lowering in stages', () => {
-  it('first pauses new starts at the agents running, lowers heavy by one and turns checks-as-heavy on', () => {
+  it('first pauses new starts at the agents running (held at the floor), lowers heavy by one and turns checks-as-heavy on', () => {
     const update = judge(strained3(T0), none, live, person, person, T0)!
     expect(update.stage).toBe('pause')
     const next = update(none)
-    expect(next.workers).toMatchObject({ cap: 10, cause: 'strain' })
+    // 10 agents run, but the default floor is 13
+    expect(next.workers).toMatchObject({ cap: 13, cause: 'strain' })
     expect(next.workers!.detail).toBe('memory 6% free, Host loop 1.4 s behind, load 3.5 per CPU while 10 agents ran')
     expect(next.heavy).toMatchObject({ cap: 2, cause: 'strain' })
     expect(next.checksAsHeavy).toMatchObject({ cause: 'strain' })
     expect(next.history.map((h) => [h.what, h.from, h.to, h.cause])).toEqual([
-      ['workers', 25, 10, 'strain'],
+      ['workers', 25, 13, 'strain'],
       ['heavy', 3, 2, 'strain'],
       ['checks', null, null, 'strain']
     ])
@@ -86,9 +87,14 @@ describe('judge: lowering in stages', () => {
     expect(next.heavy?.cap).toBe(2)
   })
 
-  it('with 10 agents running and the default floor of 13, persisting strain does not go below the pause', () => {
+  it('a pause never goes below the floor the owner set: 7 agents running and a floor of 18 hold the cap at 18', () => {
+    const next = judge(strained3(T0), none, { ...live, workers: 7 }, person, { ...person, workersFloor: 18 }, T0)!(none)
+    expect(next.workers?.cap).toBe(18)
+  })
+
+  it('with 10 agents running and the default floor of 13, persisting strain stays at the floor', () => {
     const { caps, stages } = persistingStrain(none, live, person, 5)
-    expect(caps).toEqual([10, 10, 10, 10, 10])
+    expect(caps).toEqual([13, 13, 13, 13, 13])
     // the pause, then heavy 2 -> 1, then nothing left to lower
     expect(stages).toEqual(['pause', 'lower', 'none', 'none', 'none'])
   })
@@ -161,12 +167,12 @@ describe('judge: lowering in stages', () => {
     }
     const u = judge(strained3(T0), cur, live, { workers: 17, heavy: 3 }, person, T0)!
     expect(u.stage).toBe('pause')
-    expect(u(cur).workers?.cap).toBe(10)
+    expect(u(cur).workers?.cap).toBe(13) // 10 agents run, held at the default floor of 13
   })
 
   it("keeps the cause of a cap a crash set, so it stays the person's to restore", () => {
     const crash: AutoLimits = { history: [], workers: { cap: 12, cause: 'crash', at: at(T0 - 3600_000), detail: 'x' } }
-    const next = judge(strained3(T0), crash, live, { workers: 12, heavy: 3 }, person, T0)!(crash)
+    const next = judge(strained3(T0), crash, live, { workers: 12, heavy: 3 }, { ...person, workersFloor: 4 }, T0)!(crash)
     expect(next.workers).toMatchObject({ cap: 10, cause: 'crash' })
   })
 })
