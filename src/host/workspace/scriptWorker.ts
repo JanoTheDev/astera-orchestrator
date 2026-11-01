@@ -380,8 +380,8 @@ export async function runScriptInWorker(a: {
   let child: ChildProcess
   try {
     // The Host's own runtime (node.exe, or Electron run as Node), with none of its arguments, an
-    // environment built from nothing, and no console: detached is DETACHED_PROCESS on win32, and its
-    // own process group elsewhere. The channel's `advanced` serialization is the structured clone the
+    // environment built from nothing, and no visible console: a hidden one on win32, and its own process
+    // group elsewhere (detached). The channel's `advanced` serialization is the structured clone the
     // worker's messages already passed, so what the worker could post, the channel can carry.
     child = spawn(process.execPath, ['-e', CHILD_BOOT], {
       stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
@@ -389,7 +389,9 @@ export async function runScriptInWorker(a: {
       env: scriptChildEnv(process.env),
       cwd: os.tmpdir(),
       windowsHide: true,
-      detached: true
+      // win32 gets CREATE_NO_WINDOW instead (a hidden console, which anything the child starts inherits); endChild
+      // kills its tree with taskkill /T there
+      detached: process.platform !== 'win32'
     })
   } catch (err) {
     clock.dispose()
