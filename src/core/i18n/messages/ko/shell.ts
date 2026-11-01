@@ -34,6 +34,10 @@ export const shell = {
   // "지금 Host 재시작" (T15): 오래된 Host 가 있으면 언제든 누를 수 있고, 안전한 지점을 기다리는 동안 진행을 보여준다.
   'status.hostRestartOffer': '앱 {app} 보다 오래된 Host {host}',
   'status.hostRestartOfferTitle': 'Host {host} · 앱 {app} — 눌러서 지금 새 버전으로 재시작합니다. 새 시작을 잠시 멈추고, 작업 중인 Task 가 안전한 지점에 이르면 모든 세션을 넘겨 이어서 실행합니다.',
+  'status.hostUpdateWaiting': 'Host 업데이트 대기 중: 에이전트 {n}개가 아직 실행 중',
+  'status.hostRestartWhenIdle': '유휴 시 Host 재시작',
+  'status.hostRestartWhenIdleTitle': '켜면 새 시작을 멈추고, 실행 중인 에이전트가 현재 턴을 마치면 세션을 넘겨 새 버전으로 Host 를 재시작합니다. 30분이 지나면 프롬프트에서 대기 중인 세션을 넘깁니다. 끄면 아무것도 작업하지 않을 때만 교체합니다.',
+  'status.hostRestartNowHandOver': '지금 재시작 (세션 넘김)',
   'status.hostRestartWaiting': '새 시작 보류 중 · 작업자 {n}명이 안전한 지점에 이르기를 기다리는 중 ({left} 남음)',
   'status.hostRestartHandingOver': '새 시작 보류 중 · 세션을 넘기는 중',
   'status.hostRestartSwapping': 'Host 를 재시작하는 중…',

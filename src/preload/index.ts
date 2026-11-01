@@ -581,6 +581,7 @@ const api = {
     survivesUpdate: invoke('host.survivesUpdate'),
     replace: invoke('host.replace'),
     restartNow: invoke('host.restartNow'),
+    setRestartWhenIdle: invoke('host.setRestartWhenIdle'), // T28
     driver: invoke('host.driver'),
     holdings: invoke('host.holdings')
   },
