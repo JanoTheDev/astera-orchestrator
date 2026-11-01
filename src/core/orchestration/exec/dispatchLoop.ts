@@ -802,7 +802,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       const push = mode === 'push' || mode === 'merge' // T6: a local merge lands the same way
       const answer = deliveryAnswerOf(s, p)
       const action: DeliveryStep['action'] | null =
-        answer === 'self' || ownerCheckDue(p, nowMs) ? 'self' : answer === 'retry' ? 'retry' : deliveryDue(p, nowMs) ? 'auto' : null
+        answer === 'self' || ownerCheckDue(p, nowMs) ? 'self' : answer === 'retry' ? 'retry' : deliveryDue(p, nowMs, run.git?.head) ? 'auto' : null
       if (action === null) continue
       // W6-D: the PR waits for the final check (replan.ts completionSettled). W8-E (#99): a failed plan has none
       if (outcome === 'completed' && !completionSettled(s, job, run.id)) continue

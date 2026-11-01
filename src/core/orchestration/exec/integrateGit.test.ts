@@ -9,6 +9,7 @@ import {
   integrateWorktrees,
   reapWorktree,
   refreshOnto,
+  deliverByPush,
   worktreeDeps,
   type IntegrateContext,
   type ReapContext
@@ -197,12 +198,28 @@ describe('integrateWorktrees — the rules of the one automatic writer into a re
     expect(r.kind).toBe('human')
     expect(await fs.readFile(path.join(repo, 'mine.txt'), 'utf8')).toBe("the owner's")
   })
-  // W6-H: a delivery's merges carry its message (`Fixes #n`), also where git would have fast-forwarded
-  it('makes a merge commit with the message a delivery gives, never a fast-forward', async () => {
+  // W6-H: a delivery's merges carry its message (`Fixes #n`) in a merge commit
+  it('makes a merge commit with the message a delivery gives when the target moved on', async () => {
     const a = await worked('a')
+    await fs.writeFile(path.join(repo, 'main.txt'), 'main'); gitSync(repo, ['add', 'main.txt']); gitSync(repo, ['commit', '-m', 'main moved'])
     expect((await integrateWorktrees(repo, [a], { reap: false, message: 'Deliver plan: P\n\nFixes #7' }, ctx())).kind).toBe('merged')
     expect(gitSync(repo, ['log', '-1', '--format=%B']).trim()).toBe('Deliver plan: P\n\nFixes #7')
     expect(gitSync(repo, ['rev-list', '--parents', '-n', '1', 'HEAD']).trim().split(' ')).toHaveLength(3)
+  })
+  // T19: a target the branch already holds takes the branch by fast-forward
+  it('fast-forwards a delivery whose target is an ancestor of the branch: no merge commit', async () => {
+    const a = await worked('a')
+    expect((await integrateWorktrees(repo, [a], { reap: false, message: 'Deliver plan: P' }, ctx())).kind).toBe('merged')
+    expect(gitSync(repo, ['rev-parse', 'HEAD']).trim()).toBe(gitSync(a, ['rev-parse', 'HEAD']).trim())
+  })
+  // T19: only exit 1 with conflicted files is a conflict
+  it('a merge-tree probe that fails with no conflict output is not reported as "does not merge cleanly"', async () => {
+    const a = await worked('a')
+    const silent: typeof git = (args, opts) => (args[0] === 'merge-tree' ? Promise.resolve({ ok: false, stdout: '', stderr: '' }) : git(args, opts))
+    const r = await integrateWorktrees(repo, [a], { reap: false }, ctx({ git: silent }))
+    expect(r.kind).toBe('agent')
+    expect(r.kind !== 'merged' && r.reason).toContain('could not test')
+    expect(r.kind !== 'merged' && r.reason).not.toContain('does not merge cleanly')
   })
   it('does not reap when told not to (run-merge, run-delete --merge)', async () => {
     const a = await worked('a')
@@ -736,6 +753,8 @@ describe('integrateWorktrees writes the attribution into its merge commits (W8-A
   it('a delivery merge carries the Wave 8 trailers and the repository gets the notes config', async () => {
     const a = await worked('a')
     note(a)
+    // a merge commit, not a fast-forward (T19)
+    await fs.writeFile(path.join(repo, 'main.txt'), 'main'); gitSync(repo, ['add', 'main.txt']); gitSync(repo, ['commit', '-m', 'main moved'])
     const r = await integrateWorktrees(repo, [a], { message: 'Deliver plan: P' }, ctx())
     expect(r.kind).toBe('merged')
     expect(gitSync(repo, ['log', '-1', '--format=%B'])).toBe('Deliver plan: P\n\nAstera-Job: job_1\nAstera-Task: tsk_1\nAI-Agent: claude/opus')
@@ -860,5 +879,69 @@ describe('refreshOnto: a running plan takes in another plan\'s delivery (T11)', 
     expect(r).toMatchObject({ kind: 'human', reason: expect.stringContaining('uncommitted') })
     await expect(fs.readFile(path.join(wt, 'b.txt'), 'utf8')).resolves.toBe('edited, not committed')
     await expect(fs.stat(path.join(wt, 'a.txt'))).rejects.toThrow()
+  })
+})
+
+describe('T19: a delivery re-reads both tips before it says "does not merge cleanly"', () => {
+  /** A local delivery into the repo's main over the real merge path (worktreeDeps over integrateWorktrees), git `g`. */
+  const deliver = (worktrees: string[], g: typeof git = git) => {
+    const c = ctx({ git: g })
+    const { mergeWorktrees } = worktreeDeps({ integrate: (into, paths, opts) => integrateWorktrees(into, paths, opts, c), reap: async () => true, log: logTo(), git: g })
+    return deliverByPush(
+      { cwd: repo, branch: 'main', worktrees, message: 'Deliver plan: P', local: true },
+      { git: g, mergeWorktrees, log: logTo(), validate: async () => ({ ok: true, ran: 0 }), install: async () => ({ ok: true }) }
+    )
+  }
+  const commitOnMain = async (file: string, body: string): Promise<void> => {
+    await fs.writeFile(path.join(repo, file), body)
+    gitSync(repo, ['add', file]); gitSync(repo, ['commit', '-m', `main: ${file}`])
+  }
+
+  it('the branch moves (main merged into it) after the probes conflicted: the delivery merges', async () => {
+    const wt = await worked('plan', 'same.txt', 'plan\n')
+    await commitOnMain('same.txt', 'main\n')
+    let conflicts = 0
+    // The second conflicting probe (the refresh's) is when someone merges main into the plan branch, resolving it
+    const moving: typeof git = async (args, opts) => {
+      const r = await git(args, opts)
+      if (args[0] === 'merge-tree' && !r.ok && ++conflicts === 2) {
+        await git(['merge', 'main'], { cwd: wt })
+        await fs.writeFile(path.join(wt, 'same.txt'), 'both\n')
+        gitSync(wt, ['add', 'same.txt']); gitSync(wt, ['commit', '--no-edit'])
+      }
+      return r
+    }
+    const r = await deliver([wt], moving)
+    expect(r).toMatchObject({ ok: true, branch: 'main' })
+    expect(conflicts).toBe(2)
+    await expect(fs.readFile(path.join(repo, 'same.txt'), 'utf8')).resolves.toBe('both\n')
+    expect(logs.some((m) => m.includes('moved to') && m.includes('merging once more'))).toBe(true)
+  })
+
+  it('main is an ancestor of the plan branch: the delivery fast-forwards, with no merge commit', async () => {
+    const wt = await worked('plan')
+    const r = await deliver([wt])
+    expect(r).toMatchObject({ ok: true })
+    expect(gitSync(repo, ['rev-parse', 'main']).trim()).toBe(gitSync(wt, ['rev-parse', 'HEAD']).trim())
+    expect(gitSync(repo, ['rev-list', '--merges', '-n', '1', 'HEAD']).trim()).toBe('')
+  })
+
+  it('a half-removed worktree folder (files, no .git) among the tips does not make the refresh fail', async () => {
+    const half = await worked('half')
+    await fs.rm(path.join(half, '.git'), { force: true })
+    const wt = await worked('plan')
+    await commitOnMain('other.txt', 'other')
+    // The first probe conflicts (another plan landed first), so the delivery refreshes its tips onto main
+    let first = true
+    const once: typeof git = (args, opts) => {
+      if (args[0] === 'merge-tree' && first) {
+        first = false
+        return Promise.resolve({ ok: false, exitCode: 1, stdout: 'tree\n100644 abc 1\tother.txt', stderr: '' })
+      }
+      return git(args, opts)
+    }
+    const r = await deliver([half, wt], once)
+    expect(r).toMatchObject({ ok: true })
+    await expect(fs.readFile(path.join(repo, 'plan.txt'), 'utf8')).resolves.toBe('plan')
   })
 })

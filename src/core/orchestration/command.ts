@@ -7261,7 +7261,7 @@ export async function handleCommand(
       }
       const force = args.force === true
       // T3: the loop's attempt is made only when it is due (pending, or a failure's retry time came)
-      if (args.auto === true && !deliveryDue(run.deliveryState, Date.parse(deps.now?.() ?? now)))
+      if (args.auto === true && !deliveryDue(run.deliveryState, Date.parse(deps.now?.() ?? now), run.git?.head))
         return conflict('No delivery attempt is due for this Run yet')
       /** One attempt's end, recorded: delivered, or one more failure with its retry time; the fifth asks the owner once.
        *  A person's --force starts the count again. */
@@ -7275,6 +7275,7 @@ export async function handleCommand(
         const at = deps.now?.() ?? now
         let next = afterAttempt(force ? undefined : progressOf(s), at, error, {
           ...(code !== undefined ? { code } : {}),
+          ...(run.git?.head !== undefined ? { head: run.git.head } : {}), // T19: the plan branch head judged
           ...(fix === 'fix' ? { ask: false } : {})
         })
         if (fix === 'owner' && next.state === 'retrying') next = { ...next, state: 'needs-owner' }

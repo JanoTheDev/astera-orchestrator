@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { deliveryBranchOf, deliveryOf, parseDelivery, setJobDelivery, setJobDeliveryBranch, setProjectDelivery } from './delivery'
+import { afterAttempt, deliveryBranchOf, deliveryDue, deliveryOf, parseDelivery, setJobDelivery, setJobDeliveryBranch, setProjectDelivery } from './delivery'
 import { emptyState, type OrchState } from './state'
 import type { Job } from './types'
 
@@ -54,5 +54,32 @@ describe("a plan's target branch", () => {
   it('refuses a value that cannot name a branch, and an unknown plan', () => {
     for (const bad of ['', '  ', 'a b', '-x']) expect(setJobDeliveryBranch(state(), 'job_1', bad).ok).toBe(false)
     expect(setJobDeliveryBranch(state(), 'job_9', 'main').ok).toBe(false)
+  })
+})
+
+describe('T19: a merge-failed delivery is retried once the plan branch moves', () => {
+  const AT = '2026-10-23T00:00:00.000Z'
+  const now = Date.parse(AT)
+
+  it('is due at once when the plan branch head changed, not while it stays, and its retry delivers with no owner', () => {
+    const failed = afterAttempt(undefined, AT, 'git merge-tree says x does not merge cleanly', { code: 'merge-failed', head: 'h1' })
+    expect(failed).toMatchObject({ state: 'retrying', lastCode: 'merge-failed', judgedOn: { branch: 'h1' } })
+    expect(deliveryDue(failed, now, 'h1')).toBe(false)
+    expect(deliveryDue(failed, now)).toBe(false)
+    expect(deliveryDue(failed, now, 'h2')).toBe(true)
+    // after every automatic attempt (needs-owner) too, and the retry that merges ends delivered
+    let p = failed
+    for (let i = 0; i < 4; i++) p = afterAttempt(p, AT, 'still', { code: 'merge-failed', head: 'h1' })
+    expect(p.state).toBe('needs-owner')
+    expect(deliveryDue(p, now, 'h2')).toBe(true)
+    expect(afterAttempt(p, AT).state).toBe('delivered')
+  })
+
+  it('only a merge failure keeps the head it was judged on, and an owner who pushes it is left alone', () => {
+    const other = afterAttempt(undefined, AT, 'offline', { code: 'fetch-failed', head: 'h1' })
+    expect(other.judgedOn).toBeUndefined()
+    expect(deliveryDue(other, now, 'h2')).toBe(false)
+    const mine = { ...afterAttempt(undefined, AT, 'x', { code: 'merge-failed', head: 'h1' }), ownerPushes: true as const }
+    expect(deliveryDue(mine, now, 'h2')).toBe(false)
   })
 })
