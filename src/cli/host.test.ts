@@ -985,7 +985,8 @@ describe('spawnHostDetached', () => {
       expect(spawnFn).toHaveBeenCalledTimes(1)
       const [cmd, args, opts] = spawnFn.mock.calls[0] as unknown as [string, string[], { windowsHide: boolean; detached: boolean }]
       expect(cmd).toBe('C:\\Astera\\Astera.exe')
-      expect(args).toEqual(['C:\\Astera\\host.js'])
+      expect(args).toEqual(plan.args)
+      expect(args.at(-1)).toBe('C:\\Astera\\host.js')
       expect(opts).toMatchObject({ windowsHide: true, detached: true })
       expect(child.unref).toHaveBeenCalled()
     } finally {

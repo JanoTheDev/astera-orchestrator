@@ -24,6 +24,7 @@ import { SPAWN_DEADLINE_MS } from '../core/host/unresponsive'
 import { hideAllChildConsoleWindows, hideForkedConsoleWindows, type ChildProcessProto } from '../core/childWindows'
 import { trustSystemCa } from './systemCa'
 import { openHostLog, logUncaughtExceptions, logUnhandledRejections } from './log'
+import { previousHostLines, watchExit, type ExitWatch } from './exitWatch'
 import { flushAll, flushAllLogsSync } from '../core/log/logWriter'
 import { startHostServer } from './server'
 import { HOST_EXIT, listenExitCode } from './exitCodes'
@@ -988,8 +989,11 @@ async function main(): Promise<void> {
   const resuming = new Set<string>(wiring && spawner ? handedOverWorkers(profileDir) : [])
   /** T13: this Host is restarting itself (its hold is its own, so its start must not lift it). */
   let restartHeld = false
+  // Set once the address is ours (below); a command before that is simply not tracked.
+  let exitWatch: ExitWatch | null = null
   const orch = createHostOrch({
     profileDir,
+    track: (cmd, run) => (exitWatch ? exitWatch.command(cmd, run) : run()),
     usageGuard,
     version: hostVersion,
     controllers,
@@ -1443,6 +1447,10 @@ async function main(): Promise<void> {
   } catch (err) {
     log.write(`could not record which process this Host is: ${String(err)}`)
   }
+  // 25a: what the last Host left (its exit line, or that it left none, and the command it died in) before the crash
+  // resume below; then this Host's own exit line, heap watch and command breadcrumb take over the record.
+  for (const line of previousHostLines(path.join(profileDir, 'host'))) log.write(line)
+  exitWatch = watchExit({ proc: process, log, dir: path.join(profileDir, 'host') })
 
   // T23: work the file says was in flight when the last Host died is picked up now, not when an app first asks — a Host
   // started at login has no app (core/orchestration/exec/crashResume.ts). Only a Host that starts sessions itself.

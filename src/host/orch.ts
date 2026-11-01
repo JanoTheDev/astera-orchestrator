@@ -491,6 +491,8 @@ export function createHostOrch(a: {
   onState(s: OrchState, version: number): void
   /** The Host's log. Handed to the command layer as well — see `hostOrchDeps`. */
   log(message: string): void
+  /** 25a: runs a command under the Host's exit breadcrumb (host/exitWatch.ts). Absent: the command just runs. */
+  track?<T>(cmd: string, run: () => Promise<T>): Promise<T>
   /** The agent sessions this Host holds, for `astera sessions` (orchDeps' HOST_SESSIONS). */
   sessions: HostSessions
   /** A Runtime's sessions as a controller reads and drives them (remote runtime Phase 9a, remoteSessions.ts). Absent:
@@ -887,7 +889,8 @@ export function createHostOrch(a: {
     chainTail = before.then(() => mine)
     return before.then(() => release)
   }
-  const serially = async <T>(cmd: string, args: Record<string, unknown>, run: () => Promise<T>): Promise<T> => {
+  const serially = async <T>(cmd: string, args: Record<string, unknown>, run0: () => Promise<T>): Promise<T> => {
+    const run = a.track ? () => a.track!(cmd, run0) : run0 // 25a: the breadcrumb
     if (holding.getStore()?.running || waitsLong(cmd, args)) return run()
     const holder: Holder = { running: true, release: await takeChain() }
     try {

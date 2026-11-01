@@ -30,7 +30,13 @@ describe('hostSpawnPlan', () => {
   // shipping a second runtime.
   it('runs the app binary as node, on the host bundle', () => {
     expect(plan.command).toBe('C:/Program Files/Astera/Astera.exe')
-    expect(plan.args).toEqual(['C:/Program Files/Astera/resources/app.asar/out/main/host.js'])
+    expect(plan.args.at(-1)).toBe('C:/Program Files/Astera/resources/app.asar/out/main/host.js')
+  })
+
+  // A V8 out-of-memory abort or a native crash leaves a node report in the profile's crash folder (2026-11-01).
+  it('starts the Host with a fatal-error report aimed at the crash folder, and still hidden', () => {
+    expect(plan.args.slice(0, -1)).toEqual(['--report-on-fatalerror', `--diagnostic-dir=${path.join('C:/Users/someone/AppData/Roaming/astera', 'crash-reports')}`])
+    expect(plan.options.windowsHide).toBe(true)
     expect(plan.options.env.ELECTRON_RUN_AS_NODE).toBe('1')
   })
 

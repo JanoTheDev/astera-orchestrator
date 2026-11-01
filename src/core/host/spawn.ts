@@ -4,6 +4,7 @@
 import type { SpawnOptions } from 'node:child_process'
 import path from 'node:path'
 import { INHERITED_AGENT_ENV_KEYS } from '../sessions/cliEnv'
+import { CRASH_DIR } from '../crash/store'
 
 /** Variables that belong to one agent session and must not reach the Host: it is not a worker, and
  *  it spawns workers of its own that would inherit them in turn. The astera ones by prefix; the
@@ -106,7 +107,10 @@ export function hostSpawnPlan(a: {
   for (const [k, v] of Object.entries(a.env ?? process.env)) if (!notInherited(k) && !HOST_ONLY_ENV.test(k)) env[k] = v
   return {
     command: a.execPath,
-    args: [a.entryPath],
+    // 2026-11-01: a Host died with no line and no stderr. A V8 out-of-memory abort or a native crash writes a node
+    // diagnostic report into the crash folder (host-stderr.log keeps what node prints). Argv, not NODE_OPTIONS: the
+    // Host's workers would inherit that. Both flags are accepted by node and by Electron's run-as-node (measured).
+    args: ['--report-on-fatalerror', `--diagnostic-dir=${path.join(a.profileDir, CRASH_DIR)}`, a.entryPath],
     options: {
       detached: true,
       // The Host outlives the app — by a minute in slice 1, indefinitely from slice 3 — and an
