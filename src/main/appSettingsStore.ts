@@ -41,6 +41,7 @@ import { approvalDefaultOf, type ApprovalMode } from '../core/settings/approvalD
 import { FRESH_COORDINATOR_DEFAULT_PCT, freshCoordinatorPctOf } from '../core/settings/freshCoordinator'
 import { stallWatchOnOf } from '../core/settings/stallWatch'
 import { WORKER_SILENT_DEFAULT_MINUTES, workerSilentMinutesOf } from '../core/settings/workerSilentMinutes'
+import { windowDiagnosticOf } from '../core/settings/windowDiagnostic'
 import { crashReportsOf, type CrashReportsSetting } from '../core/crash/report' // T27
 import { startAtLoginOf } from '../core/settings/startAtLogin'
 import { autoAnswerOnOf } from '../core/orchestration/exec/autoAnswer'
@@ -163,6 +164,8 @@ export class AppSettingsStore {
   /** T12 (orchestration/exec/stallWatch.ts): minutes without activity before a worker is nudged. Written only when it
    *  is not the default; the Host reads the file itself. */
   private workerSilentMinutes = WORKER_SILENT_DEFAULT_MINUTES
+  /** Windows window diagnostic (host/windowDiagnostic.ts): off by default; only an explicit true turns it on. */
+  private windowDiagnostic = false
   /** T27 crash reports (core/crash): 'ask' by default; only an explicit 'never' turns the prompt off. */
   private crashReports: CrashReportsSetting = 'ask'
   /** T23 (main/autostart.ts): on by default; only an explicit false turns it off. */
@@ -299,6 +302,7 @@ export class AppSettingsStore {
       this.approvalDefault = approvalDefaultOf((parsed as { approvalDefault?: unknown }).approvalDefault)
       this.stallWatch = stallWatchOnOf((parsed as { stallWatch?: unknown }).stallWatch)
       this.workerSilentMinutes = workerSilentMinutesOf((parsed as { workerSilentMinutes?: unknown }).workerSilentMinutes)
+      this.windowDiagnostic = windowDiagnosticOf((parsed as { windowDiagnostic?: unknown }).windowDiagnostic)
       this.crashReports = crashReportsOf((parsed as { crashReports?: unknown }).crashReports) // T27
       this.startAtLogin = startAtLoginOf((parsed as { startAtLogin?: unknown }).startAtLogin)
       this.autoAnswer = autoAnswerOnOf((parsed as { autoAnswer?: unknown }).autoAnswer)
@@ -392,6 +396,7 @@ export class AppSettingsStore {
         this.approvalDefault = undefined
         this.stallWatch = true
         this.workerSilentMinutes = WORKER_SILENT_DEFAULT_MINUTES
+        this.windowDiagnostic = false
         this.crashReports = 'ask'
         this.startAtLogin = true
         this.autoAnswer = true
@@ -449,6 +454,7 @@ export class AppSettingsStore {
       this.approvalDefault = undefined
       this.stallWatch = true
       this.workerSilentMinutes = WORKER_SILENT_DEFAULT_MINUTES
+      this.windowDiagnostic = false
       this.crashReports = 'ask'
       this.startAtLogin = true
       this.autoAnswer = true
@@ -819,6 +825,15 @@ export class AppSettingsStore {
     await this.persist()
   }
 
+  getWindowDiagnostic(): boolean {
+    return this.windowDiagnostic
+  }
+
+  async setWindowDiagnostic(on: boolean): Promise<void> {
+    this.windowDiagnostic = on === true
+    await this.persist()
+  }
+
   /** T27 */
   getCrashReports(): CrashReportsSetting {
     return this.crashReports
@@ -1071,6 +1086,7 @@ export class AppSettingsStore {
       approvalDefault?: ApprovalMode
       stallWatch?: false
       workerSilentMinutes?: number
+      windowDiagnostic?: true
       crashReports?: 'never' // T27
       startAtLogin?: false
       autoAnswer?: false
@@ -1131,6 +1147,7 @@ export class AppSettingsStore {
     if (this.approvalDefault !== undefined) data.approvalDefault = this.approvalDefault
     if (!this.stallWatch) data.stallWatch = false
     if (this.workerSilentMinutes !== WORKER_SILENT_DEFAULT_MINUTES) data.workerSilentMinutes = this.workerSilentMinutes
+    if (this.windowDiagnostic) data.windowDiagnostic = true
     if (this.crashReports === 'never') data.crashReports = 'never' // T27
     if (!this.startAtLogin) data.startAtLogin = false
     if (!this.autoAnswer) data.autoAnswer = false

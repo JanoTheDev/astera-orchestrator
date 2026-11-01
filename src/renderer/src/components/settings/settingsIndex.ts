@@ -76,6 +76,7 @@ export const SETTINGS_ROWS: readonly SettingsRow[] = [
   { anchor: 'workUnit', group: 'advanced', labelKey: 'settings.workUnit.label', descKey: 'settings.workUnit.hint', level: 'advanced' },
   { anchor: 'generator', group: 'advanced', labelKey: 'settings.gen.label', descKey: 'settings.gen.hint', level: 'advanced' },
   { anchor: 'worktreeRoot', group: 'advanced', labelKey: 'settings.worktree.createLocation', descKey: 'settings.worktree.hint', level: 'advanced' },
+  { anchor: 'windowDiagnostic', group: 'advanced', labelKey: 'settings.windowDiagnostic.label', descKey: 'settings.windowDiagnostic.hint', level: 'advanced' },
   { anchor: 'history', group: 'advanced', labelKey: 'settings.tab.history', level: 'advanced' },
 
   { anchor: 'appName', group: 'about', labelKey: 'settings.info.appName', level: 'basic' },

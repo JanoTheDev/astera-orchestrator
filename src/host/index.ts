@@ -75,6 +75,8 @@ import { usageActivity } from '../core/orchestration/activity'
 import { resumeAfterCrash } from '../core/orchestration/exec/crashResume'
 // T3: the load monitor
 import { createLoadMonitor, type LoadMonitor } from './loadMonitor'
+import { createWindowDiagnostic, queryWindowTable, type WindowDiagnostic } from './windowDiagnostic'
+import { readWindowDiagnosticOn } from '../core/settings/windowDiagnostic'
 import { workersAgainstCap } from '../core/orchestration/schedule'
 import { heavyQueue } from '../core/orchestration/heavyLock'
 // T5 crash restore
@@ -320,6 +322,7 @@ async function main(): Promise<void> {
   let sessionTracker: SessionTracker | null = null
   // T3: the load monitor; started after the orchestration state is up, stopped in `leave`.
   let loadMonitor: LoadMonitor | null = null
+  let windowDiagnostic: WindowDiagnostic | null = null
   /** The shell terminals and run processes an app opened (its `pty-spawn`, at the size last given), and the ones a
    *  handover reopened, by pty id while they live: what a handover writes down for them (sessionRestore.ts). */
   const ptySpawns = new Map<string, PtySpawn>()
@@ -364,6 +367,7 @@ async function main(): Promise<void> {
     // stop`, a retire) is clean; a signal is a reboot or a kill, and its sessions come back at the next start.
     // A handover (`resume`) writes its marker only after the handover itself, before the `killAll` (`handOver`).
     loadMonitor?.stop() // T3
+    windowDiagnostic?.stop()
     sessionTracker?.freeze()
     sessionTracker?.dispose()
     // T2 (crashLimits.ts): a signal leaves its own marker, so the next start tells a reboot or a kill from a hard death.
@@ -1678,6 +1682,15 @@ async function main(): Promise<void> {
     log: (m) => log.write(m)
   })
   loadMonitor.start()
+  // Windows only, and only with the `windowDiagnostic` setting on (read at every tick): logs the Host's children that show a window.
+  windowDiagnostic = createWindowDiagnostic({
+    platform: process.platform,
+    hostPid: process.pid,
+    enabled: () => readWindowDiagnosticOn(path.join(profileDir, 'app-settings.json')),
+    query: (pid) => queryWindowTable(pid),
+    log: (m) => log.write(m)
+  })
+  windowDiagnostic.start()
   // The Host's connections start once the server exists: who keeps them is the server's to say.
   connectionsWiring?.start()
   // W3-A: the activity feed's notices to every connection, while this Host holds them (the app's desktop
